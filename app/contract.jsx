@@ -154,14 +154,17 @@ function ContractSection({ project, scenes, onContract, readOnly }){
       d.label)));
   const verdict = contractClimaxCheck(project, scenes);
   const verdictCls = verdict.status==="ok" ? "ok" : "warn";
+  // .obj-lab uppercases; keep the explanation after the dash in lowercase
+  const lab = (main, sub)=> React.createElement("div",{className:"obj-lab",style:{marginBottom:4}},
+    main, sub && React.createElement("span",{style:{textTransform:"none"}}," \u2014 "+sub));
   return React.createElement("div",{className:"contract-wrap"},
     React.createElement("div",null,
-      React.createElement("div",{className:"obj-lab",style:{marginBottom:4}},"Outer plot \u2014 what changes in the world"),
+      lab("Outer plot","what changes in the world"),
       chips(PLOTS_OF_FORTUNE,"outer",c.outer),
       c.outerDef && React.createElement("div",{className:"contract-axis"},
         "Spine tracks: "+c.outerDef.axis.pos+" / "+c.outerDef.axis.neg)),
     React.createElement("div",null,
-      React.createElement("div",{className:"obj-lab",style:{marginBottom:4}},"Inner arc \u2014 what changes in the protagonist"),
+      lab("Inner arc","what changes in the protagonist"),
       chips(PLOTS_OF_CHARACTER,"inner",c.inner),
       c.innerDef && React.createElement("div",{className:"contract-axis"},"Arc: "+c.innerDef.arc),
       c.innerDef && React.createElement("div",{className:"contract-note"},c.innerDef.demands)),
