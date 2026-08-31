@@ -3,45 +3,56 @@
    assign a role. Shared projects appear in the collaborator's project switcher
    once supabase/team-collaboration.sql has been run. */
 
+/* Exactly THREE collaborator roles (the old "Producer/admin" was removed by user
+   decision — it promised team management it never had, and was unrestricted while
+   the others were scoped). Each role carries its plain-language permission blurb;
+   the panel shows these wherever a role is chosen so nobody has to guess. */
 const TEAM_ROLES = [
   { id:"view_only", label:"View-only", blurb:"Opens and reads the film. Cannot save any change." },
-  { id:"writer", label:"Writer", blurb:"Saves story work — scenes, beats, script and continuity. Art Room changes aren't saved." },
-  { id:"art_director", label:"Art director", blurb:"Saves Art Room work — cast, props, locations, lookbook and shots. Story and script aren't saved." },
-  { id:"producer_admin", label:"Producer/admin", blurb:"Saves anything in the film. Only the owner can rename, delete or manage the team." },
+  { id:"writer", label:"Writer", blurb:"Saves story work \u2014 spine, scenes, beats, script and continuity. Art Room changes aren't saved." },
+  { id:"art_director", label:"Art director", blurb:"Saves Art Room work \u2014 cast, props, locations, lookbook and shots. Story and script aren't saved." },
 ];
 function teamRoleLabel(id){
   const r = TEAM_ROLES.find(x=>x.id===id);
-  return r ? r.label : String(id||"Collaborator");
+  return r ? r.label : (id ? "Legacy role" : "Collaborator");
+}
+function teamRoleBlurb(id){
+  const r = TEAM_ROLES.find(x=>x.id===id);
+  return r ? r.blurb : (id ? "This role no longer exists \u2014 pick one of the three roles to restore this collaborator's access." : "");
 }
 /* WHAT EACH ROLE MAY WRITE, by doc SECTION — the same granularity the per-section save
    already uses, so scoping is enforced at the exact layer that writes.
-   Until now Writer / Art director / Producer were identical ("can write") in both client
-   and database, so the role blurbs promised a separation that did not exist.
    `project` is deliberately writable by BOTH writer and art director: it holds the story
    identity (logline, premise) AND the style bible, so locking either side out of it would
-   block ordinary work. Owner and producer_admin are unrestricted. */
+   block ordinary work. Only the owner is unrestricted. */
 const TEAM_ROLE_SECTIONS = {
   owner:          "*",
-  producer_admin: "*",
   writer:         ["scenes","beatsMap","drafts","history","continuityMap","project"],
   art_director:   ["characters","props","locations","lookbook","lookbookNote","lookbookApplied",
                    "shots","trash","project","propsSeeded","locsSeeded","visualsSeeded"],
   view_only:      [],
 };
-/* Restrict ONLY when we positively know the user is a restricted collaborator. No role
-   information (a film that is simply yours, or a project list that hasn't loaded yet)
-   must never fail closed — that would silently block every save for a solo user. */
+/* NO role at all (a film that is simply yours, or a project list that hasn't loaded yet)
+   never restricts — that would silently block every save for a solo user. But a role we
+   don't recognize (a legacy 'producer_admin' row before the migration ran, or a future
+   role this build predates) fails CLOSED: an unknown grant must never mean "write
+   everything". The blocked-save notice tells the collaborator what happened. */
 function teamCanWriteSection(role, section){
-  if(!role || role==="owner") return true;
+  // ABSENT role (null/undefined — a solo film, or a list that hasn't loaded) stays
+  // unrestricted; any PRESENT value that isn't a known grant — including the empty
+  // string — is an unknown grant and fails closed.
+  if(role==null || role==="owner") return true;
   const allow = TEAM_ROLE_SECTIONS[role];
   if(allow === "*") return true;
-  if(!allow) return true;                       // unknown//future role → don't block
+  if(!allow) return false;                      // unknown/legacy/empty role → fail closed
   return allow.indexOf(section) >= 0;
 }
 /* plain-language name for what a role may NOT touch, for the "that wasn't saved" notice */
 function teamRoleScopeNote(role){
   if(role==="writer") return "Your Writer role covers the story, script and beats — Art Room changes (cast, props, locations, lookbook, shots) aren't saved.";
   if(role==="art_director") return "Your Art director role covers the Art Room — story and script changes aren't saved.";
+  if(role==="" || (role && role!=="view_only" && !TEAM_ROLES.find(r=>r.id===role)))
+    return "Your role on this film is missing or from an older version of the app, so changes aren't saved. Ask the owner to reassign you a current role (View-only, Writer or Art director).";
   return "";
 }
 window.TEAM_ROLE_SECTIONS = TEAM_ROLE_SECTIONS;
@@ -116,40 +127,52 @@ function TeamModal({ projectId, projectTitle, projectMeta, onClose, onChanged })
           schemaMissing
             ? "Team collaboration is ready in the app, but the Supabase migration has not been run yet. Run supabase/team-collaboration.sql, then reopen this panel."
             : canManage
-            ? "Your subscription includes your seat. Add collaborators to this project by email; role permissions are stored now, with finer per-room controls coming next."
-            : "This project was shared with you. You can work here according to the role the owner assigned."),
+            ? "Your subscription includes your seat. Add collaborators to this film by email and choose what each may do \u2014 View-only, Writer or Art director."
+            : "This project was shared with you. You can work here according to the role the owner assigned"+
+              (projectMeta && projectMeta.shareRole ? (": "+teamRoleLabel(projectMeta.shareRole)+" \u2014 "+(teamRoleBlurb(projectMeta.shareRole)||"")) : ".")),
         canManage && React.createElement("div",{className:"team-invite"},
           React.createElement("input",{className:"team-email",type:"email",value:email,placeholder:"teammate@example.com",
             disabled:schemaMissing,onChange:e=>setEmail(e.target.value),onKeyDown:e=>{ if(e.key==="Enter" && email.trim()) invite(); }}),
           React.createElement("select",{className:"team-role",value:role,disabled:schemaMissing,onChange:e=>setRole(e.target.value)},
-            TEAM_ROLES.map(r=>React.createElement("option",{key:r.id,value:r.id},r.label))),
+            TEAM_ROLES.map(r=>React.createElement("option",{key:r.id,value:r.id,title:r.blurb},r.label))),
           React.createElement("button",{className:"team-add",disabled:schemaMissing||busy==="invite"||!email.trim(),onClick:invite},
             React.createElement(Icon.plus,{s:13}),busy==="invite"?"Adding...":"Add")),
+        // what the selected role allows, in plain language, right where it's being chosen
+        canManage && !schemaMissing && React.createElement("div",{className:"team-role-blurb"},
+          teamRoleLabel(role)+" \u2014 "+teamRoleBlurb(role)),
         React.createElement("div",{className:"team-seats"},
           React.createElement("div",{className:"team-seat owner"},
             React.createElement("div",{className:"team-avatar"},React.createElement(Icon.user,{s:14})),
             React.createElement("div",{className:"team-member-main"},
               React.createElement("div",{className:"team-member-email"},"Project owner"),
-              React.createElement("div",{className:"team-member-role"},"Owner seat"))),
+              React.createElement("div",{className:"team-member-role",title:"Edits everything, invites and removes collaborators, changes roles, renames or deletes the film."},"Owner \u2014 edits everything; only seat that manages the team"))),
           members.length
-            ? members.map(m=>React.createElement("div",{className:"team-seat",key:m.id},
+            ? members.map(m=>{
+                const legacy = !!(m.role && !TEAM_ROLES.find(r=>r.id===m.role));
+                return React.createElement("div",{className:"team-seat",key:m.id},
                 React.createElement("div",{className:"team-avatar"},React.createElement(Icon.mail,{s:14})),
                 React.createElement("div",{className:"team-member-main"},
                   React.createElement("div",{className:"team-member-email"},m.member_email),
-                  React.createElement("div",{className:"team-member-role"},teamRoleLabel(m.role))),
+                  React.createElement("div",{className:"team-member-role",title:teamRoleBlurb(m.role)},
+                    teamRoleLabel(m.role)+(legacy?" \u2014 pick a current role to restore access":""))),
                 canManage
                   ? React.createElement("div",{className:"team-member-actions"},
                       React.createElement("select",{className:"team-role compact",value:m.role||"writer",disabled:!!busy,
+                        title:teamRoleBlurb(m.role),
                         onChange:e=>updateRole(m,e.target.value)},
-                        TEAM_ROLES.map(r=>React.createElement("option",{key:r.id,value:r.id},r.label))),
+                        // a legacy value (e.g. the retired producer/admin) still renders,
+                        // clearly marked, so the owner can move the member off it
+                        legacy && React.createElement("option",{value:m.role,disabled:true},"Legacy role"),
+                        TEAM_ROLES.map(r=>React.createElement("option",{key:r.id,value:r.id,title:r.blurb},r.label))),
                       React.createElement("button",{className:"team-remove",disabled:!!busy,title:"Remove collaborator",onClick:()=>remove(m)},
                         React.createElement(Icon.trash,{s:13})))
-                  : React.createElement("span",{className:"team-badge"},teamRoleLabel(m.role))))
+                  : React.createElement("span",{className:"team-badge",title:teamRoleBlurb(m.role)},teamRoleLabel(m.role)));
+              })
             : React.createElement("div",{className:"team-empty"},"No collaborators yet.")),
         React.createElement("div",{className:"team-foot"},
           schemaMissing
             ? "Setup needed: run the team collaboration SQL once in Supabase so the table and access policies exist."
-            : "Roles now control project access. Room-specific permissions and live presence are the next collaboration steps."))));
+            : "Only the owner can invite or remove collaborators, change roles, rename the film or delete it. A collaborator who edits outside their role sees a notice that those changes weren't saved."))));
 }
 
 function TeamButton({ projectId, projectTitle, projectMeta, onChanged }){
@@ -192,5 +215,6 @@ window.PresenceDots = PresenceDots;
 
 window.TEAM_ROLES = TEAM_ROLES;
 window.teamRoleLabel = teamRoleLabel;
+window.teamRoleBlurb = teamRoleBlurb;
 window.TeamModal = TeamModal;
 window.TeamButton = TeamButton;

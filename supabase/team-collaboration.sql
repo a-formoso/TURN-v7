@@ -3,11 +3,11 @@
 -- Safe to re-run. Run after schema.sql and storage.sql.
 --
 -- Adds project memberships by email and changes RLS from owner-only access to
--- owner-or-project-member access. Roles:
---   view_only       can open/read shared projects
+-- owner-or-project-member access. Roles (exactly three — the old producer_admin
+-- role was retired; see migrate-remove-producer-admin.sql):
+--   view_only      can open/read shared projects
 --   writer         can edit project data and generated assets
 --   art_director   can edit project data and generated assets
---   producer_admin can edit project data and generated assets
 -- ============================================================================
 
 create table if not exists public.turn_project_members (
@@ -17,7 +17,7 @@ create table if not exists public.turn_project_members (
   member_email text not null,
   member_user  uuid references auth.users(id) on delete cascade,
   role         text not null default 'writer'
-    check (role in ('view_only','writer','art_director','producer_admin')),
+    check (role in ('view_only','writer','art_director')),
   status       text not null default 'active'
     check (status in ('active','removed')),
   created_at   timestamptz not null default now(),
@@ -63,7 +63,7 @@ as $$
       )
       and (
         not write_access
-        or m.role in ('writer','art_director','producer_admin')
+        or m.role in ('writer','art_director')
       )
   );
 $$;

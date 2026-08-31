@@ -1392,9 +1392,15 @@ function App(){
           });
           /* ROLE SCOPING — drop sections this collaborator's role doesn't cover, and SAY SO.
              Silently discarding them would repeat the exact failure view_only had: hours of
-             work that can never land, with the UI showing success. Owners and producers are
-             unrestricted, and no-role (your own film) is never restricted. */
-          if(typeof window.teamCanWriteSection==="function" && shareRole && shareRole!=="owner"){
+             work that can never land, with the UI showing success. Only the owner is
+             unrestricted, and no-role (your own film) is never restricted; a role this
+             build doesn't recognize fails closed in teamCanWriteSection. */
+          /* Scoping applies to EVERY shared project we don't own — keyed off isShared,
+             not off shareRole being truthy, so a membership with an empty/missing role
+             fails closed here (teamCanWriteSection treats "" as an unknown grant)
+             instead of slipping past the filter. Solo films (_projRow not shared, or
+             no _projRow at all) never enter this branch. */
+          if(typeof window.teamCanWriteSection==="function" && _projRow && _projRow.isShared && shareRole!=="owner"){
             const denied = Object.keys(_changed).filter(k=> !window.teamCanWriteSection(shareRole, k));
             if(denied.length){
               denied.forEach(k=>{
@@ -1520,7 +1526,7 @@ function App(){
   const currentRoomEntitlements = ()=>{
     if(window.turnIsAdmin) return { writers_room:true, art_room:true, stage:true };
     if(_projRow && _projRow.isShared){
-      if(shareRole==="producer_admin" || shareRole==="view_only") return { writers_room:true, art_room:true, stage:true };
+      if(shareRole==="view_only") return { writers_room:true, art_room:true, stage:true };
       if(shareRole==="art_director") return { writers_room:true, art_room:true, stage:false };
       return { writers_room:true, art_room:false, stage:false };
     }

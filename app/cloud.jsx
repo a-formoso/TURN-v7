@@ -200,7 +200,11 @@ async function cloudInviteProjectMember(projectId, email, role){
   const sb = sbClient(); if(!sb || !projectId) return { ok:false };
   const e = _teamEmail(email);
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return { ok:false, message:"Enter a valid email address." };
-  const r = ["view_only","writer","art_director","producer_admin"].indexOf(role)>=0 ? role : "writer";
+  // exactly three roles exist (producer/admin was retired); an unrecognized role —
+  // including "" / false / 0 — is rejected outright, never silently coerced into a
+  // grant. Only an ABSENT role (null/undefined) defaults to writer.
+  if(role!=null && ["view_only","writer","art_director"].indexOf(role)<0) return { ok:false, message:"Unknown role." };
+  const r = role==null ? "writer" : role;
   try{
     const { error } = await sb.from("turn_project_members")
       .insert({ project_id:projectId, member_email:e, role:r, status:"active" });
@@ -218,9 +222,11 @@ async function cloudInviteProjectMember(projectId, email, role){
 async function cloudUpdateProjectMember(memberId, patch){
   const sb = sbClient(); if(!sb || !memberId) return { ok:false };
   const role = patch && patch.role;
-  const r = ["view_only","writer","art_director","producer_admin"].indexOf(role)>=0 ? role : null;
+  // fail CLOSED on an unknown role: passing it through would either hit the DB CHECK
+  // with a cryptic error or, worse, store a grant this build can't scope
+  if(role!=null && ["view_only","writer","art_director"].indexOf(role)<0) return { ok:false, message:"Unknown role." };
   try{
-    const { error } = await sb.from("turn_project_members").update(r?{role:r}:patch).eq("id", memberId);
+    const { error } = await sb.from("turn_project_members").update(role?{role}:patch).eq("id", memberId);
     if(error) return { ok:false, message:error.message };
     return { ok:true };
   }catch(err){ return { ok:false, message:(err&&err.message)||"Update failed." }; }
