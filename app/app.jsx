@@ -12,6 +12,20 @@ window.turnIsPaidPlan = function(plan){
   return !!p && p!=="none" && p!=="free";
 };
 
+/* ORDER-INSENSITIVE JSON — the collaboration baseline compares section snapshots as
+   JSON text, but Postgres (jsonb) rewrites object key order when it stores the doc.
+   Plain JSON.stringify therefore never matches what comes back even when the DATA is
+   identical, which made the "adopt collaborator changes" guard misfire on this
+   window's own saves (phantom "Picked up changes a collaborator just made" toasts —
+   and, worse, adopting a stale cloud copy over fresh local edits mid-agent-run).
+   Every baseline write and comparison must go through this canonical form. */
+function stableJson(v){
+  if(v===null || typeof v!=="object") return JSON.stringify(v);
+  if(Array.isArray(v)) return "["+v.map(x=> x===undefined ? "null" : stableJson(x)).join(",")+"]";
+  const ks = Object.keys(v).filter(k=>v[k]!==undefined).sort();
+  return "{"+ks.map(k=>JSON.stringify(k)+":"+stableJson(v[k])).join(",")+"}";
+}
+
 /* ---- persistence: keep the user's edited story across refreshes ---- */
 const STORY_KEY = "turn-story-v1";
 function loadStory(){
@@ -855,7 +869,7 @@ function App(){
       ["scenes","characters","props","locations","sluglineUnits","lookbook","lookbookNote","lookbookApplied","shots",
        "project","drafts","beatsMap","history","continuityMap","trash","selId",
        "propsSeeded","locsSeeded","visualsSeeded"].forEach(k=>{
-        if(d[k]!==undefined) base[k] = JSON.stringify(d[k]);
+        if(d[k]!==undefined) base[k] = stableJson(d[k]);
       });
       lastSentRef.current = base;
     }catch(e){ lastSentRef.current = {}; }
@@ -1324,7 +1338,7 @@ function App(){
     Object.keys(setters).forEach(k=>{
       if(mineKeys.indexOf(k)>=0) return;                    // this window just wrote it
       if(cloudDoc[k]===undefined) return;
-      const theirs = JSON.stringify(cloudDoc[k]);
+      const theirs = stableJson(cloudDoc[k]);
       if(theirs === lastSentRef.current[k]) return;          // unchanged since we last saw it
       lastSentRef.current[k] = theirs;
       try{ setters[k](cloudDoc[k]); adopted++; }catch(e){}
@@ -1373,7 +1387,7 @@ function App(){
             // lives in the shared doc for history reasons, but clicking a scene must not
             // bump the film's revision and make every collaborator re-pull the whole doc.
             if(k==="room" || k==="view" || k==="artView" || k==="selId") return;
-            const j = JSON.stringify(_sectionsNow[k]);
+            const j = stableJson(_sectionsNow[k]);
             if(j !== lastSentRef.current[k]) _changed[k] = _sectionsNow[k];
           });
           /* ROLE SCOPING — drop sections this collaborator's role doesn't cover, and SAY SO.
@@ -1397,7 +1411,7 @@ function App(){
             }
           }
           const _mineKeys = Object.keys(_changed);
-          const _rememberSent = ()=> _mineKeys.forEach(k=>{ lastSentRef.current[k] = JSON.stringify(_sectionsNow[k]); });
+          const _rememberSent = ()=> _mineKeys.forEach(k=>{ lastSentRef.current[k] = stableJson(_sectionsNow[k]); });
           if(currentShowId){
             // series episode: shared departments live in the SHOW's bible; the
             // episode keeps its own story (scenes/beats/drafts/shots/…)
