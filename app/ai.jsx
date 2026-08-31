@@ -949,6 +949,21 @@ function scrubBrand(s){
     .replace(/\bGemma('s)?\b/gi, (m,p)=>"Infinite Studio"+(p||""));
 }
 window.scrubBrand = scrubBrand;
+/* clip a string to ~n chars WITHOUT cutting mid-word: prefer the last sentence end,
+   fall back to the last word break, and mark a genuine cut with an ellipsis */
+function clipAtBoundary(v, n){
+  const s = String(v||"").trim();
+  if(s.length <= n) return s;
+  const cut = s.slice(0, n);
+  const sen = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "),
+                       cut.lastIndexOf(".\n"), cut.lastIndexOf("!\n"), cut.lastIndexOf("?\n"),
+                       cut.endsWith(".")||cut.endsWith("!")||cut.endsWith("?") ? n-1 : -1);
+  if(sen > n*0.6) return cut.slice(0, sen+1).trimEnd();
+  const sp = Math.max(cut.lastIndexOf(" "), cut.lastIndexOf("\n"));
+  const word = sp > n*0.6 ? cut.slice(0, sp) : cut;
+  return word.replace(/[\s,;:\u2014\u2013\u00b7-]+$/,"") + "\u2026";
+}
+window.clipAtBoundary = clipAtBoundary;
 
 /* MUSE's model is a reasoning model: it can "think out loud" (drafts, constraint
    checks, self-corrections) and emit the real answer only at the very end, often
@@ -2199,7 +2214,7 @@ async function aiResearchSynopsis(logline, seedText, frameworkId, formatId){
   if(!aiAvailable()) return null;
   const L = String(logline||"").slice(0,1200).trim();
   if(!L) return null;
-  const cl = (v,n)=> scrubBrand(String(v||"").trim()).slice(0,n);
+  const cl = (v,n)=> clipAtBoundary(scrubBrand(String(v||"").trim()), n);
   // the writer's ORIGINAL seed: names, details and questions the one-line logline
   // compressed away — they are canon and must survive into the synopsis
   const seed = String(seedText||"").slice(0,1600).trim();
@@ -2341,7 +2356,7 @@ function composeStoryBrief(logline, synopsis){
       if(f.role) b += "\nProtagonist's role: "+f.role;
     }
   }
-  return b.slice(0,4000);
+  return clipAtBoundary(b, 4000);
 }
 window.composeStoryBrief = composeStoryBrief;
 
