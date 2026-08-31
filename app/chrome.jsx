@@ -606,7 +606,13 @@ function LeftRail({ project, characters, scenes, selId, selChar, onSelect, onSel
               (c.name||"?").split(" ").map(w=>w[0]||"").slice(0,2).join("")),
             React.createElement("div",{className:"char-info"},
               React.createElement("div",{className:"char-name"},c.name||"Unnamed"),
-              React.createElement("div",{className:"char-role"},c.role||"")),
+              React.createElement("div",{className:"char-role"},
+                // the archetype label ("MIRROR · PRIVILEGE") stays small-caps; the
+                // free-text description after the em dash reads as written
+                ...(function(role){ const at = role.indexOf("\u2014");
+                  return at<0 ? [role]
+                    : [role.slice(0,at), React.createElement("span",{key:"d",style:{textTransform:"none"}},role.slice(at))];
+                })(c.role||""))),
             React.createElement("span",{className:"char-drives",title:driven+" scene"+(driven!==1?"s":"")+" driven"},driven));
         })),
 
