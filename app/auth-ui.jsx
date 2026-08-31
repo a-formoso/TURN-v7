@@ -132,7 +132,9 @@ function AccountChip({ session, cloudActive, saveState, shareRole, onSignIn, onS
                 React.createElement(Icon.warn,{s:11}),"Retrying")
             : saveState==="saving"
             ? React.createElement("span",{className:"acct-cloud"},React.createElement(Icon.cloud||Icon.check,{s:11}),"Saving\u2026")
-            : React.createElement("span",{className:"acct-cloud"},React.createElement(Icon.check,{s:11}),"Synced"))
+            // healthy state is quiet — "Synced" is reassurance, not news, so it only
+            // slides out on hover (desktop) or tap/open (mobile); problem states stay visible
+            : React.createElement("span",{className:"acct-cloud quiet"},React.createElement(Icon.check,{s:11}),"Synced"))
         : React.createElement("span",{className:"acct-cloud warn"},React.createElement(Icon.warn,{s:11}),"Connecting")),
     open && React.createElement("div",{className:"acct-menu"},
       React.createElement("div",{className:"acct-email"}, email),

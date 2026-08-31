@@ -2520,6 +2520,12 @@ html[data-theme="dark"] .dt-viewing svg{color:oklch(0.82 0.09 296)}
 .acct-cloud{display:inline-flex;align-items:center;gap:3px;font:600 10px var(--f-ui);letter-spacing:.04em;
   text-transform:uppercase;color:var(--pos)}
 .acct-cloud.warn{color:oklch(0.82 0.14 55)}
+/* healthy "Synced" hides until the chip is hovered (desktop) or tapped open (mobile);
+   margin-left cancels the chip's flex gap while collapsed so it reads as just the avatar */
+.acct-cloud.quiet{max-width:0;opacity:0;overflow:hidden;gap:0;margin-left:-7px;white-space:nowrap;
+  transition:max-width .18s ease,opacity .15s ease,margin-left .18s ease}
+.acct-chip:hover .acct-cloud.quiet,.acct-chip.open .acct-cloud.quiet,.acct-chip:focus-visible .acct-cloud.quiet{
+  max-width:90px;opacity:1;gap:3px;margin-left:0}
 /* save actually failed — uses the themed --neg token (a raw oklch here washes out in
    light mode), and pulses so a silent data-loss risk isn't easy to miss */
 .acct-cloud.bad{color:var(--neg);animation:acctBad 1.6s ease-in-out infinite}
