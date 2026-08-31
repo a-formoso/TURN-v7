@@ -3227,20 +3227,37 @@ function App(){
 
   // ---- AGENTS: build a fresh working model + a sync() that pushes it to app state ----
   React.useEffect(()=>{ window.__turnJump = (no)=>{ const s = scenes.find(x=>x.no===no); if(s){ setSelId(s.id); setView("script"); setAgentsOpen(false); } }; },[scenes]);
+  // LIVE app state, readable at agent-sync time. The factory's closures hold
+  // run-START values by design (that's the agent's working snapshot); this ref is
+  // how sync() sees what the film looks like NOW — to snapshot the true pre-commit
+  // state for Undo, and to detect edits made while the agent ran.
+  const agentLiveRef = React.useRef(null);
+  agentLiveRef.current = { scenes, characters, project, beats: beatsMap, drafts, continuity: continuityMap };
+  window.__turnCurrentProjectId = currentProjectId;
   const agentCtxFactory = ({ input, emit, propose, cancelled, agentName })=>{
-    // deep snapshot of the pre-run story state, committed to the undo stack
-    // only when the agent actually applies its first change.
-    const snapshot = ()=>({
+    // deep snapshot of the LIVE story state (not the run-start closure), committed
+    // to the undo stack when the agent applies its first change — so edits made
+    // between run start and first commit are recoverable too.
+    const snapshot = ()=>{ const L = agentLiveRef.current; return {
       label: agentName || "Agent", ts: Date.now(),
-      scenes: scenes.map(s=>({...s})),
-      characters: characters.map(c=>({...c})),
-      project: {...project},
-      beats: {...beatsMap},
-      drafts: {...drafts},
-      continuity: Object.fromEntries(Object.entries(continuityMap).map(([k,v])=>[k,{
+      scenes: L.scenes.map(s=>({...s})),
+      characters: L.characters.map(c=>({...c})),
+      project: {...L.project},
+      beats: {...L.beats},
+      drafts: {...L.drafts},
+      continuity: Object.fromEntries(Object.entries(L.continuity).map(([k,v])=>[k,{
         establishes:[...(v.establishes||[])], references:[...(v.references||[])] }])),
-    });
+    };};
     let committed = false;
+    // EDIT DETECTION: a cheap signature over the story state. Every state this run
+    // has itself written is remembered; at sync time, a live state whose signature
+    // is NOT one of ours means the user (or a collaborator) edited mid-run — their
+    // state gets its own undo snapshot before being replaced, and they're told.
+    const sigOf = (st)=>{ const j = JSON.stringify(st); let h=5381;
+      for(let i=0;i<j.length;i++){ h=((h<<5)+h+j.charCodeAt(i))|0; } return h+":"+j.length; };
+    const shapeOf = (src)=>({ scenes:src.scenes, characters:src.characters, project:src.project,
+      beats:src.beats, drafts:src.drafts, continuity:src.continuity });
+    let warnedMidRunEdit = false;
     const model = {
       scenes: scenes.map(s=>({...s})),
       characters: characters.map(c=>({...c})),
@@ -3252,6 +3269,9 @@ function App(){
     };
     // the film this run belongs to — captured when the agent starts
     const ownerProjectId = currentProjectId;
+    // every state signature this run has written (seeded with the run-start state);
+    // a live state outside this set = someone edited while the agent ran
+    const writtenSigs = new Set([sigOf(shapeOf(model))]);
     const sync = ()=>{
       if(readOnlyShareRef.current){
         try{ emit && emit({k:"flag", t:"Your access is view-only, so these proposed changes were NOT applied. Ask the owner for Writer access."}); }catch(e){}
@@ -3264,6 +3284,15 @@ function App(){
       if(ownerProjectId !== projIdRef.current){
         try{ emit && emit({k:"flag", t:"You switched films while this ran, so its changes were NOT applied — they belong to the film it started in. Reopen that film and run it again."}); }catch(e){}
         return;
+      }
+      // MID-RUN EDIT GUARD: if the film changed under the run (an edit of the user's
+      // or a collaborator's), snapshot THAT state onto the undo stack before this
+      // commit replaces it, and say so once — never silently discard newer work.
+      if(!writtenSigs.has(sigOf(shapeOf(agentLiveRef.current)))){
+        if(committed){ const snap = snapshot(); setAgentUndo(st=>[...st, snap].slice(-8)); }
+        if(!warnedMidRunEdit){ warnedMidRunEdit = true;
+          try{ emit && emit({k:"flag", t:"The film was edited while this agent ran, and this update replaced those newer edits. They're safe: Undo agent changes restores the film exactly as it was just before."}); }catch(e){}
+        }
       }
       if(!committed){ committed = true; const snap = snapshot(); setAgentUndo(st=>[...st, snap].slice(-8)); }
       setScenes(model.scenes.map(s=>({...s})));
@@ -3282,11 +3311,21 @@ function App(){
         }
         setProject({...model.project});
       }
-      setBeatsMap((typeof withBeatMapIdentity==="function")?withBeatMapIdentity(model.beats):{...model.beats});
+      const beatsW = (typeof withBeatMapIdentity==="function")?withBeatMapIdentity(model.beats):{...model.beats};
+      setBeatsMap(beatsW);
       setDrafts({...model.drafts});
       setContinuityMap(Object.fromEntries(Object.entries(model.continuity).map(([k,v])=>[k,{...v}])));
+      // remember exactly what was written (with the beat identities as stored), so the
+      // next sync doesn't mistake this run's own commit for an external edit
+      writtenSigs.add(sigOf({ scenes:model.scenes, characters:model.characters, project:model.project,
+        beats:beatsW, drafts:model.drafts, continuity:model.continuity }));
     };
-    return { model, sync, input, emit, propose, cancelled,
+    return { model, sync, input, emit, propose,
+      // a film switch cancels the RUN, not just the commit — otherwise an agent keeps
+      // burning model calls (and reading the newly opened film's globals) for minutes
+      // after the guard has already decided its result can never be applied
+      cancelled: ()=> cancelled() || ownerProjectId !== projIdRef.current,
+      switchedFilms: ()=> ownerProjectId !== projIdRef.current,
       project, facts:FACTS,
       // read-only copies of the Art-Room bibles + gated patchers, for agents that
       // cross-check the script against props/locations (Consistency Check). Patches

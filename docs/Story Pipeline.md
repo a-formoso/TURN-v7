@@ -254,6 +254,16 @@ shows the screenplay with a left gutter indicating which beat each block expands
 **Adaptation** (full build-from-source), **Table-Read**. Each proposes changes the user approves,
 with one-click Undo.
 
+> **Runs you can trust** *(approved 2026-08-31 by owner)*: an agent run is pinned to the film it
+> started in — switching films mid-run stops it cleanly instead of writing into (or reading from)
+> the wrong film. Edits made *while* an agent runs are never silently lost: the run notices, keeps
+> those newer edits on the Undo stack, and says so. Adaptation reports every scene it could **not**
+> write (by number, with the reason) instead of a cheerful partial count, and offers to **finish
+> just the unwritten scenes** on the next run rather than rebuilding everything. The Table-Read's
+> voice pass distinguishes "your script has too little dialogue" from "the model was unavailable /
+> failed — run again". Read-only reports (Table-Read) are **kept per film** and shown when the
+> panel reopens, so a full report is never lost by closing the window.
+
 ### 8. MUSE
 The in-app co-writer answers how-to / product questions and helps draft, all framed in the
 Infinite Studio method vocabulary (values, charges, beats, turns).

@@ -167,8 +167,45 @@ function IdeaHelper({ onPick }){
       ", and what ",React.createElement("b",null,"stands in the way"),"."));
 }
 
+/* SAVED REPORTS — a read-only agent's last report, kept per film, so a Table-Read
+   (a real multi-call model run) isn't lost the moment the panel closes. Only the
+   report + closing line are kept, never the step-by-step trace. ONE store for all
+   films with a global size budget: over budget, the films with the oldest reports
+   are evicted first — which is also how reports of deleted films age out. */
+const AGENT_REPORTS_LS_KEY = "turn.agentReports";
+function agentReportProjectId(){ return window.__turnCurrentProjectId || "local"; }
+function loadAgentReportsAll(){
+  try{ return JSON.parse(localStorage.getItem(AGENT_REPORTS_LS_KEY)||"{}") || {}; }catch(e){ return {}; }
+}
+function loadAgentReport(agentId){
+  const perFilm = loadAgentReportsAll()[agentReportProjectId()];
+  return (perFilm && perFilm[agentId]) || null;
+}
+function saveAgentReport(projectId, agentId, steps){
+  try{
+    const all = loadAgentReportsAll();
+    (all[projectId] = all[projectId] || {})[agentId] = { ts: Date.now(), steps };
+    let s = JSON.stringify(all);
+    const newest = (pr)=> Math.max(0, ...Object.values(all[pr]||{}).map(r=>r.ts||0));
+    while(s.length > 300000){
+      const others = Object.keys(all).filter(p=>p!==projectId);
+      if(others.length){ others.sort((a,b)=>newest(a)-newest(b)); delete all[others[0]]; }
+      else{
+        // this film's own reports blew the budget — drop its oldest agent report
+        const ags = Object.keys(all[projectId]).sort((a,b)=>(all[projectId][a].ts||0)-(all[projectId][b].ts||0));
+        if(ags.length<=1) return;   // a single report over the whole budget: skip saving it
+        delete all[projectId][ags[0]];
+      }
+      s = JSON.stringify(all);
+    }
+    localStorage.setItem(AGENT_REPORTS_LS_KEY, s);
+  }catch(e){ /* storage full or blocked — the live trace still showed everything */ }
+}
+
 function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput, autoStart, single, viewLabel, introExtra, force }){
   const [trace, setTrace] = React.useState([]);
+  // last saved report for THIS agent on THIS film (read-only agents only)
+  const [saved] = React.useState(()=> agent.kind==="report" ? loadAgentReport(agent.id) : null);
   const [pending, setPending] = React.useState(null);   // proposal card awaiting decision
   const [status, setStatus] = React.useState("idle");   // idle|running|waiting|done
   const [input, setInput] = React.useState(initialInput||"");
@@ -208,13 +245,15 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
   const start = async ()=>{
     cancelled.current = false;
     setTrace([]); setPending(null); setStatus("running");
+    const runLog = [];   // synchronous copy of the trace — state updates are async
+    const reportProjectId = agentReportProjectId();   // the film this run BELONGS to — captured now, not at save time
     const prevForce = window.__forceWritingModel;
     window.__forceWritingModel = _mid;   // pin the run to exactly what the header shows
     const ctx = ctxFactory({
       input: inputRef.current,
       agentName: agent.name,
       force: force,   // false | true | "draft" (re-draft specs but skip image generation)
-      emit:(step)=> setTrace(tr=>[...tr, step]),
+      emit:(step)=>{ runLog.push(step); setTrace(tr=>[...tr, step]); },
       propose:(card)=> new Promise(res=>{ setPending(card); setStatus("waiting");
         resolver.current = (val)=>{ resolver.current=null; setPending(null); setStatus("running"); res(val); }; }),
       cancelled:()=>cancelled.current,
@@ -231,7 +270,16 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
         setTrace(tr=>[...tr,{k:"observe",t:"This run used "+calls+" writing-model call"+(calls===1?"":"s")+" · ≈"+cr+" credit"+(cr===1?"":"s")+" (estimate — see your account menu for the running total)."}]); }
       else setTrace(tr=>[...tr,{k:"observe",t:"This run made no writing-model calls — it cost nothing."}]);
     }
+    // a film switch mid-run cancels the run silently at its next check — say so,
+    // and never save a report from it (partial, and it belongs to the other film)
+    const swapped = typeof ctx.switchedFilms==="function" && ctx.switchedFilms();
+    if(swapped) setTrace(tr=>[...tr,{k:"flag",t:"You switched films, so this run stopped \u2014 nothing was changed or saved. Reopen the film it started in to run it there."}]);
     if(!cancelled.current) setStatus("done");
+    // keep a read-only agent's report for next time the panel opens
+    if(agent.kind==="report" && !cancelled.current && !swapped){
+      const keep = runLog.filter(s=> s && (s.k==="report" || s.k==="done"));
+      if(keep.some(s=>s.k==="report")) saveAgentReport(reportProjectId, agent.id, keep);
+    }
   };
 
   const decide = (val)=>{ if(resolver.current) resolver.current(val); };
@@ -267,6 +315,11 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
           agent.autonomous?"Runs on its own \u2014 it boards every scene and you'll see each step. Press Stop anytime.":
           agent.kind==="report"?"Read-only \u2014 it reports, it won't change anything.":
           "Every change is shown for your approval before it's applied. Nothing happens without your OK.")),
+      status==="idle" && saved && React.createElement(React.Fragment,null,
+        React.createElement("div",{className:"ag-intro-note"},
+          React.createElement(Icon.eye,{s:13}),
+          "Last report \u2014 "+new Date(saved.ts).toLocaleString()+". Run again below for a fresh read."),
+        (saved.steps||[]).map((s,i)=>React.createElement(TraceStep,{key:"sv"+i,step:s}))),
       trace.map((s,i)=>React.createElement(TraceStep,{key:i,step:s})),
       running && !pending && React.createElement("div",{className:"ag-thinking"},
         React.createElement("span",{className:"ai-typing"},React.createElement("i",null),React.createElement("i",null),React.createElement("i",null))),

@@ -477,10 +477,95 @@ async function agentContinuityRepair(ctx){
 /* =========================================================
    AGENT 3 — ADAPTATION  (logline -> whole spine)
    ========================================================= */
+/* Write beats + screenplay for the given scene indices, sequentially, threading
+   continuity. HONEST ACCOUNTING: every scene that fails — or silently falls back to
+   a rough auto-draft because the model call failed — is tracked and reported by
+   number, never swallowed. All model calls go through ctx.ai.* so they're pinned to
+   THIS run's film, never whatever film happens to be open now. */
+async function writeScenesSeq(ctx, indices){
+  let written = 0; const failures = [];
+  const stopRes = ()=>{
+    const swapped = typeof ctx.switchedFilms==="function" && ctx.switchedFilms();
+    ctx.emit({k:"flag", t: swapped
+      ? "You switched films, so this run stopped safely \u2014 nothing was written into the film now open. Reopen the film it started in and run Adaptation again: it offers to finish just the unwritten scenes."
+      : "Stopped \u2014 "+written+" of "+indices.length+" scenes written this run. Run Adaptation again: it offers to FINISH just the unwritten scenes; nothing already written is redone."});
+    return { written, failures, stopped:true };
+  };
+  for(let k=0;k<indices.length;k++){
+    if(ctx.cancelled()) return stopRes();
+    const i = indices[k];
+    const s = ctx.model.scenes[i];
+    const prev = i>0 ? ctx.model.scenes[i-1] : null;
+    ctx.emit({k:"act", t:"Writing Sc "+s.no+" \u201c"+s.title+"\u201d \u2014 "+(k+1)+" of "+indices.length+"\u2026"});
+    let scn = s, beats = ctx.model.beats[s.id];
+    try{
+      if(!(beats && (beats.rows||[]).length)){
+        // author the beat map; retry ONCE if the model hiccups — a scene must never end
+        // up with a screenplay but no beat map (the cause of "No beat map yet" on a written
+        // scene). Both tries can fail only on a hard model error.
+        for(let attempt=0; attempt<2 && !beats; attempt++){
+          const authored = await ctx.ai.authorScene(s, prev);
+          if(authored && authored.beats && (authored.beats.rows||[]).length){
+            scn = {...s, ...authored.patch}; beats = authored.beats;
+            ctx.model.scenes[i] = scn; ctx.model.beats[s.id] = authored.beats;
+          }
+        }
+      }
+      if(ctx.cancelled()) return stopRes();
+      const res = ctx.ai.draftScene ? await ctx.ai.draftScene(scn, beats, prev) : null;
+      // Stop pressed (or film switched) WHILE that draft was in flight — commit
+      // nothing more; the count in the stop message stays truthful
+      if(ctx.cancelled()) return stopRes();
+      if(res){ ctx.model.drafts[s.id] = res; written++;
+        // the drafter falls back to a deterministic rough draft when the model call
+        // fails — that's a stand-in, not a screenplay; the user must hear about it
+        if(res.auto && ctx.ai.available) failures.push({no:s.no, title:s.title, why:"the model call failed, so a rough structural draft stands in \u2014 open it and redraft"});
+      } else {
+        failures.push({no:s.no, title:s.title, why:"the model returned no usable screenplay"});
+      }
+      if(res && !(beats && (beats.rows||[]).length))
+        ctx.emit({k:"flag", t:"Sc "+s.no+" \u201c"+s.title+"\u201d was written, but its beat map didn't generate \u2014 open it and 'Create beat map', or run again."});
+      ctx.sync();
+    }catch(e){ failures.push({no:s.no, title:s.title, why:String((e&&e.message)||e||"unknown error")}); }
+  }
+  return { written, failures, stopped:false };
+}
+window.writeScenesSeq = writeScenesSeq;
+function reportSceneFailures(ctx, r){
+  if(!r.failures.length) return;
+  r.failures.slice(0,6).forEach(f=> ctx.emit({k:"flag", t:"Sc "+f.no+" \u201c"+f.title+"\u201d: "+f.why+"."}));
+  if(r.failures.length>6) ctx.emit({k:"flag", t:"\u2026and "+(r.failures.length-6)+" more scenes failed the same way."});
+}
+
 async function agentAdaptation(ctx){
   const brief = (ctx.input||"").trim();
-  if(!brief){ ctx.emit({k:"flag", t:"No logline provided. Type a logline or synopsis above and run again."}); ctx.emit({k:"done",t:"Nothing to build."}); return; }
   if(!ctx.ai.available){ ctx.emit({k:"flag", t:"The model isn't available, so a full spine can't be generated here."}); ctx.emit({k:"done",t:"Aborted."}); return; }
+  // FINISH WHAT EXISTS: a stopped or partly failed build leaves scenes without a
+  // screenplay. Offer to write JUST those before proposing a full rebuild — a rebuild
+  // regenerates everything and replaces work the user already approved.
+  const have = ctx.model.scenes||[];
+  const unwritten = have.map((s,i)=>i).filter(i=>{ const d = ctx.model.drafts[have[i].id]; return !(d && (d.blocks||[]).length); });
+  if(have.length && unwritten.length){
+    const finish = await ctx.propose({
+      title:"Finish writing this film first?",
+      reason: unwritten.length+" of "+have.length+" scenes have no screenplay yet. Approve to write beats + script for JUST those scenes \u2014 everything already written stays untouched. Decline to rebuild the whole film from your logline instead.",
+      rationale:"The fastest, cheapest path: nothing regenerates, nothing you approved is replaced.",
+      list: unwritten.map(i=>"Sc "+have[i].no+" \u00b7 "+have[i].title),
+    });
+    if(ctx.cancelled()) return;
+    if(finish){
+      const r = await writeScenesSeq(ctx, unwritten);
+      if(r.stopped) return;
+      ctx.sync();
+      reportSceneFailures(ctx, r);
+      ctx.emit({k:"done", t: r.failures.length
+        ? ("Finished "+r.written+" scene"+(r.written===1?"":"s")+" \u2014 "+r.failures.length+" still failed (listed above). Run again to retry just those.")
+        : ("All "+have.length+" scenes now have beats and screenplay. Open the Script view to read the film.")});
+      return;
+    }
+    ctx.emit({k:"observe", t:"Understood \u2014 rebuilding the whole film from the logline instead."});
+  }
+  if(!brief){ ctx.emit({k:"flag", t:"No logline provided. Type a logline or synopsis above and run again."}); ctx.emit({k:"done",t:"Nothing to build."}); return; }
   const _fwA = (typeof frameworkOf==="function") ? frameworkOf(window.turnProject) : null;
   const _kishoA = !!(_fwA && _fwA.id==="kishotenketsu");
   ctx.emit({k:"plan", t: _kishoA
@@ -670,58 +755,39 @@ async function agentAdaptation(ctx){
   ctx.emit({k:"ok", t:"Built "+newScenes.length+" scenes"+(world?", plus the premise, controlling idea, setting and cast":"")+". Now writing each scene \u2014 beats first, then the screenplay \u2014 threading continuity scene to scene."});
 
   // ---- seamlessly author beats + script for every scene (no manual Auto-draft needed) ----
-  const author = window.aiAuthorScene, draft = window.aiDraftScene;
-  let written = 0;
-  for(let i=0;i<ctx.model.scenes.length;i++){
-    if(ctx.cancelled()){ ctx.emit({k:"flag", t:"Stopped \u2014 "+written+" of "+ctx.model.scenes.length+" scenes written. Run again to finish."}); return; }
-    const s = ctx.model.scenes[i];
-    const prev = i>0 ? ctx.model.scenes[i-1] : null;
-    ctx.emit({k:"act", t:"Writing Sc "+s.no+" \u201c"+s.title+"\u201d \u2014 "+(i+1)+" of "+ctx.model.scenes.length+"\u2026"});
-    let scn = s, beats = ctx.model.beats[s.id];
-    try{
-      if(!beats && typeof author==="function"){
-        // author the beat map; retry ONCE if the model hiccups — a scene must never end
-        // up with a screenplay but no beat map (the cause of "No beat map yet" on a written
-        // scene). Both tries can fail only on a hard model error.
-        for(let attempt=0; attempt<2 && !beats; attempt++){
-          const authored = await author(s, prev, ctx.model.characters);
-          if(authored && authored.beats && (authored.beats.rows||[]).length){
-            scn = {...s, ...authored.patch}; beats = authored.beats;
-            ctx.model.scenes[i] = scn; ctx.model.beats[s.id] = authored.beats;
-          }
-        }
-      }
-      const res = (typeof draft==="function") ? await draft(scn, beats, prev) : null;
-      if(res){ ctx.model.drafts[s.id] = res; written++; }
-      // never leave a written scene beat-less and silent — flag it so the user can fix it.
-      if(res && !(beats && (beats.rows||[]).length))
-        ctx.emit({k:"flag", t:"Sc "+s.no+" “"+s.title+"” was written, but its beat map didn't generate — open it and 'Create beat map', or re-run."});
-      ctx.sync();
-    }catch(e){ /* keep going — one bad scene shouldn't stop the film */ }
-  }
+  const r = await writeScenesSeq(ctx, ctx.model.scenes.map((_,i)=>i));
+  if(r.stopped) return;
   ctx.sync();
-  ctx.emit({k:"ok", t:"Wrote "+written+" of "+ctx.model.scenes.length+" scenes \u2014 beats and screenplay are in place."});
+  reportSceneFailures(ctx, r);
+  ctx.emit({k:"ok", t:"Wrote "+r.written+" of "+ctx.model.scenes.length+" scenes"+
+    (r.failures.length ? " \u2014 "+r.failures.length+" didn't take (flagged above); run Adaptation again afterwards to retry just those." : " \u2014 beats and screenplay are in place.")});
 
   // ---- draft each character's psychology (want / need / arc) so the cast isn't blank ----
+  if(ctx.cancelled()) return;
   if(ctx.ai.available && typeof window.aiCastPsychology==="function" && ctx.model.characters && ctx.model.characters.length){
     ctx.emit({k:"act", t:"Drafting the cast's inner life \u2014 want, contradicting need, dimensions and arc\u2026"});
     try{
       const psych = await window.aiCastPsychology(ctx.model.characters, ctx.model.scenes, ctx.model.project);
+      if(ctx.cancelled()) return;
       if(psych){ ctx.model.characters = ctx.model.characters.map(c=> psych[c.id] ? {...c, ...psych[c.id]} : c);
         ctx.sync(); ctx.emit({k:"ok", t:"Every character now has a want, a need and an arc \u2014 visible in the Cast panel."}); }
     }catch(e){ /* arc still derives from the spine even without this */ }
   }
 
   // ---- design the cast's visual bible so The Art Room sheets arrive pre-filled ----
+  if(ctx.cancelled()) return;
   if(ctx.ai.available && typeof window.aiCastVisualBible==="function" && ctx.model.characters && ctx.model.characters.length){
     ctx.emit({k:"act", t:"Designing the cast's visual bible for The Art Room \u2014 look, wardrobe, palette\u2026"});
     try{
       const bible = await window.aiCastVisualBible(ctx.model.characters, ctx.model.scenes, ctx.model.project);
+      if(ctx.cancelled()) return;
       if(bible){ ctx.model.characters = ctx.model.characters.map(c=> bible[c.id] ? {...c, ...bible[c.id]} : c);
         ctx.sync(); ctx.emit({k:"ok", t:"Character sheets are ready in The Art Room \u2014 body, two wardrobe states, palette and a master grid prompt each."}); }
     }catch(e){ /* deterministic defaults already populated the sheets */ }
   }
-  ctx.emit({k:"done", t:'\u201c'+spine.title+'\u201d is fully written. Open the Script view to read it, or the Spine to see the charge graph.'});
+  ctx.emit({k:"done", t: r.failures.length
+    ? ('\u201c'+spine.title+'\u201d is built \u2014 '+r.written+" of "+ctx.model.scenes.length+" scenes written, "+r.failures.length+" flagged above. Run Adaptation again to finish just those.")
+    : ('\u201c'+spine.title+'\u201d is fully written. Open the Script view to read it, or the Spine to see the charge graph.')});
 }
 
 /* =========================================================
@@ -754,14 +820,23 @@ async function agentTableRead(ctx){
   ctx.emit({k:"act", t:"Re-reading the dialogue per character — checking every voice is distinct enough that no line could swap speakers…"});
   const vc = ctx.ai.voiceCheck ? await ctx.ai.voiceCheck(ctx.model.scenes, ctx.model.drafts) : null;
   if(ctx.cancelled()) return;
-  if(vc){
+  if(vc && !vc.unavailable){
     ctx.emit({k:"report", t:"Voice check complete.", voiceReport:vc});
     const n = (vc.swappable||[]).length;
     ctx.emit({k:"done", t:rep.notes.length+" note"+(rep.notes.length!==1?"s":"")+" flagged"
       +(n ? (" + "+n+" swappable line"+(n!==1?"s":"")) : " — and every voice reads distinct")
       +". Click a note to jump to its scene."});
   } else {
-    ctx.emit({k:"flag", t:"Voice check skipped — it needs at least two characters with spoken lines."});
+    // say WHICH kind of unavailable this was — an outage must never masquerade as
+    // "your script doesn't have enough dialogue"
+    const why = vc && vc.unavailable;
+    const exactSwaps = (vc && vc.swappable) || [];
+    if(exactSwaps.length) ctx.emit({k:"report", t:"Voice check (verbatim repeats only).", voiceReport:{ verdict:"", fingerprints:[], swappable:exactSwaps }});
+    ctx.emit({k:"flag", t: why==="fewSpeakers"
+      ? "Voice check skipped — it needs at least two characters with spoken lines."
+      : why==="noModel"
+      ? "Voice check skipped — the writing model isn't available right now; the table-read notes above still stand."
+      : "Voice check FAILED — the model's answer couldn't be read. Your dialogue is fine to check; run the Table-Read again to retry the voice pass."});
     ctx.emit({k:"done", t:rep.notes.length+" specific notes flagged. Click a note to jump to that scene."});
   }
 }
