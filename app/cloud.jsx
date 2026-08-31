@@ -201,9 +201,12 @@ function _teamSetupMessage(){
 async function cloudListProjectMembers(projectId){
   const sb = sbClient(); if(!sb || !projectId) return [];
   try{
+    // removed members stay in the table as an audit trail, but every list the
+    // app shows is ACTIVE members only — a removed row must never look like access
     const { data, error } = await sb.from("turn_project_members")
       .select("id,project_id,member_email,member_user,role,status,created_at")
       .eq("project_id", projectId)
+      .eq("status", "active")
       .order("created_at", { ascending:true });
     if(error){
       window.turnTeamSchemaMissing = _teamSchemaMissing(error);
@@ -298,11 +301,18 @@ async function cloudUpdateProjectMember(memberId, patch){
     return { ok:true };
   }catch(err){ return { ok:false, message:(err&&err.message)||"Update failed." }; }
 }
-async function cloudRemoveProjectMember(memberId){
+async function cloudRemoveProjectMember(memberId, projectId){
   const sb = sbClient(); if(!sb || !memberId) return { ok:false };
   try{
-    const { error } = await sb.from("turn_project_members").delete().eq("id", memberId);
+    // status flip, NOT delete: the row stays as an audit trail of who had access
+    // (and RLS keys every grant on status='active', so access ends immediately).
+    // Re-inviting the same address later revives this row via the upsert.
+    const { error } = await sb.from("turn_project_members")
+      .update({ status:"removed" }).eq("id", memberId);   // updated_at set by DB trigger
     if(error) return { ok:false, message:error.message };
+    // tell everyone in the film's channel — the removed person's open tab hears
+    // this, re-checks with the server, and gets the access-ended message at once
+    if(projectId) _pushMemberRemoved(projectId);
     return { ok:true };
   }catch(err){ return { ok:false, message:(err&&err.message)||"Remove failed." }; }
 }
@@ -425,6 +435,7 @@ async function cloudSaveDoc(id, doc){
     if(error){ const rs = _roleScopeErr(error); return rs ? { ok:false, roleScope:true, message:rs } : { ok:false }; }
     if(!data || !data.length) return { ok:false, conflict:true };
     _docRevSeen[id] = seen + 1;
+    _pushDocRev(id, seen + 1);
     return { ok:true };
   }catch(e){ return { ok:false }; }
 }
@@ -454,6 +465,7 @@ async function cloudPatchDoc(id, mutate){
       if(wErr){ const rs = _roleScopeErr(wErr); return rs ? { ok:false, roleScope:true, message:rs } : { ok:false }; }
       if(rows && rows.length){
         if(wasInSync) _docRevSeen[id] = cur + 1;
+        _pushDocRev(id, cur + 1);
         return { ok:true, doc };
       }
       // someone else wrote between our read and write — re-read and retry
@@ -494,6 +506,7 @@ async function cloudSaveSections(id, sections){
       if(wErr){ const rs = _roleScopeErr(wErr); return rs ? { ok:false, roleScope:true, message:rs } : { ok:false }; }
       if(rows && rows.length){
         _docRevSeen[id] = cur + 1;      // we merged onto the freshest doc, so we ARE current
+        _pushDocRev(id, cur + 1);       // wake collaborators' windows right away
         return { ok:true, doc:cloudDoc };
       }
       // someone wrote between our read and our write — re-read and merge again
@@ -514,6 +527,25 @@ window.cloudSaveSections = cloudSaveSections;
    UI shows nothing rather than erroring. Returns an unsubscribe function. */
 const _presenceKey = "s"+Math.random().toString(36).slice(2,10)+Date.now().toString(36);
 window.turnPresenceKey = _presenceKey;
+/* LIVE PUSH rides the SAME per-film channel as presence: a successful save
+   broadcasts the new _rev so every other window pulls within a second or two,
+   instead of waiting for the fallback poll. Module-level so the save functions
+   (which know nothing about React) can reach the channel. turnPushHealthy tells
+   the poller it may relax while push is delivering. */
+let _presenceCh = null, _presenceChProject = null, _presenceReady = false;
+function _pushDocRev(projectId, rev){
+  // fire-and-forget: losing the message is harmless — the fallback poll still runs
+  if(!_presenceCh || _presenceChProject!==projectId || !_presenceReady) return;
+  try{ _presenceCh.send({ type:"broadcast", event:"doc-rev", payload:{ rev:Number(rev)||0, key:_presenceKey } }); }catch(e){}
+}
+function _pushMemberRemoved(projectId){
+  // removal changes no document rev, so it needs its own announcement — otherwise
+  // the removed person's open tab wouldn't learn until the slow fallback probe.
+  // The payload names nobody: it only says "membership changed, re-verify your
+  // access", and every recipient checks with the SERVER before acting.
+  if(!_presenceCh || _presenceChProject!==projectId || !_presenceReady) return;
+  try{ _presenceCh.send({ type:"broadcast", event:"member-removed", payload:{ key:_presenceKey } }); }catch(e){}
+}
 function cloudJoinPresence(projectId, meta, onChange){
   const sb = sbClient();
   if(!sb || !projectId || typeof sb.channel!=="function") return ()=>{};
@@ -535,15 +567,47 @@ function cloudJoinPresence(projectId, meta, onChange){
     ch.on("presence", { event:"sync" }, emit);
     ch.on("presence", { event:"join" }, emit);
     ch.on("presence", { event:"leave" }, emit);
+    // a collaborator's save announces its new _rev here; hand it to the app as a
+    // DOM event so the live-refresh logic (which owns the dirty/hydrating guards)
+    // decides whether to pull. Our own saves are filtered by session key.
+    ch.on("broadcast", { event:"doc-rev" }, (msg)=>{
+      if(dead) return;
+      const p = (msg && msg.payload) || {};
+      if(p.key === _presenceKey) return;
+      try{ window.dispatchEvent(new CustomEvent("turn-doc-push", { detail:{ projectId, rev:Number(p.rev)||0 } })); }catch(e){}
+    });
+    // "someone was removed from this film" — a hint, never an order: the app
+    // re-verifies its own access against the server (RLS) before reacting
+    ch.on("broadcast", { event:"member-removed" }, (msg)=>{
+      if(dead) return;
+      const p = (msg && msg.payload) || {};
+      if(p.key === _presenceKey) return;
+      try{ window.dispatchEvent(new CustomEvent("turn-member-removed", { detail:{ projectId } })); }catch(e){}
+    });
+    // leave LOUDLY when the tab closes/navigates: untrack broadcasts the leave at
+    // once, so a closed laptop lid's ghost chip doesn't linger for the timeout
+    const bye = ()=>{ try{ if(ch) ch.untrack(); }catch(e){} };
+    window.addEventListener("pagehide", bye);
+    ch._turnBye = bye;
     ch.subscribe(async (status)=>{
       if(dead) return;
-      if(status==="SUBSCRIBED"){ try{ await ch.track(meta||{}); }catch(e){} }
-      // CHANNEL_ERROR / TIMED_OUT (Realtime off for this project): stay silent
-      else if(status==="CHANNEL_ERROR" || status==="TIMED_OUT"){ try{ onChange([]); }catch(e){} }
+      if(status==="SUBSCRIBED"){
+        _presenceCh = ch; _presenceChProject = projectId; _presenceReady = true;
+        window.turnPushHealthy = true;
+        try{ await ch.track(meta||{}); }catch(e){}
+      }
+      // CHANNEL_ERROR / TIMED_OUT (Realtime off for this project): stay silent —
+      // and tell the poller push is NOT covering us, so it keeps full cadence
+      else if(status==="CHANNEL_ERROR" || status==="TIMED_OUT" || status==="CLOSED"){
+        if(_presenceCh===ch){ _presenceReady = false; window.turnPushHealthy = false; }
+        try{ onChange([]); }catch(e){}
+      }
     });
   }catch(e){ return ()=>{}; }
   return ()=>{
     dead = true;
+    if(_presenceCh===ch){ _presenceCh = null; _presenceChProject = null; _presenceReady = false; window.turnPushHealthy = false; }
+    try{ if(ch && ch._turnBye) window.removeEventListener("pagehide", ch._turnBye); }catch(e){}
     try{ if(ch){ ch.untrack(); sb.removeChannel(ch); } }catch(e){}
   };
 }
@@ -565,6 +629,19 @@ async function cloudDocRev(id){
 function cloudSeenRev(id){ return _docRevSeen[id] || 0; }
 window.cloudDocRev = cloudDocRev;
 window.cloudSeenRev = cloudSeenRev;
+/* ACCESS PROBE — distinguishes "this film is gone for me" (owner removed me, or
+   deleted the film: RLS returns ZERO ROWS with no error) from a transient failure
+   (network / expired token: an ERROR). Callers may only act on "gone" — "error"
+   means try again later, never kick the user out over a blip. */
+async function cloudCheckAccess(id){
+  const sb = sbClient(); if(!sb || !id) return "error";
+  try{
+    const { data, error } = await sb.from("turn_projects").select("id").eq("id", id).maybeSingle();
+    if(error) return "error";
+    return data ? "ok" : "gone";
+  }catch(e){ return "error"; }
+}
+window.cloudCheckAccess = cloudCheckAccess;
 async function cloudRenameProject(id, title){
   const sb = sbClient(); if(!sb || !id) return;
   try{ await sb.from("turn_projects").update({ title }).eq("id", id); }catch(e){}

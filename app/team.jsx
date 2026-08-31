@@ -110,13 +110,13 @@ function TeamModal({ projectId, projectTitle, projectMeta, onClose, onChanged })
     if(!canManage) return;
     const ok = !window.appConfirm || await window.appConfirm({
       title:"Remove collaborator?",
-      body:"This removes "+m.member_email+" from \""+(projectTitle||"this project")+"\".",
+      body:"This ends "+m.member_email+"'s access to \""+(projectTitle||"this project")+"\" immediately \u2014 if they have it open they'll be told their access ended. You can re-invite them later.",
       confirmLabel:"Remove",
       danger:true
     });
     if(!ok) return;
     setBusy("remove:"+m.id);
-    const res = await window.cloudRemoveProjectMember(m.id);
+    const res = await window.cloudRemoveProjectMember(m.id, m.project_id);
     setBusy("");
     if(res && res.ok){ await load(); if(onChanged) onChanged(); }
     else if(window.appToast) window.appToast((res&&res.message)||"Could not remove collaborator.","error");
@@ -272,18 +272,22 @@ function PresenceDots({ people }){
   if(!others.length) return null;
   const label = (p)=> String(p.name || p.email || "Collaborator");
   const initial = (p)=> (label(p).trim()[0] || "?").toUpperCase();
+  // who someone is includes what they may DO here — show the role with the name
+  const roleBit = (p)=> p.role==="owner" ? "Owner" : (p.role ? teamRoleLabel(p.role) : "");
   const me = (people||[]).find(p=>p.isSelf) || {};
   const myEmail = String(me.email || "").toLowerCase();
   const shown = others.slice(0,4);
   const extra = others.length - shown.length;
-  const title = "In this film now: " + others.map(p=>{
+  const describe = (p)=>{
     const same = String(p.email||"").toLowerCase()===myEmail && myEmail;
-    return label(p) + (same ? " (your other window)" : "");
-  }).join(", ");
+    const r = roleBit(p);
+    return label(p) + (r ? " \u00b7 "+r : "") + (same ? " (your other window)" : "");
+  };
+  const title = "In this film now: " + others.map(describe).join(", ");
   return React.createElement("div",{className:"presence-dots",title},
     shown.map((p,i)=>{
       const same = String(p.email||"").toLowerCase()===myEmail && myEmail;
-      return React.createElement("span",{key:p.key||i,
+      return React.createElement("span",{key:p.key||i,title:describe(p),
         className:"presence-dot"+(same?" self-other":""),},initial(p));
     }),
     extra>0 && React.createElement("span",{className:"presence-dot more"},"+"+extra));

@@ -6,3 +6,4 @@
 - [Agent run lifecycle](agent-run-lifecycle.md) — cancellation includes ownership; re-check after every await before mutating; sign written states to spot mid-run edits; capture persistence keys at run start.
 - [RLS RETURNING trap](rls-returning-self-reference.md) — insert().select() must pass the SELECT policy; self-referential policy helpers can't see the new row, so keep a direct owner check OR'd in.
 - [Revocation-sticky policies](revocation-sticky-policies.md) — asset read/delete RLS must key on CURRENT membership, never own-folder/row-owner disjuncts; role-scope rejections are permanent, never retried.
+- [Live push is hints](live-push-hints.md) — realtime broadcasts only trigger server re-checks; permission changes don't bump doc rev so they need their own hint event; poll never fully stops.

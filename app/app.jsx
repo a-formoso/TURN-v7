@@ -651,27 +651,51 @@ function App(){
     return ()=>{ try{ off && off(); }catch(e){} };
   },[cloudMode, currentProjectId, session && session.user && session.user.id, shareRole]);
 
-  /* LIVE REFRESH — pick up collaborators' changes WHILE IDLE.
-     Per-section saves already merge, so you'd eventually get their work on your next save;
-     but until you typed something your screen silently showed stale scenes/props, and any
-     edit you then made was based on what you could see. This closes that window.
-     Cost discipline: it polls a tiny _rev scalar (never the doc), only when someone else
-     is actually here (presence) or the film is shared with you, and never while you have
-     unsaved edits or a load in flight — so it can't fight your typing, and a solo writer
-     polls nothing at all. Deliberately NOT built on the Realtime subscription: presence
-     is a nice-to-have, but staleness has to be fixed even where Realtime is unavailable. */
+  /* LIVE REFRESH — pick up collaborators' changes as they land.
+     PUSH FIRST: a collaborator's successful save broadcasts its new _rev on the
+     film's Realtime channel (see cloudJoinPresence), so their change appears here
+     within a second or two. The 12s _rev poll stays as the SILENT FALLBACK for
+     when Realtime is unavailable — and relaxes to a slow safety probe (~60s)
+     while push is healthy, which also covers a save from an older client that
+     doesn't broadcast. Cost discipline: only a tiny _rev scalar is ever polled
+     (never the doc), only when someone else is actually here (presence) or the
+     film is shared with you, and never while you have unsaved edits or a load in
+     flight — so it can't fight your typing, and a solo writer polls nothing.
+     ACCESS ENDED: for a shared film, a probe that errors is double-checked — a
+     definitive "zero rows, no error" means the owner removed you (or deleted the
+     film), and you get told plainly instead of watching every save silently fail. */
   React.useEffect(()=>{
     if(!cloudMode || !currentProjectId || typeof window.cloudDocRev!=="function") return;
     const others = (presence||[]).filter(p=>!p.isSelf).length;
     const collaborative = others>0 || !!(_projRow && _projRow.isShared);
     if(!collaborative) return;
-    let alive = true, busy = false;
-    const tick = async ()=>{
-      if(!alive || busy) return;
+    let alive = true, busy = false, ticks = 0, ended = false, pushTimer = null;
+    const accessEnded = async ()=>{
+      if(ended || !alive) return; ended = true;
+      const title = (_projRow && _projRow.title) || "this film";
+      try{
+        if(typeof window.appConfirm==="function")
+          await window.appConfirm({ title:"Access ended",
+            body:"\""+title+"\" is no longer shared with you \u2014 the owner removed your access or deleted the film. You'll go back to your own films.",
+            confirmLabel:"Back to my films", cancelLabel:"OK" });
+        else if(typeof window.appToast==="function")
+          window.appToast("Your access to \""+title+"\" has ended.","error");
+      }catch(e){}
+      // a clean reboot lands on the user's own films (or first-film creation) via
+      // the normal boot path — much safer than hand-rolled partial state surgery
+      try{ window.location.reload(); }catch(e){}
+    };
+    const checkRemote = async ()=>{
+      if(!alive || busy || ended) return;
       if(dirtyRef.current || hydratingRef.current) return;   // never fight local edits
       busy = true;
       try{
         const rev = await window.cloudDocRev(currentProjectId);
+        if(alive && rev==null && _projRow && _projRow.isShared && typeof window.cloudCheckAccess==="function"){
+          // null is ambiguous (transient error OR revoked access) — ask explicitly,
+          // and only ever act on a definitive "gone"
+          if((await window.cloudCheckAccess(currentProjectId))==="gone"){ busy = false; return accessEnded(); }
+        }
         const seen = (typeof window.cloudSeenRev==="function") ? window.cloudSeenRev(currentProjectId) : 0;
         if(alive && rev && rev > seen && !dirtyRef.current && !hydratingRef.current){
           const row = await cloudLoadProject(currentProjectId);
@@ -683,8 +707,31 @@ function App(){
       }catch(e){}
       busy = false;
     };
+    const tick = ()=>{
+      ticks++;
+      // push healthy → broadcasts wake us instantly; keep only the slow safety probe
+      if(window.turnPushHealthy && (ticks % 5) !== 0) return;
+      checkRemote();
+    };
+    const onPush = (e)=>{
+      if(!alive || !e || !e.detail || e.detail.projectId!==currentProjectId) return;
+      clearTimeout(pushTimer);
+      pushTimer = setTimeout(checkRemote, 250);   // coalesce a burst of section saves
+    };
+    // membership changed on this film — a hint, never an order: only the SERVER's
+    // own "gone" (zero rows, no error) can end the session; everyone else no-ops
+    const onMemberRemoved = (e)=>{
+      if(!alive || ended || !e || !e.detail || e.detail.projectId!==currentProjectId) return;
+      if(!(_projRow && _projRow.isShared)) return;               // owners can't be removed
+      if(typeof window.cloudCheckAccess!=="function") return;
+      window.cloudCheckAccess(currentProjectId).then(s=>{ if(alive && s==="gone") accessEnded(); }).catch(()=>{});
+    };
+    window.addEventListener("turn-doc-push", onPush);
+    window.addEventListener("turn-member-removed", onMemberRemoved);
     const iv = setInterval(tick, 12000);
-    return ()=>{ alive = false; clearInterval(iv); };
+    return ()=>{ alive = false; clearInterval(iv); clearTimeout(pushTimer);
+      window.removeEventListener("turn-doc-push", onPush);
+      window.removeEventListener("turn-member-removed", onMemberRemoved); };
   },[cloudMode, currentProjectId, presence.length, _projRow && _projRow.isShared]);
   // ADMIN — demo upkeep account. The Matrix sample story (and "Reset to sample story")
   // is admin-only: every other user (and signed-out local mode) never sees Matrix data.
