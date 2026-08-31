@@ -4203,8 +4203,9 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
   transition:transform .22s var(--spring), background .15s var(--ease),
              border-color .15s var(--ease), box-shadow .22s var(--ease);
 }
-.app.premium .ag-card:hover,
-.app.premium .room-item:hover:not(.soon){transform:translateY(-2px)}
+.app.premium .ag-card:hover{transform:translateY(-2px)}
+/* room-menu rows are list items in a dropdown — a hover lift reads as a jump there,
+   so they keep only the background/border transitions */
 .app.premium .tb-btn:hover,
 .app.premium .ia-btn:hover:not(:disabled){transform:translateY(-1px)}
 
