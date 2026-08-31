@@ -1184,7 +1184,7 @@ textarea.edit-in{line-height:1.5;min-height:36px;font-family:var(--f-ui);box-siz
    NEW STORY intake (modal overlay)
    ============================================================ */
 .ns-overlay{position:fixed;inset:0;z-index:82;background:rgba(0,0,0,.6);display:grid;place-items:center;padding:24px;opacity:1}
-.ns-panel{width:min(600px,96vw);max-height:min(88vh,820px);background:var(--bg-1);border:1px solid var(--line-3);
+.ns-panel{width:min(600px,96vw);max-height:calc(100dvh - 48px);background:var(--bg-1);border:1px solid var(--line-3);
   border-radius:var(--r-l);box-shadow:var(--shadow-pop);display:flex;flex-direction:column;overflow:hidden}
 .ns-head{display:flex;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid var(--line)}
 .ns-head-t{display:flex;align-items:center;gap:11px;flex:1}
