@@ -180,6 +180,28 @@ shows the screenplay with a left gutter indicating which beat each block expands
 > charges, the turn check, the turning-beat marker) and named film models for the modes (the
 > behavioral definitions do the work without inviting echoes of existing films).
 
+> **The dialogue pass** *(approved 2026-08-31 by owner)*: now, and only now, the words — flowing
+> outward from everything above. Every line carries **three concentric spheres**: the **said**
+> (surface words), the **unsaid** (deliberately withheld thoughts a reader can decode — this
+> leaks through the whole scene) and the **unsayable** (the subconscious drive the character
+> cannot admit — it erupts **only at the turning beat**, never before). **Exposition as
+> ammunition** — facts reach the page only as weapons deployed in conflict, never volunteered to
+> inform the audience. **The trialogue** — head-on conflict is routed through a *third thing* on
+> the page (an object, a task, a topic) so the truth stays in subtext; it is also the standing
+> fix for on-the-nose lines and raw shouting matches. **Line design** — suspense sentences (core
+> word held to the end, for tension) vs. cumulative (core first, conversational); the core word
+> timed for the cue; a pause or wordless gesture as the ultimate economy. The conflict rules
+> bind *dramatic* dialogue only — documentary testimony and narration, VO beds, archive and
+> required commercial copy exist to inform, and are exempt. The **Table-Read**
+> audits a named flaw checklist — empty talk, on-the-nose, author's mouthpiece, melodrama,
+> monologue, duelogue collapse — and applies the **paraphrasing test** to every note: if
+> rewording wouldn't fix it, the note is marked a *scene-design* problem (back to the beats and
+> the turn, not the thesaurus). The **monologue check is deterministic and free**: any single
+> speaker's unbroken run over 60 spoken words is flagged without a model call. Deliberately
+> **not** adopted: named film models for the trialogue (originality policy), the six-dialogue-tasks
+> per-line worksheet (the tasks already live in Voice DNA, beat escalation and this diagnostic),
+> and the "golden thread" as engine content (it recaps what the pipeline enforces structurally).
+
 ### 6. Drafting controls
 - **Draft with MUSE** — drafts the one selected scene (authors beats first if it has none, then writes the script).
 - **Auto-draft all** — drafts every still-undrafted scene in order, threading continuity.

@@ -66,7 +66,9 @@ function TableReadReport({ rep, onJump }){
         React.createElement("div",{key:i,className:"tr-note",
           onClick:()=> n.scene && window.__turnJump && window.__turnJump(n.scene)},
           n.scene!=null && React.createElement("span",{className:"tr-note-sc"},"Sc "+n.scene),
-          React.createElement("span",{className:"tr-note-tx"},n.issue)))));
+          React.createElement("span",{className:"tr-note-tx"},n.issue,
+            n.fixAt==="design" && React.createElement("em",{className:"vc-could"},
+              " \u2014 scene-design problem: rewording won't fix it; go back to the beats and the turn."))))));
 }
 
 /* rich proposal body for the Colorist agent: palette swatch bars + film stock + a

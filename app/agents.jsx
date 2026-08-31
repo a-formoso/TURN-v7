@@ -736,6 +736,18 @@ async function agentTableRead(ctx){
   const rep = await ctx.ai.tableRead(ctx.model.scenes, ctx.model.drafts);
   if(ctx.cancelled()) return;
   if(!rep){ ctx.emit({k:"flag", t:"The model didn't return a usable report. Try again."}); ctx.emit({k:"done",t:"Aborted."}); return; }
+  // deterministic monologue-fallacy pass — a long unbroken speech is a fact, not an
+  // opinion, so it's flagged without the model and merged into the same notes list.
+  // Deterministic findings are ALWAYS kept (never suppressed by fuzzy-matching the
+  // model's free-text notes — a real run must never be dropped by a phrasing guess);
+  // each carries flaw:"monologue" so any structured consumer can dedupe cleanly.
+  const mono = (typeof window.dialogueMonologues==="function")
+    ? window.dialogueMonologues(ctx.model.scenes, ctx.model.drafts) : [];
+  mono.forEach(m=>{
+    rep.notes = rep.notes||[];
+    rep.notes.push({ scene:m.scene, fixAt:"lines", flaw:"monologue",
+      issue:"Monologue \u2014 "+m.speaker+" speaks "+m.words+" words unbroken (\u201c"+m.excerpt+"\u201d). Interlace it with action and reaction \u2014 no speech should run this long without the scene pushing back." });
+  });
   ctx.emit({k:"report", t:"Table-read complete.", report:rep});
   // voice distinctiveness pass — the sharpest note a real table-read produces:
   // lines that could swap speakers without anyone noticing
