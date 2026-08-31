@@ -141,6 +141,24 @@ The **Spine view** plots that charge across all scenes so the rhythm of the whol
 Each scene must **turn** a value (open and close differ in sign or by ≥2). The **continuity / turn check**
 flags scenes that don't turn, and setups/payoffs that are missing or out of order.
 
+> **Structural design** *(approved 2026-08-31 by owner)*: the story is a **nested hierarchy of
+> turns** — beats → scenes → acts → Story Climax; every level turns a value, each level hits
+> harder than the last, and **only the Story Climax is irreversible**. Three-act grammar rules
+> (kishōtenketsu keeps its own): the **Inciting Incident** strikes *onscreen* inside the first
+> quarter — brainstormed as the best or worst possible thing that could happen to the
+> protagonist — radically upsets their life-balance, launches the quest, and makes a **promise
+> the Story Climax must pay off** (the Doctor flags a late or unmarked one, as placement
+> guidance only). **Peak rhythm**: consecutive climaxes must alternate charge (+/−) — same-side
+> peaks halve each other under the law of diminishing returns; the Doctor proposes flipping the
+> second. **Progression**: acts escalate by *kind*, not volume — wider socially, deeper
+> personally, or the particular growing toward the universal. Scenes off the main quest must
+> contradict, resonate with, or complicate it. The **character–plot fusion check** classifies
+> every turning point's primary cause — the character's *choice* vs *outside forces*; fine
+> writing fuses them (external events cause inner change, inner desires cause external events),
+> so a spine where ≥80% of turns sit on one side is flagged as a puppet show or a vacuum.
+> Deliberately **not** adopted: a "sequences" bookkeeping tier between scenes and acts, and a
+> subplot data model — the craft lives as build rules and audits, not new fields.
+
 ### 5. Writing each scene (the nested layers)
 A scene is built from **beats** — an action/reaction subtext map (editable: add, reorder, delete,
 mark the turning beat). The **screenplay prose** is generated *from* those beats. The Script view

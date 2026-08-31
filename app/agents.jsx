@@ -20,6 +20,10 @@
    Crisis, Story Climax, Resolution); Kishōtenketsu gets its movements (Planting,
    Deepening, The Twist, Recontextualization, Reconciliation). */
 function assignPlotPoints(scenes){
+  // a model/writer-declared Inciting Incident survives the mechanical re-assignment —
+  // the Doctor's placement audit then checks a REAL declaration, not this function's
+  // positional guess (three-act only; other frameworks keep their own grammar)
+  const declaredIncite = scenes.findIndex(s=>s.kind==="incite");
   scenes.forEach(s=>{ s.kind = "normal"; s.plot = ""; });
   const idxByAct = (act)=> scenes.map((s,i)=>s.act===act?i:-1).filter(i=>i>=0);
   const set = (i,k)=>{ if(i>=0 && i<scenes.length) scenes[i].kind = k; };
@@ -72,13 +76,16 @@ function assignPlotPoints(scenes){
     return scenes;
   }
   const a1 = idxByAct(1), a2 = idxByAct(2), a3 = idxByAct(3);
-  let inciteIdx=-1, midIdx=-1;
-  // Act I: inciting incident (mid/late) + act climax (end)
+  let inciteIdx=declaredIncite, midIdx=-1;
+  if(inciteIdx>=0) set(inciteIdx,"incite");
+  // Act I: inciting incident (a declared one wins; else positional mid/late) + act climax (end)
   if(a1.length){
     const climax1 = a1[a1.length-1];
-    const incite = a1.length>=2 ? a1[Math.max(0, Math.ceil(a1.length/2)-1)] : -1;
-    if(incite>=0 && incite!==climax1){ set(incite,"incite"); inciteIdx=incite; }
-    set(climax1, a1.length>=2 ? "act-climax" : "incite");
+    if(inciteIdx<0){
+      const incite = a1.length>=2 ? a1[Math.max(0, Math.ceil(a1.length/2)-1)] : -1;
+      if(incite>=0 && incite!==climax1){ set(incite,"incite"); inciteIdx=incite; }
+    }
+    if(climax1!==inciteIdx) set(climax1, (a1.length>=2 || inciteIdx>=0) ? "act-climax" : "incite");
   }
   // Act II: midpoint (middle) + act climax (end)
   if(a2.length){
@@ -152,7 +159,38 @@ function auditSpine(scenes){
           msg:'"'+s.title+'" is a '+(KIND_LABEL[s.kind]||s.kind)+" but lands soft (close "+chargeStr(s.closeCharge)+"). A peak should hit \u00b13." });
     });
   }
-  // 3) monotony — 3+ consecutive scenes closing on the same sign with little movement
+  // 3) PEAK RHYTHM (three-act family) — consecutive big beats landing on the SAME
+  //    side halve each other (the law of diminishing returns); climaxes alternate +/−.
+  if(!_kisho){
+    const peakKinds = (typeof fwAuditOf==="function" && fwAuditOf().bigKinds) || ["midpoint","story-climax","act-climax","crisis"];
+    const peaks = scenes.filter(s=>peakKinds.includes(s.kind));
+    for(let i=1;i<peaks.length;i++){
+      const a=peaks[i-1], b=peaks[i];
+      if(Math.sign(a.closeCharge)!==0 && Math.sign(a.closeCharge)===Math.sign(b.closeCharge)){
+        issues.push({ kind:"peakrhythm", sceneId:b.id, sceneNo:b.no, sev:0,
+          msg:'"'+a.title+'" and "'+b.title+'" both land '+(Math.sign(b.closeCharge)>0?"positive":"negative")
+            +" ("+chargeStr(a.closeCharge)+", "+chargeStr(b.closeCharge)+") \u2014 consecutive climaxes on the same side halve each other. Alternate the charge." });
+        break; // one report per pass, like monotony
+      }
+    }
+  }
+  // 4) INCITING INCIDENT discipline (three-act only) — it strikes ONSCREEN inside
+  //    the first quarter; late (or unmarked) and the story idles before the quest starts.
+  {
+    const _fwId = (typeof frameworkOf==="function") ? frameworkOf(window.turnProject).id : "threeact";
+    if(_fwId==="threeact" && scenes.length>=8){
+      const iIdx = scenes.findIndex(s=>s.kind==="incite");
+      if(iIdx<0){
+        issues.push({ kind:"noincite", sceneId:"__noincite", sceneNo:scenes[0].no, sev:0,
+          msg:"No scene is marked as the Inciting Incident \u2014 the event that radically upsets the protagonist's life-balance and launches the quest. It belongs onscreen inside the first quarter." });
+      } else if(iIdx/scenes.length > 0.28){
+        const s=scenes[iIdx];
+        issues.push({ kind:"lateincite", sceneId:s.id, sceneNo:s.no, sev:1,
+          msg:'"'+s.title+'" is the Inciting Incident but arrives at scene '+s.no+" of "+scenes.length+" \u2014 past the first quarter. The life-upsetting event must strike early enough to launch the quest and promise the climax." });
+      }
+    }
+  }
+  // 5) monotony — 3+ consecutive scenes closing on the same sign with little movement
   for(let i=0;i<scenes.length-2;i++){
     const run = [scenes[i],scenes[i+1],scenes[i+2]];
     const sign = Math.sign(run[0].closeCharge);
@@ -163,7 +201,7 @@ function auditSpine(scenes){
         break; }
     }
   }
-  // 4) one-sided argument \u2014 4+ consecutive scenes arguing the SAME side of the
+  // 6) one-sided argument \u2014 4+ consecutive scenes arguing the SAME side of the
   //    controlling idea (explicit scene.argues, or derived from the closing charge
   //    via themeArgues). A story argues both sides; a one-sided stretch is a sermon.
   {
@@ -201,7 +239,7 @@ async function agentStoryDoctor(ctx){
   const _fwDoc = (typeof frameworkOf==="function") ? frameworkOf(window.turnProject) : null;
   ctx.emit({k:"plan", t:"Scanning all "+ctx.model.scenes.length+" scenes for the weakest structural link \u2014 "
     +((_fwDoc && _fwDoc.id!=="threeact" && _fwDoc.doctorCriteria) ? _fwDoc.doctorCriteria
-      : "scenes that don't turn, soft peaks, flat runs, and one-sided stretches of the controlling idea's argument")+"."});
+      : "scenes that don't turn, soft peaks, same-side climaxes, a late inciting incident, flat runs, and one-sided stretches of the controlling idea's argument")+"."});
   // Story Contract — the declared dominant value is a checkable promise on the climax.
   // Read the project from the agent's captured context (not the window global, which
   // can be stale mid-run); initial status here, enforcement after the fix loop below.
@@ -220,6 +258,15 @@ async function agentStoryDoctor(ctx){
     if(!issues.length){ ctx.emit({k:"ok", t:"Re-audit complete \u2014 every remaining scene turns and the rhythm holds. The spine is sound."}); break; }
     ctx.emit({k:"observe", t:issues.length+" issue"+(issues.length>1?"s":"")+" found. Weakest link: Scene "+issues[0].sceneNo+" \u2014 "+issues[0].msg});
     const issue = issues[0];
+
+    // Inciting-incident findings are about PLACEMENT, not charge — report and move on.
+    if(issue.kind==="noincite" || issue.kind==="lateincite"){
+      ctx.emit({k:"flag", t:(issue.kind==="noincite"
+        ? "Mark the Inciting Incident in the Inspector \u2014 brainstorm it as the BEST or WORST possible thing that could happen to the protagonist, and let it strike inside the first quarter."
+        : "Scene "+issue.sceneNo+" should strike earlier \u2014 move it into the first quarter on the board, or let an earlier scene carry the life-upsetting event.")});
+      skip.add(issue.sceneId); continue;
+    }
+
     const idx = ctx.model.scenes.findIndex(s=>s.id===issue.sceneId);
     const scene = ctx.model.scenes[idx];
     const prev = idx>0 ? ctx.model.scenes[idx-1] : null;
@@ -250,6 +297,11 @@ async function agentStoryDoctor(ctx){
         rationale:"Scenes "+issue.runFrom+"\u2013"+issue.runTo+" argue only the "
           +(issue.side==="idea"?"idea":"counter-idea")
           +". Flip this one so the other side answers back \u2014 the controlling idea stays an argument, not a sermon." };
+    } else if(issue.kind==="peakrhythm"){
+      // same-side consecutive climaxes — flip the second peak so each one hits fresh
+      const cc = -Math.sign(scene.closeCharge)*Math.max(2, Math.abs(scene.closeCharge));
+      fix = { closeValue:scene.closeValue, closeCharge:cc,
+        rationale:"Alternate the charge \u2014 two climaxes landing on the same side halve each other's impact; flip this one so each peak hits fresh." };
     } else { // monotony — nudge the middle scene to break the run
       const cc = -Math.sign(scene.closeCharge)*2;
       fix = { closeValue:scene.closeValue, closeCharge:cc, rationale:"Push this scene to the opposite pole to break the flat run and restore contrast." };
@@ -327,6 +379,31 @@ async function agentStoryDoctor(ctx){
       if(!(rr.misses||[]).length) ctx.emit({k:"ok", t:"The ten earns its re-read — every scene before it means something new."});
     } else {
       ctx.emit({k:"flag", t:"Couldn't put the re-read question to the model — run the Doctor again when the engine is reachable."});
+    }
+  }
+  // Character–Plot FUSION CHECK — every turning point is caused by a character's
+  // CHOICE or by OUTSIDE FORCES. Fine writing fuses them: when one side dominates,
+  // the story is either a puppet show (all external) or a vacuum (all choice).
+  if(ctx.ai.available && typeof window.aiFusionCheck==="function" && !ctx.cancelled() && ctx.model.scenes.length>=6){
+    ctx.emit({k:"act", t:"Fusion check \u2014 is each turning point caused by the character's choice, or by outside forces?"});
+    let fc=null; try{ fc = await window.aiFusionCheck(ctx.model.scenes); }catch(e){}
+    if(ctx.cancelled()) return;
+    if(fc){
+      const vals = Object.values(fc.causes);
+      const nChoice = vals.filter(c=>c==="choice").length, nExt = vals.length-nChoice;
+      const domN = Math.max(nChoice, nExt);
+      if(vals.length>=4 && domN/vals.length>=0.8){
+        ctx.emit({k:"flag", t:"Fusion check: "+domN+" of "+vals.length+" turns are driven by "
+          +(nChoice>=nExt
+            ? "the characters' choices \u2014 nothing pushes back from outside. Let external events force inner change."
+            : "outside forces \u2014 the cast is being carried by the plot. Give the turns back to their choices: inner desires should cause external events.")
+          +(fc.note?(" "+fc.note):"")});
+      } else {
+        ctx.emit({k:"ok", t:"Fusion check: choice-driven "+nChoice+" \u00b7 outside-forces "+nExt+" \u2014 "
+          +(fc.note||"external events cause inner change and inner desires cause external events; the two stay fused.")});
+      }
+    } else {
+      ctx.emit({k:"flag", t:"Couldn't run the fusion check \u2014 run the Doctor again when the engine is reachable."});
     }
   }
   ctx.emit({k:"done", t: fixes? ("Story Doctor applied "+fixes+" fix"+(fixes>1?"es":"")+". Open the Spine to see the reshaped charge graph.") : "No changes applied."});
@@ -438,7 +515,7 @@ async function agentAdaptation(ctx){
     id:"g"+Date.now().toString(36)+i, no:i+1, act:s.act, seq:"",
     title:s.title, loc:s.loc, summary:s.summary, driver:s.driver,
     openValue:s.openValue, openCharge:s.openCharge, closeValue:s.closeValue, closeCharge:s.closeCharge,
-    conf:2, kind:"normal", objective:"", turningPoint:"",
+    conf:2, kind:(s.kind==="incite"?"incite":"normal"), objective:"", turningPoint:"",
   }));
   assignPlotPoints(newScenes);
   // card sequence label = the secondary plot function (major beats carry their own badge)

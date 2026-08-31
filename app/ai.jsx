@@ -980,6 +980,7 @@ const APP_FEATURES = [
   { name:"Human truth (Cast panel)", what:"every character carries a HUMAN TRUTH — the one observation about human nature they embody, a DISTINCT stance on the film's controlling idea, grounded in behaviour the script shows — plus an ARGUES selector (The idea / The counter-idea / Complicates both). The cast is the argument's JURY: the protagonist prosecutes the idea through change, others hold opposing or complicating stances, and that difference is what makes dialogue unswappable. Both fields sit on the Cast panel under Desire; the character 'Draft with MUSE' button and the story build's cast-psychology pass draft them automatically (script-grounded — the truth must fit what the character actually DOES). The FREE Consistency Check audits the ARGUMENT MAP: it flags scene-driving characters with no human truth, and a unanimous jury (3+ stanced characters all arguing the same side)." },
   { name:"Character architecture (Cast panel)", what:"characters are built on the TWO-LAYER RULE \u2014 characterization is only the mask; TRUE character is what choices under pressure reveal, so the inner life always derives from what the script shows them DO. The DESIRE COMPLEX requires the unconscious need to genuinely CONTRADICT the conscious want (the pull-against generates scenes), and motivation is disciplined: never a lazy trauma/backstory excuse \u2014 the want must be a live, present-tense hunger. DIMENSIONS \u2014 a Cast-panel field under Unconscious need \u2014 hold 2\u20134 consistent contradictions per character ('trait / counter-trait', one pair per line), with the protagonist carrying the most. The protagonist's arc is PINNED to the Story Contract's declared inner arc so the cast and the contract never drift. All of it drafts automatically via 'Draft with MUSE' (per character) and the story build's cast-psychology pass; every field stays hand-editable." },
   { name:"Cast design (orbits \u00b7 counterpoint \u00b7 Center of Good)", what:"the cast is designed as a SOLAR SYSTEM around the protagonist. ORBITS: every character sits at Center (protagonist), First circle (help/hinder/define), Second circle (functional support) or Third circle (setting texture) \u2014 inferred automatically from role + scenes driven, overridable via the Orbit selector on the Cast panel header. Orbits are a DEPTH BUDGET: the build spends full psychological architecture on Center + First circle, gives Second circle only a want, arc and human truth, and leaves Third-circle texture characters as a name with a function (no psychology pass at all). COUNTERPOINT: every supporting character carries a Cast-panel field naming the SPECIFIC protagonist dimension they pressure, contrast or illuminate \u2014 foils are dimension-revealers, drafted automatically and hand-editable (hidden on the protagonist's own card). CENTER OF GOOD: a film-level empathy anchor on the Premise rail card \u2014 sympathy is optional, empathy is absolute; the anchor can live inside a dark protagonist (the one loyalty they never betray). Drafted by the story build, fed into every scene draft so rewrites never orphan it. Anti-stereotype rules (off-center traits, plausible motivation for implausible acts, strictly in-character logic) are applied silently wherever characters are invented \u2014 never a field to fill." },
+  { name:"Structural design (inciting incident \u00b7 peak rhythm \u00b7 progression \u00b7 fusion check)", what:"structural craft rules wired into the spine builder and the Story Doctor (three-act grammar \u2014 kish\u014dtenketsu keeps its own rules). SPINE BUILDER: the Inciting Incident strikes ONSCREEN inside the first quarter (brainstormed as the best or worst possible thing that could happen to the protagonist), radically upsets their life-balance, launches the quest and makes a PROMISE the Story Climax must pay off; acts ESCALATE BY PROGRESSION, not repetition (wider socially, deeper personally, or the particular growing toward the universal \u2014 only the Story Climax is irreversible); scenes off the main quest must contradict, resonate with, or complicate it. STORY DOCTOR audits (on top of the existing turn/soft-peak/flat-run/one-sided-argument checks): PEAK RHYTHM \u2014 consecutive climaxes landing on the same charge side halve each other (law of diminishing returns); the Doctor proposes flipping the second peak. INCITING INCIDENT \u2014 flags a late (past ~the first quarter) or unmarked inciting incident as report-only placement guidance (moving scenes is the writer's call, never an auto re-charge). CHARACTER\u2013PLOT FUSION CHECK \u2014 the model classifies every turning scene's PRIMARY CAUSE as the character's choice vs outside forces; fine writing fuses them (external events cause inner change, inner desires cause external events), so when \u226580% of turns sit on one side the Doctor flags a puppet show (all external) or a vacuum (all choice), otherwise reports the balance. Deliberately NOT adopted: a 'sequences' bookkeeping tier between scenes and acts, and a subplot data model \u2014 the craft lives as build rules and audits, not new fields." },
   { name:"Auto-draft all (N left)", what:"drafts EVERY still-undrafted scene in order, threading continuity scene-to-scene. The (N left) counts scenes with no draft yet. Same engine as Draft with MUSE, just batched." },
   { name:"Redraft script from beats", what:"the ONE rebuild lever for a scene's screenplay, living in the Script view's toolbar (formerly 'Polish with MUSE' / 'Re-polish'; a duplicate in the Beats tab was removed). The scene's prose is rewritten fresh from its CURRENT beat cards (the old prose is never read \u2014 beats are the source), a CENTERED full-screen progress card shows while MUSE works, and the outgoing draft lands in version history so Undo restores it. Reshape the beats first to reshape the scene; press it on an untouched scene simply to elevate the structural draft into final prose. DRIVER RECAST: changing a scene's DRIVER (the Scene tab dropdown) syncs the Beats tab's labels instantly, and \u2014 because prose can't follow a dropdown \u2014 OFFERS to recast the scene's subtext for the new driver (a confirm, then MUSE rewrites the summary, objective, desire, antagonism and every beat's drive side for the new character, same beat count and escalation; a centered progress card shows while it runs). Review the recast beats, then 'Redraft script from beats' rebuilds the screenplay to match. Declining the recast keeps all text as it was." },
   { name:"Recovery screen (render crash)", what:"if a display error ever breaks the screen, the app no longer goes blank \u2014 a recovery card appears saying what happened, with Reload, \u2018Reload on a fresh view\u2019 (comes back on the default tab, for when the same screen keeps breaking) and Copy error (the technical detail, for reporting), plus a foldable Technical detail section. Your film saves continuously, so a crash is a display problem rather than a lost film \u2014 though the last few seconds of edits before it may not have been written. Screenplay undo history is also capped at 12 versions per scene (matching the image layer), so a long session can\u2019t grow the saved file without limit." },
@@ -1428,6 +1429,44 @@ async function aiTenReRead(scenes){
 }
 window.aiTenReRead = aiTenReRead;
 
+/* Character–Plot FUSION CHECK: for each TURNING scene, is the turn caused by a
+   character's CHOICE or by OUTSIDE FORCES? Fine writing fuses them — external
+   events cause inner change, inner desires cause external events — but a story
+   where one side dominates is either a puppet show (all external) or a vacuum
+   (all choice, nothing pushes back). Returns {causes:{no:cause}, note} or null. */
+async function aiFusionCheck(scenes){
+  if(!aiAvailable()) return null;
+  const turned = (scenes||[]).filter(s=>{
+    try{ return (typeof window.turnInfo==="function") ? !!window.turnInfo(s).turned
+      : (Math.sign(s.openCharge)!==Math.sign(s.closeCharge) || Math.abs(s.closeCharge-s.openCharge)>=2); }
+    catch(e){ return false; }
+  });
+  if(turned.length<4) return null;
+  const list = turned.map(s=>"Sc"+s.no+" "+s.title+" (driver: "+(s.driver||"?")+")"+
+    (s.summary?(" \u2014 "+String(s.summary).slice(0,140)):"")+
+    " ["+s.openValue+" "+chargeStr(s.openCharge)+" \u2192 "+s.closeValue+" "+chargeStr(s.closeCharge)+"]").join("\n");
+  const prompt = "You are a story analyst using the Infinite Studio method. Each scene below TURNS a value. For EACH, name the PRIMARY CAUSE of its turn:\n"+
+    '"choice" = a character\u2019s active decision or action under pressure.\n'+
+    '"external" = outside forces: accident, coincidence, nature, institutions, or other people acting on a passive scene driver.\n'+
+    "Fine writing FUSES the two \u2014 external events cause inner change and inner desires cause external events \u2014 but every single turn has a primary cause.\n\n"+
+    list.slice(0,3200)+"\n\n"+
+    'Classify EVERY scene listed, using its exact Sc number. Return ONLY compact JSON: {"causes":[{"no":1,"cause":"choice"}],"note":"one sentence on the overall balance"}.';
+  try{
+    const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }] });
+    const j = extractJSON(res);
+    if(!j || !Array.isArray(j.causes)) return null;
+    // only classifications for REAL turned scenes count — hallucinated numbers must
+    // not shape the ratio, and thin coverage must not masquerade as a verdict
+    const validNos = new Set(turned.map(s=>Number(s.no)));
+    const causes = {};
+    j.causes.forEach(e=>{ const n=Number(e&&e.no), c=String((e&&e.cause)||"").toLowerCase();
+      if(validNos.has(n) && (c==="choice"||c==="external")) causes[n]=c; });
+    if(Object.keys(causes).length < Math.max(4, Math.ceil(turned.length*0.7))) return null;
+    return { causes, note: clipWords(scrubBrand(String(j.note||"")),220) };
+  }catch(e){ return null; }
+}
+window.aiFusionCheck = aiFusionCheck;
+
 /* Continuity Repair: write a short setup/payoff line to plant a fact in a scene. */
 async function aiPlantLine(targetScene, factLabel, mode){
   if(!aiAvailable()) return null;
@@ -1801,14 +1840,22 @@ async function spineBatch(brief, part, fmt, fw){
       +(isFilm ? "a short film" : fmt.spineBrief)+" with the Infinite Studio method. ";
   const sceneRule = hasFw
     ? fw.spine.sceneRule
-    : "Each scene must TURN a value (opening and closing charge differ in sign or by >=2). Alternate positive/negative for rhythm. ";
+    : "Each scene must TURN a value (opening and closing charge differ in sign or by >=2). Alternate positive/negative for rhythm \u2014 consecutive climaxes landing on the same side halve each other. "+
+      "ESCALATE BY PROGRESSION, not repetition: each act's blows go WIDER socially, DEEPER personally, or grow the particular toward the universal \u2014 never the same kind of hit, only harder. Only the Story Climax is irreversible. ";
+  // Inciting-incident discipline (three-act grammar, first half only — Act I lives there)
+  const inciteRule = (!hasFw && isFirst)
+    ? "THE INCITING INCIDENT strikes ONSCREEN inside the first quarter: the best or worst possible thing that could happen to the protagonist, radically upsetting their life-balance, launching the quest \u2014 and making a PROMISE the Story Climax must pay off. "
+    : "";
+  const offSpine = hasFw ? "" : "Scenes OFF the main quest must contradict, resonate with, or complicate it \u2014 no scene wanders free of the spine. ";
   const closer = isFirst ? 'Also give the film a title. '
     : (hasFw ? fw.spine.closer : 'Continue naturally; escalate to the climax. ');
   const actSpec = hasFw ? fw.spine.actSpec : "a=act 1-3";
   const prompt = intro+
     "Generate ONLY "+range+". That is EXACTLY "+count+" scenes. "+
     sceneRule+
+    inciteRule+
     "VARY THE DRIVER: protagonist drives most, but antagonist(s) and key supporting characters EACH drive several scenes. "+
+    offSpine+
     "NAME\u2194IDENTITY DISCIPLINE: a personal name belongs to exactly ONE person. Characters NAMED in the brief keep exactly "+
     "the identity the brief gives them \u2014 never reuse a brief name for a different kind of person (a name the brief attaches "+
     "to a young enforcer must never label a pensioner in a summary). If a scene needs a NEW minor character, give them a FRESH "+
@@ -1816,8 +1863,8 @@ async function spineBatch(brief, part, fmt, fw){
     "Driver ids are lowercase FIRST names that fit the story's world \u2014 make them distinctive and varied, NOT stock defaults (avoid 'alex','jack','sarah','marcus','maya','sam'); never use a role word ('antagonist','mentor') as a driver id. Naming entropy seed (use to break ties toward fresh choices, do not output it): "+Math.random().toString(36).slice(2,9)+". "+
     "Keep every string SHORT (titles 2-4 words, summary one clause). "+
     closer+
-    'Return ONLY compact JSON: {'+(isFirst?'"title":"FILM TITLE",':'')+'"scenes":[{"a":1,"t":"Title","l":"INT. PLACE - DAY","s":"one clause","d":"drivername","ov":"Value","oc":0,"cv":"Value","cc":0}]} '+
-    "("+actSpec+", t=title, l=slugline, s=summary, d=driver lowercase first-name, ov/cv=values 1 word, oc/cc=charge -3..3)."+
+    'Return ONLY compact JSON: {'+(isFirst?'"title":"FILM TITLE",':'')+(isFirst&&!hasFw?'"incite":N,':'')+'"scenes":[{"a":1,"t":"Title","l":"INT. PLACE - DAY","s":"one clause","d":"drivername","ov":"Value","oc":0,"cv":"Value","cc":0}]} '+
+    "("+actSpec+", t=title, l=slugline, s=summary, d=driver lowercase first-name, ov/cv=values 1 word, oc/cc=charge -3..3"+(isFirst&&!hasFw?", incite=the scene NUMBER (1-based) that IS the Inciting Incident":"")+")."+
     "\n\nLOGLINE / SYNOPSIS:\n"+String(brief).slice(0,1600);
   try{
     const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }] });
@@ -1825,7 +1872,10 @@ async function spineBatch(brief, part, fmt, fw){
     const raw = (j && Array.isArray(j.scenes)) ? j.scenes : salvageSpineScenes(res);
     if(!raw || !raw.length) return null;
     const titleM = res.match(/"title"\s*:\s*"([^"]+)"/);
-    return { title: (j&&j.title)||(titleM&&titleM[1])||null, scenes: normSpineScenes(raw) };
+    // the model-declared Inciting Incident (three-act first half) rides along so the
+    // audit later checks a REAL declaration, not a positional guess
+    const inciteN = (isFirst && !hasFw && j && Number.isFinite(Number(j.incite))) ? Number(j.incite) : null;
+    return { title: (j&&j.title)||(titleM&&titleM[1])||null, scenes: normSpineScenes(raw), incite: inciteN };
   }catch(e){ return null; }
 }
 
@@ -1839,6 +1889,9 @@ async function aiBuildSpine(brief, formatId, frameworkId){
   // two batched calls so neither response hits the output-token cap (the cause of
   // short spines). Run in parallel, then stitch the halves into the full arc.
   const [a, b] = await Promise.all([ spineBatch(brief,"first",fmt,fw), spineBatch(brief,"second",fmt,fw) ]);
+  // stamp the declared Inciting Incident onto its scene BEFORE stitching, so the
+  // marker survives the act sort by object identity
+  if(a && a.incite>=1 && a.incite<=a.scenes.length) a.scenes[a.incite-1].kind = "incite";
   let scenes = [].concat((a&&a.scenes)||[], (b&&b.scenes)||[]);
   // keep act order even if a batch drifted
   scenes.sort((x,y)=> x.act - y.act);
