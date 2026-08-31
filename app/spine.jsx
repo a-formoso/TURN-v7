@@ -140,7 +140,8 @@ function FollowStrip({ characters, scenes, beatsMap, followId, onFollow }){
           title: on ? "Stop following" : `Follow ${c.name} across the spine`,
           onClick:()=>onFollow(on ? null : c.id)},
           React.createElement("span",{className:"follow-av",style:{background:c.color}}),
-          React.createElement("span",{className:"follow-name"},c.name),
+          // chips show first names only; the tooltip keeps the full name
+          React.createElement("span",{className:"follow-name"},String(c.name||"").trim().split(/\s+/)[0]),
           React.createElement("span",{className:"follow-n"},driven));
       })),
     cur && React.createElement("div",{className:"follow-insight"+(tl.flat?" warn":"")},
