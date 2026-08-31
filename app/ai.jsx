@@ -363,6 +363,24 @@ function castPronounBlock(cast){
 }
 window.castPronounBlock = castPronounBlock;
 
+/* Writing-specific voice guidance. This is separate from casting voice
+   (accent, pitch, delivery): it governs word choice and syntax under pressure. */
+function voiceDnaBrief(cast){
+  const list = (cast && cast.length) ? cast : (window.turnCast||[]);
+  const labels = { vocabulary:"vocabulary", syntax:"syntax", rhythm:"rhythm",
+    directness:"directness", imagery:"metaphor sources", avoids:"avoids", stressShift:"under pressure" };
+  const lines = (list||[]).map(c=>{
+    const dna = c && c.voiceDNA;
+    if(!c || !c.name || !dna) return "";
+    const bits = Object.keys(labels).map(k=>{
+      const v=String(dna[k]||"").trim(); return v ? (labels[k]+": "+v) : "";
+    }).filter(Boolean);
+    return bits.length ? (c.name+" — "+bits.join("; ")) : "";
+  }).filter(Boolean);
+  return lines.length ? ("VOICE DNA (keep speakers distinct; do not turn these notes into exposition):\n"+lines.join("\n")+"\n") : "";
+}
+window.voiceDnaBrief = voiceDnaBrief;
+
 /* Active-project resolver for prompt builders. TURN_DATA is immutable bootstrap/sample
    data; once App is mounted, the live film is window.turnProject. Callers that already
    own project state pass it explicitly so prompt correctness never depends on effect
@@ -394,7 +412,9 @@ function storyContext(scene, prevScene, project){
 function beatsBrief(beats){
   if(!beats || !beats.rows) return "(no beats mapped \u2014 invent a tight, turning scene.)";
   let s = `Driver=${beats.driverLabel}, Reactor=${beats.reactorLabel}. Desire: ${beats.desire}. Antagonism: ${beats.obstacle}. Result: ${beats.result||"(derive the resolved outcome from the final beat)"}\nBEATS (expand each, keep the beat number):\n`;
-  beats.rows.forEach(r=>{ s += `  Beat ${r.n}: ${r.drive.a} \u2014 ${r.drive.d}  //  ${r.react.a} \u2014 ${r.react.d}${r.n===beats.turnAt?"  [TURNING POINT]":""}\n`; });
+  beats.rows.forEach(r=>{
+    s += `  Beat ${r.n}: ${r.drive.a} \u2014 ${r.drive.d}  //  ${r.react.a} \u2014 ${r.react.d}${r.n===beats.turnAt?"  [TURNING POINT]":""}\n`;
+  });
   return s;
 }
 
@@ -603,7 +623,7 @@ async function aiDraftScene(scene, beats, prevScene, project){
   // \u2192 interview beats); "full" formats carry no brief and draft as before
   const P = writingProjectOf(project);
   const fmtBrief = (typeof formatOf==="function") ? (formatOf(P).screenplayBrief||"") : "";
-  const prompt = storyContext(scene, prevScene, P) + "\n" + castPronounBlock(window.turnCast) + beatsBrief(beats) +
+  const prompt = storyContext(scene, prevScene, P) + "\n" + castPronounBlock(window.turnCast) + voiceDnaBrief(window.turnCast) + beatsBrief(beats) +
     "\n\nWrite this scene as original screenplay prose, expanding each beat in order. "+
     "It must dramatize the value turn through action and subtext \u2014 never state the theme outright.\n\n" +
     (fmtBrief ? "FORMAT: "+fmtBrief+".\n\n" : "") + SCREENPLAY_STYLE + "\n\n" + BLOCK_SPEC;
@@ -815,7 +835,7 @@ async function aiPolishScene(scene, beats, structuralBlocks, prevScene, project)
   if(!aiAvailable()) return null;
   const rough = (structuralBlocks||[]).filter(b=>b.type!=="scene")
     .map(b=>`[beat ${b.beat}] ${b.text}`).join("\n");
-  const prompt = storyContext(scene, prevScene, project) + "\n" + beatsBrief(beats) +
+  const prompt = storyContext(scene, prevScene, project) + "\n" + castPronounBlock(window.turnCast) + voiceDnaBrief(window.turnCast) + beatsBrief(beats) +
     "\n\nSTRUCTURAL DRAFT (rough beat expansion):\n" + rough +
     "\n\nRewrite this into FINAL, polished screenplay prose. The beats are LOCKED \u2014 keep the same beat numbers and the same dramatic action in each; only elevate the craft.\n\n" + SCREENPLAY_STYLE + "\n\n" + BLOCK_SPEC;
   try{
@@ -847,7 +867,7 @@ async function aiWriteBeatText(scene, beats, beatN, screenplay, prevScene, proje
   const nextN = nums.find(x=>x>n);
   const prevTxt = prevN!=null ? beatText(prevN) : "";
   const nextTxt = nextN!=null ? beatText(nextN) : "";
-  const prompt = storyContext(scene, prevScene, project) + "\n" + castPronounBlock(window.turnCast) + beatsBrief(beats) +
+  const prompt = storyContext(scene, prevScene, project) + "\n" + castPronounBlock(window.turnCast) + voiceDnaBrief(window.turnCast) + beatsBrief(beats) +
     "\n\nThis scene's screenplay is ALREADY WRITTEN, but beat "+n+" was never dramatized — there is a gap in the prose."+
     "\nBEAT "+n+" — the ONLY beat to write"+(Number(beats.turnAt)===n?" (this is the scene's TURNING POINT)":"")+":"+
     "\n- "+(beats.driverLabel||"Driver")+" ("+((row.drive&&row.drive.a)||"Action")+"): "+((row.drive&&row.drive.d)||"")+
@@ -1039,6 +1059,8 @@ const _voiceFeature = APP_FEATURES.find(f=>f.name==="Voice (on the character car
 if(_voiceFeature) _voiceFeature.what += " Voice-provider billing/payment failures are classified by the proxy and shown as an actionable account-state message in the voice popup instead of exposing raw invoice text; administrator accounts are pointed to the API Keys panel or ELEVENLABS_API_KEY server secret, while regular users see that the platform voice account needs attention.";
 const _scriptFeature = APP_FEATURES.find(f=>f.name==="Script view");
 if(_scriptFeature) _scriptFeature.what += " The Script toolbar's previous/next scene arrows browse the screenplay scene by scene without opening the Inspector; beat-gutter focus still opens the Beats inspector when you intentionally choose a beat.";
+
+APP_FEATURES.push({ name:"Dialogue intelligence (Writers' Room)", what:"Dialogue support keeps the existing story pipeline intact: editable Voice DNA on each character guides screenplay drafting and table-read analysis. Beats remain the action/reaction subtext map, and approved dialogue is generated as their final screenplay expression before flowing downstream to performance and production tools." });
 
 APP_FEATURES.push({ name:"Studio progress overlays", what:"Long room-level MUSE operations use one consistent centered progress card across the Writers' Room and Art Room: screenplay drafting, redrafting a scene from beats, scene recasting, bulk character/prop/location/spec design, style assignment, prop scene mapping, location staging and shot-list drafting all show the same spinner, title and reassuring detail text. Screenplay draft-all also shows a progress bar for scene-by-scene progress. Per-card image/video renders keep their local progress controls so users can still see and stop the exact render that is running." });
 const _studioProgressFeature = APP_FEATURES.find(f=>f.name==="Studio progress overlays");
@@ -1399,8 +1421,9 @@ async function aiTableRead(scenes, drafts, project){
     ).join("\n") + "\n";
   });
   if(!script.trim()) return null;
-  const prompt = "You are a script editor doing a table-read of this short film, \""+P.title+"\". "+
-    "Assess the WHOLE script for pacing, tonal consistency, and character voice \u2014 issues that only show across scenes, not within one. "+
+  const prompt = "You are a script editor doing a table-read of this short film, \""+P.title+"\". \n"+
+    castPronounBlock(window.turnCast)+voiceDnaBrief(window.turnCast)+
+    "Assess the WHOLE script for pacing, tonal consistency, character distinction, performability, spoken timing, cadence and escalation across scenes. Focus on issues that become clear when the dialogue is heard in sequence. "+
     "Be specific and reference scene numbers. "+
     'Return ONLY JSON: {"pacing":"2-3 sentence assessment","tone":"2-3 sentences","voice":"2-3 sentences","notes":[{"scene":<no>,"issue":"one specific fixable note"}]}. Give 3-6 notes.'+
     "\n\nSCRIPT:\n"+script.slice(0,9000);
@@ -2160,8 +2183,9 @@ async function aiDraftCharacter(character, drivenScenes, project, canon){
     "Arc = their inner transformation in 3\u20135 words (e.g. \u201cDoubt \u2192 belief \u2192 self-realization\u201d), reflecting how their value charges turn across the scenes above. "+
     "humanTruth = the ONE observation about HUMAN NATURE this character embodies \u2014 a distinct stance on the controlling idea, GROUNDED in behaviour the screenplay actually shows (cite no scene numbers, just distil the behaviour); one sentence, specific, no platitudes. "+
     "argues = which side of the controlling idea that stance lands on: \"idea\", \"counter\", or \"complicates\" (it genuinely cuts both ways).\n"+
+    "voiceDNA describes WRITTEN dialogue rather than casting performance: vocabulary domains, sentence structure, rhythm/cadence, directness, recurring imagery/metaphor sources, language they avoid, and how their syntax changes under pressure. Ground it in this person's identity and screenplay evidence; make every field usable by a scene writer.\n"+
     "Keep each concise and specific to THIS story \u2014 no generic screenwriting platitudes.\n"+
-    'Return ONLY JSON: {"conscious":"one sentence","unconscious":"one sentence","arc":"3-5 word arc","humanTruth":"one sentence","argues":"idea|counter|complicates"}.';
+    'Return ONLY JSON: {"conscious":"one sentence","unconscious":"one sentence","arc":"3-5 word arc","humanTruth":"one sentence","argues":"idea|counter|complicates","voiceDNA":{"vocabulary":"","syntax":"","rhythm":"","directness":"","imagery":"","avoids":"","stressShift":""}}.';
   try{
     const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }] });
     const j = extractJSON(res);
@@ -2172,6 +2196,9 @@ async function aiDraftCharacter(character, drivenScenes, project, canon){
       unconscious: clipWords(scrubBrand((j.unconscious||"").toString()),160),
       arc: clipWords(scrubBrand((j.arc||"").toString()),60),
       humanTruth: clipWords(scrubBrand((j.humanTruth||"").toString()),180),
+      voiceDNA: Object.fromEntries(Object.entries(j.voiceDNA||{}).filter(([k])=>
+        ["vocabulary","syntax","rhythm","directness","imagery","avoids","stressShift"].includes(k))
+        .map(([k,v])=>[k,clipWords(scrubBrand(String(v||"")),120)])),
       ...( _side ? { argues:_side } : {} ),
     };
   }catch(e){ return null; }

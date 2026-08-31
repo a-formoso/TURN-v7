@@ -1592,7 +1592,7 @@ function App(){
     if(!canMutateSharedFilm()) return null;
     const id = "char-"+Date.now().toString(36);
     setCharacters(cs=>[...cs, { id, name:"New character", role:"",
-      color:"linear-gradient(135deg,#6a6f7a,#262a30)", conscious:"", unconscious:"", arc:"", manual:true }]);
+      color:"linear-gradient(135deg,#6a6f7a,#262a30)", conscious:"", unconscious:"", arc:"", voiceDNA:{}, manual:true }]);
     return id;
   };
   // Writers' Room rail "+": add AND select, so the Character panel opens on the

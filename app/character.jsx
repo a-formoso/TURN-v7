@@ -46,6 +46,8 @@ function CharacterPanel({ character, scenes, onUpdate, onDraft, drafting, onJump
 
   const { driven, turned, from, to } = characterArc(c.id, scenes);
   const initials = c.name.split(" ").map(w=>w[0]).slice(0,2).join("");
+  const voiceDNA = c.voiceDNA||{};
+  const setVoice = (field,value)=>onUpdate(c.id,{voiceDNA:{...voiceDNA,[field]:value}});
 
   return React.createElement("div",{className:"inspector"},
     React.createElement("div",{className:"insp-tabs"},
@@ -103,6 +105,23 @@ function CharacterPanel({ character, scenes, onUpdate, onDraft, drafting, onJump
               onChange:e=>onUpdate(c.id,{argues:e.target.value})},
               [["","\u2014 unset \u2014"],["idea","The idea"],["counter","The counter-idea"],["complicates","Complicates both"]].map(kv=>
                 React.createElement("option",{key:kv[0]||"u",value:kv[0]},kv[1])))))),
+
+      // VOICE DNA — writing behaviour, distinct from accent/delivery voice casting.
+      React.createElement("div",{className:"insp-block voice-dna-block"},
+        React.createElement("div",{className:"insp-block-head"},
+          React.createElement("span",{className:"eyebrow"},React.createElement(Icon.mic,{s:12}),"Voice DNA"),
+          React.createElement("span",{className:"voice-dna-note"},"Feeds dialogue drafting and audit")),
+        [["vocabulary","Vocabulary domains","The nouns, verbs and knowledge this person naturally reaches for…"],
+         ["syntax","Syntax","Sentence shape when calm: clipped, cumulative, formal, fragmented…"],
+         ["rhythm","Rhythm / cadence","Pace, pauses, repetitions and verbal timing…"],
+         ["directness","Directness","Blunt, evasive, polite, elliptical, confrontational…"],
+         ["imagery","Metaphor sources","The work, culture, objects or memories their images come from…"],
+         ["avoids","Language avoided","Words, admissions or registers they resist…"],
+         ["stressShift","Under pressure","How vocabulary and syntax change as pressure rises…"]].map(([field,label,placeholder])=>
+          React.createElement("div",{className:"char-field",key:field},
+            React.createElement("div",{className:"obj-lab"},label),
+            React.createElement(EditText,{value:voiceDNA[field]||"",readOnly,multiline:true,placeholder,
+              onCommit:v=>setVoice(field,v)})))),
 
       // ARC (derived)
       React.createElement("div",{className:"insp-block"},
