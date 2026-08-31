@@ -134,8 +134,16 @@ drop policy if exists "turn_projects_insert_owner" on public.turn_projects;
 drop policy if exists "turn_projects_update_collab" on public.turn_projects;
 drop policy if exists "turn_projects_delete_owner" on public.turn_projects;
 
+-- NOTE: the owner check must be DIRECT on the row (not via the helper).
+-- INSERT ... RETURNING requires the new row to pass this select policy, and
+-- turn_can_access_project(id) re-queries turn_projects — a row being inserted
+-- by the current statement isn't visible to that query yet, so a helper-only
+-- policy rejects every new film creation. (See fix-new-film-rls.sql.)
 create policy "turn_projects_select_collab" on public.turn_projects
-  for select using (public.turn_can_access_project(id, false));
+  for select using (
+    owner = auth.uid()
+    or public.turn_can_access_project(id, false)
+  );
 
 create policy "turn_projects_insert_owner" on public.turn_projects
   for insert with check (owner = auth.uid());
