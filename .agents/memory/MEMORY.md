@@ -5,3 +5,4 @@
 - [House-style scoping](house-style-scope.md) — categorical house-style rules bind ALL formats; scope conflict rules to dramatic dialogue; never suppress deterministic audit facts via free-text matching.
 - [Agent run lifecycle](agent-run-lifecycle.md) — cancellation includes ownership; re-check after every await before mutating; sign written states to spot mid-run edits; capture persistence keys at run start.
 - [RLS RETURNING trap](rls-returning-self-reference.md) — insert().select() must pass the SELECT policy; self-referential policy helpers can't see the new row, so keep a direct owner check OR'd in.
+- [Revocation-sticky policies](revocation-sticky-policies.md) — asset read/delete RLS must key on CURRENT membership, never own-folder/row-owner disjuncts; role-scope rejections are permanent, never retried.

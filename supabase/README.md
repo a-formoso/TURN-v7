@@ -19,6 +19,13 @@ cross-device access, and multiple projects all work.
    invitations to the invitee's account on their first sign-in.
    Then run `shared-owners.sql` — lets the home wall's "Shared with me" cards
    say who shared each film (without it, cards just say "Shared with you").
+   Then run `enforce-role-scopes.sql` — makes the DATABASE enforce the
+   Writer / Art-director section limits (until then they're app-side only):
+   a trigger rejects any doc change outside the collaborator's role, blocks
+   ownership transfer by non-owners, restricts generated-image records and
+   their storage files to the film's owner / Art director (everyone still
+   reads them), and keeps a generation record attributed to whoever first
+   created it. Idempotent — safe to re-run.
 4. **SQL Editor → run `cameos.sql`** — creates the `turn_cameos` table (RLS).
 5. **Authentication → Providers** — enable whichever sign-in you chose
    (Email magic-link and/or Google OAuth).

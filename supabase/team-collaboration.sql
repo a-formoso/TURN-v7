@@ -155,7 +155,30 @@ create policy "turn_projects_update_collab" on public.turn_projects
 create policy "turn_projects_delete_owner" on public.turn_projects
   for delete using (owner = auth.uid());
 
--- Generated image rows follow the project access rules.
+-- Generated image rows and their files are ART-DEPARTMENT work: only the film's
+-- owner or an active art_director may create/replace/clear them. Writers keep
+-- READ access (sheets stay visible) but cannot touch assets directly — the same
+-- boundary the doc trigger enforces for doc sections, applied to assets.
+create or replace function public.turn_can_write_assets(pid uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from public.turn_projects p
+    where p.id = pid and p.owner = auth.uid()
+  ) or exists (
+    select 1 from public.turn_project_members m
+    where m.project_id = pid
+      and m.status = 'active'
+      and m.role = 'art_director'
+      and (m.member_user = auth.uid() or lower(m.member_email) = public.turn_current_email())
+  );
+$$;
+grant execute on function public.turn_can_write_assets(uuid) to authenticated;
+
 drop policy if exists "own turn generations" on public.turn_generations;
 drop policy if exists "turn_generations_select_collab" on public.turn_generations;
 drop policy if exists "turn_generations_insert_collab" on public.turn_generations;
@@ -168,25 +191,43 @@ create policy "turn_generations_select_collab" on public.turn_generations
 create policy "turn_generations_insert_collab" on public.turn_generations
   for insert with check (
     owner = auth.uid()
-    and public.turn_can_access_project(project_id, true)
+    and public.turn_can_write_assets(project_id)
   );
 
 create policy "turn_generations_update_collab" on public.turn_generations
-  for update using (public.turn_can_access_project(project_id, true))
-  with check (public.turn_can_access_project(project_id, true));
+  for update using (public.turn_can_write_assets(project_id))
+  with check (public.turn_can_write_assets(project_id));
 
 create policy "turn_generations_delete_collab" on public.turn_generations
-  for delete using (
-    owner = auth.uid()
-    or exists (
-      select 1 from public.turn_projects p
-      where p.id = project_id and p.owner = auth.uid()
-    )
-  );
+  for delete using (public.turn_can_write_assets(project_id));
 
--- Storage reads can come from the owner's folder or from any accessible project.
--- Writes stay in the signed-in user's folder, but may target a shared project if
--- that user has a write-capable role.
+-- Attribution is immutable: the client's upsert always sends owner = itself, and
+-- on conflict that would silently reassign an existing row to whoever regenerated
+-- last (changing who the row-owner delete path answers to). Keep the creator.
+create or replace function public.turn_generations_keep_owner()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.owner := old.owner;
+  return new;
+end;
+$$;
+
+drop trigger if exists turn_generations_keep_owner on public.turn_generations;
+create trigger turn_generations_keep_owner
+  before update on public.turn_generations
+  for each row
+  when (old.owner is distinct from new.owner)
+  execute function public.turn_generations_keep_owner();
+
+-- Storage access is authorized by the CURRENT membership on the project id
+-- embedded in the path — never by folder ownership alone, so revoking or
+-- demoting a collaborator cuts off their old uploads immediately. Reads need
+-- read access to the film; writes stay pinned to the signed-in user's own
+-- folder AND need asset-write capability (owner / art_director); deletes are
+-- asset-capable only — that already covers regeneration cleaning up rolled-off
+-- history under ANY member's folder, so no own-folder exception is needed.
 drop policy if exists "turn assets read own"   on storage.objects;
 drop policy if exists "turn assets write own"  on storage.objects;
 drop policy if exists "turn assets update own" on storage.objects;
@@ -199,31 +240,96 @@ drop policy if exists "turn assets delete collab" on storage.objects;
 create policy "turn assets read collab" on storage.objects for select
   using (
     bucket_id = 'turn-assets'
-    and (
-      (storage.foldername(name))[1] = auth.uid()::text
-      or public.turn_can_access_project(public.turn_storage_project_id(name), false)
-    )
+    and public.turn_can_access_project(public.turn_storage_project_id(name), false)
   );
 
 create policy "turn assets write collab" on storage.objects for insert
   with check (
     bucket_id = 'turn-assets'
     and (storage.foldername(name))[1] = auth.uid()::text
-    and public.turn_can_access_project(public.turn_storage_project_id(name), true)
+    and public.turn_can_write_assets(public.turn_storage_project_id(name))
   );
 
 create policy "turn assets update collab" on storage.objects for update
   using (
     bucket_id = 'turn-assets'
     and (storage.foldername(name))[1] = auth.uid()::text
-    and public.turn_can_access_project(public.turn_storage_project_id(name), true)
+    and public.turn_can_write_assets(public.turn_storage_project_id(name))
   );
 
 create policy "turn assets delete collab" on storage.objects for delete
   using (
     bucket_id = 'turn-assets'
-    and (
-      (storage.foldername(name))[1] = auth.uid()::text
-      or public.turn_can_access_project(public.turn_storage_project_id(name), true)
-    )
+    and public.turn_can_write_assets(public.turn_storage_project_id(name))
   );
+
+-- ── Server-side role scoping (canonical copy — see enforce-role-scopes.sql) ──
+-- The Writer / Art-director section limits are enforced IN THE DATABASE, not
+-- just in the app: a trigger compares old vs new doc section by section against
+-- the caller's role allowlist (server copy of TEAM_ROLE_SECTIONS in
+-- app/team.jsx — keep the two in sync), and rejects out-of-scope changes even
+-- from a hostile client. It also blocks ownership transfer by collaborators.
+-- The _rev save fence is exempt; owners and solo films are unaffected.
+create or replace function public.turn_role_allowed_sections(r text)
+returns text[]
+language sql
+immutable
+as $$
+  select case r
+    when 'writer' then
+      array['scenes','beatsMap','drafts','history','continuityMap','project']
+    when 'art_director' then
+      array['characters','props','locations','lookbook','lookbookNote','lookbookApplied',
+            'shots','trash','project','propsSeeded','locsSeeded','visualsSeeded','bible']
+    else array[]::text[]   -- view_only, unknown and legacy roles: nothing
+  end;
+$$;
+
+create or replace function public.turn_enforce_role_sections()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  caller  uuid := auth.uid();
+  allowed text[];
+  k       text;
+begin
+  if caller is null then return new; end if;   -- service-role maintenance paths
+  if old.owner = caller then return new; end if;
+
+  if new.owner is distinct from old.owner then
+    raise exception 'TURN_ROLE_SCOPE: only the owner can transfer a film''s ownership';
+  end if;
+
+  select coalesce(array_agg(distinct s), array[]::text[]) into allowed
+  from public.turn_project_members m,
+       unnest(public.turn_role_allowed_sections(m.role)) s
+  where m.project_id = old.id
+    and m.status = 'active'
+    and (m.member_user = caller or lower(m.member_email) = public.turn_current_email());
+
+  for k in
+    select key from (
+      select jsonb_object_keys(coalesce(old.doc, '{}'::jsonb)) as key
+      union
+      select jsonb_object_keys(coalesce(new.doc, '{}'::jsonb))
+    ) keys
+  loop
+    if k = '_rev' then continue; end if;
+    if (old.doc -> k) is distinct from (new.doc -> k) and not (k = any(allowed)) then
+      raise exception 'TURN_ROLE_SCOPE: your role does not cover the "%" section of this film', k;
+    end if;
+  end loop;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists turn_enforce_role_sections on public.turn_projects;
+create trigger turn_enforce_role_sections
+  before update on public.turn_projects
+  for each row
+  when (old.doc is distinct from new.doc or old.owner is distinct from new.owner)
+  execute function public.turn_enforce_role_sections();

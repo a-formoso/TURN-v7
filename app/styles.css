@@ -4050,6 +4050,18 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
   .prop-scenebar{flex-wrap:wrap}
   .prop-scenebar-select{flex:1 1 100%;min-width:0;max-width:100%}
   .char-style-all{max-width:100%;flex-wrap:wrap;height:auto;min-height:36px;padding:6px 11px}
+  /* SPECIFICITY FIX: the desktop toolbar pins these rows to ONE 42px line via
+     .prop-toolbar > … (0-2-0), which silently beat the un-nested wrap overrides
+     above — so the "Focus a scene" row (label + select + Generate-all button)
+     could never wrap and forced the whole Art Room wider than a phone screen;
+     the page then panned/zoomed out with every row clipped at both edges.
+     Match the specificity and let the toolbar rows wrap and grow. */
+  .prop-toolbar > .prop-scenebar{flex-wrap:wrap;height:auto;min-height:42px;padding:8px 13px}
+  .prop-toolbar > .prop-scenebar .art-draftall{max-width:100%;min-width:0}
+  .prop-toolbar > .char-style-all{height:auto;min-height:42px;flex-wrap:wrap;padding:6px 11px}
+  .prop-toolbar > .char-style-all .char-style-select{flex:1 1 auto;width:auto;min-width:0;max-width:100%}
+  /* belt & braces: whatever else grows, the room must never pan sideways */
+  .artroom{overflow-x:hidden}
 
   /* the floating model dock (GPT · 16:9 · 2K) sat mid-screen over card
      actions on a phone — drop it to the lower right, clear of the MUSE fab */

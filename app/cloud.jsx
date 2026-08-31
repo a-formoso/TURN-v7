@@ -402,6 +402,15 @@ async function cloudLoadProject(id){
 const _docRevSeen = {};   // project id -> the _rev this session last loaded/wrote
 function cloudNoteDocRev(id, doc){ if(id) _docRevSeen[id] = (doc && Number(doc._rev)) || 0; }
 window.cloudNoteDocRev = cloudNoteDocRev;
+/* SERVER ROLE-SCOPE REJECTION — the database trigger (enforce-role-scopes.sql)
+   raises 'TURN_ROLE_SCOPE: ...' when a write touches doc sections outside the
+   collaborator's role. That is a PERMANENT verdict for this payload, not a blip:
+   callers must surface it as the role-scope notice, never retry-loop on it. */
+function _roleScopeErr(error){
+  const msg = String((error && error.message) || "");
+  if(msg.indexOf("TURN_ROLE_SCOPE") < 0) return null;
+  return msg.replace(/^.*TURN_ROLE_SCOPE:\s*/, "");
+}
 async function cloudSaveDoc(id, doc){
   const sb = sbClient(); if(!sb || !id) return { ok:false };
   const seen = _docRevSeen[id] || 0;
@@ -413,7 +422,7 @@ async function cloudSaveDoc(id, doc){
     q = seen ? q.eq("doc->>_rev", String(seen))
              : q.or("doc->>_rev.is.null,doc->>_rev.eq.0");
     const { data, error } = await q.select("id");
-    if(error) return { ok:false };
+    if(error){ const rs = _roleScopeErr(error); return rs ? { ok:false, roleScope:true, message:rs } : { ok:false }; }
     if(!data || !data.length) return { ok:false, conflict:true };
     _docRevSeen[id] = seen + 1;
     return { ok:true };
@@ -442,7 +451,7 @@ async function cloudPatchDoc(id, mutate){
       q = cur ? q.eq("doc->>_rev", String(cur))
               : q.or("doc->>_rev.is.null,doc->>_rev.eq.0");
       const { data: rows, error: wErr } = await q.select("id");
-      if(wErr) return { ok:false };
+      if(wErr){ const rs = _roleScopeErr(wErr); return rs ? { ok:false, roleScope:true, message:rs } : { ok:false }; }
       if(rows && rows.length){
         if(wasInSync) _docRevSeen[id] = cur + 1;
         return { ok:true, doc };
@@ -482,7 +491,7 @@ async function cloudSaveSections(id, sections){
       q = cur ? q.eq("doc->>_rev", String(cur))
               : q.or("doc->>_rev.is.null,doc->>_rev.eq.0");
       const { data: rows, error: wErr } = await q.select("id");
-      if(wErr) return { ok:false };
+      if(wErr){ const rs = _roleScopeErr(wErr); return rs ? { ok:false, roleScope:true, message:rs } : { ok:false }; }
       if(rows && rows.length){
         _docRevSeen[id] = cur + 1;      // we merged onto the freshest doc, so we ARE current
         return { ok:true, doc:cloudDoc };

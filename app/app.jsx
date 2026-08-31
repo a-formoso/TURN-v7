@@ -938,7 +938,7 @@ function App(){
     // us it owns hydration now and will clear it when it finishes.
     const release = ()=>{ if(!stale()) hydratingRef.current = false; };
     const row = await cloudLoadProject(id);
-    if(!row || stale()){ release(); return; }
+    if(!row || stale()){ release(); return false; }   // false = this call did NOT land server truth
     if(typeof window.cloudNoteDocRev==="function") window.cloudNoteDocRev(id, row.doc);
     const uid = (typeof cloudUserId==="function") ? cloudUserId(session) : null;
     if(typeof nbUseCloud==="function") nbUseCloud(id, uid);   // re-scope the image cache to this film
@@ -948,7 +948,7 @@ function App(){
     const d = row.doc || {};
     if(d.showId){
       const bibleRow = await cloudLoadProject(d.showId);
-      if(stale()) return;   // a newer load owns the state (and hydratingRef) now
+      if(stale()) return false;   // a newer load owns the state (and hydratingRef) now
       if(bibleRow && typeof window.cloudNoteDocRev==="function") window.cloudNoteDocRev(d.showId, bibleRow.doc);
       const bible = (bibleRow && bibleRow.doc && bibleRow.doc.bible) || {};
       setCurrentShowId(d.showId);
@@ -969,6 +969,7 @@ function App(){
     // Writers' Room so a new story always begins on the spine. (Only ever pulls TOWARD
     // writers — never flashes into art — so it doesn't reintroduce the load-flash bug.)
     if(!((d.scenes||[]).length)){ setRoom("writers"); setView("spine"); }
+    return true;   // this call hydrated the film from server truth
   };
   /* on sign-in: load the user's projects (creating a first one if needed) and open
      the most recent. On sign-out: drop cloud mode and fall back to local storage. */
@@ -1377,7 +1378,33 @@ function App(){
   const roleNoticeRef = React.useRef(0);   // throttle the "your role doesn't cover that" notice
   const bibleSavedRef = React.useRef(null);
   const _conflictBusy = React.useRef(false);
+  const roleScopeBusyRef = React.useRef(0);
+  /* SERVER ROLE-SCOPE REJECTION — the database itself now enforces the section
+     limits (enforce-role-scopes.sql): a save touching sections outside this
+     collaborator's role comes back tagged roleScope. That verdict is PERMANENT
+     for the payload — retry-with-backoff would loop forever on the same
+     rejection. Normally unreachable (the autosave already drops out-of-scope
+     sections client-side); it fires when the owner changed or revoked the role
+     mid-session, or a modified client tried to sneak sections past the UI.
+     Surface the server's real reason once, then reload the film so local state
+     re-syncs to what the server actually holds (same recovery as a conflict). */
+  const _docRoleScope = (r)=>{
+    const now = Date.now();
+    if(now - (roleScopeBusyRef.current||0) < 5000) return;
+    roleScopeBusyRef.current = now;
+    setSaveState("saving");   // honest while we re-sync; resolved below by the reload result
+    if(typeof window.appToast==="function")
+      window.appToast("The server declined this save \u2014 "
+        + ((r && r.message) || "your role does not cover those sections.")
+        + " Your access may have changed; reloading the film.","error");
+    Promise.resolve(loadProjectIntoState(currentProjectId)).then((loaded)=>{
+      saveFailsRef.current = 0;   // permanent rejection — never feed the retry loop
+      if(loaded){ dirtyRef.current = false; setSaveState("saved"); }   // now genuinely in sync
+      else setSaveState("failed");   // reload failed (access revoked?) — do NOT claim sync
+    }).catch(()=>setSaveState("failed"));
+  };
   const _docConflictCheck = (r)=>{
+    if(r && r.roleScope){ _docRoleScope(r); return; }
     if(!r || !r.conflict || _conflictBusy.current) return;
     _conflictBusy.current = true;
     if(typeof window.appToast==="function")
@@ -1423,6 +1450,7 @@ function App(){
   const _docSaveResult = (r)=>{
     _docConflictCheck(r);
     if(r && r.conflict) return;             // the conflict path reloads; not a save failure
+    if(r && r.roleScope) return;   // _docRoleScope owns recovery: chip resolves on the reload result, never the retry loop
     if(r && r.ok){ saveFailsRef.current = 0; dirtyRef.current = false; setSaveState("saved"); return; }
     const n = ++saveFailsRef.current;
     if(n <= 3){ setSaveState("retrying"); setTimeout(()=>setRetryTick(t=>t+1), n*2500); }
