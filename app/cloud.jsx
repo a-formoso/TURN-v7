@@ -166,10 +166,27 @@ async function cloudListProjects(){
     }catch(e){}
     const byProject = {};
     memberships.forEach(m=>{ if(m && m.project_id) byProject[m.project_id]=m; });
+    // owner attribution for shared films ("Shared by x@y.com" on the home wall):
+    // owner emails live in auth.users, so a tiny definer RPC (shared-owners.sql)
+    // returns them for the caller's own memberships only. Quiet degrade — if the
+    // SQL hasn't been run, shared films simply show without the owner's name.
+    let ownersBy = {};
+    if(memberships.length){
+      try{
+        const { data:ow, error:oe } = await sb.rpc("turn_shared_film_owners");
+        if(!oe)(ow||[]).forEach(r=>{ if(r && r.project_id) ownersBy[r.project_id]=r.owner_email||""; });
+      }catch(e){}
+    }
     return (data || []).map(p=>{
       const m = byProject[p.id] || null;
       const isOwner = !!(uid && p.owner===uid);
-      return { ...p, isOwner, isShared:!isOwner && !!m, shareRole:m&&m.role || (isOwner?"owner":"") };
+      // FAIL CLOSED: any accessible project I don't own IS shared with me — RLS
+      // only returns rows I can access. The memberships query merely supplies the
+      // role + attribution; if it failed, the row must still classify as shared
+      // (role "" = write-blocked everywhere) rather than slip into the owned
+      // pipeline and, e.g., auto-spend credits painting someone else's poster.
+      return { ...p, isOwner, isShared:!isOwner, shareRole: isOwner ? "owner" : ((m && m.role) || ""),
+        ownerEmail: !isOwner ? (ownersBy[p.id]||"") : "" };
     });
   }catch(e){ return null; }
 }

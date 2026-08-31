@@ -332,6 +332,14 @@ function buildFilmBible(doc){
 }
 window.buildFilmBible = buildFilmBible;
 
+/* HOME WALL ELIGIBILITY — the dashboard shows once the user has >=2 films OR
+   any film shared with them (the wall is where a share is explained: owner +
+   role). One shared predicate so the render gate and onHome can never drift. */
+window.turnHomeWallEligible = function(rows){
+  const f = (rows||[]).filter(p=>String(p.isShow)!=="true");
+  return f.length >= 2 || f.some(p=>p.isShared);
+};
+
 function App(){
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const saved = React.useRef(loadStory()).current;
@@ -1029,6 +1037,12 @@ function App(){
       // never auto-open a SHOW (bible) row — open the most recent episode/film
       const openable = list.filter(p=>String(p.isShow)!=="true");
       if(openable[0]) await loadProjectIntoState(openable[0].id);
+      // a studio whose EVERY film is a share (invitee with no own work yet)
+      // boots onto the home wall, where the share is explained (owner + role),
+      // instead of being dropped wordlessly into someone else's Writers' Room.
+      // Skip when an invite landing is about to present its own welcome surface.
+      if(alive && openable.length && openable.every(p=>p.isShared) && !inviteLanding)
+        setHomeOpen(true);
     })().catch(()=>{});
     return ()=>{ alive=false; };
   },[bootUserId]);
@@ -4065,14 +4079,14 @@ function App(){
           : (claim && claim.invited_by),
         sessionEmail: (typeof cloudUserEmail==="function") ? cloudUserEmail(session) : "",
         canSetPassword: !!(um.turn_invited && !um.turn_password_set),
-        onOpen: async ()=>{ const id = film && film.id; setInviteLanding(null); if(id) await switchProject(id); },
+        onOpen: async ()=>{ const id = film && film.id; setInviteLanding(null); setHomeOpen(false); if(id) await switchProject(id); },
         onClose: ()=>setInviteLanding(null) });
     })(),
-    // Home = the dashboard, and ONLY once the user has >=2 films. Below that,
-    // opening Home routes straight into the Writers' Room (see onHome), so the
-    // dashboard overlay never renders for a 0/1-film studio.
+    // Home = the dashboard, once the user has >=2 films OR any film shared with
+    // them (the wall is where a share is explained — owner + role). Below that,
+    // opening Home routes straight into the Writers' Room (see onHome).
     homeOpen && cloudMode
-      && (projects||[]).filter(p=>String(p.isShow)!=="true").length >= 2
+      && window.turnHomeWallEligible(projects)
       && typeof window.HomeDashboard!=="undefined"
       && React.createElement(window.HomeDashboard,{
           projects, currentId:currentProjectId, room,
@@ -4122,11 +4136,28 @@ function App(){
         setAgentLaunch({id:"adapt", input:brief}); setAgentsOpen(true);
       },
       onHome: cloudMode ? (()=>{
-        // Home only opens the dashboard for an established studio (>=2 films).
-        // A 0/1-film studio skips Home entirely and lands in the Writers' Room.
-        const nFilms = (projects||[]).filter(p=>String(p.isShow)!=="true").length;
-        if(nFilms >= 2){ setHomeOpen(true); return; }
-        (async()=>{ if(!currentProjectId){ await createProject(); } setHomeOpen(false); setView("spine"); guardedSetRoom("writers"); })();
+        // Home opens the dashboard for an established studio (>=2 films) — OR
+        // whenever ANY film is shared with this account, so the wall's "Shared
+        // with me" section is always reachable (someone whose only film is a
+        // share must not be locked out of the one place that explains it).
+        // A 0/1-owned-film studio with no shares lands in the Writers' Room.
+        (async()=>{
+          if(window.turnHomeWallEligible(projects)){
+            // already eligible on the in-memory list: open instantly, refresh
+            // behind the wall (same list reload the Team panel's onChanged uses)
+            setHomeOpen(true);
+            if(typeof cloudListProjects==="function"){ const list = await cloudListProjects(); if(list) setProjects(list); }
+            return;
+          }
+          // the STALE list says "no wall" — but a share may have been granted
+          // since the last load, so re-fetch BEFORE routing away; the freshly
+          // returned list makes the decision (a fetch failure keeps the old one)
+          let rows = projects;
+          if(typeof cloudListProjects==="function"){ const list = await cloudListProjects(); if(list){ setProjects(list); rows = list; } }
+          if(window.turnHomeWallEligible(rows)){ setHomeOpen(true); return; }
+          if(!currentProjectId){ await createProject(); }
+          setHomeOpen(false); setView("spine"); guardedSetRoom("writers");
+        })();
       }) : null,
       // ADMIN ONLY: inspect the whole continuity JSON (the Film Bible) the studio reads from
       onViewBible: isAdmin ? (()=> buildFilmBible({ project, scenes, characters, props, locations, shots, drafts, beatsMap, lookbook, lookbookNote })) : null,

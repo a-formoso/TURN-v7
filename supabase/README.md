@@ -17,6 +17,8 @@ cross-device access, and multiple projects all work.
    owner-or-collaborator access.
    Then run `invitations.sql` — adds `turn_claim_memberships()`, which links
    invitations to the invitee's account on their first sign-in.
+   Then run `shared-owners.sql` — lets the home wall's "Shared with me" cards
+   say who shared each film (without it, cards just say "Shared with you").
 4. **SQL Editor → run `cameos.sql`** — creates the `turn_cameos` table (RLS).
 5. **Authentication → Providers** — enable whichever sign-in you chose
    (Email magic-link and/or Google OAuth).

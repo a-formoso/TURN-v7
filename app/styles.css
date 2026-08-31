@@ -6852,6 +6852,10 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
 .invite-later{background:none;border:1px solid var(--line-2);border-radius:8px;height:34px;padding:0 14px;
   color:var(--txt-2);font-size:12.5px;cursor:pointer}
 .invite-later:hover{color:var(--txt-1);border-color:var(--line-1)}
+/* home wall — "Shared with me" section */
+.hd-shared{ margin-top:8px; }
+.hd-pill-shared{ background:#1d4ed8; color:#fff; }
+.hd-card-owner{ font-style:italic; }
 .team-add{height:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:0;
   border-radius:8px;background:var(--pos);color:var(--ink-on-accent);font:700 12px var(--f-ui);padding:0 12px;cursor:pointer}
 .team-add:disabled{opacity:.5;cursor:not-allowed}

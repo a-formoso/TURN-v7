@@ -12,9 +12,15 @@
    continuity — the same paper palette, Spectral serif headlines, Space Grotesk
    wordmark, black pill buttons, and Reel-orange as the single warm accent.
 
-   Gating (in app.jsx): this dashboard is the ONLY Home, and only shows once the
-   user has >=2 films; below that, opening Home lands straight in the Writers'
-   Room instead. */
+   Gating (in app.jsx): this dashboard is the ONLY Home. It shows once the user
+   has >=2 films OR any film shared with them (so someone whose only film is a
+   share still gets a front door that explains it); below that, opening Home
+   lands straight in the Writers' Room instead.
+
+   SHARED FILMS get their own "Shared with me" section: owned films keep their
+   ordering/poster behaviour in Recent Projects untouched, while shared cards
+   name the owner and the viewer's role — and never auto-paint posters (the key
+   art belongs to the owner; a viewer shouldn't spend credits on it). */
 
 (function(){
   const h = React.createElement;
@@ -72,13 +78,23 @@
 
     // real films only (shows are containers), newest-updated first (list already sorted)
     const films = (projects||[]).filter(p=> String(p.isShow)!=="true");
-    // Recent Projects is a PAGED window (‹ › arrows) over all films — FOUR film
-    // cards a page; the fifth column is always the New Project card
+    // owned vs shared-with-me: Recent Projects stays OWNED films only (ordering,
+    // paging and poster behaviour unchanged); shared films get their own section
+    const mine = films.filter(p=> !p.isShared);
+    const shared = films.filter(p=> !!p.isShared);
+    // Recent Projects is a PAGED window (‹ › arrows) over the owned films — FOUR
+    // film cards a page; the fifth column is always the New Project card
     const PER = 4;
     const [start, setStart] = React.useState(0);
-    const maxStart = Math.max(0, films.length - PER);
+    const maxStart = Math.max(0, mine.length - PER);
     const from = Math.min(start, maxStart);
-    const recent = films.slice(from, from + PER);
+    const recent = mine.slice(from, from + PER);
+    // the shared strip pages too (five per page — no New card in this row)
+    const SPER = 5;
+    const [sStart, setSStart] = React.useState(0);
+    const sMax = Math.max(0, shared.length - SPER);
+    const sFrom = Math.min(sStart, sMax);
+    const sharedPage = shared.slice(sFrom, sFrom + SPER);
     const current = films.find(p=> p.id===currentId) || null;
     const hero = current || films.find(p=> p.cover) || films[0] || null;
     const activeRoom = room || "writers";
@@ -191,7 +207,7 @@
     const recentSection = h("section",{className:"hd-recent"},
       h("div",{className:"hd-sec-head"},
         h("h2",{className:"hd-sec-title"},"Recent Projects"),
-        films.length > PER && h("div",{className:"hd-nav"},
+        mine.length > PER && h("div",{className:"hd-nav"},
           h("button",{className:"hd-navbtn", disabled:from<=0, title:"Previous",
             onClick:()=> setStart(Math.max(0, from - PER))}, Ic("chevL",15)),
           h("button",{className:"hd-navbtn", disabled:from>=maxStart, title:"Next",
@@ -226,6 +242,36 @@
           h("div",{className:"hd-card-art hd-card-new-art"},
             Ic("plus",26),
             h("div",{className:"hd-card-new-lab"},"New Project")))));
+
+    // ----- shared with me -----------------------------------------------------
+    // Films OTHER people own and shared with this account. Every card says who
+    // shared it and what the viewer may do (View-only / Writer / Art director).
+    // No poster actions and no auto-painting here — the key art is the owner's.
+    const roleLabel = (r)=> (typeof teamRoleLabel==="function") ? teamRoleLabel(r) : (r||"");
+    const roleBlurb = (r)=> (typeof teamRoleBlurb==="function") ? (teamRoleBlurb(r)||"") : "";
+    const sharedSection = shared.length ? h("section",{className:"hd-recent hd-shared"},
+      h("div",{className:"hd-sec-head"},
+        h("h2",{className:"hd-sec-title"},"Shared with me"),
+        shared.length > SPER && h("div",{className:"hd-nav"},
+          h("button",{className:"hd-navbtn", disabled:sFrom<=0, title:"Previous",
+            onClick:()=> setSStart(Math.max(0, sFrom - SPER))}, Ic("chevL",15)),
+          h("button",{className:"hd-navbtn", disabled:sFrom>=sMax, title:"Next",
+            onClick:()=> setSStart(Math.min(sMax, sFrom + SPER))}, Ic("chevR",15)))),
+      h("div",{className:"hd-recent-row"},
+        sharedPage.map(p=> h("div",{ key:p.id, className:"hd-card hd-card-shared"+(p.id===currentId?" current":""),
+            role:"button", tabIndex:0, onClick:()=> onOpen && onOpen(p.id),
+            onKeyDown:(e)=>{ if(e.key==="Enter") onOpen && onOpen(p.id); },
+            title: roleBlurb(p.shareRole)},
+          h("div",{className:"hd-card-art",
+              style: p.cover ? { backgroundImage:'url("'+p.cover+'")' } : null},
+            !p.cover && h("span",{className:"hd-card-initials"}, initials(p.title)),
+            h("span",{className:"hd-card-pill hd-pill-shared"},
+              ("SHARED"+(p.shareRole?(" · "+roleLabel(p.shareRole)):"")).toUpperCase()),
+            h("div",{className:"hd-card-shade"},
+              h("div",{className:"hd-card-name"}, p.title||"Untitled film"),
+              h("div",{className:"hd-card-sub hd-card-owner"},
+                p.ownerEmail ? ("Shared by "+p.ownerEmail) : "Shared with you"),
+              h("div",{className:"hd-card-meta"}, Ic("history",12), updatedAgo(p.updated_at||p.created_at)))))))) : null;
 
     // ----- feature strip ----------------------------------------------------
     const featureSection = h("section",{className:"hd-features"},
@@ -270,6 +316,7 @@
         h("div",{className:"hd-scroll"},
           heroSection,
           recentSection,
+          sharedSection,
           featureSection,
           footer)),
       posterViewer);
