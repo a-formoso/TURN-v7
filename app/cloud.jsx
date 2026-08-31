@@ -269,15 +269,18 @@ async function cloudSaveOrder(id, order){
 }
 window.cloudSaveOrder = cloudSaveOrder;
 async function cloudCreateProject(title, doc){
-  const sb = sbClient(); if(!sb) return null;
+  // record WHY a create failed so the UI can say something better than "hiccup"
+  window.cloudLastCreateError = "";
+  const sb = sbClient(); if(!sb){ window.cloudLastCreateError = "cloud storage isn\u2019t ready in this window"; return null; }
   const session = await cloudGetSession();
-  const uid = session && session.user && session.user.id; if(!uid) return null;
+  const uid = session && session.user && session.user.id;
+  if(!uid){ window.cloudLastCreateError = "your session has expired \u2014 sign in again"; return null; }
   try{
     const { data, error } = await sb.from("turn_projects")
       .insert({ owner:uid, title: title || "Untitled film", doc: doc || {} }).select().single();
-    if(error) return null;
+    if(error){ window.cloudLastCreateError = (error.message || "the server rejected the save"); return null; }
     return data;
-  }catch(e){ return null; }
+  }catch(e){ window.cloudLastCreateError = (e && e.message) || "network error"; return null; }
 }
 async function cloudLoadProject(id){
   const sb = sbClient(); if(!sb) return null;

@@ -4373,10 +4373,14 @@ function App(){
             // HARD STOP on a failed mint: without this, a network blip here would
             // silently aim the build at the OPEN film — surfacing a destructive
             // "Replace project" card where the user expected a fresh "Create".
-            const minted = await createProject();
+            // One automatic retry absorbs transient blips; a second failure
+            // surfaces the REAL reason (expired session, server error, network).
+            let minted = await createProject();
+            if(!minted) minted = await createProject();
             if(!minted){
+              const why = String(window.cloudLastCreateError||"").trim();
               if(typeof window.appToast==="function")
-                window.appToast("Couldn\u2019t create the new film (connection hiccup) \u2014 nothing was built and your current film is untouched. Try Build this story again.", "error");
+                window.appToast("Couldn\u2019t create the new film"+(why?" \u2014 "+why:"")+". Nothing was built and your current film is untouched.", "error");
               return;
             }
           }
