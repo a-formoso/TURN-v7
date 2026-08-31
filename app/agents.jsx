@@ -456,6 +456,10 @@ async function agentAdaptation(ctx){
     format: base.format || "Short Film",
     premise: (world && world.premise) || base.premise,
     controllingIdea: (world && world.controllingIdea) || base.controllingIdea,
+    // the empathy anchor (Center of Good) arrives with the story world. A COMPLETED
+    // world build is authoritative: if it declared no anchor, the old story's anchor
+    // must NOT leak into the new one — only a failed build inherits.
+    centerOfGood: world ? world.centerOfGood : base.centerOfGood,
     setting: (world && world.setting) || base.setting,
   };
 

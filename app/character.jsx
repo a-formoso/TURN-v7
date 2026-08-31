@@ -72,7 +72,22 @@ function CharacterPanel({ character, scenes, onUpdate, onDraft, drafting, onJump
             React.createElement("select",{className:"char-pronoun-sel",disabled:readOnly,
               value:((c.pronouns==="he/him"||c.pronouns==="she/her") ? c.pronouns : ((typeof window.charPronouns==="function"?window.charPronouns(c):"") || "")),
               onChange:e=>onUpdate(c.id,{pronouns:e.target.value})},
-              [["","set pronouns\u2026"],["he/him","he/him"],["she/her","she/her"]].map(function(o){return React.createElement("option",{key:o[0]||"unset",value:o[0],disabled:!o[0]},o[1]);}))))),
+              [["","set pronouns\u2026"],["he/him","he/him"],["she/her","she/her"]].map(function(o){return React.createElement("option",{key:o[0]||"unset",value:o[0],disabled:!o[0]},o[1]);}))),
+          // ORBIT — the solar-system cast map. Auto-inferred from role + scenes driven;
+          // the build spends psychological depth on inner circles (texture stays texture).
+          React.createElement("div",{style:{display:"flex",alignItems:"center",gap:6,marginTop:4}},
+            React.createElement("span",{className:"obj-lab",style:{marginBottom:0},
+              title:"How close this character orbits the protagonist. The story build spends full psychological depth on the Center and First circle, less on the Second, none on Third-circle texture."},"Orbit"),
+            React.createElement("select",{className:"char-pronoun-sel",disabled:readOnly,
+              value:(c.orbit===0||c.orbit===1||c.orbit===2||c.orbit===3)?String(c.orbit):"",
+              // moving a character to Center makes them the protagonist — a protagonist
+              // never carries a counterpoint, so the stale one is cleared with the move
+              onChange:e=>{ const v = e.target.value===""?undefined:Number(e.target.value);
+                onUpdate(c.id, v===0 ? {orbit:0, counterpoint:""} : {orbit:v}); }},
+              [["","auto \u2014 "+(typeof window.castOrbit==="function" ? (window.ORBIT_LABELS||{})[window.castOrbit({...c,orbit:undefined},scenes)]||"" : "")],
+               ["0","Center \u2014 the protagonist"],["1","First circle \u2014 help / hinder / define"],
+               ["2","Second circle \u2014 functional support"],["3","Third circle \u2014 setting texture"]].map(function(o){
+                return React.createElement("option",{key:o[0]||"auto",value:o[0]},o[1]);}))))),
 
       // DESIRE
       React.createElement("div",{className:"insp-block",style:{marginTop:16}},
@@ -98,6 +113,20 @@ function CharacterPanel({ character, scenes, onUpdate, onDraft, drafting, onJump
           React.createElement(EditText,{value:c.dimensions,readOnly,multiline:true,
             placeholder:"one pair per line \u2014 e.g. ruthless in the deal / sentimental with strangers\u2026",
             onCommit:v=>onUpdate(c.id,{dimensions:v})})),
+        // COUNTERPOINT — design by counterpoint: a supporting character exists to pressure
+        // a SPECIFIC protagonist dimension. First-circle job (canonical eligibility rule);
+        // legacy values stay visible/editable so nothing becomes uneditable data.
+        (()=>{ const isProt = (typeof window.isProtagonistChar==="function")
+            ? window.isProtagonistChar(c) : /protagonist\b/i.test(String(c.role||""));
+          const orb = (typeof window.castOrbit==="function") ? window.castOrbit(c, scenes) : 1;
+          return !isProt && (orb===1 || String(c.counterpoint||"").trim()); })() &&
+        React.createElement("div",{className:"char-field"},
+          React.createElement("div",{className:"obj-lab",
+            title:"Design by counterpoint \u2014 every supporting character exists to contrast, contradict or illuminate a SPECIFIC dimension of the protagonist. Foils are dimension-revealers."},
+            "Counterpoint \u2014 what they force the protagonist to reveal"),
+          React.createElement(EditText,{value:c.counterpoint,readOnly,multiline:true,
+            placeholder:"the protagonist contradiction this character pressures \u2014 e.g. attacks her mercy / ambition split\u2026",
+            onCommit:v=>onUpdate(c.id,{counterpoint:v})})),
         // HUMAN TRUTH — the insight into human nature this character embodies, and
         // which side of the film's controlling idea it argues. Every significant
         // character should hold a DISTINCT stance (the cast is the argument's jury).

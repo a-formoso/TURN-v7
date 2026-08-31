@@ -26,6 +26,9 @@ const PROJECT = {
      Inner-led: Neo's naiveté→insight ("there is no spoon") resolves FIRST; the
      external Life/Death victory follows from it. */
   contract: { outer: "action", inner: "education", dominant: "inner" },
+  /* Center of Good — the empathy anchor (sympathy optional, empathy absolute). */
+  centerOfGood:
+    "Morpheus's unshakeable faith \u2014 someone believes in Neo before Neo believes in himself.",
 };
 
 const CHARACTERS = [

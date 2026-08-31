@@ -401,6 +401,8 @@ function storyContext(scene, prevScene, project){
   const ci = P.controllingIdea || {};
   let s = `FILM: ${P.title||"Untitled"} \u2014 ${P.genre||""}. Logline: ${writingLoglineOf(P)}\n`;
   s += `Controlling idea: ${ci.value||""} ${ci.cause||""}\n`;
+  // the empathy anchor rides into every scene draft so no rewrite orphans it
+  if(P.centerOfGood) s += `Center of Good (the audience's empathy anchor \u2014 protect it): ${P.centerOfGood}\n`;
   if(typeof contractBrief==="function"){ const cb = contractBrief(P); if(cb) s += cb; }
   if(prevScene) s += `Previous scene (${prevScene.no}. ${prevScene.title}) ended on ${prevScene.closeValue} (${chargeStr(prevScene.closeCharge)}). Maintain continuity from it.\n`;
   s += `\nSCENE ${scene.no}: "${scene.title}"\n${scene.loc}\n`;
@@ -977,6 +979,7 @@ const APP_FEATURES = [
   { name:"Draft with MUSE", what:"drafts the ONE selected scene only. If that scene has no beats yet, it first authors the whole scene (title, description, value charge, beats) and then writes its script." },
   { name:"Human truth (Cast panel)", what:"every character carries a HUMAN TRUTH — the one observation about human nature they embody, a DISTINCT stance on the film's controlling idea, grounded in behaviour the script shows — plus an ARGUES selector (The idea / The counter-idea / Complicates both). The cast is the argument's JURY: the protagonist prosecutes the idea through change, others hold opposing or complicating stances, and that difference is what makes dialogue unswappable. Both fields sit on the Cast panel under Desire; the character 'Draft with MUSE' button and the story build's cast-psychology pass draft them automatically (script-grounded — the truth must fit what the character actually DOES). The FREE Consistency Check audits the ARGUMENT MAP: it flags scene-driving characters with no human truth, and a unanimous jury (3+ stanced characters all arguing the same side)." },
   { name:"Character architecture (Cast panel)", what:"characters are built on the TWO-LAYER RULE \u2014 characterization is only the mask; TRUE character is what choices under pressure reveal, so the inner life always derives from what the script shows them DO. The DESIRE COMPLEX requires the unconscious need to genuinely CONTRADICT the conscious want (the pull-against generates scenes), and motivation is disciplined: never a lazy trauma/backstory excuse \u2014 the want must be a live, present-tense hunger. DIMENSIONS \u2014 a Cast-panel field under Unconscious need \u2014 hold 2\u20134 consistent contradictions per character ('trait / counter-trait', one pair per line), with the protagonist carrying the most. The protagonist's arc is PINNED to the Story Contract's declared inner arc so the cast and the contract never drift. All of it drafts automatically via 'Draft with MUSE' (per character) and the story build's cast-psychology pass; every field stays hand-editable." },
+  { name:"Cast design (orbits \u00b7 counterpoint \u00b7 Center of Good)", what:"the cast is designed as a SOLAR SYSTEM around the protagonist. ORBITS: every character sits at Center (protagonist), First circle (help/hinder/define), Second circle (functional support) or Third circle (setting texture) \u2014 inferred automatically from role + scenes driven, overridable via the Orbit selector on the Cast panel header. Orbits are a DEPTH BUDGET: the build spends full psychological architecture on Center + First circle, gives Second circle only a want, arc and human truth, and leaves Third-circle texture characters as a name with a function (no psychology pass at all). COUNTERPOINT: every supporting character carries a Cast-panel field naming the SPECIFIC protagonist dimension they pressure, contrast or illuminate \u2014 foils are dimension-revealers, drafted automatically and hand-editable (hidden on the protagonist's own card). CENTER OF GOOD: a film-level empathy anchor on the Premise rail card \u2014 sympathy is optional, empathy is absolute; the anchor can live inside a dark protagonist (the one loyalty they never betray). Drafted by the story build, fed into every scene draft so rewrites never orphan it. Anti-stereotype rules (off-center traits, plausible motivation for implausible acts, strictly in-character logic) are applied silently wherever characters are invented \u2014 never a field to fill." },
   { name:"Auto-draft all (N left)", what:"drafts EVERY still-undrafted scene in order, threading continuity scene-to-scene. The (N left) counts scenes with no draft yet. Same engine as Draft with MUSE, just batched." },
   { name:"Redraft script from beats", what:"the ONE rebuild lever for a scene's screenplay, living in the Script view's toolbar (formerly 'Polish with MUSE' / 'Re-polish'; a duplicate in the Beats tab was removed). The scene's prose is rewritten fresh from its CURRENT beat cards (the old prose is never read \u2014 beats are the source), a CENTERED full-screen progress card shows while MUSE works, and the outgoing draft lands in version history so Undo restores it. Reshape the beats first to reshape the scene; press it on an untouched scene simply to elevate the structural draft into final prose. DRIVER RECAST: changing a scene's DRIVER (the Scene tab dropdown) syncs the Beats tab's labels instantly, and \u2014 because prose can't follow a dropdown \u2014 OFFERS to recast the scene's subtext for the new driver (a confirm, then MUSE rewrites the summary, objective, desire, antagonism and every beat's drive side for the new character, same beat count and escalation; a centered progress card shows while it runs). Review the recast beats, then 'Redraft script from beats' rebuilds the screenplay to match. Declining the recast keeps all text as it was." },
   { name:"Recovery screen (render crash)", what:"if a display error ever breaks the screen, the app no longer goes blank \u2014 a recovery card appears saying what happened, with Reload, \u2018Reload on a fresh view\u2019 (comes back on the default tab, for when the same screen keeps breaking) and Copy error (the technical detail, for reporting), plus a foldable Technical detail section. Your film saves continuously, so a crash is a display problem rather than a lost film \u2014 though the last few seconds of edits before it may not have been written. Screenplay undo history is also capped at 12 versions per scene (matching the image layer), so a long session can\u2019t grow the saved file without limit." },
@@ -1868,7 +1871,9 @@ async function aiBuildStoryWorld(brief, spine){
     "different kinds of people, keep the name for the PRINCIPAL and give the other person a new name. Add a cast entry for any "+
     "named minor character the scenes rely on.\n"+
     "controllingIdea: value = the positive value the story proves (e.g. 'We find freedom'), cause = how/why (e.g. 'when we face the truth'), polarity = ironic|idealistic|pessimistic.\n"+
+    "centerOfGood: EMPATHY ENGINEERING \u2014 sympathy (likability) is optional, empathy is absolute. One sentence naming where the audience's identification ANCHORS in this story. It can live inside a dark protagonist (the one loyalty they never betray) or in someone the story protects \u2014 but it must exist, even with monsters.\n"+
     "setting: period, duration, location, conflict (one short phrase each).\n"+
+    ANTI_STOCK_RULE+"\n"+
     "cast: 3-6 PRINCIPAL characters. For each: id (lowercase, matches a driver id where possible), name (CAPS), and role formatted as THREE optional parts in this exact shape: FUNCTION [ \u00b7 ARCHETYPE ] [ \u2014 IDENTITY ]. "+
     "FUNCTION = the dramatic role, one or two words (Protagonist, Antagonist, Catalyst, Mentor, Ally, Mirror, Wildcard\u2026). ARCHETYPE = an OPTIONAL 1-3 word thematic aspect they embody, after a ' \u00b7 ' (e.g. 'ideology', 'the system', 'the mirror'). IDENTITY = a REQUIRED short phrase of who they are in the world, after a ' \u2014 ' (e.g. 'a far-right podcaster', 'a Somali-British trauma nurse'). "+
     "Example: 'Antagonist \u00b7 ideology \u2014 a far-right podcaster'. ALWAYS include the FUNCTION and the IDENTITY (every character is someone); the ARCHETYPE is optional. Keep each part concise (identity \u2264 ~8 words). "+
@@ -1877,7 +1882,7 @@ async function aiBuildStoryWorld(brief, spine){
     "VOICE \u2014 give every cast member a voice block describing how they SOUND (this seeds voice casting later): "+
     "accent = the EXPLICIT spoken accent with strength, consistent with their identity, the setting and the period \u2014 name it as SOUND (e.g. 'noticeable Turkish accent, London inflections underneath', 'soft Glasgow accent', 'neutral American'), never just an ethnicity or backstory; "+
     "pitch = pitch/timbre in a few words (e.g. 'low, warm, slightly gravelly'); pace = speaking rhythm (e.g. 'measured, unhurried'); quirks = OPTIONAL audible speech habits (e.g. 'clips sentences when stressed', 'formal, never contracts words'). Keep each field \u2264 ~8 words.\n"+
-    'Return ONLY JSON: {"premise":"one vivid sentence as a question","controllingIdea":{"value":"...","cause":"...","polarity":"ironic"},"setting":{"period":"...","duration":"...","location":"...","conflict":"..."},"cast":[{"id":"...","name":"...","role":"...","voice":{"accent":"...","pitch":"...","pace":"...","quirks":"..."}}]}.';
+    'Return ONLY JSON: {"premise":"one vivid sentence as a question","controllingIdea":{"value":"...","cause":"...","polarity":"ironic"},"centerOfGood":"one sentence","setting":{"period":"...","duration":"...","location":"...","conflict":"..."},"cast":[{"id":"...","name":"...","role":"...","voice":{"accent":"...","pitch":"...","pace":"...","quirks":"..."}}]}.';
   try{
     const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }] });
     const j = extractJSON(res);
@@ -1899,6 +1904,8 @@ async function aiBuildStoryWorld(brief, spine){
     }).filter(c=>c.id) : [];
     return {
       premise: clipWords(scrubBrand((j.premise||"").toString()),300),
+      ...( String(j.centerOfGood||"").trim()
+        ? { centerOfGood: clipWords(scrubBrand(String(j.centerOfGood)),200) } : {} ),
       controllingIdea:{ value:scrubBrand((ci.value||"").toString()).slice(0,60),
         cause:scrubBrand((ci.cause||"").toString()).slice(0,90),
         polarity:(["ironic","idealistic","pessimistic"].includes((ci.polarity||"").toString().toLowerCase())?ci.polarity.toLowerCase():"ironic") },
@@ -2189,6 +2196,43 @@ window.composeStoryBrief = composeStoryBrief;
 
 /* ---- CHARACTER: draft conscious want + unconscious need + arc, derived from the
    scenes this character actually drives, so it stays consistent with the spine. ---- */
+/* SOLAR-SYSTEM CAST MAP — how close a character orbits the protagonist.
+   0 = center (protagonist) · 1 = first circle (help/hinder/define) ·
+   2 = second circle (functional support) · 3 = third circle (setting texture).
+   Used as a DEPTH BUDGET: the build spends full psychological architecture on the
+   inner circles and leaves texture characters as names with a function. A manual
+   c.orbit always wins; otherwise inferred from role + scenes driven. */
+const ORBIT_LABELS = { 0:"Center", 1:"First circle", 2:"Second circle", 3:"Third circle" };
+window.ORBIT_LABELS = ORBIT_LABELS;
+function castOrbit(c, scenes){
+  if(c && (c.orbit===0||c.orbit===1||c.orbit===2||c.orbit===3)) return c.orbit;
+  const role = String((c&&c.role)||"").toLowerCase();
+  if(/protagonist|\blead\b/.test(role)) return 0;
+  const driven = (scenes||[]).filter(s=>s && s.driver===(c&&c.id)).length;
+  // word-boundary matching only — "glove maker" and "beloved" must not promote via "love"
+  if(driven>=2 || /\b(antagonist|nemesis|rival|mentor|ally|love|lover|mirror|foil|catalyst|wildcard|betrayer)\b/.test(role)) return 1;
+  if(driven>=1) return 2;
+  return 3;
+}
+window.castOrbit = castOrbit;
+
+/* Canonical protagonist predicate — Center orbit IS the protagonist by definition,
+   and a role-labelled protagonist stays one whatever orbit they were dragged to.
+   Counterpoint eligibility (parse, prompt and UI all use this): first-circle
+   non-protagonists only — a protagonist never carries a counterpoint. */
+function isProtagonistChar(c){
+  if(!c) return false;
+  if(c.orbit===0) return true;
+  return /protagonist|\blead\b/i.test(String(c.role||""));
+}
+window.isProtagonistChar = isProtagonistChar;
+
+/* Anti-stereotype recipes (the useful core of the symbolic-spectrum check) — applied
+   silently wherever characters are invented or articulated, never a field to fill. */
+const ANTI_STOCK_RULE = "AVOID STOCK TYPES: never write a demographic stereotype. Make the old new \u2014 "+
+  "give each character at least one OFF-CENTER trait their type wouldn't predict, a PLAUSIBLE motivation "+
+  "for any implausible act, and strictly IN-CHARACTER logic (what THIS person would do, not what the plot needs). ";
+
 /* DIMENSIONS normalizer — shared by the single-character draft and the batched cast
    pass. Entries must be genuine "trait / counter-trait" pairs (meaningful text on BOTH
    sides of the slash); invalid/blank entries are dropped, 4 max. Fewer than 2 surviving
@@ -2211,6 +2255,16 @@ async function aiDraftCharacter(character, drivenScenes, project, canon){
   ctx += "Controlling idea: "+(ci.value||"")+" "+(ci.cause||"")+"\n";
   // the Story Contract rides along so a protagonist's arc can be pinned to the declared inner arc
   if(typeof contractBrief==="function"){ const cb = contractBrief(P); if(cb) ctx += cb; }
+  // counterpoint anchor: a supporting character exists to pressure a SPECIFIC
+  // protagonist dimension, so the protagonist's contradictions ride along
+  const castAll = window.turnCast || [];
+  const protag = castAll.find(x=>isProtagonistChar(x));
+  const isProtag = isProtagonistChar(character) || !!(protag && protag.id===character.id);
+  // counterpoint is a FIRST-circle job: drivenScenes is exactly this character's
+  // driven list, so castOrbit's scene count works unchanged
+  const wantsCounterpoint = !isProtag && castOrbit(character, drivenScenes)===1;
+  if(wantsCounterpoint && protag) ctx += "PROTAGONIST (for counterpoint): "+protag.name+
+    (protag.dimensions ? (" \u2014 their dimensions:\n"+protag.dimensions) : "")+"\n";
   ctx += "\nCHARACTER: "+character.name+" ("+(character.role||"")+")\n";
   // THE SCRIPT IS CANON for psychology too: the screenplay's own lines about this
   // character ground the want/need/arc — vital for someone added AFTER the build,
@@ -2230,13 +2284,15 @@ async function aiDraftCharacter(character, drivenScenes, project, canon){
     "Conscious desire = what they consciously pursue (the goal that drives their scenes). "+
     "Unconscious desire = the deeper need that genuinely CONTRADICTS the conscious one \u2014 the pull-against is the scene engine, not a restatement of the want. "+
     "MOTIVATION DISCIPLINE: never explain a want with a convenient trauma/backstory wound \u2014 keep asking WHY until it is a live, present-tense hunger the story can dramatize. "+
+    ANTI_STOCK_RULE+
     "dimensions = 2\u20134 CONSISTENT CONTRADICTIONS visible in their behaviour, each a \u201ctrait / counter-trait\u201d pair (e.g. \u201cruthless in the deal / sentimental with strangers\u201d); a protagonist should carry the most. "+
+    (wantsCounterpoint ? "counterpoint = DESIGN BY COUNTERPOINT: one sentence naming the SPECIFIC protagonist dimension this character pressures, contrasts or illuminates (foils are dimension-revealers) \u2014 ground it in the dimensions listed above if given. " : "")+
     "Arc = their inner transformation in 3\u20135 words (e.g. \u201cDoubt \u2192 belief \u2192 self-realization\u201d), reflecting how their value charges turn across the scenes above. If this character is the PROTAGONIST and a Story Contract above declares an inner arc, the arc must EXPRESS that declared arc. "+
     "humanTruth = the ONE observation about HUMAN NATURE this character embodies \u2014 a distinct stance on the controlling idea, GROUNDED in behaviour the screenplay actually shows (cite no scene numbers, just distil the behaviour); one sentence, specific, no platitudes. "+
     "argues = which side of the controlling idea that stance lands on: \"idea\", \"counter\", or \"complicates\" (it genuinely cuts both ways).\n"+
     "voiceDNA describes WRITTEN dialogue rather than casting performance: vocabulary domains, sentence structure, rhythm/cadence, directness, recurring imagery/metaphor sources, language they avoid, and how their syntax changes under pressure. Ground it in this person's identity and screenplay evidence; make every field usable by a scene writer.\n"+
     "Keep each concise and specific to THIS story \u2014 no generic screenwriting platitudes.\n"+
-    'Return ONLY JSON: {"conscious":"one sentence","unconscious":"one sentence","arc":"3-5 word arc","dimensions":["trait / counter-trait","..."],"humanTruth":"one sentence","argues":"idea|counter|complicates","voiceDNA":{"vocabulary":"","syntax":"","rhythm":"","directness":"","imagery":"","avoids":"","stressShift":""}}.';
+    'Return ONLY JSON: {"conscious":"one sentence","unconscious":"one sentence","arc":"3-5 word arc","dimensions":["trait / counter-trait","..."],'+(wantsCounterpoint?'"counterpoint":"one sentence",':'')+'"humanTruth":"one sentence","argues":"idea|counter|complicates","voiceDNA":{"vocabulary":"","syntax":"","rhythm":"","directness":"","imagery":"","avoids":"","stressShift":""}}.';
   try{
     const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }] });
     const j = extractJSON(res);
@@ -2248,6 +2304,8 @@ async function aiDraftCharacter(character, drivenScenes, project, canon){
       arc: clipWords(scrubBrand((j.arc||"").toString()),60),
       // 2-4 validated "trait / counter-trait" pairs, one per line — or omitted entirely
       ...( (d=> d ? { dimensions:d } : {})(normalizeDimensions(j.dimensions)) ),
+      ...( (wantsCounterpoint && String(j.counterpoint||"").trim())
+        ? { counterpoint: clipWords(scrubBrand(String(j.counterpoint)),160) } : {} ),
       humanTruth: clipWords(scrubBrand((j.humanTruth||"").toString()),180),
       voiceDNA: Object.fromEntries(Object.entries(j.voiceDNA||{}).filter(([k])=>
         ["vocabulary","syntax","rhythm","directness","imagery","avoids","stressShift"].includes(k))
@@ -2262,6 +2320,10 @@ window.aiDraftCharacter = aiDraftCharacter;
    whole cast in small batches (so no response truncates). Returns { id:{fields} }. */
 async function aiCastPsychology(characters, scenes, project){
   if(!aiAvailable() || !characters || !characters.length) return null;
+  // DEPTH BUDGET (solar-system map): third-circle texture characters get no
+  // psychology pass at all — a name and a function is their whole job.
+  characters = characters.filter(c=>castOrbit(c, scenes)<=2);
+  if(!characters.length) return null;
   const P = writingProjectOf(project);
   const ci = P.controllingIdea || {};
   const header = "FILM: "+(P.title||"Untitled")+" \u2014 "+(P.genre||"")+". Logline: "+writingLoglineOf(P)+
@@ -2272,21 +2334,25 @@ async function aiCastPsychology(characters, scenes, project){
   for(let i=0;i<characters.length;i+=3) batches.push(characters.slice(i,i+3));
 
   const runBatch = async (chars)=>{
-    let ctx = header + "\nCAST (with the scenes each drives):\n";
+    let ctx = header + "\nCAST (with each one's ORBIT on the solar-system map and the scenes each drives):\n";
+    const orbitTag = { 0:"CENTER \u2014 protagonist", 1:"FIRST circle \u2014 help/hinder/define", 2:"SECOND circle \u2014 functional support" };
     chars.forEach(c=>{ const driven=(scenes||[]).filter(s=>s.driver===c.id);
-      ctx += "- id:"+c.id+" | "+c.name+" ("+(c.role||"")+")"+
+      ctx += "- id:"+c.id+" | "+c.name+" ("+(c.role||"")+") ["+ (orbitTag[castOrbit(c,scenes)]||orbitTag[2]) +"]"+
         (driven.length?(" \u2014 drives: "+driven.map(s=>s.title+" ["+chargeStr(s.openCharge)+"\u2192"+chargeStr(s.closeCharge)+"]").slice(0,5).join("; ")):" \u2014 drives no scenes")+"\n"; });
     const prompt = ctx + "\nUsing the Infinite Studio method, articulate EACH character. "+
       "TWO LAYERS: characterization is only the mask \u2014 TRUE character is what CHOICES under pressure reveal; derive everything from what each character DOES in the scenes they drive. "+
       "conscious = what they consciously pursue (the goal driving their scenes), one sentence. "+
       "unconscious = the deeper need that genuinely CONTRADICTS the conscious one (the pull-against generates scenes), one sentence. "+
       "MOTIVATION DISCIPLINE: never a convenient trauma/backstory wound as the why \u2014 the want must be a live, present-tense hunger. "+
-      "dimensions = 2\u20134 consistent contradictions visible in behaviour for EVERY character, each a \"trait / counter-trait\" pair; the PROTAGONIST carries the most (3\u20134). "+
+      ANTI_STOCK_RULE+
+      "dimensions = 2\u20134 consistent contradictions visible in behaviour, each a \"trait / counter-trait\" pair; the PROTAGONIST carries the most (3\u20134). "+
+      "counterpoint = DESIGN BY COUNTERPOINT (first-circle characters only, never the protagonist): one sentence naming the SPECIFIC protagonist dimension this character pressures, contrasts or illuminates \u2014 foils are dimension-revealers. "+
       "arc = inner transformation in 3-5 words reflecting how their charges turn; the PROTAGONIST's arc must EXPRESS the Story Contract's declared inner arc if one appears above. "+
+      "DEPTH BUDGET by orbit: CENTER and FIRST-circle characters get the FULL architecture (all fields). SECOND-circle characters get ONLY conscious, arc and humanTruth \u2014 omit their other fields entirely. "+
       "humanTruth = the ONE observation about human nature this character embodies \u2014 a DISTINCT stance on the controlling idea (no two characters the same stance; even minor cast get one), one sentence grounded in their behaviour. "+
       "argues = which side that stance lands on: \"idea\", \"counter\", or \"complicates\". Across the cast the stances should form an ARGUMENT MAP \u2014 not a unanimous jury. "+
       "Specific to THIS story, no platitudes.\n"+
-      'Return ONLY compact JSON: {"cast":[{"id":"...","conscious":"...","unconscious":"...","arc":"...","dimensions":["trait / counter-trait","..."],"humanTruth":"...","argues":"idea|counter|complicates"}]}';
+      'Return ONLY compact JSON: {"cast":[{"id":"...","conscious":"...","unconscious":"...","arc":"...","dimensions":["trait / counter-trait","..."],"counterpoint":"...","humanTruth":"...","argues":"idea|counter|complicates"}]} \u2014 leave out any field the depth budget or the counterpoint rule excludes.';
     try{
       const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }] });
       const j = extractJSON(res);
@@ -2296,14 +2362,21 @@ async function aiCastPsychology(characters, scenes, project){
         const m = chars.find(c=>c.id===r) || chars.find(c=>r && (c.id.includes(r)||r.includes(c.id))); return m?m.id:null; };
       const part = {};
       arr.forEach((e,i)=>{ const id = idOf(e.id) || (chars[i] && chars[i].id);
-        if(id) part[id] = {
-          ...( /^(idea|counter|complicates)$/.test(String(e.argues||"").toLowerCase().trim()) ? { argues:String(e.argues).toLowerCase().trim() } : {} ),
-          ...( (d=> d ? { dimensions:d } : {})(normalizeDimensions(e.dimensions)) ),
-          humanTruth: clipSpecText(e.humanTruth,180),
-          conscious: clipSpecText(e.conscious,160),
-          unconscious: clipSpecText(e.unconscious,160),
-          arc: clipSpecText(e.arc,60),
-        }; });
+        if(!id) return;
+        // omit-empty merge: the depth budget legitimately leaves fields out, and an
+        // empty string must never blank a value the character already carries
+        const o = {};
+        const put=(k,raw,len)=>{ const s=clipSpecText(raw,len); if(s) o[k]=s; };
+        if(/^(idea|counter|complicates)$/.test(String(e.argues||"").toLowerCase().trim())) o.argues = String(e.argues).toLowerCase().trim();
+        const dims = normalizeDimensions(e.dimensions); if(dims) o.dimensions = dims;
+        const ch = chars.find(c=>c.id===id);
+        // counterpoint: first-circle non-protagonists only (the canonical eligibility rule)
+        if(ch && !isProtagonistChar(ch) && castOrbit(ch, scenes)===1) put("counterpoint", e.counterpoint, 160);
+        put("humanTruth", e.humanTruth, 180);
+        put("conscious", e.conscious, 160);
+        put("unconscious", e.unconscious, 160);
+        put("arc", e.arc, 60);
+        if(Object.keys(o).length) part[id] = o; });
       return part;
     }catch(e){ return {}; }
   };

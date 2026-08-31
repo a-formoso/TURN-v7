@@ -573,7 +573,13 @@ function LeftRail({ project, characters, scenes, selId, selChar, onSelect, onSel
             React.createElement("div",{className:"eyebrow",style:{marginBottom:6}},"Controlling Idea"),
             React.createElement("span",{className:"val"},ci.value)," ",
             React.createElement("span",{className:"cause"},ci.cause),
-            React.createElement("span",{className:"tag-ironic"},`${ci.polarity} ending`)))),
+            React.createElement("span",{className:"tag-ironic"},`${ci.polarity} ending`)),
+          // CENTER OF GOOD — the film-level empathy anchor (sympathy optional, empathy
+          // absolute). Drafted by the story build; fed to every scene draft via storyContext.
+          showFramework && project.centerOfGood && React.createElement("div",{className:"ctrl-idea"},
+            React.createElement("div",{className:"eyebrow",style:{marginBottom:6},
+              title:"Where the audience's identification anchors \u2014 it can live inside a dark protagonist (the one loyalty they never betray), but it must exist, even with monsters."},"Center of Good"),
+            React.createElement("span",{className:"cause"},project.centerOfGood)))),
 
       // STORY CONTRACT — outer plot · inner arc · which change the climax pays off
       showFramework && (typeof ContractSection==="function") && React.createElement(RailSection,

@@ -117,6 +117,24 @@ continuity scene to scene.
 > selves (core / personal / social / hidden), one line each. Psychometric trait labels are
 > deliberately omitted — traits fall out of contradictions and choices.
 
+> **Cast design** *(approved 2026-08-31 by owner)*: the cast is designed as a **solar system**
+> around the protagonist — Center (protagonist) · **first circle** (help / hinder / define) ·
+> **second circle** (functional support) · **third circle** (setting texture). Orbits are
+> inferred from role + scenes driven (manual override on the Cast panel) and act as a **depth
+> budget**: Center and first circle get the full character architecture; second circle gets a
+> want, an arc and a human truth; third-circle texture stays a name with a function — depth
+> where the story looks, silhouettes where it doesn't. **Design by counterpoint**: every
+> supporting character exists to contrast, contradict or illuminate a **specific dimension of
+> the protagonist** (foils are dimension-revealers) — each carries a one-line *Counterpoint*
+> naming the contradiction they pressure. **Empathy engineering**: sympathy (likability) is
+> optional; **empathy is absolute**. Every story declares a **Center of Good** — the film-level
+> anchor where the audience's identification lives, shown on the Premise card and protected in
+> every scene draft; it can live *inside* a dark protagonist (the one loyalty they never
+> betray), even with monsters. The symbolic-spectrum check survives only as silent
+> **anti-stereotype rules** applied wherever characters are invented (an off-center trait per
+> character, plausible motivations for implausible acts, strictly in-character logic) — never
+> a field to fill.
+
 ### 4. Structural core — the Spine
 Every story is a sequence of scenes, each carrying a **value charge** (opening → closing, e.g. +2 → −1).
 The **Spine view** plots that charge across all scenes so the rhythm of the whole arc is visible.
