@@ -998,10 +998,11 @@ function App(){
   const switchProject = async (id)=>{ if(id===currentProjectId) return; await loadProjectIntoState(id); };
   const createProject = async (title)=>{
     const created = await cloudCreateProject(title||"Untitled film", emptyDoc());
-    if(!created) return;
+    if(!created) return null;   // callers MUST treat null as "no film was minted"
     setProjects(ps=>[created, ...ps]);
     await loadProjectIntoState(created.id);
     setArtView("lookbook");   // a fresh film opens the Art Room on the Lookbook (front of the pipeline)
+    return created.id;
   };
   /* Dashboard: mint an AI poster for a film from its title + logline and persist it
      onto doc.cover, so the Recent Projects cards show real key art. Routes through the
@@ -4368,7 +4369,17 @@ function App(){
         // being built — and only when the current film already holds one (an empty
         // canvas is reused instead of duplicated). Aborted intakes create nothing.
         if(scenes.length){
-          if(cloudMode && typeof createProject==="function"){ await createProject(); }
+          if(cloudMode && typeof createProject==="function"){
+            // HARD STOP on a failed mint: without this, a network blip here would
+            // silently aim the build at the OPEN film — surfacing a destructive
+            // "Replace project" card where the user expected a fresh "Create".
+            const minted = await createProject();
+            if(!minted){
+              if(typeof window.appToast==="function")
+                window.appToast("Couldn\u2019t create the new film (connection hiccup) \u2014 nothing was built and your current film is untouched. Try Build this story again.", "error");
+              return;
+            }
+          }
           else { applyDoc(emptyDoc()); setArtView("lookbook"); }
         }
         // A new story always starts in the Writers' Room on the spine — the story is
