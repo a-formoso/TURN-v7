@@ -79,5 +79,7 @@ for (const page of ["privacy.html", "terms.html"]) {
   cpSync(join(ROOT, page), join(DIST, page));
   copied++;
 }
+cpSync(join(ROOT, "favicon.svg"), join(DIST, "favicon.svg"));
+copied++;
 
 console.log(`dist/ built: ${built} js files transpiled+minified, ${copied} assets copied, index.html rewritten (no Babel).`);

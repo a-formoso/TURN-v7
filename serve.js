@@ -4,7 +4,14 @@ const fs = require("fs");
 const path = require("path");
 
 const ROOT = path.resolve(__dirname); // project root on Replit
+const APP_ROOT = path.join(ROOT, "app");
 const PORT = process.env.PORT || 5000;
+const PUBLIC_ROOT_FILES = new Set([
+  "TURN.html",
+  "privacy.html",
+  "terms.html",
+  "favicon.svg",
+]);
 const TYPES = {
   ".html": "text/html", ".js": "text/javascript", ".jsx": "text/javascript",
   ".css": "text/css", ".json": "application/json", ".png": "image/png",
@@ -14,8 +21,6 @@ const TYPES = {
 
 // Block any path segment beginning with a dot (.git, .env, .replit, ., .., hidden files at any depth)
 const DOTSEG = /(?:^|\/)\./;
-// Block sensitive non-dot directories that shouldn't be served
-const BLOCKED = /(?:^|\/)(?:node_modules|docs)(?:\/|$)/;
 
 http.createServer((req, res) => {
   let urlPath;
@@ -28,13 +33,17 @@ http.createServer((req, res) => {
   if (urlPath.includes("\0")) { res.writeHead(400); return res.end("bad request"); }
   if (urlPath === "/") urlPath = "/TURN.html";
 
-  // Block dotfiles/dirs and other sensitive paths before resolving
-  if (DOTSEG.test(urlPath) || BLOCKED.test(urlPath)) { res.writeHead(403); return res.end("forbidden"); }
+  // Block dotfiles/dirs before resolving.
+  if (DOTSEG.test(urlPath)) { res.writeHead(403); return res.end("forbidden"); }
 
   // Resolve first, then enforce the boundary with a trailing separator so a
   // sibling dir sharing the prefix (e.g. workspace-backup) can't be served.
   const filePath = path.resolve(ROOT, "." + urlPath);
   if (filePath !== ROOT && !filePath.startsWith(ROOT + path.sep)) { res.writeHead(403); return res.end("forbidden"); }
+  const relativePath = path.relative(ROOT, filePath);
+  const isPublicRootFile = PUBLIC_ROOT_FILES.has(relativePath);
+  const isAppAsset = filePath.startsWith(APP_ROOT + path.sep);
+  if (!isPublicRootFile && !isAppAsset) { res.writeHead(403); return res.end("forbidden"); }
 
   fs.readFile(filePath, (err, data) => {
     if (err) { res.writeHead(404); return res.end("not found"); }

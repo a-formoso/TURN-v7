@@ -21,3 +21,6 @@ build/
 .env
 .env.*
 *.local
+
+# Imported source archives are not part of the runnable project
+zipFile.zip

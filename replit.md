@@ -6,12 +6,12 @@ Story-architecture app for AI filmmakers. Build a spine, write scenes that turn,
 
 - **Buildless React 18** — no bundler; Babel standalone compiles JSX in-browser
 - **Supabase** — auth + cloud storage (anon key in `app/supabase-config.js`); app works offline on localStorage when signed out
-- **Static file server** — `node .claude/serve.js` on port 5000
+- **Static file server** — `node serve.js` on port 5000
 
 ## How to run
 
 ```
-node .claude/serve.js
+node serve.js
 ```
 
 The workflow "Start application" is already configured and will start this automatically.
@@ -27,7 +27,7 @@ The workflow "Start application" is already configured and will start this autom
 - `app/agents.jsx` — bounded-loop agent engine
 - `app/story-data.jsx` — sample film data (The Matrix)
 - `docs/` — pipeline, protocol, and plan docs
-- `.claude/serve.js` — static file server
+- `serve.js` — static file server
 
 ## Important conventions (see AGENTS.md for full details)
 
