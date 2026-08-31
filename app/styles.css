@@ -6954,12 +6954,16 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
 /* ---- Story Contract (left rail) ---- */
 .contract-wrap{display:flex;flex-direction:column;gap:12px;padding:0 4px 4px}
 .contract-chips{display:flex;flex-wrap:wrap;gap:5px}
-.contract-chip{font:inherit;font-size:11px;padding:3px 9px;border:1px solid var(--line,#dedbd5);border-radius:999px;background:transparent;color:var(--txt-2);cursor:pointer;transition:border-color .12s,color .12s}
-.contract-chip:hover:not(:disabled){color:var(--txt-1);border-color:var(--txt-3)}
-.contract-chip.sel{border-color:var(--txt-1);color:var(--txt-1);font-weight:600}
+.contract-chip{font:inherit;font-size:11px;padding:4px 10px;border:1px solid var(--line-2);border-radius:999px;background:var(--bg-2);color:var(--txt-1);cursor:pointer;transition:border-color .12s,color .12s,background .12s}
+.contract-chip:hover:not(:disabled){color:var(--txt-0);border-color:var(--line-3);background:var(--bg-4)}
+.contract-chip.sel{border-color:var(--txt-0);background:var(--txt-0);color:var(--bg-2);font-weight:600}
 .contract-chip:disabled{opacity:.45;cursor:default}
 .contract-axis{margin-top:5px;font-family:var(--f-mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--txt-2)}
-.contract-note{margin-top:3px;font-size:11px;line-height:1.45;color:var(--txt-3);font-style:italic}
+.contract-note{margin-top:3px;font-size:11px;line-height:1.45;color:var(--txt-2);font-style:italic}
+/* the story rail's field labels & section headers read a step darker/larger than the
+   app-wide .obj-lab / .eyebrow — at 9px slate-on-bone they were nearly invisible */
+.rail-sec .obj-lab{font-size:10px;color:var(--txt-1)}
+.rail-sec-head .eyebrow{color:var(--txt-1)}
 .contract-verdict{display:flex;gap:7px;align-items:flex-start;font-size:11px;line-height:1.45;color:var(--txt-2)}
 .contract-verdict .dot{width:8px;height:8px;border-radius:50%;margin-top:3px;flex:none}
 .contract-verdict.ok .dot{background:var(--pos)}

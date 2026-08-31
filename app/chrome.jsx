@@ -593,7 +593,7 @@ function LeftRail({ project, characters, scenes, selId, selChar, onSelect, onSel
            ["Location",project.setting.location],["Conflict",project.setting.conflict]].map(([k,v])=>
             React.createElement("div",{key:k},
               React.createElement("div",{className:"obj-lab",style:{marginBottom:2}},k),
-              React.createElement("div",{style:{fontSize:12,color:"var(--txt-1)",lineHeight:1.4}},v))))),
+              React.createElement("div",{style:{fontSize:12.5,color:"var(--txt-0)",lineHeight:1.45}},v))))),
 
       // CHARACTERS
       React.createElement(RailSection,{label:"Cast",icon:Icon.user,onAdd:readOnly?null:onAddCharacter,defaultOpen:true},
