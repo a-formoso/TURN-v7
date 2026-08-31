@@ -611,7 +611,7 @@ function CoverageReferenceStrip({ refs, excludedIds, onToggle, onView }){
   return React.createElement("div",{className:"coverage-refs"},
     React.createElement("div",{className:"shot-refs-lab"},
       React.createElement(Icon.layers,{s:11}),"Reference images"),
-    React.createElement("div",{className:"shot-refs-row coverage-refs-row"},
+    React.createElement(window.RefStripScroller||"div",{className:"shot-refs-row coverage-refs-row"},
       refs.map((r,i)=>{
         // required refs are locked in — no exclude tick (they gate generation)
         const canToggle = !!(onToggle && r.refId!=null && !r.required);

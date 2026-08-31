@@ -4704,7 +4704,28 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
   cursor:default;border-style:dashed;color:var(--txt-3);background:var(--bg-2);padding:3px}
 .shot-ref-thumb.missing:hover{transform:none;box-shadow:none}
 .coverage-refs{margin:9px 0 3px}
-.coverage-refs-row{align-items:center}
+.coverage-refs-row{align-items:center;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;padding:2px 0}
+.coverage-refs-row::-webkit-scrollbar{display:none}
+.coverage-refs-row .shot-ref-thumb{flex:0 0 auto}
+/* refstrip: one-line scroller around a thumb row — edge fades signal hidden thumbs;
+   arrows only render on the side that can actually scroll */
+.refstrip{position:relative;min-width:0}
+.refstrip::before,.refstrip::after{content:"";position:absolute;top:0;bottom:0;width:20px;pointer-events:none;z-index:1;opacity:0;transition:opacity .15s}
+.refstrip::before{left:0;background:linear-gradient(90deg,var(--bg-2),transparent)}
+.refstrip::after{right:0;background:linear-gradient(270deg,var(--bg-2),transparent)}
+.refstrip.can-left::before{opacity:1}
+.refstrip.can-right::after{opacity:1}
+.refstrip-arrow{position:absolute;top:50%;transform:translateY(-50%);z-index:2;width:22px;height:22px;padding:0;
+  display:none;align-items:center;justify-content:center;border-radius:50%;border:1px solid var(--line-2);
+  background:var(--bg-1);color:var(--txt-2);font-size:15px;line-height:1;cursor:pointer;
+  box-shadow:0 2px 8px rgba(0,0,0,.22)}
+.refstrip-arrow.left{left:-7px}
+.refstrip-arrow.right{right:-7px}
+.refstrip.can-left .refstrip-arrow.left{display:flex}
+.refstrip.can-right .refstrip-arrow.right{display:flex}
+.refstrip-arrow:hover{color:var(--txt-1);border-color:var(--line-3);background:var(--bg-3)}
+/* touch screens: swipe the row directly — no arrows */
+@media (hover:none) and (pointer:coarse){ .refstrip .refstrip-arrow{display:none} }
 .sheet-used-refs{padding-inline:2px}
 .sheet-ref-used{pointer-events:none}
 .coverage-ref-req{position:absolute;left:2px;top:2px;border-radius:5px;padding:1px 3px;

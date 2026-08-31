@@ -2212,6 +2212,42 @@ function _qaWhereChips(where){
 /* Compact, read-only provenance strip used by Character and Prop master cards.
    A rendered sheet shows inputs recorded on that exact version; before the first
    render it previews only references currently ready to attach. */
+/* one-line horizontal scroller for reference-thumb strips: arrows appear on
+   pointer devices only when the row actually overflows; on touch screens the
+   arrows are hidden (CSS) and the row swipes natively. */
+function RefStripScroller({ className, children }){
+  const rowRef = React.useRef(null);
+  const [can, setCan] = React.useState({ l:false, r:false });
+  const update = React.useCallback(()=>{
+    const el = rowRef.current; if(!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    const l = el.scrollLeft > 2, r = el.scrollLeft < max - 2;
+    setCan(p => (p.l===l && p.r===r) ? p : { l, r });
+  },[]);
+  React.useEffect(()=>{
+    const el = rowRef.current; if(!el) return;
+    update();
+    el.addEventListener("scroll", update, { passive:true });
+    let ro = null;
+    if(typeof ResizeObserver === "function"){ ro = new ResizeObserver(update); ro.observe(el); }
+    window.addEventListener("resize", update);
+    return ()=>{ el.removeEventListener("scroll", update); if(ro) ro.disconnect(); window.removeEventListener("resize", update); };
+  },[update]);
+  // thumbs mount/unmount (async ref loads) without resizing the container itself
+  React.useEffect(()=>{ update(); });
+  const nudge = (dir)=>{
+    const el = rowRef.current; if(!el) return;
+    el.scrollBy({ left: dir * Math.max(el.clientWidth * 0.7, 120), behavior:"smooth" });
+  };
+  return React.createElement("div",{className:"refstrip"+(can.l?" can-left":"")+(can.r?" can-right":"")},
+    React.createElement("button",{type:"button",className:"refstrip-arrow left","aria-label":"Scroll reference images left",
+      onClick:()=>nudge(-1)},"\u2039"),
+    React.createElement("div",{ref:rowRef,className:className},children),
+    React.createElement("button",{type:"button",className:"refstrip-arrow right","aria-label":"Scroll reference images right",
+      onClick:()=>nudge(1)},"\u203a"));
+}
+window.RefStripScroller = RefStripScroller;
+
 function SheetReferenceStrip({ gen, loadRefs, onView, refreshKey }){
   const [refs, setRefs] = React.useState([]);
   const loadRef = React.useRef(loadRefs);
@@ -2248,7 +2284,7 @@ function SheetReferenceStrip({ gen, loadRefs, onView, refreshKey }){
   return React.createElement("div",{className:"coverage-refs sheet-used-refs"},
     React.createElement("div",{className:"shot-refs-lab"},
       React.createElement(Icon.layers,{s:11}),gen&&gen.genUrl?"Reference images used":"Reference images"),
-    React.createElement("div",{className:"shot-refs-row coverage-refs-row"},
+    React.createElement(RefStripScroller,{className:"shot-refs-row coverage-refs-row"},
       refs.map((r,i)=>React.createElement("div",{key:(r.refId||r.url||i),role:"button",tabIndex:0,
           className:"shot-ref-thumb "+kindClass(r),title:r.note||r.label||"Reference image",
           onClick:()=>onView&&onView(r.url,{name:r.note||r.label||"Reference image"}),
