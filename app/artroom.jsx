@@ -1285,7 +1285,12 @@ function useImageGen(opts){
     // spinner now; the in-flight generate() sees __nbGenCancel and won't commit its result.
     const onCancel = (e)=>{ if(!alive || !e.detail || e.detail.id!==id) return; setGening(false); setRetrying(false); };
     window.addEventListener("nb-gen-cancel", onCancel);
-    return ()=>{ alive=false; window.removeEventListener("nb-gen-done", onDone); window.removeEventListener("nb-prefetched", onPrefetched); window.removeEventListener("nb-gen-cancel", onCancel); };
+    // a run for THIS id started elsewhere (another instance of this card, possibly
+    // already unmounted, finished its pre-generate phase and fired): show the spinner
+    // so this instance also observes the true→false completion transition.
+    const onStart = (e)=>{ if(!alive || !e.detail || e.detail.id!==id) return; setGening(true); };
+    window.addEventListener("nb-gen-start", onStart);
+    return ()=>{ alive=false; window.removeEventListener("nb-gen-done", onDone); window.removeEventListener("nb-prefetched", onPrefetched); window.removeEventListener("nb-gen-cancel", onCancel); window.removeEventListener("nb-gen-start", onStart); };
   },[id]);
 
   /* watch the reference-photo slot for drops */
@@ -1329,6 +1334,12 @@ function useImageGen(opts){
     window.__nbGenRunSeq = (window.__nbGenRunSeq||0)+1;
     const _genRun = window.__nbGenRunSeq;
     window.__nbGenInflight[id] = _genRun;
+    // announce the start: a card that mounted BEFORE this run registered (e.g. it
+    // remounted during a pre-generate phase like the staging draft or the prop's
+    // owner prerequisite, when nothing was in the registry yet) flips its spinner on
+    // and — crucially for batches — gets the gening true→false transition its
+    // advance detection needs. Without this, such a card waits on the watchdog.
+    try{ window.dispatchEvent(new CustomEvent("nb-gen-start",{ detail:{ id } })); }catch(e){}
     // cancellation: clear any stale flag, and register an AbortController so a Stop can
     // both kill the request (where supported) and have us DISCARD a late result.
     window.__nbGenCancel = window.__nbGenCancel || {};

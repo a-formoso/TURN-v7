@@ -112,13 +112,30 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   React.useEffect(()=>{ setMasterRefs(buildMasterRefs()); },[masterRefsKey]);
   const toggleMasterRef = (rid)=> setMasterRefOff(off=> off.indexOf(rid)>=0 ? off.filter(x=>x!==rid) : [...off, rid]);
 
+  /* ---- staging auto-draft ------------------------------------------------
+     The depth grid feeds the plate prompt (landmarks / floor / scale) and every
+     shot's depth layering, but the AI design pass only drafts it for revisited
+     (2+ scene) locations. So: any FULL plate render on an unstaged location now
+     drafts the grid first, then renders from it. Edits, simple renders and
+     photo-anchored plates skip it. Fail-open: if the draft fails, the plate
+     renders from prose exactly as before.
+     stagingDraftRef carries the fresh draft into buildFinal because the parent
+     state update (onUpdate) may not have re-rendered by the time the prompt is
+     assembled. Cleared once l.staging catches up. */
+  const stagingDraftRef = React.useRef(null);
+  const [stagingPrep, setStagingPrep] = React.useState(false);
+  React.useEffect(()=>{ if(stagingDraftRef.current && typeof stagingHasContent==="function" && stagingHasContent(l)) stagingDraftRef.current=null; },[l.staging]);
+  const locStaged = (typeof stagingHasContent==="function") ? stagingHasContent(l) : true;
+
   const gen = useImageGen({
     id: l.id, slotId: "locref-"+l.id,
     entity: l,
     /* Clear cascades to this location's time-of-day variant plates so they aren't
        orphaned in storage. */
     relatedClearIds: ()=> [...(l.variants||[]), ...(l.coverageSheets||[])].map(v=> l.id+"-"+v.id),
-    buildFinal: ()=> finalPrompt,
+    buildFinal: ()=> stagingDraftRef.current
+      ? combinedLocationPrompt({ ...l, staging: stagingDraftRef.current }, project, {})
+      : finalPrompt,
     buildFromPhoto: ()=> buildLocationFromPhotoPrompt(l, project),
     buildSimple: ()=> buildSimpleLocationPrompt(l),
     attachments: async ()=> buildMasterRefs()
@@ -157,20 +174,50 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
     if(!u && typeof nbLoadImage==="function"){ try{ u = await nbLoadImage(p.id); }catch(e){} }
     return u||""; };
 
+  /* the auto-draft wrapper around gen.generate(). Cross-instance __nbStagePhase lock:
+     during the draft nothing is registered in __nbGenInflight yet, so a remount
+     (opening the viewer) could re-enter and draft + render twice — same shape as the
+     props owner-phase lock. */
+  const _stagePhase = ()=> !!(window.__nbStagePhase && window.__nbStagePhase[l.id]);
+  const generatePlate = async (gopts)=>{
+    const g = gopts||{};
+    const needs = !(g.editInstruction || g.simple) && !gen.slotHasRef
+      && !locStaged && !stagingDraftRef.current
+      && typeof aiDraftStaging==="function"
+      && typeof aiAvailable==="function" && aiAvailable();
+    if(needs){
+      window.__nbStagePhase = window.__nbStagePhase || {};
+      if(window.__nbStagePhase[l.id]) return;   // another instance of this card is mid-draft and will render
+      window.__nbStagePhase[l.id] = true;
+      setStagingPrep(true);
+      if(batchActiveId!==l.id && typeof window.appToast==="function")
+        window.appToast("Drafting the depth grid first \u2014 the plate follows");
+      try{
+        const st = await aiDraftStaging(l, scenes, project);
+        if(st){ stagingDraftRef.current = st; onUpdate(l.id, { staging: st }); }
+      }catch(e){}
+      finally{ delete window.__nbStagePhase[l.id]; setStagingPrep(false); }
+    }
+    return gen.generate(gopts);
+  };
+  const genPlate = { ...gen, generate: generatePlate };
+
   // batch generation: parent activates this card by id; generate then report done.
   // REMOUNT-SAFE (see CharacterSheet): seed batchStarted from the in-flight registry so
   // a card remounting mid-generation doesn't fire a second generate on completion.
   // The registry is keyed by the GEN id (l.id — what useImageGen registers), NOT the
   // "locref-" reference-slot key: checking the slot key made this guard dead code, and
   // a mid-batch remount (e.g. opening the viewer) generated every plate TWICE.
+  // The staging-draft phase counts as in-flight (nothing is registered yet while the
+  // grid is being written — without this a remount re-fires the whole sequence).
   const _lgen = l.id;
-  const batchStarted = React.useRef(!!(window.__nbGenInflight && window.__nbGenInflight[_lgen]));
+  const batchStarted = React.useRef(!!((window.__nbGenInflight && window.__nbGenInflight[_lgen]) || (window.__nbStagePhase && window.__nbStagePhase[l.id])));
   const wasGening = React.useRef(false);
   React.useEffect(()=>{
     const mine = batchActiveId===l.id;
-    const inflight = !!(window.__nbGenInflight && window.__nbGenInflight[_lgen]);
+    const inflight = !!(window.__nbGenInflight && window.__nbGenInflight[_lgen]) || _stagePhase();
     if(!mine){ batchStarted.current=inflight; wasGening.current=gen.gening; return; }
-    if(!batchStarted.current && !gen.gening && !inflight){ batchStarted.current=true; wasGening.current=false; gen.generate(); return; }
+    if(!batchStarted.current && !gen.gening && !inflight){ batchStarted.current=true; wasGening.current=false; generatePlate(); return; }
     if(batchStarted.current && wasGening.current && !gen.gening){ batchStarted.current=false; onBatchDone && onBatchDone(l.id); }
     wasGening.current = gen.gening;
   },[batchActiveId, gen.gening, l.id]);
@@ -214,7 +261,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   const removeVariant = (vid)=> onUpdate(l.id,{ variants:(l.variants||[]).filter(v=>v.id!==vid) });
 
   return React.createElement("div",{className:"sheet-card"+(batchActiveId===l.id?" batch-on":""),"data-location-card":l.id},
-    React.createElement(SheetFrame,{ gen, slotId:"locref-"+l.id, name:l.name, avatarColor:locSwatch(l.intExt),
+    React.createElement(SheetFrame,{ gen:genPlate, slotId:"locref-"+l.id, name:l.name, avatarColor:locSwatch(l.intExt),
       initials, drafted, drafting, onDraft:()=>onDraft(l), entity:l, onView,
       slotPlaceholder:"Drop a photo of the place", noun:"location plate",
       // The empty plate is also the finished-image importer, so the separate
@@ -330,7 +377,8 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         React.createElement(SheetField,{label:"What this place means in the story",value:l.significance,multiline:true,
           placeholder:"Its dramatic role \u2014 what happens here, what it represents\u2026",onCommit:val=>onUpdate(l.id,{significance:val})})),
 
-      React.createElement(CardFold,{label:"Staging \u2014 Depth Grid",defaultOpen:false},
+      React.createElement(CardFold,{label:"Staging \u2014 Depth Grid",defaultOpen:false,
+        count: locStaged ? null : (stagingPrep ? "staging\u2026" : "not staged \u2014 drafts itself on first render")},
         React.createElement(StagingGrid,{l,onUpdate,onDraftStaging,draftingStage})),
 
       React.createElement(CardFold,{label:"Slugline units",defaultOpen:units.length>0},
