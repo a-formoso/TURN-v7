@@ -3765,9 +3765,12 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
 @keyframes turn-toast-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 /* model badges — the agent panel header + the New Story window (Writers' Room = Claude) */
 .ag-runner-name{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
-.ag-runner-model,.ns-model-badge{font-family:var(--f-mono);font-size:9px;letter-spacing:.05em;text-transform:uppercase;
-  color:var(--ink-on-accent,#2c2722);background:var(--pos);padding:2px 7px;border-radius:5px;white-space:nowrap}
-.ns-model-badge{display:inline-flex;align-items:center;gap:4px}
+.ag-runner-model,.ns-model-badge{font-family:var(--f-mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--ink-on-accent,#2c2722);background:var(--pos);padding:4px 10px;border-radius:999px;white-space:nowrap}
+.ns-model-badge{display:inline-flex;align-items:center;gap:6px;cursor:pointer;
+  transition:filter .12s,box-shadow .12s}
+.ns-model-badge:hover{filter:brightness(1.06)}
+.ns-model-badge:focus-within{box-shadow:0 0 0 2px var(--bg-2),0 0 0 4px var(--pos-line,var(--pos))}
 .beat-build-btn{display:inline-flex;align-items:center;gap:6px;margin:0 0 12px;padding:6px 11px;border-radius:8px;
   border:1px solid var(--line-3);background:transparent;color:var(--txt-2);font-family:var(--f-ui);font-size:11.5px;font-weight:500;cursor:pointer;transition:.12s}
 .beat-build-btn:hover:not(:disabled){background:var(--bg-3);color:var(--txt-1)}
@@ -5929,11 +5932,11 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
 /* the model badges are now PICKERS (New Story header + Art Room agent panels) —
    the select inherits the amber badge look; the badge label wraps it */
 .ns-model-sel,.ag-runner-model-sel{appearance:none;-webkit-appearance:none;border:none;background:transparent;
-  font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit;cursor:pointer;padding:0 12px 0 0;
+  font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit;cursor:pointer;padding:0 15px 0 0;outline:none;
   background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='6'><path d='M1 1l3 3 3-3' stroke='%232c2722' stroke-width='1.4' fill='none' stroke-linecap='round'/></svg>");
   background-repeat:no-repeat;background-position:right center}
-.ag-runner-model-sel{font-family:var(--f-mono);font-size:9px;letter-spacing:.05em;text-transform:uppercase;
-  color:var(--ink-on-accent,#2c2722);background-color:var(--pos);padding:2px 16px 2px 7px;border-radius:5px;white-space:nowrap;background-position:right 5px center}
+.ag-runner-model-sel{font-family:var(--f-mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--ink-on-accent,#2c2722);background-color:var(--pos);padding:4px 20px 4px 10px;border-radius:999px;white-space:nowrap;background-position:right 8px center}
 .ns-model-sel:disabled,.ag-runner-model-sel:disabled{opacity:.7;cursor:default}
 
 /* New Story: auto-picked shape note + the writer's own logline marker */
