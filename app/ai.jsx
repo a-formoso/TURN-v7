@@ -629,6 +629,7 @@ async function aiDraftScene(scene, beats, prevScene, project){
   const prompt = storyContext(scene, prevScene, P) + "\n" + castPronounBlock(window.turnCast) + voiceDnaBrief(window.turnCast) + beatsBrief(beats) +
     "\n\nWrite this scene as original screenplay prose, expanding each beat in order. "+
     "It must dramatize the value turn through action and subtext \u2014 never state the theme outright.\n\n" +
+    conflictModeBrief(scene) +
     (fmtBrief ? "FORMAT: "+fmtBrief+".\n\n" : "") + SCREENPLAY_STYLE + "\n\n" + BLOCK_SPEC;
   try{
     const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }], maxTokens:8192 });
@@ -705,6 +706,26 @@ const SELF_CONTAINED_BEATS = "SELF-CONTAINED — write this so it reads ON ITS O
   "Each beat/shot must be legible without reading the others.";
 window.SELF_CONTAINED_BEATS = SELF_CONTAINED_BEATS;
 
+/* ---- SCENE ENGINEERING: conflict modes — a per-scene DIALOGUE GRAMMAR.
+   The mode names HOW the antagonism is conducted on the page; the writer can lock
+   one per scene in the Inspector, otherwise the drafter chooses silently. ---- */
+const CONFLICT_MODES = [
+  { id:"balanced",   label:"Balanced",   def:"equals fight with equal psychological weight \u2014 open, direct verbal combat between matched opponents; both land real blows" },
+  { id:"asymmetric", label:"Asymmetric", def:"unequal power or mismatched agendas \u2014 one side holds the leverage; the weaker side fights obliquely, absorbs, or subverts" },
+  { id:"indirect",   label:"Indirect",   def:"a polite surface hides veiled warfare \u2014 courtesy, small talk and hospitality carry the attack; nothing hostile is said outright" },
+  { id:"comic",      label:"Comic",      def:"blind obsessions collide \u2014 each character pursues a fixed want, deaf to the other; the collision itself is the comedy" },
+  { id:"reflexive",  label:"Reflexive",  def:"a character at war with their own mind \u2014 the true antagonism is internal; the other presences act as mirrors or triggers" },
+  { id:"minimal",    label:"Minimal",    def:"sparse words, rich subtext \u2014 silence, behavior and the unsaid carry the scene; every line is the tip of an iceberg" },
+];
+window.CONFLICT_MODES = CONFLICT_MODES;
+function conflictModeBrief(scene){
+  const m = CONFLICT_MODES.find(x=>x.id===((scene&&scene.conflictMode)||""));
+  if(m) return "CONFLICT MODE (locked for this scene \u2014 conduct every exchange in it): "+m.label+" \u2014 "+m.def+".\n\n";
+  return "CONFLICT MODE: silently choose the ONE mode that fits this scene's design and cast, then conduct every exchange in it \u2014 "+
+    CONFLICT_MODES.map(x=>x.label.toLowerCase()+" ("+x.def+")").join("; ")+". The mode is never named on the page.\n\n";
+}
+window.conflictModeBrief = conflictModeBrief;
+
 async function aiAuthorScene(scene, prevScene, characters, project){
   if(!aiAvailable()) return null;
   const blank = !scene.summary || /^a new scene/i.test(scene.summary) || scene.title==="New Scene";
@@ -725,12 +746,15 @@ async function aiAuthorScene(scene, prevScene, characters, project){
     "\n\n" + ask +
     "\nReturn ONLY JSON (no markdown, no commentary): {"+
     '"title":"short evocative scene title","loc":"INT./EXT. LOCATION - DAY/NIGHT","summary":"1-2 sentence description of what happens",'+
-    '"objective":"what the driver actively pursues in the scene",'+
+    '"objective":"what the driver actively pursues in the scene, as an ACTIVE INFINITIVE (to reclaim her territory)",'+
     '"driver":"'+driverEnum+'",'+
     '"openValue":"OneWord","openCharge":-3 to 3,"closeValue":"OneWord","closeCharge":-3 to 3,'+
-    '"driverLabel":"the driver\'s NAME from the cast","reactorLabel":"another cast member\'s NAME","desire":"the driver\'s want","obstacle":"what blocks it","result":"the concrete resolved outcome by the final beat","turnAt":<the beat number where the value flips>,'+
+    '"driverLabel":"the driver\'s NAME from the cast","reactorLabel":"another cast member\'s NAME","desire":"the driver\'s want as an active infinitive","obstacle":"the counter-desire that blocks it, as an active infinitive \u2014 the two duel","result":"the concrete resolved outcome by the final beat","turnAt":<the beat number where the value flips>,'+
     '"beats":[{"drive":{"a":"ActionVerb","d":"behaviour in present tense"},"react":{"a":"ReactionVerb","d":"behaviour"},"charge":-3 to 3}]'+
     "}. Give 4-6 beats. The scene MUST turn its value: openCharge and closeCharge must differ in sign or by >=2. "+
+    conflictModeBrief(scene).replace(/\n+$/," The mode shapes every beat's tactics.\n")+
+    "FIVE STEPS OF BEHAVIOR per beat: the driver feels the desire, senses the antagonism, CHOOSES a fresh tactic, acts \u2014 words come LAST, as the expression of the tactic, never as the tactic itself. "+
+    "ESCALATE: each beat must TOP the previous one \u2014 never repeat a tactic; when one fails, the next reaches deeper or risks more.\n"+
     "Each beat's charge = where the scene's emotional value stands at the END of that beat: start near openCharge, end at closeCharge, "+
     "and make the decisive shift land ON the turn beat \u2014 beats may oscillate, but the through-line must read.\n"+
     "Each beat's drive/react `d`: "+SELF_CONTAINED_BEATS;
@@ -762,6 +786,9 @@ async function aiAuthorScene(scene, prevScene, characters, project){
         ..._beatChg(b.charge) })),
       by: writingStamp()
     };
+    // NB: conflictMode is deliberately NOT authored/persisted here — a writer's lock
+    // is respected via conflictModeBrief above, and Auto means "MUSE picks per pass",
+    // so storing the authoring model's pick would silently turn Auto into a lock
     const patch = {
       title: (j.title||scene.title).toString().slice(0,60),
       loc: j.loc || scene.loc,
@@ -840,7 +867,7 @@ async function aiPolishScene(scene, beats, structuralBlocks, prevScene, project)
     .map(b=>`[beat ${b.beat}] ${b.text}`).join("\n");
   const prompt = storyContext(scene, prevScene, project) + "\n" + castPronounBlock(window.turnCast) + voiceDnaBrief(window.turnCast) + beatsBrief(beats) +
     "\n\nSTRUCTURAL DRAFT (rough beat expansion):\n" + rough +
-    "\n\nRewrite this into FINAL, polished screenplay prose. The beats are LOCKED \u2014 keep the same beat numbers and the same dramatic action in each; only elevate the craft.\n\n" + SCREENPLAY_STYLE + "\n\n" + BLOCK_SPEC;
+    "\n\nRewrite this into FINAL, polished screenplay prose. The beats are LOCKED \u2014 keep the same beat numbers and the same dramatic action in each; only elevate the craft.\n\n" + conflictModeBrief(scene) + SCREENPLAY_STYLE + "\n\n" + BLOCK_SPEC;
   try{
     const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }], maxTokens:8192 });
     if(window.__lastWritingTruncated) return null;
@@ -878,7 +905,7 @@ async function aiWriteBeatText(scene, beats, beatN, screenplay, prevScene, proje
     (prevTxt ? "\n\nThe prose IMMEDIATELY BEFORE the gap (already written — do NOT rewrite or repeat it):\n"+prevTxt.slice(0,600) : "")+
     (nextTxt ? "\n\nThe prose IMMEDIATELY AFTER the gap (already written — do NOT rewrite it; your text must flow INTO it):\n"+nextTxt.slice(0,600) : "")+
     "\n\nWrite ONLY beat "+n+"'s screenplay prose — 1-3 blocks that dramatize its action/reaction exchange and bridge the surrounding text seamlessly (match its tone, tense and register). "+
-    "The action stays in this scene's existing location — no new sluglines.\n\n" + SCREENPLAY_STYLE + "\n\n" + BLOCK_SPEC;
+    "The action stays in this scene's existing location — no new sluglines.\n\n" + conflictModeBrief(scene) + SCREENPLAY_STYLE + "\n\n" + BLOCK_SPEC;
   try{
     const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }], maxTokens:2048 });
     if(window.__lastWritingTruncated) return null;
@@ -981,6 +1008,7 @@ const APP_FEATURES = [
   { name:"Character architecture (Cast panel)", what:"characters are built on the TWO-LAYER RULE \u2014 characterization is only the mask; TRUE character is what choices under pressure reveal, so the inner life always derives from what the script shows them DO. The DESIRE COMPLEX requires the unconscious need to genuinely CONTRADICT the conscious want (the pull-against generates scenes), and motivation is disciplined: never a lazy trauma/backstory excuse \u2014 the want must be a live, present-tense hunger. DIMENSIONS \u2014 a Cast-panel field under Unconscious need \u2014 hold 2\u20134 consistent contradictions per character ('trait / counter-trait', one pair per line), with the protagonist carrying the most. The protagonist's arc is PINNED to the Story Contract's declared inner arc so the cast and the contract never drift. All of it drafts automatically via 'Draft with MUSE' (per character) and the story build's cast-psychology pass; every field stays hand-editable." },
   { name:"Cast design (orbits \u00b7 counterpoint \u00b7 Center of Good)", what:"the cast is designed as a SOLAR SYSTEM around the protagonist. ORBITS: every character sits at Center (protagonist), First circle (help/hinder/define), Second circle (functional support) or Third circle (setting texture) \u2014 inferred automatically from role + scenes driven, overridable via the Orbit selector on the Cast panel header. Orbits are a DEPTH BUDGET: the build spends full psychological architecture on Center + First circle, gives Second circle only a want, arc and human truth, and leaves Third-circle texture characters as a name with a function (no psychology pass at all). COUNTERPOINT: every supporting character carries a Cast-panel field naming the SPECIFIC protagonist dimension they pressure, contrast or illuminate \u2014 foils are dimension-revealers, drafted automatically and hand-editable (hidden on the protagonist's own card). CENTER OF GOOD: a film-level empathy anchor on the Premise rail card \u2014 sympathy is optional, empathy is absolute; the anchor can live inside a dark protagonist (the one loyalty they never betray). Drafted by the story build, fed into every scene draft so rewrites never orphan it. Anti-stereotype rules (off-center traits, plausible motivation for implausible acts, strictly in-character logic) are applied silently wherever characters are invented \u2014 never a field to fill." },
   { name:"Structural design (inciting incident \u00b7 peak rhythm \u00b7 progression \u00b7 fusion check)", what:"structural craft rules wired into the spine builder and the Story Doctor (three-act grammar \u2014 kish\u014dtenketsu keeps its own rules). SPINE BUILDER: the Inciting Incident strikes ONSCREEN inside the first quarter (brainstormed as the best or worst possible thing that could happen to the protagonist), radically upsets their life-balance, launches the quest and makes a PROMISE the Story Climax must pay off; acts ESCALATE BY PROGRESSION, not repetition (wider socially, deeper personally, or the particular growing toward the universal \u2014 only the Story Climax is irreversible); scenes off the main quest must contradict, resonate with, or complicate it. STORY DOCTOR audits (on top of the existing turn/soft-peak/flat-run/one-sided-argument checks): PEAK RHYTHM \u2014 consecutive climaxes landing on the same charge side halve each other (law of diminishing returns); the Doctor proposes flipping the second peak. INCITING INCIDENT \u2014 flags a late (past ~the first quarter) or unmarked inciting incident as report-only placement guidance (moving scenes is the writer's call, never an auto re-charge). CHARACTER\u2013PLOT FUSION CHECK \u2014 the model classifies every turning scene's PRIMARY CAUSE as the character's choice vs outside forces; fine writing fuses them (external events cause inner change, inner desires cause external events), so when \u226580% of turns sit on one side the Doctor flags a puppet show (all external) or a vacuum (all choice), otherwise reports the balance. Deliberately NOT adopted: a 'sequences' bookkeeping tier between scenes and acts, and a subplot data model \u2014 the craft lives as build rules and audits, not new fields." },
+  { name:"Scene engineering (conflict modes \u00b7 five steps \u00b7 beat escalation)", what:"scene-level craft wired into scene authoring and script drafting. CONFLICT MODE \u2014 a per-scene DIALOGUE GRAMMAR naming HOW the antagonism is conducted on the page: balanced (equals in open verbal combat), asymmetric (unequal power \u2014 the weaker side fights obliquely), indirect (polite surface hides veiled warfare), comic (blind obsessions collide), reflexive (a character at war with their own mind), minimal (sparse words, rich subtext). The Inspector's Scene tab has a 'Conflict mode' select in the Drive block: AUTO (default \u2014 each pass silently picks the fittest mode; NOTHING is ever stored, so Auto never hardens into a lock) or a locked mode that binds EVERY prose pass of that scene \u2014 drafting, polish, beat authoring AND 'Write missing beat'; scene authoring respects an existing lock and never writes a mode of its own. An unrecognized stored value displays as Auto. The mode is never named in the prose. FIVE STEPS OF BEHAVIOR \u2014 beat authoring treats each beat's action as a CHOSEN TACTIC: the driver feels the desire, senses the antagonism, chooses, acts; words come last as the expression of the tactic (dialogue is step five, never step one \u2014 structurally true in TURN anyway, since prose is generated FROM beats). BEAT ESCALATION \u2014 each beat must top the previous; no repeated tactics. INFINITIVE DUEL \u2014 the scene objective, desire and obstacle are phrased as duelling active infinitives ('to reclaim her territory' vs 'to deny it'), keeping conflict active rather than descriptive. All prompt-level discipline \u2014 no new required fields, no worksheet." },
   { name:"Auto-draft all (N left)", what:"drafts EVERY still-undrafted scene in order, threading continuity scene-to-scene. The (N left) counts scenes with no draft yet. Same engine as Draft with MUSE, just batched." },
   { name:"Redraft script from beats", what:"the ONE rebuild lever for a scene's screenplay, living in the Script view's toolbar (formerly 'Polish with MUSE' / 'Re-polish'; a duplicate in the Beats tab was removed). The scene's prose is rewritten fresh from its CURRENT beat cards (the old prose is never read \u2014 beats are the source), a CENTERED full-screen progress card shows while MUSE works, and the outgoing draft lands in version history so Undo restores it. Reshape the beats first to reshape the scene; press it on an untouched scene simply to elevate the structural draft into final prose. DRIVER RECAST: changing a scene's DRIVER (the Scene tab dropdown) syncs the Beats tab's labels instantly, and \u2014 because prose can't follow a dropdown \u2014 OFFERS to recast the scene's subtext for the new driver (a confirm, then MUSE rewrites the summary, objective, desire, antagonism and every beat's drive side for the new character, same beat count and escalation; a centered progress card shows while it runs). Review the recast beats, then 'Redraft script from beats' rebuilds the screenplay to match. Declining the recast keeps all text as it was." },
   { name:"Recovery screen (render crash)", what:"if a display error ever breaks the screen, the app no longer goes blank \u2014 a recovery card appears saying what happened, with Reload, \u2018Reload on a fresh view\u2019 (comes back on the default tab, for when the same screen keeps breaking) and Copy error (the technical detail, for reporting), plus a foldable Technical detail section. Your film saves continuously, so a crash is a display problem rather than a lost film \u2014 though the last few seconds of edits before it may not have been written. Screenplay undo history is also capped at 12 versions per scene (matching the image layer), so a long session can\u2019t grow the saved file without limit." },

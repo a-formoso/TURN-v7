@@ -1,3 +1,4 @@
 - [Imported archive safety](imported-archive-safety.md) — never leave source-import archives in the publicly served project root.
 - [Headless logic verification](headless-logic-verification.md) — UI is auth-gated; verify logic via node vm on dist build; heuristic text checks must never claim "ok".
 - [Spine scene-kind markers](spine-kind-markers.md) — assignPlotPoints wipes/reassigns kinds positionally; kind-based audits need a declared marker plumbed through the build path.
+- [Auto vs writer lock](auto-vs-lock.md) — never persist a model's pick for an "auto" setting; locked settings must reach every prose entry point (draft, polish, author, gap-fill).

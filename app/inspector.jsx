@@ -439,7 +439,25 @@ function Inspector({ scene, beats, draft, onCharge, onUpdate, characters, scenes
               React.createElement("div",{className:"conf-edit"},
                 [1,2,3].map(i=>React.createElement("button",{key:i,className:`pip ${i<=scene.conf?"on":""}`,disabled:readOnly,
                   title:["Inner","Personal","Extra-personal"][i-1],
-                  onClick:()=>onUpdate(scene.id,{conf:i})})))))),
+                  onClick:()=>onUpdate(scene.id,{conf:i})}))))),
+          // conflict MODE — how the antagonism is conducted on the page (a dialogue
+          // grammar). Auto = the drafter silently picks the fittest mode; locking one
+          // binds every drafting/polish pass to it.
+          React.createElement("div",{className:"obj-row"},
+            React.createElement("span",{className:"obj-icn"},React.createElement(Icon.mask,{s:14})),
+            React.createElement("div",{style:{flex:1}},
+              React.createElement("div",{className:"obj-lab",style:{marginBottom:4}},"Conflict mode"),
+              // an unrecognized stored value (legacy/import) displays — and behaves — as Auto
+              React.createElement("select",{className:"insp-select",disabled:readOnly,
+                value:((window.CONFLICT_MODES||[]).some(m=>m.id===scene.conflictMode) ? scene.conflictMode : ""),
+                onChange:e=>onUpdate(scene.id,{conflictMode:e.target.value})},
+                [React.createElement("option",{key:"",value:""},"Auto \u2014 MUSE picks per draft")].concat(
+                  (window.CONFLICT_MODES||[]).map(m=>React.createElement("option",{key:m.id,value:m.id,title:m.def},
+                    m.label+" \u2014 "+m.def.split("\u2014")[0].trim())))),
+              React.createElement("div",{className:"argues-hint",style:{marginTop:5}},
+                (scene.conflictMode && (window.CONFLICT_MODES||[]).some(m=>m.id===scene.conflictMode))
+                  ? ((window.CONFLICT_MODES||[]).find(m=>m.id===scene.conflictMode).def)
+                  : "How the antagonism is conducted \u2014 open combat, veiled courtesy, inner war\u2026 Locked here, every draft writes in it.")))),
 
         (typeof SceneContinuity==="function") && React.createElement(SceneContinuity,{scene,scenes,characters}),
 

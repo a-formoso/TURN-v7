@@ -164,6 +164,22 @@ A scene is built from **beats** — an action/reaction subtext map (editable: ad
 mark the turning beat). The **screenplay prose** is generated *from* those beats. The Script view
 shows the screenplay with a left gutter indicating which beat each block expands.
 
+> **Scene engineering** *(approved 2026-08-31 by owner)*: dialogue is **step five, never step
+> one** — behavior runs desire → sense of antagonism → choice of action → action → expression;
+> in TURN this is structural (prose is generated *from* the beat map), and beat authoring now
+> treats each beat's action as a **chosen tactic under antagonism**, with **escalation** — each
+> beat must top the previous, no repeated tactics. Scene conflict is framed as **duelling active
+> infinitives** ("to claim her love" vs. "to block him"), keeping desire and obstacle active,
+> never descriptive. Every scene has a **conflict mode** — the dialogue grammar naming *how* the
+> antagonism is conducted: **balanced** (equals in open verbal combat), **asymmetric** (unequal
+> power — the weaker side fights obliquely), **indirect** (polite surface hides veiled warfare),
+> **comic** (blind obsessions collide), **reflexive** (a character at war with their own mind),
+> **minimal** (sparse words, rich subtext). The drafter picks the mode silently per pass, or the
+> writer locks one in the Inspector; the mode is never named on the page. Deliberately **not**
+> adopted: the five-step worksheet as form fields (the steps are already live machinery — value
+> charges, the turn check, the turning-beat marker) and named film models for the modes (the
+> behavioral definitions do the work without inviting echoes of existing films).
+
 ### 6. Drafting controls
 - **Draft with MUSE** — drafts the one selected scene (authors beats first if it has none, then writes the script).
 - **Auto-draft all** — drafts every still-undrafted scene in order, threading continuity.
