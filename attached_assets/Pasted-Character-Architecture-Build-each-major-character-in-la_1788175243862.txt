@@ -1,0 +1,44 @@
+Character Architecture
+Build each major character in layers, moving between outside-in and inside-out:
+
+The Two-Layer Rule (all three books converge here)
+Characterization (the mask): All observable traits — age, speech, job, clothing, personality, the Big Five spectra. Its three jobs: credibility, originality, intrigue.
+True Character (the core): Revealed only through choices under pressure. Design a dilemma — a choice between two irreconcilable goods or two evils.
+The Four Selves (depth map)
+Core Self — stable identity, secrets, willpower
+Personal Selves — intimacy variants (family, lovers, friends)
+Social Selves — power/role variants (job, public persona)
+Hidden Self — subconscious drives, taboo desires
+Dimensions = Contradictions
+Give the protagonist consistent contradictions (Odysseus: truthful/deceitful; Tony Soprano: guilt-ridden/sociopath). Aim for the protagonist to carry the most dimensions in the cast. Use the six contradiction types (characterization vs. true character, conscious vs. subconscious desire, etc.).
+
+The Desire Complex (this is the bridge to plot AND dialogue)
+For each major character define:
+
+Object of Desire — what they consciously pursue
+Super-Intention — the deeper hunger driving them
+Unconscious Desire — ideally contradicting the conscious one
+Motivation — the "why" (never a lazy trauma-excuse)
+Self-Story & M.O. — the story they tell themselves and the tactics they habitually use
+
+CHARACTER: [Name]
+ROLE IN CAST: [Protagonist / First circle / Foil / etc.]
+
+CHARACTERIZATION (mask): appearance, voice, job, habits,
+  Big Five placement, explicit + implicit traits
+TRUE CHARACTER (core): rock-bottom values revealed under pressure
+FOUR SELVES: core / personal / social / hidden
+DIMENSIONS: [Trait A / Contradictory Trait A'] x 2–4 (more for protagonist)
+
+DESIRE COMPLEX:
+  Object of Desire:
+  Super-Intention:
+  Unconscious Desire (contradicting):
+  Motivation (the real why — keep asking "why?"):
+  Self-Story / M.O.:
+
+BIOGRAPHY: birth → early adolescence (identity formation) → inciting incident
+VOICE DNA (feeds Phase 6): vocabulary domain, syntax length under
+  stress vs. calm, favorite metaphor sources, education, culture icons
+ARC: Preparation → Revelation → Change → Completion
+  (positive / negative / ironic arc?)
