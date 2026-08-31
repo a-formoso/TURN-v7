@@ -545,7 +545,7 @@ function RailSection({ label, icon:Ic, onAdd, defaultOpen=true, children }){
     open && children);
 }
 
-function LeftRail({ project, characters, scenes, selId, selChar, onSelect, onSelectChar, onAddCharacter, showFramework, onCollapse, onAddScene, onReorder, compact, readOnly }){
+function LeftRail({ project, characters, scenes, selId, selChar, onSelect, onSelectChar, onAddCharacter, onContract, showFramework, onCollapse, onAddScene, onReorder, compact, readOnly }){
   const ci = project.controllingIdea;
   const secOpen = !compact;
   // group scenes by act
@@ -574,6 +574,11 @@ function LeftRail({ project, characters, scenes, selId, selChar, onSelect, onSel
             React.createElement("span",{className:"val"},ci.value)," ",
             React.createElement("span",{className:"cause"},ci.cause),
             React.createElement("span",{className:"tag-ironic"},`${ci.polarity} ending`)))),
+
+      // STORY CONTRACT — outer plot · inner arc · which change the climax pays off
+      showFramework && (typeof ContractSection==="function") && React.createElement(RailSection,
+        {label:"Story Contract",icon:Icon.bolt,defaultOpen:secOpen},
+        React.createElement(ContractSection,{project,scenes,onContract,readOnly})),
 
       // SETTING
       showFramework && React.createElement(RailSection,{label:"Setting",icon:Icon.globe,defaultOpen:secOpen},

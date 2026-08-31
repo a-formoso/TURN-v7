@@ -202,6 +202,17 @@ async function agentStoryDoctor(ctx){
   ctx.emit({k:"plan", t:"Scanning all "+ctx.model.scenes.length+" scenes for the weakest structural link \u2014 "
     +((_fwDoc && _fwDoc.id!=="threeact" && _fwDoc.doctorCriteria) ? _fwDoc.doctorCriteria
       : "scenes that don't turn, soft peaks, flat runs, and one-sided stretches of the controlling idea's argument")+"."});
+  // Story Contract — the declared dominant value is a checkable promise on the climax.
+  // Read the project from the agent's captured context (not the window global, which
+  // can be stale mid-run); initial status here, enforcement after the fix loop below.
+  const _ccProject = ()=> ctx.project || (ctx.model && ctx.model.project) || window.turnProject;
+  const _ccRun = ()=> (typeof contractClimaxCheck==="function") ? contractClimaxCheck(_ccProject(), ctx.model.scenes) : null;
+  {
+    const _cc = _ccRun();
+    if(_cc && ["no-turn","untracked","loose","undominant"].includes(_cc.status))
+      ctx.emit({k:"flag", t:"Contract check: "+_cc.msg});
+    else if(_cc && _cc.status==="ok") ctx.emit({k:"ok", t:"Contract check: "+_cc.msg});
+  }
   let fixes = 0;
   for(let iter=0; iter<MAX_FIXES; iter++){
     if(ctx.cancelled()) return;
@@ -268,6 +279,41 @@ async function agentStoryDoctor(ctx){
       skip.add(scene.id);
     }
   }
+  // Story Contract ENFORCEMENT — re-check the promise after the fix loop. A climax
+  // that doesn't turn was already handled above (noturn issues re-charge it); what's
+  // left is a climax whose values don't NAME the dominant axis. Propose the re-value
+  // (approval-gated, like every Doctor fix), then verify and report the final status.
+  if(!ctx.cancelled()){
+    let cc = _ccRun();
+    if(cc && (cc.status==="untracked" || cc.status==="loose") && cc.sceneId){
+      const cIdx = ctx.model.scenes.findIndex(s=>s.id===cc.sceneId);
+      const csc = ctx.model.scenes[cIdx];
+      const con = (typeof contractOf==="function") ? contractOf(_ccProject()) : null;
+      const dom = con && (con.dominant==="inner" ? con.innerDef : con.outerDef);
+      if(csc && dom){
+        const upward = (csc.closeCharge||0) >= (csc.openCharge||0);
+        const ov = upward ? dom.axis.neg : dom.axis.pos, cv = upward ? dom.axis.pos : dom.axis.neg;
+        const okc = await ctx.propose({
+          title:"Re-value the climax onto the contract's dominant axis",
+          reason:cc.msg,
+          rationale:"Name the promised value in the climax itself \u2014 "+ov+" \u2192 "+cv+" \u2014 so the payoff is checkable, not implied.",
+          before: csc.openValue+" ("+chargeStr(csc.openCharge)+") \u2192 "+csc.closeValue+" ("+chargeStr(csc.closeCharge)+")",
+          after:  ov+" ("+chargeStr(csc.openCharge)+") \u2192 "+cv+" ("+chargeStr(csc.closeCharge)+")",
+        });
+        if(ctx.cancelled()) return;
+        if(okc){
+          ctx.model.scenes[cIdx] = {...csc, openValue:ov, closeValue:cv};
+          ctx.sync(); fixes++;
+          cc = _ccRun();
+        }
+      }
+    }
+    if(cc && cc.status && cc.status!=="unset"){
+      if(cc.status==="ok") ctx.emit({k:"ok", t:"Contract verified \u2014 "+cc.msg});
+      else ctx.emit({k:"flag", t:"Contract unresolved \u2014 "+cc.msg});
+    }
+  }
+
   // Kishōtenketsu's real audit is semantic — put the re-read question to the model
   // and report prose findings (docs/Frameworks Plan.md, Phase 3).
   if(_fwDoc && _fwDoc.id==="kishotenketsu" && ctx.ai.available && typeof window.aiTenReRead==="function" && !ctx.cancelled()){

@@ -22,6 +22,10 @@ const PROJECT = {
     location: "A simulated city & the hovercraft Nebuchadnezzar",
     conflict: "Inner (doubt vs. belief) \u00b7 Personal (the crew) \u00b7 Extra-personal (the Machines)",
   },
+  /* Story Contract — outer plot · inner arc · which change the climax pays off.
+     Inner-led: Neo's naiveté→insight ("there is no spoon") resolves FIRST; the
+     external Life/Death victory follows from it. */
+  contract: { outer: "action", inner: "education", dominant: "inner" },
 };
 
 const CHARACTERS = [
@@ -207,7 +211,7 @@ const SCENES = [
   { id:"s15", act:3, seq:"The One", no:15, title:"Death & Resurrection",
     loc:"INT. APARTMENT 303 / NEBUCHADNEZZAR \u00b7 DAY",
     summary:"Smith guns Neo down inside the Matrix; on the ship, his body flatlines. Trinity tells his still form what the Oracle promised her \u2014 and that she loves him. Neo rises, finally sees the Matrix as raw code, and unmakes Smith from the inside.",
-    openValue:"Belief", openCharge:-3, closeValue:"Liberation", closeCharge:3,
+    openValue:"Doubt", openCharge:-3, closeValue:"Insight", closeCharge:3,
     conf:1, kind:"story-climax", driver:"neo",
     objective:"To stop running and become who he is.",
     turningPoint:"STORY CLIMAX \u2014 irreversible. Belief makes him The One." },

@@ -24,6 +24,7 @@ The workflow "Start application" is already configured and will start this autom
 - `app/app.jsx` — top-level state and composition
 - `app/chrome.jsx` — top bar + left rail
 - `app/spine.jsx` — value-charge graph + filmstrip
+- `app/contract.jsx` — Story Contract (outer plot · inner arc · dominance) registry + rail panel
 - `app/agents.jsx` — bounded-loop agent engine
 - `app/story-data.jsx` — sample film data (The Matrix)
 - `docs/` — pipeline, protocol, and plan docs

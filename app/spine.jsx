@@ -165,7 +165,7 @@ function smoothD(pts){
   return d;
 }
 
-function SpineCanvas({ scenes, selId, onSelect, showFramework, onReorder, onAddScene, follow, runtimes, readOnly }){
+function SpineCanvas({ scenes, selId, onSelect, showFramework, onReorder, onAddScene, follow, runtimes, readOnly, valueAxis }){
   // minutes per act, for the ruler's pacing readout
   const actMin = (act)=>{
     if(!runtimes) return null;
@@ -247,8 +247,9 @@ function SpineCanvas({ scenes, selId, onSelect, showFramework, onReorder, onAddS
 
     // ---- graph ----
     React.createElement("div",{className:"graph-box",style:{width:totalW}},
-      React.createElement("div",{className:"graph-ylabel top"},"Positive +"),
-      React.createElement("div",{className:"graph-ylabel bot"},"Negative \u2212"),
+      // Story Contract: the outer plot names the external value this axis tracks
+      React.createElement("div",{className:"graph-ylabel top"},(valueAxis&&valueAxis.pos)?valueAxis.pos+" +":"Positive +"),
+      React.createElement("div",{className:"graph-ylabel bot"},(valueAxis&&valueAxis.neg)?valueAxis.neg+" \u2212":"Negative \u2212"),
       React.createElement("svg",{className:"graph-svg",width:totalW,height:GRAPH_H,
         viewBox:`0 0 ${totalW} ${GRAPH_H}`},
         React.createElement("defs",null,

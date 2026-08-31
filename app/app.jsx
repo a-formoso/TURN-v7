@@ -342,6 +342,8 @@ function App(){
   const [lookbookApplied, setLookbookApplied] = React.useState(()=> (saved && saved.lookbookApplied) || {});
   const [shots, setShots] = React.useState(()=> (saved && saved.shots) || []);
   const [project, setProject] = React.useState(()=> (saved && saved.project) || ({ title:"Untitled film", genre:"", logline:"", controllingIdea:{} }));
+  // Story Contract (outer plot · inner arc · dominance) — patch helper for the rail panel
+  const updateContract = (patch)=> setProject(p=>({ ...p, contract:{ ...((p&&p.contract)||{}), ...patch } }));
   // project augmented with the Lookbook references routed to one department, so each drafter's
   // prompt honours only its relevant references (see lookbookBriefFor / _lookbookBlock).
   const lbProject = (dept)=> ({ ...project, _lookbookBrief:(typeof lookbookBriefFor==="function" ? lookbookBriefFor(dept, lookbook, lookbookNote) : "") });
@@ -4099,14 +4101,14 @@ function App(){
         ? (railOpen && React.createElement(LeftRail,{project,characters,scenes,selId,selChar,
             onSelect:(id)=>{ selectScene(id); setRailOpen(false); },
             onSelectChar:(id)=>{ setSelChar(id); setInspOpen(true); setRailOpen(false); },
-            onAddCharacter:addCharacterAndSelect,
+            onAddCharacter:addCharacterAndSelect,onContract:updateContract,
             showFramework:t.framework,onCollapse:()=>setRailOpen(false),
             onAddScene:addScene,onReorder:reorderScenes,compact:!wide,readOnly:readOnlyShare}))
         : (railOpen
           ? React.createElement(LeftRail,{project,characters,scenes,selId,selChar,
               onSelect:selectScene,
               onSelectChar:(id)=>{ setSelChar(id); setInspOpen(true); },
-              onAddCharacter:addCharacterAndSelect,
+              onAddCharacter:addCharacterAndSelect,onContract:updateContract,
               showFramework:t.framework,onCollapse:()=>setRailOpen(false),
               onAddScene:addScene,onReorder:reorderScenes,compact:!wide,readOnly:readOnlyShare})
           : React.createElement(CollapsedStrip,{side:"left",label:"Story",icon:Icon.panelLeft,
@@ -4138,6 +4140,7 @@ function App(){
         view==="spine" && scenes.length>0 && React.createElement(DragScroll,{className:"canvas-scroll spine-pan"},
           React.createElement(SpineCanvas,{scenes,selId,onSelect:selectSceneDetail,showFramework:t.framework,
             onReorder:reorderScenes,onAddScene:addScene,runtimes:runtimeMap,readOnly:readOnlyShare,
+            valueAxis:(typeof contractAxis==="function")?contractAxis(project):null,
             follow:(()=>{ if(!followChar) return null;
               const c = characters.find(x=>x.id===followChar); if(!c) return null;
               const tl = characterThroughline(c, scenes, beatsMap);
