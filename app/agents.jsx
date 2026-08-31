@@ -459,6 +459,28 @@ async function agentAdaptation(ctx){
     setting: (world && world.setting) || base.setting,
   };
 
+  // STORY CONTRACT suggestion — infer outer plot / inner arc / dominance from the
+  // brief and pre-fill the panel, marked "suggested" (the writer confirms or changes
+  // it in the left rail). A contract the writer declared BY HAND is never overwritten;
+  // a previous auto-suggestion is re-derived since this is a new story.
+  const _handDeclared = base.contract && (base.contract.outer||base.contract.inner) && !base.contract.suggested;
+  if(!_handDeclared && typeof window.aiSuggestContract==="function" && !ctx.cancelled()){
+    ctx.emit({k:"act", t:"Reading the brief for the story's contract \u2014 outer plot, inner arc, and which change the climax pays off\u2026"});
+    let sug = null; try{ sug = await window.aiSuggestContract(brief, ctx.model.project); }catch(e){}
+    if(ctx.cancelled()) return;
+    if(sug){
+      ctx.model.project = { ...ctx.model.project, contract:{ ...sug, suggested:true } };
+      const _oDef = sug.outer && (window.PLOTS_OF_FORTUNE||[]).find(p=>p.id===sug.outer);
+      const _iDef = sug.inner && (window.PLOTS_OF_CHARACTER||[]).find(p=>p.id===sug.inner);
+      ctx.emit({k:"ok", t:"Suggested a Story Contract: "
+        +[_oDef && (_oDef.label+" ("+_oDef.axis.pos+"/"+_oDef.axis.neg+")"), _iDef && (_iDef.label+" ("+_iDef.arc+")")].filter(Boolean).join(" \u00b7 ")
+        +(sug.dominant ? " \u00b7 "+(sug.dominant==="inner"?"Inner-led":"Outer-led") : "")
+        +". Pre-filled in the Story Contract panel \u2014 confirm or change it there."});
+    } else {
+      ctx.emit({k:"flag", t:"Couldn't infer a Story Contract from the brief \u2014 declare it yourself in the left rail's Story Contract panel."});
+    }
+  }
+
   // ---- reconcile cast identities with the actual scene drivers so counts are right ----
   const palette = ["linear-gradient(135deg,#c97b45,#5e3a1d)","linear-gradient(135deg,#3f7d86,#16323a)",
     "linear-gradient(135deg,#7a6cae,#2a2440)","linear-gradient(135deg,#5a6470,#23282f)",

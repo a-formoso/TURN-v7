@@ -143,7 +143,9 @@ window.contractClimaxCheck = contractClimaxCheck;
 /* ---- left-rail panel (rendered inside chrome.jsx's Story Contract RailSection) ---- */
 function ContractSection({ project, scenes, onContract, readOnly }){
   const c = contractOf(project);
-  const set = (patch)=>{ if(!readOnly && onContract) onContract(patch); };
+  const raw = (project && project.contract) || {};
+  // any edit makes the contract the writer's own — the "suggested" badge drops
+  const set = (patch)=>{ if(!readOnly && onContract) onContract({ ...patch, suggested:false }); };
   const chips = (defs, key, selId)=> React.createElement("div",{className:"contract-chips"},
     defs.map(d=> React.createElement("button",{key:d.id,
       className:"contract-chip"+(selId===d.id?" sel":""),
@@ -158,6 +160,8 @@ function ContractSection({ project, scenes, onContract, readOnly }){
   const lab = (main, sub)=> React.createElement("div",{className:"obj-lab",style:{marginBottom:4}},
     main, sub && React.createElement("span",{style:{textTransform:"none"}}," \u2014 "+sub));
   return React.createElement("div",{className:"contract-wrap"},
+    raw.suggested && (c.outerDef||c.innerDef) && React.createElement("div",{className:"contract-note"},
+      "Suggested from your story brief \u2014 confirm by leaving it, or change any pick to make it yours."),
     React.createElement("div",null,
       lab("Outer plot","what changes in the world"),
       chips(PLOTS_OF_FORTUNE,"outer",c.outer),
