@@ -709,13 +709,29 @@ window.nbLoadCameoAngles=nbLoadCameoAngles; window.nbLoadCameoFull=nbLoadCameoFu
 window.nbSetCameo=nbSetCameo; window.nbClearCameo=nbClearCameo; window.nbListCameos=nbListCameos;
 
 /* ===== backend-agnostic commit / clear / revert / details (used by useImageGen) ===== */
+/* Per-asset write serialization: commit / revert / delete-version / clear all do
+   read-modify-write on the same history + image + meta records. Two of them
+   overlapping on one id (e.g. a late generation commit landing during a viewer
+   revert) would each work from a stale snapshot and silently lose versions.
+   Chaining them per id makes last-writer-wins impossible; different ids stay fully
+   concurrent. Failures don't poison the chain. */
+const _nbOpChain = {};
+function _nbSerial(id, fn){
+  const prev = _nbOpChain[id] || Promise.resolve();
+  const next = prev.then(fn, fn);
+  _nbOpChain[id] = next.then(()=>{}, ()=>{});
+  return next;
+}
 async function nbCommitImageDimensions(src){
   if(!src || typeof Image==="undefined") return null;
   return await new Promise(resolve=>{ const im=new Image();
     im.onload=()=>resolve(im.naturalWidth&&im.naturalHeight ? { w:im.naturalWidth, h:im.naturalHeight } : null);
     im.onerror=()=>resolve(null); im.src=src; });
 }
-async function nbCommit(id, dataUrl, meta, refs, kind, epoch){
+function nbCommit(id, dataUrl, meta, refs, kind, epoch){
+  return _nbSerial(id, ()=>_nbCommitInner(id, dataUrl, meta, refs, kind, epoch));
+}
+async function _nbCommitInner(id, dataUrl, meta, refs, kind, epoch){
   // the scope moved while this was generating — the result belongs to a film that is no
   // longer open, and this id means something different here. Drop it rather than clobber.
   if(epoch!=null && epoch!==_nbEpoch) return { tier:"stale", url:dataUrl };
@@ -756,7 +772,8 @@ async function nbCommit(id, dataUrl, meta, refs, kind, epoch){
   localSetMeta(id, meta||null);
   return { tier:(res&&res.tier)||"local", url:dataUrl };
 }
-async function nbClearAsset(id){
+function nbClearAsset(id){ return _nbSerial(id, ()=>_nbClearAssetInner(id)); }
+async function _nbClearAssetInner(id){
   if(_nbBackend==="cloud"){
     _cloudUrlCache.delete(id); _cloudMetaCache.delete(id);
     try{ await idbDel(nbCloudKey(id)); }catch(e){}   // drop the cached bytes too
@@ -769,7 +786,8 @@ async function nbClearAsset(id){
   localSetMeta(id, null);
   try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id, ids:[id], url:"" } })); }catch(e){}
 }
-async function nbRevertAsset(id, index){
+function nbRevertAsset(id, index){ return _nbSerial(id, ()=>_nbRevertAssetInner(id, index)); }
+async function _nbRevertAssetInner(id, index){
   if(_nbBackend==="cloud"){
     if(typeof window.cloudRevert!=="function") return null;
     const r = await window.cloudRevert(_scopeFor(id), _nbUid, id, index);
@@ -790,7 +808,8 @@ async function nbRevertAsset(id, index){
   try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id, ids:[id], url:chosen.url } })); }catch(e){}
   return { url:chosen.url, meta:chosen.meta||null };
 }
-async function nbDeleteCurrentAndPromoteAsset(id){
+function nbDeleteCurrentAndPromoteAsset(id){ return _nbSerial(id, ()=>_nbDeleteCurrentAndPromoteAssetInner(id)); }
+async function _nbDeleteCurrentAndPromoteAssetInner(id){
   if(_nbBackend==="cloud"){
     if(typeof window.cloudDeleteCurrentAndPromote!=="function") return null;
     const r = await window.cloudDeleteCurrentAndPromote(_scopeFor(id), _nbUid, id);
@@ -822,7 +841,8 @@ window.nbRevertAsset = nbRevertAsset; window.nbDeleteCurrentAndPromoteAsset = nb
 window.nbLoadDetailsAsset = nbLoadDetailsAsset;
 
 /* delete ONE entry from a sheet's version history (local + cloud). */
-async function nbDeleteHistoryEntry(id, index){
+function nbDeleteHistoryEntry(id, index){ return _nbSerial(id, ()=>_nbDeleteHistoryEntryInner(id, index)); }
+async function _nbDeleteHistoryEntryInner(id, index){
   if(_nbBackend==="cloud"){
     if(typeof window.cloudDeleteHistoryEntry!=="function") return false;
     try{ return await window.cloudDeleteHistoryEntry(_scopeFor(id), _nbUid, id, index); }catch(e){ return false; }

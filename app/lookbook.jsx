@@ -227,12 +227,16 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
       +"No text, no recognizable film or person.",
   });
 
-  const batchStarted = React.useRef(false);
+  // REMOUNT-SAFE (see CharacterSheet): seed batchStarted from the in-flight registry
+  // (keyed by the GEN id, c.id) so a card remounting mid-generation doesn't fire a
+  // second generate on completion — this card previously had no such guard at all.
+  const batchStarted = React.useRef(!!(window.__nbGenInflight && window.__nbGenInflight[c.id]));
   const wasGening = React.useRef(false);
   React.useEffect(()=>{
     const mine = batchActiveId===c.id;
-    if(!mine){ batchStarted.current=false; wasGening.current=gen.gening; return; }
-    if(!batchStarted.current && !gen.gening){ batchStarted.current=true; wasGening.current=false; gen.generate(); return; }
+    const inflight = !!(window.__nbGenInflight && window.__nbGenInflight[c.id]);
+    if(!mine){ batchStarted.current=inflight; wasGening.current=gen.gening; return; }
+    if(!batchStarted.current && !gen.gening && !inflight){ batchStarted.current=true; wasGening.current=false; gen.generate(); return; }
     if(batchStarted.current && wasGening.current && !gen.gening){ batchStarted.current=false; onBatchDone && onBatchDone(c.id); }
     wasGening.current = gen.gening;
   },[batchActiveId, gen.gening, c.id]);

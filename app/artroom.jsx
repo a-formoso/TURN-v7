@@ -1302,6 +1302,10 @@ function useImageGen(opts){
   const generate = async (gopts)=>{
     gopts = gopts || {};
     if(gening) return;
+    // belt-and-braces: the module registry is the cross-instance truth. A remounted
+    // card whose local state missed the in-flight generation must never start a
+    // SECOND one for the same id (two versions + double credit spend from one click).
+    if(window.__nbGenInflight && window.__nbGenInflight[id]) return;
     // asset scope at generation start — nbCommit refuses the write if the user opened
     // another film while this rendered (entity ids repeat across films, so committing
     // late would overwrite the OTHER film's sheet under the same id)
@@ -1317,7 +1321,14 @@ function useImageGen(opts){
        card reads __nbGenInflight and shows the spinner throughout, and adopts the
        result via the "nb-gen-done" event. */
     setGenErr(""); setGening(true); setRetrying(false);
-    window.__nbGenInflight[id] = true;
+    /* per-run ownership token: registries are shared per id, so a run that was stopped
+       (and superseded by a newer run for the same id) must be able to tell that the
+       registry entries no longer belong to it — otherwise its late completion would
+       erase the new run's markers and fire a bogus "done". Truthy, so every existing
+       `if(__nbGenInflight[id])` check still works. */
+    window.__nbGenRunSeq = (window.__nbGenRunSeq||0)+1;
+    const _genRun = window.__nbGenRunSeq;
+    window.__nbGenInflight[id] = _genRun;
     // cancellation: clear any stale flag, and register an AbortController so a Stop can
     // both kill the request (where supported) and have us DISCARD a late result.
     window.__nbGenCancel = window.__nbGenCancel || {};
@@ -1330,7 +1341,26 @@ function useImageGen(opts){
     if(typeof opts.beforeGenerate==="function" && !(gopts.batch||gopts.editInstruction||gopts.simple)){
       let proceed=true;
       try{ proceed = await opts.beforeGenerate(gopts); }catch(e){ proceed=true; }
-      if(proceed===false){ setGening(false); window.__nbGenInflight[id] = false; return; }
+      /* re-check ownership after the await: a Stop (which clears our inflight marker)
+         or a newer run for this id started while the gate modal was open. This run must
+         simply vanish — touching the registries or firing events here would erase the
+         NEW run's cancellation flag or spinner, and proceeding would spend credits on a
+         result that can only be discarded. (Our own spinner was already dropped by the
+         nb-gen-cancel event nbCancelGen fired.) */
+      if(!(window.__nbGenInflight && window.__nbGenInflight[id]===_genRun)) return;
+      if(proceed===false){
+        setGening(false);
+        // full rollback of everything this run installed (ownership verified above) —
+        // leaving the abort controller or cancel flag behind would leak into the NEXT
+        // run for this id
+        delete window.__nbGenInflight[id];
+        if(window.__nbGenAbort && window.__nbGenAbort[id]===abortCtl) delete window.__nbGenAbort[id];
+        if(window.__nbGenCancel) delete window.__nbGenCancel[id];
+        // a card that remounted during the gate seeded its spinner from the registry —
+        // announce the cancellation so it doesn't wedge
+        try{ window.dispatchEvent(new CustomEvent("nb-gen-cancel",{ detail:{ id } })); }catch(e){}
+        return;
+      }
     }
     // Immutable source facts that must describe what THIS request started from
     // (rather than whatever state exists when a long remote render finishes).
@@ -1340,6 +1370,7 @@ function useImageGen(opts){
         if(!startMeta || typeof startMeta!=="object") startMeta=null; }catch(e){ startMeta=null; }
     }
     let committedUrl = "";
+    let discardedRun = false;   // cancelled / superseded / stale-scope — result thrown away
     const overrideModel = gopts.model || null;
     const usedModel = overrideModel || (typeof nbGetModel==="function" ? nbGetModel() : "");
     /* a model chosen via a fallback button ("Try <model>" / "Switch to <model>"
@@ -1479,6 +1510,9 @@ function useImageGen(opts){
     let actualModel = usedModel;     // may change if we fall back to another provider below
     let policyFellBack = "";
     try{
+      // last gate before the paid request: prompt/attachment assembly above awaited —
+      // if a Stop or a newer run for this id landed in that window, don't spend at all
+      if((window.__nbGenCancel && window.__nbGenCancel[id]) || !(window.__nbGenInflight && window.__nbGenInflight[id]===_genRun)) throw { __cancelled:true };
       let url;
       try{
         url = await nbGenerate(genPrompt, genOpts);
@@ -1500,8 +1534,9 @@ function useImageGen(opts){
           url = await nbGenerate(genPrompt, { ...genOpts, model:gModel.id });
         } else { throw e; }
       }
-      // cancelled mid-flight (Stop): discard the result — don't commit over the frame.
-      if(window.__nbGenCancel && window.__nbGenCancel[id]) throw { __cancelled:true };
+      // cancelled mid-flight (Stop) or superseded by a newer run for this id:
+      // discard the result — don't commit over the frame.
+      if((window.__nbGenCancel && window.__nbGenCancel[id]) || (window.__nbGenInflight && window.__nbGenInflight[id]!==_genRun)) throw { __cancelled:true };
       // Record the actual returned pixels as well as the requested resolution tier.
       // Providers can return dimensions that differ slightly from the nominal tier.
       const outputDims = await nbImageDimensions(url);
@@ -1560,11 +1595,17 @@ function useImageGen(opts){
         try{ const extra = await opts.metaExtra({ mode, refsUsed, prompt: genPrompt });
           if(extra && typeof extra==="object") Object.assign(meta, extra); }catch(e){}
       }
-      // re-check cancel after the async meta work — a cancelled generate must never commit
-      if(window.__nbGenCancel && window.__nbGenCancel[id]) throw { __cancelled:true };
+      // re-check cancel/ownership after the async meta work — a cancelled or
+      // superseded generate must never commit
+      if((window.__nbGenCancel && window.__nbGenCancel[id]) || (window.__nbGenInflight && window.__nbGenInflight[id]!==_genRun)) throw { __cancelled:true };
       const assetKind = (typeof slotAssetKind==="function") ? slotAssetKind(slotId) : "character";
       if(typeof nbWithAssetProvenance==="function") Object.assign(meta, nbWithAssetProvenance(id, meta, assetKind));
       const saveResult = await nbCommit(id, url, meta, refsUsed, assetKind, _genEpoch);
+      /* the film scope moved while this rendered: nbCommit refused the write. Treat it
+         exactly like a cancellation — installing the pixels or firing "done" here would
+         paint the OLD film's image into the new film's card (same entity ids) and
+         advance the new film's batch on a result that was never persisted. */
+      if(saveResult && saveResult.tier==="stale") throw { __cancelled:true };
       committedUrl = (saveResult && saveResult.url) || url;
       setGenUrl(committedUrl);
       setGenTier((saveResult && saveResult.tier) || "local");
@@ -1573,16 +1614,26 @@ function useImageGen(opts){
       // tell the user why this frame looks like the other engine
       if(policyFellBack && typeof window.appToast==="function")
         window.appToast("GPT Image blocked that for content policy — rendered with "+policyFellBack+" instead.", "info");
-    }catch(e){ if(!(e && (e.__cancelled || e.name==="AbortError"))) setGenErr((e && e.message) || "Generation failed."); }
-    const wasCancelled = !!(window.__nbGenCancel && window.__nbGenCancel[id]);
-    setGening(false); setRetrying(false);
-    delete window.__nbGenInflight[id];
-    if(window.__nbGenAbort) delete window.__nbGenAbort[id];
-    if(window.__nbGenCancel) delete window.__nbGenCancel[id];
+    }catch(e){ if(e && (e.__cancelled || e.name==="AbortError")) discardedRun = true;
+      else setGenErr((e && e.message) || "Generation failed."); }
+    /* OWNERSHIP-SAFE teardown: only the run that still owns the registry entries may
+       delete them or reset shared UI state — a stopped run whose id was reused by a
+       newer run must not erase the newer run's markers, and must never report "done". */
+    const own = !!(window.__nbGenInflight && window.__nbGenInflight[id]===_genRun);
+    const wasCancelled = discardedRun || !own || !!(window.__nbGenCancel && window.__nbGenCancel[id]);
+    if(own){
+      setGening(false); setRetrying(false);
+      delete window.__nbGenInflight[id];
+      if(window.__nbGenAbort) delete window.__nbGenAbort[id];
+      if(window.__nbGenCancel) delete window.__nbGenCancel[id];
+    }
     // notify any (re)mounted card for this id so it adopts the result even if the
     // card that started the generation has since unmounted (tab switch mid-generate).
-    // Skip when cancelled — there's no result to adopt.
+    // Skip when cancelled/discarded — there's no result to adopt — but a discarded run
+    // that still owned the registry announces a cancel, so a remounted card that seeded
+    // its spinner from the registry doesn't wedge.
     if(!wasCancelled){ try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id, url: committedUrl } })); }catch(e){} }
+    else if(own){ try{ window.dispatchEvent(new CustomEvent("nb-gen-cancel",{ detail:{ id } })); }catch(e){} }
   };
   const cancelGen = ()=>{ if(gening && typeof window.nbCancelGen==="function") window.nbCancelGen(id); };
   const clearGen = async ()=>{
@@ -1715,6 +1766,9 @@ function useBatchGen(){
     // 7 min is beyond the client's own 390s hard cap, so this only fires on a dead slot
     const wd = setTimeout(()=>{
       setMsg("That sheet didn't finish \u2014 skipping it and carrying on.");
+      // retire the stuck run before moving on: without this the zombie request could
+      // keep spending credits and commit/announce late, overlapping the next item
+      try{ if(typeof window.nbCancelGen==="function") window.nbCancelGen(activeId); }catch(e){}
       advance(activeId);
     }, 420000);
     return ()=>{ window.removeEventListener("nb-gen-done", onDone); clearTimeout(wd); };
@@ -3702,10 +3756,17 @@ function CharacterSheet({ c, project, scenes, props, drafts, speaks, onUpdate, o
     if(typeof nbClearCameo==="function") await nbClearCameo(c.id);
     refreshCameo();
   };
-  const addState = ()=> updateStates([...states, { id:"st-"+Date.now().toString(36), label:"New state", change:"", sceneId:"" }]);
+  // id carries a random suffix: two Adds in the same millisecond must not share one
+  // asset slot (both variants would overwrite/clear each other's image)
+  const addState = ()=> updateStates([...states, { id:"st-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,6), label:"New state", change:"", sceneId:"" }]);
   const updateState = (id,patch)=> updateStates(states.map(s=>s.id===id?{...s,...patch}:s));
-  const deleteState = (id)=>{
-    if(typeof nbClearAsset==="function") nbClearAsset(c.id+":"+id);
+  const deleteState = async (id)=>{
+    const vid = c.id+":"+id;
+    // stop any in-flight variant generation first (a late commit would recreate the
+    // asset we're about to clear), and AWAIT the clear so it can't land after a
+    // later re-creation of the same slot
+    try{ if(typeof window.nbCancelGen==="function") window.nbCancelGen(vid); }catch(e){}
+    if(typeof nbClearAsset==="function"){ try{ await nbClearAsset(vid); }catch(e){} }
     updateStates(states.filter(s=>s.id!==id));
   };
   const gen = useImageGen({
@@ -3811,12 +3872,15 @@ function CharacterSheet({ c, project, scenes, props, drafts, speaks, onUpdate, o
   // fire a SECOND generate on completion — two versions from one click. So seed the ref
   // from the module in-flight registry: if a generation is already running for this
   // slot, this instance treats itself as already-started and only reports completion.
-  const _slot = "charref-"+c.id;
-  const batchStarted = React.useRef(!!(window.__nbGenInflight && window.__nbGenInflight[_slot]));
+  // registry is keyed by the GEN id (c.id — what useImageGen registers), NOT the
+  // "charref-" reference-slot key; the slot key made this guard dead code (double
+  // generation after a mid-batch remount)
+  const _cgen = c.id;
+  const batchStarted = React.useRef(!!(window.__nbGenInflight && window.__nbGenInflight[_cgen]));
   const wasGening = React.useRef(false);
   React.useEffect(()=>{
     const mine = batchActiveId===c.id;
-    const inflight = !!(window.__nbGenInflight && window.__nbGenInflight[_slot]);
+    const inflight = !!(window.__nbGenInflight && window.__nbGenInflight[_cgen]);
     if(!mine){ batchStarted.current = inflight; wasGening.current=gen.gening; return; }
     if(!batchStarted.current && !gen.gening && !inflight){ batchStarted.current=true; wasGening.current=false; gen.generate({ batch:true }); return; }
     if(batchStarted.current && wasGening.current && !gen.gening){ batchStarted.current=false; onBatchDone && onBatchDone(c.id); }

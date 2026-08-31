@@ -160,12 +160,15 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   // batch generation: parent activates this card by id; generate then report done.
   // REMOUNT-SAFE (see CharacterSheet): seed batchStarted from the in-flight registry so
   // a card remounting mid-generation doesn't fire a second generate on completion.
-  const _lslot = "locref-"+l.id;
-  const batchStarted = React.useRef(!!(window.__nbGenInflight && window.__nbGenInflight[_lslot]));
+  // The registry is keyed by the GEN id (l.id — what useImageGen registers), NOT the
+  // "locref-" reference-slot key: checking the slot key made this guard dead code, and
+  // a mid-batch remount (e.g. opening the viewer) generated every plate TWICE.
+  const _lgen = l.id;
+  const batchStarted = React.useRef(!!(window.__nbGenInflight && window.__nbGenInflight[_lgen]));
   const wasGening = React.useRef(false);
   React.useEffect(()=>{
     const mine = batchActiveId===l.id;
-    const inflight = !!(window.__nbGenInflight && window.__nbGenInflight[_lslot]);
+    const inflight = !!(window.__nbGenInflight && window.__nbGenInflight[_lgen]);
     if(!mine){ batchStarted.current=inflight; wasGening.current=gen.gening; return; }
     if(!batchStarted.current && !gen.gening && !inflight){ batchStarted.current=true; wasGening.current=false; gen.generate(); return; }
     if(batchStarted.current && wasGening.current && !gen.gening){ batchStarted.current=false; onBatchDone && onBatchDone(l.id); }
@@ -475,17 +478,15 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
     return out;
   };
   React.useEffect(()=>{
-    let alive = true;
-    (async ()=>{
-      const refs = await buildCoverageRefs();
-      if(!alive) return;
-      setRefPreview(refs);
-    })();
+    // seq guards against out-of-order resolution: a slow refresh started for an
+    // earlier "done" event must not overwrite the result of a later one
+    let alive = true, seq = 0;
+    const refresh = ()=>{ const my = ++seq;
+      buildCoverageRefs().then(refs=>{ if(alive && my===seq) setRefPreview(refs); }); };
+    refresh();
     const onDone = (e)=>{
       const rid = e && e.detail && e.detail.id;
-      if(rid===l.id || rid===id || (previousSheets||[]).some(p=>rid===l.id+"-"+p.id)){
-        buildCoverageRefs().then(refs=>{ if(alive) setRefPreview(refs); });
-      }
+      if(rid===l.id || rid===id || (previousSheets||[]).some(p=>rid===l.id+"-"+p.id)) refresh();
     };
     window.addEventListener("nb-gen-done", onDone);
     return ()=>{ alive=false; window.removeEventListener("nb-gen-done", onDone); };
@@ -493,10 +494,16 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
   const missingRequiredRefs = refPreview.filter(r=>r.required && !r.ready);
   const canGenerateCoverage = refPreview.length>0 && missingRequiredRefs.length===0;
   const missingPrev = missingRequiredRefs.some(r=>String(r.refId||"").indexOf(l.id+"-")===0);
-  const toggleCoverageRef = (rid)=> setCoverageRefOff(off=> off.indexOf(rid)>=0 ? off.filter(x=>x!==rid) : [...off, rid]);
+  // required refs (parent plate, earlier coverage) are the whole point of the gating —
+  // they can't be opted out, only the optional ones can
+  const toggleCoverageRef = (rid)=> setCoverageRefOff(off=>{
+    const r = refPreview.find(x=>x.refId===rid);
+    if(r && r.required) return off;
+    return off.indexOf(rid)>=0 ? off.filter(x=>x!==rid) : [...off, rid];
+  });
   const collectCoverageRefs = async ()=>{
     return (await buildCoverageRefs())
-      .filter(r=>r.ready && r.url && coverageRefOff.indexOf(r.refId)<0)
+      .filter(r=>r.ready && r.url && (r.required || coverageRefOff.indexOf(r.refId)<0))
       .map(r=>({ url:r.url, kind:r.kind==="script"?"script":"location", refId:r.refId, note:r.note }));
   };
   const gen = useImageGen({
@@ -558,7 +565,8 @@ function CoverageReferenceStrip({ refs, excludedIds, onToggle, onView }){
       React.createElement(Icon.layers,{s:11}),"Reference images"),
     React.createElement("div",{className:"shot-refs-row coverage-refs-row"},
       refs.map((r,i)=>{
-        const canToggle = !!(onToggle && r.refId!=null);
+        // required refs are locked in — no exclude tick (they gate generation)
+        const canToggle = !!(onToggle && r.refId!=null && !r.required);
         const off = canToggle && excludedIds.indexOf(r.refId)>=0;
         if(r.ready && r.url) return React.createElement("div",{key:i,role:"button",tabIndex:0,
             className:"shot-ref-thumb "+(r.kind==="script"?"script":"location")+(off?" off":""),
@@ -646,18 +654,26 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onUpdat
     return out;
   };
   React.useEffect(()=>{
-    let alive = true;
-    (async ()=>{ const refs = await buildUnitRefs(); if(alive) setRefPreview(refs); })();
+    // seq: same out-of-order guard as the coverage card above
+    let alive = true, seq = 0;
+    const refresh = ()=>{ const my = ++seq;
+      buildUnitRefs().then(refs=>{ if(alive && my===seq) setRefPreview(refs); }); };
+    refresh();
     const onDone = (e)=>{ const rid = e && e.detail && e.detail.id;
-      if(rid===l.id || rid===imgId) buildUnitRefs().then(refs=>{ if(alive) setRefPreview(refs); }); };
+      if(rid===l.id || rid===imgId) refresh(); };
     window.addEventListener("nb-gen-done", onDone);
     return ()=>{ alive=false; window.removeEventListener("nb-gen-done", onDone); };
   },[refsKey]);
   const missingRequired = refPreview.filter(r=>r.required && !r.ready);
   const canGenerate = !u.orphan && refPreview.length>0 && missingRequired.length===0;
-  const toggleRef = (rid)=> setRefOff(off=> off.indexOf(rid)>=0 ? off.filter(x=>x!==rid) : [...off, rid]);
+  // required parent plate can't be opted out (see coverage card above)
+  const toggleRef = (rid)=> setRefOff(off=>{
+    const r = refPreview.find(x=>x.refId===rid);
+    if(r && r.required) return off;
+    return off.indexOf(rid)>=0 ? off.filter(x=>x!==rid) : [...off, rid];
+  });
   const collectRefs = async ()=> (await buildUnitRefs())
-    .filter(r=>r.ready && r.url && refOff.indexOf(r.refId)<0)
+    .filter(r=>r.ready && r.url && (r.required || refOff.indexOf(r.refId)<0))
     .map(r=>({ url:r.url, kind:r.kind==="script"?"script":"location", refId:r.refId, note:r.note }));
   const gen = useImageGen({
     id: imgId, slotId, entity: l,

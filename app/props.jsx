@@ -1056,17 +1056,27 @@ function PropSheet({ p, project, characters, scenes, onUpdate, onDelete, onDraft
   // sheet yet, generate it first (drafting the owner's spec if needed), THEN the prop —
   // so the owner sheet is present as a reference. No-op for ownerless / already-sheeted.
   const genWithOwner = React.useCallback(async (...a)=>{
-    // no silent WORLD-GENERIC sheets: an ownerless carried prop has no character
-    // anchor, so confirm before generating one by hand (batch skips these outright)
-    if((p.kind||"carried")==="carried" && !p.ownerId && typeof window.appConfirm==="function"){
-      const ok = await window.appConfirm({
-        title:"No owner \u2014 generate world-generic?",
-        body:(p.name||"This prop")+" isn't assigned to a character, so its sheet will be generated with no character anchor \u2014 generic world style, nothing that ties it to a person. Assign an owner first for a prop that belongs to someone.",
-        confirmLabel:"Generate anyway", cancelLabel:"Cancel" });
-      if(!ok) return false;
-    }
-    if(onEnsureOwner){ try{ await onEnsureOwner(p); }catch(e){} }
-    return gen.generate(...a);
+    /* cross-instance guard: the owner-prerequisite phase generates under the OWNER's
+       id, so this prop's id is NOT in the inflight registry during that wait. A card
+       remounting mid-sequence must not start the sequence a second time (double owner
+       generation = double credit spend). Held until the prop's own generation has
+       registered itself, then released. */
+    window.__nbOwnerPhase = window.__nbOwnerPhase || {};
+    if(window.__nbOwnerPhase[p.id] || (window.__nbGenInflight && window.__nbGenInflight[p.id])) return false;
+    window.__nbOwnerPhase[p.id] = true;
+    try{
+      // no silent WORLD-GENERIC sheets: an ownerless carried prop has no character
+      // anchor, so confirm before generating one by hand (batch skips these outright)
+      if((p.kind||"carried")==="carried" && !p.ownerId && typeof window.appConfirm==="function"){
+        const ok = await window.appConfirm({
+          title:"No owner \u2014 generate world-generic?",
+          body:(p.name||"This prop")+" isn't assigned to a character, so its sheet will be generated with no character anchor \u2014 generic world style, nothing that ties it to a person. Assign an owner first for a prop that belongs to someone.",
+          confirmLabel:"Generate anyway", cancelLabel:"Cancel" });
+        if(!ok) return false;
+      }
+      if(onEnsureOwner){ try{ await onEnsureOwner(p); }catch(e){} }
+      return await gen.generate(...a);
+    }finally{ delete window.__nbOwnerPhase[p.id]; }
   },[gen, onEnsureOwner, p]);
   const genForFrame = onEnsureOwner ? { ...gen, generate: genWithOwner } : gen;
   const promptStale = !!(genForFrame.genUrl && genForFrame.genMeta && genForFrame.genMeta.prompt && genForFrame.genMeta.prompt!==finalPrompt);
@@ -1076,12 +1086,17 @@ function PropSheet({ p, project, characters, scenes, onUpdate, onDelete, onDraft
      queue advances. Watches gen.gening for the true->false transition. ---- */
   // REMOUNT-SAFE (see CharacterSheet): seed batchStarted from the in-flight registry so a
   // card remounting mid-generation doesn't fire a second generate on completion.
-  const _pslot = "propref-"+p.id;
-  const batchStarted = React.useRef(!!(window.__nbGenInflight && window.__nbGenInflight[_pslot]));
+  // Keyed by the GEN id (p.id — what useImageGen registers), NOT the "propref-" slot key
+  // (the slot key made this guard dead code → double generation after a remount).
+  // also treat the owner-prerequisite phase as in-flight — during it the prop's own
+  // id isn't registered yet (the OWNER's generation is), but the sequence has started
+  const _pgen = p.id;
+  const _pInflight = ()=> !!((window.__nbGenInflight && window.__nbGenInflight[_pgen]) || (window.__nbOwnerPhase && window.__nbOwnerPhase[_pgen]));
+  const batchStarted = React.useRef(_pInflight());
   const wasGening = React.useRef(false);
   React.useEffect(()=>{
     const mine = batchActiveId===p.id;
-    const inflight = !!(window.__nbGenInflight && window.__nbGenInflight[_pslot]);
+    const inflight = _pInflight();
     if(!mine){ batchStarted.current=inflight; wasGening.current=gen.gening; return; }
     if(!batchStarted.current && !gen.gening && !inflight){
       batchStarted.current = true; wasGening.current = false;

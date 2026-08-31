@@ -1,0 +1,14 @@
+---
+name: Image-gen registry ownership
+description: Rules for the shared per-id generation registries (__nbGenInflight etc.) — gen-id keying, run tokens, re-check after every await
+---
+
+The shared image-generation registries (`__nbGenInflight`, `__nbGenCancel`, `__nbGenAbort`) are keyed by the **GEN id** (the `id` passed to `useImageGen`), never by the reference-slot key (`"locref-"+id`, `"charref-"+id`, …).
+
+**Why:** every batch remount-safety guard once checked the slot key — dead code — so a card remounting mid-batch (opening the viewer) re-fired generate on completion: two near-identical versions and double credit spend per sheet. Character state sheets use `c.id+":"+st.id` as gen id; props' owner-prerequisite phase runs under the OWNER's id, so the prop id needs a separate cross-instance lock (`__nbOwnerPhase`).
+
+**How to apply:**
+- Any new "is this entity generating?" check must read the registry under the gen id (and any companion phase locks), not the slot id.
+- `__nbGenInflight[id]` holds a per-run token, not `true`. After **every** await inside the generate path (pre-generate gate, meta/attachment assembly, the request itself, post-meta), re-check `__nbGenInflight[id]===myToken` before spending, committing, mutating shared registries, or firing events — a Stop or a newer run for the same id may have taken over during the await. Non-owners must vanish silently.
+- `nbCommit` returning `tier:"stale"` (film scope moved) must be treated as a cancellation: no state install, no `nb-gen-done` (it would paint into the other film's same-id card and advance its batch); announce `nb-gen-cancel` so remounted spinners clear.
+- Local history writes (commit/revert/delete-version/clear) are serialized per asset id via `_nbSerial` — new read-modify-write asset ops must go through it, and a wrapped op must never call another wrapped op on the same id (deadlock).
