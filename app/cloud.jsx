@@ -268,6 +268,20 @@ async function cloudSaveOrder(id, order){
   await cloudPatchDoc(id, (doc)=>{ doc.homeOrder = order; });
 }
 window.cloudSaveOrder = cloudSaveOrder;
+/* decode the JWT the client is ACTUALLY sending, for RLS failure diagnostics:
+   which role it carries, whether it's the signed-in user, whether it expired */
+async function _cloudJwtDiag(sb, uid){
+  try{
+    const { data } = await sb.auth.getSession();
+    const tok = data && data.session && data.session.access_token;
+    if(!tok) return "no access token attached";
+    const p = JSON.parse(atob(String(tok).split(".")[1].replace(/-/g,"+").replace(/_/g,"/")));
+    const secs = Math.round((p.exp||0) - Date.now()/1000);
+    return "token role="+(p.role||"?")
+      +" \u00b7 user "+(p.sub===uid ? "matches" : "MISMATCH")
+      +" \u00b7 "+(secs>=0 ? "expires in "+secs+"s" : "EXPIRED "+(-secs)+"s ago");
+  }catch(e){ return "token unreadable"; }
+}
 async function cloudCreateProject(title, doc){
   // record WHY a create failed so the UI can say something better than "hiccup"
   window.cloudLastCreateError = "";
@@ -275,10 +289,24 @@ async function cloudCreateProject(title, doc){
   const session = await cloudGetSession();
   const uid = session && session.user && session.user.id;
   if(!uid){ window.cloudLastCreateError = "your session has expired \u2014 sign in again"; return null; }
+  const ins = ()=> sb.from("turn_projects")
+    .insert({ owner:uid, title: title || "Untitled film", doc: doc || {} }).select().single();
   try{
-    const { data, error } = await sb.from("turn_projects")
-      .insert({ owner:uid, title: title || "Untitled film", doc: doc || {} }).select().single();
-    if(error){ window.cloudLastCreateError = (error.message || "the server rejected the save"); return null; }
+    let { data, error } = await ins();
+    if(error && /row-level security/i.test(error.message||"")){
+      // the DB didn't recognise this sign-in — force a token refresh, retry once
+      try{ await sb.auth.refreshSession(); }catch(e){}
+      ({ data, error } = await ins());
+    }
+    if(error){
+      let why = error.message || "the server rejected the save";
+      if(/row-level security/i.test(why)){
+        const diag = await _cloudJwtDiag(sb, uid);
+        why += diag ? " ["+diag+"]" : "";
+        try{ console.error("[turn] create-film RLS failure:", why, "uid:", uid); }catch(e){}
+      }
+      window.cloudLastCreateError = why; return null;
+    }
     return data;
   }catch(e){ window.cloudLastCreateError = (e && e.message) || "network error"; return null; }
 }
