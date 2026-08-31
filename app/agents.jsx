@@ -623,7 +623,7 @@ async function agentAdaptation(ctx){
 
   // ---- draft each character's psychology (want / need / arc) so the cast isn't blank ----
   if(ctx.ai.available && typeof window.aiCastPsychology==="function" && ctx.model.characters && ctx.model.characters.length){
-    ctx.emit({k:"act", t:"Drafting the cast's inner life \u2014 conscious want, unconscious need and arc\u2026"});
+    ctx.emit({k:"act", t:"Drafting the cast's inner life \u2014 want, contradicting need, dimensions and arc\u2026"});
     try{
       const psych = await window.aiCastPsychology(ctx.model.characters, ctx.model.scenes, ctx.model.project);
       if(psych){ ctx.model.characters = ctx.model.characters.map(c=> psych[c.id] ? {...c, ...psych[c.id]} : c);

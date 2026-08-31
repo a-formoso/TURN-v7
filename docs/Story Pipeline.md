@@ -100,6 +100,23 @@ continuity scene to scene.
 > feature enrichment), and **Voice Design** builds its casting description from these fields before
 > any heuristic.
 
+> **Character architecture** *(approved 2026-08-31 by owner)*: every major character is built in
+> **two layers** — characterization is only the *mask* (job, manner, surface traits); **true
+> character is revealed only by choices under pressure**, so the inner life always derives from
+> what the scenes show them **do**, never from the mask. Each character carries a **desire
+> complex**: a conscious want plus an unconscious need that genuinely **contradicts** it — the
+> pull-against is the scene-generating engine, not a restatement. **Motivation discipline:** never
+> a lazy trauma-excuse; keep asking *why* until the want is a live, present-tense hunger the story
+> can dramatize. **Dimensions = contradictions**: 2–4 consistent "trait / counter-trait" pairs
+> visible in behaviour, the **protagonist carrying the most** in the cast (a Cast-panel field,
+> drafted by the build and by "Draft with MUSE"). The **protagonist's arc is pinned to the Story
+> Contract's declared inner arc**, so the cast document and the contract never drift. The cast is
+> designed **as a system**: *Human truth* + *Argues* give every member a distinct stance on the
+> controlling idea (never a unanimous jury), and **Voice DNA** (vocabulary, syntax under stress,
+> metaphor sources) feeds dialogue drafting. Optional depth for the protagonist only: the four
+> selves (core / personal / social / hidden), one line each. Psychometric trait labels are
+> deliberately omitted — traits fall out of contradictions and choices.
+
 ### 4. Structural core — the Spine
 Every story is a sequence of scenes, each carrying a **value charge** (opening → closing, e.g. +2 → −1).
 The **Spine view** plots that charge across all scenes so the rhythm of the whole arc is visible.

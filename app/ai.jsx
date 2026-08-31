@@ -976,6 +976,7 @@ const APP_FEATURES = [
   { name:"Screenplay craft rules", what:"every script drafter writes under a binding HOUSE STYLE: subtext-forward dialogue, lean present-tense action, capitalized introductions carrying the cast sheet's CANONICAL apparent age (never invented), EXTERNALIZED internal conflict (an inner debate renders as concrete objects and micro-behavior a camera can photograph \u2014 never narrated interiority), the TURN carried by prose rhythm (dialogue falls away, short standalone lines, white space), the scene's opening and closing VALUES legible as imagery bookends (a reader who never saw the beat map still feels the charge shift), and development metadata (charges, beat numbers, app vocabulary) kept off the page \u2014 the free Consistency Check flags leaks." },
   { name:"Draft with MUSE", what:"drafts the ONE selected scene only. If that scene has no beats yet, it first authors the whole scene (title, description, value charge, beats) and then writes its script." },
   { name:"Human truth (Cast panel)", what:"every character carries a HUMAN TRUTH — the one observation about human nature they embody, a DISTINCT stance on the film's controlling idea, grounded in behaviour the script shows — plus an ARGUES selector (The idea / The counter-idea / Complicates both). The cast is the argument's JURY: the protagonist prosecutes the idea through change, others hold opposing or complicating stances, and that difference is what makes dialogue unswappable. Both fields sit on the Cast panel under Desire; the character 'Draft with MUSE' button and the story build's cast-psychology pass draft them automatically (script-grounded — the truth must fit what the character actually DOES). The FREE Consistency Check audits the ARGUMENT MAP: it flags scene-driving characters with no human truth, and a unanimous jury (3+ stanced characters all arguing the same side)." },
+  { name:"Character architecture (Cast panel)", what:"characters are built on the TWO-LAYER RULE \u2014 characterization is only the mask; TRUE character is what choices under pressure reveal, so the inner life always derives from what the script shows them DO. The DESIRE COMPLEX requires the unconscious need to genuinely CONTRADICT the conscious want (the pull-against generates scenes), and motivation is disciplined: never a lazy trauma/backstory excuse \u2014 the want must be a live, present-tense hunger. DIMENSIONS \u2014 a Cast-panel field under Unconscious need \u2014 hold 2\u20134 consistent contradictions per character ('trait / counter-trait', one pair per line), with the protagonist carrying the most. The protagonist's arc is PINNED to the Story Contract's declared inner arc so the cast and the contract never drift. All of it drafts automatically via 'Draft with MUSE' (per character) and the story build's cast-psychology pass; every field stays hand-editable." },
   { name:"Auto-draft all (N left)", what:"drafts EVERY still-undrafted scene in order, threading continuity scene-to-scene. The (N left) counts scenes with no draft yet. Same engine as Draft with MUSE, just batched." },
   { name:"Redraft script from beats", what:"the ONE rebuild lever for a scene's screenplay, living in the Script view's toolbar (formerly 'Polish with MUSE' / 'Re-polish'; a duplicate in the Beats tab was removed). The scene's prose is rewritten fresh from its CURRENT beat cards (the old prose is never read \u2014 beats are the source), a CENTERED full-screen progress card shows while MUSE works, and the outgoing draft lands in version history so Undo restores it. Reshape the beats first to reshape the scene; press it on an untouched scene simply to elevate the structural draft into final prose. DRIVER RECAST: changing a scene's DRIVER (the Scene tab dropdown) syncs the Beats tab's labels instantly, and \u2014 because prose can't follow a dropdown \u2014 OFFERS to recast the scene's subtext for the new driver (a confirm, then MUSE rewrites the summary, objective, desire, antagonism and every beat's drive side for the new character, same beat count and escalation; a centered progress card shows while it runs). Review the recast beats, then 'Redraft script from beats' rebuilds the screenplay to match. Declining the recast keeps all text as it was." },
   { name:"Recovery screen (render crash)", what:"if a display error ever breaks the screen, the app no longer goes blank \u2014 a recovery card appears saying what happened, with Reload, \u2018Reload on a fresh view\u2019 (comes back on the default tab, for when the same screen keeps breaking) and Copy error (the technical detail, for reporting), plus a foldable Technical detail section. Your film saves continuously, so a crash is a display problem rather than a lost film \u2014 though the last few seconds of edits before it may not have been written. Screenplay undo history is also capped at 12 versions per scene (matching the image layer), so a long session can\u2019t grow the saved file without limit." },
@@ -2188,13 +2189,29 @@ window.composeStoryBrief = composeStoryBrief;
 
 /* ---- CHARACTER: draft conscious want + unconscious need + arc, derived from the
    scenes this character actually drives, so it stays consistent with the spine. ---- */
+/* DIMENSIONS normalizer — shared by the single-character draft and the batched cast
+   pass. Entries must be genuine "trait / counter-trait" pairs (meaningful text on BOTH
+   sides of the slash); invalid/blank entries are dropped, 4 max. Fewer than 2 surviving
+   pairs means the model didn't produce real contradictions — return null so the field
+   is OMITTED rather than storing a malformed architecture. */
+function normalizeDimensions(raw){
+  if(!Array.isArray(raw)) return null;
+  const pairs = raw.map(d=>clipWords(scrubBrand(String(d||"")),80).trim())
+    .filter(d=>{ const i=d.indexOf("/");
+      return i>0 && d.slice(0,i).trim().length>=2 && d.slice(i+1).trim().length>=2; })
+    .slice(0,4);
+  return pairs.length>=2 ? pairs.join("\n") : null;
+}
+
 async function aiDraftCharacter(character, drivenScenes, project, canon){
   if(!aiAvailable()) return null;
   const P = writingProjectOf(project);
   const ci = P.controllingIdea || {};
   let ctx = "FILM: "+(P.title||"Untitled")+" \u2014 "+(P.genre||"")+". Logline: "+writingLoglineOf(P)+"\n";
-  ctx += "Controlling idea: "+(ci.value||"")+" "+(ci.cause||"")+"\n\n";
-  ctx += "CHARACTER: "+character.name+" ("+(character.role||"")+")\n";
+  ctx += "Controlling idea: "+(ci.value||"")+" "+(ci.cause||"")+"\n";
+  // the Story Contract rides along so a protagonist's arc can be pinned to the declared inner arc
+  if(typeof contractBrief==="function"){ const cb = contractBrief(P); if(cb) ctx += cb; }
+  ctx += "\nCHARACTER: "+character.name+" ("+(character.role||"")+")\n";
   // THE SCRIPT IS CANON for psychology too: the screenplay's own lines about this
   // character ground the want/need/arc — vital for someone added AFTER the build,
   // who drives no scenes but already lives in the prose.
@@ -2209,14 +2226,17 @@ async function aiDraftCharacter(character, drivenScenes, project, canon){
     ctx += "This character currently drives NO scenes \u2014 infer their want from the premise and how they'd fit.\n";
   }
   const prompt = ctx + "\nUsing the Infinite Studio method, articulate this character. "+
+    "TWO LAYERS: characterization is only the MASK (job, manner, surface traits); TRUE character is what their CHOICES under pressure reveal \u2014 derive everything below from what they DO in the scenes/script above, never from the mask. "+
     "Conscious desire = what they consciously pursue (the goal that drives their scenes). "+
-    "Unconscious desire = the deeper, often contradictory need they may not admit. "+
-    "Arc = their inner transformation in 3\u20135 words (e.g. \u201cDoubt \u2192 belief \u2192 self-realization\u201d), reflecting how their value charges turn across the scenes above. "+
+    "Unconscious desire = the deeper need that genuinely CONTRADICTS the conscious one \u2014 the pull-against is the scene engine, not a restatement of the want. "+
+    "MOTIVATION DISCIPLINE: never explain a want with a convenient trauma/backstory wound \u2014 keep asking WHY until it is a live, present-tense hunger the story can dramatize. "+
+    "dimensions = 2\u20134 CONSISTENT CONTRADICTIONS visible in their behaviour, each a \u201ctrait / counter-trait\u201d pair (e.g. \u201cruthless in the deal / sentimental with strangers\u201d); a protagonist should carry the most. "+
+    "Arc = their inner transformation in 3\u20135 words (e.g. \u201cDoubt \u2192 belief \u2192 self-realization\u201d), reflecting how their value charges turn across the scenes above. If this character is the PROTAGONIST and a Story Contract above declares an inner arc, the arc must EXPRESS that declared arc. "+
     "humanTruth = the ONE observation about HUMAN NATURE this character embodies \u2014 a distinct stance on the controlling idea, GROUNDED in behaviour the screenplay actually shows (cite no scene numbers, just distil the behaviour); one sentence, specific, no platitudes. "+
     "argues = which side of the controlling idea that stance lands on: \"idea\", \"counter\", or \"complicates\" (it genuinely cuts both ways).\n"+
     "voiceDNA describes WRITTEN dialogue rather than casting performance: vocabulary domains, sentence structure, rhythm/cadence, directness, recurring imagery/metaphor sources, language they avoid, and how their syntax changes under pressure. Ground it in this person's identity and screenplay evidence; make every field usable by a scene writer.\n"+
     "Keep each concise and specific to THIS story \u2014 no generic screenwriting platitudes.\n"+
-    'Return ONLY JSON: {"conscious":"one sentence","unconscious":"one sentence","arc":"3-5 word arc","humanTruth":"one sentence","argues":"idea|counter|complicates","voiceDNA":{"vocabulary":"","syntax":"","rhythm":"","directness":"","imagery":"","avoids":"","stressShift":""}}.';
+    'Return ONLY JSON: {"conscious":"one sentence","unconscious":"one sentence","arc":"3-5 word arc","dimensions":["trait / counter-trait","..."],"humanTruth":"one sentence","argues":"idea|counter|complicates","voiceDNA":{"vocabulary":"","syntax":"","rhythm":"","directness":"","imagery":"","avoids":"","stressShift":""}}.';
   try{
     const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }] });
     const j = extractJSON(res);
@@ -2226,6 +2246,8 @@ async function aiDraftCharacter(character, drivenScenes, project, canon){
       conscious: clipWords(scrubBrand((j.conscious||"").toString()),160),
       unconscious: clipWords(scrubBrand((j.unconscious||"").toString()),160),
       arc: clipWords(scrubBrand((j.arc||"").toString()),60),
+      // 2-4 validated "trait / counter-trait" pairs, one per line — or omitted entirely
+      ...( (d=> d ? { dimensions:d } : {})(normalizeDimensions(j.dimensions)) ),
       humanTruth: clipWords(scrubBrand((j.humanTruth||"").toString()),180),
       voiceDNA: Object.fromEntries(Object.entries(j.voiceDNA||{}).filter(([k])=>
         ["vocabulary","syntax","rhythm","directness","imagery","avoids","stressShift"].includes(k))
@@ -2243,7 +2265,9 @@ async function aiCastPsychology(characters, scenes, project){
   const P = writingProjectOf(project);
   const ci = P.controllingIdea || {};
   const header = "FILM: "+(P.title||"Untitled")+" \u2014 "+(P.genre||"")+". Logline: "+writingLoglineOf(P)+
-    "\nControlling idea: "+(ci.value||"")+" "+(ci.cause||"")+"\n";
+    "\nControlling idea: "+(ci.value||"")+" "+(ci.cause||"")+"\n"+
+    // the Story Contract rides along so the protagonist's arc lands on the declared inner arc
+    ((typeof contractBrief==="function" && contractBrief(P)) || "");
   const batches = [];
   for(let i=0;i<characters.length;i+=3) batches.push(characters.slice(i,i+3));
 
@@ -2253,13 +2277,16 @@ async function aiCastPsychology(characters, scenes, project){
       ctx += "- id:"+c.id+" | "+c.name+" ("+(c.role||"")+")"+
         (driven.length?(" \u2014 drives: "+driven.map(s=>s.title+" ["+chargeStr(s.openCharge)+"\u2192"+chargeStr(s.closeCharge)+"]").slice(0,5).join("; ")):" \u2014 drives no scenes")+"\n"; });
     const prompt = ctx + "\nUsing the Infinite Studio method, articulate EACH character. "+
+      "TWO LAYERS: characterization is only the mask \u2014 TRUE character is what CHOICES under pressure reveal; derive everything from what each character DOES in the scenes they drive. "+
       "conscious = what they consciously pursue (the goal driving their scenes), one sentence. "+
-      "unconscious = the deeper, often contradictory need they may not admit, one sentence. "+
-      "arc = inner transformation in 3-5 words reflecting how their charges turn. "+
+      "unconscious = the deeper need that genuinely CONTRADICTS the conscious one (the pull-against generates scenes), one sentence. "+
+      "MOTIVATION DISCIPLINE: never a convenient trauma/backstory wound as the why \u2014 the want must be a live, present-tense hunger. "+
+      "dimensions = 2\u20134 consistent contradictions visible in behaviour for EVERY character, each a \"trait / counter-trait\" pair; the PROTAGONIST carries the most (3\u20134). "+
+      "arc = inner transformation in 3-5 words reflecting how their charges turn; the PROTAGONIST's arc must EXPRESS the Story Contract's declared inner arc if one appears above. "+
       "humanTruth = the ONE observation about human nature this character embodies \u2014 a DISTINCT stance on the controlling idea (no two characters the same stance; even minor cast get one), one sentence grounded in their behaviour. "+
       "argues = which side that stance lands on: \"idea\", \"counter\", or \"complicates\". Across the cast the stances should form an ARGUMENT MAP \u2014 not a unanimous jury. "+
       "Specific to THIS story, no platitudes.\n"+
-      'Return ONLY compact JSON: {"cast":[{"id":"...","conscious":"...","unconscious":"...","arc":"...","humanTruth":"...","argues":"idea|counter|complicates"}]}';
+      'Return ONLY compact JSON: {"cast":[{"id":"...","conscious":"...","unconscious":"...","arc":"...","dimensions":["trait / counter-trait","..."],"humanTruth":"...","argues":"idea|counter|complicates"}]}';
     try{
       const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }] });
       const j = extractJSON(res);
@@ -2271,6 +2298,7 @@ async function aiCastPsychology(characters, scenes, project){
       arr.forEach((e,i)=>{ const id = idOf(e.id) || (chars[i] && chars[i].id);
         if(id) part[id] = {
           ...( /^(idea|counter|complicates)$/.test(String(e.argues||"").toLowerCase().trim()) ? { argues:String(e.argues).toLowerCase().trim() } : {} ),
+          ...( (d=> d ? { dimensions:d } : {})(normalizeDimensions(e.dimensions)) ),
           humanTruth: clipSpecText(e.humanTruth,180),
           conscious: clipSpecText(e.conscious,160),
           unconscious: clipSpecText(e.unconscious,160),

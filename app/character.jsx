@@ -86,8 +86,18 @@ function CharacterPanel({ character, scenes, onUpdate, onDraft, drafting, onJump
             onCommit:v=>onUpdate(c.id,{conscious:v})})),
         React.createElement("div",{className:"char-field"},
           React.createElement("div",{className:"obj-lab"},"Unconscious need"),
-          React.createElement(EditText,{value:c.unconscious,readOnly,multiline:true,placeholder:"The deeper need they may not admit\u2026",
+          React.createElement(EditText,{value:c.unconscious,readOnly,multiline:true,placeholder:"The deeper need they may not admit \u2014 it should pull AGAINST the want\u2026",
             onCommit:v=>onUpdate(c.id,{unconscious:v})})),
+        // DIMENSIONS — consistent contradictions ("trait / counter-trait", one per line).
+        // The two-layer rule in practice: the mask says one thing, choices under pressure
+        // say another. The protagonist should carry the most pairs in the cast.
+        React.createElement("div",{className:"char-field"},
+          React.createElement("div",{className:"obj-lab",
+            title:"Consistent contradictions that make a character dimensional \u2014 two traits genuinely at war in their behaviour, one pair per line. The protagonist should carry the most. Drafted by \u201cDraft with MUSE\u201d and the story build."},
+            "Dimensions \u2014 consistent contradictions"),
+          React.createElement(EditText,{value:c.dimensions,readOnly,multiline:true,
+            placeholder:"one pair per line \u2014 e.g. ruthless in the deal / sentimental with strangers\u2026",
+            onCommit:v=>onUpdate(c.id,{dimensions:v})})),
         // HUMAN TRUTH — the insight into human nature this character embodies, and
         // which side of the film's controlling idea it argues. Every significant
         // character should hold a DISTINCT stance (the cast is the argument's jury).
