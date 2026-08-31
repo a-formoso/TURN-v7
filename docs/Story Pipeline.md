@@ -82,6 +82,27 @@ The Resolution
 The synopsis is the source of truth the rest of the build derives from — including **unique,
 setting-appropriate character names** (never role-words like "Antagonist", never recycled sample names).
 
+> **Author preparation — write from within** *(approved 2026-08-31 by owner)*: the author's
+> reservoir **is** this step — the Three Pillars above are the combined research model (memory /
+> personal, imagination / living the hours, fact / grounded), so no separate "Phase 0" surface
+> exists. What was added is the **write-from-within stance** on every pass that invents
+> behaviour: before writing what a character does or says, take their place in the
+> circumstances — *"if I were this person, with this desire, under this pressure, what would I
+> do?"* — and write what is found there, never behaviour observed from a distance (outside-in
+> observation produces clichés; improvising from within produces the honest, surprising,
+> in-character move). It rides in the house style (drafting · polish · write-missing-beat), in
+> beat authoring (paired with the five steps — the "if" is how the driver feels the desire and
+> senses the antagonism before choosing the tactic), and in the anti-stock rule (character
+> invention: the world build, per-character drafting, the cast-psychology pass).
+> *Documentary is exempt by design:* the stance binds **fictional** characters only — a
+> documentary's real subjects get no invented inner life, motives, actions or words; every
+> invention pass instead carries a grounding rule (derive everything from research, observed
+> action and attributable sources; where the record is silent, claim less rather than imagining
+> more), and the documentary format's screenplay rules now govern the polish and
+> write-missing-beat passes too, not just first drafts. Cuts: the
+> technique ships unattributed (no source names on the page or in prompts), and no new
+> author-prep step or UI — the research stage already is the reservoir.
+
 ### 3. Build the spine to the format's target, in the framework's grammar  *(amended 2026-06-11; framework clause by owner-delegated decision)*
 From the synopsis, build a full spine at the **format's target scene count** (Film = the
 classic 16), using the **framework's act grammar** (Three-Act keeps today's exact build
