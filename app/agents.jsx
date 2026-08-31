@@ -482,8 +482,13 @@ async function agentContinuityRepair(ctx){
    a rough auto-draft because the model call failed — is tracked and reported by
    number, never swallowed. All model calls go through ctx.ai.* so they're pinned to
    THIS run's film, never whatever film happens to be open now. */
+/* short, cancellation-aware breather between retries — transient provider hiccups
+   (throttle, timeout) usually clear in moments. Every caller re-checks ctx.cancelled()
+   immediately after, so Stop stays honest through a pause. */
+function scenePause(ms){ return new Promise(r=>setTimeout(r, ms)); }
+
 async function writeScenesSeq(ctx, indices){
-  let written = 0; const failures = [];
+  let written = 0; let failures = [];
   const stopRes = ()=>{
     const swapped = typeof ctx.switchedFilms==="function" && ctx.switchedFilms();
     ctx.emit({k:"flag", t: swapped
@@ -491,42 +496,126 @@ async function writeScenesSeq(ctx, indices){
       : "Stopped \u2014 "+written+" of "+indices.length+" scenes written this run. Run Adaptation again: it offers to FINISH just the unwritten scenes; nothing already written is redone."});
     return { written, failures, stopped:true };
   };
+
+  /* One full attempt at scene index i. `draftTries` bounds the model draft calls
+     THIS attempt makes (the deterministic rough draft is only accepted once they're
+     spent). Returns:
+       null                                — real screenplay + beat map in place
+       {cancelled:true}                    — Stop pressed / film switched mid-attempt
+       {idx,no,title,wrote:true, beatsOnly:true} — draft is real but the beat map never generated
+       {idx,no,title,wrote,why}            — draft failed (wrote=true means a rough
+                                             stand-in was committed so the film isn't blank) */
+  const attemptScene = async (i, draftTries, repairBeatsOnly)=>{
+    let scn = ctx.model.scenes[i], beats = ctx.model.beats[scn.id];
+    const prev = i>0 ? ctx.model.scenes[i-1] : null;
+    const fail = (wrote, why)=>({ idx:i, no:scn.no, title:scn.title, wrote, why });
+    try{
+      if(!(beats && (beats.rows||[]).length)){
+        // author the beat map; retry once with a breather if the model hiccups — a scene
+        // must never end up with a screenplay but no beat map (the cause of "No beat map
+        // yet" on a written scene). Both tries can fail only on a hard model error.
+        for(let attempt=0; attempt<2 && !beats; attempt++){
+          if(attempt){ await scenePause(800); if(ctx.cancelled()) return {cancelled:true}; }
+          const authored = await ctx.ai.authorScene(scn, prev);
+          if(authored && authored.beats && (authored.beats.rows||[]).length){
+            scn = {...scn, ...authored.patch}; beats = authored.beats;
+            ctx.model.scenes[i] = scn; ctx.model.beats[scn.id] = authored.beats;
+          }
+        }
+      }
+      if(ctx.cancelled()) return {cancelled:true};
+      if(repairBeatsOnly){
+        // the screenplay from the main pass is already REAL — only the beat map needed
+        // another go. Never re-draft here: a retry must never replace a good script
+        // with a rough stand-in.
+        ctx.sync();
+        return (beats && (beats.rows||[]).length) ? null : { idx:i, no:scn.no, title:scn.title, wrote:true, beatsOnly:true };
+      }
+      // the drafter falls back to a deterministic rough draft when the model call fails —
+      // that's a stand-in, not a screenplay, so a failed call is RETRIED here (with a
+      // breather) before the stand-in is accepted. With no model reachable the rough
+      // draft IS the product, so a single try is correct then.
+      const canRetry = !!(ctx.ai.draftScene && ctx.ai.available);
+      const tries = canRetry ? Math.max(1, draftTries) : 1;
+      let res = null, standIn = false;
+      for(let t=0; t<tries; t++){
+        if(t){
+          ctx.emit({k:"act", t:"Sc "+scn.no+" \u201c"+scn.title+"\u201d didn't take \u2014 trying again\u2026"});
+          await scenePause(900); if(ctx.cancelled()) return {cancelled:true};
+        }
+        let out = null;
+        try{ out = ctx.ai.draftScene ? await ctx.ai.draftScene(scn, beats, prev) : null; }
+        catch(e){ if(t===tries-1) throw e; out = null; }
+        // Stop pressed (or film switched) WHILE that draft was in flight — commit
+        // nothing more; the count in the stop message stays truthful
+        if(ctx.cancelled()) return {cancelled:true};
+        if(out && !(out.auto && ctx.ai.available)){ res = out; standIn = false; break; }
+        if(out){ res = out; standIn = true; }   // keep the newest stand-in while retrying
+      }
+      if(res) ctx.model.drafts[scn.id] = res;
+      ctx.sync();
+      if(!res) return fail(false, "the model returned no usable screenplay");
+      if(standIn) return fail(true, "the model call failed, so a rough structural draft stands in \u2014 open it and redraft");
+      if(!(beats && (beats.rows||[]).length)) return { idx:i, no:scn.no, title:scn.title, wrote:true, beatsOnly:true };
+      return null;
+    }catch(e){
+      // Stop pressed while the failing call was in flight — this is a STOP, not a
+      // scene failure; report it as such so the run never ends with completion copy
+      if(ctx.cancelled()) return {cancelled:true};
+      return fail(false, String((e&&e.message)||e||"unknown error"));
+    }
+  };
+
+  // ---- main pass ----
+  const retryQueue = [];
   for(let k=0;k<indices.length;k++){
     if(ctx.cancelled()) return stopRes();
     const i = indices[k];
     const s = ctx.model.scenes[i];
-    const prev = i>0 ? ctx.model.scenes[i-1] : null;
     ctx.emit({k:"act", t:"Writing Sc "+s.no+" \u201c"+s.title+"\u201d \u2014 "+(k+1)+" of "+indices.length+"\u2026"});
-    let scn = s, beats = ctx.model.beats[s.id];
-    try{
-      if(!(beats && (beats.rows||[]).length)){
-        // author the beat map; retry ONCE if the model hiccups — a scene must never end
-        // up with a screenplay but no beat map (the cause of "No beat map yet" on a written
-        // scene). Both tries can fail only on a hard model error.
-        for(let attempt=0; attempt<2 && !beats; attempt++){
-          const authored = await ctx.ai.authorScene(s, prev);
-          if(authored && authored.beats && (authored.beats.rows||[]).length){
-            scn = {...s, ...authored.patch}; beats = authored.beats;
-            ctx.model.scenes[i] = scn; ctx.model.beats[s.id] = authored.beats;
-          }
-        }
-      }
+    const f = await attemptScene(i, 2);
+    if(f && f.cancelled) return stopRes();
+    if(!f){ written++; continue; }
+    if(f.wrote) written++;
+    retryQueue.push(f);
+    if(!f.beatsOnly) failures.push(f);
+  }
+
+  // cancellation during the LAST scene's attempt surfaces as an ordinary failure
+  // record — catch it here so the run ends as a truthful STOP, never as completion
+  if(ctx.cancelled()) return stopRes();
+
+  // a written scene whose beat map never generated, with repair attempts spent, is an
+  // OUTSTANDING failure — it must reach the final accounting (via reportSceneFailures
+  // and the callers' counts), never quietly pass as "beats and screenplay in place"
+  const beatsOnlyFail = (f, retried)=>({ ...f, why:"the scene was written, but its beat map didn't generate"+(retried?" even after an automatic retry":"")+" \u2014 open it and 'Create beat map'" });
+
+  // ---- automatic retry round: the agent re-attempts every scene that didn't fully
+  // take (failed/stand-in drafts AND missing beat maps) ITSELF — bounded to one
+  // round — instead of ending the run with "run Adaptation again to retry" ----
+  if(retryQueue.length && ctx.ai.available){
+    ctx.emit({k:"act", t:retryQueue.length+" scene"+(retryQueue.length===1?"":"s")+" didn't fully take \u2014 retrying "+(retryQueue.length===1?"it":"them")+" automatically\u2026"});
+    const still = [];
+    for(let k=0;k<retryQueue.length;k++){
       if(ctx.cancelled()) return stopRes();
-      const res = ctx.ai.draftScene ? await ctx.ai.draftScene(scn, beats, prev) : null;
-      // Stop pressed (or film switched) WHILE that draft was in flight — commit
-      // nothing more; the count in the stop message stays truthful
+      const f = retryQueue[k];
+      ctx.emit({k:"act", t:"Retrying Sc "+f.no+" \u201c"+f.title+"\u201d \u2014 "+(k+1)+" of "+retryQueue.length+"\u2026"});
+      await scenePause(900);
       if(ctx.cancelled()) return stopRes();
-      if(res){ ctx.model.drafts[s.id] = res; written++;
-        // the drafter falls back to a deterministic rough draft when the model call
-        // fails — that's a stand-in, not a screenplay; the user must hear about it
-        if(res.auto && ctx.ai.available) failures.push({no:s.no, title:s.title, why:"the model call failed, so a rough structural draft stands in \u2014 open it and redraft"});
-      } else {
-        failures.push({no:s.no, title:s.title, why:"the model returned no usable screenplay"});
-      }
-      if(res && !(beats && (beats.rows||[]).length))
-        ctx.emit({k:"flag", t:"Sc "+s.no+" \u201c"+s.title+"\u201d was written, but its beat map didn't generate \u2014 open it and 'Create beat map', or run again."});
-      ctx.sync();
-    }catch(e){ failures.push({no:s.no, title:s.title, why:String((e&&e.message)||e||"unknown error")}); }
+      const g = await attemptScene(f.idx, 1, !!f.beatsOnly);
+      if(g && g.cancelled) return stopRes();
+      const hadDraft = !!(f.wrote || f.beatsOnly);
+      const hasDraft = !g || !!(g.wrote || g.beatsOnly);
+      if(!hadDraft && hasDraft) written++;
+      if(!g){ ctx.emit({k:"ok", t:"Sc "+f.no+" \u201c"+f.title+"\u201d came good on the retry."}); continue; }
+      if(g.beatsOnly){ still.push(beatsOnlyFail(g, true)); continue; }   // screenplay is real; the beat map is still missing — that's outstanding work
+      still.push({ ...g, why: g.wrote
+        ? "the model call kept failing, so a rough structural draft stands in \u2014 open it and redraft"
+        : (g.why==="the model returned no usable screenplay" ? "the model returned no usable screenplay, even on the automatic retry" : g.why) });
+    }
+    failures = still;
+  } else {
+    failures = failures.concat(retryQueue.filter(f=>f.beatsOnly).map(f=>beatsOnlyFail(f, false)));
   }
   return { written, failures, stopped:false };
 }
@@ -559,7 +648,7 @@ async function agentAdaptation(ctx){
       ctx.sync();
       reportSceneFailures(ctx, r);
       ctx.emit({k:"done", t: r.failures.length
-        ? ("Finished "+r.written+" scene"+(r.written===1?"":"s")+" \u2014 "+r.failures.length+" still failed (listed above). Run again to retry just those.")
+        ? ("Finished "+r.written+" scene"+(r.written===1?"":"s")+" \u2014 "+r.failures.length+" still failed even after automatic retries (listed above). Run again later to retry just those.")
         : ("All "+have.length+" scenes now have beats and screenplay. Open the Script view to read the film.")});
       return;
     }
@@ -760,7 +849,7 @@ async function agentAdaptation(ctx){
   ctx.sync();
   reportSceneFailures(ctx, r);
   ctx.emit({k:"ok", t:"Wrote "+r.written+" of "+ctx.model.scenes.length+" scenes"+
-    (r.failures.length ? " \u2014 "+r.failures.length+" didn't take (flagged above); run Adaptation again afterwards to retry just those." : " \u2014 beats and screenplay are in place.")});
+    (r.failures.length ? " \u2014 "+r.failures.length+" didn't take even after automatic retries (flagged above); run Adaptation again later to retry just those." : " \u2014 beats and screenplay are in place.")});
 
   // ---- draft each character's psychology (want / need / arc) so the cast isn't blank ----
   if(ctx.cancelled()) return;
