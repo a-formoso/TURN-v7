@@ -4129,9 +4129,9 @@ function App(){
               React.createElement(Icon.clock,{s:11}),
               "≈ "+Math.round(runtimeTotal/60)+" min"),
             React.createElement("div",{className:"legend-item"},
-              React.createElement("span",{className:"legend-swatch",style:{background:"var(--pos)"}}),"Positive"),
+              React.createElement("span",{className:"legend-swatch",style:{background:"var(--pos)"}}),"POS"),
             React.createElement("div",{className:"legend-item"},
-              React.createElement("span",{className:"legend-swatch",style:{background:"var(--neg)"}}),"Negative"),
+              React.createElement("span",{className:"legend-swatch",style:{background:"var(--neg)"}}),"NEG"),
             React.createElement("div",{className:"legend-item"},
               React.createElement("span",{className:"legend-swatch",style:{background:"var(--alert)"}}),"No turn"))),
 
