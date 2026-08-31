@@ -3304,7 +3304,7 @@ function App(){
         tableRead:(sc,dr)=>window.aiTableRead(sc,dr,model.project),
         voiceCheck:(sc,dr)=>window.aiVoiceCheck(sc,dr),
         buildSpine:(b)=>window.aiBuildSpine(b, (project&&project.format)||"film", (project&&project.framework)||"threeact"),
-        buildStoryWorld:(b,sp)=>window.aiBuildStoryWorld(b,sp),
+        buildStoryWorld:(b,sp)=>window.aiBuildStoryWorld(b,sp,(project&&project.format)||"film"),
         authorScene:(s,p)=>window.aiAuthorScene(s,p,model.characters,model.project),
         draftScene:(s,b,p)=>window.aiDraftScene(s,b,p,model.project),
       } };

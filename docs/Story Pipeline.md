@@ -91,6 +91,26 @@ costs; Story Circle builds the descent-and-return where every gain carries a pri
 **setting**, and **cast**, then **beats + screenplay** for every scene — threading
 continuity scene to scene.
 
+> **Story world discipline** *(approved 2026-08-31 by owner)*: two rules on the world pass.
+> **Question, never message** — the premise is drafted as an *open question* the story explores
+> ("What would happen if…?"), never a thesis it proves; a brief that arrives as a message is
+> converted into the question underneath it, and the controlling idea is framed as *provisional*
+> — a hypothesis the finished story tests. Working backward from a fixed message creates
+> mouthpieces, not characters (the human-truth jury and the table-read's mouthpiece flag police
+> the same failure downstream). *Commercial is exempt by design:* a spot is promise-led — the
+> brand promise stays intact as the brief's contract, and the open question lives only inside
+> its dramatic wrapper. **Creative limitation** — the build prefers the *smallest,
+> strictly knowable world* that can hold the conflict: a bounded location named concretely (a
+> night-shift minicab office, not "London"), a limited cast, a specific set of trades, objects
+> and rules; the setting's **conflict** dimension is the *level* of conflict (inner, personal,
+> institutional, environmental). The limitation reaches dialogue: **Voice DNA vocabulary is
+> drawn from the world's own lexicon** — its trades, objects, rooms and rituals — so the cast
+> shares one small world's language while staying distinct in how each speaker uses it. The
+> rest of this source phase was already built and is recorded here for coverage: premise as
+> question, setting in four dimensions (period · duration · location · conflict), plots of
+> fortune/character with their depth demands (the Story Contract), and controlling idea =
+> value + cause with idealistic/pessimistic/ironic polarity, provisional and revisable.
+
 > **Cast voice block** *(approved 2026-07-02)*: every cast member is generated with a **voice
 > identity block** — `voice: { accent, pitch, pace, quirks }` — the same way physique and wardrobe
 > are captured for the face. The **accent is named as sound** (e.g. "noticeable Turkish accent,
