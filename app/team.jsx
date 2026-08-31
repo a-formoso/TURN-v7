@@ -80,13 +80,19 @@ function TeamModal({ projectId, projectTitle, projectMeta, onClose, onChanged })
   const invite = async ()=>{
     if(!canManage || schemaMissing) return;
     setBusy("invite");
+    const addr = email.trim().toLowerCase();
     const res = await window.cloudInviteProjectMember(projectId, email, role);
     setBusy("");
     if(res && res.ok){
       setEmail("");
       await load();
       if(onChanged) onChanged();
-      if(window.appToast) window.appToast("Collaborator added.","success");
+      // the grant and the email are separate outcomes — never claim "sent" when
+      // only the row was written
+      if(window.appToast){
+        if(res.emailSent) window.appToast("Invitation emailed to "+addr+".","success");
+        else window.appToast("Collaborator added, but "+(res.emailNote||"the invitation email could not be sent.")+" They'll still see the film when they sign in with this address.","error");
+      }
     } else {
       if(res && res.setup) setSchemaMissing(true);
       if(window.appToast) window.appToast((res&&res.message)||"Could not add collaborator.","error");
@@ -127,7 +133,7 @@ function TeamModal({ projectId, projectTitle, projectMeta, onClose, onChanged })
           schemaMissing
             ? "Team collaboration is ready in the app, but the Supabase migration has not been run yet. Run supabase/team-collaboration.sql, then reopen this panel."
             : canManage
-            ? "Your subscription includes your seat. Add collaborators to this film by email and choose what each may do \u2014 View-only, Writer or Art director."
+            ? "Your subscription includes your seat. Add collaborators by email and choose what each may do \u2014 they get an invitation email with a link that signs them in and opens this film."
             : "This project was shared with you. You can work here according to the role the owner assigned"+
               (projectMeta && projectMeta.shareRole ? (": "+teamRoleLabel(projectMeta.shareRole)+" \u2014 "+(teamRoleBlurb(projectMeta.shareRole)||"")) : ".")),
         canManage && React.createElement("div",{className:"team-invite"},
@@ -174,6 +180,77 @@ function TeamModal({ projectId, projectTitle, projectMeta, onClose, onChanged })
             ? "Setup needed: run the team collaboration SQL once in Supabase so the table and access policies exist."
             : "Only the owner can invite or remove collaborators, change roles, rename the film or delete it. A collaborator who edits outside their role sees a notice that those changes weren't saved."))));
 }
+
+/* INVITE ACCEPTANCE LANDING — shown when the app is opened via ?invite=<projectId>
+   (the link in the invitation email) once the visitor is signed in.
+   `film` is the shared project row when this account can see it; null means the
+   invitation is no longer active for THIS account (withdrawn, or signed in with a
+   different address than the one invited) — say which, never leave them guessing.
+   `canSetPassword` is true for accounts CREATED by the invite email: they signed
+   in through the email link and have no password yet, so offer to set one here —
+   otherwise they can never sign back in directly. */
+function InviteWelcome({ film, invitedBy, sessionEmail, canSetPassword, onOpen, onClose }){
+  const [pw, setPw] = React.useState("");
+  const [pwBusy, setPwBusy] = React.useState(false);
+  const [pwDone, setPwDone] = React.useState(false);
+  const setPassword = async ()=>{
+    if(pwBusy || !pw) return;
+    setPwBusy(true);
+    const res = (typeof window.cloudSetPassword==="function") ? await window.cloudSetPassword(pw) : { ok:false, message:"Unavailable." };
+    setPwBusy(false);
+    if(res && res.ok){ setPwDone(true); if(window.appToast) window.appToast("Password set — you can sign in directly next time.","success"); }
+    else if(window.appToast) window.appToast((res&&res.message)||"Could not set the password.","error");
+  };
+  const role = film && film.shareRole;
+  return React.createElement("div",{className:"bible-overlay",onMouseDown:e=>{ if(e.target===e.currentTarget) onClose(); }},
+    React.createElement("div",{className:"bible-modal team-modal invite-welcome"},
+      React.createElement("div",{className:"bible-head"},
+        React.createElement("div",{className:"bible-title"},
+          React.createElement(Icon.mail,{s:15}), film ? "You've been added to a film" : "Invitation not active"),
+        React.createElement("button",{className:"bible-x",onClick:onClose,title:"Close"},React.createElement(Icon.x,{s:16}))),
+      React.createElement("div",{className:"team-body"},
+        film
+          ? React.createElement(React.Fragment,null,
+              React.createElement("div",{className:"invite-film"},
+                React.createElement("div",{className:"invite-film-title"},"\u201C"+(film.title||"Untitled film")+"\u201D"),
+                React.createElement("div",{className:"invite-film-by"},
+                  (invitedBy ? invitedBy+" shared this film with you." : "This film was shared with you."))),
+              role && React.createElement("div",{className:"team-role-blurb"},
+                "Your role: "+teamRoleLabel(role)+" \u2014 "+teamRoleBlurb(role)),
+              canSetPassword && !pwDone && React.createElement("div",{className:"invite-pw"},
+                React.createElement("div",{className:"invite-pw-note"},
+                  "You signed in through the email link. Set a password so you can sign in directly next time (email: "+(sessionEmail||"this address")+")."),
+                React.createElement("div",{className:"invite-pw-row"},
+                  React.createElement("input",{className:"team-email",type:"password",value:pw,placeholder:"New password (8+ characters)",
+                    onChange:e=>setPw(e.target.value),onKeyDown:e=>{ if(e.key==="Enter") setPassword(); }}),
+                  React.createElement("button",{className:"team-add",disabled:pwBusy||pw.length<8,onClick:setPassword},
+                    pwBusy?"Saving...":"Set password"))),
+              React.createElement("div",{className:"invite-actions"},
+                React.createElement("button",{className:"team-add invite-open",onClick:onOpen},"Open the film"),
+                React.createElement("button",{className:"invite-later",onClick:onClose},"Later")))
+          : React.createElement(React.Fragment,null,
+              React.createElement("div",{className:"team-note"},
+                "This invitation is no longer active for this account. Either it was withdrawn, or you're signed in as "+
+                (sessionEmail||"a different address")+" while the invitation was sent to another email \u2014 sign in with the invited address, or ask the person who invited you to re-send it."),
+              React.createElement("div",{className:"invite-actions"},
+                React.createElement("button",{className:"team-add",onClick:onClose},"OK"))))));
+}
+window.InviteWelcome = InviteWelcome;
+
+/* Who invited me, for the landing surface. Prefer the fresh claim row (existing-
+   account path). Invite-CREATED accounts were linked to the member row by the Edge
+   Function before their first sign-in, so the claim returns nothing for them — fall
+   back to the inviter the invitation stamped onto the account's metadata, but only
+   when it plausibly refers to THIS film (title match); otherwise stay generic
+   rather than naming the wrong person. */
+function teamInviteInviter(claim, userMeta, film){
+  if(claim && claim.invited_by) return claim.invited_by;
+  const um = userMeta || {};
+  if(film && um.turn_invited && um.invited_by && String(um.invited_project||"")===String(film.title||""))
+    return um.invited_by;
+  return null;
+}
+window.teamInviteInviter = teamInviteInviter;
 
 function TeamButton({ projectId, projectTitle, projectMeta, onChanged }){
   const [open, setOpen] = React.useState(false);

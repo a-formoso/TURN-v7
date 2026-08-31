@@ -536,6 +536,30 @@ function App(){
     try{ const u = new URL(window.location.href); u.searchParams.delete("welcome"); u.searchParams.delete("credits"); u.searchParams.delete("credit_pack");
       window.history.replaceState({}, "", u.pathname + (u.searchParams.toString()?("?"+u.searchParams.toString()):"") + u.hash); }catch(e){}
   },[]);
+  /* INVITE ACCEPTANCE LANDING — /?invite=<projectId> is where every invitation
+     email lands (set as the redirect by the invite-collaborator function). The
+     id is captured once, stripped from the URL, and drives the welcome surface
+     after sign-in. */
+  const [inviteLanding, setInviteLanding] = React.useState(()=>{
+    try{ return new URLSearchParams(window.location.search).get("invite") || null; }catch(e){ return null; }
+  });
+  // films newly LINKED to this account this sign-in (rpc claim); null = not run yet
+  const [inviteClaims, setInviteClaims] = React.useState(null);
+  React.useEffect(()=>{
+    if(!inviteLanding) return;
+    try{ const u = new URL(window.location.href); u.searchParams.delete("invite");
+      window.history.replaceState({}, "", u.pathname + (u.searchParams.toString()?("?"+u.searchParams.toString()):"") + u.hash); }catch(e){}
+    // An EXPIRED/used invite link arrives as #error_description=... (Supabase auth
+    // redirect). Surface it — otherwise the visitor sees a plain landing page and
+    // no clue their link died.
+    try{
+      const h = new URLSearchParams(String(window.location.hash||"").replace(/^#/,""));
+      const desc = h.get("error_description");
+      if(desc && typeof window.appToast==="function")
+        window.appToast("That sign-in link didn't work: "+desc.replace(/\+/g," ")+". Ask for a fresh invitation, or sign in with your password.","error");
+      if(desc){ window.history.replaceState({}, "", window.location.pathname + window.location.search); }
+    }catch(e){}
+  },[]);
   // PLAN-LESS SIGNUP / TEAM ONBOARDING — generic auth should land in the app.
   // Locked room/action gates can still ask for a plan exactly when the user needs one.
   React.useEffect(()=>{
@@ -1010,6 +1034,42 @@ function App(){
   },[bootUserId]);
 
   const switchProject = async (id)=>{ if(id===currentProjectId) return; await loadProjectIntoState(id); };
+  /* CLAIM INVITATIONS once per sign-in: links membership rows addressed to my
+     verified email onto my account id (turn_claim_memberships), so access stops
+     depending on the email string. Returns only NEWLY linked films — announce
+     those so a first sign-in after an invite never needs stumbling. Runs in
+     parallel with the project bootstrap: RLS already matches by email, so the
+     film is in the list either way; the claim is for durable linking + the notice. */
+  const claimRef = React.useRef(null);
+  React.useEffect(()=>{
+    if(!bootUserId){ claimRef.current=null; setInviteClaims(null); return; }
+    if(claimRef.current===bootUserId) return;
+    claimRef.current = bootUserId;
+    (async()=>{
+      const rows = (typeof cloudClaimInvites==="function") ? await cloudClaimInvites() : [];
+      setInviteClaims(rows||[]);
+      // toast the films that were shared while we weren't looking — except the one
+      // the invite-landing surface is about to present full-screen
+      const news = (rows||[]).filter(r=>r && r.project_id!==inviteLanding);
+      if(news.length && typeof window.appToast==="function"){
+        if(news.length===1){
+          const by = news[0].invited_by ? (" by "+news[0].invited_by) : "";
+          window.appToast("\u201C"+(news[0].title||"A film")+"\u201D was shared with you"+by+".","success");
+        } else {
+          window.appToast(news.length+" films were shared with you \u2014 they're in your project list.","success");
+        }
+      }
+    })();
+  },[bootUserId]);
+  /* arriving on an invite link while signed out: open the sign-in modal right away
+     (the invitation's account may already exist; new invite-created accounts arrive
+     already signed in via the email link, so they never see this) */
+  const inviteAuthRef = React.useRef(false);
+  React.useEffect(()=>{
+    if(!inviteLanding || !authReady || session || inviteAuthRef.current) return;
+    inviteAuthRef.current = true;
+    openAuth("signin");
+  },[inviteLanding, authReady, !!session]);
   const createProject = async (title)=>{
     const created = await cloudCreateProject(title||"Untitled film", emptyDoc());
     if(!created) return null;   // callers MUST treat null as "no film was minted"
@@ -3988,6 +4048,26 @@ function App(){
       credits: creditBalance && creditBalance.remaining,
       activating: !creditBalance,
       onClose: ()=>setCreditPackOpen(false) }),
+    // invite acceptance landing (/?invite=<id>): waits for the claim RPC AND the
+    // project list, so it can name the film — or say honestly that the invitation
+    // is no longer active for this account
+    (function(){
+      if(!(inviteLanding && session && inviteClaims!==null && (projects||[]).length && window.InviteWelcome)) return null;
+      const film = (projects||[]).find(p=>p.id===inviteLanding) || null;
+      const claim = (inviteClaims||[]).find(r=>r && r.project_id===inviteLanding) || null;
+      const um = (session.user && session.user.user_metadata) || {};
+      return React.createElement(window.InviteWelcome,{
+        film,
+        // invite-created accounts have no claim row (the Edge Function linked them
+        // pre-sign-in) — teamInviteInviter falls back to the invite's metadata
+        invitedBy: (typeof window.teamInviteInviter==="function")
+          ? window.teamInviteInviter(claim, um, film)
+          : (claim && claim.invited_by),
+        sessionEmail: (typeof cloudUserEmail==="function") ? cloudUserEmail(session) : "",
+        canSetPassword: !!(um.turn_invited && !um.turn_password_set),
+        onOpen: async ()=>{ const id = film && film.id; setInviteLanding(null); if(id) await switchProject(id); },
+        onClose: ()=>setInviteLanding(null) });
+    })(),
     // Home = the dashboard, and ONLY once the user has >=2 films. Below that,
     // opening Home routes straight into the Writers' Room (see onHome), so the
     // dashboard overlay never renders for a 0/1-film studio.

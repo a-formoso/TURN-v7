@@ -206,18 +206,68 @@ async function cloudInviteProjectMember(projectId, email, role){
   if(role!=null && ["view_only","writer","art_director"].indexOf(role)<0) return { ok:false, message:"Unknown role." };
   const r = role==null ? "writer" : role;
   try{
+    // UPSERT, not insert: re-inviting an existing address is a normal action
+    // (re-send the email, possibly with a new role) and it revives a
+    // previously-removed row instead of failing on the unique constraint.
     const { error } = await sb.from("turn_project_members")
-      .insert({ project_id:projectId, member_email:e, role:r, status:"active" });
+      .upsert({ project_id:projectId, member_email:e, role:r, status:"active" },
+              { onConflict:"project_id,member_email" });
     if(error){
       if(_teamSchemaMissing(error)){ window.turnTeamSchemaMissing = true; return { ok:false, setup:true, message:_teamSetupMessage() }; }
       return { ok:false, message:error.message };
     }
     window.turnTeamSchemaMissing = false;
-    return { ok:true };
+    // The row grants access; the EMAIL makes it real. Send it via the
+    // invite-collaborator Edge Function — and if that fails, say so explicitly
+    // (the grant still stands; silent "sent" claims are how invites die).
+    const mail = await _sendInviteEmail(sb, projectId, e);
+    return { ok:true, emailSent:mail.sent, emailNote:mail.note };
   }catch(err){
     if(_teamSchemaMissing(err)){ window.turnTeamSchemaMissing = true; return { ok:false, setup:true, message:_teamSetupMessage() }; }
     return { ok:false, message:(err&&err.message)||"Invite failed." };
   }
+}
+async function _sendInviteEmail(sb, projectId, email){
+  try{
+    const { data, error } = await sb.functions.invoke("invite-collaborator",
+      { body:{ projectId, email, origin: window.location.origin } });
+    if(!error && data && data.ok) return { sent:true, note:"" };
+    let msg = (data && data.message) || "";
+    if(!msg && error){
+      // FunctionsHttpError carries the response; the useful message is in its body
+      try{ const j = error.context && await error.context.json(); msg = (j && j.message) || ""; }catch(e){}
+      if(!msg) msg = String(error.message||"");
+    }
+    if(/not\s*found|404|Failed to send a request/i.test(msg))
+      msg = "the invite email function isn't deployed yet (see supabase/README.md).";
+    return { sent:false, note: msg || "the invitation email could not be sent." };
+  }catch(err){
+    return { sent:false, note: (err && err.message) || "the invitation email could not be sent." };
+  }
+}
+/* Link my membership rows to my account id (invitations addressed to my verified
+   email). Runs on every signed-in boot — idempotent, returns only NEWLY linked
+   films so the app can announce them once. */
+async function cloudClaimInvites(){
+  const sb = sbClient(); if(!sb) return [];
+  try{
+    const { data, error } = await sb.rpc("turn_claim_memberships");
+    if(error) return [];                        // function not installed yet → quiet no-op
+    return Array.isArray(data) ? data : [];
+  }catch(e){ return []; }
+}
+/* Invited accounts are created by the invite email and sign in through its link —
+   they have no password yet. This sets one (and remembers that it was set) so
+   they can sign in directly next time. */
+async function cloudSetPassword(password){
+  const sb = sbClient(); if(!sb) return { ok:false, message:"Not connected." };
+  const pw = String(password||"");
+  if(pw.length < 8) return { ok:false, message:"Use at least 8 characters." };
+  try{
+    const { error } = await sb.auth.updateUser({ password:pw, data:{ turn_password_set:true } });
+    if(error) return { ok:false, message:error.message };
+    return { ok:true };
+  }catch(err){ return { ok:false, message:(err&&err.message)||"Could not set the password." }; }
 }
 async function cloudUpdateProjectMember(memberId, patch){
   const sb = sbClient(); if(!sb || !memberId) return { ok:false };
@@ -243,6 +293,8 @@ window.cloudListProjectMembers = cloudListProjectMembers;
 window.cloudInviteProjectMember = cloudInviteProjectMember;
 window.cloudUpdateProjectMember = cloudUpdateProjectMember;
 window.cloudRemoveProjectMember = cloudRemoveProjectMember;
+window.cloudClaimInvites = cloudClaimInvites;
+window.cloudSetPassword = cloudSetPassword;
 /* persist a film's poster (a downscaled data URL) onto its doc.cover, merging so the
    rest of the story doc is untouched. Used by the Home screen's poster generator. */
 async function cloudSaveCover(id, cover, prevCover){

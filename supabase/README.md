@@ -15,6 +15,8 @@ cross-device access, and multiple projects all work.
 3. **SQL Editor → run `team-collaboration.sql`** — creates project membership
    rows and upgrades project / generation / storage RLS from owner-only to
    owner-or-collaborator access.
+   Then run `invitations.sql` — adds `turn_claim_memberships()`, which links
+   invitations to the invitee's account on their first sign-in.
 4. **SQL Editor → run `cameos.sql`** — creates the `turn_cameos` table (RLS).
 5. **Authentication → Providers** — enable whichever sign-in you chose
    (Email magic-link and/or Google OAuth).
@@ -45,6 +47,37 @@ cross-device access, and multiple projects all work.
 Generated sheets are your creative work, so the bucket is private and the app
 fetches short-lived **signed URLs**. If you'd rather trade privacy for simplicity
 (public bucket, permanent URLs), that's a one-line change.
+
+## Real invitations (`invite-collaborator` Edge Function)
+
+Adding a collaborator in the Team panel writes the membership row AND sends the
+actual invitation email through Supabase's **built-in auth mailer** (no
+third-party mail provider): new addresses get the "Invite user" email (their
+account is pre-created), existing accounts get a magic-link sign-in email.
+Either link lands on `/?invite=<projectId>` — the app's acceptance surface.
+
+**Set it up (once):**
+
+1. SQL Editor → run `invitations.sql` (account linking on first sign-in).
+2. `npx supabase functions deploy invite-collaborator --no-verify-jwt`
+   (same convention as `image-proxy`: the function does its **own** sign-in +
+   owner check and answers the CORS preflight itself.)
+3. **Authentication → URL Configuration → Redirect URLs** — add every origin
+   the app runs on (production domain, and the dev URL while testing). Invite
+   links redirect to `<origin>/?invite=...`; unlisted origins silently fall
+   back to the Site URL and the landing context is lost.
+4. *(Recommended)* **Authentication → Email Templates → "Invite user"** — the
+   function passes the film and inviter as template data, so you can write:
+   `{{ .Data.invited_by }} invited you to work on “{{ .Data.invited_project }}”`.
+   The magic-link template (existing accounts) has no per-invite data; keep its
+   copy generic — the in-app landing names the film and inviter.
+5. **Heads-up on volume:** Supabase's built-in mailer is rate-limited to a few
+   auth emails per hour. Fine for trying the flow; configure custom SMTP
+   (Project Settings → Auth → SMTP) before inviting a real team.
+
+If the function isn't deployed yet, the Team panel still adds the collaborator
+and says plainly that the email wasn't sent (they can still sign in with that
+address and find the film shared).
 
 ## Optional: server-side image proxy (`image-proxy` Edge Function)
 
