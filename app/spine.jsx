@@ -129,7 +129,8 @@ function FollowStrip({ characters, scenes, beatsMap, followId, onFollow }){
   const tl = cur ? characterThroughline(cur, scenes, beatsMap) : null;
   return React.createElement("div",{className:"follow-strip"},
     React.createElement("div",{className:"follow-row"},
-      React.createElement("span",{className:"eyebrow",style:{marginRight:2}},
+      React.createElement("span",{className:"eyebrow",
+        style:{marginRight:2,display:"inline-flex",alignItems:"center",gap:5}},
         React.createElement(Icon.user,{s:12}),"Follow"),
       characters.map(c => {
         const on = followId === c.id;
