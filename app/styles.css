@@ -2934,6 +2934,13 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
 .char-drafting-strip .ns-spin{width:12px;height:12px;border-width:2px;
   border-color:var(--line-3);border-top-color:var(--pos)}
 .char-drafting-strip.warn{background:var(--alert-soft);border-color:color-mix(in srgb,var(--alert) 42%,var(--line));color:var(--alert)}
+/* tappable attention strip: it IS the shortcut to the section it names */
+.char-drafting-strip.warn.tappable{cursor:pointer;user-select:none;transition:filter .12s}
+.char-drafting-strip.warn.tappable:hover{filter:brightness(1.12)}
+.char-drafting-strip.warn.tappable:focus-visible{outline:2px solid var(--alert);outline-offset:2px}
+/* fold-flash: brief ring on a CardFold after a banner jumps the user to it */
+.sheet-fold.fold-flash{animation:foldFlash 1.9s ease}
+@keyframes foldFlash{0%,55%{box-shadow:0 0 0 2px var(--alert);border-radius:8px}100%{box-shadow:0 0 0 0 transparent}}
 .sheet-head{display:flex;flex-direction:column;gap:11px}
 /* name on its own line, the Cast/Voice/Draft actions stacked BELOW it — long names
    (e.g. hyphenated surnames) no longer squeeze the buttons into a wrapping column */
@@ -3865,6 +3872,12 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
   image-slot[id^="charref-"], image-slot[id^="propref-"]{height:120px;width:120px;flex:0 0 120px;aspect-ratio:auto}
   .sheet-frame:has(image-slot[id^="charref-"]):not(:has(.sheet-genwrap)):not(:has(.sheet-dropzone)) .sheet-frame-cap,
   .sheet-frame:has(image-slot[id^="propref-"]):not(:has(.sheet-genwrap)):not(:has(.sheet-dropzone)) .sheet-frame-cap{margin-top:0;margin-left:12px}
+  /* …and in that compact ROW layout the ⋮ options button leaves its absolute perch
+     (frame top-right = on top of the caption text) and joins the row's flex flow at
+     the far right — its dropdown still anchors to the button itself. */
+  .sheet-frame:has(image-slot[id^="charref-"]):not(:has(.sheet-genwrap)):not(:has(.sheet-dropzone)) .sheet-gen-tools,
+  .sheet-frame:has(image-slot[id^="propref-"]):not(:has(.sheet-genwrap)):not(:has(.sheet-dropzone)) .sheet-gen-tools{
+    position:static;order:9;margin-left:auto;flex:0 0 auto}
   .beat-card-grid{grid-template-columns:1fr}
   /* Shots tab scene header: title/meta keep the full first row, the action
      buttons wrap onto their own full-width row (they were crushing the meta) */

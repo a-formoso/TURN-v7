@@ -78,8 +78,9 @@ function PresetCard({ preset, sceneList, count }){
       React.createElement("div",{className:"sb-card-title"},
         React.createElement("span",{className:"sb-card-dot",style:{background:(preset.palette||[])[0]||"#888"}}),
         preset.name),
-      React.createElement("span",{className:"sb-card-count"+(count?"":" zero")},
-        count? (count+" scene"+(count!==1?"s":"")) : "unused")),
+      React.createElement("span",{className:"sb-card-count"+(count?"":" zero"),
+        title:count?"How many scenes use this look":"No scene is color-scripted with this look yet \u2014 'Light the film' assigns looks to scenes, or click a scene in the film-strip to assign by hand"},
+        count? (count+" scene"+(count!==1?"s":"")) : "no scenes yet")),
     // before -> after on the abstract reference still (CSS grade preview, no real frames)
     React.createElement("div",{className:"sb-beforeafter"},
       React.createElement(StyleStill,{label:"Ungraded"}),

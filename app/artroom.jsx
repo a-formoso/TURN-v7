@@ -3445,9 +3445,23 @@ function PaletteRow({ palette }){
       React.createElement("span",{className:"pal-name"},p.name))));
 }
 
-function CardFold({ label, count, defaultOpen, children }){
+function CardFold({ label, count, defaultOpen, children, foldId }){
   const [open, setOpen] = React.useState(!!defaultOpen);
-  return React.createElement("div",{className:"sheet-fold "+(open?"open":"")},
+  const ref = React.useRef(null);
+  // Tap-to-jump: attention strips elsewhere on the card dispatch nb-open-fold with
+  // this fold's id — the fold opens itself, scrolls into view and flashes, so the
+  // banner takes the user to the exact section instead of just naming it.
+  React.useEffect(()=>{ if(!foldId) return;
+    const h=(e)=>{ if(!e || e.detail!==foldId) return;
+      setOpen(true);
+      setTimeout(()=>{ const el=ref.current; if(!el) return;
+        try{ el.scrollIntoView({behavior:"smooth",block:"start"}); }catch(err){}
+        el.classList.remove("fold-flash"); void el.offsetWidth; el.classList.add("fold-flash");
+        setTimeout(()=>{ if(ref.current) ref.current.classList.remove("fold-flash"); },2000);
+      },60); };
+    window.addEventListener("nb-open-fold",h);
+    return ()=>window.removeEventListener("nb-open-fold",h); },[foldId]);
+  return React.createElement("div",{className:"sheet-fold "+(open?"open":""),ref:ref},
     React.createElement("button",{className:"sheet-fold-head",onClick:()=>setOpen(o=>!o)},
       React.createElement("span",{className:"sheet-fold-ic"},React.createElement(open?Icon.chevD:Icon.chevR,{s:12})),
       React.createElement("span",{className:"sheet-sec",style:{margin:0,border:0,padding:0}},label),
@@ -3986,11 +4000,18 @@ function CharacterSheet({ c, project, scenes, props, drafts, speaks, onUpdate, o
       c.wornPropBootstrap && c.wornPropBootstrap.status==="running" && React.createElement("div",{className:"char-drafting-strip"},
         React.createElement("span",{className:"ns-spin"}),
         "Building worn prop references in background \u00b7 "+(c.wornPropBootstrap.done||0)+"/"+(c.wornPropBootstrap.total||0)),
-      c.wornPropBootstrap && c.wornPropBootstrap.status==="attention" && React.createElement("div",{
-        className:"char-drafting-strip warn",role:"status",
-        title:(c.wornPropBootstrap.failedNames||[]).join(", ")},
-        React.createElement(Icon.alert,{s:12}),
-        (c.wornPropBootstrap.failedNames||[]).length+" worn prop reference"+((c.wornPropBootstrap.failedNames||[]).length===1?" needs":"s need")+" attention \u00b7 open Props & accessories"),
+      c.wornPropBootstrap && c.wornPropBootstrap.status==="attention" && (()=>{
+        // the banner IS the shortcut: tapping it opens + scrolls to Props & accessories
+        // (via the CardFold nb-open-fold listener) instead of just naming the section.
+        const jump = ()=>window.dispatchEvent(new CustomEvent("nb-open-fold",{detail:"props-"+c.id}));
+        const n = (c.wornPropBootstrap.failedNames||[]).length;
+        return React.createElement("div",{
+          className:"char-drafting-strip warn tappable",role:"button",tabIndex:0,
+          title:(c.wornPropBootstrap.failedNames||[]).join(", ")+" \u2014 tap to open Props & accessories",
+          onClick:jump,
+          onKeyDown:(e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); jump(); } }},
+          React.createElement(Icon.alert,{s:12}),
+          n+" worn prop reference"+(n===1?" needs":"s need")+" attention \u00b7 tap to open Props & accessories"); })(),
       React.createElement("div",{className:"sheet-head"},
         React.createElement("div",{className:"sheet-head-top"},
           React.createElement("div",{className:"sheet-name",title:c.name||""},c.name),
@@ -4137,7 +4158,7 @@ function CharacterSheet({ c, project, scenes, props, drafts, speaks, onUpdate, o
         React.createElement(SheetField,{label:"Private \u2014 the true self",value:c.wardrobeInner,multiline:true,
           placeholder:"Softer, personal clothing \u2014 who they really are\u2026",onCommit:val=>onUpdate(c.id,{wardrobeInner:val})})),
 
-      React.createElement(CardFold,{label:"Props & accessories",defaultOpen:false},
+      React.createElement(CardFold,{label:"Props & accessories",defaultOpen:false,foldId:"props-"+c.id},
         React.createElement("div",{className:"sheet-props-note"},
           React.createElement(Icon.sparkles,{s:11}),
           "Continuity objects \u2014 worn or carried items that recur across scenes."),
@@ -4198,9 +4219,11 @@ function CharacterSheet({ c, project, scenes, props, drafts, speaks, onUpdate, o
               // show whether their sheet has been generated \u2014 a green tick when ready,
               // so a generated and an ungenerated carried prop don't look identical.
               const cls = "linked-prop "+(carried?("shot"+(ready?" genned":"")):(included?"ready":(ready?"available":"missing")))+(row.orphan?" orphan":"");
+              // ONE status grammar everywhere: [where it shows up] · [reference state] —
+              // so every chip answers the same two questions the same way.
               const status = carried
-                ? (ready ? "sheet ready \u2713 \u00b7 at shot" : "no sheet yet \u00b7 at shot")
-                : (included ? "visual lock \u2713" : (ready ? "sheet ready \u00b7 text-only" : "text-only \u00b7 no sheet"));
+                ? ("at the shot \u00b7 "+(ready ? "sheet ready \u2713" : "no sheet yet"))
+                : (included ? "locked in master \u2713" : ("text-only \u00b7 "+(ready ? "sheet ready" : "no sheet yet")));
               return React.createElement("div",{key:row.key,className:cls,
                 title: carried
                   ? (ready ? "Reference sheet generated \u2014 it attaches at the shot, not on this character sheet."
