@@ -260,7 +260,7 @@ window.composeStoryboardSheet = composeStoryboardSheet;
    manager (the Stage's hand-off), the per-panel repair flow, and the details modal.
    The card also SELF-DERIVES: it composes on first view when frames exist, and a
    composed sheet recomposes (debounced) when one of its frames re-renders. */
-function StoryboardComposite({ scene, page, ctx, beatsMap, onView }){
+function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot }){
   const sid = "sbsheet-"+page.id;
   // store/display ONLY — this tab never paints sheets; compose-from-frames is the path
   const gen = useImageGen({ id: sid, slotId: sid });
@@ -403,13 +403,15 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView }){
   // instant, zero generation cost, per-panel repair via the Shot List
   const doCompose = async ()=>{
     if(composingRef.current || !readyRef.current.n) return;
+    const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;   // film scope at compose start
     setComposing(true); setComposeErr("");
     try{
       const dataUrl = await composeStoryboardSheet(scene, page, ctx, beatsMap);
       if(!dataUrl) throw new Error("The sheet couldn't be drawn from the shot frames — try regenerating the frames in the Shot List, then compose again.");
       const meta = { model:"Composited from shot frames", composed:true, panels:page.shots.length,
         missing: readyRef.current.total-readyRef.current.n, aspect:sheetAsp, ts:Date.now() };
-      const r = (typeof nbCommit==="function") ? await nbCommit(sid, dataUrl, meta, []) : null;
+      const r = (typeof nbCommit==="function") ? await nbCommit(sid, dataUrl, meta, [], undefined, _ep) : null;
+      if(r && r.tier==="stale"){ setComposing(false); return; }   // film switched mid-compose: quiet discard
       const url = (r && r.url) || dataUrl;
       try{ sessionStorage.removeItem("turn_sb_hold_"+sid); }catch(e){}
       window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id:sid, url } }));
@@ -418,16 +420,30 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView }){
   };
   const doComposeRef = React.useRef(doCompose); doComposeRef.current = doCompose;
 
+  // PANEL HEALTH — the same lineage/provenance checks the Shot List runs, so the board
+  // never presents a stale/unapproved frame as finished work. Computed on WARM data only
+  // (each frame is awaited first): cold caches read "unverified", never "stale".
+  const [health, setHealth] = React.useState(null);
   React.useEffect(()=>{
     let alive = true;
     const count = async ()=>{
       let n=0;
-      for(const id of shotIds){
-        let u = (typeof nbGetImage==="function") ? nbGetImage(id) : "";
-        if(!u && typeof nbLoadImage==="function"){ try{ u = await nbLoadImage(id); }catch(e){} }
-        if(u) n++;
+      const drafts = ((window.turnContinuity||{}).drafts)||{};
+      const chain = (ctx.sceneShots && ctx.sceneShots.length) ? ctx.sceneShots : (page.shots||[]);
+      const h = { total:(page.shots||[]).length, unrendered:0, approved:0, unapproved:0, staleSeed:0, staleSrc:0 };
+      for(const sh of (page.shots||[])){
+        let u = (typeof nbGetImage==="function") ? nbGetImage(sh.id) : "";
+        if(!u && typeof nbLoadImage==="function"){ try{ u = await nbLoadImage(sh.id); }catch(e){} }
+        if(!u){ h.unrendered++; continue; }
+        n++;
+        if(sh.locked) h.approved++; else h.unapproved++;
+        const m = (typeof nbGetMeta==="function") ? nbGetMeta(sh.id) : null;
+        const st = (typeof shotAssetProvenanceStatus==="function") ? shotAssetProvenanceStatus(sh, drafts[sh.sceneId], m) : "unverified";
+        const ov = (typeof shotSourceOverrideCurrent==="function") && shotSourceOverrideCurrent(sh, drafts[sh.sceneId]);
+        if(st==="stale" && !ov) h.staleSrc++;
+        if(typeof shotChainStatus==="function" && shotChainStatus(sh, chain, (x)=> (typeof nbGetMeta==="function") ? nbGetMeta(x) : null)==="stale") h.staleSeed++;
       }
-      if(alive) setReady({ n, total:shotIds.length });
+      if(alive){ setReady({ n, total:shotIds.length }); setHealth(h); }
     };
     count();
     // a page shot's frame landed or RE-RENDERED (Shot List, chain render, panel edit):
@@ -436,7 +452,10 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView }){
     // delivers frames one by one. (Skipped while a panel edit owns the recompose, and
     // never self-triggers: the compose commit dispatches with the SHEET's id, not a shot's.)
     const onChange = (e)=>{ const d=(e&&e.detail)||{};
-      if(d.id ? shotIds.indexOf(d.id)<0 : false) return;
+      // nb-gen-done carries a single id; nb-prefetched carries ids[] — filter on both,
+      // otherwise every prefetch anywhere recounts every mounted page
+      const _ids = Array.isArray(d.ids) ? d.ids : (d.id!=null ? [d.id] : []);
+      if(_ids.length && !_ids.some(x=>shotIds.indexOf(x)>=0)) return;
       count();
       if(d.id && isComposedRef.current && !panelBusyRef.current){
         clearTimeout(autoTimer.current);
@@ -447,7 +466,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView }){
     window.addEventListener("nb-prefetched", onChange);
     return ()=>{ alive=false; clearTimeout(autoTimer.current);
       window.removeEventListener("nb-gen-done", onChange); window.removeEventListener("nb-prefetched", onChange); };
-  },[shotIds.join(",")]);
+  },[(page.shots||[]).map(s=>s.id+":"+(s.locked?1:0)).join(",")]);   // approve/unapprove refreshes health too
 
   // FIRST VIEW: a scene whose frames already exist gets its sheet composed
   // automatically — the board builds itself from the shot chain. A Clear in this tab
@@ -471,6 +490,24 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView }){
     if(!panelEdit || panelEdit.idx==null || !panelEdit.text.trim() || panelBusy || composing || !isComposed) return;
     const text = panelEdit.text.trim();
     const i = panelEdit.idx, sh = page.shots[i];
+    // never race the Shot List: if this shot is generating right now (chain run,
+    // manual render), a second writer would double-commit — refuse up front
+    if(!window.__nbGenInflight) window.__nbGenInflight = {};
+    if(window.__nbGenInflight[sh.id]){
+      setPanelErr("That shot is rendering right now in the Shot List — wait for it to finish, then edit the panel."); return;
+    }
+    // FIRST-CLASS RUN: claim the shot in the shared inflight registry BEFORE any await,
+    // so a Shot List / batch render (and a double-tap on Apply) sees this edit and
+    // refuses to start a competing writer. Token-owned: only this run may clear it,
+    // and a takeover (cancel + newer render) is detected by the token changing.
+    const _tok = "sbpanel-"+Date.now()+"-"+Math.random().toString(36).slice(2);
+    window.__nbGenInflight[sh.id] = _tok;
+    const _own = ()=> !!(window.__nbGenInflight && window.__nbGenInflight[sh.id]===_tok);
+    const _release = ()=>{ if(_own()) delete window.__nbGenInflight[sh.id]; };
+    try{ window.dispatchEvent(new CustomEvent("nb-gen-start",{ detail:{ id:sh.id } })); }catch(e){}
+    // film scope at edit start — entity ids repeat across films, and a project switch
+    // during the model await must NOT commit these pixels into the other film's shot
+    const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;
     setPanelErr("");
     setPanelBusy(true);
     try{
@@ -488,17 +525,42 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView }){
         if(!u && typeof nbLoadImage==="function"){ try{ u=await nbLoadImage(rid); }catch(e){} } if(u) extra.push(u); }
       const url = await nbGenerate(prompt + (extra.length?" Additional reference images are attached (character sheets / location plate) — match those identities and that exact set faithfully.":""),
         { referenceImage:frame, aspectRatio:sheetAsp, quality:"medium", ...(extra.length?{extraImages:extra}:{}) });
+      // ownership re-check after the long model await: if a newer run took the shot
+      // over (a cancel released our token, then a Shot List render claimed it), that
+      // render is the newer intent — discard this edit; the newer owner's events
+      // drive the UI, not ours, so no cancel event is fired here
+      if(!_own()){
+        setPanelErr("That shot started a new render while the edit ran — this edit was discarded so it can't overwrite the newer frame.");
+        setPanelBusy(false); return;
+      }
       const prior = (typeof nbGetMeta==="function") ? (nbGetMeta(sh.id)||{}) : {};
       const now = new Date();
       const meta = { ...prior, mode:"edit", editInstruction:text, prompt,
         date:now.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}),
         time:now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}),
         iso:now.toISOString(), version:((prior.version||1)+1) };
-      const r = (typeof nbCommit==="function") ? await nbCommit(sh.id, url, meta, [{kind:"edit",label:"Previous frame (edited)",url:frame}], "shot") : null;
+      const r = (typeof nbCommit==="function") ? await nbCommit(sh.id, url, meta, [{kind:"edit",label:"Previous frame (edited)",url:frame}], "shot", _ep) : null;
+      if(r && r.tier==="stale"){   // film switched mid-edit: quiet discard (no result event)
+        _release();
+        try{ window.dispatchEvent(new CustomEvent("nb-gen-cancel",{ detail:{ id:sh.id } })); }catch(e){}
+        setPanelEdit(null); setPanelBusy(false); return;
+      }
+      // a failed save is a FAILED edit — never unlock the shot or announce new pixels
+      // that a reload would lose (the catch below releases the token and shows this)
+      if(!r || r.tier==="error")
+        throw new Error("The repaired frame couldn't be saved — nothing was changed. Check your connection and apply the edit again.");
+      _release();
+      // the pixels changed: this frame is no longer an APPROVED seed — un-approve it so
+      // the continuity gate holds (re-approve in the Shot List once you're happy)
+      if(sh.locked && typeof onUpdateShot==="function") onUpdateShot(sh.id, { locked:false, sourceOverride:null });
       window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id:sh.id, url:(r&&r.url)||url } }));
       setPanelEdit(null);
       await doCompose();   // rebuild the sheet with the repaired panel
-    }catch(e){ setPanelErr((e&&e.message)||"Edit failed."); }
+    }catch(e){
+      _release();
+      try{ window.dispatchEvent(new CustomEvent("nb-gen-cancel",{ detail:{ id:sh.id } })); }catch(err){}
+      setPanelErr((e&&e.message)||"Edit failed.");
+    }
     setPanelBusy(false);
   };
 
@@ -578,10 +640,28 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView }){
           _sbEl("button",{className:"sb-sheet-err-btn primary",
             onClick:()=>{ if(halvesErr){ saveHalves(); } else { doCompose(); } }},
             "Try again")))),
-    /* BUILT FROM — reference images the sheet's frames lock to, as small thumbnails
-       (click to enlarge); DERIVED from the in-frame Characters, Props and Locations */
+    /* PANEL HEALTH strip — same chips as the Shot List's chain strip, so a sheet never
+       reads as finished while its panels are unrendered, unapproved or stale */
+    health && !!health.total && _sbEl("div",{className:"ssx-chain-strip sb-health"},
+      _sbEl("span",{className:"ssx-chain-chip"+((health.approved===health.total)?" ok":""),
+        title:"Approved frames are the verified, locked panels — approve in the Shot List."},
+        health.approved+"/"+health.total+" approved"),
+      health.unrendered>0 && _sbEl("span",{className:"ssx-chain-chip warn",
+        title:"Panels with no generated frame yet — they print as empty placeholders."},
+        health.unrendered+" unrendered"),
+      health.staleSeed>0 && _sbEl("span",{className:"ssx-chain-chip warn",
+        title:"Frames built on a seed that has since changed — 'Render Scene in order' in the Shot List re-renders them."},
+        health.staleSeed+" seed-outdated"),
+      health.staleSrc>0 && _sbEl("span",{className:"ssx-chain-chip warn",
+        title:"Frames rendered before their shot specification or screenplay beat changed — regenerate in the Shot List."},
+        health.staleSrc+" stale source"),
+      !health.unrendered && !health.staleSeed && !health.staleSrc && health.approved===health.total &&
+        _sbEl("span",{className:"ssx-chain-chip ok"},"Sheet solid")),
+    /* SCENE CANON — the master designs this scene locks to, as small thumbnails (click
+       to enlarge). These are the scene-wide reference sheets, NOT a per-frame input
+       list — each panel's actual render inputs are in its beat & shot brief below. */
     refImgs.length>0 && _sbEl("div",{className:"shot-refs sb-refs"},
-      _sbEl("div",{className:"shot-refs-lab"}, _sbEl(Icon.layers,{s:11}),"Built from — derived from Characters, Props & Locations"),
+      _sbEl("div",{className:"shot-refs-lab"}, _sbEl(Icon.layers,{s:11}),"Scene canon — the Character, Prop & Location designs this scene locks to (per-panel render inputs: see the beat & shot briefs)"),
       _sbEl("div",{className:"shot-refs-row"},
         refImgs.map((r,i)=> _sbEl("button",{key:"a"+i,className:"shot-ref-thumb "+r.kind,
           title:r.label+" — click to enlarge", onClick:()=>onView&&onView({ url:r.url, character:{ name:r.label } })},
@@ -620,6 +700,9 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView }){
           onClick:()=>{ setPanelEdit(p=>({ ...p, idx:i })); setPanelErr(""); }},
           scene.no+"."+((page.start||0)+i+1),
           _sbEl("span",{className:"sb-panel-chip-sub"},(typeof shotSizeOf==="function")?shotSizeOf(sh.size).label:(sh.size||""))))),
+      panelEdit.idx!=null && page.shots[panelEdit.idx] && page.shots[panelEdit.idx].locked &&
+        _sbEl("div",{className:"sb-panel-note"},
+          "This frame is APPROVED (it seeds later shots). Applying an edit changes its pixels, so it un-approves — re-approve it in the Shot List once you're happy."),
       panelEdit.idx!=null && _sbEl("input",{className:"sheet-edit-input",type:"text",autoFocus:true,
         placeholder:"Change panel "+scene.no+"."+((page.start||0)+panelEdit.idx+1)+" — edits that shot's frame, then recomposes…",
         value:panelEdit.text,onChange:e=>setPanelEdit(p=>({ ...p, text:e.target.value })),
@@ -637,14 +720,14 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView }){
 
 /* one scene PAGE = a storyboard SHEET: a header bar + the composed sheet image,
    plus a beat-briefs expander. */
-function StoryboardPage({ project, scene, page, pageCount, ctx, beatsMap, onView, jumpToShot }){
+function StoryboardPage({ project, scene, page, pageCount, ctx, beatsMap, onView, jumpToShot, onUpdateShot }){
   return _sbEl("div",{className:"sb-sheet","data-sbpage":page.id},
     _sbEl("div",{className:"sb-sheet-head"},
       _sbEl("span",{className:"sb-sheet-hi"}, _sbEl("b",null,"PROJECT: "), (project&&project.title)||"Untitled film"),
       _sbEl("span",{className:"sb-sheet-hi"}, _sbEl("b",null,"SCENE: "), String(scene.no).padStart(2,"0")),
       _sbEl("span",{className:"sb-sheet-hi"}, _sbEl("b",null,"TITLE: "), scene.title||"Untitled scene"),
       _sbEl("span",{className:"sb-sheet-hi page"}, _sbEl("b",null,"PAGE: "), (page.index+1)+" of "+pageCount)),
-    _sbEl(StoryboardComposite,{ scene, page, ctx, beatsMap, onView }),
+    _sbEl(StoryboardComposite,{ scene, page, ctx, beatsMap, onView, onUpdateShot }),
 
     // full per-panel detail — Shot List fields + Writers' Room beat subtext + the final frame prompt
     _sbEl(CardFold,{label:"Beat & shot briefs",defaultOpen:false},
@@ -674,11 +757,45 @@ function StoryboardPage({ project, scene, page, pageCount, ctx, beatsMap, onView
           sh.dialogue && _sbEl("div",{className:"sb-brief-line dlg"},_sbEl("b",null,"Dialogue — "), "“"+sh.dialogue+"”"),
           row && row.drive && _sbEl("div",{className:"sb-brief-line"},_sbEl("b",null,(bm.driverLabel||"Driver")+" ▸ "), (row.drive.a||"")+(row.drive.d?(" — "+row.drive.d):"")),
           row && row.react && _sbEl("div",{className:"sb-brief-line"},_sbEl("b",null,(bm.reactorLabel||"Reactor")+" ▸ "), (row.react.a||"")+(row.react.d?(" — "+row.react.d):"")),
-          (typeof combinedShotPrompt==="function") && _sbEl(CopyBox,{label:"Final frame prompt — as in the Shot List",text:combinedShotPrompt(sh, ctx)}));
+          // the REAL inputs — from the frame's own render record, never re-derived
+          (()=>{
+            const m = (typeof nbGetMeta==="function") ? nbGetMeta(sh.id) : null;
+            if(!m) return null;
+            const all = (ctx.sceneShots && ctx.sceneShots.length) ? ctx.sceneShots : page.shots;
+            const ss = m.seedSource;
+            const seedTxt = !ss ? "no lineage stamp (rendered before seed tracking)"
+              : !ss.seedShotId ? (ss.fresh ? "no seed — deliberate fresh start" : "no seed recorded")
+              : (()=>{ const k = all.findIndex(x=>x.id===ss.seedShotId);
+                  return "Seed: "+(k>=0 ? ("Shot "+scene.no+"."+(k+1)) : "a removed shot")
+                    +(ss.seedVersion?(" v"+ss.seedVersion):"")
+                    +(ss.seedUnapproved?" — unapproved at render (director's choice)":""); })();
+            const refN = (m.sourceReferences||[]).length;
+            return _sbEl("div",{className:"sb-brief-line",
+              title:refN?("Attached reference sheets: "+(m.sourceReferences||[]).map(r=>r.note||r.assetRole).filter(Boolean).join(" · ")):undefined},
+              _sbEl("b",null,"Rendered from — "), seedTxt+(refN?(" · "+refN+" reference sheet"+(refN>1?"s":"")):""));
+          })(),
+          // the prompt: the frame's AS-RENDERED prompt when it exists; otherwise the
+          // PLANNED prompt built from the same render plan the Shot List would use now
+          (()=>{
+            const m = (typeof nbGetMeta==="function") ? nbGetMeta(sh.id) : null;
+            if(m && m.prompt) return _sbEl(CopyBox,{label:"Frame prompt — as rendered",text:m.prompt});
+            if(typeof combinedShotPrompt!=="function") return null;
+            let pctx = ctx;
+            try{
+              if(typeof shotRenderPlan==="function"){
+                const all = (ctx.sceneShots && ctx.sceneShots.length) ? ctx.sceneShots : page.shots;
+                const plan = shotRenderPlan(sh, all, ctx);
+                const si = all.findIndex(x=>x.id===sh.id);
+                pctx = { ...ctx, carriedForward:plan.carriedForward, prevFrameRole:!!plan.prevSh,
+                  prevShot:plan.prevSh||null, laterShots: si>=0 ? all.slice(si+1) : [] };
+              }
+            }catch(e){}
+            return _sbEl(CopyBox,{label:"Planned frame prompt — as the Shot List would render it now",text:combinedShotPrompt(sh, pctx)});
+          })());
       })));
 }
 
-function StoryboardView({ project, scenes, shots, characters, props, locations, beatsMap, setArtView }){
+function StoryboardView({ project, scenes, shots, characters, props, locations, beatsMap, setArtView, onUpdateShot }){
   const [view, setView]   = React.useState(null);   // lightbox {url, character}
   const [frames, setFrames] = React.useState({});    // sheetId -> url (for the progress count)
   const [jumpOpen, setJumpOpen] = React.useState(false);
@@ -737,11 +854,13 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
     for(let i=0;i<jobs.length;i++){
       if(onProgress) onProgress(i+1,jobs.length);
       const { scene, page } = jobs[i];
+      const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;   // per-job film scope
       try{
         const dataUrl = await composeStoryboardSheet(scene, page, ctxFor(scene), beatsMap);
         if(!dataUrl) continue;
         const meta = { model:"Composited from shot frames", composed:true, panels:page.shots.length, ts:Date.now() };
-        const r = (typeof nbCommit==="function") ? await nbCommit("sbsheet-"+page.id, dataUrl, meta, []) : null;
+        const r = (typeof nbCommit==="function") ? await nbCommit("sbsheet-"+page.id, dataUrl, meta, [], undefined, _ep) : null;
+        if(r && r.tier==="stale") return;   // film switched mid-run: stop the whole batch quietly
         try{ sessionStorage.removeItem("turn_sb_hold_"+"sbsheet-"+page.id); }catch(e){}
         window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id:"sbsheet-"+page.id, url:(r&&r.url)||dataUrl } }));
       }catch(e){}
@@ -877,7 +996,7 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
                   confLab&&_sbEl("span",{className:"ssx-conf-lab"},confLab),
                   _sbEl("div",{className:"ssx-pips"},[1,2,3].map(i=>_sbEl("span",{key:i,className:"ssx-pip"+(i<=scene.conf?" on":"")})))))))),
         pages.map(page=>_sbEl(StoryboardPage,{key:page.id,project,scene,page,pageCount:pages.length,ctx,beatsMap,
-          onView:setView,jumpToShot})));
+          onView:setView,jumpToShot,onUpdateShot})));
     }));
 }
 window.StoryboardView = StoryboardView;
@@ -925,25 +1044,71 @@ async function sbToDataUrl(url){
       r.onload = ()=>resolve(String(r.result||url)); r.onerror = ()=>resolve(url); r.readAsDataURL(blob); });
   }catch(e){ return url; }
 }
+/* board health for the EXPORT — same checks as the on-screen strip, computed on WARM
+   data (each frame awaited first, so a scene the user never opened is judged exactly,
+   never guessed from a cold cache). Returns per-sheet warning counts + board totals. */
+async function sbBoardHealth(pagesByScene){
+  const drafts = ((window.turnContinuity||{}).drafts)||{};
+  const perSheet = {}; const tot = { unrendered:0, unapproved:0, staleSeed:0, staleSrc:0 };
+  for(const g of pagesByScene){
+    const chain = g.pages.flatMap(p=>p.shots||[]);   // the scene's full running order
+    for(const page of g.pages){
+      const w = { unrendered:0, unapproved:0, staleSeed:0, staleSrc:0 };
+      for(const sh of (page.shots||[])){
+        let u = (typeof nbGetImage==="function") ? nbGetImage(sh.id) : "";
+        if(!u && typeof nbLoadImage==="function"){ try{ u = await nbLoadImage(sh.id); }catch(e){} }
+        if(!u){ w.unrendered++; continue; }
+        if(!sh.locked) w.unapproved++;
+        const m = (typeof nbGetMeta==="function") ? nbGetMeta(sh.id) : null;
+        const st = (typeof shotAssetProvenanceStatus==="function") ? shotAssetProvenanceStatus(sh, drafts[sh.sceneId], m) : "unverified";
+        const ov = (typeof shotSourceOverrideCurrent==="function") && shotSourceOverrideCurrent(sh, drafts[sh.sceneId]);
+        if(st==="stale" && !ov) w.staleSrc++;
+        if(typeof shotChainStatus==="function" && shotChainStatus(sh, chain, (x)=> (typeof nbGetMeta==="function") ? nbGetMeta(x) : null)==="stale") w.staleSeed++;
+      }
+      perSheet["sbsheet-"+page.id] = w;
+      tot.unrendered+=w.unrendered; tot.unapproved+=w.unapproved; tot.staleSeed+=w.staleSeed; tot.staleSrc+=w.staleSrc;
+    }
+  }
+  return { perSheet, tot };
+}
+const sbWarnParts = (w)=> !w ? [] : [
+  w.unapproved ? (w.unapproved+" not approved") : "",
+  w.unrendered ? (w.unrendered+" unrendered") : "",
+  w.staleSeed ? (w.staleSeed+" seed-outdated") : "",
+  w.staleSrc ? (w.staleSrc+" stale source") : "",
+].filter(Boolean);
 async function exportStoryboard(pagesByScene, frames, project){
   const esc = (s)=> String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   const title = (project && project.title) || "Storyboard";
   const _ar = String((typeof aspectFor==="function") ? aspectFor(project) : "16:9").replace(":", " / ");
   const placeholder = '<!doctype html><html><head><meta charset="utf-8"><title>'+esc(title)
     +' — Storyboard</title></head><body style="background:#000;color:#9a958b;font:13px -apple-system,Segoe UI,sans-serif;'
-    +'display:flex;align-items:center;justify-content:center;height:100vh;margin:0">Preparing a durable export — inlining sheet images…</body></html>';
+    +'display:flex;align-items:center;justify-content:center;height:100vh;margin:0">Checking the board\u2019s panels, then inlining sheet images\u2026</body></html>';
   // in-app PREVIEW (same overlay as the screenplay export): opens instantly on the
   // placeholder, swaps in the finished document once the images are inlined —
-  // print/download from there, nothing prints uninvited.
+  // print/download from there, nothing prints uninvited. Opened FIRST, inside the
+  // click gesture: the health scan below awaits, and popup blockers kill a fallback
+  // window opened after an await. (The confirm dialog stacks above this overlay.)
   const prev = (typeof window.docPreview==="function")
     ? window.docPreview({ title:"Storyboard preview", sub:title,
         fileName:(title||"storyboard").replace(/[^\w\-]+/g,"_").toUpperCase()+"_STORYBOARD.html", html:placeholder,
         hint:"Sheet images are inlined as data URLs — the saved file stays viewable after image links expire." })
     : null;
-  // fallback tab (overlay unavailable) — open NOW, inside the click: popup blockers
-  // kill a window opened after an await
+  // fallback tab (overlay unavailable) — open NOW, inside the click
   const w = prev ? null : window.open("", "_blank");
   if(w){ w.document.open(); w.document.write(placeholder); w.document.close(); }
+  // TRUTHFUL EXPORT: a printable board must not present unverified work as final.
+  // Check every panel first; if anything is off, the director exports EXPLICITLY
+  // with warnings (and the affected sheets are marked in the document itself).
+  let health = null;
+  try{ health = await sbBoardHealth(pagesByScene); }catch(e){}
+  const _totParts = health ? sbWarnParts(health.tot) : [];
+  if(_totParts.length && typeof window.appConfirm==="function"){
+    const ok = await window.appConfirm({ title:"Export with warnings?",
+      body:"This board isn't fully verified — across its panels: "+_totParts.join(", ")+". The export marks the affected sheets so nothing reads as final that isn't. For a clean board, approve and re-render in the Shot List first.",
+      confirmLabel:"Export with warnings", cancelLabel:"Cancel" });
+    if(!ok){ if(prev) prev.close(); if(w){ try{ w.close(); }catch(e){} } return; }
+  }
   // inline every sheet image (cache-keyed by page id; data URLs pass straight through)
   const inline = {};
   for(const g of pagesByScene){ for(const page of g.pages){
@@ -955,11 +1120,13 @@ async function exportStoryboard(pagesByScene, frames, project){
     pages.forEach((page)=>{
       const url = inline["sbsheet-"+page.id];
       const img = url ? '<img src="'+esc(url)+'">' : '<div class="ph"></div>';
+      const wp = health ? sbWarnParts(health.perSheet["sbsheet-"+page.id]) : [];
       body += '<section class="sheet"><div class="sheet-h">'
         + '<span><b>PROJECT:</b> '+esc(title)+'</span>'
         + '<span><b>SCENE:</b> '+esc(String(scene.no).padStart(2,"0"))+'</span>'
         + '<span><b>TITLE:</b> '+esc(scene.title||"")+'</span>'
         + '<span><b>PAGE:</b> '+(page.index+1)+' of '+pages.length+'</span>'
+        + (wp.length ? '<span class="warn">&#9888; '+esc(wp.join(" · "))+'</span>' : '')
         + '</div><div class="sheet-img">'+img+'</div></section>';
     });
   });
@@ -969,6 +1136,7 @@ async function exportStoryboard(pagesByScene, frames, project){
     + '.sheet{break-inside:avoid;margin:0 0 32px;}'
     + '.sheet-h{display:flex;gap:26px;flex-wrap:wrap;font-size:12px;letter-spacing:.04em;border-bottom:1px solid #444;padding-bottom:8px;margin-bottom:14px;}'
     + '.sheet-h b{color:#999;font-weight:600;}'
+    + '.sheet-h .warn{color:#d86b61;font-weight:600;}'
     + '.sheet-img{aspect-ratio:'+_ar+';background:#111;border:1px solid #333;border-radius:6px;overflow:hidden;}'
     + '.sheet-img img{width:100%;height:100%;object-fit:contain;display:block;background:#000;}'
     + '.sheet-img .ph{width:100%;height:100%;background:repeating-linear-gradient(135deg,#111,#111 6px,#181818 6px,#181818 12px);}'

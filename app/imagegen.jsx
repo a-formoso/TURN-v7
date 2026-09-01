@@ -734,12 +734,16 @@ function nbCommit(id, dataUrl, meta, refs, kind, epoch){
 async function _nbCommitInner(id, dataUrl, meta, refs, kind, epoch){
   // the scope moved while this was generating — the result belongs to a film that is no
   // longer open, and this id means something different here. Drop it rather than clobber.
-  if(epoch!=null && epoch!==_nbEpoch) return { tier:"stale", url:dataUrl };
+  // _stale() is RE-CHECKED after every await below: a film switch during any of those
+  // waits would pass an entry check yet persist into the newly selected film's scope.
+  const _stale = ()=> (epoch!=null && epoch!==_nbEpoch);
+  if(_stale()) return { tier:"stale", url:dataUrl };
   meta = { ...(meta||{}) };
   if((!meta.pixelW || !meta.pixelH) && dataUrl){
     const dims = await nbCommitImageDimensions(dataUrl);
     if(dims){ meta.pixelW=dims.w; meta.pixelH=dims.h; }
   }
+  if(_stale()) return { tier:"stale", url:dataUrl };   // the dimension decode awaited
   if(!meta.iso){
     const now=new Date();
     meta.iso=now.toISOString();
@@ -750,12 +754,18 @@ async function _nbCommitInner(id, dataUrl, meta, refs, kind, epoch){
   refs = (typeof nbPreferBestAssetRefs==="function") ? nbPreferBestAssetRefs(refs||[]) : (refs||[]);
   if(_nbBackend==="cloud"){
     if(typeof window.cloudCommit!=="function") return { tier:"error", url:dataUrl };
-    const r = await window.cloudCommit(_scopeFor(id), _nbUid, id, dataUrl, meta, refs, kind);
+    // capture scope+uid at the validated moment — never re-resolve them after an await
+    const _scope = _scopeFor(id), _uid = _nbUid;
+    const r = await window.cloudCommit(_scope, _uid, id, dataUrl, meta, refs, kind);
+    // the write itself landed in the scope captured above (its correct home) — but if
+    // the film switched during it, the session caches now belong to the NEW film:
+    // leave them untouched and report stale so the caller stays quiet.
+    if(_stale()) return { tier:"stale", url:(r&&r.url)||dataUrl };
     if(r && r.url){
       _cloudUrlCache.set(id, r.url); _cloudMetaCache.set(id, meta||null);
       // we hold the bytes we just generated — warm the byte-cache directly so the
       // next session never re-downloads this sheet
-      if(r.path){ try{ const blob = await (await fetch(dataUrl)).blob(); await idbSet(nbCloudKey(id), { path:r.path, blob }); }catch(e){} }
+      if(r.path){ try{ const blob = await (await fetch(dataUrl)).blob(); if(!_stale()) await idbSet(nbCloudKey(id), { path:r.path, blob }); }catch(e){} }
       return r;
     }
     return { tier:"error", url:dataUrl };
@@ -764,9 +774,11 @@ async function _nbCommitInner(id, dataUrl, meta, refs, kind, epoch){
   if(prev){
     const hist = await localGetHistory(id);
     const prevRefs = await localGetRefs(id);
+    if(_stale()) return { tier:"stale", url:dataUrl };
     hist.unshift({ url:prev, meta:localGetMeta(id), refs:prevRefs });
     await localSetHistory(id, hist.slice(0,12));
   }
+  if(_stale()) return { tier:"stale", url:dataUrl };
   const res = await localSetImage(id, dataUrl);
   await localSetRefs(id, refs||[]);
   localSetMeta(id, meta||null);

@@ -5219,7 +5219,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
           onUpdateShot,onAddShot,onDeleteShot,onSplitBeat,splittingBeat,onRefineBeat,refiningBeat,onDraftSceneShots,draftingSceneShots,onDraftAllShots,draftingAllShots,onShoot,onDirectScene,
           trashItems:(trash&&trash.shots)||[],onRestore:onRestoreShot,onPurge:onPurgeShot})
       : artView==="storyboard" && window.StoryboardView
-      ? React.createElement(window.StoryboardView,{project,scenes,shots,characters,props,locations,beatsMap,setArtView})
+      ? React.createElement(window.StoryboardView,{project,scenes,shots,characters,props,locations,beatsMap,setArtView,onUpdateShot})
       : React.createElement(ArtComingSoon,{tab:artView}));
 }
 window.ArtRoom = ArtRoom;

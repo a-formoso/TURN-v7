@@ -4799,6 +4799,9 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
   padding:1px 8px;font-size:10px;letter-spacing:.04em;color:var(--ink-3,#8b8f99);font-variant-numeric:tabular-nums}
 .ssx-chain-chip.ok{color:var(--pos);border-color:var(--pos)}
 .ssx-chain-chip.warn{color:var(--neg,#d86b61);border-color:var(--neg,#d86b61);background:rgba(216,107,97,.08)}
+/* storyboard: sheet health strip + the approved-frame edit warning */
+.sb-health{margin:8px 2px 0}
+.sb-panel-note{font-size:11px;line-height:1.5;color:var(--neg,#d86b61);padding:6px 2px 2px}
 .shot-source-badge.unverified{color:var(--warn,#c69242);border-color:var(--warn,#c69242)}
 
 /* the chain status bar */
