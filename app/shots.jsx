@@ -1713,7 +1713,10 @@ async function generateShotFrame(sh, sceneShots, ctx, opts){
   // A missing-seed render (prevSh exists but its frame didn't load) records seedShotId:""
   // WITHOUT fresh — truthfully chain-stale until re-rendered on its real anchor.
   const seedSource = (typeof shotSeedStamp==="function")
-    ? (seed ? shotSeedStamp(prevSh, (typeof nbGetMeta==="function") ? nbGetMeta(prevSh.id) : null)
+    ? (seed ? { ...shotSeedStamp(prevSh, (typeof nbGetMeta==="function") ? nbGetMeta(prevSh.id) : null),
+               // durable record when the seed wasn't approved at render time (ordered
+               // runs approve each link first, so this only marks genuine exceptions)
+               ...(prevSh.locked ? {} : { seedUnapproved:true }) }
             : { seedShotId:"", ...((prevSh && opts.fresh) ? { fresh:true } : {}) })
     : null;
   const meta = { ...prior, mode: seed?"base":"final", prompt, director:true,

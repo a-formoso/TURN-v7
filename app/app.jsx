@@ -3086,10 +3086,20 @@ function App(){
     setSplittingBeat(null);
   };
   // derive one scene's shots (AI, with heuristic fallback). replace=true wipes its old shots.
+  // Returns a STRUCTURED OUTCOME ({status:"designed"|"fallback"|"failed", sceneId, label,
+  // error?}) — review finding: a thrown provider error used to vanish silently, leaving
+  // the scene shotless with no explanation. Callers surface failures truthfully.
   const draftOneSceneShots = async (scene, replace)=>{
-    let made = null;
+    const label = "Scene "+String(scene.no||"").padStart(2,"0")+(scene.title?(" \u2014 "+scene.title):"");
+    let made = null; let usedFallback = false;
     if(typeof aiDraftShots==="function"){
-      const raw = await aiDraftShots(scene, beatsMap, drafts, locations, props, characters, lbProject("shots"));
+      let raw = null;
+      try{ raw = await aiDraftShots(scene, beatsMap, drafts, locations, props, characters, lbProject("shots")); }
+      catch(e){
+        // a THROWN failure (provider/network/key) is reported as a failure — the heuristic
+        // stopgap only stands in for a response that arrived but wasn't usable
+        return { status:"failed", sceneId:scene.id, label, error:String((e&&e.message)||"Shot design failed.") };
+      }
       if(raw && raw.length && typeof normalizeShot==="function"){
         made = raw.map((r,i)=>normalizeShot(r, scene, i, locations, props, characters, beatsMap));
         // VERBATIM ENFORCEMENT (the script is canon): models paraphrase scripted
@@ -3117,34 +3127,64 @@ function App(){
       }
     }
     if(!made && typeof deriveShotsHeuristic==="function"){
-      // the AI draft failed or returned nothing parseable — the one-shot-per-beat
+      // the AI RESPONDED but returned nothing parseable — the one-shot-per-beat
       // layout below is a STOPGAP, never a silent substitute for real coverage
+      // (callers toast/summarize the fallback; a thrown error never lands here)
       made = deriveShotsHeuristic(scene, beatsMap, locations, props, characters);
-      if(typeof window.appToast==="function") window.appToast("The coverage AI returned nothing usable — laid out simple one-shot-per-beat coverage as a stopgap. Re-draft to try again.","error");
+      usedFallback = true;
     }
-    if(!made || !made.length) return;
+    if(!made || !made.length) return { status:"failed", sceneId:scene.id, label, error:"Shot design returned nothing usable." };
     setShots(ss=>{ const kept = replace ? ss.filter(s=>s.sceneId!==scene.id) : ss; return [...kept, ...made]; });
+    return { status:usedFallback?"fallback":"designed", sceneId:scene.id, label };
   };
   const [draftingSceneShots, setDraftingSceneShots] = React.useState(null);
   const draftSceneShots = async (scene)=>{
     if(draftingSceneShots) return;
     setDraftingSceneShots(scene.id);
-    try{ await draftOneSceneShots(scene, true); }catch(e){}
+    let out = null;
+    try{ out = await draftOneSceneShots(scene, true); }
+    catch(e){ out = { status:"failed", error:String((e&&e.message)||"Shot design failed.") }; }
     setDraftingSceneShots(null);
+    // say what happened — a failed draft must never look like a quiet no-op
+    if(out && typeof window.appToast==="function"){
+      if(out.status==="failed") window.appToast("Shot design failed for this scene \u2014 "+(out.error||"unknown error")+" Use 'Re-draft shots' to try again.","error");
+      else if(out.status==="fallback") window.appToast("The coverage AI returned nothing usable \u2014 laid out simple one-shot-per-beat coverage as a stopgap. Re-draft to try again.","error");
+    }
   };
   const [draftingAllShots, setDraftingAllShots] = React.useState(false);
   const draftAllShots = async ()=>{
     if(draftingAllShots) return;
     setDraftingAllShots(true);
+    const results = [];
     try{
       const ordered = scenesInStoryOrder(scenes);
       const have = new Set(shots.map(s=>s.sceneId));
       const todo = ordered.filter(s=>!have.has(s.id));   // non-destructive: skip scenes already broken down
       for(let i=0;i<todo.length;i+=3){
-        await Promise.all(todo.slice(i,i+3).map(sc=>draftOneSceneShots(sc, false).catch(()=>{})));
+        const batch = await Promise.all(todo.slice(i,i+3).map(sc=>
+          draftOneSceneShots(sc, false).catch(e=>({ status:"failed", sceneId:sc.id,
+            label:"Scene "+String(sc.no||"").padStart(2,"0")+(sc.title?(" \u2014 "+sc.title):""),
+            error:String((e&&e.message)||"Shot design failed.") }))));
+        results.push(...batch.filter(Boolean));
       }
     }catch(e){}
     setDraftingAllShots(false);
+    // HONEST COMPLETION SUMMARY (review finding): name the scenes that failed and how to
+    // retry. Failed scenes still have no shots, so 'Design all shots' again retries JUST them.
+    if(results.length && typeof window.appToast==="function"){
+      const failed = results.filter(r=>r.status==="failed");
+      const fb = results.filter(r=>r.status==="fallback").length;
+      if(failed.length){
+        const names = failed.slice(0,3).map(r=>r.label).join(", ");
+        window.appToast("Shot design finished, but "+failed.length+" scene"+(failed.length>1?"s":"")+" failed: "
+          +names+(failed.length>3?", \u2026":"")+". Those scenes have no shots yet \u2014 click 'Design all shots' again to retry just them."
+          +(fb?(" "+fb+" scene"+(fb>1?"s":"")+" used stopgap one-shot-per-beat coverage \u2014 re-draft those to try again."):""),"error");
+      } else if(fb){
+        window.appToast("All scenes designed, but "+fb+" scene"+(fb>1?"s":"")+" used stopgap one-shot-per-beat coverage \u2014 re-draft those to try again.","error");
+      } else {
+        window.appToast("Shot design complete \u2014 all "+results.length+" scene"+(results.length>1?"s have":" has")+" coverage.","success");
+      }
+    }
   };
 
   // Art Room: suggest a character's appearance states (continuity variants) from the script

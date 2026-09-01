@@ -4790,6 +4790,15 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
   padding:3px 7px;font:700 8px/1 var(--f-mono);letter-spacing:.04em;text-transform:uppercase;color:var(--txt-2)}
 .shot-source-badge.current{color:var(--pos);border-color:var(--pos)}
 .shot-source-badge.stale{color:var(--neg,#d86b61);border-color:var(--neg,#d86b61);background:rgba(216,107,97,.1)}
+/* the named seed on a shot card — "what is this frame built from?" */
+.shot-seed-line{font-size:10.5px;letter-spacing:.03em;color:var(--ink-3,#8b8f99);
+  padding:2px 0 0;font-variant-numeric:tabular-nums}
+/* scene chain-health strip (scene header): approved / unrendered / seed-outdated / stale-source counts */
+.ssx-chain-strip{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.ssx-chain-chip{display:inline-flex;align-items:center;border:1px solid var(--line-2);border-radius:999px;
+  padding:1px 8px;font-size:10px;letter-spacing:.04em;color:var(--ink-3,#8b8f99);font-variant-numeric:tabular-nums}
+.ssx-chain-chip.ok{color:var(--pos);border-color:var(--pos)}
+.ssx-chain-chip.warn{color:var(--neg,#d86b61);border-color:var(--neg,#d86b61);background:rgba(216,107,97,.08)}
 .shot-source-badge.unverified{color:var(--warn,#c69242);border-color:var(--warn,#c69242)}
 
 /* the chain status bar */

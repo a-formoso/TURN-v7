@@ -242,9 +242,12 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       // cloud mode, and lineage must record the seed's REAL current version
       try{ if(typeof nbLoadImage==="function") await nbLoadImage(prevShot.id); }catch(e){}
       const seedU = (typeof nbGetImage==="function") ? nbGetImage(prevShot.id) : "";
-      // seed frame missing → renders without its anchor; record that truthfully (no `fresh`)
+      // seed frame missing → renders without its anchor; record that truthfully (no `fresh`).
+      // seedUnapproved makes the director's explicit "use unapproved seed" choice DURABLE —
+      // without it the frame would later look normally current and erase the exception.
       return { ...base, seedSource: seedU
-        ? shotSeedStamp(prevShot, (typeof nbGetMeta==="function") ? nbGetMeta(prevShot.id) : null)
+        ? { ...shotSeedStamp(prevShot, (typeof nbGetMeta==="function") ? nbGetMeta(prevShot.id) : null),
+            ...(prevShot.locked ? {} : { seedUnapproved:true }) }
         : { seedShotId:"" } };
     },
     metaExtra: ()=>({
@@ -266,6 +269,33 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   // go stale as each link above them re-renders (ordered runs walk the whole chain).
   const chainStatus = gen.genUrl && typeof shotChainStatus==="function"
     ? shotChainStatus(sh, sceneShots||[], (xid)=> (typeof nbGetMeta==="function") ? nbGetMeta(xid) : null) : "";
+  // CHAIN VISIBILITY (review finding #5) — answer "what is this frame built from?"
+  // and "what do I invalidate if I change it?" right on the card.
+  // Exact transitive dependents: walk the scene's seed relations (sceneShots is in
+  // running order, so seeds always resolve earlier — one pass is exact).
+  const downstreamCount = (()=>{
+    if(!Array.isArray(sceneShots) || !sceneShots.length || typeof seedShotOf!=="function") return 0;
+    const dep = new Set([sh.id]); let n = 0;
+    for(const s of sceneShots){
+      if(!s || s.id===sh.id) continue;
+      const sd = seedShotOf(s, sceneShots);
+      if(sd && dep.has(sd.id)){ dep.add(s.id); n++; }
+    }
+    return n;
+  })();
+  const seedLine = (()=>{
+    if(!prevShot) return null;
+    const no = (sceneShots||[]).findIndex(x=>x.id===prevShot.id)+1;
+    const m = (typeof nbGetMeta==="function") ? nbGetMeta(prevShot.id) : null;
+    // the recorded exception: this frame was deliberately rendered from a seed the
+    // director hadn't approved — stays on the card even after the seed gets approved
+    const exception = !!(gen.genMeta && gen.genMeta.seedSource && gen.genMeta.seedSource.seedUnapproved);
+    return "Seed: Shot "+(no>0?no:"?")
+      +((m&&m.version!=null)?(" \u00b7 v"+m.version):"")
+      +" \u00b7 "+(prevShot.locked?"approved":"not approved")
+      +(downstreamCount?(" \u00b7 seeds "+downstreamCount+" later shot"+(downstreamCount>1?"s":"")):"")
+      +(exception?" \u00b7 rendered from an unapproved seed (director's choice)":"");
+  })();
   const toggleFrameApproval = async ()=>{
     if(sh.locked){ onUpdate(sh.id,{locked:false,sourceOverride:null}); return; }
     if(frameSourceStatus!=="current"){
@@ -430,8 +460,10 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       generateDisabledTitle:"Another shot is generating. Wait for it to finish before starting this frame.",
       menuExtra: [
         onRegenDownstream ? {
-          label:"Regenerate downstream",
-          title:"Re-render every later shot in this scene in order, re-seeding each from the one before — use after changing this frame so propagated state stays current.",
+          // name the cost up front (finding #5): how many frames this run re-renders
+          label:"Regenerate downstream"+(downstreamCount?(" ("+downstreamCount+" shot"+(downstreamCount>1?"s":"")+")"):""),
+          title:"Re-render every later shot in this scene in order, re-seeding each from the one before — use after changing this frame so propagated state stays current."
+            +(downstreamCount?(" "+downstreamCount+" later shot"+(downstreamCount>1?"s build":" builds")+" on this frame."):""),
           onClick:()=>onRegenDownstream(sh),
         } : null,
       ].filter(Boolean),
@@ -441,11 +473,27 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         { k:"Move",  v: moveOf(sh.move).label },
         { k:"Lens",  v: lensOf(sh.lens).label },
       ],
-      onDelete:()=>onDelete(sh.id), deleteLabel:"Delete shot" }),
+      // chain-aware delete (finding #5): before removing a frame other shots build on,
+      // say exactly how many are affected and what happens to them
+      onDelete:async ()=>{
+        if(downstreamCount>0 && typeof window.appConfirm==="function"){
+          const ok = await window.appConfirm({
+            title:"Delete this shot?",
+            body:downstreamCount+" later shot"+(downstreamCount>1?"s build":" builds")+" on this frame in the scene's chain. After deleting, the shot that chained directly from it flags 'Seed outdated' at once, and an ordered run ('Render scene in order' / 'Regenerate downstream') refreshes the affected shots link by link in dependency order.",
+            confirmLabel:"Delete shot", cancelLabel:"Cancel", danger:true });
+          if(!ok) return;
+        }
+        onDelete(sh.id);
+      }, deleteLabel:"Delete shot" }),
     _el("div",{className:"sheet-body"},
       // reference images this frame is built from — the rolling SEED (the previous shot's
       // frame) leads, then the in-frame Character, Prop & Location sheets, ordered by weight.
       // Click a thumb to enlarge. Read-only: who/what is in frame is auto-read from the Action.
+      // the exact seed, named (finding #5): which frame this shot builds from, at what
+      // version, whether it's approved, and how many later shots ride on this one
+      seedLine && _el("div",{className:"shot-seed-line",
+        title:"This shot's continuity anchor — the frame it renders from — plus how many later shots in this scene build on this frame (directly or through the chain)."},
+        seedLine),
       refImgs.length>0 && _el("div",{className:"shot-refs"},
         _el("div",{className:"shot-refs-row"},
           refImgs.map((r,i)=>{
@@ -1189,6 +1237,41 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
         _el("div",{className:"shot-scene-style-row"},_el(SceneStyleChip,{project:ctx.project,sceneId:scene.id})),
         _el("div",{className:"shot-scene-sub"},
           (loc?("Location: "+loc.name+"   \u00b7   "):"")+shots.length+" shot"+(shots.length!==1?"s":"")),
+        // SCENE CHAIN HEALTH (review finding #5): one glance answers "is this scene's
+        // chain solid, and what needs attention?" — derived live from the same checks
+        // the ordered runner uses to decide what to (re)render.
+        (()=>{
+          const meta=(id)=>(typeof nbGetMeta==="function")?nbGetMeta(id):null;
+          const drafts=((window.turnContinuity||{}).drafts||{});
+          let framed=0, approved=0, staleSeed=0, staleSrc=0;
+          ordered.forEach(s=>{
+            const u=(typeof nbGetImage==="function")?nbGetImage(s.id):"";
+            if(!u) return;
+            framed++;
+            if(s.locked) approved++;
+            const st=(typeof shotAssetProvenanceStatus==="function")
+              ? shotAssetProvenanceStatus(s, drafts[s.sceneId], meta(s.id)) : "unverified";
+            const ov=(typeof shotSourceOverrideCurrent==="function") && shotSourceOverrideCurrent(s, drafts[s.sceneId]);
+            if(st==="stale" && !ov) staleSrc++;
+            if(typeof shotChainStatus==="function" && shotChainStatus(s, ordered, meta)==="stale") staleSeed++;
+          });
+          const unrendered=ordered.length-framed;
+          if(!ordered.length) return null;
+          const solid=!unrendered && !staleSeed && !staleSrc && approved===ordered.length;
+          return _el("div",{className:"ssx-chain-strip"},
+            _el("span",{className:"ssx-chain-chip"+(approved===ordered.length&&framed===ordered.length?" ok":"")},
+              approved+"/"+ordered.length+" approved"),
+            unrendered>0 && _el("span",{className:"ssx-chain-chip warn",
+              title:"Shots with no generated frame yet — 'Render Scene in order' renders them in chain order."},
+              unrendered+" unrendered"),
+            staleSeed>0 && _el("span",{className:"ssx-chain-chip warn",
+              title:"Frames built on a seed that has since changed (regenerated, re-ordered or removed) — 'Render Scene in order' re-renders them automatically."},
+              staleSeed+" seed-outdated"),
+            staleSrc>0 && _el("span",{className:"ssx-chain-chip warn",
+              title:"Frames rendered before their shot specification or screenplay beat changed — regenerate for verified coverage."},
+              staleSrc+" stale source"),
+            solid && _el("span",{className:"ssx-chain-chip ok"},"Chain solid"));
+        })(),
         // shots-per-beat strip: coverage distribution at a glance (widths ∝ shot counts)
         (lanes.length>1) && _el("div",{className:"ssx-beat-strip",
           title:"Shots per beat \u2014 how this scene's coverage is distributed"},
@@ -1512,7 +1595,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
       // walk the SEED ANCESTRY: this shot's coverage reference, that reference's own
       // seed, and so on up to a head. Nearest-first; a rendered seed's own ancestry is
       // already baked into its frame, so the walk stops there.
-      const missing=[]; const seen={};
+      const missing=[]; let unapproved=null; const seen={};
       let cur=target;
       while(cur){
         const seed=(typeof seedShotOf==="function")?seedShotOf(cur,orderedShots)
@@ -1522,17 +1605,33 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
         let u=(typeof nbGetImage==="function")?nbGetImage(seed.id):"";
         if(!u && typeof nbLoadImage==="function"){ try{ u=await nbLoadImage(seed.id); }catch(e){} }
         if(!u || (shotFrameStatus(seed)!=="current"&&!shotHasOverride(seed))){ missing.push(seed); cur=seed; continue; }
+        // APPROVAL IS THE CONTINUITY GATE (review finding #3): the chain is described as
+        // building on the previous APPROVED frame, so an unapproved (experimental) frame
+        // must never silently become the seed — only through the explicit choice below.
+        if(!seed.locked) unapproved=seed;
         break;
       }
+      const shotNo = (s)=> Math.max(1, orderedShots.findIndex(x=>x.id===s.id)+1);
+      const shotLab = (s)=> "Shot "+shotNo(s)+(s.beatN ? " (Beat "+s.beatN+")" : "");
       if(missing.length){
-        const shotNo = (s)=> Math.max(1, orderedShots.findIndex(x=>x.id===s.id)+1);
-        const shotLab = (s)=> "Shot "+shotNo(s)+(s.beatN ? " (Beat "+s.beatN+")" : "");
         const near=missing[0];                    // the reference this shot builds on
         const first=missing[missing.length-1];    // the earliest missing link
         setNotice(missing.length===1
           ? shotLab(target)+" depends on "+shotLab(near)+". Generate "+shotLab(near)+" first so it can become the coverage reference."
           : shotLab(target)+" depends on "+shotLab(near)+", but its own seed chain is incomplete. Generate the chain in order starting with "+shotLab(first)+".");
         return;
+      }
+      if(unapproved){
+        // FAIL CLOSED: no confirm dialog available → no silent bypass of the gate
+        if(typeof window.appConfirm!=="function"){
+          setNotice(shotLab(target)+" chains from "+shotLab(unapproved)+", whose frame isn't approved yet. Approve "+shotLab(unapproved)+" (\u2713 on its card) first — approved frames are the continuity gate.");
+          return;
+        }
+        const ok = await window.appConfirm({
+          title:"Seed frame isn't approved yet",
+          body:shotLab(target)+" chains from "+shotLab(unapproved)+", whose frame is rendered but not approved. Approving ("+"\u2713"+" on its card) is the continuity gate — or continue now and deliberately use the unapproved frame as this render's seed. The new frame will record that choice on its card.",
+          confirmLabel:"Use unapproved seed", cancelLabel:"Cancel" });
+        if(!ok) return;
       }
       setCollapsed(c=>({ ...c, [target.sceneId]:false }));
       stepChain([id],0,true);
