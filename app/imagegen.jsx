@@ -1103,7 +1103,11 @@ async function proxyGenerate(prompt, opts, provider){
         return await proxyGenerate(soft, { ...opts, __softened:true }, provider);
       }
     }
-    throw new Error((window.turnSafeError||(x=>x))(_raw));          // provider error relayed by the proxy
+    // provider error relayed by the proxy — attributed to the image model that asked
+    const _mLbl = (((window.NB_MODELS||[]).find(m=>m.id===model))||{}).label || model || "";
+    throw new Error(window.turnAttrError
+      ? window.turnAttrError("Image model", _mLbl, _raw)
+      : (window.turnSafeError||(x=>x))(_raw));
   }
   if(opts.metaOut && data && typeof data.grounded!=="undefined") opts.metaOut.grounded = !!data.grounded;
   if(data && data.usage && typeof window.dispatchEvent==="function")

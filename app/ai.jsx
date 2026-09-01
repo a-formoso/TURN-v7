@@ -94,6 +94,15 @@ function safeError(raw){
   return s;                                              // non-sensitive / already user-safe
 }
 window.turnSafeError = safeError;
+/* Attribute a provider failure to the model that ASKED, so a billing warning says
+   who spent the credits — "Writing model (…)" vs "Image model (…)". Without this,
+   a Google AI Studio "credits depleted" toast looks like the image model's fault
+   even when the writing model triggered it. Masking still applies via safeError. */
+function attributedError(role, label, raw){
+  const who = role + (label ? " ("+String(label)+")" : "");
+  return who + ": " + safeError(raw);
+}
+window.turnAttrError = attributedError;
 
 /* Lightweight global toast so AI/provider failures (depleted credits, missing key,
    transport errors) are SURFACED to the user instead of dying silently in a catch.
@@ -101,7 +110,13 @@ window.turnSafeError = safeError;
    De-dupes identical messages within a short window so a burst of auto-drafts that all
    hit the same error shows once, not ten times. */
 (function(){
-  let lastMsg="", lastAt=0;
+  // Map-keyed de-dupe (not a single last-message slot): a burst that ALTERNATES two
+  // messages (billing warning, progress note, billing warning…) must still collapse
+  // the repeats. Provider-account warnings (billing/key/throttle — raw or masked to a
+  // ref code) get a much longer window: every queued call fails the same way, and ten
+  // identical "credits depleted" toasts help nobody.
+  const recent = Object.create(null);
+  const LONG_DEDUPE_RE = /credit|billing|prepay|deplet|quota|payment|balance|\(ref CM-\d+\)/i;
   // While a generation modal (agent panel, New Story) is open it registers itself
   // here; ERROR toasts render INSIDE that modal instead of as a detached corner
   // toast (user ruling 2026-07-16: always show errors on the open form/modal).
@@ -111,8 +126,11 @@ window.turnSafeError = safeError;
     try{
       const msg = String(message||"").trim(); if(!msg) return;
       const now = (typeof performance!=="undefined" && performance.now) ? performance.now() : (+new Date());
-      if(msg===lastMsg && (now-lastAt)<4000) return;   // de-dupe bursts
-      lastMsg=msg; lastAt=now;
+      for(const k in recent){ if((now-recent[k])>60000) delete recent[k]; }
+      const key = msg.slice(0,200);
+      const win = LONG_DEDUPE_RE.test(msg) ? 30000 : 4000;
+      if(recent[key]!=null && (now-recent[key])<win) return;   // de-dupe bursts
+      recent[key]=now;
       if(type==="error" && typeof window.turnErrorSink==="function"){
         let took=false; try{ took = !!window.turnErrorSink(msg); }catch(e){}
         if(took) return;
@@ -168,7 +186,12 @@ if(!window.claude || typeof window.claude.complete !== "function"){
         if(status===404) return fail("The proxy's text task isn't deployed yet — redeploy image-proxy.");
         return fail("Couldn't reach the writing model: "+((error && error.message) || "unknown error")+".");
       }
-      if(data && data.error) return fail(String(data.error));   // provider error relayed by the proxy (e.g. depleted credits)
+      if(data && data.error){   // provider error relayed by the proxy (e.g. depleted credits)
+        // attributed + already masked — do NOT run through fail()'s safeError again
+        const msg = attributedError("Writing model", m.label, String(data.error));
+        if(typeof window.appToast==="function") window.appToast(msg,"error");
+        throw new Error(msg);
+      }
       textSpendAdd(m.id, "writing", data && data.usage && data.usage.credits);
       if(data && data.usage && typeof window.dispatchEvent==="function")
         window.dispatchEvent(new CustomEvent("turn-credits-changed",{ detail:data.usage }));
@@ -1079,6 +1102,7 @@ const APP_FEATURES = [
   { name:"Plans & subscription (Writer / Director / Studio)", what:"Cinema Machine is a subscription app with room entitlements: Writer grants the Writers' Room, Director grants Writers' Room + Art Room, and Studio grants Writers' Room + Art Room + Stage. Three monthly plans grant generation credits that renew monthly: Writer $19 (800 credits), Director $49 (2,400 credits), Studio $149 (9,000 credits). Users choose or change a plan from the account menu or from locked room and Stage actions; checkout is a secure Stripe page and credits appear in the app moments after payment, no reload needed. Active subscribers can buy one-off Extra Credits packs from the plans window; Stripe payment links carry their user id, the webhook adds the purchased pack to their credit balance exactly once without replacing their monthly plan, and the return URL can show an Extra Credits confirmation card while the balance refreshes. ROOM GATES: Writer can create and edit in the Writers' Room, Director unlocks the Art Room, and Studio unlocks the Stage; locked rooms stay visible in the room switcher with the plan that unlocks them. PLAN GATES inside the Stage still tag options above the current tier, such as 1080p needing Director or batch/4K needing Studio. Cancelling keeps remaining credits at Writer-level access. Credits are spent by generation actions with the cost shown before every render; the remaining balance shows in the account menu and the Stage footer." }
 ];
 APP_FEATURES.push({ name:"Team collaboration", what:"The Team button in the top bar lets a project owner share the current film with collaborators by email. INVITATIONS ARE REAL EMAILS: adding a collaborator sends them an invitation (new addresses get a sign-up invite that pre-creates their account; existing accounts get a sign-in link) whose link lands them in the app on a welcome surface naming the film and who shared it, with an 'Open the film' action \u2014 accounts created by an invite are offered a set-a-password step there so they can sign in directly next time. If the email cannot be sent the owner is told explicitly (the access grant still stands). On every sign-in the app links invitations addressed to the account's verified email onto the account itself, so changing the email later never silently revokes access, and freshly shared films are announced with a notice. Re-inviting an address re-sends the email (and can change the role); a withdrawn invitation's link shows an honest 'no longer active' explanation instead of a dead end. Shared films appear in the collaborator's project switcher with a SHARED badge, and owner-only actions (rename, delete, managing the team) stay hidden from collaborators. SIMULTANEOUS EDITING IS SUPPORTED: a window saves only the SECTIONS it actually changed, merged onto the newest version of the film, so two people working on different parts (one on scenes, one on props) never overwrite each other; two people editing the SAME section resolve last-writer-wins for that section only. PRESENCE shows who else has the film open right now as initials beside the Team button \u2014 hovering names each person WITH THEIR ROLE (Owner / Writer / Art director / View-only; your own second window is labelled as such) \u2014 and closing a tab announces the leave immediately rather than lingering as a ghost. CHANGES ARRIVE LIVE: a collaborator's save is announced over the film's realtime channel and appears in every other open window within a second or two; where realtime is unavailable a quiet background check takes over, so staleness is bounded either way, and nothing is ever adopted over your own unsaved edits. REMOVAL IS ACCOUNTABLE: removing a collaborator keeps their row as an audit trail (marked removed \u2014 access ends immediately, every list shows only active members, and re-inviting the same address simply revives it), and if the removed person still has the film open the removal is announced over the film's channel so they get a plain 'Access ended' explanation right away (the app re-verifies with the server before acting \u2014 a broadcast alone can never end a session) and are returned to their own films instead of watching every save silently fail. ROLES ARE SCOPED, not just labels \u2014 there are exactly THREE: View-only opens and reads the film and cannot save anything (a standing banner says so up front); Writer saves story work \u2014 spine, scenes, beats, script, continuity; Art director saves Art Room work \u2014 cast, props, locations, lookbook, shots. (The old Producer/admin role was retired \u2014 it promised team management it never had; existing members holding it are moved to Writer by supabase/migrate-remove-producer-admin.sql, and until that runs they show as 'Legacy role' with saves paused.) The Team panel states each role's permissions in plain language right where the role is chosen \u2014 beside the invite controls and on every member row \u2014 plus what only the owner can do (invite/remove collaborators, change roles, rename or delete the film). A role the app doesn't recognize saves NOTHING (fails closed) instead of everything. If you change something outside your remit the app tells you it was not saved rather than failing silently. ROLE LIMITS ARE ENFORCED BY THE DATABASE TOO (supabase/enforce-role-scopes.sql): the server compares every save section-by-section against the collaborator's role and REJECTS out-of-scope changes even from a modified client, and blocks a collaborator from transferring the film's ownership; when the server declines a save (e.g. the owner changed your role mid-session) the app shows the server's reason and reloads the film instead of silently retrying forever. GENERATED IMAGES are art-department work at the database level too: only the film's owner or its Art director can create, replace or clear generated assets for a shared film (Writers and View-only members still SEE every sheet); generation records stay attributed to whoever first generated them \u2014 a later regeneration never reassigns the record \u2014 and files live under the generating user's own storage folder while remaining visible to the whole team. The film's own settings (logline, style bible) are writable by both Writer and Art director. Your selected scene and current room are per-device, not shared, so navigating never disturbs a collaborator." });
+APP_FEATURES.push({ name:"Provider warnings name their model", what:"When a model call fails — for example the provider account is out of prepaid credits — the warning toast names WHICH model asked: 'Writing model (…)' for drafting/text failures vs 'Image model (…)' for renders. This matters because the writing model and the image model are chosen separately: a Google AI Studio billing warning can come from a Gemini WRITING model even while images are set to a different model entirely. Identical provider warnings arriving in a burst collapse into a single toast instead of stacking. Regenerating an existing sheet (character master re-bakes, prop-owner pre-generation) follows the CURRENTLY selected image model rather than silently reusing the model that made the original image, so switching models actually switches." });
 const _artRoomFeature = APP_FEATURES.find(f=>f.name==="Art Room");
 if(_artRoomFeature) _artRoomFeature.what = _artRoomFeature.what.replace(
   "it moves into a 'Recently deleted' panel at the top of that tab (Characters / Props / Locations)",

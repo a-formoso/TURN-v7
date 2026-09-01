@@ -1851,7 +1851,9 @@ function App(){
     const extra=[...refs, ...cameo];
     const gpt2 = (window.NB_MODELS||[]).find(m=>/gpt-image/i.test(m.id));
     const m0 = (typeof nbGetMeta==="function")?nbGetMeta(c.id):null;
-    const model = (m0&&m0.modelId) || (gpt2&&gpt2.id) || ((typeof nbGetModel==="function")?nbGetModel():undefined);
+    // the CURRENT picker leads — reusing the prior sheet's recorded model silently
+    // ignored the user's model switch (and kept billing against the old provider)
+    const model = ((typeof nbGetModel==="function")&&nbGetModel()) || (m0&&m0.modelId) || (gpt2&&gpt2.id) || undefined;
     const gopts = { aspectRatio:"16:9", ...(model?{model}:{}), ...(extra.length?{extraImages:extra}:{}) };
     let url; try{ url=await window.nbGenerate(prompt, gopts); }
     catch(e){ if(/no image/i.test(String((e&&e.message)||e))) url=await window.nbGenerate(prompt, gopts); else throw e; }
@@ -3597,7 +3599,8 @@ function App(){
     // Google models' "no image" safety refusals on injury/blood states); else the current model.
     const _gpt2m = (window.NB_MODELS||[]).find(m=>/gpt-image/i.test(m.id));
     const _modelFor = (c)=>{ const m=(typeof nbGetMeta==="function")?nbGetMeta(c.id):null;
-      return (m&&m.modelId) || (_gpt2m&&_gpt2m.id) || ((typeof nbGetModel==="function")?nbGetModel():undefined); };
+      // current picker first — never silently revert to the model that made the original
+      return ((typeof nbGetModel==="function")&&nbGetModel()) || (m&&m.modelId) || (_gpt2m&&_gpt2m.id) || undefined; };
     const _genCharImage = async (slotId, prompt, opts)=>{
       const { commitRefs=[], metaExtra=null, ...generateOpts } = opts||{};
       const gopts = { aspectRatio:"16:9", ...generateOpts };
