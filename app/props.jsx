@@ -813,7 +813,11 @@ async function generatePropSheet(p, project){
       anchorOwnerId: (ownerUrl && p.ownerId) ? p.ownerId : undefined,
       anchorOwnerName: (ownerUrl && p.ownerId) ? (p.ownerName||"") : undefined,
       anchorIso: anchorIso || undefined };
-    await nbCommit(p.id, url, meta, [], "prop", _ep);
+    const _r = await nbCommit(p.id, url, meta, [], "prop", _ep);
+    // the film changed while this sheet generated: the write was refused (stale scope).
+    // Do NOT announce completion — a same-id card in the NEW film must not adopt the
+    // uncommitted image. Quiet failure: the caller sees "didn't complete".
+    if(_r && _r.tier==="stale") return false;
     // let any mounted card (the prop's own, or a char card watching its props) adopt it
     try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id:p.id, url } })); }catch(e){}
     return true;
@@ -822,6 +826,27 @@ async function generatePropSheet(p, project){
   }
 }
 window.generatePropSheet = generatePropSheet;
+
+/* HANDS-FREE RE-BAKE GATE — decides whether a finished background worn-prop batch may
+   auto-regenerate the owner's master sheet (the app-level bootstrap). Pure + exported so
+   the headless suite can exercise every refusal; ok:false always names its reason. */
+function wornRebakeGate(o){
+  o = o || {};
+  if(!o.total)                  return { ok:false, reason:"no-worn-props" };
+  if((o.failed||0) > 0)         return { ok:false, reason:"batch-had-failures" };
+  if((o.done||0) < o.total)     return { ok:false, reason:"batch-incomplete" };
+  // every sheet pre-existed → the master already attached them when it generated;
+  // a re-bake would spend credits repainting an identical wardrobe
+  if(!(o.newlyBuilt > 0))       return { ok:false, reason:"nothing-new-built" };
+  if(o.inflight)                return { ok:false, reason:"generation-in-flight" };
+  if(String(o.sheetIsoStart||"") !== String(o.sheetIsoNow||""))
+                                return { ok:false, reason:"sheet-changed-during-batch" };
+  if((o.epochStart||null) !== (o.epochNow||null))
+                                return { ok:false, reason:"switched-film" };
+  if(!o.canMutate)              return { ok:false, reason:"read-only" };
+  return { ok:true, reason:"" };
+}
+window.wornRebakeGate = wornRebakeGate;
 
 /* image-to-image from a dropped reference photo of the real object */
 function buildPropFromPhotoPrompt(p, project){

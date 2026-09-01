@@ -1496,6 +1496,87 @@ window.deriveShotPrompt = deriveShotPrompt;
    (wides lead with the set, tights with the cast). quality "medium", commit +
    nb-gen-done so any mounted card adopts the result.
    opts: { fresh, correction } — fresh ignores the chain seed; correction is the QC repair. */
+/* ============================================================
+   CARRIED PROPS ON DEMAND — a shot that should ATTACH a carried prop whose sheet was
+   never generated builds that sheet first (mirroring the location staging auto-draft:
+   cross-instance lock, fail-open), so a first-time user gets dressed frames without
+   ever visiting the Props tab. Worn items are untouched — their canon is the owner's
+   character sheet. The list builder is pure-ish and exported for the headless suite.
+   ============================================================ */
+function carriedPropsNeedingSheets(sh, scene, charById, propById, extraIds){
+  const out = [];
+  try{
+    if(!sh || !scene) return out;
+    const inPr = (typeof inFrameProps==="function") ? inFrameProps(sh, scene, charById, propById) : (sh.props||[]);
+    const seen = {};
+    const consider = (id, gateAttach)=>{
+      if(seen[id]) return; seen[id] = true;
+      const p = (propById||{})[id];
+      if(!p) return;
+      // in-frame props only build when this shot would actually attach their sheet;
+      // continuity-carried props (extraIds) ALWAYS attach as carrySpec — no gate
+      if(gateAttach && (typeof shotPropAttachable!=="function" || !shotPropAttachable(p, sh, scene))) return;
+      const rs = (typeof propStateAt==="function") ? propStateAt(p, scene.id, sh.beatN, sh.microBeatId, sh.id, window.turnContinuity||{}) : null;
+      if((((rs&&rs.bindingMode)||p.bindingMode||p.kind)||"carried")==="worn") return;
+      if(typeof nbGetImage==="function" && nbGetImage(p.id)) return;                // sheet exists
+      if(window.__nbGenInflight && window.__nbGenInflight[p.id]) return;            // already building
+      out.push(p);
+    };
+    for(const id of (inPr||[])) consider(id, true);
+    // props the continuity ledger carries forward from earlier beats — generateShotFrame
+    // attaches these too (carrySpec), so their sheets must exist just the same
+    for(const id of (extraIds||[])) consider(id, false);
+  }catch(e){}
+  return out;
+}
+window.carriedPropsNeedingSheets = carriedPropsNeedingSheets;
+
+async function ensureCarriedPropSheets(sh, scene, charById, propById, project, extraIds){
+  try{
+    const need = carriedPropsNeedingSheets(sh, scene, charById, propById, extraIds);
+    if(!need.length) return;
+    window.__nbCarriedPhase = window.__nbCarriedPhase || {};
+    for(const p of need){
+      // cross-instance lock: concurrent renders needing the same prop share ONE build
+      let job = window.__nbCarriedPhase[p.id];
+      if(!job){
+        job = (async ()=>{
+          // AUTHORITATIVE existence check. The candidate list uses the SYNC cache, which
+          // is deliberately cold in cloud mode right after a reload or project switch —
+          // the stored sheet may exist even though nbGetImage says nothing. nbLoadImage
+          // waits for the prefetch and finds it; only a truly missing sheet may spend
+          // credits generating.
+          try{
+            if(typeof nbLoadImage==="function"){
+              const existing = await nbLoadImage(p.id);
+              if(existing) return;
+            }
+          }catch(e){}   // loader trouble → fall through and build; a broken loader must not permanently block the feature
+          if(typeof window.appToast==="function") window.appToast(
+            "Building the "+(p.name||"prop")+" reference before this shot renders.","info");
+          let prop = p;
+          const drafted = !!(String(p.form||"").trim() && String(p.material||"").trim());
+          if(!drafted && typeof window.aiPropVisuals==="function"){
+            try{
+              const patch = await window.aiPropVisuals(p, Object.values(charById||{}), project);
+              if(patch){
+                prop = { ...p, ...patch };
+                // the prop card's spec fields live in App state — hand the draft back
+                try{ window.dispatchEvent(new CustomEvent("nb-prop-drafted",{ detail:{ id:p.id, patch } })); }catch(e){}
+              }
+            }catch(e){}   // an undrafted spec still renders from the name — keep going
+          }
+          if(typeof window.generatePropSheet==="function") await window.generatePropSheet(prop, project);
+        })();
+        window.__nbCarriedPhase[p.id] = job;
+        job.then(()=>{},()=>{}).then(()=>{ if(window.__nbCarriedPhase[p.id]===job) delete window.__nbCarriedPhase[p.id]; });
+      }
+      try{ await job; }catch(e){}   // fail-open: the shot renders as before (prop rides as text)
+    }
+  }catch(e){}   // fail-open by design — never block a render on this convenience
+}
+window.ensureCarriedPropSheets = ensureCarriedPropSheets;
+
 async function generateShotFrame(sh, sceneShots, ctx, opts){
   const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;   // asset scope at generation start
   opts = opts || {};
@@ -1517,6 +1598,11 @@ async function generateShotFrame(sh, sceneShots, ctx, opts){
   let carried = [];
   try{ const ledger = sceneContinuityLedger(ctx.scene, sceneShots, ctx.charById, ctx.propById);
     carried = (ledger[sh.id]||[]).filter(pid=> inPr.indexOf(pid)<0); }catch(e){}
+  // build any missing carried-prop sheet this shot would attach BEFORE collecting refs —
+  // both the in-frame props AND the ledger-carried ones (they attach as carrySpec below).
+  // Cross-instance lock + fail-open inside; a failure just renders the shot as before.
+  if(typeof ensureCarriedPropSheets==="function")
+    await ensureCarriedPropSheets(sh, ctx.scene, ctx.charById, ctx.propById, ctx.project, carried);
   // build the sheet-reference specs, then ORDER by location weight
   const locSpec  = ctx.location
     ? ((typeof shotLocationCoverageSpecs==="function")

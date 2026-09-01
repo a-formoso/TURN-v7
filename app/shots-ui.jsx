@@ -287,6 +287,24 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
     onUpdate(sh.id,{locked:true,sourceOverride:null});
   };
 
+  // CARRIED PROPS ON DEMAND — before this shot renders, build any attachable carried-prop
+  // sheet that doesn't exist yet (cross-instance lock + fail-open live in the shared
+  // helper; mirrors the location staging auto-draft). __nbShotPhase marks the pre-build
+  // window — during it nothing is in __nbGenInflight yet, so a remount could otherwise
+  // start the whole sequence twice.
+  const generateWithProps = async (gopts)=>{
+    const g = gopts||{};
+    if(!(g.editInstruction || g.simple) && typeof window.ensureCarriedPropSheets==="function" && ctx && ctx.scene){
+      window.__nbShotPhase = window.__nbShotPhase || {};
+      if(window.__nbShotPhase[sh.id]) return;   // another instance is mid-phase and will render
+      window.__nbShotPhase[sh.id] = true;
+      try{ await window.ensureCarriedPropSheets(sh, ctx.scene, ctx.charById, ctx.propById, ctx.project); }
+      catch(e){}
+      finally{ delete window.__nbShotPhase[sh.id]; }
+    }
+    return gen.generate(gopts);
+  };
+
   // Every manual Generate / Regenerate enters the scene's ordered runner. If an earlier
   // shot in the chain isn't rendered yet, the runner asks the user to generate it first
   // (it's the anchor) rather than rendering out of order. Raw gen.generate() runs when active.
@@ -297,7 +315,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       if(sh.locked) onUpdate(sh.id,{locked:false});
       return gen.generate(gopts);
     }
-    return onGenerateShot ? onGenerateShot(sh.id) : gen.generate(gopts);
+    return onGenerateShot ? onGenerateShot(sh.id) : generateWithProps(gopts);
   };
   const genGuarded = Object.assign({}, gen, { generate: guardedGenerate });
 
@@ -305,12 +323,16 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   // If this card remounts off-screen while its generation is already running
   // (the user navigated to another scene), resume watching that same run instead
   // of accidentally starting it again when it finishes.
-  const batchStarted = React.useRef(batchActiveId===sh.id && gen.gening);
+  // the carried-prop pre-build counts as "started" (nothing is registered in
+  // __nbGenInflight while it runs — without this a remount re-fires the sequence)
+  const batchStarted = React.useRef(batchActiveId===sh.id
+    && (gen.gening || !!(window.__nbShotPhase && window.__nbShotPhase[sh.id])));
   const wasGening = React.useRef(gen.gening);
   React.useEffect(()=>{
     const mine = batchActiveId===sh.id;
     if(!mine){ batchStarted.current=false; wasGening.current=gen.gening; return; }
-    if(!batchStarted.current && !gen.gening){ batchStarted.current=true; wasGening.current=false; gen.generate(); return; }
+    if(!batchStarted.current && !gen.gening && !(window.__nbShotPhase && window.__nbShotPhase[sh.id])){
+      batchStarted.current=true; wasGening.current=false; generateWithProps(); return; }
     if(batchStarted.current && wasGening.current && !gen.gening){ batchStarted.current=false; onBatchDone && onBatchDone(sh.id); }
     wasGening.current = gen.gening;
   },[batchActiveId, gen.gening, sh.id]);

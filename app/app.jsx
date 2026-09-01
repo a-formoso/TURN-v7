@@ -2222,7 +2222,12 @@ function App(){
 
       if(typeof window.appToast==="function") window.appToast(
         "Building "+worn.length+" worn prop reference"+(worn.length===1?"":"s")+" for "+(character.name||"this character")+" in the background.","info");
-      let done=0, draftedAny=false;
+      // for the hands-free re-bake gate: the sheet identity + film scope AT BATCH START —
+      // if either changes while props build, we must not auto-regenerate over the user's work
+      let sheetIso0 = "";
+      try{ if(typeof nbLoadDetailsAsset==="function"){ const d0=await nbLoadDetailsAsset(charId); sheetIso0=(d0&&d0.meta&&d0.meta.iso)||""; } }catch(e){}
+      const epoch0 = (typeof nbEpoch==="function") ? nbEpoch() : null;
+      let done=0, built=0, draftedAny=false;
       const failed=[];
       for(const original of worn){
         try{
@@ -2242,22 +2247,82 @@ function App(){
           if(typeof window.generatePropSheet!=="function") throw new Error("Prop generator unavailable");
           const ok = await window.generatePropSheet(prop, lbProject("props"));
           if(!ok) throw new Error("Prop generation did not complete");
-          done++;
+          done++; built++;
           setBootstrap({done});
         }catch(err){ failed.push(original.name||"Worn prop"); }
       }
       if(draftedAny) markApplied("props");
       setBootstrap({ status:failed.length?"attention":"complete", completedAt:new Date().toISOString(),
         total:worn.length, done, failedNames:failed });
+
+      /* HANDS-FREE WARDROBE — a CLEAN batch (every item newly built, sheet untouched
+         meanwhile, nothing else generating, same film) re-bakes the master ONCE so it
+         actually wears the new props, no manual step. Anything less falls back to the
+         character card's one-tap "Update sheet with new wardrobe" action. */
+      let sheetIsoNow = sheetIso0;
+      try{ if(typeof nbLoadDetailsAsset==="function"){ const d1=await nbLoadDetailsAsset(charId); sheetIsoNow=(d1&&d1.meta&&d1.meta.iso)||""; } }catch(e){}
+      const gate = (typeof wornRebakeGate==="function") ? wornRebakeGate({
+        total:worn.length, done, failed:failed.length, newlyBuilt:built,
+        inflight: !!(window.__nbGenInflight && window.__nbGenInflight[charId]),
+        sheetIsoStart:sheetIso0, sheetIsoNow,
+        epochStart:epoch0, epochNow:(typeof nbEpoch==="function")?nbEpoch():null,
+        canMutate: canMutateSharedFilm(),
+      }) : { ok:false, reason:"no-gate" };
+      if(gate.ok){
+        if(typeof window.appToast==="function") window.appToast(
+          "Worn prop references are ready for "+(character.name||"this character")+" \u2014 updating the master sheet to wear them now.","info");
+        /* LOOP PREVENTION: hold the in-memory bootstrap flag through the re-bake so its
+           own nb-gen-done cannot restart this pipeline (the persisted status:"complete"
+           is the second, durable guard). Register in the shared gen registry with a run
+           token + announce the start so a mounted character card shows the spinner and
+           a stray click can't start a second generation. */
+        if(!window.__nbGenInflight) window.__nbGenInflight = {};
+        window.__nbGenRunSeq = (window.__nbGenRunSeq||0)+1;
+        const _run = window.__nbGenRunSeq;
+        window.__nbGenInflight[charId] = _run;
+        try{ window.dispatchEvent(new CustomEvent("nb-gen-start",{ detail:{ id:charId } })); }catch(e){}
+        try{
+          // go through the LATEST render's factory — this handler's own closure predates
+          // the props merged during the batch (see artAgentCtxFactoryRef note)
+          const _mkCtx = (artAgentCtxFactoryRef && artAgentCtxFactoryRef.current) || artAgentCtxFactory;
+          const agentCtx = _mkCtx({ input:"", emit:()=>{},
+            propose:null, agentName:"Wardrobe", force:false,
+            // a film switch cancels this background run (the commit is ALSO epoch-guarded)
+            cancelled: ()=>(((typeof nbEpoch==="function")?nbEpoch():null)!==epoch0) });
+          await agentCtx.art.cast.generateMaster(character, { deriveFromCurrent:true });
+        }catch(err){
+          try{ window.dispatchEvent(new CustomEvent("nb-gen-cancel",{ detail:{ id:charId } })); }catch(e){}
+          // a stale-scope discard (film switched mid-render) is a clean drop — don't
+          // toast a scary failure into the film the user is looking at NOW
+          if(!/stale scope/i.test(String((err&&err.message)||"")) && typeof window.appToast==="function") window.appToast(
+            "Couldn't update "+(character.name||"the character")+"'s sheet automatically \u2014 use \u201cUpdate sheet with new wardrobe\u201d on the character card.","error");
+        } finally {
+          // ownership re-check after the awaits: a Stop or newer run may own the slot now
+          if(window.__nbGenInflight && window.__nbGenInflight[charId]===_run) delete window.__nbGenInflight[charId];
+          delete window.__turnWornPropBootstrap[charId];
+        }
+        return;
+      }
       delete window.__turnWornPropBootstrap[charId];
-      if(typeof window.appToast==="function") window.appToast(
+      // stay quiet when nothing changed (every sheet pre-existed and none failed)
+      if((built || failed.length) && typeof window.appToast==="function") window.appToast(
         failed.length
           ? (done+" of "+worn.length+" worn prop references were built. The remaining item"+(failed.length===1?" needs":"s need")+" attention.")
-          : ("Worn prop references are ready for "+(character.name||"this character")+". Update the master when you are ready to lock them in."),
+          : ("Worn prop references are ready for "+(character.name||"this character")+". Tap \u201cUpdate sheet with new wardrobe\u201d on the character card to lock them in."),
         failed.length?"error":"info");
     };
+    // the on-demand carried-prop builder (shot renders) drafts specs OUTSIDE App state —
+    // it hands the patch back on this event so the prop card shows what was decided
+    const onPropDrafted = (e)=>{
+      const d = e && e.detail;
+      if(!d || !d.id || !d.patch || !canMutateSharedFilm()) return;
+      setProps(ps=>ps.map(p=>p.id===d.id ? { ...p, ...keepPickedStyle(p, d.patch) } : p));
+      markApplied("props");
+    };
     window.addEventListener("nb-gen-done",onCharacterSheetDone);
-    return ()=>window.removeEventListener("nb-gen-done",onCharacterSheetDone);
+    window.addEventListener("nb-prop-drafted",onPropDrafted);
+    return ()=>{ window.removeEventListener("nb-gen-done",onCharacterSheetDone);
+      window.removeEventListener("nb-prop-drafted",onPropDrafted); };
   },[characters, props, scenes, drafts, project, lookbook, lookbookNote]);
 
   // auto-draft the cast once per story: the FIRST time the Art Room opens (any tab),
@@ -3604,6 +3669,9 @@ function App(){
     const _genCharImage = async (slotId, prompt, opts)=>{
       const { commitRefs=[], metaExtra=null, ...generateOpts } = opts||{};
       const gopts = { aspectRatio:"16:9", ...generateOpts };
+      // asset scope at request start: entity ids repeat across films, so a commit that
+      // lands after the user opened ANOTHER film must be dropped, not written there
+      const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;
       let url;
       try{ url = await window.nbGenerate(prompt, gopts); }
       catch(e){ if(/no image/i.test(String((e&&e.message)||e))){ url = await window.nbGenerate(prompt, gopts); } else throw e; }
@@ -3615,7 +3683,10 @@ function App(){
         iso:new Date().toISOString(), prompt, agent:"Casting Director", version:priorVersion+1,
         ...(metaExtra||{}) };
       const kind = (typeof slotAssetKind==="function") ? slotAssetKind("charref-"+slotId) : "character";
-      await window.nbCommit(slotId, url, meta, commitRefs, kind);
+      const _r = await window.nbCommit(slotId, url, meta, commitRefs, kind, _ep);
+      // refused stale-scope write: the result belongs to a film that is no longer open.
+      // No nb-gen-done — a card in the NEW film with the same id must not adopt it.
+      if(_r && _r.tier==="stale") throw new Error("Discarded \u2014 the film changed while this sheet rendered (stale scope)");
       try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id:slotId, url } })); }catch(e){}
       return url;
     };
@@ -3986,6 +4057,13 @@ function App(){
         applyStyles: (res)=> applyStyleResult(res),
       } };
   };
+  // LATEST-RENDER handle for long-lived async work (the wardrobe bootstrap): an event
+  // handler that survives re-renders would otherwise call a factory whose props/characters
+  // closure predates the setProps merges made DURING the batch — the re-bake would then
+  // rebuild the worn list from a stale (possibly empty) props array and miss the very
+  // wardrobe it just generated. The ref always points at the current render's factory.
+  const artAgentCtxFactoryRef = React.useRef(null);
+  artAgentCtxFactoryRef.current = artAgentCtxFactory;
 
   // restore the most recent pre-run snapshot
   const undoLastAgent = ()=>{

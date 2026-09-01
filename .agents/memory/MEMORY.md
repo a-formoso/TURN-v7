@@ -8,3 +8,5 @@
 - [Revocation-sticky policies](revocation-sticky-policies.md) — asset read/delete RLS must key on CURRENT membership, never own-folder/row-owner disjuncts; role-scope rejections are permanent, never retried.
 - [Live push is hints](live-push-hints.md) — realtime broadcasts only trigger server re-checks; permission changes don't bump doc rev so they need their own hint event; poll never fully stops.
 - [Gen registry ownership](gen-registry-ownership.md) — __nbGenInflight is keyed by GEN id (not slot id) and holds a run token; re-check ownership after every await before spending/committing/cleanup.
+- [Background commit epoch](background-commit-epoch.md) — background gen pipelines must pass the start-time film epoch into the asset commit and treat tier:"stale" as a quiet discard.
+- [Cold-cache existence](cold-cache-existence.md) — "missing → generate" decisions must await the async asset loader; the sync cache is empty after reload/film switch in cloud mode.
