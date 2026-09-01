@@ -4208,6 +4208,13 @@ function CharacterSheet({ c, project, scenes, props, drafts, speaks, onUpdate, o
                            : "No reference sheet generated yet \u2014 generate it in the Props tab.")},
                 React.createElement("div",{className:"linked-prop-title"},
                   React.createElement("span",{className:"linked-prop-name"},row.name),
+                  // worn/carried at a glance — no scrolling back up to the lists to check.
+                  // Card-less rows fall back to which LIST the item came from (row.src).
+                  (()=>{ const kw = row.prop ? (row.prop.kind!=="carried") : (row.src!=="carried");
+                    return React.createElement("span",{className:"linked-prop-kind "+(kw?"worn":"carried"),
+                      title: kw ? "Worn \u2014 bakes into this character's master sheet"
+                                : "Carried \u2014 attaches at the shot, not on this sheet"},
+                      kw?"worn":"carried"); })(),
                   row.orphan && React.createElement("span",{className:"linked-prop-orphan-tag",
                     title:"Not in the worn/carried lists above \u2014 likely a leftover. Use \u201cRemove orphaned\u201d to clean up."},"not listed")),
                 React.createElement("div",{className:"linked-prop-controls"},
