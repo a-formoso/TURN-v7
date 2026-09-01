@@ -3851,12 +3851,17 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
      caption are flexed into horizontal slivers and Regenerate becomes untappable
      (this is the "can't regenerate props on mobile" bug). Gate on :has(genwrap). */
   .sheet-frame{border-right:0;border-bottom:1px solid var(--line)}
-  /* …and ONLY for small image-slot refs — a wide .sheet-dropzone (shot frames,
-     scale sheet) must stay a COLUMN or the zone + Generate + caption crush into
-     one unreadable row (the mobile shot-card bug). */
-  .sheet-frame:not(:has(.sheet-genwrap)):not(:has(.sheet-dropzone)){flex:0 0 auto;flex-direction:row;align-items:center}
+  /* …and ONLY for the small 120px character/prop reference slots — every OTHER
+     empty frame keeps a full-width 16:9 slot (location plates & time-of-day
+     variants, appearance states, lookbook refs), so forcing those into a row
+     crushed slot + Generate + Upload into one line with the absolutely-positioned
+     \u22ef menu overlapping them (the mobile location-variant bug). Gate the row
+     POSITIVELY on the two slots it was designed for. */
+  .sheet-frame:has(image-slot[id^="charref-"]):not(:has(.sheet-genwrap)):not(:has(.sheet-dropzone)),
+  .sheet-frame:has(image-slot[id^="propref-"]):not(:has(.sheet-genwrap)):not(:has(.sheet-dropzone)){flex:0 0 auto;flex-direction:row;align-items:center}
   image-slot[id^="charref-"], image-slot[id^="propref-"]{height:120px;width:120px;flex:0 0 120px;aspect-ratio:auto}
-  .sheet-frame:not(:has(.sheet-genwrap)):not(:has(.sheet-dropzone)) .sheet-frame-cap{margin-top:0;margin-left:12px}
+  .sheet-frame:has(image-slot[id^="charref-"]):not(:has(.sheet-genwrap)):not(:has(.sheet-dropzone)) .sheet-frame-cap,
+  .sheet-frame:has(image-slot[id^="propref-"]):not(:has(.sheet-genwrap)):not(:has(.sheet-dropzone)) .sheet-frame-cap{margin-top:0;margin-left:12px}
   .beat-card-grid{grid-template-columns:1fr}
   /* Shots tab scene header: title/meta keep the full first row, the action
      buttons wrap onto their own full-width row (they were crushing the meta) */
