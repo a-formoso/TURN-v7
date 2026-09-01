@@ -244,7 +244,7 @@ function StyleRefImages({ refImages, onRemoveRefImage }){
    photographers or paintings whose look they want. 'Assign from script' then
    translates that cinematography into this film's bespoke palette. Local state so
    typing is smooth; commits on blur / Enter. */
-function StyleRefsField({ value, onCommit, onAssign, assigning, assignDisabled, refImages, onAddRefImages, onRemoveRefImage }){
+function StyleRefsField({ value, onCommit, onAssign, assigning, assignDisabled, refImages, onAddRefImages, onRemoveRefImage, onLight, lightDisabled }){
   const [v, setV] = React.useState(value||"");
   const [saved, setSaved] = React.useState(false);
   const tRef = React.useRef(null);
@@ -266,7 +266,7 @@ function StyleRefsField({ value, onCommit, onAssign, assigning, assignDisabled, 
       letterSpacing:".06em",textTransform:"uppercase",color:"var(--txt-3)",marginBottom:6}},
       React.createElement(Icon.sparkles,{s:12}),"Visual references — optional look targets",
       React.createElement(InfoTip,{label:"About visual references",
-        text:"Auto-filled from your Lookbook (and re-synced when it changes) until you edit it — then your version wins. Add films, photographers or paintings you love, then Save and click “Light the film” above — the Colorist translates their cinematography (palette, light, lens, texture) into this film's looks."})),
+        text:"Auto-filled from your Lookbook (and re-synced when it changes) until you edit it — then your version wins. Add films, photographers or paintings you love, then click “Light the film” — it saves your edits and the Colorist translates their cinematography (palette, light, lens, texture) into this film's looks."})),
     React.createElement("div",{className:"sb-refbar"},
       React.createElement("textarea",{value:v,rows:3,
         placeholder:"Auto-filled from your Lookbook as you research the look — or write your own (films, photographers, paintings: e.g. Her, Blade Runner 2049, Gregory Crewdson)",
@@ -276,13 +276,23 @@ function StyleRefsField({ value, onCommit, onAssign, assigning, assignDisabled, 
         onClick:()=>fileRef.current&&fileRef.current.click(),
         title:imgs.length>=8?"Up to 8 reference images":"Add reference image(s) — Cinema Machine samples their palette to steer the film's grade"},
         React.createElement(Icon.image,{s:14}), "Image"),
-      React.createElement("button",{className:"sb-refbar-btn secondary"+(saved?" on":""),onClick:commit,
-        title:"Save these references — they steer the palette when you run 'Light the film'"},
-        saved && React.createElement(Icon.check,{s:14}), saved?"Saved":"Save")),
+      // ONE button does both: saves whatever is in the box, then sends the Colorist —
+      // the old separate Save + "Light the film above" two-step confused users (and
+      // pressing Light with unsaved text silently used the STALE saved refs).
+      onLight
+        ? React.createElement("button",{className:"sb-refbar-btn secondary",disabled:!!lightDisabled,
+            onClick:()=>{ commit(); onLight(); },
+            title: lightDisabled
+              ? "Add scenes first — the Colorist designs the palette and color-scripts each scene"
+              : "Saves these references, then the Colorist designs a bespoke palette + film stock from them and color-scripts every scene — proposed for your approval"},
+            React.createElement(Icon.palette,{s:14}),"Light the film")
+        : React.createElement("button",{className:"sb-refbar-btn secondary"+(saved?" on":""),onClick:commit,
+            title:"Save these references — they steer the palette when you run 'Light the film'"},
+            saved && React.createElement(Icon.check,{s:14}), saved?"Saved":"Save")),
     React.createElement("input",{type:"file",accept:"image/*",multiple:true,ref:fileRef,style:{display:"none"},onChange:onFiles}),
     imgs.length>0 && React.createElement(StyleRefImages,{refImages,onRemoveRefImage}),
     saved && React.createElement("div",{style:{fontSize:11.5,color:"var(--pos)",marginTop:6,lineHeight:1.5}},
-      "Saved — now click “Light the film” above to design the palette from these references."));
+      "References saved — “Light the film” designs the palette from them."));
 }
 
 /* InfoTip — a small "i" icon that reveals help text on hover (desktop) or tap
@@ -320,13 +330,14 @@ function StyleBibleView({ project, scenes, onAssign, assigning, onSetRefs, onSet
             "Cinematographer (Colorist)",
             React.createElement(InfoTip,{label:"About the Style Bible",
               text:"Your film's own cinematic look system \u2014 each a 60/30/10 colour grade with its own lighting, lens and texture. Click 'Light the film' and the Cinematographer / Colorist designs a BESPOKE palette + film stock for this film (from the story and your visual references), color-scripts every scene along the value-charge spine \u2014 so the look tracks the emotional arc \u2014 and PROPOSES it for your approval, showing the swatches and a per-scene 'why'. Styles are assigned per SCENE; characters, locations and shots read the assigned look so every frame stays on-palette. You can still fine-tune any scene by clicking it in the film-strip. The stills below are live CSS grade previews, not AI renders."}))),
-        onColorist && React.createElement("div",{className:"art-intro-actions"},
-          React.createElement("button",{className:"art-draftall ghost",disabled:!(scenes||[]).length,onClick:onColorist,
-            title:"Cinematographer / Colorist \u2014 designs your colour system and color-scripts every scene, with a rationale, for your approval"},
-            React.createElement(Icon.palette,{s:14}),"Light the film")))),
+        // "Light the film" now lives ON the visual-references bar below (merged with
+        // Save into one press) — a second copy up here just re-created the confusing
+        // two-button layout the merge removed.
+        null)),
     window.LookbookStaleNotice && React.createElement(window.LookbookStaleNotice,{stale:lookbookStale,onApply:onApplyLookbook,label:"this palette",dept:"colorist"}),
     onSetRefs && React.createElement(StyleRefsField,{value:refs,onCommit:onSetRefs,onAssign,assigning,assignDisabled:assigning||!(scenes||[]).length,
-      refImages,onAddRefImages,onRemoveRefImage}),
+      refImages,onAddRefImages,onRemoveRefImage,
+      onLight:onColorist,lightDisabled:!(scenes||[]).length}),
     React.createElement(StyleFilmStrip,{scenes,project,presets,onSetScenePreset}),
     React.createElement("div",{className:"sb-grid",style:{marginTop:16}},
       presets.map(p=>React.createElement(PresetCard,{key:p.id,preset:p,sceneList:scenesFor(p.id),count:scenesFor(p.id).length}))));
