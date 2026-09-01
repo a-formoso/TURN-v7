@@ -115,7 +115,7 @@ function FrameToggles({ label, items, selected, onToggle, emptyHint }){
       })));
 }
 
-function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, laterShots, isHead, isFirst, onToggleHead, onUpdate, onDelete, onView, batchActiveId, onBatchDone, onGenerateShot, onRegenDownstream, onStopChain, subLabel, plan }){
+function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, laterShots, sceneShots, isHead, isFirst, onToggleHead, onUpdate, onDelete, onView, batchActiveId, onBatchDone, onGenerateShot, onRegenDownstream, onStopChain, subLabel, plan }){
   const loc = ctx.location;
   // who/what is in frame is DERIVED from the action text (single source of truth) — the
   // old manual tags are gone; this is what the prompt + references actually use.
@@ -151,9 +151,16 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   const inProps = inPropIds.map(id=>ctx.propById[id]).filter(Boolean)
     .filter(p=> (typeof shotPropAttachable!=="function") || shotPropAttachable(p, sh, scene));
   const locWeight = (typeof locWeightForSize==="function") ? locWeightForSize(sh.size) : "primary";
+  // ONE RENDER PLAN (shared with the headless Scene Director — see shotRenderPlan in
+  // shots.jsx): seed, ledger-carried props, and the weight-ordered reference stack all
+  // come from the same builder now, so a manual render and an agent render can never
+  // disagree about what rides along with the frame.
+  const renderPlan = (typeof shotRenderPlan==="function") ? shotRenderPlan(sh, sceneShots||[], ctx) : null;
   // the "Shot prompt" preview reflects what WILL generate: a non-head shot chains from the
   // previous frame (continuity_anchor present); the head renders fresh from the sheets.
-  const promptCtx = { ...ctx, prevShot:prevShot||null, laterShots:laterShots||[] };
+  // carriedForward rides in the preview too — the prompt the user reads matches the render.
+  const promptCtx = { ...ctx, prevShot:prevShot||null, laterShots:laterShots||[],
+    carriedForward:(renderPlan&&renderPlan.carriedForward)||[] };
   const finalPrompt = combinedShotPrompt(sh, promptCtx);
   const chainPrompt = (typeof buildShotPrompt==="function") ? buildShotPrompt(sh, { ...promptCtx, prevFrameRole:true }) : finalPrompt;
   const previewPrompt = isHead ? finalPrompt : chainPrompt;
@@ -175,68 +182,30 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   };
 
   // reference SHEETS (the locked canon) — the seed frame rides separately as the base image.
-  // Ordered by location weight: a wide leads with the set plate (geography reads); a tight
-  // leads with the cast and demotes the plate to a background/grade anchor.
+  // UNIFIED PATH: the plan (what attaches, in what order, with what labels — including
+  // the continuity ledger's carried props) comes from shotRenderPlan, and the images
+  // resolve through shotResolveRenderRefs — the exact same two steps the headless
+  // Scene Director runs. Rebuilt fresh at generate time so late edits are honored.
   const collectShotRefs = async (gopts)=>{
     const grab = async (id)=> (typeof shotGrabImage==="function") ? await shotGrabImage(id) : "";
-    const locSpec = loc
-      ? ((typeof shotLocationCoverageSpecs==="function")
-        ? shotLocationCoverageSpecs(loc, sh, scene, (window.turnContinuity||{}).drafts||{})
-        : [])
-      : [];
-    // identity anchors for the cast & props actually in THIS frame — derived from the
-    // action text (inFrameCast/inFrameProps), never the fragile manual tags.
-    const _chars = Object.values(ctx.charById||{});
-    const inCast = (typeof inFrameCast==="function") ? inFrameCast(sh, scene, _chars) : (sh.subjects||[]);
-    const inPr   = (typeof inFrameProps==="function") ? inFrameProps(sh, scene, ctx.charById, ctx.propById) : (sh.props||[]);
-    const castSpec = inCast.map(id=>{ const c=ctx.charById[id]; return c?{ id, note:c.name+" character sheet" }:null; }).filter(Boolean);
-    // dressing sheets attach only on tight shots / when the object is the action's
-    // subject (shotPropAttachable) — MUST mirror buildShotPrompt's filter exactly,
-    // or the prompt's image-map numbering mislabels the attached files
-    const propSpec = inPr.map(id=>{ const p=ctx.propById[id];
-      if(!p || (typeof shotPropAttachable==="function" && !shotPropAttachable(p, sh, scene))) return null;
-      // STATE-AWARE: attach the active appearance-state variant when one exists —
-      // MUST resolve identically in buildShotPrompt's image map and generateShotFrame.
-      // CUSTODY-AWARE: the note names the scene's actual holder after a handover.
-      const _scs = (ctx.scenes || ((window.turnContinuity||{}).scenes) || []);
-      const so = (typeof shotPropSheetId==="function") ? shotPropSheetId(p, scene, _scs, sh.beatN, sh.microBeatId, sh.id, ctx) : { id:p.id, state:null };
-      const co = (typeof custodyOwnerAt==="function") ? custodyOwnerAt(p, scene, _scs) : { name:p.ownerName, handover:null };
-      return { id:so.id, baseId:p.id, note:p.name+" prop sheet"+(so.state?(" \u2014 "+so.state.label):"")+(co.handover&&co.name?(" \u2014 "+co.name+" holds it now"):"") }; }).filter(Boolean);
-    // same untick filter as generateShotFrame/buildShotPrompt — labels match files
-    const _refOff = Array.isArray(sh.refOff) ? sh.refOff : [];
-    const activeLocSpec = locSpec.filter(s=> _refOff.indexOf(s.baseId||s.id)<0);
-    const ordered = ((locWeight==="ambient") ? [...castSpec, ...activeLocSpec, ...propSpec] : [...activeLocSpec, ...castSpec, ...propSpec])
-      .filter(s=> _refOff.indexOf(s.baseId||s.id)<0);
-    const out = [];
-    const locIds = new Set(activeLocSpec.map(s=>s&&s.id).filter(Boolean));
-    const locResolved = (typeof shotResolveLocationSpecImages==="function") ? await shotResolveLocationSpecImages(activeLocSpec, grab) : [];
-    let locResolvedPushed = false;
-    for(const s of ordered){
-      if(locIds.has(s.id)){
-        if(!locResolvedPushed && locResolved.length){
-          locResolved.forEach(r=>out.push({ url:r.url, note:r.note, refId:r.refId||s.id,
-            assetRole:r.assetRole, assetRoleLabel:r.assetRoleLabel, assetRolePriority:r.assetRolePriority,
-            assetSourceQuality:r.assetSourceQuality }));
-          locResolvedPushed = true;
-        }
-        continue;
-      }
-      const u = await grab(s.id);
-      if(u){
-        const role = s.assetRole || (s.kind==="seed" ? "shot_anchor" : "master_reference");
-        out.push({ url:u, note:s.note, refId:s.id, assetRole:role,
-          assetRoleLabel:(typeof nbAssetRoleLabel==="function") ? nbAssetRoleLabel(role) : role,
-          assetRolePriority:(typeof nbAssetRolePriority==="function") ? nbAssetRolePriority(role) : 0,
-          assetSourceQuality:s.assetSourceQuality || "full_frame" });
-      }
-    }
+    const p = (typeof shotRenderPlan==="function") ? shotRenderPlan(sh, sceneShots||[], ctx) : null;
+    if(!p) return [];
+    const out = (typeof shotResolveRenderRefs==="function") ? await shotResolveRenderRefs(p, grab) : [];
     return (typeof nbPreferBestAssetRefs==="function") ? nbPreferBestAssetRefs(out) : out;
   };
 
   const gen = useImageGen({
     id: sh.id, slotId: "shot-"+sh.id,
     buildFinal: ()=> finalPrompt,
-    buildSimple: ()=> buildShotPrompt(sh, ctx),
+    // the "no image" recovery path must speak the SAME language as the main render —
+    // a fresh plan supplies carriedForward so the numbered image map still matches
+    // the refs the unified resolver attached (review finding: this fallback was the
+    // one remaining divergence from the headless path)
+    buildSimple: ()=>{
+      const p = (typeof shotRenderPlan==="function") ? shotRenderPlan(sh, sceneShots||[], ctx) : null;
+      return buildShotPrompt(sh, { ...ctx, prevShot:prevShot||null, laterShots:laterShots||[],
+        carriedForward:(p&&p.carriedForward)||[] });
+    },
     referenceFallback: deriveBase,
     buildFromBase: ()=> chainPrompt,
     attachments: collectShotRefs,
@@ -251,12 +220,33 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
     // comfortably inside the proxy window. These are input references only:
     // generated quality and resolution always follow the user's selected controls.
     referenceMaxDim: 640,
-    metaStart: ()=>({
-      shotSource:(typeof shotSourceStamp==="function")
-        ? shotSourceStamp(sh,(((window.turnContinuity||{}).drafts||{})[sh.sceneId])) : null,
-      propDependencies:(typeof propDependencySignature==="function")
-        ? propDependencySignature(((window.turnContinuity||{}).props)||[],sh.sceneId,sh.beatN,sh.microBeatId,sh.id,window.turnContinuity||{}) : ""
-    }),
+    metaStart: async ({gopts}={})=>{
+      const base = {
+        shotSource:(typeof shotSourceStamp==="function")
+          ? shotSourceStamp(sh,(((window.turnContinuity||{}).drafts||{})[sh.sceneId])) : null,
+        propDependencies:(typeof propDependencySignature==="function")
+          ? propDependencySignature(((window.turnContinuity||{}).props)||[],sh.sceneId,sh.beatN,sh.microBeatId,sh.id,window.turnContinuity||{}) : ""
+      };
+      // SEED LINEAGE — same stamp the headless path writes: which frame seeded this
+      // render, at what version. shotChainStatus derives "Seed outdated" from it later.
+      if(typeof shotSeedStamp!=="function") return base;
+      // an EDIT reworks THIS frame in place — its chain position is unchanged, so the
+      // prior lineage carries forward (the hook builds meta fresh; without this it'd drop)
+      if(gopts && gopts.editInstruction){
+        const prior = (typeof nbGetMeta==="function") ? (nbGetMeta(sh.id)||{}).seedSource : null;
+        return prior ? { ...base, seedSource:prior } : base;
+      }
+      if(!prevShot || (gopts && gopts.fresh))
+        return { ...base, seedSource:{ seedShotId:"", ...(prevShot ? { fresh:true } : {}) } };
+      // warm the async loader first — the sync meta cache is cold after a reload in
+      // cloud mode, and lineage must record the seed's REAL current version
+      try{ if(typeof nbLoadImage==="function") await nbLoadImage(prevShot.id); }catch(e){}
+      const seedU = (typeof nbGetImage==="function") ? nbGetImage(prevShot.id) : "";
+      // seed frame missing → renders without its anchor; record that truthfully (no `fresh`)
+      return { ...base, seedSource: seedU
+        ? shotSeedStamp(prevShot, (typeof nbGetMeta==="function") ? nbGetMeta(prevShot.id) : null)
+        : { seedShotId:"" } };
+    },
     metaExtra: ()=>({
       advancedCamera:(typeof shotCameraMetadata==="function") ? shotCameraMetadata(sh) : null
     }),
@@ -269,6 +259,13 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
     && gen.genMeta.propDependencies!==currentPropDependencies);
   const frameSourceOverride = typeof shotSourceOverrideCurrent==="function"
     && shotSourceOverrideCurrent(sh,(((window.turnContinuity||{}).drafts||{})[sh.sceneId]));
+  // SEED-LINEAGE status — DERIVED each render, never flagged: compares the lineage
+  // recorded on this frame (which frame seeded it, at what version) against the
+  // current seed shot and its current frame. DIRECT lineage: regenerating/reordering/
+  // deleting a frame flips its immediate dependents to "stale"; further descendants
+  // go stale as each link above them re-renders (ordered runs walk the whole chain).
+  const chainStatus = gen.genUrl && typeof shotChainStatus==="function"
+    ? shotChainStatus(sh, sceneShots||[], (xid)=> (typeof nbGetMeta==="function") ? nbGetMeta(xid) : null) : "";
   const toggleFrameApproval = async ()=>{
     if(sh.locked){ onUpdate(sh.id,{locked:false,sourceOverride:null}); return; }
     if(frameSourceStatus!=="current"){
@@ -298,7 +295,10 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       window.__nbShotPhase = window.__nbShotPhase || {};
       if(window.__nbShotPhase[sh.id]) return;   // another instance is mid-phase and will render
       window.__nbShotPhase[sh.id] = true;
-      try{ await window.ensureCarriedPropSheets(sh, ctx.scene, ctx.charById, ctx.propById, ctx.project); }
+      // pass the ledger-carried ids (same as the headless path) so a carried prop's
+      // missing sheet is built BEFORE the render that would attach it
+      try{ await window.ensureCarriedPropSheets(sh, ctx.scene, ctx.charById, ctx.propById, ctx.project,
+        (renderPlan&&renderPlan.carried)||[]); }
       catch(e){}
       finally{ delete window.__nbShotPhase[sh.id]; }
     }
@@ -500,6 +500,9 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
           gen.genUrl && propDependenciesStale && _el("span",{className:"shot-source-badge stale",
             title:"A prop used by this frame changed holder, placement, condition, visibility, binding mode, or approved sheet after this frame was generated. The approved frame stays pinned until you regenerate it."},
             "Prop reference changed"),
+          gen.genUrl && chainStatus==="stale" && _el("span",{className:"shot-source-badge stale",
+            title:"The frame this shot was seeded from has changed since this render — it was regenerated, re-ordered, or removed — so this frame no longer sits on the current chain. Regenerate this shot, or use 'Regenerate downstream' on the changed frame to bring the whole chain back in line. 'Render scene in order' also re-renders it automatically."},
+            "Seed outdated"),
           gen.genUrl && _el("button",{className:"shot-lock-btn"+(sh.locked?" on":""),
             title: sh.locked
               ? (frameSourceOverride?"Approved by explicit source override. Click to unlock.":"Approved — this frame is the locked coverage reference this beat's shots build on. Click to unlock.")
@@ -1053,7 +1056,7 @@ function BeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, ordered
             (()=>{ const prevShot=(typeof seedShotOf==="function")?seedShotOf(sh,ordered)
                 :((typeof prevShotOf==="function")?prevShotOf(sh,ordered):null);
               const _si=ordered.findIndex(x=>x.id===sh.id);
-              return _el(ShotCard,{sh,scene,ctx,characters,propsAvail,beatText,prevShot,plan,
+              return _el(ShotCard,{sh,scene,ctx,characters,propsAvail,beatText,prevShot,plan,sceneShots:ordered,
                 laterShots:(_si>=0?ordered.slice(_si+1):[]), isHead:!prevShot, isFirst:(sh.id===firstId), onToggleHead:toggleHead,
                 onUpdate,onDelete,onView,batchActiveId,onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,
                 subLabel:(L.shots.length>1?letterOf(i):null)}); })())))),
@@ -1239,7 +1242,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
         const _si=ordered.findIndex(x=>x.id===_drv.id);
         const _plan=_dLane.shots.map(x=>x.beatPlan).find(Boolean);
         driverCard = _el("div",{key:"drv-"+_drv.id,style:{display:"none"},"aria-hidden":"true"},
-          _el(ShotCard,{sh:_drv,scene,ctx,characters,propsAvail,beatText,prevShot,plan:_plan,
+          _el(ShotCard,{sh:_drv,scene,ctx,characters,propsAvail,beatText,prevShot,plan:_plan,sceneShots:ordered,
             laterShots:(_si>=0?ordered.slice(_si+1):[]), isHead:!prevShot, isFirst:(_drv.id===firstId), onToggleHead:toggleHead,
             onUpdate,onDelete,onView,batchActiveId,onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,
             subLabel:(_dLane.shots.length>1?String.fromCharCode(65+Math.max(0,_dLane.shots.findIndex(x=>x.id===_drv.id))):null)}));
@@ -1397,8 +1400,15 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
         (typeof nbGetMeta==="function"?nbGetMeta(s.id):null)) : "unverified";
   const shotHasOverride = (s)=> !!(s&&typeof shotSourceOverrideCurrent==="function"
     && shotSourceOverrideCurrent(s,(((window.turnContinuity||{}).drafts||{})[s.sceneId])));
+  // SEED LINEAGE gate: a locked frame whose recorded seed no longer matches the current
+  // chain (upstream regenerated / reordered / deleted) is NOT done — ordered runs
+  // re-render it automatically. Unknown/legacy lineage never forces a spend; only a
+  // PROVEN broken chain does.
+  const shotChainOk = (s)=>{ if(!s || typeof shotChainStatus!=="function") return true;
+    const st = shotChainStatus(s, shotsByScene[s.sceneId]||[], (xid)=> (typeof nbGetMeta==="function") ? nbGetMeta(xid) : null);
+    return st!=="stale"; };
   const shotIsDone = (s)=> !!(s && s.locked && shotHasFrame(s.id)
-    && (shotFrameStatus(s)==="current" || shotHasOverride(s)));
+    && (shotFrameStatus(s)==="current" || shotHasOverride(s)) && shotChainOk(s));
   // Advance to the next shot. Normal scene/all runs retain shots that are already done
   // (locked + framed); manual card runs use force=true so the clicked frame can be regenerated.
   const stepChain = (ids, fromIdx, force)=>{

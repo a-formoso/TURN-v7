@@ -1577,17 +1577,21 @@ async function ensureCarriedPropSheets(sh, scene, charById, propById, project, e
 }
 window.ensureCarriedPropSheets = ensureCarriedPropSheets;
 
-async function generateShotFrame(sh, sceneShots, ctx, opts){
-  const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;   // asset scope at generation start
-  opts = opts || {};
+/* ============================================================
+   ONE RENDER PLAN FOR BOTH PATHS (architect review 2026-09-01): the manual card
+   (ShotCard) and the headless Scene Director (generateShotFrame) used to assemble
+   their reference stacks independently — the card path silently lacked the
+   continuity ledger's carried props, so a manual render could drop a prop the
+   agent would have kept in frame. shotRenderPlan is now the single source of
+   truth for WHAT a shot renders from: seed shot, in-frame cast/props, ledger-
+   carried props, spec notes, and the weight-ordered attachment list. Both paths
+   consume it; neither builds its own. Synchronous on purpose — image resolution
+   is the separate shotResolveRenderRefs step.
+   ============================================================ */
+function shotRenderPlan(sh, sceneShots, ctx){
+  ctx = ctx || {};
   const prevSh = (typeof seedShotOf==="function") ? seedShotOf(sh, sceneShots)
     : ((typeof prevShotOf==="function") ? prevShotOf(sh, sceneShots) : null);
-  const isHead = !prevSh;
-  const grab = async (id)=> (typeof shotGrabImage==="function") ? await shotGrabImage(id) : "";
-  // the SEED: the reference frame — within a beat, the beat's FIRST shot's committed
-  // frame (the coverage anchor); for a beat opener, the previous shot's frame
-  // (cross-beat continuity). Carries grade + physical state forward.
-  const seed = (prevSh && !opts.fresh) ? await grab(prevSh.id) : "";
   const locWeight = (typeof locWeightForSize==="function") ? locWeightForSize(sh.size) : "primary";
   // the locked-reference sheets for what's actually in THIS frame (derived from the action text)
   const _chars = Object.values(ctx.charById||{});
@@ -1598,11 +1602,6 @@ async function generateShotFrame(sh, sceneShots, ctx, opts){
   let carried = [];
   try{ const ledger = sceneContinuityLedger(ctx.scene, sceneShots, ctx.charById, ctx.propById);
     carried = (ledger[sh.id]||[]).filter(pid=> inPr.indexOf(pid)<0); }catch(e){}
-  // build any missing carried-prop sheet this shot would attach BEFORE collecting refs —
-  // both the in-frame props AND the ledger-carried ones (they attach as carrySpec below).
-  // Cross-instance lock + fail-open inside; a failure just renders the shot as before.
-  if(typeof ensureCarriedPropSheets==="function")
-    await ensureCarriedPropSheets(sh, ctx.scene, ctx.charById, ctx.propById, ctx.project, carried);
   // build the sheet-reference specs, then ORDER by location weight
   const locSpec  = ctx.location
     ? ((typeof shotLocationCoverageSpecs==="function")
@@ -1610,21 +1609,18 @@ async function generateShotFrame(sh, sceneShots, ctx, opts){
       : [])
     : [];
   const castSpec = inCast.map(id=>{ const c=(ctx.charById||{})[id]; return c?{ id, note:c.name+" character sheet" }:null; }).filter(Boolean);
-  // same dressing gate as buildShotPrompt/collectShotRefs — labels must match files
+  // same dressing gate as buildShotPrompt — labels must match files
+  const _scs = (ctx.scenes || ((window.turnContinuity||{}).scenes) || []);
   const propSpec = inPr.map(id=>{ const p=(ctx.propById||{})[id];
     if(!p || !shotPropAttachable(p, sh, ctx.scene)) return null;   // worn attach only on tight shots WITH a generated close-up sheet
     // STATE-AWARE: attach the active appearance-state variant when one exists (baseId
     // keeps the user's refOff untick working against the prop's own id). CUSTODY-AWARE:
     // the note names the scene's actual holder after a handover.
-    const _scs = (ctx.scenes || ((window.turnContinuity||{}).scenes) || []);
     const so = (typeof shotPropSheetId==="function") ? shotPropSheetId(p, ctx.scene, _scs, sh.beatN, sh.microBeatId, sh.id, ctx) : { id:p.id, state:null };
-    const co = (typeof custodyOwnerAt==="function") ? custodyOwnerAt(p, ctx.scene, _scs) : { name:p.ownerName, handover:null };
     const rs=(typeof propStateAt==="function")?propStateAt(p,ctx.scene&&ctx.scene.id,sh.beatN,sh.microBeatId,sh.id,window.turnContinuity||{}):null;
     return { id:so.id, baseId:p.id, note:p.name+" prop sheet"+(so.state?(" \u2014 "+so.state.label):"")+(rs&&rs.holderName?(" \u2014 held by "+rs.holderName):"")+(rs&&rs.condition&&rs.condition!=="intact"?(" \u2014 "+rs.condition):"") }; }).filter(Boolean);
   const carrySpec= carried.map(id=>{ const p=(ctx.propById||{})[id]; if(!p) return null;
-    const _scs = (ctx.scenes || ((window.turnContinuity||{}).scenes) || []);
     const so = (typeof shotPropSheetId==="function") ? shotPropSheetId(p, ctx.scene, _scs, sh.beatN, sh.microBeatId, sh.id, ctx) : { id:p.id, state:null };
-    const co = (typeof custodyOwnerAt==="function") ? custodyOwnerAt(p, ctx.scene, _scs) : { name:p.ownerName, handover:null };
     const rs=(typeof propStateAt==="function")?propStateAt(p,ctx.scene&&ctx.scene.id,sh.beatN,sh.microBeatId,sh.id,window.turnContinuity||{}):null;
     return { id:so.id, baseId:p.id, note:p.name+" prop sheet (carried over from an earlier beat)"+(so.state?(" \u2014 "+so.state.label):"")+(rs&&rs.holderName?(" \u2014 held by "+rs.holderName):"") }; }).filter(Boolean);
   // user-unticked sheets (sh.refOff) drop out here AND in buildShotPrompt's image
@@ -1635,11 +1631,21 @@ async function generateShotFrame(sh, sceneShots, ctx, opts){
     ? [...castSpec, ...activeLocSpec, ...propSpec, ...carrySpec]   // tight: the cast leads, the set recedes
     : [...activeLocSpec, ...castSpec, ...propSpec, ...carrySpec])  // wide: the set leads
     .filter(s=> _refOff.indexOf(s.baseId||s.id)<0);
+  return { prevSh, isHead:!prevSh, locWeight, inCast, inPr, carried,
+    carriedForward: carried.map(id=>(ctx.propById||{})[id]).filter(Boolean),
+    activeLocSpec, castSpec, propSpec, carrySpec, orderedSpecs };
+}
+window.shotRenderPlan = shotRenderPlan;
+
+/* resolve the plan's ordered specs into the attached reference images — the shared
+   resolution loop (location coverage resolves as a group and keeps its slot in the
+   weight order; everything else grabs its committed sheet). */
+async function shotResolveRenderRefs(plan, grab){
   const refs = [];
-  const locIds = new Set(activeLocSpec.map(s=>s&&s.id).filter(Boolean));
-  const locResolved = (typeof shotResolveLocationSpecImages==="function") ? await shotResolveLocationSpecImages(activeLocSpec, grab) : [];
+  const locIds = new Set(plan.activeLocSpec.map(s=>s&&s.id).filter(Boolean));
+  const locResolved = (typeof shotResolveLocationSpecImages==="function") ? await shotResolveLocationSpecImages(plan.activeLocSpec, grab) : [];
   let locResolvedPushed = false;
-  for(const s of orderedSpecs){
+  for(const s of plan.orderedSpecs){
     if(locIds.has(s.id)){
       if(!locResolvedPushed && locResolved.length){
         locResolved.forEach(r=>refs.push({ url:r.url, note:r.note, refId:r.refId||s.id,
@@ -1658,11 +1664,32 @@ async function generateShotFrame(sh, sceneShots, ctx, opts){
         assetSourceQuality:s.assetSourceQuality || "full_frame" });
     }
   }
+  return refs;
+}
+window.shotResolveRenderRefs = shotResolveRenderRefs;
+
+async function generateShotFrame(sh, sceneShots, ctx, opts){
+  const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;   // asset scope at generation start
+  opts = opts || {};
+  // the ONE render plan shared with the manual card path — see shotRenderPlan above
+  const plan = shotRenderPlan(sh, sceneShots, ctx);
+  const prevSh = plan.prevSh;
+  const grab = async (id)=> (typeof shotGrabImage==="function") ? await shotGrabImage(id) : "";
+  // the SEED: the reference frame — within a beat, the beat's FIRST shot's committed
+  // frame (the coverage anchor); for a beat opener, the previous shot's frame
+  // (cross-beat continuity). Carries grade + physical state forward.
+  const seed = (prevSh && !opts.fresh) ? await grab(prevSh.id) : "";
+  // build any missing carried-prop sheet this shot would attach BEFORE resolving refs —
+  // both the in-frame props AND the ledger-carried ones (they attach as carrySpec).
+  // Cross-instance lock + fail-open inside; a failure just renders the shot as before.
+  if(typeof ensureCarriedPropSheets==="function")
+    await ensureCarriedPropSheets(sh, ctx.scene, ctx.charById, ctx.propById, ctx.project, plan.carried);
+  const refs = await shotResolveRenderRefs(plan, grab);
   // buildShotPrompt now emits the STYLE SPINE + staging + the named reference stack itself
   // (it reads ctx.carriedForward + ctx.prevFrameRole), so we don't re-list references here.
   const _ordAll = (typeof sceneShotsOrdered==="function") ? sceneShotsOrdered(sceneShots) : (sceneShots||[]);
   const _selfIdx = _ordAll.findIndex(x=>x.id===sh.id);
-  ctx = { ...ctx, carriedForward: carried.map(id=>(ctx.propById||{})[id]).filter(Boolean),
+  ctx = { ...ctx, carriedForward: plan.carriedForward,
     laterShots: _selfIdx>=0 ? _ordAll.slice(_selfIdx+1) : [],
     prevFrameRole: !!seed, prevShot:seed?prevSh:null };
   let prompt = combinedShotPrompt(sh, ctx);
@@ -1679,7 +1706,18 @@ async function generateShotFrame(sh, sceneShots, ctx, opts){
   const now = new Date();
   const prior = (typeof nbGetMeta==="function") ? (nbGetMeta(sh.id)||{}) : {};
   const advancedCamera = (typeof shotCameraMetadata==="function") ? shotCameraMetadata(sh) : null;
+  // SEED LINEAGE — record exactly which frame seeded this render (shot id + that
+  // frame's version/timestamp, warm in the meta cache because grab() just loaded it).
+  // shotChainStatus later DERIVES staleness from this: regenerate/reorder/delete the
+  // seed and every dependent downstream frame reports "Seed outdated" automatically.
+  // A missing-seed render (prevSh exists but its frame didn't load) records seedShotId:""
+  // WITHOUT fresh — truthfully chain-stale until re-rendered on its real anchor.
+  const seedSource = (typeof shotSeedStamp==="function")
+    ? (seed ? shotSeedStamp(prevSh, (typeof nbGetMeta==="function") ? nbGetMeta(prevSh.id) : null)
+            : { seedShotId:"", ...((prevSh && opts.fresh) ? { fresh:true } : {}) })
+    : null;
   const meta = { ...prior, mode: seed?"base":"final", prompt, director:true,
+    ...(seedSource ? { seedSource } : {}),
     assetRole:"shot_anchor", assetRoleLabel:(typeof nbAssetRoleLabel==="function") ? nbAssetRoleLabel("shot_anchor") : "Shot anchor",
     advancedCamera,
     sourceReferences:rankedRefs.map(r=>({ refId:r.refId||"", note:r.note||"", assetRole:r.assetRole||"", assetSourceQuality:r.assetSourceQuality||"" })),

@@ -90,6 +90,38 @@ function shotSourceOverrideCurrent(shot,draft){
     && old.specHash===cur.specHash && old.screenplayRev===cur.screenplayRev);
 }
 
+/* ---- SEED LINEAGE (chain provenance) ----------------------------------------
+   Every generated shot frame records WHICH frame seeded it (shot id + that frame's
+   version/timestamp at render time). Staleness is then DERIVED, never flagged:
+   shotChainStatus recomputes the current seed and compares — so regenerating,
+   re-ordering, deleting, or anchor-toggling an upstream shot automatically makes
+   every dependent downstream frame report "stale" with no bookkeeping pass. */
+function shotSeedStamp(prevSh, prevMeta){
+  if(!prevSh) return { seedShotId:"" };
+  return { seedShotId: prevSh.id||"",
+    seedVersion: (prevMeta && prevMeta.version!=null) ? Number(prevMeta.version) : null,
+    seedIso: (prevMeta && prevMeta.iso) || "" };
+}
+function shotChainStatus(sh, sceneShots, getMeta){
+  const meta = (typeof getMeta==="function") ? getMeta(sh && sh.id) : null;
+  if(!meta) return "";                          // no frame / meta not loaded — nothing to judge
+  const src = meta.seedSource;
+  if(!src) return "unverified";                 // legacy frame predating lineage stamps — don't cry wolf
+  if(src.fresh) return "current";               // deliberately rendered WITHOUT the chain seed — no upstream dependency
+  const seedFn = (typeof window!=="undefined" && typeof window.seedShotOf==="function") ? window.seedShotOf : null;
+  const prevFn = (typeof window!=="undefined" && typeof window.prevShotOf==="function") ? window.prevShotOf : null;
+  const cur = seedFn ? seedFn(sh, sceneShots) : (prevFn ? prevFn(sh, sceneShots) : null);
+  const curId = cur ? (cur.id||"") : "";
+  if((src.seedShotId||"") !== curId) return "stale";   // seed re-ordered, deleted, or anchor changed
+  if(!curId) return "current";                          // head then, head now
+  const seedMeta = getMeta(curId);
+  if(!seedMeta) return "unverified";            // seed's meta not loaded (cold cache) — never a false alarm
+  if(src.seedVersion==null && !src.seedIso) return "unverified";
+  const vOk = src.seedVersion==null || Number(seedMeta.version||0)===Number(src.seedVersion);
+  const tOk = !src.seedIso || (seedMeta.iso||"")===src.seedIso;
+  return (vOk && tOk) ? "current" : "stale";    // the seed frame was re-rendered after this one
+}
+
 function beatRowId(sceneId,row,index){
   if(row&&row.id) return row.id;
   const seed=[sceneId||"scene",index,String(row&&row.drive&&row.drive.a||""),
@@ -124,6 +156,8 @@ window.shotSourcesOverrideCurrent = shotSourcesOverrideCurrent;
 window.shotSourcesEditorialStatus = shotSourcesEditorialStatus;
 window.shotSourcesFromMeta = shotSourcesFromMeta;
 window.shotSourceOverrideCurrent = shotSourceOverrideCurrent;
+window.shotSeedStamp = shotSeedStamp;
+window.shotChainStatus = shotChainStatus;
 window.beatRowId = beatRowId;
 window.withBeatIdentity = withBeatIdentity;
 window.withBeatMapIdentity = withBeatMapIdentity;
