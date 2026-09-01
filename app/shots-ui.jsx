@@ -1538,7 +1538,8 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
       _el("div",{className:"art-intro"},
         _el("div",{className:"art-intro-row"},
           _el("div",{style:{flex:1}},
-            _el("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Shot List",
+            // empty state carries the same department title as the populated view
+            _el("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Shot Designer",
             _el(window.InfoTip,{label:"About the Shots tab",
                 text:"Every screenplay beat is grouped into composed dramatic moments, and each moment becomes one shot. \u201cDesign all shots\u201d gives every moment its size, angle, movement and lens, then composes each frame from the scene's grade and its full-quality location, character and prop references. Generate the frames here; the Stage animates them next."}))),
           _el("div",{className:"art-intro-actions"},
@@ -1566,7 +1567,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
     _el("div",{className:"art-intro"},
       _el("div",{className:"art-intro-row"},
         _el("div",{style:{flex:1}},
-          _el("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Cinematographer (Shot Designer)",
+          _el("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Shot Designer",
             _el(window.InfoTip,{label:"About the Shot List",
               text:"A beat owns an ordered set of composed micro-beat moments from its Writers' Room screenplay. Each moment becomes exactly one shot, labelled A/B/C in cut order; action paragraphs stay together, environmental punctuation can stay with the action it supports, and dialogue remains exact. Shots are grouped by beat inside each scene. Every frame generation follows a chain in scene order: the first shot renders from the selected full-quality references, and each later shot uses the preceding approved frame as its continuity anchor. Generate in order, or use 'Generate all shots' / 'Render Scene X in order' to run the chain. Stage video clips are packed automatically from these shots."}))),
         _el("div",{className:"art-intro-actions"},

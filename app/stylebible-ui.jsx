@@ -328,7 +328,7 @@ function StyleBibleView({ project, scenes, onAssign, assigning, onSetRefs, onSet
       React.createElement("div",{className:"art-intro-row"},
         React.createElement("div",{style:{flex:1}},
           React.createElement("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},
-            "Cinematographer (Colorist)",
+            "Colorist",
             React.createElement(InfoTip,{label:"About the Style Bible",
               text:"Your film's own cinematic look system \u2014 each a 60/30/10 colour grade with its own lighting, lens and texture. Click 'Light the film' and the Cinematographer / Colorist designs a BESPOKE palette + film stock for this film (from the story and your visual references), color-scripts every scene along the value-charge spine \u2014 so the look tracks the emotional arc \u2014 and PROPOSES it for your approval, showing the swatches and a per-scene 'why'. Styles are assigned per SCENE; characters, locations and shots read the assigned look so every frame stays on-palette. You can still fine-tune any scene by clicking it in the film-strip. The stills below are live CSS grade previews, not AI renders."}))),
         // "Light the film" now lives ON the visual-references bar below (merged with

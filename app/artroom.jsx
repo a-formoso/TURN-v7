@@ -4921,7 +4921,7 @@ function CharacterSheets({ project, characters, scenes, props, drafts, shots, be
       React.createElement("div",{className:"art-intro-row"},
         React.createElement("div",{style:{flex:1}},
           React.createElement("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},
-            ((typeof roomCopy==="function" && roomCopy(project,"characters").title) || "Casting Director (Character Designer)"),
+            ((typeof roomCopy==="function" && roomCopy(project,"characters").title) || "Casting Director"),
             React.createElement(window.InfoTip,{label:"About Character Sheets",
               text:((typeof roomCopy==="function" && roomCopy(project,"characters").tip) ||
                 "A canonical visual reference for every character \u2014 the consistency anchor you feed into each shot so they look identical in every frame. 'Design the cast' runs the Casting Director agent: on its own it drafts each character's look, finds their appearance changes (wounds, dirt, costume shifts), then generates the master sheet (pulling in their prop sheets + any cameo) and every appearance-state variant. 'Draft all' + 'Generate all characters' stay as the manual paths.\n\nTHE CAST DERIVES FROM THE STORY \u2014 there's no hand-adding here: add a character in the Writers' Room (Cast +), write them into scenes, and they appear here ready to design.")}))),
