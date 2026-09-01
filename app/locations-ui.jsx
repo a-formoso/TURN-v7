@@ -600,9 +600,7 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
       generateDisabledLabel: missingPrev ? "Generate earlier coverage first" : "Generate parent plate first",
       generateDisabledTitle: missingPrev
         ? "This coverage sheet depends on an earlier coverage sheet. Generate that sheet first so the geometry and sightlines can carry forward."
-        : "This coverage sheet needs the parent location plate as a visual reference before it can generate." }),
-    gen.genUrl && window.QaCheckButton && React.createElement("div",{className:"card-qa-row"},
-      React.createElement(window.QaCheckButton,{ gen, name:(v.name||l.name||"")+" \u00b7 "+(v.role||"INT"), noun:"location coverage sheet" })));
+        : "This coverage sheet needs the parent location plate as a visual reference before it can generate." }));
 }
 
 function CoverageReferenceStrip({ refs, excludedIds, onToggle, onView }){
@@ -656,9 +654,7 @@ function LocationVariant({ l, v, project, onTime, onRemove, onView }){
       React.createElement("button",{className:"loc-variant-x",title:"Remove variant",onClick:onRemove},React.createElement(Icon.x,{s:12}))),
     React.createElement(SheetFrame,{ gen, slotId:"locvar-"+l.id+"-"+v.id, name:(l.name||"")+" \u00b7 "+v.time,
       avatarColor:locSwatch(l.intExt), initials:(v.time||"?").slice(0,2).toUpperCase(), drafted:true, drafting:false,
-      entity:viewerEntity, onView, slotPlaceholder:"Drop a photo", noun:"variant", compact:true }),
-    gen.genUrl && window.QaCheckButton && React.createElement("div",{className:"card-qa-row"},
-      React.createElement(window.QaCheckButton,{ gen, name:(l.name||"")+" \u00b7 "+v.time, noun:"time-of-day plate" })));
+      entity:viewerEntity, onView, slotPlaceholder:"Drop a photo", noun:"variant", compact:true }));
 }
 
 /* SLUGLINE UNIT card — the atomic filmable unit of this master location
@@ -781,9 +777,7 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onUpdat
       generateDisabledLabel: u.orphan ? "No longer in script" : "Generate parent plate first",
       generateDisabledTitle: u.orphan
         ? "This unit's slugline is no longer in the screenplay, so it can't generate new plates. Its existing plate and notes are kept until you Remove it."
-        : "This unit needs the parent location plate as a visual reference before it can generate." }),
-    gen.genUrl && window.QaCheckButton && React.createElement("div",{className:"card-qa-row"},
-      React.createElement(window.QaCheckButton,{ gen, name:(u.name||l.name||"")+" \u00b7 "+role, noun:"location unit plate" })));
+        : "This unit needs the parent location plate as a visual reference before it can generate." }));
 }
 
 /* per-unit SET DRESSING — the user's curated list (overlay `dressing`) plus
