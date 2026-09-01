@@ -2278,8 +2278,11 @@ html[data-theme="light"] .char-cameo-btn.on{background:oklch(0.6 0.18 295 / .16)
 .linked-prop.missing{border-color:oklch(0.62 0.2 25 / .34);background:oklch(0.62 0.2 25 / .07)}
 .linked-prop.missing svg{color:oklch(0.66 0.19 25)}
 .linked-prop.missing .linked-prop-status{color:oklch(0.68 0.19 25)}
-/* carried prop: deferred to the shot level, not attached to the character sheet — neutral, not an error */
-.linked-prop.shot .linked-prop-status{color:var(--txt-3)}
+/* carried prop: deferred to the shot level, not attached to the character sheet — its own
+   BLUE tint (matching the CARRIED badge) so it never reads as the red "needs a sheet" error */
+.linked-prop.shot{border-color:oklch(0.72 0.1 250 / .32);background:oklch(0.72 0.1 250 / .06)}
+.linked-prop.shot svg{color:oklch(0.74 0.1 250)}
+.linked-prop.shot .linked-prop-status{color:oklch(0.74 0.1 250 / .85)}
 /* carried prop WITH a generated sheet: keep the neutral row, but green the tick + icon
    so "generated" reads the same everywhere and an ungenerated carried prop is distinguishable */
 .linked-prop.shot.genned svg{color:oklch(0.7 0.14 150)}

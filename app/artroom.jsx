@@ -4188,7 +4188,10 @@ function CharacterSheet({ c, project, scenes, props, drafts, speaks, onUpdate, o
             linkedRows.map(row=>{
               // carried props don't attach to the character SHEET \u2014 they ride in at
               // the shot level, so show them as deferred rather than "missing".
-              const carried = !!(row.prop && row.prop.kind==="carried");
+              // Card-less rows have no row.prop, so fall back to which LIST the item
+              // came from (row.src) \u2014 otherwise an uncarded carried prop wrongly gets
+              // the red "needs a sheet" treatment meant for worn items.
+              const carried = row.prop ? row.prop.kind==="carried" : row.src==="carried";
               const ready = row.prop ? !!ownedSheetMap[row.prop.id] : false;
               const included = !!(row.prop && !carried && ready && !wornExclusions.has(row.prop.id));
               // carried props stay neutral (they bind at the shot, not here) but still
@@ -4209,8 +4212,8 @@ function CharacterSheet({ c, project, scenes, props, drafts, speaks, onUpdate, o
                 React.createElement("div",{className:"linked-prop-title"},
                   React.createElement("span",{className:"linked-prop-name"},row.name),
                   // worn/carried at a glance — no scrolling back up to the lists to check.
-                  // Card-less rows fall back to which LIST the item came from (row.src).
-                  (()=>{ const kw = row.prop ? (row.prop.kind!=="carried") : (row.src!=="carried");
+                  // Same card-less src fallback as `carried` above.
+                  (()=>{ const kw = !carried;
                     return React.createElement("span",{className:"linked-prop-kind "+(kw?"worn":"carried"),
                       title: kw ? "Worn \u2014 bakes into this character's master sheet"
                                 : "Carried \u2014 attaches at the shot, not on this sheet"},
