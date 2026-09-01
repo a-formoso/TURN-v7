@@ -4065,6 +4065,49 @@ function App(){
   const artAgentCtxFactoryRef = React.useRef(null);
   artAgentCtxFactoryRef.current = artAgentCtxFactory;
 
+  // ---- WARDROBE-ATTENTION DOT (Characters tab) ----
+  // A yellow dot on the Characters tab when something in there is waiting on the user:
+  // a background worn-prop batch ended with failures, or a master sheet is out of sync
+  // with newly built worn-prop sheets (the one-tap "Update sheet with new wardrobe"
+  // action is sitting on the card). A nudge, never a roadblock — updating is optional.
+  const [wardrobeAttn, setWardrobeAttn] = React.useState(false);
+  const [wardrobeTick, setWardrobeTick] = React.useState(0);
+  React.useEffect(()=>{
+    const bump = ()=>setWardrobeTick(t=>t+1);
+    window.addEventListener("nb-gen-done",bump);
+    window.addEventListener("nb-gen-cancel",bump);
+    return ()=>{ window.removeEventListener("nb-gen-done",bump); window.removeEventListener("nb-gen-cancel",bump); };
+  },[]);
+  React.useEffect(()=>{
+    let live = true;
+    // sync signal — a worn-prop batch finished with failures (the card explains itself)
+    if((characters||[]).some(c=>c && c.wornPropBootstrap && c.wornPropBootstrap.status==="attention")){
+      setWardrobeAttn(true); return;
+    }
+    // async signal — debounced: this loads sheet meta per character and generations land
+    // in bursts. Reuses the SAME staleness audit the card banner and the Coordinator use
+    // (wornPropsWithSheets), via the latest render's factory.
+    const t = setTimeout(async ()=>{
+      try{
+        const mk = artAgentCtxFactoryRef.current;
+        if(!mk){ if(live) setWardrobeAttn(false); return; }
+        const cast = mk({ input:"", emit:()=>{}, propose:null, cancelled:()=>!live, agentName:"Badge", force:false }).art.cast;
+        for(const c of (characters||[])){
+          if(!live) return;
+          // only characters whose master EXISTS — the update action lives on that sheet
+          // (async loader: the sync cache is cold right after a reload/film switch)
+          let master = (typeof nbGetImage==="function") ? nbGetImage(c.id) : "";
+          if(!master && typeof nbLoadImage==="function"){ try{ master = await nbLoadImage(c.id); }catch(e){} }
+          if(!master) continue;
+          const stale = await cast.wornPropsWithSheets(c);
+          if(stale && stale.length){ if(live) setWardrobeAttn(true); return; }
+        }
+        if(live) setWardrobeAttn(false);
+      }catch(e){ if(live) setWardrobeAttn(false); }
+    }, 500);
+    return ()=>{ live=false; clearTimeout(t); };
+  },[characters, props, wardrobeTick]);
+
   // restore the most recent pre-run snapshot
   const undoLastAgent = ()=>{
     if(!canMutateSharedFilm()) return;
@@ -4356,7 +4399,9 @@ function App(){
       onToggleInsp:toggleInsp}),
 
     // the room's view tabs, moved out of the top bar to a full-width bar beneath it
-    room!=="stage" && React.createElement(ViewNav,{room,view,setView,artView,setArtView,staleTabs,readOnly:readOnlyShare,
+    room!=="stage" && React.createElement(ViewNav,{room,view,setView,artView,setArtView,staleTabs,
+      attnTabs:{ characters: wardrobeAttn },
+      readOnly:readOnlyShare,
       hiddenTabs:(typeof tabHidden==="function") ? Object.fromEntries((window.ART_TABS||[]).map(t=>[t.id, tabHidden(project, t.id)])) : null,
       railOpen,inspOpen,onToggleRail:toggleRail,onToggleInsp:toggleInsp,
       onCoordinate:async ()=>{ if(await requireStory("Art Department Coordinator")) setCoordConfirm(true); },

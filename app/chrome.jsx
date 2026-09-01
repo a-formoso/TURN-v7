@@ -104,7 +104,7 @@ window.OverflowMenu = OverflowMenu;
    Room tabs) as a full-width bar directly beneath the top bar, at every screen
    size. Moved out of the top bar to free its space; the panel toggles ride along
    at the edges (Writers' Room only). Replaces the old mobile-only bottom bar. */
-function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen, onToggleRail, onToggleInsp, onCoordinate, onAgents, staleTabs, hiddenTabs, readOnly }){
+function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen, onToggleRail, onToggleInsp, onCoordinate, onAgents, staleTabs, attnTabs, hiddenTabs, readOnly }){
   // The Stage is a single full-width assembly view — no sub-view tabs (don't fall through
   // to the Writers' Room tabs); its own header carries the context.
   if(room==="stage") return null;
@@ -133,11 +133,18 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
     // CENTER — the room's view tabs WITH the room's agent CTA, centered as one unit
     React.createElement("div",{className:"vn-center"},
       React.createElement("div",{className:"segmented"},
-        nav.map(([id,lab,Ic])=>
-          React.createElement("button",{key:id,className:`seg ${cur===id?"on":""}`,onClick:()=>setCur(id),
-            title:(inArt && staleTabs && staleTabs[id]) ? (lab+" — the Lookbook changed since this was drafted") : lab},
+        nav.map(([id,lab,Ic])=>{
+          // yellow "needs you" dot beats the amber lookbook-stale dot when both apply —
+          // it marks a waiting one-tap action, not just drift
+          const attn = inArt && attnTabs && attnTabs[id];
+          const stale = inArt && staleTabs && staleTabs[id];
+          return React.createElement("button",{key:id,className:`seg ${cur===id?"on":""}`,onClick:()=>setCur(id),
+            title: attn ? (lab+" — a character sheet is waiting to wear its new props: tap \u201cUpdate sheet with new wardrobe\u201d on the card")
+              : (stale ? (lab+" — the Lookbook changed since this was drafted") : lab)},
             React.createElement(Ic,{s:14}),React.createElement("span",{className:"seg-lab"},lab),
-            (inArt && staleTabs && staleTabs[id]) && React.createElement("span",{className:"seg-stale-dot"})))),
+            attn ? React.createElement("span",{className:"seg-attn-dot"})
+              : (stale && React.createElement("span",{className:"seg-stale-dot"})));
+        })),
       cta),
     // RIGHT zone — the inspector toggle, drawer modes only (balances the left zone)
     React.createElement("div",{className:"vn-side vn-right"},

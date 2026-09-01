@@ -249,6 +249,9 @@ body{
 @media (min-width:700px){ .viewnav .vn-paneltoggle{display:none} }
 /* Lookbook staleness — amber dot on an out-of-date Art Room tab + the in-tab "re-draft" banner */
 .seg-stale-dot{flex:0 0 auto;width:6px;height:6px;border-radius:50%;background:oklch(0.74 0.15 60);margin-left:1px;box-shadow:0 0 0 2px rgba(0,0,0,.25)}
+/* wardrobe-attention: a waiting one-tap action inside the tab — yellow, gentle pulse */
+.seg-attn-dot{flex:0 0 auto;width:7px;height:7px;border-radius:50%;background:oklch(0.85 0.16 95);margin-left:1px;box-shadow:0 0 0 2px rgba(0,0,0,.25);animation:segAttnPulse 1.8s ease-in-out infinite}
+@keyframes segAttnPulse{0%,100%{opacity:1}50%{opacity:.4}}
 .lb-stale-notice{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:0 0 16px;padding:9px 12px;border-radius:9px;
   background:oklch(0.72 0.13 60 / .13);border:1px solid oklch(0.72 0.13 60 / .34);font-size:12px;line-height:1.45;color:oklch(0.86 0.1 72)}
 .lb-stale-notice > svg{flex:0 0 auto;color:oklch(0.78 0.15 64)}
@@ -270,6 +273,7 @@ html[data-theme="light"] .lb-stale-btn:hover{background:oklch(0.72 0.13 60 / .28
 html[data-theme="light"] .lb-stale-btn.ghost{background:transparent}
 html[data-theme="light"] .lb-stale-btn.ghost:hover{background:oklch(0.72 0.13 60 / .14)}
 html[data-theme="light"] .seg-stale-dot{box-shadow:0 0 0 2px var(--bg-3)}
+html[data-theme="light"] .seg-attn-dot{box-shadow:0 0 0 2px var(--bg-3)}
 /* truly narrow screens: icon-only tabs, centered ("safe" falls back to
    start-alignment when the strip overflows, so nothing clips off-screen) */
 @media (max-width:640px){
