@@ -291,7 +291,9 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
       React.createElement("button",{className:"ag-x",onClick:onBack,title:"All agents"},React.createElement(Icon.chevL,{s:16})),
       React.createElement("span",{className:"ag-runner-ic"},React.createElement(AgentIcon,{name:agent.icon,s:16})),
       React.createElement("div",{className:"ag-runner-t"},
-        React.createElement("div",{className:"ag-runner-name"},agent.name),
+        // same fiction as the studio progress pop-ups: MUSE wearing this department's hat
+        React.createElement("div",{className:"ag-runner-name"},
+          React.createElement("span",{className:"ag-runner-muse"},"MUSE \u00b7 "),agent.name),
         React.createElement("div",{className:"ag-runner-sub"},
           status==="idle"?"Ready":status==="done"?"Finished":status==="waiting"?"Awaiting your approval":"Working\u2026")),
       // model picker sits at the header's right edge — the SAME spot as the New Story

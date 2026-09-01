@@ -67,11 +67,14 @@ const GRADES = {
   "Ember & Ice":   { pos:"oklch(0.68 0.18 35)", posH:"35", neg:"oklch(0.74 0.09 210)", negH:"210" },
 };
 
-function StudioProgressOverlay({ title, detail, progress }){
+function StudioProgressOverlay({ title, detail, progress, role }){
   const pct = progress==null ? null : Math.max(0, Math.min(100, Math.round(progress)));
   return React.createElement("div",{className:"redraft-overlay studio-progress-overlay"},
     React.createElement("div",{className:"redraft-card studio-progress-card"},
       React.createElement("span",{className:"orb"}),
+      // ONE consistent fiction across every tab: MUSE is the studio's AI, wearing the
+      // department hat that owns this tab — the eyebrow names the hat, the title the work.
+      role && React.createElement("div",{className:"redraft-role"},"MUSE \u00b7 "+role),
       React.createElement("div",{className:"redraft-t"},title),
       detail && React.createElement("div",{className:"redraft-d"},detail),
       pct!=null && React.createElement("div",{className:"studio-progress-bar","aria-label":"Progress"},
@@ -4165,58 +4168,75 @@ function App(){
   const draftingProgress = drafting && (drafting.total||scenes.length)
     ? ((Number(drafting.i||0) + (drafting.one ? 0.35 : 1)) / Math.max(1, Number(drafting.total||scenes.length))) * 100
     : null;
+  /* ONE fiction across every busy overlay: MUSE is the studio's AI, and each tab is a
+     department profession — the overlay names the hat MUSE is wearing (role) and the
+     work being done (title). Roles match the agent roster (Casting Director, Props
+     Master, Location Scout, Colorist, Shot Designer) so the agent panels and these
+     pop-ups tell the same story. */
   const studioProgress =
     polishBusy ? {
-      title:"MUSE is redrafting Scene "+(polishBusy.no!=null?polishBusy.no:""),
+      role:"Screenwriter",
+      title:"Redrafting Scene "+(polishBusy.no!=null?polishBusy.no:""),
       detail:"Rebuilding the screenplay from the current beats — about a minute. The previous draft stays in version history (Undo restores it)."
     } :
     recastBusy ? {
-      title:"MUSE is recasting Scene "+recastBusy.no+" for "+recastBusy.name,
-      detail:"MUSE is rewriting the scene's summary, desire and beats so "+recastBusy.name+" drives — about half a minute."
+      role:"Screenwriter",
+      title:"Recasting Scene "+recastBusy.no+" for "+recastBusy.name,
+      detail:"Rewriting the scene's summary, desire and beats so "+recastBusy.name+" drives — about half a minute."
     } :
     (room==="writers" && drafting) ? {
+      role:"Screenwriter",
       title:drafting.one
-        ? "MUSE is drafting Scene "+draftSceneNo
-        : "MUSE is drafting the screenplay",
+        ? "Drafting Scene "+draftSceneNo
+        : "Drafting the screenplay",
       detail:drafting.one
         ? "Writing Scene "+draftSceneNo+" from its beats while preserving continuity."
         : "Threading continuity scene by scene — "+Math.min(Number(drafting.i||0)+1, Number(drafting.total||scenes.length))+" of "+Number(drafting.total||scenes.length)+".",
       progress:draftingProgress
     } :
     (room==="art" && draftingAllVisuals) ? {
-      title:"MUSE is designing character specs",
+      role:"Casting Director",
+      title:"Designing character specs",
       detail:"Building wardrobe, body, continuity states and visual rules from the screenplay."
     } :
     (room==="art" && draftingAllProps) ? {
-      title:"MUSE is designing prop specs",
+      role:"Props Master",
+      title:"Designing prop specs",
       detail:"Pulling items from the cast and script, then mapping them to the scenes where they appear."
     } :
     (room==="art" && draftingAllLocs) ? {
-      title:"MUSE is scouting location specs",
+      role:"Location Scout",
+      title:"Scouting location specs",
       detail:"Deriving places from the screenplay, drafting set geography and staging reusable depth grids."
     } :
     (room==="art" && assigningStyles) ? {
-      title:"MUSE is assigning scene styles",
+      role:"Colorist",
+      title:"Assigning scene styles",
       detail:"Reading the film and color-scripting every scene from the current visual bible."
     } :
     (room==="art" && taggingScenes) ? {
-      title:"MUSE is mapping props to scenes",
+      role:"Props Master",
+      title:"Mapping props to scenes",
       detail:"Checking where each prop appears so downstream shots attach the right references."
     } :
     (room==="art" && refiningBeat) ? {
-      title:"MUSE is refining Beat "+refiningBeatNo+" in Scene "+refiningBeatSceneNo,
+      role:"Shot Designer",
+      title:"Refining Beat "+refiningBeatNo+" in Scene "+refiningBeatSceneNo,
       detail:"Grouping the screenplay into composed dramatic moments, then designing one shot for each while preserving reusable frames."
     } :
     (room==="art" && draftingSceneShots) ? {
-      title:"MUSE is designing shots for Scene "+busyShotSceneNo,
+      role:"Shot Designer",
+      title:"Designing shots for Scene "+busyShotSceneNo,
       detail:"Breaking the scene into filmable shot coverage from the current beats and screenplay."
     } :
     (room==="art" && draftingAllShots) ? {
-      title:"MUSE is designing shot coverage",
+      role:"Shot Designer",
+      title:"Designing shot coverage",
       detail:"Building missing scene shot lists in story order while preserving beat coverage."
     } :
     (room==="art" && draftingStageId) ? {
-      title:"MUSE is drafting location staging",
+      role:"Location Scout",
+      title:"Drafting location staging",
       detail:"Turning the location into a practical depth grid for consistent camera blocking."
     } : null;
   // ── Signed-out gate: show the commercial landing page instead of the app. The
