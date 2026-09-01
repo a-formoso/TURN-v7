@@ -1788,6 +1788,19 @@ window.turnDownscaleDataUrl = turnDownscaleDataUrl;
 async function aiVisionComplete(messages, images){
   const sb = (typeof window.sbClient==="function") ? window.sbClient() : null;
   if(!sb || !sb.functions) throw new Error("The vision QC runs on your server — sign in to use it.");
+  /* Normalize EVERY image to a downscaled data URL before it leaves the browser.
+     The proxy only attaches data-URL images on some engines (others are silently
+     dropped while the call still reports vision:true), and remote/blob card URLs
+     aren't reliably fetchable server-side — passing them raw made the critique
+     judge "blind" while sounding sighted. Callers that pre-downscale (shot QC,
+     image QA) pass data: URLs already and skip this untouched. */
+  const _imgs = [];
+  for(const u of (images||[]).filter(Boolean)){
+    const d = /^data:/i.test(u) ? u : await turnDownscaleDataUrl(u, 896);
+    if(!d) throw new Error("A reference image couldn't be prepared for the vision model — reopen the card so the sheets finish loading, then try again.");
+    _imgs.push(d);
+  }
+  images = _imgs;
   /* Respect the selected writing engine only when its proxy route actually accepts
      image blocks. Moonshot/Kimi is text-only in image-proxy; previously choosing it
      made QA return `vision:false` and claim the deployed proxy was text-only. Fall
