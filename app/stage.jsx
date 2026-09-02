@@ -118,6 +118,8 @@ function stageStatusLabel(s){
     .replace(/\bIN_QUEUE\b/g,"Waiting in the queue")
     .replace(/\bIN_PROGRESS\b/g,"Rendering")
     .replace(/\bRETRY\b/g,"Retrying — declared the cast as AI-made")
+    .replace(/\bSAFETY_PASS_2\b/g,"Safety retry — full second render")
+    .replace(/\bNO_CHAR_REFS\b/g,"Last try — character sheets set aside")
     .replace(/\bRECONNECTING\b/g,"Connection blip — reconnecting to the render")
     .replace(/\bCOMPLETED\b/g,"Finishing up")
     .replace(/\bCANCELL?ED\b/g,"Cancelled")
@@ -2673,6 +2675,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
 	            return r;
 	          });
 	        const fallbackPayload = { ...payload,
+	          // a declaration pass already failed — this LAST try renders once with the
+	          // fiction note up front, visibly tagged, and no further silent re-renders
+	          likenessRetry:false, statusTag:"NO_CHAR_REFS",
 	          imageUrls: keptEntries.map(en=>en.url),
 	          prompt: stageRemapImageMentionPayload(promptPayload, oldAssetsForTags, keptAssetsForTags),
 	          takeMeta:{ ...(payload.takeMeta||{}), safetyFallback:"dropped character refs",

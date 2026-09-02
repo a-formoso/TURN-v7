@@ -739,7 +739,12 @@ async function seedanceGenerate(id, opts){
   const proxyEndFrame = (useTransition || (isKling && endFrame)) ? await vidProxyReadyUrl(endFrame) : "";
   // ONE submit→poll pass with the given prompt text — extracted so a likeness
   // rejection can rerun the whole pass with the fictional-cast declaration prepended.
-  const attempt = async (pText)=>{
+  const attempt = async (pText, tag)=>{
+    /* status emissions carry the attempt's tag so an automatic safety retry
+       reads as a labeled retry in the player — not the same render mysteriously
+       starting over from a low percentage */
+    const _tag = tag || opts.statusTag || "";
+    const emit = (s)=>{ if(opts.onStatus) opts.onStatus(_tag ? (_tag+" · "+s) : s); };
     const sub = await vidProxy("submit", {
       model, prompt:pText,
       ...(isKling
@@ -766,7 +771,7 @@ async function seedanceGenerate(id, opts){
       meta:{ hash, model, durationMs:opts.durationMs||0, aspectRatio, prompt:pText, ...(opts.takeMeta||{}) } });
     _vidPollLease.add(sub.requestId);   // this poll OWNS the job while it runs — recovery keeps its hands off
     try{
-    if(opts.onStatus) opts.onStatus(sub.status||"IN_QUEUE");
+    emit(sub.status||"IN_QUEUE");
     // poll until COMPLETED — each call is short; the wait is here on the client.
     // PROGRESS: fal's status logs carry real "NN%" lines for some models (the proxy
     // relays the last one as st.progress); when they don't, an elapsed-time asymptote
@@ -790,7 +795,7 @@ async function seedanceGenerate(id, opts){
         // vidProxy), then surface the real error. Terminal provider failures don't
         // land here: they arrive as a successful poll with st.error/st.status.
         if(/Couldn't reach the video proxy/i.test(String(e&&e.message)) && ++pollMiss<=4){
-          if(opts.onStatus) opts.onStatus("RECONNECTING");
+          emit("RECONNECTING");
           continue;
         }
         throw e;
@@ -799,7 +804,7 @@ async function seedanceGenerate(id, opts){
       // throw so the likeness retry/help path can see the reason instead of timing out
       if(/^(FAILED|ERROR|CANCELLED|CANCELED)$/i.test(String(st.status||"")))
         throw new Error(String(st.error||("The provider reported the render as "+st.status+".")));
-      if(opts.onStatus && st.status){
+      if(st.status){
         let label = st.status;
         if(st.status==="IN_QUEUE"){
           if(Number(st.queuePosition)>0) label += " · #"+Number(st.queuePosition)+" in line";
@@ -809,7 +814,7 @@ async function seedanceGenerate(id, opts){
           lastPct = Math.max(lastPct, Math.min(97, Math.max(Number(st.progress)||0, est)));
           label += " · "+lastPct+"%";
         }
-        opts.onStatus(label);
+        emit(label);
       }
       if(st.status==="COMPLETED" && st.videoUrl){
         /* the provider rendered — the charge is incurred NOW, before any
@@ -847,12 +852,23 @@ async function seedanceGenerate(id, opts){
     throw new Error("The video render timed out — try again, or pick a faster tier / lower resolution in Render settings.");
     }finally{ _vidPollLease.delete(sub.requestId); }   // cancel/timeout/failure: the job is up for recovery again
   };
+  /* likenessRetry:false = the caller already burned a declaration pass (stage's
+     dropped-char-refs fallback): render ONCE with the fiction note up front and
+     surface the help on a repeat flag — never a third silent multi-minute pass. */
+  if(opts.likenessRetry===false){
+    try{ return await attempt(VID_FICTION_NOTE+"\n"+promptText); }
+    catch(e){
+      if(vidLikenessError(e && e.message)) throw new Error(VID_LIKENESS_HELP);
+      throw e;
+    }
+  }
   try{ return await attempt(promptText); }
   catch(e){
     if(!vidLikenessError(e && e.message)) throw e;
-    // likeness false positive — one retry with the declaration up front
+    // likeness false positive — one retry with the declaration up front,
+    // VISIBLY tagged: it's a full re-render, not the same render stuck
     if(opts.onStatus) opts.onStatus("RETRY");
-    try{ return await attempt(VID_FICTION_NOTE+"\n"+promptText); }
+    try{ return await attempt(VID_FICTION_NOTE+"\n"+promptText, "SAFETY_PASS_2"); }
     catch(e2){
       if(vidLikenessError(e2 && e2.message)) throw new Error(VID_LIKENESS_HELP);
       throw e2;
