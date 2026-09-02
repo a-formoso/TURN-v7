@@ -346,6 +346,10 @@ function _scopeFor(id){
 window.nbUseShared = nbUseShared;
 function nbBackend(){ return _nbBackend; }
 window.nbUseCloud = nbUseCloud; window.nbUseLocal = nbUseLocal; window.nbBackend = nbBackend;
+/* current cloud scope for the OTHER asset stores (video takes ride the same
+   project + epoch discipline as images) — null while in local mode. */
+function nbCloudScope(){ return (_nbBackend==="cloud" && _nbProject) ? { projectId:_nbProject, uid:_nbUid, epoch:_nbEpoch } : null; }
+window.nbCloudScope = nbCloudScope;
 
 /* per-character generated image store — 3-tier: localStorage → sessionStorage → in-memory Map */
 const _nbImgMemory = new Map();

@@ -79,6 +79,125 @@ window.vidGetVideo=vidGetVideo; window.vidGetMeta=vidGetMeta; window.vidGetTakes
 function vidResetAll(){ _vidMem.clear(); }
 window.vidResetAll=vidResetAll;
 
+/* ── CLOUD SYNC — takes are PROJECT records, not browser state ────────────────
+   A paid render that exists only in one browser profile is one cache-clear away
+   from gone. Every take write below therefore lands in the film's cloud row
+   (cloudCommitVideo → turn_generations, the same collaboration rules as images);
+   IndexedDB stays as the fast local cache. A failed push marks the clip DIRTY
+   (localStorage, per project), retries on the next write / film open / reconnect,
+   and TELLS the user — never a silent catch. Local mode keeps IDB-only behavior. */
+function vidScope(){ return (typeof window.nbCloudScope==="function") ? window.nbCloudScope() : null; }
+const VID_DIRTY_KEY = "turn_vid_dirty";
+function _vidDirtyAll(){ try{ return JSON.parse(localStorage.getItem(VID_DIRTY_KEY)||"{}")||{}; }catch(e){ return {}; } }
+function _vidDirtySaveAll(m){ try{ localStorage.setItem(VID_DIRTY_KEY, JSON.stringify(m)); }catch(e){} }
+function _vidDirtyMark(projectId, id, del){ const m=_vidDirtyAll(); const p=m[projectId]||(m[projectId]={}); p[id]= del?"del":"put"; _vidDirtySaveAll(m); }
+function _vidDirtyClear(projectId, id){ const m=_vidDirtyAll(); if(m[projectId]){ delete m[projectId][id]; if(!Object.keys(m[projectId]).length) delete m[projectId]; _vidDirtySaveAll(m); } }
+/* which clips THIS film has cloud take rows for (locally known) — lets hydrate
+   detect REMOTE deletions without touching other films' caches. IndexedDB is
+   shared across films, so a blind "not in the cloud answer" sweep would eat
+   local-mode films' takes; the sweep below only ever visits ids on this list. */
+const VID_IDS_KEY = "turn_vid_ids";
+function _vidIdsAll(){ try{ return JSON.parse(localStorage.getItem(VID_IDS_KEY)||"{}")||{}; }catch(e){ return {}; } }
+function _vidIdsMark(projectId, id, del){
+  try{
+    const m = _vidIdsAll(); const l = new Set(m[projectId]||[]);
+    if(del) l.delete(id); else l.add(id);
+    if(l.size) m[projectId] = [...l]; else delete m[projectId];
+    localStorage.setItem(VID_IDS_KEY, JSON.stringify(m));
+  }catch(e){}
+}
+let _vidSyncToastAt = 0;
+async function _vidCloudPush(id, entry, scope){
+  const sc = scope || vidScope(); if(!sc) return;               // local mode: IDB only
+  _vidIdsMark(sc.projectId, id, !(entry && entry.url));         // intended membership, even if the push fails
+  try{
+    if(entry && entry.url){
+      if(typeof window.cloudCommitVideo!=="function") throw new Error("cloud unavailable");
+      await window.cloudCommitVideo(sc.projectId, sc.uid, id, entry);
+    } else {
+      if(typeof window.cloudVideoDelete!=="function") throw new Error("cloud unavailable");
+      await window.cloudVideoDelete(sc.projectId, id);
+    }
+    _vidDirtyClear(sc.projectId, id);
+  }catch(e){
+    _vidDirtyMark(sc.projectId, id, !(entry && entry.url));
+    if(Date.now()-_vidSyncToastAt > 30000 && typeof window.appToast==="function"){
+      _vidSyncToastAt = Date.now();
+      window.appToast("Couldn't save this clip's takes to the cloud — they're safe on this device and will re-sync automatically.","info");
+    }
+  }
+}
+/* re-push everything that failed for the CURRENT film (runs on film open,
+   reconnect, and before hydrate so local edits win over stale cloud rows) */
+async function vidCloudFlushDirty(){
+  const sc = vidScope(); if(!sc) return 0;
+  const m = { ...(_vidDirtyAll()[sc.projectId]||{}) };
+  let n = 0;
+  for(const id of Object.keys(m)){
+    if(m[id]==="del") await _vidCloudPush(id, null, sc);
+    else{
+      const e = await _vidLoadEntry(id);
+      if(e && e.url) await _vidCloudPush(id, e, sc);
+      else _vidDirtyClear(sc.projectId, id);      // nothing local left to push
+    }
+    n++;
+  }
+  return n;
+}
+window.vidCloudFlushDirty = vidCloudFlushDirty;
+/* pull the film's take records on open (the app calls this right after the image
+   scope re-points). Cloud wins EXCEPT where a clip is locally dirty — those push
+   up first. Queued like every store write so a mid-hydrate commit can't clobber. */
+function vidCloudHydrate(){
+  return _vidQueued(async ()=>{
+    const sc = vidScope(); if(!sc) return 0;
+    await vidCloudFlushDirty();
+    const rows = (typeof window.cloudVideoLoadAll==="function") ? await window.cloudVideoLoadAll(sc.projectId) : null;
+    if(!rows) return 0;
+    const now = vidScope();                        // film switched while loading → drop
+    if(!now || now.projectId!==sc.projectId) return 0;
+    const dirty = _vidDirtyAll()[sc.projectId]||{};
+    const ids = [];
+    for(const id of Object.keys(rows)){
+      if(dirty[id] || !rows[id] || !rows[id].url) continue;
+      const e = { url:rows[id].url, meta:rows[id].meta||null };
+      _vidMem.set(id, e);
+      try{ await vidIdbSet(vidKey(id), e); }catch(err){}
+      ids.push(id);
+    }
+    /* reconcile REMOTE DELETIONS: clips this film was known to have take rows
+       for that the authoritative cloud answer no longer lists (and that aren't
+       locally dirty) were cleared elsewhere — drop the local cache so they
+       can't resurrect from IndexedDB on the next lazy load. */
+    const known = (_vidIdsAll()[sc.projectId]||[]).slice();
+    const removed = [];
+    for(const id of known){
+      if(rows[id] || dirty[id]) continue;
+      _vidMem.delete(id);
+      try{ await vidIdbDel(vidKey(id)); }catch(err){}
+      _vidIdsMark(sc.projectId, id, true);
+      removed.push(id);
+    }
+    for(const id of ids) _vidIdsMark(sc.projectId, id);
+    const changed = ids.concat(removed);
+    if(changed.length){ try{ window.dispatchEvent(new CustomEvent("vid-done",{ detail:{ ids:changed } })); }catch(e){} }
+    return ids.length;
+  });
+}
+window.vidCloudHydrate = vidCloudHydrate;
+try{ window.addEventListener("online", ()=>{ try{ vidCloudFlushDirty(); }catch(e){} }); }catch(e){}
+
+/* ── RUN OWNERSHIP — Clear must beat an in-flight render ─────────────────────
+   Clearing a clip bumps its run token. seedanceGenerate captures the token at
+   start and re-checks it after the last await before committing, so a render
+   that finishes AFTER "Clear" can never resurrect the clip (the old race:
+   cleared clips came back when the poll landed). The paid-for result is
+   disclosed, never silently swallowed. */
+const _vidRunEpoch = new Map();   // id -> int
+function vidRunToken(id){ return _vidRunEpoch.get(id)||0; }
+function vidRunBump(id){ _vidRunEpoch.set(id, (0|_vidRunEpoch.get(id))+1); }
+window.vidRunToken = vidRunToken; window.vidRunBump = vidRunBump;
+
 // stable per-clip asset id (a sceneSequences group → one Seedance generation)
 function clipVidId(sceneId, index){ return "clip-"+sceneId+"-"+index; }
 window.clipVidId=clipVidId;
@@ -104,6 +223,7 @@ function vidAdoptTakes(id, legacyId){
     await _vidWriteEntry(id, old);
     _vidMem.delete(legacyId);
     try{ await vidIdbDel(vidKey(legacyId)); }catch(e){}
+    await _vidCloudPush(legacyId, null);   // retire the old positional cloud row too
     return { migrated:true };
   });
 }
@@ -130,10 +250,18 @@ function _vidQueued(run){
   _vidCommitQ = p.catch(()=>{});
   return p;
 }
-function vidCommitQueued(id, url, meta){
-  return _vidQueued(()=>_vidCommitRaw(id, url, meta));
+function vidCommitQueued(id, url, meta, scope){
+  return _vidQueued(()=>_vidCommitRaw(id, url, meta, scope));
 }
-async function _vidCommitRaw(id, url, meta){
+async function _vidCommitRaw(id, url, meta, scope){
+  /* scope re-check at EXECUTION time: this commit may have waited in the queue
+     behind hydrate/cloud I/O while the user switched films. Writing then would
+     plant another film's take into the fresh state — skip every write and tell
+     the caller, which keeps the job pending for project-scoped recovery. */
+  if(scope){
+    const now = vidScope();
+    if(!now || now.projectId!==scope.projectId || (scope.epoch!=null && now.epoch!==scope.epoch)) return { skipped:true };
+  }
   const prev = _vidMem.get(id) || (async()=>{ try{ return await vidIdbGet(vidKey(id)); }catch(e){ return null; } })();
   const old = prev && typeof prev.then==="function" ? await prev : prev;
   const takes = [];
@@ -154,17 +282,36 @@ async function _vidCommitRaw(id, url, meta){
   takes.forEach(t=>{ const ap = t&&t.meta&&t.meta.status==="approved"; if(ap || capped.length<20) capped.push(t); });
   meta = { ...meta, createdAt:meta.createdAt||Date.now(), takes:capped };
   _vidMem.set(id, { url, meta:meta||null });
-  if(typeof window.cloudCommitVideo==="function" && typeof window.nbBackend==="function" && window.nbBackend()==="cloud"){
-    try{ const r=await window.cloudCommitVideo(id, url, meta); if(r && r.url){ _vidMem.set(id,{url:r.url,meta:meta||null}); } }catch(e){}
-  }
   try{ await vidIdbSet(vidKey(id), { url, meta:meta||null }); }catch(e){}
+  await _vidCloudPush(id, { url, meta:meta||null }, scope);
   try{ window.dispatchEvent(new CustomEvent("vid-done",{ detail:{ ids:[id] } })); }catch(e){}
   return { url };
 }
-async function vidClear(id){
-  _vidMem.delete(id);
-  try{ await vidIdbDel(vidKey(id)); }catch(e){}
-  try{ window.dispatchEvent(new CustomEvent("vid-done",{ detail:{ ids:[id] } })); }catch(e){}
+/* did the film change while an action WAITED in the queue? Take mutations are
+   user intent aimed at the film that was open at click time — after a switch
+   they must not write into the new film's memory/IDB or cloud rows. */
+function _vidScopeSame(a){
+  const b = vidScope();
+  if(!a && !b) return true;
+  if(!a || !b) return false;
+  return a.projectId===b.projectId && (a.epoch==null || b.epoch==null || a.epoch===b.epoch);
+}
+function vidClear(id){
+  vidRunBump(id);                 // synchronously disown any in-flight render first —
+  _vidPendingRemoveByClip(id);    // it must never commit or be "recovered" back
+  const scope0 = vidScope();      // the clear targets THIS film's cloud row, even if queued past a switch
+  return _vidQueued(async ()=>{
+    /* local caches are only touched while the SAME film is still open — after a
+       switch the new film may hold a same-id take in shared IDB/memory that the
+       old film's queued clear must not eat. The cloud delete still lands on the
+       old film's row via scope0. */
+    if(_vidScopeSame(scope0)){
+      _vidMem.delete(id);
+      try{ await vidIdbDel(vidKey(id)); }catch(e){}
+    }
+    await _vidCloudPush(id, null, scope0);
+    try{ window.dispatchEvent(new CustomEvent("vid-done",{ detail:{ ids:[id] } })); }catch(e){}
+  });
 }
 const vidCommit = vidCommitQueued;   // every commit path goes through the queue
 window.vidCommit=vidCommit; window.vidClear=vidClear;
@@ -178,53 +325,63 @@ async function _vidLoadEntry(id){
   if(!e){ try{ e = await vidIdbGet(vidKey(id)); }catch(err){ e = null; } if(e) _vidMem.set(id, e); }
   return e || null;
 }
-async function _vidWriteEntry(id, e){
+async function _vidWriteEntry(id, e, scope){
   _vidMem.set(id, e);
   try{ await vidIdbSet(vidKey(id), e); }catch(err){}
+  await _vidCloudPush(id, e, scope);   // approvals/notes/restores/deletes are project records too
   try{ window.dispatchEvent(new CustomEvent("vid-done",{ detail:{ ids:[id] } })); }catch(err){}
   return e;
 }
 // merge a meta patch into one take (current or archived), matched by url
 function vidUpdateTake(id, url, patch){
+  const scope0 = vidScope();
   return _vidQueued(async ()=>{
+    if(!_vidScopeSame(scope0)) return null;   // film switched while queued — drop, never cross-write
     const e = await _vidLoadEntry(id); if(!e || !e.url) return null;
-    if(e.url===url) return _vidWriteEntry(id, { url:e.url, meta:{ ...(e.meta||{}), ...patch } });
+    if(e.url===url) return _vidWriteEntry(id, { url:e.url, meta:{ ...(e.meta||{}), ...patch } }, scope0);
     const takes = ((e.meta&&e.meta.takes)||[]).map(t=> (t&&t.url===url) ? { ...t, meta:{ ...(t.meta||{}), ...patch } } : t);
-    return _vidWriteEntry(id, { url:e.url, meta:{ ...(e.meta||{}), takes } });
+    return _vidWriteEntry(id, { url:e.url, meta:{ ...(e.meta||{}), takes } }, scope0);
   });
 }
 // one approved take per clip: approving a url clears the star everywhere else
 function vidApproveTake(id, url, on){
+  const scope0 = vidScope();
   return _vidQueued(async ()=>{
+    if(!_vidScopeSame(scope0)) return null;   // film switched while queued — drop, never cross-write
     const e = await _vidLoadEntry(id); if(!e || !e.url) return null;
     const set = (m, hit)=>{ const n = { ...(m||{}) }; if(hit && on) n.status="approved"; else delete n.status; return n; };
     const takes = ((e.meta&&e.meta.takes)||[]).map(t=> ({ ...t, meta:set(t&&t.meta, t&&t.url===url) }));
-    return _vidWriteEntry(id, { url:e.url, meta:{ ...set(e.meta, e.url===url), takes } });
+    return _vidWriteEntry(id, { url:e.url, meta:{ ...set(e.meta, e.url===url), takes } }, scope0);
   });
 }
 // make an archived take the CURRENT one (the old current becomes a take; vno travels)
 function vidRestoreTake(id, url){
+  const scope0 = vidScope();
   return _vidQueued(async ()=>{
+    if(!_vidScopeSame(scope0)) return null;   // film switched while queued
     const e = await _vidLoadEntry(id); if(!e) return null;
     const t = ((e.meta&&e.meta.takes)||[]).find(x=>x&&x.url===url);
     if(!t) return null;
     const m = { ...(t.meta||{}) }; delete m.takes;
-    return _vidCommitRaw(id, t.url, m);
+    return _vidCommitRaw(id, t.url, m, scope0);   // commitRaw re-checks scope0 at execution too
   });
 }
 // delete one take; deleting the current promotes the newest remaining take
 function vidDeleteTake(id, url){
+  const scope0 = vidScope();
   return _vidQueued(async ()=>{
+    if(!_vidScopeSame(scope0)) return null;   // film switched while queued — drop, never cross-write
     const e = await _vidLoadEntry(id); if(!e || !e.url) return null;
     const takes = ((e.meta&&e.meta.takes)||[]);
     if(e.url===url){
       const next = takes[0];
       if(!next){ _vidMem.delete(id); try{ await vidIdbDel(vidKey(id)); }catch(err){}
+        await _vidCloudPush(id, null, scope0);
         try{ window.dispatchEvent(new CustomEvent("vid-done",{ detail:{ ids:[id] } })); }catch(err){}
         return { cleared:true }; }
-      return _vidWriteEntry(id, { url:next.url, meta:{ ...(next.meta||{}), takes:takes.slice(1) } });
+      return _vidWriteEntry(id, { url:next.url, meta:{ ...(next.meta||{}), takes:takes.slice(1) } }, scope0);
     }
-    return _vidWriteEntry(id, { url:e.url, meta:{ ...(e.meta||{}), takes:takes.filter(t=>!(t&&t.url===url)) } });
+    return _vidWriteEntry(id, { url:e.url, meta:{ ...(e.meta||{}), takes:takes.filter(t=>!(t&&t.url===url)) } }, scope0);
   });
 }
 window.vidUpdateTake=vidUpdateTake; window.vidApproveTake=vidApproveTake;
@@ -416,30 +573,71 @@ window.blackMp4FromAudio = blackMp4FromAudio;
    next load re-polls the leftovers once and commits any finished video as a take. ---- */
 const VID_PENDING_KEY = "turn_vid_pending";
 function _vidPendingList(){ try{ return JSON.parse(localStorage.getItem(VID_PENDING_KEY)||"[]")||[]; }catch(e){ return []; } }
-function _vidPendingSave(list){ try{ localStorage.setItem(VID_PENDING_KEY, JSON.stringify(list.slice(-12))); }catch(e){} }
+function _vidPendingSave(list){ try{ localStorage.setItem(VID_PENDING_KEY, JSON.stringify(list.slice(-20))); }catch(e){} }
 function _vidPendingAdd(job){ const l=_vidPendingList().filter(j=>j.requestId!==job.requestId); l.push(job); _vidPendingSave(l); }
 function _vidPendingRemove(requestId){ _vidPendingSave(_vidPendingList().filter(j=>j.requestId!==requestId)); }
-async function vidRecoverPending(){
-  const list = _vidPendingList(); if(!list.length) return 0;
-  let saved = 0;
+function _vidPendingRemoveByClip(id){ if(id!=null) _vidPendingSave(_vidPendingList().filter(j=>!j || j.id!==id)); }
+window.vidPendingList = _vidPendingList;   // read-only view (UI / tests)
+/* Recovery is PROJECT-SCOPED: each pending entry carries the film it belongs to, and
+   a pass only replays entries for the film that's open — jobs from other films wait
+   for their film (committing them here would write takes into the wrong project).
+   Every outcome is TOLD to the user: recovered, failed at the provider, expired, or
+   still cooking (a slow patrol below keeps checking those). */
+const _vidPollLease = new Set();   // requestIds actively polled by THIS tab's generate loop
+/* settle a job's spend record (fire-and-forget): the shared per-job event id
+   means live poll and recovery can BOTH call this for the same render and the
+   charge still lands exactly once, pinned to the launching account. */
+function _vidSettleSpend(spend){
+  if(!spend || !spend.cost || typeof window.cloudSpendCreditReliable!=="function") return;
+  try{
+    const p = window.cloudSpendCreditReliable(spend.cost, spend.reason||"stage-video-render", spend.uid||null, spend.id||null);
+    if(p && p.catch) p.catch(()=>{});
+  }catch(e){}
+}
+async function vidRecoverPending(opts){
+  opts = opts||{};
+  const sc = vidScope();
+  const scopeKey = sc ? sc.projectId : null;
+  const list = _vidPendingList().filter(j=> j && (j.projectId||null)===scopeKey);
+  if(!list.length) return 0;
+  let saved=0, failed=0, expired=0, cooking=0;
   for(const j of list){
-    if(!j || !j.requestId || (Date.now()-(j.at||0)) > 6*3600*1000){ if(j&&j.requestId) _vidPendingRemove(j.requestId); continue; }
+    // a live generate loop OWNS its job — recovery touching it too would
+    // double-commit the same finished render (duplicate writes + toasts)
+    if(!j.requestId || _vidPollLease.has(j.requestId)) continue;
+    _vidPollLease.add(j.requestId);   // recovery claims the job too — the load pass and the 5-min patrol can overlap
+    try{
+    if((Date.now()-(j.at||0)) > 24*3600*1000){ _vidPendingRemove(j.requestId); expired++; continue; }
     try{
       const st = await vidProxy("poll", { model:j.model, statusUrl:j.statusUrl, responseUrl:j.responseUrl });
       if(st.status==="COMPLETED" && st.videoUrl){
+        _vidSettleSpend(j.spend);   // a recovered render is a rendered render — settle its charge (same event id as the live path: never twice)
         await vidCommit(j.id, st.videoUrl, { ...(j.meta||{}), seed:st.seed||null, recovered:true });
         _vidPendingRemove(j.requestId); saved++;
-      } else if(st.error){ _vidPendingRemove(j.requestId); }
-      // still IN_QUEUE / IN_PROGRESS → leave it for the next load
-    }catch(e){}
+      } else if(st.error || /^(FAILED|ERROR|CANCELLED|CANCELED)$/i.test(String(st.status||""))){
+        _vidPendingRemove(j.requestId); failed++;
+      } else cooking++;
+      // still IN_QUEUE / IN_PROGRESS → the patrol below re-checks it
+    }catch(e){
+      /* a provider-relayed failure (the proxy throws its error text) is TERMINAL —
+         drop the job and report it; only an unreachable proxy (network blip) leaves
+         the job for the next patrol pass. */
+      if(!/Couldn't reach the video proxy/i.test(String(e&&e.message))){ _vidPendingRemove(j.requestId); failed++; }
+    }
+    }finally{ _vidPollLease.delete(j.requestId); }
   }
-  if(saved && typeof window.appToast==="function")
-    window.appToast(saved===1 ? "Recovered a finished render from before the reload — it's saved in its clip's takes." : ("Recovered "+saved+" finished renders from before the reload — saved as takes."),"success");
+  const toast = (m,k)=>{ if(typeof window.appToast==="function") window.appToast(m,k); };
+  if(saved) toast(saved===1 ? "Recovered a finished render from an earlier session — it's saved in its clip's takes." : ("Recovered "+saved+" finished renders from an earlier session — saved as takes."),"success");
+  if(failed) toast(failed===1 ? "A render from an earlier session failed at the provider — no take was produced." : (failed+" renders from an earlier session failed at the provider — no takes were produced."),"error");
+  if(expired) toast(expired===1 ? "A pending render was over a day old and could no longer be checked — it was dropped." : (expired+" pending renders were over a day old and were dropped."),"info");
+  if(cooking && !opts.quiet) toast(cooking===1 ? "A render from an earlier session is still processing — it will be saved automatically when it finishes." : (cooking+" renders from an earlier session are still processing — they'll be saved automatically."),"info");
   return saved;
 }
 window.vidRecoverPending = vidRecoverPending;
-// one recovery pass per load, after the auth/proxy state has settled
+// one recovery pass per load after the auth/proxy state settles, then a slow
+// patrol while anything is still pending (quiet: no repeat "still processing")
 setTimeout(()=>{ try{ if(videoProxyReady()) vidRecoverPending(); }catch(e){} }, 4000);
+setInterval(()=>{ try{ if(videoProxyReady() && _vidPendingList().length) vidRecoverPending({ quiet:true }); }catch(e){} }, 5*60*1000);
 
 /* ---- LIKENESS FALSE POSITIVES: Seedance's safety filter sometimes decides an
    AI-generated character sheet shows a REAL person's likeness and rejects the job.
@@ -458,6 +656,25 @@ const VID_LIKENESS_HELP = "The model's safety filter flagged a reference image a
 
 async function seedanceGenerate(id, opts){
   opts = opts||{};
+  /* ownership + scope captured at START: Clear bumps the clip's run token; a film
+     switch bumps the asset epoch. Both are re-checked after the LAST await before
+     committing — a finished render must never resurrect a cleared clip or land in
+     another film. */
+  const runToken0 = (id!=null) ? vidRunToken(id) : null;
+  const scope0 = vidScope();
+  const epoch0 = (typeof window.nbEpoch==="function") ? window.nbEpoch() : 0;
+  /* the SPEND RECORD rides the job from submit to settlement: the launcher's
+     uid and one event id fixed here mean the render is charged to whoever
+     LAUNCHED it, exactly once, no matter which path delivers it — live poll,
+     crash-recovery in a later session, or both racing (the shared id dedupes
+     client- and server-side). A likeness retry shares the id too: one render
+     delivered, one charge. */
+  const spendRec = (opts.spend && opts.spend.cost) ? {
+    cost: Math.max(1, Number(opts.spend.cost)||1),
+    reason: String(opts.spend.reason||"stage-video-render"),
+    uid: opts.spend.uid||null,
+    id: (typeof crypto!=="undefined" && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36)+"-"+Math.random().toString(36).slice(2)),
+  } : null;
   /* SEEDANCE 2.5 rides the same multimodal reference-to-video shape as 2.0, named by
      the tier's falModel: 30s duration ceiling and longer renders (the poll ceiling
      stretches below). Per-modality caps verified against fal's live schema 2026-08-07:
@@ -544,7 +761,11 @@ async function seedanceGenerate(id, opts){
     // orphan a paid render (recovery re-polls leftovers on the next load). Cancels and
     // timeouts keep the entry on purpose: the job may still finish server-side.
     _vidPendingAdd({ requestId:sub.requestId, id, model, statusUrl:sub.statusUrl, responseUrl:sub.responseUrl, at:Date.now(),
+      projectId:(scope0&&scope0.projectId)||null, uid:(scope0&&scope0.uid)||null,   // recovery is project-scoped
+      spend:spendRec,   // settled at COMPLETION by whichever path delivers first — event id dedupes
       meta:{ hash, model, durationMs:opts.durationMs||0, aspectRatio, prompt:pText, ...(opts.takeMeta||{}) } });
+    _vidPollLease.add(sub.requestId);   // this poll OWNS the job while it runs — recovery keeps its hands off
+    try{
     if(opts.onStatus) opts.onStatus(sub.status||"IN_QUEUE");
     // poll until COMPLETED — each call is short; the wait is here on the client.
     // PROGRESS: fal's status logs carry real "NN%" lines for some models (the proxy
@@ -591,14 +812,40 @@ async function seedanceGenerate(id, opts){
         opts.onStatus(label);
       }
       if(st.status==="COMPLETED" && st.videoUrl){
+        /* the provider rendered — the charge is incurred NOW, before any
+           discard/stale branching (a cleared clip's render was still rendered).
+           The job's event id keeps a racing recovery pass from charging again. */
+        _vidSettleSpend(spendRec);
         const meta = { hash, model, durationMs:opts.durationMs||0, aspectRatio, seed:st.seed||null, prompt:pText,
           ...(opts.takeMeta||{}) };   // Versions-view facts: source, tier, resolution, recipe, audio, batch position…
-        if(id) await vidCommit(id, st.videoUrl, meta);
+        /* OWNERSHIP RE-CHECK after the last await (memory: agent-run-lifecycle):
+           the user may have cleared the clip or switched films while this cooked. */
+        if(id!=null && vidRunToken(id)!==runToken0){
+          // cleared mid-render — the paid result is discarded, and SAYS so
+          _vidPendingRemove(sub.requestId);
+          if(typeof window.appToast==="function")
+            window.appToast("A render finished after you cleared its clip — the take was discarded as requested (the render itself was already charged).","info");
+          return { videoUrl:st.videoUrl, seed:st.seed||null, cached:false, discarded:true };
+        }
+        const epochNow = (typeof window.nbEpoch==="function") ? window.nbEpoch() : 0;
+        if(epochNow!==epoch0){
+          /* film switched mid-render: DON'T commit into the wrong scope — leave the
+             job pending; recovery is project-scoped and delivers it into the right
+             film the next time that film opens. */
+          return { videoUrl:st.videoUrl, seed:st.seed||null, cached:false, stale:true };
+        }
+        if(id){
+          const cr = await vidCommit(id, st.videoUrl, meta, scope0);
+          // scope changed while the commit WAITED IN THE QUEUE — job stays
+          // pending; project-scoped recovery delivers it to the right film
+          if(cr && cr.skipped) return { videoUrl:st.videoUrl, seed:st.seed||null, cached:false, stale:true };
+        }
         _vidPendingRemove(sub.requestId);   // delivered — nothing left to recover
         return { videoUrl:st.videoUrl, seed:st.seed||null, cached:false };
       }
     }
     throw new Error("The video render timed out — try again, or pick a faster tier / lower resolution in Render settings.");
+    }finally{ _vidPollLease.delete(sub.requestId); }   // cancel/timeout/failure: the job is up for recovery again
   };
   try{ return await attempt(promptText); }
   catch(e){
@@ -666,7 +913,9 @@ function useSeedanceGen(id){
         const r = await seedanceGenerate(jid, { ...(opts||{}),
           onStatus:(s)=>_vidJobPatch(jid, { gening:true, status:s }),
           shouldCancel:()=>cancelRef.current });
-        setVideoUrl(r.videoUrl);
+        // a discarded (cleared mid-render) or stale (film switched) result was NOT
+        // committed — painting it here would ghost a take that isn't in the store
+        if(!r.discarded && !r.stale) setVideoUrl(r.videoUrl);
         return r;
       }catch(e){
         const m = String((e&&e.message)||"Video render failed.");

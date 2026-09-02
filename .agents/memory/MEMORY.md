@@ -13,3 +13,6 @@
 - [Personal ref privacy](personal-ref-privacy.md) — device-origin images never ride into cloud refs; disclose via meta.privateRefs; gates fail closed.
 - [Shot seed lineage](shot-seed-lineage.md) — chain staleness is derived, direct-not-transitive; commit hook rebuilds meta fresh, so edit renders must re-supply persistent keys via metaStart.
 - [Explicit style vs auto derivation](prompt-style-derivation.md) — user style picks must bypass the auto prompt chain via an explicit flag; prompt scope follows the model, so modelId is a rebuild dependency.
+- [Spend settlement](spend-settlement.md) — charges ride the render job (event id + launcher uid), settled at completion by any path; server dedupe needs the spend-idempotency SQL run first.
+- [Video take cloud sync](video-take-cloud-sync.md) — takes ride turn_generations kind:"video"; dirty + known-ids ledgers (never blind-sweep shared IDB); scope re-checked at execution; shared poll lease.
+- [VM sandbox timers](vm-test-timers.md) — ref sub-second timers, unref ≥1s module timers, no-op setInterval; stub cloud via window._sbClient.

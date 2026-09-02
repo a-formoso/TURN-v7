@@ -136,7 +136,22 @@ end $$;
 
 -- ── SPEND: decrement after a successful render ───────────────────────────────
 -- Clamps at 0 and returns the new balance. cost defaults to 1 generation credit.
-create or replace function public.turn_spend_credit(cost integer default 1)
+-- event_id makes retried spends IDEMPOTENT: the browser queues failed spend
+-- records and replays them on reconnect, and a replay can race itself (two
+-- tabs, online event + timed flush) — the first insert of an id wins, repeats
+-- return the balance untouched. (Existing deployments: run
+-- supabase/spend-idempotency-migration.sql once — same definitions.)
+create table if not exists public.turn_spend_events (
+  event_id   text primary key,
+  owner      uuid not null,
+  cost       integer not null,
+  created_at timestamptz not null default now()
+);
+alter table public.turn_spend_events enable row level security;
+-- no policies on purpose: clients never read or write it directly
+
+drop function if exists public.turn_spend_credit(integer);  -- no ambiguous overload
+create or replace function public.turn_spend_credit(cost integer default 1, event_id text default null)
 returns table (remaining integer, plan text)
 language plpgsql security definer set search_path = public as $$
 begin
@@ -144,6 +159,16 @@ begin
   insert into public.turn_credits(owner, remaining)
     values (auth.uid(), public.turn_credit_starter())
     on conflict (owner) do nothing;
+  if event_id is not null and length(trim(event_id)) > 0 then
+    begin
+      insert into public.turn_spend_events(event_id, owner, cost)
+        values (trim(event_id), auth.uid(), greatest(1, coalesce(cost, 1)));
+    exception when unique_violation then
+      return query
+        select c.remaining, c.plan from public.turn_credits c where c.owner = auth.uid();
+      return;
+    end;
+  end if;
   update public.turn_credits c
     set remaining = greatest(0, c.remaining - greatest(1, coalesce(cost, 1))),
         updated_at = now()
@@ -321,7 +346,7 @@ begin
 end $$;
 
 grant execute on function public.turn_credit_balance() to authenticated;
-grant execute on function public.turn_spend_credit(integer) to authenticated;
+grant execute on function public.turn_spend_credit(integer, text) to authenticated;
 grant execute on function public.turn_record_usage_event(text,text,text,text,integer,text,text,integer,integer,numeric,jsonb) to authenticated;
 grant execute on function public.turn_join_stage_waitlist() to authenticated;
 -- webhook RPCs run under the service role (edge function) — no authenticated grant.

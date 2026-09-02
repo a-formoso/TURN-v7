@@ -994,6 +994,14 @@ function App(){
     if(typeof nbUseCloud==="function") nbUseCloud(id, uid);   // re-scope the image cache to this film
     if(typeof window.vgResetAll==="function") window.vgResetAll();   // and clear voice/video caches
     if(typeof window.vidResetAll==="function") window.vidResetAll();
+    // pull this film's cloud take records + collect any renders left cooking for it
+    // (fire-and-forget: hydrate re-checks the scope itself, so a fast film switch
+    // mid-load simply drops the stale result)
+    if(typeof window.vidCloudHydrate==="function")
+      setTimeout(()=>{ try{ window.vidCloudHydrate().then(()=>{
+        if(typeof window.videoProxyReady==="function" && window.videoProxyReady()
+          && typeof window.vidRecoverPending==="function") window.vidRecoverPending();
+      }); }catch(e){} }, 0);
     setCurrentProjectId(id);
     const d = row.doc || {};
     if(d.showId){

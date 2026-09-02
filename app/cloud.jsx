@@ -125,15 +125,106 @@ window.cloudGetCreditBalance = cloudGetCreditBalance;
 /* decrement after a successful render (supabase/credits.sql turn_spend_credit).
    Fire-and-forget from the render path; the UI refreshes via cloudGetCreditBalance
    on the "turn-credits-changed" event either way. Returns the new balance or null. */
-async function cloudSpendCredit(cost){
+async function cloudSpendCredit(cost, eventId){
   const sb = sbClient(); if(!sb) return null;
   try{
-    const { data, error } = await sb.rpc("turn_spend_credit", { cost: Math.max(1, Number(cost)||1) });
+    const call = (withId)=> sb.rpc("turn_spend_credit", {
+      cost: Math.max(1, Number(cost)||1),
+      ...(withId && eventId ? { event_id: String(eventId) } : {}),
+    });
+    let { data, error } = await call(true);
+    /* the event id makes retried spends idempotent server-side (spend-idempotency
+       migration). Against a database that hasn't run it, PostgREST rejects the
+       two-arg signature — degrade to the legacy call rather than losing the spend. */
+    if(error && eventId && /schema cache|function/i.test(String(error.message||"")))
+      ({ data, error } = await call(false));
     if(error) return null;
     return _turnCreditShape(Array.isArray(data)?data[0]:data, "turn_spend_credit");
   }catch(e){ return null; }
 }
 window.cloudSpendCredit = cloudSpendCredit;
+
+/* Spend that can't silently vanish: the provider already charged the render, so a
+   lost decrement here would show a rosier balance than the truth. A failed spend
+   queues in localStorage and re-flushes on the next spend, the next load, and on
+   reconnect — serialized so two parallel renders can't double-flush the queue. */
+const SPEND_QUEUE_KEY = "turn_spend_queue";
+/* the in-memory MIRROR backs the localStorage queue: when a write fails (quota,
+   privacy mode), the entries keep living — and retrying — here for as long as
+   the tab does, instead of being silently unpaid. Reads union both by id. */
+let _spendMirror = [];
+function _spendQueue(){
+  let l = [];
+  try{ l = JSON.parse(localStorage.getItem(SPEND_QUEUE_KEY)||"[]")||[]; }catch(e){}
+  const seen = new Set(l.map(it=> it && it.id));
+  for(const it of _spendMirror) if(it && !seen.has(it.id)) l.push(it);
+  return l;
+}
+// money events are NEVER truncated — every queued entry is an incurred charge.
+// Past 500 we warn loudly (billing has been unreachable for a very long run of
+// renders) but keep everything; a failed local write is disclosed too.
+function _spendQueueSave(l){
+  l = l||[];
+  _spendMirror = l;
+  if(l.length > 500){ try{ if(typeof window.appToast==="function") window.appToast("Over 500 credit records are waiting to be recorded — please reconnect so billing can catch up.","error"); }catch(e){} }
+  try{ localStorage.setItem(SPEND_QUEUE_KEY, JSON.stringify(l)); }
+  catch(e){ try{ if(typeof window.appToast==="function") window.appToast("Couldn't save the credit record queue locally — spends may go unrecorded if you close this tab.","error"); }catch(_e){} }
+}
+let _spendFlushQ = Promise.resolve(false);
+async function _spendUid(){ try{ const s = await cloudGetSession(); return (s && s.user && s.user.id) || null; }catch(e){ return null; } }
+function cloudFlushSpendQueue(){
+  const run = async ()=>{
+    if(!sbClient()) return false;
+    const items = _spendQueue(); if(!items.length) return true;
+    /* ACCOUNT SAFETY: each queued spend is tagged with the uid that incurred it.
+       Another account's entries are HELD, never debited to whoever is signed in
+       now; signed out, nothing flushes at all. */
+    const uid = await _spendUid();
+    if(!uid) return false;
+    const left = [];
+    for(const it of items){
+      if(it && it.uid && it.uid!==uid){ left.push(it); continue; }   // another account's spend — hold it
+      const r = await cloudSpendCredit(it.cost, it && it.id);        // event id → server-side dedupe on replay
+      if(!r) left.push(it);
+    }
+    _spendQueueSave(left);
+    return !left.some(it=> !(it && it.uid) || it.uid===uid);   // all of OUR spends recorded?
+  };
+  /* cross-tab: the Web Locks API keeps two tabs from double-charging the same
+     queue (the loser simply reports "still queued"); where locks don't exist,
+     the in-context serialization below still holds within one tab. */
+  const runLocked = ()=> (typeof navigator!=="undefined" && navigator.locks && navigator.locks.request)
+    ? navigator.locks.request("turn_spend_flush", { ifAvailable:true }, lock => lock ? run() : false)
+    : run();
+  _spendFlushQ = _spendFlushQ.then(runLocked, runLocked);
+  return _spendFlushQ;
+}
+async function cloudSpendCreditReliable(cost, reason, uid, eventId){
+  /* uid: the account that LAUNCHED the render, captured at submit time by the
+     caller. If the signed-in user changed while the render cooked, the spend
+     stays pinned to the launcher — never whoever happens to be signed in now.
+     eventId: callers that settle the SAME charge from multiple paths (live
+     poll vs crash-recovery) pass the job's own id — duplicates are skipped
+     here and, post-migration, deduped server-side too. */
+  const eid = (eventId!=null && eventId!=="") ? String(eventId)
+    : (typeof crypto!=="undefined" && crypto.randomUUID) ? crypto.randomUUID()
+    : (Date.now().toString(36)+"-"+Math.random().toString(36).slice(2));
+  if(!_spendQueue().some(it=> it && it.id===eid))
+    _spendQueueSave([..._spendQueue(), { id: eid, cost:Math.max(1, Number(cost)||1), reason:reason||"", at:Date.now(), uid: (uid!=null && uid!=="") ? String(uid) : await _spendUid() }]);
+  await cloudFlushSpendQueue();
+  // judge OUR entry specifically — the flush verdict covers the whole queue,
+  // and a launcher-pinned spend held for another account is "queued", not "ok"
+  const still = _spendQueue().some(it=> it && it.id===eid);
+  if(still && typeof window.appToast==="function")
+    window.appToast("The render finished but recording its credit spend didn't go through — it's queued and will be recorded automatically.","info");
+  return !still;
+}
+window.cloudFlushSpendQueue = cloudFlushSpendQueue;
+window.cloudSpendCreditReliable = cloudSpendCreditReliable;
+try{
+  setTimeout(()=>{ try{ if(_spendQueue().length) cloudFlushSpendQueue(); }catch(e){} }, 6000);
+  window.addEventListener("online", ()=>{ try{ if(_spendQueue().length) cloudFlushSpendQueue(); }catch(e){} });
+}catch(e){}
 
 /* ── projects ────────────────────────────────────────────────────────────────
    A project row holds the whole story `doc` (scenes, characters, props, drafts,
@@ -858,6 +949,53 @@ async function cloudClear(projectId, entityId){
   cloudRemovePaths(paths);
   const sb = sbClient(); try{ await sb.from("turn_generations").delete().eq("project_id",projectId).eq("entity_id",entityId); }catch(e){}
 }
+
+/* ── video takes (Stage clips) ────────────────────────────────────────────────
+   A clip's takes are small JSON (fal CDN urls + render facts), so the durable
+   record is the turn_generations ROW itself: entity_id = the clip's stable id
+   ("clip-…"), storage_path stays untouched/NULL (the image loaders skip
+   path-less rows), meta = { kind:"video", video:{url,meta}, updatedAt }. Same
+   table → the same collaboration RLS as every other asset, no new migration.
+   These THROW on failure — the video store keeps a dirty ledger and retries;
+   a silent null here is how paid takes used to die with a browser profile. */
+async function cloudCommitVideo(projectId, uid, clipId, entry){
+  const sb = sbClient();
+  if(!sb || !projectId || !clipId) throw new Error("cloud unavailable");
+  const meta = { kind:"video", updatedAt:Date.now(),
+    video:{ url:(entry&&entry.url)||"", meta:(entry&&entry.meta)||null } };
+  const { error } = await sb.from("turn_generations")
+    .upsert({ project_id:projectId, owner:uid, entity_id:clipId, meta }, { onConflict:"project_id,entity_id" });
+  if(error) throw new Error(error.message||"cloud save failed");
+  return { ok:true };
+}
+async function cloudVideoDelete(projectId, clipId){
+  const sb = sbClient();
+  if(!sb || !projectId || !clipId) throw new Error("cloud unavailable");
+  const { error } = await sb.from("turn_generations").delete()
+    .eq("project_id", projectId).eq("entity_id", clipId);
+  if(error) throw new Error(error.message||"cloud delete failed");
+  return { ok:true };
+}
+/* all of one film's take records in one query. Returns { clipId:{url,meta} },
+   or NULL when the query itself failed (≠ "no videos") so the caller can keep
+   its local cache instead of treating a blip as an empty film. */
+async function cloudVideoLoadAll(projectId){
+  const sb = sbClient(); if(!sb || !projectId) return null;
+  try{
+    const { data, error } = await sb.from("turn_generations")
+      .select("entity_id, meta").eq("project_id", projectId).like("entity_id","clip-%");
+    if(error) return null;
+    const out = {};
+    for(const r of (data||[])){
+      const v = r && r.meta && r.meta.kind==="video" && r.meta.video;
+      if(v && v.url) out[r.entity_id] = { url:v.url, meta:v.meta||null };
+    }
+    return out;
+  }catch(e){ return null; }
+}
+window.cloudCommitVideo = cloudCommitVideo;
+window.cloudVideoDelete = cloudVideoDelete;
+window.cloudVideoLoadAll = cloudVideoLoadAll;
 async function cloudRevert(projectId, uid, entityId, index){
   const row = await cloudGetGen(projectId, entityId);
   if(!row) return null;

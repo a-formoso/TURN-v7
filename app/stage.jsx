@@ -2524,6 +2524,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     stagingCancelRef.current=false;
     setStaging(true);
     setPrepPct(8);
+    // pin the spend to the account that LAUNCHES the render — if the signed-in
+    // user changes while it cooks, the launcher pays, never the new arrival
+    const uid0 = (typeof window.nbCloudScope==="function" && (window.nbCloudScope()||{}).uid) || null;
     try{
     // the start frame leads ONLY when its asset chip is included — an excluded start
     // frame means a promptless-anchor render (prompt + remaining references only),
@@ -2620,6 +2623,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
       const shotSources=(typeof shotSourceStamp==="function")
         ? (d.shots||[]).map(sh=>shotSourceStamp(sh,(drafts||{})[sh.sceneId])) : [];
       const payload = { frameUrl, imageUrls, videoUrls, audioUrls, prompt:promptPayload, controls, multiShot,
+      // the spend record rides the render job itself — settled at COMPLETION
+      // (live or crash-recovered), pinned to the launching account, deduped by
+      // a per-job event id so no path can charge twice or not at all
+      spend:{ cost:renderCost, reason:"stage-video-render", uid:uid0 },
       durationMs:duration*1000, aspectRatio:effAspect||"auto", fast:!!tierObj.fast, resolution,
       seed:seedVal, generateAudio: hasDialogue ? true : nativeAudio,   // audio track must stay ON for the lip-synced line to be heard
       bitrateMode:bitrate,
@@ -2676,8 +2683,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
       const fresh = results.filter(r=>r && !r.cached);
       const lastWithSeed = results.filter(r=>r && r.seed!=null).slice(-1)[0];
       if(lastWithSeed) setLastSeed(lastWithSeed.seed);
-      // record the spend (supabase/credits.sql) for the takes that actually rendered
-      if(fresh.length && typeof window.cloudSpendCredit==="function"){ try{ await window.cloudSpendCredit(renderCost*fresh.length); }catch(_e){} }
+      // the spend itself was settled per-take at COMPLETION (the record rides the
+      // job — see payload.spend); here we only nudge the credits display
       try{ window.dispatchEvent(new CustomEvent("turn-credits-changed",{ detail:{ reason:"stage-video-render", cost:renderCost*Math.max(1,fresh.length) } })); }catch(_e){}
       if(!hadTakeBefore && results.some(r=>r) && onFirstVideo) setTimeout(()=>onFirstVideo(), 0);
       if(typeof window.appToast==="function") window.appToast("Clip "+beatLabel+" — "+results.length+" take"+(results.length!==1?"s":"")+" rendered","ok");
@@ -2688,6 +2695,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   const onExtend = async ()=>{
     if(!playerUrl) return;
     if(creditInfo.empty){ if(typeof window.appToast==="function") window.appToast("No generation credits remaining.","error"); return; }
+    // pin the spend to the account that LAUNCHES the extension (same rule as onGenerate)
+    const uid0 = (typeof window.nbCloudScope==="function" && (window.nbCloudScope()||{}).uid) || null;
     const controls = [cameraProfileLine, "Camera movement: "+camera+". Lighting: "+lighting+". Performance: "+perf+"."]
       .filter(Boolean).join("\n");
     try{
@@ -2697,9 +2706,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
       // then describe the continuation — not a bare re-render with a video attached.
       const extendPrompt = "Extend @Video1 by ~"+Math.round(duration)+" seconds, continuing seamlessly from where it ends: "+prompt.trim();
       const res = await gen.generate({ frameUrl:freshFrameUrl, videoUrls:[playerUrl], prompt:extendPrompt, controls,
+        spend:{ cost:renderCost, reason:"stage-video-extend", uid:uid0 },   // settled at COMPLETION, rides the job
         durationMs:duration*1000, aspectRatio:effAspect||"auto", fast:!!tierObj.fast, resolution, bitrateMode:bitrate, force:true });
       if(res && res.seed!=null) setLastSeed(res.seed);
-      if(res && !res.cached && typeof window.cloudSpendCredit==="function"){ try{ await window.cloudSpendCredit(renderCost); }catch(_e){} }
       try{ window.dispatchEvent(new CustomEvent("turn-credits-changed",{ detail:{ reason:"stage-video-extend", cost:renderCost } })); }catch(_e){}
     }catch(e){ if(typeof window.appToast==="function") window.appToast(stageFriendlyVideoError(e),"error"); }
   };
@@ -3993,6 +4002,104 @@ function clipLinePlacements(clip, auds){
   return out;
 }
 
+/* ---- FILM EXPORT — stitch every rendered clip's current take into ONE movie,
+   entirely in the browser: each take plays through a hidden <video> into a canvas
+   + WebAudio graph feeding a single MediaRecorder, so the export runs in REAL TIME
+   (a 3-minute film records for ~3 minutes) and lands as a WebM download — the only
+   format browsers can record natively. Needs the provider CDN to allow cross-site
+   reads (fal.media sends CORS headers); a blocked read aborts with a plain
+   explanation instead of a corrupt file. ---- */
+function stageExportPlaylist(ordered, vids){
+  return (ordered||[]).filter(c=>c && vids && vids[c.id]).map(c=>({ id:c.id, label:c.label||"", url:vids[c.id] }));
+}
+window.stageExportPlaylist = stageExportPlaylist;   // pure — covered by the vm suite
+async function stageExportFilm(playlist, opts){
+  opts = opts||{};
+  if(!playlist || !playlist.length) throw new Error("No rendered clips to export yet — render takes in the Shoot tab first.");
+  if(typeof MediaRecorder==="undefined") throw new Error("This browser can't record video (MediaRecorder missing) — try Chrome or Edge.");
+  const video = document.createElement("video");
+  video.crossOrigin = "anonymous"; video.playsInline = true; video.preload = "auto";
+  const AC = window.AudioContext||window.webkitAudioContext;
+  const ac = new AC();
+  /* the element's sound goes into the RECORDING only, not the speakers: a
+     MediaElementSource takes over the element's output, and the graph never
+     connects to ac.destination. */
+  const srcNode = ac.createMediaElementSource(video);
+  const dest = ac.createMediaStreamDestination();
+  srcNode.connect(dest);
+  const loadClip = (url)=> new Promise((res,rej)=>{
+    video.onloadedmetadata = ()=>res();
+    video.onerror = ()=>rej(new Error("A take couldn't be loaded for export — its video URL may have expired. Re-render that clip and try again."));
+    video.src = url; video.load();
+  });
+  let raf = 0, failed = null, taintChecked = false, rec = null, stream = null;
+  // ONE finalization path — every exit (success, cancel, load failure, CORS
+  // taint) lands in `finally`, which must also stop the recorder and capture
+  // tracks or a cancelled export leaks a live recorder + camera-style tracks.
+  const cleanup = ()=>{ try{ cancelAnimationFrame(raf); }catch(e){}
+    try{ if(rec && rec.state!=="inactive") rec.stop(); }catch(e){}
+    try{ if(stream) stream.getTracks().forEach(t=>t.stop()); }catch(e){}
+    try{ video.pause(); video.removeAttribute("src"); video.load(); }catch(e){}
+    try{ srcNode.disconnect(); }catch(e){}
+    try{ ac.close(); }catch(e){} };
+  try{
+    await loadClip(playlist[0].url);
+    const vw = video.videoWidth||1280, vh = video.videoHeight||720;
+    const scale = Math.min(1, 1920/Math.max(vw,vh));
+    const cv = document.createElement("canvas");
+    cv.width = Math.max(2, Math.round(vw*scale/2)*2); cv.height = Math.max(2, Math.round(vh*scale/2)*2);
+    const cx = cv.getContext("2d");
+    cx.fillStyle = "#000"; cx.fillRect(0,0,cv.width,cv.height);
+    const mime = ["video/webm;codecs=vp9,opus","video/webm;codecs=vp8,opus","video/webm"]
+      .find(m=>{ try{ return MediaRecorder.isTypeSupported(m); }catch(e){ return false; } }) || "";
+    stream = cv.captureStream(30);
+    dest.stream.getAudioTracks().forEach(t=>stream.addTrack(t));
+    rec = new MediaRecorder(stream, mime ? { mimeType:mime, videoBitsPerSecond:8000000 } : undefined);
+    const chunks = [];
+    rec.ondataavailable = (e)=>{ if(e.data && e.data.size) chunks.push(e.data); };
+    const recStopped = new Promise(res=>{ rec.onstop = ()=>res(); });
+    const draw = ()=>{
+      if(failed) return;
+      try{
+        if(video.readyState>=2 && video.videoWidth){
+          const s = Math.min(cv.width/video.videoWidth, cv.height/video.videoHeight);
+          const w = video.videoWidth*s, h = video.videoHeight*s;
+          cx.fillStyle = "#000"; cx.fillRect(0,0,cv.width,cv.height);
+          cx.drawImage(video, (cv.width-w)/2, (cv.height-h)/2, w, h);
+          // read ONE pixel on the first drawn frame: a CORS-tainted canvas throws
+          // HERE, up front, instead of delivering an unplayable file at the end
+          if(!taintChecked){ cx.getImageData(0,0,1,1); taintChecked = true; }
+        }
+      }catch(e){
+        failed = new Error("The video provider blocked cross-site reading of a take, so the browser can't record it into one file. Download takes individually from the Takes tab instead.");
+        return;
+      }
+      raf = requestAnimationFrame(draw);
+    };
+    try{ await ac.resume(); }catch(e){}
+    rec.start(1000);
+    draw();
+    for(let i=0;i<playlist.length;i++){
+      if(failed) break;
+      if(opts.shouldCancel && opts.shouldCancel()) throw new Error("Export cancelled.");
+      if(i>0) await loadClip(playlist[i].url);
+      if(opts.onProgress) opts.onProgress(i+1, playlist.length, playlist[i].label);
+      await video.play();
+      await new Promise((res)=>{
+        const tick = setInterval(()=>{ if(failed || (opts.shouldCancel && opts.shouldCancel())){ clearInterval(tick); res(); } }, 250);
+        video.onended = ()=>{ clearInterval(tick); res(); };
+      });
+    }
+    if(!failed && opts.shouldCancel && opts.shouldCancel()) failed = new Error("Export cancelled.");
+    try{ rec.stop(); }catch(e){}
+    await recStopped;
+    if(failed) throw failed;
+    if(!chunks.length) throw new Error("The recording came out empty — try again, or use a Chromium browser (Chrome/Edge).");
+    return new Blob(chunks, { type: mime || "video/webm" });
+  } finally { cleanup(); }
+}
+window.stageExportFilm = stageExportFilm;
+
 /* ---- TIMELINE tab — the FILM ASSEMBLY. Every clip in story order, grouped by scene,
    playing the CURRENT take back-to-back ("Restore as current" in Versions decides what
    plays). Read-only on purpose: the story defines the order; the Stage tab renders,
@@ -4003,6 +4110,31 @@ function StageTimelineView({ allClips, vids, imgs, visualSource, selId, onSelect
   const [idx, setIdx] = React.useState(startIdx);
   const [playAll, setPlayAll] = React.useState(false);
   const videoRef = React.useRef(null);
+  // follow the rail selection while this tab is open (it used to freeze on the
+  // selection captured at mount — picking another clip in the rail did nothing here)
+  React.useEffect(()=>{ const i = (allClips||[]).findIndex(c=>c.id===selId); if(i>=0) setIdx(x=> x===i ? x : i); },[selId]);
+  const [exporting, setExporting] = React.useState(null);   // { i, n } while recording
+  const exportCancelRef = React.useRef(false);
+  const doExport = async ()=>{
+    const pl = stageExportPlaylist(ordered, vids);
+    if(!pl.length) return;
+    exportCancelRef.current = false;
+    setExporting({ i:0, n:pl.length });
+    try{
+      const blob = await stageExportFilm(pl, {
+        onProgress:(i,n)=>setExporting({ i, n }),
+        shouldCancel:()=>exportCancelRef.current });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "TURN-film-"+new Date().toISOString().slice(0,10)+".webm";
+      a.click();
+      setTimeout(()=>{ try{ URL.revokeObjectURL(a.href); }catch(e){} }, 60000);
+      if(typeof window.appToast==="function") window.appToast("Film exported — "+pl.length+" clip"+(pl.length!==1?"s":"")+" stitched into one WebM file.","success");
+    }catch(e){
+      if(!/cancelled/i.test(String(e&&e.message)) && typeof window.appToast==="function")
+        window.appToast(String((e&&e.message)||"Export failed."),"error");
+    }finally{ setExporting(null); exportCancelRef.current = false; }
+  };
   const cur = ordered[idx] || null;
   const curUrl = cur ? (vids[cur.id]||"") : "";
   const renderedN = ordered.filter(c=>vids[c.id]).length;
@@ -4026,7 +4158,12 @@ function StageTimelineView({ allClips, vids, imgs, visualSource, selId, onSelect
         renderedN+" / "+ordered.length+" clips rendered · "+_fmtSecs(doneSec)+" of ~"+_fmtSecs(totalSec)),
       _stEl("button",{className:"stage2-vtool",style:{width:"auto"},disabled:!renderedN,
         title:renderedN?"Play every rendered clip in story order":"Render clips in the Shoot tab first",
-        onClick:playFilm}, playAll?"Playing…":"▶ Play film")),
+        onClick:playFilm}, playAll?"Playing…":"▶ Play film"),
+      _stEl("button",{className:"stage2-vtool",style:{width:"auto"},disabled:!renderedN && !exporting,
+        title: exporting ? "Recording in real time — click to cancel the export"
+          : (renderedN ? "Record every rendered clip into ONE downloadable movie (WebM). Runs in real time — a 3-minute film takes about 3 minutes." : "Render clips in the Shoot tab first"),
+        onClick: exporting ? ()=>{ exportCancelRef.current = true; } : doExport},
+        exporting ? ("■ Recording "+exporting.i+"/"+exporting.n+"…") : "⬇ Export film")),
     _stEl("div",{className:"stage2-tl-player"},
       curUrl
         ? _stEl("video",{key:curUrl,ref:videoRef,src:curUrl,controls:true,playsInline:true,onEnded,
@@ -4061,8 +4198,17 @@ function StageAudioView({ allClips, vids, auds, selId, onSelectClip }){
   const selScene = (allClips.find(c=>c.id===selId)||allClips[0]||{}).scene;
   const [sceneId, setSceneId] = React.useState(selScene ? selScene.id : (scenes[0]&&scenes[0].id));
   const sceneClips = (allClips||[]).filter(c=>c.scene.id===sceneId);
-  const [gain, setGain] = React.useState({ native:0.35, dialogue:1, amb:0.7, music:0.5 });
-  const [mute, setMute] = React.useState({});
+  // follow the rail selection while this tab is open (it used to freeze on the
+  // scene captured at mount — selecting a clip from another scene did nothing here)
+  React.useEffect(()=>{ if(selScene && selScene.id && selScene.id!==sceneId) setSceneId(selScene.id); },[selId]);
+  // mix settings survive the session — per film, on this device
+  const mixKey = (()=>{ const sc = (typeof window.nbCloudScope==="function") ? window.nbCloudScope() : null;
+    return "turn_stage_mix_"+((sc&&sc.projectId)||"local"); })();
+  const [gain, setGain] = React.useState(()=>{ try{ const s=JSON.parse(localStorage.getItem(mixKey)||"null");
+    if(s&&s.gain&&typeof s.gain.native==="number") return s.gain; }catch(e){} return { native:0.35, dialogue:1, amb:0.7, music:0.5 }; });
+  const [mute, setMute] = React.useState(()=>{ try{ const s=JSON.parse(localStorage.getItem(mixKey)||"null");
+    if(s&&s.mute) return s.mute; }catch(e){} return {}; });
+  React.useEffect(()=>{ try{ localStorage.setItem(mixKey, JSON.stringify({ gain, mute })); }catch(e){} },[gain,mute,mixKey]);
   const [beds, setBeds] = React.useState({});          // {amb:{url,name}, music:{url,name}}
   const [clipIdx, setClipIdx] = React.useState(0);
   const [playing, setPlaying] = React.useState(false);
@@ -4150,7 +4296,7 @@ function StageAudioView({ allClips, vids, auds, selId, onSelectClip }){
             _stEl("input",{type:"file",accept:"audio/*",style:{display:"none"},onChange:importBed("music")})),
           _stEl("audio",{ref:bedRefs.music,src:(beds.music&&beds.music.url)||undefined})))),
     _stEl("div",{className:"stage2-au-note foot"},
-      "Preview mix — the picture plays each clip's current take with its native track at the Picture volume; your pristine line audio drops in exactly where the render placed it. Beds live for this session; bounced exports land with the post engine."));
+      "Preview mix — the picture plays each clip's current take with its native track at the Picture volume; your pristine line audio drops in exactly where the render placed it. Volume and mute settings are remembered per film on this device; imported beds live for this session only. For a downloadable movie, use Export film in the Timeline tab."));
 }
 
 /* a composer pill that opens a dropdown of options — the inline alternative to the
