@@ -2142,18 +2142,12 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     const ok = SEEDANCE_MODELS.find(m=>m.status==="active" && planAllowsModel(m.id));
     if(ok){ setModelId(ok.id); const t0=seedanceTierOf(ok, tier); if(t0) setTier(t0.id); }
   }, [modelId, planGate && planGate.tier]);
-  // DEFAULT MODEL — Seedance 2.0 for every clip until the user picks one by hand
-  // (then their choice rules): voice-locked lip-sync, per-shot frames and identity
-  // refs in one budget. Tier gates always respected.
-  const modelTouchedRef = React.useRef(false);
-  React.useEffect(()=>{
-    if(modelTouchedRef.current) return;
-    const want = "seedance-2.0";
-    if(want===modelId) return;
-    const m = seedanceModelOf(want);
-    if(m.id!==want || m.status!=="active" || !planAllowsModel(want)) return;
-    setModelId(want); const t0=seedanceTierOf(m, tier); if(t0) setTier(t0.id);
-  }, [clip.id]);
+  // MODEL DEFAULT — Seedance 2.0 for a fresh user comes from the panel's state init
+  // (first active registry entry). A stored model can ONLY exist through a hand pick,
+  // so the persisted choice rules unconditionally. (The old auto-revert effect here
+  // kept its "hand-picked" flag in a ref that died on every console remount — scene
+  // switch or reload — while the pick itself persisted, so a saved 2.5 was silently
+  // snapped back to 2.0 on mount. Removed 2026-09-02; only plan gates may steer.)
   React.useEffect(()=>{ if(batchN>planMaxBatch) setBatchN(planMaxBatch); }, [planMaxBatch]);
   // dialogue/duration are now CLIP-wide — a clip can bundle several merged shots, so the
   // voice lock and measured duration must account for every dialogue line in the clip,
@@ -2798,7 +2792,6 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
         _stEl("b",null,"Prompt formula — "), model.promptFormula),
       onPick:(id)=>{ const m=seedanceModelOf(id); if(m.status!=="active") return;
         if(!planAllowsModel(id)){ openPlansUpsell(); return; }
-        modelTouchedRef.current = true;   // a hand-picked model rules — auto-pick stands down
         setModelId(id); const t0=seedanceTierOf(m,tier); if(t0) setTier(t0.id); } },
     { key:"aspect", icon:Icon.monitor, label:effAspect, title:"Aspect ratio — the project format's default is "+(aspect||"16:9"), heading:"Aspect ratio",
       options:["auto","21:9","16:9","4:3","1:1","3:4","9:16"].map(v=>({ value:v,
@@ -3057,7 +3050,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
             return sdOption({ id:m.id, label:m.label, selected:modelId===m.id, disabled:m.status!=="active",
               desc:m.bestFor, note:m.status!=="active" ? m.note : (planLocked ? "Director plan required" : ""),
               onPick:()=>{ if(planLocked){ openPlansUpsell(); return; }
-                modelTouchedRef.current = true; setModelId(m.id);
+                setModelId(m.id);
                 const t0=seedanceTierOf(m,tier); if(t0) setTier(t0.id); } });
           }))),
       sdPill("scope","scope","Clip scope — how much one render covers",
@@ -3527,7 +3520,6 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
               : m.label,
           onClick:()=>{ if(m.status!=="active") return;
             if(planLocked){ openPlansUpsell(); return; }
-            modelTouchedRef.current = true;   // hand-pick from the settings panel also stands down the auto default
             setModelId(m.id); const t0=seedanceTierOf(m,tier); if(t0) setTier(t0.id); }},
           m.label,
           m.status==="soon" && _stEl("span",{className:"sd-gen-model-soon"},"Soon"),
