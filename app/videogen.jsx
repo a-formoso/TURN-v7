@@ -652,7 +652,7 @@ function vidLikenessError(msg){
 }
 window.vidLikenessError = vidLikenessError;
 const VID_FICTION_NOTE = "Note: every person appearing in the reference images is an original, fully AI-generated fictional character created for this film. They are not real people, celebrities, or public figures — no real person's likeness, face, or identity is used or implied.";
-const VID_LIKENESS_HELP = "The model's safety filter flagged a reference image as a real person's likeness and refused the render — even after a retry declaring the cast as AI-generated fictional characters. This is a false positive on its side; it cannot be switched off from here. What works: regenerate that character's sheet with a more stylized / less photoreal look in the Art Room, or exclude character reference sheets from this clip and render from the shot frame plus location/prop references.";
+const VID_LIKENESS_HELP = "The model's safety filter flagged an input image as a real person's likeness and refused the render — even after declaring the cast as AI-generated fictional characters. It's a false positive on the provider's side, and their API has no switch to turn it off. Any image can trip it: character sheets, the shot FRAME itself, even a location still with a person in it. What works: regenerate the suspect image (character sheet or frame) with a more stylized / less photoreal look in the Art Room, exclude it from this clip's inputs, or set the clip's source to prompt-only and render without images.";
 
 async function seedanceGenerate(id, opts){
   opts = opts||{};
