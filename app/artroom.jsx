@@ -1224,89 +1224,38 @@ if(typeof window.nbCancelGen!=="function"){
 }
 
 /* ============================================================
-   useImageGen — shared Nano Banana generation engine for any
-   "sheet" entity (characters, props, …). Owns image state, the
-   reference-photo slot watcher, edit mode, auto-retry, grounding,
-   and tiered persistence. Parameterized by prompt builders so the
-   same machinery drives every kind of reference sheet.
+   nbRunSheetGeneration — the generation LIFECYCLE engine behind
+   useImageGen. A plain async function (no React): it claims the
+   per-id registry with a run token, runs the optional pre-generate
+   gate (fail-closed), assembles references and the prompt, spends
+   the request, and persists — re-checking cancellation, supersession
+   and film scope (epoch) after every await. All UI state flows
+   through env.ui callbacks, making the hook a thin adapter and this
+   whole lifecycle headlessly testable against the dist build
+   (scripts/test-artroom-genrun.mjs).
+   env: { id, slotId, opts, allModels, genUrl, genMeta, slotHasRef,
+          ui:{ setGenErr, setGening, setRetrying, setGenUrl,
+               setGenTier, setGenMeta, closeEdit } }
    ============================================================ */
-function useImageGen(opts){
-  const { id, slotId } = opts;
-  // module-level registry of in-flight generations, so a generation survives the
-  // owning card unmounting (e.g. switching Art Room tabs mid-generate). A remounted
-  // card reads this to restore the spinner, and a global "nb-gen-done" event lets it
-  // adopt the committed result even though the original card instance is gone.
+/* PRIVACY DISCLOSURE text for Image Details: when personal images (a dropped
+   reference photo, the cameo likeness, device uploads in the edit panel) guided
+   a cloud render, they are deliberately NOT stored with the project — but Details
+   must still tell the truth about what shaped the image. Pure + window-exported
+   so the headless lifecycle suite can assert the disclosure exists. */
+function nbPrivateRefsNote(meta){
+  const n = (meta && meta.privateRefs) || 0;
+  if(!n) return "";
+  return n===1
+    ? "1 private reference image guided this render \u2014 it stayed on this device and was not saved to the project."
+    : n+" private reference images guided this render \u2014 they stayed on this device and were not saved to the project.";
+}
+window.nbPrivateRefsNote = nbPrivateRefsNote;
+
+async function nbRunSheetGeneration(env, gopts){
+  const { id, slotId, opts, allModels, genUrl, genMeta, slotHasRef, ui } = env;
+  const { setGenErr, setGening, setRetrying, setGenUrl, setGenTier, setGenMeta } = ui;
   if(!window.__nbGenInflight) window.__nbGenInflight = {};
-  const allModels = window.NB_MODELS || [];
-  const [genUrl, setGenUrl] = React.useState(()=> (typeof nbGetImage==="function") ? nbGetImage(id) : "");
-  const [genMeta, setGenMeta] = React.useState(()=> (typeof nbGetMeta==="function") ? nbGetMeta(id) : null);
-  const [genTier, setGenTier] = React.useState("local");
-  const [gening, setGening] = React.useState(()=> !!(window.__nbGenInflight && window.__nbGenInflight[id]));
-  const [genErr, setGenErr] = React.useState("");
-  const [retrying, setRetrying] = React.useState(false);
-  const [slotHasRef, setSlotHasRef] = React.useState(false);
-  const [editMode, setEditMode] = React.useState(false);
-  const [editText, setEditText] = React.useState("");
-  const [layers, setLayers] = React.useState(0);   // count of prior versions (edit layers) you can revert to
-
-  const genUrlRef = React.useRef(genUrl); genUrlRef.current = genUrl;
-
-  const refreshLayers = React.useCallback(async ()=>{
-    if(typeof nbGetHistory!=="function"){ return; }
-    try{ const h = await nbGetHistory(id); setLayers((h&&h.length)||0); }catch(e){ setLayers(0); }
-  },[id]);
-  React.useEffect(()=>{ refreshLayers(); },[refreshLayers, genUrl]);
-
-  /* hydrate from IndexedDB / cloud on mount (large sheets live there, not localStorage) */
-  React.useEffect(()=>{
-    let alive = true;
-    if(!genUrl && typeof nbLoadImage==="function"){
-      nbLoadImage(id).then(u=>{ if(alive && u){ setGenUrl(u); if(typeof nbGetMeta==="function") setGenMeta(nbGetMeta(id)); setGenTier("idb"); } });
-    }
-    // a background prefetch may warm this id's url AFTER we mounted empty — adopt it
-    const onPrefetched = (e)=>{
-      if(!alive || genUrlRef.current || !e.detail || !e.detail.ids || e.detail.ids.indexOf(id)<0) return;
-      const u = (typeof nbGetImage==="function") ? nbGetImage(id) : "";
-      if(u){ setGenUrl(u); if(typeof nbGetMeta==="function") setGenMeta(nbGetMeta(id)); setGenTier("idb"); }
-    };
-    window.addEventListener("nb-prefetched", onPrefetched);
-    // if a generation for THIS id is in flight (started before this mount, e.g. a tab
-    // switch), reflect the spinner; and listen for its completion to adopt the result.
-    if(window.__nbGenInflight && window.__nbGenInflight[id]) setGening(true);
-    const onDone = (e)=>{
-      if(!alive || !e.detail || e.detail.id!==id) return;
-      setGening(false); setRetrying(false);
-      const u = e.detail.url;
-      if(u){ setGenUrl(u); if(typeof nbGetMeta==="function") setGenMeta(nbGetMeta(id)); setGenTier("idb"); }
-      else if(typeof nbLoadImage==="function"){ nbLoadImage(id).then(x=>{ if(alive && x){ setGenUrl(x); setGenTier("idb"); } }); }
-    };
-    window.addEventListener("nb-gen-done", onDone);
-    // user cancelled this id's generation elsewhere (chain Stop / per-card Stop): drop the
-    // spinner now; the in-flight generate() sees __nbGenCancel and won't commit its result.
-    const onCancel = (e)=>{ if(!alive || !e.detail || e.detail.id!==id) return; setGening(false); setRetrying(false); };
-    window.addEventListener("nb-gen-cancel", onCancel);
-    // a run for THIS id started elsewhere (another instance of this card, possibly
-    // already unmounted, finished its pre-generate phase and fired): show the spinner
-    // so this instance also observes the true→false completion transition.
-    const onStart = (e)=>{ if(!alive || !e.detail || e.detail.id!==id) return; setGening(true); };
-    window.addEventListener("nb-gen-start", onStart);
-    return ()=>{ alive=false; window.removeEventListener("nb-gen-done", onDone); window.removeEventListener("nb-prefetched", onPrefetched); window.removeEventListener("nb-gen-cancel", onCancel); window.removeEventListener("nb-gen-start", onStart); };
-  },[id]);
-
-  /* watch the reference-photo slot for drops */
-  React.useEffect(()=>{
-    const check = ()=>{ const url=typeof nbGetSlotImage==="function"?nbGetSlotImage(slotId):null; setSlotHasRef(!!url); };
-    check();
-    const el = document.getElementById(slotId);
-    if(!el) return;
-    const mo = new MutationObserver(check);
-    mo.observe(el,{attributes:true,attributeFilter:["data-filled"]});
-    return ()=>mo.disconnect();
-  },[slotId]);
-
-  const generate = async (gopts)=>{
     gopts = gopts || {};
-    if(gening) return;
     // belt-and-braces: the module registry is the cross-instance truth. A remounted
     // card whose local state missed the in-flight generation must never start a
     // SECOND one for the same id (two versions + double credit spend from one click).
@@ -1356,7 +1305,11 @@ function useImageGen(opts){
        shouldn't pop a modal (a batch would pop one per card). */
     if(typeof opts.beforeGenerate==="function" && !(gopts.batch||gopts.editInstruction||gopts.simple)){
       let proceed=true;
-      try{ proceed = await opts.beforeGenerate(gopts); }catch(e){ proceed=true; }
+      /* FAIL CLOSED: if the pre-generate check itself broke, don't silently render
+         without the safeguards the director asked for — stop and say so instead. */
+      try{ proceed = await opts.beforeGenerate(gopts); }
+      catch(e){ proceed = false;
+        setGenErr("The pre-generation check couldn't complete — nothing was rendered. Try again."); }
       /* re-check ownership after the await: a Stop (which clears our inflight marker)
          or a newer run for this id started while the gate modal was open. This run must
          simply vanish — touching the registries or firing events here would erase the
@@ -1506,22 +1459,38 @@ function useImageGen(opts){
     }
 
     /* collect the reference images actually used, for the details view.
-       PRIVACY: the cameo face is biometric + local-only. Never persist its
-       image into cloud-stored refs (that would upload it); keep meta.cameo
-       so the badge still shows. In local mode it's fine to keep for Details. */
+       PRIVACY: personal source images stay on this device in cloud mode. The cameo
+       face is biometric — and a dropped reference photo or a device upload in the
+       edit panel is just as likely to be a real person's photo. None of them may
+       ride into cloud-persisted refs (cloudCommit uploads every ref URL into shared
+       project storage, where it's retained in history and visible to collaborators).
+       meta.mode / meta.cameo / meta.privateRefs keep Details honest about what was
+       used. GENERATED assets (prop sheets, base sheets, previous frames) are project
+       material and persist as before. In local mode everything stays on-device
+       anyway, so the originals are kept for Details. */
     const isCloud = (typeof nbBackend==="function" && nbBackend()==="cloud");
+    let privateRefs = 0;   // personal images used for THIS render but kept off the project
     const refLabel = mode==="edit" ? "Previous sheet (edited)" : (mode==="photo"||mode==="cameo") ? (mode==="cameo"?"Cameo likeness":"Reference photo")
       : mode==="base" ? "Base sheet" : null;
     const refsUsed = [];
-    if(refImage && refLabel && !(mode==="cameo" && isCloud)) refsUsed.push({ kind:mode, label:refLabel, url:refImage });
+    if(refImage && refLabel){
+      if(isCloud && (mode==="cameo" || mode==="photo")) privateRefs++;
+      else refsUsed.push({ kind:mode, label:refLabel, url:refImage });
+    }
     attachList.forEach(a=>refsUsed.push({ kind:a.kind||"prop", label:a.note||"Reference image", url:a.url, refId:a.refId }));
     // user-attached edit inputs (the "+" menu: uploads and prop sheets, incl. carried)
     // — recorded so Details › "Reference images used" tells the whole story of an edit
     if(isEditMode && Array.isArray(gopts.editRefMeta)){
-      gopts.editRefMeta.forEach(r=>{ if(r && r.url && !refsUsed.some(x=>x.url===r.url))
-        refsUsed.push({ kind:"edit-input", label:r.note||"Edit input image", url:r.url, refId:r.refId }); });
+      gopts.editRefMeta.forEach(r=>{ if(r && r.url && !refsUsed.some(x=>x.url===r.url)){
+        // entries without a refId are device uploads — same personal-photo rule as above
+        if(isCloud && !r.refId) privateRefs++;
+        else refsUsed.push({ kind:"edit-input", label:r.note||"Edit input image", url:r.url, refId:r.refId });
+      }});
     }
-    if(cameoUrl && mode==="base" && !isCloud) refsUsed.push({ kind:"cameo", label:"Cameo likeness", url:cameoUrl });
+    if(cameoUrl && mode==="base"){
+      if(isCloud) privateRefs++;
+      else refsUsed.push({ kind:"cameo", label:"Cameo likeness", url:cameoUrl });
+    }
 
     let actualModel = usedModel;     // may change if we fall back to another provider below
     let policyFellBack = "";
@@ -1592,6 +1561,9 @@ function useImageGen(opts){
         cameo: !!cameoUsed,
         propRefs: attachCount,
         refCount: refsUsed.length,
+        // personal images (reference photo / cameo / device uploads) that guided this
+        // render but were deliberately NOT stored with the project (cloud mode privacy)
+        privateRefs: privateRefs || undefined,
         prompt: genPrompt,
         mode: mode,
         editInstruction: isEditMode ? (gopts.editInstruction||"") : "",
@@ -1637,7 +1609,7 @@ function useImageGen(opts){
       setGenUrl(committedUrl);
       setGenTier((saveResult && saveResult.tier) || "local");
       setGenMeta(meta);
-      if(isEditMode){ setEditMode(false); setEditText(""); }
+      if(isEditMode && typeof ui.closeEdit==="function") ui.closeEdit();
       // tell the user why this frame looks like the other engine
       if(policyFellBack && typeof window.appToast==="function")
         window.appToast("GPT Image blocked that for content policy — rendered with "+policyFellBack+" instead.", "info");
@@ -1661,6 +1633,97 @@ function useImageGen(opts){
     // its spinner from the registry doesn't wedge.
     if(!wasCancelled){ try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id, url: committedUrl } })); }catch(e){} }
     else if(own){ try{ window.dispatchEvent(new CustomEvent("nb-gen-cancel",{ detail:{ id } })); }catch(e){} }
+}
+window.nbRunSheetGeneration = nbRunSheetGeneration;
+
+/* ============================================================
+   useImageGen — shared Nano Banana generation engine for any
+   "sheet" entity (characters, props, …). Owns image state, the
+   reference-photo slot watcher, edit mode, auto-retry, grounding,
+   and tiered persistence. Parameterized by prompt builders so the
+   same machinery drives every kind of reference sheet.
+   ============================================================ */
+function useImageGen(opts){
+  const { id, slotId } = opts;
+  // module-level registry of in-flight generations, so a generation survives the
+  // owning card unmounting (e.g. switching Art Room tabs mid-generate). A remounted
+  // card reads this to restore the spinner, and a global "nb-gen-done" event lets it
+  // adopt the committed result even though the original card instance is gone.
+  if(!window.__nbGenInflight) window.__nbGenInflight = {};
+  const allModels = window.NB_MODELS || [];
+  const [genUrl, setGenUrl] = React.useState(()=> (typeof nbGetImage==="function") ? nbGetImage(id) : "");
+  const [genMeta, setGenMeta] = React.useState(()=> (typeof nbGetMeta==="function") ? nbGetMeta(id) : null);
+  const [genTier, setGenTier] = React.useState("local");
+  const [gening, setGening] = React.useState(()=> !!(window.__nbGenInflight && window.__nbGenInflight[id]));
+  const [genErr, setGenErr] = React.useState("");
+  const [retrying, setRetrying] = React.useState(false);
+  const [slotHasRef, setSlotHasRef] = React.useState(false);
+  const [editMode, setEditMode] = React.useState(false);
+  const [editText, setEditText] = React.useState("");
+  const [layers, setLayers] = React.useState(0);   // count of prior versions (edit layers) you can revert to
+
+  const genUrlRef = React.useRef(genUrl); genUrlRef.current = genUrl;
+
+  const refreshLayers = React.useCallback(async ()=>{
+    if(typeof nbGetHistory!=="function"){ return; }
+    try{ const h = await nbGetHistory(id); setLayers((h&&h.length)||0); }catch(e){ setLayers(0); }
+  },[id]);
+  React.useEffect(()=>{ refreshLayers(); },[refreshLayers, genUrl]);
+
+  /* hydrate from IndexedDB / cloud on mount (large sheets live there, not localStorage) */
+  React.useEffect(()=>{
+    let alive = true;
+    if(!genUrl && typeof nbLoadImage==="function"){
+      nbLoadImage(id).then(u=>{ if(alive && u){ setGenUrl(u); if(typeof nbGetMeta==="function") setGenMeta(nbGetMeta(id)); setGenTier("idb"); } });
+    }
+    // a background prefetch may warm this id's url AFTER we mounted empty — adopt it
+    const onPrefetched = (e)=>{
+      if(!alive || genUrlRef.current || !e.detail || !e.detail.ids || e.detail.ids.indexOf(id)<0) return;
+      const u = (typeof nbGetImage==="function") ? nbGetImage(id) : "";
+      if(u){ setGenUrl(u); if(typeof nbGetMeta==="function") setGenMeta(nbGetMeta(id)); setGenTier("idb"); }
+    };
+    window.addEventListener("nb-prefetched", onPrefetched);
+    // if a generation for THIS id is in flight (started before this mount, e.g. a tab
+    // switch), reflect the spinner; and listen for its completion to adopt the result.
+    if(window.__nbGenInflight && window.__nbGenInflight[id]) setGening(true);
+    const onDone = (e)=>{
+      if(!alive || !e.detail || e.detail.id!==id) return;
+      setGening(false); setRetrying(false);
+      const u = e.detail.url;
+      if(u){ setGenUrl(u); if(typeof nbGetMeta==="function") setGenMeta(nbGetMeta(id)); setGenTier("idb"); }
+      else if(typeof nbLoadImage==="function"){ nbLoadImage(id).then(x=>{ if(alive && x){ setGenUrl(x); setGenTier("idb"); } }); }
+    };
+    window.addEventListener("nb-gen-done", onDone);
+    // user cancelled this id's generation elsewhere (chain Stop / per-card Stop): drop the
+    // spinner now; the in-flight generate() sees __nbGenCancel and won't commit its result.
+    const onCancel = (e)=>{ if(!alive || !e.detail || e.detail.id!==id) return; setGening(false); setRetrying(false); };
+    window.addEventListener("nb-gen-cancel", onCancel);
+    // a run for THIS id started elsewhere (another instance of this card, possibly
+    // already unmounted, finished its pre-generate phase and fired): show the spinner
+    // so this instance also observes the true→false completion transition.
+    const onStart = (e)=>{ if(!alive || !e.detail || e.detail.id!==id) return; setGening(true); };
+    window.addEventListener("nb-gen-start", onStart);
+    return ()=>{ alive=false; window.removeEventListener("nb-gen-done", onDone); window.removeEventListener("nb-prefetched", onPrefetched); window.removeEventListener("nb-gen-cancel", onCancel); window.removeEventListener("nb-gen-start", onStart); };
+  },[id]);
+
+  /* watch the reference-photo slot for drops */
+  React.useEffect(()=>{
+    const check = ()=>{ const url=typeof nbGetSlotImage==="function"?nbGetSlotImage(slotId):null; setSlotHasRef(!!url); };
+    check();
+    const el = document.getElementById(slotId);
+    if(!el) return;
+    const mo = new MutationObserver(check);
+    mo.observe(el,{attributes:true,attributeFilter:["data-filled"]});
+    return ()=>mo.disconnect();
+  },[slotId]);
+
+  const generate = async (gopts)=>{
+    if(gening) return;   // local spinner state — every cross-instance guard lives in the runner
+    return await nbRunSheetGeneration({
+      id, slotId, opts, allModels, genUrl, genMeta, slotHasRef,
+      ui: { setGenErr, setGening, setRetrying, setGenUrl, setGenTier, setGenMeta,
+        closeEdit: ()=>{ setEditMode(false); setEditText(""); } },
+    }, gopts);
   };
   const cancelGen = ()=>{ if(gening && typeof window.nbCancelGen==="function") window.nbCancelGen(id); };
   const clearGen = async ()=>{
@@ -2040,6 +2103,10 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
   } else if(!selVer){
     displayRefs = refs.map(r=>({ url:r.url, label:r.label }));
   }
+  /* PRIVACY DISCLOSURE — the anchored version may have been guided by personal
+     images deliberately kept off the project (cloud mode). Details must say so
+     instead of claiming "generated from the prompt alone". */
+  const privNote = (typeof nbPrivateRefsNote==="function") ? nbPrivateRefsNote(anchorMeta) : "";
   /* clipboard copy with a fallback for sandboxed iframes where the async
      Clipboard API is blocked (same fix as CopyBox). key tracks which button copied. */
   const copyText = async (text, key)=>{
@@ -2170,7 +2237,7 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
               React.createElement(Icon[copiedKey==="main"?"check":"copy"],{s:12}), copiedKey==="main"?"Copied":"Copy")),
           React.createElement("div",{className:"dt-prompt"},meta.prompt)),
         /* reference images used */
-        (displayRefs.length>0 || selVer) && React.createElement("div",{className:"dt-section"},
+        (displayRefs.length>0 || selVer || privNote) && React.createElement("div",{className:"dt-section"},
           React.createElement("div",{className:"dt-sec-lab"},"Reference images used"+(displayRefs.length?(" ("+displayRefs.length+")"):"")),
           displayRefs.length>0
             ? React.createElement("div",{className:"dt-thumbs"},
@@ -2186,7 +2253,10 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
                       const hit=[...(C.props||[]),...(C.characters||[]),...(C.locations||[])].find(x=>x&&x.id===r.refId);
                       if(hit&&hit.name) return hit.name+(hit.kind?(" ("+hit.kind+")"):""); }
                     return r.label; })()))))
-            : React.createElement("div",{className:"dt-noref"},"No reference images for this version \u2014 generated from the prompt alone.")),
+            : React.createElement("div",{className:"dt-noref"},
+                privNote || "No reference images for this version \u2014 generated from the prompt alone."),
+          (privNote && displayRefs.length>0)
+            ? React.createElement("div",{className:"dt-noref"},privNote) : null),
         /* version history — each prior version is an edit "layer" you can preview or restore */
         history.length>0 && React.createElement("div",{className:"dt-section"},
           React.createElement("div",{className:"dt-sec-lab"},
@@ -3922,13 +3992,30 @@ function CharacterSheet({ c, project, scenes, props, drafts, speaks, onUpdate, o
       // sheets are picked up by collectAttachments at character-generate time).
       if(typeof window.generatePropSheet==="function"){
         preparingRef.current = true;
+        // truthful prerequisite outcomes: the director chose "Generate first" — a prop
+        // sheet that failed must not be silently skipped (the character would render
+        // that item from text only, exactly what they asked to avoid)
+        const failedProps = [];
         for(let i=0;i<list.length;i++){
           setPrepProps({ done:i, total:n, name:list[i].name||"prop" });
-          try{ await window.generatePropSheet(list[i], project); }catch(e){}
+          let ok = false;
+          try{ ok = (await window.generatePropSheet(list[i], project))===true; }catch(e){ ok = false; }
+          if(!ok) failedProps.push(list[i].name||"Prop");
         }
         setPrepProps(null);
         preparingRef.current = false;
         setSheetTick(t=>t+1);                          // refresh the "has sheet" indicators
+        if(failedProps.length){
+          const go = await window.appConfirm({
+            title: failedProps.length+" of "+n+" prop sheet"+(n>1?"s":"")+" couldn't be generated",
+            body: "Continuing would render "+(failedProps.length>1?"these items":"this item")
+              +" from the text description only — not a locked design.",
+            items: failedProps,
+            confirmLabel: "Continue without "+(failedProps.length>1?"them":"it"),
+            cancelLabel: "Cancel",
+          });
+          if(go!==true && go!=="alt") return false;    // fail closed — never render silently
+        }
       }
       return true;
     },

@@ -818,6 +818,9 @@ async function generatePropSheet(p, project){
     // Do NOT announce completion — a same-id card in the NEW film must not adopt the
     // uncommitted image. Quiet failure: the caller sees "didn't complete".
     if(_r && _r.tier==="stale") return false;
+    // a render whose SAVE failed is a failure too — callers (the character's
+    // "generate missing sheets first" gate, batch runs) must not count it as done
+    if(!_r || _r.tier==="error") return false;
     // let any mounted card (the prop's own, or a char card watching its props) adopt it
     try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id:p.id, url } })); }catch(e){}
     return true;

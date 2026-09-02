@@ -10,4 +10,5 @@
 - [Gen registry ownership](gen-registry-ownership.md) — __nbGenInflight is keyed by GEN id (not slot id) and holds a run token; re-check ownership after every await before spending/committing/cleanup.
 - [Background commit epoch](background-commit-epoch.md) — background gen pipelines must pass the start-time film epoch into the asset commit and treat tier:"stale" as a quiet discard.
 - [Cold-cache existence](cold-cache-existence.md) — "missing → generate" decisions must await the async asset loader; the sync cache is empty after reload/film switch in cloud mode.
+- [Personal ref privacy](personal-ref-privacy.md) — device-origin images never ride into cloud refs; disclose via meta.privateRefs; gates fail closed.
 - [Shot seed lineage](shot-seed-lineage.md) — chain staleness is derived, direct-not-transitive; commit hook rebuilds meta fresh, so edit renders must re-supply persistent keys via metaStart.

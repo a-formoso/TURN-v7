@@ -1,0 +1,7 @@
+---
+name: Personal reference privacy
+description: Cloud-persisted refs must never contain personal source images; disclosure via meta.privateRefs
+---
+**Rule:** in cloud mode, personal source images (dropped reference photos, cameo likenesses, device uploads in edit panels — anything whose pixels came from the user's device rather than a generated project asset) must never be included in the refs passed to the commit (cloudCommit uploads EVERY ref url into shared project storage, retained in history, visible to collaborators). Generated assets (identified by a refId) persist as before. Count each exclusion into meta.privateRefs so Details can disclose "N private reference image(s) … not saved to the project" instead of falsely claiming prompt-only.
+**Why:** an audit found dropped reference photos (often real people) uploaded to shared storage while the cameo rule pretended likenesses were local-only; disclosure without the url keeps Details truthful without the retention.
+**How to apply:** any NEW path that assembles refs for a commit must apply the device-origin test (no refId / data-url from user input → exclude in cloud, keep in local) and bump privateRefs. UI claiming "generated from prompt alone" must check privateRefs first. Sibling rule: prerequisite/pre-generate gates fail CLOSED — a gate exception or an unreported sub-generation failure must stop or explicitly confirm, never silently proceed.
