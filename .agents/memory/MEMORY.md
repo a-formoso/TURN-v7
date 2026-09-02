@@ -16,3 +16,4 @@
 - [Spend settlement](spend-settlement.md) — charges ride the render job (event id + launcher uid), settled at completion by any path; server dedupe needs the spend-idempotency SQL run first.
 - [Video take cloud sync](video-take-cloud-sync.md) — takes ride turn_generations kind:"video"; dirty + known-ids ledgers (never blind-sweep shared IDB); scope re-checked at execution; shared poll lease.
 - [VM sandbox timers](vm-test-timers.md) — ref sub-second timers, unref ≥1s module timers, no-op setInterval; stub cloud via window._sbClient.
+- [Pronoun consistency](pronoun-consistency.md) — unset canon is a blind spot: comparison audits silently pass on blank; every "vs canon" check needs an explicit unset branch, prompts need hard-error wording.

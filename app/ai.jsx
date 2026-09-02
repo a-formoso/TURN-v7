@@ -380,7 +380,7 @@ function castPronounBlock(cast){
     if(age) bits.push("apparent age: "+age);
     const b = bits.join(" · ").slice(0,150); return b ? (" — "+b) : ""; };
   const lines = (list||[]).filter(c=>c&&c.name).map(c=>{ const pr=charPronouns(c);
-    return c.name+brief(c)+" · "+(pr || "pronouns unset — refer to this character by NAME only"); });
+    return c.name+brief(c)+" · "+(pr || "pronouns UNSET — gender undecided: refer to this character by NAME only; writing he/she/they for them is a HARD ERROR"); });
   return lines.length ? ("CAST (BINDING — each name belongs to exactly THIS person; use these pronouns EXACTLY; "+
     "never write a cast name onto a different kind of person — if the scene needs someone who matches "+
     "no one below, give them a NEW name instead. PRONOUNS: people are he/him or she/her per this list, "+
@@ -2522,8 +2522,9 @@ async function aiDraftCharacter(character, drivenScenes, project, canon){
     "humanTruth = the ONE observation about HUMAN NATURE this character embodies \u2014 a distinct stance on the controlling idea, GROUNDED in behaviour the screenplay actually shows (cite no scene numbers, just distil the behaviour); one sentence, specific, no platitudes. "+
     "argues = which side of the controlling idea that stance lands on: \"idea\", \"counter\", or \"complicates\" (it genuinely cuts both ways).\n"+
     "voiceDNA describes WRITTEN dialogue rather than casting performance: vocabulary domains, sentence structure, rhythm/cadence, directness, recurring imagery/metaphor sources, language they avoid, and how their syntax changes under pressure. CREATIVE LIMITATION: draw vocabulary domains and imagery sources from the story's WORLD above \u2014 its trades, objects, rooms and rituals \u2014 so every speaker shares the same small world's lexicon while remaining distinct in how they use it (what each notices, names precisely, or refuses to say). Ground it in this person's identity and screenplay evidence; make every field usable by a scene writer.\n"+
+    "pronouns = this character's pronouns, EXACTLY \"he/him\" or \"she/her\" \u2014 judge from the character as written (name, role, screenplay evidence); this becomes their canonical sheet entry, so every future scene uses it.\n"+
     "Keep each concise and specific to THIS story \u2014 no generic screenwriting platitudes.\n"+
-    'Return ONLY JSON: {"conscious":"one sentence","unconscious":"one sentence","arc":"3-5 word arc","dimensions":["trait / counter-trait","..."],'+(wantsCounterpoint?'"counterpoint":"one sentence",':'')+'"humanTruth":"one sentence","argues":"idea|counter|complicates","voiceDNA":{"vocabulary":"","syntax":"","rhythm":"","directness":"","imagery":"","avoids":"","stressShift":""}}.';
+    'Return ONLY JSON: {"pronouns":"he/him|she/her","conscious":"one sentence","unconscious":"one sentence","arc":"3-5 word arc","dimensions":["trait / counter-trait","..."],'+(wantsCounterpoint?'"counterpoint":"one sentence",':'')+'"humanTruth":"one sentence","argues":"idea|counter|complicates","voiceDNA":{"vocabulary":"","syntax":"","rhythm":"","directness":"","imagery":"","avoids":"","stressShift":""}}.';
   try{
     const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }] });
     const j = extractJSON(res);
@@ -2538,6 +2539,9 @@ async function aiDraftCharacter(character, drivenScenes, project, canon){
       ...( (wantsCounterpoint && String(j.counterpoint||"").trim())
         ? { counterpoint: clipWords(scrubBrand(String(j.counterpoint)),160) } : {} ),
       humanTruth: clipWords(scrubBrand((j.humanTruth||"").toString()),180),
+      // canonical pronouns — an explicit sheet pick always wins over a re-inference
+      ...( (/^(he\/him|she\/her)$/.test(String(j.pronouns||"").toLowerCase().trim()) && !(character && character.pronouns))
+        ? { pronouns:String(j.pronouns).toLowerCase().trim() } : {} ),
       voiceDNA: Object.fromEntries(Object.entries(j.voiceDNA||{}).filter(([k])=>
         ["vocabulary","syntax","rhythm","directness","imagery","avoids","stressShift"].includes(k))
         .map(([k,v])=>[k,clipWords(scrubBrand(String(v||"")),120)])),
@@ -2572,6 +2576,7 @@ async function aiCastPsychology(characters, scenes, project){
         (driven.length?(" \u2014 drives: "+driven.map(s=>s.title+" ["+chargeStr(s.openCharge)+"\u2192"+chargeStr(s.closeCharge)+"]").slice(0,5).join("; ")):" \u2014 drives no scenes")+"\n"; });
     const prompt = ctx + "\nUsing the Infinite Studio method, articulate EACH character. "+
       "TWO LAYERS: characterization is only the mask \u2014 TRUE character is what CHOICES under pressure reveal; derive everything from what each character DOES in the scenes they drive. "+
+      "pronouns = each character's pronouns, EXACTLY \"he/him\" or \"she/her\", judged from the character as written (name, role, behaviour) \u2014 REQUIRED for EVERY character regardless of depth budget; it becomes their canonical sheet entry, so every future scene uses it. "+
       "conscious = what they consciously pursue (the goal driving their scenes), one sentence. "+
       "unconscious = the deeper need that genuinely CONTRADICTS the conscious one (the pull-against generates scenes), one sentence. "+
       "MOTIVATION DISCIPLINE: never a convenient trauma/backstory wound as the why \u2014 the want must be a live, present-tense hunger. "+
@@ -2583,7 +2588,7 @@ async function aiCastPsychology(characters, scenes, project){
       "humanTruth = the ONE observation about human nature this character embodies \u2014 a DISTINCT stance on the controlling idea (no two characters the same stance; even minor cast get one), one sentence grounded in their behaviour. "+
       "argues = which side that stance lands on: \"idea\", \"counter\", or \"complicates\". Across the cast the stances should form an ARGUMENT MAP \u2014 not a unanimous jury. "+
       "Specific to THIS story, no platitudes.\n"+
-      'Return ONLY compact JSON: {"cast":[{"id":"...","conscious":"...","unconscious":"...","arc":"...","dimensions":["trait / counter-trait","..."],"counterpoint":"...","humanTruth":"...","argues":"idea|counter|complicates"}]} \u2014 leave out any field the depth budget or the counterpoint rule excludes.';
+      'Return ONLY compact JSON: {"cast":[{"id":"...","pronouns":"he/him|she/her","conscious":"...","unconscious":"...","arc":"...","dimensions":["trait / counter-trait","..."],"counterpoint":"...","humanTruth":"...","argues":"idea|counter|complicates"}]} \u2014 leave out any field the depth budget or the counterpoint rule excludes (pronouns is never excluded).';
     try{
       const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }] });
       const j = extractJSON(res);
@@ -2598,9 +2603,13 @@ async function aiCastPsychology(characters, scenes, project){
         // empty string must never blank a value the character already carries
         const o = {};
         const put=(k,raw,len)=>{ const s=clipSpecText(raw,len); if(s) o[k]=s; };
+        const ch = chars.find(c=>c.id===id);
+        // canonical pronouns ride every batch regardless of depth budget — an explicit
+        // sheet pick always wins over a re-inference
+        const _pr = String(e.pronouns||"").toLowerCase().trim();
+        if(/^(he\/him|she\/her)$/.test(_pr) && !(ch && ch.pronouns)) o.pronouns = _pr;
         if(/^(idea|counter|complicates)$/.test(String(e.argues||"").toLowerCase().trim())) o.argues = String(e.argues).toLowerCase().trim();
         const dims = normalizeDimensions(e.dimensions); if(dims) o.dimensions = dims;
-        const ch = chars.find(c=>c.id===id);
         // counterpoint: first-circle non-protagonists only (the canonical eligibility rule)
         if(ch && !isProtagonistChar(ch) && castOrbit(ch, scenes)===1) put("counterpoint", e.counterpoint, 160);
         put("humanTruth", e.humanTruth, 180);

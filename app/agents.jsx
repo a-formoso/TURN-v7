@@ -989,6 +989,21 @@ async function agentScriptBreakdown(ctx){
         if(ctx.cancelled()) return;
         if(ok){ const i=ctx.model.characters.findIndex(x=>x.id===ch.id);
           if(i>=0){ ctx.model.characters[i]={...ctx.model.characters[i], pronouns:scriptPron}; charByName[(ch.name||"").toLowerCase()]=ctx.model.characters[i]; ctx.sync(); reconciled++; ctx.emit({k:"ok", t:ch.name+" → "+scriptPron}); } }
+      } else if(scriptPron && !canonPron){
+        // canon UNSET: the script committed to a gender but the sheet carries none, so
+        // neither the generation prompts nor the drift check above had anything to
+        // enforce (the Odette case: script said "he" for a woman whose sheet was blank).
+        // Settle the sheet NOW so every future generation is anchored.
+        drift++;
+        const ok = await ctx.propose({
+          title:"Pronouns unset — "+ch.name,
+          reason:"Sc "+s.no+" refers to "+ch.name+" as “"+c.gender_used+"”, but the cast sheet has NO pronouns set — the generators had nothing to enforce.",
+          rationale:"Approve to set "+ch.name+"'s canonical pronouns to "+scriptPron+" (match the script). If the script got them WRONG, reject instead, set the right pronouns in the Cast panel, then re-run the Consistency Check to rewrite the scene.",
+          before:"Sheet: unset", after:"Sheet: "+scriptPron });
+        if(ctx.cancelled()) return;
+        if(ok){ const i=ctx.model.characters.findIndex(x=>x.id===ch.id);
+          if(i>=0){ ctx.model.characters[i]={...ctx.model.characters[i], pronouns:scriptPron}; charByName[(ch.name||"").toLowerCase()]=ctx.model.characters[i]; ctx.sync(); reconciled++; ctx.emit({k:"ok", t:ch.name+" → "+scriptPron}); } }
+        else ctx.emit({k:"flag", t:ch.name+": pronouns still unset — set them in the Cast panel, then re-run the Consistency Check so the script is rewritten to match."});
       }
       // (1b) SCALE DRIFT — the script implies a scale class that contradicts the sheet's
       const SCALE_MAP = { human:"A", critter:"B", giant:"C", microscopic:"D" };
