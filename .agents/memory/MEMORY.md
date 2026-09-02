@@ -12,3 +12,4 @@
 - [Cold-cache existence](cold-cache-existence.md) — "missing → generate" decisions must await the async asset loader; the sync cache is empty after reload/film switch in cloud mode.
 - [Personal ref privacy](personal-ref-privacy.md) — device-origin images never ride into cloud refs; disclose via meta.privateRefs; gates fail closed.
 - [Shot seed lineage](shot-seed-lineage.md) — chain staleness is derived, direct-not-transitive; commit hook rebuilds meta fresh, so edit renders must re-supply persistent keys via metaStart.
+- [Explicit style vs auto derivation](prompt-style-derivation.md) — user style picks must bypass the auto prompt chain via an explicit flag; prompt scope follows the model, so modelId is a rebuild dependency.

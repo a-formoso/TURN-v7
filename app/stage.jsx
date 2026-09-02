@@ -1085,6 +1085,31 @@ function seedancePrompt(recipe, clip, refs){
     // the line is PLACED inside its window with air before and after, so the described
     // action has real seconds to happen in instead of wall-to-wall speech.
     const r1 = (x)=>Math.round(x*10)/10;
+    const headLines = [
+      "One continuous "+(d.dur||"4-15")+"s clip, paced to the time-coded segments below — no hard cuts unless a segment demands one.",
+      cast.length && ("Cast: "+cast.join(", ")+"."),
+      settingRef && ("Setting: "+settingRef+"."),
+      style && ("Style: "+style+"."),
+      d.lighting && ("Lighting: "+d.lighting+"."),
+    ].filter(Boolean).join(" ");
+    // SINGLE-SHOT beats: one shot means one window, which defeats the point of
+    // time-stamping. When the beat carries an ordered micro-beat plan (and no spoken
+    // line that needs its own placed window), stamp the MICRO-BEATS instead — the
+    // documented rule is that timestamps earn their keep when several events must
+    // land in order, roughly one stamp per 2-4s of runtime.
+    if(shots.length===1){
+      const sh0 = shots[0]||{}, p0 = panelLines[0]||{};
+      const spoken0 = String((p0&&p0.dialogue) || (sh0&&sh0.dialogue) || "").trim();
+      const micro0 = (Array.isArray(p0.micro) ? p0.micro : []).map(m=>String(m||"").replace(/[\s.;]+$/,"")).filter(Boolean);
+      if(!spoken0 && micro0.length>=2){
+        const total0 = Math.max(2, Number(d.dur) || stageShotRuntime(sh0) || 4);
+        const per0 = total0/micro0.length;
+        const grammar0 = _seedanceShotGrammar(sh0);
+        const rows0 = micro0.map((m,i)=> r1(i*per0)+"–"+r1((i+1)*per0)+"s: "+m+"."
+          +((i===0 && grammar0) ? (" Camera: "+grammar0+".") : ""));
+        return headLines+"\n"+rows0.join("\n");
+      }
+    }
     let t = 0, spokenSeen = 0;
     const lastSpokenIdx = shots.reduce((k,sh,i)=> String(sh&&sh.dialogue||"").trim() ? i : k, -1);
     const windows = shots.map((sh,i)=>{
@@ -1107,14 +1132,7 @@ function seedancePrompt(recipe, clip, refs){
             +(aIdx?(" — lip-sync "+speaker+" to @Audio"+aIdx):"")
             +"; let the moment breathe before and after the line."):"");
     });
-    const head = [
-      "One continuous "+(d.dur||"4-15")+"s clip, paced to the time-coded segments below — no hard cuts unless a segment demands one.",
-      cast.length && ("Cast: "+cast.join(", ")+"."),
-      settingRef && ("Setting: "+settingRef+"."),
-      style && ("Style: "+style+"."),
-      d.lighting && ("Lighting: "+d.lighting+"."),
-    ].filter(Boolean).join(" ");
-    return head+"\n"+windows.join("\n");
+    return headLines+"\n"+windows.join("\n");
   }
   if(recipe==="panels"){
     const context = [
@@ -1141,6 +1159,38 @@ function seedancePrompt(recipe, clip, refs){
     return [context, panels, rules].filter(Boolean).join("\n\n");
   }
   return d.prompt || "";   // narrative (default)
+}
+
+/* EXPLICIT "Narrative" style — the documented Seedance shot-brief formula as ONE
+   flowing paragraph: who → doing what (cause before reaction, micro-beats in order)
+   → where → the spoken line in double quotes → shot how (camera in its OWN clause,
+   separate from subject motion — the guides are explicit about that split) → light
+   → look. No labels, no lists: the phrasing the model reads as a director's brief. */
+function seedanceNarrativeParagraph(clip, sh, refs){
+  const d = (clip&&clip.data) || {};
+  const p = ((d.panelLines||[]).find(x=>x.shotId===(sh&&sh.id))) || (d.panelLines||[])[0] || {};
+  const cast = (d.cast||[]).map(c=>_stagePromptEntityLabel(refs, "character", c, c.name)).filter(Boolean);
+  const setting = d.setting || (clip&&clip.scene&&clip.scene.loc) || "";
+  const settingRef = _stagePromptEntityLabel(refs, "setting", d.loc || setting, setting);
+  const micro = (Array.isArray(p.micro) ? p.micro : []).map(m=>String(m||"").replace(/[\s.;]+$/,"")).filter(Boolean);
+  const action = micro.length ? micro.join(", then ")
+    : String(p.text || (sh&&sh.action) || "").trim().replace(/[\s.]+$/,"");
+  const dialogue = String((p&&p.dialogue) || (sh&&sh.dialogue) || "").trim().replace(/^["“]|["”]$/g,"");
+  const speakerName = (p.speaker&&p.speaker.name) || "the speaker";
+  const speaker = _stagePromptEntityLabel(refs, "speaker", speakerName, speakerName);
+  const grammar = _seedanceShotGrammar(sh) || d.camera || "";
+  const style = d.preset ? (d.preset.name+" — "+d.preset.grade) : "";
+  return [
+    (cast.length ? cast.join(" and ") : "The subject")
+      + (settingRef ? (" — "+settingRef+" —") : "")
+      + (action ? (" "+(action.charAt(0)===action.charAt(0).toUpperCase() ? action.charAt(0).toLowerCase()+action.slice(1) : action)+".") : " holds the moment."),
+    dialogue && (speaker+" says \""+dialogue+"\""
+      +(d.audioRefsOn===false ? " in a natural, in-character voice." : " — sync the performance to the matching audio reference when one is attached.")),
+    grammar && ("Camera: "+grammar+" — keep camera movement in its own motion, separate from the subject's."),
+    d.lighting && (d.lighting.charAt(0).toUpperCase()+d.lighting.slice(1).replace(/[\s.]+$/,"")+"."),
+    style && (style+"."),
+    "Grounded, subtle performance; keep identity, wardrobe and location geography consistent with the references."
+  ].filter(Boolean).join(" ");
 }
 
 function seedanceBeatPrompt(clip, sh, refs){
@@ -1193,7 +1243,14 @@ function seedanceRecipePrompt(recipeId, clip, shots, activeShot, audioRefsOn, au
   const scoped = { ...clip, data:{ ...seedanceBeatData(clip, shots),
     audioRefsOn: audioRefsOn!==false,
     audioIncluded: Array.isArray(audioIncluded) ? audioIncluded : null } };
-  const base = (opts&&opts.wholeScene)
+  // EXPLICIT STYLE (the user picked a named structure in the Prompt-style menu):
+  // the chosen grammar must really land in the box, so the auto director-brief
+  // derivations stand down. Auto (no explicitStyle) keeps the researched defaults.
+  const base = (opts&&opts.explicitStyle)
+    ? ((!recipeId || recipeId==="narrative")
+        ? seedanceNarrativeParagraph(scoped, activeShot, refs)
+        : seedancePrompt(recipeId, scoped, refs))
+    : (opts&&opts.wholeScene)
     ? seedanceWholeSceneDirectorPrompt(scoped, audioRefsOn!==false, audioIncluded, refs, opts)
     : seedanceMicroBeatDirectorPrompt(scoped, shots, activeShot, audioRefsOn!==false, audioIncluded, refs)
     || ((!recipeId || recipeId==="narrative") ? seedanceBeatPrompt(scoped, activeShot, refs) : seedancePrompt(recipeId, scoped, refs));
@@ -1202,6 +1259,10 @@ function seedanceRecipePrompt(recipeId, clip, shots, activeShot, audioRefsOn, au
   // ambience. Music belongs to post; text must never be burned into pixels.
   return base + "\nAUDIO & OVERLAYS: besides any spoken dialogue specified above, the soundtrack is environmental and diegetic sound effects with natural ambience ONLY — NO background music, NO score, NO soundtrack. NO subtitles, captions or any burned-in text overlays anywhere in the frame.";
 }
+/* exported for the headless prompt-style test suite (scripts/test-stage-promptstyles.mjs) */
+window.seedanceRecipePrompt = seedanceRecipePrompt;
+window.stageSmartRecipe = stageSmartRecipe;
+window.SEEDANCE_RECIPES = SEEDANCE_RECIPES;
 
 /* ---- @mention role assignment. Seedance treats attached references it isn't told
    about as ambient at best — best practice is one declared-role sentence per input
@@ -1302,10 +1363,10 @@ function stageAssetRole(a, refs){
   if(k.indexOf("shotframe:")===0) return T+" is "+(label.toLowerCase()||"a later shot's frame")+" — anchor that shot's composition and blocking to it.";
   if(k.indexOf("scene-shotframe:")===0) return T+" is a scene shot frame chosen by the director — use its composition, identity and continuity where the prompt mentions it.";
   if(k.indexOf("sb-half")===0 || k==="sb-sheet") return T+" is the storyboard for this clip — follow its composition, blocking and panel order.";
-  if(k.indexOf("c:")===0) return T+" is "+(label.replace(/\s+reference$/i,"")||"the character")+"'s identity reference — keep their appearance exactly consistent.";
+  if(k.indexOf("c:")===0) return T+" is "+(label.replace(/\s+reference$/i,"")||"the character")+"'s identity reference — keep their appearance exactly consistent; use it for identity only and do not copy its background, pose or lighting.";
   if(k==="loc") return T+" is the "+(label||"location plate")+" — keep its geography and lighting.";
   if(k.indexOf("scene-loc:")===0) return T+" is a scene location reference chosen by the director — preserve its geography, set dressing and lighting.";
-  if(k.indexOf("p:")===0) return T+" is the "+(label||"prop")+" — keep this object's design consistent.";
+  if(k.indexOf("p:")===0) return T+" is the "+(label||"prop")+" — keep this object's design consistent; design only, ignore its backdrop.";
   return T+" is "+(label||"a reference")+".";
 }
 
@@ -1974,6 +2035,13 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   // user-facing sets it anymore.
   const defaultRecipe = ()=> stageSmartRecipe(clip, sourceMode, modelId);
   const [recipe, setRecipe] = React.useState(defaultRecipe);
+  // PROMPT STYLE — the user-facing choice (user direction 2026-09-02, superseding the
+  // 2026-08-02 tabs removal): "Auto" keeps the researched per-beat director brief (or
+  // the 2.5 one-take scene brief); picking a named structure (Timeline, Shot list,
+  // Structured fields, …) rebuilds the box in that documented Seedance grammar for the
+  // beat on screen. Sticky while browsing beats; falls back to Auto whenever the pick
+  // can't apply (e.g. Dialogue/lip-sync on a beat with no spoken lines).
+  const [promptStyle, setPromptStyle] = React.useState("auto");
   // NOTE: the "new clip → reset recipe" effect lives BELOW with the Multi-shot row
   // state — clip.id alone can't key it (see the repack note there).
   React.useEffect(()=>{ setRecipe(defaultRecipe()); }, [sourceMode, modelId]);
@@ -2159,20 +2227,27 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     return "VOICE CAST — assign these voices before performing any dialogue: "+body
       +". Each character speaks ONLY in their assigned voice, lip-synced to that audio.";
   })() : "";
-  const recipeText = (id)=>{
+  const recipeText = (id, explicit)=>{
     // Multi-shot editor compiles to the TIME-CODED prompt (Seedance's segment
     // grammar) — the structured rows are the editor, this is the model payload
     const wholeScene=modelId==="seedance-2.5";
-    const base = wholeScene
+    // an EXPLICIT style pick applies the named grammar over the render's real shot
+    // scope — the whole scene on 2.5 (one clip = the scene), this beat otherwise
+    const base = explicit
+      ? seedanceRecipePrompt(id, clip, wholeScene ? (d.shots||shownShots) : shownShots, activeShot, audioRefsOn, audioIncluded, promptRefs, { explicitStyle:true })
+      : wholeScene
       ? seedanceRecipePrompt(id, clip, d.shots||shownShots, activeShot, audioRefsOn, audioIncluded, promptRefs,
           {wholeScene:true,directAudioCap:3,videoRefBase:onVideos.filter(a=>a&&a.url).length,videoRefCap:10})
       : id==="multishot" ? seedanceRecipePrompt("timeline", msClip, msShots, activeShot, audioRefsOn, audioIncluded, promptRefs)
       : seedanceRecipePrompt(id, clip, shownShots, activeShot, audioRefsOn, audioIncluded, promptRefs);
     return (voiceCast && base) ? (voiceCast+"\n\n"+base) : base;
   };
+  // Dialogue/lip-sync needs spoken lines to phrase around; every other style always applies
+  const promptStyleAvailable = (id)=> id!=="lipsync" || (d.lineShots||[]).length>0;
+  const effPromptStyle = (promptStyle!=="auto" && promptStyleAvailable(promptStyle)) ? promptStyle : null;
   // per-shot overrides (vidText / dur) and include toggles recompile the prompt live
   const msSig = msAllShots.map(s=>s.id+":"+(s.vidText||"")+":"+(s.dur||"")+":"+(msOff.has(s.id)?0:1)).join("|");
-  const beatPrompt = recipeText(recipe);
+  const beatPrompt = effPromptStyle ? recipeText(effPromptStyle, true) : recipeText(recipe);
   const [prompt, setPrompt] = React.useState(beatPrompt);
   // MANUAL EDITS survive input toggles: the derivation only overwrites an untouched
   // box, and "Reset to script" rebuilds from the beat + Art Room design on demand.
@@ -2323,9 +2398,12 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   React.useEffect(()=>{
     const key = STAGE_PROMPT_SCHEMA+"·"+clip.id+"·"+activeShot.id;
     if(promptKeyRef.current!==key){ promptKeyRef.current=key; promptEditedRef.current=false; }
-    if(!promptEditedRef.current) setPrompt(recipeText(recipe));
+    if(!promptEditedRef.current) setPrompt(effPromptStyle ? recipeText(effPromptStyle, true) : recipeText(recipe));
     setPerf(dialogueSpeakers[0] || d.lead);
-  }, [clip.id, activeShot.id, recipe, dialogueSpeakers.join("|"), d.lead, audioRefsOn, audioIncluded.join("|"), promptRefSig, msSig]);
+    // modelId is a real dependency: an explicit style's shot SCOPE follows the model
+    // (whole scene on 2.5, this beat otherwise), so a 2.0↔2.5 switch must recompile
+    // an untouched box — otherwise the render ships the wrong scope under the right label
+  }, [clip.id, activeShot.id, recipe, effPromptStyle, modelId, dialogueSpeakers.join("|"), d.lead, audioRefsOn, audioIncluded.join("|"), promptRefSig, msSig]);
   React.useEffect(()=>{ setCamera(d.camera); setCameraProfile(d.cameraProfile || "auto"); setLighting(d.lighting); },
     [clip.id, activeShot.id, d.camera, d.cameraProfile, d.lighting]);
   // a different beat resets per-beat render choices — a reused manual seed or end-frame
@@ -2486,7 +2564,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
       bitrateMode:bitrate,
       falModel: tierObj.falModel || undefined,   // non-Seedance engines (Sora 2) name their fal endpoint per tier
       // facts the Versions view shows per take — stamped into the take's meta at commit
-	      takeMeta:{ source:sourceMode, tier:tierObj.id, tierLabel:tierObj.label, resolution, bitrate, recipe,
+	      takeMeta:{ source:sourceMode, tier:tierObj.id, tierLabel:tierObj.label, resolution, bitrate, recipe:effPromptStyle || recipe,
 	        assetRole:"final_take", assetRoleLabel:(typeof nbAssetRoleLabel==="function") ? nbAssetRoleLabel("final_take") : "Final take",
 	        cameraProfile:cameraProfile, cameraProfileLabel:(cameraProfile!=="auto" ? ((stageCameraProfiles.find(x=>x.id===cameraProfile)||{}).label||cameraProfile) : ""),
 	        audio: hasDialogue ? (voiceLocked ? "voice" : "native") : (nativeAudio ? "native" : "silent"),
@@ -2848,6 +2926,42 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     : sourceMode==="halves" ? "Storyboard half"
     : sourceMode==="sheet" ? "Storyboard sheet"
     : sourceMeta.pick || sourceMeta.label || "Omni reference";
+  // ---- PROMPT STYLE menu — the documented Seedance prompt grammars, choosable per
+  // beat. An explicit pick REBUILDS the box in that structure (even over manual edits
+  // — the click is the request); Auto returns to the researched director brief.
+  // Descriptions distilled from the Seedance 2.0/2.5 prompting guides (fal, 2026-08).
+  const pickPromptStyle = (id)=>{
+    setPromptStyle(id);
+    promptEditedRef.current = false;
+    setPrompt((id!=="auto" && promptStyleAvailable(id)) ? recipeText(id, true) : recipeText(defaultRecipe()));
+  };
+  const promptStyleUiOptions = [
+    { id:"auto", label:"Auto — director's brief",
+      desc: modelId==="seedance-2.5"
+        ? "One-take scene brief: every beat in order with micro-beats, exact dialogue placement and causal hand-offs. The researched 2.5 default."
+        : "This beat's director brief — subject, ordered micro-beats, dialogue, camera and continuity rules. The researched default.",
+      onPick:()=>pickPromptStyle("auto") },
+    { id:"narrative", label:"Narrative",
+      desc:"One flowing paragraph — who, doing what, where, the spoken line in quotes, camera in its own clause. Best for simple single-action beats.",
+      onPick:()=>pickPromptStyle("narrative") },
+    { id:"timeline", label:"Timeline",
+      desc:"Time-coded windows (0–4s, 4–9s…) paced from each shot or micro-beat — use when several things must land in order.",
+      onPick:()=>pickPromptStyle("timeline") },
+    { id:"panels", label:"Shot list",
+      desc:"Explicit SHOT 1 / SHOT 2 cut points tied to screenplay and storyboard panels, with continuity rules — for stacked shots in one render.",
+      onPick:()=>pickPromptStyle("panels") },
+    { id:"structured", label:"Structured fields",
+      desc:"Labelled control fields — Subject / Action / Dialogue / Setting / Camera / Lighting / Style.",
+      onPick:()=>pickPromptStyle("structured") },
+    { id:"lipsync", label:"Dialogue / lip-sync",
+      desc:"Phrased around the spoken lines — each speaker paired with their own voice reference for exact lip-sync.",
+      disabled:!promptStyleAvailable("lipsync"),
+      note:promptStyleAvailable("lipsync") ? "" : "No spoken lines in this beat",
+      onPick:()=>pickPromptStyle("lipsync") },
+  ];
+  const promptStyleUiLabel = effPromptStyle
+    ? ((promptStyleUiOptions.find(o=>o.id===effPromptStyle)||{}).label||"Auto")
+    : "Auto";
   const sdPill = (key, cls, title, body, popover)=>_stEl("div",{className:"sdbar-anchor"+(sdMenu===key?" open":"")},
     _stEl("button",{type:"button",className:"sdbar-pill "+(cls||""),title,
       onClick:(e)=>{ e.stopPropagation(); setSdMenu(m=>m===key?null:key); }},
@@ -2883,6 +2997,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
         _stEl(React.Fragment,null, Icon.layers&&_stEl(Icon.layers,{s:13}), _stEl("span",null,sourceUiLabel)),
         _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
           sourceUiOptions.map(o=>sdOption({ ...o, selected:o.id==="auto" ? sourceOverride==="auto" : (o.id==="first-last" ? !!endFrameUrl : sourceOverride===o.id) })))),
+      sdPill("pstyle","pstyle","Prompt style — how the prompt is written for this beat",
+        _stEl(React.Fragment,null, Icon.text&&_stEl(Icon.text,{s:13}), _stEl("span",null,promptStyleUiLabel)),
+        _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
+          promptStyleUiOptions.map(o=>sdOption({ ...o, selected:(effPromptStyle||"auto")===o.id })))),
       sdPill("format","format","Aspect ratio and resolution",
         _stEl(React.Fragment,null, Icon.monitor&&_stEl(Icon.monitor,{s:13}), _stEl("span",null,effAspect), _stEl("span",{className:"sdbar-muted"},String(resolution).toUpperCase())),
         _stEl("div",{className:"sdbar-pop sdbar-pop-format"},
