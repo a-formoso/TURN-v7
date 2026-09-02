@@ -574,6 +574,7 @@ function storyboardClipIds(clip){
     all:Array.from(new Set([].concat(pages, halves, [legacy, legacy+":half-top", legacy+":half-bottom"])))
   };
 }
+window.storyboardClipIds = storyboardClipIds;   // exported for the headless geometry tests
 function storyboardClipAssets(clip, imgs){
   const ids = storyboardClipIds(clip);
   const halves = (ids.halves||[]).map(id=>({ id, url:imgs[id]||"" })).filter(h=>h.url);

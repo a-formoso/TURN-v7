@@ -143,6 +143,74 @@ function sbPageRanges(shots, pageSize){
 window.sbPageRanges = sbPageRanges;
 
 /* ============================================================================
+   SHEET-COMPOSE COORDINATOR — ONE writer per sheet id. A mounted card's compose
+   (auto-recompose, Recompose button) and the bulk Compose-all / per-scene runs
+   all go through here, so two composes can never interleave commits on one
+   sheet: a second request coalesces onto the running one, which redraws ONCE
+   with fresh frames if the frames changed under it (or a new request arrived)
+   before committing. Only the winning run clears the user's Clear-hold or
+   announces the new sheet; a film switch mid-run stays a quiet discard (epoch);
+   and a failed save returns status:"failed" — callers surface it, never mask it.
+   ============================================================================ */
+const _sbComposeRuns = {};   // sheet id -> { again, promise }
+function sbSheetSnapshot(page){
+  return ((page&&page.shots)||[]).map(sh=>{
+    const u = (typeof nbGetImage==="function") ? (nbGetImage(sh.id)||"") : "";
+    const m = (typeof nbGetMeta==="function") ? nbGetMeta(sh.id) : null;
+    return sh.id+"@"+((m&&m.iso)||"")+"#"+((m&&m.version)||"")+"|"+u;
+  }).join("~");
+}
+function sbComposeSheet(scene, page, ctx, beatsMap, extraMeta, _drawFn){
+  const sid = "sbsheet-"+page.id;
+  const cur = _sbComposeRuns[sid];
+  if(cur){ cur.again = true; return cur.promise; }   // coalesce onto the running writer
+  const draw = _drawFn || composeStoryboardSheet;    // _drawFn: headless-test seam only
+  const run = { again:false };
+  run.promise = (async ()=>{
+    try{
+      // NEVER commit a payload drawn from superseded frames — on ANY pass, including
+      // after a successful commit if a newer request arrived during the save. The
+      // loop only repeats when something really changed (a frame re-rendered, a new
+      // request coalesced), so it settles as soon as renders settle; each pass is a
+      // cheap canvas redraw, never a generation.
+      while(true){
+        run.again = false;
+        const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;   // film scope, per pass
+        // warm the frame caches BEFORE snapshotting, so a cold cache doesn't read
+        // as a frame change and force a pointless second draw
+        for(const sh of (page.shots||[])){
+          if(typeof nbGetImage==="function" && !nbGetImage(sh.id) && typeof nbLoadImage==="function"){
+            try{ await nbLoadImage(sh.id); }catch(e){}
+          }
+        }
+        const snap = sbSheetSnapshot(page);
+        const dataUrl = await draw(scene, page, ctx, beatsMap);
+        if(!dataUrl){
+          if(run.again) continue;      // a frame may have JUST arrived — try again
+          return { status:"skipped" }; // nothing to draw — not a failure
+        }
+        if(run.again || sbSheetSnapshot(page)!==snap) continue;   // outdated payload: redraw, don't commit
+        const meta = { model:"Composited from shot frames", composed:true,
+          panels:(page.shots||[]).length, ...(extraMeta||{}), ts:Date.now() };
+        const r = (typeof nbCommit==="function") ? await nbCommit(sid, dataUrl, meta, [], undefined, _ep) : null;
+        if(r && r.tier==="stale") return { status:"stale" };   // film switched: quiet discard
+        if(!r || r.tier==="error") return { status:"failed", error:"the composed sheet couldn't be saved. Check your connection and try again." };
+        try{ sessionStorage.removeItem("turn_sb_hold_"+sid); }catch(e){}
+        try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id:sid, url:r.url||dataUrl } })); }catch(e){}
+        // a coalesced request landed while the commit was saving: its frames are
+        // newer than what we just wrote — go around once more so the stored sheet
+        // ends on the newest state
+        if(run.again) continue;
+        return { status:"composed", url:r.url||dataUrl };
+      }
+    } finally { delete _sbComposeRuns[sid]; }
+  })();
+  _sbComposeRuns[sid] = run;
+  return run.promise;
+}
+window.sbComposeSheet = sbComposeSheet;   // exported for the headless coordinator tests
+
+/* ============================================================================
    COMPOSE FROM SHOT FRAMES — the sheet is just a VIEW over work already paid for:
    the frames laid into a 2×2 grid on a canvas, in the format's native frame (16:9,
    or vertical 9:16 for micro-drama), with the CAMERA / MOTION / ACTION /
@@ -402,19 +470,28 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
   // lay the existing shot frames into the sheet grid with REAL text strips —
   // instant, zero generation cost, per-panel repair via the Shot List
   const doCompose = async ()=>{
-    if(composingRef.current || !readyRef.current.n) return;
-    const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;   // film scope at compose start
+    if(!readyRef.current.n) return;
+    if(composingRef.current){
+      // a compose is already running — still route this request into the coordinator
+      // (fire-and-forget): it marks the active run superseded so it redraws with the
+      // newest frames before committing, instead of this event being silently lost
+      try{ const p = sbComposeSheet(scene, page, ctx, beatsMap,
+          { missing: readyRef.current.total-readyRef.current.n, aspect:sheetAsp });
+        if(p && p.catch) p.catch(()=>{}); }catch(e){}
+      return;
+    }
     setComposing(true); setComposeErr("");
     try{
-      const dataUrl = await composeStoryboardSheet(scene, page, ctx, beatsMap);
-      if(!dataUrl) throw new Error("The sheet couldn't be drawn from the shot frames — try regenerating the frames in the Shot List, then compose again.");
-      const meta = { model:"Composited from shot frames", composed:true, panels:page.shots.length,
-        missing: readyRef.current.total-readyRef.current.n, aspect:sheetAsp, ts:Date.now() };
-      const r = (typeof nbCommit==="function") ? await nbCommit(sid, dataUrl, meta, [], undefined, _ep) : null;
-      if(r && r.tier==="stale"){ setComposing(false); return; }   // film switched mid-compose: quiet discard
-      const url = (r && r.url) || dataUrl;
-      try{ sessionStorage.removeItem("turn_sb_hold_"+sid); }catch(e){}
-      window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id:sid, url } }));
+      // the shared coordinator serializes this sheet against bulk runs and other
+      // mounted cards, redraws once if frames change mid-draw, and reports honestly
+      const res = await sbComposeSheet(scene, page, ctx, beatsMap,
+        { missing: readyRef.current.total-readyRef.current.n, aspect:sheetAsp });
+      if(res.status==="skipped")
+        setComposeErr("The sheet couldn't be drawn from the shot frames — try regenerating the frames in the Shot List, then compose again.");
+      else if(res.status==="failed")
+        setComposeErr("Compose failed — "+(res.error||"the sheet couldn't be saved. Try again."));
+      // "composed" and "stale" (film switched) both end quietly — the coordinator
+      // already fired the done event for the winning compose
     }catch(e){ setComposeErr("Compose failed — "+((e&&e.message)||e)); }
     setComposing(false);
   };
@@ -851,34 +928,47 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
   const [composingAll, setComposingAll] = React.useState(null);   // {i,total} | null
   const [composingScene, setComposingScene] = React.useState(null); // {id,i,total} | null
   const composeJobs = async (jobs, onProgress)=>{
+    // structured outcome — a bulk run must never end silently on failures
+    const out = { composed:0, skipped:0, failed:[], stale:false };
     for(let i=0;i<jobs.length;i++){
       if(onProgress) onProgress(i+1,jobs.length);
       const { scene, page } = jobs[i];
-      const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;   // per-job film scope
-      try{
-        const dataUrl = await composeStoryboardSheet(scene, page, ctxFor(scene), beatsMap);
-        if(!dataUrl) continue;
-        const meta = { model:"Composited from shot frames", composed:true, panels:page.shots.length, ts:Date.now() };
-        const r = (typeof nbCommit==="function") ? await nbCommit("sbsheet-"+page.id, dataUrl, meta, [], undefined, _ep) : null;
-        if(r && r.tier==="stale") return;   // film switched mid-run: stop the whole batch quietly
-        try{ sessionStorage.removeItem("turn_sb_hold_"+"sbsheet-"+page.id); }catch(e){}
-        window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id:"sbsheet-"+page.id, url:(r&&r.url)||dataUrl } }));
-      }catch(e){}
+      let res = null;
+      try{ res = await sbComposeSheet(scene, page, ctxFor(scene), beatsMap); }
+      catch(e){ res = { status:"failed" }; }
+      if(res.status==="stale"){ out.stale = true; break; }   // film switched: stop the whole batch quietly
+      if(res.status==="composed") out.composed++;
+      else if(res.status==="skipped") out.skipped++;
+      else out.failed.push("Scene "+scene.no+" sheet "+(page.index+1));
+    }
+    return out;
+  };
+  const reportComposeRun = (out)=>{
+    if(!out || out.stale || typeof window.appToast!=="function") return;
+    if(out.failed.length){
+      const names = out.failed.slice(0,3).join(", ") + (out.failed.length>3 ? " +"+(out.failed.length-3)+" more" : "");
+      window.appToast("Composed "+out.composed+" sheet"+(out.composed===1?"":"s")+" — "+out.failed.length+" failed: "+names+". Open those scenes and Recompose to retry.","error");
+    } else if(out.composed){
+      window.appToast("Composed "+out.composed+" sheet"+(out.composed===1?"":"s")+(out.skipped?(" — "+out.skipped+" skipped (no generated frames yet)"):"")+".");
+    } else if(out.skipped){
+      window.appToast("No sheets composed — "+out.skipped+" skipped: no generated frames yet. Render frames in the Shot List first.","error");
     }
   };
   const composeAll = async ()=>{
     if(composingAll || composingScene) return;
     const jobs = pagesByScene.flatMap(g=>g.pages.map(p=>({ scene:g.scene, page:p })));
     setComposingAll({ i:0, total:jobs.length });
-    await composeJobs(jobs,(i,total)=>setComposingAll({i,total}));
+    const out = await composeJobs(jobs,(i,total)=>setComposingAll({i,total}));
     setComposingAll(null);
+    reportComposeRun(out);
   };
   const composeOneScene = async (scene,pages)=>{
     if(composingAll || composingScene || !scene) return;
     const jobs=(pages||[]).map(page=>({scene,page}));
     setComposingScene({id:scene.id,i:0,total:jobs.length});
-    await composeJobs(jobs,(i,total)=>setComposingScene({id:scene.id,i,total}));
+    const out = await composeJobs(jobs,(i,total)=>setComposingScene({id:scene.id,i,total}));
     setComposingScene(null);
+    reportComposeRun(out);
   };
 
   // jump to a shot in the Shot List (pre-expand its scene, switch tab, scroll + flash)
