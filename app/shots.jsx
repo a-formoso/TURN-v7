@@ -550,6 +550,32 @@ function sceneSequences(sceneShots, clipMax, opts){
     const dur = seqDuration(list);
     return [{ index:0, start:0, shots:list.slice(), dur, over: dur>MAX, manual:false }];
   }
+  // PER-SHOT mode: one clip = one shot (the Stage's "Single shot" clip scope —
+  // maximum control: render and judge each shot on its own).
+  if(opts && opts.perShot){
+    return list.map((s,index)=>{ const dur=shotDur(s);
+      return { index, start:index, shots:[s], dur, over: dur>MAX, manual:false }; });
+  }
+  // PER-BEAT mode: one clip = one BEAT — consecutive shots sharing a beatN group
+  // together regardless of the shot-count/dialogue caps (a 30s model like Seedance
+  // 2.5 renders the whole beat as one sequence of shots). `over` still flags a
+  // beat that outruns the model's ceiling so the console can block/warn honestly.
+  if(opts && opts.perBeat){
+    const groups=[]; let cur=[], curN=null;
+    list.forEach(s=>{ const raw=Number(s&&s.beatN);
+      // only a REAL beat number (positive, finite) can group shots — an unassigned/
+      // zero/invalid beatN must NOT coalesce into a pseudo-beat (that would quietly
+      // recreate the retired whole-scene clip on old projects without beat mapping),
+      // so each such shot becomes its own clip
+      const n=(isFinite(raw)&&raw>0)?raw:null;
+      if(cur.length && (n===null || curN===null || n!==curN)){ groups.push(cur); cur=[]; }
+      cur.push(s); curN=n; });
+    if(cur.length) groups.push(cur);
+    let bStart=0;
+    return groups.map((shots,index)=>{ const dur=seqDuration(shots);
+      const g={ index, start:bStart, shots, dur, over: dur>MAX, manual:false };
+      bStart+=shots.length; return g; });
+  }
   // clips are ALWAYS auto-packed (manual seqBreak hand-grouping was removed with
   // the Shots tab's clip bar — the Shots tab is pure coverage; clips are a Stage
   // concern). Any legacy seqBreak flags on old shots are simply ignored.

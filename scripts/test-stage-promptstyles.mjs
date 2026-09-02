@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
 const noop = () => {};
-const sandbox = {
+const makeSandbox = () => ({
   console, setTimeout, clearTimeout, setInterval, clearInterval,
   React: new Proxy({}, { get: (t, k) => (k === "createElement" ? () => null : noop) }),
   localStorage: { getItem: () => null, setItem: noop, removeItem: noop },
@@ -33,11 +33,18 @@ const sandbox = {
   requestAnimationFrame: noop, cancelAnimationFrame: noop,
   addEventListener: noop, removeEventListener: noop,
   matchMedia: () => ({ matches: false, addEventListener: noop, removeEventListener: noop }),
-};
+});
+const sandbox = makeSandbox();
 sandbox.window = sandbox;
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(readFileSync("dist/app/stage.js", "utf8"), sandbox, { filename: "dist/app/stage.js" });
+// clip PACKING lives in shots.jsx — its own context so the two files stay honest
+const shotsBox = makeSandbox();
+shotsBox.window = shotsBox;
+shotsBox.globalThis = shotsBox;
+vm.createContext(shotsBox);
+vm.runInContext(readFileSync("dist/app/shots.js", "utf8"), shotsBox, { filename: "dist/app/shots.js" });
 
 const recipePrompt = sandbox.window.seedanceRecipePrompt;
 const smartRecipe = sandbox.window.stageSmartRecipe;
@@ -138,7 +145,20 @@ ok("recipes registry ids", ["narrative", "panels", "timeline", "structured", "li
   ok("auto: not time-coded", !/^\d+(\.\d+)?–\d+(\.\d+)?s: /m.test(out), out);
 }
 
-/* ---- AUTO whole-scene (Seedance 2.5) ---- */
+/* ---- AUTO whole-beat SHOT SEQUENCE (Seedance 2.5 per-beat clips) ---- */
+{
+  const out = recipePrompt(null, mkClip(), [sh1, sh2], sh1, true, ["b"], null, { beatSequence: true, directAudioCap: 3, videoRefBase: 0, videoRefCap: 10 });
+  ok("beat-seq: one-clip beat header", out.indexOf("ONE CLIP — BEAT 1 shot as a SEQUENCE OF SHOTS") >= 0, out.slice(0, 160));
+  ok("beat-seq: shot units", /^SHOT 1/m.test(out) && /^SHOT 2/m.test(out), out);
+  ok("beat-seq: hard cut marker", /^Cut to:$/m.test(out), out);
+  ok("beat-seq: per-shot micro-beats", out.indexOf("Micro-beats in exact order: 1) Mara grips the rail") >= 0, out);
+  ok("beat-seq: dialogue placement", out.indexOf('delivers "Go now"') >= 0 && out.indexOf("@Audio1") >= 0, out);
+  ok("beat-seq: hold ending", out.indexOf("HOLD the last composition") >= 0, out);
+  ok("beat-seq: not whole-scene", out.indexOf("ONE CONTINUOUS SCENE") < 0, out.slice(0, 160));
+  ok("beat-seq: trailer", trailerRe.test(out));
+}
+
+/* ---- dormant whole-scene branch still intact (future whole-scene model) ---- */
 {
   const out = recipePrompt(null, mkClip(), [sh1, sh2], sh1, true, [], null, { wholeScene: true });
   ok("whole-scene: one-take header", out.indexOf("ONE CONTINUOUS SCENE") >= 0, out.slice(0, 120));
@@ -146,10 +166,37 @@ ok("recipes registry ids", ["narrative", "panels", "timeline", "structured", "li
   ok("whole-scene: trailer", trailerRe.test(out));
 }
 
-/* ---- explicit style WINS over whole-scene opts (2.5 + a named style) ---- */
+/* ---- explicit style WINS over beat-sequence opts (2.5 + a named style) ---- */
 {
-  const out = recipePrompt("timeline", mkClip(), [sh1, sh2], sh1, true, [], null, { wholeScene: true, explicitStyle: true });
-  ok("2.5 explicit: time-coded, not one-take", out.indexOf("One continuous 10s clip") >= 0 && out.indexOf("ONE CONTINUOUS SCENE") < 0, out.slice(0, 160));
+  const out = recipePrompt("timeline", mkClip(), [sh1, sh2], sh1, true, [], null, { beatSequence: true, explicitStyle: true });
+  ok("2.5 explicit: time-coded, not shot-sequence", out.indexOf("One continuous 10s clip") >= 0 && out.indexOf("SEQUENCE OF SHOTS") < 0, out.slice(0, 160));
+}
+
+/* ---- clip packing scopes (sceneSequences, dist/app/shots.js) ---- */
+{
+  const seq = shotsBox.window.sceneSequences;
+  ok("packing: sceneSequences exported", typeof seq === "function");
+  const A = { id: "a", beatN: 1, dur: 4 }, B = { id: "b", beatN: 1, dur: 5 }, C = { id: "c", beatN: 2, dur: 6 };
+  const perBeat = seq([A, B, C], 30, { perBeat: true });
+  ok("packing perBeat: one clip per beat", perBeat.length === 2
+    && perBeat[0].shots.length === 2 && perBeat[1].shots.length === 1, JSON.stringify(perBeat));
+  ok("packing perBeat: durations", perBeat[0].dur === 9 && perBeat[1].dur === 6 && !perBeat[0].over, JSON.stringify(perBeat));
+  const overBeat = seq([{ ...A, dur: 20 }, { ...B, dur: 20 }], 30, { perBeat: true });
+  ok("packing perBeat: honest over flag", overBeat.length === 1 && overBeat[0].over === true, JSON.stringify(overBeat));
+  const perShot = seq([A, B, C], 15, { perShot: true });
+  ok("packing perShot: one clip per shot", perShot.length === 3
+    && perShot.every((g, i) => g.shots.length === 1 && g.start === i), JSON.stringify(perShot));
+  const noBeats = seq([{ id: "x", dur: 4 }, { id: "y", dur: 5 }, { id: "z", beatN: 0, dur: 6 }], 30, { perBeat: true });
+  ok("packing perBeat: unassigned beats never coalesce", noBeats.length === 3
+    && noBeats.every(g => g.shots.length === 1), JSON.stringify(noBeats));
+  const gap = seq([{ id: "x", beatN: 1, dur: 4 }, { id: "y", dur: 5 }, { id: "z", beatN: 1, dur: 6 }], 30, { perBeat: true });
+  ok("packing perBeat: missing beat splits its neighbours", gap.length === 3, JSON.stringify(gap));
+  const repeat = seq([{ id: "x", beatN: 1, dur: 4 }, { id: "y", beatN: 2, dur: 5 }, { id: "z", beatN: 1, dur: 6 }], 30, { perBeat: true });
+  ok("packing perBeat: non-consecutive repeats split", repeat.length === 3, JSON.stringify(repeat));
+  const whole = seq([A, B, C], 30, { wholeScene: true });
+  ok("packing wholeScene: dormant branch intact", whole.length === 1 && whole[0].shots.length === 3, JSON.stringify(whole));
+  const greedy = seq([A, B, C], 15, { maxShots: 3, maxDialogue: 3 });
+  ok("packing default: greedy budget unchanged", greedy.length === 1 && greedy[0].dur === 15, JSON.stringify(greedy));
 }
 
 /* ---- smart default mapping (what "Auto" resolves to) ---- */

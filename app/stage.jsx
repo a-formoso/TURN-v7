@@ -986,6 +986,69 @@ function seedanceWholeSceneDirectorPrompt(clip, audioRefsOn, audioIncluded, refs
   ].filter(Boolean).join("\n");
 }
 window.seedanceWholeSceneDirectorPrompt=seedanceWholeSceneDirectorPrompt;
+/* Seedance 2.5 WHOLE-BEAT recipe (user direction 2026-09-02): a 2.5 clip is ONE
+   BEAT, shot as a SEQUENCE OF SHOTS — the continuation of the Art Room's shot
+   design, where every beat carries a micro-beat plan and its shots cover that
+   plan. Each SHOT unit gets its own camera grammar, its own micro-beats and its
+   exact dialogue/audio placement, joined by hard cuts ("Cut to:" — the 2.5
+   guide's shot-stacking grammar); the beat closes on a held composition. */
+function seedanceBeatSequenceDirectorPrompt(clip, shots, audioRefsOn, audioIncluded, refs, opts){
+  const d=(clip&&clip.data)||{}, panels=d.panelLines||[];
+  const list=(shots&&shots.length?shots:(d.shots||[]));
+  const included=Array.isArray(audioIncluded)?audioIncluded:[];
+  opts=opts||{};
+  const directAudioCap=Math.max(0,Number.isFinite(Number(opts.directAudioCap))?Number(opts.directAudioCap):3);
+  const videoRefBase=Math.max(0,Number(opts.videoRefBase)||0);
+  const videoRefCap=Math.max(0,Number(opts.videoRefCap)||3);
+  const entity=(kind,x,fallback)=>_stagePromptEntityLabel(refs,kind,x,fallback);
+  const beatN=(list[0]&&list[0].beatN)||((panels[0]||{}).beatN)||"";
+  const planShot=list.find(s=>s&&s.beatPlan&&Array.isArray(s.beatPlan.micro)&&s.beatPlan.micro.length);
+  const protect=String((planShot&&planShot.beatPlan&&planShot.beatPlan.protect)||"").trim();
+  const units=list.map((sh,i)=>{
+    const p=panels.find(x=>x&&x.shotId===sh.id)||{};
+    const grammar=_seedanceShotGrammar(sh);
+    const micro=(Array.isArray(p.micro)?p.micro:[]).map(x=>String(x||"").replace(/[\s.;]+$/,"")).filter(Boolean);
+    const action=micro.length
+      ? ("Micro-beats in exact order: "+micro.map((m,j)=>(j+1)+") "+m).join("; ")+".")
+      : ("Action: "+String(p.text||sh.action||"").trim());
+    const dlg=String((p&&p.dialogue)||sh.dialogue||"").trim().replace(/^["“]|["”]$/g,"");
+    let dialogue="";
+    if(dlg){
+      const name=(p.speaker&&p.speaker.name)||"the speaker";
+      const who=entity("speaker",name,name);
+      const idx=audioRefsOn===false?0:stageLineAudioIndex({ ...d,audioIncluded:included },sh.id);
+      const carrierIdx=idx>directAudioCap ? videoRefBase+(idx-directAudioCap) : 0;
+      const audioToken=idx&&idx<=directAudioCap?("@Audio"+idx)
+        :(carrierIdx>0&&carrierIdx<=videoRefCap?("@Video"+carrierIdx+" voice carrier"):"");
+      const par=String(p.dialogueParenthetical||"").trim();
+      dialogue="Dialogue/audio: "+who+' delivers "'+dlg+'"'+(par?" ("+par+")":"")
+        +(audioToken?(" — lip-sync to "+audioToken+"."):" in a natural in-character voice.");
+    }
+    return [
+      "SHOT "+(i+1)+(grammar?(" — "+grammar):""),
+      action,
+      dialogue,
+      (i<list.length-1)&&"Cut to:"
+    ].filter(Boolean).join("\n");
+  });
+  const cast=(d.cast||[]).map(c=>entity("character",c,c.name)).filter(Boolean);
+  const propRefs=(d.props||[]).map(p=>entity("prop",p,p.name)).filter(Boolean);
+  const setting=entity("setting",d.loc||d.setting,d.setting||((clip&&clip.scene&&clip.scene.loc)||""));
+  return [
+    "ONE CLIP — BEAT "+beatN+" shot as a SEQUENCE OF SHOTS in exact order. Hard cut between shots; do not merge, reorder, skip or invent shots, and let each shot's last action cause the next shot's first.",
+    cast.length&&("Cast: "+cast.join(", ")+"."),
+    setting&&("Setting: "+setting+"."),
+    propRefs.length&&("Continuity props: "+propRefs.join(", ")+"."),
+    units.join("\n"),
+    protect&&("Protect the dramatic core: "+protect+"."),
+    "Ending: finish the final shot's dramatic result, then HOLD the last composition long enough to read; no new action, cutaway or reset.",
+    d.lighting&&("Lighting: "+d.lighting+"."),
+    d.preset&&("Look: "+d.preset.name+" — "+d.preset.grade+"."),
+    "Performance: grounded and subtle; leave breathing room for looks, pauses and reactions. Keep camera motion motivated and separate from subject motion.",
+    "Continuity: references lock identity, wardrobe, location geometry, prop design and blocking across every shot. No extra characters, props, story events, subtitles, captions, panel borders or burned-in text."
+  ].filter(Boolean).join("\n");
+}
+window.seedanceBeatSequenceDirectorPrompt=seedanceBeatSequenceDirectorPrompt;
 function _seedancePanelText(sh, p, i, clip, refs){
   const label = p.sheetPage ? ("Sheet "+p.sheetPage+" Panel "+p.sheetPanel) : ("Panel "+(((clip.scene&&clip.scene.no)||1)+"."+(i+1)));
   const grammar = _seedanceShotGrammar(sh);
@@ -1250,6 +1313,8 @@ function seedanceRecipePrompt(recipeId, clip, shots, activeShot, audioRefsOn, au
     ? ((!recipeId || recipeId==="narrative")
         ? seedanceNarrativeParagraph(scoped, activeShot, refs)
         : seedancePrompt(recipeId, scoped, refs))
+    : (opts&&opts.beatSequence)
+    ? seedanceBeatSequenceDirectorPrompt(scoped, shots, audioRefsOn!==false, audioIncluded, refs, opts)
     : (opts&&opts.wholeScene)
     ? seedanceWholeSceneDirectorPrompt(scoped, audioRefsOn!==false, audioIncluded, refs, opts)
     : seedanceMicroBeatDirectorPrompt(scoped, shots, activeShot, audioRefsOn!==false, audioIncluded, refs)
@@ -1632,7 +1697,7 @@ function StageMentionEditor({ value, mentionables, maxLen, placeholder, onChange
         m.t===swap.tok && _stEl("span",{className:"stage2-mention-kind"},"Current")))));
 }
 
-function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap, drafts, prevClipVideoId, aspect, visualSource, setVisualSource, creditBalance, onVoiceLine, onUpdateShot, onSelectClip, onFirstVideo, modelId, setModelId, pendingReuse, onReuseConsumed }){
+function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap, drafts, prevClipVideoId, aspect, visualSource, setVisualSource, creditBalance, onVoiceLine, onUpdateShot, onSelectClip, onFirstVideo, modelId, setModelId, clipScope, setClipScope, pendingReuse, onReuseConsumed }){
   const scene = clip.scene, g = clip.g, d = clip.data;
   // the CLIP is the unit of generation — it may bundle 2+ merged shots (Art Room Shots
   // "merge" / Storyboards "Compose from shot frames" / a cropped sheet-half = 1 clip).
@@ -2230,14 +2295,16 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   const recipeText = (id, explicit)=>{
     // Multi-shot editor compiles to the TIME-CODED prompt (Seedance's segment
     // grammar) — the structured rows are the editor, this is the model payload
-    const wholeScene=modelId==="seedance-2.5";
-    // an EXPLICIT style pick applies the named grammar over the render's real shot
-    // scope — the whole scene on 2.5 (one clip = the scene), this beat otherwise
+    // a 2.5 clip is ONE BEAT rendered as a SEQUENCE OF SHOTS (user direction
+    // 2026-09-02 — the Art Room micro-beat plan continued onto the Stage; whole-
+    // scene prompting retired with the packing). A single-shot clip (Single shot
+    // scope, or a one-shot beat) reads better as the per-beat director brief.
+    const beatSequence = modelId==="seedance-2.5" && shownShots.length>1;
     const base = explicit
-      ? seedanceRecipePrompt(id, clip, wholeScene ? (d.shots||shownShots) : shownShots, activeShot, audioRefsOn, audioIncluded, promptRefs, { explicitStyle:true })
-      : wholeScene
-      ? seedanceRecipePrompt(id, clip, d.shots||shownShots, activeShot, audioRefsOn, audioIncluded, promptRefs,
-          {wholeScene:true,directAudioCap:3,videoRefBase:onVideos.filter(a=>a&&a.url).length,videoRefCap:10})
+      ? seedanceRecipePrompt(id, clip, shownShots, activeShot, audioRefsOn, audioIncluded, promptRefs, { explicitStyle:true })
+      : beatSequence
+      ? seedanceRecipePrompt(id, clip, shownShots, activeShot, audioRefsOn, audioIncluded, promptRefs,
+          {beatSequence:true,directAudioCap:3,videoRefBase:onVideos.filter(a=>a&&a.url).length,videoRefCap:10})
       : id==="multishot" ? seedanceRecipePrompt("timeline", msClip, msShots, activeShot, audioRefsOn, audioIncluded, promptRefs)
       : seedanceRecipePrompt(id, clip, shownShots, activeShot, audioRefsOn, audioIncluded, promptRefs);
     return (voiceCast && base) ? (voiceCast+"\n\n"+base) : base;
@@ -2510,7 +2577,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     setPrepPct(55);
     const controls = [cameraProfileLine, "Camera movement: "+camera+". Lighting: "+lighting+". Performance: "+perf+"."]
       .filter(Boolean).join("\n");
-    if(clip.g&&clip.g.over){ if(typeof window.appToast==="function") window.appToast("This whole scene is "+_fmtSecs(clip.g.dur)+" — over "+_fmtSecs(model.maxClipSec||15)+". Shorten it before rendering; the app will not silently compress a paid request.","error"); return; }
+    if(clip.g&&clip.g.over){ if(typeof window.appToast==="function") window.appToast("This clip's shots total "+_fmtSecs(clip.g.dur)+" — over "+_fmtSecs(model.maxClipSec||15)+". Trim shot seconds or switch Clip scope to Single shot; the app will not silently compress a paid request.","error"); return; }
     if(assetOver){ if(typeof window.appToast==="function") window.appToast((model.label||"This model")+" accepts up to "+assetLimit+" inputs — exclude a few assets first.","error"); return; }
     if(sourceBlocking){ if(typeof window.appToast==="function") window.appToast("Save this clip's storyboard "+(sourceMode==="sheet"?"sheet":"halves")+" in Storyboards first, or switch Visual source back to shot/prompt rendering.","error"); return; }
     if(needsVoice){ if(typeof window.appToast==="function") window.appToast("Voice this clip's dialogue first — duration and lip-sync are locked to line audio.","error"); return; }
@@ -2851,7 +2918,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   if(sourceBlocking) blockers.push({ key:"source",
     text:"No storyboard source is ready yet — save this clip's "+(sourceMode==="sheet"?"sheet":"halves")+" in Storyboards, or switch Visual source back to shot/prompt rendering." });
   if(clip.g&&clip.g.over) blockers.push({ key:"overcap",
-    text:"This whole scene totals "+_fmtSecs(clip.g.dur)+" — over "+(model.label||"this model")+"'s "+_fmtSecs(model.maxClipSec||15)+" maximum. Shorten the scene before rendering; Cinema Machine will not silently compress it into a paid request." });
+    text:"This clip's shots total "+_fmtSecs(clip.g.dur)+" — over "+(model.label||"this model")+"'s "+_fmtSecs(model.maxClipSec||15)+" maximum. Trim shot seconds on the Art Room's Shots tab, or switch Clip scope to Single shot; Cinema Machine will not silently compress it into a paid request." });
   const carrierVideoCap=modelId==="seedance-2.5"?10:3;
   const carrierOverflow=Math.max(0,onAudios.length-3);
   const carrierSlots=Math.max(0,carrierVideoCap-onVideos.length);
@@ -2938,7 +3005,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   const promptStyleUiOptions = [
     { id:"auto", label:"Auto — director's brief",
       desc: modelId==="seedance-2.5"
-        ? "One-take scene brief: every beat in order with micro-beats, exact dialogue placement and causal hand-offs. The researched 2.5 default."
+        ? "Whole-beat shot sequence: every shot in this beat in order — each with its own micro-beats, camera and dialogue placement, joined by hard cuts. The researched 2.5 default."
         : "This beat's director brief — subject, ordered micro-beats, dialogue, camera and continuity rules. The researched default.",
       onPick:()=>pickPromptStyle("auto") },
     { id:"narrative", label:"Narrative",
@@ -2993,6 +3060,19 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
                 modelTouchedRef.current = true; setModelId(m.id);
                 const t0=seedanceTierOf(m,tier); if(t0) setTier(t0.id); } });
           }))),
+      sdPill("scope","scope","Clip scope — how much one render covers",
+        _stEl(React.Fragment,null, Icon.film&&_stEl(Icon.film,{s:13}),
+          _stEl("span",null, clipScope==="shot" ? "Single shot" : (modelId==="seedance-2.5" ? "Whole beat" : "Auto clips"))),
+        _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
+          [ { id:"auto", label: modelId==="seedance-2.5" ? "Whole beat" : "Auto clips",
+              desc: modelId==="seedance-2.5"
+                ? "One clip per BEAT — all of a beat's shots render as one continuous sequence of shots, up to 30s. The Art Room micro-beat plan, shot end to end."
+                : "Shots pack into clips by "+(model.label||"the model")+"'s budget (up to "+_fmtSecs(model.maxClipSec||15)+", "+(model.maxShotsPerClip||3)+" shots per clip) — a beat may span more than one clip.",
+              selected:clipScope!=="shot", onPick:()=>{ if(typeof setClipScope==="function") setClipScope("auto"); } },
+            { id:"shot", label:"Single shot",
+              desc:"One clip per SHOT — render and judge each shot on its own for maximum control; the rail lists every shot as its own clip.",
+              selected:clipScope==="shot", onPick:()=>{ if(typeof setClipScope==="function") setClipScope("shot"); } },
+          ].map(o=>sdOption(o)))),
       sdPill("source","source","Reference mode",
         _stEl(React.Fragment,null, Icon.layers&&_stEl(Icon.layers,{s:13}), _stEl("span",null,sourceUiLabel)),
         _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
@@ -4400,23 +4480,34 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   });
   const setModelId = React.useCallback((id)=>{ _setModelId(id); try{ localStorage.setItem("turn_stage_model", id); }catch(e){} },[]);
   const stageModel = seedanceModelOf(modelId);
-  // CLIP PACKING is always PER-CLIP: shots pack into clips by the model's duration &
-  // shot budget, and the left rail lists those clips. (The Per clip / Whole scene
-  // switcher was removed 2026-08-02 by user ruling — sceneSequences' wholeScene
-  // branch stays dormant for a future whole-scene model.)
+  // CLIP SCOPE — user choice (2026-09-02): how shots pack into render clips.
+  // "auto": Seedance 2.5 packs ONE BEAT per clip (the whole beat renders as one
+  // sequence of shots — the Art Room micro-beat plan continued, its 30s ceiling
+  // permitting; whole-SCENE packing was retired by the same ruling); 2.0 packs by
+  // its 15s/3-shot budget. "shot": one clip per SHOT on either model — maximum
+  // per-render control. Persisted like the model choice.
+  const [clipScope, _setClipScope] = React.useState(()=>{
+    try{ return localStorage.getItem("turn_stage_clip_scope")==="shot" ? "shot" : "auto"; }catch(e){ return "auto"; }
+  });
+  const setClipScope = React.useCallback((v)=>{ _setClipScope(v==="shot"?"shot":"auto"); try{ localStorage.setItem("turn_stage_clip_scope", v==="shot"?"shot":"auto"); }catch(e){} },[]);
+  // CLIP PACKING follows the scope above; the left rail lists the packed clips.
+  // (The old Per clip / Whole scene switcher was removed 2026-08-02 by user ruling —
+  // sceneSequences' wholeScene branch stays dormant.)
   // in-room view: the director console ("stage") or the take browser ("versions");
   // pendingReuse carries a Versions-tab "Reuse/Branch" pick back into the composer
   const [stageView, setStageView] = React.useState("stage");
   const [pendingReuse, setPendingReuse] = React.useState(null);
   const clipsByScene = React.useMemo(()=>{ const m={};
     // the packing budget follows the MODEL's ceiling upward — a 30s model (Seedance
-    // 2.5) packs whole beats into 30s clips even when the format's budget is 15s
+    // 2.5) packs a whole BEAT into one 30s clip even when the format's budget is 15s
     const packMax = Math.max(clipMax, stageModel.maxClipSec||15);
-    const packOpts = { maxShots: stageModel.maxShotsPerClip!=null ? stageModel.maxShotsPerClip : (window.CLIP_MAX_SHOTS||3),
-      maxDialogue: stageModel.maxDialoguePerClip!=null ? stageModel.maxDialoguePerClip : (window.CLIP_MAX_DIALOGUE||3),
-      wholeScene:modelId==="seedance-2.5" };
+    const packOpts = clipScope==="shot"
+      ? { perShot:true }
+      : { maxShots: stageModel.maxShotsPerClip!=null ? stageModel.maxShotsPerClip : (window.CLIP_MAX_SHOTS||3),
+          maxDialogue: stageModel.maxDialoguePerClip!=null ? stageModel.maxDialoguePerClip : (window.CLIP_MAX_DIALOGUE||3),
+          perBeat:modelId==="seedance-2.5" };
     scenesWithShots.forEach(s=>{ m[s.id]=(typeof sceneSequences==="function")?sceneSequences(shotsByScene[s.id]||[], packMax, packOpts):[]; });
-    return m; }, [scenesWithShots, shotsByScene, clipMax, modelId]);
+    return m; }, [scenesWithShots, shotsByScene, clipMax, modelId, clipScope]);
 
   // ctx.scenes = the story-ORDERED list — shotPropSheetId/custodyOwnerAt resolve by story
   // position, so the raw array would mis-resolve active states/holders out of order
@@ -4678,7 +4769,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
             // hash the member shots), and remounting the console wiped the recipe
             // tab + Multi-shot row state mid-edit; the console's own member-overlap
             // effect handles real clip moves within the scene.
-            : _stEl(ClipConsole,{ key:"console-"+selectedScene.id, clip, selectedShot, sceneClips:selectedSceneClips, ctx, imgs, auds, beatsMap, drafts, prevClipVideoId:prevBeatVideoId, aspect, visualSource, setVisualSource, creditBalance, onVoiceLine, onUpdateShot, modelId, setModelId,
+            : _stEl(ClipConsole,{ key:"console-"+selectedScene.id, clip, selectedShot, sceneClips:selectedSceneClips, ctx, imgs, auds, beatsMap, drafts, prevClipVideoId:prevBeatVideoId, aspect, visualSource, setVisualSource, creditBalance, onVoiceLine, onUpdateShot, modelId, setModelId, clipScope, setClipScope,
                 onSelectClip,
                 onFirstVideo:()=>setStageView("versions"),
                 pendingReuse, onReuseConsumed:()=>setPendingReuse(null) }))));

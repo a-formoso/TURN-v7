@@ -10,3 +10,5 @@ Rule: any user-facing "style/structure" pick for a derived prompt must carry an 
 **How to apply:** pass `opts.explicitStyle` into `seedanceRecipePrompt`; explicit routes to the named grammar, auto keeps the researched briefs. Two more traps that survived review:
 - Prompt SCOPE follows the model (2.5 = whole scene, 2.0 = one beat), so `modelId` is a real dependency of any effect that rebuilds an untouched prompt box — omit it and a model switch ships the wrong scope under the right label.
 - An explicit pick intentionally overwrites a hand-edited box (`promptEditedRef` cleared): the click is the request; Reset-to-script remains the way back.
+
+**Scope ruling (user, 2026-09-02):** a Seedance 2.5 clip is ONE BEAT rendered as a sequence of shots (the Art Room micro-beat plan continued) — never the whole scene; whole-scene packing/prompting is retired (dormant branches only). A user-facing Clip scope choice also allows one clip per shot on either model. When packing per beat, only positive finite beat numbers may group shots — unassigned/zero beatN falls back to per-shot, or old projects without beat mapping silently recreate whole-scene clips.
