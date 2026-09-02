@@ -728,22 +728,29 @@ async function nbCommitImageDimensions(src){
     im.onload=()=>resolve(im.naturalWidth&&im.naturalHeight ? { w:im.naturalWidth, h:im.naturalHeight } : null);
     im.onerror=()=>resolve(null); im.src=src; });
 }
-function nbCommit(id, dataUrl, meta, refs, kind, epoch){
-  return _nbSerial(id, ()=>_nbCommitInner(id, dataUrl, meta, refs, kind, epoch));
+function nbCommit(id, dataUrl, meta, refs, kind, epoch, cancelled){
+  return _nbSerial(id, ()=>_nbCommitInner(id, dataUrl, meta, refs, kind, epoch, cancelled));
 }
-async function _nbCommitInner(id, dataUrl, meta, refs, kind, epoch){
+async function _nbCommitInner(id, dataUrl, meta, refs, kind, epoch, cancelled){
   // the scope moved while this was generating — the result belongs to a film that is no
   // longer open, and this id means something different here. Drop it rather than clobber.
   // _stale() is RE-CHECKED after every await below: a film switch during any of those
   // waits would pass an entry check yet persist into the newly selected film's scope.
   const _stale = ()=> (epoch!=null && epoch!==_nbEpoch);
+  // optional per-run cancellation guard, supplied by the caller (Stop / Clear): the
+  // predicate is live, so a cancel that lands DURING persistence stops the write at
+  // the next checkpoint instead of storing a frame the user already discarded.
+  // tier:"cancelled" = nothing (or nothing further) persisted for the caller to adopt.
+  const _cxl = ()=> (typeof cancelled==="function" && !!cancelled());
   if(_stale()) return { tier:"stale", url:dataUrl };
+  if(_cxl())   return { tier:"cancelled", url:dataUrl };
   meta = { ...(meta||{}) };
   if((!meta.pixelW || !meta.pixelH) && dataUrl){
     const dims = await nbCommitImageDimensions(dataUrl);
     if(dims){ meta.pixelW=dims.w; meta.pixelH=dims.h; }
   }
   if(_stale()) return { tier:"stale", url:dataUrl };   // the dimension decode awaited
+  if(_cxl())   return { tier:"cancelled", url:dataUrl };
   if(!meta.iso){
     const now=new Date();
     meta.iso=now.toISOString();
@@ -756,6 +763,7 @@ async function _nbCommitInner(id, dataUrl, meta, refs, kind, epoch){
     if(typeof window.cloudCommit!=="function") return { tier:"error", url:dataUrl };
     // capture scope+uid at the validated moment — never re-resolve them after an await
     const _scope = _scopeFor(id), _uid = _nbUid;
+    if(_cxl()) return { tier:"cancelled", url:dataUrl };   // last checkpoint BEFORE the write
     const r = await window.cloudCommit(_scope, _uid, id, dataUrl, meta, refs, kind);
     // the write itself landed in the scope captured above (its correct home) — but if
     // the film switched during it, the session caches now belong to the NEW film:
@@ -766,6 +774,9 @@ async function _nbCommitInner(id, dataUrl, meta, refs, kind, epoch){
       // we hold the bytes we just generated — warm the byte-cache directly so the
       // next session never re-downloads this sheet
       if(r.path){ try{ const blob = await (await fetch(dataUrl)).blob(); if(!_stale()) await idbSet(nbCloudKey(id), { path:r.path, blob }); }catch(e){} }
+      // a Stop that landed while the write was saving: the write reached storage (caches
+      // above were kept consistent with it), but the caller must not adopt or announce
+      if(_cxl()) return { tier:"cancelled", url:r.url };
       return r;
     }
     return { tier:"error", url:dataUrl };
@@ -775,10 +786,12 @@ async function _nbCommitInner(id, dataUrl, meta, refs, kind, epoch){
     const hist = await localGetHistory(id);
     const prevRefs = await localGetRefs(id);
     if(_stale()) return { tier:"stale", url:dataUrl };
+    if(_cxl())   return { tier:"cancelled", url:dataUrl };
     hist.unshift({ url:prev, meta:localGetMeta(id), refs:prevRefs });
     await localSetHistory(id, hist.slice(0,12));
   }
   if(_stale()) return { tier:"stale", url:dataUrl };
+  if(_cxl())   return { tier:"cancelled", url:dataUrl };
   const res = await localSetImage(id, dataUrl);
   await localSetRefs(id, refs||[]);
   localSetMeta(id, meta||null);

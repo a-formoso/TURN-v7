@@ -1334,6 +1334,11 @@ function useImageGen(opts){
     window.__nbGenRunSeq = (window.__nbGenRunSeq||0)+1;
     const _genRun = window.__nbGenRunSeq;
     window.__nbGenInflight[id] = _genRun;
+    /* live discard predicate for THIS run: a Stop/Clear flagged the id cancelled, or a
+       newer run took over the registry. Checked at every gate below AND passed into
+       nbCommit, so a cancel that lands mid-persistence stops the write itself. */
+    const _cancelledNow = ()=> !!(window.__nbGenCancel && window.__nbGenCancel[id])
+      || !(window.__nbGenInflight && window.__nbGenInflight[id]===_genRun);
     // announce the start: a card that mounted BEFORE this run registered (e.g. it
     // remounted during a pre-generate phase like the staging draft or the prop's
     // owner prerequisite, when nothing was in the registry yet) flips its spinner on
@@ -1523,7 +1528,7 @@ function useImageGen(opts){
     try{
       // last gate before the paid request: prompt/attachment assembly above awaited —
       // if a Stop or a newer run for this id landed in that window, don't spend at all
-      if((window.__nbGenCancel && window.__nbGenCancel[id]) || !(window.__nbGenInflight && window.__nbGenInflight[id]===_genRun)) throw { __cancelled:true };
+      if(_cancelledNow()) throw { __cancelled:true };
       let url;
       try{
         url = await nbGenerate(genPrompt, genOpts);
@@ -1547,7 +1552,7 @@ function useImageGen(opts){
       }
       // cancelled mid-flight (Stop) or superseded by a newer run for this id:
       // discard the result — don't commit over the frame.
-      if((window.__nbGenCancel && window.__nbGenCancel[id]) || (window.__nbGenInflight && window.__nbGenInflight[id]!==_genRun)) throw { __cancelled:true };
+      if(_cancelledNow()) throw { __cancelled:true };
       // Record the actual returned pixels as well as the requested resolution tier.
       // Providers can return dimensions that differ slightly from the nominal tier.
       const outputDims = await nbImageDimensions(url);
@@ -1608,15 +1613,26 @@ function useImageGen(opts){
       }
       // re-check cancel/ownership after the async meta work — a cancelled or
       // superseded generate must never commit
-      if((window.__nbGenCancel && window.__nbGenCancel[id]) || (window.__nbGenInflight && window.__nbGenInflight[id]!==_genRun)) throw { __cancelled:true };
+      if(_cancelledNow()) throw { __cancelled:true };
       const assetKind = (typeof slotAssetKind==="function") ? slotAssetKind(slotId) : "character";
       if(typeof nbWithAssetProvenance==="function") Object.assign(meta, nbWithAssetProvenance(id, meta, assetKind));
-      const saveResult = await nbCommit(id, url, meta, refsUsed, assetKind, _genEpoch);
-      /* the film scope moved while this rendered: nbCommit refused the write. Treat it
-         exactly like a cancellation — installing the pixels or firing "done" here would
-         paint the OLD film's image into the new film's card (same entity ids) and
-         advance the new film's batch on a result that was never persisted. */
-      if(saveResult && saveResult.tier==="stale") throw { __cancelled:true };
+      // the live predicate rides into persistence: a Stop/Clear during the save stops
+      // the write at the next internal checkpoint instead of storing a discarded frame
+      const saveResult = await nbCommit(id, url, meta, refsUsed, assetKind, _genEpoch, _cancelledNow);
+      /* the film scope moved while this rendered (stale: nbCommit refused the write), or
+         the user stopped/cleared during the save (cancelled). Treat both exactly like a
+         cancellation — installing the pixels or firing "done" here would paint an image
+         the user discarded (or the OLD film's image, same entity ids) into the card and
+         advance a batch on a result that must not be shown. */
+      if(saveResult && (saveResult.tier==="stale" || saveResult.tier==="cancelled")) throw { __cancelled:true };
+      // the save itself awaited: never adopt/announce if a Stop landed during it
+      if(_cancelledNow()) throw { __cancelled:true };
+      /* the render finished but PERSISTENCE failed — this is a FAILURE, not a success.
+         Adopting the pixels here would show the director a sheet that evaporates on
+         reload (downstream tabs would consume it too). Keep the previous image and
+         version history untouched and say what happened; retry stays explicit. */
+      if(!saveResult || saveResult.tier==="error")
+        throw new Error("The image rendered, but saving it to your project failed — your previous version is untouched. Check your connection and press Generate again.");
       committedUrl = (saveResult && saveResult.url) || url;
       setGenUrl(committedUrl);
       setGenTier((saveResult && saveResult.tier) || "local");
@@ -1648,13 +1664,22 @@ function useImageGen(opts){
   };
   const cancelGen = ()=>{ if(gening && typeof window.nbCancelGen==="function") window.nbCancelGen(id); };
   const clearGen = async ()=>{
+    /* a render still in flight would commit moments after this clear and silently
+       resurrect the sheet the director just deleted — cancel it FIRST (flags the run
+       cancelled + aborts the request + drops the spinner), so Clear means CLEARED.
+       nbClearAsset then queues behind any commit already mid-save (per-id
+       serialization), removing whatever that save managed to write. */
+    if(typeof window.nbCancelGen==="function" && (gening || (window.__nbGenInflight && window.__nbGenInflight[id]))) window.nbCancelGen(id);
     if(typeof nbClearAsset==="function") await nbClearAsset(id);
     // cascade: also clear this entity's variant sub-sheets (a character's appearance
     // states, a location's time-of-day plates) so they aren't orphaned. Cameo, linked
     // props, and the written spec are deliberately left intact.
     if(typeof opts.relatedClearIds==="function" && typeof nbClearAsset==="function"){
       let extra=[]; try{ extra=opts.relatedClearIds()||[]; }catch(e){}
-      for(const xid of extra){ if(xid && xid!==id){ try{ await nbClearAsset(xid); }catch(e){} } }
+      for(const xid of extra){ if(xid && xid!==id){
+        // same rule for each sub-sheet: stop its in-flight run before deleting it
+        if(typeof window.nbCancelGen==="function" && window.__nbGenInflight && window.__nbGenInflight[xid]) window.nbCancelGen(xid);
+        try{ await nbClearAsset(xid); }catch(e){} } }
     }
     setGenUrl(""); setGenErr(""); setGenTier("local"); setGenMeta(null);
   };
@@ -1665,6 +1690,10 @@ function useImageGen(opts){
   const importSheet = async (file)=>{
     if(gening || !file) return;
     if(!/^image\/(png|jpeg|jpg|webp|avif)$/i.test(file.type||"")){ setGenErr("Choose a PNG, JPEG, WebP or AVIF image."); return; }
+    // film scope at import start — reading + decoding the file awaits, and entity ids
+    // repeat across films: without this, switching films mid-import would store the
+    // image under the SAME id in the newly opened film
+    const _importEpoch = (typeof nbEpoch==="function") ? nbEpoch() : null;
     setGenErr(""); setGening(true);
     try{
       const dataUrl = await new Promise((res,rej)=>{ const fr=new FileReader();
@@ -1683,11 +1712,17 @@ function useImageGen(opts){
       };
       const assetKind = (typeof slotAssetKind==="function") ? slotAssetKind(slotId) : "character";
       if(typeof nbWithAssetProvenance==="function") Object.assign(meta, nbWithAssetProvenance(id, meta, assetKind));
-      const saveResult = await nbCommit(id, dataUrl, meta, [], assetKind);
-      const url = (saveResult && saveResult.url) || dataUrl;
-      setGenUrl(url); setGenTier((saveResult && saveResult.tier) || "local"); setGenMeta(meta);
-      setSlotHasRef(false);
-      try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id, url } })); }catch(e){}
+      const saveResult = await nbCommit(id, dataUrl, meta, [], assetKind, _importEpoch);
+      // same honesty rule as generation: an import that failed to save is a failure,
+      // and a film switch mid-import must not paint into the other film's card
+      if(!saveResult || saveResult.tier==="error")
+        throw new Error("The image was read, but saving it to your project failed — nothing was imported. Check your connection and try again.");
+      if(saveResult.tier!=="stale"){
+        const url = saveResult.url || dataUrl;
+        setGenUrl(url); setGenTier(saveResult.tier || "local"); setGenMeta(meta);
+        setSlotHasRef(false);
+        try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id, url } })); }catch(e){}
+      }
     }catch(e){ setGenErr((e && e.message) || "Couldn't import the image."); }
     setGening(false);
   };
