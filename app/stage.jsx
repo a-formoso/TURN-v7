@@ -1724,12 +1724,21 @@ function StageFrameComposer({ sh, sceneShots, imgCtx, shotNo, onMax }){
         // this the fallback silently re-renders from the derived shot prompt
         // (review finding 2026-09-03)
         buildSimple: ()=> edited ? promptText : pack.opts.buildSimple() });
-  // resolution follows the app-wide image setting (same store the Art Room uses)
+  // resolution/aspect/quality follow the app-wide image settings (same stores
+  // the Art Room dock writes) — changing them here changes them everywhere
   const [res, setRes] = React.useState(()=> (typeof nbGetRes==="function") ? nbGetRes() : "");
   const pickRes = (r)=>{ setRes(r); if(typeof nbSetRes==="function"){ try{ nbSetRes(r); }catch(e){} } };
   const resolutions = (window.NB_RESOLUTIONS||[]).map(r=> (r&&r.id)||r).filter(Boolean);
+  const [aspect, setAspect] = React.useState(()=> (typeof nbGetAspect==="function") ? nbGetAspect() : "16:9");
+  const [aspMenu, setAspMenu] = React.useState(false);
+  const pickAspect = (a)=>{ setAspect(a); setAspMenu(false); if(typeof nbSetAspect==="function"){ try{ nbSetAspect(a); }catch(e){} } };
+  const aspects = window.NB_ASPECTS||[];
+  const [oaiQ, setOaiQ] = React.useState(()=> (typeof nbGetOaiQuality==="function") ? nbGetOaiQuality() : "medium");
+  const pickQ = (q)=>{ setOaiQ(q); if(typeof nbSetOaiQuality==="function"){ try{ nbSetOaiQuality(q); }catch(e){} } };
   const modelId = (typeof nbGetModel==="function") ? nbGetModel() : "";
-  const modelLabel = (((window.NB_MODELS||[]).find(m=>m.id===modelId)||{}).label) || "Art Room model";
+  const modelDef = (window.NB_MODELS||[]).find(m=>m.id===modelId)||{};
+  const modelLabel = modelDef.label || "Art Room model";
+  const isGpt = modelDef.family==="openai"; // GPT renders by QUALITY, not by K-size
   const specs = (pack && pack.renderPlan && pack.renderPlan.orderedSpecs) || [];
   const seedUrl = (pack && pack.prevShot && typeof nbGetImage==="function") ? nbGetImage(pack.prevShot.id) : "";
   const seedNo = (pack && pack.prevShot) ? ((sceneShots||[]).findIndex(x=>x&&x.id===pack.prevShot.id)+1) : 0;
@@ -1764,7 +1773,28 @@ function StageFrameComposer({ sh, sceneShots, imgCtx, shotNo, onMax }){
           _stEl("span",{className:"sdbar-pill static",
             title:"Frames render with the Art Room's image model — change it on any Art Room card"},
             Icon.image&&_stEl(Icon.image,{s:13}), _stEl("span",null,modelLabel)),
-          resolutions.length>0 && _stEl("span",{className:"stage2-imgtab-res"},
+          aspects.length>0 && _stEl("span",{className:"stage2-imgtab-asp"},
+            _stEl("button",{type:"button",className:"sdbar-pill"+(aspMenu?" open":""),
+              title:"Aspect ratio — the frame's shape (app-wide image setting, shared with the Art Room)",
+              onClick:()=>setAspMenu(v=>!v),
+              onBlur:()=>setTimeout(()=>setAspMenu(false),120)},
+              _stEl("span",{className:"sdbar-ratio-ico inline ratio-"+String(aspect).replace(":","x")}),
+              _stEl("span",null,aspect)),
+            aspMenu && _stEl("div",{className:"stage2-imgtab-aspmenu"},
+              aspects.map(a=>_stEl("button",{key:a,type:"button",
+                className:"stage2-imgtab-asp-opt"+(aspect===a?" on":""),
+                onMouseDown:e=>{ e.preventDefault(); pickAspect(a); }},
+                _stEl("span",{className:"sdbar-ratio-ico inline ratio-"+String(a).replace(":","x")}),
+                _stEl("span",null,a))))),
+          // GPT Image renders by QUALITY; the other models by K-size — show the
+          // knob that actually drives the active model (same rule as the Art Room dock)
+          isGpt ? _stEl("span",{className:"stage2-imgtab-res"},
+            ["low","medium","high"].map(q=>_stEl("button",{key:q,type:"button",
+              className:"stage2-imgtab-res-btn"+(oaiQ===q?" on":""),
+              title: q==="high" ? "Highest quality — slowest; big composite renders can time out"
+                : q==="medium" ? "Recommended — best balance for GPT Image" : "Fastest, lowest cost",
+              onClick:()=>pickQ(q)}, q)))
+          : resolutions.length>0 && _stEl("span",{className:"stage2-imgtab-res"},
             resolutions.map(r=>_stEl("button",{key:r,type:"button",
               className:"stage2-imgtab-res-btn"+(res===r?" on":""),
               title:"Render at "+r, onClick:()=>pickRes(r)}, r)))),
