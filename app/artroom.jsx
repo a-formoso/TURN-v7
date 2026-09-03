@@ -4783,7 +4783,16 @@ function remasterInstruction(noun){
 }
 window.remasterInstruction = remasterInstruction;
 
-function ImageLightbox({ url, character, onClose }){
+function ImageLightbox({ url, character, onClose, siblings, startIndex }){
+  // SIBLING SET — when the opener passes `siblings` ({url, character} in display
+  // order, e.g. Locations: master plate + screenplay coverage sheets), swiping
+  // L/R (touch) or the ←/→ keys move BETWEEN those images without leaving
+  // fullscreen. Without siblings the swipe walks the version strip instead.
+  const sibs = (Array.isArray(siblings) && siblings.length>1) ? siblings : null;
+  const [sIdx, setSIdx] = React.useState(()=> Math.max(0, Number(startIndex)||0));
+  React.useEffect(()=>{ setSIdx(Math.max(0, Number(startIndex)||0)); },[startIndex, url]);
+  const eUrl = sibs ? ((sibs[Math.min(sIdx, sibs.length-1)]||{}).url || url) : url;
+  const eChar = sibs ? ((sibs[Math.min(sIdx, sibs.length-1)]||{}).character || character) : character;
   const [res, setRes] = React.useState(()=> (typeof nbGetRes==="function") ? nbGetRes() : "2K");
   // the VIEWED version's real size — the picker must follow the image, not the
   // global generation setting (a 4K sheet was opening on "2K" and silently
@@ -4800,7 +4809,7 @@ function ImageLightbox({ url, character, onClose }){
   // url → generation meta, for every known version (current + history) — drives the
   // Remaster button, which is only offered on versions produced by an Apply-edit
   const [metaByUrl, setMetaByUrl] = React.useState({});
-  React.useEffect(()=>{ setCur(url); },[url]);
+  React.useEffect(()=>{ setCur(eUrl); },[eUrl]);
   React.useEffect(()=>{
     const label = (px)=> px>=3000 ? "4K" : px>=1600 ? "2K" : "1K";
     const m = metaByUrl[cur];
@@ -4818,14 +4827,14 @@ function ImageLightbox({ url, character, onClose }){
   React.useEffect(()=>{
     let alive = true;
     (async()=>{
-      const id = character && character.id;
+      const id = eChar && eChar.id;
       if(!id || typeof window.nbGetHistory!=="function"){ if(alive){ setVersions([]); setMetaByUrl({}); } return; }
       let hist = []; try{ hist = (await window.nbGetHistory(id))||[]; }catch(e){}
       const curUrl = (typeof nbGetImage==="function") ? nbGetImage(id) : "";
       const items = [];
       if(curUrl) items.push({ url:curUrl, label:"Current" });
       hist.forEach((h,i)=>{ if(h && h.url && !items.some(x=>x.url===h.url)) items.push({ url:h.url, label:"Version −"+(i+1) }); });
-      if(url && !items.some(x=>x.url===url)) items.unshift({ url, label:"Viewing" });
+      if(eUrl && !items.some(x=>x.url===eUrl)) items.unshift({ url:eUrl, label:"Viewing" });
       if(!alive) return;
       const metas = {};
       if(curUrl && typeof nbGetMeta==="function"){ try{ metas[curUrl] = nbGetMeta(id); }catch(e){} }
@@ -4851,25 +4860,45 @@ function ImageLightbox({ url, character, onClose }){
       }
     })();
     return ()=>{ alive=false; };
-  },[character && character.id, url]);
+  },[eChar && eChar.id, eUrl]);
   const idx = versions.findIndex(v=>v.url===cur);
   const step = (d)=>{ if(!versions.length) return; const j=(idx<0?0:idx)+d; if(j<0||j>=versions.length) return; setCur(versions[j].url); };
+  // step BETWEEN sibling images (master plate ↔ coverage sheets); returns false at the ends
+  const sibStep = (d)=>{ if(!sibs) return false; const j=sIdx+d; if(j<0||j>=sibs.length) return false; setSIdx(j); return true; };
   React.useEffect(()=>{
-    const onKey = (e)=>{ if(e.key==="ArrowLeft") step(-1); else if(e.key==="ArrowRight") step(1); else if(e.key==="Escape") onClose(); };
+    // keys: with a version strip open the arrows keep walking versions (unchanged);
+    // otherwise they move between sibling images
+    const onKey = (e)=>{ if(e.key==="ArrowLeft"){ if(versions.length>1) step(-1); else sibStep(-1); }
+      else if(e.key==="ArrowRight"){ if(versions.length>1) step(1); else sibStep(1); }
+      else if(e.key==="Escape") onClose(); };
     window.addEventListener("keydown", onKey);
     return ()=>window.removeEventListener("keydown", onKey);
   });
+  // TOUCH SWIPE — a mostly-horizontal flick moves between siblings (or, without
+  // siblings, walks the version strip). Vertical drags stay free for scrolling.
+  const touchRef = React.useRef(null);
+  const onTouchStart = (e)=>{ const t = e.touches && e.touches[0]; touchRef.current = t ? { x:t.clientX, y:t.clientY } : null; };
+  const onTouchEnd = (e)=>{
+    const s = touchRef.current; touchRef.current = null; if(!s) return;
+    const t = e.changedTouches && e.changedTouches[0]; if(!t) return;
+    const dx = t.clientX - s.x, dy = t.clientY - s.y;
+    if(Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy)*1.5) return;
+    const d = dx < 0 ? 1 : -1;   // swipe left = next
+    if(!sibStep(d)) step(d);
+  };
   const resolutions = window.NB_RESOLUTIONS || ["1K","2K","4K"];
   const download = async ()=>{
     if(busy) return; setBusy(true);
-    const fn = (character && character.name ? character.name.replace(/[^\w]+/g,"_") : "character")+"_sheet_"+res+".png";
+    const fn = (eChar && eChar.name ? eChar.name.replace(/[^\w]+/g,"_") : "character")+"_sheet_"+res+".png";
     try{ await nbDownload(cur, res, fn); }catch(e){}
     setBusy(false);
   };
   return React.createElement("div",{className:"lb-overlay",onMouseDown:(e)=>{ if(e.target===e.currentTarget) onClose(); }},
-    React.createElement("div",{className:"lb-panel"+(versions.length>1?" has-strip":"")},
+    React.createElement("div",{className:"lb-panel"+(versions.length>1?" has-strip":""),
+      onTouchStart, onTouchEnd},
       React.createElement("div",{className:"lb-head"},
-        React.createElement("span",{className:"lb-title"},(character?character.name:"Character sheet")
+        React.createElement("span",{className:"lb-title"},(eChar?eChar.name:"Character sheet")
+          +(sibs?(" · "+(Math.min(sIdx, sibs.length-1)+1)+"/"+sibs.length):"")
           +((idx>=0 && versions.length>1)?(" · "+versions[idx].label):"")),
         React.createElement("button",{className:"ag-x",onClick:onClose},React.createElement(Icon.x,{s:17}))),
       React.createElement("div",{className:"lb-imgwrap"},
@@ -4886,12 +4915,12 @@ function ImageLightbox({ url, character, onClose }){
         // generation pipeline. Only offered while that card is mounted in this tab
         // AND the viewed version was produced by an Apply-edit (clean originals and
         // remaster passes have nothing to clean).
-        (character && character.id && window.__sheetGen && window.__sheetGen[character.id]
+        (eChar && eChar.id && window.__sheetGen && window.__sheetGen[eChar.id]
           && remasterEligible(metaByUrl[cur])) &&
           React.createElement("button",{className:"lb-dl lb-remaster",
-            disabled: !!window.__sheetGen[character.id].gening,
+            disabled: !!window.__sheetGen[eChar.id].gening,
             title:"Re-render THIS version as a fresh, clean, full-quality image — same design, noise and artifacts removed. It becomes the new current version; everything else stays in history.",
-            onClick:()=>{ const g=window.__sheetGen[character.id]; if(!g || g.gening) return;
+            onClick:()=>{ const g=window.__sheetGen[eChar.id]; if(!g || g.gening) return;
               g.generate({ editInstruction: (typeof remasterInstruction==="function")?remasterInstruction(g.noun):"Reproduce this image exactly, clean and artifact-free.",
                 editBaseUrl: cur });
               if(typeof window.appToast==="function") window.appToast("Remastering this version — it will land as the new current");

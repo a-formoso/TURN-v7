@@ -886,7 +886,8 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
   const eligibleAll = list.filter(l=> (typeof locVisualsDrafted==="function") ? locVisualsDrafted(l) : true).length;
 
   return React.createElement("div",{className:"art-scroll"},
-    view && React.createElement(ImageLightbox,{url:view.url,character:view.character,onClose:()=>setView(null)}),
+    view && React.createElement(ImageLightbox,{url:view.url,character:view.character,
+      siblings:view.siblings,startIndex:view.startIndex,onClose:()=>setView(null)}),
     React.createElement(NbKeyBar,null),
     React.createElement(NbControls,null),
     React.createElement("div",{className:"art-intro"},
@@ -952,7 +953,27 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
           ? React.createElement(React.Fragment,null,
               React.createElement("div",{className:"sheet-grid"},
                 pager.slice(shown).map(l=>React.createElement(LocationSheet,{key:l.id,l,project,scenes,drafts,onUpdate,onDelete,onDraft,
-                  drafting:draftingId===l.id||(draftingIds||[]).indexOf(l.id)>=0||draftingAll,onView:(url,pr)=>setView({url,character:pr}),
+                  drafting:draftingId===l.id||(draftingIds||[]).indexOf(l.id)>=0||draftingAll,
+                  // SWIPE SET — fullscreen swipes walk this location's master plate +
+                  // screenplay coverage sheets in display order. Tapping anything else
+                  // (unit plates, variants, reference snapshots) opens the plain viewer.
+                  onView:(url,pr)=>{
+                    const entries = [{ id:l.id, chr:l },
+                      ...(l.coverageSheets||[]).slice()
+                        .sort((a,b)=>(Number(a.order||0)-Number(b.order||0)) || String(a.name||"").localeCompare(String(b.name||"")))
+                        .map(v=>({ id:l.id+"-"+v.id,
+                          chr:{ ...l, id:l.id+"-"+v.id, name:(v.name||l.name||"Location")+" \u00b7 "+(v.role||"INT") } }))];
+                    // the tapped image keeps ITS url (it may be an older version); the rest
+                    // come from the image cache — sheets without a plate yet are skipped
+                    const sibsAll = entries.map(x=>({
+                      url: (pr && pr.id===x.id) ? url : ((typeof nbGetImage==="function") ? nbGetImage(x.id) : ""),
+                      character: x.chr }));
+                    const sibs = sibsAll.filter(s=>s.url);
+                    const at = sibs.findIndex(s=>s.character.id===(pr&&pr.id));
+                    setView((at>=0 && sibs.length>1)
+                      ? { url, character:pr, siblings:sibs, startIndex:at }
+                      : { url, character:pr });
+                  },
                   batchActiveId,onBatchDone:batch.advance,onChipClick:(sid)=>setSceneFilter(sid),
                   onDraftStaging,draftingStage:draftingStageId===l.id,sluglineUnits,onUpdateUnit,onRemoveUnit}))),
               React.createElement(PagerBar,{pager,noun:"location"}))
