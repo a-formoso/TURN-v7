@@ -115,55 +115,31 @@ function FrameToggles({ label, items, selected, onToggle, emptyHint }){
       })));
 }
 
-function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, laterShots, sceneShots, isHead, isFirst, onToggleHead, onUpdate, onDelete, onView, batchActiveId, onBatchDone, onGenerateShot, onRegenDownstream, onStopChain, subLabel, plan }){
-  const loc = ctx.location;
-  // who/what is in frame is DERIVED from the action text (single source of truth) — the
-  // old manual tags are gone; this is what the prompt + references actually use.
-  const _allChars = Object.values(ctx.charById||{});
-  const inCastIds = (typeof inFrameCast==="function") ? inFrameCast(sh, scene, _allChars) : (sh.subjects||[]);
-  const subjects = inCastIds.map(id=>ctx.charById[id]).filter(Boolean);
-  const inPropIds = (typeof inFrameProps==="function") ? inFrameProps(sh, scene, ctx.charById, ctx.propById) : (sh.props||[]);
-  // DRIFT FLAG: characters/props named in the micro-beats this shot COVERS but missing
-  // from its action text. The render-time canon merge would try to rescue them — better
-  // to surface the seam on the card so the director can re-include them deliberately.
-  const dropped = (()=>{
-    const micro = (plan && Array.isArray(plan.micro)) ? plan.micro
-      : ((sh.beatPlan && Array.isArray(sh.beatPlan.micro)) ? sh.beatPlan.micro : null);
-    if(!micro || !Array.isArray(sh.covers) || !sh.covers.length) return null;
-    const covered = sh.covers.map(n=>micro[n-1]).filter(Boolean);
-    if(!covered.length) return null;
-    // scan the covered micro-beats as if they were an action, WITHOUT the scene-driver
-    // fallback (a bare inFrameCast would claim the driver even when unnamed)
-    const fakeScene = scene ? Object.assign({}, scene, { driver:null }) : scene;
-    const fake = { action: covered.join(" ") };
-    const wantChars = (typeof inFrameCast==="function") ? inFrameCast(fake, fakeScene, _allChars) : [];
-    const wantProps = (typeof inFrameProps==="function") ? inFrameProps(fake, fakeScene, ctx.charById, ctx.propById) : [];
-    const chars = wantChars.filter(id=> inCastIds.indexOf(id)<0)
-      .map(id=>ctx.charById[id]).filter(Boolean).map(c=>c.name);
-    const props = wantProps.filter(id=> inPropIds.indexOf(id)<0)
-      .map(id=>ctx.propById[id]).filter(Boolean).map(p=>p.name);
-    return (chars.length || props.length) ? chars.concat(props) : null;
-  })();
-  // apply the SAME dressing filter the real attach path uses (collectShotRefs /
-  // buildShotPrompt) — set-dressing sheets only ride on tight shots or when the
-  // object leads the action; the plate delivers them in wides. Without this the
-  // thumbnail strip SHOWS sheets that never actually attach.
-  const inProps = inPropIds.map(id=>ctx.propById[id]).filter(Boolean)
-    .filter(p=> (typeof shotPropAttachable!=="function") || shotPropAttachable(p, sh, scene));
-  const locWeight = (typeof locWeightForSize==="function") ? locWeightForSize(sh.size) : "primary";
+/* ONE SHOT-FRAME GEN CONFIG — the exact useImageGen options a shot frame renders
+   with, extracted from the Shots-tab card so OTHER surfaces (the Stage's Image
+   composer) can mount the SAME pipeline: prompt builders, the coverage-seed chain,
+   the unified reference plan and the seed-lineage / prop-dependency meta stamps.
+   A frame rendered anywhere with these opts is indistinguishable from a Shots-tab
+   render — chain-staleness audits included. prevShot/laterShots are recomputed
+   here from sceneShots with the exact seedShotOf logic the shot list uses.
+   ctx must be the Shots-tab shape: { scene, location, charById, propById, project, locations }. */
+function shotFrameGenOpts(sh, sceneShots, ctx){
+  const ordered = Array.isArray(sceneShots) ? sceneShots : [];
+  const prevShot = (typeof seedShotOf==="function") ? seedShotOf(sh, ordered)
+    : ((typeof prevShotOf==="function") ? prevShotOf(sh, ordered) : null);
+  const _si = ordered.findIndex(x=>x && x.id===sh.id);
+  const laterShots = _si>=0 ? ordered.slice(_si+1) : [];
   // ONE RENDER PLAN (shared with the headless Scene Director — see shotRenderPlan in
   // shots.jsx): seed, ledger-carried props, and the weight-ordered reference stack all
-  // come from the same builder now, so a manual render and an agent render can never
+  // come from the same builder, so a manual render and an agent render can never
   // disagree about what rides along with the frame.
-  const renderPlan = (typeof shotRenderPlan==="function") ? shotRenderPlan(sh, sceneShots||[], ctx) : null;
-  // the "Shot prompt" preview reflects what WILL generate: a non-head shot chains from the
-  // previous frame (continuity_anchor present); the head renders fresh from the sheets.
-  // carriedForward rides in the preview too — the prompt the user reads matches the render.
-  const promptCtx = { ...ctx, prevShot:prevShot||null, laterShots:laterShots||[],
+  const renderPlan = (typeof shotRenderPlan==="function") ? shotRenderPlan(sh, ordered, ctx) : null;
+  // a non-head shot chains from the previous frame (continuity_anchor present); the
+  // head renders fresh from the sheets. carriedForward rides in the prompt too.
+  const promptCtx = { ...ctx, prevShot:prevShot||null, laterShots,
     carriedForward:(renderPlan&&renderPlan.carriedForward)||[] };
   const finalPrompt = combinedShotPrompt(sh, promptCtx);
   const chainPrompt = (typeof buildShotPrompt==="function") ? buildShotPrompt(sh, { ...promptCtx, prevFrameRole:true }) : finalPrompt;
-  const previewPrompt = isHead ? finalPrompt : chainPrompt;
 
   // THE COVERAGE SEED (user ruling 2026-08-01): a non-head shot generates as an
   // image-edit off the REFERENCE frame — within a beat that's the beat's FIRST shot
@@ -188,13 +164,13 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   // Scene Director runs. Rebuilt fresh at generate time so late edits are honored.
   const collectShotRefs = async (gopts)=>{
     const grab = async (id)=> (typeof shotGrabImage==="function") ? await shotGrabImage(id) : "";
-    const p = (typeof shotRenderPlan==="function") ? shotRenderPlan(sh, sceneShots||[], ctx) : null;
+    const p = (typeof shotRenderPlan==="function") ? shotRenderPlan(sh, ordered, ctx) : null;
     if(!p) return [];
     const out = (typeof shotResolveRenderRefs==="function") ? await shotResolveRenderRefs(p, grab) : [];
     return (typeof nbPreferBestAssetRefs==="function") ? nbPreferBestAssetRefs(out) : out;
   };
 
-  const gen = useImageGen({
+  const opts = {
     id: sh.id, slotId: "shot-"+sh.id,
     buildFinal: ()=> finalPrompt,
     // the "no image" recovery path must speak the SAME language as the main render —
@@ -202,8 +178,8 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
     // the refs the unified resolver attached (review finding: this fallback was the
     // one remaining divergence from the headless path)
     buildSimple: ()=>{
-      const p = (typeof shotRenderPlan==="function") ? shotRenderPlan(sh, sceneShots||[], ctx) : null;
-      return buildShotPrompt(sh, { ...ctx, prevShot:prevShot||null, laterShots:laterShots||[],
+      const p = (typeof shotRenderPlan==="function") ? shotRenderPlan(sh, ordered, ctx) : null;
+      return buildShotPrompt(sh, { ...ctx, prevShot:prevShot||null, laterShots,
         carriedForward:(p&&p.carriedForward)||[] });
     },
     referenceFallback: deriveBase,
@@ -253,7 +229,61 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
     metaExtra: ()=>({
       advancedCamera:(typeof shotCameraMetadata==="function") ? shotCameraMetadata(sh) : null
     }),
-  });
+  };
+  return { opts, finalPrompt, chainPrompt, renderPlan, prevShot, laterShots };
+}
+window.shotFrameGenOpts = shotFrameGenOpts;
+
+function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, laterShots, sceneShots, isHead, isFirst, onToggleHead, onUpdate, onDelete, onView, batchActiveId, onBatchDone, onGenerateShot, onRegenDownstream, onStopChain, subLabel, plan }){
+  const loc = ctx.location;
+  // who/what is in frame is DERIVED from the action text (single source of truth) — the
+  // old manual tags are gone; this is what the prompt + references actually use.
+  const _allChars = Object.values(ctx.charById||{});
+  const inCastIds = (typeof inFrameCast==="function") ? inFrameCast(sh, scene, _allChars) : (sh.subjects||[]);
+  const subjects = inCastIds.map(id=>ctx.charById[id]).filter(Boolean);
+  const inPropIds = (typeof inFrameProps==="function") ? inFrameProps(sh, scene, ctx.charById, ctx.propById) : (sh.props||[]);
+  // DRIFT FLAG: characters/props named in the micro-beats this shot COVERS but missing
+  // from its action text. The render-time canon merge would try to rescue them — better
+  // to surface the seam on the card so the director can re-include them deliberately.
+  const dropped = (()=>{
+    const micro = (plan && Array.isArray(plan.micro)) ? plan.micro
+      : ((sh.beatPlan && Array.isArray(sh.beatPlan.micro)) ? sh.beatPlan.micro : null);
+    if(!micro || !Array.isArray(sh.covers) || !sh.covers.length) return null;
+    const covered = sh.covers.map(n=>micro[n-1]).filter(Boolean);
+    if(!covered.length) return null;
+    // scan the covered micro-beats as if they were an action, WITHOUT the scene-driver
+    // fallback (a bare inFrameCast would claim the driver even when unnamed)
+    const fakeScene = scene ? Object.assign({}, scene, { driver:null }) : scene;
+    const fake = { action: covered.join(" ") };
+    const wantChars = (typeof inFrameCast==="function") ? inFrameCast(fake, fakeScene, _allChars) : [];
+    const wantProps = (typeof inFrameProps==="function") ? inFrameProps(fake, fakeScene, ctx.charById, ctx.propById) : [];
+    const chars = wantChars.filter(id=> inCastIds.indexOf(id)<0)
+      .map(id=>ctx.charById[id]).filter(Boolean).map(c=>c.name);
+    const props = wantProps.filter(id=> inPropIds.indexOf(id)<0)
+      .map(id=>ctx.propById[id]).filter(Boolean).map(p=>p.name);
+    return (chars.length || props.length) ? chars.concat(props) : null;
+  })();
+  // apply the SAME dressing filter the real attach path uses (collectShotRefs /
+  // buildShotPrompt) — set-dressing sheets only ride on tight shots or when the
+  // object leads the action; the plate delivers them in wides. Without this the
+  // thumbnail strip SHOWS sheets that never actually attach.
+  const inProps = inPropIds.map(id=>ctx.propById[id]).filter(Boolean)
+    .filter(p=> (typeof shotPropAttachable!=="function") || shotPropAttachable(p, sh, scene));
+  const locWeight = (typeof locWeightForSize==="function") ? locWeightForSize(sh.size) : "primary";
+  // ONE GEN CONFIG (shared with the Stage's Image composer — see shotFrameGenOpts
+  // above): the render plan, prompt builders, coverage-seed chain and meta stamps
+  // all come from the same factory, so a Stage render and a card render can never
+  // disagree. The factory recomputes prevShot/laterShots from sceneShots with the
+  // exact seedShotOf logic the list used to derive this card's props.
+  const framePack = shotFrameGenOpts(sh, sceneShots||[], ctx);
+  const renderPlan = framePack.renderPlan;
+  const finalPrompt = framePack.finalPrompt;
+  const chainPrompt = framePack.chainPrompt;
+  // the "Shot prompt" preview reflects what WILL generate: a non-head shot chains from the
+  // previous frame (continuity_anchor present); the head renders fresh from the sheets.
+  const previewPrompt = isHead ? finalPrompt : chainPrompt;
+
+  const gen = useImageGen(framePack.opts);
   const frameSourceStatus = gen.genUrl && typeof shotAssetProvenanceStatus==="function"
     ? shotAssetProvenanceStatus(sh,(((window.turnContinuity||{}).drafts||{})[sh.sceneId]),gen.genMeta) : "";
   const currentPropDependencies=(typeof propDependencySignature==="function")

@@ -1699,6 +1699,121 @@ function StageMentionEditor({ value, mentionables, maxLen, placeholder, onChange
         m.t===swap.tok && _stEl("span",{className:"stage2-mention-kind"},"Current")))));
 }
 
+/* ---- IMAGE tab of the clip composer ---------------------------------------
+   A full frame composer for the ACTIVE SHOT that rides the exact Shots-tab
+   pipeline (shotFrameGenOpts in shots-ui.jsx): same prompt builders, coverage-
+   seed chain, unified reference plan and seed-lineage meta stamps — a frame
+   rendered here is indistinguishable from an Art Room render, and the clip's
+   start-frame asset updates the moment it commits. The caller keys this
+   component by shot id so the gen hook re-initialises cleanly per shot. */
+function StageFrameComposer({ sh, sceneShots, imgCtx, shotNo, onMax }){
+  const pack = (typeof shotFrameGenOpts==="function")
+    ? shotFrameGenOpts(sh, sceneShots||[], imgCtx) : null;
+  // the derived prompt is LIVE (follows the shot's action/refs); an edit takes
+  // over for this session only — the shot's canon Action is never touched here
+  const derived = pack ? (pack.prevShot ? pack.chainPrompt : pack.finalPrompt) : "";
+  const [draft, setDraft] = React.useState("");
+  const edited = draft.trim()!=="" && draft!==derived;
+  const promptText = edited ? draft : derived;
+  const gen = useImageGen(!pack
+    ? { id:"stage-frame-none", slotId:"stage-frame-none", buildFinal:()=>"" }
+    : { ...pack.opts,
+        buildFinal: ()=> edited ? promptText : pack.opts.buildFinal(),
+        buildFromBase: ()=> edited ? promptText : pack.opts.buildFromBase(),
+        // the "no image" recovery retry must speak the edited prompt too — without
+        // this the fallback silently re-renders from the derived shot prompt
+        // (review finding 2026-09-03)
+        buildSimple: ()=> edited ? promptText : pack.opts.buildSimple() });
+  // resolution follows the app-wide image setting (same store the Art Room uses)
+  const [res, setRes] = React.useState(()=> (typeof nbGetRes==="function") ? nbGetRes() : "");
+  const pickRes = (r)=>{ setRes(r); if(typeof nbSetRes==="function"){ try{ nbSetRes(r); }catch(e){} } };
+  const resolutions = (window.NB_RESOLUTIONS||[]).map(r=> (r&&r.id)||r).filter(Boolean);
+  const modelId = (typeof nbGetModel==="function") ? nbGetModel() : "";
+  const modelLabel = (((window.NB_MODELS||[]).find(m=>m.id===modelId)||{}).label) || "Art Room model";
+  const specs = (pack && pack.renderPlan && pack.renderPlan.orderedSpecs) || [];
+  const seedUrl = (pack && pack.prevShot && typeof nbGetImage==="function") ? nbGetImage(pack.prevShot.id) : "";
+  const seedNo = (pack && pack.prevShot) ? ((sceneShots||[]).findIndex(x=>x&&x.id===pack.prevShot.id)+1) : 0;
+  return _stEl("div",{className:"stage2-imgtab"},
+    // what actually rides this render — the seed frame, the reference-sheet stack
+    // (the same plan the prompt names) and the shot's current frame
+    _stEl("div",{className:"stage2-imgtab-refs"},
+      pack && pack.prevShot && _stEl("div",{className:"stage2-imgtab-ref seed",
+        title:"Coverage seed — this frame renders as a continuity edit off Shot "+(seedNo>0?seedNo:"?")+"'s frame (colour grade and physical state carry forward)"},
+        seedUrl ? _stEl("img",{src:seedUrl,alt:""}) : (Icon.image&&_stEl(Icon.image,{s:14})),
+        _stEl("span",null,"Seed · Shot "+(seedNo>0?seedNo:"?"))),
+      _stEl("div",{className:"stage2-imgtab-ref",
+        title: specs.length ? ("Reference sheets attached in order: "+specs.map(s=>s.note).join("; ")) : "No reference sheets attach to this frame"},
+        Icon.layers&&_stEl(Icon.layers,{s:14}),
+        _stEl("span",null,"Image refs · "+specs.length)),
+      gen.genUrl && _stEl("button",{type:"button",className:"stage2-imgtab-ref cur",
+        title:"This shot's current frame — click to view full screen",
+        onClick:()=>{ if(onMax) onMax(gen.genUrl, "Shot "+(shotNo||"")+" frame"); }},
+        _stEl("img",{src:gen.genUrl,alt:""}),
+        _stEl("span",null,"Current frame"))),
+    _stEl("div",{className:"stage2-imgtab-box"},
+      _stEl("textarea",{className:"stage2-imgtab-prompt",value:promptText,
+        placeholder:"Describe the frame you want to create…",
+        onChange:e=>setDraft(e.target.value)}),
+      edited && _stEl("button",{type:"button",className:"stage2-prompt-reset",
+        title:"Rebuild this prompt from the shot's action, references and continuity chain — discards manual edits (this render only; the shot's canon Action is never changed)",
+        onClick:()=>setDraft("")},"↺ Reset to shot"),
+      gen.genErr && _stEl("div",{className:"stage2-warn"}, Icon.alert&&_stEl(Icon.alert,{s:12}),
+        _stEl("span",{className:"stage2-warn-text"}, String(gen.genErr))),
+      _stEl("div",{className:"sdbar stage2-imgtab-bar"},
+        _stEl("div",{className:"sdbar-left"},
+          _stEl("span",{className:"sdbar-pill static",
+            title:"Frames render with the Art Room's image model — change it on any Art Room card"},
+            Icon.image&&_stEl(Icon.image,{s:13}), _stEl("span",null,modelLabel)),
+          resolutions.length>0 && _stEl("span",{className:"stage2-imgtab-res"},
+            resolutions.map(r=>_stEl("button",{key:r,type:"button",
+              className:"stage2-imgtab-res-btn"+(res===r?" on":""),
+              title:"Render at "+r, onClick:()=>pickRes(r)}, r)))),
+        _stEl("div",{className:"sdbar-right"},
+          typeof window.nbCostChip==="function" && window.nbCostChip(1),
+          gen.gening && _stEl("button",{type:"button",className:"sdbar-pill static",
+            title:"Stop this render",onClick:()=>{ if(gen.cancelGen) gen.cancelGen(); }},"Stop"),
+          _stEl("button",{type:"button",className:"sdbar-send"+(gen.gening?" working":""),disabled:!!gen.gening,
+            title: gen.gening ? "Rendering…" : (gen.genUrl ? "Re-render this shot's frame" : "Render this shot's frame"),
+            onClick:()=>{ if(!gen.gening) gen.generate(); }}, gen.gening ? "…" : "↑")))));
+}
+
+/* ---- SOUND tab — the beat's spoken lines, voiced through ElevenLabs -------
+   Every line here renders with the character's LOCKED ElevenLabs voice (designed
+   on the character card) — the same audio the lip-sync render rides. */
+function StageSoundPanel({ lineShots, auds, onVoiceLine }){
+  const [busyId, setBusyId] = React.useState("");
+  const rows = lineShots||[];
+  const voice = async (sh)=>{
+    if(!onVoiceLine || busyId) return;
+    setBusyId(sh.id);
+    try{ await onVoiceLine(sh); }
+    catch(e){ if(window.appToast) window.appToast(String((e&&e.message)||"Voice render failed."),"error"); }
+    setBusyId("");
+  };
+  return _stEl("div",{className:"stage2-sndtab"},
+    rows.length ? _stEl("div",{className:"stage2-snd-rows"},
+      rows.map(sh=>{
+        const ready = _shotAudioReady(sh, auds);
+        return _stEl("div",{key:sh.id,className:"stage2-snd-row"+(ready?" ready":"")},
+          _stEl("span",{className:"stage2-snd-ico"},Icon.mic&&_stEl(Icon.mic,{s:13})),
+          _stEl("div",{className:"stage2-snd-main"},
+            (sh.speaker||sh.speakerName) && _stEl("b",null,String(sh.speaker||sh.speakerName)),
+            _stEl("span",{className:"stage2-snd-quote"},"\u201c"+String(sh.dialogue||"").trim()+"\u201d")),
+          ready
+            ? _stEl("span",{className:"stage2-snd-state on",title:"This line has a rendered voice take — it rides the clip's lip-sync render"},"Voiced ✓")
+            : _stEl("button",{type:"button",className:"stage2-snd-voice",disabled:!!busyId||!onVoiceLine,
+                title:"Render this line with the character's locked ElevenLabs voice",
+                onClick:()=>voice(sh)},
+                busyId===sh.id ? _stEl("span",{className:"ns-spin"}) : (Icon.sparkles&&_stEl(Icon.sparkles,{s:12})),
+                busyId===sh.id ? "Voicing…" : "Voice line"));
+      }))
+    : _stEl("div",{className:"stage2-tab-empty"},"No spoken lines in this clip — dialogue is written in the Writers' Room; once a shot carries a line it appears here ready to voice."),
+    _stEl("div",{className:"stage2-snd-foot"},
+      _stEl("span",{className:"stage2-snd-note"},"Voices are designed and locked per character (Art Room → Characters → Voice) and rendered by ElevenLabs."),
+      _stEl("a",{className:"stage2-snd-el",href:"https://elevenlabs.io",target:"_blank",rel:"noopener noreferrer",
+        title:"Open ElevenLabs — the voice engine behind TURN's dialogue"},"Open ElevenLabs ↗")));
+}
+
 function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap, drafts, prevClipVideoId, aspect, visualSource, setVisualSource, creditBalance, onVoiceLine, onUpdateShot, onSelectClip, onFirstVideo, modelId, setModelId, clipScope, setClipScope, pendingReuse, onReuseConsumed }){
   const scene = clip.scene, g = clip.g, d = clip.data;
   // the CLIP is the unit of generation — it may bundle 2+ merged shots (Art Room Shots
@@ -2953,6 +3068,24 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     onGenerate();
   };
   const [sdMenu, setSdMenu] = React.useState(null);
+  // ---- composer TABS (Image | Video | Sound) + the suggestions row ----------
+  // Video is the full render composer (unchanged); Image mounts the Shots-tab
+  // frame pipeline for the active shot; Sound is the beat's ElevenLabs lines.
+  const [composerTab, setComposerTab] = React.useState("video");
+  const [showSuggest, setShowSuggest] = React.useState(false);
+  // IMAGE tab inputs — the whole scene's shots in canonical running order (the
+  // Shots-tab order, so seed chains resolve identically) and the Shots-tab ctx
+  // shape rebuilt from the Stage ctx.
+  const imgSceneShots = React.useMemo(()=>{
+    const outSh=[]; const seen=new Set();
+    (sceneClips||[]).forEach(sc=>((sc&&sc.data&&sc.data.shots)||[]).forEach(s2=>{
+      if(s2&&s2.id&&!seen.has(s2.id)){ seen.add(s2.id); outSh.push(s2); } }));
+    return (typeof sceneShotsOrdered==="function") ? sceneShotsOrdered(outSh) : outSh;
+  },[sceneClips]);
+  const imgCtx = React.useMemo(()=>({ scene,
+    location:(typeof locationForScene==="function") ? locationForScene((ctx&&ctx.locations)||[], scene&&scene.id) : null,
+    charById:(ctx&&ctx.charById)||{}, propById:(ctx&&ctx.propById)||{},
+    project:(ctx&&ctx.project)||{}, locations:(ctx&&ctx.locations)||[] }),[scene&&scene.id, ctx]);
   const sdBarRef = React.useRef(null);
   React.useEffect(()=>{
     if(!sdMenu) return;
@@ -3135,7 +3268,47 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
         "aria-disabled":blocker?"true":undefined,
         disabled:gening,
         onClick:onSeedanceGenerateClick}, gening ? "…" : "↑")));
+  // ---- composer header: Image | Video | Sound tabs + the suggestions toggle.
+  // "Show suggestions" surfaces the Reference-mode picks (the source pill's menu)
+  // as one-tap chips above the tabs — same actions, zero menu digging.
+  const composerHeader = _stEl("div",{className:"stage2-ctab-head"},
+    (showSuggest && composerTab==="video") && _stEl("div",{className:"stage2-suggest-row"},
+      sourceUiOptions.map(o=>{
+        const selected = o.label===sourceUiLabel;
+        return _stEl("button",{key:o.id,type:"button",
+          className:"stage2-suggest-chip"+(selected?" on":""),
+          disabled:!!o.disabled,
+          title:(o.desc||o.label)+(o.note?(" — "+o.note):""),
+          onClick:()=>{ if(o.disabled) return; o.onPick(); }},
+          Icon.layers&&_stEl(Icon.layers,{s:12}), o.label);
+      })),
+    _stEl("div",{className:"stage2-ctab-row"},
+      _stEl("div",{className:"stage2-ctab-tabs",role:"tablist","aria-label":"Composer mode"},
+        [["image","Image"],["video","Video"],["sound","Sound"]].map(([t,lab])=>
+          _stEl("button",{key:t,type:"button",role:"tab","aria-selected":composerTab===t?"true":"false",
+            className:"stage2-ctab-btn"+(composerTab===t?" on":""),
+            title: t==="image" ? "Frame composer — render this shot's still frame (same pipeline as the Art Room's Shots tab)"
+              : t==="sound" ? "This beat's spoken lines — voiced with the locked ElevenLabs voices"
+              : "Video composer — render this beat as a clip",
+            onClick:()=>setComposerTab(t)},lab))),
+      composerTab==="video" && _stEl("button",{type:"button",
+        className:"stage2-suggest-toggle"+(showSuggest?" on":""),
+        "aria-pressed":showSuggest?"true":"false",
+        title: showSuggest ? "Hide suggestions" : "Show suggestions — one-tap Reference-mode picks for this render",
+        onClick:()=>setShowSuggest(s=>!s)},
+        Icon.sparkles&&_stEl(Icon.sparkles,{s:14}))));
+  const activeShotNo = imgSceneShots.findIndex(x=>x&&x.id===(activeShot&&activeShot.id))+1;
+  const imageTab = (activeShot && activeShot.id && typeof shotFrameGenOpts==="function" && typeof useImageGen==="function")
+    ? _stEl(StageFrameComposer,{key:"sfc-"+activeShot.id, sh:activeShot, sceneShots:imgSceneShots, imgCtx,
+        shotNo:activeShotNo>0?activeShotNo:"",
+        onMax:(url,label)=>setMaxImg({url,label,kind:"image"})})
+    : _stEl("div",{className:"stage2-tab-empty"},"No shots in this beat yet — design shots on the Art Room's Shots tab first.");
+  const soundTab = _stEl(StageSoundPanel,{lineShots, auds, onVoiceLine});
   const composer = _stEl("div",{className:"stage2-gen-composer"+(gening?" working":"")+(creditInfo.empty?" no-credits":"")},
+    composerHeader,
+    composerTab==="image" ? imageTab
+    : composerTab==="sound" ? soundTab
+    : _stEl(React.Fragment,null,
     _stEl("div",{className:"stage2-gen-assets"},
       composerAssets.map(a=>_stEl("button",{key:a.key,type:"button",
         className:"stage2-gen-asset "+a.kind+(a.locked?" locked":"")+(on(a)?"":" off")+(!a.ready?" missing":""),
@@ -3360,7 +3533,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
         "Native performance: the model acts the lines in its own voice with free, natural pacing. Swap to your locked ElevenLabs voices in post with Voice Changer — it keeps the performance and timing, changes only the timbre."),
       !modelRefs && _stEl("div",{className:"stage2-hint"}, Icon.image&&_stEl(Icon.image,{s:12}),
         model.label+" takes ONE start image — identity rides that frame, not the reference sheets. Only the selected visual source is sent; other assets stay behind.")),
-    tray);
+    tray));
 
   // ----- CENTER: player + filmstrip + prompt + input assets -----
   const center = _stEl("div",{className:"stage2-center stage2-compose-mode"},
