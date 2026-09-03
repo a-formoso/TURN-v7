@@ -1757,23 +1757,36 @@ function StageFrameComposer({ sh, sceneShots, imgCtx, shotNo, onMax }){
   const specs = (pack && pack.renderPlan && pack.renderPlan.orderedSpecs) || [];
   const seedUrl = (pack && pack.prevShot && typeof nbGetImage==="function") ? nbGetImage(pack.prevShot.id) : "";
   const seedNo = (pack && pack.prevShot) ? ((sceneShots||[]).findIndex(x=>x&&x.id===pack.prevShot.id)+1) : 0;
+  // Resolve the same reference images the render pipeline will attach, then show
+  // them as an ordinary gallery. They are not a separate settings concept: every
+  // image in this strip is directly accessible and automatically references the
+  // next frame render.
+  const [resolvedRefs, setResolvedRefs] = React.useState([]);
+  React.useEffect(()=>{
+    let live=true;
+    if(!pack || !pack.opts || typeof pack.opts.attachments!=="function"){ setResolvedRefs([]); return ()=>{ live=false; }; }
+    Promise.resolve(pack.opts.attachments()).then(rs=>{ if(live) setResolvedRefs((rs||[]).filter(r=>r&&r.url)); })
+      .catch(()=>{ if(live) setResolvedRefs([]); });
+    return ()=>{ live=false; };
+  },[sh&&sh.id, specs.map(s=>s&&s.id).join("|")]);
   return _stEl("div",{className:"stage2-imgtab"},
-    // what actually rides this render — the seed frame, the reference-sheet stack
-    // (the same plan the prompt names) and the shot's current frame
+    // Every card is simply an image reference available to this render.
     _stEl("div",{className:"stage2-imgtab-refs"},
-      pack && pack.prevShot && _stEl("div",{className:"stage2-imgtab-ref seed",
-        title:"Coverage seed — this frame renders as a continuity edit off Shot "+(seedNo>0?seedNo:"?")+"'s frame (colour grade and physical state carry forward)"},
+      pack && pack.prevShot && seedUrl && _stEl("button",{type:"button",className:"stage2-imgtab-ref seed",
+        title:"Reference: Shot "+(seedNo>0?seedNo:"?")+" frame — click to view",
+        onClick:()=>{ if(onMax) onMax(seedUrl,"Shot "+(seedNo>0?seedNo:"?")+" reference"); }},
         seedUrl ? _stEl("img",{src:seedUrl,alt:""}) : (Icon.image&&_stEl(Icon.image,{s:14})),
-        _stEl("span",null,"Seed · Shot "+(seedNo>0?seedNo:"?"))),
-      _stEl("div",{className:"stage2-imgtab-ref",
-        title: specs.length ? ("Reference sheets attached in order: "+specs.map(s=>s.note).join("; ")) : "No reference sheets attach to this frame"},
-        Icon.layers&&_stEl(Icon.layers,{s:14}),
-        _stEl("span",null,"Image refs · "+specs.length)),
+        _stEl("span",null,"Image ref · Shot "+(seedNo>0?seedNo:"?"))),
+      resolvedRefs.map((r,i)=>_stEl("button",{key:(r.refId||"ref")+"-"+i,type:"button",className:"stage2-imgtab-ref",
+        title:(r.note||("Image reference "+(i+1)))+" — click to view",
+        onClick:()=>{ if(onMax) onMax(r.url,r.note||("Image reference "+(i+1))); }},
+        _stEl("img",{src:r.url,alt:r.note||("Image reference "+(i+1))}),
+        _stEl("span",null,r.note||("Image ref "+(i+1))))),
       gen.genUrl && _stEl("button",{type:"button",className:"stage2-imgtab-ref cur",
-        title:"This shot's current frame — click to view full screen",
+        title:"Reference: this shot's current frame — click to view",
         onClick:()=>{ if(onMax) onMax(gen.genUrl, "Shot "+(shotNo||"")+" frame"); }},
         _stEl("img",{src:gen.genUrl,alt:""}),
-        _stEl("span",null,"Current frame"))),
+        _stEl("span",null,"Image ref · Current frame"))),
     _stEl("div",{className:"stage2-imgtab-box"},
       _stEl("textarea",{className:"stage2-imgtab-prompt",value:promptText,
         placeholder:"Describe the frame you want to create…",
