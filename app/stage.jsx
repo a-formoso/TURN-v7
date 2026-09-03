@@ -3116,7 +3116,6 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   // Video is the full render composer (unchanged); Image mounts the Shots-tab
   // frame pipeline for the active shot; Sound is the beat's ElevenLabs lines.
   const [composerTab, setComposerTab] = React.useState("video");
-  const [showSuggest, setShowSuggest] = React.useState(false);
   // IMAGE tab inputs — the whole scene's shots in canonical running order (the
   // Shots-tab order, so seed chains resolve identically) and the Shots-tab ctx
   // shape rebuilt from the Stage ctx.
@@ -3312,20 +3311,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
         "aria-disabled":blocker?"true":undefined,
         disabled:gening,
         onClick:onSeedanceGenerateClick}, gening ? "…" : "↑")));
-  // ---- composer header: Image | Video | Sound tabs + the suggestions toggle.
-  // "Show suggestions" surfaces the Reference-mode picks (the source pill's menu)
-  // as one-tap chips above the tabs — same actions, zero menu digging.
+  // ---- composer header: Image | Video | Sound tabs.
   const composerHeader = _stEl("div",{className:"stage2-ctab-head"},
-    (showSuggest && composerTab==="video") && _stEl("div",{className:"stage2-suggest-row"},
-      sourceUiOptions.map(o=>{
-        const selected = o.label===sourceUiLabel;
-        return _stEl("button",{key:o.id,type:"button",
-          className:"stage2-suggest-chip"+(selected?" on":""),
-          disabled:!!o.disabled,
-          title:(o.desc||o.label)+(o.note?(" — "+o.note):""),
-          onClick:()=>{ if(o.disabled) return; o.onPick(); }},
-          Icon.layers&&_stEl(Icon.layers,{s:12}), o.label);
-      })),
     _stEl("div",{className:"stage2-ctab-row"},
       _stEl("div",{className:"stage2-ctab-tabs",role:"tablist","aria-label":"Composer mode"},
         [["image","Image"],["video","Video"],["sound","Sound"]].map(([t,lab])=>
@@ -3334,13 +3321,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
             title: t==="image" ? "Frame composer — render this shot's still frame (same pipeline as the Art Room's Shots tab)"
               : t==="sound" ? "This beat's spoken lines — voiced with the locked ElevenLabs voices"
               : "Video composer — render this beat as a clip",
-            onClick:()=>setComposerTab(t)},lab))),
-      composerTab==="video" && _stEl("button",{type:"button",
-        className:"stage2-suggest-toggle"+(showSuggest?" on":""),
-        "aria-pressed":showSuggest?"true":"false",
-        title: showSuggest ? "Hide suggestions" : "Show suggestions — one-tap Reference-mode picks for this render",
-        onClick:()=>setShowSuggest(s=>!s)},
-        Icon.sparkles&&_stEl(Icon.sparkles,{s:14}))));
+            onClick:()=>setComposerTab(t)},lab)))));
   const activeShotNo = imgSceneShots.findIndex(x=>x&&x.id===(activeShot&&activeShot.id))+1;
   const imageTab = (activeShot && activeShot.id && typeof shotFrameGenOpts==="function" && typeof useImageGen==="function")
     ? _stEl(StageFrameComposer,{key:"sfc-"+activeShot.id, sh:activeShot, sceneShots:imgSceneShots, imgCtx,
