@@ -1786,18 +1786,18 @@ function StageFrameComposer({ sh, sceneShots, imgCtx, shotNo, onMax }){
                 onMouseDown:e=>{ e.preventDefault(); pickAspect(a); }},
                 _stEl("span",{className:"sdbar-ratio-ico inline ratio-"+String(a).replace(":","x")}),
                 _stEl("span",null,a))))),
-          // GPT Image renders by QUALITY; the other models by K-size — show the
-          // knob that actually drives the active model (same rule as the Art Room dock)
-          isGpt ? _stEl("span",{className:"stage2-imgtab-res"},
+          // resolution always; PLUS the quality knob when GPT Image is active
+          // (GPT prices by quality — same extra knob the Art Room dock shows)
+          resolutions.length>0 && _stEl("span",{className:"stage2-imgtab-res"},
+            resolutions.map(r=>_stEl("button",{key:r,type:"button",
+              className:"stage2-imgtab-res-btn"+(res===r?" on":""),
+              title:"Render at "+r, onClick:()=>pickRes(r)}, r))),
+          isGpt && _stEl("span",{className:"stage2-imgtab-res"},
             ["low","medium","high"].map(q=>_stEl("button",{key:q,type:"button",
               className:"stage2-imgtab-res-btn"+(oaiQ===q?" on":""),
               title: q==="high" ? "Highest quality — slowest; big composite renders can time out"
                 : q==="medium" ? "Recommended — best balance for GPT Image" : "Fastest, lowest cost",
-              onClick:()=>pickQ(q)}, q)))
-          : resolutions.length>0 && _stEl("span",{className:"stage2-imgtab-res"},
-            resolutions.map(r=>_stEl("button",{key:r,type:"button",
-              className:"stage2-imgtab-res-btn"+(res===r?" on":""),
-              title:"Render at "+r, onClick:()=>pickRes(r)}, r)))),
+              onClick:()=>pickQ(q)}, q)))),
         _stEl("div",{className:"sdbar-right"},
           typeof window.nbCostChip==="function" && window.nbCostChip(1),
           gen.gening && _stEl("button",{type:"button",className:"sdbar-pill static",
