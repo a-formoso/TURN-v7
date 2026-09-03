@@ -1730,15 +1730,30 @@ function StageFrameComposer({ sh, sceneShots, imgCtx, shotNo, onMax }){
   const pickRes = (r)=>{ setRes(r); if(typeof nbSetRes==="function"){ try{ nbSetRes(r); }catch(e){} } };
   const resolutions = (window.NB_RESOLUTIONS||[]).map(r=> (r&&r.id)||r).filter(Boolean);
   const [aspect, setAspect] = React.useState(()=> (typeof nbGetAspect==="function") ? nbGetAspect() : "16:9");
-  const [aspMenu, setAspMenu] = React.useState(false);
-  const pickAspect = (a)=>{ setAspect(a); setAspMenu(false); if(typeof nbSetAspect==="function"){ try{ nbSetAspect(a); }catch(e){} } };
+  const pickAspect = (a)=>{ setAspect(a); if(typeof nbSetAspect==="function"){ try{ nbSetAspect(a); }catch(e){} } };
   const aspects = window.NB_ASPECTS||[];
   const [oaiQ, setOaiQ] = React.useState(()=> (typeof nbGetOaiQuality==="function") ? nbGetOaiQuality() : "medium");
   const pickQ = (q)=>{ setOaiQ(q); if(typeof nbSetOaiQuality==="function"){ try{ nbSetOaiQuality(q); }catch(e){} } };
-  const modelId = (typeof nbGetModel==="function") ? nbGetModel() : "";
+  const [modelId, setModelId] = React.useState(()=> (typeof nbGetModel==="function") ? nbGetModel() : "");
+  const pickModel = (mid)=>{ setModelId(mid); if(typeof nbSetModel==="function"){ try{ nbSetModel(mid); }catch(e){} } };
   const modelDef = (window.NB_MODELS||[]).find(m=>m.id===modelId)||{};
   const modelLabel = modelDef.label || "Art Room model";
-  const isGpt = modelDef.family==="openai"; // GPT renders by QUALITY, not by K-size
+  const isGpt = modelDef.family==="openai"; // GPT prices by QUALITY on top of K-size
+  // ONE open dropdown at a time; every bar control is the same pill+menu pattern
+  const [menu, setMenu] = React.useState(null);
+  const barMenu = (id, pillContent, pillTitle, items)=>
+    _stEl("span",{className:"stage2-imgtab-asp"},
+      _stEl("button",{type:"button",className:"sdbar-pill"+(menu===id?" open":""),
+        title:pillTitle,
+        onClick:()=>setMenu(m2=>m2===id?null:id),
+        onBlur:()=>setTimeout(()=>setMenu(m2=>m2===id?null:m2),120)},
+        pillContent, _stEl("span",{className:"stage2-imgtab-caret"},"▾")),
+      menu===id && _stEl("div",{className:"stage2-imgtab-aspmenu"},
+        items.map(it=>_stEl("button",{key:it.key,type:"button",
+          className:"stage2-imgtab-asp-opt"+(it.on?" on":""),
+          title:it.title,
+          onMouseDown:e=>{ e.preventDefault(); setMenu(null); it.pick(); }},
+          it.content))));
   const specs = (pack && pack.renderPlan && pack.renderPlan.orderedSpecs) || [];
   const seedUrl = (pack && pack.prevShot && typeof nbGetImage==="function") ? nbGetImage(pack.prevShot.id) : "";
   const seedNo = (pack && pack.prevShot) ? ((sceneShots||[]).findIndex(x=>x&&x.id===pack.prevShot.id)+1) : 0;
@@ -1770,34 +1785,33 @@ function StageFrameComposer({ sh, sceneShots, imgCtx, shotNo, onMax }){
         _stEl("span",{className:"stage2-warn-text"}, String(gen.genErr))),
       _stEl("div",{className:"sdbar stage2-imgtab-bar"},
         _stEl("div",{className:"sdbar-left"},
-          _stEl("span",{className:"sdbar-pill static",
-            title:"Frames render with the Art Room's image model — change it on any Art Room card"},
-            Icon.image&&_stEl(Icon.image,{s:13}), _stEl("span",null,modelLabel)),
-          aspects.length>0 && _stEl("span",{className:"stage2-imgtab-asp"},
-            _stEl("button",{type:"button",className:"sdbar-pill"+(aspMenu?" open":""),
-              title:"Aspect ratio — the frame's shape (app-wide image setting, shared with the Art Room)",
-              onClick:()=>setAspMenu(v=>!v),
-              onBlur:()=>setTimeout(()=>setAspMenu(false),120)},
-              _stEl("span",{className:"sdbar-ratio-ico inline ratio-"+String(aspect).replace(":","x")}),
-              _stEl("span",null,aspect)),
-            aspMenu && _stEl("div",{className:"stage2-imgtab-aspmenu"},
-              aspects.map(a=>_stEl("button",{key:a,type:"button",
-                className:"stage2-imgtab-asp-opt"+(aspect===a?" on":""),
-                onMouseDown:e=>{ e.preventDefault(); pickAspect(a); }},
-                _stEl("span",{className:"sdbar-ratio-ico inline ratio-"+String(a).replace(":","x")}),
-                _stEl("span",null,a))))),
-          // resolution always; PLUS the quality knob when GPT Image is active
-          // (GPT prices by quality — same extra knob the Art Room dock shows)
-          resolutions.length>0 && _stEl("span",{className:"stage2-imgtab-res"},
-            resolutions.map(r=>_stEl("button",{key:r,type:"button",
-              className:"stage2-imgtab-res-btn"+(res===r?" on":""),
-              title:"Render at "+r, onClick:()=>pickRes(r)}, r))),
-          isGpt && _stEl("span",{className:"stage2-imgtab-res"},
-            ["low","medium","high"].map(q=>_stEl("button",{key:q,type:"button",
-              className:"stage2-imgtab-res-btn"+(oaiQ===q?" on":""),
+          // every control is the same dropdown pill — model, aspect, resolution,
+          // and (GPT only) quality; all write the app-wide Art Room settings
+          barMenu("model",
+            [Icon.image&&_stEl(Icon.image,{key:"i",s:13}), _stEl("span",{key:"t"},modelLabel)],
+            "Image model — app-wide setting, shared with the Art Room",
+            (window.NB_MODELS||[]).map(m=>({ key:m.id, on:m.id===modelId, title:m.note||m.label,
+              pick:()=>pickModel(m.id),
+              content:[_stEl("span",{key:"l"},m.label)] }))),
+          aspects.length>0 && barMenu("aspect",
+            [_stEl("span",{key:"i",className:"sdbar-ratio-ico inline ratio-"+String(aspect).replace(":","x")}),
+             _stEl("span",{key:"t"},aspect)],
+            "Aspect ratio — the frame's shape (app-wide image setting, shared with the Art Room)",
+            aspects.map(a=>({ key:a, on:a===aspect, pick:()=>pickAspect(a),
+              content:[_stEl("span",{key:"i",className:"sdbar-ratio-ico inline ratio-"+String(a).replace(":","x")}),
+                       _stEl("span",{key:"t"},a)] }))),
+          resolutions.length>0 && barMenu("res",
+            [_stEl("span",{key:"t"},res||"2K")],
+            "Resolution — how large the frame renders",
+            resolutions.map(r=>({ key:r, on:r===res, title:"Render at "+r, pick:()=>pickRes(r),
+              content:[_stEl("span",{key:"t"},r)] }))),
+          isGpt && barMenu("quality",
+            [_stEl("span",{key:"t"},oaiQ)],
+            "GPT Image quality — GPT prices by quality on top of size",
+            ["low","medium","high"].map(q=>({ key:q, on:q===oaiQ,
               title: q==="high" ? "Highest quality — slowest; big composite renders can time out"
                 : q==="medium" ? "Recommended — best balance for GPT Image" : "Fastest, lowest cost",
-              onClick:()=>pickQ(q)}, q)))),
+              pick:()=>pickQ(q), content:[_stEl("span",{key:"t"},q)] })))),
         _stEl("div",{className:"sdbar-right"},
           typeof window.nbCostChip==="function" && window.nbCostChip(1),
           gen.gening && _stEl("button",{type:"button",className:"sdbar-pill static",

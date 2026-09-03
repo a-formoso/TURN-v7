@@ -7154,3 +7154,7 @@ button.stage2-imgtab-ref:hover{border-color:var(--brand,#d67e00)}
 .stage2-imgtab-asp-opt.on{color:var(--brand,#d67e00)}
 .stage2-imgtab-asp-opt .sdbar-ratio-ico.inline{margin:0}
 .stage2-imgtab-bar .sdbar-left{flex-wrap:wrap;row-gap:6px}
+
+/* dropdown caret on the image-bar pills */
+.stage2-imgtab-caret{font-size:8px;line-height:1;color:var(--txt-3);margin-left:2px}
+.stage2-imgtab-asp .sdbar-pill.open .stage2-imgtab-caret{color:currentColor}
