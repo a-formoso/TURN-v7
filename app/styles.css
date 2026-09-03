@@ -7140,7 +7140,13 @@ button.stage2-imgtab-ref:hover{border-color:var(--brand,#d67e00)}
    long compiled prompts — it holds one steady height and scrolls inside, so the
    toolbar and Generate stay put. (Multi-shot mode unaffected: its rows are the
    editor and the box holds only the toolbar.) */
-.stage2-gen-row:not(.ms) .stage2-gen-box .stage2-gen-prompt{height:240px;min-height:0;max-height:240px;overflow-y:auto}
+.stage2-gen-row:not(.ms) .stage2-gen-box .stage2-gen-prompt{
+  height:240px;
+  min-height:150px;
+  max-height:70vh;
+  overflow-y:auto;
+  resize:vertical;
+}
 
 /* Image-tab bar: aspect-ratio pill w/ popup + quality knob (GPT) */
 .stage2-imgtab-asp{position:relative;display:inline-flex}
