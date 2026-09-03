@@ -7135,3 +7135,9 @@ button.stage2-imgtab-ref:hover{border-color:var(--brand,#d67e00)}
 .stage2-snd-el{flex:0 0 auto;font:800 11.5px var(--f-ui);color:var(--brand,#d67e00);text-decoration:none;
   border:1px solid var(--accent-line,rgba(214,126,0,.4));border-radius:999px;padding:6px 12px}
 .stage2-snd-el:hover{background:var(--brand,#d67e00);color:var(--ink-on-accent,#2c2722)}
+
+/* Fixed-height video prompt: the composer's prompt editor no longer grows with
+   long compiled prompts — it holds one steady height and scrolls inside, so the
+   toolbar and Generate stay put. (Multi-shot mode unaffected: its rows are the
+   editor and the box holds only the toolbar.) */
+.stage2-gen-row:not(.ms) .stage2-gen-box .stage2-gen-prompt{height:240px;min-height:0;max-height:240px;overflow-y:auto}
