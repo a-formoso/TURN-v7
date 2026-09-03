@@ -614,11 +614,22 @@ function CoverageReferenceStrip({ refs, excludedIds, onToggle, onView }){
         // required refs are locked in — no exclude tick (they gate generation)
         const canToggle = !!(onToggle && r.refId!=null && !r.required);
         const off = canToggle && excludedIds.indexOf(r.refId)>=0;
+        // fullscreen SWIPE SET — viewing one reference opens it with the strip's
+        // other ready images as siblings, so swipes page through the screenplay
+        // snapshots (and the other refs) without closing the viewer
+        const viewRef = ()=>{
+          if(!onView) return;
+          const ready = refs.filter(x=>x && x.ready && x.url);
+          const sibsAll = ready.map(x=>({ url:x.url, character:{ name:x.label||"Reference image" } }));
+          const at = ready.indexOf(r);
+          onView(r.url, { name:r.label||"Reference image" },
+            (sibsAll.length>1 && at>=0) ? { siblings:sibsAll, startIndex:at } : null);
+        };
         if(r.ready && r.url) return React.createElement("div",{key:i,role:"button",tabIndex:0,
             className:"shot-ref-thumb "+(r.kind==="script"?"script":"location")+(off?" off":""),
             title:(r.required?"Needed to unlock":"Optional")+" — "+(r.note||r.label||"Reference image")+(off?" — excluded from generation":""),
-            onClick:()=>onView&&onView(r.url,{name:r.label||"Reference image"}),
-            onKeyDown:(e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); onView&&onView(r.url,{name:r.label||"Reference image"}); } }},
+            onClick:viewRef,
+            onKeyDown:(e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); viewRef(); } }},
             React.createElement("img",{src:r.url,alt:r.label||"Reference",loading:"lazy"}),
             r.required && React.createElement("span",{className:"coverage-ref-req"},"need"),
             canToggle && React.createElement("button",{className:"shot-ref-tick"+(off?"":" on"),
@@ -957,7 +968,13 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
                   // SWIPE SET — fullscreen swipes walk this location's master plate +
                   // screenplay coverage sheets in display order. Tapping anything else
                   // (unit plates, variants, reference snapshots) opens the plain viewer.
-                  onView:(url,pr)=>{
+                  onView:(url,pr,extra)=>{
+                    // callers may hand over a ready-made swipe set (reference strips do) —
+                    // use it as-is
+                    if(extra && Array.isArray(extra.siblings) && extra.siblings.length>1){
+                      setView({ url, character:pr, siblings:extra.siblings, startIndex:extra.startIndex||0 });
+                      return;
+                    }
                     const entries = [{ id:l.id, chr:l },
                       ...(l.coverageSheets||[]).slice()
                         .sort((a,b)=>(Number(a.order||0)-Number(b.order||0)) || String(a.name||"").localeCompare(String(b.name||"")))
