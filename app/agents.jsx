@@ -851,15 +851,15 @@ async function agentAdaptation(ctx){
   ctx.emit({k:"ok", t:"Wrote "+r.written+" of "+ctx.model.scenes.length+" scenes"+
     (r.failures.length ? " \u2014 "+r.failures.length+" didn't take even after automatic retries (flagged above); run Adaptation again later to retry just those." : " \u2014 beats and screenplay are in place.")});
 
-  // ---- draft each character's psychology (want / need / arc) so the cast isn't blank ----
+  // ---- draft each character's psychology and dialogue fingerprint so the cast isn't blank ----
   if(ctx.cancelled()) return;
   if(ctx.ai.available && typeof window.aiCastPsychology==="function" && ctx.model.characters && ctx.model.characters.length){
-    ctx.emit({k:"act", t:"Drafting the cast's inner life \u2014 want, contradicting need, dimensions and arc\u2026"});
+    ctx.emit({k:"act", t:"Drafting the cast's inner life and Voice DNA \u2014 want, contradicting need, dimensions, arc and dialogue behaviour\u2026"});
     try{
       const psych = await window.aiCastPsychology(ctx.model.characters, ctx.model.scenes, ctx.model.project);
       if(ctx.cancelled()) return;
       if(psych){ ctx.model.characters = ctx.model.characters.map(c=> psych[c.id] ? {...c, ...psych[c.id]} : c);
-        ctx.sync(); ctx.emit({k:"ok", t:"Every character now has a want, a need and an arc \u2014 visible in the Cast panel."}); }
+        ctx.sync(); ctx.emit({k:"ok", t:"The principal cast now has a want, need, arc and dialogue fingerprint \u2014 visible in the Cast panel."}); }
     }catch(e){ /* arc still derives from the spine even without this */ }
   }
 

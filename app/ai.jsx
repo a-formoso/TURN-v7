@@ -2626,8 +2626,9 @@ async function aiCastPsychology(characters, scenes, project){
       "DEPTH BUDGET by orbit: CENTER and FIRST-circle characters get the FULL architecture (all fields). SECOND-circle characters get ONLY conscious, arc and humanTruth \u2014 omit their other fields entirely. "+
       "humanTruth = the ONE observation about human nature this character embodies \u2014 a DISTINCT stance on the controlling idea (no two characters the same stance; even minor cast get one), one sentence grounded in their behaviour. "+
       "argues = which side that stance lands on: \"idea\", \"counter\", or \"complicates\". Across the cast the stances should form an ARGUMENT MAP \u2014 not a unanimous jury. "+
+      "voiceDNA = for CENTER and FIRST-circle characters, the dialogue-writing fingerprint derived from their work, culture, worldview and pressure behaviour. Supply ALL seven compact string fields: vocabulary (domains of nouns/verbs/knowledge), syntax (sentence shape when calm), rhythm (cadence/pauses/repetition), directness (blunt/evasive/polite/etc), imagery (sources of metaphor), avoids (language/admissions/registers resisted), stressShift (how speech changes under pressure). Make each character unmistakably distinct and playable; do not describe accent or vocal timbre. "+
       "Specific to THIS story, no platitudes.\n"+
-      'Return ONLY compact JSON: {"cast":[{"id":"...","pronouns":"he/him|she/her","conscious":"...","unconscious":"...","arc":"...","dimensions":["trait / counter-trait","..."],"counterpoint":"...","humanTruth":"...","argues":"idea|counter|complicates"}]} \u2014 leave out any field the depth budget or the counterpoint rule excludes (pronouns is never excluded).';
+      'Return ONLY compact JSON: {"cast":[{"id":"...","pronouns":"he/him|she/her","conscious":"...","unconscious":"...","arc":"...","dimensions":["trait / counter-trait","..."],"counterpoint":"...","humanTruth":"...","argues":"idea|counter|complicates","voiceDNA":{"vocabulary":"...","syntax":"...","rhythm":"...","directness":"...","imagery":"...","avoids":"...","stressShift":"..."}}]} \u2014 leave out any field the depth budget or the counterpoint rule excludes (pronouns is never excluded).';
     try{
       const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }] });
       const j = extractJSON(res);
@@ -2655,6 +2656,18 @@ async function aiCastPsychology(characters, scenes, project){
         put("conscious", e.conscious, 160);
         put("unconscious", e.unconscious, 160);
         put("arc", e.arc, 60);
+        // Voice DNA belongs to full-architecture (center/first-circle) characters.
+        // Merge omit-empty fields over the existing object so automatic backfill can
+        // never erase or replace a writer's manual voice decisions.
+        if(ch && castOrbit(ch, scenes)<=1 && e.voiceDNA && typeof e.voiceDNA==="object"){
+          const existingVD=(ch.voiceDNA&&typeof ch.voiceDNA==="object")?ch.voiceDNA:{};
+          const generatedVD={};
+          ["vocabulary","syntax","rhythm","directness","imagery","avoids","stressShift"].forEach(k=>{
+            if(String(existingVD[k]||"").trim()) return;
+            const s=clipSpecText(e.voiceDNA[k],180); if(s) generatedVD[k]=s;
+          });
+          if(Object.keys(generatedVD).length) o.voiceDNA={...existingVD,...generatedVD};
+        }
         if(Object.keys(o).length) part[id] = o; });
       return part;
     }catch(e){ return {}; }

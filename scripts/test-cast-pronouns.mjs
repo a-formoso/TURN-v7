@@ -114,14 +114,15 @@ if (typeof aiCastPsychology !== "function") {
   failures++; console.log("FAIL window.aiCastPsychology missing from dist build");
 } else {
   sandbox.window.claude = { complete: async () => JSON.stringify({ cast: [
-    { id: "odette", pronouns: "she/her", conscious: "c", unconscious: "u", arc: "a", humanTruth: "h" },
+    { id: "odette", pronouns: "she/her", conscious: "c", unconscious: "u", arc: "a", humanTruth: "h",
+      voiceDNA:{vocabulary:"legal claims",syntax:"clipped",rhythm:"measured",directness:"blunt",imagery:"contracts",avoids:"apologies",stressShift:"fragments"} },
     { id: "piotr",  pronouns: "He/Him",  conscious: "c", arc: "a", humanTruth: "h" },
     { id: "kett",   pronouns: "they/them", conscious: "c", arc: "a", humanTruth: "h" },
   ] }) };
   const castIn = [
     // roles keep everyone inside the depth-budget filter (orbit <= 2 — a plain
     // "Watchman"/"Fixer" is third circle and correctly gets no psychology pass)
-    { id: "odette", name: "ODETTE", role: "Antagonist" },                 // unset -> adopts she/her
+    { id: "odette", name: "ODETTE", role: "Antagonist", voiceDNA:{syntax:"writer-owned syntax"} }, // preserve manual DNA
     { id: "piotr",  name: "PIOTR",  role: "Mentor", pronouns: "he/him" }, // explicit -> never overridden
     { id: "kett",   name: "KETT",   role: "Ally" },                       // invalid value -> rejected
   ];
@@ -135,6 +136,10 @@ if (typeof aiCastPsychology !== "function") {
     "got " + (psych && JSON.stringify(psych.kett)));
   ok("batch still merges other fields", !!(psych && psych.odette && psych.odette.conscious === "c"),
     "TDZ check: if the merge threw, every field would be missing");
+  ok("batch populates missing Voice DNA", psych?.odette?.voiceDNA?.vocabulary === "legal claims",
+    psych && JSON.stringify(psych.odette));
+  ok("batch preserves manually authored Voice DNA", psych?.odette?.voiceDNA?.syntax === "writer-owned syntax",
+    psych && JSON.stringify(psych.odette));
   delete sandbox.window.claude;
 }
 
@@ -145,6 +150,7 @@ const batch  = src.match(/async function aiCastPsychology[\s\S]*?window\.aiCastP
 ok("single-character prompt requests pronouns", !!single && /"pronouns":"he\/him\|she\/her"/.test(single[0]));
 ok("batch prompt requests pronouns for every character", !!batch && /REQUIRED for EVERY character regardless of depth budget/.test(batch[0]));
 ok("batch JSON spec includes pronouns", !!batch && /"pronouns":"he\/him\|she\/her"/.test(batch[0]));
+ok("batch JSON spec requests all Voice DNA fields", !!batch && /"voiceDNA":\{"vocabulary":"\.\.\.","syntax":"\.\.\.","rhythm":"\.\.\.","directness":"\.\.\.","imagery":"\.\.\.","avoids":"\.\.\.","stressShift":"\.\.\."\}/.test(batch[0]));
 
 /* ---- agents.jsx: unset-canon drift branch exists ------------------------- */
 const agents = readFileSync("app/agents.jsx", "utf8");
