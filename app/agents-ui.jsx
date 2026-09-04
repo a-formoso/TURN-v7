@@ -56,7 +56,9 @@ function VoiceCheckReport({ rep }){
 
 function TableReadReport({ rep, onJump }){
   return React.createElement("div",{className:"tr-report"},
-    [["Pacing",rep.pacing],["Tone",rep.tone],["Voice",rep.voice]].map(([k,v])=> v &&
+    [["Pacing",rep.pacing],["Tone",rep.tone],["Voice",rep.voice],
+     ["Visual writing",rep.visual],["Sound",rep.sound],["Page rhythm",rep.rhythm],
+     ["Action ↔ dialogue",rep.causality],["Thematic payoff",rep.theme]].map(([k,v])=> v &&
       React.createElement("div",{key:k,className:"tr-block"},
         React.createElement("div",{className:"tr-lab"},k),
         React.createElement("div",{className:"tr-txt"},v))),
@@ -67,6 +69,7 @@ function TableReadReport({ rep, onJump }){
           onClick:()=> n.scene && window.__turnJump && window.__turnJump(n.scene)},
           n.scene!=null && React.createElement("span",{className:"tr-note-sc"},"Sc "+n.scene),
           React.createElement("span",{className:"tr-note-tx"},n.issue,
+            n.lens && React.createElement("em",{className:"tr-note-lens"}," · "+n.lens),
             n.fixAt==="design" && React.createElement("em",{className:"vc-could"},
               " \u2014 scene-design problem: rewording won't fix it; go back to the beats and the turn."))))));
 }

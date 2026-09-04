@@ -128,6 +128,56 @@ function screenplayBeatNumbers(screenplay, beats){
 window.screenplayBeatExcerpt = screenplayBeatExcerpt;
 window.screenplayBeatNumbers = screenplayBeatNumbers;
 
+/* SCRIPT CHECK — deterministic screenplay grammar + production-unit visibility.
+   Read-only by design: this reports what is on the page and never rewrites it. */
+function screenplayFormatReport(scene, screenplay, beats){
+  const blocks = (screenplay && Array.isArray(screenplay.blocks)) ? screenplay.blocks : [];
+  const beatSet = new Set(((beats&&beats.rows)||[]).map(r=>Number(r.n)).filter(Number.isFinite));
+  const issues = [], units = [];
+  const add = (code,severity,blockIndex,beat,message)=>
+    issues.push({code,severity,blockIndex,beat,message});
+  const clean = b=>String((b&&b.text)||"").trim();
+  blocks.forEach((b,i)=>{
+    const t=clean(b), beat=Number(b&&b.beat);
+    if(!t) add("empty-block","error",i,beat,"Empty "+((b&&b.type)||"screenplay")+" element.");
+    if(Number.isFinite(beat) && beatSet.size && !beatSet.has(beat))
+      add("unknown-beat","warn",i,beat,"This text is assigned to Beat "+beat+", which is not in the current beat map.");
+    if(!b || b.type!=="scene" || !t || /^\s*INTERCUT\b/i.test(t)) return;
+    const p=(typeof parseSlugline==="function")?parseSlugline(t):null;
+    if(!p || !p.place || !p.intExt)
+      add("bad-slugline","error",i,beat,"Scene heading needs INT., EXT., or INT./EXT. followed by a location.");
+    else {
+      units.push({blockIndex:i,beat,label:[p.intExt+".",String(p.place).toUpperCase(),p.time?String(p.time).toUpperCase():""].filter(Boolean).join(" — ")});
+      if(!p.time) add("missing-time","warn",i,beat,"Production heading has no time of day.");
+    }
+    if(t!==t.toUpperCase()) add("slugline-case","warn",i,beat,"Scene headings should be uppercase.");
+  });
+  for(let i=0;i<blocks.length;i++){
+    const b=blocks[i]||{}, t=clean(b), beat=Number(b.beat);
+    if(b.type==="char"){
+      let j=i+1;
+      if(blocks[j]&&blocks[j].type==="paren") j++;
+      if(!blocks[j] || blocks[j].type!=="dia" || !clean(blocks[j]))
+        add("cue-without-dialogue","error",i,beat,"Character cue is not followed by dialogue.");
+    } else if(b.type==="dia"){
+      let j=i-1;
+      if(blocks[j]&&blocks[j].type==="paren") j--;
+      if(j<0 || !blocks[j] || blocks[j].type!=="char")
+        add("orphan-dialogue","error",i,beat,"Dialogue has no character cue.");
+    } else if(b.type==="paren"){
+      if(i===0 || !blocks[i-1] || blocks[i-1].type!=="char" || !blocks[i+1] || blocks[i+1].type!=="dia")
+        add("orphan-parenthetical","error",i,beat,"Parenthetical must sit between a character cue and dialogue.");
+    } else if(b.type==="action" && t && /(?:^|\s)[A-Z][A-Z .'\u2019-]{1,30}:\s*[“"']?[A-Z]/.test(t)){
+      add("dialogue-in-action","warn",i,beat,"This action paragraph appears to contain dialogue; use a character cue and dialogue block.");
+    }
+  }
+  if(blocks.length && !units.length)
+    add("missing-heading","error",0,Number(blocks[0]&&blocks[0].beat),"This dramatic scene has no valid production scene heading.");
+  const errors=issues.filter(x=>x.severity==="error").length;
+  return {issues,units,stats:{blocks:blocks.length,productionUnits:units.length,errors,warnings:issues.length-errors}};
+}
+window.screenplayFormatReport = screenplayFormatReport;
+
 /* professional-completeness audit: which required screenplay elements is this scene
    missing? Returns a short list of human labels (empty = scene is complete). */
 function sceneMissing(scene, drafts){
@@ -135,32 +185,12 @@ function sceneMissing(scene, drafts){
   if(!d || !d.blocks || !d.blocks.length) return ["not drafted"];
   const blocks = d.blocks;
   const out = [];
-  const slug = blocks.find(b=>b.type==="scene");
-  const slugT = slug ? String(slug.text||"").toUpperCase() : "";
-  if(!slugT.trim()){ out.push("scene heading"); }
-  else {
-    if(!/\b(INT|EXT|I\/E|INT\.\/EXT)\b/.test(slugT)) out.push("INT./EXT.");
-    if(!/(DAY|NIGHT|DAWN|DUSK|MORNING|EVENING|AFTERNOON|NOON|MIDNIGHT|CONTINUOUS|LATER|SUNSET|SUNRISE)\b/.test(slugT)
-       && !/\s[–—-]\s\S/.test(slugT)) out.push("time of day");
-  }
   if(!blocks.some(b=>b.type==="action" && String(b.text||"").trim())) out.push("action");
-  // Structural screenplay errors are actionable completeness failures too: every
-  // dialogue line needs a cue (with an optional parenthetical), and cue-like text
-  // must not be buried in an action paragraph.
-  let cue = false;
-  blocks.forEach(b=>{
-    if(b.type==="char"){
-      if(cue && out.indexOf("dialogue cue")<0) out.push("dialogue cue");
-      cue=true; return;
-    }
-    if(b.type==="paren") return;
-    if(b.type==="dia"){ if(!cue && out.indexOf("dialogue cue")<0) out.push("dialogue cue"); cue=false; return; }
-    if(cue && out.indexOf("dialogue cue")<0) out.push("dialogue cue");
-    if(b.type==="action" && /(?:^|\s)[A-Z][A-Z .'\u2019-]{1,30}:\s*[“"']?[A-Z]/.test(String(b.text||""))
-       && out.indexOf("dialogue in action")<0) out.push("dialogue in action");
-    cue=false;
-  });
-  if(cue && out.indexOf("dialogue cue")<0) out.push("dialogue cue");
+  const rep=screenplayFormatReport(scene,d,null);
+  if(rep.issues.some(x=>x.code==="missing-heading"||x.code==="bad-slugline"||x.code==="empty-block"&&blocks[x.blockIndex]&&blocks[x.blockIndex].type==="scene")) out.push("scene heading");
+  if(rep.issues.some(x=>x.code==="missing-time")) out.push("time of day");
+  if(rep.issues.some(x=>x.code==="cue-without-dialogue"||x.code==="orphan-dialogue"||x.code==="orphan-parenthetical")) out.push("dialogue cue");
+  if(rep.issues.some(x=>x.code==="dialogue-in-action")) out.push("dialogue in action");
   return out;
 }
 window.sceneMissing = sceneMissing;
@@ -195,7 +225,7 @@ const CONFLICT_KIND = {
 
 /* ---------- view ---------- */
 function isSpTransition(t){ return /^(?:CUT|DISSOLVE|SMASH CUT|MATCH CUT|FADE|WIPE|JUMP CUT)\b.*(?:TO|OUT|IN)[:.]?$/i.test(String(t).trim()); }
-function ScriptBlock({ b, contd, sceneNo, flash }){
+function ScriptBlock({ b, contd, sceneNo, flash, blockIndex }){
   let type = b.type, text = b.text;
   const fl = flash ? " spb-flash" : "";
   if(type==="action" && isSpTransition(text)){ type="trans"; text=text.toUpperCase(); }
@@ -205,19 +235,19 @@ function ScriptBlock({ b, contd, sceneNo, flash }){
   }
   // shooting-script convention: the scene number flanks the slugline in both margins
   if(type==="scene" && sceneNo!=null){
-    return React.createElement("div",{className:(BLOCK_CLASS.scene)+" numbered"+fl},
+    return React.createElement("div",{className:(BLOCK_CLASS.scene)+" numbered"+fl,"data-sp-block-index":blockIndex},
       React.createElement("span",{className:"spb-scnum"},sceneNo),
       React.createElement("span",{className:"spb-sctext"},text),
       React.createElement("span",{className:"spb-scnum"},sceneNo));
   }
-  return React.createElement("div",{className:(BLOCK_CLASS[type]||"spb-action")+fl}, text);
+  return React.createElement("div",{className:(BLOCK_CLASS[type]||"spb-action")+fl,"data-sp-block-index":blockIndex}, text);
 }
 
 /* EDIT MODE: a single screenplay block as a directly-editable line. Uncontrolled
    contentEditable — React never manages its text (no children in the vdom), so
    re-renders mid-typing can't reset the caret; the raw text is pushed in via a ref
    effect on mount and after each committed change. Commits on blur only when changed. */
-function EditableBlock({ b, onCommit, onRemove, flash, sceneNo }){
+function EditableBlock({ b, onCommit, onRemove, flash, sceneNo, blockIndex }){
   const ref = React.useRef(null);
   const raw = b.text || "";
   React.useEffect(()=>{ if(ref.current && ref.current.innerText !== raw) ref.current.innerText = raw; },[raw]);
@@ -237,14 +267,14 @@ function EditableBlock({ b, onCommit, onRemove, flash, sceneNo }){
   // industry formatting holds while EDITING too: the first slugline keeps its
   // scene-number flanks (only the text between them stays editable)
   if(b.type==="scene" && sceneNo!=null){
-    return React.createElement("div",{className:BLOCK_CLASS.scene+" numbered"+(flash?" spb-flash":"")},
+    return React.createElement("div",{className:BLOCK_CLASS.scene+" numbered"+(flash?" spb-flash":""),"data-sp-block-index":blockIndex},
       React.createElement("span",{className:"spb-scnum"},sceneNo),
       React.createElement("span",{...editableProps, className:"spb-sctext sp-editable"}),
       React.createElement("span",{className:"spb-scnum"},sceneNo));
   }
   // every other element carries a remove control while editing — deleting commits
   // a version like any manual edit, so Undo restores the element
-  return React.createElement("div",{className:"sp-editwrap"},
+  return React.createElement("div",{className:"sp-editwrap","data-sp-block-index":blockIndex},
     React.createElement("div",{...editableProps, className:cls}),
     onRemove && React.createElement("button",{className:"sp-del-btn",
       title:"Remove this element (Undo restores it)",
@@ -331,6 +361,43 @@ function ContinuityReport({ report, onJump, onClose, currentId }){
         }));
 }
 
+function ScriptCheckReport({ scene, report, onClose, onIssue }){
+  const issues=report.issues||[], units=report.units||[], st=report.stats||{};
+  return React.createElement("div",{className:"script-check-report"},
+    React.createElement("div",{className:"cont-report-head"},
+      React.createElement("div",{className:"t"},React.createElement(Icon.script,{s:14}),"Script check"),
+      React.createElement("div",{className:"sub"},
+        (st.errors||0)+" error"+(st.errors===1?"":"s")+" · "+(st.warnings||0)+" warning"+(st.warnings===1?"":"s")),
+      React.createElement("button",{className:"ai-x",onClick:onClose,title:"Close script check"},React.createElement(Icon.x,{s:14}))),
+    React.createElement("div",{className:"script-check-split"},
+      React.createElement("div",{className:"script-check-story"},
+        React.createElement("span",{className:"script-check-kicker"},"Dramatic story scene"),
+        React.createElement("b",null,"Sc."+String(scene.no).padStart(2,"0")+" · "+scene.title),
+        React.createElement("span",null,"One dramatic movement in the story spine.")),
+      React.createElement("div",{className:"script-check-arrow"},React.createElement(Icon.arrowSmall,{s:16})),
+      React.createElement("div",{className:"script-check-units"},
+        React.createElement("span",{className:"script-check-kicker"},"Production units · "+units.length),
+        units.length
+          ? React.createElement("div",{className:"script-check-unitlist"},units.map((u,i)=>
+              React.createElement("button",{key:i,type:"button",onClick:()=>onIssue({blockIndex:u.blockIndex}),
+                title:"Go to this production heading"},(i+1)+". "+u.label)))
+          : React.createElement("span",{className:"script-check-none"},"No valid production headings"))),
+    React.createElement("div",{className:"script-check-explain"},
+      "A story scene is the dramatic unit. Every INT./EXT. heading inside it is a separate production unit for locations, scheduling and coverage."),
+    issues.length===0
+      ? React.createElement("div",{className:"cont-clean"},
+          React.createElement("span",{className:"ic"},React.createElement(Icon.check,{s:18})),
+          "The screenplay blocks are structurally clean.")
+      : React.createElement("div",{className:"script-check-issues"},issues.map((x,i)=>
+          React.createElement("button",{key:x.code+"-"+x.blockIndex+"-"+i,type:"button",
+            className:"script-check-issue "+x.severity,onClick:()=>onIssue(x)},
+            React.createElement("span",{className:"ic"},React.createElement(x.severity==="error"?Icon.alert:Icon.info,{s:14})),
+            React.createElement("span",{className:"script-check-issuebody"},
+              React.createElement("b",null,x.severity==="error"?"Format error":"Format note"),
+              React.createElement("span",null,x.message)),
+            React.createElement("span",{className:"script-check-goto"},"Beat "+(Number.isFinite(x.beat)?x.beat:"—")+" · Go to line")))));
+}
+
 function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, onDraftAll, onPolish, drafting, total,
                      history, labelOf, onRevert, onRedo, onEditScene, continuityMap, project, onBeatFocus, readOnly }){
   const CONT = continuityMap || (window.TURN_DATA||{}).CONTINUITY || {};
@@ -338,6 +405,7 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
   const live = typeof aiAvailable==="function" && aiAvailable();
   const [activeBeat, setActiveBeat] = React.useState(null);
   const [showReport, setShowReport] = React.useState(false);
+  const [showScriptCheck, setShowScriptCheck] = React.useState(false);
   const [polishing, setPolishing] = React.useState(false);
   const [polishWait, setPolishWait] = React.useState(false);
   const [justPolished, setJustPolished] = React.useState(false);
@@ -347,7 +415,7 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
   // from what's on screen, so the user sees exactly what the undo changed.
   const [verFlash, setVerFlash] = React.useState(null);
   const verFlashTimer = React.useRef(null);
-  React.useEffect(()=>{ setActiveBeat(null); setPolishing(false); setPolishWait(false); setJustPolished(false); setEditing(false); setVerFlash(null); setBeatWriting(null); },[scene && scene.id]);
+  React.useEffect(()=>{ setActiveBeat(null); setShowScriptCheck(false); setPolishing(false); setPolishWait(false); setJustPolished(false); setEditing(false); setVerFlash(null); setBeatWriting(null); },[scene && scene.id]);
   React.useEffect(()=>{ if(readOnly) setEditing(false); },[readOnly]);
   // once the restored version renders, bring the first changed block into view if it's
   // off-screen (essential on mobile, where the change is usually below the fold)
@@ -383,6 +451,14 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
 
   const report = continuityReport(orderedScenes, CONT, FACTS);
   const sceneConflicts = report.conflicts.filter(c=>c.sceneId===scene.id);
+  const scriptCheck = screenplayFormatReport(scene, screenplay, beats);
+  const jumpToScriptIssue = (issue)=>{
+    const el=document.querySelector('[data-sp-block-index="'+issue.blockIndex+'"]');
+    if(!el) return;
+    el.scrollIntoView({behavior:"smooth",block:"center"});
+    el.classList.remove("spb-check-flash"); void el.offsetWidth; el.classList.add("spb-check-flash");
+    setTimeout(()=>el.classList.remove("spb-check-flash"),2200);
+  };
 
   // ---- auto-draft control / progress ----
   let control = null;
@@ -405,6 +481,10 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
     className:`cont-btn ${report.conflicts.length?"warn":"ok"}`,onClick:()=>setShowReport(v=>!v)},
     React.createElement(report.conflicts.length?Icon.alert:Icon.check,{s:14}),
     report.conflicts.length ? `Continuity \u00b7 ${report.conflicts.length}` : "Continuity");
+  const scriptCheckBtn = screenplay && React.createElement("button",{
+    className:`cont-btn ${scriptCheck.issues.length?"warn":"ok"}`,onClick:()=>setShowScriptCheck(v=>!v)},
+    React.createElement(scriptCheck.issues.length?Icon.alert:Icon.check,{s:14}),
+    scriptCheck.issues.length ? `Script check · ${scriptCheck.issues.length}` : "Script check");
 
 
   // ---- screenplay present: render the STORED draft directly (no blend) ----
@@ -556,8 +636,8 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
               React.createElement("div",{className:"sp-page-inner"},
                 (fg[n]||[]).length
                   ? (fg[n]||[]).map((b,i)=> editing
-                  ? React.createElement(EditableBlock,{key:i,b,onCommit:(t)=>commitEdit(b,t),onRemove:()=>removeBlock(b),sceneNo:(b===firstSlugBlock?scene.no:null),flash:!!(verFlash&&verFlash.has(b))})
-                  : React.createElement(ScriptBlock,{key:i,b,contd:contdSet.has(b),sceneNo:(b===firstSlugBlock?scene.no:null),flash:!!(verFlash&&verFlash.has(b))}))
+                  ? React.createElement(EditableBlock,{key:i,b,blockIndex:screenplay.blocks.indexOf(b),onCommit:(t)=>commitEdit(b,t),onRemove:()=>removeBlock(b),sceneNo:(b===firstSlugBlock?scene.no:null),flash:!!(verFlash&&verFlash.has(b))})
+                  : React.createElement(ScriptBlock,{key:i,b,blockIndex:screenplay.blocks.indexOf(b),contd:contdSet.has(b),sceneNo:(b===firstSlugBlock?scene.no:null),flash:!!(verFlash&&verFlash.has(b))}))
                   : React.createElement("div",{className:"spb-missing-wrap"},
                       React.createElement("div",{className:"spb-action spb-missing"},"No screenplay text assigned to this beat."),
                       // one-click gap fix — only when the beat map defines this beat and MUSE is live
@@ -594,7 +674,7 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
     // two groups so mobile can stack them as two lines with the SAME desktop look:
     // A = the housed glued strip (Continuity/Undo/Redo/Edit), B = Redraft + pager
     React.createElement("div",{className:"script-tools"},
-      React.createElement("div",{className:"st-group a"}, contBtn, versionUI, editBtn),
+      React.createElement("div",{className:"st-group a"}, contBtn, scriptCheckBtn, versionUI, editBtn),
       React.createElement("div",{className:"st-group b"}, polishUI, control,
         React.createElement("div",{className:"script-scenestep",title:"Step through the screenplay scene by scene"},
           React.createElement("button",{className:"panel-collapse",onClick:(e)=>go(-1,e),disabled:idx<=0,
@@ -616,6 +696,7 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
     return React.createElement("div",{className:"script-scroll"},
       header,
       showReport && React.createElement(ContinuityReport,{report,currentId:scene.id,onJump:(id)=>onSelectScene(id),onClose:()=>setShowReport(false)}),
+      showScriptCheck && screenplay && React.createElement(ScriptCheckReport,{scene,report:scriptCheck,onClose:()=>setShowScriptCheck(false),onIssue:jumpToScriptIssue}),
       React.createElement(TransitionBar,{trans:transIn,fromTo:prevScene?`from Sc.${String(prevScene.no).padStart(2,"0")}`:null}),
       React.createElement(CarryLedger,{cells:carry}),
       React.createElement("div",{className:"script-empty"},
@@ -634,6 +715,7 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
   return React.createElement("div",{className:"script-scroll"},
     header,
     showReport && React.createElement(ContinuityReport,{report,currentId:scene.id,onJump:(id)=>onSelectScene(id),onClose:()=>setShowReport(false)}),
+    showScriptCheck && React.createElement(ScriptCheckReport,{scene,report:scriptCheck,onClose:()=>setShowScriptCheck(false),onIssue:jumpToScriptIssue}),
     inlineFlag,
     React.createElement(TransitionBar,{trans:transIn,fromTo:prevScene?`from Sc.${String(prevScene.no).padStart(2,"0")} ${prevScene.title}`:null}),
     React.createElement(CarryLedger,{cells:carry}),

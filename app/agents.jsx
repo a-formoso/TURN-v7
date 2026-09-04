@@ -886,11 +886,16 @@ async function agentTableRead(ctx){
   const drafted = ctx.model.scenes.filter(s=>ctx.model.drafts[s.id]).length;
   if(!drafted){ ctx.emit({k:"flag", t:"No scenes are drafted yet. Draft some scenes (or Auto-draft all), then run the table-read."}); ctx.emit({k:"done",t:"Nothing to read."}); return; }
   if(!ctx.ai.available){ ctx.emit({k:"flag", t:"The model isn't available, so a table-read can't run here."}); ctx.emit({k:"done",t:"Aborted."}); return; }
-  ctx.emit({k:"plan", t:"Reading all "+drafted+" drafted scenes end-to-end \u2014 looking for pacing, tone, and voice issues that only show across the whole script."});
-  ctx.emit({k:"act", t:"Performing the table-read\u2026"});
+  ctx.emit({k:"plan", t:"Reading all "+drafted+" drafted scenes end-to-end as actor, director, editor and sound designer \u2014 checking page rhythm, visual writing, action/dialogue causality, voice and thematic payoff."});
+  ctx.emit({k:"act", t:"Performing the final read\u2026"});
   const rep = await ctx.ai.tableRead(ctx.model.scenes, ctx.model.drafts);
   if(ctx.cancelled()) return;
   if(!rep){ ctx.emit({k:"flag", t:"The model didn't return a usable report. Try again."}); ctx.emit({k:"done",t:"Aborted."}); return; }
+  if(rep.unavailable==="coverage"){
+    ctx.emit({k:"flag",t:rep.message||"This screenplay is too large for one complete-film read."});
+    ctx.emit({k:"done",t:"Final Read stopped without making claims about an incomplete script."});
+    return;
+  }
   // deterministic monologue-fallacy pass — a long unbroken speech is a fact, not an
   // opinion, so it's flagged without the model and merged into the same notes list.
   // Deterministic findings are ALWAYS kept (never suppressed by fuzzy-matching the
@@ -2248,8 +2253,8 @@ const AGENTS = [
     inputLabel:"Logline or synopsis", inputPlaceholder:"e.g. A lighthouse keeper discovers the fog is erasing the town's memories \u2014 including her own.",
     blurb:"Give it a logline and it architects the whole spine in your chosen framework \u2014 scenes, charges, beats, and screenplay, all written automatically. Blank page \u2192 finished draft.",
     run:agentAdaptation },
-  { id:"tableread", name:"Table-Read", icon:"film", kind:"report",
-    blurb:"Reads every drafted scene end-to-end and reports pacing, tone, and voice issues across the whole script \u2014 not scene by scene.",
+  { id:"tableread", name:"Final Read", icon:"film", kind:"report",
+    blurb:"Reads the finished screenplay as actor, director, editor and sound designer \u2014 reporting visual writing, sound, page rhythm, action/dialogue causality, voice, pacing and thematic payoff across the whole film.",
     run:agentTableRead },
   { id:"breakdown", name:"Script Breakdown", icon:"clipboard", kind:"fix",
     blurb:"The 1st-AD pass: reads every written scene beat by beat and tags each character's physical details, appearance changes, props and set dressing \u2014 then enriches the cast sheets with script-only details, flags where the script's pronouns contradict a character's sheet (one-click reconcile), and warns about beats whose text isn't self-contained (an ambiguous pronoun, or a prop that drops out) before you generate. Tagged props are listed for the Props Master.",

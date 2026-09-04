@@ -1577,21 +1577,58 @@ async function aiPlantLine(targetScene, factLabel, mode){
 }
 window.aiPlantLine = aiPlantLine;
 
-/* Table-read: whole-script pacing / tone / voice critique. */
+/* Whole-script final read: table-read + page craft + read-it-as-a-film critique.
+   The separate voice pass below still judges the actual written lines by speaker. */
 async function aiTableRead(scenes, drafts, project){
   if(!aiAvailable()) return null;
   const P = writingProjectOf(project);
-  let script = "";
+  const scriptChunks=[];
+  const rhythmFacts=[];
   scenes.forEach(s=>{ const d = drafts[s.id]; if(!d) return;
-    script += "\n[SCENE "+s.no+": "+s.title+"]  ("+chargeStr(s.openCharge)+"\u2192"+chargeStr(s.closeCharge)+")\n";
-    script += (d.blocks||[]).filter(b=>b.type!=="scene").map(b=>
+    let sceneText = "\n[SCENE "+s.no+"]\n";
+    sceneText += (d.blocks||[]).map(b=>
+      b.type==="scene"?("\n"+String(b.text||"").toUpperCase()):
       b.type==="char"?("  "+b.text.toUpperCase()):b.type==="dia"?("    "+b.text):b.type==="paren"?("    ("+b.text+")"):b.text
     ).join("\n") + "\n";
+    scriptChunks.push(sceneText);
+    const action=(d.blocks||[]).filter(b=>b.type==="action"&&String(b.text||"").trim());
+    const dialogue=(d.blocks||[]).filter(b=>b.type==="dia"&&String(b.text||"").trim());
+    const aw=action.map(b=>String(b.text).trim().split(/\s+/).length);
+    rhythmFacts.push("Sc"+s.no+": "+action.length+" action paragraphs (longest "+(aw.length?Math.max(...aw):0)+" words), "+
+      dialogue.length+" dialogue blocks, "+(d.blocks||[]).filter(b=>b.type==="scene").length+" production headings.");
   });
-  if(!script.trim()) return null;
-  const prompt = "You are a script editor doing a table-read of this short film, \""+P.title+"\". \n"+
+  if(!scriptChunks.length) return null;
+  /* Bounded WHOLE-script packing: every scene contributes both its opening and
+     ending. The final scene gets a larger allowance, so climax/payoff prose can
+     never disappear behind a head-only slice. Omission is explicit, never silent. */
+  const TOTAL_SCRIPT_CHARS=28000;
+  const MIN_SCENE_CHARS=64; // enough for [SCENE n] + a compact disclosed omission
+  const SEPARATOR_CHARS=Math.max(0,scriptChunks.length-1);
+  const CONTENT_BUDGET=TOTAL_SCRIPT_CHARS-SEPARATOR_CHARS;
+  if(scriptChunks.length*MIN_SCENE_CHARS>CONTENT_BUDGET)
+    return {unavailable:"coverage",message:"Final Read supports up to "+Math.floor(TOTAL_SCRIPT_CHARS/MIN_SCENE_CHARS)+" drafted scenes in one pass. Split this screenplay into volumes before running the complete-film read.",notes:[]};
+  const lastBudget=scriptChunks.length===1 ? CONTENT_BUDGET
+    : Math.min(4000,CONTENT_BUDGET-(MIN_SCENE_CHARS*(scriptChunks.length-1)));
+  const otherBudget=scriptChunks.length>1 ? Math.floor((CONTENT_BUDGET-lastBudget)/(scriptChunks.length-1)) : CONTENT_BUDGET;
+  const packChunk=(txt,cap)=>{
+    if(txt.length<=cap) return txt;
+    const marker=cap>=100 ? "\n[... middle of this scene omitted for context budget ...]\n" : "\n[… omitted …]\n";
+    const room=Math.max(80,cap-marker.length);
+    const usable=Math.max(0,cap-marker.length);
+    const head=Math.ceil(usable*.58), tail=Math.floor(usable*.42);
+    return (txt.slice(0,head)+marker+txt.slice(txt.length-tail)).slice(0,cap);
+  };
+  const packedScript=scriptChunks.map((txt,i)=>packChunk(txt,i===scriptChunks.length-1?lastBudget:otherBudget)).join("\n");
+  const prompt = "You are a senior screenplay editor doing the FINAL READ of this film, \""+P.title+"\". Read it simultaneously as an actor, director, picture editor and sound designer.\n"+
     castPronounBlock(window.turnCast)+voiceDnaBrief(window.turnCast)+
-    "Assess the WHOLE script for pacing, tonal consistency, character distinction, performability, spoken timing, cadence and escalation across scenes. Focus on issues that become clear when the dialogue is heard in sequence. "+
+    "Assess the WHOLE script through these lenses:\n"+
+    "PACING/TONE/VOICE — performability, spoken timing, cadence, escalation, tonal consistency and character distinction.\n"+
+    "VISUAL WRITING — can every important moment be seen as a specific moving image; does the prose use precise behavior and fresh concrete imagery rather than abstractions or generic coverage?\n"+
+    "SOUND — do dialogue, silence, atmosphere and motivated sounds carry story, suspense or transitions rather than merely decorate the page?\n"+
+    "PAGE RHYTHM — do action-paragraph length, white space, dialogue runs and heading/cut frequency make the reading speed match the dramatic speed? Use the measured rhythm facts below, but judge them in context rather than applying a quota.\n"+
+    "ACTION/DIALOGUE CAUSALITY — does a line provoke the next physical action, and does an action alter the meaning or delivery of the next line? Flag exchanges where action and speech merely sit beside each other.\n"+
+    "THEMATIC PAYOFF — does the climax resolve the character's dramatic choice through image, action and sound, rather than explaining the theme in dialogue?\n"+
+    "Focus on issues that become clear only when the complete film is read in sequence. "+
     "Also run the DIALOGUE FLAW checklist and flag any instance you actually hear: "+
     "EMPTY TALK (a line with no subtext that exists only to explain), "+
     "ON-THE-NOSE (a character states exactly what they feel \u2014 the fix is to mask it behind a third thing), "+
@@ -1599,16 +1636,18 @@ async function aiTableRead(scenes, drafts, project){
     "MELODRAMA (expression exceeding the motivation underneath it), "+
     "MONOLOGUE (a long unbroken speech that should be interlaced with action and reaction), "+
     "DUELOGUE COLLAPSE (raw face-to-face arguing with no object or task to route the conflict through). "+
-    "Be specific and reference scene numbers. "+
+    "Be specific and reference scene numbers. Do not reward declared intent or beat metadata: judge ONLY what the finished screenplay actually puts on the page. "+
     "For EVERY note apply the paraphrasing test: if rewording the lines would NOT fix it \u2014 the scene doesn't turn, the value charge repeats, there's no room for subtext \u2014 the problem is the SCENE DESIGN, and the note must say fixAt \"design\" (send the writer back to the beats and the turn, not the thesaurus). Otherwise fixAt is \"lines\". "+
-    'Return ONLY JSON: {"pacing":"2-3 sentence assessment","tone":"2-3 sentences","voice":"2-3 sentences","notes":[{"scene":<no>,"issue":"one specific fixable note","fixAt":"lines|design"}]}. Give 3-6 notes.'+
-    "\n\nSCRIPT:\n"+script.slice(0,9000);
+    'Return ONLY JSON: {"pacing":"1-2 sentence assessment","tone":"1-2 sentences","voice":"1-2 sentences","visual":"1-2 sentences","sound":"1-2 sentences","rhythm":"1-2 sentences","causality":"1-2 sentences","theme":"1-2 sentences","notes":[{"scene":<no>,"lens":"pacing|tone|voice|visual|sound|rhythm|causality|theme","issue":"one specific fixable note","fixAt":"lines|design"}]}. Give 4-8 notes.'+
+    "\n\nMEASURED PAGE-RHYTHM FACTS:\n"+rhythmFacts.join("\n")+
+    "\n\nSCRIPT (every drafted scene represented; any shortened middle is explicitly marked):\n"+packedScript;
   try{
     const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }] });
     const j = extractJSON(res);
     if(!j) return null;
-    ["pacing","tone","voice"].forEach(k=> j[k]=scrubBrand((j[k]||"").toString()));
+    ["pacing","tone","voice","visual","sound","rhythm","causality","theme"].forEach(k=> j[k]=scrubBrand((j[k]||"").toString()));
     j.notes = Array.isArray(j.notes) ? j.notes.map(n=>({ scene:Number(n.scene)||null, issue:scrubBrand((n.issue||"").toString()),
+      lens:["pacing","tone","voice","visual","sound","rhythm","causality","theme"].includes(String(n.lens||"").toLowerCase())?String(n.lens).toLowerCase():"",
       fixAt: (String(n.fixAt||"").toLowerCase()==="design" ? "design" : "lines") })) : [];
     return j;
   }catch(e){ return null; }
