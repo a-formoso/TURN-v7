@@ -41,5 +41,24 @@ const ui=readFileSync("app/locations-ui.jsx","utf8");
 ok("all three derived generators store lineage",
   ["screenplay-coverage","time-of-day-variant","slugline-unit"].every(k=>ui.includes(`locationAssetDependencySnapshot(l.id,${k==="screenplay-coverage"?"previousIds":"[]"},\"${k}\")`)));
 ok("derived warning names regeneration action",ui.includes("Regenerate this \"+noun+\" to update it."));
+const app=readFileSync("app/app.jsx","utf8");
+ok("legacy fold migration refuses ambiguous unit targets",
+  app.includes("const matchingUnits = units.filter")&&app.includes("if(matchingUnits.length!==1) continue;"));
+ok("legacy fold migration no longer picks first matching unit",
+  !app.includes("const u = units.find(x=> placeKeyOf(x.place)===l.key);"));
+ok("legacy fold migration rederives unit cardinality after source awaits",
+  app.includes("deriveSluglineUnits(scenesRef.current, draftsRef.current)")&&app.includes("liveMatches.length!==1"));
+ok("legacy fold migration rechecks target after claiming its run lock",
+  app.includes("const migrationRun=")&&app.includes("const existingNow=")&&app.includes("commitMatches.length!==1"));
+ok("legacy fold migration releases only its own target lock",
+  app.includes("window.__nbGenInflight[unitImgId]===migrationRun")&&app.includes("delete window.__nbGenInflight[unitImgId]"));
+ok("legacy fold migration captures project epoch before source awaits",
+  app.includes("const foldEpoch=(typeof nbEpoch===")&&app.indexOf("const foldEpoch=")<app.indexOf("await nbRemoteImageUrl"));
+ok("legacy fold commit carries epoch and live cancellation predicate",
+  app.includes('"locunit",foldEpoch,migrationLive)')&&app.includes("if(!migrationLive()) r=null;"));
+ok("legacy fold live predicate checks target ownership and project scope",
+  app.includes("window.__nbGenInflight[unitImgId]===migrationRun")&&app.includes("nbEpoch()===foldEpoch"));
+ok("legacy fold clears a prior sticky cancellation only after claiming ownership",
+  app.indexOf("window.__nbGenInflight[unitImgId]=migrationRun")<app.indexOf("window.__nbGenCancel[unitImgId]=false"));
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail?1:0);

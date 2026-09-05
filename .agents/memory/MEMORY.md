@@ -19,3 +19,4 @@
 - [Pronoun consistency](pronoun-consistency.md) — unset canon is a blind spot: comparison audits silently pass on blank; every "vs canon" check needs an explicit unset branch, prompts need hard-error wording.
 - [Image-gen prompt overrides](imagegen-override-completeness.md) — substituting an edited prompt must cover buildFinal, buildFromBase AND buildSimple (the silent no-image retry).
 - [Screenplay audit boundaries](screenplay-audit-boundaries.md) — production units stay derived; final-film reads must include every scene and judge page evidence, never intent metadata.
+- [Asset migration ownership](asset-migration-ownership.md) — legacy image copies must fail closed on ambiguous targets and revalidate target, run ownership, cancellation, and film epoch after awaits.

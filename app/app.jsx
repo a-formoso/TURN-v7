@@ -2578,6 +2578,9 @@ function App(){
     if(foldStaleRef.current) return;
     if(typeof deriveSubspaceFold!=="function" || typeof deriveSluglineUnits!=="function") return;
     if(typeof nbCommit!=="function" || typeof sluglineUnitImageId!=="function") return;
+    // Capture film scope before the first await. Location/unit ids repeat across
+    // projects, so an old fold must never commit after the user switches films.
+    const foldEpoch=(typeof nbEpoch==="function")?nbEpoch():null;
     const fold = deriveSubspaceFold(scenes, drafts);
     const cands = (ls||[]).filter(l=> l && l.fromScript && fold[l.key]);
     if(!cands.length) return;
@@ -2596,17 +2599,55 @@ function App(){
           let url = (typeof nbRemoteImageUrl==="function") ? (await nbRemoteImageUrl(l.id)) : "";
           if(!url && typeof nbLoadImage==="function") url = await nbLoadImage(l.id);
           if(!url){ toTrash.push(l); continue; }                     // truly content-free
-          // plate-only → move the plate onto the unit's plate slot first
-          const u = units.find(x=> placeKeyOf(x.place)===l.key);
-          if(!u) continue;
+          // Plate-only → copy onto a unit ONLY when the destination is
+          // unambiguous. A location can have NIGHT, DAWN, INT and EXT units;
+          // choosing the first one silently assigns the same legacy plate to an
+          // arbitrary time/side. Preserve the old card and pixels instead.
+          const matchingUnits = units.filter(x=> placeKeyOf(x.place)===l.key);
+          if(matchingUnits.length!==1) continue;
+          const u = matchingUnits[0];
           const unitImgId = sluglineUnitImageId(u.key);
           const existing = (typeof nbLoadImage==="function") ? await nbLoadImage(unitImgId) : "";
           if(existing) continue;                          // never clobber an existing unit plate
           const dataUrl = await urlToDataUrl(url);        // cloudCommit accepts data: URLs only
           if(!dataUrl) continue;
           const det = (typeof nbLoadDetailsAsset==="function") ? await nbLoadDetailsAsset(l.id, url) : { meta:null };
-          const r = await nbCommit(unitImgId, dataUrl, (det&&det.meta)||null, [], "locunit");
+          // Everything above awaited network/storage. Re-derive from LIVE refs:
+          // the script may now contain another side/time unit, and the expected
+          // sole destination may have changed.
+          const liveUnits = deriveSluglineUnits(scenesRef.current, draftsRef.current);
+          const liveMatches = liveUnits.filter(x=>placeKeyOf(x.place)===l.key);
+          if(liveMatches.length!==1 || liveMatches[0].key!==u.key) continue;
+          // Claim the normal generation registry for this exact target so a user
+          // click cannot start a render between our final empty check and commit.
+          if(!window.__nbGenInflight) window.__nbGenInflight={};
+          if(window.__nbGenInflight[unitImgId]) continue;
+          const migrationRun={id:unitImgId,kind:"legacy-location-fold",startedAt:Date.now()};
+          window.__nbGenInflight[unitImgId]=migrationRun;
+          // A cancelled older run may leave a sticky flag after surrendering the
+          // registry. This new owner starts clean; a subsequent Cancel sets it
+          // true again and migrationLive immediately fails.
+          window.__nbGenCancel=window.__nbGenCancel||{};
+          window.__nbGenCancel[unitImgId]=false;
+          const migrationLive=()=> !(window.__nbGenCancel&&window.__nbGenCancel[unitImgId])
+            && !!(window.__nbGenInflight&&window.__nbGenInflight[unitImgId]===migrationRun)
+            && (foldEpoch==null || typeof nbEpoch!=="function" || nbEpoch()===foldEpoch);
+          let r=null;
+          try{
+            const existingNow=(typeof nbLoadImage==="function")?await nbLoadImage(unitImgId):"";
+            if(existingNow || !migrationLive()) continue;
+            // Revalidate cardinality once more after the final storage await.
+            const commitUnits=deriveSluglineUnits(scenesRef.current,draftsRef.current);
+            const commitMatches=commitUnits.filter(x=>placeKeyOf(x.place)===l.key);
+            if(commitMatches.length!==1 || commitMatches[0].key!==u.key) continue;
+            r = await nbCommit(unitImgId, dataUrl, (det&&det.meta)||null, [], "locunit",foldEpoch,migrationLive);
+            if(!migrationLive()) r=null;
+          } finally {
+            if(window.__nbGenInflight[unitImgId]===migrationRun) delete window.__nbGenInflight[unitImgId];
+            if(window.__nbGenCancel&&window.__nbGenCancel[unitImgId]===false) delete window.__nbGenCancel[unitImgId];
+          }
           if(!r || r.tier==="error" || r.tier==="stale" || !r.url) continue;
+          try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{detail:{id:unitImgId,url:r.url}})); }catch(e){}
           toTrash.push(l); movedIds[l.id] = true;
         }catch(e){ /* keep the card on any failure */ }
       }
