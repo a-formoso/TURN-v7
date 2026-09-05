@@ -3732,7 +3732,7 @@ function StateRow({ c, st, index, project, scenes, props, baseGenUrl, onView, on
       React.createElement("button",{className:"state-del",title:"Remove state",onClick:onDelete},React.createElement(Icon.x,{s:13}))),
     React.createElement(SheetFrame,{ gen, slotId:"charref-"+stateId, name:viewEntity.name,
       avatarColor:c.color, initials:vtag, drafted:true, drafting:false, onDraft:()=>{}, entity:viewEntity,
-      onView, slotPlaceholder:"Drop reference art for this state", noun:vtag+" sheet" }),
+      onView, slotPlaceholder:"Generate this appearance state", noun:vtag+" sheet", dropToImport:true }),
     gen.genUrl && React.createElement("div",{className:"card-qa-row"},
       React.createElement(QaCheckButton,{ gen, name:(viewEntity.name||"")+" \u00b7 "+(st.label||vtag), noun:vtag+" sheet",
         specFields:()=>({ what_changed:(st.change||"") }),

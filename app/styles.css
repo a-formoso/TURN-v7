@@ -2020,11 +2020,14 @@ html[data-theme="light"] .ag-errbar{background:oklch(0.62 0.16 30 / .1);border-c
 .sheet-gen-btn.waiting:disabled{background:var(--bg-3);color:var(--txt-3);border:1px solid var(--line-2);
   opacity:.58;cursor:not-allowed;box-shadow:none;filter:grayscale(.15)}
 .sheet-gen-btn.waiting svg{opacity:.75}
-/* generate + stop share one row: full-width generate when idle, 50/50 while generating */
+/* Generate stays full-width while idle. During a run, progress and Stop remain
+   on one line at 60/40, including narrow nested cards. */
 .sheet-gen-row{display:flex;gap:8px;margin-top:10px}
 .sheet-gen-row .sheet-gen-btn{flex:1;margin-top:0}
-/* Stop an in-flight generation — sits inline with the "Generating…" button, equal width */
-.sheet-gen-stop{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:36px;
+.sheet-gen-row:has(.sheet-gen-stop){flex-wrap:nowrap}
+.sheet-gen-row:has(.sheet-gen-stop) .sheet-gen-btn{flex:0 1 calc(60% - 4px)}
+/* Stop an in-flight generation — always 40% of the shared action row. */
+.sheet-gen-stop{flex:0 0 calc(40% - 4px);display:inline-flex;align-items:center;justify-content:center;gap:6px;height:36px;
   border-radius:9px;border:1px solid var(--neg,#c0413b);background:transparent;color:var(--neg,#c0413b);
   font-family:var(--f-ui);font-size:12.5px;font-weight:600;cursor:pointer;transition:.12s}
 .sheet-gen-stop:hover{background:var(--neg,#c0413b);color:#fff}
@@ -6974,9 +6977,8 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
   .write-dock{right:10px;bottom:120px}
 
   .sheet-gen-row{gap:8px}
-  .sheet-gen-row .sheet-gen-btn,
-  .sheet-gen-row .sheet-upload-btn,
-  .sheet-gen-row .sheet-gen-stop{flex-basis:100%}
+  .sheet-gen-row:not(:has(.sheet-gen-stop)) .sheet-gen-btn,
+  .sheet-gen-row .sheet-upload-btn{flex-basis:100%}
   .sheet-gen-row .sheet-upload-btn{height:auto;min-height:34px;padding:7px 10px}
 
   /* Nested state, variant and coverage cards may be substantially narrower
