@@ -259,5 +259,23 @@ reset();
   ok("privacy-edit: edit panel closed on success", calls("closeEdit").length === 1);
 }
 
+/* 14 — a generated parent sheet carries its stable project id into Details */
+reset();
+{
+  await run(env({
+    opts: {
+      buildFinal: () => "STATE",
+      buildFromBase: () => "FROM BASE",
+      referenceFallback: async () => "https://project.test/base-sheet.jpg",
+      referenceFallbackId: "char-parent",
+    },
+  }), {});
+  const c = commits[0];
+  const base = c && c.refs.find(r => r.kind === "base");
+  ok("project base reference records its source entity id",
+    base && base.refId === "char-parent" && base.url === "https://project.test/base-sheet.jpg",
+    base && JSON.stringify(base));
+}
+
 console.log(passes + failures === 0 ? "no checks ran" : (failures ? "FAILURES: " + failures + " (of " + (passes + failures) + ")" : "PASS: all " + passes + " checks"));
 process.exit(failures ? 1 : 0);

@@ -905,6 +905,7 @@ function PropStateRow({ p, st, index, project, scenes, baseGenUrl, onView, onCha
     buildFinal: buildFinal,
     buildFromBase: baseGenUrl ? buildFromBase : null,
     referenceFallback: baseGenUrl ? (()=>baseGenUrl) : null,
+    referenceFallbackId: baseGenUrl ? p.id : null,
     buildFromPhoto: ()=> buildFromBase(),
     buildSimple: buildSimple,
     // the SAME belonging anchor as the base sheet — a state variant still belongs to the owner

@@ -6913,6 +6913,102 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
 .proj-row-date{ margin-left:auto; padding-left:10px; flex:0 0 auto;
   font-family:var(--f-mono); font-size:9.5px; color:var(--txt-3); white-space:nowrap; }
 
+/* ==========================================================================
+   ART ROOM — compact-canvas safety pass
+   A card grid can become narrow well before the viewport reaches phone width:
+   on a tablet it previously made the reference slot, Generate, Upload and
+   overflow menu compete for the same 300px line. Keep shared SheetFrame
+   controls in their own predictable lanes so Characters, Props, Locations,
+   appearance states, coverage/variant plates and scale sheets all inherit the
+   correction instead of each needing a one-off treatment.
+   ========================================================================== */
+.sheet-gen-row{
+  flex-wrap:wrap;
+  align-items:stretch;
+}
+.sheet-gen-row .sheet-gen-btn{
+  min-width:0;
+  flex:1 1 164px;
+  white-space:normal;
+  text-align:center;
+  line-height:1.2;
+}
+.sheet-gen-row .sheet-upload-btn{
+  width:auto;
+  min-width:0;
+  flex:1 1 148px;
+  margin-top:0;
+  white-space:normal;
+  text-align:center;
+  line-height:1.2;
+}
+.sheet-gen-row .sheet-gen-stop{min-width:0}
+
+@media (max-width:1100px){
+  /* Two generous columns beat three cramped ones. This only affects the
+     tablet canvas; wide desktop retains its established grid density. */
+  .artroom .sheet-grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,360px),1fr))}
+
+  /* The fixed engine controls live in a dedicated right-side gutter instead
+     of over the last column of production controls. */
+  .artroom .art-scroll{padding-right:96px}
+
+  /* The docking controls stop bisecting the active card at tablet widths.
+     Their bottom placement also preserves the established one-hand reach. */
+  .nb-dock{top:auto;right:14px;bottom:26px;transform:none}
+  .write-dock{top:auto;right:14px;bottom:128px;transform:none}
+
+  .sheet-head,
+  .sheet-head-top,
+  .state-row-head,
+  .loc-variant-head{min-width:0}
+  .sheet-head-actions{max-width:100%;justify-content:flex-start}
+}
+
+@media (max-width:700px){
+  /* There is no useful side gutter on a phone. Keep all form fields clear of
+     the two compact docks while allowing the final card content to scroll
+     above them. */
+  .artroom .art-scroll{padding-right:14px;padding-bottom:250px}
+  .nb-dock{right:10px;bottom:18px}
+  .write-dock{right:10px;bottom:120px}
+
+  .sheet-gen-row{gap:8px}
+  .sheet-gen-row .sheet-gen-btn,
+  .sheet-gen-row .sheet-upload-btn,
+  .sheet-gen-row .sheet-gen-stop{flex-basis:100%}
+  .sheet-gen-row .sheet-upload-btn{height:auto;min-height:34px;padding:7px 10px}
+
+  /* Nested state, variant and coverage cards may be substantially narrower
+     than the viewport. Let their small headers make a deliberate second row
+     rather than stealing width from editable names. */
+  .state-row-head,
+  .loc-variant-head,
+  .loc-coverage-sheet .loc-variant-head{flex-wrap:wrap}
+  .state-row-head .state-label,
+  .loc-variant-head .edit-in,
+  .loc-coverage-title{min-width:0;flex:1 1 160px}
+  .loc-coverage-source{margin-left:auto}
+}
+
+@media (max-width:640px){
+  /* A full-width drop target stays visually calm; its options control is
+     anchored inside the frame and never participates in the action row. */
+  .sheet-frame:has(.sheet-dropzone) .sheet-gen-tools{
+    top:20px;
+    right:20px;
+  }
+
+  /* Image Details is an inspection surface, not a squeezed desktop modal. */
+  .dt-overlay{padding:10px}
+  .dt-panel{width:100%;max-height:calc(100dvh - 20px);border-radius:12px}
+  .dt-head{padding:13px 14px;gap:9px}
+  .dt-title{font-size:14px}
+  .dt-scroll{padding:13px 14px 18px;gap:13px}
+  .dt-prompt{font-size:11px;line-height:1.5;max-height:32dvh}
+  .dt-thumbs{gap:8px}
+}
+
 /* Team collaboration */
 .team-modal{width:min(620px,94vw)}
 .team-body{display:flex;flex-direction:column;gap:12px;padding:16px 18px 18px;overflow:auto}

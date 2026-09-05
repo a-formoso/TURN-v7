@@ -1475,7 +1475,10 @@ async function nbRunSheetGeneration(env, gopts){
     const refsUsed = [];
     if(refImage && refLabel){
       if(isCloud && (mode==="cameo" || mode==="photo")) privateRefs++;
-      else refsUsed.push({ kind:mode, label:refLabel, url:refImage });
+      else refsUsed.push({ kind:mode, label:refLabel, url:refImage,
+        refId:mode==="base" && opts.referenceFallbackId
+          ? (typeof opts.referenceFallbackId==="function" ? opts.referenceFallbackId(gopts) : opts.referenceFallbackId)
+          : undefined });
     }
     attachList.forEach(a=>refsUsed.push({ kind:a.kind||"prop", label:a.note||"Reference image", url:a.url, refId:a.refId }));
     // user-attached edit inputs (the "+" menu: uploads and prop sheets, incl. carried)
@@ -2101,7 +2104,7 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
       displayRefs = [{ url: src.url, label: "Edited from v"+sv+" sheet" }];
     }
   } else if(!selVer){
-    displayRefs = refs.map(r=>({ url:r.url, label:r.label }));
+    displayRefs = refs.map(r=>({ url:r.url, label:r.label,refId:r.refId,recovered:r.recovered }));
   }
   /* PRIVACY DISCLOSURE — the anchored version may have been guided by personal
      images deliberately kept off the project (cloud mode). Details must say so
@@ -2251,8 +2254,9 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
                     // location shows its CURRENT name here, not the name at render time
                     if(r.refId){ const C=window.turnContinuity||{};
                       const hit=[...(C.props||[]),...(C.characters||[]),...(C.locations||[])].find(x=>x&&x.id===r.refId);
-                      if(hit&&hit.name) return hit.name+(hit.kind?(" ("+hit.kind+")"):""); }
-                    return r.label; })()))))
+                      if(hit&&hit.name) return hit.name+(hit.kind?(" ("+hit.kind+")"):"")
+                        +(r.recovered==="current-project-asset"?" · current asset":""); }
+                    return r.label+(r.recovered==="current-project-asset"?" · current asset":""); })()))))
             : React.createElement("div",{className:"dt-noref"},
                 privNote || "No reference images for this version \u2014 generated from the prompt alone."),
           (privNote && displayRefs.length>0)
@@ -3672,6 +3676,7 @@ function StateRow({ c, st, index, project, scenes, props, baseGenUrl, onView, on
     buildFinal: buildFinal,
     buildFromBase: baseGenUrl ? buildFromBase : null,
     referenceFallback: baseGenUrl ? (()=>baseGenUrl) : null,
+    referenceFallbackId: baseGenUrl ? c.id : null,
     buildFromPhoto: ()=> buildFromBase(),
     buildSimple: buildSimple,
     buildEdit: (instr)=>

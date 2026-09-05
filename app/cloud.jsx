@@ -821,9 +821,24 @@ function turnStoragePath(uid, projectId, entityId, assetType, role, ext, version
 }
 window.turnStoragePath = turnStoragePath;   // exposed for inspection / tests
 
-async function cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, role, version){
+async function cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, role, version, allowRemote){
   const sb = sbClient(); if(!sb) return null;
-  const blob = dataUrlToBlob(dataUrl); if(!blob) return null;
+  let blob = dataUrlToBlob(dataUrl);
+  /* Generated project references are commonly short-lived signed HTTP URLs,
+     not data URLs. Snapshot their bytes while the URL is valid so Details can
+     keep showing the exact input after reload/expiry. Personal/device inputs
+     are filtered out by the generation runner before cloudCommit receives
+     refs, so this path remains project-material only. */
+  if(!blob && allowRemote && /^(https?:|blob:)/i.test(String(dataUrl||""))){
+    try{
+      const response=await fetch(dataUrl);
+      if(response.ok){
+        const candidate=await response.blob();
+        if(candidate && /^image\//i.test(candidate.type||"")) blob=candidate;
+      }
+    }catch(e){}
+  }
+  if(!blob) return null;
   const path = turnStoragePath(uid, projectId, entityId, assetType, role, "png", version);
   try{
     const { error } = await sb.storage.from(turnBucket()).upload(path, blob, { contentType:blob.type, upsert:false });
@@ -884,7 +899,7 @@ async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind){
   const refRows = [];
   for(const r of (refs || [])){
     let p = null;
-    if(r.url) p = await cloudUploadImage(projectId, uid, entityId, r.url, assetType, "ref-"+turnSafeSeg(r.kind||"img"));
+    if(r.url) p = await cloudUploadImage(projectId, uid, entityId, r.url, assetType, "ref-"+turnSafeSeg(r.kind||"img"),undefined,true);
     refRows.push({ kind:r.kind, label:r.label, storage_path:p, refId:r.refId||undefined });
   }
   const fields = { storage_path:newPath, meta:meta||{}, refs:refRows };
@@ -1047,10 +1062,39 @@ async function cloudLoadDetails(projectId, entityId){
   const row = await cloudGetGen(projectId, entityId);
   if(!row) return { id:entityId, url:"", meta:null, refs:[], history:[] };
   const url = row.storage_path ? await cloudSignedUrl(row.storage_path) : "";
-  const refs = [];
-  for(const r of (row.refs||[])) refs.push({ kind:r.kind, label:r.label, refId:r.refId, url: r.storage_path ? await cloudSignedUrl(r.storage_path) : "" });
   const history = [];
   for(const h of (row.history||[])) history.push({ url: h.storage_path ? await cloudSignedUrl(h.storage_path) : "", meta: h.meta || {} });
+  const refs = [];
+  const missingIds=[];
+  for(const r of (row.refs||[])){
+    if(!r.storage_path && r.refId) missingIds.push(r.refId);
+    // Legacy character/prop state sheets used parentId:stateId but did not
+    // persist the parent id on their Base sheet reference.
+    if(!r.storage_path && !r.refId && r.kind==="base" && String(entityId).includes(":"))
+      missingIds.push(String(entityId).slice(0,String(entityId).lastIndexOf(":")));
+  }
+  const liveFallbacks=missingIds.length ? await cloudAssetLoadMany(projectId,missingIds) : {};
+  for(const r of (row.refs||[])){
+    let refUrl=r.storage_path ? await cloudSignedUrl(r.storage_path) : "";
+    let recovered="";
+    // Existing rows created before HTTP reference snapshots were supported can
+    // still resolve a generated project asset by its stable entity id.
+    if(!refUrl && r.refId && liveFallbacks[r.refId] && liveFallbacks[r.refId].url){
+      refUrl=liveFallbacks[r.refId].url; recovered="current-project-asset";
+    }
+    // A self-update's Base sheet is the immediately preceding version, which is
+    // an exact historical input and safer than resolving the new current image.
+    if(!refUrl && r.kind==="base" && history[0] && history[0].url){
+      refUrl=history[0].url; recovered="previous-version";
+    }
+    if(!refUrl && r.kind==="base" && !r.refId && String(entityId).includes(":")){
+      const parentId=String(entityId).slice(0,String(entityId).lastIndexOf(":"));
+      if(liveFallbacks[parentId]&&liveFallbacks[parentId].url){
+        refUrl=liveFallbacks[parentId].url; recovered="current-project-asset";
+      }
+    }
+    refs.push({ kind:r.kind, label:r.label, refId:r.refId, url:refUrl, recovered });
+  }
   return { id:entityId, url, meta: row.meta || null, refs, history };
 }
 window.cloudCommit = cloudCommit;
