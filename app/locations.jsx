@@ -494,6 +494,41 @@ function sluglineUnitImageId(key){
 }
 window.sluglineUnitImageId = sluglineUnitImageId;
 
+/* LOCATION ASSET LINEAGE — derived plates stay pinned, but remember the exact
+   upstream master/coverage versions they used so a later regeneration can mark
+   them out of date without deleting approved pixels. ISO changes on every commit. */
+function locationAssetDependencySnapshot(parentId, dependencyIds, kind, metaOf){
+  const get = typeof metaOf==="function" ? metaOf
+    : (id)=> (typeof nbGetMeta==="function" ? nbGetMeta(id) : null);
+  const parent = get(parentId)||{};
+  const upstream = (dependencyIds||[]).map(id=>{ const m=get(id)||{}; return m.iso ? {id,iso:m.iso} : null; }).filter(Boolean);
+  return {
+    locationDependencyKind:kind||"derived",
+    locationParentId:parentId,
+    locationParentIso:parent.iso||undefined,
+    locationUpstream:upstream.length?upstream:undefined
+  };
+}
+window.locationAssetDependencySnapshot = locationAssetDependencySnapshot;
+function locationAssetDependencyChanges(meta, parentId, dependencyIds, metaOf){
+  if(!meta) return [];
+  const get = typeof metaOf==="function" ? metaOf
+    : (id)=> (typeof nbGetMeta==="function" ? nbGetMeta(id) : null);
+  const changed=[];
+  const parentNow=get(parentId)||{};
+  // No current ISO means there is no version evidence to compare. Once the
+  // master is newly generated it gains an ISO, and legacy derived assets with
+  // no recorded parent immediately become (correctly conservative) stale.
+  if(parentNow.iso && meta.locationParentIso!==parentNow.iso)
+    changed.push({id:parentId,kind:"parent"});
+  const recorded={};
+  (Array.isArray(meta.locationUpstream)?meta.locationUpstream:[]).forEach(r=>{ if(r&&r.id) recorded[r.id]=r.iso||""; });
+  (dependencyIds||[]).forEach(id=>{ const now=get(id)||{};
+    if(now.iso && recorded[id]!==now.iso) changed.push({id,kind:"upstream"}); });
+  return changed;
+}
+window.locationAssetDependencyChanges = locationAssetDependencyChanges;
+
 /* SET-DRESSING candidates — deterministic extraction from the unit's OWN action
    prose (never dialogue, never sluglines): screenplay-convention ALL-CAPS object
    mentions plus a curated lexicon of physical set-dressing nouns. Pure derivation
@@ -1626,7 +1661,8 @@ async function generateLocationVariant(l, v, project){
     let url;
     try{ url = await nbGenerate(prompt, {}); }
     catch(e){ if(/no image/i.test((e&&e.message)||"") && typeof buildSimpleLocationPrompt==="function"){ url = await nbGenerate(buildSimpleLocationPrompt(l), {}); } else throw e; }
-    await nbCommit(id, url, _nbLocMeta(prompt), [], "location", _ep);
+    await nbCommit(id, url, Object.assign(_nbLocMeta(prompt),
+      locationAssetDependencySnapshot(l.id,[],"time-of-day-variant")), [], "location", _ep);
     try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id, url } })); }catch(e){}
     return true;
   } finally { window.__nbGenInflight[id] = false; }

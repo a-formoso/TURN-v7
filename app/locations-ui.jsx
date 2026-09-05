@@ -490,8 +490,19 @@ function StagingGrid({ l, onUpdate, onDraftStaging, draftingStage }){
 /* screenplay-derived INT/EXT side plates. These are not time/weather variants:
    they are extra empty-set anchors for subspaces the screenplay actually films
    inside a broader scene location (e.g. EXT yard + INT booth). */
+function LocationDerivedStaleBanner({ noun, upstream }){
+  return React.createElement("div",{className:"prompt-drift-banner loc-derived-stale",role:"status"},
+    React.createElement(Icon.alert,{s:14}),
+    React.createElement("span",null,
+      React.createElement("b",null,"Reference out of date"),
+      upstream
+        ? " · The parent location plate or an earlier coverage sheet changed after this image was generated. Regenerate this "+noun+" to update it."
+        : " · The parent location plate changed after this image was generated. Regenerate this "+noun+" to update it."));
+}
+
 function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, parentGenUrl, onView }){
   const id = l.id+"-"+v.id;
+  const previousIds=(previousSheets||[]).filter(Boolean).map(p=>l.id+"-"+p.id);
   const sceneNos = Array.isArray(v.sceneNos) ? v.sceneNos.filter(n=>n!=null) : [];
   const sourceLabel = sceneNos.length
     ? ((sceneNos.length>1 ? "Scenes " : "Scene ")+sceneNos.map(n=>String(n)).join(", "))
@@ -575,8 +586,16 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
     attachmentsText: (refs)=> refs && refs.length
       ? "REFERENCE IMAGES are attached in this order: "+refs.map((r,i)=>"Image "+(i+1)+" = "+r.note).join("; ")+". The screenplay page snapshots are context only: read the scene geography from them, but never copy their typography, page border, text, captions or layout into the location sheet."
       : "",
+    metaExtra:({mode})=> mode==="edit"
+      ? { locationDependencyKind:gen.genMeta&&gen.genMeta.locationDependencyKind,
+          locationParentId:gen.genMeta&&gen.genMeta.locationParentId,
+          locationParentIso:gen.genMeta&&gen.genMeta.locationParentIso,
+          locationUpstream:gen.genMeta&&gen.genMeta.locationUpstream }
+      : locationAssetDependencySnapshot(l.id,previousIds,"screenplay-coverage"),
     buildEdit: (instr)=> "Edit this "+(v.role||"INT")+" coverage sheet for "+(v.name||l.name||"the location")+". Apply ONLY: "+instr+". Keep it consistent with the parent location's architecture, materials and light.",
   });
+  const dependencyChanges=gen.genUrl && typeof locationAssetDependencyChanges==="function"
+    ? locationAssetDependencyChanges(gen.genMeta,l.id,previousIds) : [];
   const viewerEntity = {
     ...l,
     id,
@@ -589,6 +608,8 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
         React.createElement("b",null,v.name||"Coverage sheet")),
       React.createElement("span",{className:"loc-coverage-source",title:v.summary||""},sourceLabel)),
     v.summary && React.createElement("div",{className:"loc-variants-empty loc-coverage-summary"},v.summary),
+    dependencyChanges.length>0 && React.createElement(LocationDerivedStaleBanner,{noun:"screenplay coverage sheet",
+      upstream:dependencyChanges.some(x=>x.kind==="upstream")}),
     React.createElement(SheetFrame,{ gen, slotId:"loccov-"+id, name:(v.name||l.name||"Location")+" \u00b7 "+(v.role||"INT"),
       avatarColor:locSwatch(v.role), initials:(v.role||"?").slice(0,2).toUpperCase(), drafted:true, drafting:false,
       entity:viewerEntity, onView, slotPlaceholder:"Drop a finished side plate", noun:"coverage sheet", compact:true,
@@ -652,8 +673,16 @@ function LocationVariant({ l, v, project, onTime, onRemove, onView }){
     entity: l,
     buildFinal: ()=> buildLocationVariantPrompt(l, project, { time:v.time }),
     buildSimple: ()=> buildSimpleLocationPrompt(l),
+    metaExtra:({mode})=> mode==="edit"
+      ? { locationDependencyKind:gen.genMeta&&gen.genMeta.locationDependencyKind,
+          locationParentId:gen.genMeta&&gen.genMeta.locationParentId,
+          locationParentIso:gen.genMeta&&gen.genMeta.locationParentIso,
+          locationUpstream:gen.genMeta&&gen.genMeta.locationUpstream }
+      : locationAssetDependencySnapshot(l.id,[],"time-of-day-variant"),
     buildEdit: (instr)=> "Edit this establishing frame of "+(l.name||"the place")+" ("+v.time+"). Apply ONLY: "+instr+". Keep the same space and architecture.",
   });
+  const dependencyChanges=gen.genUrl && typeof locationAssetDependencyChanges==="function"
+    ? locationAssetDependencyChanges(gen.genMeta,l.id,[]) : [];
   const viewerEntity = {
     ...l,
     id,
@@ -663,6 +692,7 @@ function LocationVariant({ l, v, project, onTime, onRemove, onView }){
     React.createElement("div",{className:"loc-variant-head"},
       React.createElement(EditText,{value:v.time,placeholder:"Night / Day / Rain\u2026",onCommit:onTime}),
       React.createElement("button",{className:"loc-variant-x",title:"Remove variant",onClick:onRemove},React.createElement(Icon.x,{s:12}))),
+    dependencyChanges.length>0 && React.createElement(LocationDerivedStaleBanner,{noun:"time-of-day variant"}),
     React.createElement(SheetFrame,{ gen, slotId:"locvar-"+l.id+"-"+v.id, name:(l.name||"")+" \u00b7 "+v.time,
       avatarColor:locSwatch(l.intExt), initials:(v.time||"?").slice(0,2).toUpperCase(), drafted:true, drafting:false,
       entity:viewerEntity, onView, slotPlaceholder:"Drop a photo", noun:"variant", compact:true }));
@@ -748,8 +778,16 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onUpdat
     attachmentsText: (refs)=> refs && refs.length
       ? "REFERENCE IMAGES are attached in this order: "+refs.map((r,i)=>"Image "+(i+1)+" = "+r.note).join("; ")+". The screenplay page snapshots are context only: read the scene geography from them, but never copy their typography, page border, text, captions or layout into the location sheet."
       : "",
+    metaExtra:({mode})=> mode==="edit"
+      ? { locationDependencyKind:gen.genMeta&&gen.genMeta.locationDependencyKind,
+          locationParentId:gen.genMeta&&gen.genMeta.locationParentId,
+          locationParentIso:gen.genMeta&&gen.genMeta.locationParentIso,
+          locationUpstream:gen.genMeta&&gen.genMeta.locationUpstream }
+      : locationAssetDependencySnapshot(l.id,[],"slugline-unit"),
     buildEdit: (instr)=> "Edit this "+role+" coverage plate for "+(u.name||l.name||"the location")+(u.time?(" at "+u.time):"")+". Apply ONLY: "+instr+". Keep it consistent with the parent location's architecture, materials and light.",
   });
+  const dependencyChanges=gen.genUrl && typeof locationAssetDependencyChanges==="function"
+    ? locationAssetDependencyChanges(gen.genMeta,l.id,[]) : [];
   const viewerEntity = {
     ...l,
     id:imgId,
@@ -768,6 +806,7 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onUpdat
       onRemoveUnit && React.createElement("button",{className:"loc-unit-remove",
         title:"Delete this unit's stored data and generated plate",
         onClick:async ()=>{ if(typeof nbClearAsset==="function"){ try{ await nbClearAsset(imgId); }catch(e){} } onRemoveUnit(u.key); }},"Remove")),
+    dependencyChanges.length>0 && React.createElement(LocationDerivedStaleBanner,{noun:"slugline-unit plate"}),
     React.createElement(SheetField,{label:"Appearance state",value:u.appearance||"",multiline:true,
       // per-unit prompt built from THIS unit's own slugline facts (name, TOD, scenes) —
       // a static example ("dawn and raining") read as if every location should be dawn
