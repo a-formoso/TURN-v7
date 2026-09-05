@@ -1472,22 +1472,34 @@ async function nbRunSheetGeneration(env, gopts){
     let privateRefs = 0;   // personal images used for THIS render but kept off the project
     const refLabel = mode==="edit" ? "Previous sheet (edited)" : (mode==="photo"||mode==="cameo") ? (mode==="cameo"?"Cameo likeness":"Reference photo")
       : mode==="base" ? "Base sheet" : null;
+    const refVersion = (refId,fallbackMeta)=>{
+      let m=fallbackMeta||null;
+      if(refId && typeof nbGetMeta==="function"){ try{ m=nbGetMeta(refId)||m; }catch(e){} }
+      return m ? { refVersion:m.version||null, refGenerated:m.iso||"" } : {};
+    };
     const refsUsed = [];
     if(refImage && refLabel){
       if(isCloud && (mode==="cameo" || mode==="photo")) privateRefs++;
-      else refsUsed.push({ kind:mode, label:refLabel, url:refImage,
-        refId:mode==="base" && opts.referenceFallbackId
+      else{
+        const baseRefId=mode==="base" && opts.referenceFallbackId
           ? (typeof opts.referenceFallbackId==="function" ? opts.referenceFallbackId(gopts) : opts.referenceFallbackId)
-          : undefined });
+          : undefined;
+        refsUsed.push({ kind:mode, label:refLabel, url:refImage,refId:baseRefId,
+          ...refVersion(baseRefId,(mode==="edit"||gopts.deriveFromCurrent)?genMeta:null) });
+      }
     }
-    attachList.forEach(a=>refsUsed.push({ kind:a.kind||"prop", label:a.note||"Reference image", url:a.url, refId:a.refId }));
+    attachList.forEach(a=>refsUsed.push({ kind:a.kind||"prop", label:a.note||"Reference image", url:a.url, refId:a.refId,
+      refVersion:a.refVersion||refVersion(a.refId).refVersion||null,
+      refGenerated:a.refGenerated||refVersion(a.refId).refGenerated||"" }));
     // user-attached edit inputs (the "+" menu: uploads and prop sheets, incl. carried)
     // — recorded so Details › "Reference images used" tells the whole story of an edit
     if(isEditMode && Array.isArray(gopts.editRefMeta)){
       gopts.editRefMeta.forEach(r=>{ if(r && r.url && !refsUsed.some(x=>x.url===r.url)){
         // entries without a refId are device uploads — same personal-photo rule as above
         if(isCloud && !r.refId) privateRefs++;
-        else refsUsed.push({ kind:"edit-input", label:r.note||"Edit input image", url:r.url, refId:r.refId });
+        else refsUsed.push({ kind:"edit-input", label:r.note||"Edit input image", url:r.url, refId:r.refId,
+          refVersion:r.refVersion||refVersion(r.refId).refVersion||null,
+          refGenerated:r.refGenerated||refVersion(r.refId).refGenerated||"" });
       }});
     }
     if(cameoUrl && mode==="base"){
@@ -2092,19 +2104,36 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
      chain with a working URL — so we resolve it there instead of the (often
      broken / unsigned) stored ref blob. For an original/photo generation we fall
      back to the stored refs (current only; history entries don't carry refs). */
-  const versions = [{ url: gen.genUrl, meta: curMeta }].concat(
-    history.map(h=>({ url: h.url, meta: h.meta||{} })));
+  const versions = [{ url: gen.genUrl, meta: curMeta,refs }].concat(
+    history.map(h=>({ url: h.url, meta: h.meta||{},refs:h.refs||[] })));
   const anchorPos = selVer ? (selVer.idx + 1) : 0;
   const anchorMeta = (versions[anchorPos] || versions[0] || {}).meta || {};
+  const annotateRefs=(list)=>{
+    const wornRows=Array.isArray(anchorMeta.wornReferences)?anchorMeta.wornReferences:[];
+    return (list||[]).map(r=>{ const worn=wornRows.find(w=>w&&w.refId&&w.refId===r.refId);
+      return {url:r.url,label:r.label,refId:r.refId,recovered:r.recovered,
+        refVersion:r.refVersion||(worn&&worn.version)||null,
+        resolvedVersion:r.resolvedVersion||r.refVersion||(worn&&worn.version)||null}; });
+  };
   let displayRefs = [];
   if(anchorMeta.mode === "edit"){
     const src = versions[anchorPos + 1];
-    if(src && src.url){
+    const anchored=annotateRefs((versions[anchorPos]&&versions[anchorPos].refs)||[]);
+    const sourceRows=anchored.filter(r=>String(r.label||"").toLowerCase().includes("previous sheet"));
+    const extras=anchored.filter(r=>!String(r.label||"").toLowerCase().includes("previous sheet"));
+    if(sourceRows.length){
+      displayRefs=sourceRows.map(r=> r.url ? r : {
+        ...r,url:src&&src.url,refVersion:r.refVersion||(src&&src.meta&&src.meta.version)||null
+      }).concat(extras);
+    } else if(src && src.url){
       const sv = (src.meta && src.meta.version) || (versions.length - anchorPos - 1);
-      displayRefs = [{ url: src.url, label: "Edited from v"+sv+" sheet" }];
+      displayRefs = [{ url:src.url,label:"Edited from sheet",refVersion:sv },...extras];
+    } else {
+      displayRefs=extras;
     }
-  } else if(!selVer){
-    displayRefs = refs.map(r=>({ url:r.url, label:r.label,refId:r.refId,recovered:r.recovered }));
+  } else {
+    const anchoredRefs=(versions[anchorPos]&&versions[anchorPos].refs)||[];
+    displayRefs=annotateRefs(anchoredRefs);
   }
   /* PRIVACY DISCLOSURE — the anchored version may have been guided by personal
      images deliberately kept off the project (cloud mode). Details must say so
@@ -2254,9 +2283,17 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
                     // location shows its CURRENT name here, not the name at render time
                     if(r.refId){ const C=window.turnContinuity||{};
                       const hit=[...(C.props||[]),...(C.characters||[]),...(C.locations||[])].find(x=>x&&x.id===r.refId);
+                      const versionLabel=r.recovered==="current-project-asset"&&r.refVersion&&r.resolvedVersion&&String(r.refVersion)!==String(r.resolvedVersion)
+                        ? (" · used v"+r.refVersion+" · showing current v"+r.resolvedVersion)
+                        : ((r.refVersion||r.resolvedVersion)?(" · v"+(r.refVersion||r.resolvedVersion)):"");
                       if(hit&&hit.name) return hit.name+(hit.kind?(" ("+hit.kind+")"):"")
+                        +versionLabel
                         +(r.recovered==="current-project-asset"?" · current asset":""); }
-                    return r.label+(r.recovered==="current-project-asset"?" · current asset":""); })()))))
+                    const versionLabel=r.recovered==="current-project-asset"&&r.refVersion&&r.resolvedVersion&&String(r.refVersion)!==String(r.resolvedVersion)
+                      ? (" · used v"+r.refVersion+" · showing current v"+r.resolvedVersion)
+                      : ((r.refVersion||r.resolvedVersion)?(" · v"+(r.refVersion||r.resolvedVersion)):"");
+                    return r.label+versionLabel
+                      +(r.recovered==="current-project-asset"?" · current asset":""); })()))))
             : React.createElement("div",{className:"dt-noref"},
                 privNote || "No reference images for this version \u2014 generated from the prompt alone."),
           (privNote && displayRefs.length>0)

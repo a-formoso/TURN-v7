@@ -900,7 +900,8 @@ async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind){
   for(const r of (refs || [])){
     let p = null;
     if(r.url) p = await cloudUploadImage(projectId, uid, entityId, r.url, assetType, "ref-"+turnSafeSeg(r.kind||"img"),undefined,true);
-    refRows.push({ kind:r.kind, label:r.label, storage_path:p, refId:r.refId||undefined });
+    refRows.push({ kind:r.kind, label:r.label, storage_path:p, refId:r.refId||undefined,
+      refVersion:r.refVersion||undefined,refGenerated:r.refGenerated||undefined });
   }
   const fields = { storage_path:newPath, meta:meta||{}, refs:refRows };
   if(!looked.failed) fields.history = history;   // never clobber history on a failed lookup
@@ -1062,38 +1063,63 @@ async function cloudLoadDetails(projectId, entityId){
   const row = await cloudGetGen(projectId, entityId);
   if(!row) return { id:entityId, url:"", meta:null, refs:[], history:[] };
   const url = row.storage_path ? await cloudSignedUrl(row.storage_path) : "";
-  const history = [];
-  for(const h of (row.history||[])) history.push({ url: h.storage_path ? await cloudSignedUrl(h.storage_path) : "", meta: h.meta || {} });
-  const refs = [];
+  const rawHistory=row.history||[];
+  const history=[];
+  for(const h of rawHistory) history.push({url:h.storage_path?await cloudSignedUrl(h.storage_path):"",meta:h.meta||{},refs:[]});
   const missingIds=[];
-  for(const r of (row.refs||[])){
-    if(!r.storage_path && r.refId) missingIds.push(r.refId);
-    // Legacy character/prop state sheets used parentId:stateId but did not
-    // persist the parent id on their Base sheet reference.
-    if(!r.storage_path && !r.refId && r.kind==="base" && String(entityId).includes(":"))
-      missingIds.push(String(entityId).slice(0,String(entityId).lastIndexOf(":")));
-  }
+  const allRefSets=[row.refs||[],...rawHistory.map(h=>h.refs||[])];
+  for(const set of allRefSets){ for(const r of set){
+      if(!r.storage_path && r.refId) missingIds.push(r.refId);
+      // Legacy character/prop state sheets used parentId:stateId but did not
+      // persist the parent id on their Base sheet reference.
+      if(!r.storage_path && !r.refId && r.kind==="base" && String(entityId).includes(":"))
+        missingIds.push(String(entityId).slice(0,String(entityId).lastIndexOf(":")));
+  }}
   const liveFallbacks=missingIds.length ? await cloudAssetLoadMany(projectId,missingIds) : {};
-  for(const r of (row.refs||[])){
-    let refUrl=r.storage_path ? await cloudSignedUrl(r.storage_path) : "";
-    let recovered="";
-    // Existing rows created before HTTP reference snapshots were supported can
-    // still resolve a generated project asset by its stable entity id.
-    if(!refUrl && r.refId && liveFallbacks[r.refId] && liveFallbacks[r.refId].url){
-      refUrl=liveFallbacks[r.refId].url; recovered="current-project-asset";
-    }
-    // A self-update's Base sheet is the immediately preceding version, which is
-    // an exact historical input and safer than resolving the new current image.
-    if(!refUrl && r.kind==="base" && history[0] && history[0].url){
-      refUrl=history[0].url; recovered="previous-version";
-    }
-    if(!refUrl && r.kind==="base" && !r.refId && String(entityId).includes(":")){
-      const parentId=String(entityId).slice(0,String(entityId).lastIndexOf(":"));
-      if(liveFallbacks[parentId]&&liveFallbacks[parentId].url){
-        refUrl=liveFallbacks[parentId].url; recovered="current-project-asset";
+  const resolveRefs=async(rawRefs,previous)=>{
+    const out=[];
+    for(const r of (rawRefs||[])){
+      let refUrl=r.storage_path ? await cloudSignedUrl(r.storage_path) : "";
+      let recovered="";
+      let version=r.refVersion||null;
+      let resolvedVersion=version;
+      let resolvedGenerated=r.refGenerated||"";
+      // Existing rows created before HTTP reference snapshots were supported can
+      // still resolve a generated project asset by its stable entity id.
+      if(!refUrl && r.refId && liveFallbacks[r.refId] && liveFallbacks[r.refId].url){
+        refUrl=liveFallbacks[r.refId].url; recovered="current-project-asset";
+        const liveMeta=liveFallbacks[r.refId].meta||{};
+        resolvedVersion=liveMeta.version||null;
+        resolvedGenerated=liveMeta.iso||"";
+        version=version||resolvedVersion;
       }
+      // A self-update's Base sheet is the immediately preceding version, which is
+      // an exact historical input and safer than resolving the new current image.
+      if(!refUrl && r.kind==="base" && previous && previous.url){
+        refUrl=previous.url; recovered="previous-version";
+        version=version||(previous.meta&&previous.meta.version)||null;
+        resolvedVersion=(previous.meta&&previous.meta.version)||version;
+        resolvedGenerated=(previous.meta&&previous.meta.iso)||r.refGenerated||"";
+      }
+      if(!refUrl && r.kind==="base" && !r.refId && String(entityId).includes(":")){
+        const parentId=String(entityId).slice(0,String(entityId).lastIndexOf(":"));
+        if(liveFallbacks[parentId]&&liveFallbacks[parentId].url){
+          refUrl=liveFallbacks[parentId].url; recovered="current-project-asset";
+          const liveMeta=liveFallbacks[parentId].meta||{};
+          resolvedVersion=liveMeta.version||null;
+          resolvedGenerated=liveMeta.iso||"";
+          version=version||resolvedVersion;
+        }
+      }
+      out.push({kind:r.kind,label:r.label,refId:r.refId,url:refUrl,recovered,
+        refVersion:version,refGenerated:r.refGenerated||"",
+        resolvedVersion:resolvedVersion||version,resolvedGenerated});
     }
-    refs.push({ kind:r.kind, label:r.label, refId:r.refId, url:refUrl, recovered });
+    return out;
+  };
+  const refs=await resolveRefs(row.refs||[],history[0]||null);
+  for(let i=0;i<history.length;i++){
+    history[i].refs=await resolveRefs((rawHistory[i]&&rawHistory[i].refs)||[],history[i+1]||null);
   }
   return { id:entityId, url, meta: row.meta || null, refs, history };
 }

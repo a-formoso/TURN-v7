@@ -79,6 +79,7 @@ const reset = () => {
   sandbox.nbGetSlotImage = () => null;
   sandbox.nbImageDimensions = async () => ({ w: 1024, h: 576 });
   sandbox.nbGetHistory = async () => [];
+  sandbox.nbGetMeta = () => null;
   sandbox.slotAssetKind = () => "character";
   sandbox.nbWithAssetProvenance = () => ({});
   sandbox.nbGenerate = async (prompt, opts) => { genCalls.push({ prompt, opts }); return genImpl(prompt, opts); };
@@ -262,6 +263,7 @@ reset();
 /* 14 — a generated parent sheet carries its stable project id into Details */
 reset();
 {
+  sandbox.nbGetMeta = id => id === "char-parent" ? { version: 4, iso: "2026-09-05T10:00:00.000Z" } : null;
   await run(env({
     opts: {
       buildFinal: () => "STATE",
@@ -274,6 +276,9 @@ reset();
   const base = c && c.refs.find(r => r.kind === "base");
   ok("project base reference records its source entity id",
     base && base.refId === "char-parent" && base.url === "https://project.test/base-sheet.jpg",
+    base && JSON.stringify(base));
+  ok("project base reference records the exact source version",
+    base && base.refVersion === 4 && base.refGenerated === "2026-09-05T10:00:00.000Z",
     base && JSON.stringify(base));
 }
 
