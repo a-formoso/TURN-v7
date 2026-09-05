@@ -529,6 +529,38 @@ function locationAssetDependencyChanges(meta, parentId, dependencyIds, metaOf){
 }
 window.locationAssetDependencyChanges = locationAssetDependencyChanges;
 
+/* Master-plate spec identity is distinct from the exact model request:
+   screenplay-reference instructions are appended at runtime and must not make a
+   just-generated plate stale. Keep meta.prompt verbatim for provenance while
+   storing/comparing this canonical written-spec prompt separately. */
+function locationCanonicalSpecPrompt(mode, sentPrompt, currentSpecPrompt, priorMeta){
+  const current=String(currentSpecPrompt||"");
+  if(mode==="edit"){
+    const prior=(priorMeta&&priorMeta.specPrompt)||(priorMeta&&priorMeta.prompt);
+    return String(prior||current);
+  }
+  if(mode==="final"){
+    const sent=String(sentPrompt||"");
+    const marker=" REFERENCE IMAGES are attached:";
+    const at=sent.indexOf(marker);
+    return (at>=0?sent.slice(0,at):sent)||current;
+  }
+  // Photo/base/simple modes use a purpose-specific request prompt but still
+  // represent the location spec currently visible on the card.
+  return current;
+}
+window.locationCanonicalSpecPrompt = locationCanonicalSpecPrompt;
+function locationSpecPromptStale(meta,currentSpecPrompt){
+  if(!meta) return false;
+  const stored=String(meta.specPrompt||meta.prompt||"");
+  const current=String(currentSpecPrompt||"");
+  if(!stored||!current||stored===current) return false;
+  // Backward compatibility for plates generated before specPrompt existed:
+  // their prompt is the canonical prompt followed by this known runtime suffix.
+  return stored.indexOf(current+" REFERENCE IMAGES are attached:")!==0;
+}
+window.locationSpecPromptStale = locationSpecPromptStale;
+
 /* SET-DRESSING candidates — deterministic extraction from the unit's OWN action
    prose (never dialogue, never sluglines): screenplay-convention ALL-CAPS object
    mentions plus a curated lexicon of physical set-dressing nouns. Pure derivation

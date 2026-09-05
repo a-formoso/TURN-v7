@@ -15,10 +15,13 @@ vm.createContext(box);
 vm.runInContext(readFileSync("dist/app/locations.js","utf8"),box,{filename:"dist/app/locations.js"});
 const snapshot=box.locationAssetDependencySnapshot;
 const changes=box.locationAssetDependencyChanges;
+const canonicalSpec=box.locationCanonicalSpecPrompt;
+const specStale=box.locationSpecPromptStale;
 let pass=0,fail=0;
 const ok=(name,value,detail)=>{if(value)pass++;else{fail++;console.log("FAIL "+name+(detail?" — "+detail:""));}};
 ok("snapshot helper exported",typeof snapshot==="function");
 ok("change helper exported",typeof changes==="function");
+ok("location spec helpers exported",typeof canonicalSpec==="function"&&typeof specStale==="function");
 
 const metas={
   master:{iso:"base-v1"},
@@ -36,6 +39,16 @@ metas.master={iso:"base-v1"}; metas.earlier={iso:"coverage-v2"};
 ok("new earlier sheet stales later coverage",changes(child,"master",["earlier"],get).some(x=>x.kind==="upstream"));
 ok("legacy child stales once parent has tracked version",changes({},"master",[],get).some(x=>x.kind==="parent"));
 ok("missing current metadata makes no unsupported stale claim",changes({},"untracked",[],get).length===0);
+
+const spec="MASTER LOCATION SPEC";
+const sent=spec+" REFERENCE IMAGES are attached: Image 1 = screenplay page.";
+ok("fresh referenced generation stores clean canonical spec",canonicalSpec("final",sent,spec,null)===spec);
+ok("runtime reference instructions do not stale fresh legacy plate",specStale({prompt:sent},spec)===false);
+ok("canonical spec metadata is fresh",specStale({prompt:sent,specPrompt:spec},spec)===false);
+ok("genuine location spec change is stale",specStale({specPrompt:spec},spec+" changed")===true);
+ok("photo/simple generation uses visible written spec",canonicalSpec("photo","photo request",spec,null)===spec
+  && canonicalSpec("simple","simple request",spec,null)===spec);
+ok("image-only edit preserves prior spec identity",canonicalSpec("edit","edit request",spec+" changed",{specPrompt:spec})===spec);
 
 const ui=readFileSync("app/locations-ui.jsx","utf8");
 ok("all three derived generators store lineage",

@@ -148,6 +148,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         +"Aggregate architecture, fixtures, sightlines and action affordances only. Do NOT bake in scene-specific time of day, weather or progression (for example NIGHT/rain versus DAWN); those belong to each slugline unit's appearance plate. "
         +"Never copy screenplay typography, page borders, text, captions or layout."
       : "",
+    metaExtra:({mode,prompt})=>({
+      specPrompt:locationCanonicalSpecPrompt(mode,prompt,finalPrompt,gen.genMeta)
+    }),
     /* NO set-dressing refs at generation — the clean plate anchors the look;
        fixtures are painted in afterwards via the Edit panel's Set-dressing buttons */
     buildEdit: (instr)=>
@@ -157,7 +160,8 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       +"across all panels. Keep the same multi-angle grid of the same empty space. "
       +"Do not redesign or re-imagine the location.",
   });
-  const promptStale = !!(gen.genUrl && gen.genMeta && gen.genMeta.prompt && gen.genMeta.prompt!==finalPrompt);
+  const promptStale = !!(gen.genUrl && typeof locationSpecPromptStale==="function"
+    && locationSpecPromptStale(gen.genMeta,finalPrompt));
   const [propDependencyTick,setPropDependencyTick]=React.useState(0);
   React.useEffect(()=>{ const onDone=e=>{ const id=e&&e.detail&&e.detail.id;
       if(id&&((gen.genMeta&&gen.genMeta.propDependencies)||[]).some(r=>r&&r.propId===id)) setPropDependencyTick(t=>t+1); };
