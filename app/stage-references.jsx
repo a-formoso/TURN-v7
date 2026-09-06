@@ -190,6 +190,18 @@
       }catch(e){cast=arr(sh.subjects);}
       uniq(cast).forEach(id=>{
         const c=chars[id];if(!c)return;
+        const overrides=sh&&sh.stageCharacterReferenceOverrides;
+        if(own(overrides,c.id)){
+          if(overrides[c.id]!=="master"){
+            warn(sh.id,c.id,"invalid-character-reference-override",
+              'Character reference override must be "master"',"error");
+            return;
+          }
+          const got=put("character",{assetId:c.id,baseId:c.id,entityId:c.id,stateId:"",
+            role:roleFor("character",false),source:"shot-master-override",required:true},sh);
+          if(got)shotRow.characters.push(got);
+          return;
+        }
         let active={version:1,state:null};
         if(typeof g.activeStateForScene==="function"){
           try{active=g.activeStateForScene(c,scene,scenes)||active;}catch(e){}

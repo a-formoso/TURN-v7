@@ -16,6 +16,7 @@ const characters=[
 ];
 const location={id:"l1",scenes:["s1","s2"]};
 const metadata={
+  c1:{iso:"c1-master-v1",version:1,approval:{iso:"c1-master-v1",approved:true}},
   "c1:rain":{iso:"c1-v2",version:2,approval:{iso:"c1-v2",approved:true}},
   c2:{iso:"c2-v1",version:1,approval:{iso:"c2-v1",approved:false}},
   "l1-int":{iso:"li-v1",version:1,approval:{iso:"li-v1",approved:true}},
@@ -125,6 +126,69 @@ ok("loaded references clear missing blockers without altering metadata",
 ok("async image arrival changes the package signature",coldPackage.signature!==warmPackage.signature);
 ok("metadata-only history review cannot claim checked file availability",
   !box.stageReferenceStatus({imageId:"c1:rain"},ctx).availabilityKnown);
+
+const overrideShot={id:"override",sceneId:"s2",subjects:["c1"],props:[],
+  stageCharacterReferenceOverrides:{c1:"master"}};
+const masterOverride=box.stageShotReferencePackage([overrideShot],ctx);
+const overriddenCharacter=masterOverride.characters.find(x=>x.assetId==="c1");
+ok("explicit master override resolves the existing master",
+  overriddenCharacter&&overriddenCharacter.baseId==="c1"&&overriddenCharacter.entityId==="c1"
+  &&overriddenCharacter.stateId===""&&overriddenCharacter.required
+  &&overriddenCharacter.usages.some(x=>x.shotId==="override"&&x.role==="master"
+    &&x.source==="shot-master-override"));
+ok("master override does not warn for the scene variant",
+  !masterOverride.warnings.some(x=>x.imageId==="c1:rain"));
+
+const missingMaster=box.stageShotReferencePackage([overrideShot],{
+  ...ctx,metadata:{...metadata,c1:undefined}
+});
+ok("missing master override remains a blocker",
+  missingMaster.warnings.some(x=>x.imageId==="c1"&&x.code==="missing-reference"&&x.severity==="error"));
+const privateMaster=box.stageShotReferencePackage([overrideShot],{
+  ...ctx,metadata:{...metadata,c1:{...metadata.c1,private:true}}
+});
+ok("private master override remains blocked",
+  privateMaster.characters.length===0
+  &&privateMaster.warnings.some(x=>x.imageId==="c1"&&x.code==="excluded-reference"&&x.severity==="error"));
+
+const grouped=box.stageShotReferencePackage([
+  overrideShot,
+  {id:"variant-sibling",sceneId:"s2",subjects:["c1"],props:[]}
+],ctx);
+ok("grouped sibling retains its required scene variant",
+  grouped.characters.some(x=>x.assetId==="c1"&&x.required)
+  &&grouped.characters.some(x=>x.assetId==="c1:rain"&&x.stateId==="rain"&&x.required)
+  &&grouped.byShot.find(x=>x.shotId==="variant-sibling").characters.includes("c1:rain"));
+
+const revertedShot={...overrideShot,stageCharacterReferenceOverrides:{...overrideShot.stageCharacterReferenceOverrides}};
+delete revertedShot.stageCharacterReferenceOverrides.c1;
+const reverted=box.stageShotReferencePackage([revertedShot],ctx);
+ok("deleting override restores scene appearance variant",
+  reverted.byShot[0].characters.length===1&&reverted.byShot[0].characters[0]==="c1:rain");
+ok("override changes signature usage even when master was already selected",
+  box.stageShotReferencePackage([
+    {id:"base-scene",sceneId:"s1",subjects:["c1"],props:[]}
+  ],ctx).signature!==box.stageShotReferencePackage([
+    {id:"base-scene",sceneId:"s1",subjects:["c1"],props:[],
+      stageCharacterReferenceOverrides:{c1:"master"}}
+  ],ctx).signature);
+
+const invalidOverride=box.stageShotReferencePackage([{
+  id:"invalid-override",sceneId:"s2",subjects:["c1"],props:[],
+  stageCharacterReferenceOverrides:{c1:"c1:rain"}
+}],ctx);
+ok("invalid override value never silently falls back",
+  invalidOverride.byShot[0].characters.length===0
+  &&invalidOverride.warnings.some(x=>x.code==="invalid-character-reference-override"
+    &&x.severity==="error"));
+
+const mutationShot={id:"immutable",sceneId:"s2",subjects:["c1"],props:[],
+  stageCharacterReferenceOverrides:{c1:"master"}};
+const mutationCharacters=JSON.stringify(characters);
+const mutationShotBefore=JSON.stringify(mutationShot);
+box.stageShotReferencePackage([mutationShot],ctx);
+ok("override resolution does not mutate shots or characters",
+  JSON.stringify(mutationShot)===mutationShotBefore&&JSON.stringify(characters)===mutationCharacters);
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail?1:0);

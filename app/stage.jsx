@@ -1976,7 +1976,7 @@ function StageSoundPanel({ lineShots, auds, onVoiceLine }){
         title:"Open ElevenLabs — the voice engine behind TURN's dialogue"},"Open ElevenLabs ↗")));
 }
 
-function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap, drafts, prevClipVideoId, aspect, visualSource, setVisualSource, creditBalance, onVoiceLine, onUpdateShot, onSelectClip, onFirstVideo, onStageNav, modelId, setModelId, clipScope, setClipScope, pendingReuse, onReuseConsumed }){
+function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap, drafts, prevClipVideoId, aspect, visualSource, setVisualSource, creditBalance, readOnly=false, onVoiceLine, onUpdateShot, onSelectClip, onFirstVideo, onStageNav, modelId, setModelId, clipScope, setClipScope, pendingReuse, onReuseConsumed }){
   const scene = clip.scene, g = clip.g, d = clip.data;
   // the CLIP is the unit of generation — it may bundle 2+ merged shots (Art Room Shots
   // "merge" / Storyboards "Compose from shot frames" / a cropped sheet-half = 1 clip).
@@ -2070,9 +2070,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
       const version=state?states.indexOf(state)+2:"?";
       const stateLabel=(state&&state.label)||"Unnamed appearance state";
       return "Required character appearance "+assetLabel+" · Appearance: "+stateLabel+" (v"+version+") is not loaded/available. "
-        +"The master reference is a different asset and cannot replace this state. "
+        +"The master reference is a different asset and cannot replace this state automatically. "
+        +"To deliberately use the existing master instead, choose “Use master for this shot” below the reference tiles; this changes only that shot's video reference. "
         +"In Art Room → Characters → "+assetLabel+" → Continuity · appearance states, load, generate, or import this exact state if intended; "
-        +"if it is not intended here, unpin or move its “First appears in” assignment."
+        +"its scene-wide assignment is left unchanged by the shot-only choice."
         +(w.shotId?(" Needed by Shot "+(shotN||"?")+(shotLabel?(" "+shotLabel):"")+"."):"");
     }
     return String(w&&w.message||"Required reference is unavailable")
@@ -2316,6 +2317,37 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   const toggle = (a)=>{ if(a.locked||!a.ready) return;
     const set = a.sceneOnly ? setExtraOn : setOff;
     set(s=>{ const n=new Set(s); n.has(a.key)?n.delete(a.key):n.add(a.key); return n; }); };
+  // A mention/attachment is not a continuity decision. Only this explicit, persisted
+  // shot-local choice replaces the scene appearance for VIDEO; Art Room is untouched.
+  const characterReferenceChoices=shownShots.flatMap((sh,i)=>{
+    const rows=(referencePackage.characters||[]).filter(r=>(r.shotIds||[]).includes(String(sh.id)));
+    // Keep reset available even if the chosen master later becomes private/missing
+    // or an old override is invalid and so has no usable package descriptor.
+    Object.keys(sh.stageCharacterReferenceOverrides||{}).forEach(id=>{
+      if(!rows.some(r=>r.entityId===id))rows.push({entityId:id});
+    });
+    return rows.map(r=>{
+      const c=(ctx.charById||{})[r.entityId]||(ctx.characters||[]).find(c=>c.id===r.entityId);
+      if(!c)return null;
+      const hasOverride=Object.prototype.hasOwnProperty.call(sh.stageCharacterReferenceOverrides||{},c.id);
+      const master=hasOverride&&(sh.stageCharacterReferenceOverrides||{})[c.id]==="master";
+      if(!r.stateId&&!hasOverride)return null;
+      const state=(c.states||[]).find(s=>s.id===r.stateId);
+      const status=typeof window.stageReferenceStatus==="function"
+        ?window.stageReferenceStatus({imageId:c.id},{...ctx,images:imgs}):null;
+      return {sh,c,master,hasOverride,shotN:i+1,stateLabel:state
+        ?(state.label||"Unnamed appearance")+" (v"+((c.states||[]).indexOf(state)+2)+")"
+        :"Scene appearance",masterReady:!!imgs[c.id]&&!!status&&!status.missing&&!status.excluded};
+    }).filter(Boolean);
+  });
+  const setCharacterReferenceChoice=(row)=>{
+    if(readOnly||!onUpdateShot||gening||(!row.hasOverride&&!row.masterReady))return;
+    const next={...(row.sh.stageCharacterReferenceOverrides||{})};
+    if(row.hasOverride)delete next[row.c.id];else next[row.c.id]="master";
+    // A formerly excluded master must attach when the director explicitly chooses it.
+    if(!row.hasOverride)setOff(prev=>{const n=new Set(prev);n.delete("resolved:characters:"+row.c.id);return n;});
+    onUpdateShot(row.sh.id,{stageCharacterReferenceOverrides:next});
+  };
   const assetState = (a)=> !a.ready ? "missing" : a.locked ? "required" : on(a) ? "included" : "excluded";
   const assetStateLabel = (a)=> assetState(a)==="required" ? "Required" : assetState(a)==="included" ? "Included" : assetState(a)==="excluded" ? "Excluded" : "Missing";
   const assetTitle = (a)=>{
@@ -2967,7 +2999,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
 	        durationSec: duration, references: takeReferences, shotSources,
           renderPlan,
           referenceSourceVersions:[].concat(referencePackage.characters||[],referencePackage.locations||[],referencePackage.props||[])
-            .map(r=>({assetId:r.assetId,entityId:r.entityId,kind:r.kind,snapshot:r.snapshot,shotIds:r.shotIds})),
+            .map(r=>({assetId:r.assetId,entityId:r.entityId,kind:r.kind,stateId:r.stateId||"",
+              snapshot:r.snapshot,shotIds:r.shotIds,usages:r.usages})),
           referenceSignature:referencePackage.signature||"",
 	        propDependencies:(typeof stageClipPropDependencySignature==="function")
 	          ? stageClipPropDependencySignature(d,scene&&scene.id,window.turnContinuity||{}) : "" },
@@ -3520,6 +3553,21 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
           Icon.maximize&&_stEl(Icon.maximize,{s:10})),
         a.kind!=="text" && a.ready && _stEl("span",{className:"stage2-gen-asset-tag",title:"Reference this asset in the prompt as "+stageAssetMention(a)}, stageAssetTagShort(a)),
         on(a) && _stEl("span",{className:"stage2-gen-asset-check"},Icon.check&&_stEl(Icon.check,{s:10}))))),
+    modelRefs&&characterReferenceChoices.length>0&&_stEl("div",{className:"stage2-character-choices","aria-label":"Shot-only video character references"},
+      characterReferenceChoices.map(row=>_stEl("div",{key:row.sh.id+":"+row.c.id,
+        className:"stage2-character-choice","data-shot-id":row.sh.id,"data-character-id":row.c.id},
+        _stEl("span",null,
+          _stEl("b",null,"Shot "+row.shotN+" · "+row.c.name),
+          _stEl("small",null,row.master?"Master reference · this shot's video only"
+            :row.hasOverride?"Invalid reference choice — restore scene appearance":"Appearance: "+row.stateLabel)),
+        _stEl("button",{type:"button","data-choice":row.hasOverride?"scene":"master",
+          disabled:readOnly||!onUpdateShot||gening||(!row.hasOverride&&!row.masterReady),
+          title:readOnly?"View-only access — changing a shot reference requires edit access"
+            :row.hasOverride?"Restore the scene's assigned appearance for this shot's video"
+            :!row.masterReady?"The master image must be loaded and shareable before it can be chosen"
+            :"Use the existing master image for this shot's video only. Other shots, appearance states and generated images stay unchanged.",
+          onClick:()=>setCharacterReferenceChoice(row)},
+          row.hasOverride?"Use scene appearance":"Use master for this shot")))),
     // (the recipe TAB row is gone — user ruling 2026-08-02: ONE derived prompt.
     // The smart per-clip pick assembles screenplay text + Art Room cinematography;
     // the Multi-shot row editor below surfaces automatically when the pick lands on it.)
@@ -4976,7 +5024,7 @@ function StageBoard({ scenesWithShots, allClips, imgs, auds, vids, beatsMap, dra
     }));
 }
 
-function StageView({ project, scenes, shots, characters, locations, props, beatsMap, drafts, creditBalance, onVoiceAll, voicingLines, onCancelVoiceAll, onVoiceLine, onUpdateShot, onStageNav }){
+function StageView({ project, scenes, shots, characters, locations, props, beatsMap, drafts, creditBalance, readOnly=false, onVoiceAll, voicingLines, onCancelVoiceAll, onVoiceLine, onUpdateShot, onStageNav }){
   const [visualSource, _setVisualSource] = React.useState(_stageSavedSource);
   const setVisualSource = React.useCallback((v)=>{
     const next = v==="halves" ? "halves" : "shots";
@@ -5089,7 +5137,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   const shotIdsKey = (shots||[]).map(s=>[s.id,s.sceneId,s.beatN,(s.covers||[]).join("."),
     s.referenceCharactersSet?1:0,(s.referenceCharacterIds||[]).join("."),
     s.referenceLocationsSet?1:0,(s.referenceLocationIds||[]).join("."),
-    (s.refOff||[]).join(".")].join(":")).join(",");
+    (s.refOff||[]).join("."),JSON.stringify(s.stageCharacterReferenceOverrides||{})].join(":")).join(",");
   const charIdsKey = JSON.stringify((characters||[]).map(c=>[c.id,c.name,
     (c.states||[]).map((st,i)=>[i,st.id,st.label,st.sceneId,st.change,st.version,st.updatedAt])]));
   const sceneOrderKey = JSON.stringify((ordered||[]).map((s,i)=>[i,s.id,s.no,s.order]));
@@ -5323,7 +5371,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
             // hash the member shots), and remounting the console wiped the recipe
             // tab + Multi-shot row state mid-edit; the console's own member-overlap
             // effect handles real clip moves within the scene.
-            : _stEl(ClipConsole,{ key:"console-"+selectedScene.id, clip, selectedShot, sceneClips:selectedSceneClips, ctx, imgs, auds, beatsMap, drafts, prevClipVideoId:prevBeatVideoId, aspect, visualSource, setVisualSource, creditBalance, onVoiceLine, onUpdateShot, onStageNav, modelId, setModelId, clipScope, setClipScope,
+            : _stEl(ClipConsole,{ key:"console-"+selectedScene.id, clip, selectedShot, sceneClips:selectedSceneClips, ctx, imgs, auds, beatsMap, drafts, prevClipVideoId:prevBeatVideoId, aspect, visualSource, setVisualSource, creditBalance, readOnly, onVoiceLine, onUpdateShot, onStageNav, modelId, setModelId, clipScope, setClipScope,
                 onSelectClip,
                 onFirstVideo:()=>setStageView("versions"),
                 pendingReuse, onReuseConsumed:()=>setPendingReuse(null) }))));

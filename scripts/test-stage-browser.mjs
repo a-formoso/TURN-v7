@@ -222,7 +222,7 @@ let fixtureRoot=ReactDOM.createRoot(document.getElementById("root"));
 function mount(){
  fixtureRoot.render(React.createElement(StageView,{
   ...__story,creditBalance:{remaining:99},
-  onUpdateShot:(id,patch)=>{__fixture.updates.push([id,patch]);const s=__story.shots.find(x=>x.id===id);Object.assign(s,patch);mount();},
+   onUpdateShot:(id,patch)=>{__fixture.updates.push([id,patch]);__story={...__story,shots:__story.shots.map(s=>s.id===id?{...s,...patch}:s)};turnContinuity.shots=__story.shots;mount();},
   onVoiceLine:async()=>{},onStageNav:x=>__fixture.calls.push(["nav",x])
  }));
 }
@@ -232,6 +232,10 @@ window.__hardRemount=()=>{__fixture.hardRemounts++;fixtureRoot.unmount();documen
 window.__setCharacterStates=states=>{
   window.__story={...window.__story,characters:window.__story.characters.map(c=>
     c.id==="char-mara"?{...c,states:states.map(s=>({...s}))}:c)};
+  mount();
+};
+window.__setReadOnly=readOnly=>{
+  window.__story={...window.__story,readOnly:!!readOnly};
   mount();
 };
 mount();
@@ -400,6 +404,122 @@ async function main() {
     assert.equal(await c.eval(`document.querySelector(".sd-gen-submit")?.getAttribute("aria-disabled")`),"true","manual master inclusion does not satisfy the missing active-state requirement");
     assert.ok(await c.eval(`(()=>{const t=document.querySelector(".stage2-blocker-text")?.textContent.toLowerCase()||"";return t.includes("required character appearance")&&t.includes("rain wardrobe")&&t.includes("cannot replace this state")})()`),"missing-state guidance remains visible after manual master inclusion");
 
+    /*
+     * A VIDEO-only master substitution is an explicit, persisted shot decision. Move
+     * back to the grouped beat so both shots are visible, then prove selecting one row
+     * neither leaks to its sibling nor mutates any story/reference source data.
+     */
+    await c.eval(`document.querySelector('button[title="Clip scope — how much one render covers"]').click()`);
+    await waitFor(()=>c.eval(`[...document.querySelectorAll(".sdbar-option b")].some(x=>x.textContent.trim()==="Fit beat")`),"fit-beat menu for shot override");
+    await c.eval(`([...document.querySelectorAll(".sdbar-option b")].find(x=>x.textContent.trim()==="Fit beat")).closest("button").click()`);
+    await waitFor(()=>c.eval(`document.querySelectorAll(".stage2-character-choice").length===2`),"both grouped-beat character choices");
+    const overrideManual=await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent||""`);
+    const overrideBaseline=await c.eval(`({
+      characters:JSON.stringify(__story.characters),
+      first:JSON.stringify(Object.fromEntries(Object.entries(__story.shots[0]).filter(([k])=>k!=="stageCharacterReferenceOverrides"))),
+      second:JSON.stringify(__story.shots[1]),
+      timings:JSON.stringify(__story.shots.map(s=>({id:s.id,order:s.order,beatN:s.beatN,dur:s.dur}))),
+      providerCalls:__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length
+    })`);
+    assert.deepEqual(await c.eval(`__story.shots.map(s=>s.stageCharacterReferenceOverrides||{})`),[{},{}],"missing appearance state does not create an automatic master override");
+
+    const firstMasterSelector='.stage2-character-choice[data-shot-id="shot-a"][data-character-id="char-mara"] button[data-choice="master"]';
+    const secondMasterSelector='.stage2-character-choice[data-shot-id="shot-b"][data-character-id="char-mara"] button[data-choice="master"]';
+    assert.ok(await c.eval(`!!document.querySelector(${JSON.stringify(firstMasterSelector)})`),"first shot offers the deliberate master choice");
+    assert.ok(await c.eval(`!!document.querySelector(${JSON.stringify(secondMasterSelector)})`),"second shot independently offers the deliberate master choice");
+
+    /* View-only shares expose the decision and its reason, but cannot create one. */
+    const readOnlyCreateBaseline=await c.eval(`({story:JSON.stringify(__story.shots),updates:__fixture.updates.length,providers:__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length})`);
+    await c.eval(`window.__setReadOnly(true)`);
+    await waitFor(()=>c.eval(`document.querySelector(${JSON.stringify(firstMasterSelector)})?.disabled===true`),"view-only master choice disabled");
+    assert.match(await c.eval(`document.querySelector(${JSON.stringify(firstMasterSelector)})?.title||""`),/view.only|read.only|cannot.*edit|editing.*disabled/i,"disabled master choice explains view-only access");
+    await c.eval(`document.querySelector(${JSON.stringify(firstMasterSelector)}).click()`);
+    await new Promise(r=>setTimeout(r,100));
+    assert.deepEqual(await c.eval(`({story:JSON.stringify(__story.shots),updates:__fixture.updates.length,providers:__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length})`),readOnlyCreateBaseline,"view-only master choice cannot mutate story, persist, or call a provider");
+    await c.eval(`window.__setReadOnly(false)`);
+    await waitFor(()=>c.eval(`document.querySelector(${JSON.stringify(firstMasterSelector)})?.disabled===false`),"editing restores master choice");
+
+    await c.eval(`document.querySelector(${JSON.stringify(firstMasterSelector)}).click()`);
+    await waitFor(()=>c.eval(`__story.shots[0].stageCharacterReferenceOverrides?.["char-mara"]==="master"`),"first shot master override persistence");
+    assert.deepEqual(await c.eval(`__story.shots.map(s=>s.stageCharacterReferenceOverrides||{})`),[{"char-mara":"master"},{}],"master override is scoped to the selected shot");
+    assert.ok(await c.eval(`!!document.querySelector(${JSON.stringify(secondMasterSelector)})`),"second shot remains on its missing scene appearance");
+    assert.ok(await c.eval(`(()=>{const t=document.querySelector(".stage2-blocker-text")?.textContent.toLowerCase()||"";return t.includes("required character appearance")&&t.includes("rain wardrobe")})()`),"unselected sibling still requires its missing appearance");
+    assert.deepEqual(await c.eval(`({
+      characters:JSON.stringify(__story.characters),
+      first:JSON.stringify(Object.fromEntries(Object.entries(__story.shots[0]).filter(([k])=>k!=="stageCharacterReferenceOverrides"))),
+      second:JSON.stringify(__story.shots[1]),
+      timings:JSON.stringify(__story.shots.map(s=>({id:s.id,order:s.order,beatN:s.beatN,dur:s.dur})))
+    })`),{
+      characters:overrideBaseline.characters,first:overrideBaseline.first,
+      second:overrideBaseline.second,timings:overrideBaseline.timings
+    },"shot override leaves characters, state data, the other shot, video text, and timings unchanged");
+    assert.equal(await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent||""`),overrideManual,"first shot override preserves the manual prompt");
+
+    await c.eval(`mount()`);
+    await waitFor(()=>c.eval(`!!document.querySelector('.stage2-character-choice[data-shot-id="shot-a"][data-character-id="char-mara"] button[data-choice="scene"]')`),"first override survives normal remount");
+    assert.equal(await c.eval(`__story.shots[0].stageCharacterReferenceOverrides?.["char-mara"]`),"master","normal remount reads the persisted shot override");
+
+    const firstSceneSelector='.stage2-character-choice[data-shot-id="shot-a"][data-character-id="char-mara"] button[data-choice="scene"]';
+    const readOnlyResetBaseline=await c.eval(`({story:JSON.stringify(__story.shots),updates:__fixture.updates.length,providers:__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length})`);
+    await c.eval(`window.__setReadOnly(true)`);
+    await waitFor(()=>c.eval(`document.querySelector(${JSON.stringify(firstSceneSelector)})?.disabled===true`),"view-only scene reset disabled");
+    assert.match(await c.eval(`document.querySelector(${JSON.stringify(firstSceneSelector)})?.title||""`),/view.only|read.only|cannot.*edit|editing.*disabled/i,"disabled reset explains view-only access");
+    await c.eval(`document.querySelector(${JSON.stringify(firstSceneSelector)}).click()`);
+    await new Promise(r=>setTimeout(r,100));
+    assert.deepEqual(await c.eval(`({story:JSON.stringify(__story.shots),updates:__fixture.updates.length,providers:__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length})`),readOnlyResetBaseline,"view-only reset cannot mutate story, persist, or call a provider");
+    await c.eval(`window.__setReadOnly(false)`);
+    await waitFor(()=>c.eval(`document.querySelector(${JSON.stringify(firstSceneSelector)})?.disabled===false`),"editing restores scene reset");
+
+    await c.eval(`document.querySelector(${JSON.stringify(secondMasterSelector)}).click()`);
+    await waitFor(()=>c.eval(`__story.shots[1].stageCharacterReferenceOverrides?.["char-mara"]==="master"`),"second shot master override persistence");
+    await waitFor(()=>c.eval(`!((document.querySelector(".stage2-blocker-text")?.textContent||"").toLowerCase().includes("required character appearance"))`),"both explicit masters clear missing appearance requirement");
+    const overridePackage=await c.eval(`(()=>{const p=window.stageShotReferencePackage(window.__story.shots,{...window.__story,scene:window.__story.scenes[0],images:{"char-mara":"loaded","prop-letter":"loaded"},availableImageIds:new Set(["char-mara","prop-letter"])});return p.characters.map(x=>({assetId:x.assetId,stateId:x.stateId,shotIds:x.shotIds,usages:x.usages}))})()`);
+    assert.deepEqual(overridePackage,[{
+      assetId:"char-mara",stateId:"",shotIds:["shot-a","shot-b"],
+      usages:[
+        {shotId:"shot-a",role:"master",source:"shot-master-override"},
+        {shotId:"shot-b",role:"master",source:"shot-master-override"}
+      ]
+    }],"grouped override package attaches one master with shot-specific metadata usages");
+    assert.equal(await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent||""`),overrideManual,"both shot overrides preserve the manual prompt");
+    await waitFor(()=>c.eval(`document.querySelector(".stage2-blocker-act")?.textContent.trim()==="Confirm reviewed"`),"shot overrides keep source-drift review separate");
+    await c.call("Emulation.setDeviceMetricsOverride",{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+    await c.eval(`document.querySelector(".stage2-character-choices")?.scrollIntoView({block:"center"})`);
+    const overrideDesktop=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
+    await writeFile(`${OUT}/stage-shot-master-overrides-desktop.png`,Buffer.from(overrideDesktop.data,"base64"));
+    await c.call("Emulation.setDeviceMetricsOverride",{width:390,height:844,deviceScaleFactor:2,mobile:true,screenWidth:390,screenHeight:844});
+    await new Promise(r=>setTimeout(r,150));
+    const overrideMobile=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
+    await writeFile(`${OUT}/stage-shot-master-overrides-mobile-390.png`,Buffer.from(overrideMobile.data,"base64"));
+    await c.call("Emulation.setDeviceMetricsOverride",{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+    assert.equal(await c.eval(`__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`),overrideBaseline.providerCalls,"selecting shot overrides invokes no provider");
+
+    /* Once the separate drift review is acknowledged, inspect the real stubbed launch
+       payload. Its take metadata must retain one master descriptor with both shot uses. */
+    await c.eval(`document.querySelector(".stage2-blocker-act").click()`);
+    await waitFor(()=>c.eval(`document.querySelector(".sd-gen-submit")?.getAttribute("aria-disabled")!=="true"`),"override payload Generate unlock");
+    await c.eval(`document.querySelector(".sd-gen-submit").click()`);
+    await waitFor(()=>c.eval(`__fixture.calls.filter(x=>x[0]==="generate").length>${overrideBaseline.providerCalls}`),"stubbed override payload");
+    const overridePayloadRefs=await c.eval(`__fixture.calls.filter(x=>x[0]==="generate").slice(${overrideBaseline.providerCalls})[0][2].takeMeta.referenceSourceVersions.filter(x=>x.kind==="character")`);
+    assert.equal(overridePayloadRefs.length,1,"submitted grouped payload records the master character exactly once");
+    assert.equal(overridePayloadRefs[0].assetId,"char-mara","submitted grouped payload is master-only for Mara");
+    assert.equal(overridePayloadRefs[0].stateId,"","master take metadata has no appearance state id");
+    assert.deepEqual(overridePayloadRefs[0].usages,[
+      {shotId:"shot-a",role:"master",source:"shot-master-override"},
+      {shotId:"shot-b",role:"master",source:"shot-master-override"}
+    ],"take metadata preserves both shot-master-override usages");
+    const beforeOverrideResetCalls=await c.eval(`__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`);
+
+    const secondSceneSelector='.stage2-character-choice[data-shot-id="shot-b"][data-character-id="char-mara"] button[data-choice="scene"]';
+    await c.eval(`document.querySelector(${JSON.stringify(firstSceneSelector)}).click()`);
+    await waitFor(()=>c.eval(`!Object.prototype.hasOwnProperty.call(__story.shots[0].stageCharacterReferenceOverrides||{},"char-mara")`),"first master override reset");
+    await c.eval(`document.querySelector(${JSON.stringify(secondSceneSelector)}).click()`);
+    await waitFor(()=>c.eval(`!Object.prototype.hasOwnProperty.call(__story.shots[1].stageCharacterReferenceOverrides||{},"char-mara")`),"second master override reset");
+    assert.deepEqual(await c.eval(`__story.shots.map(s=>s.stageCharacterReferenceOverrides||{})`),[{},{}],"undo deletes both persisted override keys");
+    await waitFor(()=>c.eval(`(()=>{const t=document.querySelector(".stage2-blocker-text")?.textContent.toLowerCase()||"";return t.includes("required character appearance")&&t.includes("rain wardrobe")})()`),"undo restores missing appearance requirement");
+    assert.equal(await c.eval(`__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`),beforeOverrideResetCalls,"resetting shot overrides invokes no provider");
+    assert.equal(await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent||""`),overrideManual,"resetting overrides preserves the manual prompt");
+
     /* Simulate the real cache completing later. The existing mounted Stage responds to
        nb-gen-done; no story mutation or remount is used for this clearance proof. */
     await c.eval(`window.__fixture.variantLoaded=true;window.dispatchEvent(new CustomEvent("nb-gen-done",{detail:{id:"char-mara:wardrobe"}}))`);
@@ -519,7 +639,7 @@ async function main() {
     const frontendErrors=await c.eval(`window.__fixture.errors.slice()`);
     assert.deepEqual(frontendErrors,[],"fixture raised frontend errors");
     console.log(`fixture: ${FIXTURE}/index.html`);
-    console.log(`screenshots: ${OUT}/stage-shoot-desktop.png, ${OUT}/stage-desktop.png, ${OUT}/stage-mobile-390.png`);
+    console.log(`screenshots: ${OUT}/stage-shot-master-overrides-desktop.png, ${OUT}/stage-shot-master-overrides-mobile-390.png, ${OUT}/stage-shoot-desktop.png, ${OUT}/stage-desktop.png, ${OUT}/stage-mobile-390.png`);
     if(regressions.length) throw new Error("Stage regressions:\\n- "+regressions.join("\\n- "));
     console.log("PASS Stage browser regression");
   } finally {

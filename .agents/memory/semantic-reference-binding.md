@@ -12,3 +12,9 @@ Human-readable labels are presentation, not evidence of an asset's identity role
 An unattached asset's prospective mention number is not its identity. Resolve visible chips only against included assets, and make both insertion and chip swapping attach the chosen asset before treating its tag as valid.
 
 **Why:** several unselected images can legitimately share the next available number, while scene-wide choices append after the automatic package rather than following picker order. Treating prospective numbers as keys or current bindings can display or select the wrong image.
+
+An explicitly requested shot-only master substitution in Stage is a video-input decision, not permission to rewrite the character's scene-wide appearance or regenerate existing stills.
+
+**Why:** the user wanted to use an existing master for one video shot while preserving established Art Room continuity elsewhere. Expanding that choice to frame canon would alter unrelated outputs.
+
+**How to apply:** keep this choice separate from ordinary attachments and mentions, preserve sibling-shot requirements in grouped clips, and allow returning to the scene appearance. Use reference provenance for the video choice rather than changing shared image-source stamps.

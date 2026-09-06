@@ -111,5 +111,26 @@ ok("prospective options never overwrite an included chip lookup",
 ok("chip swaps include prospective assets before changing text",
   source.includes("if(includeMention && !includeMention(m))")&&source.includes("if(!changed&&m.included===false&&onChange)onChange(cur,null)"));
 
+// Exercise the real application mutation boundary, not a fixture's permissive
+// callback: view-only controls also have to resist stale/programmatic invocations.
+const appSource=readFileSync("app/app.jsx","utf8");
+const writerSource=appSource.slice(appSource.indexOf("  const updateShot = "),appSource.indexOf("  const deleteShot = "));
+let guardAllowed=false,guardWrites=0,guardShots=[{id:"guard-shot",dur:4}];
+const guardBox={
+  canMutateSharedFilm:()=>guardAllowed,
+  setShots:fn=>{guardWrites++;guardShots=fn(guardShots);},
+};
+vm.createContext(guardBox);
+vm.runInContext(writerSource+"\nthis.writeShot=updateShot;",guardBox);
+guardBox.writeShot("guard-shot",{stageCharacterReferenceOverrides:{char:"master"}});
+ok("view-only application shot writer refuses mutation",guardWrites===0&&!guardShots[0].stageCharacterReferenceOverrides);
+guardAllowed=true;
+guardBox.writeShot("guard-shot",{stageCharacterReferenceOverrides:{char:"master"}});
+ok("editor application shot writer persists the master choice",guardWrites===1&&guardShots[0].stageCharacterReferenceOverrides.char==="master"&&guardShots[0].dur===4);
+guardAllowed=false;
+guardBox.writeShot("guard-shot",{stageCharacterReferenceOverrides:{}});
+ok("revoked editor cannot reset via a captured shot callback",guardWrites===1&&guardShots[0].stageCharacterReferenceOverrides.char==="master");
+ok("Stage receives the current shared-film read-only state",appSource.includes("readOnly:readOnlyShare,")&&source.includes("creditBalance, readOnly, onVoiceLine, onUpdateShot"));
+
 console.log(pass+" passed, "+fail+" failed");
 process.exit(fail?1:0);

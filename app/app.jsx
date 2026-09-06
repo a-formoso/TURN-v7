@@ -2867,7 +2867,9 @@ function App(){
   // ---- Art Room: SHOT LIST ----
   // A shot = one micro-beat moment inside a beat. "Draft all shots" derives the shot breakdown for every scene
   // that doesn't have one yet (non-destructive); per-scene re-draft replaces one scene.
-  const updateShot = (id,patch)=> setShots(ss=>ss.map(s=>{
+  const updateShot = (id,patch)=>{
+    if(!canMutateSharedFilm()) return;
+    setShots(ss=>ss.map(s=>{
     if(s.id!==id) return s;
     const next={...s,...patch};
     const before=(typeof shotSpecFingerprint==="function")?shotSpecFingerprint(s):"";
@@ -2876,7 +2878,8 @@ function App(){
     if(before!==after) next.specRev++;
     next.specHash=after;
     return next;
-  }));
+    }));
+  };
   const deleteShot = (id)=>{
     const sh = (shots||[]).find(x=>x.id===id); if(!sh) return;
     setShots(ss=>ss.filter(s=>s.id!==id));
@@ -4632,6 +4635,7 @@ function App(){
             : React.createElement(window.StageView,{key:(cloudMode?currentProjectId:"local"),
                 project,scenes,shots,characters,locations,props,beatsMap,drafts,
                 creditBalance,
+                readOnly:readOnlyShare,
                 onVoiceAll:voiceAllLines,voicingLines,onCancelVoiceAll:cancelVoiceAll,
                 onVoiceLine:voiceLine,
                 onUpdateShot:updateShot,

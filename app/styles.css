@@ -5707,6 +5707,15 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
 .stage2-gen-assets{min-height:38px;display:flex;align-items:center;gap:7px;margin:0 0 11px;flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch}
 .stage2-gen-assets::-webkit-scrollbar{height:6px}
 .stage2-gen-assets::-webkit-scrollbar-thumb{background:#d9d2c6;border-radius:999px}
+.stage2-character-choices{display:grid;gap:6px;margin:0 0 12px}
+.stage2-character-choice{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:8px 10px;border:1px solid var(--line,#ded8ce);border-radius:8px;font-size:11px}
+.stage2-character-choice>span{min-width:0;flex:1 1 160px;overflow-wrap:anywhere}
+.stage2-character-choice b,.stage2-character-choice small{display:block}
+.stage2-character-choice small{margin-top:3px;color:var(--muted,#756d63);font-size:10px}
+.stage2-character-choice button{border:1px solid var(--line,#ded8ce);border-radius:6px;padding:6px 9px;background:var(--surface,#fff);color:var(--ink,#29241e);font:inherit;cursor:pointer}
+.stage2-character-choice button:hover:not(:disabled){border-color:var(--brand,#d67e00)}
+.stage2-character-choice button:focus-visible{outline:2px solid var(--brand,#d67e00);outline-offset:2px}
+.stage2-character-choice button:disabled{opacity:.55;cursor:not-allowed}
 .stage2-gen-asset.off{opacity:.42}
 .stage2-gen-asset.off:hover{opacity:.75}
 .stage2-gen-asset.missing{opacity:.35;border-style:dashed;cursor:default}
