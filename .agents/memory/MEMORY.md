@@ -21,3 +21,4 @@
 - [Screenplay audit boundaries](screenplay-audit-boundaries.md) — production units stay derived; final-film reads must include every scene and judge page evidence, never intent metadata.
 - [Asset migration ownership](asset-migration-ownership.md) — legacy image copies must fail closed on ambiguous targets and revalidate target, run ownership, cancellation, and film epoch after awaits.
 - [Reference version provenance](reference-version-provenance.md) — Details must anchor refs to each generation and distinguish the version used from any live recovery thumbnail.
+- [Screenplay evidence labels](screenplay-evidence-labels.md) — never present mapped or lexical-inference locations as direct screenplay evidence; quote and grade the match.

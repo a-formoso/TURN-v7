@@ -324,6 +324,36 @@ function propsFromCast(characters, existing, scenes, drafts){
 }
 window.propsFromCast = propsFromCast;
 
+/* Verifiable prop provenance from the screenplay page itself. Scene mappings can be
+   inherited or AI-narrowed, so they are not evidence. Only the full normalized prop name
+   counts as an exact mention. A recognised object noun is still useful discovery, but is
+   explicitly a POSSIBLE match because words such as "key" can be non-physical homonyms. */
+function propScreenplayMentions(prop, scenes, drafts){
+  const esc = s=>String(s||"").replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+  const clean = s=>String(s||"").toLowerCase().replace(/[^a-z0-9' -]+/g," ").replace(/\s+/g," ").trim();
+  const full = clean(prop&&prop.name).replace(/^(the|a|an)\s+/,"");
+  const head = (typeof propHeadNoun==="function") ? propHeadNoun(prop&&prop.name) : "";
+  const exactRe = full ? new RegExp("(^|\\b)"+esc(full)+"(\\b|$)","i") : null;
+  const possibleRe = head && head!==full ? new RegExp("(^|\\b)"+esc(head)+"(\\b|$)","i") : null;
+  const out=[];
+  (scenes||[]).forEach(scene=>{
+    const d=(drafts||{})[scene.id];
+    if(!d||!Array.isArray(d.blocks)) return;
+    d.blocks.forEach((block,index)=>{
+      if(/^(scene|heading|slug|char|character|cue)$/i.test(String(block&&block.type||""))) return;
+      const raw=String(block&&block.text||"").replace(/\s+/g," ").trim();
+      if(!raw) return;
+      const hay=clean(raw);
+      const match=exactRe&&exactRe.test(hay) ? "exact" : (possibleRe&&possibleRe.test(hay) ? "possible" : "");
+      if(!match) return;
+      out.push({sceneId:scene.id,sceneNo:scene.no,title:scene.title||"",beat:block.beat||block.beatId||null,
+        block:index+1,text:raw.length>180?raw.slice(0,177)+"…":raw,match});
+    });
+  });
+  return out.sort((a,b)=>(a.match==="exact"?0:1)-(b.match==="exact"?0:1));
+}
+window.propScreenplayMentions = propScreenplayMentions;
+
 /* true when the cast carries any worn/carried items we could pull into the tab */
 function castHasProps(characters){
   return (characters||[]).some(c=> splitPropItems(c.accessories).length || splitPropItems(c.props).length);
@@ -1007,7 +1037,7 @@ function PropFittingModal({ p, propUrl, onClose }){
     document.body);
 }
 
-function PropSheet({ p, project, characters, scenes, onUpdate, onDelete, onDraft, onEnsureOwner, drafting, onView, batchActiveId, onBatchDone, onChipClick, onTagOne, taggingScene, dupIds, dupProps, onMerge, derivedScenes }){
+function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete, onDraft, onEnsureOwner, drafting, onView, batchActiveId, onBatchDone, onChipClick, onTagOne, taggingScene, dupIds, dupProps, onMerge, derivedScenes }){
   const d = propDefaults(p);
   const finalPrompt = combinedPropPrompt(p, project);
   const drafted = propVisualsDrafted(p);
@@ -1178,6 +1208,9 @@ function PropSheet({ p, project, characters, scenes, onUpdate, onDelete, onDraft
   const sceneIds = Array.isArray(p.scenes) ? p.scenes : (Array.isArray(derivedScenes) ? derivedScenes : undefined);
   const scenesDerived = !Array.isArray(p.scenes) && Array.isArray(derivedScenes);
   const propScenes = (sceneIds||[]).map(id=>sceneById[id]).filter(Boolean);
+  const screenplayMentions = React.useMemo(()=>propScreenplayMentions(p,scenes,drafts),[p.name,scenes,drafts]);
+  const exactMentions = screenplayMentions.filter(m=>m.match==="exact").length;
+  const possibleMentions = screenplayMentions.length-exactMentions;
   const cardRefsLoader = React.useMemo(()=>propOwnerAttachments(p),[
     p.id,p.ownerId,p.ownerName,referenceImages.map(r=>r.id||r.url).join(",")
   ]);
@@ -1296,6 +1329,29 @@ function PropSheet({ p, project, characters, scenes, onUpdate, onDelete, onDraft
         React.createElement(SceneChipPager,{ none:"No scene appearances found",
           items: propScenes.map(s=>({ key:s.id, label:String(s.no).padStart(2,"0"), className:"prop-scene-chip",
             title:s.title||("Scene "+s.no), onClick:()=>onChipClick&&onChipClick(s.id) })) })),
+
+      React.createElement("div",{className:"prop-evidence"},
+        React.createElement("div",{className:"prop-evidence-head"},
+          React.createElement(Icon.layers,{s:12}),
+          React.createElement("span",null,"SCREENPLAY SOURCES"),
+          React.createElement("span",{className:"prop-evidence-summary"},
+            exactMentions?(exactMentions+" exact"):"",
+            exactMentions&&possibleMentions?" · ":"",
+            possibleMentions?(possibleMentions+" possible"):"")),
+        screenplayMentions.length
+          ? React.createElement("div",{className:"prop-evidence-list"},
+              screenplayMentions.slice(0,5).map((m,i)=>React.createElement("div",{className:"prop-evidence-row",key:m.sceneId+"-"+m.block+"-"+i},
+                React.createElement("div",{className:"prop-evidence-place"},
+                  React.createElement("button",{className:"prop-evidence-loc",onClick:()=>onChipClick&&onChipClick(m.sceneId),
+                    title:m.title||("Scene "+m.sceneNo)},
+                    "Scene "+String(m.sceneNo).padStart(2,"0")+(m.beat!=null?(" · Beat "+m.beat):"")),
+                  React.createElement("span",{className:"prop-evidence-kind "+m.match},
+                    m.match==="exact"?"Exact text":"Possible match")),
+                React.createElement("q",{className:"prop-evidence-quote"},m.text))),
+              screenplayMentions.length>5 && React.createElement("div",{className:"prop-evidence-more"},
+                "+"+(screenplayMentions.length-5)+" more screenplay source line"+(screenplayMentions.length-5===1?"":"s")))
+          : React.createElement("div",{className:"prop-evidence-none"},
+              "No direct mention found in the screenplay text. This card may come from cast wardrobe/accessory data or a scene mapping; it is not presented as a quoted script fact.")),
 
       !drafted && !gen.genUrl && React.createElement("div",{className:"sheet-undrafted"},
         React.createElement(Icon.alert,{s:13}),
@@ -1753,7 +1809,7 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
       ? (shown.length
           ? React.createElement(React.Fragment,null,
               React.createElement("div",{className:"sheet-grid"},
-                pager.slice(shown).map(p=>React.createElement(PropSheet,{key:p.id,p,project,characters,scenes,onUpdate,onDelete,onDraft,onEnsureOwner,
+                pager.slice(shown).map(p=>React.createElement(PropSheet,{key:p.id,p,project,characters,scenes,drafts,onUpdate,onDelete,onDraft,onEnsureOwner,
                   drafting:draftingId===p.id||(draftingIds||[]).indexOf(p.id)>=0||draftingAll,onView:(url,pr)=>setView({url,character:pr}),
                   batchActiveId,onBatchDone:batch.advance,onChipClick:(sid)=>setSceneFilter(sid),
                   onTagOne,taggingScene:taggingSceneId===p.id,derivedScenes:effMap[p.id],
