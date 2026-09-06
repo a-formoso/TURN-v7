@@ -463,6 +463,15 @@ function App(){
       props: (props||[]).some(p=> (typeof propVisualsDrafted==="function") ? propVisualsDrafted(p) : false),
       locations: (locations||[]).some(l=> l && l.id),
       colorist: !!(project && project.styleBible && project.styleBible.sceneStyles && Object.keys(project.styleBible.sceneStyles).length),
+      shots: (shots||[]).length>0,
+      storyboard: (()=>{
+        if(typeof nbGetImage!=="function" || typeof sbPageRanges!=="function") return false;
+        const byScene={}; (shots||[]).forEach(sh=>{ if(sh&&sh.sceneId) (byScene[sh.sceneId]=byScene[sh.sceneId]||[]).push(sh); });
+        return Object.keys(byScene).some(sceneId=>{
+          const ordered=byScene[sceneId].slice().sort((a,b)=>(a.order||0)-(b.order||0)||(a.beatN||0)-(b.beatN||0));
+          return sbPageRanges(ordered).some((_,i)=>{ try{ return !!nbGetImage("sbsheet-sbpage-"+sceneId+"-2x2-"+i); }catch(e){ return false; } });
+        });
+      })(),
     };
     const staleDepts = (typeof lookbookStaleDepts==="function") ? lookbookStaleDepts(lookbook, lookbookNote, lookbookApplied, lbContentFlags) : {};
     const t = {};
@@ -470,12 +479,35 @@ function App(){
     if(staleDepts.props) t.props = true;
     if(staleDepts.locations) t.locations = true;
     if(staleDepts.colorist) t.stylebible = true;
+    if(staleDepts.shots) t.shots = true;
+    if(staleDepts.storyboard) t.storyboard = true;
     return t;
-  },[lookbook, lookbookNote, lookbookApplied, characters, props, locations, project]);
+  },[lookbook, lookbookNote, lookbookApplied, characters, props, locations, shots, project]);
   // re-draft one department from the updated Lookbook (confirm first; agent runs in force
   // mode). mode "full" (default) also regenerates the sheets; mode "draft" re-drafts the
   // specs only and leaves every generated image untouched — regenerate later, when ready.
   const applyLookbook = async (dept, mode)=>{
+    if(mode==="review"){
+      const label = dept==="storyboard" ? "storyboards" : dept;
+      let ok = true;
+      if(typeof window.appConfirm==="function") ok = await window.appConfirm({
+        title:"Mark "+label+" reviewed?",
+        body:"This records that you reviewed the existing work against the current Lookbook. It does not regenerate, replace, or delete any output.",
+        confirmLabel:"Mark reviewed"
+      });
+      if(ok) markApplied(dept);
+      return;
+    }
+    if(dept==="shots"){
+      let ok = true;
+      if(typeof window.appConfirm==="function") ok = await window.appConfirm({
+        title:"Review shots with the updated Lookbook?",
+        body:"Opens the Shot Designer to propose updated coverage from the current Lens, Composition and Lighting brief. Existing shot frames remain untouched unless you explicitly approve and render changes.",
+        confirmLabel:"Open Shot Designer"
+      });
+      if(ok) setShotDesignerOpen(true);
+      return;
+    }
     const draftOnly = mode==="draft";
     const label = { characters:"Characters", props:"Props", locations:"Locations", colorist:"Styles" }[dept] || dept;
     let ok = true;
@@ -868,7 +900,8 @@ function App(){
         form: seed.form||("Derived from selected visual reference: "+(ref.sourceName||"Art Room sheet")),
         detail: seed.detail||("Created from a selected item reference so its design belongs to the existing film world."),
         referenceImages:[{ ...ref, id:ref.id||("pref-"+Date.now().toString(36)) }],
-        manual:true };
+        manual:true, origin:(typeof artRoomPropOrigin==="function")
+          ? artRoomPropOrigin(seed.kind||"carried","design") : {kind:"props"} };
       setProps(ps=>[card, ...ps]);
       return card;
     };
@@ -1801,10 +1834,16 @@ function App(){
     setCharacters(cs=> cs.some(c=>c.id===id) ? cs : [...cs, clean]);
     setTrash(t=>({ ...t, characters:(t.characters||[]).filter(x=>x.id!==id) }));
   };
-  const purgeCharacter = (id)=>{
+  const purgeCharacter = async (id)=>{
     const item = (trash.characters||[]).find(x=>x.id===id);
-    setTrash(t=>({ ...t, characters:(t.characters||[]).filter(x=>x.id!==id) }));
-    try{ if(typeof nbClearAsset==="function"){ nbClearAsset(id); (item&&item.states||[]).forEach(st=>nbClearAsset(id+":"+st.id)); } }catch(e){}
+    if(!item) return;
+    try{
+      if(typeof nbClearAsset==="function"){
+        const ids = [id, ...(item.states||[]).map(st=>id+":"+st.id)];
+        for(const assetId of ids) await nbClearAsset(assetId);
+      }
+      setTrash(t=>({ ...t, characters:(t.characters||[]).filter(x=>x.id!==id) }));
+    }catch(e){ if(window.appToast) window.appToast("Couldn't permanently delete this character's assets. It remains in Trash so you can retry.","error"); }
   };
   const [charDrafting, setCharDrafting] = React.useState(null);
   const draftCharacter = async (ch)=>{
@@ -1824,6 +1863,46 @@ function App(){
     if(!inspDrawer) setInspOpen(true);
   };
   const selectSceneBrowse = (id)=>{ setSelId(id); setSelChar(null); setFocusBeat(null); };
+  // Art Room provenance links return to the exact screenplay source. Mentions from
+  // extractors may carry a stable scene id, scene number, beat number and/or block
+  // index; resolve in that order and highlight after the Script view has mounted.
+  const openArtSource = (mention)=>{
+    const m = mention || {};
+    const ptr = (typeof artRoomSourcePointer==="function") ? artRoomSourcePointer(m) : m;
+    const nested = (m.scene && typeof m.scene==="object") ? m.scene : {};
+    const source = (m.source && typeof m.source==="object") ? m.source : {};
+    const sid = ptr.sceneId || m.sceneId || m.scene_id || source.sceneId || nested.id
+      || (Array.isArray(m.sceneIds) ? m.sceneIds[0] : "")
+      || (typeof m.scene==="string" ? m.scene : "");
+    const no = Number(ptr.sceneNo || m.sceneNo || m.scene_no || nested.no);
+    const title = String(ptr.title || m.title || m.sceneTitle || nested.title || "").trim().toLowerCase();
+    const scene = scenes.find(s=>s.id===sid)
+      || (Number.isFinite(no) ? scenes.find(s=>Number(s.no)===no) : null)
+      || (title ? scenes.find(s=>String(s.title||"").trim().toLowerCase()===title) : null);
+    if(!scene){ if(window.appToast) window.appToast("That screenplay source scene is no longer available.","error"); return; }
+    const beat = Number(ptr.beat || m.beatN || m.beat || m.beatNo || source.beatN);
+    const block = Number(ptr.blockIndex);
+    setSelId(scene.id); setSelChar(null); setRoom("writers"); setView("script");
+    if(Number.isFinite(beat) && beat>0) setFocusBeat(beat);
+    let tries=0;
+    const reveal=()=>{
+      let el = Number.isFinite(block)
+        ? document.querySelector('[data-sp-block-index="'+block+'"]') : null;
+      if(!el && Number.isFinite(beat) && beat>0){
+        const nums = Array.from(document.querySelectorAll(".sp-seg .sp-gut .bnum"));
+        const num = nums.find(n=>String(n.textContent||"").trim()===String(beat));
+        el = num && num.closest(".sp-seg");
+      }
+      if(el){
+        el.scrollIntoView({behavior:"smooth",block:"center"});
+        el.classList.remove("spb-check-flash"); void el.offsetWidth; el.classList.add("spb-check-flash");
+        setTimeout(()=>el.classList.remove("spb-check-flash"),2200);
+        return;
+      }
+      if(tries++<40) requestAnimationFrame(reveal);
+    };
+    requestAnimationFrame(reveal);
+  };
   // canvas views (Spine / Audit / Board): tapping a scene MEANS "show me its
   // details", so on mobile this variant ALSO opens the inspector drawer
   // (user ruling 2026-07-19 — the Script view keeps the non-hijacking selectScene).
@@ -1959,7 +2038,9 @@ function App(){
     const slug = (typeof window.propSlug==="function") ? window.propSlug(item)
       : item.toLowerCase().replace(/[^a-z0-9]+/g,"-").slice(0,40);
     const card = { id:"prop-"+(ch.id||"x")+"-"+kind+"-"+slug+"-"+Date.now().toString(36),
-      name:item, kind, ownerId:ch.id, ownerName:ch.name||"", fromCast:true };
+      name:item, kind, ownerId:ch.id, ownerName:ch.name||"", fromCast:true,
+      origin:(typeof artRoomPropOrigin==="function") ? artRoomPropOrigin(kind,"character")
+        : {kind:(kind==="worn"||kind==="accessory")?"costume":"props"} };
     setProps(ps=> ps.some(x=>x.id===card.id) ? ps : [...ps, card]);
     return card;
   };
@@ -2010,7 +2091,8 @@ function App(){
   const addProp = ()=>{
     const id = "prop-"+Date.now().toString(36);
     setProps(ps=>[...ps, { id, name:"New prop", kind:"carried", ownerId:"", ownerName:"",
-      form:"", material:"", detail:"", renderStyle:"", negativePrompt:"", manual:true }]);
+      form:"", material:"", detail:"", renderStyle:"", negativePrompt:"", manual:true,
+      origin:(typeof artRoomPropOrigin==="function") ? artRoomPropOrigin("carried","manual") : {kind:"manual"} }]);
   };
   const deleteProp = (id)=>{
     const p = (props||[]).find(x=>x.id===id); if(!p) return;
@@ -2023,9 +2105,16 @@ function App(){
     setProps(ps=> ps.some(p=>p.id===id) ? ps : [...ps, clean]);
     setTrash(t=>({ ...t, props:(t.props||[]).filter(x=>x.id!==id) }));
   };
-  const purgeProp = (id)=>{
-    setTrash(t=>({ ...t, props:(t.props||[]).filter(x=>x.id!==id) }));
-    try{ if(typeof nbClearAsset==="function") nbClearAsset(id); }catch(e){}
+  const purgeProp = async (id)=>{
+    const item = (trash.props||[]).find(x=>x.id===id);
+    if(!item) return;
+    try{
+      if(typeof nbClearAsset==="function"){
+        const ids = [id, ...(item.states||[]).map(st=>id+":"+st.id)];
+        for(const assetId of ids) await nbClearAsset(assetId);
+      }
+      setTrash(t=>({ ...t, props:(t.props||[]).filter(x=>x.id!==id) }));
+    }catch(e){ if(window.appToast) window.appToast("Couldn't permanently delete this prop's assets. It remains in Trash so you can retry.","error"); }
   };
   // merge a set of duplicate prop cards (same owner + same object) into ONE: keep the
   // richest card (most scenes, then one with a generated sheet, then longest name),
@@ -2475,13 +2564,24 @@ function App(){
     setLocations(ls=> ls.some(l=>l.id===id) ? ls : [...ls, clean]);
     setTrash(t=>({ ...t, locations:(t.locations||[]).filter(x=>x.id!==id) }));
   };
-  const purgeLocation = (id)=>{
+  const purgeLocation = async (id)=>{
     const item = (trash.locations||[]).find(x=>x.id===id);
-    setTrash(t=>({ ...t, locations:(t.locations||[]).filter(x=>x.id!==id) }));
-    try{ if(typeof nbClearAsset==="function"){
-      nbClearAsset(id);
-      [...(item&&item.variants||[]), ...(item&&item.coverageSheets||[])].forEach(v=>nbClearAsset(id+"-"+v.id));
-    } }catch(e){}
+    if(!item) return;
+    try{
+      if(typeof nbClearAsset==="function"){
+        const ids = [id,
+          ...(item.variants||[]).map(v=>id+"-"+v.id),
+          ...(item.coverageSheets||[]).map(v=>id+"-"+v.id)];
+        // Slugline-unit plates are descendants of their master location even though
+        // their stable IDs key from the screenplay heading rather than the card ID.
+        (sluglineUnits||[]).forEach(u=>{
+          if(u && u.locationKey===(item.key||item.id) && typeof sluglineUnitImageId==="function")
+            ids.push(sluglineUnitImageId(u.key));
+        });
+        for(const assetId of Array.from(new Set(ids))) await nbClearAsset(assetId);
+      }
+      setTrash(t=>({ ...t, locations:(t.locations||[]).filter(x=>x.id!==id) }));
+    }catch(e){ if(window.appToast) window.appToast("Couldn't permanently delete this location's descendant assets. It remains in Trash so you can retry.","error"); }
   };
   const draftLocationVisuals = async (l)=>{
     if(!(typeof aiLocationVisuals==="function")) return;
@@ -2791,9 +2891,13 @@ function App(){
       ((Number(a.order)||0)-(Number(b.order)||0))));
     setTrash(t=>({ ...t, shots:(t.shots||[]).filter(x=>x.id!==id) }));
   };
-  const purgeShot = (id)=>{
-    setTrash(t=>({ ...t, shots:(t.shots||[]).filter(x=>x.id!==id) }));
-    try{ if(typeof nbClearAsset==="function") nbClearAsset(id); }catch(e){}
+  const purgeShot = async (id)=>{
+    const item = (trash.shots||[]).find(x=>x.id===id);
+    if(!item) return;
+    try{
+      if(typeof nbClearAsset==="function") await nbClearAsset(id);
+      setTrash(t=>({ ...t, shots:(t.shots||[]).filter(x=>x.id!==id) }));
+    }catch(e){ if(window.appToast) window.appToast("Couldn't permanently delete this shot's asset. It remains in Trash so you can retry.","error"); }
   };
 
   // ── Phase 2: line audio = the cut clock ──────────────────────────────────────
@@ -3907,7 +4011,8 @@ function App(){
             || (locIds.length===1 ? "dressing" : "carried");
           cards.push({ id:"prop-set-"+slug(e.name)+"-"+i, name:e.name.replace(/^\w/, m=>m.toUpperCase()),
             kind, ownerId:"", ownerName:"", form:"", material:"", detail:"", renderStyle:"", negativePrompt:"",
-            scenes:e.sceneIds||[], fromSet:true, locationId:(locIds.length===1?locIds[0]:"") });
+            scenes:e.sceneIds||[], fromSet:true, locationId:(locIds.length===1?locIds[0]:""),
+            origin:(typeof artRoomPropOrigin==="function") ? artRoomPropOrigin(kind,"screenplay") : {kind:"screenplay"} });
         });
         if(cards.length){ _propWork = [..._propWork, ...cards]; setProps(ps=>[...ps, ...cards]); }
         return cards.length;
@@ -4544,10 +4649,11 @@ function App(){
           // show the onboarding instead of empty (and partly broken) tabs.
           ? React.createElement("div",{className:"canvas"}, emptyCanvas())
           : React.createElement(ArtRoom,{key:(cloudMode?currentProjectId:"local"),artView,setArtView,project,characters,scenes,props,drafts,trash,
+            canReview:!readOnlyShare,onSourceClick:openArtSource,
             onRestoreChar:restoreCharacter,onPurgeChar:purgeCharacter,onRestoreProp:restoreProp,onPurgeProp:purgeProp,
             onRestoreLoc:restoreLocation,onPurgeLoc:purgeLocation,onRestoreShot:restoreShot,onPurgeShot:purgeShot,onEnsureOwner:ensureOwnerSheet,
             onDirectScene:(sceneId)=>setSceneDirLaunch({ sceneId: sceneId||null }),
-            onColorist:()=>setColoristOpen(true),
+            onColorist:(refs)=>{ if(typeof refs==="string") setStyleRefs(refs.trim()); setColoristOpen(true); },
             onShoot:()=>setShotDesignerOpen(true),
             onCast:()=>setCastingOpen(true),
             onPropsMaster:()=>setPropsMasterOpen(true),
@@ -4555,7 +4661,7 @@ function App(){
             onResearch:()=>setResearchOpen(true),
             lookbook,lookbookNote,onUpdateLookbook:updateLookbookCard,onAddLookbook:addLookbookCard,
             onDeleteLookbook:deleteLookbookCard,onSetLookbookNote:setLookbookNote,onClearLookbook:clearLookbook,
-            staleTabs,onApplyLookbook:applyLookbook,
+            staleTabs,onApplyLookbook:applyLookbook,onReviewLookbook:(dept)=>applyLookbook(dept,"review"),
             onUpdateChar:updateCharacter,onDraftVisuals:draftCharacterVisuals,onDraftAllVisuals:draftAllVisuals,
             draftingVisualId,draftingAllVisuals,draftingVisualIds,onAddCharacter:addCharacter,onDeleteCharacter:deleteCharacter,
             onSuggestStates:suggestCharacterStates,suggestingStatesId,onRemoveOwnedItem:removeOwnedProp,onRenameOwnedItem:renameOwnedProp,

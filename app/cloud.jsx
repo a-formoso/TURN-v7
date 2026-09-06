@@ -847,67 +847,229 @@ async function cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, ro
   }catch(e){ return null; }
 }
 async function cloudRemovePaths(paths){
-  const sb = sbClient(); if(!sb || !paths || !paths.length) return;
-  try{ await sb.storage.from(turnBucket()).remove(paths.filter(Boolean)); }catch(e){}
+  const sb = sbClient(), unique=Array.from(new Set((paths||[]).filter(Boolean)));
+  if(!unique.length) return { ok:true };
+  if(!sb) throw new Error("cloud cleanup unavailable");
+  let last=null;
+  for(let attempt=0;attempt<2;attempt++){
+    try{
+      const { error }=await sb.storage.from(turnBucket()).remove(unique);
+      if(!error) return { ok:true };
+      last=error;
+    }catch(e){ last=e; }
+  }
+  throw new Error("cloud cleanup failed: "+((last&&last.message)||"unknown error"));
+}
+function cloudRowPaths(row){
+  const out=new Set(), add=(p)=>{ if(p) out.add(p); }, addRefs=(rs)=>{ for(const r of (rs||[])) add(r&&r.storage_path); };
+  if(!row) return out;
+  add(row.storage_path); addRefs(row.refs);
+  for(const h of (row.history||[])){ add(h&&h.storage_path); addRefs(h&&h.refs); }
+  return out;
+}
+function cloudApplySnapshot(q,row){
+  for(const key of ["storage_path","meta","refs","history"]){
+    const value=row ? row[key] : null;
+    q=value==null ? q.is(key,null) : q.eq(key,(key==="storage_path"?value:JSON.stringify(value)));
+  }
+  return q;
+}
+async function cloudGetGenStrict(projectId, entityId){
+  const sb=sbClient(); if(!sb) throw new Error("cloud unavailable");
+  const { data,error }=await sb.from("turn_generations").select("*")
+    .eq("project_id",projectId).eq("entity_id",entityId).maybeSingle();
+  if(error) throw new Error(error.message||"cloud read failed");
+  let row=data||null;
+  if(row&&row.meta&&Array.isArray(row.meta.cleanupPending)&&row.meta.cleanupPending.length){
+    const retried=await cloudFinishPending(projectId,row.owner,entityId,row);
+    row=retried.row;
+    if(row&&retried.warning) row={...row,_cleanupWarning:retried.warning};
+  }
+  return row;
 }
 async function cloudGetGen(projectId, entityId){
-  const sb = sbClient(); if(!sb) return null;
-  try{
-    const { data } = await sb.from("turn_generations").select("*")
-      .eq("project_id", projectId).eq("entity_id", entityId).maybeSingle();
-    return data || null;
-  }catch(e){ return null; }
+  try{ return await cloudGetGenStrict(projectId,entityId); }catch(e){ return null; }
 }
 async function cloudUpsertGen(projectId, uid, entityId, fields){
   const sb = sbClient(); if(!sb) return null;
   try{
-    const { data } = await sb.from("turn_generations")
+    const { data,error } = await sb.from("turn_generations")
       .upsert({ project_id:projectId, owner:uid, entity_id:entityId, ...fields }, { onConflict:"project_id,entity_id" })
       .select().single();
+    if(error) return null;
     return data || null;
   }catch(e){ return null; }
 }
-
+/* Best available optimistic CAS without a schema migration. It prevents an existing
+   sheet from overwriting a collaborator who changed storage_path after our read.
+   It cannot detect a metadata/history-only concurrent edit, nor atomically insert a
+   previously absent row; a revision column/RPC would be needed for full CAS. */
+async function cloudCasGen(projectId, uid, entityId, previous, fields){
+  const sb=sbClient(); if(!sb) return null;
+  try{
+    if(!previous){
+      const table=sb.from("turn_generations");
+      /* Production uses insert-if-absent. The fallback only supports older recording
+         adapters that predate insert(); Supabase clients always take the insert path. */
+      const mutation=typeof table.insert==="function"
+        ? table.insert({project_id:projectId,owner:uid,entity_id:entityId,...fields})
+        : table.upsert({project_id:projectId,owner:uid,entity_id:entityId,...fields},{onConflict:"project_id,entity_id"});
+      const {data,error}=await mutation.select().single();
+      if(error) return null;
+      return data||null;
+    }
+    let q=sb.from("turn_generations").update(fields)
+      .eq("project_id",projectId).eq("entity_id",entityId);
+    q=cloudApplySnapshot(q,previous);
+    const { data,error }=await q.select().maybeSingle();
+    if(error) return null;
+    return data||null;
+  }catch(e){ return null; }
+}
+function cloudPendingMeta(meta,paths,tombstone){
+  const next={...(meta||{})}, pending=Array.from(new Set((paths||[]).filter(Boolean)));
+  if(pending.length) next.cleanupPending=pending; else delete next.cleanupPending;
+  if(tombstone) next.cleanupTombstone=true; else delete next.cleanupTombstone;
+  return next;
+}
+async function cloudFinishPending(projectId,uid,entityId,row){
+  const pending=row&&row.meta&&Array.isArray(row.meta.cleanupPending)?row.meta.cleanupPending:[];
+  if(!pending.length) return {row,warning:null};
+  const retained=cloudRowPaths(row), remove=pending.filter(p=>!retained.has(p));
+  try{ await cloudRemovePaths(remove); }
+  catch(e){ return {row,warning:e.message||"cloud cleanup failed"}; }
+  const sb=sbClient();
+  if(row.meta&&row.meta.cleanupTombstone){
+    let q=sb.from("turn_generations").delete().eq("project_id",projectId).eq("entity_id",entityId);
+    q=cloudApplySnapshot(q,row);
+    const {data,error}=await q.select().maybeSingle();
+    if(error||!data) return {row,warning:"cleanup completed; tombstone changed before removal"};
+    return {row:null,warning:null};
+  }
+  const meta={...(row.meta||{})}; delete meta.cleanupPending; delete meta.cleanupTombstone;
+  const after=await cloudCasGen(projectId,uid||row.owner,entityId,row,{
+    storage_path:row.storage_path,meta,refs:row.refs||[],history:row.history||[]});
+  return after ? {row:after,warning:null}
+    : {row,warning:"cleanup completed; pending marker changed before removal"};
+}
 /* commit a new generation: upload image, roll the previous one into history,
    upload + store reference images, persist metadata. refs in = [{kind,label,url}]. */
-async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind){
+async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, cancelled){
+  const _cxl=()=>typeof cancelled==="function"&&!!cancelled();
+  if(_cxl()) return { tier:"cancelled", url:dataUrl };
   const assetType = kind || "character";   // {assetType} path segment (see turnStoragePath)
   // version-at-birth hint in the filename (non-authoritative; the live version comes
   // from the DB). refs/cameo angles aren't versioned, so they pass no version.
-  const ver = (meta && meta.version) || 1;
+  const ver = (meta && meta.version) || 1, created=[];
+  let row;
+  try{ row=await cloudGetGenStrict(projectId,entityId); }
+  catch(e){ return { tier:"error", url:dataUrl, error:e.message||"cloud read failed" }; }
+  if(_cxl()) return { tier:"cancelled", url:dataUrl };
   const newPath = await cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, "sheet", ver);
-  if(!newPath) return null;
-  // HISTORY-SAFE previous-row lookup: a transient failure here (expired JWT mid-refresh,
-  // a network blip) must NEVER read as "no previous image" — that used to upsert
-  // history:[] and silently WIPE the sheet's whole version chain (uploads included).
-  // Distinguish error from empty, retry once after a session refresh, and on a
-  // persistent failure upsert WITHOUT the history column so the server-side value
-  // is preserved (one roll-in lost, not twelve versions).
-  const sb = sbClient();
-  const _get = async ()=>{ const { data, error } = await sb.from("turn_generations").select("*")
-      .eq("project_id", projectId).eq("entity_id", entityId).maybeSingle();
-    return { row: data||null, failed: !!error }; };
-  let looked = { row:null, failed:true };
-  try{ looked = await _get(); }catch(e){}
-  if(looked.failed){ try{ await sb.auth.refreshSession(); looked = await _get(); }catch(e){} }
-  const row = looked.row;
+  if(!newPath) return { tier:"error", url:dataUrl, error:"image upload failed" };
+  created.push(newPath);
+  if(_cxl()){ try{ await cloudRemovePaths(created); }catch(e){ return {tier:"error",url:dataUrl,error:e.message}; } return {tier:"cancelled",url:dataUrl}; }
   let history = (row && row.history) || [];
+  let dropped=[];
   if(row && row.storage_path){
     history = [{ storage_path:row.storage_path, meta:row.meta||{}, refs:row.refs||[] }, ...history];
-    if(history.length > 12){ const drop = history.slice(12); history = history.slice(0,12); cloudRemovePaths(drop.map(h=>h.storage_path)); }
+    if(history.length > 12){ dropped=history.slice(12); history = history.slice(0,12); }
   }
   const refRows = [];
   for(const r of (refs || [])){
     let p = null;
     if(r.url) p = await cloudUploadImage(projectId, uid, entityId, r.url, assetType, "ref-"+turnSafeSeg(r.kind||"img"),undefined,true);
+    if(p) created.push(p);
+    if(_cxl()){ try{ await cloudRemovePaths(created); }catch(e){ return {tier:"error",url:dataUrl,error:e.message}; } return {tier:"cancelled",url:dataUrl}; }
     refRows.push({ kind:r.kind, label:r.label, storage_path:p, refId:r.refId||undefined,
       refVersion:r.refVersion||undefined,refGenerated:r.refGenerated||undefined });
   }
-  const fields = { storage_path:newPath, meta:meta||{}, refs:refRows };
-  if(!looked.failed) fields.history = history;   // never clobber history on a failed lookup
-  await cloudUpsertGen(projectId, uid, entityId, fields);
+  let cleanMeta={...(meta||{})}; delete cleanMeta.approval;
+  const pendingBefore=(row&&row.meta&&row.meta.cleanupPending)||[];
+  const provisional={storage_path:newPath,meta:cleanMeta,refs:refRows,history};
+  const retained=cloudRowPaths(provisional);
+  const trimPaths=Array.from(cloudRowPaths({history:dropped})).filter(p=>!retained.has(p));
+  cleanMeta=cloudPendingMeta(cleanMeta,[...pendingBefore,...trimPaths],false);
+  const fields = { storage_path:newPath, meta:cleanMeta, refs:refRows, history };
+  if(_cxl()){ try{ await cloudRemovePaths(created); }catch(e){ return {tier:"error",url:dataUrl,error:e.message}; } return {tier:"cancelled",url:dataUrl}; }
+  /* Signing is read-only, but doing it before the row mutation removes another
+     cancellation window after durable success. */
   const url = await cloudSignedUrl(newPath);
-  return { tier:"cloud", url, path:newPath };
+  if(_cxl()){ try{ await cloudRemovePaths(created); }catch(e){ return {tier:"error",url:dataUrl,error:e.message}; } return {tier:"cancelled",url:dataUrl}; }
+  if(!url){
+    try{ await cloudRemovePaths(created); }catch(e){ return {tier:"error",url:dataUrl,error:e.message}; }
+    return {tier:"error",url:dataUrl,error:"signed URL failed"};
+  }
+  let written=await cloudCasGen(projectId,uid,entityId,row,fields);
+  if(!written || written.storage_path!==newPath){
+    let live=null, readbackFailed=false;
+    try{ live=await cloudGetGenStrict(projectId,entityId); }catch(e){ readbackFailed=true; }
+    // Returning representation can fail independently of an already-committed
+    // mutation. A strict reread is the verification; upload success alone never is.
+    if(live && live.storage_path===newPath) written=live;
+    else{
+      /* If both the mutation response and readback are inconclusive, the write may
+         have landed. Deleting its unique bytes could corrupt that live row. Report
+         the uncertain outcome and leave cleanup to a later explicit user action. */
+      if(readbackFailed) return {tier:"error",url:dataUrl,path:newPath,persisted:"unknown",
+        error:"generation row write outcome could not be verified"};
+      try{ await cloudRemovePaths(created.filter(p=>!cloudRowPaths(live).has(p))); }
+      catch(e){ return {tier:"error",url:dataUrl,error:e.message}; }
+      return { tier:"error",url:dataUrl,retry:!row,
+        error:!row?"another client created this asset; retry against its preserved version":"generation row write failed" };
+    }
+  }
+  if(!written || written.storage_path!==newPath){
+    return { tier:"error",url:dataUrl,error:"generation row write failed" };
+  }
+  const compensateCancellation=async(snapshot)=>{
+    const sb=sbClient();
+    let compensated=null, compensationError=null;
+    try{
+      if(row){
+        const restore={storage_path:row.storage_path,meta:row.meta||{},refs:row.refs||[],history:row.history||[]};
+        let q=sb.from("turn_generations").update(restore).eq("project_id",projectId).eq("entity_id",entityId);
+        q=cloudApplySnapshot(q,snapshot);
+        const result=await q.select().maybeSingle();
+        if(result.error) compensationError=result.error;
+        else compensated=result.data||null;
+      }else{
+        let q=sb.from("turn_generations").delete().eq("project_id",projectId).eq("entity_id",entityId);
+        q=cloudApplySnapshot(q,snapshot);
+        const result=await q.select().maybeSingle();
+        if(result.error) compensationError=result.error;
+        else compensated=result.data||null;
+      }
+    }catch(e){ compensationError=e; }
+    let live;
+    try{ live=await cloudGetGenStrict(projectId,entityId); }
+    catch(e){ return {tier:"cancellation-error",url:dataUrl,path:newPath,persisted:"unknown",
+      error:"cancellation rollback could not be verified"}; }
+    if(live && live.storage_path===newPath && !compensated)
+      return {tier:"cancellation-error",url:dataUrl,path:newPath,persisted:true,
+        error:"cancellation rollback failed: "+((compensationError&&compensationError.message)||"conditional mutation failed")};
+    /* A zero-row compensation means a newer collaborator already replaced this write.
+       Never clear that result; only remove our unique files if it does not retain them. */
+    try{ await cloudRemovePaths(created.filter(p=>!cloudRowPaths(live).has(p))); }
+    catch(e){ return {tier:"cancellation-error",url:dataUrl,persisted:!!(live&&live.storage_path===newPath),error:e.message}; }
+    return { tier:"cancelled",url:dataUrl, compensated:!!compensated };
+  };
+  if(_cxl()){
+    return await compensateCancellation(written);
+  }
+  const hadPending=!!(written.meta&&Array.isArray(written.meta.cleanupPending)
+    && written.meta.cleanupPending.length);
+  const finished=await cloudFinishPending(projectId,uid,entityId,written);
+  if(_cxl()){
+    /* Once tracked old files may have been removed, restoring the prior row could
+       point it at missing history/reference bytes. Surface the persisted outcome
+       rather than claiming discard or performing an unsafe rollback. */
+    if(hadPending) return {tier:"cancellation-error",url:dataUrl,path:newPath,persisted:true,
+      ...(finished.warning?{cleanupWarning:finished.warning}:{}),
+      error:"cancelled during final cleanup; saved generation could not be safely rolled back"};
+    return await compensateCancellation(finished.row||written);
+  }
+  return { tier:"cloud", url, path:newPath,...(finished.warning?{cleanupWarning:finished.warning}:{}) };
 }
 async function cloudAssetLoad(projectId, entityId){
   const row = await cloudGetGen(projectId, entityId);
@@ -950,20 +1112,40 @@ async function cloudAssetLoadAll(projectId){
       .select("entity_id, storage_path, meta").eq("project_id", projectId);
     rows = data || [];
   }catch(e){ return {}; }
+  /* A cleared asset's tombstone has no card to trigger a later entity-specific read.
+     Project prewarm is the bounded, one-shot recovery point: inspect only tracked
+     cleanup markers (never sweep storage), and retry at most 20 with concurrency 3.
+     Failures leave cleanupPending intact for a future prewarm. */
+  const pending=rows.filter(r=>r&&r.meta&&Array.isArray(r.meta.cleanupPending)
+    && r.meta.cleanupPending.length).slice(0,20);
+  if(pending.length){
+    let cursor=0;
+    const workers=Array.from({length:Math.min(3,pending.length)},async()=>{
+      while(cursor<pending.length){
+        const item=pending[cursor++];
+        try{
+          const refreshed=await cloudGetGenStrict(projectId,item.entity_id);
+          const at=rows.findIndex(r=>r.entity_id===item.entity_id);
+          if(at>=0){ if(refreshed) rows[at]=refreshed; else rows.splice(at,1); }
+        }catch(e){} // marker remains durable; there is deliberately no immediate loop
+      }
+    });
+    await Promise.all(workers);
+  }
   const urlByPath = await cloudSignedUrlsBatch(rows.filter(r=>r.storage_path).map(r=>r.storage_path));
   const out = {};
   for(const r of rows){ const u = r.storage_path && urlByPath[r.storage_path]; if(u) out[r.entity_id] = { url:u, path:r.storage_path, meta:r.meta||null }; }
   return out;
 }
 async function cloudClear(projectId, entityId){
-  const row = await cloudGetGen(projectId, entityId);
-  if(!row) return;
-  const paths = [];
-  if(row.storage_path) paths.push(row.storage_path);
-  (row.history||[]).forEach(h=>{ if(h.storage_path) paths.push(h.storage_path); });
-  (row.refs||[]).forEach(r=>{ if(r.storage_path) paths.push(r.storage_path); });
-  cloudRemovePaths(paths);
-  const sb = sbClient(); try{ await sb.from("turn_generations").delete().eq("project_id",projectId).eq("entity_id",entityId); }catch(e){}
+  const row = await cloudGetGenStrict(projectId, entityId);
+  if(!row) return {ok:true};
+  const paths=[...((row.meta&&row.meta.cleanupPending)||[]),...Array.from(cloudRowPaths(row))];
+  const tombstone={storage_path:null,meta:cloudPendingMeta({},paths,true),refs:[],history:[]};
+  const saved=await cloudCasGen(projectId,row.owner,entityId,row,tombstone);
+  if(!saved) throw new Error("asset changed; clear refused");
+  const finished=await cloudFinishPending(projectId,row.owner,entityId,saved);
+  return {ok:true,...(finished.warning?{cleanupWarning:finished.warning}:{})};
 }
 
 /* ── video takes (Stage clips) ────────────────────────────────────────────────
@@ -1013,7 +1195,7 @@ window.cloudCommitVideo = cloudCommitVideo;
 window.cloudVideoDelete = cloudVideoDelete;
 window.cloudVideoLoadAll = cloudVideoLoadAll;
 async function cloudRevert(projectId, uid, entityId, index){
-  const row = await cloudGetGen(projectId, entityId);
+  const row = await cloudGetGenStrict(projectId, entityId);
   if(!row) return null;
   const history = (row.history || []).slice();
   if(index<0 || index>=history.length) return null;
@@ -1021,44 +1203,68 @@ async function cloudRevert(projectId, uid, entityId, index){
   const present = { storage_path:row.storage_path, meta:row.meta||{}, refs:row.refs||[] };
   let newHist = history.filter((_,i)=>i!==index);
   if(present.storage_path) newHist.unshift(present);
-  await cloudUpsertGen(projectId, uid, entityId, { storage_path:chosen.storage_path, meta:chosen.meta||{}, refs:chosen.refs||[], history:newHist.slice(0,12) });
+  const provisional={storage_path:chosen.storage_path,meta:chosen.meta||{},refs:chosen.refs||[],history:newHist.slice(0,12)};
+  const remove=Array.from(cloudRowPaths(row)).filter(p=>!cloudRowPaths(provisional).has(p));
+  provisional.meta=cloudPendingMeta(provisional.meta,[...((row.meta&&row.meta.cleanupPending)||[]),...remove],false);
+  const after=await cloudCasGen(projectId, uid, entityId,row,provisional);
+  if(!after) throw new Error("asset changed; revert refused");
+  const finished=await cloudFinishPending(projectId,uid,entityId,after);
   const url = await cloudSignedUrl(chosen.storage_path);
-  return { url, meta: chosen.meta || null };
+  return { url, meta: chosen.meta || null,...(finished.warning?{cleanupWarning:finished.warning}:{}) };
 }
 /* delete the CURRENT image, promote the newest prior version, and do NOT keep the
    deleted current image in history. Used by Image Details' "Delete current" action. */
 async function cloudDeleteCurrentAndPromote(projectId, uid, entityId){
-  const row = await cloudGetGen(projectId, entityId);
+  const row = await cloudGetGenStrict(projectId, entityId);
   if(!row) return null;
   const history = (row.history || []).slice();
   if(!history.length) return null;
   const chosen = history.shift();
-  const remove = [];
-  if(row.storage_path) remove.push(row.storage_path);
-  (row.refs||[]).forEach(r=>{ if(r.storage_path) remove.push(r.storage_path); });
-  await cloudUpsertGen(projectId, uid, entityId, {
+  const provisional={
     storage_path:chosen.storage_path,
     meta:chosen.meta||{},
     refs:chosen.refs||[],
     history:history.slice(0,12),
-  });
-  if(remove.length) cloudRemovePaths(remove);
+  };
+  const remove=Array.from(cloudRowPaths(row)).filter(p=>!cloudRowPaths(provisional).has(p));
+  provisional.meta=cloudPendingMeta(provisional.meta,[...((row.meta&&row.meta.cleanupPending)||[]),...remove],false);
+  const after=await cloudCasGen(projectId, uid, entityId,row,provisional);
+  if(!after) throw new Error("asset changed; delete refused");
+  const finished=await cloudFinishPending(projectId,uid,entityId,after);
   const url = await cloudSignedUrl(chosen.storage_path);
-  return { url, meta: chosen.meta || null };
+  return { url, meta: chosen.meta || null,...(finished.warning?{cleanupWarning:finished.warning}:{}) };
 }
 window.cloudDeleteCurrentAndPromote = cloudDeleteCurrentAndPromote;
 /* delete ONE history entry (and its stored image) from a cloud generation row. */
 async function cloudDeleteHistoryEntry(projectId, uid, entityId, index){
-  const row = await cloudGetGen(projectId, entityId);
+  const row = await cloudGetGenStrict(projectId, entityId);
   if(!row) return false;
   const history = (row.history || []).slice();
   if(index<0 || index>=history.length) return false;
-  const removed = history.splice(index,1)[0];
-  await cloudUpsertGen(projectId, uid, entityId, { storage_path:row.storage_path, meta:row.meta||{}, refs:row.refs||[], history });
-  if(removed && removed.storage_path) cloudRemovePaths([removed.storage_path]);
-  return true;
+  history.splice(index,1);
+  const provisional={storage_path:row.storage_path,meta:row.meta||{},refs:row.refs||[],history};
+  const remove=Array.from(cloudRowPaths(row)).filter(p=>!cloudRowPaths(provisional).has(p));
+  provisional.meta=cloudPendingMeta(provisional.meta,[...((row.meta&&row.meta.cleanupPending)||[]),...remove],false);
+  const after=await cloudCasGen(projectId, uid, entityId,row,provisional);
+  if(!after) throw new Error("asset changed; history delete refused");
+  const finished=await cloudFinishPending(projectId,uid,entityId,after);
+  return finished.warning?{ok:true,cleanupWarning:finished.warning}:true;
 }
 window.cloudDeleteHistoryEntry = cloudDeleteHistoryEntry;
+async function cloudSetAssetApproval(projectId, uid, entityId, expectedIso, approved, reviewKey){
+  const row=await cloudGetGenStrict(projectId,entityId);
+  if(!row || !row.storage_path) return {ok:false,error:"asset not found"};
+  if(!expectedIso || !row.meta || row.meta.iso!==expectedIso) return {ok:false,error:"asset version changed"};
+  const approval={iso:expectedIso,approved:!!approved,at:new Date().toISOString()};
+  if(reviewKey!=null) approval.reviewKey=String(reviewKey);
+  const meta={...(row.meta||{}),approval};
+  const after=await cloudCasGen(projectId,uid,entityId,row,{
+    storage_path:row.storage_path,meta,refs:row.refs||[],history:row.history||[]});
+  if(!after || after.storage_path!==row.storage_path || !after.meta || after.meta.iso!==expectedIso)
+    return {ok:false,error:"asset version changed"};
+  return {ok:true,meta:after.meta};
+}
+window.cloudSetAssetApproval=cloudSetAssetApproval;
 async function cloudLoadDetails(projectId, entityId){
   const row = await cloudGetGen(projectId, entityId);
   if(!row) return { id:entityId, url:"", meta:null, refs:[], history:[] };

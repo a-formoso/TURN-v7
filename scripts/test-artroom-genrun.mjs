@@ -61,6 +61,7 @@ const reset = () => {
   sandbox.window.__nbGenCancel = {};
   sandbox.window.__nbGenAbort = {};
   sandbox.window.__nbGenRunSeq = 0;
+  sandbox.nbDiscardSheetSave("char-1");
   sandbox.dispatchEvent = (e) => { events.push({ type: e.type, detail: e.detail }); };
   sandbox.nbHasKeyForCurrent = () => true;
   sandbox.nbEpoch = () => epoch;
@@ -280,6 +281,77 @@ reset();
   ok("project base reference records the exact source version",
     base && base.refVersion === 4 && base.refGenerated === "2026-09-05T10:00:00.000Z",
     base && JSON.stringify(base));
+}
+
+/* Saving is retried independently of paid image generation. */
+reset();
+{
+  commitImpl=async()=>({tier:"error"});
+  await run(env());
+  ok("failed save preserves recoverable bytes",!!sandbox.nbPendingSheetSave("char-1"));
+  commitImpl=async c=>({tier:"cloud",url:"signed:"+c.url});
+  const saved=await sandbox.nbRetrySheetSave("char-1");
+  ok("retry save succeeds without another provider call",saved&&genCalls.length===1&&commits.length===2);
+  ok("retry clears pending result",!sandbox.nbPendingSheetSave("char-1"));
+}
+reset();
+{
+  commitImpl=async()=>({tier:"error"});
+  await run(env());
+  sandbox.nbGetMeta=()=>({iso:"newer-version"});
+  const saved=await sandbox.nbRetrySheetSave("char-1");
+  ok("retry refuses to overwrite newer image",!saved&&commits.length===1&&genCalls.length===1);
+}
+reset();
+{
+  commitImpl=async()=>({tier:"error"});
+  await run(env());
+  epoch++;
+  ok("unsaved result is film-scoped",!sandbox.nbPendingSheetSave("char-1"));
+  ok("retry after film switch makes no write",!(await sandbox.nbRetrySheetSave("char-1"))&&commits.length===1);
+}
+reset();
+{
+  await run(env({opts:{buildFinal:()=>"FINAL",referenceFallback:async()=>{throw new Error("reference lookup failed");}}}));
+  ok("reference assembly error releases registry",!sandbox.__nbGenInflight["char-1"]&&genCalls.length===0);
+  ok("reference assembly failure is explicit",/reference lookup failed/.test(lastArg("setGenErr")||""));
+}
+reset();
+{
+  commitImpl=async()=>({tier:"error",persisted:"unknown"});
+  await run(env());
+  const pending=sandbox.nbPendingSheetSave("char-1");
+  sandbox.nbLoadDetailsAsset=async()=>({meta:pending.meta,url:"signed:already-saved"});
+  const saved=await sandbox.nbRetrySheetSave("char-1");
+  ok("ambiguous save recovers verified result without second write",saved&&commits.length===1&&genCalls.length===1);
+  ok("verified recovery announces generation metadata",evts("nb-gen-done").some(e=>e.detail.meta&&e.detail.meta.iso===pending.meta.iso));
+  delete sandbox.nbLoadDetailsAsset;
+}
+reset();
+{
+  const notices=[];sandbox.appToast=message=>notices.push(message);
+  commitImpl=async()=>{sandbox.nbCancelGen("char-1");return {tier:"cancellation-error",persisted:true,error:"rollback unavailable"};};
+  await run(env());
+  ok("failed cancellation is disclosed",notices.some(x=>/Cancellation could not be confirmed/.test(x)));
+  ok("failed cancellation never announces success",evts("nb-gen-done").length===0&&calls("setGenUrl").length===0);
+  delete sandbox.appToast;
+}
+vm.runInContext(readFileSync("dist/app/props.js","utf8"),sandbox);
+reset();
+{
+  sandbox.propOwnerSheetUrl=async()=>"https://project.test/owner.png";
+  sandbox.combinedPropPrompt=()=>"PROP";
+  sandbox.propOwnerNote=()=>"Match owner";
+  sandbox.nbGetMeta=id=>id==="owner"?{version:4,iso:"owner-v4"}:null;
+  const success=await sandbox.generatePropSheet({id:"prop-test",name:"Watch",ownerId:"owner"}, {});
+  ok("background prop uses shared successful lifecycle",success&&commits.length===1);
+  ok("background prop saves exact owner provenance",commits[0].refs.some(r=>r.refId==="owner"&&r.refVersion===4&&r.refGenerated==="owner-v4"));
+}
+reset();
+{
+  genImpl=async()=>{sandbox.nbCancelGen("prop-test");return "data:image/png;base64,RENDER";};
+  const success=await sandbox.generatePropSheet({id:"prop-test",name:"Watch",ownerId:"owner"}, {});
+  ok("background prop Stop prevents commit and success",!success&&commits.length===0&&evts("nb-gen-done").length===0);
 }
 
 console.log(passes + failures === 0 ? "no checks ran" : (failures ? "FAILURES: " + failures + " (of " + (passes + failures) + ")" : "PASS: all " + passes + " checks"));

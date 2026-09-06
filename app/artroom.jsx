@@ -1219,6 +1219,7 @@ if(typeof window.nbCancelGen!=="function"){
     window.__nbGenCancel[gid] = true;
     if(window.__nbGenAbort && window.__nbGenAbort[gid]){ try{ window.__nbGenAbort[gid].abort(); }catch(e){} }
     if(window.__nbGenInflight) window.__nbGenInflight[gid] = false;
+    if(typeof window.nbDiscardSheetSave==="function") window.nbDiscardSheetSave(gid);
     try{ window.dispatchEvent(new CustomEvent("nb-gen-cancel",{ detail:{ id:gid } })); }catch(e){}
   };
 }
@@ -1251,6 +1252,73 @@ function nbPrivateRefsNote(meta){
 }
 window.nbPrivateRefsNote = nbPrivateRefsNote;
 
+// Unsaved renders stay in this browser session, scoped to their originating film.
+// Retrying persistence must never make another paid generation request.
+const _nbPendingSaves = new Map();
+function nbPendingSheetSave(id){
+  const p = _nbPendingSaves.get(id);
+  return p && (typeof nbEpoch!=="function" || p.epoch===nbEpoch()) ? p : null;
+}
+function nbDiscardSheetSave(id){ _nbPendingSaves.delete(id); }
+function nbRememberSheetSave(id, pending){
+  _nbPendingSaves.set(id, pending);
+  try{ window.dispatchEvent(new CustomEvent("nb-save-pending",{detail:{id}})); }catch(e){}
+}
+async function nbRetrySheetSave(id){
+  const p = nbPendingSheetSave(id);
+  if(!p || (window.__nbGenInflight&&window.__nbGenInflight[id])) return false;
+  const token = window.__nbGenRunSeq = (window.__nbGenRunSeq||0)+1;
+  window.__nbGenInflight = window.__nbGenInflight||{};
+  window.__nbGenCancel = window.__nbGenCancel||{};
+  window.__nbGenInflight[id]=token; window.__nbGenCancel[id]=false;
+  const cancelled = ()=>window.__nbGenInflight[id]!==token || window.__nbGenCancel[id]
+    || (typeof nbEpoch==="function" && nbEpoch()!==p.epoch);
+  const announce = (type,extra)=>{ try{ window.dispatchEvent(new CustomEvent(type,{detail:{id,...extra}})); }catch(e){} };
+  announce("nb-gen-start"); announce("nb-gen-saving");
+  let saved=false;
+  try{
+    // Never overwrite a version produced/reverted/uploaded since this render failed.
+    const d = typeof nbLoadDetailsAsset==="function" ? await nbLoadDetailsAsset(id) : {meta:typeof nbGetMeta==="function"?nbGetMeta(id):null};
+    if(cancelled()) return false;
+    if(d&&d.meta&&d.meta.iso===p.meta.iso&&d.url){
+      if(typeof window.nbAdoptVerifiedAsset==="function"&&!window.nbAdoptVerifiedAsset(id,p.epoch,d))return false;
+      nbDiscardSheetSave(id);saved=true;announce("nb-gen-done",{url:d.url,meta:d.meta});return true;
+    }
+    if(String((d&&d.meta&&d.meta.iso)||"")!==p.previousIso)
+      throw new Error("This asset has changed since the save failed. Download the unsaved image or discard it; it cannot replace the newer version.");
+    const r=await nbCommit(id,p.url,p.meta,p.refs,p.kind,p.epoch,cancelled);
+    if(r&&r.tier==="cancellation-error"){
+      if(typeof nbEpoch!=="function"||nbEpoch()===p.epoch)nbReportCancelFailure(r);
+      return false;
+    }
+    if(cancelled() || (r&&(r.tier==="cancelled"||r.tier==="stale"))) return false;
+    if(!r || r.tier==="error") throw new Error((r&&r.error)||"Saving still failed. Check your connection and retry; no image generation was charged.");
+    nbDiscardSheetSave(id); saved=true;
+    nbReportCleanup(r);
+    announce("nb-gen-done",{url:r.url||p.url,meta:p.meta});
+    return true;
+  }catch(e){
+    if(!cancelled()){ p.error=(e&&e.message)||"Save failed."; announce("nb-save-pending",{error:p.error}); }
+    return false;
+  }finally{
+    if(window.__nbGenInflight[id]===token){
+      delete window.__nbGenInflight[id]; delete window.__nbGenCancel[id];
+      if(!saved) announce("nb-gen-cancel");
+    }
+  }
+}
+window.nbPendingSheetSave=nbPendingSheetSave;
+window.nbRetrySheetSave=nbRetrySheetSave;
+window.nbDiscardSheetSave=nbDiscardSheetSave;
+function nbReportCleanup(result){
+  if(result&&result.cleanupWarning&&typeof window.appToast==="function")
+    window.appToast("The change was saved. Some deleted files still need storage cleanup; cleanup remains queued for retry.","info");
+}
+function nbReportCancelFailure(result){
+  if(typeof window.appToast==="function")
+    window.appToast("Cancellation could not be confirmed. The image may still be saved; check its Details before retrying. "+((result&&result.error)||""),"error");
+}
+
 async function nbRunSheetGeneration(env, gopts){
   const { id, slotId, opts, allModels, genUrl, genMeta, slotHasRef, ui } = env;
   const { setGenErr, setGening, setRetrying, setGenUrl, setGenTier, setGenMeta } = ui;
@@ -1260,6 +1328,7 @@ async function nbRunSheetGeneration(env, gopts){
     // card whose local state missed the in-flight generation must never start a
     // SECOND one for the same id (two versions + double credit spend from one click).
     if(window.__nbGenInflight && window.__nbGenInflight[id]) return;
+    if(nbPendingSheetSave(id)) return nbRetrySheetSave(id);
     // asset scope at generation start — nbCommit refuses the write if the user opened
     // another film while this rendered (entity ids repeat across films, so committing
     // late would overwrite the OTHER film's sheet under the same id)
@@ -1287,7 +1356,8 @@ async function nbRunSheetGeneration(env, gopts){
        newer run took over the registry. Checked at every gate below AND passed into
        nbCommit, so a cancel that lands mid-persistence stops the write itself. */
     const _cancelledNow = ()=> !!(window.__nbGenCancel && window.__nbGenCancel[id])
-      || !(window.__nbGenInflight && window.__nbGenInflight[id]===_genRun);
+      || !(window.__nbGenInflight && window.__nbGenInflight[id]===_genRun)
+      || (typeof nbEpoch==="function" && nbEpoch()!==_genEpoch);
     // announce the start: a card that mounted BEFORE this run registered (e.g. it
     // remounted during a pre-generate phase like the staging draft or the prop's
     // owner prerequisite, when nothing was in the registry yet) flips its spinner on
@@ -1333,13 +1403,14 @@ async function nbRunSheetGeneration(env, gopts){
     }
     // Immutable source facts that must describe what THIS request started from
     // (rather than whatever state exists when a long remote render finishes).
+    let committedUrl = "";
+    let discardedRun = false;
+    try{
     let startMeta = null;
     if(typeof opts.metaStart==="function"){
       try{ startMeta = await opts.metaStart({ gopts });
         if(!startMeta || typeof startMeta!=="object") startMeta=null; }catch(e){ startMeta=null; }
     }
-    let committedUrl = "";
-    let discardedRun = false;   // cancelled / superseded / stale-scope — result thrown away
     const overrideModel = gopts.model || null;
     const usedModel = overrideModel || (typeof nbGetModel==="function" ? nbGetModel() : "");
     /* a model chosen via a fallback button ("Try <model>" / "Switch to <model>"
@@ -1509,7 +1580,6 @@ async function nbRunSheetGeneration(env, gopts){
 
     let actualModel = usedModel;     // may change if we fall back to another provider below
     let policyFellBack = "";
-    try{
       // last gate before the paid request: prompt/attachment assembly above awaited —
       // if a Stop or a newer run for this id landed in that window, don't spend at all
       if(_cancelledNow()) throw { __cancelled:true };
@@ -1517,6 +1587,7 @@ async function nbRunSheetGeneration(env, gopts){
       try{
         url = await nbGenerate(genPrompt, genOpts);
       }catch(e){
+        if(_cancelledNow()) throw { __cancelled:true };
         const emsg = (e && e.message) || "";
         const isPolicy = /content polic|violat|safety system|safety filter|moderation|flagged|not allowed|rejected by/i.test(emsg);
         if(!useSimple && !isEditMode && /no image/i.test(emsg) && opts.buildSimple){
@@ -1580,6 +1651,7 @@ async function nbRunSheetGeneration(env, gopts){
         // render but were deliberately NOT stored with the project (cloud mode privacy)
         privateRefs: privateRefs || undefined,
         prompt: genPrompt,
+         specPrompt: opts.buildFinal ? opts.buildFinal() : genPrompt,
         mode: mode,
         editInstruction: isEditMode ? (gopts.editInstruction||"") : "",
         version: priorCount + 1
@@ -1605,7 +1677,14 @@ async function nbRunSheetGeneration(env, gopts){
       if(typeof nbWithAssetProvenance==="function") Object.assign(meta, nbWithAssetProvenance(id, meta, assetKind));
       // the live predicate rides into persistence: a Stop/Clear during the save stops
       // the write at the next internal checkpoint instead of storing a discarded frame
-      const saveResult = await nbCommit(id, url, meta, refsUsed, assetKind, _genEpoch, _cancelledNow);
+       try{ window.dispatchEvent(new CustomEvent("nb-gen-saving",{detail:{id}})); }catch(e){}
+       let saveResult;
+       try{ saveResult = await nbCommit(id, url, meta, refsUsed, assetKind, _genEpoch, _cancelledNow); }
+       catch(e){ saveResult={tier:"error",error:(e&&e.message)||"Save failed."}; }
+       if(saveResult&&saveResult.tier==="cancellation-error"){
+         if(typeof nbEpoch!=="function"||nbEpoch()===_genEpoch)nbReportCancelFailure(saveResult);
+         throw {__cancelled:true};
+       }
       /* the film scope moved while this rendered (stale: nbCommit refused the write), or
          the user stopped/cleared during the save (cancelled). Treat both exactly like a
          cancellation — installing the pixels or firing "done" here would paint an image
@@ -1618,8 +1697,13 @@ async function nbRunSheetGeneration(env, gopts){
          Adopting the pixels here would show the director a sheet that evaporates on
          reload (downstream tabs would consume it too). Keep the previous image and
          version history untouched and say what happened; retry stays explicit. */
-      if(!saveResult || saveResult.tier==="error")
-        throw new Error("The image rendered, but saving it to your project failed — your previous version is untouched. Check your connection and press Generate again.");
+       if(!saveResult || saveResult.tier==="error"){
+         nbRememberSheetSave(id,{url,meta,refs:refsUsed,kind:assetKind,epoch:_genEpoch,
+           previousIso:String((genMeta&&genMeta.iso)||""),error:saveResult&&saveResult.error});
+         throw new Error("The image rendered, but saving it to your project failed. Retry save without generating again. Keep this tab open or download the unsaved image.");
+       }
+       nbDiscardSheetSave(id);
+       nbReportCleanup(saveResult);
       committedUrl = (saveResult && saveResult.url) || url;
       setGenUrl(committedUrl);
       setGenTier((saveResult && saveResult.tier) || "local");
@@ -1648,6 +1732,7 @@ async function nbRunSheetGeneration(env, gopts){
     // its spinner from the registry doesn't wedge.
     if(!wasCancelled){ try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id, url: committedUrl } })); }catch(e){} }
     else if(own){ try{ window.dispatchEvent(new CustomEvent("nb-gen-cancel",{ detail:{ id } })); }catch(e){} }
+    return !!committedUrl && !wasCancelled;
 }
 window.nbRunSheetGeneration = nbRunSheetGeneration;
 
@@ -1672,6 +1757,8 @@ function useImageGen(opts){
   const [gening, setGening] = React.useState(()=> !!(window.__nbGenInflight && window.__nbGenInflight[id]));
   const [genErr, setGenErr] = React.useState("");
   const [retrying, setRetrying] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+  const [pendingSave, setPendingSave] = React.useState(()=>nbPendingSheetSave(id));
   const [slotHasRef, setSlotHasRef] = React.useState(false);
   const [editMode, setEditMode] = React.useState(false);
   const [editText, setEditText] = React.useState("");
@@ -1695,7 +1782,7 @@ function useImageGen(opts){
     const onPrefetched = (e)=>{
       if(!alive || genUrlRef.current || !e.detail || !e.detail.ids || e.detail.ids.indexOf(id)<0) return;
       const u = (typeof nbGetImage==="function") ? nbGetImage(id) : "";
-      if(u){ setGenUrl(u); if(typeof nbGetMeta==="function") setGenMeta(nbGetMeta(id)); setGenTier("idb"); }
+      if(u){ setGenUrl(u); if(e.detail.meta)setGenMeta(e.detail.meta); else if(typeof nbGetMeta==="function") setGenMeta(nbGetMeta(id)); setGenTier("idb"); }
     };
     window.addEventListener("nb-prefetched", onPrefetched);
     // if a generation for THIS id is in flight (started before this mount, e.g. a tab
@@ -1703,22 +1790,29 @@ function useImageGen(opts){
     if(window.__nbGenInflight && window.__nbGenInflight[id]) setGening(true);
     const onDone = (e)=>{
       if(!alive || !e.detail || e.detail.id!==id) return;
-      setGening(false); setRetrying(false);
+      setGening(false); setRetrying(false); setSaving(false); setPendingSave(nbPendingSheetSave(id));
       const u = e.detail.url;
-      if(u){ setGenUrl(u); if(typeof nbGetMeta==="function") setGenMeta(nbGetMeta(id)); setGenTier("idb"); }
-      else if(typeof nbLoadImage==="function"){ nbLoadImage(id).then(x=>{ if(alive && x){ setGenUrl(x); setGenTier("idb"); } }); }
+      if(u){ setGenUrl(u); if(e.detail.meta)setGenMeta(e.detail.meta); else if(typeof nbGetMeta==="function") setGenMeta(nbGetMeta(id)); setGenTier("idb"); }
+      else if(typeof nbLoadImage==="function"){ nbLoadImage(id).then(x=>{ if(alive){ setGenUrl(x||""); if(typeof nbGetMeta==="function")setGenMeta(nbGetMeta(id)); setGenTier("idb"); } }); }
     };
     window.addEventListener("nb-gen-done", onDone);
     // user cancelled this id's generation elsewhere (chain Stop / per-card Stop): drop the
     // spinner now; the in-flight generate() sees __nbGenCancel and won't commit its result.
-    const onCancel = (e)=>{ if(!alive || !e.detail || e.detail.id!==id) return; setGening(false); setRetrying(false); };
+    const onCancel = (e)=>{ if(!alive || !e.detail || e.detail.id!==id) return; setGening(false); setRetrying(false); setSaving(false); };
     window.addEventListener("nb-gen-cancel", onCancel);
     // a run for THIS id started elsewhere (another instance of this card, possibly
     // already unmounted, finished its pre-generate phase and fired): show the spinner
     // so this instance also observes the true→false completion transition.
-    const onStart = (e)=>{ if(!alive || !e.detail || e.detail.id!==id) return; setGening(true); };
+    const onStart = (e)=>{ if(!alive || !e.detail || e.detail.id!==id) return; setGening(true); setGenErr(""); };
     window.addEventListener("nb-gen-start", onStart);
-    return ()=>{ alive=false; window.removeEventListener("nb-gen-done", onDone); window.removeEventListener("nb-prefetched", onPrefetched); window.removeEventListener("nb-gen-cancel", onCancel); window.removeEventListener("nb-gen-start", onStart); };
+    const onSaving=e=>{ if(alive&&e.detail&&e.detail.id===id)setSaving(true); };
+    const onPending=e=>{ if(alive&&e.detail&&e.detail.id===id){setPendingSave({...nbPendingSheetSave(id)}); if(e.detail.error)setGenErr(e.detail.error);} };
+    const onApproval=e=>{ if(alive&&e.detail&&e.detail.id===id&&typeof nbGetMeta==="function")setGenMeta(nbGetMeta(id)); };
+    window.addEventListener("nb-gen-saving",onSaving);
+    window.addEventListener("nb-save-pending",onPending);
+    window.addEventListener("nb-approval-changed",onApproval);
+    return ()=>{ alive=false; window.removeEventListener("nb-gen-done", onDone); window.removeEventListener("nb-prefetched", onPrefetched); window.removeEventListener("nb-gen-cancel", onCancel); window.removeEventListener("nb-gen-start", onStart);
+      window.removeEventListener("nb-gen-saving",onSaving);window.removeEventListener("nb-save-pending",onPending);window.removeEventListener("nb-approval-changed",onApproval); };
   },[id]);
 
   /* watch the reference-photo slot for drops */
@@ -1742,13 +1836,15 @@ function useImageGen(opts){
   };
   const cancelGen = ()=>{ if(gening && typeof window.nbCancelGen==="function") window.nbCancelGen(id); };
   const clearGen = async ()=>{
+    try{
     /* a render still in flight would commit moments after this clear and silently
        resurrect the sheet the director just deleted — cancel it FIRST (flags the run
        cancelled + aborts the request + drops the spinner), so Clear means CLEARED.
        nbClearAsset then queues behind any commit already mid-save (per-id
        serialization), removing whatever that save managed to write. */
     if(typeof window.nbCancelGen==="function" && (gening || (window.__nbGenInflight && window.__nbGenInflight[id]))) window.nbCancelGen(id);
-    if(typeof nbClearAsset==="function") await nbClearAsset(id);
+    nbDiscardSheetSave(id); setPendingSave(null);
+    if(typeof nbClearAsset==="function") nbReportCleanup(await nbClearAsset(id));
     // cascade: also clear this entity's variant sub-sheets (a character's appearance
     // states, a location's time-of-day plates) so they aren't orphaned. Cameo, linked
     // props, and the written spec are deliberately left intact.
@@ -1757,9 +1853,11 @@ function useImageGen(opts){
       for(const xid of extra){ if(xid && xid!==id){
         // same rule for each sub-sheet: stop its in-flight run before deleting it
         if(typeof window.nbCancelGen==="function" && window.__nbGenInflight && window.__nbGenInflight[xid]) window.nbCancelGen(xid);
-        try{ await nbClearAsset(xid); }catch(e){} } }
+        nbReportCleanup(await nbClearAsset(xid)); } }
     }
     setGenUrl(""); setGenErr(""); setGenTier("local"); setGenMeta(null);
+    return true;
+    }catch(e){setGenErr("Clear could not finish: "+((e&&e.message)||"storage unavailable")+". Retry Clear to finish cleanup.");return false;}
   };
   /* Import a FINISHED sheet the user generated outside the app (full resolution, no
      downscale — unlike the reference-photo slot) and commit it AS this entity's sheet,
@@ -1821,6 +1919,7 @@ function useImageGen(opts){
   const deleteCurrentAndPromote = async ()=>{
     if(typeof nbDeleteCurrentAndPromoteAsset!=="function") return null;
     const r = await nbDeleteCurrentAndPromoteAsset(id);
+    nbReportCleanup(r);
     if(r){ setGenUrl(r.url); setGenMeta(r.meta||null); }
     refreshLayers();
     return r;
@@ -1830,11 +1929,20 @@ function useImageGen(opts){
   /* delete a single version from history */
   const deleteVersion = async (index)=>{
     if(typeof nbDeleteHistoryEntry!=="function") return;
-    await nbDeleteHistoryEntry(id, index);
+    const r=await nbDeleteHistoryEntry(id, index);
+    nbReportCleanup(r);
     refreshLayers();
   };
 
-  return { genUrl, genMeta, genTier, gening, genErr, retrying, slotHasRef,
+  return { id, genUrl, genMeta, genTier, gening, genErr, retrying, saving, pendingSave, slotHasRef,
+    retrySave:()=>nbRetrySheetSave(id),
+    discardSave:()=>{nbDiscardSheetSave(id);setPendingSave(null);setGenErr("");},
+    setApproval:async (approved,reviewKey)=>{
+      if(typeof window.nbSetAssetApproval!=="function" || !genMeta || !genMeta.iso)throw new Error("This version cannot be approved.");
+      const r=await window.nbSetAssetApproval(id,genMeta.iso,approved,reviewKey);
+      if(!r||!r.ok)throw new Error((r&&r.error)||"Approval could not be saved.");
+      setGenMeta(r.meta); return r;
+    },
     editMode, setEditMode, editText, setEditText, generate, cancelGen, clearGen, importSheet, relatedClearCount,
     loadDetails, revertTo, revertPrevious, deleteCurrentAndPromote, deleteVersion, layers, allModels,
     // the card's CURRENT spec prompt — lets QA judge uploaded/imported images
@@ -2245,6 +2353,8 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
             React.createElement("div",{className:"dt-flab"},m.k),
             React.createElement("div",{className:"dt-fval"},m.v)))),
           field("Version", meta.version ? ("v"+meta.version) : null),
+          field("Approval", typeof window.nbAssetApproval==="function"&&window.nbAssetApproval(meta)
+            ? "Approved for this version · current inputs may still need review" : "Not approved"),
           // same model-aware gate as the card chip — GPT Image never grounds,
           // even on legacy meta stored before the fix
           field("Grounding", (meta.grounded && !(typeof isGptImageModel==="function" && isGptImageModel(meta.modelId))) ? (meta.groundImages?"Google Search (web + images)":"Google Search") : null),
@@ -3034,9 +3144,77 @@ function PropSheetReferenceModal({ prop, onClose }){
     ), document.body);
 }
 
-function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, drafting, onDraft, entity, onView, slotPlaceholder, noun, onDelete, deleteLabel, specGate, extraMeta, menuExtra, dropToImport, hideUploadButton, onStop, generateDisabled, generateDisabledLabel, generateDisabledTitle, referenceControls, editPropRefs, editSuggestions }){
+const ArtReviewContext = typeof React.createContext==="function" ? React.createContext(false) : null;
+function sheetReviewReasons(meta, currentSpec, references){
+  const reasons=[];
+  if(meta&&meta.specPrompt&&currentSpec&&meta.specPrompt!==currentSpec)reasons.push("Specification changed since this image was generated");
+  (references||[]).forEach(r=>{
+    if((r.usedIso&&r.currentIso&&r.usedIso!==r.currentIso)||(!r.usedIso&&r.usedVersion&&r.currentVersion&&r.usedVersion!==r.currentVersion))
+      reasons.push((r.label||"Reference")+" changed"+(r.usedVersion&&r.currentVersion?(" · v"+r.usedVersion+" → v"+r.currentVersion):""));
+    else if(r.missing)reasons.push((r.label||"Reference")+" is no longer available");
+  });
+  return Array.from(new Set(reasons));
+}
+window.sheetReviewReasons=sheetReviewReasons;
+function sheetReviewKey(spec, references, reasons){
+  const value=JSON.stringify([spec||"",references||[],reasons||[]]);
+  let hash=2166136261;
+  for(let i=0;i<value.length;i++)hash=Math.imul(hash^value.charCodeAt(i),16777619);
+  return (hash>>>0).toString(16);
+}
+window.sheetReviewKey=sheetReviewKey;
+function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, drafting, onDraft, entity, onView, slotPlaceholder, noun, onDelete, deleteLabel, specGate, extraMeta, menuExtra, dropToImport, hideUploadButton, onStop, generateDisabled, generateDisabledLabel, generateDisabledTitle, referenceControls, editPropRefs, editSuggestions, reviewReasons }){
   const { genUrl, genMeta, genTier, gening, genErr, retrying, slotHasRef,
     editMode, setEditMode, editText, setEditText, generate, cancelGen, clearGen, importSheet, relatedClearCount, revertPrevious, layers, allModels } = gen;
+  const canReview = ArtReviewContext && React.useContext(ArtReviewContext);
+  const [approvalBusy,setApprovalBusy]=React.useState(false);
+  const [approvalError,setApprovalError]=React.useState("");
+  const [referenceReview,setReferenceReview]=React.useState([]);
+  const [reviewLoading,setReviewLoading]=React.useState(!!genUrl);
+  const [reviewFailed,setReviewFailed]=React.useState(false);
+  const [reviewTick,setReviewTick]=React.useState(0);
+  React.useEffect(()=>{
+    const update=()=>setReviewTick(x=>x+1);
+    window.addEventListener("nb-gen-done",update);
+    return ()=>window.removeEventListener("nb-gen-done",update);
+  },[]);
+  React.useEffect(()=>{
+    let live=true;
+    const epoch=typeof nbEpoch==="function"?nbEpoch():null;
+    if(!genUrl||!gen.loadDetails){setReferenceReview([]);setReviewLoading(false);return;}
+    setReviewLoading(true);setReviewFailed(false);
+    (async()=>{
+      try{
+        const d=await gen.loadDetails(), refs=(d&&d.refs)||[];
+        const entries=await Promise.all(refs.filter(r=>r.refId&&r.refId!==gen.id).map(async r=>{
+          const current=typeof nbLoadDetailsAsset==="function"?await nbLoadDetailsAsset(r.refId):null;
+          return {label:r.label,usedIso:r.refGenerated,currentIso:current&&current.meta&&current.meta.iso,
+            usedVersion:r.refVersion,currentVersion:current&&current.meta&&current.meta.version,missing:!current||!current.url};
+        }));
+        if(live&&(typeof nbEpoch!=="function"||epoch===nbEpoch()))setReferenceReview(entries);
+      }catch(e){if(live){setReferenceReview([]);setReviewFailed(true);}}
+      finally{if(live)setReviewLoading(false);}
+    })();
+    return ()=>{live=false;};
+  },[gen.id,genMeta&&genMeta.iso,reviewTick]);
+  let currentSpec=""; try{ currentSpec=gen.buildFinal?gen.buildFinal():""; }catch(e){}
+  const needsReview=Array.from(new Set([...(reviewReasons||[]),...sheetReviewReasons(genMeta,currentSpec,referenceReview)]));
+  const reviewKey=sheetReviewKey(currentSpec,referenceReview,reviewReasons);
+  const approved=typeof window.nbAssetApproval==="function"&&window.nbAssetApproval(genMeta);
+  const reviewed=approved&&genMeta.approval.reviewKey===reviewKey;
+  const flagged=reviewFailed||(!reviewed&&(needsReview.length>0||approved));
+  const setApproval=async()=>{
+    if(!canReview||approvalBusy||gening||reviewLoading||reviewFailed||!gen.setApproval)return;
+    if(!reviewed&&needsReview.length){
+      const question={title:"Approve this version after review?",body:needsReview.join("\n"),
+        note:"This approves the existing image against the current specification and references. It does not regenerate or change the artwork.",confirmLabel:"Approve version"};
+      const yes=typeof window.appConfirm==="function"?await window.appConfirm(question):window.confirm(question.body+"\n\nApprove the existing image?");
+      if(!yes)return;
+    }
+    setApprovalBusy(true);setApprovalError("");
+    try{await gen.setApproval(!reviewed,reviewKey);}catch(e){setApprovalError((e&&e.message)||"Approval could not be saved.");}
+    finally{setApprovalBusy(false);}
+  };
   // Resolution ALWAYS shows on the caption. Prefer the stored size; if it's missing
   // (legacy meta, or any path that didn't record it) measure the actual image's pixels
   // so a real resolution still appears — for generations AND uploads alike.
@@ -3127,6 +3305,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
   const handleGenerateClick = ()=>{
     if(generateDisabled) return;
     if(gening) return;
+    if(gen.pendingSave){gen.retrySave&&gen.retrySave();return;}
     if(specGate && !specGate.ready && !genUrl && !slotHasRef) return; // gated: draft the spec first
     if(!drafted && !genUrl && !slotHasRef){ setPendingGenerate(true); onDraft(); return; }
     generate();
@@ -3136,6 +3315,21 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
   const specBlocked = !!(specGate && !specGate.ready && !genUrl && !slotHasRef);
 
   return React.createElement("div",{className:"sheet-frame"},
+    (genUrl||gening||gen.pendingSave) && React.createElement("div",{className:"sheet-status-bar"},
+      React.createElement("span",{className:"sheet-status-label",role:"status"},
+        gen.saving?"Saving…":gening?"Generating…":gen.pendingSave?"Not saved":
+          (reviewLoading?"Checking references…":flagged?"Needs review":reviewed?"Approved":"Saved · Unapproved"),
+        !gening&&genMeta&&genMeta.version?(" · v"+genMeta.version):""),
+      genUrl&&canReview&&gen.setApproval&&React.createElement("button",{className:"sheet-approval-btn",
+        disabled:gening||approvalBusy||reviewLoading||reviewFailed||!!gen.pendingSave||!(genMeta&&genMeta.iso),
+        title:needsReview.length?"Review changed specifications or references before approving this image":"Approval applies only to this image version",
+        onClick:setApproval},approvalBusy?"Saving…":reviewed?"Remove approval":flagged?"Review & approve":"Approve version")),
+    reviewFailed&&React.createElement("button",{className:"sheet-approval-btn",onClick:()=>setReviewTick(x=>x+1)},"Retry reference check"),
+    needsReview.length>0 && React.createElement("details",{className:"sheet-review-details"},
+      React.createElement("summary",null,needsReview.length+" change"+(needsReview.length===1?"":"s")+" to review"),
+      React.createElement("ul",null,needsReview.map((r,i)=>React.createElement("li",{key:i},r)))),
+    approvalError && React.createElement("div",{className:"sheet-gen-err",role:"alert"},approvalError),
+    React.createElement("div",{className:"sheet-media",style:{position:"relative"}},
     genUrl
       ? React.createElement("div",{className:"sheet-genwrap"},
           React.createElement("img",{className:"sheet-genimg",src:genUrl,alt:name+" "+noun,
@@ -3145,7 +3339,8 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
         // the drop zone IS the upload: drop a finished frame or click to browse \u2014 imported at
         // full resolution and committed as this frame, so it previews exactly like a generated one.
         ? React.createElement("div",{className:"sheet-dropzone"+(dropOver?" over":"")+(gening?" busy":""),
-            role:"button",tabIndex:0,onClick:()=>{ if(!gening) pickUpload(); },
+            role:"button",tabIndex:gening?-1:0,"aria-disabled":!!gening,onClick:()=>{ if(!gening) pickUpload(); },
+            onKeyDown:e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();if(!gening)pickUpload();}},
             onDragEnter:onZoneDragOver,onDragOver:onZoneDragOver,onDragLeave:onZoneDragLeave,onDrop:onZoneDrop,
             title:"Drop a finished "+noun+" here, or click to browse \u2014 it's imported at full resolution and becomes this "+noun},
             React.createElement(Icon.image,{s:26}),
@@ -3156,7 +3351,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
               shape:"rounded",radius:"10",placeholder:slotPlaceholder||"Drop reference art"}),
             slotHasRef && React.createElement("div",{className:"sheet-ref-pill"},
               React.createElement(Icon.bolt,{s:10,sw:2}),"Reference art active \u00b7 guides generation")),
-    (genUrl || onDelete || importSheet) && React.createElement("div",{className:"sheet-gen-tools"},
+    (genUrl || onDelete || importSheet) && React.createElement("div",{className:"sheet-gen-tools",style:{top:8,right:8}},
       React.createElement("div",{className:"sheet-tools-menu",ref:menuRef},
         React.createElement("button",{className:"sheet-gen-tool",onClick:()=>setMenuOpen(m=>!m),title:"Options"},
           React.createElement(Icon.moreV,{s:14})),
@@ -3225,7 +3420,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
               }
               onDelete();
             }},
-            React.createElement(Icon.trash,{s:13}),deleteLabel||"Delete")))),
+            React.createElement(Icon.trash,{s:13}),deleteLabel||"Delete"))))),
     editMode && React.createElement("div",{className:"sheet-edit-panel"},
       React.createElement("input",{className:"sheet-edit-input",type:"text",autoFocus:true,
         placeholder:"Describe changes\u2026  e.g. "+(noun==="prop sheet"?"make the metal brushed steel":"change jacket to black, add glasses"),
@@ -3330,14 +3525,14 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
             generateDisabledLabel||"Wait for current generation")
         : (gening || (drafting && pendingGenerate))
         ? React.createElement(React.Fragment,null,React.createElement("span",{className:"ns-spin dark"}),
-            pendingGenerate ? "Drafting\u2026" :
+            gen.saving ? "Saving\u2026" : pendingGenerate ? "Drafting\u2026" :
             retrying ? "Retrying simplified\u2026" : "Generating\u2026")
         : React.createElement(React.Fragment,null,React.createElement(Icon.sparkles,{s:13}),
-            specBlocked ? "Draft the spec first" :
-            genUrl ? ("Regenerate "+noun) :
+            gen.pendingSave ? "Retry save" : specBlocked ? "Draft specification first" :
+            genUrl ? "Generate new image" :
             (slotHasRef ? "Generate from photo" :
-            (!drafted ? "Draft & Generate" : ("Generate "+noun))),
-            !specBlocked && typeof window.nbCostChip==="function" && window.nbCostChip(1))),
+            (!drafted ? "Draft & generate image" : "Generate image")),
+            !specBlocked && !gen.pendingSave && typeof window.nbCostChip==="function" && window.nbCostChip(1))),
     // Stop an in-flight generation — discards the result so it won't commit over the frame.
     gening && React.createElement("button",{className:"sheet-gen-stop",onClick:()=> onStop ? onStop() : (cancelGen && cancelGen()),
       title:"Stop this generation — nothing will be saved over the current frame"},
@@ -3352,7 +3547,12 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
     specBlocked && React.createElement("div",{className:"sheet-gen-gate"},
       React.createElement(Icon.alert,{s:12}),
       React.createElement("span",null,(specGate&&specGate.hint)||"Draft the design spec first — it's what the plate is built from.")),
-    genErr && (()=>{
+    gen.pendingSave&&React.createElement("div",{className:"sheet-retry-save",role:"status"},
+      React.createElement("span",null,"Unsaved image kept in this tab. Retry save makes no generation request."),
+      (gen.pendingSave.error||genErr)&&React.createElement("span",{role:"alert"},gen.pendingSave.error||genErr),
+      React.createElement("a",{href:gen.pendingSave.url,download:(name||"image")+"-unsaved.png"},"Download unsaved image"),
+      React.createElement("button",{className:"sheet-approval-btn",disabled:gening,onClick:gen.discardSave},"Discard unsaved image")),
+    genErr && !gen.pendingSave && (()=>{
       const keyGate = /API key/i.test(genErr||"");
       // CORS / browser-unreachable (GPT Image): the ONLY real fix is switching
       // to the in-browser model, so make that the primary action and drop the
@@ -4144,6 +4344,7 @@ function CharacterSheet({ c, project, scenes, props, drafts, speaks, onUpdate, o
 
   return React.createElement("div",{className:"sheet-card"+(batchActiveId===c.id?" batch-on":""),"data-char-card":c.id},
     React.createElement(SheetFrame,{ gen, slotId:"charref-"+c.id, name:c.name, avatarColor:c.color,
+      reviewReasons:[...(promptStale?["Character specification changed"]:[]),...wornSync.reasons],
       initials, drafted, drafting, onDraft:()=>onDraft(c), entity:c, onView,
       slotPlaceholder:"Drop reference art", noun:"sheet",
       // The empty slot is also the finished-image importer (full resolution, like the Locations
@@ -4200,11 +4401,13 @@ function CharacterSheet({ c, project, scenes, props, drafts, speaks, onUpdate, o
         React.createElement("span",{className:"prompt-drift-copy"},
           React.createElement("b",null,"Reference out of date"),
           " · "+(wornSync.reasons[0] || "The character specification changed")+".",
-          wornSync.reasons.length>1 && React.createElement("small",null," +"+(wornSync.reasons.length-1)+" more continuity change"+(wornSync.reasons.length>2?"s":""))),
+          wornSync.reasons.length>1 && React.createElement("details",{className:"sheet-review-details"},
+            React.createElement("summary",null,"Show all "+wornSync.reasons.length+" changes"),
+            React.createElement("ul",null,wornSync.reasons.map((r,i)=>React.createElement("li",{key:i},r))))),
         React.createElement("button",{className:"continuity-update-action",disabled:gen.gening,
           title:"Preserve the current identity and update this master with the latest selected worn references",
           onClick:()=>gen.generate({deriveFromCurrent:true})},
-          gen.gening?"Updating…":(wornSync.stale?"Update sheet with new wardrobe":"Update master"))),
+          gen.gening?"Updating…":"Update image from references")),
       cameoMeta && React.createElement("div",{className:"sheet-cameo-status"},
         React.createElement(Icon.userScan,{s:13}),
         React.createElement("span",{className:"scs-t"},"Likeness locked"),
@@ -4419,10 +4622,10 @@ function CharacterSheet({ c, project, scenes, props, drafts, speaks, onUpdate, o
                 // offers Draft details / Generate.
                 (!row.prop && !row.orphan && onCreateOwnedProp) && React.createElement("button",{
                   className:"linked-prop-gen",
-                  title:"Create this item's prop card (owner + worn/carried derived automatically) — free, no generation. The row then offers Draft details and Generate right here.",
+                  title:"Create this item's prop card (owner + worn/carried derived automatically) — free, no generation. Then draft its specification and generate an image.",
                   onClick:(e)=>{ e.stopPropagation();
                     const made = onCreateOwnedProp(c.id, row.name, row.src);
-                    if(made && typeof window.appToast==="function") window.appToast("\u201c"+made.name+"\u201d card created ("+(made.kind==="dressing"?"set dressing":made.kind)+") \u2014 now Draft details, then Generate.","success"); }},
+                    if(made && typeof window.appToast==="function") window.appToast("\u201c"+made.name+"\u201d card created ("+(made.kind==="dressing"?"set dressing":made.kind)+") \u2014 now draft its specification, then generate an image.","success"); }},
                   React.createElement(Icon.plus,{s:11}),"Create card"),
                 // INLINE generation — the sheet is built against THIS character's own
                 // sheet (the owner reference), so it must exist first. Undrafted props
@@ -4433,7 +4636,7 @@ function CharacterSheet({ c, project, scenes, props, drafts, speaks, onUpdate, o
                   const busy = propBusy && propBusy.id===pr.id;
                   const pDrafted = (typeof propVisualsDrafted==="function") ? propVisualsDrafted(pr) : true;
                   const lab = busy ? (propBusy.kind==="draft"?"Drafting\u2026":"Generating\u2026")
-                    : (!pDrafted ? "Draft details" : (ready ? "Regenerate" : "Generate"));
+                    : (!pDrafted ? "Draft specification" : (ready ? "Generate new image" : "Generate image"));
                   return React.createElement("button",{className:"linked-prop-gen"+(busy?" busy":""),
                     disabled: !!propBusy,
                     title: !pDrafted
@@ -4770,6 +4973,7 @@ function NbDock(){
   // NOTE: the TEXT (writing) engine is shown by the separate WritingDock (rendered in
   // both rooms) — this dock is the IMAGE engine only, so the two aren't redundant.
   return React.createElement("div",{className:"nb-dock"+(open?" open":""),ref:ref,"aria-label":"Image engine settings"},
+    React.createElement("span",{className:"nb-dock-label"},"Images"),
     React.createElement("button",{className:"nb-dock-toggle","aria-expanded":open?"true":"false",
       title:"Image engine — model, aspect & resolution",onClick:()=>setOpen(o=>!o)},
       React.createElement("span",{className:"nb-dock-chip model"},short),
@@ -5347,7 +5551,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
   locations, onUpdateLocation, onDraftLocation, onDraftAllLocs, onAddLocation, onDeleteLocation, draftingLocIds, draftingAllLocs, onPullFromScript, scriptHasLocs, onScout, onAssignStyles, assigningStyles, onSetStyleRefs, onSetScenePreset, onAddStyleRefImages, onRemoveStyleRefImage, onDraftStaging, draftingStageId, sluglineUnits, onUpdateUnit, onRemoveUnit,
   shots, beatsMap, onUpdateShot, onAddShot, onDeleteShot, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onDirectScene, onColorist, onShoot, onCast, onPropsMaster,
   lookbook, lookbookNote, onUpdateLookbook, onAddLookbook, onDeleteLookbook, onSetLookbookNote, onResearch, onClearLookbook,
-  staleTabs, onApplyLookbook }){
+  staleTabs, onApplyLookbook, onSourceClick, canReview=false, onReviewLookbook }){
   const _stale = staleTabs || {};
   const PropSheets = window.PropSheets;
   const LocationSheets = window.LocationSheets;
@@ -5374,7 +5578,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
     if(typeof nbPrefetchAll==="function") nbPrefetchAll().then(()=>nbPreloadFor(ids)); else nbPreloadFor(ids);
   },[artView, projId, (characters||[]).length, (props||[]).length, (locations||[]).length, (shots||[]).length, (lookbook||[]).length]);
 
-  return React.createElement("div",{className:"artroom"},
+  return React.createElement(ArtReviewContext.Provider,{value:!!canReview},React.createElement("div",{className:"artroom"},
     // fixed engine dock — Model / Aspect / Resolution, always reachable while
     // scrolling at every viewport
     React.createElement(NbDock,null),
@@ -5391,7 +5595,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
           lookbookStale:!!_stale.characters,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("characters"),
           onApplyLookbookDraftOnly:()=>onApplyLookbook&&onApplyLookbook("characters","draft")})
     : artView==="props" && PropSheets
-      ? React.createElement(PropSheets,{project,props,characters,scenes,drafts,onUpdate:onUpdateProp,onDraft:onDraftProp,
+      ? React.createElement(PropSheets,{project,props,characters,scenes,drafts,onSourceClick,onUpdate:onUpdateProp,onDraft:onDraftProp,
           onDraftAll:onDraftAllProps,onAdd:onAddProp,onDelete:onDeleteProp,draftingId:draftingPropId,draftingIds:draftingPropIds,draftingAll:draftingAllProps,
           trashItems:(trash&&trash.props)||[],onRestore:onRestoreProp,onPurge:onPurgeProp,onEnsureOwner,
           onSeedFromCast,castHasProps,onTagScenes,taggingScenes,onTagOne,taggingSceneId,onMergeProps,onPropsMaster,
@@ -5408,11 +5612,18 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
       ? React.createElement(window.StyleBibleView,{project,scenes,onAssign:onAssignStyles,assigning:assigningStyles,onSetRefs:onSetStyleRefs,onSetScenePreset,onAddRefImages:onAddStyleRefImages,onRemoveRefImage:onRemoveStyleRefImage,onColorist,
           lookbookStale:!!_stale.stylebible,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("colorist")})
     : artView==="shots" && window.ShotList
-      ? React.createElement(window.ShotList,{project,scenes,characters,props,locations,shots,beatsMap,
+      ? React.createElement(React.Fragment,null,
+          _stale.shots&&React.createElement("div",{className:"prompt-drift-banner",role:"status"},
+            React.createElement(Icon.alert,{s:14}),
+            React.createElement("span",null,"Lookbook changed · Review shot composition, lighting, and lens choices. Existing images are unchanged."),
+            canReview&&React.createElement("button",{className:"sheet-approval-btn",onClick:()=>onApplyLookbook&&onApplyLookbook("shots")},"Open Shot Designer"),
+            canReview&&React.createElement("button",{className:"sheet-approval-btn",onClick:()=>onReviewLookbook&&onReviewLookbook("shots")},"Mark reviewed")),
+        React.createElement(window.ShotList,{project,scenes,characters,props,locations,shots,beatsMap,
           onUpdateShot,onAddShot,onDeleteShot,onSplitBeat,splittingBeat,onRefineBeat,refiningBeat,onDraftSceneShots,draftingSceneShots,onDraftAllShots,draftingAllShots,onShoot,onDirectScene,
-          trashItems:(trash&&trash.shots)||[],onRestore:onRestoreShot,onPurge:onPurgeShot})
+          trashItems:(trash&&trash.shots)||[],onRestore:onRestoreShot,onPurge:onPurgeShot}))
       : artView==="storyboard" && window.StoryboardView
-      ? React.createElement(window.StoryboardView,{project,scenes,shots,characters,props,locations,beatsMap,setArtView,onUpdateShot})
-      : React.createElement(ArtComingSoon,{tab:artView}));
+      ? React.createElement(window.StoryboardView,{project,scenes,shots,characters,props,locations,beatsMap,setArtView,onUpdateShot,
+          stale:!!_stale.storyboard,onReviewLookbook:canReview?()=>onReviewLookbook&&onReviewLookbook("storyboard"):null})
+      : React.createElement(ArtComingSoon,{tab:artView})));
 }
 window.ArtRoom = ArtRoom;

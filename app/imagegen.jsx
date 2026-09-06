@@ -318,6 +318,18 @@ const _cloudMetaCache = new Map();   // entityId -> meta
 let _nbEpoch = 0;
 function nbEpoch(){ return _nbEpoch; }
 window.nbEpoch = nbEpoch;
+/* Reconcile caches after a caller has independently verified that an ambiguous
+   cloud save is the current generation. Synchronous by design: no second write,
+   fetch, or post-check window. */
+function nbAdoptVerifiedAsset(id,expectedEpoch,asset){
+  if(expectedEpoch!==_nbEpoch) return false;
+  if(_nbBackend==="cloud"){
+    if(asset&&asset.url) _cloudUrlCache.set(id,asset.url); else _cloudUrlCache.delete(id);
+    if(asset&&Object.prototype.hasOwnProperty.call(asset,"meta")) _cloudMetaCache.set(id,asset.meta||null);
+  }
+  return true;
+}
+window.nbAdoptVerifiedAsset=nbAdoptVerifiedAsset;
 function nbUseCloud(projectId, uid){ if(projectId!==_nbProject) _nbEpoch++; _nbBackend="cloud"; _nbProject=projectId; _nbUid=uid; _cloudUrlCache.clear(); _cloudMetaCache.clear(); if(typeof nbResetPrefetchAll==="function") nbResetPrefetchAll(); }
 function nbUseLocal(){ if(_nbProject!==null) _nbEpoch++; _nbBackend="local"; _nbProject=null; _nbUid=null; _nbShared=null; _nbSharedIds=null; _cloudUrlCache.clear(); _cloudMetaCache.clear(); if(typeof nbResetPrefetchAll==="function") nbResetPrefetchAll(); }
 
@@ -761,6 +773,8 @@ async function _nbCommitInner(id, dataUrl, meta, refs, kind, epoch, cancelled){
     if(!meta.date) meta.date=now.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
     if(!meta.time) meta.time=now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});
   }
+  // Approval belongs to one exact generation and must never be inherited by new pixels.
+  delete meta.approval;
   meta = (typeof nbWithAssetProvenance==="function") ? nbWithAssetProvenance(id, meta, kind) : (meta||null);
   refs = (typeof nbPreferBestAssetRefs==="function") ? nbPreferBestAssetRefs(refs||[]) : (refs||[]);
   if(_nbBackend==="cloud"){
@@ -768,22 +782,29 @@ async function _nbCommitInner(id, dataUrl, meta, refs, kind, epoch, cancelled){
     // capture scope+uid at the validated moment — never re-resolve them after an await
     const _scope = _scopeFor(id), _uid = _nbUid;
     if(_cxl()) return { tier:"cancelled", url:dataUrl };   // last checkpoint BEFORE the write
-    const r = await window.cloudCommit(_scope, _uid, id, dataUrl, meta, refs, kind);
+    let r;
+    try{ r = await window.cloudCommit(_scope, _uid, id, dataUrl, meta, refs, kind, _cxl); }
+    catch(e){ return {tier:"error",url:dataUrl,error:(e&&e.message)||"cloud save failed"}; }
     // the write itself landed in the scope captured above (its correct home) — but if
     // the film switched during it, the session caches now belong to the NEW film:
     // leave them untouched and report stale so the caller stays quiet.
     if(_stale()) return { tier:"stale", url:(r&&r.url)||dataUrl };
-    if(r && r.url){
+    if(r&&r.tier==="cancelled") return { tier:"cancelled", url:r.url||dataUrl };
+    if(r&&r.tier==="cancellation-error") return r;
+    if(r && r.tier==="cloud" && r.url){
       _cloudUrlCache.set(id, r.url); _cloudMetaCache.set(id, meta||null);
       // we hold the bytes we just generated — warm the byte-cache directly so the
-      // next session never re-downloads this sheet
-      if(r.path){ try{ const blob = await (await fetch(dataUrl)).blob(); if(!_stale()) await idbSet(nbCloudKey(id), { path:r.path, blob }); }catch(e){} }
-      // a Stop that landed while the write was saving: the write reached storage (caches
-      // above were kept consistent with it), but the caller must not adopt or announce
-      if(_cxl()) return { tier:"cancelled", url:r.url };
+      // next session never re-downloads this sheet. This is deliberately detached:
+      // persistence has reached its final cancellation decision, so cache warming
+      // must not create a late "discarded" interpretation of a successful commit.
+      if(r.path) Promise.resolve().then(async()=>{ try{
+        const response=await fetch(dataUrl), blob=await response.blob();
+        if(epoch==null || epoch===_nbEpoch) await idbSet(nbCloudKey(id), { path:r.path, blob });
+      }catch(e){} });
       return r;
     }
-    return { tier:"error", url:dataUrl };
+    return r&&r.tier==="error" ? r
+      : { tier:"error", url:dataUrl, error:(r&&r.error)||"cloud save failed" };
   }
   const prev = localGetImage(id);
   if(prev){
@@ -804,12 +825,13 @@ async function _nbCommitInner(id, dataUrl, meta, refs, kind, epoch, cancelled){
 function nbClearAsset(id){ return _nbSerial(id, ()=>_nbClearAssetInner(id)); }
 async function _nbClearAssetInner(id){
   if(_nbBackend==="cloud"){
+    if(typeof window.cloudClear!=="function") throw new Error("cloud clear unavailable");
+    const cloudResult=await window.cloudClear(_scopeFor(id), id);
     _cloudUrlCache.delete(id); _cloudMetaCache.delete(id);
     try{ await idbDel(nbCloudKey(id)); }catch(e){}   // drop the cached bytes too
     const old = _objUrls.get(id); if(old){ try{ URL.revokeObjectURL(old.url); }catch(e){} _objUrls.delete(id); }
-    if(typeof window.cloudClear==="function") await window.cloudClear(_scopeFor(id), id);
     try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id, ids:[id], url:"" } })); }catch(e){}
-    return;
+    return cloudResult;
   }
   await localSetImage(id, "");
   localSetMeta(id, null);
@@ -863,7 +885,9 @@ async function nbLoadDetailsAsset(id, currentUrl){
   }
   const refs = await localGetRefs(id);
   const history = await localGetHistory(id);
-  return { id, url:currentUrl, meta:localGetMeta(id), refs, history };
+  let url=currentUrl||localGetImage(id);
+  if(!url) url=await localLoadImage(id);
+  return { id, url:url||"", meta:localGetMeta(id), refs, history };
 }
 window.nbCommit = nbCommit; window.nbClearAsset = nbClearAsset;
 window.nbRevertAsset = nbRevertAsset; window.nbDeleteCurrentAndPromoteAsset = nbDeleteCurrentAndPromoteAsset;
@@ -874,7 +898,7 @@ function nbDeleteHistoryEntry(id, index){ return _nbSerial(id, ()=>_nbDeleteHist
 async function _nbDeleteHistoryEntryInner(id, index){
   if(_nbBackend==="cloud"){
     if(typeof window.cloudDeleteHistoryEntry!=="function") return false;
-    try{ return await window.cloudDeleteHistoryEntry(_scopeFor(id), _nbUid, id, index); }catch(e){ return false; }
+    return await window.cloudDeleteHistoryEntry(_scopeFor(id), _nbUid, id, index);
   }
   const hist = await localGetHistory(id);
   if(index<0 || index>=hist.length) return false;
@@ -883,6 +907,51 @@ async function _nbDeleteHistoryEntryInner(id, index){
   return true;
 }
 window.nbDeleteHistoryEntry = nbDeleteHistoryEntry;
+
+/* A valid approval is deliberately generation-scoped; stale inherited metadata is
+   treated as unapproved even if its boolean remains true. */
+function nbAssetApproval(meta){
+  return !!(meta && meta.iso && meta.approval
+    && meta.approval.iso===meta.iso && meta.approval.approved===true);
+}
+function nbSetAssetApproval(id, expectedIso, approved, reviewKey){
+  // Capture before queueing: an operation waiting behind a render/history mutation
+  // must not silently retarget itself if the user opens another film meanwhile.
+  const epoch=_nbEpoch;
+  return _nbSerial(id,async()=>{
+    if(!id || !expectedIso) return {ok:false,error:"asset version required"};
+    if(epoch!==_nbEpoch) return {ok:false,error:"asset scope changed"};
+    const backend=_nbBackend;
+    // Resolve all scope-bearing values exactly once, after validating the epoch.
+    const scope=backend==="cloud"?_scopeFor(id):null, uid=_nbUid;
+    if(backend==="cloud"){
+      if(typeof window.cloudSetAssetApproval!=="function") return {ok:false,error:"cloud approval unavailable"};
+      try{
+        const result=await window.cloudSetAssetApproval(scope,uid,id,expectedIso,!!approved,reviewKey);
+        if(epoch!==_nbEpoch) return {ok:false,error:"asset scope changed"};
+        if(result&&result.ok){
+          _cloudMetaCache.set(id,result.meta);
+          try{ window.dispatchEvent(new CustomEvent("nb-approval-changed",{detail:{id}})); }catch(e){}
+        }
+        return result&&typeof result.ok==="boolean" ? result : {ok:false,error:"approval update failed"};
+      }catch(e){
+        if(epoch!==_nbEpoch) return {ok:false,error:"asset scope changed"};
+        return {ok:false,error:(e&&e.message)||"approval update failed"};
+      }
+    }
+    const current=localGetMeta(id);
+    if(!localGetImage(id)) return {ok:false,error:"asset not found"};
+    if(!current || current.iso!==expectedIso) return {ok:false,error:"asset version changed"};
+    const approval={iso:expectedIso,approved:!!approved,at:new Date().toISOString()};
+    if(reviewKey!=null) approval.reviewKey=String(reviewKey);
+    const meta={...current,approval};
+    localSetMeta(id,meta);
+    try{ window.dispatchEvent(new CustomEvent("nb-approval-changed",{detail:{id}})); }catch(e){}
+    return {ok:true,meta};
+  });
+}
+window.nbAssetApproval=nbAssetApproval;
+window.nbSetAssetApproval=nbSetAssetApproval;
 
 /* read the image URL from an <image-slot> by querying its shadow DOM */
 function nbGetSlotImage(slotId){

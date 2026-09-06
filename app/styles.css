@@ -2853,6 +2853,8 @@ html[data-theme="dark"] .dt-viewing svg{color:oklch(0.82 0.09 296)}
 /* open (selected) keeps the HOVER look — same 1px border weight/colour and the soft
    raised pill — instead of the heavier near-black ring it used to switch to */
 .nb-dock.open .nb-dock-toggle{border-color:var(--line-3);transform:translateY(-1px)}
+.nb-dock-label{display:block;font:700 7.5px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;
+  text-align:center;color:var(--txt-3);white-space:nowrap}
 .nb-dock-chip{display:block;font-family:var(--f-mono);font-size:8.5px;font-weight:600;
   letter-spacing:.03em;text-align:center;color:var(--txt-2);background:var(--bg-3);
   border:1px solid var(--line);border-radius:999px;padding:5px 0;white-space:nowrap}
@@ -3722,6 +3724,27 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
 .prop-evidence-kind.exact{border-color:var(--pos-line);color:var(--pos)}
 .prop-evidence-quote{min-width:0;font-size:11px;line-height:1.4;color:var(--txt-1);font-style:normal}
 .prop-evidence-more,.prop-evidence-none{margin-top:7px;font-size:10.5px;line-height:1.4;color:var(--txt-3)}
+.prop-evidence details{margin-top:7px;border-top:1px solid var(--line);padding-top:6px}
+.prop-evidence details > summary{color:var(--txt-2);font:600 9.5px var(--f-mono);cursor:pointer;
+  list-style-position:inside}
+.prop-evidence details[open] > summary{margin-bottom:6px;color:var(--txt-1)}
+.prop-evidence mark{background:color-mix(in srgb,var(--pos) 18%,transparent);color:var(--txt-0);
+  border-radius:3px;padding:0 2px}
+.prop-evidence button{font-family:var(--f-ui)}
+.prop-evidence details button{border:1px solid var(--line-2);border-radius:6px;background:var(--bg-3);
+  color:var(--txt-2);font-size:10px;padding:4px 7px;cursor:pointer}
+.prop-evidence details button:hover{border-color:var(--line-3);color:var(--txt-0)}
+.prop-origin-label{display:inline-flex;align-items:center;max-width:100%;padding:2px 6px;border:1px solid var(--line-2);
+  border-radius:999px;background:var(--bg-3);color:var(--txt-3);font:700 8.5px/1.2 var(--f-mono);
+  letter-spacing:.05em;text-transform:uppercase}
+.prop-evidence-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px}
+.prop-evidence-jump{display:inline-flex;align-items:center;gap:4px;border:0;background:transparent;padding:2px 0;
+  color:var(--pos);font:600 10px var(--f-mono);cursor:pointer}
+.prop-evidence-jump:hover{text-decoration:underline}
+.prop-evidence-jump:focus-visible{outline:2px solid var(--pos);outline-offset:2px;border-radius:3px}
+.prop-evidence-caution{display:flex;align-items:flex-start;gap:5px;margin-top:6px;color:var(--txt-2);
+  font-size:10px;line-height:1.4}
+.prop-evidence-caution svg{flex:0 0 auto;color:var(--pos);margin-top:1px}
 @media (max-width:520px){.prop-evidence-row{grid-template-columns:1fr;gap:2px}.prop-evidence-loc{white-space:normal}}
 .prop-dup-merge{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 13px;border-radius:7px;cursor:pointer;
   border:1px solid transparent;background:var(--pos);color:var(--ink-on-accent);font-family:var(--f-ui);font-size:11.5px;font-weight:600;transition:.12s}
@@ -6940,26 +6963,48 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
    correction instead of each needing a one-off treatment.
    ========================================================================== */
 .sheet-gen-row{
-  flex-wrap:wrap;
+  flex-wrap:nowrap;
   align-items:stretch;
 }
 .sheet-gen-row .sheet-gen-btn{
   min-width:0;
-  flex:1 1 164px;
+  flex:1 1 auto;
   white-space:normal;
   text-align:center;
   line-height:1.2;
 }
 .sheet-gen-row .sheet-upload-btn{
-  width:auto;
+  width:100%;
   min-width:0;
-  flex:1 1 148px;
+  flex:1 1 auto;
   margin-top:0;
   white-space:normal;
   text-align:center;
   line-height:1.2;
 }
 .sheet-gen-row .sheet-gen-stop{min-width:0}
+.sheet-frame > .sheet-dropzone,
+.sheet-frame .sheet-dropzone{width:100%;max-width:none}
+
+/* Small, theme-aware workflow state: metadata, not another card surface. */
+.sheet-status-bar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;width:100%;box-sizing:border-box;
+  margin-top:8px;min-height:28px;position:relative;z-index:21;background:var(--bg-1)}
+.sheet-status-label{display:inline-flex;align-items:center;min-height:20px;padding:2px 7px;border:1px solid var(--line-2);
+  border-radius:999px;background:var(--bg-3);color:var(--txt-2);font:700 8.5px/1.2 var(--f-mono);
+  letter-spacing:.06em;text-transform:uppercase}
+.sheet-status-label.pending,.sheet-status-label.generating,.sheet-status-label.saving{border-color:var(--pos-line);color:var(--pos)}
+.sheet-status-label.error,.sheet-status-label.failed{border-color:var(--neg-line);color:var(--neg)}
+.sheet-status-label.approved,.sheet-status-label.saved{color:var(--txt-1)}
+.sheet-approval-btn,.sheet-retry-save{min-height:24px;padding:3px 8px;border:1px solid var(--line-2);border-radius:6px;
+  background:transparent;color:var(--txt-2);font:600 10px var(--f-ui);cursor:pointer}
+.sheet-approval-btn:hover,.sheet-retry-save:hover{background:var(--bg-3);color:var(--txt-0);border-color:var(--line-3)}
+.sheet-status-bar .sheet-approval-btn:first-of-type{margin-left:auto}
+.sheet-review-details{font-size:10.5px;color:var(--txt-2)}
+.sheet-review-details > summary{cursor:pointer}
+/* Tools anchor to the media wrapper, never to variable-height review text. */
+.sheet-media{min-width:0}
+.sheet-retry-save{display:flex;gap:8px;flex-wrap:wrap;cursor:default}
+.sheet-retry-save > span{flex-basis:100%;line-height:1.45}
 
 @media (max-width:1100px){
   /* Two generous columns beat three cramped ones. This only affects the
@@ -6974,6 +7019,7 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
      Their bottom placement also preserves the established one-hand reach. */
   .nb-dock{top:auto;right:14px;bottom:26px;transform:none}
   .write-dock{top:auto;right:14px;bottom:128px;transform:none}
+  .nb-dock-panel{top:auto;bottom:0;transform:none;max-height:calc(100dvh - 152px);overflow-y:auto}
 
   .sheet-head,
   .sheet-head-top,
@@ -6991,8 +7037,9 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
   .write-dock{right:10px;bottom:120px}
 
   .sheet-gen-row{gap:8px}
+  .sheet-gen-row:not(:has(.sheet-gen-stop)){flex-wrap:wrap}
   .sheet-gen-row:not(:has(.sheet-gen-stop)) .sheet-gen-btn,
-  .sheet-gen-row .sheet-upload-btn{flex-basis:100%}
+  .sheet-gen-row:not(:has(.sheet-gen-stop)) .sheet-upload-btn{flex-basis:100%}
   .sheet-gen-row .sheet-upload-btn{height:auto;min-height:34px;padding:7px 10px}
 
   /* Nested state, variant and coverage cards may be substantially narrower
@@ -7008,9 +7055,10 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
 }
 
 @media (max-width:640px){
+  .nb-dock-panel{width:min(280px,calc(100vw - 84px));max-height:calc(100dvh - 152px)}
   /* A full-width drop target stays visually calm; its options control is
      anchored inside the frame and never participates in the action row. */
-  .sheet-frame:has(.sheet-dropzone) .sheet-gen-tools{
+  .sheet-frame:has(.sheet-dropzone):not(:has(.sheet-status-bar)) .sheet-gen-tools{
     top:20px;
     right:20px;
   }

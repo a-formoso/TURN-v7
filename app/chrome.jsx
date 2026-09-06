@@ -118,17 +118,22 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
   // each room's primary agent action, pinned to the right of the centered tab strip:
   // Art Room → the meta-agent (Run pre-production); Writers' Room → the Agents panel.
   const cta = inArt
-    ? (onCoordinate && React.createElement("button",{className:"tb-btn accent vn-cta",onClick:onCoordinate,
-        title:"Art Department Coordinator — runs your whole pre-production in dependency order: props → cast → locations → colour → shots → storyboard, in one click"},
-        React.createElement(Icon.robot,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Run pre-production")))
+    ? React.createElement(React.Fragment,null,
+        onAgents && React.createElement("button",{className:"tb-btn vn-cta",onClick:onAgents,disabled:readOnly,
+          title:readOnly?"View-only access — Story agents cannot change this film":"Story agents — Story Doctor, Continuity Repair and Table-Read"},
+          React.createElement(Icon.robot,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Story agents")),
+        onCoordinate && React.createElement("button",{className:"tb-btn accent vn-cta",onClick:onCoordinate,disabled:readOnly,
+          title:readOnly?"View-only access — pre-production cannot be changed":"Art Department Coordinator — runs your whole pre-production in dependency order: props → cast → locations → colour → shots → storyboard, in one click"},
+          React.createElement(Icon.robot,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Run pre-production")))
     : (onAgents && React.createElement("button",{className:"tb-btn accent vn-cta",onClick:onAgents,disabled:readOnly,
         title:readOnly?"View-only access — Story Editors cannot change this film":"Story Editors — AI agents that refine your story: Story Doctor, Continuity Repair, Table-Read"},
         React.createElement(Icon.robot,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Story Editors")));
-  return React.createElement("div",{className:"viewnav","aria-label":"Views"},
+  return React.createElement("nav",{className:"viewnav","aria-label":inArt?"Art Room views":"Writers’ Room views"},
     // LEFT zone — story-panel toggle. DRAWER MODES ONLY (hidden ≥1100px via CSS):
     // on desktop the panels collapse/expand from inside (panel-collapse / CollapsedStrip).
     React.createElement("div",{className:"vn-side vn-left"},
-      !inArt && React.createElement("button",{className:`tb-icon vn-paneltoggle ${railOpen?"on":""}`,onClick:onToggleRail,title:"Toggle story panel"},
+      !inArt && React.createElement("button",{className:`tb-icon vn-paneltoggle ${railOpen?"on":""}`,onClick:onToggleRail,
+        "aria-pressed":railOpen?"true":"false","aria-label":"Toggle story panel",title:"Toggle story panel"},
         React.createElement(Icon.panelLeft,{s:16}))),
     // CENTER — the room's view tabs WITH the room's agent CTA, centered as one unit
     React.createElement("div",{className:"vn-center"},
@@ -138,7 +143,8 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
           // it marks a waiting one-tap action, not just drift
           const attn = inArt && attnTabs && attnTabs[id];
           const stale = inArt && staleTabs && staleTabs[id];
-          return React.createElement("button",{key:id,className:`seg ${cur===id?"on":""}`,onClick:()=>setCur(id),
+           return React.createElement("button",{key:id,className:`seg ${cur===id?"on":""}`,onClick:()=>setCur(id),
+             "aria-current":cur===id?"page":undefined,
             title: attn ? (lab+" — a character sheet is waiting to wear its new props: tap \u201cUpdate sheet with new wardrobe\u201d on the card")
               : (stale ? (lab+" — the Lookbook changed since this was drafted") : lab)},
             React.createElement(Ic,{s:14}),React.createElement("span",{className:"seg-lab"},lab),
@@ -148,7 +154,8 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
       cta),
     // RIGHT zone — the inspector toggle, drawer modes only (balances the left zone)
     React.createElement("div",{className:"vn-side vn-right"},
-      !inArt && React.createElement("button",{className:`tb-icon vn-paneltoggle ${inspOpen?"on":""}`,onClick:onToggleInsp,title:"Toggle inspector"},
+      !inArt && React.createElement("button",{className:`tb-icon vn-paneltoggle ${inspOpen?"on":""}`,onClick:onToggleInsp,
+        "aria-pressed":inspOpen?"true":"false","aria-label":"Toggle inspector",title:"Toggle inspector"},
         React.createElement(Icon.panelRight,{s:16}))));
 }
 window.ViewNav = ViewNav;
@@ -179,7 +186,8 @@ function RoomSwitcher({ room, setRoom, hasStory, roomEntitlements }){
     return "";
   };
   return React.createElement("div",{className:"room-switch",ref},
-    React.createElement("button",{className:"room-btn",onClick:()=>setOpen(o=>!o)},
+    React.createElement("button",{className:"room-btn",onClick:()=>setOpen(o=>!o),
+      "aria-haspopup":"menu","aria-expanded":open?"true":"false","aria-label":`Production room: ${cur.label}`},
       React.createElement("span",{className:"room-btn-ic"},React.createElement(Icon[cur.icon]||Icon.script,{s:14})),
       React.createElement("span",{className:"room-btn-t"},
         React.createElement("span",{className:"room-btn-name"},cur.label),
@@ -190,9 +198,12 @@ function RoomSwitcher({ room, setRoom, hasStory, roomEntitlements }){
       ROOMS.map((r,i)=>
         React.createElement("button",{key:r.id,
           className:`room-item ${room===r.id?"on":""} ${(r.live&&!locked(r))?"":"soon"}`,
+           "aria-current":room===r.id?"page":undefined,
+           "aria-disabled":(!r.live||locked(r))?"true":undefined,
+           "aria-label":`${r.label}, ${r.phase}${!r.live?", coming soon":locked(r)?", "+lockLabel(r):""}`,
           title: planLocked(r) ? `${r.label} requires the ${typeof window.turnRoomRequiredPlan==="function" ? window.turnRoomRequiredPlan(r.id) : "right"} plan` :
             storyLocked(r) ? "Create a story first — this room works on your story" : undefined,
-          onClick:()=>{ if(r.live){ setRoom(r.id); setOpen(false); } }},
+           onClick:()=>{ if(r.live&&!locked(r)){ setRoom(r.id); setOpen(false); } }},
           React.createElement("span",{className:"room-item-no"},i+1),
           React.createElement("span",{className:"room-item-ic"},React.createElement(Icon[r.icon]||Icon.script,{s:15})),
           React.createElement("span",{className:"room-item-t"},
@@ -529,7 +540,9 @@ function CollapsedStrip({ side, label, icon:Ic, onExpand, flagCount, buttonless 
   // right under the top-bar's inspector toggle and read as a duplicate. The whole strip is
   // clickable to reopen instead, and the top-bar toggle still works.
   return React.createElement("div",{className:`strip ${side}${buttonless?" strip-clickable":""}`,
-      ...(buttonless ? { onClick:onExpand, title:`Expand ${label}`, role:"button", tabIndex:0 } : {})},
+      ...(buttonless ? { onClick:onExpand,
+        onKeyDown:(e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); onExpand(); } },
+        title:`Expand ${label}`, role:"button", tabIndex:0, "aria-label":`Expand ${label}` } : {})},
     buttonless ? null : React.createElement("button",{className:"strip-btn",onClick:onExpand,title:`Expand ${label}`},
       React.createElement(Ic,{s:16})),
     React.createElement("div",{className:"strip-label"},label),

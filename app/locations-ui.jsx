@@ -280,7 +280,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
           title:"Insert the ready edit instruction for this fixture — built from its prop card's spec (form, material, size). Apply edit paints it into the plate, matching the plate's look. Use the clip button beside it to also attach the fixture's sheet as a reference.",
           getRef: sheetRefOf(p) })),
       ],
-      specGate:{ ready:(drafted || !l.manual), hint:"Draft the design spec first \u2014 architecture, materials & light are what the plate is built from." },
+      specGate:{ ready:(drafted || !l.manual), hint:"Draft the specification first \u2014 architecture, materials & light are what the plate is built from." },
       // edit ONE view of the plate (works on generated or uploaded plates)
       menuExtra: gen.genUrl ? [{ label: panelEdit?"Close panel edit":"Edit a panel\u2026", placement:"beforeEdit",
         title:"Change just ONE view of the multi-angle plate, leaving the others untouched",
@@ -326,7 +326,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         // layout stacks each button on its own full-width line
         React.createElement("div",{className:"sheet-head-actions"},
           React.createElement("button",{className:"char-draft-btn"+(drafting?" busy":""),disabled:drafting,onClick:()=>onDraft(l)},
-            React.createElement(Icon.sparkles,{s:12}), drafting?"Drafting\u2026":"Draft details"),
+            React.createElement(Icon.sparkles,{s:12}), drafting?"Drafting\u2026":"Draft specification"),
           window.QaCheckButton && React.createElement(window.QaCheckButton,{ gen, name:l.name, noun:"location plate",
             specFields:()=>({ architecture:(l.architecture||""), materials:(l.materials||""), lighting:(l.lighting||"") }),
             onApplySpec:(patch)=>onUpdate(l.id, patch) }))),
@@ -361,8 +361,8 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
 
       !drafted && !gen.genUrl && React.createElement("div",{className:"sheet-undrafted"},
         React.createElement(Icon.alert,{s:13}),
-        React.createElement("span",null,"Details not drafted yet \u2014 click ",
-          React.createElement("b",null,"Draft details")," to design the space's architecture & light.")),
+        React.createElement("span",null,"Specification not drafted yet \u2014 click ",
+          React.createElement("b",null,"Draft specification")," to design the space's architecture & light.")),
 
       React.createElement(CardFold,{label:"The space",defaultOpen:(!drafted && !!l.manual)},
         React.createElement("div",{className:"sheet-field"},
@@ -923,13 +923,13 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
   const startSceneBatch = ()=>{
     if(!sceneFilter || batchActiveId) return;
     const eligible = draftedIds(shown);
-    if(!eligible.length){ batch.setMsg("Draft these locations first \u2014 nothing in this scene is ready to generate."); return; }
+    if(!eligible.length){ batch.setMsg("Draft these location specifications first \u2014 nothing in this scene is ready to generate."); return; }
     batch.begin(eligible, shown.length - eligible.length);
   };
   const startAllBatch = ()=>{
     if(batchActiveId) return;
     const eligible = draftedIds(list);
-    if(!eligible.length){ batch.setMsg("Draft the locations first \u2014 nothing is ready to generate yet."); return; }
+    if(!eligible.length){ batch.setMsg("Draft the location specifications first \u2014 nothing is ready to generate yet."); return; }
     // clear the SEARCH too, not just the scene/kind filters: the queue advances only
     // when the target CARD is mounted, so a batch whose first target was filtered out
     // by a search box never generated anything and hung until Cancel

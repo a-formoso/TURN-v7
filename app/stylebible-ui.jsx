@@ -181,7 +181,7 @@ function StyleBibleModal({ project, scenes, onClose, onAssign, assigning }){
         React.createElement("div",{style:{display:"flex",gap:8,alignItems:"center"}},
           onAssign && React.createElement("button",{className:"art-draftall ghost",disabled:assigning,onClick:onAssign,
             title:"Design a bespoke palette for this film, then color-script each scene along the value-charge spine (replaces the current looks)"},
-            React.createElement(Icon.layers,{s:14}), assigning?"Assigning\u2026":"Assign from script"),
+            React.createElement(Icon.layers,{s:14}), assigning?"Generating\u2026":"Generate from script"),
           React.createElement("button",{className:"ag-x",onClick:onClose},React.createElement(Icon.x,{s:17})))),
       React.createElement("div",{className:"sb-panel-body"},
         React.createElement(StyleFilmStrip,{scenes,project,presets}),
@@ -252,7 +252,7 @@ function StyleRefsField({ value, onCommit, onAssign, assigning, assignDisabled, 
   React.useEffect(()=>{ setV(value||""); },[value]);
   React.useEffect(()=>()=>{ if(tRef.current) clearTimeout(tRef.current); },[]);
   const commit = ()=>{ const t=(v||"").trim(); if(t!==((value||"").trim())) onCommit && onCommit(t);
-    setSaved(true); if(tRef.current) clearTimeout(tRef.current); tRef.current = setTimeout(()=>setSaved(false), 2400); };
+    setSaved(true); if(tRef.current) clearTimeout(tRef.current); tRef.current = setTimeout(()=>setSaved(false), 2400); return t; };
   const imgs = refImages||[];
   const fileRef = React.useRef(null);
   const onFiles = async (e)=>{
@@ -282,7 +282,7 @@ function StyleRefsField({ value, onCommit, onAssign, assigning, assignDisabled, 
       // pressing Light with unsaved text silently used the STALE saved refs).
       onLight
         ? React.createElement("button",{className:"sb-refbar-btn secondary",disabled:!!lightDisabled,
-            onClick:()=>{ commit(); onLight(); },
+            onClick:()=>{ const refs=commit(); onLight(refs); },
             title: lightDisabled
               ? "Add scenes first — the Colorist designs the palette and color-scripts each scene"
               : "Saves these references, then the Colorist designs a bespoke palette + film stock from them and color-scripts every scene — proposed for your approval"},

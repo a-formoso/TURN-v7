@@ -126,6 +126,37 @@ const LOOKBOOK_ROUTING = {
 };
 window.LOOKBOOK_ROUTING = LOOKBOOK_ROUTING;
 
+/* Creation provenance is deliberately assigned only at creation time. Legacy cards
+   without an origin stay unknown — callers must never infer/backfill them later. */
+function artRoomPropOrigin(kind, source){
+  if(source==="screenplay") return { kind:"screenplay" };
+  if(source==="manual") return { kind:"manual" };
+  if(source==="character"){
+    return { kind:(kind==="worn" || kind==="accessory") ? "costume" : "props" };
+  }
+  if(source==="design") return { kind:"props" };
+  return { kind:"unknown" };
+}
+window.artRoomPropOrigin = artRoomPropOrigin;
+
+/* Normalize the Props source-pill contract. `block` is intentionally 1-based for
+   people/UI; ScriptView's data-sp-block-index is zero-based. */
+function artRoomSourcePointer(mention){
+  const m=mention||{}, source=(m.source&&typeof m.source==="object")?m.source:{};
+  const oneBased=Number(m.block);
+  return {
+    sceneId:m.sceneId||m.scene_id||source.sceneId||"",
+    sceneNo:Number(m.sceneNo||m.scene_no),
+    title:String(m.title||m.sceneTitle||"").trim(),
+    beat:Number(m.beat||m.beatN||m.beatNo||source.beatN),
+    blockIndex:Number.isFinite(Number(m.blockIndex)) ? Number(m.blockIndex)
+      : Number.isFinite(Number(m.sourceBlockIndex)) ? Number(m.sourceBlockIndex)
+      : Number.isFinite(Number(source.blockIndex)) ? Number(source.blockIndex)
+      : Number.isFinite(oneBased) && oneBased>0 ? oneBased-1 : NaN,
+  };
+}
+window.artRoomSourcePointer = artRoomSourcePointer;
+
 /* the lookbook brief for one department: the film's visual statement (north star) + the
    reference notes whose category routes to that department. Returns "" when there's nothing. */
 function lookbookBriefFor(dept, lookbook, statement){
@@ -163,6 +194,8 @@ const LOOKBOOK_DEPT_AFFECT = {
   props:      "Its Production design references shape each prop's materials, finish and period.",
   locations:  "Its Production design and Atmosphere references shape each location's architecture, materials, light and mood.",
   colorist:   "Its Palette, Lighting, Texture & grain and Atmosphere references shape the colour grade and film stock.",
+  shots:      "Its Lens & format, Composition and Lighting references shape shot design and framing.",
+  storyboard: "Its Composition and Atmosphere references affect how the existing shot frames read as a board.",
 };
 window.LOOKBOOK_DEPT_AFFECT = LOOKBOOK_DEPT_AFFECT;
 

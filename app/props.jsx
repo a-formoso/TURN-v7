@@ -313,6 +313,10 @@ function propsFromCast(characters, existing, scenes, drafts){
         kind, ownerId: c.id||"", ownerName: c.name||"",
         form:"", material:"", detail:"", renderStyle:"", negativePrompt:"",
         fromCast:true,
+        // This is a department design proposal copied from a character brief. It is
+        // deliberately not screenplay provenance, even when the same noun is later
+        // discovered lexically in screenplay text.
+        origin:{kind:sourceKind==="worn"?"costume":"props",characterId:c.id||"",characterName:c.name||""},
       };
       if(kind==="worn"){ const sc = wornScenes(c.id, c.name); if(sc) card.scenes = sc; }
       out.push(card);
@@ -324,6 +328,29 @@ function propsFromCast(characters, existing, scenes, drafts){
 }
 window.propsFromCast = propsFromCast;
 
+/* A label may only state what the saved record establishes. In particular, finding a
+   matching word in screenplay text does not retroactively turn a design proposal into
+   a screenplay extraction. `fromCast` and `manual` are the only trustworthy legacy
+   origin flags; an old free-text `origin` field is provenance detail, not a source kind. */
+function propOriginLabel(prop){
+  const p=prop||{}, o=(p.origin && typeof p.origin==="object") ? p.origin : null;
+  const who=(o&&(o.characterName||o.ownerName))||p.ownerName||"the character";
+  if(o){
+    if(o.kind==="screenplay") return "Screenplay-derived extraction";
+    if(o.kind==="costume") return "Costume department design proposal from "+who+"'s character brief";
+    if(o.kind==="props") return "Props department design proposal from "+who+"'s character brief";
+    if(o.kind==="set-decoration") return "Set Decoration department design proposal";
+    if(o.kind==="manual") return "Added manually in Props";
+    return "Origin not recorded";
+  }
+  // Legacy `fromCast` did not retain whether the item came from Accessories or Props,
+  // and its current binding may since have been edited, so the department is unknown.
+  if(p.fromCast) return "Department design proposal from "+who+"'s character brief";
+  if(p.manual) return "Added manually in Props";
+  return "Origin not recorded";
+}
+window.propOriginLabel = propOriginLabel;
+
 /* Verifiable prop provenance from the screenplay page itself. Scene mappings can be
    inherited or AI-narrowed, so they are not evidence. Only the full normalized prop name
    counts as an exact mention. A recognised object noun is still useful discovery, but is
@@ -331,23 +358,46 @@ window.propsFromCast = propsFromCast;
 function propScreenplayMentions(prop, scenes, drafts){
   const esc = s=>String(s||"").replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
   const clean = s=>String(s||"").toLowerCase().replace(/[^a-z0-9' -]+/g," ").replace(/\s+/g," ").trim();
+  const indexed = value=>{
+    const raw=String(value==null?"":value), chars=[], map=[];
+    let pendingSpace=false, pendingIndex=0;
+    for(let i=0;i<raw.length;i++){
+      const ch=raw[i], keep=/[a-z0-9'-]/i.test(ch);
+      if(keep){
+        if(pendingSpace && chars.length){ chars.push(" "); map.push(pendingIndex); }
+        chars.push(ch.toLowerCase()); map.push(i); pendingSpace=false;
+      }else if(chars.length && !pendingSpace){ pendingSpace=true; pendingIndex=i; }
+    }
+    return {raw,normalized:chars.join(""),map};
+  };
   const full = clean(prop&&prop.name).replace(/^(the|a|an)\s+/,"");
   const head = (typeof propHeadNoun==="function") ? propHeadNoun(prop&&prop.name) : "";
-  const exactRe = full ? new RegExp("(^|\\b)"+esc(full)+"(\\b|$)","i") : null;
-  const possibleRe = head && head!==full ? new RegExp("(^|\\b)"+esc(head)+"(\\b|$)","i") : null;
+  const exactRe = full ? new RegExp("\\b"+esc(full)+"\\b","i") : null;
+  // Singular/plural variants are useful discovery only. They must stay possible:
+  // lexical similarity is not proof that the text names this particular object.
+  const heads=head ? [...new Set([head,head.endsWith("s")?head.slice(0,-1):head+"s"].filter(Boolean))] : [];
+  const possibleTerms=heads.filter(term=>term!==full);
+  const possibleRe = possibleTerms.length ? new RegExp("\\b(?:"+possibleTerms.map(esc).join("|")+")\\b","i") : null;
   const out=[];
   (scenes||[]).forEach(scene=>{
     const d=(drafts||{})[scene.id];
     if(!d||!Array.isArray(d.blocks)) return;
     d.blocks.forEach((block,index)=>{
       if(/^(scene|heading|slug|char|character|cue)$/i.test(String(block&&block.type||""))) return;
-      const raw=String(block&&block.text||"").replace(/\s+/g," ").trim();
-      if(!raw) return;
-      const hay=clean(raw);
-      const match=exactRe&&exactRe.test(hay) ? "exact" : (possibleRe&&possibleRe.test(hay) ? "possible" : "");
+      const ix=indexed(block&&block.text);
+      if(!ix.normalized) return;
+      const exactHit=exactRe&&exactRe.exec(ix.normalized);
+      const possibleHit=!exactHit&&possibleRe&&possibleRe.exec(ix.normalized);
+      const hit=exactHit||possibleHit, match=exactHit?"exact":possibleHit?"possible":"";
       if(!match) return;
+      const matchStart=ix.map[hit.index] == null ? 0 : ix.map[hit.index];
+      const lastMap=ix.map[hit.index+hit[0].length-1];
+      const matchEnd=(lastMap==null?matchStart:lastMap)+1;
+      const radius=95, excerptStart=Math.max(0,matchStart-radius);
+      const excerptEnd=Math.min(ix.raw.length,matchEnd+radius);
+      const text=(excerptStart?"…":"")+ix.raw.slice(excerptStart,excerptEnd)+(excerptEnd<ix.raw.length?"…":"");
       out.push({sceneId:scene.id,sceneNo:scene.no,title:scene.title||"",beat:block.beat||block.beatId||null,
-        block:index+1,text:raw.length>180?raw.slice(0,177)+"…":raw,match});
+        block:index+1,text,fullText:ix.raw,match,matchStart,matchEnd,matchedText:ix.raw.slice(matchStart,matchEnd)});
     });
   });
   return out.sort((a,b)=>(a.match==="exact"?0:1)-(b.match==="exact"?0:1));
@@ -633,7 +683,7 @@ function _propEventList(p){
 function propIdentityOf(p){
   p=p||{};
   return { id:p.id||"", name:p.name||"", ownerId:p.ownerId||"", ownerName:p.ownerName||"",
-    origin:p.origin||p.ownerName||"", associationType:p.associationType||(p.ownerId?"character":p.locationId?"location":""),
+    origin:p.provenance||(typeof p.origin==="string"?p.origin:"")||p.ownerName||"", associationType:p.associationType||(p.ownerId?"character":p.locationId?"location":""),
     associationId:p.associationId||p.ownerId||p.locationId||"", associationName:p.associationName||p.ownerName||"" };
 }
 window.propIdentityOf = propIdentityOf;
@@ -801,62 +851,31 @@ function buildPropFittingPrompt(p, hasOwner){
 window.buildPropFittingPrompt = buildPropFittingPrompt;
 
 async function generatePropSheet(p, project){
-  const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;   // asset scope at generation start
-  if(typeof nbGenerate!=="function" || typeof nbCommit!=="function") return false;
-  const basePrompt = (typeof combinedPropPrompt==="function") ? combinedPropPrompt(p, project) : (p.name||"prop reference");
-  // reference the OWNER's character sheet (if generated) so the prop matches their look
-  const ownerUrl = await propOwnerSheetUrl(p);
-  const prompt = basePrompt + (ownerUrl ? (" "+propOwnerNote(p)) : "");
-  const refImgs = [ownerUrl].filter(Boolean);
-  const refOpts = refImgs.length ? { extraImages:refImgs } : {};
-  const model  = (typeof nbGetModel==="function")  ? nbGetModel()  : "";
-  const aspect = (typeof nbGetAspect==="function") ? nbGetAspect() : "16:9";
-  const size   = (typeof nbGetRes==="function")    ? nbGetRes()    : "2K";
-  // register in the shared inflight registry so a mounted prop card shows the spinner
-  // and the operation survives an Art Room tab switch (same infra as useImageGen).
-  if(!window.__nbGenInflight) window.__nbGenInflight = {};
-  window.__nbGenInflight[p.id] = true;
-  try{
-    let url;
-    try{ url = await nbGenerate(prompt, refOpts); }
-    catch(e){
-      // same fallback the card uses: an empty/"no image" result retries simplified
-      if(/no image/i.test((e&&e.message)||"") && typeof buildSimplePropPrompt==="function"){
-        url = await nbGenerate(buildSimplePropPrompt(p) + (ownerUrl?(" "+propOwnerNote(p)):""), refOpts);
-      } else { throw e; }
-    }
-    // record WHICH owner-sheet version this sheet is anchored against — the card's
-    // "anchored to a previous plate" badge compares it against the owner's current meta
-    let anchorIso = "";
-    if(ownerUrl && p.ownerId && typeof nbLoadDetailsAsset==="function"){
-      try{ const d = await nbLoadDetailsAsset(p.ownerId); anchorIso = (d && d.meta && d.meta.iso) || ""; }catch(e){}
-    }
-    const now = new Date();
-    const mEntry = (window.NB_MODELS||[]).find(m=>m.id===model) || {};
-    const meta = { modelLabel: mEntry.label||"Nano Banana", modelId: model, aspect, size,
-      // match the per-card sheet caption: GPT Image carries its quality (low/medium/high)
-      quality: (typeof window.isGptImageModel==="function" && window.isGptImageModel(model))
-        ? ((typeof window.nbGetOaiQuality==="function") ? window.nbGetOaiQuality() : "medium") : undefined,
-      date: now.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}),
-      time: now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}),
-      iso: now.toISOString(), prompt, mode:"final", version:1,
-      anchorOwnerId: (ownerUrl && p.ownerId) ? p.ownerId : undefined,
-      anchorOwnerName: (ownerUrl && p.ownerId) ? (p.ownerName||"") : undefined,
-      anchorIso: anchorIso || undefined };
-    const _r = await nbCommit(p.id, url, meta, [], "prop", _ep);
-    // the film changed while this sheet generated: the write was refused (stale scope).
-    // Do NOT announce completion — a same-id card in the NEW film must not adopt the
-    // uncommitted image. Quiet failure: the caller sees "didn't complete".
-    if(_r && _r.tier==="stale") return false;
-    // a render whose SAVE failed is a failure too — callers (the character's
-    // "generate missing sheets first" gate, batch runs) must not count it as done
-    if(!_r || _r.tier==="error") return false;
-    // let any mounted card (the prop's own, or a char card watching its props) adopt it
-    try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id:p.id, url } })); }catch(e){}
-    return true;
-  } finally {
-    window.__nbGenInflight[p.id] = false;
-  }
+  if(!p || typeof window.nbRunSheetGeneration!=="function") return false;
+  const noop=()=>{};
+  let ownerMeta=null, ownerUrl="";
+  const build=()=>typeof combinedPropPrompt==="function"?combinedPropPrompt(p,project):(p.name||"prop reference");
+  return !!(await window.nbRunSheetGeneration({
+    id:p.id,slotId:"propref-"+p.id,allModels:window.NB_MODELS||[],
+    genUrl:typeof nbGetImage==="function"?nbGetImage(p.id):"",
+    genMeta:typeof nbGetMeta==="function"?nbGetMeta(p.id):null,slotHasRef:false,
+    opts:{
+      entity:p,buildFinal:build,
+      buildSimple:()=>typeof buildSimplePropPrompt==="function"?buildSimplePropPrompt(p):build(),
+      attachments:async()=>{
+        ownerUrl=await propOwnerSheetUrl(p);
+        // Capture the source version alongside the pixels, not after generation.
+        ownerMeta=typeof nbGetMeta==="function"?nbGetMeta(p.ownerId):null;
+        return ownerUrl?[{url:ownerUrl,kind:"owner",note:p.ownerName||"Owner character",
+          refId:p.ownerId,refVersion:ownerMeta&&ownerMeta.version,refGenerated:ownerMeta&&ownerMeta.iso}]:[];
+      },
+      attachmentsText:()=>ownerUrl?propOwnerNote(p):"",
+      metaExtra:()=>({specPrompt:build(),anchorOwnerId:ownerUrl?p.ownerId:undefined,
+        anchorOwnerName:ownerUrl?p.ownerName:undefined,anchorIso:ownerMeta&&ownerMeta.iso})
+    },
+    ui:{setGenErr:message=>{if(message&&typeof window.appToast==="function")window.appToast(message,"error");},
+      setGening:noop,setRetrying:noop,setGenUrl:noop,setGenTier:noop,setGenMeta:noop}
+  },{batch:true}));
 }
 window.generatePropSheet = generatePropSheet;
 
@@ -1037,7 +1056,7 @@ function PropFittingModal({ p, propUrl, onClose }){
     document.body);
 }
 
-function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete, onDraft, onEnsureOwner, drafting, onView, batchActiveId, onBatchDone, onChipClick, onTagOne, taggingScene, dupIds, dupProps, onMerge, derivedScenes }){
+function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete, onDraft, onEnsureOwner, drafting, onView, batchActiveId, onBatchDone, onChipClick, onSourceClick, onTagOne, taggingScene, dupIds, dupProps, onMerge, derivedScenes }){
   const d = propDefaults(p);
   const finalPrompt = combinedPropPrompt(p, project);
   const drafted = propVisualsDrafted(p);
@@ -1243,6 +1262,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
 
   return React.createElement("div",{className:"sheet-card"+(batchActiveId===p.id?" batch-on":""),"data-prop-card":p.id},
     React.createElement(SheetFrame,{ gen:genForFrame, slotId:"propref-"+p.id, name:p.name, avatarColor:propSwatch(p.kind),
+      reviewReasons:promptStale?["Prop specification changed"]:[],
       initials, drafted, drafting, onDraft:()=>onDraft(p), entity:p, onView,
       slotPlaceholder:"Drop a photo of the object", noun:"prop sheet",
       // The empty slot is also the finished-image importer (full resolution, like the Locations
@@ -1291,7 +1311,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
             React.createElement("span",null,"Placed into ",React.createElement("b",null,((typeof propHomeLocation==="function") && (propHomeLocation(p)||{}).name) || "its location"),"'s plate via the plate's Edit panel \u2014 by prompt, or prompt + this sheet as reference"))),
         React.createElement("div",{className:"sheet-head-actions"},
           React.createElement("button",{className:"char-draft-btn"+(drafting?" busy":""),disabled:drafting,onClick:()=>onDraft(p)},
-            React.createElement(Icon.sparkles,{s:12}), drafting?"Drafting\u2026":"Draft details"),
+            React.createElement(Icon.sparkles,{s:12}), drafting?"Drafting\u2026":"Draft specification"),
           window.QaCheckButton && React.createElement(window.QaCheckButton,{ gen:genForFrame, name:p.name, noun:"prop sheet",
             specFields:()=>({ form:(p.form||""), material:(p.material||""), detail:(p.detail||""), size:(p.size||""), scale:(p.scale||"") }),
             onApplySpec:(patch)=>onUpdate(p.id, patch) }),
@@ -1306,7 +1326,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
         React.createElement(Icon.alert,{s:14}),
         React.createElement("span",null,
           React.createElement("b",null,"Reference out of date"),
-          " · The prop spec changed after this sheet was generated. Use Regenerate prop sheet above to update it.")),
+          " · The prop spec changed after this sheet was generated. Use Regenerate image above to update it.")),
 
       React.createElement("div",{className:"char-style-row"},
         React.createElement("span",{className:"char-style-lab"},"Render style"),
@@ -1330,39 +1350,42 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
           items: propScenes.map(s=>({ key:s.id, label:String(s.no).padStart(2,"0"), className:"prop-scene-chip",
             title:s.title||("Scene "+s.no), onClick:()=>onChipClick&&onChipClick(s.id) })) })),
 
-      React.createElement("div",{className:"prop-evidence"},
-        React.createElement("div",{className:"prop-evidence-head"},
+      React.createElement("details",{className:"prop-evidence"},
+        React.createElement("summary",{className:"prop-evidence-head"},
           React.createElement(Icon.layers,{s:12}),
-          React.createElement("span",null,"SCREENPLAY SOURCES"),
+          React.createElement("span",null,"SOURCES"),
           React.createElement("span",{className:"prop-evidence-summary"},
             exactMentions?(exactMentions+" exact"):"",
             exactMentions&&possibleMentions?" · ":"",
-            possibleMentions?(possibleMentions+" possible"):"")),
+            possibleMentions?(possibleMentions+" possible"):"",
+            !screenplayMentions.length?"No screenplay matches":"")),
+        React.createElement("div",{className:"prop-origin-label"},propOriginLabel(p)),
         screenplayMentions.length
           ? React.createElement("div",{className:"prop-evidence-list"},
-              screenplayMentions.slice(0,5).map((m,i)=>React.createElement("div",{className:"prop-evidence-row",key:m.sceneId+"-"+m.block+"-"+i},
-                React.createElement("div",{className:"prop-evidence-place"},
-                  React.createElement("button",{className:"prop-evidence-loc",onClick:()=>onChipClick&&onChipClick(m.sceneId),
-                    title:m.title||("Scene "+m.sceneNo)},
+              screenplayMentions.map((m,i)=>React.createElement("details",{className:"prop-evidence-row",key:m.sceneId+"-"+m.block+"-"+i},
+                React.createElement("summary",{className:"prop-evidence-place"},
+                  React.createElement("span",{className:"prop-evidence-loc"},
                     "Scene "+String(m.sceneNo).padStart(2,"0")+(m.beat!=null?(" · Beat "+m.beat):"")),
                   React.createElement("span",{className:"prop-evidence-kind "+m.match},
                     m.match==="exact"?"Exact text":"Possible match")),
-                React.createElement("q",{className:"prop-evidence-quote"},m.text))),
-              screenplayMentions.length>5 && React.createElement("div",{className:"prop-evidence-more"},
-                "+"+(screenplayMentions.length-5)+" more screenplay source line"+(screenplayMentions.length-5===1?"":"s")))
+                React.createElement("div",{className:"prop-evidence-actions"},
+                  React.createElement("button",{type:"button",className:"prop-evidence-jump",
+                    onClick:()=>onSourceClick&&onSourceClick(m)},"Scene"),
+                  m.beat!=null&&React.createElement("button",{type:"button",className:"prop-evidence-jump",
+                    onClick:()=>onSourceClick&&onSourceClick(m)},"Beat")),
+                React.createElement("q",{className:"prop-evidence-quote"},
+                  m.fullText.slice(0,m.matchStart),
+                  React.createElement("mark",null,m.fullText.slice(m.matchStart,m.matchEnd)),
+                  m.fullText.slice(m.matchEnd)))))
           : React.createElement("div",{className:"prop-evidence-none"},
-              "No direct mention found in the screenplay text. ",
-              p.fromCast
-                ? ("The Props tab created this card from Characters \u203a "+(p.ownerName||"the owner")+" \u203a Props & accessories.")
-                : p.manual
-                  ? "This card was added in the Props tab."
-                  : "The Props tab created this card during its screenplay/cast design pass or scene mapping.",
-              " It is not presented as a quoted script fact.")),
+              "No direct mention found in the screenplay text. This is not presented as a quoted script fact."),
+        React.createElement("div",{className:"prop-evidence-caution"},
+          "Text matches are discovery evidence only; even an exact phrase does not prove this is the same physical object.")),
 
       !drafted && !gen.genUrl && React.createElement("div",{className:"sheet-undrafted"},
         React.createElement(Icon.alert,{s:13}),
-        React.createElement("span",null,"Details not drafted yet \u2014 click ",
-          React.createElement("b",null,"Draft details")," to fill the object's form & material.")),
+          React.createElement("span",null,"Specification not drafted yet \u2014 click ",
+          React.createElement("b",null,"Draft specification")," to fill the object's form & material.")),
 
       (dupIds && dupIds.length>1) && React.createElement("div",{className:"prop-dup-warn"},
         React.createElement("div",{className:"prop-dup-head"},
@@ -1417,8 +1440,8 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
               React.createElement("option",{value:":"},"Project world"),
               React.createElement("optgroup",{label:"Characters"},(characters||[]).map(c=>React.createElement("option",{key:"c"+c.id,value:"character:"+c.id},c.name))),
               React.createElement("optgroup",{label:"Locations"},continuityLocations.map(l=>React.createElement("option",{key:"l"+l.id,value:"location:"+l.id},l.name)))))),
-        React.createElement(SheetField,{label:"Owner / origin — canonical provenance",value:p.origin||p.ownerName||"",
-          placeholder:"Originally Yusuf's · stolen police issue · found in the Minicab…",onCommit:val=>onUpdate(p.id,{origin:val})}),
+        React.createElement(SheetField,{label:"Owner / origin — canonical provenance",value:p.provenance||(typeof p.origin==="string"?p.origin:"")||p.ownerName||"",
+          placeholder:"Originally Yusuf's · stolen police issue · found in the Minicab…",onCommit:val=>onUpdate(p.id,{provenance:val})}),
         // RELATIONSHIP — one line on how the owner relates to this object; feeds the
         // sheet prompt (condition/wear/repairs express it) and bakes into the owner's
         // character sheet for worn items. Belonging = character truth, not just style.
@@ -1544,7 +1567,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
             "The spec has changed since this sheet was generated \u2014 Regenerate to bring the sheet back in step with it."))));
 }
 
-function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDraft, onDraftAll, onAdd, onDelete, draftingId, draftingIds, draftingAll, onSeedFromCast, castHasProps, onTagScenes, taggingScenes, onTagOne, taggingSceneId, onMergeProps, onPropsMaster, trashItems, onRestore, onPurge, onEnsureOwner, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly }){
+function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDraft, onDraftAll, onAdd, onDelete, draftingId, draftingIds, draftingAll, onSeedFromCast, castHasProps, onTagScenes, taggingScenes, onTagOne, taggingSceneId, onMergeProps, onPropsMaster, trashItems, onRestore, onPurge, onEnsureOwner, onSourceClick, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly }){
   const [view, setView] = React.useState(null);   // {url, character/prop}
   if(window.useRenderStyleVersion) window.useRenderStyleVersion();   // re-render dropdowns when a style is locked/unlocked
   const [sceneFilter, setSceneFilter] = React.useState("");   // "" = all
@@ -1720,7 +1743,7 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
         ? "The drafted carried props in this scene have no owner \u2014 assign one on each card first (batch generation won't make world-generic sheets)."
         : (!nonWorn.length
           ? "Every prop mapped to this scene is WORN \u2014 worn items render on their owner\u2019s character sheet (Characters tab), not here. Nothing separate to generate."
-          : "Draft these props first (\u201cDraft details\u201d on each card) \u2014 nothing in this scene is ready to generate yet."));
+          : "Draft these props first (\u201cDraft specification\u201d on each card) \u2014 nothing in this scene is ready to generate yet."));
       return;
     }
     batch.begin(eligible, inSceneAll.length - eligible.length);
@@ -1732,7 +1755,7 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
     if(!eligible.length){
       batch.setMsg(draftedAll.length
         ? "Every drafted carried prop has no owner \u2014 assign one on each card first (batch generation won't make world-generic sheets)."
-        : "Draft the props first \u2014 nothing is ready to generate yet.");
+        : "Draft the prop specifications first \u2014 nothing is ready to generate yet.");
       return;
     }
     // Clear filters before the batch: the queue advances only
@@ -1756,18 +1779,15 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
             ((typeof roomCopy==="function" && roomCopy(project,"props").title) || "Props Master"),
             React.createElement(window.InfoTip,{label:"About Props",
               text:((typeof roomCopy==="function" && roomCopy(project,"props").tip) ||
-                "Continuity objects \u2014 the things characters wear and carry, plus the set dressing the camera sees. Carried and set-dressing props get their own multi-view reference sheet (worn items render on their owner's character sheet instead); a set-dressing sheet can then ride the location plate's Edit panel as a reference image so the fixture lands exactly as designed. 'Design all props' builds every prop from the story in one pass \u2014 pulls missing items from the cast, drafts each spec, and maps every prop to its scenes; 'Generate all props' then renders the sheets.\n\nPROPS DERIVE FROM THE SCRIPT \u2014 there's no hand-adding here: name the object in the screenplay (worn, carried or set dressing) and 'Design all props' pulls it in.")}))),
+                "Continuity objects \u2014 the things characters wear and carry, plus the set dressing the camera sees. Carried and set-dressing props get their own multi-view reference image (worn items render on their owner's character sheet instead). Draft all specifications fills the design fields and maps scene appearances; Generate all images then renders the drafted sheets. Each card records whether it came from an explicit screenplay extraction, a department proposal based on a character brief, or manual entry. Matching screenplay words are shown separately as discovery evidence, not proof of origin or object identity.")}))),
         React.createElement("div",{className:"art-intro-actions"},
           window.RecentlyDeleted && React.createElement(window.RecentlyDeleted,{items:trashItems,kind:"prop",onRestore,onPurge,compact:true}),
-          // NO hand-adding (product rule 2026-07-13): props derive from the script —
-          // name an object in the screenplay (worn, carried or set dressing) and
-          // 'Design all props' pulls it in; the Art Room never invents story objects.
           React.createElement("button",{className:"art-draftall ghost",disabled:draftingAll||(!list.length&&!castHasProps),onClick:onDraftAll,
-            title:"Build every prop from the story in one pass \u2014 pull missing items from the cast, draft each spec (object, significance, look dev) from the script, and map every prop to the scenes it appears in"},
-            React.createElement(Icon.sparkles,{s:14}), draftingAll?"Designing\u2026":"Design all props"),
+            title:"Draft every prop specification and map each prop to its scene appearances"},
+            React.createElement(Icon.sparkles,{s:14}), draftingAll?"Drafting\u2026":"Draft all specifications"),
           React.createElement("button",{className:"art-draftall",disabled:!!batchActiveId||!eligibleAll,onClick:startAllBatch,
             title:"Generate (or regenerate) the reference sheet for every drafted prop \u2014 you choose whether to redo ones that already have a sheet"},
-            React.createElement(Icon.sparkles,{s:14}), batchActiveId?"Generating\u2026":"Generate all props", typeof window.nbCostChip==="function" && window.nbCostChip(1))))),
+            React.createElement(Icon.sparkles,{s:14}), batchActiveId?"Generating\u2026":"Generate all images", typeof window.nbCostChip==="function" && window.nbCostChip(1))))),
     window.LookbookStaleNotice && React.createElement(window.LookbookStaleNotice,{stale:lookbookStale,onApply:onApplyLookbook,onDraftOnly:onApplyLookbookDraftOnly,label:"these props",dept:"props"}),
     unassignedCarried.length>0 && React.createElement("div",{className:"prompt-drift-note",style:{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}},
       React.createElement("span",{style:{flex:1,minWidth:220}},
@@ -1808,16 +1828,16 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
             "Scene "+String(s.no).padStart(2,"0")+" \u00b7 "+(s.title||"")+"  ("+n+" prop"+(n!==1?"s":"")+")");
         })),
       sceneFilter && React.createElement("button",{className:"art-draftall",disabled:!!batchActiveId,onClick:startSceneBatch,
-        title:"Generate reference sheets for the props in this scene \u2014 you choose whether to redo ones that already have a sheet"},
+        title:"Generate images for the drafted props in this scene \u2014 you choose whether to redo existing images"},
         React.createElement(Icon.sparkles,{s:14}),
-        batchActiveId?"Generating\u2026":("Generate all in Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")), typeof window.nbCostChip==="function" && window.nbCostChip(1)))),
+        batchActiveId?"Generating\u2026":("Generate images in Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")), typeof window.nbCostChip==="function" && window.nbCostChip(1)))),
     list.length
       ? (shown.length
           ? React.createElement(React.Fragment,null,
               React.createElement("div",{className:"sheet-grid"},
                 pager.slice(shown).map(p=>React.createElement(PropSheet,{key:p.id,p,project,characters,scenes,drafts,onUpdate,onDelete,onDraft,onEnsureOwner,
                   drafting:draftingId===p.id||(draftingIds||[]).indexOf(p.id)>=0||draftingAll,onView:(url,pr)=>setView({url,character:pr}),
-                  batchActiveId,onBatchDone:batch.advance,onChipClick:(sid)=>setSceneFilter(sid),
+                   batchActiveId,onBatchDone:batch.advance,onChipClick:(sid)=>setSceneFilter(sid),onSourceClick,
                   onTagOne,taggingScene:taggingSceneId===p.id,derivedScenes:effMap[p.id],
                   dupIds:dupForId[p.id],dupProps:(dupForId[p.id]||[]).filter(id=>id!==p.id).map(id=>byId[id]).filter(Boolean),onMerge:onMergeProps}))),
               React.createElement(PagerBar,{pager,noun:"prop"}))
@@ -1837,11 +1857,11 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
           React.createElement("div",{className:"art-soon-ic"},React.createElement(Icon.box,{s:30})),
           React.createElement("div",{className:"art-soon-t"},"No props yet"),
           React.createElement("div",{className:"art-soon-d"}, castHasProps
-            ? "Your cast already lists worn & carried items on their character sheets \u2014 \u201cDesign all props\u201d pulls them in, drafts each spec, and maps their scenes in one pass. Or add one by hand."
+            ? "Your cast already lists worn & carried items on their character sheets \u2014 \u201cDraft all specifications\u201d pulls them in as department proposals, drafts each spec, and maps their scenes in one pass. Or add one by hand."
             : "Add a prop to start building its reference sheet \u2014 a weapon, a phone, a talisman, anything that recurs across scenes."),
           React.createElement("div",{style:{display:"flex",gap:8,marginTop:16}},
             castHasProps && React.createElement("button",{className:"art-draftall",disabled:draftingAll,onClick:onDraftAll},
-              React.createElement(Icon.sparkles,{s:14}), draftingAll?"Designing\u2026":"Design all props"),
+              React.createElement(Icon.sparkles,{s:14}), draftingAll?"Drafting\u2026":"Draft all specifications"),
             React.createElement("button",{className:castHasProps?"art-draftall ghost":"art-draftall",onClick:onAdd},
               React.createElement(Icon.plus,{s:14}),castHasProps?"Add by hand":"Add your first prop"))));
 }

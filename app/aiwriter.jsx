@@ -64,6 +64,7 @@ function WritingDock({ task }){
     React.createElement("button",{className:"nb-dock-toggle","aria-expanded":open?"true":"false",
       title:"Writing engine ("+((models.find(m=>m.id===resolvedId)||{}).label||resolvedId)+") — the text model behind drafting, agents and story builds"+(pick?" (your pick this session)":" (AUTO — the per-task recommendation)")+". Click to change.",
       onClick:()=>setOpen(o=>!o)},
+      React.createElement("span",{className:"nb-dock-label"},"Writing"),
       React.createElement("span",{className:"nb-dock-chip model"},short),
       React.createElement("span",{className:"nb-dock-chip"},mode)),
     open && React.createElement("div",{className:"nb-dock-panel write-dock-panel"},

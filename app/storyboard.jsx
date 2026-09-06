@@ -142,6 +142,23 @@ function sbPageRanges(shots, pageSize){
 }
 window.sbPageRanges = sbPageRanges;
 
+/* Truthful board readiness: a composed sheet that still contains placeholder panels
+   is partial, not ready. Uploaded boards have no composed metadata and count complete. */
+function sbStoryboardReadiness(pagesByScene, frames, metaOf){
+  const out = { complete:0, partial:0, missing:0, total:0 };
+  const getMeta = typeof metaOf==="function" ? metaOf : ()=>null;
+  (pagesByScene||[]).forEach(g=>(g.pages||[]).forEach(page=>{
+    out.total++;
+    const id = "sbsheet-"+page.id;
+    if(!(frames&&frames[id])){ out.missing++; return; }
+    const meta = getMeta(id)||{};
+    const missing = Math.max(0, Number(meta.missing)||0);
+    if(meta.composed && missing>0) out.partial++; else out.complete++;
+  }));
+  return out;
+}
+window.sbStoryboardReadiness = sbStoryboardReadiness;
+
 /* ============================================================================
    SHEET-COMPOSE COORDINATOR — ONE writer per sheet id. A mounted card's compose
    (auto-recompose, Recompose button) and the bulk Compose-all / per-scene runs
@@ -415,6 +432,12 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
     return v ? (tv===v && bv===v) : true; })());
   const saveHalves = async ()=>{
     if(halvesBusy || !gen.genUrl || halvesCurrent) return;   // duplicate guard
+    if(isComposed && readyRef.current.n < readyRef.current.total){
+      setHalvesErr("Stage hand-off needs every required panel. This sheet is partial ("+
+        readyRef.current.n+"/"+readyRef.current.total+" frames); generate the missing frames in the Shot List first.");
+      setMenuOpen(false);
+      return;
+    }
     setHalvesBusy(true); setHalvesDone(false); setHalvesErr("");
     try{
       await sbSaveHalves(gen.genUrl, sid, page, sheetVersion());
@@ -872,7 +895,7 @@ function StoryboardPage({ project, scene, page, pageCount, ctx, beatsMap, onView
       })));
 }
 
-function StoryboardView({ project, scenes, shots, characters, props, locations, beatsMap, setArtView, onUpdateShot }){
+function StoryboardView({ project, scenes, shots, characters, props, locations, beatsMap, setArtView, onUpdateShot, stale, onReviewLookbook }){
   const [view, setView]   = React.useState(null);   // lightbox {url, character}
   const [frames, setFrames] = React.useState({});    // sheetId -> url (for the progress count)
   const [jumpOpen, setJumpOpen] = React.useState(false);
@@ -921,8 +944,10 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
     return ()=> window.removeEventListener("nb-gen-done", onDone);
   }, []);
 
-  const totalSheets = allSheetIds.length;
-  const readySheets = allSheetIds.filter(id=>frames[id]).length;
+  const readiness = sbStoryboardReadiness(pagesByScene, frames,
+    (id)=> (typeof nbGetMeta==="function") ? nbGetMeta(id) : null);
+  const totalSheets = readiness.total;
+  const readySheets = readiness.complete + readiness.partial;
 
   // compose every sheet whose shots have frames — instant per sheet, no generation cost
   const [composingAll, setComposingAll] = React.useState(null);   // {i,total} | null
@@ -1009,6 +1034,11 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
   return _sbEl("div",{className:"art-scroll"},
     view && _sbEl(ImageLightbox,{url:view.url,character:view.character,onClose:()=>setView(null)}),
     _sbEl(NbKeyBar,null), _sbEl(NbControls,null),
+    stale && _sbEl("div",{className:"lb-stale-notice"},
+      _sbEl(Icon.alert,{s:14}),
+      _sbEl("span",null,_sbEl("b",null,"Lookbook review needed")," — Composition or Atmosphere references changed. Existing boards remain untouched; review them against the new brief."),
+      onReviewLookbook && _sbEl("button",{className:"lb-stale-btn ghost",onClick:onReviewLookbook,
+        title:"Acknowledge that you reviewed the existing boards against the current Lookbook; this does not render or replace anything"},"Mark reviewed")),
     _sbEl("div",{className:"art-intro"},
       _sbEl("div",{className:"art-intro-row"},
         _sbEl("div",{style:{flex:1}},
@@ -1016,7 +1046,9 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
             _sbEl(window.InfoTip,{label:"About Storyboards",
               text:"Storyboards are the presentation layer of your shot chain: each scene's generated shot frames lay into printable 2×2 sheets — paginated on beat boundaries, with real CAMERA / MOTION / ACTION / PERFORMANCE annotations — and re-compose automatically whenever a frame re-renders in the Shot List. Save top/bottom halves to hand panel rows to the Stage, repair a single panel (it edits that shot's frame), upload a board made elsewhere, or export the whole board as a print-ready PDF."})),
           _sbEl("div",{style:{fontFamily:"var(--f-mono)",fontSize:11,letterSpacing:".03em",color:"var(--txt-3)",marginTop:4}},
-            readySheets+" of "+totalSheets+" sheet"+(totalSheets!==1?"s":"")+" ready")),
+            readiness.complete+"/"+totalSheets+" complete"+
+            (readiness.partial ? " · "+readiness.partial+"/"+totalSheets+" partial" : "")+
+            (readiness.missing ? " · "+readiness.missing+"/"+totalSheets+" missing" : ""))),
         _sbEl("div",{className:"art-intro-actions"},
           _sbEl("button",{className:"art-draftall",disabled:!!composingAll||!!composingScene||!totalSheets,onClick:composeAll,
             title:"Lay every scene's generated shot frames into its sheets — instant and free; scenes with no frames yet are skipped"},
@@ -1192,10 +1224,18 @@ async function exportStoryboard(pagesByScene, frames, project){
   // with warnings (and the affected sheets are marked in the document itself).
   let health = null;
   try{ health = await sbBoardHealth(pagesByScene); }catch(e){}
+  const readiness = sbStoryboardReadiness(pagesByScene, frames,
+    (id)=> (typeof nbGetMeta==="function") ? nbGetMeta(id) : null);
   const _totParts = health ? sbWarnParts(health.tot) : [];
-  if(_totParts.length && typeof window.appConfirm==="function"){
+  if((readiness.partial || readiness.missing || _totParts.length) && typeof window.appConfirm==="function"){
+    const sheetState = [
+      readiness.partial ? readiness.partial+"/"+readiness.total+" partial sheets" : "",
+      readiness.missing ? readiness.missing+"/"+readiness.total+" missing sheets" : "",
+    ].filter(Boolean);
     const ok = await window.appConfirm({ title:"Export with warnings?",
-      body:"This board isn't fully verified — across its panels: "+_totParts.join(", ")+". The export marks the affected sheets so nothing reads as final that isn't. For a clean board, approve and re-render in the Shot List first.",
+      body:"This board is incomplete"+(sheetState.length?" ("+sheetState.join(", ")+")":"")+
+        (_totParts.length?" — across its panels: "+_totParts.join(", "):"")+
+        ". The export preserves partial compositions and marks affected sheets so nothing reads as final. Generate missing frames and approve/re-render in the Shot List for a complete board.",
       confirmLabel:"Export with warnings", cancelLabel:"Cancel" });
     if(!ok){ if(prev) prev.close(); if(w){ try{ w.close(); }catch(e){} } return; }
   }
