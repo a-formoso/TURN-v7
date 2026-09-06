@@ -8,7 +8,11 @@ Rule: any user-facing "style/structure" pick for a derived prompt must carry an 
 **Why:** `seedanceMicroBeatDirectorPrompt` always returns text, so `auto || recipe` never reached the recipe; on 2.5 a wholeScene override also ignored the id. Discovered 2026-09-02 while wiring the Prompt-style menu.
 
 **How to apply:** pass `opts.explicitStyle` into `seedanceRecipePrompt`; explicit routes to the named grammar, auto keeps the researched briefs. Two more traps that survived review:
-- Prompt SCOPE follows the model (2.5 = whole scene, 2.0 = one beat), so `modelId` is a real dependency of any effect that rebuilds an untouched prompt box — omit it and a model switch ships the wrong scope under the right label.
+- Prompt scope and timing follow the selected clip plan and model budget, so both are real dependencies of effects rebuilding an untouched prompt. Neither model implies whole-scene coverage.
 - An explicit pick intentionally overwrites a hand-edited box (`promptEditedRef` cleared): the click is the request; Reset-to-script remains the way back.
 
 **Scope ruling (user, 2026-09-02):** a Seedance 2.5 clip is ONE BEAT rendered as a sequence of shots (the Art Room micro-beat plan continued) — never the whole scene; whole-scene packing/prompting is retired (dormant branches only). A user-facing Clip scope choice also allows one clip per shot on either model. When packing per beat, only positive finite beat numbers may group shots — unassigned/zero beatN falls back to per-shot, or old projects without beat mapping silently recreate whole-scene clips.
+
+**Packing decision:** fit each model's time budget at existing shot boundaries, preserving all selected coverage. Never shrink recorded speech or silently write a render's timing back to Art Room canon. An individually overlong shot needs an explicit authoring/revoice decision.
+
+**Why:** automatic chopping would claim an audio-to-micro-beat alignment the project does not possess. Keeping derived clip timing separate also avoids overwriting the director's Art Room decisions.

@@ -222,7 +222,8 @@ function stageShotDialogueLine(scene, drafts, sh, ctx){
     text:fallbackText
   } : null;
   if(!fallbackText) return null;
-  if(lines.length===1) return { ...lines[0], char:stageCharNameMatch(lines[0].speaker, ctx&&ctx.characters) };
+  if(lines.length===1) return { ...lines[0], text:fallbackText,
+    char:stageCharNameMatch(lines[0].speaker, ctx&&ctx.characters) };
   const raw = _normStageText(fallbackText);
   let best = null, score = -1;
   lines.forEach(ln=>{
@@ -237,8 +238,18 @@ function stageShotDialogueLine(scene, drafts, sh, ctx){
     }
     if(s>score){ score=s; best=ln; }
   });
-  const pick = (best && score>=0.25) ? best : lines[0];
-  return { ...pick, char:stageCharNameMatch(pick.speaker, ctx&&ctx.characters) };
+  // If the selected shot's words do not actually match a screenplay line, never
+  // borrow the first line from the whole beat. Older shot lists often contain a
+  // shortened/revised dialogue field; those exact selected words are safer than
+  // leaking another shot's speech into this render.
+  if(!best || score<0.55){
+    const sp=stageDialogueSpeaker(scene,drafts,(ctx&&ctx.beatsMap)||{},sh,ctx)||{};
+    return { speaker:sp.name||"the speaker", text:fallbackText,
+      char:stageCharNameMatch(sp.name,ctx&&ctx.characters) };
+  }
+  // Speaker/parenthetical may come from the matched script block, but the words
+  // belong to the selected shot. Never expand or replace them with whole-beat text.
+  return { ...best, text:fallbackText, char:stageCharNameMatch(best.speaker, ctx&&ctx.characters) };
 }
 function stageShotMicroPromptText(scene, drafts, beatsMap, sh, max){
   const micro = stageShotMicroTexts(sh);
@@ -674,7 +685,7 @@ const SEEDANCE_RECIPES = [
    fal.ai's live Seedance 2.0 API + this app's own docs/Voice & Lip-Sync (Seedance) Plan.md. ---- */
 const SEEDANCE_MODELS = [
   // maxShotsPerClip drives the CLIP PACKER (sceneSequences): 3 keeps per-shot frames +
-  // identity refs inside 2.0's 9-image budget; 0 = unlimited (whole-scene single pass).
+  // identity refs inside 2.0's 9-image budget; 0 = no shot-count cap (time still caps).
   // creditRate = generation credits PER SECOND at each resolution (cost = ceil(seconds ×
   // rate), min 1). Scaled off fal's real per-second pricing so the relative cost of every
   // tier/resolution choice is honest: 1 credit ≈ 1s of 720p Standard (~$0.30 of fal spend).
@@ -698,9 +709,8 @@ const SEEDANCE_MODELS = [
   // (Sora 2 was removed from the picker 2026-07-05 by user decision — its proxy
   // routing and videogen isSora branch remain dormant, so re-adding it later is
   // just restoring a registry entry here.)
-  // Seedance 2.5 — LIVE on fal (verified 2026-08-07): bytedance/seedance-2.5/reference-to-video.
-  // Real listing facts: up to 50 multimodal refs, 4–30s (or auto) duration, resolutions
-  // 480p/720p ONLY (no 1080p/4K output despite the launch material), generate_audio
+  // Seedance 2.5 — LIVE on fal: bytedance/seedance-2.5/reference-to-video.
+  // Current endpoint supports up to 50 multimodal refs, 4–30s and 1080p output.
   // default on, @-mention reference grammar, and NO fast endpoint exists. The whole app
   // was pre-wired for the 30s ceiling: maxClipSec:30 feeds the caphead / tick guard /
   // duration options / measured-seconds floor; caps lift (maxShotsPerClip:0,
@@ -708,18 +718,18 @@ const SEEDANCE_MODELS = [
   // allowlists the endpoint and caps its resolution ladder at 720p.
   { id:"seedance-2.5", label:"Seedance 2.5", status:"active", maxShotsPerClip:0, maxDialoguePerClip:0,
     maxClipSec:30, maxAssets:50,
-    metaRes:"720p", metaDur:"4–30s",
-    bestFor:"Whole scenes in ONE pass — single-pass 30s clips with up to 50 multimodal references.",
-    promptFormula:"the 2.0 layered grammar stretched over up to 30s — timeline blocks carry an entire scene in a single render.",
-    capabilities:["Native single-pass 30s clips","Up to 50 multimodal references","Whole-scene generation","Native audio","Strong character consistency","Output up to 720p"],
+    metaRes:"1080p", metaDur:"4–30s",
+    bestFor:"Beat-first sequences — up to 30s with 50 multimodal references and a timed shot plan.",
+    promptFormula:"one dramatic beat per render, with timed shot windows, exact covered micro-beats and exact selected dialogue.",
+    capabilities:["Beat-first 30s clips","Up to 50 multimodal references","Timed shot sequences","Native audio","Strong character consistency","Output up to 1080p"],
     tiers:[
       // fal lists ONE endpoint (no fast tier) at 480p/720p only — rates in
       // app/pricing.jsx are the real fal per-second prices (2026-08-07).
-      { id:"standard", label:"Standard", fast:false, maxRes:"720p", falModel:"bytedance/seedance-2.5/reference-to-video",
-        note:"Single-pass up to 30s · up to 50 references · resolution up to 720p",
-        creditRate:(window.turnVideoCreditRates&&window.turnVideoCreditRates("seedance-2.5","standard")) || { "480p":0.75, "720p":1.6 } },
+      { id:"standard", label:"Standard", fast:false, maxRes:"1080p", falModel:"bytedance/seedance-2.5/reference-to-video",
+        note:"Beat-first clips up to 30s · up to 50 references · resolution up to 1080p",
+        creditRate:(window.turnVideoCreditRates&&window.turnVideoCreditRates("seedance-2.5","standard")) || { "480p":0.75, "720p":1.6, "1080p":2.4 } },
     ],
-    note:"Live on fal: native single-pass 30s clips with up to 50 multimodal references and whole-scene generation. Output tops out at 720p (fal lists no 1080p/4K for 2.5) — render in 2.0 Standard when you need 1080p/4K masters." },
+    note:"Primary beat-first model: timed 4–30s clips, up to 50 references and output through 1080p. Keep Seedance 2.0 Standard for Fast iterations and 4K masters." },
 ];
 function seedanceModelOf(id){ return SEEDANCE_MODELS.find(m=>m.id===id) || SEEDANCE_MODELS[0]; }
 function seedanceTierOf(model, tierId){ return (model&&model.tiers||[]).find(t=>t.id===tierId) || (model&&model.tiers||[])[0] || null; }
@@ -727,6 +737,17 @@ function seedanceTierOf(model, tierId){ return (model&&model.tiers||[]).find(t=>
 const STAGE_RESOLUTIONS = ["480p","720p","1080p","4K"];
 function stageResRank(r){ const i = STAGE_RESOLUTIONS.indexOf(String(r||"")); return i<0 ? 1 : i; }
 function stageResAllowed(tierObj, r){ return stageResRank(r) <= stageResRank((tierObj&&tierObj.maxRes)||"1080p"); }
+function stageServerResolutionAllowed(modelId,r,runtime,endpoint){
+  const staticCaps=typeof window.seedanceCapabilities==="function"
+    ? window.seedanceCapabilities(endpoint||modelId) : null;
+  if(staticCaps&&Array.isArray(staticCaps.resolutions)&&staticCaps.resolutions.indexOf(r)<0) return false;
+  if(modelId!=="seedance-2.5"||r!=="1080p") return true;
+  // 1080p requires the updated proxy. Stay safely on 720p until the read-only
+  // runtime handshake explicitly advertises it.
+  const caps=runtime&&runtime.known&&runtime.capabilities;
+  return !!(caps&&Array.isArray(caps.resolutions)&&caps.resolutions.indexOf("1080p")>=0);
+}
+window.stageServerResolutionAllowed=stageServerResolutionAllowed;
 
 /* this render's credit cost from the registry rates: seconds × tier/resolution rate,
    rounded up, never below 1. Every cost-bearing setting (model tier, resolution,
@@ -925,7 +946,7 @@ function seedanceMicroBeatDirectorPrompt(clip, shots, activeShot, audioRefsOn, a
   ].filter(Boolean);
   return rows.join("\n");
 }
-/* Seedance 2.5 whole-scene recipe. This is still ONE provider prompt/request, but
+/* Dormant legacy whole-scene recipe retained only to display/reproduce old takes. It
    its interior follows screenplay chronology rather than flattening a scene into a
    shot list. Each BEAT section carries the canonical Art Room micro-plan, screenplay
    texture, exact speech/audio placement, camera progression and its causal handoff. */
@@ -934,7 +955,7 @@ function seedanceWholeSceneDirectorPrompt(clip, audioRefsOn, audioIncluded, refs
   const nums=_uniq(shots.map(s=>s&&s.beatN).filter(Boolean));
   const included=Array.isArray(audioIncluded)?audioIncluded:[];
   opts=opts||{};
-  const directAudioCap=Math.max(0,Number.isFinite(Number(opts.directAudioCap))?Number(opts.directAudioCap):3);
+  const directAudioCap=Math.max(0,Number.isFinite(Number(opts.directAudioCap))?Number(opts.directAudioCap):10);
   const videoRefBase=Math.max(0,Number(opts.videoRefBase)||0);
   const videoRefCap=Math.max(0,Number(opts.videoRefCap)||3);
   const entity=(kind,x,fallback)=>_stagePromptEntityLabel(refs,kind,x,fallback);
@@ -999,7 +1020,7 @@ function seedanceBeatSequenceDirectorPrompt(clip, shots, audioRefsOn, audioInclu
   const list=(shots&&shots.length?shots:(d.shots||[]));
   const included=Array.isArray(audioIncluded)?audioIncluded:[];
   opts=opts||{};
-  const directAudioCap=Math.max(0,Number.isFinite(Number(opts.directAudioCap))?Number(opts.directAudioCap):3);
+  const directAudioCap=Math.max(0,Number.isFinite(Number(opts.directAudioCap))?Number(opts.directAudioCap):10);
   const videoRefBase=Math.max(0,Number(opts.videoRefBase)||0);
   const videoRefCap=Math.max(0,Number(opts.videoRefCap)||3);
   const entity=(kind,x,fallback)=>_stagePromptEntityLabel(refs,kind,x,fallback);
@@ -1304,6 +1325,59 @@ function seedanceBeatData(clip, shots){
   // the whole clip's line order even when the prompt is scoped to one beat.
   return { ...d, shots:shots||[], panelLines:(d.panelLines||[]).filter(p=>ids.has(p.shotId)), allPanelLines:d.panelLines||[] };
 }
+/* Normalize the planner's public result without making Stage depend on its display
+   shape. The planner owns timing/packing; Stage owns the exact prompt language. */
+function stageTimedPlanRows(shots, opts){
+  const list=shots||[];
+  let plan=null;
+  if(typeof window.stageBuildTimedPlan==="function"){
+    try{ plan=window.stageBuildTimedPlan(list,opts||{}); }catch(e){ plan={ error:String((e&&e.message)||e) }; }
+  }
+  const raw=Array.isArray(plan) ? plan
+    : ((plan&&plan.units)||(plan&&plan.rows)||(plan&&plan.segments)||(plan&&plan.schedule)||(plan&&plan.items)||[]);
+  if(raw.length) return { plan, rows:raw.map((r,i)=>({
+    shotId:r.shotId||r.id||((list[i]||{}).id),
+    start:Number(r.startSec!=null?r.startSec:(r.start!=null?r.start:r.from))||0,
+    end:Number(r.endSec!=null?r.endSec:(r.end!=null?r.end:r.to))||0,
+    label:r.label||r.text||r.action||""
+  })) };
+  // Compatibility while stage-plan loads after this file, and for legacy builds.
+  let t=0;
+  const rows=list.map(sh=>{ const dur=Math.max(0.1,Number(sh&&sh.dur)||((typeof stageShotRuntime==="function")?stageShotRuntime(sh):2)||2);
+    const r={shotId:sh&&sh.id,start:t,end:t+dur,label:""}; t+=dur; return r; });
+  return { plan, rows };
+}
+function seedanceTimedPlanPrompt(clip, shots, audioRefsOn, audioIncluded, refs, opts){
+  const d=(clip&&clip.data)||{}, list=shots||[], panels=d.panelLines||[];
+  const timed=stageTimedPlanRows(list,{ ...(opts||{}), durationSec:Number(opts&&opts.durationSec)||Number(d.dur)||0,
+    panelLines:panels, clipId:clip&&clip.id });
+  const r1=n=>(Math.round((Number(n)||0)*10)/10).toString().replace(/\.0$/,"");
+  const units=(timed.plan&&timed.plan.units)||[];
+  const rows=timed.rows.map((r,i)=>{
+    const sh=list.find(x=>x&&x.id===r.shotId)||list[i]||{};
+    const p=panels.find(x=>x&&x.shotId===sh.id)||{};
+    const unit=units.find(x=>x&&x.shotId===sh.id)||units[i]||{};
+    const micro=(Array.isArray(unit.micro)?unit.micro:(Array.isArray(p.micro)?p.micro:[]))
+      .map(x=>String(x||"").replace(/[\s.;]+$/,"")).filter(Boolean);
+    // p.micro was built from sh.covers, so this is shot coverage, never the whole beat.
+    const action=micro.length ? micro.map((x,j)=>(j+1)+") "+x).join("; ")
+      : String(unit.action||p.text||sh.action||r.label||"Hold the composition.").trim();
+    const exactDialogue=String(unit.dialogue||p.dialogue||sh.dialogue||"").trim();
+    const dialogue=_seedanceDialogueClause(sh,{ ...p,dialogue:exactDialogue },{ ...d,audioRefsOn,audioIncluded },refs);
+    return r1(r.start)+"–"+r1(r.end)+"s: SHOT "+(i+1)+" · Beat "+(sh.beatN||"—")
+      +" — "+action+(dialogue?(" Dialogue/audio: "+dialogue+"."):"")
+      +(_seedanceShotGrammar(sh)?(" Camera: "+_seedanceShotGrammar(sh)+"."):"");
+  });
+  const beats=_uniq(list.map(sh=>sh&&sh.beatN).filter(n=>Number(n)>0));
+  return [
+    "TIMED RENDER PLAN — cover every listed shot and beat in exact order; do not omit, merge, reorder or invent story events.",
+    "Coverage: "+list.length+" shot"+(list.length===1?"":"s")+" · beat"+(beats.length===1?" ":"s ")+(beats.join(", ")||"unassigned")+".",
+    rows.join("\n"),
+    "Use the selected references to lock identity, appearance variants, wardrobe, props and location geography. Keep dialogue exactly as quoted. No captions, subtitles, panel borders or burned-in text."
+  ].filter(Boolean).join("\n");
+}
+window.stageTimedPlanRows=stageTimedPlanRows;
+window.seedanceTimedPlanPrompt=seedanceTimedPlanPrompt;
 function seedanceRecipePrompt(recipeId, clip, shots, activeShot, audioRefsOn, audioIncluded, refs, opts){
   const scoped = { ...clip, data:{ ...seedanceBeatData(clip, shots),
     audioRefsOn: audioRefsOn!==false,
@@ -1315,6 +1389,8 @@ function seedanceRecipePrompt(recipeId, clip, shots, activeShot, audioRefsOn, au
     ? ((!recipeId || recipeId==="narrative")
         ? seedanceNarrativeParagraph(scoped, activeShot, refs)
         : seedancePrompt(recipeId, scoped, refs))
+    : (opts&&opts.timedPlan)
+    ? seedanceTimedPlanPrompt(scoped,shots,audioRefsOn!==false,audioIncluded,refs,opts)
     : (opts&&opts.beatSequence)
     ? seedanceBeatSequenceDirectorPrompt(scoped, shots, audioRefsOn!==false, audioIncluded, refs, opts)
     : (opts&&opts.wholeScene)
@@ -1343,6 +1419,11 @@ function stageAssetMention(a){
   const n = (String(a&&a.tag||"").match(/\d+$/)||[""])[0];
   return "@"+({ image:"Image", video:"Video", audio:"Audio" }[a&&a.kind]||"")+n;
 }
+function stageReferenceFileCount(assets,included){
+  const on=typeof included==="function"?included:()=>true;
+  return (assets||[]).filter(a=>a&&a.kind!=="text"&&on(a)).length;
+}
+window.stageReferenceFileCount=stageReferenceFileCount;
 function stagePromptMentionContext(includedAssets, d){
   const byKey = {};
   const byName = {};
@@ -1871,7 +1952,7 @@ function StageSoundPanel({ lineShots, auds, onVoiceLine }){
         title:"Open ElevenLabs — the voice engine behind TURN's dialogue"},"Open ElevenLabs ↗")));
 }
 
-function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap, drafts, prevClipVideoId, aspect, visualSource, setVisualSource, creditBalance, onVoiceLine, onUpdateShot, onSelectClip, onFirstVideo, modelId, setModelId, clipScope, setClipScope, pendingReuse, onReuseConsumed }){
+function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap, drafts, prevClipVideoId, aspect, visualSource, setVisualSource, creditBalance, onVoiceLine, onUpdateShot, onSelectClip, onFirstVideo, onStageNav, modelId, setModelId, clipScope, setClipScope, pendingReuse, onReuseConsumed }){
   const scene = clip.scene, g = clip.g, d = clip.data;
   // the CLIP is the unit of generation — it may bundle 2+ merged shots (Art Room Shots
   // "merge" / Storyboards "Compose from shot frames" / a cropped sheet-half = 1 clip).
@@ -1943,6 +2024,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   const previewFrame = usePanels ? startFrame : (imgs[previewId] || startFrame);
   // the clip's own shots — this IS the render unit now, not a same-beatN subset.
   const shownShots = (d.shots||[]).length ? d.shots : [activeShot].filter(Boolean);
+  const referencePackage = (typeof window.stageShotReferencePackage==="function")
+    ? window.stageShotReferencePackage(shownShots,{ ...ctx,scene,images:imgs,drafts,
+        availableImageIds:new Set(Object.keys(imgs||{})) })
+    : {characters:[],locations:[],props:[],warnings:[],signature:""};
   const beatLabel = clip.label;
   const beatName = clipBeatName(clip, beatsMap, drafts);
   const clipsInScene = (sceneClips&&sceneClips.length) ? sceneClips : [clip];
@@ -2143,8 +2228,24 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
       const speaker=(exact&&exact.speaker) || (sh.lineAudio&&sh.lineAudio.speaker) || "Character";
       addSceneAsset({ key:"a:"+sh.id, kind:"audio", group:"Voices", label:speaker+" voice · "+_firstWords((exact&&exact.text)||sh.dialogue,6), url:u, ready:true, shotId:sh.id });
     });
+    if(_mRefs&&referencePackage){
+      const seenIds=new Set(out.map(a=>a&&a.id).filter(Boolean));
+      const addRequired=(r,group,label)=>{
+        const id=r&&r.assetId;if(!id||seenIds.has(id))return;seenIds.add(id);
+        const u=imgs[id]||"";
+        out.push({key:"resolved:"+group.toLowerCase()+":"+id,kind:"image",group,label,url:u,
+          ready:!!u,id,assetRole:(r.roles||[])[0]||"derived_reference",
+          assetSourceQuality:"shot_resolved_reference",referenceSnapshot:r.snapshot,requiredByShots:r.shotIds});
+      };
+      (referencePackage.characters||[]).forEach(r=>{ const c=(ctx.charById||{})[r.entityId]||{};
+        addRequired(r,"Characters",(c.name||"Character")+" appearance reference"); });
+      (referencePackage.locations||[]).forEach(r=>{ const l=(ctx.locations||[]).find(x=>x.id===r.entityId)||{};
+        addRequired(r,"Locations",(l.name||"Location")+" shot coverage"); });
+      (referencePackage.props||[]).forEach(r=>{ const p=(ctx.propById||{})[r.entityId]||{};
+        addRequired(r,"Props",(p.name||"Prop")+" continuity reference"); });
+    }
     return out;
-  }, [clip.id, activeShot.id, sourceMode, dialogueAudio, modelId, shotStartFrame, JSON.stringify((storyAssets.halves||[]).map(h=>h.id+":"+!!h.url)), storyAssets.top, storyAssets.bottom, storyAssets.sheet, prevVideo, prevVideoSafe, JSON.stringify(prevVideoMeta||{}), JSON.stringify(d.cast), JSON.stringify(d.props), d.loc&&d.loc.id, d.locSheet&&d.locSheet.id, JSON.stringify((sceneClips||[]).map(sc=>{ const dd=(sc&&sc.data)||{}; return (sc&&sc.id||"")+"|"+(dd.cast||[]).map(x=>x.id).join(",")+"|"+(dd.props||[]).map(x=>x.id+":"+(x.sheetId||"")).join(",")+"|"+(dd.shots||[]).map(x=>x.id+":"+(x.dialogue||"")).join(",")+"|"+((dd.locSheet&&dd.locSheet.id)||""); })), imgs, auds]);
+  }, [clip.id, activeShot.id, sourceMode, dialogueAudio, modelId, referencePackage.signature, shotStartFrame, JSON.stringify((storyAssets.halves||[]).map(h=>h.id+":"+!!h.url)), storyAssets.top, storyAssets.bottom, storyAssets.sheet, prevVideo, prevVideoSafe, JSON.stringify(prevVideoMeta||{}), JSON.stringify(d.cast), JSON.stringify(d.props), d.loc&&d.loc.id, d.locSheet&&d.locSheet.id, JSON.stringify((sceneClips||[]).map(sc=>{ const dd=(sc&&sc.data)||{}; return (sc&&sc.id||"")+"|"+(dd.cast||[]).map(x=>x.id).join(",")+"|"+(dd.props||[]).map(x=>x.id+":"+(x.sheetId||"")).join(",")+"|"+(dd.shots||[]).map(x=>x.id+":"+(x.dialogue||"")).join(",")+"|"+((dd.locSheet&&dd.locSheet.id)||""); })), imgs, auds]);
 
   // assets default ON when ready; user can toggle (off set). @tags number the INCLUDED
   // assets only — attachment order is what fal sees, so excluding @Image2 must renumber
@@ -2221,8 +2322,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   const promptRefSig = promptRefAssets.map(a=>a.key+":"+stageAssetMention(a)).join("|");
   // NB: `model` is only declared further below — resolve from modelId here instead
   const assetLimit = seedanceModelOf(modelId).maxAssets || 12;   // Seedance 2.5 raises the input budget to 50
-  const assetOver = onAssets.length > assetLimit;
-  const budgetUsed = onAssets.length;
+  // Provider budgets count uploaded files only; the screenplay/script text is a
+  // prompt field, not a multimodal reference slot.
+  const budgetUsed = stageReferenceFileCount(tagged,on);
+  const assetOver = budgetUsed > assetLimit;
   const budgetOverBy = Math.max(0, budgetUsed-assetLimit);
   const budgetLeft = Math.max(0, assetLimit-budgetUsed);
   const budgetPct = Math.min(100, Math.round((budgetUsed/assetLimit)*100));
@@ -2296,6 +2399,25 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   },[]);
   const model = seedanceModelOf(modelId);
   const tierObj = seedanceTierOf(model, tier) || { id:"standard", label:"Standard", fast:false, maxRes:"1080p" };
+  const capabilityTarget=tierObj.falModel||modelId;
+  const [runtimeCaps,setRuntimeCaps]=React.useState({known:false,capabilities:null,reason:"Checking video proxy capabilities"});
+  React.useEffect(()=>{ let alive=true;
+    if(typeof window.seedanceGetRuntimeCapabilities!=="function"){
+      setRuntimeCaps({known:false,capabilities:null,reason:"Capability handshake unavailable"}); return ()=>{alive=false;};
+    }
+    window.seedanceGetRuntimeCapabilities(capabilityTarget).then(r=>{if(alive)setRuntimeCaps(r||{known:false});})
+      .catch(e=>{if(alive)setRuntimeCaps({known:false,capabilities:null,reason:String((e&&e.message)||e)});});
+    return ()=>{alive=false;};
+  },[capabilityTarget]);
+  const staticTransportCaps=typeof window.seedanceCapabilities==="function"
+    ? window.seedanceCapabilities(capabilityTarget) : null;
+  const runtimeTransportCaps=runtimeCaps&&runtimeCaps.known&&runtimeCaps.capabilities;
+  const advertisedAudioLimit=Number((staticTransportCaps&&((staticTransportCaps.references&&staticTransportCaps.references.audios&&staticTransportCaps.references.audios.maxFiles)
+    ||staticTransportCaps.directAudioFiles))||10);
+  const directAudioLimit=Math.max(0,Number(runtimeTransportCaps
+    ? ((runtimeTransportCaps.references&&runtimeTransportCaps.references.audios&&runtimeTransportCaps.references.audios.maxFiles)
+      ||runtimeTransportCaps.directAudioFiles||advertisedAudioLimit)
+    : Math.min(3,advertisedAudioLimit)));
   // PLAN GATES — per-tier entitlements (plans.jsx): higher plans unlock higher Stage resolution/batch ceilings
   // models+1080p, Studio=4K+batch. Locked options stay visible and clickable — the
   // click opens the plans modal (upsell), never a silent dead button.
@@ -2307,9 +2429,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   const openPlansUpsell = ()=>{ if(typeof window.turnOpenPlans==="function") window.turnOpenPlans(); };
   // clamp to BOTH ceilings — the model tier's (Fast caps at 720p) and the plan's
   React.useEffect(()=>{
-    const cap = ["4K","1080p","720p","480p"].find(r=>stageResAllowed(tierObj,r) && planAllowsRes(r)) || "480p";
-    if(!stageResAllowed(tierObj, resolution) || !planAllowsRes(resolution)) setResolution(cap);
-  }, [tierObj.maxRes, planGate && planGate.maxRes]);
+    const cap = ["4K","1080p","720p","480p"].find(r=>stageResAllowed(tierObj,r) && stageServerResolutionAllowed(modelId,r,runtimeCaps,capabilityTarget) && planAllowsRes(r)) || "480p";
+    if(!stageResAllowed(tierObj, resolution) || !stageServerResolutionAllowed(modelId,resolution,runtimeCaps,capabilityTarget) || !planAllowsRes(resolution)) setResolution(cap);
+  }, [tierObj.maxRes, modelId, capabilityTarget, runtimeCaps&&runtimeCaps.known, JSON.stringify(runtimeCaps&&runtimeCaps.capabilities||{}), planGate && planGate.maxRes]);
   // a plan that locks the selected model steers to the first allowed active one
   React.useEffect(()=>{
     if(planAllowsModel(modelId)) return;
@@ -2349,12 +2471,11 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   // the ceiling math and the duration — their line-audio chips stay individually
   // toggleable in the references tray).
   const [msOff, setMsOff] = React.useState(()=>new Set());
+  const [msDur, setMsDur] = React.useState(()=>({})); // render-local; never rewrites canonical shot timing
   // which rows are COLLAPSED (display only — the shot stays in the list and, unless
   // also excluded, in the render). Excluding a shot auto-collapses it; the chevron
   // overrides either way. Both reset per clip.
   const [msFolded, setMsFolded] = React.useState(()=>new Set());
-  const msTouchedRef = React.useRef(false);         // user drove the rows — auto-fit stands down
-  const msAutoFitRef = React.useRef(null);          // last clip auto-fitted (once per visit)
   // A REPACK IS NOT A NEW CLIP. clip.id hashes the member shots, and the scene's
   // clips re-pack whenever a shot's seconds change — so editing a Multi-shot row
   // used to mint a "new" clip id, which reset the recipe tab to the smart default
@@ -2367,11 +2488,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     const prev = msMembersRef.current;
     msMembersRef.current = cur;
     if(prev && cur.some(id=>prev.indexOf(id)>=0)){
-      msAutoFitRef.current = clip.id;   // repack — keep the tab, rows and hand-set seconds
       return;
     }
     setRecipe(defaultRecipe());
-    setMsOff(new Set()); setMsFolded(new Set()); msTouchedRef.current=false;
+    setMsOff(new Set()); setMsFolded(new Set()); setMsDur({});
   }, [clip.id]);
   // MULTI-SHOT is a PER-BEAT composer: one beat at a time — the rows are exactly the
   // active clip's packed shots (the beat's equivalent), never the whole scene's 20+.
@@ -2385,34 +2505,14 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
         lineShots: d.lineShots || [] } }
     : clip;
   const msShots = msAllShots.filter(sh=>!msOff.has(sh.id));
-  const msTotal = msShots.reduce((a,sh)=> a + (Number(sh.dur) || (typeof shotDur==="function" ? shotDur(sh) : 3)), 0);
+  const msRuntime=(sh)=>Number(msDur[sh&&sh.id]) || Number(sh&&sh.dur) || (typeof shotDur==="function" ? shotDur(sh) : 3);
+  const msTotal = msShots.reduce((a,sh)=> a + msRuntime(sh), 0);
   // AUTO-FIT — the first time a clip is shown in Multi-shot (and until the user touches
   // the rows), tick as many leading shots as fit under the model ceiling and give each
   // a grid duration (4/8/12/15) so the total never spills over. Voiced lines keep their
   // measured minimum. Runs once per clip visit; hand-editing a row/check stops it.
-  React.useEffect(()=>{
-    if(recipe!=="multishot" || msTouchedRef.current || !onUpdateShot) return;
-    if(msAutoFitRef.current===clip.id) return;
-    msAutoFitRef.current = clip.id;
-    const cap = model.maxClipSec || 15;
-    const grid = (window.STAGE_MS_STEPS || [4,8,12,15]).slice().sort((a,b)=>a-b);
-    const minOf = (sh)=> (sh.lineAudio && sh.lineAudio.durationMs) ? Math.max(1, Math.round(((sh.lineAudio.durationMs/1000)+0.4)*10)/10) : grid[0];
-    const off = new Set(), durs = {};
-    let used = 0;
-    msAllShots.forEach(sh=>{
-      const floor = minOf(sh);
-      const room = cap - used;
-      if(floor > room + 0.001){ off.add(sh.id); return; }     // no room left → leave this shot out
-      // biggest grid step that fits the remaining budget (but at least the voiced floor)
-      const fit = grid.filter(g=> g>=floor-0.001 && g<=room+0.001).pop();
-      const secs = fit!=null ? fit : Math.min(room, Math.max(floor, grid[0]));
-      durs[sh.id] = Math.round(secs*10)/10;
-      used += durs[sh.id];
-    });
-    if(!Object.keys(durs).length && msAllShots[0]){ durs[msAllShots[0].id] = Math.min(cap, grid[0]); off.delete(msAllShots[0].id); }
-    msAllShots.forEach(sh=>{ const want = durs[sh.id]; if(want!=null && Math.abs((Number(sh.dur)||0)-want)>0.001) onUpdateShot(sh.id,{ dur:want }); });
-    setMsOff(off);
-  }, [clip.id, recipe, modelId]);
+  // No mount-time auto-fit: it used to rewrite sh.dur and exclude the largest
+  // trailing shots. Packing now splits at shot boundaries; row timing stays local.
   // LIMIT REACHED → collapse every UNTICKED row: once the ticked shots fill the
   // model's clip ceiling, rows that can't join fold away. This only ever FOLDS —
   // a hand-expanded row is never re-folded until the totals change again.
@@ -2446,9 +2546,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
       const speaker = (p&&p.speaker&&p.speaker.name) || (sh&&sh.lineAudio&&sh.lineAudio.speaker) || "the speaker";
       const speakerRef = _stagePromptEntityLabel(promptRefs, "speaker", speaker, speaker);
       if(!bySpeaker.has(speakerRef)) bySpeaker.set(speakerRef, []);
-      const directCap=3;
-      const videoBase=onVideos.filter(a=>a&&a.url).length;
-      const token=i<directCap ? ("@Audio"+(i+1)) : ("@Video"+(videoBase+i-directCap+1)+" voice carrier");
+       const directCap=directAudioLimit;
+       const token=i<directCap ? ("@Audio"+(i+1)) : "";
       bySpeaker.get(speakerRef).push(token);
     });
     const entries = Array.from(bySpeaker.entries());
@@ -2468,11 +2567,16 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     // scene prompting retired with the packing). A single-shot clip (Single shot
     // scope, or a one-shot beat) reads better as the per-beat director brief.
     const beatSequence = modelId==="seedance-2.5" && shownShots.length>1;
+    const useTimedPlan=typeof window.stageBuildTimedPlan==="function";
     const base = explicit
       ? seedanceRecipePrompt(id, clip, shownShots, activeShot, audioRefsOn, audioIncluded, promptRefs, { explicitStyle:true })
+      : useTimedPlan
+      ? seedanceRecipePrompt(id, clip, shownShots, activeShot, audioRefsOn, audioIncluded, promptRefs,
+          {timedPlan:true,directAudioCap:directAudioLimit,durationSec:duration,modelId,
+            maxSeconds:model.maxClipSec||15,audioMode:voiceLocked?"locked":"native"})
       : beatSequence
       ? seedanceRecipePrompt(id, clip, shownShots, activeShot, audioRefsOn, audioIncluded, promptRefs,
-          {beatSequence:true,directAudioCap:3,videoRefBase:onVideos.filter(a=>a&&a.url).length,videoRefCap:10})
+          {beatSequence:true,directAudioCap:directAudioLimit,videoRefBase:onVideos.filter(a=>a&&a.url).length,videoRefCap:10})
       : id==="multishot" ? seedanceRecipePrompt("timeline", msClip, msShots, activeShot, audioRefsOn, audioIncluded, promptRefs)
       : seedanceRecipePrompt(id, clip, shownShots, activeShot, audioRefsOn, audioIncluded, promptRefs);
     return (voiceCast && base) ? (voiceCast+"\n\n"+base) : base;
@@ -2481,14 +2585,26 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   const promptStyleAvailable = (id)=> id!=="lipsync" || (d.lineShots||[]).length>0;
   const effPromptStyle = (promptStyle!=="auto" && promptStyleAvailable(promptStyle)) ? promptStyle : null;
   // per-shot overrides (vidText / dur) and include toggles recompile the prompt live
-  const msSig = msAllShots.map(s=>s.id+":"+(s.vidText||"")+":"+(s.dur||"")+":"+(msOff.has(s.id)?0:1)).join("|");
+  const msSig = msAllShots.map(s=>s.id+":"+(s.vidText||"")+":"+msRuntime(s)+":"+(msOff.has(s.id)?0:1)).join("|");
   const beatPrompt = effPromptStyle ? recipeText(effPromptStyle, true) : recipeText(recipe);
+  const renderPlan = (typeof window.stageBuildTimedPlan==="function")
+    ? window.stageBuildTimedPlan(shownShots,{modelId,maxSeconds:model.maxClipSec||15,
+        maxShots:model.maxShotsPerClip||Infinity,maxDialogue:10,
+        audioMode:voiceLocked?"locked":"native",panelLines:d.panelLines||[],durationSec:duration})
+    : null;
   const [prompt, setPrompt] = React.useState(beatPrompt);
   // MANUAL EDITS survive input toggles: the derivation only overwrites an untouched
   // box, and "Reset to script" rebuilds from the beat + Art Room design on demand.
   // Refs (not state) so the rebuild effect below always reads the CURRENT flag even
   // on the same render pass that switches beats.
   const promptEditedRef = React.useRef(false);
+  const promptSourceSig=(renderPlan&&renderPlan.signature||"")+"·"+(referencePackage.signature||"")+"·"+promptRefSig;
+  const promptDraftKey=(scene&&scene.id||"")+"|"+shownShots.map(s=>s&&s.id).filter(Boolean).join(",");
+  const promptDraftsRef=React.useRef({});
+  const [promptSourceStamp,setPromptSourceStamp]=React.useState(promptSourceSig);
+  const [promptDriftConfirmed,setPromptDriftConfirmed]=React.useState("");
+  const promptSourceDrift=promptEditedRef.current&&!!promptSourceStamp&&promptSourceStamp!==promptSourceSig
+    &&promptDriftConfirmed!==promptSourceSig;
   const promptKeyRef = React.useRef(STAGE_PROMPT_SCHEMA+"·"+clip.id+"·"+activeShot.id);
   // @-mention autocomplete lives in StagePromptArea (module level) so EVERY prompt
   // box — composer, Director and each multi-shot row — shares the same dropdown +
@@ -2536,6 +2652,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   // the old textarea did against selectionStart
   const onPromptChange = (text, caret)=>{ const t = String(text||"").slice(0,PANEL_PROMPT_MAX);
     promptEditedRef.current = true;
+    setPromptSourceStamp(promptSourceSig); setPromptDriftConfirmed("");
+    promptDraftsRef.current[promptDraftKey]={text:t,sourceSig:promptSourceSig,shotIds:shownShots.map(s=>s.id)};
     setPrompt(t);
     const pos = (caret==null) ? t.length : Math.min(caret, t.length);
     const m = /(?:^|[\s\n])@([A-Za-z0-9]*)$/.exec(t.slice(0, pos));
@@ -2547,6 +2665,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     const next = (prompt.slice(0,mentionBox.start)+tok+" "+prompt.slice(caret)).slice(0,PANEL_PROMPT_MAX);
     const pos = Math.min(mentionBox.start+tok.length+1, next.length);
     promptEditedRef.current = true;
+    setPromptSourceStamp(promptSourceSig); setPromptDriftConfirmed("");
+    promptDraftsRef.current[promptDraftKey]={text:next,sourceSig:promptSourceSig,shotIds:shownShots.map(s=>s.id)};
     setPrompt(next); setMentionBox(null);
     requestAnimationFrame(()=>{ try{ api.applyValue(next, pos); }catch(_e){} }); };
   const onPromptKeyDown = (e)=>{ if(!mentionBox) return;
@@ -2632,11 +2752,20 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   // compact even on wordy recipes; the resize handle still lets users pull it taller.
   React.useEffect(()=>{
     const key = STAGE_PROMPT_SCHEMA+"·"+clip.id+"·"+activeShot.id;
-    if(promptKeyRef.current!==key){ promptKeyRef.current=key; promptEditedRef.current=false; }
+    if(promptKeyRef.current!==key){
+      promptKeyRef.current=key;
+      let saved=promptDraftsRef.current[promptDraftKey];
+      if(!saved){
+        const ids=new Set(shownShots.map(s=>s.id));
+        saved=Object.values(promptDraftsRef.current).find(x=>(x.shotIds||[]).some(id=>ids.has(id)));
+      }
+      promptEditedRef.current=!!saved;
+      if(saved){ setPrompt(saved.text); setPromptSourceStamp(saved.sourceSig||""); setPromptDriftConfirmed(""); }
+    }
     if(!promptEditedRef.current) setPrompt(effPromptStyle ? recipeText(effPromptStyle, true) : recipeText(recipe));
     setPerf(dialogueSpeakers[0] || d.lead);
     // modelId is a real dependency: an explicit style's shot SCOPE follows the model
-    // (whole scene on 2.5, this beat otherwise), so a 2.0↔2.5 switch must recompile
+    // (timed beat/part under either model), so a 2.0↔2.5 switch must recompile
     // an untouched box — otherwise the render ships the wrong scope under the right label
   }, [clip.id, activeShot.id, recipe, effPromptStyle, modelId, dialogueSpeakers.join("|"), d.lead, audioRefsOn, audioIncluded.join("|"), promptRefSig, msSig]);
   React.useEffect(()=>{ setCamera(d.camera); setCameraProfile(d.cameraProfile || "auto"); setLighting(d.lighting); },
@@ -2671,11 +2800,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   // to the prompt at render (and previewed read-only under the prompt box). Skipped for
   // start->end transitions — that renders on the dedicated i2v endpoint, which takes only
   // the two frames and has no @mention array to point at. ----
-  // Only the first three line assets submit as direct audio in the current Stage
-  // transport. Overflow lines are represented by the generated @VideoN carrier roles
-  // appended during staging, so never leave phantom @Audio4+ declarations here.
+  // The transport supports ten direct audio slots. Keep token numbering identical
+  // across prompt, preview, metadata and payload; never silently drop an overflow.
   let directAudioN=0;
-  const directPromptRefAssets=promptRefAssets.filter(a=>a.kind!=="audio" || (++directAudioN)<=3);
+  const directPromptRefAssets=promptRefAssets.filter(a=>a.kind!=="audio" || (++directAudioN)<=directAudioLimit);
   const refLines = (endFrameUrl || !modelRefs) ? [] : directPromptRefAssets.map(a=>stageAssetRole(a, promptRefs)).filter(Boolean);
   // multi-panel sources have a documented bleed failure mode — captions/panel borders
   // can leak into the video unless explicitly negated in the prompt.
@@ -2690,11 +2818,15 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
      matters — right before submission, where credits would be spent. */
   const stagingCancelRef = React.useRef(false);
   const onGenerate = async ()=>{
-    /* ASSET STAGING (cloud URL refresh, blob→data-url, black-mp4 voice carriers) runs
+     /* ASSET STAGING (cloud URL refresh and blob→data-url conversion) runs
        BEFORE the hook's gening flag can light — a slow stage looked like a dead click
        and a staging throw was an uncaught rejection with no toast at all. staging
        lights the player/buttons immediately; the outer catch always surfaces. */
     if(staging) return;
+     if(!stageServerResolutionAllowed(modelId,resolution,runtimeCaps,capabilityTarget)){
+       if(typeof window.appToast==="function") window.appToast(resolution+" is pending a server update confirmed by the video proxy capability handshake. Choose an advertised resolution such as 720p.","error");
+       return;
+     }
     stagingCancelRef.current=false;
     setStaging(true);
     setPrepPct(8);
@@ -2714,41 +2846,13 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     setPrepPct(38);
     const videoUrls = onVideos.map(a=>a.url).filter(Boolean);
     let audioUrls = voiceLocked ? onAudios.map(a=>a.url).filter(Boolean) : [];
-    // voice overflow → BLACK-MP4 carriers in the video slots (fal caps audio refs at
-    // 3): the mp4's audio track is the voice, its black picture carries nothing, so
-    // the prompt flags it voice-only. In-browser conversion (WebCodecs); a browser
-    // that can't encode keeps the first 3 voices and gets told what was left out.
     const voiceRefLines = [];
-    if(audioUrls.length>3){
-      const overflow = onAudios.slice(3).filter(a=>a.url);
-      audioUrls = audioUrls.slice(0,3);
-      const baseVideos = videoUrls.length;
-      const videoRefCap = modelId==="seedance-2.5" ? 10 : 3;
-      const carried = overflow.slice(0, Math.max(0, videoRefCap-baseVideos));
-      let dropped = overflow.slice(carried.length);
-      if(carried.length){
-        if(typeof blackMp4FromAudio!=="function"){ dropped = dropped.concat(carried); }
-        else{
-          try{
-            for(const a of carried){
-              videoUrls.push(await blackMp4FromAudio(a.url));
-              voiceRefLines.push("@Video"+(baseVideos+voiceRefLines.length+1)+" is "
-                +(String(a.label||"the speaker").replace(/\s+line$/i,""))+"'s voice riding a black screen — use ONLY its audio track for that character's voice; ignore the picture entirely.");
-            }
-          }catch(e){
-            videoUrls.splice(baseVideos);   // roll back any partial muxes
-            dropped = dropped.concat(carried.slice(voiceRefLines.length));
-            voiceRefLines.length = 0;
-            if(typeof window.appToast==="function") window.appToast(String((e&&e.message)||e),"error");
-          }
-        }
-      }
-      if(dropped.length) throw new Error("Every screenplay line must attach before rendering. No reference slot/carrier is available for: "+dropped.map(a=>a.label||"a line").join(", ")+".");
-    }
+    if(audioUrls.length>directAudioLimit) throw new Error("Every screenplay line must attach before rendering. This request has "
+      +audioUrls.length+" audio references; the active video transport advertises "+directAudioLimit+". Use Fit beat to split at shot boundaries.");
     setPrepPct(55);
     const controls = [cameraProfileLine, "Camera movement: "+camera+". Lighting: "+lighting+". Performance: "+perf+"."]
       .filter(Boolean).join("\n");
-    if(clip.g&&clip.g.over){ if(typeof window.appToast==="function") window.appToast("This clip's shots total "+_fmtSecs(clip.g.dur)+" — over "+_fmtSecs(model.maxClipSec||15)+". Trim shot seconds or switch Clip scope to Single shot; the app will not silently compress a paid request.","error"); return; }
+    if(clip.g&&clip.g.over&&(!renderPlan||renderPlan.over)){ if(typeof window.appToast==="function") window.appToast("This clip's current render plan needs "+_fmtSecs((renderPlan&&renderPlan.durationSec)||clip.g.dur)+" — over "+_fmtSecs(model.maxClipSec||15)+". Use Fit beat, or deliberately split/revoice one unsplittable shot; the app will not silently compress a paid request.","error"); return; }
     if(assetOver){ if(typeof window.appToast==="function") window.appToast((model.label||"This model")+" accepts up to "+assetLimit+" inputs — exclude a few assets first.","error"); return; }
     if(sourceBlocking){ if(typeof window.appToast==="function") window.appToast("Save this clip's storyboard "+(sourceMode==="sheet"?"sheet":"halves")+" in Storyboards first, or switch Visual source back to shot/prompt rendering.","error"); return; }
     if(needsVoice){ if(typeof window.appToast==="function") window.appToast("Voice this clip's dialogue first — duration and lip-sync are locked to line audio.","error"); return; }
@@ -2792,7 +2896,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
       // keeps its own phrasing instead of getting a second "says" appended.
       const words = String((p&&p.dialogue) || sh.dialogue||"").trim().replace(/^["“]|["”]$/g,"");
       const dup = !!(words && text) && _normStageText(text).indexOf(_normStageText(words))>=0;
-      return { prompt:text+((dlg && !dup)?(" — "+dlg):""), duration:Math.max(1, Math.round(Number(sh.dur) || (typeof shotDur==="function" ? shotDur(sh) : 3))) };
+       return { prompt:text+((dlg && !dup)?(" — "+dlg):""), duration:Math.max(1, Math.round(msRuntime(sh))) };
     }).filter(s=>s.prompt) : undefined;
       const shotSources=(typeof shotSourceStamp==="function")
         ? (d.shots||[]).map(sh=>shotSourceStamp(sh,(drafts||{})[sh.sceneId])) : [];
@@ -2812,6 +2916,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
 	        audio: hasDialogue ? (voiceLocked ? "voice" : "native") : (nativeAudio ? "native" : "silent"),
 	        inputs: counts.text+" text · "+counts.images+" img · "+counts.videos+" vid · "+counts.audio+" aud",
 	        durationSec: duration, references: takeReferences, shotSources,
+          renderPlan,
+          referenceSourceVersions:[].concat(referencePackage.characters||[],referencePackage.locations||[],referencePackage.props||[])
+            .map(r=>({assetId:r.assetId,entityId:r.entityId,kind:r.kind,snapshot:r.snapshot,shotIds:r.shotIds})),
+          referenceSignature:referencePackage.signature||"",
 	        propDependencies:(typeof stageClipPropDependencySignature==="function")
 	          ? stageClipPropDependencySignature(d,scene&&scene.id,window.turnContinuity||{}) : "" },
       // start→end transitions render on the dedicated i2v endpoint, which needs BOTH
@@ -2900,10 +3008,13 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   const onChip = (ch)=>{
     const line = String((ch&&ch.k)||"").trim()+": "+String((ch&&ch.v)||"").trim();
     if(!line.trim() || line.indexOf(": ")===0) return;
+    promptEditedRef.current=true; setPromptSourceStamp(promptSourceSig); setPromptDriftConfirmed("");
     setPrompt(p=>{
       const cur = String(p||"").trim();
       if(cur.toLowerCase().indexOf(line.toLowerCase())>=0) return p;
-      return cur ? (cur+"\n"+line) : line;
+      const next=cur ? (cur+"\n"+line) : line;
+      promptDraftsRef.current[promptDraftKey]={text:next,sourceSig:promptSourceSig,shotIds:shownShots.map(s=>s.id)};
+      return next;
     });
   };
   const gening = staging || gen.gening;   // staging = pre-submit asset prep — a slow stage must not look like a dead click
@@ -2986,18 +3097,21 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
       onPick:(v)=>setAspectOverride(v==="auto"?null:v) },
     { key:"res", icon:Icon.diamond||Icon.image, label:resolution, title:"Resolution", heading:"Resolution",
       options:STAGE_RESOLUTIONS.map(r=>{
-        const locked = !stageResAllowed(tierObj, r);          // model-tier ceiling (hard)
+        const serverPending=!stageServerResolutionAllowed(modelId,r,runtimeCaps,capabilityTarget);
+        const locked = !stageResAllowed(tierObj, r)||serverPending; // model/proxy ceiling (hard)
         const planLocked = !locked && !planAllowsRes(r);      // plan ceiling (upsell)
         // honest lock copy: "needs the Standard tier" only when SOME tier of this
         // model reaches it — otherwise the model itself can't do it at all
         const anyTier = (model.tiers||[]).some(t0=>stageResAllowed(t0, r));
         return { value:r, label:r, selected:r===resolution,
           disabled:locked,
-          note:locked ? (anyTier ? (r+" needs the Standard tier") : (r+" isn't available on "+model.label)) : (planLocked ? planResNote(r)+" — click to upgrade" : undefined),
+          note:serverPending ? "Pending server update — awaiting the video proxy capability handshake"
+            : locked ? (anyTier ? (r+" needs the Standard tier") : (r+" isn't available on "+model.label)) : (planLocked ? planResNote(r)+" — click to upgrade" : undefined),
           tag:planLocked ? ((typeof window.turnPlanForRes==="function" && window.turnPlanForRes(r))||"Plan")+" plan" : undefined,
           meta: r==="4K" ? [{ icon:Icon.sparkles, label:"5× credits" }] : undefined };
       }),
-      onPick:(r)=>{ if(!planAllowsRes(r)){ openPlansUpsell(); return; } setResolution(r); } },
+      onPick:(r)=>{ if(!stageServerResolutionAllowed(modelId,r,runtimeCaps,capabilityTarget)) return;
+        if(!planAllowsRes(r)){ openPlansUpsell(); return; } setResolution(r); } },
     { key:"dur", icon:Icon.clock, label:_fmtSecs(duration), heading:"Clip duration",
       title: durationLocked
         ? "The measured voice + breathing room ("+_fmtSecs(measuredSec)+") is the MINIMUM — extend for more acting time"
@@ -3090,19 +3204,29 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   // would re-interrupt on every visit); clicking the blocked Generate button shakes
   // and scrolls to it. Where a one-click fix exists, the banner carries the button. ----
   const blockers = [];
+  if(!stageServerResolutionAllowed(modelId,resolution,runtimeCaps,capabilityTarget)) blockers.push({
+    key:"server-resolution",
+    text:resolution+" is pending a server update confirmed by the video proxy capability handshake. Choose an advertised resolution such as 720p before rendering."
+  });
+  if(promptSourceDrift) blockers.push({key:"prompt-drift",
+    text:"This hand-edited prompt was written against older shot timing, coverage, dialogue or reference versions. Review the exact render package before reusing it.",
+    actionLabel:"Confirm reviewed",action:()=>setPromptDriftConfirmed(promptSourceSig)});
+  const planIssue=renderPlan&&(renderPlan.issues||[]).find(x=>x&&x.blocking);
+  if(planIssue) blockers.push({key:"render-plan",text:planIssue.message,
+    actionLabel:clipScope==="legacy"?"Fit beat":null,
+    action:clipScope==="legacy"?()=>setClipScope("beat"):null});
   if(needsVoice) blockers.push({ key:"voice",
     text:"Voice this clip before rendering — duration and lip-sync lock to the line audio.",
     actionLabel: onVoiceLine ? (voicingClip ? "Voicing…" : "Voice clip now") : null,
     action:onVoiceClip, busy:voicingClip });
   if(sourceBlocking) blockers.push({ key:"source",
     text:"No storyboard source is ready yet — save this clip's "+(sourceMode==="sheet"?"sheet":"halves")+" in Storyboards, or switch Visual source back to shot/prompt rendering." });
-  if(clip.g&&clip.g.over) blockers.push({ key:"overcap",
-    text:"This clip's shots total "+_fmtSecs(clip.g.dur)+" — over "+(model.label||"this model")+"'s "+_fmtSecs(model.maxClipSec||15)+" maximum. Trim shot seconds on the Art Room's Shots tab, or switch Clip scope to Single shot; Cinema Machine will not silently compress it into a paid request." });
-  const carrierVideoCap=modelId==="seedance-2.5"?10:3;
-  const carrierOverflow=Math.max(0,onAudios.length-3);
-  const carrierSlots=Math.max(0,carrierVideoCap-onVideos.length);
-  if(voiceLocked && carrierOverflow>carrierSlots) blockers.push({ key:"voice-cap",
-    text:"This render has "+onAudios.length+" spoken lines but only "+(3+carrierSlots)+" can attach with the selected video references. Exclude references or render in shorter parts so every screenplay line stays exact." });
+  if(clip.g&&clip.g.over&&(!renderPlan||renderPlan.over)) blockers.push({ key:"overcap",
+    text:"This part needs "+_fmtSecs(clip.g.dur)+" — over "+(model.label||"this model")+"'s "+_fmtSecs(model.maxClipSec||15)+" maximum. No shot was omitted or compressed. Choose Fit beat to split at shot boundaries; if one shot alone is too long, split that shot/dialogue deliberately in the Art Room.",
+    actionLabel:clipScope==="legacy"?"Fit beat":null,
+    action:clipScope==="legacy"?()=>setClipScope("beat"):null });
+  if(voiceLocked && onAudios.length>directAudioLimit) blockers.push({ key:"voice-cap",
+    text:"This render has "+onAudios.length+" spoken lines; the active video transport advertises "+directAudioLimit+" direct audio slots. Fit the beat into shorter shot-boundary parts so no line is silently dropped." });
   // OVER THE MODEL'S CLIP CEILING — the render would clamp silently and compress
   // the pacing; force the choice instead (the fit / untick / parts fixes sit
   // with the rows). Only reachable via the seconds steppers — ticking is capped.
@@ -3196,6 +3320,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   const pickPromptStyle = (id)=>{
     setPromptStyle(id);
     promptEditedRef.current = false;
+    delete promptDraftsRef.current[promptDraftKey];
     setPrompt((id!=="auto" && promptStyleAvailable(id)) ? recipeText(id, true) : recipeText(defaultRecipe()));
   };
   const promptStyleUiOptions = [
@@ -3258,16 +3383,17 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
           }))),
       sdPill("scope","scope","Clip scope — how much one render covers",
         _stEl(React.Fragment,null, Icon.film&&_stEl(Icon.film,{s:13}),
-          _stEl("span",null, clipScope==="shot" ? "Single shot" : (modelId==="seedance-2.5" ? "Whole beat" : "Auto clips"))),
+          _stEl("span",null, clipScope==="shot" ? "Single shot" : clipScope==="legacy" ? "Previous packing" : "Fit beat")),
         _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
-          [ { id:"auto", label: modelId==="seedance-2.5" ? "Whole beat" : "Auto clips",
-              desc: modelId==="seedance-2.5"
-                ? "One clip per BEAT — all of a beat's shots render as one continuous sequence of shots, up to 30s. The Art Room micro-beat plan, shot end to end."
-                : "Shots pack into clips by "+(model.label||"the model")+"'s budget (up to "+_fmtSecs(model.maxClipSec||15)+", "+(model.maxShotsPerClip||3)+" shots per clip) — a beat may span more than one clip.",
-              selected:clipScope!=="shot", onPick:()=>{ if(typeof setClipScope==="function") setClipScope("auto"); } },
+          [ { id:"beat", label:"Fit beat",
+              desc:"Beat-first packing. A long beat splits into numbered parts at shot boundaries without omitting coverage. A single overlong shot is blocked with deliberate split/revoice guidance.",
+              selected:clipScope==="beat", onPick:()=>{ if(typeof setClipScope==="function") setClipScope("beat"); } },
             { id:"shot", label:"Single shot",
               desc:"One clip per SHOT — render and judge each shot on its own for maximum control; the rail lists every shot as its own clip.",
               selected:clipScope==="shot", onPick:()=>{ if(typeof setClipScope==="function") setClipScope("shot"); } },
+            { id:"legacy", label:"Previous packing",
+              desc:"View the earlier automatic groups and their historical takes. This does not delete or migrate them into the beat-first plan.",
+              selected:clipScope==="legacy", onPick:()=>{ if(typeof setClipScope==="function") setClipScope("legacy"); } },
           ].map(o=>sdOption(o)))),
       sdPill("source","source","Reference mode",
         _stEl(React.Fragment,null, Icon.layers&&_stEl(Icon.layers,{s:13}), _stEl("span",null,sourceUiLabel)),
@@ -3287,11 +3413,13 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
           _stEl("label",null,"Resolution"),
           _stEl("div",{className:"sdbar-grid three"},
             STAGE_RESOLUTIONS.map(r=>{
-              const planLocked = stageResAllowed(tierObj, r) && !planAllowsRes(r);
-              const disabled = !stageResAllowed(tierObj, r);
+              const serverPending=!stageServerResolutionAllowed(modelId,r,runtimeCaps,capabilityTarget);
+              const planLocked = stageResAllowed(tierObj, r) && !serverPending && !planAllowsRes(r);
+              const disabled = !stageResAllowed(tierObj, r)||serverPending;
               return _stEl("button",{key:r,type:"button",className:(r===resolution?"on ":"")+(planLocked?"plan-locked":""),
                 disabled:disabled && !planLocked,
-                title:planLocked ? planResNote(r)+" — click to upgrade" : (disabled ? (r+" isn't available on "+model.label) : r),
+                title:serverPending ? "Pending server update — awaiting the video proxy capability handshake"
+                  : planLocked ? planResNote(r)+" — click to upgrade" : (disabled ? (r+" isn't available on "+model.label) : r),
                 onClick:()=>{ if(planLocked){ openPlansUpsell(); return; } if(disabled) return; setResolution(r); setSdMenu(null); }},
                 String(r).toUpperCase(), (r==="1080p"||r==="4K") && Icon.sparkles&&_stEl(Icon.sparkles,{s:10}));
             })))),
@@ -3392,11 +3520,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
         // trailing "…") is a prompt budget, not what the user reads or edits here
         const canon = String(sh.vidText||"").trim() || stageShotMicroPromptText(scene, drafts, beatsMap, sh, 0) || String(p.text||"").trim();
         const voicedMin = (sh.lineAudio && sh.lineAudio.durationMs) ? Math.max(1, Math.round(((sh.lineAudio.durationMs/1000)+0.4)*10)/10) : 1;
-        const curDur = Math.max(1, Math.round((Number(sh.dur) || (typeof shotDur==="function" ? shotDur(sh) : 3))*10)/10);
-        const setDur = (nv)=>{ if(!onUpdateShot) return;
-          msTouchedRef.current = true;   // hand-set seconds — auto-fit stands down
+        const curDur = Math.max(1, Math.round(msRuntime(sh)*10)/10);
+        const setDur = (nv)=>{
           const v = Math.min(model.maxClipSec||15, Math.max(voicedMin, Math.round(nv*10)/10));
-          onUpdateShot(sh.id, { dur:v }); };
+          setMsDur(prev=>({ ...prev,[sh.id]:v })); };
         // an EMPTY override means "derived" (clearing the box restores the derived
         // text) — only real text counts as an edit
         const edited = sh.vidText!=null && String(sh.vidText).trim()!=="";
@@ -3406,7 +3533,6 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
         // refused (with a toast) and the checkbox shows the dashed "blocked" state
         const blockedIn = !included && (msTotal + curDur > (model.maxClipSec||15)+0.001);
         const toggleInclude = ()=>{
-          msTouchedRef.current = true;   // hand-picked rows — auto-fit stands down
           setMsOff(s=>{
             const n = new Set(s);
             if(n.has(sh.id)){
@@ -3460,15 +3586,15 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
               const idx = opts.findIndex(v=>Math.abs(v-curDur)<0.001);
               const stepTo = (di)=>{ const v=opts[Math.max(0,Math.min(opts.length-1,(idx<0?0:idx)+di))]; if(v>0) setDur(v); };
               return [
-                _stEl("button",{key:"m",type:"button",disabled:!onUpdateShot||idx<=0,
+                 _stEl("button",{key:"m",type:"button",disabled:idx<=0,
                   title: idx<=0 && voicedMin>1 ? ("Minimum "+_fmtSecs(voicedMin)+" — locked to the voiced line") : "Shorter",
                   onClick:()=>stepTo(-1)},"−"),
-                _stEl("select",{key:"s",className:"stage2-ms-durpick",value:String(curDur),disabled:!onUpdateShot,
+                 _stEl("select",{key:"s",className:"stage2-ms-durpick",value:String(curDur),
                   title:"Seconds for this shot — 4 / 8 / 12 / "+cap+"s"+(voicedMin>1?(", minimum "+_fmtSecs(voicedMin)+" (the voiced line's measured audio)"):"")
                     +", on "+(model.label||"this model"),
                   onChange:(e)=>{ const v=Number(e.target.value); if(v>0) setDur(v); }},
                   opts.map(v=>_stEl("option",{key:v,value:String(v)},_fmtSecs(Math.round(v*10)/10)))),
-                _stEl("button",{key:"p",type:"button",disabled:!onUpdateShot||idx>=opts.length-1,title:"Longer",
+                 _stEl("button",{key:"p",type:"button",disabled:idx>=opts.length-1,title:"Longer",
                   onClick:()=>stepTo(1)},"+")];
             })())),
           // the shot's text sits IN the box (editable) — editing saves a video-only
@@ -3482,38 +3608,23 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
               onUpdateShot(sh.id, { vidText: v.trim()==="" ? undefined : v }); },
             title:"This shot's video description — compiled into the prompt. Editing saves a video-only override (the shot card's canon Action is never changed); ↺ derived restores the live text."}));
       }),
-      (()=>{ // ceiling notice with ONE-CLICK fixes. "Fit" leads — whole-scene mode
-        // means the user wants ONE render, so rescaling the seconds honestly (instead
-        // of letting the render clamp silently) is the best default; "Render in parts"
-        // (per-clip packing) is the alternative when every second matters. Voiced
-        // lines keep their measured minimum — if those alone exceed the ceiling,
-        // fitting is impossible and parts is the only path.
-        const durOf = (sh)=> Number(sh.dur) || (typeof shotDur==="function" ? shotDur(sh) : 3);
+      (()=>{ // Ceiling notice routes to beat-first shot-boundary splitting. It never
+        // rewrites canonical timing or silently drops the largest rows.
+        const durOf = msRuntime;
         const minOf = (sh)=> (sh.lineAudio && sh.lineAudio.durationMs) ? Math.max(1, Math.round(((sh.lineAudio.durationMs/1000)+0.4)*10)/10) : 1;
         // ceiling math counts INCLUDED shots only — excluding a shot is itself a fix
         const totalSec = msShots.reduce((a,sh)=> a + durOf(sh), 0);
         const cap = model.maxClipSec || 15;
         if(totalSec <= cap) return null;
         const minTotal = msShots.reduce((a,sh)=> a + minOf(sh), 0);
-        const canFit = !!onUpdateShot && minTotal <= cap;
-        const fit = ()=>{
-          if(!canFit) return;
-          const fixed = minTotal;
-          const flexBudget = cap - fixed;
-          const flexCurrent = msShots.reduce((a,sh)=> a + Math.max(0, durOf(sh)-minOf(sh)), 0) || 1;
-          msShots.forEach(sh=>{
-            const extra = Math.max(0, durOf(sh)-minOf(sh)) * flexBudget / flexCurrent;
-            onUpdateShot(sh.id, { dur: Math.max(minOf(sh), Math.round((minOf(sh)+extra)*10)/10) });
-          });
-          if(window.appToast) window.appToast("Shot seconds fitted to "+(model.label||"the model")+"'s "+cap+"s — the steppers now show the real pacing.");
-        };
+        const canFit = minTotal <= cap;
         return _stEl("div",{className:"stage2-ms-over"},
           _stEl("span",{className:"stage2-ms-over-text"},
             "Rows total "+_fmtSecs(Math.round(totalSec*10)/10)+" — over "+(model.label||"this model")+"'s "+cap+"s ceiling."
             +(canFit ? "" : " Voiced lines alone need "+_fmtSecs(Math.round(minTotal*10)/10)+", so one render can't hold this scene.")),
-          canFit && _stEl("button",{type:"button",className:"stage2-ms-over-act primary",
-            title:"Rescale the shots' seconds proportionally into ONE "+cap+"s render (voiced lines keep their measured minimum) — the recommended fix for shooting the whole scene in one pass.",
-            onClick:fit},"Fit to "+cap+"s"));
+          _stEl("button",{type:"button",className:"stage2-ms-over-act primary",
+            title:"Split this beat into shot-boundary parts without rewriting shot timing.",
+            onClick:()=>setClipScope&&setClipScope("beat")},"Fit beat"));
       })(),
       _stEl("div",{className:"stage2-ms-hint"},"One row = one shot. Edit the text freely — it shapes the video prompt only; Generate renders these rows as one continuous Seedance clip. (Add or remove shots on the Art Room's Shots tab.)")),
     _stEl("div",{className:"stage2-gen-row"+(recipe==="multishot"?" ms":"")},
@@ -3530,7 +3641,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
         // edited away from the derivation → offer the way back to the script
         prompt!==beatPrompt && _stEl("button",{type:"button",className:"stage2-prompt-reset",
           title:"Rebuild this prompt from the screenplay beat and the Art Room shot design — discards manual edits",
-          onClick:()=>{ promptEditedRef.current=false; setPrompt(beatPrompt); }},
+          onClick:()=>{ promptEditedRef.current=false; delete promptDraftsRef.current[promptDraftKey]; setPromptSourceStamp(promptSourceSig); setPromptDriftConfirmed(""); setPrompt(beatPrompt); }},
           "↺ Reset to script"),
         badMentions.length>0 && _stEl("div",{className:"stage2-mention-warn"},
           "⚠ "+badMentions.join(", ")+" — not among this render's included assets; the model will guess. Fix the token or include the asset."),
@@ -3629,12 +3740,29 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
         onClick:()=>{ const i=clipsInScene.findIndex(c=>c.id===clip.id); if(i>=0 && i<clipsInScene.length-1) onSelectClip&&onSelectClip(clipsInScene[i+1].id); }},
         Icon.chevR&&_stEl(Icon.chevR,{s:14}))),
     composer,
+    typeof window.StageRenderPlan==="function" && _stEl(window.StageRenderPlan,{
+      plan:renderPlan,modelLabel:model.label,beatN:clip.g&&clip.g.beatN,
+      part:clip.g&&clip.g.part,parts:clip.g&&clip.g.parts,
+      referenceWarnings:(referencePackage.warnings||[]).map(w=>({message:w.message,blocking:w.severity==="error"})),
+      onShowShots:onStageNav?()=>onStageNav("shots"):undefined,
+      onSplit:clipScope==="legacy"?()=>setClipScope("beat"):undefined
+    }),
+    _stEl("details",{className:"stage-plan-queued"},
+      _stEl("summary",null,"Exact queued render"),
+      _stEl("pre",null,(refBlock?(prompt.trim()+"\n\n"+refBlock):prompt.trim())
+        +"\n\n"+[cameraProfileLine,"Camera movement: "+camera+". Lighting: "+lighting+". Performance: "+perf+"."].filter(Boolean).join("\n")),
+      _stEl("small",null,"Scene "+_pad2(scene.no)+" · Beat "+((clip.g&&clip.g.beatN)||activeShot.beatN||"—")
+        +((clip.g&&clip.g.parts)>1?(" · Part "+clip.g.part+"/"+clip.g.parts):"")+" · "+model.label+" · "+tierObj.label+" · "+resolution+" · "+_fmtSecs(duration)
+        +" · "+counts.images+" image · "+counts.videos+" video · "+counts.audio+" audio reference"+(counts.audio===1?"":"s"))),
     _stEl("div",{className:"stage2-director-prompt"},
       _stEl("div",{className:"stage2-director-head"},
         _stEl("div",{className:"stage2-director-title"},
           _stEl("b",null,model.label+" Director"),
           _stEl("span",{className:"stage2-director-badge"},"PRIMARY PROMPT"))),
-      _stEl(StagePromptArea,{className:"stage2-director-text",value:prompt,setValue:setPrompt,
+      _stEl(StagePromptArea,{className:"stage2-director-text",value:prompt,setValue:(v)=>{
+          promptEditedRef.current=true;setPromptSourceStamp(promptSourceSig);setPromptDriftConfirmed("");setPrompt(v);
+          promptDraftsRef.current[promptDraftKey]={text:v,sourceSig:promptSourceSig,shotIds:shownShots.map(s=>s.id)};
+        },
         mentionables,onMentionPick:includeMention,fill:true,placeholder:"Describe the video you want to create…",maxLength:PANEL_PROMPT_MAX}),
       _stEl("div",{className:"stage2-director-chips"},
         promptChips.map(([k,v],i)=>_stEl("button",{key:k+i,type:"button",onClick:()=>onChip({k,v,label:v}),title:"Add "+k+" to prompt"},
@@ -3755,15 +3883,19 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
         t0.fast&&Icon.sparkles&&_stEl(Icon.sparkles,{s:12}),t0.label)))),
     _ctrlRow("Resolution", _stEl("div",{className:"stage2-respills"},
       STAGE_RESOLUTIONS.map(r=>{
-        const planLocked = stageResAllowed(tierObj, r) && !planAllowsRes(r);
+         const serverPending=!stageServerResolutionAllowed(modelId,r,runtimeCaps,capabilityTarget);
+         const planLocked = stageResAllowed(tierObj, r) && !serverPending && !planAllowsRes(r);
         if(planLocked) return _stEl("button",{key:r,type:"button",
           className:"stage2-respill plan-locked"+(resolution===r?" on":""),
           title:planResNote(r)+" — click to upgrade",
           onClick:openPlansUpsell}, r, _stEl("span",{className:"respill-lock"},"↑"));
-        const disabled = !stageResAllowed(tierObj, r);
+         const disabled = !stageResAllowed(tierObj, r)||serverPending;
         const reachable = (model.tiers||[]).some(t0=>stageResAllowed(t0, r));   // any tier of THIS model
         return _stEl("button",{key:r,type:"button",className:"stage2-respill"+(resolution===r?" on":""),
-          disabled, title:disabled?(reachable?(r+" needs the Standard tier"):(r+" isn't available on "+model.label)):(r==="4K"?"4K — ~5× the 720p credit rate":r), onClick:()=>setResolution(r)}, r);
+           disabled,"aria-disabled":disabled?"true":undefined,
+           title:serverPending?"Pending server update — awaiting the video proxy capability handshake"
+             :disabled?(reachable?(r+" needs the Standard tier"):(r+" isn't available on "+model.label)):(r==="4K"?"4K — ~5× the 720p credit rate":r),
+           onClick:()=>{if(!disabled)setResolution(r);}}, r);
       }))),
     _ctrlRow("Duration", _stEl("select",{value:String(duration),
         title: durationLocked ? ("Minimum "+_fmtSecs(measuredSec)+" — the measured voice + breathing room; extend for more acting time") : "Clip duration",
@@ -4004,25 +4136,34 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse }){
     ? stageClipPropDependencySignature((clip&&clip.data)||{},clip&&clip.scene&&clip.scene.id,window.turnContinuity||{}) : "";
   const propDependenciesStale=(t)=>!!(t&&t.meta&&t.meta.propDependencies!=null
     && t.meta.propDependencies!==currentPropDependencies);
+  const referenceVersionsStale=(t)=>{
+    const refs=(t&&t.meta&&t.meta.referenceSourceVersions)||[];
+    if(!refs.length||typeof window.stageReferenceStatus!=="function") return false;
+    return refs.some(r=>{ const s=window.stageReferenceStatus({imageId:r.assetId,snapshot:r.snapshot});
+      return s.missing||s.excluded||s.stale||!s.approved; });
+  };
   const versionEditorialStatus = (t)=> typeof shotSourcesEditorialStatus==="function"
     ? shotSourcesEditorialStatus(((clip&&clip.data&&clip.data.shots)||[]),
         ((window.turnContinuity||{}).drafts||{}),(t&&t.meta)||{}) : versionSourceStatus(t);
   const selEditorialStatus=sel?versionEditorialStatus(sel):"";
   const sourceOverrideSnapshot=()=> typeof shotSourcesSnapshot==="function"
     ? shotSourcesSnapshot(((clip&&clip.data&&clip.data.shots)||[]),((window.turnContinuity||{}).drafts||{})) : [];
-  const confirmSourceOverride=async(t,verb)=>{
+  const confirmSourceOverride=async(t,verb,recordOverride=true)=>{
     const status=versionSourceStatus(t);
-    if(status==="current"||versionEditorialStatus(t)==="override") return true;
+    const refsStale=referenceVersionsStale(t);
+    if((status==="current"||versionEditorialStatus(t)==="override")&&!refsStale) return true;
     const ok=await window.appConfirm({
-      title:(status==="stale"?"Use a stale historical take?":"Use an unverified legacy take?"),
-      body:(status==="stale"
+      title:(status==="stale"||refsStale?"Use a stale historical take?":"Use an unverified legacy take?"),
+      body:(refsStale
+        ?"One or more character appearance, location coverage or prop-state references changed, is missing, or is not currently approved."
+        : status==="stale"
         ?"This take was rendered from older shot specifications or screenplay text."
         :"This legacy take has no source-revision stamp, so its match to current coverage cannot be verified.")
         +" "+verb+" records an explicit override tied to the current shot sources. The override expires automatically after another source change.",
       confirmLabel:verb+" with override",danger:true
     });
     if(!ok) return false;
-    if(window.vidUpdateTake) await window.vidUpdateTake(clipId,t.url,{sourceOverride:sourceOverrideSnapshot()});
+    if(recordOverride&&window.vidUpdateTake) await window.vidUpdateTake(clipId,t.url,{sourceOverride:sourceOverrideSnapshot()});
     return true;
   };
   const act = {
@@ -4064,6 +4205,7 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse }){
     else if(sourceStatus!=="current") out.push(_stEl("span",{key:"s",className:"stage2-vbadge "+sourceStatus},
       sourceStatus==="stale"?"Stale source":"Source unverified"));
     if(propDependenciesStale(t)) out.push(_stEl("span",{key:"p",className:"stage2-vbadge stale"},"Prop reference changed"));
+    if(referenceVersionsStale(t)) out.push(_stEl("span",{key:"r",className:"stage2-vbadge stale"},"References need review"));
     return out;
   };
   const detailRows = sel ? [
@@ -4129,6 +4271,8 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse }){
               selApproved
                 ? "A prop used by this take has changed. This approved take remains pinned; update it only when you intentionally render a new version."
                 : "A prop used by this take has changed in the Art Room. Render a new version to use the current prop state and reference sheet."),
+            referenceVersionsStale(sel) && _stEl("div",{className:"stage2-source-warning stale"},
+              "A character appearance, location coverage or prop-state reference used by this take changed, is missing, or is not currently approved. Review and explicitly confirm before approving, restoring or reusing it."),
             selEditorialStatus!=="current" && _stEl("div",{className:"stage2-source-warning "+selEditorialStatus},
               selEditorialStatus==="override"
                 ?"Explicit source override: this historical take is approved for the current shot sources. Any later shot or screenplay change invalidates the override."
@@ -4174,10 +4318,10 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse }){
              onClick:()=>sel&&act.approve(sel, !selApproved)}, selApproved?"★ Approved — unstar":"☆ Approve this take"),
           _stEl("button",{className:"stage2-vtool",disabled:!sel,
             title:"Load this take's visual source, tier, resolution, bitrate and recipe back into the Stage composer",
-            onClick:()=>sel&&onReuse(selMeta,false)}, "Reuse settings"),
+            onClick:async()=>{ if(sel&&await confirmSourceOverride(sel,"Reuse",false)) onReuse(selMeta,false); }}, "Reuse settings"),
           _stEl("button",{className:"stage2-vtool",disabled:!sel||selMeta.seed==null,
             title:"Reuse settings AND pin this take's seed — Generate renders a controlled variation",
-            onClick:()=>sel&&onReuse(selMeta,true)}, "Branch from version"),
+            onClick:async()=>{ if(sel&&await confirmSourceOverride(sel,"Branch",false)) onReuse(selMeta,true); }}, "Branch from version"),
           sel && _stEl("a",{className:"stage2-vtool link",href:sel.url,target:"_blank",rel:"noreferrer",download:""},"Download / open"),
           _stEl("button",{className:"stage2-vtool danger",disabled:!sel,
             onClick:()=>sel&&act.del(sel.url)}, "Delete take"),
@@ -4826,11 +4970,15 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   const clipMax = (typeof clipMaxFor==="function") ? clipMaxFor(project) : (window.CLIP_MAX_SECONDS||15);
   // the MODEL choice lives here (not in the per-clip console) because it drives the
   // clip PACKER: Seedance 2.0 caps clips at 3 shots so per-shot frames + identity refs
-  // fit its 9-image budget; a whole-scene model (2.5) lifts the cap. Persisted.
+  // fit its 9-image budget; 2.5 lifts the shot-count cap but remains beat-first.
   const [modelId, _setModelId] = React.useState(()=>{
     try{ const v = localStorage.getItem("turn_stage_model");
-      return (SEEDANCE_MODELS.find(m=>m.id===v && m.status==="active") || SEEDANCE_MODELS.find(m=>m.status==="active") || SEEDANCE_MODELS[0]).id;
-    }catch(e){ return SEEDANCE_MODELS[0].id; }
+      // Stored values are explicit historical choices. Only an actually new Stage
+      // starts on 2.5; never migrate a hand-picked 2.0 model or its takes.
+      return (SEEDANCE_MODELS.find(m=>m.id===v && m.status==="active")
+        || SEEDANCE_MODELS.find(m=>m.id==="seedance-2.5"&&m.status==="active")
+        || SEEDANCE_MODELS.find(m=>m.status==="active") || SEEDANCE_MODELS[0]).id;
+    }catch(e){ return "seedance-2.5"; }
   });
   const setModelId = React.useCallback((id)=>{ _setModelId(id); try{ localStorage.setItem("turn_stage_model", id); }catch(e){} },[]);
   const stageModel = seedanceModelOf(modelId);
@@ -4841,9 +4989,14 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   // its 15s/3-shot budget. "shot": one clip per SHOT on either model — maximum
   // per-render control. Persisted like the model choice.
   const [clipScope, _setClipScope] = React.useState(()=>{
-    try{ return localStorage.getItem("turn_stage_clip_scope")==="shot" ? "shot" : "auto"; }catch(e){ return "auto"; }
+    try{ const v=localStorage.getItem("turn_stage_clip_scope");
+      // "auto" is the old packer and remains viewable so historical take keys stay
+      // attached. No stored value means a new user: use approved beat-first packing.
+      return v==="shot"?"shot":v==="beat"?"beat":v==="auto"?"legacy":"beat";
+    }catch(e){ return "beat"; }
   });
-  const setClipScope = React.useCallback((v)=>{ _setClipScope(v==="shot"?"shot":"auto"); try{ localStorage.setItem("turn_stage_clip_scope", v==="shot"?"shot":"auto"); }catch(e){} },[]);
+  const setClipScope = React.useCallback((v)=>{ const next=v==="shot"?"shot":v==="legacy"?"legacy":"beat";
+    _setClipScope(next); try{ localStorage.setItem("turn_stage_clip_scope",next==="legacy"?"auto":next); }catch(e){} },[]);
   // CLIP PACKING follows the scope above; the left rail lists the packed clips.
   // (The old Per clip / Whole scene switcher was removed 2026-08-02 by user ruling —
   // sceneSequences' wholeScene branch stays dormant.)
@@ -4854,13 +5007,21 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   const clipsByScene = React.useMemo(()=>{ const m={};
     // the packing budget follows the MODEL's ceiling upward — a 30s model (Seedance
     // 2.5) packs a whole BEAT into one 30s clip even when the format's budget is 15s
-    const packMax = Math.max(clipMax, stageModel.maxClipSec||15);
-    const packOpts = clipScope==="shot"
-      ? { perShot:true }
-      : { maxShots: stageModel.maxShotsPerClip!=null ? stageModel.maxShotsPerClip : (window.CLIP_MAX_SHOTS||3),
+    const packMax = stageModel.maxClipSec || clipMax || 15;
+    const packOpts = { maxShots: stageModel.maxShotsPerClip!=null ? stageModel.maxShotsPerClip : (window.CLIP_MAX_SHOTS||3),
           maxDialogue: stageModel.maxDialoguePerClip!=null ? stageModel.maxDialoguePerClip : (window.CLIP_MAX_DIALOGUE||3),
           perBeat:modelId==="seedance-2.5" };
-    scenesWithShots.forEach(s=>{ m[s.id]=(typeof sceneSequences==="function")?sceneSequences(shotsByScene[s.id]||[], packMax, packOpts):[]; });
+    scenesWithShots.forEach(s=>{
+      const ss=shotsByScene[s.id]||[];
+      if(clipScope!=="legacy"&&typeof window.stagePlanClips==="function"){
+        m[s.id]=window.stagePlanClips(ss,{ modelId,maxSeconds:packMax,
+          maxShots:packOpts.maxShots,maxDialogue:packOpts.maxDialogue,
+          scope:clipScope==="shot"?"shot":"beat",audioMode:"locked" });
+      }else{
+        m[s.id]=(typeof sceneSequences==="function")
+          ? sceneSequences(ss,packMax,clipScope==="shot"?{perShot:true}:packOpts) : [];
+      }
+    });
     return m; }, [scenesWithShots, shotsByScene, clipMax, modelId, clipScope]);
 
   // ctx.scenes = the story-ORDERED list — shotPropSheetId/custodyOwnerAt resolve by story
@@ -4892,12 +5053,16 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   // migrate any takes still stored under the OLD positional ids (fire-and-forget; the
   // vid-done event each migration dispatches makes mounted consoles re-read)
   React.useEffect(()=>{
+    if(clipScope!=="legacy") return;
     if(typeof window.vidAdoptTakes!=="function") return;
     allClips.forEach(c=>{ if(c.legacyId && c.legacyId!==c.id) window.vidAdoptTakes(c.id, c.legacyId); });
-  }, [allClips.map(c=>c.id).join("|")]);
+  }, [clipScope, allClips.map(c=>c.id).join("|")]);
 
   // load every needed image (shot frames + storyboard clip sheets/halves + character / location / prop sheets) into one map
-  const shotIdsKey = (shots||[]).map(s=>s.id).join(",");
+  const shotIdsKey = (shots||[]).map(s=>[s.id,s.beatN,(s.covers||[]).join("."),
+    s.referenceCharactersSet?1:0,(s.referenceCharacterIds||[]).join("."),
+    s.referenceLocationsSet?1:0,(s.referenceLocationIds||[]).join("."),
+    (s.refOff||[]).join(".")].join(":")).join(",");
   const charIdsKey = (characters||[]).map(c=>c.id).join(",");
   const locIdsKey = (locations||[]).map(l=>l.id).join(",");
   const propIdsKey = (props||[]).map(p=>p.id).join(",");
@@ -4915,6 +5080,12 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
     // the clip-derived VARIANT ids too — a prop's active state sheet and the scene's
     // coverage sheet aren't in the base id lists above, so they'd never be fetched
     allClips.forEach(c=>{ const dd=c.data||{}; (dd.props||[]).forEach(p=>s.add(p.sheetId||p.id)); if(dd.locSheet&&dd.locSheet.id) s.add(dd.locSheet.id); });
+    if(typeof window.stageShotReferencePackage==="function"){
+      scenesWithShots.forEach(scene=>{
+        const pack=window.stageShotReferencePackage(shotsByScene[scene.id]||[],{...ctx,scene,drafts});
+        ["characters","locations","props"].forEach(k=>(pack[k]||[]).forEach(r=>r&&r.assetId&&s.add(r.assetId)));
+      });
+    }
     return Array.from(s); }, [shotIdsKey, charIdsKey, locIdsKey, propIdsKey, allClips.map(c=>c.id).join(","), scenesWithShots.map(s=>s.id).join(","),
       JSON.stringify(allClips.map(c=>[(((c.data||{}).props)||[]).map(p=>p.sheetId||p.id).join("|"), (((c.data||{}).locSheet)||{}).id||""]))]);
   const [imgs, setImgs] = React.useState({});
@@ -5123,7 +5294,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
             // hash the member shots), and remounting the console wiped the recipe
             // tab + Multi-shot row state mid-edit; the console's own member-overlap
             // effect handles real clip moves within the scene.
-            : _stEl(ClipConsole,{ key:"console-"+selectedScene.id, clip, selectedShot, sceneClips:selectedSceneClips, ctx, imgs, auds, beatsMap, drafts, prevClipVideoId:prevBeatVideoId, aspect, visualSource, setVisualSource, creditBalance, onVoiceLine, onUpdateShot, modelId, setModelId, clipScope, setClipScope,
+            : _stEl(ClipConsole,{ key:"console-"+selectedScene.id, clip, selectedShot, sceneClips:selectedSceneClips, ctx, imgs, auds, beatsMap, drafts, prevClipVideoId:prevBeatVideoId, aspect, visualSource, setVisualSource, creditBalance, onVoiceLine, onUpdateShot, onStageNav, modelId, setModelId, clipScope, setClipScope,
                 onSelectClip,
                 onFirstVideo:()=>setStageView("versions"),
                 pendingReuse, onReuseConsumed:()=>setPendingReuse(null) }))));

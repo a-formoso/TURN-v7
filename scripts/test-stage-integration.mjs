@@ -1,0 +1,65 @@
+#!/usr/bin/env node
+/* Source-level Stage integration checks. No build, network, database or render. */
+import {readFileSync} from "node:fs";
+import vm from "node:vm";
+
+const noop=()=>{};
+const box={
+  console,setTimeout,clearTimeout,React:new Proxy({createElement:()=>null},{get:(o,k)=>o[k]||noop}),
+  localStorage:{getItem:()=>null,setItem:noop},navigator:{},location:{},
+  document:{createElement:()=>({}),addEventListener:noop,removeEventListener:noop,body:{appendChild:noop}},
+  addEventListener:noop,removeEventListener:noop,CustomEvent:class{},
+};
+box.window=box;box.globalThis=box;
+box.stageShotRuntime=sh=>Number(sh.dur)||2;
+box.shotGrammarLabel=sh=>sh.camera||"locked camera";
+vm.createContext(box);
+for(const file of ["app/stage-plan.jsx","app/stage-references.jsx","app/stage.jsx"])
+  vm.runInContext(readFileSync(file,"utf8"),box,{filename:file});
+
+let pass=0,fail=0;
+function ok(name,value,detail=""){if(value)pass++;else{fail++;console.error("FAIL "+name+(detail?" — "+detail:""));}}
+
+const shots=[
+  {id:"a",sceneId:"s",beatN:1,dur:8,covers:[1],beatPlan:{micro:["Open the door","See the letter"]},action:"Door opens"},
+  {id:"b",sceneId:"s",beatN:1,dur:8,covers:[2],beatPlan:{micro:["Open the door","See the letter"]},dialogue:"It is here"},
+  {id:"c",sceneId:"s",beatN:2,dur:5,covers:[1],beatPlan:{micro:["Mara runs"]},action:"Mara runs"},
+];
+const groups=box.stagePlanClips(shots,{modelId:"seedance-2.0",maxSeconds:15,maxShots:3,maxDialogue:10,scope:"beat"});
+ok("planner splits overlong beat at shot boundaries",groups.length===3,JSON.stringify(groups.map(g=>g.shots.map(s=>s.id))));
+ok("planner omits no shots",groups.flatMap(g=>g.shots).map(s=>s.id).join(",")==="a,b,c");
+ok("planner numbers beat parts",groups[0].part===1&&groups[0].parts===2&&groups[1].part===2);
+
+const panels=shots.map(sh=>({shotId:sh.id,beatN:sh.beatN,text:sh.action||"",dialogue:sh.dialogue||"",speaker:{name:"Mara"}}));
+const clip={id:"clip",scene:{loc:"Hall"},data:{shots,panelLines:panels,lineShots:[shots[1]],cast:[],props:[],dur:21}};
+const prompt=box.seedanceTimedPlanPrompt(clip,shots,true,["b"],null,{modelId:"seedance-2.5",maxSeconds:30});
+ok("timed prompt includes every beat",/Beat 1/.test(prompt)&&/Beat 2/.test(prompt),prompt);
+ok("timed prompt obeys explicit covers",prompt.includes("Open the door")&&prompt.includes("See the letter"));
+ok("timed prompt keeps exact selected dialogue",prompt.includes('says "It is here"'),prompt);
+
+const mismatch={...shots[1],dialogue:"Revised exact words"};
+const exact=box.stageShotDialogueLine({id:"s"},{s:{blocks:[
+  {beat:1,type:"char",text:"MARA"},{beat:1,type:"dia",text:"Entirely different canon line"},
+]}},mismatch,{beatsMap:{},characters:[],charById:{}});
+ok("dialogue mismatch never borrows whole-beat line",exact&&exact.text==="Revised exact words",JSON.stringify(exact));
+
+const models=box.SEEDANCE_MODELS;
+const m25=models.find(m=>m.id==="seedance-2.5");
+ok("2.5 registry describes 1080p",m25&&m25.tiers[0].maxRes==="1080p");
+ok("2.5 1080p waits for runtime handshake",box.stageServerResolutionAllowed("seedance-2.5","1080p",{known:false})===false);
+ok("2.5 1080p unlocks only when advertised",box.stageServerResolutionAllowed("seedance-2.5","1080p",
+  {known:true,capabilities:{resolutions:["480p","720p","1080p"]}})===true);
+
+const source=readFileSync("app/stage.jsx","utf8");
+ok("no mount-time canonical duration autofit",!source.includes("onUpdateShot(sh.id,{ dur:want })"));
+ok("render metadata carries plan and reference provenance",source.includes("renderPlan,")&&source.includes("referenceSourceVersions"));
+ok("every Stage resolution surface uses the server guard",
+  (source.match(/stageServerResolutionAllowed\(modelId,r,runtimeCaps,capabilityTarget\)/g)||[]).length>=4);
+ok("Render settings exposes disabled semantics for pending resolutions",
+  source.includes('disabled,\"aria-disabled\":disabled?\"true\":undefined'));
+const files12=[{kind:"text"},...Array.from({length:12},(_,i)=>({kind:i%3?"image":"audio"}))];
+ok("12 reference files plus script text fit a 12-file cap",box.stageReferenceFileCount(files12)===12);
+ok("13 reference files exceed a 12-file cap",box.stageReferenceFileCount([...files12,{kind:"video"}])>12);
+
+console.log(pass+" passed, "+fail+" failed");
+process.exit(fail?1:0);

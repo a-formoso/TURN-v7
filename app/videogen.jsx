@@ -23,14 +23,20 @@ const VID_MODEL_FAST = "bytedance/seedance-2.0/fast/reference-to-video";
 // to this pair instead of guessing at an undocumented field on the multimodal endpoint.
 const VID_MODEL_I2V      = "bytedance/seedance-2.0/image-to-video";
 const VID_MODEL_I2V_FAST = "bytedance/seedance-2.0/fast/image-to-video";
-// Seedance 2.5 transition endpoint (verified live on fal 2026-08-07: supports
-// end_image_url, 480p/720p, 4–30s). fal lists NO fast variant for 2.5, so the
+// Seedance 2.5 transition endpoint (supports end_image_url, 480p/720p/1080p,
+// 4–30s). fal lists NO fast variant for 2.5, so the
 // "fast" constant aliases the standard endpoint — the registry has no 2.5 fast
 // tier, so it's never selected; the alias just makes a stale opts.fast harmless.
 const VID25_MODEL_I2V      = "bytedance/seedance-2.5/image-to-video";
 const VID25_MODEL_I2V_FAST = VID25_MODEL_I2V;
 window.VID_MODEL = VID_MODEL; window.VID_MODEL_FAST = VID_MODEL_FAST;
 window.VID_MODEL_I2V = VID_MODEL_I2V; window.VID_MODEL_I2V_FAST = VID_MODEL_I2V_FAST;
+function _seedanceEndpoint(modelOrEndpoint){
+  const raw=String(modelOrEndpoint||VID_MODEL);
+  if(!raw.includes("/") && /seedance-2\.5/i.test(raw)) return "bytedance/seedance-2.5/reference-to-video";
+  if(!raw.includes("/") && /seedance-2\.0/i.test(raw)) return VID_MODEL;
+  return raw;
+}
 
 // video always runs server-side — proxy on + signed-in
 function videoProxyReady(){
@@ -421,15 +427,53 @@ async function vidProxy(op, payload){
 }
 
 // ---- render ONE clip: multimodal assets (frame/images + line audio + ref videos) →
-//      lip-synced mp4; cache by hash. Seedance 2.0 takes up to ~12 combined assets. ----
-function _dedupCap(arr, cap){ const out=[], seen=new Set();
+//      lip-synced mp4; cache by hash. Limits are rejected, never silently truncated. ----
+function _vidDedup(arr){ const out=[], seen=new Set();
   (arr||[]).forEach(u=>{ if(u && !seen.has(u)){ seen.add(u); out.push(u); } });
-  return cap ? out.slice(0,cap) : out; }
+  return out; }
+function seedanceCapabilities(modelOrEndpoint){
+  const model = _seedanceEndpoint(modelOrEndpoint);
+  const version = /seedance-2\.5/.test(model) ? "2.5" : "2.0";
+  const fast = version==="2.0" && /\/fast\//.test(model);
+  return {
+    version, fast,
+    duration:{ min:4, max:version==="2.5"?30:15, auto:true },
+    resolutions:fast ? ["480p","720p"] : (version==="2.5" ? ["480p","720p","1080p"] : ["480p","720p","1080p","4K"]),
+    aspectRatios:["auto","16:9","9:16","1:1","4:3","3:4","21:9"],
+    bitrateModes:["standard","high"],
+    references:version==="2.5"
+      ? { images:{maxFiles:30,maxBytesEach:30*1024*1024}, videos:{maxFiles:10,maxBytesEach:200*1024*1024,minSecondsEach:1.8,maxSecondsEach:30.2,maxSecondsCombined:30.2}, audios:{maxFiles:10,maxBytesEach:15*1024*1024,minSecondsEach:1.8,maxSecondsEach:30.2,maxSecondsCombined:30.2}, maxFilesTotal:50 }
+      : { images:{maxFiles:9}, videos:{maxFiles:3,maxBytesCombined:50*1024*1024,minSecondsCombined:2,maxSecondsCombined:15}, audios:{maxFiles:3,maxBytesCombined:15*1024*1024,maxSecondsCombined:15}, maxFilesTotal:12 },
+    directAudioFiles:version==="2.5"?10:3,
+  };
+}
+window.seedanceCapabilities = seedanceCapabilities;
+const _seedanceRuntimeCaps = new Map();
+async function seedanceGetRuntimeCapabilities(modelOrEndpoint){
+  const model=_seedanceEndpoint(modelOrEndpoint);
+  if(_seedanceRuntimeCaps.has(model)) return _seedanceRuntimeCaps.get(model);
+  const pending=(async()=>{
+    if(!videoProxyReady()) return { known:false, model, capabilities:null, schema:null, reason:"video proxy is unavailable" };
+    try{
+      const reply=await vidProxy("capabilities",{model});
+      const known=!!(reply&&reply.known&&reply.schema&&reply.capabilities);
+      return { known, model, capabilities:known?reply.capabilities:null, schema:known?reply.schema:null,
+        reason:known?"":"deployed video proxy did not acknowledge this capability schema" };
+    }catch(e){
+      return { known:false, model, capabilities:null, schema:null,
+        reason:"deployed video proxy does not support the non-spending capability handshake" };
+    }
+  })();
+  _seedanceRuntimeCaps.set(model,pending);
+  const result=await pending;
+  if(!result.known) _seedanceRuntimeCaps.delete(model);
+  return result;
+}
+window.seedanceGetRuntimeCapabilities=seedanceGetRuntimeCapabilities;
 function vidResolutionForModel(model, requested){
   const raw = String(requested || "720p").trim();
   const norm = raw.toLowerCase()==="4k" ? "4K" : raw.toLowerCase();
-  const maxRank = /seedance-2\.0\/fast/.test(String(model||"")) ? 1
-    : /seedance-2\.5/.test(String(model||"")) ? 1   // fal lists 480p/720p ONLY for 2.5 — no 1080p/4K
+  const maxRank = /seedance-2\.5/.test(String(model||"")) ? 2
     : /kling-video|sora-2\/image-to-video\/pro/.test(String(model||"")) ? 2
     : /sora-2/.test(String(model||"")) ? 1
     : 3;
@@ -467,6 +511,69 @@ async function vidProxyReadyUrls(urls){
   return out;
 }
 window.vidProxyReadyUrl = vidProxyReadyUrl;
+
+function _vidDataUrlFacts(url){
+  const m=/^data:([^;,]+);base64,([a-z0-9+/=\s]+)$/i.exec(String(url||""));
+  if(!m) return {};
+  const encoded=m[2].replace(/\s/g,""), pad=(encoded.match(/=*$/)||[""])[0].length;
+  return { mime:m[1].toLowerCase(), sizeBytes:Math.max(0,Math.floor(encoded.length*3/4)-pad) };
+}
+async function vidMediaFacts(url, kind){
+  const facts=_vidDataUrlFacts(url);
+  if(/^blob:/i.test(String(url||""))){
+    try{ const b=await (await fetch(url)).blob(); facts.sizeBytes=b.size; facts.mime=b.type||facts.mime; }catch(e){}
+  }
+  if(kind==="image") return facts;
+  const el=document.createElement(kind==="video"?"video":"audio");
+  el.preload="metadata"; el.muted=true;
+  const duration=await new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>reject(new Error(kind+" metadata probe timed out")),12000);
+    el.onloadedmetadata=()=>{ clearTimeout(timer); Number.isFinite(el.duration)&&el.duration>0 ? resolve(el.duration) : reject(new Error(kind+" duration unavailable")); };
+    el.onerror=()=>{ clearTimeout(timer); reject(new Error(kind+" metadata could not be loaded")); };
+    el.src=url;
+  }).catch(e=>{ throw new Error("Could not verify a reference "+kind+"'s duration before submitting: "+e.message+". Re-select or re-upload that asset so its metadata can be probed."); });
+  el.removeAttribute("src"); try{ el.load(); }catch(e){}
+  return { ...facts, durationSeconds:duration };
+}
+async function vidReferenceMetadata(images,videos,audios){
+  return {
+    images:await Promise.all(images.map(u=>vidMediaFacts(u,"image"))),
+    videos:await Promise.all(videos.map(u=>vidMediaFacts(u,"video"))),
+    audios:await Promise.all(audios.map(u=>vidMediaFacts(u,"audio"))),
+  };
+}
+function vidValidateSeedancePackage(model, payload){
+  const cap=seedanceCapabilities(model), errors=[], refs=cap.references;
+  const lists={images:payload.images||[],videos:payload.videos||[],audios:payload.audios||[]};
+  Object.keys(lists).forEach(k=>{ if(lists[k].length>refs[k].maxFiles) errors.push(k+" accepts at most "+refs[k].maxFiles+" files (received "+lists[k].length+")"); });
+  const total=lists.images.length+lists.videos.length+lists.audios.length;
+  if(total>refs.maxFilesTotal) errors.push("references accept at most "+refs.maxFilesTotal+" total files (received "+total+")");
+  if(!(payload.duration==="auto")){
+    const d=Number(payload.duration);
+    if(!Number.isFinite(d)||d<cap.duration.min||d>cap.duration.max) errors.push("duration must be auto or "+cap.duration.min+"–"+cap.duration.max+" seconds");
+  }
+  if(!cap.resolutions.includes(payload.resolution)) errors.push("resolution must be "+cap.resolutions.join(", "));
+  if(!cap.aspectRatios.includes(payload.aspectRatio)) errors.push("aspect ratio "+payload.aspectRatio+" is unsupported");
+  if(!cap.bitrateModes.includes(payload.bitrateMode)) errors.push("bitrate mode must be standard or high");
+  const md=payload.metadata||{};
+  ["videos","audios"].forEach(k=>{
+    const rule=refs[k], facts=md[k]||[]; let secs=0, bytes=0;
+    facts.forEach((f,i)=>{
+      const d=Number(f.durationSeconds), b=Number(f.sizeBytes);
+      if(!Number.isFinite(d)||d<=0) errors.push(k.slice(0,-1)+" "+(i+1)+" duration could not be verified");
+      else { secs+=d; if(rule.minSecondsEach&&d<rule.minSecondsEach) errors.push(k.slice(0,-1)+" "+(i+1)+" must be at least "+rule.minSecondsEach+"s"); if(rule.maxSecondsEach&&d>rule.maxSecondsEach) errors.push(k.slice(0,-1)+" "+(i+1)+" must be at most "+rule.maxSecondsEach+"s"); }
+      if(Number.isFinite(b)){ bytes+=b; if(rule.maxBytesEach&&b>rule.maxBytesEach) errors.push(k.slice(0,-1)+" "+(i+1)+" is too large"); }
+    });
+    if(lists[k].length&&rule.minSecondsCombined&&secs<rule.minSecondsCombined) errors.push(k+" must total at least "+rule.minSecondsCombined+"s");
+    if(rule.maxSecondsCombined&&secs>rule.maxSecondsCombined) errors.push(k+" exceed "+rule.maxSecondsCombined+"s combined");
+    if(rule.maxBytesCombined&&bytes>rule.maxBytesCombined) errors.push(k+" exceed the combined size limit");
+  });
+  (md.images||[]).forEach((f,i)=>{ if(refs.images.maxBytesEach&&Number(f.sizeBytes)>refs.images.maxBytesEach) errors.push("image "+(i+1)+" exceeds 30MB"); });
+  const counts={image:lists.images.length,video:lists.videos.length,audio:lists.audios.length};
+  let m, re=/@(Image|Video|Audio)(\d+)\b/gi;
+  while((m=re.exec(String(payload.prompt||"")))){ const k=m[1].toLowerCase(); if(Number(m[2])<1||Number(m[2])>counts[k]) errors.push(m[0]+" has no matching reference"); }
+  if(errors.length) throw new Error("Invalid Seedance reference package: "+errors.join("; ")+".");
+}
 
 /* fal validates audio references at >= 2.0s ("Audio duration is too short. Minimum is
    2.0 seconds."); a short spoken line ("Yes.") measures well under that. Pad the decoded
@@ -682,9 +789,9 @@ async function seedanceGenerate(id, opts){
      the tier's assetLimit); 2.0 takes ≤9 images, ≤3 videos, ≤3 audio (12 total). */
   const isSeedance25 = /seedance-2\.5/.test(String(opts.falModel||""));
   // assemble the multimodal asset lists (single frameUrl/audioUrl kept for back-compat)
-  const images = _dedupCap([opts.frameUrl, ...(opts.imageUrls||[])], isSeedance25 ? 30 : 9);
-  const videos = _dedupCap(opts.videoUrls||[], isSeedance25 ? 10 : 3);
-  const audios = _dedupCap([opts.audioUrl, ...(opts.audioUrls||[])], isSeedance25 ? 10 : 3);
+  const images = _vidDedup([opts.frameUrl, ...(opts.imageUrls||[])]);
+  const videos = _vidDedup(opts.videoUrls||[]);
+  const audios = _vidDedup([opts.audioUrl, ...(opts.audioUrls||[])]);
   if(!images.length && !videos.length) throw new Error("This clip has no start frame yet — generate the shot's frame in the Shot List first.");
   /* SORA 2 rides the same queue but a different shape: the tier names its fal endpoint
      (opts.falModel), takes ONE start image, and has no video/audio refs, no end-frame
@@ -707,23 +814,34 @@ async function seedanceGenerate(id, opts){
     : useTransition
     ? (opts.fast ? VID_MODEL_I2V_FAST : VID_MODEL_I2V)
     : (opts.fast ? VID_MODEL_FAST : VID_MODEL);
-  // audio-as-clock: the measured line duration sets the clip length (Seedance/Kling 3–15s; Sora up to 20s; Seedance 2.5 up to 30s)
-  const duration = opts.durationMs ? Math.max(isKling?3:4, Math.min(isSora?20:(isSeedance25?30:15), Math.round(opts.durationMs/1000))) : (opts.duration||"auto");
+  // Never silently clamp Seedance: reject an unsupported requested duration before spending.
+  // Preserve the established snapping/clamping behavior of the unrelated Sora/Kling paths.
+  const duration = opts.durationMs
+    ? (isKling ? Math.max(3,Math.min(15,Math.round(opts.durationMs/1000)))
+      : isSora ? Math.max(4,Math.min(20,Math.round(opts.durationMs/1000)))
+      : Math.ceil(opts.durationMs/1000))
+    : (opts.duration||"auto");
   const klingShots = (isKling && Array.isArray(opts.multiShot))
     ? opts.multiShot.map(s=>({ prompt:String(s&&s.prompt||"").trim(), duration:Math.max(1,Math.round(Number(s&&s.duration)||3)) })).filter(s=>s.prompt)
     : [];
-  const resolution = vidResolutionForModel(model, opts.resolution);   // clamp stale/local choices to the model's current fal ceiling
+  const resolution = vidResolutionForModel(model, opts.resolution);
   const aspectRatio = opts.aspectRatio || "auto";
   const controls = (opts.controls||"").trim();
+  const firstVisualToken = images.length ? "@Image1" : "@Video1";
   const basePrompt = (opts.prompt||"").trim() || (audios.length
-    ? "@Image1 comes alive — the character speaks the line in @Audio1 with natural, accurate lip-sync. Subtle, grounded motion; hold the framing and the lighting."
-    : "@Image1 comes alive with subtle, natural motion; hold the framing and the lighting.");
+    ? firstVisualToken+" comes alive — the character speaks the line in @Audio1 with natural, accurate lip-sync. Subtle, grounded motion; hold the framing and the lighting."
+    : firstVisualToken+" comes alive with subtle, natural motion; hold the framing and the lighting.");
   const promptText = controls ? (basePrompt + "\n" + controls) : basePrompt;
   /* generate_audio controls the WHOLE output audio track (SFX, ambience AND the
      lip-synced speech built from audio references) — sending false with audio refs
      yields a silent video, so it stays ON whenever line audio rides along. */
   const generateAudio = opts.generateAudio!=null ? !!opts.generateAudio : true;
   const bitrateMode = opts.bitrateMode==="high" ? "high" : "standard";
+  if(isSeedance25 && resolution==="1080p"){
+    const runtime=await seedanceGetRuntimeCapabilities(model);
+    if(!runtime.known || !runtime.capabilities || !runtime.capabilities.resolutions.includes("1080p"))
+      throw new Error("Seedance 2.5 1080p is disabled until the deployed video proxy acknowledges the new capability schema. 720p remains available; deploy the updated image-proxy Edge Function to enable 1080p.");
+  }
   const settings = { model, resolution, aspectRatio, duration, endFrame, generateAudio, bitrateMode, seed:opts.seed!=null?opts.seed:null };
   const hash = vidHash([...images, ...videos, ...audios], promptText, settings);
   // skip-if-unchanged
@@ -737,6 +855,12 @@ async function seedanceGenerate(id, opts){
   const proxyAudios = [];
   if(!isSora && !isKling) for(const u of await vidProxyReadyUrls(audios)) proxyAudios.push(await vidPadShortAudio(u));
   const proxyEndFrame = (useTransition || (isKling && endFrame)) ? await vidProxyReadyUrl(endFrame) : "";
+  let referenceMetadata = null;
+  if(!isSora && !isKling){
+    referenceMetadata = await vidReferenceMetadata(proxyImages,proxyVideos,proxyAudios);
+    vidValidateSeedancePackage(model,{ images:proxyImages,videos:proxyVideos,audios:proxyAudios,
+      metadata:referenceMetadata,duration,resolution,aspectRatio,bitrateMode,prompt:promptText });
+  }
   // ONE submit→poll pass with the given prompt text — extracted so a likeness
   // rejection can rerun the whole pass with the fictional-cast declaration prepended.
   const attempt = async (pText, tag)=>{
@@ -757,6 +881,7 @@ async function seedanceGenerate(id, opts){
             ...(proxyVideos.length ? { video_urls:proxyVideos } : {}),
             ...(proxyAudios.length ? { audio_urls:proxyAudios } : {}) }),
       duration, resolution, aspectRatio,
+      ...(referenceMetadata ? { referenceMetadata } : {}),
       generateAudio,    // ON with audio refs (they become the speech in the track); user-toggled otherwise
       bitrateMode,      // "high" = less compression / larger file; "standard" = smaller draft
       ...(opts.seed!=null && !isSora && !isKling ? { seed:opts.seed } : {}),   // Sora/Kling have no seed control

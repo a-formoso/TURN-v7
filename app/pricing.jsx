@@ -17,7 +17,7 @@
   const BASE_PROVIDER_USD_PER_CREDIT = 0.30;
 
   const TURN_PRICING = {
-    version: "2026-07-25",
+    version: "2026-08-18",
     currency: "USD",
     credit: {
       scale: CREDIT_SCALE,
@@ -54,16 +54,19 @@
     },
     video: {
       note: "Provider USD per output second. Stage converts this into credits and deducts after a successful render.",
+      videoInputPriceMultiplier: { "seedance-2.5":0.6 },
       providerUsdPerSecond: {
         "seedance-2.0": {
           standard: { "480p":0.1512, "720p":0.3034, "1080p":0.6820, "4K":1.5500 },
-          fast:     { "480p":0.1210, "720p":0.2427 },
+          fast:     { "480p":0.1210, "720p":0.2419 },
         },
-        // REAL fal rates (verified 2026-08-07 against bytedance/seedance-2.5/reference-to-video):
-        // token-based pricing ≈ $0.4730/s at 720p, $0.2205/s at 480p. fal lists NO
-        // 1080p/4K output and NO fast tier for 2.5 — only these two entries exist.
+        // fal reference-to-video baseline rates, verified from fal's official model
+        // page for standard 16:9 output WITHOUT video-reference input. Video inputs
+        // use a 0.6 token-price multiplier, but their input duration is also billable;
+        // callers must not present these baseline output-only rates as an exact quote
+        // when video references are attached. Seedance 2.5 has no fast tier.
         "seedance-2.5": {
-          standard: { "480p":0.2205, "720p":0.4730 },
+          standard: { "480p":0.2205, "720p":0.4730, "1080p":1.1640 },
         },
         "kling-3.0": {
           standard: { "480p":0.1260, "720p":0.1260, "1080p":0.1260 },

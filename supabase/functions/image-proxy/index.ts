@@ -37,6 +37,7 @@
 // secret (e.g. REPLICATE_API_TOKEN). The client already sends { provider, model }.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { seedanceCapabilities, validateSeedanceRequest } from "./seedance-capabilities.mjs";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -754,24 +755,40 @@ Deno.serve(async (req) => {
   // Key = userApiKeys.fal or FAL_KEY. Model defaults to reference-to-video (frame +
   // line audio → lip-synced clip). See docs/Voice & Lip-Sync (Seedance) Plan.md §6A.
   if (task === "video") {
-    const falKey = providerKey("fal", "FAL_KEY");
-    if (!falKey) return json({ error: missingKey("fal.ai", "FAL_KEY") }, 500);
     const ALLOWED = new Set([
       "bytedance/seedance-2.0/reference-to-video", "bytedance/seedance-2.0/fast/reference-to-video",
       "bytedance/seedance-2.0/image-to-video",     "bytedance/seedance-2.0/fast/image-to-video",
       "bytedance/seedance-2.0/text-to-video",      "bytedance/seedance-2.0/fast/text-to-video",
-      // Seedance 2.5 — LIVE on fal (verified 2026-08-07). Only these endpoints exist:
-      // NO fast variants (openapi returns null for them), output caps at 720p (see
-      // videoResolutionForModel). 30s clips pass through: duration forwards unclamped.
+      // Seedance 2.5 has no fast variant.
       "bytedance/seedance-2.5/reference-to-video",
       "bytedance/seedance-2.5/image-to-video",
       "bytedance/seedance-2.5/text-to-video",
       "fal-ai/sora-2/image-to-video",              "fal-ai/sora-2/image-to-video/pro",
       "fal-ai/kling-video/v3/standard/image-to-video", "fal-ai/kling-video/v3/pro/image-to-video",
     ]);
-    const model = (body.model || "bytedance/seedance-2.0/reference-to-video").toString();
+    const requestedModel = (body.model || "bytedance/seedance-2.0/reference-to-video").toString();
+    const model = !requestedModel.includes("/") && /seedance-2\.5/i.test(requestedModel)
+      ? "bytedance/seedance-2.5/reference-to-video"
+      : !requestedModel.includes("/") && /seedance-2\.0/i.test(requestedModel)
+      ? "bytedance/seedance-2.0/reference-to-video"
+      : requestedModel;
     if (!ALLOWED.has(model)) return json({ error: `Video model "${model}" isn't allowed on this proxy.` }, 400);
     const op = (body.op || "submit").toString();
+    // Non-spending deployment handshake. New clients use this before exposing
+    // capabilities that an older deployed proxy might silently reinterpret.
+    // It intentionally needs no provider key and never contacts fal.
+    if (op === "capabilities") {
+      const seedanceModels = [...ALLOWED].filter((m) => /seedance-2\.[05]/.test(m));
+      return json({
+        known: true,
+        schema: "seedance-capabilities-2026-08-18",
+        model,
+        capabilities: /seedance-2\.[05]/.test(model) ? seedanceCapabilities(model) : null,
+        models: Object.fromEntries(seedanceModels.map((m) => [m, seedanceCapabilities(m)])),
+      });
+    }
+    const falKey = providerKey("fal", "FAL_KEY");
+    if (!falKey) return json({ error: missingKey("fal.ai", "FAL_KEY") }, 500);
     const falHead = { "Authorization": "Key " + falKey, "Content-Type": "application/json" };
     const falErr = async (r: Response) => {
       let d = ""; try {
@@ -787,7 +804,7 @@ Deno.serve(async (req) => {
       const norm = raw.toLowerCase() === "4k" ? "4K" : raw.toLowerCase();
       const ladder = ["480p", "720p", "1080p", "4K"];
       const maxRank = /seedance-2\.0\/fast/.test(m) ? 1
-        : /seedance-2\.5/.test(m) ? 1   // fal lists 480p/720p ONLY for 2.5 — no 1080p/4K
+        : /seedance-2\.5/.test(m) ? 2
         : /kling-video|sora-2\/image-to-video\/pro/.test(m) ? 2
         : /sora-2/.test(m) ? 1
         : 3;
@@ -797,6 +814,24 @@ Deno.serve(async (req) => {
     try {
       if (op === "submit") {
         const isSora = model.indexOf("sora-2") >= 0;
+        if (/seedance-2\.[05]/.test(model)) {
+          // Pure schema/package validation happens before staging data URLs or
+          // contacting fal. Remote media is deliberately not fetched here:
+          // duration facts must come from the client's metadata probe.
+          const checked = validateSeedanceRequest({
+            model,
+            duration: body.duration,
+            resolution: body.resolution,
+            aspectRatio: body.aspectRatio,
+            bitrateMode: body.bitrateMode,
+            prompt: body.prompt,
+            images: Array.isArray(body.image_urls) ? body.image_urls : [body.image_url, body.end_image_url].filter(Boolean),
+            videos: Array.isArray(body.video_urls) ? body.video_urls : [],
+            audios: Array.isArray(body.audio_urls) ? body.audio_urls : [],
+            metadata: body.referenceMetadata || {},
+          });
+          if (!checked.ok) return json({ error: "Invalid Seedance request: " + checked.errors.join("; ") }, 400);
+        }
         const imageUrls = await videoInputUrls(body.image_urls, "image");
         let input: any;
         if (isSora) {
