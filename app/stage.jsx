@@ -1421,14 +1421,33 @@ function stageReferenceFileCount(assets,included){
   return (assets||[]).filter(a=>a&&a.kind!=="text"&&on(a)).length;
 }
 window.stageReferenceFileCount=stageReferenceFileCount;
+function stageProspectiveMentionToken(asset,assets,included){
+  if(!asset||!asset.kind||asset.kind==="text")return "";
+  const on=typeof included==="function"?included:()=>false;
+  let before=0;
+  if(asset.sceneOnly){
+    // Scene-only choices append after every included base and previously chosen
+    // extra, matching tagged's actual attachment order.
+    before=(assets||[]).filter(a=>a&&a.kind===asset.kind&&on(a)).length;
+  }else{
+    const idx=(assets||[]).indexOf(asset);
+    before=(assets||[]).slice(0,idx<0?0:idx).filter(a=>a&&!a.sceneOnly&&a.kind===asset.kind&&on(a)).length;
+  }
+  return "@"+({image:"Image",video:"Video",audio:"Audio"}[asset.kind]||"")+(before+1);
+}
+window.stageProspectiveMentionToken=stageProspectiveMentionToken;
+function stageIncludedMentionMap(mentionables){
+  const out={};
+  (mentionables||[]).filter(m=>m&&m.included!==false).forEach(m=>{
+    out[String(m.t||"").toLowerCase()]=m;
+  });
+  return out;
+}
+window.stageIncludedMentionMap=stageIncludedMentionMap;
 function stagePromptMentionContext(includedAssets, d){
   const byKey = {};
   const byName = {};
-  const cleanName = (s)=>String(s||"")
-    .replace(/\s+(reference|line|plate|coverage sheet)$/i,"")
-    .replace(/\s+—\s+.*$/,"")
-    .replace(/\s+·\s+.*$/,"")
-    .trim();
+  const identity={character:{},prop:{},location:{}};
   const addName = (name, tok, force)=>{
     const n = _normStageText(name);
     if(n && tok && (force || !byName[n])) byName[n] = tok;
@@ -1439,10 +1458,33 @@ function stagePromptMentionContext(includedAssets, d){
     if(!tok || tok==="@") return;
     byKey[String(a.key||"")] = tok;
     if(a.kind==="image"){
-      addName(cleanName(a.label), tok);
-      addName(a.label, tok);
+      let kind=a.referenceKind||"";
+      let entityId=a.entityId||"";
+      if(!kind&&String(a.key||"").startsWith("c:")){kind="character";entityId=String(a.key).slice(2);}
+      if(!kind&&String(a.key||"").startsWith("p:")){kind="prop";entityId=String(a.key).slice(2);}
+      if(!kind&&a.key==="loc"){kind="location";entityId=a.entityId||a.id;}
+      if(identity[kind]&&entityId){
+        const row=identity[kind][entityId]||(identity[kind][entityId]={active:new Set(),legacy:new Set()});
+        (a.referenceResolved?row.active:row.legacy).add(tok);
+      }
     }
   });
+  Object.entries(identity).forEach(([kind,rows])=>Object.entries(rows).forEach(([id,row])=>{
+    // One authoritative active variant wins over an optional manually-added
+    // master. Multiple active variants in one multi-shot package are ambiguous:
+    // retain explicit @ImageN mentions, but never guess a bare entity-name token.
+    const pool=row.active.size?row.active:row.legacy;
+    const identityKey=(kind==="character"?"c:":kind==="prop"?"p:":"location:")+id;
+    if(pool.size!==1){
+      if(row.active.size) delete byKey[identityKey];
+      return;
+    }
+    const tok=Array.from(pool)[0];
+    byKey[identityKey]=tok;
+  }));
+  const locationTokens=new Set(Object.keys(byKey).filter(k=>k.startsWith("location:")).map(k=>byKey[k]).filter(Boolean));
+  if(locationTokens.size===1)byKey.loc=Array.from(locationTokens)[0];
+  else if(locationTokens.size>1)delete byKey.loc;
   (d&&d.cast||[]).forEach(c=>{
     const tok = byKey["c:"+c.id] || byName[_normStageText(c.name)];
     addName(c.name, tok, !!byKey["c:"+c.id]);
@@ -1467,6 +1509,7 @@ function stagePromptMentionContext(includedAssets, d){
     audioForShot(shotId){ return byKey["a:"+shotId] || ""; }
   };
 }
+window.stagePromptMentionContext=stagePromptMentionContext;
 function stageAssetRole(a, refs){
   if(!a || a.kind==="text") return "";
   const T = stageAssetMention(a);
@@ -1496,13 +1539,15 @@ function stageAssetRole(a, refs){
    to their raw token). Caret positions are tracked as absolute offsets into that
    string (a chip counts as its token's length), so autocomplete, insert-at-caret and
    maxLength all keep working exactly as they did on the old <textarea>. */
-function StageMentionEditor({ value, mentionables, maxLen, placeholder, onChange, onKeyDown, onBlur, apiRef }){
+function StageMentionEditor({ value, mentionables, includeMention, maxLen, placeholder, onChange, onKeyDown, onBlur, apiRef }){
   const elRef = React.useRef(null);
   const lastVal = React.useRef(null);          // last value REFLECTED in the DOM
   const [swap, setSwap] = React.useState(null); // {tok, start, kind} — chip swap picker
   const swapRef = React.useRef(null); swapRef.current = swap;
   const byTokRef = React.useRef({});
-  byTokRef.current = {}; (mentionables||[]).forEach(m=>{ byTokRef.current[String(m.t||"").toLowerCase()] = m; });
+  // Chips describe the files that are actually attached now. Prospective picker
+  // options may share a future token, but must never overwrite its included chip.
+  byTokRef.current = stageIncludedMentionMap(mentionables);
   const tokRe = ()=>/@(?:Image|Video|Audio)\d+/gi;
   const isChip = (n)=> n && n.nodeType===1 && n.getAttribute && n.getAttribute("data-token");
 
@@ -1681,12 +1726,19 @@ function StageMentionEditor({ value, mentionables, maxLen, placeholder, onChange
   };
   const doSwap = (m)=>{
     const sw = swapRef.current; if(!sw) return;
+    if(includeMention && !includeMention(m)){ setSwap(null); return; }
     const cur = lastVal.current||"";
+    let changed=false;
     if(m.t!==sw.tok && cur.slice(sw.start, sw.start+sw.tok.length).toLowerCase()===sw.tok.toLowerCase()){
       const next = (cur.slice(0, sw.start)+m.t+cur.slice(sw.start+sw.tok.length)).slice(0, maxLen||1e9);
       lastVal.current = next; renderDom(next);
       onChange && onChange(next, null);
+      changed=true;
     }
+    // The chosen file can occupy the same ordinal after inclusion (for example,
+    // replacing @Image5 with an off base asset that inserts at slot 5). Preserve
+    // every word, but still record the director's explicit selection/manual intent.
+    if(!changed&&m.included===false&&onChange)onChange(cur,null);
     setSwap(null);
     const el = elRef.current; if(el){ try{ el.focus(); setCaret(sw.start+m.t.length); }catch(_e){} }
   };
@@ -1698,7 +1750,8 @@ function StageMentionEditor({ value, mentionables, maxLen, placeholder, onChange
     renderDom(lastVal.current);
   },[value]);
   // asset set changed — tokens may (un)resolve; re-chipify, preserving the caret if focused
-  const mentionSig = (mentionables||[]).map(m=>m.t+":"+(m.url||"")).join("|");
+  const mentionSig = (mentionables||[]).map(m=>
+    (m.assetKey||m.key||"")+":"+m.t+":"+(m.included===false?"future":"included")+":"+(m.label||"")+":"+(m.url||"")).join("|");
   React.useEffect(()=>{
     const el = elRef.current; if(!el) return;
     const focused = document.activeElement===el;
@@ -1740,7 +1793,7 @@ function StageMentionEditor({ value, mentionables, maxLen, placeholder, onChange
       onBlur:(e)=>{ setTimeout(()=>setSwap(null),120); onBlur && onBlur(e); }}),
     swap && swapItems.length>0 && _stEl("div",{className:"stage2-mention-box stage2-swap-box"},
       _stEl("div",{className:"stage2-swap-head"},"Swap "+swap.tok+" →"),
-      swapItems.map(m=>_stEl("button",{key:m.t,type:"button",
+       swapItems.map(m=>_stEl("button",{key:(m.assetKey||m.key||"")+":"+m.t,type:"button",
         className:"stage2-mention-item"+(m.t===swap.tok?" hi":""),
         onMouseDown:e=>{ e.preventDefault(); doSwap(m); }},
         m.kind==="image" && m.url
@@ -2011,9 +2064,20 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     const entity=entities.find(x=>desc&&String(x&&x.id||"")===String(desc.entityId||desc.baseId||""));
     const assetLabel=(entity&&String(entity.name||entity.label||entity.title||"").trim())
       ||(desc&&String(desc.label||desc.name||"").trim())||String(w&&w.imageId||"reference asset");
+    if(desc&&desc.kind==="character"&&desc.stateId&&w&&w.severity==="error"){
+      const states=(entity&&entity.states)||[];
+      const state=states.find(s=>s.id===desc.stateId);
+      const version=state?states.indexOf(state)+2:"?";
+      const stateLabel=(state&&state.label)||"Unnamed appearance state";
+      return "Required character appearance "+assetLabel+" · Appearance: "+stateLabel+" (v"+version+") is not loaded/available. "
+        +"The master reference is a different asset and cannot replace this state. "
+        +"In Art Room → Characters → "+assetLabel+" → Continuity · appearance states, load, generate, or import this exact state if intended; "
+        +"if it is not intended here, unpin or move its “First appears in” assignment."
+        +(w.shotId?(" Needed by Shot "+(shotN||"?")+(shotLabel?(" "+shotLabel):"")+"."):"");
+    }
     return String(w&&w.message||"Required reference is unavailable")
-      +" — "+assetLabel+(w&&w.imageId?(" ["+w.imageId+"]"):"")
-      +(w&&w.shotId?(" · Shot "+(shotN||"?")+(shotLabel?(" "+shotLabel):"")+" ["+w.shotId+"]"):"");
+      +" — "+assetLabel
+      +(w&&w.shotId?(" · Shot "+(shotN||"?")+(shotLabel?(" "+shotLabel):"")):"");
   };
   const referenceBlockingWarnings=(referencePackage.warnings||[]).filter(w=>w&&w.severity==="error");
   const referenceBlockMessage=referenceBlockingWarnings.map(referenceWarningText).join(" ");
@@ -2096,12 +2160,14 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
         const dd = (c2&&c2.data)||{};
         (dd.cast||[]).forEach(c=>{ const k="c:"+c.id; if(_seen.has(k)) return; _seen.add(k);
           const u=imgs[c.id];
-          out.push({ key:k, kind:"image", label:c.name+" reference", url:u, ready:!!u, id:c.id, sceneOnly:true,
+          out.push({ key:k, kind:"image", label:c.name+" · Master reference", url:u, ready:!!u, id:c.id, sceneOnly:true,
+            entityId:c.id,referenceKind:"character",
             assetRole:"master_reference", assetSourceQuality:"character_master_sheet" }); });
         (dd.props||[]).forEach(p=>{ const k="p:"+p.id; if(_seen.has(k)) return; _seen.add(k);
           const sid = p.sheetId || p.id, u = imgs[sid];
           const plab = p.name+(p.stateLabel?(" \u2014 "+p.stateLabel):"")+(p.holder?(" \u00b7 "+(p.kind==="worn"?"worn by ":"carried by ")+p.holder):"");
-          out.push({ key:k, kind:"image", label:plab, url:u||"", ready:!!u, id:sid, sceneOnly:true,
+          out.push({ key:k, kind:"image", label:plab+(sid===p.id?" · Master reference":" · Continuity state"), url:u||"", ready:!!u, id:sid, sceneOnly:true,
+            entityId:p.id,referenceKind:"prop",
             assetRole:sid===p.id?"master_reference":"derived_reference",
             assetSourceQuality:sid===p.id?"prop_master_sheet":"prop_state_sheet" }); });
       });
@@ -2146,7 +2212,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
         : _uniq(sceneShots.flatMap(sh=>sh.subjects||[]));
       const rosterSet = new Set(rosterIds);
       rosterIds.forEach(id=>{ const c=(ctx.charById||{})[id]; const u=imgs[id];
-        if(c&&u) addSceneAsset({ key:"c:"+id, kind:"image", group:"Characters", label:(c.name||"Character")+" reference", url:u, ready:true, id,
+        if(c&&u) addSceneAsset({ key:"c:"+id, kind:"image", group:"Characters", label:(c.name||"Character")+" · Master reference", url:u, ready:true, id,
+          entityId:id,referenceKind:"character",
           assetRole:"master_reference", assetSourceQuality:"character_master_sheet" });
       });
 
@@ -2167,18 +2234,21 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
         if(u) addSceneAsset({ key:"p:"+p.id, kind:"image", group:"Props", label:(p.name||"Prop")
             +(so.state&&so.state.label?(" — "+so.state.label):"")
             +((rs&&rs.holderName)||co.name?(" · "+(((rs&&rs.bindingMode)||p.kind||"")==="worn"?"worn by ":"carried by ")+((rs&&rs.holderName)||co.name)):"")
-            +(rs&&rs.placement&&rs.placement.locationId?(" · placed in "+(((ctx.locations||[]).find(l=>l.id===rs.placement.locationId)||{}).name||"location")):""),
-          url:u, ready:true, id:sid, assetRole:sid===p.id?"master_reference":"derived_reference",
+            +(rs&&rs.placement&&rs.placement.locationId?(" · placed in "+(((ctx.locations||[]).find(l=>l.id===rs.placement.locationId)||{}).name||"location")):"")
+            +(sid===p.id?" · Master reference":" · Continuity state"),
+          url:u, ready:true, id:sid, entityId:p.id,referenceKind:"prop",assetRole:sid===p.id?"master_reference":"derived_reference",
           assetSourceQuality:sid===p.id?"prop_master_sheet":"prop_state_sheet" });
       });
 
       const loc=(typeof locationForScene==="function") ? locationForScene(ctx.locations||[],scene.id) : d.loc;
       if(loc){ const u=imgs[loc.id];
-        if(u) addSceneAsset({ key:"scene-loc:"+loc.id, kind:"image", group:"Locations", label:(loc.name||"Location")+" master plate", url:u, ready:true, id:loc.id,
+        if(u) addSceneAsset({ key:"scene-loc:"+loc.id, kind:"image", group:"Locations", label:(loc.name||"Location")+" · Master reference", url:u, ready:true, id:loc.id,
+          entityId:loc.id,referenceKind:"location",
           assetRole:"master_reference", assetSourceQuality:"location_master_plate" });
       }
       (sceneClips||[]).forEach(sc=>{ const ls=sc&&sc.data&&sc.data.locSheet; if(!ls||!ls.id) return; const u=imgs[ls.id];
         if(u) addSceneAsset({ key:"scene-loc:"+ls.id, kind:"image", group:"Locations", label:(ls.name||"Location")+(ls.role?(" · "+ls.role):"")+" coverage sheet", url:u, ready:true, id:ls.id,
+          entityId:(sc&&sc.data&&sc.data.loc&&sc.data.loc.id)||ls.id,referenceKind:"location",
           assetRole:"derived_reference", assetSourceQuality:"location_coverage_full_frame" });
       });
       sceneShots.forEach((sh,i)=>{ const u=imgs[sh.id];
@@ -2195,12 +2265,14 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     });
     if(_mRefs&&referencePackage){
       const seenIds=new Set(out.filter(a=>a&&!a.sceneOnly).map(a=>a&&a.id).filter(Boolean));
-      const addRequired=(r,group,label)=>{
+      const addRequired=(r,referenceKind,label)=>{
         const id=r&&r.assetId;if(!id||seenIds.has(id))return;seenIds.add(id);
         const u=imgs[id]||"";
+        const group=referenceKind==="character"?"Characters":referenceKind==="location"?"Locations":"Props";
         const resolved={key:"resolved:"+group.toLowerCase()+":"+id,kind:"image",group,label,url:u,
           ready:!!u,id,assetRole:(r.roles||[])[0]||"derived_reference",
-          assetSourceQuality:"shot_resolved_reference",referenceSnapshot:r.snapshot,requiredByShots:r.shotIds};
+          assetSourceQuality:"shot_resolved_reference",referenceSnapshot:r.snapshot,requiredByShots:r.shotIds,
+          entityId:r.entityId||r.baseId,referenceKind,stateId:r.stateId||"",referenceResolved:true};
         // If the same master was already offered in the scene-only palette, replace
         // that row with the authoritative active descriptor rather than duplicating
         // it or leaving the required input default-off.
@@ -2208,11 +2280,14 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
         if(sceneIdx>=0) out[sceneIdx]=resolved; else out.push(resolved);
       };
       (referencePackage.characters||[]).forEach(r=>{ const c=(ctx.charById||{})[r.entityId]||{};
-        addRequired(r,"Characters",(c.name||"Character")+" appearance reference"); });
+        const states=c.states||[],state=states.find(s=>s.id===r.stateId),version=state?states.indexOf(state)+2:1;
+        addRequired(r,"character",state
+          ?((c.name||"Character")+" · Appearance: "+(state.label||"Unnamed state")+" (v"+version+")")
+          :((c.name||"Character")+" · Master reference")); });
       (referencePackage.locations||[]).forEach(r=>{ const l=(ctx.locations||[]).find(x=>x.id===r.entityId)||{};
-        addRequired(r,"Locations",(l.name||"Location")+" shot coverage"); });
+        addRequired(r,"location",(l.name||"Location")+" · Shot coverage"); });
       (referencePackage.props||[]).forEach(r=>{ const p=(ctx.propById||{})[r.entityId]||{};
-        addRequired(r,"Props",(p.name||"Prop")+" continuity reference"); });
+        addRequired(r,"prop",(p.name||"Prop")+(r.stateId?" · Continuity state":" · Master reference")); });
     }
     return out;
   }, [clip.id, activeShot.id, sourceMode, dialogueAudio, modelId, referencePackage.signature, shotStartFrame, JSON.stringify((storyAssets.halves||[]).map(h=>h.id+":"+!!h.url)), storyAssets.top, storyAssets.bottom, storyAssets.sheet, prevVideo, prevVideoSafe, JSON.stringify(prevVideoMeta||{}), JSON.stringify(d.cast), JSON.stringify(d.props), d.loc&&d.loc.id, d.locSheet&&d.locSheet.id, JSON.stringify((sceneClips||[]).map(sc=>{ const dd=(sc&&sc.data)||{}; return (sc&&sc.id||"")+"|"+(dd.cast||[]).map(x=>x.id).join(",")+"|"+(dd.props||[]).map(x=>x.id+":"+(x.sheetId||"")).join(",")+"|"+(dd.shots||[]).map(x=>x.id+":"+(x.dialogue||"")).join(",")+"|"+((dd.locSheet&&dd.locSheet.id)||""); })), imgs, auds]);
@@ -2244,7 +2319,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   const assetState = (a)=> !a.ready ? "missing" : a.locked ? "required" : on(a) ? "included" : "excluded";
   const assetStateLabel = (a)=> assetState(a)==="required" ? "Required" : assetState(a)==="included" ? "Included" : assetState(a)==="excluded" ? "Excluded" : "Missing";
   const assetTitle = (a)=>{
-    const st = assetState(a), base = a.label+(a.tag?(" · "+a.tag):"");
+    const st = assetState(a), base = a.label+(a.tag?(" · "+a.tag):"")+(a.id?(" · Asset ID "+a.id):"");
     if(st==="required") return base+" · required for this render";
     if(st==="included") return base+" · included, click to exclude";
     if(st==="excluded") return base+" · excluded, click to include";
@@ -2583,18 +2658,18 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   // under their real token, not-yet-included ones under the PROSPECTIVE token they'd
   // get once included — @tokens number the INCLUDED set only, so picking one
   // auto-includes it (see includeMention) before the token lands in the text.
-  const mentionables = (()=>{ const n={image:0,video:0,audio:0}, out=[];
+  const mentionables = (()=>{ const out=[];
     tagged.forEach(a=>{
-      if(a.kind==="text" || n[a.kind]==null) return;
+      if(a.kind==="text" || !["image","video","audio"].includes(a.kind)) return;
       const group = a.group || (String(a.key).indexOf("c:")===0 ? "Characters"
         : String(a.key).indexOf("p:")===0 ? "Props"
         : a.key==="loc" || String(a.key).indexOf("scene-loc:")===0 ? "Locations"
         : String(a.key).indexOf("scene-shotframe:")===0 ? "Shot frames"
         : a.kind==="audio" ? "Voices" : "References");
-      if(on(a)){ n[a.kind]++;
+      if(on(a)){
         out.push({ t:stageAssetMention(a), label:String(a.label||""), kind:a.kind, url:String(a.url||""), key:a.key, assetKey:a.key, group, included:true }); }
       else if(a.ready)
-        out.push({ t:"@"+({image:"Image",video:"Video",audio:"Audio"}[a.kind])+(n[a.kind]+1), label:String(a.label||""), kind:a.kind, url:String(a.url||""), key:a.key, assetKey:a.key, group, included:false });
+        out.push({ t:stageProspectiveMentionToken(a,tagged,on), label:String(a.label||""), kind:a.kind, url:String(a.url||""), key:a.key, assetKey:a.key, group, included:false });
     });
     return out; })();
   const availableMentionables = mentionables;
@@ -3585,7 +3660,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
       // composer uses the CHIP editor (resolved @tokens render as inline chips);
       // other prompt boxes (Director, multi-shot rows) keep the shared StagePromptArea
       recipe!=="multishot" && _stEl("div",{className:"stage2-gen-promptwrap"},
-        _stEl(StageMentionEditor,{apiRef:promptRef, value:prompt, mentionables,
+        _stEl(StageMentionEditor,{apiRef:promptRef, value:prompt, mentionables,includeMention,
           maxLen:PANEL_PROMPT_MAX, placeholder:"Describe the video you want to create…",
           onChange:onPromptChange, onKeyDown:onPromptKeyDown,
           onBlur:()=>setTimeout(()=>setMentionBox(null),120)}),
@@ -3694,7 +3769,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     typeof window.StageRenderPlan==="function" && _stEl(window.StageRenderPlan,{
       plan:renderPlan,modelLabel:model.label,beatN:clip.g&&clip.g.beatN,
       part:clip.g&&clip.g.part,parts:clip.g&&clip.g.parts,
-      referenceWarnings:(referencePackage.warnings||[]).map(w=>({message:w.message,blocking:w.severity==="error"})),
+      referenceWarnings:(referencePackage.warnings||[]).map(w=>({message:referenceWarningText(w),blocking:w.severity==="error"})),
       onShowShots:onStageNav?()=>onStageNav("shots"):undefined,
       onSplit:clipScope==="legacy"?()=>setClipScope("beat"):undefined
     }),
@@ -4979,7 +5054,8 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   // position, so the raw array would mis-resolve active states/holders out of order
   const ctx = { characters, charById, props, propById, locations, project, beatsMap, drafts, scenes:ordered };
   const aspect = _stageAspect(project);
-  const charSig = JSON.stringify((characters||[]).map(c=>[c.id,c.name]));
+  const charSig = JSON.stringify((characters||[]).map(c=>[c.id,c.name,
+    (c.states||[]).map(st=>[st.id,st.label,st.sceneId,st.change,st.version,st.updatedAt]).join("|")]));
   // CONTENT-based signatures — a state/custody/coverage edit that keeps the same counts
   // (re-pinned scene, renamed holder, new trigger words) must still bust the clip memo
   const propSig = JSON.stringify((props||[]).map(p=>[p.id,p.name,
@@ -5010,11 +5086,13 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   }, [clipScope, allClips.map(c=>c.id).join("|")]);
 
   // load every needed image (shot frames + storyboard clip sheets/halves + character / location / prop sheets) into one map
-  const shotIdsKey = (shots||[]).map(s=>[s.id,s.beatN,(s.covers||[]).join("."),
+  const shotIdsKey = (shots||[]).map(s=>[s.id,s.sceneId,s.beatN,(s.covers||[]).join("."),
     s.referenceCharactersSet?1:0,(s.referenceCharacterIds||[]).join("."),
     s.referenceLocationsSet?1:0,(s.referenceLocationIds||[]).join("."),
     (s.refOff||[]).join(".")].join(":")).join(",");
-  const charIdsKey = (characters||[]).map(c=>c.id).join(",");
+  const charIdsKey = JSON.stringify((characters||[]).map(c=>[c.id,c.name,
+    (c.states||[]).map((st,i)=>[i,st.id,st.label,st.sceneId,st.change,st.version,st.updatedAt])]));
+  const sceneOrderKey = JSON.stringify((ordered||[]).map((s,i)=>[i,s.id,s.no,s.order]));
   const locIdsKey = (locations||[]).map(l=>l.id).join(",");
   const propIdsKey = (props||[]).map(p=>p.id).join(",");
   const neededIds = React.useMemo(()=>{ const s=new Set();
@@ -5037,7 +5115,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
         ["characters","locations","props"].forEach(k=>(pack[k]||[]).forEach(r=>r&&r.assetId&&s.add(r.assetId)));
       });
     }
-    return Array.from(s); }, [shotIdsKey, charIdsKey, locIdsKey, propIdsKey, allClips.map(c=>c.id).join(","), scenesWithShots.map(s=>s.id).join(","),
+    return Array.from(s); }, [shotIdsKey, charIdsKey, sceneOrderKey, locIdsKey, propIdsKey, allClips.map(c=>c.id).join(","), scenesWithShots.map(s=>s.id).join(","),
       JSON.stringify(allClips.map(c=>[(((c.data||{}).props)||[]).map(p=>p.sheetId||p.id).join("|"), (((c.data||{}).locSheet)||{}).id||""]))]);
   const [imgs, setImgs] = React.useState({});
   const [imgTick, setImgTick] = React.useState(0);

@@ -67,13 +67,49 @@ ok("required reference errors guard UI and final paid submission",
     &&source.includes('key:\"required-reference\"')
     &&source.includes("if(referenceBlockingWarnings.length) throw new Error(referenceBlockMessage)"));
 ok("required reference blocker identifies asset and shot",
-  source.includes('w.imageId+\"]\"')&&source.includes('\" · Shot \"+(shotN||\"?\")'));
+  source.includes("Continuity · appearance states")&&source.includes('\" Needed by Shot \"+(shotN||\"?\")'));
 ok("legacy cast masters cannot auto-replace resolved appearance variants",
   !source.includes('d.cast.forEach(c=>{ const u=imgs[c.id]; out.push')
     &&source.includes("Active character/location/prop rows come exclusively from the authoritative"));
 ok("matching scene-only masters are promoted only for authoritative descriptors",
   source.includes('a&&a.sceneOnly&&a.kind===\"image\"&&a.id===id')
     &&source.includes("out[sceneIdx]=resolved"));
+const mentionCtx=box.stagePromptMentionContext([
+  {key:"frame",kind:"image",label:"Marcus — shot frame",tag:"@image1",id:"shot-1"},
+  {key:"resolved:characters:marcus:state",kind:"image",label:"Marcus · Appearance: Rain coat (v2)",
+    tag:"@image2",id:"marcus:state",entityId:"marcus",referenceKind:"character",stateId:"state",referenceResolved:true},
+  {key:"c:marcus",kind:"image",label:"Marcus · Master reference",tag:"@image3",id:"marcus",
+    entityId:"marcus",referenceKind:"character",sceneOnly:true},
+],{cast:[{id:"marcus",name:"Marcus"}],props:[]});
+ok("active identity variant wins over optional master and named frame",mentionCtx.character({id:"marcus",name:"Marcus"})==="@Image2");
+const frameOnly=box.stagePromptMentionContext([
+  {key:"frame",kind:"image",label:"Marcus — shot frame",tag:"@image1",id:"shot-1"},
+],{cast:[{id:"marcus",name:"Marcus"}],props:[]});
+ok("bare character name never binds to a shot frame",frameOnly.character({id:"marcus",name:"Marcus"})==="");
+const ambiguous=box.stagePromptMentionContext([
+  {key:"resolved:characters:m:s1",kind:"image",tag:"@image1",entityId:"m",referenceKind:"character",referenceResolved:true},
+  {key:"resolved:characters:m:s2",kind:"image",tag:"@image2",entityId:"m",referenceKind:"character",referenceResolved:true},
+  {key:"c:m",kind:"image",tag:"@image3",entityId:"m",referenceKind:"character",sceneOnly:true},
+],{cast:[{id:"m",name:"M"}],props:[]});
+ok("multiple active variants do not guess a bare identity token",ambiguous.character({id:"m",name:"M"})==="");
+ok("needed image memo tracks character state contents and scene order",
+  source.includes("const sceneOrderKey")&&source.includes("st.sceneId,st.change,st.version,st.updatedAt"));
+const includedAssets=[
+  {key:"frame",kind:"image"},
+  {key:"master",kind:"image",sceneOnly:true},
+  {key:"active-a",kind:"image"},
+  {key:"active-b",kind:"image"},
+  {key:"room",kind:"image"},
+];
+const isIncluded=a=>a.key!=="master";
+ok("off scene master gets the actual appended tail token",
+  box.stageProspectiveMentionToken(includedAssets[1],includedAssets,isIncluded)==="@Image5");
+const includedChip={assetKey:"room",t:"@Image5",included:true,label:"Living room"};
+const futureMaster={assetKey:"master",t:"@Image5",included:false,label:"Marcus · Master reference"};
+ok("prospective options never overwrite an included chip lookup",
+  box.stageIncludedMentionMap([includedChip,futureMaster])["@image5"]===includedChip);
+ok("chip swaps include prospective assets before changing text",
+  source.includes("if(includeMention && !includeMention(m))")&&source.includes("if(!changed&&m.included===false&&onChange)onChange(cur,null)"));
 
 console.log(pass+" passed, "+fail+" failed");
 process.exit(fail?1:0);

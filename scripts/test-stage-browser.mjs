@@ -65,8 +65,17 @@ function fixtureHtml() {
 <script src="/react.js"></script><script src="/react-dom.js"></script>
 <script>
 /* Deterministic browser-only boundaries. Every call is recorded for assertions. */
-window.__fixture={calls:[],updates:[],confirms:[],toasts:[],errors:[],proxyKnown:false,lastRuntimeCapabilities:null,
-  requiredVariant:false,variantLoaded:false,policyRefusal:false};
+window.__fixture={calls:[],loadCalls:[],updates:[],confirms:[],toasts:[],errors:[],consoleErrors:[],proxyKnown:false,lastRuntimeCapabilities:null,
+  variantLoaded:false,policyRefusal:false,hardRemounts:0,genEvents:0};
+window.addEventListener("nb-gen-done",()=>__fixture.genEvents++);
+const __fixtureConsoleError=console.error.bind(console);
+console.error=(...args)=>{
+  __fixture.consoleErrors.push(args.map(x=>{
+    try{return typeof x==="string"?x:JSON.stringify(x);}
+    catch(_e){return String(x);}
+  }).join(" "));
+  __fixtureConsoleError(...args);
+};
 window.addEventListener("error",e=>__fixture.errors.push(String(e.error&&e.error.stack||e.message||e)));
 window.addEventListener("unhandledrejection",e=>__fixture.errors.push(String(e.reason&&e.reason.stack||e.reason||e)));
 const px="data:image/svg+xml;charset=utf-8,"+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="%232e4251"/><circle cx="92" cy="90" r="42" fill="%23d6aa76"/><path d="M150 65h125v50H150z" fill="%2388a6a1"/></svg>');
@@ -89,9 +98,22 @@ window.inFrameProps=s=>s.props||[];
 window.scanTextForChars=(text,chars)=>(chars||[]).filter(c=>String(text).toLowerCase().includes(c.name.toLowerCase())).map(c=>c.id);
 window.locationForScene=(locs,id)=>(locs||[]).find(l=>(l.scenes||[]).includes(id))||null;
 window.sceneRoster=(scene,chars,drafts,shots)=>Array.from(new Set((shots||[]).flatMap(s=>s.subjects||[])));
-window.activeStateForScene=c=>window.__fixture.requiredVariant
-  ? {version:2,state:{id:"wardrobe",label:"Rain wardrobe"}}
-  : {version:1,state:null};
+/* Match the production pinned-story-order resolver. The initial character has no
+   states so the earlier coverage remains a base/master-reference scenario. */
+window.activeStateForScene=(character,scene,scenes)=>{
+  const states=character.states||[];
+  if(!states.length||!scene)return {version:1,state:null};
+  const idxOf=id=>(scenes||[]).findIndex(s=>s.id===id);
+  const sceneIdx=idxOf(scene.id);
+  if(sceneIdx<0)return {version:1,state:null};
+  let best=null,bestPos=-1,bestVersion=1;
+  states.forEach((st,i)=>{
+    if(!st.sceneId)return;
+    const pos=idxOf(st.sceneId);
+    if(pos>=0&&pos<=sceneIdx&&pos>=bestPos){best=st;bestPos=pos;bestVersion=i+2;}
+  });
+  return {version:bestVersion,state:best};
+};
 window.sceneContinuityLedger=()=>({});
 window.scenePreset=()=>({name:"Natural cinema",grade:"Cool dusk",lighting:"Cool dusk with warm practicals"});
 window.shotLocationCoverageSpecs=()=>[];
@@ -126,8 +148,17 @@ window.useSeedanceGen=id=>({
   generateBatch:async(payload,n)=>(window.__fixture.calls.push(["batch",id,n,payload]),[]),
   cancel:()=>window.__fixture.calls.push(["cancel",id])
 });
-window.nbGetImage=id=>(id==="char-mara:wardrobe"&&!__fixture.variantLoaded)?"":px;
-window.nbLoadImage=async id=>window.nbGetImage(id);
+window.nbGetImage=id=>(
+  (id==="char-mara:wardrobe"&&!__fixture.variantLoaded)||id==="char-mara:storm"
+)?"":px;
+window.nbLoadImage=async id=>{
+  __fixture.loadCalls.push(id);
+  if(id==="char-mara:storm"){
+    await new Promise(resolve=>setTimeout(resolve,120));
+    return px;
+  }
+  return window.nbGetImage(id);
+};
 window.nbRemoteImageUrl=async id=>window.nbGetImage(id);
 window.nbGetMeta=id=>{
   const iso="iso-"+id;
@@ -178,7 +209,7 @@ window.__story={
    size:"Close-up",angle:"High",move:"Static",lens:"85mm",action:"Mara lifts the sealed letter into moonlight.",
    beatPlan:{micro:["Mara lifts the sealed letter into moonlight.","The window suddenly breaks."],protect:"The letter changes hands."},covers:[1]}
  ],
- characters:[{id:"char-mara",name:"Mara"}],
+  characters:[{id:"char-mara",name:"Mara",states:[]}],
  locations:[{id:"loc-observatory",name:"Old Observatory",scenes:["scene-1"]}],
  props:[{id:"prop-letter",name:"Sealed Letter",ownerId:"char-mara",ownerName:"Mara",kind:"carried"}],
  beatsMap:{"scene-1":{rows:[{n:1,drive:{d:"Mara reaches the desk"},react:{d:"She studies the seal"}}]}},
@@ -195,7 +226,14 @@ function mount(){
   onVoiceLine:async()=>{},onStageNav:x=>__fixture.calls.push(["nav",x])
  }));
 }
-window.__hardRemount=()=>{fixtureRoot.unmount();document.getElementById("root").replaceChildren();fixtureRoot=ReactDOM.createRoot(document.getElementById("root"));mount();};
+window.__hardRemount=()=>{__fixture.hardRemounts++;fixtureRoot.unmount();document.getElementById("root").replaceChildren();fixtureRoot=ReactDOM.createRoot(document.getElementById("root"));mount();};
+/* A normal React prop/story update, deliberately preserving character ids and the
+   mounted StageView. Used to prove state assignment changes invalidate dependencies. */
+window.__setCharacterStates=states=>{
+  window.__story={...window.__story,characters:window.__story.characters.map(c=>
+    c.id==="char-mara"?{...c,states:states.map(s=>({...s}))}:c)};
+  mount();
+};
 mount();
 </script></body></html>`;
 }
@@ -336,8 +374,11 @@ async function main() {
      * variant id; while that variant is absent, Stage must neither substitute Mara's
      * approved master nor let a paid request leave the browser.
      */
-    await c.eval(`window.__fixture.requiredVariant=true;window.__fixture.variantLoaded=false;window.__fixture.policyRefusal=false;window.__hardRemount()`);
-    await waitFor(()=>c.eval(`document.body.innerText.toLowerCase().includes("required character reference image is missing")`),"required character-state warning");
+    await c.eval(`window.__fixture.variantLoaded=false;window.__fixture.policyRefusal=false;
+      window.__setCharacterStates([{id:"wardrobe",label:"Rain wardrobe",sceneId:"scene-1"}]);
+      window.__hardRemount()`);
+    await waitFor(()=>c.eval(`(()=>{const t=document.querySelector(".stage2-blocker-text")?.textContent.toLowerCase()||"";return t.includes("required character appearance")&&t.includes("rain wardrobe")&&t.includes("master reference")&&t.includes("cannot replace this state")})()`),"required character-state warning");
+    assert.match(await text(),/Rain wardrobe|appearance reference/i,"missing-state guidance identifies the appearance state rather than treating the master as sufficient");
     assert.equal(await c.eval(`window.nbAssetApproval(window.nbGetMeta("char-mara:wardrobe"))`),true,
       "approved metadata alone does not make an absent inventory image ready");
     const missingGate=await c.eval(`(()=>{const b=document.querySelector(".sd-gen-submit");return {aria:b?.getAttribute("aria-disabled"),disabled:!!b?.disabled,text:b?.textContent||""}})()`);
@@ -346,14 +387,33 @@ async function main() {
     await c.eval(`document.querySelector(".sd-gen-submit").click()`);
     await new Promise(r=>setTimeout(r,150));
     assert.equal(await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate").length`),beforeBlocked,"blocked Generate invokes provider zero times");
-    const masterFallback=await c.eval(`[...document.querySelectorAll(".stage2-asset")].filter(x=>/Mara reference/i.test(x.textContent)).map(x=>({text:x.textContent.trim(),included:x.classList.contains("on")||x.getAttribute("aria-pressed")==="true"}))`);
+    const masterFallback=await c.eval(`[...document.querySelectorAll(".stage2-asset")].filter(x=>/Mara(?:\\s*·\\s*Master)? reference/i.test(x.textContent)).map(x=>({text:x.textContent.trim(),included:x.classList.contains("on")||x.getAttribute("aria-pressed")==="true"}))`);
     assert.ok(!masterFallback.some(x=>x.included),`missing state must not silently fall back to master: ${JSON.stringify(masterFallback)}`);
+    /* Neither a prompt token nor an explicit manual master attachment satisfies the
+       canonical active-state requirement. */
+    await c.eval(`(()=>{const e=document.querySelector(".stage2-gen-prompt[contenteditable]");e.textContent+=" @Image1";e.dispatchEvent(new InputEvent("input",{bubbles:true,inputType:"insertText",data:" @Image1"}));})()`);
+    await new Promise(r=>setTimeout(r,100));
+    assert.equal(await c.eval(`document.querySelector(".sd-gen-submit")?.getAttribute("aria-disabled")`),"true","typing an @ reference mention does not clear the missing-state gate");
+    const manualMasterFound=await c.eval(`(()=>{const a=[...document.querySelectorAll(".stage2-asset")].find(x=>/Mara\\s*·\\s*Master reference/i.test(x.textContent));if(!a)return false;a.click();return true;})()`);
+    assert.ok(manualMasterFound,"master reference remains available for an explicit manual attachment");
+    await new Promise(r=>setTimeout(r,100));
+    assert.equal(await c.eval(`document.querySelector(".sd-gen-submit")?.getAttribute("aria-disabled")`),"true","manual master inclusion does not satisfy the missing active-state requirement");
+    assert.ok(await c.eval(`(()=>{const t=document.querySelector(".stage2-blocker-text")?.textContent.toLowerCase()||"";return t.includes("required character appearance")&&t.includes("rain wardrobe")&&t.includes("cannot replace this state")})()`),"missing-state guidance remains visible after manual master inclusion");
 
     /* Simulate the real cache completing later. The existing mounted Stage responds to
        nb-gen-done; no story mutation or remount is used for this clearance proof. */
     await c.eval(`window.__fixture.variantLoaded=true;window.dispatchEvent(new CustomEvent("nb-gen-done",{detail:{id:"char-mara:wardrobe"}}))`);
-    await waitFor(()=>c.eval(`!document.body.innerText.toLowerCase().includes("required character reference image is missing")`),"loaded character variant clears missing gate");
-    await waitFor(()=>c.eval(`document.querySelector(".sd-gen-submit")?.getAttribute("aria-disabled")!=="true"`),"Generate unblocks after cache load");
+    await waitFor(()=>c.eval(`!((document.querySelector(".stage2-blocker-text")?.textContent||"").toLowerCase().includes("rain wardrobe"))`),"loaded character variant clears missing gate");
+    /* The deliberately edited @ prompt now correctly has its separate source-drift
+       review gate; acknowledge that only after proving the required-state gate cleared. */
+    await waitFor(()=>c.eval(`document.querySelector(".stage2-blocker-act")?.textContent.trim()==="Confirm reviewed"`),"prompt drift review after state load");
+    await c.eval(`document.querySelector(".stage2-blocker-act").click()`);
+    try{
+      await waitFor(()=>c.eval(`document.querySelector(".sd-gen-submit")?.getAttribute("aria-disabled")!=="true"`),"Generate unblocks after cache load");
+    }catch(e){
+      const blockerText=await c.eval(`document.querySelector(".stage2-blocker-text")?.textContent||""`);
+      throw new Error(e.message+"; active blocker: "+blockerText);
+    }
     const loadedBody=(await text()).toLowerCase();
     assert.match(loadedBody,/implicit prop reference is not an approved current version/,"optional unapproved reference remains a review warning");
     assert.doesNotMatch((await c.eval(`document.querySelector(".stage2-blocker")?.textContent||""`)).toLowerCase(),/implicit prop|unapproved/,"optional unapproved reference is not a hard blocker");
@@ -369,8 +429,57 @@ async function main() {
     const policyCalls=await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate").slice(${beforePolicy}).map(x=>x[2])`);
     assert.equal(policyCalls.length,1,"policy refusal causes exactly one generation/package submission");
     assert.ok((policyCalls[0].takeMeta.referenceSourceVersions||[]).some(x=>x.assetId==="char-mara:wardrobe"),"submitted package retains required character variant");
+    assert.ok(!(policyCalls[0].takeMeta.referenceSourceVersions||[]).some(x=>x.assetId==="char-mara"),"resolved state variant supersedes the manually attached character master");
     assert.ok(!policyCalls[0].statusTag&&!policyCalls[0].takeMeta.safetyFallback,"policy refusal does not synthesize NO_CHAR_REFS/reference-drop fallback");
     await c.eval(`window.__fixture.policyRefusal=false`);
+
+    /* Change only the live character state assignment (same character id, no remount
+       and no cache event). The state image exists solely behind nbLoadImage, proving
+       neededIds/state signatures request the newly resolved canonical asset. */
+    const liveAssignmentBaseline=await c.eval(`({remounts:__fixture.hardRemounts,events:__fixture.genEvents,calls:__fixture.loadCalls.length})`);
+    await c.eval(`window.__setCharacterStates([{id:"storm",label:"Storm coat",sceneId:"scene-1"}])`);
+    await waitFor(()=>c.eval(`window.__fixture.loadCalls.includes("char-mara:storm")`),"live assignment requests exact new state image");
+    await waitFor(()=>c.eval(`!((document.querySelector(".stage2-blocker-text")?.textContent||"").toLowerCase().includes("storm coat"))`),"live assignment load clears required-state gate");
+    assert.equal(await c.eval(`window.__fixture.hardRemounts`),liveAssignmentBaseline.remounts,"live state assignment is handled without a hard remount");
+    assert.equal(await c.eval(`window.__fixture.genEvents`),liveAssignmentBaseline.events,"live state assignment needs no synthetic generation/cache event");
+    assert.deepEqual(await c.eval(`Array.from(new Set(window.__fixture.loadCalls.slice(${liveAssignmentBaseline.calls}).filter(x=>x.startsWith("char-mara:"))))`),["char-mara:storm"],"loader requests the exact newly pinned state, not the character master or stale state");
+
+    /*
+     * Real mention UI identity/attachment regression. Start with the scene-only Mara
+     * master excluded while the required state and several normal references remain
+     * included. Selecting the master from autocomplete must run includeMention, attach
+     * that exact sheet, and insert the token it actually receives after inclusion.
+     */
+    const masterCardExpr=`[...document.querySelectorAll(".stage2-asset.image")].find(x=>/Mara\\s*·\\s*Master reference/i.test(x.textContent))`;
+    assert.ok(await c.eval(`!!(${masterCardExpr})`),"mention test locates the real scene-only master card");
+    if(await c.eval(`(${masterCardExpr})?.getAttribute("aria-pressed")==="true"`))
+      await c.eval(`(${masterCardExpr}).click()`);
+    await waitFor(()=>c.eval(`(${masterCardExpr})?.getAttribute("aria-pressed")==="false"`),"master excluded before mention selection");
+    const mentionConsoleBaseline=await c.eval(`window.__fixture.consoleErrors.length`);
+    const mentionToastBaseline=await c.eval(`window.__fixture.toasts.length`);
+    await c.eval(`(()=>{const e=document.querySelector(".stage2-gen-prompt[contenteditable]");e.focus();const r=document.createRange();r.selectNodeContents(e);r.collapse(false);const s=getSelection();s.removeAllRanges();s.addRange(r);})()`);
+    await c.call("Input.insertText",{text:" @"});
+    await waitFor(()=>c.eval(`[...document.querySelectorAll(".stage2-mention-box:not(.stage2-swap-box) .stage2-mention-item")].some(x=>/Mara\\s*·\\s*Master reference/i.test(x.textContent))`),"master offered by @ autocomplete");
+    const insertedMaster=await c.eval(`(()=>{const b=[...document.querySelectorAll(".stage2-mention-box:not(.stage2-swap-box) .stage2-mention-item")].find(x=>/Mara\\s*·\\s*Master reference/i.test(x.textContent));const token=b.querySelector("b").textContent.trim();b.dispatchEvent(new MouseEvent("mousedown",{bubbles:true,cancelable:true}));return {token,label:b.textContent.trim()};})()`);
+    await waitFor(()=>c.eval(`(${masterCardExpr})?.getAttribute("aria-pressed")==="true"`),"@ autocomplete auto-attaches selected master");
+    await waitFor(()=>c.eval(`[...document.querySelectorAll(".stage2-chip")].some(x=>x.dataset.token===${JSON.stringify(insertedMaster.token)}&&/Mara\\s*·\\s*Master reference/i.test(x.title))`),"autocomplete creates master identity chip");
+    assert.equal((await c.eval(`(${masterCardExpr}).querySelector("small")?.textContent.trim().split(/\\s+/)[0]`)).toLowerCase(),insertedMaster.token.toLowerCase(),"inserted token is the token actually assigned to the attached master sheet");
+
+    /* Exclude it again through the real asset control, then choose that unattached
+       master from a different included image chip's swap menu. doSwap must enforce the
+       same attachment/budget path as autocomplete rather than inserting a hollow tag. */
+    await c.eval(`(${masterCardExpr}).click()`);
+    await waitFor(()=>c.eval(`(${masterCardExpr})?.getAttribute("aria-pressed")==="false"`),"master excluded before chip swap");
+    await waitFor(()=>c.eval(`[...document.querySelectorAll(".stage2-chip.image")].some(x=>!/Mara\\s*·\\s*Master reference/i.test(x.title))`),"included image chip available for swap");
+    await c.eval(`([...document.querySelectorAll(".stage2-chip.image")].find(x=>!/Mara\\s*·\\s*Master reference/i.test(x.title))).querySelector(".stage2-chip-caret").click()`);
+    await waitFor(()=>c.eval(`[...document.querySelectorAll(".stage2-swap-box .stage2-mention-item")].some(x=>/Mara\\s*·\\s*Master reference/i.test(x.textContent))`),"unattached master offered by chip swap");
+    const swappedMaster=await c.eval(`(()=>{const b=[...document.querySelectorAll(".stage2-swap-box .stage2-mention-item")].find(x=>/Mara\\s*·\\s*Master reference/i.test(x.textContent));const token=b.querySelector("b").textContent.trim();b.dispatchEvent(new MouseEvent("mousedown",{bubbles:true,cancelable:true}));return {token,label:b.textContent.trim()};})()`);
+    await waitFor(()=>c.eval(`(${masterCardExpr})?.getAttribute("aria-pressed")==="true"`),"chip swap auto-attaches selected master");
+    await waitFor(()=>c.eval(`[...document.querySelectorAll(".stage2-chip")].some(x=>x.dataset.token===${JSON.stringify(swappedMaster.token)}&&/Mara\\s*·\\s*Master reference/i.test(x.title))`),"swap creates attached master identity chip");
+    assert.equal((await c.eval(`(${masterCardExpr}).querySelector("small")?.textContent.trim().split(/\\s+/)[0]`)).toLowerCase(),swappedMaster.token.toLowerCase(),"swap token resolves to the actual newly attached master sheet");
+    assert.ok(!(await c.eval(`window.__fixture.toasts.slice(${mentionToastBaseline}).some(x=>/accepts up to|exclude an asset/i.test(String(x&&x[0]||"")))`)),"autocomplete and swap obey the available input budget without bypass warnings");
+    const mentionConsoleErrors=await c.eval(`window.__fixture.consoleErrors.slice(${mentionConsoleBaseline})`);
+    assert.ok(!mentionConsoleErrors.some(x=>/same key|unique ["']key["'] prop|encountered two children/i.test(x)),`mention option rendering has no duplicate React keys: ${JSON.stringify(mentionConsoleErrors)}`);
 
     /* Leave the saved-choice check behind and capture the approved beat-first workflow. */
     await c.eval(`document.querySelector('button[title="Clip scope — how much one render covers"]').click()`);
