@@ -428,6 +428,13 @@ async function main() {
     assert.ok(await c.eval(`!!document.querySelector(${JSON.stringify(firstMasterSelector)})`),"first shot offers the deliberate master choice");
     assert.ok(await c.eval(`!!document.querySelector(${JSON.stringify(secondMasterSelector)})`),"second shot independently offers the deliberate master choice");
 
+    /* The @ picker states which beat the automatic references belong to. */
+    await c.eval(`document.querySelector('.sdbar-pill.mention').click()`);
+    await waitFor(()=>c.eval(`!!document.querySelector('.sdbar-anchor.open .sdbar-mention-scope b')`),"mention picker shows a scope heading");
+    assert.match(await c.eval(`document.querySelector('.sdbar-anchor.open .sdbar-mention-scope b').textContent`),/^Scene \d\d · Beat \d+.*references$/,"scope heading names the scene and beat");
+    assert.match(await c.eval(`document.querySelector('.sdbar-anchor.open .sdbar-mention-scope span').textContent`),/^\d+ attached to this clip/,"scope heading counts attached references");
+    await c.eval(`document.querySelector('.sdbar-pill.mention').click()`);
+
     /* View-only shares expose the decision and its reason, but cannot create one. */
     const readOnlyCreateBaseline=await c.eval(`({story:JSON.stringify(__story.shots),updates:__fixture.updates.length,providers:__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length})`);
     await c.eval(`window.__setReadOnly(true)`);

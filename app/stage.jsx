@@ -3495,6 +3495,16 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
         _stEl(React.Fragment,null,_stEl("span",{className:"sdbar-at"},"@")),
         _stEl("div",{className:"sdbar-pop sdbar-pop-mention"},
           _stEl("label",null,'Use "@" to mention'),
+          (()=>{
+            const beatN=(clip.g&&clip.g.beatN)||(activeShot&&activeShot.beatN)||"—";
+            const scopeLabel="Scene "+_pad2(scene.no)+(beatN?(" · Beat "+beatN):"")
+              +((clip.g&&clip.g.parts)>1?(" · Part "+clip.g.part+"/"+clip.g.parts):"");
+            const inc=availableMentionables.filter(m=>m.included).length;
+            const more=availableMentionables.length-inc;
+            return _stEl("div",{className:"sdbar-mention-scope"},
+              _stEl("b",null,scopeLabel+" references"),
+              _stEl("span",null,inc+" attached to this clip"+(more>0?(" · "+more+" more from this scene can be added"):"")));
+          })(),
           availableMentionables.length
             ? _stEl("div",{className:"sdbar-mention-list"},
                 availableMentionables.map(m=>_stEl("button",{key:m.assetKey+":"+m.t,type:"button",onClick:()=>{ insertToolbarMention(m); setSdMenu(null); }},
