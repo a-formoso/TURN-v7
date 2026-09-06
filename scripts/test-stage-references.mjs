@@ -67,7 +67,7 @@ ok("missing selected location never falls back to master",goneSelection.location
 const stale=box.stageReferenceStatus({imageId:"c1:rain",iso:"old"},ctx);
 ok("saved snapshot stale against current",stale.stale&&stale.reasons.includes("Reference version changed"));
 const missing=box.stageReferenceStatus({imageId:"gone"},ctx);
-ok("missing reported honestly",missing.missing&&missing.reasons.includes("Required reference image is missing"));
+ok("missing reported honestly",missing.missing&&missing.reasons.some(x=>x.includes("Reference image is missing")));
 const privatePkg=box.stageShotReferencePackage([{id:"p",sceneId:"s2",subjects:["c1"],props:[]}],
   {...ctx,metadata:{...metadata,"c1:rain":{...metadata["c1:rain"],deviceOnly:true}}});
 ok("device-only reference excluded",privatePkg.characters.length===0&&privatePkg.warnings.some(x=>x.code==="excluded-reference"));
@@ -111,6 +111,20 @@ const fingerprint=box.stageReferenceStatus({imageId:"reviewed"},{
 ok("approval review fingerprint is checked against current context",
   fingerprint.contextChecked&&!fingerprint.currentApproval
   &&fingerprint.reasons.includes("Approved review context changed"));
+
+const metadataWithoutImage=box.stageReferenceStatus({imageId:"c1:rain"},{...ctx,images:{}});
+ok("metadata alone cannot satisfy a supplied loaded-image inventory",
+  metadataWithoutImage.availabilityKnown&&metadataWithoutImage.missing);
+const coldPackage=box.stageShotReferencePackage([shots[1]],{...ctx,images:{}});
+ok("missing active variant blocks even when approved metadata exists",
+  coldPackage.warnings.some(x=>x.imageId==="c1:rain"&&x.code==="missing-reference"&&x.severity==="error"));
+const warmPackage=box.stageShotReferencePackage([shots[1]],{...ctx,
+  images:{"c1:rain":"data:image/png;base64,fixture","l1-ext":"data:image/png;base64,fixture","p1:wet":"data:image/png;base64,fixture"}});
+ok("loaded references clear missing blockers without altering metadata",
+  !warmPackage.warnings.some(x=>x.severity==="error"&&x.code==="missing-reference"));
+ok("async image arrival changes the package signature",coldPackage.signature!==warmPackage.signature);
+ok("metadata-only history review cannot claim checked file availability",
+  !box.stageReferenceStatus({imageId:"c1:rain"},ctx).availabilityKnown);
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail?1:0);

@@ -8,3 +8,7 @@ description: Existence checks that gate credit-spending generation must await th
 **Why:** a user who acts promptly after a reload would otherwise silently regenerate (and pay for) every "missing" asset that actually exists in storage. This got a task rejected in completion review.
 
 **How to apply:** any pipeline that generates on absence — sheet auto-builders, staging drafts, pre-render checks. Display-only code may keep using the sync cache.
+
+Metadata is not proof of loaded image bytes. For an explicitly required render reference, an available-image inventory takes precedence over cached approval metadata. Block while its image is unavailable/loading and clear the gate after the asynchronous loader finishes; never substitute another reference silently.
+
+**Why:** approval metadata can survive a missing image or arrive before the image itself. Displaying a missing-reference warning without feeding the same condition into the submission gate allowed an incomplete paid render.

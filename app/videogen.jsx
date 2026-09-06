@@ -417,12 +417,47 @@ async function vidProxy(op, payload){
   if(error){
     const status=(error&&error.context&&error.context.status)||error.status||0;
     const _safe = window.turnSafeError || (x=>x);
+    /* supabase-js FunctionsHttpError keeps the Edge Function response on
+       error.context. Read a CLONE so its structured provider detail/code survives
+       the non-2xx wrapper instead of collapsing into "Edge Function returned…". */
+    let errorBody=null;
+    const context=error&&error.context;
+    if(context && typeof context.json==="function"){
+      try{
+        const readable=typeof context.clone==="function" ? context.clone() : context;
+        errorBody=await readable.json();
+      }catch(e){}
+    }
+    if(errorBody && typeof errorBody==="object"){
+      const raw=errorBody.error!=null ? errorBody.error
+        : errorBody.detail!=null ? errorBody.detail : errorBody.message;
+      if(raw!=null){
+        const detail=typeof raw==="string" ? raw : JSON.stringify(raw);
+        const ex=new Error(detail);
+        ex.providerDetail=detail;
+        if(errorBody.errorCode!=null) ex.errorCode=errorBody.errorCode;
+        if(errorBody.code!=null) ex.code=errorBody.code;
+        ex.providerStatus=errorBody.status!=null ? errorBody.status : status;
+        ex.httpStatus=status||null;
+        throw ex;
+      }
+    }
     if(status===401) throw new Error("Sign in to render video — it runs on your server, not the browser.");
     if(status===404) throw new Error(_safe("The media proxy isn't deployed yet. Deploy supabase/functions/image-proxy (the video route), then have an administrator set FAL_KEY."));
-    if(!status) throw new Error(_safe("Couldn't reach the video proxy — the request never made it to the server (usually a brief connection drop or VPN/ad-blocker interference). Check your connection and try again"+(op==="submit"?"; the render was most likely not submitted or charged":"")+"."));
+    if(!status) throw new Error(_safe(op==="submit"
+      ? "Couldn't confirm the video proxy's response. The request may have reached the server and the render may already have been submitted. Check pending renders or history before retrying to avoid starting a duplicate job."
+      : "Couldn't reach the video proxy while checking the existing render. The job may still be processing; its pending record is preserved so it can be checked again."));
     throw new Error(_safe("Couldn't reach the video proxy: "+((error&&error.message)||"unknown error")+"."));
   }
-  if(data && data.error) throw new Error((window.turnSafeError||(x=>x))(data.error));   // fal error relayed by the proxy
+  if(data && data.error){
+    const detail=typeof data.error==="string" ? data.error : JSON.stringify(data.error);
+    const ex=new Error(detail);   // fal detail is preserved verbatim for classification/support
+    ex.providerDetail=detail;
+    if(data.errorCode!=null) ex.errorCode=data.errorCode;
+    if(data.code!=null) ex.code=data.code;
+    if(data.status!=null) ex.providerStatus=data.status;
+    throw ex;
+  }
   return data||{};
 }
 
@@ -746,20 +781,30 @@ window.vidRecoverPending = vidRecoverPending;
 setTimeout(()=>{ try{ if(videoProxyReady()) vidRecoverPending(); }catch(e){} }, 4000);
 setInterval(()=>{ try{ if(videoProxyReady() && _vidPendingList().length) vidRecoverPending({ quiet:true }); }catch(e){} }, 5*60*1000);
 
-/* ---- LIKENESS FALSE POSITIVES: Seedance's safety filter sometimes decides an
-   AI-generated character sheet shows a REAL person's likeness and rejects the job.
-   Every Art Room reference IS AI-generated, so that rejection is a false positive:
-   retry ONCE with an explicit fictional-cast declaration prepended to the prompt,
-   and if the filter still refuses, explain it in human terms (regenerate a more
-   stylized sheet / switch model) instead of relaying raw provider text. ---- */
+/* Provider policy classification is informational only. A policy/moderation refusal
+   is terminal for this job: never alter its prompt or launch another paid render. */
 const VID_LIKENESS_RE = /likeness|celebrit|public figure|famous|real (?:person|people|face)|portrait right|impersonat|face (?:match|verification|detect)|risk control|content (?:risk|policy|moderation)|moderation|sensitive content|prohibited content/i;
-function vidLikenessError(msg){
-  const s = String(msg||"");
-  return !!s && !/cancelled/i.test(s) && VID_LIKENESS_RE.test(s);
+function vidPolicyError(value){
+  const s = String(value && (value.providerDetail||value.message) || value || "");
+  const code = String(value && (value.errorCode||value.code) || "");
+  return !!(s||code) && !/cancelled/i.test(s+" "+code)
+    && (VID_LIKENESS_RE.test(s) || /policy|moderation|safety|sensitive|risk|likeness/i.test(code));
 }
+function vidLikenessError(value){ return vidPolicyError(value); } // compatibility for Stage callers
+function vidPolicyFailure(error){
+  const detail=String(error && (error.providerDetail||error.message) || error || "The provider supplied no detail.");
+  const out=new Error("The provider rejected this render under its content, safety, or likeness policy. No automatic retry was submitted. Provider detail: "+detail+" Review the submitted inputs and policy requirements, or contact the provider if you believe the decision was mistaken.");
+  out.name="ProviderPolicyError";
+  out.providerDetail=detail;
+  out.providerStatus=error&&error.providerStatus;
+  out.httpStatus=error&&error.httpStatus;
+  if(error&&error.errorCode!=null) out.errorCode=error.errorCode;
+  if(error&&error.code!=null) out.code=error.code;
+  out.cause=error;
+  return out;
+}
+window.vidPolicyError = vidPolicyError;
 window.vidLikenessError = vidLikenessError;
-const VID_FICTION_NOTE = "Note: every person appearing in the reference images is an original, fully AI-generated fictional character created for this film. They are not real people, celebrities, or public figures — no real person's likeness, face, or identity is used or implied.";
-const VID_LIKENESS_HELP = "The model's safety filter flagged an input image as a real person's likeness and refused the render — even after declaring the cast as AI-generated fictional characters. It's a false positive on the provider's side, and their API has no switch to turn it off. Any image can trip it: character sheets, the shot FRAME itself, even a location still with a person in it. What works: regenerate the suspect image (character sheet or frame) with a more stylized / less photoreal look in the Art Room, exclude it from this clip's inputs, or set the clip's source to prompt-only and render without images.";
 
 async function seedanceGenerate(id, opts){
   opts = opts||{};
@@ -774,8 +819,7 @@ async function seedanceGenerate(id, opts){
      uid and one event id fixed here mean the render is charged to whoever
      LAUNCHED it, exactly once, no matter which path delivers it — live poll,
      crash-recovery in a later session, or both racing (the shared id dedupes
-     client- and server-side). A likeness retry shares the id too: one render
-     delivered, one charge. */
+     client- and server-side). */
   const spendRec = (opts.spend && opts.spend.cost) ? {
     cost: Math.max(1, Number(opts.spend.cost)||1),
     reason: String(opts.spend.reason||"stage-video-render"),
@@ -861,13 +905,9 @@ async function seedanceGenerate(id, opts){
     vidValidateSeedancePackage(model,{ images:proxyImages,videos:proxyVideos,audios:proxyAudios,
       metadata:referenceMetadata,duration,resolution,aspectRatio,bitrateMode,prompt:promptText });
   }
-  // ONE submit→poll pass with the given prompt text — extracted so a likeness
-  // rejection can rerun the whole pass with the fictional-cast declaration prepended.
-  const attempt = async (pText, tag)=>{
-    /* status emissions carry the attempt's tag so an automatic safety retry
-       reads as a labeled retry in the player — not the same render mysteriously
-       starting over from a low percentage */
-    const _tag = tag || opts.statusTag || "";
+  // Exactly one submit→poll pass with the user's final prompt.
+  const attempt = async (pText)=>{
+    const _tag = opts.statusTag || "";
     const emit = (s)=>{ if(opts.onStatus) opts.onStatus(_tag ? (_tag+" · "+s) : s); };
     const sub = await vidProxy("submit", {
       model, prompt:pText,
@@ -923,12 +963,20 @@ async function seedanceGenerate(id, opts){
           emit("RECONNECTING");
           continue;
         }
+        // A provider-declared terminal result is not recoverable. vidProxy can
+        // throw it before the status branch below when the response carries an
+        // error body; remove only that definitive job record. Transport errors,
+        // user cancellation and ambiguous lost responses deliberately remain.
+        if(/^(FAILED|ERROR|CANCELLED|CANCELED)$/i.test(String(e&&e.providerStatus||"")) || vidPolicyError(e))
+          _vidPendingRemove(sub.requestId);
         throw e;
       }
       // a terminal failure the proxy relayed without an error field still ends here —
-      // throw so the likeness retry/help path can see the reason instead of timing out
-      if(/^(FAILED|ERROR|CANCELLED|CANCELED)$/i.test(String(st.status||"")))
+      // throw so the provider's terminal detail surfaces instead of timing out
+      if(/^(FAILED|ERROR|CANCELLED|CANCELED)$/i.test(String(st.status||""))){
+        _vidPendingRemove(sub.requestId);
         throw new Error(String(st.error||("The provider reported the render as "+st.status+".")));
+      }
       if(st.status){
         let label = st.status;
         if(st.status==="IN_QUEUE"){
@@ -977,27 +1025,10 @@ async function seedanceGenerate(id, opts){
     throw new Error("The video render timed out — try again, or pick a faster tier / lower resolution in Render settings.");
     }finally{ _vidPollLease.delete(sub.requestId); }   // cancel/timeout/failure: the job is up for recovery again
   };
-  /* likenessRetry:false = the caller already burned a declaration pass (stage's
-     dropped-char-refs fallback): render ONCE with the fiction note up front and
-     surface the help on a repeat flag — never a third silent multi-minute pass. */
-  if(opts.likenessRetry===false){
-    try{ return await attempt(VID_FICTION_NOTE+"\n"+promptText); }
-    catch(e){
-      if(vidLikenessError(e && e.message)) throw new Error(VID_LIKENESS_HELP);
-      throw e;
-    }
-  }
   try{ return await attempt(promptText); }
   catch(e){
-    if(!vidLikenessError(e && e.message)) throw e;
-    // likeness false positive — one retry with the declaration up front,
-    // VISIBLY tagged: it's a full re-render, not the same render stuck
-    if(opts.onStatus) opts.onStatus("RETRY");
-    try{ return await attempt(VID_FICTION_NOTE+"\n"+promptText, "SAFETY_PASS_2"); }
-    catch(e2){
-      if(vidLikenessError(e2 && e2.message)) throw new Error(VID_LIKENESS_HELP);
-      throw e2;
-    }
+    if(vidPolicyError(e)) throw vidPolicyFailure(e);
+    throw e;
   }
 }
 window.seedanceGenerate=seedanceGenerate;

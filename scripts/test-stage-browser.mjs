@@ -65,7 +65,8 @@ function fixtureHtml() {
 <script src="/react.js"></script><script src="/react-dom.js"></script>
 <script>
 /* Deterministic browser-only boundaries. Every call is recorded for assertions. */
-window.__fixture={calls:[],updates:[],confirms:[],toasts:[],errors:[],proxyKnown:false,lastRuntimeCapabilities:null};
+window.__fixture={calls:[],updates:[],confirms:[],toasts:[],errors:[],proxyKnown:false,lastRuntimeCapabilities:null,
+  requiredVariant:false,variantLoaded:false,policyRefusal:false};
 window.addEventListener("error",e=>__fixture.errors.push(String(e.error&&e.error.stack||e.message||e)));
 window.addEventListener("unhandledrejection",e=>__fixture.errors.push(String(e.reason&&e.reason.stack||e.reason||e)));
 const px="data:image/svg+xml;charset=utf-8,"+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="%232e4251"/><circle cx="92" cy="90" r="42" fill="%23d6aa76"/><path d="M150 65h125v50H150z" fill="%2388a6a1"/></svg>');
@@ -83,11 +84,14 @@ window.shotSizeOf=v=>({label:v||"Medium"});
 window.shotAngleOf=v=>({label:v||"Eye level"});
 window.shotMoveOf=v=>({label:v||"Static"});
 window.shotLensOf=v=>({label:v||"50mm"});
-window.inFrameCast=s=>s.subjects||[];
+window.inFrameCast=s=>s.referenceCharactersSet?(s.referenceCharacterIds||[]):(s.subjects||[]);
 window.inFrameProps=s=>s.props||[];
 window.scanTextForChars=(text,chars)=>(chars||[]).filter(c=>String(text).toLowerCase().includes(c.name.toLowerCase())).map(c=>c.id);
 window.locationForScene=(locs,id)=>(locs||[]).find(l=>(l.scenes||[]).includes(id))||null;
 window.sceneRoster=(scene,chars,drafts,shots)=>Array.from(new Set((shots||[]).flatMap(s=>s.subjects||[])));
+window.activeStateForScene=c=>window.__fixture.requiredVariant
+  ? {version:2,state:{id:"wardrobe",label:"Rain wardrobe"}}
+  : {version:1,state:null};
 window.sceneContinuityLedger=()=>({});
 window.scenePreset=()=>({name:"Natural cinema",grade:"Cool dusk",lighting:"Cool dusk with warm practicals"});
 window.shotLocationCoverageSpecs=()=>[];
@@ -118,11 +122,20 @@ window.seedanceGetRuntimeCapabilities=async target=>{
 };
 window.useSeedanceGen=id=>({
   videoUrl:"",gening:false,status:"",err:null,
-  generate:async payload=>(window.__fixture.calls.push(["generate",id,payload]),{url:fakeVideo,seed:4242}),
+  generate:async payload=>{window.__fixture.calls.push(["generate",id,payload]);if(__fixture.policyRefusal)throw new Error("policy refusal: character reference rejected");return {url:fakeVideo,seed:4242};},
   generateBatch:async(payload,n)=>(window.__fixture.calls.push(["batch",id,n,payload]),[]),
   cancel:()=>window.__fixture.calls.push(["cancel",id])
 });
-window.nbGetImage=()=>px; window.nbLoadImage=async()=>px; window.nbRemoteImageUrl=async()=>px;
+window.nbGetImage=id=>(id==="char-mara:wardrobe"&&!__fixture.variantLoaded)?"":px;
+window.nbLoadImage=async id=>window.nbGetImage(id);
+window.nbRemoteImageUrl=async id=>window.nbGetImage(id);
+window.nbGetMeta=id=>{
+  const iso="iso-"+id;
+  if(id==="prop-letter")return {iso,version:1,approval:{approved:false,iso}};
+  return {iso,version:id==="char-mara:wardrobe"?2:1,approval:{approved:true,iso}};
+};
+window.nbAssetApproval=m=>!!(m&&m.iso&&m.approval&&m.approval.approved&&m.approval.iso===m.iso);
+window.vidLikenessError=msg=>/policy refusal|character reference/i.test(String(msg||""));
 window.vgGetAudio=()=>""; window.vgLoadAudio=async()=>""; window.vidAdoptTakes=async()=>{};
 window.shotSourcesStatus=(shots,drafts,meta)=>meta&&meta.fixtureStale?"stale":"current";
 window.shotSourcesEditorialStatus=window.shotSourcesStatus;
@@ -174,13 +187,15 @@ window.__story={
  ]}}
 };
 turnContinuity.shots=__story.shots;turnContinuity.drafts=__story.drafts;turnContinuity.props=__story.props;
+let fixtureRoot=ReactDOM.createRoot(document.getElementById("root"));
 function mount(){
- ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(StageView,{
+ fixtureRoot.render(React.createElement(StageView,{
   ...__story,creditBalance:{remaining:99},
   onUpdateShot:(id,patch)=>{__fixture.updates.push([id,patch]);const s=__story.shots.find(x=>x.id===id);Object.assign(s,patch);mount();},
   onVoiceLine:async()=>{},onStageNav:x=>__fixture.calls.push(["nav",x])
  }));
 }
+window.__hardRemount=()=>{fixtureRoot.unmount();document.getElementById("root").replaceChildren();fixtureRoot=ReactDOM.createRoot(document.getElementById("root"));mount();};
 mount();
 </script></body></html>`;
 }
@@ -315,6 +330,47 @@ async function main() {
     assert.ok(knownFormat1080.found,"Known-proxy check must locate the actual Format menu option");
     assert.ok(!knownFormat1080.disabled&&knownFormat1080.aria!=="true","known-proxy 1080p is enabled in Format menu");
     await c.eval(`document.querySelector('button[title="Aspect ratio and resolution"]').click()`);
+
+    /*
+     * Required-reference gate. A selected character appearance state has a canonical
+     * variant id; while that variant is absent, Stage must neither substitute Mara's
+     * approved master nor let a paid request leave the browser.
+     */
+    await c.eval(`window.__fixture.requiredVariant=true;window.__fixture.variantLoaded=false;window.__fixture.policyRefusal=false;window.__hardRemount()`);
+    await waitFor(()=>c.eval(`document.body.innerText.toLowerCase().includes("required character reference image is missing")`),"required character-state warning");
+    assert.equal(await c.eval(`window.nbAssetApproval(window.nbGetMeta("char-mara:wardrobe"))`),true,
+      "approved metadata alone does not make an absent inventory image ready");
+    const missingGate=await c.eval(`(()=>{const b=document.querySelector(".sd-gen-submit");return {aria:b?.getAttribute("aria-disabled"),disabled:!!b?.disabled,text:b?.textContent||""}})()`);
+    assert.ok(missingGate.aria==="true"||missingGate.disabled,"missing required character variant blocks Generate");
+    const beforeBlocked=await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate").length`);
+    await c.eval(`document.querySelector(".sd-gen-submit").click()`);
+    await new Promise(r=>setTimeout(r,150));
+    assert.equal(await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate").length`),beforeBlocked,"blocked Generate invokes provider zero times");
+    const masterFallback=await c.eval(`[...document.querySelectorAll(".stage2-asset")].filter(x=>/Mara reference/i.test(x.textContent)).map(x=>({text:x.textContent.trim(),included:x.classList.contains("on")||x.getAttribute("aria-pressed")==="true"}))`);
+    assert.ok(!masterFallback.some(x=>x.included),`missing state must not silently fall back to master: ${JSON.stringify(masterFallback)}`);
+
+    /* Simulate the real cache completing later. The existing mounted Stage responds to
+       nb-gen-done; no story mutation or remount is used for this clearance proof. */
+    await c.eval(`window.__fixture.variantLoaded=true;window.dispatchEvent(new CustomEvent("nb-gen-done",{detail:{id:"char-mara:wardrobe"}}))`);
+    await waitFor(()=>c.eval(`!document.body.innerText.toLowerCase().includes("required character reference image is missing")`),"loaded character variant clears missing gate");
+    await waitFor(()=>c.eval(`document.querySelector(".sd-gen-submit")?.getAttribute("aria-disabled")!=="true"`),"Generate unblocks after cache load");
+    const loadedBody=(await text()).toLowerCase();
+    assert.match(loadedBody,/implicit prop reference is not an approved current version/,"optional unapproved reference remains a review warning");
+    assert.doesNotMatch((await c.eval(`document.querySelector(".stage2-blocker")?.textContent||""`)).toLowerCase(),/implicit prop|unapproved/,"optional unapproved reference is not a hard blocker");
+    const loadedRefs=await c.eval(`window.stageShotReferencePackage(window.__story.shots.slice(0,1),{...window.__story,scene:window.__story.scenes[0],images:{"char-mara:wardrobe":"loaded"},availableImageIds:new Set(["char-mara:wardrobe","prop-letter"])}).characters.map(x=>x.assetId)`);
+    assert.deepEqual(loadedRefs,["char-mara:wardrobe"],"loaded package uses the selected state variant, not character master");
+
+    /* Exercise the old likeness/policy retry trigger. The provider stub refuses once;
+       Stage must surface it without a second paid call or a NO_CHAR_REFS package. */
+    const beforePolicy=await c.eval(`window.__fixture.policyRefusal=true;window.__fixture.calls.filter(x=>x[0]==="generate").length`);
+    await c.eval(`document.querySelector(".sd-gen-submit").click()`);
+    await waitFor(()=>c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate").length>${beforePolicy}`),"single policy-refused provider call");
+    await new Promise(r=>setTimeout(r,300));
+    const policyCalls=await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate").slice(${beforePolicy}).map(x=>x[2])`);
+    assert.equal(policyCalls.length,1,"policy refusal causes exactly one generation/package submission");
+    assert.ok((policyCalls[0].takeMeta.referenceSourceVersions||[]).some(x=>x.assetId==="char-mara:wardrobe"),"submitted package retains required character variant");
+    assert.ok(!policyCalls[0].statusTag&&!policyCalls[0].takeMeta.safetyFallback,"policy refusal does not synthesize NO_CHAR_REFS/reference-drop fallback");
+    await c.eval(`window.__fixture.policyRefusal=false`);
 
     /* Leave the saved-choice check behind and capture the approved beat-first workflow. */
     await c.eval(`document.querySelector('button[title="Clip scope — how much one render covers"]').click()`);

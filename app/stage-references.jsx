@@ -62,10 +62,15 @@
     const reasons=[];
     if(!imageId)reasons.push("Reference has no image id");
     if(excluded(ref,current))reasons.push("Private or device-only reference is excluded");
-    const available=!!current||!!(ctx&&ctx.availableImageIds&&(
+    // Metadata can outlive the image bytes (or arrive before the cloud download).
+    // When the caller supplies its loaded-image inventory it is authoritative.
+    // Historical version-only reviews without that inventory remain unchecked.
+    const availabilityKnown=!!(ctx&&(own(ctx,"images")||own(ctx,"availableImageIds")));
+    const loaded=!!(ctx&&ctx.availableImageIds&&(
       typeof ctx.availableImageIds.has==="function"?ctx.availableImageIds.has(imageId):arr(ctx.availableImageIds).indexOf(imageId)>=0
     ))||!!(ctx&&ctx.images&&ctx.images[imageId]);
-    if(imageId&&!available)reasons.push("Required reference image is missing");
+    const available=availabilityKnown?loaded:!!current;
+    if(imageId&&!available)reasons.push("Reference image is missing or has not finished loading");
     const usedIso=String(used.iso||used.imageIso||"");
     const currentIso=String((current&&current.iso)||"");
     if(usedIso&&currentIso&&usedIso!==currentIso)reasons.push("Reference version changed");
@@ -98,6 +103,7 @@
     return {
       imageId,
       missing:!available,
+      availabilityKnown,
       excluded:excluded(ref,current),
       stale:unique.some(x=>/changed|missing/i.test(x)),
       approved:assetApproved,

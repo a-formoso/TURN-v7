@@ -60,6 +60,20 @@ ok("Render settings exposes disabled semantics for pending resolutions",
 const files12=[{kind:"text"},...Array.from({length:12},(_,i)=>({kind:i%3?"image":"audio"}))];
 ok("12 reference files plus script text fit a 12-file cap",box.stageReferenceFileCount(files12)===12);
 ok("13 reference files exceed a 12-file cap",box.stageReferenceFileCount([...files12,{kind:"video"}])>12);
+ok("Stage never launches an automatic character-reference fallback",
+  !source.includes("vidLikenessError")&&!source.includes("safetyFallback")&&!source.includes("dropped character refs"));
+ok("required reference errors guard UI and final paid submission",
+  source.includes('filter(w=>w&&w.severity===\"error\")')
+    &&source.includes('key:\"required-reference\"')
+    &&source.includes("if(referenceBlockingWarnings.length) throw new Error(referenceBlockMessage)"));
+ok("required reference blocker identifies asset and shot",
+  source.includes('w.imageId+\"]\"')&&source.includes('\" · Shot \"+(shotN||\"?\")'));
+ok("legacy cast masters cannot auto-replace resolved appearance variants",
+  !source.includes('d.cast.forEach(c=>{ const u=imgs[c.id]; out.push')
+    &&source.includes("Active character/location/prop rows come exclusively from the authoritative"));
+ok("matching scene-only masters are promoted only for authoritative descriptors",
+  source.includes('a&&a.sceneOnly&&a.kind===\"image\"&&a.id===id')
+    &&source.includes("out[sceneIdx]=resolved"));
 
 console.log(pass+" passed, "+fail+" failed");
 process.exit(fail?1:0);

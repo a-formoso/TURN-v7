@@ -117,9 +117,6 @@ function stageStatusLabel(s){
   return raw
     .replace(/\bIN_QUEUE\b/g,"Waiting in the queue")
     .replace(/\bIN_PROGRESS\b/g,"Rendering")
-    .replace(/\bRETRY\b/g,"Retrying — declared the cast as AI-made")
-    .replace(/\bSAFETY_PASS_2\b/g,"Safety retry — full second render")
-    .replace(/\bNO_CHAR_REFS\b/g,"Last try — character sheets set aside")
     .replace(/\bRECONNECTING\b/g,"Connection blip — reconnecting to the render")
     .replace(/\bCOMPLETED\b/g,"Finishing up")
     .replace(/\bCANCELL?ED\b/g,"Cancelled")
@@ -1470,32 +1467,6 @@ function stagePromptMentionContext(includedAssets, d){
     audioForShot(shotId){ return byKey["a:"+shotId] || ""; }
   };
 }
-function stageCleanRefName(label){
-  return String(label||"")
-    .replace(/\s+(reference|line|plate|coverage sheet)$/i,"")
-    .replace(/\s+—\s+.*$/,"")
-    .replace(/\s+·\s+.*$/,"")
-    .trim();
-}
-function stageRemapImageMentionPayload(text, oldAssets, keptAssets){
-  const kept = new Map();
-  (keptAssets||[]).forEach((a,i)=>kept.set(stageAssetMention(a), "@Image"+(i+1)));
-  const dropped = new Map();
-  (oldAssets||[]).forEach(a=>{
-    const tok = stageAssetMention(a);
-    if(tok && !kept.has(tok)) dropped.set(tok, stageCleanRefName(a.label) || "the character");
-  });
-  let out = String(text||"").split(/\n/).filter(line=>{
-    for(const tok of dropped.keys()){
-      if(new RegExp("^\\s*"+tok.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\s+is\\b","i").test(line)) return false;
-    }
-    return true;
-  }).join("\n");
-  [...kept.entries(), ...dropped.entries()].forEach(([from,to])=>{
-    out = out.replace(new RegExp(from.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"),"g"), to);
-  });
-  return out.replace(/\n{3,}/g,"\n\n").trim();
-}
 function stageAssetRole(a, refs){
   if(!a || a.kind==="text") return "";
   const T = stageAssetMention(a);
@@ -2030,6 +2001,22 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     : {characters:[],locations:[],props:[],warnings:[],signature:""};
   const beatLabel = clip.label;
   const beatName = clipBeatName(clip, beatsMap, drafts);
+  const referenceWarningText=(w)=>{
+    const sh=shownShots.find(x=>String(x&&x.id||"")===String(w&&w.shotId||""));
+    const shotN=Math.max(0,shownShots.indexOf(sh))+1;
+    const shotLabel=sh&&String(sh.title||sh.name||sh.slug||sh.action||"").trim();
+    const descriptors=[].concat(referencePackage.characters||[],referencePackage.locations||[],referencePackage.props||[]);
+    const desc=descriptors.find(x=>String(x&&x.assetId||"")===String(w&&w.imageId||""));
+    const entities=[].concat((ctx&&ctx.characters)||[],(ctx&&ctx.locations)||[],(ctx&&ctx.props)||[]);
+    const entity=entities.find(x=>desc&&String(x&&x.id||"")===String(desc.entityId||desc.baseId||""));
+    const assetLabel=(entity&&String(entity.name||entity.label||entity.title||"").trim())
+      ||(desc&&String(desc.label||desc.name||"").trim())||String(w&&w.imageId||"reference asset");
+    return String(w&&w.message||"Required reference is unavailable")
+      +" — "+assetLabel+(w&&w.imageId?(" ["+w.imageId+"]"):"")
+      +(w&&w.shotId?(" · Shot "+(shotN||"?")+(shotLabel?(" "+shotLabel):"")+" ["+w.shotId+"]"):"");
+  };
+  const referenceBlockingWarnings=(referencePackage.warnings||[]).filter(w=>w&&w.severity==="error");
+  const referenceBlockMessage=referenceBlockingWarnings.map(referenceWarningText).join(" ");
   const clipsInScene = (sceneClips&&sceneClips.length) ? sceneClips : [clip];
   /* the filmstrip reads vidGetVideo SYNCHRONOUSLY from the in-memory cache — only the
      clip loaded in the player ever gets vidLoadVideo'd, so takes rendered in earlier
@@ -2095,32 +2082,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
       else out.push({ key:"frame-missing", kind:"image", label:"Shot start frame", ready:false, locked:true });
     }
     if(_mRefs){
-      d.cast.forEach(c=>{ const u=imgs[c.id]; out.push({ key:"c:"+c.id, kind:"image", label:c.name+" reference", url:u, ready:!!u, id:c.id,
-        assetRole:"master_reference", assetSourceQuality:"character_master_sheet" }); });
-      if(d.loc){
-        // prefer the screenplay-derived coverage sheet (TOD/side accurate) when its
-        // image exists; the master plate is the fallback, never the blind default
-        const useCov = d.locSheet && imgs[d.locSheet.id];
-        const lid = useCov ? d.locSheet.id : d.loc.id;
-        const llab = useCov
-          ? (d.locSheet.name+(d.locSheet.role?(" \u00b7 "+d.locSheet.role):"")+" coverage sheet")
-          : (d.loc.name||"Location")+" plate";
-        out.push({ key:"loc", kind:"image", label:llab, url:imgs[lid]||"", ready:!!imgs[lid], id:lid,
-          assetRole:useCov?"derived_reference":"master_reference",
-          assetSourceQuality:useCov?"location_coverage_full_frame":"location_master_plate" });
-      }
-      d.props.forEach(p=>{
-        // the ACTIVE appearance-state variant sheet (never the stale base), labelled with
-        // its state and current holder so the References block tells the video model
-        // exactly who carries/wears it in this scene. A MISSING sheet must surface as a
-        // missing ingredient — silently dropping it made the render invent the prop.
-        const sid = p.sheetId || p.id;
-        const u = imgs[sid];
-        const plab = p.name+(p.stateLabel?(" \u2014 "+p.stateLabel):"")+(p.holder?(" \u00b7 "+(p.kind==="worn"?"worn by ":"carried by ")+p.holder):"");
-        out.push({ key:"p:"+p.id, kind:"image", label:plab, url:u||"", ready:!!u, id:sid,
-          assetRole:sid===p.id?"master_reference":"derived_reference",
-          assetSourceQuality:sid===p.id?"prop_master_sheet":"prop_state_sheet" });
-      });
+      // Active character/location/prop rows come exclusively from the authoritative
+      // shot reference package below. Legacy d.cast/d.loc/d.props masters remain
+      // available only through the scene-wide, opt-in palette; they must never
+      // silently replace a missing active appearance/coverage/state variant.
       // SCENE-WIDE references (user ruling 2026-08-07): the rest of this scene's cast
       // and props — from the OTHER clips' derivations — are offerable too, so the user
       // decides when to combine elements into their own shots. They default OFF
@@ -2229,13 +2194,18 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
       addSceneAsset({ key:"a:"+sh.id, kind:"audio", group:"Voices", label:speaker+" voice · "+_firstWords((exact&&exact.text)||sh.dialogue,6), url:u, ready:true, shotId:sh.id });
     });
     if(_mRefs&&referencePackage){
-      const seenIds=new Set(out.map(a=>a&&a.id).filter(Boolean));
+      const seenIds=new Set(out.filter(a=>a&&!a.sceneOnly).map(a=>a&&a.id).filter(Boolean));
       const addRequired=(r,group,label)=>{
         const id=r&&r.assetId;if(!id||seenIds.has(id))return;seenIds.add(id);
         const u=imgs[id]||"";
-        out.push({key:"resolved:"+group.toLowerCase()+":"+id,kind:"image",group,label,url:u,
+        const resolved={key:"resolved:"+group.toLowerCase()+":"+id,kind:"image",group,label,url:u,
           ready:!!u,id,assetRole:(r.roles||[])[0]||"derived_reference",
-          assetSourceQuality:"shot_resolved_reference",referenceSnapshot:r.snapshot,requiredByShots:r.shotIds});
+          assetSourceQuality:"shot_resolved_reference",referenceSnapshot:r.snapshot,requiredByShots:r.shotIds};
+        // If the same master was already offered in the scene-only palette, replace
+        // that row with the authoritative active descriptor rather than duplicating
+        // it or leaving the required input default-off.
+        const sceneIdx=out.findIndex(a=>a&&a.sceneOnly&&a.kind==="image"&&a.id===id);
+        if(sceneIdx>=0) out[sceneIdx]=resolved; else out.push(resolved);
       };
       (referencePackage.characters||[]).forEach(r=>{ const c=(ctx.charById||{})[r.entityId]||{};
         addRequired(r,"Characters",(c.name||"Character")+" appearance reference"); });
@@ -2827,6 +2797,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
        if(typeof window.appToast==="function") window.appToast(resolution+" is pending a server update confirmed by the video proxy capability handshake. Choose an advertised resolution such as 720p.","error");
        return;
      }
+     if(referenceBlockingWarnings.length){
+       if(typeof window.appToast==="function") window.appToast(referenceBlockMessage,"error");
+       return;
+     }
     stagingCancelRef.current=false;
     setStaging(true);
     setPrepPct(8);
@@ -2934,37 +2908,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
       const runPayload = (p)=> batchN>1 && typeof gen.generateBatch==="function"
         ? gen.generateBatch(p, batchN)
         : gen.generate(p).then(r=>[r]);
-      let results;
-      try{ results = await runPayload(payload); }
-      catch(e){
-        const msg = String((e&&e.message)||e||"");
-        const charEntries = imageEntries.filter(en=>String(en&&en.asset&&en.asset.key||"").indexOf("c:")===0);
-        if(!(typeof window.vidLikenessError==="function" && window.vidLikenessError(msg) && charEntries.length)) throw e;
-	        const keptEntries = imageEntries.filter(en=>String(en&&en.asset&&en.asset.key||"").indexOf("c:")!==0);
-	        const oldAssetsForTags = [frameAsset, ...imageEntries.map(en=>en.asset)].filter(Boolean);
-	        const keptAssetsForTags = [frameAsset, ...keptEntries.map(en=>en.asset)].filter(Boolean);
-	        const keptImageTags = new Map();
-	        keptAssetsForTags.forEach((a,i)=>keptImageTags.set(stageAssetMention(a), "@Image"+(i+1)));
-	        const fallbackReferences = takeReferences
-	          .filter(r=>String(r&&r.key||"").indexOf("c:")!==0)
-	          .map(r=>{
-	            if(r&&r.kind==="image"&&keptImageTags.has(r.tag)){
-	              const nextTag = keptImageTags.get(r.tag);
-	              return { ...r, tag:nextTag, role:String(r.role||"").replace(String(r.tag||""), nextTag) };
-	            }
-	            return r;
-	          });
-	        const fallbackPayload = { ...payload,
-	          // a declaration pass already failed — this LAST try renders once with the
-	          // fiction note up front, visibly tagged, and no further silent re-renders
-	          likenessRetry:false, statusTag:"NO_CHAR_REFS",
-	          imageUrls: keptEntries.map(en=>en.url),
-	          prompt: stageRemapImageMentionPayload(promptPayload, oldAssetsForTags, keptAssetsForTags),
-	          takeMeta:{ ...(payload.takeMeta||{}), safetyFallback:"dropped character refs",
-	            references: fallbackReferences } };
-        if(typeof window.appToast==="function") window.appToast("Seedance flagged a character reference; retrying with the shot frame plus non-character references.","info");
-        results = await runPayload(fallbackPayload);
-      }
+      // Final fail-closed guard immediately before the paid submission. Never
+      // change references/prompt/model or launch a second job after moderation.
+      if(referenceBlockingWarnings.length) throw new Error(referenceBlockMessage);
+      const results = await runPayload(payload);
       const fresh = results.filter(r=>r && !r.cached);
       const lastWithSeed = results.filter(r=>r && r.seed!=null).slice(-1)[0];
       if(lastWithSeed) setLastSeed(lastWithSeed.seed);
@@ -3207,6 +3154,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   if(!stageServerResolutionAllowed(modelId,resolution,runtimeCaps,capabilityTarget)) blockers.push({
     key:"server-resolution",
     text:resolution+" is pending a server update confirmed by the video proxy capability handshake. Choose an advertised resolution such as 720p before rendering."
+  });
+  if(referenceBlockingWarnings.length) blockers.push({
+    key:"required-reference",
+    text:referenceBlockMessage
   });
   if(promptSourceDrift) blockers.push({key:"prompt-drift",
     text:"This hand-edited prompt was written against older shot timing, coverage, dialogue or reference versions. Review the exact render package before reusing it.",
