@@ -1351,7 +1351,13 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
               screenplayMentions.length>5 && React.createElement("div",{className:"prop-evidence-more"},
                 "+"+(screenplayMentions.length-5)+" more screenplay source line"+(screenplayMentions.length-5===1?"":"s")))
           : React.createElement("div",{className:"prop-evidence-none"},
-              "No direct mention found in the screenplay text. This card may come from cast wardrobe/accessory data or a scene mapping; it is not presented as a quoted script fact.")),
+              "No direct mention found in the screenplay text. ",
+              p.fromCast
+                ? ("The Props tab created this card from Characters \u203a "+(p.ownerName||"the owner")+" \u203a Props & accessories.")
+                : p.manual
+                  ? "This card was added in the Props tab."
+                  : "The Props tab created this card during its screenplay/cast design pass or scene mapping.",
+              " It is not presented as a quoted script fact.")),
 
       !drafted && !gen.genUrl && React.createElement("div",{className:"sheet-undrafted"},
         React.createElement(Icon.alert,{s:13}),
