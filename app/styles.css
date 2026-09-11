@@ -3651,6 +3651,7 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
 
 .shot-card .shot-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .shot-head-right{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.shot-card .shot-head-right{flex:1 1 auto;min-width:0;flex-wrap:wrap}
 .shot-anchor-btn{display:inline-flex;align-items:center;gap:4px;cursor:pointer;border:1px solid var(--line-2);
   background:var(--bg-3);color:var(--txt-3);border-radius:20px;padding:3px 8px;font-family:var(--f-mono);
   font-size:9px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;transition:.12s}
@@ -6551,7 +6552,10 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
 
 /* ONE CARD PER BEAT: selected-shot viewport, Writers' Room beat logic, Protect,
    micro-beat checklist, compact shot rows expanding into the full editor */
-.beat-card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(430px,1fr));gap:18px}
+.beat-card-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+@media (max-width:1100px){
+  .beat-card-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
 .beat-card{border:1px solid var(--line);border-radius:12px;background:var(--bg-1);overflow:hidden;
   display:flex;flex-direction:column;align-self:start}
 .beat-card.turn{border-color:var(--pos-line)}
@@ -6692,7 +6696,7 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
   outline:none;outline-offset:0;border:none;box-shadow:none;background:transparent}
 
 /* This beat-card system is declared after the app's main responsive block, so its
-   own narrow rule must live here as well or the desktop 430px track wins in cascade. */
+   own narrow rule must live here as well or the desktop tracks win in cascade. */
 @media (max-width:640px){
   .beat-card-grid{grid-template-columns:minmax(0,1fr)}
   .beat-card{min-width:0}

@@ -1288,7 +1288,7 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
     title:hasSource
       ? "Re-draft the opening-frame description using writing-model credits. This does not generate an image; existing coverage changes require confirmation."
       : "Write screenplay for this beat before drafting a frame.",
-    onClick:()=>onRefineBeat(scene,L.n)},_el(Icon.sparkles,{s:11}),refiningBeat?"Drafting…":primary?"Redraft":"Draft opening keyframe");
+    onClick:()=>onRefineBeat(scene,L.n)},_el(Icon.sparkles,{s:11}),refiningBeat?"Drafting…":primary?"Draft specification":"Draft opening keyframe");
   const scriptedContent=_el("details",{className:"shot-beat-script bc-scripted"},
     _el("summary",null,_el("span",{className:"shot-beat-script-lab"},"Scripted")),
     hasSource?_el("div",{className:"bc-screenplay-copy"},text)
@@ -1302,7 +1302,7 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
       _el("span",{className:"beat-lane-no"},"Beat "+L.n+(lanesLen>1?" of "+lanesLen:"")),
       String(bm.turnAt||"")===String(L.n)&&_el("span",{className:"beat-lane-turn"},_el(Icon.bolt,{s:10}),"Turning point"),
       !displayed&&_el("span",{className:"beat-opening-chip"},"Not drafted")),
-    stale&&_el("div",{className:"bc-stale"},"Screenplay changed since this opening keyframe was drafted. Review Scripted, then use Redraft before regenerating. Your existing image is retained."),
+    stale&&_el("div",{className:"bc-stale"},"Screenplay changed since this opening keyframe was drafted. Review Scripted, then use Draft specification before regenerating. Your existing image is retained."),
   );
   // Older alternatives keep their own IDs, images and generator state. Access
   // belongs in the existing card menu rather than a permanent Frame selector.

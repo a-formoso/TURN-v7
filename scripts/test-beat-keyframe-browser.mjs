@@ -197,9 +197,9 @@ async function main(){
       scriptedActions:card.querySelectorAll('.bc-scripted-actions,.bc-scripted .shot-redraft-btn').length,
       title:row&&row.querySelector('.shot-redraft-btn')?.title||""
     }})()`);
-    assert.deepEqual(review.labels,["Redraft","QA check"],"Redraft sits immediately before the realistic QA check");
+    assert.deepEqual(review.labels,["Draft specification","QA check"],"Draft specification sits immediately before the realistic QA check");
     assert.equal(review.present,true,"generated primary card exposes review actions");
-    assert.equal(review.redraft,true,"the writing-model action is labelled Redraft");
+    assert.equal(review.redraft,true,"the renamed writing-model action remains available");
     assert.equal(review.qa,true,"the card keeps an adjacent QA check");
     assert.equal(review.outsideScripted,true,"review actions live outside Scripted");
     assert.equal(review.scriptedActions,0,"Scripted contains no duplicate redraft button or cost action");
@@ -320,12 +320,14 @@ async function main(){
     assert.equal(await c.eval("document.querySelectorAll('.shot-beat-tag.sub').length"),0,
       "returning to primary removes the alternative sublabel");
     await c.eval(`document.querySelector('${primary} .bc-scripted').open=true`);
-    for(const [w,name] of [[1280,"desktop"],[390,"mobile"]]){
+    for(const [w,name,columns] of [[1280,"desktop",3],[820,"tablet",2],[390,"mobile",1]]){
       await c.call("Emulation.setDeviceMetricsOverride",{width:w,height:900,deviceScaleFactor:1,mobile:w<500});
+      assert.equal(await c.eval("getComputedStyle(document.querySelector('.beat-card-grid')).gridTemplateColumns.split(' ').length"),columns,`${name} uses ${columns} card columns`);
       assert.equal(await c.eval("document.documentElement.scrollWidth<=window.innerWidth"),true,`${name} card does not overflow`);
-      const reviewRow=await c.eval(`(()=>{const r=document.querySelector('${primary} .shot-review-actions'),kids=r?[...r.children]:[];return {wrap:getComputedStyle(r).flexWrap,width:r&&r.getBoundingClientRect().width,scroll:r&&r.scrollWidth,sameLine:kids.length===2&&Math.abs(kids[0].getBoundingClientRect().top-kids[1].getBoundingClientRect().top)<1}})()`);
-      assert.equal(reviewRow.wrap,"nowrap",`${name} Redraft and QA review row does not wrap`);
-      assert.equal(reviewRow.sameLine,true,`${name} Redraft and QA remain on one row`);
+      const reviewRow=await c.eval(`(()=>{const card=document.querySelector('${primary}'),r=card.querySelector('.shot-review-actions'),kids=r?[...r.children]:[],bounds=card.getBoundingClientRect(),row=r.getBoundingClientRect();return {wrap:getComputedStyle(r).flexWrap,width:row.width,scroll:r.scrollWidth,contained:row.left>=bounds.left&&row.right<=bounds.right,sameLine:kids.length===2&&Math.abs(kids[0].getBoundingClientRect().top-kids[1].getBoundingClientRect().top)<1}})()`);
+      assert.equal(reviewRow.wrap,"nowrap",`${name} Draft specification and QA review row does not wrap`);
+      assert.equal(reviewRow.sameLine,true,`${name} Draft specification and QA remain on one row`);
+      assert.equal(reviewRow.contained,true,`${name} neither review button is clipped by the card`);
       const x=await c.call("Page.captureScreenshot",{format:"png"});
       await writeFile(`${OUT}/${name}.png`,Buffer.from(x.data,"base64"));
     }
