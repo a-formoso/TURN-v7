@@ -525,6 +525,9 @@ async function main(){
       assert.equal(reviewRow.wrap,"nowrap",`${name} Draft specification and QA review row does not wrap`);
       assert.equal(reviewRow.sameLine,true,`${name} Draft specification and QA remain on one row`);
       assert.equal(reviewRow.contained,true,`${name} neither review button is clipped by the card`);
+      const headerButtons=await c.eval(`(()=>[...document.querySelectorAll('${primary} .shot-head-right .shot-anchor-btn, ${primary} .shot-head-right .shot-lock-btn')].map(b=>({text:b.textContent.trim(),height:b.getBoundingClientRect().height})))()`);
+      assert.equal(headerButtons.length,4,`${name} includes Head, approval, Draft specification and QA controls`);
+      for(const button of headerButtons) assert.equal(button.height,24,`${name} ${button.text} matches the shared header button height`);
       const x=await c.call("Page.captureScreenshot",{format:"png"});
       await writeFile(`${OUT}/${name}.png`,Buffer.from(x.data,"base64"));
     }
