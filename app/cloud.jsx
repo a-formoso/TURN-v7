@@ -1867,56 +1867,34 @@ window.turnStoragePath = turnStoragePath;   // exposed for inspection / tests
    clients always expose rpc(); the no-rpc branch exists only for local recording
    adapters used by the dependency-free regression suite. */
 const _seriesPendingUploadIntents=new Set();
-/* Pre-migration databases (series-production.sql not yet applied) have no
-   intent RPCs. That is the legacy upload contract, not a permission failure:
-   uploads proceed without the exact-key reservation and the app warns once so
-   the operator knows the orphan-cleanup safety net is not installed. Any other
-   RPC error (deleted project, revoked membership, network) still blocks the
-   upload and is reported verbatim to the caller. */
-let _seriesUploadIntentUnavailable=false;
-function _seriesNoteUploadIntentMissing(functionName){
-  if(_seriesUploadIntentUnavailable) return;
-  _seriesUploadIntentUnavailable=true;
-  try{ console.warn("[TURN] "+functionName+" is not installed on this Supabase project. Image saves continue without upload-intent reservations; run supabase/series-production.sql to install them."); }catch(e){}
-}
-/* Resolves {ok:true} or {ok:false,error} — the reason travels with this call,
-   never through shared state, so concurrent saves cannot swap diagnostics. */
 async function _seriesBeginAssetUploadIntent(sb,projectId,path){
-  if(!sb||typeof sb.rpc!=="function") return {ok:true};
-  if(_seriesUploadIntentUnavailable) return {ok:true};
+  if(!sb||typeof sb.rpc!=="function") return true;
   try{
     const {error}=await sb.rpc("turn_begin_asset_upload",{p_project_id:projectId,p_path:path});
-    if(error){
-      if(_seriesRpcMissing(error,"turn_begin_asset_upload")){ _seriesNoteUploadIntentMissing("turn_begin_asset_upload"); return {ok:true}; }
-      return {ok:false,error:"upload reservation refused: "+_seriesError(error,"turn_begin_asset_upload failed")};
-    }
+    if(error) return false;
     _seriesPendingUploadIntents.add(path);
-    return {ok:true};
-  }catch(e){ return {ok:false,error:"upload reservation failed: "+_seriesError(e,"network error")}; }
+    return true;
+  }catch(e){ return false; }
 }
 async function _seriesFinishAssetUploadIntents(paths){
   const exact=Array.from(new Set((paths||[]).filter(path=>_seriesPendingUploadIntents.has(path))));
   if(!exact.length) return true;
   const sb=sbClient();
-  if(!sb||typeof sb.rpc!=="function"||_seriesUploadIntentUnavailable){
+  if(!sb||typeof sb.rpc!=="function"){
     exact.forEach(path=>_seriesPendingUploadIntents.delete(path));
     return true;
   }
   try{
     const {error}=await sb.rpc("turn_finish_asset_upload",{p_paths:exact});
-    if(error){
-      if(!_seriesRpcMissing(error,"turn_finish_asset_upload")) return false;
-      _seriesNoteUploadIntentMissing("turn_finish_asset_upload");
-    }
+    if(error) return false;
     exact.forEach(path=>_seriesPendingUploadIntents.delete(path));
     return true;
   }catch(e){ return false; }
 }
 
-/* Detailed form: {path} on success, {path:null,error} on failure. */
-async function cloudUploadImageDetailed(projectId, uid, entityId, dataUrl, assetType, role, version, allowRemote){
-  const sb = sbClient(); if(!sb) return {path:null,error:"cloud unavailable"};
-  let blob = dataUrlToBlob(dataUrl), fetchError="";
+async function cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, role, version, allowRemote){
+  const sb = sbClient(); if(!sb) return null;
+  let blob = dataUrlToBlob(dataUrl);
   /* Generated project references are commonly short-lived signed HTTP URLs,
      not data URLs. Snapshot their bytes while the URL is valid so Details can
      keep showing the exact input after reload/expiry. Personal/device inputs
@@ -1928,18 +1906,12 @@ async function cloudUploadImageDetailed(projectId, uid, entityId, dataUrl, asset
       if(response.ok){
         const candidate=await response.blob();
         if(candidate && /^image\//i.test(candidate.type||"")) blob=candidate;
-        else fetchError="reference image response was not an image";
-      }else fetchError="reference image fetch returned HTTP "+(response.status||"error");
-    }catch(e){ fetchError="reference image could not be fetched: "+_seriesError(e,"network error"); }
+      }
+    }catch(e){}
   }
-  if(!blob){
-    return {path:null,error:fetchError || (/^data:/i.test(String(dataUrl||""))
-      ? "image data could not be decoded"
-      : "image is not a data URL (got "+String(dataUrl||"").slice(0,24).replace(/[?#].*$/,"")+"…)")};
-  }
+  if(!blob) return null;
   const path = turnStoragePath(uid, projectId, entityId, assetType, role, "png", version);
-  const intent=await _seriesBeginAssetUploadIntent(sb,projectId,path);
-  if(!intent.ok) return {path:null,error:intent.error};
+  if(!await _seriesBeginAssetUploadIntent(sb,projectId,path)) return null;
   try{
     const { error } = await sb.storage.from(turnBucket()).upload(path, blob, { contentType:blob.type, upsert:false });
     if(error){
@@ -1947,16 +1919,13 @@ async function cloudUploadImageDetailed(projectId, uid, entityId, dataUrl, asset
          Compensate while the exact intent is live; finish is performed by
          cloudRemovePaths only after Storage confirms removal. */
       try{ await cloudRemovePaths([path]); }catch(e){}
-      return {path:null,error:"storage upload rejected: "+_seriesError(error,"unknown storage error")};
+      return null;
     }
-    return {path};
+    return path;
   }catch(e){
     try{ await cloudRemovePaths([path]); }catch(cleanupError){}
-    return {path:null,error:"storage upload failed: "+_seriesError(e,"network error")};
+    return null;
   }
-}
-async function cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, role, version, allowRemote){
-  return (await cloudUploadImageDetailed(projectId, uid, entityId, dataUrl, assetType, role, version, allowRemote)).path;
 }
 async function cloudRemovePaths(paths){
   const sb = sbClient(), unique=Array.from(new Set((paths||[]).filter(Boolean)));
@@ -2267,9 +2236,8 @@ async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, 
   try{ row=await cloudGetGenStrict(projectId,entityId); }
   catch(e){ return { tier:"error", url:dataUrl, error:e.message||"cloud read failed" }; }
   if(_cxl()) return { tier:"cancelled", url:dataUrl };
-  const uploaded = await cloudUploadImageDetailed(projectId, uid, entityId, dataUrl, assetType, "sheet", ver);
-  const newPath = uploaded.path;
-  if(!newPath) return { tier:"error", url:dataUrl, error:"image upload failed — "+(uploaded.error||"unknown cause") };
+  const newPath = await cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, "sheet", ver);
+  if(!newPath) return { tier:"error", url:dataUrl, error:"image upload failed" };
   created.push(newPath);
   if(_cxl()){ try{ await cloudRemovePaths(created); }catch(e){ return {tier:"error",url:dataUrl,error:e.message}; } return {tier:"cancelled",url:dataUrl}; }
   let history = (row && row.history) || [];
