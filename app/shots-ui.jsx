@@ -344,7 +344,7 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
 }
 window.shotFrameGenOpts = shotFrameGenOpts;
 
-function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, laterShots, sceneShots, isHead, isFirst, onToggleHead, onUpdate, onDelete, onView, batchActiveId, onBatchDone, onGenerateShot, onRegenDownstream, onStopChain, subLabel, plan, beatContext }){
+function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, laterShots, sceneShots, isHead, isFirst, onToggleHead, onUpdate, onDelete, onView, batchActiveId, onBatchDone, onGenerateShot, onRegenDownstream, onStopChain, subLabel, plan, beatContext, scriptedContent }){
   const loc = ctx.location;
   // who/what is in frame is DERIVED from the action text (single source of truth) — the
   // old manual tags are gone; this is what the prompt + references actually use.
@@ -626,8 +626,8 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         onDelete(sh.id);
       }, deleteLabel:"Delete shot" }),
     _el("div",{className:"sheet-body"},
-      /* OpeningBeatCard supplies this compact screenplay provenance directly into
-         the real card body. It deliberately is not a wrapper or a second preview. */
+      /* Compact beat metadata stays in the real card body; its screenplay
+         evidence is grouped in Scripted below, never in a duplicate preview. */
       beatContext && _el("div",{className:"shot-beat-context"},beatContext),
       // reference images this frame is built from — the rolling SEED (the previous shot's
       // frame) leads, then the in-frame Character, Prop & Location sheets, ordered by weight.
@@ -706,12 +706,12 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
             specFields:()=>({ action:(sh.action||""), composition:(sh.composition||"") }),
             onApplySpec:(patch)=>onUpdate(sh.id, patch) }))),
 
-      // the SCRIPT BEAT this shot covers — straight from the scene's beat map, so the
-      // shot's source text is on the card (read-only; edit beats in the Writers' Room)
-      beatText && _el("div",{className:"shot-beat-script",
+      // The beat card supplies its full screenplay and presence evidence here.
+      // Other callers retain their existing read-only source excerpt.
+      scriptedContent || (beatText && _el("div",{className:"shot-beat-script",
         title:"This beat's SCREENPLAY text — the canon these shots film (until the scene is drafted, the beat summary stands in). Read-only here — edit the script in the Writers' Room."},
         _el("span",{className:"shot-beat-script-lab"},"Scripted"),
-        _el("span",{className:"shot-beat-script-body"},beatText)),
+        _el("span",{className:"shot-beat-script-body"},beatText))),
 
       // WHY this shot exists (the designer's purpose) + which micro-beats it covers
       (sh.purpose || (Array.isArray(sh.covers)&&sh.covers.length>0)) && _el("div",{className:"shot-purpose"},
@@ -1269,7 +1269,6 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
   const text=(source&&source.text)||beatScriptText(scene.id,L.n)||"";
   const primary=L.shots.find(sh=>sh.keyframeMode==="beat-opening")||L.shots[0]||null;
   const extras=L.shots.filter(sh=>!primary||sh.id!==primary.id);
-  const [addSeed,setAddSeed]=React.useState(null);
   const [selectedId,setSelectedId]=React.useState(primary&&primary.id);
   const batchShot=L.shots.find(sh=>sh.id===batchActiveId)||null;
   const selected=L.shots.find(sh=>sh.id===selectedId)||primary||null;
@@ -1283,25 +1282,29 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
   // that an unstamped frame is current.
   const stampedRev=primary&&(primary.sourceScreenplayRev!=null?primary.sourceScreenplayRev:primary.sourceRev);
   const stale=primary&&sourceRev!=null&&stampedRev!=null&&String(stampedRev)!==String(sourceRev);
-  const unverified=primary&&sourceRev!=null&&stampedRev==null;
+  const unverified=primary&&hasSource&&stampedRev==null;
   const names=(ids)=>(ids||[]).map(id=>((ctx.charById||{})[id]||{}).name||id).join(" · ");
+  const refineControl=onRefineBeat&&_el("button",{className:"beat-lane-btn ghost",disabled:!!refiningBeat||!hasSource,
+    title:hasSource
+      ? "Re-draft the opening-frame description using writing-model credits. This does not generate an image; existing coverage changes require confirmation."
+      : "Write screenplay for this beat before drafting a frame.",
+    onClick:()=>onRefineBeat(scene,L.n)},_el(Icon.sparkles,{s:11}),refiningBeat?"Drafting…":primary?"Update from screenplay":"Draft opening keyframe");
+  const scriptedContent=_el("details",{className:"shot-beat-script bc-scripted"},
+    _el("summary",null,_el("span",{className:"shot-beat-script-lab"},"Scripted")),
+    hasSource?_el("div",{className:"bc-screenplay-copy"},text)
+      :_el("div",{className:"bc-source-empty"},"Write screenplay for this beat to draft its opening keyframe."),
+    source&&Array.isArray(source.openingCharacterIds)&&source.openingCharacterIds.length>0&&_el("div",{className:"bc-cast-line"},_el("b",null,"On-screen: "),names(source.openingCharacterIds)),
+    source&&Array.isArray(source.remoteCharacterIds)&&source.remoteCharacterIds.length>0&&_el("div",{className:"bc-cast-line remote"},_el("b",null,"Remote audio / text: "),names(source.remoteCharacterIds)),
+    unverified&&_el("p",{className:"bc-source-note"},
+      "This opening keyframe has no saved screenplay-version stamp. Its match to the current script is unknown; this alone does not mean the script changed."),
+    primary&&refineControl&&_el("div",{className:"bc-scripted-actions"},refineControl,
+      _el("span",null,"Re-drafts the description using writing-model credits. Image generation is separate.")));
   const beatContext=_el(React.Fragment,null,
     _el("div",{className:"shot-beat-context-head"},
       _el("span",{className:"beat-lane-no"},"Beat "+L.n+(lanesLen>1?" of "+lanesLen:"")),
       String(bm.turnAt||"")===String(L.n)&&_el("span",{className:"beat-lane-turn"},_el(Icon.bolt,{s:10}),"Turning point"),
-      _el("span",{className:"beat-opening-chip"},!displayed?"Not drafted":displayed.id===primary.id?"Opening keyframe":"Additional shot"),
-      onRefineBeat&&_el("button",{className:"beat-lane-btn ghost",disabled:!!refiningBeat||!hasSource,
-        title:hasSource?"Use this beat's screenplay to update the opening keyframe.":"Write screenplay for this beat before drafting a frame.",
-        onClick:()=>onRefineBeat(scene,L.n)},_el(Icon.sparkles,{s:11}),refiningBeat?"Drafting…":primary?"Update from screenplay":"Draft opening keyframe"),
-      onAddShot&&_el("button",{className:"beat-lane-btn ghost bc-add",onClick:()=>setAddSeed({}),
-        title:"Add an optional manual alternative to this beat."},_el(Icon.plus,{s:11}),"Add alternative")),
-    stale&&_el("div",{className:"bc-stale"},"Source changed — update from screenplay, then regenerate the opening frame. Your existing image is retained."),
-    unverified&&_el("div",{className:"bc-unverified"},"Existing coverage — screenplay source is unverified. Update from screenplay before regenerating the opening frame."),
-    _el("details",{className:"bc-screenplay"},
-      _el("summary",null,"Screenplay reference"),
-      hasSource?_el("div",{className:"bc-screenplay-copy"},text):_el("div",{className:"bc-source-empty"},"Write screenplay for this beat to draft its opening keyframe."),
-      source&&Array.isArray(source.openingCharacterIds)&&source.openingCharacterIds.length>0&&_el("div",{className:"bc-cast-line"},_el("b",null,"On-screen: "),names(source.openingCharacterIds)),
-      source&&Array.isArray(source.remoteCharacterIds)&&source.remoteCharacterIds.length>0&&_el("div",{className:"bc-cast-line remote"},_el("b",null,"Remote audio / text: "),names(source.remoteCharacterIds))),
+      _el("span",{className:"beat-opening-chip"},!displayed?"Not drafted":displayed.id===primary.id?"Opening keyframe":"Additional shot")),
+    stale&&_el("div",{className:"bc-stale"},"Screenplay changed since this opening keyframe was drafted. Review Scripted and update the description before regenerating. Your existing image is retained."),
     extras.length>0&&_el("label",{className:"bc-alt-picker"},
       _el("span",null,"Frame"),
       _el("select",{value:displayed&&displayed.id,onChange:e=>setSelectedId(e.target.value),
@@ -1315,14 +1318,13 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
     beatText:(source&&source.openingAction)||text,sceneShots:ordered,plan:sh.beatPlan,
     prevShot,laterShots:(shotIndex>=0?ordered.slice(shotIndex+1):[]),
     isHead:!prevShot,isFirst:sh.id===firstId,onToggleHead:toggleHead,
-    onUpdate,onDelete,onView,batchActiveId:(sh.id===batchActiveId?batchActiveId:null),onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,subLabel:label,beatContext}); };
+    onUpdate,onDelete,onView,batchActiveId:(sh.id===batchActiveId?batchActiveId:null),onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,subLabel:label,beatContext,scriptedContent}); };
   return _el(React.Fragment,null,
     displayed ? editor(displayed,displayed.id===primary.id?"Opening":"Alternative") :
       _el("div",{className:"sheet-card shot-card opening-beat-empty"},
-        _el("div",{className:"sheet-body"},beatContext,
-          _el("div",{className:"bc-opening-empty"},hasSource?"No opening keyframe yet. Draft it from the screenplay above.":"No opening keyframe can be drafted until this beat has screenplay."))),
-    addSeed!==null&&_el(AddShotReferenceDialog,{key:"add-shot-"+scene.id+"-"+L.n,scene,beatN:L.n,beatText:text,plan:null,ctx,characters,seed:addSeed,
-      onCancel:()=>setAddSeed(null),onAdd:chosen=>{setAddSeed(null);onAddShot(scene.id,L.n,chosen);}}));
+        _el("div",{className:"sheet-body"},beatContext,scriptedContent,
+          _el("div",{className:"bc-opening-empty"},hasSource?"No opening keyframe yet. Draft its description from the screenplay.":"No opening keyframe can be drafted until this beat has screenplay."),
+          refineControl)));
 }
 
 function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, pager, onUpdate, onDelete, onView,

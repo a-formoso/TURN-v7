@@ -479,7 +479,14 @@ html[data-theme="light"] .seg-attn-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .bc-cast-line.remote{color:var(--txt-2)}
 .bc-opening-empty{margin-top:11px;padding:12px;border:1px dashed var(--line-3);border-radius:8px;color:var(--txt-2);font-size:12px;line-height:1.5}
 .bc-stale{margin:0 0 7px;padding:8px 10px;border-radius:7px;background:var(--pos-soft);border:1px solid var(--pos-line);color:var(--txt-1);font-size:11px;line-height:1.4}
-.bc-unverified{margin:0 0 7px;padding:8px 10px;border-radius:7px;background:var(--neg-soft);border:1px solid var(--neg-line);color:var(--txt-1);font-size:11px;line-height:1.4}
+.shot-card .shot-beat-script.bc-scripted{display:block;padding:0}
+.bc-scripted summary{cursor:pointer;list-style:none;padding:9px 11px}
+.bc-scripted summary::-webkit-details-marker{display:none}
+.bc-scripted summary:after{content:"+";float:right;color:var(--txt-3);font-size:14px}
+.bc-scripted[open] summary:after{content:"−"}
+.bc-source-note{margin:8px 11px;color:var(--txt-2);font-size:11px;line-height:1.5}
+.bc-scripted-actions{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;margin:10px 11px}
+.bc-scripted-actions>span{flex:1 1 170px;color:var(--txt-2);font-size:10px;line-height:1.5}
 .bc-alt-picker{display:flex;align-items:center;gap:8px;margin-top:9px;color:var(--txt-2);font-family:var(--f-mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase}
 .bc-alt-picker select{min-width:0;flex:1;background:var(--bg-3);border:1px solid var(--line-2);border-radius:6px;color:var(--txt-1);padding:6px 8px;font:500 11px var(--f-ui);text-transform:none;letter-spacing:0}
 .opening-beat-empty{min-height:170px}

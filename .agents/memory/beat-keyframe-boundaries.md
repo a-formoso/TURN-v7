@@ -28,3 +28,9 @@ Full-scene screenplay images are reading context, not visual compositions or add
 **Why:** The full scene helps interpret an opening, but its later entrances and remote dialogue can also cause the image model to depict the wrong moment. A screenshot does not weaken the target beat's opening-presence restrictions.
 
 **How to apply:** Keep the complete scene text alongside any page images, identify the target beat, and preserve the opening-frame bindings. Canonical identity/location images take priority over optional screenplay pages; disclose page omissions rather than claiming the whole scene was pictured.
+
+Missing screenplay-version provenance means unknown alignment, not evidence that the screenplay changed.
+
+**Why:** A warning on every older card made missing tracking metadata look like a screenplay error. Silently stamping those cards current would be equally misleading.
+
+**How to apply:** Preserve the unknown status in a quiet source note; reserve changed-source warnings for actual stamped mismatches. Updating the opening description remains an explicit writing-model operation, not an automatic repair triggered by viewing a card.
