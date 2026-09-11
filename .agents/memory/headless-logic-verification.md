@@ -15,6 +15,12 @@ Isolated rendering of the real component tree with the real stylesheet can still
 
 **How to apply:** Use synthetic component inputs, explicitly emulate the device viewport, and assert the actual innerWidth before interpreting geometry. Clearly distinguish isolated component checks from a full authenticated walkthrough.
 
+Browser-control tests must reproduce native event timing, not just dispatch a key name or read a rectangle immediately after scrolling.
+
+**Why:** Native summary activation needs the browser's complete Enter event sequence, and native disclosure notifications are queued. An immediate Escape can precede a listener installed only by that notification. Virtualized cards can also shift between scrolling and the next paint, directing a coordinate click to a different control.
+
+**How to apply:** Focus the actual on-screen target and use complete native keyboard input. Assert hit targets after layout settles before pointer clicks. Keep fast dismissal tests: opening a menu must make its dismissal handling ready immediately, not after a deferred notification.
+
 Lifecycle tests that stub the persistence boundary do not establish storage guarantees.
 
 **Why:** A cancelled UI result and a cancelled database write are different outcomes; a storage upload can also succeed while its database record fails.

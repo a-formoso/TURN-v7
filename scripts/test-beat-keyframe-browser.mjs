@@ -47,7 +47,7 @@ async function prep(){
   }
   await writeFile(`${FIX}/beat-keyframe.html`,html());
 }
-function html(){return `<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><link rel=stylesheet href=/styles.css><style>body{overflow:auto;background:#08090b;padding:24px}.beat-card-grid{max-width:980px;margin:auto}</style></head><body><div id=root></div><div id=classic-root></div><div id=seed-root></div><div id=progress-root></div><script src=/react.js></script><script src=/react-dom.js></script><script>
+function html(){return `<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><link rel=stylesheet href=/styles.css><style>body{overflow:auto;background:#08090b;padding:24px}.beat-card-grid{max-width:980px;margin:auto}#seed-root{margin-top:1200px}</style></head><body><div id=root></div><div id=classic-root></div><div id=seed-root></div><div id=progress-root></div><script src=/react.js></script><script src=/react-dom.js></script><script>
  window.__fixture={calls:[],confirmations:[],errors:[],mounts:[]};window.addEventListener("error",e=>__fixture.errors.push(String(e.message)));window.addEventListener("unhandledrejection",e=>__fixture.errors.push(String(e.reason&&e.reason.message||e.reason)));
 window.Icon=new Proxy({}, {get:(_,n)=>({s=12})=>React.createElement("svg",{"data-i":n,width:s,height:s})});
 const px="data:image/svg+xml,"+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#263d42"/></svg>');
@@ -96,11 +96,11 @@ const scene={id:"scene-1",no:1,title:"Control Room"};const chars=[{id:"marcus",n
 const beatOneAction="MARCUS grips the transit map.",beatTwoAction="MARCUS checks the eastern console.";
 const drafts={"scene-1":{blocks:[{type:"scene",text:"INT. CONTROL ROOM — NIGHT"},{beat:1,type:"action",text:beatOneAction},{beat:1,type:"char",text:"DANIEL (V.O.)"},{beat:1,type:"dia",text:"Take the east tunnel."},{beat:2,type:"action",text:beatTwoAction}]}};const ctx={charById:{marcus:chars[0],daniel:chars[1]},propById:{},drafts};window.turnContinuity={drafts,props:[]};const bm={rows:[{n:1},{n:2}],turnAt:1};
 const sourceStamp=shotBeatScreenplay(scene,1,{drafts,characters:chars,beatsMap:bm}).sourceRev;
-const shots=[{id:"opening-1",sceneId:"scene-1",beatN:1,order:1,keyframeMode:"beat-opening",sourceScreenplayRev:sourceStamp,subjects:["marcus"],covers:[1],beatPlan:{micro:["MARCUS grips the transit map."]},size:"Medium",angle:"Eye",lens:"50",action:"Marcus grips the transit map."},{id:"legacy-1",sceneId:"scene-1",beatN:1,order:2,subjects:["marcus"],size:"Close",angle:"Low",lens:"85",action:"Legacy alternative."}];
+const shots=[{id:"opening-1",sceneId:"scene-1",beatN:1,order:1,keyframeMode:"beat-opening",sourceScreenplayRev:sourceStamp,subjects:["marcus"],covers:[1],purpose:"Caregiving presented as a timed case for recognition.",beatPlan:{micro:["MARCUS grips the transit map."]},size:"Medium",angle:"Eye",lens:"50",action:"Marcus grips the transit map."},{id:"legacy-1",sceneId:"scene-1",beatN:1,order:2,subjects:["marcus"],purpose:"The alternative's own purpose.",size:"Close",angle:"Low",lens:"85",action:"Legacy alternative."}];
  const props={lanesLen:2,bm,scene,ctx,characters:chars,propsAvail:[],ordered:shots,firstId:"opening-1",toggleHead:()=>{},onAddShot:(sid,n)=>__fixture.calls.push(["add",sid,n]),onUpdate:(id,patch)=>{const sh=shots.find(x=>x.id===id);if(sh&&patch)Object.assign(sh,patch);__fixture.calls.push(["update",id,patch||{}]);mount()},onDelete:()=>{},onView:(url,meta)=>__fixture.calls.push(["view",meta&&meta.name||"",url]),onGenerateShot:()=>{},onRegenDownstream:()=>{},onStopChain:()=>{},onBatchDone:()=>{},batchActiveId:null,openShotId:null,setOpenShotId:()=>{},sceneStart:false,onRenderScene:()=>{},renderBusy:false,draftingBlocked:false,nextShotId:null,onRefineBeat:(s,n)=>__fixture.calls.push(["refine",s.id,n]),refiningBeat:false};
 const root=ReactDOM.createRoot(document.getElementById("root")),classicRoot=ReactDOM.createRoot(document.getElementById("classic-root"));
 function mount(batchActiveId=null){root.render(React.createElement("div",{className:"beat-card-grid"},React.createElement(OpeningBeatCard,{...props,batchActiveId,L:{n:1,shots}}),React.createElement(OpeningBeatCard,{...props,batchActiveId,L:{n:2,shots:[]}})))}
-const classicShot={id:"classic-1",sceneId:"scene-1",beatN:1,order:1,size:"Medium",angle:"Eye",lens:"50",action:"Classic action."};
+const classicShot={id:"classic-1",sceneId:"scene-1",beatN:1,order:1,size:"Medium",angle:"Eye",lens:"50",action:"Classic action.",purpose:"Classic purpose."};
 window.__mountClassicFallback=()=>classicRoot.render(React.createElement("div",{className:"classic-fallback-fixture"},React.createElement(ShotCard,{sh:classicShot,scene,ctx,characters:chars,propsAvail:[],beatText:"Classic fallback copy",prevShot:null,laterShots:[],sceneShots:[classicShot],isHead:true,isFirst:true,onToggleHead:()=>{},onUpdate:()=>{},onDelete:()=>{},onView:()=>{},batchActiveId:null,onBatchDone:()=>{},onGenerateShot:()=>{},onRegenDownstream:()=>{},onStopChain:()=>{},subLabel:null})));
 window.__unmountClassicFallback=()=>classicRoot.render(null);
 window.__changeSource=()=>{drafts["scene-1"].blocks[1].text="MARCUS tears the transit map in half.";mount()};
@@ -276,14 +276,69 @@ async function main(){
       seedDelete:!!p.closest('.shot-card')?.querySelector('.shot-ref-delete')
      }})()`),{label:"Location reference",summary:"Automatched reference(s)",seedTick:true,seedDelete:false},
        "location picker remains compact beside nondestructive seed controls");
+    // Exercise the real native summaries with pointer/keyboard events. Closing
+    // a menu is presentation-only: never mutate reference selection or images.
+    await c.eval("mount();window.__resetCalls()");
+    const seedPicker="#seed-root .shot-location-picker-menu";
+    const peerPicker=primary+" .shot-location-picker-menu";
+    await wait(()=>c.eval(`!!document.querySelector('${peerPicker}')`),"second card location picker");
+    const pointerClick=async selector=>{
+      let point=null;
+      for(let attempt=0;attempt<4&&!point?.targetHit;attempt++){
+       point=await c.eval(`(async()=>{const el=document.querySelector(${JSON.stringify(selector)});if(!el)return null;el.scrollIntoView({block:'center',inline:'nearest'});await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));const r=el.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2,hit=document.elementFromPoint(x,y);return {x,y,width:r.width,height:r.height,targetHit:!!(r.width&&r.height&&hit&&(hit===el||el.contains(hit)))};})()`);
+       if(!point?.targetHit) await new Promise(resolve=>setTimeout(resolve,50));
+      }
+      assert.ok(point?.targetHit,`pointer target is not hit-testable after scrolling: ${selector} (${JSON.stringify(point)})`);
+      const {x,y}=point;
+      await c.call("Input.dispatchMouseEvent",{type:"mousePressed",x,y,button:"left",clickCount:1});
+      await c.call("Input.dispatchMouseEvent",{type:"mouseReleased",x,y,button:"left",clickCount:1});
+    };
+    await pointerClick(seedPicker+" > summary");
+    await wait(()=>c.eval(`document.querySelector('${seedPicker}').open`),"first picker opens");
+    await pointerClick(peerPicker+" > summary");
+    await wait(()=>c.eval(`document.querySelector('${peerPicker}').open&&!document.querySelector('${seedPicker}').open`),"other card replaces first picker");
+    assert.equal(await c.eval("document.querySelectorAll('.shot-location-picker-menu[open]').length"),1,
+      "only one reference dropdown can be open across separate card roots");
+    await pointerClick(peerPicker+" > summary");
+    await wait(()=>c.eval("document.querySelectorAll('.shot-location-picker-menu[open]').length===0"),"same summary toggles shut");
+    await c.eval(`(()=>{const summary=document.querySelector('${seedPicker} > summary');summary.scrollIntoView({block:'center'});summary.focus()})()`);
+    assert.equal(await c.eval(`document.activeElement===document.querySelector('${seedPicker} > summary')`),true,
+      "the keyboard activation target is focused and on screen");
+    await c.call("Input.dispatchKeyEvent",{type:"keyDown",key:"Enter",code:"Enter",windowsVirtualKeyCode:13,text:"\r",unmodifiedText:"\r"});
+    await c.call("Input.dispatchKeyEvent",{type:"keyUp",key:"Enter",code:"Enter",windowsVirtualKeyCode:13});
+    await wait(()=>c.eval(`document.querySelector('${seedPicker}').open`),"keyboard opens reference menu");
+    await c.call("Input.dispatchKeyEvent",{type:"keyDown",key:"Escape",code:"Escape",windowsVirtualKeyCode:27});
+    await wait(()=>c.eval(`!document.querySelector('${seedPicker}').open`),"Escape dismisses reference menu");
+    assert.equal(await c.eval(`document.activeElement===document.querySelector('${seedPicker} > summary')`),true,
+      "Escape returns focus to the corresponding summary");
+    await pointerClick(seedPicker+" > summary");
+    await wait(()=>c.eval(`document.querySelector('${seedPicker}').open`),"reopen before outside click");
+    await c.call("Input.dispatchMouseEvent",{type:"mouseMoved",x:1,y:1});
+    assert.equal(await c.eval(`document.querySelector('${seedPicker}').open`),true,
+      "moving the pointer out alone does not interrupt reading a menu");
+    await c.call("Input.dispatchMouseEvent",{type:"mousePressed",x:1,y:1,button:"left",clickCount:1});
+    await c.call("Input.dispatchMouseEvent",{type:"mouseReleased",x:1,y:1,button:"left",clickCount:1});
+    await wait(()=>c.eval("document.querySelectorAll('.shot-location-picker-menu[open]').length===0"),"blank-area pointer dismisses menu");
+    await pointerClick(seedPicker+" > summary");
+    await wait(()=>c.eval(`document.querySelector('${seedPicker}').open`),"reopen for outside control");
+    await pointerClick(primary+' [data-qa="check"]');
+    await wait(()=>c.eval("document.querySelectorAll('.shot-location-picker-menu[open]').length===0"),"outside control dismisses menu");
+    assert.deepEqual(await c.eval("window.__fixture.calls.map(x=>x[0])"),["qa"],
+      "outside dismissal does not swallow the clicked action or alter saved references");
+    await pointerClick(seedPicker+" > summary");
+    await wait(()=>c.eval(`document.querySelector('${seedPicker}').open`),"reopen for focus transfer");
+    await c.eval(`document.querySelector('${primary} .shot-grammar-grid select').focus()`);
+    await wait(()=>c.eval("document.querySelectorAll('.shot-location-picker-menu[open]').length===0"),"focus in another selector dismisses picker");
     await c.eval("window.__resetCalls();document.querySelector('#seed-root .shot-location-picker summary').click()");
     await wait(()=>c.eval("document.querySelectorAll('#seed-root .shot-location-picker-section').length===5"),"typed location sections");
     assert.equal(await c.eval("document.querySelectorAll('#seed-root .shot-location-check').length"),6,
       "shared unit/state asset is discoverable from both named taxonomy sections");
     assert.equal(await c.eval(`(()=>{const rows=[...document.querySelectorAll('#seed-root .shot-location-check')].filter(x=>x.textContent.includes('Living Room'));return rows.length===2&&rows.every(x=>x.querySelector('input').checked===false)})()`),true,
       "the two taxonomy aliases begin as one unselected attachment");
-    await c.eval("[...document.querySelectorAll('#seed-root .shot-location-check')].find(x=>x.textContent.includes(\"Father's House · INT\")).querySelector('input').click()");
+    await pointerClick("#seed-root .shot-location-check input");
     await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-location-picker-summary span').textContent==='1 selected'`),"place selection");
+    assert.equal(await c.eval(`document.querySelector('${seedPicker}').open`),true,
+      "clicking a menu selection keeps the menu open across the shot update");
     assert.deepEqual((await c.eval("window.__fixture.calls"))[0],["update","seed-target",{referenceLocationsSet:true,referenceLocationIds:["place-house"]}],
        "selecting a continuity place writes the exact explicit id");
     await c.eval("[...document.querySelectorAll('#seed-root .shot-location-check')].find(x=>x.textContent.includes('Living Room · INT')).querySelector('input').click()");
@@ -350,6 +405,14 @@ async function main(){
     await c.call("Emulation.setDeviceMetricsOverride",{width:1280,height:900,deviceScaleFactor:1,mobile:false});
     await c.eval(`(()=>{const p=document.querySelector('#seed-root ${seedCard} .shot-location-picker');p.scrollIntoView({block:"center"});p.querySelector('summary').click()})()`);
     await wait(()=>c.eval(`(()=>{const d=document.querySelector('#seed-root ${seedCard} details.shot-location-picker-menu'),p=d&&d.querySelector('.shot-location-picker-panel'),r=p&&p.getBoundingClientRect();return !!d?.open&&!!r&&r.top>=0&&r.bottom<=innerHeight})()`),"desktop open chooser in viewport");
+     const desktopPickerGeometry=await c.eval(`(()=>{const card=document.querySelector('#seed-root ${seedCard}'),menu=card.querySelector('.shot-location-picker-menu'),panel=menu.querySelector('.shot-location-picker-panel'),summary=menu.querySelector('summary'),cr=card.getBoundingClientRect(),pr=panel.getBoundingClientRect(),sr=summary.getBoundingClientRect();return {
+       centerDelta:Math.abs((pr.left+pr.right)/2-(cr.left+cr.right)/2),
+       inset:pr.left>=cr.left+8&&pr.right<=cr.right-8,
+       below:pr.top>=sr.bottom
+     }})()`);
+     assert.equal(desktopPickerGeometry.inset,true,"desktop chooser stays horizontally inside its owning shot card");
+     assert.ok(desktopPickerGeometry.centerDelta<1,"desktop chooser is centered on its owning shot card");
+     assert.equal(desktopPickerGeometry.below,true,"desktop chooser opens below its picker row");
     const seedRoomShot=await c.call("Page.captureScreenshot",{format:"png"});
     await writeFile(`${OUT}/seed-reference-room-picker-open-desktop.png`,Buffer.from(seedRoomShot.data,"base64"));
     await c.call("Emulation.setDeviceMetricsOverride",{width:390,height:900,deviceScaleFactor:1,mobile:true});
@@ -357,6 +420,16 @@ async function main(){
     await wait(()=>c.eval(`!!document.querySelector('#seed-root ${seedCard} details.shot-location-picker-menu')?.open`),"mobile open chooser");
     await c.eval(`(()=>{const p=document.querySelector('#seed-root ${seedCard} .shot-location-picker-panel'),r=p.getBoundingClientRect();window.scrollTo(0,window.scrollY+Math.max(0,r.bottom-innerHeight+12))})()`);
     await wait(()=>c.eval(`(()=>{const p=document.querySelector('#seed-root ${seedCard} .shot-location-picker-panel'),r=p.getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight})()`),"mobile open chooser panel in viewport");
+     const mobilePickerGeometry=await c.eval(`(()=>{const card=document.querySelector('#seed-root ${seedCard}'),menu=card.querySelector('.shot-location-picker-menu'),panel=menu.querySelector('.shot-location-picker-panel'),summary=menu.querySelector('summary'),cr=card.getBoundingClientRect(),pr=panel.getBoundingClientRect(),sr=summary.getBoundingClientRect();return {
+       centerDelta:Math.abs((pr.left+pr.right)/2-(cr.left+cr.right)/2),
+       inset:pr.left>=cr.left+8&&pr.right<=cr.right-8,
+       below:pr.top>=sr.bottom,
+       fixed:getComputedStyle(panel).position==="fixed"
+     }})()`);
+     assert.equal(mobilePickerGeometry.inset,true,"mobile chooser stays horizontally inside its owning shot card");
+     assert.ok(mobilePickerGeometry.centerDelta<1,"mobile chooser is centered on its owning shot card");
+     assert.equal(mobilePickerGeometry.below,true,"mobile chooser opens below its picker row");
+     assert.equal(mobilePickerGeometry.fixed,false,"mobile chooser remains card-aligned instead of becoming a viewport sheet");
     const seedRoomMobileShot=await c.call("Page.captureScreenshot",{format:"png"});
     await writeFile(`${OUT}/seed-reference-room-picker-open-mobile.png`,Buffer.from(seedRoomMobileShot.data,"base64"));
     // A retained cold/manual location is still a real inclusion control. It
@@ -416,6 +489,12 @@ async function main(){
       "the primary Opening card has no Shot Opening sublabel");
     assert.equal(await c.eval("document.querySelector('.shot-covers-chip').textContent.trim()"),"Covers",
       "coverage chips are descriptive and omit micro-beat numerals");
+    assert.deepEqual(await c.eval(`(()=>{const card=document.querySelector('${primary}'),script=card.querySelector('.bc-scripted'),purpose=script.querySelector('.shot-purpose');return {
+      last:script.lastElementChild===purpose,count:card.querySelectorAll('.shot-purpose').length,
+      outside:!!card.querySelector('.sheet-body > .shot-purpose'),text:purpose?.querySelector('.shot-purpose-t')?.textContent,
+      collapsed:!script.open
+    }})()`),{last:true,count:1,outside:false,text:"Caregiving presented as a timed case for recognition.",collapsed:true},
+      "Covers and purpose occur once as the final Scripted item while Scripted is collapsed");
     assert.equal(await c.eval("document.querySelectorAll('.bc-stale').length"),0,
       "matching sourceScreenplayRev starts current");
     assert.deepEqual(await c.eval("window.__fixture.calls"),[],
@@ -558,6 +637,8 @@ async function main(){
       "a classic ShotCard without scriptedContent keeps beatText fallback");
     assert.equal(await c.eval("document.querySelectorAll('.classic-fallback-fixture .bc-scripted').length"),0,
       "classic fallback remains a plain ShotCard excerpt");
+    assert.equal(await c.eval("document.querySelector('.classic-fallback-fixture .shot-beat-script').lastElementChild?.textContent"),"Classic purpose.",
+      "classic source excerpts keep their own purpose last inside Scripted too");
     await c.eval("window.__unmountClassicFallback()");
     await wait(()=>c.eval("document.querySelectorAll('.classic-fallback-fixture').length===0"),"remove classic fallback");
 
@@ -576,6 +657,8 @@ async function main(){
       "selecting an alternative remounts the displayed ShotCard instead of hiding a second one");
     assert.equal(await c.eval("window.__fixture.mounts.at(-1)"),"legacy-1",
       "alternative selection remounts the image generator with the alternative key");
+    assert.equal(await c.eval("document.querySelector('[data-shot-card=\"legacy-1\"] .bc-scripted').lastElementChild?.textContent"),"The alternative's own purpose.",
+      "the final Scripted purpose belongs to the displayed alternative, not the primary");
     assert.deepEqual(await c.eval("window.__fixture.calls"),[],
       "selecting an alternative does not call generation");
     assert.match(await c.eval("document.querySelector('.shot-beat-tag.sub')?.textContent.trim()"),/Alternative 1$/,
@@ -647,7 +730,13 @@ async function main(){
       "all alternative choices stay disabled while a batch frame is active");
 
     assert.deepEqual(await c.eval("window.__fixture.errors"),[]);
-     console.log(`standalone beat card browser regression passed\\nscreenshots: ${OUT}/desktop.png, ${OUT}/mobile.png, ${OUT}/seed-reference-room-picker.png, ${OUT}/progress-desktop.png, ${OUT}/progress-tablet.png, ${OUT}/progress-mobile.png`);
+     console.log(`standalone beat card browser regression passed\\nscreenshots: ${OUT}/desktop.png, ${OUT}/mobile.png, ${OUT}/seed-reference-room-picker-open-desktop.png, ${OUT}/seed-reference-room-picker-open-mobile.png, ${OUT}/progress-desktop.png, ${OUT}/progress-tablet.png, ${OUT}/progress-mobile.png`);
+  }catch(error){
+    if(c) console.error("Browser failure state:",await c.eval(`({
+      errors:window.__fixture?.errors,focus:document.activeElement?.outerHTML,
+      openMenus:[...document.querySelectorAll('.shot-location-picker-menu[open]')].map(x=>x.closest('.shot-card')?.dataset.shotCard)
+    })`));
+    throw error;
   }finally{c?.close();chrome.kill();s.close()}
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

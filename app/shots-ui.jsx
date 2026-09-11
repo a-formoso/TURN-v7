@@ -357,6 +357,87 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
 }
 window.shotFrameGenOpts = shotFrameGenOpts;
 
+// Keep disclosure state local to the DOM, not in a shot's saved render inputs.
+// Native grouping makes opening another card atomic; the explicit close also
+// covers browsers without grouped <details> and keyboard summary activation.
+function ShotLocationPickerMenu({children}){
+  const ref=React.useRef(null);
+  const controls=React.useRef(null);
+  const closeOthers=()=>{
+    const menu=ref.current;
+    if(!menu) return;
+    menu.ownerDocument.querySelectorAll(".shot-location-picker-menu[open]").forEach(other=>{
+      if(other!==menu) other.open=false;
+    });
+  };
+  React.useLayoutEffect(()=>{
+    const menu=ref.current,doc=menu.ownerDocument;
+    let listening=false;
+    const unlisten=()=>{
+      if(!listening) return;
+      listening=false;
+      doc.removeEventListener("pointerdown",outside,true);
+      doc.removeEventListener("click",outside,true);
+      doc.removeEventListener("focusin",outside,true);
+      doc.removeEventListener("keydown",keyDown,true);
+    };
+    const close=()=>{
+      menu.open=false;
+      unlisten();
+    };
+    const outside=e=>{
+      if(!menu.contains(e.target)) close();
+    };
+    const keyDown=e=>{
+      if(!menu.open){unlisten();return;}
+      if(e.key!=="Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+      menu.querySelector("summary").focus({preventScroll:true});
+    };
+    const sync=()=>{
+      if(!menu.open){unlisten();return;}
+      closeOthers();
+      if(listening) return;
+      listening=true;
+      doc.addEventListener("pointerdown",outside,true);
+      // click also handles keyboard/assistive activation without pointerdown.
+      doc.addEventListener("click",outside,true);
+      doc.addEventListener("focusin",outside,true);
+      doc.addEventListener("keydown",keyDown,true);
+    };
+    controls.current={close,sync};
+    menu.addEventListener("toggle",sync);
+    sync();
+    return()=>{controls.current=null;menu.removeEventListener("toggle",sync);unlisten();};
+  },[]);
+  return _el("details",{
+    ref,className:"shot-location-picker-menu",name:"shot-location-references",
+    onClickCapture:e=>{
+      const menu=ref.current;
+      if(!menu.querySelector("summary").contains(e.target)) return;
+      e.preventDefault();
+      if(menu.open) controls.current.close();
+      else{
+        closeOthers();
+        menu.open=true;
+        // Native toggle events are queued. Install dismissal synchronously so
+        // an immediate Escape or outside click cannot arrive before listeners.
+        controls.current.sync();
+      }
+    }
+  },children);
+}
+
+function ShotPurpose({sh}){
+  const hasCoverage=!!(sh&&Array.isArray(sh.covers)&&sh.covers.length);
+  if(!sh||(!sh.purpose&&!hasCoverage)) return null;
+  return _el("div",{className:"shot-purpose"},
+    hasCoverage&&_el("span",{className:"shot-covers-chip",title:"This shot's screenplay coverage"},"Covers"),
+    sh.purpose&&_el("span",{className:"shot-purpose-t"},sh.purpose));
+}
+
 function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, laterShots, sceneShots, isHead, isFirst, onToggleHead, onUpdate, onDelete, onView, onDeleteShotReference, batchActiveId, onBatchDone, onGenerateShot, onRegenDownstream, onStopChain, subLabel, plan, beatContext, scriptedContent, redraftControl, shotMenuExtra }){
   const loc = ctx.location;
   // who/what is in frame is DERIVED from the action text (single source of truth) — the
@@ -675,7 +756,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
     className:"shot-location-picker","aria-label":"Location reference"
   },
     _el("span",{className:"shot-location-picker-label"},"Location reference"),
-    _el("details",{className:"shot-location-picker-menu"},
+    _el(ShotLocationPickerMenu,null,
       _el("summary",{className:"shot-location-picker-summary"},
         _el("span",null,!sh.referenceLocationsSet?"Auto":(includedLocationRefs.length?includedLocationRefs.length+" selected":"Manual · none")),
         _el("small",null,!sh.referenceLocationsSet?"matched reference(s)":explicitMissing?"missing image":"choose references")),
@@ -938,17 +1019,11 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
 
       // The beat card supplies its full screenplay and presence evidence here.
       // Other callers retain their existing read-only source excerpt.
-      scriptedContent || (beatText && _el("div",{className:"shot-beat-script",
+      scriptedContent || ((beatText||sh.purpose||(sh.covers||[]).length>0) && _el("div",{className:"shot-beat-script",
         title:"This beat's SCREENPLAY text — the canon these shots film (until the scene is drafted, the beat summary stands in). Read-only here — edit the script in the Writers' Room."},
         _el("span",{className:"shot-beat-script-lab"},"Scripted"),
-        _el("span",{className:"shot-beat-script-body"},beatText))),
-
-      // WHY this shot exists; keep legacy coverage mappings in data, not numeric labels.
-      (sh.purpose || (Array.isArray(sh.covers)&&sh.covers.length>0)) && _el("div",{className:"shot-purpose"},
-        (Array.isArray(sh.covers)&&sh.covers.length>0) && _el("span",{className:"shot-covers-chip",
-          title:"This shot's screenplay coverage"},
-          "Covers"),
-        sh.purpose && _el("span",{className:"shot-purpose-t"},sh.purpose)),
+        beatText&&_el("span",{className:"shot-beat-script-body"},beatText),
+        _el(ShotPurpose,{sh}))),
 
       // cinematographer grammar
       _el("div",{className:"shot-grammar-grid"},
@@ -1555,7 +1630,8 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
     source&&Array.isArray(source.openingCharacterIds)&&source.openingCharacterIds.length>0&&_el("div",{className:"bc-cast-line"},_el("b",null,"On-screen: "),names(source.openingCharacterIds)),
     source&&Array.isArray(source.remoteCharacterIds)&&source.remoteCharacterIds.length>0&&_el("div",{className:"bc-cast-line remote"},_el("b",null,"Remote audio / text: "),names(source.remoteCharacterIds)),
     unverified&&_el("p",{className:"bc-source-note"},
-      "This opening keyframe has no saved screenplay-version stamp. Its match to the current script is unknown; this alone does not mean the script changed."));
+      "This opening keyframe has no saved screenplay-version stamp. Its match to the current script is unknown; this alone does not mean the script changed."),
+    _el(ShotPurpose,{sh:displayed}));
   const beatContext=_el(React.Fragment,null,
     _el("div",{className:"shot-beat-context-head"},
       _el("span",{className:"beat-lane-no"},"Beat "+L.n+(lanesLen>1?" of "+lanesLen:"")),
