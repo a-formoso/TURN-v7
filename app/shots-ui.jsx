@@ -344,7 +344,7 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
 }
 window.shotFrameGenOpts = shotFrameGenOpts;
 
-function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, laterShots, sceneShots, isHead, isFirst, onToggleHead, onUpdate, onDelete, onView, batchActiveId, onBatchDone, onGenerateShot, onRegenDownstream, onStopChain, subLabel, plan, beatContext, scriptedContent }){
+function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, laterShots, sceneShots, isHead, isFirst, onToggleHead, onUpdate, onDelete, onView, batchActiveId, onBatchDone, onGenerateShot, onRegenDownstream, onStopChain, subLabel, plan, beatContext, scriptedContent, redraftControl, shotMenuExtra }){
   const loc = ctx.location;
   // who/what is in frame is DERIVED from the action text (single source of truth) — the
   // old manual tags are gone; this is what the prompt + references actually use.
@@ -590,15 +590,40 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   const beatLabel = "Beat "+(sh.beatN||"\u2014");
   const initials = (sizeOf(sh.size).label||"SH");
   const waitingForShot = !!(batchActiveId && batchActiveId!==sh.id);
+  // Use the same pre-Generate slot as Locations. These remain the live inputs,
+  // with seed approval and reference exclusions intact, not historical snapshots.
+  const referenceControls=refImgs.length>0 && _el("div",{className:"shot-refs coverage-refs"},
+    _el("div",{className:"shot-refs-lab"},_el(Icon.layers,{s:11}),"Reference images"),
+    _el(window.RefStripScroller||"div",{className:"shot-refs-row coverage-refs-row"},
+      refImgs.map((r,i)=>{
+        // Only sheet references can be excluded. Skipping the seed requires
+        // the explicit Fresh start chain-head control.
+        const off = r.refId!=null && (sh.refOff||[]).indexOf(r.refId)>=0;
+        return _el("div",{key:"a"+i,role:"button",tabIndex:0,
+          className:"shot-ref-thumb "+r.kind+(r.kind==="seed"&&r.approved===false?" provisional":"")+(off?" off":""),
+          title:(r.kind==="seed" ? (r.label+" — "+(r.approved?"approved seed":"provisional seed (not yet approved)")) : r.label)
+            +(off?" — EXCLUDED from generation":"")+" — click to enlarge",
+          onClick:()=>onView&&onView(r.url,{name:r.label}),
+          onKeyDown:(e)=>{ if(e.target===e.currentTarget&&(e.key==="Enter"||e.key===" ")){ e.preventDefault(); onView&&onView(r.url,{name:r.label}); } }},
+          _el("img",{src:r.url,alt:r.label,loading:"lazy"}),
+          r.kind==="seed" && _el("span",{className:"shot-ref-seedtag"+(r.approved?" ok":"")}, r.approved?"✓":"·"),
+          r.refId!=null && _el("button",{className:"shot-ref-tick"+(off?"":" on"),"aria-pressed":!off,
+            title: off ? "Excluded — this sheet is NOT attached to the generation. Click to re-attach it."
+              : "Attached as a reference. Click to exclude this sheet from the generation (the "+(r.kind==="location"?"set":r.kind)+" stays in the prompt text; only the image is withheld).",
+            onClick:(e)=>{ e.stopPropagation(); const cur=sh.refOff||[];
+              onUpdate(sh.id,{ refOff: off ? cur.filter(x=>x!==r.refId) : [...cur, r.refId] }); }},
+            off ? "✕" : "✓")); })));
 
   return _el("div",{className:"sheet-card shot-card"+(batchActiveId===sh.id?" batch-on":"")+(gen.gening?" gening":""),"data-shot-card":sh.id},
     _el(SheetFrame,{ gen:genGuarded, slotId:"shot-"+sh.id, name:beatLabel, avatarColor:"linear-gradient(135deg,#7a6cae,#2a2440)",
       initials, drafted:true, drafting:false, onDraft:()=>{}, entity:sh, onView,
       slotPlaceholder:"Generate or drop a frame", noun:"frame", dropToImport:true, onStop:onStopChain,
+      referenceControls,
       generateDisabled:waitingForShot,
       generateDisabledLabel:"Wait for current shot",
       generateDisabledTitle:"Another shot is generating. Wait for it to finish before starting this frame.",
       menuExtra: [
+        ...(shotMenuExtra||[]),
         onRegenDownstream ? {
           // name the cost up front (finding #5): how many frames this run re-renders
           label:"Regenerate downstream"+(downstreamCount?(" ("+downstreamCount+" shot"+(downstreamCount>1?"s":"")+")"):""),
@@ -629,36 +654,11 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       /* Compact beat metadata stays in the real card body; its screenplay
          evidence is grouped in Scripted below, never in a duplicate preview. */
       beatContext && _el("div",{className:"shot-beat-context"},beatContext),
-      // reference images this frame is built from — the rolling SEED (the previous shot's
-      // frame) leads, then the in-frame Character, Prop & Location sheets, ordered by weight.
-      // Click a thumb to enlarge. Read-only: who/what is in frame is auto-read from the Action.
       // the exact seed, named (finding #5): which frame this shot builds from, at what
       // version, whether it's approved, and how many later shots ride on this one
       seedLine && _el("div",{className:"shot-seed-line",
         title:"This shot's continuity anchor — the frame it renders from — plus how many later shots in this scene build on this frame (directly or through the chain)."},
         seedLine),
-      refImgs.length>0 && _el("div",{className:"shot-refs"},
-        _el("div",{className:"shot-refs-row"},
-          refImgs.map((r,i)=>{
-            // sheet refs are TICKABLE: unticked ids live on sh.refOff and drop out of the
-            // attachment list + the prompt's image map together (the entity stays in the
-            // staging text — only its sheet is withheld). The seed isn't tickable: skipping
-            // the chain seed is what the "Fresh start" head toggle is for.
-            const off = r.refId!=null && (sh.refOff||[]).indexOf(r.refId)>=0;
-            return _el("div",{key:"a"+i,role:"button",tabIndex:0,
-              className:"shot-ref-thumb "+r.kind+(r.kind==="seed"&&r.approved===false?" provisional":"")+(off?" off":""),
-              title:(r.kind==="seed" ? (r.label+" — "+(r.approved?"approved seed":"provisional seed (not yet approved)")) : r.label)
-                +(off?" — EXCLUDED from generation":"")+" — click to enlarge",
-              onClick:()=>onView&&onView(r.url,{name:r.label}),
-              onKeyDown:(e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); onView&&onView(r.url,{name:r.label}); } }},
-              _el("img",{src:r.url,alt:r.label,loading:"lazy"}),
-              r.kind==="seed" && _el("span",{className:"shot-ref-seedtag"+(r.approved?" ok":"")}, r.approved?"✓":"·"),
-              r.refId!=null && _el("button",{className:"shot-ref-tick"+(off?"":" on"),
-                title: off ? "Excluded — this sheet is NOT attached to the generation. Click to re-attach it."
-                  : "Attached as a reference. Click to exclude this sheet from the generation (the "+(r.kind==="location"?"set":r.kind)+" stays in the prompt text; only the image is withheld).",
-                onClick:(e)=>{ e.stopPropagation(); const cur=sh.refOff||[];
-                  onUpdate(sh.id,{ refOff: off ? cur.filter(x=>x!==r.refId) : [...cur, r.refId] }); }},
-                off ? "✕" : "✓")); }))),
       refsLoaded && loc && !sh.referenceLocationsSet && !refImgs.some(r=>r.kind==="location") &&
         _el("div",{className:"shot-ref-quality-note"},
           "No full-frame slugline unit or screenplay coverage sheet is ready for this beat. Generate one in Locations; TURN will not substitute a cropped master plate."),
@@ -681,13 +681,11 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
             onClick:()=> !isFirst && onToggleHead && onToggleHead(sh)},
             _el(Icon.pin,{s:11}), isHead && _el("span",null, isFirst?"Head":"Fresh")),
           // approve / lock — marks this frame as the APPROVED seed the next shot chains from
-          gen.genUrl && frameSourceStatus && _el("span",{className:"shot-source-badge "+frameSourceStatus,
-            title:frameSourceStatus==="current"
-              ? "This frame was rendered from the current shot specification and screenplay beat."
-              : frameSourceStatus==="stale"
+          gen.genUrl && frameSourceStatus && frameSourceStatus!=="current" && _el("span",{className:"shot-source-badge "+frameSourceStatus,
+            title:frameSourceStatus==="stale"
               ? "This historical frame was rendered before this shot specification or screenplay beat changed. Regenerate before using it as current coverage."
               : "This legacy frame has no source-revision stamp, so its match to the current shot cannot be verified."},
-            frameSourceStatus==="current"?"Source current":frameSourceStatus==="stale"?"Stale source":"Source unverified"),
+            frameSourceStatus==="stale"?"Stale source":"Source unverified"),
           gen.genUrl && propDependenciesStale && _el("span",{className:"shot-source-badge stale",
             title:"A prop used by this frame changed holder, placement, condition, visibility, binding mode, or approved sheet after this frame was generated. The approved frame stays pinned until you regenerate it."},
             "Prop reference changed"),
@@ -702,9 +700,11 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
               : "Approve this frame as the coverage reference this beat's shots build on.",
             onClick:toggleFrameApproval},
             _el(Icon.check,{s:11}), _el("span",null, sh.locked?"Approved":"Approve")),
-          window.QaCheckButton && _el(window.QaCheckButton,{ gen, name:beatLabel, noun:"shot frame", className:"shot-lock-btn",
-            specFields:()=>({ action:(sh.action||""), composition:(sh.composition||"") }),
-            onApplySpec:(patch)=>onUpdate(sh.id, patch) }))),
+          (redraftControl||window.QaCheckButton) && _el("div",{className:"shot-review-actions"},
+            redraftControl,
+            window.QaCheckButton && _el(window.QaCheckButton,{ gen, name:beatLabel, noun:"shot frame", className:"shot-lock-btn",
+              specFields:()=>({ action:(sh.action||""), composition:(sh.composition||"") }),
+              onApplySpec:(patch)=>onUpdate(sh.id, patch) })))),
 
       // The beat card supplies its full screenplay and presence evidence here.
       // Other callers retain their existing read-only source excerpt.
@@ -713,11 +713,11 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         _el("span",{className:"shot-beat-script-lab"},"Scripted"),
         _el("span",{className:"shot-beat-script-body"},beatText))),
 
-      // WHY this shot exists (the designer's purpose) + which micro-beats it covers
+      // WHY this shot exists; keep legacy coverage mappings in data, not numeric labels.
       (sh.purpose || (Array.isArray(sh.covers)&&sh.covers.length>0)) && _el("div",{className:"shot-purpose"},
         (Array.isArray(sh.covers)&&sh.covers.length>0) && _el("span",{className:"shot-covers-chip",
-          title:"The micro-beats of this beat that this shot covers (see the numbered rail above the shots)"},
-          "covers "+sh.covers.map(_circ).join(" ")),
+          title:"This shot's screenplay coverage"},
+          "Covers"),
         sh.purpose && _el("span",{className:"shot-purpose-t"},sh.purpose)),
 
       // cinematographer grammar
@@ -998,7 +998,7 @@ function BeatShotRow({ sh, letter, open, selected, onToggle, isNext, live }){
     sh.priority && _el("span",{className:"bc-shot-pri",title:"Priority — carries the beat's protected moment"},"\u2605"),
     _el("span",{className:"bc-shot-gram"},String(sh.size||"")+" \u00b7 "+String(sh.angle||"")+" \u00b7 "+String(sh.lens||"")+"mm"),
     _el("span",{className:"bc-shot-act"},String(sh.action||"")),
-    (Array.isArray(sh.covers)&&sh.covers.length>0) && _el("span",{className:"bc-shot-covers"},"covers "+_circ(sh.covers[0])),
+    (Array.isArray(sh.covers)&&sh.covers.length>0) && _el("span",{className:"bc-shot-covers"},"Covers"),
     _el("span",{className:"bc-shot-chev"+(open?" open":"")},_el(Icon.chevR,{s:13})));
 }
 
@@ -1284,11 +1284,11 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
   const stale=primary&&sourceRev!=null&&stampedRev!=null&&String(stampedRev)!==String(sourceRev);
   const unverified=primary&&hasSource&&stampedRev==null;
   const names=(ids)=>(ids||[]).map(id=>((ctx.charById||{})[id]||{}).name||id).join(" · ");
-  const refineControl=onRefineBeat&&_el("button",{className:"beat-lane-btn ghost",disabled:!!refiningBeat||!hasSource,
+  const refineControl=onRefineBeat&&_el("button",{className:primary?"shot-lock-btn shot-redraft-btn":"beat-lane-btn ghost",disabled:!!refiningBeat||!hasSource,
     title:hasSource
       ? "Re-draft the opening-frame description using writing-model credits. This does not generate an image; existing coverage changes require confirmation."
       : "Write screenplay for this beat before drafting a frame.",
-    onClick:()=>onRefineBeat(scene,L.n)},_el(Icon.sparkles,{s:11}),refiningBeat?"Drafting…":primary?"Update from screenplay":"Draft opening keyframe");
+    onClick:()=>onRefineBeat(scene,L.n)},_el(Icon.sparkles,{s:11}),refiningBeat?"Drafting…":primary?"Redraft":"Draft opening keyframe");
   const scriptedContent=_el("details",{className:"shot-beat-script bc-scripted"},
     _el("summary",null,_el("span",{className:"shot-beat-script-lab"},"Scripted")),
     hasSource?_el("div",{className:"bc-screenplay-copy"},text)
@@ -1296,21 +1296,22 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
     source&&Array.isArray(source.openingCharacterIds)&&source.openingCharacterIds.length>0&&_el("div",{className:"bc-cast-line"},_el("b",null,"On-screen: "),names(source.openingCharacterIds)),
     source&&Array.isArray(source.remoteCharacterIds)&&source.remoteCharacterIds.length>0&&_el("div",{className:"bc-cast-line remote"},_el("b",null,"Remote audio / text: "),names(source.remoteCharacterIds)),
     unverified&&_el("p",{className:"bc-source-note"},
-      "This opening keyframe has no saved screenplay-version stamp. Its match to the current script is unknown; this alone does not mean the script changed."),
-    primary&&refineControl&&_el("div",{className:"bc-scripted-actions"},refineControl,
-      _el("span",null,"Re-drafts the description using writing-model credits. Image generation is separate.")));
+      "This opening keyframe has no saved screenplay-version stamp. Its match to the current script is unknown; this alone does not mean the script changed."));
   const beatContext=_el(React.Fragment,null,
     _el("div",{className:"shot-beat-context-head"},
       _el("span",{className:"beat-lane-no"},"Beat "+L.n+(lanesLen>1?" of "+lanesLen:"")),
       String(bm.turnAt||"")===String(L.n)&&_el("span",{className:"beat-lane-turn"},_el(Icon.bolt,{s:10}),"Turning point"),
-      _el("span",{className:"beat-opening-chip"},!displayed?"Not drafted":displayed.id===primary.id?"Opening keyframe":"Additional shot")),
-    stale&&_el("div",{className:"bc-stale"},"Screenplay changed since this opening keyframe was drafted. Review Scripted and update the description before regenerating. Your existing image is retained."),
-    extras.length>0&&_el("label",{className:"bc-alt-picker"},
-      _el("span",null,"Frame"),
-      _el("select",{value:displayed&&displayed.id,onChange:e=>setSelectedId(e.target.value),
-        title:"View and edit an existing additional shot in this beat"},
-        [primary,...extras].filter(Boolean).map((sh,i)=>_el("option",{key:sh.id,value:sh.id},i===0?"Opening keyframe":"Alternative "+i+" · "+(sh.size||"Shot"))))),
+      !displayed&&_el("span",{className:"beat-opening-chip"},"Not drafted")),
+    stale&&_el("div",{className:"bc-stale"},"Screenplay changed since this opening keyframe was drafted. Review Scripted, then use Redraft before regenerating. Your existing image is retained."),
   );
+  // Older alternatives keep their own IDs, images and generator state. Access
+  // belongs in the existing card menu rather than a permanent Frame selector.
+  const shotMenuExtra=extras.length>0 ? [primary,...extras].filter(Boolean).map((sh,i)=>({
+    label:i===0?"View primary frame":"View alternative "+i+" · "+(sh.size||"Shot"),
+    icon:Icon.layers,disabled:!!batchShot||sh.id===(displayed&&displayed.id),
+    title:"View and edit this existing shot without redrafting or generating an image.",
+    onClick:()=>setSelectedId(sh.id),
+  })) : [];
   const editor=(sh,label)=>{ const prevShot=(typeof seedShotOf==="function")?seedShotOf(sh,ordered)
     :((typeof prevShotOf==="function")?prevShotOf(sh,ordered):null);
     const shotIndex=ordered.findIndex(x=>x.id===sh.id);
@@ -1318,9 +1319,9 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
     beatText:(source&&source.openingAction)||text,sceneShots:ordered,plan:sh.beatPlan,
     prevShot,laterShots:(shotIndex>=0?ordered.slice(shotIndex+1):[]),
     isHead:!prevShot,isFirst:sh.id===firstId,onToggleHead:toggleHead,
-    onUpdate,onDelete,onView,batchActiveId:(sh.id===batchActiveId?batchActiveId:null),onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,subLabel:label,beatContext,scriptedContent}); };
+    onUpdate,onDelete,onView,batchActiveId:(sh.id===batchActiveId?batchActiveId:null),onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,subLabel:label,beatContext,scriptedContent,redraftControl:refineControl,shotMenuExtra}); };
   return _el(React.Fragment,null,
-    displayed ? editor(displayed,displayed.id===primary.id?"Opening":"Alternative") :
+    displayed ? editor(displayed,displayed.id===primary.id?null:"Alternative "+(extras.findIndex(sh=>sh.id===displayed.id)+1)) :
       _el("div",{className:"sheet-card shot-card opening-beat-empty"},
         _el("div",{className:"sheet-body"},beatContext,scriptedContent,
           _el("div",{className:"bc-opening-empty"},hasSource?"No opening keyframe yet. Draft its description from the screenplay.":"No opening keyframe can be drafted until this beat has screenplay."),

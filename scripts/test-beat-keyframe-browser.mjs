@@ -18,6 +18,15 @@ async function prep(){
   const src=await readFile(new URL("app/shots-ui.jsx",ROOT),"utf8");
   const code=transformSync(src,{presets:[["@babel/preset-react",{runtime:"classic"}]],plugins:["@babel/plugin-transform-block-scoping"],babelrc:false,configFile:false}).code;
   await writeFile(`${FIX}/shots-ui.js`,code);
+  // Keep the fixture honest about the card boundary: render the production
+  // SheetFrame rather than a test-only Generate shell.  SheetFrame is a
+  // self-contained function, so the browser fixture supplies only its small
+  // modal/helper dependencies below.
+  const artroom=await readFile(new URL("app/artroom.jsx",ROOT),"utf8");
+  const sfStart=artroom.indexOf("function SheetFrame("),sfEnd=artroom.indexOf("\nwindow.SheetFrame",sfStart);
+  if(sfStart<0||sfEnd<0) throw Error("could not extract SheetFrame from app/artroom.jsx");
+  const sheetFrame=transformSync(artroom.slice(sfStart,sfEnd),{presets:[["@babel/preset-react",{runtime:"classic"}]],plugins:["@babel/plugin-transform-block-scoping"],babelrc:false,configFile:false}).code;
+  await writeFile(`${FIX}/sheet-frame.js`,sheetFrame);
   await writeFile(`${FIX}/shot-screenplay.js`,await readFile(new URL("app/shot-screenplay.js",ROOT)));
   for(const [n,u] of Object.entries({"react.js":"https://unpkg.com/react@18.3.1/umd/react.development.js","react-dom.js":"https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"})){
     try{if((await readFile(`${FIX}/${n}`)).length>10000)continue;}catch{}
@@ -26,26 +35,43 @@ async function prep(){
   await writeFile(`${FIX}/beat-keyframe.html`,html());
 }
 function html(){return `<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><link rel=stylesheet href=/styles.css><style>body{overflow:auto;background:#08090b;padding:24px}.beat-card-grid{max-width:980px;margin:auto}</style></head><body><div id=root></div><div id=classic-root></div><script src=/react.js></script><script src=/react-dom.js></script><script>
-window.__fixture={calls:[],errors:[],mounts:[]};window.addEventListener("error",e=>__fixture.errors.push(String(e.message)));
+window.__fixture={calls:[],confirmations:[],errors:[],mounts:[]};window.addEventListener("error",e=>__fixture.errors.push(String(e.message)));
 window.Icon=new Proxy({}, {get:(_,n)=>({s=12})=>React.createElement("svg",{"data-i":n,width:s,height:s})});
 const px="data:image/svg+xml,"+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#263d42"/></svg>');
-window.nbGetImage=id=>id==="opening-1"?px:"";window.nbLoadImage=async id=>nbGetImage(id);window.nbGetMeta=()=>({});
+window.__fixture.frameState={"opening-1":"current","legacy-1":"current"};
+window.nbGetImage=id=>["opening-1","legacy-1","marcus","location-1","prop-1"].includes(id)?px:"";
+window.nbLoadImage=async id=>nbGetImage(id);window.nbGetMeta=()=>({});
 window.beatScriptText=()=>"";window.seedShotOf=()=>null;
-window.useImageGen=opts=>{const [mountedId]=React.useState(()=>{__fixture.mounts.push(opts.id);return opts.id});return {genUrl:"",gening:false,genMeta:null,generate:()=>__fixture.calls.push(["gen",mountedId])}};window.shotFrameGenOpts=()=>({opts:{},finalPrompt:"",chainPrompt:"",renderPlan:null});
-window.inFrameCast=sh=>sh.subjects||[];window.inFrameProps=()=>[];window.appConfirm=async()=>true;window.turnContinuity={drafts:{},props:[]};
+window.shotAssetProvenanceStatus=(sh,draft,meta)=>__fixture.frameState[sh.id]||"unverified";
+window.useImageGen=opts=>{const [mountedId]=React.useState(()=>{__fixture.mounts.push(opts.id);return opts.id});
+  const hasImage=!!__fixture.frameState[mountedId];
+  return {genUrl:hasImage?px:"",gening:false,genMeta:hasImage?{modelLabel:"Fixture image",modelId:"fixture",aspect:"16:9",size:"Medium"}:null,
+    generate:()=>__fixture.calls.push(["gen",mountedId]),cancelGen:()=>{},clearGen:()=>{},importSheet:null,
+    relatedClearCount:0,revertPrevious:()=>{},layers:0,allModels:[],setEditMode:()=>{},editMode:false,editText:"",
+    setEditText:()=>{},slotHasRef:false,retrying:false,pendingSave:null,genErr:"",saving:false,discardSave:()=>{}}};
+window.shotFrameGenOpts=sh=>({opts:{id:sh.id},finalPrompt:"",chainPrompt:"",renderPlan:null});
+window.shotGrabImage=async id=>nbGetImage(id);
+window.shotResolveLocationSpecImages=async()=>[];
+window.shotPropAttachable=()=>true;
+window.inFrameCast=sh=>sh.subjects||[];window.inFrameProps=sh=>sh.props||[];
+window.appConfirm=async opts=>{__fixture.confirmations.push(opts);return true};window.turnContinuity={drafts:{},props:[]};
 window.sizeOf=v=>({label:v||"Medium"});window.angleOf=v=>({label:v||"Eye"});window.moveOf=v=>({label:v||"Static"});window.lensOf=v=>({label:v||"50"});
 window.SHOT_SIZES=[{id:"Medium",label:"Medium"}];window.SHOT_ANGLES=[{id:"Eye",label:"Eye"}];window.SHOT_MOVES=[{id:"Static",label:"Static"}];window.SHOT_LENSES=[{id:"50",label:"50"}];
 window.SHOT_CAMERA_BODIES=[];window.SHOT_LENS_TYPES=[];window.SHOT_FOCAL_LENGTHS=[];window.SHOT_APERTURES=[];window.SHOT_SHUTTERS=[];window.SHOT_ISO_GRAIN=[];
-window.SheetFrame=({name,gen})=>React.createElement("div",{className:"sheet-frame"},React.createElement("div",{className:"sheet-frame-name"},name),React.createElement("button",{className:"gen-actions",onClick:()=>gen.generate()},"Generate"));
+window.RefStripScroller=({className,children})=>React.createElement("div",{className},children);
+window.SheetDetails=()=>null;window.RegionEditModal=()=>null;window.PropReferenceModal=()=>null;window.PropSheetReferenceModal=()=>null;
+window.nbResLabel=()=> "Medium";window.isGptImageModel=()=>false;window.remasterEligible=()=>false;window.remasterInstruction=()=> "Reproduce this image exactly.";
+window.turnDownscaleDataUrl=async u=>u;window.nbCostChip=()=>null;window.NB_MODELS=[];
+window.QaCheckButton=({name,className})=>React.createElement("button",{className:className||"qa-check-btn","data-qa":"check",title:"Run a realistic QA check on this frame (no generation)",onClick:()=>__fixture.calls.push(["qa",name])},"QA check");
 window.CardFold=({label,children})=>React.createElement("details",{open:true},React.createElement("summary",null,label),children);window.SheetField=({label,value})=>React.createElement("label",null,label,React.createElement("textarea",{defaultValue:value||""}));window.CopyBox=({text})=>React.createElement("pre",null,text);window.shotNegativePrompt=()=>"";window.stagingHasContent=()=>false;
 window.combinedShotPrompt=()=>"";window.buildShotPrompt=()=>"";window._circ=n=>String(n);window.deriveBeatMicroPlan=()=>null;window.resolveBeatMicroPlan=()=>null;
-</script><script src=/shot-screenplay.js></script><script src=/shots-ui.js></script><script>
+</script><script src=/sheet-frame.js></script><script src=/shot-screenplay.js></script><script src=/shots-ui.js></script><script>
 const scene={id:"scene-1",no:1,title:"Control Room"};const chars=[{id:"marcus",name:"Marcus"},{id:"daniel",name:"Daniel"}];
 const beatOneAction="MARCUS grips the transit map.",beatTwoAction="MARCUS checks the eastern console.";
 const drafts={"scene-1":{blocks:[{type:"scene",text:"INT. CONTROL ROOM — NIGHT"},{beat:1,type:"action",text:beatOneAction},{beat:1,type:"char",text:"DANIEL (V.O.)"},{beat:1,type:"dia",text:"Take the east tunnel."},{beat:2,type:"action",text:beatTwoAction}]}};const ctx={charById:{marcus:chars[0],daniel:chars[1]},propById:{},drafts};window.turnContinuity={drafts,props:[]};const bm={rows:[{n:1},{n:2}],turnAt:1};
 const sourceStamp=shotBeatScreenplay(scene,1,{drafts,characters:chars,beatsMap:bm}).sourceRev;
-const shots=[{id:"opening-1",sceneId:"scene-1",beatN:1,order:1,keyframeMode:"beat-opening",sourceScreenplayRev:sourceStamp,subjects:["marcus"],size:"Medium",angle:"Eye",lens:"50",action:"Marcus grips the transit map."},{id:"legacy-1",sceneId:"scene-1",beatN:1,order:2,subjects:["marcus"],size:"Close",angle:"Low",lens:"85",action:"Legacy alternative."}];
-const props={lanesLen:2,bm,scene,ctx,characters:chars,propsAvail:[],ordered:shots,firstId:"opening-1",toggleHead:()=>{},onAddShot:(sid,n)=>__fixture.calls.push(["add",sid,n]),onUpdate:()=>__fixture.calls.push(["update"]),onDelete:()=>{},onView:()=>{},onGenerateShot:()=>{},onRegenDownstream:()=>{},onStopChain:()=>{},onBatchDone:()=>{},batchActiveId:null,openShotId:null,setOpenShotId:()=>{},sceneStart:false,onRenderScene:()=>{},renderBusy:false,nextShotId:null,onRefineBeat:(s,n)=>__fixture.calls.push(["refine",s.id,n]),refiningBeat:false};
+const shots=[{id:"opening-1",sceneId:"scene-1",beatN:1,order:1,keyframeMode:"beat-opening",sourceScreenplayRev:sourceStamp,subjects:["marcus"],covers:[1],beatPlan:{micro:["MARCUS grips the transit map."]},size:"Medium",angle:"Eye",lens:"50",action:"Marcus grips the transit map."},{id:"legacy-1",sceneId:"scene-1",beatN:1,order:2,subjects:["marcus"],size:"Close",angle:"Low",lens:"85",action:"Legacy alternative."}];
+const props={lanesLen:2,bm,scene,ctx,characters:chars,propsAvail:[],ordered:shots,firstId:"opening-1",toggleHead:()=>{},onAddShot:(sid,n)=>__fixture.calls.push(["add",sid,n]),onUpdate:(id,patch)=>{const sh=shots.find(x=>x.id===id);if(sh&&patch)Object.assign(sh,patch);__fixture.calls.push(["update",id,patch||{}]);mount()},onDelete:()=>{},onView:(url,meta)=>__fixture.calls.push(["view",meta&&meta.name||"",url]),onGenerateShot:()=>{},onRegenDownstream:()=>{},onStopChain:()=>{},onBatchDone:()=>{},batchActiveId:null,openShotId:null,setOpenShotId:()=>{},sceneStart:false,onRenderScene:()=>{},renderBusy:false,nextShotId:null,onRefineBeat:(s,n)=>__fixture.calls.push(["refine",s.id,n]),refiningBeat:false};
 const root=ReactDOM.createRoot(document.getElementById("root")),classicRoot=ReactDOM.createRoot(document.getElementById("classic-root"));
 function mount(batchActiveId=null){root.render(React.createElement("div",{className:"beat-card-grid"},React.createElement(OpeningBeatCard,{...props,batchActiveId,L:{n:1,shots}}),React.createElement(OpeningBeatCard,{...props,batchActiveId,L:{n:2,shots:[]}})))}
 const classicShot={id:"classic-1",sceneId:"scene-1",beatN:1,order:1,size:"Medium",angle:"Eye",lens:"50",action:"Classic action."};
@@ -55,6 +81,10 @@ window.__changeSource=()=>{drafts["scene-1"].blocks[1].text="MARCUS tears the tr
 window.__restoreSource=()=>{drafts["scene-1"].blocks[1].text=beatOneAction;mount()};
 window.__unsetPrimaryStamp=()=>{shots[0].sourceScreenplayRev=null;mount()};
 window.__restorePrimaryStamp=()=>{shots[0].sourceScreenplayRev=sourceStamp;mount()};
+window.__setFrameState=state=>{__fixture.frameState["opening-1"]=state;mount()};
+window.__resetConfirmations=()=>{__fixture.confirmations=[]};
+window.__resetCalls=()=>{__fixture.calls=[]};
+window.__unlockPrimary=()=>{shots[0].locked=false;shots[0].sourceOverride=null;mount()};
 window.__clearBeatTwoSource=()=>{drafts["scene-1"].blocks=drafts["scene-1"].blocks.filter(b=>Number(b.beat)!==2);mount()};
 window.__restoreBeatTwoSource=()=>{if(!drafts["scene-1"].blocks.some(b=>Number(b.beat)===2))drafts["scene-1"].blocks.push({beat:2,type:"action",text:beatTwoAction});mount()};
 window.__queueAlternative=()=>mount("legacy-1");mount();
@@ -85,23 +115,54 @@ async function main(){
     assert.equal(await c.eval("!!document.querySelector('.shot-grammar-grid')"),true,
       "primary camera controls remain visible by default");
     assert.equal(await c.eval("document.querySelectorAll('.sheet-frame').length"),1,
-      "the isolated existing SheetFrame fixture is used without recreating controls");
-    assert.equal(await c.eval("document.querySelectorAll('.sheet-frame .gen-actions').length"),1,
-      "the existing SheetFrame fixture keeps its single Generate control");
+      "the production SheetFrame source is rendered in the isolated fixture");
+    assert.equal(await c.eval("document.querySelectorAll('.sheet-frame .sheet-gen-btn').length"),1,
+      "the production SheetFrame keeps its single Generate control");
 
     const primary=".sheet-card.shot-card[data-shot-card=\"opening-1\"]";
+    await wait(()=>c.eval("!!document.querySelector('.coverage-refs')"),"reference controls");
+    const refPlacement=await c.eval(`(()=>{const card=document.querySelector('${primary}'),frame=card.querySelector('.sheet-frame'),refs=frame.querySelector('.shot-refs.coverage-refs'),row=frame.querySelector('.shot-refs-row.coverage-refs-row'),gen=frame.querySelector('.sheet-gen-row');return {
+      inFrame:!!refs&&refs.parentElement===frame,header:refs&&refs.querySelector('.shot-refs-lab')?.textContent.trim(),
+      row:!!row&&row.parentElement===refs,thumbs:refs?refs.querySelectorAll('.shot-ref-thumb').length:0,
+      beforeGenerate:!!(refs&&gen&&(refs.compareDocumentPosition(gen)&Node.DOCUMENT_POSITION_FOLLOWING)),
+      bodyRefs:card.querySelectorAll('.sheet-body .shot-refs').length
+    }})()`);
+    assert.deepEqual(refPlacement,{inFrame:true,header:"Reference images",row:true,thumbs:1,beforeGenerate:true,bodyRefs:0},
+      "selectable reference images use the production SheetFrame slot above Generate, not the body");
+    assert.equal(await c.eval("document.querySelector('.coverage-refs .shot-ref-tick').getAttribute('aria-pressed')"),"true",
+      "included reference controls expose their current toggle state");
+    await c.eval("window.__resetCalls();document.querySelector('.coverage-refs .shot-ref-thumb').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))");
+    const viewed=await c.eval("window.__fixture.calls[0]");
+    assert.equal(viewed[0],"view","targeting a reference thumb enlarges it through the existing onView callback");
+    assert.equal(viewed[1],"Marcus","reference enlargement preserves the source label");
+    assert.match(viewed[2],/^data:image\/svg\+xml,/,"reference enlargement passes the real image URL");
+    await c.eval("window.__resetCalls();document.querySelector('.coverage-refs .shot-ref-tick').click()");
+    await wait(()=>c.eval("document.querySelector('.coverage-refs .shot-ref-tick')?.getAttribute('aria-pressed')==='false'"),"reference exclusion patch");
+    assert.deepEqual(await c.eval("window.__fixture.calls"),[["update","opening-1",{refOff:["marcus"]}]],
+      "excluding a reference sends the correct refOff inclusion patch");
+    await c.eval("window.__resetCalls();document.querySelector('.coverage-refs .shot-ref-tick').click()");
+    await wait(()=>c.eval("document.querySelector('.coverage-refs .shot-ref-tick')?.getAttribute('aria-pressed')==='true'"),"reference inclusion patch");
+    assert.deepEqual(await c.eval("window.__fixture.calls"),[["update","opening-1",{refOff:[]}]],
+      "re-including a reference clears only its exclusion");
+    await c.eval("window.__resetCalls()");
     const contextStats=await c.eval(`(()=>{const card=document.querySelector('${primary}'),ctx=card.querySelector('.shot-beat-context');return {
       stale:ctx.querySelectorAll('.bc-stale').length,buttons:ctx.querySelectorAll('button').length,
       laneButtons:ctx.querySelectorAll('.beat-lane-btn').length,selectors:ctx.querySelectorAll('.bc-alt-picker select').length,
       options:ctx.querySelectorAll('.bc-alt-picker option').length
     }})()`);
-    assert.deepEqual(contextStats,{stale:0,buttons:0,laneButtons:0,selectors:1,options:2},
-      "beat context is metadata plus the legacy selector, with no controls");
+    assert.deepEqual(contextStats,{stale:0,buttons:0,laneButtons:0,selectors:0,options:0},
+      "beat context is metadata only, with no permanent alternative selector or controls");
     assert.doesNotMatch(await c.eval("document.querySelector('.beat-card-grid').innerText"),
       /Add alternative/i,"the removed alternative dialog/control is absent");
+    assert.equal(await c.eval("document.querySelectorAll('.bc-alt-picker').length"),0,
+      "the removed alternative selector is absent from the DOM");
     assert.doesNotMatch(await c.eval("[...document.querySelectorAll('.shot-beat-context-head')].map(x=>x.textContent).join(' ')"),
-      /Update from screenplay|Add alternative|Add shot/i,
-      "context headers have no Update or Add buttons");
+      /Update from screenplay|Add alternative|Add shot|Opening keyframe|Shot Opening/i,
+      "context headers have no legacy labels or controls");
+    assert.equal(await c.eval("document.querySelectorAll('.shot-beat-tag.sub').length"),0,
+      "the primary Opening card has no Shot Opening sublabel");
+    assert.equal(await c.eval("document.querySelector('.shot-covers-chip').textContent.trim()"),"Covers",
+      "coverage chips are descriptive and omit micro-beat numerals");
     assert.equal(await c.eval("document.querySelectorAll('.bc-stale').length"),0,
       "matching sourceScreenplayRev starts current");
     assert.deepEqual(await c.eval("window.__fixture.calls"),[],
@@ -129,6 +190,24 @@ async function main(){
       "expanded Scripted preserves exact full screenplay text");
     assert.equal(await c.eval(`document.querySelectorAll('${primary} .bc-cast-line.remote').length`),1,
       "remote cast evidence is separate from on-screen cast");
+    const review=await c.eval(`(()=>{const card=document.querySelector('${primary}'),row=card.querySelector('.shot-review-actions');return {
+      present:!!row,labels:row?[...row.children].map(x=>x.textContent.trim()):[],
+      redraft:!!row&&!!row.querySelector('.shot-redraft-btn'),qa:!!row&&!!row.querySelector('[data-qa="check"]'),
+      outsideScripted:!!row&&!row.closest('.bc-scripted'),
+      scriptedActions:card.querySelectorAll('.bc-scripted-actions,.bc-scripted .shot-redraft-btn').length,
+      title:row&&row.querySelector('.shot-redraft-btn')?.title||""
+    }})()`);
+    assert.deepEqual(review.labels,["Redraft","QA check"],"Redraft sits immediately before the realistic QA check");
+    assert.equal(review.present,true,"generated primary card exposes review actions");
+    assert.equal(review.redraft,true,"the writing-model action is labelled Redraft");
+    assert.equal(review.qa,true,"the card keeps an adjacent QA check");
+    assert.equal(review.outsideScripted,true,"review actions live outside Scripted");
+    assert.equal(review.scriptedActions,0,"Scripted contains no duplicate redraft button or cost action");
+    assert.match(review.title,/writing-model credits/i,"Redraft keeps the writing-model cost disclosure in its tooltip");
+    assert.doesNotMatch(await c.eval(`document.querySelector('${primary} .bc-scripted').textContent`),/writing-model credits/i,
+      "Scripted does not repeat the Redraft cost explanation");
+    assert.equal(await c.eval("document.querySelectorAll('.shot-source-badge.current').length"),0,
+      "current source status has no redundant Source current badge");
 
     await c.eval("window.__unsetPrimaryStamp()");
     await wait(()=>c.eval("document.querySelectorAll('.bc-source-note').length===1"),"quiet unstamped note");
@@ -148,6 +227,24 @@ async function main(){
     assert.equal(await c.eval("document.querySelectorAll('.bc-stale').length"),0,
       "restoring the current source stamp clears the quiet note without a stale warning");
 
+    await c.eval("window.__setFrameState('stale');window.__resetConfirmations();");
+    await wait(()=>c.eval("document.querySelector('.shot-source-badge.stale')?.textContent==='Stale source'"),"stale frame status");
+    assert.equal(await c.eval("document.querySelectorAll('.shot-source-badge.current').length"),0,
+      "stale frames retain a warning without restoring Source current");
+    await c.eval("document.querySelector('button[title^=\"Approve this historical frame\"]').click()");
+    await wait(()=>c.eval("window.__fixture.confirmations.length===1"),"stale approval guard");
+    assert.match(await c.eval("window.__fixture.confirmations[0].title"),/stale historical frame/i,
+      "stale approval still requires explicit confirmation");
+    assert.equal(await c.eval("window.__fixture.confirmations[0].confirmLabel"),"Approve with override",
+      "stale approval keeps its explicit override action");
+    await c.eval("window.__unlockPrimary();window.__setFrameState('unverified');window.__resetConfirmations();");
+    await wait(()=>c.eval("document.querySelector('.shot-source-badge.unverified')?.textContent==='Source unverified'"),"unverified frame status");
+    await c.eval("document.querySelector('button[title^=\"Approve this historical frame\"]').click()");
+    await wait(()=>c.eval("window.__fixture.confirmations.length===1"),"unverified approval guard");
+    assert.match(await c.eval("window.__fixture.confirmations[0].title"),/unverified legacy frame/i,
+      "unverified approval still requires explicit confirmation");
+    await c.eval("window.__setFrameState('current');window.__resetCalls()");
+
     await c.eval("window.__changeSource()");
     await wait(()=>c.eval("document.querySelectorAll('.bc-stale').length===1"),"source revision staleness");
     assert.match(await c.eval("document.querySelector('.bc-stale').textContent"),/Screenplay changed since this opening keyframe/,
@@ -158,14 +255,14 @@ async function main(){
       "a real source change still does not auto-update, refine, or call the model");
     await c.eval("window.__restoreSource()");
 
-    await c.eval(`document.querySelector('${primary} .bc-scripted').open=true;[...document.querySelectorAll('.bc-scripted-actions .beat-lane-btn')].find(b=>b.textContent.includes('Update from screenplay')).click()`);
+    await c.eval(`document.querySelector('${primary} .shot-redraft-btn').click()`);
     await wait(()=>c.eval("window.__fixture.calls.filter(x=>x[0]==='refine'&&x[1]==='scene-1'&&x[2]===1).length===1"),"beat one refine callback");
     assert.deepEqual(await c.eval("window.__fixture.calls"),[["refine","scene-1",1]],
-      "Update from screenplay inside Scripted calls scene-1 beat 1 once");
-    assert.match(await c.eval("document.querySelector('.bc-scripted-actions span').textContent"),/writing-model credits/,
-      "Scripted actions explain the writing credits boundary");
+      "Redraft outside Scripted calls scene-1 beat 1 once");
+    assert.match(await c.eval(`document.querySelector('${primary} .shot-redraft-btn').title`),/writing-model credits/,
+      "Redraft keeps its writing credits boundary in the tooltip");
     assert.equal(await c.eval("document.querySelectorAll('.shot-beat-context .beat-lane-btn').length"),0,
-      "Update from screenplay exists only inside Scripted actions");
+      "Redraft is not duplicated in beat context");
 
     await c.eval("window.__clearBeatTwoSource()");
     await wait(()=>c.eval("document.querySelectorAll('.opening-beat-empty').length===1"),"empty beat two");
@@ -195,23 +292,40 @@ async function main(){
     await c.eval("window.__unmountClassicFallback()");
     await wait(()=>c.eval("document.querySelectorAll('.classic-fallback-fixture').length===0"),"remove classic fallback");
 
-    await c.eval("document.querySelector('.bc-alt-picker select').value='legacy-1';document.querySelector('.bc-alt-picker select').dispatchEvent(new Event('change',{bubbles:true}))");
-    await wait(()=>c.eval("document.querySelector('.sheet-card.shot-card').dataset.shotCard==='legacy-1'"),"alternative selection");
+    await c.eval(`document.querySelector('${primary} .sheet-gen-tool').click()`);
+    const menu=await c.eval(`(()=>[...document.querySelectorAll('${primary} .sheet-tools-item')].filter(x=>/View (primary|alternative)/.test(x.textContent)).map(x=>({text:x.textContent.trim(),disabled:x.disabled,title:x.title})))()`);
+    assert.deepEqual(menu.map(x=>x.text),["View primary frame","View alternative 1 · Close"],
+      "existing alternatives are named in the real SheetFrame menu");
+    assert.equal(menu[0].disabled,true,"the currently displayed primary choice is disabled");
+    assert.equal(menu[1].disabled,false,"an undisplayed alternative remains selectable");
+    assert.match(menu[1].title,/view and edit this existing shot/i,"alternative menu entries explain that they only switch the displayed shot");
+    await c.eval(`window.__resetCalls();[...document.querySelectorAll('${primary} .sheet-tools-item')].find(x=>x.textContent.includes('View alternative 1')).click()`);
+    await wait(()=>c.eval("document.querySelector('.sheet-card.shot-card').dataset.shotCard==='legacy-1'"),"alternative menu selection");
     assert.equal(await c.eval("document.querySelectorAll('.beat-card-grid .sheet-card.shot-card[data-shot-card=\"legacy-1\"]').length"),1,
       "the existing alternative remains selectable as one correctly keyed card");
     assert.equal(await c.eval("document.querySelectorAll('.beat-card-grid .sheet-card.shot-card[data-shot-card=\"opening-1\"]').length"),0,
       "selecting an alternative remounts the displayed ShotCard instead of hiding a second one");
     assert.equal(await c.eval("window.__fixture.mounts.at(-1)"),"legacy-1",
       "alternative selection remounts the image generator with the alternative key");
-    assert.deepEqual(await c.eval("window.__fixture.calls"),[["refine","scene-1",1],["refine","scene-1",2]],
+    assert.deepEqual(await c.eval("window.__fixture.calls"),[],
       "selecting an alternative does not call generation");
-
-    await c.eval("document.querySelector('.bc-alt-picker select').value='opening-1';document.querySelector('.bc-alt-picker select').dispatchEvent(new Event('change',{bubbles:true}))");
-    await wait(()=>c.eval("document.querySelector('.sheet-card.shot-card').dataset.shotCard==='opening-1'"),"primary selection");
+    assert.match(await c.eval("document.querySelector('.shot-beat-tag.sub')?.textContent.trim()"),/Alternative 1$/,
+      "the displayed alternative retains the informative Alternative 1 sublabel");
+    await c.eval(`document.querySelector('.sheet-card.shot-card .sheet-gen-tool').click()`);
+    const altMenu=await c.eval(`(()=>[...document.querySelectorAll('.sheet-card.shot-card .sheet-tools-item')].filter(x=>/View (primary|alternative)/.test(x.textContent)).map(x=>({text:x.textContent.trim(),disabled:x.disabled})))()`);
+    assert.deepEqual(altMenu,[{text:"View primary frame",disabled:false},{text:"View alternative 1 · Close",disabled:true}],
+      "the current alternative choice is disabled while the primary remains accessible");
+    await c.eval(`[...document.querySelectorAll('.sheet-card.shot-card .sheet-tools-item')].find(x=>x.textContent.includes('View primary frame')).click()`);
+    await wait(()=>c.eval("document.querySelector('.sheet-card.shot-card').dataset.shotCard==='opening-1'"),"primary menu selection");
+    assert.equal(await c.eval("document.querySelectorAll('.shot-beat-tag.sub').length"),0,
+      "returning to primary removes the alternative sublabel");
     await c.eval(`document.querySelector('${primary} .bc-scripted').open=true`);
     for(const [w,name] of [[1280,"desktop"],[390,"mobile"]]){
       await c.call("Emulation.setDeviceMetricsOverride",{width:w,height:900,deviceScaleFactor:1,mobile:w<500});
       assert.equal(await c.eval("document.documentElement.scrollWidth<=window.innerWidth"),true,`${name} card does not overflow`);
+      const reviewRow=await c.eval(`(()=>{const r=document.querySelector('${primary} .shot-review-actions'),kids=r?[...r.children]:[];return {wrap:getComputedStyle(r).flexWrap,width:r&&r.getBoundingClientRect().width,scroll:r&&r.scrollWidth,sameLine:kids.length===2&&Math.abs(kids[0].getBoundingClientRect().top-kids[1].getBoundingClientRect().top)<1}})()`);
+      assert.equal(reviewRow.wrap,"nowrap",`${name} Redraft and QA review row does not wrap`);
+      assert.equal(reviewRow.sameLine,true,`${name} Redraft and QA remain on one row`);
       const x=await c.call("Page.captureScreenshot",{format:"png"});
       await writeFile(`${OUT}/${name}.png`,Buffer.from(x.data,"base64"));
     }
@@ -226,6 +340,10 @@ async function main(){
       "the sole batch owner is the selected alternative");
     assert.equal(await c.eval("window.__fixture.mounts.at(-1)"),"legacy-1",
       "the queued alternative retains its correctly keyed generator remount");
+    await c.eval("document.querySelector('.sheet-card.shot-card .sheet-gen-tool').click()");
+    const batchMenu=await c.eval(`(()=>[...document.querySelectorAll('.sheet-card.shot-card .sheet-tools-item')].filter(x=>/View (primary|alternative)/.test(x.textContent)).map(x=>({text:x.textContent.trim(),disabled:x.disabled})))()`);
+    assert.deepEqual(batchMenu,[{text:"View primary frame",disabled:true},{text:"View alternative 1 · Close",disabled:true}],
+      "all alternative choices stay disabled while a batch frame is active");
 
     assert.deepEqual(await c.eval("window.__fixture.errors"),[]);
     console.log(`standalone beat card browser regression passed\\nscreenshots: ${OUT}/desktop.png, ${OUT}/mobile.png`);
