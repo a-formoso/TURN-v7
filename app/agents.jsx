@@ -856,7 +856,9 @@ async function agentAdaptation(ctx){
   if(ctx.ai.available && typeof window.aiCastPsychology==="function" && ctx.model.characters && ctx.model.characters.length){
     ctx.emit({k:"act", t:"Drafting the cast's inner life and Voice DNA \u2014 want, contradicting need, dimensions, arc and dialogue behaviour\u2026"});
     try{
-      const psych = await window.aiCastPsychology(ctx.model.characters, ctx.model.scenes, ctx.model.project);
+      const psych = await window.aiCastPsychology(ctx.model.characters, ctx.model.scenes, ctx.model.project, {
+        scenes:ctx.model.scenes, drafts:ctx.model.drafts, cast:ctx.model.characters
+      });
       if(ctx.cancelled()) return;
       if(psych){ ctx.model.characters = ctx.model.characters.map(c=> psych[c.id] ? {...c, ...psych[c.id]} : c);
         ctx.sync(); ctx.emit({k:"ok", t:"The principal cast now has a want, need, arc and dialogue fingerprint \u2014 visible in the Cast panel."}); }
@@ -944,6 +946,26 @@ async function agentTableRead(ctx){
    canonical pronouns, with a reconcile proposal (catches the Lumi gender case). Props are
    tagged + listed for the Props Master to generate (this Writers' ctx can't write props).
    ========================================================= */
+function breakdownPronounEvidence(character, scene, draft, cast){
+  const ctx={ scenes:scene?[scene]:[], drafts:scene&&scene.id?{[scene.id]:draft}: {}, cast:cast||[] };
+  try{
+    if(typeof window.turnIdentityReport==="function"){
+      const report=window.turnIdentityReport(character,ctx)||{};
+      const issue=Array.isArray(report.issues)&&report.issues.find(i=>i&&i.source==="screenplay"&&i.quote);
+      if(report.status==="conflict")
+        return { pronouns:"", quote:(issue&&issue.quote)||"", conflict:true };
+      if(report.scriptPronouns){
+        const local=typeof window.screenplayPronounEvidence==="function"
+          ? window.screenplayPronounEvidence(character,ctx) : null;
+        return { pronouns:report.scriptPronouns, quote:local&&local.pronouns===report.scriptPronouns ? local.quote : "" };
+      }
+      return { pronouns:"", quote:"" };
+    }
+    if(typeof window.screenplayPronounEvidence==="function")
+      return window.screenplayPronounEvidence(character,ctx)||{pronouns:"",quote:""};
+  }catch(e){}
+  return {pronouns:"",quote:""};
+}
 async function agentScriptBreakdown(ctx){
   if(!ctx.ai || !ctx.ai.available){ ctx.emit({k:"flag", t:"The model isn't available — the breakdown needs it."}); ctx.emit({k:"done",t:"Aborted."}); return; }
   const scenes = scenesInStoryOrder(ctx.model.scenes);
@@ -955,6 +977,7 @@ async function agentScriptBreakdown(ctx){
   const findChar = (nm)=>{ const low=(nm||"").toLowerCase();
     return charByName[low] || (ctx.model.characters||[]).find(x=>{ const xn=(x.name||"").toLowerCase(); return xn && (xn.includes(low)||low.includes(xn)); }); };
   let drift=0, reconciled=0, enriched=0, propsFound=0, dressFound=0, lintCount=0;
+  const scriptPronounsByChar = {};
   const emoTally = {};   // charId → { emotion: count } — the character's emotions across the story
   for(const s of written){
     if(ctx.cancelled()) return;
@@ -978,9 +1001,30 @@ async function agentScriptBreakdown(ctx){
       const ch = findChar(c.name); if(!ch) continue;
       // tally the emotion this scene shows for the character (aggregated into their 3 signature expressions after the pass)
       if(c.emotion){ (emoTally[ch.id]=emoTally[ch.id]||{})[c.emotion]=(emoTally[ch.id][c.emotion]||0)+1; }
-      // (1) DRIFT CHECK — script pronoun vs canonical pronoun
-      const scriptPron = pronOf(c.gender_used);
+      // (1) DRIFT CHECK — validate the model's per-scene gender tag against an
+      // exact screenplay quote first. A breakdown label alone is not identity
+      // evidence: accepting it here used to let contradictory scenes flip the
+      // sheet one approval at a time.
+      const evidence = breakdownPronounEvidence(ch, s, ctx.model.drafts[s.id], ctx.model.characters);
+      const modelScriptPron = pronOf(c.gender_used);
+      if(modelScriptPron && evidence.pronouns && modelScriptPron!==evidence.pronouns){
+        ctx.emit({k:"flag", t:"Sc "+s.no+" "+ch.name+" — breakdown tagged “"+c.gender_used+"”, but the exact screenplay evidence says "+evidence.pronouns+": “"+(evidence.quote||"source unavailable")+"”; no cast pronoun was changed."});
+        continue;
+      }
+      if(modelScriptPron && modelScriptPron!=="they/them" &&
+         (!evidence.pronouns || evidence.pronouns!==modelScriptPron)){
+        ctx.emit({k:"flag", t:"Sc "+s.no+" "+ch.name+" — breakdown tagged “"+c.gender_used+"”, but the screenplay has no matching exact identity evidence (or says "+(evidence.pronouns||"nothing")+")"+(evidence.quote?": “"+evidence.quote+"”":"")+"; no cast pronoun was changed."});
+        continue;
+      }
+      const scriptPron = evidence.pronouns || (modelScriptPron==="they/them" ? modelScriptPron : "");
       const canonPron = (typeof window.charPronouns==="function") ? window.charPronouns(ch) : "";
+      const priorScriptPron = scriptPronounsByChar[ch.id];
+      if(scriptPron && priorScriptPron && priorScriptPron.pronouns!==scriptPron){
+        drift++;
+        ctx.emit({k:"flag", t:"Pronoun conflict — "+ch.name+" is tagged "+priorScriptPron.pronouns+" in an earlier screenplay source but "+scriptPron+" in Sc "+s.no+". Exact evidence: earlier “"+(priorScriptPron.quote||"source unavailable")+"”; Sc "+s.no+" “"+(evidence.quote||"source unavailable")+"”. No canonical sheet change was proposed until the writer resolves the script conflict."});
+        continue;
+      }
+      if(scriptPron && !priorScriptPron) scriptPronounsByChar[ch.id]={ pronouns:scriptPron, quote:evidence.quote||"", scene:s.no };
       if(scriptPron==="they/them"){
         // house rule: singular they never becomes canon — the SCRIPT is what needs fixing
         ctx.emit({k:"flag", t:"Sc "+s.no+" refers to "+ch.name+" with singular \u201cthey\u201d \u2014 rewrite to "+(canonPron||"he/she or the name")+" (house rule: explicit pronouns only; Consistency Check can fix this)."});
@@ -988,12 +1032,15 @@ async function agentScriptBreakdown(ctx){
         drift++;
         const ok = await ctx.propose({
           title:"Gender drift — "+ch.name,
-          reason:"Sc "+s.no+" refers to "+ch.name+" as “"+c.gender_used+"”, but the cast sheet's pronouns are "+canonPron+".",
-          rationale:"Approve to set "+ch.name+"'s canonical pronouns to "+scriptPron+" (match the script). Reject to keep "+canonPron+" — then fix the script's pronouns.",
-          before:"Sheet: "+canonPron, after:"Sheet: "+scriptPron });
+          reason:"Sc "+s.no+" has exact screenplay evidence for "+ch.name+" as “"+scriptPron+"”: “"+(evidence.quote||"source unavailable")+"”. The cast sheet's pronouns are "+canonPron+".",
+          rationale:"Approve only if the quoted screenplay evidence is the intended canon, setting "+ch.name+"'s sheet to "+scriptPron+". Reject to keep "+canonPron+" and fix the script; this pass never silently trusts a model tag.",
+          before:"Sheet: "+canonPron, after:"Sheet: "+scriptPron+" · source: "+(evidence.quote||"unavailable") });
         if(ctx.cancelled()) return;
         if(ok){ const i=ctx.model.characters.findIndex(x=>x.id===ch.id);
-          if(i>=0){ ctx.model.characters[i]={...ctx.model.characters[i], pronouns:scriptPron}; charByName[(ch.name||"").toLowerCase()]=ctx.model.characters[i]; ctx.sync(); reconciled++; ctx.emit({k:"ok", t:ch.name+" → "+scriptPron}); } }
+          if(i>=0){ ctx.model.characters[i]={...ctx.model.characters[i], pronouns:scriptPron,
+              pronounProvenance:"user", pronounSource:"user",
+              identityProvenance:{ ...(ctx.model.characters[i].identityProvenance||{}), pronouns:"user" }};
+            charByName[(ch.name||"").toLowerCase()]=ctx.model.characters[i]; ctx.sync(); reconciled++; ctx.emit({k:"ok", t:ch.name+" → "+scriptPron}); } }
       } else if(scriptPron && !canonPron){
         // canon UNSET: the script committed to a gender but the sheet carries none, so
         // neither the generation prompts nor the drift check above had anything to
@@ -1002,12 +1049,15 @@ async function agentScriptBreakdown(ctx){
         drift++;
         const ok = await ctx.propose({
           title:"Pronouns unset — "+ch.name,
-          reason:"Sc "+s.no+" refers to "+ch.name+" as “"+c.gender_used+"”, but the cast sheet has NO pronouns set — the generators had nothing to enforce.",
-          rationale:"Approve to set "+ch.name+"'s canonical pronouns to "+scriptPron+" (match the script). If the script got them WRONG, reject instead, set the right pronouns in the Cast panel, then re-run the Consistency Check to rewrite the scene.",
-          before:"Sheet: unset", after:"Sheet: "+scriptPron });
+           reason:"Sc "+s.no+" has exact screenplay evidence for "+ch.name+" as “"+scriptPron+"”: “"+(evidence.quote||"source unavailable")+"”, but the cast sheet has NO pronouns set — the generators had nothing to enforce.",
+           rationale:"Approve explicit screenplay adoption only if the quoted source is correct, setting "+ch.name+"'s canonical pronouns to "+scriptPron+". If the script is wrong, reject, set the right pronouns in the Cast panel, then re-run the Consistency Check to rewrite the scene.",
+           before:"Sheet: unset", after:"Sheet: "+scriptPron+" · source: "+(evidence.quote||"unavailable") });
         if(ctx.cancelled()) return;
         if(ok){ const i=ctx.model.characters.findIndex(x=>x.id===ch.id);
-          if(i>=0){ ctx.model.characters[i]={...ctx.model.characters[i], pronouns:scriptPron}; charByName[(ch.name||"").toLowerCase()]=ctx.model.characters[i]; ctx.sync(); reconciled++; ctx.emit({k:"ok", t:ch.name+" → "+scriptPron}); } }
+          if(i>=0){ ctx.model.characters[i]={...ctx.model.characters[i], pronouns:scriptPron,
+              pronounProvenance:"user", pronounSource:"user",
+              identityProvenance:{ ...(ctx.model.characters[i].identityProvenance||{}), pronouns:"user" }};
+            charByName[(ch.name||"").toLowerCase()]=ctx.model.characters[i]; ctx.sync(); reconciled++; ctx.emit({k:"ok", t:ch.name+" → "+scriptPron}); } }
         else ctx.emit({k:"flag", t:ch.name+": pronouns still unset — set them in the Cast panel, then re-run the Consistency Check so the script is rewritten to match."});
       }
       // (1b) SCALE DRIFT — the script implies a scale class that contradicts the sheet's

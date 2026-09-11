@@ -45,7 +45,7 @@ function vcOriginFrom(text, charName){
 // designing.
 function buildVoiceSpec(c){
   const role = vcParseRole(c.role);
-  const pron = c.pronouns||"";
+  const pron = c.canonicalPronouns || c.pronouns || "";
   const gender = pron==="she/her" ? "female" : pron==="he/him" ? "male" : "";
   const phys = c.physique||{};
   const age = phys.age || phys.ageRange || phys.ageBand || "";
@@ -71,13 +71,16 @@ function buildVoiceSpec(c){
     ? (/\baccent|dialect|speaks\b/i.test(origin) ? origin : ("speaks English with a noticeable "+origin+" accent"))
     : "";
   const quirks = String(vb.quirks||"").trim();
-  return [
+  const base = [
     [age, gender, "voice"].filter(Boolean).join(" "),
     accent,
     pitch+"; "+pace,
     quirks,
     "clear studio-quality recording"
   ].filter(Boolean).join("; ")+".";
+  const identity = (typeof window.turnIdentityPrompt==="function")
+    ? String(window.turnIdentityPrompt([c])||"").trim() : "";
+  return identity ? (base+" "+identity) : base;
 }
 
 // who actually needs a voice — characters in-frame on any shot that has dialogue;
@@ -137,6 +140,8 @@ function VoiceCard({ c, project, speaks, onUpdate }){
       voiceId, voiceName: voiceName||fallbackName, source,
       modelId: ttsModel || (window.VG_TTS_MODEL||"eleven_v3"),
       modelChosen: deliveryChosen,   // only an explicit pick pins the model; else follow the app default
+      identityRevision: c.identityRevision!=null ? String(c.identityRevision) : "",
+      identityPronouns: c.canonicalPronouns || c.pronouns || "",
       defaults: window.VG_DEFAULTS || { stability:0.7, similarity:0.75, style:0.1, speed:1.0, speakerBoost:true },
       consent: source==="cloned", sync:false,
     }});
@@ -145,20 +150,23 @@ function VoiceCard({ c, project, speaks, onUpdate }){
 
   const design = async ()=>{
     if(busy) return; setBusy(true); setErr(""); setPreviews([]);
-    try{ const ps = await window.elDesignVoice(spec); setPreviews(ps||[]);
+    try{ const ps = await window.elDesignVoice(spec, { identityCharacter:c, identityCharacterIds:[c.id],
+      identityCast:[c], identityContext:{characterIds:[c.id],cast:[c]} }); setPreviews(ps||[]);
       if(!ps || !ps.length) setErr("No previews came back — tweak the description and try again.");
     }catch(e){ setErr(String((e&&e.message)||"Couldn't design a voice.")); }
     setBusy(false);
   };
   const lockPreview = async (p)=>{
     if(busy) return; setBusy(true); setErr("");
-    try{ const r = await window.elSaveVoice(p.generatedVoiceId, { name:c.name, description:spec }); lockVoice(r.voiceId, r.name, "designed"); }
+    try{ const r = await window.elSaveVoice(p.generatedVoiceId, { name:c.name, description:spec,
+        identityCharacter:c, identityCharacterIds:[c.id], identityCast:[c], identityContext:{characterIds:[c.id],cast:[c]} }); lockVoice(r.voiceId, r.name, "designed"); }
     catch(e){ setErr(String((e&&e.message)||"Couldn't lock that voice.")); }
     setBusy(false);
   };
   const browse = async ()=>{
     if(busy) return; setBusy(true); setErr(""); setLibrary([]);
-    try{ const vs = await window.elListVoices(); setLibrary(vs||[]); if(!vs||!vs.length) setErr("No library voices on this account yet."); }
+    try{ const vs = await window.elListVoices({ identityCharacter:c, identityCharacterIds:[c.id],
+      identityCast:[c], identityContext:{characterIds:[c.id],cast:[c]} }); setLibrary(vs||[]); if(!vs||!vs.length) setErr("No library voices on this account yet."); }
     catch(e){ setErr(String((e&&e.message)||"Couldn't load the library.")); }
     setBusy(false);
   };
@@ -169,13 +177,15 @@ function VoiceCard({ c, project, speaks, onUpdate }){
   };
   const clone = async ()=>{
     if(busy || !consent || !samples.length) return; setBusy(true); setErr("");
-    try{ const r = await window.elCloneVoice(samples, { name:c.name, description:spec }); lockVoice(r.voiceId, r.name, "cloned"); setSamples([]); }
+    try{ const r = await window.elCloneVoice(samples, { name:c.name, description:spec,
+        identityCharacter:c, identityCharacterIds:[c.id], identityCast:[c], identityContext:{characterIds:[c.id],cast:[c]} }); lockVoice(r.voiceId, r.name, "cloned"); setSamples([]); }
     catch(e){ setErr(String((e&&e.message)||"Cloning failed.")); }
     setBusy(false);
   };
   const test = async ()=>{
     if(busy || !lock) return; setBusy(true); setErr("");
-    try{ const r = await window.elGenerate("voice-test-"+c.id, "This is how I sound in every scene.", { voiceId:lock.voiceId, settings:lock.defaults, modelId:effModel, force:true }); vcPlay(r.audioUrl); }
+    try{ const r = await window.elGenerate("voice-test-"+c.id, "This is how I sound in every scene.", { voiceId:lock.voiceId, settings:lock.defaults, modelId:effModel, force:true,
+      voiceLock:lock, identityCharacter:c, identityCharacterIds:[c.id], identityCast:[c], identityContext:{characterIds:[c.id],cast:[c]} }); vcPlay(r.audioUrl); }
     catch(e){ setErr(String((e&&e.message)||"Couldn't render a test line.")); }
     setBusy(false);
   };

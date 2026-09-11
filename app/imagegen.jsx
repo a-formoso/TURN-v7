@@ -293,7 +293,10 @@ function buildSimpleCharPrompt(c){
     "4-panel casting reference sheet: large close-up face portrait, full-body front view, full-body three-quarter front view, full-body back view",
     "plain grey background, studio lighting, "+(styleLine||"photoreal")+", sharp focus, no text or labels"
   ].filter(Boolean);
-  return parts.join(". ")+".";
+  const base = parts.join(". ")+".";
+  const identity = (typeof window.turnIdentityPrompt==="function")
+    ? String(window.turnIdentityPrompt([c])||"").trim() : "";
+  return identity ? (base+"\n\nCANONICAL CHARACTER IDENTITY (binding): "+identity) : base;
 }
 window.buildSimpleCharPrompt = buildSimpleCharPrompt;
 
@@ -301,9 +304,227 @@ window.buildSimpleCharPrompt = buildSimpleCharPrompt;
    INTO the spec's render.rules (one constraints list), so there's no separate negative prompt
    appended here — rules and the old negative prompt were doing the same job. */
 function combinedImagePrompt(c, project, props){
-  return ((typeof buildCharRefPrompt==="function") ? buildCharRefPrompt(c, project, props) : "").trim();
+  const base = ((typeof buildCharRefPrompt==="function") ? buildCharRefPrompt(c, project, props) : "").trim();
+  const identity = (typeof window.turnIdentityPrompt==="function")
+    ? String(window.turnIdentityPrompt([c])||"").trim() : "";
+  if(!identity) return base;
+  return base + (base ? "\n\n" : "") + "CANONICAL CHARACTER IDENTITY (binding): "+identity;
 }
 window.combinedImagePrompt = combinedImagePrompt;
+
+/* ── CANONICAL MEDIA IDENTITY GATE ──────────────────────────────────────────
+   Media entry points are shared by Art Room, Shots, Stage and the voice UI.  Do
+   not make each provider wrapper guess which live cast is relevant: callers pass
+   an explicit identityContext/identityCharacter(s), while the arriving assertion
+   helpers may fill in live scenes/drafts/cast when that context is omitted.
+   The assertion is deliberately synchronous.  It therefore runs before a cache
+   lookup, upload conversion, or provider submission and can never be bypassed by
+   a retry path. */
+function nbIdentityContext(opts, fallback){
+  opts = opts || {};
+  const raw = opts.identityContext || opts.identity || fallback || {};
+  const cast = opts.identityCast || raw.cast || [];
+  const chars = opts.identityCharacters || raw.characters || [];
+  const one = opts.identityCharacter || opts.character || null;
+  let ids = opts.identityCharacterIds || opts.characterIds || raw.characterIds;
+  if(ids==null && one && one.id) ids = [one.id];
+  if(ids==null && opts.entity && Array.isArray(opts.entity.subjects)) ids = opts.entity.subjects;
+  if(ids==null) ids = [];
+  const resolvedCast = Array.isArray(cast) && cast.length ? cast : (one ? [one] : (chars||[]));
+  return {
+    characterIds:Array.isArray(ids) ? ids.filter(Boolean) : (ids ? [ids] : []),
+    scenes:opts.identityScenes || raw.scenes,
+    drafts:opts.identityDrafts || raw.drafts,
+    /* Omit an empty cast so the shared helper can use the current project's
+       live turnCast/turnContinuity instead of treating [] as authoritative. */
+    cast:resolvedCast.length ? resolvedCast : undefined,
+  };
+}
+function nbIdentityError(value){
+  if(value instanceof Error) return value;
+  const msg = value && (value.message || value.error || value.reason);
+  const e = new Error(String(msg || "This media request is blocked by a character-identity contradiction."));
+  e.name = "CharacterIdentityError"; e.identity = value;
+  return e;
+}
+function nbIdentityCanonical(c){
+  if(!c || typeof c!=="object") return "";
+  const raw = c.canonicalPronouns || c.pronouns || "";
+  const pron = typeof window.turnNormalizePronouns==="function"
+    ? String(window.turnNormalizePronouns(raw)||"") : String(raw||"").trim().toLowerCase();
+  return pron+"|revision:"+(c.identityRevision!=null ? String(c.identityRevision) : "");
+}
+function nbIdentityLiveState(){
+  const live=window.turnIdentityContext;
+  if(live && typeof live==="object"){
+    const cast=Array.isArray(live.cast) ? live.cast
+      : (Array.isArray(live.characters) ? live.characters : []);
+    if(cast.length) return { cast, scenes:Array.isArray(live.scenes)?live.scenes:undefined,
+      drafts:Object.prototype.hasOwnProperty.call(live,"drafts") ? live.drafts : undefined };
+  }
+  if(Array.isArray(window.turnCast) && window.turnCast.length)
+    return { cast:window.turnCast };
+  return null;
+}
+function nbAssertProjectIdentity(ctx, skipUnset){
+  if(typeof window.turnAssertProjectIdentity!=="function") return true;
+  try{ return window.turnAssertProjectIdentity(ctx); }
+  catch(e){
+    /* A cast-wide assertion is allowed to skip incidental unset texture
+       characters.  A characterIds-scoped request is explicit and must fail
+       closed; detected conflicts always fail in either case. */
+    if(!(skipUnset && e && e.identityReport && e.identityReport.status==="unset")) throw e;
+    const cast=Array.isArray(ctx&&ctx.cast) ? ctx.cast : [];
+    const ids=Array.isArray(ctx&&ctx.characterIds) ? ctx.characterIds : [];
+    const selected=ids.length ? cast.filter(c=>ids.some(id=>String(id)===String(c&&c.id))) : cast;
+    const reports=[];
+    selected.forEach(c=>{
+      try{
+        if(typeof window.turnAssertCharacterIdentity==="function")
+          reports.push(window.turnAssertCharacterIdentity(c,ctx));
+      }catch(err){
+        if(!(err && err.identityReport && err.identityReport.status==="unset")) throw err;
+      }
+    });
+    return reports;
+  }
+}
+function nbAssertLiveIdentity(opts, ctx, phase){
+  if(opts.identityLive===false) return null;
+  const live=nbIdentityLiveState();
+  if(!live) return null;
+  const ids=ctx.characterIds||[];
+  const startCast=Array.isArray(ctx.cast) ? ctx.cast : [];
+  const selectedIds=ids.length ? ids : startCast.map(c=>c&&c.id).filter(Boolean);
+  const currentCast=live.cast;
+  const changed=[];
+  selectedIds.forEach(id=>{
+    const start=startCast.find(c=>String(c&&c.id)===String(id))
+      || ((opts.identityCharacter&&String(opts.identityCharacter.id)===String(id)) ? opts.identityCharacter : null);
+    const current=currentCast.find(c=>String(c&&c.id)===String(id));
+    if(!start || !current) return;
+    if(nbIdentityCanonical(start)!==nbIdentityCanonical(current))
+      changed.push(String(current.name||start.name||id));
+  });
+  if(changed.length){
+    const e=new Error("Character identity changed while this media request was in progress ("+changed.join(", ")+"). Review and retry.");
+    e.name="CharacterIdentityChangedError"; e.phase=phase||"media"; throw e;
+  }
+  return { ...ctx, cast:currentCast,
+    scenes:live.scenes!==undefined ? live.scenes : ctx.scenes,
+    drafts:live.drafts!==undefined ? live.drafts : ctx.drafts };
+}
+function nbAssertMediaIdentity(opts, phase){
+  opts = opts || {};
+  const ctx = nbIdentityContext(opts);
+  if(opts.identityLive===false){
+    /* Saved dashboard/poster contexts are deliberately isolated from the
+       currently open film.  Supplying an empty field is authoritative here,
+       rather than an invitation for the shared helper to consult live globals. */
+    if(!Array.isArray(ctx.cast)) ctx.cast=[];
+    if(!Array.isArray(ctx.scenes)) ctx.scenes=[];
+    if(!Object.prototype.hasOwnProperty.call(ctx,"drafts")) ctx.drafts={};
+  }
+  const hasScope = !!(ctx.characterIds.length || (ctx.cast&&ctx.cast.length) || opts.identityCharacter || opts.character);
+  if(!hasScope) return true;
+  if(opts.identityLive!==false && opts.identityEpoch!=null && typeof window.nbEpoch==="function"
+    && String(window.nbEpoch())!==String(opts.identityEpoch)){
+    const e=new Error("The active film changed while this media request was in progress. Review and retry.");
+    e.name="IdentityScopeChangedError"; throw e;
+  }
+  let result;
+  try{
+    if(opts.identityCharacter || opts.character){
+      const c = opts.identityCharacter || opts.character;
+      if(typeof window.turnAssertCharacterIdentity==="function")
+        result = window.turnAssertCharacterIdentity(c, { ...ctx, phase:phase||"media" });
+      else if(typeof window.turnAssertProjectIdentity==="function")
+        result = nbAssertProjectIdentity({ ...ctx }, false);
+      const liveCtx=nbAssertLiveIdentity(opts,ctx,phase);
+      if(liveCtx && typeof window.turnAssertCharacterIdentity==="function"){
+        const current=(liveCtx.cast||[]).find(x=>String(x&&x.id)===String(c&&c.id));
+        if(current) window.turnAssertCharacterIdentity(current,{ ...liveCtx, phase:phase||"media" });
+      }
+    }else if(typeof window.turnAssertProjectIdentity==="function"){
+      result = nbAssertProjectIdentity(ctx, !ctx.characterIds.length);
+      const liveCtx=nbAssertLiveIdentity(opts,ctx,phase);
+      if(liveCtx) result=nbAssertProjectIdentity(liveCtx,!ctx.characterIds.length);
+    }
+  }catch(e){
+    throw nbIdentityError(e);
+  }
+  if(result===false || (result && (result.ok===false || result.valid===false || result.blocked===true)))
+    throw nbIdentityError(result);
+  return result===undefined ? true : result;
+}
+function nbCanonicalMediaPrompt(prompt, opts){
+  const cast=(opts&&opts.identityCast)||(opts&&opts.identityCharacter ? [opts.identityCharacter] : []);
+  const identity=cast.length && typeof window.turnIdentityPrompt==="function"
+    ? String(window.turnIdentityPrompt(cast)||"").trim() : "";
+  const base=String(prompt||"");
+  return identity && base.indexOf(identity)<0
+    ? base+"\n\nCANONICAL CHARACTER IDENTITY (binding): "+identity : base;
+}
+window.nbIdentityContext = nbIdentityContext;
+window.nbAssertMediaIdentity = nbAssertMediaIdentity;
+window.nbCanonicalMediaPrompt = nbCanonicalMediaPrompt;
+
+function nbIdentitySnapshot(character){
+  if(!character || typeof character!=="object") return null;
+  const pronouns = String(character.canonicalPronouns || character.pronouns
+    || (typeof window.charPronouns==="function" ? window.charPronouns(character) : "") || "").trim();
+  const out = {
+    characterId:character.id||"",
+    name:character.name||"",
+    pronouns,
+    gender:String(character.gender||character.sex||"").trim(),
+    identityRevision:character.identityRevision!=null ? String(character.identityRevision) : "",
+  };
+  let report = null;
+  try{ if(typeof window.turnIdentityReport==="function") report=window.turnIdentityReport(character); }catch(e){ out.verified=false; out.error=String(e&&e.message||e); }
+  if(report && typeof report==="object"){
+    out.verified = report.status!=="conflict" && report.status!=="unset"
+      && report.ok!==false && report.valid!==false && !report.blocked;
+    out.reportVersion = report.version || report.schemaVersion || "";
+    out.canonical = report.canonical || report.identity || report.snapshot || undefined;
+    if(report.pronouns || (report.canonical&&report.canonical.pronouns))
+      out.pronouns = String(report.pronouns || report.canonical.pronouns || out.pronouns);
+  }else if(out.verified==null) out.verified = !!out.pronouns && typeof window.turnIdentityReport==="function";
+  return out;
+}
+window.nbIdentitySnapshot = nbIdentitySnapshot;
+function nbIdentityAssetStatus(id, character, ctx){
+  const meta = (typeof nbGetMeta==="function") ? nbGetMeta(id) : null;
+  /* Existing projects predate identity snapshots.  Treat those assets as
+     advisory/unverified, not stale: a deploy must not invalidate every sheet.
+     Only an explicit stale marker or a comparison against a known prior canon
+     can block downstream use. */
+  if(!meta) return { known:false, stale:false,
+    reason:character ? "legacy-unverified" : "missing-metadata" };
+  if(meta.identityStale)
+    return { known:true, stale:true, reason:meta.identityStaleReason||"identity-check-failed", meta };
+  if(!character) return { known:!!meta.identitySnapshot, stale:false, reason:meta.identitySnapshot?"verified":"unverified", meta };
+  if(!meta.identitySnapshot && !meta.canonicalIdentity && !meta.canonicalPronouns)
+    return { known:true, stale:false, reason:"legacy-unverified", meta };
+  const current = nbIdentitySnapshot(character);
+  const saved = meta.identitySnapshot || meta.canonicalIdentity || {};
+  const oldPron = String(saved.pronouns || meta.canonicalPronouns || "").trim();
+  const newPron = String(current&&current.pronouns||"").trim();
+  const stale = (oldPron && newPron && oldPron!==newPron)
+    || (saved.characterId && character.id && String(saved.characterId)!==String(character.id))
+    || (current.identityRevision && String(saved.identityRevision||"")!==String(current.identityRevision));
+  return { known:true, stale, reason:stale?"canon-changed":"current", meta, current };
+}
+function nbAssertIdentityAssetFresh(id, character, ctx){
+  const s = nbIdentityAssetStatus(id, character, ctx);
+  if(s.stale){
+    const e = new Error("The character reference is stale or unverified for the current canon ("+(s.reason||"identity mismatch")+"). Regenerate the character sheet before using it.");
+    e.name="StaleCharacterIdentityError"; e.identityStatus=s; throw e;
+  }
+  return s;
+}
+window.nbIdentityAssetStatus = nbIdentityAssetStatus;
+window.nbAssertIdentityAssetFresh = nbAssertIdentityAssetFresh;
 
 /* ===== storage backend selector: 'local' (IndexedDB) or 'cloud' (Supabase) =====
    The app calls one set of nb* functions; this routes them to the right backend.
@@ -1158,6 +1379,11 @@ window.softenImagePrompt = softenImagePrompt;
 
 async function proxyGenerate(prompt, opts, provider){
   opts = opts || {};
+  /* This is the last shared image-provider boundary.  It intentionally repeats
+     the caller-side check: edits, simplified retries, and policy fallbacks all
+     converge here, so no paid request can skip the identity gate. */
+  nbAssertMediaIdentity(opts, "image-provider-start");
+  prompt = nbCanonicalMediaPrompt(prompt, opts);
   const model = opts.model || nbGetModel();
   const aspect = opts.aspectRatio || nbGetAspect();
   const imageSize = opts.imageSize || nbGetRes();
@@ -1205,6 +1431,10 @@ async function proxyGenerate(prompt, opts, provider){
     new Promise((_,rej)=> setTimeout(()=>{ const e=new Error("The image server didn't answer within 6\u00bd minutes — the request was abandoned. If this keeps happening, fal.ai may be rate-limited or the image-proxy needs a redeploy."); e.__timedOut=true; rej(e); }, 390000)) ]);
   for(let attempt=0; attempt<2; attempt++){
     error = null;
+    /* Reference conversion above and a network retry are both awaits.  Re-check
+       immediately before every paid proxy invocation in case canon changed while
+       the request was being prepared. */
+    nbAssertMediaIdentity(opts, "image-provider-submit");
     try{ ({ data, error } = await _capped(sb.functions.invoke(fnName, { body }))); }
     catch(e){ error = e; }
     if(!error) break;
@@ -1274,6 +1504,7 @@ window.oaiGenerate = oaiGenerate;
 /* call the selected image model; opts={model, aspectRatio}. resolves to a data URL or throws. */
 async function nbGenerate(prompt, opts){
   opts = opts || {};
+  nbAssertMediaIdentity(opts, "image-submit");
   const model = opts.model || nbGetModel();
   const provider = providerOfModel(model);
   /* dispatch to the server image broker. All current image models go through fal.ai

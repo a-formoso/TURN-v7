@@ -963,7 +963,10 @@ function App(){
   React.useEffect(()=>{ window.turnProject = project; },[project]);
   // live cast on a global so the scene drafter can read each character's canonical
   // pronouns (castPronounBlock) — the root-cause fix for bible<->script gender drift.
-  React.useEffect(()=>{ window.turnCast = characters; },[characters]);
+  React.useEffect(()=>{
+    window.turnCast = characters;
+    window.turnIdentityContext = { cast:characters, characters, scenes, drafts };
+  },[characters, scenes, drafts]);
   /* SLUGLINE UNITS — the atomic filmable location units ((place, side, TOD bucket)),
      derived fresh from the script and reconciled with the user's persisted overlays
      (appearance state / notes / images). Read-only consumers (Art Room UI, prompt
@@ -1707,8 +1710,19 @@ function App(){
     }
     const urlOf = (id)=> (byId[id] && byId[id].url) || "";
     const cast = castIds.map(urlOf).filter(Boolean);
+    const identityCast = chars.filter(c=>c && castIds.includes(c.id) && urlOf(c.id));
+    const identityContext = { cast:chars, scenes:doc.scenes||[], drafts:doc.drafts||{},
+      characterIds:identityCast.map(c=>c.id) };
+    if(typeof window.turnAssertCharacterIdentity==="function")
+      identityCast.forEach(c=>window.turnAssertCharacterIdentity(c,identityContext));
+    identityCast.forEach(c=>{
+      const asset=byId[c.id], meta=(asset&&asset.meta)||{};
+      const saved=(meta.identitySnapshot&&meta.identitySnapshot.pronouns)||meta.canonicalPronouns;
+      if(meta.identityStale || (saved && c.pronouns && saved!==c.pronouns))
+        throw new Error("Regenerate "+c.name+"'s character sheet before using it in the poster: its identity has changed.");
+    });
     const firstWithArt = (list)=>{ for(const e of list.slice(0,4)){ const u = e && e.id && urlOf(e.id); if(u) return { url:u, name:(e.name||e.title||"").trim() }; } return null; };
-    return { ok:true, cast, world:firstWithArt(locs), prop:firstWithArt(props), style };
+    return { ok:true, cast, identityCast, identityContext, world:firstWithArt(locs), prop:firstWithArt(props), style };
   };
   /* THE POSTER LOOK — a recipe built from the classic one-sheet archetypes
      (Bass's single bold symbol; the Struzan painted montage; the lone figure
@@ -1846,6 +1860,11 @@ function App(){
       // HIGH quality / 2K — key art is a hero surface, not a thumbnail. Fall
       // back to the default model only if that id isn't available (proxy off).
       const genOpts = { aspectRatio:"9:16", quality:"high", imageSize:"2K" };
+      if(canon.identityCast && canon.identityCast.length){
+        Object.assign(genOpts,{identityLive:false, identityCast:canon.identityCast,
+          identityCharacterIds:canon.identityCast.map(c=>c.id), identityContext:canon.identityContext});
+        if(typeof window.turnIdentityPrompt==="function") prompt += "\n"+window.turnIdentityPrompt(canon.identityCast);
+      }
       if((window.NB_MODELS||[]).some(m=>m.id==="gpt-image-2")) genOpts.model = "gpt-image-2";
       if(refs.length) genOpts.extraImages = refs;
       let url = await window.nbGenerate(prompt, genOpts);
@@ -2214,6 +2233,23 @@ function App(){
     makeShow({automatic:true});
   },[cloudMode,currentProjectId,currentShowId,scenes.length,project&&project.format,projects.length,seriesBusy]);
   const [agentLaunch, setAgentLaunch] = React.useState(null);   // {id, input} to auto-run an agent
+  /* Existing-film identity resolution can deliberately hand the writer back to
+     the same Consistency Check used elsewhere in the Writers' Room.  The
+     Character panel and Art Room share this event so neither has to reach into
+     the other room's React state. */
+  React.useEffect(()=>{
+    const openConsistency=()=>{
+      if(writersRoomBlocked) return;
+      setRoom("writers"); setView("script");
+      setAgentLaunch({id:"consistency"}); setAgentsOpen(true);
+    };
+    window.turnOpenConsistencyCheck=openConsistency;
+    window.addEventListener("turn-open-consistency-check",openConsistency);
+    return ()=>{
+      window.removeEventListener("turn-open-consistency-check",openConsistency);
+      if(window.turnOpenConsistencyCheck===openConsistency) delete window.turnOpenConsistencyCheck;
+    };
+  },[writersRoomBlocked]);
 
   // persist navigation (room/view/artView) to the device-local key on every change
   React.useEffect(()=>{
@@ -2899,8 +2935,29 @@ function App(){
   // ---- character handlers ----
   const updateCharacter = (id,patch)=>{
     if(!canMutateSharedFilm()) return;
-    setCharacters(cs=>cs.map(c=>c.id===id?{...c,...patch}:c));
+    const revision=Date.now().toString(36);
+    const merge=c=>{
+      if(c.id!==id) return c;
+      const identityChanged=Object.prototype.hasOwnProperty.call(patch,"pronouns")
+        && String(patch.pronouns||"").trim()!==String(c.pronouns||"").trim();
+      return {...c,...patch,...(identityChanged?{identityRevision:revision}:{})};
+    };
+    // Coordinator chains draftSpec → generateMaster before React's passive
+    // effect runs. Publish the accepted edit now so media checks see the repaired
+    // specification, not the superseded text. React remains the persisted state.
+    const live=window.turnIdentityContext;
+    if(live && Array.isArray(live.cast)){
+      const next=live.cast.map(merge);
+      window.turnIdentityContext={...live,cast:next,characters:next};
+      window.turnCast=next;
+    }
+    setCharacters(cs=>cs.map(merge));
   };
+  const characterMediaOptions = (c)=>({
+    identityLive:true, identityEpoch:typeof nbEpoch==="function"?nbEpoch():null,
+    identityCharacter:c, identityCharacterIds:[c.id], identityCast:characters,
+    identityContext:{characterIds:[c.id],cast:characters,scenes,drafts},
+  });
   // SOFT DELETE: move the full character into the restore bin (its scenes are scene-side
   // and untouched, so restoring the same id re-links them). The generated sheet is KEPT
   // (no nbClearAsset) so a restore brings the art back too; it's purged only on "Delete
@@ -2931,12 +2988,16 @@ function App(){
   const [charDrafting, setCharDrafting] = React.useState(null);
   const draftCharacter = async (ch)=>{
     if(!canMutateSharedFilm() || charDrafting) return;
+    const epoch=typeof nbEpoch==="function"?nbEpoch():null;
+    const startingPronouns=ch.pronouns;
     setCharDrafting(ch.id);
     const driven = scenes.filter(s=>s.driver===ch.id);
     try{
       const res = (typeof aiDraftCharacter==="function") ? await aiDraftCharacter(ch, driven, project, { scenes, drafts }) : null;
-      if(res && canMutateSharedFilm()) updateCharacter(ch.id, res);
-    }catch(e){}
+      const current=(window.turnCast||[]).find(c=>c.id===ch.id);
+      if(res && canMutateSharedFilm() && current && current.pronouns===startingPronouns
+        && (epoch===null || (typeof nbEpoch==="function" && nbEpoch()===epoch))) updateCharacter(ch.id, res);
+    }catch(e){ if(typeof window.appToast==="function") window.appToast(String(e&&e.message||"Character draft failed."),"error"); }
     setCharDrafting(null);
   };
   const selectScene = (id)=>{ setSelId(id); setSelChar(null); setFocusBeat(null);
@@ -3015,6 +3076,8 @@ function App(){
     if(!u && typeof nbLoadImage==="function"){ try{ u=await nbLoadImage(id); }catch(e){} } return u||""; };
   const generateCharMaster = async (c)=>{
     if(!c || typeof window.nbGenerate!=="function" || typeof window.nbCommit!=="function") return "";
+    const identityOptions=characterMediaOptions(c);
+    if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(identityOptions,"owner-sheet-start");
     let prompt = (typeof combinedImagePrompt==="function") ? combinedImagePrompt(c, project, props) : (c.name||"character reference sheet");
     const refs=[]; for(const p of (props||[]).filter(p=>p.ownerId===c.id && p.kind!=="carried")){ const u=await _imgOf(p.id); if(u) refs.push(u); }
     let cameo=[]; if(typeof nbGetCameoAngles==="function"){ try{ cameo=nbGetCameoAngles(c.id)||[]; }catch(e){} }
@@ -3027,14 +3090,17 @@ function App(){
     // the CURRENT picker leads — reusing the prior sheet's recorded model silently
     // ignored the user's model switch (and kept billing against the old provider)
     const model = ((typeof nbGetModel==="function")&&nbGetModel()) || (m0&&m0.modelId) || (gpt2&&gpt2.id) || undefined;
-    const gopts = { aspectRatio:"16:9", ...(model?{model}:{}), ...(extra.length?{extraImages:extra}:{}) };
+    const gopts = { ...identityOptions, aspectRatio:"16:9", ...(model?{model}:{}), ...(extra.length?{extraImages:extra}:{}) };
     let url; try{ url=await window.nbGenerate(prompt, gopts); }
     catch(e){ if(/no image/i.test(String((e&&e.message)||e))) url=await window.nbGenerate(prompt, gopts); else throw e; }
+    if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(gopts,"owner-sheet-commit");
     const meta = { modelId:model, aspect:"16:9", iso:new Date().toISOString(), prompt, agent:"Prop owner pre-gen",
+      identitySnapshot:typeof window.nbIdentitySnapshot==="function"?window.nbIdentitySnapshot(c):null,
       writingSources:(typeof window.nbWritingSourcesFor==="function")?window.nbWritingSourcesFor(c):[],
       promptCompiler:"TURN prompt compiler" };
     const kind = (typeof slotAssetKind==="function") ? slotAssetKind("charref-"+c.id) : "character";
-    await window.nbCommit(c.id, url, meta, [], kind);
+    const saved=await window.nbCommit(c.id, url, meta, [], kind, identityOptions.identityEpoch);
+    if(saved && saved.tier==="stale") return "";
     try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id:c.id, url } })); }catch(e){}
     return url;
   };
@@ -4053,6 +4119,7 @@ function App(){
     if(!spk || !spk.voiceLock || !spk.voiceLock.voiceId)
       throw new Error("No locked voice for "+((spk&&spk.name)||"the speaker")+" — lock one on their character card: The Art Room → Characters tab → the Voice button.");
     const r = await window.elGenerate(shot.id, text, { voiceId:spk.voiceLock.voiceId, settings:spk.voiceLock.defaults,
+      ...characterMediaOptions(spk),
       modelId:(typeof window.vgDeliveryModelOf==="function") ? window.vgDeliveryModelOf(spk.voiceLock) : (spk.voiceLock.modelId||window.VG_TTS_MODEL) });
     const durSec = Math.max(0.6, Math.round(((r.durationMs||0)/1000 + 0.4)*10)/10);   // measured + lead/tail pad
     updateShot(shot.id, { dur:durSec, lineAudio:{ durationMs:r.durationMs||0, voiceId:spk.voiceLock.voiceId,
@@ -5014,8 +5081,10 @@ function App(){
       if(typeof nbLoadDetailsAsset==="function"){
         try{ const d=await nbLoadDetailsAsset(slotId); priorVersion=Number(d&&d.meta&&d.meta.version)||0; }catch(e){}
       }
+      if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(gopts,"coordinator-sheet-commit");
       const meta = { modelId: gopts.model || ((typeof nbGetModel==="function")?nbGetModel():undefined), aspect:"16:9",
         iso:new Date().toISOString(), prompt, agent:"Casting Director", version:priorVersion+1,
+        identitySnapshot:typeof window.nbIdentitySnapshot==="function"?window.nbIdentitySnapshot(gopts.identityCharacter):null,
         ...(metaExtra||{}) };
       const kind = (typeof slotAssetKind==="function") ? slotAssetKind("charref-"+slotId) : "character";
       const _r = await window.nbCommit(slotId, url, meta, commitRefs, kind, _ep);
@@ -5043,6 +5112,8 @@ function App(){
         return merged; },
       generateMaster: async (c, generateOpts)=>{
         generateOpts = generateOpts||{};
+        const identityOptions=characterMediaOptions(c);
+        if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(identityOptions,"coordinator-master-start");
         let prompt = (typeof combinedImagePrompt==="function") ? combinedImagePrompt(c, project, props) : "";
         const excluded = new Set(Array.isArray(c.wornReferenceExclusions)?c.wornReferenceExclusions:[]);
         const worn = (props||[]).filter(p=>p.ownerId===c.id && p.kind!=="carried");
@@ -5056,6 +5127,7 @@ function App(){
         let referenceImage="";
         if(generateOpts.deriveFromCurrent){ referenceImage=await _grabImg(c.id);
           if(referenceImage){
+            if(typeof window.nbAssertIdentityAssetFresh==="function") window.nbAssertIdentityAssetFresh(c.id,c);
             prompt = "Update this existing master character sheet. Preserve the EXACT same identity, face, hair, skin tone, age, build, body proportions, panel layout, framing and render style from the base sheet. Apply the current production specification and approved worn-prop designs without re-casting the character. "+prompt;
             commitRefs.unshift({kind:"base",label:"Previous master character sheet",url:referenceImage,refId:c.id});
           }
@@ -5065,7 +5137,7 @@ function App(){
         const wornReferences = typeof window.loadWornReferenceSnapshot==="function"
           ? await window.loadWornReferenceSnapshot(c,worn,usedIds) : [];
         const visual=wornReferences.filter(r=>r.mode==="visual").length;
-        return _genCharImage(c.id, prompt, { model:_modelFor(c),
+        return _genCharImage(c.id, prompt, { ...identityOptions, model:_modelFor(c),
           ...(referenceImage?{referenceImage}:{}), ...(extra.length?{ extraImages:extra }:{}),
           commitRefs, metaExtra:{ specPrompt:(typeof combinedImagePrompt==="function") ? combinedImagePrompt(c, project, props) : prompt,
             writingSources:(typeof window.nbWritingSourcesFor==="function")?window.nbWritingSourcesFor(c):[],
@@ -5073,12 +5145,15 @@ function App(){
             wornSig:(typeof window.wornPropsSig==="function")?window.wornPropsSig(worn,c.id):"",
             wornReferences, wornRefSummary:{total:wornReferences.length,visual,text:wornReferences.length-visual} } }); },
       generateState: async (c, st, baseUrl)=>{
+        const identityOptions=characterMediaOptions(c);
+        if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(identityOptions,"coordinator-state-start");
+        if(baseUrl && typeof window.nbAssertIdentityAssetFresh==="function") window.nbAssertIdentityAssetFresh(c.id,c);
         const base = (typeof combinedImagePrompt==="function") ? combinedImagePrompt(c, project, props) : "";
         const prompt = base + " APPEARANCE STATE — "+(st.label||"variant")+": "+(st.change||"")
           + ". Render the character in THIS changed state consistently across every panel, keeping the EXACT same face, hair, skin tone and body as the reference; only the described change differs.";
         const cameo = await _cameoOf(c.id);
         const stateEntity={...c,appearanceState:st};
-        const opts = { model:_modelFor(c), metaExtra:{
+        const opts = { ...identityOptions, model:_modelFor(c), metaExtra:{
           writingSources:(typeof window.nbWritingSourcesFor==="function")?window.nbWritingSourcesFor(stateEntity):[],
           promptCompiler:"TURN prompt compiler" } };
         if(baseUrl) opts.referenceImage = baseUrl;
@@ -5977,7 +6052,7 @@ function App(){
       scenes.length>0 && (()=>{
         const charObj = selChar ? characters.find(c=>c.id===selChar) : null;
         const inspectorEl = charObj
-          ? React.createElement(CharacterPanel,{character:charObj, scenes,
+          ? React.createElement(CharacterPanel,{character:charObj, scenes, drafts, cast:characters,
               onUpdate:updateCharacter, onDraft:draftCharacter, drafting:charDrafting===charObj.id,readOnly:writersRoomBlocked,
               onJumpScene:(id)=>selectScene(id), onClose:()=>setSelChar(null),
               onCollapse:()=>setInspOpen(false),

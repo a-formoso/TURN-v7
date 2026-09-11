@@ -354,6 +354,29 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
   const [composing, setComposing] = React.useState(false);
   const [composeErr, setComposeErr] = React.useState("");
   const sheetAsp = (typeof aspectFor==="function") ? aspectFor(ctx && ctx.project) : "16:9";
+  /* Panel repair is a paid image edit even though the surrounding storyboard is
+     a free canvas composition.  Resolve its cast at each guard rather than
+     retaining a render-start object: a character/cast edit during an image
+     await must be observed before submission and commit. */
+  const panelIdentityIds = ()=>{
+    const live=(window.turnIdentityContext&&typeof window.turnIdentityContext==="object")
+      ? window.turnIdentityContext : {};
+    const chars=Array.isArray(live.characters) ? live.characters
+      : (Array.isArray(live.cast) ? live.cast : Object.values((ctx&&ctx.charById)||{}));
+    const sceneNow=live.scenes&&scene ? (live.scenes.find(s=>String(s&&s.id)===String(scene&&scene.id))||scene) : scene;
+    const ids=[];
+    (page.shots||[]).forEach(sh=>{
+      const got=(typeof inFrameCast==="function") ? inFrameCast(sh,sceneNow,chars) : (sh.subjects||[]);
+      (got||[]).forEach(id=>{ if(ids.indexOf(id)<0) ids.push(id); });
+    });
+    const cast=chars.filter(c=>ids.some(id=>String(id)===String(c&&c.id)));
+    return { characterIds:ids, cast, scenes:Array.isArray(live.scenes)?live.scenes:[sceneNow],
+      drafts:Object.prototype.hasOwnProperty.call(live,"drafts") ? live.drafts : (ctx&&ctx.drafts)||{} };
+  };
+  const panelIdentityOpts = ()=>{
+    const x=panelIdentityIds();
+    return { identityCharacterIds:x.characterIds, identityCast:x.cast, identityContext:x };
+  };
 
   // split the sheet into halves and save both to the project's image store (cloud) —
   // the Stage's video-generation hand-off; no local files to manage. Saved halves are
@@ -611,9 +634,14 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
     setPanelErr("");
     setPanelBusy(true);
     try{
+      const identityOpts = panelIdentityOpts();
+      if(typeof window.nbAssertMediaIdentity==="function")
+        window.nbAssertMediaIdentity(identityOpts,"storyboard-panel-edit-start");
       let frame = (typeof nbGetImage==="function") ? nbGetImage(sh.id) : "";
       if(!frame && typeof nbLoadImage==="function"){ try{ frame = await nbLoadImage(sh.id); }catch(e){} }
       if(!frame) throw new Error("This panel has no frame yet — generate it in the Shot List first.");
+      if(typeof window.nbAssertMediaIdentity==="function")
+        window.nbAssertMediaIdentity(panelIdentityOpts(),"storyboard-panel-edit-after-frame");
       const prompt = "Edit this film frame. Apply ONLY this change: "+text+". "
         +"Everything the instruction does NOT name stays IDENTICAL to the reference — the same characters "
         +"(identical faces & wardrobe), the same location and set, the same lighting and colour grade, and "
@@ -623,8 +651,26 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
       const extra = [];
       for(const rid of editRefSel){ let u=(typeof nbGetImage==="function")?nbGetImage(rid):"";
         if(!u && typeof nbLoadImage==="function"){ try{ u=await nbLoadImage(rid); }catch(e){} } if(u) extra.push(u); }
-      const url = await nbGenerate(prompt + (extra.length?" Additional reference images are attached (character sheets / location plate) — match those identities and that exact set faithfully.":""),
-        { referenceImage:frame, aspectRatio:sheetAsp, quality:"medium", ...(extra.length?{extraImages:extra}:{}) });
+      const submitIdentity = panelIdentityOpts();
+      if(typeof window.nbAssertIdentityAssetFresh==="function"){
+        for(const rid of editRefSel){
+          const owner=submitIdentity.identityCast.find(c=>String(rid)===String(c&&c.id)
+            || String(rid).indexOf(String(c&&c.id)+":")===0);
+          if(owner) window.nbAssertIdentityAssetFresh(rid,owner,submitIdentity.identityContext);
+        }
+      }
+      const identityPrompt = submitIdentity.identityCast.length && typeof window.turnIdentityPrompt==="function"
+        ? String(window.turnIdentityPrompt(submitIdentity.identityCast)||"").trim() : "";
+      const promptWithIdentity = identityPrompt
+        ? prompt+"\n\nCANONICAL CHARACTER IDENTITY (binding): "+identityPrompt : prompt;
+      if(typeof window.nbAssertMediaIdentity==="function")
+        window.nbAssertMediaIdentity(submitIdentity,"storyboard-panel-edit-before-submit");
+      const url = await nbGenerate(promptWithIdentity + (extra.length?" Additional reference images are attached (character sheets / location plate) — match those identities and that exact set faithfully.":""),
+        { referenceImage:frame, aspectRatio:sheetAsp, quality:"medium",
+          ...submitIdentity, ...(extra.length?{extraImages:extra}:{}) });
+      const afterProviderIdentity = panelIdentityOpts();
+      if(typeof window.nbAssertMediaIdentity==="function")
+        window.nbAssertMediaIdentity(afterProviderIdentity,"storyboard-panel-edit-after-provider");
       // ownership re-check after the long model await: if a newer run took the shot
       // over (a cancel released our token, then a Shot List render claimed it), that
       // render is the newer intent — discard this edit; the newer owner's events
@@ -635,11 +681,18 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
       }
       const prior = (typeof nbGetMeta==="function") ? (nbGetMeta(sh.id)||{}) : {};
       const now = new Date();
-      const meta = { ...prior, mode:"edit", editInstruction:text, prompt,
+      const finalIdentity = panelIdentityOpts();
+      const meta = { ...prior, mode:"edit", editInstruction:text, prompt:promptWithIdentity,
+        identityCharacterIds:finalIdentity.identityCharacterIds,
+        identitySnapshots:finalIdentity.identityCast.map(c=>typeof window.nbIdentitySnapshot==="function" ? window.nbIdentitySnapshot(c) : null).filter(Boolean),
+        identitySnapshot:finalIdentity.identityCast[0]&&typeof window.nbIdentitySnapshot==="function"
+          ? window.nbIdentitySnapshot(finalIdentity.identityCast[0]) : undefined,
         date:now.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}),
         time:now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}),
         iso:now.toISOString(), version:((prior.version||1)+1) };
-      const r = (typeof nbCommit==="function") ? await nbCommit(sh.id, url, meta, [{kind:"edit",label:"Previous frame (edited)",url:frame}], "shot", _ep) : null;
+       if(typeof window.nbAssertMediaIdentity==="function")
+         window.nbAssertMediaIdentity(finalIdentity,"storyboard-panel-edit-before-commit");
+       const r = (typeof nbCommit==="function") ? await nbCommit(sh.id, url, meta, [{kind:"edit",label:"Previous frame (edited)",url:frame}], "shot", _ep) : null;
       if(r && r.tier==="stale"){   // film switched mid-edit: quiet discard (no result event)
         _release();
         try{ window.dispatchEvent(new CustomEvent("nb-gen-cancel",{ detail:{ id:sh.id } })); }catch(e){}

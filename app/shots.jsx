@@ -1744,18 +1744,38 @@ async function generateShotFrame(sh, sceneShots, ctx, opts){
   opts = opts || {};
   // the ONE render plan shared with the manual card path — see shotRenderPlan above
   const plan = shotRenderPlan(sh, sceneShots, ctx);
+  const identityCast = (plan.inCast||[]).map(id=>(ctx.charById||{})[id]).filter(Boolean);
+  const identityContext = { characterIds:(plan.inCast||[]), scenes:ctx.scenes||[ctx.scene],
+    drafts:ctx.drafts||{}, cast:identityCast };
+  if(typeof window.nbAssertMediaIdentity==="function")
+    window.nbAssertMediaIdentity({identityCharacterIds:plan.inCast||[],identityCast,identityContext},"shot-start");
   const prevSh = plan.prevSh;
   const grab = async (id)=> (typeof shotGrabImage==="function") ? await shotGrabImage(id) : "";
   // the SEED: the reference frame — within a beat, the beat's FIRST shot's committed
   // frame (the coverage anchor); for a beat opener, the previous shot's frame
   // (cross-beat continuity). Carries grade + physical state forward.
   const seed = (prevSh && !opts.fresh) ? await grab(prevSh.id) : "";
+  if(typeof window.nbAssertMediaIdentity==="function")
+    window.nbAssertMediaIdentity({identityCharacterIds:plan.inCast||[],identityCast,identityContext},"shot-after-seed");
   // build any missing carried-prop sheet this shot would attach BEFORE resolving refs —
   // both the in-frame props AND the ledger-carried ones (they attach as carrySpec).
   // Cross-instance lock + fail-open inside; a failure just renders the shot as before.
   if(typeof ensureCarriedPropSheets==="function")
     await ensureCarriedPropSheets(sh, ctx.scene, ctx.charById, ctx.propById, ctx.project, plan.carried);
+  if(typeof window.nbAssertMediaIdentity==="function")
+    window.nbAssertMediaIdentity({identityCharacterIds:plan.inCast||[],identityCast,identityContext},"shot-after-props");
   const refs = await shotResolveRenderRefs(plan, grab);
+  if(typeof window.nbAssertMediaIdentity==="function")
+    window.nbAssertMediaIdentity({identityCharacterIds:plan.inCast||[],identityCast,identityContext},"shot-after-refs");
+  /* Legacy character sheets have no canonical snapshot and canon-changed sheets
+     are explicitly stale.  Do not silently pass one through the shot pipeline. */
+  if(typeof window.nbAssertIdentityAssetFresh==="function"){
+    identityCast.forEach(c=>{
+      const hit=refs.find(r=>r&&r.refId&&
+        (String(r.refId)===String(c.id)||String(r.refId).indexOf(String(c.id)+":")===0));
+      if(hit) window.nbAssertIdentityAssetFresh(hit.refId,c,identityContext);
+    });
+  }
   // buildShotPrompt now emits the STYLE SPINE + staging + the named reference stack itself
   // (it reads ctx.carriedForward + ctx.prevFrameRole), so we don't re-list references here.
   const _ordAll = (typeof sceneShotsOrdered==="function") ? sceneShotsOrdered(sceneShots) : (sceneShots||[]);
@@ -1765,15 +1785,24 @@ async function generateShotFrame(sh, sceneShots, ctx, opts){
     prevFrameRole: !!seed, prevShot:seed?prevSh:null };
   let prompt = combinedShotPrompt(sh, ctx);
   if(opts.correction) prompt += "\n\nCORRECTIONS (the previous attempt failed visual QC): "+opts.correction.replace(/\.$/,"")+".";
+  const identityPrompt = identityCast.length && typeof window.turnIdentityPrompt==="function"
+    ? String(window.turnIdentityPrompt(identityCast)||"").trim() : "";
+  if(identityPrompt && prompt.indexOf(identityPrompt)<0)
+    prompt += "\n\nCANONICAL CHARACTER IDENTITY (binding): "+identityPrompt;
   const gopts = {
     aspectRatio:(typeof aspectFor==="function") ? aspectFor(ctx.project) : "16:9",
     quality:"medium",
     referenceMaxDim:768,
+    identityCharacterIds:plan.inCast||[], identityCast, identityContext,
   };
   if(seed) gopts.referenceImage = seed;
   const rankedRefs = (typeof nbPreferBestAssetRefs==="function") ? nbPreferBestAssetRefs(refs) : refs;
   if(rankedRefs.length) gopts.extraImages = rankedRefs.map(r=>r.url);
+  if(typeof window.nbAssertMediaIdentity==="function")
+    window.nbAssertMediaIdentity(gopts,"shot-before-submit");
   const url = await nbGenerate(prompt, gopts);
+  if(typeof window.nbAssertMediaIdentity==="function")
+    window.nbAssertMediaIdentity(gopts,"shot-after-provider");
   const now = new Date();
   const prior = (typeof nbGetMeta==="function") ? (nbGetMeta(sh.id)||{}) : {};
   const advancedCamera = (typeof shotCameraMetadata==="function") ? shotCameraMetadata(sh) : null;
@@ -1791,6 +1820,8 @@ async function generateShotFrame(sh, sceneShots, ctx, opts){
             : { seedShotId:"", ...((prevSh && opts.fresh) ? { fresh:true } : {}) })
     : null;
   const meta = { ...prior, mode: seed?"base":"final", prompt, director:true,
+    identityCharacterIds:plan.inCast||[],
+    identitySnapshots:identityCast.map(c=>typeof window.nbIdentitySnapshot==="function" ? window.nbIdentitySnapshot(c) : null).filter(Boolean),
     ...(seedSource ? { seedSource } : {}),
     assetRole:"shot_anchor", assetRoleLabel:(typeof nbAssetRoleLabel==="function") ? nbAssetRoleLabel("shot_anchor") : "Shot anchor",
     advancedCamera,

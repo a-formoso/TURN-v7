@@ -34,6 +34,27 @@ const VID25_MODEL_I2V_FAST = VID25_MODEL_I2V;
 const VID25_MODEL_T2V      = "bytedance/seedance-2.5/text-to-video";
 window.VID_MODEL = VID_MODEL; window.VID_MODEL_FAST = VID_MODEL_FAST;
 window.VID_MODEL_I2V = VID_MODEL_I2V; window.VID_MODEL_I2V_FAST = VID_MODEL_I2V_FAST;
+function vidAssertIdentity(opts, phase){
+  opts=opts||{};
+  if(typeof window.nbAssertMediaIdentity==="function")
+    return window.nbAssertMediaIdentity(opts, phase||"video");
+  const c=opts.identityCharacter||opts.character, ids=opts.identityCharacterIds||opts.characterIds;
+  if(!c && !(ids&&ids.length) && !(opts.identityCast&&opts.identityCast.length)) return true;
+  const ctx=opts.identityContext||{characterIds:ids||(c&&c.id?[c.id]:[]),
+    scenes:opts.identityScenes,drafts:opts.identityDrafts,
+    ...(opts.identityCast&&opts.identityCast.length ? {cast:opts.identityCast} : (c ? {cast:[c]} : {}))};
+  let r;
+  try{
+    if(c&&typeof window.turnAssertCharacterIdentity==="function") r=window.turnAssertCharacterIdentity(c,ctx);
+    else if(typeof window.turnAssertProjectIdentity==="function") r=window.turnAssertProjectIdentity(ctx);
+  }catch(e){
+    if(e && e.identityReport && e.identityReport.status==="unset" && !c && !(ids&&ids.length)) return true;
+    throw e;
+  }
+  if(r===false || (r&&(r.ok===false||r.valid===false||r.blocked))) throw new Error(String(r.message||"Character identity needs review before rendering."));
+  return r;
+}
+window.vidAssertIdentity=vidAssertIdentity;
 function _seedanceEndpoint(modelOrEndpoint){
   const raw=String(modelOrEndpoint||VID_MODEL);
   if(!raw.includes("/") && /seedance-2\.5/i.test(raw)) return "bytedance/seedance-2.5/reference-to-video";
@@ -753,11 +774,26 @@ async function vidRecoverPending(opts){
     if(!j.requestId || _vidPollLease.has(j.requestId)) continue;
     _vidPollLease.add(j.requestId);   // recovery claims the job too — the load pass and the 5-min patrol can overlap
     try{
+    /* A recovered job still belongs to the canon that launched it.  If that
+       canon is now contradictory, leave the pending job untouched rather than
+       polling/committing a result into an unresolved project. */
+    try{
+      vidAssertIdentity({
+        identityCharacterIds:j.identityCharacterIds,
+        identityContext:j.identityContext,
+        identityCast:j.identityCast,
+      }, "video-recovery");
+    }catch(identityErr){
+      cooking++;
+      continue;
+    }
     if((Date.now()-(j.at||0)) > 24*3600*1000){ _vidPendingRemove(j.requestId); expired++; continue; }
     try{
       const st = await vidProxy("poll", { model:j.model, statusUrl:j.statusUrl, responseUrl:j.responseUrl });
       if(st.status==="COMPLETED" && st.videoUrl){
         _vidSettleSpend(j.spend);   // a recovered render is a rendered render — settle its charge (same event id as the live path: never twice)
+        try{ vidAssertIdentity({ identityCharacterIds:j.identityCharacterIds, identityContext:j.identityContext, identityCast:j.identityCast }, "video-recovery-before-commit"); }
+        catch(identityErr){ cooking++; continue; }
         await vidCommit(j.id, st.videoUrl, { ...(j.meta||{}), seed:st.seed||null, recovered:true });
         _vidPendingRemove(j.requestId); saved++;
       } else if(st.error || /^(FAILED|ERROR|CANCELLED|CANCELED)$/i.test(String(st.status||""))){
@@ -812,6 +848,7 @@ window.vidLikenessError = vidLikenessError;
 
 async function seedanceGenerate(id, opts){
   opts = opts||{};
+  vidAssertIdentity(opts, "video-generate-start");
   /* ownership + scope captured at START: Clear bumps the clip's run token; a film
      switch bumps the asset epoch. Both are re-checked after the LAST await before
      committing — a finished render must never resurrect a cleared clip or land in
@@ -884,7 +921,13 @@ async function seedanceGenerate(id, opts){
   const basePrompt = (opts.prompt||"").trim() || (audios.length
     ? firstVisualToken+" comes alive — the character speaks the line in @Audio1 with natural, accurate lip-sync. Subtle, grounded motion; hold the framing and the lighting."
     : firstVisualToken+" comes alive with subtle, natural motion; hold the framing and the lighting.");
-  const promptText = controls ? (basePrompt + "\n" + controls) : basePrompt;
+  const identityCast = opts.identityCast || [];
+  const identityPrompt = (identityCast.length && typeof window.turnIdentityPrompt==="function")
+    ? String(window.turnIdentityPrompt(identityCast)||"").trim() : "";
+  const promptWithIdentity = identityPrompt && basePrompt.indexOf(identityPrompt)<0
+    ? basePrompt+"\n\nCANONICAL CHARACTER IDENTITY (binding): "+identityPrompt : basePrompt;
+  const promptText = controls
+    ? (promptWithIdentity + "\n" + controls) : promptWithIdentity;
   /* generate_audio controls the WHOLE output audio track (SFX, ambience AND the
      lip-synced speech built from audio references) — sending false with audio refs
      yields a silent video, so it stays ON whenever line audio rides along. */
@@ -894,6 +937,7 @@ async function seedanceGenerate(id, opts){
   const bitrateMode = textOnly ? null : (opts.bitrateMode==="high" ? "high" : "standard");
   if(isSeedance25 && resolution==="1080p"){
     const runtime=await seedanceGetRuntimeCapabilities(model);
+    vidAssertIdentity(opts, "video-after-capabilities");
     if(!runtime.known || !runtime.capabilities || !runtime.capabilities.resolutions.includes("1080p"))
       throw new Error("Seedance 2.5 1080p is disabled until the deployed video proxy acknowledges the new capability schema. 720p remains available; deploy the updated image-proxy Edge Function to enable 1080p.");
   }
@@ -905,11 +949,15 @@ async function seedanceGenerate(id, opts){
     const meta = vidGetMeta(id);
     if(url && meta && meta.hash===hash) return { videoUrl:url, seed:(meta&&meta.seed)||null, cached:true };
   }
-  const proxyImages = await vidProxyReadyUrls((isSora||isKling) ? images.slice(0,1) : images);   // Sora/Kling: the start frame only
-  const proxyVideos = (isSora||isKling) ? [] : await vidProxyReadyUrls(videos);
+   const proxyImages = await vidProxyReadyUrls((isSora||isKling) ? images.slice(0,1) : images);   // Sora/Kling: the start frame only
+   vidAssertIdentity(opts, "video-after-image-prep");
+   const proxyVideos = (isSora||isKling) ? [] : await vidProxyReadyUrls(videos);
+   vidAssertIdentity(opts, "video-after-video-prep");
   const proxyAudios = [];
-  if(!isSora && !isKling) for(const u of await vidProxyReadyUrls(audios)) proxyAudios.push(await vidPadShortAudio(u));
-  const proxyEndFrame = (useTransition || (isKling && endFrame)) ? await vidProxyReadyUrl(endFrame) : "";
+   if(!isSora && !isKling) for(const u of await vidProxyReadyUrls(audios)) proxyAudios.push(await vidPadShortAudio(u));
+   vidAssertIdentity(opts, "video-after-audio-prep");
+   const proxyEndFrame = (useTransition || (isKling && endFrame)) ? await vidProxyReadyUrl(endFrame) : "";
+   vidAssertIdentity(opts, "video-after-reference-prep");
   let referenceMetadata = null;
   if(!isSora && !isKling){
     referenceMetadata = await vidReferenceMetadata(proxyImages,proxyVideos,proxyAudios);
@@ -920,7 +968,8 @@ async function seedanceGenerate(id, opts){
   const attempt = async (pText)=>{
     const _tag = opts.statusTag || "";
     const emit = (s)=>{ if(opts.onStatus) opts.onStatus(_tag ? (_tag+" · "+s) : s); };
-    const sub = await vidProxy("submit", {
+     vidAssertIdentity(opts, "video-before-submit");
+     const sub = await vidProxy("submit", {
       model, prompt:pText,
       ...(isKling
         ? { image_url:proxyImages[0],
@@ -942,7 +991,9 @@ async function seedanceGenerate(id, opts){
     // orphan a paid render (recovery re-polls leftovers on the next load). Cancels and
     // timeouts keep the entry on purpose: the job may still finish server-side.
     _vidPendingAdd({ requestId:sub.requestId, id, model, statusUrl:sub.statusUrl, responseUrl:sub.responseUrl, at:Date.now(),
-      projectId:(scope0&&scope0.projectId)||null, uid:(scope0&&scope0.uid)||null,   // recovery is project-scoped
+       projectId:(scope0&&scope0.projectId)||null, uid:(scope0&&scope0.uid)||null,   // recovery is project-scoped
+       identityCharacterIds:opts.identityCharacterIds||opts.characterIds||[],
+       identityContext:opts.identityContext||null, identityCast:opts.identityCast||[],
       spend:spendRec,   // settled at COMPLETION by whichever path delivers first — event id dedupes
       meta:{ hash, model, durationMs:opts.durationMs||0, aspectRatio, prompt:pText, ...(opts.takeMeta||{}) } });
     _vidPollLease.add(sub.requestId);   // this poll OWNS the job while it runs — recovery keeps its hands off
@@ -964,7 +1015,8 @@ async function seedanceGenerate(id, opts){
       if(opts.shouldCancel && opts.shouldCancel()) throw new Error("Render cancelled.");
       await new Promise(r=>setTimeout(r, pollMs));
       let st;
-      try{ st = await vidProxy("poll", { model, statusUrl:sub.statusUrl, responseUrl:sub.responseUrl }); pollMiss = 0; }
+      try{ st = await vidProxy("poll", { model, statusUrl:sub.statusUrl, responseUrl:sub.responseUrl }); pollMiss = 0;
+        vidAssertIdentity(opts, "video-after-poll"); }
       catch(e){
         // a network blip mid-poll must NOT kill a render that's still running on the
         // provider — tolerate a few consecutive misses (each already retried inside
@@ -1007,6 +1059,13 @@ async function seedanceGenerate(id, opts){
         _vidSettleSpend(spendRec);
         const meta = { hash, model, durationMs:opts.durationMs||0, aspectRatio, seed:st.seed||null, prompt:pText,
           ...(opts.takeMeta||{}) };   // Versions-view facts: source, tier, resolution, recipe, audio, batch position…
+        try{ vidAssertIdentity(opts, "video-before-commit"); }
+        catch(identityErr){
+          _vidPendingRemove(sub.requestId);
+          if(typeof window.appToast==="function")
+            window.appToast("The video finished and was charged, but its take was not saved because character identity changed during rendering.","error");
+          return { videoUrl:st.videoUrl, seed:st.seed||null, cached:false, discarded:true, identityBlocked:true };
+        }
         /* OWNERSHIP RE-CHECK after the last await (memory: agent-run-lifecycle):
            the user may have cleared the clip or switched films while this cooked. */
         if(id!=null && vidRunToken(id)!==runToken0){

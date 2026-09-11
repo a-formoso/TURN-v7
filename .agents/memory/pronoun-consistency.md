@@ -1,18 +1,30 @@
 ---
 name: Pronoun / gender consistency
-description: Why "canon unset" defeats both prompt guidance and drift audits, and the three-layer fix pattern (generation, articulation, audit) for character gender consistency.
+description: Canonical identity authority, evidence boundaries, and non-deadlocking repair across writing and media.
 ---
 
 # Pronoun consistency — the unset-canon trap
 
-Character gender consistency depends on `character.pronouns` (canonical sheet field, Cast-panel editable). `charPronouns()` resolves explicit value → keyword inference (cameoInferGender) → "" (unset).
+Persisted valid pronouns are canonical even when originally generated. Provenance is informational, not a reason to silently turn an existing choice into "unset." An inferred dropdown value must not masquerade as a saved choice.
 
-**The trap:** every safeguard keyed on a NON-EMPTY canonical value. When pronouns were unset and inference neutral, castPronounBlock printed a soft "refer by NAME only" line (models ignore it) and the agents.jsx drift check required `canonPron` non-empty, so a script calling a woman "he" contradicted nothing and was never flagged.
+**Why:** treating generated values as canonical for writing but unset for media gives the same character two incompatible identities. Names and visual stereotypes cannot settle a screenplay/profile disagreement.
 
-**Why:** a comparison-based audit (`scriptPron !== canonPron`) silently passes when one side is blank. Any "X vs canon" enforcement needs an explicit unset-canon branch, or the blank state is a blind spot.
+**How to apply:** supply the canonical choice in generation prompts, not just the result merge. Offer an explicit writer-reviewed resolution when screenplay and profile disagree; never silently flip canon scene by scene.
 
-**How to apply:**
-- Generation prompts: unset pronouns = HARD-ERROR wording ("gender undecided: NAME only; writing he/she/they for them is a hard error"), never a soft suggestion.
-- Character articulation (aiDraftCharacter / aiCastPsychology): the model returns validated `he/him|she/her` with the story context it already has; merge NEVER overrides an explicit sheet pick. Depth budget excludes orbit-3 characters from the batch pass entirely — don't expect them to get pronouns there.
-- Drift audit (agentScriptBreakdown): a script-assigned gender with unset canon triggers a "settle the sheet" proposal; rejection directs the user to the Cast panel + Consistency Check rewrite.
-- Regression coverage: scripts/test-cast-pronouns.mjs (vm sandbox, stubbed window.claude.complete, runs the real minified aiCastPsychology — replicated merge logic in test code would not have caught the TDZ bug this suite now guards).
+An unset canonical value requires its own branch; absence of detected conflict is not proof of consistency.
+
+**Why:** comparison-only checks silently pass on blanks. Overstating lexical checks as verification hides ambiguity.
+
+**How to apply:** bind unknown identity to the name in prose, distinguish incidental unset cast from an explicitly scoped human render, and label heuristic observations as advisory.
+
+Hard-blocking text evidence must be an immediate named-subject declaration or a dedicated structured identity field. Do not attribute follow-up pronouns across an action block.
+
+**Why:** another character can occur before the target name; "Marcus guides Odette — a man … She shuts the door" does not establish that "She" refers to Odette. Free-text profiles can also discuss other people.
+
+**How to apply:** retain exact quotes and scene pointers, keep general profile-pronoun hints advisory, and test other-character, dialogue, and possessive false positives.
+
+Repair must remain possible after the writer chooses canon: obsolete profile/visual text is replaceable during re-drafting, while unresolved screenplay contradictions still block media.
+
+**Why:** checking old specifications before allowing their replacement deadlocks the repair. Coordinator chains can also see old prose until React publishes the accepted edit.
+
+**How to apply:** publish accepted repairs before chained generation, recheck the replacement before paid media, and treat legacy image metadata as unverified—not globally stale. Explicit identity changes require fresh reference review without deleting old assets.

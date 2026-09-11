@@ -1882,6 +1882,13 @@ function StageMentionEditor({ value, mentionables, includeMention, maxLen, place
 function StageFrameComposer({ sh, sceneShots, imgCtx, shotNo, onMax }){
   const pack = (typeof shotFrameGenOpts==="function")
     ? shotFrameGenOpts(sh, sceneShots||[], imgCtx) : null;
+  const imageChars = Object.values((imgCtx&&imgCtx.charById)||{});
+  const imageIds = (typeof inFrameCast==="function")
+    ? inFrameCast(sh, imgCtx&&imgCtx.scene, imageChars) : ((sh&&sh.subjects)||[]);
+  const imageCast = imageChars.filter(c=>imageIds.some(id=>String(id)===String(c.id)));
+  const imageIdentityContext = { characterIds:imageIds, cast:imageCast,
+    scenes:(imgCtx&&imgCtx.scenes)||[imgCtx&&imgCtx.scene].filter(Boolean),
+    drafts:(imgCtx&&imgCtx.drafts)||{} };
   // the derived prompt is LIVE (follows the shot's action/refs); an edit takes
   // over for this session only — the shot's canon Action is never touched here
   const derived = pack ? (pack.prevShot ? pack.chainPrompt : pack.finalPrompt) : "";
@@ -1891,6 +1898,7 @@ function StageFrameComposer({ sh, sceneShots, imgCtx, shotNo, onMax }){
   const gen = useImageGen(!pack
     ? { id:"stage-frame-none", slotId:"stage-frame-none", buildFinal:()=>"" }
     : { ...pack.opts,
+        identityCharacterIds:imageIds, identityCast:imageCast, identityContext:imageIdentityContext,
         buildFinal: ()=> edited ? promptText : pack.opts.buildFinal(),
         buildFromBase: ()=> edited ? promptText : pack.opts.buildFromBase(),
         // the "no image" recovery retry must speak the edited prompt too — without
@@ -2120,6 +2128,25 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     ? window.stageShotReferencePackage(shownShots,{ ...ctx,scene,images:imgs,drafts,
         availableImageIds:new Set(Object.keys(imgs||{})) })
     : {characters:[],locations:[],props:[],warnings:[],signature:""};
+  /* The clip prompt/reference package is the authoritative cast for this
+     generation.  Carry that exact cast into every Seedance attempt so a stale
+     global cast cannot reject an unrelated project. */
+  const identityIds = Array.from(new Set([]
+    .concat((referencePackage.characters||[]).map(r=>r&&r.entityId))
+    .concat(shownShots.flatMap(sh=>sh&&sh.subjects||[]))
+    .filter(Boolean)));
+  const identityCast = (ctx.characters||[]).filter(c=>identityIds.indexOf(c.id)>=0);
+  const identityContext = { characterIds:identityIds, scenes:ctx.scenes||[scene],
+    drafts, cast:identityCast };
+  const identityPrompt = identityCast.length && typeof window.turnIdentityPrompt==="function"
+    ? String(window.turnIdentityPrompt(identityCast)||"").trim() : "";
+  const assertStageIdentityAssets = ()=>{
+    if(typeof window.nbAssertIdentityAssetFresh!=="function") return;
+    (referencePackage.characters||[]).forEach(r=>{
+      const c=identityCast.find(x=>x&&String(x.id)===String(r&&r.entityId));
+      if(c && r&&r.assetId) window.nbAssertIdentityAssetFresh(r.assetId,c,identityContext);
+    });
+  };
   const beatLabel = clip.label;
   const beatName = clipBeatName(clip, beatsMap, drafts);
   const referenceWarningContext=(w)=>{
@@ -2997,6 +3024,13 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   const stagingCancelRef = React.useRef(false);
   const onGenerate = async (attemptOptions)=>{
     const referenceFree=!!(attemptOptions&&attemptOptions.referenceFree);
+    if(typeof window.nbAssertMediaIdentity==="function"){
+      try{ window.nbAssertMediaIdentity({identityCharacterIds:identityIds,
+        identityCast, identityContext}, "stage-video-start"); }
+      catch(e){ if(typeof window.appToast==="function") window.appToast((e&&e.message)||"Character identity needs review before rendering.","error"); return; }
+    }
+    try{ assertStageIdentityAssets(); }
+    catch(e){ if(typeof window.appToast==="function") window.appToast((e&&e.message)||"A character reference is stale; regenerate it before rendering.","error"); return; }
      /* ASSET STAGING (cloud URL refresh and blob→data-url conversion) runs
        BEFORE the hook's gening flag can light — a slow stage looked like a dead click
        and a staging throw was an uncaught rejection with no toast at all. staging
@@ -3050,9 +3084,11 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
 	    if(creditInfo.empty){ if(typeof window.appToast==="function") window.appToast("No generation credits remaining.","error"); return; }
 	    const hadTakeBefore = !!((typeof vidGetTakes==="function" && vidGetTakes(beatVideoId).length) || playerUrl || gen.videoUrl);
 	    const seedVal = seedInput.trim() ? Number(seedInput.trim()) : undefined;
-	    const promptPayload = referenceFree
-        ? stageTextOnlyPrompt(prompt, promptRefAssets)
-        : ((refBlock ? (prompt.trim()+"\n\n"+refBlock) : prompt)
+     const promptWithIdentity = identityPrompt && prompt.indexOf(identityPrompt)<0
+         ? prompt+"\n\nCANONICAL CHARACTER IDENTITY (binding): "+identityPrompt : prompt;
+     const promptPayload = referenceFree
+         ? stageTextOnlyPrompt(promptWithIdentity, promptRefAssets)
+         : ((refBlock ? (promptWithIdentity.trim()+"\n\n"+refBlock) : promptWithIdentity)
           + (voiceRefLines.length ? (refBlock?"":"\n\nReferences:")+"\n"+voiceRefLines.join("\n") : ""));
 	    const takeReferences = attemptPromptRefAssets.map(a=>({
 	      key:a.key||"",
@@ -3109,6 +3145,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
       durationMs:duration*1000, aspectRatio:effAspect||"auto", fast:!!tierObj.fast, resolution,
       seed:seedVal, generateAudio: hasDialogue ? true : nativeAudio,   // audio track must stay ON for the lip-synced line to be heard
       bitrateMode:bitrate,
+       identityCharacterIds:identityIds, identityCast, identityContext,
       falModel: tierObj.falModel || undefined,   // non-Seedance engines (Sora 2) name their fal endpoint per tier
       textOnly:referenceFree,
       // facts the Versions view shows per take — stamped into the take's meta at commit
@@ -3124,6 +3161,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
           omittedReferenceSourceVersions:referenceFree?resolvedSourceVersions:[],
           referenceSignature:referenceFree?"":(referencePackage.signature||""),
           referenceRecovery:referenceFree?"provider-media-policy-text-only":"",
+          identityCharacterIds:identityIds,
+          identitySnapshots:identityCast.map(c=>typeof window.nbIdentitySnapshot==="function" ? window.nbIdentitySnapshot(c) : null).filter(Boolean),
 	        propDependencies:(typeof stageClipPropDependencySignature==="function")
 	          ? stageClipPropDependencySignature(d,scene&&scene.id,window.turnContinuity||{}) : "" },
       // start→end transitions render on the dedicated i2v endpoint, which needs BOTH
@@ -3142,6 +3181,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
       // render never changes references after moderation. The explicit text-only
       // recovery is a separate user-launched job and intentionally has no media.
       if(referenceBlockingWarnings.length&&!referenceFree) throw new Error(referenceBlockMessage);
+      if(typeof window.nbAssertMediaIdentity==="function")
+        window.nbAssertMediaIdentity({identityCharacterIds:identityIds,identityCast,identityContext},"stage-video-before-submit");
+      assertStageIdentityAssets();
       const results = await runPayload(payload);
       const fresh = results.filter(r=>r && !r.cached);
       const lastWithSeed = results.filter(r=>r && r.seed!=null).slice(-1)[0];
@@ -3157,6 +3199,11 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   };
   const onExtend = async ()=>{
     if(!playerUrl) return;
+    if(typeof window.nbAssertMediaIdentity==="function"){
+      try{ window.nbAssertMediaIdentity({identityCharacterIds:identityIds,
+        identityCast, identityContext}, "stage-video-extend-start"); }
+      catch(e){ if(typeof window.appToast==="function") window.appToast((e&&e.message)||"Character identity needs review before extending this clip.","error"); return; }
+    }
     if(creditInfo.empty){ if(typeof window.appToast==="function") window.appToast("No generation credits remaining.","error"); return; }
     // pin the spend to the account that LAUNCHES the extension (same rule as onGenerate)
     const uid0 = (typeof window.nbCloudScope==="function" && (window.nbCloudScope()||{}).uid) || null;
@@ -3165,12 +3212,19 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     try{
       const frameAsset = onImages.find(a=>a.url===startFrame) || onImages[0] || null;
       const freshFrameUrl = await stageServerAssetUrl(frameAsset, startFrame || (frameAsset&&frameAsset.url) || "");
+      assertStageIdentityAssets();
       // Seedance's canonical extension grammar: name the video and the added length,
       // then describe the continuation — not a bare re-render with a video attached.
-      const extendPrompt = "Extend @Video1 by ~"+Math.round(duration)+" seconds, continuing seamlessly from where it ends: "+prompt.trim();
+      const extendPrompt = "Extend @Video1 by ~"+Math.round(duration)+" seconds, continuing seamlessly from where it ends: "
+        +prompt.trim()+(identityPrompt?"\n\nCANONICAL CHARACTER IDENTITY (binding): "+identityPrompt:"");
+      if(typeof window.nbAssertMediaIdentity==="function")
+        window.nbAssertMediaIdentity({identityCharacterIds:identityIds,identityCast,identityContext},"stage-video-extend-before-submit");
       const res = await gen.generate({ frameUrl:freshFrameUrl, videoUrls:[playerUrl], prompt:extendPrompt, controls,
+        identityCharacterIds:identityIds, identityCast, identityContext,
         spend:{ cost:renderCost, reason:"stage-video-extend", uid:uid0 },   // settled at COMPLETION, rides the job
         durationMs:duration*1000, aspectRatio:effAspect||"auto", fast:!!tierObj.fast, resolution, bitrateMode:bitrate, force:true });
+      if(typeof window.nbAssertMediaIdentity==="function")
+        window.nbAssertMediaIdentity({identityCharacterIds:identityIds,identityCast,identityContext},"stage-video-extend-after-provider");
       if(res && res.seed!=null) setLastSeed(res.seed);
       try{ window.dispatchEvent(new CustomEvent("turn-credits-changed",{ detail:{ reason:"stage-video-extend", cost:renderCost } })); }catch(_e){}
     }catch(e){ if(typeof window.appToast==="function") window.appToast(stageFriendlyVideoError(e),"error"); }
@@ -3450,8 +3504,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   },[sceneClips]);
   const imgCtx = React.useMemo(()=>({ scene,
     location:(typeof locationForScene==="function") ? locationForScene((ctx&&ctx.locations)||[], scene&&scene.id) : null,
-    charById:(ctx&&ctx.charById)||{}, propById:(ctx&&ctx.propById)||{},
-    project:(ctx&&ctx.project)||{}, locations:(ctx&&ctx.locations)||[] }),[scene&&scene.id, ctx]);
+     charById:(ctx&&ctx.charById)||{}, propById:(ctx&&ctx.propById)||{},
+     project:(ctx&&ctx.project)||{}, locations:(ctx&&ctx.locations)||[],
+     scenes:(ctx&&ctx.scenes)||[], drafts:(ctx&&ctx.drafts)||{} }),[scene&&scene.id, ctx]);
   const sdBarRef = React.useRef(null);
   React.useEffect(()=>{
     if(!sdMenu) return;

@@ -1346,6 +1346,13 @@ async function nbRunSheetGeneration(env, gopts){
   const { setGenErr, setGening, setRetrying, setGenUrl, setGenTier, setGenMeta } = ui;
   if(!window.__nbGenInflight) window.__nbGenInflight = {};
     gopts = gopts || {};
+    /* Reject a contradiction before opening a confirmation modal or starting
+       any reference preparation.  Provider wrappers repeat this check at the
+       final paid boundary; this early check keeps batch/edit UI fail-closed. */
+    if(typeof window.nbAssertMediaIdentity==="function"){
+      try{ window.nbAssertMediaIdentity(opts, "image-run-start"); }
+      catch(e){ setGenErr((e&&e.message)||"Character identity needs review before rendering."); return false; }
+    }
     // belt-and-braces: the module registry is the cross-instance truth. A remounted
     // card whose local state missed the in-flight generation must never start a
     // SECOND one for the same id (two versions + double credit spend from one click).
@@ -1432,6 +1439,7 @@ async function nbRunSheetGeneration(env, gopts){
     if(typeof opts.metaStart==="function"){
       try{ startMeta = await opts.metaStart({ gopts });
         if(!startMeta || typeof startMeta!=="object") startMeta=null; }catch(e){ startMeta=null; }
+    if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-after-meta");
     }
     const overrideModel = gopts.model || null;
     const usedModel = overrideModel || (typeof nbGetModel==="function" ? nbGetModel() : "");
@@ -1469,6 +1477,7 @@ async function nbRunSheetGeneration(env, gopts){
     else if(slotHasRef && typeof nbGetSlotImage==="function"){ refImage = nbGetSlotImage(slotId); mode = "photo"; }
     else if(opts.referenceFallback){ const b = await opts.referenceFallback(gopts); if(b){ refImage = b; mode = "base"; } }
     else if(cameoUrl){ refImage = cameoUrl; mode = "cameo"; }
+    if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-after-references");
 
     /* prompt: edit | simplified fallback | from-photo/cameo | from-base | master */
     let genPrompt;
@@ -1477,11 +1486,31 @@ async function nbRunSheetGeneration(env, gopts){
     else if(mode==="photo"||mode==="cameo") genPrompt = opts.buildFromPhoto ? opts.buildFromPhoto() : opts.buildFinal();
     else if(mode==="base") genPrompt = opts.buildFromBase ? opts.buildFromBase() : opts.buildFinal();
     else genPrompt = opts.buildFinal();
+    /* Character identity is appended here, rather than only in a particular
+       builder, so buildFinal/buildFromBase/buildSimple/buildEdit all carry the
+       same canonical wording. */
+    const inferredIdentityIds = (typeof window.nbIdentityContext==="function")
+      ? window.nbIdentityContext(opts).characterIds : [];
+    const liveIdentityCast = Array.isArray(window.turnCast)
+      ? window.turnCast.filter(c=>c&&inferredIdentityIds.indexOf(c.id)>=0) : [];
+    const identityCast = opts.identityCast || (opts.identityCharacter ? [opts.identityCharacter] : liveIdentityCast);
+    const identityPrompt = (identityCast.length && typeof window.turnIdentityPrompt==="function")
+      ? String(window.turnIdentityPrompt(identityCast)||"").trim() : "";
+     const genOpts = { metaOut:{} };
+    genOpts.identityCharacter = opts.identityCharacter || undefined;
+    genOpts.identityCharacterIds = inferredIdentityIds;
+    genOpts.identityCast = identityCast;
+    genOpts.identityContext = opts.identityContext;
+    const withIdentity = (text)=>{
+      const s=String(text||"");
+      return identityPrompt && s && s.indexOf(identityPrompt)<0
+        ? s+"\n\nCANONICAL CHARACTER IDENTITY (binding): "+identityPrompt : s;
+    };
+    genPrompt = withIdentity(genPrompt);
 
     /* grounding (Nano Banana 2 only) */
     const groundEnabled = typeof nbGetGroundSearch==="function" && nbGetGroundSearch();
     const isFlash = usedModel === "gemini-3.1-flash-image";
-    const genOpts = { metaOut:{} };
     if(abortCtl) genOpts.signal = abortCtl.signal;
     if(overrideModel) genOpts.model = overrideModel;
     if(gopts.aspectRatio) genOpts.aspectRatio = gopts.aspectRatio;   // caller can force aspect…
@@ -1608,6 +1637,7 @@ async function nbRunSheetGeneration(env, gopts){
       let url;
       try{
         url = await nbGenerate(genPrompt, genOpts);
+        if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-after-provider");
       }catch(e){
         if(_cancelledNow()) throw { __cancelled:true };
         const emsg = (e && e.message) || "";
@@ -1622,7 +1652,9 @@ async function nbRunSheetGeneration(env, gopts){
           : /rejected by the safety system|safety system|content polic|content_policy|moderation_blocked|flagged as potentially violating|image generation.*not allowed|violat(?:es|ing).*(?:policy|guidelines)/i.test(emsg);
         if(!useSimple && !isEditMode && /no image/i.test(emsg) && opts.buildSimple){
           setRetrying(true);
-          url = await nbGenerate(opts.buildSimple(), genOpts);
+          if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-simple-retry");
+          url = await nbGenerate(withIdentity(opts.buildSimple()), genOpts);
+          if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-after-simple-retry");
         } else if(isPolicy && typeof isGptImageModel==="function" && isGptImageModel(usedModel)){
           // GPT Image refused on CONTENT POLICY — auto-fall back to Nano Banana,
           // which is far more permissive for cinematic content (action, blood, intensity).
@@ -1632,7 +1664,9 @@ async function nbRunSheetGeneration(env, gopts){
           setRetrying(true);
           policyFellBack = gModel.label || "Nano Banana";
           actualModel = gModel.id;
+           if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-policy-fallback");
           url = await nbGenerate(genPrompt, { ...genOpts, model:gModel.id });
+           if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-after-policy-fallback");
         } else { throw e; }
       }
       // cancelled mid-flight (Stop) or superseded by a newer run for this id:
@@ -1641,10 +1675,12 @@ async function nbRunSheetGeneration(env, gopts){
       // Record the actual returned pixels as well as the requested resolution tier.
       // Providers can return dimensions that differ slightly from the nominal tier.
       const outputDims = await nbImageDimensions(url);
+      if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-after-dimensions");
       /* version number from existing history (nbCommit rolls history internally) */
       let priorCount = 0;
       try{
         const histLen = (typeof nbGetHistory==="function") ? (await nbGetHistory(id)).length : 0;
+        if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-after-history");
         priorCount = genUrl ? Math.min(histLen+1, 12) : histLen;
       }catch(e){}
       const mEntry = allModels.find(m=>m.id===actualModel) || allModels[0] || {};
@@ -1691,6 +1727,19 @@ async function nbRunSheetGeneration(env, gopts){
         editInstruction: isEditMode ? (gopts.editInstruction||"") : "",
         version: priorCount + 1
       };
+      if(opts.identityCharacter || (opts.identityCast&&opts.identityCast.length) || identityCast.length){
+        const primary = opts.identityCharacter || identityCast[0];
+        const snap = (typeof window.nbIdentitySnapshot==="function")
+          ? window.nbIdentitySnapshot(primary) : null;
+        if(snap){
+          meta.identitySnapshot = snap;
+          meta.canonicalIdentity = snap;
+          meta.canonicalPronouns = snap.pronouns || "";
+          meta.identityVerified = snap.verified !== false;
+          if(identityCast.length>1)
+            meta.identitySnapshots = identityCast.map(c=>window.nbIdentitySnapshot(c)).filter(Boolean);
+        }
+      }
       if(isEditMode && typeof propReferenceSnapshot==="function"){
         const prior=(genMeta&&Array.isArray(genMeta.propDependencies))?genMeta.propDependencies:[];
         const depIds=[...prior.map(r=>r&&r.propId),
@@ -1705,6 +1754,7 @@ async function nbRunSheetGeneration(env, gopts){
         try{ const extra = await opts.metaExtra({ mode, refsUsed, prompt: genPrompt });
           if(extra && typeof extra==="object") Object.assign(meta, extra); }catch(e){}
       }
+      if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-before-commit");
       // re-check cancel/ownership after the async meta work — a cancelled or
       // superseded generate must never commit
       if(_cancelledNow()) throw { __cancelled:true };
@@ -1863,6 +1913,10 @@ function useImageGen(opts){
 
   const generate = async (gopts)=>{
     if(gening) return;   // local spinner state — every cross-instance guard lives in the runner
+    if(typeof window.nbAssertMediaIdentity==="function"){
+      try{ window.nbAssertMediaIdentity(opts, "image-generate"); }
+      catch(e){ setGenErr((e&&e.message)||"Character identity needs review before rendering."); throw e; }
+    }
     return await nbRunSheetGeneration({
       id, slotId, opts, allModels, genUrl, genMeta, slotHasRef,
       ui: { setGenErr, setGening, setRetrying, setGenUrl, setGenTier, setGenMeta,
@@ -1901,6 +1955,10 @@ function useImageGen(opts){
   const importSheet = async (file)=>{
     if(gening || !file) return;
     if(!/^image\/(png|jpeg|jpg|webp|avif)$/i.test(file.type||"")){ setGenErr("Choose a PNG, JPEG, WebP or AVIF image."); return; }
+    if(typeof window.nbAssertMediaIdentity==="function"){
+      try{ window.nbAssertMediaIdentity(opts,"image-import-start"); }
+      catch(e){ setGenErr((e&&e.message)||"Character identity needs review before importing this sheet."); return; }
+    }
     // film scope at import start — reading + decoding the file awaits, and entity ids
     // repeat across films: without this, switching films mid-import would store the
     // image under the SAME id in the newly opened film
@@ -1921,6 +1979,12 @@ function useImageGen(opts){
         time: now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}),
         iso: now.toISOString(), version: 1,
       };
+      if(typeof window.nbIdentitySnapshot==="function"){
+        const snap=window.nbIdentitySnapshot(opts.identityCharacter||opts.entity);
+        if(snap){ meta.identitySnapshot=snap; meta.canonicalIdentity=snap;
+          meta.canonicalPronouns=snap.pronouns||""; meta.identityVerified=snap.verified!==false; }
+      }
+      if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts,"image-import-before-commit");
       const assetKind = (typeof slotAssetKind==="function") ? slotAssetKind(slotId) : "character";
       if(typeof nbWithAssetProvenance==="function") Object.assign(meta, nbWithAssetProvenance(id, meta, assetKind));
       const saveResult = await nbCommit(id, dataUrl, meta, [], assetKind, _importEpoch);
@@ -3912,6 +3976,8 @@ function StateRow({ c, st, index, project, scenes, props, baseGenUrl, onView, on
   const gen = useImageGen({
     id: stateId, slotId: "charref-"+stateId,
     entity: { ...c, appearanceState:st },
+    identityCharacter: c, identityCharacterIds:[c.id], identityCast:[c],
+    identityContext:{ characterIds:[c.id], scenes, drafts, cast:[c] },
     cameoId: c.id,
     buildFinal: buildFinal,
     buildFromBase: baseGenUrl ? buildFromBase : null,
@@ -3953,7 +4019,7 @@ function StateRow({ c, st, index, project, scenes, props, baseGenUrl, onView, on
         scenes.map(s=>React.createElement("option",{key:s.id,value:s.id},"Sc "+s.no+" \u00b7 "+s.title)))));
 }
 
-function CharacterSheet({ c, project, scenes, props, drafts, speaks, onUpdate, onDraft, drafting, onView, onSuggestStates, suggestingStates, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, batchActiveId, onBatchDone, onDelete }){
+function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, onUpdate, onDraft, drafting, onView, onSuggestStates, suggestingStates, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, batchActiveId, onBatchDone, onDelete }){
   const drivenScenes = scenes.filter(s=>s.driver===c.id);
   const driven = drivenScenes.length;
   // ALL scenes this character appears in (drives OR is named in the script/summary), not
@@ -4183,6 +4249,8 @@ function CharacterSheet({ c, project, scenes, props, drafts, speaks, onUpdate, o
   const gen = useImageGen({
     id: c.id, slotId: "charref-"+c.id,
     entity: c,
+    identityCharacter: c, identityCharacterIds:[c.id], identityCast:[c],
+    identityContext:{ characterIds:[c.id], scenes, drafts, cast:[c] },
     cameoId: c.id,
     /* Clear cascades to this character's appearance-state variant sheets so they
        aren't orphaned (cameo + linked props are preserved). */
@@ -4279,6 +4347,8 @@ function CharacterSheet({ c, project, scenes, props, drafts, speaks, onUpdate, o
   const scaleSheetGen = useImageGen({
     id: "charscale-"+c.id, slotId: "charscale-"+c.id,
     entity: c,
+    identityCharacter: c, identityCharacterIds:[c.id], identityCast:[c],
+    identityContext:{ characterIds:[c.id], scenes, drafts, cast:[c] },
     buildFinal:    ()=> (typeof buildScaleSheetPrompt==="function") ? buildScaleSheetPrompt(c) : "",
     buildSimple:   ()=> (typeof buildScaleSheetPrompt==="function") ? buildScaleSheetPrompt(c) : "",
     buildFromBase: ()=> (typeof buildScaleSheetPrompt==="function") ? buildScaleSheetPrompt(c) : "",
@@ -4399,9 +4469,17 @@ function CharacterSheet({ c, project, scenes, props, drafts, speaks, onUpdate, o
           React.createElement("div",{className:"role-line"},
             React.createElement("span",{className:"role-lab"},"Pronouns"),
             React.createElement("select",{className:"char-pronoun-sel",
-              value:((c.pronouns==="he/him"||c.pronouns==="she/her") ? c.pronouns : ((typeof window.charPronouns==="function"?window.charPronouns(c):"") || "")),
-              onChange:e=>onUpdate(c.id,{pronouns:e.target.value})},
+              value:(typeof window.turnIdentityReport==="function"
+                ? (window.turnIdentityReport(c,{scenes,drafts,cast:cast||[c]}).pronouns||"")
+                : ((c.pronouns==="he/him"||c.pronouns==="she/her") ? c.pronouns : "")),
+              onChange:e=>onUpdate(c.id,{pronouns:e.target.value,pronounProvenance:"user",
+                identityProvenance:{ ...(c.identityProvenance||{}), pronouns:"user" }})},
               [["","set pronouns\u2026"],["he/him","he/him"],["she/her","she/her"]].map(function(o){return React.createElement("option",{key:o[0]||"unset",value:o[0],disabled:!o[0]},o[1]);})))),
+          typeof window.CharacterIdentityNotice==="function" && React.createElement(window.CharacterIdentityNotice,{
+             character:c, scenes, drafts, cast:cast||[c], readOnly:false,
+            onUpdate:(id,patch)=>onUpdate(id, { ...(patch||{}), pronounProvenance:"user",
+              identityProvenance:{ ...(c.identityProvenance||{}), pronouns:"user" } })
+          }),
         // physical identity as a clean LABELLED LIST (each field editable), instead of one
         // run-on paragraph. Edits update the structured `physique` (the source the prompt
         // reads) AND recompose `coreBody` so downstream/legacy readers stay in sync.
@@ -5308,7 +5386,7 @@ function CharacterSheets({ project, characters, scenes, props, drafts, shots, be
           batchActiveId?"Generating…":("Generate all in Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")), typeof window.nbCostChip==="function" && window.nbCostChip(1)))),
     BatchBar && React.createElement(BatchBar,{batch,noun:"character"}),
     React.createElement("div",{className:"sheet-grid"},
-      charPager.slice(shown).map(c=>React.createElement(CharacterSheet,{key:c.id,c,project,scenes,props,drafts,speaks:speakingSet.has(c.id),onUpdate,onDraft,
+      charPager.slice(shown).map(c=>React.createElement(CharacterSheet,{key:c.id,c,project,scenes,props,drafts,cast:characters,speaks:speakingSet.has(c.id),onUpdate,onDraft,
         drafting:draftingId===c.id||(draftingIds||[]).indexOf(c.id)>=0,onView:(url,ch)=>setView({url,character:ch}),
         batchActiveId,onBatchDone:batch.advance,onDelete:onDelete,
         onSuggestStates,suggestingStates:suggestingStatesId===c.id,onRemoveOwnedItem,onRenameOwnedItem,onDraftProp,onCreateOwnedProp}))),

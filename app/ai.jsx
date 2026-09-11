@@ -361,7 +361,10 @@ const DRIVER_NAME = { neo:"NEO", morpheus:"MORPHEUS", trinity:"TRINITY", smith:"
    prose (role / physique / wardrobe) via the same signal cameoInferGender uses. Feeding
    this into the drafter makes the script use the right pronouns from the start. */
 function charPronouns(c){
-  if(c && typeof c.pronouns==="string" && c.pronouns.trim()) return c.pronouns.trim();
+  const provenance=String(c&&c.pronounProvenance||"").trim().toLowerCase();
+  const inferred=/^(inferred|inference|auto|automatic|model|generated|ai|dropdown)$/.test(provenance);
+  if(c && !inferred && typeof c.pronouns==="string" && c.pronouns.trim()) return c.pronouns.trim();
+  if(inferred) return "";
   let g = "neutral";
   if(typeof cameoInferGender==="function"){ try{ g = cameoInferGender(c); }catch(e){} }
   else {
@@ -380,10 +383,206 @@ function charPronouns(c){
 }
 window.charPronouns = charPronouns;
 
+/* Binary pronouns are the only generated pronoun values accepted by the house
+   rules.  Keep an explicit sheet value opaque (charPronouns does that for
+   backwards compatibility), but never let a model invent a new value for a
+   character that already has one. */
+function binaryPronouns(raw){
+  const p=String(raw||"").toLowerCase().trim();
+  return /^(he\/him|she\/her)$/.test(p) ? p : "";
+}
+
+/* Find identity evidence in the actual screenplay before a model is allowed to
+   guess for a character whose sheet is unset.  A name is only a locator here:
+   it is NEVER treated as gender evidence.  We require one gendered class in a
+   sentence/paragraph that names the character and reject mixed evidence. */
+function screenplayPronounEvidence(character, context){
+  const c=character||{}, ctx=context||{}, name=String(c.name||"").trim();
+  if(!name) return { pronouns:"", quote:"", sceneNo:null, source:"" };
+  let sharedObserved="";
+  /*
+   * The shared audit is the source of truth for identity evidence.  In
+   * particular it reads action blocks only and refuses nearby dialogue,
+   * names, clothing, or an unrelated gendered noun.  Keep the legacy parser
+   * below as a compatibility fallback for an older page that loaded without
+   * the audit layer, but never let it widen evidence in the current build.
+   */
+  if(typeof window.turnIdentityReport==="function"){
+    try{
+      const checked=window.turnIdentityReport(c,ctx)||{};
+      if(checked.scriptPronouns){
+        const hit=(checked.issues||[]).find(i=>i&&i.source==="screenplay"
+          && i.observedPronouns===checked.scriptPronouns);
+        if(hit&&hit.quote) return { pronouns:checked.scriptPronouns, quote:String(hit.quote).trim().slice(0,420),
+          sceneNo:hit.sceneNo!=null?hit.sceneNo:null, source:"screenplay" };
+        sharedObserved=checked.scriptPronouns;
+      }
+      else return { pronouns:"", quote:"", sceneNo:null, source:"" };
+    }catch(e){}
+  }
+  const first=name.split(/\s+/)[0]||"";
+  const esc=(s)=>String(s||"").replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+  const namePart=first.length>2 ? "(?:"+esc(name)+"|"+esc(first)+")" : "(?:"+esc(name)+")";
+  const nameRx=new RegExp("\\b"+namePart+"\\b","i");
+  const cast=Array.isArray(ctx.cast)?ctx.cast:[];
+  const otherNames=cast.filter(x=>x&&x.id!==c.id&&x.name&&x.name!==name)
+    .map(x=>String(x.name).trim()).filter(Boolean);
+  const genderWords={ man:"he/him", male:"he/him", boy:"he/him", gentleman:"he/him",
+    woman:"she/her", female:"she/her", girl:"she/her", lady:"she/her" };
+  const units=[];
+  const scenes=Array.isArray(ctx.scenes)?ctx.scenes:[];
+  const drafts=ctx.drafts||{};
+  scenes.forEach(s=>{
+    const d=drafts&&drafts[s.id];
+    if(d&&Array.isArray(d.blocks)) d.blocks.forEach(b=>{
+      if(b && String(b.type||"").toLowerCase()==="action" && String(b.text||"").trim())
+        units.push({ no:s.no, text:String(b.text) });
+    });
+  });
+  const candidates=[];
+  units.forEach(u=>{
+    const raw=String(u.text||"");
+    const match=nameRx.exec(raw);
+    if(!match) return;
+    const tail=raw.slice(match.index+match[0].length);
+    // Require an immediate declaration after the named subject. Nearby
+    // gendered words, wardrobe and occupation terms are not evidence.
+    const direct=tail.match(/^\s*(?:\([^)]{1,80}\)\s*)?(?:(?:—|–|-|:|,)\s*|(?:is|was|becomes|appears as)\s+)(?:an?\s+|the\s+)?(man|male|boy|gentleman|woman|female|girl|lady)\b/i);
+    const pron=tail.match(/^\s*(?:\([^)]{1,80}\)\s*)?(?:(?:—|–|-|:|,)\s*|(?:is|was|becomes|appears as)\s+)(he|him|his|she|her|hers|they|them|their)\b/i);
+    const observed=direct ? genderWords[String(direct[1]).toLowerCase()] :
+      (pron ? binaryPronouns(pron[1]) : "");
+    if(!observed) return;
+    const otherHits=otherNames.some(n=>new RegExp("\\b"+esc(n)+"\\b","i").test(tail));
+    if(otherHits) return;
+    candidates.push({ pronouns:observed, quote:raw.trim().slice(0,420), sceneNo:u.no });
+  });
+  const kinds=Array.from(new Set(candidates.map(x=>x.pronouns)));
+  if(kinds.length!==1 || !candidates.length) return { pronouns:"", quote:"", sceneNo:null, source:"" };
+  if(sharedObserved && sharedObserved!==kinds[0]) return { pronouns:"", quote:"", sceneNo:null, source:"" };
+  const hit=candidates[0];
+  return { ...hit, source:"screenplay" };
+}
+window.screenplayPronounEvidence = screenplayPronounEvidence;
+
+function identityContext(context){
+  const ctx=context||{};
+  const live=window.turnIdentityContext||window.turnContinuity||{};
+  return {
+    scenes:Array.isArray(ctx.scenes)?ctx.scenes:(Array.isArray(live.scenes)?live.scenes:[]),
+    drafts:Object.prototype.hasOwnProperty.call(ctx,"drafts") ? (ctx.drafts||{}) : (live.drafts||{}),
+    cast:Array.isArray(ctx.cast)&&ctx.cast.length ? ctx.cast :
+      ((window.turnCast&&window.turnCast.length) ? window.turnCast : (((window.TURN_DATA||{}).CHARACTERS)||[])),
+  };
+}
+
+/* The shared identity helper is deliberately consulted at call time: it is
+   supplied by the identity/audit layer and may load after this module.  Its
+   report is useful only for screenplay evidence here; explicit sheet values
+   always win and stale visual/profile prose is not evidence. */
+function identityScriptPronouns(character, context){
+  const ctx=identityContext(context);
+  let sharedAvailable=false;
+  try{
+    if(typeof window.turnIdentityReport==="function"){
+      sharedAvailable=true;
+      const report=window.turnIdentityReport(character,ctx)||{};
+      const p=binaryPronouns(report.scriptPronouns);
+      const issueQuote = Array.isArray(report.issues) &&
+        report.issues.find(i=>i&&i.source==="screenplay"&&i.quote);
+      if(report.status==="conflict") return { pronouns:"", quote:String((issueQuote&&issueQuote.quote)||"").trim().slice(0,420), source:"identity report", conflict:true };
+      if(p){
+        const local=screenplayPronounEvidence(character,ctx);
+        const q=local&&local.pronouns===p ? local.quote : "";
+        return { pronouns:p, quote:String(report.sourceQuote||report.quote||q||"").trim().slice(0,420), source:"identity report" };
+      }
+    }
+  }catch(e){}
+  // The shared helper is intentionally narrower than this legacy fallback:
+  // once it is present, its action-block evidence is authoritative.
+  if(sharedAvailable) return { pronouns:"", quote:"", source:"identity report" };
+  const evidence=screenplayPronounEvidence(character,ctx);
+  return evidence;
+}
+
+function canonicalIdentity(character, context){
+  const c=character||{};
+  // A persisted binary value is canonical even when its provenance says
+  // model/generated. Provenance is informational until the writer explicitly
+  // confirms a replacement; blanking a valid value here would make prompts,
+  // writers and media disagree on existing films.
+  const explicit=String(c.pronouns||"").trim();
+  if(explicit){
+    try{
+      if(typeof window.turnIdentityReport==="function"){
+        const report=window.turnIdentityReport(c,identityContext(context))||{};
+        const issues=Array.isArray(report.issues)?report.issues:[];
+        const issue=issues.find(i=>i&&i.source==="screenplay"&&i.quote);
+        const scriptPron=binaryPronouns(report.scriptPronouns);
+        const screenplayConflict=!!issue || (!!scriptPron && scriptPron!==binaryPronouns(explicit));
+        if(report.status==="conflict")
+          return { pronouns:explicit, source:"cast sheet", explicit:true, conflict:true,
+            screenplayConflict, quote:String((issue&&issue.quote)||"").trim().slice(0,420) };
+        if(screenplayConflict)
+          return { pronouns:explicit, source:"cast sheet", explicit:true, conflict:true,
+            screenplayConflict:true, quote:String((issue&&issue.quote)||"").trim().slice(0,420) };
+      }
+    }catch(e){}
+    return { pronouns:explicit, source:"cast sheet", explicit:true, quote:"" };
+  }
+  const script=identityScriptPronouns(c,context);
+  if(script&&script.conflict) return { pronouns:"", source:"identity conflict", explicit:false, conflict:true, quote:script.quote||"" };
+  if(script&&script.pronouns) return { ...script, explicit:false };
+  // Role/identity can be an authored identity clue.  Do not pass NAME,
+  // generated physique, wardrobe or old visual prose to this fallback.
+  const inferred=charPronouns({ role:c.role, identity:c.identity });
+  return inferred ? { pronouns:inferred, source:"authored role/identity", explicit:false, quote:"" } :
+    { pronouns:"", source:"unset", explicit:false, quote:"" };
+}
+window.turnCanonicalIdentity = canonicalIdentity;
+
+/* Identity conflicts are a hard stop for drafting, while an unset legacy
+   character may still be completed from direct screenplay evidence.  The
+   shared guard also knows about selected/current cast; preserve its conflict
+   error and intentionally do not turn its ordinary-unset warning into a
+   regression for old drafts. */
+function assertPromptIdentity(character, context, options){
+  const opts=options||{}, ctx=identityContext(context);
+  let report=null;
+  try{ if(typeof window.turnIdentityReport==="function") report=window.turnIdentityReport(character,ctx)||null; }catch(e){}
+  const issues=report&&Array.isArray(report.issues)?report.issues:[];
+  const screenplayConflict=!!(report&&(
+    issues.some(i=>i&&i.source==="screenplay") ||
+    (report.scriptPronouns && binaryPronouns(report.scriptPronouns)!==binaryPronouns(character&&character.pronouns))
+  ));
+  const persisted=String(character&&character.pronouns||"").trim();
+  // Character/profile and visual evidence can be stale after a writer has
+  // resolved the screenplay and confirmed the binding. Allow the free repair
+  // draft to replace that prose, but never allow it to paper over a script
+  // contradiction or an unset binding.
+  if(opts.allowStaleProfileRepair && persisted && !screenplayConflict && report&&report.status==="conflict")
+    return report;
+  try{
+    if(typeof window.turnAssertCharacterIdentity==="function")
+      return window.turnAssertCharacterIdentity(character,ctx);
+  }catch(e){
+    if(e&&e.identityReport&&e.identityReport.status==="conflict") throw e;
+  }
+  const identity=canonicalIdentity(character,context);
+  if(identity.conflict && (!opts.allowStaleProfileRepair || identity.screenplayConflict || !persisted)){
+    const err=new Error("Identity conflict for "+(character&&character.name||"this character")+
+      ": resolve the screenplay/profile evidence before generating.");
+    err.identityConflict=true;
+    throw err;
+  }
+  return null;
+}
+window.assertPromptIdentity = assertPromptIdentity;
+
 /* a compact CAST PRONOUNS block for the scene/beat drafter so generated prose uses each
    character's canonical pronouns (prevents the bible<->script gender drift at the source). */
-function castPronounBlock(cast){
+function castPronounBlock(cast, context){
   const list = (cast && cast.length) ? cast : (((window.TURN_DATA||{}).CHARACTERS)||[]);
+  const ctx=identityContext({ ...(context||{}), cast:(context&&context.cast)||list });
   // NAME↔IDENTITY BINDING: each cast name is bound to who that person IS, not just
   // their pronouns. Without this the drafter once reused a cast name for a brand-new
   // background person (the young enforcer "Kelan Broderick" written into a scene as
@@ -393,14 +592,23 @@ function castPronounBlock(cast){
     const age = String((c.physique&&c.physique.age)||"").trim();
     if(age) bits.push("apparent age: "+age);
     const b = bits.join(" · ").slice(0,150); return b ? (" — "+b) : ""; };
-  const lines = (list||[]).filter(c=>c&&c.name).map(c=>{ const pr=charPronouns(c);
-    return c.name+brief(c)+" · "+(pr || "pronouns UNSET — gender undecided: refer to this character by NAME only; writing he/she/they for them is a HARD ERROR"); });
-  return lines.length ? ("CAST (BINDING — each name belongs to exactly THIS person; use these pronouns EXACTLY; "+
+  const lines = (list||[]).filter(c=>c&&c.name).map(c=>{ const identity=canonicalIdentity(c,ctx), pr=identity.pronouns;
+    const conflict=identity.conflict && identity.screenplayConflict
+      ? " · IDENTITY CONFLICT — stop and resolve the quoted screenplay evidence before generating"
+      : (identity.conflict ? " · stale profile/visual prose will be replaced from this binding" : "");
+    return c.name+brief(c)+" · "+(pr || "pronouns UNSET — gender undecided: refer to this character by NAME only; writing he/she/they for them is a HARD ERROR")+conflict; });
+  if(!lines.length) return "";
+  // The shared helper is a second binding, not a replacement: retain the
+  // established castPronounBlock wording for older callers and tests.
+  let shared="";
+  try{ if(typeof window.turnIdentityPrompt==="function") shared=String(window.turnIdentityPrompt(list)||"").trim(); }catch(e){}
+  const local = "CAST (BINDING — each name belongs to exactly THIS person; use these pronouns EXACTLY; "+
     "never write a cast name onto a different kind of person — if the scene needs someone who matches "+
     "no one below, give them a NEW name instead. PRONOUNS: people are he/him or she/her per this list, "+
     "or their NAME — NEVER singular they/them for an individual; plural they only for true groups. "+
     "AGES ARE CANON: a first on-screen introduction carries the age parenthetical from THIS list — e.g. NAME (early 40s) — never an invented age):\n"+
-    lines.join("\n")+"\n") : "";
+    lines.join("\n")+"\n";
+  return (shared ? shared+"\n" : "") + local;
 }
 window.castPronounBlock = castPronounBlock;
 
@@ -416,7 +624,7 @@ function voiceDnaBrief(cast){
     const bits = Object.keys(labels).map(k=>{
       const v=String(dna[k]||"").trim(); return v ? (labels[k]+": "+v) : "";
     }).filter(Boolean);
-    return bits.length ? (c.name+" — "+bits.join("; ")) : "";
+    return bits.length ? (c.name+" ["+(canonicalIdentity(c).pronouns||"pronouns unset")+"] — "+bits.join("; ")) : "";
   }).filter(Boolean);
   return lines.length ? ("VOICE DNA (keep speakers distinct; do not turn these notes into exposition):\n"+lines.join("\n")+"\n") : "";
 }
@@ -1220,6 +1428,7 @@ if(_characterArchitectureFeature) _characterArchitectureFeature.what += " Genera
 APP_FEATURES.push({ name:"Balanced room side panels", what:"On desktop, the Writers' Room Story rail and Character inspector use the same width at every density; the Stage scene rail and render-settings panel follow the same matched-width system. On phones, the left and right drawers use the same responsive width too. When a story loads after sign-in with the right Inspector open, TURN selects the story's first scene and closes the left Story rail instead of showing an empty No scene panel. The same handoff happens as a newly created story first gains scenes; an existing valid user selection is not overridden during ordinary editing." });
 APP_FEATURES.push({ name:"Writers' Room left-panel tabs", what:"The Writers' Room left panel mirrors the right inspector: its collapse control sits on the outer-left edge while its Premise, Setting and Cast tabs align to the right. Premise contains the premise, controlling idea, Center of Good and Story Contract; Setting contains the story's period, duration, location and conflict; Cast displays the story-derived character roster. Users cannot manually add characters from either room; cast enters through story creation and screenplay development. The former Story Spine tree has been removed from this side panel; scene navigation remains in the main Spine view and the working canvas's scene controls. The selected left tab is remembered for the browser session." });
 const _charSheetsFeature = APP_FEATURES.find(f=>f.name==="Character Sheets (Art Room)");
+APP_FEATURES.push({ name:"Character identity consistency (Cast + Art Room)", what:"Character and Art Room surfaces show visible Identity conflicts when the canonical cast sheet and screenplay disagree. The notice quotes the direct screenplay source and offers an explicit “Use he/him/she/her from screenplay” action; it never silently replaces a persisted pronoun, including one carrying model/generated provenance. Once the writer resolves the screenplay conflict, approved identity binds drafting and the free repair pass replaces stale profile/visual gendered prose rather than locking it into a new spec. Detected script contradictions block affected generation until the writer resolves the cast or screenplay; old images and visual sheets are not retroactively verified and must be regenerated after an identity repair. Detection is best-effort, not a universal guarantee." });
 if(_charSheetsFeature) _charSheetsFeature.what = _charSheetsFeature.what
   .replace(/The character sheet's render block specifies a 16:9 aspect with a 10-PANEL 5×2 GRID layout[\s\S]*?not just a neutral portrait\./,
     "The character sheet's render block specifies a 16:9 casting-reference layout with four vertical panels: a large front-facing hero face portrait on the left, then full-body front, full-body three-quarter front, and full-body back turnarounds on a clean studio background. The sheet has no baked-in labels, captions, rulers, annotations, watermarks or UI text; scale is tracked in character metadata and the separate Scale sheet when needed.")
@@ -2658,6 +2867,9 @@ function normalizeDimensions(raw){
 async function aiDraftCharacter(character, drivenScenes, project, canon){
   if(!aiAvailable()) return null;
   const P = writingProjectOf(project);
+  const identityCtx = identityContext({ scenes:(canon&&canon.scenes)||[], drafts:(canon&&canon.drafts)||{}, cast:(canon&&canon.cast)||[character] });
+  const identity = canonicalIdentity(character, identityCtx);
+  assertPromptIdentity(character, identityCtx, { allowStaleProfileRepair:true });
   const ci = P.controllingIdea || {};
   let ctx = "FILM: "+(P.title||"Untitled")+" \u2014 "+(P.genre||"")+". Logline: "+writingLoglineOf(P)+"\n";
   ctx += "Controlling idea: "+(ci.value||"")+" "+(ci.cause||"")+"\n";
@@ -2683,6 +2895,8 @@ async function aiDraftCharacter(character, drivenScenes, project, canon){
   const ev = (canon && canon.drafts && typeof scriptEvidenceFor==="function")
     ? scriptEvidenceFor(character.name, canon.scenes||[], canon.drafts) : "";
   if(ev) ctx += "SCREENPLAY \u2014 the script's own words about "+character.name+" (CANON \u2014 the want/need/arc must fit these lines, never contradict them):\n"+ev+"\n";
+  if(identity.quote) ctx += "SCREENPLAY IDENTITY EVIDENCE (CANON — this exact source outranks names, model guesses and old profile prose):\n"+identity.quote+"\n";
+  ctx += castPronounBlock([character], identityCtx);
   if(drivenScenes && drivenScenes.length){
     ctx += "Scenes this character DRIVES (their behaviour across the story):\n";
     drivenScenes.forEach(s=>{ ctx += "  Sc "+s.no+" \u201c"+s.title+"\u201d: "+s.summary+
@@ -2702,7 +2916,7 @@ async function aiDraftCharacter(character, drivenScenes, project, canon){
     "humanTruth = the ONE observation about HUMAN NATURE this character embodies \u2014 a distinct stance on the controlling idea, GROUNDED in behaviour the screenplay actually shows (cite no scene numbers, just distil the behaviour); one sentence, specific, no platitudes. "+
     "argues = which side of the controlling idea that stance lands on: \"idea\", \"counter\", or \"complicates\" (it genuinely cuts both ways).\n"+
     "voiceDNA describes WRITTEN dialogue rather than casting performance: vocabulary domains, sentence structure, rhythm/cadence, directness, recurring imagery/metaphor sources, language they avoid, and how their syntax changes under pressure. CREATIVE LIMITATION: draw vocabulary domains and imagery sources from the story's WORLD above \u2014 its trades, objects, rooms and rituals \u2014 so every speaker shares the same small world's lexicon while remaining distinct in how they use it (what each notices, names precisely, or refuses to say). Ground it in this person's identity and screenplay evidence; make every field usable by a scene writer.\n"+
-    "pronouns = this character's pronouns, EXACTLY \"he/him\" or \"she/her\" \u2014 judge from the character as written (name, role, screenplay evidence); this becomes their canonical sheet entry, so every future scene uses it.\n"+
+    "pronouns = this character's pronouns. The CAST BINDING above is canonical: if it names a pronoun, repeat it EXACTLY and NEVER change it from a model field. If it says pronouns UNSET, use an unambiguous SCREENPLAY IDENTITY EVIDENCE line first; only when that evidence is absent may you make a cautious role/identity inference. NEVER infer gender from a name, and never copy contradictory old profile prose. Return exactly \"he/him\" or \"she/her\" only when supported; otherwise return an empty string.\n"+
     "Keep each concise and specific to THIS story \u2014 no generic screenwriting platitudes.\n"+
     'Return ONLY JSON: {"pronouns":"he/him|she/her","conscious":"one sentence","unconscious":"one sentence","arc":"3-5 word arc","dimensions":["trait / counter-trait","..."],'+(wantsCounterpoint?'"counterpoint":"one sentence",':'')+'"humanTruth":"one sentence","argues":"idea|counter|complicates","voiceDNA":{"vocabulary":"","syntax":"","rhythm":"","directness":"","imagery":"","avoids":"","stressShift":""}}.';
   try{
@@ -2721,9 +2935,12 @@ async function aiDraftCharacter(character, drivenScenes, project, canon){
       // Human truth is editable story architecture, not a display preview. Keep
       // the model's complete sentence and let the auto-growing textarea show it.
       humanTruth: clipSpecText(j.humanTruth),
-      // canonical pronouns — an explicit sheet pick always wins over a re-inference
-      ...( (/^(he\/him|she\/her)$/.test(String(j.pronouns||"").toLowerCase().trim()) && !(character && character.pronouns))
-        ? { pronouns:String(j.pronouns).toLowerCase().trim() } : {} ),
+      // Canonical pronouns — an explicit sheet pick always wins. For a new
+      // unset character, screenplay evidence wins over the model's guess.
+      ...( (!identity.explicit && identity.pronouns)
+        ? { pronouns:identity.pronouns }
+        : (!identity.explicit && !identity.pronouns && binaryPronouns(j.pronouns))
+          ? { pronouns:binaryPronouns(j.pronouns) } : {} ),
       voiceDNA: Object.fromEntries(Object.entries(j.voiceDNA||{}).filter(([k])=>
         ["vocabulary","syntax","rhythm","directness","imagery","avoids","stressShift"].includes(k))
         .map(([k,v])=>[k,clipWords(scrubBrand(String(v||"")),120)])),
@@ -2735,12 +2952,19 @@ window.aiDraftCharacter = aiDraftCharacter;
 
 /* batched CAST PSYCHOLOGY — draft conscious want + unconscious need + arc for the
    whole cast in small batches (so no response truncates). Returns { id:{fields} }. */
-async function aiCastPsychology(characters, scenes, project){
+async function aiCastPsychology(characters, scenes, project, canon){
   if(!aiAvailable() || !characters || !characters.length) return null;
   // DEPTH BUDGET (solar-system map): third-circle texture characters get no
   // psychology pass at all — a name and a function is their whole job.
   characters = characters.filter(c=>castOrbit(c, scenes)<=2);
   if(!characters.length) return null;
+  const identityCtx = identityContext({
+    scenes:(canon&&canon.scenes)||scenes||[],
+    drafts:(canon&&canon.drafts)||((project&&project.drafts)||{}),
+    cast:(canon&&canon.cast)||characters,
+  });
+  const sourceScenes=identityCtx.scenes;
+  const sourceDrafts=identityCtx.drafts;
   const P = writingProjectOf(project);
   const ci = P.controllingIdea || {};
   const header = "FILM: "+(P.title||"Untitled")+" \u2014 "+(P.genre||"")+". Logline: "+writingLoglineOf(P)+
@@ -2751,14 +2975,21 @@ async function aiCastPsychology(characters, scenes, project){
   for(let i=0;i<characters.length;i+=3) batches.push(characters.slice(i,i+3));
 
   const runBatch = async (chars)=>{
+    chars.forEach(c=>assertPromptIdentity(c,identityCtx, { allowStaleProfileRepair:true }));
     let ctx = header + "\nCAST (with each one's ORBIT on the solar-system map and the scenes each drives):\n";
     const orbitTag = { 0:"CENTER \u2014 protagonist", 1:"FIRST circle \u2014 help/hinder/define", 2:"SECOND circle \u2014 functional support" };
     chars.forEach(c=>{ const driven=(scenes||[]).filter(s=>s.driver===c.id);
       ctx += "- id:"+c.id+" | "+c.name+" ("+(c.role||"")+") ["+ (orbitTag[castOrbit(c,scenes)]||orbitTag[2]) +"]"+
-        (driven.length?(" \u2014 drives: "+driven.map(s=>s.title+" ["+chargeStr(s.openCharge)+"\u2192"+chargeStr(s.closeCharge)+"]").slice(0,5).join("; ")):" \u2014 drives no scenes")+"\n"; });
+        (driven.length?(" \u2014 drives: "+driven.map(s=>s.title+" — "+String(s.summary||"").replace(/\s+/g," ").slice(0,220)+" ["+chargeStr(s.openCharge)+"\u2192"+chargeStr(s.closeCharge)+"]").slice(0,5).join("; ")):" \u2014 drives no scenes")+"\n";
+      const ev = sourceDrafts ? scriptEvidenceFor(c.name, sourceScenes, sourceDrafts) : "";
+      if(ev) ctx += "  SCREENPLAY (CANON — exact source evidence; resolve old profile prose toward this, never the reverse):\n"+ev+"\n";
+      const id=canonicalIdentity(c,identityCtx);
+      if(id.quote) ctx += "  IDENTITY EVIDENCE (CANON): "+id.quote+"\n";
+    });
+    ctx = castPronounBlock(identityCtx.cast, identityCtx) + ctx;
     const prompt = ctx + "\nUsing the Infinite Studio method, articulate EACH character. "+
       "TWO LAYERS: characterization is only the mask \u2014 TRUE character is what CHOICES under pressure reveal; derive everything from what each character DOES in the scenes they drive. "+
-      "pronouns = each character's pronouns, EXACTLY \"he/him\" or \"she/her\", judged from the character as written (name, role, behaviour) \u2014 REQUIRED for EVERY character regardless of depth budget; it becomes their canonical sheet entry, so every future scene uses it. "+
+      "pronouns = each character's pronouns. The CAST BINDING at the top is canonical: explicit sheet pronouns are immutable and must be repeated exactly, never replaced by model fields. For an unset character, unambiguous screenplay identity evidence outranks role guesses and old visual/profile prose; NEVER infer gender from a NAME. REQUIRED for EVERY character regardless of depth budget; return an empty string only when neither screenplay evidence nor authored identity supports he/him or she/her. "+
       "conscious = what they consciously pursue (the goal driving their scenes), one sentence. "+
       "unconscious = the deeper need that genuinely CONTRADICTS the conscious one (the pull-against generates scenes), one sentence. "+
       "MOTIVATION DISCIPLINE: never a convenient trauma/backstory wound as the why \u2014 the want must be a live, present-tense hunger. "+
@@ -2787,10 +3018,13 @@ async function aiCastPsychology(characters, scenes, project){
         const o = {};
         const put=(k,raw,len)=>{ const s=clipSpecText(raw,len); if(s) o[k]=s; };
         const ch = chars.find(c=>c.id===id);
-        // canonical pronouns ride every batch regardless of depth budget — an explicit
-        // sheet pick always wins over a re-inference
+        // Canonical pronouns ride every batch regardless of depth budget. An
+        // explicit sheet pick always wins; screenplay evidence also wins over
+        // the model for a new unset character.
         const _pr = String(e.pronouns||"").toLowerCase().trim();
-        if(/^(he\/him|she\/her)$/.test(_pr) && !(ch && ch.pronouns)) o.pronouns = _pr;
+        const identity=canonicalIdentity(ch,identityCtx);
+        if(identity.pronouns && !identity.explicit) o.pronouns = identity.pronouns;
+        else if(!identity.explicit && !identity.pronouns && binaryPronouns(_pr)) o.pronouns = binaryPronouns(_pr);
         if(/^(idea|counter|complicates)$/.test(String(e.argues||"").toLowerCase().trim())) o.argues = String(e.argues).toLowerCase().trim();
         const dims = normalizeDimensions(e.dimensions); if(dims) o.dimensions = dims;
         // counterpoint: first-circle non-protagonists only (the canonical eligibility rule)
@@ -2847,6 +3081,9 @@ async function aiSurpriseRenderStyle(character, project){
   if(!aiAvailable()) return null;
   const P = project || {};
   const c = character || {};
+  const identityCtx = identityContext({ cast:[c] });
+  const identity = canonicalIdentity(c, identityCtx);
+  assertPromptIdentity(c, identityCtx, { allowStaleProfileRepair:true });
   const bible = [
     c.name && ("Name: "+c.name), c.role && ("Role: "+c.role),
     c.conscious && ("Wants: "+c.conscious), c.arc && ("Arc: "+c.arc),
@@ -2856,7 +3093,9 @@ async function aiSurpriseRenderStyle(character, project){
     P.genre && ("Genre: "+P.genre), (P.setting&&P.setting.period) && ("Period: "+P.setting.period),
   ].filter(Boolean).join("\n");
   const prompt =
+    castPronounBlock([c], identityCtx)+
     "You are inventing a BESPOKE rendering style for ONE character's reference sheet. Follow this recipe EXACTLY:\n"+
+    "The cast identity above is binding. Do not infer or redesign gender from the name, style, body or model output; keep "+(identity.pronouns||"the character's confirmed identity")+" consistent in every visual choice.\n"+
     "1) HYBRIDISE two visual languages that don't normally co-occur (e.g. cyanotype photogram + herbarium plate; risograph + technical blueprint; ukiyo-e woodblock + CRT scanlines).\n"+
     "2) Add ONE CONCEPTUAL RULE unique to THIS character, drawn from who they are below — something another character would NOT get. It must tie to their identity/role/arc.\n"+
     "3) Constrain the palette HARD (one or two hues only).\n"+
@@ -2960,7 +3199,7 @@ function _wornCarriedSplit(e, character, clean){
     props: hasProps ? character.props : clean(r.props,220),
   };
 }
-function mapBibleEntry(e, character){
+function mapBibleEntry(e, character, identityCtx){
   const clean = (x,n)=> (typeof clipWords==="function")
     ? clipWords(scrubBrand((x||"").toString()), n||120)
     : scrubBrand((x||"").toString()).slice(0,n||120);
@@ -2981,12 +3220,14 @@ function mapBibleEntry(e, character){
     F.arms && ("Arms & hands: "+F.arms),
     F.legs && ("Legs & feet: "+F.legs),
   ].filter(Boolean).join(". ");
-  // canonical pronouns: keep a user override; otherwise infer from THIS freshly-drafted
-  // body/role so the value is locked at draft time and the scene drafter can honor it.
-  const _pron = (character && character.pronouns) || charPronouns({ ...(character||{}), physique:F, coreBody:(labelled?labelled:"") });
+  // Canonical pronouns come from the sheet, confirmed screenplay evidence, or
+  // authored role/identity only. Never infer them from this freshly generated
+  // visual body description: stale/contradictory visual prose is a repair target,
+  // not a source of identity.
+  const _identity = canonicalIdentity(character, identityCtx);
   return {
     physique: F,
-    pronouns: _pron,
+    ...(_identity.pronouns ? { pronouns:_identity.pronouns } : {}),
     bodyRationale: clean(e.rationale,320),
     coreBody: labelled ? (labelled+".") : "",
     materialTexture: clean(e.texture,280),
@@ -3037,6 +3278,7 @@ function bibleBatchPrompt(ctx, chars){
     + "\nDesign each character's ON-SCREEN APPEARANCE for the art department so every generated shot stays visually consistent. "+
     "Be SPECIFIC and casting-director concrete \u2014 never generic, never a placeholder. "+
     "CRUCIAL: derive every physical choice FROM who the character is \u2014 their role, want, class, history and arc should be legible in the body. "+
+     "REPAIR RULE: the canonical cast binding and direct screenplay evidence outrank any old coreBody, profile, visual spec or generated image description. If old prose says the wrong gender, do NOT repeat or lock that prose; discard its gendered body/wardrobe wording and write a fresh corrected specification from the binding. This is a repair draft, not a screenplay contradiction. "+
     "For EACH character return these discrete physical fields, each a concrete value:\n"+
     "age = apparent age with a number e.g. 'late 30s (around 38)'. ethnicity = specific heritage. "+
     "skin = tone + undertone + any marks. eyes = detailed colour. hair = colour, length, texture, style + facial hair. "+
@@ -3094,31 +3336,39 @@ async function aiCastVisualBible(characters, scenes, project, canon){
   // they drive (a reactor who drives nothing still has screenplay lines about them)
   const evScenes = (canon && canon.scenes && canon.scenes.length) ? canon.scenes : (scenes||[]);
   const evDrafts = (canon && canon.drafts) || null;
+  const visualIdentityCtx = { scenes:evScenes, cast:characters };
+  if(evDrafts) visualIdentityCtx.drafts=evDrafts;
 
   // 2 characters per batch keeps each JSON response well under the output cap
   const batches = [];
   for(let i=0;i<characters.length;i+=2) batches.push(characters.slice(i,i+2));
 
   const runBatch = async (chars)=>{
+    chars.forEach(c=>assertPromptIdentity(c,visualIdentityCtx, { allowStaleProfileRepair:true }));
     let ctx = header + "\nCAST:\n";
     let anyEvidence = false;
     chars.forEach(c=>{ const driven=(scenes||[]).filter(s=>s.driver===c.id);
-      ctx += "- id:"+c.id+" | "+c.name+" ("+(c.role||"")+")"+(c.conscious?(" \u2014 wants "+c.conscious):"")+
+      const identity=canonicalIdentity(c,visualIdentityCtx);
+      ctx += "- id:"+c.id+" | "+c.name+" ("+(c.role||"")+")"+(identity.pronouns?(" ["+identity.pronouns+"]"):" [pronouns UNSET]")+(c.conscious?(" \u2014 wants "+c.conscious):"")+
         (driven.length?(" \u2014 drives: "+driven.map(s=>s.title).slice(0,4).join(", ")):"")+"\n";
       // existing worn/carried items ride along so the model repeats them verbatim
       if(String(c.accessories||"").trim()) ctx += "    EXISTING worn items (repeat VERBATIM in accessories): "+c.accessories+"\n";
       if(String(c.props||"").trim()) ctx += "    EXISTING carried items (repeat VERBATIM in props): "+c.props+"\n";
       // THE SCRIPT IS CANON: the screenplay's own paragraphs about this character
       const ev = evDrafts ? scriptEvidenceFor(c.name, evScenes, evDrafts) : "";
-      if(ev){ anyEvidence = true;
-        ctx += "    SCREENPLAY \u2014 the script's own words about "+c.name+" (CANON):\n"+ev+"\n"; } });
+       if(ev){ anyEvidence = true;
+         ctx += "    SCREENPLAY \u2014 the script's own words about "+c.name+" (CANON):\n"+ev+"\n"; }
+       if(identity.quote) ctx += "    IDENTITY EVIDENCE (CANON): "+identity.quote+"\n";
+    });
+    ctx = castPronounBlock(chars, visualIdentityCtx) + ctx;
     if(anyEvidence){
       ctx += "\nCANON RULE: the SCREENPLAY lines above are the finished script \u2014 they overrule "+
-        "every other inference in this brief. Each character's identity (who they are in the world), "+
-        "age, build, physical condition and wardrobe MUST derive from their screenplay lines and never "+
+         "every other inference in this brief. Each character's identity (who they are in the world), "+
+         "pronouns, age, build, physical condition and wardrobe MUST derive from their screenplay lines and never "+
         "contradict them \u2014 a character the script writes as a stooped pensioner is drafted as a "+
         "stooped pensioner. Where the script is silent, invent freely within the period.\n";
     }
+    ctx += "\nVISUAL REPAIR RULE: existing coreBody/profile/visual fields may be stale. The binding cast pronouns above are confirmed canon: replace any contradictory gendered prose rather than copying, quoting or locking it into the new spec. A screenplay/cast conflict is for the writer to resolve, not for this drafter to silently choose; do not use repair permission to override direct screenplay evidence.\n";
     ctx += _lookbookBlock(P);
     try{
       const res = await window.claude.complete({ messages:[{ role:"user", content:bibleBatchPrompt(ctx, chars) }] });
@@ -3128,8 +3378,8 @@ async function aiCastVisualBible(characters, scenes, project, canon){
       const idOf = (raw)=>{ const r=String(raw||"").toLowerCase().replace(/[^a-z0-9]/g,"");
         const m = chars.find(c=>c.id===r) || chars.find(c=>r && (c.id.includes(r)||r.includes(c.id))); return m?m.id:null; };
       const part = {}, by = writingStamp("Character specification");
-      arr.forEach((e,i)=>{ const id = idOf(e.id) || (chars[i] && chars[i].id);
-        if(id) part[id] = { ...mapBibleEntry(e, chars.find(c=>c.id===id)), writingProvenance:by }; });
+       arr.forEach((e,i)=>{ const id = idOf(e.id) || (chars[i] && chars[i].id);
+         if(id) part[id] = { ...mapBibleEntry(e, chars.find(c=>c.id===id), visualIdentityCtx), writingProvenance:by }; });
       return part;
     }catch(e){ return {}; }
   };
@@ -3774,6 +4024,8 @@ window.aiResearchLookbook = aiResearchLookbook;
 async function aiSuggestStates(character, drivenScenes, project){
   if(!aiAvailable()) return null;
   const P = writingProjectOf(project);
+  const identityCtx = identityContext({ scenes:drivenScenes||[], cast:[character] });
+  assertPromptIdentity(character, identityCtx, { allowStaleProfileRepair:true });
   const base = [character.coreBody, character.wardrobeMask||character.wardrobe].filter(Boolean).join(" | ");
   let ctx = "FILM: "+(P.title||"Untitled")+" \u2014 "+(P.genre||"")+". Logline: "+writingLoglineOf(P)+"\n";
   ctx += "CHARACTER: "+character.name+" ("+(character.role||"")+")"+(character.arc?(" \u2014 arc: "+character.arc):"")+"\n";
@@ -3784,7 +4036,7 @@ async function aiSuggestStates(character, drivenScenes, project){
   } else {
     ctx += "\nThis character drives no scenes \u2014 infer likely appearance changes from the premise and arc.\n";
   }
-  const prompt = ctx + "\nIdentify the distinct moments where this character's PHYSICAL APPEARANCE visibly changes "+
+  const prompt = castPronounBlock([character], identityCtx) + ctx + "\nIDENTITY IS CANON: keep the confirmed cast pronouns above in every state; repair stale visual prose instead of copying it. Identify the distinct moments where this character's PHYSICAL APPEARANCE visibly changes "+
     "from their base look \u2014 a costume change, wounds/injuries, blood or dirt, torn or damaged clothing, "+
     "exhaustion, a transformation, or a time jump. Only include changes a viewer would actually SEE; skip purely "+
     "emotional beats. Order them as they occur. For EACH change return:\n"+
@@ -3854,8 +4106,10 @@ async function aiDraftShots(scene, beats, drafts, locations, props, characters, 
     + ". Use them when a shot's filmed moment is inside, outside, or crosses between spaces.\n";
   const _scaleOf = (c)=> (typeof scaleClassOf==="function") ? scaleClassOf(c) : "A";
   if(castList.length){
+    castList.forEach(c=>assertPromptIdentity(c,{ scenes:[scene], drafts:drafts||{}, cast:characters||castList }));
     const tag = (c)=>{ const k=_scaleOf(c); return k==="B" ? " [CRITTER-SCALE]" : k==="C" ? " [GIANT-SCALE]" : ""; };
     ctx += "CHARACTERS available (use these exact names): "+castList.map(c=>c.name+tag(c)).join(", ")+"\n";
+    ctx += castPronounBlock(castList, { scenes:[scene], drafts:drafts||{}, cast:characters||castList });
     // SCALE-AWARE COVERAGE — a non-human-scale subject reframes the camera's relationship to the world
     if(castList.some(c=>_scaleOf(c)==="B")) ctx += "SCALE NOTE: a CRITTER-SCALE character is present — favour low / worm's-eye angles and macro framing so the surrounding world reads as towering and colossal from its point of view.\n";
     if(castList.some(c=>_scaleOf(c)==="C")) ctx += "SCALE NOTE: a GIANT-SCALE character is present — favour low angles and wide shots that take in the whole figure and reduce the human world to a miniature far below.\n";

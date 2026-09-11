@@ -36,13 +36,17 @@ function ArcSpark({ driven }){
     }));
 }
 
-function CharacterPanel({ character, scenes, onUpdate, onDraft, drafting, onJumpScene, onClose, onCollapse, onFollow, readOnly }){
+function CharacterPanel({ character, scenes, drafts, cast, onUpdate, onDraft, drafting, onJumpScene, onClose, onCollapse, onFollow, readOnly }){
   const c = character;
   if(!c) return React.createElement("div",{className:"inspector"},
     React.createElement("div",{className:"empty"},
       React.createElement(Icon.user,{s:34}),
       React.createElement("div",{className:"empty-t"},"No character"),
       React.createElement("div",{className:"empty-d"},"Pick a character from the Cast list.")));
+  const identityState = typeof window.turnIdentityReport==="function"
+    ? window.turnIdentityReport(c,{scenes,drafts,cast:cast||[]}) : null;
+  const visiblePronouns = identityState ? identityState.pronouns
+    : ((typeof window.turnNormalizePronouns==="function" ? window.turnNormalizePronouns(c.pronouns) : c.pronouns) || "");
 
   const { driven, turned, from, to } = characterArc(c.id, scenes);
   const initials = c.name.split(" ").map(w=>w[0]).slice(0,2).join("");
@@ -70,9 +74,9 @@ function CharacterPanel({ character, scenes, onUpdate, onDraft, drafting, onJump
           React.createElement("div",{style:{display:"flex",alignItems:"center",gap:6,marginTop:4}},
             React.createElement("span",{className:"obj-lab",style:{marginBottom:0}},"Pronouns"),
             React.createElement("select",{className:"char-pronoun-sel",disabled:readOnly,
-              value:((c.pronouns==="he/him"||c.pronouns==="she/her") ? c.pronouns : ((typeof window.charPronouns==="function"?window.charPronouns(c):"") || "")),
-              onChange:e=>onUpdate(c.id,{pronouns:e.target.value})},
-              [["","set pronouns\u2026"],["he/him","he/him"],["she/her","she/her"]].map(function(o){return React.createElement("option",{key:o[0]||"unset",value:o[0],disabled:!o[0]},o[1]);}))),
+              value:visiblePronouns,
+              onChange:e=>onUpdate(c.id,{pronouns:e.target.value,pronounProvenance:"user",pronounSource:"user"})},
+              [["","set pronouns\u2026"],["he/him","he/him"],["she/her","she/her"],["they/them","they/them"]].map(function(o){return React.createElement("option",{key:o[0]||"unset",value:o[0],disabled:!o[0]},o[1]);}))),
           // ORBIT — the solar-system cast map. Auto-inferred from role + scenes driven;
           // the build spends psychological depth on inner circles (texture stays texture).
           React.createElement("div",{style:{display:"flex",alignItems:"center",gap:6,marginTop:4}},
@@ -88,6 +92,10 @@ function CharacterPanel({ character, scenes, onUpdate, onDraft, drafting, onJump
                ["0","Center \u2014 the protagonist"],["1","First circle \u2014 help / hinder / define"],
                ["2","Second circle \u2014 functional support"],["3","Third circle \u2014 setting texture"]].map(function(o){
                 return React.createElement("option",{key:o[0]||"auto",value:o[0]},o[1]);}))))),
+
+      window.CharacterIdentityNotice && React.createElement(window.CharacterIdentityNotice,{
+        character:c,scenes,drafts,cast:cast||((typeof window.turnCast==="object"&&window.turnCast)||[]),
+        onUpdate,readOnly}),
 
       // DESIRE
       React.createElement("div",{className:"insp-block",style:{marginTop:16}},

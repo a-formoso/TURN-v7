@@ -107,12 +107,52 @@ async function vgClearAudio(id){
 }
 window.elCommit=elCommit; window.vgClearAudio=vgClearAudio;
 
+function vgAssertIdentity(opts, phase){
+  opts=opts||{};
+  const c=opts.identityCharacter||opts.character;
+  const lock=opts.voiceLock||opts.voiceIdentity||null;
+  if(c && lock){
+    const normalize=(v)=>typeof window.turnNormalizePronouns==="function"
+      ? String(window.turnNormalizePronouns(v)||"") : String(v||"").trim().toLowerCase();
+    const currentRevision=c.identityRevision!=null ? String(c.identityRevision) : "";
+    const savedRevision=lock.identityRevision!=null ? String(lock.identityRevision) : "";
+    const savedPronouns=normalize(lock.identityPronouns||lock.canonicalPronouns||lock.pronouns);
+    const currentPronouns=normalize(c.canonicalPronouns||c.pronouns);
+    if((currentRevision!==savedRevision && (currentRevision||savedRevision))
+      || (savedPronouns && currentPronouns && savedPronouns!==currentPronouns)){
+      const e=new Error("This locked voice predates a character identity change. Review and explicitly relock the voice before rendering.");
+      e.name="StaleCharacterVoiceError"; throw e;
+    }
+  }
+  if(typeof window.nbAssertMediaIdentity==="function")
+    return window.nbAssertMediaIdentity(opts, phase||"voice");
+  const ids=opts.identityCharacterIds||opts.characterIds;
+  if(!c && !(ids&&ids.length) && !(opts.identityCast&&opts.identityCast.length)) return true;
+  let r;
+  try{
+    const ctx=opts.identityContext||{ characterIds:ids||(c&&c.id?[c.id]:[]),
+      scenes:opts.identityScenes, drafts:opts.identityDrafts,
+      ...(opts.identityCast&&opts.identityCast.length ? {cast:opts.identityCast} : (c ? {cast:[c]} : {})) };
+    if(c&&typeof window.turnAssertCharacterIdentity==="function") r=window.turnAssertCharacterIdentity(c,ctx);
+    else if(typeof window.turnAssertProjectIdentity==="function") r=window.turnAssertProjectIdentity(ctx);
+  }catch(e){
+    if(e && e.identityReport && e.identityReport.status==="unset"
+      && !c && !(ids&&ids.length)) return true;
+    throw e instanceof Error ? e : new Error(String(e&&e.message||e));
+  }
+  if(r===false || (r&&(r.ok===false||r.valid===false||r.blocked))) throw new Error(String(r.message||"Character identity needs review before rendering."));
+  return r;
+}
+window.vgAssertIdentity=vgAssertIdentity;
+
 // ---- the proxy call (task:"voice") ------------------------------------------
 async function vgProxy(op, payload){
+  vgAssertIdentity(payload, "voice-provider-start");
   if(!voiceProxyReady()) throw new Error("Voice runs through your server proxy — sign in and make sure Supabase + the proxy are configured.");
   const sb = window.sbClient();
   const fnName = (window.TURN_SUPABASE && window.TURN_SUPABASE.imageProxyFn) || "image-proxy";
   let data, error;
+  vgAssertIdentity(payload, "voice-provider-submit");
   try{ ({ data, error } = await sb.functions.invoke(fnName, { body:{ task:"voice", op, ...(payload||{}),
     userApiKeys: window.turnApiKeysForProxy ? window.turnApiKeysForProxy(["elevenlabs"]) : undefined } })); }
   catch(e){ error=e; }
@@ -171,6 +211,7 @@ function vgMeasureDuration(url){
 // ---- TTS one line: render + (with-timestamps) duration; cache by hash --------
 async function elGenerate(id, text, opts){
   opts = opts||{};
+  vgAssertIdentity(opts, "voice-generate-start");
   const voiceId=opts.voiceId; const t=String(text||"").trim();
   if(!voiceId) throw new Error("No locked voice for this character yet — lock one on their character card: The Art Room → Characters tab → the Voice button.");
   if(!t) return { audioUrl:"", durationMs:0 };
@@ -183,13 +224,18 @@ async function elGenerate(id, text, opts){
     const meta = vgGetMeta(id);
     if(url && meta && meta.hash===hash) return { audioUrl:url, durationMs:meta.durationMs||0, alignment:meta.alignment||null, cached:true };
   }
-  const d = await vgProxy("tts", { voiceId, text:t, modelId, settings, outputFormat:VG_OUTPUT_FORMAT });
+  vgAssertIdentity(opts, "voice-before-submit");
+  const d = await vgProxy("tts", { voiceId, text:t, modelId, settings, outputFormat:VG_OUTPUT_FORMAT,
+    identityCharacter:opts.identityCharacter||opts.character,
+    identityCharacterIds:opts.identityCharacterIds||opts.characterIds,
+    identityContext:opts.identityContext, identityCast:opts.identityCast });
   if(!d.audioB64) throw new Error("The proxy returned no audio.");
   const audioUrl = "data:"+(d.mime||"audio/mpeg")+";base64,"+d.audioB64;
   // Duration is the cut clock — every route must yield one. The with-timestamps route
   // reports it; routes that don't get measured off the decoded audio instead.
   let durationMs = d.durationMs||0;
   if(!durationMs) durationMs = await vgMeasureDuration(audioUrl);
+  vgAssertIdentity(opts, "voice-before-commit");
   const meta = { durationMs, voiceId, text:t, modelId, hash, alignment:d.alignment||null };
   if(id) await elCommit(id, audioUrl, meta);
   return { audioUrl, durationMs, alignment:d.alignment||null, cached:false };
@@ -208,9 +254,13 @@ async function elInterviewVoiceId(){
 // speak one line and return an audio data URL — NOT committed to the asset store (ephemeral).
 async function elSpeak(text, opts){
   opts = opts||{}; const t = String(text||"").trim(); if(!t) return "";
+  vgAssertIdentity(opts, "voice-speak-start");
   const voiceId = opts.voiceId || await elInterviewVoiceId();
   const settings = { ...VG_DEFAULTS, ...(opts.settings||{}) };
-  const d = await vgProxy("tts", { voiceId, text:t, modelId:opts.modelId||VG_TTS_MODEL, settings, outputFormat:VG_OUTPUT_FORMAT });
+  vgAssertIdentity(opts, "voice-speak-submit");
+  const d = await vgProxy("tts", { voiceId, text:t, modelId:opts.modelId||VG_TTS_MODEL, settings, outputFormat:VG_OUTPUT_FORMAT,
+    identityCharacter:opts.identityCharacter||opts.character, identityCharacterIds:opts.identityCharacterIds||opts.characterIds,
+    identityContext:opts.identityContext, identityCast:opts.identityCast });
   if(!d.audioB64) throw new Error("The proxy returned no audio.");
   return "data:"+(d.mime||"audio/mpeg")+";base64,"+d.audioB64;
 }
@@ -227,8 +277,12 @@ window.elInterviewVoiceId=elInterviewVoiceId; window.elSpeak=elSpeak; window.elT
 // character adherence; guidanceScale/loudness/quality/seed pass through when given.
 async function elDesignVoice(description, opts){
   opts=opts||{};
+  vgAssertIdentity(opts, "voice-design-start");
+  vgAssertIdentity(opts, "voice-design-submit");
   const d = await vgProxy("design", { description:String(description||""), text:opts.text, modelId:opts.modelId,
-    guidanceScale:opts.guidanceScale, loudness:opts.loudness, quality:opts.quality, seed:opts.seed });
+    guidanceScale:opts.guidanceScale, loudness:opts.loudness, quality:opts.quality, seed:opts.seed,
+    identityCharacter:opts.identityCharacter||opts.character, identityCharacterIds:opts.identityCharacterIds||opts.characterIds,
+    identityContext:opts.identityContext, identityCast:opts.identityCast });
   return (d.previews||[]).map(p=>({
     generatedVoiceId: p.generatedVoiceId,
     audioUrl: p.audioB64 ? ("data:"+(p.mime||"audio/mpeg")+";base64,"+p.audioB64) : "",
@@ -237,20 +291,29 @@ async function elDesignVoice(description, opts){
 // lock a chosen preview into a permanent voiceId (the identity lock)
 async function elSaveVoice(generatedVoiceId, opts){
   opts=opts||{};
-  const d = await vgProxy("saveVoice", { generatedVoiceId, name:opts.name, description:opts.description });
+  vgAssertIdentity(opts, "voice-save-start");
+  const d = await vgProxy("saveVoice", { generatedVoiceId, name:opts.name, description:opts.description,
+    identityCharacter:opts.identityCharacter||opts.character, identityCharacterIds:opts.identityCharacterIds||opts.characterIds,
+    identityContext:opts.identityContext, identityCast:opts.identityCast });
   if(!d.voiceId) throw new Error("Couldn't save that voice — try another preview.");
   return { voiceId:d.voiceId, name:d.name||opts.name };
 }
 // the account's voices (the "picked from library" origin)
-async function elListVoices(){
-  const d = await vgProxy("listVoices", {});
+async function elListVoices(opts){
+  opts=opts||{}; vgAssertIdentity(opts, "voice-list-start");
+  const d = await vgProxy("listVoices", { identityCharacter:opts.identityCharacter||opts.character,
+    identityCharacterIds:opts.identityCharacterIds||opts.characterIds, identityContext:opts.identityContext, identityCast:opts.identityCast });
   return d.voices||[];
 }
 // instant clone from samples (consent-gated on the client, like a cameo face)
 async function elCloneVoice(samples, opts){
   opts=opts||{};
+  vgAssertIdentity(opts, "voice-clone-start");
   if(!samples || !samples.length) throw new Error("Add at least one voice sample to clone.");
-  const d = await vgProxy("clone", { samples, name:opts.name, description:opts.description });
+  vgAssertIdentity(opts, "voice-clone-submit");
+  const d = await vgProxy("clone", { samples, name:opts.name, description:opts.description,
+    identityCharacter:opts.identityCharacter||opts.character, identityCharacterIds:opts.identityCharacterIds||opts.characterIds,
+    identityContext:opts.identityContext, identityCast:opts.identityCast });
   if(!d.voiceId) throw new Error("Cloning failed — check the samples and try again.");
   return { voiceId:d.voiceId, name:d.name||opts.name };
 }
