@@ -2337,6 +2337,11 @@ async function cloudGetGenStrict(projectId, entityId){
     .eq("project_id",projectId).eq("entity_id",entityId).maybeSingle();
   if(error) throw new Error(error.message||"cloud read failed");
   let row=data||null;
+  /* A permanent image purge deliberately retains its tombstone row (and its
+     history/specification evidence).  The old generic pending-cleanup reader
+     deletes tombstone rows after storage cleanup, which would make a later
+     retry or a details read capable of falling back to the wrong pixels. */
+  if(row&&row.meta&&row.meta.cleanupPurge&&!row.storage_path) return row;
   if(row&&row.meta&&Array.isArray(row.meta.cleanupPending)&&row.meta.cleanupPending.length){
     const retried=await cloudFinishPending(projectId,row.owner,entityId,row);
     row=retried.row;
@@ -2364,6 +2369,7 @@ async function cloudUpsertGen(projectId, uid, entityId, fields){
 async function cloudCasGen(projectId, uid, entityId, previous, fields){
   const sb=sbClient(); if(!sb) return null;
   try{
+    fields=_cloudPreservePurgeReceipts(previous,fields,entityId);
     if(!previous){
       const table=sb.from("turn_generations");
       /* Production uses insert-if-absent. The fallback only supports older recording
@@ -2389,14 +2395,48 @@ function cloudPendingMeta(meta,paths,tombstone){
   if(tombstone) next.cleanupTombstone=true; else delete next.cleanupTombstone;
   return next;
 }
-async function cloudFinishPending(projectId,uid,entityId,row){
+async function cloudFinishPending(projectId,uid,entityId,row,options){
+  options=options||{};
   const pending=row&&row.meta&&Array.isArray(row.meta.cleanupPending)?row.meta.cleanupPending:[];
   if(!pending.length) return {row,warning:null};
   const retained=cloudRowPaths(row), remove=pending.filter(p=>!retained.has(p));
-  try{ await cloudRemovePaths(remove); }
-  catch(e){ return {row,warning:e.message||"cloud cleanup failed"}; }
+  let failed=[];
+  if(options.perPath){
+    /* Storage.remove is an exact-key operation, but a provider adapter can
+       report a partial batch failure.  Retrying one key at a time lets the
+       durable ledger truthfully retain only keys still needing cleanup. */
+    for(let i=0;i<remove.length;i++){
+      if(typeof options.cancelled==="function"&&options.cancelled())
+        return {row,warning:"Cloud cleanup was cancelled; exact cleanup remains pending."};
+      const path=remove[i];
+      try{ await cloudRemovePaths([path]); }catch(e){ failed.push(path); }
+    }
+  }else{
+    try{ await cloudRemovePaths(remove); }
+    catch(e){ failed=pending.slice(); }
+  }
+  if(failed.length){
+    const warning="Cloud cleanup is incomplete; "+failed.length+" exact object"+(failed.length===1?" remains":"s remain")+" pending.";
+    /* The row is still the tombstone authority.  Recording the exact remainder
+       is best effort; if a collaborator changed it, leaving the old superset is
+       safer than claiming bytes were removed. */
+    const nextMeta=cloudPendingMeta(row.meta||{},failed,!!(row.meta&&row.meta.cleanupTombstone));
+    const marked=await cloudCasGen(projectId,uid||row.owner,entityId,row,{
+      storage_path:row.storage_path,meta:nextMeta,refs:row.refs||[],history:row.history||[]});
+    if(marked&&!marked._cloudMutationError) return {row:marked,warning};
+    return {row,warning};
+  }
   const sb=sbClient();
   if(row.meta&&row.meta.cleanupTombstone){
+    if(options.retainTombstone){
+      const meta={...(row.meta||{})};
+      delete meta.cleanupPending; delete meta.cleanupTombstone;
+      const after=await cloudCasGen(projectId,uid||row.owner,entityId,row,{
+        storage_path:row.storage_path,meta,refs:row.refs||[],history:row.history||[]});
+      return after&&!after._cloudMutationError
+        ? {row:after,warning:null}
+        : {row,warning:"cleanup completed; purge tombstone changed before removal"};
+    }
     let q=sb.from("turn_generations").delete().eq("project_id",projectId).eq("entity_id",entityId);
     q=cloudApplySnapshot(q,row);
     const {data,error}=await q.select().maybeSingle();
@@ -2475,6 +2515,17 @@ async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, 
     return commitError(uploadDiagnostics.message||"Cloud generation could not be read.");
   }
   if(_cxl()) return { tier:"cancelled", url:dataUrl };
+  let purgeReceipts=[];
+  try{
+    /* One bounded preflight receipt read prevents supported writers from
+       reintroducing references that a completed purge already revoked.  The
+       post-write fence below closes the intervening scan/write race. */
+    purgeReceipts=_purgeReceiptTargets(
+      await _purgeReceiptCandidateRows(activeClient,projectId,entityId,refs,row));
+  }catch(e){
+    return commitError("Cloud purge receipts could not be verified before saving.");
+  }
+  if(_cxl()) return { tier:"cancelled", url:dataUrl };
   const newPath = await cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, "sheet", ver, false, uploadDiagnostics);
   if(!newPath) return commitError(
     (uploadDiagnostics.error&&uploadDiagnostics.error.message)||"Image upload failed.");
@@ -2488,16 +2539,47 @@ async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, 
   }
   const refRows = [];
   for(const r of (refs || [])){
+    const provenance={kind:r&&r.kind, label:r&&r.label,
+      refId:r&&r.refId||undefined,refVersion:r&&r.refVersion||undefined,
+      refGenerated:r&&r.refGenerated||undefined,
+      ...(r&&r.meta?{meta:r.meta}:{}),
+      ...(r&&r.seedSource?{seedSource:r.seedSource}:{})};
+    const blocked=_purgeReceiptMatch(r,purgeReceipts,{meta:(r&&r.meta)||{}});
+    if(blocked){
+      /* Keep the derived output, but never persist a fresh live copy of a
+         reference whose source version has a durable purge receipt. */
+      refRows.push(_purgeDeletedReference({...provenance,storage_path:null}));
+      continue;
+    }
     let p = null;
     /* Reference snapshots remain best-effort. A failed optional reference keeps
        its null storage_path/provenance row and must not abort the generated sheet. */
     if(r&&r.url) p = await cloudUploadImage(projectId, uid, entityId, r.url, assetType, "ref-"+turnSafeSeg(r.kind||"img"),undefined,true);
     if(p) created.push(p);
     if(_cxl()) return await cleanupCreated(withDiagnostics({tier:"cancelled",url:dataUrl}));
-    refRows.push({ kind:r&&r.kind, label:r&&r.label, storage_path:p, refId:r&&r.refId||undefined,
-      refVersion:r&&r.refVersion||undefined,refGenerated:r&&r.refGenerated||undefined });
+    refRows.push({...provenance,storage_path:p});
   }
   let cleanMeta={...(meta||{})}; delete cleanMeta.approval;
+  /* A new generation may legitimately replace a completed purge tombstone, but
+     its receipt must travel with the current/history metadata so future writers
+     still fence the deleted ISO. */
+  const inheritedReceipts=[
+    ...((row&&row.meta&&row.meta.cleanupPurgeReceipts)||[]),
+    ...(row&&row.meta&&row.meta.cleanupPurgeTarget?[row.meta.cleanupPurgeTarget]:[]),
+  ].filter(Boolean);
+  if(inheritedReceipts.length){
+    const seen=new Set();
+    cleanMeta.cleanupPurgeReceipts=inheritedReceipts.filter(marker=>{
+      const target=_purgeReceiptTarget(marker,entityId);
+      if(!target) return false;
+      const key=[target.id,target.storagePath,target.iso,
+        target.version==null?"":String(target.version)].join("\x1f");
+      if(seen.has(key)) return false;
+      seen.add(key); return true;
+    });
+    if(!cleanMeta.cleanupPurgeTarget)
+      cleanMeta.cleanupPurgeTarget=cleanMeta.cleanupPurgeReceipts[0];
+  }
   const pendingBefore=(row&&row.meta&&row.meta.cleanupPending)||[];
   const provisional={storage_path:newPath,meta:cleanMeta,refs:refRows,history};
   const retained=cloudRowPaths(provisional);
@@ -2540,6 +2622,35 @@ async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, 
   }
   if(!written || written.storage_path!==newPath){
     return commitError(uploadDiagnostics.message||"Generation row write failed");
+  }
+  let postFenceWarning="";
+  try{
+    /* The source may be purged after preflight but before this row CAS.  Scan
+       once after the write and fence only matching refs; the derived output and
+       its current image remain intact. */
+    const postRows=await _purgeReceiptCandidateRows(
+      activeClient,projectId,entityId,refs,written);
+    const postReceipts=_purgeReceiptTargets(postRows);
+    const fencePaths=new Set();
+    const rewritten=_purgeRewriteReceiptRow(written,postReceipts,fencePaths);
+    if(rewritten.changed){
+      const fenceMeta=cloudPendingMeta(written.meta||{},
+        [...((written.meta&&written.meta.cleanupPending)||[]),...fencePaths],false);
+      const fenced=await cloudCasGen(projectId,uid,entityId,written,{
+        storage_path:written.storage_path,meta:fenceMeta,
+        refs:rewritten.refs,history:rewritten.history});
+      if(!fenced||fenced._cloudMutationError)
+        return commitError("Generation saved, but its revoked reference fence changed; refresh before using this output.",
+          {path:newPath,persisted:true,
+            cleanupWarning:"A late purged reference remains pending for the next authorized refresh."});
+      const finishedFence=await cloudFinishPending(projectId,uid,entityId,fenced);
+      written=finishedFence.row||fenced;
+      if(finishedFence.warning) postFenceWarning=finishedFence.warning;
+    }
+  }catch(e){
+    return commitError("Generation saved, but its revoked reference fence could not be verified.",
+      {path:newPath,persisted:true,
+        cleanupWarning:"A late purged reference remains pending for the next authorized refresh."});
   }
   /* The row now durably owns every newly uploaded path. Retire the temporary
      exact-path cleanup capability. If this acknowledgement is lost, the intent
@@ -2592,9 +2703,12 @@ async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, 
       error:"cancelled during final cleanup; saved generation could not be safely rolled back"};
     return withDiagnostics(await compensateCancellation(finished.row||written));
   }
-  return withDiagnostics({ tier:"cloud", url, path:newPath,...(finished.warning?{cleanupWarning:finished.warning}:{}) });
+  return withDiagnostics({ tier:"cloud", url, path:newPath,
+    ...(postFenceWarning?{cleanupWarning:postFenceWarning}:{}),
+    ...(finished.warning?{cleanupWarning:finished.warning}:{}) });
 }
 async function cloudAssetLoad(projectId, entityId){
+  try{ await cloudSweepPurgeReferences(projectId); }catch(e){}
   const row = await cloudGetGen(projectId, entityId);
   if(!row || !row.storage_path) return null;
   const url = await cloudSignedUrl(row.storage_path);
@@ -2629,6 +2743,7 @@ async function cloudAssetLoadMany(projectId, entityIds, strict){
 async function cloudAssetLoadAll(projectId){
   const sb = sbClient();
   if(!sb || !projectId) return {};
+  try{ await cloudSweepPurgeReferences(projectId); }catch(e){}
   let rows = [];
   try{
     const { data } = await sb.from("turn_generations")
@@ -2669,6 +2784,592 @@ async function cloudClear(projectId, entityId){
   if(!saved) throw new Error("asset changed; clear refused");
   const finished=await cloudFinishPending(projectId,row.owner,entityId,saved);
   return {ok:true,...(finished.warning?{cleanupWarning:finished.warning}:{})};
+}
+
+/* ── exact current-image purge -------------------------------------------------
+   This is intentionally separate from cloudClear/cloudDeleteCurrentAndPromote:
+   a permanent purge clears one exact current image, never promotes history, and
+   never turns an entity-id/name into a storage sweep.  Reference snapshots are
+   identified only by their exact path, by (refId, refGenerated), or by the
+   explicit shot seed lineage written on the reference entry/history item. */
+function _purgeTargetSame(a,b){
+  if(!a||!b) return false;
+  return String(a.id||"")===String(b.id||"")
+    && String(a.storagePath||"")===String(b.storagePath||"")
+    && String(a.iso||"")===String(b.iso||"")
+    && ((a.version==null && b.version==null)
+      || (a.version!=null && b.version!=null && Number(a.version)===Number(b.version)));
+}
+function _purgeSeedSource(ref,entry){
+  return (ref&&ref.meta&&ref.meta.seedSource)
+    || (ref&&ref.seedSource)
+    || (entry&&entry.meta&&entry.meta.seedSource)
+    || null;
+}
+function _purgeRefMatches(ref,target,entry){
+  if(!ref) return false;
+  const allowDeleted=arguments.length>3&&arguments[3]===true;
+  if(ref.deleted&&!allowDeleted) return false;
+  const path=String(ref.storage_path||ref.deletedStoragePath||"");
+  if(path && path===String(target.storagePath||"")) return true;
+  /* An ISO is the authoritative identity for a generated version.  A refId
+     alone is deliberately insufficient: it commonly points at a newer take. */
+  if(ref.refId!=null && String(ref.refId)===String(target.id)
+      && target.iso && String(ref.refGenerated||"")===String(target.iso)) return true;
+  /* Unnamed Base references are used by shot seed chains.  Require the direct
+     source shot and its exact ISO; version alone is not enough because old
+     imported rows reused version numbers. */
+  const seed=_purgeSeedSource(ref,entry);
+  if(!ref.refId && seed
+      && String(seed.seedShotId||"")===String(target.id)
+      && target.iso && String(seed.seedIso||"")===String(target.iso)){
+    if(seed.seedVersion!=null && target.version!=null
+       && Number(seed.seedVersion)!==Number(target.version)) return false;
+    return true;
+  }
+  return false;
+}
+function _purgeCollectEvidencePaths(row,target,paths){
+  const collect=(ref,entry)=>{
+    if(!_purgeRefMatches(ref,target,entry,true)) return;
+    const path=ref&& (ref.storage_path||ref.deletedStoragePath);
+    if(path) paths.add(String(path));
+  };
+  for(const ref of (row&&row.refs)||[]) collect(ref,row);
+  for(const item of (row&&row.history)||[]){
+    if(item&&String(item.storage_path||item.deletedStoragePath||"")===String(target.storagePath||""))
+      paths.add(String(item.storage_path||item.deletedStoragePath));
+    for(const ref of (item&&item.refs)||[]) collect(ref,item);
+  }
+}
+function _purgeRefWarning(ref,target,entry){
+  if(!ref||ref.deleted||!ref.storage_path) return false;
+  /* These are the only shapes that could plausibly be a copy of this target
+     while lacking enough provenance to prove it.  We retain them and disclose
+     that scope could not be verified; names and versions are never guessed. */
+  if(ref.refId!=null && String(ref.refId)===String(target.id)
+      && !String(ref.refGenerated||"")) return true;
+  const seed=_purgeSeedSource(ref,entry);
+  return !ref.refId && !seed;
+}
+function _purgeDeletedReference(ref){
+  const path=ref&&ref.storage_path ? String(ref.storage_path) : "";
+  return {...ref,deleted:true,deletedAt:new Date().toISOString(),
+    ...(path?{deletedStoragePath:path}:{}),storage_path:null,url:""};
+}
+function _purgeRewriteRefs(refs,target,entry,warnings,paths){
+  let removed=0, changed=false;
+  const out=(Array.isArray(refs)?refs:[]).map(ref=>{
+    if(_purgeRefMatches(ref,target,entry)){
+      removed++; changed=true;
+      if(ref.storage_path) paths.add(String(ref.storage_path));
+      return _purgeDeletedReference(ref);
+    }
+    if(_purgeRefWarning(ref,target,entry)) warnings.add("An older reference snapshot could not be identified exactly and was retained.");
+    return ref;
+  });
+  return {refs:out,removed,changed};
+}
+function _purgeRewriteRowReferences(row,target,warnings,paths){
+  let removed=0,changed=false;
+  const direct=_purgeRewriteRefs(row&&row.refs,target,row,warnings,paths);
+  removed+=direct.removed; changed=changed||direct.changed;
+  const history=(Array.isArray(row&&row.history)?row.history:[]).map(item=>{
+    /* A legacy row can (incorrectly but validly) retain the same exact object
+       as both current and history.  That history entry is the selected pixels,
+       not an unrelated version, so clear its direct path while retaining the
+       version/evidence record. */
+    if(item&&item.storage_path&&String(item.storage_path)===String(target.storagePath)){
+      paths.add(String(item.storage_path)); changed=true;
+      return {...item,storage_path:null,deleted:true,
+        deletedAt:new Date().toISOString(),deletedStoragePath:String(item.storage_path)};
+    }
+    const rewritten=_purgeRewriteRefs(item&&item.refs,target,item,warnings,paths);
+    removed+=rewritten.removed; changed=changed||rewritten.changed;
+    return rewritten.changed ? {...item,refs:rewritten.refs} : item;
+  });
+  return {
+    refs:direct.changed?direct.refs:(row&&row.refs)||[],
+    history:changed?history:(row&&row.history)||[],
+    removed,changed,
+  };
+}
+async function _purgeProjectGenerationRows(sb,projectId,maxRows){
+  const limit=Number.isFinite(maxRows)&&maxRows>0?Math.floor(maxRows):Infinity;
+  const rows=[];
+  for(let offset=0;;offset+=1000){
+    let q=sb.from("turn_generations")
+      .select("project_id,owner,entity_id,storage_path,meta,refs,history,updated_at")
+      .eq("project_id",projectId);
+    if(q&&typeof q.order==="function") q=q.order("entity_id",{ascending:true});
+    let response;
+    if(q&&typeof q.range==="function")
+      response=await q.range(offset,Math.min(offset+999,limit-1));
+    else response=await q;
+    if(response&&response.error) throw new Error(response.error.message||"generation reference query failed");
+    const page=(response&&response.data)||[];
+    rows.push(...page);
+    if(page.length<1000 || rows.length>=limit || !q || typeof q.range!=="function") break;
+  }
+  return rows;
+}
+function _purgeReceiptCandidateIds(entityId,refs,row){
+  const ids=new Set();
+  const add=id=>{ if(id!=null&&String(id)) ids.add(String(id)); };
+  add(entityId);
+  const addRef=ref=>{
+    add(ref&&ref.refId);
+    const seed=(ref&&ref.meta&&ref.meta.seedSource)
+      ||(ref&&ref.seedSource);
+    add(seed&&seed.seedShotId);
+  };
+  for(const ref of refs||[]) addRef(ref);
+  for(const ref of (row&&row.refs)||[]) addRef(ref);
+  for(const item of (row&&row.history)||[])
+    for(const ref of item&&item.refs||[]) addRef(ref);
+  return Array.from(ids);
+}
+async function _purgeReceiptCandidateRows(sb,projectId,entityId,refs,row){
+  const ids=_purgeReceiptCandidateIds(entityId,refs,row);
+  if(!ids.length) return [];
+  const fields="project_id,owner,entity_id,storage_path,meta,refs,history,updated_at";
+  if(sb.from("turn_generations").in){
+    let q=sb.from("turn_generations").select(fields)
+      .eq("project_id",projectId).in("entity_id",ids);
+    const response=await q;
+    if(response&&response.error) throw new Error(response.error.message||"purge receipt query failed");
+    return (response&&response.data)||[];
+  }
+  /* Tiny recording adapters may not expose PostgREST .in().  Keep the
+     compatibility path bounded to the exact candidate ids; never fall back to
+     a project-wide scan from a normal commit. */
+  const rows=[];
+  for(const id of ids){
+    const response=await sb.from("turn_generations").select(fields)
+      .eq("project_id",projectId).eq("entity_id",id);
+    if(response&&response.error) throw new Error(response.error.message||"purge receipt query failed");
+    if(response&&response.data) rows.push(response.data);
+  }
+  return rows;
+}
+function _purgeReceiptTarget(marker,fallbackId){
+  if(!marker||!marker.storagePath) return null;
+  return {id:String(marker.id||fallbackId||""),storagePath:String(marker.storagePath),
+    iso:String(marker.iso||""),version:marker.version==null?null:marker.version};
+}
+function _purgeReceiptTargets(rows){
+  const out=[],seen=new Set(),add=(marker,id)=>{
+    const target=_purgeReceiptTarget(marker,id);
+    if(!target) return;
+    const key=[target.id,target.storagePath,target.iso,
+      target.version==null?"":String(target.version)].join("\x1f");
+    if(seen.has(key)) return;
+    seen.add(key); out.push(target);
+  };
+  for(const row of rows||[]){
+    add(row&&row.meta&&row.meta.cleanupPurgeTarget,row&&row.entity_id);
+    for(const marker of (row&&row.meta&&row.meta.cleanupPurgeReceipts)||[])
+      add(marker,row&&row.entity_id);
+    for(const item of (row&&row.history)||[])
+      add(item&&item.meta&&item.meta.cleanupPurgeTarget,row&&row.entity_id);
+    for(const item of (row&&row.history)||[])
+      for(const marker of (item&&item.meta&&item.meta.cleanupPurgeReceipts)||[])
+        add(marker,row&&row.entity_id);
+  }
+  return out;
+}
+function _cloudPreservePurgeReceipts(previous,fields,entityId){
+  const next={...(fields||{})}, nextMeta={...(next.meta||{})};
+  /* Metadata replacement is used by history actions as well as new commits.
+     Union only immutable purge receipts from the old current/history and the
+     replacement current/history.  Deliberately do not copy cleanupPending or
+     any of the old generation's ordinary metadata into the replacement. */
+  const receipts=_purgeReceiptTargets([
+    previous,
+    {entity_id:entityId,meta:nextMeta,history:next.history||[]},
+  ]);
+  if(!receipts.length) return next;
+  nextMeta.cleanupPurgeReceipts=receipts;
+  nextMeta.cleanupPurgeTarget=receipts[0];
+  next.meta=nextMeta;
+  return next;
+}
+function _purgeReceiptMatch(ref,receipts,entry){
+  for(const target of receipts||[])
+    if(_purgeRefMatches(ref,target,entry)) return target;
+  return null;
+}
+function _purgeRewriteReceiptRow(row,receipts,paths){
+  let changed=false;
+  const rewrite=(refs,entry)=>{
+    return (Array.isArray(refs)?refs:[]).map(ref=>{
+      if(!_purgeReceiptMatch(ref,receipts,entry)) return ref;
+      changed=true;
+      const path=ref&&ref.storage_path;
+      if(path) paths.add(String(path));
+      return _purgeDeletedReference(ref);
+    });
+  };
+  const refs=rewrite(row&&row.refs,row);
+  const history=(Array.isArray(row&&row.history)?row.history:[]).map(item=>{
+    const direct=(receipts||[]).find(target=>item
+      &&String(item.storage_path||"")===String(target.storagePath||""));
+    if(direct){
+      changed=true;
+      paths.add(String(item.storage_path));
+      return {...item,storage_path:null,deleted:true,
+        deletedAt:new Date().toISOString(),deletedStoragePath:String(item.storage_path)};
+    }
+    const next=rewrite(item&&item.refs,item);
+    return next.length||Array.isArray(item&&item.refs)
+      ? (next.some((ref,i)=>ref!==((item&&item.refs)||[])[i])
+        ? {...item,refs:next}:item) : item;
+  });
+  return {refs,history,changed};
+}
+function _purgeCurrentMatches(row,target){
+  if(!row) return false;
+  return String(row.storage_path||"")===String(target.storagePath||"")
+    && ((String(target.iso||"")==="" && String(row.meta&&row.meta.iso||"")==="")
+      || String(row.meta&&row.meta.iso||"")===String(target.iso||""))
+    && ((target.version==null && row.meta&&row.meta.version==null)
+      || (target.version!=null && row.meta&&row.meta.version!=null
+        && Number(row.meta&&row.meta.version)===Number(target.version)));
+}
+function _purgeTargetMarker(row,target){
+  const marker=row&&row.meta&&row.meta.cleanupPurgeTarget;
+  return marker && _purgeTargetSame(marker,target);
+}
+function _purgeCancelled(options){
+  const c=options&&options.cancelled;
+  return typeof c==="function" ? !!c() : c===true;
+}
+function _purgeRunBusy(entityId){
+  try{ return !!(window.__nbGenInflight&&window.__nbGenInflight[entityId]); }catch(e){ return false; }
+}
+async function cloudPrepareImageDeletion(projectId,entityId){
+  if(!projectId||!entityId) throw new Error("image scope is required");
+  const pending=await cloudLoadPendingImageDeletion(projectId,entityId);
+  if(pending) return pending;
+  const row=await cloudGetGenStrict(projectId,entityId);
+  if(!row||!row.storage_path) throw new Error("No current image is available to purge.");
+  const meta=row.meta||{}, url=await cloudSignedUrl(row.storage_path);
+  if(!url) throw new Error("The current image could not be prepared for exact deletion.");
+  return Object.freeze({id:String(entityId),epoch:null,backend:"cloud",scope:String(projectId),
+    storagePath:String(row.storage_path),iso:String(meta.iso||""),version:meta.version==null?null:meta.version,url});
+}
+async function cloudLoadPendingImageDeletion(projectId,entityId){
+  if(!projectId||!entityId) return null;
+  const row=await cloudGetGenStrict(projectId,entityId);
+  const meta=row&&row.meta||{}, marker=meta.cleanupPurgeTarget;
+  if(!row||row.storage_path||!meta.cleanupPurge||!marker) return null;
+  if(String(marker.id||entityId)!==String(entityId)||!marker.storagePath) return null;
+  const pending=Array.isArray(meta.cleanupPending)&&meta.cleanupPending.length;
+  const unresolved=!!pending||!!meta.cleanupTombstone||!!meta.cleanupPurgeWarning;
+  if(!unresolved) return null;
+  const actionable=!!pending||!!meta.cleanupTombstone;
+  const retryable=actionable && meta.cleanupPurgeRetryable!==false;
+  return Object.freeze({id:String(marker.id||entityId),epoch:null,backend:"cloud",
+    scope:String(projectId),storagePath:String(marker.storagePath||""),
+    iso:String(marker.iso||""),version:marker.version==null?null:marker.version,
+    url:"",pending:true,retryable,status:retryable
+      ? (meta.cleanupPurgeStatus||"cleanup-pending")
+      : "retained-unverified"});
+}
+async function cloudPurgeImageVersion(projectId,uid,target,options){
+  options=options||{};
+  if(!projectId||!target||String(target.scope||projectId)!==String(projectId))
+    return {ok:false,error:"asset scope changed"};
+  if(String(target.backend||"cloud")!=="cloud") return {ok:false,error:"asset backend changed"};
+  const sb=sbClient(); if(!sb) throw new Error("cloud unavailable");
+  const id=String(target.id||"");
+  if(!id||!target.storagePath) return {ok:false,error:"exact image identity required"};
+  const guard=()=>_purgeCancelled(options);
+  const busy=()=>_purgeRunBusy(id);
+  if(guard()) return {ok:false,error:"purge cancelled"};
+  if(busy()) return {ok:false,error:"image generation is still in progress"};
+  let row=await cloudGetGenStrict(projectId,id);
+  if(guard()) return {ok:false,error:"purge cancelled"};
+  if(busy()) return {ok:false,error:"image generation is still in progress"};
+  if(!row) return {ok:false,error:"image is unavailable"};
+
+  /* A retry addresses only the same durable tombstone.  It can never select a
+     newer current image merely because the original path has disappeared. */
+  const retryTombstone=!row.storage_path && _purgeTargetMarker(row,target);
+  if(!retryTombstone && !_purgeCurrentMatches(row,target))
+    return {ok:false,error:"current image changed; purge refused"};
+  if(row.storage_path && row.meta&&row.meta.cleanupPurge
+      && !_purgeCurrentMatches(row,target))
+    return {ok:false,error:"current image changed; purge refused"};
+
+  let rows;
+  try{
+    rows=await _purgeProjectGenerationRows(sb,projectId);
+  }catch(e){ return {ok:false,error:(e&&e.message)||"reference scope could not be verified"}; }
+  if(guard()) return {ok:false,error:"purge cancelled"};
+  if(busy()) return {ok:false,error:"image generation is still in progress"};
+
+  const warnings=new Set(),paths=new Set([String(target.storagePath)]);
+  const mutations=[],sourceRow=rows.find(r=>String(r.entity_id)===id)||row;
+  /* The strict read above protects the first window; this second read protects
+     the reference-inventory window.  Never turn a collaborator's newer current
+     image into this target's tombstone. */
+  if((retryTombstone&&!_purgeTargetMarker(sourceRow,target))
+      ||(!retryTombstone&&!_purgeCurrentMatches(sourceRow,target)))
+    return {ok:false,error:"current image changed; purge refused"};
+  const retainedOnly=retryTombstone&&sourceRow.meta
+    &&!!sourceRow.meta.cleanupPurgeWarning
+    &&!(Array.isArray(sourceRow.meta.cleanupPending)&&sourceRow.meta.cleanupPending.length)
+    &&!sourceRow.meta.cleanupTombstone;
+  if(retainedOnly){
+    const known=rows.some(candidate=>{
+      if(!candidate||String(candidate.entity_id)===id
+          ||candidate.meta&&candidate.meta.kind==="video") return false;
+      return (candidate.refs||[]).some(ref=>_purgeRefMatches(ref,target,candidate))
+        ||(candidate.history||[]).some(item=>
+          (item&&item.refs||[]).some(ref=>_purgeRefMatches(ref,target,item)));
+    });
+    if(!known)
+      return {ok:false,error:"purge retained an unverified reference; refresh required",
+        status:"retained-unverified",retryable:false};
+  }
+  if(sourceRow.meta&&sourceRow.meta.cleanupPurgeWarning)
+    warnings.add(String(sourceRow.meta.cleanupPurgeWarning));
+  /* Evidence written by an earlier reference-row CAS is itself a durable
+     cleanup ledger.  Recover every deletedStoragePath before making any
+     destructive Storage call, including copies attached after the first
+     attempt. */
+  for(const candidate of rows) _purgeCollectEvidencePaths(candidate,target,paths);
+  for(const pending of (sourceRow.meta&&sourceRow.meta.cleanupPending)||[])
+    if(pending) paths.add(String(pending));
+  let referencesRemoved=0;
+  /* Tombstone retries do not rewrite unrelated rows a second time, but a
+     partially committed first pass can still finish evidence writes. */
+  for(const candidate of rows){
+    if(!candidate||String(candidate.entity_id)===id) continue;
+    if(candidate.meta&&candidate.meta.kind==="video") continue;
+    const rewritten=_purgeRewriteRowReferences(candidate,target,warnings,paths);
+    if(rewritten.changed){
+      mutations.push({row:candidate,fields:{
+        storage_path:candidate.storage_path||null,meta:candidate.meta||{},
+        refs:rewritten.refs,history:rewritten.history}});
+      referencesRemoved+=rewritten.removed;
+    }
+  }
+  const sourceRewrite=_purgeRewriteRowReferences(sourceRow,target,warnings,paths);
+  referencesRemoved+=sourceRewrite.removed;
+  if(!retryTombstone){
+    const originalMeta={...(sourceRow.meta||{})};
+    let purgeMeta={...originalMeta,cleanupPurge:true,cleanupPurgeTarget:{
+      id,storagePath:String(target.storagePath),iso:String(target.iso||""),
+      version:target.version==null?null:target.version},
+      deleted:true,deletedStoragePath:String(target.storagePath),
+      cleanupPurgeRetryable:true,cleanupPurgeStatus:"cleanup-pending"};
+    purgeMeta.cleanupPurgeTarget=Object.freeze({...purgeMeta.cleanupPurgeTarget});
+    const warning=Array.from(warnings).join(" ");
+    if(warning) purgeMeta.cleanupPurgeWarning=warning;
+    purgeMeta=cloudPendingMeta(purgeMeta,Array.from(paths),true);
+    mutations.push({row:sourceRow,fields:{storage_path:null,meta:purgeMeta,
+      refs:sourceRewrite.refs,history:sourceRewrite.history},source:true});
+  }else{
+    /* A prior pass may have committed reference evidence but been cancelled
+       before the source CAS.  Union newly recovered paths into the tombstone
+       before cleanup; never let a retry narrow the ledger. */
+    const existingPending=(sourceRow.meta&&sourceRow.meta.cleanupPending)||[];
+    const union=Array.from(new Set([...existingPending,...paths]));
+    const warning=Array.from(warnings).join(" ");
+    const sourceMeta={...(sourceRow.meta||{})};
+    const warningChanged=!!warning&&sourceMeta.cleanupPurgeWarning!==warning;
+    if(warning) sourceMeta.cleanupPurgeWarning=warning;
+    const activeKnown=rows.some(candidate=>{
+      if(!candidate||String(candidate.entity_id)===id
+          ||candidate.meta&&candidate.meta.kind==="video") return false;
+      return (candidate.refs||[]).some(ref=>_purgeRefMatches(ref,target,candidate))
+        ||(candidate.history||[]).some(item=>
+          (item&&item.refs||[]).some(ref=>_purgeRefMatches(ref,target,item)));
+    });
+    if(activeKnown){
+      sourceMeta.cleanupPurgeRetryable=true;
+      sourceMeta.cleanupPurgeStatus="cleanup-pending";
+    }
+    const changed=union.length!==existingPending.length
+      || union.some(path=>!existingPending.includes(path))
+      || sourceRewrite.changed
+      || warningChanged;
+    if(changed){
+      sourceMeta.cleanupPurge=true;
+      sourceMeta.cleanupTombstone=true;
+      sourceMeta.cleanupPurgeTarget=sourceMeta.cleanupPurgeTarget
+        || {id,storagePath:String(target.storagePath),iso:String(target.iso||""),
+          version:target.version==null?null:target.version};
+      mutations.push({row:sourceRow,fields:{storage_path:null,
+        meta:cloudPendingMeta(sourceMeta,union,true),
+        refs:sourceRewrite.refs,history:sourceRewrite.history},source:true});
+    }
+  }
+  /* Exact CAS every reference row.  A conflict stops before Storage cleanup;
+     already-written evidence remains durable and the same target can retry. */
+  try{
+    for(const mutation of mutations){
+      if(guard()) return {ok:false,error:"purge cancelled"};
+      if(_purgeRunBusy(mutation.row.entity_id))
+        return {ok:false,error:"a referenced image generation is still in progress"};
+      const written=await cloudCasGen(projectId,uid||mutation.row.owner,
+        mutation.row.entity_id,mutation.row,mutation.fields);
+      if(guard()) return {ok:false,error:"purge cancelled"};
+      if(!written||written._cloudMutationError)
+        return {ok:false,error:(written&&written._cloudMutationError)||"reference changed; purge refused"};
+    }
+  }catch(e){ return {ok:false,error:(e&&e.message)||"purge write failed"}; }
+  if(guard()) return {ok:false,error:"purge cancelled"};
+  if(busy()) return {ok:false,error:"image generation is still in progress"};
+
+  /* A tombstone is not considered complete until every exact path has gone.
+     cloudFinishPending retains it on partial failure and records the exact
+     remainder, making this same target safe to retry. */
+  let verifiedRows;
+  try{ verifiedRows=await _purgeProjectGenerationRows(sb,projectId); }
+  catch(e){ return {ok:false,error:"reference scope changed; cleanup refused"}; }
+  if(guard()) return {ok:false,error:"purge cancelled"};
+  const reattached=verifiedRows.some(candidate=>{
+    if(!candidate||String(candidate.entity_id)===id) return false;
+    if(String(candidate.storage_path||"")===String(target.storagePath)) return true;
+    if((candidate.history||[]).some(item=>item&&String(item.storage_path||"")===String(target.storagePath)))
+      return true;
+    return (candidate.refs||[]).some(ref=>_purgeRefMatches(ref,target,candidate))
+      || (candidate.history||[]).some(item=>(item&&item.refs||[]).some(ref=>_purgeRefMatches(ref,target,item)));
+  });
+  if(reattached) return {ok:false,error:"reference scope changed; cleanup refused"};
+  const latest=await cloudGetGenStrict(projectId,id);
+  if(guard()) return {ok:false,error:"purge cancelled"};
+  if(!latest||latest.storage_path||!_purgeTargetMarker(latest,target))
+    return {ok:false,error:"purge tombstone changed; retry refused"};
+  const finished=await cloudFinishPending(projectId,uid||latest.owner,id,latest,
+    {perPath:true,retainTombstone:true,cancelled:guard});
+  if(guard()) return {ok:false,error:"purge cancelled"};
+  if(warnings.size&&!finished.warning&&finished.row){
+    /* Ambiguous immutable references are disclosure-only once every actionable
+       path is gone.  Persist that distinction so the UI does not offer an
+       endless retry button for a copy we intentionally could not identify. */
+    const retainedMeta={...(finished.row.meta||{}),
+      cleanupPurgeRetryable:false,cleanupPurgeStatus:"retained-unverified"};
+    const marked=await cloudCasGen(projectId,uid||finished.row.owner,id,finished.row,{
+      storage_path:finished.row.storage_path,meta:retainedMeta,
+      refs:finished.row.refs||[],history:finished.row.history||[]});
+    if(marked&&!marked._cloudMutationError) finished.row=marked;
+  }
+  cloudInvalidateExactPaths(Array.from(paths));
+  const purgeWarning=Array.from(warnings).join(" ");
+  const cleanupWarning=[purgeWarning,finished.warning].filter(Boolean).join(" ");
+  const retryable=!!finished.warning;
+  const result={ok:true,referencesRemoved,url:"",meta:null,
+    retryable,status:retryable?"cleanup-pending":(purgeWarning?"retained-unverified":"complete"),
+    ...(cleanupWarning?{cleanupWarning}:{})};
+  return result;
+}
+function cloudInvalidateExactPaths(paths){
+  for(const path of Array.from(new Set((paths||[]).filter(Boolean)))) _signCache.delete(path);
+}
+const _purgeSweepAt=new Map();
+async function cloudSweepPurgeReferences(projectId){
+  if(!projectId) return {ok:false,error:"image scope is required"};
+  const now=Date.now(), last=_purgeSweepAt.get(String(projectId))||0;
+  /* Authorized loads may be frequent while a film is open.  One bounded sweep
+     per window catches legacy writers without turning every thumbnail refresh
+     into a read/write retry loop. */
+  if(now-last<15000) return {ok:true,skipped:true};
+  _purgeSweepAt.set(String(projectId),now);
+  const sb=sbClient();
+  if(!sb) return {ok:false,error:"cloud unavailable"};
+  let rows;
+  const sweepLimit=1000;
+  try{ rows=await _purgeProjectGenerationRows(sb,projectId,sweepLimit); }
+  catch(e){ return {ok:false,error:(e&&e.message)||"purge receipt read failed"}; }
+  const receipts=_purgeReceiptTargets(rows);
+  if(!receipts.length) return {ok:true,rewritten:0};
+  const knownByReceipt=new Map(),receiptKey=target=>
+    [target.id,target.storagePath,target.iso,target.version==null?"":String(target.version)].join("\x1f");
+  const savedRows=new Map();
+  let rewrittenCount=0;
+  for(const candidate of rows){
+    if(!candidate||candidate.meta&&candidate.meta.kind==="video") continue;
+    if(rewrittenCount>=64) break;
+    const paths=new Set(),rewritten=_purgeRewriteReceiptRow(candidate,receipts,paths);
+    if(!rewritten.changed) continue;
+    for(const ref of (candidate.refs||[])){
+      const target=_purgeReceiptMatch(ref,receipts,candidate);
+      if(target&&ref&&ref.storage_path){
+        const key=receiptKey(target);
+        if(!knownByReceipt.has(key)) knownByReceipt.set(key,{target,paths:new Set()});
+        knownByReceipt.get(key).paths.add(String(ref.storage_path));
+      }
+    }
+    for(const item of candidate.history||[]) for(const ref of item&&item.refs||[]){
+      const target=_purgeReceiptMatch(ref,receipts,item);
+      if(target&&ref&&ref.storage_path){
+        const key=receiptKey(target);
+        if(!knownByReceipt.has(key)) knownByReceipt.set(key,{target,paths:new Set()});
+        knownByReceipt.get(key).paths.add(String(ref.storage_path));
+      }
+    }
+    for(const item of candidate.history||[]){
+      const target=(receipts||[]).find(receipt=>item
+        &&String(item.storage_path||"")===String(receipt.storagePath||""));
+      if(target){
+        const key=receiptKey(target);
+        if(!knownByReceipt.has(key)) knownByReceipt.set(key,{target,paths:new Set()});
+        knownByReceipt.get(key).paths.add(String(item.storage_path));
+      }
+    }
+    const meta=cloudPendingMeta(candidate.meta||{},
+      [...((candidate.meta&&candidate.meta.cleanupPending)||[]),...paths],
+      !!(candidate.meta&&candidate.meta.cleanupTombstone));
+    const saved=await cloudCasGen(projectId,candidate.owner,candidate.entity_id,candidate,{
+      storage_path:candidate.storage_path||null,meta,refs:rewritten.refs,history:rewritten.history});
+    if(!saved||saved._cloudMutationError) continue; // next authorized refresh can retry
+    savedRows.set(String(candidate.entity_id),saved);
+    rewrittenCount++;
+    const finished=await cloudFinishPending(projectId,candidate.owner,candidate.entity_id,saved,
+      candidate.meta&&candidate.meta.cleanupTombstone?{retainTombstone:true}:{});
+    if(finished.warning){
+      /* The exact path remains in this row's cleanupPending ledger.  Do not
+         claim the sweep made a complete removal. */
+      continue;
+    }
+  }
+  /* Keep the source tombstone's ledger authoritative too.  This makes a
+     late-known copy retryable even if the derived row's own cleanup CAS was
+     interrupted. */
+  for(const item of knownByReceipt.values()){
+    const owner=savedRows.get(String(item.target.id))
+      ||rows.find(row=>String(row&&row.entity_id)===String(item.target.id));
+    if(!owner||!owner.meta) continue;
+    const ownerMarker=owner.meta.cleanupPurgeTarget
+      ||(owner.meta.cleanupPurgeReceipts||[]).find(marker=>
+        _purgeTargetSame(marker,item.target));
+    if(!ownerMarker) continue;
+    const pending=Array.from(new Set([...(owner.meta.cleanupPending||[]),...item.paths]));
+    const meta={...(owner.meta||{}),cleanupPurgeRetryable:true,
+      cleanupPurgeStatus:"cleanup-pending"};
+    const saved=await cloudCasGen(projectId,owner.owner,owner.entity_id,owner,{
+      storage_path:owner.storage_path||null,
+      meta:cloudPendingMeta(meta,pending,!!owner.meta.cleanupTombstone),
+      refs:owner.refs||[],history:owner.history||[]});
+    if(saved&&!saved._cloudMutationError){
+      const ownerFinished=await cloudFinishPending(projectId,owner.owner,owner.entity_id,saved,
+        owner.meta.cleanupTombstone?{retainTombstone:true}:{});
+      const done=ownerFinished&&ownerFinished.row;
+      if(done&&done.meta&&done.meta.cleanupPurgeWarning
+          &&!(done.meta.cleanupPending&&done.meta.cleanupPending.length)){
+        await cloudCasGen(projectId,done.owner||owner.owner,done.entity_id,done,{
+          storage_path:done.storage_path||null,
+          meta:{...(done.meta||{}),cleanupPurgeRetryable:false,
+            cleanupPurgeStatus:"retained-unverified"},
+          refs:done.refs||[],history:done.history||[]});
+      }
+    }
+  }
+  return {ok:true,rewritten:rewrittenCount,truncated:rows.length>=sweepLimit};
 }
 
 /* ── video takes (Stage clips) ────────────────────────────────────────────────
@@ -2789,6 +3490,7 @@ async function cloudSetAssetApproval(projectId, uid, entityId, expectedIso, appr
 }
 window.cloudSetAssetApproval=cloudSetAssetApproval;
 async function cloudLoadDetails(projectId, entityId){
+  try{ await cloudSweepPurgeReferences(projectId); }catch(e){}
   const row = await cloudGetGen(projectId, entityId);
   if(!row) return { id:entityId, url:"", meta:null, refs:[], history:[] };
   const url = row.storage_path ? await cloudSignedUrl(row.storage_path) : "";
@@ -2798,6 +3500,7 @@ async function cloudLoadDetails(projectId, entityId){
   const missingIds=[];
   const allRefSets=[row.refs||[],...rawHistory.map(h=>h.refs||[])];
   for(const set of allRefSets){ for(const r of set){
+       if(r&&r.deleted) continue;
       if(!r.storage_path && r.refId) missingIds.push(r.refId);
       // Legacy character/prop state sheets used parentId:stateId but did not
       // persist the parent id on their Base sheet reference.
@@ -2808,6 +3511,16 @@ async function cloudLoadDetails(projectId, entityId){
   const resolveRefs=async(rawRefs,previous)=>{
     const out=[];
     for(const r of (rawRefs||[])){
+      if(r&&r.deleted){
+        /* Deleted-reference evidence is intentionally returned as evidence only.
+           Never sign its old path and never use current/previous fallbacks to
+           resurrect the pixels that the purge removed. */
+        out.push({kind:r.kind,label:r.label,refId:r.refId,url:"",recovered:"",
+          deleted:true,deletedStoragePath:r.deletedStoragePath||"",
+          refVersion:r.refVersion||null,refGenerated:r.refGenerated||"",
+          resolvedVersion:null,resolvedGenerated:""});
+        continue;
+      }
       let refUrl=r.storage_path ? await cloudSignedUrl(r.storage_path) : "";
       let recovered="";
       let version=r.refVersion||null;
@@ -2857,6 +3570,11 @@ window.cloudAssetLoad = cloudAssetLoad;
 window.cloudAssetLoadMany = cloudAssetLoadMany;
 window.cloudAssetLoadAll = cloudAssetLoadAll;
 window.cloudClear = cloudClear;
+window.cloudPrepareImageDeletion = cloudPrepareImageDeletion;
+window.cloudLoadPendingImageDeletion = cloudLoadPendingImageDeletion;
+window.cloudPurgeImageVersion = cloudPurgeImageVersion;
+window.cloudInvalidateExactPaths = cloudInvalidateExactPaths;
+window.cloudSweepPurgeReferences = cloudSweepPurgeReferences;
 window.cloudRevert = cloudRevert;
 window.cloudLoadDetails = cloudLoadDetails;
 window.cloudGetGen = cloudGetGen;

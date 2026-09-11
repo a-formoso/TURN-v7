@@ -3377,6 +3377,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
     generate(opts); setEditRefs([]); setEditDependencyIds([]); };
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [detailsOpen, setDetailsOpen] = React.useState(false);
+  const [detailsHistoryAvailable,setDetailsHistoryAvailable] = React.useState(()=>!!(layers>0));
   const [regionEditOpen, setRegionEditOpen] = React.useState(false);
   const [propRefOpen, setPropRefOpen] = React.useState(false);
   const [sheetRefOpen, setSheetRefOpen] = React.useState(false);
@@ -3389,6 +3390,25 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
   const menuItemsDefault = (menuExtra||[]).filter(m=>m&&m.placement!=="beforeEdit");
   const isPropCardMenu = /delete prop/i.test(deleteLabel||"") || (noun==="prop sheet");
   const forceRemaster = /delete (character|prop)/i.test(deleteLabel||"");
+  // Exact purge can intentionally leave the current URL empty while retaining
+  // prior versions. Keep Details reachable from that tombstone; opening it is
+  // read-only until the director explicitly chooses Restore.
+  const purgeTombstone = !!(genMeta && (genMeta.cleanupPurge || genMeta.cleanupPurgeTarget || genMeta.cleanupTombstone));
+  const detailsLoaderRef=React.useRef(gen.loadDetails);
+  detailsLoaderRef.current=gen.loadDetails;
+  React.useEffect(()=>{
+    let alive=true;
+    if(layers>0 || purgeTombstone){ setDetailsHistoryAvailable(true); return ()=>{alive=false;}; }
+    if(genUrl || detailsHistoryAvailable || typeof detailsLoaderRef.current!=="function") return ()=>{alive=false;};
+    // The metadata tombstone is the cheap path. For a legacy retained-history
+    // row without that stamp, loadDetailsAsset is the read-only fallback; it
+    // never restores, promotes, or generates anything.
+    Promise.resolve().then(()=>detailsLoaderRef.current()).then(d=>{
+      if(alive && d && Array.isArray(d.history) && d.history.length) setDetailsHistoryAvailable(true);
+    }).catch(()=>{});
+    return ()=>{alive=false;};
+  },[genUrl,layers,purgeTombstone,detailsHistoryAvailable]);
+  const canOpenDetails = !!genUrl || detailsHistoryAvailable || layers>0 || purgeTombstone;
   // dropToImport: the empty slot itself imports a FINISHED frame at full resolution (drop or
   // click-to-browse) — same job as the old "Upload a finished" button, so it can replace it.
   const [dropOver, setDropOver] = React.useState(false);
@@ -3450,12 +3470,12 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
               shape:"rounded",radius:"10",placeholder:slotPlaceholder||"Drop reference art"}),
             slotHasRef && React.createElement("div",{className:"sheet-ref-pill"},
               React.createElement(Icon.bolt,{s:10,sw:2}),"Reference art active \u00b7 guides generation")),
-    (genUrl || onDelete || importSheet) && React.createElement("div",{className:"sheet-gen-tools",style:{top:8,right:8}},
+    (genUrl || onDelete || importSheet || canOpenDetails) && React.createElement("div",{className:"sheet-gen-tools",style:{top:8,right:8}},
       React.createElement("div",{className:"sheet-tools-menu",ref:menuRef},
         React.createElement("button",{className:"sheet-gen-tool",onClick:()=>setMenuOpen(m=>!m),title:"Options"},
           React.createElement(Icon.moreV,{s:14})),
         menuOpen && React.createElement("div",{className:"sheet-tools-dropdown"},
-          genUrl && React.createElement("button",{className:"sheet-tools-item",onClick:()=>{ setDetailsOpen(true); setMenuOpen(false); }},
+          canOpenDetails && React.createElement("button",{className:"sheet-tools-item",onClick:()=>{ setDetailsOpen(true); setMenuOpen(false); }},
             React.createElement(Icon.info,{s:13}),"Details"),
           (genUrl && (forceRemaster || remasterEligible(genMeta))) && React.createElement("button",{className:"sheet-tools-item",disabled:gening,
             title:"Re-render the CURRENT image as a fresh, clean, full-quality version \u2014 same design, artifacts and noise removed (stacked edits degrade like a photocopy of a photocopy). Lands as a new version; the old one stays in history.",
@@ -3720,8 +3740,8 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
        containment), which would otherwise make this card the containing block for
        the modal's position:fixed — trapping the overlay inside the card instead of
        covering the viewport (broken/clipped on small screens). */
-    detailsOpen && ReactDOM.createPortal(React.createElement(SheetDetails,{ gen, name, noun, extraMeta,
-      onClose:()=>setDetailsOpen(false), onView:(url)=>onView&&onView(url, entity) }), document.body),
+     detailsOpen && ReactDOM.createPortal(React.createElement(SheetDetails,{ gen, name, noun, extraMeta,
+       onClose:()=>setDetailsOpen(false), onView:(url)=>onView&&onView(url, entity) }), document.body),
     regionEditOpen && genUrl && React.createElement(RegionEditModal,{url:genUrl,name,noun,entity,editPropRefs,
       onClose:()=>setRegionEditOpen(false),
       onApply:({ instruction, refs })=> generate({
@@ -5586,7 +5606,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
   onSuggestStates, suggestingStatesId, onRemoveOwnedItem, onRenameOwnedItem, onDeleteCharacter,
   onUpdateProp, onDraftProp, onDraftAllProps, onAddProp, onDeleteProp, draftingPropIds, draftingPropId, draftingAllProps, onMergeProps, onSeedFromCast, castHasProps, onTagScenes, taggingScenes, onTagOne, taggingSceneId,
   locations, onUpdateLocation, onDraftLocation, onDraftAllLocs, onAddLocation, onDeleteLocation, draftingLocIds, draftingAllLocs, onPullFromScript, scriptHasLocs, onScout, onAssignStyles, assigningStyles, onSetStyleRefs, onSetScenePreset, onAddStyleRefImages, onRemoveStyleRefImage, onDraftStaging, draftingStageId, sluglineUnits, onUpdateUnit, onRemoveUnit,
-  shots, beatsMap, onUpdateShot, onAddShot, onDeleteShot, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onRemoveMicroBeatShots, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onDirectScene, onColorist, onShoot, onCast, onPropsMaster,
+  shots, beatsMap, onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onRemoveMicroBeatShots, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onDirectScene, onColorist, onShoot, onCast, onPropsMaster,
   lookbook, lookbookNote, onUpdateLookbook, onAddLookbook, onDeleteLookbook, onSetLookbookNote, onResearch, onClearLookbook,
   staleTabs, onApplyLookbook, onSourceClick, canReview=false, onReviewLookbook, readOnly=false }){
   const _stale = staleTabs || {};
@@ -5667,8 +5687,8 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
       ? React.createElement(window.StyleBibleView,{project,scenes,onAssign:onAssignStyles,assigning:assigningStyles,onSetRefs:onSetStyleRefs,onSetScenePreset,onAddRefImages:onAddStyleRefImages,onRemoveRefImage:onRemoveStyleRefImage,onColorist,
           lookbookStale:!!_stale.stylebible,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("colorist")})
     : artView==="shots" && window.ShotList
-      ? React.createElement(window.ShotList,{project,scenes,characters,props,locations,shots,beatsMap,
-          onUpdateShot,onAddShot,onDeleteShot,onSplitBeat,splittingBeat,onRefineBeat,refiningBeat,
+       ? React.createElement(window.ShotList,{project,scenes,characters,props,locations,shots,beatsMap,
+           onUpdateShot,onAddShot,onDeleteShot,onDeleteShotReference:readOnly?null:onDeleteShotReference,onSplitBeat,splittingBeat,onRefineBeat,refiningBeat,
           onRemoveMicroBeatShots:readOnly?null:onRemoveMicroBeatShots,readOnly,
           onDraftSceneShots,draftingSceneShots,onDraftAllShots,draftingAllShots,onShoot,onDirectScene,
           trashItems:(trash&&trash.shots)||[],onRestore:onRestoreShot,onPurge:onPurgeShot,

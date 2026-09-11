@@ -344,7 +344,7 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
 }
 window.shotFrameGenOpts = shotFrameGenOpts;
 
-function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, laterShots, sceneShots, isHead, isFirst, onToggleHead, onUpdate, onDelete, onView, batchActiveId, onBatchDone, onGenerateShot, onRegenDownstream, onStopChain, subLabel, plan, beatContext, scriptedContent, redraftControl, shotMenuExtra }){
+function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, laterShots, sceneShots, isHead, isFirst, onToggleHead, onUpdate, onDelete, onView, onDeleteShotReference, batchActiveId, onBatchDone, onGenerateShot, onRegenDownstream, onStopChain, subLabel, plan, beatContext, scriptedContent, redraftControl, shotMenuExtra }){
   const loc = ctx.location;
   // who/what is in frame is DERIVED from the action text (single source of truth) — the
   // old manual tags are gone; this is what the prompt + references actually use.
@@ -489,6 +489,16 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   };
   const genGuarded = Object.assign({}, gen, { generate: guardedGenerate });
 
+  // A fresh start is also the durable "exclude this seed" state. Keep the
+  // candidate visible while the live seed is null so the director can reattach
+  // it without losing the actual chain semantics used by manual, headless and
+  // Stage renders.
+  const seedCandidate = (sh.anchor && typeof seedShotOf==="function")
+    ? seedShotOf({ ...sh, anchor:false }, sceneShots||[])
+    : (sh.anchor && typeof prevShotOf==="function")
+      ? prevShotOf({ ...sh, anchor:false }, sceneShots||[])
+      : prevShot;
+
   // batch auto-generate when this card is the active queue member
   // If this card remounts off-screen while its generation is already running
   // (the user navigated to another scene), resume watching that same run instead
@@ -513,7 +523,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   const liveLocationSpecs = ()=>{
     if(!loc) return [];
     return (typeof shotLocationCoverageSpecs==="function")
-      ? shotLocationCoverageSpecs(loc, sh, scene, (window.turnContinuity||{}).drafts||{})
+      ? shotLocationCoverageSpecs(loc, sh, scene, ctx.drafts||(window.turnContinuity||{}).drafts||{})
       : [];
   };
   const liveLocationRefIds = ()=>{
@@ -535,18 +545,101 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   // to. Recomputed from the live entity sheets (always displayable), keyed off the ids.
   const [refImgs, setRefImgs] = React.useState([]);    // seed frame + the canon sheets, ordered by location weight
   const [refsLoaded, setRefsLoaded] = React.useState(false);
+  // Reference deletion is parent-owned (confirmation, permission checks and
+  // exact cloud-version purge). This local latch only prevents duplicate
+  // pointer/keyboard activations and disables all reference controls while the
+  // destructive request is in flight.
+  const [pendingDeleteRefId, setPendingDeleteRefId] = React.useState("");
+  const pendingDeleteRef = React.useRef("");
+  const mountedRef = React.useRef(true);
+  React.useEffect(()=>()=>{ mountedRef.current=false; },[]);
+  const [deleteBusyGlobal,setDeleteBusyGlobal] = React.useState(()=>!!window.__nbShotReferenceDeleteBusy);
+  React.useEffect(()=>{
+    const onDeleteBusy=()=>setDeleteBusyGlobal(!!window.__nbShotReferenceDeleteBusy);
+    window.addEventListener("nb-shot-reference-delete-busy",onDeleteBusy);
+    return ()=>window.removeEventListener("nb-shot-reference-delete-busy",onDeleteBusy);
+  },[]);
+  const setDeleteBusy=(busy)=>{
+    window.__nbShotReferenceDeleteBusy=!!busy;
+    window.dispatchEvent(new Event("nb-shot-reference-delete-busy"));
+  };
+  const referenceControlsBusy = !!gen.gening || !!batchActiveId || !!pendingDeleteRefId || deleteBusyGlobal;
+  const deleteShotReference = async (r,e)=>{
+    if(e) e.stopPropagation();
+    if(typeof onDeleteShotReference!=="function" || !r || (r.kind!=="seed" && r.kind!=="seed-pending") || r.refId==null
+      || referenceControlsBusy || pendingDeleteRef.current) return;
+    const refId=String(r.refId);
+    pendingDeleteRef.current=refId;
+    setPendingDeleteRefId(refId);
+    setDeleteBusy(true);
+    try{
+      await onDeleteShotReference(sh.id,{
+        id:r.refId,
+        iso:r.meta&&r.meta.iso||"",
+        version:r.meta&&r.meta.version,
+        url:r.url,
+        ...(r.pending ? {pending:true} : {})
+      });
+    }catch(err){
+      // The App callback owns durable error handling. Catch here so a rejected
+      // callback never becomes an unhandled browser error or a stuck latch.
+      if(typeof window.appToast==="function")
+        window.appToast((err&&err.message)||"Reference image deletion failed.","error");
+    }finally{
+      if(pendingDeleteRef.current===refId){
+        pendingDeleteRef.current="";
+        if(mountedRef.current) setPendingDeleteRefId("");
+        setDeleteBusy(false);
+      }
+    }
+  };
+  // Beat-scoped, generated full-frame slugline units are editable on an
+  // existing card too. The older Add Shot picker only covered new shots,
+  // leaving an ambiguous compound slugline (for example Kitchen / Living Room)
+  // impossible to correct after drafting. This helper intentionally excludes
+  // master crops.
+  const locationReferenceChoices = (loc && typeof shotLocationReferenceChoices==="function")
+    ? shotLocationReferenceChoices(loc,sh,scene,ctx.drafts||(window.turnContinuity||{}).drafts||{}) : [];
+  const explicitLocationRefs = Array.isArray(sh.referenceLocationIds) ? sh.referenceLocationIds : [];
+  const locationPickerBusy = referenceControlsBusy;
+  const updateLocationReference = (id)=>{
+    if(locationPickerBusy) return;
+    const next = explicitLocationRefs.indexOf(id)>=0
+      ? explicitLocationRefs.filter(x=>x!==id)
+      : [...explicitLocationRefs,id];
+    onUpdate(sh.id,{referenceLocationsSet:true,referenceLocationIds:next});
+  };
+  const locationReferencePicker = loc && locationReferenceChoices.length>0 && _el("div",{
+    className:"shot-location-picker","aria-label":"Location reference"
+  },
+    _el("span",{className:"shot-location-picker-label"},"Location reference"),
+    _el("button",{type:"button",className:"shot-location-choice auto"+(!sh.referenceLocationsSet?" on":""),
+      "aria-pressed":!sh.referenceLocationsSet,disabled:locationPickerBusy,
+      title:"Use the automatically matched opening location reference(s).",
+      onClick:()=>onUpdate(sh.id,{referenceLocationsSet:false,referenceLocationIds:[]})},"Auto"),
+    locationReferenceChoices.map(choice=>{
+      const selected=!!sh.referenceLocationsSet && explicitLocationRefs.indexOf(choice.id)>=0;
+      return _el("button",{key:choice.id,type:"button",className:"shot-location-choice"+(selected?" on":""),
+        "aria-pressed":selected,disabled:locationPickerBusy,
+        title:selected
+          ? "Remove "+choice.label+" from this shot's location references."
+          : "Use "+choice.label+" as an explicit full-frame location reference.",
+        onClick:()=>updateLocationReference(choice.id)},choice.label);
+    }));
   // the SEED is the previous shot's frame, whose image isn't part of this card's props — so when
   // it commits (uploaded OR generated), bump on its nb-gen-done so the seed thumb appears without a reload.
   const [prevSeedBump, setPrevSeedBump] = React.useState(0);
   React.useEffect(()=>{
-    if(!prevShot) return;
-    const pid = prevShot.id;
+    if(!seedCandidate) return;
+    const pid = seedCandidate.id;
     const onDone = (e)=>{ if(e && e.detail && e.detail.id===pid) setPrevSeedBump(b=>b+1); };
     window.addEventListener("nb-gen-done", onDone);
     return ()=>window.removeEventListener("nb-gen-done", onDone);
-  },[prevShot && prevShot.id]);
+  },[seedCandidate && seedCandidate.id]);
   const [refAssetBump, setRefAssetBump] = React.useState(0);
-  const _liveRefIdsKey = [prevShot&&prevShot.id, ...liveLocationRefIds(), ...subjects.map(c=>c.id), ...inProps.map(p=>p.id)].filter(Boolean).join("|");
+  // Events and async grabs follow the candidate when this shot is a fresh start;
+  // following prevShot here would leave an excluded seed thumbnail stale forever.
+  const _liveRefIdsKey = [seedCandidate&&seedCandidate.id, ...liveLocationRefIds(), ...subjects.map(c=>c.id), ...inProps.map(p=>p.id)].filter(Boolean).join("|");
   React.useEffect(()=>{
     const matches = (detail)=>{
       if(!detail) return false;
@@ -560,16 +653,46 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
     window.addEventListener("nb-prefetched", onChanged);
     return ()=>{ window.removeEventListener("nb-gen-done", onChanged); window.removeEventListener("nb-prefetched", onChanged); };
   },[_liveRefIdsKey]);
-  const _refKey = [sh.id, prevShot&&prevShot.id, prevShot&&prevShot.locked?1:0, prevSeedBump, refAssetBump, loc&&loc.id, _locSpecKey, locWeight,
+  const _refKey = [sh.id, sh.anchor?1:0, seedCandidate&&seedCandidate.id, seedCandidate&&seedCandidate.locked?1:0, prevSeedBump, refAssetBump, loc&&loc.id,
+    sh.referenceLocationsSet?1:0, (sh.referenceLocationIds||[]).join(","), locationReferenceChoices.map(x=>x.id+":"+x.label).join("|"),
+    _locSpecKey, locWeight,
     subjects.map(c=>c.id).join(","), inProps.map(p=>p.id).join(","), gen.genUrl||""].join("|");
   React.useEffect(()=>{
     let alive = true;
     setRefsLoaded(false);
     (async ()=>{
       const grab = async (id)=> (typeof shotGrabImage==="function") ? await shotGrabImage(id) : "";
-      // the rolling SEED leads (the previous shot's frame), then the canon sheets ordered by weight
-      const seedU = prevShot ? await grab(prevShot.id) : "";
-      const seed = (prevShot && seedU) ? [{ url:seedU, label:"Previous shot · Beat "+(prevShot.beatN||"—"), kind:"seed", approved:!!prevShot.locked }] : [];
+      // The rolling SEED leads (the previous shot's frame), then the canon sheets
+      // ordered by weight. When the shot is a fresh start, seedCandidate remains an
+      // optional visible candidate but is not an active attachment.
+      const seedU = seedCandidate ? await grab(seedCandidate.id) : "";
+      const seedCachedU = seedCandidate && typeof nbGetImage==="function" ? nbGetImage(seedCandidate.id) : "";
+      const seedIdentityCurrent = !!seedCandidate && !!seedU && (!seedCachedU || seedCachedU===seedU);
+      const seedMeta = seedIdentityCurrent && typeof nbGetMeta==="function" ? nbGetMeta(seedCandidate.id) : null;
+      // A failed purge can leave a durable pending target after its image cache
+      // has been evicted. Hydrate that target separately so a reload never
+      // erases the only reachable Retry action.
+      let pendingSeed = null;
+      if(seedCandidate && !seedU && typeof nbLoadPendingImageDeletion==="function"){
+        try{
+          const target=await nbLoadPendingImageDeletion(seedCandidate.id);
+          if(target && target.pending) pendingSeed=target;
+        }catch(e){}
+      }
+      const seed = pendingSeed ? [{
+        url:pendingSeed.url||"", label:"Previous shot · deletion pending", kind:"seed-pending",
+         approved:!!seedCandidate.locked, pending:true, refId:seedCandidate.id, meta:pendingSeed,
+         ...(pendingSeed.retryable!=null ? {retryable:pendingSeed.retryable} : {}),
+         ...(pendingSeed.status ? {status:pendingSeed.status} : {})
+      }] : ((seedCandidate && seedU) ? [{
+        url:seedU, label:"Previous shot · Beat "+(seedCandidate.beatN||"—"), kind:"seed",
+        approved:!!seedCandidate.locked, off:!!sh.anchor,
+         // A metadata/identity stamp is only trusted when the grabbed URL still
+         // agrees with the current cached image. The candidate can still be
+         // reattached via anchor even when a stale URL is visible, but it cannot
+         // expose an unsafe permanent-delete identity.
+         ...(seedIdentityCurrent ? { refId:seedCandidate.id, meta:seedMeta||undefined } : {})
+      }] : []);
       const locItems = []; if(loc){
         const locSpecs = liveLocationSpecs();
         const resolved = (typeof shotResolveLocationSpecImages==="function") ? await shotResolveLocationSpecImages(locSpecs, grab) : [];
@@ -592,27 +715,58 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   const waitingForShot = !!(batchActiveId && batchActiveId!==sh.id);
   // Use the same pre-Generate slot as Locations. These remain the live inputs,
   // with seed approval and reference exclusions intact, not historical snapshots.
-  const referenceControls=refImgs.length>0 && _el("div",{className:"shot-refs coverage-refs"},
-    _el("div",{className:"shot-refs-lab"},_el(Icon.layers,{s:11}),"Reference images"),
-    _el(window.RefStripScroller||"div",{className:"shot-refs-row coverage-refs-row"},
+  const referenceControls=(refImgs.length>0 || locationReferencePicker) && _el("div",{className:"shot-refs coverage-refs"},
+    _el("div",{className:"shot-refs-lab",
+      title:"Unticking a reference is nondestructive and removes only its image from this generation. Delete reference image permanently removes the seed source version, not this shot or its takes."},
+      _el(Icon.layers,{s:11}),"Reference images"),
+    locationReferencePicker,
+    refImgs.length>0 && _el(window.RefStripScroller||"div",{className:"shot-refs-row coverage-refs-row"},
       refImgs.map((r,i)=>{
-        // Only sheet references can be excluded. Skipping the seed requires
-        // the explicit Fresh start chain-head control.
-        const off = r.refId!=null && (sh.refOff||[]).indexOf(r.refId)>=0;
+        // Sheet references use refOff. The rolling seed uses the existing durable
+        // fresh-start flag so exclusion removes its base image, seed prompt and
+        // dependency gate everywhere that consumes shotRenderPlan/seedShotOf.
+         const isSeed=r.kind==="seed" || r.kind==="seed-pending";
+         const pendingRetryable=!r.pending || (r.retryable!==false && r.status!=="retained-unverified");
+        const off = isSeed ? !!sh.anchor : (r.refId!=null && (sh.refOff||[]).indexOf(r.refId)>=0);
+         const controlsDisabled=referenceControlsBusy;
         return _el("div",{key:"a"+i,role:"button",tabIndex:0,
-          className:"shot-ref-thumb "+r.kind+(r.kind==="seed"&&r.approved===false?" provisional":"")+(off?" off":""),
-          title:(r.kind==="seed" ? (r.label+" — "+(r.approved?"approved seed":"provisional seed (not yet approved)")) : r.label)
-            +(off?" — EXCLUDED from generation":"")+" — click to enlarge",
-          onClick:()=>onView&&onView(r.url,{name:r.label}),
+          className:"shot-ref-thumb "+r.kind+(isSeed&&r.approved===false?" provisional":"")+(off?" off":""),
+          title:(isSeed ? (r.label+" — "+(r.approved?"approved seed":"provisional seed")) : r.label)
+            +(off?" — EXCLUDED from generation (nondestructive; click to re-attach)":" — included in generation")
+            +" — click to enlarge",
+           onClick:()=>r.url&&onView&&onView(r.url,{name:r.label}),
           onKeyDown:(e)=>{ if(e.target===e.currentTarget&&(e.key==="Enter"||e.key===" ")){ e.preventDefault(); onView&&onView(r.url,{name:r.label}); } }},
-          _el("img",{src:r.url,alt:r.label,loading:"lazy"}),
-          r.kind==="seed" && _el("span",{className:"shot-ref-seedtag"+(r.approved?" ok":"")}, r.approved?"✓":"·"),
-          r.refId!=null && _el("button",{className:"shot-ref-tick"+(off?"":" on"),"aria-pressed":!off,
-            title: off ? "Excluded — this sheet is NOT attached to the generation. Click to re-attach it."
-              : "Attached as a reference. Click to exclude this sheet from the generation (the "+(r.kind==="location"?"set":r.kind)+" stays in the prompt text; only the image is withheld).",
-            onClick:(e)=>{ e.stopPropagation(); const cur=sh.refOff||[];
-              onUpdate(sh.id,{ refOff: off ? cur.filter(x=>x!==r.refId) : [...cur, r.refId] }); }},
-            off ? "✕" : "✓")); })));
+           r.pending
+             ? _el("div",{className:"shot-ref-pending"+(pendingRetryable?"":" retained-unverified"),
+                 title:pendingRetryable
+                   ? "The source image was evicted before permanent deletion completed."
+                   : "The source was retained, but its immutable copy could not be identified for an actionable retry."},
+                 _el(Icon.trash,{s:12}),_el("span",null,pendingRetryable?"Deletion pending":"Deletion retained · review Details"))
+             : _el("img",{src:r.url,alt:r.label,loading:"lazy"}),
+           !r.pending && (r.kind==="seed" || r.refId!=null) && _el("button",{type:"button",className:"shot-ref-tick"+(off?"":" on"),
+            disabled:controlsDisabled,
+            "aria-pressed":!off,
+            title: isSeed
+              ? (off
+                ? "Excluded nondestructively — this seed is not attached to the generation. Click to re-attach it."
+                : "Attached seed. Click to exclude it nondestructively; this starts the shot fresh without deleting the source image.")
+              : (off ? "Excluded nondestructively — this sheet is NOT attached to the generation. Click to re-attach it."
+                : "Attached as a reference. Click to exclude this sheet nondestructively from the generation (the "+(r.kind==="location"?"set":r.kind)+" stays in the prompt text; only the image is withheld)."),
+            onClick:(e)=>{ e.stopPropagation(); if(controlsDisabled) return;
+              if(isSeed){ onUpdate(sh.id,{anchor:!off}); return; }
+              const cur=sh.refOff||[];
+              onUpdate(sh.id,{ refOff: off ? cur.filter(x=>x!==r.refId) : [...cur, r.refId] }); },
+            onKeyDown:(e)=>{ if((e.key==="Enter"||e.key===" ") && !controlsDisabled){
+              e.preventDefault(); e.stopPropagation(); e.currentTarget.click();
+            }}},
+            off ? "✕" : "✓"),
+           isSeed && r.refId!=null && typeof onDeleteShotReference==="function" && pendingRetryable && _el("button",{
+            type:"button",className:"shot-ref-delete",disabled:controlsDisabled,
+             "aria-label":r.pending?"Retry image deletion":"Delete reference image permanently",
+             title:r.pending
+               ? "Retry image deletion — the source was evicted before cleanup completed."
+               : "Delete reference image permanently — permanently removes this source image version, not the shot or its takes.",
+            onClick:(e)=>deleteShotReference(r,e)},_el(Icon.trash,{s:9}))); })));
 
   return _el("div",{className:"sheet-card shot-card"+(batchActiveId===sh.id?" batch-on":"")+(gen.gening?" gening":""),"data-shot-card":sh.id},
     _el(SheetFrame,{ gen:genGuarded, slotId:"shot-"+sh.id, name:beatLabel, avatarColor:"linear-gradient(135deg,#7a6cae,#2a2440)",
@@ -1036,13 +1190,22 @@ function BeatShotPreview({ sh, letter, scene, sceneStart, onRenderScene, renderB
    coverage sheets; the lower-resolution master 2x2 plate never appears here. */
 function AddShotReferenceDialog({ scene, beatN, beatText, plan, ctx, characters, seed, onCancel, onAdd }){
   const location = ctx && ctx.location;
-  const drafts = (window.turnContinuity||{}).drafts||{};
+  const drafts = ctx && ctx.drafts || (window.turnContinuity||{}).drafts||{};
   const locationChoices = React.useMemo(()=>{
+    if(!location) return [];
+    const sh={beatN,action:[beatText, seed&&seed.action].filter(Boolean).join(" "),locationSide:"BOTH",referencePickerAll:true};
+    const units = typeof shotLocationReferenceChoices==="function"
+      ? shotLocationReferenceChoices(location,sh,scene,drafts).map(x=>({
+          ...x,source:"slugline-unit",note:x.label+" (full-frame slugline unit)"
+        })) : [];
+    const coverage = typeof shotLocationCoverageSpecs==="function"
+      ? shotLocationCoverageSpecs(location,sh,scene,drafts).filter(s=>s && s.id && s.source==="screenplay-coverage") : [];
+    return [...units,...coverage].filter((x,i,a)=>a.findIndex(y=>y.id===x.id)===i);
+  },[location&&location.id, beatN, beatText, seed&&seed.action]);
+  const autoLocationChoices = React.useMemo(()=>{
     if(!location || typeof shotLocationCoverageSpecs!=="function") return [];
     return shotLocationCoverageSpecs(location,{
-      action:[beatText, seed&&seed.action].filter(Boolean).join(" "),
-      locationSide:"BOTH",
-      referencePickerAll:true,
+      beatN,action:[beatText, seed&&seed.action].filter(Boolean).join(" "),locationSide:"BOTH"
     },scene,drafts).filter(s=>s && s.id);
   },[location&&location.id, beatN, beatText, seed&&seed.action]);
   const sluglineChoices = locationChoices.filter(x=>x.source==="slugline-unit");
@@ -1059,6 +1222,7 @@ function AddShotReferenceDialog({ scene, beatN, beatText, plan, ctx, characters,
   const [loading,setLoading] = React.useState(true);
   const [selectedLocations,setSelectedLocations] = React.useState([]);
   const [selectedCharacters,setSelectedCharacters] = React.useState([]);
+  const [locationMode,setLocationMode] = React.useState("explicit");
   const initialized = React.useRef(false);
   React.useEffect(()=>{
     let alive=true;
@@ -1076,8 +1240,9 @@ function AddShotReferenceDialog({ scene, beatN, beatText, plan, ctx, characters,
       setAssets(next); setLoading(false);
       if(!initialized.current){
         initialized.current=true;
-        const readyLocations=locationChoices.filter(x=>next[x.id]);
-        setSelectedLocations(readyLocations.length?[readyLocations[0].id]:[]);
+         const readyLocations=locationChoices.filter(x=>next[x.id]);
+         setSelectedLocations(readyLocations.length?[readyLocations[0].id]:[]);
+         setLocationMode("explicit");
         setSelectedCharacters(characterChoices.filter(x=>next[x.id]).map(x=>x.id));
       }
     })();
@@ -1095,19 +1260,25 @@ function AddShotReferenceDialog({ scene, beatN, beatText, plan, ctx, characters,
       : "Character featured in this beat";
     return _el("button",{key:item.id,type:"button",disabled:!ready,
       className:"shot-ref-choice"+(on?" on":"")+(!ready?" unavailable":""),
-      onClick:()=>ready&&toggle(setter,item.id),title:ready?(on?"Remove this reference":"Use this reference"):"Generate this asset in the Art Room first"},
+       onClick:()=>{ if(!ready) return; if(kind==="location") setLocationMode("explicit"); toggle(setter,item.id); },
+       title:ready?(on?"Remove this reference":"Use this reference"):"Generate this asset in the Art Room first"},
       ready ? _el("img",{src:assets[item.id],alt:""}) : _el("span",{className:"shot-ref-choice-ph"},_el(Icon.image,{s:17})),
       _el("span",{className:"shot-ref-choice-copy"},
         _el("b",null,label),_el("small",null,ready?source:"Not generated yet")),
       ready && _el("span",{className:"shot-ref-choice-check"},on?_el(Icon.check,{s:12}):""));
   };
+  const autoLocationReady=autoLocationChoices.length===1 && !!assets[autoLocationChoices[0].id];
+  const locationSelected=selectedLocations.length>0 || (locationMode==="auto" && autoLocationReady);
+  const addDisabled=loading || !locationSelected;
   const modal=_el("div",{className:"shot-ref-dialog-scrim",role:"presentation",onMouseDown:e=>{if(e.target===e.currentTarget)onCancel();}},
     _el("div",{className:"shot-ref-dialog",role:"dialog","aria-modal":"true","aria-label":"Choose references for new shot"},
       _el("div",{className:"shot-ref-dialog-head"},
         _el("div",null,_el("h3",null,"Add shot to Beat "+beatN),_el("p",null,"Choose the full-quality location and character anchors for this shot.")),
         _el("button",{type:"button",className:"ag-x",onClick:onCancel,"aria-label":"Close"},_el(Icon.x,{s:16}))),
       _el("div",{className:"shot-ref-dialog-body"},
-        _el("section",null,_el("div",{className:"shot-ref-dialog-label"},"Slugline units"),
+         _el("section",null,_el("div",{className:"shot-ref-dialog-label"},"Slugline units"),
+           autoLocationReady && _el("button",{type:"button",className:"shot-ref-choice-auto"+(locationMode==="auto"?" on":""),onClick:()=>{setLocationMode("auto");setSelectedLocations([])}},
+             "Auto · "+(autoLocationChoices[0].note||autoLocationChoices[0].name||"matched location")),
           sluglineChoices.length
             ? _el("div",{className:"shot-ref-choice-list"},sluglineChoices.map(x=>choice(x,"location",selectedLocations,setSelectedLocations)))
             : _el("div",{className:"shot-ref-dialog-empty"},"No generated full-frame slugline unit applies to this scene.")),
@@ -1118,12 +1289,13 @@ function AddShotReferenceDialog({ scene, beatN, beatText, plan, ctx, characters,
           characterChoices.length
             ? _el("div",{className:"shot-ref-choice-list"},characterChoices.map(x=>choice(x,"character",selectedCharacters,setSelectedCharacters)))
             : _el("div",{className:"shot-ref-dialog-empty"},"No named character was found in this beat.")),
-        loading && _el("div",{className:"shot-ref-dialog-loading"},"Checking generated assets…")),
+         loading && _el("div",{className:"shot-ref-dialog-loading"},"Checking generated assets…"),
+         !loading && !locationSelected && _el("div",{className:"shot-ref-dialog-help"},"Choose a generated full-frame location reference, or select a valid unambiguous Auto match before adding this shot.")),
       _el("div",{className:"shot-ref-dialog-actions"},
         _el("button",{type:"button",className:"appconfirm-btn ghost",onClick:onCancel},"Cancel"),
-        _el("button",{type:"button",className:"appconfirm-btn primary",onClick:()=>onAdd({
+         _el("button",{type:"button",className:"appconfirm-btn primary",disabled:addDisabled,onClick:()=>onAdd({
           ...(seed||{}),
-          referenceLocationsSet:true,referenceLocationIds:selectedLocations,
+           referenceLocationsSet:locationMode!=="auto",referenceLocationIds:locationMode==="auto"?[]:selectedLocations,
           referenceCharactersSet:true,referenceCharacterIds:selectedCharacters,
         })},_el(Icon.plus,{s:12}),"Add shot"))));
   return window.ReactDOM&&window.ReactDOM.createPortal ? window.ReactDOM.createPortal(modal,document.body) : modal;
@@ -1133,7 +1305,7 @@ function AddShotReferenceDialog({ scene, beatN, beatText, plan, ctx, characters,
    ordered micro-beat moments, then one compact shot row per moment.
    The Stage keeps consuming these shots for video clips; clip packing is unchanged. */
 function BeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, ordered, firstId, toggleHead,
-  onAddShot, onUpdate, onDelete, onView, onGenerateShot, onRegenDownstream, onStopChain, onBatchDone,
+  onAddShot, onUpdate, onDelete, onView, onDeleteShotReference, onGenerateShot, onRegenDownstream, onStopChain, onBatchDone,
   batchActiveId, openShotId, setOpenShotId, sceneStart, onRenderScene, renderBusy, nextShotId, onRefineBeat, refiningBeat }){
   const beatRow = (bm.rows||[]).find(r=>String(r.n)===String(L.n));
   // the card quotes the SCREENPLAY (canon) for this beat; the beat-map summary
@@ -1249,7 +1421,7 @@ function BeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, ordered
               const _si=ordered.findIndex(x=>x.id===sh.id);
               return _el(ShotCard,{sh,scene,ctx,characters,propsAvail,beatText,prevShot,plan,sceneShots:ordered,
                 laterShots:(_si>=0?ordered.slice(_si+1):[]), isHead:!prevShot, isFirst:(sh.id===firstId), onToggleHead:toggleHead,
-                onUpdate,onDelete,onView,batchActiveId,onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,
+                 onUpdate,onDelete,onView,onDeleteShotReference,batchActiveId,onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,
                 subLabel:(L.shots.length>1?letterOf(i):null)}); })())))),
       addSeed!==null && _el(AddShotReferenceDialog,{key:"add-shot-"+scene.id+"-"+L.n,
         scene,beatN:L.n,beatText,plan,ctx,characters,seed:addSeed,
@@ -1260,7 +1432,7 @@ function BeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, ordered
 /* Screenplay-first beat surface. The legacy BeatCard above remains deliberately
    available for migration/test dependencies, while this is the live one-card model. */
 function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, ordered, firstId, toggleHead,
-  onAddShot, onUpdate, onDelete, onView, onGenerateShot, onRegenDownstream, onStopChain, onBatchDone,
+  onAddShot, onUpdate, onDelete, onView, onDeleteShotReference, onGenerateShot, onRegenDownstream, onStopChain, onBatchDone,
   batchActiveId, openShotId, setOpenShotId, sceneStart, onRenderScene, renderBusy, nextShotId, onRefineBeat, refiningBeat, draftingBlocked }){
   const continuity=window.turnContinuity||{};
   const source=typeof window.shotBeatScreenplay==="function"
@@ -1321,7 +1493,7 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
     beatText:(source&&source.openingAction)||text,sceneShots:ordered,plan:sh.beatPlan,
     prevShot,laterShots:(shotIndex>=0?ordered.slice(shotIndex+1):[]),
     isHead:!prevShot,isFirst:sh.id===firstId,onToggleHead:toggleHead,
-    onUpdate,onDelete,onView,batchActiveId:(sh.id===batchActiveId?batchActiveId:null),onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,subLabel:label,beatContext,scriptedContent,redraftControl:refineControl,shotMenuExtra}); };
+     onUpdate,onDelete,onView,onDeleteShotReference,batchActiveId:(sh.id===batchActiveId?batchActiveId:null),onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,subLabel:label,beatContext,scriptedContent,redraftControl:refineControl,shotMenuExtra}); };
   return _el(React.Fragment,null,
     displayed ? editor(displayed,displayed.id===primary.id?null:"Alternative "+(extras.findIndex(sh=>sh.id===displayed.id)+1)) :
       _el("div",{className:"sheet-card shot-card opening-beat-empty"},
@@ -1331,7 +1503,7 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
 }
 
 function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, pager, onUpdate, onDelete, onView,
-  onAddShot, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onDraftScene, draftingScene, draftingBlocked, batchActiveId, onBatchDone, open, onToggle, onGenerateShot, onRegenDownstream,
+  onDeleteShotReference, onAddShot, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onDraftScene, draftingScene, draftingBlocked, batchActiveId, onBatchDone, open, onToggle, onGenerateShot, onRegenDownstream,
   onRenderScene, renderBusy, queueMode, onStopChain }){
   const loc = ctx.location;
   const driver = scene.driver ? ctx.charById[scene.driver] : null;
@@ -1413,7 +1585,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
       _el(ShotCard,{sh:collapsedActive,scene,ctx,characters,propsAvail,
         beatText:beatScriptText(scene.id,lane.n),sceneShots:ordered,plan:collapsedActive.beatPlan,
         prevShot:prior,laterShots:ix>=0?ordered.slice(ix+1):[],isHead:!prior,isFirst:collapsedActive.id===firstId,onToggleHead:toggleHead,
-        onUpdate,onDelete,onView,batchActiveId,onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,
+         onUpdate,onDelete,onView,onDeleteShotReference,batchActiveId,onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,
         subLabel:collapsedActive.keyframeMode==="beat-opening"?"Opening":null}));
   })() : null;
   // the scene's clip sequences (shared partition — Storyboard clip boards + the Stage);
@@ -1552,7 +1724,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
         _el("div",{key:"beat-grid",className:"beat-grid-wrap"+(draftingScene?" drafting":"")},
           _el("div",{className:"beat-card-grid"},
             lanes.map((L,Li)=> _el(OpeningBeatCard,{key:"bc"+(L.canonical?"c":"o")+L.n, L, lanesLen:lanes.length, bm, scene, ctx, characters, propsAvail,
-              ordered, firstId, toggleHead, onAddShot, onUpdate, onDelete, onView,
+              ordered, firstId, toggleHead, onAddShot, onUpdate, onDelete, onView, onDeleteShotReference,
               onGenerateShot, onRegenDownstream, onStopChain, onBatchDone, batchActiveId, openShotId, setOpenShotId,
               sceneStart:(!_sceneRendered && Li===0), onRenderScene, renderBusy, nextShotId:_nextShotId,
               onRefineBeat,refiningBeat:refiningBeat===scene.id+"#"+L.n,
@@ -1561,10 +1733,11 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
 }
 
 function ShotList({ project, scenes, characters, props, locations, shots, beatsMap,
-  onUpdateShot, onAddShot, onDeleteShot, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onShoot,
+  onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onShoot,
   trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onReviewLookbook,
   onRemoveMicroBeatShots, readOnly=false }){
   const [view, setView] = React.useState(null);
+  const deleteShotReferenceHandler = readOnly ? null : onDeleteShotReference;
   const batch = useBatchGen();
   const batchActiveId = batch.activeId;
   // the rolling-keyframe CHAIN: render a scene's shots in order, each seeded by the previous
@@ -2017,7 +2190,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
       pager:{ idx:visibleIdx, total:scenesWithShots.length, scenes:scenesWithShots, onJump:setPIdx,
         onPrev:()=>setPIdx(i=>Math.max(0,i-1)), onNext:()=>setPIdx(i=>Math.min(scenesWithShots.length-1,i+1)) },
       ctx:ctxFor(scene),characters:characters||[],beatsMap,propsAvail:(typeof propsForScene==="function")?propsForScene(props,scene.id):[],
-      onUpdate:onUpdateShot,onDelete:onDeleteShot,onView:(url,e)=>setView({url,character:e}),
+      onUpdate:onUpdateShot,onDelete:onDeleteShot,onDeleteShotReference:deleteShotReferenceHandler,onView:(url,e)=>setView({url,character:e}),
       onAddShot,onSplitBeat,splittingBeat,onRefineBeat,refiningBeat,onDraftScene:onDraftSceneShots,draftingScene:draftingSceneShots===scene.id,
       draftingBlocked:!!readOnly||!!draftingAllShots||!!draftingSceneShots,
       batchActiveId,onBatchDone:handleBatchDone,onGenerateShot:startShot,onRegenDownstream,
@@ -2029,7 +2202,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
       _el(SceneShotGroup,{key:"runner-"+runnerScene.id,scene:runnerScene,shots:shotsForGroup(runnerScene.id),
         ctx:ctxFor(runnerScene),characters:characters||[],beatsMap,
         propsAvail:(typeof propsForScene==="function")?propsForScene(props,runnerScene.id):[],
-        onUpdate:onUpdateShot,onDelete:onDeleteShot,onView:(url,e)=>setView({url,character:e}),
+        onUpdate:onUpdateShot,onDelete:onDeleteShot,onDeleteShotReference:deleteShotReferenceHandler,onView:(url,e)=>setView({url,character:e}),
         onAddShot,onSplitBeat,splittingBeat,onRefineBeat,refiningBeat,onDraftScene:onDraftSceneShots,draftingScene:draftingSceneShots===runnerScene.id,
         draftingBlocked:!!readOnly||!!draftingAllShots||!!draftingSceneShots,
         batchActiveId,onBatchDone:handleBatchDone,onGenerateShot:startShot,onRegenDownstream,

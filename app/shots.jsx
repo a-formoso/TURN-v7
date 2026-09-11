@@ -674,42 +674,312 @@ function shotLocationSide(sh, loc, scene, drafts){
   if(side==="INT" || side==="EXT") return side;
   return "";
 }
+
+/* Location references are resolved from the screenplay's typed beat source, not
+   from a shot's stale locationId or from whichever unit happens to sort first.
+   Keep these helpers local to Shots: they are also used by the manual picker,
+   render plan, headless renderer and Stage bridge through
+   shotLocationCoverageSpecs. */
+function shotLocationClean(value){
+  return String(value==null?"":value).replace(/\s+/g," ").trim();
+}
+function shotLocationNorm(value){
+  return shotLocationClean(value).toLowerCase()
+    .replace(/[’']/g,"'")
+    .replace(/[^a-z0-9]+/g," ").replace(/\s+/g," ").trim();
+}
+function shotLocationDraftFor(scene,drafts){
+  if(!scene) return null;
+  if(Array.isArray(drafts) || (drafts&&Array.isArray(drafts.blocks))) return drafts;
+  return drafts && (drafts[scene.id] || drafts[String(scene.id)]) || null;
+}
+function shotLocationDraftMap(scene,drafts){
+  const direct=shotLocationDraftFor(scene,drafts);
+  if(direct) return {[scene.id]:direct};
+  return drafts || {};
+}
+function shotLocationBeatNumber(sh){
+  const raw=sh && (sh.beatN!=null && sh.beatN!=="" ? sh.beatN : sh.beat);
+  const n=Number(raw);
+  return Number.isFinite(n) && n>0 ? n : null;
+}
+function shotLocationDraftBlocks(scene,drafts){
+  const d=shotLocationDraftFor(scene,drafts);
+  return d && Array.isArray(d.blocks) ? d.blocks : (Array.isArray(d)?d:[]);
+}
+function shotLocationInferBeat(scene,sh,drafts){
+  if(!scene || !sh) return null;
+  const text=shotLocationNorm(shotLocationText(sh));
+  if(!text) return null;
+  const hits=new Set();
+  shotLocationDraftBlocks(scene,drafts).forEach(b=>{
+    const n=Number(b&&b.beat);
+    if(!Number.isFinite(n)||n<=0 || !b || String(b.type||"").toLowerCase()==="scene") return;
+    const bt=shotLocationNorm(b.text);
+    if(!bt) return;
+    /* Manual Add Shot supplies the beat's exact screenplay text as action. A
+       unique block hit lets the picker remain beat-scoped without teaching the
+       UI about screenplay internals. Repeated prose is deliberately ambiguous. */
+    if(text===bt || text.indexOf(bt)>=0 || bt.indexOf(text)>=0) hits.add(n);
+  });
+  return hits.size===1 ? Array.from(hits)[0] : null;
+}
+function shotLocationBeatSource(scene,sh,drafts){
+  const n=shotLocationBeatNumber(sh);
+  if(n==null || !scene) return null;
+  const map=shotLocationDraftMap(scene,drafts);
+  try{
+    if(typeof shotBeatSource==="function"){
+      return shotBeatSource(scene,n,{drafts:map,beatsMap:{}},[]);
+    }
+    if(typeof window.shotBeatScreenplay==="function"){
+      return window.shotBeatScreenplay(scene,n,{drafts:map,characters:[],beatsMap:{}});
+    }
+  }catch(e){}
+  return null;
+}
+function shotLocationHeadingForIndex(blocks,index,fallback){
+  let heading="";
+  const end=Math.min(Number(index),blocks.length-1);
+  for(let i=0;i<=end;i++){
+    const b=blocks[i];
+    if(b&&String(b.type||"").toLowerCase()==="scene"&&shotLocationClean(b.text))
+      heading=shotLocationClean(b.text);
+  }
+  return heading || shotLocationClean(fallback);
+}
+function shotLocationBeatHeadings(scene,sh,drafts,source){
+  const blocks=shotLocationDraftBlocks(scene,drafts);
+  const entries=(source&&Array.isArray(source.blocks)?source.blocks:[])
+    .map(b=>b&&b.evidence&&Number(b.evidence.blockIndex))
+    .filter(n=>Number.isFinite(n)&&n>=0);
+  const headings=[];
+  if(entries.length){
+    entries.forEach(index=>{
+      const h=shotLocationHeadingForIndex(blocks,index,source&&source.sceneHeading);
+      if(h && headings.indexOf(h)<0) headings.push(h);
+    });
+  }else if(source&&source.sceneHeading){
+    headings.push(shotLocationClean(source.sceneHeading));
+  }
+  if(!headings.length && source&&source.hasSource===false) return [];
+  return headings;
+}
+function shotLocationParseHeading(value){
+  const raw=shotLocationClean(value);
+  if(!raw) return null;
+  if(typeof parseSlugline==="function"){
+    try{ const parsed=parseSlugline(raw); if(parsed) return parsed; }catch(e){}
+  }
+  let text=raw.replace(/^\s*\d+[\.\)]?\s+/,""), intExt="";
+  const m=text.match(/^(INT\.?\/EXT\.?|EXT\.?\/INT\.?|INT\.?|EXT\.?|I\/E\.?)\s*/i);
+  if(m){ intExt=m[1].toUpperCase().replace(/\./g,"").replace(/I\/E/,"INT/EXT"); text=text.slice(m[0].length); }
+  let time="";
+  const tm=text.match(/[\u00b7\u2014,\-]\s*([A-Za-z][A-Za-z'\s]{1,22})\s*$/);
+  if(tm && /\b(night|day|dawn|dusk|morning|evening|afternoon|continuous|later|moments?\s+later|sunset|sunrise)\b/i.test(tm[1])){
+    time=shotLocationClean(tm[1]); text=text.slice(0,tm.index).trim();
+  }
+  text=text.replace(/[\u00b7\u2014,\-\s]+$/,"").trim();
+  return text ? {intExt,place:text,time} : null;
+}
+function shotLocationTime(value){
+  if(typeof normalizeTOD==="function"){
+    try{ return normalizeTOD(value) || ""; }catch(e){}
+  }
+  const s=shotLocationNorm(value);
+  if(/\b(?:night|midnight|nighttime)\b/.test(s)) return "night";
+  if(/\bdawn|sunrise|daybreak\b/.test(s)) return "dawn";
+  if(/\bmorning\b/.test(s)) return "morning";
+  if(/\b(?:day|daytime|noon|midday)\b/.test(s)) return "day";
+  if(/\bafternoon\b/.test(s)) return "afternoon";
+  if(/\b(?:dusk|sunset|twilight)\b/.test(s)) return "dusk";
+  if(/\bevening\b/.test(s)) return "evening";
+  return "";
+}
+function shotLocationPlaceParts(value){
+  const raw=shotLocationClean(value);
+  return Array.from(new Set([raw].concat(raw.split(/\s*(?:\/|·|—|,|\s-\s)\s*/))
+    .map(shotLocationNorm).filter(Boolean)));
+}
+function shotLocationUnitPlace(u){
+  return shotLocationClean(u&& (u.name || u.place));
+}
+function shotLocationUnitMatchesPlace(u,parsed){
+  if(!u||!parsed||!shotLocationUnitPlace(u)) return false;
+  const unit=shotLocationNorm(shotLocationUnitPlace(u));
+  const parts=shotLocationPlaceParts(parsed.place);
+  if(parts.indexOf(unit)>=0) return true;
+  /* A heading such as "FATHER'S HOUSE KITCHEN" has no separator between the
+     enclosing place and its room. Accept a unique trailing room phrase, but
+     never use a broad substring that could choose the wrong room. */
+  const place=shotLocationNorm(parsed.place);
+  return !!(place && place.endsWith(" "+unit));
+}
+function shotLocationUnitRoot(u){
+  return String(u&& (u.continuityRootKey || u.locationKey || "") || "");
+}
+function shotLocationUnitSubspace(u){
+  return String(u&& (u.subspaceKey || u.locationKey || "") || "");
+}
+function shotLocationLocationKey(loc){
+  if(typeof locationKeyOf==="function"){
+    try{ return String(locationKeyOf(loc)||""); }catch(e){}
+  }
+  return String((loc&&loc.key)||"");
+}
+function shotLocationEligibleUnits(loc,scene,allUnits){
+  if(!loc) return [];
+  const locKey=shotLocationLocationKey(loc);
+  const rootKey=String(loc.parentKey||loc.continuityRootKey||locKey||"");
+  const childKey=loc.parentKey ? locKey : "";
+  return (allUnits||[]).filter(u=>{
+    if(!u||u.orphan||!u.key) return false;
+    const unitRoot=shotLocationUnitRoot(u);
+    if(rootKey && unitRoot && unitRoot!==rootKey) return false;
+    if(rootKey && !unitRoot && shotLocationUnitSubspace(u)!==rootKey) return false;
+    if(childKey && shotLocationUnitSubspace(u)!==childKey) return false;
+    if(scene&&scene.id&&Array.isArray(u.scenes)&&u.scenes.length&&u.scenes.indexOf(scene.id)<0) return false;
+    return true;
+  });
+}
+function shotLocationHeadingSide(parsed,sh,loc,scene){
+  const explicit=String(sh&&sh.locationSide||"").toUpperCase();
+  if(explicit==="INT" || explicit==="EXT") return explicit;
+  const parsedSide=String(parsed&&parsed.intExt||"").toUpperCase();
+  if(parsedSide==="INT"||parsedSide==="EXT"||parsedSide==="BOTH"||parsedSide==="INT/EXT") return parsedSide==="INT/EXT"?"BOTH":parsedSide;
+  if(explicit==="BOTH") return explicit;
+  return shotLocationSide(sh,loc,scene,{});
+}
+function shotLocationHeadingUnitCandidates(units,parsed,side){
+  const targetTime=shotLocationTime(parsed&&parsed.time);
+  return (units||[]).filter(u=>{
+    if(!shotLocationUnitMatchesPlace(u,parsed)) return false;
+    const role=String(u.intExt||"").toUpperCase();
+    if(side!=="BOTH" && side && role && role!==side) return false;
+    if(targetTime && shotLocationTime(u.time)!==targetTime) return false;
+    return true;
+  });
+}
+function shotLocationBuildUnitSpec(u){
+  if(!u||!u.key) return null;
+  if(typeof sluglineUnitImageId!=="function") return null;
+  const role=String(u.intExt||"").toUpperCase();
+  const unitName=shotLocationUnitPlace(u)||"location";
+  const id=sluglineUnitImageId(u.key);
+  return { id, unitKey:String(u.key), name:unitName, place:unitName,
+    time:u.time||"", subspaceKey:String(u.subspaceKey||""),
+    continuityRootKey:String(u.continuityRootKey||u.locationKey||""),
+    sceneIds:Array.isArray(u.scenes)?u.scenes.slice():[],
+    role, locPanelQ:null, source:"slugline-unit",
+    assetRole:"derived_reference", assetSourceQuality:"slugline_unit_full_frame",
+    note:unitName+" — slugline-unit "+(role||"location")+" coverage plate"
+      +(u.time?(" at "+u.time):"")+" (full-resolution unit anchor)" };
+}
+function shotLocationReferenceChoices(loc,sh,scene,drafts){
+  if(!loc) return [];
+  sh=sh||{};
+  const C=window.turnContinuity||{};
+  const allUnits=Array.isArray(C.sluglineUnits)?C.sluglineUnits:[];
+  const units=shotLocationEligibleUnits(loc,scene,allUnits);
+  if(!units.length) return [];
+  const beatN=shotLocationBeatNumber(sh);
+  const source=beatN!=null ? shotLocationBeatSource(scene,sh,drafts||C.drafts||{}) : null;
+  const headings=source&&source.hasSource
+    ? shotLocationBeatHeadings(scene,sh,drafts||C.drafts||{},source)
+    : (scene&&scene.loc ? [shotLocationClean(scene.loc)] : []);
+  const contexts=headings.map(heading=>{
+    const parsed=shotLocationParseHeading(heading);
+    if(!parsed) return null;
+    return {parsed,side:shotLocationHeadingSide(parsed,sh,loc,scene),
+      time:shotLocationTime(parsed.time)};
+  }).filter(Boolean);
+  const explicitSide=String(sh.locationSide||"").toUpperCase();
+  const fallbackSide=(explicitSide==="INT"||explicitSide==="EXT"||explicitSide==="BOTH")
+    ? explicitSide : shotLocationSide(sh,loc,scene,{});
+  const openingRank=new Map(), contextMatches=new Set();
+  contexts.forEach((ctx,index)=>{
+    shotLocationHeadingUnitCandidates(units,ctx.parsed,ctx.side).forEach(u=>{
+      contextMatches.add(u.key);
+      if(!openingRank.has(u.key)) openingRank.set(u.key,index);
+    });
+  });
+  const eligible=units.filter(u=>{
+    const role=String(u.intExt||"").toUpperCase();
+    if(fallbackSide!=="BOTH" && fallbackSide && role && role!==fallbackSide) return false;
+    /* A real opening heading's time bucket is a context constraint, but a unit
+       with no bucket remains a valid explicit choice for a screenplay whose
+       source omitted TOD. */
+    const times=contexts.map(x=>x.time).filter(Boolean);
+    if(times.length && u.time && times.indexOf(shotLocationTime(u.time))<0) return false;
+    return true;
+  });
+  const ordered=eligible.slice().sort((a,b)=>{
+    const ar=openingRank.has(a.key)?openingRank.get(a.key):Number.MAX_SAFE_INTEGER;
+    const br=openingRank.has(b.key)?openingRank.get(b.key):Number.MAX_SAFE_INTEGER;
+    return ar-br || units.indexOf(a)-units.indexOf(b);
+  });
+  return ordered.map(u=>{
+    const spec=shotLocationBuildUnitSpec(u);
+    if(!spec) return null;
+    const bits=[spec.name, spec.role, spec.time].filter(Boolean);
+    return {id:spec.id,label:bits.join(" · ")};
+  }).filter(Boolean);
+}
 function shotLocationCoverageSpecs(loc, sh, scene, drafts){
   if(!loc) return [];
-  const text = shotLocationText(sh).toLowerCase();
-  const side = shotLocationSide(sh, loc, scene, drafts);
-  const crossBoundary = side==="BOTH" || /\b(through|across|behind|beyond)\s+(?:the\s+)?(glass|window|door|threshold)\b/i.test(text);
-  const locKey = String(loc.key || ((typeof locSlug==="function") ? locSlug(loc.name).split("-").slice(0,4).join("-") : "") || "");
-  const rootKey=String(loc.parentKey||loc.continuityRootKey||locKey);
-  const unitIdFor = (u)=> (typeof sluglineUnitImageId==="function")
-    ? sluglineUnitImageId(u&&u.key)
-    : "locunit-"+String((u&&u.key)||"").replace(/[^a-z0-9-]+/gi,"-");
-  const units = (((window.turnContinuity||{}).sluglineUnits)||[]).filter(u=>{
-    if(!u || u.orphan) return false;
-    if(rootKey && String(u.continuityRootKey||u.locationKey||"")!==rootKey) return false;
-    if(scene && scene.id && Array.isArray(u.scenes) && u.scenes.length && u.scenes.indexOf(scene.id)<0) return false;
-    const role = String(u.intExt||"").toUpperCase();
-    if(side==="BOTH") return true;
-    return !side || !role || role===side;
-  });
-  const scoreUnit = (u)=>{
-    let n = 0;
-    const name = String((u&&u.name)||(u&&u.place)||"").toLowerCase();
-    if(name && text.indexOf(name)>=0) n += 8;
-    const script = String((u&&u.scriptText)||"").toLowerCase();
-    const words = Array.from(new Set(text.split(/[^a-z0-9']+/).filter(w=>w.length>4))).slice(0,18);
-    words.forEach(w=>{ if(script.indexOf(w)>=0) n += 1; });
-    return n;
-  };
-  const unitSpecs = units.slice().sort((a,b)=>scoreUnit(b)-scoreUnit(a)).map(u=>{
-    const role = String(u.intExt||"").toUpperCase();
-    const unitName = u.name || loc.name || "location";
-    return { id:unitIdFor(u), role, locPanelQ:null, source:"slugline-unit",
-      assetRole:"derived_reference", assetSourceQuality:"slugline_unit_full_frame",
-      note:unitName+" — slugline-unit "+(role||"location")+" coverage plate"
-        +(u.time?(" at "+u.time):"")+" (full-resolution unit anchor)" };
-  });
-  const C=(window.turnContinuity||{});
+  sh=sh||{};
+  const text=shotLocationText(sh).toLowerCase();
+  const C=window.turnContinuity||{};
+  const allUnits=Array.isArray(C.sluglineUnits)?C.sluglineUnits:[];
+  const explicitSelection=!!sh.referenceLocationsSet;
+  const explicitIds=new Set(Array.isArray(sh.referenceLocationIds)?sh.referenceLocationIds.filter(Boolean):[]);
+  if(explicitSelection && !explicitIds.size) return [];
+  const inferredBeat=shotLocationBeatNumber(sh)==null && sh.referencePickerAll
+    ? shotLocationInferBeat(scene,sh,drafts||C.drafts||{}) : null;
+  const beatN=shotLocationBeatNumber(sh)!=null ? shotLocationBeatNumber(sh) : inferredBeat;
+  const beatShot=beatN!=null ? {...sh,beatN} : sh;
+  const source=!explicitSelection && beatN!=null
+    ? shotLocationBeatSource(scene,beatShot,drafts||C.drafts||{}) : null;
+  /* A numbered shot with no canonical typed source is not allowed to borrow the
+     scene slugline: that would make a later Kitchen/Living Room entry leak into
+     the target opening. */
+  if(!explicitSelection && beatN!=null && (!source || !source.hasSource)) return [];
+  const headings=source&&source.hasSource
+    ? shotLocationBeatHeadings(scene,beatShot,drafts||C.drafts||{},source)
+    : (!explicitSelection && beatN==null && scene&&scene.loc ? [shotLocationClean(scene.loc)] : []);
+  /* A beat may contain a later cut/secondary slugline. The opening frame is
+     anchored by its first typed slugline; the choices helper still exposes all
+     compound units so a director can explicitly switch rooms. */
+  const openingHeadings=headings.slice(0,1);
+  const units=shotLocationEligibleUnits(loc,scene,allUnits);
+  const selectedUnits=[], selectedKeys=new Set();
+  const targetPlaces=[], targetSides=[];
+  if(explicitSelection){
+    units.forEach(u=>{
+      const spec=shotLocationBuildUnitSpec(u);
+      if(spec&&explicitIds.has(spec.id)){ selectedKeys.add(u.key); selectedUnits.push(u); }
+    });
+  }else{
+    if(!openingHeadings.length) return [];
+    for(const heading of openingHeadings){
+      const parsed=shotLocationParseHeading(heading);
+      if(!parsed) return [];
+      const side=shotLocationHeadingSide(parsed,sh,loc,scene);
+      const parsedPlace=shotLocationNorm(parsed.place);
+      if(parsedPlace && targetPlaces.indexOf(parsedPlace)<0) targetPlaces.push(parsedPlace);
+      if(side && targetSides.indexOf(side)<0) targetSides.push(side);
+      const matches=shotLocationHeadingUnitCandidates(units,parsed,side);
+      if(matches.length>1){
+        /* Multiple same-name units (or a bare room with multiple TOD plates) is
+           genuine ambiguity. Never sort-and-pick the first one. */
+        return [];
+      }
+      if(!matches.length) continue;
+      const u=matches[0];
+      if(!selectedKeys.has(u.key)){ selectedKeys.add(u.key); selectedUnits.push(u); }
+    }
+  }
+  const unitSpecs=selectedUnits.map(shotLocationBuildUnitSpec).filter(Boolean);
   const persistedSheets=Array.isArray(loc.coverageSheets)?loc.coverageSheets:[];
   // Always re-derive for this scene as well as reading persisted metadata. A screenplay
   // edit can introduce a coverage sheet before the Locations tab has been reopened and
@@ -723,23 +993,24 @@ function shotLocationCoverageSpecs(loc, sh, scene, drafts){
     ? Number(a)===Number(b)
     : String(a||"")===String(b||"");
   const sceneSheets = sheets.filter(v=>!scene || scene.no==null || !Array.isArray(v.sceneNos) || !v.sceneNos.length || v.sceneNos.some(no=>sameSceneNo(no,scene.no)));
-  const sheetSpecs = sceneSheets.map(v=>({ id:loc.id+"-"+v.id, role:v.role||"", locPanelQ:null,
+  const selectedNames=selectedUnits.map(u=>shotLocationNorm(shotLocationUnitPlace(u))).filter(Boolean);
+  const targetNames=Array.from(new Set(selectedNames.concat(targetPlaces))).filter(Boolean);
+  const sheetSpecs = sceneSheets.map(v=>({ id:loc.id+"-"+v.id, role:v.role||"", name:v.name||"",
     source:"screenplay-coverage",
     assetRole:"derived_reference", assetSourceQuality:"screenplay_coverage_full_frame",
     triggerWords:(v.triggerWords||[]).map(w=>String(w||"").toLowerCase()).filter(Boolean),
     note:(v.name||loc.name||"location")+" — screenplay-derived "+(v.role||"INT")+" coverage sheet (one full-frame view)" }));
   const matches = sheetSpecs.filter(v=>{
     const role = String(v.role||"").toUpperCase();
-    if(side==="BOTH") return true;
-    if(side && role && role!==side) return false;
-    const words = v.triggerWords||[];
-    return !words.length || words.some(w=>text.indexOf(w)>=0);
+    const headingsSide=selectedUnits.map(u=>String(u.intExt||"").toUpperCase()).filter(Boolean).concat(targetSides);
+    if(headingsSide.length && headingsSide.every(s=>s!=="BOTH") && role && headingsSide.indexOf(role)<0) return false;
+    const sheetText=shotLocationNorm([v.name,v.summary,v.scriptExcerpt].concat(v.triggerWords||[]).join(" "));
+    const roomMatch=targetNames.some(name=>sheetText===name || sheetText.indexOf(name)>=0);
+    const words=v.triggerWords||[];
+    const textMatch=!targetNames.length && (!words.length || words.some(w=>text.indexOf(String(w||"").toLowerCase())>=0));
+    return roomMatch || textMatch;
   });
-  const allHigh = [...unitSpecs, ...sheetSpecs].filter((x,i,a)=>a.findIndex(y=>y.id===x.id)===i);
-  // The new-shot reference picker needs every valid derived plate for this beat's
-  // location, not only the automatically inferred side. It never offers a master
-  // 2x2 plate or a cropped quadrant.
-  if(sh && sh.referencePickerAll) return allHigh;
+  const allHigh = [...unitSpecs, ...matches].filter((x,i,a)=>a.findIndex(y=>y.id===x.id)===i);
   // A director-selected list is authoritative, including an intentionally empty
   // selection. This lets a manually added shot use exactly the chosen location
   // anchors instead of silently re-introducing an automatic reference.
@@ -747,25 +1018,17 @@ function shotLocationCoverageSpecs(loc, sh, scene, drafts){
     const wanted = new Set(Array.isArray(sh.referenceLocationIds)?sh.referenceLocationIds:[]);
     return allHigh.filter(s=>wanted.has(s.id));
   }
-  if(unitSpecs.length){
-    // Keep matching screenplay coverage behind the preferred slugline units. If a
-    // unit record exists but its image has not been generated, the resolver can
-    // still use a ready full-frame coverage sheet without degrading to a crop.
-    if((side==="INT" || side==="EXT") && !crossBoundary) return [...unitSpecs,...matches]
-      .filter((x,i,a)=>a.findIndex(y=>y.id===x.id)===i);
-    return [...unitSpecs, ...matches]
-      .filter((x,i,a)=>a.findIndex(y=>y.id===x.id)===i);
-  }
-  // Beat-shot frames deliberately do not fall back to the master location plate or
-  // one of its cropped quadrants. A missing high-quality source is visible in the UI
-  // and leaves the render prompt-only for location until a unit/coverage plate exists.
-  if(!sheets.length) return [];
-  if(!matches.length) return [];
-  if(side==="INT" && !crossBoundary) return matches;
-  if(side==="EXT" && !crossBoundary) return matches.filter(m=>String(m.role).toUpperCase()==="EXT");
-  return matches.filter((x,i,a)=>a.findIndex(y=>y.id===x.id)===i);
+  /* Picker and automatic renders intentionally share this already-resolved,
+     beat-scoped list. A missing/cold unit remains a genuine unit id and is
+     resolved asynchronously by shotResolveLocationSpecImages; it never becomes
+     a master plate or a synthetic crop. */
+  if(!allHigh.length) return [];
+  return allHigh;
 }
 window.shotLocationSide = shotLocationSide;
+window.shotLocationUnitCandidates = shotLocationHeadingUnitCandidates;
+window.shotLocationBeatHeadings = shotLocationBeatHeadings;
+window.shotLocationReferenceChoices = shotLocationReferenceChoices;
 window.shotLocationCoverageSpecs = shotLocationCoverageSpecs;
 
 /* ---- SCALE & POV --------------------------------------------------------------
@@ -1412,7 +1675,8 @@ function buildShotPrompt(sh, ctx){
   // entity stays in the staging text; just its sheet isn't attached (labels must
   // mirror the real attachment list or the numbered map mislabels the files)
   const _refOff = (sh && Array.isArray(sh.refOff)) ? sh.refOff : [];
-  const _locSpecs = (typeof shotLocationCoverageSpecs==="function") ? shotLocationCoverageSpecs(loc, sh, scene, (window.turnContinuity||{}).drafts||{}) : [];
+   const _locSpecs = (typeof shotLocationCoverageSpecs==="function")
+     ? shotLocationCoverageSpecs(loc, sh, scene, ctx.drafts || (window.turnContinuity||{}).drafts || {}) : [];
   const _locLabels = _locSpecs.filter(s=>_refOff.indexOf(s.id)<0).map(s=>s.note+" — "
     + (locWeight==="ambient" ? "a background reference for the grade and surfaces only; the character fills this tight frame" : "reproduce its architecture, surfaces, fixtures, sightlines and signage exactly"));
   const _castLabels = subjects.filter(c=>_refOff.indexOf(c.id)<0).map(c=> {
@@ -1695,7 +1959,7 @@ function shotRenderPlan(sh, sceneShots, ctx){
   // build the sheet-reference specs, then ORDER by location weight
   const locSpec  = ctx.location
     ? ((typeof shotLocationCoverageSpecs==="function")
-      ? shotLocationCoverageSpecs(ctx.location, sh, ctx.scene, (window.turnContinuity||{}).drafts||{})
+       ? shotLocationCoverageSpecs(ctx.location, sh, ctx.scene, ctx.drafts || (window.turnContinuity||{}).drafts || {})
       : [])
     : [];
   const castSpec = inCast.map(id=>{ const c=(ctx.charById||{})[id]; return c?{ id, note:c.name+" character sheet" }:null; }).filter(Boolean);

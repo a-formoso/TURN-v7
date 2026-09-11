@@ -4262,6 +4262,95 @@ function App(){
       if(window.appToast) window.appToast(String((e&&e.message)||"Cleanup failed. Nothing was removed."),"error");
     }finally{ microCleanupBusyRef.current=false; }
   };
+  const shotReferenceDeleteBusyRef=React.useRef(false);
+  const [deletingShotReference,setDeletingShotReference]=React.useState(false);
+  const deleteShotReference=async (shotId,reference)=>{
+    if(shotReferenceDeleteBusyRef.current) return;
+    const say=(text,type)=>{ if(window.appToast) window.appToast(text,type); };
+    if(!canMutateSharedFilm()){ say("You do not have permission to delete this film's images.","error"); return; }
+    const before=shotsLiveRef.current;
+    const shot=before.find(s=>s.id===shotId);
+    const source=reference&&before.find(s=>s.id===reference.id);
+    if(!shot || !source || shot.sceneId!==source.sceneId || typeof window.seedShotOf!=="function"){
+      say("The selected reference could not be identified. Nothing was deleted.","error"); return;
+    }
+    const sceneShots=before.filter(s=>s.sceneId===shot.sceneId);
+    const candidate=window.seedShotOf({...shot,anchor:false},sceneShots);
+    if(!candidate || candidate.id!==source.id || !reference.iso){
+      say("This thumbnail's exact saved image version could not be verified. Nothing was deleted.","error"); return;
+    }
+    const projectId=projIdRef.current, epoch=typeof nbEpoch==="function"?nbEpoch():null;
+    let signature=JSON.stringify(before), detached=false;
+    const assertCurrent=()=>{
+      if(!canMutateSharedFilm()) throw new Error("Image deletion stopped because your permission changed.");
+      if(projIdRef.current!==projectId || (epoch!==null&&nbEpoch()!==epoch))
+        throw new Error("Image deletion stopped because the open film changed.");
+      if(JSON.stringify(shotsLiveRef.current)!==signature)
+        throw new Error("The shot list changed. Review the current reference before deleting it.");
+      if(keyframeBusyRef.current.size || shotsLiveRef.current.some(s=>
+        (window.__nbGenInflight&&window.__nbGenInflight[s.id])
+        || (window.__nbShotPhase&&window.__nbShotPhase[s.id])))
+        throw new Error("Finish or stop shot drafting and rendering before deleting a reference image.");
+    };
+    shotReferenceDeleteBusyRef.current=true;
+    try{
+      assertCurrent();
+      if(typeof window.nbPrepareImageDeletion!=="function" || typeof window.nbPurgeImageVersion!=="function")
+        throw new Error("Exact image deletion is unavailable. Nothing was deleted.");
+      const target=await window.nbPrepareImageDeletion(source.id);
+      assertCurrent();
+      if(!target || target.id!==source.id || target.iso!==reference.iso
+        || (reference.version!=null&&String(target.version)!==String(reference.version)))
+        throw new Error("The saved image changed since this thumbnail loaded. Nothing was deleted; review the new version first.");
+      if(target.pending && target.retryable===false){
+        say(target.warning||target.cleanupWarning
+          ||"Some retained reference copies have insufficient version information to identify them safely. Repeating deletion cannot resolve that uncertainty.","error");
+        return;
+      }
+      const dependents=new Set(sceneShots.filter(s=>{
+        const seed=window.seedShotOf(s,sceneShots);
+        return seed&&seed.id===source.id;
+      }).map(s=>s.id));
+      dependents.add(shot.id);
+      const scene=scenesRef.current.find(s=>s.id===source.sceneId);
+      const label="Scene "+(scene&&scene.no!=null?String(scene.no).padStart(2,"0"):source.sceneId)
+        +" · Beat "+source.beatN+(target.version!=null?" · image v"+target.version:"");
+      if(typeof window.appConfirm!=="function") throw new Error("Image deletion needs a confirmation dialog. Nothing was deleted.");
+      const confirmed=await window.appConfirm({title:target.pending?"Finish deleting this reference image?":"Permanently delete this reference image?",
+        body:label+(target.pending
+          ? ". This retries the unfinished permanent deletion of the previously selected image and its identifiable saved reference copies. It does not select a different image or a newer version."
+          : ". This deletes the exact image shown, plus identifiable saved reference copies of it, from this film's image storage. It cannot be restored from Shots Trash.")
+          +" The "+dependents.size+" shot(s) that use it directly will stop using a previous-frame reference and use their selected location, character and prop references instead."
+          +" Other image versions, written specifications and video takes are kept. Older versions will NOT automatically replace this image. No new images are generated.",
+        confirmLabel:target.pending?"Retry image deletion":"Delete image permanently",cancelLabel:"Cancel",danger:true});
+      if(!confirmed) return;
+      assertCurrent();
+      // Detach first so partial storage cleanup can never silently reattach the
+      // unwanted image. A failed purge is reported separately and remains retryable.
+      const next=shotsLiveRef.current.map(s=>dependents.has(s.id)?{...s,anchor:true}:s);
+      shotsLiveRef.current=next; signature=JSON.stringify(next); setShots(next); detached=true;
+      setDeletingShotReference(true);
+      const result=await window.nbPurgeImageVersion(target,{cancelled:()=>{
+        try{ assertCurrent(); return false; }catch(e){ return true; }
+      }});
+      assertCurrent();
+      if(!result || !result.ok) throw new Error((result&&result.error)||"Permanent deletion could not be confirmed.");
+      const after=shotsLiveRef.current.map(s=>s.id===source.id?{...s,locked:false,sourceOverride:null}:s);
+      shotsLiveRef.current=after; setShots(after);
+      if(result.cleanupWarning){
+        say("Reference removed from generation, but permanent storage cleanup is not complete: "+result.cleanupWarning
+          +" See the reference strip for the remaining cleanup status.","error");
+      }else{
+        say("The selected image and its identified saved reference copies were permanently deleted. Other versions and takes were kept. No replacement image was generated.","ok");
+      }
+    }catch(e){
+      say((detached?"The previous-frame reference was excluded. ":"")+String((e&&e.message)||"Image deletion failed.")
+        +(detached?" Permanent deletion was not confirmed. The original delete action or pending-cleanup control can retry it.":""),"error");
+    }finally{
+      shotReferenceDeleteBusyRef.current=false;
+      setDeletingShotReference(false);
+    }
+  };
   const keyframeInputsRef=React.useRef(null);
   keyframeInputsRef.current={scenes,beatsMap,locations,props,project};
   const keyframeScope=(scene,beatN)=>{
@@ -4280,6 +4369,7 @@ function App(){
     const signedInputs=inputSignature();
     return ()=>{
       if(!canMutateSharedFilm()) throw new Error("You no longer have permission to change this film.");
+      if(shotReferenceDeleteBusyRef.current) throw new Error("Wait for reference image deletion to finish before drafting a specification.");
       if(projIdRef.current!==projectId
         || (epoch!==null && (typeof nbEpoch!=="function" || nbEpoch()!==epoch))
         || draftsRef.current[scene.id]!==screenplay || charactersRef.current!==cast
@@ -5600,6 +5690,11 @@ function App(){
       title:"Mapping props to scenes",
       detail:"Checking where each prop appears so downstream shots attach the right references."
     } :
+    (room==="art" && deletingShotReference) ? {
+      role:"Shot Designer",
+      title:"Deleting the selected reference image",
+      detail:"Removing this exact saved image and its identifiable reference copies. Other versions and video takes are kept; no replacement is generated."
+    } :
     (room==="art" && refiningBeat) ? {
       role:"Shot Designer",
       title:"Drafting specification · Beat "+refiningBeatNo+" · Scene "+refiningBeatSceneNo,
@@ -5933,6 +6028,7 @@ function App(){
             onDraftStaging:draftLocationStaging,draftingStageId,
             shots,beatsMap,onUpdateShot:updateShot,onAddShot:addShot,onDeleteShot:deleteShot,onSplitBeat:splitBeatCoverage,splittingBeat,
             onRefineBeat:refineBeatFromScreenplay,refiningBeat,onRemoveMicroBeatShots:removeMicroBeatShots,
+            onDeleteShotReference:deleteShotReference,
             onDraftSceneShots:draftSceneShots,draftingSceneShots,onDraftAllShots:draftAllShots,draftingAllShots}))
         : React.createElement(React.Fragment,null,
       // scrim behind any open overlay drawer

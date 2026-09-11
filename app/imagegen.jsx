@@ -857,6 +857,84 @@ async function localSetImage(id, url){
 }
 window.nbGetImage = nbGetImage;
 
+/* Delete only the current local bytes.  localSetImage(id,"") also removes the
+   reference/history stores, which is correct for the old generic clear action
+   but would violate permanent purge's history/specification retention contract. */
+async function localClearCurrentImageOnly(id){
+  const k=nbImgKey(id);
+  _nbImgMemory.delete(k);
+  try{ localStorage.removeItem(k); }catch(e){}
+  try{ sessionStorage.removeItem(k); }catch(e){}
+  try{ await idbDel(k); }catch(e){}
+}
+function _nbPurgeRefMatches(ref,target,entry){
+  if(!ref) return false;
+  const allowDeleted=arguments.length>3&&arguments[3]===true;
+  if(ref.deleted&&!allowDeleted) return false;
+  const path=String(ref.url||ref.storage_path||ref.deletedStoragePath||"");
+  if(path && path===String(target.storagePath||"")) return true;
+  if(ref.refId!=null && String(ref.refId)===String(target.id)
+      && target.iso && String(ref.refGenerated||"")===String(target.iso)) return true;
+  const seed=(ref.meta&&ref.meta.seedSource)||ref.seedSource
+    ||(entry&&entry.meta&&entry.meta.seedSource);
+  if(!ref.refId && seed
+      && String(seed.seedShotId||"")===String(target.id)
+      && target.iso && String(seed.seedIso||"")===String(target.iso)){
+    return seed.seedVersion==null || target.version==null
+      || Number(seed.seedVersion)===Number(target.version);
+  }
+  return false;
+}
+function _nbPurgeCollectEvidencePaths(refs,target,paths,entry){
+  for(const ref of Array.isArray(refs)?refs:[]){
+    if(!_nbPurgeRefMatches(ref,target,entry,true)) continue;
+    const path=ref&&(ref.url||ref.storage_path||ref.deletedStoragePath);
+    if(path) paths.add(String(path));
+  }
+}
+function _nbPurgeRefWarning(ref,target,entry){
+  if(!ref||ref.deleted||!(ref.url||ref.storage_path)) return false;
+  if(ref.refId!=null && String(ref.refId)===String(target.id) && !ref.refGenerated) return true;
+  const seed=(ref.meta&&ref.meta.seedSource)||ref.seedSource
+    ||(entry&&entry.meta&&entry.meta.seedSource);
+  return !ref.refId&&!seed;
+}
+function _nbPurgeDeletedRef(ref){
+  const path=ref&&(ref.url||ref.storage_path) ? String(ref.url||ref.storage_path) : "";
+  return {...ref,deleted:true,deletedAt:new Date().toISOString(),
+    ...(path?{deletedStoragePath:path}:{}),url:"",storage_path:null};
+}
+function _nbPurgeRewriteRefs(refs,target,entry,warnings){
+  let removed=0,changed=false;
+  const out=(Array.isArray(refs)?refs:[]).map(ref=>{
+    if(_nbPurgeRefMatches(ref,target,entry)){ removed++;changed=true;return _nbPurgeDeletedRef(ref); }
+    if(_nbPurgeRefWarning(ref,target,entry)) warnings.add("An older reference snapshot could not be identified exactly and was retained.");
+    return ref;
+  });
+  return {refs:out,removed,changed};
+}
+function _nbPurgeLocalTargetSame(marker,target){
+  return !!(marker&&String(marker.id||"")===String(target.id||"")
+    && String(marker.storagePath||"")===String(target.storagePath||"")
+    && String(marker.iso||"")===String(target.iso||"")
+    && ((marker.version==null&&target.version==null)
+      ||(marker.version!=null&&target.version!=null
+        &&Number(marker.version)===Number(target.version))));
+}
+function _nbPendingTargetFromMeta(id,meta,epoch,backend,scope){
+  const marker=meta&&meta.cleanupPurgeTarget;
+  if(!marker||!meta.cleanupPurge) return null;
+  if(String(marker.id||id)!==String(id)||!marker.storagePath) return null;
+  if(!meta.cleanupPurgeWarning && !meta.cleanupPending) return null;
+  const retryable=meta.cleanupPurgeRetryable!=null
+    ? meta.cleanupPurgeRetryable!==false : !!meta.cleanupPending;
+  return Object.freeze({id:String(marker.id||id),epoch,backend,scope:scope==null?null:scope,
+    storagePath:String(marker.storagePath||""),iso:String(marker.iso||""),
+    version:marker.version==null?null:marker.version,url:"",pending:true,retryable,
+    status:retryable?(meta.cleanupPurgeStatus||"cleanup-pending")
+      :"retained-unverified"});
+}
+
 /* reference images used + version history of a generated sheet (IndexedDB — can be large) */
 function nbRefsKey(id){ return "turn-charimg-refs-"+id; }
 function nbHistKey(id){ return "turn-charimg-hist-"+id; }
@@ -884,6 +962,194 @@ function nbGetMeta(id){
   return localGetMeta(id);
 }
 window.nbGetMeta = nbGetMeta;
+
+/* ── exact-image permanent purge API -----------------------------------------
+   Prepare snapshots identity before the destructive operation is queued.
+   `target` is frozen so a late UI completion cannot retarget the operation at a
+   newer image.  Cloud preparation delegates the row read to cloud.jsx; local
+   preparation snapshots the exact current bytes/key and metadata. */
+async function nbPrepareImageDeletion(id){
+  if(!id) throw new Error("image id is required");
+  const backend=_nbBackend, epoch=_nbEpoch, scope=backend==="cloud"?_scopeFor(id):null;
+  if(backend==="cloud"){
+    if(typeof window.cloudPrepareImageDeletion!=="function")
+      throw new Error("cloud image purge unavailable");
+    const prepared=await window.cloudPrepareImageDeletion(scope,id);
+    if(epoch!==_nbEpoch||backend!==_nbBackend||scope!==_scopeFor(id))
+      throw new Error("asset scope changed");
+    return Object.freeze({...prepared,id:String(id),epoch,backend:"cloud",scope});
+  }
+  const url=await localLoadImage(id);
+  if(epoch!==_nbEpoch||backend!==_nbBackend) throw new Error("asset scope changed");
+  const meta=localGetMeta(id)||{};
+  if(!url){
+    const pending=_nbPendingTargetFromMeta(id,meta,epoch,backend,null);
+    if(pending) return pending;
+    throw new Error("No current image is available to purge.");
+  }
+  return Object.freeze({id:String(id),epoch,backend:"local",scope:null,
+    storagePath:String(url),iso:String(meta.iso||""),
+    version:meta.version==null?null:meta.version,url:String(url)});
+}
+async function nbLoadPendingImageDeletion(id){
+  if(!id) return null;
+  const backend=_nbBackend, epoch=_nbEpoch, scope=backend==="cloud"?_scopeFor(id):null;
+  if(backend==="cloud"){
+    if(typeof window.cloudLoadPendingImageDeletion!=="function") return null;
+    const pending=await window.cloudLoadPendingImageDeletion(scope,id);
+    if(epoch!==_nbEpoch||backend!==_nbBackend||scope!==_scopeFor(id)) return null;
+    return pending ? Object.freeze({...pending,id:String(id),epoch,backend:"cloud",scope,pending:true}) : null;
+  }
+  const pending=_nbPendingTargetFromMeta(id,localGetMeta(id)||{},epoch,backend,null);
+  if(epoch!==_nbEpoch||backend!==_nbBackend) return null;
+  return pending;
+}
+
+async function _nbInvalidateCloudPurgeCache(id,target,epoch,warning,retryable,status){
+  /* Scope check before and after every asynchronous cache operation is
+     intentional: a late purge completion must not evict a new film's cache. */
+  if(epoch!==_nbEpoch) return false;
+  const obj=_objUrls.get(id);
+  if(obj&&obj.path===target.storagePath){
+    try{ URL.revokeObjectURL(obj.url); }catch(e){}
+    _objUrls.delete(id);
+  }
+  if(epoch!==_nbEpoch) return false;
+  try{
+    const rec=await idbGet(nbCloudKey(id));
+    if(epoch!==_nbEpoch) return false;
+    if(rec&&rec.path===target.storagePath) await idbDel(nbCloudKey(id));
+  }catch(e){}
+  if(epoch!==_nbEpoch) return false;
+  const cachedMeta=_cloudMetaCache.get(id), cachedUrl=_cloudUrlCache.get(id);
+  const sameMeta=!!(cachedMeta&&String(cachedMeta.iso||"")===String(target.iso||"")
+    && (target.version==null||cachedMeta.version==null
+      ||Number(cachedMeta.version)===Number(target.version)));
+  if(sameMeta||cachedUrl===target.url){
+     _cloudUrlCache.delete(id);
+     /* Keep tombstone/specification evidence in the metadata cache.  A warning
+        must leave the UI with a retryable placeholder, not erase the identity
+        needed to retry after reload. */
+     _cloudMetaCache.set(id,{...(cachedMeta||{}),cleanupPurge:true,
+       cleanupPurgeTarget:{id:String(target.id),storagePath:String(target.storagePath),
+         iso:String(target.iso||""),version:target.version==null?null:target.version},
+       deleted:true,deletedStoragePath:String(target.storagePath),
+       ...(warning?{cleanupPurgeWarning:String(warning)}:{}),
+       ...(retryable!=null?{cleanupPurgeRetryable:!!retryable}:{}),
+       ...(status?{cleanupPurgeStatus:String(status)}:{})});
+  }
+  return true;
+}
+
+function nbPurgeImageVersion(target,options){
+  options=options||{};
+  const id=target&&target.id;
+  /* Capture all scope-bearing values before entering the per-asset queue. */
+  const backend=_nbBackend, epoch=_nbEpoch;
+  const scope=backend==="cloud"?(id?_scopeFor(id):null):null, uid=_nbUid;
+  const callerCancelled=options.cancelled;
+  const cancelled=()=> (typeof callerCancelled==="function" ? !!callerCancelled() : callerCancelled===true);
+  return _nbSerial(id,()=>_nbPurgeImageVersionInner(target,{...options,
+    backend,epoch,scope,uid,cancelled}));
+}
+async function _nbPurgeImageVersionInner(target,ctx){
+  const {backend,epoch,scope,uid,cancelled}=ctx, id=target&&target.id;
+  const stale=()=>epoch!==_nbEpoch||backend!==_nbBackend
+    ||(backend==="cloud"&&scope!==_scopeFor(id));
+  const guard=()=>cancelled()||stale();
+  if(!target||!id) return {ok:false,error:"exact image identity required"};
+  if(target.pending&&target.retryable===false)
+    return {ok:false,error:"purge retained an unverified reference; refresh required",
+      status:"retained-unverified",retryable:false};
+  if(target.backend!==backend
+      ||(target.epoch!=null&&target.epoch!==epoch)
+      ||(backend==="cloud"&&String(target.scope||"")!==String(scope||"")))
+    return {ok:false,error:"asset scope changed"};
+  if(guard()) return {ok:false,error:cancelled()?"purge cancelled":"asset scope changed"};
+  if(typeof window.__nbGenInflight!=="undefined"&&window.__nbGenInflight
+      &&window.__nbGenInflight[id])
+    return {ok:false,error:"image generation is still in progress"};
+
+  if(backend==="cloud"){
+    if(typeof window.cloudPurgeImageVersion!=="function")
+      throw new Error("cloud image purge unavailable");
+    let result;
+    try{
+      result=await window.cloudPurgeImageVersion(scope,uid,target,{
+        ...ctx,cancelled:guard});
+    }catch(e){
+      if(stale()) return {ok:false,error:"asset scope changed"};
+      throw e;
+    }
+    /* The server may have completed just as the user switched films.  Do not
+       touch any cache belonging to the new scope or announce its old image. */
+    if(stale()) return result&&result.ok ? {...result,cacheSkipped:true}
+      : {ok:false,error:"asset scope changed"};
+    if(result&&result.ok){
+      if(typeof window.cloudInvalidateExactPaths==="function")
+        window.cloudInvalidateExactPaths([target.storagePath]);
+      await _nbInvalidateCloudPurgeCache(id,target,epoch,result.cleanupWarning,
+        result.retryable,result.status);
+      if(stale()) return {...result,cacheSkipped:true};
+      try{ window.dispatchEvent(new CustomEvent("nb-gen-done",
+        {detail:{id,ids:[id],url:""}})); }catch(e){}
+    }
+    return result||{ok:false,error:"image purge failed"};
+  }
+
+  let current=await localLoadImage(id);
+  if(guard()) return {ok:false,error:cancelled()?"purge cancelled":"asset scope changed"};
+  const meta=localGetMeta(id)||{};
+  const marker=meta&&meta.cleanupPurgeTarget;
+  if(!current&&_nbPurgeLocalTargetSame(marker,target))
+    if(meta.cleanupPurgeRetryable===false)
+      return {ok:false,error:"purge retained an unverified reference; refresh required",
+        status:"retained-unverified",retryable:false};
+  if(!current&&_nbPurgeLocalTargetSame(marker,target))
+    return {ok:true,referencesRemoved:0,url:"",meta:null,
+      ...(meta.cleanupPurgeWarning?{cleanupWarning:meta.cleanupPurgeWarning}:{})};
+  if(!current||String(current)!==String(target.storagePath)
+      ||String(meta.iso||"")!==String(target.iso||"")
+      ||!((target.version==null&&meta.version==null)
+        ||(target.version!=null&&meta.version!=null
+          &&Number(meta.version)===Number(target.version))))
+    return {ok:false,error:"current image changed; purge refused"};
+
+  const warnings=new Set();
+  let refs=await localGetRefs(id), history=await localGetHistory(id);
+  if(guard()) return {ok:false,error:cancelled()?"purge cancelled":"asset scope changed"};
+  const direct=_nbPurgeRewriteRefs(refs,target,{meta},warnings);
+  let referencesRemoved=direct.removed, historyChanged=direct.changed;
+  const nextHistory=history.map(item=>{
+    const rewritten=_nbPurgeRewriteRefs(item&&item.refs,target,item,warnings);
+    referencesRemoved+=rewritten.removed; historyChanged=historyChanged||rewritten.changed;
+    return rewritten.changed?{...item,refs:rewritten.refs}:item;
+  });
+  if(guard()) return {ok:false,error:cancelled()?"purge cancelled":"asset scope changed"};
+  if(direct.changed) await localSetRefs(id,direct.refs);
+  if(guard()) return {ok:false,error:cancelled()?"purge cancelled":"asset scope changed"};
+  if(historyChanged) await localSetHistory(id,nextHistory);
+  if(guard()) return {ok:false,error:cancelled()?"purge cancelled":"asset scope changed"};
+  const deletedMeta={...meta,cleanupPurgeTarget:{
+    id:String(id),storagePath:String(target.storagePath),iso:String(target.iso||""),
+    version:target.version==null?null:target.version},
+     deleted:true,deletedStoragePath:String(target.storagePath)};
+  if(warnings.size){
+    deletedMeta.cleanupPurgeWarning=Array.from(warnings).join(" ");
+    deletedMeta.cleanupPurgeRetryable=false;
+    deletedMeta.cleanupPurgeStatus="retained-unverified";
+  }
+  localSetMeta(id,deletedMeta);
+  if(guard()) return {ok:false,error:cancelled()?"purge cancelled":"asset scope changed"};
+  await localClearCurrentImageOnly(id);
+  if(guard()) return {ok:false,error:cancelled()?"purge cancelled":"asset scope changed"};
+  try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{detail:{id,ids:[id],url:""}})); }catch(e){}
+  return {ok:true,referencesRemoved, url:"",meta:null,
+    ...(warnings.size?{cleanupWarning:Array.from(warnings).join(" ")}:{})};
+}
+window.nbPrepareImageDeletion=nbPrepareImageDeletion;
+window.nbLoadPendingImageDeletion=nbLoadPendingImageDeletion;
+window.nbPurgeImageVersion=nbPurgeImageVersion;
 
 /* ============================================================
    CAMEO — "Cast yourself" identity capture (Increments A + B).

@@ -46,7 +46,7 @@ function harness({existing=old,confirm=true,response=[{...raw,beat:1}],provider}
     locations:[],props:[],project:{title:"Test film"},beatsMap:{s1:{rows:[{n:1}]}},currentProjectId:"film",epoch:1,
     scenesRef:{current:[scene]},draftsRef:{current:{s1:draft}},charactersRef:{current:cast},
     projIdRef:{current:"film"},calls:0,messages:[],events:[],stateValues:{},allowed:true};
-  const stateLabels=["splittingBeat","refiningBeat","draftingSceneShots","draftingAllShots"];
+  const stateLabels=Array.from(handlers.matchAll(/const\s+\[\s*(\w+)\s*,[^\]]+\]\s*=\s*React\.useState/g),m=>m[1]);
   let stateIndex=0;
   Object.assign(h,{
     React:{useRef:v=>({current:v}),useState:v=>[v,()=>{}]},

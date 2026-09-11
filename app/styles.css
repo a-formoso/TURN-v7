@@ -4839,10 +4839,23 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
 .shot-refs-lab{display:flex;align-items:center;gap:6px;font-family:var(--f-mono);font-size:10.5px;
   letter-spacing:.04em;text-transform:uppercase;color:var(--txt-3);margin-bottom:7px}
 .shot-refs-row{display:flex;flex-wrap:wrap;gap:7px}
+.shot-location-picker{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin:0 0 7px;
+  font-size:9px;color:var(--txt-2)}
+.shot-location-picker-label{font-family:var(--f-mono);font-size:9px;letter-spacing:.03em;
+  text-transform:uppercase;color:var(--txt-3);margin-right:2px}
+.shot-location-choice{border:1px solid var(--line-2);border-radius:999px;padding:3px 7px;
+  background:var(--bg-3);color:var(--txt-2);font-size:9px;line-height:1.1;cursor:pointer}
+.shot-location-choice:hover{border-color:var(--line-3);color:var(--txt-1)}
+.shot-location-choice.on{border-color:var(--accent,#d8a657);background:var(--accent-soft,rgba(216,166,87,.12));color:var(--txt-1)}
+.shot-location-choice:disabled{opacity:.5;cursor:not-allowed}
 .shot-ref-thumb{position:relative;width:54px;height:40px;padding:0;border-radius:7px;overflow:hidden;
   border:1px solid var(--line-2);background:var(--bg-3);cursor:zoom-in;flex:0 0 auto;
   transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease}
 .shot-ref-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.shot-ref-pending{width:100%;height:100%;display:flex;align-items:center;justify-content:center;
+  flex-direction:column;gap:2px;background:var(--bg-2);color:var(--txt-2);font-size:7px;
+  line-height:1.1;text-align:center}
+.shot-ref-pending.retained-unverified{background:var(--warn-soft,rgba(216,166,87,.08));color:var(--warn,#d8a657)}
 .shot-ref-thumb:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.25);border-color:var(--txt-3)}
 /* a thin kind-coded edge so it's clear what each reference is */
 .shot-ref-thumb.anchor{border-color:var(--alert)}
@@ -4882,19 +4895,26 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
   background:rgba(0,0,0,.58);color:#fff;font-family:var(--f-mono);font-size:7.5px;line-height:1;text-transform:uppercase}
 .coverage-ref-missing{font-family:var(--f-mono);font-size:8px;text-transform:uppercase;color:var(--txt-2)}
 .coverage-ref-cap{max-width:48px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:7.5px;line-height:1.05;text-align:center}
-/* the rolling SEED (previous shot's frame) — a brighter edge, plus an approved/provisional dot */
+/* the rolling SEED (previous shot's frame) — a brighter edge; approval remains
+   available in the tooltip and provisional frames retain their dashed edge */
 .shot-ref-thumb.seed{border-color:var(--accent,#d8a657);box-shadow:0 0 0 1px var(--accent-soft,rgba(216,166,87,.18))}
+.shot-ref-thumb.seed-pending{border-color:var(--warn,#d8a657);border-style:dashed;
+  box-shadow:0 0 0 1px var(--warn-soft,rgba(216,166,87,.16))}
 .shot-ref-thumb.seed.provisional{border-style:dashed}
-.shot-ref-seedtag{position:absolute;top:2px;right:2px;min-width:13px;height:13px;line-height:13px;padding:0 2px;
-  border-radius:7px;font-size:9px;text-align:center;font-weight:700;color:#fff;
-  background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25)}
-.shot-ref-seedtag.ok{background:var(--pos,#5aa469);border-color:transparent}
-/* tickable sheet refs — the corner tick attaches/excludes the sheet for generation */
+/* tickable sheet + seed refs — the corner tick attaches/excludes the image for generation */
 .shot-ref-tick{position:absolute;bottom:2px;right:2px;width:15px;height:15px;line-height:13px;padding:0;
   display:grid;place-items:center;border-radius:5px;font-size:9px;font-weight:700;cursor:pointer;
   color:#fff;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.3)}
 .shot-ref-tick.on{background:var(--pos,#5aa469);border-color:transparent}
 .shot-ref-tick:hover{filter:brightness(1.2)}
+.shot-ref-tick:disabled{opacity:.5;cursor:not-allowed;filter:none}
+/* Permanent source-version deletion is deliberately separate from the inclusion
+   checkbox and only appears on rolling seed thumbnails. */
+.shot-ref-delete{position:absolute;bottom:2px;left:2px;width:15px;height:15px;line-height:13px;padding:0;
+  display:grid;place-items:center;border-radius:5px;font-size:9px;cursor:pointer;
+  color:#fff;background:rgba(104,28,35,.9);border:1px solid rgba(255,190,190,.65)}
+.shot-ref-delete:hover{filter:brightness(1.2)}
+.shot-ref-delete:disabled{opacity:.5;cursor:not-allowed;filter:none}
 .shot-ref-thumb.off img{opacity:.32;filter:grayscale(.85)}
 .shot-ref-thumb.off{border-style:dashed;border-color:var(--line-2)}
 
@@ -6674,10 +6694,15 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
 .shot-ref-choice-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--txt-3);font-size:9.5px}
 .shot-ref-choice-check{width:18px;height:18px;flex:0 0 auto;margin-left:auto;display:grid;place-items:center;
   border:1px solid var(--pos);border-radius:50%;color:var(--pos)}
+.shot-ref-choice-auto{border:1px solid var(--line-2);border-radius:7px;padding:6px 9px;
+  margin:0 0 7px;background:var(--bg-3);color:var(--txt-2);font-size:10px;cursor:pointer}
+.shot-ref-choice-auto.on{border-color:var(--accent,#d8a657);background:var(--accent-soft,rgba(216,166,87,.12));color:var(--txt-1)}
 .shot-ref-dialog-empty{padding:11px 12px;border:1px dashed var(--line-2);border-radius:8px;color:var(--txt-3);font-size:11.5px;line-height:1.5}
 .shot-ref-dialog-loading{font-family:var(--f-mono);font-size:9.5px;color:var(--txt-3)}
+.shot-ref-dialog-help{font-size:10px;color:var(--warn,#d8a657);line-height:1.35;margin-top:7px}
 .shot-ref-dialog-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 18px;border-top:1px solid var(--line)}
 .shot-ref-dialog-actions .appconfirm-btn{display:inline-flex;align-items:center;gap:6px}
+.shot-ref-dialog-actions .appconfirm-btn:disabled{opacity:.5;cursor:not-allowed}
 .shot-ref-quality-note{margin:0 0 9px;padding:7px 9px;border:1px dashed var(--warn,#c98a1b);border-radius:7px;
   background:var(--warn-soft,rgba(201,138,27,.08));color:var(--txt-2);font-size:10.5px;line-height:1.45}
 @media(max-width:600px){.shot-ref-choice-list{grid-template-columns:1fr}.shot-ref-dialog-scrim{padding:10px}}

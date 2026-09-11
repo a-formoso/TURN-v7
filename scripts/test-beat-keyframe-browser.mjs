@@ -25,6 +25,10 @@ async function prep(){
   const artroom=await readFile(new URL("app/artroom.jsx",ROOT),"utf8");
   const sfStart=artroom.indexOf("function SheetFrame("),sfEnd=artroom.indexOf("\nwindow.SheetFrame",sfStart);
   if(sfStart<0||sfEnd<0) throw Error("could not extract SheetFrame from app/artroom.jsx");
+  const sdStart=artroom.indexOf("function SheetDetails("),sdEnd=artroom.indexOf("\nfunction _qaWhereChips",sdStart);
+  if(sdStart<0||sdEnd<0) throw Error("could not extract SheetDetails from app/artroom.jsx");
+  const sheetDetails=transformSync(artroom.slice(sdStart,sdEnd),{presets:[["@babel/preset-react",{runtime:"classic"}]],plugins:["@babel/plugin-transform-block-scoping"],babelrc:false,configFile:false}).code;
+  await writeFile(`${FIX}/sheet-details.js`,sheetDetails);
   const sheetFrame=transformSync(artroom.slice(sfStart,sfEnd),{presets:[["@babel/preset-react",{runtime:"classic"}]],plugins:["@babel/plugin-transform-block-scoping"],babelrc:false,configFile:false}).code;
   await writeFile(`${FIX}/sheet-frame.js`,sheetFrame);
   const app=await readFile(new URL("app/app.jsx",ROOT),"utf8");
@@ -43,21 +47,32 @@ async function prep(){
   }
   await writeFile(`${FIX}/beat-keyframe.html`,html());
 }
-function html(){return `<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><link rel=stylesheet href=/styles.css><style>body{overflow:auto;background:#08090b;padding:24px}.beat-card-grid{max-width:980px;margin:auto}</style></head><body><div id=root></div><div id=classic-root></div><div id=progress-root></div><script src=/react.js></script><script src=/react-dom.js></script><script>
-window.__fixture={calls:[],confirmations:[],errors:[],mounts:[]};window.addEventListener("error",e=>__fixture.errors.push(String(e.message)));
+function html(){return `<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><link rel=stylesheet href=/styles.css><style>body{overflow:auto;background:#08090b;padding:24px}.beat-card-grid{max-width:980px;margin:auto}</style></head><body><div id=root></div><div id=classic-root></div><div id=seed-root></div><div id=progress-root></div><script src=/react.js></script><script src=/react-dom.js></script><script>
+ window.__fixture={calls:[],confirmations:[],errors:[],mounts:[]};window.addEventListener("error",e=>__fixture.errors.push(String(e.message)));window.addEventListener("unhandledrejection",e=>__fixture.errors.push(String(e.reason&&e.reason.message||e.reason)));
 window.Icon=new Proxy({}, {get:(_,n)=>({s=12})=>React.createElement("svg",{"data-i":n,width:s,height:s})});
 const px="data:image/svg+xml,"+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#263d42"/></svg>');
-window.__fixture.frameState={"opening-1":"current","legacy-1":"current"};
-window.nbGetImage=id=>["opening-1","legacy-1","marcus","location-1","prop-1"].includes(id)?px:"";
-window.nbLoadImage=async id=>nbGetImage(id);window.nbGetMeta=()=>({});
-window.beatScriptText=()=>"";window.seedShotOf=()=>null;
+ window.__fixture.frameState={"opening-1":"current","legacy-1":"current"};
+  window.__pendingMode="";
+  window.nbGetImage=id=>{if(window.__pendingMode&&id==="opening-1")return "";return ["opening-1","legacy-1","marcus","location-1","prop-1"].includes(id)?px:""};
+ window.nbLoadImage=async id=>nbGetImage(id);window.nbGetMeta=id=>id==="opening-1"?{iso:"2026-09-11T00:00:00.000Z",version:4}:{};
+  window.nbLoadPendingImageDeletion=async id=>window.__pendingMode&&id==="opening-1"?{
+    pending:true,id:"opening-1",iso:"2026-09-11T00:00:00.000Z",version:4,url:"",
+    ...(window.__pendingMode==="retained"?{retryable:false,status:"retained-unverified"}:{})
+  }:null;
+window.beatScriptText=()=>"";window.seedShotOf=(sh,list)=>sh&&!sh.anchor&&sh.id==="seed-target"?(list||[]).find(x=>x.id==="opening-1")||null:null;
 window.shotAssetProvenanceStatus=(sh,draft,meta)=>__fixture.frameState[sh.id]||"unverified";
 window.useImageGen=opts=>{const [mountedId]=React.useState(()=>{__fixture.mounts.push(opts.id);return opts.id});
-  const hasImage=!!__fixture.frameState[mountedId];
-  return {genUrl:hasImage?px:"",gening:false,genMeta:hasImage?{modelLabel:"Fixture image",modelId:"fixture",aspect:"16:9",size:"Medium"}:null,
+  const forcedBusy=!!(__fixture.geningIds&&__fixture.geningIds[mountedId]);
+   const historyMode=!!(__fixture.historyMode&&mountedId==="seed-target");
+   const hasImage=!!__fixture.frameState[mountedId]&&!historyMode;
+   const historyMeta={cleanupPurge:true,cleanupPurgeTarget:{id:"opening-1",iso:"2026-09-11T00:00:00.000Z",version:4},modelLabel:"Retained fixture",modelId:"fixture",aspect:"16:9",size:"Medium"};
+   return {genUrl:hasImage?px:"",gening:forcedBusy,genMeta:historyMode?historyMeta:(hasImage?{modelLabel:"Fixture image",modelId:"fixture",aspect:"16:9",size:"Medium"}:null),
     generate:()=>__fixture.calls.push(["gen",mountedId]),cancelGen:()=>{},clearGen:()=>{},importSheet:null,
-    relatedClearCount:0,revertPrevious:()=>{},layers:0,allModels:[],setEditMode:()=>{},editMode:false,editText:"",
-    setEditText:()=>{},slotHasRef:false,retrying:false,pendingSave:null,genErr:"",saving:false,discardSave:()=>{}}};
+     relatedClearCount:0,revertPrevious:()=>{},layers:historyMode?1:0,allModels:[],setEditMode:()=>{},editMode:false,editText:"",
+     setEditText:()=>{},slotHasRef:false,retrying:false,pendingSave:null,genErr:"",saving:false,discardSave:()=>{},
+     loadDetails:async()=>({id:mountedId,url:"",meta:historyMeta,refs:[],history:historyMode?[{url:px,meta:{version:3,modelLabel:"Earlier fixture"}}]:[]}),
+     revertTo:async i=>{if(historyMode)__fixture.calls.push(["restore",mountedId,i])},
+     deleteCurrentAndPromote:async()=>{__fixture.calls.push(["promote",mountedId])}}};
 window.shotFrameGenOpts=sh=>({opts:{id:sh.id},finalPrompt:"",chainPrompt:"",renderPlan:null});
 window.shotGrabImage=async id=>nbGetImage(id);
 window.shotResolveLocationSpecImages=async()=>[];
@@ -68,13 +83,15 @@ window.sizeOf=v=>({label:v||"Medium"});window.angleOf=v=>({label:v||"Eye"});wind
 window.SHOT_SIZES=[{id:"Medium",label:"Medium"}];window.SHOT_ANGLES=[{id:"Eye",label:"Eye"}];window.SHOT_MOVES=[{id:"Static",label:"Static"}];window.SHOT_LENSES=[{id:"50",label:"50"}];
 window.SHOT_CAMERA_BODIES=[];window.SHOT_LENS_TYPES=[];window.SHOT_FOCAL_LENGTHS=[];window.SHOT_APERTURES=[];window.SHOT_SHUTTERS=[];window.SHOT_ISO_GRAIN=[];
 window.RefStripScroller=({className,children})=>React.createElement("div",{className},children);
-window.SheetDetails=()=>null;window.RegionEditModal=()=>null;window.PropReferenceModal=()=>null;window.PropSheetReferenceModal=()=>null;
+window.nbResLabel=(w,h)=>w&&h?(Math.max(w,h)>=1536?"Large":"Medium")+" · "+w+"×"+h:"";window.nbAspectLabel=(w,h)=>w&&h?(w/h).toFixed(2):"";
+window.nbImageDimensions=async()=>null;window.nbPrivateRefsNote=()=>"";
+window.RegionEditModal=()=>null;window.PropReferenceModal=()=>null;window.PropSheetReferenceModal=()=>null;
 window.nbResLabel=()=> "Medium";window.isGptImageModel=()=>false;window.remasterEligible=()=>false;window.remasterInstruction=()=> "Reproduce this image exactly.";
 window.turnDownscaleDataUrl=async u=>u;window.nbCostChip=()=>null;window.NB_MODELS=[];
 window.QaCheckButton=({name,className})=>React.createElement("button",{className:className||"qa-check-btn","data-qa":"check",title:"Run a realistic QA check on this frame (no generation)",onClick:()=>__fixture.calls.push(["qa",name])},"QA check");
 window.CardFold=({label,children})=>React.createElement("details",{open:true},React.createElement("summary",null,label),children);window.SheetField=({label,value})=>React.createElement("label",null,label,React.createElement("textarea",{defaultValue:value||""}));window.CopyBox=({text})=>React.createElement("pre",null,text);window.shotNegativePrompt=()=>"";window.stagingHasContent=()=>false;
 window.combinedShotPrompt=()=>"";window.buildShotPrompt=()=>"";window._circ=n=>String(n);window.deriveBeatMicroPlan=()=>null;window.resolveBeatMicroPlan=()=>null;
-</script><script src=/sheet-frame.js></script><script src=/shot-screenplay.js></script><script src=/shots-ui.js></script><script>
+</script><script src=/sheet-details.js></script><script src=/sheet-frame.js></script><script src=/shot-screenplay.js></script><script src=/shots-ui.js></script><script>
 const scene={id:"scene-1",no:1,title:"Control Room"};const chars=[{id:"marcus",name:"Marcus"},{id:"daniel",name:"Daniel"}];
 const beatOneAction="MARCUS grips the transit map.",beatTwoAction="MARCUS checks the eastern console.";
 const drafts={"scene-1":{blocks:[{type:"scene",text:"INT. CONTROL ROOM — NIGHT"},{beat:1,type:"action",text:beatOneAction},{beat:1,type:"char",text:"DANIEL (V.O.)"},{beat:1,type:"dia",text:"Take the east tunnel."},{beat:2,type:"action",text:beatTwoAction}]}};const ctx={charById:{marcus:chars[0],daniel:chars[1]},propById:{},drafts};window.turnContinuity={drafts,props:[]};const bm={rows:[{n:1},{n:2}],turnAt:1};
@@ -96,7 +113,23 @@ window.__resetCalls=()=>{__fixture.calls=[]};
 window.__unlockPrimary=()=>{shots[0].locked=false;shots[0].sourceOverride=null;mount()};
 window.__clearBeatTwoSource=()=>{drafts["scene-1"].blocks=drafts["scene-1"].blocks.filter(b=>Number(b.beat)!==2);mount()};
  window.__restoreBeatTwoSource=()=>{if(!drafts["scene-1"].blocks.some(b=>Number(b.beat)===2))drafts["scene-1"].blocks.push({beat:2,type:"action",text:beatTwoAction});mount()};
- window.__queueAlternative=()=>mount("legacy-1");mount();
+  window.__queueAlternative=()=>mount("legacy-1");mount();
+ const seedRoot=ReactDOM.createRoot(document.getElementById("seed-root"));
+ const seedScene={id:"scene-1",no:1,title:"Control Room"};
+ const seedShots=[{id:"opening-1",sceneId:"scene-1",beatN:1,order:1,locked:true},{id:"seed-target",sceneId:"scene-1",beatN:1,order:2,anchor:false,size:"Medium",angle:"Eye",lens:"50",action:"Seed target."}];
+ let deletePending=false,resolveDelete=null;
+ const seedProps={sh:seedShots[1],scene:seedScene,ctx,characters:chars,propsAvail:[],beatText:"Seed target.",prevShot:seedShots[0],laterShots:[],sceneShots:seedShots,isHead:false,isFirst:false,
+   onToggleHead:()=>{},onUpdate:(id,patch)=>{Object.assign(seedShots.find(x=>x.id===id),patch||{});__fixture.calls.push(["update",id,patch||{}]);mountSeed()},
+   onDelete:()=>{},onView:()=>{},onDeleteShotReference:async(shotId,ref)=>{__fixture.calls.push(["deleteRef",shotId,ref]);if(deletePending)await new Promise(r=>{resolveDelete=r})},
+   batchActiveId:null,onBatchDone:()=>{},onGenerateShot:()=>{},onRegenDownstream:()=>{},onStopChain:()=>{},subLabel:null};
+  function mountSeed(key){seedRoot.render(React.createElement(ShotCard,key?{...seedProps,key}:seedProps))}
+  window.__mountSeed=()=>{__fixture.geningIds={};mountSeed()};
+ window.__mountSeedBusy=()=>{__fixture.geningIds={"seed-target":true};mountSeed()};
+  window.__mountSeedHistory=()=>{__fixture.geningIds={};__fixture.historyMode=true;window.__pendingMode="";mountSeed("history")};
+  window.__mountSeedPending=()=>{__fixture.geningIds={};window.__pendingMode="pending";mountSeed("pending")};
+  window.__mountSeedRetained=()=>{__fixture.geningIds={};window.__pendingMode="retained";mountSeed("retained")};
+ window.__startDeletePending=()=>{deletePending=true};
+ window.__resolveDelete=()=>{deletePending=false;if(resolveDelete){const r=resolveDelete;resolveDelete=null;r()}};
  </script><script src=/studio-progress.js></script><script>
  const progressRoot=ReactDOM.createRoot(document.getElementById("progress-root"));
  window.__mountProgress=(role,title,detail,progress)=>{
@@ -162,7 +195,137 @@ async function main(){
     await wait(()=>c.eval("document.querySelector('.coverage-refs .shot-ref-tick')?.getAttribute('aria-pressed')==='true'"),"reference inclusion patch");
     assert.deepEqual(await c.eval("window.__fixture.calls"),[["update","opening-1",{refOff:[]}]],
       "re-including a reference clears only its exclusion");
-    await c.eval("window.__resetCalls()");
+
+    /*
+     * Seed controls are real buttons too: the bottom-right inclusion tick uses
+     * the existing anchor:true fresh-start state, while the separate bottom-left
+     * control permanently deletes only the exact source version. Exercise the
+     * actual positions, pointer click, disabled generation gate, keyboard
+     * reattach, pending-delete latch and callback payload without any generation.
+     */
+    const seedCard='[data-shot-card="seed-target"]';
+    await c.eval("window.__mountSeed()");
+    await wait(()=>c.eval(`!!document.querySelector('#seed-root ${seedCard} .shot-ref-tick')`),"seed reference controls");
+    const seedGeometry=await c.eval(`(()=>{const card=document.querySelector('#seed-root ${seedCard}'),thumb=card.querySelector('.shot-ref-thumb.seed'),tick=thumb.querySelector('.shot-ref-tick'),del=thumb.querySelector('.shot-ref-delete'),tr=thumb.getBoundingClientRect(),cr=tick.getBoundingClientRect(),dr=del.getBoundingClientRect();return {
+      tick:tick.tagName,pressed:tick.getAttribute('aria-pressed'),disabled:tick.disabled,
+      tickBottomRight:cr.right>tr.left+tr.width/2&&cr.bottom>tr.top+tr.height/2,
+      deleteBottomLeft:dr.left<tr.left+tr.width/2&&dr.bottom>tr.top+tr.height/2,
+      deleteLabel:del.getAttribute('aria-label'),deleteTitle:del.title,approvalTag:!!thumb.querySelector('.shot-ref-seedtag')
+    }})()`);
+    assert.deepEqual(seedGeometry,{tick:"BUTTON",pressed:"true",disabled:false,tickBottomRight:true,deleteBottomLeft:true,
+      deleteLabel:"Delete reference image permanently",
+      deleteTitle:"Delete reference image permanently — permanently removes this source image version, not the shot or its takes.",
+      approvalTag:false},"seed has a real bottom-right inclusion button and distinct permanent-delete button");
+    await c.eval("window.__resetCalls();document.querySelector('#seed-root [data-shot-card=\"seed-target\"] .shot-ref-tick').click()");
+    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-tick')?.getAttribute('aria-pressed')==='false'`),"seed exclusion anchor patch");
+    assert.deepEqual(await c.eval("window.__fixture.calls"),[["update","seed-target",{anchor:true}]],
+      "excluding the seed uses the durable fresh-start anchor instead of refOff");
+    assert.equal(await c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-thumb.seed').classList.contains('off')`),true,
+      "excluded seed remains visible as an unticked candidate");
+    await c.eval("window.__resetCalls();document.querySelector('#seed-root [data-shot-card=\"seed-target\"] .shot-ref-tick').focus();document.querySelector('#seed-root [data-shot-card=\"seed-target\"] .shot-ref-tick').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))");
+    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-tick')?.getAttribute('aria-pressed')==='true'`),"seed keyboard reattach");
+    assert.deepEqual(await c.eval("window.__fixture.calls"),[["update","seed-target",{anchor:false}]],
+      "Enter on the real seed button re-attaches the candidate");
+    await c.eval("window.__resetCalls();window.__mountSeedBusy()");
+    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-tick')?.disabled===true`),"seed generation disable");
+    assert.equal(await c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-delete')?.disabled`),true,
+      "permanent delete is disabled during active generation");
+    assert.deepEqual(await c.eval("window.__fixture.calls"),[],
+      "reference controls never call generation while their controls are disabled");
+    await c.eval("window.__mountSeed()");
+    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard}')?.classList.contains('gening')===false`),"seed idle remount");
+    await c.eval("window.__startDeletePending();window.__resetCalls();document.querySelector('#seed-root [data-shot-card=\"seed-target\"] .shot-ref-delete').click()");
+    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-delete')?.disabled===true`),"pending delete disable");
+    await c.eval("document.querySelector('#seed-root [data-shot-card=\"seed-target\"] .shot-ref-delete').click()");
+    assert.equal(await c.eval("window.__fixture.calls.filter(x=>x[0]==='deleteRef').length"),1,
+      "the local pending latch prevents duplicate permanent-delete callbacks");
+    const deleteCall=await c.eval("window.__fixture.calls.find(x=>x[0]==='deleteRef')");
+    assert.deepEqual(deleteCall.slice(0,2),["deleteRef","seed-target"],"delete callback receives the owning shot id");
+    assert.deepEqual(deleteCall[2],{id:"opening-1",iso:"2026-09-11T00:00:00.000Z",version:4,url:"data:image/svg+xml,"+encodeURIComponent('<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"320\" height=\"180\"><rect width=\"320\" height=\"180\" fill=\"#263d42\"/></svg>')},
+      "delete callback receives exact seed id, ISO, version and URL identity");
+    await c.eval("window.__resolveDelete()");
+    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-delete')?.disabled===false`),"delete latch release");
+    assert.equal(await c.eval("window.__fixture.calls.filter(x=>x[0]==='gen').length"),0,
+      "seed inclusion/exclusion/delete tests make no paid generation calls");
+
+    // Exact purge may leave current empty while retaining history. Details must
+    // remain reachable and Restore must be an explicit action, never promotion
+    // or generation on mount/menu open.
+    await c.eval("window.__resetCalls();window.__mountSeedHistory()");
+    await wait(()=>c.eval(`!!document.querySelector('#seed-root ${seedCard} .sheet-gen-tool')`),"retained history options entrypoint");
+    await c.eval(`document.querySelector('#seed-root ${seedCard} .sheet-gen-tool').click()`);
+    await wait(()=>c.eval(`[...document.querySelectorAll('#seed-root ${seedCard} .sheet-tools-item')].some(x=>x.textContent.trim()==='Details')`),"retained history Details menu");
+    assert.deepEqual(await c.eval("window.__fixture.calls"),[],"retained history inspection does not generate or promote");
+    await c.eval(`[...document.querySelectorAll('#seed-root ${seedCard} .sheet-tools-item')].find(x=>x.textContent.trim()==='Details').click()`);
+    await new Promise(r=>setTimeout(r,120));
+    await wait(()=>c.eval("!!document.querySelector('.dt-overlay')&&document.querySelectorAll('.dt-hist-main').length===1"),"retained history Details modal");
+    assert.equal(await c.eval("document.querySelector('.dt-current-actions')?.textContent.includes('Delete current image')"),true,
+      "empty-current Details exposes retained history without silently restoring it");
+    await c.eval("document.querySelector('.dt-hist-btn.restore').click()");
+    await wait(()=>c.eval("window.__fixture.calls.some(x=>x[0]==='restore')"),"explicit retained history restore");
+    assert.deepEqual(await c.eval("window.__fixture.calls"),[["restore","seed-target",0]],
+      "restore is reachable only through the explicit earlier-version action");
+    assert.equal(await c.eval("window.__fixture.calls.some(x=>x[0]==='gen'||x[0]==='promote')"),false,
+      "history inspection/restore performs no automatic generation or promotion");
+    await c.eval("document.querySelector('.dt-overlay .ag-x').click();__fixture.historyMode=false");
+
+    // Location choices use the beat-scoped generated-unit contract, preserve
+    // multi-selects, and leave the real seed controls visible beside the picker.
+    await c.eval(`ctx.location={id:"loc-1",name:"Control Room"};window.shotLocationReferenceChoices=()=>[
+      {id:"unit-kitchen",label:"Kitchen · INT · NIGHT"},
+      {id:"unit-living",label:"Living Room · INT · NIGHT"}
+    ];window.shotLocationCoverageSpecs=(loc,sh)=>sh.referenceLocationsSet
+      ? (sh.referenceLocationIds||[]).map(id=>({id,source:"slugline-unit",note:id}))
+      : [{id:"unit-kitchen",source:"slugline-unit",note:"Kitchen"}];
+    window.__mountSeed()`);
+    await wait(()=>c.eval(`!!document.querySelector('#seed-root ${seedCard} .shot-location-picker')&&!!document.querySelector('#seed-root ${seedCard} .shot-ref-tick')`),"location reference picker");
+    assert.deepEqual(await c.eval(`(()=>{const p=document.querySelector('#seed-root ${seedCard} .shot-location-picker');return {
+      label:p.querySelector('.shot-location-picker-label').textContent.trim(),
+      choices:[...p.querySelectorAll('.shot-location-choice')].map(x=>x.textContent.trim()),
+      seedTick:!!p.closest('.shot-card')?.querySelector('.shot-ref-tick'),
+      seedDelete:!!p.closest('.shot-card')?.querySelector('.shot-ref-delete')
+    }})()`),{label:"Location reference",choices:["Auto","Kitchen · INT · NIGHT","Living Room · INT · NIGHT"],seedTick:true,seedDelete:true},
+      "location picker exposes Auto plus exact generated room labels without replacing seed controls");
+    await c.eval("window.__resetCalls();document.querySelector('#seed-root .shot-location-choice:not(.auto)').click()");
+    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-location-choice.on')?.textContent.trim()==='Kitchen · INT · NIGHT'`),"location kitchen selection");
+    assert.deepEqual((await c.eval("window.__fixture.calls"))[0],["update","seed-target",{referenceLocationsSet:true,referenceLocationIds:["unit-kitchen"]}],
+      "selecting a generated room writes the explicit location id");
+    await c.eval("document.querySelector('#seed-root .shot-location-choice:nth-of-type(3)').click()");
+    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-location-choice.on')?.textContent.includes('Kitchen')&&document.querySelectorAll('#seed-root ${seedCard} .shot-location-choice.on').length===2`),"location multi-selection");
+    assert.deepEqual((await c.eval("window.__fixture.calls"))[1],["update","seed-target",{referenceLocationsSet:true,referenceLocationIds:["unit-kitchen","unit-living"]}],
+      "selecting a second room preserves the first explicit location id");
+    await c.eval("document.querySelector('#seed-root .shot-location-choice.auto').click()");
+    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-location-choice.auto')?.getAttribute('aria-pressed')==='true'`),"location auto selection");
+    assert.deepEqual((await c.eval("window.__fixture.calls"))[2],["update","seed-target",{referenceLocationsSet:false,referenceLocationIds:[]}],
+      "Auto clears explicit room ids without changing other references");
+    const seedRoomShot=await c.call("Page.captureScreenshot",{format:"png"});
+    await writeFile(`${OUT}/seed-reference-room-picker.png`,Buffer.from(seedRoomShot.data,"base64"));
+
+    // A source evicted after a partial purge remains a visible pending tile and
+    // exposes Retry, but never gets an inclusion checkbox for its unusable image.
+    await c.eval("window.__resetCalls();window.__mountSeedPending()");
+    await wait(()=>c.eval(`!!document.querySelector('#seed-root ${seedCard} .shot-ref-pending')`),"pending deletion tile");
+    assert.deepEqual(await c.eval(`(()=>{const card=document.querySelector('#seed-root ${seedCard}');const b=card.querySelector('.shot-ref-delete');return {
+      pending:!!card.querySelector('.shot-ref-pending'),tick:!!card.querySelector('.shot-ref-tick'),
+      retry:b&&b.getAttribute('aria-label'),disabled:b&&b.disabled
+    }})()`),{pending:true,tick:false,retry:"Retry image deletion",disabled:false},
+      "pending source survives cache eviction as a retry-only tile");
+    await c.eval("window.__startDeletePending();document.querySelector('#seed-root [data-shot-card=\"seed-target\"] .shot-ref-delete').click()");
+    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-delete')?.disabled===true`),"pending retry disable");
+    const pendingDeleteCall=await c.eval("window.__fixture.calls.find(x=>x[0]==='deleteRef')");
+    assert.equal(pendingDeleteCall[2].pending,true,"retry callback preserves pending deletion identity");
+    assert.deepEqual(pendingDeleteCall[2],{id:"opening-1",iso:"2026-09-11T00:00:00.000Z",version:4,url:"",pending:true},
+      "retry sends the frozen pending target even without a source URL");
+    await c.eval("window.__resolveDelete();window.__pendingMode=false");
+    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-delete')?.disabled===false`),"pending retry latch release");
+    await c.eval("window.__mountSeedRetained()");
+    await wait(()=>c.eval(`!!document.querySelector('#seed-root ${seedCard} .shot-ref-pending.retained-unverified')`),"retained unverified disclosure tile");
+    assert.deepEqual(await c.eval(`(()=>{const card=document.querySelector('#seed-root ${seedCard}');return {
+      disclosure:card.querySelector('.shot-ref-pending.retained-unverified')?.textContent.trim(),
+      retry:!!card.querySelector('.shot-ref-delete'),tick:!!card.querySelector('.shot-ref-tick')
+    }})()`),{disclosure:"Deletion retained · review Details",retry:false,tick:false},
+      "unidentifiable retained copy discloses status without promising an impossible Retry");
+    await c.eval("window.__pendingMode='';window.__resetCalls()");
     const contextStats=await c.eval(`(()=>{const card=document.querySelector('${primary}'),ctx=card.querySelector('.shot-beat-context');return {
       stale:ctx.querySelectorAll('.bc-stale').length,buttons:ctx.querySelectorAll('button').length,
       laneButtons:ctx.querySelectorAll('.beat-lane-btn').length,selectors:ctx.querySelectorAll('.bc-alt-picker select').length,
@@ -409,7 +572,7 @@ async function main(){
       "all alternative choices stay disabled while a batch frame is active");
 
     assert.deepEqual(await c.eval("window.__fixture.errors"),[]);
-     console.log(`standalone beat card browser regression passed\\nscreenshots: ${OUT}/desktop.png, ${OUT}/mobile.png, ${OUT}/progress-desktop.png, ${OUT}/progress-tablet.png, ${OUT}/progress-mobile.png`);
+     console.log(`standalone beat card browser regression passed\\nscreenshots: ${OUT}/desktop.png, ${OUT}/mobile.png, ${OUT}/seed-reference-room-picker.png, ${OUT}/progress-desktop.png, ${OUT}/progress-tablet.png, ${OUT}/progress-mobile.png`);
   }finally{c?.close();chrome.kill();s.close()}
 }
 main().catch(e=>{console.error(e);process.exitCode=1});
