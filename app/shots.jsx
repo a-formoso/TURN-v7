@@ -399,6 +399,138 @@ function sceneShotsOrdered(list){
 }
 window.sceneShotsOrdered = sceneShotsOrdered;
 
+/* Beat continuity is semantic, not just storage-order adjacency.  The live beat
+   card uses the first explicit beat-opening shot as its primary, even when old
+   coverage rows precede that shot in the saved array; when no explicit opening
+   exists, the first row remains the safe legacy fallback.  Keep this resolver
+   read-only so it can be used by cards, render planning and batch callers. */
+function shotBeatKey(value){
+  if(value==null || String(value).trim()==="") return null;
+  const n=Number(value);
+  return Number.isFinite(n) && n>0 ? String(n) : null;
+}
+function shotBeatKeyOf(sh){
+  return shotBeatKey(sh && sh.beatN);
+}
+function shotSameIdentity(a,b){
+  return !!(a&&b) && (a===b || (a.id!=null && b.id!=null && String(a.id)===String(b.id)));
+}
+function shotPrimaryOf(beatShots){
+  const list=Array.isArray(beatShots) ? beatShots : [];
+  return list.find(sh=>sh && sh.keyframeMode==="beat-opening")
+    || list.find(Boolean) || null;
+}
+function shotBeatPrimaryOf(sceneShots,beatN){
+  const key=shotBeatKey(beatN);
+  if(key==null) return null;
+  return shotPrimaryOf((Array.isArray(sceneShots)?sceneShots:[])
+    .filter(sh=>shotBeatKeyOf(sh)===key));
+}
+/* Short aliases keep the helper convenient for UI surfaces that already speak
+   in terms of a beat rather than a shot list.  All aliases share the same
+   implementation and therefore cannot drift from OpeningBeatCard's rule. */
+window.shotPrimaryOf = shotPrimaryOf;
+window.beatPrimaryOf = shotPrimaryOf;
+window.shotBeatPrimaryOf = shotBeatPrimaryOf;
+window.beatPrimaryShot = shotBeatPrimaryOf;
+
+/* User-facing labels for the same semantic choice.  beatShots is the already
+   lane-scoped list (the exact shape OpeningBeatCard has); passing the list keeps
+   alternative numbering stable without changing or sorting saved shots. */
+function shotBeatLabel(sh){
+  const key=shotBeatKeyOf(sh);
+  return key==null ? "Unnumbered shot" : "Beat "+key;
+}
+function shotBeatRoleLabel(sh,beatShots){
+  const list=Array.isArray(beatShots) ? beatShots : (sh ? [sh] : []);
+  const primary=shotPrimaryOf(list);
+  if(!primary || shotSameIdentity(primary,sh)) return primary ? "Opening" : "";
+  const alternatives=list.filter(x=>x && !shotSameIdentity(x,primary));
+  const index=alternatives.findIndex(x=>shotSameIdentity(x,sh));
+  return "Alternative "+(index>=0 ? index+1 : 1);
+}
+function shotBeatDisplayLabel(sh,beatShots){
+  const beat=shotBeatLabel(sh), role=shotBeatRoleLabel(sh,beatShots);
+  return role ? beat+" · "+role : beat;
+}
+window.shotBeatLabel = shotBeatLabel;
+window.shotBeatRoleLabel = shotBeatRoleLabel;
+window.shotBeatAlternativeLabel = shotBeatRoleLabel;
+window.shotBeatDisplayLabel = shotBeatDisplayLabel;
+
+/* Return a stable dependency-first view without changing the saved order.  A
+   primary must precede its same-beat alternatives, and each numbered beat's
+   primary must precede the next numbered beat's primary.  A stable topological
+   pass moves only rows that are otherwise impossible to render in dependency
+   order (notably an explicit primary stored after legacy alternatives). */
+function sceneShotsDependencyOrdered(list){
+  const ord=sceneShotsOrdered(Array.isArray(list)?list:[]);
+  if(ord.length<2) return ord;
+  const groups=[],byBeat=new Map();
+  ord.forEach((sh,index)=>{
+    const key=shotBeatKeyOf(sh);
+    if(key==null) return;
+    let group=byBeat.get(key);
+    if(!group){ group={key,indices:[],primaryIndex:null}; byBeat.set(key,group); groups.push(group); }
+    group.indices.push(index);
+  });
+  if(!groups.length) return ord;
+  const edges=ord.map(()=>new Set()), indegree=ord.map(()=>0);
+  const addEdge=(from,to)=>{
+    if(from==null || to==null || from===to || edges[from].has(to)) return;
+    edges[from].add(to); indegree[to]++;
+  };
+  groups.forEach(group=>{
+    const shots=group.indices.map(index=>ord[index]);
+    const primary=shotPrimaryOf(shots);
+    group.primaryIndex=group.indices.find(index=>ord[index]===primary);
+    if(group.primaryIndex==null)
+      group.primaryIndex=group.indices.find(index=>shotSameIdentity(ord[index],primary));
+    group.indices.forEach(index=>addEdge(group.primaryIndex,index));
+  });
+  for(let i=1;i<groups.length;i++)
+    addEdge(groups[i-1].primaryIndex,groups[i].primaryIndex);
+  const ready=[];
+  indegree.forEach((n,index)=>{ if(n===0) ready.push(index); });
+  const out=[];
+  while(ready.length){
+    ready.sort((a,b)=>a-b);
+    const index=ready.shift();
+    out.push(ord[index]);
+    edges[index].forEach(next=>{
+      indegree[next]--;
+      if(indegree[next]===0) ready.push(next);
+    });
+  }
+  /* The graph is acyclic for valid shot identities.  Should malformed imported
+     data ever violate that assumption, preserving render order is safer than
+     returning a partial list or inventing a promotion. */
+  return out.length===ord.length ? out : ord;
+}
+window.sceneShotsDependencyOrdered = sceneShotsDependencyOrdered;
+window.shotDependencyOrder = sceneShotsDependencyOrdered;
+
+function shotIndexOf(sh,ord){
+  let i=ord.indexOf(sh);
+  if(i<0) i=ord.findIndex(x=>shotSameIdentity(x,sh));
+  return i;
+}
+function shotImmediatePredecessorOf(sh,ord){
+  const i=shotIndexOf(sh,ord);
+  return i>0 ? ord[i-1] : null;
+}
+function shotBeatGroups(ord){
+  const groups=[],byBeat=new Map();
+  ord.forEach(sh=>{
+    const key=shotBeatKeyOf(sh);
+    if(key==null) return;
+    let group=byBeat.get(key);
+    if(!group){ group={key,shots:[]}; byBeat.set(key,group); groups.push(group); }
+    group.shots.push(sh);
+  });
+  return groups;
+}
+
 /* the shot a given shot CHAINS FROM — its immediate predecessor in render order,
    whose approved frame seeds this one. null = a chain HEAD: the scene's first shot,
    or any shot explicitly flagged a fresh start (.anchor — a hard cut mid-scene).
@@ -406,28 +538,33 @@ window.sceneShotsOrdered = sceneShotsOrdered;
 function prevShotOf(sh, sceneShots){
   if(!sh || sh.anchor) return null;               // explicit fresh start (chain break)
   const ord = sceneShotsOrdered(sceneShots);
-  const i = ord.findIndex(s=>s.id===sh.id);
-  return i>0 ? ord[i-1] : null;                    // i<=0 → first shot = head
+  return shotImmediatePredecessorOf(sh,ord);       // i<=0 → first shot = head
 }
 window.prevShotOf = prevShotOf;
-/* WHICH frame seeds a shot's generation (user ruling 2026-08-01): within a beat, the
-   beat's FIRST shot is the coverage reference — B/C/D all seed from A's frame rather
-   than from their immediate predecessor, so one beat's coverage shares a single visual
-   anchor. A beat's first shot keeps chaining from the previous shot (cross-beat
-   continuity), and an explicit fresh start (.anchor) / scene opener still renders
-   head-only from the sheets. Returns null when the shot renders without a seed. */
+/* WHICH frame seeds a shot's generation: the beat's semantic primary is the sole
+   coverage anchor for alternatives, while a beat primary carries continuity from
+   the previous numbered beat's primary.  Legacy alternatives therefore never
+   become hidden cross-beat tails.  An explicit fresh start (.anchor) severs only
+   the requesting shot's own seed; a prior primary may still seed the next beat.
+   Truly unnumbered/manual shots retain the immediate-predecessor fallback. */
 function seedShotOf(sh, sceneShots){
   if(!sh || sh.anchor) return null;
   const ord = sceneShotsOrdered(sceneShots);
-  const i = ord.findIndex(s=>s.id===sh.id);
+  const i = shotIndexOf(sh,ord);
+  if(i<0) return null;
+  const beatKey=shotBeatKeyOf(sh);
+  if(beatKey==null) return i>0 ? shotImmediatePredecessorOf(sh,ord) : null;
+  const groups=shotBeatGroups(ord);
+  const groupIndex=groups.findIndex(group=>group.key===beatKey);
+  const own=groupIndex>=0 ? groups[groupIndex] : null;
+  const ownPrimary=own ? shotPrimaryOf(own.shots) : null;
+  if(ownPrimary && !shotSameIdentity(ownPrimary,sh)) return ownPrimary;
   if(i<=0) return null;
-  // only group by beat when the shot actually HAS a beat number — an absent/blank
-  // beatN would clump unrelated shots under one false "first" reference
-  if(sh.beatN!=null && sh.beatN!==""){
-    const beatFirst = ord.find(s=>String(s.beatN)===String(sh.beatN));
-    if(beatFirst && beatFirst.id!==sh.id) return beatFirst;
+  if(groupIndex>0){
+    const priorPrimary=shotPrimaryOf(groups[groupIndex-1].shots);
+    if(priorPrimary && !shotSameIdentity(priorPrimary,sh)) return priorPrimary;
   }
-  return ord[i-1];
+  return null;
 }
 window.seedShotOf = seedShotOf;
 /* convenience: is this shot a chain head (no predecessor to seed from)? */

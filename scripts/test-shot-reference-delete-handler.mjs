@@ -46,15 +46,15 @@ function harness(options={}){
   await h.remove("selected",ref);
   assert.deepEqual(h.calls.map(c=>c[0]),["prepare","purge"]);
   assert.match(h.confirmed[0].body,/exact image shown/);
-  assert.match(h.confirmed[0].body,/2 shot/);
+  assert.match(h.confirmed[0].body,/3 shot/);
   assert.match(h.confirmed[0].body,/NOT automatically/);
   assert.equal(h.shots.length,records.length,"image deletion does not delete written specifications");
-  for(const id of ["selected","also-uses-old"]){
+  for(const id of ["selected","also-uses-old","later"]){
     const shot=h.shots.find(s=>s.id===id);
     assert.equal(shot.anchor,true,"every direct consumer is detached");
     assert.equal(h.seedShotOf(shot,h.shots.filter(s=>s.sceneId==="scene")),null,"exclusion changes the real render dependency");
   }
-  assert.equal(h.shots.find(s=>s.id==="later").anchor,undefined,"indirect/unrelated chains are not rewritten");
+  assert.equal(h.shots.find(s=>s.id==="other-film-scene").anchor,undefined,"unrelated scenes are not rewritten");
   assert.deepEqual(plain(h.shots[0].imageHistory),records[0].imageHistory);
   assert.deepEqual(plain(h.shots[1].takes),records[1].takes);
   assert.equal(h.shots[0].locked,false);

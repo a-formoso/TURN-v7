@@ -23,6 +23,12 @@ Do not convert saved multi-shot beats during hydration or auto-repair. Explicit 
 
 **Why:** Saved coverage can contain rendered/approved work and downstream takes. The change in default shot granularity does not authorize deleting those assets.
 
+Retaining old coverage does not make it a prerequisite for the next beat's opening frame. Default cross-beat continuity follows the primary frame shown on the beat card; alternatives remain deliberate choices.
+
+**Why:** Showing one approved frame per beat while following hidden legacy tails blocked the next beat and misleadingly asked the writer to generate extra images.
+
+**How to apply:** Keep primary selection consistent across cards, dependency checks, reference assembly and visual QC. A saved primary may follow older alternatives in storage order; derive a dependency order without rewriting saved work. Source-unverified is a review state, not proof an image is missing.
+
 Explicit removal of old micro-beat coverage differs from drafting a replacement: an old beat's first shot can be removed too, while a deliberately promoted opening keyframe should remain.
 
 **Why:** The UI can call the first legacy shot the primary merely because of its position. That label does not establish that the writer converted it to the new beat-opening workflow.

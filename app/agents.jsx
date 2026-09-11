@@ -1680,10 +1680,14 @@ async function agentSceneDirector(ctx){
   for(const grp of art.scenes){
     if(ctx.cancelled()) return;
     const { scene, shots } = grp, sctx = grp.ctx;
-    const ordered = (typeof sceneShotsOrdered==="function") ? sceneShotsOrdered(shots) : shots;
+    const ordered = (typeof sceneShotsDependencyOrdered==="function")
+      ? sceneShotsDependencyOrdered(shots)
+      : ((typeof sceneShotsOrdered==="function") ? sceneShotsOrdered(shots) : shots);
     const idxOf = (s)=> ordered.indexOf(s);
     const no = (i)=> scene.no+"."+(i+1);
-    const seedOf = async (s)=>{ const p=(typeof prevShotOf==="function")?prevShotOf(s, ordered):null; return p ? await art.frameOf(p.id) : null; };
+    const seedShot = (s)=> (typeof seedShotOf==="function") ? seedShotOf(s, ordered)
+      : ((typeof prevShotOf==="function") ? prevShotOf(s, ordered) : null);
+    const seedOf = async (s)=>{ const p=seedShot(s); return p ? await art.frameOf(p.id) : null; };
     const missing = [];
     for(const s of ordered){ if(!(await art.frameOf(s.id))) missing.push(s); }
     const planned = missing.length;
@@ -1701,9 +1705,9 @@ async function agentSceneDirector(ctx){
     for(const s of missing){
       if(ctx.cancelled()) return;
       if(gens>=MAX_GENS){ ctx.emit({k:"flag", t:"Generation cap reached — stopping."}); break; }
-      const head = !((typeof prevShotOf==="function") && prevShotOf(s, ordered));
+      const head = !seedShot(s);
       ctx.emit({k:"act", t:(head ? "Scene "+scene.no+": rendering the opening key frame — " : "Rendering "+no(idxOf(s))+" seeded by the previous frame — ")+(typeof shotGrammarLabel==="function"?shotGrammarLabel(s):"")+"…"});
-      try{ await art.shotFrame(s, shots, sctx, {}); gens++; }
+      try{ await art.shotFrame(s, ordered, sctx, {}); gens++; }
       catch(e){ ctx.emit({k:"flag", t:no(idxOf(s))+" failed: "+((e&&e.message)||e)+". Moving on."}); }
     }
     // 2) QC — inspect each frame against its SEED (the previous shot's frame)
