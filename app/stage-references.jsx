@@ -147,6 +147,7 @@
     const chars=charMap(ctx),props=propMap(ctx),scenes=arr(ctx.scenes);
     const buckets={character:new Map(),location:new Map(),prop:new Map()};
     const byShot=[],warnings=[];
+    const screenplayCast={opening:[],physical:[],remote:[],mentioned:[]};
     const warn=(shotId,imageId,code,message,severity)=>{
       const w={shotId:String(shotId||""),imageId:String(imageId||""),code,message,severity:severity||"warning"};
       if(!warnings.some(x=>x.shotId===w.shotId&&x.imageId===w.imageId&&x.code===w.code))warnings.push(w);
@@ -188,18 +189,60 @@
       const scene=sceneFor(sh,ctx);
       const shotRow={shotId:String(sh.id||""),characters:[],locations:[],props:[],warnings:[]};
       let cast=[];
+      let screenplay=null;
       try{
-        cast=typeof g.inFrameCast==="function"
-          ?g.inFrameCast(sh,scene,Object.values(chars))
-          :(sh.referenceCharactersSet?arr(sh.referenceCharacterIds):arr(sh.subjects));
-      }catch(e){cast=arr(sh.subjects);}
-      uniq(cast).forEach(id=>{
+        screenplay=typeof g.shotBeatScreenplay==="function"
+          ?g.shotBeatScreenplay(scene,sh.beatN,{drafts:ctx.drafts||{},characters:Object.values(chars),beatsMap:ctx.beatsMap||{}})
+          :null;
+      }catch(e){screenplay=null;}
+      /* Live screenplay source wins over stale subjects, including legacy shots
+         whose old Daniel/phone participant was persisted as an in-frame subject.
+         Beat-opening frames are strict first-state references; later legacy/manual
+         shots may use physical cast from the authored beat, but never remote-only
+         participants. */
+      try{
+        const missingCanonical=sh.keyframeMode==="beat-opening"&&(!screenplay||!screenplay.hasSource);
+        cast=missingCanonical
+          ?[]
+          :screenplay&&screenplay.hasSource
+          ?(sh.keyframeMode==="beat-opening"
+            ?arr(screenplay.openingCharacterIds)
+            :(sh.referenceCharactersSet
+              ?arr(sh.referenceCharacterIds).filter(id=>arr(screenplay.physicalCharacterIds).indexOf(id)>=0)
+              :arr(screenplay.physicalCharacterIds)))
+          :(typeof g.inFrameCast==="function"
+            ?g.inFrameCast(sh,scene,Object.values(chars))
+            :(sh.referenceCharactersSet?arr(sh.referenceCharacterIds):arr(sh.subjects)));
+      }catch(e){cast=screenplay&&screenplay.hasSource
+        ?(sh.keyframeMode==="beat-opening"?arr(screenplay.openingCharacterIds):arr(screenplay.physicalCharacterIds))
+        :(sh.keyframeMode==="beat-opening"?[]:arr(sh.subjects));}
+      if(sh.keyframeMode==="beat-opening"&&(!screenplay||!screenplay.hasSource))
+        warn(sh.id,"screenplay","missing-screenplay-helper",
+          "Canonical screenplay source is unavailable for this beat-opening shot; stale subjects were not packaged","error");
+      shotRow.openingCharacterIds=screenplay&&screenplay.hasSource?arr(screenplay.openingCharacterIds):[];
+      shotRow.physicalCharacterIds=screenplay&&screenplay.hasSource?arr(screenplay.physicalCharacterIds):[];
+      shotRow.remoteCharacterIds=screenplay&&screenplay.hasSource?arr(screenplay.remoteCharacterIds):[];
+      shotRow.mentionedCharacterIds=screenplay&&screenplay.hasSource?arr(screenplay.mentionedCharacterIds):[];
+      ["opening","physical","remote","mentioned"].forEach(k=>arr(shotRow[k+"CharacterIds"]).forEach(id=>{
+        if(screenplayCast[k].indexOf(id)<0)screenplayCast[k].push(id);
+      }));
+      const overrideIds=sh&&sh.stageCharacterReferenceOverrides
+        ?Object.keys(sh.stageCharacterReferenceOverrides):[];
+      uniq(arr(cast).concat(overrideIds)).forEach(id=>{
         const c=chars[id];if(!c)return;
         const overrides=sh&&sh.stageCharacterReferenceOverrides;
         if(own(overrides,c.id)){
           if(overrides[c.id]!=="master"){
             warn(sh.id,c.id,"invalid-character-reference-override",
               'Character reference override must be "master"',"error");
+            return;
+          }
+          const allowedIds=screenplay&&screenplay.hasSource
+            ?(sh.keyframeMode==="beat-opening"?arr(screenplay.openingCharacterIds):arr(screenplay.physicalCharacterIds))
+            :[];
+          if(screenplay&&screenplay.hasSource&&allowedIds.indexOf(c.id)<0){
+            warn(sh.id,c.id,"offscreen-character-reference",
+              "Manual character reference was filtered: this participant is not physical in the screenplay beat opening. Use the voice/VO reference instead, or revise the beat opening","error");
             return;
           }
           const got=put("character",{assetId:c.id,baseId:c.id,entityId:c.id,stateId:"",
@@ -218,6 +261,15 @@
           required:!!st||!!sh.referenceCharactersSet},sh);
         if(got)shotRow.characters.push(got);
       });
+      /* Keep an explicit offscreen selection actionable, but never promote a stale
+         non-manual subject into the package. The branch above already retained
+         manual selections; this warning explains why the filtered stale tag is gone. */
+      if(screenplay&&screenplay.hasSource&&screenplay.remoteCharacterIds.length)
+        screenplay.remoteCharacterIds.forEach(id=>{
+          if(!sh.referenceCharactersSet && arr(sh.subjects).indexOf(id)>=0)
+            warn(sh.id,id,"remote-character-not-in-frame",
+              "This screenplay participant is remote/offscreen and is kept as voice/script only; no body or identity image is attached","warning");
+        });
       /* inFrameCast correctly filters stale ids from its visual cast. Preserve the
          director's explicit selection as an error descriptor instead of losing it. */
       if(sh.referenceCharactersSet)uniq(sh.referenceCharacterIds).forEach(id=>{
@@ -227,6 +279,14 @@
         if(got)shotRow.characters.push(got);
         warn(sh.id,id,"missing-selected-character","Manually selected character no longer exists","error");
       });
+      if(sh.referenceCharactersSet&&screenplay&&screenplay.hasSource)
+        uniq(sh.referenceCharacterIds).forEach(id=>{
+          const allowedIds=sh.keyframeMode==="beat-opening"
+            ?arr(screenplay.openingCharacterIds):arr(screenplay.physicalCharacterIds);
+          if(allowedIds.indexOf(id)<0)
+            warn(sh.id,id,"offscreen-character-reference",
+              "Manual character reference was filtered: this participant is outside the screenplay beat opening. Use the voice/VO reference instead, or revise the beat opening","error");
+        });
 
       let loc=(ctx.location&&(!scene||arr(ctx.location.scenes).indexOf(scene.id)>=0))?ctx.location:null;
       if(!loc&&typeof g.locationForScene==="function"){
@@ -293,7 +353,10 @@
     sigRows.sort((a,b)=>String(a[0]+a[1]).localeCompare(String(b[0]+b[1])));
     const raw=JSON.stringify(sigRows);let hash=2166136261;
     for(let i=0;i<raw.length;i++)hash=Math.imul(hash^raw.charCodeAt(i),16777619);
-    return {characters,locations,props:propList,byShot,warnings,signature:(hash>>>0).toString(16)};
+    return {characters,locations,props:propList,byShot,warnings,
+      openingCharacterIds:screenplayCast.opening,physicalCharacterIds:screenplayCast.physical,
+      remoteCharacterIds:screenplayCast.remote,mentionedCharacterIds:screenplayCast.mentioned,
+      signature:(hash>>>0).toString(16)};
   }
 
   g.stageReferenceSnapshot=stageReferenceSnapshot;

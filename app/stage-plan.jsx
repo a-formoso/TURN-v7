@@ -12,15 +12,37 @@
     for(let i=0;i<s.length;i++)h=Math.imul(h^s.charCodeAt(i),16777619);
     return (h>>>0).toString(36);
   };
+  const beatOpening=sh=>!!(sh&&sh.keyframeMode==="beat-opening");
+  const sourceFor=(sh,opts)=>{
+    opts=opts||{};
+    if(opts.scene&&typeof root.shotBeatScreenplay==="function"){
+      try{
+        const live=root.shotBeatScreenplay(opts.scene,sh&&sh.beatN,{
+          drafts:opts.drafts||{},characters:opts.characters||[],beatsMap:opts.beatsMap||{}});
+        if(live&&live.hasSource)return live;
+      }catch(e){}
+    }
+    return beatOpening(sh) ? {hasSource:false,missing:true} : null;
+  };
   function limits(opts){
     opts=opts||{};
     const modelMax=/2\.0/.test(opts.modelId||"")?15:30;
     return {max:Math.min(modelMax,positive(opts.maxSeconds)||modelMax),
       shots:positive(opts.maxShots)||Infinity,dialogue:positive(opts.maxDialogue)||Infinity};
   }
+  function beatActionTiming(source,sh){
+    const blocks=(source&&source.blocks||[]).filter(b=>b&&String(b.type||"").toLowerCase()==="action"&&text(b.text));
+    const words=blocks.reduce((n,b)=>n+text(b.text).split(/\s+/).filter(Boolean).length,0);
+    const authored=blocks.map(b=>positive(b.durationSec||b.duration||b.seconds)).filter(v=>v>0&&v<=120);
+    const explicit=authored.length===blocks.length&&authored.length?authored.reduce((n,v)=>n+v,0):0;
+    const baseline=Math.max(1.5,blocks.length*1.5,words/3.5);
+    const saved=positive(sh&&sh.actionDurationSec);
+    return {seconds:Math.max(baseline,explicit,saved),estimated:!explicit&&!saved,blocks:blocks.length,words};
+  }
   function unitFor(sh,index,opts){
     const issues=[],p=(opts.panelLines||[]).find(x=>x&&x.shotId===sh.id)||{};
-    const canon=sh.beatPlan&&Array.isArray(sh.beatPlan.micro)?sh.beatPlan.micro:[];
+    const source=sourceFor(sh,opts),opening=beatOpening(sh)&&source&&source.hasSource;
+    const canon=!opening&&sh.beatPlan&&Array.isArray(sh.beatPlan.micro)?sh.beatPlan.micro:[];
     const declared=Array.isArray(sh.covers)&&sh.covers.length>0;
     const covers=declared?Array.from(new Set(sh.covers.map(Number))):[];
     let micro=[];
@@ -35,21 +57,34 @@
       if(canon.length&&!declared)
         issues.push({code:"inferred-coverage",blocking:false,shotId:sh.id,message:"Micro-beat coverage is inferred, not explicitly mapped. Review this shot's coverage."});
     }
-    const action=micro.length?micro.join(" → "):text(p.text||sh.action);
-    const dialogue=text(p.dialogue!=null?p.dialogue:sh.dialogue);
+    const action=opening?text(source.openingAction||sh.action):micro.length?micro.join(" → "):text(p.text||sh.action);
+    const dialogueLines=opening?(source.dialogue||[]).filter(x=>x&&String(x.text||"").trim()):[];
+    const dialogue=opening
+      ?dialogueLines.map(x=>String(x.speaker||"the speaker")+": "+String(x.text||"").trim()).join(" ")
+      :text(p.dialogue!=null?p.dialogue:sh.dialogue);
     const audio=sh.lineAudio||{};
     const measured=opts.audioMode!=="native"&&dialogue?positive(audio.durationMs)/1000:0;
     if(measured&&audio.text&&text(audio.text)!==dialogue)
       issues.push({code:"stale-audio",blocking:true,shotId:sh.id,message:"Recorded dialogue differs from this shot's current words. Revoice the line or select native dialogue."});
     const speech=dialogue?(measured||Math.max(1,dialogue.split(/\s+/).length/2.4)):0;
-    const actionTime=positive(sh.actionDurationSec)||(micro.length?Math.max(2,micro.length*1.6):5);
+    const actionTiming=opening?beatActionTiming(source,sh):null;
+    const actionTime=opening
+      ? actionTiming.seconds
+      : positive(sh.actionDurationSec)||(micro.length?Math.max(2,micro.length*1.6):5);
     // Dialogue and physical business can occur concurrently. Do not add them twice.
     const floor=dialogue?Math.max(speech+0.6,micro.length?Math.min(actionTime,5):0):actionTime;
-    const duration=round(Math.max(positive(sh.dur)||floor,speech?speech+0.6:0,0.5));
+    const savedDur=positive(sh.dur);
+    const explicitShotDur=opening&&actionTiming ? (savedDur>=actionTime ? savedDur : 0) : savedDur;
+    const duration=round(Math.max(explicitShotDur||floor,speech?speech+0.6:0,0.5));
+    if(beatOpening(sh)&&source&&source.missing)
+      issues.push({code:"missing-screenplay-helper",blocking:true,shotId:sh.id,
+        message:"The canonical screenplay source helper is unavailable for this beat-opening shot. Load shot-screenplay.js before Stage; do not fall back to stale shot text."});
     if(!action&&!dialogue)
       issues.push({code:"empty-shot",blocking:true,shotId:sh.id,message:"This shot has no action or dialogue to render."});
-    return {shotId:sh.id,index,beatN:positive(sh.beatN)||null,covers,micro,action,dialogue,
-      duration,estimated:!positive(sh.dur)&&!measured,audioMeasuredSec:round(measured),
+    return {shotId:sh.id,index,beatN:positive(sh.beatN)||null,covers:opening?[]:covers,micro,action,dialogue,
+      beatOpening:opening,beatScript:opening?String(source.text||""):"",sourceScreenplayRev:opening?String(source.sourceRev||""):"",
+      dialogueLines,
+      duration,estimated:!!(opening&&actionTiming&&actionTiming.estimated)||(!opening&&!positive(sh.dur)&&!measured),audioMeasuredSec:round(measured),
       speaker:(p.speaker&&p.speaker.name)||audio.speaker||"",
       camera:{size:sh.size||"",angle:sh.angle||"",move:sh.move||"",lens:sh.lens||""},issues};
   }
@@ -63,8 +98,12 @@
     if(requested&&requested<minimumSec)
       issues.push({code:"duration-too-short",blocking:true,message:"The selected coverage needs at least "+minimumSec+" seconds. Increase duration or split this clip."});
     const durationSec=Math.max(minimumSec,requested?Math.ceil(requested):0);
-    if(durationSec>cap.max)
-      issues.push({code:"over-duration",blocking:true,message:"This coverage needs "+durationSec+" seconds; this model allows "+cap.max+". Split at a shot boundary, or deliberately divide and revoice a long spoken shot."});
+    if(durationSec>cap.max){
+      const oneBeat=units.some(u=>u&&u.beatOpening);
+      issues.push({code:"over-duration",blocking:true,message:oneBeat
+        ? "This screenplay beat needs "+durationSec+" seconds; this model allows "+cap.max+". Keep the beat intact: choose a longer-duration model or deliberately revise/revoice the screenplay. Stage will not silently truncate it or create extra shots."
+        : "This coverage needs "+durationSec+" seconds; this model allows "+cap.max+". Split at an existing shot boundary, or deliberately divide and revoice a long spoken shot."});
+    }
     if(units.length>cap.shots)
       issues.push({code:"shot-budget",blocking:true,message:"This clip has more shots than the selected packing budget."});
     if(units.filter(u=>u.dialogue).length>cap.dialogue)
@@ -92,7 +131,11 @@
     };
     list.forEach(sh=>{
       const u=unitFor(sh,0,opts),beat=positive(sh.beatN),prev=cur[0]&&positive(cur[0].beatN);
-      const boundary=!beat||!prev||beat!==prev||sh.sceneId!==(cur[0]&&cur[0].sceneId);
+      /* New beat-opening shots are already one screenplay beat each. Keep them
+         one render unit so a long beat surfaces an honest over-duration blocker;
+         legacy multi-shot groups retain their historical packing behavior. */
+      const boundary=!beat||!prev||beat!==prev||sh.sceneId!==(cur[0]&&cur[0].sceneId)
+        ||(cur.length&&(beatOpening(sh)||beatOpening(cur[0])));
       if(cur.length&&(opts.scope==="shot"||boundary||Math.ceil(raw+u.duration)>cap.max||
           cur.length>=cap.shots||(u.dialogue&&dialogue>=cap.dialogue)))flush();
       cur.push(sh);raw+=u.duration;if(u.dialogue)dialogue++;
@@ -127,9 +170,10 @@
         e("thead",null,e("tr",null,e("th",null,"Time"),e("th",null,"Shot / coverage"),e("th",null,"Action and dialogue"))),
         e("tbody",null,units.map(u=>e("tr",{key:u.shotId+":"+u.index},
           e("td",null,u.start+"–"+u.end+"s"),
-          e("td",null,"Shot "+(u.index+1),u.covers.length?e("small",null,"Micro "+u.covers.join(", ")):null),
-          e("td",null,u.action||"Dialogue",u.dialogue&&e("div",null,(u.speaker?u.speaker+": ":"")+'“'+u.dialogue+'”'))))))),
-      e("p",{className:"stage-plan-note"},"One request produces one video take. Timing guides the model; it is not a frame-accurate edit. The final composition holds to the clip boundary."),
+          e("td",null,"Shot "+(u.index+1),u.beatOpening?e("small",null,"Beat opening"):u.covers.length?e("small",null,"Micro "+u.covers.join(", ")):null),
+          e("td",null,(u.beatOpening&&u.beatScript)||u.action||"Dialogue",
+            u.dialogue&&e("div",null,(u.speaker?u.speaker+": ":"")+'“'+u.dialogue+'”'))))))),
+      e("p",{className:"stage-plan-note"},"One request produces one video take. A beat-opening frame is only the first state; the full screenplay beat (all action and exact dialogue) remains the temporal script. Timing guides the model and never truncates a long beat."),
       warnings.map((w,i)=>e("p",{key:i,className:"stage-plan-issue"+(w.blocking?" blocking":""),role:w.blocking?"alert":"status"},w.message)),
       (onShowShots||onSplit)&&e("div",{className:"stage-plan-actions"},
         onShowShots&&e("button",{type:"button",onClick:onShowShots},"Review source shots"),

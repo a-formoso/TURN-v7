@@ -18,7 +18,14 @@ const _stEl = React.createElement;
 function _pad2(n){ return String(n||0).padStart(2,"0"); }
 function _clipLetter(i){ return (i<26) ? String.fromCharCode(65+i) : String(i+1); }
 function _uniq(a){ const o=[], s=new Set(); (a||[]).forEach(x=>{ if(x && !s.has(x)){ s.add(x); o.push(x); } }); return o; }
-function _clipDur(g, maxSec){ return Math.max(4, Math.min(Number(maxSec)||15, Math.round(g.dur||5))); }
+function _clipDur(g, maxSec){
+  const raw=Math.max(4,Math.round(g&&g.dur||5));
+  /* A beat-opening shot is one unsplittable screenplay unit. Preserve its full
+     required duration so Stage can show the model-cap blocker instead of
+     silently squeezing/truncating exact dialogue to 15 seconds. */
+  if((g&&g.shots||[]).some(stageBeatOpeningShot))return raw;
+  return Math.min(Number(maxSec)||15,raw);
+}
 function _firstWords(t, n){ const w=String(t||"").trim().split(/\s+/).filter(Boolean); return w.slice(0,n).join(" ")+(w.length>n?"…":""); }
 function _stageAspect(project){ return (typeof aspectFor==="function") ? aspectFor(project) : "16:9"; }
 function _stageAspectCss(aspect){
@@ -226,7 +233,32 @@ function _normStageText(s){ return String(s||"").toLowerCase().replace(/[^a-z0-9
 function stageBeatRow(beatsMap, sceneId, beatN){
   return (((beatsMap||{})[sceneId]||{}).rows||[]).find(r=>Number(r.n)===Number(beatN)) || null;
 }
+/* The canonical screenplay resolver is app/shot-screenplay.js. Stage deliberately
+   does not provide a second parser: shipped load order must expose that helper
+   before this module, and beat-opening shots fail explicitly when it is absent. */
+function stageBeatOpeningShot(sh){
+  return !!(sh&&sh.keyframeMode==="beat-opening");
+}
+function stageDeliveryIsRemote(delivery){
+  const d=String(delivery||"").trim().toLowerCase().replace(/\s+/g,"-");
+  return !!d && d!=="in-room" && d!=="onscreen" && /^(?:vo|voice-over|off-screen|offscreen|phone|text|sms|message|voicemail|radio|intercom)$/.test(d);
+}
+function stageDeliveryIsText(delivery){
+  const d=String(delivery||"").trim().toLowerCase().replace(/\s+/g,"-");
+  return /^(?:text|sms|message)$/.test(d);
+}
+function stageBeatSource(scene,sh,ctx){
+  ctx=ctx||{};
+  const helper=typeof window.shotBeatScreenplay==="function" ? window.shotBeatScreenplay : null;
+  if(!helper)return stageBeatOpeningShot(sh) ? {hasSource:false,missing:true} : null;
+  let live=null;
+  try{ live=helper(scene,sh&&sh.beatN,{drafts:ctx.drafts||{},characters:ctx.characters||[],
+    beatsMap:ctx.beatsMap||{}}); }catch(e){ live=null; }
+  if(live&&live.hasSource)return live;
+  return stageBeatOpeningShot(sh) ? {hasSource:false,missing:true} : null;
+}
 function stageShotMicroTexts(sh){
+  if(stageBeatOpeningShot(sh))return [];
   // the micro-beats this shot COVERS are the story canon ("what happens"); sh.action is
   // the camera's staging of them. Coverage is explicit (sh.covers, 1-based into
   // beatPlan.micro); older shots drafted before covers existed fall back to the SAME fuzzy
@@ -262,6 +294,9 @@ function stageBeatScriptBlocks(scene, drafts, beatN){
   return blocks.filter(b=>b && b.type!=="scene" && Number(b.beat)===n);
 }
 function stageBeatDialogueLines(scene, drafts, beatN){
+  const live=(typeof window.shotBeatScreenplay==="function")
+    ? window.shotBeatScreenplay(scene,beatN,{drafts}) : null;
+  if(live&&live.hasSource)return live.dialogue||[];
   const blocks = stageBeatScriptBlocks(scene, drafts, beatN);
   const out = [];
   let speaker = "", parenthetical = "";
@@ -271,7 +306,9 @@ function stageBeatDialogueLines(scene, drafts, beatN){
     if(b.type==="char"){ speaker = t.replace(/\(cont'?d\)/ig,"").trim(); parenthetical = ""; return; }
     if(b.type==="paren"){ parenthetical = t.replace(/^\(|\)$/g,"").trim(); return; }
     if(b.type==="dia"){
-      out.push({ speaker:speaker||"the speaker", parenthetical, text:t });
+      out.push({ speaker:speaker||"the speaker", parenthetical, text:t,
+        delivery:/\b(?:v\.?\s*o\.?|voice\s*over|off[\s-]?screen|phone|telephone|voicemail|radio|intercom)\b/i.test(parenthetical)
+          ? "vo" : /\b(?:text|sms|message)\b/i.test(parenthetical) ? "text" : "onscreen" });
       parenthetical = "";
       return;
     }
@@ -317,6 +354,10 @@ function stageShotDialogueLine(scene, drafts, sh, ctx){
   return { ...best, text:fallbackText, char:stageCharNameMatch(best.speaker, ctx&&ctx.characters) };
 }
 function stageShotMicroPromptText(scene, drafts, beatsMap, sh, max){
+  if(stageBeatOpeningShot(sh)){
+    const src=stageBeatSource(scene,sh,{drafts,beatsMap});
+    return src&&src.text ? src.text : "";
+  }
   const micro = stageShotMicroTexts(sh);
   let text = micro.length ? micro.map((m,i)=>"Micro-beat "+(i+1)+": "+m.replace(/[\s.;]+$/,".")).join(" ") : "";
   if(!text) text = stageShotCanonLine(scene, drafts, beatsMap, sh, max||0);
@@ -324,6 +365,10 @@ function stageShotMicroPromptText(scene, drafts, beatsMap, sh, max){
   return text;
 }
 function stageShotScriptText(scene, drafts, sh, max){
+  if(stageBeatOpeningShot(sh)){
+    const src=stageBeatSource(scene,sh,{drafts});
+    if(src&&src.text)return src.text;
+  }
   // resolve through the beat's micro-beats first: the covered micro-beat is the complete,
   // canonical statement of the event (and names characters the camera line may only imply,
   // which the cast-sheet scan relies on). sh.action is appended as staging detail when it
@@ -416,6 +461,10 @@ function stageDialogueSpeaker(scene, drafts, beatsMap, sh, ctx){
   return { id:"", name:"the speaker" };
 }
 function stageShotSheetText(scene, beatsMap, sh, max){
+  if(stageBeatOpeningShot(sh)){
+    const src=stageBeatSource(scene,sh,{beatsMap});
+    return String((src&&src.openingAction)||(sh&&sh.action)||"").replace(/\s+/g," ").trim();
+  }
   let t = String((sh&&sh.action)||"").replace(/\s+/g," ").trim();
   if(!t){
     const r = stageBeatRow(beatsMap, scene&&scene.id, sh&&sh.beatN);
@@ -460,22 +509,34 @@ function buildClipData(scene, g, ctx, maxSec){
   // in-frame cast (union across the clip's shots), de-duped, names + ids
   const castIds = [];
   shots.forEach(sh=>{
-    const inc=(typeof inFrameCast==="function")?inFrameCast(sh, scene, ctx.characters||[]):(sh.subjects||[]);
+    const beatSource=stageBeatSource(scene,sh,ctx);
+    /* A beat-opening frame is the first physical state, not a montage of every
+       later action. Use the live source's opening cast and never the stale
+       subjects array (which commonly still contains a phone/voicemail participant). */
+    const inc=(beatSource&&beatSource.missing)
+      ? []
+      : (beatSource&&beatSource.hasSource)
+      ? (stageBeatOpeningShot(sh) ? (beatSource.openingCharacterIds||[]) : (beatSource.physicalCharacterIds||[]))
+      : ((typeof inFrameCast==="function")?inFrameCast(sh, scene, ctx.characters||[]):(sh.subjects||[]));
     // ALSO scan the text the prompt actually SPEAKS (the vidText override or the beat-prose
     // canon line, composed exactly as panelLines does): beat prose can name characters the
     // per-shot action line omits ("the rear door clunks. MARCUS folds in…"), and anyone the
     // prompt names MUST have their identity sheet attached or the model invents them.
-    const spoken = String(sh.vidText||"").trim()
+    const spoken = (stageBeatOpeningShot(sh)&&beatSource&&beatSource.hasSource)
+      ? "" : String(sh.vidText||"").trim()
       || ((typeof stageShotCanonLine==="function") ? stageShotCanonLine(scene, ctx.drafts, ctx.beatsMap, sh, 190) : "");
     // dialogue surfaces too: the voice-cast preamble, lip-sync recipes and audio role
     // labels all name the SPEAKER — a speaker-only character (never in the prose) still
     // needs their identity sheet attached or lip-sync renders an invented face.
-    const dlg = String(sh.dialogue||"");
+    const dlg = stageBeatOpeningShot(sh)&&beatSource&&beatSource.hasSource
+      ? (beatSource.dialogue||[]).map(x=>x&&x.text||"").join(" ") : String(sh.dialogue||"");
     const spk = dlg.trim() && (typeof stageDialogueSpeaker==="function")
       ? stageDialogueSpeaker(scene, ctx.drafts, ctx.beatsMap, sh, ctx) : null;
-    const named = (typeof scanTextForChars==="function")
-      ? scanTextForChars([spoken, dlg, (spk&&spk.name)||""].filter(Boolean).join("\n"), ctx.characters||[]) : [];
-    inc.concat(named).forEach(id=>{ if(castIds.indexOf(id)<0) castIds.push(id); });
+    const named = stageBeatOpeningShot(sh)&&beatSource&&beatSource.hasSource
+      ? [] : ((typeof scanTextForChars==="function")
+      ? scanTextForChars([spoken, dlg, (spk&&spk.name)||""].filter(Boolean).join("\n"), ctx.characters||[]) : []);
+    const namedIds=Array.isArray(named)?named:[];
+    inc.concat(namedIds).forEach(id=>{ if(castIds.indexOf(id)<0) castIds.push(id); });
   });
   const cast = castIds.map(id=>({ id, name:(ctx.charById[id]||{}).name||"" })).filter(c=>c.name);
   // in-frame props (union)
@@ -543,12 +604,18 @@ function buildClipData(scene, g, ctx, maxSec){
   // composed director prompt (prose, multi-beat) — readable, not the image-gen JSON
   const panelLines = shots.map((sh,i)=>{
     const meta = stageSheetPanelMeta(g, i, scene);
+    const beatSource=stageBeatSource(scene,sh,ctx);
+    const canonical=stageBeatOpeningShot(sh)&&beatSource&&
+      (beatSource.hasSource||beatSource.missing);
     const exactLine = stageShotDialogueLine(scene, ctx.drafts, sh, ctx);
-    const speaker = exactLine && exactLine.text
+    const primaryDialogue=canonical&&beatSource.dialogue&&beatSource.dialogue[0]||null;
+    const speaker = primaryDialogue && primaryDialogue.text
+      ? {id:primaryDialogue.speakerId||"",name:primaryDialogue.speaker||"the speaker"}
+      : exactLine && exactLine.text
       ? (exactLine.char ? { id:exactLine.char.id, name:exactLine.char.name } : { id:"", name:exactLine.speaker||"the speaker" })
       : (String(sh&&sh.dialogue||"").trim() ? stageDialogueSpeaker(scene, ctx.drafts, ctx.beatsMap, sh, ctx) : null);
-    const micro = stageShotMicroTexts(sh);
-    const microText = stageShotMicroPromptText(scene, ctx.drafts, ctx.beatsMap, sh, 190);
+    const micro = canonical ? [] : stageShotMicroTexts(sh);
+    const microText = canonical ? String(beatSource.text||"") : stageShotMicroPromptText(scene, ctx.drafts, ctx.beatsMap, sh, 190);
     // the Shots tab's camera grammar, preserved PER SHOT — the clip-level "camera arc"
     // flattens these into one description; the shoot package and timeline recipes need
     // each setup intact (size · angle · move · lens + the composition note).
@@ -558,13 +625,18 @@ function buildClipData(scene, g, ctx, maxSec){
     return { shotId:sh.id, beatN:sh.beatN, sheetPage:meta.page, sheetPanel:meta.panel, half:meta.half,
       // sh.vidText = the user's per-shot VIDEO description override (Multi-shot
       // editor) — video-only, never touches the canon action the image side uses
-      text: String(sh.vidText||"").trim() || microText || stageShotCanonLine(scene, ctx.drafts, ctx.beatsMap, sh, 190),
-      script:stageShotScriptText(scene, ctx.drafts, sh, 190),
-      sheet:stageShotSheetText(scene, ctx.beatsMap, sh, 190),
+      text: canonical ? String(beatSource.text||"") : (String(sh.vidText||"").trim() || microText || stageShotCanonLine(scene, ctx.drafts, ctx.beatsMap, sh, 190)),
+      script:canonical ? String(beatSource.text||"") : stageShotScriptText(scene, ctx.drafts, sh, 190),
+      sheet:canonical ? String(beatSource.openingAction||sh.action||"") : stageShotSheetText(scene, ctx.beatsMap, sh, 190),
       speaker,
       camera:camSpec, composition:String((sh&&sh.composition)||"").trim(),
       dur:(typeof stageShotRuntime==="function") ? stageShotRuntime(sh) : 0,
-      dialogue:exactLine && exactLine.text ? exactLine.text : String((sh&&sh.dialogue)||"").trim(),
+      dialogue:canonical ? String((primaryDialogue&&primaryDialogue.text)||"") :
+        (exactLine && exactLine.text ? exactLine.text : String((sh&&sh.dialogue)||"").trim()),
+      dialogueDelivery:canonical ? String((primaryDialogue&&primaryDialogue.delivery)||"onscreen") : "onscreen",
+      beatScript:canonical ? String(beatSource.text||"") : "",
+      beatDialogue:canonical ? (beatSource.dialogue||[]) : [],
+      sourceScreenplayRev:canonical ? String(beatSource.sourceRev||sh.sourceScreenplayRev||"") : "",
       dialogueParenthetical:exactLine && exactLine.parenthetical ? exactLine.parenthetical : "",
       micro };
   });
@@ -588,13 +660,25 @@ function buildClipData(scene, g, ctx, maxSec){
   // the beat's PROTECT line travels with the clip — the shoot package shows it as a
   // story obligation so the render never quietly drops what the beat exists to protect
   const protect = shots.map(sh=>sh&&sh.beatPlan&&String(sh.beatPlan.protect||"").trim()).find(Boolean) || "";
-  const lineShots = panelLines.filter(p=>String(p.dialogue||"").trim()).map(p=>{
+  const lineShots = panelLines.filter(p=>String(p.dialogue||"").trim()&&!stageDeliveryIsText(p.dialogueDelivery)).map(p=>{
     const src = shots.find(sh=>sh && sh.id===p.shotId) || {};
     return { ...src, dialogue:p.dialogue, lineAudio:src.lineAudio };
   });
   const beatDialogues = {};
-  _uniq(shots.map(sh=>sh&&sh.beatN).filter(Boolean)).forEach(n=>{ beatDialogues[n] = stageBeatDialogueLines(scene, ctx.drafts, n); });
-  return { shots, first, cast, props:clipProps, loc, locSheet, preset, camera, cameraProfile, lighting, lead, prompt, chips, setting, panelLines, protect, beatDialogues,
+  const beatScripts = {};
+  const remoteCharacterIds = [];
+  _uniq(shots.map(sh=>sh&&sh.beatN).filter(Boolean)).forEach(n=>{
+    const src=stageBeatSource(scene,shots.find(sh=>Number(sh&&sh.beatN)===Number(n)),ctx);
+    beatDialogues[n] = (src&&src.hasSource&&src.dialogue) ? src.dialogue : stageBeatDialogueLines(scene, ctx.drafts, n);
+    if(src&&src.hasSource){
+      beatScripts[n]={hasSource:true,text:String(src.text||""),openingAction:String(src.openingAction||""),
+        sourceRev:String(src.sourceRev||""),dialogue:src.dialogue||[],
+        openingCharacterIds:src.openingCharacterIds||[],physicalCharacterIds:src.physicalCharacterIds||[],
+        remoteCharacterIds:src.remoteCharacterIds||[],mentionedCharacterIds:src.mentionedCharacterIds||[]};
+      (src.remoteCharacterIds||[]).forEach(id=>{if(remoteCharacterIds.indexOf(id)<0)remoteCharacterIds.push(id);});
+    }
+  });
+  return { shots, first, cast, props:clipProps, loc, locSheet, preset, camera, cameraProfile, lighting, lead, prompt, chips, setting, panelLines, protect, beatDialogues, beatScripts, remoteCharacterIds,
     dur:_clipDur(g, maxSec), lineShots };
 }
 
@@ -668,6 +752,8 @@ function storyboardClipAssets(clip, imgs){
 }
 function clipPrimaryFrame(clip, imgs, visualSource){
   const story = storyboardClipAssets(clip, imgs);
+  const beatOpening=!!((clip&&clip.data&&clip.data.shots)||[]).some(stageBeatOpeningShot);
+  if(beatOpening) return imgs[(clip.data.first||{}).id] || "";
   if(visualSource==="halves") return story.top || story.bottom || story.sheet || "";
   return imgs[(clip.data.first||{}).id] || "";
 }
@@ -691,6 +777,14 @@ const STAGE_SOURCE_MODES = {
 function stageClipSourcePlan(clip, imgs){
   const d = (clip&&clip.data)||{};
   const shots = d.shots||[];
+  /* A beat-opening keyframe is the sole visual start state. Storyboard sheets and
+     halves are legacy multi-shot sources and must not turn one screenplay beat into
+     a panel montage. */
+  if(shots.some(stageBeatOpeningShot)){
+    const frameReady=!!imgs[(d.first||{}).id];
+    return {mode:"frame",ready:frameReady,hasHalves:false,hasSheet:false,frameReady,framesReady:frameReady,
+      ...STAGE_SOURCE_MODES.frame,beatOpening:true};
+  }
   const story = storyboardClipAssets(clip, imgs);
   const hasHalves = !!((story.halves||[]).length || story.top || story.bottom);
   const hasSheet = !!story.sheet;
@@ -1390,6 +1484,47 @@ function seedanceBeatData(clip, shots){
   // the whole clip's line order even when the prompt is scoped to one beat.
   return { ...d, shots:shots||[], panelLines:(d.panelLines||[]).filter(p=>ids.has(p.shotId)), allPanelLines:d.panelLines||[] };
 }
+/* Canonical one-shot beat prompt. The image is only the beat's opening state;
+   screenplay action and speech are the temporal script. In particular, a remote
+   speaker gets voice/VO treatment without an identity image or onscreen lips. */
+function seedanceBeatOpeningPrompt(clip, shots, activeShot, audioRefsOn, audioIncluded, refs, opts){
+  const d=(clip&&clip.data)||{}, list=shots&&shots.length?shots:(d.shots||[]);
+  const sh=list[0]||activeShot||{};
+  const scripts=d.beatScripts||{};
+  const src=scripts[sh.beatN]||{};
+  const full=String(src.text||"").trim();
+  if(!src.hasSource&&(!full||src.missing))
+    return "BLOCKED: canonical screenplay source is unavailable for this beat-opening shot. Load shot-screenplay.js before Stage; stale shot text is not a valid replacement.";
+  const cast=(d.cast||[]).map(c=>_stagePromptEntityLabel(refs,"character",c,c.name)).filter(Boolean);
+  const setting=_stagePromptEntityLabel(refs,"setting",d.loc||d.setting,d.setting||((clip&&clip.scene&&clip.scene.loc)||""));
+  const dialogues=(src.dialogue&&src.dialogue.length?src.dialogue:(d.beatDialogues&&d.beatDialogues[sh.beatN])||[]);
+  const dlg=dialogues.map((ln,i)=>{
+    const speaker=String(ln&&ln.speaker||"the speaker").trim();
+    const who=_stagePromptEntityLabel(refs,"speaker",speaker,speaker);
+    const words=String(ln&&ln.text||"").trim().replace(/^["“]|["”]$/g,"");
+    const delivery=String(ln&&ln.delivery||"onscreen").toLowerCase();
+    const remote=stageDeliveryIsRemote(delivery);
+    if(stageDeliveryIsText(delivery))return who+' sends the exact text "'+words+'"; show the message only as diegetic content, never a speaking face or lip-sync.';
+    return who+(remote
+      ? ' is remote/offscreen and delivers the exact line "'+words+'" as VO/audio; do not show their body, face or lips in this beat.'
+      : ' delivers the exact line "'+words+'" onscreen'+(audioRefsOn===false?" in a natural in-character voice.":"; lip-sync only the visible speaker when matching audio is attached."));
+  }).filter(Boolean);
+  const grammar=_seedanceShotGrammar(sh);
+  const opening=String(src.openingAction||sh.openingAction||sh.action||"").trim();
+  const rows=[
+    "ONE SCREENPLAY BEAT — one continuous shot, no micro-beat montage, no invented cuts, inserts or later keyframes.",
+    cast.length&&("Opening physical cast: "+cast.join(", ")+"."), setting&&("Setting: "+setting+"."),
+    opening&&("Opening keyframe state: "+opening+". Use the selected image as the sole start state; do not depict later phone/message inserts in the opening frame."),
+    full&&("FULL BEAT SCREENPLAY (verbatim; perform all action and dialogue in this one shot):\n"+full),
+    dlg.length&&("Dialogue delivery (exact words; do not paraphrase): "+dlg.join(" ")),
+    grammar&&("Camera: "+grammar+". Keep the opening composition and animate the beat temporally; do not cut to a montage."),
+    d.lighting&&("Lighting: "+d.lighting+"."),
+    d.preset&&("Look: "+d.preset.name+" — "+d.preset.grade+"."),
+    "Continuity: preserve only the opening physical cast, identity, wardrobe, props and location geometry from the selected references. Remote/offscreen participants remain audio/script only. No captions, subtitles, message UI, panel borders or burned-in text."
+  ].filter(Boolean);
+  return rows.join("\n");
+}
+window.seedanceBeatOpeningPrompt=seedanceBeatOpeningPrompt;
 /* Normalize the planner's public result without making Stage depend on its display
    shape. The planner owns timing/packing; Stage owns the exact prompt language. */
 function stageTimedPlanRows(shots, opts){
@@ -1450,7 +1585,10 @@ function seedanceRecipePrompt(recipeId, clip, shots, activeShot, audioRefsOn, au
   // EXPLICIT STYLE (the user picked a named structure in the Prompt-style menu):
   // the chosen grammar must really land in the box, so the auto director-brief
   // derivations stand down. Auto (no explicitStyle) keeps the researched defaults.
-  const base = (opts&&opts.explicitStyle)
+  const beatOpening=!!(scoped.data&&scoped.data.shots||[]).some(stageBeatOpeningShot);
+  const base = beatOpening
+    ? seedanceBeatOpeningPrompt(scoped,shots,activeShot,audioRefsOn,audioIncluded,refs,opts)
+    : (opts&&opts.explicitStyle)
     ? ((!recipeId || recipeId==="narrative")
         ? seedanceNarrativeParagraph(scoped, activeShot, refs)
         : seedancePrompt(recipeId, scoped, refs))
@@ -2104,7 +2242,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   const sourcePlan = stageClipSourcePlan(clip, imgs);
   const [sourceOverride, setSourceOverride] = React.useState("auto");
   React.useEffect(()=>{ setSourceOverride("auto"); }, [clip.id]);
-  const sourceMode = sourceOverride==="auto" ? sourcePlan.mode : sourceOverride;
+  const beatOpeningClip=!!sourcePlan.beatOpening;
+  const sourceMode = beatOpeningClip ? "frame" : (sourceOverride==="auto" ? sourcePlan.mode : sourceOverride);
   const sourceMeta = STAGE_SOURCE_MODES[sourceMode] || STAGE_SOURCE_MODES.frame;
   const usePanels = sourceMode==="halves" || sourceMode==="sheet";
   const firstStoryHalf = ((storyAssets.halves||[])[0]||{}).url || storyAssets.top || storyAssets.bottom || "";
@@ -2131,9 +2270,13 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   /* The clip prompt/reference package is the authoritative cast for this
      generation.  Carry that exact cast into every Seedance attempt so a stale
      global cast cannot reject an unrelated project. */
+  const sourceCastIds = shownShots.flatMap(sh=>{
+    const src=stageBeatSource(scene,sh,{drafts,beatsMap,characters:ctx.characters||[]});
+    return src&&src.hasSource ? (src.openingCharacterIds||[]) : (sh&&sh.subjects||[]);
+  });
   const identityIds = Array.from(new Set([]
     .concat((referencePackage.characters||[]).map(r=>r&&r.entityId))
-    .concat(shownShots.flatMap(sh=>sh&&sh.subjects||[]))
+    .concat(sourceCastIds)
     .filter(Boolean)));
   const identityCast = (ctx.characters||[]).filter(c=>identityIds.indexOf(c.id)>=0);
   const identityContext = { characterIds:identityIds, scenes:ctx.scenes||[scene],
@@ -2749,7 +2892,11 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
       const p = (d.panelLines||[]).find(x=>x.shotId===sid);
       const sh = (d.lineShots||[]).find(s=>s.id===sid);
       const speaker = (p&&p.speaker&&p.speaker.name) || (sh&&sh.lineAudio&&sh.lineAudio.speaker) || "the speaker";
-      const speakerRef = _stagePromptEntityLabel(promptRefs, "speaker", speaker, speaker);
+      const beatLines=(d.beatDialogues&&sh&&d.beatDialogues[sh.beatN])||[];
+      const beatLine=beatLines.find(x=>_normStageText(x&&x.speaker)===_normStageText(speaker));
+      const remote=beatLine&&stageDeliveryIsRemote(beatLine.delivery);
+      const speakerRef = _stagePromptEntityLabel(promptRefs, "speaker", speaker, speaker)
+        +(remote?" (remote/offscreen VO)":"");
       if(!bySpeaker.has(speakerRef)) bySpeaker.set(speakerRef, []);
        const directCap=directAudioLimit;
        const token=i<directCap ? ("@Audio"+(i+1)) : "";
@@ -2762,7 +2909,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
           : entries[0][1].join(", "))+")"
       : entries.map(([n,tags])=>n+"'s voice: "+tags.join(", ")).join("; ");
     return "VOICE CAST — assign these voices before performing any dialogue: "+body
-      +". Each character speaks ONLY in their assigned voice, lip-synced to that audio.";
+      +". "+(entries.some(([n])=>/\bremote\/offscreen VO\b/.test(n))
+        ? "Remote/offscreen lines use VO/audio and never drive an onscreen actor's lips; visible speakers alone may lip-sync their matching audio."
+        : "Each visible character speaks ONLY in their assigned voice, lip-synced to that audio.");
   })() : "";
   const recipeText = (id, explicit)=>{
     // Multi-shot editor compiles to the TIME-CODED prompt (Seedance's segment
@@ -2795,7 +2944,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   const renderPlan = (typeof window.stageBuildTimedPlan==="function")
     ? window.stageBuildTimedPlan(shownShots,{modelId,maxSeconds:model.maxClipSec||15,
         maxShots:model.maxShotsPerClip||Infinity,maxDialogue:10,
-        audioMode:voiceLocked?"locked":"native",panelLines:d.panelLines||[],durationSec:duration})
+         audioMode:voiceLocked?"locked":"native",panelLines:d.panelLines||[],durationSec:duration,
+         scene,drafts,characters:ctx.characters||[],beatsMap})
     : null;
   const [prompt, setPrompt] = React.useState(beatPrompt);
   // MANUAL EDITS survive input toggles: the derivation only overwrites an untouched
@@ -2998,7 +3148,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     nextClip && nextFrameUrl && { id:"next", label:"Next clip · "+nextClip.label, url:nextFrameUrl },
     ...tagged.filter(a=>a.kind==="image" && a.ready && a.url && a.url!==startFrame).map(a=>({ id:"asset:"+a.key, label:a.label, url:a.url })),
   ].filter(Boolean);
-  const endFrameAvailable = !hasDialogue && onVideos.length===0 && endFrameCandidates.length>0 && modelRefs;   // Sora has no end-frame endpoint
+  const endFrameAvailable = !beatOpeningClip && !hasDialogue && onVideos.length===0 && endFrameCandidates.length>0 && modelRefs;   // beat-opening shots have one start state
   const endFrameUrl = endFrameAvailable ? ((endFrameCandidates.find(c=>c.id===endFrameId)||{}).url || "") : "";
 
   // ---- auto reference roles: one declared-role sentence per included asset, appended
@@ -3077,7 +3227,12 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     setPrepPct(55);
     const controls = [cameraProfileLine, "Camera movement: "+camera+". Lighting: "+lighting+". Performance: "+perf+"."]
       .filter(Boolean).join("\n");
-    if(clip.g&&clip.g.over&&(!renderPlan||renderPlan.over)){ if(typeof window.appToast==="function") window.appToast("This clip's current render plan needs "+_fmtSecs((renderPlan&&renderPlan.durationSec)||clip.g.dur)+" — over "+_fmtSecs(model.maxClipSec||15)+". Use Fit beat, or deliberately split/revoice one unsplittable shot; the app will not silently compress a paid request.","error"); return; }
+    const blockingPlanIssues=(renderPlan&&renderPlan.issues||[]).filter(x=>x&&x.blocking);
+    if(blockingPlanIssues.length){
+      if(typeof window.appToast==="function") window.appToast(blockingPlanIssues[0].message||"This screenplay coverage is blocked until its render plan is reconciled.","error");
+      return;
+    }
+    if(clip.g&&clip.g.over&&(!renderPlan||renderPlan.over)){ if(typeof window.appToast==="function") window.appToast("This clip's current render plan needs "+_fmtSecs((renderPlan&&renderPlan.durationSec)||clip.g.dur)+" — over "+_fmtSecs(model.maxClipSec||15)+". Keep the screenplay beat intact; choose a longer model or deliberately revise/revoice it. The app will not silently compress a paid request.","error"); return; }
     if(assetOver&&!referenceFree){ if(typeof window.appToast==="function") window.appToast((model.label||"This model")+" accepts up to "+assetLimit+" inputs — exclude a few assets first.","error"); return; }
     if(sourceBlocking&&!referenceFree){ if(typeof window.appToast==="function") window.appToast("Save this clip's storyboard "+(sourceMode==="sheet"?"sheet":"halves")+" in Storyboards first, or switch Visual source back to shot/prompt rendering.","error"); return; }
     if(needsVoice&&!referenceFree){ if(typeof window.appToast==="function") window.appToast("Voice this clip's dialogue first — duration and lip-sync are locked to line audio.","error"); return; }
@@ -3129,13 +3284,23 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     }).filter(s=>s.prompt) : undefined;
       const shotSources=(typeof shotSourceStamp==="function")
         ? (d.shots||[]).map(sh=>shotSourceStamp(sh,(drafts||{})[sh.sceneId])) : [];
+      const beatSources=(d.shots||[]).map(sh=>{
+        const src=stageBeatSource(scene,sh,{drafts,beatsMap,characters:ctx.characters||[]});
+        return {shotId:sh.id,keyframeMode:sh.keyframeMode||"",
+          beatScript:(src&&src.hasSource)?String(src.text||""):"",
+          sourceScreenplayRev:(src&&src.sourceRev)||sh.sourceScreenplayRev||"",
+          openingCharacterIds:(src&&src.openingCharacterIds)||[],
+          physicalCharacterIds:(src&&src.physicalCharacterIds)||[],
+          remoteCharacterIds:(src&&src.remoteCharacterIds)||[]};
+      }).filter(x=>x.beatScript||x.keyframeMode);
       const resolvedSourceVersions=[].concat(referencePackage.characters||[],referencePackage.locations||[],referencePackage.props||[])
         .map(r=>({assetId:r.assetId,entityId:r.entityId,kind:r.kind,stateId:r.stateId||"",
           snapshot:r.snapshot,shotIds:r.shotIds,usages:r.usages}));
       const attemptRenderPlan=referenceFree&&typeof window.stageBuildTimedPlan==="function"
         ? window.stageBuildTimedPlan(shownShots,{modelId,maxSeconds:model.maxClipSec||15,
             maxShots:model.maxShotsPerClip||Infinity,maxDialogue:10,audioMode:"native",
-            panelLines:d.panelLines||[],durationSec:duration})
+             panelLines:d.panelLines||[],durationSec:duration,scene,drafts,
+             characters:ctx.characters||[],beatsMap})
         : renderPlan;
       const payload = { frameUrl, imageUrls, videoUrls, audioUrls, prompt:promptPayload, controls, multiShot,
       // the spend record rides the render job itself — settled at COMPLETION
@@ -3157,6 +3322,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
             : (counts.text+" text · "+counts.images+" img · "+counts.videos+" vid · "+counts.audio+" aud"),
 	        durationSec: duration, references: takeReferences, shotSources,
           renderPlan:attemptRenderPlan,
+           beatSources,
           referenceSourceVersions:referenceFree?[]:resolvedSourceVersions,
           omittedReferenceSourceVersions:referenceFree?resolvedSourceVersions:[],
           referenceSignature:referenceFree?"":(referencePackage.signature||""),
@@ -3538,14 +3704,15 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     requestAnimationFrame(()=>{ try{ api && api.applyValue && api.applyValue(next, nextPos); }catch(_e){} });
   };
   const sourceUiOptions = [
-    { id:"auto", label:"Omni reference", desc:"Auto-pick the best references for this beat.", onPick:()=>setSourceOverride("auto") },
+    { id:"auto", label:beatOpeningClip?"Beat-opening frame":"Omni reference",
+      desc:beatOpeningClip?"Use the one opening keyframe; the full screenplay beat runs as temporal direction.":"Auto-pick the best references for this beat.", onPick:()=>setSourceOverride("auto") },
     { id:"frame", label:"First frame", desc:"Use one start frame when it exists, or render from prompt alone.", onPick:()=>{ setSourceOverride("frame"); setEndFrameId(""); } },
-    { id:"first-last", label:"First and last frame", desc:"Animate from this beat into a chosen end frame.", disabled:!endFrameAvailable,
-      note:endFrameAvailable ? "" : "No compatible end frame",
+    { id:"first-last", label:"First and last frame", desc:"Animate from this beat into a chosen end frame.", disabled:beatOpeningClip||!endFrameAvailable,
+      note:beatOpeningClip ? "Beat-opening shots have one start frame" : endFrameAvailable ? "" : "No compatible end frame",
       onPick:()=>{ setSourceOverride("frame"); if(!endFrameId && endFrameCandidates[0]) setEndFrameId(endFrameCandidates[0].id); } },
-    { id:"frames", label:"Reference frames", desc:"Attach each ready shot frame as a Seedance reference image.", disabled:(d.shots||[]).length<2, onPick:()=>setSourceOverride("frames") },
-    { id:"halves", label:"Storyboard half", desc:"Use the saved sheet half as a reference image.", disabled:!sourcePlan.hasHalves, note:sourcePlan.hasHalves ? "" : "No saved half", onPick:()=>setSourceOverride("halves") },
-    { id:"sheet", label:"Storyboard sheet", desc:"Use the saved full 2x2 sheet as a reference image.", disabled:!sourcePlan.hasSheet, note:sourcePlan.hasSheet ? "" : "No saved sheet", onPick:()=>setSourceOverride("sheet") },
+    { id:"frames", label:"Reference frames", desc:"Attach each ready shot frame as a Seedance reference image.", disabled:beatOpeningClip||(d.shots||[]).length<2, onPick:()=>setSourceOverride("frames") },
+    { id:"halves", label:"Storyboard half", desc:"Use the saved sheet half as a reference image.", disabled:beatOpeningClip||!sourcePlan.hasHalves, note:beatOpeningClip ? "Beat-opening shots use one opening frame" : sourcePlan.hasHalves ? "" : "No saved half", onPick:()=>setSourceOverride("halves") },
+    { id:"sheet", label:"Storyboard sheet", desc:"Use the saved full 2x2 sheet as a reference image.", disabled:beatOpeningClip||!sourcePlan.hasSheet, note:beatOpeningClip ? "Beat-opening shots use one opening frame" : sourcePlan.hasSheet ? "" : "No saved sheet", onPick:()=>setSourceOverride("sheet") },
   ];
   const sourceUiLabel = endFrameUrl ? "First and last frame"
     : sourceOverride==="auto" ? "Omni reference"
@@ -4240,11 +4407,11 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     _ctrlRow("Visual source", _stEl("select",{value:sourceOverride,
         title:"Which visual source anchors this render. Auto follows the per-clip rule: dialogue or 1 shot → the shot frame; 2 merged shots → the 2-panel storyboard half; 3–4 merged shots → per-shot frames when they fit the image budget, else the 4-panel sheet.",
         onChange:e=>setSourceOverride(e.target.value)},
-      _stEl("option",{value:"auto"},"Auto — "+sourcePlan.label),
+      _stEl("option",{value:"auto"},"Auto — "+(beatOpeningClip?"beat-opening frame":sourcePlan.label)),
       _stEl("option",{value:"frame"},"Shot frame"),
-      _stEl("option",{value:"frames",disabled:(d.shots||[]).length<2},"Per-shot frames"),
-      _stEl("option",{value:"halves",disabled:!sourcePlan.hasHalves},"Storyboard halves"+(sourcePlan.hasHalves?"":" — none saved")),
-      _stEl("option",{value:"sheet",disabled:!sourcePlan.hasSheet},"Full storyboard sheet"+(sourcePlan.hasSheet?"":" — none saved")))),
+      _stEl("option",{value:"frames",disabled:beatOpeningClip||(d.shots||[]).length<2},"Per-shot frames"),
+      _stEl("option",{value:"halves",disabled:beatOpeningClip||!sourcePlan.hasHalves},"Storyboard halves"+(beatOpeningClip?" — beat-opening uses one frame":sourcePlan.hasHalves?"":" — none saved")),
+      _stEl("option",{value:"sheet",disabled:beatOpeningClip||!sourcePlan.hasSheet},"Full storyboard sheet"+(beatOpeningClip?" — beat-opening uses one frame":sourcePlan.hasSheet?"":" — none saved")))),
     _ctrlRow("End frame", _stEl("select",{
         value: endFrameAvailable ? endFrameId : "",
         disabled: !endFrameAvailable,
@@ -5288,13 +5455,14 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
       if(clipScope!=="legacy"&&typeof window.stagePlanClips==="function"){
         m[s.id]=window.stagePlanClips(ss,{ modelId,maxSeconds:packMax,
           maxShots:packOpts.maxShots,maxDialogue:packOpts.maxDialogue,
-          scope:clipScope==="shot"?"shot":"beat",audioMode:"locked" });
+          scope:clipScope==="shot"?"shot":"beat",audioMode:"locked",
+          scene:s,drafts,characters,beatsMap });
       }else{
         m[s.id]=(typeof sceneSequences==="function")
           ? sceneSequences(ss,packMax,clipScope==="shot"?{perShot:true}:packOpts) : [];
       }
     });
-    return m; }, [scenesWithShots, shotsByScene, clipMax, modelId, clipScope]);
+    return m; }, [scenesWithShots, shotsByScene, clipMax, modelId, clipScope, drafts, characters, beatsMap]);
 
   // ctx.scenes = the story-ORDERED list — shotPropSheetId/custodyOwnerAt resolve by story
   // position, so the raw array would mis-resolve active states/holders out of order

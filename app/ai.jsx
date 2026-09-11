@@ -1669,6 +1669,8 @@ if(_sharedBibleFeature) _sharedBibleFeature.what += " SHARED RESTORE BIN: in a S
 if(_sharedBibleFeature) _sharedBibleFeature.what += " EPISODE LOCATION CONTINUITY: shared locations keep each Episode's screenplay-derived times, areas, INT/EXT usage, scope and hierarchy in a separate Episode slice. Location Scout displays the open Episode's evidence, while the Show Bible retains a deterministic union/invariant for continuity and older clients. Pulling or synchronizing locations in one Episode cannot erase another Episode's discoveries, and concurrent saves merge only the caller's slice.";
 if(_sharedBibleFeature) _sharedBibleFeature.what += " SERIES STORAGE SAFETY: deleting an Episode removes only exact unshared image keys authorized by the database; any key still referenced by the Show or a sibling is excluded server-side. Unfinished uploads retain a durable exact-path cleanup obligation after their short upload window or a project deletion, so the uploader can retry and a service cleanup worker can safely finish abandoned bytes without receiving folder-wide access. Series team emails are normalized and unique without regard to letter casing, preventing a duplicate-casing invitation from surviving a removal.";
 if(_sharedBibleFeature) _sharedBibleFeature.what += " DATABASE RELATIONSHIP FENCE: every Episode-keyed character, prop, location or deleted-entity slice in the Show Bible must name a live Episode of that exact Show. The database locks that relationship while accepting the Bible update, so a late save cannot resurrect data for an Episode being deleted or attach another Show's Episode. Episode deletion removes the deleted key from active and recently deleted entities and rebuilds all compatibility scene and location projections only from surviving slices. FINAL-EPISODE SAFETY is server-authoritative: TURN never trusts a cached switcher count; it refreshes the Show family before offering the broader whole-Show deletion, and retries the exact Episode deletion if another tab created a sibling meanwhile.";
+const _openingShotsFeature=APP_FEATURES.find(f=>f.name==="Shots (Art Room)");
+if(_openingShotsFeature) _openingShotsFeature.what="the Shots tab is a screenplay-first visual breakdown with exactly one OPENING KEYFRAME per authored beat. Each keyframe depicts only the beat's first situation in one motivated setup; the full screenplay beat, including continuing action, dialogue, VO, sound and typed messages, stays attached as motion context for Stage. Source-derived in-frame subjects and remote/text-only exclusions are binding, so a remote character is never added to the frame or its references. A phone buzz or message does not create a separate coverage insert. Existing manually added shots remain optional alternatives, while keyframe drafts and per-beat refinements always produce one source-grounded row in screenplay order. Frames use the current location, cast, props and style specifications, and the Stage consumes the keyframes plus their full beat sources for motion.";
 window.APP_FEATURES = APP_FEATURES;
 
 function musePublicFeature(f){
@@ -4063,198 +4065,264 @@ async function aiSuggestStates(character, drivenScenes, project){
 }
 window.aiSuggestStates = aiSuggestStates;
 
-/* ---- ART ROOM ▸ SHOT LIST: break ONE scene into a shot list (one beat → one shot).
-   Reads the scene's beats (action/reaction + the turn), screenplay, driver, the
-   location it plays in, the cast present and the props in scene, then proposes
-   cinematographer coverage for each beat: shot size, angle, camera movement, lens,
-   a one-line composition note, the subject(s) in frame, the prop(s) in frame, the
-   visible action, and a short dialogue snippet if the beat has a line. Returns an
-   array of RAW shot objects (normalized by the caller via normalizeShot). ---- */
-async function aiDraftShots(scene, beats, drafts, locations, props, characters, project, opts){
+/* ---- ART ROOM ▸ SHOT LIST: screenplay-first opening keyframes.
+   A beat owns one opening keyframe; the complete source remains attached as
+   motion context for Stage. */
+async function aiDraftOpeningKeyframes(scene, beats, drafts, locations, props, characters, project, opts){
   opts = opts || {};
   window.__lastShotDraftTruncated = false;
-  if(!aiAvailable() || !scene) return null;
-  const _onlyBeat = Number(opts.beatN)||0;
+  if(!scene) throw new Error("Opening keyframe drafting requires a scene.");
+  if(typeof window.shotBeatScreenplay!=="function")
+    throw new Error("Opening keyframe drafting requires the screenplay source helper (shotBeatScreenplay).");
+  if(!aiAvailable()) throw new Error("Opening keyframe drafting requires the writing model.");
+
   const P = writingProjectOf(project);
-  const b = (beats||{})[scene.id] || {};
-  const rows = b.rows || [];
-  const contextRows = _onlyBeat ? rows.filter(r=>Number(r.n)===_onlyBeat) : rows;
-  const loc = (typeof locationForScene==="function") ? locationForScene(locations, scene.id) : null;
-  const scProps = (typeof propsForScene==="function") ? propsForScene(props, scene.id) : [];
-  const cast = (characters||[]).filter(c=> c.id===scene.driver
-    || (b.driverLabel && (c.name||"").toLowerCase()===b.driverLabel.toLowerCase())
-    || (b.reactorLabel && b.reactorLabel.toLowerCase().includes((c.name||"").toLowerCase())));
-  const castList = cast.length ? cast : (characters||[]).filter(c=>c.id===scene.driver);
+  const allBeats = (beats||{})[scene.id] || {};
+  const allRows = typeof window.shotScreenplayBeatRows==="function"
+    ? window.shotScreenplayBeatRows(scene,{drafts,beatsMap:beats})
+    : (Array.isArray(allBeats.rows) ? allBeats.rows.slice() : []);
+  const onlyBeat = Number(opts.beatN)||0;
+  const requested = allRows
+    .filter(r=>!onlyBeat || Number(r&&r.n)===onlyBeat)
+    .sort((a,b)=>Number(a&&a.n||0)-Number(b&&b.n||0))
+    .filter((row,index,list)=>index===0 || Number(row&&row.n)!==Number(list[index-1]&&list[index-1].n));
+  if(onlyBeat && !requested.length)
+    throw new Error("Opening keyframe drafting cannot find authored beat "+onlyBeat+".");
+  if(!requested.length) return [];
 
-  let ctx = "FILM: "+(P.title||"Untitled")+" \u2014 "+(P.genre||"")+". Logline: "+writingLoglineOf(P)+"\n";
-  // the project FORMAT's coverage emphasis (vertical micro-drama framing,
-  // commercial product-hero shots, documentary setups); empty for "full" formats
-  const covBrief = (typeof formatOf==="function") ? (formatOf(P).coverageBrief||"") : "";
-  if(covBrief) ctx += "FORMAT: "+covBrief+".\n";
-  ctx += "SCENE #"+scene.no+" \u201c"+(scene.title||"")+"\u201d";
-  if(scene.intExt || scene.loc) ctx += " ("+(scene.loc||scene.intExt||"")+")";
-  ctx += "\nSummary: "+(scene.summary||"")+"\n";
-  if(scene.objective) ctx += "Scene objective: "+scene.objective+"\n";
-  if(b.result) ctx += "Scene result: "+b.result+"\n";
-  if(scene.turningPoint) ctx += "Turning point: "+scene.turningPoint+"\n";
-  if(loc) ctx += "LOCATION: "+(loc.name||"")+" ("+(loc.intExt||"INT")+")"+(loc.architecture?(" \u2014 "+loc.architecture):"")+"\n";
-  const locSheets = (loc && typeof deriveLocationCoverageSheets==="function")
-    ? ((Array.isArray(loc.coverageSheets) && loc.coverageSheets.length) ? loc.coverageSheets : deriveLocationCoverageSheets(loc, [scene], drafts||{}))
-    : [];
-  if(locSheets.length) ctx += "LOCATION COVERAGE SHEETS available for this scene: "
-    + locSheets.map(v=>(v.role||"AUTO")+" "+(v.name||loc.name||"location")+(v.summary?(" — "+v.summary):"")).join("; ")
-    + ". Use them when a shot's filmed moment is inside, outside, or crosses between spaces.\n";
-  const _scaleOf = (c)=> (typeof scaleClassOf==="function") ? scaleClassOf(c) : "A";
-  if(castList.length){
-    castList.forEach(c=>assertPromptIdentity(c,{ scenes:[scene], drafts:drafts||{}, cast:characters||castList }));
-    const tag = (c)=>{ const k=_scaleOf(c); return k==="B" ? " [CRITTER-SCALE]" : k==="C" ? " [GIANT-SCALE]" : ""; };
-    ctx += "CHARACTERS available (use these exact names): "+castList.map(c=>c.name+tag(c)).join(", ")+"\n";
-    ctx += castPronounBlock(castList, { scenes:[scene], drafts:drafts||{}, cast:characters||castList });
-    // SCALE-AWARE COVERAGE — a non-human-scale subject reframes the camera's relationship to the world
-    if(castList.some(c=>_scaleOf(c)==="B")) ctx += "SCALE NOTE: a CRITTER-SCALE character is present — favour low / worm's-eye angles and macro framing so the surrounding world reads as towering and colossal from its point of view.\n";
-    if(castList.some(c=>_scaleOf(c)==="C")) ctx += "SCALE NOTE: a GIANT-SCALE character is present — favour low angles and wide shots that take in the whole figure and reduce the human world to a miniature far below.\n";
-  }
-  if(scProps.length) ctx += "PROPS in this scene (use these exact names): "+scProps.map(p=>p.name).join(", ")+"\n";
-  const driverName  = b.driverLabel  || (castList[0] && castList[0].name) || "the driver";
-  const reactorName = b.reactorLabel || "the reactor";
-  // each beat's own SCREENPLAY text (blocks are beat-tagged): the CANON content the
-  // shots must film \u2014 exact dialogue, business, sound cues. Beats stay the skeleton.
-  const _draft = drafts && drafts[scene.id];
-  const _beatScript = (n)=>{
-    if(!_draft || !Array.isArray(_draft.blocks)) return "";
-    const parts=[]; const blocks=_draft.blocks.filter(b=>Number(b.beat)===Number(n));
-    for(let i=0;i<blocks.length;i++){
-      const b=blocks[i]; const t=String(b.text||"").replace(/\s+/g," ").trim(); if(!t) continue;
-      if(b.type==="scene"||b.type==="trans"||b.type==="paren"||b.type==="dia") continue;
-      if(b.type==="char"){
-        const par=blocks[i+1]&&blocks[i+1].type==="paren" ? String(blocks[i+1].text||"").replace(/\s+/g," ").trim() : "";
-        const di=i+(par?2:1), nx=blocks[di];
-        if(nx && nx.type==="dia" && String(nx.text||"").trim()){
-          parts.push(t+": "+(par?"("+par+") ":"")+"\u201c"+String(nx.text).replace(/\s+/g," ").trim()+"\u201d"); i=di;
-        }
-        continue; }
-      parts.push(t);
+  const sourceByBeat = {};
+  const sourceText = source=>{
+    if(source && typeof source.text==="string" && source.text.trim()) return source.text;
+    if(source && Array.isArray(source.blocks)){
+      const text=source.blocks.map(x=>x&&x.text!=null?String(x.text):"").filter(Boolean).join("\n");
+      if(text.trim()) return text;
     }
-    return parts.join("  ").slice(0,600);
+    return "";
   };
-  if(contextRows.length){
-    // BEATS give the STRUCTURE (lanes, turn, charges, drive/reaction intent); each
-    // beat's own SCREENPLAY text rides along as CANON content \u2014 script wins on
-    // dialogue and business (user ruling: the script is canon for drafters).
-    ctx += "\nBEATS \u2014 the structural skeleton for this shot list. Each beat is decomposed into composed MICRO-BEAT MOMENTS and covered by ONE SHOT PER MOMENT (never fewer than one; a simple beat may stay one shot, a busy beat wants several), in cut order"
-      + (b.turnAt?("; the TURNING POINT is beat "+b.turnAt):"")
-      + ". For each beat the DRIVER ("+driverName+") acts and the REACTOR ("+reactorName+") reacts \u2014 build the beat's coverage from THIS beat's action and reaction:\n";
-    contextRows.forEach(r=>{
-      const dv = r.drive||{}, rc = r.react||{};
-      const _chg = (r.charge!=null && r.charge!=="") ? Number(r.charge) : null;
-      let line = "  Beat "+r.n+(r.n===b.turnAt?" [TURN]":"")
-        +(_chg!=null ? " [value "+(_chg>0?"+":"")+_chg+"]" : "")
-        +": "+driverName+" "+(dv.a||"")+(dv.d?(" \u2014 "+dv.d):"");
-      if(rc.a || rc.d) line += "   |   "+reactorName+" "+(rc.a||"")+(rc.d?(" \u2014 "+rc.d):"");
-      ctx += line+"\n";
-      const bs=_beatScript(r.n);
-      if(bs) ctx += "    SCRIPT (CANON for this beat \u2014 film THIS): "+bs+"\n";
-    });
-    if(_draft) ctx += "  (Where a beat carries SCRIPT text, that text is CANON: derive the beat's micro-beats and shots from ITS actions, business and sound cues \u2014 the drive/reaction above is the intent, the script is the content \u2014 and never invent events the script contradicts.)\n";
-    if(contextRows.some(r=> r.charge!=null && r.charge!==""))
-      ctx += "  ([value N] = where the scene's emotional value stands at the END of that beat, -3 worst to +3 best \u2014 let the coverage follow the shifts: a drop reads tighter and starker, a rise can open up and breathe.)\n";
-  } else {
-    // No beats authored for this scene \u2014 fall back to the screenplay so there's still something to break down.
-    const script = (typeof sceneScriptText==="function") ? sceneScriptText(scene.id, drafts).replace(/\s+/g," ").slice(0,1400) : "";
-    if(script) ctx += "\nSCRIPT excerpt (no beats authored \u2014 break this into 3\u20135 shots): "+script+"\n";
-  }
-
-  const grammar = "size \u2208 {EWS,WS,FS,MWS,MS,MCU,CU,ECU,INSERT}; angle \u2208 {eye,high,low,top,dutch,ots,pov}; "+
-    "move \u2208 {static,pan,tilt,push,pull,track,handheld,crane,steadi}; lens \u2208 {14,24,35,50,85,135}";
-  const prompt = ctx + "\nYou are the director + DP. "+
-    (_onlyBeat
-      ? ("Beat "+_onlyBeat+" needs a MICRO-BEAT SHOT PLAN. Group its screenplay into purposeful dramatic/camera moments, then create EXACTLY ONE shot for EACH composed micro-beat, in the same order. A micro-beat may contain several adjacent actions, sound cues, reactions and/or one exact dialogue line when they play continuously in the same motivated setup. Do NOT split sentence-by-sentence, do NOT turn punctuation into coverage, and do NOT create a separate micro-beat for every hand movement, glance, prop insert or sound cue. Never combine two genuinely different setups and never omit screenplay action or dialogue. "+
-         "The beat's DRIVE and REACTION want separate setups only when the dramatic power or camera motivation genuinely changes; fold inserts and environmental punctuation into the surrounding moment unless the story meaning depends on isolating them. "+
-         "Use 2\u20135 composed moments unless the screenplay genuinely plays as one continuous setup. Keep every JSON field concise: action and composition are each one sentence. "+
-         "Give the most expressive setup to the moment that shifts the beat. Every other beat already has its own shots \u2014 return ONLY beat "+_onlyBeat+"'s shots, each with beat="+_onlyBeat+". ")
-      : ("Break this scene into a full SHOT LIST as a strict BEAT -> COMPOSED MICRO-BEAT -> SHOT mapping. FIRST group EACH beat's screenplay into purposeful dramatic/camera moments in order (usually 2-5 per beat, numbered from 1 WITHIN that beat). A micro-beat may contain several adjacent actions, sound cues, reactions and/or one exact dialogue line when they play continuously in the same motivated setup. Do NOT split sentence-by-sentence, do NOT turn punctuation into coverage, and do NOT create a separate micro-beat for every hand movement, glance, prop insert or sound cue. Then create EXACTLY ONE shot for EACH composed micro-beat, in that exact order: micro-beat 1 becomes the beat's first shot, micro-beat 2 its second shot, and so on. Never assign one shot to multiple micro-beats, and never omit screenplay action or dialogue. Also name, per beat, what the camera must PROTECT: one sentence stating the beat's emotional core (the moment that carries its meaning). Separate DRIVE and REACTION only when the dramatic power or camera motivation genuinely changes; otherwise keep continuous business together. Isolate an insert, held look or reveal only when the drama rests on that image. Keep every shot in micro-beat order"+
-         (rows.length?"":" (3\u20138 shots if no beats are given)")+". "))+
-    "Design real coverage with intent: "+
-    "establish wide, tighten as the scene escalates, and land the TURN on the most expressive size (often a push-in CU). "+
-    "Vary sizes and angles so it reads like a cut sequence, not a static row. "+
-    "DIALOGUE COVERAGE \u2014 when a beat is carried by the spoken word, shoot the DYNAMIC of the exchange, not just whoever is talking: "+
-    "a pressing interrogation reads tight, static and uncomfortably close on the character dodging; "+
-    "a REVEAL or counter that flips the power gets a push-in on the speaker \u2014 or the cut goes to the reaction that takes the hit; "+
-    "when subtext goes text (the polite mask drops), move from shared two-shot/OTS framing to clean singles; "+
-    "and when a line lands and someone doesn't answer, hold on the listener a touch wider and let the silence read.\n"+
-    "For EACH shot return these fields ("+grammar+"):\n"+
-    "beat = the beat number. size, angle, move, lens = pick from the sets. "+
-    "subjects = array of character names in frame (from the list). props = array of prop names visibly in frame (from the list, or []). "+
-    "action = one vivid present-tense sentence of what we SEE in this frame, derived from THIS beat's driver action and reactor reaction above (not invented elsewhere). "+SELF_CONTAINED_BEATS+
-    " (The in-frame cast and props are auto-detected from this action line, so anything present must be named in it.) "+
-    "composition = a short framing/blocking note (where subjects sit in frame, depth, eyeline), PLUS one practical AI-video production tip when relevant \u2014 e.g. 'keep the camera locked for the slow walk', 'cheat the mutual nod as two clean singles \u2014 micro-gestures in two-shots render unreliably', 'isolate the small prop in this INSERT \u2014 prop consistency is easier alone in frame'. "+
-    "dialogue = the EXACT line spoken during this shot, VERBATIM from the beat's SCRIPT text when it has one (never paraphrase a scripted line; a shot with no spoken line gets \"\"). "+
-    "locationSide = AUTO, INT, EXT or BOTH: use INT when the filmed moment is inside a room/booth/building; EXT when it is outside or establishing the exterior; BOTH when the frame sees/cuts across glass, a window, a door, or a threshold between the spaces; AUTO for a simple same-space shot. "+
-    "covers = a SINGLE-ITEM array containing this shot's one micro-beat number (within its beat). The Nth shot of a beat MUST use covers:[N]. "+
-    "purpose = ONE short clause: why this shot exists — what it MEANS, not what it shows (e.g. 'his anxiety about money — the key character detail'). "+
-    "priority = true on EXACTLY ONE shot per beat: the setup carrying that beat's emotional core (the protected moment); false elsewhere.\n"+
-    _lookbookBlock(P)+
-    'Return ONLY compact JSON: {"beats":[{"beat":1,"micro":["...","..."],"protect":"..."}],"shots":[{"beat":1,"size":"WS","angle":"eye","move":"static","lens":"35","locationSide":"AUTO","subjects":["..."],"props":[],"action":"...","composition":"...","dialogue":"...","covers":[1],"purpose":"...","priority":false}]}';
-  try{
-    // full-scene drafts emit a beats plan + every shot's fields — far past the
-    // proxy's 4096-token default, which truncated the JSON and left later beats
-    // to one-shot backfill ("1 shot per beat regardless of model")
-    const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }], maxTokens: _onlyBeat ? 4096 : 16384 });
-    const wasTruncated = !!window.__lastWritingTruncated;
-    window.__lastShotDraftTruncated = wasTruncated;
-    if(!_onlyBeat && window.__lastWritingTruncated && typeof window.appToast==="function")
-      window.appToast("The coverage draft hit the reply length limit — later beats got simple one-shot coverage. Design busy beats individually with the beat's split tool instead.","error");
-    // extractJSON includes a truncated-JSON repair path. Let it recover the beat
-    // plan before the caller decides whether a screenplay fallback is needed.
-    const j = extractJSON(res);
-    const arr = (j && Array.isArray(j.shots)) ? j.shots : (Array.isArray(j)?j:null);
-    if(!arr || !arr.length) return null;
-    // micro-beat text is NEVER clipped: it's the story canon the Shots checklist and
-    // the Stage shoot package/prompts read from. Older drafts were clipped to 180
-    // chars with "…" — those heal at render against the screenplay (microHealText).
-    const microText = (t)=> scrubBrand(String(t||"")).replace(/^\s*\d+[\.\)]\s*/,"").replace(/\s+/g," ").trim();
-    // per-beat PLAN (micro-beats + protect line) rides denormalized on every shot of
-    // its beat, so it persists through the existing shots store with zero new plumbing
-    const planByBeat = {};
-    if(j && Array.isArray(j.beats)) j.beats.forEach(bp=>{
-      if(bp && bp.beat!=null && Array.isArray(bp.micro)) planByBeat[String(bp.beat)] = {
-        micro: bp.micro.map(microText).filter(Boolean).slice(0,10),
-        protect: clipSpecText(bp.protect,220) };
-    });
-    const by = writingStamp("Shot specification");
-    const cleaned = arr.map(r=>({ ...r,
-      locationSide: /^(INT|EXT|BOTH|AUTO)$/.test(String(r.locationSide||"").toUpperCase()) ? String(r.locationSide).toUpperCase() : "AUTO",
-      action: scrubBrand((r.action||"").toString()),
-      composition: scrubBrand((r.composition||"").toString()), dialogue: scrubBrand((r.dialogue||"").toString()),
-      purpose: scrubBrand((r.purpose||"").toString()),
-      beatPlan: planByBeat[String(r.beat)], writingProvenance:by }));
-    /* Fail closed on the one-micro-beat-per-shot contract. Models can still return
-       covers:[1,2] or skip a moment. Rebuild each planned beat into one row per
-       micro-beat, preserving each matching row once and cloning only as a fallback. */
-    const strict = [];
-    Object.keys(planByBeat).sort((a,b)=>Number(a)-Number(b)).forEach(beatKey=>{
-      const plan=planByBeat[beatKey], pool=cleaned.filter(r=>String(r.beat)===beatKey), used=new Set();
-      plan.micro.forEach((micro,mi)=>{
-        const n=mi+1;
-        let pi=pool.findIndex((r,i)=>!used.has(i)&&Array.isArray(r.covers)&&r.covers.map(Number).includes(n));
-        if(pi<0) pi=pool.findIndex((r,i)=>!used.has(i)&&i===mi);
-        if(pi<0) pi=pool.findIndex((r,i)=>!used.has(i));
-        const base=pi>=0 ? pool[pi] : (pool[Math.min(mi,Math.max(0,pool.length-1))]||{});
-        if(pi>=0) used.add(pi);
-        strict.push({ ...base, beat:Number(beatKey), covers:[n], beatPlan:plan,
-          action:String(base.action||"").trim()||micro,
-          purpose:String(base.purpose||"").trim()||("film micro-beat "+n) });
+  requested.forEach(row=>{
+    const n=Number(row&&row.n);
+    let source;
+    try{
+      source=window.shotBeatScreenplay(scene,n,{
+        drafts:drafts||{}, characters:characters||[], beatsMap:allBeats
       });
+    }catch(e){
+      throw new Error("Could not read screenplay for beat "+n+": "+String((e&&e.message)||e));
+    }
+    const text=sourceText(source);
+    if(!source || !source.hasSource || !text.trim())
+      throw new Error("Beat "+n+" has no screenplay source. Write the beat's screenplay before drafting an opening keyframe.");
+    sourceByBeat[String(n)]={...source,text};
+  });
+
+  const charList=Array.isArray(characters)?characters:[];
+  const charForToken=token=>{
+    const t=String(token==null?"":token).trim().toLowerCase();
+    if(!t) return null;
+    return charList.find(c=>String(c&&c.id||"").toLowerCase()===t ||
+      String(c&&c.name||"").trim().toLowerCase()===t) || null;
+  };
+  const idList=values=>{
+    const out=[];
+    (Array.isArray(values)?values:[]).forEach(v=>{
+      const c=charForToken(v), id=c?String(c.id):String(v==null?"":v).trim();
+      if(id && !out.some(x=>String(x).toLowerCase()===id.toLowerCase())) out.push(id);
     });
-    // Legacy/fallback replies without a beat plan remain usable, but never retain a
-    // multi-moment covers array.
-    const planned=new Set(Object.keys(planByBeat));
-    cleaned.forEach(r=>{ if(!planned.has(String(r.beat))) strict.push({ ...r,
-      covers:Array.isArray(r.covers)&&r.covers.length?[Number(r.covers[0])]:[] }); });
-    return strict;
-  }catch(e){ return null; }
+    return out;
+  };
+  const withoutRemote=(ids,remote)=>{
+    const blocked=new Set((remote||[]).map(x=>String(x).toLowerCase()));
+    return (ids||[]).filter(id=>!blocked.has(String(id).toLowerCase()));
+  };
+  const nameForId=id=>{
+    const c=charForToken(id);
+    return c&&c.name ? c.name : String(id||"");
+  };
+  const namesForIds=ids=>(ids||[]).map(nameForId).filter(Boolean);
+  const remoteNameSet=ids=>{
+    const out=new Set();
+    (ids||[]).forEach(id=>{
+      const c=charForToken(id);
+      out.add(String(id).toLowerCase());
+      if(c&&c.name) out.add(String(c.name).toLowerCase());
+    });
+    return out;
+  };
+  const textNamesRemote=(text,ids)=>{
+    const value=String(text||"").toLowerCase();
+    return Array.from(remoteNameSet(ids)).some(name=>name && value.indexOf(name)>=0);
+  };
+  const identityCtx={scenes:[scene],drafts:drafts||{},cast:charList};
+  if(typeof assertPromptIdentity==="function")
+    charList.forEach(c=>assertPromptIdentity(c,identityCtx,{allowStaleProfileRepair:true}));
+  const pronouns=(typeof castPronounBlock==="function")
+    ? castPronounBlock(charList,identityCtx)
+    : charList.map(c=>c&&c.name ? (c.name+" — "+(c.pronouns||"pronouns unset")) : "").filter(Boolean).join("\n");
+  const loc=(typeof locationForScene==="function") ? locationForScene(locations,scene.id) : null;
+  const sceneProps=(typeof propsForScene==="function") ? propsForScene(props,scene.id) : [];
+  let ctx="FILM: "+(P.title||"Untitled")+" — "+(P.genre||"")+". Logline: "+writingLoglineOf(P)+"\n";
+  ctx+="SCENE #"+(scene.no==null?"":scene.no)+" “"+(scene.title||"")+"”";
+  if(scene.intExt||scene.loc) ctx+=" ("+(scene.loc||scene.intExt||"")+")";
+  ctx+="\nSummary: "+(scene.summary||"")+"\n";
+  if(scene.objective) ctx+="Scene objective: "+scene.objective+"\n";
+  if(allBeats.result) ctx+="Scene result: "+allBeats.result+"\n";
+  if(scene.turningPoint) ctx+="Turning point: "+scene.turningPoint+"\n";
+  if(loc) ctx+="LOCATION: "+(loc.name||"")+" ("+(loc.intExt||"INT")+")"+(loc.architecture?(" — "+loc.architecture):"")+"\n";
+  if(sceneProps.length) ctx+="PROPS available (use exact names only): "+sceneProps.map(p=>p&&p.name).filter(Boolean).join(", ")+"\n";
+  if(pronouns) ctx+="\n"+pronouns+"\n";
+  ctx+="\nSCREENPLAY SOURCE — FULL AUTHORED TEXT FOR EVERY REQUESTED BEAT. This is canon; "+
+    "it is intentionally not a 600-character excerpt. Do not omit later action, dialogue, "+
+    "voice-over, off-screen sound, text messages or other typed source from beatScript:\n";
+  requested.forEach(row=>{
+    const n=Number(row&&row.n), source=sourceByBeat[String(n)];
+    ctx+="\n===== BEAT "+n+" — FULL SCREENPLAY =====\n"+
+      (source.sceneHeading?("SCENE HEADING: "+source.sceneHeading+"\n"):"")+
+      source.text+"\n===== END BEAT "+n+" =====\n";
+  });
+  ctx+="\nOPENING SUBJECT BINDINGS (source-derived, not optional):\n";
+  requested.forEach(row=>{
+    const n=Number(row&&row.n), source=sourceByBeat[String(n)];
+    const remote=idList(source.remoteCharacterIds);
+    const opening=withoutRemote(idList(source.openingCharacterIds),remote);
+    ctx+="Beat "+n+": in-frame opening subjects = ["+namesForIds(opening).join(", ")+"]; "+
+      "remote / text-only / off-screen = ["+namesForIds(remote).join(", ")+"]; "+
+      "ONLY the first list may be subjects or reference characters. No remote character may appear in frame, "+
+      "subjects, referenceCharacterIds, or composition.\n";
+  });
+  ctx+="\nTASK: Draft exactly ONE OPENING KEYFRAME row for EACH requested authored beat, in beat order. "+
+    "This is not coverage, a shot sequence, a micro-beat plan, or any compulsory expansion. "+
+    "The frame depicts only the beat's opening situation — the first authored instant before its later action "+
+    "or climax. Keep all continuing action, later inserts, later reveals, VO, sound and typed messages in the "+
+    "full beatScript/motion context, not in a separate camera setup. Never create a separate phone-buzz or SMS insert. "+
+    "For the Marcus example, show Marcus before the recliner rehearsing the eulogy with the phone present as part "+
+    "of the opening situation; Daniel's remote arrival text is not a person in the room or a reference. "+
+     "A source subject list and its remote exclusions are binding; an empty opening subject list means an empty "+
+     "frame, even when the full beat later mentions or physically introduces a character. A pronoun without a "+
+     "name only means the bound actor is physically in the room when the opening source says so.\n"+
+    "Use canonical cast names and pronouns exactly as supplied. Return one row per beat only; extra rows are ignored. "+
+    "dialogue must be the exact first relevant spoken source line, never a paraphrase, and an SMS/text/typed "+
+    "message is not actor speech. The complete source remains in beatScript.\n"+
+    "For each row return size, angle, move, lens, locationSide, subjects, props, action, composition, dialogue, "+
+    "purpose and priority. covers MUST be []. Do not return beatPlan or micro fields.\n"+
+    'Return ONLY compact JSON: {"shots":[{"beat":1,"size":"MWS","angle":"eye","move":"static","lens":"50","locationSide":"AUTO","subjects":["Marcus"],"props":[],"action":"...","composition":"...","dialogue":"...","covers":[],"purpose":"...","priority":true}]}';
+
+  let response;
+  try{
+    response=await window.claude.complete({
+      messages:[{role:"user",content:ctx}],
+      maxTokens: onlyBeat ? 4096 : 16384
+    });
+  }catch(e){
+    // A provider failure is not an empty model answer. Let callers surface the
+    // actual failure rather than silently replacing it with a heuristic shot.
+    throw e;
+  }
+  window.__lastShotDraftTruncated=!!window.__lastWritingTruncated;
+  if(response && typeof response==="object" && response.error)
+    throw new Error("Opening keyframe drafting provider error: "+String(response.error));
+  if(response && typeof response==="object" && typeof response.text==="string") response=response.text;
+  const parsed=extractJSON(response);
+  const modelRows=parsed&&Array.isArray(parsed.shots) ? parsed.shots : (Array.isArray(parsed)?parsed:[]);
+  const requestedNumbers=requested.map(r=>Number(r&&r.n));
+  const byBeat={}, unassigned=[];
+  modelRows.forEach(row=>{
+    if(!row || typeof row!=="object") return;
+    const n=Number(row.beat);
+    if(requestedNumbers.includes(n)){
+      // First row wins. Additional rows for a beat are deliberately discarded.
+      if(!byBeat[String(n)]) byBeat[String(n)]=row;
+    }else if(!Number.isFinite(n) || n<=0) unassigned.push(row);
+  });
+  requestedNumbers.forEach(n=>{
+    if(!byBeat[String(n)] && unassigned.length) byBeat[String(n)]=unassigned.shift();
+  });
+
+  const validSize=new Set(["EWS","WS","FS","MWS","MS","MCU","CU","ECU","INSERT"]);
+  const validAngle=new Set(["eye","high","low","top","dutch","ots","pov"]);
+  const validMove=new Set(["static","pan","tilt","push","pull","track","handheld","crane","steadi"]);
+  const validSide=new Set(["INT","EXT","BOTH","AUTO"]);
+  const modelText=(v,fb)=>scrubBrand(String(v==null?"":v)).replace(/\s+/g," ").trim()||fb;
+  const firstOpeningAction=source=>{
+    const opening=String(source.openingAction||"").trim();
+    if(opening) return opening;
+    const blocks=Array.isArray(source.blocks)?source.blocks:[];
+    const first=blocks.find(b=>b&&b.type!=="scene"&&b.type!=="trans"&&b.type!=="paren" &&
+      b.type!=="char"&&b.type!=="dia"&&String(b.text||"").trim());
+    return first ? String(first.text).trim() : String(source.text||"").trim();
+  };
+  const firstRelevantDialogue=(source,remote)=>{
+    const remoteNames=remoteNameSet(remote);
+    const lines=Array.isArray(source.dialogue)?source.dialogue:[];
+    for(const line of lines){
+      if(!line || !String(line.text||"").trim()) continue;
+      const sid=String(line.speakerId||"").toLowerCase(), speaker=String(line.speaker||"").toLowerCase();
+      const delivery=String(line.delivery||"").toLowerCase();
+      if(remoteNames.has(sid)||remoteNames.has(speaker)) continue;
+      if(/sms|text|message|typed|chat|on[- ]?screen|written|notification/.test(delivery)) continue;
+      return String(line.text);
+    }
+    return "";
+  };
+  const by=writingStamp("Shot specification");
+  return requested.map(row=>{
+    const n=Number(row&&row.n), source=sourceByBeat[String(n)];
+    const remote=idList(source.remoteCharacterIds);
+    const opening=withoutRemote(idList(source.openingCharacterIds),remote);
+    const sourceIds=opening;
+    const raw=byBeat[String(n)]||{};
+    const action=firstOpeningAction(source);
+    const remoteNames=remoteNameSet(remote);
+    const subjectIds=sourceIds;
+    const subjects=namesForIds(subjectIds);
+    const rev=source.sourceRev!=null ? source.sourceRev
+      : (typeof screenplayBeatRevision==="function" ? screenplayBeatRevision(drafts&&drafts[scene.id],n) : "");
+    const locationSide=String(raw.locationSide||"AUTO").toUpperCase();
+    const modelComposition=modelText(raw.composition,"Opening keyframe: hold the authored first situation in one motivated setup; do not depict later action.");
+    const composition=textNamesRemote(modelComposition,remote)
+      ? "Opening keyframe: hold the authored first situation in one motivated setup; do not depict remote or later action."
+      : modelComposition;
+    const result={
+      ...raw,
+      beat:n,
+      size:validSize.has(String(raw.size||"").toUpperCase())?String(raw.size).toUpperCase():"MWS",
+      angle:validAngle.has(String(raw.angle||"").toLowerCase())?String(raw.angle).toLowerCase():"eye",
+      move:validMove.has(String(raw.move||raw.movement||"").toLowerCase())?String(raw.move||raw.movement).toLowerCase():"static",
+      lens:String(raw.lens||"50"),
+      locationSide:validSide.has(locationSide)?locationSide:"AUTO",
+      subjects,
+      props:Array.isArray(raw.props)?raw.props.filter(Boolean):[],
+      // The helper's openingAction is source-grounded and is preferred over a
+      // model's late/climactic paraphrase.
+      action:scrubBrand(action),
+      composition,
+      dialogue:firstRelevantDialogue(source,remote),
+      purpose:modelText(raw.purpose,"establish the beat's opening situation"),
+      priority:true,
+      covers:[],
+      keyframeMode:"beat-opening",
+      beatScript:source.text,
+      motionContext:source.text,
+      sourceScreenplayRev:rev,
+      sourceRev:rev,
+      remoteCharacterIds:remote,
+      // Presence is authoritative even when the opening list is intentionally empty.
+      referenceCharactersSet:true,
+      referenceCharacterIds:subjectIds,
+      writingProvenance:by,
+      specRev:1,
+    };
+    // Legacy model replies may carry an old micro plan. It is not part of an
+    // opening-keyframe row, even when the provider overproduces it.
+    delete result.beatPlan;
+    // Do not let a model's copied subject names reintroduce a remote person.
+    if(result.subjects.some(name=>remoteNames.has(String(name).toLowerCase()))){
+      result.subjects=subjects;
+      result.referenceCharacterIds=subjectIds;
+    }
+    return result;
+  });
 }
-window.aiDraftShots = aiDraftShots;
+window.aiDraftShots = aiDraftOpeningKeyframes;
 
 /* Task-default routing — the ART-ROOM structured drafters (JSON specs, bibles,
    staging, lookbook, shots) run on the "specs" default engine unless the user has

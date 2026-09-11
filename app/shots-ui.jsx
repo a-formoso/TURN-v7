@@ -1147,6 +1147,66 @@ function BeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, ordered
         onAdd:(chosen)=>{ setAddSeed(null); onAddShot(scene.id,L.n,chosen); }})));
 }
 
+/* Screenplay-first beat surface. The legacy BeatCard above remains deliberately
+   available for migration/test dependencies, while this is the live one-card model. */
+function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, ordered, firstId, toggleHead,
+  onAddShot, onUpdate, onDelete, onView, onGenerateShot, onRegenDownstream, onStopChain, onBatchDone,
+  batchActiveId, openShotId, setOpenShotId, sceneStart, onRenderScene, renderBusy, nextShotId, onRefineBeat, refiningBeat }){
+  const continuity=window.turnContinuity||{};
+  const source=typeof window.shotBeatScreenplay==="function"
+    ? window.shotBeatScreenplay(scene,L.n,{drafts:ctx.drafts||continuity.drafts||{},characters,beatsMap:bm}) : null;
+  const hasSource=!!(source&&source.hasSource);
+  const text=(source&&source.text)||beatScriptText(scene.id,L.n)||"";
+  const primary=L.shots.find(sh=>sh.keyframeMode==="beat-opening")||L.shots[0]||null;
+  const extras=L.shots.filter(sh=>!primary||sh.id!==primary.id);
+  const [addSeed,setAddSeed]=React.useState(null);
+  const [extrasOpen,setExtrasOpen]=React.useState(false);
+  const primaryOpen=primary&&openShotId===primary.id;
+  const sourceRev=source&&source.sourceRev;
+  // New normalized shots persist sourceScreenplayRev. sourceRev remains a
+  // compatibility read for imported pre-normalization shots, never evidence
+  // that an unstamped frame is current.
+  const stampedRev=primary&&(primary.sourceScreenplayRev!=null?primary.sourceScreenplayRev:primary.sourceRev);
+  const stale=primary&&sourceRev!=null&&stampedRev!=null&&String(stampedRev)!==String(sourceRev);
+  const unverified=primary&&sourceRev!=null&&stampedRev==null;
+  const names=(ids)=>(ids||[]).map(id=>((ctx.charById||{})[id]||{}).name||id).join(" · ");
+  const editor=(sh,label)=>_el(ShotCard,{sh,scene,ctx,characters,propsAvail,
+    beatText:(source&&source.openingAction)||text,sceneShots:ordered,plan:sh.beatPlan,
+    prevShot:(typeof seedShotOf==="function")?seedShotOf(sh,ordered):null,
+    isHead:!(typeof seedShotOf==="function"?seedShotOf(sh,ordered):null),isFirst:sh.id===firstId,onToggleHead:toggleHead,
+    onUpdate,onDelete,onView,batchActiveId,onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,subLabel:label});
+  return _el("div",{className:"beat-card opening-beat-card"},
+    _el(BeatShotPreview,{sh:primary,letter:"Opening",scene,sceneStart,onRenderScene,renderBusy,onView}),
+    _el("div",{className:"beat-card-body"},
+      _el("div",{className:"beat-card-head"},
+        _el("span",{className:"beat-lane-no"},"Beat "+L.n+(lanesLen>1?" of "+lanesLen:"")),
+        String(bm.turnAt||"")===String(L.n)&&_el("span",{className:"beat-lane-turn"},_el(Icon.bolt,{s:10}),"Turning point"),
+        primary&&_el("span",{className:"beat-opening-chip"},"Opening keyframe"),
+        onRefineBeat&&_el("button",{className:"beat-lane-btn ghost",disabled:!!refiningBeat||!hasSource,
+          title:hasSource?"Use this beat's screenplay to draft its opening keyframe.":"Write screenplay for this beat before drafting a frame.",
+          onClick:()=>onRefineBeat(scene,L.n)},_el(Icon.sparkles,{s:11}),refiningBeat?"Drafting…":primary?"Update from screenplay":"Draft opening keyframe"),
+        onAddShot&&_el("button",{className:"beat-lane-btn ghost bc-add",onClick:()=>setAddSeed({}),
+          title:"Add an optional manual alternative; it does not replace the opening keyframe."},_el(Icon.plus,{s:11}),"Add alternative")),
+      _el("details",{className:"bc-screenplay",open:!primary},
+        _el("summary",null,"Screenplay reference"),
+        hasSource?_el("div",{className:"bc-screenplay-copy"},text):_el("div",{className:"bc-source-empty"},"Write screenplay for this beat to draft its opening keyframe."),
+        source&&source.openingCharacterIds&&source.openingCharacterIds.length>0&&_el("div",{className:"bc-cast-line"},_el("b",null,"On-screen: "),names(source.openingCharacterIds)),
+        source&&source.remoteCharacterIds&&source.remoteCharacterIds.length>0&&_el("div",{className:"bc-cast-line remote"},_el("b",null,"Remote audio / text: "),names(source.remoteCharacterIds))),
+      primary&&_el("div",{className:"bc-primary"},
+        stale&&_el("div",{className:"bc-stale"},"Source changed — update from screenplay, then regenerate the opening frame. Your existing image is retained."),
+        unverified&&_el("div",{className:"bc-unverified"},"Existing coverage — screenplay source is unverified. Update from screenplay before regenerating the opening frame."),
+        _el(BeatShotRow,{sh:primary,letter:"Opening",open:primaryOpen,selected:true,isNext:primary.id===nextShotId,live:primary.id===batchActiveId,onToggle:()=>setOpenShotId(primaryOpen?null:primary.id)}),
+        primaryOpen&&_el("div",{className:"bc-shot-expand"},editor(primary,"Opening"))),
+      !primary&&_el("div",{className:"bc-opening-empty"},hasSource?"No opening keyframe yet. Draft it from the screenplay above.":"No opening keyframe can be drafted until this beat has screenplay."),
+      extras.length>0&&_el("details",{className:"bc-alternatives",open:extrasOpen,onToggle:e=>setExtrasOpen(e.currentTarget.open)},
+        _el("summary",null,"Existing additional shots · "+extras.length),
+        extras.map((sh,i)=>_el(React.Fragment,{key:sh.id},
+          _el(BeatShotRow,{sh,letter:"Alt "+(i+1),open:openShotId===sh.id,selected:false,isNext:sh.id===nextShotId,live:sh.id===batchActiveId,onToggle:()=>setOpenShotId(openShotId===sh.id?null:sh.id)}),
+          openShotId===sh.id&&_el("div",{className:"bc-shot-expand"},editor(sh,"Alternative "+(i+1)))))),
+      addSeed!==null&&_el(AddShotReferenceDialog,{key:"add-shot-"+scene.id+"-"+L.n,scene,beatN:L.n,beatText:text,plan:null,ctx,characters,seed:addSeed,
+        onCancel:()=>setAddSeed(null),onAdd:chosen=>{setAddSeed(null);onAddShot(scene.id,L.n,chosen);}})));
+}
+
 function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, pager, onUpdate, onDelete, onView,
   onAddShot, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onDraftScene, draftingScene, batchActiveId, onBatchDone, open, onToggle, onGenerateShot, onRegenDownstream,
   onRenderScene, renderBusy, queueMode, onStopChain }){
@@ -1165,7 +1225,9 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
   // designer missed it. Orphan/manual shots with non-map beat numbers are kept
   // after the canonical beat cards instead of silently disappearing.
   const lanes = (()=>{
-    const rows = Array.isArray(bm.rows) ? bm.rows : [];
+    const rows = typeof window.shotScreenplayBeatRows==="function"
+      ? window.shotScreenplayBeatRows(scene,{drafts:ctx.drafts||((window.turnContinuity||{}).drafts)||{},beatsMap:{[scene.id]:bm}})
+      : (Array.isArray(bm.rows) ? bm.rows : []);
     const byBeat = {};
     // dedupe by shot id: a duplicated shots array (stale local doc / merge hiccup) must
     // not double-render rows or collide React keys — the first occurrence wins
@@ -1317,8 +1379,8 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
           title:"Render this scene in order, each shot seeded by its beat's coverage reference (a beat's opener chains from the previous beat), auto-approving each. Approved frames are retained as seeds."},
           _el(Icon.sparkles,{s:12}), renderBusy?"Rendering\u2026":("Render Scene "+String(scene.no).padStart(2,"0")+" in order")),
         _el("button",{className:"char-draft-btn ghost"+(draftingScene?" busy":""),disabled:!!draftingScene,onClick:()=>onDraftScene(scene),
-          title:"Re-derive this scene's shot list from its beats (replaces the current shots)"},
-          _el(Icon.layers,{s:12}), draftingScene?"Drafting\u2026":"Re-draft shots")),
+          title:"Re-draft opening-keyframe specifications from screenplay. The scene draft handler confirms what is archived to Shots Trash; no media is deleted."},
+          _el(Icon.layers,{s:12}), draftingScene?"Drafting\u2026":"Re-draft")),
       pager && _el("button",{className:"scene-pager-arrow",disabled:pager.idx>=pager.total-1,onClick:pager.onNext,
         title:"Next scene (\u2192)","aria-label":"Next scene"},_el(Icon.chevR,{s:18}))),
     open && _el("div",{className:"shot-scene-ctx"},
@@ -1367,7 +1429,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
         driverCard,
         _el("div",{key:"beat-grid",className:"beat-grid-wrap"+(draftingScene?" drafting":"")},
           _el("div",{className:"beat-card-grid"},
-            lanes.map((L,Li)=> _el(BeatCard,{key:"bc"+(L.canonical?"c":"o")+L.n, L, lanesLen:lanes.length, bm, scene, ctx, characters, propsAvail,
+            lanes.map((L,Li)=> _el(OpeningBeatCard,{key:"bc"+(L.canonical?"c":"o")+L.n, L, lanesLen:lanes.length, bm, scene, ctx, characters, propsAvail,
               ordered, firstId, toggleHead, onAddShot, onUpdate, onDelete, onView,
               onGenerateShot, onRegenDownstream, onStopChain, onBatchDone, batchActiveId, openShotId, setOpenShotId,
               sceneStart:(!_sceneRendered && Li===0), onRenderScene, renderBusy, nextShotId:_nextShotId,

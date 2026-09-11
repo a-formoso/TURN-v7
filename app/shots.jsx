@@ -1236,28 +1236,24 @@ window.shotRenderStyleLine = shotRenderStyleLine;
    exact business and wording of the beat — SUBORDINATE to the staging line, which
    still decides framing and who's in frame. Fail-safe: no beat number, no draft, or
    no blocks tagged to the beat → "" and the prompt is unchanged. */
-function shotScreenplaySlice(scene, beatN){
-  const n = Number(beatN);
-  if(!scene || !Number.isFinite(n) || n<=0) return "";
-  const drafts = (window.turnContinuity||{}).drafts || {};
-  const d = drafts[scene.id];
-  const blocks = (d && (d.blocks||d)) || [];
-  if(!Array.isArray(blocks) || !blocks.length) return "";
-  const mine = blocks.filter(b=> b && b.type!=="scene" && Number(b.beat||1)===n);
-  if(!mine.length) return "";
-  let out = "";
-  mine.forEach(b=>{
-    const tx = String(b.text||"").replace(/\s+/g," ").trim();
-    if(!tx) return;
-    if(b.type==="char") out += (out?"  ":"") + tx.toUpperCase() + ": ";
-    else if(b.type==="paren") out += "("+tx+") ";
-    else if(b.type==="dia") out += tx;
-    else out += (out?"  ":"") + tx;   // action, mini-slugline, transition
-  });
-  out = out.replace(/\s+/g," ").trim();
-  if(!out) return "";
-  return (typeof clipWords==="function") ? clipWords(out, 60) : out.slice(0,420);
-}
+ function shotBeatSource(scene, beatN, ctx, chars){
+   if(typeof window.shotBeatScreenplay!=="function" || !scene) return null;
+   ctx=ctx||{};
+   /* Render contexts are authoritative.  The global continuity object is only a
+      fallback for old/manual callers that have no live context at all. */
+   const opts=Object.prototype.hasOwnProperty.call(ctx,"drafts")
+      ? {drafts:(Array.isArray(ctx.drafts)||(ctx.drafts&&Array.isArray(ctx.drafts.blocks)))
+          ? {[scene.id]:ctx.drafts} : (ctx.drafts||{}),
+         characters:chars||Object.values(ctx.charById||{}),
+        beatsMap:ctx.beatsMap||{}} : undefined;
+   try{ return window.shotBeatScreenplay(scene,beatN,opts); }catch(e){ return null; }
+ }
+ function shotScreenplaySlice(scene, beatN, ctx){
+   const source=shotBeatSource(scene,beatN,ctx);
+   if(!source||!source.hasSource) return "";
+   return String(source.text||"").replace(/\s+/g," ").trim();
+ }
+ window.shotBeatSource=shotBeatSource;
 window.shotScreenplaySlice = shotScreenplaySlice;
 
 function buildShotPrompt(sh, ctx){
@@ -1268,9 +1264,10 @@ function buildShotPrompt(sh, ctx){
   const propById = ctx.propById || {};
   // in-frame cast & props are DERIVED from the action text (inFrameCast/inFrameProps),
   // not the stored tags — so they're always accurate to what the frame actually shows.
-  const _chars = Object.values(charById);
-  const subjects = ((typeof inFrameCast==="function") ? inFrameCast(sh, scene, _chars) : (sh.subjects||[])).map(id=>charById[id]).filter(Boolean);
-  const propsAll = ((typeof inFrameProps==="function") ? inFrameProps(sh, scene, charById, propById) : (sh.props||[])).map(id=>propById[id]).filter(Boolean);
+   const _chars = Object.values(charById);
+   const screenplaySource=shotBeatSource(scene,sh&&sh.beatN,ctx,_chars);
+   const subjects = ((typeof inFrameCast==="function") ? inFrameCast(sh, scene, _chars, ctx) : (sh.subjects||[])).map(id=>charById[id]).filter(Boolean);
+   const propsAll = ((typeof inFrameProps==="function") ? inFrameProps(sh, scene, charById, propById, ctx) : (sh.props||[])).map(id=>propById[id]).filter(Boolean);
   // ATTACHED prop sheets (the image-map entries): dressing sheets ride only on tight
   // shots / when the object is the action's subject — wides trust the plate. The SCALE
   // clauses below still see propsAll: an in-plate fixture stays scale-constrained.
@@ -1336,7 +1333,9 @@ function buildShotPrompt(sh, ctx){
   const stage = [ camBits.join(", ") ];
   const cameraSettings = (typeof shotCameraSettingsClause==="function") ? clean(shotCameraSettingsClause(sh)) : "";
   if(cameraSettings) stage.push(cameraSettings);
-  if(clean(sh.action))      stage.push(cap(clean(sh.action)));
+    const openingAction=(screenplaySource&&screenplaySource.hasSource)
+      ? String(screenplaySource.openingAction||"").replace(/\s+/g," ").trim() : clean(sh.action);
+   if(openingAction)         stage.push(cap(openingAction));
   if(clean(screenDir.composition)) stage.push(cap(clean(screenDir.composition)));
   if(clean(screenDir.clause)) stage.push(clean(screenDir.clause));
   // the director's OWN words (the card's Director's-notes field): appended as their
@@ -1363,10 +1362,10 @@ function buildShotPrompt(sh, ctx){
     const curProps = new Set(propsAll.map(p=>p.id));
     const upProps=[], upCast=[], seenP=new Set(), seenC=new Set();
     later.forEach(ls=>{
-      ((typeof inFrameProps==="function") ? inFrameProps(ls, scene, charById, propById) : (ls.props||[])).forEach(pid=>{
+      ((typeof inFrameProps==="function") ? inFrameProps(ls, scene, charById, propById, ctx) : (ls.props||[])).forEach(pid=>{
         if(curProps.has(pid)||seenP.has(pid)) return; seenP.add(pid);
         const pp=propById[pid]; if(pp) upProps.push(pp); });
-      ((typeof inFrameCast==="function") ? inFrameCast(ls, scene, _chars) : (ls.subjects||[])).forEach(cid=>{
+       ((typeof inFrameCast==="function") ? inFrameCast(ls, scene, _chars, ctx) : (ls.subjects||[])).forEach(cid=>{
         if(curCast.has(cid)||seenC.has(cid)) return; seenC.add(cid);
         const cc=charById[cid]; if(cc) upCast.push(cc); });
     });
@@ -1389,7 +1388,14 @@ function buildShotPrompt(sh, ctx){
   // instant, not its peak — and never freeze a mouth mid-vowel (bad start frame,
   // bad lip-sync anchor; the audio drives the mouth once the clip moves).
   stage.push("Stage the beat's OPENING instant — the action just beginning, not its peak; this frame starts the moving clip");
-  const _dlg = clean(sh.dialogue).replace(/^["“]|["”]$/g,"");
+   let openingDialogue=clean(sh.dialogue);
+   if(screenplaySource&&screenplaySource.hasSource){
+     const openingIds=new Set(screenplaySource.openingCharacterIds||[]);
+     const firstLine=(screenplaySource.dialogue||[]).find(d=>d&&d.delivery==="in-room"
+       && (!d.speakerId || openingIds.has(d.speakerId)));
+     openingDialogue=firstLine ? clean(firstLine.text) : "";
+   }
+   const _dlg = openingDialogue.replace(/^["“]|["”]$/g,"");
   if(_dlg) stage.push('About to speak — face engaged, lips just parting for "'+_dlg+'", not frozen mid-vowel');
   const STAGING = stage.join(". ") + ".";
 
@@ -1461,8 +1467,18 @@ function buildShotPrompt(sh, ctx){
   // the beat's own screenplay lines sharpen WHAT HAPPENS and WHAT IS SAID (the action
   // text is a compression of them) — but stay subordinate: the staging line above
   // remains the framing & cast authority.
-  const _slice = (typeof shotScreenplaySlice==="function") ? shotScreenplaySlice(scene, sh.beatN) : "";
-  if(_slice) out += "\n\nFrom the scene text (this beat's exact business and wording — the staging above still decides framing and who is in frame): " + _slice;
+   const _slice = (typeof shotScreenplaySlice==="function") ? shotScreenplaySlice(scene, sh.beatN, ctx) : "";
+    if(_slice){
+      const openingSourceText=String(screenplaySource&&screenplaySource.hasSource
+        ? (screenplaySource.openingAction||"") : _slice).trim();
+      if(openingSourceText) out += "\n\nSCREENPLAY OPENING SOURCE (exact text; first frame only): "
+        + openingSourceText + (/[.!?]$/.test(openingSourceText)?"":".")
+        + " Do not visualize later action in this beat as the opener.";
+    }
+   if(screenplaySource&&screenplaySource.hasSource){
+     const remoteNames=(screenplaySource.remoteCharacterIds||[]).map(id=>(charById[id]||{}).name||id);
+     if(remoteNames.length) out += "\nRemote screenplay evidence ("+remoteNames.join(", ")+") is voice/text/phone or an absent/name-in-prop mention only — exclude those people from the frame; the person holding or reading the device remains visible when the opening action says so.";
+   }
   out += "\n\nConstraints: " + shotNegativePrompt(sh, _styleKey) + ".";
   return out;
 }
@@ -1495,7 +1511,7 @@ function deriveShotPrompt(sh, ctx){
   ctx = ctx || {};
   const loc = ctx.location || null;
   const charById = ctx.charById || {};
-  const subjects = ((typeof inFrameCast==="function") ? inFrameCast(sh, ctx.scene, Object.values(charById)) : (sh.subjects||[])).map(id=>charById[id]).filter(Boolean);
+   const subjects = ((typeof inFrameCast==="function") ? inFrameCast(sh, ctx.scene, Object.values(charById), ctx) : (sh.subjects||[])).map(id=>charById[id]).filter(Boolean);
   const size = sizeOf(sh.size), angle = angleOf(sh.angle), move = moveOf(sh.move), lens = lensOf(sh.lens);
   const clean = (x)=>String(x||"").replace(/\.$/,"").trim();
   const _asp = (typeof aspectFor==="function") ? aspectFor(ctx.project) : "16:9";
@@ -1640,8 +1656,8 @@ function shotRenderPlan(sh, sceneShots, ctx){
   const locWeight = (typeof locWeightForSize==="function") ? locWeightForSize(sh.size) : "primary";
   // the locked-reference sheets for what's actually in THIS frame (derived from the action text)
   const _chars = Object.values(ctx.charById||{});
-  const inCast = (typeof inFrameCast==="function") ? inFrameCast(sh, ctx.scene, _chars) : (sh.subjects||[]);
-  const inPr   = (typeof inFrameProps==="function") ? inFrameProps(sh, ctx.scene, ctx.charById, ctx.propById) : (sh.props||[]);
+   const inCast = (typeof inFrameCast==="function") ? inFrameCast(sh, ctx.scene, _chars, ctx) : (sh.subjects||[]);
+   const inPr   = (typeof inFrameProps==="function") ? inFrameProps(sh, ctx.scene, ctx.charById, ctx.propById, ctx) : (sh.props||[]);
   // CONTINUITY LEDGER — props an in-frame character was established holding earlier in the
   // scene that this beat's text doesn't re-name; carry them forward so they don't vanish.
   let carried = [];
@@ -1720,7 +1736,7 @@ function shotWritingSources(sh,ctx){
   if(typeof window.nbWritingSourcesFor!=="function") return [];
   ctx=ctx||{};
   const chars=Object.values(ctx.charById||{}), props=Object.values(ctx.propById||{});
-  const charIds=(typeof inFrameCast==="function")?inFrameCast(sh,ctx.scene,chars):(sh.subjects||[]);
+   const charIds=(typeof inFrameCast==="function")?inFrameCast(sh,ctx.scene,chars,ctx):(sh.subjects||[]);
   const propIds=(typeof inFrameProps==="function")?inFrameProps(sh,ctx.scene,ctx.charById||{},ctx.propById||{}):(sh.props||[]);
   const sources=[
     {entity:sh,subject:"Shot"},
@@ -1844,36 +1860,62 @@ function shotDrafted(sh){
 }
 window.shotDrafted = shotDrafted;
 
-/* ---- heuristic fallback: one shot per beat (used when AI is unavailable) ------- */
-/* Gives each beat a sensible default coverage so the tab is never empty: the scene
-   opens WIDE to establish, tightens through the middle, and pushes to a CU on the turn. */
-function deriveShotsHeuristic(scene, beats, locations, props, characters){
-  const b = beats && beats[scene.id];
-  const rows = (b && b.rows) || [];
-  const loc = locationForScene(locations, scene.id);
-  const subj = sceneSubjectIds(scene, characters, beats);
-  const scProps = propsForScene(props, scene.id).map(p=>p.id);
-  const turnAt = (b && b.turnAt) || 0;
-  const n = rows.length || 1;
-  const out = [];
-  const src = rows.length ? rows : [{ n:1, drive:{ d: scene.summary||"" } }];
-  src.forEach((row, i)=>{
-    const isFirst = i===0, isTurn = turnAt && row.n===turnAt, isLast = i===n-1;
-    let size = "MS", angle = "eye", move = "static", lens = "50";
-    if(isFirst){ size="WS"; lens="35"; }                         // establish
-    else if(isTurn){ size="CU"; move="push"; lens="85"; }        // the flip
-    else if(isLast){ size="MCU"; lens="85"; }
-    else { size = (i%2===0)?"MS":"MWS"; }
-    const action = (row.drive && row.drive.d) || scene.summary || "";
-    const named = scanTextForChars(action, characters);
-    out.push({
-      id: "shot-"+scene.id+"-"+(row.n||i+1)+"-"+Date.now().toString(36)+i,
-      sceneId: scene.id, beatN: row.n||(i+1), order: i,
-      size, angle, move, lens, composition:"",
-      subjects: named.length ? named : subj.slice(), locationId: loc?loc.id:"", props: scProps.slice(),
-      action,
-      dialogue:"", negativePrompt:""
-    });
+/* ---- screenplay-grounded fallback: one opening shot per authored beat ------- */
+/* This is a deterministic layout stopgap, not a story generator.  If the scene
+   has no screenplay source the caller must surface that fact to the writer; beat
+   summaries, drivers and reactors are not visual evidence. */
+function deriveShotsHeuristic(scene, beats, locations, props, characters, drafts){
+  if(!scene) return [];
+  const bm = beats && beats[scene.id];
+  const draftMap = drafts || ((window.turnContinuity||{}).drafts||{});
+  const draft = draftMap && draftMap[scene.id];
+  const draftBlocks=Array.isArray(draft) ? draft : (draft&&draft.blocks);
+  if(!draft || !Array.isArray(draftBlocks) || !draftBlocks.length) return [];
+  const rows = (bm && Array.isArray(bm.rows)) ? bm.rows : [];
+  const authored = [], nums=[];
+  rows.forEach((row,i)=>{ const n=Number(row&&row.n)||i+1; if(nums.indexOf(n)<0)nums.push(n); });
+  draftBlocks.forEach(b=>{ const n=Number(b&&b.beat); if(Number.isFinite(n)&&n>0&&nums.indexOf(n)<0)nums.push(n); });
+  /* A screenplay can be imported before a beat map exists.  Numbered authored
+     blocks still define one production unit per beat; leading untagged text is
+     beat one only, as in shotBeatScreenplay. */
+  if(!nums.length) nums.push(1);
+  nums.sort((a,b)=>a-b);
+  nums.forEach(n=>{
+    const source=(typeof window.shotBeatScreenplay==="function")
+      ? window.shotBeatScreenplay(scene,n,{drafts:draftMap,characters:characters||[],beatsMap:beats||{}}) : null;
+    if(source&&source.hasSource) authored.push({n,source});
+  });
+  if(!authored.length) return [];
+  const loc = (typeof locationForScene==="function") ? locationForScene(locations||[], scene.id) : null;
+  const out=[];
+  authored.forEach((item,i)=>{
+    const source=item.source, n=item.n;
+    const sh={
+      id:"shot-"+scene.id+"-"+n+"-"+Date.now().toString(36)+i,
+      sceneId:scene.id, beatN:n, order:i,
+      size:"MS", angle:"eye", move:"static", lens:"50", composition:"",
+      subjects:Array.isArray(source.openingCharacterIds)?source.openingCharacterIds.slice():[],
+      locationId:loc?loc.id:"",
+      props:[],
+      action:String(source.openingAction||"").trim(),
+      dialogue:(source.dialogue||[]).find(d=>d&&d.delivery==="in-room"&&
+        (!d.speakerId||source.openingCharacterIds.indexOf(d.speakerId)>=0))?.text||"",
+      negativePrompt:"",
+      keyframeMode:"beat-opening",
+      sourceScreenplayRev:source.sourceRev||"",
+      beatScript:source.text||"",
+      remoteCharacterIds:(source.remoteCharacterIds||[]).slice(),
+      sourceMetadata:{sceneHeading:source.sceneHeading||"",sourceRev:source.sourceRev||"",
+        evidence:source.blocks||[]},
+      covers:[], beatPlan:null, referenceCharactersSet:true,
+      referenceCharacterIds:(source.openingCharacterIds||[]).slice(), specRev:1
+    };
+    if(typeof inFrameProps==="function")
+      sh.props=inFrameProps(sh,scene,
+        (characters||[]).reduce((m,c)=>(m[c.id]=c,m),{}),
+        (props||[]).reduce((m,p)=>(m[p.id]=p,m),{}));
+    sh.specHash=(typeof shotSpecFingerprint==="function")?shotSpecFingerprint(sh):"";
+    out.push(sh);
   });
   return out;
 }
@@ -1915,16 +1957,33 @@ window.scanTextForChars = scanTextForChars;
    only as a last resort. This is the single source the references + prompt read, so an
    under-tagged shot can no longer drop a character's identity anchor — nor over-attach a
    character who isn't in the frame. */
-function inFrameCast(sh, scene, characters){
-  const valid = id=>(characters||[]).some(c=>c.id===id);
+function inFrameCast(sh, scene, characters, ctx){
+  const valid = id=>(characters||[]).some(c=>c&&c.id===id);
+  const source=(typeof shotBeatSource==="function")
+    ? shotBeatSource(scene,sh&&sh.beatN,ctx,characters) : null;
+  if(source&&source.hasSource){
+    const physical=new Set((sh&&sh.keyframeMode==="beat-opening"
+      ? source.openingCharacterIds : source.physicalCharacterIds)||[]);
+    const requested=sh&&sh.referenceCharactersSet
+      ? (Array.isArray(sh.referenceCharacterIds)?sh.referenceCharacterIds:[])
+      : ((sh&&sh.keyframeMode==="beat-opening") ? source.openingCharacterIds
+        : ((sh&&sh.subjects)||[]));
+    return Array.from(new Set(requested.filter(id=>valid(id)&&physical.has(id))));
+  }
   if(sh && sh.referenceCharactersSet)
     return Array.from(new Set((Array.isArray(sh.referenceCharacterIds)?sh.referenceCharacterIds:[]).filter(valid)));
   const named = scanTextForChars(((sh&&sh.action)||"")+" "+((sh&&sh.composition)||""), characters);
   if(named.length) return named;
-  if(scene && scene.driver && valid(scene.driver)) return [scene.driver];
   return ((sh&&sh.subjects)||[]).filter(valid);
 }
 window.inFrameCast = inFrameCast;
+/* Shared identity resolver for manual cards, headless renders and edit paths.
+   Callers should use this rather than binding an image/reference from a prose
+   label that merely happens to contain a character name. */
+function canonicalShotCharacterIds(sh, scene, characters, ctx){
+  return inFrameCast(sh,scene,characters,ctx);
+}
+window.canonicalShotCharacterIds = canonicalShotCharacterIds;
 
 /* THE scene's cast roster — the single authoritative answer to "who is in this scene",
    so the bible, the prop mapping and any future consumer all read ONE definition instead
@@ -1956,9 +2015,9 @@ window.sceneRoster = sceneRoster;
    to this scene, or UNMAPPED ownerless set dressing — a prop mapped to OTHER scenes can't
    leak in). Stored prop tags are NOT a source —
    they were the unreliable input the action text now replaces. */
-function inFrameProps(sh, scene, charById, propById){
+function inFrameProps(sh, scene, charById, propById, ctx){
   const props = Object.values(propById||{});
-  const castIds = (typeof inFrameCast==="function") ? inFrameCast(sh, scene, Object.values(charById||{})) : ((sh&&sh.subjects)||[]);
+  const castIds = (typeof inFrameCast==="function") ? inFrameCast(sh, scene, Object.values(charById||{}), ctx) : ((sh&&sh.subjects)||[]);
   const t = " "+(((sh&&sh.action)||"")+" "+((sh&&sh.composition)||"")).toLowerCase().replace(/[^a-z0-9 ]+/g," ").replace(/\s+/g," ")+" ";
   const out = [];
   // Manual shot-level picks are true overrides: a director can deliberately include an
@@ -2080,7 +2139,7 @@ function beatContinuityLint(scene, beats, props, characters){
 window.beatContinuityLint = beatContinuityLint;
 
 /* normalise one AI-returned shot into our model, resolving subjects/props by id|name */
-function normalizeShot(raw, scene, idx, locations, props, characters, beats){
+function normalizeShot(raw, scene, idx, locations, props, characters, beats, drafts){
   const sizeIds = SHOT_SIZES.map(x=>x.id), angleIds = SHOT_ANGLES.map(x=>x.id),
         moveIds = SHOT_MOVES.map(x=>x.id), lensIds = SHOT_LENSES.map(x=>x.id);
   const rawBeat = Number(raw && raw.beat);
@@ -2088,6 +2147,11 @@ function normalizeShot(raw, scene, idx, locations, props, characters, beats){
   const pick = (v, ids, dflt)=>{ const u=String(v||"").toUpperCase(); const lc=String(v||"").toLowerCase();
     return ids.find(id=>id.toUpperCase()===u) || ids.find(id=>id.toLowerCase()===lc) || dflt; };
   const loc = locationForScene(locations, scene.id);
+  const _drafts=Array.isArray(drafts) || (drafts && Array.isArray(drafts.blocks))
+    ? {[scene.id]:drafts} : (drafts || (window.turnContinuity||{}).drafts || {});
+  const _source=(typeof shotBeatSource==="function")
+    ? shotBeatSource(scene,beatNo,{drafts:_drafts,characters:characters||[],beatsMap:beats||{}},characters||[]) : null;
+  const _screenplayKeyframe=!!(_source&&_source.hasSource);
   const resolveChars = (arr)=>{
     const list = Array.isArray(arr)?arr:[];
     const ids = [];
@@ -2099,14 +2163,13 @@ function normalizeShot(raw, scene, idx, locations, props, characters, beats){
     });
     return ids;
   };
-  // subjects: the action/composition text is authoritative (it's what the frame
-  // depicts), so prefer the cast NAMED in it; only fall back to the model's drifted
-  // `subjects` field, then to the scene's driver+reactor, when the text names no one.
+  // Subjects from an authored screenplay opening are canonical.  Without source,
+  // retain only explicit model/manual subjects — never invent a driver/reactor.
   const resolveSubjects = (raw, actionText)=>{
     const textIds = scanTextForChars((actionText||raw.action||"")+" "+(raw.composition||""), characters);
     if(textIds.length) return textIds;
     const aiIds = resolveChars(raw.subjects);
-    return aiIds.length ? aiIds : sceneSubjectIds(scene, characters, beats);
+    return aiIds;
   };
   const resolveProps = (arr)=>{
     const list = Array.isArray(arr)?arr:[];
@@ -2117,15 +2180,24 @@ function normalizeShot(raw, scene, idx, locations, props, characters, beats){
       if(m && ids.indexOf(m.id)<0) ids.push(m.id); });
     return ids;
   };
-  // never leave a shot with an empty action: fall back to the originating BEAT's
-  // own action text (then the scene summary) when the model omitted it.
+  // Never use a beat summary as screenplay evidence.  It remains a legacy
+  // manual fallback only when this is not a screenplay-grounded keyframe.
   const beatRow = (beats && beats[scene.id] && (beats[scene.id].rows||[]).find(r=>String(r.n)===String(beatNo)));
   const beatAction = beatRow ? ((beatRow.drive&&beatRow.drive.d)||(beatRow.react&&beatRow.react.d)||"") : "";
   const specText = (v,max)=>{
     const clean = (typeof scrubBrand==="function" ? scrubBrand(String(v||"")) : String(v||"")).replace(/\s+/g," ").trim();
     return (typeof clipWords==="function") ? clipWords(clean,max) : clean.slice(0,max);
   };
-  const action = specText(raw.action,300) || specText(beatAction,300) || specText(scene.summary,300);
+  const action = _screenplayKeyframe ? String(_source.openingAction||"").trim()
+    : (specText(raw.action,300) || "");
+  const sourceSubjects=_screenplayKeyframe
+    ? (_source.openingCharacterIds||[]).slice()
+    : resolveSubjects(raw,action);
+  const requestedSubjects=raw&&raw.referenceCharactersSet
+    ? resolveChars(raw.referenceCharacterIds) : sourceSubjects;
+  const sourceDialogue=_screenplayKeyframe
+    ? ((_source.dialogue||[]).find(d=>d&&d.delivery==="in-room" &&
+      (!d.speakerId||sourceSubjects.indexOf(d.speakerId)>=0))||{}).text||"" : "";
   const sideRaw = String(raw.locationSide || raw.side || "").toUpperCase();
   const out = {
     id: "shot-"+scene.id+"-"+beatNo+"-"+Date.now().toString(36)+idx,
@@ -2135,26 +2207,28 @@ function normalizeShot(raw, scene, idx, locations, props, characters, beats){
     move: pick(raw.move || raw.movement, moveIds, "static"),
     lens: pick(raw.lens, lensIds, "50"),
     composition: specText(raw.composition,240),
-    subjects: resolveSubjects(raw, action),
+    subjects: requestedSubjects,
     locationId: loc?loc.id:"",
     props: resolveProps(raw.props),
     locationSide: /^(INT|EXT|BOTH)$/.test(sideRaw) ? sideRaw : undefined,
     referenceLocationsSet: !!raw.referenceLocationsSet,
     referenceLocationIds: Array.isArray(raw.referenceLocationIds) ? raw.referenceLocationIds.filter(Boolean) : [],
     referenceCharactersSet: !!raw.referenceCharactersSet,
-    referenceCharacterIds: Array.isArray(raw.referenceCharacterIds) ? raw.referenceCharacterIds.filter(Boolean) : [],
+    referenceCharacterIds: _screenplayKeyframe
+      ? requestedSubjects.slice()
+      : (Array.isArray(raw.referenceCharacterIds) ? raw.referenceCharacterIds.filter(Boolean) : []),
     action: action,
-    dialogue: specText(raw.dialogue,200),
+    dialogue: _screenplayKeyframe ? sourceDialogue : specText(raw.dialogue,200),
     // micro-beat mapping (pre-production layer): which of the beat's discrete
     // filmable actions this shot covers, why it exists, and whether it carries
     // the beat's protected emotional core. The per-beat plan (micro list +
     // protect line) rides denormalized on every shot of its beat.
     // Canonical contract: one screenplay micro-beat becomes one shot. Keep only
     // this shot's single moment number if legacy/model data supplies several.
-    covers: Array.isArray(raw.covers) ? raw.covers.map(Number).filter(n=>Number.isFinite(n)&&n>0&&n<=20).slice(0,1) : [],
+    covers: _screenplayKeyframe ? [] : (Array.isArray(raw.covers) ? raw.covers.map(Number).filter(n=>Number.isFinite(n)&&n>0&&n<=20).slice(0,1) : []),
     purpose: specText(raw.purpose,160),
     priority: !!raw.priority,
-    beatPlan: (raw.beatPlan && Array.isArray(raw.beatPlan.micro) && raw.beatPlan.micro.length)
+    beatPlan: !_screenplayKeyframe && (raw.beatPlan && Array.isArray(raw.beatPlan.micro) && raw.beatPlan.micro.length)
       // micro-beats are story canon — stored in FULL, never length-capped with a
       // baked-in "…" (legacy 180-char clips heal at render via microHealText)
       ? { micro: raw.beatPlan.micro.map(t=> (typeof scrubBrand==="function" ? scrubBrand(String(t||"")) : String(t||"")).replace(/\s+/g," ").trim()).filter(Boolean).slice(0,10),
@@ -2168,7 +2242,18 @@ function normalizeShot(raw, scene, idx, locations, props, characters, beats){
     // no dur: a drafted shot stays on AUTO — its length can't be predicted, only
     // budgeted (dialogue-anchored estimate via shotDur); the user pins by hand
     negativePrompt:"",
-    specRev:1
+    specRev:1,
+    ...(_screenplayKeyframe ? {
+      keyframeMode:"beat-opening",
+      openingAction:String(_source.openingAction||"").trim(),
+      sourceScreenplayRev:String(_source.sourceRev||""),
+      beatScript:String(_source.text||""),
+      physicalCharacterIds:(_source.physicalCharacterIds||[]).slice(),
+      remoteCharacterIds:(_source.remoteCharacterIds||[]).slice(),
+      mentionedCharacterIds:(_source.mentionedCharacterIds||[]).slice(),
+      sourceMetadata:{sceneHeading:_source.sceneHeading||"",sourceRev:String(_source.sourceRev||""),
+        evidence:(_source.blocks||[]).map(b=>b&&b.evidence||b)}
+    } : (raw&&raw.remoteCharacterIds ? {remoteCharacterIds:raw.remoteCharacterIds.slice()} : {}))
   };
   out.specHash = (typeof shotSpecFingerprint==="function") ? shotSpecFingerprint(out) : "";
   return out;

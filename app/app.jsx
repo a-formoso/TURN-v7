@@ -4047,8 +4047,8 @@ function App(){
   });
 
   // ---- Art Room: SHOT LIST ----
-  // A shot = one micro-beat moment inside a beat. "Draft all shots" derives the shot breakdown for every scene
-  // that doesn't have one yet (non-destructive); per-scene re-draft replaces one scene.
+  // Default: one screenplay opening keyframe per beat. Saved alternatives are
+  // preserved until an explicit conversion archives them in restorable Trash.
   const updateShot = (id,patch)=>{
     if(!canMutateSharedFilm()) return;
     setShots(ss=>ss.map(s=>{
@@ -4176,260 +4176,116 @@ function App(){
   };
   const completeDraftedShotCoverage = (scene, list)=>{
     const bm = (beatsMap||{})[scene.id] || {};
-    const rows = Array.isArray(bm.rows) ? bm.rows : [];
-    if(!rows.length || !Array.isArray(list) || !list.length) return list;
-    const made = list.map(sh=>({ ...sh, covers:Array.isArray(sh.covers)?sh.covers.slice():[] }));
-    const clean = (s,n)=> (typeof clipWords==="function")
-      ? clipWords(String(s||"").replace(/\s+/g," ").trim(), n||160)
-      : String(s||"").replace(/\s+/g," ").trim().slice(0,n||160);
-    const rowText = (row)=>{
-      const d = row.drive||{}, r = row.react||{};
-      return [d.d, r.d].filter(Boolean).join(" — ") || scene.summary || "";
-    };
-    const rawFor = (row, idx, action, covers, plan)=>({
-      beat:Number(row.n)||idx+1,
-      size:covers && covers.length ? "MS" : (idx===0 ? "WS" : "MS"),
-      angle:"eye", move:"static", lens:(idx===0 ? "35" : "50"),
-      subjects:[], props:[],
-      action:clean(action || rowText(row), 300),
-      composition:"Clean coverage backstop: isolate this beat's missing visual event so the chain has complete beat coverage.",
-      dialogue:"",
-      covers:Array.isArray(covers) ? covers : [1],
-      purpose:"complete the beat's missing coverage",
-      priority:!made.some(sh=>Number(sh.beatN)===Number(row.n) && sh.priority),
-      beatPlan:plan || { micro:[clean(rowText(row),180)].filter(Boolean), protect:clean(rowText(row),220) }
+    const rows = typeof window.shotScreenplayBeatRows==="function"
+      ? window.shotScreenplayBeatRows(scene,{drafts,beatsMap})
+      : (Array.isArray(bm.rows) ? bm.rows : []);
+    if(!rows.length) return [];
+    const fallback=typeof deriveShotsHeuristic==="function"
+      ? deriveShotsHeuristic(scene,beatsMap,locations,props,characters,drafts) : [];
+    return rows.map((row,i)=>{
+      const n=Number(row.n)||i+1;
+      const source=typeof window.shotBeatScreenplay==="function"
+        ? window.shotBeatScreenplay(scene,n,{drafts,characters,beatsMap}) : null;
+      if(!source || !source.hasSource) throw new Error("Write the screenplay for scene "+scene.no+", beat "+n+" before designing its opening keyframe.");
+      const sh=(list||[]).find(x=>Number(x.beatN)===n)||fallback.find(x=>Number(x.beatN)===n);
+      if(!sh) throw new Error("No screenplay-grounded opening keyframe was returned for beat "+n+".");
+      return {...sh,order:i,keyframeMode:"beat-opening",covers:[],beatPlan:null,
+        sourceScreenplayRev:source.sourceRev,beatScript:source.text,
+        remoteCharacterIds:source.remoteCharacterIds||[]};
     });
-    rows.forEach((row, idx)=>{
-      const beatNo = Number(row.n)||idx+1;
-      const beatShots = made.filter(sh=>Number(sh.beatN)===beatNo);
-      if(!beatShots.length){
-        const derived = typeof window.deriveBeatMicroPlan==="function"
-          ? window.deriveBeatMicroPlan(scene.id, beatNo, row)
-          : null;
-        if(derived && Array.isArray(derived.micro) && derived.micro.length){
-          derived.micro.forEach((moment, mi)=>{
-            const sh = normalizeShot(rawFor(row, idx, moment, [mi+1], derived), scene, made.length, locations, props, characters, beatsMap);
-            sh.id = "shot-"+scene.id+"-b"+beatNo+"m"+(mi+1)+"-fill";
-            made.push(sh);
-          });
-        }else{
-          made.push(normalizeShot(rawFor(row, idx), scene, made.length, locations, props, characters, beatsMap));
-        }
-        return;
-      }
-      const storedPlan = beatShots.map(sh=>sh.beatPlan).find(p=>p && Array.isArray(p.micro) && p.micro.length);
-      const derivedPlan = typeof window.deriveBeatMicroPlan==="function"
-        ? window.deriveBeatMicroPlan(scene.id, beatNo, row)
-        : null;
-      let plan = typeof window.resolveBeatMicroPlan==="function"
-        ? window.resolveBeatMicroPlan(storedPlan,derivedPlan)
-        : (storedPlan||derivedPlan);
-      // Older films can have screenplay and designed shots but no persisted beatPlan.
-      // Legacy sentence-split plans also resolve to the composed screenplay plan,
-      // then persist so Art Room and Stage read the same ordered moment chain.
-      if(!plan || typeof microCoverage!=="function") return;
-      beatShots.forEach(sh=>{ sh.beatPlan=plan; });
-      /* microCoverage returns { map, mapped }. Read it defensively: this call site once
-         treated the return value AS the map, so after the shape changed every lookup was
-         undefined, every micro-beat read "uncovered", and this pass injected a backstop
-         shot for each one — then setShots re-ran the effect and it injected them again,
-         forever (thousands of junk shots). Never inject off a coverage result we can't
-         positively understand. */
-      const _mc = microCoverage(beatShots, plan.micro.map(t=>String(t).replace(/^\s*\d+[\.\)]\s*/,"")), { force:true });
-      const cov = (_mc && _mc.map) ? _mc.map : null;
-      if(!cov) return;
-      const usedShots = new Set();
-      plan.micro.forEach((m, mi)=>{
-        const n = mi+1;
-        // One moment must own one distinct shot. Never let a legacy covers:[1,2]
-        // shot satisfy two moments; keep it for its earliest matching moment.
-        const owner = beatShots.find(sh=>!usedShots.has(sh.id) && Array.isArray(sh.covers) && sh.covers.map(Number).includes(n))
-          || beatShots.find(sh=>!usedShots.has(sh.id) && cov[sh.id] && cov[sh.id].has(n));
-        if(owner){ owner.covers=[n]; usedShots.add(owner.id); return; }
-        // deterministic id (no timestamp): a re-run can only ever REPLACE this backstop,
-        // never stack another copy of it
-        const bid = "shot-"+scene.id+"-b"+beatNo+"m"+n+"-fill";
-        if(made.some(x=>x.id===bid)) return;
-        const sh = normalizeShot(rawFor(row, idx, m, [n], plan), scene, made.length, locations, props, characters, beatsMap);
-        sh.id = bid;
-        made.push(sh);
-      });
-      // A legacy alternative that did not match a micro-beat stays in the beat, but it
-      // must not claim primary coverage. Users can keep or redesign it deliberately.
-      beatShots.filter(sh=>!usedShots.has(sh.id)).forEach(sh=>{
-        sh.covers=[];
-        sh.beatPlan=plan;
-      });
-    });
-    const orderOf = {}; rows.forEach((r,i)=>{ orderOf[Number(r.n)||i+1]=i; });
-    const momentOf = sh=>Array.isArray(sh.covers)&&sh.covers.length===1 ? Number(sh.covers[0]) : (1000+(Number(sh.order)||0));
-    return made.sort((a,b)=>(orderOf[Number(a.beatN)]??999)-(orderOf[Number(b.beatN)]??999) || momentOf(a)-momentOf(b))
-      .map((sh,i)=>({ ...sh, order:i }));
   };
-  /* ONE-TIME REPAIR for the runaway-injection incident.
-     A bug wrote thousands of duplicate auto-backstop shots into affected films. A runaway
-     duplicate is unambiguous: same scene, same beat, the SAME covers list, the machine-
-     written backstop composition, and no rendered frame. This keeps the FIRST of each such
-     group and drops the rest, so it can never touch a shot someone made by hand or one
-     that has art attached. Runs once per film load, reports what it removed, and no-ops
-     entirely on healthy films. */
-  const shotRepairRef = React.useRef("");
-  React.useEffect(()=>{
-    const list = shots||[];
-    if(!list.length || !currentProjectId) return;
-    if(shotRepairRef.current === currentProjectId) return;      // once per film
-    const SIG = "Clean coverage backstop";
-    const hasArt = (id)=>{ try{ return !!(typeof nbGetImage==="function" && nbGetImage(id)); }catch(e){ return false; } };
-    const seen = new Set(); const drop = new Set();
-    list.forEach(sh=>{
-      if(String(sh.composition||"").indexOf(SIG)!==0) return;   // not machine-injected
-      if(hasArt(sh.id)) return;                                  // has a rendered frame — keep
-      const key = sh.sceneId+"|"+sh.beatN+"|"+(Array.isArray(sh.covers)?sh.covers.join(","):"");
-      if(seen.has(key)) drop.add(sh.id); else seen.add(key);
-    });
-    shotRepairRef.current = currentProjectId;
-    if(!drop.size) return;
-    setShots(ss=>ss.filter(sh=>!drop.has(sh.id)));
-    if(typeof window.appToast==="function")
-      window.appToast("Cleaned up "+drop.size+" duplicate placeholder shot"+(drop.size!==1?"s":"")+" left by a bug. Your designed shots and any rendered frames were kept.","info");
-  },[(shots||[]).length, currentProjectId]);
-
-  /* CIRCUIT BREAKER: this pass writes shots and its own output re-triggers it, so a
-     miscount anywhere upstream compounds without limit — it once wrote thousands of junk
-     shots into a film in seconds. A scene cannot legitimately need 120 shots, so past that
-     the pass stops touching it entirely rather than "repairing" its way to infinity. */
-  const SANE_SHOTS_PER_SCENE = 120;
-  React.useEffect(()=>{
-    if(!(shots||[]).length || !(scenes||[]).length || typeof normalizeShot!=="function") return;
-    let next = shots.slice(), changed = false;
-    (scenes||[]).forEach(scene=>{
-      const sceneShots = next.filter(sh=>sh.sceneId===scene.id);
-      if(!sceneShots.length) return;
-      if(sceneShots.length > SANE_SHOTS_PER_SCENE) return;      // refuse to compound a mess
-      const fixed = completeDraftedShotCoverage(scene, sceneShots);
-      if(fixed.length > SANE_SHOTS_PER_SCENE) return;           // refuse to create a mess
-      const sig = arr=>arr.map(sh=>sh.id+":"+(sh.order||0)+":"+(Array.isArray(sh.covers)?sh.covers.join(","):"")+":"+
-        (sh.beatPlan&&Array.isArray(sh.beatPlan.micro)?sh.beatPlan.micro.join("~"):"")).join("|");
-      if(sig(fixed)===sig(sceneShots)) return;
-      changed = true;
-      next = next.filter(sh=>sh.sceneId!==scene.id).concat(fixed);
-    });
-    if(changed) setShots(next);
-  },[(shots||[]).length,(scenes||[]).length,Object.keys(beatsMap||{}).length]);
-  // REBUILD A BEAT'S MICRO-BEAT SHOTS — MUSE derives the ordered moments and creates
-  // exactly one shot for each; the beat's current shot(s) are replaced (confirmed
-  // first). Writing-model credits only; frames render separately in chain order.
+  // Never inject, collapse or delete saved coverage during hydration. Conversion
+  // is an explicit action; the old primary keeps its ID and extras remain restorable.
+  const shotsLiveRef=React.useRef(shots); shotsLiveRef.current=shots;
+  const keyframeBusyRef=React.useRef(new Set());
+  const keyframeInputsRef=React.useRef(null);
+  keyframeInputsRef.current={scenes,beatsMap,locations,props,project};
+  const keyframeScope=(scene,beatN)=>{
+    const epoch=typeof nbEpoch==="function"?nbEpoch():null;
+    const screenplay=draftsRef.current[scene.id];
+    const cast=charactersRef.current;
+    const select=ss=>(ss||[]).filter(sh=>sh.sceneId===scene.id && (beatN==null || Number(sh.beatN)===Number(beatN)));
+    const signature=JSON.stringify(select(shotsLiveRef.current));
+    const inputSignature=()=>{
+      const live=keyframeInputsRef.current;
+      return JSON.stringify({scene:live.scenes.find(s=>s.id===scene.id),
+        screenplay:draftsRef.current[scene.id],cast:charactersRef.current,
+        beats:live.beatsMap[scene.id],locations:live.locations,props:live.props,project:live.project});
+    };
+    const signedInputs=inputSignature();
+    return ()=>{
+      if(!canMutateSharedFilm()) throw new Error("You no longer have permission to change this film.");
+      if((epoch!==null && (typeof nbEpoch!=="function" || nbEpoch()!==epoch))
+        || draftsRef.current[scene.id]!==screenplay || charactersRef.current!==cast
+        || !scenesRef.current.some(s=>s.id===scene.id)
+        || inputSignature()!==signedInputs
+        || JSON.stringify(select(shotsLiveRef.current))!==signature)
+        throw new Error("The film, screenplay, beats, production references or shots changed while this keyframe was being drafted. Nothing was replaced; try again with the current version.");
+    };
+  };
+  const commitBeatKeyframes=(made,assertCurrent)=>{
+    assertCurrent();
+    const merged=window.mergeBeatKeyframes(shotsLiveRef.current,made);
+    if(merged.archived.length) setTrash(t=>({...t,shots:[
+      ...merged.archived.map(_trashStamp),
+      ...(t.shots||[]).filter(sh=>!merged.archived.some(a=>a.id===sh.id))
+    ]}));
+    shotsLiveRef.current=merged.shots;
+    setShots(merged.shots);
+    return merged;
+  };
   const [splittingBeat, setSplittingBeat] = React.useState(null);
   const [refiningBeat, setRefiningBeat] = React.useState(null);
-  // SCREENPLAY → MICRO-BEATS: re-read one screenplay section and update that
-  // beat's one-to-one micro-beat shots. Existing IDs are matched back to the same
-  // moment wherever possible, preserving generated frames and takes.
+  // Explicit screenplay → opening-keyframe conversion; media stays on its ID.
   const refineBeatFromScreenplay = async (scene, beatN)=>{
     const key=scene&&scene.id+"#"+beatN;
-    if(!scene || refiningBeat || splittingBeat) return;
-    const draft=drafts[scene.id];
-    const hasScript=!!(draft&&Array.isArray(draft.blocks)&&draft.blocks.some(b=>Number(b.beat)===Number(beatN)&&b.type!=="scene"));
-    if(!hasScript){ if(window.appToast) window.appToast("Write this beat's screenplay section before refining its micro-beats.","error"); return; }
-    const existing=shots.filter(x=>x.sceneId===scene.id&&Number(x.beatN)===Number(beatN))
+    if(!scene || keyframeBusyRef.current.has(scene.id)) return;
+    const source=typeof window.shotBeatScreenplay==="function"
+      ? window.shotBeatScreenplay(scene,beatN,{drafts,characters,beatsMap}) : null;
+    if(!source || !source.hasSource){ if(window.appToast) window.appToast("Write this beat's screenplay before drafting its opening keyframe.","error"); return; }
+    const existing=shotsLiveRef.current.filter(x=>x.sceneId===scene.id&&Number(x.beatN)===Number(beatN))
       .sort((a,b)=>(a.order||0)-(b.order||0));
-    if(!existing.length){ if(window.appToast) window.appToast("This beat has no shots to remap yet. Add a shot or re-draft the scene first.","error"); return; }
-    let ok=true;
-    if(typeof window.appConfirm==="function") ok=await window.appConfirm({
-      title:"Refine beat "+beatN+" from its screenplay?",
-         body:"This re-derives the beat's ordered micro-beats and creates exactly one shot for each moment. Existing shot IDs and media are matched back to the same moments wherever possible; changed specifications are marked stale.",
-      confirmLabel:"Refine micro-beats",cancelLabel:"Cancel"});
-    if(!ok) return;
+    const assertCurrent=keyframeScope(scene,beatN);
+    keyframeBusyRef.current.add(scene.id);
     setRefiningBeat(key);
     try{
+      assertCurrent();
+      if(existing.length){
+        const body="This drafts one opening frame from the beat's screenplay. The primary shot keeps its ID and image history; its previous frame may need regeneration."
+          +(existing.length>1?" The "+(existing.length-1)+" additional shot(s) move to Shots Trash, where you can restore them.":"")
+          +" No images or takes are deleted. Writing-model credits only; frame generation is separate.";
+        const ok=typeof window.appConfirm==="function"
+          ? await window.appConfirm({title:"Update beat "+beatN+"'s opening keyframe?",body,confirmLabel:"Update opening keyframe",cancelLabel:"Cancel"})
+          : window.confirm(body);
+        if(!ok) return;
+        assertCurrent();
+      }
       const raw=typeof aiDraftShots==="function"
         ? await aiDraftShots(scene,beatsMap,drafts,locations,props,characters,lbProject("shots"),{beatN,refine:true}) : null;
-      let rows=(raw||[]).filter(r=>Number(r.beat)===Number(beatN));
-      let plan=(rows.map(r=>r.beatPlan).find(p=>p&&Array.isArray(p.micro))||null);
-      // A clipped model reply can still contain useful JSON and aiDraftShots repairs
-      // that first. If the plan remains incomplete, derive the authored composed
-      // moments directly from this beat's screenplay instead of failing the task or
-      // touching unrelated beats.
-      if((!rows.length||!plan||!plan.micro.length) && window.__lastShotDraftTruncated){
-        const beatRow=((beatsMap[scene.id]&&beatsMap[scene.id].rows)||[])
-          .find(r=>Number(r.n)===Number(beatN));
-        const derived=(typeof window.deriveBeatMicroPlan==="function")
-          ? window.deriveBeatMicroPlan(scene.id,beatN,beatRow) : null;
-        if(derived&&Array.isArray(derived.micro)&&derived.micro.length){
-          plan=derived;
-          rows=derived.micro.map((moment,idx)=>{
-            const prior=existing[Math.min(idx,Math.max(0,existing.length-1))]||{};
-            return { ...prior,beat:Number(beatN),covers:[idx+1],beatPlan:derived,
-              action:String(moment||"").trim(),
-              purpose:String(prior.purpose||"").trim()||("film micro-beat "+(idx+1)) };
-          });
-        }
-      }
-      if(!rows.length||!plan||!plan.micro.length) throw new Error("The screenplay refinement returned no usable micro-beat plan.");
-      const oldPlan=existing.map(s=>s.beatPlan).find(Boolean)||{};
-      const finalPlan={ micro:plan.micro, protect:plan.protect||oldPlan.protect||"" };
-      // Match each new moment to the old shot that already owned it; otherwise use
-      // the next unused ID. New moments receive new IDs. This protects existing art
-      // while making the stored order and covers arrays unambiguous.
-      const sourceScreenplayRev=(typeof screenplayBeatRevision==="function")?screenplayBeatRevision(draft,beatN):"";
-      const used=new Set(), baseOrder=existing.length?Math.min(...existing.map(s=>Number(s.order)||0)):(Number(beatN)-1);
-      const remapped=rows.map((row,idx)=>{
-        const moment=idx+1;
-        let sh=existing.find(s=>!used.has(s.id)&&Array.isArray(s.covers)&&s.covers.map(Number).includes(moment));
-        if(!sh) sh=existing.find(s=>!used.has(s.id));
-        if(sh) used.add(sh.id);
-        const n=normalizeShot({ ...row, covers:[moment], beatPlan:finalPlan },scene,idx,locations,props,characters,beatsMap);
-        const id=sh?sh.id:("shot-"+scene.id+"-b"+beatN+"m"+moment+"-"+Date.now().toString(36));
-        const next={ ...(sh||{}), ...n, id, beatN:Number(beatN), order:baseOrder+idx*0.01,
-          covers:[moment],beatPlan:finalPlan,sourceScreenplayRev };
-        const changed=sh&&typeof shotSpecFingerprint==="function"&&shotSpecFingerprint(sh)!==shotSpecFingerprint(next);
-        next.specRev=sh?((typeof shotSpecRevision==="function"?shotSpecRevision(sh):(Number(sh.specRev)||1))+(changed?1:0)):1;
-        next.specHash=(typeof shotSpecFingerprint==="function")?shotSpecFingerprint(next):"";
-        return next;
-      });
-      // Preserve surplus hand-made/legacy alternatives after the canonical moment
-      // shots, but detach them from the one-to-one micro-beat map.
-      const extras=existing.filter(s=>!used.has(s.id)).map((s,i)=>({ ...s,covers:[],order:baseOrder+(rows.length+i)*0.01 }));
-      const oldIds=new Set(existing.map(s=>s.id));
-      setShots(ss=>ss.filter(s=>!oldIds.has(s.id)).concat(remapped,extras));
-       if(window.appToast) window.appToast(window.__lastShotDraftTruncated
-         ? "Beat "+beatN+" refined from its screenplay. TURN recovered the shortened reply without discarding existing media."
-         : "Beat "+beatN+" refined. Logical shot IDs were preserved; media from changed shot specifications is now marked stale.","ok");
-    }catch(e){ if(window.appToast) window.appToast(String((e&&e.message)||"Beat refinement failed."),"error"); }
-    setRefiningBeat(null);
+      assertCurrent();
+      const row=(raw||[]).find(r=>Number(r.beat)===Number(beatN));
+      if(!row) throw new Error("No opening keyframe was returned. Nothing was changed.");
+      const order=existing.length?existing[0].order:Number(beatN)-1;
+      const next={...normalizeShot({...row,keyframeMode:"beat-opening",covers:[],beatPlan:null},scene,order,locations,props,characters,beatsMap),
+        order,sourceScreenplayRev:source.sourceRev,beatScript:source.text};
+      const result=commitBeatKeyframes([next],assertCurrent);
+      if(window.appToast) window.appToast("Beat "+beatN+" has one opening keyframe. "+(result.archived.length?"Additional shots were kept in Shots Trash. ":"")+"Generate the frame when you're ready.","ok");
+    }catch(e){ if(window.appToast) window.appToast(String((e&&e.message)||"Opening-keyframe draft failed."),"error"); }
+    finally{ keyframeBusyRef.current.delete(scene.id); setRefiningBeat(null); }
   };
-  const splitBeatCoverage = async (scene, beatN)=>{
-    if(splittingBeat || !scene) return;
-    const existing = shots.filter(x=>x.sceneId===scene.id && x.beatN===beatN);
-    let ok = true;
-    if(typeof window.appConfirm==="function")
-      ok = await window.appConfirm({ title:"Build beat "+beatN+"'s micro-beat shots?",
-        body:"MUSE derives this beat's ordered micro-beat moments and creates exactly one shot for each. The beat's current "+existing.length+" shot"+(existing.length===1?"":"s")+" (including any generated frame's place in the chain) will be REPLACED; other beats are untouched. Writing-model credits only \u2014 frames render separately.",
-        confirmLabel:"Build micro-beat shots", cancelLabel:"Cancel" });
-    if(!ok) return;
-    setSplittingBeat(scene.id+"#"+beatN);
-    try{
-      const raw = (typeof aiDraftShots==="function")
-        ? await aiDraftShots(scene, beatsMap, drafts, locations, props, characters, lbProject("shots"), { beatN }) : null;
-      const rows = (raw||[]).filter(r=> String(r.beat)===String(beatN));
-      if(rows.length && typeof normalizeShot==="function"){
-        const baseOrder = existing.length ? Math.min(...existing.map(x=>x.order||0)) : (beatN-1);
-        const stamp = Date.now().toString(36);
-        const made = rows.map((r,i)=>({
-          ...normalizeShot(r, scene, i, locations, props, characters, beatsMap),
-          id:"shot-"+scene.id+"-b"+beatN+String.fromCharCode(97+i)+"-"+stamp,
-          beatN, order: baseOrder + i*0.01 }));
-        setShots(ss=>[ ...ss.filter(x=>!(x.sceneId===scene.id && x.beatN===beatN)), ...made ]);
-        if(typeof window.appToast==="function") window.appToast("Beat "+beatN+" now has "+made.length+" shots ("+made.map((m,i)=>beatN+String.fromCharCode(65+i)).join(", ")+") \u2014 generate them in chain order.","success");
-      } else if(typeof window.appToast==="function") window.appToast("Coverage design returned nothing usable \u2014 try again.","error");
-    }catch(e){ if(typeof window.appToast==="function") window.appToast(String((e&&e.message)||"Coverage design failed."),"error"); }
-    setSplittingBeat(null);
-  };
-  // derive one scene's shots (AI, with heuristic fallback). replace=true wipes its old shots.
+  const splitBeatCoverage = refineBeatFromScreenplay;
+  // Derive scene keyframes. Explicit replacement archives alternatives, never media.
   // Returns a STRUCTURED OUTCOME ({status:"designed"|"fallback"|"failed", sceneId, label,
   // error?}) — review finding: a thrown provider error used to vanish silently, leaving
   // the scene shotless with no explanation. Callers surface failures truthfully.
   const draftOneSceneShots = async (scene, replace)=>{
     const label = "Scene "+String(scene.no||"").padStart(2,"0")+(scene.title?(" \u2014 "+scene.title):"");
+    if(keyframeBusyRef.current.has(scene.id)) return {status:"failed",sceneId:scene.id,label,error:"This scene already has a keyframe draft running."};
+    if(!replace && shotsLiveRef.current.some(sh=>sh.sceneId===scene.id)) return {status:"skipped",sceneId:scene.id,label};
+    const assertCurrent=keyframeScope(scene);
+    keyframeBusyRef.current.add(scene.id);
+    try{
+    assertCurrent();
     let made = null; let usedFallback = false;
     if(typeof aiDraftShots==="function"){
       let raw = null;
@@ -4439,6 +4295,7 @@ function App(){
         // stopgap only stands in for a response that arrived but wasn't usable
         return { status:"failed", sceneId:scene.id, label, error:String((e&&e.message)||"Shot design failed.") };
       }
+      assertCurrent();
       if(raw && raw.length && typeof normalizeShot==="function"){
         made = raw.map((r,i)=>normalizeShot(r, scene, i, locations, props, characters, beatsMap));
         // VERBATIM ENFORCEMENT (the script is canon): models paraphrase scripted
@@ -4469,25 +4326,40 @@ function App(){
       // the AI RESPONDED but returned nothing parseable — the one-shot-per-beat
       // layout below is a STOPGAP, never a silent substitute for real coverage
       // (callers toast/summarize the fallback; a thrown error never lands here)
-      made = deriveShotsHeuristic(scene, beatsMap, locations, props, characters);
+      made = deriveShotsHeuristic(scene, beatsMap, locations, props, characters, drafts);
       usedFallback = true;
     }
-    if(!made || !made.length) return { status:"failed", sceneId:scene.id, label, error:"Shot design returned nothing usable." };
-    setShots(ss=>{ const kept = replace ? ss.filter(s=>s.sceneId!==scene.id) : ss; return [...kept, ...made]; });
+    if(!made || !made.length) return { status:"failed", sceneId:scene.id, label, error:"Write the scene's beat-tagged screenplay before drafting its opening keyframes." };
+    made=completeDraftedShotCoverage(scene,made);
+    commitBeatKeyframes(made,assertCurrent);
     return { status:usedFallback?"fallback":"designed", sceneId:scene.id, label };
+    }catch(e){ return {status:"failed",sceneId:scene.id,label,error:String(e&&e.message||e)}; }
+    finally{ keyframeBusyRef.current.delete(scene.id); }
   };
   const [draftingSceneShots, setDraftingSceneShots] = React.useState(null);
   const draftSceneShots = async (scene)=>{
     if(draftingSceneShots) return;
     setDraftingSceneShots(scene.id);
     let out = null;
-    try{ out = await draftOneSceneShots(scene, true); }
+    try{
+      const assertCurrent=keyframeScope(scene);
+      if(shotsLiveRef.current.some(sh=>sh.sceneId===scene.id)){
+        const body="Draft one opening keyframe per screenplay beat. Each primary keeps its shot ID and image history. Additional shots move to Shots Trash and can be restored. No images or takes are deleted; changed frames need regeneration. Writing-model credits only.";
+        const ok=typeof window.appConfirm==="function"
+          ? await window.appConfirm({title:"Update this scene's opening keyframes?",body,confirmLabel:"Update keyframes",cancelLabel:"Cancel"})
+          : window.confirm(body);
+        if(!ok){ setDraftingSceneShots(null); return; }
+        assertCurrent();
+      }
+      out = await draftOneSceneShots(scene, true);
+    }
     catch(e){ out = { status:"failed", error:String((e&&e.message)||"Shot design failed.") }; }
     setDraftingSceneShots(null);
     // say what happened — a failed draft must never look like a quiet no-op
     if(out && typeof window.appToast==="function"){
-      if(out.status==="failed") window.appToast("Shot design failed for this scene \u2014 "+(out.error||"unknown error")+" Use 'Re-draft shots' to try again.","error");
+      if(out.status==="failed") window.appToast("Keyframe design failed for this scene \u2014 "+(out.error||"unknown error"),"error");
       else if(out.status==="fallback") window.appToast("The coverage AI returned nothing usable \u2014 laid out simple one-shot-per-beat coverage as a stopgap. Re-draft to try again.","error");
+      else if(out.status==="designed") window.appToast("Opening keyframes updated. Previous images are retained; additional shots are restorable in Shots Trash.","success");
     }
   };
   const [draftingAllShots, setDraftingAllShots] = React.useState(false);
@@ -4495,11 +4367,13 @@ function App(){
     if(draftingAllShots) return;
     setDraftingAllShots(true);
     const results = [];
+    const epoch=typeof nbEpoch==="function"?nbEpoch():null;
     try{
       const ordered = scenesInStoryOrder(scenes);
       const have = new Set(shots.map(s=>s.sceneId));
       const todo = ordered.filter(s=>!have.has(s.id));   // non-destructive: skip scenes already broken down
       for(let i=0;i<todo.length;i+=3){
+        if(epoch!==null && (typeof nbEpoch!=="function" || nbEpoch()!==epoch)) break;
         const batch = await Promise.all(todo.slice(i,i+3).map(sc=>
           draftOneSceneShots(sc, false).catch(e=>({ status:"failed", sceneId:sc.id,
             label:"Scene "+String(sc.no||"").padStart(2,"0")+(sc.title?(" \u2014 "+sc.title):""),
