@@ -23,6 +23,12 @@ Do not convert saved multi-shot beats during hydration or auto-repair. Explicit 
 
 **Why:** Saved coverage can contain rendered/approved work and downstream takes. The change in default shot granularity does not authorize deleting those assets.
 
+Explicit removal of old micro-beat coverage differs from drafting a replacement: an old beat's first shot can be removed too, while a deliberately promoted opening keyframe should remain.
+
+**Why:** The UI can call the first legacy shot the primary merely because of its position. That label does not establish that the writer converted it to the new beat-opening workflow.
+
+**How to apply:** Base reversible cleanup on saved coverage evidence and explicit modern/manual intent, not a shot's position or a displayed badge. Leave uncertain provenance for review; do not generate replacements as a side effect.
+
 Full-scene screenplay images are reading context, not visual compositions or additional cast references.
 
 **Why:** The full scene helps interpret an opening, but its later entrances and remote dialogue can also cause the image model to depict the wrong moment. A screenshot does not weaken the target beat's opening-presence restrictions.

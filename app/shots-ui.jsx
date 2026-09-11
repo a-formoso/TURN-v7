@@ -1559,7 +1559,8 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
 
 function ShotList({ project, scenes, characters, props, locations, shots, beatsMap,
   onUpdateShot, onAddShot, onDeleteShot, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onShoot,
-  trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onReviewLookbook }){
+  trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onReviewLookbook,
+  onRemoveMicroBeatShots, readOnly=false }){
   const [view, setView] = React.useState(null);
   const batch = useBatchGen();
   const batchActiveId = batch.activeId;
@@ -1568,6 +1569,17 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
   const [chain, setChain] = React.useState(null);   // { ids, idx, total } | null while running
   const chainRef = React.useRef(null); chainRef.current = chain;
   const chainStartingRef = React.useRef(false);
+  // Legacy micro-beat cleanup is an explicit, non-generating action. Keep the
+  // latch in a ref as well as state so two same-tick clicks cannot enter the
+  // async App handler before React has committed the disabled attribute.
+  const [microCleanupPending, setMicroCleanupPending] = React.useState(false);
+  const microCleanupPendingRef = React.useRef(false);
+  const microCleanupRequestRef = React.useRef(0);
+  const microCleanupMountedRef = React.useRef(true);
+  React.useEffect(()=>{
+    microCleanupMountedRef.current=true;
+    return ()=>{ microCleanupMountedRef.current=false; };
+  },[]);
   // small centered popup — e.g. "generate the earlier shot first" when a chain is clicked
   // out of order. Auto-dismisses; click X/the scrim or press Esc to close sooner.
   const [notice, setNotice] = React.useState("");
@@ -1591,6 +1603,73 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
     setDesignTotal(need);
     onDraftAllShots && onDraftAllShots();
   };
+  // The helper is deliberately read-only here: no hydration/effect cleanup and
+  // no fallback heuristic. The App handler re-checks the live film before it
+  // confirms or moves anything to Trash.
+  const legacyMicroCleanup = React.useMemo(()=>{
+    if(typeof window==="undefined" || typeof window.legacyMicroBeatShotCleanup!=="function") return null;
+    try{
+      const result = window.legacyMicroBeatShotCleanup(Array.isArray(shots)?shots:[]);
+      return {
+        removable:Array.isArray(result&&result.removable)?result.removable:[],
+        uncertain:Array.isArray(result&&result.uncertain)?result.uncertain:[]
+      };
+    }catch(e){ return null; }
+  },[shots]);
+  const legacyMicroCleanupCount = legacyMicroCleanup
+    ? legacyMicroCleanup.removable.length + legacyMicroCleanup.uncertain.length : 0;
+  const microCleanupBusy = ()=>{
+    return !!readOnly || !!draftingAllShots || !!draftingSceneShots || !!refiningBeat
+      || !!batchActiveId || !!chain || !!chainStartingRef.current || !!microCleanupPendingRef.current;
+  };
+  const removeMicroBeatShots = async ()=>{
+    // This is intentionally checked at click time rather than relying only on
+    // the last rendered `disabled` value; generation can begin between renders.
+    if(microCleanupBusy()){
+      if(!readOnly) setNotice("Finish the active shot design or render before removing old micro-beat shots.");
+      return;
+    }
+    if(typeof onRemoveMicroBeatShots!=="function" || !legacyMicroCleanup) return;
+    // Re-read the helper at click time so a stale toolbar cannot hand the App
+    // an obsolete candidate list after the film changed.
+    let current;
+    try{
+      const result=window.legacyMicroBeatShotCleanup(Array.isArray(shots)?shots:[]);
+      current={
+        removable:Array.isArray(result&&result.removable)?result.removable:[],
+        uncertain:Array.isArray(result&&result.uncertain)?result.uncertain:[]
+      };
+    }catch(e){
+      setNotice("The legacy shot cleanup check failed. Nothing was removed.");
+      return;
+    }
+    if(!(current.removable.length||current.uncertain.length)) return;
+    if(microCleanupPendingRef.current) return;
+    microCleanupPendingRef.current=true;
+    const request=++microCleanupRequestRef.current;
+    setMicroCleanupPending(true);
+    try{
+      await onRemoveMicroBeatShots(current);
+    }catch(e){
+      if(microCleanupMountedRef.current && microCleanupRequestRef.current===request)
+        setNotice(String((e&&e.message)||"Shot cleanup failed. Nothing was removed."));
+    }finally{
+      // Do not let a late completion from an older request clear a newer
+      // request's busy latch or its disabled state.
+      if(microCleanupMountedRef.current && microCleanupRequestRef.current===request){
+        microCleanupPendingRef.current=false;
+        setMicroCleanupPending(false);
+      }
+    }
+  };
+  const microCleanupButton = legacyMicroCleanupCount>0 && _el("button",{
+    type:"button",className:"art-draftall ghost","data-testid":"shot-micro-cleanup",
+    disabled:microCleanupBusy() || !!microCleanupPending,
+    "aria-busy":microCleanupPending?"true":undefined,
+    title:"Moves identifiable legacy micro-beat shots from the current film to Shots Trash. Preserves images and takes; no replacement generation.",
+    onClick:removeMicroBeatShots
+  },_el(Icon.trash,{s:14}),microCleanupPending?"Removing…":"Remove micro-beat shots",
+    " (",legacyMicroCleanupCount,")");
   // per-scene fold state (persisted). DEFAULT: everything folded except the first
   // scene — a long shot list opens scannable, not as one endless scroll.
   const [collapsed, setCollapsed] = React.useState(()=>{ try{ return JSON.parse(localStorage.getItem("turn_shots_collapsed")||"{}")||{}; }catch(e){ return {}; } });
@@ -1875,16 +1954,17 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
             // empty state carries the same department title as the populated view
             _el("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Shot Designer",
             _el(window.InfoTip,{label:"About the Shots tab",
-                text:"Every screenplay beat is grouped into composed dramatic moments, and each moment becomes one shot. \u201cDesign all shots\u201d gives every moment its size, angle, movement and lens, then composes each frame from the scene's grade and its full-quality location, character and prop references. Generate the frames here; the Stage animates them next."}))),
+                text:"Each screenplay beat gets one opening keyframe specification. \u201cDesign all shots\u201d gives every beat its size, angle, movement and lens, then composes each frame from the scene's grade and its full-quality location, character and prop references. Generate the frames here; the Stage animates them next."}))),
           _el("div",{className:"art-intro-actions"},
             window.RecentlyDeleted && _el(window.RecentlyDeleted,{items:trashItems,kind:"shot",onRestore,onPurge,compact:true}),
+            microCleanupButton,
             _el("button",{className:"art-draftall",disabled:draftingAllShots||!ordered.length,onClick:handleDesignAll,
               title:"Break every scene into a shot list from its beats"},
               _el(Icon.sparkles,{s:14}), draftingAllShots?"Designing\u2026":"Design all shots")))),
       _el("div",{className:"prop-empty"},
         _el("div",{className:"art-soon-ic"},_el(Icon.film,{s:30})),
         _el("div",{className:"art-soon-t"},"No shots yet"),
-        _el("div",{className:"art-soon-d"},"Break each beat's screenplay into composed dramatic moments, then generate one designed frame for each moment."),
+        _el("div",{className:"art-soon-d"},"Draft one opening keyframe per screenplay beat, then generate the designed frames for the film."),
         _el("button",{className:"art-draftall",style:{marginTop:16},disabled:draftingAllShots||!ordered.length,onClick:handleDesignAll},
           _el(Icon.sparkles,{s:14}), draftingAllShots?"Designing\u2026":"Design all shots")));
   }
@@ -1904,10 +1984,11 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
         _el("div",{style:{flex:1}},
           _el("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Shot Designer",
             _el(window.InfoTip,{label:"About the Shot List",
-              text:"A beat owns an ordered set of composed micro-beat moments from its Writers' Room screenplay. Each moment becomes exactly one shot, labelled A/B/C in cut order; action paragraphs stay together, environmental punctuation can stay with the action it supports, and dialogue remains exact. Shots are grouped by beat inside each scene. Every frame generation follows a chain in scene order: the first shot renders from the selected full-quality references, and each later shot uses the preceding approved frame as its continuity anchor. Generate in order, or use 'Generate all shots' / 'Render Scene X in order' to run the chain. Stage video clips are packed automatically from these shots."}))),
+              text:"Each screenplay beat owns one opening keyframe specification, grouped by scene. The specification keeps its action, composition, size, angle, movement and lens; existing alternatives and manually added shots remain separate. Every frame generation follows a chain in scene order: the first shot renders from the selected full-quality references, and each later shot uses the preceding approved frame as its continuity anchor. Generate in order, or use 'Generate all shots' / 'Render Scene X in order' to run the chain. Stage video clips are packed automatically from these shots."}))),
         _el("div",{className:"art-intro-actions"},
           // "Export shot list" lives in the top bar's ⋮ menu now (window.turnExportShotList)
           window.RecentlyDeleted && _el(window.RecentlyDeleted,{items:trashItems,kind:"shot",onRestore,onPurge,compact:true}),
+          microCleanupButton,
           _el("button",{className:"art-draftall ghost",disabled:draftingAllShots||!ordered.length,onClick:handleDesignAll,
             title:"Break any scene that has no shots yet into full coverage \u2014 size, angle, move and lens per beat"},
             _el(Icon.sparkles,{s:14}), draftingAllShots?"Designing\u2026":"Design all shots"),

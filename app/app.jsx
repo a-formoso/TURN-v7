@@ -4198,6 +4198,68 @@ function App(){
   // is an explicit action; the old primary keeps its ID and extras remain restorable.
   const shotsLiveRef=React.useRef(shots); shotsLiveRef.current=shots;
   const keyframeBusyRef=React.useRef(new Set());
+  const microCleanupBusyRef=React.useRef(false);
+  // Explicit, current-film cleanup only. Assets stay on their IDs so existing
+  // media/take histories and the normal Shots Trash restore path remain intact.
+  const removeMicroBeatShots=async ()=>{
+    if(microCleanupBusyRef.current || !canMutateSharedFilm()) return;
+    if(typeof window.legacyMicroBeatShotCleanup!=="function"){
+      if(window.appToast) window.appToast("Shot cleanup is unavailable. Nothing was removed.","error");
+      return;
+    }
+    const before=shotsLiveRef.current;
+    const plan=window.legacyMicroBeatShotCleanup(before);
+    if(!plan.removable.length){
+      if(window.appToast) window.appToast(plan.uncertain.length
+        ? "No shots could be safely identified for removal. "+plan.uncertain.length+" older shot(s) have unclear provenance and were left untouched."
+        : "No old micro-beat shots remain. Nothing was changed.","info");
+      return;
+    }
+    const projectId=projIdRef.current;
+    const epoch=typeof nbEpoch==="function"?nbEpoch():null;
+    const signature=JSON.stringify(before);
+    const assertCurrent=()=>{
+      if(!canMutateSharedFilm()) throw new Error("You no longer have permission to change this film. Nothing was removed.");
+      if(projIdRef.current!==projectId || (epoch!==null&&(typeof nbEpoch!=="function"||nbEpoch()!==epoch))
+        || JSON.stringify(shotsLiveRef.current)!==signature)
+        throw new Error("The film or shot list changed while cleanup was open. Nothing was removed; review the current list and try again.");
+      if(keyframeBusyRef.current.size || shotsLiveRef.current.some(sh=>
+        (window.__nbGenInflight&&window.__nbGenInflight[sh.id])
+        || (window.__nbShotPhase&&window.__nbShotPhase[sh.id])))
+        throw new Error("Finish or stop shot drafting and generation before removing old coverage. Nothing was removed.");
+    };
+    microCleanupBusyRef.current=true;
+    try{
+      assertCurrent();
+      const affected=new Set(plan.removable.map(sh=>sh.sceneId));
+      const previews=plan.removable.slice(0,6).map(sh=>{
+        const sc=scenesRef.current.find(s=>s.id===sh.sceneId);
+        return "Scene "+(sc?sc.no:sh.sceneId)+" · Beat "+(sh.beatN||"—")+" · "+(sh.size||"Shot")
+          +(sh.action?" — "+String(sh.action).replace(/\s+/g," ").slice(0,90):"");
+      });
+      const body="Move "+plan.removable.length+" identified micro-beat shot(s) across "+affected.size+" scene(s) in this film to Shots Trash?"
+        +" This includes an old primary shot if it still has its original micro-beat mapping. New beat-opening keyframes and manually added shots are kept."
+        +" Removed shots stop being active continuity references. Images, version histories and takes are preserved and can be recovered by restoring the shots."
+        +" Some beats may be left without a shot. No replacement specifications or images will be generated, and no credits will be spent."
+        +(plan.uncertain.length?" "+plan.uncertain.length+" shot(s) with unclear provenance will be left untouched.":"")
+        +"\n\n"+previews.join("\n")+(plan.removable.length>previews.length?"\n…and "+(plan.removable.length-previews.length)+" more.":"");
+      // Without a confirmation surface, fail closed rather than remove on click.
+      if(typeof window.appConfirm!=="function") throw new Error("Cleanup needs a confirmation dialog. Nothing was removed.");
+      const confirmed=await window.appConfirm({title:"Remove old micro-beat shots?",body,
+        confirmLabel:"Move to Shots Trash",cancelLabel:"Cancel",danger:true});
+      if(!confirmed) return;
+      assertCurrent();
+      const ids=new Set(plan.removable.map(sh=>sh.id));
+      const archived=plan.removable.map(_trashStamp);
+      const remaining=shotsLiveRef.current.filter(sh=>!ids.has(sh.id));
+      setTrash(t=>({...t,shots:[...archived,...(t.shots||[]).filter(sh=>!ids.has(sh.id))]}));
+      shotsLiveRef.current=remaining;
+      setShots(remaining);
+      if(window.appToast) window.appToast(archived.length+" micro-beat shot(s) moved to Shots Trash. Images and takes were kept; no replacements were generated.","ok");
+    }catch(e){
+      if(window.appToast) window.appToast(String((e&&e.message)||"Cleanup failed. Nothing was removed."),"error");
+    }finally{ microCleanupBusyRef.current=false; }
+  };
   const keyframeInputsRef=React.useRef(null);
   keyframeInputsRef.current={scenes,beatsMap,locations,props,project};
   const keyframeScope=(scene,beatN)=>{
@@ -5852,7 +5914,7 @@ function App(){
             onAddStyleRefImages:addStyleRefImages,onRemoveStyleRefImage:removeStyleRefImage,
             onDraftStaging:draftLocationStaging,draftingStageId,
             shots,beatsMap,onUpdateShot:updateShot,onAddShot:addShot,onDeleteShot:deleteShot,onSplitBeat:splitBeatCoverage,splittingBeat,
-            onRefineBeat:refineBeatFromScreenplay,refiningBeat,
+            onRefineBeat:refineBeatFromScreenplay,refiningBeat,onRemoveMicroBeatShots:removeMicroBeatShots,
             onDraftSceneShots:draftSceneShots,draftingSceneShots,onDraftAllShots:draftAllShots,draftingAllShots}))
         : React.createElement(React.Fragment,null,
       // scrim behind any open overlay drawer

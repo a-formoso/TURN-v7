@@ -5586,7 +5586,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
   onSuggestStates, suggestingStatesId, onRemoveOwnedItem, onRenameOwnedItem, onDeleteCharacter,
   onUpdateProp, onDraftProp, onDraftAllProps, onAddProp, onDeleteProp, draftingPropIds, draftingPropId, draftingAllProps, onMergeProps, onSeedFromCast, castHasProps, onTagScenes, taggingScenes, onTagOne, taggingSceneId,
   locations, onUpdateLocation, onDraftLocation, onDraftAllLocs, onAddLocation, onDeleteLocation, draftingLocIds, draftingAllLocs, onPullFromScript, scriptHasLocs, onScout, onAssignStyles, assigningStyles, onSetStyleRefs, onSetScenePreset, onAddStyleRefImages, onRemoveStyleRefImage, onDraftStaging, draftingStageId, sluglineUnits, onUpdateUnit, onRemoveUnit,
-  shots, beatsMap, onUpdateShot, onAddShot, onDeleteShot, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onDirectScene, onColorist, onShoot, onCast, onPropsMaster,
+  shots, beatsMap, onUpdateShot, onAddShot, onDeleteShot, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onRemoveMicroBeatShots, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onDirectScene, onColorist, onShoot, onCast, onPropsMaster,
   lookbook, lookbookNote, onUpdateLookbook, onAddLookbook, onDeleteLookbook, onSetLookbookNote, onResearch, onClearLookbook,
   staleTabs, onApplyLookbook, onSourceClick, canReview=false, onReviewLookbook, readOnly=false }){
   const _stale = staleTabs || {};
@@ -5668,7 +5668,9 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
           lookbookStale:!!_stale.stylebible,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("colorist")})
     : artView==="shots" && window.ShotList
       ? React.createElement(window.ShotList,{project,scenes,characters,props,locations,shots,beatsMap,
-          onUpdateShot,onAddShot,onDeleteShot,onSplitBeat,splittingBeat,onRefineBeat,refiningBeat,onDraftSceneShots,draftingSceneShots,onDraftAllShots,draftingAllShots,onShoot,onDirectScene,
+          onUpdateShot,onAddShot,onDeleteShot,onSplitBeat,splittingBeat,onRefineBeat,refiningBeat,
+          onRemoveMicroBeatShots:readOnly?null:onRemoveMicroBeatShots,readOnly,
+          onDraftSceneShots,draftingSceneShots,onDraftAllShots,draftingAllShots,onShoot,onDirectScene,
           trashItems:(trash&&trash.shots)||[],onRestore:onRestoreShot,onPurge:onPurgeShot,
           lookbookStale:!!_stale.shots,
           onApplyLookbook:canReview?()=>onApplyLookbook&&onApplyLookbook("shots"):null,
