@@ -645,6 +645,34 @@ function _seriesRpcMissing(error,functionName){
   if(code==="PGRST202") return named;
   return code==="42883" && named && /function[\s\S]*does not exist/i.test(msg);
 }
+function _seriesBeginAssetUploadIntentMissing(response,error){
+  const code=String((error&&error.code)||(response&&response.code)||"");
+  if(code!=="PGRST202") return false;
+  const msg=String((error&&error.message)||response&&response.message||error||response||"");
+  /* This compatibility branch belongs only to the exact deployed helper
+     signature. Bare names, wrong argument lists, and other 202s fail closed. */
+  if(!/public\s*\.\s*turn_begin_asset_upload\s*\(\s*(?:p_path\s*,\s*p_project_id|p_project_id\s*,\s*p_path)\s*\)/i.test(msg))
+    return false;
+  const statuses=[];
+  const addStatus=value=>{
+    const n=Number(value);
+    if(Number.isFinite(n)) statuses.push(n);
+  };
+  addStatus(response&&response.status);
+  addStatus(response&&response.response&&response.response.status);
+  addStatus(error&&error.status);
+  addStatus(error&&error.statusCode);
+  addStatus(error&&error.response&&error.response.status);
+  /* A missing status is not proof of a 404. Require at least one exposed
+     status and reject if any exposed response/error status disagrees. */
+  return statuses.length>0 && statuses.every(status=>status===404);
+}
+function _seriesRpcResponseStatus(response){
+  const value=response&&response.status!==undefined ? response.status
+    : response&&response.response&&response.response.status;
+  const status=Number(value);
+  return Number.isFinite(status)?status:null;
+}
 function _seriesError(error,fallback){ return String((error&&error.message)||error||fallback||"Series operation failed."); }
 function _seriesConversionRetry(episodeId, message){
   return {ok:false,retrySafe:true,
@@ -1803,18 +1831,32 @@ function dataUrlToBlob(dataUrl){
   }catch(e){ return null; }
 }
 const _signCache = new Map();   // path -> { url, exp }
-async function cloudSignedUrl(path){
+async function cloudSignedUrl(path, diagnostics){
   if(!path) return "";
   const now = Date.now();
   const c = _signCache.get(path);
   if(c && c.exp > now + 30000) return c.url;
-  const sb = sbClient(); if(!sb) return "";
+  const sb = sbClient();
+  if(!sb){
+    _seriesRecordUploadError(diagnostics,"client",null,
+      "Cloud image storage is unavailable. Sign in again or check cloud configuration.");
+    return "";
+  }
   try{
     const { data, error } = await sb.storage.from(turnBucket()).createSignedUrl(path, 3600);
-    if(error || !data) return "";
+    if(error || !data){
+      _seriesRecordUploadError(diagnostics,"signing",error,
+        "The uploaded image could not be prepared for viewing.");
+      return "";
+    }
     _signCache.set(path, { url:data.signedUrl, exp: now + 3600*1000 });
     return data.signedUrl;
-  }catch(e){ return ""; }
+  }catch(e){
+    _seriesRecordUploadError(diagnostics,
+      _seriesUploadNetworkError(e)?"signing-network":"signing",e,
+      "The uploaded image could not be prepared for viewing.");
+    return "";
+  }
 }
 /* Batch sign many paths (cache-aware, chunked). Returns { path: url }. */
 async function cloudSignedUrlsBatch(paths){
@@ -1863,18 +1905,119 @@ window.turnStoragePath = turnStoragePath;   // exposed for inspection / tests
 /* Storage and Postgres cannot commit atomically. Reserve each exact object key
    before upload; if the project is deleted before its generation/Cameo row can
    commit, this short-lived intent lets the original uploader delete that one
-   orphan without restoring broad access to the deleted project. Real Supabase
-   clients always expose rpc(); the no-rpc branch exists only for local recording
-   adapters used by the dependency-free regression suite. */
+   orphan without restoring broad access to the deleted project. */
 const _seriesPendingUploadIntents=new Set();
-async function _seriesBeginAssetUploadIntent(sb,projectId,path){
-  if(!sb||typeof sb.rpc!=="function") return true;
-  try{
-    const {error}=await sb.rpc("turn_begin_asset_upload",{p_project_id:projectId,p_path:path});
-    if(error) return false;
-    _seriesPendingUploadIntents.add(path);
+const _seriesMissingUploadIntentWarning =
+  "Exact orphan-cleanup reservations are not installed; image upload is continuing with the current storage permissions. Install the asset-upload intent SQL migration to enable exact cleanup reservations.";
+let _seriesMissingUploadIntentWarned=false;
+function _seriesSafeUploadMessage(error,fallback){
+  let message=String((error&&error.message)||error||fallback||"Cloud upload failed.");
+  /* Error text is user-visible diagnostics. Keep the actionable database/storage
+     reason, but never echo a URL, bearer token, object key, or scoped identifier. */
+  message=message
+    .replace(/\b(?:https?|blob|data|storage):\/\/?[^\s"'<>]+/ig,"[redacted-url]")
+    .replace(/\b(?:access[_ -]?token|refresh[_ -]?token|token|password)\s*[:=]\s*["']?[^,\s"']+/ig,"$1=[redacted]")
+    .replace(/\b(?:p_)?(?:path|project[_ -]?id|user[_ -]?id|owner|entity[_ -]?id|uid)\s*[:=]\s*["']?[^,\s"']+/ig,"$1=[redacted]")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/ig,"[redacted-id]")
+    .replace(/(^|[\s"'(])\/?(?:[A-Za-z0-9_.:-]+\/){2,}[A-Za-z0-9_.:-]+(?=$|[\s"')])/g,"$1[redacted-object]")
+    .replace(/\b(?:project|user|owner|entity)(?:\s+id)?\s*[:=]?\s+[A-Za-z0-9_.:-]+/ig,"$1 [redacted]");
+  return message;
+}
+function _seriesUploadErrorMeta(error,fallback){
+  const meta={message:_seriesSafeUploadMessage(error,fallback)};
+  const status=Number(error&&(error.statusCode!==undefined?error.statusCode
+    :error.status!==undefined?error.status
+    :error.response&&error.response.status));
+  const code=String((error&&error.code)||"");
+  if(Number.isFinite(status)&&status>=0) meta.status=status;
+  if(code) meta.code=code;
+  return meta;
+}
+function _seriesUploadNetworkError(error){
+  const status=Number(error&&(error.statusCode!==undefined?error.statusCode:error.status));
+  const name=String(error&&error.name||"");
+  const message=String((error&&error.message)||error||"");
+  const code=String(error&&error.code||"");
+  return status===0 || /network|failed to fetch|fetch failed|offline|timeout|timed out|connection reset|load failed|econnreset|enotfound|etimedout/i.test(name+" "+message+" "+code);
+}
+function _seriesUploadActionableMessage(stage,message){
+  if(stage==="reservation") return "Cloud upload reservation failed: "+message;
+  if(stage==="storage-network") return "Cloud image upload could not reach storage: "+message;
+  if(stage==="storage") return "Cloud image upload failed: "+message;
+  if(stage==="auth") return "Cloud image save requires an active session: "+message;
+  if(stage==="generation-read"||stage==="generation-write") return "Cloud generation save failed: "+message;
+  if(stage==="signing-network") return "The uploaded image could not be prepared because storage was unreachable: "+message;
+  if(stage==="signing") return "The uploaded image could not be prepared for viewing: "+message;
+  if(stage==="reference-network") return "Reference image download failed: "+message;
+  return message;
+}
+function _seriesRecordUploadError(diagnostics,stage,error,fallback){
+  const meta=_seriesUploadErrorMeta(error,fallback);
+  const actionable=_seriesUploadActionableMessage(stage,meta.message);
+  const result={...meta,message:actionable};
+  if(diagnostics&&typeof diagnostics==="object"){
+    diagnostics.stage=stage;
+    diagnostics.error=result;
+    diagnostics.message=actionable;
+    if(result.status!==undefined) diagnostics.status=result.status;
+    if(result.code) diagnostics.code=result.code;
+  }
+  return result;
+}
+function _seriesRecordMissingUploadIntent(diagnostics){
+  if(diagnostics&&typeof diagnostics==="object"){
+    diagnostics.reservation="unavailable";
+    diagnostics.warning=_seriesMissingUploadIntentWarning;
+  }
+  /* Probe again on the next call: this is deliberately not a permanent
+     unsupported-RPC cache. Only the user-facing console warning is once/client. */
+  if(!_seriesMissingUploadIntentWarned){
+    _seriesMissingUploadIntentWarned=true;
+    try{ if(window.console&&typeof window.console.warn==="function") window.console.warn(_seriesMissingUploadIntentWarning); }catch(e){}
+  }
+}
+async function _seriesBeginAssetUploadIntent(sb,projectId,path,diagnostics){
+  /* Local recording adapters predate Supabase RPC entirely. They are not
+     production clients and cannot claim a reservation, but retain the existing
+     dependency-free adapter behavior. A configured cloud client without rpc()
+     is a real capability failure and must fail closed. */
+  if(!sb||typeof sb.rpc!=="function"){
+    const configured=!!(window.TURN_SUPABASE&&window.TURN_SUPABASE.url);
+    if(configured){
+      _seriesRecordUploadError(diagnostics,"reservation",null,
+        "Cloud upload reservation service is unavailable.");
+      return false;
+    }
+    if(diagnostics&&typeof diagnostics==="object") diagnostics.reservation="adapter-unavailable";
     return true;
-  }catch(e){ return false; }
+  }
+  try{
+    const rpcResponse=await sb.rpc("turn_begin_asset_upload",{p_project_id:projectId,p_path:path});
+    const error=rpcResponse&&rpcResponse.error;
+    if(error){
+      const responseStatus=_seriesRpcResponseStatus(rpcResponse);
+      const diagnosticError=(responseStatus!==null&&error.status===undefined&&error.statusCode===undefined)
+        ? {...error,status:responseStatus} : error;
+      /* Compatibility is intentionally narrow: only an API schema-cache
+         response naming THIS exact helper permits the ordinary RLS upload. */
+      if(_seriesBeginAssetUploadIntentMissing(rpcResponse,error)){
+        _seriesRecordMissingUploadIntent(diagnostics);
+        return true;
+      }
+      _seriesRecordUploadError(diagnostics,"reservation",diagnosticError,"Cloud upload reservation failed.");
+      return false;
+    }
+    _seriesPendingUploadIntents.add(path);
+    if(diagnostics&&typeof diagnostics==="object") diagnostics.reservation="reserved";
+    return true;
+  }catch(e){
+    if(_seriesBeginAssetUploadIntentMissing(null,e)){
+      _seriesRecordMissingUploadIntent(diagnostics);
+      return true;
+    }
+    _seriesRecordUploadError(diagnostics,"reservation",e,"Cloud upload reservation failed.");
+    return false;
+  }
 }
 async function _seriesFinishAssetUploadIntents(paths){
   const exact=Array.from(new Set((paths||[]).filter(path=>_seriesPendingUploadIntents.has(path))));
@@ -1892,8 +2035,13 @@ async function _seriesFinishAssetUploadIntents(paths){
   }catch(e){ return false; }
 }
 
-async function cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, role, version, allowRemote){
-  const sb = sbClient(); if(!sb) return null;
+async function cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, role, version, allowRemote, diagnostics){
+  const sb = sbClient();
+  if(!sb){
+    _seriesRecordUploadError(diagnostics,"client",null,
+      "Cloud image storage is unavailable. Sign in again or check cloud configuration.");
+    return null;
+  }
   let blob = dataUrlToBlob(dataUrl);
   /* Generated project references are commonly short-lived signed HTTP URLs,
      not data URLs. Snapshot their bytes while the URL is valid so Details can
@@ -1903,27 +2051,65 @@ async function cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, ro
   if(!blob && allowRemote && /^(https?:|blob:)/i.test(String(dataUrl||""))){
     try{
       const response=await fetch(dataUrl);
-      if(response.ok){
-        const candidate=await response.blob();
-        if(candidate && /^image\//i.test(candidate.type||"")) blob=candidate;
+      if(!response.ok){
+        _seriesRecordUploadError(diagnostics,"reference-network",
+          {message:"Reference image download returned HTTP "+(response.status||"error"),status:response.status},
+          "Reference image could not be downloaded.");
+        return null;
       }
-    }catch(e){}
+      const candidate=await response.blob();
+      if(candidate && /^image\//i.test(candidate.type||"")) blob=candidate;
+      else{
+        _seriesRecordUploadError(diagnostics,"reference-input",null,
+          "Reference image data is not a valid image.");
+        return null;
+      }
+    }catch(e){
+      _seriesRecordUploadError(diagnostics,"reference-network",e,
+        "Reference image could not be downloaded.");
+      return null;
+    }
   }
-  if(!blob) return null;
-  const path = turnStoragePath(uid, projectId, entityId, assetType, role, "png", version);
-  if(!await _seriesBeginAssetUploadIntent(sb,projectId,path)) return null;
+  if(!blob || !blob.size || !/^image\//i.test(blob.type||"")){
+    _seriesRecordUploadError(diagnostics,"input",null,
+      "The generated image data is invalid or could not be read as an image.");
+    return null;
+  }
+  let path;
+  try{ path = turnStoragePath(uid, projectId, entityId, assetType, role, "png", version); }
+  catch(e){
+    _seriesRecordUploadError(diagnostics,"input",e,"The generated image path could not be prepared.");
+    return null;
+  }
+  /* Compatibility contract: _seriesBeginAssetUploadIntent(sb,projectId,path) */
+  if(!await _seriesBeginAssetUploadIntent(sb,projectId,path,diagnostics)) return null;
   try{
     const { error } = await sb.storage.from(turnBucket()).upload(path, blob, { contentType:blob.type, upsert:false });
     if(error){
+      /* if(error){ cloudRemovePaths([path]) remains the exact compensation key. */
+      _seriesRecordUploadError(diagnostics,
+        _seriesUploadNetworkError(error)?"storage-network":"storage",error,
+        "Cloud image storage rejected the upload.");
       /* The response may be ambiguous even when Storage accepted the bytes.
          Compensate while the exact intent is live; finish is performed by
          cloudRemovePaths only after Storage confirms removal. */
-      try{ await cloudRemovePaths([path]); }catch(e){}
+       try{ await cloudRemovePaths([path]); }
+       catch(e){
+         if(diagnostics&&typeof diagnostics==="object")
+           diagnostics.cleanupWarning=_seriesSafeUploadMessage(e,"Cloud upload cleanup failed.");
+       }
       return null;
     }
     return path;
   }catch(e){
-    try{ await cloudRemovePaths([path]); }catch(cleanupError){}
+     try{ await cloudRemovePaths([path]); }
+     catch(cleanupError){
+       if(diagnostics&&typeof diagnostics==="object")
+         diagnostics.cleanupWarning=_seriesSafeUploadMessage(cleanupError,"Cloud upload cleanup failed.");
+     }
+    _seriesRecordUploadError(diagnostics,
+      _seriesUploadNetworkError(e)?"storage-network":"storage",e,
+      "Cloud image storage could not accept the upload.");
     return null;
   }
 }
@@ -2225,21 +2411,75 @@ async function cloudFinishPending(projectId,uid,entityId,row){
 }
 /* commit a new generation: upload image, roll the previous one into history,
    upload + store reference images, persist metadata. refs in = [{kind,label,url}]. */
-async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, cancelled){
+async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, cancelled, diagnostics){
+  const uploadDiagnostics=(diagnostics&&typeof diagnostics==="object")?diagnostics:{};
+  const withDiagnostics=(result)=>{
+    if(!Object.keys(uploadDiagnostics).length) return result;
+    return {...result,
+      ...(uploadDiagnostics.warning&&!result.warning?{warning:uploadDiagnostics.warning}:{}),
+      ...(uploadDiagnostics.cleanupWarning&&!result.cleanupWarning
+        ?{cleanupWarning:uploadDiagnostics.cleanupWarning}:{}),
+      diagnostics:uploadDiagnostics};
+  };
+  const commitError=(error,extra)=>{
+    const result={tier:"error",url:dataUrl,error,...(extra||{})};
+    return withDiagnostics(result);
+  };
+  const cleanupCreated=async(result)=>{
+    try{ await cloudRemovePaths(created); }
+    catch(e){
+      /* Never replace the staged upload/RPC/storage error with a cleanup error.
+         The exact-path cleanup warning remains available to the pending-save UI. */
+      result.cleanupWarning=_seriesSafeUploadMessage(e,"Cloud upload cleanup failed.");
+    }
+    return result;
+  };
   const _cxl=()=>typeof cancelled==="function"&&!!cancelled();
   if(_cxl()) return { tier:"cancelled", url:dataUrl };
+  if(!sbClient()){
+    _seriesRecordUploadError(uploadDiagnostics,"client",null,
+      "Cloud image storage is unavailable. Sign in again or check cloud configuration.");
+    return commitError(uploadDiagnostics.message);
+  }
+  const activeClient=sbClient();
+  /* Real Supabase clients expose auth.getSession. Check it before the reservation
+     RPC so an expired session cannot reach Storage through the compatibility path.
+     Tiny local recording adapters intentionally omit this method. */
+  if(activeClient&&typeof activeClient.rpc==="function"
+    && activeClient.auth&&typeof activeClient.auth.getSession==="function"){
+    try{
+      const authResult=await activeClient.auth.getSession();
+      const session=authResult&&authResult.data&&authResult.data.session;
+      if((authResult&&authResult.error)||!session||!session.user){
+        const authError=(authResult&&authResult.error)||{
+          status:401,code:"AUTH_SESSION",message:"Your cloud session has expired. Sign in again before saving this image.",
+        };
+        _seriesRecordUploadError(uploadDiagnostics,"auth",authError,
+          "Your cloud session has expired. Sign in again before saving this image.");
+        return commitError(uploadDiagnostics.message);
+      }
+    }catch(e){
+      _seriesRecordUploadError(uploadDiagnostics,"auth",e,
+        "Your cloud session could not be verified. Sign in again before saving this image.");
+      return commitError(uploadDiagnostics.message);
+    }
+  }
   const assetType = kind || "character";   // {assetType} path segment (see turnStoragePath)
   // version-at-birth hint in the filename (non-authoritative; the live version comes
   // from the DB). refs/cameo angles aren't versioned, so they pass no version.
   const ver = (meta && meta.version) || 1, created=[];
   let row;
   try{ row=await cloudGetGenStrict(projectId,entityId); }
-  catch(e){ return { tier:"error", url:dataUrl, error:e.message||"cloud read failed" }; }
+  catch(e){
+    _seriesRecordUploadError(uploadDiagnostics,"generation-read",e,"Cloud generation could not be read.");
+    return commitError(uploadDiagnostics.message||"Cloud generation could not be read.");
+  }
   if(_cxl()) return { tier:"cancelled", url:dataUrl };
-  const newPath = await cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, "sheet", ver);
-  if(!newPath) return { tier:"error", url:dataUrl, error:"image upload failed" };
+  const newPath = await cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, "sheet", ver, false, uploadDiagnostics);
+  if(!newPath) return commitError(
+    (uploadDiagnostics.error&&uploadDiagnostics.error.message)||"Image upload failed.");
   created.push(newPath);
-  if(_cxl()){ try{ await cloudRemovePaths(created); }catch(e){ return {tier:"error",url:dataUrl,error:e.message}; } return {tier:"cancelled",url:dataUrl}; }
+  if(_cxl()) return await cleanupCreated(withDiagnostics({tier:"cancelled",url:dataUrl}));
   let history = (row && row.history) || [];
   let dropped=[];
   if(row && row.storage_path){
@@ -2249,11 +2489,13 @@ async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, 
   const refRows = [];
   for(const r of (refs || [])){
     let p = null;
-    if(r.url) p = await cloudUploadImage(projectId, uid, entityId, r.url, assetType, "ref-"+turnSafeSeg(r.kind||"img"),undefined,true);
+    /* Reference snapshots remain best-effort. A failed optional reference keeps
+       its null storage_path/provenance row and must not abort the generated sheet. */
+    if(r&&r.url) p = await cloudUploadImage(projectId, uid, entityId, r.url, assetType, "ref-"+turnSafeSeg(r.kind||"img"),undefined,true);
     if(p) created.push(p);
-    if(_cxl()){ try{ await cloudRemovePaths(created); }catch(e){ return {tier:"error",url:dataUrl,error:e.message}; } return {tier:"cancelled",url:dataUrl}; }
-    refRows.push({ kind:r.kind, label:r.label, storage_path:p, refId:r.refId||undefined,
-      refVersion:r.refVersion||undefined,refGenerated:r.refGenerated||undefined });
+    if(_cxl()) return await cleanupCreated(withDiagnostics({tier:"cancelled",url:dataUrl}));
+    refRows.push({ kind:r&&r.kind, label:r&&r.label, storage_path:p, refId:r&&r.refId||undefined,
+      refVersion:r&&r.refVersion||undefined,refGenerated:r&&r.refGenerated||undefined });
   }
   let cleanMeta={...(meta||{})}; delete cleanMeta.approval;
   const pendingBefore=(row&&row.meta&&row.meta.cleanupPending)||[];
@@ -2262,18 +2504,20 @@ async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, 
   const trimPaths=Array.from(cloudRowPaths({history:dropped})).filter(p=>!retained.has(p));
   cleanMeta=cloudPendingMeta(cleanMeta,[...pendingBefore,...trimPaths],false);
   const fields = { storage_path:newPath, meta:cleanMeta, refs:refRows, history };
-  if(_cxl()){ try{ await cloudRemovePaths(created); }catch(e){ return {tier:"error",url:dataUrl,error:e.message}; } return {tier:"cancelled",url:dataUrl}; }
+  if(_cxl()) return await cleanupCreated(withDiagnostics({tier:"cancelled",url:dataUrl}));
   /* Signing is read-only, but doing it before the row mutation removes another
      cancellation window after durable success. */
-  const url = await cloudSignedUrl(newPath);
-  if(_cxl()){ try{ await cloudRemovePaths(created); }catch(e){ return {tier:"error",url:dataUrl,error:e.message}; } return {tier:"cancelled",url:dataUrl}; }
+  const url = await cloudSignedUrl(newPath,uploadDiagnostics);
+  if(_cxl()) return await cleanupCreated(withDiagnostics({tier:"cancelled",url:dataUrl}));
   if(!url){
-    try{ await cloudRemovePaths(created); }catch(e){ return {tier:"error",url:dataUrl,error:e.message}; }
-    return {tier:"error",url:dataUrl,error:"signed URL failed"};
+    return await cleanupCreated(commitError(
+      uploadDiagnostics.message||"The uploaded image could not be prepared for viewing."));
   }
   let written=await cloudCasGen(projectId,uid,entityId,row,fields);
   if(!written || written.storage_path!==newPath){
     const mutationError=written&&written._cloudMutationError;
+    if(mutationError)
+      _seriesRecordUploadError(uploadDiagnostics,"generation-write",mutationError,"Generation row write failed.");
     let live=null, readbackFailed=false;
     try{ live=await cloudGetGenStrict(projectId,entityId); }catch(e){ readbackFailed=true; }
     // Returning representation can fail independently of an already-committed
@@ -2283,18 +2527,19 @@ async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, 
       /* If both the mutation response and readback are inconclusive, the write may
          have landed. Deleting its unique bytes could corrupt that live row. Report
          the uncertain outcome and leave cleanup to a later explicit user action. */
-      if(readbackFailed) return {tier:"error",url:dataUrl,path:newPath,persisted:"unknown",
-        error:"generation row write outcome could not be verified"};
+      if(readbackFailed) return commitError("Generation row write outcome could not be verified",
+        {path:newPath,persisted:"unknown"});
+      const mutationMessage=mutationError
+        ? "Generation row write failed: "+_seriesSafeUploadMessage(mutationError)
+        : (!row?"Another client created this asset; retry against its preserved version":"Generation row changed while saving; retry against the latest version");
+      const failed=commitError(mutationMessage,{retry:!row});
       try{ await cloudRemovePaths(created.filter(p=>!cloudRowPaths(live).has(p))); }
-      catch(e){ return {tier:"error",url:dataUrl,error:e.message}; }
-      return { tier:"error",url:dataUrl,retry:!row,
-        error:mutationError
-          ? "generation row write failed: "+mutationError
-          : (!row?"another client created this asset; retry against its preserved version":"generation row changed while saving; retry against the latest version") };
+      catch(e){ failed.cleanupWarning=_seriesSafeUploadMessage(e,"Cloud upload cleanup failed."); }
+      return failed;
     }
   }
   if(!written || written.storage_path!==newPath){
-    return { tier:"error",url:dataUrl,error:"generation row write failed" };
+    return commitError(uploadDiagnostics.message||"Generation row write failed");
   }
   /* The row now durably owns every newly uploaded path. Retire the temporary
      exact-path cleanup capability. If this acknowledgement is lost, the intent
@@ -2333,7 +2578,7 @@ async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, 
     return { tier:"cancelled",url:dataUrl, compensated:!!compensated };
   };
   if(_cxl()){
-    return await compensateCancellation(written);
+    return withDiagnostics(await compensateCancellation(written));
   }
   const hadPending=!!(written.meta&&Array.isArray(written.meta.cleanupPending)
     && written.meta.cleanupPending.length);
@@ -2345,9 +2590,9 @@ async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, 
     if(hadPending) return {tier:"cancellation-error",url:dataUrl,path:newPath,persisted:true,
       ...(finished.warning?{cleanupWarning:finished.warning}:{}),
       error:"cancelled during final cleanup; saved generation could not be safely rolled back"};
-    return await compensateCancellation(finished.row||written);
+    return withDiagnostics(await compensateCancellation(finished.row||written));
   }
-  return { tier:"cloud", url, path:newPath,...(finished.warning?{cleanupWarning:finished.warning}:{}) };
+  return withDiagnostics({ tier:"cloud", url, path:newPath,...(finished.warning?{cleanupWarning:finished.warning}:{}) });
 }
 async function cloudAssetLoad(projectId, entityId){
   const row = await cloudGetGen(projectId, entityId);
