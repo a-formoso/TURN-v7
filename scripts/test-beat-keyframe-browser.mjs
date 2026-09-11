@@ -683,6 +683,28 @@ async function main(){
       const headerButtons=await c.eval(`(()=>[...document.querySelectorAll('${primary} .shot-head-right .shot-anchor-btn, ${primary} .shot-head-right .shot-lock-btn')].map(b=>({text:b.textContent.trim(),height:b.getBoundingClientRect().height})))()`);
       assert.equal(headerButtons.length,4,`${name} includes Head, approval, Draft specification and QA controls`);
       for(const button of headerButtons) assert.equal(button.height,24,`${name} ${button.text} matches the shared header button height`);
+      for(const theme of ["dark","light"]){
+        const compact=await c.eval(`(async()=>{document.documentElement.dataset.theme=${JSON.stringify(theme)};
+          const script=document.querySelector('${primary} .bc-scripted');script.open=false;
+          script.scrollIntoView({block:'center'});
+          await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+          const style=getComputedStyle(script);return {
+            height:script.getBoundingClientRect().height,
+            summaryHeight:script.querySelector('summary').getBoundingClientRect().height,
+            padding:style.padding,borderLeft:style.borderLeftWidth,
+            neutralBorder:style.borderLeftColor===style.borderTopColor,
+            fontStyle:style.fontStyle,last:script.lastElementChild.className
+          };
+        })()`);
+        assert.deepEqual(compact,{height:32,summaryHeight:30,padding:"0px",borderLeft:"1px",
+          neutralBorder:true,fontStyle:"normal",last:"shot-purpose"},
+          `${name} ${theme} Scripted is compact with a neutral border; Covers remains last`);
+        if(theme==="light"){
+          const closed=await c.call("Page.captureScreenshot",{format:"png"});
+          await writeFile(`${OUT}/scripted-compact-${name}.png`,Buffer.from(closed.data,"base64"));
+        }
+      }
+      await c.eval(`document.documentElement.dataset.theme='dark';document.querySelector('${primary} .bc-scripted').open=true`);
       const x=await c.call("Page.captureScreenshot",{format:"png"});
       await writeFile(`${OUT}/${name}.png`,Buffer.from(x.data,"base64"));
     }
