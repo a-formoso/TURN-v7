@@ -23,12 +23,15 @@ const VID_MODEL_FAST = "bytedance/seedance-2.0/fast/reference-to-video";
 // to this pair instead of guessing at an undocumented field on the multimodal endpoint.
 const VID_MODEL_I2V      = "bytedance/seedance-2.0/image-to-video";
 const VID_MODEL_I2V_FAST = "bytedance/seedance-2.0/fast/image-to-video";
+const VID_MODEL_T2V      = "bytedance/seedance-2.0/text-to-video";
+const VID_MODEL_T2V_FAST = "bytedance/seedance-2.0/fast/text-to-video";
 // Seedance 2.5 transition endpoint (supports end_image_url, 480p/720p/1080p,
 // 4–30s). fal lists NO fast variant for 2.5, so the
 // "fast" constant aliases the standard endpoint — the registry has no 2.5 fast
 // tier, so it's never selected; the alias just makes a stale opts.fast harmless.
 const VID25_MODEL_I2V      = "bytedance/seedance-2.5/image-to-video";
 const VID25_MODEL_I2V_FAST = VID25_MODEL_I2V;
+const VID25_MODEL_T2V      = "bytedance/seedance-2.5/text-to-video";
 window.VID_MODEL = VID_MODEL; window.VID_MODEL_FAST = VID_MODEL_FAST;
 window.VID_MODEL_I2V = VID_MODEL_I2V; window.VID_MODEL_I2V_FAST = VID_MODEL_I2V_FAST;
 function _seedanceEndpoint(modelOrEndpoint){
@@ -579,6 +582,7 @@ async function vidReferenceMetadata(images,videos,audios){
 }
 function vidValidateSeedancePackage(model, payload){
   const cap=seedanceCapabilities(model), errors=[], refs=cap.references;
+  const textOnlyEndpoint=/\/text-to-video$/.test(String(model||""));
   const lists={images:payload.images||[],videos:payload.videos||[],audios:payload.audios||[]};
   Object.keys(lists).forEach(k=>{ if(lists[k].length>refs[k].maxFiles) errors.push(k+" accepts at most "+refs[k].maxFiles+" files (received "+lists[k].length+")"); });
   const total=lists.images.length+lists.videos.length+lists.audios.length;
@@ -589,7 +593,7 @@ function vidValidateSeedancePackage(model, payload){
   }
   if(!cap.resolutions.includes(payload.resolution)) errors.push("resolution must be "+cap.resolutions.join(", "));
   if(!cap.aspectRatios.includes(payload.aspectRatio)) errors.push("aspect ratio "+payload.aspectRatio+" is unsupported");
-  if(!cap.bitrateModes.includes(payload.bitrateMode)) errors.push("bitrate mode must be standard or high");
+  if(!textOnlyEndpoint&&!cap.bitrateModes.includes(payload.bitrateMode)) errors.push("bitrate mode must be standard or high");
   const md=payload.metadata||{};
   ["videos","audios"].forEach(k=>{
     const rule=refs[k], facts=md[k]||[]; let secs=0, bytes=0;
@@ -832,11 +836,14 @@ async function seedanceGenerate(id, opts){
      2.5 takes ≤30 images, ≤10 videos, ≤10 audio (50 files total, budgeted upstream by
      the tier's assetLimit); 2.0 takes ≤9 images, ≤3 videos, ≤3 audio (12 total). */
   const isSeedance25 = /seedance-2\.5/.test(String(opts.falModel||""));
+  const textOnly = !!opts.textOnly;
   // assemble the multimodal asset lists (single frameUrl/audioUrl kept for back-compat)
   const images = _vidDedup([opts.frameUrl, ...(opts.imageUrls||[])]);
   const videos = _vidDedup(opts.videoUrls||[]);
   const audios = _vidDedup([opts.audioUrl, ...(opts.audioUrls||[])]);
-  if(!images.length && !videos.length) throw new Error("This clip has no start frame yet — generate the shot's frame in the Shot List first.");
+  if(textOnly && (images.length || videos.length || audios.length))
+    throw new Error("A text-only video request cannot include image, video, or audio references.");
+  if(!textOnly && !images.length && !videos.length) throw new Error("This clip has no start frame yet — generate the shot's frame in the Shot List first.");
   /* SORA 2 rides the same queue but a different shape: the tier names its fal endpoint
      (opts.falModel), takes ONE start image, and has no video/audio refs, no end-frame
      transition, no seed. The proxy maps the payload to Sora's field names + snaps the
@@ -853,6 +860,8 @@ async function seedanceGenerate(id, opts){
   const endFrame = isSora ? "" : (opts.endImageUrl||"").trim();
   const useTransition = !isKling && !!(endFrame && images.length && !videos.length && !audios.length);
   const model = (isSora || isKling) ? opts.falModel
+    : textOnly
+    ? (isSeedance25 ? VID25_MODEL_T2V : (opts.fast ? VID_MODEL_T2V_FAST : VID_MODEL_T2V))
     : isSeedance25
     ? (useTransition ? (opts.fast ? VID25_MODEL_I2V_FAST : VID25_MODEL_I2V) : opts.falModel)
     : useTransition
@@ -880,7 +889,9 @@ async function seedanceGenerate(id, opts){
      lip-synced speech built from audio references) — sending false with audio refs
      yields a silent video, so it stays ON whenever line audio rides along. */
   const generateAudio = opts.generateAudio!=null ? !!opts.generateAudio : true;
-  const bitrateMode = opts.bitrateMode==="high" ? "high" : "standard";
+  // fal's Seedance text-to-video schema has no bitrate_mode field. Keep the
+  // reference/image endpoint control, but omit it from an explicit text-only job.
+  const bitrateMode = textOnly ? null : (opts.bitrateMode==="high" ? "high" : "standard");
   if(isSeedance25 && resolution==="1080p"){
     const runtime=await seedanceGetRuntimeCapabilities(model);
     if(!runtime.known || !runtime.capabilities || !runtime.capabilities.resolutions.includes("1080p"))

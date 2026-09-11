@@ -51,6 +51,9 @@ ok("2.5 1080p unlocks only when advertised",box.stageServerResolutionAllowed("se
   {known:true,capabilities:{resolutions:["480p","720p","1080p"]}})===true);
 
 const source=readFileSync("app/stage.jsx","utf8");
+const imageSource=readFileSync("app/imagegen.jsx","utf8");
+const videoSource=readFileSync("app/videogen.jsx","utf8");
+const proxySource=readFileSync("supabase/functions/image-proxy/index.ts","utf8");
 ok("no mount-time canonical duration autofit",!source.includes("onUpdateShot(sh.id,{ dur:want })"));
 ok("render metadata carries plan and reference provenance",source.includes("renderPlan,")&&source.includes("referenceSourceVersions"));
 ok("every Stage resolution surface uses the server guard",
@@ -62,18 +65,57 @@ ok("12 reference files plus script text fit a 12-file cap",box.stageReferenceFil
 ok("13 reference files exceed a 12-file cap",box.stageReferenceFileCount([...files12,{kind:"video"}])>12);
 ok("Stage never launches an automatic character-reference fallback",
   !source.includes("vidLikenessError")&&!source.includes("safetyFallback")&&!source.includes("dropped character refs"));
+ok("media-policy refusal exposes only the explicit Seedance 2.5 text-only recovery",
+  box.stageCanOfferTextOnlyRecovery(
+    "The provider rejected this render under its content, safety, or likeness policy. The images or videos provided may contain likenesses of real people or private information.",
+    "seedance-2.5")===true
+  &&box.stageCanOfferTextOnlyRecovery("The prompt was rejected by content policy.","seedance-2.5")===false
+  &&box.stageCanOfferTextOnlyRecovery("policy refusal: character reference rejected","seedance-2.0")===false);
+const textOnlyPrompt=box.stageTextOnlyPrompt(
+  "VOICE CAST — assign these voices: @Audio1.\n\nTIMED RENDER PLAN\n@Image1 crosses @Image2 and speaks with @Audio1. Use the selected references to lock identity, appearance variants, wardrobe, props and location geography.",
+  [
+    {kind:"image",tag:"@image1",label:"MARCUS TILLMON · Appearance: Night (v2)",referenceKind:"character"},
+    {kind:"image",tag:"@image2",label:"Funeral Home Office · Shot coverage",referenceKind:"location"},
+    {kind:"audio",tag:"@audio1",label:"MARCUS TILLMON line"}
+  ]);
+ok("text-only recovery preserves written entities while removing media tokens and locked-voice directions",
+  !/@(?:Image|Video|Audio)\d+/i.test(textOnlyPrompt)
+    &&!textOnlyPrompt.includes("VOICE CAST")
+    &&textOnlyPrompt.includes("MARCUS TILLMON")
+    &&textOnlyPrompt.includes("Funeral Home Office")
+    &&textOnlyPrompt.includes("no source media is attached"));
+ok("text-only recovery is a user action and never an automatic provider retry",
+  source.includes('"Retry from text only · "+totalCost+" credit"')
+    &&source.includes("onGenerate({referenceFree:true})")
+    &&source.includes("textOnly:referenceFree"));
+ok("video transport routes an explicit media-free attempt to Seedance text-to-video",
+  videoSource.includes('const VID25_MODEL_T2V      = "bytedance/seedance-2.5/text-to-video"')
+    &&videoSource.includes("const textOnly = !!opts.textOnly")
+    &&videoSource.includes("textOnly && (images.length || videos.length || audios.length)")
+    &&proxySource.includes('"bytedance/seedance-2.5/text-to-video"'));
 ok("required reference errors guard UI and final paid submission",
-  source.includes('filter(w=>w&&w.severity===\"error\")')
+  source.includes("referenceWarningGroups.filter(w=>w&&w.blocking)")
     &&source.includes('key:\"required-reference\"')
-    &&source.includes("if(referenceBlockingWarnings.length) throw new Error(referenceBlockMessage)"));
-ok("required reference blocker identifies asset and shot",
-  source.includes("Continuity · appearance states")&&source.includes('\" Needed by Shot \"+(shotN||\"?\")'));
+    &&source.includes("if(referenceBlockingWarnings.length&&!referenceFree) throw new Error(referenceBlockMessage)"));
+const compactReferenceIssues=box.stageGroupReferenceIssues([
+  {groupKey:"missing|marcus:night",message:"Required appearance is unavailable",blocking:true,shotN:3},
+  {groupKey:"missing|marcus:night",message:"Required appearance is unavailable",blocking:true,shotN:1},
+  {groupKey:"missing|marcus:night",message:"Required appearance is unavailable",blocking:true,shotN:2},
+]);
+ok("required reference blocker identifies one asset across a compact shot range",
+  compactReferenceIssues.length===1
+    &&compactReferenceIssues[0].message==="Required appearance is unavailable. Affects Shots 1–3."
+    &&source.includes("Continuity · appearance states"));
 ok("legacy cast masters cannot auto-replace resolved appearance variants",
   !source.includes('d.cast.forEach(c=>{ const u=imgs[c.id]; out.push')
     &&source.includes("Active character/location/prop rows come exclusively from the authoritative"));
 ok("matching scene-only masters are promoted only for authoritative descriptors",
   source.includes('a&&a.sceneOnly&&a.kind===\"image\"&&a.id===id')
     &&source.includes("out[sceneIdx]=resolved"));
+ok("failed Stage image chips rehydrate the same stored asset instead of regenerating",
+  source.includes("nbRefreshImage(a.id,a.url)")
+    &&imageSource.includes("function nbRefreshImage(id, failedUrl)")
+    &&imageSource.includes('detail:{ ids:[id], refreshed:true }'));
 const mentionCtx=box.stagePromptMentionContext([
   {key:"frame",kind:"image",label:"Marcus — shot frame",tag:"@image1",id:"shot-1"},
   {key:"resolved:characters:marcus:state",kind:"image",label:"Marcus · Appearance: Rain coat (v2)",
@@ -130,7 +172,7 @@ ok("editor application shot writer persists the master choice",guardWrites===1&&
 guardAllowed=false;
 guardBox.writeShot("guard-shot",{stageCharacterReferenceOverrides:{}});
 ok("revoked editor cannot reset via a captured shot callback",guardWrites===1&&guardShots[0].stageCharacterReferenceOverrides.char==="master");
-ok("Stage receives the current shared-film read-only state",appSource.includes("readOnly:readOnlyShare,")&&source.includes("creditBalance, readOnly, onVoiceLine, onUpdateShot"));
+ok("Stage receives the current room-wide read-only state",appSource.includes("readOnly:roomReadOnly,")&&source.includes("creditBalance, readOnly, onVoiceLine, onUpdateShot"));
 
 console.log(pass+" passed, "+fail+" failed");
 process.exit(fail?1:0);

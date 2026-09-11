@@ -51,27 +51,23 @@ ok("photo/simple generation uses visible written spec",canonicalSpec("photo","ph
 ok("image-only edit preserves prior spec identity",canonicalSpec("edit","edit request",spec+" changed",{specPrompt:spec})===spec);
 
 const ui=readFileSync("app/locations-ui.jsx","utf8");
-ok("all three derived generators store lineage",
-  ["screenplay-coverage","time-of-day-variant","slugline-unit"].every(k=>ui.includes(`locationAssetDependencySnapshot(l.id,${k==="screenplay-coverage"?"previousIds":"[]"},\"${k}\")`)));
-ok("derived warning names regeneration action",ui.includes("Regenerate this \"+noun+\" to update it."));
+ok("all three derived generator kinds store lineage",
+  ui.includes('locationAssetDependencySnapshot(l.id,previousIds,"screenplay-coverage")')&&
+  ui.includes('stateUnit?"slugline-unit":"continuity-state"')&&
+  ui.includes('locationAssetDependencySnapshot(l.id,[],"slugline-unit")'));
+ok("derived image cards omit stale warning strips",
+  !ui.includes("LocationDerivedStaleBanner")&&!ui.includes("loc-derived-stale"));
 const app=readFileSync("app/app.jsx","utf8");
-ok("legacy fold migration refuses ambiguous unit targets",
-  app.includes("const matchingUnits = units.filter")&&app.includes("if(matchingUnits.length!==1) continue;"));
-ok("legacy fold migration no longer picks first matching unit",
-  !app.includes("const u = units.find(x=> placeKeyOf(x.place)===l.key);"));
-ok("legacy fold migration rederives unit cardinality after source awaits",
-  app.includes("deriveSluglineUnits(scenesRef.current, draftsRef.current)")&&app.includes("liveMatches.length!==1"));
-ok("legacy fold migration rechecks target after claiming its run lock",
-  app.includes("const migrationRun=")&&app.includes("const existingNow=")&&app.includes("commitMatches.length!==1"));
-ok("legacy fold migration releases only its own target lock",
-  app.includes("window.__nbGenInflight[unitImgId]===migrationRun")&&app.includes("delete window.__nbGenInflight[unitImgId]"));
-ok("legacy fold migration captures project epoch before source awaits",
-  app.includes("const foldEpoch=(typeof nbEpoch===")&&app.indexOf("const foldEpoch=")<app.indexOf("await nbRemoteImageUrl"));
-ok("legacy fold commit carries epoch and live cancellation predicate",
-  app.includes('"locunit",foldEpoch,migrationLive)')&&app.includes("if(!migrationLive()) r=null;"));
-ok("legacy fold live predicate checks target ownership and project scope",
-  app.includes("window.__nbGenInflight[unitImgId]===migrationRun")&&app.includes("nbEpoch()===foldEpoch"));
-ok("legacy fold clears a prior sticky cancellation only after claiming ownership",
-  app.indexOf("window.__nbGenInflight[unitImgId]=migrationRun")<app.indexOf("window.__nbGenCancel[unitImgId]=false"));
+ok("active hierarchy sync no longer invokes destructive fold migration",
+  !/React\.useEffect\(\(\)=>\{[\s\S]{0,240}foldStaleLocations\(locations\)/.test(app));
+ok("previously folded child cards restore from recoverable trash",
+  app.includes("const restore=(trash.locations||[]).filter")&&app.includes("restore.forEach(item=>"));
+ok("missing child workspaces derive without moving assets",
+  app.includes("const missing=fresh.filter")
+  &&app.includes("missing.forEach(item=>next.push(withEpisodeLocationMeta(item,item)))"));
+ok("hierarchy sync preserves authored fields while refreshing relationship metadata",
+  app.includes("const synced=withEpisodeLocationMeta(l,f)")
+  &&app.includes("const restored={...clean,...f,...clean}")
+  &&app.includes("next.push(withEpisodeLocationMeta(restored,f))"));
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail?1:0);

@@ -27,6 +27,8 @@ const NB_MODELS = [
   { id:"gemini-3.1-flash-lite-image", label:"Nano Banana 2 Lite", provider:"fal", family:"nano",   falModel:"google/nano-banana-2-lite", note:"fal.ai \u00b7 fastest \u00b7 lowest cost" },
   { id:"gemini-3-pro-image",          label:"Nano Banana Pro",    provider:"fal", family:"nano",   falModel:"fal-ai/nano-banana-pro",    note:"fal.ai \u00b7 highest fidelity" },
   { id:"gpt-image-2",                 label:"GPT Image 2",        provider:"fal", family:"openai", falModel:"openai/gpt-image-2", falEditModel:"openai/gpt-image-2/edit", note:"fal.ai \u00b7 in-image text" },
+  { id:"gpt-image-2.5-flare",         label:"GPT Image 2.5 Flare", provider:"fal", family:"openai", falModel:"openai/gpt-image-2.5/flare/text-to-image", falEditModel:"openai/gpt-image-2.5/flare/edit", note:"fal.ai \u00b7 fastest GPT Image 2.5" },
+  { id:"gpt-image-2.5-sunburst",      label:"GPT Image 2.5 Sunburst", provider:"fal", family:"openai", falModel:"openai/gpt-image-2.5/sunburst/text-to-image", falEditModel:"openai/gpt-image-2.5/sunburst/edit", note:"fal.ai \u00b7 maximum precision and fidelity" },
 ];
 const NB_ASPECTS = ["16:9","21:9","9:16","1:1","3:4","4:3"];
 const NB_RESOLUTIONS = ["1K","2K","4K"];
@@ -211,6 +213,8 @@ const NB_IMG_USD = (window.turnImageProviderUsdTable && window.turnImageProvider
   "gemini-3.1-flash-image":      { "1K":0.067, "2K":0.101, "4K":0.151 },
   "gemini-3-pro-image":          { "1K":0.134, "2K":0.134, "4K":0.240 },
   "gpt-image-2":                 { low:0.009, medium:0.080, high:0.317 },
+  "gpt-image-2.5-flare":         { low:0.005, medium:0.012, high:0.045 },
+  "gpt-image-2.5-sunburst":      { low:0.005, medium:0.012, high:0.045 },
 };
 function nbImageCredits(opts){
   opts = opts||{};
@@ -338,7 +342,7 @@ function nbUseLocal(){ if(_nbProject!==null) _nbEpoch++; _nbBackend="local"; _nb
    every episode, so their generated sheets live under the SHOW's bible-project
    id, not the episode's. nbUseShared(showId, bibleEntityIds) declares which
    entity ids are shared; _scopeFor(id) routes loads/commits/details for those
-   ids (and their "-variant" sub-slots) to the show scope. Reads fall back to
+   ids and their derived sub-slots ("-variant" plus character ":state") to the show scope. Reads fall back to
    the episode scope so a project converted into a show keeps showing sheets it
    generated before the conversion. */
 let _nbShared = null, _nbSharedIds = null;
@@ -351,7 +355,11 @@ function nbUseShared(scopeId, ids){
 function _scopeFor(id){
   if(_nbShared && _nbSharedIds){
     const s = String(id||"");
-    for(const b of _nbSharedIds){ if(s===b || s.indexOf(b+"-")===0) return _nbShared; }
+    for(const b of _nbSharedIds){
+      // Location/prop variants use a hyphen; character appearance sheets use
+      // "characterId:stateId". Both inherit the bible entity's show scope.
+      if(s===b || s.indexOf(b+"-")===0 || s.indexOf(b+":")===0) return _nbShared;
+    }
   }
   return _nbProject;
 }
@@ -479,6 +487,38 @@ async function nbLoadImage(id){
   }
   return localLoadImage(id);
 }
+/* A rendered <img> can outlive its cloud signed URL (or a cached blob URL can be
+   revoked by the browser). The asset still exists; only its paint URL is stale.
+   Re-resolve that exact asset id without generating or changing any pixels. */
+const _nbRefreshPending = new Map();
+function nbRefreshImage(id, failedUrl){
+  if(!id) return Promise.resolve("");
+  if(_nbRefreshPending.has(id)) return _nbRefreshPending.get(id);
+  const p = (async()=>{
+    if(_nbBackend!=="cloud") return await localLoadImage(id);
+    const obj = _objUrls.get(id);
+    // Only discard an object URL when it is the URL that actually failed. A
+    // different live object URL may be painting the same asset elsewhere.
+    if(obj && (!failedUrl || obj.url===failedUrl)){
+      try{ URL.revokeObjectURL(obj.url); }catch(e){}
+      _objUrls.delete(id);
+    }
+    _cloudUrlCache.delete(id);
+    if(typeof window.cloudAssetLoad!=="function") return "";
+    const scope = _scopeFor(id);
+    let r = await window.cloudAssetLoad(scope, id);
+    if((!r || !r.path) && scope!==_nbProject) r = await window.cloudAssetLoad(_nbProject, id);
+    const u = await cloudHydrate(id, r);
+    if(u){
+      try{ window.dispatchEvent(new CustomEvent("nb-prefetched",{ detail:{ ids:[id], refreshed:true } })); }catch(e){}
+    }
+    return u||"";
+  })();
+  _nbRefreshPending.set(id,p);
+  const done=()=>{ if(_nbRefreshPending.get(id)===p) _nbRefreshPending.delete(id); };
+  p.then(done,done);
+  return p;
+}
 /* Server-side render inputs need a real fetchable URL, not the browser's byte-cache
    blob URL. Use this for Stage/video hand-offs; keep nbLoadImage for painting. */
 async function nbRemoteImageUrl(id){
@@ -490,6 +530,7 @@ async function nbRemoteImageUrl(id){
   return "";
 }
 window.nbLoadImage = nbLoadImage;
+window.nbRefreshImage = nbRefreshImage;
 window.nbRemoteImageUrl = nbRemoteImageUrl;
 
 /* warm the browser's image cache so it paints instantly when rendered */
@@ -1173,6 +1214,15 @@ async function proxyGenerate(prompt, opts, provider){
   }
   if(error){
     const status = statusOf(error);
+    // Supabase represents every non-2xx function response as an invocation error.
+    // Preserve the Edge Function's JSON explanation (invalid model, no credits,
+    // provider rejection, etc.) instead of showing only the SDK's generic message.
+    let relayed = "";
+    try{
+      const ctx = error.context;
+      const j = ctx && await ctx.json();
+      relayed = (j && (j.error || j.message || j.msg)) || "";
+    }catch(e){}
     if(status===401) throw new Error("Sign in to use server-side image generation \u2014 it runs on your server, not in the browser.");
     const _safe = window.turnSafeError || (x=>x);
     if(status===404) throw new Error(_safe("The image proxy isn't deployed yet. Deploy supabase/functions/image-proxy and set imageProxy:true in supabase-config.js."));
@@ -1181,12 +1231,12 @@ async function proxyGenerate(prompt, opts, provider){
       // the function relays the SPECIFIC upstream reason in its JSON body ("Proxy
       // failed to reach fal: <cause>") — surface it instead of swallowing it behind
       // the generic advice, or every failure looks identical and undebuggable.
-      let relayed = "";
-      try{ const j = error.context && await error.context.json(); relayed = (j && (j.error || j.message)) || ""; }catch(e){}
       throw new Error("The image server took too long or is temporarily unavailable."
         + (relayed ? " Server said: "+_safe(relayed)
                    : " High-quality GPT Image renders can take several minutes — try again, or drop the quality/resolution a notch for a faster render."));
     }
+    if(relayed) throw new Error(_safe("The image server rejected this request"
+      +(status?" ("+status+")":"")+": "+relayed));
     throw new Error(_safe("Couldn't reach the image proxy: "+((error && error.message) || "unknown error")+"."));
   }
   if(data && data.error){

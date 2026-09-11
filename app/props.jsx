@@ -950,7 +950,7 @@ function PropStateRow({ p, st, index, project, scenes, baseGenUrl, onView, onCha
 
   const gen = useImageGen({
     id: gid, slotId: "propref-"+gid,
-    entity: p,
+    entity: { ...p, appearanceState:st },
     buildFinal: buildFinal,
     buildFromBase: baseGenUrl ? buildFromBase : null,
     referenceFallback: baseGenUrl ? (()=>baseGenUrl) : null,
@@ -976,7 +976,7 @@ function PropStateRow({ p, st, index, project, scenes, baseGenUrl, onView, onCha
       React.createElement("button",{className:"state-del",title:"Remove state",onClick:onDelete},React.createElement(Icon.x,{s:13}))),
     React.createElement(SheetFrame,{ gen, slotId:"propref-"+gid, name:viewEntity.name,
       avatarColor:propSwatch(p.kind), initials:vtag, drafted:true, drafting:false, onDraft:()=>{}, entity:viewEntity,
-      onView, slotPlaceholder:"Drop reference art for this state", noun:vtag+" sheet" }),
+      onView, slotPlaceholder:"Drop reference art for this state", noun:vtag+" sheet", hideSourceReview:true }),
     gen.genUrl && window.QaCheckButton && React.createElement("div",{className:"card-qa-row"},
       React.createElement(window.QaCheckButton,{ gen, name:(viewEntity.name||"")+" \u00b7 "+(st.label||vtag), noun:vtag+" sheet",
         specFields:()=>({ what_changed:(st.change||"") }),
@@ -1157,7 +1157,6 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
     }finally{ delete window.__nbOwnerPhase[p.id]; }
   },[gen, onEnsureOwner, p]);
   const genForFrame = onEnsureOwner ? { ...gen, generate: genWithOwner } : gen;
-  const promptStale = !!(genForFrame.genUrl && genForFrame.genMeta && genForFrame.genMeta.prompt && genForFrame.genMeta.prompt!==finalPrompt);
 
   /* ---- batch generation: when the parent activates this card (its id == the
      batch's current id), kick off a generation and report completion so the
@@ -1262,7 +1261,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
 
   return React.createElement("div",{className:"sheet-card"+(batchActiveId===p.id?" batch-on":""),"data-prop-card":p.id},
     React.createElement(SheetFrame,{ gen:genForFrame, slotId:"propref-"+p.id, name:p.name, avatarColor:propSwatch(p.kind),
-      reviewReasons:promptStale?["Prop specification changed"]:[],
+      hideSourceReview:true,
       initials, drafted, drafting, onDraft:()=>onDraft(p), entity:p, onView,
       slotPlaceholder:"Drop a photo of the object", noun:"prop sheet",
       // The empty slot is also the finished-image importer (full resolution, like the Locations
@@ -1322,12 +1321,6 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
             React.createElement(Icon.box,{s:12}),"Fitting")),
           fitOpen && React.createElement(PropFittingModal,{ p, propUrl:gen.genUrl, onClose:()=>setFitOpen(false) })),
 
-      promptStale && React.createElement("div",{className:"prompt-drift-banner",role:"status"},
-        React.createElement(Icon.alert,{s:14}),
-        React.createElement("span",null,
-          React.createElement("b",null,"Reference out of date"),
-          " · The prop spec changed after this sheet was generated. Use Regenerate image above to update it.")),
-
       React.createElement("div",{className:"char-style-row"},
         React.createElement("span",{className:"char-style-lab"},"Render style"),
         React.createElement("div",{className:"char-style-pick"},
@@ -1381,11 +1374,6 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
               "No direct mention found in the screenplay text. This is not presented as a quoted script fact."),
         React.createElement("div",{className:"prop-evidence-caution"},
           "Text matches are discovery evidence only; even an exact phrase does not prove this is the same physical object.")),
-
-      !drafted && !gen.genUrl && React.createElement("div",{className:"sheet-undrafted"},
-        React.createElement(Icon.alert,{s:13}),
-          React.createElement("span",null,"Specification not drafted yet \u2014 click ",
-          React.createElement("b",null,"Draft specification")," to fill the object's form & material.")),
 
       (dupIds && dupIds.length>1) && React.createElement("div",{className:"prop-dup-warn"},
         React.createElement("div",{className:"prop-dup-head"},
@@ -1561,10 +1549,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
           onCommit:val=>onUpdate(p.id,{negativePrompt:val})}),
         React.createElement(CopyBox,{label:(genForFrame.genUrl && genForFrame.genMeta && genForFrame.genMeta.prompt)
             ? "Final prompt \u2014 generated the CURRENT sheet" : "Final prompt \u2014 master + negative (sent at generation)",
-          text:(genForFrame.genUrl && genForFrame.genMeta && genForFrame.genMeta.prompt) || finalPrompt}),
-        promptStale &&
-          React.createElement("div",{className:"prompt-drift-note"},
-            "The spec has changed since this sheet was generated \u2014 Regenerate to bring the sheet back in step with it."))));
+          text:(genForFrame.genUrl && genForFrame.genMeta && genForFrame.genMeta.prompt) || finalPrompt}))));
 }
 
 function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDraft, onDraftAll, onAdd, onDelete, draftingId, draftingIds, draftingAll, onSeedFromCast, castHasProps, onTagScenes, taggingScenes, onTagOne, taggingSceneId, onMergeProps, onPropsMaster, trashItems, onRestore, onPurge, onEnsureOwner, onSourceClick, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly }){
@@ -1772,6 +1757,7 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
     view && React.createElement(ImageLightbox,{url:view.url,character:view.character,onClose:()=>setView(null)}),
     React.createElement(NbKeyBar,null),
     React.createElement(NbControls,null),
+    window.LookbookStaleNotice && React.createElement(window.LookbookStaleNotice,{stale:lookbookStale,onApply:onApplyLookbook,onDraftOnly:onApplyLookbookDraftOnly,label:"these props",dept:"props"}),
     React.createElement("div",{className:"art-intro"},
       React.createElement("div",{className:"art-intro-row"},
         React.createElement("div",{style:{flex:1}},
@@ -1788,7 +1774,6 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
           React.createElement("button",{className:"art-draftall",disabled:!!batchActiveId||!eligibleAll,onClick:startAllBatch,
             title:"Generate (or regenerate) the reference sheet for every drafted prop \u2014 you choose whether to redo ones that already have a sheet"},
             React.createElement(Icon.sparkles,{s:14}), batchActiveId?"Generating\u2026":"Generate all images", typeof window.nbCostChip==="function" && window.nbCostChip(1))))),
-    window.LookbookStaleNotice && React.createElement(window.LookbookStaleNotice,{stale:lookbookStale,onApply:onApplyLookbook,onDraftOnly:onApplyLookbookDraftOnly,label:"these props",dept:"props"}),
     unassignedCarried.length>0 && React.createElement("div",{className:"prompt-drift-note",style:{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}},
       React.createElement("span",{style:{flex:1,minWidth:220}},
         React.createElement("b",null,unassignedCarried.length+" carried prop"+(unassignedCarried.length!==1?"s":"")),

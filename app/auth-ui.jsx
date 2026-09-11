@@ -92,7 +92,7 @@ function AuthModal({ onClose, onAuthed, initialMode, plan, light }){
 }
 window.AuthModal = AuthModal;
 
-function AccountChip({ session, cloudActive, saveState, shareRole, onSignIn, onSignOut }){
+function AccountChip({ session, cloudActive, saveState, shareRole, roleUnavailable, onSignIn, onSignOut }){
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef(null);
   React.useEffect(()=>{
@@ -110,28 +110,38 @@ function AccountChip({ session, cloudActive, saveState, shareRole, onSignIn, onS
   }
   const email = (window.cloudUserEmail && window.cloudUserEmail(session)) || "Account";
   const initial = (email[0]||"?").toUpperCase();
+  const scopedRole = shareRole==="writer" ? "Writer"
+    : shareRole==="art_director" ? "Art director"
+    : shareRole==="view_only" ? "View only" : "";
+  const roleTitle = roleUnavailable ? " Project role unavailable; this shared project is read-only."
+    : (scopedRole ? " Role: "+scopedRole+"." : "");
   return React.createElement("div",{className:"acct-wrap",ref:ref},
     React.createElement("button",{className:"acct-chip"+(open?" open":""),onClick:()=>setOpen(o=>!o),title:email},
       React.createElement("span",{className:"acct-av"}, initial),
       cloudActive
         // the chip reports the REAL save state — it used to read "Synced" purely because
-        // cloud mode was on, so a failing save still looked healthy
-        ? ((shareRole==="writer" || shareRole==="art_director")
+        // cloud mode was on, so a failing save still looked healthy. Save health
+        // takes precedence over a collaborator role; the role remains secondary
+        // in the tooltip and expanded account menu.
+        ? (saveState==="failed"
+            ? React.createElement("span",{className:"acct-cloud bad",title:"Your latest changes could not be saved. Check your connection — the app keeps trying, and your work stays on screen meanwhile."+roleTitle},
+                React.createElement(Icon.warn,{s:11}),"Not saved")
+            : saveState==="retrying"
+            ? React.createElement("span",{className:"acct-cloud warn",title:"A save didn't go through — retrying."+roleTitle},
+                React.createElement(Icon.warn,{s:11}),"Retrying")
+            : saveState==="saving"
+            ? React.createElement("span",{className:"acct-cloud",title:"Saving your latest changes."+roleTitle},React.createElement(Icon.cloud||Icon.check,{s:11}),"Saving\u2026")
+            : roleUnavailable
+            ? React.createElement("span",{className:"acct-cloud bad",title:"TURN could not verify a current role for this shared project. It is read-only; changes and AI actions will not save. Ask the owner to reassign your role."},
+                React.createElement(Icon.warn,{s:11}),"Role unavailable")
+            : shareRole==="view_only"
+            ? React.createElement("span",{className:"acct-cloud warn",title:"You have VIEW-ONLY access to this film. You can read and explore it, but changes you make here are not saved. Ask the owner for Writer access to edit."},
+                React.createElement(Icon.eye||Icon.warn,{s:11}),"View only")
+            : scopedRole
             ? React.createElement("span",{className:"acct-cloud",
                 title:(window.teamRoleScopeNote ? window.teamRoleScopeNote(shareRole) : "")+" Changes inside your remit save normally."},
                 React.createElement(Icon.check,{s:11}),
                 shareRole==="writer" ? "Writer" : "Art dir")
-            : shareRole==="view_only"
-            ? React.createElement("span",{className:"acct-cloud warn",title:"You have VIEW-ONLY access to this film. You can read and explore it, but changes you make here are not saved. Ask the owner for Writer access to edit."},
-                React.createElement(Icon.eye||Icon.warn,{s:11}),"View only")
-            : saveState==="failed"
-            ? React.createElement("span",{className:"acct-cloud bad",title:"Your latest changes could not be saved. Check your connection — the app keeps trying, and your work stays on screen meanwhile."},
-                React.createElement(Icon.warn,{s:11}),"Not saved")
-            : saveState==="retrying"
-            ? React.createElement("span",{className:"acct-cloud warn",title:"A save didn't go through — retrying."},
-                React.createElement(Icon.warn,{s:11}),"Retrying")
-            : saveState==="saving"
-            ? React.createElement("span",{className:"acct-cloud"},React.createElement(Icon.cloud||Icon.check,{s:11}),"Saving\u2026")
             // healthy state is quiet — "Synced" is reassurance, not news, so it only
             // slides out on hover (desktop) or tap/open (mobile); problem states stay visible
             : React.createElement("span",{className:"acct-cloud quiet"},React.createElement(Icon.check,{s:11}),"Synced"))
@@ -143,6 +153,11 @@ function AccountChip({ session, cloudActive, saveState, shareRole, onSignIn, onS
                      : saveState==="retrying" ? "Signed in \u00b7 retrying a save that didn't go through\u2026"
                      : "Signed in \u00b7 cloud storage active")
                     : "Signed in, but cloud isn't reachable \u2014 check that the `turn` schema is exposed and the SQL has been run."),
+      scopedRole && React.createElement("div",{className:"acct-status",
+        title:window.teamRoleScopeNote ? window.teamRoleScopeNote(shareRole) : ""},
+        "Project role: "+scopedRole),
+      roleUnavailable && React.createElement("div",{className:"acct-status acct-status-bad"},
+        "Project role unavailable \u00b7 read-only until the owner reassigns access"),
       // GENERATION CREDITS (video renders debit these) + WRITING-MODEL spend meter
       // (display-only estimate of Claude/text use \u2014 counted per call in ai.jsx)
       (()=>{
@@ -180,10 +195,11 @@ function _projRowDate(p, all){
     new Date(o.created_at||o.updated_at||0).toDateString()===d.toDateString());
   return sameDayTwin ? (day+" \u00b7 "+d.toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" })) : day;
 }
-function ProjectSwitcher({ projects, currentId, onSwitch, onCreate, onRename, onDelete, formatLabel, frameworkLabel, onNewEpisode, onMakeShow, canMakeShow }){
+function ProjectSwitcher({ projects, currentId, onSwitch, onCreate, onRename, onDelete, formatLabel, frameworkLabel, onNewEpisode, onMakeShow, canMakeShow, onDeleteShow, seriesBusy }){
   const [open, setOpen] = React.useState(false);
   const [renaming, setRenaming] = React.useState(null);   // id being renamed
   const [draft, setDraft] = React.useState("");
+  const [localBusy, setLocalBusy] = React.useState("");
   const ref = React.useRef(null);
   React.useEffect(()=>{
     if(!open) return;
@@ -195,39 +211,129 @@ function ProjectSwitcher({ projects, currentId, onSwitch, onCreate, onRename, on
   const current = (projects||[]).find(p=>p.id===currentId);
   const title = current ? current.title : "Loading\u2026";
   const currentShared = current && current.isShared;
-  // Phase 3 grouping: SHOW rows hold the shared bible; episodes nest beneath them
+  const currentEpisodeNo = current && Number(current.episodeNo);
+  // Phase 3 grouping: SHOW rows hold the shared bible; episodes nest beneath them.
+  // The shared helper deliberately returns episodes whose Show is absent/inaccessible;
+  // those rows remain reachable below instead of disappearing from the switcher.
   // STABLE ORDER (user ruling 2026-07-14): films sort by CREATION date, newest
   // first — never by last-updated, so the list doesn't reshuffle as you work
   const _byCreated = (a,b)=> new Date(b.created_at||b.updated_at||0) - new Date(a.created_at||a.updated_at||0);
-  const shows = (projects||[]).filter(p=>String(p.isShow)==="true").sort(_byCreated);
-  const episodesOf = (sid)=> (projects||[]).filter(p=>p.showId===sid)
+  const grouped = (window.turnSeries && typeof window.turnSeries.groups==="function")
+    ? window.turnSeries.groups(projects||[])
+    : (()=>{
+        const rows=projects||[], isShow=p=>(window.turnSeries&&typeof window.turnSeries.isShowDoc==="function")
+          ? window.turnSeries.isShowDoc(p)
+          : !!(p&&(String(p.project_kind||"").toLowerCase()==="show"||String(p.isShow).toLowerCase()==="true"));
+        const fallbackShows=rows.filter(isShow);
+        const fallbackShowIds=new Set(fallbackShows.map(p=>String(p.id)));
+        return { shows:fallbackShows,
+          standalone:rows.filter(p=>!isShow(p) && !p.showId),
+          unavailable:rows.filter(p=>!isShow(p) && p.showId && !fallbackShowIds.has(String(p.showId))) };
+      })();
+  const shows = (grouped.shows||[]).slice().sort(_byCreated);
+  const episodesOf = (sid)=> (projects||[]).filter(p=>p.showId && String(p.showId)===String(sid))
     .sort((a,b)=>(Number(a.episodeNo)||0)-(Number(b.episodeNo)||0));
-  const standalone = (projects||[]).filter(p=>String(p.isShow)!=="true" && !p.showId).sort(_byCreated);
+  const standalone = (grouped.standalone||[]).slice().sort(_byCreated);
+  const unavailable = (grouped.unavailable||[]).slice().sort((a,b)=>(Number(a.episodeNo)||0)-(Number(b.episodeNo)||0));
+  const showById = {};
+  shows.forEach(s=>{ showById[String(s.id)] = s; });
 
-  const row = (p)=>{
+  // Parent handlers own persistence; this component owns honest interaction state.
+  // `undefined` remains a success for older handlers, while the production handlers can
+  // explicitly return false / {ok:false,message} to keep the UI open on a failed write.
+  const externalBusy = typeof seriesBusy==="string" ? seriesBusy
+    : (seriesBusy && typeof seriesBusy==="object" ? (seriesBusy.key||seriesBusy.id||"") : "");
+  const allBusy = seriesBusy===true || !!externalBusy || !!localBusy;
+  const busyIs = key=> seriesBusy===true || externalBusy===key || localBusy===key;
+  const actionOk = r=> r!==false && r!==null && !(r && typeof r==="object" && r.ok===false);
+  const actionMessage = (r, fallback)=> (r && typeof r==="object" && r.message) || fallback;
+  const runAction = async (key, fn, failText)=>{
+    if(allBusy || typeof fn!=="function") return false;
+    setLocalBusy(key);
+    try{
+      const result = await fn();
+      if(actionOk(result)) return true;
+      if(typeof window.appToast==="function") window.appToast(actionMessage(result, failText), "error");
+      return false;
+    }catch(e){
+      if(typeof window.appToast==="function") window.appToast((e&&e.message)||failText, "error");
+      return false;
+    }finally{ setLocalBusy(""); }
+  };
+  const beginRename = p=>{ if(!allBusy){ setRenaming(p.id); setDraft(p.title||""); } };
+  const commitRename = async (p, kind)=>{
+    const next = draft.trim();
+    if(!next || allBusy) return;
+    const done = await runAction("rename:"+p.id, ()=>onRename(p.id,next,{kind}), "Couldn’t rename this "+kind+".");
+    if(done) setRenaming(null);
+  };
+  const renameEditor = (p, kind)=> React.createElement("div",{key:p.id,className:"proj-rename"},
+    React.createElement("input",{className:"proj-rename-input",autoFocus:true,value:draft,
+      disabled:busyIs("rename:"+p.id),"aria-label":"Rename "+kind,
+      onChange:e=>setDraft(e.target.value),
+      onKeyDown:e=>{ if(e.key==="Enter"&&draft.trim()){ e.preventDefault(); commitRename(p,kind); }
+                     if(e.key==="Escape"&&!allBusy) setRenaming(null); }}),
+    React.createElement("button",{className:"proj-rename-ok",disabled:allBusy||!draft.trim(),
+      title:"Save "+kind+" name",
+      "aria-label":"Save "+kind+" name",
+      onClick:()=>commitRename(p,kind)},
+      busyIs("rename:"+p.id)?"…":React.createElement(Icon.check,{s:13})));
+
+  const confirmAction = async opts=> !window.appConfirm || await window.appConfirm(opts);
+  const requestDeleteShow = async (show, eps)=>{
+    if(!show || typeof onDeleteShow!=="function" || allBusy) return false;
+    // The app-level handler owns the single destructive confirmation because it has
+    // the authoritative cascade details. Keep this menu pending until it resolves.
+    const done = await runAction("delete-show:"+show.id,
+      ()=>onDeleteShow(show.id,(eps||[]).map(e=>e.id)), "Couldn’t delete this show.");
+    if(done){ setRenaming(null); setOpen(false); }
+    return done;
+  };
+  const requestDeleteEpisode = async p=>{
+    if(!p || typeof onDelete!=="function" || allBusy) return false;
+    const show = p.showId ? showById[String(p.showId)] : null;
+    /* Cached sibling counts are presentation only. The exact-Episode RPC decides
+       under the Show lock whether this is truly the final Episode; only then may
+       the app offer the separate whole-Show confirmation. */
+    const epNo = Number(p.episodeNo);
+    const ok = await confirmAction({
+      title:"Delete \u201c"+(p.title||"this episode")+"\u201d?",
+      body:show
+        ? "This removes "+(epNo?("Episode "+String(epNo).padStart(2,"0")):"the episode")+". The show’s shared bible and its other episodes stay."
+        : (p.showId
+          ? "This removes the episode. Its show is unavailable, so no shared bible or other episode will be deleted."
+          : "This removes the film and its sheets. If it’s your only film, a fresh blank one opens in its place."),
+      confirmLabel:p.showId?"Delete episode":"Delete film",danger:true
+    });
+    if(!ok) return false;
+    const done = await runAction("delete:"+p.id, ()=>onDelete(p.id), p.showId?"Couldn’t delete this episode.":"Couldn’t delete this film.");
+    if(done){ setRenaming(null); setOpen(false); }
+    return done;
+  };
+
+  const row = (p, opts)=>{
     const canOwn = p.isOwner !== false && !p.isShared;
+    const isUnavailable = !!(opts&&opts.unavailable);
+    const epNo = Number(p.episodeNo);
     return renaming===p.id
-    ? React.createElement("div",{key:p.id,className:"proj-rename"},
-        React.createElement("input",{className:"proj-rename-input",autoFocus:true,value:draft,
-          onChange:e=>setDraft(e.target.value),
-          onKeyDown:e=>{ if(e.key==="Enter"&&draft.trim()){ onRename(p.id,draft.trim()); setRenaming(null); }
-                         if(e.key==="Escape") setRenaming(null); }}),
-        React.createElement("button",{className:"proj-rename-ok",onClick:()=>{ if(draft.trim()){ onRename(p.id,draft.trim()); setRenaming(null); } }},
-          React.createElement(Icon.check,{s:13})))
+    ? renameEditor(p,p.showId?"episode":"film")
     : React.createElement("div",{key:p.id,className:"proj-row"+(p.id===currentId?" on":"")+(p.showId?" ep":"")},
-        React.createElement("button",{className:"proj-row-main",onClick:()=>{ onSwitch(p.id); setOpen(false); }},
+        React.createElement("button",{className:"proj-row-main",disabled:allBusy,onClick:async ()=>{
+          const done=await runAction("switch:"+p.id,()=>onSwitch(p.id),"Couldn’t open this project."); if(done)setOpen(false); }},
           React.createElement("span",{className:"proj-dot"}),
+          p.showId && React.createElement("span",{className:"proj-show-tag",title:"Episode "+(epNo||"")},epNo?("E"+String(epNo).padStart(2,"0")):"EP"),
           React.createElement("span",{className:"proj-row-name"},p.title),
+          isUnavailable && React.createElement("span",{className:"proj-show-tag",title:"The parent show was deleted or is not available to this account"},"Show unavailable"),
           p.isShared && React.createElement("span",{className:"proj-row-share"},"Shared \u00b7 "+(window.teamRoleLabel ? window.teamRoleLabel(p.shareRole) : (p.shareRole||"Collaborator"))),
           // creation date disambiguates same-named films (e.g. a rebuild alongside
           // its original); same-day twins also get the time
           (p.created_at||p.updated_at) && React.createElement("span",{className:"proj-row-date"},_projRowDate(p, projects))),
-        canOwn && React.createElement("button",{className:"proj-row-act",title:"Rename",
-          onClick:()=>{ setRenaming(p.id); setDraft(p.title); }},
+        canOwn && onRename && React.createElement("button",{className:"proj-row-act",title:"Rename "+(p.showId?"episode":"film"),
+          disabled:allBusy,"aria-label":"Rename "+(p.showId?"episode":"film"),onClick:()=>beginRename(p)},
           React.createElement(Icon.wand,{s:12})),
-        canOwn && React.createElement("button",{className:"proj-row-act danger",title:p.showId?"Delete episode":"Delete film",
-          onClick:async ()=>{ const ok=await window.appConfirm({title:"Delete \u201c"+p.title+"\u201d?",body:p.showId?"This removes the episode (the show's bible and other episodes stay).":"This removes the film and its sheets. If it's your only film, a fresh blank one opens in its place.",confirmLabel:"Delete",danger:true}); if(ok) onDelete(p.id); }},
-          React.createElement(Icon.trash,{s:12})));
+        canOwn && onDelete && React.createElement("button",{className:"proj-row-act danger",title:p.showId?"Delete episode":"Delete film",
+          disabled:allBusy,"aria-label":p.showId?"Delete episode":"Delete film",onClick:()=>requestDeleteEpisode(p)},
+          busyIs("delete:"+p.id)?"…":React.createElement(Icon.trash,{s:12})));
   };
 
   return React.createElement("div",{className:"proj-wrap",ref:ref},
@@ -235,25 +341,47 @@ function ProjectSwitcher({ projects, currentId, onSwitch, onCreate, onRename, on
       React.createElement(Icon.film,{s:13}),
       React.createElement("span",{className:"proj-name"},title),
       currentShared && React.createElement("span",{className:"proj-format shared"},"Shared"),
+      currentEpisodeNo>0 && React.createElement("span",{className:"proj-format"},"E"+String(currentEpisodeNo).padStart(2,"0")),
       formatLabel && React.createElement("span",{className:"proj-format"},formatLabel),
       frameworkLabel && React.createElement("span",{className:"proj-format fw"},frameworkLabel),
       React.createElement(Icon.chevD,{s:12})),
     open && React.createElement("div",{className:"proj-menu"},
-      React.createElement("div",{className:"proj-menu-lab"},"Your films"),
+      React.createElement("div",{className:"proj-menu-lab"},"Films & shows"),
       React.createElement("div",{className:"proj-list"},
         standalone.map(row),
-        shows.map(s=> React.createElement("div",{key:s.id,className:"proj-show"},
+        shows.map(s=>{
+          const eps=episodesOf(s.id), owns=s.isOwner!==false&&!s.isShared;
+          const count=eps.length+" episode"+(eps.length===1?"":"s")+(s.isShared?" available":"");
+          return React.createElement("div",{key:s.id,className:"proj-show"+(eps.some(e=>e.id===currentId)?" current":"")},
+            renaming===s.id ? renameEditor(s,"show") : React.createElement("div",{className:"proj-show-head proj-row"},
+              React.createElement(Icon.layers,{s:12}),
+              React.createElement("span",{className:"proj-show-name"},s.title),
+              React.createElement("span",{className:"proj-row-date"},count),
+              s.isShared && React.createElement("span",{className:"proj-row-share"},"Shared \u00b7 "+(window.teamRoleLabel?window.teamRoleLabel(s.shareRole):(s.shareRole||"Collaborator"))),
+              React.createElement("span",{className:"proj-show-tag"},"Show"),
+              owns && onRename && React.createElement("button",{className:"proj-row-act",title:"Rename show","aria-label":"Rename show",disabled:allBusy,onClick:()=>beginRename(s)},
+                React.createElement(Icon.wand,{s:12})),
+              owns && onDeleteShow && React.createElement("button",{className:"proj-row-act danger",title:"Delete show","aria-label":"Delete show",disabled:allBusy,onClick:()=>requestDeleteShow(s,eps)},
+                busyIs("delete-show:"+s.id)?"…":React.createElement(Icon.trash,{s:12}))),
+            eps.map(row),
+            !eps.length && React.createElement("div",{className:"proj-row-main",style:{paddingLeft:32,color:"var(--txt-3)"}},
+              owns?"No episodes yet — create Episode 1 to begin.":"No episodes available to you."),
+            onNewEpisode && owns && React.createElement("button",{className:"proj-newep",disabled:allBusy,onClick:async ()=>{
+              const done=await runAction("new-episode:"+s.id,()=>onNewEpisode(s.id),"Couldn’t create a new episode."); if(done)setOpen(false); }},
+              React.createElement(Icon.plus,{s:12}),busyIs("new-episode:"+s.id)?"Creating…":(eps.length?"New episode":"Create Episode 1")));
+        }),
+        unavailable.length>0 && React.createElement("div",{className:"proj-show unavailable"},
           React.createElement("div",{className:"proj-show-head"},
-            React.createElement(Icon.layers,{s:12}),
-            React.createElement("span",{className:"proj-show-name"},s.title),
-            React.createElement("span",{className:"proj-show-tag"},"Show")),
-          episodesOf(s.id).map(row),
-          onNewEpisode && s.isOwner !== false && !s.isShared && React.createElement("button",{className:"proj-newep",onClick:()=>{ onNewEpisode(s.id); setOpen(false); }},
-            React.createElement(Icon.plus,{s:12}),"New episode")))),
-      canMakeShow && onMakeShow && React.createElement("button",{className:"proj-new ghosted",onClick:()=>{ onMakeShow(); setOpen(false); },
+            React.createElement(Icon.layers,{s:12}),React.createElement("span",{className:"proj-show-name"},"Show unavailable"),
+            React.createElement("span",{className:"proj-row-date"},unavailable.length+" episode"+(unavailable.length===1?"":"s")),
+            React.createElement("span",{className:"proj-show-tag"},"Recovery")),
+          unavailable.map(p=>row(p,{unavailable:true})))),
+      canMakeShow && onMakeShow && React.createElement("button",{className:"proj-new ghosted",disabled:allBusy,onClick:async ()=>{
+        const done=await runAction("make-show:"+currentId,onMakeShow,"Couldn’t create the show."); if(done)setOpen(false); },
         title:"This film becomes Episode 1; its cast, locations, props and lookbook become the show's shared bible"},
-        React.createElement(Icon.layers,{s:13}),"Turn this film into a show"),
-      React.createElement("button",{className:"proj-new",onClick:()=>{ onCreate("Untitled film"); setOpen(false); }},
-        React.createElement(Icon.plus,{s:13}),"New film")));
+        React.createElement(Icon.layers,{s:13}),busyIs("make-show:"+currentId)?"Creating show…":"Turn this film into a show"),
+      React.createElement("button",{className:"proj-new",disabled:allBusy,onClick:async ()=>{
+        const done=await runAction("new-film",()=>onCreate("Untitled film"),"Couldn’t create a new film."); if(done)setOpen(false); }},
+        React.createElement(Icon.plus,{s:13}),busyIs("new-film")?"Creating…":"New film")));
 }
 window.ProjectSwitcher = ProjectSwitcher;

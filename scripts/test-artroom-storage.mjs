@@ -9,6 +9,7 @@ let row=null, uploads=[], removed=[], failUpsert=false, uncertainUpsert=false, c
 let cleanupFailures=0, insertRaceRow=null;
 let readCount=0, failReadAt=0;
 let uploadHook=null, removeHook=null, mutationHook=null, beforeMutationHook=null;
+let lastMutationFilters=[];
 
 class Query {
   constructor(){ this.op="read"; this.value=null; this.filters=[]; }
@@ -33,6 +34,7 @@ class Query {
       if(failReadAt===readCount) return {data:null,error:{message:"injected readback failure"}};
       return {data:this._matches() ? clone(row) : null,error:null};
     }
+    lastMutationFilters=clone(this.filters);
     if(this.op==="insert"){
       if(insertRaceRow){ row=clone(insertRaceRow); insertRaceRow=null; return {data:null,error:{message:"duplicate key"}}; }
       if(row) return {data:null,error:{message:"duplicate key"}};
@@ -104,6 +106,7 @@ function reset(next=null){
   row=clone(next); uploads=[]; removed=[]; failUpsert=false; cancelled=false;
   uncertainUpsert=false; cleanupFailures=0; insertRaceRow=null;
   readCount=0; failReadAt=0; uploadHook=null; removeHook=null; mutationHook=null; beforeMutationHook=null;
+  lastMutationFilters=[];
 }
 const png="data:image/png;base64,QQ==";
 const commit=()=>sandbox.cloudCommit("film","user","asset",png,
@@ -111,6 +114,7 @@ const commit=()=>sandbox.cloudCommit("film","user","asset",png,
   [],"character",()=>cancelled);
 const old={
   project_id:"film",entity_id:"asset",owner:"user",storage_path:"old-sheet",
+  updated_at:"2026-09-01T00:00:00.000Z",
   meta:{iso:"2026-08-01T00:00:00.000Z"},refs:[{storage_path:"old-ref"}],
   history:[{storage_path:"older-sheet",refs:[{storage_path:"older-ref"}]}],
 };
@@ -157,17 +161,20 @@ reset(old);
 result=await commit();
 ok("successful commit requires and returns the verified row",
   result.tier==="cloud" && row.storage_path===result.path && row.history[0].storage_path==="old-sheet");
+ok("existing-generation CAS uses only the compact updated-at token",
+  lastMutationFilters.some(([k,v])=>k==="updated_at"&&v===old.updated_at)
+    && !lastMutationFilters.some(([k])=>["meta","refs","history","storage_path"].includes(k)));
 ok("new commit clears inherited approval",
   !Object.prototype.hasOwnProperty.call(row.meta,"approval"));
 
 reset(old);
-beforeMutationHook=()=>{ row.meta={...row.meta,approval:{iso:row.meta.iso,approved:true}}; };
+beforeMutationHook=()=>{ row.meta={...row.meta,approval:{iso:row.meta.iso,approved:true}}; row.updated_at="2026-09-01T00:00:01.000Z"; };
 result=await commit();
-ok("same-path concurrent metadata change refuses full-snapshot CAS",
+ok("same-path concurrent metadata change refuses updated-at CAS",
   result.tier==="error" && row.storage_path==="old-sheet" && row.meta.approval.approved===true);
 
 reset(old);
-beforeMutationHook=()=>{ row.history=[...row.history,{storage_path:"concurrent-history"}]; };
+beforeMutationHook=()=>{ row.history=[...row.history,{storage_path:"concurrent-history"}]; row.updated_at="2026-09-01T00:00:01.000Z"; };
 result=await commit();
 ok("same-path concurrent history change is preserved and commit refused",
   result.tier==="error" && row.storage_path==="old-sheet"

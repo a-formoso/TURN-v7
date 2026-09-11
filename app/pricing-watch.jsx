@@ -29,6 +29,8 @@
     "gemini-3.1-flash-image": "Nano Banana 2",
     "gemini-3-pro-image": "Nano Banana Pro",
     "gpt-image-2": "GPT Image 2",
+    "gpt-image-2.5-flare": "GPT Image 2.5 Flare",
+    "gpt-image-2.5-sunburst": "GPT Image 2.5 Sunburst",
     "seedance-2.0": "Seedance 2.0",
     "seedance-2.5": "Seedance 2.5",
     "kling-3.0": "Kling 3.0",

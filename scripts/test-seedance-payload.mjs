@@ -7,6 +7,7 @@ import {
   validateSeedanceRequest,
 } from "../supabase/functions/image-proxy/seedance-capabilities.mjs";
 
+const proxySource = readFileSync("supabase/functions/image-proxy/index.ts", "utf8");
 const url = (kind, n) => `https://media.example/${kind}-${n}`;
 const facts = (count, durationSeconds = undefined) =>
   Array.from({ length: count }, () => ({
@@ -334,5 +335,41 @@ submitHttpFailure = null;
 assert.notEqual(generic422Error?.name, "ProviderPolicyError", "generic HTTP 422 must not be inferred as policy");
 assert.equal(generic422Error?.providerDetail, generic422Body.error);
 assert.equal(generic422Error?.code, "VALIDATION_ERROR");
+
+const textOnlyValidation = validateSeedanceRequest({
+  model: "bytedance/seedance-2.5/text-to-video",
+  duration: 8,
+  resolution: "720p",
+  aspectRatio: "16:9",
+  prompt: "A fictional scene unfolds in the described office.",
+  images: [], videos: [], audios: [],
+});
+assert.equal(textOnlyValidation.ok, true, "Seedance 2.5 text-to-video accepts a media-free package");
+await sandbox.seedanceGenerate(null, {
+  falModel: "bytedance/seedance-2.5/reference-to-video",
+  textOnly: true,
+  prompt: "A fictional scene unfolds in the described office.",
+  durationMs: 8000,
+  aspectRatio: "16:9",
+  resolution: "720p",
+  pollMs: 1,
+  maxPolls: 1,
+});
+const textOnlySubmit = submitted.at(-1);
+assert.equal(textOnlySubmit.model, "bytedance/seedance-2.5/text-to-video");
+assert.deepEqual(Array.from(textOnlySubmit.image_urls || []), []);
+assert.deepEqual(Array.from(textOnlySubmit.video_urls || []), []);
+assert.deepEqual(Array.from(textOnlySubmit.audio_urls || []), []);
+assert.equal(textOnlySubmit.bitrateMode, null, "text-only client request must not ask for bitrate control");
+assert.match(proxySource, /body\.bitrateMode && !\/text-to-video\$\/\.test\(model\)/,
+  "the proxy must not forward bitrate_mode to Seedance text-to-video");
+await assert.rejects(sandbox.seedanceGenerate(null, {
+  falModel: "bytedance/seedance-2.5/reference-to-video",
+  textOnly: true,
+  frameUrl: "https://signed.example/should-not-attach.png",
+  prompt: "No media should travel.",
+  durationMs: 8000,
+  resolution: "720p",
+}), /cannot include image, video, or audio references/);
 
 console.log("Seedance payload validation tests passed.");

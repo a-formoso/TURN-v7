@@ -109,6 +109,74 @@ function stageFriendlyVideoError(err){
   }
   return raw;
 }
+function stageCanOfferTextOnlyRecovery(err, modelId){
+  if(String(modelId||"")!=="seedance-2.5") return false;
+  const s=String((err&&err.message)||err||"");
+  const policy=/provider rejected|content(?:,| ) safety|content policy|safety policy|likeness policy|policy refusal/i.test(s);
+  const suppliedMedia=/images? or videos?|supplied (?:media|inputs?)|character reference|likeness(?:es)? of real (?:people|persons?)|private information/i.test(s);
+  return policy && suppliedMedia;
+}
+function stageTextOnlyAssetLabel(asset){
+  if(!asset) return "the described subject";
+  if(asset.kind==="audio") return "the quoted dialogue";
+  if(asset.kind==="video") return "the preceding action";
+  let label=String(asset.label||"").split(/\s+[·—]\s+/)[0].trim();
+  if(asset.assetRole==="shot_anchor") return "the designed shot composition";
+  if(!label) label=asset.referenceKind==="location" ? "the described location"
+    : asset.referenceKind==="prop" ? "the described prop"
+    : asset.referenceKind==="character" ? "the described character"
+    : "the described subject";
+  return label;
+}
+function stageTextOnlyPrompt(prompt, assets){
+  const labels={};
+  (assets||[]).forEach(a=>{
+    const tok=stageAssetMention(a);
+    if(tok&&tok!=="@") labels[tok.toLowerCase()]=stageTextOnlyAssetLabel(a);
+  });
+  let out=String(prompt||"")
+    // Locked voice references cannot travel on Seedance's text-to-video endpoint.
+    // The exact quoted screenplay dialogue remains in the timed plan for native speech.
+    .replace(/^VOICE CAST\s*[—-][^\n]*(?:\n+)?/gmi,"")
+    .replace(/@(Image|Video|Audio)\d+/gi,m=>labels[m.toLowerCase()]||({image:"the described subject",video:"the preceding action",audio:"the quoted dialogue"}[m.slice(1).replace(/\d+$/g,"").toLowerCase()]))
+    .replace(/Use the selected references to lock identity, appearance variants, wardrobe, props and location geography\./gi,
+      "Use the written character, wardrobe, prop and location continuity descriptions consistently.")
+    .replace(/from the references/gi,"from the written continuity description")
+    .replace(/selected references/gi,"written continuity description")
+    .replace(/\n{3,}/g,"\n\n")
+    .trim();
+  return "REFERENCE-FREE RENDER — generate only from the written direction; no source media is attached.\n\n"+out;
+}
+function stageShotRangeLabel(values){
+  const nums=Array.from(new Set((values||[]).map(Number).filter(n=>Number.isInteger(n)&&n>0))).sort((a,b)=>a-b);
+  if(!nums.length) return "";
+  const ranges=[];
+  for(let i=0;i<nums.length;){
+    const start=nums[i];let end=start;
+    while(i+1<nums.length&&nums[i+1]===end+1){ i++;end=nums[i]; }
+    ranges.push(start===end?String(start):(start+"–"+end));i++;
+  }
+  return (nums.length===1?"Shot ":"Shots ")+ranges.join(", ");
+}
+function stageGroupReferenceIssues(rows){
+  const groups=new Map();
+  (rows||[]).filter(Boolean).forEach((row,i)=>{
+    const key=String(row.groupKey||[row.blocking?"blocking":"notice",row.message||"",i].join("|"));
+    let group=groups.get(key);
+    if(!group){ group={...row,shotNs:[]};groups.set(key,group); }
+    if(Number.isInteger(Number(row.shotN))&&Number(row.shotN)>0) group.shotNs.push(Number(row.shotN));
+    if(row.blocking) group.blocking=true;
+  });
+  return Array.from(groups.values()).map(group=>{
+    const affected=stageShotRangeLabel(group.shotNs);
+    const base=String(group.message||"Required reference is unavailable").trim().replace(/[.\s]+$/g,"");
+    return {...group,message:base+(affected?(". Affects "+affected+"."):"."),shotNs:undefined};
+  });
+}
+window.stageCanOfferTextOnlyRecovery=stageCanOfferTextOnlyRecovery;
+window.stageTextOnlyPrompt=stageTextOnlyPrompt;
+window.stageShotRangeLabel=stageShotRangeLabel;
+window.stageGroupReferenceIssues=stageGroupReferenceIssues;
 /* raw fal queue statuses (IN_QUEUE / IN_PROGRESS…) are for machines — this is what
    people see. Batch composites like "2/4 takes · IN_PROGRESS" humanize too. */
 function stageStatusLabel(s){
@@ -2054,7 +2122,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     : {characters:[],locations:[],props:[],warnings:[],signature:""};
   const beatLabel = clip.label;
   const beatName = clipBeatName(clip, beatsMap, drafts);
-  const referenceWarningText=(w)=>{
+  const referenceWarningContext=(w)=>{
     const sh=shownShots.find(x=>String(x&&x.id||"")===String(w&&w.shotId||""));
     const shotN=Math.max(0,shownShots.indexOf(sh))+1;
     const shotLabel=sh&&String(sh.title||sh.name||sh.slug||sh.action||"").trim();
@@ -2064,24 +2132,39 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     const entity=entities.find(x=>desc&&String(x&&x.id||"")===String(desc.entityId||desc.baseId||""));
     const assetLabel=(entity&&String(entity.name||entity.label||entity.title||"").trim())
       ||(desc&&String(desc.label||desc.name||"").trim())||String(w&&w.imageId||"reference asset");
+    return {w,sh,shotN,shotLabel,desc,entity,assetLabel};
+  };
+  const rawReferenceWarnings=referencePackage.warnings||[];
+  // stageReferenceStatus names absent bytes as a reason as well as the package's
+  // explicit missing-reference issue. Keep one actionable issue, not two rows per
+  // asset per shot.
+  const explicitMissingKeys=new Set(rawReferenceWarnings
+    .filter(w=>w&&w.code==="missing-reference")
+    .map(w=>String(w.shotId||"")+"|"+String(w.imageId||"")));
+  const referenceWarningRows=rawReferenceWarnings.filter(w=>{
+    if(!w||w.code!=="review-required") return true;
+    const redundant=/reference image is missing or has not finished loading/i.test(String(w.message||""));
+    return !(redundant&&explicitMissingKeys.has(String(w.shotId||"")+"|"+String(w.imageId||"")));
+  }).map(w=>{
+    const {shotN,desc,entity,assetLabel}=referenceWarningContext(w);
+    let message;
     if(desc&&desc.kind==="character"&&desc.stateId&&w&&w.severity==="error"){
       const states=(entity&&entity.states)||[];
       const state=states.find(s=>s.id===desc.stateId);
       const version=state?states.indexOf(state)+2:"?";
       const stateLabel=(state&&state.label)||"Unnamed appearance state";
-      return "Required character appearance "+assetLabel+" · Appearance: "+stateLabel+" (v"+version+") is not loaded/available. "
-        +"The master reference is a different asset and cannot replace this state automatically. "
-        +"To deliberately use the existing master instead, choose “Use master for this shot” below the reference tiles; this changes only that shot's video reference. "
-        +"In Art Room → Characters → "+assetLabel+" → Continuity · appearance states, load, generate, or import this exact state if intended; "
-        +"its scene-wide assignment is left unchanged by the shot-only choice."
-        +(w.shotId?(" Needed by Shot "+(shotN||"?")+(shotLabel?(" "+shotLabel):"")+"."):"");
+      message="Required appearance “"+assetLabel+" · "+stateLabel+" (v"+version+")” is unavailable. "
+        +"Load, generate, or import that state in Art Room → Characters → "+assetLabel+" → Continuity · appearance states, "
+        +"or choose “Use master for this shot” beneath the reference tiles";
+    }else{
+      message=String(w&&w.message||"Required reference is unavailable")+" — "+assetLabel;
     }
-    return String(w&&w.message||"Required reference is unavailable")
-      +" — "+assetLabel
-      +(w&&w.shotId?(" · Shot "+(shotN||"?")+(shotLabel?(" "+shotLabel):"")):"");
-  };
-  const referenceBlockingWarnings=(referencePackage.warnings||[]).filter(w=>w&&w.severity==="error");
-  const referenceBlockMessage=referenceBlockingWarnings.map(referenceWarningText).join(" ");
+    return {groupKey:[w.severity||"warning",w.imageId||"",w.code||"",message].join("|"),
+      message,blocking:w.severity==="error",shotN};
+  });
+  const referenceWarningGroups=stageGroupReferenceIssues(referenceWarningRows);
+  const referenceBlockingWarnings=referenceWarningGroups.filter(w=>w&&w.blocking);
+  const referenceBlockMessage=referenceBlockingWarnings.map(w=>w.message).join(" ");
   const clipsInScene = (sceneClips&&sceneClips.length) ? sceneClips : [clip];
   /* the filmstrip reads vidGetVideo SYNCHRONOUSLY from the in-memory cache — only the
      clip loaded in the player ever gets vidLoadVideo'd, so takes rendered in earlier
@@ -2303,7 +2386,25 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   const [extraOn, setExtraOn] = React.useState(()=>new Set());
   const [imgFail, setImgFail] = React.useState(()=>new Set());   // "key|url" pairs whose image failed to load — keyed BY URL so a regenerated/refreshed image (new URL) automatically retries instead of staying stuck on the placeholder
   const imgFailed = (a)=> imgFail.has(a.key+"|"+(a.url||""));
-  const noteImgFail = (a)=> setImgFail(s=>{ const k=a.key+"|"+(a.url||""); if(s.has(k)) return s; const n=new Set(s); n.add(k); return n; });
+  // One transparent asset-id rehydrate repairs an expired signed URL or revoked
+  // blob URL. Remember both URLs so a genuinely bad asset cannot retry-loop; a
+  // later regenerated URL is different and is eligible for its own recovery.
+  const imgRepairRef = React.useRef(new Map());
+  const noteImgFail = (a)=>{
+    const k=a.key+"|"+(a.url||"");
+    setImgFail(s=>{ if(s.has(k)) return s; const n=new Set(s); n.add(k); return n; });
+    if(!a.id || typeof nbRefreshImage!=="function") return;
+    const prior=imgRepairRef.current.get(a.id);
+    if(prior && (prior.failedUrl===a.url || prior.replacementUrl===a.url)) return;
+    const rec={failedUrl:a.url||"",replacementUrl:""};
+    imgRepairRef.current.set(a.id,rec);
+    nbRefreshImage(a.id,a.url).then(u=>{
+      rec.replacementUrl=u||"";
+      // Re-test even if the refreshed signed URL string is unchanged: the first
+      // load failure may have been transient. A second failure stays visible.
+      if(u) setImgFail(s=>{ if(!s.has(k)) return s; const n=new Set(s); n.delete(k); return n; });
+    }).catch(()=>{});
+  };
   const on = (a)=> a.ready && (a.sceneOnly ? extraOn.has(a.key) : !off.has(a.key));
   const tagged = React.useMemo(()=>{
     const n={text:0,image:0,video:0,audio:0}, tags={};
@@ -2894,17 +2995,22 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
      Cancel-render button sets it, and onGenerate checks it at the one point that
      matters — right before submission, where credits would be spent. */
   const stagingCancelRef = React.useRef(false);
-  const onGenerate = async ()=>{
+  const onGenerate = async (attemptOptions)=>{
+    const referenceFree=!!(attemptOptions&&attemptOptions.referenceFree);
      /* ASSET STAGING (cloud URL refresh and blob→data-url conversion) runs
        BEFORE the hook's gening flag can light — a slow stage looked like a dead click
        and a staging throw was an uncaught rejection with no toast at all. staging
        lights the player/buttons immediately; the outer catch always surfaces. */
     if(staging) return;
+    if(referenceFree&&textOnlyRecoveryBlocked){
+      if(typeof window.appToast==="function") window.appToast(textOnlyRecoveryBlocked.text||"Review the remaining render blocker first.","error");
+      return;
+    }
      if(!stageServerResolutionAllowed(modelId,resolution,runtimeCaps,capabilityTarget)){
        if(typeof window.appToast==="function") window.appToast(resolution+" is pending a server update confirmed by the video proxy capability handshake. Choose an advertised resolution such as 720p.","error");
        return;
      }
-     if(referenceBlockingWarnings.length){
+     if(referenceBlockingWarnings.length && !referenceFree){
        if(typeof window.appToast==="function") window.appToast(referenceBlockMessage,"error");
        return;
      }
@@ -2918,15 +3024,19 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     // the start frame leads ONLY when its asset chip is included — an excluded start
     // frame means a promptless-anchor render (prompt + remaining references only),
     // never a silent fallback to some other included image
-    const frameAsset = onImages.find(a=>a.url===startFrame) || null;
+    const attemptImages=referenceFree ? [] : onImages;
+    const attemptVideos=referenceFree ? [] : onVideos;
+    const attemptAudios=referenceFree ? [] : onAudios;
+    const attemptPromptRefAssets=referenceFree ? [] : directPromptRefAssets;
+    const frameAsset = referenceFree ? null : (onImages.find(a=>a.url===startFrame) || null);
     const frameUrl = frameAsset ? await stageServerAssetUrl(frameAsset, startFrame || frameAsset.url || "") : "";
     setPrepPct(22);
     const imageEntries = [];
-    for(const a of onImages){ if(a===frameAsset) continue; const u=await stageServerAssetUrl(a); if(u) imageEntries.push({ asset:a, url:u }); }
+    for(const a of attemptImages){ if(a===frameAsset) continue; const u=await stageServerAssetUrl(a); if(u) imageEntries.push({ asset:a, url:u }); }
     const imageUrls = imageEntries.map(e=>e.url);
     setPrepPct(38);
-    const videoUrls = onVideos.map(a=>a.url).filter(Boolean);
-    let audioUrls = voiceLocked ? onAudios.map(a=>a.url).filter(Boolean) : [];
+    const videoUrls = attemptVideos.map(a=>a.url).filter(Boolean);
+    let audioUrls = (!referenceFree&&voiceLocked) ? attemptAudios.map(a=>a.url).filter(Boolean) : [];
     const voiceRefLines = [];
     if(audioUrls.length>directAudioLimit) throw new Error("Every screenplay line must attach before rendering. This request has "
       +audioUrls.length+" audio references; the active video transport advertises "+directAudioLimit+". Use Fit beat to split at shot boundaries.");
@@ -2934,15 +3044,17 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     const controls = [cameraProfileLine, "Camera movement: "+camera+". Lighting: "+lighting+". Performance: "+perf+"."]
       .filter(Boolean).join("\n");
     if(clip.g&&clip.g.over&&(!renderPlan||renderPlan.over)){ if(typeof window.appToast==="function") window.appToast("This clip's current render plan needs "+_fmtSecs((renderPlan&&renderPlan.durationSec)||clip.g.dur)+" — over "+_fmtSecs(model.maxClipSec||15)+". Use Fit beat, or deliberately split/revoice one unsplittable shot; the app will not silently compress a paid request.","error"); return; }
-    if(assetOver){ if(typeof window.appToast==="function") window.appToast((model.label||"This model")+" accepts up to "+assetLimit+" inputs — exclude a few assets first.","error"); return; }
-    if(sourceBlocking){ if(typeof window.appToast==="function") window.appToast("Save this clip's storyboard "+(sourceMode==="sheet"?"sheet":"halves")+" in Storyboards first, or switch Visual source back to shot/prompt rendering.","error"); return; }
-    if(needsVoice){ if(typeof window.appToast==="function") window.appToast("Voice this clip's dialogue first — duration and lip-sync are locked to line audio.","error"); return; }
+    if(assetOver&&!referenceFree){ if(typeof window.appToast==="function") window.appToast((model.label||"This model")+" accepts up to "+assetLimit+" inputs — exclude a few assets first.","error"); return; }
+    if(sourceBlocking&&!referenceFree){ if(typeof window.appToast==="function") window.appToast("Save this clip's storyboard "+(sourceMode==="sheet"?"sheet":"halves")+" in Storyboards first, or switch Visual source back to shot/prompt rendering.","error"); return; }
+    if(needsVoice&&!referenceFree){ if(typeof window.appToast==="function") window.appToast("Voice this clip's dialogue first — duration and lip-sync are locked to line audio.","error"); return; }
 	    if(creditInfo.empty){ if(typeof window.appToast==="function") window.appToast("No generation credits remaining.","error"); return; }
 	    const hadTakeBefore = !!((typeof vidGetTakes==="function" && vidGetTakes(beatVideoId).length) || playerUrl || gen.videoUrl);
 	    const seedVal = seedInput.trim() ? Number(seedInput.trim()) : undefined;
-	    const promptPayload = (refBlock ? (prompt.trim()+"\n\n"+refBlock) : prompt)
-	      + (voiceRefLines.length ? (refBlock?"":"\n\nReferences:")+"\n"+voiceRefLines.join("\n") : "");
-	    const takeReferences = directPromptRefAssets.map(a=>({
+	    const promptPayload = referenceFree
+        ? stageTextOnlyPrompt(prompt, promptRefAssets)
+        : ((refBlock ? (prompt.trim()+"\n\n"+refBlock) : prompt)
+          + (voiceRefLines.length ? (refBlock?"":"\n\nReferences:")+"\n"+voiceRefLines.join("\n") : ""));
+	    const takeReferences = attemptPromptRefAssets.map(a=>({
 	      key:a.key||"",
 	      tag:stageAssetMention(a),
 	      kind:a.kind,
@@ -2981,6 +3093,14 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     }).filter(s=>s.prompt) : undefined;
       const shotSources=(typeof shotSourceStamp==="function")
         ? (d.shots||[]).map(sh=>shotSourceStamp(sh,(drafts||{})[sh.sceneId])) : [];
+      const resolvedSourceVersions=[].concat(referencePackage.characters||[],referencePackage.locations||[],referencePackage.props||[])
+        .map(r=>({assetId:r.assetId,entityId:r.entityId,kind:r.kind,stateId:r.stateId||"",
+          snapshot:r.snapshot,shotIds:r.shotIds,usages:r.usages}));
+      const attemptRenderPlan=referenceFree&&typeof window.stageBuildTimedPlan==="function"
+        ? window.stageBuildTimedPlan(shownShots,{modelId,maxSeconds:model.maxClipSec||15,
+            maxShots:model.maxShotsPerClip||Infinity,maxDialogue:10,audioMode:"native",
+            panelLines:d.panelLines||[],durationSec:duration})
+        : renderPlan;
       const payload = { frameUrl, imageUrls, videoUrls, audioUrls, prompt:promptPayload, controls, multiShot,
       // the spend record rides the render job itself — settled at COMPLETION
       // (live or crash-recovered), pinned to the launching account, deduped by
@@ -2990,23 +3110,25 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
       seed:seedVal, generateAudio: hasDialogue ? true : nativeAudio,   // audio track must stay ON for the lip-synced line to be heard
       bitrateMode:bitrate,
       falModel: tierObj.falModel || undefined,   // non-Seedance engines (Sora 2) name their fal endpoint per tier
+      textOnly:referenceFree,
       // facts the Versions view shows per take — stamped into the take's meta at commit
-	      takeMeta:{ source:sourceMode, tier:tierObj.id, tierLabel:tierObj.label, resolution, bitrate, recipe:effPromptStyle || recipe,
+	      takeMeta:{ source:referenceFree?"text-only":sourceMode, tier:tierObj.id, tierLabel:tierObj.label, resolution, bitrate, recipe:effPromptStyle || recipe,
 	        assetRole:"final_take", assetRoleLabel:(typeof nbAssetRoleLabel==="function") ? nbAssetRoleLabel("final_take") : "Final take",
 	        cameraProfile:cameraProfile, cameraProfileLabel:(cameraProfile!=="auto" ? ((stageCameraProfiles.find(x=>x.id===cameraProfile)||{}).label||cameraProfile) : ""),
-	        audio: hasDialogue ? (voiceLocked ? "voice" : "native") : (nativeAudio ? "native" : "silent"),
-	        inputs: counts.text+" text · "+counts.images+" img · "+counts.videos+" vid · "+counts.audio+" aud",
+	        audio: hasDialogue ? ((referenceFree||!voiceLocked) ? "native" : "voice") : (nativeAudio ? "native" : "silent"),
+	        inputs: referenceFree ? "1 text · 0 img · 0 vid · 0 aud"
+            : (counts.text+" text · "+counts.images+" img · "+counts.videos+" vid · "+counts.audio+" aud"),
 	        durationSec: duration, references: takeReferences, shotSources,
-          renderPlan,
-          referenceSourceVersions:[].concat(referencePackage.characters||[],referencePackage.locations||[],referencePackage.props||[])
-            .map(r=>({assetId:r.assetId,entityId:r.entityId,kind:r.kind,stateId:r.stateId||"",
-              snapshot:r.snapshot,shotIds:r.shotIds,usages:r.usages})),
-          referenceSignature:referencePackage.signature||"",
+          renderPlan:attemptRenderPlan,
+          referenceSourceVersions:referenceFree?[]:resolvedSourceVersions,
+          omittedReferenceSourceVersions:referenceFree?resolvedSourceVersions:[],
+          referenceSignature:referenceFree?"":(referencePackage.signature||""),
+          referenceRecovery:referenceFree?"provider-media-policy-text-only":"",
 	        propDependencies:(typeof stageClipPropDependencySignature==="function")
 	          ? stageClipPropDependencySignature(d,scene&&scene.id,window.turnContinuity||{}) : "" },
       // start→end transitions render on the dedicated i2v endpoint, which needs BOTH
       // frames — with the start frame excluded, the end frame quietly stands down
-      endImageUrl: (frameUrl ? endFrameUrl : "") || undefined, force:true };
+      endImageUrl: (!referenceFree&&frameUrl ? endFrameUrl : "") || undefined, force:true };
     // cancelled while staging? Bail BEFORE submission — nothing was spent yet.
     if(stagingCancelRef.current){ if(typeof window.appToast==="function") window.appToast("Render cancelled.","info"); return; }
     try{
@@ -3016,9 +3138,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
       const runPayload = (p)=> batchN>1 && typeof gen.generateBatch==="function"
         ? gen.generateBatch(p, batchN)
         : gen.generate(p).then(r=>[r]);
-      // Final fail-closed guard immediately before the paid submission. Never
-      // change references/prompt/model or launch a second job after moderation.
-      if(referenceBlockingWarnings.length) throw new Error(referenceBlockMessage);
+      // Final fail-closed guard immediately before the paid submission. A normal
+      // render never changes references after moderation. The explicit text-only
+      // recovery is a separate user-launched job and intentionally has no media.
+      if(referenceBlockingWarnings.length&&!referenceFree) throw new Error(referenceBlockMessage);
       const results = await runPayload(payload);
       const fresh = results.filter(r=>r && !r.cached);
       const lastWithSeed = results.filter(r=>r && r.seed!=null).slice(-1)[0];
@@ -3091,6 +3214,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   const renderCostTitle = totalCost+" credit"+(totalCost!==1?"s":"")+" — "
     +(batchN>1 ? (batchN+" takes × (") : "")+_fmtSecs(duration)+" × "+resolution+" × "+tierObj.label+(batchN>1?")":"");
   const creditInfo = stageCreditInfo(creditBalance, totalCost);
+  const canTextOnlyRecovery=stageCanOfferTextOnlyRecovery(gen.err||genErr,modelId);
+  const textOnlyRecoveryTitle="Start a new "+totalCost+"-credit render through Seedance 2.5 text-to-video. "
+    +"No image, video, or recorded-voice files will be sent; the screenplay/shot prompt and render settings stay, but cast likeness and exact visual continuity may vary.";
   const PANEL_PROMPT_MAX = 1999;
   const activePanel = (d.panelLines||[]).find(p=>p.shotId===activeShot.id) || {};
   const scriptText = activePanel.script || stageShotScriptText(scene, drafts, activeShot, 280) || "";
@@ -3298,6 +3424,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     actionLabel:"Choose a plan", action:()=>{ if(typeof window.turnOpenPlans==="function") window.turnOpenPlans(); } });
   if(!prompt.trim()) blockers.push({ key:"prompt", text:"Write a prompt — describe the motion you want." });
   const blocker = blockers[0] || null;
+  const textOnlyRecoveryBlocked=blockers.find(b=>!["required-reference","voice","source","budget","voice-cap"].includes(b.key))||null;
   const onBlockedGenerate = ()=>{
     setBlockPulse(x=>x+1);
     if(blockerRef.current){ try{ blockerRef.current.scrollIntoView({ behavior:"smooth", block:"center" }); }catch(e){} }
@@ -3758,7 +3885,13 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
       blockers.slice(1).map(b=>_stEl("div",{key:b.key,className:"stage2-warn"}, Icon.alert&&_stEl(Icon.alert,{s:12}),
         _stEl("span",{className:"stage2-warn-text"}, b.text),
         b.actionLabel && _stEl("button",{type:"button",className:"stage2-warn-act",disabled:b.busy,onClick:b.action}, b.actionLabel))),
-      genErr && _stEl("div",{className:"stage2-warn"}, Icon.alert&&_stEl(Icon.alert,{s:12}), genErr),
+      genErr && _stEl("div",{className:"stage2-warn"}, Icon.alert&&_stEl(Icon.alert,{s:12}),
+        _stEl("span",{className:"stage2-warn-text"},genErr),
+        canTextOnlyRecovery && _stEl("button",{type:"button",className:"stage2-warn-act",
+          disabled:gening||creditInfo.empty||!!textOnlyRecoveryBlocked,
+          title:textOnlyRecoveryBlocked?(textOnlyRecoveryBlocked.text||"Review the remaining render blocker first."):textOnlyRecoveryTitle,
+          onClick:()=>onGenerate({referenceFree:true})},
+          "Retry from text only · "+totalCost+" credit"+(totalCost===1?"":"s"))),
       soundCueMissing && _stEl("div",{className:"stage2-hint"}, Icon.mic&&_stEl(Icon.mic,{s:12}), "Native audio is on but the prompt has no sound direction — name the sounds you want (ambience, effects, music) or the soundtrack comes out generic."),
       hasDialogue && !modelAudioRefs && _stEl("div",{className:"stage2-hint"}, Icon.mic&&_stEl(Icon.mic,{s:12}),
         model.label+" performs the dialogue ITSELF from the prompt (native synced voices) — the locked ElevenLabs voices don't ride along on this model. Switch to Seedance for voice-locked lip-sync."),
@@ -3827,7 +3960,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     typeof window.StageRenderPlan==="function" && _stEl(window.StageRenderPlan,{
       plan:renderPlan,modelLabel:model.label,beatN:clip.g&&clip.g.beatN,
       part:clip.g&&clip.g.part,parts:clip.g&&clip.g.parts,
-      referenceWarnings:(referencePackage.warnings||[]).map(w=>({message:referenceWarningText(w),blocking:w.severity==="error"})),
+      referenceWarnings:referenceWarningGroups,
       onShowShots:onStageNav?()=>onStageNav("shots"):undefined,
       onSplit:clipScope==="legacy"?()=>setClipScope("beat"):undefined
     }),

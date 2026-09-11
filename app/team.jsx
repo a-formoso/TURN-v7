@@ -14,11 +14,20 @@ const TEAM_ROLES = [
 ];
 function teamRoleLabel(id){
   const r = TEAM_ROLES.find(x=>x.id===id);
-  return r ? r.label : (id ? "Legacy role" : "Collaborator");
+  return r ? r.label : (id ? "Legacy role" : "Role unavailable");
 }
 function teamRoleBlurb(id){
   const r = TEAM_ROLES.find(x=>x.id===id);
-  return r ? r.blurb : (id ? "This role no longer exists \u2014 pick one of the three roles to restore this collaborator's access." : "");
+  return r ? r.blurb : (id
+    ? "This role no longer exists \u2014 pick one of the three roles to restore this collaborator's access."
+    : "TURN could not verify a current collaborator role. Access is read-only until the owner assigns View-only, Writer or Art director.");
+}
+function teamScopedRoleBlurb(id, series){
+  if(!series) return teamRoleBlurb(id);
+  if(id==="view_only") return "Opens and reads the Show's shared Bible and all existing and future episodes. Cannot save any change.";
+  if(id==="writer") return "Saves story work across the Show's existing and future episodes \u2014 spine, scenes, beats, script and continuity. The shared Bible is readable; Art Room changes aren't saved.";
+  if(id==="art_director") return "Saves the Show's shared Bible and Art Room work across all existing and future episodes \u2014 cast, props, locations, lookbook and shots. Story and script changes aren't saved.";
+  return teamRoleBlurb(id);
 }
 /* WHAT EACH ROLE MAY WRITE, by doc SECTION — the same granularity the per-section save
    already uses, so scoping is enforced at the exact layer that writes.
@@ -47,6 +56,17 @@ function teamCanWriteSection(role, section){
   if(!allow) return false;                      // unknown/legacy/empty role → fail closed
   return allow.indexOf(section) >= 0;
 }
+/* Room mutability is a UI capability, not a navigation permission. Collaborators may
+   inspect departments they cannot change (an Art director can read the Writers' Room),
+   so derive disabled/editable state from the same section allow-list used by autosave. */
+function teamCanWriteRoom(role, room){
+  if(role==null || role==="owner") return true;
+  if(room==="writers") return teamCanWriteSection(role,"scenes")
+    && teamCanWriteSection(role,"beatsMap") && teamCanWriteSection(role,"drafts");
+  if(room==="art") return teamCanWriteSection(role,"characters")
+    && teamCanWriteSection(role,"props") && teamCanWriteSection(role,"shots");
+  return false;
+}
 /* plain-language name for what a role may NOT touch, for the "that wasn't saved" notice */
 function teamRoleScopeNote(role){
   if(role==="writer") return "Your Writer role covers the story, script and beats — Art Room changes (cast, props, locations, lookbook, shots) aren't saved.";
@@ -57,19 +77,22 @@ function teamRoleScopeNote(role){
 }
 window.TEAM_ROLE_SECTIONS = TEAM_ROLE_SECTIONS;
 window.teamCanWriteSection = teamCanWriteSection;
+window.teamCanWriteRoom = teamCanWriteRoom;
 window.teamRoleScopeNote = teamRoleScopeNote;
 
 function teamCanManage(projectMeta){
   return !!(projectMeta && (projectMeta.isOwner || window.turnIsAdmin));
 }
 
-function TeamModal({ projectId, projectTitle, projectMeta, onClose, onChanged }){
+function TeamModal({ projectId, projectTitle, projectMeta, series, onClose, onChanged }){
   const [members, setMembers] = React.useState([]);
   const [email, setEmail] = React.useState("");
   const [role, setRole] = React.useState("writer");
   const [busy, setBusy] = React.useState("");
   const [schemaMissing, setSchemaMissing] = React.useState(!!window.turnTeamSchemaMissing);
   const canManage = teamCanManage(projectMeta);
+  const showTitle = projectTitle || "Untitled Show";
+  const scopedRoleBlurb = id=>teamScopedRoleBlurb(id,!!series);
   const load = React.useCallback(async ()=>{
     if(!projectId || typeof window.cloudListProjectMembers!=="function"){ setMembers([]); return; }
     setMembers(await window.cloudListProjectMembers(projectId));
@@ -90,8 +113,12 @@ function TeamModal({ projectId, projectTitle, projectMeta, onClose, onChanged })
       // the grant and the email are separate outcomes — never claim "sent" when
       // only the row was written
       if(window.appToast){
-        if(res.emailSent) window.appToast("Invitation emailed to "+addr+".","success");
-        else window.appToast("Collaborator added, but "+(res.emailNote||"the invitation email could not be sent.")+" They'll still see the film when they sign in with this address.","error");
+        if(res.emailSent) window.appToast(series
+          ? "Invitation to Show \u201c"+showTitle+"\u201d emailed to "+addr+"."
+          : "Invitation emailed to "+addr+".","success");
+        else window.appToast(series
+          ? "Collaborator added to Show \u201c"+showTitle+"\u201d, but "+(res.emailNote||"the invitation email could not be sent.")+" They'll still have access to its shared Bible and all existing and future episodes when they sign in with this address."
+          : "Collaborator added, but "+(res.emailNote||"the invitation email could not be sent.")+" They'll still see the film when they sign in with this address.","error");
       }
     } else {
       if(res && res.setup) setSchemaMissing(true);
@@ -101,7 +128,7 @@ function TeamModal({ projectId, projectTitle, projectMeta, onClose, onChanged })
   const updateRole = async (m, nextRole)=>{
     if(!canManage) return;
     setBusy("role:"+m.id);
-    const res = await window.cloudUpdateProjectMember(m.id, { role:nextRole });
+    const res = await window.cloudUpdateProjectMember(m.id, { role:nextRole }, projectId);
     setBusy("");
     if(res && res.ok){ await load(); if(onChanged) onChanged(); }
     else if(window.appToast) window.appToast((res&&res.message)||"Could not update role.","error");
@@ -109,9 +136,11 @@ function TeamModal({ projectId, projectTitle, projectMeta, onClose, onChanged })
   const remove = async (m)=>{
     if(!canManage) return;
     const ok = !window.appConfirm || await window.appConfirm({
-      title:"Remove collaborator?",
-      body:"This ends "+m.member_email+"'s access to \""+(projectTitle||"this project")+"\" immediately \u2014 if they have it open they'll be told their access ended. You can re-invite them later.",
-      confirmLabel:"Remove",
+      title:series ? "Remove collaborator from this Show?" : "Remove collaborator?",
+      body:series
+        ? "This ends "+m.member_email+"'s access to Show \u201c"+showTitle+"\u201d, its shared Bible and all existing and future episodes immediately \u2014 if they have one open they'll be told their access ended. You can re-invite them later."
+        : "This ends "+m.member_email+"'s access to \""+(projectTitle||"this project")+"\" immediately \u2014 if they have it open they'll be told their access ended. You can re-invite them later.",
+      confirmLabel:series ? "Remove Show access" : "Remove",
       danger:true
     });
     if(!ok) return;
@@ -126,32 +155,41 @@ function TeamModal({ projectId, projectTitle, projectMeta, onClose, onChanged })
       React.createElement("div",{className:"bible-head"},
         React.createElement("div",{className:"bible-title"},
           React.createElement(Icon.user,{s:15}),"Team",
-          React.createElement("span",{className:"bible-sub"},projectTitle||"Current project")),
+          React.createElement("span",{className:"bible-sub"},series ? ("Show \u00b7 "+showTitle) : (projectTitle||"Current project"))),
         React.createElement("button",{className:"bible-x",onClick:onClose,title:"Close"},React.createElement(Icon.x,{s:16}))),
       React.createElement("div",{className:"team-body"},
         React.createElement("div",{className:"team-note"},
           schemaMissing
             ? "Team collaboration is ready in the app, but the Supabase migration has not been run yet. Run supabase/team-collaboration.sql, then reopen this panel."
             : canManage
-            ? "Your subscription includes your seat. Add collaborators by email and choose what each may do \u2014 they get an invitation email with a link that signs them in and opens this film."
-            : "This project was shared with you. You can work here according to the role the owner assigned"+
-              (projectMeta && projectMeta.shareRole ? (": "+teamRoleLabel(projectMeta.shareRole)+" \u2014 "+(teamRoleBlurb(projectMeta.shareRole)||"")) : ".")),
+            ? (series
+              ? "One team applies to Show \u201c"+showTitle+"\u201d. Each collaborator's access covers its shared Bible and all existing and future episodes. Add them by email and choose what each may do \u2014 the invitation link opens this Show by name."
+              : "Your subscription includes your seat. Add collaborators by email and choose what each may do \u2014 they get an invitation email with a link that signs them in and opens this film.")
+            : (series
+              ? "This Show was shared with you. One access grant covers its shared Bible and all existing and future episodes. You can work here according to the role the owner assigned"+
+                (projectMeta && projectMeta.shareRole ? (": "+teamRoleLabel(projectMeta.shareRole)+" \u2014 "+(scopedRoleBlurb(projectMeta.shareRole)||"")) : ".")
+              : "This project was shared with you. You can work here according to the role the owner assigned"+
+                (projectMeta && projectMeta.shareRole ? (": "+teamRoleLabel(projectMeta.shareRole)+" \u2014 "+(teamRoleBlurb(projectMeta.shareRole)||"")) : "."))),
         canManage && React.createElement("div",{className:"team-invite"},
           React.createElement("input",{className:"team-email",type:"email",value:email,placeholder:"teammate@example.com",
             disabled:schemaMissing,onChange:e=>setEmail(e.target.value),onKeyDown:e=>{ if(e.key==="Enter" && email.trim()) invite(); }}),
           React.createElement("select",{className:"team-role",value:role,disabled:schemaMissing,onChange:e=>setRole(e.target.value)},
-            TEAM_ROLES.map(r=>React.createElement("option",{key:r.id,value:r.id,title:r.blurb},r.label))),
+            TEAM_ROLES.map(r=>React.createElement("option",{key:r.id,value:r.id,title:scopedRoleBlurb(r.id)},r.label))),
           React.createElement("button",{className:"team-add",disabled:schemaMissing||busy==="invite"||!email.trim(),onClick:invite},
             React.createElement(Icon.plus,{s:13}),busy==="invite"?"Adding...":"Add")),
         // what the selected role allows, in plain language, right where it's being chosen
         canManage && !schemaMissing && React.createElement("div",{className:"team-role-blurb"},
-          teamRoleLabel(role)+" \u2014 "+teamRoleBlurb(role)),
+          teamRoleLabel(role)+" \u2014 "+scopedRoleBlurb(role)),
         React.createElement("div",{className:"team-seats"},
           React.createElement("div",{className:"team-seat owner"},
             React.createElement("div",{className:"team-avatar"},React.createElement(Icon.user,{s:14})),
             React.createElement("div",{className:"team-member-main"},
-              React.createElement("div",{className:"team-member-email"},"Project owner"),
-              React.createElement("div",{className:"team-member-role",title:"Edits everything, invites and removes collaborators, changes roles, renames or deletes the film."},"Owner \u2014 edits everything; only seat that manages the team"))),
+              React.createElement("div",{className:"team-member-email"},series ? "Show owner" : "Project owner"),
+              React.createElement("div",{className:"team-member-role",
+                title:series
+                  ? "Edits the shared Bible and every episode, invites and removes collaborators, changes roles, and renames or deletes the Show."
+                  : "Edits everything, invites and removes collaborators, changes roles, renames or deletes the film."},
+                series ? "Owner \u2014 edits everything; only seat that manages the Show team" : "Owner \u2014 edits everything; only seat that manages the team"))),
           members.length
             ? members.map(m=>{
                 const legacy = !!(m.role && !TEAM_ROLES.find(r=>r.id===m.role));
@@ -159,26 +197,28 @@ function TeamModal({ projectId, projectTitle, projectMeta, onClose, onChanged })
                 React.createElement("div",{className:"team-avatar"},React.createElement(Icon.mail,{s:14})),
                 React.createElement("div",{className:"team-member-main"},
                   React.createElement("div",{className:"team-member-email"},m.member_email),
-                  React.createElement("div",{className:"team-member-role",title:teamRoleBlurb(m.role)},
+                  React.createElement("div",{className:"team-member-role",title:scopedRoleBlurb(m.role)},
                     teamRoleLabel(m.role)+(legacy?" \u2014 pick a current role to restore access":""))),
                 canManage
                   ? React.createElement("div",{className:"team-member-actions"},
                       React.createElement("select",{className:"team-role compact",value:m.role||"writer",disabled:!!busy,
-                        title:teamRoleBlurb(m.role),
+                        title:scopedRoleBlurb(m.role),
                         onChange:e=>updateRole(m,e.target.value)},
                         // a legacy value (e.g. the retired producer/admin) still renders,
                         // clearly marked, so the owner can move the member off it
                         legacy && React.createElement("option",{value:m.role,disabled:true},"Legacy role"),
-                        TEAM_ROLES.map(r=>React.createElement("option",{key:r.id,value:r.id,title:r.blurb},r.label))),
+                        TEAM_ROLES.map(r=>React.createElement("option",{key:r.id,value:r.id,title:scopedRoleBlurb(r.id)},r.label))),
                       React.createElement("button",{className:"team-remove",disabled:!!busy,title:"Remove collaborator",onClick:()=>remove(m)},
                         React.createElement(Icon.trash,{s:13})))
-                  : React.createElement("span",{className:"team-badge",title:teamRoleBlurb(m.role)},teamRoleLabel(m.role)));
+                  : React.createElement("span",{className:"team-badge",title:scopedRoleBlurb(m.role)},teamRoleLabel(m.role)));
               })
             : React.createElement("div",{className:"team-empty"},"No collaborators yet.")),
         React.createElement("div",{className:"team-foot"},
           schemaMissing
             ? "Setup needed: run the team collaboration SQL once in Supabase so the table and access policies exist."
-            : "Only the owner can invite or remove collaborators, change roles, rename the film or delete it. A collaborator who edits outside their role sees a notice that those changes weren't saved."))));
+            : (series
+              ? "Only the Show owner can invite or remove collaborators, change roles, rename the Show or delete it. One team grant applies to the shared Bible and all existing and future episodes. A collaborator who edits outside their role sees a notice that those changes weren't saved."
+              : "Only the owner can invite or remove collaborators, change roles, rename the film or delete it. A collaborator who edits outside their role sees a notice that those changes weren't saved.")))));
 }
 
 /* INVITE ACCEPTANCE LANDING — shown when the app is opened via ?invite=<projectId>
@@ -202,21 +242,28 @@ function InviteWelcome({ film, invitedBy, sessionEmail, canSetPassword, onOpen, 
     else if(window.appToast) window.appToast((res&&res.message)||"Could not set the password.","error");
   };
   const role = film && film.shareRole;
+  const isShow = !!(film && ((window.turnSeries&&typeof window.turnSeries.isShowDoc==="function")
+    ? window.turnSeries.isShowDoc(film)
+    : (String(film.project_kind||"").toLowerCase()==="show"||String(film.isShow).toLowerCase()==="true")));
+  const invitedTitle = film ? (film.title||(isShow?"Untitled Show":"Untitled film")) : "";
   return React.createElement("div",{className:"bible-overlay",onMouseDown:e=>{ if(e.target===e.currentTarget) onClose(); }},
     React.createElement("div",{className:"bible-modal team-modal invite-welcome"},
       React.createElement("div",{className:"bible-head"},
         React.createElement("div",{className:"bible-title"},
-          React.createElement(Icon.mail,{s:15}), film ? "You've been added to a film" : "Invitation not active"),
+          React.createElement(Icon.mail,{s:15}), film ? (isShow?"You've been added to a Show":"You've been added to a film") : "Invitation not active"),
         React.createElement("button",{className:"bible-x",onClick:onClose,title:"Close"},React.createElement(Icon.x,{s:16}))),
       React.createElement("div",{className:"team-body"},
         film
           ? React.createElement(React.Fragment,null,
               React.createElement("div",{className:"invite-film"},
-                React.createElement("div",{className:"invite-film-title"},"\u201C"+(film.title||"Untitled film")+"\u201D"),
+                React.createElement("div",{className:"invite-film-title"},"\u201C"+invitedTitle+"\u201D"),
                 React.createElement("div",{className:"invite-film-by"},
-                  (invitedBy ? invitedBy+" shared this film with you." : "This film was shared with you."))),
+                  isShow
+                    ? (invitedBy ? invitedBy+" shared this Show with you." : "This Show was shared with you.")+
+                      " Your access covers its shared Bible and all existing and future episodes."
+                    : (invitedBy ? invitedBy+" shared this film with you." : "This film was shared with you."))),
               role && React.createElement("div",{className:"team-role-blurb"},
-                "Your role: "+teamRoleLabel(role)+" \u2014 "+teamRoleBlurb(role)),
+                "Your role: "+teamRoleLabel(role)+" \u2014 "+teamScopedRoleBlurb(role,isShow)),
               canSetPassword && !pwDone && React.createElement("div",{className:"invite-pw"},
                 React.createElement("div",{className:"invite-pw-note"},
                   "You signed in through the email link. Set a password so you can sign in directly next time (email: "+(sessionEmail||"this address")+")."),
@@ -226,7 +273,7 @@ function InviteWelcome({ film, invitedBy, sessionEmail, canSetPassword, onOpen, 
                   React.createElement("button",{className:"team-add",disabled:pwBusy||pw.length<8,onClick:setPassword},
                     pwBusy?"Saving...":"Set password"))),
               React.createElement("div",{className:"invite-actions"},
-                React.createElement("button",{className:"team-add invite-open",onClick:onOpen},"Open the film"),
+                React.createElement("button",{className:"team-add invite-open",onClick:onOpen},isShow?"Open the Show":"Open the film"),
                 React.createElement("button",{className:"invite-later",onClick:onClose},"Later")))
           : React.createElement(React.Fragment,null,
               React.createElement("div",{className:"team-note"},
@@ -252,14 +299,16 @@ function teamInviteInviter(claim, userMeta, film){
 }
 window.teamInviteInviter = teamInviteInviter;
 
-function TeamButton({ projectId, projectTitle, projectMeta, onChanged }){
+function TeamButton({ projectId, projectTitle, projectMeta, series, onChanged }){
   const [open, setOpen] = React.useState(false);
   if(!projectId) return null;
   const shared = projectMeta && projectMeta.isShared;
   return React.createElement(React.Fragment,null,
-    React.createElement("button",{className:"tb-btn",onClick:()=>setOpen(true),title:shared ? ("Shared with you · "+teamRoleLabel(projectMeta.shareRole)) : "Team collaboration"},
+    React.createElement("button",{className:"tb-btn",onClick:()=>setOpen(true),title:shared
+      ? ((series?"Show shared with you":"Shared with you")+" · "+teamRoleLabel(projectMeta.shareRole))
+      : (series?"Show team · shared Bible and all episodes":"Team collaboration")},
       React.createElement(Icon.user,{s:14}),"Team"),
-    open && React.createElement(TeamModal,{projectId,projectTitle,projectMeta,onChanged,onClose:()=>setOpen(false)}));
+    open && React.createElement(TeamModal,{projectId,projectTitle,projectMeta,series,onChanged,onClose:()=>setOpen(false)}));
 }
 
 /* PRESENCE DOTS — who else has this film open right now, shown beside the Team button.

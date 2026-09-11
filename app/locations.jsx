@@ -1,8 +1,9 @@
 /* locations.jsx — The Art Room ▸ Locations tab (data layer).
-   Locations are DERIVED from the screenplay. Scene headings and secondary headings
-   anchor the master location cards, while implied rooms/sides/thresholds in the
-   screenplay body become coverage sheets with full screenplay-page snapshots as
-   image references. Mirrors the Props flow: derive → draft → generate. This file
+   Locations are DERIVED from the screenplay. Continuity-bearing places anchor master
+   cards; room-level headings remain slugline units beneath a screenplay-evidenced
+   enclosing place. Implied sides/thresholds in the screenplay body become coverage
+   sheets with full screenplay-page snapshots as image references. Mirrors the Props
+   flow: derive → draft → generate. This file
    owns scene-heading parsing / derivation / defaults + deterministic plate prompts;
    the React tab lives in locations-ui.jsx. */
 
@@ -151,12 +152,69 @@ function collectSluggedPlaces(scenes, drafts){
    not a master location of its own. A slugged place folds under a parent place
    when its name carries a sub-structure noun (booth, kiosk, gatehouse, office,
    cabin…), shares its FIRST name token with the parent (same named complex),
-   and never appears in a scene the parent doesn't. Generic rooms / halls / cars
-   do NOT fold — a police car is not the police station; compound sluglines
-   ("PARENT · ROOM") remain the way to group those. The sub-place keeps its own
-   slugline unit and stable unit key; only master-card grouping moves. */
+   and never appears in a scene the parent doesn't. Generic rooms fold only when the
+   screenplay identifies one unique enclosing continuity place; vehicles never fold
+   merely by name (a police car is not the police station). The sub-place keeps its
+   own slugline unit and stable unit key; only master-card grouping moves. */
 const SUBSPACE_TAIL = /\b(?:booth|kiosk|gatehouse|cabin|hut|shed|stall|office|annex|porch|garage|workshop)\b/i;
-function foldSubspaceKeys(recs){
+const CONTAINER_CHILD_TAIL = /\b(?:booth|kiosk|gatehouse|cabin|hut|shed|stall|office|annex|porch|garage|workshop)\s*$/i;
+/* Generic rooms are filmable spaces, but they are not automatically continuity-
+   bearing places. When the screenplay itself identifies their enclosing site, fold
+   them under that site's master while keeping each slugline as its own unit. This is
+   deliberately evidence-gated: "Kitchen" only folds when its scenes actually say
+   house/home/apartment/etc., and a tie between possible parents stays separate. */
+const GENERIC_ROOM_SUBSPACE = /^(?:the\s+)?(?:kitchen|living room|sitting room|dining room|breakfast room|bedroom|bathroom|washroom|hallway|corridor|foyer|entryway|pantry|laundry room|utility room|basement|cellar|attic|nursery|den|study|mudroom|sunroom)(?:\s+\d+)?$/i;
+const CONTINUITY_CONTAINER_KINDS = [
+  { parent:/\b(?:house|home|residence|cottage|bungalow|farmhouse|mansion|manor|villa|apartment|flat|condo)\b/i,
+    evidence:/\b(?:house|home|residence|cottage|bungalow|farmhouse|mansion|manor|villa|apartment|flat|condo)\b/i,
+    words:["house","home","residence","cottage","bungalow","farmhouse","mansion","manor","villa","apartment","flat","condo"] },
+  { parent:/\b(?:hotel|motel|inn|hostel)\b/i, evidence:/\b(?:hotel|motel|inn|hostel)\b/i,
+    words:["hotel","motel","inn","hostel"] },
+  { parent:/\b(?:hospital|clinic|medical center)\b/i, evidence:/\b(?:hospital|clinic|medical center)\b/i,
+    words:["hospital","clinic","medical center"] },
+  { parent:/\b(?:school|college|university|academy|campus)\b/i, evidence:/\b(?:school|college|university|academy|campus)\b/i,
+    words:["school","college","university","academy","campus"] },
+  { parent:/\b(?:station|precinct|courthouse|government building|office building|headquarters|factory|warehouse)\b/i,
+    evidence:/\b(?:station|precinct|courthouse|government building|office building|headquarters|factory|warehouse)\b/i,
+    words:["station","precinct","courthouse","government building","office building","headquarters","factory","warehouse"] }
+];
+function locationFoldEvidence(sub, scenes, drafts){
+  const bits=[];
+  (sub&&sub.scenes||[]).forEach(sid=>{
+    const sc=(scenes||[]).find(s=>s&&s.id===sid); if(!sc) return;
+    [sc.title,sc.summary,sc.objective,sc.turningPoint].forEach(x=>{ if(x) bits.push(x); });
+    locationScreenplayBlocks(sc,drafts).forEach(b=>{ if(b&&b.text) bits.push(b.text); });
+  });
+  return bits.join(" ").toLowerCase().replace(/[’']s\b/g,"").replace(/[^a-z0-9]+/g," ");
+}
+function semanticRoomParent(sub, recs, scenes, drafts){
+  if(!sub || !GENERIC_ROOM_SUBSPACE.test(String(sub.name||"").trim())) return null;
+  const evidence=locationFoldEvidence(sub, scenes, drafts);
+  if(!evidence) return null;
+  const stop=new Set(["the","a","an","of","at","and","house","home","residence","cottage","bungalow","farmhouse","mansion","manor","villa","apartment","flat","condo","hotel","motel","inn","hostel","hospital","clinic","medical","center","school","college","university","academy","campus","station","precinct","courthouse","government","building","office","headquarters","factory","warehouse"]);
+  const scored=(recs||[]).filter(p=>p&&p.key!==sub.key
+    &&!GENERIC_ROOM_SUBSPACE.test(String(p.name||"").trim())
+    // A card such as Funeral Home Office is itself a filmable subspace, not an
+    // enclosing site candidate for an unrelated Kitchen or Living Room.
+    &&!CONTAINER_CHILD_TAIL.test(String(p.name||"").trim())).map(parent=>{
+    const kind=CONTINUITY_CONTAINER_KINDS.find(k=>k.parent.test(String(parent.name||"")));
+    if(!kind) return null;
+    let score=kind.evidence.test(evidence)?5:0;
+    // Prefer the container noun the screenplay actually uses. This keeps a HOUSE
+    // from tying with an unrelated Funeral HOME merely because both are residential
+    // words in the same broad category.
+    const parentLow=String(parent.name||"").toLowerCase();
+    const exactKind=(kind.words||[]).find(w=>new RegExp("\\b"+w.replace(/ /g,"\\s+")+"\\b").test(parentLow));
+    if(exactKind && new RegExp("\\b"+exactKind.replace(/ /g,"\\s+")+"\\b").test(evidence)) score+=3;
+    const tokens=String(parent.name||"").toLowerCase().replace(/[’']s\b/g,"").split(/[^a-z0-9]+/)
+      .filter(w=>w.length>=4&&!stop.has(w));
+    tokens.forEach(w=>{ if(new RegExp("\\b"+w+"\\b").test(evidence)) score+=3; });
+    if((parent.scenes||[]).some(sid=>(sub.scenes||[]).indexOf(sid)>=0)) score+=1;
+    return score>=5?{parent,score}:null;
+  }).filter(Boolean).sort((a,b)=>b.score-a.score);
+  return scored.length && (!scored[1] || scored[0].score>scored[1].score) ? scored[0].parent : null;
+}
+function foldSubspaceKeys(recs, scenes, drafts){
   const headTok = (n)=> String(n||"").trim().split(/\s+/)[0].toLowerCase();
   const low = (n)=> String(n||"").trim().toLowerCase();
   /* RULE B — PREFIX CONTAINMENT: "PARENT - AREA" / "PARENT AREA" names an area OF
@@ -193,7 +251,12 @@ function foldSubspaceKeys(recs){
     if(prefixes.length){
       prefixes.sort((a,b)=> String(b.name||"").length - String(a.name||"").length);
       out[sub.key] = prefixes[0].key;
+      return;
     }
+    // RULE C — screenplay-evidenced room containment: KITCHEN / LIVING ROOM
+    // remain distinct slugline units but share the enclosing HOUSE master.
+    const semantic = semanticRoomParent(sub, recs, scenes, drafts);
+    if(semantic) out[sub.key] = semantic.key;
   });
   return out;
 }
@@ -205,7 +268,7 @@ function resolveFoldKey(fold, key){
 }
 function deriveSubspaceFold(scenes, drafts){
   const c = collectSluggedPlaces(scenesInStoryOrder(scenes), drafts);
-  const fold = foldSubspaceKeys(c.recOrder.map(k=>c.recByKey[k]));
+  const fold = foldSubspaceKeys(c.recOrder.map(k=>c.recByKey[k]), scenes, drafts);
   const resolved = {};
   Object.keys(fold).forEach(k=>{ resolved[k] = resolveFoldKey(fold, k); });
   return resolved;
@@ -215,47 +278,63 @@ window.deriveSubspaceFold = deriveSubspaceFold;
 /* Derive canonical master locations from screenplay scene headings.
    Groups scenes by a normalised key on the PRIMARY place so "NEBUCHADNEZZAR · CORE"
    and "NEBUCHADNEZZAR · TRAINING" land under one "Nebuchadnezzar" (areas recorded).
-   Secondary headings inside the screenplay also create master cards; implied rooms,
-   sides and threshold spaces inside action prose are handled by coverage sheets on
-   the relevant master card. Sub-structure places (booth, kiosk…) fold under their
-   complex's master via the sub-space fold. Returns new location objects only
+   A room-level secondary heading becomes a slugline unit under a unique enclosing
+   place when the screenplay supplies that relationship; ambiguous rooms stay as
+   separate masters. Implied sides and threshold spaces inside action prose are
+   handled by coverage sheets on the relevant master card. Named sub-structures
+   (booth, kiosk…) likewise fold under their complex's master. Returns new objects only
    (deduped against `existing`). */
 function deriveLocations(scenes, existing, drafts){
   scenes = scenesInStoryOrder(scenes);
   const have = existing || [];
   const seen = new Set(have.map(l=>l.key || locSlug(l.name)));
   const c = collectSluggedPlaces(scenes, drafts);
-  const fold = foldSubspaceKeys(c.recOrder.map(k=>c.recByKey[k]));
+  const fold = foldSubspaceKeys(c.recOrder.map(k=>c.recByKey[k]), scenes, drafts);
   const order = []; const byKey = {};
-  c.entries.forEach(e=>{
-    const parentKey = resolveFoldKey(fold, e.key);
-    const parentRec = c.recByKey[parentKey];
-    if(!parentRec) return;
-    if(!byKey[parentKey]){ byKey[parentKey] = {
-      key:parentKey, name: parentRec.name,
-      intExt: e.parsed.intExt, times: new Set(), areas: new Set(), scenes: [],
-    }; order.push(parentKey); }
-    const L = byKey[parentKey];
-    if(fold[e.key]) L.areas.add(e.primary.split(/[\u00b7\u2014]/)[0].trim());   // folded sub-structure recorded as an area of its parent
+  const ensure = (key,rootKey)=>{
+    if(byKey[key]) return byKey[key];
+    const rec = c.recByKey[key] || c.recByKey[rootKey] || {};
+    const isChild = key!==rootKey;
+    byKey[key] = {
+      key, name:rec.name || key.replace(/-/g," ").replace(/\b\w/g,x=>x.toUpperCase()),
+      intExt:"", times:new Set(), areas:new Set(), scenes:[],
+      scope:"atomic", parentKey:isChild?rootKey:"", continuityRootKey:rootKey,
+    };
+    order.push(key);
+    return byKey[key];
+  };
+  const addEntry = (L,e,asRoot)=>{
     if(e.parsed.time) L.times.add(e.parsed.time);
-    const areaTail = e.primary.split(/\u00b7/).slice(1).join(" \u00b7 ").trim();
+    const areaTail=e.primary.split(/\u00b7/).slice(1).join(" \u00b7 ").trim();
     if(areaTail) L.areas.add(areaTail);
-    e.places.slice(1).forEach(p=> L.areas.add(tidyPlace(p)));
+    e.places.slice(1).forEach(p=>L.areas.add(tidyPlace(p)));
     if(e.sc.id && L.scenes.indexOf(e.sc.id)<0) L.scenes.push(e.sc.id);
-    if(e.parsed.intExt && L.intExt && e.parsed.intExt!==L.intExt) L.intExt = "INT/EXT";
+    if(e.parsed.intExt){
+      if(!L.intExt) L.intExt=e.parsed.intExt;
+      else if(e.parsed.intExt!==L.intExt) L.intExt="INT/EXT";
+    }
+    if(asRoot && e.key!==L.key)
+      L.areas.add((c.recByKey[e.key]&&c.recByKey[e.key].name)||e.primary.split(/[\u00b7\u2014]/)[0].trim());
+  };
+  c.entries.forEach(e=>{
+    const rootKey=resolveFoldKey(fold,e.key);
+    const root=ensure(rootKey,rootKey);
+    if(e.key!==rootKey) root.scope="compound";
+    addEntry(root,e,true);
+    if(e.key!==rootKey) addEntry(ensure(e.key,rootKey),e,false);
   });
-  const out = [];
-  order.forEach(key=>{
+  const out=[];
+  order.forEach((key,orderIndex)=>{
     if(seen.has(key)) return;
-    const L = byKey[key];
+    const L=byKey[key];
     out.push({
-      id: "loc-"+key+"-"+out.length,
-      key, name: L.name, intExt: L.intExt || "INT",
-      times: [...L.times], areas: [...L.areas], scenes: L.scenes,
-      architecture:"", materials:"", lighting:"", significance:"",
-      renderStyle:"", negativePrompt:"",
-      variants:[],            // time-of-day / weather variant plates
-      fromScript:true,
+      id:"loc-"+key+"-"+orderIndex,
+      key,name:L.name,intExt:L.intExt||"INT",
+      times:[...L.times],areas:[...L.areas],scenes:L.scenes,
+      scope:L.scope,parentKey:L.parentKey,continuityRootKey:L.continuityRootKey,
+      architecture:"",materials:"",lighting:"",permanentDressing:"",
+      topology:"",continuityAnchors:"",anchorsLocked:true,significance:"",
+      provenance:{},renderStyle:"",negativePrompt:"",variants:[],fromScript:true,
     });
   });
   return out;
@@ -263,6 +342,70 @@ function deriveLocations(scenes, existing, drafts){
 window.deriveLocations = deriveLocations;
 window.parseSlugline = parseSlugline;
 window.locSlug = locSlug;
+
+/* LOCATION IDENTITY GRAPH ---------------------------------------------------
+   Root invariants flow into a child workspace by reference. They are never copied
+   into the child record, so changing the root cannot leave three stale duplicates.
+   Resolution precedence for prompts is: root invariant -> child fact -> state. */
+function locationKeyOf(l){
+  return String((l&&l.key)||((typeof locSlug==="function")?locSlug(l&&l.name).split("-").slice(0,4).join("-"):"")||"");
+}
+function locationParentOf(l,locations){
+  if(!l) return null;
+  const key=String(l.parentKey||"");
+  return key ? (locations||[]).find(x=>locationKeyOf(x)===key)||null : null;
+}
+function locationChildrenOf(l,locations){
+  const key=locationKeyOf(l);
+  return key ? (locations||[]).filter(x=>x&&x!==l&&String(x.parentKey||"")===key) : [];
+}
+function locationScopeOf(l,locations){
+  if(l&&l.parentKey) return "atomic";
+  if(l&&/^(atomic|compound)$/.test(String(l.scope||""))) return l.scope;
+  return locationChildrenOf(l,locations||((window.turnContinuity||{}).locations)||[]).length ? "compound" : "atomic";
+}
+function locationEffectiveSide(l,units,coverageSheets,children){
+  const sides=[];
+  const add=(v)=>{ const s=String(v||"").toUpperCase();
+    if(/INT/.test(s)) sides.push("INT"); if(/EXT/.test(s)) sides.push("EXT"); };
+  add(l&&l.intExt);
+  (units||[]).forEach(u=>add(u&&u.intExt));
+  (coverageSheets||[]).forEach(v=>add(v&&v.role));
+  (children||[]).forEach(c=>add(c&&c.intExt));
+  const set=new Set(sides);
+  return set.has("INT")&&set.has("EXT") ? "INT/EXT" : (set.has("EXT")?"EXT":"INT");
+}
+function locationIdentityLayers(l,locations){
+  const list=locations||((window.turnContinuity||{}).locations)||[];
+  const parent=locationParentOf(l,list);
+  const fields=(x)=>x?{
+    architecture:String(x.architecture||"").trim()||undefined,
+    materials:String(x.materials||"").trim()||undefined,
+    permanent_lighting_interfaces:String(x.lighting||"").trim()||undefined,
+    permanent_dressing:String(x.permanentDressing||"").trim()||undefined,
+    spatial_topology:String(x.topology||"").trim()||undefined,
+    continuity_anchors:String(x.continuityAnchors||"").trim()?{
+      status:x.anchorsLocked===false?"editable":"LOCKED / binding",
+      rules:String(x.continuityAnchors||"").trim(),
+    }:undefined,
+    provenance:(x.provenance&&Object.keys(x.provenance).length)?x.provenance:undefined,
+  }:undefined;
+  return {
+    scope:locationScopeOf(l,list),
+    continuity_root:parent?{ id:parent.id,name:parent.name,invariants:fields(parent) }:undefined,
+    child_space:parent?{ id:l.id,name:l.name,specific_identity:fields(l) }:undefined,
+    place_identity:parent?undefined:fields(l),
+    precedence:parent
+      ? "continuity-root invariants -> child-space facts -> slugline/state variation"
+      : "place invariants -> slugline/state variation",
+  };
+}
+window.locationKeyOf=locationKeyOf;
+window.locationParentOf=locationParentOf;
+window.locationChildrenOf=locationChildrenOf;
+window.locationScopeOf=locationScopeOf;
+window.locationEffectiveSide=locationEffectiveSide;
+window.locationIdentityLayers=locationIdentityLayers;
 
 /* Derive SLUGLINE UNITS — the atomic filmable unit of a location: one
    (place, INT/EXT side, time-of-day bucket) triple, e.g. "Intake Yard · EXT · Night".
@@ -340,6 +483,8 @@ function deriveSluglineUnits(scenes, drafts){
           key, name: primary, place: primary,
           intExt: side, time: bucket || "",
           locationKey: locSlug(head).split("-").slice(0,4).join("-"),
+          subspaceKey: locSlug(head).split("-").slice(0,4).join("-"),
+          continuityRootKey: locSlug(head).split("-").slice(0,4).join("-"),
           scenes: [], sceneNos: [], sluglines: [], occurrences: [], scriptText: "",
           dressingDerived: [],
         };
@@ -381,10 +526,12 @@ function deriveSluglineUnits(scenes, drafts){
     const pk = locSlug(u.place.split(/[\u00b7\u2014,]/)[0]).split("-").slice(0,4).join("-");
     if(!placeRecs[pk]) placeRecs[pk] = { key:pk, name:String(u.place).split(/[\u00b7\u2014]/)[0].trim(), scenes:[] };
     u.scenes.forEach(sid=>{ if(placeRecs[pk].scenes.indexOf(sid)<0) placeRecs[pk].scenes.push(sid); }); });
-  const unitFold = foldSubspaceKeys(Object.values(placeRecs));
+  const unitFold = foldSubspaceKeys(Object.values(placeRecs), scenes, drafts);
   order.forEach(k=>{ const u = byKey[k];
     const pk = locSlug(u.place.split(/[\u00b7\u2014,]/)[0]).split("-").slice(0,4).join("-");
-    if(unitFold[pk]) u.locationKey = resolveFoldKey(unitFold, pk); });
+    u.subspaceKey = pk;
+    u.continuityRootKey = unitFold[pk] ? resolveFoldKey(unitFold,pk) : pk;
+    u.locationKey = u.continuityRootKey; });
   order.forEach(k=>{
     const u = byKey[k];
     let txt = "", act = "";
@@ -446,6 +593,8 @@ function reconcileSluglineUnits(derived, overlays){
       key:k, name: name||k, place: name||k,
       intExt: side, time: (bucket && bucket!=="untimed") ? bucket : "",
       locationKey: placeSlug.split("-").slice(0,4).join("-"),
+      subspaceKey: placeSlug.split("-").slice(0,4).join("-"),
+      continuityRootKey: placeSlug.split("-").slice(0,4).join("-"),
       scenes: [], sceneNos: [], sluglines: [], occurrences: [], scriptText: "",
       appearance: o.appearance||"", notes: o.notes||"",
       dressing: Array.isArray(o.dressing) ? o.dressing.slice() : [],
@@ -493,6 +642,75 @@ function sluglineUnitImageId(key){
   return "locunit-"+slug+"-"+h.toString(36);
 }
 window.sluglineUnitImageId = sluglineUnitImageId;
+
+/* APPEARANCE-STATE ASSET IDENTITY -----------------------------------------
+   A screenplay slugline and the Appearance States fold are two views onto the
+   SAME place/side/time state, not two image-producing records. Resolve both to
+   the slugline unit's durable asset id whenever an unambiguous unit exists.
+   This makes adoption automatic in both directions: an existing unit plate is
+   immediately visible under Appearance States, and generating/editing there
+   dispatches the same id every mounted slugline card is listening to. */
+function locationVariantSluglineUnit(l, v, units){
+  const list = Array.isArray(units) ? units : (((window.turnContinuity||{}).sluglineUnits)||[]);
+  const lkey = locationKeyOf(l);
+  const candidates = list.filter(u=>u && !u.orphan
+    && String(u.subspaceKey||u.locationKey||"")===lkey);
+  const explicit = String(v&&v.unitKey||"");
+  if(explicit){
+    const hit = candidates.find(u=>String(u.key||"")===explicit);
+    if(hit) return hit;
+  }
+  const time = normalizeTOD(v&&v.time) || titleCaseTime(v&&v.time);
+  const side = String(v&&v.intExt||"").toUpperCase();
+  const matches = candidates.filter(u=>{
+    const ut = normalizeTOD(u.time) || titleCaseTime(u.time);
+    return ut===time && (!side || String(u.intExt||"").toUpperCase()===side);
+  });
+  return matches.length===1 ? matches[0] : null;
+}
+function locationAppearanceStates(l, units){
+  const list = Array.isArray(units) ? units : [];
+  const lkey = locationKeyOf(l);
+  const stateUnits = list.filter(u=>u && !u.orphan
+    && String(u.subspaceKey||u.locationKey||"")===lkey);
+  const variants = Array.isArray(l&&l.variants) ? l.variants : [];
+  const used = new Set();
+  const rows = stateUnits.map(u=>{
+    let legacyIndex = variants.findIndex((v,i)=>!used.has(i) && String(v&&v.unitKey||"")===String(u.key||""));
+    if(legacyIndex<0){
+      const ut = normalizeTOD(u.time) || titleCaseTime(u.time);
+      const hits=[];
+      variants.forEach((v,i)=>{
+        if(used.has(i)) return;
+        const vt=normalizeTOD(v&&v.time)||titleCaseTime(v&&v.time);
+        const side=String(v&&v.intExt||"").toUpperCase();
+        if(vt===ut && (!side || side===String(u.intExt||"").toUpperCase())) hits.push(i);
+      });
+      if(hits.length===1) legacyIndex=hits[0];
+    }
+    const legacy = legacyIndex>=0 ? variants[legacyIndex] : null;
+    if(legacyIndex>=0) used.add(legacyIndex);
+    return {
+      ...(legacy||{}),
+      id:(legacy&&legacy.id)||("unit-state-"+sluglineUnitImageId(u.key).slice(-12)),
+      unitKey:u.key,
+      intExt:u.intExt,
+      time:u.time,
+      state:String(u.appearance||"").trim() || String(legacy&&legacy.state||""),
+      linkedUnit:u,
+      screenplayDerived:true,
+    };
+  });
+  variants.forEach((v,i)=>{ if(!used.has(i)) rows.push({...v,linkedUnit:null,screenplayDerived:false}); });
+  return rows;
+}
+function locationAppearanceStateAssetId(l, v, units){
+  const u = (v&&v.linkedUnit) || locationVariantSluglineUnit(l,v,units);
+  return u ? sluglineUnitImageId(u.key) : String((l&&l.id)||"location")+"-"+String((v&&v.id)||"state");
+}
+window.locationVariantSluglineUnit = locationVariantSluglineUnit;
+window.locationAppearanceStates = locationAppearanceStates;
+window.locationAppearanceStateAssetId = locationAppearanceStateAssetId;
 
 /* LOCATION ASSET LINEAGE — derived plates stay pinned, but remember the exact
    upstream master/coverage versions they used so a later regeneration can mark
@@ -789,6 +1007,13 @@ function _locSideCueIndex(text, role){
 }
 function deriveLocationCoverageSheets(l, scenes, drafts, allLocations, units){
   if(!l) return [];
+  /* Child spaces already have a canonical child plate plus one shared plate per
+     screenplay/appearance state. They must not derive a second Coverage View —
+     especially a misleading "Kitchen Exterior" that is really the enclosing
+     house facade. Cross-subspace geography and exterior context belong to the
+     continuity root. Implied, unslugged spaces may still become Coverage Views
+     on that root below. */
+  if(l.parentKey) return [];
   /* A sub-space sheet is a STAND-IN for a space the screenplay never slugged. Once that
      space earns a real slugline it gets its own location card, plate and coverage — and
      deriving a sheet for it too would mean designing the same booth twice, from two
@@ -800,9 +1025,8 @@ function deriveLocationCoverageSheets(l, scenes, drafts, allLocations, units){
     const n = String(nm||"").trim().toLowerCase();
     if(!n) return false;
     return _allLocs.some(x=> x && x.id!==l.id && String(x.name||"").trim().toLowerCase()===n)
-      /* a slugged sub-space folds under its parent's master card — it has no card
-         of its own anymore, but its slugline UNIT is still the real record, so a
-         stand-in coverage sheet must not be derived for it either. */
+      /* a slugged child space has its own inherited workspace and unit, so a
+         stand-in coverage sheet must not be derived for it as well. */
       || _units.some(u=> u && !u.orphan && String(u.place||u.name||"").trim().toLowerCase()===n);
   };
   const clean = (s,n)=>{ const x=String(s||"").replace(/\s+/g," ").trim();
@@ -861,7 +1085,8 @@ function deriveLocationCoverageSheets(l, scenes, drafts, allLocations, units){
        real SLUGGED space (with its own time bucket and appearance state) — deriving
        an INT/EXT side sheet for it too would design the same side twice from two
        records that can drift apart. Sheets remain for IMPLIED, unslugged spaces. */
-    const _unitCovers = (role)=> _units.some(x=> x && !x.orphan && x.locationKey===l.key
+    const _unitCovers = (role)=> _units.some(x=> x && !x.orphan
+      && (l.parentKey ? String(x.subspaceKey||"")===String(l.key||"") : String(x.locationKey||"")===String(l.key||""))
       && String(x.intExt||"").toUpperCase()===role);
     if(mixedSides && /EXT/.test(sceneRole) && !_unitCovers("EXT")){
       add("EXT", baseName+" Exterior",
@@ -1168,7 +1393,7 @@ window.locVisualsDrafted = locVisualsDrafted;
      fg.left/fg.right = L1 / R1 foreground veils; fg.center = camera (implicit)
    Shots will later inherit this and vary it. */
 function emptyStaging(){
-  return { scaleClass:"", lens:"",
+  return { viewLabel:"", scaleClass:"", lens:"",
     bg:{ left:"", center:"", right:"" },
     mid:{ left:"", center:"", right:"" },
     fg:{ left:"", right:"" },
@@ -1178,7 +1403,7 @@ window.emptyStaging = emptyStaging;
 function stagingOf(l){
   const s = (l && l.staging) || {};
   const e = emptyStaging();
-  return { scaleClass:s.scaleClass||"", lens:s.lens||"",
+  return { viewLabel:s.viewLabel||((l&&l.name)?((l.name||"")+" principal view"):""), scaleClass:s.scaleClass||"", lens:s.lens||"",
     bg:{...e.bg, ...(s.bg||{})}, mid:{...e.mid, ...(s.mid||{})}, fg:{...e.fg, ...(s.fg||{})},
     floor:s.floor||"" };
 }
@@ -1208,7 +1433,7 @@ function buildStagingClause(l){
   if(s.fg.left)   plane.push("left foreground "+s.fg.left.replace(/\.$/,""));
   if(s.fg.right)  plane.push("right foreground "+s.fg.right.replace(/\.$/,""));
   if(s.floor)     plane.push("ground plane underfoot \u2014 "+s.floor.replace(/\.$/,""));
-  let out = "DEPTH STAGING (layer the space for parallax): "+plane.join("; ")+". ";
+  let out = "VIEW-SCOPED DEPTH STAGING"+(s.viewLabel?(" for "+s.viewLabel):"")+" (layer this representation for parallax): "+plane.join("; ")+". ";
   if(bits.length) out = bits.join(". ")+". "+out;
   if(s.lens) out += "Framed on a "+s.lens.replace(/\.$/,"")+". ";
   return out;
@@ -1261,6 +1486,7 @@ window.locationScaleClass = locationScaleClass;
 function buildLocationRefPrompt(l, project, opts){
   opts = opts || {};
   const P = project || (window.TURN_DATA||{}).PROJECT || {};
+  const _C0 = window.turnContinuity || {};
   const v = locVisualDefaults(l);
   const arch = (l.architecture||"").replace(/\.$/,"").trim();
   const materials = (l.materials||"").replace(/\.$/,"").trim();
@@ -1268,7 +1494,11 @@ function buildLocationRefPrompt(l, project, opts){
   const significance = (l.significance||"").replace(/\.$/,"").trim();
   const period = P.setting && P.setting.period ? P.setting.period.split(/[\u2014,]/)[0].trim() : "";
   const tone = [P.genre, period].filter(Boolean).join(", ");
-  const intExt = l.intExt || "INT";
+  const locKey=locationKeyOf(l);
+  const relevantUnits=(_C0.sluglineUnits||[]).filter(u=>u&&!u.orphan&&
+    (String(u.subspaceKey||u.locationKey||"")===locKey || (!l.parentKey&&String(u.locationKey||"")===locKey)));
+  const intExt=locationEffectiveSide(l,relevantUnits,l.coverageSheets||[],locationChildrenOf(l,_C0.locations||[]));
+  const identityLayers=locationIdentityLayers(l,_C0.locations||[]);
   /* The parent plate is canonical geography across the whole film. Never inherit
      the first scene's TOD: NIGHT/rain and DAWN are appearance-state overlays on
      their respective slugline-unit plates, not properties of the master space. */
@@ -1292,7 +1522,6 @@ function buildLocationRefPrompt(l, project, opts){
   if(clean(st.fg.right))  fixtures.push({ what: clean(st.fg.right),  position: "near foreground right" });
   const mainStation = clean(st.bg.center) || "the space's primary, most story-relevant feature";
   const secondStation = clean(st.mid.left) || clean(st.mid.right) || clean(st.fg.left) || clean(st.fg.right) || "a signature material detail of the space";
-  const _C0 = window.turnContinuity || {};
   const screenplayContext = (typeof locationScreenplayContext==="function") ? locationScreenplayContext(l, _C0.scenes||[], _C0.drafts||{}, 2600) : "";
   const panelPlan = (typeof locationMasterPanelPlan==="function") ? locationMasterPanelPlan(l, _C0.scenes||[], _C0.drafts||{}) : null;
   const envProps = locationEnvironmentProps(l).map(p=>({
@@ -1342,11 +1571,19 @@ function buildLocationRefPrompt(l, project, opts){
     task: "professional environment reference sheet \u2014 ONE single real space rendered from 4 angles",
     location: {
       name: l.name||"Location",
-      type: intExt==="EXT" ? "exterior" : "interior",
+      scope: identityLayers.scope,
+      type: intExt==="INT/EXT" ? "interior + exterior continuity" : (intExt==="EXT" ? "exterior" : "interior"),
+      identity_layers: identityLayers,
       space: arch || undefined,
       walls_surfaces_palette: materials || undefined,
       floor_ground_plane: clean(st.floor) || undefined,
-      lighting: lighting || undefined,
+      permanent_lighting_interfaces: lighting || undefined,
+      permanent_dressing: clean(l.permanentDressing) || undefined,
+      spatial_topology: clean(l.topology) || undefined,
+      continuity_anchors: clean(l.continuityAnchors) ? {
+        status:l.anchorsLocked===false?"editable":"LOCKED / binding",
+        rules:clean(l.continuityAnchors),
+      }:undefined,
       time_of_day: time ? time.toLowerCase() : undefined,
       scale: clean(st.scaleClass) || undefined,
       reads_as: significance || undefined,
@@ -1359,7 +1596,7 @@ function buildLocationRefPrompt(l, project, opts){
       screenplay_reference_contract: {
         purpose: "all attached screenplay pages jointly describe permanent geography, architecture, fixtures, sightlines and action affordances for this ONE location",
         not_a_panel_map: "do NOT assign one screenplay page or one scene to each quadrant; the four quadrants are four camera views chosen by the views plan below",
-        continuity_rule: "aggregate only features that must persist across scenes; do NOT bake scene-specific time of day, weather, temporary dressing, damage or story progression into this neutral master plate",
+        continuity_rule: "aggregate only features that must persist across scenes; do NOT bake scene-specific time of day, active practical-light state, weather, temporary dressing, damage or story progression into this neutral master plate",
         unit_examples: "NIGHT/rain and DAWN belong on separate slugline-unit appearance plates when the screenplay calls for them",
       },
       tone: tone || undefined,
@@ -1457,7 +1694,10 @@ function buildLocationVariantPrompt(l, project, opts){
   s += opts.time ? (", "+opts.time) : "";
   s += ". ";
   s += (l.architecture ? (l.architecture.replace(/\.$/,"")+". ") : "");
-  s += lighting ? (lighting+". ") : "";
+  s += lighting ? ("Permanent lighting interfaces: "+lighting+". ") : "";
+  s += opts.state ? ("APPEARANCE STATE (binding): "+String(opts.state).replace(/\.$/,"")+". ") : "";
+  const layers=locationIdentityLayers(l);
+  if(layers.continuity_root) s += "This child space inherits the continuity-root identity: "+JSON.stringify(layers.continuity_root)+". ";
   // grade-neutral, like the master plate — the scene grade is applied at the shot.
   s += "RENDER STYLE: "+v.renderStyle.replace(/\.$/,"")+". ";
   if(speciesCanon) s += speciesCanon+" ";
@@ -1494,9 +1734,13 @@ function buildLocationCoveragePrompt(l, sheet, project){
       ? "This is the inside/subspace of the parent location; preserve any glass, doorway, booth, window or threshold relationship back to the exterior when the script states it."
       : "This is the outside/facade/context of the parent location; preserve entrances, windows, thresholds and approach geometry that connect to the interior when the script states it.",
     environment_spec: {
+      identity_layers: locationIdentityLayers(l),
       architecture: clean(l.architecture) || undefined,
       materials: clean(l.materials) || undefined,
-      lighting: clean(l.lighting) || undefined,
+      permanent_lighting_interfaces: clean(l.lighting) || undefined,
+      permanent_dressing: clean(l.permanentDressing) || undefined,
+      spatial_topology: clean(l.topology) || undefined,
+      continuity_anchors: clean(l.continuityAnchors)?{status:l.anchorsLocked===false?"editable":"LOCKED / binding",rules:clean(l.continuityAnchors)}:undefined,
       dramatic_use: clean(l.significance) || undefined,
     },
     ambient_species_canon: speciesCanon || undefined,
@@ -1536,7 +1780,7 @@ function buildSluglineUnitPrompt(l, u, project){
       time_of_day: clean(u.time) || undefined,
       appearance_state: clean(u.appearance) || undefined,
       // the user's curated list wins; derived script candidates are the fallback
-      set_dressing: (Array.isArray(u.dressing) && u.dressing.length ? u.dressing
+      state_dressing: (Array.isArray(u.dressing) && u.dressing.length ? u.dressing
         : (Array.isArray(u.dressingDerived) && u.dressingDerived.length ? u.dressingDerived : undefined)),
       sluglines: Array.isArray(u.sluglines) && u.sluglines.length ? u.sluglines : undefined,
       screenplay_excerpt: clean(String(u.scriptText||"").slice(0,720)) || undefined,
@@ -1547,16 +1791,20 @@ function buildSluglineUnitPrompt(l, u, project){
       ? "This is the inside/subspace of the parent location; preserve any glass, doorway, booth, window or threshold relationship back to the exterior when the script states it."
       : "This is the outside/facade/context of the parent location; preserve entrances, windows, thresholds and approach geometry that connect to the interior when the script states it.",
     environment_spec: {
+      identity_layers: locationIdentityLayers(l),
       architecture: clean(l.architecture) || undefined,
       materials: clean(l.materials) || undefined,
-      lighting: clean(l.lighting) || undefined,
+      permanent_lighting_interfaces: clean(l.lighting) || undefined,
+      permanent_dressing: clean(l.permanentDressing) || undefined,
+      spatial_topology: clean(l.topology) || undefined,
+      continuity_anchors: clean(l.continuityAnchors)?{status:l.anchorsLocked===false?"editable":"LOCKED / binding",rules:clean(l.continuityAnchors)}:undefined,
       dramatic_use: clean(l.significance) || undefined,
     },
     ambient_species_canon: speciesCanon || undefined,
     render: {
       style: clean(v.renderStyle),
       format: "ONE 16:9 cinematic environment reference image, not a grid, not a storyboard panel",
-      rules: [rules, "empty set only", "the TIME OF DAY, APPEARANCE STATE and SET DRESSING list are binding — light, sky and weather must match the first two, and every listed dressing item must be present in the space", "no text, no labels, no typography, no captions, no watermarks", "consistent with the parent location's materials, scale and light"],
+      rules: [rules, "empty set only", "the TIME OF DAY, APPEARANCE STATE and STATE DRESSING list are binding — light, sky and weather must match the first two, and every listed temporary dressing item must be present in the space", "LOCKED continuity anchors and spatial topology are binding; story significance is soft interpretive guidance only", "no text, no labels, no typography, no captions, no watermarks", "consistent with the continuity root's invariants and this child space's specific identity"],
     },
   };
   const neg = [l.negativePrompt || v.negativePrompt || "", (typeof locationCharacterNegative==="function") ? locationCharacterNegative(project, l) : ""].filter(Boolean).join(", ").trim();
@@ -1575,7 +1823,9 @@ function buildSimpleLocationPrompt(l){
   const parts = [
     "Location reference \u2014 "+(l.name||"place")+" ("+(l.intExt||"INT")+")",
     (l.architecture||"").replace(/\.$/,"").trim(),
-    (l.lighting||"").replace(/\.$/,"").trim(),
+    (l.lighting?"permanent lighting interfaces: "+String(l.lighting).replace(/\.$/,"").trim():""),
+    (l.continuityAnchors?"binding continuity anchors: "+String(l.continuityAnchors).replace(/\.$/,"").trim():""),
+    (l.topology?"spatial topology: "+String(l.topology).replace(/\.$/,"").trim():""),
     speciesCanon,
     "establishing wide, reverse angle, and a detail view",
     "the same space from a few angles, "+rules+", "+(styleLine||"photoreal")+", sharp focus"
@@ -1611,7 +1861,7 @@ window.buildLocationFromPhotoPrompt = buildLocationFromPhotoPrompt;
    "no image" safety refusal), commit to the location's slot, and dispatch nb-gen-done so
    the live card adopts it. The base plate commits to l.id ("locref-"+l.id); a time-of-day
    variant commits to l.id+"-"+v.id ("locvar-"+l.id+"-"+v.id). ---- */
-function _nbLocMeta(prompt){
+function _nbLocMeta(prompt, entity){
   const model = (typeof nbGetModel==="function") ? nbGetModel() : "";
   const aspect = (typeof nbGetAspect==="function") ? nbGetAspect() : "16:9";
   const size = (typeof nbGetRes==="function") ? nbGetRes() : "2K";
@@ -1623,7 +1873,9 @@ function _nbLocMeta(prompt){
       ? ((typeof window.nbGetOaiQuality==="function") ? window.nbGetOaiQuality() : "medium") : undefined,
     date: now.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}),
     time: now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}),
-    iso: now.toISOString(), prompt, mode:"final", version:1 };
+    iso: now.toISOString(), prompt, mode:"final", version:1,
+    writingSources:(typeof window.nbWritingSourcesFor==="function")?window.nbWritingSourcesFor(entity):[],
+    promptCompiler:"TURN prompt compiler" };
 }
 /* SET DRESSING — painted INTO the plate by an EDIT, never attached as reference
    sheets at generation. (Reference sheets at generation time had no anchor image
@@ -1675,7 +1927,7 @@ async function generateLocationPlate(l, project){
     let url;
     try{ url = await nbGenerate(prompt, gopts); }
     catch(e){ if(/no image/i.test((e&&e.message)||"") && typeof buildSimpleLocationPrompt==="function"){ url = await nbGenerate(buildSimpleLocationPrompt(l), {}); } else throw e; }
-    await nbCommit(l.id, url, _nbLocMeta(prompt), [], "location", _ep);
+    await nbCommit(l.id, url, _nbLocMeta(prompt,l), [], "location", _ep);
     try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id:l.id, url } })); }catch(e){}
     return true;
   } finally { window.__nbGenInflight[l.id] = false; }
@@ -1685,16 +1937,22 @@ window.generateLocationPlate = generateLocationPlate;
 async function generateLocationVariant(l, v, project){
   const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;   // asset scope at generation start
   if(typeof nbGenerate!=="function" || typeof nbCommit!=="function") return false;
-  const id = l.id+"-"+v.id;
-  const prompt = (typeof buildLocationVariantPrompt==="function") ? buildLocationVariantPrompt(l, project, { time:v.time }) : (l.name||"location reference");
+  const units = ((window.turnContinuity||{}).sluglineUnits)||[];
+  const unit = (typeof locationVariantSluglineUnit==="function") ? locationVariantSluglineUnit(l,v,units) : null;
+  const id = (typeof locationAppearanceStateAssetId==="function")
+    ? locationAppearanceStateAssetId(l,{...v,linkedUnit:unit},units)
+    : l.id+"-"+v.id;
+  const prompt = unit && typeof buildSluglineUnitPrompt==="function"
+    ? buildSluglineUnitPrompt(l,{...unit,appearance:v.state||unit.appearance||""},project)
+    : ((typeof buildLocationVariantPrompt==="function") ? buildLocationVariantPrompt(l, project, { time:v.time, state:v.state }) : (l.name||"location reference"));
   if(!window.__nbGenInflight) window.__nbGenInflight = {};
   window.__nbGenInflight[id] = true;
   try{
     let url;
     try{ url = await nbGenerate(prompt, {}); }
     catch(e){ if(/no image/i.test((e&&e.message)||"") && typeof buildSimpleLocationPrompt==="function"){ url = await nbGenerate(buildSimpleLocationPrompt(l), {}); } else throw e; }
-    await nbCommit(id, url, Object.assign(_nbLocMeta(prompt),
-      locationAssetDependencySnapshot(l.id,[],"time-of-day-variant")), [], "location", _ep);
+    await nbCommit(id, url, Object.assign(_nbLocMeta(prompt,unit?{...l,appearanceState:unit}:l),
+      locationAssetDependencySnapshot(l.id,[],unit?"slugline-unit":"continuity-state")), [], "location", _ep);
     try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id, url } })); }catch(e){}
     return true;
   } finally { window.__nbGenInflight[id] = false; }

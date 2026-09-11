@@ -229,6 +229,11 @@ try{
 /* ── projects ────────────────────────────────────────────────────────────────
    A project row holds the whole story `doc` (scenes, characters, props, drafts,
    beats, continuity) as JSON, scoped to the signed-in user by RLS. */
+function _cloudNormalizeSeriesRow(row){
+  if(window.turnSeries&&typeof window.turnSeries.normalizeProjectRow==="function")
+    return window.turnSeries.normalizeProjectRow(row);
+  return row;
+}
 async function cloudListProjects(){
   const sb = sbClient(); if(!sb) return [];
   try{
@@ -241,9 +246,14 @@ async function cloudListProjects(){
     const session = await cloudGetSession();
     const uid = session && session.user && session.user.id;
     const email = String((session && session.user && session.user.email) || "").toLowerCase();
-    const { data, error } = await sb.from("turn_projects")
-      .select("id,owner,title,updated_at,created_at,isShow:doc->>isShow,showId:doc->>showId,episodeNo:doc->>episodeNo,cover:doc->>cover,coverPrev:doc->>coverPrev,fmt:doc->project->>format,logline:doc->project->>logline,ord:doc->>homeOrder,hasShots:doc->shots->0->>id,hasLocs:doc->locations->0->>id")
+    const legacyFields="id,owner,title,updated_at,created_at,isShow:doc->>isShow,showId:doc->>showId,episodeNo:doc->>episodeNo,cover:doc->>cover,coverPrev:doc->>coverPrev,fmt:doc->project->>format,logline:doc->project->>logline,ord:doc->>homeOrder,hasShots:doc->shots->0->>id,hasLocs:doc->locations->0->>id";
+    let { data, error } = await sb.from("turn_projects")
+      .select("id,owner,title,updated_at,created_at,project_kind,show_id,episode_no,isShow:doc->>isShow,showId:doc->>showId,episodeNo:doc->>episodeNo,cover:doc->>cover,coverPrev:doc->>coverPrev,fmt:doc->project->>format,logline:doc->project->>logline,ord:doc->>homeOrder,hasShots:doc->shots->0->>id,hasLocs:doc->locations->0->>id")
       .order("updated_at",{ ascending:false });
+    // Older film-only installations do not have the normalized column yet. Keep
+    // their project wall usable and fall back to the case-insensitive JSON marker.
+    if(error && /project_kind|schema cache/i.test(String(error.message||"")))
+      ({data,error}=await sb.from("turn_projects").select(legacyFields).order("updated_at",{ascending:false}));
     // null = REQUEST FAILED (e.g. expired token → 401), [] = genuinely no projects.
     // Callers must not treat a failure as "new user" — that's how an auth hiccup
     // once spawned a create-first-project during boot and stranded the app.
@@ -268,8 +278,28 @@ async function cloudListProjects(){
         if(!oe)(ow||[]).forEach(r=>{ if(r && r.project_id) ownersBy[r.project_id]=r.owner_email||""; });
       }catch(e){}
     }
-    return (data || []).map(p=>{
-      const m = byProject[p.id] || null;
+    // Canonical columns override legacy JSON markers. In particular, a bad or
+    // orphaned pre-migration doc.showId is normalized to a standalone film by SQL
+    // and must remain visible/openable as that film in every client surface.
+    const rows = (data || []).map(_cloudNormalizeSeriesRow);
+    /* A Show membership is inherited by every episode (series-production.sql).
+       Keep the client classification in step with RLS so inherited collaborators
+       never fall through with an empty role and have every save fail closed. Legacy
+       episode-level grants also project back onto the Show until owners re-share it. */
+    const memberFor = (p)=>{
+      let m = byProject[p.id] || null;
+      if(!m && p.showId) m = byProject[p.showId] || null;
+      const isShow=(window.turnSeries&&typeof window.turnSeries.isShowDoc==="function")
+        ? window.turnSeries.isShowDoc(p)
+        : String(p.project_kind||"").toLowerCase()==="show" || String(p.isShow).toLowerCase()==="true";
+      if(!m && isShow){
+        const child = rows.find(ep=>ep && String(ep.showId||"")===String(p.id) && byProject[ep.id]);
+        if(child) m = byProject[child.id] || null;
+      }
+      return m;
+    };
+    return rows.map(p=>{
+      const m = memberFor(p);
       const isOwner = !!(uid && p.owner===uid);
       // FAIL CLOSED: any accessible project I don't own IS shared with me — RLS
       // only returns rows I can access. The memberships query merely supplies the
@@ -380,7 +410,7 @@ async function cloudSetPassword(password){
     return { ok:true };
   }catch(err){ return { ok:false, message:(err&&err.message)||"Could not set the password." }; }
 }
-async function cloudUpdateProjectMember(memberId, patch){
+async function cloudUpdateProjectMember(memberId, patch, projectId){
   const sb = sbClient(); if(!sb || !memberId) return { ok:false };
   const role = patch && patch.role;
   // fail CLOSED on an unknown role: passing it through would either hit the DB CHECK
@@ -389,6 +419,9 @@ async function cloudUpdateProjectMember(memberId, patch){
   try{
     const { error } = await sb.from("turn_project_members").update(role?{role}:patch).eq("id", memberId);
     if(error) return { ok:false, message:error.message };
+    // A role change is an access-boundary change just as removal is. Wake open
+    // collaborators so they refresh the server-derived role before their next edit.
+    if(projectId) _pushMemberRemoved(projectId);
     return { ok:true };
   }catch(err){ return { ok:false, message:(err&&err.message)||"Update failed." }; }
 }
@@ -417,7 +450,7 @@ window.cloudSetPassword = cloudSetPassword;
    rest of the story doc is untouched. Used by the Home screen's poster generator. */
 async function cloudSaveCover(id, cover, prevCover){
   // fenced: a poster save must never revert story edits made while it was in flight
-  await cloudPatchDoc(id, (doc)=>{
+  return await cloudPatchDoc(id, (doc)=>{
     doc.cover = cover || "";
     // one-deep poster history: a REGENERATE passes the outgoing poster so the
     // Home card's Restore can bring it back
@@ -458,15 +491,31 @@ async function _cloudJwtDiag(sb, uid){
       +" \u00b7 "+(secs>=0 ? "expires in "+secs+"s" : "EXPIRED "+(-secs)+"s ago");
   }catch(e){ return "token unreadable"; }
 }
-async function cloudCreateProject(title, doc){
+async function _cloudReadCreatedProject(sb, id, uid){
+  if(!sb || !id || !uid) return null;
+  try{
+    const { data, error } = await sb.from("turn_projects").select("*").eq("id",id).maybeSingle();
+    if(error || !data || String(data.owner||"")!==String(uid)) return null;
+    const row=_cloudNormalizeSeriesRow(data);
+    cloudNoteDocRev(row.id,row.doc||{});
+    return row;
+  }catch(e){ return null; }
+}
+async function cloudCreateProject(title, doc, opts){
   // record WHY a create failed so the UI can say something better than "hiccup"
   window.cloudLastCreateError = "";
+  window.cloudLastCreateRequestId = "";
   const sb = sbClient(); if(!sb){ window.cloudLastCreateError = "cloud storage isn\u2019t ready in this window"; return null; }
   const session = await cloudGetSession();
   const uid = session && session.user && session.user.id;
   if(!uid){ window.cloudLastCreateError = "your session has expired \u2014 sign in again"; return null; }
-  const ins = ()=> sb.from("turn_projects")
-    .insert({ owner:uid, title: title || "Untitled film", doc: doc || {} }).select().single();
+  /* Choose the row UUID once per visible create intent. Retrying an INSERT after
+     a lost response can then only rediscover that same row; it cannot strand a
+     duplicate film (including the first Episode before Series conversion). */
+  const requestId=_seriesEpisodeRequest(opts);
+  window.cloudLastCreateRequestId=requestId;
+  const payload={id:requestId,owner:uid,title:title||"Untitled film",doc:doc||{}};
+  const ins = ()=> sb.from("turn_projects").insert(payload).select().single();
   try{
     let { data, error } = await ins();
     if(error && /row-level security/i.test(error.message||"")){
@@ -474,7 +523,17 @@ async function cloudCreateProject(title, doc){
       try{ await sb.auth.refreshSession(); }catch(e){}
       ({ data, error } = await ins());
     }
+    if(data){
+      const row=_cloudNormalizeSeriesRow(data);
+      cloudNoteDocRev(row.id,row.doc||{});
+      return row;
+    }
     if(error){
+      /* A duplicate key normally means the first response was lost. Transport
+         failures can have the same shape, so reconcile the caller-owned UUID
+         under RLS before reporting a failure. */
+      const recovered=await _cloudReadCreatedProject(sb,requestId,uid);
+      if(recovered) return recovered;
       let why = error.message || "the server rejected the save";
       if(/row-level security/i.test(why)){
         const diag = await _cloudJwtDiag(sb, uid);
@@ -483,15 +542,23 @@ async function cloudCreateProject(title, doc){
       }
       window.cloudLastCreateError = why; return null;
     }
-    return data;
-  }catch(e){ window.cloudLastCreateError = (e && e.message) || "network error"; return null; }
+    const recovered=await _cloudReadCreatedProject(sb,requestId,uid);
+    if(recovered) return recovered;
+    window.cloudLastCreateError = "The server did not confirm the new film";
+    return null;
+  }catch(e){
+    const recovered=await _cloudReadCreatedProject(sb,requestId,uid);
+    if(recovered) return recovered;
+    window.cloudLastCreateError = (e && e.message) || "network error";
+    return null;
+  }
 }
 async function cloudLoadProject(id){
   const sb = sbClient(); if(!sb) return null;
   try{
     const { data, error } = await sb.from("turn_projects").select("*").eq("id", id).single();
     if(error) return null;
-    return data;
+    return _cloudNormalizeSeriesRow(data);
   }catch(e){ return null; }
 }
 /* MULTI-WINDOW SAVE FENCE — the auto-save is a full-doc overwrite, so two open
@@ -566,18 +633,600 @@ async function cloudPatchDoc(id, mutate){
 }
 window.cloudPatchDoc = cloudPatchDoc;
 
+function _seriesRpcMissing(error,functionName){
+  const code=String((error&&error.code)||"");
+  const msg=String((error&&error.message)||error||"");
+  const expected=String(functionName||"").replace(/[^a-zA-Z0-9_]/g,"");
+  const named=!expected || new RegExp("(?:public[.])?"+expected+"\\b","i").test(msg);
+  /* PGRST202 specifically means the requested RPC signature is absent from the
+     API schema cache. PostgreSQL 42883 is broader, so accept it only when the
+     error names the outer lifecycle function; an undefined helper *inside* an
+     installed RPC is an operational failure, not permission to clear a retry id. */
+  if(code==="PGRST202") return named;
+  return code==="42883" && named && /function[\s\S]*does not exist/i.test(msg);
+}
+function _seriesError(error,fallback){ return String((error&&error.message)||error||fallback||"Series operation failed."); }
+function _seriesConversionRetry(episodeId, message){
+  return {ok:false,retrySafe:true,
+    retryState:{operation:"convert-project-to-show",episodeId:String(episodeId||"")},
+    message:message||"The server did not confirm the Show conversion. Try Create show again; TURN will safely reconcile the same Episode 1."};
+}
+async function _seriesReadConvertedPair(sb, episodeId){
+  try{
+    const {data:episodeData,error:episodeError}=await sb.from("turn_projects")
+      .select("*").eq("id",episodeId).single();
+    if(episodeError||!episodeData) return {ok:false,unconfirmed:true};
+    const episode=_cloudNormalizeSeriesRow(episodeData);
+    const showId=episode&&(episode.showId||episode.show_id||(episode.doc&&episode.doc.showId));
+    if(!showId) return {ok:false,notCommitted:true};
+    const {data:showData,error:showError}=await sb.from("turn_projects")
+      .select("*").eq("id",showId).single();
+    if(showError||!showData) return {ok:false,unconfirmed:true};
+    const show=_cloudNormalizeSeriesRow(showData);
+    const showDoc=(show&&show.doc)||{};
+    const isShow=String(show&&show.project_kind||"").toLowerCase()==="show"
+      || showDoc.isShow===true || String(showDoc.isShow||"").toLowerCase()==="true";
+    if(!isShow || String(showDoc.sourceEpisodeId||"")!==String(episodeId))
+      return {ok:false,unconfirmed:true};
+    cloudNoteDocRev(show.id,show.doc||{});
+    cloudNoteDocRev(episode.id,episode.doc||{});
+    return {ok:true,show,episode,atomic:true,reconciled:true};
+  }catch(e){ return {ok:false,unconfirmed:true}; }
+}
+async function _seriesReconcileConversion(sb, episodeId, message){
+  const committed=await _seriesReadConvertedPair(sb,episodeId);
+  return committed&&committed.ok ? committed : _seriesConversionRetry(episodeId,message);
+}
+
+/* Durable conversion: the production RPC creates the Show and attaches the
+   current film as Episode 1 inside one database transaction. There is no browser
+   multi-write fallback: an ambiguous response must never strand a hidden Show or
+   claim a conversion that only lived in React state. */
+async function cloudConvertProjectToShow(episodeId, showTitle, bible, episodeProject){
+  const sb=sbClient(); if(!sb||!episodeId) return {ok:false,message:"Cloud storage is unavailable."};
+  const format=String((episodeProject&&episodeProject.format)||"series");
+  try{
+    const {data,error}=await sb.rpc("turn_convert_project_to_show",{
+      p_episode_id:episodeId,p_show_title:showTitle,p_bible:bible||{},p_format:format
+    });
+    if(!error && data && data.show && data.episode){
+      const show=_cloudNormalizeSeriesRow(data.show);
+      const episode=_cloudNormalizeSeriesRow(data.episode);
+      cloudNoteDocRev(show.id,show.doc||{});
+      cloudNoteDocRev(episode.id,episode.doc||{});
+      return {ok:true,show,episode,atomic:true};
+    }
+    if(error){
+      if(_seriesRpcMissing(error,"turn_convert_project_to_show")) return {ok:false,setup:true,message:"Show conversion needs the series-production database migration. No projects were changed."};
+      if(_seriesAmbiguousTransport(error)) return await _seriesReconcileConversion(sb,episodeId,
+        "The connection ended before Show conversion was confirmed. Try Create show again; TURN will safely reconcile the same Episode 1.");
+      return {ok:false,message:_seriesError(error,"The show could not be created.")};
+    }
+    return await _seriesReconcileConversion(sb,episodeId);
+  }catch(e){
+    if(_seriesRpcMissing(e,"turn_convert_project_to_show")) return {ok:false,setup:true,message:"Show conversion needs the series-production database migration. No projects were changed."};
+    return await _seriesReconcileConversion(sb,episodeId,
+      "The connection ended before Show conversion was confirmed. Try Create show again; TURN will safely reconcile the same Episode 1.");
+  }
+}
+window.cloudConvertProjectToShow=cloudConvertProjectToShow;
+
+function _seriesUuid(){
+  try{ if(window.crypto&&typeof window.crypto.randomUUID==="function") return window.crypto.randomUUID(); }catch(e){}
+  const bytes=new Uint8Array(16);
+  try{ window.crypto.getRandomValues(bytes); }
+  catch(e){ for(let i=0;i<16;i++) bytes[i]=Math.floor(Math.random()*256); }
+  bytes[6]=(bytes[6]&15)|64; bytes[8]=(bytes[8]&63)|128;
+  const hex=Array.from(bytes,b=>b.toString(16).padStart(2,"0")).join("");
+  return hex.slice(0,8)+"-"+hex.slice(8,12)+"-"+hex.slice(12,16)+"-"+hex.slice(16,20)+"-"+hex.slice(20);
+}
+window.cloudCreateRequestId=_seriesUuid;
+function _seriesEpisodeRequest(opts){
+  const valid=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const supplied=typeof opts==="string" ? opts : opts&&opts.requestId;
+  return valid.test(String(supplied||"")) ? String(supplied) : _seriesUuid();
+}
+function _seriesAmbiguousTransport(error){
+  const code=String((error&&error.code)||"");
+  const status=Number(error&&(error.status||error.statusCode));
+  const msg=String((error&&error.message)||error||"");
+  return /^5\d\d$/.test(code) || status>=500
+    || /failed to fetch|fetch failed|network|load failed|connection|timeout|timed out|abort|socket|econn|gateway|response.*lost/i.test(msg);
+}
+
+/* New episode numbering is reserved on the locked Show row by the RPC. Every
+   UI intent carries a request UUID: if a committed response is lost, the retry
+   for that same intent reuses it and the server returns the same Episode instead
+   of allocating another. The caller owns that short-lived retry state, so another
+   tab or a later, unrelated click can never inherit a stale create request.
+   The browser deliberately has no multi-write lifecycle fallback; production
+   safety requires the migration's single transaction. */
+async function cloudCreateShowEpisode(showId, blankDoc, opts){
+  const sb=sbClient(); if(!sb||!showId) return {ok:false,message:"Cloud storage is unavailable."};
+  const requestId=_seriesEpisodeRequest(opts);
+  try{
+    const {data,error}=await sb.rpc("turn_create_show_episode",{
+      p_show_id:showId,p_episode_doc:blankDoc||{},p_request_id:requestId
+    });
+    if(!error && data && data.episode){
+      const episode=_cloudNormalizeSeriesRow(data.episode);
+      cloudNoteDocRev(showId,(data.show&&data.show.doc)||{});
+      cloudNoteDocRev(episode.id,episode.doc||{});
+      return {ok:true,episode,episodeNo:Number(data.episode_no)||Number(episode.doc&&episode.doc.episodeNo)||1,
+        requestId,atomic:true};
+    }
+    if(error){
+      if(_seriesRpcMissing(error,"turn_create_show_episode")){
+        return {ok:false,setup:true,message:"Episode creation needs the series-production database migration. No projects were changed."};
+      }
+      if(_seriesAmbiguousTransport(error)) return {ok:false,retrySafe:true,
+        requestId,retryState:{operation:"create-show-episode",showId:String(showId),requestId},
+        message:"The connection ended before Episode creation was confirmed. Try again; TURN will safely resume the same request."};
+      return {ok:false,message:_seriesError(error,"The episode could not be created.")};
+    }
+    return {ok:false,retrySafe:true,requestId,
+      retryState:{operation:"create-show-episode",showId:String(showId),requestId},
+      message:"The server did not confirm which Episode was created. Try again; TURN will safely resume the same request."};
+  }catch(e){
+    if(_seriesRpcMissing(e,"turn_create_show_episode")){
+      return {ok:false,setup:true,message:"Episode creation needs the series-production database migration. No projects were changed."};
+    }
+    return {ok:false,retrySafe:true,requestId,
+      retryState:{operation:"create-show-episode",showId:String(showId),requestId},
+      message:"The connection ended before Episode creation was confirmed. Try again; TURN will safely resume the same request."};
+  }
+}
+window.cloudCreateShowEpisode=cloudCreateShowEpisode;
+
+/* Inventory the exact Storage objects which will lose their database references
+   when a Show is deleted. Project rows/generation rows are still removed only by
+   the transactional RPC below; this preflight merely gives the client a bounded,
+   reviewable list of object keys to clean up after that transaction commits.
+
+   Never derive deletion keys from a prefix or a display name. A generation row
+   is allowed to nominate only keys whose project-id path segment belongs to the
+   Show inventory (the first segment must also be a valid uploader UUID). This
+   prevents stale/corrupt JSON from turning a Show deletion into an arbitrary
+   Storage delete. */
+function _seriesScopedStoragePath(path,projectIds){
+  const value=String(path||"").trim();
+  if(!value || value[0]==="/" || value.indexOf("\\")>=0) return null;
+  const parts=value.split("/");
+  const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if(parts.length<3 || parts.some(part=>!part || part==="." || part==="..") || !uuid.test(parts[0]) || !uuid.test(parts[1]))
+    return {path:value,safe:false,inScope:false};
+  return {path:value,safe:true,inScope:projectIds.has(parts[1])};
+}
+function _seriesReferencedPaths(row){
+  const paths=new Map();
+  const add=(path,direct)=>{ if(path){ const key=String(path); paths.set(key,!!paths.get(key)||!!direct); } };
+  const addRefs=refs=>(refs||[]).forEach(ref=>add(ref&&ref.storage_path,false));
+  add(row&&row.storage_path,true); addRefs(row&&row.refs);
+  for(const item of ((row&&row.history)||[])){
+    add(item&&item.storage_path,true); addRefs(item&&item.refs);
+    const oldPending=item&&item.meta&&Array.isArray(item.meta.cleanupPending) ? item.meta.cleanupPending : [];
+    oldPending.forEach(path=>add(path,true));
+  }
+  const pending=row&&row.meta&&Array.isArray(row.meta.cleanupPending) ? row.meta.cleanupPending : [];
+  pending.forEach(path=>add(path,true));
+  return Array.from(paths,(pair)=>({path:pair[0],direct:pair[1]}));
+}
+function _seriesOptionalTableMissing(error,table){
+  const msg=String((error&&error.message)||error||"");
+  return !!(error&&["42P01","PGRST204","PGRST205"].indexOf(error.code)>=0)
+    || new RegExp("(?:relation|table|schema cache).*"+table,"i").test(msg);
+}
+async function _seriesRowsForProjects(sb,table,columns,projectIds,optional,orderColumn){
+  const rows=[], ids=Array.from(new Set((projectIds||[]).filter(Boolean)));
+  /* Keep both the PostgREST URL and every response bounded. range() also avoids
+     silently accepting the server's default 1,000-row cap on a long-running Show. */
+  for(let i=0;i<ids.length;i+=50){
+    const batch=ids.slice(i,i+50);
+    for(let from=0;;from+=1000){
+      let query=sb.from(table).select(columns).in("project_id",batch)
+        .order("project_id",{ascending:true});
+      if(orderColumn) query=query.order(orderColumn,{ascending:true});
+      const {data,error}=await query.range(from,from+999);
+      if(error){
+        if(optional&&_seriesOptionalTableMissing(error,table)) break;
+        return {ok:false,message:(error&&error.message)||("Could not inventory "+table+".")};
+      }
+      const page=data||[]; rows.push(...page);
+      if(page.length<1000) break;
+    }
+  }
+  return {ok:true,rows};
+}
+async function _seriesDeleteInventory(sb,showId){
+  const session=await cloudGetSession();
+  const uid=session&&session.user&&session.user.id;
+  if(!uid) return {ok:false,message:"Sign in before deleting a Show. No projects were deleted."};
+
+  const {data:show,error:showErr}=await sb.from("turn_projects")
+    .select("id,owner,project_kind,isShow:doc->>isShow").eq("id",showId).maybeSingle();
+  if(showErr){
+    const setup=_seriesOptionalTableMissing(showErr,"turn_projects") || /project_kind|schema cache/i.test(String(showErr.message||""));
+    return {ok:false,setup,message:setup
+      ? "Show deletion needs the series-production database migration. No projects were deleted."
+      : "The Show's stored assets could not be inventoried safely. No projects were deleted."};
+  }
+  if(!show) return {ok:false,message:"The Show is unavailable. No projects were deleted."};
+  if(String(show.owner)!==String(uid))
+    return {ok:false,message:"Only the Show owner can delete the Show. No projects were deleted."};
+  if(!((window.turnSeries&&typeof window.turnSeries.isShowDoc==="function")
+    ? window.turnSeries.isShowDoc(show)
+    : (String(show.project_kind||"").toLowerCase()==="show"||String(show.isShow).toLowerCase()==="true")))
+    return {ok:false,message:"That project is not a Show. No projects were deleted."};
+
+  const {data:episodes,error:episodeErr}=await sb.from("turn_projects")
+    .select("id,owner,show_id").eq("show_id",showId);
+  if(episodeErr){
+    const setup=/show_id|schema cache/i.test(String(episodeErr.message||""));
+    return {ok:false,setup,message:setup
+      ? "Show deletion needs the series-production database migration. No projects were deleted."
+      : "The Show's Episodes could not be inventoried safely. No projects were deleted."};
+  }
+  const invalidOwner=(episodes||[]).find(ep=>String(ep.owner)!==String(show.owner));
+  if(invalidOwner) return {ok:false,message:"The Show has an invalid Episode ownership link. No projects were deleted."};
+  const projectIds=[showId,...(episodes||[]).map(ep=>ep.id).filter(Boolean)];
+
+  const gens=await _seriesRowsForProjects(sb,"turn_generations",
+    "project_id,owner,entity_id,storage_path,meta,refs,history",projectIds,false,"entity_id");
+  if(!gens.ok) return {ok:false,message:"The Show's generated assets could not be inventoried safely. No projects were deleted."};
+  /* Cameos are an optional installation, but when installed their angle files
+     must be included because the project-row cascade removes their references. */
+  const cameos=await _seriesRowsForProjects(sb,"turn_cameos",
+    "project_id,owner,char_id,angles",projectIds,true,"char_id");
+  if(!cameos.ok) return {ok:false,message:"The Show's cameo assets could not be inventoried safely. No projects were deleted."};
+
+  const paths=new Set(), unsafe=new Set(), allowedProjects=new Set(projectIds.map(String));
+  const take=(path,direct)=>{
+    const checked=_seriesScopedStoragePath(path,allowedProjects);
+    if(checked&&checked.safe&&checked.inScope) paths.add(checked.path);
+    /* A well-formed reference into a different project is deliberately retained:
+       it belongs to that other production. A malformed key, or a generation's
+       own direct key outside this Show, cannot be deleted safely and is reported. */
+    else if(path && (direct || !(checked&&checked.safe))) unsafe.add(String(path));
+  };
+  for(const row of gens.rows){
+    if(projectIds.indexOf(row.project_id)<0 || !row.owner){ unsafe.add("invalid-generation-row"); continue; }
+    for(const item of _seriesReferencedPaths(row)) take(item.path,item.direct);
+  }
+  for(const row of cameos.rows){
+    if(projectIds.indexOf(row.project_id)<0 || !row.owner){ unsafe.add("invalid-cameo-row"); continue; }
+    for(const angle of (Array.isArray(row.angles)?row.angles:[])) take(angle&&angle.storage_path,true);
+  }
+  return {ok:true,projectIds:Array.from(new Set(projectIds.map(String))),paths:Array.from(paths),unsafeCount:unsafe.size};
+}
+async function _seriesDeleteEpisodeInventory(sb,episodeId){
+  const session=await cloudGetSession();
+  const uid=session&&session.user&&session.user.id;
+  if(!uid) return {ok:false,message:"Sign in before deleting an Episode. No projects were deleted."};
+
+  const {data:episode,error:episodeErr}=await sb.from("turn_projects")
+    .select("id,owner,project_kind,show_id,showId:doc->>showId").eq("id",episodeId).maybeSingle();
+  if(episodeErr){
+    const setup=/project_kind|show_id|schema cache/i.test(String(episodeErr.message||""));
+    return {ok:false,setup,message:setup
+      ? "Episode deletion needs the series-production database migration. No projects were deleted."
+      : "The Episode's stored assets could not be inventoried safely. No projects were deleted."};
+  }
+  if(!episode) return {ok:false,message:"The Episode is unavailable. No projects were deleted."};
+  if(String(episode.owner)!==String(uid))
+    return {ok:false,message:"Only the Show owner can delete an Episode. No projects were deleted."};
+  const showId=String(episode.show_id||episode.showId||"");
+  if(episode.project_kind!=="episode" || !showId)
+    return {ok:false,message:"That project is not a Show Episode. No projects were deleted."};
+
+  const {data:show,error:showErr}=await sb.from("turn_projects")
+    .select("id,owner,project_kind,isShow:doc->>isShow").eq("id",showId).maybeSingle();
+  if(showErr) return {ok:false,message:"The Episode's Show could not be verified. No projects were deleted."};
+  if(!show || String(show.owner)!==String(episode.owner)
+      || !((window.turnSeries&&typeof window.turnSeries.isShowDoc==="function")
+        ? window.turnSeries.isShowDoc(show)
+        : (String(show.project_kind||"").toLowerCase()==="show"||String(show.isShow).toLowerCase()==="true")))
+    return {ok:false,message:"The Episode has an invalid Show relationship. No projects were deleted."};
+
+  /* This is only an early UX check; the RPC repeats it under the Show lock, so a
+     simultaneous sibling deletion can never strand an empty Show. */
+  const {data:siblings,error:siblingErr}=await sb.from("turn_projects")
+    .select("id,owner").eq("show_id",showId);
+  if(siblingErr) return {ok:false,message:"The Show's Episodes could not be verified. No projects were deleted."};
+  const invalidOwner=(siblings||[]).find(row=>String(row.owner)!==String(show.owner));
+  if(invalidOwner) return {ok:false,message:"The Show has an invalid Episode ownership link. No projects were deleted."};
+  if((siblings||[]).length<=1) return {ok:false,finalEpisode:true,
+    message:"Delete the Show to remove its final Episode. No projects were deleted."};
+
+  const projectIds=[episodeId];
+  const survivingProjectIds=[showId,...(siblings||[]).map(row=>String(row.id)).filter(id=>id!==String(episodeId))];
+  const gens=await _seriesRowsForProjects(sb,"turn_generations",
+    "project_id,owner,entity_id,storage_path,meta,refs,history",projectIds,false,"entity_id");
+  if(!gens.ok) return {ok:false,message:"The Episode's generated assets could not be inventoried safely. No projects were deleted."};
+  const cameos=await _seriesRowsForProjects(sb,"turn_cameos",
+    "project_id,owner,char_id,angles",projectIds,true,"char_id");
+  if(!cameos.ok) return {ok:false,message:"The Episode's cameo assets could not be inventoried safely. No projects were deleted."};
+  /* A legacy Show/sibling row may still reference a file physically stored in
+     this Episode's namespace. Such a key is shared live data, not garbage. */
+  const survivingGens=await _seriesRowsForProjects(sb,"turn_generations",
+    "project_id,owner,entity_id,storage_path,meta,refs,history",survivingProjectIds,false,"entity_id");
+  if(!survivingGens.ok) return {ok:false,message:"Surviving Show asset references could not be verified. No projects were deleted."};
+  const survivingCameos=await _seriesRowsForProjects(sb,"turn_cameos",
+    "project_id,owner,char_id,angles",survivingProjectIds,true,"char_id");
+  if(!survivingCameos.ok) return {ok:false,message:"Surviving Show cameo references could not be verified. No projects were deleted."};
+
+  const paths=new Set(), protectedPaths=new Set(), unsafe=new Set(), allowedProjects=new Set(projectIds.map(String));
+  const take=(path,direct)=>{
+    const checked=_seriesScopedStoragePath(path,allowedProjects);
+    if(checked&&checked.safe&&checked.inScope) paths.add(checked.path);
+    else if(path && (direct || !(checked&&checked.safe))) unsafe.add(String(path));
+  };
+  const protect=path=>{
+    const checked=_seriesScopedStoragePath(path,allowedProjects);
+    if(checked&&checked.safe&&checked.inScope) protectedPaths.add(checked.path);
+    else if(path && !(checked&&checked.safe)) unsafe.add(String(path));
+  };
+  for(const row of gens.rows){
+    if(String(row.project_id)!==String(episodeId) || !row.owner){ unsafe.add("invalid-generation-row"); continue; }
+    for(const item of _seriesReferencedPaths(row)) take(item.path,item.direct);
+  }
+  for(const row of cameos.rows){
+    if(String(row.project_id)!==String(episodeId) || !row.owner){ unsafe.add("invalid-cameo-row"); continue; }
+    for(const angle of (Array.isArray(row.angles)?row.angles:[])) take(angle&&angle.storage_path,true);
+  }
+  for(const row of survivingGens.rows)
+    for(const item of _seriesReferencedPaths(row)) protect(item.path);
+  for(const row of survivingCameos.rows)
+    for(const angle of (Array.isArray(row.angles)?row.angles:[])) protect(angle&&angle.storage_path);
+  for(const path of protectedPaths) paths.delete(path);
+  return {ok:true,showId,projectIds:[String(episodeId)],paths:Array.from(paths),
+    protectedPaths:Array.from(protectedPaths),unsafeCount:unsafe.size,
+    remainingEpisodeCount:Math.max(0,(siblings||[]).length-1)};
+}
+async function _seriesRemoveExactPaths(paths){
+  const exact=Array.from(new Set((paths||[]).filter(Boolean))), failed=[];
+  let removed=0;
+  /* Supabase Storage accepts an explicit key list. Small chunks bound request
+     size and let later chunks continue when one batch is rejected. */
+  for(let i=0;i<exact.length;i+=100){
+    const batch=exact.slice(i,i+100);
+    try{
+      await cloudRemovePaths(batch);
+      removed+=batch.length;
+    }catch(e){ failed.push(...batch); }
+  }
+  return {ok:failed.length===0,removed,failedCount:failed.length};
+}
+async function _seriesConfirmProjectAbsent(sb,projectId){
+  try{
+    const {data,error}=await sb.from("turn_projects").select("id").eq("id",projectId).maybeSingle();
+    if(error) return {ok:false,message:(error&&error.message)||"Project state could not be verified."};
+    return {ok:true,absent:!data};
+  }catch(e){ return {ok:false,message:(e&&e.message)||"Project state could not be verified."}; }
+}
+
+/* Whole-show database deletion is deliberately RPC-only: deleting several
+   JSON-linked rows one by one can strand a half-deleted production after one
+   network error. Storage is not transactional with Postgres, so its exact keys
+   are inventoried before the RPC and removed best-effort only after commit. */
+async function cloudDeleteShow(showId){
+  const sb=sbClient(); if(!sb||!showId) return {ok:false,message:"Cloud storage is unavailable."};
+  let inventory;
+  try{
+    inventory=await _seriesDeleteInventory(sb,showId);
+    if(!inventory.ok) return inventory;
+  }catch(e){ return {ok:false,message:_seriesError(e,"The Show's assets could not be inventoried. No projects were deleted.")}; }
+
+  let data, responseLost=false;
+  try{
+    const response=await sb.rpc("turn_delete_show",{p_show_id:showId});
+    data=response&&response.data;
+    const error=response&&response.error;
+    if(error){
+      if(_seriesRpcMissing(error,"turn_delete_show")) return {ok:false,setup:true,message:"Show deletion needs the series-production database migration. No projects were deleted."};
+      if(!_seriesAmbiguousTransport(error)) return {ok:false,message:_seriesError(error,"The show could not be deleted.")};
+      responseLost=true;
+    }
+    if(!error && (!data || !Array.isArray(data.deleted_project_ids)
+      || !data.deleted_project_ids.some(id=>String(id)===String(showId)))) responseLost=true;
+  }catch(e){
+    if(_seriesRpcMissing(e,"turn_delete_show")) return {ok:false,setup:true,message:"Show deletion needs the series-production database migration. No projects were deleted."};
+    if(!_seriesAmbiguousTransport(e)) return {ok:false,message:_seriesError(e,"The show could not be deleted.")};
+    responseLost=true;
+  }
+  if(responseLost){
+    const confirmation=await _seriesConfirmProjectAbsent(sb,showId);
+    if(!confirmation.ok) return {ok:false,uncertain:true,retrySafe:true,
+      message:"The connection ended during Show deletion, and TURN could not verify whether it committed. Refresh Films & shows before trying again; no asset cleanup was attempted."};
+    if(!confirmation.absent) return {ok:false,retrySafe:true,
+      message:"Show deletion was not confirmed. The Show is still present, so no assets were removed."};
+    /* The row's absence proves the database transaction committed. The response's
+       transaction-time manifest is unavailable, so use the safe preflight set and
+       retain the cleanup grant until expiry for anything created in the lock gap. */
+    data={deleted_project_ids:inventory.projectIds,episode_count:Math.max(0,inventory.projectIds.length-1)};
+  }
+
+  /* From this point onward the database transaction committed. Cleanup errors
+     must never be re-labelled as a failed Show deletion. */
+  try{
+    const deletedIds=Array.isArray(data&&data.deleted_project_ids)
+      ? data.deleted_project_ids.map(String) : [];
+    const missingInventory=deletedIds.filter(id=>inventory.projectIds.indexOf(id)<0).length;
+    const allowedProjects=new Set([...inventory.projectIds,...deletedIds]);
+    const exactPaths=new Set(inventory.paths||[]);
+    let unsafeCount=Number(inventory.unsafeCount)||0;
+    /* The RPC supplements the browser preflight inside its transaction: this
+       catches a generation committed during the preflight/lock gap, plus
+       capture-owner-private cameos the Show owner cannot normally read. Validate
+       every returned string against the deleted UUID set before cleanup. */
+    const serverExact=[
+      ...(Array.isArray(data&&data.generation_storage_paths)?data.generation_storage_paths:[]),
+      ...(Array.isArray(data&&data.cameo_storage_paths)?data.cameo_storage_paths:[]),
+    ];
+    for(const path of serverExact){
+      const checked=_seriesScopedStoragePath(path,allowedProjects);
+      if(checked&&checked.safe&&checked.inScope) exactPaths.add(checked.path);
+      else if(path) unsafeCount++;
+    }
+    const cleanup=await _seriesRemoveExactPaths(Array.from(exactPaths));
+    /* An Episode created in the preflight/lock gap is diagnostic, not by itself
+       a cleanup failure: the RPC's transaction-time path arrays above are the
+       authoritative supplement for precisely that race. */
+    const manifestUncertain=responseLost;
+    const incomplete=unsafeCount+cleanup.failedCount;
+    let grantReleased=false;
+    if(incomplete===0 && !manifestUncertain){
+      try{
+        const finished=await sb.rpc("turn_finish_asset_cleanup",{p_project_ids:Array.from(allowedProjects)});
+        grantReleased=!(finished&&finished.error);
+      }catch(e){}
+    }
+    const result={ok:true,episodeCount:Number(data&&data.episode_count)||0,
+      cleanup:{ok:incomplete===0&&!manifestUncertain,removed:cleanup.removed,failedCount:cleanup.failedCount,
+        skippedUnsafe:unsafeCount,uninventoriedProjects:missingInventory,grantReleased,
+        unverifiedTransactionManifest:manifestUncertain,
+        grantExpiresAt:String((data&&data.cleanup_expires_at)||"")}};
+    if(manifestUncertain) result.cleanupWarning="Show deletion was confirmed after the connection ended. Preflight assets were cleaned, but assets committed during the final transaction window could still need cleanup.";
+    else if(incomplete) result.cleanupWarning=incomplete+" stored asset "+(incomplete===1?"item needs":"items need")+" manual cleanup.";
+    return result;
+  }catch(e){
+    return {ok:true,episodeCount:Number(data&&data.episode_count)||0,
+      cleanup:{ok:false,removed:0,failedCount:(inventory.paths||[]).length,
+        skippedUnsafe:Number(inventory.unsafeCount)||0,uninventoriedProjects:0},
+      cleanupWarning:"Stored asset cleanup could not be completed automatically and may need manual attention."};
+  }
+}
+window.cloudDeleteShow=cloudDeleteShow;
+
+/* Single-Episode deletion uses the same two-phase asset boundary as whole-Show
+   deletion. Postgres atomically protects the Show invariant and removes the
+   Episode rows; Storage cleanup runs afterward against exact, validated keys
+   under the RPC's short-lived owner tombstone. */
+async function cloudDeleteShowEpisode(episodeId){
+  const sb=sbClient(); if(!sb||!episodeId) return {ok:false,message:"Cloud storage is unavailable."};
+  let inventory;
+  try{
+    inventory=await _seriesDeleteEpisodeInventory(sb,episodeId);
+    if(!inventory.ok) return inventory;
+  }catch(e){ return {ok:false,message:_seriesError(e,"The Episode's assets could not be inventoried. No projects were deleted.")}; }
+
+  let data, responseLost=false;
+  try{
+    const response=await sb.rpc("turn_delete_show_episode",{p_episode_id:episodeId});
+    data=response&&response.data;
+    const error=response&&response.error;
+    if(error){
+      const message=_seriesError(error,"The Episode could not be deleted.");
+      if(_seriesRpcMissing(error,"turn_delete_show_episode")) return {ok:false,setup:true,message:"Episode deletion needs the series-production database migration. No projects were deleted."};
+      if(/final Episode/i.test(message)) return {ok:false,finalEpisode:true,message:"Delete the Show to remove its final Episode. No projects were deleted."};
+      if(!_seriesAmbiguousTransport(error)) return {ok:false,message};
+      responseLost=true;
+    }
+    if(!error && (!data || String(data.episode_id||"")!==String(episodeId))) responseLost=true;
+  }catch(e){
+    const message=_seriesError(e,"The Episode could not be deleted.");
+    if(_seriesRpcMissing(e,"turn_delete_show_episode")) return {ok:false,setup:true,message:"Episode deletion needs the series-production database migration. No projects were deleted."};
+    if(/final Episode/i.test(message)) return {ok:false,finalEpisode:true,message:"Delete the Show to remove its final Episode. No projects were deleted."};
+    if(!_seriesAmbiguousTransport(e)) return {ok:false,message};
+    responseLost=true;
+  }
+  if(responseLost){
+    const confirmation=await _seriesConfirmProjectAbsent(sb,episodeId);
+    if(!confirmation.ok) return {ok:false,uncertain:true,retrySafe:true,
+      message:"The connection ended during Episode deletion, and TURN could not verify whether it committed. Refresh Films & shows before trying again; no asset cleanup was attempted."};
+    if(!confirmation.absent) return {ok:false,retrySafe:true,
+      message:"Episode deletion was not confirmed. The Episode is still present, so no assets were removed."};
+    data={episode_id:String(episodeId),show_id:inventory.showId,
+      deleted_project_ids:[String(episodeId)],remaining_episode_count:inventory.remainingEpisodeCount};
+  }
+
+  /* The database commit has happened. Any later error is a cleanup warning,
+     never a false claim that the Episode itself still exists. */
+  try{
+    const deletedIds=Array.isArray(data.deleted_project_ids)?data.deleted_project_ids.map(String):[];
+    const expectedId=String(episodeId), allowedProjects=new Set([expectedId]);
+    let unsafeCount=Number(inventory.unsafeCount)||0;
+    if(deletedIds.length!==1 || deletedIds[0]!==expectedId) unsafeCount++;
+    const exactPaths=new Set(inventory.paths||[]), protectedPaths=new Set(inventory.protectedPaths||[]);
+    const serverExact=[
+      ...(Array.isArray(data.generation_storage_paths)?data.generation_storage_paths:[]),
+      ...(Array.isArray(data.cameo_storage_paths)?data.cameo_storage_paths:[]),
+    ];
+    for(const path of serverExact){
+      const checked=_seriesScopedStoragePath(path,allowedProjects);
+      if(checked&&checked.safe&&checked.inScope) exactPaths.add(checked.path);
+      else if(path) unsafeCount++;
+    }
+    for(const path of (Array.isArray(data.protected_storage_paths)?data.protected_storage_paths:[])){
+      const checked=_seriesScopedStoragePath(path,allowedProjects);
+      if(checked&&checked.safe&&checked.inScope) protectedPaths.add(checked.path);
+      else if(path && !(checked&&checked.safe)) unsafeCount++;
+    }
+    for(const path of protectedPaths) exactPaths.delete(path);
+    const cleanup=await _seriesRemoveExactPaths(Array.from(exactPaths));
+    const manifestUncertain=responseLost;
+    const incomplete=unsafeCount+cleanup.failedCount;
+    let grantReleased=false;
+    if(incomplete===0 && !manifestUncertain){
+      try{
+        const finished=await sb.rpc("turn_finish_asset_cleanup",{p_project_ids:[episodeId]});
+        grantReleased=!(finished&&finished.error);
+      }catch(e){}
+    }
+    const result={ok:true,id:expectedId,showId:String(data.show_id||inventory.showId||""),
+      remainingEpisodeCount:Number(data.remaining_episode_count)||0,
+      cleanup:{ok:incomplete===0&&!manifestUncertain,removed:cleanup.removed,failedCount:cleanup.failedCount,
+        skippedUnsafe:unsafeCount,grantReleased,unverifiedTransactionManifest:manifestUncertain,
+        grantExpiresAt:String(data.cleanup_expires_at||"")}};
+    if(manifestUncertain) result.cleanupWarning="Episode deletion was confirmed after the connection ended. Preflight assets were cleaned, but assets committed during the final transaction window could still need cleanup.";
+    else if(incomplete) result.cleanupWarning=incomplete+" stored asset "+(incomplete===1?"item needs":"items need")+" manual cleanup.";
+    return result;
+  }catch(e){
+    return {ok:true,id:String(episodeId),showId:String(data.show_id||inventory.showId||""),
+      remainingEpisodeCount:Number(data.remaining_episode_count)||0,
+      cleanup:{ok:false,removed:0,failedCount:(inventory.paths||[]).length,
+        skippedUnsafe:Number(inventory.unsafeCount)||0},
+      cleanupWarning:"Stored asset cleanup could not be completed automatically and may need manual attention."};
+  }
+}
+window.cloudDeleteShowEpisode=cloudDeleteShowEpisode;
+
+function _seriesMergeProjectObject(latest,incoming,baseline){
+  const object=v=>v&&typeof v==="object"&&!Array.isArray(v);
+  if(!object(latest)||!object(incoming))
+    return {ok:false,value:latest,conflicts:["project (invalid shape)"]};
+  if(baseline===undefined){
+    return _seriesJsonSame(latest,incoming)?{ok:true,value:latest,conflicts:[]}
+      :{ok:false,value:latest,conflicts:["project (missing merge baseline)"]};
+  }
+  if(!object(baseline)) return {ok:false,value:latest,conflicts:["project (invalid merge baseline)"]};
+  const out={...latest}, conflicts=[];
+  const keys=new Set([...Object.keys(baseline),...Object.keys(incoming)]);
+  keys.forEach(key=>{
+    const localChanged=!_seriesJsonSame(incoming[key],baseline[key]);
+    const remoteChanged=!_seriesJsonSame(latest[key],baseline[key]);
+    if(localChanged&&remoteChanged&&!_seriesJsonSame(incoming[key],latest[key])){
+      conflicts.push("project."+key); return;
+    }
+    if(localChanged){
+      if(Object.prototype.hasOwnProperty.call(incoming,key)) out[key]=incoming[key];
+      else delete out[key];
+    }
+  });
+  return {ok:!conflicts.length,value:out,conflicts};
+}
+
 /* COLLABORATIVE SECTION SAVE — the collaboration fix.
    The old autosave overwrote the WHOLE doc behind a single _rev fence. That is correct
    for one user in two windows (it refuses to clobber), but for two COLLABORATORS it meant
    whoever saved second was told "changed in another window", reloaded, and lost their
    edits — every ~700ms of typing. Real collaboration was impossible.
    Now a window writes ONLY the top-level sections it actually changed, merged onto the
-   freshest cloud doc. Two people working on different parts (one on scenes, one on props)
-   never collide at all; two people in the SAME section still resolve last-writer-wins, but
-   only for that section instead of the entire film.
+   freshest cloud doc. The mixed-domain `project` object receives an additional shallow
+   three-way merge, so writer metadata and an art director's styleBible can coexist while
+   two divergent edits to the same key stop with an explicit conflict.
    Returns { ok, doc } where `doc` is the cloud doc AS READ (before our overlay), so the
    caller can adopt the sections OTHER people changed. */
-async function cloudSaveSections(id, sections){
+async function cloudSaveSections(id, sections, opts){
   const sb = sbClient(); if(!sb || !id) return { ok:false };
   const keys = Object.keys(sections||{});
   if(!keys.length) return { ok:true, noop:true };
@@ -588,7 +1237,37 @@ async function cloudSaveSections(id, sections){
       const cloudDoc = (data && data.doc) || {};
       const cur = Number(cloudDoc._rev) || 0;
       const next = { ...cloudDoc };
-      keys.forEach(k=>{ next[k] = sections[k]; });
+      const sectionBaseline=opts&&opts.baseline&&typeof opts.baseline==="object"
+        ? opts.baseline : {};
+      if(keys.indexOf("project")>=0){
+        const baseline=sectionBaseline.project;
+        const merged=_seriesMergeProjectObject(cloudDoc.project||{},sections.project,baseline);
+        if(!merged.ok) return {ok:false,conflict:true,conflicts:merged.conflicts,
+          message:"Project settings changed in another window. Reload before applying overlapping edits."};
+        next.project=merged.value;
+      }
+      const sectionConflicts=[];
+      keys.forEach(k=>{
+        if(k==="project") return;
+        /* A full baseline is supplied by the paired-save recovery journal. If
+           its Episode half already committed, an identical replay is a no-op;
+           if somebody changed that same section afterward, stop rather than
+           overwriting their newer work with the journal's old snapshot. Normal
+           debounced saves omit these baselines and retain section-level merge. */
+        if(Object.prototype.hasOwnProperty.call(sectionBaseline,k)){
+          const base=sectionBaseline[k], incoming=sections[k], latest=cloudDoc[k];
+          const localChanged=!_seriesJsonSame(incoming,base);
+          const remoteChanged=!_seriesJsonSame(latest,base);
+          if(localChanged&&remoteChanged&&!_seriesJsonSame(incoming,latest)){
+            sectionConflicts.push(k); return;
+          }
+          next[k]=localChanged?incoming:latest;
+          return;
+        }
+        next[k]=sections[k];
+      });
+      if(sectionConflicts.length) return {ok:false,conflict:true,conflicts:sectionConflicts,
+        message:"This Episode changed after an interrupted save. Reload before reconciling the overlapping sections."};
       next._rev = cur + 1;
       let q = sb.from("turn_projects").update({ doc: next }).eq("id", id);
       q = cur ? q.eq("doc->>_rev", String(cur))
@@ -607,6 +1286,291 @@ async function cloudSaveSections(id, sections){
 }
 window.cloudSaveSections = cloudSaveSections;
 
+/* SHOW-BIBLE SECTION SAVE — the shared world is nested under doc.bible, so the
+   ordinary top-level section merge cannot protect two episodes editing different
+   departments at once. Merge only the changed Bible departments onto the freshest
+   Show doc and fence the write. Same-department edits remain last-writer-wins; cast
+   work can no longer erase a location edit merely because both live in `bible`. */
+function _seriesJsonSame(a,b){
+  if(a===undefined&&b===undefined) return true;
+  try{ return JSON.stringify(a)===JSON.stringify(b); }catch(e){ return a===b; }
+}
+function _seriesOwnSceneSlice(item,episodeId){
+  const map=item&&item.episodeScenes&&typeof item.episodeScenes==="object"?item.episodeScenes:{};
+  if(Array.isArray(map[episodeId])) return map[episodeId];
+  /* Once any Episode namespace exists, a missing caller key means this Episode
+     has no links. Falling back to the Show-wide/legacy flat list here can make
+     repeated ids (for example each Episode's `s1`) look locally unchanged and
+     silently discard the first real mapping saved by a new Episode. */
+  if(Object.keys(map).length) return [];
+  return Array.isArray(item&&item.scenes)?item.scenes:[];
+}
+function _seriesRebuildSceneUnion(episodeScenes){
+  const scenes=[];
+  Object.keys(episodeScenes||{}).sort().forEach(ep=>(episodeScenes[ep]||[]).forEach(id=>{
+    if(!scenes.some(x=>String(x)===String(id))) scenes.push(id);
+  }));
+  return scenes;
+}
+function _seriesLocationMetaSlice(item){
+  if(window.turnSeries&&typeof window.turnSeries.locationMetaSlice==="function")
+    return window.turnSeries.locationMetaSlice(item||{});
+  const unique=values=>Array.from(new Set((Array.isArray(values)?values:[])
+    .map(value=>String(value==null?"":value).trim()).filter(Boolean)));
+  const side=String(item&&item.intExt||"").toUpperCase().replace(/\+/g,"/");
+  const scope=String(item&&item.scope||"").toLowerCase();
+  return {times:unique(item&&item.times),areas:unique(item&&item.areas),
+    intExt:["INT","EXT","INT/EXT"].includes(side)?side:"",
+    scope:["atomic","compound"].includes(scope)?scope:"",
+    parentKey:String(item&&item.parentKey||""),continuityRootKey:String(item&&item.continuityRootKey||"")};
+}
+function _seriesLocationMetaMap(item){
+  if(window.turnSeries&&typeof window.turnSeries.episodeLocationMetaMap==="function")
+    return window.turnSeries.episodeLocationMetaMap(item||{});
+  const source=item&&item.episodeLocationMeta&&typeof item.episodeLocationMeta==="object"
+    && !Array.isArray(item.episodeLocationMeta)?item.episodeLocationMeta:{};
+  const out={}; Object.keys(source).forEach(ep=>{ out[ep]=_seriesLocationMetaSlice(source[ep]); });
+  return out;
+}
+function _seriesOwnLocationMeta(item,episodeId){
+  const map=_seriesLocationMetaMap(item), keys=Object.keys(map);
+  if(keys.length) return Object.prototype.hasOwnProperty.call(map,episodeId)
+    ? map[episodeId] : _seriesLocationMetaSlice({});
+  return _seriesLocationMetaSlice(item||{});
+}
+function _seriesRebuildLocationMeta(item,map){
+  if(window.turnSeries&&typeof window.turnSeries.rebuildLocationMetaProjection==="function")
+    return window.turnSeries.rebuildLocationMetaProjection(item||{},map||{});
+  const episodeIds=Object.keys(map||{}).sort(), times=[], areas=[], parents=[], roots=[], scopes=[];
+  let hasInt=false,hasExt=false;
+  episodeIds.forEach(ep=>{
+    const slice=_seriesLocationMetaSlice(map[ep]);
+    slice.times.forEach(v=>{ if(!times.includes(v)) times.push(v); });
+    slice.areas.forEach(v=>{ if(!areas.includes(v)) areas.push(v); });
+    if(slice.intExt==="INT"||slice.intExt==="INT/EXT") hasInt=true;
+    if(slice.intExt==="EXT"||slice.intExt==="INT/EXT") hasExt=true;
+    if(slice.scope&&!scopes.includes(slice.scope)) scopes.push(slice.scope);
+    if(slice.parentKey&&!parents.includes(slice.parentKey)) parents.push(slice.parentKey);
+    if(slice.continuityRootKey&&!roots.includes(slice.continuityRootKey)) roots.push(slice.continuityRootKey);
+  });
+  parents.sort(); roots.sort();
+  const parentKey=parents[0]||"";
+  const scope=parentKey?"atomic":(scopes.includes("compound")?"compound":(scopes.includes("atomic")?"atomic":""));
+  const continuityRootKey=(parentKey&&roots.includes(parentKey)?parentKey:roots[0])
+    ||parentKey||String(item&&item.continuityRootKey||item&&item.key||item&&item.id||"");
+  const intExt=hasInt&&hasExt?"INT/EXT":(hasExt?"EXT":(hasInt?"INT":""));
+  return {...(item||{}),times,areas,intExt,scope,parentKey,continuityRootKey,episodeLocationMeta:map};
+}
+function _seriesMergeEntity(latest,incoming,baseline,episodeId,id,department){
+  const conflicts=[]; let out={...(latest||{})};
+  if(!baseline){
+    // Without a last-acknowledged baseline there is no honest way to decide
+    // whether a difference is local or remote. Equal data is a safe no-op.
+    if(!_seriesJsonSame(incoming,latest)) conflicts.push(String(id)+" (missing merge baseline)");
+    return {ok:!conflicts.length,value:out,conflicts};
+  }
+  const locationEpisode=department==="locations"&&!!episodeId;
+  const skip=new Set(["episodeScenes","scenes",
+    ...(locationEpisode?["episodeLocationMeta","times","areas","intExt","scope","parentKey","continuityRootKey"]:[])]);
+  const keys=new Set([...Object.keys(baseline||{}),...Object.keys(incoming||{})]);
+  keys.forEach(key=>{
+    if(skip.has(key)) return;
+    const localChanged=!_seriesJsonSame(incoming&&incoming[key],baseline&&baseline[key]);
+    const remoteChanged=!_seriesJsonSame(latest&&latest[key],baseline&&baseline[key]);
+    if(localChanged&&remoteChanged&&!_seriesJsonSame(incoming&&incoming[key],latest&&latest[key])){
+      conflicts.push(String(id)+"."+key); return;
+    }
+    if(localChanged){
+      if(incoming&&Object.prototype.hasOwnProperty.call(incoming,key)) out[key]=incoming[key];
+      else delete out[key];
+    }
+  });
+
+  if(episodeId){
+    const priorMap=latest&&latest.episodeScenes&&typeof latest.episodeScenes==="object"?latest.episodeScenes:{};
+    const nextMap=incoming&&incoming.episodeScenes&&typeof incoming.episodeScenes==="object"?incoming.episodeScenes:{};
+    const baseOwn=_seriesOwnSceneSlice(baseline,episodeId);
+    const localOwn=_seriesOwnSceneSlice(incoming,episodeId);
+    const remoteOwn=_seriesOwnSceneSlice(latest,episodeId);
+    const localChanged=!_seriesJsonSame(localOwn,baseOwn);
+    const remoteChanged=!_seriesJsonSame(remoteOwn,baseOwn);
+    if(localChanged&&remoteChanged&&!_seriesJsonSame(localOwn,remoteOwn)) conflicts.push(String(id)+".episodeScenes."+episodeId);
+    const episodeScenes={...priorMap};
+    if(localChanged || !Object.prototype.hasOwnProperty.call(episodeScenes,episodeId)) episodeScenes[episodeId]=localOwn;
+    // Ignore every non-calling slice in the incoming snapshot. It may be stale;
+    // the freshest server row remains authoritative for those Episodes.
+    out.episodeScenes=episodeScenes;
+    out.scenes=_seriesRebuildSceneUnion(episodeScenes);
+  }
+  if(locationEpisode){
+    const priorMap=_seriesLocationMetaMap(latest);
+    const baseOwn=_seriesOwnLocationMeta(baseline,episodeId);
+    const localOwn=_seriesOwnLocationMeta(incoming,episodeId);
+    const remoteOwn=_seriesOwnLocationMeta(latest,episodeId);
+    const localChanged=!_seriesJsonSame(localOwn,baseOwn);
+    const remoteChanged=!_seriesJsonSame(remoteOwn,baseOwn);
+    if(localChanged&&remoteChanged&&!_seriesJsonSame(localOwn,remoteOwn))
+      conflicts.push(String(id)+".episodeLocationMeta."+episodeId);
+    const metaMap={...priorMap};
+    if(localChanged || !Object.prototype.hasOwnProperty.call(metaMap,episodeId)) metaMap[episodeId]=localOwn;
+    // As with scene references, every sibling slice in the incoming browser
+    // snapshot may be stale. Keep the freshest Show row and merge only the caller.
+    out=_seriesRebuildLocationMeta(out,metaMap);
+  }
+  return {ok:!conflicts.length,value:out,conflicts};
+}
+function _mergeEpisodeBibleDepartment(latest,incoming,baseline,episodeId,tombstones,department){
+  if(!Array.isArray(latest)||!Array.isArray(incoming))
+    return {ok:false,value:latest,conflicts:["invalid department shape"]};
+  const byId=list=>{
+    const map=new Map(); (list||[]).forEach(item=>{ if(item&&item.id!=null) map.set(String(item.id),item); }); return map;
+  };
+  const latestBy=byId(latest), incomingBy=byId(incoming), baselineBy=byId(Array.isArray(baseline)?baseline:[]);
+  const deleted=new Set((tombstones||[]).map(String)), out=[], conflicts=[];
+  // The app edits full department snapshots. A baseline entity omitted from the
+  // incoming snapshot is therefore an explicit local deletion; an entity absent
+  // from the baseline is remote/new and must be retained. Example:
+  // baseline [A,B] + incoming [A] + latest [A,B,C] => [A,C].
+  baselineBy.forEach((item,id)=>{ if(!incomingBy.has(id)) deleted.add(id); });
+  for(const current of latest){
+    if(!current||current.id==null){ out.push(current); continue; }
+    const id=String(current.id), next=incomingBy.get(id), base=baselineBy.get(id);
+    if(!next){
+      if(deleted.has(id)){
+        if(!base || !_seriesJsonSame(current,base)) conflicts.push(id+" (delete conflicted)");
+        continue;
+      }
+      // Absence alone is never a deletion: retain server-only/concurrently-added
+      // entities. Destructive intent requires an explicit tombstone.
+      out.push(current); continue;
+    }
+    const merged=_seriesMergeEntity(current,next,base,episodeId,id,department);
+    out.push(merged.value); conflicts.push(...merged.conflicts);
+  }
+  for(const next of incoming){
+    if(!next||next.id==null){ out.push(next); continue; }
+    const id=String(next.id);
+    if(latestBy.has(id)||deleted.has(id)) continue;
+    const base=baselineBy.get(id);
+    if(base){
+      // The server deleted it since our baseline. Do not silently resurrect it.
+      if(!_seriesJsonSame(next,base)) conflicts.push(id+" (deleted remotely)");
+      continue;
+    }
+    out.push(next);
+  }
+  return {ok:!conflicts.length,value:out,conflicts};
+}
+function _seriesSharedTrashShape(value){
+  if(!value || typeof value!=="object" || Array.isArray(value)) return null;
+  const out={};
+  for(const key of ["characters","locations","props"]){
+    if(!Array.isArray(value[key])) return null;
+    out[key]=value[key];
+  }
+  return out;
+}
+/* Restore-bin entries are full shared entities, not an Episode preference. Merge
+   each tombstone bucket by entity id with the same baseline semantics as its live
+   department: independent deletes/restores compose; overlapping edits conflict. */
+function _seriesMergeSharedTrash(latest,incoming,baseline,episodeId){
+  const a=_seriesSharedTrashShape(latest), b=_seriesSharedTrashShape(incoming);
+  const base=baseline===undefined?null:_seriesSharedTrashShape(baseline);
+  if(!a||!b||!base) return {ok:false,value:a||latest,conflicts:["trash (invalid or missing merge baseline)"]};
+  const value={}, conflicts=[];
+  ["characters","locations","props"].forEach(key=>{
+    const merged=_mergeEpisodeBibleDepartment(a[key],b[key],base[key],String(episodeId||""),null,key);
+    value[key]=merged.value;
+    if(!merged.ok) conflicts.push(...merged.conflicts.map(id=>"trash."+key+"."+id));
+  });
+  return {ok:!conflicts.length,value,conflicts};
+}
+function _seriesMergeBibleValue(latest,incoming,baseline,key){
+  if(baseline===undefined){
+    return _seriesJsonSame(latest,incoming)?{ok:true,value:latest,conflicts:[]}
+      :{ok:false,value:latest,conflicts:[key+" (missing merge baseline)"]};
+  }
+  const localChanged=!_seriesJsonSame(incoming,baseline), remoteChanged=!_seriesJsonSame(latest,baseline);
+  if(localChanged&&remoteChanged&&!_seriesJsonSame(incoming,latest))
+    return {ok:false,value:latest,conflicts:[key]};
+  return {ok:true,value:localChanged?incoming:latest,conflicts:[]};
+}
+/* REPLAY REBASE — a paired Episode/Bible save can be confirmed by the recovery
+   journal while the user has already made a newer local edit. The confirmed
+   server Bible is now the latest truth, but the local snapshot must be rebased
+   onto it before another save. Reuse the exact same merge semantics as the
+   network boundary: this preserves collaborator additions, still honours a
+   deletion made after the journal checkpoint, and reports overlapping edits
+   instead of silently choosing a winner. */
+function _seriesRebaseBibleAfterReplay(latest,current,checkpoint,episodeId){
+  latest=latest&&typeof latest==="object"?latest:{};
+  current=current&&typeof current==="object"?current:{};
+  checkpoint=checkpoint&&typeof checkpoint==="object"?checkpoint:{};
+  const bible={...latest}, conflicts=[];
+  ["characters","locations","props","lookbook","lookbookNote","trash"].forEach(k=>{
+    const merged=(["characters","locations","props"].indexOf(k)>=0)
+      ? _mergeEpisodeBibleDepartment(latest[k]||[],current[k]||[],checkpoint[k],String(episodeId||""),null,k)
+      : k==="trash"
+        ? _seriesMergeSharedTrash(latest[k],current[k],checkpoint[k],String(episodeId||""))
+        : _seriesMergeBibleValue(latest[k],current[k],checkpoint[k],k);
+    bible[k]=merged.value;
+    if(!merged.ok) conflicts.push(...merged.conflicts);
+  });
+  return {ok:!conflicts.length,bible,conflicts};
+}
+window.seriesRebaseBibleAfterReplay=_seriesRebaseBibleAfterReplay;
+async function cloudSaveBibleSections(showId, sections, opts){
+  const sb = sbClient(); if(!sb || !showId) return { ok:false, message:"Cloud storage is unavailable." };
+  const keys = Object.keys(sections||{});
+  if(!keys.length) return { ok:true, noop:true };
+  for(let attempt=0; attempt<4; attempt++){
+    try{
+      const { data, error } = await sb.from("turn_projects").select("doc").eq("id", showId).single();
+      if(error) return { ok:false, message:error.message||"The Show Bible could not be loaded." };
+      const cloudDoc = (data && data.doc) || {};
+      if(!((window.turnSeries&&typeof window.turnSeries.isShowDoc==="function")
+        ? window.turnSeries.isShowDoc(cloudDoc)
+        : (cloudDoc.isShow===true || String(cloudDoc.isShow).toLowerCase()==="true")))
+        return { ok:false, message:"The linked Show Bible is invalid." };
+      if(window.turnSeries&&typeof window.turnSeries.validBibleShape==="function"
+        && !window.turnSeries.validBibleShape(cloudDoc.bible))
+        return {ok:false,message:"The linked Show Bible is incomplete or malformed. Run the current series-production migration before saving."};
+      const cur = Number(cloudDoc._rev) || 0;
+      const bible = { ...((cloudDoc && cloudDoc.bible)||{}) };
+      const episodeId=opts&&opts.episodeId?String(opts.episodeId):"";
+      const baseline=opts&&opts.baseline&&typeof opts.baseline==="object"?opts.baseline:{};
+      const tombstones=opts&&opts.tombstones&&typeof opts.tombstones==="object"?opts.tombstones:{};
+      const conflicts=[];
+      keys.forEach(k=>{
+        const merged=(["characters","locations","props"].indexOf(k)>=0)
+          ? _mergeEpisodeBibleDepartment(bible[k]||[],sections[k],baseline[k],episodeId,tombstones[k],k)
+          : k==="trash"
+            ? _seriesMergeSharedTrash(bible[k],sections[k],baseline[k],episodeId)
+            : _seriesMergeBibleValue(bible[k],sections[k],baseline[k],k);
+        bible[k]=merged.value;
+        if(!merged.ok) conflicts.push(...merged.conflicts);
+      });
+      if(conflicts.length) return {ok:false,conflict:true,conflicts,
+        message:"The Show Bible changed in another Episode. Reload before applying overlapping edits."};
+      const next = { ...cloudDoc, bible, _rev:cur+1 };
+      let q = sb.from("turn_projects").update({doc:next}).eq("id",showId);
+      q = cur ? q.eq("doc->>_rev",String(cur)) : q.or("doc->>_rev.is.null,doc->>_rev.eq.0");
+      const { data:rows, error:wErr } = await q.select("id");
+      if(wErr){
+        const rs=_roleScopeErr(wErr);
+        return rs ? {ok:false,roleScope:true,message:rs} : {ok:false,message:wErr.message||"The Show Bible could not be saved."};
+      }
+      if(rows && rows.length){
+        _docRevSeen[showId]=cur+1;
+        _pushDocRev(showId,cur+1);
+        return {ok:true,doc:next,bible};
+      }
+    }catch(e){ return {ok:false,message:(e&&e.message)||"The Show Bible could not be saved."}; }
+  }
+  return {ok:false,conflict:true,message:"The Show Bible changed in another window."};
+}
+window.cloudSaveBibleSections = cloudSaveBibleSections;
+
 /* PRESENCE — who else has this film open right now.
    Per-section saves stop collaborators from destroying each other's work, but a
    same-section collision still resolves last-writer-wins, and arriving at that silently
@@ -624,18 +1588,35 @@ window.turnPresenceKey = _presenceKey;
    (which know nothing about React) can reach the channel. turnPushHealthy tells
    the poller it may relax while push is delivering. */
 let _presenceCh = null, _presenceChProject = null, _presenceReady = false;
+const _docChannels = {};   // Show id -> lightweight broadcast subscription (no presence UI)
 function _pushDocRev(projectId, rev){
   // fire-and-forget: losing the message is harmless — the fallback poll still runs
-  if(!_presenceCh || _presenceChProject!==projectId || !_presenceReady) return;
-  try{ _presenceCh.send({ type:"broadcast", event:"doc-rev", payload:{ rev:Number(rev)||0, key:_presenceKey } }); }catch(e){}
+  const payload={ rev:Number(rev)||0, key:_presenceKey };
+  const docEntry=_docChannels[projectId];
+  if(docEntry&&docEntry.ready&&docEntry.ch){
+    try{ docEntry.ch.send({type:"broadcast",event:"doc-rev",payload}); }catch(e){}
+  }
+  if(_presenceCh && _presenceChProject===projectId && _presenceReady){
+    try{ _presenceCh.send({ type:"broadcast", event:"doc-rev", payload }); }catch(e){}
+  }
 }
 function _pushMemberRemoved(projectId){
   // removal changes no document rev, so it needs its own announcement — otherwise
   // the removed person's open tab wouldn't learn until the slow fallback probe.
   // The payload names nobody: it only says "membership changed, re-verify your
   // access", and every recipient checks with the SERVER before acting.
-  if(!_presenceCh || _presenceChProject!==projectId || !_presenceReady) return;
-  try{ _presenceCh.send({ type:"broadcast", event:"member-removed", payload:{ key:_presenceKey } }); }catch(e){}
+  const payload={ key:_presenceKey };
+  // Team management for a series happens on the Show row, while presence lives
+  // on the episode currently being edited. The Show's lightweight doc channel is
+  // therefore the only immediate path to a collaborator working in another
+  // episode; the normal access poll remains the loss-tolerant fallback.
+  const docEntry=_docChannels[projectId];
+  if(docEntry&&docEntry.ready&&docEntry.ch){
+    try{ docEntry.ch.send({type:"broadcast",event:"member-removed",payload}); }catch(e){}
+  }
+  if(_presenceCh && _presenceChProject===projectId && _presenceReady){
+    try{ _presenceCh.send({ type:"broadcast", event:"member-removed", payload }); }catch(e){}
+  }
 }
 function cloudJoinPresence(projectId, meta, onChange){
   const sb = sbClient();
@@ -704,6 +1685,50 @@ function cloudJoinPresence(projectId, meta, onChange){
 }
 window.cloudJoinPresence = cloudJoinPresence;
 
+/* Episodes use their own presence channel, while their shared Bible lives on the
+   Show row. This second, presence-free subscription keeps Bible edits live across
+   different episodes without making Episode 1's collaborator list appear in
+   Episode 2. It also gives _pushDocRev an exact Show channel for outgoing saves. */
+function cloudSubscribeDoc(projectId){
+  const sb=sbClient();
+  if(!sb||!projectId||typeof sb.channel!=="function") return ()=>{};
+  const release=()=>{
+    const e=_docChannels[projectId];
+    if(!e) return;
+    e.refs=Math.max(0,e.refs-1);
+    if(e.refs) return;
+    e.dead=true; delete _docChannels[projectId];
+    try{ e.sb.removeChannel(e.ch); }catch(err){}
+  };
+  if(_docChannels[projectId]){
+    _docChannels[projectId].refs++;
+    return release;
+  }
+  const ch=sb.channel("doc:"+projectId);
+  const entry={ch,sb,ready:false,refs:1,dead:false};
+  _docChannels[projectId]=entry;
+  try{
+    ch.on("broadcast",{event:"doc-rev"},msg=>{
+      if(entry.dead) return;
+      const p=(msg&&msg.payload)||{};
+      if(p.key===_presenceKey) return;
+      try{ window.dispatchEvent(new CustomEvent("turn-doc-push",{detail:{projectId,rev:Number(p.rev)||0}})); }catch(e){}
+    });
+    ch.on("broadcast",{event:"member-removed"},msg=>{
+      if(entry.dead) return;
+      const p=(msg&&msg.payload)||{};
+      if(p.key===_presenceKey) return;
+      try{ window.dispatchEvent(new CustomEvent("turn-member-removed",{detail:{projectId}})); }catch(e){}
+    });
+    ch.subscribe(status=>{
+      if(entry.dead) return;
+      entry.ready=status==="SUBSCRIBED";
+    });
+  }catch(e){ delete _docChannels[projectId]; return ()=>{}; }
+  return release;
+}
+window.cloudSubscribeDoc=cloudSubscribeDoc;
+
 /* LIVE REFRESH support.
    cloudDocRev is a DELIBERATELY tiny probe — it selects only the doc's _rev scalar, not
    the doc, because a film's doc can be megabytes (255 shots, every draft) and polling
@@ -734,12 +1759,26 @@ async function cloudCheckAccess(id){
 }
 window.cloudCheckAccess = cloudCheckAccess;
 async function cloudRenameProject(id, title){
-  const sb = sbClient(); if(!sb || !id) return;
-  try{ await sb.from("turn_projects").update({ title }).eq("id", id); }catch(e){}
+  const sb = sbClient();
+  if(!sb || !id) return { ok:false, message:"Cloud storage is unavailable." };
+  const nextTitle=String(title||"").trim();
+  if(!nextTitle) return { ok:false, message:"Enter a project title." };
+  try{
+    const { data,error }=await sb.from("turn_projects").update({title:nextTitle}).eq("id",id).select("id");
+    if(error) return {ok:false,message:error.message||"The project could not be renamed."};
+    if(!data||!data.length) return {ok:false,message:"The project is unavailable or you no longer have permission to rename it."};
+    return {ok:true,title:nextTitle};
+  }catch(e){ return {ok:false,message:(e&&e.message)||"The project could not be renamed."}; }
 }
 async function cloudDeleteProject(id){
-  const sb = sbClient(); if(!sb || !id) return;
-  try{ await sb.from("turn_projects").delete().eq("id", id); }catch(e){}
+  const sb = sbClient();
+  if(!sb || !id) return { ok:false, message:"Cloud storage is unavailable." };
+  try{
+    const {data,error}=await sb.from("turn_projects").delete().eq("id",id).select("id");
+    if(error) return {ok:false,message:error.message||"The project could not be deleted."};
+    if(!data||!data.length) return {ok:false,message:"The project is unavailable or you no longer have permission to delete it."};
+    return {ok:true,id};
+  }catch(e){ return {ok:false,message:(e&&e.message)||"The project could not be deleted."}; }
 }
 window.cloudListProjects = cloudListProjects;
 window.cloudCreateProject = cloudCreateProject;
@@ -821,6 +1860,38 @@ function turnStoragePath(uid, projectId, entityId, assetType, role, ext, version
 }
 window.turnStoragePath = turnStoragePath;   // exposed for inspection / tests
 
+/* Storage and Postgres cannot commit atomically. Reserve each exact object key
+   before upload; if the project is deleted before its generation/Cameo row can
+   commit, this short-lived intent lets the original uploader delete that one
+   orphan without restoring broad access to the deleted project. Real Supabase
+   clients always expose rpc(); the no-rpc branch exists only for local recording
+   adapters used by the dependency-free regression suite. */
+const _seriesPendingUploadIntents=new Set();
+async function _seriesBeginAssetUploadIntent(sb,projectId,path){
+  if(!sb||typeof sb.rpc!=="function") return true;
+  try{
+    const {error}=await sb.rpc("turn_begin_asset_upload",{p_project_id:projectId,p_path:path});
+    if(error) return false;
+    _seriesPendingUploadIntents.add(path);
+    return true;
+  }catch(e){ return false; }
+}
+async function _seriesFinishAssetUploadIntents(paths){
+  const exact=Array.from(new Set((paths||[]).filter(path=>_seriesPendingUploadIntents.has(path))));
+  if(!exact.length) return true;
+  const sb=sbClient();
+  if(!sb||typeof sb.rpc!=="function"){
+    exact.forEach(path=>_seriesPendingUploadIntents.delete(path));
+    return true;
+  }
+  try{
+    const {error}=await sb.rpc("turn_finish_asset_upload",{p_paths:exact});
+    if(error) return false;
+    exact.forEach(path=>_seriesPendingUploadIntents.delete(path));
+    return true;
+  }catch(e){ return false; }
+}
+
 async function cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, role, version, allowRemote){
   const sb = sbClient(); if(!sb) return null;
   let blob = dataUrlToBlob(dataUrl);
@@ -840,11 +1911,21 @@ async function cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, ro
   }
   if(!blob) return null;
   const path = turnStoragePath(uid, projectId, entityId, assetType, role, "png", version);
+  if(!await _seriesBeginAssetUploadIntent(sb,projectId,path)) return null;
   try{
     const { error } = await sb.storage.from(turnBucket()).upload(path, blob, { contentType:blob.type, upsert:false });
-    if(error) return null;
+    if(error){
+      /* The response may be ambiguous even when Storage accepted the bytes.
+         Compensate while the exact intent is live; finish is performed by
+         cloudRemovePaths only after Storage confirms removal. */
+      try{ await cloudRemovePaths([path]); }catch(e){}
+      return null;
+    }
     return path;
-  }catch(e){ return null; }
+  }catch(e){
+    try{ await cloudRemovePaths([path]); }catch(cleanupError){}
+    return null;
+  }
 }
 async function cloudRemovePaths(paths){
   const sb = sbClient(), unique=Array.from(new Set((paths||[]).filter(Boolean)));
@@ -854,7 +1935,12 @@ async function cloudRemovePaths(paths){
   for(let attempt=0;attempt<2;attempt++){
     try{
       const { error }=await sb.storage.from(turnBucket()).remove(unique);
-      if(!error) return { ok:true };
+      if(!error){
+        /* A failed finish is harmless: the one-path capability expires on the
+           server and remains in memory so another confirmed removal can retry. */
+        await _seriesFinishAssetUploadIntents(unique);
+        return { ok:true };
+      }
       last=error;
     }catch(e){ last=e; }
   }
@@ -867,7 +1953,192 @@ function cloudRowPaths(row){
   for(const h of (row.history||[])){ add(h&&h.storage_path); addRefs(h&&h.refs); }
   return out;
 }
+
+function _seriesStableHash(value){
+  /* Deterministic 53-bit hash. Promotion paths must survive a lost HTTP response:
+     a retry addresses the same object instead of making another orphan. */
+  const s=String(value||"");
+  let h1=0xdeadbeef^s.length, h2=0x41c6ce57^s.length;
+  for(let i=0;i<s.length;i++){
+    const c=s.charCodeAt(i);
+    h1=Math.imul(h1^c,2654435761); h2=Math.imul(h2^c,1597334677);
+  }
+  h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909);
+  h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);
+  return (4294967296*(2097151&h2)+(h1>>>0)).toString(36);
+}
+function _seriesMigrationKey(fromProjectId,entityId){
+  return "series-asset-v2:"+String(fromProjectId)+":"+String(entityId);
+}
+function _seriesMigrationTarget(uid,toProjectId,entityId,sourcePath){
+  const filename=String(sourcePath||"").split("/").pop()||"asset.png";
+  const dot=filename.lastIndexOf(".");
+  const ext=(dot>0&&/^[.][a-z0-9]{1,10}$/i.test(filename.slice(dot)))?filename.slice(dot).toLowerCase():".png";
+  return [uid,toProjectId,"series-migration",turnSafeSeg(entityId),_seriesStableHash(sourcePath)+ext].join("/");
+}
+function _seriesCopyAlreadyExists(error){
+  const status=Number(error&&(error.statusCode||error.status));
+  return status===409 || /already exists|duplicate|resource exists|the resource already exists/i.test(String(error&&error.message||error||""));
+}
+function _seriesMigrationRowValid(row,sourcePathCount){
+  if(!row || !Array.isArray(row.refs) || !Array.isArray(row.history)) return false;
+  return !sourcePathCount || cloudRowPaths(row).size>0;
+}
+async function _seriesDestinationRow(sb,projectId,entityId){
+  const {data,error}=await sb.from("turn_generations").select("*")
+    .eq("project_id",projectId).eq("entity_id",entityId).maybeSingle();
+  if(error) throw error;
+  return data||null;
+}
+
+/* Promote every sheet belonging to a shared Bible entity from Episode 1 into
+   the Show scope. Source rows/files are immutable. Destination object names and
+   the row migration key are deterministic, so a retry after an ambiguous copy
+   or insert response can adopt the already-committed result. Cleanup first reads
+   back every destination row and never removes an object that any row references. */
+async function cloudPromoteProjectAssets(fromProjectId,toProjectId,baseEntityIds){
+  const sb=sbClient();
+  if(!sb||!fromProjectId||!toProjectId) return {ok:false,message:"Cloud asset storage is unavailable."};
+  if(String(fromProjectId)===String(toProjectId)) return {ok:true,moved:0,skipped:0};
+  const bases=Array.from(new Set((baseEntityIds||[]).filter(Boolean).map(String)));
+  if(!bases.length) return {ok:true,moved:0,skipped:0};
+  const belongs=(entityId)=>bases.some(base=>{
+    const id=String(entityId||"");
+    return id===base || id.indexOf(base+":")===0 || id.indexOf(base+"-")===0;
+  });
+  const copied=new Set();
+  let cleanupVerificationBlocked=false;
+  const cleanMeta=(meta)=>{
+    const next={...(meta||{})};
+    delete next.cleanupPending; delete next.cleanupTombstone;
+    return next;
+  };
+  const remapRef=(ref,pathMap)=> ref ? {...ref,
+    ...(ref.storage_path?{storage_path:pathMap.get(ref.storage_path)||ref.storage_path}:{})} : ref;
+  const remapHistory=(history,pathMap)=>(history||[]).map(h=> h ? {...h,
+    ...(h.storage_path?{storage_path:pathMap.get(h.storage_path)||h.storage_path}:{}),
+    meta:cleanMeta(h.meta), refs:(h.refs||[]).map(r=>remapRef(r,pathMap))} : h);
+  const cleanupUnreferenced=async()=>{
+    if(!copied.size) return null;
+    if(cleanupVerificationBlocked)
+      return "Copied assets were retained because the migration commit could not be read back safely.";
+    /* Query the complete destination project, not merely the promoted entities:
+       references may intentionally be shared between generation rows. If this
+       safety read is ambiguous, retain the bytes for the next idempotent retry. */
+    let destination;
+    try{
+      const {data,error}=await sb.from("turn_generations")
+        .select("entity_id,storage_path,refs,history").eq("project_id",toProjectId);
+      if(error) throw error;
+      destination=data||[];
+    }catch(e){
+      return "Copied assets were retained because their committed references could not be verified.";
+    }
+    const protectedPaths=new Set();
+    for(const row of destination) for(const path of cloudRowPaths(row)) protectedPaths.add(path);
+    const remove=Array.from(copied).filter(path=>!protectedPaths.has(path));
+    if(!remove.length) return null;
+    try{
+      const {error}=await sb.storage.from(turnBucket()).remove(remove);
+      if(error) throw error;
+      return null;
+    }catch(e){ return "Some unreferenced migration copies could not be cleaned up and will be retried later."; }
+  };
+  let moved=0, skipped=0;
+  try{
+    const session=await cloudGetSession();
+    const uid=session&&session.user&&session.user.id;
+    if(!uid) return {ok:false,message:"Your session has expired. Sign in again."};
+    const {data:source,error:sourceErr}=await sb.from("turn_generations").select("*")
+      .eq("project_id",fromProjectId);
+    if(sourceErr) throw sourceErr;
+    const rows=(source||[]).filter(r=>r&&belongs(r.entity_id)
+      && !(r.meta&&r.meta.cleanupTombstone));
+    if(!rows.length) return {ok:true,moved:0,skipped:0};
+    const ids=rows.map(r=>r.entity_id);
+    const {data:existing,error:destErr}=await sb.from("turn_generations").select("*")
+      .eq("project_id",toProjectId).in("entity_id",ids);
+    if(destErr) throw destErr;
+    const existingById=new Map((existing||[]).map(r=>[String(r.entity_id),r]));
+    for(const row of rows){
+      const entityId=String(row.entity_id), migrationKey=_seriesMigrationKey(fromProjectId,entityId);
+      let current=existingById.get(entityId)||null;
+      const sourcePaths=Array.from(cloudRowPaths(row));
+      const currentKey=current&&current.meta&&current.meta.seriesMigrationKey;
+      const legacySource=current&&current.meta&&String(current.meta.seriesMigratedFrom||"")===String(fromProjectId);
+      /* A complete idempotent replay or a legitimate, populated Show-owned row
+         wins. Never replace later Show edits with the old Episode snapshot. */
+      if(current && _seriesMigrationRowValid(current,sourcePaths.length)
+        && (currentKey===migrationKey || legacySource || !currentKey)){
+        skipped++; continue;
+      }
+      if(current && currentKey!==migrationKey && !legacySource){
+        throw new Error("The existing shared asset "+entityId+" is incomplete and was not created by this migration.");
+      }
+      const pathMap=new Map();
+      for(const sourcePath of sourcePaths){
+        const target=_seriesMigrationTarget(uid,toProjectId,entityId,sourcePath);
+        const {error:copyErr}=await sb.storage.from(turnBucket()).copy(sourcePath,target);
+        if(copyErr && !_seriesCopyAlreadyExists(copyErr)) throw copyErr;
+        if(!copyErr) copied.add(target);
+        pathMap.set(sourcePath,target);
+      }
+      const fields={
+        storage_path:row.storage_path?(pathMap.get(row.storage_path)||null):null,
+        meta:{...cleanMeta(row.meta),seriesMigratedFrom:fromProjectId,
+          seriesMigrationKey:migrationKey,seriesMigrationStatus:"complete",
+          seriesMigratedAt:(current&&current.meta&&current.meta.seriesMigratedAt)||new Date().toISOString()},
+        refs:(row.refs||[]).map(r=>remapRef(r,pathMap)),
+        history:remapHistory(row.history,pathMap)};
+      let written=null, mutationError=null;
+      try{
+        if(current){
+          /* Only an invalid/incomplete row from this same migration is repaired.
+             The CAS fence prevents overwriting a collaborator who fixed it after
+             our read. */
+          written=await cloudCasGen(toProjectId,uid,entityId,current,fields);
+          if(written&&written._cloudMutationError) mutationError=new Error(written._cloudMutationError);
+          else if(!written) mutationError=new Error("Shared asset changed while its migration was being repaired.");
+        }else{
+          const result=await sb.from("turn_generations").insert({
+            project_id:toProjectId,owner:uid,entity_id:entityId,...fields,
+          }).select().single();
+          if(result.error) mutationError=result.error; else written=result.data||null;
+        }
+      }catch(e){ mutationError=e; }
+      if(mutationError || !written){
+        /* Insert/update responses can be lost after the database commits. Read
+           back before classifying failure or deleting a single copied object. */
+        try{ current=await _seriesDestinationRow(sb,toProjectId,entityId); }
+        catch(readError){
+          cleanupVerificationBlocked=true;
+          throw (mutationError||readError);
+        }
+        const replay=current&&current.meta&&current.meta.seriesMigrationKey===migrationKey;
+        if(replay && _seriesMigrationRowValid(current,sourcePaths.length)) written=current;
+        else if(current && _seriesMigrationRowValid(current,sourcePaths.length)){
+          skipped++; continue; // a concurrent canonical Show row won
+        }else throw (mutationError||new Error("Shared asset migration did not commit."));
+      }
+      moved++;
+    }
+    const cleanupWarning=await cleanupUnreferenced();
+    return {ok:true,moved,skipped,...(cleanupWarning?{cleanupWarning}:{})};
+  }catch(e){
+    const cleanupWarning=await cleanupUnreferenced();
+    return {ok:false,moved,skipped,message:(e&&e.message)||"Shared assets could not be migrated.",
+      ...(cleanupWarning?{cleanupWarning}:{})};
+  }
+}
+window.cloudPromoteProjectAssets=cloudPromoteProjectAssets;
 function cloudApplySnapshot(q,row){
+  /* Every turn_generations update passes through turn_generations_touch, so
+     updated_at is the row's compact optimistic-concurrency token. The previous
+     implementation put storage_path + the complete meta/refs/history JSON into
+     URL query filters; richly referenced location plates could exceed the HTTP
+     URL limit and fail after their image bytes had already uploaded. */
+  if(row&&row.updated_at) return q.eq("updated_at",row.updated_at);
+  // Compatibility fallback for local recording adapters or pre-migration rows.
   for(const key of ["storage_path","meta","refs","history"]){
     const value=row ? row[key] : null;
     q=value==null ? q.is(key,null) : q.eq(key,(key==="storage_path"?value:JSON.stringify(value)));
@@ -915,16 +2186,16 @@ async function cloudCasGen(projectId, uid, entityId, previous, fields){
         ? table.insert({project_id:projectId,owner:uid,entity_id:entityId,...fields})
         : table.upsert({project_id:projectId,owner:uid,entity_id:entityId,...fields},{onConflict:"project_id,entity_id"});
       const {data,error}=await mutation.select().single();
-      if(error) return null;
+      if(error) return {_cloudMutationError:error.message||"generation row insert failed"};
       return data||null;
     }
     let q=sb.from("turn_generations").update(fields)
       .eq("project_id",projectId).eq("entity_id",entityId);
     q=cloudApplySnapshot(q,previous);
     const { data,error }=await q.select().maybeSingle();
-    if(error) return null;
+    if(error) return {_cloudMutationError:error.message||"generation row update failed"};
     return data||null;
-  }catch(e){ return null; }
+  }catch(e){ return {_cloudMutationError:(e&&e.message)||"generation row mutation failed"}; }
 }
 function cloudPendingMeta(meta,paths,tombstone){
   const next={...(meta||{})}, pending=Array.from(new Set((paths||[]).filter(Boolean)));
@@ -949,8 +2220,8 @@ async function cloudFinishPending(projectId,uid,entityId,row){
   const meta={...(row.meta||{})}; delete meta.cleanupPending; delete meta.cleanupTombstone;
   const after=await cloudCasGen(projectId,uid||row.owner,entityId,row,{
     storage_path:row.storage_path,meta,refs:row.refs||[],history:row.history||[]});
-  return after ? {row:after,warning:null}
-    : {row,warning:"cleanup completed; pending marker changed before removal"};
+  return after&&!after._cloudMutationError ? {row:after,warning:null}
+    : {row,warning:(after&&after._cloudMutationError)||"cleanup completed; pending marker changed before removal"};
 }
 /* commit a new generation: upload image, roll the previous one into history,
    upload + store reference images, persist metadata. refs in = [{kind,label,url}]. */
@@ -1002,6 +2273,7 @@ async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, 
   }
   let written=await cloudCasGen(projectId,uid,entityId,row,fields);
   if(!written || written.storage_path!==newPath){
+    const mutationError=written&&written._cloudMutationError;
     let live=null, readbackFailed=false;
     try{ live=await cloudGetGenStrict(projectId,entityId); }catch(e){ readbackFailed=true; }
     // Returning representation can fail independently of an already-committed
@@ -1016,12 +2288,18 @@ async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, 
       try{ await cloudRemovePaths(created.filter(p=>!cloudRowPaths(live).has(p))); }
       catch(e){ return {tier:"error",url:dataUrl,error:e.message}; }
       return { tier:"error",url:dataUrl,retry:!row,
-        error:!row?"another client created this asset; retry against its preserved version":"generation row write failed" };
+        error:mutationError
+          ? "generation row write failed: "+mutationError
+          : (!row?"another client created this asset; retry against its preserved version":"generation row changed while saving; retry against the latest version") };
     }
   }
   if(!written || written.storage_path!==newPath){
     return { tier:"error",url:dataUrl,error:"generation row write failed" };
   }
+  /* The row now durably owns every newly uploaded path. Retire the temporary
+     exact-path cleanup capability. If this acknowledgement is lost, the intent
+     simply expires; it never expands beyond these paths. */
+  await _seriesFinishAssetUploadIntents(created);
   const compensateCancellation=async(snapshot)=>{
     const sb=sbClient();
     let compensated=null, compensationError=null;
@@ -1361,10 +2639,18 @@ async function cloudSyncCameo(projectId, uid, charId, rec){
   const prov = { consent:!!rec.consent, source:rec.source||"webcam", subject:rec.subject||"",
     iso:rec.iso, date:rec.date, w:rec.w||0, h:rec.h||0 };
   try{
-    await sb.from("turn_cameos").upsert({ project_id:projectId, owner:uid, char_id:charId,
+    const {error}=await sb.from("turn_cameos").upsert({ project_id:projectId, owner:uid, char_id:charId,
       angles:angleRows, prov:prov }, { onConflict:"project_id,char_id" });
+    if(error) throw error;
+    await _seriesFinishAssetUploadIntents(angleRows.map(angle=>angle.storage_path));
     return true;
-  }catch(e){ return null; }
+  }catch(e){
+    /* If the owner deleted the project between upload and row commit, the
+       per-path intents still authorize this collaborator to remove only their
+       just-uploaded uncommitted angles. */
+    try{ await cloudRemovePaths(angleRows.map(angle=>angle.storage_path)); }catch(cleanupError){}
+    return null;
+  }
 }
 async function cloudLoadCameo(projectId, charId){
   const row = await cloudCameoRow(projectId, charId);

@@ -324,6 +324,7 @@ function StyleBibleView({ project, scenes, onAssign, assigning, onSetRefs, onSet
   const scenesFor = (pid)=> scenesInStoryOrder((scenes||[]).filter(s=>sceneStyles[s.id]===pid));
   const assignedCount = (scenes||[]).filter(s=>sceneStyles[s.id]).length;
   return React.createElement("div",{className:"art-scroll"},
+    window.LookbookStaleNotice && React.createElement(window.LookbookStaleNotice,{stale:lookbookStale,onApply:onApplyLookbook,label:"this palette",dept:"colorist"}),
     React.createElement("div",{className:"art-intro"},
       React.createElement("div",{className:"art-intro-row"},
         React.createElement("div",{style:{flex:1}},
@@ -335,7 +336,6 @@ function StyleBibleView({ project, scenes, onAssign, assigning, onSetRefs, onSet
         // Save into one press) — a second copy up here just re-created the confusing
         // two-button layout the merge removed.
         null)),
-    window.LookbookStaleNotice && React.createElement(window.LookbookStaleNotice,{stale:lookbookStale,onApply:onApplyLookbook,label:"this palette",dept:"colorist"}),
     onSetRefs && React.createElement(StyleRefsField,{value:refs,onCommit:onSetRefs,onAssign,assigning,assignDisabled:assigning||!(scenes||[]).length,
       refImages,onAddRefImages,onRemoveRefImage,
       onLight:onColorist,lightDisabled:!(scenes||[]).length}),

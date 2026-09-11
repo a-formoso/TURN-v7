@@ -57,7 +57,7 @@ ok("location resolved independently per shot",pkg.byShot.find(x=>x.shotId==="a")
 ok("empty manual location selection stays empty",pkg.byShot.find(x=>x.shotId==="c").locations.length===0);
 const prop=pkg.props.find(x=>x.assetId==="p1:wet");
 ok("dedupe preserves per-shot uses",pkg.props.length===1&&prop.usages.length===2&&prop.shotIds.length===2);
-ok("unapproved warning",pkg.warnings.some(x=>x.code==="unapproved-reference"&&x.imageId==="c2"));
+ok("saved reference needs no separate approval warning",!pkg.warnings.some(x=>x.code==="unapproved-reference"));
 ok("empty manual location selection is not a blocker",!pkg.warnings.some(x=>x.code==="missing-location-coverage"&&x.shotId==="c"));
 const goneSelection=box.stageShotReferencePackage([
   {id:"gone-loc",sceneId:"s2",subjects:[],referenceLocationsSet:true,referenceLocationIds:["l1-gone"]}
@@ -119,6 +119,9 @@ ok("metadata alone cannot satisfy a supplied loaded-image inventory",
 const coldPackage=box.stageShotReferencePackage([shots[1]],{...ctx,images:{}});
 ok("missing active variant blocks even when approved metadata exists",
   coldPackage.warnings.some(x=>x.imageId==="c1:rain"&&x.code==="missing-reference"&&x.severity==="error"));
+ok("missing reference is not duplicated as a review-required issue",
+  !coldPackage.warnings.some(x=>x.imageId==="c1:rain"&&x.code==="review-required"
+    &&/missing or has not finished loading/i.test(String(x.message||""))));
 const warmPackage=box.stageShotReferencePackage([shots[1]],{...ctx,
   images:{"c1:rain":"data:image/png;base64,fixture","l1-ext":"data:image/png;base64,fixture","p1:wet":"data:image/png;base64,fixture"}});
 ok("loaded references clear missing blockers without altering metadata",

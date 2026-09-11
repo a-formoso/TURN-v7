@@ -26,7 +26,21 @@ cross-device access, and multiple projects all work.
    their storage files to the film's owner / Art director (everyone still
    reads them), and keeps a generation record attributed to whoever first
    created it. Idempotent — safe to re-run.
+   Finally run **`series-production.sql`** — normalizes Show/Episode links,
+   makes Show membership and department roles inherit safely to Episodes,
+   preserves access to the Show Bible for legacy episode-level invitations,
+   and installs transactional RPCs for converting a film into a Show, creating
+   uniquely numbered Episodes, and deleting a whole Show. Lifecycle deletion
+   also installs one-hour, owner-only, DELETE-only grants for each exact
+   image/cameo object key—not a project prefix—and a durable exact-path queue
+   for uploads abandoned between Storage and their database record. A scheduled
+   service-role worker can lease and acknowledge that queue without weakening
+   normal asset access. Run this file after
+   `enforce-role-scopes.sql`; if either collaboration SQL file is re-run later,
+   re-run `series-production.sql` last so its series-aware helpers remain active.
 4. **SQL Editor → run `cameos.sql`** — creates the `turn_cameos` table (RLS).
+   If you enable Cameos, re-run `series-production.sql` once afterward so its
+   project-scoped Cameo write policy is installed too.
 5. **Authentication → Providers** — enable whichever sign-in you chose
    (Email magic-link and/or Google OAuth).
 6. Paste your **Project URL** and **anon public key** into `app/supabase-config.js`.
@@ -98,9 +112,10 @@ server-side (the "wrapper company" approach). With the proxy on, **both** image
 providers run server-side and no provider key lives in the browser.
 
 The same function also serves a **`text` task** — the model behind MUSE, spec
-drafting, and the Writers' Room agents (`window.claude.complete`). It calls Gemini
-or OpenAI server-side with the same secrets, so the writing AI is key-free too;
-users pick the model (Gemini 3.5 Flash / GPT) from the dropdown in the MUSE header.
+drafting, and the Writers' Room agents (`window.claude.complete`) — plus the
+authenticated **`live` task** that exchanges a browser WebRTC offer for MUSE's
+GPT-Live session. It calls providers server-side with the same secrets, so neither
+writing nor live voice exposes the service key in the browser.
 
 **Deploy it (once):**
 
@@ -117,6 +132,10 @@ users pick the model (Gemini 3.5 Flash / GPT) from the dropdown in the MUSE head
    browser's unauthenticated `OPTIONS` preflight is rejected with 401 and every call
    fails. Sign-in is still enforced — by the function, not the gateway.)
 5. In `app/supabase-config.js` set **`imageProxy: true`**.
+
+Redeploy this function whenever its task routes change. If New Story's **Talk it
+through** reports `No prompt supplied`, the browser is reaching an older deployment
+that predates the `live` task; repeat step 4 and reload TURN from localhost or HTTPS.
 
 Once deployed, all generation runs through the proxy for signed-in users: **GPT
 Image 2** appears as a model option, and **Nano Banana** is routed server-side too,

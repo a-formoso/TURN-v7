@@ -52,7 +52,11 @@
 
   /* density (driven by tweak) */
   --pad:16px;
-  --rail-w:268px;
+  /* Writers' Room and Stage both use balanced side panels. Keep these two
+     tokens explicit because each component owns one, but give them the same
+     value so a room never opens with a narrower navigation rail than its
+     contextual inspector. */
+  --rail-w:380px;
   --insp-w:380px;
 
   color-scheme:dark;
@@ -168,6 +172,8 @@ body{
 .ns-format{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:14px 14px 12px;cursor:pointer;
   background:var(--bg-2);border:1px solid var(--line-2);border-radius:12px;text-align:left;transition:.12s}
 .ns-format:hover{border-color:var(--line-3)}
+.ns-format:disabled{cursor:not-allowed;opacity:.46}
+.ns-format.on:disabled{opacity:1}
 .ns-format.on{border-color:var(--txt-0);box-shadow:0 0 0 1px var(--txt-0) inset}
 .ns-format svg{color:var(--txt-2)}
 .ns-format.on svg{color:var(--txt-0)}
@@ -652,6 +658,12 @@ html[data-theme="light"] .seg-attn-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .insp-tab.on{color:var(--txt-0)}
 .insp-tab.on::after{content:"";position:absolute;left:8px;right:8px;bottom:-1px;height:2px;background:var(--pos);border-radius:2px}
 .insp-scroll{flex:1;overflow-y:auto;padding:16px}
+
+/* The Writers' Room's film-level information uses the inspector's exact tab
+   language on the left. The scene spine stays below as persistent navigation. */
+.rail-tabs .rail-panel-collapse{flex:0 0 auto;align-self:center;margin:0 auto 6px 0}
+.rail-tab-pane{margin-bottom:18px}
+.rail-cast-pane{padding:1px 0 3px}
 
 .insp-eyebrow{display:flex;align-items:center;gap:8px;margin-bottom:6px}
 .insp-scene-no{font-family:var(--f-mono);font-size:10px;color:var(--bg-0);background:var(--pos);border-radius:4px;padding:1px 6px;font-weight:700}
@@ -1255,6 +1267,7 @@ textarea.edit-in{line-height:1.5;min-height:36px;font-family:var(--f-ui);box-siz
 .ns-talk-msg.assistant .ns-talk-bubble{background:var(--bg-4);color:var(--txt-0);border-bottom-left-radius:4px}
 .ns-talk-msg.user .ns-talk-bubble{background:var(--pos);color:var(--ink-on-accent);border-bottom-right-radius:4px}
 .ns-talk-msg.pending .ns-talk-bubble{opacity:.6;font-style:italic}
+.ns-talk-empty{margin:auto;color:var(--txt-3);font-size:12px;font-style:italic;text-align:center}
 .ns-talk-dots{display:inline-flex;gap:4px;align-items:center;height:8px}
 .ns-talk-dots i{width:6px;height:6px;border-radius:50%;background:var(--txt-3);animation:talkdot 1.1s infinite ease-in-out}
 .ns-talk-dots i:nth-child(2){animation-delay:.18s}
@@ -1268,6 +1281,11 @@ textarea.edit-in{line-height:1.5;min-height:36px;font-family:var(--f-ui);box-siz
 .ns-mic:hover{background:var(--bg-4);color:var(--txt-0)}
 .ns-mic.on{background:var(--neg);border-color:transparent;color:#fff;box-shadow:0 0 0 0 var(--neg);animation:talkpulse 1.3s ease-out infinite}
 .ns-mic:disabled{opacity:.5;cursor:default}
+.ns-live-note{border-style:solid;background:var(--pos-soft);border-color:var(--pos-line)}
+.ns-talk-mute.off{color:var(--alert);border-color:color-mix(in oklch,var(--alert) 36%,var(--line-2))}
+.ns-hear{height:29px;padding:0 10px;margin-left:auto;white-space:nowrap}
+.ns-live-foot{flex-wrap:wrap}
+.ns-live-foot .ns-btn.link{margin-right:auto}
 .ns-foot{display:flex;gap:9px;justify-content:flex-end;align-items:center;margin-top:2px}
 .ns-btn{display:inline-flex;align-items:center;gap:7px;height:38px;padding:0 16px;border-radius:9px;cursor:pointer;
   font-family:var(--f-ui);font-size:13px;font-weight:600;border:1px solid var(--line-2);transition:.12s}
@@ -2846,7 +2864,7 @@ html[data-theme="dark"] .dt-viewing svg{color:oklch(0.82 0.09 296)}
 .write-dock-note{display:block;font-size:10.5px;color:var(--txt-3);margin-top:4px;line-height:1.35}
 .write-dock-note.sel{border-top:1px solid var(--line);padding-top:6px;color:var(--txt-2)}
 .write-dock-foot{font-size:9.5px;color:var(--txt-3);margin-top:4px;line-height:1.4}
-.nb-dock-toggle{display:flex;flex-direction:column;align-items:stretch;gap:5px;width:54px;
+.nb-dock-toggle{display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:5px;width:54px;box-sizing:border-box;
   padding:7px 6px;cursor:pointer;background:var(--bg-2);border:1px solid var(--line-2);
   border-radius:999px;box-shadow:0 8px 28px rgba(15,16,18,.14);transition:.15s}
 .nb-dock-toggle:hover{border-color:var(--line-3);transform:translateY(-1px)}
@@ -3051,6 +3069,28 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
 .loc-intext-badge{display:inline-block;padding:1px 7px;border-radius:4px;font-family:var(--f-mono);
   font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;vertical-align:middle}
 .loc-name-row{display:flex;align-items:center;gap:8px}
+.loc-scope-line{display:flex;align-items:center;gap:6px;margin-top:5px;font-size:10.5px;color:var(--txt-2);line-height:1.25}
+.loc-scope-line b{color:var(--txt-1);font-weight:650}
+.loc-scope-chip{display:inline-flex;align-items:center;flex:0 0 auto;padding:2px 6px;border-radius:999px;border:1px solid var(--line-2);
+  background:var(--bg-2);font-family:var(--f-mono);font-size:8px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--txt-2)}
+.loc-scope-chip.compound{border-color:var(--pos-line);background:var(--pos-soft);color:var(--pos)}
+.loc-scope-chip.child{border-color:oklch(0.62 0.08 250 / .35);background:oklch(0.62 0.08 250 / .12)}
+.loc-child-row{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:5px}
+.loc-child-lab{font-family:var(--f-mono);font-size:8px;letter-spacing:.08em;text-transform:uppercase;color:var(--txt-3)}
+.loc-child-chip{padding:1px 6px;border-radius:4px;background:var(--bg-2);border:1px solid var(--line-3);font-size:9.5px;color:var(--txt-2)}
+.loc-inheritance-note{display:flex;align-items:flex-start;gap:7px;padding:8px 10px;border:1px solid var(--line-2);border-radius:8px;
+  background:var(--bg-2);font-size:10.5px;line-height:1.45;color:var(--txt-2)}
+.loc-inheritance-note svg{flex:0 0 auto;margin-top:1px;color:var(--txt-3)}
+.loc-anchor-field{display:flex;flex-direction:column;gap:5px}
+.loc-anchor-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.loc-field-label{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-width:0}
+.loc-prov-select{max-width:92px;height:21px;padding:0 18px 0 6px;border:1px solid var(--line-2);border-radius:999px;
+  background:var(--bg-2);color:var(--txt-2);font:700 8px/1 var(--f-mono);letter-spacing:.06em;cursor:pointer;outline:none}
+.loc-prov-select:focus{border-color:var(--pos-line);color:var(--txt-1)}
+.loc-anchor-lock{border:1px solid var(--line-2);border-radius:999px;background:var(--bg-2);color:var(--txt-2);padding:3px 7px;
+  font-family:var(--f-mono);font-size:8px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;cursor:pointer}
+.loc-anchor-lock.locked{border-color:var(--pos-line);background:var(--pos-soft);color:var(--pos)}
+.loc-anchor-field>.edit-in{min-height:54px}
 /* resolved world-scale badge (Auto derivation made visible; hidden at human scale) */
 .loc-scale-badge{flex:0 0 auto;display:inline-flex;align-items:center;gap:3px;padding:1px 7px;border-radius:4px;
   font-family:var(--f-mono);font-size:9px;font-weight:700;letter-spacing:.05em;
@@ -3079,6 +3119,7 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
 .loc-variant{border:1px solid var(--line-2);border-radius:9px;padding:9px;background:var(--bg-1)}
 .loc-variant-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .loc-variant-head .edit-in{flex:1;font-family:var(--f-mono);font-size:11px;letter-spacing:.04em;text-transform:uppercase}
+.loc-shared-state-note{margin:-1px 0 9px;color:var(--txt-3);font-family:var(--f-mono);font-size:9.5px;letter-spacing:.045em;text-transform:uppercase}
 .loc-coverage-sheet{background:color-mix(in oklab,var(--bg-1),var(--accent) 4%)}
 .loc-coverage-sheet .loc-variant-head{justify-content:space-between;align-items:flex-start;gap:10px}
 .loc-coverage-title{display:flex;align-items:center;gap:8px;min-width:0}
@@ -3935,8 +3976,8 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
 }
 
 /* density variants */
-.dens-compact{--pad:11px;--rail-w:240px;--insp-w:348px}
-.dens-comfy{--pad:20px;--rail-w:292px;--insp-w:410px}
+.dens-compact{--pad:11px;--rail-w:348px;--insp-w:348px}
+.dens-comfy{--pad:20px;--rail-w:410px;--insp-w:410px}
 
 /* ============================================================
    RESPONSIVE — tablet & mobile
@@ -3952,7 +3993,7 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
    canvas, sits below the view-nav) exactly like the inspector, so it never
    overlays the hero nav. */
 .app.vp-mobile .rail{
-  position:fixed;top:52px;left:0;bottom:0;z-index:60;width:min(86vw,318px);
+  position:fixed;top:52px;left:0;bottom:0;z-index:60;width:min(92vw,400px);
   box-shadow:var(--shadow-pop);animation:drawerL .22s cubic-bezier(.2,.8,.2,1);
 }
 /* inspector as a drawer on mobile only */
@@ -6069,7 +6110,10 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
   background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='6'><path d='M1 1l3 3 3-3' stroke='%232c2722' stroke-width='1.4' fill='none' stroke-linecap='round'/></svg>");
   background-repeat:no-repeat;background-position:right center}
 .ag-runner-model-sel{font-family:var(--f-mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;
-  color:var(--ink-on-accent,#2c2722);background-color:var(--pos);padding:4px 20px 4px 10px;border-radius:999px;white-space:nowrap;background-position:right 8px center}
+  color:var(--txt-1);background-color:color-mix(in oklab,var(--bg-3),var(--accent) 10%);
+  border:1px solid var(--accent-line);padding:3px 20px 3px 10px;border-radius:999px;white-space:nowrap;
+  background-position:right 8px center;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='6'><path d='M1 1l3 3 3-3' stroke='%2374787E' stroke-width='1.4' fill='none' stroke-linecap='round'/></svg>")}
 .ns-model-sel:disabled,.ag-runner-model-sel:disabled{opacity:.7;cursor:default}
 
 /* New Story: auto-picked shape note + the writer's own logline marker */
@@ -6656,6 +6700,7 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
 .dt-continuity-row{display:flex;align-items:center;gap:10px;padding:7px 9px;border:1px solid var(--line-2);border-radius:7px;background:var(--bg-2);font-size:11px}
 .dt-continuity-name{min-width:0;flex:1;color:var(--txt-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dt-continuity-mode{font-family:var(--f-mono);font-size:9px;text-transform:uppercase;color:var(--txt-3)}
+.dt-writing-model{text-transform:none;letter-spacing:.01em}
 .dt-continuity-mode.visual{color:oklch(0.7 0.14 150)}
 /* Art Room master cards use the sheet body's gap as their single vertical-rhythm
    source. These rows used to add their own margins on top of that gap, producing
@@ -7055,7 +7100,7 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
   /* The docking controls stop bisecting the active card at tablet widths.
      Their bottom placement also preserves the established one-hand reach. */
   .nb-dock{top:auto;right:14px;bottom:26px;transform:none}
-  .write-dock{top:auto;right:14px;bottom:128px;transform:none}
+  .write-dock{top:auto;right:14px;bottom:152px;transform:none}
   .nb-dock-panel{top:auto;bottom:0;transform:none;max-height:calc(100dvh - 152px);overflow-y:auto}
 
   .sheet-head,
@@ -7065,13 +7110,19 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
   .sheet-head-actions{max-width:100%;justify-content:flex-start}
 }
 
+@media (min-width:701px) and (max-width:1100px){
+  /* Treat the two engine controls as one vertically centred right-edge pair. */
+  .nb-dock{top:calc(50% + 63px);bottom:auto;transform:translateY(-50%)}
+  .write-dock{top:calc(50% - 63px);bottom:auto;transform:translateY(-50%)}
+}
+
 @media (max-width:700px){
   /* There is no useful side gutter on a phone. Keep all form fields clear of
      the two compact docks while allowing the final card content to scroll
      above them. */
   .artroom .art-scroll{padding-right:14px;padding-bottom:250px}
   .nb-dock{right:10px;bottom:18px}
-  .write-dock{right:10px;bottom:120px}
+  .write-dock{right:10px;bottom:144px}
 
   .sheet-gen-row{gap:8px}
   .sheet-gen-row:not(:has(.sheet-gen-stop)){flex-wrap:wrap}

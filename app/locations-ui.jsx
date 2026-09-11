@@ -1,8 +1,8 @@
 /* locations-ui.jsx — The Art Room ▸ Locations tab (React).
    Mirrors PropSheets: derive-from-screenplay → draft fields → generate a multi-angle
    coverage plate → screenplay-derived INT/EXT side sheets → per-scene batch. Adds
-   time-of-day / weather VARIANT plates and reads the Style Bible preset assigned to
-   each location's scenes. */
+   continuity-state plates and reads the Style Bible preset assigned to each
+   location's scenes. */
 
 function locSwatch(intExt){
   return /EXT/.test(intExt||"")
@@ -10,9 +10,38 @@ function locSwatch(intExt){
     : "linear-gradient(135deg,#4a5a78,#222c3e)";     // interior — slate
 }
 
+const LOC_PROVENANCE = [
+  ["script","SCRIPT"],["inferred","INFERRED"],["design","DESIGN"],["locked","LOCKED"]
+];
+function LocationProvenanceSelect({l,field,label,onUpdate}){
+  const provenance={...((l&&l.provenance)||{})};
+  const source=provenance[field]||(l&&l.fromScript?"inferred":"design");
+  return React.createElement("select",{className:"loc-prov-select",value:source,title:"Where this fact came from",
+    "aria-label":label+" provenance",onChange:e=>{ provenance[field]=e.target.value; onUpdate(l.id,{provenance}); }},
+    LOC_PROVENANCE.map(p=>React.createElement("option",{key:p[0],value:p[0]},p[1])));
+}
+function LocationIdentityField({l,field,label,value,placeholder,onUpdate}){
+  const provenance={...((l&&l.provenance)||{})};
+  const source=provenance[field]||(l&&l.fromScript?"inferred":"design");
+  const commit=(next)=>{
+    if(source!=="locked") provenance[field]="design";
+    onUpdate(l.id,{[field]:next,provenance});
+  };
+  const labelNode=React.createElement("span",{className:"loc-field-label"},
+    React.createElement("span",null,label),
+    React.createElement(LocationProvenanceSelect,{l,field,label,onUpdate}));
+  return React.createElement(SheetField,{label:labelNode,value:value||"",multiline:true,placeholder,onCommit:commit});
+}
+
 function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft, drafting, onView, batchActiveId, onBatchDone, onChipClick, onDraftStaging, draftingStage, sluglineUnits, onUpdateUnit, onRemoveUnit }){
   const d = locVisualDefaults(l);
   const scenePresets = (typeof locScenePresets==="function") ? locScenePresets(l, project) : [];
+  const locationUnits=(sluglineUnits||[]).filter(u=>u&&!u.orphan&&
+    (String(u.subspaceKey||u.locationKey||"")===String(l.key||"") || (l.scope==="compound"&&String(u.locationKey||"")===String(l.key||""))));
+  const displaySide=(typeof locationEffectiveSide==="function")
+    ? locationEffectiveSide(l,locationUnits,l.parentLocation?[]:(l.coverageSheets||[]),l.parentLocation?[]:(l.childLocations||[]))
+    : (l.intExt||"INT");
+  const displaySideLabel=displaySide==="INT/EXT"?"INT+EXT":displaySide;
   const finalPrompt = combinedLocationPrompt(l, project, {});
   const drafted = locVisualsDrafted(l);
   const initials = (l.name||"?").replace(/^the\s+/i,"").split(/\s+/).map(w=>w[0]).slice(0,2).join("").toUpperCase();
@@ -27,8 +56,10 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
     }
     setUnlockVisible(false);
   },[l.renderStyleKey]);
-  const locBible = ()=> [l.name&&("Name: "+l.name), l.architecture&&("Architecture: "+l.architecture),
-    l.materials&&("Materials: "+l.materials), l.lighting&&("Lighting: "+l.lighting), l.significance&&("Significance: "+l.significance),
+  const locBible = ()=> [l.name&&("Name: "+l.name), l.parentLocation&&("Within: "+l.parentLocation.name), l.architecture&&("Architecture: "+l.architecture),
+    l.materials&&("Materials: "+l.materials), l.lighting&&("Permanent lighting interfaces: "+l.lighting),
+    l.permanentDressing&&("Permanent dressing: "+l.permanentDressing), l.topology&&("Topology: "+l.topology),
+    l.continuityAnchors&&("Continuity anchors: "+l.continuityAnchors), l.significance&&("Story significance: "+l.significance),
     (project&&project.genre)&&("Genre: "+project.genre)].filter(Boolean).join("\n");
   const LOC_TEXT = window.LOC_RENDER_TEXT || {};
   const rollSurprise = async ()=>{
@@ -89,9 +120,28 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
 
   const [masterRefs, setMasterRefs] = React.useState([]);
   const [masterRefOff, setMasterRefOff] = React.useState([]);
+  const [parentRefUrl,setParentRefUrl]=React.useState("");
+  React.useEffect(()=>{
+    let alive=true;
+    const id=l.parentLocation&&l.parentLocation.id;
+    if(!id){ setParentRefUrl(""); return ()=>{alive=false;}; }
+    const refresh=async ()=>{ let url=(typeof nbGetImage==="function")?nbGetImage(id):"";
+      if(!url&&typeof nbLoadImage==="function"){ try{url=await nbLoadImage(id);}catch(e){} }
+      if(alive) setParentRefUrl(url||""); };
+    refresh();
+    const onDone=(e)=>{ if(e&&e.detail&&e.detail.id===id) refresh(); };
+    window.addEventListener("nb-gen-done",onDone);
+    return ()=>{alive=false;window.removeEventListener("nb-gen-done",onDone);};
+  },[l.parentLocation&&l.parentLocation.id]);
   const buildMasterRefs = ()=>{
     const out = [];
     const C = window.turnContinuity || {};
+    if(l.parentLocation){
+      const rootUrl=parentRefUrl||((typeof nbGetImage==="function")?nbGetImage(l.parentLocation.id):"");
+      if(rootUrl) out.push({url:rootUrl,kind:"location",ready:true,required:false,
+        refId:"continuity-root-"+l.parentLocation.id,label:l.parentLocation.name||"Continuity root",
+        note:(l.parentLocation.name||"continuity root")+" master plate — inherit its approved architecture, material language, scale and continuity anchors; preserve this child space's own geometry"});
+    }
     const list = (Array.isArray(l.scenes) && l.scenes.length)
       ? scenesInStoryOrder((scenes||C.scenes||[]).filter(s=>l.scenes.indexOf(s.id)>=0))
       : scenesInStoryOrder(scenes||C.scenes);
@@ -108,7 +158,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
     return out;
   };
   const masterScriptSig = JSON.stringify((l.scenes||[]).map(sid=>(((drafts||{})[sid]||{}).blocks||[])));
-  const masterRefsKey = [l.id, (l.scenes||[]).join(","), scenes&&scenes.length, masterScriptSig].join("|");
+  const masterRefsKey = [l.id, l.parentLocation&&l.parentLocation.id, parentRefUrl, (l.scenes||[]).join(","), scenes&&scenes.length, masterScriptSig].join("|");
   React.useEffect(()=>{ setMasterRefs(buildMasterRefs()); },[masterRefsKey]);
   const toggleMasterRef = (rid)=> setMasterRefOff(off=> off.indexOf(rid)>=0 ? off.filter(x=>x!==rid) : [...off, rid]);
 
@@ -132,7 +182,12 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
     entity: l,
     /* Clear cascades to this location's time-of-day variant plates so they aren't
        orphaned in storage. */
-    relatedClearIds: ()=> [...(l.variants||[]), ...(l.coverageSheets||[])].map(v=> l.id+"-"+v.id),
+    relatedClearIds: ()=> Array.from(new Set([
+      ...(l.variants||[]).map(v=> (typeof locationAppearanceStateAssetId==="function")
+        ? locationAppearanceStateAssetId(l,v,sluglineUnits||[]) : l.id+"-"+v.id),
+      ...(l.coverageSheets||[]).map(v=>l.id+"-"+v.id),
+      ...((typeof sluglineUnitImageId==="function") ? units.map(u=>sluglineUnitImageId(u.key)) : [])
+    ])),
     buildFinal: ()=> stagingDraftRef.current
       ? combinedLocationPrompt({ ...l, staging: stagingDraftRef.current }, project, {})
       : finalPrompt,
@@ -140,10 +195,10 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
     buildSimple: ()=> buildSimpleLocationPrompt(l),
     attachments: async ()=> buildMasterRefs()
       .filter(r=>r.url && masterRefOff.indexOf(r.refId)<0)
-      .map(r=>({ url:r.url, kind:"script", refId:r.refId, note:r.note })),
+      .map(r=>({ url:r.url, kind:r.kind==="script"?"script":"location", refId:r.refId, note:r.note })),
     attachmentsText: (refs)=> refs && refs.length
       ? "REFERENCE IMAGES are attached: "+refs.map((r,i)=>"Image "+(i+1)+" = "+r.note).join("; ")
-        +". Read ALL pages together as evidence for the permanent geography of ONE location. "
+        +". Read screenplay pages together as evidence for permanent geography. A continuity-root plate is binding inherited identity, not a panel map. "
         +"They are NOT a quadrant map: do not make one panel per page or per scene. The 2x2 is four different camera views of the same coherent space, following the prompt's panel plan. "
         +"Aggregate architecture, fixtures, sightlines and action affordances only. Do NOT bake in scene-specific time of day, weather or progression (for example NIGHT/rain versus DAWN); those belong to each slugline unit's appearance plate. "
         +"Never copy screenplay typography, page borders, text, captions or layout."
@@ -160,17 +215,6 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       +"across all panels. Keep the same multi-angle grid of the same empty space. "
       +"Do not redesign or re-imagine the location.",
   });
-  const promptStale = !!(gen.genUrl && typeof locationSpecPromptStale==="function"
-    && locationSpecPromptStale(gen.genMeta,finalPrompt));
-  const [propDependencyTick,setPropDependencyTick]=React.useState(0);
-  React.useEffect(()=>{ const onDone=e=>{ const id=e&&e.detail&&e.detail.id;
-      if(id&&((gen.genMeta&&gen.genMeta.propDependencies)||[]).some(r=>r&&r.propId===id)) setPropDependencyTick(t=>t+1); };
-    window.addEventListener("nb-gen-done",onDone); return ()=>window.removeEventListener("nb-gen-done",onDone);
-  },[gen.genMeta&&gen.genMeta.version]);
-  const changedPropDependencies=(typeof propReferenceDependenciesChanged==="function")
-    ? propReferenceDependenciesChanged((gen.genMeta&&gen.genMeta.propDependencies)||[],window.turnContinuity||{}) : [];
-  const propReferencesStale=changedPropDependencies.length>0;
-
   // this location's set-dressing props — offered as one-click edit instructions in
   // the plate's Edit panel.
   const dressProps = (typeof locDressingProps==="function") ? locDressingProps(l) : [];
@@ -252,20 +296,25 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   const coverageSheets = (l.coverageSheets || []).slice().sort((a,b)=>(Number(a.order||0)-Number(b.order||0)) || String(a.name||"").localeCompare(String(b.name||"")));
   // Units arrive in first screenplay-appearance order from deriveSluglineUnits.
   // Preserve that order here; only move preserved, no-longer-scripted orphans last.
-  const units = (sluglineUnits||[]).filter(u=>u && u.locationKey===String(l.key||""))
+  const units = (sluglineUnits||[]).filter(u=>u && String(u.subspaceKey||u.locationKey||"")===String(l.key||""))
     .sort((a,b)=> (a.orphan?1:0)-(b.orphan?1:0));
+  const appearanceStates = (typeof locationAppearanceStates==="function")
+    ? locationAppearanceStates(l,units)
+    : (l.variants||[]);
 
-  // time-of-day / weather variants
+  // Screenplay-derived states are projections of the matching slugline unit. The
+  // two folds share one asset id and one appearance description; only genuinely
+  // extra, non-screenplay states remain independent variants on the location.
   const addVariant = ()=>{
-    const used = (l.variants||[]).map(v=>v.time);
+    const used = appearanceStates.map(v=>v.time);
     const suggest = (l.times||[]).find(t=>used.indexOf(t)<0) || "Night";
-    onUpdate(l.id,{ variants:[...(l.variants||[]), { id:"v"+Date.now().toString(36), time:suggest }] });
+    onUpdate(l.id,{ variants:[...(l.variants||[]), { id:"v"+Date.now().toString(36), time:suggest, state:"" }] });
   };
   const updateVariant = (vid,patch)=> onUpdate(l.id,{ variants:(l.variants||[]).map(v=>v.id===vid?{...v,...patch}:v) });
   const removeVariant = (vid)=> onUpdate(l.id,{ variants:(l.variants||[]).filter(v=>v.id!==vid) });
 
   return React.createElement("div",{className:"sheet-card"+(batchActiveId===l.id?" batch-on":""),"data-location-card":l.id},
-    React.createElement(SheetFrame,{ gen:genPlate, slotId:"locref-"+l.id, name:l.name, avatarColor:locSwatch(l.intExt),
+    React.createElement(SheetFrame,{ gen:genPlate, slotId:"locref-"+l.id, name:l.name, avatarColor:locSwatch(displaySide),
       initials, drafted, drafting, onDraft:()=>onDraft(l), entity:l, onView,
       slotPlaceholder:"Drop a photo of the place", noun:"location plate",
       // The empty plate is also the finished-image importer, so the separate
@@ -308,9 +357,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       React.createElement("div",{className:"sheet-head"},
         React.createElement("div",{style:{flex:1,minWidth:0}},
           React.createElement("div",{className:"sheet-name loc-name-row",title:l.name||""},
-            React.createElement("span",{className:"loc-intext-badge "+(/EXT/.test(l.intExt||"")?"ext":"int"),
-              title:(l.intExt||"INT")+" location"},
-              l.intExt||"INT"),
+            React.createElement("span",{className:"loc-intext-badge "+(/EXT/.test(displaySide)?"ext":"int"),
+              title:displaySideLabel+" screenplay coverage"},
+              displaySideLabel),
             // resolved WORLD SCALE badge — makes the Auto derivation legible per card
             // (hidden at plain human scale; tooltip says what set it)
             (typeof locationScaleClass==="function") && (()=>{
@@ -321,6 +370,17 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
                 title:M[1]+" (Class "+cls+") \u2014 derived automatically from the characters who drive this place's scenes. Plates here render at this scale."},
                 M[0]+" "+cls); })(),
             React.createElement(EditText,{value:l.name,placeholder:"Location name\u2026",onCommit:val=>onUpdate(l.id,{name:val})})),
+          React.createElement("div",{className:"loc-scope-line"},
+            l.parentLocation
+              ? React.createElement(React.Fragment,null,
+                  React.createElement("span",{className:"loc-scope-chip child"},"Child space"),
+                  React.createElement("span",null," within ",React.createElement("b",null,l.parentLocation.name)," \u00b7 inherits continuity"))
+              : React.createElement(React.Fragment,null,
+                  React.createElement("span",{className:"loc-scope-chip "+(l.scope==="compound"?"compound":"atomic")},l.scope==="compound"?"Compound place":"Self-contained place"),
+                  l.scope==="compound"&&React.createElement("span",null,(l.childLocations||[]).length+" filmable subspace"+((l.childLocations||[]).length===1?"":"s")))),
+          (l.childLocations||[]).length>0 && React.createElement("div",{className:"loc-child-row"},
+            React.createElement("span",{className:"loc-child-lab"},"Contains"),
+            l.childLocations.map(c=>React.createElement("span",{className:"loc-child-chip",key:c.id},c.name))),
           null),
         // one flex row (like Props' head actions) \u2014 otherwise .sheet-head's column
         // layout stacks each button on its own full-width line
@@ -330,14 +390,6 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
           window.QaCheckButton && React.createElement(window.QaCheckButton,{ gen, name:l.name, noun:"location plate",
             specFields:()=>({ architecture:(l.architecture||""), materials:(l.materials||""), lighting:(l.lighting||"") }),
             onApplySpec:(patch)=>onUpdate(l.id, patch) }))),
-
-      (promptStale||propReferencesStale) && React.createElement("div",{className:"prompt-drift-banner",role:"status"},
-        React.createElement(Icon.alert,{s:14}),
-        React.createElement("span",null,
-          React.createElement("b",null,"Reference out of date"),
-          propReferencesStale
-            ? (" · "+changedPropDependencies.map(r=>r.name||"A set-dressing prop").join(", ")+" changed after being used in this plate. The approved plate stays pinned until you intentionally update it.")
-            : " · The location spec changed after this plate was generated. Use Regenerate location plate above to update it.")),
 
       React.createElement("div",{className:"char-style-row"},
         React.createElement("span",{className:"char-style-lab"},"Render style"),
@@ -359,53 +411,73 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
           items: locScenes.map(s=>({ key:s.id, label:String(s.no).padStart(2,"0"), className:"prop-scene-chip",
             title:s.title||("Scene "+s.no), onClick:()=>onChipClick&&onChipClick(s.id) })) })),
 
-      !drafted && !gen.genUrl && React.createElement("div",{className:"sheet-undrafted"},
-        React.createElement(Icon.alert,{s:13}),
-        React.createElement("span",null,"Specification not drafted yet \u2014 click ",
-          React.createElement("b",null,"Draft specification")," to design the space's architecture & light.")),
-
       React.createElement(CardFold,{label:"The space",defaultOpen:(!drafted && !!l.manual)},
+        l.parentLocation && React.createElement("div",{className:"loc-inheritance-note"},
+          React.createElement(Icon.layers,{s:12}),
+          React.createElement("span",null,"Inherited from ",React.createElement("b",null,l.parentLocation.name),": shared architecture, material language, scale, topology and locked anchors. Store only what is specific to ",l.name||"this child"," below.")),
         React.createElement("div",{className:"sheet-field"},
-          React.createElement("div",{className:"obj-lab"},"INT / EXT"),
+          React.createElement("div",{className:"obj-lab"},"Screenplay sides"),
           React.createElement("select",{className:"prop-select",value:l.intExt||"INT",
             onChange:e=>onUpdate(l.id,{intExt:e.target.value})},
-            ["INT","EXT","INT/EXT"].map(o=>React.createElement("option",{key:o,value:o},o)))),
-        React.createElement(SheetField,{label:"Architecture & layout",value:l.architecture,multiline:true,
-          placeholder:"The space's layout, scale, structure and defining built features\u2026",onCommit:val=>onUpdate(l.id,{architecture:val})}),
-        React.createElement(SheetField,{label:"Materials & palette",value:l.materials,multiline:true,
-          placeholder:"Surfaces, colours, textures, wear, set dressing\u2026",onCommit:val=>onUpdate(l.id,{materials:val})}),
-        React.createElement(SheetField,{label:"Lighting & atmosphere",value:l.lighting,multiline:true,
-          placeholder:"Light sources, quality, colour, mood \u2014 and how it shifts by time of day\u2026",onCommit:val=>onUpdate(l.id,{lighting:val})})),
+            [["INT","INT"],["EXT","EXT"],["INT/EXT","INT+EXT"]].map(o=>React.createElement("option",{key:o[0],value:o[0]},o[1])))),
+        React.createElement(LocationIdentityField,{l,field:"architecture",label:"Architecture & layout",value:l.architecture,
+          placeholder:"The space's layout, scale, structure and defining built features\u2026",onUpdate}),
+        React.createElement(LocationIdentityField,{l,field:"materials",label:"Materials & palette",value:l.materials,
+          placeholder:"Permanent surfaces, colours, textures and wear\u2026",onUpdate}),
+        React.createElement(LocationIdentityField,{l,field:"lighting",label:"Permanent lighting & daylight interfaces",value:l.lighting,
+          placeholder:"Fixtures, windows and orientation only \u2014 on/off state, weather and mood belong to an appearance state\u2026",onUpdate}),
+        React.createElement(LocationIdentityField,{l,field:"permanentDressing",label:"Permanent / baseline dressing",value:l.permanentDressing||"",
+          placeholder:"Furniture and fixtures that remain part of the place\u2026",onUpdate}),
+        React.createElement(LocationIdentityField,{l,field:"topology",label:"Spatial topology",value:l.topology||"",
+          placeholder:"Living Room \u2194 Kitchen: cased archway; Kitchen \u2192 Rear Yard: window over sink\u2026",onUpdate}),
+        React.createElement("div",{className:"loc-anchor-field"},
+          React.createElement("div",{className:"loc-anchor-head"},
+            React.createElement("span",{className:"loc-field-label"},
+              React.createElement("span",null,"Continuity anchors"),
+              React.createElement(LocationProvenanceSelect,{l,field:"continuityAnchors",label:"Continuity anchors",onUpdate})),
+            React.createElement("button",{className:"loc-anchor-lock"+(l.anchorsLocked===false?"":" locked"),
+              title:l.anchorsLocked===false?"Make these anchors binding for generation":"Binding: these facts cannot drift across representations",
+              onClick:()=>onUpdate(l.id,{anchorsLocked:l.anchorsLocked===false})},l.anchorsLocked===false?"\ud83d\udd13 Editable":"\ud83d\udd12 Binding")),
+          React.createElement(EditText,{value:l.continuityAnchors||"",multiline:true,
+            placeholder:"Low ceiling; cased kitchen archway; three-pane front door; sink-window geometry\u2026",
+            onCommit:val=>onUpdate(l.id,{continuityAnchors:val})}))),
 
-      React.createElement(CardFold,{label:"Significance",defaultOpen:false},
-        React.createElement(SheetField,{label:"What this place means in the story",value:l.significance,multiline:true,
+      React.createElement(CardFold,{label:"Story significance",defaultOpen:false},
+        React.createElement(SheetField,{label:"Narrative function \u2014 interpretive guidance",value:l.significance,multiline:true,
           placeholder:"Its dramatic role \u2014 what happens here, what it represents\u2026",onCommit:val=>onUpdate(l.id,{significance:val})})),
 
-      React.createElement(CardFold,{label:"Staging \u2014 Depth Grid",defaultOpen:false,
-        count: locStaged ? null : (stagingPrep ? "staging\u2026" : "not staged \u2014 drafts itself on first render")},
-        React.createElement(StagingGrid,{l,onUpdate,onDraftStaging,draftingStage})),
-
-      React.createElement(CardFold,{label:"Slugline units",defaultOpen:units.length>0},
+      React.createElement(CardFold,{label:"Screenplay sluglines",defaultOpen:units.length>0},
         React.createElement("div",{className:"loc-variants"},
           units.length
             ? units.map(u=>React.createElement(SluglineUnitCard,{key:u.key, l, u, project, scenes, drafts,
                 parentGenUrl:gen.genUrl, onUpdateUnit, onRemoveUnit, onView}))
-            : React.createElement("div",{className:"loc-variants-empty"},"No slugline units derive for this place from the current screenplay."))),
+            : React.createElement("div",{className:"loc-variants-empty"},"No screenplay sluglines currently address this place or one of its subspaces."))),
 
-      React.createElement(CardFold,{label:"Screenplay coverage sheets",defaultOpen:coverageSheets.length>0},
+      React.createElement(CardFold,{label:"Appearance states",defaultOpen:false},
+        React.createElement("div",{className:"loc-variants"},
+          appearanceStates.length
+            ? appearanceStates.map(v=>React.createElement(LocationVariant,{
+                key:v.unitKey||v.id, l, v, project, scenes, drafts, units,
+                parentGenUrl:gen.genUrl,
+                onTime:v.linkedUnit ? null : (t)=>updateVariant(v.id,{time:t}),
+                onState:v.linkedUnit
+                  ? (state)=>onUpdateUnit && onUpdateUnit(v.linkedUnit.key,{appearance:state})
+                  : (state)=>updateVariant(v.id,{state}),
+                onRemove:v.linkedUnit ? null : ()=>removeVariant(v.id),
+                onView}))
+            : React.createElement("div",{className:"loc-variants-empty"},"No appearance states yet \u2014 add a time, weather, dressing, damage or story-progress state."),
+          React.createElement("button",{className:"art-draftall ghost loc-variant-add",onClick:addVariant},
+            React.createElement(Icon.plus,{s:13}),"Add state"))),
+
+      !l.parentLocation && React.createElement(CardFold,{label:"Coverage views",defaultOpen:coverageSheets.length>0},
         React.createElement("div",{className:"loc-variants"},
           coverageSheets.length
             ? coverageSheets.map((v,i)=>React.createElement(LocationCoverageSheet,{key:v.id, l, v, project, scenes, drafts, previousSheets:coverageSheets.slice(0,i), parentGenUrl:gen.genUrl, onView}))
-            : React.createElement("div",{className:"loc-variants-empty"},"No separate INT / EXT sheet is needed from the current screenplay text."))),
+            : React.createElement("div",{className:"loc-variants-empty"},"No additional visual coverage view is required by the current screenplay."))),
 
-      React.createElement(CardFold,{label:"Time-of-day variants",defaultOpen:false},
-        React.createElement("div",{className:"loc-variants"},
-          (l.variants||[]).length
-            ? (l.variants||[]).map(v=>React.createElement(LocationVariant,{key:v.id, l, v, project,
-                onTime:(t)=>updateVariant(v.id,{time:t}), onRemove:()=>removeVariant(v.id), onView}))
-            : React.createElement("div",{className:"loc-variants-empty"},"No variants yet \u2014 add a Night / Day / weather version of this plate."),
-          React.createElement("button",{className:"art-draftall ghost loc-variant-add",onClick:addVariant},
-            React.createElement(Icon.plus,{s:13}),"Add variant"))),
+      React.createElement(CardFold,{label:"Staging & composition",defaultOpen:false,
+        count: locStaged ? null : (stagingPrep ? "staging\u2026" : "not staged \u2014 drafts itself on first render")},
+        React.createElement(StagingGrid,{l,onUpdate,onDraftStaging,draftingStage})),
 
       React.createElement(CardFold,{label:"Look dev",defaultOpen:false},
         scenePresets.length ? React.createElement("div",{className:"loc-style-note"},
@@ -416,13 +488,10 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         React.createElement(SheetField,{label:"Render style \u2014 edit freely",value:l.renderStyle||d.renderStyle,multiline:true,
           placeholder:"photoreal architectural cinematography, wide lens, natural light\u2026",onCommit:val=>onUpdate(l.id,{renderStyle:val})})),
 
-      React.createElement(CardFold,{label:"Final prompt",defaultOpen:false},
+      React.createElement(CardFold,{label:"Compiled prompt",defaultOpen:false},
         React.createElement(CopyBox,{label:(gen.genUrl && gen.genMeta && gen.genMeta.prompt)
-            ? "Final prompt \u2014 generated the CURRENT plate" : "Final prompt \u2014 sent to the image model",
+            ? "Compiled prompt \u2014 generated the CURRENT plate" : "Compiled prompt \u2014 sent to the image model",
           text:(gen.genUrl && gen.genMeta && gen.genMeta.prompt) || finalPrompt}),
-        promptStale &&
-          React.createElement("div",{className:"prompt-drift-note"},
-            "The spec has changed since this plate was generated \u2014 Regenerate to bring it back in step."),
         React.createElement(SheetField,{label:"Negative prompt \u2014 exclude",value:l.negativePrompt||d.negativePrompt,multiline:true,
           onCommit:val=>onUpdate(l.id,{negativePrompt:val})}))));
 }
@@ -442,7 +511,7 @@ function StageCell({ label, sub, role, value, placeholder, onCommit, accent, wid
 function StagingGrid({ l, onUpdate, onDraftStaging, draftingStage }){
   const s = (typeof stagingOf==="function") ? stagingOf(l) : (l.staging||{bg:{},mid:{},fg:{}});
   const set = (patch)=>{
-    const next = { scaleClass:s.scaleClass, lens:s.lens, floor:s.floor,
+    const next = { viewLabel:s.viewLabel, scaleClass:s.scaleClass, lens:s.lens, floor:s.floor,
       bg:{...s.bg}, mid:{...s.mid}, fg:{...s.fg} };
     // patch is a path like {plane:'bg',col:'left',val:'...'} or {key:'scaleClass',val}
     if(patch.key){ next[patch.key] = patch.val; }
@@ -453,17 +522,20 @@ function StagingGrid({ l, onUpdate, onDraftStaging, draftingStage }){
     React.createElement("div",{className:"stage-toolbar"},
       React.createElement("div",{className:"stage-meta-fields"},
         React.createElement("label",{className:"stage-meta-field"},
+          React.createElement("span",{className:"stage-meta-lab"},"Coverage view / representation"),
+          React.createElement(EditText,{value:s.viewLabel||"",placeholder:(l.name||"Location")+" principal view\u2026",onCommit:val=>set({key:"viewLabel",val})})),
+        React.createElement("label",{className:"stage-meta-field"},
           React.createElement("span",{className:"stage-meta-lab"},"Scale class"),
           React.createElement(EditText,{value:s.scaleClass||"",placeholder:"Human scale / Gigantism\u2026",onCommit:val=>set({key:"scaleClass",val})})),
         React.createElement("label",{className:"stage-meta-field"},
           React.createElement("span",{className:"stage-meta-lab"},"Camera / lens"),
           React.createElement(EditText,{value:s.lens||"",placeholder:"35mm wide / 100mm macro\u2026",onCommit:val=>set({key:"lens",val})}))),
       onDraftStaging && React.createElement("button",{className:"art-draftall",disabled:draftingStage,onClick:()=>onDraftStaging(l),
-        title:"Let AI stage this location's depth grid from the script"},
+        title:"Let AI draft the selected view's staging and composition from the script"},
         React.createElement(Icon.sparkles,{s:13}), draftingStage?"Staging\u2026":"Draft staging")),
     React.createElement("div",{className:"stage-legend"},
       React.createElement(Icon.layers?Icon.layers:Icon.eye,{s:12}),
-      React.createElement("span",null,"Top-down view of the frame \u2014 rows are depth (background \u2192 foreground), columns are screen position (left \u2192 right). Leave a cell blank for open space.")),
+      React.createElement("span",null,"Top-down composition for this selected coverage view only \u2014 rows are depth (background \u2192 foreground), columns are screen position (left \u2192 right). Leave a cell blank for open space.")),
     React.createElement("div",{className:"stage-grid"},
       // BACKGROUND row (farthest from camera)
       React.createElement(StageCell,{label:"Background left",sub:"L3",value:s.bg.left,onCommit:val=>set({plane:"bg",col:"left",val})}),
@@ -494,16 +566,6 @@ function StagingGrid({ l, onUpdate, onDraftStaging, draftingStage }){
 /* screenplay-derived INT/EXT side plates. These are not time/weather variants:
    they are extra empty-set anchors for subspaces the screenplay actually films
    inside a broader scene location (e.g. EXT yard + INT booth). */
-function LocationDerivedStaleBanner({ noun, upstream }){
-  return React.createElement("div",{className:"prompt-drift-banner loc-derived-stale",role:"status"},
-    React.createElement(Icon.alert,{s:14}),
-    React.createElement("span",null,
-      React.createElement("b",null,"Reference out of date"),
-      upstream
-        ? " · The parent location plate or an earlier coverage sheet changed after this image was generated. Regenerate this "+noun+" to update it."
-        : " · The parent location plate changed after this image was generated. Regenerate this "+noun+" to update it."));
-}
-
 function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, parentGenUrl, onView }){
   const id = l.id+"-"+v.id;
   const previousIds=(previousSheets||[]).filter(Boolean).map(p=>l.id+"-"+p.id);
@@ -598,8 +660,6 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
       : locationAssetDependencySnapshot(l.id,previousIds,"screenplay-coverage"),
     buildEdit: (instr)=> "Edit this "+(v.role||"INT")+" coverage sheet for "+(v.name||l.name||"the location")+". Apply ONLY: "+instr+". Keep it consistent with the parent location's architecture, materials and light.",
   });
-  const dependencyChanges=gen.genUrl && typeof locationAssetDependencyChanges==="function"
-    ? locationAssetDependencyChanges(gen.genMeta,l.id,previousIds) : [];
   const viewerEntity = {
     ...l,
     id,
@@ -612,8 +672,6 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
         React.createElement("b",null,v.name||"Coverage sheet")),
       React.createElement("span",{className:"loc-coverage-source",title:v.summary||""},sourceLabel)),
     v.summary && React.createElement("div",{className:"loc-variants-empty loc-coverage-summary"},v.summary),
-    dependencyChanges.length>0 && React.createElement(LocationDerivedStaleBanner,{noun:"screenplay coverage sheet",
-      upstream:dependencyChanges.some(x=>x.kind==="upstream")}),
     React.createElement(SheetFrame,{ gen, slotId:"loccov-"+id, name:(v.name||l.name||"Location")+" \u00b7 "+(v.role||"INT"),
       avatarColor:locSwatch(v.role), initials:(v.role||"?").slice(0,2).toUpperCase(), drafted:true, drafting:false,
       entity:viewerEntity, onView, slotPlaceholder:"Drop a finished side plate", noun:"coverage sheet", compact:true,
@@ -669,37 +727,116 @@ function CoverageReferenceStrip({ refs, excludedIds, onToggle, onView }){
       })));
 }
 
-/* one time-of-day variant: its own image slot + a small establishing-frame generator */
-function LocationVariant({ l, v, project, onTime, onRemove, onView }){
-  const id = l.id+"-"+v.id;
+async function buildSluglineUnitReferences(l,u,imgId,pseudo,scenes,drafts,parentGenUrl){
+  const out = [];
+  const C = window.turnContinuity || {};
+  const scriptImgs = (typeof locationScreenplayReferenceImages==="function")
+    ? locationScreenplayReferenceImages(l, pseudo, scenes||C.scenes||[], drafts||C.drafts||{})
+    : [];
+  scriptImgs.forEach((scriptImg, i)=> out.push({ url:scriptImg, kind:"script", refId:"script-"+imgId+"-"+i, required:false, ready:true,
+    label:"Screenplay p"+(i+1), note:"screenplay page "+(i+1)+" for "+(u.name||"this unit")+" \u2014 use it to infer what the script implies, but do not render any text from it" }));
+  const grab = async (rid)=>{ let u2=(typeof nbGetImage==="function")?nbGetImage(rid):"";
+    if(!u2 && typeof nbLoadImage==="function"){ try{ u2=await nbLoadImage(rid); }catch(e){} } return u2||""; };
+  const parent = parentGenUrl || await grab(l.id);
+  out.push({ url:parent, kind:"location", refId:l.id, required:true, ready:!!parent,
+    label:(l.name||"Parent location"), note:(l.name||"parent location")+" child/master plate \u2014 preserve this exact subspace geometry, materials and continuity anchors" });
+  if(l.parentLocation && l.parentLocation.id){
+    const rootUrl=await grab(l.parentLocation.id);
+    if(rootUrl) out.push({url:rootUrl,kind:"location",refId:l.parentLocation.id,required:false,ready:true,
+      label:l.parentLocation.name||"Continuity root",
+      note:(l.parentLocation.name||"continuity root")+" reference \u2014 inherit its approved place identity, topology and locked anchors"});
+  }
+  return out;
+}
+
+/* One appearance-state projection. When linked to a screenplay slugline, both
+   surfaces use the slugline unit's exact asset id and generation prompt. */
+function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, onTime, onState, onRemove, onView }){
+  const unit = v.linkedUnit || ((typeof locationVariantSluglineUnit==="function")
+    ? locationVariantSluglineUnit(l,v,units||[]) : null);
+  const stateUnit = unit ? {...unit,appearance:v.state||unit.appearance||""} : null;
+  const id = (typeof locationAppearanceStateAssetId==="function")
+    ? locationAppearanceStateAssetId(l,v,units||[]) : l.id+"-"+v.id;
+  const slotId = "locstate-"+String(id).replace(/[^a-z0-9-]+/gi,"-");
+  const pseudo = stateUnit ? { id, name:stateUnit.name, role:stateUnit.intExt,
+    sceneNos:stateUnit.sceneNos||[], scriptExcerpt:String(stateUnit.scriptText||"").slice(0,720),
+    summary:"Appearance state: "+(stateUnit.sluglines||[]).join(" \u00b7 ") } : null;
+  const [refPreview,setRefPreview]=React.useState([]);
+  const [refOff,setRefOff]=React.useState([]);
+  const refsKey=[l.id,id,stateUnit&&stateUnit.scriptText,parentGenUrl,l.parentLocation&&l.parentLocation.id,(scenes&&scenes.length)].join("|");
+  const buildRefs=async()=> stateUnit
+    ? buildSluglineUnitReferences(l,stateUnit,id,pseudo,scenes,drafts,parentGenUrl)
+    : [];
+  React.useEffect(()=>{
+    let alive=true,seq=0;
+    const refresh=()=>{const my=++seq;buildRefs().then(refs=>{if(alive&&my===seq)setRefPreview(refs);});};
+    refresh();
+    const onDone=(e)=>{const rid=e&&e.detail&&e.detail.id;
+      if(rid===l.id||rid===id||(l.parentLocation&&rid===l.parentLocation.id))refresh();};
+    window.addEventListener("nb-gen-done",onDone);
+    return()=>{alive=false;window.removeEventListener("nb-gen-done",onDone);};
+  },[refsKey]);
+  const missingRequired=refPreview.filter(r=>r.required&&!r.ready);
+  const canGenerate=!stateUnit||(!stateUnit.orphan&&refPreview.length>0&&!missingRequired.length);
+  const toggleRef=(rid)=>setRefOff(off=>{
+    const r=refPreview.find(x=>x.refId===rid);
+    if(r&&r.required)return off;
+    return off.indexOf(rid)>=0?off.filter(x=>x!==rid):[...off,rid];
+  });
+  const collectRefs=async()=> (await buildRefs())
+    .filter(r=>r.ready&&r.url&&(r.required||refOff.indexOf(r.refId)<0))
+    .map(r=>({url:r.url,kind:r.kind==="script"?"script":"location",refId:r.refId,note:r.note}));
   const gen = useImageGen({
-    id, slotId: "locvar-"+l.id+"-"+v.id,
-    entity: l,
-    buildFinal: ()=> buildLocationVariantPrompt(l, project, { time:v.time }),
+    id, slotId,
+    entity: stateUnit ? {...l,appearanceState:stateUnit} : l,
+    buildFinal: ()=> stateUnit && typeof buildSluglineUnitPrompt==="function"
+      ? buildSluglineUnitPrompt(l,stateUnit,project)
+      : buildLocationVariantPrompt(l, project, { time:v.time, state:v.state }),
     buildSimple: ()=> buildSimpleLocationPrompt(l),
+    beforeGenerate: stateUnit ? async()=>{
+      const refs=await buildRefs();
+      const ok=!refs.some(r=>r.required&&!r.ready);
+      if(!ok&&typeof window.appToast==="function")
+        window.appToast("Generate the parent location plate first \u2014 this state needs it as a reference.");
+      return ok;
+    } : undefined,
+    attachments: stateUnit ? collectRefs : undefined,
+    attachmentsText: (refs)=> stateUnit&&refs&&refs.length
+      ? "REFERENCE IMAGES are attached in this order: "+refs.map((r,i)=>"Image "+(i+1)+" = "+r.note).join("; ")+". Read screenplay snapshots as context only; never copy their text, typography, borders or layout."
+      : "",
     metaExtra:({mode})=> mode==="edit"
       ? { locationDependencyKind:gen.genMeta&&gen.genMeta.locationDependencyKind,
           locationParentId:gen.genMeta&&gen.genMeta.locationParentId,
           locationParentIso:gen.genMeta&&gen.genMeta.locationParentIso,
           locationUpstream:gen.genMeta&&gen.genMeta.locationUpstream }
-      : locationAssetDependencySnapshot(l.id,[],"time-of-day-variant"),
+      : locationAssetDependencySnapshot(l.id,[],stateUnit?"slugline-unit":"continuity-state"),
     buildEdit: (instr)=> "Edit this establishing frame of "+(l.name||"the place")+" ("+v.time+"). Apply ONLY: "+instr+". Keep the same space and architecture.",
   });
-  const dependencyChanges=gen.genUrl && typeof locationAssetDependencyChanges==="function"
-    ? locationAssetDependencyChanges(gen.genMeta,l.id,[]) : [];
   const viewerEntity = {
     ...l,
     id,
-    name:(l.name||"Location")+" · "+(v.time||"Variant")
+    name:(stateUnit&&stateUnit.name||l.name||"Location")+" · "+(v.time||"Variant")
   };
   return React.createElement("div",{className:"loc-variant"},
     React.createElement("div",{className:"loc-variant-head"},
-      React.createElement(EditText,{value:v.time,placeholder:"Night / Day / Rain\u2026",onCommit:onTime}),
-      React.createElement("button",{className:"loc-variant-x",title:"Remove variant",onClick:onRemove},React.createElement(Icon.x,{s:12}))),
-    dependencyChanges.length>0 && React.createElement(LocationDerivedStaleBanner,{noun:"time-of-day variant"}),
-    React.createElement(SheetFrame,{ gen, slotId:"locvar-"+l.id+"-"+v.id, name:(l.name||"")+" \u00b7 "+v.time,
-      avatarColor:locSwatch(l.intExt), initials:(v.time||"?").slice(0,2).toUpperCase(), drafted:true, drafting:false,
-      entity:viewerEntity, onView, slotPlaceholder:"Drop a photo", noun:"variant", compact:true }));
+      stateUnit
+        ? React.createElement("div",{className:"loc-coverage-title"},
+            React.createElement("span",{className:"loc-intext-badge "+(/EXT/.test(stateUnit.intExt||"")?"ext":"int")},stateUnit.intExt||"INT"),
+            React.createElement("b",null,stateUnit.name||l.name||"Location"),
+            stateUnit.time&&React.createElement("span",{className:"loc-time-badge"},stateUnit.time))
+        : React.createElement(EditText,{value:v.time,placeholder:"Night / Day / Rain\u2026",onCommit:onTime}),
+      onRemove&&React.createElement("button",{className:"loc-variant-x",title:"Remove variant",onClick:onRemove},React.createElement(Icon.x,{s:12}))),
+    React.createElement(SheetField,{label:"Appearance state",value:v.state||"",multiline:true,
+      placeholder:"Weather, practicals on/off, temporary dressing, damage or story-progress change\u2026",onCommit:onState}),
+    stateUnit&&React.createElement("div",{className:"loc-shared-state-note"},"Shared with Screenplay Sluglines \u00b7 one plate, one version history"),
+    React.createElement(SheetFrame,{ gen, slotId, name:(stateUnit&&stateUnit.name||l.name||"")+" \u00b7 "+v.time,
+      avatarColor:locSwatch(stateUnit&&stateUnit.intExt||l.intExt), initials:(v.time||"?").slice(0,2).toUpperCase(), drafted:true, drafting:false,
+      entity:viewerEntity, onView, slotPlaceholder:"Drop a photo", noun:stateUnit?"state plate":"variant", compact:true,
+      dropToImport:true,
+      referenceControls:stateUnit&&React.createElement(CoverageReferenceStrip,{refs:refPreview,excludedIds:refOff,onToggle:toggleRef,onView}),
+      generateDisabled:!canGenerate,
+      generateDisabledLabel:"Generate parent plate first",
+      generateDisabledTitle:"This state needs the parent location plate as a visual reference before it can generate." }));
 }
 
 /* SLUGLINE UNIT card — the atomic filmable unit of this master location
@@ -726,7 +863,8 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onUpdat
     summary:"Slugline unit: "+(u.sluglines||[]).join(" \u00b7 ") };
   const [refPreview, setRefPreview] = React.useState([]);
   const [refOff, setRefOff] = React.useState([]);
-  const refsKey = [l.id, imgId, u.scriptText, parentGenUrl, (scenes&&scenes.length)].join("|");
+  const refsKey = [l.id, imgId, u.scriptText, parentGenUrl,
+    l.parentLocation&&l.parentLocation.id, (scenes&&scenes.length)].join("|");
   const buildUnitRefs = async ()=>{
     const out = [];
     const C = window.turnContinuity || {};
@@ -739,7 +877,13 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onUpdat
       if(!u2 && typeof nbLoadImage==="function"){ try{ u2=await nbLoadImage(rid); }catch(e){} } return u2||""; };
     const parent = parentGenUrl || await grab(l.id);
     out.push({ url:parent, kind:"location", refId:l.id, required:true, ready:!!parent,
-      label:(l.name||"Parent location"), note:(l.name||"parent location")+" master plate \u2014 preserve the same world, materials, scale and light" });
+      label:(l.name||"Parent location"), note:(l.name||"parent location")+" child/master plate \u2014 preserve this exact subspace geometry, materials and scale" });
+    if(l.parentLocation){
+      const rootUrl=await grab(l.parentLocation.id);
+      if(rootUrl) out.push({url:rootUrl,kind:"location",refId:l.parentLocation.id,required:false,ready:true,
+        label:l.parentLocation.name||"Continuity root",
+        note:(l.parentLocation.name||"continuity root")+" reference \u2014 inherit its approved place identity, topology and locked anchors"});
+    }
     return out;
   };
   React.useEffect(()=>{
@@ -749,7 +893,7 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onUpdat
       buildUnitRefs().then(refs=>{ if(alive && my===seq) setRefPreview(refs); }); };
     refresh();
     const onDone = (e)=>{ const rid = e && e.detail && e.detail.id;
-      if(rid===l.id || rid===imgId) refresh(); };
+      if(rid===l.id || rid===imgId || (l.parentLocation&&rid===l.parentLocation.id)) refresh(); };
     window.addEventListener("nb-gen-done", onDone);
     return ()=>{ alive=false; window.removeEventListener("nb-gen-done", onDone); };
   },[refsKey]);
@@ -790,8 +934,6 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onUpdat
       : locationAssetDependencySnapshot(l.id,[],"slugline-unit"),
     buildEdit: (instr)=> "Edit this "+role+" coverage plate for "+(u.name||l.name||"the location")+(u.time?(" at "+u.time):"")+". Apply ONLY: "+instr+". Keep it consistent with the parent location's architecture, materials and light.",
   });
-  const dependencyChanges=gen.genUrl && typeof locationAssetDependencyChanges==="function"
-    ? locationAssetDependencyChanges(gen.genMeta,l.id,[]) : [];
   const viewerEntity = {
     ...l,
     id:imgId,
@@ -810,7 +952,6 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onUpdat
       onRemoveUnit && React.createElement("button",{className:"loc-unit-remove",
         title:"Delete this unit's stored data and generated plate",
         onClick:async ()=>{ if(typeof nbClearAsset==="function"){ try{ await nbClearAsset(imgId); }catch(e){} } onRemoveUnit(u.key); }},"Remove")),
-    dependencyChanges.length>0 && React.createElement(LocationDerivedStaleBanner,{noun:"slugline-unit plate"}),
     React.createElement(SheetField,{label:"Appearance state",value:u.appearance||"",multiline:true,
       // per-unit prompt built from THIS unit's own slugline facts (name, TOD, scenes) —
       // a static example ("dawn and raining") read as if every location should be dawn
@@ -834,7 +975,8 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onUpdat
         : "This unit needs the parent location plate as a visual reference before it can generate." }));
 }
 
-/* per-unit SET DRESSING — the user's curated list (overlay `dressing`) plus
+/* per-unit STATE DRESSING — temporary/scene-specific items, kept separate from
+   the location card's permanent baseline dressing. The user's curated list plus
    deterministic suggestions pulled from the unit's own action prose (skeleton
    `dressingDerived`). Click a suggestion to accept it into the list; the curated
    list is what the generation prompt binds. Orphans render read-only. */
@@ -853,7 +995,7 @@ function UnitDressing({ u, onUpdateUnit }){
     if(!v || lower[v.toLowerCase()]) return;
     commit(list.concat([v])); };
   return React.createElement("div",{className:"loc-dress"},
-    React.createElement("div",{className:"loc-dress-lab"},"Set dressing"),
+    React.createElement("div",{className:"loc-dress-lab"},"State dressing"),
     React.createElement("div",{className:"loc-dress-row"},
       list.map((x,i)=>React.createElement("span",{className:"loc-dress-chip",key:"d"+i},x,
         editable && React.createElement("button",{title:"Remove",onClick:()=>commit(list.slice(0,i).concat(list.slice(i+1)))},"\u00d7"))),
@@ -862,7 +1004,7 @@ function UnitDressing({ u, onUpdateUnit }){
           onChange:(e)=>setDraft(e.target.value),
           onBlur:()=>add(draft),
           onKeyDown:(e)=>{ if(e.key==="Enter"){ e.preventDefault(); add(draft); } }}),
-        React.createElement("button",{className:"loc-dress-sugg",title:"Add to set dressing",onClick:()=>add(draft)},"+"))),
+        React.createElement("button",{className:"loc-dress-sugg",title:"Add temporary state dressing",onClick:()=>add(draft)},"+"))),
     sugg.length>0 && React.createElement("div",{className:"loc-dress-row sugg"},
       React.createElement("span",{className:"loc-dress-sugg-lab"},"from the script:"),
       sugg.map((x,i)=>React.createElement("button",{className:"loc-dress-sugg",key:"s"+i,
@@ -878,7 +1020,23 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
   const searchRef = React.useRef(null);
   const batch = useBatchGen();
   const batchActiveId = batch.activeId;
-  const list = locations || [];
+  const rawLocations = locations || [];
+  const locationFold = (typeof deriveSubspaceFold==="function") ? deriveSubspaceFold(scenes||[],drafts||{}) : {};
+  const masterKeyOf = (loc)=> String((loc&&loc.key)||((typeof locSlug==="function")
+    ? locSlug(loc&&loc.name).split("-").slice(0,4).join("-") : "")||"");
+  /* Every atomic child remains a full workspace. Grouping establishes an explicit
+     inheritance edge; it never hides or deletes the child's plate/staging/history. */
+  const list = rawLocations.filter(Boolean).map(l=>{
+    const key=masterKeyOf(l);
+    const parentKey=String(l.parentKey||locationFold[key]||"");
+    const parent=parentKey?rawLocations.find(x=>x&&masterKeyOf(x)===parentKey):null;
+    const children=rawLocations.filter(c=>c&&c!==l&&String(c.parentKey||locationFold[masterKeyOf(c)]||"")===key);
+    const scope=parentKey?"atomic":(children.length?"compound":(l.scope||"atomic"));
+    return {...l,key,parentKey,scope,
+      continuityRootKey:parentKey||key,
+      parentLocation:parent?{id:parent.id,key:masterKeyOf(parent),name:parent.name}:null,
+      childLocations:children.map(c=>({id:c.id,key:masterKeyOf(c),name:c.name,intExt:c.intExt}))};
+  });
   // STYLE · ALL LOCATIONS — apply one render style to every location at once (mirrors the
   // cast's 'Style · all cast'); each location can still be overridden on its own card.
   const [allStyling, setAllStyling] = React.useState(null);   // null | {i,total} (surprise progress)
@@ -944,30 +1102,30 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
       siblings:view.siblings,startIndex:view.startIndex,onClose:()=>setView(null)}),
     React.createElement(NbKeyBar,null),
     React.createElement(NbControls,null),
+    window.LookbookStaleNotice && React.createElement(window.LookbookStaleNotice,{stale:lookbookStale,onApply:onApplyLookbook,onDraftOnly:onApplyLookbookDraftOnly,label:"these locations",dept:"locations"}),
     React.createElement("div",{className:"art-intro"},
       React.createElement("div",{className:"art-intro-row"},
         React.createElement("div",{style:{flex:1}},
           React.createElement("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Location Scout",
             React.createElement(window.InfoTip,{label:"About Locations",
-              text:"Every place the film stages gets a multi-angle coverage plate so any shot set there matches its geometry, materials and light. Scene headings and secondary headings anchor the master location cards; the screenplay body can imply additional INT / EXT sides, rooms, booths, thresholds or views, and those become screenplay coverage sheets using full-scene page snapshots as image references.\n\nLOCATIONS DERIVE FROM THE SCREENPLAY \u2014 there's no arbitrary hand-adding here: write the place or implied space into the Writers' Room scene, and 'Design all locations' pulls the staged geography into the Art Room."}))),
+              text:"TURN separates continuity roots, child spaces and appearance states. A self-contained place such as Kitchen can stand alone. When the screenplay establishes Kitchen within Father's House, Father's House becomes the compound continuity root and Kitchen remains a full child workspace whose identity inherits the root's binding Continuity Anchors and Spatial Topology. Scene-specific time, active lights, weather and temporary dressing live in Screenplay Sluglines or Appearance States, not canonical place identity. Coverage Views are required visual plates, not automatic locations; Staging & Composition describes one selected view.\n\nLOCATIONS DERIVE FROM THE SCREENPLAY \u2014 stage the place or subspace in the Writers' Room scene, and 'Design all locations' pulls that geography into the Art Room."}))),
         React.createElement("div",{className:"art-intro-actions"},
           window.RecentlyDeleted && React.createElement(window.RecentlyDeleted,{
             items:trashItems,kind:"location",onRestore,onPurge,compact:true}),
-          // NO arbitrary hand-adding: master cards anchor to screenplay headings, while
-          // implied side spaces (booths, rooms, interiors seen through glass, etc.) are
-          // derived as coverage sheets from screenplay body text + page snapshots.
+          // NO arbitrary hand-adding: continuity places anchor master cards, room
+          // headings become slugline units, and implied side spaces derive as coverage
+          // sheets from screenplay body text + page snapshots.
           React.createElement("label",{className:"char-style-all",
             title:"Read only. Each location's plate scale is derived automatically from the characters who drive its scenes."},
             React.createElement("span",{className:"char-style-all-lab"},"World scale"),
             React.createElement("select",{className:"char-style-select",value:"",disabled:true,"aria-label":"World scale (read only)"},
               React.createElement("option",{value:""},"\u2728 Auto (by occupant)"))),
           React.createElement("button",{className:"art-draftall ghost",disabled:draftingAll||(!list.length&&!scriptHasLocs),onClick:onDraftAll,
-            title:"Build every location from the screenplay in one pass \u2014 pull missing master places from scene headings, derive implied INT/EXT coverage from scene text, draft each spec, and stage its depth grid"},
+            title:"Build every location from the screenplay in one pass \u2014 pull missing master places, derive screenplay sluglines and coverage views, draft each spec, and prepare Staging & Composition"},
             React.createElement(Icon.sparkles,{s:14}), draftingAll?"Designing\u2026":"Design all locations"),
           React.createElement("button",{className:"art-draftall",disabled:!!batchActiveId||!eligibleAll,onClick:startAllBatch,
             title:"Generate (or regenerate) the coverage plate for every drafted location \u2014 you choose whether to redo ones that already have a plate"},
             React.createElement(Icon.sparkles,{s:14}), batchActiveId?"Generating\u2026":"Generate all locations", typeof window.nbCostChip==="function" && window.nbCostChip(1)))),),
-    window.LookbookStaleNotice && React.createElement(window.LookbookStaleNotice,{stale:lookbookStale,onApply:onApplyLookbook,onDraftOnly:onApplyLookbookDraftOnly,label:"these locations",dept:"locations"}),
     BatchBar && React.createElement(BatchBar,{batch,noun:"location"}),
     list.length>0 && React.createElement("div",{className:"prop-toolbar"},
       React.createElement("div",{className:"prop-searchbar collapsible"+((searchOpen||q)?" open":""),
@@ -1045,8 +1203,8 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
           React.createElement("div",{className:"art-soon-ic"},React.createElement(Icon.layers,{s:30})),
           React.createElement("div",{className:"art-soon-t"},"No locations yet"),
           React.createElement("div",{className:"art-soon-d"}, scriptHasLocs
-            ? "Your screenplay names the main staged places in scene headings, and may imply extra rooms, interiors, exteriors or thresholds in the scene body. \u201cDesign all locations\u201d builds the master plates and screenplay coverage sheets from that text."
-            : "Write the scene's staged place in the Writers' Room first. Extra implied spaces can live in the scene action; the Locations tab reads the full screenplay page when it creates coverage sheets."),
+            ? "Your screenplay names continuity-bearing places and filmable subspaces. \u201cDesign all locations\u201d builds compound roots and inherited child workspaces, then derives slugline states and any required coverage views."
+            : "Write the scene's staged place in the Writers' Room first. Room-level sluglines can group under an evidenced parent place; extra implied spaces can live in the scene action."),
           scriptHasLocs
             ? React.createElement("div",{style:{display:"flex",gap:8,marginTop:16}},
                 React.createElement("button",{className:"art-draftall",disabled:draftingAll,onClick:onDraftAll},

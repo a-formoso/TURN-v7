@@ -1319,6 +1319,28 @@ function nbReportCancelFailure(result){
     window.appToast("Cancellation could not be confirmed. The image may still be saved; check its Details before retrying. "+((result&&result.error)||""),"error");
 }
 
+/* Text provenance is independent of image provenance. A specification may be
+   written by Fable/Gemini/etc., compiled into a render prompt by TURN, and then
+   rendered by an entirely different image model. Keep each source as a durable
+   creation-time record in the image version's metadata. */
+function nbWritingSourcesFor(entity){
+  if(!entity || typeof entity!=="object") return [];
+  const candidates = [
+    entity.writingProvenance,
+    entity.staging && entity.staging.writingProvenance,
+    entity.appearanceState && entity.appearanceState.writingProvenance,
+  ];
+  const out=[], seen=new Set();
+  candidates.forEach(p=>{
+    if(!p || !p.model) return;
+    const row={ task:String(p.task||"Specification"), model:String(p.model), modelId:String(p.modelId||""), at:Number(p.at)||undefined };
+    const key=[row.task,row.modelId||row.model,row.at||0].join("|");
+    if(seen.has(key)) return; seen.add(key); out.push(row);
+  });
+  return out;
+}
+window.nbWritingSourcesFor = nbWritingSourcesFor;
+
 async function nbRunSheetGeneration(env, gopts){
   const { id, slotId, opts, allModels, genUrl, genMeta, slotHasRef, ui } = env;
   const { setGenErr, setGening, setRetrying, setGenUrl, setGenTier, setGenMeta } = ui;
@@ -1589,7 +1611,15 @@ async function nbRunSheetGeneration(env, gopts){
       }catch(e){
         if(_cancelledNow()) throw { __cancelled:true };
         const emsg = (e && e.message) || "";
-        const isPolicy = /content polic|violat|safety system|safety filter|moderation|flagged|not allowed|rejected by/i.test(emsg);
+        /* Use the same narrow content-filter classifier as the proxy error layer.
+           A proxy/model-availability response such as `Image model "…" is not
+           allowed on the fal proxy` contains the words "not allowed", but it is
+           an infrastructure/configuration error — not a safety refusal.  The old
+           broad regex silently spent a second request on Nano Banana and then
+           showed the misleading policy-fallback toast seen by the director. */
+        const isPolicy = typeof window.turnIsContentBlock==="function"
+          ? window.turnIsContentBlock(emsg)
+          : /rejected by the safety system|safety system|content polic|content_policy|moderation_blocked|flagged as potentially violating|image generation.*not allowed|violat(?:es|ing).*(?:policy|guidelines)/i.test(emsg);
         if(!useSimple && !isEditMode && /no image/i.test(emsg) && opts.buildSimple){
           setRetrying(true);
           url = await nbGenerate(opts.buildSimple(), genOpts);
@@ -1622,6 +1652,7 @@ async function nbRunSheetGeneration(env, gopts){
       const sourceEntity = opts.entity || null;
       const renderStyleKey = (sourceEntity && sourceEntity.renderStyleKey) || "";
       const renderStyleLabel = (sourceEntity && typeof renderStyleLabelForEntity==="function") ? renderStyleLabelForEntity(sourceEntity) : "";
+      const writingSources = nbWritingSourcesFor(sourceEntity);
       const meta = {
         modelLabel: mEntry.label || "Nano Banana",
         modelId: actualModel,
@@ -1651,7 +1682,11 @@ async function nbRunSheetGeneration(env, gopts){
         // render but were deliberately NOT stored with the project (cloud mode privacy)
         privateRefs: privateRefs || undefined,
         prompt: genPrompt,
-         specPrompt: opts.buildFinal ? opts.buildFinal() : genPrompt,
+        specPrompt: opts.buildFinal ? opts.buildFinal() : genPrompt,
+        writingSources,
+        // The final render prompt is assembled deterministically from the stored
+        // specification and current controls; it is not a second hidden AI draft.
+        promptCompiler:"TURN prompt compiler",
         mode: mode,
         editInstruction: isEditMode ? (gopts.editInstruction||"") : "",
         version: priorCount + 1
@@ -2205,6 +2240,13 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
     }
     return [date,time].filter(Boolean).join(" · ");
   })();
+  const writingSources = Array.isArray(meta.writingSources)
+    ? meta.writingSources.filter(p=>p&&p.model) : [];
+  const writingDate = (at)=>{
+    if(!at) return "";
+    const d=new Date(Number(at));
+    return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
+  };
   const refs = (data && data.refs) || [];
   const history = (data && data.history) || [];
   /* Reference-image resolution tied to the ANCHORED version (selected or current).
@@ -2310,6 +2352,20 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
                 ? ("Visual lock"+(r.version?(" · v"+r.version):""))
                 : (r.excluded?"Text-only · excluded":"Text-only"))))))
     : null;
+  const writingRows = writingSources.map((p,i)=>React.createElement("div",{
+    key:[p.task,p.modelId,p.at,i].join("-"),className:"dt-continuity-row",
+    title:[p.modelId,writingDate(p.at)].filter(Boolean).join(" · ")
+  },
+    React.createElement("span",{className:"dt-continuity-name"},p.task||"Specification"),
+    React.createElement("span",{className:"dt-continuity-mode dt-writing-model"},p.model)));
+  if(meta.promptCompiler) writingRows.push(React.createElement("div",{key:"prompt-compiler",className:"dt-continuity-row"},
+    React.createElement("span",{className:"dt-continuity-name"},"Render prompt"),
+    React.createElement("span",{className:"dt-continuity-mode dt-writing-model"},meta.promptCompiler)));
+  const writingSection = writingRows.length
+    ? React.createElement("div",{className:"dt-section"},
+        React.createElement("div",{className:"dt-sec-lab"},"Writing & prompt provenance"),
+        React.createElement("div",{className:"dt-continuity-list"},writingRows))
+    : null;
 
   return React.createElement("div",{className:"lb-overlay dt-overlay",onMouseDown:(e)=>{ if(e.target===e.currentTarget) onClose(); }},
     React.createElement("div",{className:"dt-panel"},
@@ -2370,6 +2426,7 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
             camField("Shutter", cam.shutter),
             camField("ISO / grain", cam.iso),
             cam.promptClause && React.createElement("div",{className:"dt-camera-note"},cam.promptClause))),
+        writingSection,
         wornReferenceSection,
         /* prompt */
         meta.prompt && React.createElement("div",{className:"dt-section",ref:promptRef},
@@ -3156,6 +3213,18 @@ function sheetReviewReasons(meta, currentSpec, references){
   return Array.from(new Set(reasons));
 }
 window.sheetReviewReasons=sheetReviewReasons;
+/* Screenplay-page images are transient prompt context rendered from the current
+   script. Their synthetic ids are not Art Room asset ids, so looking them up in
+   image storage will always report them missing even while their thumbnails are
+   present on the card. Only durable generated/imported assets participate in the
+   cross-version reference review. */
+function sheetReviewableReference(ref){
+  if(!ref||!ref.refId)return false;
+  const kind=String(ref.kind||"").toLowerCase();
+  const refId=String(ref.refId||"");
+  return kind!=="script"&&!/^script(?:-main)?-/.test(refId);
+}
+window.sheetReviewableReference=sheetReviewableReference;
 function sheetReviewKey(spec, references, reasons){
   const value=JSON.stringify([spec||"",references||[],reasons||[]]);
   let hash=2166136261;
@@ -3163,58 +3232,9 @@ function sheetReviewKey(spec, references, reasons){
   return (hash>>>0).toString(16);
 }
 window.sheetReviewKey=sheetReviewKey;
-function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, drafting, onDraft, entity, onView, slotPlaceholder, noun, onDelete, deleteLabel, specGate, extraMeta, menuExtra, dropToImport, hideUploadButton, onStop, generateDisabled, generateDisabledLabel, generateDisabledTitle, referenceControls, editPropRefs, editSuggestions, reviewReasons }){
+function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, drafting, onDraft, entity, onView, slotPlaceholder, noun, onDelete, deleteLabel, specGate, extraMeta, menuExtra, dropToImport, hideUploadButton, onStop, generateDisabled, generateDisabledLabel, generateDisabledTitle, referenceControls, editPropRefs, editSuggestions }){
   const { genUrl, genMeta, genTier, gening, genErr, retrying, slotHasRef,
     editMode, setEditMode, editText, setEditText, generate, cancelGen, clearGen, importSheet, relatedClearCount, revertPrevious, layers, allModels } = gen;
-  const canReview = ArtReviewContext && React.useContext(ArtReviewContext);
-  const [approvalBusy,setApprovalBusy]=React.useState(false);
-  const [approvalError,setApprovalError]=React.useState("");
-  const [referenceReview,setReferenceReview]=React.useState([]);
-  const [reviewLoading,setReviewLoading]=React.useState(!!genUrl);
-  const [reviewFailed,setReviewFailed]=React.useState(false);
-  const [reviewTick,setReviewTick]=React.useState(0);
-  React.useEffect(()=>{
-    const update=()=>setReviewTick(x=>x+1);
-    window.addEventListener("nb-gen-done",update);
-    return ()=>window.removeEventListener("nb-gen-done",update);
-  },[]);
-  React.useEffect(()=>{
-    let live=true;
-    const epoch=typeof nbEpoch==="function"?nbEpoch():null;
-    if(!genUrl||!gen.loadDetails){setReferenceReview([]);setReviewLoading(false);return;}
-    setReviewLoading(true);setReviewFailed(false);
-    (async()=>{
-      try{
-        const d=await gen.loadDetails(), refs=(d&&d.refs)||[];
-        const entries=await Promise.all(refs.filter(r=>r.refId&&r.refId!==gen.id).map(async r=>{
-          const current=typeof nbLoadDetailsAsset==="function"?await nbLoadDetailsAsset(r.refId):null;
-          return {label:r.label,usedIso:r.refGenerated,currentIso:current&&current.meta&&current.meta.iso,
-            usedVersion:r.refVersion,currentVersion:current&&current.meta&&current.meta.version,missing:!current||!current.url};
-        }));
-        if(live&&(typeof nbEpoch!=="function"||epoch===nbEpoch()))setReferenceReview(entries);
-      }catch(e){if(live){setReferenceReview([]);setReviewFailed(true);}}
-      finally{if(live)setReviewLoading(false);}
-    })();
-    return ()=>{live=false;};
-  },[gen.id,genMeta&&genMeta.iso,reviewTick]);
-  let currentSpec=""; try{ currentSpec=gen.buildFinal?gen.buildFinal():""; }catch(e){}
-  const needsReview=Array.from(new Set([...(reviewReasons||[]),...sheetReviewReasons(genMeta,currentSpec,referenceReview)]));
-  const reviewKey=sheetReviewKey(currentSpec,referenceReview,reviewReasons);
-  const approved=typeof window.nbAssetApproval==="function"&&window.nbAssetApproval(genMeta);
-  const reviewed=approved&&genMeta.approval.reviewKey===reviewKey;
-  const flagged=reviewFailed||(!reviewed&&(needsReview.length>0||approved));
-  const setApproval=async()=>{
-    if(!canReview||approvalBusy||gening||reviewLoading||reviewFailed||!gen.setApproval)return;
-    if(!reviewed&&needsReview.length){
-      const question={title:"Approve this version after review?",body:needsReview.join("\n"),
-        note:"This approves the existing image against the current specification and references. It does not regenerate or change the artwork.",confirmLabel:"Approve version"};
-      const yes=typeof window.appConfirm==="function"?await window.appConfirm(question):window.confirm(question.body+"\n\nApprove the existing image?");
-      if(!yes)return;
-    }
-    setApprovalBusy(true);setApprovalError("");
-    try{await gen.setApproval(!reviewed,reviewKey);}catch(e){setApprovalError((e&&e.message)||"Approval could not be saved.");}
-    finally{setApprovalBusy(false);}
-  };
   // Resolution ALWAYS shows on the caption. Prefer the stored size; if it's missing
   // (legacy meta, or any path that didn't record it) measure the actual image's pixels
   // so a real resolution still appears — for generations AND uploads alike.
@@ -3315,20 +3335,6 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
   const specBlocked = !!(specGate && !specGate.ready && !genUrl && !slotHasRef);
 
   return React.createElement("div",{className:"sheet-frame"},
-    (genUrl||gening||gen.pendingSave) && React.createElement("div",{className:"sheet-status-bar"},
-      React.createElement("span",{className:"sheet-status-label",role:"status"},
-        gen.saving?"Saving…":gening?"Generating…":gen.pendingSave?"Not saved":
-          (reviewLoading?"Checking references…":flagged?"Needs review":reviewed?"Approved":"Saved · Unapproved"),
-        !gening&&genMeta&&genMeta.version?(" · v"+genMeta.version):""),
-      genUrl&&canReview&&gen.setApproval&&React.createElement("button",{className:"sheet-approval-btn",
-        disabled:gening||approvalBusy||reviewLoading||reviewFailed||!!gen.pendingSave||!(genMeta&&genMeta.iso),
-        title:needsReview.length?"Review changed specifications or references before approving this image":"Approval applies only to this image version",
-        onClick:setApproval},approvalBusy?"Saving…":reviewed?"Remove approval":flagged?"Review & approve":"Approve version")),
-    reviewFailed&&React.createElement("button",{className:"sheet-approval-btn",onClick:()=>setReviewTick(x=>x+1)},"Retry reference check"),
-    needsReview.length>0 && React.createElement("details",{className:"sheet-review-details"},
-      React.createElement("summary",null,needsReview.length+" change"+(needsReview.length===1?"":"s")+" to review"),
-      React.createElement("ul",null,needsReview.map((r,i)=>React.createElement("li",{key:i},r)))),
-    approvalError && React.createElement("div",{className:"sheet-gen-err",role:"alert"},approvalError),
     React.createElement("div",{className:"sheet-media",style:{position:"relative"}},
     genUrl
       ? React.createElement("div",{className:"sheet-genwrap"},
@@ -3544,9 +3550,6 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
     !genUrl && importSheet && !dropToImport && !hideUploadButton && noun!=="location plate" && React.createElement("button",{className:"sheet-upload-btn",onClick:pickUpload,disabled:gening,
       title:"Generated this elsewhere (e.g. GPT Image 2 in ChatGPT)? Upload it at full resolution — it becomes this "+noun+", with zoom, the … menu and clear, just like a generated one."},
       React.createElement(Icon.image,{s:12}),"Upload a finished "+noun),
-    specBlocked && React.createElement("div",{className:"sheet-gen-gate"},
-      React.createElement(Icon.alert,{s:12}),
-      React.createElement("span",null,(specGate&&specGate.hint)||"Draft the design spec first — it's what the plate is built from.")),
     gen.pendingSave&&React.createElement("div",{className:"sheet-retry-save",role:"status"},
       React.createElement("span",null,"Unsaved image kept in this tab. Retry save makes no generation request."),
       (gen.pendingSave.error||genErr)&&React.createElement("span",{role:"alert"},gen.pendingSave.error||genErr),
@@ -3908,7 +3911,7 @@ function StateRow({ c, st, index, project, scenes, props, baseGenUrl, onView, on
 
   const gen = useImageGen({
     id: stateId, slotId: "charref-"+stateId,
-    entity: c,
+    entity: { ...c, appearanceState:st },
     cameoId: c.id,
     buildFinal: buildFinal,
     buildFromBase: baseGenUrl ? buildFromBase : null,
@@ -4285,10 +4288,6 @@ function CharacterSheet({ c, project, scenes, props, drafts, speaks, onUpdate, o
     buildEdit: (instr)=> "Edit this height/scale chart. Apply ONLY this change: "+instr+". Keep the figure, the vertical ruler and its markings otherwise identical.",
   });
   const scaleGenWrapped = Object.assign({}, scaleSheetGen, { generate:(o)=>scaleSheetGen.generate({ aspectRatio:"9:16", ...(o||{}) }) });
-  const storedSpecPrompt = gen.genMeta && (gen.genMeta.specPrompt || gen.genMeta.prompt) || "";
-  const promptStale = !!(gen.genUrl && storedSpecPrompt
-    && storedSpecPrompt!==finalPrompt && !storedSpecPrompt.startsWith(finalPrompt+" "));
-
   // batch generation: when this card is the active queue member, fire one generate
   // and report back when it settles (mirrors the Props/Locations cards).
   // REMOUNT-SAFE: a card can remount WHILE it is the active member and its generation
@@ -4312,39 +4311,8 @@ function CharacterSheet({ c, project, scenes, props, drafts, speaks, onUpdate, o
     wasGening.current = gen.gening;
   },[batchActiveId, gen.gening, c.id]);
 
-  // WORN-PROP STALENESS — the sheet meta recorded wornPropsSig at generation; if a worn
-  // card's form/material/detail/relation changed since, the baked accessories on this
-  // sheet are out of date (the canon desynced): say so and offer a re-bake regenerate.
-  // NOTE: must live BELOW `const gen = useImageGen(...)` — a deps-array read of
-  // gen.genUrl before that const initializes is a TDZ crash on every card render.
-  const [wornSync, setWornSync] = React.useState({stale:false,reasons:[],total:wornProps.length,visual:0});
-  React.useEffect(()=>{
-    let live = true;
-    if(!gen.genUrl || typeof nbLoadDetailsAsset!=="function"){
-      setWornSync({stale:false,reasons:[],total:wornProps.length,visual:0}); return;
-    }
-    (async ()=>{
-      try{
-        const d = await nbLoadDetailsAsset(c.id);
-        const meta = d && d.meta || {};
-        const current = await loadWornReferenceSnapshot(c,wornProps);
-        let reasons = compareWornReferenceSnapshots(meta.wornReferences||[],current);
-        if(meta.wornSig && meta.wornSig!==wornPropsSig(wornProps,c.id)) reasons.push("The worn-item specification changed");
-        /* Legacy sheets pre-date dependency snapshots. Any ready, included sheet is a
-           newly available visual lock and should prompt one clean master update. */
-        if(!Array.isArray(meta.wornReferences) && current.some(r=>r.mode==="visual"))
-          reasons = current.filter(r=>r.mode==="visual").map(r=>r.name+" is ready to lock");
-        reasons = Array.from(new Set(reasons));
-        if(live) setWornSync({stale:reasons.length>0,reasons,total:current.length,
-          visual:current.filter(r=>r.mode==="visual").length});
-      }catch(e){ if(live) setWornSync({stale:false,reasons:[],total:wornProps.length,visual:0}); }
-    })();
-    return ()=>{ live=false; };
-  },[c.id, gen.genUrl, gen.genMeta&&gen.genMeta.version, sheetTick, wornExclusionKey, wornPropsSig(wornProps, c.id)]);
-
   return React.createElement("div",{className:"sheet-card"+(batchActiveId===c.id?" batch-on":""),"data-char-card":c.id},
     React.createElement(SheetFrame,{ gen, slotId:"charref-"+c.id, name:c.name, avatarColor:c.color,
-      reviewReasons:[...(promptStale?["Character specification changed"]:[]),...wornSync.reasons],
       initials, drafted, drafting, onDraft:()=>onDraft(c), entity:c, onView,
       slotPlaceholder:"Drop reference art", noun:"sheet",
       // The empty slot is also the finished-image importer (full resolution, like the Locations
@@ -4357,26 +4325,6 @@ function CharacterSheet({ c, project, scenes, props, drafts, speaks, onUpdate, o
         refreshKey:[c.id,wornProps.map(p=>p.id).join(","),wornExclusionKey,sheetTick].join("|") }),
       onDelete:onDelete?(()=>onDelete(c.id)):null, deleteLabel:"Delete character" }),
     React.createElement("div",{className:"sheet-body"},
-      (drafting && !drafted) && React.createElement("div",{className:"char-drafting-strip"},
-        React.createElement("span",{className:"ns-spin"}),"Drafting from script\u2026"),
-      prepProps && React.createElement("div",{className:"char-drafting-strip"},
-        React.createElement("span",{className:"ns-spin"}),
-        "Generating prop sheet "+(prepProps.done+1)+"/"+prepProps.total+"\u2026 "+(prepProps.name||"")),
-      c.wornPropBootstrap && c.wornPropBootstrap.status==="running" && React.createElement("div",{className:"char-drafting-strip"},
-        React.createElement("span",{className:"ns-spin"}),
-        "Building worn prop references in background \u00b7 "+(c.wornPropBootstrap.done||0)+"/"+(c.wornPropBootstrap.total||0)),
-      c.wornPropBootstrap && c.wornPropBootstrap.status==="attention" && (()=>{
-        // the banner IS the shortcut: tapping it opens + scrolls to Props & accessories
-        // (via the CardFold nb-open-fold listener) instead of just naming the section.
-        const jump = ()=>window.dispatchEvent(new CustomEvent("nb-open-fold",{detail:"props-"+c.id}));
-        const n = (c.wornPropBootstrap.failedNames||[]).length;
-        return React.createElement("div",{
-          className:"char-drafting-strip warn tappable",role:"button",tabIndex:0,
-          title:(c.wornPropBootstrap.failedNames||[]).join(", ")+" \u2014 tap to open Props & accessories",
-          onClick:jump,
-          onKeyDown:(e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); jump(); } }},
-          React.createElement(Icon.alert,{s:12}),
-          n+" worn prop reference"+(n===1?" needs":"s need")+" attention \u00b7 tap to open Props & accessories"); })(),
       React.createElement("div",{className:"sheet-head"},
         React.createElement("div",{className:"sheet-head-top"},
           React.createElement("div",{className:"sheet-name",title:c.name||""},c.name),
@@ -4396,18 +4344,6 @@ function CharacterSheet({ c, project, scenes, props, drafts, speaks, onUpdate, o
                 if(patch.wardrobe!=null){ if((c.wardrobeMask||"").trim()) up.wardrobeMask=patch.wardrobe; else up.wardrobe=patch.wardrobe; }
                 if(patch.accessories!=null) up.accessories=patch.accessories;
                 onUpdate(c.id, up); } })))),
-      (promptStale || wornSync.stale) && React.createElement("div",{className:"prompt-drift-banner continuity-update-banner",role:"status"},
-        React.createElement(Icon.alert,{s:14}),
-        React.createElement("span",{className:"prompt-drift-copy"},
-          React.createElement("b",null,"Reference out of date"),
-          " · "+(wornSync.reasons[0] || "The character specification changed")+".",
-          wornSync.reasons.length>1 && React.createElement("details",{className:"sheet-review-details"},
-            React.createElement("summary",null,"Show all "+wornSync.reasons.length+" changes"),
-            React.createElement("ul",null,wornSync.reasons.map((r,i)=>React.createElement("li",{key:i},r))))),
-        React.createElement("button",{className:"continuity-update-action",disabled:gen.gening,
-          title:"Preserve the current identity and update this master with the latest selected worn references",
-          onClick:()=>gen.generate({deriveFromCurrent:true})},
-          gen.gening?"Updating…":"Update image from references")),
       cameoMeta && React.createElement("div",{className:"sheet-cameo-status"},
         React.createElement(Icon.userScan,{s:13}),
         React.createElement("span",{className:"scs-t"},"Likeness locked"),
@@ -4420,10 +4356,6 @@ function CharacterSheet({ c, project, scenes, props, drafts, speaks, onUpdate, o
           title:"Regenerate the design sheet locked to this face"}, gen.gening?"Applying\u2026":"Apply to sheet"),
         React.createElement("button",{className:"scs-act",onClick:()=>setCameoOpen(true)},"Recapture"),
         React.createElement("button",{className:"scs-act danger",onClick:removeCameo},"Remove")),
-
-      !drafted && !gen.genUrl && React.createElement("div",{className:"sheet-undrafted"},
-        React.createElement(Icon.alert,{s:13}),
-        React.createElement("span",null,"Visuals not drafted yet \u2014 Generate sheet will draft the physical identity first.")),
 
       // render-style picker — the visual language the sheet is drawn in (always visible)
       React.createElement("div",{className:"char-style-row"},
@@ -4725,10 +4657,7 @@ function CharacterSheet({ c, project, scenes, props, drafts, speaks, onUpdate, o
         // (stored per version, so restoring an older version restores its prompt
         // here too); before any sheet exists it previews the next generation.
         React.createElement(CopyBox,{label:"Reference-Guided Hybrid Character Sheet (Text + Images)",
-          text:(gen.genUrl && gen.genMeta && gen.genMeta.prompt) || finalPrompt}),
-        promptStale &&
-          React.createElement("div",{className:"prompt-drift-note"},
-            "The spec has changed since this sheet was generated \u2014 Regenerate to bring the sheet back in step with it.")),
+          text:(gen.genUrl && gen.genMeta && gen.genMeta.prompt) || finalPrompt})),
 
       cameoOpen && React.createElement(CameoModal,{ character:c,
         onClose:()=>setCameoOpen(false),
@@ -4969,13 +4898,15 @@ function NbDock(){
   const model  = (typeof nbGetModel==="function") ? nbGetModel() : "";
   const aspect = (typeof nbGetAspect==="function") ? nbGetAspect() : "16:9";
   const resv   = (typeof nbGetRes==="function") ? nbGetRes() : "2K";
-  const short  = /pro/i.test(model) ? "PRO" : /gpt/i.test(model) ? "GPT" : "NB2";
+  const short  = model==="gpt-image-2.5-flare" ? "GPT F"
+    : model==="gpt-image-2.5-sunburst" ? "GPT S"
+    : /pro/i.test(model) ? "PRO" : /gpt/i.test(model) ? "GPT" : "NB2";
   // NOTE: the TEXT (writing) engine is shown by the separate WritingDock (rendered in
   // both rooms) — this dock is the IMAGE engine only, so the two aren't redundant.
   return React.createElement("div",{className:"nb-dock"+(open?" open":""),ref:ref,"aria-label":"Image engine settings"},
-    React.createElement("span",{className:"nb-dock-label"},"Images"),
     React.createElement("button",{className:"nb-dock-toggle","aria-expanded":open?"true":"false",
       title:"Image engine — model, aspect & resolution",onClick:()=>setOpen(o=>!o)},
+      React.createElement("span",{className:"nb-dock-label"},"Images"),
       React.createElement("span",{className:"nb-dock-chip model"},short),
       React.createElement("span",{className:"nb-dock-chip"},aspect),
       React.createElement("span",{className:"nb-dock-chip"},resv)),
@@ -5187,7 +5118,7 @@ function ImageLightbox({ url, character, onClose, siblings, startIndex }){
               :React.createElement(React.Fragment,null,React.createElement(Icon.download,{s:14}),"Download "+res)))));
 }
 
-function CharacterSheets({ project, characters, scenes, props, drafts, shots, beatsMap, onUpdate, onDraft, onDraftAll, draftingId, draftingAll, draftingIds, onSuggestStates, suggestingStatesId, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, onAdd, onDelete, onCast, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly }){
+function CharacterSheets({ project, characters, scenes, props, drafts, shots, beatsMap, onUpdate, onDraft, onDraftAll, draftingId, draftingAll, draftingIds, onSuggestStates, suggestingStatesId, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, onDelete, onCast, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly }){
   const [view, setView] = React.useState(null);   // {url, character}
   if(window.useRenderStyleVersion) window.useRenderStyleVersion();   // re-render dropdowns when a style is locked/unlocked
   // which characters actually speak (have dialogue) — used to flag the per-card Voice control
@@ -5253,8 +5184,8 @@ function CharacterSheets({ project, characters, scenes, props, drafts, shots, be
   const draftedIds = (subset)=> subset.filter(c=>charVisualsDrafted(c)).map(c=>c.id);
   // eligible = drafted characters only (so a card with no look/wardrobe never makes a generic sheet)
   const eligibleAll = list.filter(c=>charVisualsDrafted(c)).length;
-  // some cast still has no spec (e.g. a hand-added character, or auto-draft didn't
-  // finish) — only THEN do we surface the manual "Draft" button; otherwise it's
+  // some cast still has no spec (e.g. an auto-draft didn't finish) — only THEN
+  // do we surface the manual "Draft" button; otherwise it's
   // noise. The cast is auto-drafted once on first Art Room entry.
   const someUndrafted = eligibleAll < list.length;
   // STAGED HEADER (design-clarity ruling 2026-07-14): exactly ONE primary action
@@ -5314,6 +5245,7 @@ function CharacterSheets({ project, characters, scenes, props, drafts, shots, be
     mgrOpen && React.createElement(CameoManager,{nameOf,onClose:()=>setMgrOpen(false),onChanged:refreshCount}),
     React.createElement(NbKeyBar,null),
     React.createElement(NbControls,null),
+    window.LookbookStaleNotice && React.createElement(window.LookbookStaleNotice,{stale:lookbookStale,onApply:onApplyLookbook,onDraftOnly:onApplyLookbookDraftOnly,label:"these characters",dept:"characters"}),
     React.createElement("div",{className:"art-intro"},
       React.createElement("div",{className:"art-intro-row"},
         React.createElement("div",{style:{flex:1}},
@@ -5321,16 +5253,15 @@ function CharacterSheets({ project, characters, scenes, props, drafts, shots, be
             ((typeof roomCopy==="function" && roomCopy(project,"characters").title) || "Casting Director"),
             React.createElement(window.InfoTip,{label:"About Character Sheets",
               text:((typeof roomCopy==="function" && roomCopy(project,"characters").tip) ||
-                "A canonical visual reference for every character \u2014 the consistency anchor you feed into each shot so they look identical in every frame. 'Design the cast' runs the Casting Director agent: on its own it drafts each character's look, finds their appearance changes (wounds, dirt, costume shifts), then generates the master sheet (pulling in their prop sheets + any cameo) and every appearance-state variant. 'Draft all' + 'Generate all characters' stay as the manual paths.\n\nTHE CAST DERIVES FROM THE STORY \u2014 there's no hand-adding here: add a character in the Writers' Room (Cast +), write them into scenes, and they appear here ready to design.")}))),
+                "A canonical visual reference for every character \u2014 the consistency anchor you feed into each shot so they look identical in every frame. 'Design the cast' runs the Casting Director agent: on its own it drafts each character's look, finds their appearance changes (wounds, dirt, costume shifts), then generates the master sheet (pulling in their prop sheets + any cameo) and every appearance-state variant. 'Draft all' + 'Generate all characters' stay as the manual paths.\n\nTHE CAST DERIVES FROM THE STORY \u2014 characters enter through story creation and screenplay development, then appear here ready to design. Neither room offers manual character creation.")}))),
         React.createElement("div",{className:"art-intro-actions"},
           window.RecentlyDeleted && React.createElement(window.RecentlyDeleted,{
             items:trashItems,kind:"character",onRestore,onPurge,compact:true}),
           cameoCount>0 && React.createElement("button",{className:"art-cameo-mgr",onClick:()=>setMgrOpen(true),
             title:"Review & manage locked likenesses"},
             React.createElement(Icon.userScan,{s:14}),"Cameos \u00b7 "+cameoCount),
-          // NO hand-adding here (product rule 2026-07-13): the cast derives from the
-          // STORY — new characters are added in the Writers' Room (Cast rail +) and
-          // written into scenes; the Art Room designs what the story establishes.
+          // NO hand-adding: the cast derives from story creation and screenplay
+          // development; the Art Room designs only what the story establishes.
           // ONE primary per stage: "Design the cast" leads while specs are missing,
           // "Generate all" leads once everything is drafted; the rest are ghosts.
           onCast && React.createElement("button",{className:"art-draftall ghost",disabled:!characters.length,onClick:onCast,
@@ -5375,7 +5306,6 @@ function CharacterSheets({ project, characters, scenes, props, drafts, shots, be
           title:"Generate the reference sheets for the characters in this scene — you choose whether to redo ones that already have a sheet"},
           React.createElement(Icon.sparkles,{s:14}),
           batchActiveId?"Generating…":("Generate all in Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")), typeof window.nbCostChip==="function" && window.nbCostChip(1)))),
-    window.LookbookStaleNotice && React.createElement(window.LookbookStaleNotice,{stale:lookbookStale,onApply:onApplyLookbook,onDraftOnly:onApplyLookbookDraftOnly,label:"these characters",dept:"characters"}),
     BatchBar && React.createElement(BatchBar,{batch,noun:"character"}),
     React.createElement("div",{className:"sheet-grid"},
       charPager.slice(shown).map(c=>React.createElement(CharacterSheet,{key:c.id,c,project,scenes,props,drafts,speaks:speakingSet.has(c.id),onUpdate,onDraft,
@@ -5546,12 +5476,12 @@ function ArtComingSoon({ tab }){
 }
 
 function ArtRoom({ artView, setArtView, project, characters, scenes, props, drafts, trash, onRestoreChar, onPurgeChar, onRestoreProp, onPurgeProp, onRestoreLoc, onPurgeLoc, onRestoreShot, onPurgeShot, onEnsureOwner, onUpdateChar, onDraftVisuals, onDraftAllVisuals, draftingVisualId, draftingAllVisuals, draftingVisualIds, onCreateOwnedProp,
-  onSuggestStates, suggestingStatesId, onRemoveOwnedItem, onRenameOwnedItem, onAddCharacter, onDeleteCharacter,
+  onSuggestStates, suggestingStatesId, onRemoveOwnedItem, onRenameOwnedItem, onDeleteCharacter,
   onUpdateProp, onDraftProp, onDraftAllProps, onAddProp, onDeleteProp, draftingPropIds, draftingPropId, draftingAllProps, onMergeProps, onSeedFromCast, castHasProps, onTagScenes, taggingScenes, onTagOne, taggingSceneId,
   locations, onUpdateLocation, onDraftLocation, onDraftAllLocs, onAddLocation, onDeleteLocation, draftingLocIds, draftingAllLocs, onPullFromScript, scriptHasLocs, onScout, onAssignStyles, assigningStyles, onSetStyleRefs, onSetScenePreset, onAddStyleRefImages, onRemoveStyleRefImage, onDraftStaging, draftingStageId, sluglineUnits, onUpdateUnit, onRemoveUnit,
   shots, beatsMap, onUpdateShot, onAddShot, onDeleteShot, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onDirectScene, onColorist, onShoot, onCast, onPropsMaster,
   lookbook, lookbookNote, onUpdateLookbook, onAddLookbook, onDeleteLookbook, onSetLookbookNote, onResearch, onClearLookbook,
-  staleTabs, onApplyLookbook, onSourceClick, canReview=false, onReviewLookbook }){
+  staleTabs, onApplyLookbook, onSourceClick, canReview=false, onReviewLookbook, readOnly=false }){
   const _stale = staleTabs || {};
   const PropSheets = window.PropSheets;
   const LocationSheets = window.LocationSheets;
@@ -5567,7 +5497,16 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
     if(artView==="lookbook") return (lookbook||[]).map(c=>c&&c.id).filter(Boolean);
     if(artView==="characters") return (characters||[]).flatMap(c=> (c&&c.id) ? [c.id, ...(c.states||[]).map(s=>c.id+":"+s.id)] : []);
     if(artView==="props") return (props||[]).map(p=>p&&p.id).filter(Boolean);
-    if(artView==="locations") return (locations||[]).flatMap(l=> (l&&l.id) ? [l.id, ...(l.variants||[]).map(v=>l.id+"-"+v.id), ...(l.coverageSheets||[]).map(v=>l.id+"-"+v.id)] : []);
+    if(artView==="locations") return [
+      ...(locations||[]).flatMap(l=> (l&&l.id) ? [
+        l.id,
+        ...(l.variants||[]).map(v=> typeof locationAppearanceStateAssetId==="function"
+          ? locationAppearanceStateAssetId(l,v,sluglineUnits||[]) : l.id+"-"+v.id),
+        ...(l.coverageSheets||[]).map(v=>l.id+"-"+v.id)
+      ] : []),
+      ...((typeof sluglineUnitImageId==="function")
+        ? (sluglineUnits||[]).filter(u=>u&&!u.orphan).map(u=>sluglineUnitImageId(u.key)) : [])
+    ];
     if(artView==="shots") return (shots||[]).map(s=>s&&s.id).filter(Boolean);
     return [];
   };
@@ -5578,7 +5517,16 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
     if(typeof nbPrefetchAll==="function") nbPrefetchAll().then(()=>nbPreloadFor(ids)); else nbPreloadFor(ids);
   },[artView, projId, (characters||[]).length, (props||[]).length, (locations||[]).length, (shots||[]).length, (lookbook||[]).length]);
 
-  return React.createElement(ArtReviewContext.Provider,{value:!!canReview},React.createElement("div",{className:"artroom"},
+  return React.createElement(ArtReviewContext.Provider,{value:!!canReview},React.createElement("div",{
+    className:"artroom"+(readOnly?" is-readonly":""),
+    "aria-disabled":readOnly?"true":undefined,
+    /* Art cards own several direct image-generation/edit controls rather than
+       routing every mutation through App callbacks. `inert` is therefore the
+       single fail-closed boundary for a view-only role (and while another
+       project is hydrating): it blocks paid model launches as well as fields,
+       menus and destructive controls, while normal page scrolling still works. */
+    inert:readOnly?"":undefined
+  },
     // fixed engine dock — Model / Aspect / Resolution, always reachable while
     // scrolling at every viewport
     React.createElement(NbDock,null),
@@ -5591,7 +5539,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
           onDraftProp,onCreateOwnedProp,
           onDraft:onDraftVisuals,onDraftAll:onDraftAllVisuals,draftingId:draftingVisualId,draftingAll:draftingAllVisuals,draftingIds:draftingVisualIds,
           trashItems:(trash&&trash.characters)||[],onRestore:onRestoreChar,onPurge:onPurgeChar,
-          onSuggestStates,suggestingStatesId,onRemoveOwnedItem,onRenameOwnedItem,onAdd:onAddCharacter,onDelete:onDeleteCharacter,onCast,
+          onSuggestStates,suggestingStatesId,onRemoveOwnedItem,onRenameOwnedItem,onDelete:onDeleteCharacter,onCast,
           lookbookStale:!!_stale.characters,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("characters"),
           onApplyLookbookDraftOnly:()=>onApplyLookbook&&onApplyLookbook("characters","draft")})
     : artView==="props" && PropSheets
@@ -5612,15 +5560,12 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
       ? React.createElement(window.StyleBibleView,{project,scenes,onAssign:onAssignStyles,assigning:assigningStyles,onSetRefs:onSetStyleRefs,onSetScenePreset,onAddRefImages:onAddStyleRefImages,onRemoveRefImage:onRemoveStyleRefImage,onColorist,
           lookbookStale:!!_stale.stylebible,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("colorist")})
     : artView==="shots" && window.ShotList
-      ? React.createElement(React.Fragment,null,
-          _stale.shots&&React.createElement("div",{className:"prompt-drift-banner",role:"status"},
-            React.createElement(Icon.alert,{s:14}),
-            React.createElement("span",null,"Lookbook changed · Review shot composition, lighting, and lens choices. Existing images are unchanged."),
-            canReview&&React.createElement("button",{className:"sheet-approval-btn",onClick:()=>onApplyLookbook&&onApplyLookbook("shots")},"Open Shot Designer"),
-            canReview&&React.createElement("button",{className:"sheet-approval-btn",onClick:()=>onReviewLookbook&&onReviewLookbook("shots")},"Mark reviewed")),
-        React.createElement(window.ShotList,{project,scenes,characters,props,locations,shots,beatsMap,
+      ? React.createElement(window.ShotList,{project,scenes,characters,props,locations,shots,beatsMap,
           onUpdateShot,onAddShot,onDeleteShot,onSplitBeat,splittingBeat,onRefineBeat,refiningBeat,onDraftSceneShots,draftingSceneShots,onDraftAllShots,draftingAllShots,onShoot,onDirectScene,
-          trashItems:(trash&&trash.shots)||[],onRestore:onRestoreShot,onPurge:onPurgeShot}))
+          trashItems:(trash&&trash.shots)||[],onRestore:onRestoreShot,onPurge:onPurgeShot,
+          lookbookStale:!!_stale.shots,
+          onApplyLookbook:canReview?()=>onApplyLookbook&&onApplyLookbook("shots"):null,
+          onReviewLookbook:canReview?()=>onReviewLookbook&&onReviewLookbook("shots"):null})
       : artView==="storyboard" && window.StoryboardView
       ? React.createElement(window.StoryboardView,{project,scenes,shots,characters,props,locations,beatsMap,setArtView,onUpdateShot,
           stale:!!_stale.storyboard,onReviewLookbook:canReview?()=>onReviewLookbook&&onReviewLookbook("storyboard"):null})

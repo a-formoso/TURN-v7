@@ -172,6 +172,7 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
 
   const opts = {
     id: sh.id, slotId: "shot-"+sh.id,
+    entity: sh,
     buildFinal: ()=> finalPrompt,
     // the "no image" recovery path must speak the SAME language as the main render —
     // a fresh plan supplies carriedForward so the numbered image map still matches
@@ -227,7 +228,9 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
         : { seedShotId:"" } };
     },
     metaExtra: ()=>({
-      advancedCamera:(typeof shotCameraMetadata==="function") ? shotCameraMetadata(sh) : null
+      advancedCamera:(typeof shotCameraMetadata==="function") ? shotCameraMetadata(sh) : null,
+      writingSources:(typeof shotWritingSources==="function") ? shotWritingSources(sh,ctx) : [],
+      promptCompiler:"TURN prompt compiler"
     }),
   };
   return { opts, finalPrompt, chainPrompt, renderPlan, prevShot, laterShots };
@@ -1374,7 +1377,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
 
 function ShotList({ project, scenes, characters, props, locations, shots, beatsMap,
   onUpdateShot, onAddShot, onDeleteShot, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onShoot,
-  trashItems, onRestore, onPurge }){
+  trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onReviewLookbook }){
   const [view, setView] = React.useState(null);
   const batch = useBatchGen();
   const batchActiveId = batch.activeId;
@@ -1670,10 +1673,20 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
     }
   };
 
+  // Every Art Room department places Lookbook drift in this exact slot: inside
+  // the shared canvas, after its local controls and immediately before the title.
+  const lookbookNotice = lookbookStale && _el("div",{className:"lb-stale-notice",role:"status"},
+    _el(Icon.alert,{s:14}),
+    _el("span",null,_el("b",null,"Lookbook review needed"),
+      " — Lens, Composition or Lighting references changed. Existing shot frames remain untouched; review them against the new brief."),
+    onApplyLookbook && _el("button",{className:"lb-stale-btn ghost",onClick:onApplyLookbook},"Open Shot Designer"),
+    onReviewLookbook && _el("button",{className:"lb-stale-btn ghost",onClick:onReviewLookbook},"Mark reviewed"));
+
   // ---- empty state ----
   if(!scenesWithShots.length){
     return _el("div",{className:"art-scroll"},
       _el(NbKeyBar,null), _el(NbControls,null),
+      lookbookNotice,
       _el("div",{className:"art-intro"},
         _el("div",{className:"art-intro-row"},
           _el("div",{style:{flex:1}},
@@ -1703,6 +1716,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
         _el("button",{type:"button",className:"shot-notice-x","aria-label":"Close message",
           title:"Close",onClick:()=>setNotice("")},"\u00d7"))),
     _el(NbKeyBar,null), _el(NbControls,null),
+    lookbookNotice,
     _el("div",{className:"art-intro"},
       _el("div",{className:"art-intro-row"},
         _el("div",{style:{flex:1}},

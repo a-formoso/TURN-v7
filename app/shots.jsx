@@ -631,6 +631,20 @@ window.sceneVideoPromptText = sceneVideoPromptText;
 
 /* ---- resolution helpers (scene ▸ location / subjects / props) ----------------- */
 function locationForScene(locations, sceneId){
+  // One subspace in the scene -> use that child workspace (Kitchen). More than one
+  // subspace -> use their shared continuity root (Father's House), while per-shot
+  // reference scoring selects the exact Kitchen/Living Room slugline unit.
+  const units=((window.turnContinuity||{}).sluglineUnits)||[];
+  const sceneUnits=units.filter(u=>u&&!u.orphan&&Array.isArray(u.scenes)&&u.scenes.indexOf(sceneId)>=0);
+  if(sceneUnits.length){
+    const subspaces=Array.from(new Set(sceneUnits.map(u=>String(u.subspaceKey||u.locationKey||"")).filter(Boolean)));
+    const wanted=subspaces.length===1?subspaces[0]:String(sceneUnits[0].continuityRootKey||sceneUnits[0].locationKey||"");
+    const grouped=(locations||[]).find(l=>{
+      const key=String((l&&l.key)||((typeof locSlug==="function")?locSlug(l&&l.name).split("-").slice(0,4).join("-"):"")||"");
+      return key===wanted;
+    });
+    if(grouped) return grouped;
+  }
   return (locations||[]).find(l=> Array.isArray(l.scenes) && l.scenes.indexOf(sceneId)>=0) || null;
 }
 window.locationForScene = locationForScene;
@@ -666,12 +680,13 @@ function shotLocationCoverageSpecs(loc, sh, scene, drafts){
   const side = shotLocationSide(sh, loc, scene, drafts);
   const crossBoundary = side==="BOTH" || /\b(through|across|behind|beyond)\s+(?:the\s+)?(glass|window|door|threshold)\b/i.test(text);
   const locKey = String(loc.key || ((typeof locSlug==="function") ? locSlug(loc.name).split("-").slice(0,4).join("-") : "") || "");
+  const rootKey=String(loc.parentKey||loc.continuityRootKey||locKey);
   const unitIdFor = (u)=> (typeof sluglineUnitImageId==="function")
     ? sluglineUnitImageId(u&&u.key)
     : "locunit-"+String((u&&u.key)||"").replace(/[^a-z0-9-]+/gi,"-");
   const units = (((window.turnContinuity||{}).sluglineUnits)||[]).filter(u=>{
     if(!u || u.orphan) return false;
-    if(locKey && String(u.locationKey||"")!==locKey) return false;
+    if(rootKey && String(u.continuityRootKey||u.locationKey||"")!==rootKey) return false;
     if(scene && scene.id && Array.isArray(u.scenes) && u.scenes.length && u.scenes.indexOf(scene.id)<0) return false;
     const role = String(u.intExt||"").toUpperCase();
     if(side==="BOTH") return true;
@@ -1108,9 +1123,13 @@ function shotLocationClause(location){
   if(!location) return "";
   const bits = [];
   bits.push("LOCATION \u2014 "+(location.name||"the place")+" ("+(location.intExt||"INT")+")");
+  const layers=(typeof locationIdentityLayers==="function")?locationIdentityLayers(location):null;
+  if(layers&&layers.continuity_root) bits.push("continuity root: "+layers.continuity_root.name+" \u2014 inherit its binding place identity");
   if(location.architecture) bits.push("space: "+location.architecture.replace(/\.$/,""));
   if(location.materials)    bits.push("materials & palette: "+location.materials.replace(/\.$/,""));
-  if(location.lighting)     bits.push("light: "+location.lighting.replace(/\.$/,""));
+  if(location.lighting)     bits.push("permanent lighting interfaces: "+location.lighting.replace(/\.$/,""));
+  if(location.topology)     bits.push("spatial topology: "+location.topology.replace(/\.$/,""));
+  if(location.continuityAnchors) bits.push("binding continuity anchors: "+location.continuityAnchors.replace(/\.$/,""));
   return bits.join(". ")+". ";
 }
 window.shotLocationClause = shotLocationClause;
@@ -1694,6 +1713,32 @@ async function shotResolveRenderRefs(plan, grab){
 }
 window.shotResolveRenderRefs = shotResolveRenderRefs;
 
+/* Every shot prompt is a compilation of several independently drafted sources.
+   Snapshot their writing-model records together so Image Details can explain the
+   whole prompt, not only the top-level shot row. */
+function shotWritingSources(sh,ctx){
+  if(typeof window.nbWritingSourcesFor!=="function") return [];
+  ctx=ctx||{};
+  const chars=Object.values(ctx.charById||{}), props=Object.values(ctx.propById||{});
+  const charIds=(typeof inFrameCast==="function")?inFrameCast(sh,ctx.scene,chars):(sh.subjects||[]);
+  const propIds=(typeof inFrameProps==="function")?inFrameProps(sh,ctx.scene,ctx.charById||{},ctx.propById||{}):(sh.props||[]);
+  const sources=[
+    {entity:sh,subject:"Shot"},
+    {entity:ctx.location,subject:ctx.location&&ctx.location.name},
+    {entity:ctx.project&&ctx.project.styleBible,subject:"Film style"},
+    ...charIds.map(id=>({entity:(ctx.charById||{})[id],subject:((ctx.charById||{})[id]||{}).name})),
+    ...propIds.map(id=>({entity:(ctx.propById||{})[id],subject:((ctx.propById||{})[id]||{}).name})),
+  ];
+  const out=[], seen=new Set();
+  sources.forEach(({entity,subject})=>window.nbWritingSourcesFor(entity).forEach(p=>{
+    const row={...p,task:(p.task||"Specification")+(subject?(" · "+subject):"")};
+    const key=[row.task,row.modelId||row.model,row.at||0].join("|");
+    if(!seen.has(key)){seen.add(key);out.push(row);}
+  }));
+  return out;
+}
+window.shotWritingSources=shotWritingSources;
+
 async function generateShotFrame(sh, sceneShots, ctx, opts){
   const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;   // asset scope at generation start
   opts = opts || {};
@@ -1750,6 +1795,8 @@ async function generateShotFrame(sh, sceneShots, ctx, opts){
     assetRole:"shot_anchor", assetRoleLabel:(typeof nbAssetRoleLabel==="function") ? nbAssetRoleLabel("shot_anchor") : "Shot anchor",
     advancedCamera,
     sourceReferences:rankedRefs.map(r=>({ refId:r.refId||"", note:r.note||"", assetRole:r.assetRole||"", assetSourceQuality:r.assetSourceQuality||"" })),
+    writingSources:shotWritingSources(sh,ctx),
+    promptCompiler:"TURN prompt compiler",
     date:now.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}),
     time:now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}), iso:now.toISOString(),
     version:((prior.version||0)+1), ...(opts.correction?{editInstruction:opts.correction}:{}) };
@@ -2082,6 +2129,11 @@ function normalizeShot(raw, scene, idx, locations, props, characters, beats){
       ? { micro: raw.beatPlan.micro.map(t=> (typeof scrubBrand==="function" ? scrubBrand(String(t||"")) : String(t||"")).replace(/\s+/g," ").trim()).filter(Boolean).slice(0,10),
           protect: specText(raw.beatPlan.protect,220) }
       : undefined,
+    // Creation-time text provenance. This is deliberately separate from the image
+    // model recorded when the keyframe is rendered: one engine designs the shot,
+    // another may render it, and Details must preserve both facts.
+    writingProvenance: raw.writingProvenance && raw.writingProvenance.model
+      ? { ...raw.writingProvenance } : undefined,
     // no dur: a drafted shot stays on AUTO — its length can't be predicted, only
     // budgeted (dialogue-anchored estimate via shotDur); the user pins by hand
     negativePrompt:"",

@@ -77,7 +77,9 @@
             onGoRoom, onClose, accountSlot } = props;
 
     // real films only (shows are containers), newest-updated first (list already sorted)
-    const films = (projects||[]).filter(p=> String(p.isShow)!=="true");
+    const films = (projects||[]).filter(p=>!(window.turnSeries&&typeof window.turnSeries.isShowDoc==="function"
+      ? window.turnSeries.isShowDoc(p)
+      : p&&(String(p.project_kind||"").toLowerCase()==="show"||String(p.isShow).toLowerCase()==="true")));
     // owned vs shared-with-me: Recent Projects stays OWNED films only (ordering,
     // paging and poster behaviour unchanged); shared films get their own section
     const mine = films.filter(p=> !p.isShared);
@@ -266,7 +268,7 @@
               style: p.cover ? { backgroundImage:'url("'+p.cover+'")' } : null},
             !p.cover && h("span",{className:"hd-card-initials"}, initials(p.title)),
             h("span",{className:"hd-card-pill hd-pill-shared"},
-              ("SHARED"+(p.shareRole?(" · "+roleLabel(p.shareRole)):"")).toUpperCase()),
+              ("SHARED · "+roleLabel(p.shareRole)).toUpperCase()),
             h("div",{className:"hd-card-shade"},
               h("div",{className:"hd-card-name"}, p.title||"Untitled film"),
               h("div",{className:"hd-card-sub hd-card-owner"},

@@ -113,8 +113,12 @@ const aiCastPsychology = sandbox.window.aiCastPsychology;
 if (typeof aiCastPsychology !== "function") {
   failures++; console.log("FAIL window.aiCastPsychology missing from dist build");
 } else {
+  const longDimensionA = "saintly bedside patience when care is difficult / prosecutorial fury with anyone still breathing keeps every grievance alive until somebody answers it";
+  const longDimensionB = "meticulous tenderness toward the dead and their rituals / impatient contempt for the living when their needs complicate his private tally of sacrifice";
+  const longHumanTruth = "Love presented as evidence stops being love and becomes an invoice, and no corporation can pay it; only when a person releases the ledger of sacrifice can care become a freely chosen act again.";
   sandbox.window.claude = { complete: async () => JSON.stringify({ cast: [
-    { id: "odette", pronouns: "she/her", conscious: "c", unconscious: "u", arc: "a", humanTruth: "h",
+    { id: "odette", pronouns: "she/her", conscious: "c", unconscious: "u", arc: "a",
+      dimensions:[longDimensionA,longDimensionB], humanTruth:longHumanTruth,
       voiceDNA:{vocabulary:"legal claims",syntax:"clipped",rhythm:"measured",directness:"blunt",imagery:"contracts",avoids:"apologies",stressShift:"fragments"} },
     { id: "piotr",  pronouns: "He/Him",  conscious: "c", arc: "a", humanTruth: "h" },
     { id: "kett",   pronouns: "they/them", conscious: "c", arc: "a", humanTruth: "h" },
@@ -140,6 +144,24 @@ if (typeof aiCastPsychology !== "function") {
     psych && JSON.stringify(psych.odette));
   ok("batch preserves manually authored Voice DNA", psych?.odette?.voiceDNA?.syntax === "writer-owned syntax",
     psych && JSON.stringify(psych.odette));
+  ok("batch preserves the complete Human Truth", psych?.odette?.humanTruth === longHumanTruth,
+    psych && psych.odette && psych.odette.humanTruth);
+  ok("batch preserves complete dimension pairs", psych?.odette?.dimensions === [longDimensionA,longDimensionB].join("\n"),
+    psych && psych.odette && psych.odette.dimensions);
+
+  sandbox.window.claude = { complete: async () => JSON.stringify({
+    pronouns:"she/her", conscious:"c", unconscious:"u", arc:"a",
+    dimensions:[longDimensionA,longDimensionB], humanTruth:longHumanTruth,
+    argues:"complicates", voiceDNA:{}
+  }) };
+  const singleDraft = await sandbox.window.aiDraftCharacter(
+    { id:"odette", name:"ODETTE", role:"Protagonist" }, [],
+    { title:"T", genre:"drama", controllingIdea:{} }, []
+  );
+  ok("single draft preserves the complete Human Truth", singleDraft?.humanTruth === longHumanTruth,
+    singleDraft && singleDraft.humanTruth);
+  ok("single draft preserves complete dimension pairs", singleDraft?.dimensions === [longDimensionA,longDimensionB].join("\n"),
+    singleDraft && singleDraft.dimensions);
   delete sandbox.window.claude;
 }
 

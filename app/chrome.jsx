@@ -115,14 +115,10 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
   const nav = inArt ? artNav : writersNav;
   const cur = inArt ? artView : view;
   const setCur = inArt ? setArtView : setView;
-  // each room's primary agent action, pinned to the right of the centered tab strip:
-  // Art Room → the meta-agent (Run pre-production); Writers' Room → the Agents panel.
+  // Each room's primary action, pinned to the right of the centered tab strip:
+  // Art Room → Run pre-production only; Writers' Room → the Story Editors panel.
   const cta = inArt
-    ? React.createElement(React.Fragment,null,
-        onAgents && React.createElement("button",{className:"tb-btn vn-cta",onClick:onAgents,disabled:readOnly,
-          title:readOnly?"View-only access — Story agents cannot change this film":"Story agents — Story Doctor, Continuity Repair and Table-Read"},
-          React.createElement(Icon.robot,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Story agents")),
-        onCoordinate && React.createElement("button",{className:"tb-btn accent vn-cta",onClick:onCoordinate,disabled:readOnly,
+    ? (onCoordinate && React.createElement("button",{className:"tb-btn accent vn-cta",onClick:onCoordinate,disabled:readOnly,
           title:readOnly?"View-only access — pre-production cannot be changed":"Art Department Coordinator — runs your whole pre-production in dependency order: props → cast → locations → colour → shots → storyboard, in one click"},
           React.createElement(Icon.robot,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Run pre-production")))
     : (onAgents && React.createElement("button",{className:"tb-btn accent vn-cta",onClick:onAgents,disabled:readOnly,
@@ -527,8 +523,8 @@ function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, o
       // EXCEPTION (user ruling 2026-07-19): in the ART ROOM the ⋮ shows for everyone —
       // it carries "Export shot list" (moved off the Shots screen); admin extras stay gated.
       (window.turnIsAdmin || room==="art") && React.createElement(OverflowMenu,{onNewStory,project,scenes,drafts,onReset,room}),
-      // 'Agents' moved to the ViewNav's right zone (Writers' Room), mirroring the Art Room's
-      // 'Run pre-production' — both sit to the right of their centered tab strip.
+      // Story Editors live only in the Writers' Room ViewNav; the Art Room exposes
+      // its separate Run pre-production coordinator in the corresponding position.
       authSlot || React.createElement("div",{className:"avatar"},"MV")),
   );
 }
@@ -565,28 +561,38 @@ function RailSection({ label, icon:Ic, onAdd, defaultOpen=true, children }){
     open && children);
 }
 
-function LeftRail({ project, characters, scenes, selId, selChar, onSelect, onSelectChar, onAddCharacter, onContract, showFramework, onCollapse, onAddScene, onReorder, compact, readOnly }){
+function LeftRail({ project, characters, scenes, selChar, onSelectChar, onContract, showFramework, onCollapse, compact, readOnly }){
   const ci = project.controllingIdea;
   const secOpen = !compact;
-  // group scenes by act
-  const acts = [1,2,3].map(a => ({ act:a, scenes: scenes.filter(s=>s.act===a) }));
-  const [open, setOpen] = React.useState({1:true,2:true,3:true});
-  const [dragId, setDragId] = React.useState(null);
-  const [overId, setOverId] = React.useState(null);
-  const actTitles = { 1:"Setup", 2:"Complication", 3:"Resolution" };
-  const idxOf = (id)=>scenes.findIndex(s=>s.id===id);
-
+  const railTabs = [["premise","Premise"],["setting","Setting"],["cast","Cast"]];
+  const [railTabState,setRailTabState] = React.useState(()=>{
+    try{
+      const saved = sessionStorage.getItem("turn-writers-left-tab");
+      return railTabs.some(([id])=>id===saved) ? saved : "premise";
+    }catch(e){ return "premise"; }
+  });
+  const setRailTab = (id)=>{
+    setRailTabState(id);
+    try{ sessionStorage.setItem("turn-writers-left-tab",id); }catch(e){}
+  };
   return React.createElement("div",{className:"rail"},
-    React.createElement("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",
-      padding:"10px 12px 2px"}},
-      React.createElement("span",{className:"eyebrow"},React.createElement(Icon.film,{s:12}),
-        React.createElement("span",{style:{marginLeft:7}},"Story")),
-      React.createElement("button",{className:"panel-collapse",onClick:onCollapse,title:"Collapse story panel"},
-        React.createElement(Icon.chevL,{s:14}))),
+    // Reuse the inspector's primary tabs verbatim so both sidebars share one
+    // interaction language. Cast is story-derived, so this header never offers
+    // manual character creation.
+    React.createElement("div",{className:"insp-tabs rail-tabs",role:"tablist","aria-label":"Story information"},
+      // Mirror the right inspector: its tabs begin at the panel's inner edge and
+      // its collapse control sits on the outer edge. On the left rail, that
+      // means collapse belongs first (far left) and the tabs align right.
+      React.createElement("button",{className:"panel-collapse rail-panel-collapse",onClick:onCollapse,
+        title:"Collapse story panel","aria-label":"Collapse story panel"},React.createElement(Icon.chevL,{s:14})),
+      railTabs.map(([id,lab])=>React.createElement("button",{key:id,type:"button",role:"tab",
+        "aria-selected":railTabState===id,className:`insp-tab ${railTabState===id?"on":""}`,
+        onClick:()=>setRailTab(id)},lab)),
+      ),
     React.createElement("div",{className:"rail-scroll"},
 
       // PREMISE + CONTROLLING IDEA
-      React.createElement(RailSection,{label:"Premise",icon:Icon.target,defaultOpen:secOpen},
+      railTabState==="premise" && React.createElement("div",{className:"rail-tab-pane",role:"tabpanel"},
         React.createElement("div",{className:"idea-card"},
           React.createElement("div",{className:"premise"},`"${project.premise}"`),
           showFramework && React.createElement("div",{className:"ctrl-idea"},
@@ -602,12 +608,12 @@ function LeftRail({ project, characters, scenes, selId, selChar, onSelect, onSel
             React.createElement("span",{className:"cause"},project.centerOfGood)))),
 
       // STORY CONTRACT — outer plot · inner arc · which change the climax pays off
-      showFramework && (typeof ContractSection==="function") && React.createElement(RailSection,
+      railTabState==="premise" && showFramework && (typeof ContractSection==="function") && React.createElement(RailSection,
         {label:"Story Contract",icon:Icon.bolt,defaultOpen:secOpen},
         React.createElement(ContractSection,{project,scenes,onContract,readOnly})),
 
       // SETTING
-      showFramework && React.createElement(RailSection,{label:"Setting",icon:Icon.globe,defaultOpen:secOpen},
+      railTabState==="setting" && React.createElement("div",{className:"rail-tab-pane rail-setting-pane",role:"tabpanel"},
         React.createElement("div",{style:{padding:"0 4px",display:"flex",flexDirection:"column",gap:9}},
           [["Period",project.setting.period],["Duration",project.setting.duration],
            ["Location",project.setting.location],["Conflict",project.setting.conflict]].map(([k,v])=>
@@ -616,7 +622,7 @@ function LeftRail({ project, characters, scenes, selId, selChar, onSelect, onSel
               React.createElement("div",{style:{fontSize:12.5,color:"var(--txt-0)",lineHeight:1.45}},v))))),
 
       // CHARACTERS
-      React.createElement(RailSection,{label:"Cast",icon:Icon.user,onAdd:readOnly?null:onAddCharacter,defaultOpen:true},
+      railTabState==="cast" && React.createElement("div",{className:"rail-tab-pane rail-cast-pane",role:"tabpanel"},
         characters.map(c=>{
           const driven = scenes.filter(s=>s.driver===c.id).length;
           return React.createElement("div",{key:c.id,
@@ -635,41 +641,6 @@ function LeftRail({ project, characters, scenes, selId, selChar, onSelect, onSel
                 })(c.role||""))),
             React.createElement("span",{className:"char-drives",title:driven+" scene"+(driven!==1?"s":"")+" driven"},driven));
         })),
-
-      // STORY TREE
-      React.createElement(RailSection,{label:"Story Spine",icon:Icon.layers,defaultOpen:true,
-        onAdd:readOnly?null:()=>onAddScene&&onAddScene(scenes.length?scenes[scenes.length-1].id:null)},
-        acts.map(a=>
-          React.createElement("div",{key:a.act,className:"tree-act"},
-            React.createElement("div",{className:"tree-act-head",onClick:()=>setOpen(o=>({...o,[a.act]:!o[a.act]}))},
-              React.createElement("span",{style:{color:"var(--txt-2)",display:"flex"}},
-                React.createElement(open[a.act]?Icon.chevD:Icon.chevR,{s:13})),
-              React.createElement("span",{className:"tree-act-no"},["I","II","III"][a.act-1]),
-              React.createElement("span",{className:"tree-act-title"},actTitles[a.act]),
-              React.createElement("span",{className:"tree-act-count"},a.scenes.length)),
-            open[a.act] && React.createElement("div",{className:"tree-scenes"},
-              a.scenes.map(s=>{
-                const { flagged } = turnInfo(s);
-                const dotcol = s.closeCharge>0?"var(--pos)":s.closeCharge<0?"var(--neg)":"var(--txt-3)";
-                return React.createElement("div",{key:s.id,draggable:!readOnly,
-                  onDragStart:(e)=>{ if(readOnly){ e.preventDefault(); return; } setDragId(s.id); e.dataTransfer.effectAllowed="move"; },
-                  onDragOver:(e)=>{ if(readOnly) return; e.preventDefault(); if(overId!==s.id) setOverId(s.id); },
-                  onDragEnd:()=>{ setDragId(null); setOverId(null); },
-                  onDrop:(e)=>{ if(readOnly) return; e.preventDefault(); if(dragId&&dragId!==s.id&&onReorder) onReorder(idxOf(dragId), idxOf(s.id)); setDragId(null); setOverId(null); },
-                  className:`tree-scene ${s.id===selId?"sel":""} ${overId===s.id&&dragId&&dragId!==s.id?"dragover":""}`,
-                  onClick:()=>onSelect(s.id)},
-                  React.createElement("span",{className:"tree-scene-no"},String(s.no).padStart(2,"0")),
-                  React.createElement("span",{className:"tree-scene-dot",style:{background:dotcol}}),
-                  React.createElement("span",{className:"tree-scene-title"},s.title),
-                  flagged && React.createElement("span",{className:"tree-flag",title:"Doesn't turn"},
-                    React.createElement(Icon.alert,{s:12})));
-              }),
-              onAddScene && !readOnly && React.createElement("div",{className:"tree-scene",style:{color:"var(--txt-3)",fontStyle:"italic"},
-                onClick:()=>onAddScene(a.scenes.length?a.scenes[a.scenes.length-1].id:(scenes.length?scenes[scenes.length-1].id:null))},
-                React.createElement("span",{className:"tree-scene-no"}),
-                React.createElement("span",{style:{display:"flex",color:"var(--txt-3)"}},React.createElement(Icon.plus,{s:12})),
-                React.createElement("span",{className:"tree-scene-title",style:{color:"var(--txt-3)"}},"Add scene"))))),
-      ),
     ));
 }
 window.LeftRail = LeftRail;

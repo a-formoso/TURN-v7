@@ -171,11 +171,16 @@
       addUsage(d,String(sh.id||""),spec.role,spec.source);
       if(status.missing)warn(sh.id,spec.assetId,"missing-reference",
         (spec.required?"Required ":"Implicit ")+kind+" reference image is missing",severity);
-      if(!status.approved)warn(sh.id,spec.assetId,"unapproved-reference",
-        (spec.required?"Required ":"Implicit ")+kind+" reference is not an approved current version");
-      else if(!status.contextChecked)warn(sh.id,spec.assetId,"review-context-unchecked",
-        "Asset approval exists, but current specification/reference context was not supplied");
-      status.reasons.forEach(r=>warn(sh.id,spec.assetId,"review-required",r));
+      /* Art Room master assets use their current saved version automatically.
+         Availability, privacy and actual source/version drift remain actionable;
+         a separate manual approval flag is not a Stage requirement. */
+      status.reasons.forEach(r=>{
+        // `missing-reference` above already reports absent bytes with the correct
+        // required/implicit severity. Do not duplicate that same fact as a second
+        // review-required warning for every shot.
+        if(status.missing&&/reference image is missing or has not finished loading/i.test(String(r||"")))return;
+        warn(sh.id,spec.assetId,"review-required",r);
+      });
       return d.assetId;
     };
 

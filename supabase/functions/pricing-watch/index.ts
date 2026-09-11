@@ -201,6 +201,46 @@ const CHECKS: Array<{ slug: string; run: (t: string, c: Collector) => void }> = 
     },
   },
   {
+    // GPT Image 2.5 Flare — token-priced. The committed quality estimates use
+    // the current $30/1M image-output-token rate at TURN's default 2K canvas.
+    slug: "openai/gpt-image-2.5/flare/text-to-image",
+    run(t, c) {
+      const rate = firstMatch(t, /Image tokens \(per 1M\):[^\n]*?\$\s*([\d.,]+)\s*output/i);
+      c.rate(
+        "gpt-image-2.5-flare-image-output-tokens",
+        rate,
+        "$/1M image output tokens",
+        30,
+        [
+          "image.providerUsd.gpt-image-2.5-flare.low",
+          "image.providerUsd.gpt-image-2.5-flare.medium",
+          "image.providerUsd.gpt-image-2.5-flare.high",
+        ],
+        "derived: table × (new rate / reference rate)",
+      );
+    },
+  },
+  {
+    // GPT Image 2.5 Sunburst has its own endpoint so watch it independently,
+    // even though its current image-output-token rate matches Flare.
+    slug: "openai/gpt-image-2.5/sunburst/text-to-image",
+    run(t, c) {
+      const rate = firstMatch(t, /Image tokens \(per 1M\):[^\n]*?\$\s*([\d.,]+)\s*output/i);
+      c.rate(
+        "gpt-image-2.5-sunburst-image-output-tokens",
+        rate,
+        "$/1M image output tokens",
+        30,
+        [
+          "image.providerUsd.gpt-image-2.5-sunburst.low",
+          "image.providerUsd.gpt-image-2.5-sunburst.medium",
+          "image.providerUsd.gpt-image-2.5-sunburst.high",
+        ],
+        "derived: table × (new rate / reference rate)",
+      );
+    },
+  },
+  {
     // Seedance 2.0 Standard — 720p/1080p stated flat $/second; 480p and 4K are
     // token-formula priced, so those scale with their per-1000-token rates.
     slug: "bytedance/seedance-2.0/image-to-video",

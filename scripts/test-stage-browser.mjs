@@ -542,8 +542,8 @@ async function main() {
       throw new Error(e.message+"; active blocker: "+blockerText);
     }
     const loadedBody=(await text()).toLowerCase();
-    assert.match(loadedBody,/implicit prop reference is not an approved current version/,"optional unapproved reference remains a review warning");
-    assert.doesNotMatch((await c.eval(`document.querySelector(".stage2-blocker")?.textContent||""`)).toLowerCase(),/implicit prop|unapproved/,"optional unapproved reference is not a hard blocker");
+    assert.doesNotMatch(loadedBody,/reference is not an approved current version/,"saved Art Room references need no manual approval warning");
+    assert.doesNotMatch((await c.eval(`document.querySelector(".stage2-blocker")?.textContent||""`)).toLowerCase(),/implicit prop|unapproved/,"saved optional reference is not a hard blocker");
     const loadedRefs=await c.eval(`window.stageShotReferencePackage(window.__story.shots.slice(0,1),{...window.__story,scene:window.__story.scenes[0],images:{"char-mara:wardrobe":"loaded"},availableImageIds:new Set(["char-mara:wardrobe","prop-letter"])}).characters.map(x=>x.assetId)`);
     assert.deepEqual(loadedRefs,["char-mara:wardrobe"],"loaded package uses the selected state variant, not character master");
 

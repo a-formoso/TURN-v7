@@ -131,9 +131,9 @@ const Voice = (()=>{
   };
 })();
 
-/* The spoken interview. Renders the conversation + mic; calls aiSeedInterview to
-   drive it, and hands the discovered loglines up to Step 3 via onComplete. */
-function NSInterview({ formatLabel, onComplete, onBack }){
+/* Recovery interview for browsers/environments where GPT-Live cannot open. It
+   retains TURN's previous turn-by-turn TTS/STT + typed conversation. */
+function NSLegacyInterview({ formatLabel, onComplete, onBack, liveNotice }){
   const [chat, setChat] = React.useState([]);     // [{role:'assistant'|'user', content}]
   const [thinking, setThinking] = React.useState(false);
   const [listening, setListening] = React.useState(false);
@@ -175,7 +175,9 @@ function NSInterview({ formatLabel, onComplete, onBack }){
       say(r.say);
       if(r.done && r.loglines && r.loglines.length){
         setThinking(false);
-        onComplete(r.loglines);   // hand off to Step 3 (loglines)
+        const transcript=[...next,{role:"assistant",content:r.say}]
+          .map(m=>(m.role==="user"?"WRITER: ":"MUSE: ")+m.content).join("\n");
+        onComplete(r.loglines,transcript);   // hand off to Step 3 (loglines)
         return;
       }
     }catch(e){ setErr(hErr(e)); }
@@ -205,6 +207,10 @@ function NSInterview({ formatLabel, onComplete, onBack }){
       Voice.ttsSupported && React.createElement("button",{className:"ns-talk-mute",onClick:()=>{ if(voiceOn) Voice.stopSpeaking(); setVoiceOn(v=>!v); },
         title:voiceOn?"Mute voice":"Unmute voice"},
         React.createElement(Icon[voiceOn?"sparkles":"x"]||Icon.sparkles,{s:12}), voiceOn?"Voice on":"Voice off")),
+
+    liveNotice && React.createElement("div",{className:"ns-talk-note"},
+      React.createElement(Icon.alert,{s:13}),
+      React.createElement("span",null,liveNotice," You can continue with the typed interview here.")),
 
     // tell the user plainly when their browser can't do spoken answers
     !Voice.sttSupported && React.createElement("div",{className:"ns-talk-note"},
@@ -238,13 +244,140 @@ function NSInterview({ formatLabel, onComplete, onBack }){
       React.createElement("button",{className:"ns-btn ghost",onClick:()=>{ Voice.stopSpeaking(); Voice.stopListening(); onBack(); }},"← Back")));
 }
 
-function NewStoryIntake({ onClose, onLaunch, aiOn }){
+function nsLiveRows(fragments){
+  const rows=[];
+  (fragments||[]).forEach(f=>{
+    if(!f || !String(f.delta||"")) return;
+    const last=rows[rows.length-1];
+    const closeEnough=last && last.role===f.role && (!last.endMs || !f.startMs || f.startMs-last.endMs<1400);
+    if(closeEnough){ last.content+=String(f.delta); last.endMs=f.endMs||last.endMs; }
+    else rows.push({role:f.role,content:String(f.delta),startMs:f.startMs||0,endMs:f.endMs||0});
+  });
+  return rows.filter(r=>r.content.trim());
+}
+
+/* The primary "Talk it through" experience: one continuous, interruptible MUSE
+   conversation over WebRTC. Transcript fragments remain UI/state data; choosing
+   Finish explicitly shapes them into candidate loglines through the normal next
+   pipeline step. */
+function NSLiveInterview({ formatLabel, onComplete, onBack, onUseFallback }){
+  const [fragments,setFragments]=React.useState([]);
+  const [status,setStatus]=React.useState("connecting");
+  const [err,setErr]=React.useState("");
+  const [finalizing,setFinalizing]=React.useState(false);
+  const [muted,setMuted]=React.useState(false);
+  const [playbackBlocked,setPlaybackBlocked]=React.useState(false);
+  const [attempt,setAttempt]=React.useState(0);
+  const sessionRef=React.useRef(null);
+  const scrollRef=React.useRef(null);
+  const rows=nsLiveRows(fragments);
+  const hasWriter=fragments.some(f=>f.role==="user" && String(f.delta||"").trim());
+
+  React.useEffect(()=>{ let alive=true;
+    setStatus("connecting"); setErr(""); setMuted(false); setPlaybackBlocked(false);
+    (async()=>{
+      try{
+        const session=await window.turnStartLiveVoice({
+          mode:"new-story",context:{formatLabel},
+          onTranscript:fragment=>{ if(alive) setFragments(prev=>[...prev,fragment]); },
+          onStatus:next=>{ if(alive) setStatus(next); },
+          onError:message=>{ if(alive) setErr(String(message||"The live conversation hit an audio error.")); },
+          onPlaybackBlocked:()=>{ if(alive) setPlaybackBlocked(true); },
+        });
+        if(!alive){ session.close({timeoutMs:700}); return; }
+        sessionRef.current=session;
+      }catch(e){
+        if(alive){ setStatus("failed"); setErr(String((e&&e.message)||"Couldn’t start live voice.")); }
+      }
+    })();
+    return ()=>{ alive=false; const session=sessionRef.current; sessionRef.current=null;
+      if(session) session.close({timeoutMs:700}); };
+  },[formatLabel,attempt]);
+
+  React.useEffect(()=>{ const el=scrollRef.current; if(el) el.scrollTop=el.scrollHeight; },[fragments,status]);
+
+  const closeAnd=(fn)=>{ const session=sessionRef.current; sessionRef.current=null;
+    Promise.resolve(session&&session.close({timeoutMs:1400})).finally(fn); };
+  const retry=()=>{ const session=sessionRef.current; sessionRef.current=null;
+    Promise.resolve(session&&session.close({timeoutMs:700})).finally(()=>{ setFragments([]); setAttempt(n=>n+1); }); };
+  const toggleMute=()=>{ const session=sessionRef.current; if(!session) return;
+    const next=session.mute(); setMuted(next); };
+  const hear=async()=>{ try{ const session=sessionRef.current; if(session){ await session.play(); setPlaybackBlocked(false); } }
+    catch(_e){ setErr("Your browser is blocking MUSE’s audio. Allow sound for this page, then try again."); } };
+  const finish=async()=>{
+    if(finalizing) return;
+    if(!hasWriter){ setErr("Tell MUSE a little about the story before shaping the loglines."); return; }
+    setFinalizing(true); setErr(""); setStatus("closing");
+    const transcript=rows.map(r=>(r.role==="user"?"WRITER: ":"MUSE: ")+r.content.trim()).join("\n");
+    try{
+      const session=sessionRef.current; sessionRef.current=null;
+      if(session) await session.close({timeoutMs:2500});
+      setStatus("shaping");
+      const lls=typeof aiSeedToLoglines==="function" ? await aiSeedToLoglines("talk",transcript) : null;
+      if(!lls || !lls.length) throw new Error("MUSE couldn’t shape that transcript yet — try Finish again, or continue with the typed interview.");
+      onComplete(lls,transcript);
+    }catch(e){ setErr(String((e&&e.message)||"Couldn’t shape the conversation into loglines.")); setStatus("ended"); setFinalizing(false); }
+  };
+  const statusText=finalizing || status==="shaping" ? "Shaping your loglines…"
+    : status==="connecting" ? "Connecting MUSE…"
+    : status==="speaking" ? "MUSE is speaking…"
+    : status==="muted" || muted ? "Mic is off"
+    : status==="failed" ? "Live voice unavailable"
+    : status==="ended" || status==="closed" ? "Conversation ended"
+    : "MUSE is listening…";
+  const orbClass=(status==="connecting"||finalizing||status==="shaping")?" think"
+    :(status==="listening"||status==="speaking")?" live":"";
+
+  return React.createElement("div",{className:"ns-body ns-talk ns-live"},
+    React.createElement("div",{className:"ns-talk-head"},
+      React.createElement("div",{className:"ns-talk-status"},
+        React.createElement("span",{className:"ns-talk-orb"+orbClass}),statusText),
+      React.createElement("button",{className:"ns-talk-mute"+(muted?" off":""),onClick:toggleMute,
+        disabled:!sessionRef.current||finalizing,title:muted?"Turn microphone on":"Turn microphone off"},
+        React.createElement(Icon[muted?"x":"mic"]||Icon.mic,{s:12}),muted?"Mic off":"Mic on")),
+
+    React.createElement("div",{className:"ns-talk-note ns-live-note"},
+      React.createElement(Icon.mic,{s:13}),
+      React.createElement("span",null,"Speak naturally — MUSE will respond aloud, and you can interrupt as you would in a real conversation. When the idea is clear, finish to shape the transcript into loglines.")),
+
+    React.createElement("div",{className:"ns-talk-thread",ref:scrollRef},
+      rows.length===0 && React.createElement("div",{className:"ns-talk-empty"},
+        status==="failed"?"The live session didn’t open.":"MUSE will begin in a moment…"),
+      rows.map((m,i)=>React.createElement("div",{key:i,className:"ns-talk-msg "+m.role},
+        React.createElement("div",{className:"ns-talk-bubble"},m.content.trim())))),
+
+    playbackBlocked && React.createElement("div",{className:"ns-talk-note"},
+      React.createElement(Icon.alert,{s:13}),
+      React.createElement("span",null,"Your browser paused MUSE’s voice."),
+      React.createElement("button",{className:"ns-btn ghost ns-hear",onClick:hear},"Hear MUSE")),
+    err && React.createElement("div",{className:"ns-err"},(window.turnLinkifyReact?window.turnLinkifyReact(err):err)),
+
+    React.createElement("div",{className:"ns-foot ns-live-foot"},
+      React.createElement("button",{className:"ns-btn ghost",disabled:finalizing,onClick:()=>closeAnd(onBack)},"← Back"),
+      React.createElement("button",{className:"ns-btn link",disabled:finalizing,onClick:()=>closeAnd(onUseFallback)},"Use typed interview"),
+      status==="failed" && React.createElement("button",{className:"ns-btn ghost",disabled:finalizing,onClick:retry},"Try live again"),
+      React.createElement("button",{className:"ns-btn primary",disabled:finalizing||!hasWriter,onClick:finish},
+        finalizing?React.createElement(React.Fragment,null,React.createElement("span",{className:"ns-spin"}),"Shaping…")
+          :React.createElement(React.Fragment,null,React.createElement(Icon.sparkles,{s:14}),"Finish & shape loglines"))));
+}
+
+function NSInterview(props){
+  const support=(typeof window.turnLiveVoiceSupport==="function")
+    ? window.turnLiveVoiceSupport()
+    : {ok:false,reason:"The live-voice module isn’t loaded."};
+  const [useFallback,setUseFallback]=React.useState(!support.ok);
+  if(useFallback) return React.createElement(NSLegacyInterview,{...props,liveNotice:support.ok?"Live voice was closed.":support.reason});
+  return React.createElement(NSLiveInterview,{...props,onUseFallback:()=>setUseFallback(true)});
+}
+
+function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, formatOwnerLabel }){
   // the writing model developing THIS story — synced with the global drafting picker,
   // so loglines, research, synopsis and the spine build all run on the picked engine
   const [mid, setMid] = React.useState(()=> (typeof window.getWritingModelId==="function") ? window.getWritingModelId("story") : "");
   const pickModel = (id)=>{ setMid(id); if(typeof window.setWritingModelId==="function") window.setWritingModelId(id); };
   const _rec = (window.recommendedWritingModelId && window.recommendedWritingModelId("story")) || "";
-  const [format, setFormat] = React.useState("film");   // Step 0 — what are we making?
+  const _initialFormat = ((window.FORMATS||[]).some(f=>f.id===initialFormat) ? initialFormat : "film");
+  const [format, setFormat] = React.useState(_initialFormat);   // Step 0 — what are we making?
   const [framework, setFramework] = React.useState("threeact");   // Step 0 — how is it told?
   // did the writer ACTIVELY pick these, or sail past the defaults? An explicit pick is
   // never overridden; untouched knobs get the AI's recommended shape at develop time.
@@ -281,6 +414,20 @@ function NewStoryIntake({ onClose, onLaunch, aiOn }){
   const cfg = SEED_TYPES.find(s=>s.id===seed) || SEED_TYPES[0];
   const needsText = seed !== "talk";
   const formatLabel = (((window.FORMATS||[]).find(f=>f.id===format)||{}).label || "film").toLowerCase();
+  const liveSeedSupport = (typeof window.turnLiveVoiceSupport==="function")
+    ? window.turnLiveVoiceSupport() : {ok:false};
+
+  const applyRecommendedShape = (outs)=>{
+    const sh=outs && outs.shape;
+    if(sh){
+      const applied={};
+      if(sh.format && !formatLocked && !formatTouched && sh.format!==format){ setFormat(sh.format);
+        applied.formatLabel=(((window.FORMATS||[]).find(f=>f.id===sh.format))||{}).label||sh.format; }
+      if(sh.framework && !frameworkTouched && sh.framework!==framework){ setFramework(sh.framework);
+        applied.frameworkLabel=(((window.FRAMEWORKS||[]).find(f=>f.id===sh.framework))||{}).label||sh.framework; }
+      setAutoShape((applied.formatLabel||applied.frameworkLabel)?{...applied,why:sh.why||""}:null);
+    }else setAutoShape(null);
+  };
 
   const develop = async (dest)=>{
     if(loading) return;
@@ -297,15 +444,7 @@ function NewStoryIntake({ onClose, onLaunch, aiOn }){
         setCandidates(cands); setChosen(cands[0]);
         // AUTO-SHAPE: apply the recommended format/framework to any knob the writer
         // didn't actively pick \u2014 an explicit Step-1 choice always wins
-        const sh = outs.shape;
-        if(sh){
-          const applied = {};
-          if(sh.format && !formatTouched && sh.format!==format){ setFormat(sh.format);
-            applied.formatLabel = (((window.FORMATS||[]).find(f=>f.id===sh.format))||{}).label || sh.format; }
-          if(sh.framework && !frameworkTouched && sh.framework!==framework){ setFramework(sh.framework);
-            applied.frameworkLabel = (((window.FRAMEWORKS||[]).find(f=>f.id===sh.framework))||{}).label || sh.framework; }
-          setAutoShape((applied.formatLabel || applied.frameworkLabel) ? { ...applied, why: sh.why||"" } : null);
-        } else setAutoShape(null);
+        applyRecommendedShape(outs);
         setStep(dest==="loglines" ? "loglines" : "format");   // first pass confirms the SHAPE; regenerate stays put
       }
       else setErr("Couldn\u2019t shape that into a logline \u2014 try adding a detail or two.");
@@ -342,7 +481,7 @@ function NewStoryIntake({ onClose, onLaunch, aiOn }){
     const synopsis = { paras: edited };
     edited.forEach(pg=>{ synopsis[pg.key] = pg.text; });
     const synOut = { ...syn, title:(title||"").trim()||syn.title, synopsis };
-    onLaunch(l, synOut, format, framework);
+    onLaunch(l, synOut, formatLocked ? _initialFormat : format, framework);
   };
 
   const pillar = (label, body)=> body ? React.createElement("div",{className:"syn-pillar"},
@@ -395,12 +534,23 @@ function NewStoryIntake({ onClose, onLaunch, aiOn }){
                 "Recommended for this story: ",
                 React.createElement("b",null,[autoShape.formatLabel, autoShape.frameworkLabel].filter(Boolean).join(" · ")),
                 autoShape.why ? (" — "+autoShape.why) : "",
-                " Pick anything below to override — your choice always wins.")),
-            React.createElement("div",{className:"ns-seclab"},"Pick a format — it sets the size, not the method"),
+                formatLocked
+                  ? " The Show format stays fixed; you can still change the framework below."
+                  : " Pick anything below to override — your choice always wins.")),
+            formatLocked && React.createElement("div",{className:"ns-autoshape ns-format-locked"},
+              React.createElement(Icon.layers||Icon.film,{s:12}),
+              React.createElement("span",null,
+                "Format inherited from ",React.createElement("b",null,formatOwnerLabel||"this Show"),
+                ". Every episode shares one format; create a separate Show to use a different one.")),
+            React.createElement("div",{className:"ns-seclab"},formatLocked
+              ? "Show format — inherited by every episode"
+              : "Pick a format — it sets the size, not the method"),
             React.createElement("div",{className:"ns-formats"},
               (window.FORMATS||[]).map(f=>
                 React.createElement("button",{key:f.id,className:"ns-format "+(format===f.id?"on":""),
-                  onClick:()=>{ setFormat(f.id); setFormatTouched(true); }},
+                  disabled:!!formatLocked,
+                  title:formatLocked?("Inherited from "+(formatOwnerLabel||"this Show")):undefined,
+                  onClick:()=>{ if(formatLocked) return; setFormat(f.id); setFormatTouched(true); }},
                   React.createElement(Icon[f.icon]||Icon.film,{s:16}),
                   React.createElement("span",{className:"ns-format-name"},f.label),
                   React.createElement("span",{className:"ns-format-blurb"},f.blurb)))),
@@ -432,9 +582,11 @@ function NewStoryIntake({ onClose, onLaunch, aiOn }){
                 onChange:e=>setText(e.target.value),onKeyDown:onCmdEnter(develop),rows:4,autoFocus:true})),
             seed==="talk" && React.createElement("div",{className:"ns-surprise"},
               React.createElement(Icon.mic,{s:15}),
-              Voice.sttSupported
-                ? "Press the mic and just talk — I’ll ask a few friendly questions, then shape loglines from your answers. Prefer typing? You can do that too."
-                : "I’ll ask a few friendly questions and shape loglines from your answers. (Voice input isn’t available in this browser, so you’ll type your answers — same conversation.)"),
+              liveSeedSupport.ok
+                ? "Start once and talk naturally with MUSE — it listens and responds aloud in one continuous conversation. When the idea is clear, finish to shape the transcript into loglines."
+                : Voice.sttSupported
+                  ? "I’ll ask a few friendly questions aloud and shape loglines from your answers. Live conversation isn’t available here, so the turn-by-turn mic and typing options will open instead."
+                  : "I’ll ask a few friendly questions and shape loglines from your answers. Voice isn’t available here, so you’ll type your answers — same conversation."),
             err && React.createElement("div",{className:"ns-err"},(window.turnLinkifyReact?window.turnLinkifyReact(err):err)),
             React.createElement("div",{className:"ns-foot"},
               React.createElement("button",{className:"ns-btn ghost",onClick:onClose},"Cancel"),
@@ -449,7 +601,8 @@ function NewStoryIntake({ onClose, onLaunch, aiOn }){
 
         : step==="interview"
         ? React.createElement(NSInterview,{ formatLabel,
-            onComplete:(lls)=>{ setCandidates(lls); setChosen(lls[0]||""); setErr(""); setStep("format"); },
+            onComplete:(lls,transcript)=>{ if(transcript) setText(transcript); setCandidates(lls); setChosen(lls[0]||"");
+              applyRecommendedShape(lls); setErr(""); setStep("format"); },
             onBack:()=>setStep("seed") })
 
         : step==="loglines"

@@ -42,6 +42,11 @@ function clearStory(){ try{ localStorage.removeItem(STORY_KEY); }catch(e){} }
    cloud hydration can't flip it afterwards (that flip was the old Art Room flash). */
 const NAV_KEY = "turn-nav-v1";
 function loadNav(){ try{ return JSON.parse(localStorage.getItem(NAV_KEY)||"null")||{}; }catch(e){ return {}; } }
+function turnFirstStoryScene(scenes){
+  const ordered = (typeof scenesInStoryOrder==="function")
+    ? scenesInStoryOrder(scenes) : (Array.isArray(scenes)?scenes:[]);
+  return ordered[0] || null;
+}
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "grade": "Teal & Orange",
@@ -310,7 +315,12 @@ function buildFilmBible(doc){
     }),
     locations: locations.map(l=>({
       id: l.id, name: l.name, int_ext: l.intExt||"INT",
+      scope:l.scope||"atomic", continuity_root:l.parentKey||l.continuityRootKey||l.key,
+      parent_location:l.parentKey?((locations.find(x=>x&&x.key===l.parentKey)||{}).name||l.parentKey):undefined,
       times: l.times || undefined,
+      architecture:undef(l.architecture), materials:undef(l.materials),
+      permanent_lighting_interfaces:undef(l.lighting), permanent_dressing:undef(l.permanentDressing),
+      spatial_topology:undef(l.topology), continuity_anchors:undef(l.continuityAnchors),
       scenes: ordered.filter(s=>{ const m=locForScene(s.id); return m&&m.id===l.id; }).map(s=>s.no),
       environment_props: (()=>{ const e=envPropsOfLoc(l); return e.length?e:undefined; })(),
       sheet_id: l.id,
@@ -339,19 +349,28 @@ window.buildFilmBible = buildFilmBible;
    any film shared with them (the wall is where a share is explained: owner +
    role). One shared predicate so the render gate and onHome can never drift. */
 window.turnHomeWallEligible = function(rows){
-  const f = (rows||[]).filter(p=>String(p.isShow)!=="true");
+  const f = (rows||[]).filter(p=>!((window.turnSeries&&typeof window.turnSeries.isShowDoc==="function")
+    ? window.turnSeries.isShowDoc(p)
+    : p&&(String(p.project_kind||"").toLowerCase()==="show"||String(p.isShow).toLowerCase()==="true")));
   return f.length >= 2 || f.some(p=>p.isShared);
 };
 
 function App(){
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const saved = React.useRef(loadStory()).current;
+  const isShowProject = p=>(window.turnSeries&&typeof window.turnSeries.isShowDoc==="function")
+    ? window.turnSeries.isShowDoc(p)
+    : !!(p&&(String(p.project_kind||"").toLowerCase()==="show"||String(p.isShow).toLowerCase()==="true"));
   const nav = React.useRef(loadNav()).current;   // device-local last room/view/artView
   // Clean canvas for everyone: with no saved local story, start EMPTY (not the Matrix
   // sample). A real saved story is still restored. The Matrix lives only in a user's
   // own saved/cloud projects + the seed (story-data.jsx, used by tests/sample).
   const [scenes, setScenes] = React.useState(()=> (saved && saved.scenes) || []);
-  const [characters, setCharacters] = React.useState(()=> (saved && saved.characters) || []);
+  const [characters, setCharacters] = React.useState(()=>{
+    const loaded = (saved && saved.characters) || [];
+    return typeof window.turnPruneAccidentalManualCast==="function"
+      ? window.turnPruneAccidentalManualCast(loaded, saved||{}) : loaded;
+  });
   const [props, setProps] = React.useState(()=> (saved && saved.props) || []);
   const [locations, setLocations] = React.useState(()=> (saved && saved.locations) || []);
   // slugline-unit OVERLAYS (key + appearance/notes/images only) — the unit skeletons
@@ -367,6 +386,9 @@ function App(){
   const [lookbookApplied, setLookbookApplied] = React.useState(()=> (saved && saved.lookbookApplied) || {});
   const [shots, setShots] = React.useState(()=> (saved && saved.shots) || []);
   const [project, setProject] = React.useState(()=> (saved && saved.project) || ({ title:"Untitled film", genre:"", logline:"", controllingIdea:{} }));
+  // Live world snapshot for lifecycle operations that await a save/confirmation.
+  // Reading the ref after the await avoids converting an older render's Bible.
+  const seriesSnapshotRef = React.useRef(null);
   // Story Contract (outer plot · inner arc · dominance) — patch helper for the rail panel
   const updateContract = (patch)=> setProject(p=>({ ...p, contract:{ ...((p&&p.contract)||{}), ...patch } }));
   // project augmented with the Lookbook references routed to one department, so each drafter's
@@ -400,6 +422,8 @@ function App(){
   // object here (with its scenes + spec + generated sheet kept) so it can be restored.
   const _emptyTrash = ()=>({ characters:[], props:[], locations:[], shots:[] });
   const [trash, setTrash] = React.useState(()=> (saved && saved.trash) || _emptyTrash());
+  const trashRef = React.useRef(trash); trashRef.current=trash;
+  seriesSnapshotRef.current = {project,characters,locations,props,lookbook,lookbookNote,trash};
   const [draftingVisualIds, setDraftingVisualIds] = React.useState([]);
   const draftingVisualIdsRef = React.useRef([]); draftingVisualIdsRef.current = draftingVisualIds;
   const [draftingVisualId, setDraftingVisualId] = React.useState(null);
@@ -414,8 +438,27 @@ function App(){
   const [aiOpen, setAiOpen] = React.useState(()=> typeof window!=="undefined" && window.innerWidth>=1100);
   const [railOpen, setRailOpen] = React.useState(()=> typeof window==="undefined" || window.innerWidth>=1100);
   const [inspOpen, setInspOpen] = React.useState(()=> typeof window==="undefined" || window.innerWidth>=700);
+  // Project hydration and New Story completion are asynchronous. Keep the current
+  // Inspector state available to those paths without letting an old render decide
+  // whether a newly loaded film needs its default scene.
+  const inspOpenRef = React.useRef(inspOpen); inspOpenRef.current = inspOpen;
   const [inspTab, setInspTab] = React.useState("scene");   // controlled Inspector tab (Scene / Beats / Analysis)
   const [focusBeat, setFocusBeat] = React.useState(null);  // beat # to reveal in the Beats editor (set from the Script gutter)
+  // A story must never leave an already-open Inspector pointing at nothing. This
+  // also catches the moment a New Story agent first publishes its asynchronously
+  // built scenes. A valid user selection is left alone except at that deliberate
+  // empty-story -> first-scene boundary, where Scene 1 is the required default.
+  const hadScenesRef = React.useRef(scenes.length>0);
+  React.useEffect(()=>{
+    const hadScenes = hadScenesRef.current;
+    hadScenesRef.current = scenes.length>0;
+    if(!inspOpen || !scenes.length) return;
+    const justGainedFirstScene = !hadScenes;
+    if(!justGainedFirstScene && scenes.some(s=>s && s.id===selId)) return;
+    const first = turnFirstStoryScene(scenes);
+    if(!first) return;
+    setSelId(first.id); setSelChar(null); setFocusBeat(null); setRailOpen(false);
+  },[inspOpen, scenes, selId]);
   // when crossing a breakpoint, snap panels to a sane default for that size
   const lastVp = React.useRef(vp);
   React.useEffect(()=>{
@@ -636,42 +679,89 @@ function App(){
     })();
     return ()=>{ try{ unsub(); }catch(e){} };
   },[]);
-  const signOut = async ()=>{ try{ await cloudSignOut(); }catch(e){} setSession(null); };
+  const signOut = async ()=>{
+    if(currentProjectId && !(await flushPendingProjectSave(currentProjectId))){
+      if(typeof window.appToast==="function") window.appToast(
+        "Your latest changes have not saved yet. You’ll stay signed in so they aren’t lost.","error");
+      return false;
+    }
+    try{ await cloudSignOut(); }catch(e){}
+    setSession(null);
+    return true;
+  };
 
   // ---- cloud projects + doc sync ----
   const [projects, setProjects] = React.useState([]);
   const [homeOpen, setHomeOpen] = React.useState(false);   // Home / Dashboard overlay (only shown at >=2 films)
+  const homeOpenRef = React.useRef(false); homeOpenRef.current = homeOpen;
   const [currentProjectId, setCurrentProjectId] = React.useState(null);
+  const [projectLoading, setProjectLoading] = React.useState(false);
+  const projectLoadingRef = React.useRef(false); projectLoadingRef.current=projectLoading;
   // LIVE mirror of the open film's id. Long async work (agent runs, scene drafting,
   // image generation) captures the id it started under and compares it against this
   // before writing results into state — the film switcher stays live throughout, and a
   // result that lands after a switch belongs to a film that is no longer open.
   const projIdRef = React.useRef(null); projIdRef.current = currentProjectId;
   const cloudMode = !!(session && currentProjectId);
-  /* SHARE ROLE on the open film. view_only is enforced by RLS, but the client enforced
-     NOTHING: a read-only collaborator could edit for an hour and every save was silently
-     rejected by the database. Saves are now skipped outright (and the UI says why) rather
-     than firing writes that can only fail. */
+  /* SHARE ROLE on the open film. Room access and room mutability are deliberately
+     separate: an Art director may inspect the Writers' Room, but only Writer/owner
+     roles may change its story sections. The section helper is also the autosave
+     allow-list, keeping visible controls and durable writes on one permission model. */
   const _projRow = (projects||[]).find(p=>p.id===currentProjectId) || null;
   const shareRole = (_projRow && _projRow.shareRole) || (_projRow && _projRow.isOwner ? "owner" : "");
   const readOnlyShare = shareRole === "view_only";
-  /* LIVE mutation boundary for view-only collaborators. Disabled controls are the
-     visible contract; every Writers' Room setter/async apply path also checks this
-     ref so keyboard/programmatic calls and results already in flight cannot alter
-     local story state that RLS will never persist. */
+  const unknownSharedRole = !!(_projRow && _projRow.isShared
+    && !["view_only","writer","art_director"].includes(shareRole));
+  const _sharedCanWriteRoom = id=>!(_projRow&&_projRow.isShared)
+    || (typeof window.teamCanWriteRoom==="function" && window.teamCanWriteRoom(shareRole,id));
+  const writersRoomReadOnly = !_sharedCanWriteRoom("writers");
+  const artRoomReadOnly = !_sharedCanWriteRoom("art");
+  const writersRoomBlocked = projectLoading || writersRoomReadOnly;
+  const roomReadOnly = projectLoading || (room==="writers" ? writersRoomReadOnly
+    : room==="art" ? artRoomReadOnly : readOnlyShare);
+  /* LIVE refs fence async results whose collaborator role changes while model work
+     is in flight. A role change may happen without remounting the running agent. */
   const readOnlyShareRef = React.useRef(false);
   readOnlyShareRef.current = readOnlyShare;
+  const roomReadOnlyRef = React.useRef(false);
+  roomReadOnlyRef.current = roomReadOnly;
+  const writersRoomReadOnlyRef = React.useRef(false);
+  writersRoomReadOnlyRef.current = writersRoomBlocked;
+  const characterBibleWritableRef = React.useRef(true);
+  characterBibleWritableRef.current = !(_projRow&&_projRow.isShared)
+    || (typeof window.teamCanWriteSection==="function"
+      && window.teamCanWriteSection(shareRole,"characters"));
   const readOnlyNoticeRef = React.useRef(0);
-  const canMutateSharedFilm = ()=>{
-    if(!readOnlyShareRef.current) return true;
+  const _mutationNotice = roomId=>{
     const now = Date.now();
     if(now-(readOnlyNoticeRef.current||0)>2500){
       readOnlyNoticeRef.current = now;
-      if(typeof window.appToast==="function")
-        window.appToast("View-only access — ask the owner for Writer access to make changes.","error");
+      if(typeof window.appToast==="function"){
+        const note=(typeof window.teamRoleScopeNote==="function")?window.teamRoleScopeNote(shareRole):"";
+        window.appToast(note || (roomId==="writers"
+          ? "This role can read the Writers' Room but cannot change story or script."
+          : "This role cannot change the Art Room."),"error");
+      }
     }
     return false;
   };
+  const _projectLoadingNotice=()=>{
+    const now=Date.now();
+    if(now-(readOnlyNoticeRef.current||0)>2500){
+      readOnlyNoticeRef.current=now;
+      if(typeof window.appToast==="function") window.appToast(
+        "The selected project is still loading. Editing will resume when its saved state is ready.","info");
+    }
+    return false;
+  };
+  const canMutateWritersRoom = ()=> projectLoadingRef.current ? _projectLoadingNotice()
+    : writersRoomReadOnlyRef.current ? _mutationNotice("writers") : true;
+  const canMutateSharedFilm = ()=> projectLoadingRef.current ? _projectLoadingNotice()
+    : roomReadOnlyRef.current ? _mutationNotice(room) : true;
+  React.useEffect(()=>{
+    if(!writersRoomBlocked) return;
+    setAgentsOpen(false); setAgentLaunch(null); setNewStoryOpen(false);
+  },[writersRoomBlocked]);
   /* PRESENCE — who else has this film open. Joins a Realtime channel per film and leaves
      on switch/sign-out. Purely additive: if Realtime isn't enabled the list stays empty
      and nothing renders, so this can never break the app for a solo user. */
@@ -681,7 +771,7 @@ function App(){
     if(!cloudMode || !currentProjectId || typeof window.cloudJoinPresence!=="function") return;
     const email = (typeof cloudUserEmail==="function") ? cloudUserEmail(session) : "";
     const off = window.cloudJoinPresence(currentProjectId,
-      { email, name:(email||"").split("@")[0], role:shareRole||"owner", at:Date.now() },
+      { email, name:(email||"").split("@")[0], role:unknownSharedRole?"role_unavailable":(shareRole||"owner"), at:Date.now() },
       (people)=> setPresence(people||[]));
     return ()=>{ try{ off && off(); }catch(e){} };
   },[cloudMode, currentProjectId, session && session.user && session.user.id, shareRole]);
@@ -759,7 +849,17 @@ function App(){
       if(!alive || ended || !e || !e.detail || e.detail.projectId!==currentProjectId) return;
       if(!(_projRow && _projRow.isShared)) return;               // owners can't be removed
       if(typeof window.cloudCheckAccess!=="function") return;
-      window.cloudCheckAccess(currentProjectId).then(s=>{ if(alive && s==="gone") accessEnded(); }).catch(()=>{});
+      window.cloudCheckAccess(currentProjectId).then(async s=>{
+        if(!alive) return;
+        if(s==="gone"){ accessEnded(); return; }
+        // The same server-authenticated hint also announces role changes. Pull
+        // the compact project list so a demotion to View only disables editing
+        // immediately instead of waiting for a rejected autosave or reload.
+        if(s==="ok" && typeof window.cloudListProjects==="function"){
+          const list=await window.cloudListProjects();
+          if(alive && list) setProjects(list);
+        }
+      }).catch(()=>{});
     };
     window.addEventListener("turn-doc-push", onPush);
     window.addEventListener("turn-member-removed", onMemberRemoved);
@@ -917,6 +1017,16 @@ function App(){
   },[]);
   const hydratingRef = React.useRef(false);
   const lastSentRef = React.useRef({});   // per-section save baseline (seeded by applyDoc)
+  /* AUTOSAVE COORDINATOR. Project changes are allowed to ask the newest pending
+     snapshot to save immediately, while one promise chain keeps cloud responses in
+     submission order. The generation token prevents an older response from marking
+     newer edits saved (or adopting cloud state over them). These refs live above the
+     project loader because switching is itself part of the durability boundary. */
+  const saveTimer = React.useRef(null);
+  const saveQueueRef = React.useRef(Promise.resolve(true));
+  const pendingSaveRef = React.useRef(null);
+  const saveGenerationRef = React.useRef(0);
+  const dirtyRef = React.useRef(false);
   // bumped when a hydration pass finishes — lets effects that are gated on
   // hydratingRef (auto-seed) re-run once the doc has settled, even if the user
   // is already sitting on the tab (e.g. reloaded straight into Locations).
@@ -938,14 +1048,18 @@ function App(){
   // `stale` (optional): a superseded load must NOT clear hydratingRef when its 500ms
   // settle fires — the newer load owns hydration by then, and clearing it early would
   // reopen the very save window this guards.
-  const applyDoc = (d, stale)=>{
+  const applyDoc = (d, stale, onSettled)=>{
     d = d || {};
     hydratingRef.current = true;
     // honor an explicitly-empty project (clean canvas). A missing/legacy field only
     // falls back to The Matrix sample for the ADMIN account (demo upkeep) — every
     // other user gets an empty field instead: the sample is admin-only.
-    setScenes(Array.isArray(d.scenes)?d.scenes:(isAdmin?SCENES:[]));
-    setCharacters(d.characters||(isAdmin?CHARACTERS:[]));
+    const _scenesIn = Array.isArray(d.scenes)?d.scenes:(isAdmin?SCENES:[]);
+    setScenes(_scenesIn);
+    const loadedCharacters = d.characters||(isAdmin?CHARACTERS:[]);
+    setCharacters(typeof window.turnPruneAccidentalManualCast==="function"
+      ? window.turnPruneAccidentalManualCast(loadedCharacters, { ...d, characters:loadedCharacters })
+      : loadedCharacters);
     setProps(d.props||(isAdmin?(window.PROPS_SEED||[]):[]));
     setLocations(d.locations||[]);
     setSlugUnitsOv(Array.isArray(d.sluglineUnits)?d.sluglineUnits:[]);
@@ -959,12 +1073,17 @@ function App(){
     setBeatsMap((typeof withBeatMapIdentity==="function")?withBeatMapIdentity(loadedBeats):loadedBeats);
     setHistory(d.history||{});
     setContinuityMap(d.continuityMap||(isAdmin?(CONTINUITY||{}):{}));
-    // restore YOUR last scene (device-local) when it still exists in this film; the doc's
-    // selId is the fallback for a first open on a new device
-    const _navSel = nav && nav.selId;
-    const _scenesIn = Array.isArray(d.scenes) ? d.scenes : [];
-    const _navSelOk = _navSel && _scenesIn.some(sc=>sc && sc.id===_navSel);
-    setSelId(_navSelOk ? _navSel : (d.selId||(isAdmin?"s4":null)));
+    // An open Inspector always enters a loaded film on Scene 1 and the Story rail
+    // yields the workspace to it. When the Inspector is closed, keep restoring the
+    // user's last valid scene so opening the panel later does not erase navigation.
+    const _firstScene = turnFirstStoryScene(_scenesIn);
+    if(inspOpenRef.current && _firstScene){
+      setSelId(_firstScene.id); setSelChar(null); setFocusBeat(null); setRailOpen(false);
+    } else {
+      const _navSel = nav && nav.selId;
+      const _navSelOk = _navSel && _scenesIn.some(sc=>sc && sc.id===_navSel);
+      setSelId(_navSelOk ? _navSel : (d.selId||(isAdmin?"s4":null)));
+    }
     // Navigation (room / view / artView) is device-local UI state owned by NAV_KEY
     // and restored synchronously in useState above. Intentionally do NOT re-apply
     // any of it from the hydrated doc — that re-application is what produced the
@@ -990,7 +1109,9 @@ function App(){
     }catch(e){ lastSentRef.current = {}; }
     setTimeout(()=>{
       if(typeof stale==="function" && stale()) return;   // a newer load owns hydration now
-      hydratingRef.current = false; setHydrationTick(t=>t+1);
+      hydratingRef.current = false;
+      if(typeof onSettled==="function") onSettled();
+      setHydrationTick(t=>t+1);
     }, 500);
   };
   // SERIES (Phase 3): the show's BIBLE is itself a project row ({isShow, bible});
@@ -999,9 +1120,66 @@ function App(){
   // into state, and the asset layer routes those entities' sheets to the show scope.
   const [currentShowId, setCurrentShowId] = React.useState(null);
   const [currentEpisodeNo, setCurrentEpisodeNo] = React.useState(null);
-  const bibleEntityIds = (bible)=> [].concat(
-    (bible.characters||[]).map(c=>c.id), (bible.locations||[]).map(l=>l.id),
-    (bible.props||[]).map(p=>p.id), (bible.lookbook||[]).map(r=>r.id)).filter(Boolean);
+  const showIdRef = React.useRef(null); showIdRef.current = currentShowId;
+  const [seriesBusy, setSeriesBusy] = React.useState("");
+  const seriesBusyRef = React.useRef("");
+  const autoSeriesAttemptRef = React.useRef({});
+  // One pending Episode-create intent per app window. Only an ambiguous response
+  // keeps this UUID for the user's explicit retry; another Show/tab/action starts
+  // with a fresh UUID and can never inherit a stale browser-global request key.
+  const episodeCreateRetryRef = React.useRef(null);
+  const projectCreateRetryRef = React.useRef(null);
+  // While a project is being split into Episode 1 + Show Bible, no save that
+  // captured the old standalone scope may cross that server-side boundary.
+  const seriesBoundaryRef = React.useRef(null);
+  const bibleEntityIds = (bible)=> {
+    bible=bible||{};
+    const sharedTrash=(bible&&bible.trash)||{};
+    return [].concat(
+      (bible.characters||[]).map(c=>c.id), (bible.locations||[]).map(l=>l.id),
+      (bible.props||[]).map(p=>p.id), (bible.lookbook||[]).map(r=>r.id),
+      (sharedTrash.characters||[]).map(c=>c.id), (sharedTrash.locations||[]).map(l=>l.id),
+      (sharedTrash.props||[]).map(p=>p.id)).filter((id,i,all)=>id&&all.indexOf(id)===i);
+  };
+  /* Shared cards keep one scene-membership slice per episode. The working `scenes`
+     field remains the open episode's slice so every existing Art Room component can
+     stay episode-local; episodeScenes is the durable, collision-safe Show index. */
+  const withEpisodeSceneRefs = (entity, nextIds, sceneList)=>{
+    const wanted=Array.isArray(nextIds)?nextIds:[];
+    if(!currentShowId || !currentProjectId) return {...entity,scenes:wanted};
+    const merged=(window.turnSeries&&typeof window.turnSeries.mergeEpisodeSceneRefs==="function")
+      ? window.turnSeries.mergeEpisodeSceneRefs(entity,wanted,currentProjectId)
+      : null;
+    return merged&&typeof merged==="object"&&!Array.isArray(merged)
+      ? merged
+      : {...entity,scenes:wanted,episodeScenes:{...((entity&&entity.episodeScenes)||{}),[currentProjectId]:wanted}};
+  };
+  /* A shared location's screenplay-derived usage is Episode-owned in exactly the
+     same way as its scene ids. Keep the current Episode materialized in the flat
+     fields consumed by Location Scout, while retaining every sibling slice in
+     episodeLocationMeta for the Show-Bible save boundary. */
+  const withEpisodeLocationMeta = (entity, derived)=>{
+    const source={...(derived||{})};
+    const scoped=withEpisodeSceneRefs(entity,source.scenes,scenes);
+    if(!currentShowId || !currentProjectId) return {...scoped,
+      times:Array.isArray(source.times)?source.times:(scoped.times||[]),
+      areas:Array.isArray(source.areas)?source.areas:(scoped.areas||[]),
+      intExt:source.intExt!==undefined?source.intExt:scoped.intExt,
+      scope:source.scope!==undefined?source.scope:scoped.scope,
+      parentKey:source.parentKey!==undefined?source.parentKey:scoped.parentKey,
+      continuityRootKey:source.continuityRootKey!==undefined?source.continuityRootKey:scoped.continuityRootKey};
+    const merged=(window.turnSeries&&typeof window.turnSeries.mergeEpisodeLocationMeta==="function")
+      ? window.turnSeries.mergeEpisodeLocationMeta(scoped,source,currentProjectId) : null;
+    return merged&&typeof merged==="object"&&!Array.isArray(merged)
+      ? merged
+      : {...scoped,times:source.times||[],areas:source.areas||[],intExt:source.intExt||"",
+          scope:source.scope||"",parentKey:source.parentKey||"",
+          continuityRootKey:source.continuityRootKey||"",
+          episodeLocationMeta:{...((scoped&&scoped.episodeLocationMeta)||{}),
+          [currentProjectId]:{times:source.times||[],areas:source.areas||[],intExt:source.intExt||"",
+            scope:source.scope||"",parentKey:source.parentKey||"",
+            continuityRootKey:source.continuityRootKey||""}}};
+  };
   /* Opening a film is ASYNC and interruptible, which used to corrupt docs two ways:
      (1) setCurrentProjectId landed BEFORE the series-bible fetch resolved, so for the
          length of that fetch the NEW film's id was paired with the PREVIOUS film's story
@@ -1013,53 +1191,252 @@ function App(){
          different films, and the next autosave wrote one into the other. Fix: a
          monotonic sequence; a superseded load abandons without touching state. */
   const loadSeqRef = React.useRef(0);
-  const loadProjectIntoState = async (id)=>{
+  /* Save the currently rendered project before its state can be replaced. A request
+     may finish while another edit creates a newer snapshot, so follow the moving
+     pending pointer until the latest generation is durable (bounded defensively). */
+  const flushPendingProjectSave = async (projectId)=>{
+    const ownerId=projectId||projIdRef.current;
+    if(!ownerId || !dirtyRef.current) return true;
+    for(let pass=0; pass<4 && dirtyRef.current; pass++){
+      const pending=pendingSaveRef.current;
+      if(!pending || String(pending.projectId||"")!==String(ownerId)
+        || typeof pending.request!=="function") return false;
+      let ok=false;
+      try{ ok=!!(await pending.request()); }catch(e){ ok=false; }
+      if(String(projIdRef.current||"")!==String(ownerId)) return false;
+      if(ok && !dirtyRef.current) return true;
+      // A newer render may have replaced pendingSaveRef while the prior write was
+      // in flight. Loop once more so that newer snapshot is included too.
+      if(!pendingSaveRef.current || pendingSaveRef.current.generation===pending.generation) return false;
+    }
+    return !dirtyRef.current;
+  };
+  /* SERIES PAIRED-SAVE JOURNAL. Episode story sections and Show-Bible sections
+     live in two rows, so the browser cannot commit them atomically. Before a save
+     touches BOTH rows, persist the exact idempotent patches locally. A crash after
+     either row commits leaves this small outbox entry behind; opening that same
+     Episode replays both patches against fresh revisions and clears the entry only
+     after both are confirmed. The journal is deliberately bounded and fail-closed:
+     if it cannot be written, neither cloud write starts. */
+  const SERIES_PAIR_OUTBOX_PREFIX="turn-series-pair-v1:";
+  const SERIES_PAIR_OUTBOX_MAX_ENTRIES=12;
+  const SERIES_PAIR_OUTBOX_MAX_ENTRY_CHARS=1750000;
+  const SERIES_PAIR_OUTBOX_MAX_TOTAL_CHARS=3500000;
+  const _seriesOutboxOwner=()=>String(
+    ((typeof cloudUserId==="function")&&cloudUserId(session))
+      ||(session&&session.user&&session.user.id)||"");
+  const _seriesOutboxRows=(episodeId,showId)=>{
+    const owner=_seriesOutboxOwner(), rows=[];
+    if(!owner) return rows;
+    try{
+      for(let i=0;i<localStorage.length;i++){
+        const key=localStorage.key(i);
+        if(!key||!key.startsWith(SERIES_PAIR_OUTBOX_PREFIX)) continue;
+        let entry=null;
+        try{ entry=JSON.parse(localStorage.getItem(key)||"null"); }catch(e){}
+        if(!entry||entry.version!==1) continue;
+        if(String(entry.ownerId||"")!==owner) continue;
+        if(episodeId&&String(entry.episodeId||"")!==String(episodeId)) continue;
+        if(showId&&String(entry.showId||"")!==String(showId)) continue;
+        rows.push({key,entry});
+      }
+    }catch(e){ return []; }
+    rows.sort((a,b)=>(Number(a.entry.at)||0)-(Number(b.entry.at)||0)
+      ||String(a.entry.id||"").localeCompare(String(b.entry.id||"")));
+    return rows;
+  };
+  const _seriesOutboxPut=(payload)=>{
+    const ownerId=_seriesOutboxOwner();
+    if(!ownerId) return null;
+    try{
+      const mine=_seriesOutboxRows();
+      if(mine.length>=SERIES_PAIR_OUTBOX_MAX_ENTRIES) return null;
+      const id=(window.crypto&&typeof window.crypto.randomUUID==="function")
+        ? window.crypto.randomUUID()
+        : Date.now().toString(36)+"-"+Math.random().toString(36).slice(2);
+      const entry={version:1,id,ownerId,at:Date.now(),...payload};
+      const raw=JSON.stringify(entry);
+      const used=mine.reduce((n,row)=>{
+        try{ return n+String(localStorage.getItem(row.key)||"").length; }catch(e){ return n; }
+      },0);
+      if(raw.length>SERIES_PAIR_OUTBOX_MAX_ENTRY_CHARS
+        ||used+raw.length>SERIES_PAIR_OUTBOX_MAX_TOTAL_CHARS) return null;
+      const key=SERIES_PAIR_OUTBOX_PREFIX+ownerId+":"+id;
+      localStorage.setItem(key,raw);
+      // Verify the write: quota/privacy modes may fail without a useful exception.
+      if(localStorage.getItem(key)!==raw){ try{ localStorage.removeItem(key); }catch(e){} return null; }
+      return key;
+    }catch(e){ return null; }
+  };
+  const _seriesOutboxClear=(key)=>{ try{ if(key) localStorage.removeItem(key); }catch(e){} };
+  const _replaySeriesPairOutbox=async(episodeId,showId)=>{
+    const rows=_seriesOutboxRows(episodeId,showId);
+    const attempted=rows.length>0;
+    let replayed=false,lastBible=null,lastBiblePatch={};
+    for(const row of rows){
+      const item=row.entry||{};
+      let ep={ok:true,noop:true}, bibleResult={ok:true,noop:true};
+      try{
+        if(item.episodePatch&&Object.keys(item.episodePatch).length)
+          ep=await cloudSaveSections(episodeId,item.episodePatch,
+            {baseline:item.episodeBaseline||{}});
+        if(ep&&ep.ok&&item.biblePatch&&Object.keys(item.biblePatch).length)
+          bibleResult=await cloudSaveBibleSections(showId,item.biblePatch,{
+            episodeId,baseline:item.bibleBaseline||{}});
+      }catch(e){
+        return {ok:false,attempted,replayed,lastBible,message:(e&&e.message)||"The interrupted Series save could not be reconciled yet."};
+      }
+      if(!(ep&&ep.ok&&bibleResult&&bibleResult.ok)){
+        const failed=!(ep&&ep.ok)?ep:bibleResult;
+        return {ok:false,attempted,replayed,lastBible,conflict:!!(failed&&failed.conflict),
+          message:(failed&&failed.message)||"The interrupted Series save could not be reconciled yet."};
+      }
+      // Both writes are confirmed (including idempotent no-ops); only now may the
+      // durable recovery record disappear.
+      _seriesOutboxClear(row.key);
+      if(bibleResult.bible){
+        lastBible=bibleResult.bible;
+        Object.keys(item.biblePatch||{}).forEach(k=>{ lastBiblePatch[k]=item.biblePatch[k]; });
+      }
+      replayed=true;
+    }
+    return {ok:true,attempted,replayed,lastBible,lastBiblePatch};
+  };
+  const loadProjectIntoState = async (id, opts)=>{
+    const fromId=projIdRef.current;
+    if(!(opts&&opts.discardPending) && fromId && String(id)!==String(fromId)){
+      const flushed=await flushPendingProjectSave(fromId);
+      if(!flushed){
+        if(typeof window.appToast==="function") window.appToast(
+          "This film still has unsaved changes. It will stay open until they are saved.","error");
+        return false;
+      }
+    }
+    if(fromId && String(id)!==String(fromId)) episodeCreateRetryRef.current=null;
+    if(opts&&opts.discardPending){
+      // The caller has explicitly chosen a server-authoritative replacement (for
+      // example after deletion or a conflict). Invalidate any completion already
+      // on the wire so its failure cannot retry or repaint the UI.
+      ++saveGenerationRef.current;
+      pendingSaveRef.current=null;
+      dirtyRef.current=false;
+      clearTimeout(saveTimer.current);
+    }
     const seq = ++loadSeqRef.current;
     const stale = ()=> loadSeqRef.current !== seq;
     hydratingRef.current = true;
+    projectLoadingRef.current=true;
+    setProjectLoading(true);
     // release the save-block ONLY if we still own the load; if a newer load superseded
     // us it owns hydration now and will clear it when it finishes.
-    const release = ()=>{ if(!stale()) hydratingRef.current = false; };
+    const release = ()=>{ if(!stale()){
+      hydratingRef.current = false;
+      projectLoadingRef.current=false;
+      setProjectLoading(false);
+    } };
+    const settle = ()=>{ if(!stale()){
+      projectLoadingRef.current=false;
+      setProjectLoading(false);
+    } };
     const row = await cloudLoadProject(id);
     if(!row || stale()){ release(); return false; }   // false = this call did NOT land server truth
-    if(typeof window.cloudNoteDocRev==="function") window.cloudNoteDocRev(id, row.doc);
+    let d = row.doc || {};
+    let showRow = null, bible = null, readyDoc = d;
+    if(d.showId){
+      showRow = await cloudLoadProject(d.showId);
+      if(stale()){ release(); return false; }
+      if(showRow){
+        const repaired=await _replaySeriesPairOutbox(id,d.showId);
+        if(stale()){ release(); return false; }
+        if(repaired.attempted){
+          // Re-read both rows after replay so the UI hydrates the reconciled truth,
+          // not the pre-recovery snapshots fetched immediately above.
+          const refreshedEpisode=await cloudLoadProject(id);
+          const refreshedShow=await cloudLoadProject(d.showId);
+          if(stale()){ release(); return false; }
+          if(refreshedEpisode) d=refreshedEpisode.doc||d;
+          if(refreshedShow) showRow=refreshedShow;
+        }
+        if(!repaired.ok && typeof window.appToast==="function")
+          window.appToast("An interrupted Episode + Show Bible save is still pending — "+repaired.message,"error");
+      }
+      readyDoc = (window.turnSeries && typeof window.turnSeries.hydrateEpisode==="function")
+        ? window.turnSeries.hydrateEpisode(d, showRow&&showRow.doc, id)
+        : null;
+      /* Never turn an unavailable Show Bible into five empty departments. That
+         looked like a successful load and the next autosave permanently replaced
+         the shared world with emptiness. Leave the previous film intact instead. */
+      if(!showRow || !readyDoc){
+        release();
+        if(typeof window.appToast==="function") window.appToast(
+          "Couldn’t open this episode because its Show Bible is unavailable. Your previous project is still open.","error");
+        return false;
+      }
+      bible = (window.turnSeries && typeof window.turnSeries.sharedBible==="function")
+        ? window.turnSeries.sharedBible((showRow.doc&&showRow.doc.bible)||{})
+        : ((showRow.doc&&showRow.doc.bible)||{});
+    }
+    if(typeof window.cloudNoteDocRev==="function"){
+      window.cloudNoteDocRev(id, d);
+      if(showRow) window.cloudNoteDocRev(d.showId, showRow.doc);
+    }
     const uid = (typeof cloudUserId==="function") ? cloudUserId(session) : null;
     if(typeof nbUseCloud==="function") nbUseCloud(id, uid);   // re-scope the image cache to this film
     if(typeof window.vgResetAll==="function") window.vgResetAll();   // and clear voice/video caches
     if(typeof window.vidResetAll==="function") window.vidResetAll();
-    // pull this film's cloud take records + collect any renders left cooking for it
-    // (fire-and-forget: hydrate re-checks the scope itself, so a fast film switch
-    // mid-load simply drops the stale result)
+    setCurrentProjectId(id);
+    bibleRebaseRef.current=null;
+    if(d.showId){
+      setCurrentShowId(d.showId);
+      setCurrentEpisodeNo(d.episodeNo || null);
+      if(typeof nbUseShared==="function") nbUseShared(d.showId, bibleEntityIds(bible));
+      bibleSavedRef.current = stableJson(bible);
+      applyDoc(readyDoc, stale, settle);
+    } else {
+      setCurrentShowId(null); setCurrentEpisodeNo(null);
+      bibleSavedRef.current = null;
+      if(typeof nbUseShared==="function") nbUseShared(null);
+      applyDoc(readyDoc, stale, settle);
+    }
+    // Pull this episode's take records only after the episode + Show Bible have
+    // committed as one coherent scope. A fast switch is still dropped by the
+    // video store's own project/epoch guard.
     if(typeof window.vidCloudHydrate==="function")
       setTimeout(()=>{ try{ window.vidCloudHydrate().then(()=>{
         if(typeof window.videoProxyReady==="function" && window.videoProxyReady()
           && typeof window.vidRecoverPending==="function") window.vidRecoverPending();
       }); }catch(e){} }, 0);
-    setCurrentProjectId(id);
-    const d = row.doc || {};
-    if(d.showId){
-      const bibleRow = await cloudLoadProject(d.showId);
-      if(stale()) return false;   // a newer load owns the state (and hydratingRef) now
-      if(bibleRow && typeof window.cloudNoteDocRev==="function") window.cloudNoteDocRev(d.showId, bibleRow.doc);
-      const bible = (bibleRow && bibleRow.doc && bibleRow.doc.bible) || {};
-      setCurrentShowId(d.showId);
-      setCurrentEpisodeNo(d.episodeNo || null);
-      if(typeof nbUseShared==="function") nbUseShared(d.showId, bibleEntityIds(bible));
-      applyDoc({ ...d,
-        characters: bible.characters || [], locations: bible.locations || [],
-        props: bible.props || [], lookbook: bible.lookbook || [],
-        lookbookNote: bible.lookbookNote || "" }, stale);
-    } else {
-      setCurrentShowId(null); setCurrentEpisodeNo(null);
-      if(typeof nbUseShared==="function") nbUseShared(null);
-      applyDoc(d, stale);
+    /* A conversion may have completed while copying legacy Episode 1 sheets was
+       interrupted. Owners resume that idempotent promotion on the next load;
+       collaborators never try to copy somebody else's Storage paths. */
+    const showDoc=showRow&&showRow.doc;
+    const migration=showDoc&&showDoc.assetMigration;
+    const migrationFrom=(migration&&migration.from)||(showDoc&&showDoc.sourceEpisodeId);
+    if(showRow && showRow.owner===uid && migrationFrom
+      && (!migration || migration.status!=="complete")
+      && typeof window.cloudPromoteProjectAssets==="function"){
+      window.__turnSeriesMigrations=window.__turnSeriesMigrations||{};
+      if(!window.__turnSeriesMigrations[showRow.id]){
+        window.__turnSeriesMigrations[showRow.id]=(async()=>{
+          const result=await window.cloudPromoteProjectAssets(migrationFrom,showRow.id,bibleEntityIds(bible||{}));
+          const marker={from:migrationFrom,status:(result&&result.ok)?"complete":"pending",
+            at:new Date().toISOString(),moved:Number(result&&result.moved)||0,
+            ...((result&&result.message)?{lastError:result.message}:{})};
+          if(typeof window.cloudSaveSections==="function") await window.cloudSaveSections(showRow.id,{assetMigration:marker});
+          if(result&&result.ok && projIdRef.current===id){
+            if(typeof nbUseShared==="function") nbUseShared(showRow.id,bibleEntityIds(bible||{}));
+            if(typeof window.nbPrefetchAll==="function") window.nbPrefetchAll();
+          }
+          return result;
+        })().finally(()=>{ delete window.__turnSeriesMigrations[showRow.id]; });
+      }
     }
     // A project with no story can't live in the (locked) Art Room — applyDoc
     // deliberately never re-applies the room, so creating or switching to a blank
     // project while in the Art Room would otherwise strand the user there. Force the
     // Writers' Room so a new story always begins on the spine. (Only ever pulls TOWARD
     // writers — never flashes into art — so it doesn't reintroduce the load-flash bug.)
-    if(!((d.scenes||[]).length)){ setRoom("writers"); setView("spine"); }
+    if(!((readyDoc.scenes||[]).length)){ setRoom("writers"); setView("spine"); }
     return true;   // this call hydrated the film from server truth
   };
   /* on sign-in: load the user's projects (creating a first one if needed) and open
@@ -1070,6 +1447,8 @@ function App(){
      list and each create a "My film", spawning duplicate empty projects. The ref
      resets on sign-out so the next sign-in bootstraps again. */
   const bootRef = React.useRef(false);
+  const bootLoadWarnedRef = React.useRef(false);
+  const [bootRetryTick,setBootRetryTick] = React.useState(0);
   // Depend on the STABLE user id, not the session object: Supabase fires several auth
   // events on sign-in (INITIAL_SESSION / SIGNED_IN / TOKEN_REFRESHED), each a NEW session
   // object. If the effect keyed on `session`, a later event would re-run it and cancel the
@@ -1078,7 +1457,7 @@ function App(){
   const bootUserId = session ? (((typeof cloudUserId==="function") && cloudUserId(session)) || "signed-in") : null;
   React.useEffect(()=>{
     if(!(typeof cloudConfigured==="function" && cloudConfigured())) return;
-    if(!bootUserId){ bootRef.current=false; setProjects([]); setCurrentProjectId(null); if(typeof nbUseLocal==="function") nbUseLocal(); return; }
+    if(!bootUserId){ bootRef.current=false; bootLoadWarnedRef.current=false; setProjects([]); setCurrentProjectId(null); if(typeof nbUseLocal==="function") nbUseLocal(); return; }
     if(bootRef.current) return;            // already bootstrapped this sign-in
     bootRef.current = true;
     let alive = true;
@@ -1127,8 +1506,28 @@ function App(){
       if(!alive) return;
       setProjects(list);
       // never auto-open a SHOW (bible) row — open the most recent episode/film
-      const openable = list.filter(p=>String(p.isShow)!=="true");
-      if(openable[0]) await loadProjectIntoState(openable[0].id);
+      const openable = list.filter(p=>!isShowProject(p));
+      let opened=false;
+      for(const row of openable){
+        if(await loadProjectIntoState(row.id)){ opened=true; break; }
+        if(!alive) return;
+      }
+      if(!opened){
+        /* A transient Episode/Show read must not latch boot forever on an empty
+           "Connecting" surface. Keep the project wall reachable and retry the
+           authoritative load without manufacturing another project row. */
+        setHomeOpen(true);
+        bootRef.current=false;
+        if(!bootLoadWarnedRef.current && typeof window.appToast==="function"){
+          bootLoadWarnedRef.current=true;
+          window.appToast(openable.length
+            ? "Your projects loaded, but none opened yet. TURN will retry automatically."
+            : "Your first film hasn't opened yet. TURN will retry automatically.","info");
+        }
+        setTimeout(()=>{ if(alive) setBootRetryTick(t=>t+1); },3000);
+        return;
+      }
+      bootLoadWarnedRef.current=false;
       // a studio whose EVERY film is a share (invitee with no own work yet)
       // boots onto the home wall, where the share is explained (owner + role),
       // instead of being dropped wordlessly into someone else's Writers' Room.
@@ -1137,9 +1536,12 @@ function App(){
         setHomeOpen(true);
     })().catch(()=>{});
     return ()=>{ alive=false; };
-  },[bootUserId]);
+  },[bootUserId,bootRetryTick]);
 
-  const switchProject = async (id)=>{ if(id===currentProjectId) return; await loadProjectIntoState(id); };
+  const switchProject = async (id)=>{
+    if(id===currentProjectId) return true;
+    return !!(await loadProjectIntoState(id));
+  };
   /* CLAIM INVITATIONS once per sign-in: links membership rows addressed to my
      verified email onto my account id (turn_claim_memberships), so access stops
      depending on the email string. Returns only NEWLY linked films — announce
@@ -1176,11 +1578,57 @@ function App(){
     inviteAuthRef.current = true;
     openAuth("signin");
   },[inviteLanding, authReady, !!session]);
-  const createProject = async (title)=>{
-    const created = await cloudCreateProject(title||"Untitled film", emptyDoc());
-    if(!created) return null;   // callers MUST treat null as "no film was minted"
-    setProjects(ps=>[created, ...ps]);
-    await loadProjectIntoState(created.id);
+  const createProject = async (title, opts)=>{
+    opts={...(opts||{})};
+    const createTitle=title||"Untitled film";
+    const implicitIntent=!opts.requestId;
+    const pendingIntent=projectCreateRetryRef.current;
+    if(implicitIntent && pendingIntent && pendingIntent.title===createTitle)
+      opts.requestId=pendingIntent.requestId;
+    const launchScope=opts.launchScope||{
+      projectId:projIdRef.current,
+      loadSeq:loadSeqRef.current,
+      homeOpen:homeOpenRef.current,
+    };
+    const ownerId=projIdRef.current;
+    if(ownerId && !(await flushPendingProjectSave(ownerId))){
+      if(typeof window.appToast==="function") window.appToast(
+        "Save the current film before creating another one.","error");
+      return null;
+    }
+    const created = await cloudCreateProject(createTitle, emptyDoc(),opts);
+    if(!created){
+      if(implicitIntent && window.cloudLastCreateRequestId)
+        projectCreateRetryRef.current={title:createTitle,requestId:window.cloudLastCreateRequestId};
+      return null;   // callers MUST treat null as "no film was minted"
+    }
+    if(implicitIntent) projectCreateRetryRef.current=null;
+    setProjects(ps=>[created, ...ps.filter(p=>p.id!==created.id)]);
+    const launchStillActive=String(projIdRef.current||"")===String(launchScope.projectId||"")
+      && loadSeqRef.current===Number(launchScope.loadSeq)
+      && homeOpenRef.current===!!launchScope.homeOpen;
+    if(!launchStillActive) return {ok:true,created:true,id:created.id,opened:false,superseded:true,
+      message:"The new film was created and added to the project list. Your current screen was left unchanged."};
+    const openingSeq=loadSeqRef.current;
+    let opened=await loadProjectIntoState(created.id);
+    /* A committed row deserves one read retry, using the SAME id. Only retry if
+       the failed load is still the latest navigation initiated here; a user who
+       opened Home or another project must never be pulled back by this result. */
+    const firstLoadStillOurs=!opened
+      && loadSeqRef.current===openingSeq+1
+      && String(projIdRef.current||"")===String(launchScope.projectId||"")
+      && homeOpenRef.current===!!launchScope.homeOpen;
+    if(firstLoadStillOurs) opened=await loadProjectIntoState(created.id);
+    if(!opened){
+      const ownAttempts=firstLoadStillOurs?2:1;
+      const superseded=loadSeqRef.current!==openingSeq+ownAttempts
+        || (projIdRef.current && String(projIdRef.current)!==String(launchScope.projectId||""))
+        || homeOpenRef.current!==!!launchScope.homeOpen;
+      if(superseded) return {ok:true,created:true,id:created.id,opened:false,superseded:true,
+        message:"The new film was created and added to the project list. Your current screen was left unchanged."};
+      return {ok:false,created:true,id:created.id,
+        message:"The new film was saved, but it couldn\u2019t be opened yet. Retrying is safe and won\u2019t create a duplicate."};
+    }
     setArtView("lookbook");   // a fresh film opens the Art Room on the Lookbook (front of the pipeline)
     return created.id;
   };
@@ -1218,12 +1666,18 @@ function App(){
       try{ showRow = await window.cloudLoadProject(doc.showId); }catch(e){ return { ok:false }; }
       if(!showRow) return { ok:false };   // couldn't reach the show bible — retry later
       const bible = (showRow.doc && showRow.doc.bible) || {};
-      if(Array.isArray(bible.characters) && bible.characters.length){
-        chars = bible.characters;
-        if(Array.isArray(bible.locations) && bible.locations.length) locs = bible.locations;
-        if(Array.isArray(bible.props) && bible.props.length) props = bible.props;
-        scopeId = doc.showId;
-      }
+      if(!window.turnSeries || typeof window.turnSeries.isShowDoc!=="function"
+        || typeof window.turnSeries.validBibleShape!=="function"
+        || !window.turnSeries.isShowDoc(showRow)
+        || !window.turnSeries.validBibleShape(bible)) return { ok:false };
+      /* Every shared department is authoritative independently. A character-free
+         Show may still have canonical locations and props; using the Episode row
+         merely because bible.characters is empty loses those references and can
+         paint an invented world. */
+      chars = Array.isArray(bible.characters) ? bible.characters : [];
+      locs = Array.isArray(bible.locations) ? bible.locations : [];
+      props = Array.isArray(bible.props) ? bible.props : [];
+      scopeId = doc.showId;
     }
     // The film's OWN medium: the dominant picked render style across its entities —
     // an animated film must get an animated one-sheet, not a photoreal one.
@@ -1319,6 +1773,20 @@ function App(){
     const inflight = (window.__posterInflight = window.__posterInflight || {});
     if(inflight[proj.id]) return inflight[proj.id];
     const run = (async ()=>{
+      /* If rendering succeeded but the small cover patch failed, reuse those
+         exact bytes on retry. Never spend on a second image merely because a
+         network/RLS race prevented the first one's metadata from committing. */
+      const pendingSaves=(window.__posterSavePending=window.__posterSavePending||{});
+      const pending=pendingSaves[proj.id];
+      if(pending){
+        const saved=typeof window.cloudSaveCover==="function"
+          ? await window.cloudSaveCover(proj.id,pending.url,pending.keepPrev) : null;
+        if(!(saved&&saved.ok)) throw new Error("The poster is ready but still couldn't be saved. Try again to retry the same image — no new generation will run.");
+        delete pendingSaves[proj.id];
+        setProjects(ps=>ps.map(p=>p.id===proj.id?{...p,cover:pending.url,
+          ...(pending.keepPrev!==undefined?{coverPrev:pending.keepPrev}:{})}:p));
+        return pending.url;
+      }
       const title = proj.title || "Untitled film";
       const logline = ((proj && proj.logline) || "").trim();
       // THE POSTER RECIPE — every poster is grounded in the film's own canon,
@@ -1384,7 +1852,12 @@ function App(){
       if(!url) throw new Error("The poster came back empty — try again.");
       // keep enough pixels for the full-screen viewer (1080-wide, ~2x the card)
       if(typeof window.downscaleRef==="function"){ try{ url = await window.downscaleRef(url, 1080, 0.85); }catch(e){} }
-      if(typeof window.cloudSaveCover==="function") await window.cloudSaveCover(proj.id, url, keepPrev);
+      const saved=typeof window.cloudSaveCover==="function"
+        ? await window.cloudSaveCover(proj.id,url,keepPrev) : null;
+      if(!(saved&&saved.ok)){
+        pendingSaves[proj.id]={url,keepPrev};
+        throw new Error("The poster was generated but couldn't be saved. Try again to save this same image — TURN won't generate or charge for another one.");
+      }
       setProjects(ps=>ps.map(p=>p.id===proj.id?{ ...p, cover:url, ...(keepPrev!==undefined?{coverPrev:keepPrev}:{}) }:p));
       return url;
     })();
@@ -1402,47 +1875,344 @@ function App(){
   /* SERIES: turn the CURRENT project into episode 1 of a new show — its
      departments become the show's shared bible. (Sheets generated before the
      conversion stay readable via the asset layer's episode-scope fallback.) */
-  const makeShow = async ()=>{
-    if(!cloudMode || currentShowId) return;
-    const ok = await window.appConfirm({ title:"Turn this into a show?",
-      body:"“"+(project.title||"Untitled")+"” becomes Episode 1, and its cast, locations, props and lookbook become the show's shared BIBLE — every episode reads and writes the same world. Episodes keep their own scenes, script and shots.",
-      confirmLabel:"Create the show" });
-    if(!ok) return;
-    const show = await cloudCreateProject((project.title||"Untitled")+" — Show",
-      { isShow:true, bible:{ characters, locations, props, lookbook, lookbookNote } });
-    if(!show) return;
-    setProjects(ps=>[{ ...show, isShow:"true" }, ...ps]);
-    setCurrentShowId(show.id);
-    setCurrentEpisodeNo(1);
-    if(typeof nbUseShared==="function") nbUseShared(show.id, bibleEntityIds({ characters, locations, props, lookbook }));
+  const makeShow = async (opts)=>{
+    const automatic=!!(opts&&opts.automatic);
+    if(!cloudMode || currentShowId || !currentProjectId || seriesBusyRef.current) return false;
+    if(!automatic){
+      const ok = await window.appConfirm({ title:"Turn this into a show?",
+        body:"“"+(project.title||"Untitled")+"” becomes Episode 1. Its cast, locations, props and lookbook become one shared Show Bible; scenes, script and shots remain episode-specific.",
+        confirmLabel:"Create show and Episode 1" });
+      if(!ok) return false;
+    }
+    const ownerProjectId=currentProjectId;
+    const busy="make-show:"+ownerProjectId;
+    if(String(projIdRef.current||"")!==String(ownerProjectId)
+      || showIdRef.current || seriesBusyRef.current) return false;
+    seriesBusyRef.current=busy; setSeriesBusy(busy);
+    try{
+      /* Automatic conversion is launched from an effect before later effects in
+         the same commit have necessarily installed their 700ms save snapshot.
+         Yield one task, then flush both pending and already-running work before
+         crossing the standalone → Episode 1/Show Bible storage boundary. */
+      await new Promise(resolve=>setTimeout(resolve,0));
+      if(!(await flushPendingProjectSave(ownerProjectId))
+        || String(projIdRef.current||"")!==String(ownerProjectId)
+        || showIdRef.current) return false;
+      seriesBoundaryRef.current={projectId:ownerProjectId,generation:saveGenerationRef.current};
+      const live=seriesSnapshotRef.current||{};
+      const liveProject=live.project||project;
+      const bibleBase=(window.turnSeries&&window.turnSeries.sharedBible)
+        ? window.turnSeries.sharedBible({characters:live.characters||[],locations:live.locations||[],
+            props:live.props||[],lookbook:live.lookbook||[],lookbookNote:live.lookbookNote||"",
+            trash:live.trash||_emptyTrash()})
+        : {characters:live.characters||[],locations:live.locations||[],props:live.props||[],
+            lookbook:live.lookbook||[],lookbookNote:live.lookbookNote||"",
+            trash:{characters:(live.trash&&live.trash.characters)||[],
+              locations:(live.trash&&live.trash.locations)||[],props:(live.trash&&live.trash.props)||[]}};
+      const bible=(window.turnSeries&&typeof window.turnSeries.prepareBibleForEpisode==="function")
+        ? window.turnSeries.prepareBibleForEpisode(bibleBase,ownerProjectId) : bibleBase;
+      /* A normal film explicitly converted into a Show becomes `series`, while a
+         registered Show-capable format keeps its own canonical id (future limited,
+         anthology, vertical-series formats must not be flattened to `series`). */
+      const registeredFormat=(window.FORMATS||[]).find(f=>f&&f.id===String(liveProject&&liveProject.format))
+        || ((typeof formatOf==="function")?formatOf(liveProject):null);
+      const seriesFormatId=String((registeredFormat&&registeredFormat.needsShow&&registeredFormat.id)||"series");
+      const episodeProject={...liveProject,format:seriesFormatId};
+      const result=(typeof window.cloudConvertProjectToShow==="function")
+        ? await window.cloudConvertProjectToShow(ownerProjectId,(liveProject.title||"Untitled")+" — Show",bible,episodeProject)
+        : {ok:false,message:"Series support is not loaded."};
+      if(!(result&&result.ok&&result.show)){
+        if(typeof window.appToast==="function") window.appToast((result&&result.message)||"The show could not be created.","error");
+        return false;
+      }
+      const show=result.show, showMeta={...show,project_kind:"show",show_id:null,episode_no:null,
+        isShow:"true",showId:null,episodeNo:null,fmt:seriesFormatId};
+      const episodeDoc=(result.episode&&result.episode.doc)||{};
+      const episodeMeta={project_kind:"episode",show_id:show.id,episode_no:1,
+        isShow:false,showId:show.id,episodeNo:"1",fmt:seriesFormatId,
+        ...(episodeDoc.cover?{cover:episodeDoc.cover}:{}),...(episodeDoc.coverPrev?{coverPrev:episodeDoc.coverPrev}:{})};
+      setProjects(ps=>{
+        const withoutShow=ps.filter(p=>p.id!==show.id);
+        return [showMeta,...withoutShow.map(p=>p.id===ownerProjectId?{...p,...episodeMeta}:p)];
+      });
+      const stillOpen=String(projIdRef.current||"")===String(ownerProjectId);
+      if(stillOpen){
+        const conversionGeneration=seriesBoundaryRef.current&&seriesBoundaryRef.current.generation;
+        setProject(p=>({...p,format:seriesFormatId}));
+        // Keep the per-episode reference index in working state immediately; a reload is
+        // not required before the next Bible edit can preserve Episode 1's bindings.
+        // If the user edited while the RPC was running, leave their newer live values
+        // intact; the first series-aware autosave will prepare/persist those instead.
+        if(conversionGeneration===saveGenerationRef.current){
+          setCharacters(bible.characters); setLocations(bible.locations); setProps(bible.props);
+        }
+        setCurrentShowId(show.id); setCurrentEpisodeNo(1);
+        bibleSavedRef.current=stableJson(bible);
+        bibleRebaseRef.current=null;
+        if(typeof nbUseShared==="function") nbUseShared(show.id,bibleEntityIds(bible));
+      }
+
+      let migration={ok:true,moved:0};
+      if(typeof window.cloudPromoteProjectAssets==="function")
+        migration=await window.cloudPromoteProjectAssets(ownerProjectId,show.id,bibleEntityIds(bible));
+      const marker={from:ownerProjectId,status:(migration&&migration.ok)?"complete":"pending",
+        at:new Date().toISOString(),moved:Number(migration&&migration.moved)||0,
+        ...((migration&&migration.message)?{lastError:migration.message}:{})};
+      if(typeof window.cloudSaveSections==="function") await window.cloudSaveSections(show.id,{assetMigration:marker});
+      if(migration&&migration.ok){
+        if(String(projIdRef.current||"")===String(ownerProjectId)){
+          if(typeof nbUseShared==="function") nbUseShared(show.id,bibleEntityIds(bible));
+          if(typeof window.nbPrefetchAll==="function") window.nbPrefetchAll();
+        }
+        if(typeof window.appToast==="function") window.appToast("Show created. This film is Episode 1 and its Bible is shared.","success");
+      }else if(typeof window.appToast==="function"){
+        window.appToast("Show created safely. Some existing sheets are still moving into the shared Bible and will retry next time it opens.","info");
+      }
+      return true;
+    } finally {
+      if(seriesBoundaryRef.current
+        && String(seriesBoundaryRef.current.projectId||"")===String(ownerProjectId)) seriesBoundaryRef.current=null;
+      seriesBusyRef.current=""; setSeriesBusy("");
+      // A standalone save blocked by the boundary gets a fresh, series-aware
+      // snapshot after failure or success; it must never retry its old payload.
+      if(dirtyRef.current && String(projIdRef.current||"")===String(ownerProjectId))
+        setRetryTick(t=>t+1);
+    }
   };
   /* a new EPISODE of a show: an empty story that shares the show's bible */
   const createEpisode = async (showId)=>{
-    if(!cloudMode || !showId) return;
-    const sib = projects.filter(p=>p.showId===showId);
-    const nextNo = sib.reduce((m,p)=>Math.max(m, Number(p.episodeNo)||0), currentShowId===showId?(Number(currentEpisodeNo)||1):0) + 1;
-    const showRow = projects.find(p=>p.id===showId);
-    const base = ((showRow&&showRow.title)||"Show").replace(/ — Show$/,"");
-    const created = await cloudCreateProject(base+" — E"+String(nextNo).padStart(2,"0"),
-      { ...emptyDoc(), showId, episodeNo:nextNo, project:{ ...emptyDoc().project, title:base+" E"+String(nextNo).padStart(2,"0"), format:(project&&project.format)||"series" } });
-    if(!created) return;
-    setProjects(ps=>[{ ...created, showId, episodeNo:String(nextNo) }, ...ps]);
-    await loadProjectIntoState(created.id);
-  };
-  const renameProject = async (id, title)=>{
-    await cloudRenameProject(id, title);
-    setProjects(ps=>ps.map(p=>p.id===id?{...p,title}:p));
-  };
-  const deleteProject = async (id)=>{
-    await cloudDeleteProject(id);
-    const remaining = projects.filter(p=>p.id!==id);
-    setProjects(remaining);
-    if(id===currentProjectId){
-      const openable = remaining.filter(p=>String(p.isShow)!=="true");
-      if(openable[0]) await loadProjectIntoState(openable[0].id);
-      else { const created = await cloudCreateProject("Untitled film", emptyDoc()); if(created){ setProjects([...remaining, created]); await loadProjectIntoState(created.id); } }
+    if(!cloudMode || !showId || seriesBusyRef.current) return false;
+    /* Capture the launch boundary BEFORE waiting on the old Episode's save. A
+       collaborator can switch films while that flush is in flight; the eventual
+       create may still commit, but it must never hijack the newer screen. */
+    const launchProjectId=projIdRef.current;
+    const launchLoadSeq=loadSeqRef.current;
+    const launchHomeOpen=homeOpenRef.current;
+    const ownerId=launchProjectId;
+    if(ownerId && !(await flushPendingProjectSave(ownerId))) return false;
+    if(seriesBusyRef.current) return false;
+    /* Creating the row may outlive the screen that launched it. Keep the durable
+       result in the project list, but never let a late RPC response pull somebody
+       back from Home or a film they deliberately opened meanwhile. */
+    const busy="new-episode:"+showId;
+    seriesBusyRef.current=busy; setSeriesBusy(busy);
+    try{
+      const priorIntent=episodeCreateRetryRef.current;
+      const requestId=priorIntent&&String(priorIntent.showId)===String(showId)
+        ? priorIntent.requestId : "";
+      if(priorIntent && String(priorIntent.showId)!==String(showId))
+        episodeCreateRetryRef.current=null;
+      const result=(typeof window.cloudCreateShowEpisode==="function")
+        ? await window.cloudCreateShowEpisode(showId,emptyDoc(),requestId?{requestId}:undefined)
+        : {ok:false,message:"Series support is not loaded."};
+      if(!(result&&result.ok&&result.episode)){
+        episodeCreateRetryRef.current=(result&&result.retrySafe&&result.requestId)
+          ? {showId:String(showId),requestId:result.requestId} : null;
+        if(typeof window.appToast==="function") window.appToast((result&&result.message)||"The episode could not be created.","error");
+        return false;
+      }
+      episodeCreateRetryRef.current=null;
+      const no=Number(result.episodeNo)||Number(result.episode.doc&&result.episode.doc.episodeNo)||1;
+      const created={...result.episode,showId,episodeNo:String(no),fmt:String((result.episode.doc&&result.episode.doc.project&&result.episode.doc.project.format)||"series")};
+      setProjects(ps=>[created,...ps.filter(p=>p.id!==created.id)]);
+      const launchScopeStillOpen=String(projIdRef.current||"")===String(launchProjectId||"")
+        && loadSeqRef.current===launchLoadSeq
+        && homeOpenRef.current===launchHomeOpen;
+      if(!launchScopeStillOpen){
+        if(typeof window.appToast==="function") window.appToast(
+          "Episode "+String(no).padStart(2,"0")+" was created and added to the Show. Your current screen was left unchanged.","success");
+        return true;
+      }
+      const opened=await loadProjectIntoState(created.id);
+      if(typeof window.appToast==="function") window.appToast(opened
+        ? "Episode "+String(no).padStart(2,"0")+" created from the shared Show Bible."
+        : "Episode "+String(no).padStart(2,"0")+" was created and added to the Show, but couldn't be opened yet. Select it from Films & shows to retry.",
+        opened?"success":"info");
+      /* Creation committed even when its first read failed. Returning false made
+         the switcher invite a second click, which minted the next E-number. */
+      return true;
+    } finally {
+      seriesBusyRef.current=""; setSeriesBusy("");
     }
   };
+  const renameProject = async (id, title)=>{
+    if(seriesBusyRef.current) return false;
+    const busy="rename:"+id;
+    seriesBusyRef.current=busy; setSeriesBusy(busy);
+    try{
+      const r=await cloudRenameProject(id,title);
+      if(!(r&&r.ok)){
+        if(typeof window.appToast==="function") window.appToast((r&&r.message)||"The project could not be renamed.","error");
+        return false;
+      }
+      setProjects(ps=>ps.map(p=>p.id===id?{...p,title:r.title||title}:p));
+      return true;
+    } finally { seriesBusyRef.current=""; setSeriesBusy(""); }
+  };
+  const _invalidateDeletedProjectScope=()=>{
+    ++loadSeqRef.current;
+    ++saveGenerationRef.current;
+    pendingSaveRef.current=null;
+    dirtyRef.current=false;
+    clearTimeout(saveTimer.current);
+    hydratingRef.current=true;
+    projectLoadingRef.current=true;
+    setProjectLoading(true);
+    projIdRef.current=null; showIdRef.current=null;
+    setCurrentProjectId(null); setCurrentShowId(null); setCurrentEpisodeNo(null);
+    bibleSavedRef.current=null; bibleRebaseRef.current=null;
+    if(typeof nbUseShared==="function") nbUseShared(null);
+  };
+  const _openAfterCommittedDeletion=async (remaining, preferred, label)=>{
+    const ordered=[];
+    [...(preferred||[]),...(remaining||[])].forEach(row=>{
+      if(row&&!isShowProject(row)&&!ordered.some(x=>x.id===row.id)) ordered.push(row);
+    });
+    for(const row of ordered){
+      if(await loadProjectIntoState(row.id,{discardPending:true})) return true;
+    }
+    const created=await cloudCreateProject("Untitled film",emptyDoc());
+    if(created){
+      setProjects(ps=>[created,...ps.filter(p=>p.id!==created.id)]);
+      if(await loadProjectIntoState(created.id,{discardPending:true})) return true;
+    }
+    /* The delete is already durable. Leave no deleted Episode id behind for a
+       later autosave to resurrect inside the Show Bible; make the stale surface
+       inert and recover from authoritative cloud state. */
+    hydratingRef.current=true; projectLoadingRef.current=true; setProjectLoading(true);
+    if(typeof window.appToast==="function") window.appToast(
+      (label||"The project")+" was deleted safely, but the next project didn't load. Refreshing from cloud state…","info");
+    setTimeout(()=>{ try{ window.location.reload(); }catch(e){} },500);
+    return false;
+  };
+  const deleteShow = async (showId, episodeIds)=>{
+    if(!showId || seriesBusyRef.current) return false;
+    const episodes=(projects||[]).filter(p=>String(p.showId||"")===String(showId));
+    const ids=Array.isArray(episodeIds)&&episodeIds.length?episodeIds:episodes.map(p=>p.id);
+    const show=(projects||[]).find(p=>p.id===showId);
+    const ok=await window.appConfirm({title:"Delete this entire show?",
+      body:"“"+((show&&show.title)||"This show")+"”, every Episode belonging to it (including one created in another tab), its shared Bible and shared reference assets will be permanently deleted. This can’t be undone.",
+      confirmLabel:"Delete show and all episodes",danger:true});
+    if(!ok) return false;
+    const busy="delete-show:"+showId;
+    seriesBusyRef.current=busy; setSeriesBusy(busy);
+    try{
+      const r=(typeof window.cloudDeleteShow==="function")?await window.cloudDeleteShow(showId):{ok:false,message:"Series support is not loaded."};
+      if(!(r&&r.ok)){
+        if(typeof window.appToast==="function") window.appToast((r&&r.message)||"The show could not be deleted.","error");
+        return false;
+      }
+      _seriesOutboxRows(null,showId).forEach(row=>_seriesOutboxClear(row.key));
+      /* The RPC deletes the whole family, including an Episode created in another
+         tab after this switcher's list was rendered. Filter by relationship, not
+         only by the stale ids supplied by the confirmation surface. */
+      const remaining=(projectsRef.current||projects).filter(p=>p.id!==showId
+        && String(p.showId||"")!==String(showId));
+      setProjects(remaining);
+      let replacementReady=true;
+      if(currentShowId===showId || currentProjectId===showId || ids.includes(currentProjectId)){
+        _invalidateDeletedProjectScope();
+        const openable=remaining.filter(p=>!isShowProject(p));
+        replacementReady=await _openAfterCommittedDeletion(remaining,openable,"The Show");
+      }
+      if(replacementReady && typeof window.appToast==="function") window.appToast(
+        r.cleanupWarning ? ("Show deleted. "+r.cleanupWarning) : "Show deleted.",
+        r.cleanupWarning ? "info" : "success");
+      return true;
+    } finally { seriesBusyRef.current=""; setSeriesBusy(""); }
+  };
+  const deleteProject = async (id)=>{
+    if(seriesBusyRef.current) return false;
+    const target=(projectsRef.current||projects).find(p=>p.id===id);
+    let deleteAsEpisode=false;
+    if(target&&target.showId){
+      const allRows=projectsRef.current||projects;
+      const showExists=allRows.some(p=>String(p.id)===String(target.showId)&&isShowProject(p));
+      deleteAsEpisode=showExists;
+    }
+    const busy="delete:"+id;
+    seriesBusyRef.current=busy; setSeriesBusy(busy);
+    try{
+      let r=deleteAsEpisode
+        ? (typeof window.cloudDeleteShowEpisode==="function"
+            ? await window.cloudDeleteShowEpisode(id)
+            : {ok:false,message:"Series support is not loaded. No Episode was deleted."})
+        : await cloudDeleteProject(id);
+      if(deleteAsEpisode && r&&r.finalEpisode){
+        /* Never infer "final Episode" from the switcher's cached rows. Ask the
+           server first, then refresh the family before offering the broader Show
+           deletion. If another tab created a sibling meanwhile, retry the exact
+           Episode operation instead of deleting that new work. */
+        const fresh=(typeof window.cloudListProjects==="function")?await window.cloudListProjects():null;
+        if(!fresh){
+          if(typeof window.appToast==="function") window.appToast(
+            "TURN could not refresh the Show before deciding whether this is its final Episode. Nothing was deleted; try again.","error");
+          return false;
+        }
+        setProjects(fresh);
+        const liveTarget=fresh.find(p=>String(p.id)===String(id));
+        const liveSiblings=fresh.filter(p=>String(p.showId||"")===String(target.showId));
+        if(liveTarget && liveSiblings.length>1){
+          r=await window.cloudDeleteShowEpisode(id);
+        }else{
+          const liveShow=fresh.find(p=>String(p.id)===String(target.showId)&&isShowProject(p));
+          if(!liveTarget||!liveShow){
+            if(typeof window.appToast==="function") window.appToast(
+              "TURN could not verify the final Episode and its Show. Nothing was deleted; refresh Films & shows and try again.","error");
+            return false;
+          }
+          seriesBusyRef.current=""; setSeriesBusy("");
+          return await deleteShow(target.showId,liveSiblings.map(p=>p.id));
+        }
+      }
+      if(!(r&&r.ok)){
+        if(typeof window.appToast==="function") window.appToast((r&&r.message)||"The project could not be deleted.","error");
+        return false;
+      }
+      const all=projectsRef.current||projects;
+      if(deleteAsEpisode&&target&&target.showId)
+        _seriesOutboxRows(id,target.showId).forEach(row=>_seriesOutboxClear(row.key));
+      const remaining=all.filter(p=>p.id!==id);
+      setProjects(remaining);
+      if(id===currentProjectId){
+        const siblings=(target&&target.showId)?remaining.filter(p=>String(p.showId||"")===String(target.showId)):[];
+        const openable=siblings.concat(remaining.filter(p=>!isShowProject(p)&&siblings.indexOf(p)<0));
+        _invalidateDeletedProjectScope();
+        await _openAfterCommittedDeletion(remaining,openable,deleteAsEpisode?"The Episode":"The film");
+      }
+      if(r.cleanupWarning && typeof window.appToast==="function")
+        window.appToast("Episode deleted. "+r.cleanupWarning,"info");
+      return true;
+    } finally { seriesBusyRef.current=""; setSeriesBusy(""); }
+  };
+
+  /* Series is not merely a badge: once its first story exists, establish the
+     Show container and Episode 1 automatically. This does not insert or reorder
+     any story-building step; it makes the selected format's storage model true. */
+  React.useEffect(()=>{
+    const fmt=(typeof formatOf==="function")?formatOf(project):null;
+    const row=(projects||[]).find(p=>p.id===currentProjectId);
+    const eligible=!!(cloudMode&&currentProjectId&&!currentShowId&&scenes.length
+      &&fmt&&fmt.needsShow&&row&&!row.isShared);
+    if(!eligible){
+      // Leaving Series eligibility (format changed, story cleared, or conversion
+      // succeeded) deliberately re-arms a later explicit eligibility transition.
+      if(currentProjectId&&(!scenes.length||currentShowId||(fmt&&!fmt.needsShow)))
+        delete autoSeriesAttemptRef.current[String(currentProjectId)];
+      return;
+    }
+    if(seriesBusyRef.current) return;
+    const attemptKey=String(project&&project.format||fmt.id)+":"+String(scenes.length);
+    const projectKey=String(currentProjectId);
+    // seriesBusy flips during every attempt. Without this eligibility fence, a
+    // missing migration or offline response cleared busy and immediately launched
+    // the same automatic conversion again forever. A materially new story shape
+    // (format/scene-count transition) may try once more; manual conversion remains
+    // freely retryable from the switcher.
+    if(autoSeriesAttemptRef.current[projectKey]===attemptKey) return;
+    autoSeriesAttemptRef.current[projectKey]=attemptKey;
+    makeShow({automatic:true});
+  },[cloudMode,currentProjectId,currentShowId,scenes.length,project&&project.format,projects.length,seriesBusy]);
   const [agentLaunch, setAgentLaunch] = React.useState(null);   // {id, input} to auto-run an agent
 
   // persist navigation (room/view/artView) to the device-local key on every change
@@ -1451,10 +2221,9 @@ function App(){
   },[room, view, artView, selId]);
 
   // MULTI-WINDOW CONFLICT: the save fence (cloud.jsx) refused to overwrite a
-  // newer revision written by another window. Don't clobber — tell the user and
-  // reload the latest doc into this window (their change here is lost, which is
-  // the honest outcome; before the fence it silently destroyed the OTHER window's
-  // work instead).
+  // newer revision written by another window. Neither version may be discarded
+  // implicitly: keep this window's edit visible/unsaved, then require an explicit
+  // confirmation before replacing it with server truth.
   /* last shared-bible payload this window wrote to the SHOW row. Every episode save used
      to blind-overwrite that row, so two windows on two DIFFERENT episodes of one show each
      clobbered the other's show write, conflict-looped, and the recovery reload discarded
@@ -1468,6 +2237,12 @@ function App(){
      shared, and writing it would make one person's navigation churn everyone's saves. */
   const roleNoticeRef = React.useRef(0);   // throttle the "your role doesn't cover that" notice
   const bibleSavedRef = React.useRef(null);
+  // When save N finishes after save N+1 has already been captured, N's merged
+  // Bible is the new server ancestor but cannot be adopted into live React state.
+  // Carry that exact truth + N's local checkpoint into the serialized successor,
+  // which rebases before it writes. This prevents an omitted collaborator entity
+  // from being mistaken for a deletion by the queued snapshot.
+  const bibleRebaseRef = React.useRef(null);
   const _conflictBusy = React.useRef(false);
   const roleScopeBusyRef = React.useRef(0);
   /* SERVER ROLE-SCOPE REJECTION — the database itself now enforces the section
@@ -1485,7 +2260,7 @@ function App(){
     roleScopeBusyRef.current = now;
     setSaveState("saving");   // honest while we re-sync; resolved below by the reload result
     if(typeof window.appToast==="function")
-      window.appToast("The server declined this save \u2014 "
+      window.appToast((r&&r.localDenied ? "This local change is outside your role \u2014 " : "The server declined this save \u2014 ")
         + ((r && r.message) || "your role does not cover those sections.")
         + " Your access may have changed; reloading the film.","error");
     Promise.resolve(loadProjectIntoState(currentProjectId)).then((loaded)=>{
@@ -1498,13 +2273,49 @@ function App(){
     if(r && r.roleScope){ _docRoleScope(r); return; }
     if(!r || !r.conflict || _conflictBusy.current) return;
     _conflictBusy.current = true;
-    if(typeof window.appToast==="function")
-      window.appToast("This film was changed in another window — loading the latest version. Keep the film open in ONE window while editing.","error");
-    Promise.resolve(loadProjectIntoState(currentProjectId))
-      .finally(()=>{ setTimeout(()=>{ _conflictBusy.current = false; }, 1500); });
+    dirtyRef.current = true;
+    setSaveState("failed");
+    const conflictedProjectId=currentProjectId;
+    const conflictedShowId=showIdRef.current;
+    const decide=(typeof window.appConfirm==="function")
+      ? window.appConfirm({
+          title:"Cloud version changed",
+          body:"Another window saved this film first. Your local edit is still visible and has NOT been saved. Load the cloud version now? This will replace the unsaved edit in this window.",
+          note:"Choose Keep my edits to leave this window untouched while you copy or review the local work.",
+          confirmLabel:"Load cloud version",cancelLabel:"Keep my edits",danger:true
+        })
+      : Promise.resolve(false);
+    Promise.resolve(decide).then(async replaceLocal=>{
+      if(String(projIdRef.current||"")!==String(conflictedProjectId||"")) return;
+      if(!replaceLocal){
+        if(typeof window.appToast==="function")
+          window.appToast("Your local edit is still on screen and marked Not saved. No cloud data was replaced.","error");
+        return;
+      }
+      // The user explicitly chose server truth. Retire a paired-save recovery
+      // journal too; replaying it during this load would silently reapply the
+      // very local patch they just chose to replace.
+      _seriesOutboxRows(conflictedProjectId,conflictedShowId)
+        .forEach(row=>_seriesOutboxClear(row.key));
+      bibleRebaseRef.current=null;
+      setSaveState("saving");
+      const loaded=await loadProjectIntoState(conflictedProjectId,{discardPending:true});
+      if(loaded){
+        saveFailsRef.current=0;
+        dirtyRef.current=false;
+        setSaveState("saved");
+      }else{
+        dirtyRef.current=true;
+        setSaveState("failed");
+        if(typeof window.appToast==="function")
+          window.appToast("The cloud version could not be loaded. Your local edit remains on screen and is still not saved.","error");
+      }
+    }).catch(()=>{
+      dirtyRef.current=true;
+      setSaveState("failed");
+    }).finally(()=>{ setTimeout(()=>{ _conflictBusy.current=false; },1500); });
   };
   // persist the editable story so a browser refresh / reopen keeps the user's work
-  const saveTimer = React.useRef(null);
   const projectsRef = React.useRef(projects); projectsRef.current = projects;   // latest rows, for save-time meta
   /* SAVE HEALTH. A cloudSaveDoc failure that is NOT a conflict (network blip, expired
      token, RLS hiccup) used to be dropped on the floor: no retry, no indicator. If no
@@ -1514,7 +2325,6 @@ function App(){
   const [saveState, setSaveState] = React.useState("saved");   // saved | saving | retrying | failed
   const [retryTick, setRetryTick] = React.useState(0);
   const saveFailsRef = React.useRef(0);
-  const dirtyRef = React.useRef(false);     // edits exist that no successful save has covered
   /* adopt the sections OTHER people changed. Only ever applied to sections THIS window
      did not touch in the same save, so it can never stomp on what the user is typing;
      lastSentRef is updated in step so the adoption doesn't look like a local edit and
@@ -1538,124 +2348,413 @@ function App(){
     if(adopted && typeof window.appToast==="function")
       window.appToast("Picked up changes a collaborator just made.","info");
   };
-  const _docSaveResult = (r)=>{
+  const _adoptBibleTheirs = (cloudBible, mineKeys)=>{
+    if(!cloudBible) return;
+    const setters={characters:setCharacters,locations:setLocations,props:setProps,
+      lookbook:setLookbook,lookbookNote:setLookbookNote,trash:setTrash};
+    let adopted=0;
+    Object.keys(setters).forEach(k=>{
+      if(mineKeys.indexOf(k)>=0 || cloudBible[k]===undefined) return;
+      /* The React API intentionally exposes one restore bin. For a Show, merge
+         the incoming shared tombstones with this Episode's shot tombstones at
+         the adoption boundary; never let a Bible push erase local shot recovery. */
+      const value=k==="trash"
+        ? ((window.turnSeries&&typeof window.turnSeries.combineTrash==="function")
+            ? window.turnSeries.combineTrash(cloudBible.trash,trashRef.current)
+            : {...(cloudBible.trash||{}),shots:(trashRef.current&&trashRef.current.shots)||[]})
+        : cloudBible[k];
+      const theirs=stableJson(value);
+      if(theirs===lastSentRef.current[k]) return;
+      lastSentRef.current[k]=theirs;
+      try{ setters[k](value); adopted++; }catch(e){}
+    });
+    if(adopted && typeof window.appToast==="function")
+      window.appToast("Picked up Show Bible changes from another episode.","info");
+  };
+  /* A Show Bible has its own revision/channel: collaborators may be editing shared
+     canon while working in different episodes. Subscribe to that row separately and
+     materialize only this episode's scene slices when a newer Bible arrives. */
+  React.useEffect(()=>{
+    if(!cloudMode||!currentShowId||!currentProjectId||typeof window.cloudDocRev!=="function") return;
+    let alive=true,busy=false,pushTimer=null;
+    const unsubscribe=(typeof window.cloudSubscribeDoc==="function")
+      ? window.cloudSubscribeDoc(currentShowId) : ()=>{};
+    const refresh=async()=>{
+      if(!alive||busy||dirtyRef.current||hydratingRef.current) return;
+      busy=true;
+      try{
+        const rev=await window.cloudDocRev(currentShowId);
+        const seen=(typeof window.cloudSeenRev==="function")?window.cloudSeenRev(currentShowId):0;
+        if(alive&&rev!=null&&rev>seen){
+          const row=await cloudLoadProject(currentShowId);
+          const doc=row&&row.doc;
+          if(alive&&doc&&(window.turnSeries&&window.turnSeries.isShowDoc(doc))
+            &&!dirtyRef.current&&!hydratingRef.current){
+            const raw=(window.turnSeries&&window.turnSeries.sharedBible)
+              ? window.turnSeries.sharedBible(doc.bible||{}) : (doc.bible||{});
+            const scoped=(window.turnSeries&&window.turnSeries.bibleForEpisode)
+              ? window.turnSeries.bibleForEpisode(raw,currentProjectId,doc.sourceEpisodeId,currentEpisodeNo) : raw;
+            if(typeof window.cloudNoteDocRev==="function") window.cloudNoteDocRev(currentShowId,doc);
+            _adoptBibleTheirs(scoped,[]);
+            bibleSavedRef.current=stableJson(raw);
+            if(typeof nbUseShared==="function") nbUseShared(currentShowId,bibleEntityIds(raw));
+            if(typeof window.nbPrefetchAll==="function") window.nbPrefetchAll();
+          }
+        }
+      }catch(e){}
+      busy=false;
+    };
+    const onPush=e=>{
+      if(!e||!e.detail||String(e.detail.projectId)!==String(currentShowId)) return;
+      clearTimeout(pushTimer); pushTimer=setTimeout(refresh,250);
+    };
+    const onShowMemberRemoved=e=>{
+      if(!e||!e.detail||String(e.detail.projectId)!==String(currentShowId)) return;
+      // The existing episode access guard owns the user-facing recovery flow.
+      // Bridge this Show-level hint onto the open episode, where that guard will
+      // re-check RLS before doing anything (a broadcast alone is never trusted).
+      try{ window.dispatchEvent(new CustomEvent("turn-member-removed",{
+        detail:{projectId:currentProjectId,showId:currentShowId}
+      })); }catch(err){}
+    };
+    window.addEventListener("turn-doc-push",onPush);
+    window.addEventListener("turn-member-removed",onShowMemberRemoved);
+    const poll=setInterval(refresh,12000);
+    return ()=>{ alive=false; clearTimeout(pushTimer); clearInterval(poll);
+      window.removeEventListener("turn-doc-push",onPush);
+      window.removeEventListener("turn-member-removed",onShowMemberRemoved);
+      try{ unsubscribe(); }catch(e){} };
+  },[cloudMode,currentShowId,currentProjectId,currentEpisodeNo]);
+  const _saveScopeActive = (ctx)=> String(projIdRef.current||"")===String((ctx&&ctx.projectId)||"")
+    && String(showIdRef.current||"")===String((ctx&&ctx.showId)||"");
+  const _saveGenerationLatest = (ctx)=> !!ctx && ctx.generation===saveGenerationRef.current;
+  const _docSaveResult = (r, ctx)=>{
+    // A response belongs only to the project/storage scope and snapshot that sent
+    // it. Older completions may have reached durable storage, but they may never
+    // clear a newer dirty flag, reload another film, or change its save indicator.
+    if(!_saveScopeActive(ctx) || !_saveGenerationLatest(ctx)) return !!(r&&r.ok);
     _docConflictCheck(r);
-    if(r && r.conflict) return;             // the conflict path reloads; not a save failure
-    if(r && r.roleScope) return;   // _docRoleScope owns recovery: chip resolves on the reload result, never the retry loop
-    if(r && r.ok){ saveFailsRef.current = 0; dirtyRef.current = false; setSaveState("saved"); return; }
+    if(r && r.conflict) return false;        // explicit conflict dialog owns reconciliation
+    if(r && r.roleScope) return false;       // _docRoleScope owns recovery
+    if(r && r.ok){ saveFailsRef.current = 0; dirtyRef.current = false; setSaveState("saved"); return true; }
     const n = ++saveFailsRef.current;
     if(n <= 3){ setSaveState("retrying"); setTimeout(()=>setRetryTick(t=>t+1), n*2500); }
     else setSaveState("failed");
+    return false;
   };
   React.useEffect(()=>{
-    clearTimeout(saveTimer.current);
+    const generation=++saveGenerationRef.current;
+    const ctx={projectId:currentProjectId,showId:currentShowId,generation};
+    // Never reinterpret a hydration render as a successful save. It invalidates
+    // older completions, keeps a real dirty flag intact, and hydrationTick below
+    // installs a fresh snapshot once the loaded document has settled.
+    if(hydratingRef.current){ pendingSaveRef.current=null; return; }
     dirtyRef.current = true;
-    saveTimer.current = setTimeout(()=>{
-      if(hydratingRef.current){ dirtyRef.current = false; return; }
-      const doc = { scenes, characters, props, locations, sluglineUnits: slugUnitsOv, lookbook, lookbookNote, lookbookApplied, shots, project, drafts, beatsMap, history, continuityMap, selId, room, view, artView, propsSeeded, locsSeeded, visualsSeeded, trash };
-      // The full-doc overwrite would otherwise wipe the Home-wall metadata (the poster and
-      // the user's manual order) that lives on the doc but NOT in story state — carry it over.
-      const meta = (projectsRef.current||[]).find(p=>p.id===currentProjectId) || {};
-      const keep = {};
-      if(meta.cover) keep.cover = meta.cover;
-      // coverPrev too, or the first story edit after generating a poster wipes the
-      // one-deep history and Home's "Restore poster" silently stops working
-      if(meta.coverPrev) keep.coverPrev = meta.coverPrev;
-      if(meta.ord!=null) keep.homeOrder = Number(meta.ord);
-      if(readOnlyShare){
-        // nothing this window does is persistable — don't fire writes the DB will reject
-        dirtyRef.current = false; setSaveState("readonly"); return;
+    const doc = { scenes, characters, props, locations, sluglineUnits: slugUnitsOv, lookbook, lookbookNote, lookbookApplied, shots, project, drafts, beatsMap, history, continuityMap, selId, room, view, artView, propsSeeded, locsSeeded, visualsSeeded, trash };
+    let launched=null;
+    let timerId=null;
+    const performSave=async()=>{
+      // A deleted/superseded project intentionally abandons this snapshot. Its
+      // completion must not touch the new project's baselines or React state.
+      if(!_saveScopeActive(ctx)) return true;
+      // Let an in-progress hydration settle, but never write a partial document.
+      for(let wait=0; hydratingRef.current && _saveScopeActive(ctx) && wait<24; wait++)
+        await new Promise(resolve=>setTimeout(resolve,50));
+      if(!_saveScopeActive(ctx)) return true;
+      if(hydratingRef.current) return false;
+      // Conversion has crossed (or is about to cross) the server's standalone →
+      // episode/Bible boundary. A closure captured before it must wait for the
+      // series-aware render instead of writing shared departments back to Episode 1.
+      const boundary=seriesBoundaryRef.current;
+      if(boundary && String(boundary.projectId||"")===String(ctx.projectId||"") && !ctx.showId) return false;
+      if(!cloudMode){
+        try{
+          localStorage.setItem(STORY_KEY,JSON.stringify(doc));
+          return _docSaveResult({ok:true},ctx);
+        }catch(e){ return _docSaveResult({ok:false,message:(e&&e.message)||"Local save failed."},ctx); }
       }
-      if(cloudMode){
-        if(typeof cloudSaveDoc==="function"){
-          setSaveState("saving");
-          /* Send only the sections that changed HERE since our last successful write.
-             This is what makes concurrent editing safe: cloudSaveSections merges them
-             onto the freshest cloud doc, so a collaborator's untouched sections survive
-             instead of being flattened by a whole-doc overwrite. */
-          const _sectionsNow = { ...doc, ...keep };
-          const _changed = {};
-          Object.keys(_sectionsNow).forEach(k=>{
-            // per-user VIEW state — never a collaborative write. selId is here too: it
-            // lives in the shared doc for history reasons, but clicking a scene must not
-            // bump the film's revision and make every collaborator re-pull the whole doc.
-            if(k==="room" || k==="view" || k==="artView" || k==="selId") return;
-            const j = stableJson(_sectionsNow[k]);
-            if(j !== lastSentRef.current[k]) _changed[k] = _sectionsNow[k];
-          });
-          /* ROLE SCOPING — drop sections this collaborator's role doesn't cover, and SAY SO.
-             Silently discarding them would repeat the exact failure view_only had: hours of
-             work that can never land, with the UI showing success. Only the owner is
-             unrestricted, and no-role (your own film) is never restricted; a role this
-             build doesn't recognize fails closed in teamCanWriteSection. */
-          /* Scoping applies to EVERY shared project we don't own — keyed off isShared,
-             not off shareRole being truthy, so a membership with an empty/missing role
-             fails closed here (teamCanWriteSection treats "" as an unknown grant)
-             instead of slipping past the filter. Solo films (_projRow not shared, or
-             no _projRow at all) never enter this branch. */
-          if(typeof window.teamCanWriteSection==="function" && _projRow && _projRow.isShared && shareRole!=="owner"){
-            const denied = Object.keys(_changed).filter(k=> !window.teamCanWriteSection(shareRole, k));
-            if(denied.length){
-              denied.forEach(k=>{
-                delete _changed[k];
-                // keep the baseline UNCHANGED for denied sections, so we don't pretend they
-                // were saved — the next edit re-attempts and the notice fires again
-              });
-              const now = Date.now();
-              if(now - (roleNoticeRef.current||0) > 60000){
-                roleNoticeRef.current = now;
-                const note = (typeof window.teamRoleScopeNote==="function") ? window.teamRoleScopeNote(shareRole) : "";
-                if(typeof window.appToast==="function" && note) window.appToast(note, "error");
-              }
-            }
-          }
-          const _mineKeys = Object.keys(_changed);
-          const _rememberSent = ()=> _mineKeys.forEach(k=>{ lastSentRef.current[k] = stableJson(_sectionsNow[k]); });
-          if(currentShowId){
-            // series episode: shared departments live in the SHOW's bible; the
-            // episode keeps its own story (scenes/beats/drafts/shots/…)
-            const _epChanged = { ...(_changed) };
-            ["characters","locations","props","lookbook","lookbookNote"].forEach(k=>{ delete _epChanged[k]; });
-            if(Object.keys(_epChanged).length){
-              _epChanged.showId = currentShowId; _epChanged.episodeNo = currentEpisodeNo;
-              Promise.resolve(cloudSaveSections(currentProjectId, _epChanged)).then((r)=>{
-                if(r && r.ok){ _rememberSent(); _adoptTheirs(r.doc, _mineKeys); }
-                _docSaveResult(r);
-              });
-            } else { dirtyRef.current = false; setSaveState("saved"); }
-            // the SHOW row carries only the shared bible; skip the write entirely when it
-            // hasn't changed, so two windows on two episodes of one show stop conflict-
-            // looping over a row neither of them actually edited
-            const _bibleNow = JSON.stringify({ characters, locations, props, lookbook, lookbookNote });
-            if(_bibleNow !== bibleSavedRef.current){
-              bibleSavedRef.current = _bibleNow;
-              Promise.resolve(cloudSaveDoc(currentShowId, { isShow:true,
-                bible:{ characters, locations, props, lookbook, lookbookNote } })).then(_docConflictCheck);
-            }
-          } else if(_mineKeys.length){
-            Promise.resolve(cloudSaveSections(currentProjectId, _changed)).then((r)=>{
-              if(r && r.ok){ _rememberSent(); _adoptTheirs(r.doc, _mineKeys); }
-              _docSaveResult(r);
-            });
-          } else { dirtyRef.current = false; setSaveState("saved"); }
+      if(typeof cloudSaveSections!=="function") return _docSaveResult({ok:false,message:"Cloud saving is unavailable."},ctx);
+      let _seriesRebasedBible=null,_seriesServerBible=null,_consumedBibleRebase=null;
+      if(ctx.showId){
+        const storedBibleSnapshot=()=>{
+          if(_seriesRebasedBible) return _seriesRebasedBible;
+          const currentBible={characters:doc.characters,locations:doc.locations,
+            props:doc.props,lookbook:doc.lookbook,lookbookNote:doc.lookbookNote,
+            trash:(window.turnSeries&&typeof window.turnSeries.sharedTrash==="function")
+              ? window.turnSeries.sharedTrash(doc.trash) : {characters:(doc.trash&&doc.trash.characters)||[],locations:(doc.trash&&doc.trash.locations)||[],props:(doc.trash&&doc.trash.props)||[]}};
+          return (window.turnSeries&&typeof window.turnSeries.prepareBibleForEpisode==="function")
+            ? window.turnSeries.prepareBibleForEpisode(currentBible,ctx.projectId) : currentBible;
+        };
+        const applyBibleRebase=(latest,checkpoint,message)=>{
+          const rebased=(typeof window.seriesRebaseBibleAfterReplay==="function")
+            ? window.seriesRebaseBibleAfterReplay(latest,storedBibleSnapshot(),checkpoint,ctx.projectId)
+            : {ok:false,conflicts:["recovery rebase unavailable"]};
+          if(!rebased.ok) return _docSaveResult({ok:false,conflict:true,conflicts:rebased.conflicts,
+            message:message||"The Show Bible changed while a save was being reconciled. Reload before resolving the overlapping edits."},ctx);
+          _seriesRebasedBible=rebased.bible;
+          _seriesServerBible=latest;
+          bibleSavedRef.current=stableJson(latest);
+          return true;
+        };
+        const queued=bibleRebaseRef.current;
+        if(queued&&String(queued.projectId||"")===String(ctx.projectId)
+          &&String(queued.showId||"")===String(ctx.showId)){
+          const applied=applyBibleRebase(queued.latest,queued.checkpoint,
+            "The Show Bible changed while a queued save was being reconciled. Reload before resolving the overlapping edits.");
+          if(applied!==true) return applied;
+          _consumedBibleRebase=queued;
+        }
+        // Drain any crash-recovery pair for this exact Episode/Show before taking
+        // a newer snapshot to the server. Replaying in timestamp order preserves
+        // the user's save order; a conflict keeps the journal for the next load.
+        const repaired=await _replaySeriesPairOutbox(ctx.projectId,ctx.showId);
+        if(!_saveScopeActive(ctx)) return true;
+        if(!repaired.ok) return _docSaveResult({ok:false,conflict:!!repaired.conflict,
+          message:repaired.message||"An interrupted Series save is still pending."},ctx);
+        if(repaired.lastBible){
+          let priorBible={};
+          try{ priorBible=JSON.parse(bibleSavedRef.current||"{}"); }catch(e){}
+          // A journal patch is the last local checkpoint that the recovery just
+          // confirmed. Use it as the ancestor for touched departments; the prior
+          // acknowledged Bible remains the ancestor everywhere else.
+          const checkpoint={...priorBible,...(repaired.lastBiblePatch||{})};
+          const applied=applyBibleRebase(repaired.lastBible,checkpoint,
+            "The Show Bible changed while an interrupted save was recovering. Reload before reconciling the overlapping edits.");
+          if(applied!==true) return applied;
         }
       }
-      else {
-        // localStorage throws on quota — that used to be swallowed, so a session past the
-        // ~5MB limit silently stopped saving while still looking fine
-        try{ localStorage.setItem(STORY_KEY, JSON.stringify(doc)); dirtyRef.current = false; setSaveState("saved"); }
-        catch(e){ setSaveState("failed"); }
+      if(_saveGenerationLatest(ctx)) setSaveState("saving");
+
+      // The whole-doc overwrite would otherwise wipe Home-wall metadata that is
+      // not represented in story state. Carry it into this scoped snapshot.
+      const meta=(projectsRef.current||[]).find(p=>String(p.id)===String(ctx.projectId))||{};
+      const keep={};
+      if(meta.cover) keep.cover=meta.cover;
+      if(meta.coverPrev) keep.coverPrev=meta.coverPrev;
+      if(meta.ord!=null) keep.homeOrder=Number(meta.ord);
+      const _sectionsNow={...doc,...keep};
+      const _changed={};
+      Object.keys(_sectionsNow).forEach(k=>{
+        if(k==="room"||k==="view"||k==="artView"||k==="selId") return;
+        if(stableJson(_sectionsNow[k])!==lastSentRef.current[k]) _changed[k]=_sectionsNow[k];
+      });
+      /* ROLE SCOPING — a denied local section is never merely dropped from the request.
+         Restore its last accepted value immediately; otherwise the UI keeps showing a
+         phantom edit while the no-op request reports “Saved”. The rollback render gets
+         its own save generation, so this generation stays unsettled until React has
+         reconciled the accepted baseline. */
+      let _deniedLocal=false;
+      if(typeof window.teamCanWriteSection==="function" && _projRow && _projRow.isShared && shareRole!=="owner"){
+        const denied=Object.keys(_changed).filter(k=>!window.teamCanWriteSection(shareRole,k));
+        if(denied.length){
+          const setters={scenes:setScenes,characters:setCharacters,props:setProps,locations:setLocations,
+            sluglineUnits:setSlugUnitsOv,lookbook:setLookbook,lookbookNote:setLookbookNote,
+            lookbookApplied:setLookbookApplied,shots:setShots,project:setProject,drafts:setDrafts,
+            beatsMap:setBeatsMap,history:setHistory,continuityMap:setContinuityMap,trash:setTrash,
+            propsSeeded:setPropsSeeded,locsSeeded:setLocsSeeded,visualsSeeded:setVisualsSeeded};
+          let restored=true;
+          denied.forEach(k=>{
+            delete _changed[k];
+            const prior=lastSentRef.current[k], setter=setters[k];
+            if(prior===undefined || typeof setter!=="function"){ restored=false; return; }
+            try{ setter(JSON.parse(prior)); }catch(e){ restored=false; }
+          });
+          if(!restored){
+            _docRoleScope({roleScope:true,localDenied:true,
+              message:"your role does not cover those sections."});
+            return false;
+          }
+          _deniedLocal=true;
+          if(_saveGenerationLatest(ctx)) setSaveState("saving");
+          const now=Date.now();
+          if(_saveScopeActive(ctx) && now-(roleNoticeRef.current||0)>60000){
+            roleNoticeRef.current=now;
+            const note=(typeof window.teamRoleScopeNote==="function")?window.teamRoleScopeNote(shareRole):"";
+            if(typeof window.appToast==="function"&&note) window.appToast(note,"error");
+          }
+        }
       }
-    }, cloudMode ? 700 : 250);
-    return ()=> clearTimeout(saveTimer.current);
-  },[scenes, characters, props, locations, slugUnitsOv, lookbook, lookbookNote, lookbookApplied, shots, project, drafts, beatsMap, history, continuityMap, selId, room, view, artView, propsSeeded, locsSeeded, visualsSeeded, trash, cloudMode, currentProjectId, currentShowId, currentEpisodeNo, retryTick, readOnlyShare]);
+      const _mineKeys=Object.keys(_changed);
+      const _rememberSent=()=>_mineKeys.forEach(k=>{ lastSentRef.current[k]=stableJson(_sectionsNow[k]); });
+      const _sectionSaveOpts=(sections,fullRecoveryBaseline)=>{
+        const baseline={};
+        Object.keys(sections||{}).forEach(k=>{
+          if(k!=="project"&&!fullRecoveryBaseline) return;
+          if(lastSentRef.current[k]===undefined) return;
+          try{ baseline[k]=JSON.parse(lastSentRef.current[k]); }catch(e){}
+        });
+        return Object.keys(baseline).length?{baseline}:undefined;
+      };
+      const _episodeSectionSaveOpts=(sections,fullRecoveryBaseline)=>{
+        const opts=_sectionSaveOpts(sections,fullRecoveryBaseline);
+        if(opts&&opts.baseline&&Object.prototype.hasOwnProperty.call(opts.baseline,"trash"))
+          opts.baseline.trash=(window.turnSeries&&typeof window.turnSeries.episodeTrash==="function")
+            ? window.turnSeries.episodeTrash(opts.baseline.trash)
+            : {shots:(opts.baseline.trash&&opts.baseline.trash.shots)||[]};
+        return opts;
+      };
+      const _finishSuccess=async ()=>{
+        if(_deniedLocal){
+          if(_saveScopeActive(ctx)&&_saveGenerationLatest(ctx)){
+            dirtyRef.current=true;
+            setSaveState("saving");
+          }
+          // Yield one task so React can install the rollback generation. A project
+          // switch flushing this request can then follow that newer pending save
+          // instead of mistaking this denied snapshot for the final generation.
+          await new Promise(resolve=>setTimeout(resolve,0));
+          return false;
+        }
+        return _docSaveResult({ok:true},ctx);
+      };
+
+      try{
+        if(ctx.showId){
+          const sharedKeys=(window.turnSeries&&window.turnSeries.SHARED_KEYS)
+            ? window.turnSeries.SHARED_KEYS : ["characters","locations","props","lookbook","lookbookNote","trash"];
+          const _epChanged={..._changed}; sharedKeys.forEach(k=>{ delete _epChanged[k]; });
+          /* `trash` is split across persistence domains: character/prop/location
+             tombstones live in the Show Bible, while shot tombstones stay with
+             this Episode. Preserve the existing combined React shape only in UI. */
+          if(Object.prototype.hasOwnProperty.call(_changed,"trash")){
+            const episodeNow=(window.turnSeries&&typeof window.turnSeries.episodeTrash==="function")
+              ? window.turnSeries.episodeTrash(trash) : {shots:(trash&&trash.shots)||[]};
+            let acceptedTrash={};
+            try{ acceptedTrash=JSON.parse(lastSentRef.current.trash||"{}"); }catch(e){}
+            const episodeAccepted=(window.turnSeries&&typeof window.turnSeries.episodeTrash==="function")
+              ? window.turnSeries.episodeTrash(acceptedTrash) : {shots:(acceptedTrash&&acceptedTrash.shots)||[]};
+            if(stableJson(episodeNow)!==stableJson(episodeAccepted)) _epChanged.trash=episodeNow;
+          }
+          const _bibleKeys=sharedKeys.filter(k=>Object.prototype.hasOwnProperty.call(_changed,k)
+            ||(_seriesRebasedBible&&stableJson(_seriesRebasedBible[k])!==stableJson((_seriesServerBible||{})[k])));
+          const _bibleCurrent={characters,locations,props,lookbook,lookbookNote,
+            trash:(window.turnSeries&&typeof window.turnSeries.sharedTrash==="function")
+              ? window.turnSeries.sharedTrash(trash) : {characters:(trash&&trash.characters)||[],locations:(trash&&trash.locations)||[],props:(trash&&trash.props)||[]}};
+          const _bibleStored=_seriesRebasedBible||((window.turnSeries&&typeof window.turnSeries.prepareBibleForEpisode==="function")
+            ? window.turnSeries.prepareBibleForEpisode(_bibleCurrent,ctx.projectId) : _bibleCurrent);
+          const _biblePatch={}; _bibleKeys.forEach(k=>{ _biblePatch[k]=_bibleStored[k]; });
+          let _bibleBaseline={};
+          try{ _bibleBaseline=JSON.parse(bibleSavedRef.current||"{}"); }catch(e){}
+          const _bibleBaselinePatch={}; _bibleKeys.forEach(k=>{ _bibleBaselinePatch[k]=_bibleBaseline[k]; });
+          const jobs=[];
+          if(Object.keys(_epChanged).length){
+            _epChanged.showId=ctx.showId; _epChanged.episodeNo=currentEpisodeNo;
+          }
+          const _writeEpisode=Object.keys(_epChanged).length>0;
+          /* Decide from the departments this save actually touches. Comparing the
+             entire prepared Bible can turn an Episode-only shot-bin edit into an
+             unrelated Show write merely because another department was normalized
+             in memory. */
+          const _writeBible=_bibleKeys.length>0
+            && stableJson(_biblePatch)!==stableJson(_bibleBaselinePatch);
+          let _pairJournalKey=null;
+          if(_writeEpisode&&_writeBible){
+            _pairJournalKey=_seriesOutboxPut({episodeId:ctx.projectId,showId:ctx.showId,
+              episodePatch:_epChanged,episodeBaseline:_episodeSectionSaveOpts(_epChanged,true)?.baseline||{},
+              biblePatch:_biblePatch,bibleBaseline:_bibleBaselinePatch});
+            if(!_pairJournalKey) return _docSaveResult({ok:false,
+              message:"TURN couldn’t create the local safety journal for this Episode + Show Bible save. No cloud changes were sent; keep this tab open and try again."},ctx);
+          }
+          if(_writeEpisode)
+            jobs.push({kind:"episode",run:()=>cloudSaveSections(ctx.projectId,_epChanged,_episodeSectionSaveOpts(_epChanged))});
+          if(_writeBible){
+            jobs.push({kind:"bible",run:()=>cloudSaveBibleSections(ctx.showId,_biblePatch,
+              {episodeId:ctx.projectId,baseline:_bibleBaseline})});
+          }
+          if(!jobs.length){
+            if(_saveScopeActive(ctx)) _rememberSent();
+            if(_seriesRebasedBible&&_saveGenerationLatest(ctx)){
+              const scoped=(window.turnSeries&&typeof window.turnSeries.bibleForEpisode==="function")
+                ? window.turnSeries.bibleForEpisode(_seriesRebasedBible,ctx.projectId,null,currentEpisodeNo)
+                : _seriesRebasedBible;
+              _adoptBibleTheirs(scoped,[]);
+              if(bibleRebaseRef.current===_consumedBibleRebase) bibleRebaseRef.current=null;
+            }
+            return _finishSuccess();
+          }
+          /* Keep the journaled pair ordered: persist Episode-owned story first,
+             then update the shared Bible. This narrows the partial-write window,
+             avoids sending a canon update after an Episode save was rejected,
+             and matches the recovery contract described to MUSE. */
+          const results=[];
+          for(const job of jobs){
+            const r=await job.run();
+            results.push({kind:job.kind,r});
+            if(!(r&&r.ok)) return _docSaveResult(r,ctx);
+          }
+          if(_pairJournalKey) _seriesOutboxClear(_pairJournalKey);
+          if(!_saveScopeActive(ctx)) return true;
+          _rememberSent();
+          const ep=results.find(x=>x.kind==="episode");
+          const bs=results.find(x=>x.kind==="bible");
+          // Only the newest snapshot may adopt collaborator changes into live state.
+          // A successful Bible save is a SERVER-SIDE THREE-WAY MERGE, so its result
+          // is authoritative even for departments this window just edited. Skipping
+          // those departments would leave a collaborator's same-department addition
+          // invisible here; on the next edit, its absence could then be interpreted
+          // as an explicit deletion against the newly advanced Bible baseline.
+          if(_saveGenerationLatest(ctx) && ep) _adoptTheirs(ep.r.doc,_mineKeys);
+          if(bs){
+            const merged=bs.r.bible||_bibleStored;
+            if(_saveGenerationLatest(ctx)){
+              const scoped=(window.turnSeries&&typeof window.turnSeries.bibleForEpisode==="function")
+                ? window.turnSeries.bibleForEpisode(merged,ctx.projectId,bs.r.doc&&bs.r.doc.sourceEpisodeId,currentEpisodeNo)
+                : merged;
+              // Align both live state and lastSentRef with the merged server truth,
+              // including the departments represented in _bibleKeys.
+              _adoptBibleTheirs(scoped,[]);
+              bibleRebaseRef.current=null;
+            }else{
+              // A newer React generation already exists, so adopting would stomp
+              // that edit. Hand the successor both the merged server truth and
+              // this generation's exact local checkpoint for a safe three-way rebase.
+              bibleRebaseRef.current={projectId:ctx.projectId,showId:ctx.showId,
+                latest:merged,checkpoint:_bibleStored};
+            }
+            bibleSavedRef.current=stableJson(merged);
+          }else if(_seriesRebasedBible&&_saveGenerationLatest(ctx)){
+            // Recovery may have completed the Bible write while this generation
+            // only needed to persist Episode-owned sections. Still adopt the
+            // rebased server truth so live state and lastSentRef advance together.
+            const scoped=(window.turnSeries&&typeof window.turnSeries.bibleForEpisode==="function")
+              ? window.turnSeries.bibleForEpisode(_seriesRebasedBible,ctx.projectId,null,currentEpisodeNo)
+              : _seriesRebasedBible;
+            _adoptBibleTheirs(scoped,[]);
+            if(bibleRebaseRef.current===_consumedBibleRebase) bibleRebaseRef.current=null;
+          }
+          return _finishSuccess();
+        }
+        if(!_mineKeys.length) return _finishSuccess();
+        const result=await cloudSaveSections(ctx.projectId,_changed,_sectionSaveOpts(_changed));
+        if(result&&result.ok&&_saveScopeActive(ctx)){
+          _rememberSent();
+          if(_saveGenerationLatest(ctx)) _adoptTheirs(result.doc,_mineKeys);
+        }
+        return result&&result.ok ? _finishSuccess() : _docSaveResult(result,ctx);
+      }catch(e){
+        return _docSaveResult({ok:false,message:(e&&e.message)||"Save failed."},ctx);
+      }
+    };
+    const request=()=>{
+      if(launched) return launched;
+      if(timerId!=null) clearTimeout(timerId);
+      // Continue the chain after a failed predecessor: the newer snapshot still
+      // deserves its own attempt and always executes after the older response.
+      launched=saveQueueRef.current.catch(()=>false).then(performSave).catch(()=>false);
+      saveQueueRef.current=launched.catch(()=>false);
+      return launched;
+    };
+    pendingSaveRef.current={...ctx,request};
+    timerId=setTimeout(()=>{ request(); },cloudMode?700:250);
+    saveTimer.current=timerId;
+    return ()=>{ if(timerId!=null) clearTimeout(timerId); };
+  },[scenes, characters, props, locations, slugUnitsOv, lookbook, lookbookNote, lookbookApplied, shots, project, drafts, beatsMap, history, continuityMap, selId, room, view, artView, propsSeeded, locsSeeded, visualsSeeded, trash, cloudMode, currentProjectId, currentShowId, currentEpisodeNo, retryTick, readOnlyShare, hydrationTick]);
 
   /* UNLOAD GUARD — saves are debounced (700ms) and can be mid-flight or retrying, so
      closing the tab at the wrong moment silently dropped the last edits with no warning.
      Only prompts when something is genuinely unwritten; a settled window closes clean. */
   React.useEffect(()=>{
     const h = (e)=>{
-      if(readOnlyShare) return;   // nothing of theirs is pending — never was
       if(!dirtyRef.current && saveState!=="saving" && saveState!=="retrying" && saveState!=="failed") return;
       e.preventDefault(); e.returnValue = "";      // browsers show their own generic wording
       return "";
@@ -1777,7 +2876,7 @@ function App(){
     if(typeof window.appToast==="function"){
       window.appToast(`${room==="art"?"The Art Room":"The Stage"} requires the ${plan} plan.`, "info");
     }
-  },[room, creditBalance, session, isAdmin]);
+  },[room, creditBalance, session, isAdmin, shareRole, currentProjectId, projectLoading]);
 
   const resetStory = ()=>{
     if(!isAdmin) return;   // the Matrix sample is admin-only — belt & braces behind the hidden menu item
@@ -1795,28 +2894,12 @@ function App(){
   // created inside onLaunch, and only when the CURRENT film already holds a story
   // (an empty canvas is reused, never duplicated). Deleting a film remains the
   // project switcher's deliberate per-film Delete.
-  const startNewStory = ()=>{ if(!planActive()){ requirePlan("start a story"); return; } setNewStoryOpen(true); };
+  const startNewStory = ()=>{ if(!canMutateWritersRoom()) return; if(!planActive()){ requirePlan("start a story"); return; } setNewStoryOpen(true); };
 
   // ---- character handlers ----
   const updateCharacter = (id,patch)=>{
     if(!canMutateSharedFilm()) return;
     setCharacters(cs=>cs.map(c=>c.id===id?{...c,...patch}:c));
-  };
-  // add a character BY HAND (not from the script) — gets a manual flag so its sheet
-  // generation is spec-gated like hand-added props/locations.
-  const addCharacter = ()=>{
-    if(!canMutateSharedFilm()) return null;
-    const id = "char-"+Date.now().toString(36);
-    setCharacters(cs=>[...cs, { id, name:"New character", role:"",
-      color:"linear-gradient(135deg,#6a6f7a,#262a30)", conscious:"", unconscious:"", arc:"", voiceDNA:{}, manual:true }]);
-    return id;
-  };
-  // Writers' Room rail "+": add AND select, so the Character panel opens on the
-  // new character ready to type (name, role and pronouns are edited right there).
-  const addCharacterAndSelect = ()=>{
-    const id = addCharacter();
-    if(!id) return;
-    setSelChar(id); setInspOpen(true);
   };
   // SOFT DELETE: move the full character into the restore bin (its scenes are scene-side
   // and untouched, so restoring the same id re-links them). The generated sheet is KEPT
@@ -1947,7 +3030,9 @@ function App(){
     const gopts = { aspectRatio:"16:9", ...(model?{model}:{}), ...(extra.length?{extraImages:extra}:{}) };
     let url; try{ url=await window.nbGenerate(prompt, gopts); }
     catch(e){ if(/no image/i.test(String((e&&e.message)||e))) url=await window.nbGenerate(prompt, gopts); else throw e; }
-    const meta = { modelId:model, aspect:"16:9", iso:new Date().toISOString(), prompt, agent:"Prop owner pre-gen" };
+    const meta = { modelId:model, aspect:"16:9", iso:new Date().toISOString(), prompt, agent:"Prop owner pre-gen",
+      writingSources:(typeof window.nbWritingSourcesFor==="function")?window.nbWritingSourcesFor(c):[],
+      promptCompiler:"TURN prompt compiler" };
     const kind = (typeof slotAssetKind==="function") ? slotAssetKind("charref-"+c.id) : "character";
     await window.nbCommit(c.id, url, meta, [], kind);
     try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id:c.id, url } })); }catch(e){}
@@ -2133,7 +3218,10 @@ function App(){
     const scenesU = anyScenes ? Array.from(new Set(set.flatMap(p=>p.scenes||[]))) : survivor.scenes;
     // backfill empty spec fields from the others
     const patch = { };
-    if(anyScenes) patch.scenes = scenesU;
+    if(currentShowId && currentProjectId && window.turnSeries
+      && typeof window.turnSeries.mergeEntitySceneRefs==="function")
+      Object.assign(patch,window.turnSeries.mergeEntitySceneRefs(set,survivor,currentProjectId));
+    else if(anyScenes) patch.scenes = scenesU;
     ["form","material","detail","renderStyle"].forEach(f=>{
       if(!String(survivor[f]||"").trim()){ const donor = others.find(o=>String(o[f]||"").trim()); if(donor) patch[f]=donor[f]; }
     });
@@ -2249,7 +3337,7 @@ function App(){
       // 3) map scenes
       if(typeof aiPropScenes==="function" && working.length){
         const smap = await aiPropScenes(working, scenes, drafts, characters);
-        if(smap) setProps(ps=>ps.map(p=> smap[p.id] ? {...p, scenes: smap[p.id]} : p));
+        if(smap) setProps(ps=>ps.map(p=> smap[p.id] ? withEpisodeSceneRefs(p,smap[p.id],scenes) : p));
       }
       if(working.length) markApplied("props");
     }catch(e){}
@@ -2450,7 +3538,7 @@ function App(){
     setTaggingScenes(true);
     try{
       const map = await aiPropScenes(props, scenes, drafts, characters);
-      if(map) setProps(ps=>ps.map(p=> map[p.id] ? {...p, scenes: map[p.id]} : p));
+      if(map) setProps(ps=>ps.map(p=> map[p.id] ? withEpisodeSceneRefs(p,map[p.id],scenes) : p));
     }catch(e){}
     setTaggingScenes(false);
   };
@@ -2462,7 +3550,7 @@ function App(){
     try{
       const map = await aiPropScenes([p], scenes, drafts, characters);
       const next = (map && map[p.id]) ? map[p.id] : [];
-      setProps(ps=>ps.map(x=> x.id===p.id ? {...x, scenes: next} : x));
+      setProps(ps=>ps.map(x=> x.id===p.id ? withEpisodeSceneRefs(x,next,scenes) : x));
     }catch(e){}
     setTaggingSceneId(null);
   };
@@ -2519,13 +3607,13 @@ function App(){
             // it HAS an owner — ownerless carried props get "candidate scenes:
             // none" from the mapper, which biases the AI toward empty, so an
             // empty verdict there is weak evidence and never trashes.
-            if(!next.length && p.scenes.length && (p.kind||"carried")!=="dressing" && (p.ownerId||p.ownerName)){ gone.push(p); return false; }
+            if(!currentShowId && !next.length && p.scenes.length && (p.kind||"carried")!=="dressing" && (p.ownerId||p.ownerName)){ gone.push(p); return false; }
             return true;
           });
           return keep.map(p=>{
             if(!fresh(p)) return p;
             const next = nextOf(p);
-            return (next.join("|")===p.scenes.join("|")) ? p : {...p, scenes: next};
+            return (next.join("|")===p.scenes.join("|")) ? p : withEpisodeSceneRefs(p,next,scenesEpoch);
           });
         });
         if(gone.length){
@@ -2538,7 +3626,7 @@ function App(){
       finally{ autoRetagRef.current = false; }
     }, 2500);
     return ()=> clearTimeout(t);
-  },[drafts, scenes]);
+  },[drafts, scenes, currentShowId, currentProjectId]);
 
   // ---- Art Room: LOCATIONS ----
   const updateLocation = (id,patch)=>setLocations(ls=>ls.map(l=>l.id===id?{...l,...patch}:l));
@@ -2551,7 +3639,9 @@ function App(){
   const addLocation = ()=>{
     const id = "loc-"+Date.now().toString(36);
     setLocations(ls=>[...ls, { id, key:id, name:"New location", intExt:"INT", times:[], areas:[], scenes:[],
-      architecture:"", materials:"", lighting:"", significance:"", renderStyle:"", negativePrompt:"", variants:[], manual:true }]);
+      scope:"atomic",parentKey:"",continuityRootKey:id,
+      architecture:"",materials:"",lighting:"",permanentDressing:"",topology:"",continuityAnchors:"",anchorsLocked:true,
+      provenance:{},significance:"",renderStyle:"",negativePrompt:"",variants:[],manual:true }]);
   };
   const deleteLocation = (id)=>{
     const l = (locations||[]).find(x=>x.id===id); if(!l) return;
@@ -2609,8 +3699,10 @@ function App(){
         const derived = deriveLocations(scenes, locations, drafts);   // places not yet present (incl. mid-scene slugs)
         const fresh = deriveLocations(scenes, [], drafts);            // all, to refresh scene chips
         working = locations.map(l=>{ const m=fresh.find(f=>f.key===l.key);
-          return m?{...l, scenes:m.scenes, times:[...new Set([...(l.times||[]),...m.times])], areas:[...new Set([...(l.areas||[]),...m.areas])]}:l; });
-        if(derived.length) working = [...working, ...derived];
+          return m?withEpisodeLocationMeta(l,{...m,
+            times:[...new Set([...(l.times||[]),...(m.times||[])])],
+            areas:[...new Set([...(l.areas||[]),...(m.areas||[])])]}) : l; });
+        if(derived.length) working = [...working, ...derived.map(l=>withEpisodeLocationMeta(l,l))];
         setLocsSeeded(true);
         if(derived.length || working.length) setLocations(working);
       }
@@ -2783,13 +3875,15 @@ function App(){
     if(typeof deriveLocations!=="function") return;
     const derived = deriveLocations(scenes, locations, drafts);
     setLocsSeeded(true);
-    if(derived.length) setLocations(ls=>[...ls, ...derived]);
+    if(derived.length) setLocations(ls=>[...ls, ...derived.map(l=>withEpisodeLocationMeta(l,l))]);
     // also refresh the scene lists on existing locations as the script grows
     else if(locations.length){
       const fresh = deriveLocations(scenes, [], drafts);
-      setLocations(ls=>ls.map(l=>{ const m=fresh.find(f=>f.key===l.key); return m?{...l, scenes:m.scenes, times:[...new Set([...(l.times||[]),...m.times])], areas:[...new Set([...(l.areas||[]),...m.areas])]}:l; }));
+      setLocations(ls=>ls.map(l=>{ const m=fresh.find(f=>f.key===l.key); return m?withEpisodeLocationMeta(l,{...m,
+        times:[...new Set([...(l.times||[]),...(m.times||[])])],
+        areas:[...new Set([...(l.areas||[]),...(m.areas||[])])]}) : l; }));
     }
-  },[scenes, locations, drafts]);
+  },[scenes, locations, drafts, currentShowId, currentProjectId]);
   // auto-seed once per story: first time the Locations tab opens empty, derive them
   React.useEffect(()=>{
     if(locsSeeded || hydratingRef.current) return;
@@ -2797,15 +3891,36 @@ function App(){
     if(locations.length){ setLocsSeeded(true); return; }
     if(typeof scriptHasLocations==="function" && scriptHasLocations(scenes)) pullLocationsFromScript();
   },[room, artView, locsSeeded, locations.length, scenes, pullLocationsFromScript, hydrationTick]);
-  // fold stale standalone sub-space cards (e.g. an "Intake Booth" card the old
-  // derivation created for a slug that belongs inside "Intake Yard") — runs when
-  // locations/scenes/drafts settle; a no-op once nothing stale remains. All
-  // disposal is async + image-safe (foldStaleLocations): drafted cards are kept,
-  // plate-only cards transfer their plate onto the slugline unit first.
+  // LOCATION HIERARCHY SYNC — grouping now establishes inheritance instead of
+  // disposing of child cards. Restore a previously folded child from recoverable
+  // Trash when possible; otherwise derive the missing child with its stable ID.
+  // Existing specs, plates, staging and histories remain on their original records.
   React.useEffect(()=>{
     if(hydratingRef.current || !scenes.length || !locations.length) return;
-    foldStaleLocations(locations);
-  },[locations, scenes, drafts]);
+    if(typeof deriveLocations!=="function") return;
+    const fresh=deriveLocations(scenes,[],drafts);
+    if(!fresh.length) return;
+    const freshByKey={}; fresh.forEach(x=>{ if(x&&x.key) freshByKey[x.key]=x; });
+    const currentKeys=new Set((locations||[]).map(x=>x&&x.key).filter(Boolean));
+    const restore=(trash.locations||[]).filter(x=>x&&freshByKey[x.key]&&!currentKeys.has(x.key));
+    const restoreKeys=new Set(restore.map(x=>x.key));
+    const missing=fresh.filter(x=>!currentKeys.has(x.key)&&!restoreKeys.has(x.key));
+    let changed=!!(restore.length||missing.length);
+    const next=(locations||[]).map(l=>{
+      const f=l&&freshByKey[l.key]; if(!f) return l;
+      const synced=withEpisodeLocationMeta(l,f);
+      const fields=["scope","parentKey","continuityRootKey","scenes","episodeScenes","times","areas","intExt","episodeLocationMeta"];
+      const same=fields.every(k=>JSON.stringify(l[k])===JSON.stringify(synced[k]));
+      if(same) return l; changed=true; return synced;
+    });
+    restore.forEach(item=>{ const {_deletedAt,...clean}=item, f=freshByKey[item.key];
+      // restored authored/generated fields win over the empty derived shell
+      const restored={...clean,...f,...clean};
+      next.push(withEpisodeLocationMeta(restored,f)); });
+    missing.forEach(item=>next.push(withEpisodeLocationMeta(item,item)));
+    if(changed) setLocations(next);
+    if(restore.length) setTrash(t=>({...t,locations:(t.locations||[]).filter(x=>!restoreKeys.has(x&&x.key))}));
+  },[locations, scenes, drafts, trash.locations, currentShowId, currentProjectId]);
   // read the whole film, design a BESPOKE per-film palette and color-script it
   // along the value-charge spine (see aiAssignSceneStyles).
   // merge an aiAssignSceneStyles result into project.styleBible. Shared by the quick
@@ -2831,7 +3946,8 @@ function App(){
       }
       // the model also picks the film stock; preserve other styleBible fields (refs etc.).
       const filmStock = res.filmStock || sb.filmStock || "none";
-      return {...p, styleBible:{ ...sb, presets, sceneStyles, filmStock }};
+      return {...p, styleBible:{ ...sb, presets, sceneStyles, filmStock,
+        ...(res.writingProvenance?{writingProvenance:{...res.writingProvenance}}:{}) }};
     });
   };
   const assignSceneStyles = async ()=>{
@@ -3435,7 +4551,7 @@ function App(){
   // (because that write is a bare try/catch) saves then failed silently forever.
   const HISTORY_MAX = 12;
   const commitVersion = (id, next)=>{
-    if(!canMutateSharedFilm()) return false;
+    if(!canMutateWritersRoom()) return false;
     const prev = drafts[id];
     if(prev) setHistory(h=>{ const e=h[id]||{back:[],fwd:[]};
       return {...h,[id]:{ back:[...e.back, prev].slice(-HISTORY_MAX), fwd:[] }}; });
@@ -3443,7 +4559,7 @@ function App(){
     return true;
   };
   const revertVersion = (id)=>{
-    if(!canMutateSharedFilm()) return;
+    if(!canMutateWritersRoom()) return;
     const e = history[id]; if(!e||!e.back.length) return;
     const prev = e.back[e.back.length-1];
     const cur = drafts[id];
@@ -3451,7 +4567,7 @@ function App(){
     setDrafts(d=>({...d,[id]:prev}));
   };
   const redoVersion = (id)=>{
-    if(!canMutateSharedFilm()) return;
+    if(!canMutateWritersRoom()) return;
     const e = history[id]; if(!e||!e.fwd.length) return;
     const nextV = e.fwd[0];
     const cur = drafts[id];
@@ -3460,7 +4576,7 @@ function App(){
   };
 
   const draftOne = async (s)=>{
-    if(!canMutateSharedFilm() || drafts[s.id]) return;
+    if(!canMutateWritersRoom() || drafts[s.id]) return;
     const ordered=scenesInStoryOrder(scenes);
     const i = ordered.findIndex(x=>x.id===s.id);
     const prev=i>0?ordered[i-1]:null;
@@ -3472,7 +4588,7 @@ function App(){
     const owner = currentProjectId;
     if(!beats && typeof aiAuthorScene==="function" && aiAvailable()){
       const authored = await aiAuthorScene(s, prev, characters, project);
-      if(owner !== projIdRef.current || !canMutateSharedFilm()){ setDrafting(null); return; }
+      if(owner !== projIdRef.current || !canMutateWritersRoom()){ setDrafting(null); return; }
       if(authored){
         scn = {...s, ...authored.patch}; beats = authored.beats;
         setScenes(ss=>ss.map(x=>x.id===s.id?{...x,...authored.patch}:x));
@@ -3480,12 +4596,12 @@ function App(){
       }
     }
     const res = await aiDraftScene(scn, beats, prev, project);
-    if(owner !== projIdRef.current || !canMutateSharedFilm()){ setDrafting(null); return; }
+    if(owner !== projIdRef.current || !canMutateWritersRoom()){ setDrafting(null); return; }
     setDrafts(d=>({...d,[s.id]:res}));
     setDrafting(null);
   };
   const draftAll = async ()=>{
-    if(!canMutateSharedFilm() || draftingRef.current) return;
+    if(!canMutateWritersRoom() || draftingRef.current) return;
     draftingRef.current = true;
     // One canonical, mutable story-order snapshot for the whole run. When authoring
     // fills a blank scene, patch this working sequence before drafting its successor
@@ -3496,14 +4612,14 @@ function App(){
     const owner = currentProjectId;   // abort the whole run if the user switches films
     try{
       for(let i=0;i<tot;i++){
-        if(owner !== projIdRef.current || readOnlyShareRef.current) break;
+        if(owner !== projIdRef.current || writersRoomReadOnlyRef.current) break;
         const s = working[i], prev=i>0?working[i-1]:null;
         setDrafting({ i, total:tot });
         if(have[s.id]) continue;
         let scn = s, beats = beatsMap[s.id];
         if(!beats && typeof aiAuthorScene==="function" && aiAvailable()){
           const authored = await aiAuthorScene(s, prev, characters, project);
-          if(owner !== projIdRef.current || readOnlyShareRef.current) break;
+          if(owner !== projIdRef.current || writersRoomReadOnlyRef.current) break;
           if(authored){
             scn = {...s, ...authored.patch}; working[i]=scn; beats = authored.beats;
             setScenes(ss=>ss.map(x=>x.id===s.id?{...x,...authored.patch}:x));
@@ -3511,7 +4627,7 @@ function App(){
           }
         }
         const res = await aiDraftScene(scn, beats, prev, project);
-        if(owner !== projIdRef.current || readOnlyShareRef.current) break;
+        if(owner !== projIdRef.current || writersRoomReadOnlyRef.current) break;
         have[s.id] = res;
         setDrafts(d=>({...d,[s.id]:res}));
       }
@@ -3524,7 +4640,7 @@ function App(){
   // polish: regenerate one scene's prose as genuinely new final text (beats locked)
   const [polishBusy, setPolishBusy] = React.useState(null);
   const polishScene = async (s, beatsForScene)=>{
-    if(!canMutateSharedFilm()) return false;
+    if(!canMutateWritersRoom()) return false;
     setPolishBusy({ no:s && s.no });
     const ordered=scenesInStoryOrder(scenes);
     const i = ordered.findIndex(x=>x.id===s.id);
@@ -3532,7 +4648,7 @@ function App(){
     try{
       const structural = autoDraftScene(s, beatsForScene, prev);
       const res = await aiPolishScene(s, beatsForScene, structural.blocks, prev, project);
-      if(res && canMutateSharedFilm()){ return commitVersion(s.id, res); }
+      if(res && canMutateWritersRoom()){ return commitVersion(s.id, res); }
       return false; // fall back to seed prose animation
     }catch(e){
       return false;
@@ -3568,7 +4684,7 @@ function App(){
      Offer to RECAST the scene's subtext for the new driver; the screenplay is
      then rebuilt with "Redraft script from beats" so nothing rewrites unseen. */
   const _offerDriverRecast = async (sceneId, oldId, newId)=>{
-    if(!canMutateSharedFilm()) return;
+    if(!canMutateWritersRoom()) return;
     const scn = scenes.find(s=>s.id===sceneId); if(!scn) return;
     const b = beatsMap[sceneId];
     if(!b || !b.rows || !b.rows.length) return;
@@ -3582,7 +4698,7 @@ function App(){
     setRecastBusy({ no:scn.no, name:NEW });
     try{
       const res = await window.aiRecastDriver(scn, b, characters, newId, oldId, project);
-      if(res && canMutateSharedFilm()){
+      if(res && canMutateWritersRoom()){
         updateScene(sceneId, { ...(res.summary?{summary:res.summary}:{}), ...(res.objective?{objective:res.objective}:{}) });
         setBeatsMap(m=>{ const cur=m[sceneId]||b; return { ...m, [sceneId]:{ ...cur, driverLabel:NEW,
           desire:res.desire||cur.desire, obstacle:res.obstacle||cur.obstacle, result:res.result||cur.result, rows:res.rows||cur.rows } }; });
@@ -3594,7 +4710,7 @@ function App(){
     setRecastBusy(null);
   };
   const updateScene = (id,patch)=>{
-    if(!canMutateSharedFilm()) return;
+    if(!canMutateWritersRoom()) return;
     const before = patch.driver ? ((scenes.find(s=>s.id===id)||{}).driver) : null;
     setScenes(ss=>ss.map(s=>s.id===id?{...s,...patch}:s));
     // the Beats tab's DRIVER label is a stored string — changing the scene's
@@ -3609,7 +4725,7 @@ function App(){
   };
   const onCharge = (field,val)=>updateScene(selId,{[field]:val});
   const addScene = (afterId)=>{
-    if(!canMutateSharedFilm()) return;
+    if(!canMutateWritersRoom()) return;
     const id = newId();
     setScenes(ss=>{
       const i = afterId!=null ? ss.findIndex(s=>s.id===afterId) : ss.length-1;
@@ -3627,7 +4743,7 @@ function App(){
     setSelId(id);
   };
   const deleteScene = (id)=>{
-    if(!canMutateSharedFilm()) return;
+    if(!canMutateWritersRoom()) return;
     const i = scenes.findIndex(s=>s.id===id);
     const remaining = scenes.filter(s=>s.id!==id);
     if(!remaining.length) return;
@@ -3643,7 +4759,7 @@ function App(){
     setSelId(nxt ? nxt.id : null);
   };
   const reorderScenes = (fromIdx,toIdx)=>{
-    if(!canMutateSharedFilm()) return;
+    if(!canMutateWritersRoom()) return;
     setScenes(ss=>{
       if(toIdx<0||toIdx>=ss.length||fromIdx===toIdx||fromIdx<0) return ss;
       const out=ss.slice(); const [m]=out.splice(fromIdx,1); out.splice(toIdx,0,m); return renum(out);
@@ -3651,7 +4767,7 @@ function App(){
   };
   const moveScene = (id,dir)=>{ const i=scenes.findIndex(s=>s.id===id); reorderScenes(i,i+dir); };
   const setBeatsFor = (sceneId,next)=>{
-    if(!canMutateSharedFilm()) return;
+    if(!canMutateWritersRoom()) return;
     const identified=(typeof withBeatIdentity==="function")?withBeatIdentity(next,sceneId):next;
     setBeatsMap(m=>({...m,[sceneId]:identified}));
   };
@@ -3694,6 +4810,7 @@ function App(){
     const shapeOf = (src)=>({ scenes:src.scenes, characters:src.characters, project:src.project,
       beats:src.beats, drafts:src.drafts, continuity:src.continuity });
     let warnedMidRunEdit = false;
+    let warnedRestrictedCast = false;
     const model = {
       scenes: scenes.map(s=>({...s})),
       characters: characters.map(c=>({...c})),
@@ -3709,8 +4826,8 @@ function App(){
     // a live state outside this set = someone edited while the agent ran
     const writtenSigs = new Set([sigOf(shapeOf(model))]);
     const sync = ()=>{
-      if(readOnlyShareRef.current){
-        try{ emit && emit({k:"flag", t:"Your access is view-only, so these proposed changes were NOT applied. Ask the owner for Writer access."}); }catch(e){}
+      if(writersRoomReadOnlyRef.current){
+        try{ emit && emit({k:"flag", t:"Your role cannot change the Writers' Room, so these proposed changes were NOT applied. Ask the owner for Writer access."}); }catch(e){}
         return;
       }
       // WRONG-FILM GUARD: an agent run takes minutes and the film switcher stays live.
@@ -3731,18 +4848,37 @@ function App(){
         }
       }
       if(!committed){ committed = true; const snap = snapshot(); setAgentUndo(st=>[...st, snap].slice(-8)); }
+      /* A New Story inside an episode discovers episode cast; it must not replace
+         the Show's established cast. Reconcile by stable id/name, keep canonical
+         facts, append genuinely new people, and remap scene drivers to retained
+         canonical ids before anything reaches React or autosave. */
+      if(currentShowId && agentName==="Adaptation" && model.characters
+        && window.turnSeries && typeof window.turnSeries.mergeAdaptationCast==="function"){
+        const allowNewCast=!!characterBibleWritableRef.current;
+        const reconciled=window.turnSeries.mergeAdaptationCast(
+          (agentLiveRef.current&&agentLiveRef.current.characters)||characters,
+          model.characters,model.scenes,{allowNew:allowNewCast});
+        model.characters=reconciled.characters;
+        model.scenes=reconciled.scenes;
+        if(!allowNewCast && reconciled.blockedNames&&reconciled.blockedNames.length&&!warnedRestrictedCast){
+          warnedRestrictedCast=true;
+          try{ emit&&emit({k:"flag",t:"Your Writer role can shape this Episode but cannot change the Show cast. New cast candidates were not added; scene character links were kept within the existing Show canon. Ask the owner or Art director to add any genuinely new character."}); }catch(e){}
+        }
+      }
       setScenes(model.scenes.map(s=>({...s})));
       if(model.characters) setCharacters(model.characters.map(c=>({...c})));
       if(model.project){
         /* a new story identity (e.g. Adaptation) makes the old props irrelevant —
            clear them so sample-story props never bleed into a freshly built film */
         if(model.project.title && project && model.project.title !== project.title){
-          setProps([]); setPropsSeeded(false); setVisualsSeeded(false);
+          // In a series those are canonical Show assets, not leftovers from this
+          // episode. New episode story generation may add to them later but never
+          // clears the existing shared departments.
+          if(!currentShowId){ setProps([]); setPropsSeeded(false); setVisualsSeeded(false); }
           // keep the cloud ROW title in step with the film's new title, so the
           // switcher doesn't keep saying "Untitled film" after a build
           if(cloudMode && currentProjectId){
-            cloudRenameProject(currentProjectId, model.project.title);
-            setProjects(ps=>ps.map(pr=>pr.id===currentProjectId?{...pr, title:model.project.title}:pr));
+            renameProject(currentProjectId, model.project.title);
           }
         }
         setProject({...model.project});
@@ -3760,7 +4896,7 @@ function App(){
       // a film switch cancels the RUN, not just the commit — otherwise an agent keeps
       // burning model calls (and reading the newly opened film's globals) for minutes
       // after the guard has already decided its result can never be applied
-      cancelled: ()=> cancelled() || ownerProjectId !== projIdRef.current,
+      cancelled: ()=> cancelled() || ownerProjectId !== projIdRef.current || writersRoomReadOnlyRef.current,
       switchedFilms: ()=> ownerProjectId !== projIdRef.current,
       project, facts:FACTS,
       // read-only copies of the Art-Room bibles + gated patchers, for agents that
@@ -3770,8 +4906,8 @@ function App(){
         props: props.map(p=>({...p})),
         locations: locations.map(l=>({...l})),
         shots: (shots||[]).map(s=>({...s})),
-        patchProp:(id,patch)=>{ if(!readOnlyShareRef.current) setProps(ps=>ps.map(p=>p.id===id?{...p,...patch}:p)); },
-        patchLocation:(id,patch)=>{ if(!readOnlyShareRef.current) setLocations(ls=>ls.map(l=>l.id===id?{...l,...patch}:l)); },
+        patchProp:(id,patch)=>{ if(!(_projRow&&_projRow.isShared) || (typeof window.teamCanWriteSection==="function"&&window.teamCanWriteSection(shareRole,"props"))) setProps(ps=>ps.map(p=>p.id===id?{...p,...patch}:p)); },
+        patchLocation:(id,patch)=>{ if(!(_projRow&&_projRow.isShared) || (typeof window.teamCanWriteSection==="function"&&window.teamCanWriteSection(shareRole,"locations"))) setLocations(ls=>ls.map(l=>l.id===id?{...l,...patch}:l)); },
       },
       ai:{ available: (typeof aiAvailable==="function" && aiAvailable()),
         suggestTurn:(s,p)=>window.aiSuggestTurn(s,p,model.project),
@@ -3932,6 +5068,8 @@ function App(){
         return _genCharImage(c.id, prompt, { model:_modelFor(c),
           ...(referenceImage?{referenceImage}:{}), ...(extra.length?{ extraImages:extra }:{}),
           commitRefs, metaExtra:{ specPrompt:(typeof combinedImagePrompt==="function") ? combinedImagePrompt(c, project, props) : prompt,
+            writingSources:(typeof window.nbWritingSourcesFor==="function")?window.nbWritingSourcesFor(c):[],
+            promptCompiler:"TURN prompt compiler",
             wornSig:(typeof window.wornPropsSig==="function")?window.wornPropsSig(worn,c.id):"",
             wornReferences, wornRefSummary:{total:wornReferences.length,visual,text:wornReferences.length-visual} } }); },
       generateState: async (c, st, baseUrl)=>{
@@ -3939,7 +5077,10 @@ function App(){
         const prompt = base + " APPEARANCE STATE — "+(st.label||"variant")+": "+(st.change||"")
           + ". Render the character in THIS changed state consistently across every panel, keeping the EXACT same face, hair, skin tone and body as the reference; only the described change differs.";
         const cameo = await _cameoOf(c.id);
-        const opts = { model:_modelFor(c) };
+        const stateEntity={...c,appearanceState:st};
+        const opts = { model:_modelFor(c), metaExtra:{
+          writingSources:(typeof window.nbWritingSourcesFor==="function")?window.nbWritingSourcesFor(stateEntity):[],
+          promptCompiler:"TURN prompt compiler" } };
         if(baseUrl) opts.referenceImage = baseUrl;
         if(cameo.length) opts.extraImages = cameo;
         return _genCharImage(c.id+":"+st.id, prompt, opts); },
@@ -4062,8 +5203,10 @@ function App(){
         const derived = deriveLocations(scenes, _locWork, drafts);          // new only
         const fresh = deriveLocations(scenes, [], drafts);                  // all, to refresh scene lists/times/areas
         let next = _locWork.map(l=>{ const m=fresh.find(f=>f.key===l.key);
-          return m ? {...l, scenes:m.scenes, times:[...new Set([...(l.times||[]),...m.times])], areas:[...new Set([...(l.areas||[]),...m.areas])]} : l; });
-        if(derived.length) next = [...next, ...derived];
+          return m ? withEpisodeLocationMeta(l,{...m,
+            times:[...new Set([...(l.times||[]),...(m.times||[])])],
+            areas:[...new Set([...(l.areas||[]),...(m.areas||[])])]}) : l; });
+        if(derived.length) next = [...next, ...derived.map(l=>withEpisodeLocationMeta(l,l))];
         _locWork = next; setLocations(next); setLocsSeeded(true);
         return derived.length;
       },
@@ -4118,7 +5261,18 @@ function App(){
       toGenerateVariants: async (force)=>{
         const out=[];
         for(const l of _locWork){ if(!_locDrafted(l)) continue;
-          for(const v of (l.variants||[])){ if(!force && await _grabImg(l.id+"-"+v.id)) continue; out.push({l, v}); } }
+          /* Screenplay Sluglines and Appearance States are projections of one
+             place/side/time record. Include screenplay-derived rows here too,
+             so the Location Scout generates the shared state asset itself
+             instead of only legacy location.variants records. */
+          const states = (typeof locationAppearanceStates==="function")
+            ? locationAppearanceStates(l,sluglineUnits||[]) : (l.variants||[]);
+          for(const v of states){
+            const assetId = (typeof locationAppearanceStateAssetId==="function")
+              ? locationAppearanceStateAssetId(l,v,sluglineUnits||[]) : l.id+"-"+v.id;
+            if(!force && await _grabImg(assetId)) continue;
+            out.push({l, v});
+          } }
         return out;
       },
       generatePlate: async (l)=>{ if(typeof window.generateLocationPlate!=="function") throw new Error("plate generator unavailable"); return window.generateLocationPlate(l, project); },
@@ -4155,7 +5309,8 @@ function App(){
           const key = keyOf(e);
           if(!e.source || !key || seen.has(key)) return;
           seen.add(key);
-          cards.push({ id:"look-"+slug(e.source).slice(0,24)+"-"+i, source:e.source, category:e.category||"Palette", note:e.note||"", negativePrompt:"" });
+          cards.push({ id:"look-"+slug(e.source).slice(0,24)+"-"+i, source:e.source, category:e.category||"Palette", note:e.note||"", negativePrompt:"",
+            ...(r.writingProvenance?{writingProvenance:{...r.writingProvenance}}:{}) });
         });
         // GROWTH GUARD — the brief is 8 touchstones covering the categories. A re-run
         // may only FILL GAPS (one card per still-missing category), never grow the
@@ -4310,7 +5465,7 @@ function App(){
 
   // restore the most recent pre-run snapshot
   const undoLastAgent = ()=>{
-    if(!canMutateSharedFilm()) return;
+    if(!canMutateWritersRoom()) return;
     setAgentUndo(st=>{
       if(!st.length) return st;
       const snap = st[st.length-1];
@@ -4457,7 +5612,23 @@ function App(){
       scenes:[], selScene:null, project:null, signedIn:false, aiOn:false, onSignIn:()=>openAuth("signup") }));
   }
 
-  return React.createElement("div",{className:`app vp-${vp} ${densClass} ${premiumClass}`+(readOnlyShare?" is-readonly":"")},
+  /* New Story has two distinct launch targets while a Show episode is open:
+     - blank current Episode: build into it, so the Show-owned format is locked;
+     - populated Episode: mint an unrelated project, so format choice stays free.
+     Capture that distinction in one value and use it for BOTH the visible intake
+     and the launch boundary. Looking only at currentShowId over-constrained the
+     second path and could silently seed a second Show with the old Show's format. */
+  const newStoryBuildsCurrentEpisode=!!(currentShowId && !scenes.length);
+  const newStoryShowRow=newStoryBuildsCurrentEpisode
+    ? (projects||[]).find(p=>String(p.id)===String(currentShowId)) : null;
+  const newStoryFormatEntry=newStoryBuildsCurrentEpisode
+    ? ((window.FORMATS||[]).find(f=>f&&f.id===String(project&&project.format))
+      || ((typeof formatOf==="function")?formatOf(project):null))
+    : null;
+  const newStoryEpisodeFormat=newStoryFormatEntry&&newStoryFormatEntry.id
+    ? String(newStoryFormatEntry.id) : (newStoryBuildsCurrentEpisode?"series":undefined);
+
+  return React.createElement("div",{className:`app vp-${vp} ${densClass} ${premiumClass}`+(roomReadOnly?" is-readonly":"")},
     window.ConfirmHost && React.createElement(window.ConfirmHost,null),
     /* VIEW-ONLY BANNER — say it UP FRONT. RLS rejects this user's writes, so without a
        standing notice they could work for an hour and only discover it from a failed save. */
@@ -4466,6 +5637,21 @@ function App(){
       React.createElement("span",null,
         React.createElement("b",null,"View-only access — "),
         "you can navigate, inspect, export and play this film. Editing and AI-write actions are disabled. Ask the owner for Writer access to edit it.")),
+    unknownSharedRole && React.createElement("div",{className:"readonly-banner",role:"status"},
+      React.createElement(Icon.warn||Icon.eye,{s:13}),
+      React.createElement("span",null,
+        React.createElement("b",null,"Role unavailable — "),
+        "TURN could not verify a current collaborator role for this shared project. It is read-only and changes or AI actions will not save. Ask the owner to reassign View-only, Writer or Art director access.")),
+    !readOnlyShare && !unknownSharedRole && room==="writers" && shareRole==="art_director" && writersRoomReadOnly && React.createElement("div",{className:"readonly-banner",role:"status"},
+      React.createElement(Icon.eye||Icon.warn,{s:13}),
+      React.createElement("span",null,
+        React.createElement("b",null,"Writers' Room is read-only for Art directors — "),
+        "you can inspect the story and script here, then return to the Art Room to change the Show Bible and pre-production work.")),
+    !readOnlyShare && !unknownSharedRole && room==="art" && shareRole==="writer" && artRoomReadOnly && React.createElement("div",{className:"readonly-banner",role:"status"},
+      React.createElement(Icon.eye||Icon.warn,{s:13}),
+      React.createElement("span",null,
+        React.createElement("b",null,"Art Room is read-only for Writers — "),
+        "you can inspect the shared Bible and pre-production work here, then return to the Writers' Room to change story, beats and script.")),
     // the post-checkout welcome card (/?welcome=1): live-updates as the webhook's
     // grant streams into the balance; its CTA goes straight to New Story
     welcomeOpen && session && window.WelcomePlanCard && React.createElement(window.WelcomePlanCard,{
@@ -4495,7 +5681,16 @@ function App(){
           : (claim && claim.invited_by),
         sessionEmail: (typeof cloudUserEmail==="function") ? cloudUserEmail(session) : "",
         canSetPassword: !!(um.turn_invited && !um.turn_password_set),
-        onOpen: async ()=>{ const id = film && film.id; setInviteLanding(null); setHomeOpen(false); if(id) await switchProject(id); },
+        onOpen: async ()=>{
+          let id=film&&film.id;
+          if(film&&isShowProject(film)){
+            const first=(projects||[]).filter(p=>String(p.showId||"")===String(film.id))
+              .sort((a,b)=>(Number(a.episodeNo)||0)-(Number(b.episodeNo)||0))[0];
+            id=first&&first.id;
+          }
+          setInviteLanding(null); setHomeOpen(false);
+          if(id) await switchProject(id); else setHomeOpen(true);
+        },
         onClose: ()=>setInviteLanding(null) });
     })(),
     // Home = the dashboard, once the user has >=2 films OR any film shared with
@@ -4517,7 +5712,7 @@ function App(){
           onRestorePoster: restorePoster,
           onGoRoom: async (rid)=>{ if(!currentProjectId){ await createProject(); } setHomeOpen(false); if(rid==="writers") setView("spine"); guardedSetRoom(rid); },
           onClose: ()=>setHomeOpen(false),
-          accountSlot: React.createElement(AccountChip,{ session, cloudActive:cloudMode, saveState, shareRole,
+          accountSlot: React.createElement(AccountChip,{ session, cloudActive:cloudMode, saveState, shareRole,roleUnavailable:unknownSharedRole,
             onSignIn:()=>setAuthOpen(true), onSignOut:signOut }) }),
     t.grain && React.createElement("div",{style:{position:"fixed",inset:0,pointerEvents:"none",zIndex:50,
       opacity:.025,mixBlendMode:"overlay",
@@ -4536,6 +5731,7 @@ function App(){
       // source, so recovery-by-regeneration runs the SAME Adaptation build into a
       // brand-new film (a fresh telling; the current film is never overwritten).
       onRebuildFromBrief: async ()=>{
+        if(!canMutateWritersRoom()) return;
         const brief = String(project.sourceBrief||"").trim();
         if(!brief){ if(window.appToast) window.appToast("This story has no saved brief to rebuild from.","info"); return; }
         if(!planActive()){ requirePlan("rebuild a story"); return; }
@@ -4544,8 +5740,31 @@ function App(){
           confirmLabel:"Build the new film" });
         if(!ok) return;
         const keep = { format:project.format, framework:project.framework, logline:(project.logline||"").trim() };
-        if(cloudMode && typeof createProject==="function"){ await createProject(); }
-        else { applyDoc(emptyDoc()); setArtView("lookbook"); }
+        if(cloudMode && typeof createProject==="function"){
+          const requestId=typeof window.cloudCreateRequestId==="function"
+            ? window.cloudCreateRequestId()
+            : (window.crypto&&typeof window.crypto.randomUUID==="function"?window.crypto.randomUUID():"");
+          const launchScope={projectId:projIdRef.current,loadSeq:loadSeqRef.current,homeOpen:homeOpenRef.current};
+          const createOpts={...(requestId?{requestId}:{}),launchScope};
+          let minted=await createProject(undefined,createOpts);
+          let committed=!!(minted&&minted.created);
+          if(!minted){
+            minted=await createProject(undefined,createOpts);
+            committed=committed||!!(minted&&minted.created);
+          }
+          if(minted&&minted.superseded){
+            if(typeof window.appToast==="function") window.appToast(
+              minted.message||"The new film was created. Your current screen was left unchanged.","info");
+            return;
+          }
+          if(typeof minted!=="string"){
+            const why=String(window.cloudLastCreateError||"").trim();
+            if(typeof window.appToast==="function") window.appToast(
+              (committed?"The new film was saved but couldn\u2019t be opened yet":"Couldn\u2019t create the new film")+
+              (why?" \u2014 "+why:"")+". The current film was not rebuilt or replaced.","error");
+            return;
+          }
+        } else { applyDoc(emptyDoc()); setArtView("lookbook"); }
         setRoom("writers"); setView("spine");
         setProject(p=>({ ...p, ...(keep.format?{format:keep.format}:{}), ...(keep.framework?{framework:keep.framework}:{}),
           logline:keep.logline || p.logline, sourceBrief:brief, sourceBriefAt:new Date().toISOString() }));
@@ -4588,21 +5807,24 @@ function App(){
         (locations||[]).some(l=>l && l.renderStyleKey)
       ),
       theme,onTheme:setTheme,
-      authSlot: React.createElement(AccountChip,{ session, cloudActive: cloudMode, saveState, shareRole,
+      authSlot: React.createElement(AccountChip,{ session, cloudActive: cloudMode, saveState, shareRole,roleUnavailable:unknownSharedRole,
         onSignIn:()=>setAuthOpen(true), onSignOut:signOut }),
       projectSlot: cloudMode ? React.createElement(ProjectSwitcher,{ projects, currentId:currentProjectId,
         formatLabel:(typeof formatOf==="function") ? formatOf(project).label : null,
         // framework badge only when it differs from the default — three-act is the baseline
         frameworkLabel:(typeof frameworkOf==="function" && frameworkOf(project).id!=="threeact") ? frameworkOf(project).badge : null,
         onSwitch:switchProject, onCreate:createProject, onRename:renameProject, onDelete:deleteProject,
-        onNewEpisode:createEpisode, onMakeShow:makeShow,
+        onNewEpisode:createEpisode, onMakeShow:makeShow, onDeleteShow:deleteShow, seriesBusy,
         canMakeShow: !currentShowId && scenes.length>0 && !(((projects||[]).find(p=>p.id===currentProjectId)||{}).isShared) }) : null,
       presenceSlot: (cloudMode && window.PresenceDots)
         ? React.createElement(window.PresenceDots,{ people:presence }) : null,
       teamSlot: cloudMode && window.TeamButton ? React.createElement(window.TeamButton,{
-        projectId:currentProjectId,
-        projectTitle:((projects||[]).find(p=>p.id===currentProjectId)||{}).title || project.title,
-        projectMeta:(projects||[]).find(p=>p.id===currentProjectId) || null,
+        // A series is shared once at Show scope. The database migration makes
+        // that role apply to every existing and future episode.
+        projectId:currentShowId||currentProjectId,
+        projectTitle:((projects||[]).find(p=>p.id===(currentShowId||currentProjectId))||{}).title || project.title,
+        projectMeta:(projects||[]).find(p=>p.id===(currentShowId||currentProjectId)) || null,
+        series:!!currentShowId,
         onChanged:async ()=>{
           if(typeof cloudListProjects==="function"){
             const list = await cloudListProjects();
@@ -4618,11 +5840,11 @@ function App(){
     // the room's view tabs, moved out of the top bar to a full-width bar beneath it
     room!=="stage" && React.createElement(ViewNav,{room,view,setView,artView,setArtView,staleTabs,
       attnTabs:{ characters: wardrobeAttn },
-      readOnly:readOnlyShare,
+      readOnly:roomReadOnly,
       hiddenTabs:(typeof tabHidden==="function") ? Object.fromEntries((window.ART_TABS||[]).map(t=>[t.id, tabHidden(project, t.id)])) : null,
       railOpen,inspOpen,onToggleRail:toggleRail,onToggleInsp:toggleInsp,
       onCoordinate:async ()=>{ if(await requireStory("Art Department Coordinator")) setCoordConfirm(true); },
-      onAgents:async ()=>{ if(!canMutateSharedFilm()) return; if(await requireStory("Story Editors")) setAgentsOpen(true); }}),
+      onAgents:async ()=>{ if(!canMutateWritersRoom()) return; if(await requireStory("Story Editors")) setAgentsOpen(true); }}),
 
     authOpen && React.createElement(AuthModal,{ initialMode:authMode, plan:intendedPlan,
       onClose:()=>setAuthOpen(false),
@@ -4635,7 +5857,7 @@ function App(){
             : React.createElement(window.StageView,{key:(cloudMode?currentProjectId:"local"),
                 project,scenes,shots,characters,locations,props,beatsMap,drafts,
                 creditBalance,
-                readOnly:readOnlyShare,
+                readOnly:roomReadOnly,
                 onVoiceAll:voiceAllLines,voicingLines,onCancelVoiceAll:cancelVoiceAll,
                 onVoiceLine:voiceLine,
                 onUpdateShot:updateShot,
@@ -4653,7 +5875,7 @@ function App(){
           // show the onboarding instead of empty (and partly broken) tabs.
           ? React.createElement("div",{className:"canvas"}, emptyCanvas())
           : React.createElement(ArtRoom,{key:(cloudMode?currentProjectId:"local"),artView,setArtView,project,characters,scenes,props,drafts,trash,
-            canReview:!readOnlyShare,onSourceClick:openArtSource,
+            readOnly:roomReadOnly,canReview:!roomReadOnly,onSourceClick:openArtSource,
             onRestoreChar:restoreCharacter,onPurgeChar:purgeCharacter,onRestoreProp:restoreProp,onPurgeProp:purgeProp,
             onRestoreLoc:restoreLocation,onPurgeLoc:purgeLocation,onRestoreShot:restoreShot,onPurgeShot:purgeShot,onEnsureOwner:ensureOwnerSheet,
             onDirectScene:(sceneId)=>setSceneDirLaunch({ sceneId: sceneId||null }),
@@ -4667,7 +5889,7 @@ function App(){
             onDeleteLookbook:deleteLookbookCard,onSetLookbookNote:setLookbookNote,onClearLookbook:clearLookbook,
             staleTabs,onApplyLookbook:applyLookbook,onReviewLookbook:(dept)=>applyLookbook(dept,"review"),
             onUpdateChar:updateCharacter,onDraftVisuals:draftCharacterVisuals,onDraftAllVisuals:draftAllVisuals,
-            draftingVisualId,draftingAllVisuals,draftingVisualIds,onAddCharacter:addCharacter,onDeleteCharacter:deleteCharacter,
+            draftingVisualId,draftingAllVisuals,draftingVisualIds,onDeleteCharacter:deleteCharacter,
             onSuggestStates:suggestCharacterStates,suggestingStatesId,onRemoveOwnedItem:removeOwnedProp,onRenameOwnedItem:renameOwnedProp,
             onUpdateProp:updateProp,onDraftProp:draftPropVisuals,onDraftAllProps:draftAllProps,onCreateOwnedProp:createOwnedProp,
             onAddProp:addProp,onDeleteProp:deleteProp,draftingPropId,draftingPropIds,draftingAllProps,onMergeProps:mergeProps,
@@ -4689,19 +5911,15 @@ function App(){
         onClick:()=>{ setRailOpen(false); setInspOpen(false); }}),
 
       scenes.length>0 && (railDrawer
-        ? (railOpen && React.createElement(LeftRail,{project,characters,scenes,selId,selChar,
-            onSelect:(id)=>{ selectScene(id); setRailOpen(false); },
+        ? (railOpen && React.createElement(LeftRail,{project,characters,scenes,selChar,
             onSelectChar:(id)=>{ setSelChar(id); setInspOpen(true); setRailOpen(false); },
-            onAddCharacter:addCharacterAndSelect,onContract:updateContract,
-            showFramework:t.framework,onCollapse:()=>setRailOpen(false),
-            onAddScene:addScene,onReorder:reorderScenes,compact:!wide,readOnly:readOnlyShare}))
+            onContract:updateContract,
+            showFramework:t.framework,onCollapse:()=>setRailOpen(false),compact:!wide,readOnly:writersRoomBlocked}))
         : (railOpen
-          ? React.createElement(LeftRail,{project,characters,scenes,selId,selChar,
-              onSelect:selectScene,
+          ? React.createElement(LeftRail,{project,characters,scenes,selChar,
               onSelectChar:(id)=>{ setSelChar(id); setInspOpen(true); },
-              onAddCharacter:addCharacterAndSelect,onContract:updateContract,
-              showFramework:t.framework,onCollapse:()=>setRailOpen(false),
-              onAddScene:addScene,onReorder:reorderScenes,compact:!wide,readOnly:readOnlyShare})
+              onContract:updateContract,
+              showFramework:t.framework,onCollapse:()=>setRailOpen(false),compact:!wide,readOnly:writersRoomBlocked})
           : React.createElement(CollapsedStrip,{side:"left",label:"Story",icon:Icon.panelLeft,
               onExpand:()=>setRailOpen(true),flagCount:scenes.filter(s=>turnInfo(s).flagged).length}))),
 
@@ -4730,7 +5948,7 @@ function App(){
           characters,scenes,beatsMap,followId:followChar,onFollow:setFollowChar}),
         view==="spine" && scenes.length>0 && React.createElement(DragScroll,{className:"canvas-scroll spine-pan"},
           React.createElement(SpineCanvas,{scenes,selId,onSelect:selectSceneDetail,showFramework:t.framework,
-            onReorder:reorderScenes,onAddScene:addScene,runtimes:runtimeMap,readOnly:readOnlyShare,
+            onReorder:reorderScenes,onAddScene:addScene,runtimes:runtimeMap,readOnly:writersRoomBlocked,
             valueAxis:(typeof contractAxis==="function")?contractAxis(project):null,
             follow:(()=>{ if(!followChar) return null;
               const c = characters.find(x=>x.id===followChar); if(!c) return null;
@@ -4747,7 +5965,7 @@ function App(){
           drafts, scenes, onSelectScene:selectSceneBrowse, onPolish:polishScene,
           onDraftOne:draftOne, onDraftAll:draftAll, drafting, total:scenes.length,
           history: sel ? (history[sel.id]||{back:[],fwd:[]}) : {back:[],fwd:[]},
-          labelOf, onRevert:revertVersion, onRedo:redoVersion, onEditScene:commitVersion, continuityMap, project,readOnly:readOnlyShare,
+          labelOf, onRevert:revertVersion, onRedo:redoVersion, onEditScene:commitVersion, continuityMap, project,readOnly:writersRoomBlocked,
           // click a beat in the Script gutter → reveal it in the Inspector's Beats tab
           onBeatFocus:(n)=>{ setSelChar(null); setInspTab("beats"); setFocusBeat(n);
             if(!inspDrawer) setInspOpen(true); }}),
@@ -4760,7 +5978,7 @@ function App(){
         const charObj = selChar ? characters.find(c=>c.id===selChar) : null;
         const inspectorEl = charObj
           ? React.createElement(CharacterPanel,{character:charObj, scenes,
-              onUpdate:updateCharacter, onDraft:draftCharacter, drafting:charDrafting===charObj.id,readOnly:readOnlyShare,
+              onUpdate:updateCharacter, onDraft:draftCharacter, drafting:charDrafting===charObj.id,readOnly:writersRoomBlocked,
               onJumpScene:(id)=>selectScene(id), onClose:()=>setSelChar(null),
               onCollapse:()=>setInspOpen(false),
               onFollow:(id)=>{ setFollowChar(id); setView("spine");
@@ -4784,7 +6002,7 @@ function App(){
               },
               sceneIndex:scenes.findIndex(s=>s.id===selId),sceneCount:scenes.length,
               onCollapse:()=>setInspOpen(false),project,
-              tab:inspTab,onTab:setInspTab,focusBeat,readOnly:readOnlyShare});
+              tab:inspTab,onTab:setInspTab,focusBeat,readOnly:writersRoomBlocked});
         return inspDrawer
           ? (inspOpen && inspectorEl)
           : (inspOpen
@@ -4794,7 +6012,7 @@ function App(){
       })())),
 
     // Agents — Writers' Room modal
-    agentsOpen && !readOnlyShare && React.createElement(AgentsPanel,{
+    agentsOpen && !writersRoomBlocked && React.createElement(AgentsPanel,{
       onClose:()=>{ setAgentsOpen(false); setAgentLaunch(null); },
       onView:(v)=>{ setRoom("writers"); setView(v||"spine"); setAgentsOpen(false); setAgentLaunch(null); },
       ctxFactory:agentCtxFactory,
@@ -4909,7 +6127,11 @@ function App(){
     newStoryOpen && React.createElement(NewStoryIntake,{
       onClose:()=>setNewStoryOpen(false),
       aiOn: (typeof aiAvailable==="function" && aiAvailable()),
+      initialFormat:newStoryBuildsCurrentEpisode?newStoryEpisodeFormat:undefined,
+      formatLocked:newStoryBuildsCurrentEpisode,
+      formatOwnerLabel:(newStoryShowRow&&newStoryShowRow.title)||"this Show",
       onLaunch:async (logline, synopsis, formatId, frameworkId)=>{
+        if(!canMutateWritersRoom()) return;
         // HARD GATE: building a story runs the paid engine. Every intake path funnels
         // through onLaunch, so this is the real enforcement point — a no-plan account is
         // stopped here and sent to the plans modal, instead of consuming a build and
@@ -4926,12 +6148,27 @@ function App(){
             // "Replace project" card where the user expected a fresh "Create".
             // One automatic retry absorbs transient blips; a second failure
             // surfaces the REAL reason (expired session, server error, network).
-            let minted = await createProject();
-            if(!minted) minted = await createProject();
+            const requestId=typeof window.cloudCreateRequestId==="function"
+              ? window.cloudCreateRequestId()
+              : (window.crypto&&typeof window.crypto.randomUUID==="function"?window.crypto.randomUUID():"");
+            const launchScope={projectId:projIdRef.current,loadSeq:loadSeqRef.current,homeOpen:homeOpenRef.current};
+            const createOpts={...(requestId?{requestId}:{}),launchScope};
+            let minted = await createProject(undefined,createOpts);
+            let committed=!!(minted&&minted.created);
             if(!minted){
+              minted = await createProject(undefined,createOpts);
+              committed=committed||!!(minted&&minted.created);
+            }
+            if(minted&&minted.superseded){
+              if(typeof window.appToast==="function") window.appToast(
+                minted.message||"The new film was created. Your current screen was left unchanged.","info");
+              return;
+            }
+            if(typeof minted!=="string"){
               const why = String(window.cloudLastCreateError||"").trim();
               if(typeof window.appToast==="function")
-                window.appToast("Couldn\u2019t create the new film"+(why?" \u2014 "+why:"")+". Nothing was built and your current film is untouched.", "error");
+                window.appToast((committed?"The new film was saved but couldn\u2019t be opened yet":"Couldn\u2019t create the new film")+
+                  (why?" \u2014 "+why:"")+". No story was built and your current film is untouched.", "error");
               return;
             }
           }
@@ -4947,8 +6184,11 @@ function App(){
         // persist the logline + the composed brief (synopsis + research) so the user can
         // review later EXACTLY what the spine, beats and cast were built from — and see
         // where anything deviated. Saved at build time; never overwritten by later edits.
+        // Episode format is Show-owned. The intake locks its control visibly, and
+        // this boundary also rejects a stale/mutated callback value defensively.
+        const effectiveFormatId=newStoryBuildsCurrentEpisode ? newStoryEpisodeFormat : formatId;
         setProject(p=>({ ...p,
-          ...(formatId?{format:formatId}:{}), ...(frameworkId?{framework:frameworkId}:{}),
+          ...(effectiveFormatId?{format:effectiveFormatId}:{}), ...(frameworkId?{framework:frameworkId}:{}),
           logline: (logline||"").trim() || p.logline,
           sourceBrief: brief, sourceBriefAt: new Date().toISOString() }));
         setAgentLaunch({id:"adapt", input:brief}); setAgentsOpen(true); }}),
@@ -4969,7 +6209,7 @@ function App(){
     // Suppressed for Adaptation (full build-from-scratch): the toast is easy to miss
     // beneath the result modal, and the in-room "Undo last" still covers it.
     studioProgress && React.createElement(StudioProgressOverlay, studioProgress),
-    !readOnlyShare && agentUndo.length>0 && agentUndo[agentUndo.length-1].label!=="Adaptation" && React.createElement("div",{className:"agent-undo"},
+    !writersRoomBlocked && agentUndo.length>0 && agentUndo[agentUndo.length-1].label!=="Adaptation" && React.createElement("div",{className:"agent-undo"},
       React.createElement("span",{className:"au-ic"},React.createElement(Icon.undo,{s:15})),
       React.createElement("div",{className:"au-text"},
         React.createElement("div",{className:"au-t"},agentUndo[agentUndo.length-1].label+" changed your story"),

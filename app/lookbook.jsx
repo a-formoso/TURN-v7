@@ -206,7 +206,7 @@ window.LOOKBOOK_DEPT_AFFECT = LOOKBOOK_DEPT_AFFECT;
 function LookbookStaleNotice({ stale, onApply, onDraftOnly, label, dept }){
   if(!stale) return null;
   const affect = LOOKBOOK_DEPT_AFFECT[dept] || "";
-  return React.createElement("div",{className:"lb-stale-notice"},
+  return React.createElement("div",{className:"lb-stale-notice",role:"status"},
     React.createElement(Icon.alert,{s:14}),
     React.createElement("span",null,
       "The ",React.createElement("b",null,"Lookbook")," changed — re-draft "+(label||"this tab")+" to apply its references.",
@@ -237,7 +237,9 @@ async function generateLookbookFrame(c, project){
       aspect:(typeof nbGetAspect==="function"?nbGetAspect():"16:9"), size:(typeof nbGetRes==="function"?nbGetRes():"2K"),
       date: now.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}),
       time: now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}),
-      iso:now.toISOString(), prompt, mode:"final", version:1 };
+      iso:now.toISOString(), prompt, mode:"final", version:1,
+      writingSources:(c.writingProvenance&&c.writingProvenance.model)?[{...c.writingProvenance}]:[],
+      promptCompiler:"TURN prompt compiler" };
     await nbCommit(c.id, url, meta, [], "asset", _ep);
     try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id:c.id, url } })); }catch(e){}
     return true;
@@ -252,6 +254,7 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
   const initials = (c.source||"Ref").replace(/^the\s+/i,"").split(/\s+/).map(w=>w[0]).slice(0,2).join("").toUpperCase();
   const gen = useImageGen({
     id: c.id, slotId: "lookref-"+c.id,
+    entity: c,
     buildFinal: ()=> finalPrompt,
     buildSimple: ()=> buildSimpleLookbookPrompt(c),
     buildEdit: (instr)=>
