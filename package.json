@@ -7,9 +7,9 @@
     "build": "node scripts/build-dist.mjs"
   },
   "devDependencies": {
-    "@babel/core": "^7.26.0",
-    "@babel/preset-react": "^7.26.3",
-    "@babel/plugin-transform-block-scoping": "^7.25.9",
-    "terser": "^5.37.0"
+    "@babel/core": "^7.29.7",
+    "@babel/plugin-transform-block-scoping": "^7.29.7",
+    "@babel/preset-react": "^7.29.7",
+    "terser": "^5.51.2"
   }
 }
