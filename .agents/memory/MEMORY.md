@@ -25,4 +25,5 @@
 - [Stage provider capabilities](stage-provider-capabilities.md) — browser and remote proxy ship independently; paid capability expansions need a non-spending handshake.
 - [Provider refusal boundaries](provider-refusal-boundaries.md) — policy refusals stop the render; no automatic new jobs, reference changes, or unsupported false-positive claims.
 - [Semantic reference binding](semantic-reference-binding.md) — character names on frame labels are not identity references; resolve the exact, shot-scoped appearance asset.
+- [Optional RPC degradation](optional-rpc-degradation.md) — migration-installed RPCs may be absent on the live DB (PGRST202); degrade explicitly and surface the real save failure reason.
 - [Beat keyframe boundaries](beat-keyframe-boundaries.md) — opening stills and full-beat video have different time scopes; remote participation is not visual presence.

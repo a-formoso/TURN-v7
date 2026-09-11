@@ -38,6 +38,8 @@ cross-device access, and multiple projects all work.
    normal asset access. Run this file after
    `enforce-role-scopes.sql`; if either collaboration SQL file is re-run later,
    re-run `series-production.sql` last so its series-aware helpers remain active.
+   Until this file has been run, image saves still work but skip the exact-key
+   upload reservations (the browser console logs one warning naming this file).
 4. **SQL Editor → run `cameos.sql`** — creates the `turn_cameos` table (RLS).
    If you enable Cameos, re-run `series-production.sql` once afterward so its
    project-scoped Cameo write policy is installed too.
