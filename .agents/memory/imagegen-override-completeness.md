@@ -14,8 +14,8 @@ An explicit reference choice is part of the same input contract, including durin
 
 **How to apply:** Verify the actual provider boundary, including edit and simple paths, rejects unavailable required references before spending. Keep an explicitly chosen master/design sheet distinct from an automatic full-frame location fallback; choosing one never authorizes silent cropping or substitution.
 
-Narrowing location picker options to the current scene must not erase an older explicit selection or mark an existing asset as deleted.
+Reference inventory and inclusion are separate: neither scene-scoped discovery nor unchecking an image authorizes removing its thumbnail or deleting the source.
 
-**Why:** The scene-only request restricts new choices, not saved image or render intent. The earlier picker allowed references across scenes.
+**Why:** The scene-only request restricts new choices, not saved image or render intent. The user subsequently clarified that all reference images must remain available to recheck at any time, including during generation.
 
-**How to apply:** Filter new options by canonical scene links; keep saved outside-scene choices separately labeled and removable. Continue resolving their exact saved IDs until the editor changes them.
+**How to apply:** Filter new options by canonical scene links; keep saved outside-scene choices separately labeled. Retain unchecked inventory while filtering only actual attachments. A running render uses its captured inputs; checkbox changes affect subsequent renders. Never offer deletion of a previous frame from another frame's reference list.

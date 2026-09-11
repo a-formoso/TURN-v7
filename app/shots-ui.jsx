@@ -583,54 +583,6 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   // to. Recomputed from the live entity sheets (always displayable), keyed off the ids.
   const [refImgs, setRefImgs] = React.useState([]);    // seed frame + the canon sheets, ordered by location weight
   const [refsLoaded, setRefsLoaded] = React.useState(false);
-  // Reference deletion is parent-owned (confirmation, permission checks and
-  // exact cloud-version purge). This local latch only prevents duplicate
-  // pointer/keyboard activations and disables all reference controls while the
-  // destructive request is in flight.
-  const [pendingDeleteRefId, setPendingDeleteRefId] = React.useState("");
-  const pendingDeleteRef = React.useRef("");
-  const mountedRef = React.useRef(true);
-  React.useEffect(()=>()=>{ mountedRef.current=false; },[]);
-  const [deleteBusyGlobal,setDeleteBusyGlobal] = React.useState(()=>!!window.__nbShotReferenceDeleteBusy);
-  React.useEffect(()=>{
-    const onDeleteBusy=()=>setDeleteBusyGlobal(!!window.__nbShotReferenceDeleteBusy);
-    window.addEventListener("nb-shot-reference-delete-busy",onDeleteBusy);
-    return ()=>window.removeEventListener("nb-shot-reference-delete-busy",onDeleteBusy);
-  },[]);
-  const setDeleteBusy=(busy)=>{
-    window.__nbShotReferenceDeleteBusy=!!busy;
-    window.dispatchEvent(new Event("nb-shot-reference-delete-busy"));
-  };
-  const referenceControlsBusy = !!gen.gening || !!batchActiveId || !!pendingDeleteRefId || deleteBusyGlobal;
-  const deleteShotReference = async (r,e)=>{
-    if(e) e.stopPropagation();
-    if(typeof onDeleteShotReference!=="function" || !r || (r.kind!=="seed" && r.kind!=="seed-pending") || r.refId==null
-      || referenceControlsBusy || pendingDeleteRef.current) return;
-    const refId=String(r.refId);
-    pendingDeleteRef.current=refId;
-    setPendingDeleteRefId(refId);
-    setDeleteBusy(true);
-    try{
-      await onDeleteShotReference(sh.id,{
-        id:r.refId,
-        iso:r.meta&&r.meta.iso||"",
-        version:r.meta&&r.meta.version,
-        url:r.url,
-        ...(r.pending ? {pending:true} : {})
-      });
-    }catch(err){
-      // The App callback owns durable error handling. Catch here so a rejected
-      // callback never becomes an unhandled browser error or a stuck latch.
-      if(typeof window.appToast==="function")
-        window.appToast((err&&err.message)||"Reference image deletion failed.","error");
-    }finally{
-      if(pendingDeleteRef.current===refId){
-        pendingDeleteRef.current="";
-        if(mountedRef.current) setPendingDeleteRefId("");
-        setDeleteBusy(false);
-      }
-    }
-  };
   // Beat-scoped, generated full-frame slugline units are editable on an
   // existing card too. The older Add Shot picker only covered new shots,
   // leaving an ambiguous compound slugline (for example Kitchen / Living Room)
@@ -642,7 +594,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   const rawLocationReferenceChoices = (typeof shotLocationReferenceChoices==="function")
     ? (shotLocationReferenceChoices(loc||null,sh,scene,ctx.drafts||(window.turnContinuity||{}).drafts||{})||[]) : [];
   const explicitLocationRefs = Array.isArray(sh.referenceLocationIds) ? sh.referenceLocationIds : [];
-  const locationPickerBusy = referenceControlsBusy;
+  const includedLocationRefs = explicitLocationRefs.filter(id=>!(sh.refOff||[]).includes(id));
   // The helper intentionally permits one image to describe both a slugline
   // unit and an appearance state. Collapse that into one selectable record so
   // checking its alias can never attach the same image twice.
@@ -704,14 +656,14 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   const explicitMissing=!!sh.referenceLocationsSet && explicitLocationRefs.some(id=>(locationAssetState[id]==="missing"||locationAssetState[id]==="unavailable")&&(sh.refOff||[]).indexOf(id)<0);
   locationRefsMissing.current=explicitMissing?explicitLocationRefs.filter(id=>(locationAssetState[id]==="missing"||locationAssetState[id]==="unavailable")&&(sh.refOff||[]).indexOf(id)<0):[];
   const updateLocationReference = (id)=>{
-    if(locationPickerBusy) return;
-    const next = explicitLocationRefs.indexOf(id)>=0
-      ? explicitLocationRefs.filter(x=>x!==id)
-      : [...explicitLocationRefs,id];
-    // Re-picking an excluded reference means "include this exact image".
+    const known=!!sh.referenceLocationsSet&&explicitLocationRefs.includes(id);
     const curOff=Array.isArray(sh.refOff)?sh.refOff:[];
+    const included=known&&!curOff.includes(id);
+    // The chosen-ID list is inventory; refOff controls inclusion. Unchecking
+    // must never remove the thumbnail or its route back into the next render.
+    const next=known?explicitLocationRefs:[...explicitLocationRefs,id];
     onUpdate(sh.id,{referenceLocationsSet:true,referenceLocationIds:next,
-      ...(next.indexOf(id)>=0&&curOff.indexOf(id)>=0?{refOff:curOff.filter(x=>x!==id)}:{})});
+      ...(included?{refOff:[...curOff,id]}:curOff.includes(id)?{refOff:curOff.filter(x=>x!==id)}:{})});
   };
   const categoryMeta={place:"Continuity-bearing place",unit:"Slugline / subspace units",coverage:"Screenplay Coverage",state:"Appearance States",outside:"Saved / outside this scene",unavailable:"Saved / unavailable"};
   const categoryOrder=["place","unit","coverage","state","outside","unavailable"];
@@ -725,11 +677,11 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
     _el("span",{className:"shot-location-picker-label"},"Location reference"),
     _el("details",{className:"shot-location-picker-menu"},
       _el("summary",{className:"shot-location-picker-summary"},
-        _el("span",null,!sh.referenceLocationsSet?"Auto":(explicitLocationRefs.length?explicitLocationRefs.length+" selected":"Manual · none")),
+        _el("span",null,!sh.referenceLocationsSet?"Auto":(includedLocationRefs.length?includedLocationRefs.length+" selected":"Manual · none")),
         _el("small",null,!sh.referenceLocationsSet?"matched reference(s)":explicitMissing?"missing image":"choose references")),
       _el("div",{className:"shot-location-picker-panel"},
         _el("button",{type:"button",className:"shot-location-choice auto"+(!sh.referenceLocationsSet?" on":""),
-      "aria-pressed":!sh.referenceLocationsSet,disabled:locationPickerBusy,
+      "aria-pressed":!sh.referenceLocationsSet,
       title:"Use the automatically matched opening location reference(s).",
       onClick:()=>onUpdate(sh.id,{referenceLocationsSet:false,referenceLocationIds:[]})},"Auto — use matched references"),
       categoryOrder.map(category=>{
@@ -738,14 +690,15 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         return _el("section",{key:category,className:"shot-location-picker-section"},
           _el("b",null,categoryMeta[category]),
           choices.length ? choices.map(choice=>{
-            const selected=!!sh.referenceLocationsSet&&explicitLocationRefs.indexOf(choice.id)>=0;
+            const selected=!!sh.referenceLocationsSet&&includedLocationRefs.includes(choice.id);
+            const retained=!!sh.referenceLocationsSet&&explicitLocationRefs.includes(choice.id);
             const status=locationAssetState[choice.id]||"loading";
             const unavailable=choice.unavailable||status==="unavailable";
             return _el("label",{key:choice.id,className:"shot-location-check"+(selected?" on":"")+(unavailable?" unavailable":"")},
-              _el("input",{type:"checkbox",checked:selected,disabled:locationPickerBusy||(unavailable&&!selected),
+              _el("input",{type:"checkbox",checked:selected,disabled:unavailable&&!retained,
                 onChange:()=>updateLocationReference(choice.id)}),
               _el("span",{className:"shot-location-check-copy"},_el("strong",null,choice.label),
-                _el("small",null,status==="loading"?"Loading exact image…":status==="missing"?"Image missing — cannot generate":unavailable?choice.description||"Saved reference unavailable":choice.outOfScene?"Saved selection from outside this scene — uncheck to remove":categoryLabel(choice))),
+                _el("small",null,status==="loading"?"Loading exact image…":status==="missing"?"Image missing — exclude it or restore the image":unavailable?choice.description||"Saved reference unavailable":choice.outOfScene?"Saved selection from outside this scene — uncheck to exclude":categoryLabel(choice))),
               selected&&_el("i",null,"Selected"));
           }) : _el("p",{className:"shot-location-picker-empty"},
             category==="place"?"No continuity-bearing place reference is available.":
@@ -753,8 +706,8 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
             category==="coverage"?"No screenplay coverage sheet is available.":
             category==="state"?"No appearance state reference is available.":"No saved unavailable references."));
       }),
-      sh.referenceLocationsSet&&explicitLocationRefs.length===0&&_el("p",{className:"shot-location-picker-note"},"Manual empty — no location images will be attached."),
-      explicitMissing&&_el("p",{className:"shot-location-picker-error"},"Selected location image missing. Generate is blocked until you remove it or choose Auto."))));
+      sh.referenceLocationsSet&&includedLocationRefs.length===0&&_el("p",{className:"shot-location-picker-note"},"No location images included. Check a reference to include it."),
+      explicitMissing&&_el("p",{className:"shot-location-picker-error"},"Selected location image missing. Generate is blocked until you uncheck it, restore it or choose Auto."))));
   // the SEED is the previous shot's frame, whose image isn't part of this card's props — so when
   // it commits (uploaded OR generated), bump on its nb-gen-done so the seed thumb appears without a reload.
   const [prevSeedBump, setPrevSeedBump] = React.useState(0);
@@ -798,9 +751,8 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       const seedCachedU = seedCandidate && typeof nbGetImage==="function" ? nbGetImage(seedCandidate.id) : "";
       const seedIdentityCurrent = !!seedCandidate && !!seedU && (!seedCachedU || seedCachedU===seedU);
       const seedMeta = seedIdentityCurrent && typeof nbGetMeta==="function" ? nbGetMeta(seedCandidate.id) : null;
-      // A failed purge can leave a durable pending target after its image cache
-      // has been evicted. Hydrate that target separately so a reload never
-      // erases the only reachable Retry action.
+      // Keep an old deletion's status visible without offering destructive
+      // actions against another shot from this reference list.
       let pendingSeed = null;
       if(seedCandidate && !seedU && typeof nbLoadPendingImageDeletion==="function"){
         try{
@@ -816,11 +768,8 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       }] : ((seedCandidate && seedU) ? [{
         url:seedU, label:"Previous shot · Beat "+(seedCandidate.beatN||"—"), kind:"seed",
         approved:!!seedCandidate.locked, off:!!sh.anchor,
-         // A metadata/identity stamp is only trusted when the grabbed URL still
-         // agrees with the current cached image. The candidate can still be
-         // reattached via anchor even when a stale URL is visible, but it cannot
-         // expose an unsafe permanent-delete identity.
-         ...(seedIdentityCurrent ? { refId:seedCandidate.id, meta:seedMeta||undefined } : {})
+          refId:seedCandidate.id,
+          ...(seedIdentityCurrent ? { meta:seedMeta||undefined } : {})
       }] : []);
        const locItems = []; if(loc || sh.referenceLocationsSet){
         const locSpecs = liveLocationSpecs();
@@ -828,10 +777,12 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         // passive render into a resolver failure. Generation retains the
         // strict resolver contract.
         const resolved = (typeof shotResolveLocationSpecImages==="function") ? await shotResolveLocationSpecImages(locSpecs, grab,{allowMissing:true}) : [];
-        for(const r of resolved){
-          locItems.push({ url:r.url, label:String(r.note||"Location reference").replace(/\s+\([^)]*\)$/,""), kind:"location", refId:r.refId,
-            assetRole:r.assetRole, assetRoleLabel:r.assetRoleLabel, assetRolePriority:r.assetRolePriority,
-            assetSourceQuality:r.assetSourceQuality, missing:!r.url });
+        for(const spec of locSpecs){
+          const r=resolved.find(x=>x.refId===spec.id);
+          locItems.push({ url:r&&r.url||"", label:String(r&&r.note||spec.label||spec.note||"Location reference").replace(/\s+\([^)]*\)$/,""), kind:"location", refId:spec.id,
+            assetRole:r&&r.assetRole||spec.assetRole, assetRoleLabel:r&&r.assetRoleLabel,
+            assetRolePriority:r&&r.assetRolePriority,assetSourceQuality:r&&r.assetSourceQuality,
+            missing:!(r&&r.url) });
         }
       }
       const castItems = []; for(const c of subjects){ const u=await grab(c.id); if(u) castItems.push({ url:u, label:c.name, kind:"character", refId:c.id }); }
@@ -849,7 +800,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   // with seed approval and reference exclusions intact, not historical snapshots.
   const referenceControls=(refImgs.length>0 || locationReferencePicker) && _el("div",{className:"shot-refs coverage-refs"},
     _el("div",{className:"shot-refs-lab",
-      title:"Unticking a reference is nondestructive and removes only its image from this generation. Delete reference image permanently removes the seed source version, not this shot or its takes."},
+      title:"Check or uncheck references at any time. Unchecked images stay here and are excluded from the next generation. A running render keeps its starting reference selection. Source images are never deleted from this list."},
       _el(Icon.layers,{s:11}),"Reference images"),
     locationReferencePicker,
     refImgs.length>0 && _el(window.RefStripScroller||"div",{className:"shot-refs-row coverage-refs-row"},
@@ -860,7 +811,6 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
          const isSeed=r.kind==="seed" || r.kind==="seed-pending";
          const pendingRetryable=!r.pending || (r.retryable!==false && r.status!=="retained-unverified");
         const off = isSeed ? !!sh.anchor : (r.refId!=null && (sh.refOff||[]).indexOf(r.refId)>=0);
-         const controlsDisabled=referenceControlsBusy;
         return _el("div",{key:"a"+i,role:"button",tabIndex:0,
           className:"shot-ref-thumb "+r.kind+(isSeed&&r.approved===false?" provisional":"")+(off?" off":""),
           title:(isSeed ? (r.label+" — "+(r.approved?"approved seed":"provisional seed")) : r.label)
@@ -877,8 +827,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
               : r.missing
                 ? _el("div",{className:"shot-ref-missing",title:"The selected location image is unavailable."},_el(Icon.image,{s:14}),_el("span",null,"Missing"))
                 : _el("img",{src:r.url,alt:r.label,loading:"lazy"}),
-           !r.pending && (r.kind==="seed" || r.refId!=null) && _el("button",{type:"button",className:"shot-ref-tick"+(off?"":" on"),
-            disabled:controlsDisabled,
+            !r.pending && (isSeed || r.refId!=null) && _el("button",{type:"button",className:"shot-ref-tick"+(off?"":" on"),
             "aria-pressed":!off,
             title: isSeed
               ? (off
@@ -886,21 +835,14 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
                 : "Attached seed. Click to exclude it nondestructively; this starts the shot fresh without deleting the source image.")
               : (off ? "Excluded nondestructively — this sheet is NOT attached to the generation. Click to re-attach it."
                 : "Attached as a reference. Click to exclude this sheet nondestructively from the generation (the "+(r.kind==="location"?"set":r.kind)+" stays in the prompt text; only the image is withheld)."),
-            onClick:(e)=>{ e.stopPropagation(); if(controlsDisabled) return;
+            onClick:(e)=>{ e.stopPropagation();
               if(isSeed){ onUpdate(sh.id,{anchor:!off}); return; }
               const cur=sh.refOff||[];
               onUpdate(sh.id,{ refOff: off ? cur.filter(x=>x!==r.refId) : [...cur, r.refId] }); },
-            onKeyDown:(e)=>{ if((e.key==="Enter"||e.key===" ") && !controlsDisabled){
+            onKeyDown:(e)=>{ if(e.key==="Enter"||e.key===" "){
               e.preventDefault(); e.stopPropagation(); e.currentTarget.click();
             }}},
-            off ? "✕" : "✓"),
-           isSeed && r.refId!=null && typeof onDeleteShotReference==="function" && pendingRetryable && _el("button",{
-            type:"button",className:"shot-ref-delete",disabled:controlsDisabled,
-             "aria-label":r.pending?"Retry image deletion":"Delete reference image permanently",
-             title:r.pending
-               ? "Retry image deletion — the source was evicted before cleanup completed."
-               : "Delete reference image permanently — permanently removes this source image version, not the shot or its takes.",
-            onClick:(e)=>deleteShotReference(r,e)},_el(Icon.trash,{s:9}))); })));
+            off ? "✕" : "✓")); })));
 
   return _el("div",{className:"sheet-card shot-card"+(batchActiveId===sh.id?" batch-on":"")+(gen.gening?" gening":""),"data-shot-card":sh.id},
     _el(SheetFrame,{ gen:genGuarded, slotId:"shot-"+sh.id, name:beatLabel, avatarColor:"linear-gradient(135deg,#7a6cae,#2a2440)",

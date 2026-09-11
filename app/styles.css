@@ -4845,6 +4845,18 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
 .shot-location-picker-label{font-family:var(--f-mono);font-size:9px;letter-spacing:.03em;
   text-transform:uppercase;color:var(--txt-3);margin-right:2px}
 .shot-location-picker-menu{position:relative;min-width:0}
+/* The chooser is native <details> content inside the SheetFrame's reference
+   slot.  A closed card keeps its paint containment/rounded clipping for image
+   performance; an open chooser deliberately promotes only its owning card and
+   releases that clip.  This is important in the multi-column beat grid, where
+   a neighbouring card otherwise paints over the absolute panel.  Keep the
+   local layer modest so application dialogs remain above it. */
+.sheet-card:has(.shot-location-picker-menu[open]){
+  position:relative;z-index:2;overflow:visible;content-visibility:visible;
+}
+.bc-shot-expand:has(.shot-location-picker-menu[open]){
+  position:relative;z-index:2;overflow:visible;
+}
 .shot-location-picker-menu summary{list-style:none;cursor:pointer}
 .shot-location-picker-menu summary::-webkit-details-marker{display:none}
 .shot-location-picker-summary{display:flex;align-items:center;gap:7px;min-height:25px;max-width:100%;padding:3px 8px;border:1px solid var(--line-2);border-radius:7px;background:var(--bg-3);color:var(--txt-1);font-family:var(--f-mono);font-size:9.5px;letter-spacing:.02em}

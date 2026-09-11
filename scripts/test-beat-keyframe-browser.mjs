@@ -117,19 +117,17 @@ window.__clearBeatTwoSource=()=>{drafts["scene-1"].blocks=drafts["scene-1"].bloc
  const seedRoot=ReactDOM.createRoot(document.getElementById("seed-root"));
  const seedScene={id:"scene-1",no:1,title:"Control Room"};
  const seedShots=[{id:"opening-1",sceneId:"scene-1",beatN:1,order:1,locked:true},{id:"seed-target",sceneId:"scene-1",beatN:1,order:2,anchor:false,size:"Medium",angle:"Eye",lens:"50",action:"Seed target."}];
- let deletePending=false,resolveDelete=null;
  const seedProps={sh:seedShots[1],scene:seedScene,ctx,characters:chars,propsAvail:[],beatText:"Seed target.",prevShot:seedShots[0],laterShots:[],sceneShots:seedShots,isHead:false,isFirst:false,
    onToggleHead:()=>{},onUpdate:(id,patch)=>{Object.assign(seedShots.find(x=>x.id===id),patch||{});__fixture.calls.push(["update",id,patch||{}]);mountSeed()},
-   onDelete:()=>{},onView:()=>{},onDeleteShotReference:async(shotId,ref)=>{__fixture.calls.push(["deleteRef",shotId,ref]);if(deletePending)await new Promise(r=>{resolveDelete=r})},
+    onDelete:()=>{},onView:()=>{},onDeleteShotReference:()=>__fixture.calls.push(["deleteRef"]),
    batchActiveId:null,onBatchDone:()=>{},onGenerateShot:()=>{},onRegenDownstream:()=>{},onStopChain:()=>{},subLabel:null};
-  function mountSeed(key){seedRoot.render(React.createElement(ShotCard,key?{...seedProps,key}:seedProps))}
+   function mountSeed(key,batchActiveId){seedRoot.render(React.createElement(ShotCard,key?{...seedProps,key,batchActiveId}:{...seedProps,batchActiveId}))}
   window.__mountSeed=()=>{__fixture.geningIds={};mountSeed()};
  window.__mountSeedBusy=()=>{__fixture.geningIds={"seed-target":true};mountSeed()};
+   window.__mountSeedBatch=()=>{__fixture.geningIds={};mountSeed(null,"other-shot")};
   window.__mountSeedHistory=()=>{__fixture.geningIds={};__fixture.historyMode=true;window.__pendingMode="";mountSeed("history")};
   window.__mountSeedPending=()=>{__fixture.geningIds={};window.__pendingMode="pending";mountSeed("pending")};
   window.__mountSeedRetained=()=>{__fixture.geningIds={};window.__pendingMode="retained";mountSeed("retained")};
- window.__startDeletePending=()=>{deletePending=true};
- window.__resolveDelete=()=>{deletePending=false;if(resolveDelete){const r=resolveDelete;resolveDelete=null;r()}};
  </script><script src=/studio-progress.js></script><script>
  const progressRoot=ReactDOM.createRoot(document.getElementById("progress-root"));
  window.__mountProgress=(role,title,detail,progress)=>{
@@ -196,26 +194,18 @@ async function main(){
     assert.deepEqual(await c.eval("window.__fixture.calls"),[["update","opening-1",{refOff:[]}]],
       "re-including a reference clears only its exclusion");
 
-    /*
-     * Seed controls are real buttons too: the bottom-right inclusion tick uses
-     * the existing anchor:true fresh-start state, while the separate bottom-left
-     * control permanently deletes only the exact source version. Exercise the
-     * actual positions, pointer click, disabled generation gate, keyboard
-     * reattach, pending-delete latch and callback payload without any generation.
-     */
+    /* Reference inclusion is nondestructive. Seed and sheet thumbnails stay
+       reachable; no destructive source-frame action exists in this surface. */
     const seedCard='[data-shot-card="seed-target"]';
     await c.eval("window.__mountSeed()");
     await wait(()=>c.eval(`!!document.querySelector('#seed-root ${seedCard} .shot-ref-tick')`),"seed reference controls");
-    const seedGeometry=await c.eval(`(()=>{const card=document.querySelector('#seed-root ${seedCard}'),thumb=card.querySelector('.shot-ref-thumb.seed'),tick=thumb.querySelector('.shot-ref-tick'),del=thumb.querySelector('.shot-ref-delete'),tr=thumb.getBoundingClientRect(),cr=tick.getBoundingClientRect(),dr=del.getBoundingClientRect();return {
+    const seedGeometry=await c.eval(`(()=>{const card=document.querySelector('#seed-root ${seedCard}'),thumb=card.querySelector('.shot-ref-thumb.seed'),tick=thumb.querySelector('.shot-ref-tick'),tr=thumb.getBoundingClientRect(),cr=tick.getBoundingClientRect();return {
       tick:tick.tagName,pressed:tick.getAttribute('aria-pressed'),disabled:tick.disabled,
       tickBottomRight:cr.right>tr.left+tr.width/2&&cr.bottom>tr.top+tr.height/2,
-      deleteBottomLeft:dr.left<tr.left+tr.width/2&&dr.bottom>tr.top+tr.height/2,
-      deleteLabel:del.getAttribute('aria-label'),deleteTitle:del.title,approvalTag:!!thumb.querySelector('.shot-ref-seedtag')
+      delete:!!thumb.querySelector('.shot-ref-delete'),approvalTag:!!thumb.querySelector('.shot-ref-seedtag')
     }})()`);
-    assert.deepEqual(seedGeometry,{tick:"BUTTON",pressed:"true",disabled:false,tickBottomRight:true,deleteBottomLeft:true,
-      deleteLabel:"Delete reference image permanently",
-      deleteTitle:"Delete reference image permanently — permanently removes this source image version, not the shot or its takes.",
-      approvalTag:false},"seed has a real bottom-right inclusion button and distinct permanent-delete button");
+    assert.deepEqual(seedGeometry,{tick:"BUTTON",pressed:"true",disabled:false,tickBottomRight:true,delete:false,approvalTag:false},
+      "seed has a nondestructive inclusion button and no delete action");
     await c.eval("window.__resetCalls();document.querySelector('#seed-root [data-shot-card=\"seed-target\"] .shot-ref-tick').click()");
     await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-tick')?.getAttribute('aria-pressed')==='false'`),"seed exclusion anchor patch");
     assert.deepEqual(await c.eval("window.__fixture.calls"),[["update","seed-target",{anchor:true}]],
@@ -227,26 +217,22 @@ async function main(){
     assert.deepEqual(await c.eval("window.__fixture.calls"),[["update","seed-target",{anchor:false}]],
       "Enter on the real seed button re-attaches the candidate");
     await c.eval("window.__resetCalls();window.__mountSeedBusy()");
-    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-tick')?.disabled===true`),"seed generation disable");
-    assert.equal(await c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-delete')?.disabled`),true,
-      "permanent delete is disabled during active generation");
-    assert.deepEqual(await c.eval("window.__fixture.calls"),[],
-      "reference controls never call generation while their controls are disabled");
+    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard}')?.classList.contains('gening')`),"seed generation active");
+    assert.equal(await c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-tick')?.disabled`),false,
+      "reference checkbox remains enabled during active generation");
+    await c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-tick').click()`);
+    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-tick')?.getAttribute('aria-pressed')==='false'`),"active-generation exclusion");
+    await c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-tick').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))`);
+    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-tick')?.getAttribute('aria-pressed')==='true'`),"active-generation keyboard reattach");
+    await c.eval("window.__mountSeedBatch()");
+    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard}')?.classList.contains('batch-on')===false`),"other-shot batch mount");
+    assert.equal(await c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-tick')?.disabled`),false,
+      "reference checkbox remains enabled while another batch shot runs");
+    await c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-tick').click()`);
+    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-tick')?.getAttribute('aria-pressed')==='false'`),"batch exclusion");
+    assert.equal(await c.eval("window.__fixture.calls.some(x=>x[0]==='gen'||x[0]==='deleteRef')"),false,
+      "reference changes never call generation or delete callbacks");
     await c.eval("window.__mountSeed()");
-    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard}')?.classList.contains('gening')===false`),"seed idle remount");
-    await c.eval("window.__startDeletePending();window.__resetCalls();document.querySelector('#seed-root [data-shot-card=\"seed-target\"] .shot-ref-delete').click()");
-    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-delete')?.disabled===true`),"pending delete disable");
-    await c.eval("document.querySelector('#seed-root [data-shot-card=\"seed-target\"] .shot-ref-delete').click()");
-    assert.equal(await c.eval("window.__fixture.calls.filter(x=>x[0]==='deleteRef').length"),1,
-      "the local pending latch prevents duplicate permanent-delete callbacks");
-    const deleteCall=await c.eval("window.__fixture.calls.find(x=>x[0]==='deleteRef')");
-    assert.deepEqual(deleteCall.slice(0,2),["deleteRef","seed-target"],"delete callback receives the owning shot id");
-    assert.deepEqual(deleteCall[2],{id:"opening-1",iso:"2026-09-11T00:00:00.000Z",version:4,url:"data:image/svg+xml,"+encodeURIComponent('<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"320\" height=\"180\"><rect width=\"320\" height=\"180\" fill=\"#263d42\"/></svg>')},
-      "delete callback receives exact seed id, ISO, version and URL identity");
-    await c.eval("window.__resolveDelete()");
-    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-delete')?.disabled===false`),"delete latch release");
-    assert.equal(await c.eval("window.__fixture.calls.filter(x=>x[0]==='gen').length"),0,
-      "seed inclusion/exclusion/delete tests make no paid generation calls");
 
     // Exact purge may leave current empty while retaining history. Details must
     // remain reachable and Restore must be an explicit action, never promotion
@@ -271,7 +257,7 @@ async function main(){
 
     // The compact chooser exposes all typed continuity sources, collapses an
     // aliased id, and never fires a generation while choosing references.
-    await c.eval(`ctx.location={id:"loc-1",name:"Control Room"};window.shotLocationReferenceChoices=()=>[
+    await c.eval(`ctx.location={id:"loc-1",name:"Control Room"};seedShots[1].refOff=[];window.shotLocationReferenceChoices=()=>[
       {id:"place-house",label:"Father's House · INT · Night",category:"place"},
       {id:"unit-kitchen",label:"Kitchen · INT · Night",category:"unit"},
       {id:"unit-living",label:"Living Room · INT · Night",category:"unit"},
@@ -288,8 +274,8 @@ async function main(){
        summary:p.querySelector('summary').textContent.trim(),
       seedTick:!!p.closest('.shot-card')?.querySelector('.shot-ref-tick'),
       seedDelete:!!p.closest('.shot-card')?.querySelector('.shot-ref-delete')
-     }})()`),{label:"Location reference",summary:"Automatched reference(s)",seedTick:true,seedDelete:true},
-       "location picker remains compact beside seed controls");
+     }})()`),{label:"Location reference",summary:"Automatched reference(s)",seedTick:true,seedDelete:false},
+       "location picker remains compact beside nondestructive seed controls");
     await c.eval("window.__resetCalls();document.querySelector('#seed-root .shot-location-picker summary').click()");
     await wait(()=>c.eval("document.querySelectorAll('#seed-root .shot-location-picker-section').length===5"),"typed location sections");
     assert.equal(await c.eval("document.querySelectorAll('#seed-root .shot-location-check').length"),6,
@@ -306,13 +292,24 @@ async function main(){
       "an alias attaches its shared exact ID only once");
     assert.equal(await c.eval(`(()=>{const rows=[...document.querySelectorAll('#seed-root .shot-location-check')].filter(x=>x.textContent.includes('Living Room'));return rows.length===2&&rows.every(x=>x.querySelector('input').checked)})()`),true,
       "unit and state aliases remain checked together");
+    await wait(()=>c.eval(`document.querySelectorAll('#seed-root ${seedCard} .shot-ref-thumb.location').length===2`),"picker selections hydrate matching location thumbnails");
+    await c.eval(`window.__resetCalls();[...document.querySelectorAll('#seed-root .shot-location-check')].find(x=>x.textContent.includes('Living Room · INT')).querySelector('input').click()`);
+    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-location-picker-summary span').textContent==='1 selected'`),"alias exclusion");
+    assert.deepEqual(await c.eval("window.__fixture.calls"),[["update","seed-target",{referenceLocationsSet:true,referenceLocationIds:["place-house","unit-living"],refOff:["unit-living"]}]],
+      "unchecking an alias retains its inventory id and excludes it through refOff");
+    assert.equal(await c.eval(`(()=>{const rows=[...document.querySelectorAll('#seed-root .shot-location-check')].filter(x=>x.textContent.includes('Living Room'));return rows.length===2&&rows.every(x=>!x.querySelector('input').checked)&&document.querySelectorAll('#seed-root ${seedCard} .shot-ref-thumb.location.off').length===1})()`),true,
+      "both aliases and their retained thumbnail synchronize to unchecked");
+    await c.eval(`window.__resetCalls();[...document.querySelectorAll('#seed-root .shot-location-check')].find(x=>x.textContent.includes('Living Room')).querySelector('input').click()`);
+    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-location-picker-summary span').textContent==='2 selected'`),"alias reinclude");
+    assert.deepEqual(await c.eval("window.__fixture.calls"),[["update","seed-target",{referenceLocationsSet:true,referenceLocationIds:["place-house","unit-living"],refOff:[]}]],
+      "reticking either alias removes only its refOff exclusion");
     await c.eval("[...document.querySelectorAll('#seed-root .shot-location-check')].find(x=>x.textContent.includes('coverage')).querySelector('input').click()");
-    await wait(()=>c.eval("window.__fixture.calls.length===3"),"cross category selection");
-    assert.deepEqual((await c.eval("window.__fixture.calls"))[2],["update","seed-target",{referenceLocationsSet:true,referenceLocationIds:["place-house","unit-living","coverage-wide"]}],
+    await wait(()=>c.eval("window.__fixture.calls.length===2"),"cross category selection");
+    assert.deepEqual((await c.eval("window.__fixture.calls"))[1],["update","seed-target",{referenceLocationsSet:true,referenceLocationIds:["place-house","unit-living","coverage-wide"]}],
        "cross-category selections preserve earlier exact references");
     await c.eval("document.querySelector('#seed-root .shot-location-choice.auto').click()");
     await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-location-choice.auto')?.getAttribute('aria-pressed')==='true'`),"location auto selection");
-    assert.deepEqual((await c.eval("window.__fixture.calls"))[3],["update","seed-target",{referenceLocationsSet:false,referenceLocationIds:[]}],
+    assert.deepEqual((await c.eval("window.__fixture.calls"))[2],["update","seed-target",{referenceLocationsSet:false,referenceLocationIds:[]}],
        "Auto clears explicit ids without changing other references");
     // Scene-scoped discovery must not silently erase a previously saved choice.
     await c.eval(`window.shotLocationReferenceChoices=(loc,sh)=>[
@@ -322,20 +319,20 @@ async function main(){
     ];seedShots[1].referenceLocationsSet=true;seedShots[1].referenceLocationIds=["place-house","other-scene-place"];mountSeed()`);
     await wait(()=>c.eval(`!![...document.querySelectorAll('#seed-root ${seedCard} .shot-location-picker-section')].find(x=>x.querySelector('b')?.textContent==='Saved / outside this scene')`),"outside-scene saved selection");
     assert.equal(await c.eval(`(()=>{const section=[...document.querySelectorAll('#seed-root ${seedCard} .shot-location-picker-section')].find(x=>x.querySelector('b')?.textContent==='Saved / outside this scene');const input=section?.querySelector('input');return !!input&&input.checked&&!input.disabled&&section.textContent.includes('Funeral Home Office')})()`),true,
-      "other-scene saved selection is separate and removable, not unavailable");
+      "other-scene saved selection is separate and remains controllable");
     await c.eval(`window.__resetCalls();[...document.querySelectorAll('#seed-root ${seedCard} .shot-location-check')].find(x=>x.textContent.includes('Funeral Home Office')).querySelector('input').click()`);
     await wait(()=>c.eval("window.__fixture.calls.length===1"),"outside-scene selection removal");
-    assert.deepEqual(await c.eval("window.__fixture.calls[0]"),["update","seed-target",{referenceLocationsSet:true,referenceLocationIds:["place-house"]}],
-      "removing the old other-scene reference preserves current-scene choices");
-    assert.equal(await c.eval(`document.querySelector('#seed-root ${seedCard} .shot-location-picker').textContent.includes('Funeral Home Office')`),false,
-      "other-scene options disappear once deselected");
+    assert.deepEqual(await c.eval("window.__fixture.calls[0]"),["update","seed-target",{referenceLocationsSet:true,referenceLocationIds:["place-house","other-scene-place"],refOff:["other-scene-place"]}],
+      "unchecking an outside-scene reference preserves its inventory and adds refOff");
+    assert.equal(await c.eval(`(()=>{const r=[...document.querySelectorAll('#seed-root ${seedCard} .shot-location-check')].find(x=>x.textContent.includes('Funeral Home Office'));return !!r&&!r.querySelector('input').checked&&!!document.querySelector('#seed-root ${seedCard} .shot-ref-thumb.location.off')})()`),true,
+      "outside-scene reference stays visible unchecked with its thumbnail");
     // A deleted scene location must not strand saved selections. The helper
     // returns its real unknown-shaped catalog record while another current-film
     // manual reference still hydrates into the thumbnail strip.
     await c.eval(`window.shotLocationReferenceChoices=(loc)=>loc?[]:[
       {id:"location-1",label:"Father's House · INT · Night",category:"place"},
       {id:"gone-plate",label:"Removed cellar plate",unavailable:true,category:"unknown",categories:["unknown"]}
-    ];window.shotLocationCoverageSpecs=(loc,sh)=>sh.referenceLocationsSet?(sh.referenceLocationIds||[]).map(id=>({id,refId:id,note:id==="location-1"?"Father's House · INT · Night":"Removed cellar plate"})):[];ctx.location=null;seedShots[1].referenceLocationsSet=true;seedShots[1].referenceLocationIds=["location-1","gone-plate"];mountSeed()`);
+     ];window.shotLocationCoverageSpecs=(loc,sh)=>sh.referenceLocationsSet?(sh.referenceLocationIds||[]).map(id=>({id,refId:id,note:id==="location-1"?"Father's House · INT · Night":"Removed cellar plate"})):[];ctx.location=null;seedShots[1].referenceLocationsSet=true;seedShots[1].referenceLocationIds=["location-1","gone-plate"];seedShots[1].refOff=[];mountSeed()`);
     await wait(()=>c.eval(`!!document.querySelector('#seed-root ${seedCard} .shot-location-picker')&&!!document.querySelector('#seed-root ${seedCard} .shot-ref-thumb.location img')`),"null-location picker and exact manual thumbnail");
     await c.eval(`document.querySelector('#seed-root ${seedCard} .shot-location-picker summary').click();document.querySelector('#seed-root ${seedCard} .shot-location-picker').scrollIntoView({block:"center"})`);
     await wait(()=>c.eval(`!![...document.querySelectorAll('#seed-root ${seedCard} .shot-location-check')].find(x=>x.textContent.includes('Removed cellar plate'))`),"unknown saved row");
@@ -343,8 +340,10 @@ async function main(){
       "unknown saved selections remain selected and removable when the scene location is absent");
     await c.eval("window.__resetCalls();[...document.querySelectorAll('#seed-root .shot-location-check')].find(x=>x.textContent.includes('Removed cellar plate')).querySelector('input').click()");
     await wait(()=>c.eval("window.__fixture.calls.length===1"),"unknown selection removal");
-    assert.deepEqual(await c.eval("window.__fixture.calls[0]"),["update","seed-target",{referenceLocationsSet:true,referenceLocationIds:["location-1"]}],
-      "removing an unknown saved ID preserves the valid manual selection");
+    assert.deepEqual(await c.eval("window.__fixture.calls[0]"),["update","seed-target",{referenceLocationsSet:true,referenceLocationIds:["location-1","gone-plate"],refOff:["gone-plate"]}],
+      "unchecking an unavailable saved ID retains it and records refOff");
+    assert.equal(await c.eval(`(()=>{const r=[...document.querySelectorAll('#seed-root .shot-location-check')].find(x=>x.textContent.includes('Removed cellar plate'));return !!r&&!r.querySelector('input').checked&&!!document.querySelector('#seed-root ${seedCard} .shot-ref-thumb.location.off .shot-ref-missing')})()`),true,
+      "cold/missing retained location remains an unchecked placeholder");
     // The update remount intentionally closes native <details>; open the same
     // surviving ShotCard only after that state settles, then prove its panel is
     // actually inside the captured viewport.
@@ -360,31 +359,44 @@ async function main(){
     await wait(()=>c.eval(`(()=>{const p=document.querySelector('#seed-root ${seedCard} .shot-location-picker-panel'),r=p.getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight})()`),"mobile open chooser panel in viewport");
     const seedRoomMobileShot=await c.call("Page.captureScreenshot",{format:"png"});
     await writeFile(`${OUT}/seed-reference-room-picker-open-mobile.png`,Buffer.from(seedRoomMobileShot.data,"base64"));
+    // A retained cold/manual location is still a real inclusion control. It
+    // must remain operable during both a local render and another shot's batch,
+    // while its inventory entry and missing thumbnail survive each remount.
+    await c.eval("window.__mountSeedBusy()");
+    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard}')?.classList.contains('gening')`),"cold reference generation mount");
+    await c.eval(`document.querySelector('#seed-root ${seedCard} .shot-location-picker summary').click()`);
+    const coldInput=`[...document.querySelectorAll('#seed-root ${seedCard} .shot-location-check')].find(x=>x.textContent.includes('Removed cellar plate')).querySelector('input')`;
+    assert.equal(await c.eval(`!(${coldInput}).disabled`),true,"retained missing manual location remains enabled during generation");
+    await c.eval(`${coldInput}.click()`);
+    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-thumb.location.off')===null`),"cold reference reinclude during generation");
+    assert.equal(await c.eval(`seedShots[1].referenceLocationIds.includes('gone-plate')&&!!document.querySelector('#seed-root ${seedCard} .shot-ref-missing')`),true,
+      "reinclude preserves the cold inventory ID and its missing thumbnail");
+    await c.eval("window.__mountSeedBatch()");
+    await wait(()=>c.eval(`!document.querySelector('#seed-root ${seedCard}').classList.contains('gening')`),"cold reference batch mount");
+    await c.eval(`document.querySelector('#seed-root ${seedCard} .shot-location-picker summary').click()`);
+    assert.equal(await c.eval(`!(${coldInput}).disabled`),true,"retained missing manual location remains enabled during another batch shot");
+    await c.eval(`${coldInput}.click()`);
+    await wait(()=>c.eval(`seedShots[1].refOff.includes('gone-plate')&&!!document.querySelector('#seed-root ${seedCard} .shot-ref-thumb.location.off .shot-ref-missing')`),"cold reference exclusion during batch");
 
-    // A source evicted after a partial purge remains a visible pending tile and
-    // exposes Retry, but never gets an inclusion checkbox for its unusable image.
+    // A source evicted after a partial purge remains disclosed, but this list
+    // never offers retry/delete actions against the previous shot.
     await c.eval("seedShots[1].referenceLocationsSet=false;seedShots[1].referenceLocationIds=[];window.__resetCalls();window.__mountSeedPending()");
     await wait(()=>c.eval(`!!document.querySelector('#seed-root ${seedCard} .shot-ref-pending')`),"pending deletion tile");
-    assert.deepEqual(await c.eval(`(()=>{const card=document.querySelector('#seed-root ${seedCard}');const b=card.querySelector('.shot-ref-delete');return {
+    assert.deepEqual(await c.eval(`(()=>{const card=document.querySelector('#seed-root ${seedCard}');return {
       pending:!!card.querySelector('.shot-ref-pending'),tick:!!card.querySelector('.shot-ref-tick'),
-      retry:b&&b.getAttribute('aria-label'),disabled:b&&b.disabled
-    }})()`),{pending:true,tick:false,retry:"Retry image deletion",disabled:false},
-      "pending source survives cache eviction as a retry-only tile");
-    await c.eval("window.__startDeletePending();document.querySelector('#seed-root [data-shot-card=\"seed-target\"] .shot-ref-delete').click()");
-    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-delete')?.disabled===true`),"pending retry disable");
-    const pendingDeleteCall=await c.eval("window.__fixture.calls.find(x=>x[0]==='deleteRef')");
-    assert.equal(pendingDeleteCall[2].pending,true,"retry callback preserves pending deletion identity");
-    assert.deepEqual(pendingDeleteCall[2],{id:"opening-1",iso:"2026-09-11T00:00:00.000Z",version:4,url:"",pending:true},
-      "retry sends the frozen pending target even without a source URL");
-    await c.eval("window.__resolveDelete();window.__pendingMode=false");
-    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-ref-delete')?.disabled===false`),"pending retry latch release");
+      delete:!!card.querySelector('.shot-ref-delete')
+    }})()`),{pending:true,tick:false,delete:false},
+      "pending source survives cache eviction as a status-only disclosure");
+    assert.equal(await c.eval("window.__fixture.calls.some(x=>x[0]==='deleteRef')"),false,
+      "pending disclosure has no delete/retry callback");
+    await c.eval("window.__pendingMode=false");
     await c.eval("window.__mountSeedRetained()");
     await wait(()=>c.eval(`!!document.querySelector('#seed-root ${seedCard} .shot-ref-pending.retained-unverified')`),"retained unverified disclosure tile");
     assert.deepEqual(await c.eval(`(()=>{const card=document.querySelector('#seed-root ${seedCard}');return {
       disclosure:card.querySelector('.shot-ref-pending.retained-unverified')?.textContent.trim(),
-      retry:!!card.querySelector('.shot-ref-delete'),tick:!!card.querySelector('.shot-ref-tick')
-    }})()`),{disclosure:"Deletion retained · review Details",retry:false,tick:false},
-      "unidentifiable retained copy discloses status without promising an impossible Retry");
+       delete:!!card.querySelector('.shot-ref-delete'),tick:!!card.querySelector('.shot-ref-tick')
+    }})()`),{disclosure:"Deletion retained · review Details",delete:false,tick:false},
+       "unidentifiable retained copy discloses status without any destructive action");
     await c.eval("window.__pendingMode='';window.__resetCalls()");
     const contextStats=await c.eval(`(()=>{const card=document.querySelector('${primary}'),ctx=card.querySelector('.shot-beat-context');return {
       stale:ctx.querySelectorAll('.bc-stale').length,buttons:ctx.querySelectorAll('button').length,
