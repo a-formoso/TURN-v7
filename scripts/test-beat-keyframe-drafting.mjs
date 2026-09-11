@@ -127,6 +127,19 @@ await check("underproduced model response backfills each beat from opening sourc
   assert.equal("beatPlan" in out[1],false);
 });
 
+ await check("full-scene backfill still supplies a missing composition",async()=>{
+   modelCalls.length=0;
+   sandbox.nextModelResponse=JSON.stringify({shots:[
+     {beat:1,size:"CU",subjects:["Marcus"],composition:"opening"},
+     {beat:2,size:"WS",subjects:["Marcus"]},
+   ]});
+   const out=await sandbox.aiDraftShots(scene,beats,drafts,[],[],characters,{title:"Eulogy"});
+   assert.deepEqual(Array.from(out,x=>x.beat),[1,2]);
+   assert.equal(out[1].composition,
+     "Opening keyframe: hold the authored first situation in one motivated setup; do not depict later action.",
+     "full-scene mode keeps its compatibility backfill for incomplete model rows");
+ });
+
 await check("empty, mentions-only, and later-entry openings keep an empty visual cast",async()=>{
   const bindingBeats={"scene-1":{rows:[{n:3},{n:4},{n:5}]}};
   modelCalls.length=0;
@@ -179,6 +192,26 @@ await check("per-beat refine returns exactly one row and one model request",asyn
   assert.equal(modelCalls.length,1);
   assert.match(modelCalls[0].messages[0].content,/exactly ONE OPENING KEYFRAME/);
 });
+
+ for(const [label,composition] of [
+   ["absent composition",undefined],
+   ["blank composition",""],
+   ["whitespace composition","   "],
+   ["non-string composition",{prompt:"invented"}],
+   ["null composition",null],
+ ]){
+   await check(`per-beat refine rejects ${label}`,async()=>{
+     modelCalls.length=0;
+     const row={beat:2,subjects:["Marcus"]};
+     if(composition!==undefined) row.composition=composition;
+     sandbox.nextModelResponse=JSON.stringify({shots:[row]});
+     await assert.rejects(
+       sandbox.aiDraftShots(scene,beats,drafts,[],[],characters,{title:"Eulogy"},{beatN:2,refine:true}),
+       /No usable opening-keyframe specification/i
+     );
+     assert.equal(modelCalls.length,1,"the malformed target is rejected after one provider response");
+   });
+ }
 
 await check("provider failures are not silently replaced",async()=>{
   const previous=sandbox.window.claude.complete;

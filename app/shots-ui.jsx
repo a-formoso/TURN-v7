@@ -1261,7 +1261,7 @@ function BeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, ordered
    available for migration/test dependencies, while this is the live one-card model. */
 function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, ordered, firstId, toggleHead,
   onAddShot, onUpdate, onDelete, onView, onGenerateShot, onRegenDownstream, onStopChain, onBatchDone,
-  batchActiveId, openShotId, setOpenShotId, sceneStart, onRenderScene, renderBusy, nextShotId, onRefineBeat, refiningBeat }){
+  batchActiveId, openShotId, setOpenShotId, sceneStart, onRenderScene, renderBusy, nextShotId, onRefineBeat, refiningBeat, draftingBlocked }){
   const continuity=window.turnContinuity||{};
   const source=typeof window.shotBeatScreenplay==="function"
     ? window.shotBeatScreenplay(scene,L.n,{drafts:ctx.drafts||continuity.drafts||{},characters,beatsMap:bm}) : null;
@@ -1284,10 +1284,12 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
   const stale=primary&&sourceRev!=null&&stampedRev!=null&&String(stampedRev)!==String(sourceRev);
   const unverified=primary&&hasSource&&stampedRev==null;
   const names=(ids)=>(ids||[]).map(id=>((ctx.charById||{})[id]||{}).name||id).join(" · ");
-  const refineControl=onRefineBeat&&_el("button",{className:primary?"shot-lock-btn shot-redraft-btn":"beat-lane-btn ghost",disabled:!!refiningBeat||!hasSource,
-    title:hasSource
-      ? "Re-draft the opening-frame description using writing-model credits. This does not generate an image; existing coverage changes require confirmation."
-      : "Write screenplay for this beat before drafting a frame.",
+  const refineControl=onRefineBeat&&_el("button",{className:primary?"shot-lock-btn shot-redraft-btn":"beat-lane-btn ghost",
+    "data-testid":"shot-draft-spec",disabled:!!refiningBeat||!!draftingBlocked||!!renderBusy||!hasSource,
+    title:!hasSource ? "Write screenplay for this beat before drafting a frame."
+      : renderBusy ? "Finish or stop frame generation before drafting a specification."
+      : (draftingBlocked||refiningBeat) ? "Wait for the current specification draft to finish."
+      : "Draft one opening-keyframe specification using writing-model credits. This does not generate an image; existing coverage changes require confirmation.",
     onClick:()=>onRefineBeat(scene,L.n)},_el(Icon.sparkles,{s:11}),refiningBeat?"Drafting…":primary?"Draft specification":"Draft opening keyframe");
   const scriptedContent=_el("details",{className:"shot-beat-script bc-scripted"},
     _el("summary",null,_el("span",{className:"shot-beat-script-lab"},"Scripted")),
@@ -1329,7 +1331,7 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
 }
 
 function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, pager, onUpdate, onDelete, onView,
-  onAddShot, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onDraftScene, draftingScene, batchActiveId, onBatchDone, open, onToggle, onGenerateShot, onRegenDownstream,
+  onAddShot, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onDraftScene, draftingScene, draftingBlocked, batchActiveId, onBatchDone, open, onToggle, onGenerateShot, onRegenDownstream,
   onRenderScene, renderBusy, queueMode, onStopChain }){
   const loc = ctx.location;
   const driver = scene.driver ? ctx.charById[scene.driver] : null;
@@ -1553,7 +1555,8 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
               ordered, firstId, toggleHead, onAddShot, onUpdate, onDelete, onView,
               onGenerateShot, onRegenDownstream, onStopChain, onBatchDone, batchActiveId, openShotId, setOpenShotId,
               sceneStart:(!_sceneRendered && Li===0), onRenderScene, renderBusy, nextShotId:_nextShotId,
-              onRefineBeat,refiningBeat:refiningBeat===scene.id+"#"+L.n })))));
+              onRefineBeat,refiningBeat:refiningBeat===scene.id+"#"+L.n,
+              draftingBlocked:!!draftingBlocked||!!draftingScene||!!refiningBeat||!!splittingBeat })))));
     })());
 }
 
@@ -2016,6 +2019,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
       ctx:ctxFor(scene),characters:characters||[],beatsMap,propsAvail:(typeof propsForScene==="function")?propsForScene(props,scene.id):[],
       onUpdate:onUpdateShot,onDelete:onDeleteShot,onView:(url,e)=>setView({url,character:e}),
       onAddShot,onSplitBeat,splittingBeat,onRefineBeat,refiningBeat,onDraftScene:onDraftSceneShots,draftingScene:draftingSceneShots===scene.id,
+      draftingBlocked:!!readOnly||!!draftingAllShots||!!draftingSceneShots,
       batchActiveId,onBatchDone:handleBatchDone,onGenerateShot:startShot,onRegenDownstream,
       onRenderScene:startScene,renderBusy,queueMode,onStopChain:stopChain,
       open:true,onToggle:()=>toggleScene(scene.id)})),
@@ -2027,6 +2031,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
         propsAvail:(typeof propsForScene==="function")?propsForScene(props,runnerScene.id):[],
         onUpdate:onUpdateShot,onDelete:onDeleteShot,onView:(url,e)=>setView({url,character:e}),
         onAddShot,onSplitBeat,splittingBeat,onRefineBeat,refiningBeat,onDraftScene:onDraftSceneShots,draftingScene:draftingSceneShots===runnerScene.id,
+        draftingBlocked:!!readOnly||!!draftingAllShots||!!draftingSceneShots,
         batchActiveId,onBatchDone:handleBatchDone,onGenerateShot:startShot,onRegenDownstream,
         onRenderScene:startScene,renderBusy,queueMode,onStopChain:stopChain,open:true,onToggle:()=>{}})));
 }

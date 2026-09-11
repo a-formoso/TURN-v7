@@ -40,3 +40,9 @@ Missing screenplay-version provenance means unknown alignment, not evidence that
 **Why:** A warning on every older card made missing tracking metadata look like a screenplay error. Silently stamping those cards current would be equally misleading.
 
 **How to apply:** Preserve the unknown status in a quiet source note; reserve changed-source warnings for actual stamped mismatches. Updating the opening description remains an explicit writing-model operation, not an automatic repair triggered by viewing a card.
+
+An explicit single-beat specification replacement needs usable model output; screenplay-backed defaults alone do not establish that a new specification was drafted.
+
+**Why:** Full-scene creation can backfill missing beats, but silently using that fallback for a targeted redraft would replace saved camera/composition choices and report success without a new design.
+
+**How to apply:** Keep bulk-creation fallback separate from explicit replacement. Reject unusable single-beat replies before changing saved shots or archiving alternatives, and show drafting progress only after confirmation.

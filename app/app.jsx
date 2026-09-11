@@ -74,7 +74,8 @@ const GRADES = {
 
 function StudioProgressOverlay({ title, detail, progress, role }){
   const pct = progress==null ? null : Math.max(0, Math.min(100, Math.round(progress)));
-  return React.createElement("div",{className:"redraft-overlay studio-progress-overlay"},
+  return React.createElement("div",{className:"redraft-overlay studio-progress-overlay",
+    role:"status","aria-live":"polite","aria-atomic":"true","aria-label":title},
     React.createElement("div",{className:"redraft-card studio-progress-card"},
       React.createElement("span",{className:"orb"}),
       // ONE consistent fiction across every tab: MUSE is the studio's AI, wearing the
@@ -82,7 +83,8 @@ function StudioProgressOverlay({ title, detail, progress, role }){
       role && React.createElement("div",{className:"redraft-role"},"MUSE \u00b7 "+role),
       React.createElement("div",{className:"redraft-t"},title),
       detail && React.createElement("div",{className:"redraft-d"},detail),
-      pct!=null && React.createElement("div",{className:"studio-progress-bar","aria-label":"Progress"},
+      pct!=null && React.createElement("div",{className:"studio-progress-bar",role:"progressbar",
+        "aria-label":"Progress","aria-valuemin":0,"aria-valuemax":100,"aria-valuenow":pct},
         React.createElement("i",{style:{width:pct+"%"}}))));
 }
 
@@ -4263,6 +4265,7 @@ function App(){
   const keyframeInputsRef=React.useRef(null);
   keyframeInputsRef.current={scenes,beatsMap,locations,props,project};
   const keyframeScope=(scene,beatN)=>{
+    const projectId=projIdRef.current;
     const epoch=typeof nbEpoch==="function"?nbEpoch():null;
     const screenplay=draftsRef.current[scene.id];
     const cast=charactersRef.current;
@@ -4277,12 +4280,17 @@ function App(){
     const signedInputs=inputSignature();
     return ()=>{
       if(!canMutateSharedFilm()) throw new Error("You no longer have permission to change this film.");
-      if((epoch!==null && (typeof nbEpoch!=="function" || nbEpoch()!==epoch))
+      if(projIdRef.current!==projectId
+        || (epoch!==null && (typeof nbEpoch!=="function" || nbEpoch()!==epoch))
         || draftsRef.current[scene.id]!==screenplay || charactersRef.current!==cast
         || !scenesRef.current.some(s=>s.id===scene.id)
         || inputSignature()!==signedInputs
         || JSON.stringify(select(shotsLiveRef.current))!==signature)
         throw new Error("The film, screenplay, beats, production references or shots changed while this keyframe was being drafted. Nothing was replaced; try again with the current version.");
+      if(shotsLiveRef.current.some(sh=>sh.sceneId===scene.id &&
+        ((window.__nbGenInflight&&window.__nbGenInflight[sh.id])
+          || (window.__nbShotPhase&&window.__nbShotPhase[sh.id]))))
+        throw new Error("Finish or stop this scene's frame generation before drafting a specification. Nothing was replaced.");
     };
   };
   const commitBeatKeyframes=(made,assertCurrent)=>{
@@ -4301,37 +4309,47 @@ function App(){
   // Explicit screenplay → opening-keyframe conversion; media stays on its ID.
   const refineBeatFromScreenplay = async (scene, beatN)=>{
     const key=scene&&scene.id+"#"+beatN;
-    if(!scene || keyframeBusyRef.current.has(scene.id)) return;
-    const source=typeof window.shotBeatScreenplay==="function"
-      ? window.shotBeatScreenplay(scene,beatN,{drafts,characters,beatsMap}) : null;
-    if(!source || !source.hasSource){ if(window.appToast) window.appToast("Write this beat's screenplay before drafting its opening keyframe.","error"); return; }
-    const existing=shotsLiveRef.current.filter(x=>x.sceneId===scene.id&&Number(x.beatN)===Number(beatN))
-      .sort((a,b)=>(a.order||0)-(b.order||0));
-    const assertCurrent=keyframeScope(scene,beatN);
+    if(!scene) return;
+    if(!canMutateSharedFilm()){
+      if(window.appToast) window.appToast("You do not have permission to draft this film's shot specifications.","error");
+      return;
+    }
+    if(keyframeBusyRef.current.size){
+      if(window.appToast) window.appToast("A shot specification is already being drafted. Wait for it to finish before starting another.","info");
+      return;
+    }
     keyframeBusyRef.current.add(scene.id);
-    setRefiningBeat(key);
     try{
+      const source=typeof window.shotBeatScreenplay==="function"
+        ? window.shotBeatScreenplay(scene,beatN,{drafts,characters,beatsMap}) : null;
+      if(!source || !source.hasSource) throw new Error("Write this beat's screenplay before drafting its opening keyframe.");
+      const existing=shotsLiveRef.current.filter(x=>x.sceneId===scene.id&&Number(x.beatN)===Number(beatN))
+        .sort((a,b)=>(a.order||0)-(b.order||0));
+      const assertCurrent=keyframeScope(scene,beatN);
       assertCurrent();
       if(existing.length){
-        const body="This drafts one opening frame from the beat's screenplay. The primary shot keeps its ID and image history; its previous frame may need regeneration."
+        const body="Draft the specification for one opening keyframe from this beat's screenplay. The primary shot keeps its ID and image history; its previous frame may need regeneration."
           +(existing.length>1?" The "+(existing.length-1)+" additional shot(s) move to Shots Trash, where you can restore them.":"")
           +" No images or takes are deleted. Writing-model credits only; frame generation is separate.";
         const ok=typeof window.appConfirm==="function"
-          ? await window.appConfirm({title:"Update beat "+beatN+"'s opening keyframe?",body,confirmLabel:"Update opening keyframe",cancelLabel:"Cancel"})
+          ? await window.appConfirm({title:"Draft specification for Beat "+beatN+"?",body,confirmLabel:"Draft specification",cancelLabel:"Cancel"})
           : window.confirm(body);
         if(!ok) return;
         assertCurrent();
       }
-      const raw=typeof aiDraftShots==="function"
-        ? await aiDraftShots(scene,beatsMap,drafts,locations,props,characters,lbProject("shots"),{beatN,refine:true}) : null;
+      if(typeof aiDraftShots!=="function") throw new Error("Shot specification drafting is unavailable. Nothing was changed.");
+      // Confirmation is not model work: show the shared progress dialog only
+      // after approval, while the writing request is actually in progress.
+      setRefiningBeat(key);
+      const raw=await aiDraftShots(scene,beatsMap,drafts,locations,props,characters,lbProject("shots"),{beatN,refine:true});
       assertCurrent();
-      const row=(raw||[]).find(r=>Number(r.beat)===Number(beatN));
+      const row=Array.isArray(raw)&&raw.find(r=>r&&Number(r.beat)===Number(beatN));
       if(!row) throw new Error("No opening keyframe was returned. Nothing was changed.");
       const order=existing.length?existing[0].order:Number(beatN)-1;
-      const next={...normalizeShot({...row,keyframeMode:"beat-opening",covers:[],beatPlan:null},scene,order,locations,props,characters,beatsMap),
+      const next={...normalizeShot({...row,keyframeMode:"beat-opening",covers:[],beatPlan:null},scene,order,locations,props,characters,beatsMap,drafts),
         order,sourceScreenplayRev:source.sourceRev,beatScript:source.text};
       const result=commitBeatKeyframes([next],assertCurrent);
-      if(window.appToast) window.appToast("Beat "+beatN+" has one opening keyframe. "+(result.archived.length?"Additional shots were kept in Shots Trash. ":"")+"Generate the frame when you're ready.","ok");
+      if(window.appToast) window.appToast("Specification ready for Beat "+beatN+". "+(result.archived.length?"Additional shots were kept in Shots Trash. ":"")+"No image was generated. Generate the frame when you're ready.","ok");
     }catch(e){ if(window.appToast) window.appToast(String((e&&e.message)||"Opening-keyframe draft failed."),"error"); }
     finally{ keyframeBusyRef.current.delete(scene.id); setRefiningBeat(null); }
   };
@@ -5584,18 +5602,18 @@ function App(){
     } :
     (room==="art" && refiningBeat) ? {
       role:"Shot Designer",
-      title:"Refining Beat "+refiningBeatNo+" in Scene "+refiningBeatSceneNo,
-      detail:"Grouping the screenplay into composed dramatic moments, then designing one shot for each while preserving reusable frames."
+      title:"Drafting specification · Beat "+refiningBeatNo+" · Scene "+refiningBeatSceneNo,
+      detail:"Reading this beat's screenplay and composing one opening keyframe. Existing images and takes are preserved. This drafts the specification only; it does not generate an image."
     } :
     (room==="art" && draftingSceneShots) ? {
       role:"Shot Designer",
       title:"Designing shots for Scene "+busyShotSceneNo,
-      detail:"Breaking the scene into filmable shot coverage from the current beats and screenplay."
+      detail:"Drafting one opening-keyframe specification per screenplay beat. Existing images and takes are preserved; frame generation is separate."
     } :
     (room==="art" && draftingAllShots) ? {
       role:"Shot Designer",
-      title:"Designing shot coverage",
-      detail:"Building missing scene shot lists in story order while preserving beat coverage."
+      title:"Drafting shot specifications",
+      detail:"Drafting one opening keyframe per screenplay beat for scenes without shots, in story order. Existing shot lists are kept; no images are generated."
     } :
     (room==="art" && draftingStageId) ? {
       role:"Location Scout",

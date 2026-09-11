@@ -1676,6 +1676,7 @@ if(_openingShotsFeature) _openingShotsFeature.what += " Each beat is represented
 if(_shotOrderFeature) _shotOrderFeature.what += " CURRENT CARD LAYOUT: scene beats now use standalone sheet cards with their primary image-generation editor visible directly. Older descriptions of outer beat containers, duplicate previews or collapsed primary shot rows no longer apply. This presentation change does not alter the rolling generation order or authorize new renders.";
 if(_openingShotsFeature) _openingShotsFeature.what += " Shots uses a three-column desktop card grid, two columns on tablet and one on mobile, with the same card spacing as Locations. The card has no Add alternative button or Frame dropdown. Existing alternatives remain accessible via View primary frame / View alternative in the card's ... menu; switching does not redraft, render, archive or delete shots. The redundant Opening keyframe, Shot Opening and Source current labels are not displayed, and Covers has no micro-beat numbers; genuine stale/unverified frame warnings and approval safeguards remain. Reference images appear above Generate in the same position as Locations, with their existing enlarge and include/exclude controls. The Scripted area is the single expandable home for the full screenplay beat, on-screen cast and remote audio/text evidence. Draft specification (formerly Redraft / Update from screenplay) sits immediately left of QA check outside Scripted: it uses writing-model credits to re-draft the opening description, preserves image history, and confirms any archival of additional shots; it does not generate an image. Older coverage without a screenplay-version stamp gets only a quiet note inside Scripted, not a repeated warning banner or a claim that the script changed. Actual stamped screenplay changes still produce a visible warning. Empty beats retain Draft opening keyframe, disabled until screenplay exists.";
 if(_openingShotsFeature) _openingShotsFeature.what += " Remove micro-beat shots is an explicit current-film cleanup action in the Shot Designer toolbar, shown only when saved legacy micro-beat evidence exists. It identifies old shots using both a saved micro-beat plan and valid coverage mappings; it never treats Covers alone as proof. New beat-opening keyframes, manual shots, and records with unclear provenance or duplicate/missing IDs are retained. Confirmation discloses the count, affected scenes, and that even an old primary can be removed if it is still micro-beat coverage. Removed records go to restorable Shots Trash and no longer participate in the active seed chain; images, histories, and takes are not purged. Some beats may become empty. No replacements are drafted or rendered and no credits are spent. Cleanup is blocked during shot drafting/generation, for read-only users, or if the film or shot list changes before confirmation. It never runs automatically on loading a film.";
+if(_openingShotsFeature) _openingShotsFeature.what += " Draft specification asks for confirmation before showing the same MUSE department-progress overlay used by Cast, Props, Locations and the Writers' Room. The dialog identifies the beat and scene and describes one opening keyframe, not micro-beat coverage. It appears only while drafting, not while awaiting confirmation, and closes after success or failure. Drafting is blocked while another shot draft or frame render is running; a changed film, permission, screenplay or specification prevents stale results from replacing saved work. Empty or unusable single-beat model responses report an error rather than silently replacing the specification with defaults. Success updates the specification only, never renders an image.";
 window.APP_FEATURES = APP_FEATURES;
 
 function musePublicFeature(f){
@@ -4241,6 +4242,15 @@ async function aiDraftOpeningKeyframes(scene, beats, drafts, locations, props, c
   requestedNumbers.forEach(n=>{
     if(!byBeat[String(n)] && unassigned.length) byBeat[String(n)]=unassigned.shift();
   });
+
+  // An explicit single-beat redraft replaces saved work. A missing/invalid model
+  // specification must not become a made-up default followed by a success toast.
+  // Keep the existing full-scene backfill contract separate from this action.
+  if(onlyBeat){
+    const spec=byBeat[String(onlyBeat)];
+    if(!spec || typeof spec.composition!=="string" || !spec.composition.trim())
+      throw new Error("No usable opening-keyframe specification was returned for Beat "+onlyBeat+". Nothing was changed. Try drafting the specification again.");
+  }
 
   const validSize=new Set(["EWS","WS","FS","MWS","MS","MCU","CU","ECU","INSERT"]);
   const validAngle=new Set(["eye","high","low","top","dutch","ots","pov"]);

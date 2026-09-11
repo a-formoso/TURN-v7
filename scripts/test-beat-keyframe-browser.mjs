@@ -27,6 +27,15 @@ async function prep(){
   if(sfStart<0||sfEnd<0) throw Error("could not extract SheetFrame from app/artroom.jsx");
   const sheetFrame=transformSync(artroom.slice(sfStart,sfEnd),{presets:[["@babel/preset-react",{runtime:"classic"}]],plugins:["@babel/plugin-transform-block-scoping"],babelrc:false,configFile:false}).code;
   await writeFile(`${FIX}/sheet-frame.js`,sheetFrame);
+  const app=await readFile(new URL("app/app.jsx",ROOT),"utf8");
+  const progressStart=app.indexOf("function StudioProgressOverlay(");
+  const progressEnd=app.indexOf("\n/* ---- alternate view:",progressStart);
+  if(progressStart<0||progressEnd<0) throw Error("could not extract StudioProgressOverlay from app/app.jsx");
+  const progress=transformSync(app.slice(progressStart,progressEnd)+"\nwindow.StudioProgressOverlay=StudioProgressOverlay;",{
+    presets:[["@babel/preset-react",{runtime:"classic"}]],plugins:["@babel/plugin-transform-block-scoping"],
+    babelrc:false,configFile:false
+  }).code;
+  await writeFile(`${FIX}/studio-progress.js`,progress);
   await writeFile(`${FIX}/shot-screenplay.js`,await readFile(new URL("app/shot-screenplay.js",ROOT)));
   for(const [n,u] of Object.entries({"react.js":"https://unpkg.com/react@18.3.1/umd/react.development.js","react-dom.js":"https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"})){
     try{if((await readFile(`${FIX}/${n}`)).length>10000)continue;}catch{}
@@ -34,7 +43,7 @@ async function prep(){
   }
   await writeFile(`${FIX}/beat-keyframe.html`,html());
 }
-function html(){return `<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><link rel=stylesheet href=/styles.css><style>body{overflow:auto;background:#08090b;padding:24px}.beat-card-grid{max-width:980px;margin:auto}</style></head><body><div id=root></div><div id=classic-root></div><script src=/react.js></script><script src=/react-dom.js></script><script>
+function html(){return `<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><link rel=stylesheet href=/styles.css><style>body{overflow:auto;background:#08090b;padding:24px}.beat-card-grid{max-width:980px;margin:auto}</style></head><body><div id=root></div><div id=classic-root></div><div id=progress-root></div><script src=/react.js></script><script src=/react-dom.js></script><script>
 window.__fixture={calls:[],confirmations:[],errors:[],mounts:[]};window.addEventListener("error",e=>__fixture.errors.push(String(e.message)));
 window.Icon=new Proxy({}, {get:(_,n)=>({s=12})=>React.createElement("svg",{"data-i":n,width:s,height:s})});
 const px="data:image/svg+xml,"+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#263d42"/></svg>');
@@ -71,7 +80,7 @@ const beatOneAction="MARCUS grips the transit map.",beatTwoAction="MARCUS checks
 const drafts={"scene-1":{blocks:[{type:"scene",text:"INT. CONTROL ROOM — NIGHT"},{beat:1,type:"action",text:beatOneAction},{beat:1,type:"char",text:"DANIEL (V.O.)"},{beat:1,type:"dia",text:"Take the east tunnel."},{beat:2,type:"action",text:beatTwoAction}]}};const ctx={charById:{marcus:chars[0],daniel:chars[1]},propById:{},drafts};window.turnContinuity={drafts,props:[]};const bm={rows:[{n:1},{n:2}],turnAt:1};
 const sourceStamp=shotBeatScreenplay(scene,1,{drafts,characters:chars,beatsMap:bm}).sourceRev;
 const shots=[{id:"opening-1",sceneId:"scene-1",beatN:1,order:1,keyframeMode:"beat-opening",sourceScreenplayRev:sourceStamp,subjects:["marcus"],covers:[1],beatPlan:{micro:["MARCUS grips the transit map."]},size:"Medium",angle:"Eye",lens:"50",action:"Marcus grips the transit map."},{id:"legacy-1",sceneId:"scene-1",beatN:1,order:2,subjects:["marcus"],size:"Close",angle:"Low",lens:"85",action:"Legacy alternative."}];
-const props={lanesLen:2,bm,scene,ctx,characters:chars,propsAvail:[],ordered:shots,firstId:"opening-1",toggleHead:()=>{},onAddShot:(sid,n)=>__fixture.calls.push(["add",sid,n]),onUpdate:(id,patch)=>{const sh=shots.find(x=>x.id===id);if(sh&&patch)Object.assign(sh,patch);__fixture.calls.push(["update",id,patch||{}]);mount()},onDelete:()=>{},onView:(url,meta)=>__fixture.calls.push(["view",meta&&meta.name||"",url]),onGenerateShot:()=>{},onRegenDownstream:()=>{},onStopChain:()=>{},onBatchDone:()=>{},batchActiveId:null,openShotId:null,setOpenShotId:()=>{},sceneStart:false,onRenderScene:()=>{},renderBusy:false,nextShotId:null,onRefineBeat:(s,n)=>__fixture.calls.push(["refine",s.id,n]),refiningBeat:false};
+ const props={lanesLen:2,bm,scene,ctx,characters:chars,propsAvail:[],ordered:shots,firstId:"opening-1",toggleHead:()=>{},onAddShot:(sid,n)=>__fixture.calls.push(["add",sid,n]),onUpdate:(id,patch)=>{const sh=shots.find(x=>x.id===id);if(sh&&patch)Object.assign(sh,patch);__fixture.calls.push(["update",id,patch||{}]);mount()},onDelete:()=>{},onView:(url,meta)=>__fixture.calls.push(["view",meta&&meta.name||"",url]),onGenerateShot:()=>{},onRegenDownstream:()=>{},onStopChain:()=>{},onBatchDone:()=>{},batchActiveId:null,openShotId:null,setOpenShotId:()=>{},sceneStart:false,onRenderScene:()=>{},renderBusy:false,draftingBlocked:false,nextShotId:null,onRefineBeat:(s,n)=>__fixture.calls.push(["refine",s.id,n]),refiningBeat:false};
 const root=ReactDOM.createRoot(document.getElementById("root")),classicRoot=ReactDOM.createRoot(document.getElementById("classic-root"));
 function mount(batchActiveId=null){root.render(React.createElement("div",{className:"beat-card-grid"},React.createElement(OpeningBeatCard,{...props,batchActiveId,L:{n:1,shots}}),React.createElement(OpeningBeatCard,{...props,batchActiveId,L:{n:2,shots:[]}})))}
 const classicShot={id:"classic-1",sceneId:"scene-1",beatN:1,order:1,size:"Medium",angle:"Eye",lens:"50",action:"Classic action."};
@@ -86,9 +95,18 @@ window.__resetConfirmations=()=>{__fixture.confirmations=[]};
 window.__resetCalls=()=>{__fixture.calls=[]};
 window.__unlockPrimary=()=>{shots[0].locked=false;shots[0].sourceOverride=null;mount()};
 window.__clearBeatTwoSource=()=>{drafts["scene-1"].blocks=drafts["scene-1"].blocks.filter(b=>Number(b.beat)!==2);mount()};
-window.__restoreBeatTwoSource=()=>{if(!drafts["scene-1"].blocks.some(b=>Number(b.beat)===2))drafts["scene-1"].blocks.push({beat:2,type:"action",text:beatTwoAction});mount()};
-window.__queueAlternative=()=>mount("legacy-1");mount();
-</script></body></html>`}
+ window.__restoreBeatTwoSource=()=>{if(!drafts["scene-1"].blocks.some(b=>Number(b.beat)===2))drafts["scene-1"].blocks.push({beat:2,type:"action",text:beatTwoAction});mount()};
+ window.__queueAlternative=()=>mount("legacy-1");mount();
+ </script><script src=/studio-progress.js></script><script>
+ const progressRoot=ReactDOM.createRoot(document.getElementById("progress-root"));
+ window.__mountProgress=(role,title,detail,progress)=>{
+   progressRoot.render(React.createElement(StudioProgressOverlay,{role,title,detail,progress}));
+ };
+ window.__clearProgress=()=>progressRoot.render(null);
+ window.__setDraftGate=(draftingBlocked,renderBusy)=>{
+   props.draftingBlocked=!!draftingBlocked;props.renderBusy=!!renderBusy;mount();
+ };
+ </script></body></html>`}
 function server(){return createServer(async(q,r)=>{const p=q.url==="/"?`${FIX}/beat-keyframe.html`:`${FIX}${q.url}`;try{r.end(await readFile(p));}catch{r.writeHead(404);r.end();}})}
 class NativeWS{static async connect(url){const u=new URL(url),key=crypto.randomBytes(16).toString("base64"),s=net.connect(+u.port,u.hostname);let buf=Buffer.alloc(0);await new Promise((ok,bad)=>{s.once("error",bad);s.once("connect",()=>s.write(`GET ${u.pathname} HTTP/1.1\r\nHost: ${u.host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\n\r\n`));s.on("data",d=>{buf=Buffer.concat([buf,d]);if(buf.includes(Buffer.from("\r\n\r\n"))){if(!buf.toString().startsWith("HTTP/1.1 101"))bad(Error("CDP websocket handshake failed"));else ok()}})});const w=new NativeWS(s);s.on("data",d=>w.read(d));return w}constructor(s){this.s=s;this.buf=Buffer.alloc(0);this.onmessage=null}send(text){const p=Buffer.from(text),mask=crypto.randomBytes(4),h=p.length<126?Buffer.from([129,128|p.length]):Buffer.from([129,254,p.length>>8,p.length&255]);for(let i=0;i<p.length;i++)p[i]^=mask[i%4];this.s.write(Buffer.concat([h,mask,p]))}read(d){this.buf=Buffer.concat([this.buf,d]);while(this.buf.length>=2){let n=this.buf[1]&127,off=2;if(n===126){if(this.buf.length<4)return;n=this.buf.readUInt16BE(2);off=4}else if(n===127){if(this.buf.length<10)return;n=this.buf.readUInt32BE(6);off=10}if(this.buf.length<off+n)return;const x=this.buf.subarray(off,off+n).toString();this.buf=this.buf.subarray(off+n);this.onmessage&&this.onmessage({data:x})}}close(){this.s.destroy()}}
 class CDP{constructor(ws){this.ws=ws;this.i=0;this.q=new Map;ws.onmessage=e=>{const x=JSON.parse(e.data),f=this.q.get(x.id);if(f){this.q.delete(x.id);f(x)}}}static async connect(u){return new CDP(await NativeWS.connect(u))}call(m,p={}){return new Promise((a,b)=>{const id=++this.i;this.q.set(id,x=>x.error?b(Error(x.error.message)):a(x.result));this.ws.send(JSON.stringify({id,method:m,params:p}))})}async eval(x){const r=await this.call("Runtime.evaluate",{expression:x,returnByValue:true,awaitPromise:true});return r.result.value}close(){this.ws.close()}}
@@ -255,7 +273,23 @@ async function main(){
       "a real source change still does not auto-update, refine, or call the model");
     await c.eval("window.__restoreSource()");
 
-    await c.eval(`document.querySelector('${primary} .shot-redraft-btn').click()`);
+     await c.eval("window.__resetCalls();window.__setDraftGate(true,false)");
+     await wait(()=>c.eval(`document.querySelector('${primary} .shot-redraft-btn')?.disabled===true`),"drafting gate");
+     assert.equal(await c.eval(`document.querySelector('${primary} .shot-redraft-btn').textContent.trim()`),
+       "Draft specification","draftingBlocked keeps the real Draft specification button's wording");
+     await c.eval(`document.querySelector('${primary} .shot-redraft-btn').click()`);
+     assert.deepEqual(await c.eval("window.__fixture.calls"),[],
+       "OpeningBeatCard does not enter the App draft handler while another specification draft is active");
+     await c.eval("window.__setDraftGate(false,true)");
+     await wait(()=>c.eval(`document.querySelector('${primary} .shot-redraft-btn')?.disabled===true`),"render gate");
+     await c.eval(`document.querySelector('${primary} .shot-redraft-btn').click()`);
+     assert.deepEqual(await c.eval("window.__fixture.calls"),[],
+       "OpeningBeatCard does not enter the App draft handler while scene rendering is active");
+     await c.eval("window.__setDraftGate(false,false)");
+     await wait(()=>c.eval(`document.querySelector('${primary} .shot-redraft-btn')?.disabled===false`),"draft gates clear");
+     assert.equal(await c.eval(`document.querySelector('${primary} [data-testid="shot-draft-spec"]')?.getAttribute("data-testid")`),
+       "shot-draft-spec","the real OpeningBeatCard exposes the Draft specification control as the tested control");
+     await c.eval(`document.querySelector('${primary} .shot-redraft-btn').click()`);
     await wait(()=>c.eval("window.__fixture.calls.filter(x=>x[0]==='refine'&&x[1]==='scene-1'&&x[2]===1).length===1"),"beat one refine callback");
     assert.deepEqual(await c.eval("window.__fixture.calls"),[["refine","scene-1",1]],
       "Redraft outside Scripted calls scene-1 beat 1 once");
@@ -332,6 +366,33 @@ async function main(){
       await writeFile(`${OUT}/${name}.png`,Buffer.from(x.data,"base64"));
     }
 
+     /*
+      * The actual shared StudioProgressOverlay is mounted from app.jsx, not a
+      * look-alike fixture. Exercise its role/status contract at desktop,
+      * tablet, and mobile widths, including the no-fake-percentage path.
+      */
+     for(const [w,name,role] of [[1280,"progress-desktop","Screenwriter"],[820,"progress-tablet","Casting Director"],[390,"progress-mobile","Shot Designer"]]){
+       await c.call("Emulation.setDeviceMetricsOverride",{width:w,height:900,deviceScaleFactor:1,mobile:w<500});
+       await c.eval(`window.__mountProgress(${JSON.stringify(role)},${JSON.stringify("Drafting specification")},${JSON.stringify("Writing the current screenplay into a reviewable shot specification.")},null)`);
+       await wait(()=>c.eval(`!!document.querySelector(".studio-progress-overlay")`),`${name} progress overlay`);
+       const noPct=await c.eval(`(()=>{const el=document.querySelector(".studio-progress-overlay");return {
+         role:el.getAttribute("role"),live:el.getAttribute("aria-live"),atomic:el.getAttribute("aria-atomic"),
+         label:el.getAttribute("aria-label"),text:el.innerText,progress:!!el.querySelector('[role="progressbar"]')
+       }})()`);
+       assert.deepEqual(noPct,{
+         role:"status",live:"polite",atomic:"true",label:"Drafting specification",
+         text:"MUSE · "+role.toUpperCase()+"\nDrafting specification\nWriting the current screenplay into a reviewable shot specification.",
+         progress:false
+       },`${name} uses the shared accessible progress status without inventing a percentage`);
+       await c.eval(`window.__mountProgress(${JSON.stringify(role)},${JSON.stringify("Drafting specification")},${JSON.stringify("Writing the current screenplay into a reviewable shot specification.")},37)`);
+       await wait(()=>c.eval(`document.querySelector('.studio-progress-overlay [role="progressbar"]')?.getAttribute("aria-valuenow")==="37"`),`${name} real progress`);
+       assert.equal(await c.eval(`document.querySelector('.studio-progress-overlay [role="progressbar"]').getAttribute("aria-label")`),"Progress",
+         `${name} labels the real progressbar`);
+       const x=await c.call("Page.captureScreenshot",{format:"png"});
+       await writeFile(`${OUT}/${name}.png`,Buffer.from(x.data,"base64"));
+     }
+     await c.eval("window.__clearProgress()");
+
     await c.eval("window.__queueAlternative()");
     await wait(()=>c.eval("window.__fixture.calls.filter(x=>x[0]==='gen').length===1"),"single queued alternative driver");
     assert.deepEqual(await c.eval("window.__fixture.calls.filter(x=>x[0]==='gen')"),[["gen","legacy-1"]],
@@ -348,7 +409,7 @@ async function main(){
       "all alternative choices stay disabled while a batch frame is active");
 
     assert.deepEqual(await c.eval("window.__fixture.errors"),[]);
-    console.log(`standalone beat card browser regression passed\\nscreenshots: ${OUT}/desktop.png, ${OUT}/mobile.png`);
+     console.log(`standalone beat card browser regression passed\\nscreenshots: ${OUT}/desktop.png, ${OUT}/mobile.png, ${OUT}/progress-desktop.png, ${OUT}/progress-tablet.png, ${OUT}/progress-mobile.png`);
   }finally{c?.close();chrome.kill();s.close()}
 }
 main().catch(e=>{console.error(e);process.exitCode=1});
