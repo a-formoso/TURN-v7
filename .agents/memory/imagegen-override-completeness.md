@@ -13,3 +13,9 @@ An explicit reference choice is part of the same input contract, including durin
 **Why:** The shared image runner historically tolerated attachment failures and omitted attachments in simple mode. That is acceptable only for optional inputs, not a director-selected location/state.
 
 **How to apply:** Verify the actual provider boundary, including edit and simple paths, rejects unavailable required references before spending. Keep an explicitly chosen master/design sheet distinct from an automatic full-frame location fallback; choosing one never authorizes silent cropping or substitution.
+
+Narrowing location picker options to the current scene must not erase an older explicit selection or mark an existing asset as deleted.
+
+**Why:** The scene-only request restricts new choices, not saved image or render intent. The earlier picker allowed references across scenes.
+
+**How to apply:** Filter new options by canonical scene links; keep saved outside-scene choices separately labeled and removable. Continue resolving their exact saved IDs until the editor changes them.

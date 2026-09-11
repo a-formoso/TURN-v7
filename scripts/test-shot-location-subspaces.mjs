@@ -80,6 +80,8 @@ const choices=(loc,sh,sc=scene)=>box.shotLocationReferenceChoices(loc,sh,sc,draf
 assert.deepEqual(ids(specs(parent,{id:"beat-2",beatN:2,action:"MARCUS searches the drawer."})),[kitchenId],
   "beat 2 uses the Kitchen unit, never Living Room or parent master");
 const beatChoices=choices(parent,{id:"beat-2",beatN:2,action:"MARCUS searches the drawer."});
+assert.ok(!beatChoices.some(x=>x.id===dayKitchenId),
+  "the scene picker excludes another scene's time/state of the same room");
 assert.deepEqual(beatChoices.slice(0,2).map(x=>x.label),[
   "Father's House / Kitchen · Kitchen · INT · Night",
   "Father's House / Living Room · Living Room · INT · Night",

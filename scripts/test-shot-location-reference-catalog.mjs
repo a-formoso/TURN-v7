@@ -79,15 +79,54 @@ const choices=box.shotLocationReferenceChoices(roomA,sh,sceneA,drafts);
 assert.ok(choices.some(x=>x.id===idA&&x.category==="unit"));
 assert.ok(choices.some(x=>x.id===rootA.id&&x.category==="place"));
 assert.ok(choices.every(x=>x.id&&x.label&&x.category&&x.categoryLabel&&x.description));
+assert.ok(!choices.some(x=>[rootB.id,roomB.id,idB].includes(x.id)),
+  "other-scene places and units are not offered, even with identical location names");
+assert.ok(choices.some(x=>x.id===rootA.id+"-cov-kitchen")
+  &&choices.some(x=>x.id===legacyId),
+  "scene-linked coverage and the current place's reusable appearance states remain available");
 const libraryChoices=box.shotLocationReferenceChoices(null,{id:"library"},sceneA,drafts);
-assert.ok(libraryChoices.some(x=>x.id===rootB.id&&x.category==="place")
-  &&libraryChoices.some(x=>x.id===idB&&x.category==="unit"),
-  "a missing current location still exposes the current-film reference library");
+assert.ok(libraryChoices.some(x=>x.id===rootA.id)&&libraryChoices.some(x=>x.id===idA)
+  &&!libraryChoices.some(x=>x.id===rootB.id||x.id===idB),
+  "a missing current location still offers only references linked to the scene");
+assert.equal(box.shotLocationReferenceChoices(null,{},null,drafts).length,0,
+  "a missing scene never opens the whole film library");
+assert.ok(box.shotLocationReferenceChoices(null,{sceneId:sceneA.id},null,drafts).some(x=>x.id===idA),
+  "the shot scene ID supplies scope when the scene object is missing");
+
+/* Per-asset scene links take priority over a place reused across scenes.
+   Units also associate their exact owner (and ancestors) with a scene. */
+const anotherRoom={id:"other-room",key:"other-room",name:"Study",parentKey:"estate-a",scenes:["scene-b"]};
+const annex={id:"annex",key:"annex",name:"Annex",scenes:[]};
+const morningUnit={...unitA,key:"kitchen-a|INT|Day",time:"Day",scenes:["scene-b"]};
+const annexUnit={key:"annex|EXT|Night",subspaceKey:"annex",locationKey:"annex",place:"Annex",
+  time:"Night",intExt:"EXT",scenes:["scene-a"]};
+rootA.coverageSheets.push({id:"other-scene-coverage",name:"Morning coverage",role:"INT",sceneNos:[2]});
+rootA.variants.push({id:"other-scene-state",time:"Day",state:"sunlit",scenes:["scene-b"]});
+box.turnContinuity={...box.turnContinuity,locations:[rootA,roomA,rootB,roomB,anotherRoom,annex],
+  sluglineUnits:[...units,morningUnit,annexUnit]};
+const sceneOptions=box.shotLocationReferenceChoices(roomA,sh,sceneA,drafts);
+assert.ok(!sceneOptions.some(x=>[anotherRoom.id,box.sluglineUnitImageId(morningUnit.key),
+  rootA.id+"-other-scene-coverage",rootA.id+"-other-scene-state"].includes(x.id)),
+  "same-place other-scene subspaces, times, coverage and states stay out of the picker");
+assert.ok(sceneOptions.some(x=>x.id===annex.id)&&sceneOptions.some(x=>x.id===box.sluglineUnitImageId(annexUnit.key)),
+  "a second place used by this scene is offered through its unit's canonical scene link");
+assert.ok(box.shotLocationReferenceChoices(roomA,sh,sceneB,drafts).some(x=>x.id===idB),
+  "switching scenes changes the available references");
+rootA.coverageSheets.pop();rootA.variants.pop();
+box.turnContinuity={...box.turnContinuity,locations:[rootA,roomA,rootB,roomB],sluglineUnits:units};
 
 /* Exact explicit selection supports a place, a different-root unit, coverage,
    linked state and a legacy state in persisted order. */
 const explicitIds=[rootA.id,idB,rootA.id+"-cov-kitchen",idA,legacyId];
 const explicit={id:"explicit",referenceLocationsSet:true,referenceLocationIds:explicitIds};
+const savedChoices=box.shotLocationReferenceChoices(roomA,explicit,sceneA,drafts);
+assert.equal(savedChoices.find(x=>x.id===idB)?.outOfScene,true,
+  "an existing other-scene selection remains visible and distinctly labeled");
+assert.equal(savedChoices.find(x=>x.id===idA)?.outOfScene,false);
+assert.equal(savedChoices.filter(x=>x.id===idA).length,1,"scene filtering preserves unit/state deduplication");
+assert.ok(!box.shotLocationReferenceChoices(roomA,{...explicit,
+  referenceLocationIds:explicitIds.filter(id=>id!==idB)},sceneA,drafts).some(x=>x.id===idB),
+  "a removed outside-scene selection is no longer offered");
 const exact=box.shotLocationCoverageSpecs(roomA,explicit,sceneA,drafts);
 assert.deepEqual(Array.from(exact,x=>x.id),explicitIds);
 assert.ok(exact.every(x=>x.required===true&&!x.unavailable));

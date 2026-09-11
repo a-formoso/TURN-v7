@@ -637,7 +637,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   // impossible to correct after drafting. This helper intentionally excludes
   // master crops.
   // The catalog helper accepts a nullable scene location. That matters after a
-  // location is deleted: current-film choices and saved IDs must remain
+  // location is deleted: scene-linked choices and saved IDs must remain
   // reachable so an editor can inspect or remove the durable selection.
   const rawLocationReferenceChoices = (typeof shotLocationReferenceChoices==="function")
     ? (shotLocationReferenceChoices(loc||null,sh,scene,ctx.drafts||(window.turnContinuity||{}).drafts||{})||[]) : [];
@@ -652,6 +652,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       if(!item||!item.id) return;
       let categories=Array.from(new Set([...(Array.isArray(item.categories)?item.categories:[]),item.category].filter(Boolean)));
       if(item.unavailable||categories.includes("unknown")) categories=["unavailable"];
+      else if(item.outOfScene) categories=["outside"];
       const old=byId.get(item.id);
       if(old){
         old.categories=Array.from(new Set([...old.categories,...categories]));
@@ -666,7 +667,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       if(!byId.has(id)) byId.set(id,{id,label:"Unavailable saved reference · "+id,description:"This saved reference is no longer in the current location catalog.",categories:["unavailable"],unavailable:true});
     });
     return [...byId.values()];
-  },[rawLocationReferenceChoices.map(x=>[x&&x.id,x&&x.label,x&&x.category,(x&&x.categories||[]).join(",")].join(":")).join("|"),explicitLocationRefs.join("|")]);
+  },[rawLocationReferenceChoices.map(x=>[x&&x.id,x&&x.label,x&&x.category,!!(x&&x.outOfScene),(x&&x.categories||[]).join(",")].join(":")).join("|"),explicitLocationRefs.join("|")]);
   const [locationAssetState,setLocationAssetState]=React.useState({});
   const locationRefsMissing=React.useRef([]);
   const pickerChoiceKey=locationReferenceChoices.map(x=>x.id+":"+(x.unavailable?"x":"")).join("|");
@@ -712,8 +713,8 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
     onUpdate(sh.id,{referenceLocationsSet:true,referenceLocationIds:next,
       ...(next.indexOf(id)>=0&&curOff.indexOf(id)>=0?{refOff:curOff.filter(x=>x!==id)}:{})});
   };
-  const categoryMeta={place:"Continuity-bearing place",unit:"Slugline / subspace units",coverage:"Screenplay Coverage",state:"Appearance States",unavailable:"Saved / unavailable"};
-  const categoryOrder=["place","unit","coverage","state","unavailable"];
+  const categoryMeta={place:"Continuity-bearing place",unit:"Slugline / subspace units",coverage:"Screenplay Coverage",state:"Appearance States",outside:"Saved / outside this scene",unavailable:"Saved / unavailable"};
+  const categoryOrder=["place","unit","coverage","state","outside","unavailable"];
   const categoryLabel=(choice)=>{
     const known=(choice.categories||[]).filter(x=>categoryMeta[x]&&x!=="unavailable");
     return known.map(x=>categoryMeta[x]).join(" · ")||categoryMeta.unavailable;
@@ -733,6 +734,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       onClick:()=>onUpdate(sh.id,{referenceLocationsSet:false,referenceLocationIds:[]})},"Auto — use matched references"),
       categoryOrder.map(category=>{
         const choices=locationReferenceChoices.filter(x=>(x.categories||[]).includes(category));
+        if(category==="outside"&&!choices.length) return null;
         return _el("section",{key:category,className:"shot-location-picker-section"},
           _el("b",null,categoryMeta[category]),
           choices.length ? choices.map(choice=>{
@@ -743,11 +745,11 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
               _el("input",{type:"checkbox",checked:selected,disabled:locationPickerBusy||(unavailable&&!selected),
                 onChange:()=>updateLocationReference(choice.id)}),
               _el("span",{className:"shot-location-check-copy"},_el("strong",null,choice.label),
-                _el("small",null,status==="loading"?"Loading exact image…":status==="missing"?"Image missing — cannot generate":unavailable?choice.description||"Saved reference unavailable":categoryLabel(choice))),
+                _el("small",null,status==="loading"?"Loading exact image…":status==="missing"?"Image missing — cannot generate":unavailable?choice.description||"Saved reference unavailable":choice.outOfScene?"Saved selection from outside this scene — uncheck to remove":categoryLabel(choice))),
               selected&&_el("i",null,"Selected"));
           }) : _el("p",{className:"shot-location-picker-empty"},
             category==="place"?"No continuity-bearing place reference is available.":
-            category==="unit"?"No slugline or subspace unit applies to this beat.":
+            category==="unit"?"No slugline or subspace unit is linked to this scene.":
             category==="coverage"?"No screenplay coverage sheet is available.":
             category==="state"?"No appearance state reference is available.":"No saved unavailable references."));
       }),
@@ -1317,9 +1319,7 @@ function BeatShotPreview({ sh, letter, scene, sceneStart, onRenderScene, renderB
         !url?"Not rendered":sh.locked?"Approved":"Draft frame")));
 }
 
-/* Manual shots begin with an explicit, beat-scoped reference decision. Location
-   choices are intentionally limited to full-frame slugline units and screenplay
-   coverage sheets; the lower-resolution master 2x2 plate never appears here. */
+/* New shots share the existing card's scene-scoped location-reference catalog. */
 function AddShotReferenceDialog({ scene, beatN, beatText, plan, ctx, characters, seed, onCancel, onAdd }){
   const location = ctx && ctx.location;
   const drafts = ctx && ctx.drafts || (window.turnContinuity||{}).drafts||{};
@@ -1336,7 +1336,8 @@ function AddShotReferenceDialog({ scene, beatN, beatText, plan, ctx, characters,
       else byId.set(x.id,{...x,categories:categories.length?categories:["unit"]});
     });
     return [...byId.values()];
-  },[location&&location.id, beatN, beatText, seed&&seed.action]);
+  },[location,scene&&scene.id,scene&&scene.no,drafts,(window.turnContinuity||{}).locations,
+    (window.turnContinuity||{}).sluglineUnits,beatN,beatText,seed&&seed.action]);
   const autoLocationChoices = React.useMemo(()=>{
     if(!location || typeof shotLocationCoverageSpecs!=="function") return [];
     return shotLocationCoverageSpecs(location,{

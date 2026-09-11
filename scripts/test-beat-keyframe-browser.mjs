@@ -314,6 +314,21 @@ async function main(){
     await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-location-choice.auto')?.getAttribute('aria-pressed')==='true'`),"location auto selection");
     assert.deepEqual((await c.eval("window.__fixture.calls"))[3],["update","seed-target",{referenceLocationsSet:false,referenceLocationIds:[]}],
        "Auto clears explicit ids without changing other references");
+    // Scene-scoped discovery must not silently erase a previously saved choice.
+    await c.eval(`window.shotLocationReferenceChoices=(loc,sh)=>[
+      {id:"place-house",label:"Father's House · INT · Night",category:"place"},
+      ...(sh.referenceLocationIds||[]).includes("other-scene-place")?
+        [{id:"other-scene-place",label:"Funeral Home Office",category:"place",outOfScene:true}]:[]
+    ];seedShots[1].referenceLocationsSet=true;seedShots[1].referenceLocationIds=["place-house","other-scene-place"];mountSeed()`);
+    await wait(()=>c.eval(`!![...document.querySelectorAll('#seed-root ${seedCard} .shot-location-picker-section')].find(x=>x.querySelector('b')?.textContent==='Saved / outside this scene')`),"outside-scene saved selection");
+    assert.equal(await c.eval(`(()=>{const section=[...document.querySelectorAll('#seed-root ${seedCard} .shot-location-picker-section')].find(x=>x.querySelector('b')?.textContent==='Saved / outside this scene');const input=section?.querySelector('input');return !!input&&input.checked&&!input.disabled&&section.textContent.includes('Funeral Home Office')})()`),true,
+      "other-scene saved selection is separate and removable, not unavailable");
+    await c.eval(`window.__resetCalls();[...document.querySelectorAll('#seed-root ${seedCard} .shot-location-check')].find(x=>x.textContent.includes('Funeral Home Office')).querySelector('input').click()`);
+    await wait(()=>c.eval("window.__fixture.calls.length===1"),"outside-scene selection removal");
+    assert.deepEqual(await c.eval("window.__fixture.calls[0]"),["update","seed-target",{referenceLocationsSet:true,referenceLocationIds:["place-house"]}],
+      "removing the old other-scene reference preserves current-scene choices");
+    assert.equal(await c.eval(`document.querySelector('#seed-root ${seedCard} .shot-location-picker').textContent.includes('Funeral Home Office')`),false,
+      "other-scene options disappear once deselected");
     // A deleted scene location must not strand saved selections. The helper
     // returns its real unknown-shaped catalog record while another current-film
     // manual reference still hydrates into the thumbnail strip.

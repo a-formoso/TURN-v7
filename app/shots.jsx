@@ -1068,6 +1068,14 @@ function shotLocationCategoryLabel(category){
   return SHOT_LOCATION_CATEGORY_LABELS[String(category||"").toLowerCase()]
     || "Location reference";
 }
+function shotLocationCatalogSceneLinks(item){
+  item=item||{};
+  return {
+    sceneIds:Array.isArray(item.sceneIds)?item.sceneIds.slice()
+      :Array.isArray(item.scenes)?item.scenes.slice():item.sceneId?[item.sceneId]:[],
+    sceneNos:Array.isArray(item.sceneNos)?item.sceneNos.slice():[],
+  };
+}
 function shotLocationCatalogLocations(loc){
   const C=window.turnContinuity||{}, list=[], seen=new Set();
   const add=(l)=>{
@@ -1168,7 +1176,7 @@ function shotLocationCatalogUnitSpec(u,owner,locations){
     note:bits.slice(0,4).join(" · ")+" — slugline/subspace unit full-frame reference; use the entire frame, never a crop",
     locationId:String(owner.id),entityId:String(owner.id),baseId:id,unitKey:String(u.key),
     subspaceKey:String(u.subspaceKey||u.locationKey||""),continuityRootKey:String(u.continuityRootKey||u.locationKey||""),
-    stateId:"",appearanceState:state,sceneIds:Array.isArray(u.scenes)?u.scenes.slice():[],
+    stateId:"",appearanceState:state,...shotLocationCatalogSceneLinks(u),
     role,time:u.time||"",name,place:name,source:"slugline-unit",assetRole:"derived_reference",
     assetSourceQuality:"slugline_unit_full_frame",
   };
@@ -1183,7 +1191,7 @@ function shotLocationCatalogCoverageSpec(l,v,locations){
     description:display+" screenplay-derived "+(role||"coverage")+" coverage view — one full-frame view.",
     note:name+" — screenplay Coverage "+(role||"location")+" view (one full-frame reference; never a crop)",
     locationId:String(l.id),entityId:String(l.id),baseId:id,coverageId:String(v.id),
-    sceneNos:Array.isArray(v.sceneNos)?v.sceneNos.slice():[],summary:v.summary||"",scriptExcerpt:v.scriptExcerpt||"",
+    ...shotLocationCatalogSceneLinks(v),summary:v.summary||"",scriptExcerpt:v.scriptExcerpt||"",
     triggerWords:(v.triggerWords||[]).map(w=>String(w||"").toLowerCase()).filter(Boolean),
     role,name,source:"screenplay-coverage",assetRole:"derived_reference",
     assetSourceQuality:"screenplay_coverage_full_frame",
@@ -1207,6 +1215,7 @@ function shotLocationCatalogStateSpec(l,v,locations,units){
       +(linked?" linked to the exact slugline unit; full-frame, never a crop":" (legacy full-frame state asset; never a crop)"),
     locationId:String(l.id),entityId:String(l.id),baseId:String(id),stateId:String(v.id||""),
     appearanceState:state,unitKey:String(v.unitKey||(linked&&linked.key)||""),
+    ...shotLocationCatalogSceneLinks(linked||v),
     role,time,source:"appearance-state",assetRole:"derived_reference",
     assetSourceQuality:linked?"slugline_unit_full_frame":"location_state_full_frame",
   };
@@ -1284,6 +1293,40 @@ function shotLocationReferenceCatalog(loc,sh,scene,drafts){
   }).map(s=>{ const out={...s}; delete out._catalogIndex; return out; });
 }
 window.shotLocationReferenceCatalog=shotLocationReferenceCatalog;
+/* Scene scoping is a picker constraint, not a rewrite of existing render intent.
+   An asset's own scene links take precedence over its reusable parent place. */
+function shotLocationSceneReferenceChoices(catalog,loc,scene){
+  if(!scene||!scene.id) return [];
+  const locations=shotLocationCatalogLocations(loc),allowedPlaces=new Set();
+  const sceneMatch=spec=>{
+    if(Array.isArray(spec.sceneIds)&&spec.sceneIds.length)
+      return spec.sceneIds.some(id=>String(id)===String(scene.id));
+    if(Array.isArray(spec.sceneNos)&&spec.sceneNos.length)
+      return scene.no!=null&&spec.sceneNos.some(no=>String(no)===String(scene.no));
+    return null;
+  };
+  const addPlace=l=>{
+    let current=l;
+    for(let depth=0;current&&depth<16;depth++){
+      if(allowedPlaces.has(String(current.id))) break;
+      allowedPlaces.add(String(current.id));
+      current=shotLocationCatalogParent(current,locations);
+    }
+  };
+  locations.forEach(l=>{
+    if(sceneMatch(shotLocationCatalogSceneLinks(l))===true) addPlace(l);
+  });
+  if(loc&&sceneMatch(shotLocationCatalogSceneLinks(loc))!==false) addPlace(loc);
+  catalog.forEach(spec=>{
+    if(sceneMatch(spec)===true)
+      addPlace(locations.find(l=>String(l.id)===String(spec.locationId)));
+  });
+  return catalog.filter(spec=>{
+    if(spec.category==="place") return allowedPlaces.has(String(spec.locationId));
+    const match=sceneMatch(spec);
+    return match===null?allowedPlaces.has(String(spec.locationId)):match;
+  });
+}
 function shotLocationUnknownSpec(id,loc){
   const ref=String(id||"");
   return {id:ref,category:"unknown",categoryLabel:shotLocationCategoryLabel("unknown"),categories:["unknown"],
@@ -1296,12 +1339,17 @@ function shotLocationUnknownSpec(id,loc){
 }
 function shotLocationReferenceChoices(loc,sh,scene,drafts){
   sh=sh||{}; const catalog=shotLocationReferenceCatalog(loc,sh,scene,drafts);
-  if(!sh.referenceLocationsSet) return catalog.map(s=>({...s}));
+  const currentScene=scene||(((window.turnContinuity||{}).scenes)||[]).find(s=>s&&s.id===sh.sceneId)
+    ||(sh.sceneId?{id:sh.sceneId}:null);
+  const sceneCatalog=shotLocationSceneReferenceChoices(catalog,loc,currentScene);
+  if(!sh.referenceLocationsSet) return sceneCatalog.map(s=>({...s}));
+  const sceneIds=new Set(sceneCatalog.map(s=>String(s.id)));
   const ids=Array.isArray(sh.referenceLocationIds)?sh.referenceLocationIds.filter(Boolean):[];
   const byId=new Map(catalog.map(s=>[String(s.id),s])),selected=[],seen=new Set();
   ids.forEach(raw=>{ const id=String(raw); if(seen.has(id)) return; seen.add(id);
-    selected.push({...((byId.get(id))||shotLocationUnknownSpec(id,loc))}); });
-  return selected.concat(catalog.filter(s=>!seen.has(String(s.id))).map(s=>({...s})));
+    const spec=byId.get(id);
+    selected.push(spec?{...spec,outOfScene:!sceneIds.has(id)}:shotLocationUnknownSpec(id,loc)); });
+  return selected.concat(sceneCatalog.filter(s=>!seen.has(String(s.id))).map(s=>({...s})));
 }
 function shotLocationCoverageSpecs(loc, sh, scene, drafts){
   sh=sh||{};
