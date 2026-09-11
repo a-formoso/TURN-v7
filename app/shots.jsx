@@ -592,20 +592,64 @@ async function shotGrabImage(id){
 }
 window.shotGrabImage = shotGrabImage;
 
+/* A required location reference is a pre-generation invariant.  Keep this
+   error deliberately distinct from provider errors: callers can surface a
+   useful "restore or choose another reference" message without retrying an
+   image generation request. */
+function shotLocationReferenceError(spec, cause){
+  const id=String(spec&&spec.id||"");
+  const reason=spec&&spec.unavailable
+    ? "is unavailable or was deleted"
+    : "has no available image";
+  const e=new Error("Required location reference "+(id?"\""+id+"\" ":"")+reason+". Restore it or choose another location reference.");
+  e.name="ShotLocationReferenceError";
+  e.code="SHOT_LOCATION_REFERENCE_UNAVAILABLE";
+  e.errorFlag="fatal-reference";
+  e.fatalReference=true;
+  e.isFatalReference=true;
+  e.fatal=true;
+  e.requiredReference=true;
+  e.flag="fatal-reference";
+  e.referenceId=id;
+  e.referenceSpec=spec||null;
+  if(cause) e.cause=cause;
+  return e;
+}
+window.shotLocationReferenceError = shotLocationReferenceError;
+window.ShotLocationReferenceError = shotLocationReferenceError;
+
 async function shotLoadLocationSpecImage(spec, grab, opts){
-  if(!spec || typeof grab!=="function") return null;
-  const u = await grab(spec.id);
+  opts=opts||{};
+  if(!spec) return null;
+  let u="";
+  let grabError=null;
+  if(typeof grab==="function"){
+    try{ u = await grab(spec.id); }catch(e){ grabError=e; }
+  }
+  if((spec.required || spec.unavailable) && !opts.allowMissing && (spec.unavailable || !u)){
+    throw shotLocationReferenceError(spec,grabError);
+  }
+  if(grabError && !opts.allowMissing) throw grabError;
+  /* An unavailable/deleted identity is never attachable merely because stale
+     bytes happen to remain in a local cache. Inventory mode may inspect it,
+     but must return no usable image. */
+  if(spec.unavailable) return null;
+  if(typeof grab!=="function") return null;
   const note = spec.note;
   const refId = spec.id;
   const assetRole = spec.assetRole || "derived_reference";
   const assetSourceQuality = spec.assetSourceQuality || "full_frame";
   const label = (typeof nbAssetRoleLabel==="function") ? nbAssetRoleLabel(assetRole) : assetRole;
   const priority = (typeof nbAssetRolePriority==="function") ? nbAssetRolePriority(assetRole) : 0;
-  return u ? { url:u, note, refId, assetRole, assetRoleLabel:label, assetRolePriority:priority, assetSourceQuality } : null;
+  return u ? { url:u, note, refId, required:!!spec.required, category:spec.category,
+    categories:spec.categories, locationId:spec.locationId, entityId:spec.entityId,
+    stateId:spec.stateId, coverageId:spec.coverageId,
+    assetRole, assetRoleLabel:label, assetRolePriority:priority, assetSourceQuality } : null;
 }
 window.shotLoadLocationSpecImage = shotLoadLocationSpecImage;
 
-async function shotResolveLocationSpecImages(specs, grab){
+async function shotResolveLocationSpecImages(specs, grab, opts){
+  opts=opts||{};
   const list = Array.isArray(specs) ? specs.filter(Boolean) : [];
   const seen = new Set();
   const dedupe = (items)=>items.filter(r=>{
@@ -614,7 +658,7 @@ async function shotResolveLocationSpecImages(specs, grab){
   });
   const direct = [];
   for(const s of list){
-    const r = await shotLoadLocationSpecImage(s, grab, { noFallback:true });
+    const r = await shotLoadLocationSpecImage(s, grab, { ...opts, noFallback:true });
     if(r) direct.push(r);
   }
   return dedupe(direct);
@@ -1012,65 +1056,280 @@ function shotLocationBuildUnitSpec(u){
     note:unitName+" — slugline-unit "+(role||"location")+" coverage plate"
       +(u.time?(" at "+u.time):"")+" (full-resolution unit anchor)" };
 }
-function shotLocationReferenceChoices(loc,sh,scene,drafts){
-  if(!loc) return [];
-  sh=sh||{};
-  const C=window.turnContinuity||{};
-  const allUnits=Array.isArray(C.sluglineUnits)?C.sluglineUnits:[];
-  const units=shotLocationEligibleUnits(loc,scene,allUnits);
-  if(!units.length) return [];
-  const beatN=shotLocationBeatNumber(sh);
-  const source=beatN!=null ? shotLocationBeatSource(scene,sh,drafts||C.drafts||{}) : null;
-  const headings=source&&source.hasSource
-    ? shotLocationBeatHeadings(scene,sh,drafts||C.drafts||{},source)
-    : (scene&&scene.loc ? [shotLocationClean(scene.loc)] : []);
-  const contexts=headings.map(heading=>{
-    const parsed=shotLocationParseHeading(heading);
-    if(!parsed) return null;
-    return {parsed,side:shotLocationHeadingSide(parsed,sh,loc,scene),
-      time:shotLocationTime(parsed.time)};
-  }).filter(Boolean);
-  const explicitSide=String(sh.locationSide||"").toUpperCase();
-  const fallbackSide=(explicitSide==="INT"||explicitSide==="EXT"||explicitSide==="BOTH")
-    ? explicitSide : shotLocationSide(sh,loc,scene,{});
-  const openingRank=new Map(), contextMatches=new Set();
-  contexts.forEach((ctx,index)=>{
-    shotLocationHeadingUnitCandidates(units,ctx.parsed,ctx.side).forEach(u=>{
-      contextMatches.add(u.key);
-      if(!openingRank.has(u.key)) openingRank.set(u.key,index);
+const SHOT_LOCATION_CATEGORY_LABELS={
+  place:"Place",
+  unit:"Slugline / subspace unit",
+  coverage:"Screenplay Coverage",
+  state:"Appearance State",
+  unknown:"Unavailable location reference",
+};
+const SHOT_LOCATION_CATEGORY_ORDER={place:0,unit:1,coverage:2,state:3,unknown:9};
+function shotLocationCategoryLabel(category){
+  return SHOT_LOCATION_CATEGORY_LABELS[String(category||"").toLowerCase()]
+    || "Location reference";
+}
+function shotLocationCatalogLocations(loc){
+  const C=window.turnContinuity||{}, list=[], seen=new Set();
+  const add=(l)=>{
+    if(!l||!l.id||l.deleted||l.deletedAt||l.orphan||seen.has(String(l.id))) return;
+    seen.add(String(l.id)); list.push(l);
+  };
+  (Array.isArray(C.locations)?C.locations:[]).forEach(add);
+  add(loc);
+  const initial=list.slice();
+  initial.forEach(l=>{
+    if(!l.parentKey) return;
+    add((Array.isArray(C.locations)?C.locations:[]).find(x=>x&&
+      shotLocationLocationKey(x)===String(l.parentKey)));
+  });
+  list.slice().forEach(l=>{
+    const key=shotLocationLocationKey(l);
+    (Array.isArray(C.locations)?C.locations:[]).filter(x=>x&&String(x.parentKey||"")===key).forEach(add);
+  });
+  return list;
+}
+function shotLocationCatalogParent(l,locations){
+  if(!l||!l.parentKey) return null;
+  return (locations||[]).find(x=>x&&shotLocationLocationKey(x)===String(l.parentKey))||null;
+}
+function shotLocationCatalogRoot(l,locations){
+  let cur=l, guard=0;
+  while(cur&&cur.parentKey&&guard++<16){
+    const p=shotLocationCatalogParent(cur,locations); if(!p) break; cur=p;
+  }
+  return cur||l||null;
+}
+function shotLocationCatalogUnitOwner(u,locations){
+  if(!u) return null;
+  const direct=String(u.locationId||"");
+  if(direct){
+    const hit=(locations||[]).find(l=>l&&(String(l.id)===direct||shotLocationLocationKey(l)===direct));
+    if(hit) return hit;
+  }
+  const sub=String(u.subspaceKey||u.locationKey||"");
+  const root=String(u.continuityRootKey||"");
+  if(sub){
+    const candidates=(locations||[]).filter(l=>l&&shotLocationLocationKey(l)===sub);
+    const exact=root
+      ? (candidates.find(l=>{
+          const lr=shotLocationCatalogRoot(l,locations);
+          return shotLocationLocationKey(lr)===root;
+        })||null)
+      : (candidates[0]||null);
+    if(exact) return exact;
+  }
+  if(root){
+    const exact=(locations||[]).find(l=>l&&shotLocationLocationKey(l)===root);
+    if(exact) return exact;
+  }
+  return null;
+}
+function shotLocationCatalogDisplayName(l,locations){
+  if(!l) return "Location";
+  const p=shotLocationCatalogParent(l,locations);
+  const name=String(l.name||"Location").trim();
+  return p ? (String(p.name||"").trim()+" / "+name).replace(/^\/\s*|\s*\/$/g,"") : name;
+}
+function shotLocationCatalogPlaceSpec(l,locations,allUnits,sheets){
+  const children=(typeof locationChildrenOf==="function")?locationChildrenOf(l,locations):[];
+  const side=String(l.intExt||"").toUpperCase()||(
+    typeof locationEffectiveSide==="function"
+      ? String(locationEffectiveSide(l,allUnits,sheets,children)||"").toUpperCase() : "");
+  const compound=typeof locationScopeOf==="function"
+    ? locationScopeOf(l,locations)==="compound" : (!l.parentKey&&children.length>0);
+  const display=shotLocationCatalogDisplayName(l,locations);
+  return {
+    id:String(l.id),category:"place",categoryLabel:shotLocationCategoryLabel("place"),
+    categories:["place"],label:[display,side,compound?"continuity root":"place"].filter(Boolean).join(" · "),
+    description:compound
+      ? display+" design reference; this continuity-root plate may be a compound multi-panel reference, not a single full-frame shot."
+      : display+" place design reference; use it for binding architecture, materials and geography, not as a cropped shot frame.",
+    note:compound
+      ? display+" — continuity-root design reference (potentially compound multi-panel; not a full-frame shot and never a crop)"
+      : display+" — place design reference (not a full-frame shot and never a crop)",
+    locationId:String(l.id),entityId:String(l.id),baseId:String(l.id),
+    parentLocationId:(shotLocationCatalogParent(l,locations)||{}).id||"",
+    locationScope:compound?"compound":"atomic",placeName:String(l.name||""),
+    source:"location-place",assetRole:"master_reference",
+    assetSourceQuality:compound?"location_master_plate_compound":"location_master_plate",
+  };
+}
+function shotLocationCatalogUnitSpec(u,owner,locations){
+  if(!u||!u.key||!owner||typeof sluglineUnitImageId!=="function") return null;
+  const id=sluglineUnitImageId(u.key), display=shotLocationCatalogDisplayName(owner,locations);
+  const name=shotLocationUnitPlace(u)||owner.name||"location";
+  const role=String(u.intExt||"").toUpperCase(), state=String(u.appearance||"").trim();
+  const bits=[display,name,role,shotLocationClean(u.time),state].filter(Boolean);
+  return {
+    id,category:"unit",categoryLabel:shotLocationCategoryLabel("unit"),categories:["unit"],
+    label:bits.join(" · "),description:display+" "+(role||"location")
+      +" slugline/subspace unit"+(u.time?(" at "+u.time):"")
+      +(state?(" with appearance state "+state):"")+" — one full-frame continuity anchor.",
+    note:bits.slice(0,4).join(" · ")+" — slugline/subspace unit full-frame reference; use the entire frame, never a crop",
+    locationId:String(owner.id),entityId:String(owner.id),baseId:id,unitKey:String(u.key),
+    subspaceKey:String(u.subspaceKey||u.locationKey||""),continuityRootKey:String(u.continuityRootKey||u.locationKey||""),
+    stateId:"",appearanceState:state,sceneIds:Array.isArray(u.scenes)?u.scenes.slice():[],
+    role,time:u.time||"",name,place:name,source:"slugline-unit",assetRole:"derived_reference",
+    assetSourceQuality:"slugline_unit_full_frame",
+  };
+}
+function shotLocationCatalogCoverageSpec(l,v,locations){
+  if(!l||!v||!v.id) return null;
+  const display=shotLocationCatalogDisplayName(l,locations), role=String(v.role||"").toUpperCase();
+  const name=String(v.name||display||"Coverage").trim(), id=String(l.id)+"-"+String(v.id);
+  return {
+    id,category:"coverage",categoryLabel:shotLocationCategoryLabel("coverage"),categories:["coverage"],
+    label:[display,name,role].filter(Boolean).join(" · "),
+    description:display+" screenplay-derived "+(role||"coverage")+" coverage view — one full-frame view.",
+    note:name+" — screenplay Coverage "+(role||"location")+" view (one full-frame reference; never a crop)",
+    locationId:String(l.id),entityId:String(l.id),baseId:id,coverageId:String(v.id),
+    sceneNos:Array.isArray(v.sceneNos)?v.sceneNos.slice():[],summary:v.summary||"",scriptExcerpt:v.scriptExcerpt||"",
+    triggerWords:(v.triggerWords||[]).map(w=>String(w||"").toLowerCase()).filter(Boolean),
+    role,name,source:"screenplay-coverage",assetRole:"derived_reference",
+    assetSourceQuality:"screenplay_coverage_full_frame",
+  };
+}
+function shotLocationCatalogStateSpec(l,v,locations,units){
+  if(!l||!v||typeof locationAppearanceStateAssetId!=="function") return null;
+  const linked=v.linkedUnit||null, id=locationAppearanceStateAssetId(l,v,units);
+  if(!id) return null;
+  const display=shotLocationCatalogDisplayName(l,locations);
+  const role=String(v.intExt||(linked&&linked.intExt)||"").toUpperCase();
+  const time=v.time||(linked&&linked.time)||"";
+  const state=String(v.state||v.appearance||(linked&&linked.appearance)||"").trim();
+  const bits=[display,role,time,state].filter(Boolean);
+  return {
+    id:String(id),category:"state",categoryLabel:shotLocationCategoryLabel("state"),categories:["state"],
+    label:(bits.length?bits:[display,"appearance state"]).join(" · "),
+    description:display+" appearance state"+(state?(" — "+state):"")
+      +(linked?" linked to the slugline/subspace unit's full-frame asset.":" (legacy state asset)."),
+    note:(bits.length?bits.join(" · "):display)+" — Appearance State reference"
+      +(linked?" linked to the exact slugline unit; full-frame, never a crop":" (legacy full-frame state asset; never a crop)"),
+    locationId:String(l.id),entityId:String(l.id),baseId:String(id),stateId:String(v.id||""),
+    appearanceState:state,unitKey:String(v.unitKey||(linked&&linked.key)||""),
+    role,time,source:"appearance-state",assetRole:"derived_reference",
+    assetSourceQuality:linked?"slugline_unit_full_frame":"location_state_full_frame",
+  };
+}
+function shotLocationCatalogAdd(map,spec,index){
+  if(!spec||!spec.id) return;
+  const id=String(spec.id),prior=map.get(id);
+  if(!prior){ spec._catalogIndex=index; map.set(id,spec); return; }
+  prior.categories=Array.from(new Set([...(prior.categories||[prior.category]),...(spec.categories||[spec.category])].filter(Boolean)));
+  if(spec.category==="state"){
+    prior.stateId=spec.stateId||prior.stateId||"";
+    prior.appearanceState=spec.appearanceState||prior.appearanceState||"";
+    if(spec.appearanceState && prior.note.indexOf(spec.appearanceState)<0) prior.note+="; Appearance State: "+spec.appearanceState;
+    if(spec.appearanceState && prior.label.indexOf(spec.appearanceState)<0) prior.label+=" · "+spec.appearanceState;
+  }
+}
+function shotLocationCatalogContext(loc,sh,scene,drafts,locations,allUnits){
+  sh=sh||{}; const C=window.turnContinuity||{};
+  const beatN=shotLocationBeatNumber(sh)!=null ? shotLocationBeatNumber(sh)
+    : (sh.referencePickerAll ? shotLocationInferBeat(scene,sh,drafts||C.drafts||{}) : null);
+  const source=beatN!=null?shotLocationBeatSource(scene,sh,drafts||C.drafts||{}):null;
+  const headings=source&&source.hasSource?shotLocationBeatHeadings(scene,sh,drafts||C.drafts||{},source)
+    :(beatN==null&&scene&&scene.loc?[shotLocationClean(scene.loc)]:[]);
+  const scoped=shotLocationEligibleUnits(loc,scene,allUnits);
+  const current=new Set(),context=new Set(),currentLocations=new Set();
+  headings.forEach((heading,index)=>{
+    const parsed=shotLocationParseHeading(heading); if(!parsed) return;
+    const side=shotLocationHeadingSide(parsed,sh,loc,scene);
+    shotLocationHeadingUnitCandidates(scoped,parsed,side).forEach(u=>{
+      (index===0?current:context).add(String(u.key));
+      const owner=shotLocationCatalogUnitOwner(u,locations); if(owner) currentLocations.add(String(owner.id));
     });
   });
-  const eligible=units.filter(u=>{
-    const role=String(u.intExt||"").toUpperCase();
-    if(fallbackSide!=="BOTH" && fallbackSide && role && role!==fallbackSide) return false;
-    /* A real opening heading's time bucket is a context constraint, but a unit
-       with no bucket remains a valid explicit choice for a screenplay whose
-       source omitted TOD. */
-    const times=contexts.map(x=>x.time).filter(Boolean);
-    if(times.length && u.time && times.indexOf(shotLocationTime(u.time))<0) return false;
-    return true;
+  const root=shotLocationCatalogRoot(loc,locations);
+  if(root&&root.id) currentLocations.add(String(root.id));
+  if(loc&&loc.id) currentLocations.add(String(loc.id));
+  return {current,context,currentLocations};
+}
+function shotLocationReferenceCatalog(loc,sh,scene,drafts){
+  const C=window.turnContinuity||{},locations=shotLocationCatalogLocations(loc);
+  const allUnits=Array.isArray(C.sluglineUnits)?C.sluglineUnits:[],map=new Map(); let index=0;
+  const sheetsByLocation=new Map();
+  locations.forEach(l=>{
+    let sheets=Array.isArray(l.coverageSheets)?l.coverageSheets.slice():[];
+    const derived=typeof deriveLocationCoverageSheets==="function"
+      ? deriveLocationCoverageSheets(l,Array.isArray(C.scenes)?C.scenes:(scene?[scene]:[]),
+        drafts||C.drafts||{},Array.isArray(C.locations)?C.locations:locations,allUnits) : [];
+    (derived||[]).forEach(v=>{ const i=sheets.findIndex(x=>x&&x.id===v.id);
+      if(i>=0) sheets[i]={...sheets[i],...v}; else sheets.push(v); });
+    sheetsByLocation.set(String(l.id),sheets);
   });
-  const ordered=eligible.slice().sort((a,b)=>{
-    const ar=openingRank.has(a.key)?openingRank.get(a.key):Number.MAX_SAFE_INTEGER;
-    const br=openingRank.has(b.key)?openingRank.get(b.key):Number.MAX_SAFE_INTEGER;
-    return ar-br || units.indexOf(a)-units.indexOf(b);
+  locations.forEach(l=>shotLocationCatalogAdd(map,
+    shotLocationCatalogPlaceSpec(l,locations,allUnits,sheetsByLocation.get(String(l.id))||[]),index++));
+  allUnits.filter(u=>u&&!u.orphan&&u.key).forEach(u=>{
+    const owner=shotLocationCatalogUnitOwner(u,locations); if(owner)
+      shotLocationCatalogAdd(map,shotLocationCatalogUnitSpec(u,owner,locations),index++);
   });
-  return ordered.map(u=>{
-    const spec=shotLocationBuildUnitSpec(u);
-    if(!spec) return null;
-    const bits=[spec.name, spec.role, spec.time].filter(Boolean);
-    return {id:spec.id,label:bits.join(" · ")};
-  }).filter(Boolean);
+  locations.forEach(l=>(sheetsByLocation.get(String(l.id))||[]).filter(v=>v&&v.id).forEach(v=>
+    shotLocationCatalogAdd(map,shotLocationCatalogCoverageSpec(l,v,locations),index++)));
+  locations.forEach(l=>{
+    if(typeof locationAppearanceStates!=="function") return;
+    const ownUnits=allUnits.filter(u=>shotLocationCatalogUnitOwner(u,locations)
+      && shotLocationCatalogUnitOwner(u,locations).id===l.id);
+    (locationAppearanceStates(l,ownUnits)||[]).forEach(v=>
+      shotLocationCatalogAdd(map,shotLocationCatalogStateSpec(l,v,locations,allUnits),index++));
+  });
+  const context=shotLocationCatalogContext(loc,sh,scene,drafts,locations,allUnits);
+  return Array.from(map.values()).sort((a,b)=>{
+    const rank=(s)=>s.category==="unit"||s.categories.indexOf("unit")>=0
+      ? (context.current.has(String(s.unitKey))?0:(context.context.has(String(s.unitKey))?1:3))
+      : (context.currentLocations.has(String(s.locationId))?2:3);
+    return rank(a)-rank(b)
+      || (SHOT_LOCATION_CATEGORY_ORDER[a.category]||9)-(SHOT_LOCATION_CATEGORY_ORDER[b.category]||9)
+      || a._catalogIndex-b._catalogIndex;
+  }).map(s=>{ const out={...s}; delete out._catalogIndex; return out; });
+}
+window.shotLocationReferenceCatalog=shotLocationReferenceCatalog;
+function shotLocationUnknownSpec(id,loc){
+  const ref=String(id||"");
+  return {id:ref,category:"unknown",categoryLabel:shotLocationCategoryLabel("unknown"),categories:["unknown"],
+    label:"Unavailable · "+ref,description:"The selected location reference is unavailable or was deleted.",
+    note:"Unavailable required location reference "+(ref?"\""+ref+"\"":"")
+      +" — the place, slugline unit, Coverage sheet, or Appearance State was deleted or is unavailable; choose another reference.",
+    locationId:String(loc&&loc.id||""),entityId:String(loc&&loc.id||""),baseId:ref,
+    source:"manual-selection",assetRole:"derived_reference",assetSourceQuality:"unavailable",
+    unavailable:true,required:true};
+}
+function shotLocationReferenceChoices(loc,sh,scene,drafts){
+  sh=sh||{}; const catalog=shotLocationReferenceCatalog(loc,sh,scene,drafts);
+  if(!sh.referenceLocationsSet) return catalog.map(s=>({...s}));
+  const ids=Array.isArray(sh.referenceLocationIds)?sh.referenceLocationIds.filter(Boolean):[];
+  const byId=new Map(catalog.map(s=>[String(s.id),s])),selected=[],seen=new Set();
+  ids.forEach(raw=>{ const id=String(raw); if(seen.has(id)) return; seen.add(id);
+    selected.push({...((byId.get(id))||shotLocationUnknownSpec(id,loc))}); });
+  return selected.concat(catalog.filter(s=>!seen.has(String(s.id))).map(s=>({...s})));
 }
 function shotLocationCoverageSpecs(loc, sh, scene, drafts){
-  if(!loc) return [];
   sh=sh||{};
+  /* Automatic inference has no safe location scope without a current card.
+     Explicit IDs are different: resolve them against the shared current-film
+     catalog so a deleted scene link cannot erase director intent. */
+  if(!loc && !sh.referenceLocationsSet) return [];
   const text=shotLocationText(sh).toLowerCase();
   const C=window.turnContinuity||{};
   const allUnits=Array.isArray(C.sluglineUnits)?C.sluglineUnits:[];
   const explicitSelection=!!sh.referenceLocationsSet;
   const explicitIds=new Set(Array.isArray(sh.referenceLocationIds)?sh.referenceLocationIds.filter(Boolean):[]);
-  if(explicitSelection && !explicitIds.size) return [];
+  if(explicitSelection){
+    if(!explicitIds.size) return [];
+    const catalog=shotLocationReferenceCatalog(loc,sh,scene,drafts);
+    const byId=new Map(catalog.map(s=>[String(s.id),s])),out=[],seen=new Set();
+    /* The persisted order is director intent.  Resolve through the shared
+       catalog rather than re-running beat/TOD matching, so a different room,
+       place, context or state remains authoritative. */
+    (Array.isArray(sh.referenceLocationIds)?sh.referenceLocationIds:[]).forEach(raw=>{
+      const id=String(raw||"");
+      if(!id||seen.has(id)) return;
+      seen.add(id);
+      const base=byId.get(id)||shotLocationUnknownSpec(id,loc);
+      out.push({...base,required:true,unavailable:!!base.unavailable});
+    });
+    return out;
+  }
   const inferredBeat=shotLocationBeatNumber(sh)==null && sh.referencePickerAll
     ? shotLocationInferBeat(scene,sh,drafts||C.drafts||{}) : null;
   const beatN=shotLocationBeatNumber(sh)!=null ? shotLocationBeatNumber(sh) : inferredBeat;
@@ -1116,7 +1375,13 @@ function shotLocationCoverageSpecs(loc, sh, scene, drafts){
       if(!selectedKeys.has(u.key)){ selectedKeys.add(u.key); selectedUnits.push(u); }
     }
   }
-  const unitSpecs=selectedUnits.map(shotLocationBuildUnitSpec).filter(Boolean);
+  const unitSpecs=selectedUnits.map(u=>{
+    const spec=shotLocationBuildUnitSpec(u);
+    if(!spec) return null;
+    const owner=shotLocationCatalogUnitOwner(u,Array.isArray(C.locations)?C.locations:[loc])||loc;
+    return {...spec,category:"unit",categoryLabel:shotLocationCategoryLabel("unit"),categories:["unit"],
+      locationId:String(owner&&owner.id||loc.id),entityId:String(owner&&owner.id||loc.id),baseId:spec.id};
+  }).filter(Boolean);
   const persistedSheets=Array.isArray(loc.coverageSheets)?loc.coverageSheets:[];
   // Always re-derive for this scene as well as reading persisted metadata. A screenplay
   // edit can introduce a coverage sheet before the Locations tab has been reopened and
@@ -1132,7 +1397,10 @@ function shotLocationCoverageSpecs(loc, sh, scene, drafts){
   const sceneSheets = sheets.filter(v=>!scene || scene.no==null || !Array.isArray(v.sceneNos) || !v.sceneNos.length || v.sceneNos.some(no=>sameSceneNo(no,scene.no)));
   const selectedNames=selectedUnits.map(u=>shotLocationNorm(shotLocationUnitPlace(u))).filter(Boolean);
   const targetNames=Array.from(new Set(selectedNames.concat(targetPlaces))).filter(Boolean);
-  const sheetSpecs = sceneSheets.map(v=>({ id:loc.id+"-"+v.id, role:v.role||"", name:v.name||"",
+  const sheetSpecs = sceneSheets.map(v=>({ id:loc.id+"-"+v.id, category:"coverage",
+    categoryLabel:shotLocationCategoryLabel("coverage"), categories:["coverage"],
+    locationId:String(loc.id),entityId:String(loc.id),baseId:loc.id+"-"+v.id,
+    coverageId:String(v.id), role:v.role||"", name:v.name||"",
     source:"screenplay-coverage",
     assetRole:"derived_reference", assetSourceQuality:"screenplay_coverage_full_frame",
     triggerWords:(v.triggerWords||[]).map(w=>String(w||"").toLowerCase()).filter(Boolean),
@@ -1684,6 +1952,13 @@ function buildShotPrompt(sh, ctx){
   const props    = propsAll.filter(p=> shotPropAttachable(p, sh, scene));
   const size = sizeOf(sh.size), angle = angleOf(sh.angle), move = moveOf(sh.move), lens = lensOf(sh.lens);
   const locWeight = (typeof locWeightForSize==="function") ? locWeightForSize(sh.size) : "primary";
+  const _promptRefOff = (sh && Array.isArray(sh.refOff)) ? sh.refOff : [];
+  const _promptLocSpecs = (typeof shotLocationCoverageSpecs==="function")
+    ? shotLocationCoverageSpecs(loc,sh,scene,ctx.drafts || (window.turnContinuity||{}).drafts || {}) : [];
+  const _manualLocSpecs = sh && sh.referenceLocationsSet
+    ? _promptLocSpecs.filter(s=>s && !s.unavailable && _promptRefOff.indexOf(s.id)<0) : [];
+  const _retainRequiredSimpleMap = !!(ctx.simpleMode && _manualLocSpecs.length
+    && Array.isArray(ctx.resolvedRefs) && ctx.resolvedRefs.some(r=>r&&r.required));
 
   /* PROSE, not JSON. The user's structure: a constant STYLE SPINE (render mode, grade,
      60/30/10 palette, grade-lighting, lens, film stock, the locked location, format)
@@ -1721,6 +1996,11 @@ function buildShotPrompt(sh, ctx){
     const _intext = (loc.intExt==="EXT") ? "Exterior" : (loc.intExt==="INT" ? "Interior" : clean(loc.intExt));
     const _locBits = [clean(loc.architecture), clean(loc.materials), clean(loc.lighting)].filter(Boolean).join(", ");
     spine.push((_intext?(_intext+". "):"") + (loc.name||"the location") + (_locBits?(": "+_locBits):""));
+  }
+  if(_manualLocSpecs.length){
+    spine.push("MANUALLY SELECTED LOCATION REFERENCES (authoritative): "
+      +_manualLocSpecs.map(s=>s.label||s.note||s.id).join("; ")
+      +". The selected place, room, context and Appearance State override conflicting automatic root or current-slugline location text; use the continuity root only for non-conflicting inherited invariants.");
   }
   spine.push((_asp==="9:16"?"Vertical 9:16 (phone frame)":_asp) + ", no text, no border");
   const STYLE_SPINE = spine.filter(Boolean).join(". ").replace(/\.\s*\./g,".") + ".";
@@ -1811,11 +2091,14 @@ function buildShotPrompt(sh, ctx){
   // user-unticked reference sheets (sh.refOff) drop out of the image map ONLY — the
   // entity stays in the staging text; just its sheet isn't attached (labels must
   // mirror the real attachment list or the numbered map mislabels the files)
-  const _refOff = (sh && Array.isArray(sh.refOff)) ? sh.refOff : [];
-   const _locSpecs = (typeof shotLocationCoverageSpecs==="function")
-     ? shotLocationCoverageSpecs(loc, sh, scene, ctx.drafts || (window.turnContinuity||{}).drafts || {}) : [];
+  const _refOff = _promptRefOff;
+   const _locSpecs = _promptLocSpecs;
   const _locLabels = _locSpecs.filter(s=>_refOff.indexOf(s.id)<0).map(s=>s.note+" — "
-    + (locWeight==="ambient" ? "a background reference for the grade and surfaces only; the character fills this tight frame" : "reproduce its architecture, surfaces, fixtures, sightlines and signage exactly"));
+    + (s.category==="place"
+      ? "a design reference for binding place identity; if compound, preserve its multi-panel meaning and never treat it as a full-frame crop"
+      : (s.category==="state"
+        ? "the authoritative Appearance State for this place; preserve its exact light, dressing and condition"
+        : (locWeight==="ambient" ? "a background reference for the grade and surfaces only; the character fills this tight frame" : "reproduce its architecture, surfaces, fixtures, sightlines and signage exactly"))));
   const _castLabels = subjects.filter(c=>_refOff.indexOf(c.id)<0).map(c=> {
     const scale = (typeof canonicalScaleLabel==="function") ? canonicalScaleLabel(c) : (c.name||"character");
     return c.name+"'s character sheet — match the face, build, hair and wardrobe exactly; canonical scale: "+scale;
@@ -1872,7 +2155,7 @@ function buildShotPrompt(sh, ctx){
    }
    /* Simple recovery renders deliberately attach no refs.  Do not leave a
       fictitious canonical/page map in a prompt whose provider input is empty. */
-   if(ctx.simpleMode) imgs.length=0;
+  if(ctx.simpleMode && !_retainRequiredSimpleMap) imgs.length=0;
   let MAP = imgs.length
     ? ("Compose a new cinematic still. " + imgs.map((m,i)=>"Image "+(i+1)+" is "+m+".").join(" "))
     : "Compose a new cinematic still.";
@@ -1880,7 +2163,7 @@ function buildShotPrompt(sh, ctx){
     MAP += " Worn items have no separate sheets — each is part of its owner's character sheet and must match exactly as designed there: "
       + wornProps.map(p=> p.name+" (on "+(p.ownerName||"its owner")+")").join("; ")+".";
   }
-   if(_locLabels.length && !ctx.simpleMode){
+  if(_locLabels.length && (!ctx.simpleMode || _retainRequiredSimpleMap)){
     MAP += " If the framing crosses between attached location views, preserve the exact threshold/sightline relationship between them; otherwise extend the SAME set consistently from the attached view.";
   }
 
@@ -2094,7 +2377,7 @@ function shotRenderPlan(sh, sceneShots, ctx){
   try{ const ledger = sceneContinuityLedger(ctx.scene, sceneShots, ctx.charById, ctx.propById);
     carried = (ledger[sh.id]||[]).filter(pid=> inPr.indexOf(pid)<0); }catch(e){}
   // build the sheet-reference specs, then ORDER by location weight
-  const locSpec  = ctx.location
+  const locSpec  = (ctx.location || sh.referenceLocationsSet)
     ? ((typeof shotLocationCoverageSpecs==="function")
        ? shotLocationCoverageSpecs(ctx.location, sh, ctx.scene, ctx.drafts || (window.turnContinuity||{}).drafts || {})
       : [])
@@ -2161,6 +2444,8 @@ async function shotResolveRenderRefs(plan, grab){
     if(locIds.has(s.id)){
       if(!locResolvedPushed && locResolved.length){
         locResolved.forEach(r=>refs.push({ url:r.url, note:r.note, refId:r.refId||s.id,
+          category:r.category, categories:r.categories, locationId:r.locationId, entityId:r.entityId,
+          stateId:r.stateId, coverageId:r.coverageId, required:r.required,
           assetRole:r.assetRole, assetRoleLabel:r.assetRoleLabel, assetRolePriority:r.assetRolePriority,
           assetSourceQuality:r.assetSourceQuality }));
         locResolvedPushed = true;
@@ -2240,6 +2525,20 @@ async function generateShotFrame(sh, sceneShots, ctx, opts){
   const seed = (prevSh && !opts.fresh) ? await grab(prevSh.id) : "";
   if(typeof window.nbAssertMediaIdentity==="function")
     window.nbAssertMediaIdentity({identityCharacterIds:plan.inCast||[],identityCast,identityContext},"shot-after-seed");
+  /* Explicit location choices are a paid-render prerequisite. Resolve just the
+     required subset before any convenience prop preparation can generate an
+     image; the resolver throws ShotLocationReferenceError on a missing or
+     unavailable selection. The full ordered stack is still resolved below. */
+  const requiredLocationSpecs=(plan.activeLocSpec||[]).filter(s=>s&&s.required);
+  if(requiredLocationSpecs.length && typeof shotResolveLocationSpecImages==="function"){
+    await shotResolveLocationSpecImages(requiredLocationSpecs,grab);
+    if(plan.sceneContext && typeof shotSceneContextStillCurrent==="function"){
+      const preflightScene=shotSceneContextStillCurrent(plan.sceneContext,sh,sourceCtx);
+      if(!preflightScene.ok) throw new Error(preflightScene.reason||"Scene screenplay changed before render; nothing was rendered.");
+    }
+    if(_ep!=null && typeof nbEpoch==="function" && nbEpoch()!==_ep)
+      throw new Error("Film changed before render; nothing was rendered.");
+  }
   // build any missing carried-prop sheet this shot would attach BEFORE resolving refs —
   // both the in-frame props AND the ledger-carried ones (they attach as carrySpec).
   // Cross-instance lock + fail-open inside; a failure just renders the shot as before.

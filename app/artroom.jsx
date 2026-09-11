@@ -1534,10 +1534,18 @@ async function nbRunSheetGeneration(env, gopts){
        carries) so the model SEES the object, not just its name. Resolved async. */
     let attachCount = 0;
     let attachList = [];
-    if(opts.attachments && mode!=="simple"){
+    if(opts.attachments && (mode!=="simple" || opts.attachmentsInSimple || opts.attachmentsRequired)){
       let attach = [];
-      try{ attach = (await opts.attachments(gopts, mode)) || []; }catch(e){ attach = []; }
+      try{ attach = (await opts.attachments(gopts, mode)) || []; }
+      catch(e){
+        // Explicitly selected references are a render requirement, not optional
+        // decoration. Never turn their load failure into a paid text-only render.
+        if(opts.attachmentsRequired || (e&&e.requiredReference)) throw e;
+        attach = [];
+      }
       attach = attach.filter(a=>a && a.url);
+      if(opts.attachmentsRequired && !attach.length)
+        throw new Error("The selected reference images are unavailable. Restore or change the selection before generating.");
       if(typeof opts.rebuildPromptAfterAttachments==="function"){
         const rebuilt = opts.rebuildPromptAfterAttachments(attach, mode, gopts);
         if(rebuilt) genPrompt = rebuilt;

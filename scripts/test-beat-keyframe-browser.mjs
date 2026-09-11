@@ -75,7 +75,7 @@ window.useImageGen=opts=>{const [mountedId]=React.useState(()=>{__fixture.mounts
      deleteCurrentAndPromote:async()=>{__fixture.calls.push(["promote",mountedId])}}};
 window.shotFrameGenOpts=sh=>({opts:{id:sh.id},finalPrompt:"",chainPrompt:"",renderPlan:null});
 window.shotGrabImage=async id=>nbGetImage(id);
-window.shotResolveLocationSpecImages=async()=>[];
+window.shotResolveLocationSpecImages=async(specs,grab)=>Promise.all((specs||[]).map(async s=>({...(s||{}),refId:s.refId||s.id,url:await grab(s.refId||s.id)})));
 window.shotPropAttachable=()=>true;
 window.inFrameCast=sh=>sh.subjects||[];window.inFrameProps=sh=>sh.props||[];
 window.appConfirm=async opts=>{__fixture.confirmations.push(opts);return true};window.turnContinuity={drafts:{},props:[]};
@@ -269,41 +269,86 @@ async function main(){
       "history inspection/restore performs no automatic generation or promotion");
     await c.eval("document.querySelector('.dt-overlay .ag-x').click();__fixture.historyMode=false");
 
-    // Location choices use the beat-scoped generated-unit contract, preserve
-    // multi-selects, and leave the real seed controls visible beside the picker.
+    // The compact chooser exposes all typed continuity sources, collapses an
+    // aliased id, and never fires a generation while choosing references.
     await c.eval(`ctx.location={id:"loc-1",name:"Control Room"};window.shotLocationReferenceChoices=()=>[
-      {id:"unit-kitchen",label:"Kitchen · INT · NIGHT"},
-      {id:"unit-living",label:"Living Room · INT · NIGHT"}
+      {id:"place-house",label:"Father's House · INT · Night",category:"place"},
+      {id:"unit-kitchen",label:"Kitchen · INT · Night",category:"unit"},
+      {id:"unit-living",label:"Living Room · INT · Night",category:"unit"},
+      {id:"coverage-wide",label:"Father's House coverage · wide",category:"coverage"},
+      {id:"state-rain",label:"Father's House · rain-soaked",category:"state"},
+      {id:"unit-living",label:"Living Room · night state",category:"state",categories:["unit","state"]}
     ];window.shotLocationCoverageSpecs=(loc,sh)=>sh.referenceLocationsSet
       ? (sh.referenceLocationIds||[]).map(id=>({id,source:"slugline-unit",note:id}))
-      : [{id:"unit-kitchen",source:"slugline-unit",note:"Kitchen"}];
+      : [{id:"place-house",source:"slugline-unit",note:"Father's House"}];
     window.__mountSeed()`);
     await wait(()=>c.eval(`!!document.querySelector('#seed-root ${seedCard} .shot-location-picker')&&!!document.querySelector('#seed-root ${seedCard} .shot-ref-tick')`),"location reference picker");
     assert.deepEqual(await c.eval(`(()=>{const p=document.querySelector('#seed-root ${seedCard} .shot-location-picker');return {
       label:p.querySelector('.shot-location-picker-label').textContent.trim(),
-      choices:[...p.querySelectorAll('.shot-location-choice')].map(x=>x.textContent.trim()),
+       summary:p.querySelector('summary').textContent.trim(),
       seedTick:!!p.closest('.shot-card')?.querySelector('.shot-ref-tick'),
       seedDelete:!!p.closest('.shot-card')?.querySelector('.shot-ref-delete')
-    }})()`),{label:"Location reference",choices:["Auto","Kitchen · INT · NIGHT","Living Room · INT · NIGHT"],seedTick:true,seedDelete:true},
-      "location picker exposes Auto plus exact generated room labels without replacing seed controls");
-    await c.eval("window.__resetCalls();document.querySelector('#seed-root .shot-location-choice:not(.auto)').click()");
-    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-location-choice.on')?.textContent.trim()==='Kitchen · INT · NIGHT'`),"location kitchen selection");
-    assert.deepEqual((await c.eval("window.__fixture.calls"))[0],["update","seed-target",{referenceLocationsSet:true,referenceLocationIds:["unit-kitchen"]}],
-      "selecting a generated room writes the explicit location id");
-    await c.eval("document.querySelector('#seed-root .shot-location-choice:nth-of-type(3)').click()");
-    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-location-choice.on')?.textContent.includes('Kitchen')&&document.querySelectorAll('#seed-root ${seedCard} .shot-location-choice.on').length===2`),"location multi-selection");
-    assert.deepEqual((await c.eval("window.__fixture.calls"))[1],["update","seed-target",{referenceLocationsSet:true,referenceLocationIds:["unit-kitchen","unit-living"]}],
-      "selecting a second room preserves the first explicit location id");
+     }})()`),{label:"Location reference",summary:"Automatched reference(s)",seedTick:true,seedDelete:true},
+       "location picker remains compact beside seed controls");
+    await c.eval("window.__resetCalls();document.querySelector('#seed-root .shot-location-picker summary').click()");
+    await wait(()=>c.eval("document.querySelectorAll('#seed-root .shot-location-picker-section').length===5"),"typed location sections");
+    assert.equal(await c.eval("document.querySelectorAll('#seed-root .shot-location-check').length"),6,
+      "shared unit/state asset is discoverable from both named taxonomy sections");
+    assert.equal(await c.eval(`(()=>{const rows=[...document.querySelectorAll('#seed-root .shot-location-check')].filter(x=>x.textContent.includes('Living Room'));return rows.length===2&&rows.every(x=>x.querySelector('input').checked===false)})()`),true,
+      "the two taxonomy aliases begin as one unselected attachment");
+    await c.eval("[...document.querySelectorAll('#seed-root .shot-location-check')].find(x=>x.textContent.includes(\"Father's House · INT\")).querySelector('input').click()");
+    await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-location-picker-summary span').textContent==='1 selected'`),"place selection");
+    assert.deepEqual((await c.eval("window.__fixture.calls"))[0],["update","seed-target",{referenceLocationsSet:true,referenceLocationIds:["place-house"]}],
+       "selecting a continuity place writes the exact explicit id");
+    await c.eval("[...document.querySelectorAll('#seed-root .shot-location-check')].find(x=>x.textContent.includes('Living Room · INT')).querySelector('input').click()");
+    await wait(()=>c.eval("window.__fixture.calls.length===2"),"shared alias selection");
+    assert.deepEqual((await c.eval("window.__fixture.calls"))[1],["update","seed-target",{referenceLocationsSet:true,referenceLocationIds:["place-house","unit-living"]}],
+      "an alias attaches its shared exact ID only once");
+    assert.equal(await c.eval(`(()=>{const rows=[...document.querySelectorAll('#seed-root .shot-location-check')].filter(x=>x.textContent.includes('Living Room'));return rows.length===2&&rows.every(x=>x.querySelector('input').checked)})()`),true,
+      "unit and state aliases remain checked together");
+    await c.eval("[...document.querySelectorAll('#seed-root .shot-location-check')].find(x=>x.textContent.includes('coverage')).querySelector('input').click()");
+    await wait(()=>c.eval("window.__fixture.calls.length===3"),"cross category selection");
+    assert.deepEqual((await c.eval("window.__fixture.calls"))[2],["update","seed-target",{referenceLocationsSet:true,referenceLocationIds:["place-house","unit-living","coverage-wide"]}],
+       "cross-category selections preserve earlier exact references");
     await c.eval("document.querySelector('#seed-root .shot-location-choice.auto').click()");
     await wait(()=>c.eval(`document.querySelector('#seed-root ${seedCard} .shot-location-choice.auto')?.getAttribute('aria-pressed')==='true'`),"location auto selection");
-    assert.deepEqual((await c.eval("window.__fixture.calls"))[2],["update","seed-target",{referenceLocationsSet:false,referenceLocationIds:[]}],
-      "Auto clears explicit room ids without changing other references");
+    assert.deepEqual((await c.eval("window.__fixture.calls"))[3],["update","seed-target",{referenceLocationsSet:false,referenceLocationIds:[]}],
+       "Auto clears explicit ids without changing other references");
+    // A deleted scene location must not strand saved selections. The helper
+    // returns its real unknown-shaped catalog record while another current-film
+    // manual reference still hydrates into the thumbnail strip.
+    await c.eval(`window.shotLocationReferenceChoices=(loc)=>loc?[]:[
+      {id:"location-1",label:"Father's House · INT · Night",category:"place"},
+      {id:"gone-plate",label:"Removed cellar plate",unavailable:true,category:"unknown",categories:["unknown"]}
+    ];window.shotLocationCoverageSpecs=(loc,sh)=>sh.referenceLocationsSet?(sh.referenceLocationIds||[]).map(id=>({id,refId:id,note:id==="location-1"?"Father's House · INT · Night":"Removed cellar plate"})):[];ctx.location=null;seedShots[1].referenceLocationsSet=true;seedShots[1].referenceLocationIds=["location-1","gone-plate"];mountSeed()`);
+    await wait(()=>c.eval(`!!document.querySelector('#seed-root ${seedCard} .shot-location-picker')&&!!document.querySelector('#seed-root ${seedCard} .shot-ref-thumb.location img')`),"null-location picker and exact manual thumbnail");
+    await c.eval(`document.querySelector('#seed-root ${seedCard} .shot-location-picker summary').click();document.querySelector('#seed-root ${seedCard} .shot-location-picker').scrollIntoView({block:"center"})`);
+    await wait(()=>c.eval(`!![...document.querySelectorAll('#seed-root ${seedCard} .shot-location-check')].find(x=>x.textContent.includes('Removed cellar plate'))`),"unknown saved row");
+    assert.equal(await c.eval(`(()=>{const r=[...document.querySelectorAll('#seed-root ${seedCard} .shot-location-check')].find(x=>x.textContent.includes('Removed cellar plate'));const i=r&&r.querySelector('input');return !!i&&i.checked&&!i.disabled})()`),true,
+      "unknown saved selections remain selected and removable when the scene location is absent");
+    await c.eval("window.__resetCalls();[...document.querySelectorAll('#seed-root .shot-location-check')].find(x=>x.textContent.includes('Removed cellar plate')).querySelector('input').click()");
+    await wait(()=>c.eval("window.__fixture.calls.length===1"),"unknown selection removal");
+    assert.deepEqual(await c.eval("window.__fixture.calls[0]"),["update","seed-target",{referenceLocationsSet:true,referenceLocationIds:["location-1"]}],
+      "removing an unknown saved ID preserves the valid manual selection");
+    // The update remount intentionally closes native <details>; open the same
+    // surviving ShotCard only after that state settles, then prove its panel is
+    // actually inside the captured viewport.
+    await c.call("Emulation.setDeviceMetricsOverride",{width:1280,height:900,deviceScaleFactor:1,mobile:false});
+    await c.eval(`(()=>{const p=document.querySelector('#seed-root ${seedCard} .shot-location-picker');p.scrollIntoView({block:"center"});p.querySelector('summary').click()})()`);
+    await wait(()=>c.eval(`(()=>{const d=document.querySelector('#seed-root ${seedCard} details.shot-location-picker-menu'),p=d&&d.querySelector('.shot-location-picker-panel'),r=p&&p.getBoundingClientRect();return !!d?.open&&!!r&&r.top>=0&&r.bottom<=innerHeight})()`),"desktop open chooser in viewport");
     const seedRoomShot=await c.call("Page.captureScreenshot",{format:"png"});
-    await writeFile(`${OUT}/seed-reference-room-picker.png`,Buffer.from(seedRoomShot.data,"base64"));
+    await writeFile(`${OUT}/seed-reference-room-picker-open-desktop.png`,Buffer.from(seedRoomShot.data,"base64"));
+    await c.call("Emulation.setDeviceMetricsOverride",{width:390,height:900,deviceScaleFactor:1,mobile:true});
+    await c.eval(`(()=>{const p=document.querySelector('#seed-root ${seedCard} .shot-location-picker'),d=p.querySelector('details');p.scrollIntoView({block:"center"});d.open=true})()`);
+    await wait(()=>c.eval(`!!document.querySelector('#seed-root ${seedCard} details.shot-location-picker-menu')?.open`),"mobile open chooser");
+    await c.eval(`(()=>{const p=document.querySelector('#seed-root ${seedCard} .shot-location-picker-panel'),r=p.getBoundingClientRect();window.scrollTo(0,window.scrollY+Math.max(0,r.bottom-innerHeight+12))})()`);
+    await wait(()=>c.eval(`(()=>{const p=document.querySelector('#seed-root ${seedCard} .shot-location-picker-panel'),r=p.getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight})()`),"mobile open chooser panel in viewport");
+    const seedRoomMobileShot=await c.call("Page.captureScreenshot",{format:"png"});
+    await writeFile(`${OUT}/seed-reference-room-picker-open-mobile.png`,Buffer.from(seedRoomMobileShot.data,"base64"));
 
     // A source evicted after a partial purge remains a visible pending tile and
     // exposes Retry, but never gets an inclusion checkbox for its unusable image.
-    await c.eval("window.__resetCalls();window.__mountSeedPending()");
+    await c.eval("seedShots[1].referenceLocationsSet=false;seedShots[1].referenceLocationIds=[];window.__resetCalls();window.__mountSeedPending()");
     await wait(()=>c.eval(`!!document.querySelector('#seed-root ${seedCard} .shot-ref-pending')`),"pending deletion tile");
     assert.deepEqual(await c.eval(`(()=>{const card=document.querySelector('#seed-root ${seedCard}');const b=card.querySelector('.shot-ref-delete');return {
       pending:!!card.querySelector('.shot-ref-pending'),tick:!!card.querySelector('.shot-ref-tick'),

@@ -79,12 +79,17 @@ const choices=(loc,sh,sc=scene)=>box.shotLocationReferenceChoices(loc,sh,sc,draf
 
 assert.deepEqual(ids(specs(parent,{id:"beat-2",beatN:2,action:"MARCUS searches the drawer."})),[kitchenId],
   "beat 2 uses the Kitchen unit, never Living Room or parent master");
-assert.deepEqual(choices(parent,{id:"beat-2",beatN:2,action:"MARCUS searches the drawer."})
-  .map(x=>x.label),["Kitchen · INT · Night","Living Room · INT · Night"],
-  "room choices enumerate compound units without needing warm image bytes");
-assert.ok(choices(parent,{id:"beat-2",beatN:2,action:"MARCUS searches the drawer."})
-  .every(x=>Object.keys(x).sort().join(",")==="id,label"&&x.id&&x.label),
-  "room choices expose stable full-frame unit ids and labels");
+const beatChoices=choices(parent,{id:"beat-2",beatN:2,action:"MARCUS searches the drawer."});
+assert.deepEqual(beatChoices.slice(0,2).map(x=>x.label),[
+  "Father's House / Kitchen · Kitchen · INT · Night",
+  "Father's House / Living Room · Living Room · INT · Night",
+], "room choices put current/context units first without needing warm image bytes");
+assert.ok(beatChoices.some(x=>x.category==="place"&&x.id===parent.id)
+  && beatChoices.some(x=>x.category==="unit"&&x.id===kitchenId)
+  && beatChoices.some(x=>x.category==="coverage"||x.category==="state"||x.category==="unit"),
+  "the shared catalog exposes places and genuine derived location references");
+assert.ok(beatChoices.every(x=>x.id&&x.label&&x.category&&x.categoryLabel&&x.description
+  &&Array.isArray(x.categories)), "catalog choices expose canonical metadata");
 assert.deepEqual(ids(specs(parent,{id:"beat-3",beatN:3,action:"DANIEL enters."})),[livingId],
   "a later room entry is scoped to its own beat");
 assert.deepEqual(ids(specs(parent,{id:"other-scene",beatN:1,action:"MARCUS washes the cup."},sceneB)),[dayKitchenId],
@@ -106,9 +111,14 @@ assert.deepEqual(ids(specs(parent,{id:"manual",beatN:2,referenceLocationsSet:tru
   "an explicit genuine unit selection is authoritative");
 assert.deepEqual(ids(specs(parent,{id:"manual-empty",referenceLocationsSet:true,referenceLocationIds:[]})),[],
   "an explicit empty selection stays empty");
-assert.equal(specs(parent,{id:"manual-master",beatN:2,referenceLocationsSet:true,
-  referenceLocationIds:[parent.id]}).length,0,
-  "the compound master is never a valid full-frame unit reference");
+const manualMaster=specs(parent,{id:"manual-master",beatN:2,referenceLocationsSet:true,
+  referenceLocationIds:[parent.id]});
+assert.deepEqual(ids(manualMaster),[parent.id],
+  "an explicit continuity-root design reference is user-authorized");
+assert.equal(manualMaster[0].required,true);
+assert.equal(manualMaster[0].category,"place");
+assert.match(manualMaster[0].note,/compound multi-panel|design reference/i,
+  "a user-selected master remains truthfully labelled as a design reference");
 
 const ambiguousUnits=units.concat({
   key:"kitchen|INT|Night-alt",name:"Kitchen",place:"Kitchen",intExt:"INT",time:"Night",
@@ -125,9 +135,11 @@ assert.deepEqual(ids(specs(parent,{id:"int",beatN:2,locationSide:"INT",action:"d
   "INT explicitly selects the interior unit");
 assert.deepEqual(ids(specs(parent,{id:"ext",beatN:2,locationSide:"EXT",action:"drawer"})),[],
   "an EXT override cannot silently use the INT Kitchen plate");
-assert.deepEqual(choices(parent,{id:"ext-choices",beatN:2,locationSide:"EXT",action:"drawer"})
-  .map(x=>x.id),[yardId],
-  "reference choices honor the requested context side");
+const extChoices=choices(parent,{id:"ext-choices",beatN:2,locationSide:"EXT",action:"drawer"});
+assert.ok(extChoices.some(x=>x.id===yardId&&x.category==="unit"),
+  "reference choices retain the requested exterior context unit");
+assert.ok(extChoices.some(x=>x.id===parent.id&&x.category==="place"),
+  "the shared catalog also keeps the continuity root available for explicit authorization");
 
 /* Picker calls carry beat text but historically omitted beatN. The resolver
    recovers a unique typed beat and remains closed on an ambiguous phrase. */

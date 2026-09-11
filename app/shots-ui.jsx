@@ -142,6 +142,8 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
   // come from the same builder, so a manual render and an agent render can never
   // disagree about what rides along with the frame.
   const renderPlan = (typeof shotRenderPlan==="function") ? shotRenderPlan(sh, ordered, ctx) : null;
+  const requiredLocationAttachments=!!(renderPlan&&Array.isArray(renderPlan.activeLocSpec)
+    &&renderPlan.activeLocSpec.some(s=>s&&s.required));
   // a non-head shot chains from the previous frame (continuity_anchor present); the
   // head renders fresh from the sheets. carriedForward rides in the prompt too.
   const promptCtx = { ...ctx, prevShot:prevShot||null, laterShots,
@@ -233,6 +235,10 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
     referenceFallback: deriveBase,
     buildFromBase: ()=>{ assertSceneContext(); return chainPrompt; },
     attachments: collectShotRefs,
+    // Required manual location references must survive every Art Room mode,
+    // including a simplified retry and the Stage composer.
+    attachmentsRequired:requiredLocationAttachments,
+    attachmentsInSimple:requiredLocationAttachments,
     // buildShotPrompt now names the reference stack in-prose (the spine + staging + References
     // block), so we don't append a second reference sentence here — that would just duplicate it.
     attachmentsText: ()=> "",
@@ -257,7 +263,7 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
     rebuildPromptAfterAttachments: (resolvedRefs, mode, gopts)=>{
       assertSceneContext();
       const refs = Array.isArray(resolvedRefs) ? resolvedRefs : [];
-      if(mode==="simple") return buildShotPrompt(sh,{ ...promptCtx, simpleMode:true,
+      if(mode==="simple") return buildShotPrompt(sh,{ ...promptCtx, simpleMode:true,resolvedRefs:refs,
         sceneContext:(renderPlan&&renderPlan.sceneContext)||null });
       if(mode==="edit") return opts.buildEdit ? opts.buildEdit(gopts&&gopts.editInstruction||"",refs) : "";
       const base = { ...promptCtx, resolvedRefs:refs,
@@ -469,6 +475,21 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   // start the whole sequence twice.
   const generateWithProps = async (gopts)=>{
     const g = gopts||{};
+    // This fallback path is also used outside the ordered runner. Verify
+    // required, included location attachments before the carried-prop staging
+    // phase, which can itself prepare paid work. Deliberately excluded refs and
+    // a manual-empty selection remain valid no-reference choices.
+    const requiredLocSpecs=(renderPlan&&Array.isArray(renderPlan.activeLocSpec)?renderPlan.activeLocSpec:[])
+      .filter(s=>s&&s.required&&!(sh.refOff||[]).includes(s.id||s.refId));
+    if(requiredLocSpecs.length&&typeof shotResolveLocationSpecImages==="function"){
+      try{
+        await shotResolveLocationSpecImages(requiredLocSpecs,
+          async id=>typeof shotGrabImage==="function"?await shotGrabImage(id):"");
+      }catch(e){
+        if(typeof window.appToast==="function") window.appToast((e&&e.message)||"A required location reference image is unavailable.","error");
+        return;
+      }
+    }
     if(!(g.editInstruction || g.simple) && typeof window.ensureCarriedPropSheets==="function" && ctx && ctx.scene){
       window.__nbShotPhase = window.__nbShotPhase || {};
       if(window.__nbShotPhase[sh.id]) return;   // another instance is mid-phase and will render
@@ -492,6 +513,12 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
     if(gopts && gopts.editInstruction){
       if(sh.locked) onUpdate(sh.id,{locked:false});
       return gen.generate(gopts);
+    }
+    // A manual set is an explicit promise about the exact reference images. Do
+    // not let the ordered runner turn a missing promise into a different asset.
+    if(locationRefsMissing.current.length){
+      if(typeof window.appToast==="function") window.appToast("A selected location reference image is unavailable. Re-select it or choose Auto before generating.","error");
+      return;
     }
     return onGenerateShot ? onGenerateShot(sh.id) : generateWithProps(gopts);
   };
@@ -529,9 +556,12 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
     const patch = { [key]: next }; if(key==="subjects") patch.subjectsSet = true; onUpdate(sh.id, patch); };
 
   const liveLocationSpecs = ()=>{
-    if(!loc) return [];
+    // Explicit selections survive a deleted scene location. The resolver can
+    // still hydrate their exact saved/current-film specs from a nullable
+    // catalog context; only Auto with no location has nothing to derive.
+    if(!loc && !sh.referenceLocationsSet) return [];
     return (typeof shotLocationCoverageSpecs==="function")
-      ? shotLocationCoverageSpecs(loc, sh, scene, ctx.drafts||(window.turnContinuity||{}).drafts||{})
+      ? (shotLocationCoverageSpecs(loc||null, sh, scene, ctx.drafts||(window.turnContinuity||{}).drafts||{})||[])
       : [];
   };
   const liveLocationRefIds = ()=>{
@@ -606,34 +636,123 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   // leaving an ambiguous compound slugline (for example Kitchen / Living Room)
   // impossible to correct after drafting. This helper intentionally excludes
   // master crops.
-  const locationReferenceChoices = (loc && typeof shotLocationReferenceChoices==="function")
-    ? shotLocationReferenceChoices(loc,sh,scene,ctx.drafts||(window.turnContinuity||{}).drafts||{}) : [];
+  // The catalog helper accepts a nullable scene location. That matters after a
+  // location is deleted: current-film choices and saved IDs must remain
+  // reachable so an editor can inspect or remove the durable selection.
+  const rawLocationReferenceChoices = (typeof shotLocationReferenceChoices==="function")
+    ? (shotLocationReferenceChoices(loc||null,sh,scene,ctx.drafts||(window.turnContinuity||{}).drafts||{})||[]) : [];
   const explicitLocationRefs = Array.isArray(sh.referenceLocationIds) ? sh.referenceLocationIds : [];
   const locationPickerBusy = referenceControlsBusy;
+  // The helper intentionally permits one image to describe both a slugline
+  // unit and an appearance state. Collapse that into one selectable record so
+  // checking its alias can never attach the same image twice.
+  const locationReferenceChoices = React.useMemo(()=>{
+    const byId=new Map;
+    rawLocationReferenceChoices.forEach(item=>{
+      if(!item||!item.id) return;
+      let categories=Array.from(new Set([...(Array.isArray(item.categories)?item.categories:[]),item.category].filter(Boolean)));
+      if(item.unavailable||categories.includes("unknown")) categories=["unavailable"];
+      const old=byId.get(item.id);
+      if(old){
+        old.categories=Array.from(new Set([...old.categories,...categories]));
+        if(!old.description&&item.description) old.description=item.description;
+        return;
+      }
+      byId.set(item.id,{...item,categories:categories.length?categories:["unit"]});
+    });
+    // A saved selection is evidence, not disposable UI state. Keep IDs which
+    // no longer resolve visible as unavailable rows until the editor removes it.
+    explicitLocationRefs.forEach(id=>{
+      if(!byId.has(id)) byId.set(id,{id,label:"Unavailable saved reference · "+id,description:"This saved reference is no longer in the current location catalog.",categories:["unavailable"],unavailable:true});
+    });
+    return [...byId.values()];
+  },[rawLocationReferenceChoices.map(x=>[x&&x.id,x&&x.label,x&&x.category,(x&&x.categories||[]).join(",")].join(":")).join("|"),explicitLocationRefs.join("|")]);
+  const [locationAssetState,setLocationAssetState]=React.useState({});
+  const locationRefsMissing=React.useRef([]);
+  const pickerChoiceKey=locationReferenceChoices.map(x=>x.id+":"+(x.unavailable?"x":"")).join("|");
+  const [locationChoiceBump,setLocationChoiceBump]=React.useState(0);
+  // Catalog/state sheets can complete while this card stays mounted. Refresh
+  // only when the completion names one of this chooser's exact IDs; this avoids
+  // a global completion event becoming a re-render loop.
+  React.useEffect(()=>{
+    const ids=new Set(locationReferenceChoices.map(x=>x.id));
+    const changed=e=>{
+      const d=e&&e.detail;
+      if(d&&(ids.has(d.id)||(Array.isArray(d.ids)&&d.ids.some(id=>ids.has(id))))) setLocationChoiceBump(n=>n+1);
+    };
+    window.addEventListener("nb-gen-done",changed);window.addEventListener("nb-prefetched",changed);
+    return()=>{window.removeEventListener("nb-gen-done",changed);window.removeEventListener("nb-prefetched",changed);};
+  },[pickerChoiceKey]);
+  React.useEffect(()=>{
+    let alive=true;
+    const next={};
+    locationReferenceChoices.forEach(x=>{ next[x.id]=x.unavailable?"unavailable":"loading"; });
+    setLocationAssetState(next);
+    (async()=>{
+      for(const choice of locationReferenceChoices){
+        if(choice.unavailable) continue;
+        let url="";
+        try{ url=typeof shotGrabImage==="function" ? await shotGrabImage(choice.id) : ""; }catch(e){}
+        if(!alive) return;
+        next[choice.id]=url?"ready":"missing";
+        setLocationAssetState({...next});
+      }
+    })();
+    return()=>{alive=false;};
+  },[pickerChoiceKey,locationChoiceBump]);
+  const explicitMissing=!!sh.referenceLocationsSet && explicitLocationRefs.some(id=>(locationAssetState[id]==="missing"||locationAssetState[id]==="unavailable")&&(sh.refOff||[]).indexOf(id)<0);
+  locationRefsMissing.current=explicitMissing?explicitLocationRefs.filter(id=>(locationAssetState[id]==="missing"||locationAssetState[id]==="unavailable")&&(sh.refOff||[]).indexOf(id)<0):[];
   const updateLocationReference = (id)=>{
     if(locationPickerBusy) return;
     const next = explicitLocationRefs.indexOf(id)>=0
       ? explicitLocationRefs.filter(x=>x!==id)
       : [...explicitLocationRefs,id];
-    onUpdate(sh.id,{referenceLocationsSet:true,referenceLocationIds:next});
+    // Re-picking an excluded reference means "include this exact image".
+    const curOff=Array.isArray(sh.refOff)?sh.refOff:[];
+    onUpdate(sh.id,{referenceLocationsSet:true,referenceLocationIds:next,
+      ...(next.indexOf(id)>=0&&curOff.indexOf(id)>=0?{refOff:curOff.filter(x=>x!==id)}:{})});
   };
-  const locationReferencePicker = loc && locationReferenceChoices.length>0 && _el("div",{
+  const categoryMeta={place:"Continuity-bearing place",unit:"Slugline / subspace units",coverage:"Screenplay Coverage",state:"Appearance States",unavailable:"Saved / unavailable"};
+  const categoryOrder=["place","unit","coverage","state","unavailable"];
+  const categoryLabel=(choice)=>{
+    const known=(choice.categories||[]).filter(x=>categoryMeta[x]&&x!=="unavailable");
+    return known.map(x=>categoryMeta[x]).join(" · ")||categoryMeta.unavailable;
+  };
+  const locationReferencePicker = (locationReferenceChoices.length>0 || explicitLocationRefs.length>0) && _el("div",{
     className:"shot-location-picker","aria-label":"Location reference"
   },
     _el("span",{className:"shot-location-picker-label"},"Location reference"),
-    _el("button",{type:"button",className:"shot-location-choice auto"+(!sh.referenceLocationsSet?" on":""),
+    _el("details",{className:"shot-location-picker-menu"},
+      _el("summary",{className:"shot-location-picker-summary"},
+        _el("span",null,!sh.referenceLocationsSet?"Auto":(explicitLocationRefs.length?explicitLocationRefs.length+" selected":"Manual · none")),
+        _el("small",null,!sh.referenceLocationsSet?"matched reference(s)":explicitMissing?"missing image":"choose references")),
+      _el("div",{className:"shot-location-picker-panel"},
+        _el("button",{type:"button",className:"shot-location-choice auto"+(!sh.referenceLocationsSet?" on":""),
       "aria-pressed":!sh.referenceLocationsSet,disabled:locationPickerBusy,
       title:"Use the automatically matched opening location reference(s).",
-      onClick:()=>onUpdate(sh.id,{referenceLocationsSet:false,referenceLocationIds:[]})},"Auto"),
-    locationReferenceChoices.map(choice=>{
-      const selected=!!sh.referenceLocationsSet && explicitLocationRefs.indexOf(choice.id)>=0;
-      return _el("button",{key:choice.id,type:"button",className:"shot-location-choice"+(selected?" on":""),
-        "aria-pressed":selected,disabled:locationPickerBusy,
-        title:selected
-          ? "Remove "+choice.label+" from this shot's location references."
-          : "Use "+choice.label+" as an explicit full-frame location reference.",
-        onClick:()=>updateLocationReference(choice.id)},choice.label);
-    }));
+      onClick:()=>onUpdate(sh.id,{referenceLocationsSet:false,referenceLocationIds:[]})},"Auto — use matched references"),
+      categoryOrder.map(category=>{
+        const choices=locationReferenceChoices.filter(x=>(x.categories||[]).includes(category));
+        return _el("section",{key:category,className:"shot-location-picker-section"},
+          _el("b",null,categoryMeta[category]),
+          choices.length ? choices.map(choice=>{
+            const selected=!!sh.referenceLocationsSet&&explicitLocationRefs.indexOf(choice.id)>=0;
+            const status=locationAssetState[choice.id]||"loading";
+            const unavailable=choice.unavailable||status==="unavailable";
+            return _el("label",{key:choice.id,className:"shot-location-check"+(selected?" on":"")+(unavailable?" unavailable":"")},
+              _el("input",{type:"checkbox",checked:selected,disabled:locationPickerBusy||(unavailable&&!selected),
+                onChange:()=>updateLocationReference(choice.id)}),
+              _el("span",{className:"shot-location-check-copy"},_el("strong",null,choice.label),
+                _el("small",null,status==="loading"?"Loading exact image…":status==="missing"?"Image missing — cannot generate":unavailable?choice.description||"Saved reference unavailable":categoryLabel(choice))),
+              selected&&_el("i",null,"Selected"));
+          }) : _el("p",{className:"shot-location-picker-empty"},
+            category==="place"?"No continuity-bearing place reference is available.":
+            category==="unit"?"No slugline or subspace unit applies to this beat.":
+            category==="coverage"?"No screenplay coverage sheet is available.":
+            category==="state"?"No appearance state reference is available.":"No saved unavailable references."));
+      }),
+      sh.referenceLocationsSet&&explicitLocationRefs.length===0&&_el("p",{className:"shot-location-picker-note"},"Manual empty — no location images will be attached."),
+      explicitMissing&&_el("p",{className:"shot-location-picker-error"},"Selected location image missing. Generate is blocked until you remove it or choose Auto."))));
   // the SEED is the previous shot's frame, whose image isn't part of this card's props — so when
   // it commits (uploaded OR generated), bump on its nb-gen-done so the seed thumb appears without a reload.
   const [prevSeedBump, setPrevSeedBump] = React.useState(0);
@@ -701,13 +820,16 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
          // expose an unsafe permanent-delete identity.
          ...(seedIdentityCurrent ? { refId:seedCandidate.id, meta:seedMeta||undefined } : {})
       }] : []);
-      const locItems = []; if(loc){
+       const locItems = []; if(loc || sh.referenceLocationsSet){
         const locSpecs = liveLocationSpecs();
-        const resolved = (typeof shotResolveLocationSpecImages==="function") ? await shotResolveLocationSpecImages(locSpecs, grab) : [];
+        // The card needs to disclose a cold/missing image without turning a
+        // passive render into a resolver failure. Generation retains the
+        // strict resolver contract.
+        const resolved = (typeof shotResolveLocationSpecImages==="function") ? await shotResolveLocationSpecImages(locSpecs, grab,{allowMissing:true}) : [];
         for(const r of resolved){
           locItems.push({ url:r.url, label:String(r.note||"Location reference").replace(/\s+\([^)]*\)$/,""), kind:"location", refId:r.refId,
             assetRole:r.assetRole, assetRoleLabel:r.assetRoleLabel, assetRolePriority:r.assetRolePriority,
-            assetSourceQuality:r.assetSourceQuality });
+            assetSourceQuality:r.assetSourceQuality, missing:!r.url });
         }
       }
       const castItems = []; for(const c of subjects){ const u=await grab(c.id); if(u) castItems.push({ url:u, label:c.name, kind:"character", refId:c.id }); }
@@ -744,13 +866,15 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
             +" — click to enlarge",
            onClick:()=>r.url&&onView&&onView(r.url,{name:r.label}),
           onKeyDown:(e)=>{ if(e.target===e.currentTarget&&(e.key==="Enter"||e.key===" ")){ e.preventDefault(); onView&&onView(r.url,{name:r.label}); } }},
-           r.pending
+            r.pending
              ? _el("div",{className:"shot-ref-pending"+(pendingRetryable?"":" retained-unverified"),
                  title:pendingRetryable
                    ? "The source image was evicted before permanent deletion completed."
                    : "The source was retained, but its immutable copy could not be identified for an actionable retry."},
                  _el(Icon.trash,{s:12}),_el("span",null,pendingRetryable?"Deletion pending":"Deletion retained · review Details"))
-             : _el("img",{src:r.url,alt:r.label,loading:"lazy"}),
+              : r.missing
+                ? _el("div",{className:"shot-ref-missing",title:"The selected location image is unavailable."},_el(Icon.image,{s:14}),_el("span",null,"Missing"))
+                : _el("img",{src:r.url,alt:r.label,loading:"lazy"}),
            !r.pending && (r.kind==="seed" || r.refId!=null) && _el("button",{type:"button",className:"shot-ref-tick"+(off?"":" on"),
             disabled:controlsDisabled,
             "aria-pressed":!off,
@@ -1202,13 +1326,16 @@ function AddShotReferenceDialog({ scene, beatN, beatText, plan, ctx, characters,
   const locationChoices = React.useMemo(()=>{
     if(!location) return [];
     const sh={beatN,action:[beatText, seed&&seed.action].filter(Boolean).join(" "),locationSide:"BOTH",referencePickerAll:true};
-    const units = typeof shotLocationReferenceChoices==="function"
-      ? shotLocationReferenceChoices(location,sh,scene,drafts).map(x=>({
-          ...x,source:"slugline-unit",note:x.label+" (full-frame slugline unit)"
-        })) : [];
-    const coverage = typeof shotLocationCoverageSpecs==="function"
-      ? shotLocationCoverageSpecs(location,sh,scene,drafts).filter(s=>s && s.id && s.source==="screenplay-coverage") : [];
-    return [...units,...coverage].filter((x,i,a)=>a.findIndex(y=>y.id===x.id)===i);
+    const raw=typeof shotLocationReferenceChoices==="function" ? shotLocationReferenceChoices(location,sh,scene,drafts) : [];
+    const byId=new Map;
+    raw.forEach(x=>{
+      if(!x||!x.id)return;
+      const categories=Array.from(new Set([...(Array.isArray(x.categories)?x.categories:[]),x.category].filter(Boolean)));
+      const old=byId.get(x.id);
+      if(old) old.categories=Array.from(new Set([...old.categories,...categories]));
+      else byId.set(x.id,{...x,categories:categories.length?categories:["unit"]});
+    });
+    return [...byId.values()];
   },[location&&location.id, beatN, beatText, seed&&seed.action]);
   const autoLocationChoices = React.useMemo(()=>{
     if(!location || typeof shotLocationCoverageSpecs!=="function") return [];
@@ -1216,8 +1343,10 @@ function AddShotReferenceDialog({ scene, beatN, beatText, plan, ctx, characters,
       beatN,action:[beatText, seed&&seed.action].filter(Boolean).join(" "),locationSide:"BOTH"
     },scene,drafts).filter(s=>s && s.id);
   },[location&&location.id, beatN, beatText, seed&&seed.action]);
-  const sluglineChoices = locationChoices.filter(x=>x.source==="slugline-unit");
-  const coverageChoices = locationChoices.filter(x=>x.source==="screenplay-coverage");
+  const placeChoices = locationChoices.filter(x=>x.categories.includes("place"));
+  const sluglineChoices = locationChoices.filter(x=>x.categories.includes("unit"));
+  const coverageChoices = locationChoices.filter(x=>x.categories.includes("coverage"));
+  const stateChoices = locationChoices.filter(x=>x.categories.includes("state"));
   const characterChoices = React.useMemo(()=>{
     const source = [beatText, plan&&Array.isArray(plan.micro)?plan.micro.join(" "):"", seed&&seed.action]
       .filter(Boolean).join(" ");
@@ -1264,7 +1393,7 @@ function AddShotReferenceDialog({ scene, beatN, beatText, plan, ctx, characters,
       ? String(item.note||"Location reference").replace(/\s+\([^)]*\)$/g,"")
       : item.name;
     const source=kind==="location"
-      ? (item.source==="slugline-unit"?"Slugline unit":"Screenplay coverage")
+       ? (item.categories||[]).map(x=>({place:"Continuity-bearing place",unit:"Slugline / subspace unit",coverage:"Screenplay Coverage",state:"Appearance State"})[x]).filter(Boolean).join(" · ")
       : "Character featured in this beat";
     return _el("button",{key:item.id,type:"button",disabled:!ready,
       className:"shot-ref-choice"+(on?" on":"")+(!ready?" unavailable":""),
@@ -1284,7 +1413,9 @@ function AddShotReferenceDialog({ scene, beatN, beatText, plan, ctx, characters,
         _el("div",null,_el("h3",null,"Add shot to Beat "+beatN),_el("p",null,"Choose the full-quality location and character anchors for this shot.")),
         _el("button",{type:"button",className:"ag-x",onClick:onCancel,"aria-label":"Close"},_el(Icon.x,{s:16}))),
       _el("div",{className:"shot-ref-dialog-body"},
-         _el("section",null,_el("div",{className:"shot-ref-dialog-label"},"Slugline units"),
+          _el("section",null,_el("div",{className:"shot-ref-dialog-label"},"Continuity-bearing place"),
+           placeChoices.length?_el("div",{className:"shot-ref-choice-list"},placeChoices.map(x=>choice(x,"location",selectedLocations,setSelectedLocations))):_el("div",{className:"shot-ref-dialog-empty"},"No continuity-bearing place reference is available.")),
+          _el("section",null,_el("div",{className:"shot-ref-dialog-label"},"Slugline / subspace units"),
            autoLocationReady && _el("button",{type:"button",className:"shot-ref-choice-auto"+(locationMode==="auto"?" on":""),onClick:()=>{setLocationMode("auto");setSelectedLocations([])}},
              "Auto · "+(autoLocationChoices[0].note||autoLocationChoices[0].name||"matched location")),
           sluglineChoices.length
@@ -1293,6 +1424,8 @@ function AddShotReferenceDialog({ scene, beatN, beatText, plan, ctx, characters,
         coverageChoices.length>0 && _el("section",null,
           _el("div",{className:"shot-ref-dialog-label"},"Screenplay coverage sheets"),
           _el("div",{className:"shot-ref-choice-list"},coverageChoices.map(x=>choice(x,"location",selectedLocations,setSelectedLocations)))),
+         _el("section",null,_el("div",{className:"shot-ref-dialog-label"},"Appearance States"),
+           stateChoices.length?_el("div",{className:"shot-ref-choice-list"},stateChoices.map(x=>choice(x,"location",selectedLocations,setSelectedLocations))):_el("div",{className:"shot-ref-dialog-empty"},"No appearance state reference is available.")),
         _el("section",null,_el("div",{className:"shot-ref-dialog-label"},"Characters in this beat"),
           characterChoices.length
             ? _el("div",{className:"shot-ref-choice-list"},characterChoices.map(x=>choice(x,"character",selectedCharacters,setSelectedCharacters)))

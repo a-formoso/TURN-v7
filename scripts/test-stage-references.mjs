@@ -193,5 +193,23 @@ box.stageShotReferencePackage([mutationShot],ctx);
 ok("override resolution does not mutate shots or characters",
   JSON.stringify(mutationShot)===mutationShotBefore&&JSON.stringify(characters)===mutationCharacters);
 
+box.shotLocationCoverageSpecs=()=>[
+  {id:"second-house",category:"place",locationId:"second-house",source:"continuity-place"},
+  {id:"kitchen-state",category:"state",locationId:"kitchen",stateId:"damaged",source:"appearance-state"},
+  {id:"gone-room",unavailable:true,required:true,source:"unavailable-location-reference"},
+];
+const selectedLocations=box.stageShotReferencePackage([{
+  id:"manual-location-kinds",sceneId:"s2",subjects:[],props:[],
+  referenceLocationsSet:true,referenceLocationIds:["second-house","kitchen-state","gone-room"],
+}],{...ctx,metadata:{...metadata,"second-house":{iso:"house-v1"},"kitchen-state":{iso:"state-v1"},
+  "gone-room":{iso:"old-cached-copy"}}});
+ok("explicit other-place reference preserves its real owner",
+  selectedLocations.locations.find(x=>x.assetId==="second-house")?.entityId==="second-house");
+ok("appearance state preserves exact owner and state identity",
+  selectedLocations.locations.find(x=>x.assetId==="kitchen-state")?.entityId==="kitchen"
+  &&selectedLocations.locations.find(x=>x.assetId==="kitchen-state")?.stateId==="damaged");
+ok("deleted catalog selection blocks even when stale image metadata survives",
+  selectedLocations.warnings.some(x=>x.imageId==="gone-room"&&x.code==="unavailable-location-selection"&&x.severity==="error")
+  &&!selectedLocations.locations.some(x=>x.assetId==="gone-room"));
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail?1:0);

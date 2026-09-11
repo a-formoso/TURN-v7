@@ -294,7 +294,7 @@
       }
       if(!loc)loc=arr(ctx.locations).find(l=>l&&scene&&arr(l.scenes).indexOf(scene.id)>=0)||null;
       let locSpecs=[];
-      if(loc&&typeof g.shotLocationCoverageSpecs==="function"){
+      if((loc||sh.referenceLocationsSet)&&typeof g.shotLocationCoverageSpecs==="function"){
         try{locSpecs=g.shotLocationCoverageSpecs(loc,sh,scene,ctx.drafts||{})||[];}catch(e){}
       }
       /* Preserve an explicit selection even when its image/card disappeared. The
@@ -311,9 +311,17 @@
         warn(sh.id,loc.id,"missing-location-coverage","Required per-shot location coverage reference is missing");
       locSpecs.forEach(s=>{
         const manual=!!sh.referenceLocationsSet&&arr(sh.referenceLocationIds).includes(s.id);
-        const got=put("location",{assetId:s.id,baseId:s.baseId||(loc&&loc.id)||sh.locationId||s.id,
-          entityId:(loc&&loc.id)||sh.locationId||s.baseId||"",coverageId:s.id,
-          role:roleFor("location",true),source:s.source||"coverage",required:manual},sh);
+        const ownerId=s.entityId||s.locationId||s.baseId||(loc&&loc.id)||sh.locationId||s.id;
+        if(s.unavailable){
+          if(!off(sh,s.baseId||s.id,s.id))
+            warn(sh.id,s.id,"unavailable-location-selection",
+              "Selected location reference is no longer in this film's location library. Restore it or choose another reference.","error");
+          return;
+        }
+        const got=put("location",{assetId:s.id,baseId:s.baseId||ownerId,
+          entityId:ownerId,coverageId:s.category==="place"?"":s.id,stateId:s.stateId||"",
+          role:s.category==="place"?"master":s.category==="state"?"state":roleFor("location",true),
+          source:s.source||"coverage",required:manual},sh);
         if(got)shotRow.locations.push(got);
       });
 

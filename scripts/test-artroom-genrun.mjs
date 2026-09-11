@@ -354,5 +354,39 @@ reset();
   ok("background prop Stop prevents commit and success",!success&&commits.length===0&&evts("nb-gen-done").length===0);
 }
 
+/* Explicit location choices cannot be swallowed or dropped by simplified retry. */
+for(const gopts of [{},{simple:true},{editInstruction:"Move closer"}]){
+  reset();
+  await run(env({genUrl:gopts.editInstruction?"existing-frame":"",
+    opts:{buildFinal:()=>"FRAME",buildSimple:()=>"SIMPLE",buildEdit:()=>"EDIT",
+      attachmentsRequired:true,attachmentsInSimple:true,
+      attachments:async()=>{throw new Error("Selected Kitchen state is unavailable");}}}),gopts);
+  ok("required location load failure prevents provider spend in "+JSON.stringify(gopts),genCalls.length===0);
+  ok("required location load failure keeps existing image",commits.length===0&&calls("setGenUrl").length===0);
+  ok("required location error is surfaced",/Selected Kitchen state/.test(lastArg("setGenErr")||""));
+}
+reset();
+{
+  await run(env({opts:{buildFinal:()=>"FRAME",attachments:async()=>{
+    const error=new Error("Selected room no longer exists");error.requiredReference=true;throw error;
+  }}}),{});
+  ok("typed required reference failure never becomes text-only fallback",genCalls.length===0&&/no longer exists/.test(lastArg("setGenErr")||""));
+}
+reset();
+{
+  await run(env({opts:{buildFinal:()=>"FRAME",attachmentsRequired:true,attachments:async()=>[]}}),{});
+  ok("empty required attachment package fails before spend",genCalls.length===0&&/reference images are unavailable/.test(lastArg("setGenErr")||""));
+}
+reset();
+{
+  await run(env({opts:{buildFinal:()=>"FRAME",buildSimple:()=>"SIMPLE",
+    attachmentsRequired:true,attachmentsInSimple:true,
+    attachments:async()=>[{url:"saved-kitchen-state",refId:"room-state",note:"Kitchen · after damage"}],
+    attachmentsText:()=>"",
+    rebuildPromptAfterAttachments:refs=>"Use "+refs.map(r=>r.refId).join(", ")}}),{simple:true});
+  ok("simplified render keeps explicitly selected location bytes",genCalls.length===1&&genCalls[0].opts.extraImages[0]==="saved-kitchen-state");
+  ok("simplified render keeps explicit reference prompt",genCalls[0]?.prompt==="Use room-state");
+}
+
 console.log(passes + failures === 0 ? "no checks ran" : (failures ? "FAILURES: " + failures + " (of " + (passes + failures) + ")" : "PASS: all " + passes + " checks"));
 process.exit(failures ? 1 : 0);
