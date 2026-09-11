@@ -880,18 +880,26 @@ function locationScreenplayBlocks(scene, drafts){
   if(scene.turningPoint) out.push({ type:"action", text:scene.turningPoint });
   return out;
 }
-function locationScreenplayReferenceImages(l, sheet, scenes, drafts){
+function locationScreenplayReferenceImages(l, sheet, scenes, drafts, options){
+  const renderOpts = options || {};
   if(typeof document==="undefined") return [];
-  const scene = locationSceneForCoverageSheet(l, sheet, scenes);
+  const selectedSceneId = renderOpts.sceneId != null ? renderOpts.sceneId : renderOpts.selectedSceneId;
+  const scene = renderOpts.scene || ((selectedSceneId != null)
+    ? (scenes||[]).find(s=>s && String(s.id)===String(selectedSceneId)) : null)
+    || locationSceneForCoverageSheet(l, sheet, scenes);
   const blocks = locationScreenplayBlocks(scene, drafts);
   if(!blocks.length) return [];
   const W = 1000, H = 1294, padX = 78, padTop = 62, padBottom = 64, lineH = 20;
   const font = "15px Courier New, monospace";
   const boldFont = "700 15px Courier New, monospace";
+  const targetBeatValue = renderOpts.targetBeat == null ? renderOpts.highlightBeat : renderOpts.targetBeat;
+  const targetBeat = targetBeatValue == null ? null : Number(targetBeatValue);
   const lineUnits = (b)=>{
     const type = String(b&&b.type||"action");
     const text = String(b&&b.text||"").replace(/\s+/g," ").trim();
     if(!text) return [];
+    const target = targetBeat != null && Number.isFinite(targetBeat)
+      && Number(b&&b.beat)===targetBeat;
     const cfg = type==="char" ? { x:378, w:220, bold:true, upper:true, before:12, after:0 }
       : type==="dia" ? { x:250, w:390, before:0, after:10 }
       : type==="paren" ? { x:305, w:310, before:0, after:0 }
@@ -908,7 +916,7 @@ function locationScreenplayReferenceImages(l, sheet, scenes, drafts){
       else line = t;
     });
     if(line) lines.push(line);
-    return [{ blank:cfg.before }, ...lines.map(s=>({ text:s, ...cfg })), { blank:cfg.after }];
+    return [{ blank:cfg.before }, ...lines.map(s=>({ text:s, ...cfg, target })), { blank:cfg.after }];
   };
   const units = [];
   const slug = blocks.find(b=>b.type==="scene");
@@ -925,27 +933,45 @@ function locationScreenplayReferenceImages(l, sheet, scenes, drafts){
   });
   pushPage();
   const sceneNo = scene&&scene.no!=null ? scene.no : "";
-  const title = "SCENE "+sceneNo+" - "+(((scene&&scene.title)||((l&&l.name)||"LOCATION"))).toUpperCase();
-  const imgs = pages.slice(0,6).map((items,pi)=>{
+  const contextLabel = renderOpts.contextLabel || renderOpts.label;
+  const title = (contextLabel ? String(contextLabel)+" — " : "")
+    +"SCENE "+sceneNo+" - "+(((scene&&scene.title)||((l&&l.name)||"LOCATION"))).toUpperCase();
+  const pageLimit = renderOpts.pageLimit == null ? 6
+    : Math.max(0,Number(renderOpts.pageLimit)||0);
+  const imgs = pages.slice(0,pageLimit).map((items,pi)=>{
     const canvas = document.createElement("canvas"); canvas.width = W; canvas.height = H;
     const ctx = canvas.getContext("2d"); if(!ctx) return "";
     ctx.fillStyle = "#f4f0e6"; ctx.fillRect(0,0,W,H);
     ctx.fillStyle = "#151515"; ctx.font = boldFont;
     ctx.fillText(title.slice(0,86), padX, 42);
     ctx.fillText(String(pi+1), W-padX-8, 42);
+    if(targetBeat != null && Number.isFinite(targetBeat)){
+      ctx.fillStyle = "#76621f"; ctx.font = "700 11px Courier New, monospace";
+      ctx.fillText(String(renderOpts.targetLabel||"TARGET BEAT OPENING")+" — BEAT "+targetBeat, padX, 57);
+    }
     let cy = padTop;
     items.forEach(u=>{
       if(u.blank!=null){ cy += Number(u.blank)||0; return; }
+      if(u.target){
+        ctx.fillStyle = "#ead58b";
+        ctx.fillRect(padX-16, cy-lineH+3, W-padX*2+16, lineH+4);
+      }
       ctx.font = u.bold ? boldFont : font;
       ctx.fillStyle = "#151515";
       ctx.fillText(u.text, u.x, cy);
       cy += lineH;
     });
     ctx.fillStyle = "#8a8177"; ctx.font = "12px Courier New, monospace";
-    ctx.fillText("FULL SCENE SCREENPLAY SNAPSHOT - WRITERS' ROOM TEXT", padX, H-34);
+    ctx.fillText((contextLabel ? String(contextLabel)+" — " : "")
+      +"FULL SCENE SCREENPLAY SNAPSHOT - WRITERS' ROOM TEXT", padX, H-34);
     ctx.fillText("PAGE "+(pi+1)+" OF "+pages.length, W-padX-92, H-34);
     try{ return canvas.toDataURL("image/png"); }catch(e){ return ""; }
   }).filter(Boolean);
+  if(renderOpts.returnMeta) return {
+    images:imgs, pageCount:pages.length, renderedPageCount:imgs.length,
+    omittedPages:Math.max(0,pages.length-imgs.length), targetBeat,
+    sceneId:scene&&scene.id||"", pageLimit
+  };
   return imgs;
 }
 function locationScreenplayReferenceImage(l, sheet, scenes, drafts){

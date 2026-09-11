@@ -2042,7 +2042,12 @@ function StageFrameComposer({ sh, sceneShots, imgCtx, shotNo, onMax }){
         // the "no image" recovery retry must speak the edited prompt too — without
         // this the fallback silently re-renders from the derived shot prompt
         // (review finding 2026-09-03)
-        buildSimple: ()=> edited ? promptText : pack.opts.buildSimple() });
+        buildSimple: ()=> edited ? promptText : pack.opts.buildSimple(),
+        rebuildPromptAfterAttachments: (resolvedRefs, mode, gopts)=>{
+          if(edited) return promptText;
+          return (typeof pack.opts.rebuildPromptAfterAttachments==="function")
+            ? pack.opts.rebuildPromptAfterAttachments(resolvedRefs, mode, gopts) : undefined;
+        } });
   // resolution/aspect/quality follow the app-wide image settings (same stores
   // the Art Room dock writes) — changing them here changes them everywhere
   const [res, setRes] = React.useState(()=> (typeof nbGetRes==="function") ? nbGetRes() : "");

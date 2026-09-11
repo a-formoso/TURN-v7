@@ -125,6 +125,7 @@ function FrameToggles({ label, items, selected, onToggle, emptyHint }){
    ctx must be the Shots-tab shape: { scene, location, charById, propById, project, locations }. */
 function shotFrameGenOpts(sh, sceneShots, ctx){
   const ordered = Array.isArray(sceneShots) ? sceneShots : [];
+  const runEpoch = (typeof nbEpoch==="function") ? nbEpoch() : null;
   const prevShot = (typeof seedShotOf==="function") ? seedShotOf(sh, ordered)
     : ((typeof prevShotOf==="function") ? prevShotOf(sh, ordered) : null);
   const _si = ordered.findIndex(x=>x && x.id===sh.id);
@@ -137,9 +138,32 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
   // a non-head shot chains from the previous frame (continuity_anchor present); the
   // head renders fresh from the sheets. carriedForward rides in the prompt too.
   const promptCtx = { ...ctx, prevShot:prevShot||null, laterShots,
-    carriedForward:(renderPlan&&renderPlan.carriedForward)||[] };
+    carriedForward:(renderPlan&&renderPlan.carriedForward)||[],
+    sceneContext:(renderPlan&&renderPlan.sceneContext)||null };
   const finalPrompt = combinedShotPrompt(sh, promptCtx);
   const chainPrompt = (typeof buildShotPrompt==="function") ? buildShotPrompt(sh, { ...promptCtx, prevFrameRole:true }) : finalPrompt;
+  const assertSceneContext = ()=>{
+    if(!renderPlan || !renderPlan.sceneContext || typeof shotSceneContextStillCurrent!=="function") return true;
+    const stale = msg=>{
+      /* When this is called by the async attachment phase, Art Room catches
+         attachment errors for ordinary missing refs. Marking THIS active run
+         cancelled makes its final paid-boundary guard fail closed instead of
+         silently rendering the old prompt. */
+      if(window.__nbGenCancel && Object.prototype.hasOwnProperty.call(window.__nbGenCancel,sh.id))
+        window.__nbGenCancel[sh.id]=true;
+      const err = new Error(msg||"Scene screenplay changed before render; nothing was rendered.");
+      err.sceneContextStale = true;
+      throw err;
+    };
+    const check = shotSceneContextStillCurrent(renderPlan.sceneContext,sh,ctx);
+    if(!check.ok) stale(check.reason);
+    if(renderPlan.sceneContext.filmEpoch!=null && typeof nbEpoch==="function"
+      && nbEpoch()!==renderPlan.sceneContext.filmEpoch)
+      stale("Film changed before render; nothing was rendered.");
+    if(runEpoch!=null && typeof nbEpoch==="function" && nbEpoch()!==runEpoch)
+      stale("Film changed before render; nothing was rendered.");
+    return true;
+  };
 
   // THE COVERAGE SEED (user ruling 2026-08-01): a non-head shot generates as an
   // image-edit off the REFERENCE frame — within a beat that's the beat's FIRST shot
@@ -163,46 +187,119 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
   // resolve through shotResolveRenderRefs — the exact same two steps the headless
   // Scene Director runs. Rebuilt fresh at generate time so late edits are honored.
   const collectShotRefs = async (gopts)=>{
+    assertSceneContext();
     const grab = async (id)=> (typeof shotGrabImage==="function") ? await shotGrabImage(id) : "";
     const p = (typeof shotRenderPlan==="function") ? shotRenderPlan(sh, ordered, ctx) : null;
     if(!p) return [];
+    // Core references are rebuilt at render time, but screenplay pages must use
+    // the exact snapshot that built the prompt above. A changed source is
+    // rejected by beforeGenerate/assertSceneContext rather than rendered stale.
+    if(renderPlan && renderPlan.sceneContext){
+      p.sceneContext = renderPlan.sceneContext;
+      p.sceneContextScene = renderPlan.sceneContextScene;
+      p.sceneContextLocation = renderPlan.sceneContextLocation;
+      p.sceneContextProject = renderPlan.sceneContextProject;
+    }
     const out = (typeof shotResolveRenderRefs==="function") ? await shotResolveRenderRefs(p, grab) : [];
-    return (typeof nbPreferBestAssetRefs==="function") ? nbPreferBestAssetRefs(out) : out;
+    if(renderPlan && p.sceneContext) renderPlan.sceneContext = p.sceneContext;
+    assertSceneContext();
+    const ranked = (typeof nbPreferBestAssetRefs==="function") ? nbPreferBestAssetRefs(out) : out;
+    return ranked;
   };
 
   const opts = {
     id: sh.id, slotId: "shot-"+sh.id,
     entity: sh,
-    buildFinal: ()=> finalPrompt,
+    buildFinal: ()=>{ assertSceneContext(); return finalPrompt; },
     // the "no image" recovery path must speak the SAME language as the main render —
     // a fresh plan supplies carriedForward so the numbered image map still matches
     // the refs the unified resolver attached (review finding: this fallback was the
     // one remaining divergence from the headless path)
     buildSimple: ()=>{
+       assertSceneContext();
       const p = (typeof shotRenderPlan==="function") ? shotRenderPlan(sh, ordered, ctx) : null;
       return buildShotPrompt(sh, { ...ctx, prevShot:prevShot||null, laterShots,
-        carriedForward:(p&&p.carriedForward)||[] });
+         carriedForward:(p&&p.carriedForward)||[],
+          sceneContext:(renderPlan&&renderPlan.sceneContext)||null,
+          simpleMode:true });
     },
     referenceFallback: deriveBase,
-    buildFromBase: ()=> chainPrompt,
+    buildFromBase: ()=>{ assertSceneContext(); return chainPrompt; },
     attachments: collectShotRefs,
     // buildShotPrompt now names the reference stack in-prose (the spine + staging + References
     // block), so we don't append a second reference sentence here — that would just duplicate it.
     attachmentsText: ()=> "",
-    buildEdit: (instr)=>
-      "Edit this film frame. Apply ONLY this change: "+instr+". Keep the same shot size, lens, staging, "
-      +"the same characters (identical faces & wardrobe), the same location and the same colour grade. Do not re-imagine the frame.",
+    buildEdit: (instr, resolvedRefs)=>{
+      assertSceneContext();
+       let out = "Edit this film frame. Apply ONLY this change: "+instr+". Keep the same shot size, lens, staging, "
+         +"the same characters (identical faces & wardrobe), the same location and the same colour grade. Do not re-imagine the frame.";
+       const sceneRead = (typeof shotSceneContextPrompt==="function")
+         ? shotSceneContextPrompt(renderPlan&&renderPlan.sceneContext) : "";
+       if(sceneRead) out += "\n\n"+sceneRead
+         +"\n\nEDIT READING CONTRACT: screenplay context is read-only background for continuity and geography. "
+         +"It must not broaden the edit, add later-beat action or introduce remote/mentioned people. "
+         +"Change ONLY the requested edit while preserving the current frame and canonical references.";
+       if(Array.isArray(resolvedRefs) && resolvedRefs.length){
+         out += "\n\nATTACHED REFERENCE ORDER (read-only; do not recompose): "
+           +resolvedRefs.map((r,i)=>"Image "+(i+1)+" is "+(r.assetRole==="screenplay_context"
+             ? "an ephemeral screenplay context page"
+             : (r.note||r.assetRoleLabel||"a canonical reference"))+".").join(" ");
+       }
+       return out;
+    },
+    rebuildPromptAfterAttachments: (resolvedRefs, mode, gopts)=>{
+      assertSceneContext();
+      const refs = Array.isArray(resolvedRefs) ? resolvedRefs : [];
+      if(mode==="simple") return buildShotPrompt(sh,{ ...promptCtx, simpleMode:true,
+        sceneContext:(renderPlan&&renderPlan.sceneContext)||null });
+      if(mode==="edit") return opts.buildEdit ? opts.buildEdit(gopts&&gopts.editInstruction||"",refs) : "";
+      const base = { ...promptCtx, resolvedRefs:refs,
+        sceneContext:(renderPlan&&renderPlan.sceneContext)||null };
+      return (mode==="base" ? buildShotPrompt(sh,{...base,prevFrameRole:true}) : combinedShotPrompt(sh,base));
+    },
+    /* Art Room skips its normal beforeGenerate gate for edits, batches, and
+       simplified retries. The builders above are still a hard pre-paid boundary;
+       this gate covers the ordinary card path with an explicit UI error. */
+    beforeGenerate: async ()=>{
+      try{ assertSceneContext(); return true; }
+      catch(e){ if(typeof window.appToast==="function") window.appToast(e.message||"Scene screenplay changed; nothing was rendered.","error"); return false; }
+    },
+    assertFreshBeforeFallback: async ()=>{
+      assertSceneContext();
+      return true;
+    },
+    assertPostGenerate: async ()=>{
+      assertSceneContext();
+      if(renderPlan && renderPlan.sceneContext && typeof nbEpoch==="function"
+        && renderPlan.sceneContext.filmEpoch!=null && nbEpoch()!==renderPlan.sceneContext.filmEpoch)
+        { if(window.__nbGenCancel && Object.prototype.hasOwnProperty.call(window.__nbGenCancel,sh.id))
+            window.__nbGenCancel[sh.id]=true;
+          const err=new Error("Film changed after render; result discarded."); err.sceneContextStale=true; throw err; }
+      if(runEpoch!=null && typeof nbEpoch==="function" && nbEpoch()!==runEpoch)
+        { if(window.__nbGenCancel && Object.prototype.hasOwnProperty.call(window.__nbGenCancel,sh.id))
+            window.__nbGenCancel[sh.id]=true;
+          const err=new Error("Film changed after render; result discarded."); err.sceneContextStale=true; throw err; }
+      return true;
+    },
     // Shot frames commonly carry a rolling seed plus several canon sheets. A
     // 640px reference is ample for identity/composition and keeps GPT Image 2
     // comfortably inside the proxy window. These are input references only:
     // generated quality and resolution always follow the user's selected controls.
     referenceMaxDim: 640,
     metaStart: async ({gopts}={})=>{
+      assertSceneContext();
       const base = {
         shotSource:(typeof shotSourceStamp==="function")
           ? shotSourceStamp(sh,(((window.turnContinuity||{}).drafts||{})[sh.sceneId])) : null,
-        propDependencies:(typeof propDependencySignature==="function")
-          ? propDependencySignature(((window.turnContinuity||{}).props)||[],sh.sceneId,sh.beatN,sh.microBeatId,sh.id,window.turnContinuity||{}) : ""
+         propDependencies:(typeof propDependencySignature==="function")
+           ? propDependencySignature(((window.turnContinuity||{}).props)||[],sh.sceneId,sh.beatN,sh.microBeatId,sh.id,window.turnContinuity||{}) : "",
+         sceneContext:renderPlan && renderPlan.sceneContext ? {
+           sceneId:renderPlan.sceneContext.sceneId, sourceRev:renderPlan.sceneContext.sourceRev,
+           targetBeat:renderPlan.sceneContext.targetBeat, pages:renderPlan.sceneContext.pages||0,
+           renderedPages:renderPlan.sceneContext.renderedPages||0,
+           omittedPages:renderPlan.sceneContext.omittedPages||0,
+           omissions:(renderPlan.sceneContext.omissions||[]).slice()
+         } : null
       };
       // SEED LINEAGE — same stamp the headless path writes: which frame seeded this
       // render, at what version. shotChainStatus derives "Seed outdated" from it later.
@@ -227,17 +324,27 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
             ...(prevShot.locked ? {} : { seedUnapproved:true }) }
         : { seedShotId:"" } };
     },
-    metaExtra: ()=>({
+    metaExtra: async ()=>{
+       assertSceneContext();
+       return ({
+       sceneContext:renderPlan && renderPlan.sceneContext ? {
+         sceneId:renderPlan.sceneContext.sceneId, sourceRev:renderPlan.sceneContext.sourceRev,
+         targetBeat:renderPlan.sceneContext.targetBeat, pages:renderPlan.sceneContext.pages||0,
+         renderedPages:renderPlan.sceneContext.renderedPages||0,
+         omittedPages:renderPlan.sceneContext.omittedPages||0,
+         omissions:(renderPlan.sceneContext.omissions||[]).slice()
+       } : null,
       advancedCamera:(typeof shotCameraMetadata==="function") ? shotCameraMetadata(sh) : null,
       writingSources:(typeof shotWritingSources==="function") ? shotWritingSources(sh,ctx) : [],
-      promptCompiler:"TURN prompt compiler"
-    }),
+       promptCompiler:"TURN prompt compiler"
+       });
+    },
   };
   return { opts, finalPrompt, chainPrompt, renderPlan, prevShot, laterShots };
 }
 window.shotFrameGenOpts = shotFrameGenOpts;
 
-function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, laterShots, sceneShots, isHead, isFirst, onToggleHead, onUpdate, onDelete, onView, batchActiveId, onBatchDone, onGenerateShot, onRegenDownstream, onStopChain, subLabel, plan }){
+function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, laterShots, sceneShots, isHead, isFirst, onToggleHead, onUpdate, onDelete, onView, batchActiveId, onBatchDone, onGenerateShot, onRegenDownstream, onStopChain, subLabel, plan, beatContext }){
   const loc = ctx.location;
   // who/what is in frame is DERIVED from the action text (single source of truth) — the
   // old manual tags are gone; this is what the prompt + references actually use.
@@ -519,6 +626,9 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         onDelete(sh.id);
       }, deleteLabel:"Delete shot" }),
     _el("div",{className:"sheet-body"},
+      /* OpeningBeatCard supplies this compact screenplay provenance directly into
+         the real card body. It deliberately is not a wrapper or a second preview. */
+      beatContext && _el("div",{className:"shot-beat-context"},beatContext),
       // reference images this frame is built from — the rolling SEED (the previous shot's
       // frame) leads, then the in-frame Character, Prop & Location sheets, ordered by weight.
       // Click a thumb to enlarge. Read-only: who/what is in frame is auto-read from the Action.
@@ -555,7 +665,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       _el("div",{className:"shot-head"},
         // order, left-to-right: Beat · Clip · Head · (Approve, once a frame exists)
         _el("div",{className:"shot-head-right"},
-          _el("div",{className:"shot-beat-tag"},beatLabel),
+          !beatContext && _el("div",{className:"shot-beat-tag"},beatLabel),
           subLabel && _el("div",{className:"shot-beat-tag sub",title:"This beat has multiple shots (coverage) — this is setup "+subLabel+" in cut order"},"Shot "+subLabel),
           sh.priority && _el("span",{className:"shot-priority-badge",
             title:"Priority — the setup carrying this beat's emotional core (the protected moment). Spend your regeneration attention here first, and approve it carefully as a seed."},
@@ -1160,8 +1270,13 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
   const primary=L.shots.find(sh=>sh.keyframeMode==="beat-opening")||L.shots[0]||null;
   const extras=L.shots.filter(sh=>!primary||sh.id!==primary.id);
   const [addSeed,setAddSeed]=React.useState(null);
-  const [extrasOpen,setExtrasOpen]=React.useState(false);
-  const primaryOpen=primary&&openShotId===primary.id;
+  const [selectedId,setSelectedId]=React.useState(primary&&primary.id);
+  const batchShot=L.shots.find(sh=>sh.id===batchActiveId)||null;
+  const selected=L.shots.find(sh=>sh.id===selectedId)||primary||null;
+  // The queued frame owns the sole mounted generator driver. This makes a queued
+  // legacy alternative visible instead of mounting a second hidden ShotCard.
+  const displayed=batchShot||selected;
+  React.useEffect(()=>{ if(primary&&!L.shots.some(sh=>sh.id===selectedId)) setSelectedId(primary.id); },[primary&&primary.id,L.shots.map(sh=>sh.id).join("|")]);
   const sourceRev=source&&source.sourceRev;
   // New normalized shots persist sourceScreenplayRev. sourceRev remains a
   // compatibility read for imported pre-normalization shots, never evidence
@@ -1170,41 +1285,44 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
   const stale=primary&&sourceRev!=null&&stampedRev!=null&&String(stampedRev)!==String(sourceRev);
   const unverified=primary&&sourceRev!=null&&stampedRev==null;
   const names=(ids)=>(ids||[]).map(id=>((ctx.charById||{})[id]||{}).name||id).join(" · ");
-  const editor=(sh,label)=>_el(ShotCard,{sh,scene,ctx,characters,propsAvail,
+  const beatContext=_el(React.Fragment,null,
+    _el("div",{className:"shot-beat-context-head"},
+      _el("span",{className:"beat-lane-no"},"Beat "+L.n+(lanesLen>1?" of "+lanesLen:"")),
+      String(bm.turnAt||"")===String(L.n)&&_el("span",{className:"beat-lane-turn"},_el(Icon.bolt,{s:10}),"Turning point"),
+      _el("span",{className:"beat-opening-chip"},!displayed?"Not drafted":displayed.id===primary.id?"Opening keyframe":"Additional shot"),
+      onRefineBeat&&_el("button",{className:"beat-lane-btn ghost",disabled:!!refiningBeat||!hasSource,
+        title:hasSource?"Use this beat's screenplay to update the opening keyframe.":"Write screenplay for this beat before drafting a frame.",
+        onClick:()=>onRefineBeat(scene,L.n)},_el(Icon.sparkles,{s:11}),refiningBeat?"Drafting…":primary?"Update from screenplay":"Draft opening keyframe"),
+      onAddShot&&_el("button",{className:"beat-lane-btn ghost bc-add",onClick:()=>setAddSeed({}),
+        title:"Add an optional manual alternative to this beat."},_el(Icon.plus,{s:11}),"Add alternative")),
+    stale&&_el("div",{className:"bc-stale"},"Source changed — update from screenplay, then regenerate the opening frame. Your existing image is retained."),
+    unverified&&_el("div",{className:"bc-unverified"},"Existing coverage — screenplay source is unverified. Update from screenplay before regenerating the opening frame."),
+    _el("details",{className:"bc-screenplay"},
+      _el("summary",null,"Screenplay reference"),
+      hasSource?_el("div",{className:"bc-screenplay-copy"},text):_el("div",{className:"bc-source-empty"},"Write screenplay for this beat to draft its opening keyframe."),
+      source&&Array.isArray(source.openingCharacterIds)&&source.openingCharacterIds.length>0&&_el("div",{className:"bc-cast-line"},_el("b",null,"On-screen: "),names(source.openingCharacterIds)),
+      source&&Array.isArray(source.remoteCharacterIds)&&source.remoteCharacterIds.length>0&&_el("div",{className:"bc-cast-line remote"},_el("b",null,"Remote audio / text: "),names(source.remoteCharacterIds))),
+    extras.length>0&&_el("label",{className:"bc-alt-picker"},
+      _el("span",null,"Frame"),
+      _el("select",{value:displayed&&displayed.id,onChange:e=>setSelectedId(e.target.value),
+        title:"View and edit an existing additional shot in this beat"},
+        [primary,...extras].filter(Boolean).map((sh,i)=>_el("option",{key:sh.id,value:sh.id},i===0?"Opening keyframe":"Alternative "+i+" · "+(sh.size||"Shot"))))),
+  );
+  const editor=(sh,label)=>{ const prevShot=(typeof seedShotOf==="function")?seedShotOf(sh,ordered)
+    :((typeof prevShotOf==="function")?prevShotOf(sh,ordered):null);
+    const shotIndex=ordered.findIndex(x=>x.id===sh.id);
+    return _el(ShotCard,{key:sh.id,sh,scene,ctx,characters,propsAvail,
     beatText:(source&&source.openingAction)||text,sceneShots:ordered,plan:sh.beatPlan,
-    prevShot:(typeof seedShotOf==="function")?seedShotOf(sh,ordered):null,
-    isHead:!(typeof seedShotOf==="function"?seedShotOf(sh,ordered):null),isFirst:sh.id===firstId,onToggleHead:toggleHead,
-    onUpdate,onDelete,onView,batchActiveId,onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,subLabel:label});
-  return _el("div",{className:"beat-card opening-beat-card"},
-    _el(BeatShotPreview,{sh:primary,letter:"Opening",scene,sceneStart,onRenderScene,renderBusy,onView}),
-    _el("div",{className:"beat-card-body"},
-      _el("div",{className:"beat-card-head"},
-        _el("span",{className:"beat-lane-no"},"Beat "+L.n+(lanesLen>1?" of "+lanesLen:"")),
-        String(bm.turnAt||"")===String(L.n)&&_el("span",{className:"beat-lane-turn"},_el(Icon.bolt,{s:10}),"Turning point"),
-        primary&&_el("span",{className:"beat-opening-chip"},"Opening keyframe"),
-        onRefineBeat&&_el("button",{className:"beat-lane-btn ghost",disabled:!!refiningBeat||!hasSource,
-          title:hasSource?"Use this beat's screenplay to draft its opening keyframe.":"Write screenplay for this beat before drafting a frame.",
-          onClick:()=>onRefineBeat(scene,L.n)},_el(Icon.sparkles,{s:11}),refiningBeat?"Drafting…":primary?"Update from screenplay":"Draft opening keyframe"),
-        onAddShot&&_el("button",{className:"beat-lane-btn ghost bc-add",onClick:()=>setAddSeed({}),
-          title:"Add an optional manual alternative; it does not replace the opening keyframe."},_el(Icon.plus,{s:11}),"Add alternative")),
-      _el("details",{className:"bc-screenplay",open:!primary},
-        _el("summary",null,"Screenplay reference"),
-        hasSource?_el("div",{className:"bc-screenplay-copy"},text):_el("div",{className:"bc-source-empty"},"Write screenplay for this beat to draft its opening keyframe."),
-        source&&source.openingCharacterIds&&source.openingCharacterIds.length>0&&_el("div",{className:"bc-cast-line"},_el("b",null,"On-screen: "),names(source.openingCharacterIds)),
-        source&&source.remoteCharacterIds&&source.remoteCharacterIds.length>0&&_el("div",{className:"bc-cast-line remote"},_el("b",null,"Remote audio / text: "),names(source.remoteCharacterIds))),
-      primary&&_el("div",{className:"bc-primary"},
-        stale&&_el("div",{className:"bc-stale"},"Source changed — update from screenplay, then regenerate the opening frame. Your existing image is retained."),
-        unverified&&_el("div",{className:"bc-unverified"},"Existing coverage — screenplay source is unverified. Update from screenplay before regenerating the opening frame."),
-        _el(BeatShotRow,{sh:primary,letter:"Opening",open:primaryOpen,selected:true,isNext:primary.id===nextShotId,live:primary.id===batchActiveId,onToggle:()=>setOpenShotId(primaryOpen?null:primary.id)}),
-        primaryOpen&&_el("div",{className:"bc-shot-expand"},editor(primary,"Opening"))),
-      !primary&&_el("div",{className:"bc-opening-empty"},hasSource?"No opening keyframe yet. Draft it from the screenplay above.":"No opening keyframe can be drafted until this beat has screenplay."),
-      extras.length>0&&_el("details",{className:"bc-alternatives",open:extrasOpen,onToggle:e=>setExtrasOpen(e.currentTarget.open)},
-        _el("summary",null,"Existing additional shots · "+extras.length),
-        extras.map((sh,i)=>_el(React.Fragment,{key:sh.id},
-          _el(BeatShotRow,{sh,letter:"Alt "+(i+1),open:openShotId===sh.id,selected:false,isNext:sh.id===nextShotId,live:sh.id===batchActiveId,onToggle:()=>setOpenShotId(openShotId===sh.id?null:sh.id)}),
-          openShotId===sh.id&&_el("div",{className:"bc-shot-expand"},editor(sh,"Alternative "+(i+1)))))),
-      addSeed!==null&&_el(AddShotReferenceDialog,{key:"add-shot-"+scene.id+"-"+L.n,scene,beatN:L.n,beatText:text,plan:null,ctx,characters,seed:addSeed,
-        onCancel:()=>setAddSeed(null),onAdd:chosen=>{setAddSeed(null);onAddShot(scene.id,L.n,chosen);}})));
+    prevShot,laterShots:(shotIndex>=0?ordered.slice(shotIndex+1):[]),
+    isHead:!prevShot,isFirst:sh.id===firstId,onToggleHead:toggleHead,
+    onUpdate,onDelete,onView,batchActiveId:(sh.id===batchActiveId?batchActiveId:null),onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,subLabel:label,beatContext}); };
+  return _el(React.Fragment,null,
+    displayed ? editor(displayed,displayed.id===primary.id?"Opening":"Alternative") :
+      _el("div",{className:"sheet-card shot-card opening-beat-empty"},
+        _el("div",{className:"sheet-body"},beatContext,
+          _el("div",{className:"bc-opening-empty"},hasSource?"No opening keyframe yet. Draft it from the screenplay above.":"No opening keyframe can be drafted until this beat has screenplay."))),
+    addSeed!==null&&_el(AddShotReferenceDialog,{key:"add-shot-"+scene.id+"-"+L.n,scene,beatN:L.n,beatText:text,plan:null,ctx,characters,seed:addSeed,
+      onCancel:()=>setAddSeed(null),onAdd:chosen=>{setAddSeed(null);onAddShot(scene.id,L.n,chosen);}}));
 }
 
 function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, pager, onUpdate, onDelete, onView,
@@ -1277,6 +1395,22 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
     document.addEventListener("mousedown", close); return ()=>document.removeEventListener("mousedown", close); },[jumpOpen]);
   const firstId = ordered[0] && ordered[0].id;
   const toggleHead = (target)=> { if(target && target.id!==firstId) onUpdate(target.id, { anchor: !target.anchor }); };
+  // Collapsing a scene must not strand a running queue. In that one state only,
+  // retain exactly the active card as an invisible owner; when open, its visible
+  // beat card owns the same id and this node is absent.
+  const collapsedActive = !open && batchMode && batchActiveId ? ordered.find(sh=>sh.id===batchActiveId) : null;
+  const collapsedDriver = collapsedActive ? (()=>{
+    const lane=lanes.find(L=>L.shots.some(sh=>sh.id===collapsedActive.id))||{n:collapsedActive.beatN,shots:[collapsedActive]};
+    const prior=(typeof seedShotOf==="function")?seedShotOf(collapsedActive,ordered)
+      :((typeof prevShotOf==="function")?prevShotOf(collapsedActive,ordered):null);
+    const ix=ordered.findIndex(sh=>sh.id===collapsedActive.id);
+    return _el("div",{className:"shot-batch-driver",style:{display:"none"},"aria-hidden":"true"},
+      _el(ShotCard,{sh:collapsedActive,scene,ctx,characters,propsAvail,
+        beatText:beatScriptText(scene.id,lane.n),sceneShots:ordered,plan:collapsedActive.beatPlan,
+        prevShot:prior,laterShots:ix>=0?ordered.slice(ix+1):[],isHead:!prior,isFirst:collapsedActive.id===firstId,onToggleHead:toggleHead,
+        onUpdate,onDelete,onView,batchActiveId,onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,
+        subLabel:collapsedActive.keyframeMode==="beat-opening"?"Opening":null}));
+  })() : null;
   // the scene's clip sequences (shared partition — Storyboard clip boards + the Stage);
   // the per-clip budget comes from the project FORMAT (clipMaxFor)
   const clipMax = (typeof clipMaxFor==="function") ? clipMaxFor(ctx.project) : 15;
@@ -1310,6 +1444,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
     else window.prompt("Copy the scene video prompt:", t);
   };
   return _el("div",{className:"shot-scene-group"+(open?"":" collapsed")},
+    collapsedDriver,
     // ONE merged card (user ruling 2026-07-19): scene navigator + title/style/meta +
     // context grid, redundancy removed (number/driver/location each said once).
     // "Copy video prompt" retired (clips live on the Stage); scene-level "Add shot"
@@ -1405,28 +1540,10 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
       const _kf=(id)=> (typeof nbGetImage==="function") ? !!nbGetImage(id) : false;
       const _sceneRendered = ordered.some(sh=>_kf(sh.id));
       const _nextShotId = (ordered.find(sh=>!_kf(sh.id))||{}).id || null;
-      // the queue's off-screen driver: the active shot's full card — UNLESS the user
-      // already has THAT shot expanded (an expanded card drives its own run; two
-      // mounted cards for one shot would fire the same generation twice)
-      const _drv = (batchMode && batchActiveId && openShotId!==batchActiveId)
-        ? ordered.find(x=>x.id===batchActiveId) : null;
-      let driverCard = null;
-      if(_drv){
-        const _dLane = lanes.find(L=>L.shots.some(x=>x.id===_drv.id)) || { n:Number(_drv.beatN)||0, shots:[_drv] };
-        const beatRow=(bm.rows||[]).find(r=>String(r.n)===String(_dLane.n));
-        const beatText=beatScriptText(scene.id, _dLane.n) || (beatRow?[ (beatRow.drive&&beatRow.drive.d||"").trim(), (beatRow.react&&beatRow.react.d||"").trim() ].filter(Boolean).join(" — "):"");
-        const prevShot=(typeof seedShotOf==="function")?seedShotOf(_drv,ordered)
-          :((typeof prevShotOf==="function")?prevShotOf(_drv,ordered):null);
-        const _si=ordered.findIndex(x=>x.id===_drv.id);
-        const _plan=_dLane.shots.map(x=>x.beatPlan).find(Boolean);
-        driverCard = _el("div",{key:"drv-"+_drv.id,style:{display:"none"},"aria-hidden":"true"},
-          _el(ShotCard,{sh:_drv,scene,ctx,characters,propsAvail,beatText,prevShot,plan:_plan,sceneShots:ordered,
-            laterShots:(_si>=0?ordered.slice(_si+1):[]), isHead:!prevShot, isFirst:(_drv.id===firstId), onToggleHead:toggleHead,
-            onUpdate,onDelete,onView,batchActiveId,onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,
-            subLabel:(_dLane.shots.length>1?String.fromCharCode(65+Math.max(0,_dLane.shots.findIndex(x=>x.id===_drv.id))):null)}));
-      }
+       // Each OpeningBeatCard is always a live ShotCard. When the queue advances,
+       // its lane swaps its compact selector to that active shot; no hidden driver
+       // is mounted, so a batch id can never be owned by two useImageGen instances.
       return _el(React.Fragment,null,
-        driverCard,
         _el("div",{key:"beat-grid",className:"beat-grid-wrap"+(draftingScene?" drafting":"")},
           _el("div",{className:"beat-card-grid"},
             lanes.map((L,Li)=> _el(OpeningBeatCard,{key:"bc"+(L.canonical?"c":"o")+L.n, L, lanesLen:lanes.length, bm, scene, ctx, characters, propsAvail,

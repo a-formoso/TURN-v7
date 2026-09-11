@@ -1262,6 +1262,8 @@ function buildShotPrompt(sh, ctx){
   const loc = ctx.location || null;
   const charById = ctx.charById || {};
   const propById = ctx.propById || {};
+   const _sceneContext = ctx.sceneContext
+     || ((typeof shotSceneContextPlan==="function") ? shotSceneContextPlan(sh,ctx) : null);
   // in-frame cast & props are DERIVED from the action text (inFrameCast/inFrameProps),
   // not the stored tags — so they're always accurate to what the frame actually shows.
    const _chars = Object.values(charById);
@@ -1451,6 +1453,25 @@ function buildShotPrompt(sh, ctx){
   else { _locLabels.forEach(l=>imgs.push(l)); _castLabels.forEach(l=>imgs.push(l)); }
   _propLabels.forEach(l=>imgs.push(l));
   _carriedLabels.forEach(l=>imgs.push(l));
+   /* Once refs have resolved, rebuild the map from the ACTUAL attachment list.
+      A page budget is only a reservation: a short scene may render one page,
+      a canvas/provider may return none, and a canonical sheet may be cold. */
+   if(Array.isArray(ctx.resolvedRefs)){
+     imgs.length=0;
+     if(ctx.prevFrameRole)
+       imgs.push("the REFERENCE frame — carry its colour grade, lighting and every established physical state (wardrobe wear, wetness, dirt, damage) forward exactly, but do NOT copy its framing");
+     ctx.resolvedRefs.forEach((r,ri)=>{
+       if(!r) return;
+       if(r.assetRole==="screenplay_context"){
+         imgs.push("ephemeral SCREENPLAY PAGE REFERENCE — full-scene screenplay text only; do not copy its style, composition, or layout");
+       }else{
+         imgs.push(r.note || r.assetRoleLabel || ("reference image "+(ri+1)));
+       }
+     });
+   }
+   /* Simple recovery renders deliberately attach no refs.  Do not leave a
+      fictitious canonical/page map in a prompt whose provider input is empty. */
+   if(ctx.simpleMode) imgs.length=0;
   let MAP = imgs.length
     ? ("Compose a new cinematic still. " + imgs.map((m,i)=>"Image "+(i+1)+" is "+m+".").join(" "))
     : "Compose a new cinematic still.";
@@ -1458,7 +1479,7 @@ function buildShotPrompt(sh, ctx){
     MAP += " Worn items have no separate sheets — each is part of its owner's character sheet and must match exactly as designed there: "
       + wornProps.map(p=> p.name+" (on "+(p.ownerName||"its owner")+")").join("; ")+".";
   }
-  if(_locLabels.length){
+   if(_locLabels.length && !ctx.simpleMode){
     MAP += " If the framing crosses between attached location views, preserve the exact threshold/sightline relationship between them; otherwise extend the SAME set consistently from the attached view.";
   }
 
@@ -1479,6 +1500,14 @@ function buildShotPrompt(sh, ctx){
      const remoteNames=(screenplaySource.remoteCharacterIds||[]).map(id=>(charById[id]||{}).name||id);
      if(remoteNames.length) out += "\nRemote screenplay evidence ("+remoteNames.join(", ")+") is voice/text/phone or an absent/name-in-prop mention only — exclude those people from the frame; the person holding or reading the device remains visible when the opening action says so.";
    }
+   /* FULL SCENE CONTEXT is deliberately a separate, lower-priority section.
+      It gives the model continuity and geography without allowing a later beat
+      (or a remote name) to rewrite the TARGET BEAT OPENING above.  The context
+      builder freezes this exact text before either the card or headless path can
+      render; never excerpt it here. */
+   const _sceneContextPrompt = (typeof shotSceneContextPrompt==="function")
+     ? shotSceneContextPrompt(_sceneContext) : "";
+   if(_sceneContextPrompt) out += "\n\n"+_sceneContextPrompt;
   out += "\n\nConstraints: " + shotNegativePrompt(sh, _styleKey) + ".";
   return out;
 }
@@ -1692,7 +1721,28 @@ function shotRenderPlan(sh, sceneShots, ctx){
     ? [...castSpec, ...activeLocSpec, ...propSpec, ...carrySpec]   // tight: the cast leads, the set recedes
     : [...activeLocSpec, ...castSpec, ...propSpec, ...carrySpec])  // wide: the set leads
     .filter(s=> _refOff.indexOf(s.baseId||s.id)<0);
-  return { prevSh, isHead:!prevSh, locWeight, inCast, inPr, carried,
+   /* The screenplay pages are optional, lower-priority context. Reserve every
+      canonical slot before offering a page slot — even if a canonical byte is
+      cold right now — so a late-loaded identity sheet can never be displaced by
+      a page image. The seed is the provider's primary reference and counts too. */
+   let sceneContext = (typeof shotSceneContextPlan==="function")
+     ? shotSceneContextPlan(sh,ctx) : null;
+   if(sceneContext){
+     const budget = (typeof shotSceneContextCapacity==="function")
+       ? shotSceneContextCapacity(ctx,14) : 14;
+     const reserved = orderedSpecs.length + (prevSh ? 1 : 0);
+     const available = Math.max(0,budget-reserved);
+     sceneContext = { ...sceneContext, maxPages:available,
+       pageLimitReason: available
+         ? (sceneContext.pageLimitReason||"canonical references reserved first")
+         : "reference capacity reserved for canonical identity/location/prop assets" };
+     if(!available && !sceneContext.omissions.includes(sceneContext.pageLimitReason))
+       sceneContext.omissions = (sceneContext.omissions||[]).concat(sceneContext.pageLimitReason);
+   }
+   return { prevSh, isHead:!prevSh, locWeight, inCast, inPr, carried, sceneContext,
+     sceneContextScene:ctx.scene ? { ...ctx.scene } : null,
+     sceneContextLocation:ctx.location ? { ...ctx.location } : null,
+     sceneContextProject:ctx.project ? { ...ctx.project } : null,
     carriedForward: carried.map(id=>(ctx.propById||{})[id]).filter(Boolean),
     activeLocSpec, castSpec, propSpec, carrySpec, orderedSpecs };
 }
@@ -1724,6 +1774,21 @@ async function shotResolveRenderRefs(plan, grab){
         assetRolePriority:(typeof nbAssetRolePriority==="function") ? nbAssetRolePriority(role) : 0,
         assetSourceQuality:s.assetSourceQuality || "full_frame" });
     }
+  }
+  /* Screenplay pages are a distinct, low-priority role.  They are generated
+     from the frozen plan snapshot at render time (never during ShotCard
+     rendering), and are appended only after canonical refs have resolved. */
+  if(plan.sceneContext && typeof shotSceneContextReferences==="function"){
+    const pagePack = await shotSceneContextReferences(plan.sceneContext, {
+      scene:plan.sceneContextScene || null,
+      location:plan.sceneContextLocation || null,
+      project:plan.sceneContextProject || null
+    }, { maxPages:plan.sceneContext.maxPages });
+    plan.sceneContext = { ...plan.sceneContext,
+      pages:pagePack.pages||0, renderedPages:pagePack.renderedPages||0,
+      omittedPages:pagePack.omittedPages||0,
+      omissions:Array.from(new Set([...(plan.sceneContext.omissions||[]), ...(pagePack.omissions||[])])) };
+    (pagePack.refs||[]).forEach(r=>refs.push(r));
   }
   return refs;
 }
@@ -1757,6 +1822,7 @@ window.shotWritingSources=shotWritingSources;
 
 async function generateShotFrame(sh, sceneShots, ctx, opts){
   const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;   // asset scope at generation start
+  const sourceCtx = ctx; // retain the live caller context for post-provider source checks
   opts = opts || {};
   // the ONE render plan shared with the manual card path — see shotRenderPlan above
   const plan = shotRenderPlan(sh, sceneShots, ctx);
@@ -1783,6 +1849,12 @@ async function generateShotFrame(sh, sceneShots, ctx, opts){
   const refs = await shotResolveRenderRefs(plan, grab);
   if(typeof window.nbAssertMediaIdentity==="function")
     window.nbAssertMediaIdentity({identityCharacterIds:plan.inCast||[],identityCast,identityContext},"shot-after-refs");
+  if(plan.sceneContext && typeof shotSceneContextStillCurrent==="function"){
+    const sceneCheck = shotSceneContextStillCurrent(plan.sceneContext,sh,sourceCtx);
+    if(!sceneCheck.ok) throw new Error(sceneCheck.reason||"Scene screenplay changed before render; nothing was rendered.");
+  }
+  if(_ep!=null && typeof nbEpoch==="function" && nbEpoch()!==_ep)
+    throw new Error("Film changed before render; nothing was rendered.");
   /* Legacy character sheets have no canonical snapshot and canon-changed sheets
      are explicitly stale.  Do not silently pass one through the shot pipeline. */
   if(typeof window.nbAssertIdentityAssetFresh==="function"){
@@ -1794,11 +1866,14 @@ async function generateShotFrame(sh, sceneShots, ctx, opts){
   }
   // buildShotPrompt now emits the STYLE SPINE + staging + the named reference stack itself
   // (it reads ctx.carriedForward + ctx.prevFrameRole), so we don't re-list references here.
+  const rankedRefs = (typeof nbPreferBestAssetRefs==="function") ? nbPreferBestAssetRefs(refs) : refs;
   const _ordAll = (typeof sceneShotsOrdered==="function") ? sceneShotsOrdered(sceneShots) : (sceneShots||[]);
   const _selfIdx = _ordAll.findIndex(x=>x.id===sh.id);
   ctx = { ...ctx, carriedForward: plan.carriedForward,
     laterShots: _selfIdx>=0 ? _ordAll.slice(_selfIdx+1) : [],
-    prevFrameRole: !!seed, prevShot:seed?prevSh:null };
+    prevFrameRole: !!seed, prevShot:seed?prevSh:null,
+    resolvedRefs:rankedRefs,
+    sceneContext:plan.sceneContext };
   let prompt = combinedShotPrompt(sh, ctx);
   if(opts.correction) prompt += "\n\nCORRECTIONS (the previous attempt failed visual QC): "+opts.correction.replace(/\.$/,"")+".";
   const identityPrompt = identityCast.length && typeof window.turnIdentityPrompt==="function"
@@ -1812,13 +1887,25 @@ async function generateShotFrame(sh, sceneShots, ctx, opts){
     identityCharacterIds:plan.inCast||[], identityCast, identityContext,
   };
   if(seed) gopts.referenceImage = seed;
-  const rankedRefs = (typeof nbPreferBestAssetRefs==="function") ? nbPreferBestAssetRefs(refs) : refs;
+  gopts.extraImageMaxDims = rankedRefs.map(r=>r&&r.assetRole==="screenplay_context" ? 1536 : 768);
   if(rankedRefs.length) gopts.extraImages = rankedRefs.map(r=>r.url);
   if(typeof window.nbAssertMediaIdentity==="function")
     window.nbAssertMediaIdentity(gopts,"shot-before-submit");
+  if(plan.sceneContext && typeof shotSceneContextStillCurrent==="function"){
+    const finalSceneCheck = shotSceneContextStillCurrent(plan.sceneContext,sh,sourceCtx);
+    if(!finalSceneCheck.ok) throw new Error(finalSceneCheck.reason||"Scene screenplay changed before render; nothing was rendered.");
+  }
+  if(_ep!=null && typeof nbEpoch==="function" && nbEpoch()!==_ep)
+    throw new Error("Film changed before render; nothing was rendered.");
   const url = await nbGenerate(prompt, gopts);
   if(typeof window.nbAssertMediaIdentity==="function")
     window.nbAssertMediaIdentity(gopts,"shot-after-provider");
+  if(plan.sceneContext && typeof shotSceneContextStillCurrent==="function"){
+    const postSceneCheck = shotSceneContextStillCurrent(plan.sceneContext,sh,sourceCtx);
+    if(!postSceneCheck.ok) throw new Error(postSceneCheck.reason||"Scene screenplay changed after render; result discarded.");
+  }
+  if(_ep!=null && typeof nbEpoch==="function" && nbEpoch()!==_ep)
+    throw new Error("Film changed after render; result discarded.");
   const now = new Date();
   const prior = (typeof nbGetMeta==="function") ? (nbGetMeta(sh.id)||{}) : {};
   const advancedCamera = (typeof shotCameraMetadata==="function") ? shotCameraMetadata(sh) : null;
@@ -1842,12 +1929,20 @@ async function generateShotFrame(sh, sceneShots, ctx, opts){
     assetRole:"shot_anchor", assetRoleLabel:(typeof nbAssetRoleLabel==="function") ? nbAssetRoleLabel("shot_anchor") : "Shot anchor",
     advancedCamera,
     sourceReferences:rankedRefs.map(r=>({ refId:r.refId||"", note:r.note||"", assetRole:r.assetRole||"", assetSourceQuality:r.assetSourceQuality||"" })),
+     sceneContext:plan.sceneContext ? {
+       sceneId:plan.sceneContext.sceneId, sourceRev:plan.sceneContext.sourceRev,
+       targetBeat:plan.sceneContext.targetBeat, pages:plan.sceneContext.pages||0,
+       renderedPages:plan.sceneContext.renderedPages||0, omittedPages:plan.sceneContext.omittedPages||0,
+       omissions:(plan.sceneContext.omissions||[]).slice()
+     } : null,
     writingSources:shotWritingSources(sh,ctx),
     promptCompiler:"TURN prompt compiler",
     date:now.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}),
     time:now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}), iso:now.toISOString(),
     version:((prior.version||0)+1), ...(opts.correction?{editInstruction:opts.correction}:{}) };
   const r = (typeof nbCommit==="function") ? await nbCommit(sh.id, url, meta, [], "shot", _ep) : null;
+  if(r && (r.tier==="stale" || r.tier==="cancelled" || r.tier==="cancellation-error" || r.tier==="error"))
+    throw new Error("Shot render was discarded during persistence ("+r.tier+"); no frame was installed.");
   const committed = (r && r.url) || url;
   try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id:sh.id, url:committed } })); }catch(e){}
   return committed;

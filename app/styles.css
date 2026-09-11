@@ -458,10 +458,11 @@ html[data-theme="light"] .seg-attn-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .char-row.sel::before{content:"";position:absolute;left:-1px;top:50%;transform:translateY(-50%);width:2px;height:18px;background:var(--pos);border-radius:2px}
 .char-row{position:relative}
 
-/* Shots — screenplay-first opening-keyframe cards. These intentionally sit on
-   top of the established Art Room card language rather than introducing a new
-   layout system. */
-.opening-beat-card .beat-card-head{align-items:center}
+/* Shots — screenplay-first opening-keyframe cards live inside the actual
+   production sheet card; no outer beat-card, preview, or collapsed editor. */
+.shot-card .shot-beat-context{margin:0 0 11px}
+.shot-beat-context-head{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:8px}
+.shot-beat-context-head .beat-lane-no{margin-right:auto}
 .beat-opening-chip{display:inline-flex;align-items:center;min-height:20px;padding:2px 7px;border-radius:999px;
   background:var(--pos-soft);border:1px solid var(--pos-line);color:var(--pos);font-family:var(--f-mono);
   font-size:9px;font-weight:700;letter-spacing:.07em;text-transform:uppercase}
@@ -476,16 +477,16 @@ html[data-theme="light"] .seg-attn-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .bc-cast-line{margin:0 11px 8px;padding-top:7px;border-top:1px solid var(--line);font-size:11px;color:var(--txt-1)}
 .bc-cast-line b{font-family:var(--f-mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--txt-2)}
 .bc-cast-line.remote{color:var(--txt-2)}
-.bc-primary{margin-top:11px}
 .bc-opening-empty{margin-top:11px;padding:12px;border:1px dashed var(--line-3);border-radius:8px;color:var(--txt-2);font-size:12px;line-height:1.5}
 .bc-stale{margin:0 0 7px;padding:8px 10px;border-radius:7px;background:var(--pos-soft);border:1px solid var(--pos-line);color:var(--txt-1);font-size:11px;line-height:1.4}
 .bc-unverified{margin:0 0 7px;padding:8px 10px;border-radius:7px;background:var(--neg-soft);border:1px solid var(--neg-line);color:var(--txt-1);font-size:11px;line-height:1.4}
-.bc-alternatives{padding-bottom:5px}
-.bc-alternatives .bc-shot-row{margin:0 6px 5px}
-.bc-alternatives .bc-shot-expand{margin:0 6px 7px}
+.bc-alt-picker{display:flex;align-items:center;gap:8px;margin-top:9px;color:var(--txt-2);font-family:var(--f-mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase}
+.bc-alt-picker select{min-width:0;flex:1;background:var(--bg-3);border:1px solid var(--line-2);border-radius:6px;color:var(--txt-1);padding:6px 8px;font:500 11px var(--f-ui);text-transform:none;letter-spacing:0}
+.opening-beat-empty{min-height:170px}
 @media(max-width:640px){
-  .opening-beat-card .beat-card-head{gap:6px}
-  .opening-beat-card .beat-lane-btn{font-size:10.5px;padding-inline:8px}
+  .shot-beat-context-head{gap:6px}
+  .shot-beat-context-head .beat-lane-btn{font-size:10.5px;padding-inline:8px}
+  .bc-alt-picker select{max-width:100%}
 }
 .char-drives{flex:0 0 auto;font-family:var(--f-mono);font-size:10px;font-weight:700;color:var(--txt-3);
   min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--bg-3);display:grid;place-items:center}

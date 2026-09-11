@@ -345,13 +345,17 @@ Each entity gets a canonical, reusable reference so every generated image stays 
   never forced into a box. **Draft staging** fills the grid from the script; when the grid has content it
   feeds the plate prompt as spatially-explicit depth language (so images get true fg/mid/bg separation).
   The grid is the **canonical landmark layer a location owns**; Shots inherit and vary it.
-- **Shot List (the convergence tab).** One beat → one **opening keyframe**, presented in its own beat card.
+- **Shot List (the convergence tab).** One beat → one **opening keyframe**, represented directly by a standalone
+  image-generation sheet card, like Characters, Props, Locations and Lookbook—not an editor nested inside another Beat card.
   **"Draft all shots"** uses beat boundaries and the actual screenplay to frame the beat's starting situation, giving each
   shot a **size · angle · move · lens**, the subject(s)/prop(s) in frame, an action line, an editable
   **composition** note and any dialogue. Shots are **grouped by scene** (per-scene Re-draft / Add shot / Generate
   scene); "Draft all shots" is **non-destructive** (only breaks down scenes that have none yet).
   Text senders, callers, voicemail/voice-over speakers and merely mentioned people are not automatically
   on-screen characters. Cards distinguish visual presence from remote participation and expose the screenplay source.
+  Full-scene screenplay text and screenplay-page images supply background context, with the target beat identified.
+  These are reading references, not visual compositions or extra cast to copy; the target beat's opening frame remains
+  authoritative. Visual identity/location references retain priority, and omitted screenplay pages are disclosed.
   **"Update from screenplay"** keeps the primary shot's ID and image history; after confirmation, additional
   coverage moves to restorable Shots Trash without deleting images or takes. The full beat remains available
   to Stage as motion/dialogue context; it is not compressed into the still or expanded into automatic microbeat shots.

@@ -1,9 +1,9 @@
 ---
 name: Image-gen prompt overrides
-description: Overriding the frame prompt for useImageGen must cover every builder the hook can call
+description: User-edited prompts must survive all builders and later attachment-driven rewrites.
 ---
-The shared image-gen hook has THREE prompt entry points: buildFinal (fresh render), buildFromBase (seeded/chained render), and buildSimple (the automatic "no image" recovery retry). Any surface that substitutes a user-edited prompt must override ALL three.
+An explicit user-edited prompt must remain authoritative throughout prompt construction: fresh, seeded and simple builders, plus any later rewrite after reference images are resolved.
 
-**Why:** review-caught bug (2026-09-03, Stage Image tab): only buildFinal/buildFromBase were overridden, so a failed render's automatic retry silently re-generated from the derived shot prompt — spending credits on a prompt the user never asked for.
+**Why:** The initial Stage override missed the simple recovery path. Later, an inherited attachment-driven rebuild replaced an edited prompt even when all three initial builders were covered. Either error spends credits on an automatic prompt rather than the user's requested prompt.
 
-**How to apply:** when wrapping the shared shot-frame config (shotFrameGenOpts) or any useImageGen opts with a conditional prompt substitution, grep the hook for every `opts.build*` call site and route each through the same edited-vs-derived decision.
+**How to apply:** When wrapping shared generation options, inspect every assignment to the final provider prompt, including callbacks inherited through object spreads. Route each through the same edited-versus-derived decision, and test the exact prompt received by the provider after attachments resolve—not just individual builder return values.

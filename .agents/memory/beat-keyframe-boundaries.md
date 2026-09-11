@@ -22,3 +22,9 @@ Test cross-room source contracts with the actual shared helper and shipped scrip
 Do not convert saved multi-shot beats during hydration or auto-repair. Explicit conversion must disclose what leaves the active sequence and preserve recovery.
 
 **Why:** Saved coverage can contain rendered/approved work and downstream takes. The change in default shot granularity does not authorize deleting those assets.
+
+Full-scene screenplay images are reading context, not visual compositions or additional cast references.
+
+**Why:** The full scene helps interpret an opening, but its later entrances and remote dialogue can also cause the image model to depict the wrong moment. A screenshot does not weaken the target beat's opening-presence restrictions.
+
+**How to apply:** Keep the complete scene text alongside any page images, identify the target beat, and preserve the opening-frame bindings. Canonical identity/location images take priority over optional screenplay pages; disclose page omissions rather than claiming the whole scene was pictured.

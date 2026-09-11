@@ -1538,9 +1538,15 @@ async function nbRunSheetGeneration(env, gopts){
       let attach = [];
       try{ attach = (await opts.attachments(gopts, mode)) || []; }catch(e){ attach = []; }
       attach = attach.filter(a=>a && a.url);
+      if(typeof opts.rebuildPromptAfterAttachments==="function"){
+        const rebuilt = opts.rebuildPromptAfterAttachments(attach, mode, gopts);
+        if(rebuilt) genPrompt = rebuilt;
+      }
       if(attach.length){
         attachList = attach;
         genOpts.extraImages = attach.map(a=>a.url);
+        genOpts.extraImageMaxDims = attach.map(a=>
+          a && a.assetRole==="screenplay_context" ? 1536 : (genOpts.referenceMaxDim||1024));
         attachCount = attach.length;
         const notes = attach.map(a=>a.note).filter(Boolean).join(", ");
         if(typeof opts.attachmentsText==="function"){
@@ -1559,6 +1565,8 @@ async function nbRunSheetGeneration(env, gopts){
        to THIS edit only — the instruction text names what to match. */
     if(isEditMode && Array.isArray(gopts.editRefImages) && gopts.editRefImages.length){
       genOpts.extraImages = (genOpts.extraImages||[]).concat(gopts.editRefImages);
+      genOpts.extraImageMaxDims = (genOpts.extraImageMaxDims||[]).concat(
+        gopts.editRefImages.map(()=>genOpts.referenceMaxDim||1024));
     }
 
     /* cameo face-lock: attach EVERY captured angle so the model has the most
@@ -1568,11 +1576,15 @@ async function nbRunSheetGeneration(env, gopts){
     if(mode==="cameo" && cameoAngles.length>1){
       /* primary angle is the reference image; the rest are extra views */
       genOpts.extraImages = (genOpts.extraImages||[]).concat(cameoAngles.slice(1));
+      genOpts.extraImageMaxDims = (genOpts.extraImageMaxDims||[]).concat(
+        cameoAngles.slice(1).map(()=>genOpts.referenceMaxDim||1024));
       genPrompt += " Additional reference images show the SAME person from other angles \u2014"
         + " use them to keep the face identical across views.";
     }
     if(cameoAngles.length && mode==="base"){
       genOpts.extraImages = (genOpts.extraImages||[]).concat(cameoAngles);
+      genOpts.extraImageMaxDims = (genOpts.extraImageMaxDims||[]).concat(
+        cameoAngles.map(()=>genOpts.referenceMaxDim||1024));
       genPrompt += " The additional reference image"+(cameoAngles.length>1?"s show":" shows")
         + " the character's locked facial likeness (a cameo"+(cameoAngles.length>1?", multiple angles":"")+")."
         + " Keep the FACE, bone structure and skin tone identical to this likeness; only the wardrobe,"
@@ -1610,9 +1622,19 @@ async function nbRunSheetGeneration(env, gopts){
           ...refVersion(baseRefId,(mode==="edit"||gopts.deriveFromCurrent)?genMeta:null) });
       }
     }
-    attachList.forEach(a=>refsUsed.push({ kind:a.kind||"prop", label:a.note||"Reference image", url:a.url, refId:a.refId,
-      refVersion:a.refVersion||refVersion(a.refId).refVersion||null,
-      refGenerated:a.refGenerated||refVersion(a.refId).refGenerated||"" }));
+    attachList.forEach(a=>{
+      /* Screenplay-page refs are generated canvas pages, not project assets.
+         Keep their role/count visible in Details but never carry their data
+         URL into cloud/local reference persistence. */
+      if(a && a.ephemeral && a.persist===false){
+        refsUsed.push({ kind:a.kind||"screenplay_context", label:a.note||"Screenplay context page",
+          url:"", refId:a.refId, ephemeral:true });
+        return;
+      }
+      refsUsed.push({ kind:a.kind||"prop", label:a.note||"Reference image", url:a.url, refId:a.refId,
+        refVersion:a.refVersion||refVersion(a.refId).refVersion||null,
+        refGenerated:a.refGenerated||refVersion(a.refId).refGenerated||"" });
+    });
     // user-attached edit inputs (the "+" menu: uploads and prop sheets, incl. carried)
     // — recorded so Details › "Reference images used" tells the whole story of an edit
     if(isEditMode && Array.isArray(gopts.editRefMeta)){
@@ -1652,6 +1674,8 @@ async function nbRunSheetGeneration(env, gopts){
           : /rejected by the safety system|safety system|content polic|content_policy|moderation_blocked|flagged as potentially violating|image generation.*not allowed|violat(?:es|ing).*(?:policy|guidelines)/i.test(emsg);
         if(!useSimple && !isEditMode && /no image/i.test(emsg) && opts.buildSimple){
           setRetrying(true);
+           if(typeof opts.assertFreshBeforeFallback==="function")
+             await opts.assertFreshBeforeFallback({mode,prompt:genPrompt});
           if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-simple-retry");
           url = await nbGenerate(withIdentity(opts.buildSimple()), genOpts);
           if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-after-simple-retry");
@@ -1664,6 +1688,8 @@ async function nbRunSheetGeneration(env, gopts){
           setRetrying(true);
           policyFellBack = gModel.label || "Nano Banana";
           actualModel = gModel.id;
+           if(typeof opts.assertFreshBeforeFallback==="function")
+             await opts.assertFreshBeforeFallback({mode,prompt:genPrompt,model:gModel.id});
            if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-policy-fallback");
           url = await nbGenerate(genPrompt, { ...genOpts, model:gModel.id });
            if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-after-policy-fallback");
@@ -1672,6 +1698,7 @@ async function nbRunSheetGeneration(env, gopts){
       // cancelled mid-flight (Stop) or superseded by a newer run for this id:
       // discard the result — don't commit over the frame.
       if(_cancelledNow()) throw { __cancelled:true };
+      if(typeof opts.assertPostGenerate==="function") await opts.assertPostGenerate({mode,url,prompt:genPrompt});
       // Record the actual returned pixels as well as the requested resolution tier.
       // Providers can return dimensions that differ slightly from the nominal tier.
       const outputDims = await nbImageDimensions(url);
@@ -1752,8 +1779,10 @@ async function nbRunSheetGeneration(env, gopts){
       // character sheet's baked worn-prop signature) — powers the staleness badges
       if(typeof opts.metaExtra==="function"){
         try{ const extra = await opts.metaExtra({ mode, refsUsed, prompt: genPrompt });
-          if(extra && typeof extra==="object") Object.assign(meta, extra); }catch(e){}
+          if(extra && typeof extra==="object") Object.assign(meta, extra); }
+        catch(e){ if(e && e.sceneContextStale) throw e; }
       }
+      if(typeof opts.assertPostGenerate==="function") await opts.assertPostGenerate({mode,url,prompt:genPrompt});
       if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-before-commit");
       // re-check cancel/ownership after the async meta work — a cancelled or
       // superseded generate must never commit
