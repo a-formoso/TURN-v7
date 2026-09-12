@@ -140,6 +140,7 @@ function CharacterOrbitModal({character,project,readOnly,canWrite,onClose}) {
   const qualityOK=!gpt||typeof nbCanUseImageQuality!=="function"||nbCanUseImageQuality(settings.model,settings.quality);
   const capMessage=gpt&&typeof nbImageQualitySupport==="function"?nbImageQualitySupport(settings.model).message:"";
   const completed=characterOrbitSavedCount(run);
+  const needsPreview=completed===0;
   const remaining=288-completed;
   const totalQuote=api.quote(chosen,288);
   const remainingQuote=remaining?api.quote(chosen,remaining):{credits:0};
@@ -159,26 +160,28 @@ function CharacterOrbitModal({character,project,readOnly,canWrite,onClose}) {
     const snapshot={character:JSON.parse(JSON.stringify(character)),project:JSON.parse(JSON.stringify(project||{})),
       pose:String(pose),settings:{...settings}};
     const existing=run;
-    const count=existing?remaining:1;
-    const estimate=existing?remainingQuote:previewQuote;
+    const count=needsPreview?1:remaining;
+    const estimate=needsPreview?previewQuote:remainingQuote;
     live.current.action=true;live.current.stopRequested=false;live.current.stopSentTo=null;
     setBusy(true);setError("");clearDownloads();
     try{
       const agreed=await window.appConfirm({
-        title:existing?"Draw "+count+" remaining orbit frames?":"Draw the first pose frame?",
-        body:existing
+        title:needsPreview?"Draw the first pose frame?":"Draw "+count+" remaining orbit frames?",
+        body:!needsPreview
           ?"Keep the exact pose, identity and outfit from frame 1 while drawing every remaining camera angle. "
             +creditText(estimate)+". This is a baseline estimate, not a fixed provider quote. "
             +"An interrupted request may already have been charged without saving an image; resuming can charge again for that missing frame. "
             +"Keep this tab visible. Stop finishes and saves the current frame before pausing."
           :"Draw 1 of 288 frames for "+(character.name||"this character")+" to review the pose. "
             +creditText(estimate)+" for this first frame; "+creditText(totalQuote)+" for the full sequence at these settings. "
-            +"These are baseline estimates, not fixed quotes. The other 287 frames only start after your approval. Existing artwork is kept.",
-        confirmLabel:existing?"Draw "+count+" frames":"Draw pose preview",cancelLabel:"Not now",
+            +"These are baseline estimates, not fixed quotes. The other 287 frames only start after your approval. Existing artwork is kept."
+            +(existing?" If an earlier preview request was interrupted, it may already have been charged; retrying that missing image can charge again.":""),
+        confirmLabel:needsPreview?"Draw pose preview":"Draw "+count+" frames",cancelLabel:"Not now",
       });
       if(agreed!==true||!canWriteForRun()||live.current.stopRequested) return;
       const result=existing
-        ?await api.resume(existing.id,{canWrite:canWriteForRun,confirmed:true,acknowledgeUncertain:true})
+        ?await api.resume(existing.id,{canWrite:canWriteForRun,confirmed:!needsPreview,
+          acknowledgeUncertain:true,retryFailed:true})
         :await api.create({...snapshot,canWrite:canWriteForRun});
       if(live.current.mounted&&result){setRun(result);syncTake(result);}
     }catch(e){if(live.current.mounted)setError(e.message||"Orbit generation stopped.");}
@@ -276,12 +279,13 @@ function CharacterOrbitModal({character,project,readOnly,canWrite,onClose}) {
                 try{await nbRefreshImageQualityCapabilities({force:true});setCapsTick(t=>t+1);}catch(e){setError(e.message);}
               }},"Retry availability")),
             h("div",{className:"orbit-cost"},
-              h("strong",null,creditText(run?remainingQuote:totalQuote)),
-              h("span",null,run?remaining+" frames remaining":"Full 288-frame baseline estimate"),
+              h("strong",null,creditText(run?(needsPreview?previewQuote:remainingQuote):totalQuote)),
+              h("span",null,run?(needsPreview?"Pose preview · 1 frame":remaining+" frames remaining"):"Full 288-frame baseline estimate"),
+              run&&needsPreview&&h("small",null,"Full 288-frame baseline estimate: "+creditText(totalQuote)),
               h("small",null,"Actual provider costs vary. No charge to view or export saved frames.")),
             h("div",{className:"orbit-progress","aria-live":"polite"},
               h("div",null,h("strong",null,completed+" / 288")," frames saved",
-                h("span",null,full?"Complete":busy?"Drawing…":run?"Paused for review":"Ready to start")),
+                h("span",null,full?"Complete":busy?"Drawing…":run?(needsPreview?"Preview not drawn":"Paused for review"):"Ready to start")),
               h("progress",{value:completed,max:288,"aria-label":"Orbit frames saved"})),
             !ownsFilm()&&h("div",{className:"orbit-error",role:"alert"},"The active film changed. Close this panel and reopen an orbit in that film."),
             (error||run?.error)&&h("div",{className:"orbit-error",role:"alert"},error||run.error),
@@ -291,7 +295,8 @@ function CharacterOrbitModal({character,project,readOnly,canWrite,onClose}) {
             }},
               "Stop after current frame"):
               !full&&h("button",{className:"orbit-primary",disabled:!canStart,onClick:render},
-                run?(completed===1?"Approve pose & draw 287 frames":"Resume · "+remaining+" frames"):"Draw pose preview · 1 frame"),
+                needsPreview?(run?"Retry pose preview · 1 frame":"Draw pose preview · 1 frame"):
+                  completed===1?"Approve pose & draw 287 frames":"Resume · "+remaining+" frames"),
             h("p",{className:"orbit-note"},"Use a saved character sheet as the identity reference. Keep this tab visible during drawing and video export. Leaving pauses the run; saved frames remain available."),
             h("div",{className:"orbit-export"},
               h("h3",null,"Export"),

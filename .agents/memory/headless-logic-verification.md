@@ -34,3 +34,9 @@ Real UI plus real runtime is still insufficient when fixtures supply fields the 
 **Why:** An orbit browser test injected a persisted film id into story metadata. It passed the full simulated generation flow while the actual card could not start even its first preview.
 
 **How to apply:** Match the production producer's input shape and separate context sources, not the consumer's desired shape. Include missing-field cases for optional metadata; never manufacture required identifiers merely to make a fixture run.
+
+Asset-copy tests must cover both cold signed URLs and warm browser blob URLs through the real upload adapter, not only newly generated inline images.
+
+**Why:** A loader's display URL is not necessarily a valid upload payload. Inline-only inputs and mocked successful commits hid an orbit source-copy failure before the first paid render.
+
+**How to apply:** Keep the loader, conversion, upload and commit contracts real; substitute only the external transport. Verify exact copied bytes, durable readback, failure details and zero generation when source preparation fails.

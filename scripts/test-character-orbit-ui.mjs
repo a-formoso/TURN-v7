@@ -571,10 +571,10 @@ async function main(){
       __fixture.confirmMode="reject";
       __fixture.real={
         originalId:"character-ada",
-        originalMaster:"data:image/svg+xml;charset=utf-8,"+encodeURIComponent(
+        originalMaster:"data:image/svg+xml;base64,"+btoa(
           '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="400"><rect width="320" height="400" fill="#18252d"/><circle cx="160" cy="170" r="86" fill="#d9b779"/></svg>'
         ),
-        assets:new Map(),commits:[],generateCalls:[],beforeSubmitCalls:[]
+        assets:new Map(),commits:[],generateCalls:[],beforeSubmitCalls:[],sourceSaveFailures:1
       };
       __fixture.real.assets.set(__fixture.real.originalId,__fixture.real.originalMaster);
       nbBackend=()=> "local";
@@ -586,6 +586,10 @@ async function main(){
       nbLoadImage=async id=>__fixture.real.assets.get(String(id))||"";
       nbGetImage=id=>__fixture.real.assets.get(String(id))||"";
       nbCommit=async(id,value,meta,refs,kind,epoch,beforeCommit)=>{
+        if(meta?.kind==="character-orbit-source-snapshot"&&__fixture.real.sourceSaveFailures>0){
+          __fixture.real.sourceSaveFailures--;
+          return {tier:"error",error:"Storage reservation denied in fixture"};
+        }
         __fixture.real.commits.push({id:String(id),kind:String(kind||""),meta:meta||{},value});
         __fixture.real.assets.set(String(id),value);
         return {tier:"saved",id:String(id)};
@@ -632,12 +636,26 @@ async function main(){
 
     await cdp.eval("__fixture.confirmMode='accept'");
     await evalClickText("Draw pose preview · 1 frame");
+    await waitFor(()=>cdp.eval("document.querySelector('.orbit-error')?.textContent.includes('Storage reservation denied')"),"source storage error is visible");
+    assert.equal(await cdp.eval("__fixture.real.generateCalls.length"),0,"source-save failure makes no paid request");
+    assert.equal(await cdp.eval("!![...document.querySelectorAll('.orbit-modal button')].find(button=>button.textContent.trim()==='Retry pose preview · 1 frame')"),true,
+      "a failed source retries only the unseen first frame, not a 288-frame batch");
+    assert.match(await cdp.eval("document.querySelector('.orbit-cost').textContent"),/Pose preview · 1 frame/);
+    const failedRunId=await cdp.eval("CharacterOrbit.list('character-ada').then(rows=>rows[0].id)");
+    await closeModal();
+    await clickNormal();
+    await waitFor(()=>cdp.eval("document.querySelector('.orbit-error')?.textContent.includes('Storage reservation denied')"),"source failure survives reopening");
+    await evalClickText("Retry pose preview · 1 frame");
     await waitFor(()=>cdp.eval("__fixture.real.generateCalls.length===1&&document.querySelector('.orbit-progress')?.textContent.includes('1 / 288')"),"real-runtime frame-0 preview");
     await waitFor(()=>cdp.eval("!![...document.querySelectorAll('.orbit-modal button')].find(button=>button.textContent.trim()==='Approve pose & draw 287 frames')"),"real-runtime first approval settles");
     assert.equal(await cdp.eval("__fixture.real.generateCalls[0].index"),0,
       "real runtime's first paid call is frame 0 only");
-    assert.equal(await cdp.eval("__fixture.real.commits.filter(item=>item.kind==='orbit-source').length"),1,
+    assert.equal(await cdp.eval("__fixture.real.commits.filter(item=>item.meta.kind==='character-orbit-source-snapshot').length"),1,
       "real runtime commits one immutable master snapshot");
+    assert.equal(await cdp.eval("CharacterOrbit.list('character-ada').then(rows=>rows[0].id)"),failedRunId,
+      "retry recovers the same take rather than making a replacement");
+    assert.equal(await cdp.eval("__fixture.confirmCalls.at(-1).title"),"Draw the first pose frame?",
+      "retry confirmation buys only the first preview");
 
     await evalClickText("Approve pose & draw 287 frames");
     try {
@@ -663,14 +681,14 @@ async function main(){
         savedFrames:run.frames?.length,
         completed:run.completed,
         projectId:run.projectId,
-        frameCommits:__fixture.real.commits.filter(item=>item.kind==="orbit-frame").length,
+        frameCommits:__fixture.real.commits.filter(item=>item.meta.kind==="character-orbit-frame").length,
         masterUnchanged:__fixture.real.assets.get(__fixture.real.originalId)===__fixture.real.originalMaster,
         exportImagesDisabled:[...document.querySelectorAll(".orbit-export button")]
           .find(button=>button.textContent.trim()==="Images ZIP")?.disabled
       };
     })()`);
-    assert.equal(realSummary.confirmations.length,3,"real runtime gets one rejected and two explicit approval confirmations");
-    assert.match(realSummary.confirmations[2],/287/,"real runtime's second approval names 287 remaining frames");
+    assert.equal(realSummary.confirmations.length,4,"real runtime gets rejected preview, failed setup, preview retry, and batch approval");
+    assert.match(realSummary.confirmations[3],/287/,"only approval after a saved preview names 287 remaining frames");
     assert.equal(realSummary.generateCount,288,"real runtime makes exactly 288 paid-generation adapter calls");
     assert.equal(realSummary.beforeSubmitCount,288,"every real paid call executes beforeSubmit");
     assert.equal(realSummary.firstIndex,0,"real runtime starts at frame 0");

@@ -332,12 +332,72 @@
    * private, immutable orbit-source slot is committed once before the first
    * paid request and all later runs read that slot instead.
    */
+  function sourceSnapshotError(error) {
+    return String((error && error.message) || error || "Character orbit snapshot failed.")
+      .replace(/\b(?:https?|blob|data):\/\/?[^\s"'<>]+/ig, "[redacted-url]");
+  }
+
+  async function sourceSnapshotDataUrl(value) {
+    var source = asString(value);
+    if (/^data:image\/[^;]+;base64,/i.test(source)) return source;
+    if (!/^(?:https?:|blob:)/i.test(source)) {
+      throw new OrbitError(
+        "The orbit's master image is not available as readable image bytes.",
+        "ORBIT_SOURCE_BYTES_FAILED"
+      );
+    }
+    if (typeof root.fetch !== "function" || typeof root.FileReader !== "function") {
+      throw new OrbitError(
+        "The orbit's master image could not be read as image bytes in this browser.",
+        "ORBIT_SOURCE_BYTES_FAILED"
+      );
+    }
+    try {
+      var response = await root.fetch(source);
+      if (!response || !response.ok) {
+        throw new Error("master image download returned HTTP " +
+          String(response && response.status || "error"));
+      }
+      var blob = typeof response.blob === "function" ? await response.blob() : null;
+      if (!blob || !blob.size || !/^image\//i.test(blob.type || "")) {
+        throw new Error("master image download did not return a valid image");
+      }
+      var dataUrl = await new Promise(function (resolve, reject) {
+        var reader = new root.FileReader();
+        reader.onload = function () { resolve(reader.result); };
+        reader.onerror = function () { reject(reader.error || new Error("image bytes could not be read")); };
+        reader.readAsDataURL(blob);
+      });
+      if (!/^data:image\/[^;]+;base64,/i.test(String(dataUrl || ""))) {
+        throw new Error("master image bytes could not be converted to an image data URL");
+      }
+      return String(dataUrl);
+    } catch (error) {
+      if (error && error.code === "ORBIT_SOURCE_BYTES_FAILED") throw error;
+      throw new OrbitError(
+        "The orbit's master image could not be read as image bytes: " + sourceSnapshotError(error),
+        "ORBIT_SOURCE_BYTES_FAILED",
+        { cause: error }
+      );
+    }
+  }
+
   async function captureSourceSnapshot(run, originalUrl) {
     var snapshotId = sourceSnapshotId(run.manifest.id);
     await requireCanWrite(run, "source-snapshot-precommit");
+    var snapshotData;
+    try {
+      snapshotData = await sourceSnapshotDataUrl(originalUrl);
+    } catch (e) {
+      throw new OrbitError("The orbit's immutable master snapshot could not be prepared: " +
+        sourceSnapshotError(e), "ORBIT_SOURCE_SNAPSHOT_FAILED", { cause: e });
+    }
+    assertScope(run, "source-snapshot-after-bytes");
+    await requireCanWrite(run, "source-snapshot-after-bytes");
+    wakeAndRejectStop(run);
     var saved;
     try {
-      saved = await root.nbCommit(snapshotId, originalUrl, {
+      saved = await root.nbCommit(snapshotId, snapshotData, {
         kind: "character-orbit-source-snapshot",
         orbitRunId: run.manifest.id,
         characterId: run.manifest.characterId,
@@ -353,17 +413,17 @@
         sourceEntityId: run.originalSourceId,
         assetRole: "character_master",
         note: "Original generated master captured for this orbit"
-      }], "orbit-source", run.epoch, function () { return liveCommitCancelled(run); });
+      }], "character", run.epoch, function () { return liveCommitCancelled(run); });
     } catch (e) {
-      throw new OrbitError("The orbit's immutable master snapshot could not be saved: " + stringifyError(e),
+      throw new OrbitError("The orbit's immutable master snapshot could not be saved: " + sourceSnapshotError(e),
         "ORBIT_SOURCE_SNAPSHOT_FAILED", { cause: e });
     }
     assertScope(run, "source-snapshot-after-commit");
     await requireCanWrite(run, "source-snapshot-postcommit");
     if (!isDurableCommit(saved)) {
-      throw new OrbitError("The orbit's immutable master snapshot was not confirmed.", "ORBIT_SOURCE_SNAPSHOT_FAILED", {
-        commit: saved
-      });
+      var saveDetail = saved && saved.error ? " " + sourceSnapshotError(saved.error) : "";
+      throw new OrbitError("The orbit's immutable master snapshot was not confirmed." + saveDetail,
+        "ORBIT_SOURCE_SNAPSHOT_FAILED", { commit: saved });
     }
     run.sourceId = snapshotId;
     var priorReference = run.manifest.sourceReference || {};
@@ -386,7 +446,37 @@
     var ref = run.manifest.sourceReference || {};
     var snapshotId = asString(ref.snapshotId || (ref.role === "character-master-snapshot" ? ref.id : ""));
     if (!snapshotId) {
-      throw new OrbitError("This orbit has no immutable master snapshot; refusing to read the live character slot.", "ORBIT_SOURCE_SNAPSHOT_MISSING");
+      // A source-save failure precedes any paid preview. Such a take can retry
+      // setup under its lease, but a take that has already rendered must never
+      // substitute a newer live master for its frozen source.
+      if (run.manifest.frames.length || !run.internal.sourceSnapshotPending ||
+          run.internal.uncertainIndex != null) {
+        throw new OrbitError("This orbit has no immutable master snapshot; refusing to read the live character slot.", "ORBIT_SOURCE_SNAPSHOT_MISSING");
+      }
+      await requireCanWrite(run, "source-snapshot-recovery");
+      if (run.stopRequested || (root.document && root.document.hidden)) throw new OrbitStop();
+      snapshotId = sourceSnapshotId(run.manifest.id);
+      var existing;
+      try { existing = await root.nbLoadImage(snapshotId); }
+      catch (error) {
+        throw new OrbitError("The saved orbit reference could not be checked. Retry when storage is available.",
+          "ORBIT_REFERENCE_LOAD_FAILED", { cause: error });
+      }
+      await requireCanWrite(run, "source-snapshot-recovery-load");
+      if (run.stopRequested || (root.document && root.document.hidden)) throw new OrbitStop();
+      if (existing) {
+        // Reuse these exact bytes, not a newer live master. Re-confirm the
+        // durable write because a loader can also return a memory-only image
+        // left behind by an unsuccessful save.
+        return captureSourceSnapshot(run, existing);
+      }
+      var original = await loadImage(run.originalSourceId, run, "source-snapshot-retry-master");
+      await requireCanWrite(run, "source-snapshot-retry-master");
+      if (typeof root.nbGetMeta === "function") {
+        var latestMeta = root.nbGetMeta(run.originalSourceId);
+        run.manifest.sourceReference.snapshot = latestMeta ? canonClean(clone(latestMeta)) : null;
+      }
+      return captureSourceSnapshot(run, original);
     }
     var frozen = await loadImage(snapshotId, run, "source-snapshot-load");
     run.sourceId = snapshotId;
@@ -1108,7 +1198,7 @@
     try {
       await requireCanWrite(run, "frame-pre-commit");
       commit = await root.nbCommit(frameAssetId, generated, meta, referenceMeta(run, index > 0),
-        "orbit-frame", run.epoch, function () { return liveCommitCancelled(run); });
+        "character", run.epoch, function () { return liveCommitCancelled(run); });
     } catch (e) {
       throw new OrbitError("Orbit frame " + index + " could not be committed: " + stringifyError(e),
         "ORBIT_COMMIT_FAILED", { cause: e, uncertain: true, frameIndex: index });
@@ -1170,6 +1260,7 @@
         run.manifest.status = "awaiting-confirmation";
         run.manifest.error = null;
         run.internal.uncertainIndex = null;
+        run.internal.confirmed = false;
         await persist(run, "frame-0-saved-after-reload");
         emit(run, "review", { frameIndex: 0, angle: 0 });
         return publicManifest(run.manifest);
@@ -1265,7 +1356,8 @@
         run.manifest.status === "complete") return publicManifest(run.manifest);
     var needsFirstFrameConfirmation = run.manifest.frames.length === 1 &&
       !run.internal.confirmed && !run.manifest.complete;
-    if ((run.manifest.status === "awaiting-confirmation" || needsFirstFrameConfirmation) &&
+    if (run.manifest.frames.length > 0 &&
+        (run.manifest.status === "awaiting-confirmation" || needsFirstFrameConfirmation) &&
         options.confirmed !== true &&
         !run.internal.confirmed) {
       throw new OrbitError("Review frame 0 and explicitly confirm before rendering the remaining 287 frames.", "ORBIT_CONFIRMATION_REQUIRED");
@@ -1278,7 +1370,10 @@
       throw new OrbitError("The orbit stopped after a " + (run.internal.fatalKind || "save") +
         " failure. Retry only after resolving it and explicitly requesting retryFailed.", "ORBIT_FAILED_RETRY_REQUIRED");
     }
-    if (options.confirmed === true) {
+    if (!run.manifest.frames.length) {
+      // Consent to retry an unseen preview cannot pre-approve the other 287.
+      run.internal.confirmed = false;
+    } else if (options.confirmed === true) {
       run.internal.confirmed = true;
     }
     if (run.internal.uncertainIndex != null &&
@@ -1434,6 +1529,10 @@
           try { await persist(run, "stopped"); } catch (e) {}
           emit(run, "stopped");
           return publicManifest(run.manifest);
+        }
+        if (run.manifest.status !== "error" && run.manifest.status !== "uncertain") {
+          markFailure(run, error, 0);
+          try { await persist(run, "source-setup-failure"); } catch (e) {}
         }
         throw error;
       }

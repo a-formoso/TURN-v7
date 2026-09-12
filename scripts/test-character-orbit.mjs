@@ -10,6 +10,10 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
 const source = readFileSync(new URL("../app/character-orbit.js", import.meta.url), "utf8");
+const syntheticImage = label => "data:image/svg+xml;base64," + Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><text>' +
+  label.replace(/[<>&]/g, "") + "</text></svg>"
+).toString("base64");
 
 function storage() {
   const data = new Map();
@@ -22,7 +26,7 @@ function storage() {
 }
 
 function harness(config = {}) {
-  const images = new Map([["char-1", "master-image"]]);
+  const images = new Map([["char-1", syntheticImage("master-image")]]);
   const prompts = [];
   const commits = [];
   const events = [];
@@ -91,7 +95,7 @@ function harness(config = {}) {
       if (generated === 1 && firstGate) await firstGate;
       const gate = frameGates.get(Number(opts.orbitFrameIndex));
       if (gate) await gate.promise;
-      const frame = "rendered-frame-" + opts.orbitFrameIndex;
+      const frame = syntheticImage("rendered-frame-" + opts.orbitFrameIndex);
       return frame;
     }
   };
@@ -150,7 +154,7 @@ function harness(config = {}) {
 function cloudHarness(shared) {
   const backend = shared || { rows: new Map(), revision: 0 };
   const rows = backend.rows;
-  const images = new Map([["cloud-char", "cloud-master"]]);
+  const images = new Map([["cloud-char", syntheticImage("cloud-master")]]);
   const sourceLoads = [];
   const commits = [];
   const prompts = [];
@@ -184,7 +188,7 @@ function cloudHarness(shared) {
       if (typeof opts.beforeSubmit === "function") await opts.beforeSubmit();
       const gate = frameGates.get(Number(opts.orbitFrameIndex));
       if (gate) await gate.promise;
-      return "cloud-rendered-" + opts.orbitFrameIndex;
+      return syntheticImage("cloud-rendered-" + opts.orbitFrameIndex);
     },
     nbCommit: async (id, data, meta, refs, kind, epoch) => {
       assert.equal(epoch, scope.epoch, "cloud frame commits must carry the captured film epoch");
@@ -318,16 +322,56 @@ assert.equal(loadingCloud.prompts.length, 0, "an unready cloud session cannot sp
 assert.equal(loadingCloud.commits.length, 0);
 
 const memorySource = harness({ commitTier: "memory" });
-memorySource.images.set("char-memory", "master-memory");
+memorySource.images.set("char-memory", syntheticImage("master-memory"));
 await assert.rejects(memorySource.api.create({
   character: { id: "char-memory", name: "Memory" },
   project: { id: "film-1" },
   canWrite: () => true
 }), (error) => error.code === "ORBIT_SOURCE_SNAPSHOT_FAILED");
 assert.equal(memorySource.prompts.length, 0, "memory-only source commits must fail before paid generation");
+const memoryRun = (await memorySource.api.list("char-memory"))[0];
+await assert.rejects(memorySource.api.resume(memoryRun.id, {
+  canWrite: () => true, confirmed: true, retryFailed: true, acknowledgeUncertain: true
+}), error => error.code === "ORBIT_SOURCE_SNAPSHOT_FAILED");
+assert.equal(memorySource.prompts.length, 0, "retry must not adopt a merely cached, non-durable snapshot");
+
+const failedSource = harness();
+failedSource.box.nbCommit = async () => ({ tier: "error", error: "Storage denied this upload" });
+await assert.rejects(failedSource.api.create({
+  character: { id: "char-1" }, project: { title: "Metadata only" }, canWrite: () => true
+}), /Storage denied this upload/);
+const failedTake = (await failedSource.api.list("char-1"))[0];
+assert.equal(failedTake.completed, 0);
+assert.equal(failedTake.status, "error");
+assert.match(failedTake.error, /Storage denied this upload/, "storage cause survives in the take");
+assert.equal(failedSource.prompts.length, 0);
+const recoveredSource = harness({ localStorage: failedSource.box.localStorage });
+const recoveredPreview = await recoveredSource.api.resume(failedTake.id, {
+  canWrite: () => true, confirmed: true, retryFailed: true, acknowledgeUncertain: true
+});
+assert.equal(recoveredPreview.id, failedTake.id, "reload retry recovers the existing take");
+assert.equal(recoveredPreview.completed, 1);
+assert.equal(recoveredPreview.status, "awaiting-confirmation");
+assert.equal(recoveredSource.prompts.length, 1, "source retry never buys a 288-frame batch");
+await assert.rejects(recoveredSource.api.resume(failedTake.id, { canWrite: () => true }),
+  error => error.code === "ORBIT_CONFIRMATION_REQUIRED",
+  "an earlier confirmation cannot pre-approve a newly rendered preview");
+
+const transientConfig = { commitTier: "memory" };
+const transientSource = harness(transientConfig);
+await assert.rejects(transientSource.api.create({
+  character: { id: "char-1" }, project: {}, canWrite: () => true
+}), error => error.code === "ORBIT_SOURCE_SNAPSHOT_FAILED");
+const transientTake = (await transientSource.api.list("char-1"))[0];
+transientSource.images.set("char-1", syntheticImage("newer-live-master"));
+transientConfig.commitTier = "local";
+const savedRetry = await transientSource.api.resume(transientTake.id, { canWrite: () => true });
+assert.equal(savedRetry.completed, 1);
+assert.equal(transientSource.prompts[0].opts.referenceImage, syntheticImage("master-image"),
+  "retry durably saves existing snapshot pixels, not the changed live master");
 
 const memoryFrame = harness({ commitTiers: ["local", "memory"] });
-memoryFrame.images.set("char-memory-frame", "master-memory-frame");
+memoryFrame.images.set("char-memory-frame", syntheticImage("master-memory-frame"));
 await assert.rejects(memoryFrame.api.create({
   character: { id: "char-memory-frame", name: "Memory Frame" },
   project: { id: "film-1" },
@@ -343,7 +387,7 @@ const brokenStorage = {
   clear() {}
 };
 const noDurableManifest = harness({ localStorage: brokenStorage });
-noDurableManifest.images.set("char-no-storage", "master-no-storage");
+noDurableManifest.images.set("char-no-storage", syntheticImage("master-no-storage"));
 await assert.rejects(noDurableManifest.api.create({
   character: { id: "char-no-storage", name: "No Storage" },
   project: { id: "film-1" },
@@ -408,7 +452,7 @@ const lastFrameCommit = h.commits.filter((commit) => commit.meta.kind === "chara
 assert.ok(lastFrameCommit.refs.some((ref) => ref.assetRole === "character_master"));
 assert.ok(lastFrameCommit.refs.some((ref) => ref.assetRole === "orbit_first_pose"));
 assert.ok(lastFrameCommit.meta.sourceReference.snapshotId.endsWith("-source"));
-assert.equal((await h.api.frame(first.id, 287)), "rendered-frame-287");
+assert.equal((await h.api.frame(first.id, 287)), syntheticImage("rendered-frame-287"));
 assert.equal((await h.api.get(first.id)).completed, 288);
 assert.equal((await h.api.get(first.id)).complete, true);
 assert.equal((await h.api.list("char-1")).length, 1);
@@ -416,7 +460,7 @@ assert.equal((await h.api.list("char-1")).length, 1);
 // The live commit callback is evaluated after an awaited upload checkpoint.
 // Revoking write permission there cancels persistence without allowing a
 // later paid frame.
-h.images.set("char-guard", "guard-master");
+h.images.set("char-guard", syntheticImage("guard-master"));
 const guarded = await h.api.create({
   character: { id: "char-guard", name: "Guarded" },
   project: { id: "film-1" },
@@ -450,7 +494,7 @@ assert.equal(listedAfterReload.length, 1, "reload should discover the metadata-o
 // Resume a genuinely incomplete run from a fresh runtime. The paid frame 1
 // call is held so Stop can settle it; reload then continues at frame 2 rather
 // than regenerating frame 0/1.
-h.images.set("char-2", "master-image-2");
+h.images.set("char-2", syntheticImage("master-image-2"));
 const partial = await h.api.create({
   character: { id: "char-2", name: "Mara", personality: "defiant" },
   project: { id: "film-1" },
@@ -487,11 +531,11 @@ assert.equal(resumed.frames[1].angle, 1.25);
 
 // Changing the live character slot after creation cannot change the frozen
 // source used by a resumed run.
-h.images.set("char-2", "MUTATED-LIVE-MASTER");
+h.images.set("char-2", syntheticImage("MUTATED-LIVE-MASTER"));
 const sourceUses = resumeAfterReload.prompts.filter((entry) =>
   entry.opts.orbitRunId === partial.id);
 assert.ok(sourceUses.length > 0);
-assert.ok(sourceUses.every((entry) => entry.opts.referenceImage === "master-image-2"),
+assert.ok(sourceUses.every((entry) => entry.opts.referenceImage === syntheticImage("master-image-2")),
   "resume must use immutable source bytes after the live master changes");
 
 // Cloud-shaped strict reads/CAS writes use the active project and uid, while
