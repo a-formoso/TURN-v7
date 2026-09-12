@@ -422,7 +422,7 @@ assert.equal(captured.model, FLARE);
 assert.equal(captured.quality, "max");
 assert.deepEqual(Array.from(captured.images), ["data:image/png;base64,REF"]);
 
-// Orbit jobs must never turn an ambiguous response loss into an automatic
+// Single-submission requests must never turn an ambiguous response loss into an automatic
 // second paid submission, nor rewrite a provider refusal.
 const guarded=makeBox();
 let guardedCalls=0;
@@ -430,7 +430,7 @@ guarded.sbClient=()=>({functions:{invoke:async()=>{
   guardedCalls++;
   return {data:null,error:new Error("Failed to send a request: network error")};
 }}});
-await assert.rejects(guarded.nbGenerate("orbit frame",{
+await assert.rejects(guarded.nbGenerate("character portrait",{
   model:FLARE,quality:"medium",noRetry:true,
 }),/network error/);
 assert.equal(guardedCalls,1,"one uncertain frame cannot launch twice automatically");
@@ -440,15 +440,15 @@ guarded.sbClient=()=>({functions:{invoke:async()=>{
   return {data:{error:"provider content block"},error:null};
 }}});
 guarded.turnIsContentBlock=()=>true;
-await assert.rejects(guarded.nbGenerate("gap-toothed character orbit",{
+await assert.rejects(guarded.nbGenerate("gap-toothed character portrait",{
   model:FLARE,quality:"medium",noRetry:true,
 }),/content block/);
-assert.equal(guardedCalls,1,"orbit refusal cannot rewrite the prompt and spend again");
+assert.equal(guardedCalls,1,"provider refusal cannot rewrite the prompt and spend again");
 guardedCalls=0;
-await assert.rejects(guarded.nbGenerate("cancelled orbit frame",{
+await assert.rejects(guarded.nbGenerate("cancelled character portrait",{
   model:FLARE,quality:"medium",noRetry:true,referenceImage:REF_URL,
-  beforeSubmit:async()=>{throw new Error("Orbit owner changed during reference preparation");},
-}),/Orbit owner changed/);
+  beforeSubmit:async()=>{throw new Error("Request owner changed during reference preparation");},
+}),/Request owner changed/);
 assert.equal(guardedCalls,0,"ownership must be checked at the final paid boundary");
 
-console.log("Client image-quality and orbit submission-guard tests passed.");
+console.log("Client image-quality and submission-guard tests passed.");

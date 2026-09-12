@@ -704,9 +704,6 @@ function App(){
   // before writing results into state — the film switcher stays live throughout, and a
   // result that lands after a switch belongs to a film that is no longer open.
   const projIdRef = React.useRef(null); projIdRef.current = currentProjectId;
-  // Read-only scope marker for asynchronous, film-bound asset tools. The
-  // project description itself does not carry the persisted film row's id.
-  window.__turnCurrentProjectId = currentProjectId || null;
   const cloudMode = !!(session && currentProjectId);
   /* SHARE ROLE on the open film. Room access and room mutability are deliberately
      separate: an Art director may inspect the Writers' Room, but only Writer/owner

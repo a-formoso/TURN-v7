@@ -819,25 +819,6 @@ async function nbLoadImage(id){
   }
   return localLoadImage(id);
 }
-/* Orbit renders intentionally use one slot per frame instead of replacing a
-   character's master sheet.  A long orbit therefore must be able to drop the
-   just-committed frame from the hot cache after its durable write; otherwise a
-   288-frame run would retain hundreds of large data URLs (or object URLs).
-   This does not delete the asset — the next nbLoadImage(id) rehydrates it from
-   IndexedDB or cloud storage. */
-function nbReleaseImageCache(id){
-  if(!id) return;
-  const key=nbImgKey(id);
-  _nbImgMemory.delete(key);
-  _cloudUrlCache.delete(id);
-  _cloudMetaCache.delete(id);
-  const obj=_objUrls.get(id);
-  if(obj){
-    try{ URL.revokeObjectURL(obj.url); }catch(e){}
-    _objUrls.delete(id);
-  }
-}
-window.nbReleaseImageCache = nbReleaseImageCache;
 /* A rendered <img> can outlive its cloud signed URL (or a cached blob URL can be
    revoked by the browser). The asset still exists; only its paint URL is stale.
    Re-resolve that exact asset id without generating or changing any pixels. */

@@ -4153,7 +4153,7 @@ function StateRow({ c, st, index, project, scenes, props, baseGenUrl, onView, on
         scenes.map(s=>React.createElement("option",{key:s.id,value:s.id},"Sc "+s.no+" \u00b7 "+s.title)))));
 }
 
-function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, onUpdate, onDraft, drafting, onView, onSuggestStates, suggestingStates, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, batchActiveId, onBatchDone, onDelete, readOnly=false }){
+function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, onUpdate, onDraft, drafting, onView, onSuggestStates, suggestingStates, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, batchActiveId, onBatchDone, onDelete }){
   const drivenScenes = scenes.filter(s=>s.driver===c.id);
   const driven = drivenScenes.length;
   // ALL scenes this character appears in (drives OR is named in the script/summary), not
@@ -4533,7 +4533,6 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, onUpd
         React.createElement("div",{className:"sheet-head-top"},
           React.createElement("div",{className:"sheet-name",title:c.name||""},c.name),
           React.createElement("div",{className:"sheet-head-acts"},
-            React.createElement(CharacterOrbitButton,{character:c,project,readOnly}),
             React.createElement("button",{className:"char-cameo-btn"+(cameoMeta?" on":""),disabled:drafting,
               onClick:()=>setCameoOpen(true),
               title:cameoMeta?"Likeness locked \u2014 recapture or manage cameo":"Cast a real face \u2014 lock this character's likeness"},
@@ -5392,7 +5391,7 @@ function ImageLightbox({ url, character, onClose, siblings, startIndex }){
               :React.createElement(React.Fragment,null,React.createElement(Icon.download,{s:14}),"Download "+res)))));
 }
 
-function CharacterSheets({ project, characters, scenes, props, drafts, shots, beatsMap, onUpdate, onDraft, onDraftAll, draftingId, draftingAll, draftingIds, onSuggestStates, suggestingStatesId, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, onDelete, onCast, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, readOnly=false }){
+function CharacterSheets({ project, characters, scenes, props, drafts, shots, beatsMap, onUpdate, onDraft, onDraftAll, draftingId, draftingAll, draftingIds, onSuggestStates, suggestingStatesId, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, onDelete, onCast, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly }){
   const [view, setView] = React.useState(null);   // {url, character}
   if(window.useRenderStyleVersion) window.useRenderStyleVersion();   // re-render dropdowns when a style is locked/unlocked
   // which characters actually speak (have dialogue) — used to flag the per-card Voice control
@@ -5582,7 +5581,7 @@ function CharacterSheets({ project, characters, scenes, props, drafts, shots, be
           batchActiveId?"Generating…":("Generate all in Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")), typeof window.nbCostChip==="function" && window.nbCostChip(1)))),
     BatchBar && React.createElement(BatchBar,{batch,noun:"character"}),
     React.createElement("div",{className:"sheet-grid"},
-      charPager.slice(shown).map(c=>React.createElement(CharacterSheet,{key:c.id,c,project,scenes,props,drafts,cast:characters,speaks:speakingSet.has(c.id),onUpdate,onDraft,readOnly,
+      charPager.slice(shown).map(c=>React.createElement(CharacterSheet,{key:c.id,c,project,scenes,props,drafts,cast:characters,speaks:speakingSet.has(c.id),onUpdate,onDraft,
         drafting:draftingId===c.id||(draftingIds||[]).indexOf(c.id)>=0,onView:(url,ch)=>setView({url,character:ch}),
         batchActiveId,onBatchDone:batch.advance,onDelete:onDelete,
         onSuggestStates,suggestingStates:suggestingStatesId===c.id,onRemoveOwnedItem,onRenameOwnedItem,onDraftProp,onCreateOwnedProp}))),
@@ -5809,7 +5808,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
       ? React.createElement(LookbookView,{project,lookbook,note:lookbookNote,
           onUpdate:onUpdateLookbook,onAdd:onAddLookbook,onDelete:onDeleteLookbook,onSetNote:onSetLookbookNote,onResearch,onClear:onClearLookbook})
     : artView==="characters"
-      ? React.createElement(CharacterSheets,{project,characters,scenes,props,drafts,shots,beatsMap,onUpdate:onUpdateChar,readOnly,
+      ? React.createElement(CharacterSheets,{project,characters,scenes,props,drafts,shots,beatsMap,onUpdate:onUpdateChar,
           onDraftProp,onCreateOwnedProp,
           onDraft:onDraftVisuals,onDraftAll:onDraftAllVisuals,draftingId:draftingVisualId,draftingAll:draftingAllVisuals,draftingIds:draftingVisualIds,
           trashItems:(trash&&trash.characters)||[],onRestore:onRestoreChar,onPurge:onPurgeChar,
