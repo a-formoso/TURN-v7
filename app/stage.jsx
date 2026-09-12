@@ -2033,21 +2033,6 @@ function StageFrameComposer({ sh, sceneShots, imgCtx, shotNo, onMax }){
   const [draft, setDraft] = React.useState("");
   const edited = draft.trim()!=="" && draft!==derived;
   const promptText = edited ? draft : derived;
-  const gen = useImageGen(!pack
-    ? { id:"stage-frame-none", slotId:"stage-frame-none", buildFinal:()=>"" }
-    : { ...pack.opts,
-        identityCharacterIds:imageIds, identityCast:imageCast, identityContext:imageIdentityContext,
-        buildFinal: ()=> edited ? promptText : pack.opts.buildFinal(),
-        buildFromBase: ()=> edited ? promptText : pack.opts.buildFromBase(),
-        // the "no image" recovery retry must speak the edited prompt too — without
-        // this the fallback silently re-renders from the derived shot prompt
-        // (review finding 2026-09-03)
-        buildSimple: ()=> edited ? promptText : pack.opts.buildSimple(),
-        rebuildPromptAfterAttachments: (resolvedRefs, mode, gopts)=>{
-          if(edited) return promptText;
-          return (typeof pack.opts.rebuildPromptAfterAttachments==="function")
-            ? pack.opts.rebuildPromptAfterAttachments(resolvedRefs, mode, gopts) : undefined;
-        } });
   // resolution/aspect/quality follow the app-wide image settings (same stores
   // the Art Room dock writes) — changing them here changes them everywhere
   const [res, setRes] = React.useState(()=> (typeof nbGetRes==="function") ? nbGetRes() : "");
@@ -2056,13 +2041,92 @@ function StageFrameComposer({ sh, sceneShots, imgCtx, shotNo, onMax }){
   const [aspect, setAspect] = React.useState(()=> (typeof nbGetAspect==="function") ? nbGetAspect() : "16:9");
   const pickAspect = (a)=>{ setAspect(a); if(typeof nbSetAspect==="function"){ try{ nbSetAspect(a); }catch(e){} } };
   const aspects = window.NB_ASPECTS||[];
-  const [oaiQ, setOaiQ] = React.useState(()=> (typeof nbGetOaiQuality==="function") ? nbGetOaiQuality() : "medium");
-  const pickQ = (q)=>{ setOaiQ(q); if(typeof nbSetOaiQuality==="function"){ try{ nbSetOaiQuality(q); }catch(e){} } };
   const [modelId, setModelId] = React.useState(()=> (typeof nbGetModel==="function") ? nbGetModel() : "");
-  const pickModel = (mid)=>{ setModelId(mid); if(typeof nbSetModel==="function"){ try{ nbSetModel(mid); }catch(e){} } };
+  const pickModel = (mid)=>{
+    setModelId(mid);
+    if(typeof nbGetOaiQuality==="function") setOaiQ(nbGetOaiQuality(mid));
+    if(typeof nbSetModel==="function"){ try{ nbSetModel(mid); }catch(e){} }
+  };
   const modelDef = (window.NB_MODELS||[]).find(m=>m.id===modelId)||{};
   const modelLabel = modelDef.label || "Art Room model";
   const isGpt = modelDef.family==="openai"; // GPT prices by QUALITY on top of K-size
+  const [oaiQ, setOaiQ] = React.useState(()=> (typeof nbGetOaiQuality==="function") ? nbGetOaiQuality(modelId) : "medium");
+  const pickQ = (q)=>{ setOaiQ(q); if(typeof nbSetOaiQuality==="function"){ try{ nbSetOaiQuality(q,modelId); }catch(e){} } };
+  const qualityChoices = (typeof nbOaiQualityChoices==="function")
+    ? (nbOaiQualityChoices(modelId)||[]) : [];
+  const qualityIsExpanded = isGpt && qualityChoices.indexOf("default")>=0;
+  const qualitySupport = (typeof nbImageQualitySupport==="function")
+    ? (nbImageQualitySupport(modelId)||{}) : { loading:false, qualities:qualityChoices, expanded:!qualityIsExpanded };
+  const [,forceQuality] = React.useState(0);
+  const qualityLabel = (q)=> typeof nbOaiQualityLabel==="function" ? nbOaiQualityLabel(q) : q;
+  const qualityCanUse = (q)=>{
+    if(typeof nbCanUseImageQuality==="function") return !!nbCanUseImageQuality(modelId,q);
+    return !qualityIsExpanded || (qualitySupport.qualities||[]).indexOf(q)>=0;
+  };
+  const refreshQuality = (force)=>{
+    if(!qualityIsExpanded || typeof nbRefreshImageQualityCapabilities!=="function") return;
+    Promise.resolve(nbRefreshImageQualityCapabilities({force:!!force}))
+      .catch(()=>{})
+      .then(()=>forceQuality(x=>x+1));
+  };
+  const qualityNotReady = qualityIsExpanded && (!qualitySupport.expanded || qualitySupport.loading);
+  const qualityMessage = qualityNotReady
+    ? (qualitySupport.message || (qualitySupport.loading
+      ? "Checking GPT Image 2.5 quality availability…"
+      : "Extended quality choices are not verified yet."))
+    : "";
+  React.useEffect(()=>{
+    if(typeof nbGetOaiQuality==="function") setOaiQ(nbGetOaiQuality(modelId));
+    refreshQuality(false);
+  },[modelId,qualityIsExpanded]);
+  /* OPTIONS capability events arrive independently from the selected model and
+     quality; always refresh this component when one does. */
+  React.useEffect(()=>{
+    const h = ()=>forceQuality(x=>x+1);
+    window.addEventListener("nb-quality-capabilities",h);
+    return ()=>window.removeEventListener("nb-quality-capabilities",h);
+  },[]);
+  React.useEffect(()=>{
+    const h = ()=>{
+      if(typeof nbGetOaiQuality==="function") setOaiQ(nbGetOaiQuality(modelId));
+    };
+    window.addEventListener("nb-settings-changed",h);
+    return ()=>window.removeEventListener("nb-settings-changed",h);
+  },[modelId]);
+  React.useEffect(()=>{
+    const h = ()=>{
+      const next = typeof nbGetModel==="function" ? nbGetModel() : modelId;
+      setModelId(next);
+      if(typeof nbGetOaiQuality==="function") setOaiQ(nbGetOaiQuality(next));
+    };
+    window.addEventListener("nb-model-changed",h);
+    return ()=>window.removeEventListener("nb-model-changed",h);
+  },[modelId]);
+  const gen = useImageGen(!pack
+    ? { id:"stage-frame-none", slotId:"stage-frame-none", buildFinal:()=>"" }
+    : { ...pack.opts,
+        /* Stage's shared runner receives the same quality snapshot as the
+           Art Room controls.  The runner re-captures synchronously at start,
+           so later picker changes cannot rewrite this run's metadata. */
+        quality: isGpt ? oaiQ : pack.opts.quality,
+        identityCharacterIds:imageIds, identityCast:imageCast, identityContext:imageIdentityContext,
+        buildFinal: ()=> edited ? promptText : pack.opts.buildFinal(),
+        buildFromBase: ()=> edited ? promptText : pack.opts.buildFromBase(),
+        // the "no image" recovery retry must speak the edited prompt too — without
+        // this the fallback silently re-renders from the derived shot prompt
+        // (review finding 2026-09-03)
+        buildSimple: ()=> edited ? promptText : pack.opts.buildSimple(),
+        metaStart: async ({gopts}={})=>{
+          const base = (typeof pack.opts.metaStart==="function")
+            ? await pack.opts.metaStart({gopts}) : {};
+          return { ...(base||{}), requestedModel:modelId,
+            quality:isGpt ? oaiQ : undefined };
+        },
+        rebuildPromptAfterAttachments: (resolvedRefs, mode, gopts)=>{
+          if(edited) return promptText;
+          return (typeof pack.opts.rebuildPromptAfterAttachments==="function")
+            ? pack.opts.rebuildPromptAfterAttachments(resolvedRefs, mode, gopts) : undefined;
+        } });
   // ONE open dropdown at a time; every bar control is the same pill+menu pattern
   const [menu, setMenu] = React.useState(null);
   const barMenu = (id, pillContent, pillTitle, items)=>
@@ -2074,9 +2138,10 @@ function StageFrameComposer({ sh, sceneShots, imgCtx, shotNo, onMax }){
         pillContent, _stEl("span",{className:"stage2-imgtab-caret"},"▾")),
       menu===id && _stEl("div",{className:"stage2-imgtab-aspmenu"},
         items.map(it=>_stEl("button",{key:it.key,type:"button",
-          className:"stage2-imgtab-asp-opt"+(it.on?" on":""),
+           className:"stage2-imgtab-asp-opt"+(it.on?" on":"")+(it.disabled?" disabled":""),
+           disabled:!!it.disabled,"aria-disabled":it.disabled?"true":"false",
           title:it.title,
-          onMouseDown:e=>{ e.preventDefault(); setMenu(null); it.pick(); }},
+           onMouseDown:e=>{ e.preventDefault(); if(it.disabled)return; setMenu(null); it.pick(); }},
           it.content))));
   const specs = (pack && pack.renderPlan && pack.renderPlan.orderedSpecs) || [];
   const seedUrl = (pack && pack.prevShot && typeof nbGetImage==="function") ? nbGetImage(pack.prevShot.id) : "";
@@ -2143,12 +2208,18 @@ function StageFrameComposer({ sh, sceneShots, imgCtx, shotNo, onMax }){
             resolutions.map(r=>({ key:r, on:r===res, title:"Render at "+r, pick:()=>pickRes(r),
               content:[_stEl("span",{key:"t"},r)] }))),
           isGpt && barMenu("quality",
-            [_stEl("span",{key:"t"},oaiQ)],
+            [_stEl("span",{key:"t"},qualityLabel(oaiQ))],
             "GPT Image quality — GPT prices by quality on top of size",
-            ["low","medium","high"].map(q=>({ key:q, on:q===oaiQ,
-              title: q==="high" ? "Highest quality — slowest; big composite renders can time out"
-                : q==="medium" ? "Recommended — best balance for GPT Image" : "Fastest, lowest cost",
-              pick:()=>pickQ(q), content:[_stEl("span",{key:"t"},q)] })))),
+            qualityChoices.map(q=>({ key:q, on:q===oaiQ, disabled:!qualityCanUse(q),
+              title: qualityCanUse(q) ? qualityLabel(q)
+                : ((qualitySupport.message||"Quality is not available yet.")+" Try refreshing."),
+              pick:()=>{ if(qualityCanUse(q)) pickQ(q); },
+              content:[_stEl("span",{key:"t"},qualityLabel(q)),
+                !qualityCanUse(q) && _stEl("span",{key:"state",className:"stage2-imgtab-asp-disabled"},"Unavailable")] }))),
+          isGpt && qualityMessage && _stEl("span",{className:"stage2-quality-message"},
+            _stEl("span",null,qualityMessage),
+            !qualitySupport.loading && _stEl("button",{type:"button",className:"stage2-quality-retry",
+             onMouseDown:e=>{ e.preventDefault(); refreshQuality(true); }},"Retry"))),
         _stEl("div",{className:"sdbar-right"},
           typeof window.nbCostChip==="function" && window.nbCostChip(1),
           gen.gening && _stEl("button",{type:"button",className:"sdbar-pill static",

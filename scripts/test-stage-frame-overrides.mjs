@@ -207,4 +207,14 @@ assert.equal(automatic.pack.hookCalls[0].mode, "final");
 assert.equal(automatic.pack.hookCalls[0].refs[0].url, "fake://reference");
 assert.deepEqual(automatic.pack.builderCalls, ["final", "final"]);
 
+/* The Stage shared runner carries the selected quality into both generation
+   opts and its start metadata snapshot. */
+box.NB_MODELS = [{ id: "gpt-image-2.5-flare", label: "GPT Image 2.5 Flare", family: "openai" }];
+box.nbGetModel = () => "gpt-image-2.5-flare";
+box.nbGetOaiQuality = () => "auto";
+const stageQualityPack = makePack();
+const stageQualityOpts = captureStageOpts(stageQualityPack, "");
+assert.equal(stageQualityOpts.quality, "auto", "Stage runner receives the selected GPT quality");
+assert.equal((await stageQualityOpts.metaStart()).quality, "auto", "Stage metadata receives the same quality snapshot");
+
 console.log("stage frame override tests passed");

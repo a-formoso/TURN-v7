@@ -6,18 +6,125 @@
 const NB_KEY = "turn-nanobanana-key";
 const NB_MODEL_KEY = "turn-nb-model";
 const NB_AR_KEY = "turn-nb-aspect";
-/* GPT Image quality (openai only): "high" routinely outruns the Edge Function
-   gateway's wall-clock limit on 6-panel composite sheets → 504 → no image but a
-   billed generation. Default MEDIUM; the dock exposes the knob when GPT is active. */
+/* Preserve the existing medium preference. GPT Image 2.5 adds model-specific
+   tiers; "default" means omit the provider field (currently high), not auto. */
 const OAI_Q_KEY = "turn-oai-quality";
-function nbGetOaiQuality(){ try{ const q=localStorage.getItem(OAI_Q_KEY)||"medium"; return ["low","medium","high"].indexOf(q)>=0?q:"medium"; }catch(e){ return "medium"; } }
-function nbSetOaiQuality(q){ try{ localStorage.setItem(OAI_Q_KEY,q); }catch(e){} _nbAnnounce("nb-settings-changed"); }
+const OAI_QUALITIES = ["low","medium","high"];
+const OAI_25_QUALITIES = ["default","auto","low","medium","high","xhigh","max"];
+function isGptImage25Model(model){ return /^gpt-image-2\.5-(flare|sunburst)$/.test(String(model||"")); }
+function nbOaiQualityChoices(model){ return (isGptImage25Model(model||nbGetModel())?OAI_25_QUALITIES:OAI_QUALITIES).slice(); }
+function nbOaiQualityLabel(q){
+  return ({default:"Default (High)",auto:"Auto",low:"Low",medium:"Medium",high:"High",xhigh:"Extra high (xhigh)",max:"Max"})[q]||String(q||"");
+}
+function nbGetOaiQuality(model){
+  model=model||nbGetModel();
+  try{
+    const family=isGptImage25Model(model)&&localStorage.getItem(OAI_Q_KEY+":2.5");
+    const legacy=localStorage.getItem(OAI_Q_KEY);
+    const q=family||legacy||"medium";
+    if(!nbOaiQualityChoices(model).includes(q)) return "medium";
+    // Seed an existing explicit preference once, so later GPT Image 2 changes
+    // cannot replace the 2.5 family's inherited choice. Leave unset defaults unset.
+    if(isGptImage25Model(model)&&!family&&legacy){
+      try{ localStorage.setItem(OAI_Q_KEY+":2.5",q); }catch(e){}
+    }
+    return q;
+  }catch(e){ return "medium"; }
+}
+function nbSetOaiQuality(q,model){
+  model=model||nbGetModel();
+  if(!nbOaiQualityChoices(model).includes(q)) throw new Error("That quality is not supported by this image model.");
+  try{ localStorage.setItem(OAI_Q_KEY+(isGptImage25Model(model)?":2.5":""),q); }catch(e){}
+  _nbAnnounce("nb-settings-changed");
+}
 /* every model/res/aspect/quality setter announces itself so cost chips (and any other
    listener) update no matter WHERE the change came from — picker, dock, or a
    "Try <model>" fallback after a failed generation. */
 function _nbAnnounce(name){ try{ window.dispatchEvent(new CustomEvent(name)); }catch(e){} }
 window.nbGetOaiQuality = nbGetOaiQuality; window.nbSetOaiQuality = nbSetOaiQuality;
+window.isGptImage25Model=isGptImage25Model;
+window.nbOaiQualityChoices=nbOaiQualityChoices; window.nbOaiQualityLabel=nbOaiQualityLabel;
 const NB_RES_KEY = "turn-nb-res";
+
+// OPTIONS is non-spending even on older image proxies. Never probe with a new
+// image operation: an old server can mistake an unknown operation for a render.
+let _nbQualityCaps={url:"",state:"unknown",qualities:{},checkedAt:0,promise:null};
+function nbImageQualityCapabilityUrl(){
+  const cfg=window.TURN_SUPABASE||{};
+  return cfg.url ? String(cfg.url).replace(/\/$/,"")+"/functions/v1/"+encodeURIComponent(cfg.imageProxyFn||"image-proxy") : "";
+}
+function nbImageQualitySupport(model){
+  model=model||nbGetModel();
+  if(!isGptImage25Model(model)) return {loading:false,expanded:false,qualities:OAI_QUALITIES.slice(),message:""};
+  const caps=_nbQualityCaps.url===nbImageQualityCapabilityUrl()?_nbQualityCaps:{state:"unknown",qualities:{}};
+  const remote=caps.qualities[model]||[];
+  const qualities=OAI_25_QUALITIES.filter(q=>OAI_QUALITIES.includes(q)||remote.includes(q));
+  const expanded=OAI_25_QUALITIES.every(q=>qualities.includes(q));
+  const loading=caps.state==="loading";
+  const message=expanded?"":loading?"Checking image-server quality support…":
+    caps.state==="error"?"Could not check image-server support. Retry to enable the additional quality levels.":
+    caps.state==="unknown"?"Check image-server support to enable the additional quality levels.":
+    "Update image-proxy to enable Default, Auto, Extra high and Max. Low, Medium and High remain available.";
+  return {loading,expanded,qualities,message};
+}
+function nbCanUseImageQuality(model,q){
+  return nbOaiQualityChoices(model).includes(q)&&nbImageQualitySupport(model).qualities.includes(q);
+}
+async function nbRefreshImageQualityCapabilities(options){
+  const force=!!(options&&options.force),url=nbImageQualityCapabilityUrl();
+  if(_nbQualityCaps.url===url){
+    if(_nbQualityCaps.promise) return _nbQualityCaps.promise;
+    if(!force&&_nbQualityCaps.checkedAt&&Date.now()-_nbQualityCaps.checkedAt<60000) return _nbQualityCaps;
+  }
+  const state={url,state:"loading",qualities:{},checkedAt:0,promise:null};
+  _nbQualityCaps=state;
+  state.promise=(async()=>{
+    let timer;
+    try{
+      if(!url) throw new Error("Image server unavailable");
+      const controller=new AbortController();
+      timer=setTimeout(()=>controller.abort(),6000);
+      const response=await fetch(url,{method:"OPTIONS",credentials:"omit",cache:"no-store",signal:controller.signal});
+      if(!response.ok) throw new Error("Capability check failed");
+      let body=null;
+      try{ body=JSON.parse(await response.text()); }catch(e){}
+      if(body&&body.imageQualitySchema===1&&body.imageQualities&&typeof body.imageQualities==="object"){
+        for(const model of ["gpt-image-2.5-flare","gpt-image-2.5-sunburst"]){
+          const values=body.imageQualities[model];
+          if(Array.isArray(values)) state.qualities[model]=OAI_25_QUALITIES.filter(q=>values.includes(q));
+        }
+      }
+      state.state="ready";
+    }catch(e){
+      state.state="error";
+    }finally{
+      clearTimeout(timer);
+      state.checkedAt=Date.now();
+    }
+    return state;
+  })().then(result=>{
+    state.promise=null;
+    if(_nbQualityCaps===state) _nbAnnounce("nb-quality-capabilities");
+    return result;
+  });
+  _nbAnnounce("nb-quality-capabilities");
+  return state.promise;
+}
+async function nbRequireImageQuality(model,q){
+  if(!isGptImageModel(model)) return;
+  if(!nbOaiQualityChoices(model).includes(q)) throw new Error("Quality "+String(q)+" is not supported by "+model+".");
+  if(OAI_QUALITIES.includes(q)) return;
+  await nbRefreshImageQualityCapabilities();
+  if(!nbCanUseImageQuality(model,q)){
+    const error=new Error(nbImageQualitySupport(model).message+" No image generation was submitted.");
+    error.imageQualityUnsupported=true;
+    throw error;
+  }
+}
+window.nbImageQualitySupport=nbImageQualitySupport;
+window.nbCanUseImageQuality=nbCanUseImageQuality;
+window.nbRefreshImageQualityCapabilities=nbRefreshImageQualityCapabilities;
+window.nbRequireImageQuality=nbRequireImageQuality;
 
 /* selectable models. provider:"fal" means the browser always calls the Supabase
    proxy; the proxy then maps this UI id to fal.ai's provider route. */
@@ -213,8 +320,8 @@ const NB_IMG_USD = (window.turnImageProviderUsdTable && window.turnImageProvider
   "gemini-3.1-flash-image":      { "1K":0.067, "2K":0.101, "4K":0.151 },
   "gemini-3-pro-image":          { "1K":0.134, "2K":0.134, "4K":0.240 },
   "gpt-image-2":                 { low:0.009, medium:0.080, high:0.317 },
-  "gpt-image-2.5-flare":         { low:0.005, medium:0.012, high:0.045 },
-  "gpt-image-2.5-sunburst":      { low:0.005, medium:0.012, high:0.045 },
+  "gpt-image-2.5-flare":         { default:0.045, auto:0.21072, low:0.005, medium:0.012, high:0.045, xhigh:0.09366, max:0.21072 },
+  "gpt-image-2.5-sunburst":      { default:0.045, auto:0.21072, low:0.005, medium:0.012, high:0.045, xhigh:0.09366, max:0.21072 },
 };
 function nbImageCredits(opts){
   opts = opts||{};
@@ -222,8 +329,11 @@ function nbImageCredits(opts){
   const t = NB_IMG_USD[model]; if(!t) return null;
   let usd;
   if(isGptImageModel(model)){
-    const q = opts.quality || nbGetOaiQuality();
-    usd = (t[q]!=null) ? t[q] : t.medium;
+    const q = opts.quality == null ? nbGetOaiQuality(model) : opts.quality;
+    if(!nbOaiQualityChoices(model).includes(q)) return null;
+    const pricedQuality=q==="default"?"high":q==="auto"?"max":q;
+    usd = t[pricedQuality];
+    if(usd==null) return null;
   } else {
     const r = opts.res || nbGetRes();
     usd = (t[r]!=null) ? t[r] : t["2K"];
@@ -258,12 +368,13 @@ function NbCostChipInner({ count, opts }){
   const model = (opts&&opts.model) || nbGetModel();
   const m = (window.NB_MODELS||NB_MODELS).find(x=>x.id===model);
   const detail = isGptImageModel(model)
-    ? ((opts&&opts.quality)||nbGetOaiQuality())+" quality"
+    ? nbOaiQualityLabel(opts&&opts.quality!=null?opts.quality:nbGetOaiQuality(model))+" quality"
     : ((opts&&opts.res)||nbGetRes());
   const n = Math.max(1, Number(count)||1);
   return window.React.createElement("span",{className:"nb-cost",
     title:"≈ "+txt+" generation credit"+(txt==="1"?"":"s")+" — "+((m&&m.label)||model)+" at "+detail
-      +(n>1 ? " × "+n+" images" : " per image")},
+      +(n>1 ? " × "+n+" images" : " per image")
+      +(isGptImage25Model(model)?" (baseline estimate; prompt/reference tokens and size affect provider cost; Auto uses the Max estimate)":"")},
     txt);
 }
 function nbCostChip(count, opts){
@@ -1653,7 +1764,9 @@ async function proxyGenerate(prompt, opts, provider){
   const model = opts.model || nbGetModel();
   const aspect = opts.aspectRatio || nbGetAspect();
   const imageSize = opts.imageSize || nbGetRes();
-  const quality = opts.quality || nbGetOaiQuality();
+  const quality = opts.quality == null ? nbGetOaiQuality(model) : opts.quality;
+  await nbRequireImageQuality(model,quality);
+  nbAssertMediaIdentity(opts,"image-quality-ready");
   // reference images (for image-edit mode) → data URLs the proxy can rebuild
   const refs = [];
   if(opts.referenceImage) refs.push(opts.referenceImage);
@@ -1776,6 +1889,9 @@ async function nbGenerate(prompt, opts){
   opts = opts || {};
   nbAssertMediaIdentity(opts, "image-submit");
   const model = opts.model || nbGetModel();
+  // Snapshot before any async reference conversion/capability check. A change
+  // in the dock while this render runs belongs to a subsequent render.
+  if(isGptImageModel(model)) opts={...opts,quality:opts.quality==null?nbGetOaiQuality(model):opts.quality};
   const provider = providerOfModel(model);
   /* dispatch to the server image broker. All current image models go through fal.ai
      first via the Supabase Edge Function; the direct browser Google path is retired

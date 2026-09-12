@@ -2558,6 +2558,10 @@ async function generateShotFrame(sh, sceneShots, ctx, opts){
   const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;   // asset scope at generation start
   const sourceCtx = ctx; // retain the live caller context for post-provider source checks
   opts = opts || {};
+  const requestedModel=opts.model||(typeof nbGetModel==="function"?nbGetModel():undefined);
+  // Keep the legacy GPT Image 2 medium guard; 2.5 honors the selected tier.
+  const requestedQuality=opts.quality!=null?opts.quality:
+    (/^gpt-image-2\.5-/.test(requestedModel||"")&&typeof nbGetOaiQuality==="function"?nbGetOaiQuality(requestedModel):"medium");
   // the ONE render plan shared with the manual card path — see shotRenderPlan above
   const plan = shotRenderPlan(sh, sceneShots, ctx);
   const identityCast = (plan.inCast||[]).map(id=>(ctx.charById||{})[id]).filter(Boolean);
@@ -2565,6 +2569,9 @@ async function generateShotFrame(sh, sceneShots, ctx, opts){
     drafts:ctx.drafts||{}, cast:identityCast };
   if(typeof window.nbAssertMediaIdentity==="function")
     window.nbAssertMediaIdentity({identityCharacterIds:plan.inCast||[],identityCast,identityContext},"shot-start");
+  if(typeof window.nbRequireImageQuality==="function") await window.nbRequireImageQuality(requestedModel,requestedQuality);
+  if(_ep!=null && typeof nbEpoch==="function" && nbEpoch()!==_ep)
+    throw new Error("Film changed before render; nothing was rendered.");
   const prevSh = plan.prevSh;
   const grab = async (id)=> (typeof shotGrabImage==="function") ? await shotGrabImage(id) : "";
   // the SEED: the reference frame — within a beat, the beat's FIRST shot's committed
@@ -2630,7 +2637,7 @@ async function generateShotFrame(sh, sceneShots, ctx, opts){
     prompt += "\n\nCANONICAL CHARACTER IDENTITY (binding): "+identityPrompt;
   const gopts = {
     aspectRatio:(typeof aspectFor==="function") ? aspectFor(ctx.project) : "16:9",
-    quality:"medium",
+    model:requestedModel, quality:requestedQuality,
     referenceMaxDim:768,
     identityCharacterIds:plan.inCast||[], identityCast, identityContext,
   };
@@ -2671,6 +2678,9 @@ async function generateShotFrame(sh, sceneShots, ctx, opts){
             : { seedShotId:"", ...((prevSh && opts.fresh) ? { fresh:true } : {}) })
     : null;
   const meta = { ...prior, mode: seed?"base":"final", prompt, director:true,
+    ...(requestedModel?{modelId:requestedModel,
+      modelLabel:((window.NB_MODELS||[]).find(m=>m.id===requestedModel)||{}).label||requestedModel,
+      quality:/^gpt-image/.test(requestedModel)?requestedQuality:null}:{}),
     identityCharacterIds:plan.inCast||[],
     identitySnapshots:identityCast.map(c=>typeof window.nbIdentitySnapshot==="function" ? window.nbIdentitySnapshot(c) : null).filter(Boolean),
     ...(seedSource ? { seedSource } : {}),

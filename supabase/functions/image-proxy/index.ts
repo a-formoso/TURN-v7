@@ -39,6 +39,13 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { seedanceCapabilities, validateSeedanceRequest } from "./seedance-capabilities.mjs";
+import {
+  imagePricingQuality,
+  imageQualityOptions,
+  mergeImagePricingOverrides,
+  providerQualityPayload,
+  validateImageQuality,
+} from "./image-quality.mjs";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -97,8 +104,13 @@ const IMAGE_PROVIDER_USD: Record<string, Record<string, number>> = {
   "gemini-3.1-flash-image": { "1K": 0.067, "2K": 0.101, "4K": 0.151 },
   "gemini-3-pro-image": { "1K": 0.134, "2K": 0.134, "4K": 0.240 },
   "gpt-image-2": { low: 0.009, medium: 0.080, high: 0.317 },
-  "gpt-image-2.5-flare": { low: 0.005, medium: 0.012, high: 0.045 },
-  "gpt-image-2.5-sunburst": { low: 0.005, medium: 0.012, high: 0.045 },
+  // GPT Image 2.5 xhigh/max use the official canonical 1024-square
+  // output-token baseline. Other dimensions/input-token counts vary; these are
+  // transparent estimates, not exact per-request provider quotes. TURN keeps
+  // its existing lower-tier rates. default aliases high; auto is estimated
+  // conservatively at max.
+  "gpt-image-2.5-flare": { default: 0.045, auto: 0.21072, low: 0.005, medium: 0.012, high: 0.045, xhigh: 0.09366, max: 0.21072 },
+  "gpt-image-2.5-sunburst": { default: 0.045, auto: 0.21072, low: 0.005, medium: 0.012, high: 0.045, xhigh: 0.09366, max: 0.21072 },
 };
 const TEXT_PROVIDER_USD_PER_1M: Record<string, { input: number; output: number }> = {
   "claude-opus-5": { input: 15, output: 75 },
@@ -115,11 +127,30 @@ const TEXT_PROVIDER_USD_PER_1M: Record<string, { input: number; output: number }
 function creditsFromProviderUsd(usd: number): number {
   return Math.max(1, Math.ceil(((Number(usd) || 0) / BASE_PROVIDER_USD_PER_CREDIT) * CREDIT_SCALE));
 }
-function imageUsageEstimate(model: string, imageSize: string, quality: string) {
-  const table = IMAGE_PROVIDER_USD[model] || {};
-  const key = /^gpt-image/i.test(model || "") ? (quality || "medium") : (imageSize || "2K");
-  const providerCostUsd = Number(table[key] ?? table.medium ?? table["2K"] ?? 0);
+function imageUsageEstimate(
+  model: string,
+  imageSize: string,
+  quality: string | undefined,
+  pricingTable: Record<string, Record<string, number>>,
+) {
+  const table = pricingTable[model] || {};
+  const isGpt = /^gpt-image/i.test(model || "");
+  const key = isGpt ? (imagePricingQuality(model, quality) || "high") : (imageSize || "2K");
+  // Quality is validated before this function. Do not silently bill an
+  // unsupported value at medium: a missing GPT alias falls back only to the
+  // documented high/default estimate.
+  const providerCostUsd = Number(isGpt ? (table[key] ?? table.high ?? 0) : (table[key] ?? table["2K"] ?? 0));
   return { providerCostUsd, credits: creditsFromProviderUsd(providerCostUsd) };
+}
+
+async function loadTrustedImagePricing(sbAuth: any): Promise<Record<string, Record<string, number>>> {
+  const { data, error } = await sbAuth
+    .from("turn_app_config")
+    .select("value")
+    .eq("key", "pricing-overrides")
+    .maybeSingle();
+  if (error) throw new Error("Could not read trusted image pricing configuration.");
+  return mergeImagePricingOverrides(IMAGE_PROVIDER_USD, data?.value);
 }
 function normaliseTextUsage(provider: string, data: any) {
   const u = data?.usage || data?.usageMetadata || data?.usage_metadata || {};
@@ -151,7 +182,10 @@ function textUsageEstimate(provider: string, model: string, usage: { inputTokens
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  // This handshake deliberately runs before auth, entitlement, provider-key
+  // access, and request parsing. Old deployments return non-JSON "ok"; clients
+  // treat that as unsupported and never POST a new image capability operation.
+  if (req.method === "OPTIONS") return json(imageQualityOptions());
   if (req.method !== "POST") return json({ error: "Use POST." }, 405);
 
   // ── auth: require a real signed-in user (not the anon key) ──────────────────
@@ -217,7 +251,6 @@ Deno.serve(async (req) => {
   const model = body.model || "gpt-image-2";
   const prompt = (body.prompt || "").toString();
   const aspect = body.aspect || "16:9";
-  const quality = body.quality || "high";
   const imageSize = body.imageSize || "2K";
   // OpenAI's SUPPORTED moderation-sensitivity control for gpt-image models: "low" is the
   // least-restrictive ALLOWED setting (fewer false positives on legitimate creative
@@ -230,6 +263,22 @@ Deno.serve(async (req) => {
   const images: string[] = Array.isArray(body.images) ? body.images : [];
   const task = body.task || "image";
   const usageKind = String(body.usageKind || (images.length && task === "text" ? "vision" : task)).toLowerCase();
+  /*
+   * Resolve quality before any spend check, provider-key lookup, fal staging,
+   * or asset upload. A missing quality is not the literal string "default":
+   * providerQualityPayload() omits the field so the provider's documented high
+   * default applies. The same validated value is used for pricing and
+   * finishImage settlement below.
+   */
+  const rawQuality = Object.prototype.hasOwnProperty.call(body, "quality") ? body.quality : undefined;
+  const nonImageTask = task === "live" || task === "text" || task === "voice" || task === "video";
+  const qualityCheck = nonImageTask
+    ? { ok: true, quality: undefined, providerQuality: undefined }
+    : validateImageQuality(model, rawQuality);
+  if (!qualityCheck.ok) {
+    return json({ error: qualityCheck.error, code: "UNSUPPORTED_IMAGE_QUALITY" }, 400);
+  }
+  const quality = qualityCheck.quality;
   const messages: any[] = Array.isArray(body.messages) ? body.messages : [];
   const reasoningEffort = /^(low|medium|high|xhigh|max)$/.test(String(body.reasoningEffort || ""))
     ? String(body.reasoningEffort)
@@ -1042,7 +1091,22 @@ Deno.serve(async (req) => {
   }
 
   if (!prompt) return json({ error: "No prompt supplied." }, 400);
-  const imageUsage = imageUsageEstimate(model, imageSize, quality);
+  /*
+   * Pricing overrides are public-read app configuration, not request input.
+   * Missing config is a normal baseline case; a read error is not, because
+   * silently using stale prices would make the browser quote and settlement
+   * diverge. This is intentionally image-only: text and video return above.
+   */
+  let imagePricingTable: Record<string, Record<string, number>>;
+  try {
+    imagePricingTable = await loadTrustedImagePricing(sbAuth);
+  } catch (_e) {
+    return json({
+      error: "Trusted image pricing configuration is unavailable. Try again later.",
+      code: "PRICING_CONFIG_UNAVAILABLE",
+    }, 503);
+  }
+  const imageUsage = imageUsageEstimate(model, imageSize, quality, imagePricingTable);
   const imageBlock = ensureCanSpend(imageUsage.credits);
   if (imageBlock) return imageBlock;
   const finishImage = async (payload: Record<string, unknown>, providerName = provider, modelName = model) => {
@@ -1119,7 +1183,7 @@ Deno.serve(async (req) => {
         const wh = sizeForAspect(aspect, imageSize).split("x");
         const w = parseInt(wh[0], 10), h = parseInt(wh[1], 10);
         input.image_size = (Number.isFinite(w) && Number.isFinite(h)) ? { width: w, height: h } : "landscape_16_9";
-        input.quality = quality || "medium";
+        Object.assign(input, providerQualityPayload(qualityCheck));
         // The legacy GPT Image 2 wrapper exposes fal's moderation field; the
         // 2.5 Flare/Sunburst schemas do not, so do not send an unknown input.
         if (moderation && cfg.moderation) input.moderation = moderation;
@@ -1273,7 +1337,8 @@ Deno.serve(async (req) => {
       form.append("model", model);
       form.append("prompt", prompt);
       form.append("size", size);
-      form.append("quality", quality);
+      const providerQuality = providerQualityPayload(qualityCheck);
+      if (providerQuality.quality !== undefined) form.append("quality", providerQuality.quality);
       if (moderation) form.append("moderation", moderation);
       let i = 0;
       for (const src of images) {
@@ -1291,7 +1356,7 @@ Deno.serve(async (req) => {
         method: "POST",
         signal: AbortSignal.timeout(380000),
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model, prompt, size, quality, n: 1, ...(moderation ? { moderation } : {}) }),
+        body: JSON.stringify({ model, prompt, size, n: 1, ...providerQualityPayload(qualityCheck), ...(moderation ? { moderation } : {}) }),
       });
     }
 

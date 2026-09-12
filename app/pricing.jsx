@@ -50,11 +50,14 @@
         "gemini-3.1-flash-image":      { "1K":0.067, "2K":0.101, "4K":0.151 },
         "gemini-3-pro-image":          { "1K":0.134, "2K":0.134, "4K":0.240 },
         "gpt-image-2":                 { low:0.009, medium:0.080, high:0.317 },
-        // GPT Image 2.5 cost estimate at TURN's default 2K 16:9 canvas. fal bills
-        // these variants by image-output tokens; the pricing watcher scales all
-        // three quality tiers if that token rate changes.
-        "gpt-image-2.5-flare":         { low:0.005, medium:0.012, high:0.045 },
-        "gpt-image-2.5-sunburst":      { low:0.005, medium:0.012, high:0.045 },
+        // GPT Image 2.5 xhigh/max use the official canonical 1024-square
+        // output-token baseline. Input-token counts and non-square dimensions
+        // vary, so these are estimates rather than exact per-request quotes;
+        // TURN intentionally preserves its existing lower-tier rates.
+        // default aliases high; auto uses the conservative max estimate. The
+        // watcher scales these token tiers if fal's published rate changes.
+        "gpt-image-2.5-flare":         { default:0.045, auto:0.21072, low:0.005, medium:0.012, high:0.045, xhigh:0.09366, max:0.21072 },
+        "gpt-image-2.5-sunburst":      { default:0.045, auto:0.21072, low:0.005, medium:0.012, high:0.045, xhigh:0.09366, max:0.21072 },
       },
     },
     video: {

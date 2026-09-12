@@ -1887,16 +1887,30 @@ window.buildLocationFromPhotoPrompt = buildLocationFromPhotoPrompt;
    "no image" safety refusal), commit to the location's slot, and dispatch nb-gen-done so
    the live card adopts it. The base plate commits to l.id ("locref-"+l.id); a time-of-day
    variant commits to l.id+"-"+v.id ("locvar-"+l.id+"-"+v.id). ---- */
-function _nbLocMeta(prompt, entity){
+function _nbLocRunSnapshot(){
+  /* Read settings once, before the provider call.  Location generation is
+     headless, so there is no component closure to freeze the user's intent for
+     us; a late metadata getter would otherwise report a later picker change. */
   const model = (typeof nbGetModel==="function") ? nbGetModel() : "";
+  const isGpt = typeof window.isGptImageModel==="function"
+    ? window.isGptImageModel(model) : /^gpt-image/i.test(String(model||""));
+  const quality = isGpt && typeof window.nbGetOaiQuality==="function"
+    ? window.nbGetOaiQuality(model) : undefined;
+  return { model, quality };
+}
+function _nbLocMeta(prompt, entity, runSnapshot){
+  const snap = runSnapshot || {};
+  const model = snap.model || "";
   const aspect = (typeof nbGetAspect==="function") ? nbGetAspect() : "16:9";
   const size = (typeof nbGetRes==="function") ? nbGetRes() : "2K";
   const now = new Date();
   const mEntry = (window.NB_MODELS||[]).find(m=>m.id===model) || {};
   return { modelLabel:mEntry.label||"Nano Banana", modelId:model, aspect, size,
-    // match the per-card sheet caption: GPT Image carries its quality (low/medium/high)
-    quality: (typeof window.isGptImageModel==="function" && window.isGptImageModel(model))
-      ? ((typeof window.nbGetOaiQuality==="function") ? window.nbGetOaiQuality() : "medium") : undefined,
+     // Keep the exact requested intent, including 2.5 "default"; never infer
+     // provider-high from an omitted request after the render finishes.
+     quality: snap.quality,
+     qualityModel: model,
+     requestedModel: model,
     date: now.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}),
     time: now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}),
     iso: now.toISOString(), prompt, mode:"final", version:1,
@@ -1940,29 +1954,94 @@ function locDressingEditText(p){
     +" Match the plate's EXISTING lighting, palette and render style exactly; change nothing else in the space.";
 }
 window.locDressingEditText = locDressingEditText;
+function _nbLocRunStart(id){
+  if(!window.__nbGenInflight) window.__nbGenInflight = {};
+  if(!window.__nbGenCancel) window.__nbGenCancel = {};
+  /* Refuse an active owner at entry.  A stopped run leaves a false marker
+     briefly, so a replacement may claim it; a truthy token belongs to a
+     live run and must never be clobbered. */
+  if(window.__nbGenInflight[id]) return null;
+  window.__nbGenRunSeq = (window.__nbGenRunSeq||0)+1;
+  const token = window.__nbGenRunSeq;
+  window.__nbGenInflight[id] = token;
+  window.__nbGenCancel[id] = false;
+  return token;
+}
+function _nbLocOwns(id, token){
+  return !!(window.__nbGenInflight && window.__nbGenInflight[id]===token);
+}
+function _nbLocStale(id, token, epoch){
+  return !_nbLocOwns(id,token)
+    || !!(window.__nbGenCancel && window.__nbGenCancel[id])
+    || (typeof nbEpoch==="function" && nbEpoch()!==epoch);
+}
+function _nbLocCancelEvent(id, token){
+  if(!_nbLocOwns(id,token)) return;
+  try{ window.dispatchEvent(new CustomEvent("nb-gen-cancel",{ detail:{ id } })); }catch(e){}
+}
+function _nbLocCleanup(id, token){
+  if(!_nbLocOwns(id,token)) return;
+  delete window.__nbGenInflight[id];
+  if(window.__nbGenCancel) delete window.__nbGenCancel[id];
+}
 async function generateLocationPlate(l, project){
   const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;   // asset scope at generation start
   if(typeof nbGenerate!=="function" || typeof nbCommit!=="function") return false;
+  const runSnapshot = _nbLocRunSnapshot();
   // no set-dressing refs here — the clean plate anchors the look; fixtures are
   // painted in afterwards via the Edit panel's Set-dressing buttons
   const prompt = (typeof combinedLocationPrompt==="function") ? combinedLocationPrompt(l, project, {}) : (l.name||"location reference");
   const gopts = {};
-  if(!window.__nbGenInflight) window.__nbGenInflight = {};
-  window.__nbGenInflight[l.id] = true;
+  if(runSnapshot.model) gopts.model = runSnapshot.model;
+  if(runSnapshot.quality!=null) gopts.quality = runSnapshot.quality;
+  const _runToken = _nbLocRunStart(l.id);
+  if(!_runToken) return false;
   try{
+    if(runSnapshot.quality && typeof window.nbRequireImageQuality==="function"){
+      try{ await window.nbRequireImageQuality(runSnapshot.model, runSnapshot.quality); }
+      catch(e){ if(_nbLocStale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; } throw e; }
+    }
+    /* Capability validation may await an OPTIONS response while the director
+       switches films or stops this headless run.  Never spend after that await
+       against a stale asset scope/ownership marker. */
+    if(_nbLocStale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
     let url;
-    try{ url = await nbGenerate(prompt, gopts); }
-    catch(e){ if(/no image/i.test((e&&e.message)||"") && typeof buildSimpleLocationPrompt==="function"){ url = await nbGenerate(buildSimpleLocationPrompt(l), {}); } else throw e; }
-    await nbCommit(l.id, url, _nbLocMeta(prompt,l), [], "location", _ep);
+    try{
+      url = await nbGenerate(prompt, gopts);
+      if(_nbLocStale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
+    }catch(e){
+      if(_nbLocStale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
+      if(/no image/i.test((e&&e.message)||"") && typeof buildSimpleLocationPrompt==="function"){
+        try{ url = await nbGenerate(buildSimpleLocationPrompt(l), gopts); }
+        catch(fallbackError){
+          if(_nbLocStale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
+          throw fallbackError;
+        }
+        if(_nbLocStale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
+      }else throw e;
+    }
+    let saved;
+    try{
+      saved = await nbCommit(l.id, url, _nbLocMeta(prompt,l,runSnapshot), [], "location", _ep,
+        ()=>_nbLocStale(l.id,_runToken,_ep));
+    }catch(e){
+      if(_nbLocStale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
+      throw e;
+    }
+    if(_nbLocStale(l.id,_runToken,_ep) || (saved&&/^(cancelled|stale)$/.test(saved.tier||""))){
+      _nbLocCancelEvent(l.id,_runToken); return false;
+    }
+    if(!saved || saved.tier==="error") return false;
     try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id:l.id, url } })); }catch(e){}
     return true;
-  } finally { window.__nbGenInflight[l.id] = false; }
+  } finally { _nbLocCleanup(l.id,_runToken); }
 }
 window.generateLocationPlate = generateLocationPlate;
 
 async function generateLocationVariant(l, v, project){
   const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;   // asset scope at generation start
   if(typeof nbGenerate!=="function" || typeof nbCommit!=="function") return false;
+  const runSnapshot = _nbLocRunSnapshot();
   const units = ((window.turnContinuity||{}).sluglineUnits)||[];
   const unit = (typeof locationVariantSluglineUnit==="function") ? locationVariantSluglineUnit(l,v,units) : null;
   const id = (typeof locationAppearanceStateAssetId==="function")
@@ -1971,17 +2050,48 @@ async function generateLocationVariant(l, v, project){
   const prompt = unit && typeof buildSluglineUnitPrompt==="function"
     ? buildSluglineUnitPrompt(l,{...unit,appearance:v.state||unit.appearance||""},project)
     : ((typeof buildLocationVariantPrompt==="function") ? buildLocationVariantPrompt(l, project, { time:v.time, state:v.state }) : (l.name||"location reference"));
-  if(!window.__nbGenInflight) window.__nbGenInflight = {};
-  window.__nbGenInflight[id] = true;
+  const gopts = {};
+  if(runSnapshot.model) gopts.model = runSnapshot.model;
+  if(runSnapshot.quality!=null) gopts.quality = runSnapshot.quality;
+  const _runToken = _nbLocRunStart(id);
+  if(!_runToken) return false;
   try{
+    if(runSnapshot.quality && typeof window.nbRequireImageQuality==="function"){
+      try{ await window.nbRequireImageQuality(runSnapshot.model, runSnapshot.quality); }
+      catch(e){ if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; } throw e; }
+    }
+    if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
     let url;
-    try{ url = await nbGenerate(prompt, {}); }
-    catch(e){ if(/no image/i.test((e&&e.message)||"") && typeof buildSimpleLocationPrompt==="function"){ url = await nbGenerate(buildSimpleLocationPrompt(l), {}); } else throw e; }
-    await nbCommit(id, url, Object.assign(_nbLocMeta(prompt,unit?{...l,appearanceState:unit}:l),
-      locationAssetDependencySnapshot(l.id,[],unit?"slugline-unit":"continuity-state")), [], "location", _ep);
+    try{
+      url = await nbGenerate(prompt, gopts);
+      if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
+    }catch(e){
+      if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
+      if(/no image/i.test((e&&e.message)||"") && typeof buildSimpleLocationPrompt==="function"){
+        try{ url = await nbGenerate(buildSimpleLocationPrompt(l), gopts); }
+        catch(fallbackError){
+          if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
+          throw fallbackError;
+        }
+        if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
+      }else throw e;
+    }
+    let saved;
+    try{
+      saved = await nbCommit(id, url, Object.assign(_nbLocMeta(prompt,unit?{...l,appearanceState:unit}:l,runSnapshot),
+        locationAssetDependencySnapshot(l.id,[],unit?"slugline-unit":"continuity-state")), [], "location", _ep,
+        ()=>_nbLocStale(id,_runToken,_ep));
+    }catch(e){
+      if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
+      throw e;
+    }
+    if(_nbLocStale(id,_runToken,_ep) || (saved&&/^(cancelled|stale)$/.test(saved.tier||""))){
+      _nbLocCancelEvent(id,_runToken); return false;
+    }
+    if(!saved || saved.tier==="error") return false;
     try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id, url } })); }catch(e){}
     return true;
-  } finally { window.__nbGenInflight[id] = false; }
+  } finally { _nbLocCleanup(id,_runToken); }
 }
 window.generateLocationVariant = generateLocationVariant;
 

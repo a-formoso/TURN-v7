@@ -133,7 +133,10 @@ writing nor live voice exposes the service key in the browser.
    fails. Sign-in is still enforced — by the function, not the gateway.)
 5. In `app/supabase-config.js` set **`imageProxy: true`**.
 
-Redeploy this function whenever its task routes change. If New Story's **Talk it
+Redeploy this function whenever its task routes or image-quality capability
+schema change; the unauthenticated `OPTIONS` response is the browser's safe
+capability handshake, so an image-quality update is not live until this
+function is redeployed. If New Story's **Talk it
 through** reports `No prompt supplied`, the browser is reaching an older deployment
 that predates the `live` task; repeat step 4 and reload TURN from localhost or HTTPS.
 

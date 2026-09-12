@@ -212,9 +212,13 @@ const CHECKS: Array<{ slug: string; run: (t: string, c: Collector) => void }> = 
         "$/1M image output tokens",
         30,
         [
+          "image.providerUsd.gpt-image-2.5-flare.default",
+          "image.providerUsd.gpt-image-2.5-flare.auto",
           "image.providerUsd.gpt-image-2.5-flare.low",
           "image.providerUsd.gpt-image-2.5-flare.medium",
           "image.providerUsd.gpt-image-2.5-flare.high",
+          "image.providerUsd.gpt-image-2.5-flare.xhigh",
+          "image.providerUsd.gpt-image-2.5-flare.max",
         ],
         "derived: table × (new rate / reference rate)",
       );
@@ -232,9 +236,13 @@ const CHECKS: Array<{ slug: string; run: (t: string, c: Collector) => void }> = 
         "$/1M image output tokens",
         30,
         [
+          "image.providerUsd.gpt-image-2.5-sunburst.default",
+          "image.providerUsd.gpt-image-2.5-sunburst.auto",
           "image.providerUsd.gpt-image-2.5-sunburst.low",
           "image.providerUsd.gpt-image-2.5-sunburst.medium",
           "image.providerUsd.gpt-image-2.5-sunburst.high",
+          "image.providerUsd.gpt-image-2.5-sunburst.xhigh",
+          "image.providerUsd.gpt-image-2.5-sunburst.max",
         ],
         "derived: table × (new rate / reference rate)",
       );

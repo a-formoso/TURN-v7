@@ -613,6 +613,9 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
     if(!panelEdit || panelEdit.idx==null || !panelEdit.text.trim() || panelBusy || composing || !isComposed) return;
     const text = panelEdit.text.trim();
     const i = panelEdit.idx, sh = page.shots[i];
+    const requestedModel=typeof nbGetModel==="function"?nbGetModel():undefined;
+    const requestedQuality=/^gpt-image-2\.5-/.test(requestedModel||"")&&typeof nbGetOaiQuality==="function"
+      ?nbGetOaiQuality(requestedModel):"medium";
     // never race the Shot List: if this shot is generating right now (chain run,
     // manual render), a second writer would double-commit — refuse up front
     if(!window.__nbGenInflight) window.__nbGenInflight = {};
@@ -637,6 +640,10 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
       const identityOpts = panelIdentityOpts();
       if(typeof window.nbAssertMediaIdentity==="function")
         window.nbAssertMediaIdentity(identityOpts,"storyboard-panel-edit-start");
+      if(typeof window.nbRequireImageQuality==="function") await window.nbRequireImageQuality(requestedModel,requestedQuality);
+      if(!_own()) return;
+      if(_ep!=null && typeof nbEpoch==="function" && nbEpoch()!==_ep)
+        throw new Error("Film changed before render; nothing was rendered.");
       let frame = (typeof nbGetImage==="function") ? nbGetImage(sh.id) : "";
       if(!frame && typeof nbLoadImage==="function"){ try{ frame = await nbLoadImage(sh.id); }catch(e){} }
       if(!frame) throw new Error("This panel has no frame yet — generate it in the Shot List first.");
@@ -646,8 +653,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
         +"Everything the instruction does NOT name stays IDENTICAL to the reference — the same characters "
         +"(identical faces & wardrobe), the same location and set, the same lighting and colour grade, and "
         +"(unless the instruction changes them) the same shot size, lens and staging. Do not re-imagine the frame.";
-      // quality:"medium" is the GPT Image 2 timeout lever (a frame edit at the default
-      // "high" routinely exceeds the ~150s proxy timeout); other models ignore it.
+      // Preserve GPT Image 2's medium timeout guard; 2.5 uses the captured choice.
       const extra = [];
       for(const rid of editRefSel){ let u=(typeof nbGetImage==="function")?nbGetImage(rid):"";
         if(!u && typeof nbLoadImage==="function"){ try{ u=await nbLoadImage(rid); }catch(e){} } if(u) extra.push(u); }
@@ -666,7 +672,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
       if(typeof window.nbAssertMediaIdentity==="function")
         window.nbAssertMediaIdentity(submitIdentity,"storyboard-panel-edit-before-submit");
       const url = await nbGenerate(promptWithIdentity + (extra.length?" Additional reference images are attached (character sheets / location plate) — match those identities and that exact set faithfully.":""),
-        { referenceImage:frame, aspectRatio:sheetAsp, quality:"medium",
+        { referenceImage:frame, aspectRatio:sheetAsp, model:requestedModel, quality:requestedQuality,
           ...submitIdentity, ...(extra.length?{extraImages:extra}:{}) });
       const afterProviderIdentity = panelIdentityOpts();
       if(typeof window.nbAssertMediaIdentity==="function")
@@ -683,6 +689,9 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
       const now = new Date();
       const finalIdentity = panelIdentityOpts();
       const meta = { ...prior, mode:"edit", editInstruction:text, prompt:promptWithIdentity,
+        ...(requestedModel?{modelId:requestedModel,
+          modelLabel:((window.NB_MODELS||[]).find(m=>m.id===requestedModel)||{}).label||requestedModel,
+          quality:/^gpt-image/.test(requestedModel)?requestedQuality:null}:{}),
         identityCharacterIds:finalIdentity.identityCharacterIds,
         identitySnapshots:finalIdentity.identityCast.map(c=>typeof window.nbIdentitySnapshot==="function" ? window.nbIdentitySnapshot(c) : null).filter(Boolean),
         identitySnapshot:finalIdentity.identityCast[0]&&typeof window.nbIdentitySnapshot==="function"

@@ -17,3 +17,9 @@ The shared image-generation registries (`__nbGenInflight`, `__nbGenCancel`, `__n
 **Refinement (Sep 2026):** passive pre/post checking of __nbGenInflight is not enough for a secondary writer (e.g. storyboard panel repair) — it must CLAIM the id with its own token before any await and fire nb-gen-start, so batch guards and double-taps see it; release only if still owner; a lost token means a newer run owns the UI events.
 
 **Coalescing coordinator refinement (Sep 2026):** when multiple paths can redraw-and-commit the same derived asset (e.g. a sheet composited from frames), passive gating is not enough — use one module-level single-writer coordinator per asset id that coalesces late requests (boolean `again`), snapshots inputs before each draw, and NEVER commits after detecting invalidation on ANY pass, including after a commit completed (go around again so storage ends on newest inputs). Busy UI gates must still forward requests into the coordinator (fire-and-forget) or late change events are silently lost.
+
+**Cancellation test rule:** exercise Stop A → start B for the same id → resume A, not only Stop A → resume A with an empty registry.
+
+**Why:** truthiness checks passed Stop-only tests but treated a replacement run's marker as ownership, allowing the cancelled run to spend and clear the replacement's entry.
+
+**How to apply:** defer capability/provider/commit awaits and replace ownership while they wait. Assert that the superseded run cannot submit, commit, announce completion, or clear the new token.

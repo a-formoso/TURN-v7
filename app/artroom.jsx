@@ -1346,6 +1346,23 @@ async function nbRunSheetGeneration(env, gopts){
   const { setGenErr, setGening, setRetrying, setGenUrl, setGenTier, setGenMeta } = ui;
   if(!window.__nbGenInflight) window.__nbGenInflight = {};
     gopts = gopts || {};
+    /* Capture the request's model and quality before any guard, modal, reference
+       lookup, or other await.  The controls are shared app-wide, so reading these
+       values after a long render would make Details describe a later click rather
+       than the request that actually spent the credit.  A caller-supplied quality
+       is intentional (batch/surface defaults); otherwise the model-family setting
+       is the source of truth. */
+    const _requestedModel = gopts.model
+      || (opts && opts.model)
+      || (typeof nbGetModel==="function" ? nbGetModel() : "");
+    const _requestedIsGpt = typeof isGptImageModel==="function"
+      ? isGptImageModel(_requestedModel) : /^gpt-image/i.test(String(_requestedModel||""));
+    const _hasRequestedQuality = Object.prototype.hasOwnProperty.call(gopts,"quality");
+    const _requestedQuality = _requestedIsGpt
+      ? (_hasRequestedQuality ? gopts.quality
+        : (opts && opts.quality!=null ? opts.quality
+          : (typeof nbGetOaiQuality==="function" ? nbGetOaiQuality(_requestedModel) : "medium")))
+      : undefined;
     /* Reject a contradiction before opening a confirmation modal or starting
        any reference preparation.  Provider wrappers repeat this check at the
        final paid boundary; this early check keeps batch/edit UI fail-closed. */
@@ -1399,6 +1416,45 @@ async function nbRunSheetGeneration(env, gopts){
     window.__nbGenCancel[id] = false;
     const abortCtl = (typeof AbortController!=="undefined") ? new AbortController() : null;
     if(abortCtl){ window.__nbGenAbort = window.__nbGenAbort || {}; window.__nbGenAbort[id] = abortCtl; }
+    /* Capability validation is deliberately before beforeGenerate: that callback
+       may generate linked prop sheets and therefore may spend credits itself. */
+    if(_requestedIsGpt && typeof window.nbRequireImageQuality==="function"){
+      let qualityError = null;
+      try{ await window.nbRequireImageQuality(_requestedModel, _requestedQuality); }
+      catch(e){ qualityError = e; }
+      /* The capability OPTIONS request can outlive a film switch or Stop.  Do
+         not enter beforeGenerate (which may spend on linked props) in that
+         window.  Cancellation normally clears the inflight marker itself; the
+         abort/cancel identity checks below let this run clean up its own stale
+         entries without touching a newer run for the same id. */
+      const _ownsAfterQuality = !!(window.__nbGenInflight && window.__nbGenInflight[id]===_genRun);
+      const _abortIsOursAfterQuality = !!(window.__nbGenAbort && window.__nbGenAbort[id]===abortCtl);
+      const _cancelledDuringQuality = _cancelledNow();
+      if(!_ownsAfterQuality || _cancelledDuringQuality){
+        const _qualityRunEntriesOurs = _ownsAfterQuality || _abortIsOursAfterQuality;
+        const _alreadyAnnouncedCancel = !!(window.__nbGenCancel && window.__nbGenCancel[id]);
+        if(_qualityRunEntriesOurs){
+          if(_ownsAfterQuality) delete window.__nbGenInflight[id];
+          if(_abortIsOursAfterQuality) delete window.__nbGenAbort[id];
+          if(window.__nbGenCancel && (_ownsAfterQuality || _abortIsOursAfterQuality))
+            delete window.__nbGenCancel[id];
+          setGening(false);
+          if(!_alreadyAnnouncedCancel)
+            try{ window.dispatchEvent(new CustomEvent("nb-gen-cancel",{ detail:{ id } })); }catch(e){}
+        }
+        return false;
+      }
+      if(qualityError){
+        setGenErr((qualityError&&qualityError.message)
+          || "The selected image quality is not available yet. Refresh and try again.");
+        setGening(false);
+        delete window.__nbGenInflight[id];
+        if(window.__nbGenAbort && window.__nbGenAbort[id]===abortCtl) delete window.__nbGenAbort[id];
+        if(window.__nbGenCancel) delete window.__nbGenCancel[id];
+        try{ window.dispatchEvent(new CustomEvent("nb-gen-cancel",{ detail:{ id } })); }catch(e){}
+        return false;
+      }
+    }
     /* optional pre-generate gate (e.g. warn + optionally generate linked props first).
        Skipped for batch runs, in-place edits, and the simplified retry — those
        shouldn't pop a modal (a batch would pop one per card). */
@@ -1442,7 +1498,7 @@ async function nbRunSheetGeneration(env, gopts){
     if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-after-meta");
     }
     const overrideModel = gopts.model || null;
-    const usedModel = overrideModel || (typeof nbGetModel==="function" ? nbGetModel() : "");
+    const usedModel = overrideModel || _requestedModel;
     /* a model chosen via a fallback button ("Try <model>" / "Switch to <model>"
        after a failed generation) becomes the ACTIVE selection, so the model picker
        highlight, mobile summary, and key bar all reflect the switch. */
@@ -1496,7 +1552,16 @@ async function nbRunSheetGeneration(env, gopts){
     const identityCast = opts.identityCast || (opts.identityCharacter ? [opts.identityCharacter] : liveIdentityCast);
     const identityPrompt = (identityCast.length && typeof window.turnIdentityPrompt==="function")
       ? String(window.turnIdentityPrompt(identityCast)||"").trim() : "";
-     const genOpts = { metaOut:{} };
+     const genOpts = {
+       metaOut:{},
+       /* Keep the exact user intent on the internal options object.  The proxy
+          owns the final provider-envelope normalization, so even
+          `quality:"default"` must stay present here: nbGenerate must not fall
+          back to a live getter after the director changes the picker. */
+       requestedModel: _requestedModel,
+       requestedQuality: _requestedQuality,
+       quality: _requestedQuality
+     };
     genOpts.identityCharacter = opts.identityCharacter || undefined;
     genOpts.identityCharacterIds = inferredIdentityIds;
     genOpts.identityCast = identityCast;
@@ -1512,11 +1577,14 @@ async function nbRunSheetGeneration(env, gopts){
     const groundEnabled = typeof nbGetGroundSearch==="function" && nbGetGroundSearch();
     const isFlash = usedModel === "gemini-3.1-flash-image";
     if(abortCtl) genOpts.signal = abortCtl.signal;
-    if(overrideModel) genOpts.model = overrideModel;
+     /* Pin the provider request to the model selected when this run started.
+        Without this, a model switch during reference assembly would make
+        metadata and the paid request disagree. */
+     if(_requestedModel) genOpts.model = _requestedModel;
     if(gopts.aspectRatio) genOpts.aspectRatio = gopts.aspectRatio;   // caller can force aspect…
     if(gopts.imageSize)   genOpts.imageSize   = gopts.imageSize;     // …and resolution (e.g. storyboard: 16:9 / 2K)
-    if(gopts.quality)     genOpts.quality     = gopts.quality;       // …and GPT Image 2 quality (low/medium/high — lower = far faster, dodges the proxy timeout)
-    else if(opts.quality) genOpts.quality     = opts.quality;        // per-surface reliability default (callers can still override it)
+     /* quality is already pinned above, including "default".  The server's final
+        fal/OpenAI payload is the only layer that omits the provider field. */
     if(gopts.referenceMaxDim) genOpts.referenceMaxDim = gopts.referenceMaxDim;
     else if(opts.referenceMaxDim) genOpts.referenceMaxDim = opts.referenceMaxDim;
     if(refImage) genOpts.referenceImage = refImage;
@@ -1734,10 +1802,12 @@ async function nbRunSheetGeneration(env, gopts){
         size: genOpts.imageSize || ((typeof nbGetRes==="function") ? nbGetRes() : "2K"),
         pixelW: outputDims && outputDims.w,
         pixelH: outputDims && outputDims.h,
-        // quality is a GPT Image (OpenAI) setting only — low/medium/high; Nano Banana
-        // has no such control (its "quality" IS its resolution tier), so leave it unset there.
-        quality: (typeof isGptImageModel==="function" && isGptImageModel(actualModel))
-          ? (genOpts.quality || ((typeof nbGetOaiQuality==="function") ? nbGetOaiQuality() : "medium")) : undefined,
+         // Preserve the exact quality selected when THIS run began.  In
+         // particular, "default" must not be inferred back to provider "high"
+         // after the request, and a mid-run settings change must not rewrite it.
+         quality: _requestedQuality,
+         qualityModel: _requestedModel,
+         requestedModel: _requestedModel,
         date: now.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}),
         time: now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}),
         iso: now.toISOString(),
@@ -1783,6 +1853,13 @@ async function nbRunSheetGeneration(env, gopts){
         if(depIds.length) meta.propDependencies=propReferenceSnapshot(depIds,window.turnContinuity||{});
       }
       if(startMeta) Object.assign(meta, startMeta);
+      /* A surface-specific start stamp may add provenance fields, but quality is
+         owned by this runner's immutable request snapshot.  Re-assert it after
+         the merge so no late callback can replace "default"/"auto" with a live
+         picker value. */
+      meta.quality = _requestedQuality;
+      meta.qualityModel = _requestedModel;
+      meta.requestedModel = _requestedModel;
       // caller-supplied extra meta (e.g. a prop's owner-sheet anchor version, a
       // character sheet's baked worn-prop signature) — powers the staleness badges
       if(typeof opts.metaExtra==="function"){
@@ -4905,8 +4982,35 @@ function NbControls(){
   const aspects = window.NB_ASPECTS || ["16:9","21:9"];
   const isFlash = model === "gemini-3.1-flash-image";
   const isGpt = (typeof isGptImageModel==="function") ? isGptImageModel(model) : /^gpt-image/.test(model||"");
-  const [oaiQ, setOaiQ] = React.useState(()=> (typeof nbGetOaiQuality==="function") ? nbGetOaiQuality() : "medium");
+  const [oaiQ, setOaiQ] = React.useState(()=> (typeof nbGetOaiQuality==="function") ? nbGetOaiQuality(model) : "medium");
+  /* Quality choices are provider metadata, not UI constants.  GPT Image 2.5
+     exposes all seven choices, while legacy GPT Image keeps its three familiar
+     choices.  The server capability response gates only the newly introduced
+     2.5 values until the remote route has been verified. */
+  const qualityChoices = (typeof nbOaiQualityChoices==="function")
+    ? (nbOaiQualityChoices(model)||[]) : [];
+  const qualityIsExpanded = isGpt && qualityChoices.indexOf("default")>=0;
+  const qualitySupport = (typeof nbImageQualitySupport==="function")
+    ? (nbImageQualitySupport(model)||{}) : { loading:false, qualities:qualityChoices, expanded:!qualityIsExpanded };
+  const [,forceQuality] = React.useState(0);
   const modelLabel = (models.find(m=>m.id===model)||{}).label || model || "Model";
+  const qualityLabel = (q)=> typeof nbOaiQualityLabel==="function" ? nbOaiQualityLabel(q) : q;
+  const qualityCanUse = (q)=>{
+    if(typeof nbCanUseImageQuality==="function") return !!nbCanUseImageQuality(model,q);
+    return !qualityIsExpanded || (qualitySupport.qualities||[]).indexOf(q)>=0;
+  };
+  const refreshQuality = (force)=>{
+    if(!qualityIsExpanded || typeof nbRefreshImageQualityCapabilities!=="function") return;
+    Promise.resolve(nbRefreshImageQualityCapabilities({force:!!force}))
+      .catch(()=>{})
+      .then(()=>forceQuality(x=>x+1));
+  };
+  const qualityNotReady = qualityIsExpanded && (!qualitySupport.expanded || qualitySupport.loading);
+  const qualityMessage = qualityNotReady
+    ? (qualitySupport.message || (qualitySupport.loading
+      ? "Checking GPT Image 2.5 quality availability…"
+      : "Extended quality choices are not verified yet."))
+    : "";
 
   /* close tooltip on outside click */
   React.useEffect(()=>{
@@ -4926,9 +5030,30 @@ function NbControls(){
   /* reflect external model switches (e.g. a "Try <model>" fallback after a failed
      generation) in the picker highlight + mobile summary. */
   React.useEffect(()=>{
-    const h = ()=>{ if(typeof nbGetModel==="function") setModel(nbGetModel()); };
+    const h = ()=>{
+      const next = typeof nbGetModel==="function" ? nbGetModel() : model;
+      setModel(next);
+      if(typeof nbGetOaiQuality==="function") setOaiQ(nbGetOaiQuality(next));
+    };
     window.addEventListener("nb-model-changed", h);
-    return ()=>window.removeEventListener("nb-model-changed", h);
+    const qh = ()=>{
+      if(typeof nbGetOaiQuality==="function") setOaiQ(nbGetOaiQuality(model));
+    };
+    window.addEventListener("nb-settings-changed", qh);
+    return ()=>{ window.removeEventListener("nb-model-changed", h); window.removeEventListener("nb-settings-changed", qh); };
+  },[model]);
+  /* A model switch changes quality families (legacy vs 2.5), so read the
+     selected value for the NEW model instead of carrying the old family's q. */
+  React.useEffect(()=>{
+    if(typeof nbGetOaiQuality==="function") setOaiQ(nbGetOaiQuality(model));
+    refreshQuality(false);
+  },[model,qualityIsExpanded]);
+  /* Capability events are intentionally independent of model/q values: a
+     remote OPTIONS response can arrive while the same selection is visible. */
+  React.useEffect(()=>{
+    const h = ()=>forceQuality(x=>x+1);
+    window.addEventListener("nb-quality-capabilities",h);
+    return ()=>window.removeEventListener("nb-quality-capabilities",h);
   },[]);
 
   return React.createElement("div",{className:"nb-controls"+(mOpen?" mopen":""),ref:wrapRef},
@@ -4943,7 +5068,7 @@ function NbControls(){
       React.createElement("div",{className:"nb-ctl-row"},
         React.createElement("div",{className:"nb-seg"},
           models.map(m=>React.createElement("button",{key:m.id,className:"nb-seg-btn "+(model===m.id?"on":""),
-            title:m.note,onClick:()=>{ setModel(m.id); nbSetModel(m.id); window.dispatchEvent(new CustomEvent("nb-model-changed")); }},m.label))),
+             title:m.note,onClick:()=>{ setModel(m.id); setOaiQ(typeof nbGetOaiQuality==="function" ? nbGetOaiQuality(m.id) : "medium"); nbSetModel(m.id); window.dispatchEvent(new CustomEvent("nb-model-changed")); }},m.label))),
         /* grounding toolkit — only when Nano Banana 2 is selected */
         isFlash && React.createElement("div",{className:"nb-ground-wrap",ref:tipRef},
           React.createElement("button",{
@@ -4977,16 +5102,29 @@ function NbControls(){
               React.createElement("button",{className:"nb-seg-btn "+(ground?"on":""),
                 onClick:()=>{ setGround(true); nbSetGroundSearch&&nbSetGroundSearch(true); }},
                 "Web + images"))), document.body)))),
-    /* GPT Image quality — its own labelled control (high routinely exceeds the
-       proxy's time window on composite sheets: 504, billed but no image) */
+     /* GPT Image quality — its own labelled control.  2.5's Default is a
+        separate provider-default choice (not Auto); the client keeps that
+        snapshot through the proxy and the server omits the provider field. */
     isGpt && React.createElement("div",{className:"nb-ctl"},
       React.createElement("span",{className:"nb-ctl-lab"},"Quality"),
       React.createElement("div",{className:"nb-ctl-row"},
         React.createElement("div",{className:"nb-seg"},
-          ["low","medium","high"].map(q=>React.createElement("button",{key:q,
-            className:"nb-seg-btn "+(oaiQ===q?"on":""),
-            title: q==="high" ? "Slowest — composite sheets may time out at the proxy" : (q==="medium" ? "Recommended — fits the proxy window" : "Fastest"),
-            onClick:()=>{ setOaiQ(q); nbSetOaiQuality&&nbSetOaiQuality(q); window.dispatchEvent(new CustomEvent("nb-settings-changed")); }}, q))))),
+           qualityChoices.map(q=>{
+             const usable = qualityCanUse(q);
+             return React.createElement("button",{key:q,
+               className:"nb-seg-btn "+(oaiQ===q?"on":"")+(usable?"":" disabled"),
+               disabled:!usable,
+               "aria-disabled":usable?"false":"true",
+               title: usable ? qualityLabel(q) : ((qualitySupport.message||"Quality is not available yet.")+" Try refreshing."),
+               onClick:()=>{ if(!usable)return; setOaiQ(q); if(typeof nbSetOaiQuality==="function") nbSetOaiQuality(q,model); window.dispatchEvent(new CustomEvent("nb-settings-changed")); }},
+               qualityLabel(q));
+           }),
+         ),
+         qualityMessage && React.createElement("div",{className:"nb-quality-message"},
+           React.createElement("span",null,qualityMessage),
+           !qualitySupport.loading && React.createElement("button",{type:"button",className:"nb-quality-retry",
+             onClick:()=>refreshQuality(true)},"Retry"))
+        )),
     React.createElement("div",{className:"nb-ctl"},
       React.createElement("span",{className:"nb-ctl-lab"},"Aspect"),
       React.createElement("div",{className:"nb-seg-rows"},

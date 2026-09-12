@@ -52,9 +52,11 @@ const ok = (name, cond, detail) => {
 
 /* ---- instrumented stubs + a recording ui adapter (reset per scenario) ---- */
 let genCalls, commits, events, ui, uiCalls, epoch, backend, commitImpl, genImpl;
+let qualityValue, qualityChecks;
 const rec = (fn) => (...args) => { uiCalls.push({ fn, args }); };
 const reset = () => {
   genCalls = []; commits = []; events = []; uiCalls = []; epoch = 1; backend = "cloud";
+  qualityValue = "medium"; qualityChecks = [];
   commitImpl = async (c) => ({ tier: "cloud", url: "signed:" + c.url });
   genImpl = async () => "data:image/png;base64,RENDER";
   sandbox.window.__nbGenInflight = {};
@@ -71,7 +73,11 @@ const reset = () => {
   sandbox.isGptImageModel = () => false;
   sandbox.nbGetAspect = () => "16:9";
   sandbox.nbGetRes = () => "2K";
-  sandbox.nbGetOaiQuality = () => "medium";
+  sandbox.nbGetOaiQuality = () => qualityValue;
+  sandbox.nbRequireImageQuality = async (model, quality) => {
+    qualityChecks.push({ model, quality });
+    return true;
+  };
   sandbox.nbGetGroundSearch = () => false;
   sandbox.nbGetCameo = () => null;
   sandbox.nbLoadCameo = async () => null;
@@ -123,6 +129,82 @@ reset();
   ok("happy: no error shown", !calls("setGenErr").some(c => c.args[0]), JSON.stringify(calls("setGenErr")));
   ok("happy: registries clean", !(("char-1") in sandbox.window.__nbGenInflight) && !(("char-1") in sandbox.window.__nbGenCancel) && !(("char-1") in sandbox.window.__nbGenAbort));
   ok("happy: spinner off at end", lastArg("setGening") === false);
+}
+
+/* 1b — quality is a per-run snapshot: changing the picker while the provider
+   is in flight cannot rewrite provider opts or committed Details metadata. */
+reset();
+{
+  const gptModels = [{ id: "gpt-image-2.5-flare", label: "GPT Image 2.5 Flare" }];
+  sandbox.nbGetModel = () => "gpt-image-2.5-flare";
+  sandbox.isGptImageModel = model => /^gpt-image/.test(model || "");
+  qualityValue = "default";
+  genImpl = async () => {
+    qualityValue = "auto";
+    return "data:image/png;base64,QUALITY";
+  };
+  await run(env({ allModels: gptModels }), {});
+  ok("quality-snapshot: preflight saw the requested model and quality",
+    qualityChecks.length === 1 && qualityChecks[0].model === "gpt-image-2.5-flare"
+      && qualityChecks[0].quality === "default", JSON.stringify(qualityChecks));
+  ok("quality-snapshot: provider received the captured quality",
+    genCalls.length === 1 && genCalls[0].opts.quality === "default", JSON.stringify(genCalls[0] && genCalls[0].opts));
+  ok("quality-snapshot: Details kept the original quality after a mid-run change",
+    commits.length === 1 && commits[0].meta.quality === "default", commits[0] && commits[0].meta.quality);
+}
+
+/* 1c — unsupported quality fails before a paid pre-generate helper or provider
+   fallback can run. */
+reset();
+{
+  let gateCalled = false;
+  sandbox.nbGetModel = () => "gpt-image-2.5-flare";
+  sandbox.isGptImageModel = model => /^gpt-image/.test(model || "");
+  qualityValue = "max";
+  sandbox.nbRequireImageQuality = async () => { throw new Error("quality not verified"); };
+  await run(env({
+    allModels: [{ id: "gpt-image-2.5-flare", label: "GPT Image 2.5 Flare" }],
+    opts: { buildFinal: () => "P", beforeGenerate: async () => { gateCalled = true; return true; } },
+  }), {});
+  ok("quality-reject: nothing spent before capability approval",
+    genCalls.length === 0 && commits.length === 0 && !gateCalled);
+  ok("quality-reject: explicit capability error surfaced",
+    /quality not verified/.test(lastArg("setGenErr") || ""), lastArg("setGenErr"));
+}
+
+/* 1d — the async capability check must not open a paid pre-generate/provider
+   window after a film switch or Stop lands while its OPTIONS request awaits. */
+reset();
+{
+  let releaseQuality, gateCalled = false;
+  sandbox.nbGetModel = () => "gpt-image-2.5-flare";
+  sandbox.isGptImageModel = model => /^gpt-image/.test(model || "");
+  qualityValue = "default";
+  sandbox.nbRequireImageQuality = async () => new Promise(resolve => { releaseQuality = resolve; });
+  const pending = run(env({
+    allModels: [{ id: "gpt-image-2.5-flare", label: "GPT Image 2.5 Flare" }],
+    opts: { buildFinal: () => "P", beforeGenerate: async () => { gateCalled = true; return true; } },
+  }), {});
+  await new Promise(resolve => setTimeout(resolve, 0));
+  epoch = 2; releaseQuality(true); await pending;
+  ok("quality-await-epoch: no paid work after film switch",
+    !gateCalled && genCalls.length === 0 && commits.length === 0);
+}
+reset();
+{
+  let releaseQuality, gateCalled = false;
+  sandbox.nbGetModel = () => "gpt-image-2.5-flare";
+  sandbox.isGptImageModel = model => /^gpt-image/.test(model || "");
+  qualityValue = "default";
+  sandbox.nbRequireImageQuality = async () => new Promise(resolve => { releaseQuality = resolve; });
+  const pending = run(env({
+    allModels: [{ id: "gpt-image-2.5-flare", label: "GPT Image 2.5 Flare" }],
+    opts: { buildFinal: () => "P", beforeGenerate: async () => { gateCalled = true; return true; } },
+  }), {});
+  await new Promise(resolve => setTimeout(resolve, 0));
+  sandbox.window.nbCancelGen("char-1"); releaseQuality(true); await pending;
+  ok("quality-await-cancel: no paid work after Stop",
+    !gateCalled && genCalls.length === 0 && commits.length === 0);
 }
 
 /* 2 — persistence FAILED (tier:"error"): failure surfaced, nothing adopted */

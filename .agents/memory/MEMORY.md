@@ -22,7 +22,7 @@
 - [Asset migration ownership](asset-migration-ownership.md) — legacy image copies must fail closed on ambiguous targets and revalidate target, run ownership, cancellation, and film epoch after awaits.
 - [Reference version provenance](reference-version-provenance.md) — exact used versions, honest recovery thumbnails, and resumable cleanup of permanently deleted reference copies.
 - [Screenplay evidence labels](screenplay-evidence-labels.md) — never present mapped or lexical-inference locations as direct screenplay evidence; quote and grade the match.
-- [Stage provider capabilities](stage-provider-capabilities.md) — browser and remote proxy ship independently; paid capability expansions need a non-spending handshake.
+- [Provider capability handshakes](stage-provider-capabilities.md) — browser and remote proxy ship independently; expanded paid options need a probe that old servers handle without generating.
 - [Provider refusal boundaries](provider-refusal-boundaries.md) — policy refusals stop the render; no automatic new jobs, reference changes, or unsupported false-positive claims.
 - [Semantic reference binding](semantic-reference-binding.md) — character names on frame labels are not identity references; resolve the exact, shot-scoped appearance asset.
 - [Beat keyframe boundaries](beat-keyframe-boundaries.md) — opening stills and full-beat video have different time scopes; remote participation is not visual presence.

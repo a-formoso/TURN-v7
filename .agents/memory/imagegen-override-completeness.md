@@ -19,3 +19,9 @@ Reference inventory and inclusion are separate: neither scene-scoped discovery n
 **Why:** The scene-only request restricts new choices, not saved image or render intent. The user subsequently clarified that all reference images must remain available to recheck at any time, including during generation.
 
 **How to apply:** Filter new options by canonical scene links; keep saved outside-scene choices separately labeled. Retain unchecked inventory while filtering only actual attachments. A running render uses its captured inputs; checkbox changes affect subsequent renders. Never offer deletion of a previous frame from another frame's reference list.
+
+An explicit "Default" quality selection stays in the internal run snapshot and proxy envelope; omit it only from the final provider payload. It is not the same intent as "Auto."
+
+**Why:** Removing the field earlier makes downstream defaulting helpers read the live settings again. A control change during reference preparation can then replace the requested quality while metadata still claims the original selection.
+
+**How to apply:** Capture the model and requested quality before awaits, preserve both through retries and metadata, and perform provider-specific omission only in the final adapter. Default and Auto estimates must follow their distinct pricing policies, never silently fall back to Medium.
