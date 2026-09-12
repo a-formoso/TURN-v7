@@ -21,6 +21,10 @@ import { minify } from "terser";
 const ROOT = process.cwd();
 const APP  = join(ROOT, "app");
 const DIST = join(ROOT, "dist");
+// Keep the downloadable desktop add-on and relay's scene schema in sync with
+// source. This does not run Blender or contact the relay.
+await import("./build-blender-addon.mjs");
+cpSync(join(APP, "blender-contract.js"), join(ROOT, "supabase", "functions", "blender-bridge", "shared-contract.js"));
 mkdirSync(join(DIST, "app"), { recursive: true });
 
 async function minifyJs(code, label){

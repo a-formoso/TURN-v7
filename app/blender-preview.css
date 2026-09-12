@@ -1,0 +1,84 @@
+/* Per-shot Blender proof controls.  Keep the namespace narrow: this file is
+   loaded with the rest of the Art Room and must not restyle existing cards. */
+.bp-panel{margin-top:10px;padding:13px 14px;border:1px solid var(--line,#353840);
+  border-radius:10px;background:var(--bg-2,#15161a);color:var(--txt-1,#d8d8d2);
+  font-family:var(--f-ui,system-ui,sans-serif);font-size:11px}
+.bp-intro{display:grid;gap:5px}
+.bp-title-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.bp-title-row strong{font-size:12px;letter-spacing:.02em;color:var(--txt-0,#f0f0ea)}
+.bp-intro p{margin:0;color:var(--txt-2,#9e9e98);line-height:1.45}
+.bp-status{display:inline-flex;align-items:center;min-height:18px;padding:0 7px;border-radius:10px;
+  background:var(--bg-3,#202126);color:var(--txt-2,#a9a9a1);font:600 9px var(--f-mono,monospace);
+  text-transform:uppercase;letter-spacing:.05em}
+.bp-status-completed,.bp-status-connected{color:var(--pos,#80cfa1);background:color-mix(in srgb,var(--pos,#80cfa1) 13%,transparent)}
+.bp-status-failed,.bp-status-cancelled{color:var(--neg,#e59285);background:color-mix(in srgb,var(--neg,#e59285) 13%,transparent)}
+.bp-status-queued,.bp-status-running{color:var(--accent,#d8a657);background:color-mix(in srgb,var(--accent,#d8a657) 13%,transparent)}
+.bp-callout{margin-top:10px;padding:9px 10px;border:1px solid var(--line-2,#484a52);border-radius:7px;
+  color:var(--txt-1,#d8d8d2);line-height:1.4}
+.bp-callout.warn{border-color:color-mix(in srgb,var(--accent,#d8a657) 55%,var(--line,#353840));
+  background:color-mix(in srgb,var(--accent,#d8a657) 9%,transparent)}
+.bp-callout.error{border-color:color-mix(in srgb,var(--neg,#e59285) 65%,var(--line,#353840));
+  background:color-mix(in srgb,var(--neg,#e59285) 9%,transparent)}
+.bp-disclosure{display:grid;gap:3px;margin-top:11px;padding:9px 10px;border-left:2px solid var(--accent,#d8a657);
+  background:var(--bg-3,#202126);color:var(--txt-2,#a9a9a1);line-height:1.4}
+.bp-disclosure b{color:var(--txt-1,#deded7);font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+.bp-inputs{display:grid;gap:3px;margin-top:9px;padding:8px 9px;border:1px solid var(--line,#353840);
+  border-radius:7px;background:var(--bg-3,#202126);line-height:1.4}
+.bp-inputs span,.bp-inputs small{color:var(--txt-2,#a9a9a1)}
+.bp-inputs b{overflow-wrap:anywhere;color:var(--txt-0,#f0f0ea);font-weight:600}
+.bp-config{display:grid;gap:10px;margin-top:12px;padding-top:11px;border-top:1px solid var(--line,#353840)}
+.bp-config-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.bp-config-head b{font-size:11px;color:var(--txt-0,#f0f0ea)}
+.bp-config-head small,.bp-capability{color:var(--txt-3,#7f807d);font:10px var(--f-mono,monospace)}
+.bp-room-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.bp-field{display:grid;gap:4px;min-width:0}
+.bp-field>span,.bp-vector legend{color:var(--txt-2,#a9a9a1);font-size:10px}
+.bp-field input{box-sizing:border-box;width:100%;height:28px;padding:0 7px;border:1px solid var(--line-2,#484a52);
+  border-radius:6px;background:var(--bg-3,#202126);color:var(--txt-0,#f0f0ea);font:11px var(--f-mono,monospace)}
+.bp-field input:focus{outline:1px solid var(--accent,#d8a657);border-color:var(--accent,#d8a657)}
+.bp-field input:disabled{opacity:.6;cursor:not-allowed}
+.bp-vector{min-width:0;margin:0;padding:8px 8px 7px;border:1px solid var(--line,#353840);border-radius:7px}
+.bp-vector legend{padding:0 4px}
+.bp-vector-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.bp-actions{display:flex;align-items:center;flex-wrap:wrap;gap:7px;margin-top:12px}
+.bp-actions .char-draft-btn{height:29px}
+.bp-actions .char-draft-btn.primary:disabled{opacity:.48}
+.bp-help{margin:8px 0 0;color:var(--txt-2,#a9a9a1);line-height:1.4}
+.bp-pair{display:grid;gap:8px;margin-top:13px;padding-top:11px;border-top:1px solid var(--line,#353840)}
+.bp-download{justify-self:start;color:var(--link,#87b8d9);font-size:11px;text-decoration:none}
+.bp-download:hover{text-decoration:underline}
+.bp-pair ol{margin:0;padding-left:19px;color:var(--txt-2,#a9a9a1);line-height:1.5}
+.bp-pair-code{display:grid;gap:7px;padding:9px;border:1px solid var(--line-2,#484a52);border-radius:7px;background:var(--bg-3,#202126)}
+.bp-pair-code>div{display:flex;align-items:center;gap:8px;min-width:0}
+.bp-pair-code>div>span{width:125px;flex:0 0 125px;color:var(--txt-2,#a9a9a1)}
+.bp-pair-code code{min-width:0;overflow-wrap:anywhere;color:var(--txt-0,#f0f0ea);font:11px var(--f-mono,monospace)}
+.bp-copy{margin-left:auto;height:24px;padding:0 8px;border:1px solid var(--line-2,#484a52);border-radius:5px;
+  background:var(--bg-2,#15161a);color:var(--txt-1,#d8d8d2);font:600 10px var(--f-ui,system-ui,sans-serif);cursor:pointer}
+.bp-copy:hover{border-color:var(--accent,#d8a657);color:var(--txt-0,#f0f0ea)}
+.bp-pair-code small{color:var(--txt-3,#7f807d);font:10px var(--f-mono,monospace)}
+.bp-result{display:grid;gap:7px;margin-top:13px;padding-top:11px;border-top:1px solid var(--line,#353840)}
+.bp-result-head{display:flex;align-items:center;gap:8px;color:var(--txt-0,#f0f0ea)}
+.bp-result img{display:block;width:100%;max-height:360px;object-fit:contain;border:1px solid var(--line-2,#484a52);
+  border-radius:7px;background:#08090b}
+.bp-stale{color:var(--accent,#d8a657);font-size:10px}
+.bp-readback{color:var(--txt-2,#a9a9a1);font:10px var(--f-mono,monospace)}
+.bp-failure-actions{display:flex;gap:7px;margin-top:8px}
+.bp-messages{display:grid;gap:4px;margin-top:9px;line-height:1.4}
+.bp-message{color:var(--txt-2,#a9a9a1)}
+.bp-message.error{color:var(--neg,#e59285)}
+.bp-capability{display:block;margin-top:10px}
+html[data-theme="light"] .bp-panel{background:var(--bg-2,#fcfcfb)}
+html[data-theme="light"] .bp-field input{background:var(--bg-4,#fff)}
+html[data-theme="light"] .bp-pair-code,.bp-panel{box-shadow:0 1px 2px rgba(24,25,28,.04)}
+@media (max-width:560px){
+  .bp-panel{padding:11px 10px}
+  .bp-room-grid{grid-template-columns:1fr}
+  .bp-actions{align-items:stretch}
+  .bp-actions .char-draft-btn{flex:1 1 145px}
+  .bp-pair-code>div{display:grid;grid-template-columns:1fr auto}
+  .bp-pair-code>div>span{width:auto;grid-column:1/-1}
+  .bp-copy{grid-column:2;grid-row:2}
+}
+@media (prefers-reduced-motion:reduce){
+  .bp-panel *{scroll-behavior:auto!important;transition:none!important}
+}

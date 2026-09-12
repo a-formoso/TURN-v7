@@ -40,3 +40,15 @@ Asset-copy tests must cover both cold signed URLs and warm browser blob URLs thr
 **Why:** A loader's display URL is not necessarily a valid upload payload. Inline-only inputs and mocked successful commits hid a source-copy failure before the first paid render.
 
 **How to apply:** Keep the loader, conversion, upload and commit contracts real; substitute only the external transport. Verify exact copied bytes, durable readback, failure details and zero generation when source preparation fails.
+
+Cross-process bridges need a shipped-client handshake test, not just passing
+tests for each endpoint.
+
+**Why:** Separately valid relay and renderer tests can miss how a client adopts
+its pairing credential, while permissive schema/hash stubs hide incompatible
+scene payloads. A real render establishes neither authenticated transport nor
+safe acceptance by the browser.
+
+**How to apply:** Exercise pairing through upload using the packaged client and
+record only the fake transport boundary. Keep the real validators, signatures,
+and lifecycle code; include a cross-language canonicalization corpus.

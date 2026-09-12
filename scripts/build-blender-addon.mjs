@@ -1,0 +1,129 @@
+/*
+ * Build the legacy-installable Cinema Machine Blender add-on.
+ *
+ * This is a deliberately dependency-free ZIP writer.  Keeping the archive
+ * creation in Node avoids requiring a system `zip` command or adding a
+ * package just for the downloadable artifact.
+ */
+import fs from "node:fs";
+import path from "node:path";
+import zlib from "node:zlib";
+import { fileURLToPath } from "node:url";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(here, "..");
+const source = path.join(root, "blender", "cinema_machine_bridge");
+const output = path.join(root, "app", "downloads", "cinema-machine-blender.zip");
+
+function crc32(buffer) {
+  let crc = 0xffffffff;
+  for (const byte of buffer) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function u16(value) {
+  const result = Buffer.alloc(2);
+  result.writeUInt16LE(value, 0);
+  return result;
+}
+
+function u32(value) {
+  const result = Buffer.alloc(4);
+  result.writeUInt32LE(value >>> 0, 0);
+  return result;
+}
+
+function localHeader(name, compressed, original) {
+  const nameBytes = Buffer.from(name, "utf8");
+  return Buffer.concat([
+    u32(0x04034b50),
+    u16(20), // version needed
+    u16(0), // flags
+    u16(8), // deflate
+    u16(0), // deterministic time
+    u16(33), // deterministic 1980-01-01 date
+    u32(crc32(original)),
+    u32(compressed.length),
+    u32(original.length),
+    u16(nameBytes.length),
+    u16(0), // extra length
+    nameBytes,
+  ]);
+}
+
+function centralHeader(name, compressed, original, offset) {
+  const nameBytes = Buffer.from(name, "utf8");
+  return Buffer.concat([
+    u32(0x02014b50),
+    u16(20), // made by
+    u16(20), // version needed
+    u16(0),
+    u16(8),
+    u16(0),
+    u16(33),
+    u32(crc32(original)),
+    u32(compressed.length),
+    u32(original.length),
+    u16(nameBytes.length),
+    u16(0), // extra
+    u16(0), // comment
+    u16(0), // disk
+    u16(0), // internal attributes
+    u32(0), // external attributes
+    u32(offset),
+    nameBytes,
+  ]);
+}
+
+function endRecord(count, centralSize, centralOffset) {
+  return Buffer.concat([
+    u32(0x06054b50),
+    u16(0),
+    u16(0),
+    u16(count),
+    u16(count),
+    u32(centralSize),
+    u32(centralOffset),
+    u16(0),
+  ]);
+}
+
+function buildAddon() {
+  if (!fs.existsSync(source) || !fs.statSync(source).isDirectory()) {
+    throw new Error(`Missing Blender add-on package: ${source}`);
+  }
+  const names = fs
+    .readdirSync(source)
+    .filter((name) => name.endsWith(".py") && !name.startsWith("."))
+    .sort()
+    .map((name) => `cinema_machine_bridge/${name}`);
+  if (!names.includes("cinema_machine_bridge/__init__.py")) {
+    throw new Error("Add-on package has no __init__.py");
+  }
+
+  const chunks = [];
+  const central = [];
+  let offset = 0;
+  for (const archiveName of names) {
+    const diskPath = path.join(source, path.basename(archiveName));
+    const original = fs.readFileSync(diskPath);
+    const compressed = zlib.deflateRawSync(original, { level: 9 });
+    const local = localHeader(archiveName, compressed, original);
+    chunks.push(local, compressed);
+    central.push(centralHeader(archiveName, compressed, original, offset));
+    offset += local.length + compressed.length;
+  }
+  const centralBytes = Buffer.concat(central);
+  chunks.push(centralBytes, endRecord(names.length, centralBytes.length, offset));
+  fs.mkdirSync(path.dirname(output), { recursive: true });
+  fs.writeFileSync(output, Buffer.concat(chunks));
+  process.stdout.write(`Built ${path.relative(root, output)} (${names.length} files)\n`);
+  return output;
+}
+
+buildAddon();

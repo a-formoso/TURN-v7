@@ -29,6 +29,11 @@ The workflow "Start application" is already configured and will start this autom
 - `app/story-data.jsx` — sample film data (The Matrix)
 - `docs/` — pipeline, protocol, and plan docs
 - `serve.js` — static file server
+- Blender preview proof: `docs/Blender Bridge.md`; web UI/client in `app/blender-*`,
+  relay in `supabase/functions/blender-bridge/`, desktop add-on in `blender/`.
+  `npm run build` packages its installable ZIP. The relay uses Supabase; static
+  website publishing stays unchanged. Blender is a development-only verification
+  dependency, not required by the website or its cloud relay.
 
 ## Important conventions (see AGENTS.md for full details)
 

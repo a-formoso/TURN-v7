@@ -438,7 +438,7 @@ function ShotPurpose({sh}){
     sh.purpose&&_el("span",{className:"shot-purpose-t"},sh.purpose));
 }
 
-function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, laterShots, sceneShots, isHead, isFirst, onToggleHead, onUpdate, onDelete, onView, onDeleteShotReference, batchActiveId, onBatchDone, onGenerateShot, onRegenDownstream, onStopChain, subLabel, plan, beatContext, scriptedContent, redraftControl, shotMenuExtra }){
+function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, laterShots, sceneShots, isHead, isFirst, onToggleHead, onUpdate, onDelete, onView, onDeleteShotReference, batchActiveId, onBatchDone, onGenerateShot, onRegenDownstream, onStopChain, subLabel, plan, beatContext, scriptedContent, redraftControl, shotMenuExtra, readOnly=false }){
   const loc = ctx.location;
   // who/what is in frame is DERIVED from the action text (single source of truth) — the
   // old manual tags are gone; this is what the prompt + references actually use.
@@ -1033,6 +1033,10 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         _el(GrammarSelect,{label:"Lens",value:sh.lens,options:SHOT_LENSES,onChange:v=>onUpdate(sh.id,{lens:v})})),
 
       _el(AdvancedCameraSettings,{sh,onUpdate}),
+      _el(CardFold,{label:"Blender preview · rough blockout",defaultOpen:false},
+        window.BlenderPreviewPanel
+          ? _el(window.BlenderPreviewPanel,{shot:sh,scene,location:loc,subjects,props:inProps,readOnly,onUpdate})
+          : _el("div",{className:"bp-callout warn"},"Blender preview is unavailable in this build.")),
 
       // the shot's TEXT layer, folded shut by default so the card reads compact —
       // SheetField commits on blur, so collapsing loses only uncommitted drafts.
@@ -1465,7 +1469,7 @@ function AddShotReferenceDialog({ scene, beatN, beatText, plan, ctx, characters,
    The Stage keeps consuming these shots for video clips; clip packing is unchanged. */
 function BeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, ordered, firstId, toggleHead,
   onAddShot, onUpdate, onDelete, onView, onDeleteShotReference, onGenerateShot, onRegenDownstream, onStopChain, onBatchDone,
-  batchActiveId, openShotId, setOpenShotId, sceneStart, onRenderScene, renderBusy, nextShotId, onRefineBeat, refiningBeat }){
+  batchActiveId, openShotId, setOpenShotId, sceneStart, onRenderScene, renderBusy, nextShotId, onRefineBeat, refiningBeat, readOnly=false }){
   const beatRow = (bm.rows||[]).find(r=>String(r.n)===String(L.n));
   // the card quotes the SCREENPLAY (canon) for this beat; the beat-map summary
   // only stands in until the scene is drafted
@@ -1581,7 +1585,7 @@ function BeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, ordered
               return _el(ShotCard,{sh,scene,ctx,characters,propsAvail,beatText,prevShot,plan,sceneShots:ordered,
                 laterShots:(_si>=0?ordered.slice(_si+1):[]), isHead:!prevShot, isFirst:(sh.id===firstId), onToggleHead:toggleHead,
                  onUpdate,onDelete,onView,onDeleteShotReference,batchActiveId,onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,
-                subLabel:(L.shots.length>1?letterOf(i):null)}); })())))),
+                 subLabel:(L.shots.length>1?letterOf(i):null),readOnly}); })())))),
       addSeed!==null && _el(AddShotReferenceDialog,{key:"add-shot-"+scene.id+"-"+L.n,
         scene,beatN:L.n,beatText,plan,ctx,characters,seed:addSeed,
         onCancel:()=>setAddSeed(null),
@@ -1592,7 +1596,7 @@ function BeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, ordered
    available for migration/test dependencies, while this is the live one-card model. */
 function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, ordered, firstId, toggleHead,
   onAddShot, onUpdate, onDelete, onView, onDeleteShotReference, onGenerateShot, onRegenDownstream, onStopChain, onBatchDone,
-  batchActiveId, openShotId, setOpenShotId, sceneStart, onRenderScene, renderBusy, nextShotId, onRefineBeat, refiningBeat, draftingBlocked }){
+  batchActiveId, openShotId, setOpenShotId, sceneStart, onRenderScene, renderBusy, nextShotId, onRefineBeat, refiningBeat, draftingBlocked, readOnly=false }){
   const continuity=window.turnContinuity||{};
   const source=typeof window.shotBeatScreenplay==="function"
     ? window.shotBeatScreenplay(scene,L.n,{drafts:ctx.drafts||continuity.drafts||{},characters,beatsMap:bm}) : null;
@@ -1653,8 +1657,8 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
     return _el(ShotCard,{key:sh.id,sh,scene,ctx,characters,propsAvail,
     beatText:(source&&source.openingAction)||text,sceneShots:ordered,plan:sh.beatPlan,
     prevShot,laterShots:(shotIndex>=0?ordered.slice(shotIndex+1):[]),
-    isHead:!prevShot,isFirst:sh.id===firstId,onToggleHead:toggleHead,
-     onUpdate,onDelete,onView,onDeleteShotReference,batchActiveId:(sh.id===batchActiveId?batchActiveId:null),onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,subLabel:label,beatContext,scriptedContent,redraftControl:refineControl,shotMenuExtra}); };
+     isHead:!prevShot,isFirst:sh.id===firstId,onToggleHead:toggleHead,
+      onUpdate,onDelete,onView,onDeleteShotReference,batchActiveId:(sh.id===batchActiveId?batchActiveId:null),onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,subLabel:label,beatContext,scriptedContent,redraftControl:refineControl,shotMenuExtra,readOnly}); };
   return _el(React.Fragment,null,
     displayed ? editor(displayed,displayed.id===primary.id?null:"Alternative "+(extras.findIndex(sh=>sh.id===displayed.id)+1)) :
       _el("div",{className:"sheet-card shot-card opening-beat-empty"},
@@ -1665,7 +1669,7 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
 
 function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, pager, onUpdate, onDelete, onView,
   onDeleteShotReference, onAddShot, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onDraftScene, draftingScene, draftingBlocked, batchActiveId, onBatchDone, open, onToggle, onGenerateShot, onRegenDownstream,
-  onRenderScene, renderBusy, queueMode, onStopChain }){
+  onRenderScene, renderBusy, queueMode, onStopChain, readOnly=false }){
   const loc = ctx.location;
   const driver = scene.driver ? ctx.charById[scene.driver] : null;
   // scene-level context (driver/reactor/antagonism/goal/conflict) — driver+goal+conflict from the
@@ -1749,7 +1753,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
         beatText:beatScriptText(scene.id,lane.n),sceneShots:ordered,plan:collapsedActive.beatPlan,
         prevShot:prior,laterShots:ix>=0?ordered.slice(ix+1):[],isHead:!prior,isFirst:collapsedActive.id===firstId,onToggleHead:toggleHead,
          onUpdate,onDelete,onView,onDeleteShotReference,batchActiveId,onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,
-        subLabel:collapsedActive.keyframeMode==="beat-opening"?"Opening":null}));
+         subLabel:collapsedActive.keyframeMode==="beat-opening"?"Opening":null,readOnly}));
   })() : null;
   // the scene's clip sequences (shared partition — Storyboard clip boards + the Stage);
   // the per-clip budget comes from the project FORMAT (clipMaxFor)
@@ -1891,7 +1895,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
               onGenerateShot, onRegenDownstream, onStopChain, onBatchDone, batchActiveId, openShotId, setOpenShotId,
               sceneStart:(!_sceneRendered && Li===0), onRenderScene, renderBusy, nextShotId:_nextShotId,
               onRefineBeat,refiningBeat:refiningBeat===scene.id+"#"+L.n,
-              draftingBlocked:!!draftingBlocked||!!draftingScene||!!refiningBeat||!!splittingBeat })))));
+               draftingBlocked:!!draftingBlocked||!!draftingScene||!!refiningBeat||!!splittingBeat,readOnly })))));
     })());
 }
 
@@ -2397,7 +2401,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
       draftingBlocked:!!readOnly||!!draftingAllShots||!!draftingSceneShots,
       batchActiveId,onBatchDone:handleBatchDone,onGenerateShot:startShot,onRegenDownstream,
       onRenderScene:startScene,renderBusy,queueMode,onStopChain:stopChain,
-      open:true,onToggle:()=>toggleScene(scene.id)})),
+       open:true,onToggle:()=>toggleScene(scene.id),readOnly})),
     // Keep only the active runner mounted when the user browses away. display:none
     // preserves its generation/completion effects without showing a second scene.
     runnerScene && _el("div",{style:{display:"none"},"aria-hidden":"true"},
@@ -2408,7 +2412,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
         onAddShot,onSplitBeat,splittingBeat,onRefineBeat,refiningBeat,onDraftScene:onDraftSceneShots,draftingScene:draftingSceneShots===runnerScene.id,
         draftingBlocked:!!readOnly||!!draftingAllShots||!!draftingSceneShots,
         batchActiveId,onBatchDone:handleBatchDone,onGenerateShot:startShot,onRegenDownstream,
-        onRenderScene:startScene,renderBusy,queueMode,onStopChain:stopChain,open:true,onToggle:()=>{}})));
+         onRenderScene:startScene,renderBusy,queueMode,onStopChain:stopChain,open:true,onToggle:()=>{},readOnly})));
 }
 window.ShotList = ShotList;
 

@@ -27,3 +27,4 @@
 - [Semantic reference binding](semantic-reference-binding.md) — character names on frame labels are not identity references; resolve the exact, shot-scoped appearance asset.
 - [Beat keyframe boundaries](beat-keyframe-boundaries.md) — opening stills and full-beat video have different time scopes; remote participation is not visual presence.
 - [Upload intent compatibility](upload-intent-compatibility.md) — missing cleanup RPCs are distinct from storage denial; protect in-tab unsaved pixels before reloading fixes.
+- [Server-only storage namespaces](server-only-storage-namespaces.md) — private receipt paths need a non-UUID second segment; a private-looking first segment alone does not block deletion.
