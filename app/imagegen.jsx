@@ -819,6 +819,25 @@ async function nbLoadImage(id){
   }
   return localLoadImage(id);
 }
+/* Orbit renders intentionally use one slot per frame instead of replacing a
+   character's master sheet.  A long orbit therefore must be able to drop the
+   just-committed frame from the hot cache after its durable write; otherwise a
+   288-frame run would retain hundreds of large data URLs (or object URLs).
+   This does not delete the asset — the next nbLoadImage(id) rehydrates it from
+   IndexedDB or cloud storage. */
+function nbReleaseImageCache(id){
+  if(!id) return;
+  const key=nbImgKey(id);
+  _nbImgMemory.delete(key);
+  _cloudUrlCache.delete(id);
+  _cloudMetaCache.delete(id);
+  const obj=_objUrls.get(id);
+  if(obj){
+    try{ URL.revokeObjectURL(obj.url); }catch(e){}
+    _objUrls.delete(id);
+  }
+}
+window.nbReleaseImageCache = nbReleaseImageCache;
 /* A rendered <img> can outlive its cloud signed URL (or a cached blob URL can be
    revoked by the browser). The asset still exists; only its paint URL is stale.
    Re-resolve that exact asset id without generating or changing any pixels. */
@@ -1796,8 +1815,10 @@ async function proxyGenerate(prompt, opts, provider){
                  // least-restrictive SUPPORTED moderation for gpt-image (fewer false positives on
                  // legitimate creative content; genuinely prohibited content is still blocked)
                  ...(isGptImageModel(model) ? { moderation: opts.moderation || "low" } : {}) };
-  // Only retry true NETWORK-level failures (DNS / "failed to send"): they fail FAST and no
-  // server work was done, so a quick retry is safe and cheap. Do NOT retry 5xx/504 \u2014 a 504
+  // The legacy interactive path retries one status-less transport failure.
+  // That does NOT prove the server did no work. Durable batch callers set
+  // noRetry and surface an uncertain request for explicit user acknowledgement.
+  // Do NOT retry 5xx/504 \u2014 a 504
   // only comes back after the gateway's full (~150s) timeout, and the Edge Function may STILL
   // be running the expensive generation, so retrying just multiplies the wait and the cost.
   // 504s are surfaced immediately (the real mitigation is the downscaled refs above).
@@ -1812,17 +1833,20 @@ async function proxyGenerate(prompt, opts, provider){
   // abandoned wait is never auto-retried.)
   const _capped = (pr)=> Promise.race([ pr,
     new Promise((_,rej)=> setTimeout(()=>{ const e=new Error("The image server didn't answer within 6\u00bd minutes — the request was abandoned. If this keeps happening, fal.ai may be rate-limited or the image-proxy needs a redeploy."); e.__timedOut=true; rej(e); }, 390000)) ]);
-  for(let attempt=0; attempt<2; attempt++){
+  for(let attempt=0; attempt<(opts.noRetry ? 1 : 2); attempt++){
     error = null;
     /* Reference conversion above and a network retry are both awaits.  Re-check
        immediately before every paid proxy invocation in case canon changed while
        the request was being prepared. */
+    // Long, resumable jobs revalidate ownership after reference conversion,
+    // at the last point before spending. A declined guard never submits.
+    if(typeof opts.beforeSubmit==="function") await opts.beforeSubmit();
     nbAssertMediaIdentity(opts, "image-provider-submit");
     try{ ({ data, error } = await _capped(sb.functions.invoke(fnName, { body }))); }
     catch(e){ error = e; }
     if(!error) break;
     if(error.__timedOut) break;
-    if(attempt<1 && isNetworkBlip(error)){ await new Promise(r=>setTimeout(r, 600)); continue; }
+    if(!opts.noRetry && attempt<1 && isNetworkBlip(error)){ await new Promise(r=>setTimeout(r, 600)); continue; }
     break;
   }
   if(error){
@@ -1857,7 +1881,7 @@ async function proxyGenerate(prompt, opts, provider){
     // CONTENT-FILTER false positive: retry ONCE with benign-softened phrasing (e.g.
     // "gap-tooth" → "small gap between the front teeth"). Only rescues misclassified
     // legitimate content; genuinely prohibited prompts stay blocked and surface cleanly.
-    if(isGptImageModel(model) && !opts.__softened && (window.turnIsContentBlock ? window.turnIsContentBlock(_raw) : false)){
+    if(!opts.noRetry && isGptImageModel(model) && !opts.__softened && (window.turnIsContentBlock ? window.turnIsContentBlock(_raw) : false)){
       const soft = (typeof softenImagePrompt==="function") ? softenImagePrompt(prompt) : null;
       if(soft && soft!==prompt){
         if(opts.metaOut) opts.metaOut.softened = true;

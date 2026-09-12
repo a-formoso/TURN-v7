@@ -422,4 +422,33 @@ assert.equal(captured.model, FLARE);
 assert.equal(captured.quality, "max");
 assert.deepEqual(Array.from(captured.images), ["data:image/png;base64,REF"]);
 
-console.log("Client image-quality tests passed.");
+// Orbit jobs must never turn an ambiguous response loss into an automatic
+// second paid submission, nor rewrite a provider refusal.
+const guarded=makeBox();
+let guardedCalls=0;
+guarded.sbClient=()=>({functions:{invoke:async()=>{
+  guardedCalls++;
+  return {data:null,error:new Error("Failed to send a request: network error")};
+}}});
+await assert.rejects(guarded.nbGenerate("orbit frame",{
+  model:FLARE,quality:"medium",noRetry:true,
+}),/network error/);
+assert.equal(guardedCalls,1,"one uncertain frame cannot launch twice automatically");
+guardedCalls=0;
+guarded.sbClient=()=>({functions:{invoke:async()=>{
+  guardedCalls++;
+  return {data:{error:"provider content block"},error:null};
+}}});
+guarded.turnIsContentBlock=()=>true;
+await assert.rejects(guarded.nbGenerate("gap-toothed character orbit",{
+  model:FLARE,quality:"medium",noRetry:true,
+}),/content block/);
+assert.equal(guardedCalls,1,"orbit refusal cannot rewrite the prompt and spend again");
+guardedCalls=0;
+await assert.rejects(guarded.nbGenerate("cancelled orbit frame",{
+  model:FLARE,quality:"medium",noRetry:true,referenceImage:REF_URL,
+  beforeSubmit:async()=>{throw new Error("Orbit owner changed during reference preparation");},
+}),/Orbit owner changed/);
+assert.equal(guardedCalls,0,"ownership must be checked at the final paid boundary");
+
+console.log("Client image-quality and orbit submission-guard tests passed.");
