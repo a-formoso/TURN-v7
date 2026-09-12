@@ -28,3 +28,9 @@ Lifecycle tests that stub the persistence boundary do not establish storage guar
 **How to apply:** Exercise the real persistence adapter against a recording fake service, inject failures and cancellations across awaits, and inspect stored records and deletion paths as well as the returned status. Never infer live-provider billing or access-policy behavior from these tests.
 
 Also: heuristic checks (keyword/substring matching against free-text fields) must never report a confident "verified/ok" status — reserve "ok" for exact, deterministic matches and report fuzzy matches as a distinct advisory status. A code-review round rejected the first version of the Story Contract climax check for exactly this.
+
+Real UI plus real runtime is still insufficient when fixtures supply fields the app's producer never supplies.
+
+**Why:** An orbit browser test injected a persisted film id into story metadata. It passed the full simulated generation flow while the actual card could not start even its first preview.
+
+**How to apply:** Match the production producer's input shape and separate context sources, not the consumer's desired shape. Include missing-field cases for optional metadata; never manufacture required identifiers merely to make a fixture run.

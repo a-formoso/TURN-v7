@@ -561,7 +561,8 @@ async function main(){
     await cdp.eval(`(()=>{
       localStorage.clear();
       __turnCurrentProjectId="fixturefilm";
-      __fixture.project.id="fixturefilm";
+      // Match App's actual story metadata; the saved film id is separate.
+      delete __fixture.project.id;
       __fixture.character.role="watchmaker";
       __fixture.dock.model="gpt-image-2.5-flare";
       __fixture.dock.quality="high";
@@ -661,6 +662,7 @@ async function main(){
         lastAngle:run.frames?.at(-1)?.angle,
         savedFrames:run.frames?.length,
         completed:run.completed,
+        projectId:run.projectId,
         frameCommits:__fixture.real.commits.filter(item=>item.kind==="orbit-frame").length,
         masterUnchanged:__fixture.real.assets.get(__fixture.real.originalId)===__fixture.real.originalMaster,
         exportImagesDisabled:[...document.querySelectorAll(".orbit-export button")]
@@ -675,6 +677,7 @@ async function main(){
     assert.equal(realSummary.lastIndex,287,"real runtime ends at frame 287");
     assert.equal(realSummary.savedFrames,288,"real runtime persists all 288 saved frames");
     assert.equal(realSummary.completed,288,"real runtime reports numeric completed count 288");
+    assert.equal(realSummary.projectId,"fixturefilm","metadata-only project uses the active film for every frame");
     assert.equal(realSummary.lastAngle,358.75,"real runtime's final frame angle is 358.75 degrees");
     assert.equal(realSummary.frameCommits,288,"real runtime commits exactly one asset per frame");
     assert.equal(realSummary.masterUnchanged,true,"real runtime never overwrites the original master asset");

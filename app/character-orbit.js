@@ -1331,9 +1331,14 @@
     var characterId = characterIdOf(character);
     if (!characterId) throw new OrbitError("A character id is required to create an orbit.", "ORBIT_CHARACTER_REQUIRED");
     var projectId = getProjectId(options.project);
-    if (!projectId) throw new OrbitError("A film/project id is required to create an orbit.", "ORBIT_PROJECT_REQUIRED");
-    var scope = currentScope(projectId);
-    if (scope.backend === "cloud" && projectId && scope.projectId !== projectId) {
+    // App's `project` is story metadata, normally without a database row id.
+    // Capture the active film instead; a caller-supplied id may validate that
+    // scope, but must never create or override it.
+    var scope = currentScope("");
+    if (!scope.known || (scope.backend === "cloud" && !scope.uid)) {
+      throw new OrbitError("Open a saved film and let it finish loading before starting an orbit.", "ORBIT_PROJECT_REQUIRED");
+    }
+    if (projectId && scope.projectId !== projectId) {
       throw new OrbitError("The selected character belongs to a different film scope.", "ORBIT_SCOPE_CHANGED");
     }
     var settings = snapshotSettings(options.settings);

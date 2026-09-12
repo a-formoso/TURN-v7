@@ -263,6 +263,60 @@ assert.notDeepEqual(
 );
 assert.equal(h.api.quote({ model: "test-model", quality: "medium", res: "2K", aspect: "9:16" }).credits, 864);
 
+// App passes story metadata as `project`, not the persisted film row. Do not
+// manufacture an id in fixtures: the active asset scope supplies that id.
+const metadataLocal = harness();
+metadataLocal.box.turnProject = { title: "Local film", logline: "Story metadata has no row id." };
+const metadataLocalRun = await metadataLocal.api.create({
+  character: { id: "char-1", name: "Local character" },
+  project: metadataLocal.box.turnProject,
+  canWrite: () => true
+});
+assert.equal(metadataLocalRun.projectId, "film-1");
+assert.equal(metadataLocalRun.completed, 1);
+assert.equal(metadataLocal.prompts.length, 1, "metadata-only local project reaches pose preview only");
+
+const metadataCloud = cloudHarness();
+metadataCloud.box.__turnCurrentProjectId = undefined;
+metadataCloud.box.turnProject = { title: "Cloud film" };
+const metadataCloudRun = await metadataCloud.api.create({
+  character: { id: "cloud-char", name: "Cloud character" },
+  project: metadataCloud.box.turnProject,
+  canWrite: () => true
+});
+assert.equal(metadataCloudRun.projectId, "cloud-film", "cloud asset scope supplies the actual film id");
+assert.equal(metadataCloudRun.completed, 1);
+assert.equal(metadataCloud.prompts.length, 1);
+assert.ok([...metadataCloud.rows.values()].every(row => row.project_id === "cloud-film"));
+
+for (const scoped of [harness(), cloudHarness()]) {
+  await assert.rejects(scoped.api.create({
+    character: { id: scoped.images.keys().next().value },
+    project: { id: "another-film" },
+    canWrite: () => true
+  }), error => error.code === "ORBIT_SCOPE_CHANGED");
+  assert.equal(scoped.prompts.length, 0, "a mismatched explicit film cannot spend");
+  assert.equal(scoped.commits.length, 0, "a mismatched explicit film cannot save");
+}
+
+const unscoped = harness();
+unscoped.box.__turnCurrentProjectId = undefined;
+for (const project of [{ title: "Unsaved film" }, { id: "film-1" }]) {
+  await assert.rejects(unscoped.api.create({
+    character: { id: "char-1" }, project, canWrite: () => true
+  }), error => error.code === "ORBIT_PROJECT_REQUIRED");
+}
+assert.equal(unscoped.prompts.length, 0, "missing live scope never spends, even with a supplied id");
+assert.equal(unscoped.commits.length, 0);
+
+const loadingCloud = cloudHarness();
+loadingCloud.box.nbCloudScope = () => null;
+await assert.rejects(loadingCloud.api.create({
+  character: { id: "cloud-char" }, project: { title: "Loading film" }, canWrite: () => true
+}), error => error.code === "ORBIT_PROJECT_REQUIRED");
+assert.equal(loadingCloud.prompts.length, 0, "an unready cloud session cannot spend");
+assert.equal(loadingCloud.commits.length, 0);
+
 const memorySource = harness({ commitTier: "memory" });
 memorySource.images.set("char-memory", "master-memory");
 await assert.rejects(memorySource.api.create({
