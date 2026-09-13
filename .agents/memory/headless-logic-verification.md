@@ -52,3 +52,9 @@ safe acceptance by the browser.
 **How to apply:** Exercise pairing through upload using the packaged client and
 record only the fake transport boundary. Keep the real validators, signatures,
 and lifecycle code; include a cross-language canonicalization corpus.
+
+An HTTP success response and a valid ZIP are not enough to verify a download from an embedded preview.
+
+**Why:** Preview navigation handling can open an archive as an external webpage even when the original link has a download attribute. The earlier server-only check did not cover that interaction.
+
+**How to apply:** Exercise the actual download control in a browser, including an embedded context with document-link interception. Check the browser-saved filename and bytes, unchanged page location, and error/retry paths. Distinguish this simulated embedding check from verification inside the user's actual preview wrapper or Mac browser.

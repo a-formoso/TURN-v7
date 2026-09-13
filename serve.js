@@ -47,10 +47,14 @@ http.createServer((req, res) => {
 
   fs.readFile(filePath, (err, data) => {
     if (err) { res.writeHead(404); return res.end("not found"); }
-    res.writeHead(200, {
+    const headers = {
       "Content-Type": TYPES[path.extname(filePath)] || "application/octet-stream",
       "Cache-Control": "no-cache",
-    });
+    };
+    if (urlPath === "/app/downloads/cinema-machine-blender.zip") {
+      headers["Content-Disposition"] = 'attachment; filename="cinema-machine-blender.zip"';
+    }
+    res.writeHead(200, headers);
     res.end(data);
   });
 }).listen(PORT, "0.0.0.0", () => console.log("TURN serving on port " + PORT));

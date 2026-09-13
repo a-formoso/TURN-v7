@@ -45,8 +45,12 @@
 .bp-actions .char-draft-btn.primary:disabled{opacity:.48}
 .bp-help{margin:8px 0 0;color:var(--txt-2,#a9a9a1);line-height:1.4}
 .bp-pair{display:grid;gap:8px;margin-top:13px;padding-top:11px;border-top:1px solid var(--line,#353840)}
-.bp-download{justify-self:start;color:var(--link,#87b8d9);font-size:11px;text-decoration:none}
+.bp-download{justify-self:start;color:var(--link,#87b8d9);font-size:11px;text-decoration:none;
+  appearance:none;background:transparent;border:0;padding:0;text-align:left;font-family:inherit;cursor:pointer}
 .bp-download:hover{text-decoration:underline}
+.bp-download:disabled{opacity:.65;cursor:progress}
+.bp-download:focus-visible{outline:2px solid var(--accent,#d8a657);outline-offset:3px}
+.bp-download-error{color:var(--neg,#e59285)}
 .bp-pair ol{margin:0;padding-left:19px;color:var(--txt-2,#a9a9a1);line-height:1.5}
 .bp-pair-code{display:grid;gap:7px;padding:9px;border:1px solid var(--line-2,#484a52);border-radius:7px;background:var(--bg-3,#202126)}
 .bp-pair-code>div{display:flex;align-items:center;gap:8px;min-width:0}

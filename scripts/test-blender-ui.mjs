@@ -46,7 +46,7 @@ function fixturePng(width=640,height=360){
 }
 
 async function prepare(){
-  await mkdir(FIXTURE,{recursive:true}); await mkdir(OUT,{recursive:true});
+  await mkdir(FIXTURE,{recursive:true}); await mkdir(OUT,{recursive:true}); await mkdir(`${FIXTURE}/downloads`,{recursive:true});
   const ui=await readFile(new URL("../app/blender-preview-ui.jsx",import.meta.url),"utf8");
   const appCss=await readFile(new URL("../app/styles.css",import.meta.url));
   const css=await readFile(new URL("../app/blender-preview.css",import.meta.url));
@@ -77,11 +77,26 @@ function html(hasRuntime,visualPng=""){
  <style>html,body,#root{height:auto;min-height:0;overflow:auto}#root{display:block}</style></head><body><main id="root"></main>
 <script src="/react.js"></script><script src="/react-dom.js"></script>
 <script>
-window.__fixture={calls:[],updates:[],saved:[],runtimeLoaded:${hasRuntime},job:null,connected:true,
+  window.__fixture={calls:[],updates:[],saved:[],runtimeLoaded:${hasRuntime},job:null,connected:true,
   scopeProject:"film-fixture",failSave:true,deferHash:false,hashPending:null,deferConnection:false,
   connectionPending:null,forbiddenConnection:false,forbiddenJobGet:false,deferJob:false,jobGetPending:null,commitPending:null,saveAttempts:0,
-  visualPng:"${visualPng}"};
+  visualPng:"${visualPng}",addonMode:"ok",frameAnchorIntercepts:0,addonPending:false,addonAbort:false};
+ window.__fixture.nativeFetch=window.fetch.bind(window);
 window.__fixture.fetch=async (url,opts)=>{
+  const pathname=new URL(typeof url==="string"?url:url.url,location.href).pathname;
+  if(pathname==="/app/downloads/cinema-machine-blender.zip"){
+    if(window.__fixture.addonMode==="404") return new Response("not found",{status:404});
+    if(window.__fixture.addonMode==="html200") return new Response("<!doctype html><title>not a zip</title>",{
+      status:200,headers:{"content-type":"text/html"}});
+    if(window.__fixture.addonMode==="hang") return await new Promise((resolve,reject)=>{
+      window.__fixture.addonPending=true;
+      opts&&opts.signal&&opts.signal.addEventListener("abort",()=>{
+        window.__fixture.addonPending=false;window.__fixture.addonAbort=true;
+        reject(new DOMException("Aborted","AbortError"));
+      },{once:true});
+    });
+    return window.__fixture.nativeFetch(url,opts);
+  }
   const raw=opts&&opts.body;let body=null;
   try{body=raw?JSON.parse(raw):null;}catch(error){window.__fixture.calls.push({url,method:(opts&&opts.method)||"GET",raw});return {ok:false,status:404,json:async()=>({error:"fixture malformed request"})};}
   window.__fixture.calls.push({url,method:(opts&&opts.method)||"GET",body});
@@ -162,6 +177,7 @@ window.__mount=(readOnly=false,lens="50")=>{const root=window.__fixture.root||Re
  scene:{id:"scene-1",title:"Kitchen"},location:{id:"loc-1",name:"Kitchen"},
  subjects:[{id:"char-1",name:"Mara"}],props:[{id:"prop-1",name:"Letter"}],
  readOnly,onUpdate:(id,patch)=>window.__fixture.updates.push({id,patch})}));window.__fixture.root=root;};
+ window.__unmount=()=>{if(window.__fixture.root)window.__fixture.root.unmount();};
 </script>
 <script src="/ui.js"></script><script>window.__mount();</script></body></html>`;
 }
@@ -169,6 +185,14 @@ window.__mount=(readOnly=false,lens="50")=>{const root=window.__fixture.root||Re
 function server(){
   return createServer(async(req,res)=>{
     const name=new URL(req.url,"http://fixture").pathname.slice(1)||"index.html";
+    if(name==="app/downloads/cinema-machine-blender.zip"){
+      try{
+        const body=await readFile(new URL("../app/downloads/cinema-machine-blender.zip",import.meta.url));
+        res.writeHead(200,{"content-type":"application/zip","content-disposition":"attachment; filename=\"cinema-machine-blender.zip\"",
+          "content-length":body.length}).end(body);
+      }catch{res.writeHead(404).end("missing");}
+      return;
+    }
     if(!/^[a-z0-9._-]+$/i.test(name)){res.writeHead(404).end();return;}
     try{const body=await readFile(`${FIXTURE}/${name}`);
       const type=name.endsWith(".html")?"text/html":name.endsWith(".css")?"text/css":"text/javascript";
@@ -222,6 +246,8 @@ try{
     const page=rows.find(x=>x.type==="page"&&x.webSocketDebuggerUrl);if(page)return page;}catch{}await sleep(40);}
     throw new Error("Chromium target did not start");})();
   c=await CDP.connect(target.webSocketDebuggerUrl);await c.call("Page.enable");await c.call("Runtime.enable");
+  try{await c.call("Browser.setDownloadBehavior",{behavior:"allow",downloadPath:`${FIXTURE}/downloads`});}
+  catch{await c.call("Page.setDownloadBehavior",{behavior:"allow",downloadPath:`${FIXTURE}/downloads`});}
   await c.call("Page.navigate",{url:`http://127.0.0.1:${http.address().port}/`});
   await waitFor(()=>c.eval(`!!window.__fixture&&!!document.querySelector('[data-testid="blender-preview-panel"]')`),"Blender preview panel");
   const mounted=await c.eval(`!!window.__fixture&&!!document.querySelector('[data-testid="blender-preview-panel"]')`);
@@ -339,6 +365,54 @@ try{
   assert.equal(await c.eval(`!!document.querySelector('[data-testid="blender-preview-result"] img')`),true,
     "stopping during a deferred save leaves the completed preview renderable");
   assert.equal(await c.eval(`window.__fixture.calls.some(x=>x.body&&x.body.action==="job.create")`),true);
+  const packagedZip=await readFile(new URL("../app/downloads/cinema-machine-blender.zip",import.meta.url));
+  assert.equal(packagedZip.subarray(0,4).toString("hex"),"504b0304","packaged add-on is a ZIP");
+  assert.ok(packagedZip.length>1000,"packaged add-on ZIP is non-empty");
+  await c.eval(`(()=>{const frame=document.createElement("iframe");frame.id="blender-addon-download-frame";
+    frame.setAttribute("sandbox","allow-downloads allow-scripts allow-same-origin");frame.src="/";
+    frame.style.cssText="display:none";frame.onload=()=>{
+      const doc=frame.contentDocument;doc.addEventListener("click",event=>{
+        let node=event.target;while(node&&node!==doc){if(node.tagName==="A"&&node.hasAttribute("href")){
+          frame.contentWindow.__fixture.frameAnchorIntercepts++;event.preventDefault();break;}node=node.parentNode;}
+      },true);
+    };document.body.appendChild(frame);})()`);
+  const downloadFrame="document.querySelector('#blender-addon-download-frame').contentWindow";
+  await waitFor(()=>c.eval(`!!${downloadFrame}&&!!${downloadFrame}.document.querySelector('[data-testid="blender-addon-download"]')`),
+    "sandboxed add-on download button");
+  const frameUrl=await c.eval(`${downloadFrame}.location.href`);
+  const downloadPath=`${FIXTURE}/downloads/cinema-machine-blender.zip`;
+  await c.eval(`${downloadFrame}.__fixture.addonMode="404";${downloadFrame}.document.querySelector('[data-testid="blender-addon-download"]').click()`);
+  await waitFor(()=>c.eval(`(()=>{const status=${downloadFrame}.document.querySelector('[data-testid="blender-addon-download-status"]');return status&&status.getAttribute("role")==="alert"&&status.textContent.includes("HTTP 404");})()`),
+    "404 add-on error");
+  assert.equal(await exists(downloadPath),false,"404 add-on response does not create a file");
+  assert.equal(await c.eval(`${downloadFrame}.location.href===${JSON.stringify(frameUrl)}`),true,
+    "404 add-on response does not navigate the sandbox");
+  await c.eval(`${downloadFrame}.__fixture.addonMode="html200";${downloadFrame}.document.querySelector('[data-testid="blender-addon-download"]').click()`);
+  await waitFor(()=>c.eval(`(()=>{const status=${downloadFrame}.document.querySelector('[data-testid="blender-addon-download-status"]');return status&&status.getAttribute("role")==="alert"&&status.textContent.includes("did not contain the add-on ZIP");})()`),
+    "HTML add-on error");
+  assert.equal(await exists(downloadPath),false,"HTML add-on response does not create a file");
+  assert.equal(await c.eval(`${downloadFrame}.location.href===${JSON.stringify(frameUrl)}`),true,
+    "HTML add-on response does not navigate the sandbox");
+  const downloadJob=await c.eval(`JSON.stringify(${downloadFrame}.__fixture.job)`);
+  await c.eval(`${downloadFrame}.__fixture.calls=[];${downloadFrame}.__fixture.deferConnection=true;${downloadFrame}.__fixture.addonMode="ok";
+    ${downloadFrame}.document.querySelector('[data-testid="blender-addon-download"]').click()`);
+  await waitFor(()=>c.eval(`${downloadFrame}.document.querySelector('[data-testid="blender-addon-download-status"]').textContent.includes("Download requested")`),
+    "successful add-on download status");
+  await waitFor(()=>exists(downloadPath),"browser add-on ZIP download");
+  const downloadedZip=await readFile(downloadPath);
+  assert.deepEqual(downloadedZip,packagedZip,"browser saved bytes match the packaged add-on ZIP");
+  assert.equal(await c.eval(`${downloadFrame}.location.href===${JSON.stringify(frameUrl)}`),true,
+    "successful add-on download leaves the sandbox URL unchanged");
+  assert.equal(await c.eval(`${downloadFrame}.__fixture.frameAnchorIntercepts===0`),true,
+    "detached Blob download anchor does not bubble to the document anchor interceptor");
+  assert.equal(await c.eval(`${downloadFrame}.__fixture.calls.every(x=>!x.body||! /pair|connection|job|generation/i.test(x.body.action||""))`),true,
+    "add-on download performs no relay, pair, job, or generation operation");
+  assert.equal(await c.eval(`JSON.stringify(${downloadFrame}.__fixture.job)===${JSON.stringify(downloadJob)}`),true,
+    "add-on download leaves Blender job state unchanged");
+  await c.eval(`${downloadFrame}.__fixture.addonMode="hang";${downloadFrame}.document.querySelector('[data-testid="blender-addon-download"]').click()`);
+  await waitFor(()=>c.eval(`${downloadFrame}.__fixture.addonPending`),"pending add-on fetch");
+  await c.eval(`${downloadFrame}.__unmount()`);
+  await waitFor(()=>c.eval(`${downloadFrame}.__fixture.addonAbort`),"unmount add-on abort");
   await c.eval(`(()=>{const img=document.querySelector('[data-testid="blender-preview-result"] img');
     if(img&&window.__fixture.visualPng) img.src="data:image/png;base64,"+window.__fixture.visualPng;})()`);
   const screenshot=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:true});

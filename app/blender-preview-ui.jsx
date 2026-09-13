@@ -64,6 +64,55 @@ function bpCopy(text){
     return Promise.resolve(ok);
   }catch(_e){ return Promise.resolve(false); }
 }
+function BlenderAddonDownload(){
+  const active=React.useRef(null);
+  const [state,setState]=React.useState({busy:false,error:false,message:""});
+  React.useEffect(()=>()=>{ if(active.current) active.current.abort(); active.current=null; },[]);
+  const download=async event=>{
+    event.preventDefault(); event.stopPropagation();
+    if(active.current) return;
+    const controller=new AbortController();
+    active.current=controller;
+    setState({busy:true,error:false,message:"Preparing the add-on download…"});
+    const timeout=setTimeout(()=>controller.abort(),20000);
+    let blobUrl="";
+    try{
+      const response=await fetch("/app/downloads/cinema-machine-blender.zip",{
+        signal:controller.signal,cache:"no-store",credentials:"same-origin"
+      });
+      if(!response.ok) throw new Error("Could not download the add-on (HTTP "+response.status+"). Please try again.");
+      const bytes=new Uint8Array(await response.arrayBuffer());
+      if(bytes.length<22 || bytes.length>8*1024*1024 ||
+          bytes[0]!==0x50 || bytes[1]!==0x4b || bytes[2]!==3 || bytes[3]!==4)
+        throw new Error("The download did not contain the add-on ZIP file. Please try again.");
+      if(active.current!==controller) return;
+      if(controller.signal.aborted) throw new Error("The download timed out. Please try again.");
+      blobUrl=URL.createObjectURL(new Blob([bytes],{type:"application/zip"}));
+      // A normal document link can be intercepted as preview navigation.
+      // A detached Blob download keeps both the ZIP and the film out of that path.
+      const link=document.createElement("a");
+      link.href=blobUrl; link.download="cinema-machine-blender.zip";
+      link.click();
+      const releaseUrl=blobUrl; blobUrl="";
+      setTimeout(()=>URL.revokeObjectURL(releaseUrl),60000);
+      setState({busy:false,error:false,message:"Download requested. Check your browser’s downloads for cinema-machine-blender.zip. If downloads are blocked here, open Cinema Machine in its own browser tab."});
+    }catch(error){
+      if(active.current===controller) setState({busy:false,error:true,
+        message:controller.signal.aborted ? "The download timed out. Please try again."
+          : bpError(error,"Could not download the add-on. Please try again.")});
+    }finally{
+      clearTimeout(timeout);
+      if(blobUrl) URL.revokeObjectURL(blobUrl);
+      if(active.current===controller) active.current=null;
+    }
+  };
+  return _bpEl(React.Fragment,null,
+    _bpEl("button",{type:"button",className:"bp-download","data-testid":"blender-addon-download",
+      disabled:state.busy,"aria-busy":state.busy,onClick:download},
+      state.busy?"Preparing download…":"Download Blender desktop add-on"),
+    state.message && _bpEl("p",{className:"bp-help"+(state.error?" bp-download-error":""),
+      role:state.error?"alert":"status","data-testid":"blender-addon-download-status"},state.message));
+}
 function BlenderPreviewPanel({ shot, scene, location, subjects, props, readOnly, onUpdate }){
   const BP=typeof window!=="undefined" ? window.BlenderPreview : null;
   const alive=React.useRef(true);
@@ -480,7 +529,7 @@ function BlenderPreviewPanel({ shot, scene, location, subjects, props, readOnly,
   const currentHash=currentMeta.hash||currentMeta.specHash||"";
   const stale=!!preview && (!currentHash || !specHash || currentHash!==specHash);
   const actual=currentMeta.actualCamera || (job&&job.actualCamera) || null;
-  const input=(label,value,onChange,opts)=>_bpEl("label",{className:"bp-field"},_bpEl("span",null,label),
+  const input=(label,value,onChange,opts)=>_bpEl("label",{key:label,className:"bp-field"},_bpEl("span",null,label),
     _bpEl("input",{type:"number",value:value,step:opts&&opts.step||"0.01",min:opts&&opts.min,max:opts&&opts.max,
       disabled:!!readOnly,onChange:e=>onChange(e.target.value)}));
   const vector=(label,key,values,min,max)=>_bpEl("fieldset",{className:"bp-vector"},
@@ -529,7 +578,7 @@ function BlenderPreviewPanel({ shot, scene, location, subjects, props, readOnly,
     !connected && scope && _bpEl("p",{className:"bp-help"},"Pair and connect the Blender desktop add-on before rendering."),
     otherJob && _bpEl("p",{className:"bp-callout warn"},"Another shot is currently using this Blender connection. Rendering is disabled until its job is finished."),
     _bpEl("div",{className:"bp-pair"},
-      _bpEl("a",{href:"/app/downloads/cinema-machine-blender.zip",download:true,className:"bp-download"},"Download Blender desktop add-on"),
+      _bpEl(BlenderAddonDownload),
       _bpEl("ol",null,
         _bpEl("li",null,"On the Blender desktop, install the downloaded ZIP through Preferences → Add-ons."),
         _bpEl("li",null,"Enable Cinema Machine Bridge, then paste the endpoint and one-time code below."),
