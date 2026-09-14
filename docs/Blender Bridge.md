@@ -186,6 +186,13 @@ JSON locators remain readable, and non-UUID/case-sensitive identifiers retain
 that representation. No installed add-on update is required: it treats codes
 and returned device tokens as opaque strings.
 
+`device.claim` returns the lease token both beside `job` (required by the
+installed desktop add-on) and inside `job` (retained for relay clients).
+Ordinary job/connection polls never return a lease token. An already-claimed
+job does not receive its lease again: Stop/cancel it and explicitly start a
+fresh render after a protocol failure. Connection and receipt lifecycles remain
+unchanged; do not automatically renew, reclaim or retry a render.
+
 Keep Blender open. Check the assumed room size, camera position/target and lens,
 then choose **Render Blender preview**. Change the lens and render again. The
 image is an auxiliary blockout; finished artwork and existing `.blend` files are
@@ -197,6 +204,7 @@ Local verification commands (no provider calls or live project-data writes):
 ```
 npm run build
 node scripts/test-blender-relay.mjs
+node scripts/test-blender-addon-relay.mjs
 node scripts/test-blender-pairing-codec.mjs
 node scripts/test-blender-ui.mjs
 node scripts/test-blender-addon.mjs

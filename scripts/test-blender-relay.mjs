@@ -296,6 +296,17 @@ response = await call("device.claim", {}, `Device ${deviceToken}`);
 assert.equal(response.status, 200);
 assert.equal(response.json.job.status, "running");
 const leaseToken = response.json.job.leaseToken;
+assert.equal(response.json.leaseToken, leaseToken, "installed addon reads the envelope lease");
+assert.equal((await call("device.claim", {}, `Device ${deviceToken}`)).json.leaseToken, undefined);
+for (const observed of [
+  await call("job.get", { projectId, jobId: job.id }, "Bearer browser-secret"),
+  await call("job.get", { projectId, jobId: job.id }, `Device ${deviceToken}`),
+  await call("connection.get", { projectId }, "Bearer browser-secret"),
+]) {
+  assert.equal(observed.status, 200);
+  assert.equal(observed.json.leaseToken, undefined);
+  assert.equal(observed.json.job.leaseToken, undefined, "polls must never disclose the claim lease");
+}
 
 const resultBody = { jobId: job.id, leaseToken, pngBase64: png(640, 360), actualCamera };
 response = await call("device.complete", resultBody, `Device ${deviceToken}`);
@@ -310,6 +321,9 @@ assert.equal((await call("job.get", { projectId, jobId: job.id },
 // A repeated device completion is safe and does not upload a second file.
 assert.equal((await call("device.complete", resultBody, `Device ${deviceToken}`)).status, 200);
 assert.equal(calls.filter((entry) => entry[0] === "upload").length, 1);
+clock += 5 * 60 * 1000 + 1;
+assert.equal((await call("connection.get", { projectId },
+  "Bearer browser-secret")).json.job.status, "completed");
 
 response = await call("job.create", { projectId, spec, requestId: "request-2" }, "Bearer browser-secret");
 assert.equal(response.status, 200);
@@ -343,6 +357,10 @@ response = await call("device.complete", {
   jobId: second.id, leaseToken: secondLease, pngBase64: png(640, 360), actualCamera,
 }, `Device ${deviceToken}`);
 assert.equal(response.status, 409);
+
+clock += 5 * 60 * 1000 + 1;
+assert.equal((await call("connection.get", { projectId },
+  "Bearer browser-secret")).json.job.status, "cancelled");
 
 response = await call("job.create", { projectId, spec, requestId: "request-3" }, "Bearer browser-secret");
 const third = response.json.job;

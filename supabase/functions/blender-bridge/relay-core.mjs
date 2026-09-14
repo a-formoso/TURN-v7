@@ -1123,7 +1123,10 @@ export function createBlenderRelay({
       () => deviceCommitGuard(request, device.info));
     const output = publicJob(saved.state.job, true);
     output.leaseToken = leaseToken;
-    return { job: output };
+    // Installed desktop add-ons read the lease from the response envelope.
+    // Keep the nested copy for existing relay clients, but expose neither copy
+    // from job.get / connection.get; only this authenticated claim grants it.
+    return { job: output, leaseToken };
   }
 
   async function completeJob(request, body) {
@@ -1298,6 +1301,7 @@ export function createBlenderRelay({
         version: 1, actions: ACTIONS, leaseSeconds: JOB_LEASE_MS / 1000,
         pairSeconds: PAIR_MS / 1000, deviceSeconds: DEVICE_MS / 1000,
         pairCodeFormat: "compact-uuid-v1",
+        claimLeasePlacement: "envelope-and-job",
       });
       if (request.method !== "POST") throw bad("POST required.", "method_not_allowed", 405);
       const body = await parseRequest(request);
