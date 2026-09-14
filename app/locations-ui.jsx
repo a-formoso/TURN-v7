@@ -373,11 +373,6 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         onClick:()=> setPanelEdit(pe=> pe ? null : { idx:null, text:"" }) }] : null,
       referenceControls: masterRefs.length>0 && React.createElement(CoverageReferenceStrip,{ refs:masterRefs, excludedIds:masterRefOff, onToggle:toggleMasterRef, onView }),
       onDelete:()=>onDelete(l.id), deleteLabel:"Delete location" }),
-    React.createElement(LocationBlenderStudioSection,{
-      location:{id:l.id,name:l.name,parentLocationId:l.parentLocation&&l.parentLocation.id||null,
-        rootLocationId:l.rootLocationId||l.id,
-        context:{description:l.significance||"",architecture:l.architecture||"",materials:l.materials||"",staging:l.staging||""}},
-      readOnly}),
     panelEdit && gen.genUrl && React.createElement("div",{className:"sheet-edit-panel loc-panel-edit"},
       React.createElement("div",{className:"loc-panel-pick"},
         LOC_PANELS.map((p,i)=>React.createElement("button",{key:i,
@@ -520,6 +515,12 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       React.createElement(CardFold,{label:"Staging & composition",defaultOpen:false,
         count: locStaged ? null : (stagingPrep ? "staging\u2026" : "not staged \u2014 drafts itself on first render")},
         React.createElement(StagingGrid,{l,onUpdate,onDraftStaging,draftingStage})),
+
+      React.createElement(LocationBlenderStudioSection,{
+        location:{id:l.id,name:l.name,parentLocationId:l.parentLocation&&l.parentLocation.id||null,
+          rootLocationId:l.rootLocationId||l.id,
+          context:{description:l.significance||"",architecture:l.architecture||"",materials:l.materials||"",staging:l.staging||""}},
+        readOnly}),
 
       React.createElement(CardFold,{label:"Look dev",defaultOpen:false},
         scenePresets.length ? React.createElement("div",{className:"loc-style-note"},

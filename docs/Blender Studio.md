@@ -8,7 +8,8 @@ Characters and Shots, not a replacement for their approved artwork.
 
 1. Open a saved cloud film and its Locations tab.
 2. Expand **Blender Studio · reusable set** on the location or contained-place
-   card. **About Blender Studio** explains the tools without starting a request;
+   card, below **Staging & composition** inside the card's details, matching the
+   Shots tab's section layout. **About Blender Studio** explains the tools without starting a request;
    choose **Open Studio** when you are ready.
 3. Download the updated Cinema Machine add-on using the panel's download control.
    Install the ZIP in Blender Preferences → Add-ons → Install from Disk.

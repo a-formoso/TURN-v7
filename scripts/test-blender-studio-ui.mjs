@@ -22,9 +22,15 @@ async function prepare(){
   await writeFile(`${FIXTURE}/client.js`,await readFile(new URL("../app/blender-studio.js",import.meta.url)));
   await writeFile(`${FIXTURE}/setup.js`,transform(await readFile(new URL("../app/blender-studio-setup.jsx",import.meta.url))));
   await writeFile(`${FIXTURE}/ui.js`,transform(await readFile(new URL("../app/blender-studio-ui.jsx",import.meta.url))));
+  const artroom=await readFile(new URL("../app/artroom.jsx",import.meta.url),"utf8");
+  const locations=await readFile(new URL("../app/locations-ui.jsx",import.meta.url),"utf8");
   await writeFile(`${FIXTURE}/location-section.js`,transform(
-    realFunction(await readFile(new URL("../app/artroom.jsx",import.meta.url),"utf8"),"CardFold")+"\n"+
-    realFunction(await readFile(new URL("../app/locations-ui.jsx",import.meta.url),"utf8"),"LocationBlenderStudioSection")));
+    realFunction(artroom,"CardFold")+"\n"+
+    realFunction(locations,"locSwatch")+"\n"+
+    realFunction(locations,"LocationProvenanceSelect")+"\n"+
+    realFunction(locations,"LocationIdentityField")+"\n"+
+    realFunction(locations,"LocationBlenderStudioSection")+"\n"+
+    realFunction(locations,"LocationSheet")));
   for(const [name,url] of Object.entries({"react.js":"https://unpkg.com/react@18.3.1/umd/react.development.js","react-dom.js":"https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"})){
     try{if((await readFile(`${FIXTURE}/${name}`)).length>10000)continue;}catch{}
     const r=await fetch(url);if(!r.ok)throw new Error(`React cache failed: ${r.status}`);await writeFile(`${FIXTURE}/${name}`,Buffer.from(await r.arrayBuffer()));
@@ -64,8 +70,52 @@ window.BlenderPreview={endpoint:()=>"https://relay.example.test/functions/v1/ble
   throw new Error("unexpected "+action);
 }};
 </script><script src="/contract.js"></script><script src="/client.js"></script><script src="/setup.js"></script><script src="/ui.js"></script><script src="/location-section.js"></script><script>
-window.Icon={chevD:()=>React.createElement("span",null,"⌄"),chevR:()=>React.createElement("span",null,"›")};
-window.mountLocation=()=>window.__root.render(React.createElement(LocationBlenderStudioSection,{key:"location-section",location:{id:"loc-house",name:"House",parentLocationId:null,rootLocationId:"loc-house",context:{description:"",architecture:"brick",materials:"wood",staging:""}},readOnly:false}));
+const fixtureNoop=()=>{};
+window.locVisualDefaults=()=>({renderStyle:"",negativePrompt:""});
+window.locScenePresets=()=>[];
+window.locationEffectiveSide=()=> "INT";
+window.combinedLocationPrompt=()=> "";
+window.locVisualsDrafted=()=>false;
+window.deriveLocationTimes=()=>[];
+window.deriveLocationCoverageSheets=()=>[];
+window.scenesInStoryOrder=xs=>xs||[];
+window.stagingHasContent=()=>true;
+window.nbGetMeta=()=>({iso:"fixture-location-v1"});
+window.useImageGen=()=>({genUrl:"",genMeta:null,genTier:"",gening:false,genErr:"",retrying:false,
+  slotHasRef:false,generate:fixtureNoop,cancelGen:fixtureNoop,clearGen:fixtureNoop,importSheet:fixtureNoop,
+  relatedClearCount:0,revertPrevious:fixtureNoop,layers:0,allModels:[],loadDetails:async()=>null,
+  pendingSave:null,saving:false});
+window.SheetField=()=>null;window.CopyBox=()=>null;
+window.EditText=({value,placeholder})=>React.createElement("span",{className:"fixture-edit-text"},value||placeholder||"");
+window.SceneChipPager=({none,items})=>React.createElement("span",{className:"fixture-scene-pager"},
+  (items||[]).length?items.map(item=>item.label).join(" · "):(none||""));
+window.StagingGrid=()=>null;
+window.CoverageReferenceStrip=()=>null;window.LocationCoverageSheet=()=>null;window.LocationVariant=()=>null;
+window.SluglineUnitCard=()=>null;
+window.RenderStylePicker=({value,onPick})=>React.createElement("select",{className:"fixture-render-style",
+  value:value||"photoreal",onChange:e=>onPick&&onPick(e.target.value)},[
+    React.createElement("option",{key:"photoreal",value:"photoreal"},"Photoreal"),
+    React.createElement("option",{key:"stylized",value:"stylized"},"Stylized")
+  ]);
+window.Icon={chevD:()=>React.createElement("span",null,"⌄"),chevR:()=>React.createElement("span",null,"›"),
+  sparkles:()=>React.createElement("span",null,"✦"),layers:()=>React.createElement("span",null,"≋"),
+  eye:()=>React.createElement("span",null,"◉"),plus:()=>React.createElement("span",null,"+"),
+  image:()=>React.createElement("span",null,"▧"),bolt:()=>React.createElement("span",null,"•"),
+  moreV:()=>React.createElement("span",null,"⋮"),info:()=>React.createElement("span",null,"i"),
+  wand:()=>React.createElement("span",null,"✧"),target:()=>React.createElement("span",null,"◎"),
+  box:()=>React.createElement("span",null,"□"),x:()=>React.createElement("span",null,"×"),
+  trash:()=>React.createElement("span",null,"⌫"),clock:()=>React.createElement("span",null,"◷"),
+  warn:()=>React.createElement("span",null,"!"),globe:()=>React.createElement("span",null,"◎"),
+  userScan:()=>React.createElement("span",null,"◌"),monitor:()=>React.createElement("span",null,"▣"),
+  calendar:()=>React.createElement("span",null,"◫"),history:()=>React.createElement("span",null,"↶"),
+  undo:()=>React.createElement("span",null,"↩")};
+const fixtureLocation={id:"loc-house",key:"house",name:"House",parentLocation:null,rootLocationId:"loc-house",
+  scope:"atomic",intExt:"INT",scenes:[],coverageSheets:[],variants:[],childLocations:[],manual:"",
+  significance:"",architecture:"",materials:"",lighting:"",staging:"",renderStyleKey:"photoreal"};
+window.SheetFrame=window.SheetFrame||(()=>null);
+window.__fixture.renderErrors=[];window.addEventListener("error",e=>__fixture.renderErrors.push(String(e.error?.stack||e.message)));
+window.addEventListener("unhandledrejection",e=>__fixture.renderErrors.push(String(e.reason?.stack||e.reason)));
+window.mountLocation=()=>window.__root.render(React.createElement(LocationSheet,{key:"location-card",l:fixtureLocation,project:{},scenes:[],drafts:{},onUpdate:fixtureNoop,onDelete:fixtureNoop,onDraft:fixtureNoop,drafting:false,onView:fixtureNoop,batchActiveId:null,onBatchDone:fixtureNoop,onChipClick:fixtureNoop,onDraftStaging:fixtureNoop,draftingStage:false,sluglineUnits:[],onUpdateUnit:fixtureNoop,onRemoveUnit:fixtureNoop,readOnly:false}));
 window.__root=ReactDOM.createRoot(document.getElementById("root"));window.mount=(readOnly=false,key="normal")=>window.__root.render(React.createElement(BlenderStudioEntry,{key,location:{id:"loc-house",name:"House",rootLocationId:"loc-house",context:{description:"",architecture:"brick",materials:"wood",staging:""}},shot:{id:"shot-a",sceneId:"scene-a",name:"Shot A"},references:[{entityId:"loc-house",label:"House",kind:"location"},{entityId:"char-a",label:"Ava",kind:"character"}],readOnly}));
 mount();
 </script></body></html>`;}
@@ -162,20 +212,56 @@ async function setupChecks(c,origin){
 async function locationSectionChecks(c){
   const before=await c.eval(`__fixture.calls.length`);
   await c.eval(`window.mountLocation()`);
-  await wait(()=>c.eval(`!!document.querySelector(".sheet-fold-head")`),"location section");
-  assert.equal(await c.eval(`document.querySelector(".sheet-fold-head").textContent.includes("Blender Studio · reusable set")`),true,"location section matches Shots naming");
-  assert.equal(await c.eval(`!!document.querySelector(".sheet-fold.open")`),false,"location section begins closed");
+  let locationRenderText="";
+  try{await wait(async()=>{const state=await c.eval(`({ready:!!document.querySelector('[data-location-card] > .sheet-body'),text:document.body.innerText.slice(0,300)})`);
+    locationRenderText=state.text;return state.ready;},"full location card");}
+  catch(e){const renderErrors=await c.eval(`__fixture.renderErrors.join("\\n")`);
+    throw Error(e.message+" — location body: "+locationRenderText+(renderErrors?" — "+renderErrors:""));}
+  assert.equal(await c.eval(`document.querySelector('[data-location-card] .sheet-name').textContent.includes("House")`),true,
+    "full location card renders the supplied location name");
+  assert.equal(await c.eval(`!!document.querySelector('[data-location-card] .fixture-render-style')`),true,
+    "location fixture renders the style dropdown");
+  assert.equal(await c.eval(`document.querySelector('[data-location-card] .fixture-scene-pager').textContent.includes("No scenes reference this place")`),true,
+    "location fixture renders the empty scene label");
+  const studio=`([...document.querySelectorAll('[data-location-card] > .sheet-body > .sheet-fold')].find(f=>f.querySelector('.sheet-sec')?.textContent.includes('Blender Studio · reusable set')))`;
+  await wait(()=>c.eval(`!!${studio}`),"location Studio fold");
+  assert.equal(await c.eval(`${studio}?.querySelector(".sheet-fold-head").textContent.includes("Blender Studio · reusable set")`),true,"location section matches Shots naming");
+  const order=await c.eval(`(()=>{const body=document.querySelector('[data-location-card] > .sheet-body'),kids=[...body.children];
+    const fold=label=>kids.find(x=>x.classList.contains("sheet-fold")&&x.querySelector(".sheet-sec")?.textContent.includes(label));
+    const at=x=>x?kids.indexOf(x):-1;
+    return {head:at(kids.find(x=>x.classList.contains("sheet-head"))),style:at(kids.find(x=>x.classList.contains("char-style-row"))),
+      scenes:at(kids.find(x=>x.classList.contains("location-scenes"))),staging:at(fold("Staging & composition")),
+      studio:at(fold("Blender Studio · reusable set")),look:at(fold("Look dev")),sameBody:${studio}?.parentElement===body,
+      studioLeft:${studio}?.getBoundingClientRect().left,stagingLeft:fold("Staging & composition")?.getBoundingClientRect().left,
+      lookLeft:fold("Look dev")?.getBoundingClientRect().left};})()`);
+  assert.equal(order.sameBody,true,"Studio fold is a direct child of the location sheet body");
+  assert.ok(order.head>=0&&order.head<order.studio,"location title/header remains above Studio");
+  assert.ok(order.style>=0&&order.style<order.studio,"render style remains above Studio");
+  assert.ok(order.scenes>=0&&order.scenes<order.studio,"scene chips remain above Studio");
+  assert.ok(order.staging>=0&&order.staging<order.studio&&order.studio<order.look,"Studio follows Staging and precedes Look dev");
+  assert.ok(Math.abs(order.studioLeft-order.stagingLeft)<=1&&Math.abs(order.studioLeft-order.lookLeft)<=1,
+    "Studio uses the same sheet-body inset as neighboring folds");
+  assert.equal(await c.eval(`${studio}.classList.contains("open")`),false,"location section begins closed");
   assert.equal(await c.eval(`!!document.querySelector(".bs-entry")`),false,"closed section does not mount a workspace");
-  await c.eval(`document.querySelector(".sheet-fold-head").click()`);
-  await wait(()=>c.eval(`!!document.querySelector(".sheet-fold-body > details")`),"local Studio explanation");
-  assert.equal(await c.eval(`document.querySelectorAll(".bs-entry").length`),1,"location section contains exactly one Studio");
-  assert.equal(await c.eval(`document.querySelector(".sheet-fold-body > details").open`),false,"About Studio is initially collapsed");
-  await c.eval(`document.querySelector(".sheet-fold-body > details > summary").click()`);
-  await wait(()=>c.eval(`document.querySelector(".sheet-fold-body > details").open`),"expand About Studio");
+  await c.eval(`${studio}.querySelector(".sheet-fold-head").click()`);
+  const about=`${studio}.querySelector(":scope > .sheet-fold-body > details")`;
+  await wait(()=>c.eval(`!!${about}`),"local Studio explanation");
+  assert.equal(await c.eval(`document.querySelectorAll('[data-location-card] .bs-entry').length`),1,"location section contains exactly one Studio");
+  assert.equal(await c.eval(`${about}.open`),false,"About Studio is initially collapsed");
+  await c.eval(`${about}.querySelector(":scope > summary").click()`);
+  await wait(()=>c.eval(`${about}.open`),"expand About Studio");
   assert.equal(await c.eval(`__fixture.calls.length`),before,"opening the section and reading help makes no service or generation request");
-  await c.eval(`document.documentElement.dataset.theme="light";window.scrollTo(0,0);new Promise(r=>setTimeout(r,50))`);
-  const about=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:true});
-  await writeFile(`${OUT}/blender-studio-location-section.png`,Buffer.from(about.data,"base64"));
+  await c.eval(`document.documentElement.dataset.theme="light";document.querySelector('[data-location-card]').scrollIntoView();new Promise(r=>setTimeout(r,50))`);
+  const locationDesktop=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:true});
+  await writeFile(`${OUT}/blender-studio-location-section.png`,Buffer.from(locationDesktop.data,"base64"));
+  await c.call("Emulation.setDeviceMetricsOverride",{width:390,height:844,deviceScaleFactor:1,mobile:false});
+  await c.eval(`document.querySelector('[data-location-card]').scrollIntoView();new Promise(r=>setTimeout(r,50))`);
+  assert.equal(await c.eval(`window.innerWidth`),390,"location fixture checks the requested narrow viewport");
+  assert.equal(await c.eval(`document.documentElement.scrollWidth<=390`),true,"location card must not overflow a 390px viewport");
+  assert.equal(await c.eval(`(()=>{const card=document.querySelector('[data-location-card]');return card.scrollWidth<=card.clientWidth+1;})()`),true,"location card content fits its viewport");
+  const locationMobile=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:true});
+  await writeFile(`${OUT}/blender-studio-location-section-mobile.png`,Buffer.from(locationMobile.data,"base64"));
+  await c.call("Emulation.clearDeviceMetricsOverride");
   await c.eval(`delete document.documentElement.dataset.theme;document.querySelector(".bs-head button").click()`);
   await wait(()=>c.eval(`!!document.querySelector(".bs-send")`),"open Studio from location section");
   assert.equal(await c.eval(`__fixture.calls.filter(x=>x.action==="studio.workspace.open").slice(-1)[0].body.location.id`),"loc-house","location section opens its own canonical location");

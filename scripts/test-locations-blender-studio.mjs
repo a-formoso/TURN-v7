@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import vm from "node:vm";
-import {transformSync} from "@babel/core";
+import {parseSync,transformSync} from "@babel/core";
 
 const source=readFileSync("app/locations-ui.jsx","utf8");
 const transformed=transformSync(source,{
@@ -76,10 +76,55 @@ for(const phrase of [
   "Refresh","parent and root relationships","full building map"
 ]) assert.ok(helpText.includes(phrase),"help mentions "+phrase);
 
-const sheetStart=source.indexOf("function LocationSheet(");
-const sectionCall=source.indexOf("React.createElement(LocationBlenderStudioSection",sheetStart);
-assert.ok(sectionCall>sheetStart,"LocationSheet produces the wrapper");
-const producer=source.slice(sectionCall,source.indexOf("panelEdit && gen.genUrl",sectionCall));
+const ast=parseSync(source,{sourceType:"script",parserOpts:{plugins:["jsx"]},babelrc:false,configFile:false});
+const locationSheet=ast.program.body.find(n=>n.type==="FunctionDeclaration"&&n.id.name==="LocationSheet");
+assert.ok(locationSheet,"LocationSheet is available in the production source");
+const createElement=node=>node&&node.type==="CallExpression"&&node.callee.type==="MemberExpression"&&
+  node.callee.object.type==="Identifier"&&node.callee.object.name==="React"&&
+  node.callee.property.type==="Identifier"&&node.callee.property.name==="createElement";
+const firstName=node=>createElement(node)&&node.arguments[0]&&node.arguments[0].type==="Identifier"
+  ? node.arguments[0].name : "";
+const stringValue=node=>node&&(["StringLiteral","Literal"].includes(node.type))
+  ? node.value : undefined;
+const propValue=(node,key)=>{
+  if(!node||node.type!=="ObjectExpression")return undefined;
+  const prop=node.properties.find(p=>p.type==="ObjectProperty"||p.type==="Property"
+    ? ((p.key.type==="Identifier"&&p.key.name===key)||(p.key.type==="StringLiteral"&&p.key.value===key))
+    : false);
+  return prop&&stringValue(prop.value);
+};
+const astCalls=[];
+const walk=node=>{
+  if(!node||typeof node!=="object")return;
+  if(createElement(node))astCalls.push(node);
+  for(const key of Object.keys(node)){
+    if(key==="loc"||key==="start"||key==="end")continue;
+    const value=node[key];
+    if(Array.isArray(value))value.forEach(walk);else if(value&&typeof value==="object")walk(value);
+  }
+};
+walk(locationSheet.body);
+const sheetBody=astCalls.find(n=>stringValue(n.arguments[0])==="div"&&
+  String(propValue(n.arguments[1],"className")||"")==="sheet-body");
+assert.ok(sheetBody,"LocationSheet has a sheet-body producer");
+const bodyChildren=sheetBody.arguments.slice(2);
+const directStudio=bodyChildren.find(n=>firstName(n)==="LocationBlenderStudioSection");
+assert.ok(directStudio,"LocationSheet produces the wrapper inside the sheet body");
+const childIndex=n=>bodyChildren.indexOf(n);
+const directClass=needle=>bodyChildren.find(n=>createElement(n)&&
+  String(propValue(n.arguments[1],"className")||"").split(/\s+/).includes(needle));
+const directFold=label=>bodyChildren.find(n=>firstName(n)==="CardFold"&&propValue(n.arguments[1],"label")===label);
+const studioIndex=childIndex(directStudio),headIndex=childIndex(directClass("sheet-head")),
+  styleIndex=childIndex(directClass("char-style-row")),scenesIndex=childIndex(directClass("location-scenes")),
+  stagingIndex=childIndex(directFold("Staging & composition")),lookIndex=childIndex(directFold("Look dev"));
+for(const [name,index] of [["header",headIndex],["render style",styleIndex],["scene chips",scenesIndex],
+  ["Staging & composition",stagingIndex],["Look dev",lookIndex]])
+  assert.ok(index>=0,`LocationSheet retains ${name} before/after Studio`);
+assert.ok(headIndex<studioIndex&&styleIndex<studioIndex&&scenesIndex<studioIndex,
+  "Studio follows the location header, render style, and scenes");
+assert.ok(stagingIndex<studioIndex&&studioIndex<lookIndex,
+  "Studio is after Staging & composition and before Look dev");
+const producer=source.slice(directStudio.start,directStudio.end);
 for(const token of [
   "id:l.id","name:l.name","parentLocationId:l.parentLocation&&l.parentLocation.id||null",
   "rootLocationId:l.rootLocationId||l.id","description:l.significance||",
@@ -87,7 +132,7 @@ for(const token of [
 ]) assert.ok(producer.includes(token),"LocationSheet producer keeps "+token);
 assert.equal((source.match(/React\.createElement\(window\.BlenderStudioEntry/g)||[]).length,1,
   "there is no duplicate direct BlenderStudioEntry producer");
-const sectionSource=source.slice(source.indexOf("function LocationBlenderStudioSection"),sheetStart);
+const sectionSource=source.slice(source.indexOf("function LocationBlenderStudioSection"),locationSheet.start);
 assert.doesNotMatch(sectionSource,/useEffect|setTimeout|generate\(|request\(/,
   "reading the section/help does not add effects, generation, or service calls");
 

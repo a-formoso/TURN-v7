@@ -9,11 +9,11 @@ The app's departments sit behind a sign-in gate whenever cloud auth is configure
 
 **Why:** the production build doubles as a syntax check (Babel parses every app/ file), and the sandbox run exercises real transpiled code instead of a re-implementation.
 
-Isolated rendering of the real component tree with the real stylesheet can still verify responsive geometry without accessing authenticated data.
+Isolated rendering of the real component tree with the real stylesheet can still verify responsive geometry without accessing authenticated data, but layout checks must include the actual mounting parent.
 
-**Why:** A landing-page screenshot misses in-app layout failures. Headless Chromium's window-size argument can also clamp narrow windows, silently invalidating a phone-width test.
+**Why:** A landing-page screenshot misses in-app layout failures. A standalone section also misses incorrect placement above its card heading or outside the padded card body. Headless Chromium's window-size argument can clamp narrow windows, silently invalidating a phone-width test.
 
-**How to apply:** Use synthetic component inputs, explicitly emulate the device viewport, and assert the actual innerWidth before interpreting geometry. Clearly distinguish isolated component checks from a full authenticated walkthrough.
+**How to apply:** Render the real parent card with synthetic inputs and its real stylesheet, not just the changed section or a recreated wrapper. Assert DOM containment and ordering as well as geometry. Explicitly emulate the device viewport and assert the actual innerWidth. Clearly distinguish isolated component checks from a full authenticated walkthrough.
 
 Clipboard browser tests need document focus as well as clipboard permissions.
 
