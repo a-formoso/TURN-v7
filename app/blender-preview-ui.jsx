@@ -65,51 +65,44 @@ function bpCopy(text){
   }catch(_e){ return Promise.resolve(false); }
 }
 function BlenderAddonDownload(){
-  const active=React.useRef(null);
-  const [state,setState]=React.useState({busy:false,error:false,message:""});
-  React.useEffect(()=>()=>{ if(active.current) active.current.abort(); active.current=null; },[]);
-  const download=async event=>{
+  const [state,setState]=React.useState({error:false,message:""});
+  const download=event=>{
     event.preventDefault(); event.stopPropagation();
-    if(active.current) return;
-    const controller=new AbortController();
-    active.current=controller;
-    setState({busy:true,error:false,message:"Preparing the add-on download…"});
-    const timeout=setTimeout(()=>controller.abort(),20000);
+    let bytes;
+    try{
+      const data=window.CinemaMachineBlenderAddon;
+      if(!data || data.filename!=="cinema-machine-blender.zip" ||
+          !Number.isInteger(data.byteLength) || data.byteLength<22 || data.byteLength>8*1024*1024 ||
+          typeof data.base64!=="string" || data.base64.length>12*1024*1024)
+        throw new Error("Missing or invalid installer data");
+      bytes=Uint8Array.from(atob(data.base64),char=>char.charCodeAt(0));
+      if(bytes.length!==data.byteLength || bytes[0]!==0x50 || bytes[1]!==0x4b || bytes[2]!==3 || bytes[3]!==4)
+        throw new Error("Invalid installer ZIP");
+    }catch(_error){
+      setState({error:true,message:"The add-on file is unavailable or incomplete. Save your work, then reopen Cinema Machine in its own browser tab and try again."});
+      return;
+    }
     let blobUrl="";
     try{
-      const response=await fetch("/app/downloads/cinema-machine-blender.zip",{
-        signal:controller.signal,cache:"no-store",credentials:"same-origin"
-      });
-      if(!response.ok) throw new Error("Could not download the add-on (HTTP "+response.status+"). Please try again.");
-      const bytes=new Uint8Array(await response.arrayBuffer());
-      if(bytes.length<22 || bytes.length>8*1024*1024 ||
-          bytes[0]!==0x50 || bytes[1]!==0x4b || bytes[2]!==3 || bytes[3]!==4)
-        throw new Error("The download did not contain the add-on ZIP file. Please try again.");
-      if(active.current!==controller) return;
-      if(controller.signal.aborted) throw new Error("The download timed out. Please try again.");
       blobUrl=URL.createObjectURL(new Blob([bytes],{type:"application/zip"}));
       // A normal document link can be intercepted as preview navigation.
-      // A detached Blob download keeps both the ZIP and the film out of that path.
+      // Keep the detached Blob click inside the user's original gesture: no
+      // fetch or await, which can also lose download permission in Safari.
       const link=document.createElement("a");
       link.href=blobUrl; link.download="cinema-machine-blender.zip";
       link.click();
       const releaseUrl=blobUrl; blobUrl="";
       setTimeout(()=>URL.revokeObjectURL(releaseUrl),60000);
-      setState({busy:false,error:false,message:"Download requested. Check your browser’s downloads for cinema-machine-blender.zip. If downloads are blocked here, open Cinema Machine in its own browser tab."});
-    }catch(error){
-      if(active.current===controller) setState({busy:false,error:true,
-        message:controller.signal.aborted ? "The download timed out. Please try again."
-          : bpError(error,"Could not download the add-on. Please try again.")});
+      setState({error:false,message:"Download requested. Look for cinema-machine-blender.zip in your Downloads folder. If no file appears, open Cinema Machine in its own browser tab on your computer and try again."});
+    }catch(_error){
+      setState({error:true,message:"Your browser could not save the add-on. Open Cinema Machine in its own browser tab on your computer, then try again."});
     }finally{
-      clearTimeout(timeout);
       if(blobUrl) URL.revokeObjectURL(blobUrl);
-      if(active.current===controller) active.current=null;
     }
   };
   return _bpEl(React.Fragment,null,
-    _bpEl("button",{type:"button",className:"bp-download","data-testid":"blender-addon-download",
-      disabled:state.busy,"aria-busy":state.busy,onClick:download},
-      state.busy?"Preparing download…":"Download Blender desktop add-on"),
+    _bpEl("button",{type:"button",className:"char-draft-btn ghost bp-download","data-testid":"blender-addon-download",
+      onClick:download},"Download add-on ZIP"),
     state.message && _bpEl("p",{className:"bp-help"+(state.error?" bp-download-error":""),
       role:state.error?"alert":"status","data-testid":"blender-addon-download-status"},state.message));
 }
@@ -141,6 +134,8 @@ function BlenderPreviewPanel({ shot, scene, location, subjects, props, readOnly,
   const [pair,setPair]=React.useState(null);
   const [pairError,setPairError]=React.useState("");
   const [pairCopied,setPairCopied]=React.useState(false);
+  const [endpointCopied,setEndpointCopied]=React.useState(false);
+  const [setupOpen,setSetupOpen]=React.useState(true);
   const [preview,setPreview]=React.useState(null);
   const [previewError,setPreviewError]=React.useState("");
   const [saveFailure,setSaveFailure]=React.useState(null);
@@ -495,7 +490,7 @@ function BlenderPreviewPanel({ shot, scene, location, subjects, props, readOnly,
       setNotice(bpError(error,"Blender desktop could not be disconnected.")); }
   };
   const pairDesktop=async()=>{
-    setPairError(""); setPairCopied(false);
+    setPairError(""); setPairCopied(false); setEndpointCopied(false);
     if(readOnly){ setPairError("View-only access cannot pair a Blender desktop."); return; }
     const s=freshScope();
     if(!s){ setPairError("Save the film in the cloud before pairing Blender."); return; }
@@ -536,20 +531,74 @@ function BlenderPreviewPanel({ shot, scene, location, subjects, props, readOnly,
     _bpEl("legend",null,label),
     _bpEl("div",{className:"bp-vector-grid"},
       ["X","Y","Z"].map((axis,index)=>input(axis,values[index],v=>updateConfig(key,index,v),{min,max}))));
-  const status=job ? job.status : connected ? "connected" : "not paired";
+  const status=job ? job.status : connected ? "connected" : "not connected";
   const capabilityLine=capabilities ? _bpEl("span",null," · bridge v"+(capabilities.version||"1")) : null;
   return _bpEl("section",{className:"bp-panel","data-testid":"blender-preview-panel"},
     _bpEl("div",{className:"bp-intro"},
       _bpEl("div",{className:"bp-title-row"},
         _bpEl("strong",null,"Blender preview"),
         _bpEl("span",{className:"bp-status bp-status-"+String(status).replace(/[^a-z]/g,"-")},status)),
-      _bpEl("p",null,"A provider-independent rough blockout for this shot. It does not replace the canonical shot frame.")),
+      _bpEl("p",null,"Make a simple test picture in Blender on your computer. Your finished shot image stays unchanged.")),
     (readOnly||!scope) && _bpEl("div",{className:"bp-callout warn","data-testid":"blender-preview-blocked"},
       readOnly ? "View-only access cannot pair, render, or save Blender previews."
         : "Save this film to the cloud before using Blender preview."),
     _bpEl("div",{className:"bp-disclosure"},
-      _bpEl("b",null,"Approximate blockout"),
-      _bpEl("span",null,"Room dimensions and camera placement are rough layout assumptions. Stand-ins have no character likeness, and this proof has no camera animation or paid generation.")),
+      _bpEl("b",null,"A rough layout, not a finished image"),
+      _bpEl("span",null,"The room is an editable approximation, not a reconstruction of your photos. Simple figures mark positions; they do not recreate your characters. No animation or paid generation.")),
+    _bpEl("ol",{className:"bp-steps","aria-label":"Blender setup and preview steps"},
+      _bpEl("li",{className:"bp-step","data-testid":"blender-step-install"},
+        _bpEl("details",{className:"bp-setup","data-testid":"blender-addon-setup",open:setupOpen,
+          onToggle:event=>setSetupOpen(event.currentTarget.open)},
+          _bpEl("summary",{className:"bp-step-heading"},
+            _bpEl("span",{className:"bp-step-number"},"1"),
+            _bpEl("span",{className:"bp-step-label"},
+              _bpEl("strong",null,"Download Blender desktop add-on"),
+              _bpEl("small",null,"Install once on your computer")),
+            _bpEl("span",{className:"bp-step-chevron","aria-hidden":"true"},"⌄")),
+          _bpEl("div",{className:"bp-step-body"},
+            _bpEl("p",{className:"bp-help"},"Already installed? Fold this step and continue to step 2. You do not need to download it before every picture."),
+            _bpEl(BlenderAddonDownload),
+            _bpEl("ul",{className:"bp-instructions"},
+              _bpEl("li",null,"In Blender, open Preferences → Add-ons. Open the small menu at the top right and choose Install from Disk."),
+              _bpEl("li",null,"Select cinema-machine-blender.zip without unzipping it, then enable Cinema Machine Bridge."))))),
+      _bpEl("li",{className:"bp-step","data-testid":"blender-step-connect"},
+        _bpEl("div",{className:"bp-step-heading"},
+          _bpEl("span",{className:"bp-step-number"},"2"),
+          _bpEl("span",{className:"bp-step-label"},
+            _bpEl("strong",null,"Connect Blender to Cinema Machine"),
+            _bpEl("small",null,connected?"Blender is connected":"After installation · keep Blender open"))),
+        _bpEl("div",{className:"bp-step-body"},
+          _bpEl("p",{className:"bp-help"},"Pair means connect: create a temporary code here, then enter it in the Blender add-on. This does not make a picture."),
+          _bpEl("div",{className:"bp-actions"},
+            _bpEl("button",{type:"button",className:"char-draft-btn ghost","data-testid":"blender-pair",
+              disabled:!!readOnly||!scope,onClick:pairDesktop},"Pair Blender desktop"),
+            connected && _bpEl("button",{type:"button",className:"char-draft-btn ghost","data-testid":"blender-disconnect",
+              disabled:!!readOnly,onClick:disconnect},"Disconnect")),
+          pair && _bpEl("div",{className:"bp-pair"},
+            _bpEl("p",{className:"bp-help"},"In Blender, place your pointer over the 3D view and press N to open its side panel. Choose the CinemaMachine tab."),
+            _bpEl("div",{className:"bp-pair-code","data-testid":"blender-pair-code"},
+              _bpEl("div",null,_bpEl("span",null,"Function URL"),_bpEl("code",null,typeof BP.endpoint==="function"?BP.endpoint():""),
+                _bpEl("button",{type:"button",className:"bp-copy","aria-label":"Copy Function URL",onClick:async()=>{
+                  const ok=await bpCopy(typeof BP.endpoint==="function"?BP.endpoint():"");
+                  if(alive.current) setEndpointCopied(ok);
+                }},endpointCopied?"Copied":"Copy")),
+              _bpEl("div",null,_bpEl("span",null,"Pair code"),_bpEl("code",null,pair.pairCode||"—"),
+                _bpEl("button",{type:"button",className:"bp-copy","aria-label":"Copy pair code",onClick:async()=>{
+                  const ok=await bpCopy(pair.pairCode||""); if(alive.current) setPairCopied(ok);
+                }},pairCopied?"Copied":"Copy")),
+              pair.expiresAt && _bpEl("small",null,"Code expires "+new Date(pair.expiresAt).toLocaleString())),
+            _bpEl("p",{className:"bp-help"},"Paste these into the matching Function URL and Pair code boxes in Blender. Tick “I approve this project”, then click Connect in Blender.")),
+          _bpEl("p",{className:"bp-help","data-testid":"blender-connection-help"},
+            connected ? "Connected. Keep Blender open and your computer awake while you make previews."
+              : "Once Blender connects, step 3 becomes available. You only need a new code when reconnecting."))),
+      _bpEl("li",{className:"bp-step","data-testid":"blender-step-render"},
+        _bpEl("div",{className:"bp-step-heading"},
+          _bpEl("span",{className:"bp-step-number"},"3"),
+          _bpEl("span",{className:"bp-step-label"},
+            _bpEl("strong",null,"Render Blender preview"),
+            _bpEl("small",null,"Make a picture · repeat with a different lens"))),
+        _bpEl("div",{className:"bp-step-body"},
+          _bpEl("p",{className:"bp-help"},"Start with these settings, then click Render below. Afterwards, change the lens and render again to compare views."),
     _bpEl("div",{className:"bp-inputs","data-testid":"blender-frame-inputs"},
       _bpEl("span",null,"In frame"),
       _bpEl("b",null,(subjects||[]).map(x=>x&&x.name||x&&x.id).filter(Boolean).join(" · ")||"No subjects",
@@ -557,6 +606,7 @@ function BlenderPreviewPanel({ shot, scene, location, subjects, props, readOnly,
       _bpEl("small",null,location ? "Location · "+(location.name||location.id||"resolved") : "No location resolved")),
     _bpEl("div",{className:"bp-config"},
       _bpEl("div",{className:"bp-config-head"},_bpEl("b",null,"Preview layout"),_bpEl("small",null,"metres · still camera")),
+      _bpEl("p",{className:"bp-help"},"Camera position is where it sits; camera target is where it looks. X and Y place things across the room; Z is height. A lower lens number gives a wider view."),
       _bpEl("div",{className:"bp-room-grid"},
         input("Room width",liveConfig.room.width,v=>updateConfig("room","width",v),{min:2,max:50}),
         input("Room depth",liveConfig.room.depth,v=>updateConfig("room","depth",v),{min:2,max:50}),
@@ -569,27 +619,10 @@ function BlenderPreviewPanel({ shot, scene, location, subjects, props, readOnly,
         disabled:!!readOnly||!!configError||!spec||!scope||!capabilityReady||!connected||otherJob||busy||saving||requestPending,onClick:render},
         busy?"Blender "+status+"…":"Render Blender preview"),
       (busy||saving) && _bpEl("button",{type:"button",className:"char-draft-btn ghost","data-testid":"blender-stop",onClick:stop},"Stop"),
-      _bpEl("button",{type:"button",className:"char-draft-btn ghost","data-testid":"blender-pair",
-        disabled:!!readOnly||!scope,onClick:pairDesktop},"Pair Blender desktop"),
-      connected && _bpEl("button",{type:"button",className:"char-draft-btn ghost","data-testid":"blender-disconnect",
-        disabled:!!readOnly,onClick:disconnect},"Disconnect"),
       job && !busy && _bpEl("button",{type:"button",className:"char-draft-btn ghost","data-testid":"blender-clear",
         onClick:clearJob},"Clear")),
-    !connected && scope && _bpEl("p",{className:"bp-help"},"Pair and connect the Blender desktop add-on before rendering."),
+    !connected && scope && _bpEl("p",{className:"bp-help"},"Render is unavailable until Blender is connected in step 2."),
     otherJob && _bpEl("p",{className:"bp-callout warn"},"Another shot is currently using this Blender connection. Rendering is disabled until its job is finished."),
-    _bpEl("div",{className:"bp-pair"},
-      _bpEl(BlenderAddonDownload),
-      _bpEl("ol",null,
-        _bpEl("li",null,"On the Blender desktop, install the downloaded ZIP through Preferences → Add-ons."),
-        _bpEl("li",null,"Enable Cinema Machine Bridge, then paste the endpoint and one-time code below."),
-        _bpEl("li",null,"Keep Blender open while the desktop add-on claims and renders this still.")),
-      pair && _bpEl("div",{className:"bp-pair-code","data-testid":"blender-pair-code"},
-        _bpEl("div",null,_bpEl("span",null,"Endpoint"),_bpEl("code",null,typeof BP.endpoint==="function"?BP.endpoint():"")),
-        _bpEl("div",null,_bpEl("span",null,"One-time pairing code"),_bpEl("code",null,pair.pairCode||"—"),
-          _bpEl("button",{type:"button",className:"bp-copy",onClick:async()=>{
-            const ok=await bpCopy(pair.pairCode||""); setPairCopied(ok);
-          }},pairCopied?"Copied":"Copy")),
-        pair.expiresAt && _bpEl("small",null,"Expires "+new Date(pair.expiresAt).toLocaleString()))),
     preview && _bpEl("div",{className:"bp-result","data-testid":"blender-preview-result"},
       _bpEl("div",{className:"bp-result-head"},
         _bpEl("b",null,"Preview render"),
@@ -603,7 +636,7 @@ function BlenderPreviewPanel({ shot, scene, location, subjects, props, readOnly,
       "Preview pixels were retained, but durable saving failed.",
       _bpEl("div",{className:"bp-failure-actions"},
         _bpEl("button",{type:"button",className:"char-draft-btn ghost","data-testid":"blender-download",onClick:download},"Download PNG"),
-        _bpEl("button",{type:"button",className:"char-draft-btn ghost","data-testid":"blender-retry-save",disabled:saving,onClick:retrySave},"Retry save"))),
+        _bpEl("button",{type:"button",className:"char-draft-btn ghost","data-testid":"blender-retry-save",disabled:saving,onClick:retrySave},"Retry save")))))),
     _bpEl("div",{className:"bp-messages","aria-live":"polite"},
       configError&&_bpEl("span",{className:"bp-message error"},configError),
       notice&&_bpEl("span",{className:"bp-message"},notice),

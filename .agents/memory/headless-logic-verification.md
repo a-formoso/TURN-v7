@@ -55,6 +55,6 @@ and lifecycle code; include a cross-language canonicalization corpus.
 
 An HTTP success response and a valid ZIP are not enough to verify a download from an embedded preview.
 
-**Why:** Preview navigation handling can open an archive as an external webpage even when the original link has a download attribute. The earlier server-only check did not cover that interaction.
+**Why:** Preview navigation handling can open an archive as an external webpage even when the original link has a download attribute. A subsequent fetch-to-Blob approach passed the isolated browser test but still reported “Failed to fetch” in the user's preview. A successful server response does not establish either browser operation.
 
-**How to apply:** Exercise the actual download control in a browser, including an embedded context with document-link interception. Check the browser-saved filename and bytes, unchanged page location, and error/retry paths. Distinguish this simulated embedding check from verification inside the user's actual preview wrapper or Mac browser.
+**How to apply:** Exercise the actual download control in a browser, including an embedded context with document-link interception. Check the browser-saved filename and bytes, unchanged page location, and error/retry paths. For small installers carried with the page, also force runtime fetch to fail and assert zero download-triggered requests; generate the embedded data from the real package, not a synthetic fixture. Distinguish this simulated embedding check from verification inside the user's actual preview wrapper or Mac browser.

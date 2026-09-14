@@ -26,7 +26,29 @@
   border-radius:7px;background:var(--bg-3,#202126);line-height:1.4}
 .bp-inputs span,.bp-inputs small{color:var(--txt-2,#a9a9a1)}
 .bp-inputs b{overflow-wrap:anywhere;color:var(--txt-0,#f0f0ea);font-weight:600}
+.bp-steps{display:grid;gap:12px;list-style:none;margin:14px 0 0;padding:0}
+.bp-step{min-width:0;border:1px solid var(--line,#353840);border-radius:8px;overflow:hidden}
+.bp-step-heading{display:flex;align-items:center;gap:10px;padding:12px;list-style:none}
+.bp-step-number{display:flex;align-items:center;justify-content:center;flex:0 0 23px;width:23px;height:23px;
+  border:1px solid var(--line-2,#484a52);border-radius:50%;background:var(--bg-3,#202126);
+  color:var(--txt-1,#d8d8d2);font:600 11px var(--f-mono,monospace)}
+.bp-step-label{display:grid;gap:3px;min-width:0}
+.bp-step-label strong{color:var(--txt-0,#f0f0ea);font-size:11px;line-height:1.4}
+.bp-step-label small{color:var(--txt-2,#9e9e98);font-size:10px;line-height:1.4}
+.bp-step-body{display:grid;gap:10px;padding:0 12px 12px}
+.bp-step-body>.bp-help{margin:0}
+.bp-step-body>.bp-actions{margin-top:0}
+.bp-step-body>.bp-inputs{margin-top:0}
+.bp-setup>summary{cursor:pointer}
+.bp-setup>summary::-webkit-details-marker{display:none}
+.bp-setup>summary:hover{background:var(--bg-3,#202126)}
+.bp-setup>summary:focus-visible{outline:2px solid var(--accent,#d8a657);outline-offset:-3px;border-radius:7px}
+.bp-step-chevron{margin-left:auto;align-self:center;color:var(--txt-2,#9e9e98);font-size:16px;transform:rotate(-90deg)}
+.bp-setup[open] .bp-step-chevron{transform:rotate(0deg)}
+.bp-instructions{margin:0;padding-left:17px;color:var(--txt-2,#9e9e98);line-height:1.5}
+.bp-instructions li+li{margin-top:5px}
 .bp-config{display:grid;gap:10px;margin-top:12px;padding-top:11px;border-top:1px solid var(--line,#353840)}
+.bp-config .bp-help{margin:0}
 .bp-config-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
 .bp-config-head b{font-size:11px;color:var(--txt-0,#f0f0ea)}
 .bp-config-head small,.bp-capability{color:var(--txt-3,#7f807d);font:10px var(--f-mono,monospace)}
@@ -41,17 +63,15 @@
 .bp-vector legend{padding:0 4px}
 .bp-vector-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
 .bp-actions{display:flex;align-items:center;flex-wrap:wrap;gap:7px;margin-top:12px}
-.bp-actions .char-draft-btn{height:29px}
+.bp-actions .char-draft-btn{height:auto;min-height:30px;max-width:100%;white-space:normal;text-align:center}
 .bp-actions .char-draft-btn.primary:disabled{opacity:.48}
 .bp-help{margin:8px 0 0;color:var(--txt-2,#a9a9a1);line-height:1.4}
-.bp-pair{display:grid;gap:8px;margin-top:13px;padding-top:11px;border-top:1px solid var(--line,#353840)}
-.bp-download{justify-self:start;color:var(--link,#87b8d9);font-size:11px;text-decoration:none;
-  appearance:none;background:transparent;border:0;padding:0;text-align:left;font-family:inherit;cursor:pointer}
-.bp-download:hover{text-decoration:underline}
-.bp-download:disabled{opacity:.65;cursor:progress}
+.bp-pair{display:grid;gap:8px}
+.bp-pair .bp-help{margin:0}
+.bp-download{justify-self:start;max-width:100%;height:auto;min-height:32px;padding:7px 11px;
+  color:var(--txt-0,#f0f0ea);font-size:11px;white-space:normal;text-align:left;cursor:pointer}
 .bp-download:focus-visible{outline:2px solid var(--accent,#d8a657);outline-offset:3px}
 .bp-download-error{color:var(--neg,#e59285)}
-.bp-pair ol{margin:0;padding-left:19px;color:var(--txt-2,#a9a9a1);line-height:1.5}
 .bp-pair-code{display:grid;gap:7px;padding:9px;border:1px solid var(--line-2,#484a52);border-radius:7px;background:var(--bg-3,#202126)}
 .bp-pair-code>div{display:flex;align-items:center;gap:8px;min-width:0}
 .bp-pair-code>div>span{width:125px;flex:0 0 125px;color:var(--txt-2,#a9a9a1)}
@@ -76,6 +96,8 @@ html[data-theme="light"] .bp-field input{background:var(--bg-4,#fff)}
 html[data-theme="light"] .bp-pair-code,.bp-panel{box-shadow:0 1px 2px rgba(24,25,28,.04)}
 @media (max-width:560px){
   .bp-panel{padding:11px 10px}
+  .bp-step-heading{padding:10px;gap:8px}
+  .bp-step-body{padding:0 10px 10px}
   .bp-room-grid{grid-template-columns:1fr}
   .bp-actions{align-items:stretch}
   .bp-actions .char-draft-btn{flex:1 1 145px}

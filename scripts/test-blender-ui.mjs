@@ -7,7 +7,7 @@
  */
 import assert from "node:assert/strict";
 import {createServer} from "node:http";
-import {mkdir,readFile,writeFile,access} from "node:fs/promises";
+import {mkdir,readFile,writeFile,access,unlink} from "node:fs/promises";
 import {spawn} from "node:child_process";
 import {transformSync} from "@babel/core";
 import net from "node:net";
@@ -50,7 +50,11 @@ async function prepare(){
   const ui=await readFile(new URL("../app/blender-preview-ui.jsx",import.meta.url),"utf8");
   const appCss=await readFile(new URL("../app/styles.css",import.meta.url));
   const css=await readFile(new URL("../app/blender-preview.css",import.meta.url));
+  const addonDataPath=new URL("../app/blender-addon-data.js",import.meta.url);
+  if(!(await exists(addonDataPath))) throw new Error("Missing app/blender-addon-data.js; run scripts/build-blender-addon.mjs first.");
+  const addonData=await readFile(addonDataPath);
   await writeFile(`${FIXTURE}/ui.js`,transform(ui)); await writeFile(`${FIXTURE}/styles.css`,`${appCss}\n${css}`);
+  await writeFile(`${FIXTURE}/addon-data.js`,addonData);
   const visualPath="/tmp/blender-preview-35.png";
   const visualPng=await exists(visualPath)?(await readFile(visualPath)).toString("base64"):"";
   const contractPath=(await exists(new URL("../app/blender-contract.js",import.meta.url)))
@@ -80,21 +84,12 @@ function html(hasRuntime,visualPng=""){
   window.__fixture={calls:[],updates:[],saved:[],runtimeLoaded:${hasRuntime},job:null,connected:true,
   scopeProject:"film-fixture",failSave:true,deferHash:false,hashPending:null,deferConnection:false,
   connectionPending:null,forbiddenConnection:false,forbiddenJobGet:false,deferJob:false,jobGetPending:null,commitPending:null,saveAttempts:0,
-  visualPng:"${visualPng}",addonMode:"ok",frameAnchorIntercepts:0,addonPending:false,addonAbort:false};
+  visualPng:"${visualPng}",addonMode:"throw",frameAnchorIntercepts:0};
  window.__fixture.nativeFetch=window.fetch.bind(window);
 window.__fixture.fetch=async (url,opts)=>{
   const pathname=new URL(typeof url==="string"?url:url.url,location.href).pathname;
   if(pathname==="/app/downloads/cinema-machine-blender.zip"){
-    if(window.__fixture.addonMode==="404") return new Response("not found",{status:404});
-    if(window.__fixture.addonMode==="html200") return new Response("<!doctype html><title>not a zip</title>",{
-      status:200,headers:{"content-type":"text/html"}});
-    if(window.__fixture.addonMode==="hang") return await new Promise((resolve,reject)=>{
-      window.__fixture.addonPending=true;
-      opts&&opts.signal&&opts.signal.addEventListener("abort",()=>{
-        window.__fixture.addonPending=false;window.__fixture.addonAbort=true;
-        reject(new DOMException("Aborted","AbortError"));
-      },{once:true});
-    });
+    if(window.__fixture.addonMode==="throw") throw new TypeError("Failed to fetch");
     return window.__fixture.nativeFetch(url,opts);
   }
   const raw=opts&&opts.body;let body=null;
@@ -179,7 +174,8 @@ window.__mount=(readOnly=false,lens="50")=>{const root=window.__fixture.root||Re
  readOnly,onUpdate:(id,patch)=>window.__fixture.updates.push({id,patch})}));window.__fixture.root=root;};
  window.__unmount=()=>{if(window.__fixture.root)window.__fixture.root.unmount();};
 </script>
-<script src="/ui.js"></script><script>window.__mount();</script></body></html>`;
+ <script src="/addon-data.js"></script><script>window.__fixture.realAddon=window.CinemaMachineBlenderAddon;</script>
+ <script src="/ui.js"></script><script>window.__mount();</script></body></html>`;
 }
 
 function server(){
@@ -266,7 +262,37 @@ try{
     c.close();chrome.kill();http.close();process.exit(0);
   }
   assert.equal(await c.eval(`document.querySelector('[data-testid="blender-frame-inputs"]').textContent.includes("Mara")`),true);
-  assert.equal(await c.eval(`document.body.textContent.includes("no character likeness")`),true);
+   assert.equal(await c.eval(`document.body.textContent.includes("do not recreate your characters")`),true);
+   assert.equal(await c.eval(`(()=>{const s=document.querySelector('[data-testid="blender-addon-setup"]');
+     return !!s&&s.matches("details[open]")&&[...document.querySelectorAll(".bp-steps .bp-step-number")].map(x=>x.textContent.trim()).join(",")==="1,2,3";
+   })()`),true,"add-on setup is open with numbered steps");
+   assert.equal(await c.eval(`(()=>{const s=document.querySelector('[data-testid="blender-addon-setup"]');
+     const steps=[...document.querySelectorAll(".bp-steps > .bp-step")];return steps.length===3&&
+       steps[0].matches('[data-testid="blender-step-install"]')&&steps[1].matches('[data-testid="blender-step-connect"]')&&
+       steps[2].matches('[data-testid="blender-step-render"]')&&
+       !!steps[0].querySelector('[data-testid="blender-addon-download"]')&&
+       !!steps[1].querySelector('[data-testid="blender-pair"]')&&
+       !!steps[2].querySelector('[data-testid="blender-render"]')&&
+       !!steps[2].querySelector('[data-testid="blender-frame-inputs"]')&&
+       steps[2].querySelectorAll("input[type=number]").length>=10;
+   })()`),true,"step controls and layout fields are nested in numbered order");
+   await c.call("Emulation.setDeviceMetricsOverride",{width:1280,height:900,deviceScaleFactor:1,mobile:false});
+   const setupDesktop=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:true});
+   const setupDesktopPath=`${OUT}/blender-addon-setup-desktop.png`;await writeFile(setupDesktopPath,Buffer.from(setupDesktop.data,"base64"));
+   await c.call("Emulation.setDeviceMetricsOverride",{width:390,height:844,deviceScaleFactor:1,mobile:false});await sleep(100);
+   const setupMobile=await c.eval(`({scrollWidth:document.documentElement.scrollWidth,viewport:innerWidth})`);
+   assert.ok(setupMobile.scrollWidth<=391,`Blender setup overflows at 390px: ${JSON.stringify(setupMobile)}`);
+   const setupMobileShot=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:true});
+   const setupMobilePath=`${OUT}/blender-addon-setup-mobile.png`;await writeFile(setupMobilePath,Buffer.from(setupMobileShot.data,"base64"));
+   await c.call("Emulation.setDeviceMetricsOverride",{width:1280,height:900,deviceScaleFactor:1,mobile:false});
+   await c.eval(`document.querySelector('[data-testid="blender-addon-setup"] summary').click()`);
+   await waitFor(()=>c.eval(`!document.querySelector('[data-testid="blender-addon-setup"]').open`),"pointer close setup");
+   const collapsed=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:true});
+   const collapsedPath=`${OUT}/blender-addon-setup-collapsed.png`;await writeFile(collapsedPath,Buffer.from(collapsed.data,"base64"));
+   await c.eval(`document.querySelector('[data-testid="blender-addon-setup"] summary').focus()`);
+   await c.call("Input.dispatchKeyEvent",{type:"rawKeyDown",key:" ",code:"Space",windowsVirtualKeyCode:32,text:" ",unmodifiedText:" "});
+   await c.call("Input.dispatchKeyEvent",{type:"keyUp",key:" ",code:"Space",windowsVirtualKeyCode:32});
+   await waitFor(()=>c.eval(`document.querySelector('[data-testid="blender-addon-setup"]').open`),"keyboard reopen setup");
   await c.eval(`window.__mount(false,"58")`);
   await waitFor(()=>c.eval(`[...document.querySelectorAll("input")].some(x=>x.value==="58")`),"external lens refresh");
   await c.eval(`(()=>{const i=[...document.querySelectorAll("input")].find(x=>x.value==="58");const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set;set.call(i,"72");i.dispatchEvent(new Event("input",{bubbles:true}));i.dispatchEvent(new Event("change",{bubbles:true}));})()`);
@@ -280,6 +306,16 @@ try{
   await c.eval(`document.querySelector('[data-testid="blender-pair"]').click()`);
   await waitFor(()=>c.eval(`!!document.querySelector('[data-testid="blender-pair-code"]')`),"pair code");
   assert.equal(await c.eval(`document.querySelector('[data-testid="blender-pair-code"]').textContent.includes("PAIR-1234")`),true);
+   await c.eval(`document.querySelector('[data-testid="blender-addon-setup"] summary').click()`);
+   await waitFor(()=>c.eval(`!document.querySelector('[data-testid="blender-addon-setup"]').open`),"pointer collapse after edits");
+   assert.equal(await c.eval(`(()=>{const setup=document.querySelector('[data-testid="blender-addon-setup"]');
+     const connect=document.querySelector('[data-testid="blender-step-connect"]');
+     const render=document.querySelector('[data-testid="blender-step-render"]');
+     const lens=[...document.querySelectorAll("input")].find(x=>x.value==="72");
+     return !!connect&&!!render&&!!connect.querySelector('[data-testid="blender-pair-code"]')&&!!render.querySelector('[data-testid="blender-render"]')&&!!lens;
+   })()`),true,"collapsing install keeps pair/render controls, connection, and edited lens visible");
+   await c.eval(`document.querySelector('[data-testid="blender-addon-setup"] summary').click()`);
+   await waitFor(()=>c.eval(`document.querySelector('[data-testid="blender-addon-setup"]').open`),"reopen setup after edits");
   await c.eval(`window.__fixture.deferHash=true;document.querySelector('[data-testid="blender-render"]').click()`);
   await waitFor(()=>c.eval(`!!window.__fixture.hashPending`),"deferred hash");
   await c.eval(`document.querySelector('[data-testid="blender-disconnect"]').click()`);
@@ -288,7 +324,7 @@ try{
   await sleep(150);
   assert.equal(await c.eval(`!window.__fixture.calls.some(x=>x.body&&x.body.action==="job.create")`),true,
     "disconnect during render hashing prevents job.create");
-  assert.equal(await c.eval(`document.querySelector(".bp-status").textContent==="not paired"`),true,
+  assert.equal(await c.eval(`document.querySelector(".bp-status").textContent==="not connected"`),true,
     "explicit disconnect clears the paired connection state");
   await c.eval(`document.querySelector('[data-testid="blender-pair"]').click()`);
   await waitFor(()=>c.eval(`!!document.querySelector('[data-testid="blender-pair-code"]')`),"re-pair code");
@@ -316,7 +352,7 @@ try{
   await waitFor(()=>c.eval(`window.__fixture.calls.some(x=>x.body&&x.body.action==="connection.disconnect")`),"poll disconnect");
   await c.eval(`window.__fixture.releaseConnection();window.__fixture.deferConnection=false;window.__fixture.connected=true`);
   await sleep(150);
-  assert.equal(await c.eval(`document.querySelector(".bp-status").textContent==="not paired"`),true,
+  assert.equal(await c.eval(`document.querySelector(".bp-status").textContent==="not connected"`),true,
     "disconnect prevents an in-flight connection poll from restoring state");
   await c.eval(`document.querySelector('[data-testid="blender-pair"]').click()`);
   await waitFor(()=>c.eval(`!!document.querySelector('[data-testid="blender-pair-code"]')`),"second pair code");
@@ -381,20 +417,55 @@ try{
     "sandboxed add-on download button");
   const frameUrl=await c.eval(`${downloadFrame}.location.href`);
   const downloadPath=`${FIXTURE}/downloads/cinema-machine-blender.zip`;
-  await c.eval(`${downloadFrame}.__fixture.addonMode="404";${downloadFrame}.document.querySelector('[data-testid="blender-addon-download"]').click()`);
-  await waitFor(()=>c.eval(`(()=>{const status=${downloadFrame}.document.querySelector('[data-testid="blender-addon-download-status"]');return status&&status.getAttribute("role")==="alert"&&status.textContent.includes("HTTP 404");})()`),
-    "404 add-on error");
-  assert.equal(await exists(downloadPath),false,"404 add-on response does not create a file");
-  assert.equal(await c.eval(`${downloadFrame}.location.href===${JSON.stringify(frameUrl)}`),true,
-    "404 add-on response does not navigate the sandbox");
-  await c.eval(`${downloadFrame}.__fixture.addonMode="html200";${downloadFrame}.document.querySelector('[data-testid="blender-addon-download"]').click()`);
-  await waitFor(()=>c.eval(`(()=>{const status=${downloadFrame}.document.querySelector('[data-testid="blender-addon-download-status"]');return status&&status.getAttribute("role")==="alert"&&status.textContent.includes("did not contain the add-on ZIP");})()`),
-    "HTML add-on error");
-  assert.equal(await exists(downloadPath),false,"HTML add-on response does not create a file");
-  assert.equal(await c.eval(`${downloadFrame}.location.href===${JSON.stringify(frameUrl)}`),true,
-    "HTML add-on response does not navigate the sandbox");
+  const bundle=await c.eval(`(()=>{const a=${downloadFrame}.CinemaMachineBlenderAddon;return a&&{filename:a.filename,byteLength:a.byteLength,base64:a.base64,frozen:Object.isFrozen(a)};})()`);
+  assert.equal(bundle.frozen,true,"generated add-on bundle is frozen in the browser");
+  assert.equal(bundle.filename,"cinema-machine-blender.zip","generated add-on bundle exposes the packaged filename");
+  assert.equal(bundle.byteLength,packagedZip.length,"generated add-on bundle exposes the packaged byte length");
+  assert.deepEqual(Buffer.from(bundle.base64,"base64"),packagedZip,"generated add-on bundle bytes match the packaged ZIP");
+  const beforeDownloadUrl=JSON.stringify(frameUrl);
+  await c.eval(`${downloadFrame}.CinemaMachineBlenderAddon=undefined;${downloadFrame}.__fixture.addonMode="throw";
+    ${downloadFrame}.document.querySelector('[data-testid="blender-addon-download"]').click()`);
+  await waitFor(()=>c.eval(`(()=>{const status=${downloadFrame}.document.querySelector('[data-testid="blender-addon-download-status"]');
+    return status&&status.getAttribute("role")==="alert"&&status.textContent;})()`),"missing bundle error");
+  const missingMessage=await c.eval(`${downloadFrame}.document.querySelector('[data-testid="blender-addon-download-status"]').textContent`);
+  assert.equal(await exists(downloadPath),false,"missing add-on bundle does not create a file");
+  assert.equal(await c.eval(`${downloadFrame}.location.href===${beforeDownloadUrl}`),true,
+    "missing add-on bundle does not navigate the sandbox");
+  await c.eval(`${downloadFrame}.CinemaMachineBlenderAddon=${downloadFrame}.__fixture.realAddon;
+    ${downloadFrame}.document.querySelector('[data-testid="blender-addon-download"]').click()`);
+  await waitFor(()=>c.eval(`${downloadFrame}.document.querySelector('[data-testid="blender-addon-download-status"]').textContent.includes("Download requested")`),
+    "reset add-on download status");
+  assert.notEqual(await c.eval(`${downloadFrame}.document.querySelector('[data-testid="blender-addon-download-status"]').textContent`),missingMessage,
+    "successful retry clears the prior missing-bundle error");
+  await unlink(downloadPath).catch(()=>{});
+  await c.eval(`${downloadFrame}.CinemaMachineBlenderAddon={filename:"cinema-machine-blender.zip",byteLength:${packagedZip.length},base64:"bad-data"}`);
+  await c.eval(`${downloadFrame}.document.querySelector('[data-testid="blender-addon-download"]').click()`);
+  await waitFor(()=>c.eval(`(()=>{const status=${downloadFrame}.document.querySelector('[data-testid="blender-addon-download-status"]');
+    return status&&status.getAttribute("role")==="alert"&&status.textContent===${JSON.stringify(missingMessage)};})()`),
+    "corrupt generated bundle error");
+  assert.equal(await exists(downloadPath),false,"corrupt add-on data does not create a file");
+  await c.eval(`${downloadFrame}.CinemaMachineBlenderAddon=${downloadFrame}.__fixture.realAddon;
+    ${downloadFrame}.document.querySelector('[data-testid="blender-addon-download"]').click()`);
+  await waitFor(()=>c.eval(`${downloadFrame}.document.querySelector('[data-testid="blender-addon-download-status"]').textContent.includes("Download requested")`),"reset after invalid base64");
+  await unlink(downloadPath).catch(()=>{});
+  await c.eval(`${downloadFrame}.CinemaMachineBlenderAddon={filename:"cinema-machine-blender.zip",byteLength:${packagedZip.length-1},base64:${JSON.stringify(bundle.base64)}};
+    ${downloadFrame}.document.querySelector('[data-testid="blender-addon-download"]').click()`);
+  await waitFor(()=>c.eval(`${downloadFrame}.document.querySelector('[data-testid="blender-addon-download-status"]').textContent===${JSON.stringify(missingMessage)}`),
+    "declared ZIP size error");
+  assert.equal(await exists(downloadPath),false,"declared ZIP size mismatch does not create a file");
+  const badMagicBase64=Buffer.from(packagedZip).fill(0,0,4).toString("base64");
+  await c.eval(`${downloadFrame}.CinemaMachineBlenderAddon=${downloadFrame}.__fixture.realAddon;
+    ${downloadFrame}.document.querySelector('[data-testid="blender-addon-download"]').click()`);
+  await waitFor(()=>c.eval(`${downloadFrame}.document.querySelector('[data-testid="blender-addon-download-status"]').textContent.includes("Download requested")`),"reset after size mismatch");
+  await unlink(downloadPath).catch(()=>{});
+  await c.eval(`${downloadFrame}.CinemaMachineBlenderAddon={filename:"cinema-machine-blender.zip",byteLength:${packagedZip.length},base64:${JSON.stringify(badMagicBase64)}};
+    ${downloadFrame}.document.querySelector('[data-testid="blender-addon-download"]').click()`);
+  await waitFor(()=>c.eval(`${downloadFrame}.document.querySelector('[data-testid="blender-addon-download-status"]').textContent===${JSON.stringify(missingMessage)}`),
+    "ZIP magic error");
+  assert.equal(await exists(downloadPath),false,"bad ZIP magic does not create a file");
   const downloadJob=await c.eval(`JSON.stringify(${downloadFrame}.__fixture.job)`);
-  await c.eval(`${downloadFrame}.__fixture.calls=[];${downloadFrame}.__fixture.deferConnection=true;${downloadFrame}.__fixture.addonMode="ok";
+  await c.eval(`${downloadFrame}.CinemaMachineBlenderAddon=${downloadFrame}.__fixture.realAddon;
+    ${downloadFrame}.__fixture.calls=[];${downloadFrame}.__fixture.deferConnection=true;${downloadFrame}.__fixture.addonMode="throw";
     ${downloadFrame}.document.querySelector('[data-testid="blender-addon-download"]').click()`);
   await waitFor(()=>c.eval(`${downloadFrame}.document.querySelector('[data-testid="blender-addon-download-status"]').textContent.includes("Download requested")`),
     "successful add-on download status");
@@ -405,14 +476,10 @@ try{
     "successful add-on download leaves the sandbox URL unchanged");
   assert.equal(await c.eval(`${downloadFrame}.__fixture.frameAnchorIntercepts===0`),true,
     "detached Blob download anchor does not bubble to the document anchor interceptor");
-  assert.equal(await c.eval(`${downloadFrame}.__fixture.calls.every(x=>!x.body||! /pair|connection|job|generation/i.test(x.body.action||""))`),true,
-    "add-on download performs no relay, pair, job, or generation operation");
+  assert.equal(await c.eval(`${downloadFrame}.__fixture.calls.length===0`),true,
+    "add-on download performs zero fetch/relay/pair/job/generation operations");
   assert.equal(await c.eval(`JSON.stringify(${downloadFrame}.__fixture.job)===${JSON.stringify(downloadJob)}`),true,
     "add-on download leaves Blender job state unchanged");
-  await c.eval(`${downloadFrame}.__fixture.addonMode="hang";${downloadFrame}.document.querySelector('[data-testid="blender-addon-download"]').click()`);
-  await waitFor(()=>c.eval(`${downloadFrame}.__fixture.addonPending`),"pending add-on fetch");
-  await c.eval(`${downloadFrame}.__unmount()`);
-  await waitFor(()=>c.eval(`${downloadFrame}.__fixture.addonAbort`),"unmount add-on abort");
   await c.eval(`(()=>{const img=document.querySelector('[data-testid="blender-preview-result"] img');
     if(img&&window.__fixture.visualPng) img.src="data:image/png;base64,"+window.__fixture.visualPng;})()`);
   const screenshot=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:true});
@@ -427,6 +494,9 @@ try{
   assert.equal(await c.eval(`window.__fixture.calls.every(x=>!x.body||x.body.action!=="connection.get")`),true,
     "view-only Blender preview does not poll protected connection state");
   console.log(`Blender UI fixture runtime: ${runtimePath?"production source loaded":"client source not present"}`);
+  console.log(`Setup desktop screenshot: ${setupDesktopPath}`);
+  console.log(`Setup mobile screenshot: ${setupMobilePath}`);
+  console.log(`Setup collapsed screenshot: ${collapsedPath}`);
   console.log(`Screenshot: ${screenshotPath}`);
   console.log("PASS Blender per-shot preview browser fixture");
 }finally{c?.close();chrome.kill();http.close();}

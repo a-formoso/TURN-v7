@@ -149,13 +149,33 @@ focalLength:String(mm)}})` path. Existing artwork is untouched.
 
 ## Desktop setup and proof checks
 
-In Art Room → Shot List, open **Blender preview** on a shot with a location.
-Download the add-on ZIP. In Blender 4.2 or later, open Preferences → Add-ons →
-Install from Disk, select the ZIP, and enable **Cinema Machine Bridge**. Open
-the 3D View sidebar's Cinema Machine tab. Generate a pairing code in the shot
-panel, paste the endpoint and code into Blender, acknowledge the connection and
-connect. Copy/paste setup is easiest with Cinema Machine open in a browser on
-that computer; the paired connection can then be controlled from a phone.
+In **Art Room → Shots**, expand **Blender preview · rough blockout** below
+Advanced cinematography, beneath a shot image (not in the enlarged image viewer).
+The panel has three numbered steps:
+
+1. **Download and install, once.** This step is collapsible; folding it leaves
+   the connection and render controls available. Choose **Download add-on ZIP**.
+   In Blender, open Preferences → Add-ons → the top-right menu → Install from
+   Disk, select the ZIP without extracting it, and enable **Cinema Machine Bridge**.
+2. **Connect.** Choose **Pair Blender desktop** to create a temporary code.
+   In Blender's 3D view, press N and choose the **CinemaMachine** side tab.
+   Copy the Function URL and Pair code into the matching boxes, tick
+   **I approve this project**, then click **Connect** in Blender.
+3. **Render.** Review the room, camera and lens settings and choose
+   **Render Blender preview**. It remains disabled until connected.
+
+Download is not required for each connection or render. Copy/paste setup is
+easiest with Cinema Machine open in a browser on that computer; the connected
+Blender can then be controlled from a phone. Choose a Blender release compatible
+with the computer; Intel Macs need the macOS Intel build of Blender 4.5 LTS,
+not Blender 5.x.
+
+The build generates both the ZIP and `app/blender-addon-data.js` from the same
+bytes. The page loads that small data script before the UI; the download button
+decodes it and requests a Blob download synchronously, without fetching a ZIP
+URL or navigating the film page. The production build fingerprints the script
+URL from its contents. Never hand-edit the generated bundle. If an embedded
+browser still blocks saving files, open Cinema Machine in its own browser tab.
 
 Keep Blender open. Check the assumed room size, camera position/target and lens,
 then choose **Render Blender preview**. Change the lens and render again. The

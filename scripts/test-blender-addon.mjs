@@ -6,6 +6,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import crypto from "node:crypto";
+import vm from "node:vm";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
@@ -80,5 +82,37 @@ if (build.status !== 0) {
 const zip = path.join(root, "app", "downloads", "cinema-machine-blender.zip");
 if (!fs.existsSync(zip) || fs.statSync(zip).size < 1000) {
   throw new Error("add-on ZIP was not produced");
+}
+const addonDataPath=path.join(root,"app","blender-addon-data.js");
+if(!fs.existsSync(addonDataPath)) throw new Error("generated app/blender-addon-data.js is missing");
+const packageBytes=fs.readFileSync(zip);
+const evaluateBundle=(bundlePath,label)=>{
+  const sandbox={window:{}};
+  vm.runInNewContext(fs.readFileSync(bundlePath,"utf8"),sandbox,{filename:bundlePath});
+  const bundle=sandbox.window.CinemaMachineBlenderAddon;
+  if(!bundle || !Object.isFrozen(bundle)) throw new Error(`${label} add-on data is missing or not frozen`);
+  if(bundle.filename!=="cinema-machine-blender.zip" || bundle.byteLength!==packageBytes.length)
+    throw new Error(`${label} add-on metadata does not match the packaged ZIP`);
+  if(!Buffer.from(bundle.base64,"base64").equals(packageBytes))
+    throw new Error(`${label} add-on bytes do not match the packaged ZIP`);
+  return fs.readFileSync(bundlePath,"utf8");
+};
+const sourceBundle=evaluateBundle(addonDataPath,"source");
+const sourceHtml=fs.readFileSync(path.join(root,"TURN.html"),"utf8");
+const sourceAddon=sourceHtml.indexOf('src="app/blender-addon-data.js');
+const sourceUi=sourceHtml.indexOf('src="app/blender-preview-ui.jsx');
+if(sourceAddon<0 || sourceUi<sourceAddon) throw new Error("source HTML loads Blender UI before add-on data");
+const distDataPath=path.join(root,"dist","app","blender-addon-data.js");
+if(fs.existsSync(distDataPath)){
+  const distBundle=evaluateBundle(distDataPath,"production");
+  const distHtmlPath=path.join(root,"dist","index.html");
+  if(!fs.existsSync(distHtmlPath)) throw new Error("dist bundle exists without dist/index.html");
+  const distHtml=fs.readFileSync(distHtmlPath,"utf8");
+  const distAddon=distHtml.indexOf('src="app/blender-addon-data.js');
+  const distUi=Math.max(distHtml.indexOf('src="app/blender-preview-ui.jsx'),distHtml.indexOf('src="app/blender-preview-ui.js'));
+  if(distAddon<0 || distUi<distAddon) throw new Error("production HTML loads Blender UI before add-on data");
+  const expectedTag=crypto.createHash("sha256").update(sourceBundle).digest("hex").slice(0,16);
+  const actualTag=distHtml.match(/src="app\/blender-addon-data\.js\?v=([^"]+)"/)?.[1];
+  if(actualTag!==expectedTag) throw new Error("production add-on cache tag is not content-derived");
 }
 process.stdout.write("Blender add-on source, AST, and ZIP checks passed\n");
