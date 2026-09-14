@@ -8,15 +8,18 @@ outbound HTTPS requests, and keeps its device token in this process's memory.
 from __future__ import annotations
 
 import datetime as _datetime
+import base64
+import os
 import queue
 import threading
 import time
 from typing import Any, Dict, Mapping, Optional
 
 import bpy  # type: ignore
-from bpy.props import BoolProperty, StringProperty  # type: ignore
+from bpy.props import BoolProperty, EnumProperty, StringProperty  # type: ignore
 
 from . import renderer
+from . import studio_scene
 from .protocol import (
     BridgeClient,
     BridgeError,
@@ -29,6 +32,8 @@ from .protocol import (
     validate_actual_camera,
     validate_scene,
 )
+from .studio_protocol import StudioProtocolError, validate_image_data_url
+from .studio_runtime import StudioRuntime
 
 
 bl_info = {
@@ -595,6 +600,7 @@ class BridgeRuntime:
 
 
 _RUNTIME: Optional[BridgeRuntime] = None
+_STUDIO_RUNTIME: Optional[StudioRuntime] = None
 _TIMER_RUNNING = False
 
 
@@ -710,12 +716,548 @@ class VIEW3D_PT_cinema_machine(bpy.types.Panel):
         layout.label(text="Proof uses editable stand-ins, not character identity.")
 
 
+def _studio_model_items(_self: Any, _context: Any) -> list:
+    runtime = _STUDIO_RUNTIME
+    snapshot = runtime.snapshot() if runtime else {}
+    capabilities = snapshot.get("capabilities", {})
+    values = capabilities.get("models", []) if isinstance(capabilities, dict) else []
+    items = []
+    for value in values:
+        if isinstance(value, str) and value:
+            items.append((value, value[:80], "Server-authorized Studio model"))
+        elif isinstance(value, dict) and isinstance(value.get("modelId"), str) and value["modelId"] and value.get("selectable") is True:
+            warning = " (provider access unverified)" if value.get("verified") is not True else ""
+            items.append((value["modelId"], (value["modelId"] + warning)[:120], "Server-authorized Studio model"))
+    return items or [("unavailable", "Load capabilities first", "No model is selected")]
+
+
+def _studio_mesh_model_items(_self: Any, _context: Any) -> list:
+    runtime = _STUDIO_RUNTIME
+    snapshot = runtime.snapshot() if runtime else {}
+    capabilities = snapshot.get("capabilities", {})
+    values = capabilities.get("meshModels", []) if isinstance(capabilities, dict) else []
+    items = []
+    for value in values:
+        if isinstance(value, str) and value:
+            items.append((value, value[:80], "Server-authorized mesh model"))
+        elif isinstance(value, dict) and isinstance(value.get("modelId"), str) and value["modelId"] and value.get("selectable") is True:
+            warning = " (provider access unverified)" if value.get("verified") is not True else ""
+            items.append((value["modelId"], (value["modelId"] + warning)[:120], "Server-authorized mesh model"))
+    return items or [("unavailable", "Load mesh capabilities first", "No mesh model is selected")]
+
+
+def _studio_runtime() -> StudioRuntime:
+    if _STUDIO_RUNTIME is None:
+        raise StudioProtocolError("Studio runtime is unavailable")
+    return _STUDIO_RUNTIME
+
+
+def _studio_reset_cost_ack(self: Any, _context: Any) -> None:
+    # Acknowledgement is deliberately specific to the currently displayed
+    # request.  Changing its mode/model/prompt/reference requires a fresh
+    # explicit confirmation.
+    if hasattr(self, "cm_studio_cost_ack"):
+        self.cm_studio_cost_ack = False
+
+
+class CM_OT_studio_open(bpy.types.Operator):
+    bl_idname = "cinema_machine.studio_open"
+    bl_label = "Open Cinema Machine Studio"
+    bl_description = "Open the native Studio dialog and fetch the browser-selected workspace"
+
+    def invoke(self, context: Any, _event: Any) -> set:
+        _studio_runtime().request_current()
+        _studio_runtime().request_capabilities()
+        return context.window_manager.invoke_props_dialog(self, width=720)
+
+    def execute(self, _context: Any) -> set:
+        return {"FINISHED"}
+
+    def draw(self, context: Any) -> None:
+        _draw_studio_dialog(self.layout, context)
+
+
+class CM_OT_studio_capabilities(bpy.types.Operator):
+    bl_idname = "cinema_machine.studio_capabilities"
+    bl_label = "Refresh models"
+
+    def execute(self, _context: Any) -> set:
+        _studio_runtime().request_capabilities()
+        return {"FINISHED"}
+
+
+class CM_OT_studio_workspace_current(bpy.types.Operator):
+    bl_idname = "cinema_machine.studio_workspace_current"
+    bl_label = "Open selected workspace"
+
+    def execute(self, _context: Any) -> set:
+        _studio_runtime().request_current()
+        return {"FINISHED"}
+
+
+class CM_OT_studio_generate(bpy.types.Operator):
+    bl_idname = "cinema_machine.studio_generate"
+    bl_label = "Generate"
+
+    @classmethod
+    def poll(cls, _context: Any) -> bool:
+        runtime = _STUDIO_RUNTIME
+        if runtime is None:
+            return True
+        capabilities = runtime.snapshot().get("capabilities", {})
+        return not (isinstance(capabilities, dict) and capabilities.get("billingReady") is False)
+
+    def execute(self, context: Any) -> set:
+        runtime = _studio_runtime()
+        snapshot = runtime.snapshot()
+        workspace = snapshot.get("workspace")
+        if not isinstance(workspace, dict):
+            self.report({"ERROR"}, "Open a browser-selected workspace first")
+            return {"CANCELLED"}
+        try:
+            local = studio_scene.workspace_snapshot(context.scene, workspace)
+            runtime.set_local_workspace(local)
+            tab = context.window_manager.cm_studio_tab
+            if tab == "MODEL":
+                runtime.request_mesh(
+                    context.window_manager.cm_studio_mesh_model,
+                    context.window_manager.cm_studio_asset_name,
+                    prompt=context.window_manager.cm_studio_prompt,
+                    image_data_url=snapshot.get("referenceDataUrl") or snapshot.get("localAttachment"),
+                    rigged=context.window_manager.cm_studio_mesh_rigged,
+                    animated=context.window_manager.cm_studio_mesh_animated,
+                    acknowledge_cost=context.window_manager.cm_studio_cost_ack,
+                )
+            else:
+                runtime.request_assistant(
+                    "animation" if tab == "ANIMATION" else "scene",
+                    context.window_manager.cm_studio_model,
+                    context.window_manager.cm_studio_prompt,
+                    local,
+                    snapshot.get("referenceDataUrl") or snapshot.get("localAttachment"),
+                    context.window_manager.cm_studio_cost_ack,
+                )
+            context.window_manager.cm_studio_cost_ack = False
+        except (StudioProtocolError, studio_scene.StudioSceneError) as error:
+            self.report({"ERROR"}, _safe_error(error))
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+class CM_OT_studio_apply(bpy.types.Operator):
+    bl_idname = "cinema_machine.studio_apply"
+    bl_label = "Apply reviewed proposal"
+    bl_description = "Apply only the displayed typed Studio proposal to managed data"
+
+    def execute(self, context: Any) -> set:
+        runtime = _studio_runtime()
+        snapshot = runtime.snapshot()
+        workspace, proposal = snapshot.get("workspace"), snapshot.get("proposal")
+        if not isinstance(workspace, dict) or not isinstance(proposal, dict):
+            self.report({"ERROR"}, "There is no reviewed assistant proposal to apply")
+            return {"CANCELLED"}
+        try:
+            local = studio_scene.apply_proposal(context.scene, workspace, proposal)
+            runtime.set_local_workspace(local)
+        except (StudioProtocolError, studio_scene.StudioSceneError) as error:
+            self.report({"ERROR"}, _safe_error(error))
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+class CM_OT_studio_save(bpy.types.Operator):
+    bl_idname = "cinema_machine.studio_save"
+    bl_label = "Save workspace"
+    bl_description = "Capture managed local edits and save with revision conflict protection"
+
+    def execute(self, context: Any) -> set:
+        runtime = _studio_runtime()
+        workspace = runtime.snapshot().get("workspace")
+        if not isinstance(workspace, dict):
+            self.report({"ERROR"}, "There is no open Studio workspace")
+            return {"CANCELLED"}
+        try:
+            local = studio_scene.workspace_snapshot(context.scene, workspace)
+            runtime.set_local_workspace(local)
+            runtime.request_save(local)
+        except (StudioProtocolError, studio_scene.StudioSceneError) as error:
+            self.report({"ERROR"}, _safe_error(error))
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+class CM_OT_studio_attach_file(bpy.types.Operator):
+    bl_idname = "cinema_machine.studio_attach_file"
+    bl_label = "Attach local PNG/JPEG"
+    bl_description = "Attach a transient local reference to the next request"
+
+    filepath: StringProperty(subtype="FILE_PATH")
+    filter_glob: StringProperty(default="*.png;*.jpg;*.jpeg", options={"HIDDEN"})
+
+    def invoke(self, context: Any, _event: Any) -> set:
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+    def execute(self, _context: Any) -> set:
+        try:
+            size = os.path.getsize(self.filepath)
+            if size <= 0 or size > 8 * 1024 * 1024:
+                raise StudioProtocolError("Reference image must be between 1 byte and 8 MB")
+            with open(self.filepath, "rb") as source:
+                payload = source.read()
+            suffix = os.path.splitext(self.filepath)[1].lower()
+            media_type = "png" if suffix == ".png" else "jpeg" if suffix in {".jpg", ".jpeg"} else ""
+            if not media_type:
+                raise StudioProtocolError("Reference must be a PNG or JPEG")
+            data_url = "data:image/%s;base64,%s" % (media_type, base64.b64encode(payload).decode("ascii"))
+            _studio_runtime().set_local_attachment(validate_image_data_url(data_url), os.path.basename(self.filepath))
+            _context.window_manager.cm_studio_cost_ack = False
+        except (OSError, StudioProtocolError) as error:
+            self.report({"ERROR"}, _safe_error(error))
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+class CM_OT_studio_get_reference(bpy.types.Operator):
+    bl_idname = "cinema_machine.studio_get_reference"
+    bl_label = "Attach approved reference"
+
+    def execute(self, context: Any) -> set:
+        entity_id = context.window_manager.cm_studio_reference_id.strip()
+        if not entity_id:
+            self.report({"ERROR"}, "Enter an approved project reference ID")
+            return {"CANCELLED"}
+        _studio_runtime().request_reference(entity_id)
+        context.window_manager.cm_studio_cost_ack = False
+        return {"FINISHED"}
+
+
+class CM_OT_studio_task_refresh(bpy.types.Operator):
+    bl_idname = "cinema_machine.studio_task_refresh"
+    bl_label = "Refresh task"
+
+    def execute(self, _context: Any) -> set:
+        _studio_runtime().request_task()
+        return {"FINISHED"}
+
+
+class CM_OT_studio_task_cancel(bpy.types.Operator):
+    bl_idname = "cinema_machine.studio_task_cancel"
+    bl_label = "Cancel task"
+
+    def execute(self, _context: Any) -> set:
+        _studio_runtime().request_cancel_task()
+        return {"FINISHED"}
+
+
+class CM_OT_studio_asset_fetch(bpy.types.Operator):
+    bl_idname = "cinema_machine.studio_asset_fetch"
+    bl_label = "Fetch selected asset"
+
+    def execute(self, context: Any) -> set:
+        asset_id = context.window_manager.cm_studio_asset_id.strip()
+        if not asset_id:
+            self.report({"ERROR"}, "Enter an asset ID from this workspace")
+            return {"CANCELLED"}
+        _studio_runtime().request_asset(asset_id)
+        return {"FINISHED"}
+
+
+class CM_OT_studio_asset_import(bpy.types.Operator):
+    bl_idname = "cinema_machine.studio_asset_import"
+    bl_label = "Import fetched GLB"
+    bl_description = "Explicitly import the authenticated GLB into the managed collection"
+
+    def execute(self, context: Any) -> set:
+        runtime = _studio_runtime()
+        snapshot = runtime.snapshot()
+        workspace, asset_response = snapshot.get("workspace"), snapshot.get("asset")
+        if not isinstance(workspace, dict) or not isinstance(asset_response, dict):
+            self.report({"ERROR"}, "Fetch an authenticated Studio asset first")
+            return {"CANCELLED"}
+        try:
+            payload = base64.b64decode(asset_response["base64"], validate=True)
+            studio_scene.import_workspace_asset(context.scene, workspace, asset_response["asset"], payload)
+            local = studio_scene.workspace_snapshot(context.scene, workspace)
+            runtime.set_local_workspace(local)
+        except (KeyError, ValueError, StudioProtocolError, studio_scene.StudioSceneError) as error:
+            self.report({"ERROR"}, _safe_error(error))
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+class CM_OT_studio_conflict_reload(bpy.types.Operator):
+    bl_idname = "cinema_machine.studio_conflict_reload"
+    bl_label = "Reload server workspace"
+    bl_description = "Fetch the server revision; unsaved local edits are not discarded automatically"
+
+    def execute(self, _context: Any) -> set:
+        _studio_runtime().reload_after_conflict()
+        return {"FINISHED"}
+
+
+class CM_OT_studio_replace_local(bpy.types.Operator):
+    bl_idname = "cinema_machine.studio_replace_local"
+    bl_label = "Replace local managed workspace"
+    bl_description = "Explicitly discard local managed Studio edits and use the fetched server revision"
+
+    def execute(self, context: Any) -> set:
+        runtime = _studio_runtime()
+        workspace = runtime.accept_reloaded_workspace()
+        if workspace is None:
+            self.report({"ERROR"}, "No fetched server revision is waiting")
+            return {"CANCELLED"}
+        try:
+            studio_scene.replace_workspace(context.scene, workspace)
+        except (StudioProtocolError, studio_scene.StudioSceneError) as error:
+            self.report({"ERROR"}, _safe_error(error))
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+class CM_OT_studio_activate_shot(bpy.types.Operator):
+    bl_idname = "cinema_machine.studio_activate_shot"
+    bl_label = "Use selected shot"
+    bl_description = "Use the selected workspace shot camera and timeline in this Blender scene"
+
+    def execute(self, context: Any) -> set:
+        snapshot = _studio_runtime().snapshot()
+        workspace, shot_id = snapshot.get("workspace"), snapshot.get("shotId")
+        if not isinstance(workspace, dict) or not isinstance(shot_id, str):
+            self.report({"ERROR"}, "Select a shot in Cinema Machine before activating it")
+            return {"CANCELLED"}
+        try:
+            studio_scene.activate_workspace_shot(context.scene, workspace, shot_id)
+        except (StudioProtocolError, studio_scene.StudioSceneError) as error:
+            self.report({"ERROR"}, _safe_error(error))
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+class CM_OT_studio_play_preview(bpy.types.Operator):
+    bl_idname = "cinema_machine.studio_play_preview"
+    bl_label = "Play local preview"
+    bl_description = "Play the active Blender timeline locally; no preview is published"
+
+    def execute(self, _context: Any) -> set:
+        try:
+            bpy.ops.screen.animation_play()
+        except RuntimeError as error:
+            self.report({"ERROR"}, _safe_error(error))
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+class CM_OT_studio_render_preview(bpy.types.Operator):
+    bl_idname = "cinema_machine.studio_render_preview"
+    bl_label = "Render local preview"
+    bl_description = "Render the active Blender scene locally; no preview is published"
+
+    def execute(self, _context: Any) -> set:
+        try:
+            bpy.ops.render.render("INVOKE_DEFAULT")
+        except RuntimeError as error:
+            self.report({"ERROR"}, _safe_error(error))
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+class CM_OT_studio_publish_preview(bpy.types.Operator):
+    bl_idname = "cinema_machine.studio_publish_preview"
+    bl_label = "Render and publish auxiliary preview"
+    bl_description = "Render the active local camera and publish an auxiliary Studio preview"
+
+    def execute(self, context: Any) -> set:
+        runtime = _studio_runtime()
+        workspace = runtime.snapshot().get("workspace")
+        if not isinstance(workspace, dict):
+            self.report({"ERROR"}, "Open a Studio workspace before publishing a preview")
+            return {"CANCELLED"}
+        try:
+            local = studio_scene.workspace_snapshot(context.scene, workspace)
+            preview = studio_scene.render_auxiliary_preview(context.scene)
+            runtime.set_local_workspace(local)
+            runtime.request_preview(local, preview["pngBase64"], preview["actualCamera"])
+        except (RuntimeError, StudioProtocolError, studio_scene.StudioSceneError) as error:
+            self.report({"ERROR"}, _safe_error(error))
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+class CM_OT_studio_key_selected_blocking(bpy.types.Operator):
+    bl_idname = "cinema_machine.studio_key_selected_blocking"
+    bl_label = "Key selected blocking transform"
+    bl_description = "Insert real location, rotation, and scale keyframes for the selected managed actor"
+
+    def execute(self, context: Any) -> set:
+        object_ = context.view_layer.objects.active
+        if object_ is None or (
+            object_.get(studio_scene.STUDIO_KIND_KEY) != "actor"
+            and object_.get(studio_scene.STUDIO_CHARACTER_KEY) is not True
+        ):
+            self.report({"ERROR"}, "Select a managed Studio actor or imported character root")
+            return {"CANCELLED"}
+        frame = context.scene.frame_current
+        try:
+            object_.keyframe_insert(data_path="location", frame=frame)
+            object_.keyframe_insert(data_path="rotation_euler", frame=frame)
+            object_.keyframe_insert(data_path="scale", frame=frame)
+            runtime = _studio_runtime()
+            workspace = runtime.snapshot().get("workspace")
+            if isinstance(workspace, dict):
+                runtime.set_local_workspace(studio_scene.workspace_snapshot(context.scene, workspace))
+        except (RuntimeError, StudioProtocolError, studio_scene.StudioSceneError) as error:
+            self.report({"ERROR"}, _safe_error(error))
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+def _draw_studio_dialog(layout: Any, context: Any) -> None:
+    runtime = _studio_runtime()
+    snapshot = runtime.snapshot()
+    wm = context.window_manager
+    tabs = layout.row(align=True)
+    tabs.prop(wm, "cm_studio_tab", expand=True)
+    status = layout.box()
+    status.label(text=str(snapshot["status"]))
+    if snapshot["detail"]:
+        status.label(text=str(snapshot["detail"])[:160])
+    workspace = snapshot.get("workspace")
+    if not isinstance(workspace, dict):
+        row = layout.row(align=True)
+        row.operator(CM_OT_studio_workspace_current.bl_idname, text="Open selected workspace")
+        row.operator(CM_OT_studio_capabilities.bl_idname, text="Refresh models")
+        layout.label(text="Select a location/shot in Cinema Machine first.")
+        return
+    layout.label(text="Workspace: %s  •  revision %s" % (workspace["name"], workspace["revision"]))
+    if snapshot.get("shotId"):
+        shot_row = layout.row(align=True)
+        shot_row.label(text="Shot: " + str(snapshot["shotId"]))
+        shot_row.operator(CM_OT_studio_activate_shot.bl_idname, text="Use shot")
+        shot_row.operator(CM_OT_studio_play_preview.bl_idname, text="Play")
+        shot_row.operator(CM_OT_studio_render_preview.bl_idname, text="Render local")
+        shot_row.operator(CM_OT_studio_publish_preview.bl_idname, text="Publish preview")
+        shot_row.operator(CM_OT_studio_key_selected_blocking.bl_idname, text="Key selected")
+    row = layout.row(align=True)
+    row.operator(CM_OT_studio_capabilities.bl_idname, text="Refresh model access")
+    row.operator(CM_OT_studio_save.bl_idname, text="Save")
+    if snapshot.get("conflict"):
+        conflict = layout.box()
+        conflict.alert = True
+        conflict.label(text="Revision conflict: local edits remain in Blender.")
+        conflict.operator(CM_OT_studio_conflict_reload.bl_idname, text="Reload server revision")
+    if snapshot.get("hasReloadedWorkspace"):
+        replacement = layout.box()
+        replacement.alert = True
+        replacement.label(text="A server revision is waiting; local managed edits remain unchanged.")
+        replacement.operator(CM_OT_studio_replace_local.bl_idname, text="Replace local managed workspace")
+    history = snapshot.get("history", ())
+    if history:
+        box = layout.box()
+        box.label(text="Chat history")
+        for item in history[-4:]:
+            box.label(text="%s: %s" % (item.get("role", "Studio"), str(item.get("text", ""))[:110]))
+    prompt = layout.box()
+    prompt.prop(wm, "cm_studio_prompt", text="")
+    if wm.cm_studio_tab == "MODEL":
+        prompt.prop(wm, "cm_studio_mesh_model", text="Mesh model")
+        prompt.prop(wm, "cm_studio_asset_name", text="Asset name")
+        prompt.prop(wm, "cm_studio_mesh_rigged", text="Request rigged asset")
+        prompt.prop(wm, "cm_studio_mesh_animated", text="Request animation")
+    else:
+        prompt.prop(wm, "cm_studio_model", text="Model")
+    reference = prompt.row(align=True)
+    reference.operator(CM_OT_studio_attach_file.bl_idname, text="Attach local reference")
+    reference.prop(wm, "cm_studio_reference_id", text="Approved ref")
+    reference.operator(CM_OT_studio_get_reference.bl_idname, text="Attach approved")
+    attachment_name = snapshot.get("attachmentName")
+    if attachment_name:
+        prompt.label(text="Local attachment: %s (transient; not retained in source history)" % attachment_name)
+    elif snapshot.get("referenceDataUrl"):
+        prompt.label(text="Approved project reference attached")
+    capabilities = snapshot.get("capabilities", {})
+    if isinstance(capabilities, dict):
+        if capabilities.get("billingReady") is not True:
+            prompt.label(text="Billing is not ready; generation will be refused.", icon="ERROR")
+        elif wm.cm_studio_tab == "MODEL":
+            estimate = capabilities.get("meshEstimate")
+            if isinstance(estimate, dict):
+                prompt.label(text="Advertised mesh estimate: %s" % str(estimate.get("credits", "provider-priced")))
+        selected_models = capabilities.get("meshModels" if wm.cm_studio_tab == "MODEL" else "models", [])
+        selected_id = wm.cm_studio_mesh_model if wm.cm_studio_tab == "MODEL" else wm.cm_studio_model
+        if isinstance(selected_models, list):
+            selected = next((item for item in selected_models if isinstance(item, dict) and item.get("modelId") == selected_id), None)
+            if isinstance(selected, dict) and selected.get("verified") is not True and selected.get("selectable") is True:
+                prompt.label(text=str(selected.get("warning", "Provider may refuse this exact model."))[:150], icon="ERROR")
+    prompt.prop(wm, "cm_studio_cost_ack", text="I approve this generation's advertised cost")
+    generate = prompt.row()
+    generate.enabled = not (isinstance(capabilities, dict) and capabilities.get("billingReady") is False)
+    generate.operator(CM_OT_studio_generate.bl_idname, text="Generate", icon="PLAY")
+    task = snapshot.get("task")
+    if task:
+        task_box = layout.box()
+        task_box.label(text="Task: %s" % str(task.get("status", "unknown")))
+        buttons = task_box.row(align=True)
+        buttons.operator(CM_OT_studio_task_refresh.bl_idname, text="Refresh")
+        buttons.operator(CM_OT_studio_task_cancel.bl_idname, text="Cancel")
+    proposal = snapshot.get("proposal")
+    if proposal:
+        reviewed = layout.box()
+        reviewed.label(text="Reviewed proposal: " + str(proposal.get("summary", ""))[:150])
+        reviewed.label(text="%d typed operation(s); no generated Python will run." % len(proposal.get("ops", [])))
+        reviewed.operator(CM_OT_studio_apply.bl_idname, text="Apply reviewed proposal", icon="CHECKMARK")
+    if wm.cm_studio_tab == "ASSETS":
+        assets = layout.box()
+        assets.prop(wm, "cm_studio_asset_id", text="Asset ID")
+        row = assets.row(align=True)
+        row.operator(CM_OT_studio_asset_fetch.bl_idname, text="Fetch authenticated GLB")
+        if snapshot.get("asset"):
+            row.operator(CM_OT_studio_asset_import.bl_idname, text="Import GLB")
+    layout.label(text="Native Blender dialog styling is limited; this is not a web panel.")
+
+
+class VIEW3D_PT_cinema_machine_studio(bpy.types.Panel):
+    bl_label = "Cinema Machine Studio"
+    bl_idname = "VIEW3D_PT_cinema_machine_studio"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "CinemaMachine"
+
+    def draw(self, _context: Any) -> None:
+        layout = self.layout
+        layout.operator(CM_OT_studio_open.bl_idname, text="Open Studio", icon="WINDOW")
+        runtime = _STUDIO_RUNTIME
+        if runtime is not None:
+            state = runtime.snapshot()
+            layout.label(text=str(state["status"])[:120])
+
+
 _CLASSES = (
     CMPreferences,
     CM_OT_connect,
     CM_OT_disconnect,
     CM_OT_cancel,
     VIEW3D_PT_cinema_machine,
+    CM_OT_studio_open,
+    CM_OT_studio_capabilities,
+    CM_OT_studio_workspace_current,
+    CM_OT_studio_generate,
+    CM_OT_studio_apply,
+    CM_OT_studio_save,
+    CM_OT_studio_attach_file,
+    CM_OT_studio_get_reference,
+    CM_OT_studio_task_refresh,
+    CM_OT_studio_task_cancel,
+    CM_OT_studio_asset_fetch,
+    CM_OT_studio_asset_import,
+    CM_OT_studio_conflict_reload,
+    CM_OT_studio_replace_local,
+    CM_OT_studio_activate_shot,
+    CM_OT_studio_play_preview,
+    CM_OT_studio_render_preview,
+    CM_OT_studio_publish_preview,
+    CM_OT_studio_key_selected_blocking,
+    VIEW3D_PT_cinema_machine_studio,
 )
 
 
@@ -723,11 +1265,22 @@ def _timer_callback() -> Optional[float]:
     if _RUNTIME is None:
         return None
     _RUNTIME.pump()
+    if _STUDIO_RUNTIME is not None:
+        _STUDIO_RUNTIME.pump()
+        workspace = _STUDIO_RUNTIME.snapshot().get("workspace")
+        if isinstance(workspace, dict):
+            # The event has passed StudioRuntime's bridge/workspace generation
+            # check.  This timer is Blender's main thread, so it is the only
+            # asynchronous path allowed to create local managed collections.
+            try:
+                studio_scene.open_workspace(bpy.context.scene, workspace)
+            except (StudioProtocolError, studio_scene.StudioSceneError) as error:
+                _STUDIO_RUNTIME._set_status("Studio error", _safe_error(error))
     return 0.25
 
 
 def register() -> None:
-    global _RUNTIME, _TIMER_RUNNING
+    global _RUNTIME, _STUDIO_RUNTIME, _TIMER_RUNNING
     for cls in _CLASSES:
         bpy.utils.register_class(cls)
     bpy.types.WindowManager.cm_pair_code = StringProperty(
@@ -740,14 +1293,45 @@ def register() -> None:
         description="Explicitly acknowledge the project before pairing",
         default=False,
     )
+    bpy.types.WindowManager.cm_studio_tab = EnumProperty(
+        name="Studio task",
+        items=(
+            ("SCENE", "Scene builder", "Create a reviewed scene proposal"),
+            ("MODEL", "3D Model", "Request an allowlisted server mesh model"),
+            ("ANIMATION", "Character animation", "Create reviewed root-motion tracks"),
+            ("ASSETS", "Assets", "Fetch and explicitly import authenticated GLBs"),
+        ),
+        default="SCENE",
+        update=_studio_reset_cost_ack,
+    )
+    bpy.types.WindowManager.cm_studio_prompt = StringProperty(
+        name="Prompt",
+        description="Prompt sent only to the selected server-authorized Studio model",
+        default="",
+        maxlen=4000,
+        update=_studio_reset_cost_ack,
+    )
+    bpy.types.WindowManager.cm_studio_model = EnumProperty(name="Model", items=_studio_model_items, update=_studio_reset_cost_ack)
+    bpy.types.WindowManager.cm_studio_mesh_model = EnumProperty(name="Mesh model", items=_studio_mesh_model_items, update=_studio_reset_cost_ack)
+    bpy.types.WindowManager.cm_studio_asset_name = StringProperty(name="Asset name", default="New asset", maxlen=120, update=_studio_reset_cost_ack)
+    bpy.types.WindowManager.cm_studio_mesh_rigged = BoolProperty(name="Rigged", default=False, update=_studio_reset_cost_ack)
+    bpy.types.WindowManager.cm_studio_mesh_animated = BoolProperty(name="Animated", default=False, update=_studio_reset_cost_ack)
+    bpy.types.WindowManager.cm_studio_cost_ack = BoolProperty(
+        name="Approve generation cost",
+        description="Required for this one Studio assistant or Meshy submission",
+        default=False,
+    )
+    bpy.types.WindowManager.cm_studio_reference_id = StringProperty(name="Reference ID", default="", maxlen=128)
+    bpy.types.WindowManager.cm_studio_asset_id = StringProperty(name="Asset ID", default="", maxlen=128)
     _RUNTIME = BridgeRuntime()
+    _STUDIO_RUNTIME = StudioRuntime(_RUNTIME)
     if not _TIMER_RUNNING:
         bpy.app.timers.register(_timer_callback, first_interval=0.25, persistent=True)
         _TIMER_RUNNING = True
 
 
 def unregister() -> None:
-    global _RUNTIME, _TIMER_RUNNING
+    global _RUNTIME, _STUDIO_RUNTIME, _TIMER_RUNNING
     if _RUNTIME is not None:
         _RUNTIME.request_disconnect()
     if _TIMER_RUNNING:
@@ -760,9 +1344,17 @@ def unregister() -> None:
         del bpy.types.WindowManager.cm_pair_code
     if hasattr(bpy.types.WindowManager, "cm_pair_acknowledged"):
         del bpy.types.WindowManager.cm_pair_acknowledged
+    for name in (
+        "cm_studio_tab", "cm_studio_prompt", "cm_studio_model", "cm_studio_mesh_model",
+        "cm_studio_asset_name", "cm_studio_mesh_rigged", "cm_studio_mesh_animated", "cm_studio_cost_ack",
+        "cm_studio_reference_id", "cm_studio_asset_id",
+    ):
+        if hasattr(bpy.types.WindowManager, name):
+            delattr(bpy.types.WindowManager, name)
     for cls in reversed(_CLASSES):
         bpy.utils.unregister_class(cls)
     _RUNTIME = None
+    _STUDIO_RUNTIME = None
 
 
 if __name__ == "__main__":

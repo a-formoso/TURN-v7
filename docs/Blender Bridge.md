@@ -1,5 +1,8 @@
 # Blender preview proof
 
+This document describes the legacy one-shot preview path. For reusable location
+sets, AI-assisted editing and 3D assets, see [Blender Studio](Blender%20Studio.md).
+
 This is an opt-in, provider-independent proof: one location blockout, stand-in
 figures and one still camera. It is not character reconstruction, animation,
 finished artwork, or the removed character-orbit feature. No paid image/video

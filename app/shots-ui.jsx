@@ -1037,6 +1037,35 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         window.BlenderPreviewPanel
           ? _el(window.BlenderPreviewPanel,{shot:sh,scene,location:loc,subjects,props:inProps,readOnly,onUpdate})
           : _el("div",{className:"bp-callout warn"},"Blender preview is unavailable in this build.")),
+      (()=> {
+        // Resolve from the current shot-location catalog, never sh.locationId:
+        // a shot may deliberately point at a contained place, unit or coverage
+        // state that differs from its older scene-derived location field.
+        const spec=rawLocationReferenceChoices.find(x=>x&&!x.unavailable&&x.locationId);
+        const canonicalId=spec&&String(spec.locationId);
+        const all=(window.turnContinuity&&window.turnContinuity.locations)||[];
+        const studioLocation=canonicalId&&all.find(x=>x&&String(x.id)===canonicalId);
+        // Carry the catalog's canonical containment edge through to Studio.
+        // Do not consult the legacy shot.locationId field here.
+        let root=studioLocation, parentId=spec&&spec.parentLocationId||null;
+        for(let depth=0;root&&depth<16;depth++){
+          const parent=parentId&&all.find(x=>x&&String(x.id)===String(parentId));
+          if(!parent) break;
+          root=parent;
+          const parentSpec=(typeof shotLocationReferenceCatalog==="function"
+            ? (shotLocationReferenceCatalog(parent,sh,scene,ctx.drafts||(window.turnContinuity||{}).drafts||{}).find(x=>x&&String(x.locationId)===String(parent.id)&&x.category==="place")||{})
+            : {});
+          parentId=parentSpec.parentLocationId||null;
+        }
+        const studioTarget=studioLocation&&{...studioLocation,parentLocationId:spec&&spec.parentLocationId||null,
+          rootLocationId:root&&root.id||studioLocation.id};
+        const actual=entry=>entry&&typeof nbGetMeta==="function"&&nbGetMeta(entry.id);
+        const studioRefs=[studioLocation&&actual(studioLocation)&&{entityId:studioLocation.id,label:studioLocation.name||"Location",kind:"location"},
+          ...subjects.filter(actual).map(c=>({entityId:c.id,label:c.name||"Character",kind:"character"})),
+          ...inProps.filter(actual).map(p=>({entityId:p.id,label:p.name||"Prop",kind:"prop"}))].filter(Boolean);
+        return window.BlenderStudioEntry && _el(CardFold,{label:"Blender Studio · reusable set",defaultOpen:false},
+          _el(window.BlenderStudioEntry,{location:studioTarget||null,shot:sh,references:studioRefs,readOnly}));
+      })(),
 
       // the shot's TEXT layer, folded shut by default so the card reads compact —
       // SheetField commits on blur, so collapsing loses only uncommitted drafts.

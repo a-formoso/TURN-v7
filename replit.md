@@ -37,12 +37,13 @@ The workflow "Start application" is already configured and will start this autom
 
 ## Blender product direction
 
-The intended product goes beyond the current one-shot preview proof: Higgsfield-style
+The intended product goes beyond the original one-shot preview proof: Higgsfield-style
 AI-assisted scene building inside Blender, connected to Cinema Machine's existing
 locations/contained places, character references, and shots. The aim is reusable
 sets and shot blocking/camera references returned for later Seedance animation,
-not isolated throwaway scenes for every shot. This is the user's stated direction,
-not functionality already implemented or authorization to start paid generation.
+not isolated throwaway scenes for every shot. See `docs/Blender Studio.md` for the
+implemented extension and its boundaries. Provider tests use fake generation
+boundaries; development must not spend generation credits without approval.
 
 ## Important conventions (see AGENTS.md for full details)
 

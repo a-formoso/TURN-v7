@@ -1,0 +1,413 @@
+/*
+ * Additive cm-studio-v1 extension.  This deliberately receives authenticated
+ * relay hooks instead of implementing a second, weaker auth stack.
+ */
+const text = new TextEncoder();
+const MAX_GLB = 64 * 1024 * 1024;
+const MAX_IMAGE = 8 * 1024 * 1024;
+const MODELS = ["claude-fable-5", "claude-opus-5", "gpt-6-astra", "gpt-5.5-2026-04-23"];
+const MESH_MODELS = ["meshy/v7/text-to-3d", "meshy/v7/image-to-3d"];
+const studioActions = new Set([
+  "studio.capabilities", "studio.workspace.open", "studio.workspace.get",
+  "studio.workspace.current", "studio.workspace.save", "studio.assistant.submit",
+  "studio.assistant.get", "studio.assistant.cancel", "studio.mesh.submit",
+  "studio.mesh.get", "studio.mesh.cancel", "studio.asset.get", "studio.reference.get",
+  "studio.preview.publish", "studio.preview.get",
+]);
+
+function error(status, code, message) {
+  const e = new Error(message); e.status = status; e.code = code; return e;
+}
+function bad(message) { return error(400, "bad_request", message); }
+function denied(message = "Studio permission required.") { return error(403, "forbidden", message); }
+function conflict(message = "Studio workspace changed; reload before saving.") { return error(409, "conflict", message); }
+function id(value, label) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(value)) throw bad(`Invalid ${label}.`);
+  return value;
+}
+function str(value, label, max = 4000, optional = false) {
+  if (optional && value == null) return value;
+  if (typeof value !== "string" || !value.trim() || value.length > max || /[\u0000-\u001f]/.test(value)) throw bad(`Invalid ${label}.`);
+  return value;
+}
+function object(v) { return !!v && Object.getPrototypeOf(v) === Object.prototype; }
+function clone(v) { return structuredClone(v); }
+function bytesB64(bytes) {
+  let binary = ""; for (let at = 0; at < bytes.length; at += 0x8000) binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+  return btoa(binary);
+}
+function b64Bytes(value, max) {
+  if (typeof value !== "string" || value.length > Math.ceil(max * 4 / 3) + 8 ||
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) throw bad("Invalid encoded bytes.");
+  const s = atob(value), bytes = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
+  if (bytes.length > max) throw error(413, "too_large", "File is too large."); return bytes;
+}
+async function sha(bytes) {
+  return [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(x => x.toString(16).padStart(2, "0")).join("");
+}
+function defaultWorkspace(projectId, location) {
+  return { schema: "cm-studio-v1", projectId, locationId: location.id, name: location.name,
+    parentLocationId: location.parentLocationId || null, rootLocationId: location.rootLocationId || location.id,
+    revision: 0, context: { description: "", architecture: "", materials: "", staging: "" },
+    objects: [], shots: [], references: [], assets: [], previews: [] };
+}
+function studio(state) {
+  // relay-core addresses this sealed state by canonical project owner + project,
+  // not the requesting member.  Thus `workspaces` is shared by owner and
+  // active art directors; only keyed current/delegated authorization values
+  // below are actor-private and never serialized to another caller.
+  if (!object(state.studio)) state.studio = { v: 1, workspaces: {}, tasks: {}, current: {} };
+  if (!object(state.studio.workspaces) || !object(state.studio.tasks) || !object(state.studio.current)) throw error(500, "state_corrupt", "Studio state is unavailable.");
+  return state.studio;
+}
+function taskPublic(task) {
+  const result = { id: task.id, type: task.type, status: task.status, modelId: task.modelId, locationId: task.locationId };
+  ["baseRevision","message","proposal","asset","error","costEstimate"].forEach(k => { if (task[k] != null) result[k] = clone(task[k]); });
+  return result;
+}
+function taskId(type, requestId) { return `studio-${type}-${requestId}`.slice(0, 128); }
+function dataImage(value) {
+  const m = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})$/.exec(value || "");
+  if (!m) throw bad("Invalid reference image."); const bytes = b64Bytes(m[2], MAX_IMAGE);
+  return { bytes, contentType: `image/${m[1]}` };
+}
+function isTrustedFalUrl(value) {
+  let u; try { u = new URL(value); } catch (_) { return false; }
+  const host = u.hostname.toLowerCase();
+  return u.protocol === "https:" && !u.username && !u.password &&
+    (host === "fal.run" || host.endsWith(".fal.run") || host === "fal.media" || host.endsWith(".fal.media"));
+}
+export function validateGlb(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.length < 20 || bytes.length > MAX_GLB) throw bad("Invalid GLB size.");
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (view.getUint32(0, true) !== 0x46546c67 || view.getUint32(4, true) !== 2 || view.getUint32(8, true) !== bytes.length) throw bad("Invalid GLB header.");
+  let at = 12, json = null, chunks = 0;
+  while (at < bytes.length) {
+    if (at + 8 > bytes.length) throw bad("Truncated GLB.");
+    const length = view.getUint32(at, true), kind = view.getUint32(at + 4, true); at += 8;
+    if (length % 4 || at + length > bytes.length || ++chunks > 2) throw bad("Invalid GLB chunk.");
+    if (kind === 0x4e4f534a) { if (json) throw bad("Invalid GLB JSON."); json = new TextDecoder().decode(bytes.subarray(at, at + length)).replace(/\0+$/, ""); }
+    else if (kind !== 0x004e4942) throw bad("Unsupported GLB chunk.");
+    at += length;
+  }
+  if (at !== bytes.length || !json) throw bad("Invalid GLB.");
+  let doc; try { doc = JSON.parse(json); } catch (_) { throw bad("Invalid GLB JSON."); }
+  let safe = true;
+  (function walk(v, key = "") {
+    if (!safe) return;
+    if (/^(uri|script|command|python|shell|exec|driver)$/i.test(key)) { safe = false; return; }
+    if (typeof v === "string" && (v.length > 16384 || /javascript:|file:|https?:\/\//i.test(v))) { safe = false; return; }
+    if (Array.isArray(v)) v.forEach(x => walk(x)); else if (object(v)) Object.entries(v).forEach(([k, x]) => walk(x, k));
+  })(doc);
+  if (!safe || !object(doc.asset) || typeof doc.asset.version !== "string") throw bad("GLB contains unsafe external content.");
+  return doc;
+}
+function meshEstimate(rigged, animated) {
+  const providerCostUsd = 1.20 + (rigged ? .20 : 0) + (animated ? .12 : 0);
+  return { providerCostUsd, credits: Math.max(1, Math.ceil(providerCostUsd / .30 * 10)), currency: "USD", basis: "Meshy v7 full texture pricing" };
+}
+function assistantEstimate(modelId, usage) {
+  const rates = {
+    "claude-fable-5": [25, 100], "claude-opus-5": [15, 75],
+    "gpt-6-astra": [10, 50], "gpt-5.5-2026-04-23": [10, 30],
+  }[modelId];
+  if (!rates) throw bad("Unsupported model.");
+  const inputTokens = Math.max(0, Number(usage?.inputTokens) || 0);
+  const outputTokens = Math.max(0, Number(usage?.outputTokens) || 0);
+  const providerCostUsd = inputTokens / 1000000 * rates[0] + outputTokens / 1000000 * rates[1];
+  return { providerCostUsd, credits: Math.max(1, Math.ceil(providerCostUsd / .30 * 10)),
+    currency: "USD", inputTokens, outputTokens, basis: "reported provider token usage" };
+}
+
+export function createStudioService({ contract, provider = {}, adapter, now = () => Date.now() } = {}) {
+  if (!contract?.validateWorkspace || !contract?.validateProposal) throw new Error("Studio contract is required.");
+  async function persist(ctx, next) { return ctx.save(next, ctx.snapshot); }
+  function workspaceFor(state, locationId) {
+    const value = studio(state).workspaces[locationId]; if (!value) throw error(404, "not_found", "Studio workspace not found."); return value;
+  }
+  async function validateReferences(ctx, references) {
+    if (!Array.isArray(references)) throw bad("Invalid references.");
+    if (!references.length) return [];
+    if (typeof adapter?.validateStudioReference !== "function") {
+      throw error(503, "reference_validation_unavailable", "Studio reference validation is unavailable.");
+    }
+    for (const reference of references) {
+      if (!object(reference) || typeof reference.entityId !== "string" ||
+        !(await adapter.validateStudioReference({ projectId: ctx.projectId, entityId: reference.entityId,
+          kind: reference.kind, version: reference.version }))) {
+        throw bad("Reference is not an authorized generated project asset.");
+      }
+    }
+    await ctx.recheck();
+    return clone(references);
+  }
+  function validateBindings(workspace) {
+    const assets = new Set(workspace.assets.map(asset => asset.id));
+    const characters = new Set(workspace.references.filter(reference => reference.kind === "character")
+      .map(reference => reference.entityId));
+    const check = list => list.forEach(item => {
+      if (item.assetId != null && !assets.has(item.assetId)) throw bad("Object asset is not authorized for this workspace.");
+      if (item.characterId != null && !characters.has(item.characterId)) throw bad("Object character is not an authorized workspace reference.");
+    });
+    check(workspace.objects); workspace.shots.forEach(shot => check(shot.objects));
+  }
+  function ensureCurrent(s, actorId, locationId, shotId) { studio(s).current[actorId] = { locationId, shotId: shotId || null, updatedAt: now() }; }
+  async function authorize(ctx, token, cost = 1) {
+    if (adapter?.atomicStudioSettlement !== true) {
+      throw error(503, "billing_atomic_settlement_unavailable",
+        "Studio generation is unavailable until atomic credit settlement is configured.");
+    }
+    if (typeof adapter?.authorizeCredit !== "function") throw error(503, "billing_unavailable", "Studio billing is unavailable.");
+    const result = await adapter.authorizeCredit({ token, uid: ctx.actor.id, cost });
+    if (!result?.ok) throw error(402, "insufficient_credits", result?.message || "Insufficient credits for this generation.");
+  }
+  async function settle(ctx, task, token) {
+    if (typeof adapter?.spendCredit !== "function") throw error(503, "billing_unavailable", "Studio billing is unavailable.");
+    const result = await adapter.spendCredit({ token, uid: ctx.actor.id, cost: task.costEstimate.credits, eventId: task.spendEventId, reason: `blender-studio:${task.type}` });
+    if (!result?.ok) throw error(402, "insufficient_credits", result?.message || "Insufficient credits for this generation.");
+    task.usageSettled = true;
+  }
+  async function fetchOutput(url) {
+    if (!isTrustedFalUrl(url) || typeof provider.fetchFile !== "function") throw error(502, "provider_output_invalid", "Provider returned an untrusted asset URL.");
+    const result = await provider.fetchFile(url, MAX_GLB);
+    if (!result || !(result.bytes instanceof Uint8Array) || result.bytes.length > MAX_GLB) throw error(502, "provider_output_invalid", "Provider asset is invalid.");
+    return result.bytes;
+  }
+  async function resolveMesh(task, ctx, token) {
+    if (task.status === "cancelled" || task.status === "failed") return task;
+    if (typeof provider.getMesh !== "function") return task;
+    const remote = await provider.getMesh(task.upstreamId);
+    await ctx.recheck();
+    if (!remote || remote.status === "queued" || remote.status === "running") { task.status = remote?.status === "running" ? "running" : "queued"; return task; }
+    if (remote.status === "failed" || remote.status === "cancelled") { task.status = "failed"; task.error = String(remote.error || "Mesh provider refused this request.").slice(0, 400); task.providerRefusal = true; return task; }
+    const file = remote.animation_glb || (task.rigged ? remote.rigged_character_glb : null) || remote.model_glb;
+    if (!file || !isTrustedFalUrl(file.url)) { task.status = "failed"; task.error = "Provider returned no trusted GLB."; return task; }
+    task.upstreamOutputUrl = file.url; // sealed relay state only; never an API response
+    const bytes = await fetchOutput(file.url); validateGlb(bytes); await ctx.recheck();
+    const digest = await sha(bytes), assetId = `asset-${task.id}`.slice(0, 128);
+    const path = `${ctx.access.ownerId}/studio-assets/${ctx.projectId}/${task.locationId}/${assetId}.glb`;
+    if (typeof adapter?.uploadStudioAsset !== "function") throw error(503, "storage_unavailable", "Studio asset storage is unavailable.");
+    if (!task.usageSettled) { await settle(ctx, task, token); await ctx.recheck(); }
+    await adapter.uploadStudioAsset(path, bytes, "model/gltf-binary"); await ctx.recheck();
+    task.status = "completed"; task.asset = { id: assetId, name: task.name, kind: "glb", sha256: digest, bytes: bytes.length, modelId: task.modelId, rigged: !!task.rigged, animated: !!task.animated, ...(task.characterId ? { characterId: task.characterId } : {}) };
+    task.assetPath = path; return task;
+  }
+  async function handler(request, body, hooks) {
+    if (!studioActions.has(body.action)) return null;
+    const ctx = await hooks.context(request, body);
+    const initial = ctx.snapshot;
+    const state = clone(initial.state), data = studio(state), locationId = body.locationId == null ? null : id(body.locationId, "location id");
+    if (body.action === "studio.capabilities") {
+      return {
+        schema: "cm-studio-v1",
+        models: MODELS.map(modelId => {
+          const configured = !!provider.models?.[modelId], verified = !!provider.verifiedModels?.[modelId];
+          return { modelId, configured, verified, selectable: configured,
+            ...(configured && !verified ? { warning: "Configured but not catalog-verified; provider may refuse this exact model." } : {}) };
+        }),
+        meshModels: MESH_MODELS.map(modelId => ({ modelId, configured: !!provider.meshConfigured,
+          verified: !!provider.meshVerified, selectable: !!provider.meshConfigured,
+          ...(!provider.meshVerified && provider.meshConfigured ? { warning: "Configured but not catalog-verified." } : {}) })),
+        available: !!provider.available, billingReady: adapter?.atomicStudioSettlement === true,
+        billingMessage: adapter?.atomicStudioSettlement === true ? null :
+          "Studio generation is unavailable until atomic credit settlement is configured.",
+        meshEstimate: meshEstimate(false, false),
+      };
+    }
+    if (body.action === "studio.workspace.open") {
+      if (ctx.kind !== "browser") throw denied("Only a browser session can open a workspace.");
+      if (!object(body.location)) throw bad("Location is required."); const loc = body.location;
+      id(loc.id, "location id"); str(loc.name, "location name", 120);
+      let work = data.workspaces[loc.id], changed = false;
+      if (!work) { work = defaultWorkspace(ctx.projectId, loc); data.workspaces[loc.id] = work; }
+      else {
+        if (loc.name && loc.name !== work.name) { work.name = loc.name; changed = true; }
+        ["parentLocationId","rootLocationId"].forEach(k => { if (loc[k] !== undefined && work[k] !== (loc[k] || null)) { work[k] = loc[k] || null; changed = true; } });
+        if (loc.context && object(loc.context)) Object.keys(work.context).forEach(k => { if (typeof loc.context[k] === "string" && work.context[k] !== loc.context[k]) { work.context[k] = loc.context[k]; changed = true; } });
+      }
+      contract.validateWorkspace(work);
+      const shotId = body.shot?.id || body.shotId || null;
+      if (shotId) id(shotId, "shot id");
+      if (body.shot && !work.shots.some(shot => shot.id === body.shot.id)) {
+        // Validate using the shared schema, then append only. Existing manual
+        // shot camera/actors/tracks are never replaced by workspace.open.
+        const candidate = clone(work); candidate.shots.push(clone(body.shot));
+        contract.validateWorkspace(candidate); work.shots.push(clone(body.shot)); changed = true;
+      }
+      ensureCurrent(state, ctx.actor.id, loc.id, shotId);
+      if (body.references) { work.references = await validateReferences(ctx, body.references); changed = true; contract.validateWorkspace(work); }
+      if (changed) work.revision++;
+      validateBindings(work);
+      // This sealed, short-lived authorization is for a paired desktop's
+      // server-side credit RPC only. It is captured from the authenticated
+      // request and is never accepted from, or returned to, a desktop client.
+      if (!object(data.delegatedAuth)) data.delegatedAuth = {};
+      if (ctx.browserToken) data.delegatedAuth[ctx.actor.id] = { token: ctx.browserToken, expiresAt: now() + 55 * 60 * 1000 };
+      const saved = await persist(ctx, state); return { workspace: clone(saved.state.studio.workspaces[loc.id]) };
+    }
+    if (body.action === "studio.workspace.get") return { workspace: clone(workspaceFor(state, locationId)) };
+    if (body.action === "studio.workspace.current") {
+      const current = data.current[ctx.actor.id]; return current ? { workspace: clone(data.workspaces[current.locationId] || null), shotId: current.shotId } : { workspace: null, shotId: null };
+    }
+    if (body.action === "studio.workspace.save") {
+      const work = workspaceFor(state, locationId); if (body.baseRevision !== work.revision) throw conflict();
+      id(body.mutationId, "mutation id"); if (!object(body.workspace)) throw bad("Workspace is required.");
+      const proposed = clone(body.workspace);
+      // These records and their backing paths are relay-owned. Never accept
+      // client supplied hashes/bytes/previews as an authority claim.
+      proposed.assets = clone(work.assets); proposed.previews = clone(work.previews);
+      proposed.references = await validateReferences(ctx, proposed.references);
+      contract.validateWorkspace(proposed); validateBindings(proposed);
+      if (proposed.projectId !== ctx.projectId || proposed.locationId !== locationId || proposed.revision !== work.revision) throw conflict();
+      if (data.mutations?.[locationId] === body.mutationId) return { workspace: clone(work) };
+      if (!object(data.mutations)) data.mutations = {};
+      proposed.revision++; data.mutations[locationId] = body.mutationId; data.workspaces[locationId] = proposed; ensureCurrent(state, ctx.actor.id, locationId, data.current[ctx.actor.id]?.shotId);
+      const saved = await persist(ctx, state); return { workspace: clone(saved.state.studio.workspaces[locationId]) };
+    }
+    if (body.action === "studio.assistant.submit" || body.action === "studio.mesh.submit") {
+      const isMesh = body.action === "studio.mesh.submit", work = workspaceFor(state, locationId);
+      const requestId = id(body.requestId, "request id"), key = `${isMesh ? "mesh" : "assistant"}:${requestId}`;
+      if (data.tasks[key]) return { task: taskPublic(data.tasks[key]) };
+      if (body.acknowledgeCost !== true) throw bad("Cost acknowledgement is required.");
+      const modelId = str(body.modelId, "model id", 128);
+      if ((isMesh ? MESH_MODELS : MODELS).indexOf(modelId) < 0) throw bad("Unsupported model.");
+      if (isMesh && (!provider.meshConfigured || !provider.available)) throw error(503, "provider_unavailable", "Meshy is not configured.");
+      if (!isMesh && (!provider.models?.[modelId] || !provider.available)) throw error(503, "provider_unavailable", "Selected assistant model is unavailable.");
+      // Paid activation must fail before durable task publication as well as
+      // before provider work when atomic sufficient-funds settlement is absent.
+      if (adapter?.atomicStudioSettlement !== true) throw error(503,
+        "billing_atomic_settlement_unavailable",
+        "Studio generation is unavailable until atomic credit settlement is configured.");
+      if (!isMesh && body.baseRevision !== work.revision) throw conflict();
+      if (!isMesh && body.snapshot != null) { contract.validateWorkspace(body.snapshot); if (body.snapshot.locationId !== locationId || body.snapshot.projectId !== ctx.projectId) throw bad("Snapshot belongs to another workspace."); }
+      let image = null; if (body.imageDataUrl != null) image = dataImage(body.imageDataUrl);
+      if (isMesh) {
+        if (!image && !body.prompt && !body.referenceId) throw bad("Mesh prompt, image, or canonical reference is required.");
+        if (body.referenceId) {
+          const referenceId = id(body.referenceId, "reference id");
+          if (!work.references.some(reference => reference.entityId === referenceId) ||
+            typeof adapter?.getStudioReference !== "function") throw bad("Reference is not an authorized generated project asset.");
+          const reference = await adapter.getStudioReference({ projectId: ctx.projectId, entityId: referenceId,
+            reference: work.references.find(item => item.entityId === referenceId) });
+          if (!reference || !(reference.bytes instanceof Uint8Array) || reference.bytes.length > MAX_IMAGE ||
+            !/^image\/(png|jpeg|webp)$/.test(reference.contentType || "")) throw bad("Reference is not an authorized generated project asset.");
+          image = { bytes: reference.bytes, contentType: reference.contentType };
+          await ctx.recheck();
+        }
+        if (body.prompt != null) str(body.prompt, "mesh prompt", 600);
+        if (modelId === "meshy/v7/text-to-3d" && image) throw bad("The selected text-to-3D model does not accept an image.");
+        if (modelId === "meshy/v7/image-to-3d" && !image) throw bad("The selected image-to-3D model requires an image.");
+        if (body.targetPolycount != null && (!Number.isInteger(body.targetPolycount) ||
+          body.targetPolycount < 1000 || body.targetPolycount > 100000)) throw bad("Invalid target polycount.");
+        if (body.animated && !body.rigged) throw bad("Animation requires rigging.");
+        if (body.animationActionId != null && (!Number.isInteger(body.animationActionId) || body.animationActionId < 0 || body.animationActionId > 696)) throw bad("Invalid animation action.");
+        if (body.characterId && !work.references.some(reference =>
+          reference.kind === "character" && reference.entityId === id(body.characterId, "character id"))) {
+          throw bad("Character is not an authorized workspace reference.");
+        }
+      } else { if (body.mode !== "scene" && body.mode !== "animation") throw bad("Invalid assistant mode."); str(body.prompt, "assistant prompt", 6000); }
+      const type = isMesh ? "mesh" : "assistant", task = { id: taskId(type, requestId), type, status: "queued", modelId, locationId, baseRevision: isMesh ? undefined : work.revision, requestId, launcherId: ctx.actor.id, message: "Queued.", spendEventId: `studio-${ctx.actor.id}-${type}-${requestId}`, costEstimate: isMesh ? meshEstimate(!!body.rigged, !!body.animated) : { providerCostUsd: null, credits: null, basis: "final cost uses reported provider token usage" }, ...(isMesh ? { name: str(body.name, "asset name", 120), rigged: !!body.rigged, animated: !!body.animated, characterId: body.characterId ? id(body.characterId, "character id") : undefined } : {}) };
+      const delegated = data.delegatedAuth?.[ctx.actor.id];
+      const token = ctx.browserToken || (delegated?.expiresAt > now() ? delegated.token : null);
+      if (!token) throw error(401, "billing_authorization_expired", "Open this workspace in a browser again before paid generation.");
+      data.tasks[key] = task; const saved = await persist(ctx, state); // record before any provider await
+      if (isMesh) {
+        try {
+          await authorize(ctx, token, task.costEstimate.credits); await ctx.recheck();
+          const remote = await provider.submitMesh({ endpoint: modelId, prompt: body.prompt, image: image?.bytes, target_polycount: body.targetPolycount, enable_rigging: !!body.rigged, enable_animation: !!body.animated, animation_action_id: body.animationActionId == null ? 92 : body.animationActionId, requestId });
+          await ctx.recheck(); const fresh = await ctx.refresh(), next = clone(fresh.state), durable = studio(next).tasks[key];
+          if (durable.status === "cancelled") return { task: taskPublic(durable) };
+          durable.upstreamId = remote?.requestId || remote?.id; if (!durable.upstreamId) { durable.status = "failed"; durable.error = "Mesh provider did not return a request id."; } else await resolveMesh(durable, { ...ctx, access: ctx.access, recheck: ctx.recheck }, token);
+          if (durable.asset && !next.studio.workspaces[locationId].assets.some(a => a.id === durable.asset.id)) next.studio.workspaces[locationId].assets.push(durable.asset);
+          const updated = await persist({ ...ctx, snapshot: fresh }, next); return { task: taskPublic(updated.state.studio.tasks[key]) };
+        } catch (e) { const fresh = await ctx.refresh(), next = clone(fresh.state), durable = studio(next).tasks[key]; if (durable && durable.status !== "cancelled") { durable.status = "failed"; durable.error = String(e.message || "Mesh provider refused this request.").slice(0,400); durable.providerRefusal = true; const updated = await persist({ ...ctx, snapshot:fresh },next); if (e?.status === 402) throw e; return {task:taskPublic(updated.state.studio.tasks[key])}; } throw e; }
+      }
+      try {
+        await authorize(ctx, token, 1); await ctx.recheck();
+        const answer = await provider.submitAssistant({ modelId, mode: body.mode, prompt: body.prompt,
+          workspace: body.snapshot || work, image: image?.bytes, imageType: image?.contentType, requestId });
+        await ctx.recheck(); const fresh = await ctx.refresh(), next = clone(fresh.state), durable = studio(next).tasks[key];
+        if (durable.status !== "cancelled") {
+          durable.proposal = typeof answer === "string" ? JSON.parse(answer) : answer?.proposal || answer;
+          const proposalWorkspace = next.studio.workspaces[locationId];
+          contract.validateProposal(durable.proposal, proposalWorkspace);
+          // Validate any referenced asset/character in a proposal against the
+          // existing sealed workspace authority before exposing it to Apply.
+          for (const operation of durable.proposal.ops) if (operation.object) {
+            const candidate = clone(proposalWorkspace);
+            if (operation.scope === "set") candidate.objects = [operation.object];
+            else candidate.shots = candidate.shots.map(shot => shot.id === operation.shotId
+              ? { ...shot, objects: [operation.object] } : shot);
+            validateBindings(candidate);
+          }
+          durable.costEstimate = assistantEstimate(modelId, typeof answer === "object" ? answer.usage : null);
+          await settle(ctx, durable, token); await ctx.recheck();
+          durable.status = "completed"; durable.message = "Proposal ready for explicit Apply.";
+        }
+        const updated = await persist({ ...ctx, snapshot:fresh }, next); return { task: taskPublic(updated.state.studio.tasks[key]) };
+      } catch (e) { const fresh=await ctx.refresh(), next=clone(fresh.state), durable=studio(next).tasks[key]; if(durable&&durable.status!=="cancelled"){durable.status="failed";durable.error=String(e.message||"Assistant refused this request.").slice(0,400);durable.providerRefusal=true;const updated=await persist({...ctx,snapshot:fresh},next);if(e?.status===402)throw e;return {task:taskPublic(updated.state.studio.tasks[key])};} throw e; }
+    }
+    if (body.action === "studio.assistant.get" || body.action === "studio.mesh.get" || body.action === "studio.assistant.cancel" || body.action === "studio.mesh.cancel") {
+      const type = body.action.includes(".mesh.") ? "mesh" : "assistant", task = Object.values(data.tasks).find(t => t.id === id(body.taskId, "task id") && t.type === type);
+      if (!task) throw error(404, "not_found", "Studio task not found.");
+      if (body.action.endsWith(".cancel")) { if (task.status === "queued" || task.status === "running") { task.status = "cancelled"; task.message = "Cancelled."; if(task.upstreamId && provider.cancelMesh) { await provider.cancelMesh(task.upstreamId); await ctx.recheck(); } const saved=await persist(ctx,state); return {task:taskPublic(saved.state.studio.tasks[Object.keys(data.tasks).find(k=>data.tasks[k].id===task.id)])}; } return { task: taskPublic(task) }; }
+      if (type === "mesh" && task.upstreamId && ["queued","running"].includes(task.status)) {
+        // A collaborator may inspect shared task status but may not consume
+        // the launcher's sealed billing authorization or settle its spend.
+        if (task.launcherId !== ctx.actor.id) return { task: taskPublic(task) };
+        const fresh = await ctx.refresh(), next = clone(fresh.state), taskKey = Object.keys(data.tasks).find(k => data.tasks[k].id === task.id), durable = studio(next).tasks[taskKey];
+        const delegated = studio(next).delegatedAuth?.[task.launcherId];
+        const token = ctx.browserToken || (delegated?.expiresAt > now() ? delegated.token : null);
+        if (!token) throw error(401, "billing_authorization_expired", "Open this workspace in a browser again before paid generation.");
+        try { await resolveMesh(durable, { ...ctx, snapshot: fresh }, token); }
+        catch (e) { durable.status = "failed"; durable.providerRefusal = true; durable.error = String(e.message || "Mesh provider refused this request.").slice(0, 400); }
+        if (durable.asset && !next.studio.workspaces[durable.locationId].assets.some(a => a.id === durable.asset.id)) next.studio.workspaces[durable.locationId].assets.push(durable.asset);
+        const saved = await persist({ ...ctx, snapshot: fresh }, next);
+        return { task: taskPublic(saved.state.studio.tasks[taskKey]) };
+      }
+      return { task: taskPublic(task) };
+    }
+    if (body.action === "studio.asset.get") {
+      const work = workspaceFor(state, locationId), asset = work.assets.find(a => a.id === id(body.assetId, "asset id")); if (!asset) throw error(404,"not_found","Studio asset not found.");
+      const path = Object.values(data.tasks).find(t => t.asset?.id === asset.id &&
+        t.locationId === locationId)?.assetPath; if (!path || typeof adapter?.downloadStudioAsset !== "function") throw error(404,"not_found","Studio asset bytes not found.");
+      const bytes = await adapter.downloadStudioAsset(path); validateGlb(bytes); if (bytes.length !== asset.bytes || await sha(bytes) !== asset.sha256) throw error(500,"asset_corrupt","Studio asset integrity check failed."); await ctx.recheck(); return { asset: clone(asset), base64: bytesB64(bytes) };
+    }
+    if (body.action === "studio.reference.get") {
+      const work = workspaceFor(state, locationId), entityId = id(body.entityId, "reference entity id");
+      if (!work.references.some(reference => reference.entityId === entityId) || typeof adapter?.getStudioReference !== "function") throw error(404, "not_found", "No authorized generated reference is attached.");
+      const reference = await adapter.getStudioReference({ projectId: ctx.projectId, entityId,
+        reference: work.references.find(item => item.entityId === entityId) });
+      if (!reference || !(reference.bytes instanceof Uint8Array) || reference.bytes.length > MAX_IMAGE ||
+        !/^image\/(png|jpeg|webp)$/.test(reference.contentType || "")) throw error(404, "not_found", "No authorized generated reference is attached.");
+      await ctx.recheck();
+      return { entityId, dataUrl: `data:${reference.contentType};base64,${bytesB64(reference.bytes)}` };
+    }
+    if (body.action === "studio.preview.publish") {
+      const work = workspaceFor(state, locationId);
+      if (body.baseRevision !== work.revision) throw conflict();
+      const requestId = id(body.requestId, "request id"), previewId = `preview-${requestId}`.slice(0, 128);
+      const existing = work.previews.find(preview => preview.id === previewId);
+      if (existing) return { preview: clone(existing) };
+      const bytes = b64Bytes(body.pngBase64, MAX_IMAGE);
+      if (!(bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 && bytes[3] === 71)) throw bad("Preview must be a PNG.");
+      contract.validateCamera(body.actualCamera);
+      if (body.shotId != null && !work.shots.some(shot => shot.id === id(body.shotId, "shot id"))) throw bad("Shot is not in this workspace.");
+      if (typeof adapter?.uploadStudioAsset !== "function") throw error(503, "storage_unavailable", "Studio preview storage is unavailable.");
+      const digest = await sha(bytes), path = `${ctx.access.ownerId}/studio-previews/${ctx.projectId}/${locationId}/${previewId}.png`;
+      await adapter.uploadStudioAsset(path, bytes, "image/png"); await ctx.recheck();
+      const preview = { id: previewId, ...(body.shotId ? { shotId: body.shotId } : {}), sha256: digest, bytes: bytes.length, actualCamera: clone(body.actualCamera) };
+      work.previews.push(preview); if (!object(data.previewPaths)) data.previewPaths = {}; data.previewPaths[previewId] = path; work.revision++;
+      const saved = await persist(ctx, state); return { preview: clone(saved.state.studio.workspaces[locationId].previews.find(item => item.id === previewId)) };
+    }
+    if (body.action === "studio.preview.get") {
+      const work = workspaceFor(state, locationId), preview = work.previews.find(item => item.id === id(body.previewId, "preview id"));
+      const path = data.previewPaths?.[body.previewId]; if (!preview || !path || typeof adapter?.downloadStudioAsset !== "function") throw error(404, "not_found", "Studio preview not found.");
+      const bytes = await adapter.downloadStudioAsset(path);
+      if (!(bytes instanceof Uint8Array) || bytes.length !== preview.bytes || await sha(bytes) !== preview.sha256) throw error(500, "asset_corrupt", "Studio preview integrity check failed.");
+      await ctx.recheck(); return { preview: clone(preview), pngBase64: bytesB64(bytes) };
+    }
+    throw bad("Unknown studio action.");
+  }
+  return { actions: studioActions, handle: handler, validateGlb };
+}

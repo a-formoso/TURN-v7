@@ -5823,7 +5823,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
           lookbookStale:!!_stale.props,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("props"),
           onApplyLookbookDraftOnly:()=>onApplyLookbook&&onApplyLookbook("props","draft")})
     : artView==="locations" && LocationSheets
-      ? React.createElement(LocationSheets,{project,locations,scenes,drafts,onUpdate:onUpdateLocation,onDraft:onDraftLocation,sluglineUnits,onUpdateUnit,onRemoveUnit,
+      ? React.createElement(LocationSheets,{project,locations,scenes,drafts,onUpdate:onUpdateLocation,onDraft:onDraftLocation,sluglineUnits,onUpdateUnit,onRemoveUnit,readOnly,
           onDraftAll:onDraftAllLocs,onAdd:onAddLocation,onDelete:onDeleteLocation,draftingIds:draftingLocIds,draftingAll:draftingAllLocs,
           trashItems:(trash&&trash.locations)||[],onRestore:onRestoreLoc,onPurge:onPurgeLoc,
           onPullFromScript,scriptHasLocs,onDraftStaging,draftingStageId,onScout,

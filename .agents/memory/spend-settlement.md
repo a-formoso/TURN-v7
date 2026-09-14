@@ -18,3 +18,9 @@ description: How video render credit charges are recorded — job-riding spend r
 **Why:** a long image batch can otherwise automatically submit the same frame twice after a lost response, even when it has a durable pending-frame record.
 
 **How to apply:** suppress ambiguous automatic retries unless the provider submission itself has a working idempotency key. Record uncertain in-flight work before submitting, and require an explicit, possible-extra-charge acknowledgement before retrying it.
+
+**Rule:** Idempotency and sufficient-funds enforcement are separate guarantees. A preflight balance read followed by a debit that clamps to zero is not atomic credit authorization.
+
+**Why:** Distinct simultaneous requests can both pass preflight and be reported successful while collecting fewer credits than their combined cost. Existing event-id dedupe prevents duplicate charges for one event, not underpayment across different events.
+
+**How to apply:** New paid entry points require an atomic sufficient-balance/idempotent settlement boundary and must fail closed until it is available. Do not auto-apply a database-function change when the user has prohibited schema changes; ask for that narrowly scoped approval. Keep provider refusal uncharged and preserve durable request ownership before external work.

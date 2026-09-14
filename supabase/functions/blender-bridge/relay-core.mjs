@@ -36,6 +36,11 @@ const ACTIONS = [
   "pair.create", "connection.get", "connection.disconnect",
   "device.connect", "job.create", "job.get", "job.cancel",
   "device.claim", "device.complete", "device.fail",
+  "studio.capabilities", "studio.workspace.open", "studio.workspace.get",
+  "studio.workspace.current", "studio.workspace.save", "studio.assistant.submit",
+  "studio.assistant.get", "studio.assistant.cancel", "studio.mesh.submit",
+  "studio.mesh.get", "studio.mesh.cancel", "studio.asset.get", "studio.reference.get",
+  "studio.preview.publish", "studio.preview.get",
 ];
 
 export class RelayError extends Error {
@@ -414,7 +419,7 @@ function authHeader(request) {
 }
 
 export function createBlenderRelay({
-  adapter, contract = {}, serverSecret, now = () => Date.now(), random,
+  adapter, contract = {}, studio = null, serverSecret, now = () => Date.now(), random,
 } = {}) {
   if (!adapter) throw new Error("A relay adapter is required.");
   const keyPromise = deriveStateKey(serverSecret);
@@ -633,6 +638,17 @@ export function createBlenderRelay({
     };
   }
 
+  async function currentReadAccess(projectId, actor) {
+    const access = await adapter.getProjectAccess(projectId, actor);
+    if (!access?.exists || !access.ownerId || access.actorId !== actor.id ||
+        !(access.canRead || access.canWrite)) throw forbidden();
+    return {
+      ownerId: safeId(access.ownerId, "project owner"),
+      actorId: actor.id,
+      email: actor.email,
+    };
+  }
+
   async function browserCommitGuard(request, projectId, actor) {
     const fresh = await authBrowser(request);
     if (fresh.id !== actor.id) throw unauthorized();
@@ -803,6 +819,56 @@ export function createBlenderRelay({
         current.info.projectId !== info.projectId ||
         current.info.actorId !== info.actorId) throw unauthorized();
     return current;
+  }
+
+  // Studio is an additive extension, but it must use precisely the same
+  // session/device and current-membership checks as the frozen v1 relay.
+  async function studioContext(request, body) {
+    const deviceHeader = /^Device\s+\S+$/i.test(authHeader(request).trim());
+    if (deviceHeader) {
+      const device = await deviceAuth(request);
+      checkDeviceProject(body, device.info.projectId);
+      const snapshot = device.snapshot;
+      return {
+        kind: "device", projectId: device.info.projectId, actor: { id: device.info.actorId },
+        access: device.access, snapshot, browserToken: null,
+        recheck: () => deviceCommitGuard(request, device.info),
+        refresh: () => loadState(device.info.ownerId, device.info.projectId,
+          () => deviceCommitGuard(request, device.info)),
+        save: (next, source = snapshot) => saveState(source, next,
+          () => deviceCommitGuard(request, device.info)),
+      };
+    }
+    const readOnly = new Set([
+      "studio.capabilities", "studio.workspace.get", "studio.workspace.current",
+      "studio.reference.get", "studio.asset.get", "studio.preview.get",
+    ]).has(body.action);
+    const actor = await authBrowser(request);
+    const projectId = safeId(body.projectId, "project id");
+    const access = {
+      actor,
+      ...(await (readOnly ? currentReadAccess(projectId, actor) : currentAccess(projectId, actor))),
+      projectId,
+    };
+    const guard = readOnly
+      ? async () => {
+        const fresh = await authBrowser(request);
+        if (fresh.id !== actor.id) throw unauthorized();
+        return currentReadAccess(projectId, fresh);
+      }
+      : () => browserCommitGuard(request, access.projectId, access.actor);
+    const snapshot = await loadState(access.ownerId, access.projectId,
+      guard);
+    const match = /^Bearer\s+(\S+)$/i.exec(authHeader(request).trim());
+    return {
+      kind: "browser", projectId: access.projectId, actor: access.actor, access, snapshot,
+      browserToken: match ? match[1] : null,
+      recheck: guard,
+      refresh: () => loadState(access.ownerId, access.projectId,
+        guard),
+      save: (next, source = snapshot) => saveState(source, next,
+        () => browserCommitGuard(request, access.projectId, access.actor)),
+    };
   }
 
   async function createPair(request, body) {
@@ -1288,7 +1354,11 @@ export function createBlenderRelay({
       case "device.claim": return claimJob(request);
       case "device.complete": return completeJob(request, body);
       case "device.fail": return failJob(request, body);
-      default: throw bad("Unknown action.");
+      default:
+        if (studio?.actions?.has?.(body.action)) {
+          return studio.handle(request, body, { context: studioContext });
+        }
+        throw bad("Unknown action.");
     }
   }
 
@@ -1302,6 +1372,7 @@ export function createBlenderRelay({
         pairSeconds: PAIR_MS / 1000, deviceSeconds: DEVICE_MS / 1000,
         pairCodeFormat: "compact-uuid-v1",
         claimLeasePlacement: "envelope-and-job",
+        extensions: { sceneWorkspace: 1 },
       });
       if (request.method !== "POST") throw bad("POST required.", "method_not_allowed", 405);
       const body = await parseRequest(request);
@@ -1309,6 +1380,8 @@ export function createBlenderRelay({
       return json(result);
     } catch (error) {
       const relayError = error instanceof RelayError ? error :
+        (Number.isInteger(error?.status) && typeof error?.code === "string"
+          ? new RelayError(error.status, error.code, error.message) : null) ||
         new RelayError(500, "relay_error", "Blender relay request failed.");
       return json({ error: relayError.message, code: relayError.code }, relayError.status);
     }

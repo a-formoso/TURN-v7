@@ -23,6 +23,13 @@ const reactUrls={
   "react-dom.js":"https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js",
 };
 const exists=async path=>{try{await access(path);return true;}catch{return false;}};
+// Chromium acknowledges a Blob download before it has flushed the file.  A
+// rejection assertion must therefore follow a completed prior download, not
+// merely the component's optimistic status label.
+const completedDownload=async(path,expected)=>{
+  try{const bytes=await readFile(path);return bytes.length===expected.length&&bytes.equals(expected);}
+  catch{return false;}
+};
 const transform=source=>transformSync(source,{
   presets:[["@babel/preset-react",{runtime:"classic"}]],
   plugins:["@babel/plugin-transform-block-scoping"],
@@ -437,6 +444,7 @@ try{
     "reset add-on download status");
   assert.notEqual(await c.eval(`${downloadFrame}.document.querySelector('[data-testid="blender-addon-download-status"]').textContent`),missingMessage,
     "successful retry clears the prior missing-bundle error");
+  await waitFor(()=>completedDownload(downloadPath,packagedZip),"completed retry add-on ZIP download");
   await unlink(downloadPath).catch(()=>{});
   await c.eval(`${downloadFrame}.CinemaMachineBlenderAddon={filename:"cinema-machine-blender.zip",byteLength:${packagedZip.length},base64:"bad-data"}`);
   await c.eval(`${downloadFrame}.document.querySelector('[data-testid="blender-addon-download"]').click()`);
@@ -447,6 +455,7 @@ try{
   await c.eval(`${downloadFrame}.CinemaMachineBlenderAddon=${downloadFrame}.__fixture.realAddon;
     ${downloadFrame}.document.querySelector('[data-testid="blender-addon-download"]').click()`);
   await waitFor(()=>c.eval(`${downloadFrame}.document.querySelector('[data-testid="blender-addon-download-status"]').textContent.includes("Download requested")`),"reset after invalid base64");
+  await waitFor(()=>completedDownload(downloadPath,packagedZip),"completed post-corrupt add-on ZIP download");
   await unlink(downloadPath).catch(()=>{});
   await c.eval(`${downloadFrame}.CinemaMachineBlenderAddon={filename:"cinema-machine-blender.zip",byteLength:${packagedZip.length-1},base64:${JSON.stringify(bundle.base64)}};
     ${downloadFrame}.document.querySelector('[data-testid="blender-addon-download"]').click()`);
@@ -457,6 +466,7 @@ try{
   await c.eval(`${downloadFrame}.CinemaMachineBlenderAddon=${downloadFrame}.__fixture.realAddon;
     ${downloadFrame}.document.querySelector('[data-testid="blender-addon-download"]').click()`);
   await waitFor(()=>c.eval(`${downloadFrame}.document.querySelector('[data-testid="blender-addon-download-status"]').textContent.includes("Download requested")`),"reset after size mismatch");
+  await waitFor(()=>completedDownload(downloadPath,packagedZip),"completed post-size-mismatch add-on ZIP download");
   await unlink(downloadPath).catch(()=>{});
   await c.eval(`${downloadFrame}.CinemaMachineBlenderAddon={filename:"cinema-machine-blender.zip",byteLength:${packagedZip.length},base64:${JSON.stringify(badMagicBase64)}};
     ${downloadFrame}.document.querySelector('[data-testid="blender-addon-download"]').click()`);
@@ -469,7 +479,7 @@ try{
     ${downloadFrame}.document.querySelector('[data-testid="blender-addon-download"]').click()`);
   await waitFor(()=>c.eval(`${downloadFrame}.document.querySelector('[data-testid="blender-addon-download-status"]').textContent.includes("Download requested")`),
     "successful add-on download status");
-  await waitFor(()=>exists(downloadPath),"browser add-on ZIP download");
+  await waitFor(()=>completedDownload(downloadPath,packagedZip),"browser add-on ZIP download");
   const downloadedZip=await readFile(downloadPath);
   assert.deepEqual(downloadedZip,packagedZip,"browser saved bytes match the packaged add-on ZIP");
   assert.equal(await c.eval(`${downloadFrame}.location.href===${JSON.stringify(frameUrl)}`),true,

@@ -33,7 +33,7 @@ function LocationIdentityField({l,field,label,value,placeholder,onUpdate}){
   return React.createElement(SheetField,{label:labelNode,value:value||"",multiline:true,placeholder,onCommit:commit});
 }
 
-function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft, drafting, onView, batchActiveId, onBatchDone, onChipClick, onDraftStaging, draftingStage, sluglineUnits, onUpdateUnit, onRemoveUnit }){
+function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft, drafting, onView, batchActiveId, onBatchDone, onChipClick, onDraftStaging, draftingStage, sluglineUnits, onUpdateUnit, onRemoveUnit, readOnly=false }){
   const d = locVisualDefaults(l);
   const scenePresets = (typeof locScenePresets==="function") ? locScenePresets(l, project) : [];
   const locationUnits=(sluglineUnits||[]).filter(u=>u&&!u.orphan&&
@@ -336,6 +336,15 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         onClick:()=> setPanelEdit(pe=> pe ? null : { idx:null, text:"" }) }] : null,
       referenceControls: masterRefs.length>0 && React.createElement(CoverageReferenceStrip,{ refs:masterRefs, excludedIds:masterRefOff, onToggle:toggleMasterRef, onView }),
       onDelete:()=>onDelete(l.id), deleteLabel:"Delete location" }),
+    window.BlenderStudioEntry && React.createElement(window.BlenderStudioEntry,{
+      location:{id:l.id,name:l.name,parentLocationId:l.parentLocation&&l.parentLocation.id||null,
+        rootLocationId:l.rootLocationId||l.id,
+        context:{description:l.significance||"",architecture:l.architecture||"",materials:l.materials||"",staging:l.staging||""}},
+      // Only existing project-sheet identities enter the studio catalog. The
+      // user still explicitly selects one in Studio; no reference is implied.
+      references:(typeof nbGetMeta==="function"&&nbGetMeta(l.id))
+        ? [{entityId:l.id,label:l.name||"Location",kind:"location"}] : [],
+      readOnly,compact:true}),
     panelEdit && gen.genUrl && React.createElement("div",{className:"sheet-edit-panel loc-panel-edit"},
       React.createElement("div",{className:"loc-panel-pick"},
         LOC_PANELS.map((p,i)=>React.createElement("button",{key:i,
@@ -1011,7 +1020,7 @@ function UnitDressing({ u, onUpdateUnit }){
         title:"Mentioned in this unit's action prose \u2014 click to add",onClick:()=>add(x)},"+ "+x))));
 }
 
-function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft, onDraftAll, onAdd, onDelete, draftingId, draftingIds, draftingAll, onPullFromScript, scriptHasLocs, onDraftStaging, draftingStageId, onScout, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, sluglineUnits, onUpdateUnit, onRemoveUnit }){
+function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft, onDraftAll, onAdd, onDelete, draftingId, draftingIds, draftingAll, onPullFromScript, scriptHasLocs, onDraftStaging, draftingStageId, onScout, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, sluglineUnits, onUpdateUnit, onRemoveUnit, readOnly=false }){
   const [view, setView] = React.useState(null);
   if(window.useRenderStyleVersion) window.useRenderStyleVersion();   // re-render dropdowns when a style is locked/unlocked
   const [sceneFilter, setSceneFilter] = React.useState("");
@@ -1024,6 +1033,16 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
   const locationFold = (typeof deriveSubspaceFold==="function") ? deriveSubspaceFold(scenes||[],drafts||{}) : {};
   const masterKeyOf = (loc)=> String((loc&&loc.key)||((typeof locSlug==="function")
     ? locSlug(loc&&loc.name).split("-").slice(0,4).join("-") : "")||"");
+  const rootLocationIdOf = (loc)=>{
+    let current=loc;
+    for(let depth=0;current&&depth<16;depth++){
+      const parentKey=String(current.parentKey||locationFold[masterKeyOf(current)]||"");
+      const parent=parentKey&&rawLocations.find(x=>x&&masterKeyOf(x)===parentKey);
+      if(!parent) return current.id;
+      current=parent;
+    }
+    return loc&&loc.id;
+  };
   /* Every atomic child remains a full workspace. Grouping establishes an explicit
      inheritance edge; it never hides or deletes the child's plate/staging/history. */
   const list = rawLocations.filter(Boolean).map(l=>{
@@ -1033,7 +1052,7 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
     const children=rawLocations.filter(c=>c&&c!==l&&String(c.parentKey||locationFold[masterKeyOf(c)]||"")===key);
     const scope=parentKey?"atomic":(children.length?"compound":(l.scope||"atomic"));
     return {...l,key,parentKey,scope,
-      continuityRootKey:parentKey||key,
+      continuityRootKey:parentKey||key,rootLocationId:rootLocationIdOf(l),
       parentLocation:parent?{id:parent.id,key:masterKeyOf(parent),name:parent.name}:null,
       childLocations:children.map(c=>({id:c.id,key:masterKeyOf(c),name:c.name,intExt:c.intExt}))};
   });
@@ -1193,7 +1212,7 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
                       : { url, character:pr });
                   },
                   batchActiveId,onBatchDone:batch.advance,onChipClick:(sid)=>setSceneFilter(sid),
-                  onDraftStaging,draftingStage:draftingStageId===l.id,sluglineUnits,onUpdateUnit,onRemoveUnit}))),
+                  onDraftStaging,draftingStage:draftingStageId===l.id,sluglineUnits,onUpdateUnit,onRemoveUnit,readOnly}))),
               React.createElement(PagerBar,{pager,noun:"location"}))
           : React.createElement("div",{className:"prop-empty"},
               React.createElement("div",{className:"art-soon-t"}, sceneFilter ? "No locations in this scene" : "No matching locations"),

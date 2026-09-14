@@ -36,7 +36,7 @@ export function createSupabaseAdapter({
     }
     if (projectQuery.data.owner === actor.id) {
       return {
-        exists: true, ownerId: projectQuery.data.owner, actorId: actor.id, canWrite: true,
+        exists: true, ownerId: projectQuery.data.owner, actorId: actor.id, canRead: true, canWrite: true,
       };
     }
     const members = await admin.from("turn_project_members")
@@ -50,6 +50,7 @@ export function createSupabaseAdapter({
       (email && String(row.member_email || "").toLowerCase() === email));
     return {
       exists: true, ownerId: projectQuery.data.owner, actorId: actor.id,
+      canRead: !!member && member.status === "active",
       canWrite: !!member && member.role === "art_director" && member.status === "active",
     };
   }
@@ -145,6 +146,118 @@ export function createSupabaseAdapter({
     if (result.error) throw result.error;
   }
 
+  // Studio files use an ordinary project-owned asset path and are only returned
+  // after the relay's authenticated state check.  Internal authority receipts
+  // remain in the legacy non-project second-segment namespace above.
+  async function uploadStudioAsset(path, bytes, contentType = "model/gltf-binary") {
+    const result = await admin.storage.from(bucket).upload(
+      path, new Blob([bytes], { type: contentType }), {
+        contentType, cacheControl: "31536000", upsert: false,
+      },
+    );
+    if (result.error && !isDuplicateStorageError(result.error)) throw result.error;
+    return { created: !result.error };
+  }
+
+  async function downloadStudioAsset(path) {
+    const result = await admin.storage.from(bucket).download(path);
+    if (result.error || !result.data) throw result.error || new Error("Studio asset not found");
+    return new Uint8Array(await result.data.arrayBuffer());
+  }
+
+  function catalogEntity(doc, entityId, kind) {
+    const catalog = kind === "location" ? doc?.locations :
+      kind === "character" ? doc?.characters : doc?.props;
+    return Array.isArray(catalog) && catalog.some(item => item?.id === entityId);
+  }
+  function imageType(bytes) {
+    if (!(bytes instanceof Uint8Array)) return null;
+    if (bytes.length >= 8 && bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 &&
+      bytes[3] === 71 && bytes[4] === 13 && bytes[5] === 10 && bytes[6] === 26 && bytes[7] === 10) return "image/png";
+    if (bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255) return "image/jpeg";
+    if (bytes.length >= 12 && String.fromCharCode(...bytes.subarray(0, 4)) === "RIFF" &&
+      String.fromCharCode(...bytes.subarray(8, 12)) === "WEBP") return "image/webp";
+    return null;
+  }
+  async function validateStudioReference({ projectId, entityId, kind, version }) {
+    if (!["location", "character", "prop"].includes(kind)) return false;
+    const project = await admin.from("turn_projects").select("doc").eq("id", projectId).maybeSingle();
+    if (project.error || !project.data || !catalogEntity(project.data.doc || {}, entityId, kind)) return false;
+    const record = await admin.from("turn_generations")
+      .select("project_id,entity_id,storage_path,meta")
+      .eq("project_id", projectId).eq("entity_id", entityId).maybeSingle();
+    const meta = record.data?.meta;
+    // Production location rows carry modelId/requestedModel, prompt, ISO and
+    // promptCompiler (not a MIME `meta.kind`). Require a real generated image
+    // provenance marker and, when supplied, bind the catalog ref version.
+    const provenance = meta && typeof meta === "object" && typeof meta.iso === "string" &&
+      (typeof meta.modelId === "string" || typeof meta.requestedModel === "string" ||
+        typeof meta.promptCompiler === "string");
+    if (record.error || !record.data || typeof record.data.storage_path !== "string" || !provenance) return false;
+    return version == null || String(version) === String(meta.iso || meta.version);
+  }
+  async function getStudioReference({ projectId, entityId, reference }) {
+    if (!(await validateStudioReference({ projectId, entityId, kind: reference?.kind,
+      version: reference?.version }))) return null;
+    const record = await admin.from("turn_generations")
+      .select("project_id,owner,entity_id,storage_path,meta")
+      .eq("project_id", projectId).eq("entity_id", entityId).maybeSingle();
+    if (record.error || !record.data || typeof record.data.storage_path !== "string") return null;
+    const file = await admin.storage.from(bucket).download(record.data.storage_path);
+    if (file.error || !file.data) return null;
+    const bytes = new Uint8Array(await file.data.arrayBuffer()), contentType = imageType(bytes);
+    return contentType ? { bytes, contentType } : null;
+  }
+
+  // This intentionally uses the launching browser JWT, rather than the admin
+  // client: turn_spend_credit binds auth.uid() and its event id deduplicates
+  // ambiguous transport outcomes.  A paired desktop can only use the sealed,
+  // short-lived authorization captured by workspace.open; the JWT is never in
+  // a relay response.
+  async function authorizeCredit({ token, cost }) {
+    if (!token) return { ok: false, message: "Generation authorization expired." };
+    const client = createClient(url, anonKey, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
+    // Match image-proxy's server-side entitlement and balance gate before the
+    // debit RPC (the RPC itself clamps at zero, so it is not an authorization
+    // check). A failed read is a failed authorization, never a free desktop
+    // generation.
+    const { data: authData, error: authError } = await client.auth.getUser(token);
+    if (authError || !authData?.user) return { ok: false, message: "Generation authorization expired." };
+    const user = authData.user;
+    const admin = String(user.email || "").toLowerCase() === "admin@infinitestudioai.com";
+    const required = Math.max(1, Math.ceil(Number(cost) || 1));
+    if (!admin) {
+      const credits = await client.from("turn_credits").select("plan,remaining")
+        .eq("owner", user.id).limit(1);
+      const row = Array.isArray(credits.data) ? credits.data[0] : credits.data;
+      const plan = String(row?.plan || "none").toLowerCase().trim();
+      const remaining = Number(row?.remaining) || 0;
+      if (!row || (!["writer", "director", "studio"].includes(plan) && remaining <= 0)) {
+        return { ok: false, message: "Choose a plan to start creating — every generation runs on your plan's credits." };
+      }
+      if (remaining < required) return { ok: false, message: `This generation needs ${required} credits, but this account has ${remaining}.` };
+    }
+    return { ok: true, remaining: admin ? null : undefined };
+  }
+
+  async function spendCredit({ token, cost, eventId }) {
+    const allowed = await authorizeCredit({ token, cost });
+    if (!allowed.ok) return allowed;
+    const required = Math.max(1, Math.ceil(Number(cost) || 1));
+    const client = createClient(url, anonKey, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
+    const { data, error } = await client.rpc("turn_spend_credit", {
+      cost: required, event_id: eventId,
+    });
+    if (error) return { ok: false, message: error.message || "Could not authorize credits." };
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row || Number(row.remaining) < 0) return { ok: false, message: "Insufficient credits." };
+    return { ok: true, remaining: Number(row.remaining), plan: row.plan || "none" };
+  }
+
   return {
     getUserByAccessToken,
     getUserById,
@@ -157,5 +270,15 @@ export function createSupabaseAdapter({
     downloadPng,
     readMarker,
     removePng,
+    uploadStudioAsset,
+    downloadStudioAsset,
+    getStudioReference,
+    validateStudioReference,
+    authorizeCredit,
+    spendCredit,
+    // turn_spend_credit is idempotent but clamps insufficient balances. Until
+    // an atomic sufficient-funds/idempotent settlement RPC is approved, paid
+    // Studio actions fail closed rather than race a preflight check.
+    atomicStudioSettlement: false,
   };
 }
