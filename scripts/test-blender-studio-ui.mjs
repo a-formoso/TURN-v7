@@ -244,13 +244,10 @@ async function locationSectionChecks(c){
   assert.equal(await c.eval(`${studio}.classList.contains("open")`),false,"location section begins closed");
   assert.equal(await c.eval(`!!document.querySelector(".bs-entry")`),false,"closed section does not mount a workspace");
   await c.eval(`${studio}.querySelector(".sheet-fold-head").click()`);
-  const about=`${studio}.querySelector(":scope > .sheet-fold-body > details")`;
-  await wait(()=>c.eval(`!!${about}`),"local Studio explanation");
+  await wait(()=>c.eval(`!!${studio}.querySelector(".bs-entry")`),"location Studio entry");
   assert.equal(await c.eval(`document.querySelectorAll('[data-location-card] .bs-entry').length`),1,"location section contains exactly one Studio");
-  assert.equal(await c.eval(`${about}.open`),false,"About Studio is initially collapsed");
-  await c.eval(`${about}.querySelector(":scope > summary").click()`);
-  await wait(()=>c.eval(`${about}.open`),"expand About Studio");
-  assert.equal(await c.eval(`__fixture.calls.length`),before,"opening the section and reading help makes no service or generation request");
+  assert.equal(await c.eval(`!!${studio}.querySelector(":scope > .sheet-fold-body > details")`),false,"no redundant About disclosure outside Studio");
+  assert.equal(await c.eval(`__fixture.calls.length`),before,"opening the section makes no service or generation request");
   await c.eval(`document.documentElement.dataset.theme="light";document.querySelector('[data-location-card]').scrollIntoView();new Promise(r=>setTimeout(r,50))`);
   const locationDesktop=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:true});
   await writeFile(`${OUT}/blender-studio-location-section.png`,Buffer.from(locationDesktop.data,"base64"));
@@ -264,6 +261,8 @@ async function locationSectionChecks(c){
   await c.call("Emulation.clearDeviceMetricsOverride");
   await c.eval(`delete document.documentElement.dataset.theme;document.querySelector(".bs-head button").click()`);
   await wait(()=>c.eval(`!!document.querySelector(".bs-send")`),"open Studio from location section");
+  assert.equal(await c.eval(`[...document.querySelectorAll("summary")].some(x=>x.textContent==="About Blender Studio")`),false,"About disclosure stays removed when Studio is open");
+  assert.equal(await c.eval(`[...document.querySelectorAll("summary")].some(x=>x.textContent==="Workspace details")`),true,"functional Workspace details remains available");
   assert.equal(await c.eval(`__fixture.calls.filter(x=>x.action==="studio.workspace.open").slice(-1)[0].body.location.id`),"loc-house","location section opens its own canonical location");
   assert.equal(await c.eval(`!!__fixture.calls.filter(x=>x.action==="studio.workspace.open").slice(-1)[0].body.shot`),false,"location entry does not manufacture a selected shot");
 }

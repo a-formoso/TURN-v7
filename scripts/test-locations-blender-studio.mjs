@@ -62,19 +62,9 @@ assert.equal(entry.props.compact,true,"the compact entry contract is preserved")
 assert.equal(JSON.stringify(calls),JSON.stringify([{kind:"meta",id:"loc-kitchen"}]),
   "reference metadata is checked only for the canonical ID");
 
-const details=tree.children.find(node=>node&&node.type==="details");
-assert.ok(details,"About Blender Studio is expandable");
-assert.equal(details.children[0].type,"summary");
-assert.equal(details.children[0].children[0],"About Blender Studio");
-const helpText=JSON.stringify(details);
-for(const phrase of [
-  "reusable 3D set","Shots Blender preview","one-shot proof","Arrange objects and lighting",
-  "3D models from a prompt or image","basic character or camera movement",
-  "not a complete performance","Review the proposal","Apply",
-  "cost credits","acknowledge paid processing",
-  "Reference images","exact reconstructions","no pairing","Open current workspace",
-  "Refresh","parent and root relationships","full building map"
-]) assert.ok(helpText.includes(phrase),"help mentions "+phrase);
+assert.equal(tree.children.length,1,"the fold contains only the Studio entry");
+assert.equal(tree.children.some(node=>node&&node.type==="details"),false,
+  "the redundant About Blender Studio disclosure is removed");
 
 const ast=parseSync(source,{sourceType:"script",parserOpts:{plugins:["jsx"]},babelrc:false,configFile:false});
 const locationSheet=ast.program.body.find(n=>n.type==="FunctionDeclaration"&&n.id.name==="LocationSheet");
@@ -134,6 +124,6 @@ assert.equal((source.match(/React\.createElement\(window\.BlenderStudioEntry/g)|
   "there is no duplicate direct BlenderStudioEntry producer");
 const sectionSource=source.slice(source.indexOf("function LocationBlenderStudioSection"),locationSheet.start);
 assert.doesNotMatch(sectionSource,/useEffect|setTimeout|generate\(|request\(/,
-  "reading the section/help does not add effects, generation, or service calls");
+  "opening the section does not add effects, generation, or service calls");
 
-console.log("PASS Locations Blender Studio section wrapper/help");
+console.log("PASS Locations Blender Studio section wrapper");

@@ -33,10 +33,7 @@ function LocationIdentityField({l,field,label,value,placeholder,onUpdate}){
   return React.createElement(SheetField,{label:labelNode,value:value||"",multiline:true,placeholder,onCommit:commit});
 }
 
-/* The location card owns the canonical place identity; this wrapper only adds
-   the reusable-set fold and its display-only explanation. Keeping the real
-   BlenderStudioEntry as the sole workspace owner avoids a second workspace
-   instance (and keeps reading this help entirely local). */
+/* Keep the canonical location's single Studio entry in the shared card fold. */
 function LocationBlenderStudioSection({location,readOnly=false}){
   const studioLocation=location||{};
   return window.BlenderStudioEntry && React.createElement(CardFold,{label:"Blender Studio · reusable set",defaultOpen:false},
@@ -44,29 +41,7 @@ function LocationBlenderStudioSection({location,readOnly=false}){
       location:studioLocation,
       references:(typeof nbGetMeta==="function"&&nbGetMeta(studioLocation.id))
         ? [{entityId:studioLocation.id,label:studioLocation.name||"Location",kind:"location"}] : [],
-      readOnly,compact:true}),
-    React.createElement("details",{className:"bs-details"},
-      React.createElement("summary",null,"About Blender Studio"),
-      React.createElement("p",{className:"bs-help"},
-        "Blender Studio makes one reusable 3D set for a contained place and shares it across shots. It is different from the Shots Blender preview, which is a one-shot proof."),
-      React.createElement("p",{className:"bs-help"},
-        "Arrange objects and lighting, create 3D models from a prompt or image, and prepare basic character or camera movement — not a complete performance."),
-      React.createElement("ul",null,
-        React.createElement("li",null,
-          React.createElement("small",null,
-            "Review the proposal and choose Apply before anything changes the saved set.")),
-        React.createElement("li",null,
-          React.createElement("small",null,
-            "AI generation can cost credits. Choose a model and acknowledge paid processing before submitting.")),
-        React.createElement("li",null,
-          React.createElement("small",null,
-            "Reference images guide the work; they are not automatic exact reconstructions.")),
-        React.createElement("li",null,
-          React.createElement("small",null,
-            "Browser preparation needs no pairing. In Blender, use Open current workspace first, then Refresh to load the set after changes.")),
-        React.createElement("li",null,
-          React.createElement("small",null,
-            "Child places keep their parent and root relationships. Studio does not infer a full building map.")))));
+      readOnly,compact:true}));
 }
 window.LocationBlenderStudioSection=LocationBlenderStudioSection;
 
