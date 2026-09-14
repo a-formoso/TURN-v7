@@ -177,6 +177,15 @@ URL or navigating the film page. The production build fingerprints the script
 URL from its contents. Never hand-edit the generated bundle. If an embedded
 browser still blocks saving files, open Cinema Machine in its own browser tab.
 
+Pairing codes for canonical UUID identities use a compact `u1_` locator: the
+owner, project and actor UUIDs occupy 48 binary bytes before base64url encoding.
+The random secret is still 32 bytes; the full code is 116 characters. This fits
+Blender 4.4/4.5's password editor, which silently clips pasted text at 127
+characters even though direct RNA assignment accepts longer values. Legacy
+JSON locators remain readable, and non-UUID/case-sensitive identifiers retain
+that representation. No installed add-on update is required: it treats codes
+and returned device tokens as opaque strings.
+
 Keep Blender open. Check the assumed room size, camera position/target and lens,
 then choose **Render Blender preview**. Change the lens and render again. The
 image is an auxiliary blockout; finished artwork and existing `.blend` files are
@@ -188,6 +197,7 @@ Local verification commands (no provider calls or live project-data writes):
 ```
 npm run build
 node scripts/test-blender-relay.mjs
+node scripts/test-blender-pairing-codec.mjs
 node scripts/test-blender-ui.mjs
 node scripts/test-blender-addon.mjs
 node scripts/test-blender-addon-canonical.mjs

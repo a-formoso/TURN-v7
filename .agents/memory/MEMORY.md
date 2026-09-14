@@ -1,5 +1,6 @@
 - [Imported archive safety](imported-archive-safety.md) — never leave source-import archives in the publicly served project root.
 - [Blender Mac compatibility](blender-mac-compatibility.md) — add-on version support is not Mac compatibility; check processor, macOS, and graphics before choosing an installer.
+- [Blender password input](blender-password-input.md) — the GUI clips password fields at 127 characters even when RNA accepts longer strings; keep pairing codes below that limit.
 - [Headless logic verification](headless-logic-verification.md) — UI is auth-gated; verify logic via node vm on dist build; heuristic text checks must never claim "ok".
 - [Spine scene-kind markers](spine-kind-markers.md) — assignPlotPoints wipes/reassigns kinds positionally; kind-based audits need a declared marker plumbed through the build path.
 - [Auto vs writer lock](auto-vs-lock.md) — never persist a model's pick for an "auto" setting; locked settings must reach every prose entry point (draft, polish, author, gap-fill).

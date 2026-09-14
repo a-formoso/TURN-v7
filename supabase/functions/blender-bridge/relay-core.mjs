@@ -250,10 +250,38 @@ function fallbackCamera(actual, spec) {
 }
 
 function locator(ownerId, projectId, actorId) {
+  // Blender's PASSWORD editor has a 128-byte buffer (127 characters + NUL),
+  // even when its RNA StringProperty can store a longer string. Three UUIDs
+  // as JSON made pairing codes 225 characters. Pack only the public routing
+  // IDs; the separate random 32-byte secret and all authorization stay intact.
+  const ids = [ownerId, projectId, actorId];
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  if (ids.every(id => typeof id === "string" && uuid.test(id))) {
+    const bytes = new Uint8Array(48);
+    ids.forEach((id, index) => {
+      const hex = id.replace(/-/g, "");
+      for (let i = 0; i < 16; i++) bytes[index * 16 + i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+    });
+    return "u1_" + b64url(bytes);
+  }
+  // Preserve non-UUID/case-sensitive identifiers used by existing callers.
   return b64url(JSON.stringify({ o: ownerId, p: projectId, a: actorId }));
 }
 
 function parseLocator(encoded) {
+  if (typeof encoded === "string" && encoded.startsWith("u1_")) {
+    const payload = encoded.slice(3);
+    if (!/^[A-Za-z0-9_-]{64}$/.test(payload)) throw bad("Invalid device token.");
+    const bytes = fromB64url(payload);
+    if (bytes.length !== 48 || b64url(bytes) !== payload) throw bad("Invalid device token.");
+    const ids = [0, 16, 32].map(offset => {
+      const hex = Array.from(bytes.subarray(offset, offset + 16),
+        byte => byte.toString(16).padStart(2, "0")).join("");
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    });
+    return { ownerId: ids[0], projectId: ids[1], actorId: ids[2] };
+  }
+  // Already-issued JSON-locator pairing and device tokens remain valid.
   let value;
   try { value = JSON.parse(new TextDecoder().decode(fromB64url(encoded))); } catch (_error) {
     throw bad("Invalid device token.");
@@ -1269,6 +1297,7 @@ export function createBlenderRelay({
       if (request.method === "GET") return json({
         version: 1, actions: ACTIONS, leaseSeconds: JOB_LEASE_MS / 1000,
         pairSeconds: PAIR_MS / 1000, deviceSeconds: DEVICE_MS / 1000,
+        pairCodeFormat: "compact-uuid-v1",
       });
       if (request.method !== "POST") throw bad("POST required.", "method_not_allowed", 405);
       const body = await parseRequest(request);
@@ -1301,4 +1330,5 @@ function json(body, status = 200) {
 export {
   ACTIONS, BUCKET, DEVICE_MS, ENTITY_PREFIX, JOB_LEASE_MS, MAX_PNG_BYTES,
   PAIR_MS, STATE_KIND, generatedPath, stateEntity, b64url, digestHex,
+  locator, parseLocator, makeToken, parseToken,
 };
