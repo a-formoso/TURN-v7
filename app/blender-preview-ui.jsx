@@ -531,7 +531,7 @@ function BlenderPreviewPanel({ shot, scene, location, subjects, props, readOnly,
     _bpEl("legend",null,label),
     _bpEl("div",{className:"bp-vector-grid"},
       ["X","Y","Z"].map((axis,index)=>input(axis,values[index],v=>updateConfig(key,index,v),{min,max}))));
-  const status=job ? job.status : connected ? "connected" : "not connected";
+  const status=job ? job.status : connected ? "paired" : "not connected";
   const capabilityLine=capabilities ? _bpEl("span",null," · bridge v"+(capabilities.version||"1")) : null;
   return _bpEl("section",{className:"bp-panel","data-testid":"blender-preview-panel"},
     _bpEl("div",{className:"bp-intro"},
@@ -566,7 +566,7 @@ function BlenderPreviewPanel({ shot, scene, location, subjects, props, readOnly,
           _bpEl("span",{className:"bp-step-number"},"2"),
           _bpEl("span",{className:"bp-step-label"},
             _bpEl("strong",null,"Connect Blender to Cinema Machine"),
-            _bpEl("small",null,connected?"Blender is connected":"After installation · keep Blender open"))),
+            _bpEl("small",null,connected?"Paired · confirm status in Blender":"After installation · keep Blender open"))),
         _bpEl("div",{className:"bp-step-body"},
           _bpEl("p",{className:"bp-help"},"Pair means connect: create a temporary code here, then enter it in the Blender add-on. This does not make a picture."),
           _bpEl("div",{className:"bp-actions"},
@@ -589,7 +589,7 @@ function BlenderPreviewPanel({ shot, scene, location, subjects, props, readOnly,
               pair.expiresAt && _bpEl("small",null,"Code expires "+new Date(pair.expiresAt).toLocaleString())),
             _bpEl("p",{className:"bp-help"},"Paste these into the matching Function URL and Pair code boxes in Blender. Tick “I approve this project”, then click Connect in Blender.")),
           _bpEl("p",{className:"bp-help","data-testid":"blender-connection-help"},
-            connected ? "Connected. Keep Blender open and your computer awake while you make previews."
+            connected ? "Paired. Check for Status: Connected in Blender. The website confirms pairing, not a live connection. Keep Blender open and your computer awake while you make previews."
               : "Once Blender connects, step 3 becomes available. You only need a new code when reconnecting."))),
       _bpEl("li",{className:"bp-step","data-testid":"blender-step-render"},
         _bpEl("div",{className:"bp-step-heading"},

@@ -39,7 +39,7 @@ from .studio_runtime import StudioRuntime
 bl_info = {
     "name": "Cinema Machine Bridge",
     "author": "Cinema Machine",
-    "version": (1, 0, 0),
+    "version": (1, 0, 1),
     "blender": (4, 2, 0),
     "location": "3D View > Sidebar > CinemaMachine",
     "description": "Render an approved editable Blender proof through the Cinema Machine bridge",
@@ -602,6 +602,9 @@ class BridgeRuntime:
 _RUNTIME: Optional[BridgeRuntime] = None
 _STUDIO_RUNTIME: Optional[StudioRuntime] = None
 _TIMER_RUNNING = False
+_STUDIO_WORKSPACE_FAILURE_KEY: Optional[tuple] = None
+_LAST_BRIDGE_VISIBLE_STATE: Optional[Dict[str, Any]] = None
+_LAST_STUDIO_VISIBLE_STATE: Optional[Dict[str, Any]] = None
 
 
 class CMPreferences(bpy.types.AddonPreferences):
@@ -637,6 +640,7 @@ class CM_OT_connect(bpy.types.Operator):
     bl_description = "Pair this Blender desktop using a one-time code"
 
     def execute(self, context: Any) -> set:
+        _ensure_timer_registered()
         preferences = context.preferences.addons[__package__].preferences
         pair_code = context.window_manager.cm_pair_code
         if not context.window_manager.cm_pair_acknowledged:
@@ -647,6 +651,7 @@ class CM_OT_connect(bpy.types.Operator):
             return {"CANCELLED"}
         assert _RUNTIME is not None
         _RUNTIME.request_connect(preferences.edge_function_url, pair_code, preferences.device_name)
+        _tag_cinema_machine_areas()
         return {"FINISHED"}
 
 
@@ -658,6 +663,7 @@ class CM_OT_disconnect(bpy.types.Operator):
     def execute(self, _context: Any) -> set:
         assert _RUNTIME is not None
         _RUNTIME.request_disconnect()
+        _tag_cinema_machine_areas()
         return {"FINISHED"}
 
 
@@ -669,6 +675,7 @@ class CM_OT_cancel(bpy.types.Operator):
     def execute(self, _context: Any) -> set:
         assert _RUNTIME is not None
         _RUNTIME.request_cancel()
+        _tag_cinema_machine_areas()
         return {"FINISHED"}
 
 
@@ -766,11 +773,15 @@ class CM_OT_studio_open(bpy.types.Operator):
     bl_description = "Open the native Studio dialog and fetch the browser-selected workspace"
 
     def invoke(self, context: Any, _event: Any) -> set:
+        _ensure_timer_registered()
+        _reset_studio_workspace_failure()
         _studio_runtime().request_current()
         _studio_runtime().request_capabilities()
+        _tag_cinema_machine_areas()
         return context.window_manager.invoke_props_dialog(self, width=720)
 
     def execute(self, _context: Any) -> set:
+        _ensure_timer_registered()
         return {"FINISHED"}
 
     def draw(self, context: Any) -> None:
@@ -791,7 +802,10 @@ class CM_OT_studio_workspace_current(bpy.types.Operator):
     bl_label = "Open selected workspace"
 
     def execute(self, _context: Any) -> set:
+        _ensure_timer_registered()
+        _reset_studio_workspace_failure()
         _studio_runtime().request_current()
+        _tag_cinema_machine_areas()
         return {"FINISHED"}
 
 
@@ -1281,26 +1295,202 @@ _CLASSES = (
 )
 
 
-def _timer_callback() -> Optional[float]:
-    if _RUNTIME is None:
-        return None
-    _RUNTIME.pump()
-    if _STUDIO_RUNTIME is not None:
-        _STUDIO_RUNTIME.pump()
-        workspace = _STUDIO_RUNTIME.snapshot().get("workspace")
-        if isinstance(workspace, dict):
-            # The event has passed StudioRuntime's bridge/workspace generation
-            # check.  This timer is Blender's main thread, so it is the only
-            # asynchronous path allowed to create local managed collections.
+def _tag_cinema_machine_areas() -> None:
+    """Redraw visible Cinema Machine panels from Blender's main thread.
+
+    This function is called only by operators and ``_timer_callback``.  Worker
+    threads communicate through runtime event queues and never enter ``bpy``.
+    Tagging the whole VIEW_3D area is intentional: Blender owns the sidebar
+    region and will repaint the CinemaMachine tab if it is currently visible.
+    """
+
+    try:
+        window_manager = bpy.context.window_manager
+        windows = tuple(getattr(window_manager, "windows", ()))
+    except Exception:
+        return
+    seen = set()
+    for window in windows:
+        screen = getattr(window, "screen", None)
+        for area in tuple(getattr(screen, "areas", ())):
+            if getattr(area, "type", None) != "VIEW_3D":
+                continue
+            identity = id(area)
+            if identity in seen:
+                continue
+            seen.add(identity)
             try:
-                studio_scene.open_workspace(bpy.context.scene, workspace)
-            except (StudioProtocolError, studio_scene.StudioSceneError) as error:
-                _STUDIO_RUNTIME._set_status("Studio error", _safe_error(error))
+                area.tag_redraw()
+            except Exception:
+                # A window can disappear while Blender is changing screens.
+                # It is safe to wait for the next timer tick.
+                continue
+
+
+def _timer_registered() -> bool:
+    """Ask Blender's timer registry rather than trusting our bookkeeping flag."""
+
+    timers = getattr(getattr(bpy, "app", None), "timers", None)
+    checker = getattr(timers, "is_registered", None)
+    if not callable(checker):
+        return False
+    try:
+        return bool(checker(_timer_callback))
+    except Exception:
+        return False
+
+
+def _ensure_timer_registered() -> None:
+    """Restore the persistent timer after an interrupted/stale registration."""
+
+    global _TIMER_RUNNING
+    if not _timer_registered():
+        bpy.app.timers.register(_timer_callback, first_interval=0.25, persistent=True)
+    _TIMER_RUNNING = True
+
+
+def _reset_studio_workspace_failure() -> None:
+    """Allow one explicit Studio open action to retry materialization."""
+
+    global _STUDIO_WORKSPACE_FAILURE_KEY
+    _STUDIO_WORKSPACE_FAILURE_KEY = None
+
+
+def _scene_identity(scene: Any) -> Any:
+    try:
+        pointer = scene.as_pointer()
+        if pointer:
+            return ("pointer", int(pointer))
+    except Exception:
+        pass
+    return ("python", id(scene))
+
+
+def _runtime_generation(runtime: Any) -> Any:
+    generation = getattr(runtime, "generation", None)
+    return generation if isinstance(generation, (int, str)) else None
+
+
+def _workspace_failure_key(
+    workspace: Any,
+    scene: Any,
+    studio_runtime: Any,
+    bridge_runtime: Any,
+) -> Optional[tuple]:
+    if not isinstance(workspace, dict):
+        return None
+    return (
+        _scene_identity(scene),
+        workspace.get("projectId"),
+        workspace.get("locationId"),
+        workspace.get("revision"),
+        _runtime_generation(studio_runtime),
+        _runtime_generation(bridge_runtime),
+    )
+
+
+def _set_timer_error(runtime: Any, status: str, prefix: str, error: BaseException) -> None:
+    try:
+        runtime._set_status(status, prefix + ": " + _safe_error(error))
+    except Exception:
+        # The timer must remain alive even if a damaged runtime cannot accept
+        # its own error state.
+        return
+
+
+def _runtime_snapshot(runtime: Any) -> Optional[Dict[str, Any]]:
+    try:
+        snapshot = runtime.snapshot()
+    except Exception as error:
+        _set_timer_error(runtime, "Error", "Bridge timer error", error)
+        return None
+    if not isinstance(snapshot, dict):
+        _set_timer_error(runtime, "Error", "Bridge timer error", RuntimeError("runtime snapshot is invalid"))
+        return None
+    return snapshot
+
+
+def _studio_snapshot(runtime: Any) -> Optional[Dict[str, Any]]:
+    try:
+        snapshot = runtime.snapshot()
+    except Exception as error:
+        _set_timer_error(runtime, "Studio error", "Studio timer error", error)
+        return None
+    if not isinstance(snapshot, dict):
+        _set_timer_error(runtime, "Studio error", "Studio timer error", RuntimeError("Studio snapshot is invalid"))
+        return None
+    return snapshot
+
+
+def _timer_callback() -> Optional[float]:
+    global _TIMER_RUNNING
+    global _STUDIO_WORKSPACE_FAILURE_KEY
+    global _LAST_BRIDGE_VISIBLE_STATE, _LAST_STUDIO_VISIBLE_STATE
+
+    runtime = _RUNTIME
+    if runtime is None:
+        _TIMER_RUNNING = False
+        _LAST_BRIDGE_VISIBLE_STATE = None
+        _LAST_STUDIO_VISIBLE_STATE = None
+        return None
+
+    studio_runtime = _STUDIO_RUNTIME
+
+    try:
+        runtime.pump()
+    except Exception as error:
+        # A malformed event or unexpected Blender boundary error must not
+        # unregister the poll timer or leave the sidebar stale.
+        _set_timer_error(runtime, "Error", "Bridge timer error", error)
+
+    after_studio = None
+    if studio_runtime is not None:
+        try:
+            studio_runtime.pump()
+        except Exception as error:
+            _set_timer_error(studio_runtime, "Studio error", "Studio timer error", error)
+
+        after_studio = _studio_snapshot(studio_runtime)
+        workspace = after_studio.get("workspace") if after_studio else None
+        if workspace is None:
+            # A later explicit workspace response can retry this workspace
+            # after the user has cleared the selected workspace.
+            _STUDIO_WORKSPACE_FAILURE_KEY = None
+        else:
+            failure_key = None
+            try:
+                scene = bpy.context.scene
+                failure_key = _workspace_failure_key(
+                    workspace, scene, studio_runtime, runtime
+                )
+                already_failed = failure_key == _STUDIO_WORKSPACE_FAILURE_KEY
+                if not already_failed:
+                    # Successful materialization is intentionally not cached.
+                    # Reopening the same revision must still be allowed to
+                    # reconcile a different Blender scene/file.
+                    studio_scene.open_workspace(scene, workspace)
+            except Exception as error:
+                # Cache only the failed materialization, scoped to this scene,
+                # workspace revision, and available runtime generations.
+                _STUDIO_WORKSPACE_FAILURE_KEY = failure_key
+                _set_timer_error(studio_runtime, "Studio error", "Studio scene error", error)
+            after_studio = _studio_snapshot(studio_runtime)
+
+    after_bridge = _runtime_snapshot(runtime)
+    bridge_changed = after_bridge != _LAST_BRIDGE_VISIBLE_STATE
+    studio_changed = after_studio != _LAST_STUDIO_VISIBLE_STATE
+    _LAST_BRIDGE_VISIBLE_STATE = after_bridge
+    _LAST_STUDIO_VISIBLE_STATE = after_studio
+    if bridge_changed or studio_changed:
+        # This call is deliberately after all worker events and scene work
+        # have crossed the main-thread timer boundary.
+        _tag_cinema_machine_areas()
     return 0.25
 
 
 def register() -> None:
     global _RUNTIME, _STUDIO_RUNTIME, _TIMER_RUNNING
+    global _LAST_BRIDGE_VISIBLE_STATE, _LAST_STUDIO_VISIBLE_STATE
     for cls in _CLASSES:
         bpy.utils.register_class(cls)
     bpy.types.WindowManager.cm_pair_code = StringProperty(
@@ -1345,16 +1535,18 @@ def register() -> None:
     bpy.types.WindowManager.cm_studio_asset_id = StringProperty(name="Asset ID", default="", maxlen=128)
     _RUNTIME = BridgeRuntime()
     _STUDIO_RUNTIME = StudioRuntime(_RUNTIME)
-    if not _TIMER_RUNNING:
-        bpy.app.timers.register(_timer_callback, first_interval=0.25, persistent=True)
-        _TIMER_RUNNING = True
+    _LAST_BRIDGE_VISIBLE_STATE = _RUNTIME.snapshot()
+    _LAST_STUDIO_VISIBLE_STATE = _STUDIO_RUNTIME.snapshot()
+    _reset_studio_workspace_failure()
+    _ensure_timer_registered()
 
 
 def unregister() -> None:
     global _RUNTIME, _STUDIO_RUNTIME, _TIMER_RUNNING
+    global _LAST_BRIDGE_VISIBLE_STATE, _LAST_STUDIO_VISIBLE_STATE
     if _RUNTIME is not None:
         _RUNTIME.request_disconnect()
-    if _TIMER_RUNNING:
+    if _timer_registered() or _TIMER_RUNNING:
         try:
             bpy.app.timers.unregister(_timer_callback)
         except ValueError:
@@ -1375,6 +1567,9 @@ def unregister() -> None:
         bpy.utils.unregister_class(cls)
     _RUNTIME = None
     _STUDIO_RUNTIME = None
+    _LAST_BRIDGE_VISIBLE_STATE = None
+    _LAST_STUDIO_VISIBLE_STATE = None
+    _reset_studio_workspace_failure()
 
 
 if __name__ == "__main__":

@@ -159,12 +159,12 @@ function BlenderStudioSetup({client,readOnly=false,locationId,onConnectionChange
           E("p",{className:"bs-help"},"Updating an older add-on? Restart Blender after installing. Already installed? Continue to step 2.")))),
     E("li",{className:"bs-step","data-testid":"blender-studio-step-connect"},
       E("details",{className:"bs-setup",open:connectOpen,onToggle:e=>setConnectOpen(e.currentTarget.open)},
-        E("summary",{className:"bs-step-heading"},heading("2","Connect Blender",connected?"Connected · setup complete":"Create a code here, then paste it in Blender")),
+         E("summary",{className:"bs-step-heading"},heading("2","Connect Blender",connected?"Paired · confirm status in Blender":"Create a code here, then paste it in Blender")),
         E("div",{className:"bs-step-body"},
           E("p",{className:"bs-connection-status"+(connected?" bs-connected":""),role:"status","data-testid":"blender-studio-connection-status"},
-            connected?"Connected to "+(connection.deviceName||"Blender desktop"):
+             connected?"Paired with "+(connection.deviceName||"Blender desktop"):
               readOnly?"An editor manages the Blender connection.":connection?"Not connected":checking?"Checking connection…":"Connection not confirmed"),
-          E("p",{className:"bs-help"},connected?"Keep Blender open. Continue to step 3 to prepare this location's set.":
+           E("p",{className:"bs-help"},connected?"The website confirms pairing, not Blender’s live status. Check for “Status: Connected” in Blender before using desktop tools. You can prepare the set in step 3 meanwhile.":
             "Keep Blender open. Connecting is free and does not start a generation."),
           E("div",{className:"bs-actions"},
             connected?E("button",{type:"button",className:"bs-button",disabled:readOnly||busy,onClick:disconnect},"Disconnect desktop"):
@@ -185,7 +185,7 @@ function BlenderStudioSetup({client,readOnly=false,locationId,onConnectionChange
             E("ol",{className:"bs-instructions"},
               E("li",null,"Paste the Function URL and Pair code into their matching fields."),
               E("li",null,"Tick “I approve this project”, then click Connect in Blender.")),
-            E("p",{className:"bs-help"},"This panel checks automatically and confirms when Blender is connected.")),
+             E("p",{className:"bs-help"},"This panel confirms pairing automatically. Then check for “Status: Connected” in Blender.")),
           error&&E("p",{className:"bs-error",role:"alert"},error)))));
 }
 window.BlenderStudioSetup=BlenderStudioSetup;

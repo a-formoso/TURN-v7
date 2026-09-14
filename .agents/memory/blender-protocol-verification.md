@@ -20,3 +20,9 @@ Keep browser-driven timeout settlement separate from wire-format fixes; it requi
 **Why:** A completion intent receipt can exist before its result is fully published. Blindly marking the job failed conflicts with that immutable receipt; treating the receipt as a delivered PNG is also unsafe. A quick timeout transition was deliberately excluded from the compatibility repair.
 
 **How to apply:** Design one terminal winner and interrupted-publication recovery before changing timeout ownership. Never delete authority receipts or automatically retry a render to get around the conflict.
+
+Treat server pairing registration, desktop response processing and visible Blender status as separate evidence.
+
+**Why:** Successful desktop polling can coexist with a sidebar still displaying Connecting: changing Python runtime state does not request a Blender UI redraw. A stored pairing also survives a lost desktop session until revoked or expired.
+
+**How to apply:** Do not label a browser pairing check as proof of live desktop readiness. Test main-thread redraw and timer recovery separately from HTTPS interoperability; never access Blender UI from a network worker.

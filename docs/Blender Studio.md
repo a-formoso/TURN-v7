@@ -15,7 +15,9 @@ Characters and Shots, not a replacement for their approved artwork.
    and pairing code fields to copy each one, then paste them into the matching
    fields in Blender's CinemaMachine sidebar (press **N** in the 3D view).
    Approve the project and click **Connect** in Blender. The web panel confirms
-   the connection automatically and folds completed setup away. Expired codes
+   **Paired** automatically and folds completed setup away. This is pairing
+   registration, not desktop liveness: check for **Status: Connected** in Blender
+   before using desktop tools. Expired codes
    have a clear replacement action; blocked clipboard access offers manual copy.
    The Project ID identifies the film, not an individual shot.
 5. Open the location workspace. The desktop Studio tools can load the selected
@@ -26,6 +28,19 @@ The website uses four numbered steps: **Install → Connect → Choose what to m
 model diagnostics are under **Workspace details**. Applying in the browser saves
 the set; use **Open current workspace** initially, then **Refresh** in Blender to
 load saved changes. Pairing and installation do not start paid generation.
+
+### Blender still displays Connecting
+
+The add-on must redraw its sidebar after a background response. Version 1.0.1
+fixes stale connection/status display and can restore a stopped update timer on
+an explicit Connect or Open Studio action. The website's **Paired** label alone
+does not prove that Blender is currently responding.
+
+For an older installation, moving the pointer over Blender's sidebar may refresh
+the display. To update, disconnect in the website first, save your Blender file,
+install the new ZIP from step 1, and restart Blender. Create a fresh pairing code
+and connect again. Desktop tokens are memory-only, so restarting requires pairing
+again. This fix does not change the relay, start generation or spend credits.
 
 Each canonical location/place has one reusable workspace within the film. Its
 parent/root IDs preserve the existing location hierarchy; they are not inferred

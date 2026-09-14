@@ -128,13 +128,19 @@ async function setupChecks(c,origin){
   await c.eval(`__fixture.expiryMs=600000;${pairButton}.click()`);
   await wait(()=>c.eval(`${codeButton}&&!${codeButton}.disabled`),"replacement code restores copy");
   await c.eval(`__fixture.connected=true`);
-  await wait(()=>c.eval(`document.querySelector('[data-testid="blender-studio-step-connect"] summary').textContent.includes("Connected")`),"automatic connected state");
+  await wait(()=>c.eval(`document.querySelector('[data-testid="blender-studio-step-connect"] summary').textContent.includes("Paired")`),"automatic pairing confirmation");
+  assert.equal(await c.eval(`document.querySelector('[data-testid="blender-studio-connection-status"]').textContent`),"Paired with Test Blender desktop","server pairing does not claim desktop liveness");
+  assert.equal(await c.eval(`document.querySelector('[data-testid="blender-studio-step-connect"]').textContent.includes("not Blender’s live status")`),true,"paired state explains desktop confirmation");
   assert.equal(await c.eval(`!!${codeButton}`),false,"used pairing code is removed after connection");
   assert.equal(await c.eval(`document.querySelector('[data-testid="blender-studio-step-connect"] details').open`),false,"completed connection folds away");
   assert.equal(await c.eval(`document.querySelector('[data-testid="blender-studio-step-install"] details').open`),false,"completed installation folds away");
   await c.eval(`window.scrollTo(0,0)`);
   const ready=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:true});
   await writeFile(`${OUT}/blender-studio-ready.png`,Buffer.from(ready.data,"base64"));
+  await c.eval(`document.querySelector('[data-testid="blender-studio-step-connect"] summary').click();document.documentElement.dataset.theme="light";new Promise(r=>setTimeout(r,50))`);
+  const paired=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:true});
+  await writeFile(`${OUT}/blender-studio-paired.png`,Buffer.from(paired.data,"base64"));
+  await c.eval(`delete document.documentElement.dataset.theme`);
   // Check role and stale-scope behavior later without calling a real service.
 }
 async function main(){await prepare();const s=server();await new Promise(ok=>s.listen(0,"127.0.0.1",ok));const debug=9700+Math.floor(Math.random()*200),chrome=spawn(CHROME,["--headless=new","--no-sandbox","--disable-gpu",`--remote-debugging-port=${debug}`,`--user-data-dir=${FIXTURE}/profile`,"about:blank"],{stdio:"ignore"});let c;try{

@@ -211,6 +211,6 @@ function BlenderStudioEntry({location,shot,references,readOnly=false,compact=fal
           _bsEl("div",{className:"bs-history"},_bsEl("b",null,"Scene-builder chat history"),history.length?_bsEl("ul",null,history.map(h=>_bsEl("li",{key:h.id},_bsEl("b",null,h.role+": "),h.text))):_bsEl("p",null,"No requests in this panel yet."))))),
         ),
       error&&workspace&&_bsEl("p",{role:"alert",className:"bs-error"},error),
-      connection&&connection.connected&&_bsEl("p",{className:"bs-connection-note"},"Blender desktop is connected to "+(connection.deviceName||"your computer")+". Use Refresh there after saving or applying this set.")));
+      connection&&connection.connected&&_bsEl("p",{className:"bs-connection-note"},"Paired with "+(connection.deviceName||"your computer")+". Once Blender shows Connected, use Open current workspace there, then Refresh after saving or applying this set.")));
 }
 window.BlenderStudioEntry=BlenderStudioEntry;
