@@ -33,6 +33,43 @@ function LocationIdentityField({l,field,label,value,placeholder,onUpdate}){
   return React.createElement(SheetField,{label:labelNode,value:value||"",multiline:true,placeholder,onCommit:commit});
 }
 
+/* The location card owns the canonical place identity; this wrapper only adds
+   the reusable-set fold and its display-only explanation. Keeping the real
+   BlenderStudioEntry as the sole workspace owner avoids a second workspace
+   instance (and keeps reading this help entirely local). */
+function LocationBlenderStudioSection({location,readOnly=false}){
+  const studioLocation=location||{};
+  return window.BlenderStudioEntry && React.createElement(CardFold,{label:"Blender Studio · reusable set",defaultOpen:false},
+    React.createElement(window.BlenderStudioEntry,{
+      location:studioLocation,
+      references:(typeof nbGetMeta==="function"&&nbGetMeta(studioLocation.id))
+        ? [{entityId:studioLocation.id,label:studioLocation.name||"Location",kind:"location"}] : [],
+      readOnly,compact:true}),
+    React.createElement("details",{className:"bs-details"},
+      React.createElement("summary",null,"About Blender Studio"),
+      React.createElement("p",{className:"bs-help"},
+        "Blender Studio makes one reusable 3D set for a contained place and shares it across shots. It is different from the Shots Blender preview, which is a one-shot proof."),
+      React.createElement("p",{className:"bs-help"},
+        "Arrange objects and lighting, create 3D models from a prompt or image, and prepare basic character or camera movement — not a complete performance."),
+      React.createElement("ul",null,
+        React.createElement("li",null,
+          React.createElement("small",null,
+            "Review the proposal and choose Apply before anything changes the saved set.")),
+        React.createElement("li",null,
+          React.createElement("small",null,
+            "AI generation can cost credits. Choose a model and acknowledge paid processing before submitting.")),
+        React.createElement("li",null,
+          React.createElement("small",null,
+            "Reference images guide the work; they are not automatic exact reconstructions.")),
+        React.createElement("li",null,
+          React.createElement("small",null,
+            "Browser preparation needs no pairing. In Blender, use Open current workspace first, then Refresh to load the set after changes.")),
+        React.createElement("li",null,
+          React.createElement("small",null,
+            "Child places keep their parent and root relationships. Studio does not infer a full building map.")))));
+}
+window.LocationBlenderStudioSection=LocationBlenderStudioSection;
+
 function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft, drafting, onView, batchActiveId, onBatchDone, onChipClick, onDraftStaging, draftingStage, sluglineUnits, onUpdateUnit, onRemoveUnit, readOnly=false }){
   const d = locVisualDefaults(l);
   const scenePresets = (typeof locScenePresets==="function") ? locScenePresets(l, project) : [];
@@ -336,15 +373,11 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         onClick:()=> setPanelEdit(pe=> pe ? null : { idx:null, text:"" }) }] : null,
       referenceControls: masterRefs.length>0 && React.createElement(CoverageReferenceStrip,{ refs:masterRefs, excludedIds:masterRefOff, onToggle:toggleMasterRef, onView }),
       onDelete:()=>onDelete(l.id), deleteLabel:"Delete location" }),
-    window.BlenderStudioEntry && React.createElement(window.BlenderStudioEntry,{
+    React.createElement(LocationBlenderStudioSection,{
       location:{id:l.id,name:l.name,parentLocationId:l.parentLocation&&l.parentLocation.id||null,
         rootLocationId:l.rootLocationId||l.id,
         context:{description:l.significance||"",architecture:l.architecture||"",materials:l.materials||"",staging:l.staging||""}},
-      // Only existing project-sheet identities enter the studio catalog. The
-      // user still explicitly selects one in Studio; no reference is implied.
-      references:(typeof nbGetMeta==="function"&&nbGetMeta(l.id))
-        ? [{entityId:l.id,label:l.name||"Location",kind:"location"}] : [],
-      readOnly,compact:true}),
+      readOnly}),
     panelEdit && gen.genUrl && React.createElement("div",{className:"sheet-edit-panel loc-panel-edit"},
       React.createElement("div",{className:"loc-panel-pick"},
         LOC_PANELS.map((p,i)=>React.createElement("button",{key:i,

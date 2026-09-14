@@ -137,12 +137,13 @@ function BlenderStudioSetup({client,readOnly=false,locationId,onConnectionChange
     setCopyMessage(ok?(which==="code"?"Pairing code copied.":"Function URL copied."):
       "Your browser blocked copying. Select the text below and copy it manually.");
   };
-  const copyField=(label,value,which)=>E("div",{className:"bs-copy-group"},
+  const copyField=(label,value,which)=>E("div",{className:"bs-copy-field"},
     E("span",{className:"bs-copy-label"},label),
-    E("button",{type:"button",className:"bs-copy-field",disabled:readOnly||!value||(which==="code"&&expired),
+    E("code",{"data-testid":which==="code"?"blender-studio-code-value":"blender-studio-url-value"},value||"Unavailable"),
+    E("button",{type:"button",className:"bs-copy-button",disabled:readOnly||!value||(which==="code"&&expired),
       "aria-label":which==="code"?"Copy pairing code":"Copy Function URL",
       "data-testid":which==="code"?"blender-studio-copy-code":"blender-studio-copy-url",onClick:()=>copy(which,value)},
-      E("code",null,value||"Unavailable"),E("span",null,copied[which]?"Copied":"Click to copy")));
+       copied[which]?"Copied":"Copy"));
   const heading=(number,title,subtitle)=>E(React.Fragment,null,
     E("span",{className:"bs-step-number"},number),
     E("span",{className:"bs-step-label"},E("strong",null,title),E("small",null,subtitle)),
@@ -173,12 +174,13 @@ function BlenderStudioSetup({client,readOnly=false,locationId,onConnectionChange
             E("button",{type:"button",className:"bs-button",disabled:readOnly||checking||busy||!scopeRef.current,
               "data-testid":"blender-studio-check-connection",onClick:()=>refreshRef.current&&refreshRef.current()},checking?"Checking…":"Check connection")),
           pair&&!connected&&E("div",{className:"bs-pair"},
-            E("p",{className:"bs-help"},"Click each field to copy it. In Blender's 3D view, press N and open the CinemaMachine tab."),
-            copyField("Function URL",endpoint,"url"),copyField("Pairing code",pairCode,"code"),
-            E("p",{className:"bs-code-expiry"+(expired?" bs-error":""),"data-testid":"blender-studio-code-expiry"},
+             E("p",{className:"bs-help"},"Use the Copy buttons below. In Blender's 3D view, press N and open the CinemaMachine tab."),
+             E("div",{className:"bs-pair-code"},
+             copyField("Function URL",endpoint,"url"),copyField("Pair code",pairCode,"code"),
+             E("small",{className:"bs-code-expiry"+(expired?" bs-error":""),"data-testid":"blender-studio-code-expiry"},
               expired?"This code has expired. Create a new code above.":Number.isFinite(expires)?
                 "One-time code · expires in "+Math.max(1,Math.ceil((expires-now)/60000))+" min ("+new Date(expires).toLocaleTimeString(undefined,{hour:"2-digit",minute:"2-digit"})+")":
-                "One-time code · use it promptly and do not share it."),
+                 "One-time code · use it promptly and do not share it.")),
             copyMessage&&E("p",{className:"bs-copy-feedback",role:manual?"alert":"status","aria-live":"polite"},copyMessage),
             manual&&E("textarea",{className:"bs-manual-copy",readOnly:true,rows:3,value:manual==="code"?pairCode:endpoint,
               "aria-label":manual==="code"?"Pairing code for manual copying":"Function URL for manual copying",onFocus:e=>e.target.select()}),

@@ -4,13 +4,17 @@ import assert from "node:assert/strict";
 import {createServer} from "node:http";
 import {mkdir,readFile,writeFile} from "node:fs/promises";
 import {spawn} from "node:child_process";
-import {transformSync} from "@babel/core";
+import {parseSync,transformSync} from "@babel/core";
 import net from "node:net";
 import crypto from "node:crypto";
 
 const ROOT=new URL("../",import.meta.url), FIXTURE=`/tmp/blender-studio-browser-${process.pid}`;
 const CHROME=process.env.CHROMIUM||"/repl/tools/bin/chromium", OUT=process.env.BLENDER_STUDIO_UI_OUT||"/tmp/blender-studio-browser";
 const transform=s=>transformSync(s,{presets:[["@babel/preset-react",{runtime:"classic"}]],plugins:["@babel/plugin-transform-block-scoping"],babelrc:false,configFile:false}).code;
+function realFunction(source,name){
+  const node=parseSync(source,{sourceType:"script",parserOpts:{plugins:["jsx"]},babelrc:false,configFile:false}).program.body.find(n=>n.type==="FunctionDeclaration"&&n.id.name===name);
+  assert.ok(node,`production ${name} is available`);return source.slice(node.start,node.end);
+}
 async function prepare(){
   await mkdir(FIXTURE,{recursive:true});await mkdir(OUT,{recursive:true});
   await writeFile(`${FIXTURE}/styles.css`,(await readFile(new URL("../app/styles.css",import.meta.url)))+"\n"+(await readFile(new URL("../app/blender-studio.css",import.meta.url))));
@@ -18,6 +22,9 @@ async function prepare(){
   await writeFile(`${FIXTURE}/client.js`,await readFile(new URL("../app/blender-studio.js",import.meta.url)));
   await writeFile(`${FIXTURE}/setup.js`,transform(await readFile(new URL("../app/blender-studio-setup.jsx",import.meta.url))));
   await writeFile(`${FIXTURE}/ui.js`,transform(await readFile(new URL("../app/blender-studio-ui.jsx",import.meta.url))));
+  await writeFile(`${FIXTURE}/location-section.js`,transform(
+    realFunction(await readFile(new URL("../app/artroom.jsx",import.meta.url),"utf8"),"CardFold")+"\n"+
+    realFunction(await readFile(new URL("../app/locations-ui.jsx",import.meta.url),"utf8"),"LocationBlenderStudioSection")));
   for(const [name,url] of Object.entries({"react.js":"https://unpkg.com/react@18.3.1/umd/react.development.js","react-dom.js":"https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"})){
     try{if((await readFile(`${FIXTURE}/${name}`)).length>10000)continue;}catch{}
     const r=await fetch(url);if(!r.ok)throw new Error(`React cache failed: ${r.status}`);await writeFile(`${FIXTURE}/${name}`,Buffer.from(await r.arrayBuffer()));
@@ -56,7 +63,9 @@ window.BlenderPreview={endpoint:()=>"https://relay.example.test/functions/v1/ble
   if(action==="studio.mesh.cancel")return {task:{id:body.taskId,type:"mesh",status:"cancelled"}};
   throw new Error("unexpected "+action);
 }};
-</script><script src="/contract.js"></script><script src="/client.js"></script><script src="/setup.js"></script><script src="/ui.js"></script><script>
+</script><script src="/contract.js"></script><script src="/client.js"></script><script src="/setup.js"></script><script src="/ui.js"></script><script src="/location-section.js"></script><script>
+window.Icon={chevD:()=>React.createElement("span",null,"⌄"),chevR:()=>React.createElement("span",null,"›")};
+window.mountLocation=()=>window.__root.render(React.createElement(LocationBlenderStudioSection,{key:"location-section",location:{id:"loc-house",name:"House",parentLocationId:null,rootLocationId:"loc-house",context:{description:"",architecture:"brick",materials:"wood",staging:""}},readOnly:false}));
 window.__root=ReactDOM.createRoot(document.getElementById("root"));window.mount=(readOnly=false,key="normal")=>window.__root.render(React.createElement(BlenderStudioEntry,{key,location:{id:"loc-house",name:"House",rootLocationId:"loc-house",context:{description:"",architecture:"brick",materials:"wood",staging:""}},shot:{id:"shot-a",sceneId:"scene-a",name:"Shot A"},references:[{entityId:"loc-house",label:"House",kind:"location"},{entityId:"char-a",label:"Ava",kind:"character"}],readOnly}));
 mount();
 </script></body></html>`;}
@@ -75,9 +84,15 @@ async function setupChecks(c,origin){
   assert.deepEqual(await c.eval(`[...document.querySelectorAll(".bs-step-number")].map(x=>x.textContent)`),["1","2","3","4"],"workflow has four ordered steps");
   assert.equal(await c.eval(`!!document.querySelector(".bs-details")&&!document.querySelector(".bs-details").open`),true,"technical details start collapsed");
   await c.eval(`${pairButton}.click()`);
-  await wait(()=>c.eval(`!!${codeButton}`),"clickable pairing code");
+  await wait(()=>c.eval(`!!${codeButton}`),"separate Copy button");
+  assert.equal(await c.eval(`${codeButton}.textContent`),"Copy","copy action uses the requested button label");
+  assert.equal(await c.eval(`${urlButton}.textContent`),"Copy","Function URL has its own Copy button");
+  assert.equal(await c.eval(`${codeButton}.previousElementSibling.tagName`),"CODE","code text is a sibling, not part of the button");
+  assert.equal(await c.eval(`document.querySelector(".bs-pair-code").textContent.includes("Click to copy")`),false,"old clickable-field wording is removed");
   const initialPairs=await c.eval(`__fixture.pairCount`);
   await c.call("Browser.grantPermissions",{origin,permissions:["clipboardReadWrite","clipboardSanitizedWrite"]});
+  await c.eval(`navigator.clipboard.writeText("fixture-clipboard-before-copy").then(()=>document.querySelector('[data-testid="blender-studio-code-value"]').click())`);
+  assert.equal(await c.eval(`navigator.clipboard.readText()`),"fixture-clipboard-before-copy","clicking the plain code does not invoke copying");
   await c.eval(`${codeButton}.click()`);
   await wait(()=>c.eval(`document.body.innerText.includes("Pairing code copied.")`),"code copy confirmation");
   assert.equal(await c.eval(`navigator.clipboard.readText().then(text=>text===__fixture.currentCode)`),true,"click copies the entire code, not its label or expiry");
@@ -108,7 +123,8 @@ async function setupChecks(c,origin){
   await c.eval(`document.querySelector('[data-testid="blender-studio-step-connect"]').scrollIntoView();new Promise(r=>setTimeout(r,80))`);
   assert.equal(await c.eval(`window.innerWidth`),390,"mobile measurement uses the requested viewport");
   assert.equal(await c.eval(`document.documentElement.scrollWidth<=390`),true,"long pairing code never overflows mobile viewport");
-  assert.equal(await c.eval(`${codeButton}.scrollWidth<=${codeButton}.clientWidth+1`),true,"full code wraps inside its clickable field");
+  assert.equal(await c.eval(`(()=>{const code=document.querySelector('[data-testid="blender-studio-code-value"]');return code.scrollWidth<=code.clientWidth+1;})()`),true,"full code wraps beside its Copy button");
+  assert.equal(await c.eval(`${codeButton}.scrollWidth<=${codeButton}.clientWidth+1`),true,"Copy button text remains visible");
   const mobile=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:true});
   await writeFile(`${OUT}/blender-studio-pairing-mobile.png`,Buffer.from(mobile.data,"base64"));
   await c.eval(`document.documentElement.dataset.theme="light";new Promise(r=>setTimeout(r,50))`);
@@ -142,6 +158,28 @@ async function setupChecks(c,origin){
   await writeFile(`${OUT}/blender-studio-paired.png`,Buffer.from(paired.data,"base64"));
   await c.eval(`delete document.documentElement.dataset.theme`);
   // Check role and stale-scope behavior later without calling a real service.
+}
+async function locationSectionChecks(c){
+  const before=await c.eval(`__fixture.calls.length`);
+  await c.eval(`window.mountLocation()`);
+  await wait(()=>c.eval(`!!document.querySelector(".sheet-fold-head")`),"location section");
+  assert.equal(await c.eval(`document.querySelector(".sheet-fold-head").textContent.includes("Blender Studio · reusable set")`),true,"location section matches Shots naming");
+  assert.equal(await c.eval(`!!document.querySelector(".sheet-fold.open")`),false,"location section begins closed");
+  assert.equal(await c.eval(`!!document.querySelector(".bs-entry")`),false,"closed section does not mount a workspace");
+  await c.eval(`document.querySelector(".sheet-fold-head").click()`);
+  await wait(()=>c.eval(`!!document.querySelector(".sheet-fold-body > details")`),"local Studio explanation");
+  assert.equal(await c.eval(`document.querySelectorAll(".bs-entry").length`),1,"location section contains exactly one Studio");
+  assert.equal(await c.eval(`document.querySelector(".sheet-fold-body > details").open`),false,"About Studio is initially collapsed");
+  await c.eval(`document.querySelector(".sheet-fold-body > details > summary").click()`);
+  await wait(()=>c.eval(`document.querySelector(".sheet-fold-body > details").open`),"expand About Studio");
+  assert.equal(await c.eval(`__fixture.calls.length`),before,"opening the section and reading help makes no service or generation request");
+  await c.eval(`document.documentElement.dataset.theme="light";window.scrollTo(0,0);new Promise(r=>setTimeout(r,50))`);
+  const about=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:true});
+  await writeFile(`${OUT}/blender-studio-location-section.png`,Buffer.from(about.data,"base64"));
+  await c.eval(`delete document.documentElement.dataset.theme;document.querySelector(".bs-head button").click()`);
+  await wait(()=>c.eval(`!!document.querySelector(".bs-send")`),"open Studio from location section");
+  assert.equal(await c.eval(`__fixture.calls.filter(x=>x.action==="studio.workspace.open").slice(-1)[0].body.location.id`),"loc-house","location section opens its own canonical location");
+  assert.equal(await c.eval(`!!__fixture.calls.filter(x=>x.action==="studio.workspace.open").slice(-1)[0].body.shot`),false,"location entry does not manufacture a selected shot");
 }
 async function main(){await prepare();const s=server();await new Promise(ok=>s.listen(0,"127.0.0.1",ok));const debug=9700+Math.floor(Math.random()*200),chrome=spawn(CHROME,["--headless=new","--no-sandbox","--disable-gpu",`--remote-debugging-port=${debug}`,`--user-data-dir=${FIXTURE}/profile`,"about:blank"],{stdio:"ignore"});let c;try{
   let target;await wait(async()=>{try{const r=await fetch(`http://127.0.0.1:${debug}/json/list`);target=(await r.json()).find(x=>x.type==="page");return !!target;}catch{return false;}},"Chrome");
@@ -182,7 +220,9 @@ async function main(){await prepare();const s=server();await new Promise(ok=>s.l
   await c.eval(`window.mount(true,"readonly")`);await wait(()=>c.eval(`!!document.querySelector(".bs-head button")`),"read-only mount");await c.eval(`document.querySelector(".bs-head button").click()`);await wait(()=>c.eval(`document.body.innerText.includes("View-only access")`),"read-only rerender");await wait(()=>c.eval(`document.querySelector(".bs-send button").disabled`),"read-only action blocking");
    assert.equal(await c.eval(`document.querySelector('[data-testid="blender-studio-pair"]').disabled`),true,"view-only users cannot create pairing codes");
    assert.equal(await c.eval(`!!document.querySelector('[data-testid="blender-studio-copy-code"]')`),false,"view-only remount retains no old pairing credential");
-  await c.eval(`window.__fixture.live=true;window.__fixture.defer=true;window.mount(false,"stale")`);await wait(()=>c.eval(`!!document.querySelector(".bs-head button")`),"stale mount");await c.eval(`document.querySelector(".bs-head button").click()`);await wait(()=>c.eval(`typeof window.__fixture.resolve==="function"`),"deferred capability");await c.eval(`window.__fixture.live=false;window.__fixture.resolve();new Promise(r=>setTimeout(r,80))`);assert.equal(await c.eval(`window.__fixture.calls.filter(x=>x.action==="studio.workspace.open").length`),2,"stale capability response does not open a workspace");
+  await locationSectionChecks(c);
+  const opensBeforeStale=await c.eval(`window.__fixture.calls.filter(x=>x.action==="studio.workspace.open").length`);
+  await c.eval(`window.__fixture.live=true;window.__fixture.defer=true;window.mount(false,"stale")`);await wait(()=>c.eval(`!!document.querySelector(".bs-head button")`),"stale mount");await c.eval(`document.querySelector(".bs-head button").click()`);await wait(()=>c.eval(`typeof window.__fixture.resolve==="function"`),"deferred capability");await c.eval(`window.__fixture.live=false;window.__fixture.resolve();new Promise(r=>setTimeout(r,80))`);assert.equal(await c.eval(`window.__fixture.calls.filter(x=>x.action==="studio.workspace.open").length`),opensBeforeStale,"stale capability response does not open a workspace");
   assert.equal(await c.eval(`window.__fixture.calls.some(x=>x.action==="studio.reference.get")`),true,"assistant image source resolves authorized reference");
   assert.equal(await c.eval(`window.__fixture.calls.some(x=>x.action==="studio.mesh.submit"&&x.body.referenceId==="char-a")`),true,"mesh sends explicit reference ID");
   assert.equal(await c.eval(`window.__fixture.calls.some(x=>x.action==="studio.mesh.get")`),true,"queued mesh task is polled through its frozen get action");

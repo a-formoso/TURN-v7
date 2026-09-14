@@ -7,12 +7,15 @@ Characters and Shots, not a replacement for their approved artwork.
 ## Start with a location
 
 1. Open a saved cloud film and its Locations tab.
-2. Open **Blender Studio** on the location or contained place.
+2. Expand **Blender Studio · reusable set** on the location or contained-place
+   card. **About Blender Studio** explains the tools without starting a request;
+   choose **Open Studio** when you are ready.
 3. Download the updated Cinema Machine add-on using the panel's download control.
    Install the ZIP in Blender Preferences → Add-ons → Install from Disk.
    On an Intel Mac, use a compatible Intel Blender release such as 4.5 LTS.
-4. In **Connect Blender**, choose **Create pairing code**. Click the Function URL
-   and pairing code fields to copy each one, then paste them into the matching
+4. In **Connect Blender**, choose **Create pairing code**. Use the separate
+   **Copy** buttons beside Function URL and Pair code, matching the Shots preview
+   layout. Paste each value into the matching
    fields in Blender's CinemaMachine sidebar (press **N** in the 3D view).
    Approve the project and click **Connect** in Blender. The web panel confirms
    **Paired** automatically and folds completed setup away. This is pairing
