@@ -110,10 +110,19 @@ Local unsaved edits must survive server revision conflicts.
   entry/build script ordering, feature manifest, and browser tests.
 - Main owns coordination, documentation, package rebuilding, final integration,
   interoperability verification and publishing decisions.
-- Retain static hosting, existing Supabase project/tables/private bucket. No schema
-  or policy changes, receipt cleanup, character-orbit feature or Story Pipeline edits.
+- Retain static hosting, existing Supabase project/tables/private bucket. The
+  separately approved Studio credit-settlement function is the only additive
+  database change. No table/policy changes, receipt cleanup, character-orbit
+  feature or Story Pipeline edits.
 - AI credentials stay on the server. Reuse current credit-account enforcement and
   idempotent usage settlement; expired paid authorization fails explicitly.
+- Studio settlement uses the service-role-only atomic function, not the legacy
+  browser spend RPC. Its all-NULL invocation is a non-spending readiness probe.
+  Private server-minted spend IDs remain sealed and survive settlement retries.
+- A validated provider result is retained before deduction. A
+  `settlement_pending` task can be retrieved/retried by its authorized launcher
+  without a new provider submission. Proposal/asset payloads remain private until
+  the task is completed and its credit deduction is settled.
 - Validate GLB magic, length, size, hash, JSON chunks, and reject external resources,
   executable content/drivers before importing into isolated managed collections.
 - Render/AI/import work must check cancellation and run/project ownership after

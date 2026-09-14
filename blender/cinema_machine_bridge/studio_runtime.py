@@ -24,7 +24,9 @@ def _error(error: BaseException) -> str:
 def _checked_task(value: Any, workspace: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
     if not isinstance(value, dict) or not isinstance(value.get("id"), str) or not value["id"]:
         raise StudioProtocolError("Studio task response is invalid")
-    if value.get("status") not in {"queued", "running", "completed", "failed", "cancelled"}:
+    if value.get("status") not in {
+        "queued", "running", "settlement_pending", "completed", "failed", "cancelled",
+    }:
         raise StudioProtocolError("Studio task has an invalid status")
     if not isinstance(value.get("modelId"), str) or not value["modelId"]:
         raise StudioProtocolError("Studio task has an invalid model")
@@ -320,6 +322,12 @@ class StudioRuntime:
         if not task or not isinstance(task.get("id"), str):
             self._set_status("Studio error", "There is no Studio task to cancel")
             return
+        if task.get("status") == "settlement_pending":
+            self._set_status(
+                "Studio error",
+                "Provider work is complete; retry credit settlement instead of cancelling",
+            )
+            return
         action = "studio.mesh.cancel" if task.get("type") == "mesh" else "studio.assistant.cancel"
         self._set_status("Cancelling Studio task")
         self._request("cancel", action, {"taskId": task["id"]})
@@ -427,7 +435,11 @@ class StudioRuntime:
                     if message:
                         self.history.append({"role": "Studio", "text": message[:240]})
                     proposal = task.get("proposal")
-                    if proposal is not None and self.workspace is not None:
+                    # A provider result awaiting atomic credit settlement is
+                    # intentionally non-applicable.  Do not retain a stale
+                    # proposal while this same task is retried.
+                    self.proposal = None
+                    if task.get("status") == "completed" and proposal is not None and self.workspace is not None:
                         self.proposal = validate_proposal(proposal, self.workspace)
             elif kind == "asset":
                 if not isinstance(response.get("asset"), dict) or not isinstance(response.get("base64"), str):

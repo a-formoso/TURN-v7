@@ -14,6 +14,7 @@ import os
 import sys
 import tempfile
 import threading
+import time
 
 import bpy  # type: ignore
 
@@ -102,6 +103,64 @@ def _assert_paid_ai_is_nonspending_when_billing_is_disabled():
     )
     if runtime.snapshot()["detail"] != expected or not runtime.events.empty():
         raise AssertionError("disabled paid mesh request attempted transport")
+
+
+def _assert_settlement_pending_retries_same_task(workspace):
+    """Settlement refreshes are task reads, never a new cost-approved submit."""
+
+    pending = {
+        "id": "settlement_task", "status": "settlement_pending",
+        "modelId": "configured-unverified-model", "locationId": workspace["locationId"],
+        "message": "Provider result is awaiting credit settlement.",
+    }
+    completed = dict(pending, status="completed", message="Credit settlement completed.")
+
+    class FakeClient:
+        def __init__(self):
+            self.actions = []
+
+        def post(self, action, **fields):
+            self.actions.append((action, fields))
+            if action != "studio.assistant.get" or fields.get("taskId") != pending["id"]:
+                raise AssertionError("settlement retry made an unexpected network request")
+            return {"task": completed}
+
+    class FakeBridge:
+        def __init__(self):
+            self.lock = threading.RLock()
+            self.network_lock = threading.Lock()
+            self.client = FakeClient()
+            self.project_id = workspace["projectId"]
+            self.generation = 1
+
+        def _current(self, generation):
+            return generation == self.generation
+
+    bridge = FakeBridge()
+    runtime = StudioRuntime(bridge)
+    runtime.workspace = workspace
+    generation = runtime.generation
+    runtime.events.put({
+        "kind": "task", "scopeGeneration": generation, "bridgeGeneration": bridge.generation,
+        "response": {"task": pending},
+    })
+    runtime.pump()
+    if runtime.snapshot()["task"]["status"] != "settlement_pending" or runtime.proposal is not None:
+        raise AssertionError("settlement-pending task was not safely retained without a proposal")
+    runtime.request_task()
+    deadline = time.time() + 1.0
+    while runtime.events.empty() and time.time() < deadline:
+        time.sleep(.005)
+    runtime.pump()
+    state = runtime.snapshot()
+    if state["task"]["id"] != pending["id"] or state["task"]["status"] != "completed":
+        raise AssertionError("settlement retry did not complete the same task")
+    if runtime.generation != generation or [item[0] for item in bridge.client.actions] != ["studio.assistant.get"]:
+        raise AssertionError("settlement retry created a new generation or generation submission")
+    runtime.task = pending
+    runtime.request_cancel_task()
+    if len(bridge.client.actions) != 1:
+        raise AssertionError("settlement-pending task was incorrectly cancellable")
 
 
 def main():
@@ -224,6 +283,7 @@ def main():
         ],
         "references": [], "assets": [], "previews": [],
     }
+    _assert_settlement_pending_retries_same_task(workspace)
     root = studio_scene.open_workspace(scene, workspace)
     if studio_scene.open_workspace(scene, workspace) != root:
         raise AssertionError("workspace reopening recreated its reusable environment")

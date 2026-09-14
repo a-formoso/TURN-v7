@@ -103,6 +103,8 @@ def main() -> int:
             state = wait_for(runtime, lambda item: item.get("status") == "Studio capabilities ready", "native capabilities")
             if not any(item.get("modelId") == "claude-fable-5" and item.get("verified") for item in state["capabilities"].get("models", ())):
                 fail("StudioRuntime capabilities omitted verified native assistant model")
+            if state["capabilities"].get("billingReady") is not True:
+                fail("real Studio capabilities did not advertise the fake atomic billing boundary")
 
             runtime.request_current()
             state = wait_for(runtime, lambda item: isinstance(item.get("workspace"), dict), "native current workspace")
@@ -172,8 +174,20 @@ def main() -> int:
             runtime.request_cancel_task()
             wait_for(runtime, lambda item: item.get("task", {}).get("status") == "cancelled", "native mesh cancellation")
             runtime.request_mesh("meshy/v7/text-to-3d", "Interop triangle", prompt="make triangle", acknowledge_cost=True)
-            wait_for(runtime, lambda item: item.get("task", {}).get("status") == "completed", "completed Meshy task")
-            asset_id = runtime.snapshot()["task"].get("asset", {}).get("id")
+            pending = wait_for(runtime, lambda item: item.get("task", {}).get("status") == "settlement_pending",
+                "validated Meshy stage awaiting settlement")
+            pending_task_id = pending["task"].get("id")
+            if not isinstance(pending_task_id, str):
+                fail("settlement-pending mesh response omitted its existing task ID")
+            # This is the native Retry credit settlement/Refresh action.  It
+            # must reconcile the same staged task, not issue another paid mesh
+            # submission or recreate the provider job.
+            runtime.request_task()
+            completed = wait_for(runtime, lambda item: item.get("task", {}).get("status") == "completed",
+                "same-task Meshy credit settlement retry")
+            if completed["task"].get("id") != pending_task_id:
+                fail("credit settlement retry completed a different mesh task")
+            asset_id = completed["task"].get("asset", {}).get("id")
             if not isinstance(asset_id, str):
                 fail("completed mesh task omitted authenticated asset metadata")
             runtime.request_workspace(reopened["locationId"])

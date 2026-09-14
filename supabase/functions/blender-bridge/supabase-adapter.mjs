@@ -12,6 +12,8 @@ export function createSupabaseAdapter({
   }
 
   const admin = createClient(url, serviceKey);
+  let studioBillingReady;
+  let studioBillingReadyAt = 0;
 
   async function getUserByAccessToken(token) {
     const auth = createClient(url, anonKey, {
@@ -209,11 +211,9 @@ export function createSupabaseAdapter({
     return contentType ? { bytes, contentType } : null;
   }
 
-  // This intentionally uses the launching browser JWT, rather than the admin
-  // client: turn_spend_credit binds auth.uid() and its event id deduplicates
-  // ambiguous transport outcomes.  A paired desktop can only use the sealed,
-  // short-lived authorization captured by workspace.open; the JWT is never in
-  // a relay response.
+  // This non-spending preflight intentionally uses the launching browser JWT.
+  // A paired desktop can only use the sealed, short-lived authorization
+  // captured by workspace.open; the JWT is never in a relay response.
   async function authorizeCredit({ token, cost }) {
     if (!token) return { ok: false, message: "Generation authorization expired." };
     const client = createClient(url, anonKey, {
@@ -226,36 +226,59 @@ export function createSupabaseAdapter({
     const { data: authData, error: authError } = await client.auth.getUser(token);
     if (authError || !authData?.user) return { ok: false, message: "Generation authorization expired." };
     const user = authData.user;
-    const admin = String(user.email || "").toLowerCase() === "admin@infinitestudioai.com";
     const required = Math.max(1, Math.ceil(Number(cost) || 1));
-    if (!admin) {
-      const credits = await client.from("turn_credits").select("plan,remaining")
-        .eq("owner", user.id).limit(1);
-      const row = Array.isArray(credits.data) ? credits.data[0] : credits.data;
-      const plan = String(row?.plan || "none").toLowerCase().trim();
-      const remaining = Number(row?.remaining) || 0;
-      if (!row || (!["writer", "director", "studio"].includes(plan) && remaining <= 0)) {
-        return { ok: false, message: "Choose a plan to start creating — every generation runs on your plan's credits." };
-      }
-      if (remaining < required) return { ok: false, message: `This generation needs ${required} credits, but this account has ${remaining}.` };
+    // Studio's service-role settlement has no email bypass and never creates a
+    // balance row, so its preflight must use the same actual-balance rule.
+    const credits = await client.from("turn_credits").select("plan,remaining")
+      .eq("owner", user.id).limit(1);
+    const row = Array.isArray(credits.data) ? credits.data[0] : credits.data;
+    const plan = String(row?.plan || "none").toLowerCase().trim();
+    const remaining = Number(row?.remaining) || 0;
+    if (!row || (!["writer", "director", "studio"].includes(plan) && remaining <= 0)) {
+      return { ok: false, message: "Choose a plan to start creating — every generation runs on your plan's credits." };
     }
-    return { ok: true, remaining: admin ? null : undefined };
+    if (remaining < required) return { ok: false, message: `This generation needs ${required} credits, but this account has ${remaining}.` };
+    return { ok: true, remaining };
   }
 
-  async function spendCredit({ token, cost, eventId }) {
-    const allowed = await authorizeCredit({ token, cost });
-    if (!allowed.ok) return allowed;
-    const required = Math.max(1, Math.ceil(Number(cost) || 1));
-    const client = createClient(url, anonKey, {
-      global: { headers: { Authorization: `Bearer ${token}` } },
+  async function studioBillingReadyProbe() {
+    const now = Date.now();
+    if (studioBillingReady !== undefined && now - studioBillingReadyAt < (studioBillingReady ? 60000 : 5000)) {
+      return studioBillingReady;
+    }
+    try {
+      const { data, error } = await admin.rpc("turn_studio_settle_credit", {
+        launcher_uid: null, credit_cost: null, studio_event_id: null,
+      });
+      const row = Array.isArray(data) ? data[0] : data;
+      studioBillingReady = !error && row?.ready === true;
+    } catch (_) {
+      studioBillingReady = false;
+    }
+    studioBillingReadyAt = now;
+    return studioBillingReady;
+  }
+
+  async function spendCredit({ uid, cost, eventId }) {
+    // Studio settlement is distinct from legacy browser spend events. The
+    // service-role-only RPC atomically checks/debits an already-existing row
+    // and checks the private server-generated Studio receipt id; no client can
+    // seed the unpredictable id through the legacy browser RPC.
+    if (!(await studioBillingReadyProbe())) {
+      return { ok: false, unavailable: true,
+        message: "Studio atomic credit settlement is not installed." };
+    }
+    if (typeof uid !== "string" || !uid) return { ok: false, message: "Studio launcher is unavailable." };
+    if (!Number.isSafeInteger(cost) || cost <= 0) return { ok: false, message: "Invalid Studio credit cost." };
+    const required = cost;
+    const { data, error } = await admin.rpc("turn_studio_settle_credit", {
+      launcher_uid: uid, credit_cost: required, studio_event_id: eventId,
     });
-    const { data, error } = await client.rpc("turn_spend_credit", {
-      cost: required, event_id: eventId,
-    });
-    if (error) return { ok: false, message: error.message || "Could not authorize credits." };
+    if (error) return { ok: false, message: error.message || "Could not settle Studio credits." };
     const row = Array.isArray(data) ? data[0] : data;
-    if (!row || Number(row.remaining) < 0) return { ok: false, message: "Insufficient credits." };
-    return { ok: true, remaining: Number(row.remaining), plan: row.plan || "none" };
+    if (!row || row.ready !== true || !Number.isSafeInteger(row.remaining) || row.remaining < 0 ||
+      typeof row.plan !== "string") return { ok: false, message: "Invalid Studio settlement response." };
+    return { ok: true, remaining: row.remaining, plan: row.plan };
   }
 
   return {
@@ -276,9 +299,9 @@ export function createSupabaseAdapter({
     validateStudioReference,
     authorizeCredit,
     spendCredit,
-    // turn_spend_credit is idempotent but clamps insufficient balances. Until
-    // an atomic sufficient-funds/idempotent settlement RPC is approved, paid
-    // Studio actions fail closed rather than race a preflight check.
-    atomicStudioSettlement: false,
+    studioBillingReady: studioBillingReadyProbe,
+    // Kept for injected/offline adapters. Production readiness comes from the
+    // non-spending service-role probe above, and fails closed if absent.
+    atomicStudioSettlement: true,
   };
 }

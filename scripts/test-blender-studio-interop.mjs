@@ -115,8 +115,8 @@ function buildTemporaryAddon(directory) {
   return zipPath;
 }
 
-const states = new Map(), files = new Map(), upstream = new Map(), actions = [];
-let writable = true, seed = 19, charges = 0, authorizations = 0;
+const states = new Map(), files = new Map(), upstream = new Map(), meshSubmitCounts = new Map(), actions = [];
+let writable = true, seed = 19, charges = 0, authorizations = 0, assistantSubmissions = 0;
 const goodGlb = minimalGlb();
 assert.throws(() => validateGlb(maliciousGlb()), /unsafe external content/i, "service GLB guard must reject external URI");
 validateGlb(goodGlb);
@@ -152,6 +152,7 @@ const provider = {
   available: true, models: { "claude-fable-5": true }, verifiedModels: { "claude-fable-5": true },
   meshConfigured: true, meshVerified: true,
   async submitAssistant() {
+    assistantSubmissions += 1;
     return { summary: "Add reviewed reception blocking.", ops: [
       { op: "upsert_object", scope: "set", object: { id: "reception-box", name: "Reception box", kind: "box",
         position: [0, 0, .5], rotation: [0, 0, 0], scale: [1, 1, 1], color: [.4, .3, .2] } },
@@ -161,7 +162,10 @@ const provider = {
         keyframes: [{ frame: 1, value: [0, 0, 1] }, { frame: 12, value: [1, 0, 1] }] }], frameStart: 1, frameEnd: 24, fps: 24 },
     ] };
   },
-  async submitMesh(request) { const id = `upstream-${upstream.size + 1}`; upstream.set(id, { ready: request.prompt !== "cancel mesh" }); return { requestId: id }; },
+  async submitMesh(request) {
+    meshSubmitCounts.set(request.prompt, (meshSubmitCounts.get(request.prompt) || 0) + 1);
+    const id = `upstream-${upstream.size + 1}`; upstream.set(id, { ready: request.prompt !== "cancel mesh" }); return { requestId: id };
+  },
   async getMesh(id) { return upstream.get(id)?.ready ? { status: "completed", model_glb: { url: "https://fal.run/interop-triangle.glb" } } : { status: "queued" }; },
   async fetchFile(url) { check(url === "https://fal.run/interop-triangle.glb", "provider URL allowlist drifted"); return { bytes: goodGlb }; },
   async cancelMesh() {},
@@ -265,8 +269,10 @@ async function main() {
     check(actions.includes("studio.workspace.current") && actions.includes("studio.assistant.submit") &&
       actions.includes("studio.mesh.cancel") && actions.includes("studio.asset.get") && actions.includes("studio.preview.publish"),
     "packaged Studio runtime did not exercise the expected real relay actions");
-    check(authorizations >= 3 && charges >= 2,
-      "Studio task authorization/settlement did not reach the real fake billing boundary");
+    check(assistantSubmissions === 1 && meshSubmitCounts.get("make triangle") === 1,
+      "same-task Meshy settlement retry submitted the provider generation more than once");
+    check(authorizations >= 3 && charges === 2,
+      "Studio task authorization/settlement did not reach the real fake atomic billing boundary exactly once");
     console.log("BLENDER_STUDIO_INTEROP_OK pair_v1 browser_open native_workspace proposal_apply manual_save second_shot mesh_glb preview_publish cancellation role_denial");
   } finally {
     if (blender) await blender.catch(() => {});

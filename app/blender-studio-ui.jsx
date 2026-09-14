@@ -12,7 +12,7 @@ function BlenderStudioEntry({location,shot,references,readOnly=false,compact=fal
   const [caps,setCaps]=React.useState(null),[error,setError]=React.useState(""),[loading,setLoading]=React.useState(false);
   const [saving,setSaving]=React.useState(false),[prompt,setPrompt]=React.useState(""),[mode,setMode]=React.useState("scene");
   const [modelId,setModelId]=React.useState(""),[ack,setAck]=React.useState(false),[task,setTask]=React.useState(null);
-  const [proposal,setProposal]=React.useState(null),[imageSource,setImageSource]=React.useState("prompt");
+  const [proposal,setProposal]=React.useState(null),[settlementPolls,setSettlementPolls]=React.useState(0),[imageSource,setImageSource]=React.useState("prompt");
   const [selectedRef,setSelectedRef]=React.useState(""),[privateImage,setPrivateImage]=React.useState("");
   const [history,setHistory]=React.useState([]),[previewUrls,setPreviewUrls]=React.useState({});
   const [connection,setConnection]=React.useState(null),[pair,setPair]=React.useState(null),[pairError,setPairError]=React.useState("");
@@ -75,7 +75,7 @@ function BlenderStudioEntry({location,shot,references,readOnly=false,compact=fal
     if(imageSource==="reference"&&!selectedRef){setError("Select an approved project reference or switch to prompt only.");return;}
     if(imageSource==="private"&&!privateImage){setError("Choose a local temporary image or switch to prompt only.");return;}
     if(!modelId){setError("Select a model advertised by the Blender Studio service.");return;}
-    const token=generation.current,scope=scopeRef.current; if(!scope)return; setError("");
+    const token=generation.current,scope=scopeRef.current; if(!scope)return; setError("");setProposal(null);setSettlementPolls(0);
     let selectedImage="";
     try{
       // assistant.submit accepts image bytes, not an arbitrary reference ID.
@@ -95,8 +95,8 @@ function BlenderStudioEntry({location,shot,references,readOnly=false,compact=fal
           ...(imageSource==="reference"&&selectedRef?{referenceId:selectedRef}:{}),...(imageSource==="private"&&privateImage?{imageDataUrl:privateImage}:{})})};
     try{const result=await (kind==="assistant"?client.assistantSubmit(payload,scope,guard(token,scope)):client.meshSubmit(payload,scope,guard(token,scope)));
       if(!guard(token,scope)())return;const next=result.task||result;setTask(next);
-      setHistory(h=>[...h,{id:next.id+"-ask",role:"Director",text:prompt.trim()},{id:next.id,role:"Studio",text:next.message||("Task "+next.status)}]);
-      if(next.proposal)setProposal(next.proposal);
+       setHistory(h=>[...h,{id:next.id+"-ask",role:"Director",text:prompt.trim()},{id:next.id,role:"Studio",text:next.message||("Task "+next.status)}]);
+       setSettlementPolls(0);if(next.status==="completed"&&next.proposal)setProposal(next.proposal);
     }catch(e){if(guard(token,scope)())setError(bsText(e));}
   };
   const cancel=async()=>{
@@ -104,19 +104,30 @@ function BlenderStudioEntry({location,shot,references,readOnly=false,compact=fal
     try{const r=await (task.type==="mesh"?client.meshCancel(task.id,scope,guard(token,scope)):client.assistantCancel(task.id,scope,guard(token,scope)));
       if(guard(token,scope)())setTask(r.task||r);}catch(e){if(guard(token,scope)())setError(bsText(e,"Could not cancel the task."));}
   };
+  const retrySettlement=async()=>{
+    if(readOnly||!task||task.status!=="settlement_pending"||!client||!scopeRef.current)return;
+    const token=generation.current,scope=scopeRef.current;
+    try{
+      const result=await (task.type==="mesh"?client.meshGet(task.id,scope,guard(token,scope)):client.assistantGet(task.id,scope,guard(token,scope)));
+      if(!guard(token,scope)())return;const next=result.task||result;setTask(next);setSettlementPolls(n=>n+1);
+      if(next.status==="completed"&&next.proposal)setProposal(next.proposal);
+    }catch(e){if(guard(token,scope)())setError(bsText(e,"Credit settlement retry could not be read."));}
+  };
   React.useEffect(()=>{
-    if(!task||!task.id||!["queued","running"].includes(task.status)||!client||!scopeRef.current||readOnly) return;
+    const settlementPending=task&&task.status==="settlement_pending";
+    if(!task||!task.id||(!["queued","running"].includes(task.status)&&(!settlementPending||settlementPolls>=3))||!client||!scopeRef.current||readOnly) return;
     let active=true;const token=generation.current,scope=scopeRef.current;
     const timer=setTimeout(async()=>{
       try{
         const result=await (task.type==="mesh"?client.meshGet(task.id,scope,guard(token,scope)):client.assistantGet(task.id,scope,guard(token,scope)));
         if(!active||!guard(token,scope)())return;const next=result.task||result;setTask(next);
-        if(next.proposal)setProposal(next.proposal);
+        if(settlementPending)setSettlementPolls(n=>n+1);
+        if(next.status==="completed"&&next.proposal)setProposal(next.proposal);
         if(next.status!==task.status||next.message!==task.message)setHistory(h=>[...h,{id:next.id+"-"+next.status,role:"Studio",text:next.message||("Task "+next.status)}]);
       }catch(e){if(active&&guard(token,scope)())setError(bsText(e,"Could not read task progress."));}
-    },1800);
+    },settlementPending?5000:1800);
     return()=>{active=false;clearTimeout(timer);};
-  },[task&&task.id,task&&task.status,task&&task.message,client,readOnly]);
+  },[task&&task.id,task&&task.status,task&&task.message,settlementPolls,client,readOnly]);
   React.useEffect(()=>{
     if(!workspace||!client||!scopeRef.current||!(workspace.previews||[]).length)return;
     let active=true;const token=generation.current,scope=scopeRef.current;
@@ -133,7 +144,7 @@ function BlenderStudioEntry({location,shot,references,readOnly=false,compact=fal
       if(active&&guard(token,scope)())setPreviewUrls(next);
     })();return()=>{active=false;};
   },[workspace&&workspace.locationId,workspace&&workspace.revision,client]);
-  const apply=async()=>{if(!workspace||!proposal)return;try{const next=client.applyProposal(workspace,proposal);const saved=await save(next);if(saved)setProposal(null);}
+  const apply=async()=>{if(!workspace||!proposal||!task||task.status!=="completed"){setError("A paid task must complete before its proposal can be applied.");return;}try{const next=client.applyProposal(workspace,proposal);const saved=await save(next);if(saved)setProposal(null);}
     catch(e){setError(bsText(e,"The proposal could not be applied."));}};
   const addAsset=async(asset)=>{
     if(!asset||!asset.id||!workspace)return;
@@ -218,8 +229,12 @@ function BlenderStudioEntry({location,shot,references,readOnly=false,compact=fal
             _bsEl("button",{type:"button",disabled:readOnly||billingDisabled||!caps||!models.length,onClick:()=>submit(mode==="mesh"?"mesh":"assistant")},mode==="mesh"?"Generate 3D asset":"Send to scene builder"),
             _bsEl("small",null,advertised.length?advertised.map(m=>(m.modelId||m.id)+" · "+(m.configured?"configured":"unavailable")+" · "+(m.verified?"verified":"verification not live")+(m.selectable===false?" · not selectable":"")).join("  |  "):"No server-advertised models available."))),
         task&&_bsEl("div",{className:"bs-task"},_bsEl("b",null,"Task: "+task.status),task.message&&_bsEl("span",null,task.message),
-          ["queued","running"].includes(task.status)&&_bsEl("button",{type:"button",onClick:cancel,disabled:readOnly},"Cancel")),
-        proposal&&_bsEl("div",{className:"bs-proposal"},_bsEl("b",null,"Proposal preview"),_bsEl("p",null,proposal.summary||"Managed scene edits"),
+          ["queued","running"].includes(task.status)&&_bsEl("button",{type:"button",onClick:cancel,disabled:readOnly},"Cancel"),
+          task.status==="settlement_pending"&&_bsEl(React.Fragment,null,
+            _bsEl("p",{className:"bs-warning"},"Credit settlement pending. "+(task.billingMessage||task.settlementMessage||task.message||"The provider result is held until payment settlement succeeds.")),
+            _bsEl("button",{type:"button",onClick:retrySettlement,disabled:readOnly},"Retry credit settlement"),
+            _bsEl("button",{type:"button",disabled:true},"Apply proposal and save"))),
+        proposal&&task&&task.status==="completed"&&_bsEl("div",{className:"bs-proposal"},_bsEl("b",null,"Proposal preview"),_bsEl("p",null,proposal.summary||"Managed scene edits"),
           _bsEl("p",null,(proposal.ops||[]).length+" bounded edit"+((proposal.ops||[]).length===1?"":"s")+"; nothing changes until Apply."),
           _bsEl("button",{type:"button",onClick:apply,disabled:readOnly||saving},"Apply proposal and save")),
         _bsEl("div",{className:"bs-library"},_bsEl("b",null,"Generated asset library"),(workspace.assets||[]).length

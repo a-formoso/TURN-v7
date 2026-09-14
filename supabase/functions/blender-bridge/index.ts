@@ -107,14 +107,24 @@ const provider = {
       ] : prompt;
       const response = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify({ model: modelId, max_tokens: 2048, messages: [{ role: "user", content }] }) });
       if (!response.ok) throw new Error("Assistant provider refused this request.");
-      const json = await response.json(); return json.content?.[0]?.text || "";
+      const json = await response.json();
+      const proposal = JSON.parse(String(json.content?.[0]?.text || ""));
+      return { proposal, usage: {
+        inputTokens: Number(json.usage?.input_tokens || 0),
+        outputTokens: Number(json.usage?.output_tokens || 0),
+      } };
     }
     const inputContent: unknown = imageDataUrl ? [{ role: "user", content: [
       { type: "input_text", text: prompt }, { type: "input_image", image_url: imageDataUrl },
     ] }] : prompt;
     const response = await fetch("https://api.openai.com/v1/responses", { method: "POST", headers: { Authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ model: modelId, input: inputContent }) });
     if (!response.ok) throw new Error("Assistant provider refused this request.");
-    const json = await response.json(); return json.output_text || "";
+    const json = await response.json();
+    const proposal = JSON.parse(String(json.output_text || ""));
+    return { proposal, usage: {
+      inputTokens: Number(json.usage?.input_tokens || 0),
+      outputTokens: Number(json.usage?.output_tokens || 0),
+    } };
   },
 };
 const relay = (url && anonKey && serviceKey)

@@ -24,3 +24,21 @@ description: How video render credit charges are recorded — job-riding spend r
 **Why:** Distinct simultaneous requests can both pass preflight and be reported successful while collecting fewer credits than their combined cost. Existing event-id dedupe prevents duplicate charges for one event, not underpayment across different events.
 
 **How to apply:** New paid entry points require an atomic sufficient-balance/idempotent settlement boundary and must fail closed until it is available. Do not auto-apply a database-function change when the user has prohibited schema changes; ask for that narrowly scoped approval. Keep provider refusal uncharged and preserve durable request ownership before external work.
+
+**Rule:** A valid duplicate must still succeed after the original request used the last credits; check its receipt after acquiring the account lock, before checking available funds.
+
+**Why:** An early receipt lookup can miss a concurrent uncommitted winner. Testing funds after waiting for that winner then incorrectly rejects the duplicate rather than acknowledging the already-recorded charge.
+
+**How to apply:** Test simultaneous duplicate events with a balance that funds only one deduction, not only sequential retries. A fake CAS failure must advance stored revision to represent a genuine concurrent write.
+
+**Rule:** A server-only spender sharing a ledger with a client-callable legacy spender needs private server-minted event IDs, not IDs predictable from browser request IDs.
+
+**Why:** Restricting the new RPC does not prevent a client from pre-seeding a predictable receipt through the old RPC.
+
+**How to apply:** Persist an unguessable event ID before external work, omit it from public task data, and compare both owner and cost when accepting a duplicate receipt.
+
+**Rule:** Recovery of paid generated files requires a durable output checkpoint before debit: retained bytes plus their verified integrity metadata, not only an upstream URL.
+
+**Why:** Provider URLs expire. Treating a transient staged-file read as absence and falling back upstream can turn a recoverable paid result into a permanent provider failure.
+
+**How to apply:** Persist the stage marker before settling. Once it exists, use only the retained file; missing, transient, or corrupt reads remain explicit recovery states. Test lost debit responses together with expired upstream output and a transient stage read.

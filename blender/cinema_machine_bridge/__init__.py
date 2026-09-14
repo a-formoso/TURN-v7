@@ -852,9 +852,12 @@ class CM_OT_studio_apply(bpy.types.Operator):
     def execute(self, context: Any) -> set:
         runtime = _studio_runtime()
         snapshot = runtime.snapshot()
-        workspace, proposal = snapshot.get("workspace"), snapshot.get("proposal")
+        workspace, proposal, task = snapshot.get("workspace"), snapshot.get("proposal"), snapshot.get("task")
         if not isinstance(workspace, dict) or not isinstance(proposal, dict):
             self.report({"ERROR"}, "There is no reviewed assistant proposal to apply")
+            return {"CANCELLED"}
+        if not isinstance(task, dict) or task.get("status") != "completed":
+            self.report({"ERROR"}, "A Studio proposal can be applied only after task completion")
             return {"CANCELLED"}
         try:
             local = studio_scene.apply_proposal(context.scene, workspace, proposal)
@@ -944,6 +947,12 @@ class CM_OT_studio_task_refresh(bpy.types.Operator):
 class CM_OT_studio_task_cancel(bpy.types.Operator):
     bl_idname = "cinema_machine.studio_task_cancel"
     bl_label = "Cancel task"
+
+    @classmethod
+    def poll(cls, _context: Any) -> bool:
+        runtime = _STUDIO_RUNTIME
+        task = runtime.snapshot().get("task") if runtime else None
+        return not (isinstance(task, dict) and task.get("status") == "settlement_pending")
 
     def execute(self, _context: Any) -> set:
         _studio_runtime().request_cancel_task()
@@ -1196,16 +1205,27 @@ def _draw_studio_dialog(layout: Any, context: Any) -> None:
     task = snapshot.get("task")
     if task:
         task_box = layout.box()
+        pending_settlement = task.get("status") == "settlement_pending"
         task_box.label(text="Task: %s" % str(task.get("status", "unknown")))
+        if pending_settlement:
+            task_box.label(text="Provider work is complete; awaiting credit settlement.", icon="INFO")
         buttons = task_box.row(align=True)
-        buttons.operator(CM_OT_studio_task_refresh.bl_idname, text="Refresh")
-        buttons.operator(CM_OT_studio_task_cancel.bl_idname, text="Cancel")
+        buttons.operator(
+            CM_OT_studio_task_refresh.bl_idname,
+            text="Retry credit settlement" if pending_settlement else "Refresh",
+        )
+        cancel = buttons.row(align=True)
+        cancel.enabled = not pending_settlement
+        cancel.operator(CM_OT_studio_task_cancel.bl_idname, text="Cancel")
     proposal = snapshot.get("proposal")
     if proposal:
         reviewed = layout.box()
         reviewed.label(text="Reviewed proposal: " + str(proposal.get("summary", ""))[:150])
         reviewed.label(text="%d typed operation(s); no generated Python will run." % len(proposal.get("ops", [])))
-        reviewed.operator(CM_OT_studio_apply.bl_idname, text="Apply reviewed proposal", icon="CHECKMARK")
+        completed = isinstance(task, dict) and task.get("status") == "completed"
+        apply_row = reviewed.row()
+        apply_row.enabled = completed
+        apply_row.operator(CM_OT_studio_apply.bl_idname, text="Apply reviewed proposal", icon="CHECKMARK")
     if wm.cm_studio_tab == "ASSETS":
         assets = layout.box()
         assets.prop(wm, "cm_studio_asset_id", text="Asset ID")

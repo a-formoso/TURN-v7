@@ -62,10 +62,21 @@ function studio(state) {
 }
 function taskPublic(task) {
   const result = { id: task.id, type: task.type, status: task.status, modelId: task.modelId, locationId: task.locationId };
-  ["baseRevision","message","proposal","asset","error","costEstimate"].forEach(k => { if (task[k] != null) result[k] = clone(task[k]); });
+  ["baseRevision","message","error","costEstimate"].forEach(k => { if (task[k] != null) result[k] = clone(task[k]); });
+  // A provider result is sealed until its associated successful debit is
+  // durable. In particular, an unpaid proposal must never be Apply-able.
+  if (task.status === "completed" && task.usageSettled) {
+    ["proposal","asset"].forEach(k => { if (task[k] != null) result[k] = clone(task[k]); });
+  }
   return result;
 }
 function taskId(type, requestId) { return `studio-${type}-${requestId}`.slice(0, 128); }
+function spendEventId() {
+  // This is generated server-side before the durable task claim and never sent
+  // to a browser/desktop. It cannot be pre-seeded through legacy user-callable
+  // spend receipts, and remains stable for retries once the claim succeeds.
+  return `studio-${crypto.randomUUID()}`;
+}
 function dataImage(value) {
   const m = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})$/.exec(value || "");
   if (!m) throw bad("Invalid reference image."); const bytes = b64Bytes(m[2], MAX_IMAGE);
@@ -152,8 +163,12 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
     check(workspace.objects); workspace.shots.forEach(shot => check(shot.objects));
   }
   function ensureCurrent(s, actorId, locationId, shotId) { studio(s).current[actorId] = { locationId, shotId: shotId || null, updatedAt: now() }; }
+  async function billingReady() {
+    if (typeof adapter?.studioBillingReady === "function") return (await adapter.studioBillingReady()) === true;
+    return adapter?.atomicStudioSettlement === true;
+  }
   async function authorize(ctx, token, cost = 1) {
-    if (adapter?.atomicStudioSettlement !== true) {
+    if (!(await billingReady())) {
       throw error(503, "billing_atomic_settlement_unavailable",
         "Studio generation is unavailable until atomic credit settlement is configured.");
     }
@@ -164,8 +179,23 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
   async function settle(ctx, task, token) {
     if (typeof adapter?.spendCredit !== "function") throw error(503, "billing_unavailable", "Studio billing is unavailable.");
     const result = await adapter.spendCredit({ token, uid: ctx.actor.id, cost: task.costEstimate.credits, eventId: task.spendEventId, reason: `blender-studio:${task.type}` });
+    if (result?.unavailable) throw error(503, "billing_atomic_settlement_unavailable",
+      result.message || "Studio atomic credit settlement is unavailable.");
     if (!result?.ok) throw error(402, "insufficient_credits", result?.message || "Insufficient credits for this generation.");
     task.usageSettled = true;
+  }
+  async function recoverTaskResponse(ctx, taskKey, cause) {
+    // Never retry a write with the snapshot that just lost a CAS. The result
+    // was already checkpointed before settlement, so returning its current
+    // task gives the client a recovery id without risking another generation.
+    const fresh = await ctx.refresh(), current = studio(fresh.state).tasks[taskKey];
+    if (!current) throw cause || error(404, "not_found", "Studio task not found.");
+    const task = taskPublic(current);
+    if (current.status === "settlement_pending") {
+      task.message = "Provider completed; credit settlement can be retried.";
+      task.error = String(cause?.message || "Credit settlement pending.").slice(0, 400);
+    }
+    return { task };
   }
   async function fetchOutput(url) {
     if (!isTrustedFalUrl(url) || typeof provider.fetchFile !== "function") throw error(502, "provider_output_invalid", "Provider returned an untrusted asset URL.");
@@ -174,21 +204,44 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
     return result.bytes;
   }
   async function resolveMesh(task, ctx, token) {
-    if (task.status === "cancelled" || task.status === "failed") return task;
-    if (typeof provider.getMesh !== "function") return task;
-    const remote = await provider.getMesh(task.upstreamId);
-    await ctx.recheck();
-    if (!remote || remote.status === "queued" || remote.status === "running") { task.status = remote?.status === "running" ? "running" : "queued"; return task; }
-    if (remote.status === "failed" || remote.status === "cancelled") { task.status = "failed"; task.error = String(remote.error || "Mesh provider refused this request.").slice(0, 400); task.providerRefusal = true; return task; }
-    const file = remote.animation_glb || (task.rigged ? remote.rigged_character_glb : null) || remote.model_glb;
-    if (!file || !isTrustedFalUrl(file.url)) { task.status = "failed"; task.error = "Provider returned no trusted GLB."; return task; }
-    task.upstreamOutputUrl = file.url; // sealed relay state only; never an API response
-    const bytes = await fetchOutput(file.url); validateGlb(bytes); await ctx.recheck();
-    const digest = await sha(bytes), assetId = `asset-${task.id}`.slice(0, 128);
-    const path = `${ctx.access.ownerId}/studio-assets/${ctx.projectId}/${task.locationId}/${assetId}.glb`;
-    if (typeof adapter?.uploadStudioAsset !== "function") throw error(503, "storage_unavailable", "Studio asset storage is unavailable.");
+    if (task.status === "cancelled" || task.status === "failed" || task.status === "completed") return task;
+    let bytes, digest;
+    if (task.stageReady) {
+      // Once the checkpoint is durable, provider URLs are deliberately never
+      // consulted again. A transient/corrupt private-stage read stays pending.
+      try {
+        bytes = await adapter.downloadStudioAsset(task.stagePath);
+        validateGlb(bytes); digest = await sha(bytes);
+        if (bytes.length !== task.stageReady.bytes || digest !== task.stageReady.sha256) throw new Error("Staged GLB integrity mismatch.");
+      } catch (e) {
+        task.status = "settlement_pending";
+        task.message = "Validated asset staging is temporarily unavailable; retry.";
+        task.error = String(e.message || "Staged asset unavailable.").slice(0, 400);
+        return task;
+      }
+    } else {
+      if (typeof provider.getMesh !== "function") return task;
+      const remote = await provider.getMesh(task.upstreamId);
+      await ctx.recheck();
+      if (!remote || remote.status === "queued" || remote.status === "running") { task.status = remote?.status === "running" ? "running" : "queued"; return task; }
+      if (remote.status === "failed" || remote.status === "cancelled") { task.status = "failed"; task.error = String(remote.error || "Mesh provider refused this request.").slice(0, 400); task.providerRefusal = true; return task; }
+      const file = remote.animation_glb || (task.rigged ? remote.rigged_character_glb : null) || remote.model_glb;
+      if (!file || !isTrustedFalUrl(file.url)) { task.status = "failed"; task.error = "Provider returned no trusted GLB."; return task; }
+      task.upstreamOutputUrl = file.url; // sealed relay state only; never an API response
+      bytes = await fetchOutput(file.url); validateGlb(bytes); await ctx.recheck();
+      digest = await sha(bytes);
+      if (typeof adapter?.uploadStudioAsset !== "function") throw error(503, "storage_unavailable", "Studio asset storage is unavailable.");
+      try { await adapter.uploadStudioAsset(task.stagePath, bytes, "model/gltf-binary"); }
+      catch (e) { e.studioOutputDurable = true; throw e; }
+      // This checkpoint is persisted by the caller before any debit. A later
+      // reconciliation reads this stage and cannot fall back to the provider.
+      task.stageReady = { sha256: digest, bytes: bytes.length };
+      task.providerCompleted = true; task.status = "settlement_pending";
+      task.message = "Validated asset staged; awaiting credit settlement.";
+      return task;
+    }
+    const assetId = `asset-${task.id}`.slice(0, 128), path = task.stagePath;
     if (!task.usageSettled) { await settle(ctx, task, token); await ctx.recheck(); }
-    await adapter.uploadStudioAsset(path, bytes, "model/gltf-binary"); await ctx.recheck();
     task.status = "completed"; task.asset = { id: assetId, name: task.name, kind: "glb", sha256: digest, bytes: bytes.length, modelId: task.modelId, rigged: !!task.rigged, animated: !!task.animated, ...(task.characterId ? { characterId: task.characterId } : {}) };
     task.assetPath = path; return task;
   }
@@ -208,8 +261,8 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
         meshModels: MESH_MODELS.map(modelId => ({ modelId, configured: !!provider.meshConfigured,
           verified: !!provider.meshVerified, selectable: !!provider.meshConfigured,
           ...(!provider.meshVerified && provider.meshConfigured ? { warning: "Configured but not catalog-verified." } : {}) })),
-        available: !!provider.available, billingReady: adapter?.atomicStudioSettlement === true,
-        billingMessage: adapter?.atomicStudioSettlement === true ? null :
+        available: !!provider.available, billingReady: await billingReady(),
+        billingMessage: await billingReady() ? null :
           "Studio generation is unavailable until atomic credit settlement is configured.",
         meshEstimate: meshEstimate(false, false),
       };
@@ -275,7 +328,7 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
       if (!isMesh && (!provider.models?.[modelId] || !provider.available)) throw error(503, "provider_unavailable", "Selected assistant model is unavailable.");
       // Paid activation must fail before durable task publication as well as
       // before provider work when atomic sufficient-funds settlement is absent.
-      if (adapter?.atomicStudioSettlement !== true) throw error(503,
+       if (!(await billingReady())) throw error(503,
         "billing_atomic_settlement_unavailable",
         "Studio generation is unavailable until atomic credit settlement is configured.");
       if (!isMesh && body.baseRevision !== work.revision) throw conflict();
@@ -306,7 +359,8 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
           throw bad("Character is not an authorized workspace reference.");
         }
       } else { if (body.mode !== "scene" && body.mode !== "animation") throw bad("Invalid assistant mode."); str(body.prompt, "assistant prompt", 6000); }
-      const type = isMesh ? "mesh" : "assistant", task = { id: taskId(type, requestId), type, status: "queued", modelId, locationId, baseRevision: isMesh ? undefined : work.revision, requestId, launcherId: ctx.actor.id, message: "Queued.", spendEventId: `studio-${ctx.actor.id}-${type}-${requestId}`, costEstimate: isMesh ? meshEstimate(!!body.rigged, !!body.animated) : { providerCostUsd: null, credits: null, basis: "final cost uses reported provider token usage" }, ...(isMesh ? { name: str(body.name, "asset name", 120), rigged: !!body.rigged, animated: !!body.animated, characterId: body.characterId ? id(body.characterId, "character id") : undefined } : {}) };
+      const type = isMesh ? "mesh" : "assistant", outputNonce = isMesh ? crypto.randomUUID() : null,
+        task = { id: taskId(type, requestId), type, status: "queued", modelId, locationId, baseRevision: isMesh ? undefined : work.revision, requestId, launcherId: ctx.actor.id, message: "Queued.", spendEventId: spendEventId(), costEstimate: isMesh ? meshEstimate(!!body.rigged, !!body.animated) : { providerCostUsd: null, credits: null, basis: "final cost uses reported provider token usage" }, ...(isMesh ? { stagePath: `blender-studio-internal/output/${outputNonce}/asset.glb`, name: str(body.name, "asset name", 120), rigged: !!body.rigged, animated: !!body.animated, characterId: body.characterId ? id(body.characterId, "character id") : undefined } : {}) };
       const delegated = data.delegatedAuth?.[ctx.actor.id];
       const token = ctx.browserToken || (delegated?.expiresAt > now() ? delegated.token : null);
       if (!token) throw error(401, "billing_authorization_expired", "Open this workspace in a browser again before paid generation.");
@@ -317,10 +371,29 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
           const remote = await provider.submitMesh({ endpoint: modelId, prompt: body.prompt, image: image?.bytes, target_polycount: body.targetPolycount, enable_rigging: !!body.rigged, enable_animation: !!body.animated, animation_action_id: body.animationActionId == null ? 92 : body.animationActionId, requestId });
           await ctx.recheck(); const fresh = await ctx.refresh(), next = clone(fresh.state), durable = studio(next).tasks[key];
           if (durable.status === "cancelled") return { task: taskPublic(durable) };
-          durable.upstreamId = remote?.requestId || remote?.id; if (!durable.upstreamId) { durable.status = "failed"; durable.error = "Mesh provider did not return a request id."; } else await resolveMesh(durable, { ...ctx, access: ctx.access, recheck: ctx.recheck }, token);
+           durable.upstreamId = remote?.requestId || remote?.id;
+           if (!durable.upstreamId) { durable.status = "failed"; durable.error = "Mesh provider did not return a request id."; }
+           else {
+             // The upstream job must survive an edge response/CAS failure. It
+             // can then be reconciled and settled with this same task event.
+             const claimed = await persist({ ...ctx, snapshot: fresh }, next);
+             const claimedState = clone(claimed.state), claimedTask = studio(claimedState).tasks[key];
+             await resolveMesh(claimedTask, { ...ctx, snapshot: claimed, access: ctx.access, recheck: ctx.recheck }, token);
+             if (claimedTask.asset && !claimedState.studio.workspaces[locationId].assets.some(a => a.id === claimedTask.asset.id)) claimedState.studio.workspaces[locationId].assets.push(claimedTask.asset);
+             const updated = await persist({ ...ctx, snapshot: claimed }, claimedState);
+             return { task: taskPublic(updated.state.studio.tasks[key]) };
+           }
           if (durable.asset && !next.studio.workspaces[locationId].assets.some(a => a.id === durable.asset.id)) next.studio.workspaces[locationId].assets.push(durable.asset);
           const updated = await persist({ ...ctx, snapshot: fresh }, next); return { task: taskPublic(updated.state.studio.tasks[key]) };
-        } catch (e) { const fresh = await ctx.refresh(), next = clone(fresh.state), durable = studio(next).tasks[key]; if (durable && durable.status !== "cancelled") { durable.status = "failed"; durable.error = String(e.message || "Mesh provider refused this request.").slice(0,400); durable.providerRefusal = true; const updated = await persist({ ...ctx, snapshot:fresh },next); if (e?.status === 402) throw e; return {task:taskPublic(updated.state.studio.tasks[key])}; } throw e; }
+         } catch (e) { const fresh = await ctx.refresh(), next = clone(fresh.state), durable = studio(next).tasks[key]; if (durable && durable.status !== "cancelled") {
+           if (durable.upstreamId && (e?.status == null || e?.status === 402 || e?.status === 503 || e?.status === 409 || e?.studioOutputDurable || durable.providerCompleted)) {
+             durable.status = "settlement_pending"; durable.message = "Provider completed; credit settlement can be retried.";
+             durable.error = String(e.message || "Credit settlement pending.").slice(0,400); durable.providerRefusal = false;
+           } else { durable.status = "failed"; durable.error = String(e.message || "Mesh provider refused this request.").slice(0,400); durable.providerRefusal = true; }
+           const updated = await persist({ ...ctx, snapshot:fresh },next);
+           if (durable.status === "settlement_pending") return {task:taskPublic(updated.state.studio.tasks[key])};
+           if (e?.status === 402 || e?.status === 503) throw e;
+           return {task:taskPublic(updated.state.studio.tasks[key])}; } throw e; }
       }
       try {
         await authorize(ctx, token, 1); await ctx.recheck();
@@ -341,26 +414,76 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
             validateBindings(candidate);
           }
           durable.costEstimate = assistantEstimate(modelId, typeof answer === "object" ? answer.usage : null);
-          await settle(ctx, durable, token); await ctx.recheck();
-          durable.status = "completed"; durable.message = "Proposal ready for explicit Apply.";
+          // Save the validated provider result before charging. If a debit
+          // response is lost or rejects due to a concurrent spend, retry the
+          // same private event from assistant.get without resubmitting.
+          durable.status = "settlement_pending";
+          durable.message = "Provider completed; awaiting credit settlement.";
         }
-        const updated = await persist({ ...ctx, snapshot:fresh }, next); return { task: taskPublic(updated.state.studio.tasks[key]) };
-      } catch (e) { const fresh=await ctx.refresh(), next=clone(fresh.state), durable=studio(next).tasks[key]; if(durable&&durable.status!=="cancelled"){durable.status="failed";durable.error=String(e.message||"Assistant refused this request.").slice(0,400);durable.providerRefusal=true;const updated=await persist({...ctx,snapshot:fresh},next);if(e?.status===402)throw e;return {task:taskPublic(updated.state.studio.tasks[key])};} throw e; }
+        const prepared = await persist({ ...ctx, snapshot:fresh }, next);
+        const settledState = clone(prepared.state), settled = studio(settledState).tasks[key];
+        if (settled.status === "cancelled" || settled.status === "completed") return { task: taskPublic(settled) };
+        try {
+          await settle(ctx, settled, token); await ctx.recheck();
+          settled.status = "completed"; settled.message = "Proposal ready for explicit Apply.";
+          const updated = await persist({ ...ctx, snapshot: prepared }, settledState);
+          return { task: taskPublic(updated.state.studio.tasks[key]) };
+        } catch (e) {
+          return await recoverTaskResponse(ctx, key, e);
+        }
+      } catch (e) { const fresh=await ctx.refresh(), next=clone(fresh.state), durable=studio(next).tasks[key]; if(durable&&durable.status!=="cancelled"&&durable.status!=="settlement_pending"){durable.status="failed";durable.error=String(e.message||"Assistant refused this request.").slice(0,400);durable.providerRefusal=true;const updated=await persist({...ctx,snapshot:fresh},next);if(e?.status===402)throw e;return {task:taskPublic(updated.state.studio.tasks[key])};} throw e; }
     }
     if (body.action === "studio.assistant.get" || body.action === "studio.mesh.get" || body.action === "studio.assistant.cancel" || body.action === "studio.mesh.cancel") {
       const type = body.action.includes(".mesh.") ? "mesh" : "assistant", task = Object.values(data.tasks).find(t => t.id === id(body.taskId, "task id") && t.type === type);
       if (!task) throw error(404, "not_found", "Studio task not found.");
-      if (body.action.endsWith(".cancel")) { if (task.status === "queued" || task.status === "running") { task.status = "cancelled"; task.message = "Cancelled."; if(task.upstreamId && provider.cancelMesh) { await provider.cancelMesh(task.upstreamId); await ctx.recheck(); } const saved=await persist(ctx,state); return {task:taskPublic(saved.state.studio.tasks[Object.keys(data.tasks).find(k=>data.tasks[k].id===task.id)])}; } return { task: taskPublic(task) }; }
-      if (type === "mesh" && task.upstreamId && ["queued","running"].includes(task.status)) {
+      if (body.action.endsWith(".cancel")) {
+        if (task.launcherId !== ctx.actor.id) throw denied("Only the task launcher can cancel this generation.");
+        if (task.status === "queued" || task.status === "running") { task.status = "cancelled"; task.message = "Cancelled."; if(task.upstreamId && provider.cancelMesh) { await provider.cancelMesh(task.upstreamId); await ctx.recheck(); } const saved=await persist(ctx,state); return {task:taskPublic(saved.state.studio.tasks[Object.keys(data.tasks).find(k=>data.tasks[k].id===task.id)])}; } return { task: taskPublic(task) }; }
+      if (type === "assistant" && task.status === "settlement_pending") {
+        if (task.launcherId !== ctx.actor.id) return { task: taskPublic(task) };
+        const fresh = await ctx.refresh(), next = clone(fresh.state),
+          taskKey = Object.keys(studio(next).tasks).find(k => studio(next).tasks[k].id === task.id),
+          durable = studio(next).tasks[taskKey];
+        if (!durable || durable.status === "completed" || durable.status === "cancelled") {
+          return { task: taskPublic(durable || task) };
+        }
+        if (durable.status !== "settlement_pending") return { task: taskPublic(durable) };
+        const delegated = studio(next).delegatedAuth?.[task.launcherId];
+        const token = ctx.browserToken || (delegated?.expiresAt > now() ? delegated.token : null);
+        if (!token) throw error(401, "billing_authorization_expired", "Open this workspace in a browser again before paid generation.");
+        try {
+          if (typeof ctx.writeCheck === "function") await ctx.writeCheck();
+          await settle(ctx, durable, token); await ctx.recheck();
+          durable.status = "completed"; durable.message = "Proposal ready for explicit Apply."; delete durable.error;
+          const saved = await persist({ ...ctx, snapshot: fresh }, next);
+          return { task: taskPublic(saved.state.studio.tasks[taskKey]) };
+        } catch (e) {
+          return await recoverTaskResponse(ctx, taskKey, e);
+        }
+      }
+      if (type === "mesh" && task.upstreamId && ["queued","running","settlement_pending"].includes(task.status)) {
         // A collaborator may inspect shared task status but may not consume
         // the launcher's sealed billing authorization or settle its spend.
         if (task.launcherId !== ctx.actor.id) return { task: taskPublic(task) };
         const fresh = await ctx.refresh(), next = clone(fresh.state), taskKey = Object.keys(data.tasks).find(k => data.tasks[k].id === task.id), durable = studio(next).tasks[taskKey];
+        if (!durable || durable.status === "completed" || durable.status === "cancelled") {
+          return { task: taskPublic(durable || task) };
+        }
+        if (!["queued","running","settlement_pending"].includes(durable.status)) return { task: taskPublic(durable) };
         const delegated = studio(next).delegatedAuth?.[task.launcherId];
         const token = ctx.browserToken || (delegated?.expiresAt > now() ? delegated.token : null);
         if (!token) throw error(401, "billing_authorization_expired", "Open this workspace in a browser again before paid generation.");
-        try { await resolveMesh(durable, { ...ctx, snapshot: fresh }, token); }
-        catch (e) { durable.status = "failed"; durable.providerRefusal = true; durable.error = String(e.message || "Mesh provider refused this request.").slice(0, 400); }
+        try {
+          if (typeof ctx.writeCheck === "function") await ctx.writeCheck();
+          await resolveMesh(durable, { ...ctx, snapshot: fresh }, token);
+        }
+        catch (e) {
+          if (e?.status == null || e?.status === 402 || e?.status === 503 || e?.status === 409 || e?.studioOutputDurable || durable.providerCompleted) {
+            durable.status = "settlement_pending"; durable.providerRefusal = false;
+            durable.message = "Provider completed; credit settlement can be retried.";
+          } else { durable.status = "failed"; durable.providerRefusal = true; }
+          durable.error = String(e.message || "Mesh provider refused this request.").slice(0, 400);
+        }
         if (durable.asset && !next.studio.workspaces[durable.locationId].assets.some(a => a.id === durable.asset.id)) next.studio.workspaces[durable.locationId].assets.push(durable.asset);
         const saved = await persist({ ...ctx, snapshot: fresh }, next);
         return { task: taskPublic(saved.state.studio.tasks[taskKey]) };

@@ -59,6 +59,24 @@ editing locally, playback and local rendering do not invoke a paid provider.
 Generation may remain unavailable until account, provider and credit-authority
 checks pass. Cancelling does not promise to reverse provider work already done.
 
+### Credit deductions and recovery
+
+Studio uses a separate server-only credit function installed by
+`supabase/studio-credit-settlement-migration.sql`. It checks the full cost and
+records the deduction in one transaction. Retried completion messages use the
+same private event ID, so they cannot deduct credits twice. Existing image/video
+billing is not changed by this migration.
+
+Only a non-spending readiness check runs when Studio checks whether billing is
+available. Starting generation still requires the existing account's credits;
+Studio does not grant starter credits or bypass balances for administrators.
+
+If generation completes but its credit deduction cannot finish, Studio retains
+the result privately and shows **Credit settlement pending**. Use **Retry credit
+settlement** to finish the same task. This does not start another generation or
+require a new paid-processing acknowledgement. A proposal or asset becomes
+available only after the deduction succeeds.
+
 ## Reuse the set for shots
 
 Open Studio from a shot to select its canonical location workspace. A new shot
@@ -91,6 +109,7 @@ shot frames are not replaced.
 
 ```sh
 node scripts/test-blender-studio-relay.mjs
+node scripts/test-blender-studio-billing.mjs
 node scripts/test-blender-studio-ui.mjs
 blender --background --factory-startup --python scripts/test-blender-studio-native.py
 node scripts/test-blender-studio-interop.mjs
