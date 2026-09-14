@@ -35,6 +35,15 @@ The workflow "Start application" is already configured and will start this autom
   website publishing stays unchanged. Blender is a development-only verification
   dependency, not required by the website or its cloud relay.
 
+## Blender product direction
+
+The intended product goes beyond the current one-shot preview proof: Higgsfield-style
+AI-assisted scene building inside Blender, connected to Cinema Machine's existing
+locations/contained places, character references, and shots. The aim is reusable
+sets and shot blocking/camera references returned for later Seedance animation,
+not isolated throwaway scenes for every shot. This is the user's stated direction,
+not functionality already implemented or authorization to start paid generation.
+
 ## Important conventions (see AGENTS.md for full details)
 
 - **MUSE branding**: never name McKee / Robert McKee / Codex / Anthropic in MUSE output; `scrubBrand()` in `ai.jsx` is the safety net
