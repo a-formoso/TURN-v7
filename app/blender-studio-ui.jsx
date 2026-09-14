@@ -15,26 +15,13 @@ function BlenderStudioEntry({location,shot,references,readOnly=false,compact=fal
   const [proposal,setProposal]=React.useState(null),[settlementPolls,setSettlementPolls]=React.useState(0),[imageSource,setImageSource]=React.useState("prompt");
   const [selectedRef,setSelectedRef]=React.useState(""),[privateImage,setPrivateImage]=React.useState("");
   const [history,setHistory]=React.useState([]),[previewUrls,setPreviewUrls]=React.useState({});
-  const [connection,setConnection]=React.useState(null),[pair,setPair]=React.useState(null),[pairError,setPairError]=React.useState("");
+  const [connection,setConnection]=React.useState(null);
   const alive=React.useRef(true), generation=React.useRef(0), scopeRef=React.useRef(null);
   const readOnlyLive=React.useRef(readOnly);readOnlyLive.current=readOnly;
   React.useEffect(()=>()=>{alive.current=false;generation.current++;},[]);
   const guard=React.useCallback((token,scope)=>()=>alive.current&&generation.current===token&&!readOnlyLive.current&&
     !!(client&&client.isCurrent&&client.isCurrent(scope)),[client,readOnly]);
   const referenceList=React.useMemo(()=>bsRefs(references),[references]);
-  React.useEffect(()=>{
-    if(!open||!client||!window.BlenderPreview||!location||!location.id)return;
-    let active=true,scope;const roleAtStart=readOnlyLive.current;
-    (async()=>{
-      try{
-        scope=client.scope();
-        const result=await window.BlenderPreview.request("connection.get",{projectId:scope.projectId},scope,
-          ()=>active&&client.isCurrent(scope)&&readOnlyLive.current===roleAtStart);
-        if(active&&client.isCurrent(scope)&&readOnlyLive.current===roleAtStart)setConnection(result&&result.connection||result||null);
-      }catch(e){if(active&&(!scope||client.isCurrent(scope))&&readOnlyLive.current===roleAtStart)setPairError(bsText(e,"Blender desktop connection status is unavailable."));}
-    })();
-    return()=>{active=false;};
-  },[open,client,location&&location.id]);
   const load=React.useCallback(async()=>{
     if(!client){setError("Blender Studio is unavailable in this build.");return;}
     if(!location||!location.id){setError("This entry has no canonical location reference.");return;}
@@ -151,27 +138,6 @@ function BlenderStudioEntry({location,shot,references,readOnly=false,compact=fal
     if((workspace.assets||[]).some(a=>a.id===asset.id)){setError("This generated asset is already in the set library.");return;}
     await save({...workspace,assets:[...(workspace.assets||[]),bsClone(asset)]});
   };
-  const pairDesktop=async()=>{
-    if(readOnly){setPairError("View-only access cannot pair a Blender desktop.");return;}
-    if(!client||!window.BlenderPreview)return;
-    let scope;
-    try{
-      scope=client.scope();setPairError("");
-      const result=await window.BlenderPreview.request("pair.create",{projectId:scope.projectId},scope,
-        ()=>alive.current&&client.isCurrent(scope)&&!readOnlyLive.current);
-      if(client.isCurrent(scope)&&!readOnlyLive.current)setPair(result||null);
-    }catch(e){if((!scope||client.isCurrent(scope))&&!readOnlyLive.current)setPairError(bsText(e,"Could not create a pairing code."));}
-  };
-  const disconnectDesktop=async()=>{
-    if(readOnly||!client||!window.BlenderPreview)return;
-    let scope;
-    try{
-      scope=client.scope();
-      await window.BlenderPreview.request("connection.disconnect",{projectId:scope.projectId},scope,
-        ()=>alive.current&&client.isCurrent(scope)&&!readOnlyLive.current);
-      if(client.isCurrent(scope)&&!readOnlyLive.current){setConnection(null);setPair(null);}
-    }catch(e){if((!scope||client.isCurrent(scope))&&!readOnlyLive.current)setPairError(bsText(e,"Could not disconnect Blender desktop."));}
-  };
   const importAsset=async(asset)=>{
     if(!asset||!asset.id||!workspace)return;
     const object={id:"asset-"+asset.id+"-"+Date.now().toString(36),name:asset.name||"Imported asset",kind:"mesh",
@@ -188,46 +154,41 @@ function BlenderStudioEntry({location,shot,references,readOnly=false,compact=fal
   // verification; it stays selectable with an honest label and the relay may
   // reject it explicitly. We never substitute another model on that rejection.
   const models=advertised.filter(m=>m&&m.configured&&m.selectable!==false);
-  const status=workspace?"Set revision "+workspace.revision+(shot?" · shot "+shot.id:""):"Not opened";
+  React.useEffect(()=>{
+    if(modelId&&!models.some(m=>(m.modelId||m.id||m)===modelId))setModelId("");
+  },[mode,models.map(m=>m.modelId||m.id||m).join("|")]);
   return _bsEl("section",{className:"bs-entry"+(compact?" bs-compact":""),"data-testid":"blender-studio-entry"},
-    _bsEl("div",{className:"bs-head"},_bsEl("div",null,_bsEl("strong",null,"Blender Studio"),_bsEl("small",null,"Reusable set workspace · "+status)),
-      _bsEl("button",{type:"button",className:"char-draft-btn ghost",onClick:()=>{setOpen(v=>!v);if(!open)load();}},open?"Close studio":"Open in Blender")),
+    _bsEl("div",{className:"bs-head"},_bsEl("div",null,_bsEl("strong",null,"Blender Studio"),_bsEl("small",null,"Build one reusable location set, then use it across shots.")),
+      _bsEl("button",{type:"button",className:"char-draft-btn ghost",onClick:()=>{setOpen(v=>!v);if(!open)load();}},open?"Close studio":"Open Studio")),
     open&&_bsEl("div",{className:"bs-body"},
-      readOnly&&_bsEl("p",{className:"bs-warning"},"View-only access: workspace state, previews and chat are readable; sending, applying and saving are disabled."),
-      _bsEl("p",{className:"bs-disclosure"},"A location is one reusable contained-place set. Opening another shot adds that shot to the same set; it never recreates its environment. Local uploads are temporary provider inputs only and are never saved as shared source pixels."),
-      _bsEl("div",{className:"bs-onboarding"},_bsEl("b",null,"Blender desktop connection"),
-        _bsEl("p",null,connection&&connection.connected
-          ? "Connected to "+(connection.deviceName||"Blender desktop")+". This location can be opened before any shot exists."
-          : "Install and pair Blender once. You can open this location set before creating a shot."),
-        window.BlenderAddonDownload?_bsEl(window.BlenderAddonDownload):_bsEl("small",null,"The embedded add-on installer is unavailable in this build."),
-        connection&&connection.connected
-          ? _bsEl("button",{type:"button",disabled:readOnly,onClick:disconnectDesktop},"Disconnect desktop")
-          : _bsEl("button",{type:"button",disabled:readOnly,onClick:pairDesktop},"Pair Blender desktop"),
-        pair&&_bsEl("p",{className:"bs-pair",role:"status"},"Pairing code: "+(pair.pairCode||pair.code||"created")+" "+(pair.expiresAt?"· expires "+pair.expiresAt:"")),
-        pairError&&_bsEl("p",{className:"bs-error",role:"alert"},pairError)),
-      loading?_bsEl("p",{role:"status"},"Opening the set workspace…"):null,
-      error&&_bsEl("p",{role:"alert",className:"bs-error"},error),
-      workspace&&_bsEl(React.Fragment,null,
-        _bsEl("div",{className:"bs-state"},_bsEl("span",null,"Objects: "+(workspace.objects||[]).length),_bsEl("span",null,"Shots: "+(workspace.shots||[]).length),
-          _bsEl("span",null,"Assets: "+(workspace.assets||[]).length),_bsEl("span",null,"Previews: "+(workspace.previews||[]).length),
-          _bsEl("button",{type:"button",disabled:saving||readOnly,onClick:()=>save(workspace)},saving?"Saving…":"Save workspace"),
-          _bsEl("button",{type:"button",onClick:load},"Reload (discard panel changes)")),
-        _bsEl("div",{className:"bs-composer"},_bsEl("div",{className:"bs-tabs"},
+      readOnly&&_bsEl("p",{className:"bs-warning"},"View-only access: you can review this set, but sending, applying and saving are disabled."),
+      _bsEl("p",{className:"bs-disclosure"},"One location is one reusable set for every shot that happens there."),
+      loading&&_bsEl("p",{className:"bs-loading",role:"status"},"Opening the set workspace…"),
+      error&&!workspace&&_bsEl("div",{className:"bs-error bs-central-error",role:"alert"},error,_bsEl("button",{type:"button",className:"bs-button",onClick:load},"Retry opening Studio")),
+      _bsEl("ol",{className:"bs-steps","aria-label":"Blender Studio workflow"},
+        window.BlenderStudioSetup?_bsEl(window.BlenderStudioSetup,{client,readOnly,locationId:location.id,onConnectionChange:setConnection}):null,
+        workspace&&_bsEl("li",{className:"bs-step"},_bsEl("div",{className:"bs-step-heading"},_bsEl("span",{className:"bs-step-number"},"3"),_bsEl("span",{className:"bs-step-label"},_bsEl("strong",null,"Choose what to make"),_bsEl("small",null,"Review a proposal before it changes the saved set."))),
+          _bsEl("div",{className:"bs-step-body"},_bsEl("div",{className:"bs-composer"},_bsEl("div",{className:"bs-tabs"},
           _bsEl("button",{type:"button",className:mode==="scene"?"on":"",onClick:()=>setMode("scene")},"AI Scene Builder"),
           _bsEl("button",{type:"button",className:mode==="animation"?"on":"",onClick:()=>setMode("animation")},"Character animation"),
           _bsEl("button",{type:"button",className:mode==="mesh"?"on":"",onClick:()=>setMode("mesh")},"Prompt/image to 3D")),
+          _bsEl("p",{className:"bs-help"},mode==="scene"?"Describe the set or a change you want, such as moving furniture or changing lighting. Nothing changes until you Apply.":mode==="mesh"?"Create a 3D model from a prompt or image, then save it to the library and import it into this set.":"Describe movement for a character or camera in this shot. This edits blocking; it does not create a complete character performance."),
           billingDisabled&&_bsEl("p",{className:"bs-warning",role:"alert"},billingMessage),
-          _bsEl("textarea",{value:prompt,onChange:e=>setPrompt(e.target.value),disabled:readOnly,placeholder:mode==="animation"?"Describe root motion or an animation pass for the selected set shot…":"Describe a practical, coherent change to this contained set…"}),
+          _bsEl("textarea",{value:prompt,onChange:e=>setPrompt(e.target.value),disabled:readOnly,"aria-label":"Describe what to create",placeholder:mode==="animation"?"Describe how the character or camera should move…":mode==="mesh"?"Describe the 3D model you want to create…":"Describe your set or the change you want to make…"}),
           _bsEl("div",{className:"bs-source"},_bsEl("label",null,_bsEl("input",{type:"radio",checked:imageSource==="prompt",onChange:()=>setImageSource("prompt"),disabled:readOnly})," Prompt only"),
             _bsEl("label",null,_bsEl("input",{type:"radio",checked:imageSource==="reference",onChange:()=>setImageSource("reference"),disabled:readOnly})," Approved project reference"),
             _bsEl("label",null,_bsEl("input",{type:"radio",checked:imageSource==="private",onChange:()=>setImageSource("private"),disabled:readOnly})," Local temporary image"),
             imageSource==="reference"&&_bsEl("select",{value:selectedRef,onChange:e=>setSelectedRef(e.target.value),disabled:readOnly},_bsEl("option",{value:""},"Select an approved reference…"),referenceList.map(r=>_bsEl("option",{key:r.entityId,value:r.entityId},r.kind+" · "+r.label))),
-            imageSource==="private"&&_bsEl("input",{type:"file",accept:"image/*",onChange:onPrivate,disabled:readOnly})),
+             imageSource==="private"&&_bsEl("input",{type:"file",accept:"image/*",onChange:onPrivate,disabled:readOnly})),
+           imageSource!=="prompt"&&_bsEl("p",{className:"bs-help"},"Project references are resolved through this workspace. Local images are temporary provider inputs and are not saved to the set."),
           _bsEl("div",{className:"bs-send"},_bsEl("select",{value:modelId,onChange:e=>setModelId(e.target.value),disabled:readOnly},_bsEl("option",{value:""},"Select available model…"),
             models.map(m=>_bsEl("option",{key:m.modelId||m.id||m,value:m.modelId||m.id||m},(m.label||m.modelId||m.id||m)+(m.verified?" · verified":" · configured; verification not live")))),
             _bsEl("label",null,_bsEl("input",{type:"checkbox",checked:ack,onChange:e=>setAck(e.target.checked),disabled:readOnly})," I acknowledge paid processing"),
             _bsEl("button",{type:"button",disabled:readOnly||billingDisabled||!caps||!models.length,onClick:()=>submit(mode==="mesh"?"mesh":"assistant")},mode==="mesh"?"Generate 3D asset":"Send to scene builder"),
-            _bsEl("small",null,advertised.length?advertised.map(m=>(m.modelId||m.id)+" · "+(m.configured?"configured":"unavailable")+" · "+(m.verified?"verified":"verification not live")+(m.selectable===false?" · not selectable":"")).join("  |  "):"No server-advertised models available."))),
+            _bsEl("small",null,modelId&&models.some(m=>(m.modelId||m.id||m)===modelId&&!m.verified)?"This model is not verified yet. If unavailable, the request will stop; no other model will be used.":!models.length?"No configured models are available for this mode.":!modelId?"Choose a model to continue.":"The selected model is verified."))))),
+        workspace&&_bsEl("li",{className:"bs-step"},_bsEl("div",{className:"bs-step-heading"},_bsEl("span",{className:"bs-step-number"},"4"),_bsEl("span",{className:"bs-step-label"},_bsEl("strong",null,"Review, apply, and use the set"),_bsEl("small",null,"Apply saves your changes. In Blender, use Open current workspace the first time, then Refresh after changes."))),
+          _bsEl("div",{className:"bs-step-body"},
+        !task&&_bsEl("p",{className:"bs-help"},"Your results will appear here. Review proposed changes before applying them."),
         task&&_bsEl("div",{className:"bs-task"},_bsEl("b",null,"Task: "+task.status),task.message&&_bsEl("span",null,task.message),
           ["queued","running"].includes(task.status)&&_bsEl("button",{type:"button",onClick:cancel,disabled:readOnly},"Cancel"),
           task.status==="settlement_pending"&&_bsEl(React.Fragment,null,
@@ -237,13 +198,19 @@ function BlenderStudioEntry({location,shot,references,readOnly=false,compact=fal
         proposal&&task&&task.status==="completed"&&_bsEl("div",{className:"bs-proposal"},_bsEl("b",null,"Proposal preview"),_bsEl("p",null,proposal.summary||"Managed scene edits"),
           _bsEl("p",null,(proposal.ops||[]).length+" bounded edit"+((proposal.ops||[]).length===1?"":"s")+"; nothing changes until Apply."),
           _bsEl("button",{type:"button",onClick:apply,disabled:readOnly||saving},"Apply proposal and save")),
-        _bsEl("div",{className:"bs-library"},_bsEl("b",null,"Generated asset library"),(workspace.assets||[]).length
+        ((workspace.assets||[]).length>0||mode==="mesh")&&_bsEl("div",{className:"bs-library"},_bsEl("b",null,"Generated asset library"),(workspace.assets||[]).length
           ? _bsEl("ul",null,(workspace.assets||[]).map(a=>_bsEl("li",{key:a.id},a.name+" · "+(a.rigged?"rigged ":"")+(a.animated?"animated":"GLB"),
             _bsEl("button",{type:"button",disabled:readOnly||saving,onClick:()=>importAsset(a)},"Import to set"))))
           : _bsEl("p",null,"No generated GLB assets in this set yet.")),
         task&&task.asset&&_bsEl("button",{type:"button",disabled:readOnly||saving,onClick:()=>addAsset(task.asset)},"Save generated asset to library"),
         Object.keys(previewUrls).length>0&&_bsEl("div",{className:"bs-previews"},_bsEl("b",null,"Studio previews"),Object.keys(previewUrls).map(id=>_bsEl("img",{key:id,src:previewUrls[id],alt:"Studio preview "+id}))),
-        _bsEl("div",{className:"bs-history"},_bsEl("b",null,"Scene-builder chat history"),
-          history.length?_bsEl("ul",null,history.map(h=>_bsEl("li",{key:h.id},_bsEl("b",null,h.role+": "),h.text))):_bsEl("p",null,"No requests in this panel yet.")))));
+        _bsEl("details",{className:"bs-details"},_bsEl("summary",null,"Workspace details"),_bsEl("div",{className:"bs-state"},_bsEl("span",null,"Revision "+workspace.revision),_bsEl("span",null,"Objects: "+(workspace.objects||[]).length),_bsEl("span",null,"Shots: "+(workspace.shots||[]).length),_bsEl("span",null,"Assets: "+(workspace.assets||[]).length),_bsEl("span",null,"Previews: "+(workspace.previews||[]).length),
+          _bsEl("button",{type:"button",disabled:saving||readOnly,onClick:()=>save(workspace)},saving?"Saving…":"Save workspace"),
+          _bsEl("button",{type:"button",onClick:load},"Reload (discard panel changes)")),
+          _bsEl("p",{className:"bs-model-diagnostics"},advertised.length?advertised.map(m=>(m.modelId||m.id)+" · "+(m.configured?"configured":"unavailable")+" · "+(m.verified?"verified":"verification not live")+(m.selectable===false?" · not selectable":"")).join("  |  "):"No server-advertised models available."),
+          _bsEl("div",{className:"bs-history"},_bsEl("b",null,"Scene-builder chat history"),history.length?_bsEl("ul",null,history.map(h=>_bsEl("li",{key:h.id},_bsEl("b",null,h.role+": "),h.text))):_bsEl("p",null,"No requests in this panel yet."))))),
+        ),
+      error&&workspace&&_bsEl("p",{role:"alert",className:"bs-error"},error),
+      connection&&connection.connected&&_bsEl("p",{className:"bs-connection-note"},"Blender desktop is connected to "+(connection.deviceName||"your computer")+". Use Refresh there after saving or applying this set.")));
 }
 window.BlenderStudioEntry=BlenderStudioEntry;

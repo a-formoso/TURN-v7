@@ -15,6 +15,12 @@ Isolated rendering of the real component tree with the real stylesheet can still
 
 **How to apply:** Use synthetic component inputs, explicitly emulate the device viewport, and assert the actual innerWidth before interpreting geometry. Clearly distinguish isolated component checks from a full authenticated walkthrough.
 
+Clipboard browser tests need document focus as well as clipboard permissions.
+
+**Why:** A headless page can remain unfocused after navigation even when a synthetic click succeeds. Its clipboard read then fails with NotAllowedError, falsely suggesting that copying is broken.
+
+**How to apply:** Bring the tested page forward, explicitly emulate focus, and assert document.hasFocus() before testing the real clipboard. Test blocked-clipboard fallbacks separately; do not replace the successful-copy path with a mock.
+
 Browser-control tests must reproduce native event timing, not just dispatch a key name or read a rectangle immediately after scrolling.
 
 **Why:** Native summary activation needs the browser's complete Enter event sequence, and native disclosure notifications are queued. An immediate Escape can precede a listener installed only by that notification. Virtualized cards can also shift between scrolling and the next paint, directing a coordinate click to a different control.

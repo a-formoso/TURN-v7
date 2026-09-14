@@ -11,10 +11,21 @@ Characters and Shots, not a replacement for their approved artwork.
 3. Download the updated Cinema Machine add-on using the panel's download control.
    Install the ZIP in Blender Preferences → Add-ons → Install from Disk.
    On an Intel Mac, use a compatible Intel Blender release such as 4.5 LTS.
-4. Pair from the Studio panel and connect in Blender's CinemaMachine sidebar.
+4. In **Connect Blender**, choose **Create pairing code**. Click the Function URL
+   and pairing code fields to copy each one, then paste them into the matching
+   fields in Blender's CinemaMachine sidebar (press **N** in the 3D view).
+   Approve the project and click **Connect** in Blender. The web panel confirms
+   the connection automatically and folds completed setup away. Expired codes
+   have a clear replacement action; blocked clipboard access offers manual copy.
    The Project ID identifies the film, not an individual shot.
 5. Open the location workspace. The desktop Studio tools can load the selected
    location and, when selected in Shots, the shot's camera and timeline.
+
+The website uses four numbered steps: **Install → Connect → Choose what to make
+→ Review and apply**. Revision, counters, manual save/reload, request history and
+model diagnostics are under **Workspace details**. Applying in the browser saves
+the set; use **Open current workspace** initially, then **Refresh** in Blender to
+load saved changes. Pairing and installation do not start paid generation.
 
 Each canonical location/place has one reusable workspace within the film. Its
 parent/root IDs preserve the existing location hierarchy; they are not inferred

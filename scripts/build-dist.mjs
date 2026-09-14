@@ -72,7 +72,7 @@ let html = readFileSync(join(ROOT, "TURN.html"), "utf8");
 // Studio's browser client must see both the shared workspace contract and the
 // existing authenticated BlenderPreview transport before its React surface.
 // Keep this assertion here because production preserves the source tag order.
-const studioOrder=["app/blender-preview.js","app/blender-studio-contract.js","app/blender-studio.js","app/blender-studio-ui.jsx"];
+const studioOrder=["app/blender-preview.js","app/blender-studio-contract.js","app/blender-studio.js","app/blender-preview-ui.jsx","app/blender-studio-setup.jsx","app/blender-studio-ui.jsx"];
 let prior=-1;
 for(const name of studioOrder){
   const at=html.indexOf(name);
