@@ -1,39 +1,58 @@
 # Scene screenplay references on Stage
 
-Each beat's video composer includes **Scene screenplay**. Open it to read every
-authored block in the scene or inspect the selected beat's exact text. The video
-prompt remains editable and is derived from that beat's screenplay and shot
-design.
+Each beat's video composer includes **Scene screenplay** with actual PNG page
+images of the complete scene. The selected beat is highlighted. Click a page to
+open its full-size preview. An accessible text disclosure also contains the
+entire scene and the selected beat's exact text. The video prompt remains
+editable and is derived from that beat's screenplay and shot design.
 
 ## What reaches the video generator
 
-The complete scene is appended to the actual submitted prompt as a labeled text
-reference. It is reading context—not a screenplay-page image, a composition
-reference, or a request to add every character mentioned in the scene. It uses
-no image, audio or video slots. Boundary instructions restrict performance to the
-selected beat or beats, keep later action and dialogue out of the clip, and
+Every screenplay page is attached as an actual image reference, not just shown
+in the composer. These PNGs are rendered locally from the current canonical
+screenplay, not invented by an image model. Each page counts toward the selected
+model's image and total input limits. They are required and cannot be toggled off.
+
+The complete scene is also appended to the submitted prompt as labeled source
+text. Pages and text are reading context—not a composition reference or a
+request to photograph the page, reproduce captions, or add every character
+mentioned in the scene. Boundary instructions restrict performance to the
+selected beat/shot/part, keep later action and dialogue out of the clip, and
 preserve remote/offscreen delivery.
 
-This applies to normal rendering, explicit prompt styles, manually edited
-prompts, batch variations, text-only requests and extensions. Full screenplay
-provenance accompanies the take and its pending-job recovery record. Inspect
-**Exact queued render** to read the full reference with the current direction.
+Normal renders, explicit prompt styles, manually edited prompts, batch
+variations and extensions include the page images. Full screenplay and exact
+image provenance accompany the take and its pending-job recovery record.
+The **Render package** section and **Exact queued render** summary have been
+removed; their underlying timing, source and reference checks still run.
 
-No excerpt replaces an overlong screenplay. Kling's native multi-shot path
-requires the reference in each shot prompt; if a complete row exceeds the
-proxy's 2,000-character limit, the request is rejected before submission. Other
-provider rejections remain explicit. The app does not choose another model,
-drop source text, or start a replacement job.
+No excerpt or partial page set replaces an overlong screenplay. If the pages
+and other references exceed the model's limits, exclude optional images or
+choose a higher-capacity model. Text-only rendering, single-start-frame models
+such as the current Sora/Kling paths, and first/last-frame transition endpoints
+cannot carry the required document references separately and are blocked.
+A screenplay image is never substituted for the shot's opening frame.
+The app does not choose another model, drop references, or start a replacement
+job automatically.
+
+Stage also checks available browser recovery storage before submitting page
+references. A page set too large to retain safely stops before a paid request.
+The exact PNG is retained once; input-position metadata describes what was sent
+to the proxy, not the temporary signed URL the proxy later gives the provider.
+
+Page previews stay local until you render. Rendering uses the existing video
+proxy's private temporary-upload storage, which does not yet have automatic
+cleanup. Signed-link expiry does not delete those stored input files.
 
 ## Changes and missing source
 
 All beats track a scene-wide screenplay revision. Changes to any part of that
-scene refresh an untouched derived prompt and its reference. Manual edits remain
+scene refresh its page images, text reference and an untouched derived prompt. Manual edits remain
 intact; Stage asks you to review them against changed source before rendering.
 **Reset to script** deliberately discards manual direction and restores the
 current derivation.
 
-Missing source blocks generation rather than using stale shot text as the
+Missing source or failed page rendering blocks generation rather than using stale shot text as the
 scene's screenplay. A source or selected-beat change during preparation also
 stops submission. The reference is readable with view-only access.
 

@@ -50,7 +50,8 @@ if (typeof globalThis.WebSocket === "undefined") {
 const ROOT = new URL("../", import.meta.url);
 const FIXTURE = "/tmp/fixture/browserfiles";
 const SHOTS = ["stage-plan", "stage-references", "stage", "stage-screenplay-ui"];
-const SHARED_SCREENPLAY = ["shot-screenplay", "shot-scene-context", "stage-screenplay"];
+const SHARED_SCREENPLAY = ["shot-screenplay", "shot-scene-context", "stage-screenplay",
+  "stage-screenplay-images"];
 const CHROME = process.env.CHROMIUM || "/repl/tools/bin/chromium";
 const OUT = process.env.STAGE_BROWSER_OUT || `${FIXTURE}/screenshots`;
 const reactUrls = {
@@ -67,6 +68,14 @@ async function prepareFixture() {
   await writeFile(`${FIXTURE}/styles.css`, css);
   await writeFile(`${FIXTURE}/stage-screenplay.css`,
     await readFile(new URL("app/stage-screenplay.css", ROOT)));
+  /*
+   * Keep actual PNG resources in the isolated fixture for historical take
+   * references.  The live Stage composer still exercises the synchronous
+   * canvas helper below and launches its own source-signed PNG data URLs.
+   */
+  const screenplayPng=await readFile(new URL("attached_assets/targeted_element_1789430976412.png", ROOT));
+  for (const name of ["screenplay-page-beat-1.png","screenplay-page-beat-2.png","screenplay-page-scene-2.png"])
+    await writeFile(`${FIXTURE}/${name}`, screenplayPng);
   for (const name of SHOTS) {
     /*
      * Prefer a raw Babel transform over a stale checked-in bundle. This keeps
@@ -197,12 +206,22 @@ window.seedanceGetRuntimeCapabilities=async target=>{
   __fixture.lastRuntimeCapabilities=capabilities;
   return {known:true,capabilities,target};
 };
-window.useSeedanceGen=id=>({
-  videoUrl:"",gening:false,status:"",err:null,
-  generate:async payload=>{window.__fixture.calls.push(["generate",id,payload]);if(__fixture.policyRefusal)throw new Error("policy refusal: character reference rejected");return {url:fakeVideo,seed:4242};},
-  generateBatch:async(payload,n)=>(window.__fixture.calls.push(["batch",id,n,payload]),[]),
-  cancel:()=>window.__fixture.calls.push(["cancel",id])
-});
+window.useSeedanceGen=id=>{
+  const [err,setErr]=React.useState(null);
+  return {
+    videoUrl:"",gening:false,status:"",err:__fixture.policyRefusal?err:null,
+    generate:async payload=>{
+      window.__fixture.calls.push(["generate",id,payload]);setErr(null);
+      if(__fixture.policyRefusal){
+        const error=new Error("policy refusal: character reference rejected");
+        setErr(error);throw error;
+      }
+      return {url:fakeVideo,seed:4242};
+    },
+    generateBatch:async(payload,n)=>(window.__fixture.calls.push(["batch",id,n,payload]),[]),
+    cancel:()=>window.__fixture.calls.push(["cancel",id])
+  };
+};
 window.nbGetImage=id=>(
   (id==="char-mara:wardrobe"&&!__fixture.variantLoaded)||id==="char-mara:storm"
 )?"":px;
@@ -232,12 +251,23 @@ window.stageReferenceStatus=({imageId})=>imageId==="prop-letter"
   : {stale:false,approved:true,missing:false,excluded:false};
 const takeMeta=(stale)=>({
   model:"bytedance/seedance-2.5/reference-to-video",source:"frames",durationSec:10,
-  inputs:"3 images",audio:"native",tierLabel:"Standard",resolution:"720p",bitrate:"standard",
+  inputs:"5 images",audio:"native",tierLabel:"Standard",resolution:"720p",bitrate:"standard",
   recipe:"timeline",seed:4242,createdAt:stale?1700000002000:1700000001000,
   status:stale?"draft":"approved",fixtureStale:stale,
   prompt:"Fixture take prompt: Mara crosses the room and lifts the letter.",
-  references:[{tag:"@Image1",label:"Mara reference",kind:"image",url:px,assetId:"char-mara",role:"identity"},
-    {tag:"@Image2",label:"Letter continuity",kind:"image",url:px,assetId:"prop-letter",role:"prop state"}],
+  references:[{tag:"@Image1",label:"Mara reference",kind:"image",url:px,assetId:"char-mara",role:"identity",
+      referenceKind:"character"},
+    {tag:"@Image2",label:"Letter continuity",kind:"image",url:px,assetId:"prop-letter",role:"prop state",
+      referenceKind:"prop"},
+    {tag:"@Image3",label:"Scene 1 · Beat 1 screenplay page",kind:"image",
+      url:"/screenplay-page-beat-1.png",role:"screenplay",referenceKind:"screenplay",locked:true,
+      page:1,totalPages:1,sourceSignature:"fixture-screenplay-v1",targetBeats:[1]},
+    {tag:"@Image4",label:"Scene 1 · Beat 2 screenplay page",kind:"image",
+      url:"/screenplay-page-beat-2.png",role:"screenplay",referenceKind:"screenplay",locked:true,
+      page:1,totalPages:1,sourceSignature:"fixture-screenplay-v1",targetBeats:[2]},
+    {tag:"@Image5",label:"Scene 2 · Beat 1 screenplay page",kind:"image",
+      url:"/screenplay-page-scene-2.png",role:"screenplay",referenceKind:"screenplay",locked:true,
+      page:1,totalPages:1,sourceSignature:"fixture-screenplay-v1",targetBeats:[1]}],
   referenceSourceVersions:[{assetId:stale?"prop-letter":"char-mara",snapshot:{version:1}}]
 });
 window.__takes=[
@@ -251,6 +281,7 @@ for(const n of ["vidApproveTake","vidRestoreTake","vidDeleteTake","vidUpdateTake
   window[n]=async(...args)=>window.__fixture.calls.push([n,...args]);
 </script>
 <script src="/shot-screenplay.js"></script><script src="/shot-scene-context.js"></script><script src="/stage-screenplay.js"></script>
+<script src="/stage-screenplay-images.js"></script>
 <script src="/stage-screenplay-ui.js"></script>
 <script src="/stage-plan.js"></script><script src="/stage-references.js"></script><script src="/stage.js"></script>
 <script>
@@ -358,7 +389,8 @@ function staticServer() {
     if (!/^[a-z0-9._-]+$/i.test(name)) { res.writeHead(404).end(); return; }
     try {
       const body = await readFile(`${FIXTURE}/${name}`);
-      const type = name.endsWith(".html")?"text/html":name.endsWith(".css")?"text/css":"text/javascript";
+       const type = name.endsWith(".html")?"text/html":name.endsWith(".css")?"text/css"
+         :name.endsWith(".png")?"image/png":"text/javascript";
       res.writeHead(200,{"content-type":`${type}; charset=utf-8`,"cache-control":"no-store"}).end(body);
     } catch { res.writeHead(404).end("not found"); }
   });
@@ -424,11 +456,36 @@ async function main() {
 
     const duration=await c.eval(`document.querySelector(".stage2-rendercard .stage2-control-row select")?.value || [...document.querySelectorAll(".stage2-rendercard select")].find(s=>[...s.options].some(o=>o.textContent.includes("10s")))?.value`);
     assert.equal(duration,"10","duration preview equals exact 4s + 6s coverage");
-    const queued=await c.eval(`document.querySelector(".stage-plan-queued pre")?.textContent||""`);
-    assert.match(queued,/Mara crosses to the brass desk/);
-    assert.match(queued,/Mara lifts the sealed letter into moonlight/);
-    assert.match(queued,/FULL SCENE SCREENPLAY/,"exact queued preview includes the full scene screenplay context");
-    assert.match(queued,/Dawn will tell us who sent it/,"the complete scene ending remains visible in the queued preview");
+    /*
+     * The old Render package / Exact queued render block was an implementation
+     * preview, not an input the director could act on.  Stage now keeps the
+     * authoritative screenplay in its source panel and sends the compiled
+     * payload only at launch; neither stale preview may be presented as a
+     * second source of truth.
+     */
+    assert.equal(await c.eval(`!!document.querySelector(".stage-render-plan")`),false,
+      "Render package is not shown in the Stage composer");
+    assert.equal(await c.eval(`!!document.querySelector(".stage-plan-queued")`),false,
+      "Exact queued render Summary is not shown in the Stage composer");
+    assert.doesNotMatch(await text(),/Render package|Exact queued render/i,
+      "removed render previews do not leak into visible Stage text");
+    const imageContract=await c.eval(`(()=>{
+      const reference=window.stageScreenplayReference(__story.scenes[0],__story.shots.slice(0,2),{
+        ...__story,drafts:__story.drafts,characters:__story.characters,beatsMap:__story.beatsMap
+      });
+      const result=window.stageScreenplayImages(reference);
+      return {signature:result.signature,errors:result.errors,images:(result.images||[]).map(x=>({
+        id:x.id,url:x.url,label:x.label,page:x.page,totalPages:x.totalPages,
+        sourceSignature:x.sourceSignature,targetBeats:x.targetBeats
+      }))};
+    })()`);
+    assert.ok(typeof imageContract.signature==="string"&&imageContract.signature,
+      "screenplay image helper returns a source signature synchronously");
+    assert.deepEqual(imageContract.errors,[],"screenplay image helper reports no fixture errors");
+    assert.ok(imageContract.images.length>=1,"screenplay image helper returns at least one page");
+    assert.ok(imageContract.images.every(x=>x.id&&/^data:image\/png;base64,/.test(x.url)
+      &&x.label&&x.page>=1&&x.totalPages>=x.page&&x.sourceSignature&&Array.isArray(x.targetBeats)),
+      "screenplay image helper returns complete real PNG page provenance");
 
     /*
      * The screenplay panel is real Stage UI, backed by the shared source helpers.
@@ -442,14 +499,81 @@ async function main() {
       return {
         summary:d?.innerText||"",
         full:d?.querySelector('[data-testid="stage-scene-screenplay-text"]')?.textContent||"",
-        target:d?.querySelector('[data-testid="stage-target-beat-screenplay"]')?.textContent||""
+         target:d?.querySelector('[data-testid="stage-target-beat-screenplay"]')?.textContent||"",
+         images:[...(d?.querySelectorAll("img")||[])].map(x=>({src:x.currentSrc||x.src,alt:x.alt||""}))
       };
     })()`);
     assert.match(sceneOneScreenplay.summary,/Scene screenplay/);
-    assert.match(sceneOneScreenplay.summary,/Included as text/,"drafted scene is shown as an included text reference");
+    assert.match(sceneOneScreenplay.summary,/Included as text|Included · \d+ required/i,
+      "drafted scene is shown as an included screenplay reference");
     assert.match(sceneOneScreenplay.full,/Dawn will tell us who sent it/,"full screenplay panel exposes the final authored ending");
     assert.match(sceneOneScreenplay.target,/Mara crosses to the brass desk/,"selected beat target is ready");
     assert.doesNotMatch(sceneOneScreenplay.target,/Mara carries the letter to the observatory window/,"target panel stays beat-specific");
+    assert.ok(sceneOneScreenplay.images.length>=1,"selected beat exposes a required screenplay page thumbnail");
+    assert.ok(sceneOneScreenplay.images.some(x=>/\.png(?:\?|$)/i.test(x.src)||x.src.startsWith("data:image/png")),
+      "screenplay thumbnail is a real PNG reference");
+    const screenplayInput=await c.eval(`(()=>{
+      const panel=document.querySelector('[data-testid="stage-scene-screenplay"]');
+      const cards=[...document.querySelectorAll(".stage2-assets-row .stage2-asset.image")].filter(x=>
+        /screenplay|page/i.test(x.textContent||"")||/screenplay/i.test(x.getAttribute("data-reference-kind")||""));
+      return {
+        panel:panel?.innerText||"",
+        cards:cards.map(x=>({text:x.innerText||"",locked:x.classList.contains("locked")||x.getAttribute("aria-disabled")==="true",
+          kind:x.dataset.referenceKind||x.getAttribute("data-reference-kind")||""})),
+        pngs:[...document.querySelectorAll(".stage2-assets-row img")].map(x=>x.currentSrc||x.src)
+      };
+    })()`);
+    assert.match(screenplayInput.panel,/\b\d+\s+screenplay\s+page/i,
+      "screenplay panel reports the attached page count");
+    assert.match(screenplayInput.panel,/Page \d+ of \d+/i,
+      "screenplay thumbnails report required page order and total");
+    assert.ok(screenplayInput.cards.length>=1,"screenplay page has a dedicated image reference card");
+    assert.ok(screenplayInput.cards.every(x=>x.locked||/required|locked/i.test(x.text)),
+      "screenplay image cards are locked required references");
+    assert.ok(screenplayInput.pngs.some(x=>/\.png(?:\?|$)/i.test(x)||x.startsWith("data:image/png")),
+      "input assets include the actual screenplay PNG");
+    assert.ok(await c.eval(`(()=>{
+      const a=[...document.querySelectorAll(".stage2-assets-row .stage2-asset.image")].find(x=>
+        !/screenplay|page/i.test(x.textContent||"")&&x.querySelector("img"));
+      return !!a;
+    })()`),"regular image input remains a separate visual frame/reference");
+    /*
+     * If a future picker entry is start-frame-only, its screenplayIssue must
+     * block the launch rather than silently stripping the required pages.  The
+     * current fixture may have no such active entry; keep this conditional so
+     * adding one exercises the same guard without weakening the normal model.
+     */
+    const unsupportedSingleFrame=await c.eval(`(()=>{
+      const m=(window.SEEDANCE_MODELS||[]).find(x=>x&&x.status==="active"&&x.refs===false);
+      return m ? {id:m.id,label:m.label} : null;
+    })()`);
+    if(unsupportedSingleFrame){
+      await c.eval(`([...document.querySelectorAll(".sd-gen-model")].find(x=>x.textContent.includes(${JSON.stringify(unsupportedSingleFrame.label)})))?.click()`);
+      await waitFor(()=>c.eval(`document.querySelector(".sd-gen-model.on")?.textContent.includes(${JSON.stringify(unsupportedSingleFrame.label)})`),
+        "unsupported single-frame model selection");
+      assert.match(await c.eval(`document.querySelector(".stage2-blocker-text")?.textContent||""`),
+        /screenplay screenshot|cannot include/i,
+        "single-start-frame model blocks required screenplay screenshots");
+      const beforeSingleFrameBlock=await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`);
+      await c.eval(`document.querySelector(".sd-gen-submit")?.click()`);
+      await new Promise(r=>setTimeout(r,120));
+      assert.equal(await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`),
+        beforeSingleFrameBlock,"unsupported single-frame model makes no provider call");
+      assert.ok(await c.eval(`!![...document.querySelectorAll(".stage2-assets-row .stage2-asset.image")].find(x=>
+        /screenplay|page/i.test(x.textContent||"")&&x.classList.contains("locked"))`),
+        "unsupported model keeps required screenplay image cards instead of dropping them");
+      await c.eval(`([...document.querySelectorAll(".sd-gen-model")].find(x=>/Seedance 2\\.5/.test(x.textContent)))?.click()`);
+      await waitFor(()=>c.eval(`/Seedance 2\\.5/.test(document.querySelector(".sd-gen-model.on")?.textContent||"")`),
+        "return to screenshot-capable model");
+    }
+    await c.eval(`document.querySelector(".stage2-screenplay-page-button")?.click()`);
+    await waitFor(()=>c.eval(`!!document.querySelector(".lb-overlay .lb-img")`),
+      "screenplay page preview");
+    assert.ok(await c.eval(`document.querySelector(".lb-overlay .lb-img")?.src?.startsWith("data:image/png")`),
+      "opening a screenplay page shows the actual PNG in the preview");
+    await c.eval(`document.querySelector(".lb-overlay button[title='Close'],.lb-overlay .ag-x")?.click()`);
+    await waitFor(()=>c.eval(`!document.querySelector(".lb-overlay .lb-img")`),
+      "close screenplay page preview");
 
     await c.eval(`(()=>{
       const row=[...document.querySelectorAll(".stage2-beat-row")].find(x=>/Beat 2/.test(x.textContent));
@@ -460,11 +584,16 @@ async function main() {
     const sceneOneBeatTwo=await c.eval(`({
       full:document.querySelector('[data-testid="stage-scene-screenplay-text"]')?.textContent||"",
       target:document.querySelector('[data-testid="stage-target-beat-screenplay"]')?.textContent||"",
-      prompt:document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent||""
+       prompt:document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent||"",
+       images:[...(document.querySelector('[data-testid="stage-scene-screenplay"]')?.querySelectorAll("img")||[])].map(x=>x.currentSrc||x.src)
     })`);
     assert.equal(sceneOneBeatTwo.full,sceneOneScreenplay.full,"every beat points at the same full scene source");
     assert.notEqual(sceneOneBeatTwo.target,sceneOneScreenplay.target,"target screenplay changes with the selected beat");
     assert.match(sceneOneBeatTwo.prompt,/Mara carries the letter to the observatory window/,"beat-two prompt is specific to its selected target");
+    assert.ok(sceneOneBeatTwo.images.some(x=>/\.png(?:\?|$)/i.test(x)||x.startsWith("data:image/png")),
+      "beat-two target exposes a real PNG page");
+    assert.notDeepEqual(sceneOneBeatTwo.images,sceneOneScreenplay.images,
+      "beat navigation changes the target screenplay image");
 
     await c.eval(`(()=>{
       const row=[...document.querySelectorAll(".stage2-beat-row")].find(x=>/Beat 1/.test(x.textContent));
@@ -497,14 +626,24 @@ async function main() {
     /*
      * A non-selected beat is still part of the immutable full-scene reference,
      * but must not leak into the selected beat's editable direction. The source
-     * panel and queued full-scene text update immediately; changing the selected
+     * panel and required page thumbnails update immediately; changing the selected
      * beat separately proves that its ready prompt rebuilds for the new target.
      * Once the director edits it, the exact edit stays in the box but Stage marks
      * the prompt as drifted instead of silently replacing it.
      */
+    const beatOneImageBeforeSourceEdit=await c.eval(`(()=>{
+      const xs=[...(document.querySelector('[data-testid="stage-scene-screenplay"]')?.querySelectorAll("img")||[])].map(x=>x.currentSrc||x.src);
+      __fixture.beatOnePngBefore=xs;
+      return xs;
+    })()`);
     await c.eval(`window.__setScene1Beat2Text("Mara carries the letter to a newly opened observatory window.")`);
     await waitFor(()=>c.eval(`document.querySelector('[data-testid="stage-scene-screenplay-text"]')?.textContent.includes("newly opened observatory window")`),"nonselected screenplay update");
-    await waitFor(()=>c.eval(`document.querySelector(".stage-plan-queued pre")?.textContent.includes("newly opened observatory window")`),"queued full-scene update");
+    const beatOneImageAfterSourceEdit=await waitFor(()=>c.eval(`(()=>{
+      const xs=[...(document.querySelector('[data-testid="stage-scene-screenplay"]')?.querySelectorAll("img")||[])].map(x=>x.currentSrc||x.src);
+      return JSON.stringify(xs)!==JSON.stringify(__fixture.beatOnePngBefore) ? xs : null;
+    })()`),"updated screenplay PNG after source edit");
+    assert.notDeepEqual(beatOneImageAfterSourceEdit,beatOneImageBeforeSourceEdit,
+      "editing screenplay source changes the required PNG reference");
     const beatOnePromptAfterNonselectedEdit=await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent||""`);
     assert.match(beatOnePromptAfterNonselectedEdit,/Mara crosses to the brass desk/,"beat-one direction remains ready after a nonselected source edit");
     assert.doesNotMatch(beatOnePromptAfterNonselectedEdit,/newly opened observatory window/,"nonselected beat does not leak into beat-one direction");
@@ -526,8 +665,19 @@ async function main() {
     const editedDriftPrompt="EDITED STAGE PROMPT — preserve this exact direction";
     await c.eval(`(()=>{const e=document.querySelector(".stage2-gen-prompt[contenteditable]");e.focus();e.textContent=${JSON.stringify(editedDriftPrompt)};e.dispatchEvent(new InputEvent("input",{bubbles:true,inputType:"insertText",data:"x"}));})()`);
     await waitFor(()=>c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent===${JSON.stringify(editedDriftPrompt)}`),"edited drift prompt");
+    const driftImageBefore=await c.eval(`(()=>{
+      const xs=[...(document.querySelector('[data-testid="stage-scene-screenplay"]')?.querySelectorAll("img")||[])].map(x=>x.currentSrc||x.src);
+      __fixture.driftImageBefore=xs;
+      return xs;
+    })()`);
     await c.eval(`window.__setScene1Beat2Text("Mara carries the letter beneath a red dawn window.")`);
     await waitFor(()=>c.eval(`document.querySelector('[data-testid="stage-scene-screenplay-text"]')?.textContent.includes("red dawn window")`),"edited prompt source change");
+    const driftImageAfter=await waitFor(()=>c.eval(`(()=>{
+      const xs=[...(document.querySelector('[data-testid="stage-scene-screenplay"]')?.querySelectorAll("img")||[])].map(x=>x.currentSrc||x.src);
+      return JSON.stringify(xs)!==JSON.stringify(__fixture.driftImageBefore) ? xs : null;
+    })()`),"edited prompt source PNG refresh");
+    assert.notDeepEqual(driftImageAfter,driftImageBefore,
+      "source edit refreshes PNG even while a manual prompt is retained");
     assert.equal(await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent`),editedDriftPrompt,"edited prompt is not silently overwritten by a nonselected source change");
     assert.match(await c.eval(`document.querySelector(".stage2-blocker")?.textContent||""`),/prompt|hand.edit|older|review|changed/i,"edited prompt drift is actionable");
 
@@ -763,9 +913,14 @@ async function main() {
     const screenplayPayload=await c.eval(`(()=>{
       const row=__fixture.calls.filter(x=>x[0]==="generate").slice(${overrideBaseline.providerCalls})[0];
       const payload=row&&row[2]||{};
+       const opts=payload.opts||payload.options||payload;
       return {
         prompt:payload.prompt||"",
-        screenplayReference:payload.screenplayReference||payload.takeMeta?.screenplayReference||null,
+         frameUrl:opts.frameUrl||payload.frameUrl||"",
+         imageUrls:opts.imageUrls||payload.imageUrls||[],
+         screenplayReference:opts.screenplayReference||payload.screenplayReference||payload.takeMeta?.screenplayReference||null,
+         screenplayImages:opts.screenplayImages||payload.screenplayImages||payload.takeMeta?.screenplayImages||[],
+         screenplayImagesRequired:opts.screenplayImagesRequired ?? payload.screenplayImagesRequired,
         screenplayBlock:payload.screenplayReferenceBlock||payload.takeMeta?.screenplayReferenceBlock||"",
         targetBeats:payload.screenplayReference?.targetBeats||payload.takeMeta?.screenplayReference?.targetBeats||[],
         providerPrompt:payload.screenplayReference&&window.stageScreenplayPrompt
@@ -773,6 +928,20 @@ async function main() {
       };
     })()`);
     assert.ok(screenplayPayload.screenplayReference,"editing a prompt does not remove the screenplay reference from the paid payload");
+    assert.equal(screenplayPayload.screenplayImagesRequired,true,
+      "Stage launch marks screenplay screenshots as mandatory");
+    assert.ok(screenplayPayload.screenplayImages.length>=1,
+      "Stage launch carries screenplay image provenance");
+    assert.ok(screenplayPayload.screenplayImages.every(x=>x.referenceKind==="screenplay"||x.sourceSignature||x.targetBeats),
+      "screenplay image provenance retains screenplay identity/signature metadata");
+    assert.ok(screenplayPayload.screenplayImages.every(x=>
+      typeof x.url==="string"&&x.url.startsWith("data:image/png")),
+      "screenplay image provenance contains actual PNG data URLs");
+    assert.ok(screenplayPayload.imageUrls.length>=screenplayPayload.screenplayImages.length
+      && screenplayPayload.screenplayImages.every(x=>screenplayPayload.imageUrls.includes(x.url)),
+      "the same required screenplay PNGs are included in imageUrls");
+    assert.ok(screenplayPayload.frameUrl&&!screenplayPayload.frameUrl.startsWith("data:image/png"),
+      "regular image frame remains the separate start frame");
     assert.deepEqual(screenplayPayload.targetBeats,[1],"submitted screenplay reference remains scoped to the selected beat");
     assert.match(screenplayPayload.providerPrompt,/FULL SCENE SCREENPLAY/,"provider-bound Stage payload carries full scene context");
     assert.match(screenplayPayload.providerPrompt,/Dawn will tell us who sent it/,"provider-bound Stage payload carries the complete scene ending");
@@ -831,6 +1000,22 @@ async function main() {
     assert.ok((policyCalls[0].takeMeta.referenceSourceVersions||[]).some(x=>x.assetId==="char-mara:wardrobe"),"submitted package retains required character variant");
     assert.ok(!(policyCalls[0].takeMeta.referenceSourceVersions||[]).some(x=>x.assetId==="char-mara"),"resolved state variant supersedes the manually attached character master");
     assert.ok(!policyCalls[0].statusTag&&!policyCalls[0].takeMeta.safetyFallback,"policy refusal does not synthesize NO_CHAR_REFS/reference-drop fallback");
+    const stageTextOnlyRecovery=await c.eval(`(()=>{
+      const b=[...document.querySelectorAll("button")].find(x=>/text only/i.test(x.textContent||""));
+      return b ? {disabled:!!b.disabled,aria:b.getAttribute("aria-disabled"),title:b.title||"",text:b.textContent||""} : null;
+    })()`);
+    assert.ok(stageTextOnlyRecovery,"policy errors expose the real recovery control");
+    assert.ok(stageTextOnlyRecovery.disabled||stageTextOnlyRecovery.aria==="true",
+      "Stage text-only recovery stays disabled when required screenshots cannot travel");
+    assert.match(stageTextOnlyRecovery.title,/screenshot|screenplay|cannot.*text.only/i,
+      "disabled Stage text-only recovery explains the mandatory screenshot");
+    assert.match((await text()).toLowerCase(),/screenplay screenshot|text.only.*cannot|cannot.*text.only/,
+      "Stage makes the screenshot requirement explicit after a media-policy refusal");
+    const policyCallsBeforeDisabledRecovery=await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`);
+    await c.eval(`document.querySelectorAll("button").length&&[...document.querySelectorAll("button")].find(x=>/text only/i.test(x.textContent||""))?.click()`);
+    await new Promise(r=>setTimeout(r,120));
+    assert.equal(await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`),
+      policyCallsBeforeDisabledRecovery,"disabled Stage text-only recovery makes no provider call");
     await c.eval(`window.__fixture.policyRefusal=false`);
 
     /* Change only the live character state assignment (same character id, no remount
@@ -893,22 +1078,51 @@ async function main() {
     await c.eval(`([...document.querySelectorAll(".sdbar-option b")].find(x=>x.textContent.trim()==="Fit beat")).closest("button").click()`);
     await waitFor(()=>c.eval(`localStorage.getItem("turn_stage_clip_scope")==="beat"`),"fit-beat restoration");
     await c.call("Emulation.setDeviceMetricsOverride",{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
-    await c.eval(`(()=>{const d=document.querySelector('[data-testid="stage-scene-screenplay"]');if(d)d.open=true;d?.scrollIntoView({block:"center"});})()`);
+    const focusedScreenplay=async(label)=>{
+      const state=await c.eval(`(()=>{
+        const d=document.querySelector('[data-testid="stage-scene-screenplay"]');
+        if(d)d.open=true;
+        const img=d?.querySelector('[data-testid="stage-screenplay-page-image"]');
+        let p=d?.parentElement,scroller=null;
+        while(p&&p!==document.body){
+          if(p.scrollHeight>p.clientHeight+2){scroller=p;break;}
+          p=p.parentElement;
+        }
+        if(scroller) scroller.scrollTop=Math.max(0,(d.offsetTop||0)-Math.round(scroller.clientHeight*.2));
+        (img||d)?.scrollIntoView({block:"center",inline:"nearest"});
+        const r=img?.getBoundingClientRect();
+        return {open:!!d?.open,src:img?.currentSrc||img?.src||"",left:r?.left,top:r?.top,right:r?.right,bottom:r?.bottom,
+          viewport:innerWidth,scroller:scroller?.className||"document"};
+      })()`);
+      assert.equal(state.open,true,`${label} screenplay disclosure is open`);
+      assert.ok(/^data:image\/png/.test(state.src),`${label} focused reference is a real PNG`);
+      assert.ok((state.left||-1)>=0&&(state.right||0)<=state.viewport+1
+        &&(state.top||-1)<1000&&(state.bottom||0)>0,
+        `${label} focused reference is visible after scrolling ${state.scroller}`);
+      return state;
+    };
+    await focusedScreenplay("desktop");
     const screenplayDesktop=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
     await writeFile(`${OUT}/stage-screenplay-expanded-desktop.png`,Buffer.from(screenplayDesktop.data,"base64"));
     await c.call("Emulation.setDeviceMetricsOverride",{width:390,height:844,deviceScaleFactor:2,mobile:true,screenWidth:390,screenHeight:844});
     await new Promise(r=>setTimeout(r,150));
+    await focusedScreenplay("mobile");
     const screenplayMobileMetrics=await c.eval(`(()=>{
       const d=document.querySelector('[data-testid="stage-scene-screenplay"]');
       const body=d?.querySelector(".stage2-screenplay-body"),pre=d?.querySelector('[data-testid="stage-scene-screenplay-text"]');
       d&&(d.open=true);
+      const image=d?.querySelector('[data-testid="stage-screenplay-page-image"]'),ir=image?.getBoundingClientRect();
       return {innerWidth,scrollWidth:document.documentElement.scrollWidth,open:!!d?.open,
         bodyLeft:body?.getBoundingClientRect().left,bodyRight:body?.getBoundingClientRect().right,
         preLeft:pre?.getBoundingClientRect().left,preRight:pre?.getBoundingClientRect().right,
+        imageSrc:image?.currentSrc||image?.src||"",imageLeft:ir?.left,imageRight:ir?.right,
         fullLines:(pre?.textContent||"").split("\\n").length};
     })()`);
     assert.equal(screenplayMobileMetrics.innerWidth,390,"expanded screenplay mobile viewport is 390px");
     assert.ok(screenplayMobileMetrics.open&&screenplayMobileMetrics.fullLines>=3,"expanded screenplay remains readable on mobile");
+    assert.ok(/^data:image\/png/.test(screenplayMobileMetrics.imageSrc)
+      &&screenplayMobileMetrics.imageLeft>=0&&screenplayMobileMetrics.imageRight<=391,
+      "focused screenplay PNG remains visible at 390px");
     if(screenplayMobileMetrics.scrollWidth>390)
       regressions.push(`expanded screenplay overflows horizontally at 390px (${screenplayMobileMetrics.scrollWidth}px document width)`);
     if((screenplayMobileMetrics.bodyRight||0)>391||(screenplayMobileMetrics.preRight||0)>391)

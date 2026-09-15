@@ -199,6 +199,12 @@ function stageStatusLabel(s){
 }
 async function stageServerAssetUrl(asset, fallbackUrl){
   const raw = (asset&&asset.url) || fallbackUrl || "";
+  // Current screenplay pages are local PNGs, never remote Art Room assets.
+  if(asset&&asset.referenceKind==="screenplay"){
+    if(!/^data:image\/png;base64,\S+$/.test(raw))
+      throw new Error("A required screenplay screenshot is unavailable. Reload the beat before rendering.");
+    return raw;
+  }
   const id = asset && asset.id;
   if(id && typeof nbRemoteImageUrl==="function"){
     try{ const u = await nbRemoteImageUrl(id); if(u) return u; }catch(e){}
@@ -2047,6 +2053,8 @@ function stageAssetRole(a, refs){
     return T+" is "+speaker+"'s spoken line — sync lip movement and timing to it.";
   }
   if(a.kind==="video") return T+" is the previous clip — match its camera movement, pacing and continuity.";
+  if(a.referenceKind==="screenplay") return T+" is a screenshot of the scene screenplay, page "+a.page+" of "+a.totalPages
+    +". Read it as writing context only; perform only the selected beat/shot/part. Never photograph or animate the page, its text, highlighting or borders, and never use it as composition or a character identity reference.";
   if(k==="frame") return T+" is the first frame — start from this exact composition.";
   if(k.indexOf("shotframe:")===0) return T+" is "+(label.toLowerCase()||"a later shot's frame")+" — anchor that shot's composition and blocking to it.";
   if(k.indexOf("scene-shotframe:")===0) return T+" is a scene shot frame chosen by the director — use its composition, identity and continuity where the prompt mentions it.";
@@ -2671,20 +2679,23 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   const screenplayReference = typeof window.stageScreenplayReference==="function"
     ? window.stageScreenplayReference(scene,shownShots,screenplayContext)
     : {hasSource:false,errors:["Scene screenplay is unavailable. Reload Stage before rendering."],signature:"missing"};
+  const screenplayImageReference = React.useMemo(()=>{
+    if(typeof window.stageScreenplayImages!=="function")
+      return {images:[],errors:["Screenplay screenshots are unavailable. Reload Stage before rendering."]};
+    return window.stageScreenplayImages(screenplayReference);
+  },[screenplayReference.signature]);
+  const screenplayImages = screenplayImageReference.images||[];
+  const screenplayImageIssue = (screenplayImageReference.errors||[])[0]
+    || (!screenplayImages.length ? "This beat needs its screenplay screenshot before rendering." : "")
+    || (seedanceModelOf(modelId).refs===false
+      ? "This video model only accepts a start frame and cannot include screenplay screenshots as separate references. Choose a reference-capable model such as Seedance."
+      : "");
   const sourceScreenplayIssue = !screenplayReference.hasSource || (screenplayReference.errors||[]).length
     ? (screenplayReference.errors||[])[0] || "Write this scene's screenplay in the Writers' Room before rendering."
     : "";
   const directionIssue=(d.screenplayDirectionIssues||[]).find(x=>x&&x.blocking);
-  const screenplayIssue=sourceScreenplayIssue || (directionIssue&&directionIssue.message) || "";
+  const screenplayIssue=sourceScreenplayIssue || screenplayImageIssue || (directionIssue&&directionIssue.message) || "";
   const scopeInstruction=stageRenderScopeInstruction(clipScope,clip,shownShots,promptShots,d.panelLines||[]);
-  /*
-   * The public screenplay reference remains the immutable contract sent to the
-   * transport worker.  This render-local clone lets the human-facing queued
-   * block state the selected shot/part boundary without changing source text,
-   * target beats, or canonical storage.
-   */
-  const screenplayPromptReference=screenplayReference&&typeof screenplayReference==="object"
-    ? {...screenplayReference,renderScope:{instruction:scopeInstruction}} : screenplayReference;
   const screenplayCurrentRef = React.useRef(null);
   screenplayCurrentRef.current = {clipId:clip.id,scene,shots:shownShots,ctx:screenplayContext,
     fromLiveDrafts:drafts===(window.turnContinuity||{}).drafts};
@@ -2981,8 +2992,13 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
       (referencePackage.props||[]).forEach(r=>{ const p=(ctx.propById||{})[r.entityId]||{};
         addRequired(r,"prop",(p.name||"Prop")+(r.stateId?" · Continuity state":" · Master reference")); });
     }
+    // Append required document references without replacing visual references.
+    screenplayImages.forEach(p=>out.push({...p,key:p.id,kind:"image",group:"Screenplay",
+      referenceKind:"screenplay",assetRole:"screenplay_reference",
+      assetRoleLabel:"Screenplay screenshot",assetSourceQuality:"canonical_screenplay_page",
+      ready:!!p.url,locked:true}));
     return out;
-  }, [clip.id, activeShot.id, sourceMode, dialogueAudio, modelId, referencePackage.signature, shotStartFrame, JSON.stringify((storyAssets.halves||[]).map(h=>h.id+":"+!!h.url)), storyAssets.top, storyAssets.bottom, storyAssets.sheet, prevVideo, prevVideoSafe, JSON.stringify(prevVideoMeta||{}), JSON.stringify(d.cast), JSON.stringify(d.props), d.loc&&d.loc.id, d.locSheet&&d.locSheet.id, JSON.stringify((sceneClips||[]).map(sc=>{ const dd=(sc&&sc.data)||{}; return (sc&&sc.id||"")+"|"+(dd.cast||[]).map(x=>x.id).join(",")+"|"+(dd.props||[]).map(x=>x.id+":"+(x.sheetId||"")).join(",")+"|"+(dd.shots||[]).map(x=>x.id+":"+(x.dialogue||"")).join(",")+"|"+((dd.locSheet&&dd.locSheet.id)||""); })), imgs, auds]);
+  }, [clip.id, activeShot.id, sourceMode, dialogueAudio, modelId, referencePackage.signature, screenplayImageReference, shotStartFrame, JSON.stringify((storyAssets.halves||[]).map(h=>h.id+":"+!!h.url)), storyAssets.top, storyAssets.bottom, storyAssets.sheet, prevVideo, prevVideoSafe, JSON.stringify(prevVideoMeta||{}), JSON.stringify(d.cast), JSON.stringify(d.props), d.loc&&d.loc.id, d.locSheet&&d.locSheet.id, JSON.stringify((sceneClips||[]).map(sc=>{ const dd=(sc&&sc.data)||{}; return (sc&&sc.id||"")+"|"+(dd.cast||[]).map(x=>x.id).join(",")+"|"+(dd.props||[]).map(x=>x.id+":"+(x.sheetId||"")).join(",")+"|"+(dd.shots||[]).map(x=>x.id+":"+(x.dialogue||"")).join(",")+"|"+((dd.locSheet&&dd.locSheet.id)||""); })), imgs, auds]);
 
   // assets default ON when ready; user can toggle (off set). @tags number the INCLUDED
   // assets only — attachment order is what fal sees, so excluding @Image2 must renumber
@@ -3108,9 +3124,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   const promptRefSig = promptRefAssets.map(a=>a.key+":"+stageAssetMention(a)).join("|");
   // NB: `model` is only declared further below — resolve from modelId here instead
   const assetLimit = seedanceModelOf(modelId).maxAssets || 12;   // Seedance 2.5 raises the input budget to 50
-  // Provider budgets count uploaded files only; the screenplay/script text is a
-  // prompt field, not a multimodal reference slot.
+  // The text prompt uses no media slots; each actual screenplay PNG counts.
   const budgetUsed = stageReferenceFileCount(tagged,on);
+  const imageLimit = modelId==="seedance-2.5" ? 30 : 9;
+  const imageOver = onImages.length>imageLimit;
   const assetOver = budgetUsed > assetLimit;
   const budgetOverBy = Math.max(0, budgetUsed-assetLimit);
   const budgetLeft = Math.max(0, assetLimit-budgetUsed);
@@ -3593,7 +3610,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     nextClip && nextFrameUrl && { id:"next", label:"Next clip · "+nextClip.label, url:nextFrameUrl },
     ...tagged.filter(a=>a.kind==="image" && a.ready && a.url && a.url!==startFrame).map(a=>({ id:"asset:"+a.key, label:a.label, url:a.url })),
   ].filter(Boolean);
-  const endFrameAvailable = !beatOpeningClip && !hasDialogue && onVideos.length===0 && endFrameCandidates.length>0 && modelRefs;   // beat-opening shots have one start state
+  const endFrameAvailable = !screenplayImages.length && !beatOpeningClip && !hasDialogue && onVideos.length===0 && endFrameCandidates.length>0 && modelRefs;   // transition endpoints cannot carry document references
   const endFrameUrl = endFrameAvailable ? ((endFrameCandidates.find(c=>c.id===endFrameId)||{}).url || "") : "";
 
   // ---- auto reference roles: one declared-role sentence per included asset, appended
@@ -3661,11 +3678,13 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     const attemptVideos=referenceFree ? [] : onVideos;
     const attemptAudios=referenceFree ? [] : onAudios;
     const attemptPromptRefAssets=referenceFree ? [] : directPromptRefAssets;
-    const frameAsset = referenceFree ? null : (onImages.find(a=>a.url===startFrame) || null);
+    const frameAsset = referenceFree ? null : (onImages.find(a=>a.referenceKind!=="screenplay"&&a.url===startFrame) || null);
     const frameUrl = frameAsset ? await stageServerAssetUrl(frameAsset, startFrame || frameAsset.url || "") : "";
     setPrepPct(22);
     const imageEntries = [];
-    for(const a of attemptImages){ if(a===frameAsset) continue; const u=await stageServerAssetUrl(a); if(u) imageEntries.push({ asset:a, url:u }); }
+    for(const a of attemptImages){ if(a===frameAsset) continue; const u=await stageServerAssetUrl(a);
+      if(!u&&a.referenceKind==="screenplay") throw new Error("A required screenplay screenshot could not be attached.");
+      if(u) imageEntries.push({ asset:a, url:u }); }
     const imageUrls = imageEntries.map(e=>e.url);
     setPrepPct(38);
     const videoUrls = attemptVideos.map(a=>a.url).filter(Boolean);
@@ -3683,6 +3702,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     }
     if(clip.g&&clip.g.over&&(!renderPlan||renderPlan.over)){ if(typeof window.appToast==="function") window.appToast("This clip's current render plan needs "+_fmtSecs((renderPlan&&renderPlan.durationSec)||clip.g.dur)+" — over "+_fmtSecs(model.maxClipSec||15)+". Keep the screenplay beat intact; choose a longer model or deliberately revise/revoice it. The app will not silently compress a paid request.","error"); return; }
     if(assetOver&&!referenceFree){ if(typeof window.appToast==="function") window.appToast((model.label||"This model")+" accepts up to "+assetLimit+" inputs — exclude a few assets first.","error"); return; }
+    if(imageOver) throw new Error("This render has "+onImages.length+" images including its screenplay pages, over the model's "+imageLimit+" image limit. No references were omitted.");
     if(sourceBlocking&&!referenceFree){ if(typeof window.appToast==="function") window.appToast("Save this clip's storyboard "+(sourceMode==="sheet"?"sheet":"halves")+" in Storyboards first, or switch Visual source back to shot/prompt rendering.","error"); return; }
     if(needsVoice&&!referenceFree){ if(typeof window.appToast==="function") window.appToast("Voice this clip's dialogue first — duration and lip-sync are locked to line audio.","error"); return; }
 	    if(creditInfo.empty){ if(typeof window.appToast==="function") window.appToast("No generation credits remaining.","error"); return; }
@@ -3706,6 +3726,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
 	      assetRoleLabel:a.assetRoleLabel || ((typeof nbAssetRoleLabel==="function") ? nbAssetRoleLabel(a.assetRole || ((a.kind==="video") ? "final_take" : "")) : ""),
 	      assetRolePriority:a.assetRolePriority || ((typeof nbAssetRolePriority==="function") ? nbAssetRolePriority(a.assetRole || ((a.kind==="video") ? "final_take" : "")) : 0),
 	      assetSourceQuality:a.assetSourceQuality || "",
+          sourceSignature:a.sourceSignature||"",page:a.page||null,totalPages:a.totalPages||null,
+          targetBeats:a.targetBeats||[],
 	      url:(a.kind==="text"||a.kind==="audio") ? "" : (a.url||"")
 	    })).concat(voiceRefLines.map((l,i)=>({
 	      tag:"@Video"+(videoUrls.length-voiceRefLines.length+i+1),
@@ -3754,7 +3776,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
              characters:ctx.characters||[],beatsMap})
         : renderPlan;
       const payload = { frameUrl, imageUrls, videoUrls, audioUrls, prompt:promptPayload, controls, multiShot,
-      screenplayReference, assertScreenplayCurrent,
+       screenplayReference, screenplayImages, screenplayImagesRequired:true, assertScreenplayCurrent,
       // the spend record rides the render job itself — settled at COMPLETION
       // (live or crash-recovered), pinned to the launching account, deduped by
       // a per-job event id so no path can charge twice or not at all
@@ -3774,7 +3796,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
             : (counts.text+" text · "+counts.images+" img · "+counts.videos+" vid · "+counts.audio+" aud"),
 	        durationSec: duration, references: takeReferences, shotSources,
           renderPlan:attemptRenderPlan,
-            beatSources, screenplayReference,
+            beatSources, screenplayReference, screenplayImages,
           referenceSourceVersions:referenceFree?[]:resolvedSourceVersions,
           omittedReferenceSourceVersions:referenceFree?resolvedSourceVersions:[],
           referenceSignature:referenceFree?"":(referencePackage.signature||""),
@@ -3796,8 +3818,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
         ? gen.generateBatch(p, batchN)
         : gen.generate(p).then(r=>[r]);
       // Final fail-closed guard immediately before the paid submission. A normal
-      // render never changes references after moderation. The explicit text-only
-      // recovery is a separate user-launched job and intentionally has no media.
+      // render never changes references after moderation or drops screenplay pages.
       if(referenceBlockingWarnings.length&&!referenceFree) throw new Error(referenceBlockMessage);
       if(typeof window.nbAssertMediaIdentity==="function")
         window.nbAssertMediaIdentity({identityCharacterIds:identityIds,identityCast,identityContext},"stage-video-before-submit");
@@ -3833,8 +3854,13 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     const controls = [cameraProfileLine, "Camera movement: "+camera+". Lighting: "+lighting+". Performance: "+perf+"."]
       .filter(Boolean).join("\n");
     try{
-      const frameAsset = onImages.find(a=>a.url===startFrame) || onImages[0] || null;
+      const frameAsset = onImages.find(a=>a.referenceKind!=="screenplay"&&a.url===startFrame) || null;
       const freshFrameUrl = await stageServerAssetUrl(frameAsset, startFrame || (frameAsset&&frameAsset.url) || "");
+      const extendImages=[];
+      for(const page of screenplayImages)
+        extendImages.push(await stageServerAssetUrl({...page,referenceKind:"screenplay"}));
+      if(extendImages.length+(freshFrameUrl?1:0)>imageLimit)
+        throw new Error("The complete screenplay exceeds this model's image-reference limit. No extension was submitted.");
       assertStageIdentityAssets();
       assertScreenplayCurrent();
       // Seedance's canonical extension grammar: name the video and the added length,
@@ -3843,11 +3869,13 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
         +prompt.trim()+(identityPrompt?"\n\nCANONICAL CHARACTER IDENTITY (binding): "+identityPrompt:"");
       if(typeof window.nbAssertMediaIdentity==="function")
         window.nbAssertMediaIdentity({identityCharacterIds:identityIds,identityCast,identityContext},"stage-video-extend-before-submit");
-      const res = await gen.generate({ frameUrl:freshFrameUrl, videoUrls:[playerUrl], prompt:extendPrompt, controls,
-        screenplayReference, assertScreenplayCurrent, takeMeta:{screenplayReference,source:"extend"},
+      const res = await gen.generate({ frameUrl:freshFrameUrl, imageUrls:extendImages, videoUrls:[playerUrl], prompt:extendPrompt, controls,
+        screenplayReference, screenplayImages, screenplayImagesRequired:true, assertScreenplayCurrent,
+        takeMeta:{screenplayReference,screenplayImages,source:"extend"},
         identityCharacterIds:identityIds, identityCast, identityContext,
         spend:{ cost:renderCost, reason:"stage-video-extend", uid:uid0 },   // settled at COMPLETION, rides the job
-        durationMs:duration*1000, aspectRatio:effAspect||"auto", fast:!!tierObj.fast, resolution, bitrateMode:bitrate, force:true });
+        durationMs:duration*1000, aspectRatio:effAspect||"auto", fast:!!tierObj.fast,
+        falModel:tierObj.falModel||undefined, resolution, bitrateMode:bitrate, force:true });
       if(typeof window.nbAssertMediaIdentity==="function")
         window.nbAssertMediaIdentity({identityCharacterIds:identityIds,identityCast,identityContext},"stage-video-extend-after-provider");
       if(res && res.seed!=null) setLastSeed(res.seed);
@@ -4074,7 +4102,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     text:referenceBlockMessage
   });
   if(promptSourceDrift) blockers.push({key:"prompt-drift",
-    text:"This hand-edited prompt was written against an older scene screenplay, shot timing, coverage, dialogue or reference version. Review the updated screenplay and exact render package before reusing it.",
+    text:"This hand-edited prompt was written against an older scene screenplay, shot timing, coverage, dialogue or reference version. Review the updated screenplay screenshots and selected references before reusing it.",
     actionLabel:"Confirm reviewed",action:()=>setPromptDriftConfirmed(promptSourceSig)});
   const planIssue=renderPlan&&(renderPlan.issues||[]).find(x=>x&&x.blocking);
   if(planIssue) blockers.push({key:"render-plan",text:planIssue.message,
@@ -4103,12 +4131,15 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     text:"The ticked shots total "+_fmtSecs(Math.round(msTotal*10)/10)+" — over "+(model.label||"this model")+"'s "+_fmtSecs(model.maxClipSec||15)+" maximum per clip. Fit the seconds, untick rows, or render in parts (the fixes sit under the rows)." });
   if(assetOver) blockers.push({ key:"budget",
     text:"Too many inputs selected — exclude "+budgetOverBy+" optional asset"+(budgetOverBy!==1?"s":"")+" before rendering." });
+  if(imageOver) blockers.push({key:"image-budget",
+    text:"This render needs "+onImages.length+" images including all screenplay pages; the selected model allows "+imageLimit+". Exclude optional images or choose a higher-capacity model. Screenplay pages will not be dropped."});
   if(creditInfo.empty) blockers.push({ key:"credits",
     text:"Not enough generation credits — this render needs "+totalCost+(creditInfo.known?(", "+creditInfo.remaining+" remaining"):"")+".",
     actionLabel:"Choose a plan", action:()=>{ if(typeof window.turnOpenPlans==="function") window.turnOpenPlans(); } });
   if(!prompt.trim()) blockers.push({ key:"prompt", text:"Write a prompt — describe the motion you want." });
   const blocker = blockers[0] || null;
-  const textOnlyRecoveryBlocked=blockers.find(b=>!["required-reference","voice","source","budget","voice-cap"].includes(b.key))||null;
+  const textOnlyRecoveryBlocked={key:"screenplay-images",
+    text:"This beat requires screenplay screenshots. Text-only rendering cannot include them; review the provider's rejection and references instead."};
   const onBlockedGenerate = ()=>{
     setBlockPulse(x=>x+1);
     if(blockerRef.current){ try{ blockerRef.current.scrollIntoView({ behavior:"smooth", block:"center" }); }catch(e){} }
@@ -4391,7 +4422,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
             :"Use the existing master image for this shot's video only. Other shots, appearance states and generated images stay unchanged.",
           onClick:()=>setCharacterReferenceChoice(row)},
           row.hasOverride?"Use scene appearance":"Use master for this shot")))),
-    typeof window.StageSceneScreenplay==="function" && _stEl(window.StageSceneScreenplay,{reference:screenplayReference}),
+    typeof window.StageSceneScreenplay==="function" && _stEl(window.StageSceneScreenplay,{
+      reference:screenplayReference,imageReference:screenplayImageReference,onPreview:setMaxImg}),
     // (the recipe TAB row is gone — user ruling 2026-08-02: ONE derived prompt.
     // The smart per-clip pick assembles screenplay text + Art Room cinematography;
     // the Multi-shot row editor below surfaces automatically when the pick lands on it.)
@@ -4578,14 +4610,15 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
           disabled:gening||creditInfo.empty||!!textOnlyRecoveryBlocked,
           title:textOnlyRecoveryBlocked?(textOnlyRecoveryBlocked.text||"Review the remaining render blocker first."):textOnlyRecoveryTitle,
           onClick:()=>onGenerate({referenceFree:true})},
-          "Retry from text only · "+totalCost+" credit"+(totalCost===1?"":"s"))),
+          "Retry from text only · "+totalCost+" credit"+(totalCost===1?"":"s")),
+        canTextOnlyRecovery && _stEl("span",{className:"stage2-hint"},textOnlyRecoveryBlocked.text)),
       soundCueMissing && _stEl("div",{className:"stage2-hint"}, Icon.mic&&_stEl(Icon.mic,{s:12}), "Native audio is on but the prompt has no sound direction — name the sounds you want (ambience, effects, music) or the soundtrack comes out generic."),
       hasDialogue && !modelAudioRefs && _stEl("div",{className:"stage2-hint"}, Icon.mic&&_stEl(Icon.mic,{s:12}),
         model.label+" performs the dialogue ITSELF from the prompt (native synced voices) — the locked ElevenLabs voices don't ride along on this model. Switch to Seedance for voice-locked lip-sync."),
       hasDialogue && modelAudioRefs && dialogueAudio==="native" && _stEl("div",{className:"stage2-hint"}, Icon.mic&&_stEl(Icon.mic,{s:12}),
         "Native performance: the model acts the lines in its own voice with free, natural pacing. Swap to your locked ElevenLabs voices in post with Voice Changer — it keeps the performance and timing, changes only the timbre."),
       !modelRefs && _stEl("div",{className:"stage2-hint"}, Icon.image&&_stEl(Icon.image,{s:12}),
-        model.label+" takes ONE start image — identity rides that frame, not the reference sheets. Only the selected visual source is sent; other assets stay behind.")),
+        model.label+" takes ONE start image and cannot carry the required screenplay screenshots separately. Choose a reference-capable model before rendering.")),
     tray));
 
   // ----- CENTER: player + filmstrip + prompt + input assets -----
@@ -4644,28 +4677,6 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
         onClick:()=>{ const i=clipsInScene.findIndex(c=>c.id===clip.id); if(i>=0 && i<clipsInScene.length-1) onSelectClip&&onSelectClip(clipsInScene[i+1].id); }},
         Icon.chevR&&_stEl(Icon.chevR,{s:14}))),
     composer,
-    typeof window.StageRenderPlan==="function" && _stEl(window.StageRenderPlan,{
-      plan:renderPlan,modelLabel:model.label,beatN:clip.g&&clip.g.beatN,
-      part:clip.g&&clip.g.part,parts:clip.g&&clip.g.parts,
-      referenceWarnings:referenceWarningGroups,
-      onShowShots:onStageNav?()=>onStageNav("shots"):undefined,
-      onSplit:clipScope==="legacy"?()=>setClipScope("beat"):undefined
-    }),
-    _stEl("details",{className:"stage-plan-queued"},
-      _stEl("summary",null,"Exact queued render"),
-      _stEl("pre",null,(()=>{
-        const queuedPrompt=scopeInstruction && prompt.indexOf(scopeInstruction)<0
-          ? prompt.trim()+"\n\n"+scopeInstruction : prompt.trim();
-        const body=(refBlock?(queuedPrompt+"\n\n"+refBlock):queuedPrompt)
-          +"\n\n"+[cameraProfileLine,"Camera movement: "+camera+". Lighting: "+lighting+". Performance: "+perf+"."].filter(Boolean).join("\n");
-        if(!screenplayReference.hasSource || (screenplayReference.errors||[]).length)
-          return body+"\n\nNOT READY: "+screenplayIssue;
-        const withReference=window.stageAppendScreenplayReference(body,screenplayPromptReference);
-        return screenplayIssue ? withReference+"\n\nNOT READY: "+screenplayIssue : withReference;
-      })()),
-      _stEl("small",null,"Scene "+_pad2(scene.no)+" · Beat "+((clip.g&&clip.g.beatN)||activeShot.beatN||"—")
-        +((clip.g&&clip.g.parts)>1?(" · Part "+clip.g.part+"/"+clip.g.parts):"")+" · "+model.label+" · "+tierObj.label+" · "+resolution+" · "+_fmtSecs(duration)
-        +" · "+counts.images+" image · "+counts.videos+" video · "+counts.audio+" audio reference"+(counts.audio===1?"":"s"))),
     _stEl("div",{className:"stage2-director-prompt"},
       _stEl("div",{className:"stage2-director-head"},
         _stEl("div",{className:"stage2-director-title"},

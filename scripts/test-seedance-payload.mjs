@@ -90,6 +90,11 @@ let pollTransportError = null;
 let submitHttpFailure = null;
 let recoveryPollGate = null;
 let submitAttempts = 0;
+let storageWriteFailure = false;
+let failPendingWriteAfterSubmit = false;
+let expectReservationAtSubmit = false;
+let reservationObservedAtSubmit = false;
+const appToasts = [];
 const attemptedSubmitBodies = [];
 const store = new Map();
 const sandbox = {
@@ -98,7 +103,12 @@ const sandbox = {
   clearTimeout: () => {}, setInterval: () => 0, clearInterval: () => {},
   localStorage: {
     getItem: (k) => store.has(k) ? store.get(k) : null,
-    setItem: (k, v) => store.set(k, String(v)),
+    setItem: (k, v) => {
+      if (storageWriteFailure) throw new Error("QuotaExceededError");
+      if (failPendingWriteAfterSubmit && k === "turn_vid_pending")
+        throw new Error("unexpected pending write failure");
+      store.set(k, String(v));
+    },
     removeItem: (k) => store.delete(k),
   },
   navigator: { userAgent: "seedance-test" },
@@ -124,6 +134,7 @@ const sandbox = {
     },
   },
   addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => {},
+  appToast: (message, kind) => appToasts.push({ message, kind }),
   TURN_SUPABASE: { imageProxy: true, imageProxyFn: "image-proxy" },
 };
 sandbox.window = sandbox;
@@ -143,6 +154,9 @@ sandbox.sbClient = () => ({
       if (body.op === "submit") {
         submitAttempts++;
         attemptedSubmitBodies.push(body);
+        if (expectReservationAtSubmit)
+          reservationObservedAtSubmit = Array.from(store.keys())
+            .some(key => key.startsWith("turn_vid_pending_reservation:"));
         if (submitHttpFailure) return { data: null, error: submitHttpFailure };
         submitted.push(body);
         return { data: { requestId: "actual-path", statusUrl: "https://queue.fal.run/status", responseUrl: "https://queue.fal.run/result", status: "IN_QUEUE" } };
@@ -249,6 +263,225 @@ assert.equal(referenceMeta.screenplayReference.fullText, screenplayReference.ful
 assert.equal(referenceMeta.screenplayReference.targetText, screenplayReference.targetText);
 assert.equal(referenceMeta.actualPrompt, submitted.at(-1).prompt);
 assert.equal(referenceMeta.prompt, submitted.at(-1).prompt);
+
+/* Screenplay page images are complete, actual image references — not metadata
+   claims. They remain in the provider payload as PNG data and receive an
+   explicit reading-context guard instead of becoming a start-frame prompt. */
+const pagePng1 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+const pagePng2 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+g8AAQUBAScY42YAAAAASUVORK5CYII=";
+const screenplayImages = [
+  { id:"page-1", url:pagePng1, label:"Page 1", page:1, totalPages:2,
+    sourceSignature:screenplayReference.signature, targetBeats:screenplayReference.targetBeats },
+  { id:"page-2", url:pagePng2, label:"Page 2", page:2, totalPages:2,
+    sourceSignature:screenplayReference.signature, targetBeats:screenplayReference.targetBeats },
+];
+const pageSubmitStart = submitted.length;
+expectReservationAtSubmit = true;
+const pageResult = await sandbox.seedanceGenerate("screenplay-page-images", {
+  falModel: "bytedance/seedance-2.5/reference-to-video",
+  imageUrls: [pagePng1, pagePng2],
+  prompt: "Perform only the selected doorway beat from the screenplay.",
+  screenplayReference, screenplayImages, screenplayImagesRequired:true,
+  assertScreenplayCurrent: () => true,
+  takeMeta: {
+    references: [
+      { kind:"image", label:"Page 1", url:pagePng1 },
+      { kind:"image", label:"Page 2", url:pagePng2 },
+      { kind:"image", label:"Character", url:"https://signed.example/character.png" },
+    ],
+  },
+  durationMs: 4000, resolution: "720p", pollMs: 1, maxPolls: 1,
+});
+expectReservationAtSubmit = false;
+assert.equal(submitted.length, pageSubmitStart + 1);
+assert.equal(pageResult.pendingPersistenceWarning, undefined,
+  "normal provider fields must fit after the conservative reservation");
+assert.equal(reservationObservedAtSubmit, true,
+  "a successful page render must hold its localStorage reservation through submit");
+const pageSubmit = submitted.at(-1);
+assert.deepEqual(Array.from(pageSubmit.image_urls), [pagePng1, pagePng2],
+  "actual screenplay page PNGs must be forwarded as image references");
+assert.match(pageSubmit.prompt, /reading context/i);
+assert.match(pageSubmit.prompt, /NEVER (?:photograph|animate)/i);
+assert.match(pageSubmit.prompt, /captions/i);
+assert.match(pageSubmit.prompt, /borders/i);
+assert.match(pageSubmit.prompt, /not visual composition/i);
+assert.match(pageSubmit.prompt, /not.*cast/i);
+assert.match(pageSubmit.prompt, /permission/i);
+const pageMeta = sandbox.vidGetMeta("screenplay-page-images");
+assert.deepEqual(JSON.parse(JSON.stringify(pageMeta.screenplayImages)), screenplayImages);
+assert.deepEqual(pageMeta.screenplayImageSnapshots.map(x => x.proxyInputUrl || pageMeta.screenplayImages.find(p => p.id === x.id)?.url), [pagePng1, pagePng2]);
+assert.equal(Object.prototype.hasOwnProperty.call(pageMeta.screenplayImageSnapshots[0], "proxyInputUrl"), false,
+  "unchanged PNGs use screenplayImages as the single canonical byte copy");
+assert.equal(Object.prototype.hasOwnProperty.call(pageMeta.references[0], "url"), false,
+  "page URLs must not be duplicated in take reference metadata");
+assert.equal(pageMeta.references[0].screenplayImageId, "page-1");
+assert.equal(pageMeta.references[2].url, "https://signed.example/character.png");
+const pendingReservationKeys = () =>
+  Array.from(store.keys()).filter(key => key.startsWith("turn_vid_pending_reservation:"));
+assert.deepEqual(pendingReservationKeys(), [],
+  "successful completion must release the actual localStorage reservation marker");
+
+const fullPendingLedger = Array.from({ length: 20 }, (_, i) => ({
+  requestId: `paid-old-${i}`, id: `old-clip-${i}`, model: "seedance",
+  statusUrl: `https://queue.example/status/${i}`,
+  responseUrl: `https://queue.example/result/${i}`, at: Date.now(),
+  meta: { old: true },
+}));
+sandbox.localStorage.setItem("turn_vid_pending", JSON.stringify(fullPendingLedger));
+const ledgerSubmitStart = submitAttempts;
+await assert.rejects(sandbox.seedanceGenerate(null, {
+  falModel: "bytedance/seedance-2.5/reference-to-video",
+  imageUrls: [pagePng1, pagePng2],
+  prompt: "A full pending ledger must refuse before submit.",
+  screenplayReference, screenplayImages, screenplayImagesRequired:true,
+  assertScreenplayCurrent: () => true,
+  durationMs: 4000, resolution: "720p",
+}), /20 pending paid renders/i);
+assert.equal(submitAttempts, ledgerSubmitStart,
+  "a full pending ledger must reject before provider submit");
+assert.deepEqual(JSON.parse(store.get("turn_vid_pending")), fullPendingLedger,
+  "full-ledger refusal must not evict older paid work");
+sandbox.localStorage.setItem("turn_vid_pending", "[]");
+
+const refusalSubmitStart = submitAttempts;
+submitHttpFailure = { message: "intentional transport refusal" };
+await assert.rejects(sandbox.seedanceGenerate(null, {
+  falModel: "bytedance/seedance-2.5/reference-to-video",
+  imageUrls: [pagePng1, pagePng2],
+  prompt: "Refusal must release its page reservation.",
+  screenplayReference, screenplayImages, screenplayImagesRequired:true,
+  assertScreenplayCurrent: () => true,
+  durationMs: 4000, resolution: "720p",
+}), /intentional transport refusal|Couldn't confirm/i);
+submitHttpFailure = null;
+assert.equal(submitAttempts, refusalSubmitStart + 1);
+assert.deepEqual(pendingReservationKeys(), [],
+  "submit refusal must release the actual localStorage reservation marker");
+
+const cancelSubmitStart = submitAttempts;
+await assert.rejects(sandbox.seedanceGenerate(null, {
+  falModel: "bytedance/seedance-2.5/reference-to-video",
+  imageUrls: [pagePng1, pagePng2],
+  prompt: "Cancellation must release its page reservation.",
+  screenplayReference, screenplayImages, screenplayImagesRequired:true,
+  assertScreenplayCurrent: () => true, shouldCancel: () => true,
+  durationMs: 4000, resolution: "720p", pollMs: 1, maxPolls: 1,
+}), /cancelled/i);
+assert.deepEqual(pendingReservationKeys(), [],
+  "cancellation must release the actual localStorage reservation marker");
+assert.equal(submitAttempts, cancelSubmitStart,
+  "cancellation before submit must not invoke paid transport");
+sandbox.localStorage.setItem("turn_vid_pending", "[]");
+
+const storageRejectSubmitStart = submitAttempts;
+storageWriteFailure = true;
+await assert.rejects(sandbox.seedanceGenerate(null, {
+  falModel: "bytedance/seedance-2.5/reference-to-video",
+  imageUrls: [pagePng1, pagePng2],
+  prompt: "Unavailable storage must not spend.",
+  screenplayReference, screenplayImages, screenplayImagesRequired:true,
+  assertScreenplayCurrent: () => true,
+  durationMs: 4000, resolution: "720p",
+}), /pending-render storage is unavailable or full/i);
+storageWriteFailure = false;
+assert.equal(submitAttempts, storageRejectSubmitStart,
+  "unavailable/full localStorage must reject required-image renders before provider submit");
+assert.deepEqual(pendingReservationKeys(), []);
+
+failPendingWriteAfterSubmit = true;
+const unexpectedStorageSubmitStart = submitAttempts;
+const unexpectedStorageResult = await sandbox.seedanceGenerate(null, {
+  falModel: "bytedance/seedance-2.5/reference-to-video",
+  imageUrls: [pagePng1, pagePng2],
+  prompt: "Unexpected pending persistence failure must keep polling.",
+  screenplayReference, screenplayImages, screenplayImagesRequired:true,
+  assertScreenplayCurrent: () => true,
+  durationMs: 4000, resolution: "720p", pollMs: 1, maxPolls: 1,
+});
+failPendingWriteAfterSubmit = false;
+assert.equal(submitAttempts, unexpectedStorageSubmitStart + 1);
+assert.equal(unexpectedStorageResult.pendingPersistenceWarning, true,
+  "post-submit pending persistence failure must be surfaced without aborting the paid poll");
+assert.match(appToasts.at(-1)?.message || "", /submitted.*crash-recovery.*live polling/i);
+
+/* An empty prompt with document pages first must never invent motion for
+   @Image1. With a real video reference available, the generic fallback names
+   that actual visual; documents remain reading context only. */
+const fallbackSubmitStart = submitted.length;
+await sandbox.seedanceGenerate("screenplay-page-fallback", {
+  falModel: "bytedance/seedance-2.5/reference-to-video",
+  imageUrls: [pagePng1, pagePng2],
+  videoUrls: ["https://signed.example/actual-visual.mp4?dur=5.2"],
+  audioUrls: ["https://signed.example/fallback-voice.wav?dur=5.2"],
+  screenplayReference, screenplayImages, screenplayImagesRequired:true,
+  assertScreenplayCurrent: () => true,
+  durationMs: 4000, resolution: "720p", pollMs: 1, maxPolls: 1,
+});
+assert.equal(submitted.length, fallbackSubmitStart + 1);
+assert.match(submitted.at(-1).prompt, /@Video1 comes alive/i);
+assert.doesNotMatch(submitted.at(-1).prompt, /@Image1 comes alive/i);
+
+const pageGuardSubmitStart = submitted.length;
+const giantPagePng = "data:image/png;base64," + "A".repeat(1_600_000);
+await assert.rejects(sandbox.seedanceGenerate(null, {
+  falModel: "bytedance/seedance-2.5/reference-to-video",
+  imageUrls: [giantPagePng],
+  prompt: "Perform the selected beat.",
+  screenplayReference, screenplayImages: [{
+    id:"giant-page", url:giantPagePng, label:"Giant page", page:1, totalPages:1,
+    sourceSignature:screenplayReference.signature, targetBeats:screenplayReference.targetBeats,
+  }], screenplayImagesRequired:true,
+  assertScreenplayCurrent: () => true,
+  durationMs: 4000, resolution: "720p",
+}), /too large to retain safely.*crash recovery/i);
+assert.equal(submitted.length, pageGuardSubmitStart,
+  "oversized pending provenance must be rejected before paid submit");
+
+const rejectPage = async (options, expected) => {
+  await assert.rejects(sandbox.seedanceGenerate(null, {
+    falModel: "bytedance/seedance-2.5/reference-to-video",
+    prompt: "Perform the selected beat.",
+    screenplayReference, screenplayImages, screenplayImagesRequired:true,
+    assertScreenplayCurrent: () => true,
+    durationMs: 4000, resolution: "720p", ...options,
+  }), expected);
+  assert.equal(submitted.length, pageGuardSubmitStart,
+    "screenplay image guard failures must not reach paid submit");
+};
+await rejectPage({
+  imageUrls: [pagePng1],
+}, /complete page set|complete screenplay page|actual imageUrls/i);
+await rejectPage({
+  imageUrls: [pagePng1, pagePng2],
+  screenplayImages: screenplayImages.map(page => ({ ...page, sourceSignature:"stale-signature" })),
+}, /mismatched source signature|stale/i);
+await rejectPage({
+  imageUrls: [],
+}, /not present in the actual imageUrls payload/i);
+await rejectPage({
+  falModel: "fal-ai/sora-2/image-to-video",
+  imageUrls: [pagePng1, pagePng2],
+}, /one start image|cannot consume screenplay page images/i);
+await rejectPage({
+  imageUrls: [pagePng1, pagePng2],
+  frameUrl: "https://signed.example/real-start.png",
+  endImageUrl: "https://signed.example/real-end.png",
+}, /transition.*screenplay page|cannot consume screenplay page/i);
+await rejectPage({
+  imageUrls: [pagePng1, pagePng2],
+  textOnly: true,
+}, /text-only.*discard|required screenplay page/i);
+await assert.rejects(sandbox.seedanceGenerate(null, {
+  falModel: "bytedance/seedance-2.5/reference-to-video",
+  imageUrls: [pagePng1, pagePng2],
+  screenplayReference, screenplayImages, screenplayImagesRequired:true,
+  assertScreenplayCurrent: () => true,
+  durationMs: 4000, resolution: "720p",
+}), /only screenplay page images needs an explicit video direction/i);
+assert.equal(submitted.length, pageGuardSubmitStart,
+  "promptless document-only requests must fail before paid submit");
+
 let settlementFreshnessCalls = 0;
 await sandbox.seedanceGenerate(null, {
   falModel: "bytedance/seedance-2.0/reference-to-video",

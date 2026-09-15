@@ -113,6 +113,99 @@ function _vidScreenplayReferenceSnapshot(value){
   return _vidFreeze(copy);
 }
 
+/* Stage screenplay pages are a second, deliberately separate reference class.
+   They are reading material for the provider, never a start frame.  Keep this
+   validation here (rather than trusting takeMeta or a UI count) so a caller
+   cannot submit a partial, stale, or metadata-only page package. */
+const VID_SCREENPLAY_IMAGE_GUARD =
+  "SCREENPLAY PAGE IMAGE REFERENCES (binding): @ImageN page refs are reading context only. " +
+  "NEVER photograph, animate, reproduce, or render the screenplay page, its captions, " +
+  "borders, panels, watermarks, or text. Page refs are not visual composition or " +
+  "cast/permission to perform any later beat; they are not character likeness or " +
+  "authorization to perform later action; perform " +
+  "only the selected target beat from the authored screenplay.";
+function _vidSameNumbers(a,b){
+  return Array.isArray(a) && Array.isArray(b) && a.length===b.length
+    && a.every((v,i)=>v===b[i]);
+}
+function _vidScreenplayImagesSnapshot(value, screenplayReference, imageUrls, frameUrl){
+  if(value===undefined) return null;
+  if(!Array.isArray(value))
+    throw new Error("Stage screenplayImages must be an array of complete page descriptors; render was not submitted.");
+  if(!value.length)
+    throw new Error("Stage screenplayImages must contain every screenplay page; no page images were supplied.");
+  if(!screenplayReference)
+    throw new Error("Stage screenplayImages require a matching screenplayReference; render was not submitted.");
+  const actual = _vidDedup(Array.isArray(imageUrls) ? imageUrls : []);
+  const pages = value.map((page,i)=>{
+    if(!page || typeof page!=="object" || Array.isArray(page))
+      throw new Error("Stage screenplayImages page "+(i+1)+" is malformed; render was not submitted.");
+    const id=String(page.id==null ? "" : page.id).trim();
+    const url=String(page.url==null ? "" : page.url).trim();
+    const label=String(page.label==null ? "" : page.label);
+    const n=page.page, total=page.totalPages;
+    if(!id || !url) throw new Error("Stage screenplayImages page "+(i+1)+" is missing id or url; render was not submitted.");
+    if(!Number.isInteger(n) || n<1 || !Number.isInteger(total) || total<1 || n>total)
+      throw new Error("Stage screenplayImages page "+(i+1)+" has an invalid page/totalPages value; render was not submitted.");
+    if(typeof page.sourceSignature!=="string" || page.sourceSignature!==screenplayReference.signature)
+      throw new Error("Stage screenplayImages page "+n+" has a stale or mismatched source signature; render was not submitted.");
+    if(!Array.isArray(page.targetBeats) || !_vidSameNumbers(page.targetBeats,screenplayReference.targetBeats))
+      throw new Error("Stage screenplayImages page "+n+" has mismatched target beats; render was not submitted.");
+    if(actual.indexOf(url)<0)
+      throw new Error("Stage screenplayImages page "+n+" is not present in the actual imageUrls payload; render was not submitted.");
+    if(String(frameUrl||"").trim()===url)
+      throw new Error("A screenplay page image cannot be used as the start frame; render was not submitted.");
+    return {
+      id, url, label, page:n, totalPages:total,
+      sourceSignature:page.sourceSignature,
+      targetBeats:page.targetBeats.slice(),
+    };
+  });
+  const total=pages[0].totalPages;
+  if(pages.some(page=>page.totalPages!==total))
+    throw new Error("Stage screenplayImages must use one complete totalPages value; render was not submitted.");
+  const seenPages=new Set(), seenIds=new Set(), seenUrls=new Set();
+  pages.forEach(page=>{
+    if(seenPages.has(page.page) || seenIds.has(page.id) || seenUrls.has(page.url))
+      throw new Error("Stage screenplayImages contains duplicate page descriptors; render was not submitted.");
+    seenPages.add(page.page); seenIds.add(page.id); seenUrls.add(page.url);
+  });
+  if(pages.length!==total || pages.some((page,i)=>!seenPages.has(i+1)))
+    throw new Error("Stage screenplayImages must contain the complete page set 1–"+total+"; render was not submitted.");
+  const snapshot=_vidClone(pages);
+  return _vidFreeze(snapshot);
+}
+function _vidScreenplayImageGuard(pages, images){
+  const refs=(pages||[]).map(page=>{
+    const index=(images||[]).indexOf(page.url);
+    return index>=0 ? "@Image"+(index+1) : "@ImageN";
+  });
+  const label=refs.length ? refs.join(", ") : "@ImageN";
+  return VID_SCREENPLAY_IMAGE_GUARD.replace("@ImageN",label);
+}
+/* takeMeta can also contain the Stage reference tray.  Once screenplayImages
+   is present, its page URLs are already losslessly owned by screenplayImages;
+   retaining those same PNG strings in references and caller-provided page
+   fields only multiplies localStorage pressure. */
+function _vidCompactScreenplayTakeMeta(value, pages){
+  const out=_vidClone(value&&typeof value==="object"&&!Array.isArray(value) ? value : {});
+  if(!pages || !pages.length) return out;
+  ["screenplayImages","screenplayImageSnapshots","screenplayImageProvenance"].forEach(k=>{ delete out[k]; });
+  const byUrl=new Map(pages.map(page=>[page.url,page]));
+  if(Array.isArray(out.references)){
+    out.references=out.references.map(ref=>{
+      const page=ref&&typeof ref==="object" ? byUrl.get(String(ref.url||"")) : null;
+      if(!page) return ref;
+      const compact={...ref};
+      delete compact.url;
+      compact.screenplayImageId=page.id;
+      compact.screenplayPage=page.page;
+      return compact;
+    });
+  }
+  return out;
+}
+
 // video always runs server-side — proxy on + signed-in
 function videoProxyReady(){
   return !!(window.TURN_SUPABASE && window.TURN_SUPABASE.imageProxy
@@ -913,10 +1006,138 @@ window.blackMp4FromAudio = blackMp4FromAudio;
    next load re-polls the leftovers once and commits any finished video as a take. ---- */
 const VID_PENDING_KEY = "turn_vid_pending";
 function _vidPendingList(){ try{ return JSON.parse(localStorage.getItem(VID_PENDING_KEY)||"[]")||[]; }catch(e){ return []; } }
-function _vidPendingSave(list){ try{ localStorage.setItem(VID_PENDING_KEY, JSON.stringify(list.slice(-20))); }catch(e){} }
-function _vidPendingAdd(job){ const l=_vidPendingList().filter(j=>j.requestId!==job.requestId); l.push(job); _vidPendingSave(l); }
+function _vidPendingSave(list, strict, requestId){
+  try{
+    const serialized=JSON.stringify(strict ? list : list.slice(-20));
+    localStorage.setItem(VID_PENDING_KEY, serialized);
+    if(strict){
+      const savedRaw=localStorage.getItem(VID_PENDING_KEY);
+      if(savedRaw!==serialized) return false;
+      const saved=JSON.parse(savedRaw||"[]");
+      if(!Array.isArray(saved) || !saved.some(j=>j&&j.requestId===requestId)) return false;
+    }
+    return true;
+  }catch(e){ return false; }
+}
+function _vidPendingAdd(job, strict){
+  const l=_vidPendingList().filter(j=>j.requestId!==job.requestId); l.push(job);
+  if(strict && l.length>VID_PENDING_LEDGER_LIMIT) return false;
+  return _vidPendingSave(l,!!strict,job.requestId);
+}
 function _vidPendingRemove(requestId){ _vidPendingSave(_vidPendingList().filter(j=>j.requestId!==requestId)); }
 function _vidPendingRemoveByClip(id){ if(id!=null) _vidPendingSave(_vidPendingList().filter(j=>!j || j.id!==id)); }
+/* Screenplay page PNGs are intentionally lossless, so one large source can
+   exceed a browser's localStorage quota after it is JSON-encoded.  Only the
+   new page-reference path is bounded; legacy callers retain their historical
+   pending behavior.  The reserve set closes the small race where a batch of
+   page renders all preflights against the same old pending list. */
+/* One million JSON code units is deliberately below common per-origin
+   localStorage limits, leaving headroom for the app's other local keys. */
+const VID_PENDING_SCREENPLAY_BUDGET = 1000000;
+const VID_PENDING_LEDGER_LIMIT = 20;
+/* Provider status/result URLs are only known after submit; reserve this
+   bounded allowance now, then validate the actual record before saving. */
+const VID_PENDING_PROVIDER_OVERHEAD = 64*1024;
+const VID_PENDING_RESERVATION_PREFIX = "turn_vid_pending_reservation:";
+const VID_PENDING_RESERVATION_TTL = 15*60*1000;
+const _vidPendingReservations = new Map();
+const _vidStorageReservations = new Map();
+let _vidPendingReserveReason="";
+function _vidPendingSerialized(job, excludeReservationToken){
+  const reservations=Array.from(_vidPendingReservations.entries())
+    .filter(([token])=>token!==excludeReservationToken).map(([,value])=>value);
+  const list=_vidPendingList().filter(Boolean).concat(reservations,job);
+  /* Required-image records must never be admitted by silently evicting an
+     older paid job. Legacy _vidPendingSave retains its historical slice. */
+  if(list.length>VID_PENDING_LEDGER_LIMIT) return null;
+  return JSON.stringify(list);
+}
+function _vidStorageReservationCleanup(){
+  try{
+    if(typeof localStorage.length!=="number" || typeof localStorage.key!=="function") return;
+    const now=Date.now();
+    for(let i=localStorage.length-1;i>=0;i--){
+      const key=localStorage.key(i)||"";
+      if(!key.startsWith(VID_PENDING_RESERVATION_PREFIX)) continue;
+      const at=Number(key.slice(VID_PENDING_RESERVATION_PREFIX.length).split("-")[0]);
+      if(Number.isFinite(at) && now-at>VID_PENDING_RESERVATION_TTL){
+        try{ localStorage.removeItem(key); }catch(e){}
+      }
+    }
+  }catch(e){}
+}
+function _vidStorageReservationChars(){
+  let total=0;
+  _vidStorageReservations.forEach(n=>{ total+=n; });
+  try{
+    if(typeof localStorage.length==="number" && typeof localStorage.key==="function"){
+      for(let i=0;i<localStorage.length;i++){
+        const key=localStorage.key(i)||"";
+        if(!key.startsWith(VID_PENDING_RESERVATION_PREFIX) || _vidStorageReservations.has(key)) continue;
+        const value=localStorage.getItem(key);
+        if(value==null) return Infinity;
+        total+=key.length+value.length;
+      }
+    }
+  }catch(e){ return Infinity; }
+  return total;
+}
+function _vidStorageReservationReserve(job, token){
+  _vidStorageReservationCleanup();
+  try{
+    const current=localStorage.getItem(VID_PENDING_KEY)||"[]";
+    const candidate=_vidPendingSerialized(job);
+    if(candidate==null) return false;
+    const reserved=_vidStorageReservationChars();
+    if(!Number.isFinite(reserved)) return false;
+    const key=VID_PENDING_RESERVATION_PREFIX+token;
+    /* The marker is zero padding plus a tiny header — never page bytes.  It
+       occupies the additional serialized-job space while paid submission is
+       attempted, so a successful setItem proves the later pending write fits. */
+    const delta=Math.max(0,candidate.length+VID_PENDING_PROVIDER_OVERHEAD-current.length-reserved);
+    const marker=JSON.stringify({ v:1, at:Date.now(), chars:delta, pad:"0".repeat(delta) });
+    localStorage.setItem(key,marker);
+    const verify=localStorage.getItem(key);
+    if(verify==null || verify.length!==marker.length){
+      try{ localStorage.removeItem(key); }catch(e){}
+      return false;
+    }
+    _vidStorageReservations.set(key,key.length+marker.length);
+    return true;
+  }catch(e){ return false; }
+}
+function _vidStorageReservationRelease(token){
+  if(!token) return true;
+  const key=VID_PENDING_RESERVATION_PREFIX+token;
+  let ok=true;
+  try{ localStorage.removeItem(key); }catch(e){ ok=false; }
+  _vidStorageReservations.delete(key);
+  return ok;
+}
+function _vidPendingFits(job){
+  try{
+    const serialized=_vidPendingSerialized(job);
+    return serialized!=null && serialized.length+VID_PENDING_PROVIDER_OVERHEAD<=VID_PENDING_SCREENPLAY_BUDGET;
+  }catch(e){ return false; }
+}
+function _vidPendingReserve(job){
+  _vidPendingReserveReason="";
+  let serialized;
+  try{ serialized=_vidPendingSerialized(job); }catch(e){ serialized=null; }
+  if(serialized==null){ _vidPendingReserveReason="ledger"; return ""; }
+  if(serialized.length+VID_PENDING_PROVIDER_OVERHEAD>VID_PENDING_SCREENPLAY_BUDGET){ _vidPendingReserveReason="size"; return ""; }
+  const token=Date.now()+"-"+Math.random().toString(36).slice(2);
+  const reservation={...job,requestId:token};
+  if(!_vidStorageReservationReserve(reservation,token)){ _vidPendingReserveReason="storage"; return ""; }
+  _vidPendingReservations.set(token,reservation);
+  return token;
+}
+function _vidPendingRelease(token){
+  if(!token) return true;
+  const released=_vidStorageReservationRelease(token);
+  _vidPendingReservations.delete(token);
+  return released;
+}
 window.vidPendingList = _vidPendingList;   // read-only view (UI / tests)
 /* Recovery is PROJECT-SCOPED: each pending entry carries the film it belongs to, and
    a pass only replays entries for the film that's open — jobs from other films wait
@@ -1040,6 +1261,8 @@ async function seedanceGenerate(id, opts){
       || screenplayBlock.indexOf(screenplayReference.fullText)<0
       || screenplayBlock.indexOf(screenplayReference.targetText)<0))
     throw new Error("Stage screenplay reference delivery helper returned no full scene source; render was not submitted.");
+  if(opts.screenplayImagesRequired===true && !Array.isArray(opts.screenplayImages))
+    throw new Error("This render requires the complete screenplay page image set; render was not submitted.");
   const appendScreenplay=(prompt)=>{
     if(!hasScreenplayReference) return String(prompt==null?"":prompt);
     const out=screenplayAppend(prompt,screenplayReference);
@@ -1087,9 +1310,18 @@ async function seedanceGenerate(id, opts){
   const isSeedance25 = /seedance-2\.5/.test(String(opts.falModel||""));
   const textOnly = !!opts.textOnly;
   // assemble the multimodal asset lists (single frameUrl/audioUrl kept for back-compat)
-  const images = _vidDedup([opts.frameUrl, ...(opts.imageUrls||[])]);
+  const imageUrls = Array.isArray(opts.imageUrls) ? opts.imageUrls : [];
+  const images = _vidDedup([opts.frameUrl, ...imageUrls]);
   const videos = _vidDedup(opts.videoUrls||[]);
   const audios = _vidDedup([opts.audioUrl, ...(opts.audioUrls||[])]);
+  const screenplayImages = _vidScreenplayImagesSnapshot(
+    opts.screenplayImages, screenplayReference, imageUrls, opts.frameUrl
+  );
+  const hasScreenplayImages = !!screenplayImages;
+  if(opts.screenplayImagesRequired===true && !hasScreenplayImages)
+    throw new Error("This render requires complete screenplay page images; render was not submitted.");
+  if(hasScreenplayImages && textOnly)
+    throw new Error("A text-only video request cannot discard required screenplay page images.");
   if(textOnly && (images.length || videos.length || audios.length))
     throw new Error("A text-only video request cannot include image, video, or audio references.");
   if(!textOnly && !images.length && !videos.length) throw new Error("This clip has no start frame yet — generate the shot's frame in the Shot List first.");
@@ -1107,6 +1339,10 @@ async function seedanceGenerate(id, opts){
   // video/audio refs — those require the multimodal reference-to-video shape instead.
   // (Kling takes end_image_url natively on its one endpoint — no endpoint switch.)
   const endFrame = isSora ? "" : (opts.endImageUrl||"").trim();
+  if(hasScreenplayImages && (isSora || isKling))
+    throw new Error("This video model accepts only one start image and cannot consume screenplay page images separately; choose a Seedance reference-to-video route.");
+  if(hasScreenplayImages && endFrame)
+    throw new Error("Start-to-end image transitions cannot consume screenplay page images separately; choose a Seedance reference-to-video route.");
   const useTransition = !isKling && !!(endFrame && images.length && !videos.length && !audios.length);
   const model = (isSora || isKling) ? opts.falModel
     : textOnly
@@ -1126,8 +1362,20 @@ async function seedanceGenerate(id, opts){
   const resolution = vidResolutionForModel(model, opts.resolution);
   const aspectRatio = opts.aspectRatio || "auto";
   const controls = (opts.controls||"").trim();
-  const firstVisualToken = images.length ? "@Image1" : "@Video1";
-  const basePrompt = (opts.prompt||"").trim() || (audios.length
+  const onlyDocumentImages = hasScreenplayImages && images.length===screenplayImages.length
+    && !videos.length && !audios.length
+    && images.every(url=>screenplayImages.some(page=>page.url===url));
+  const suppliedPrompt = (opts.prompt||"").trim();
+  const nonDocumentImages = hasScreenplayImages
+    ? images.filter(url=>!screenplayImages.some(page=>page.url===url)) : images;
+  const firstVisualToken = nonDocumentImages.length
+    ? "@Image"+(images.indexOf(nonDocumentImages[0])+1)
+    : videos.length ? "@Video1" : "";
+  if(onlyDocumentImages && !suppliedPrompt)
+    throw new Error("A render with only screenplay page images needs an explicit video direction; page images are reading context, not a start frame.");
+  if(hasScreenplayImages && !suppliedPrompt && !firstVisualToken)
+    throw new Error("Screenplay page images provide reading context only; an explicit video direction or actual visual reference is required.");
+  const basePrompt = suppliedPrompt || (audios.length
     ? firstVisualToken+" comes alive — the character speaks the line in @Audio1 with natural, accurate lip-sync. Subtle, grounded motion; hold the framing and the lighting."
     : firstVisualToken+" comes alive with subtle, natural motion; hold the framing and the lighting.");
   const identityCast = opts.identityCast || [];
@@ -1135,8 +1383,11 @@ async function seedanceGenerate(id, opts){
     ? String(window.turnIdentityPrompt(identityCast)||"").trim() : "";
   const promptWithIdentity = identityPrompt && basePrompt.indexOf(identityPrompt)<0
     ? basePrompt+"\n\nCANONICAL CHARACTER IDENTITY (binding): "+identityPrompt : basePrompt;
+  const pageGuard = hasScreenplayImages ? _vidScreenplayImageGuard(screenplayImages,images) : "";
+  const promptWithPageGuard = pageGuard
+    ? promptWithIdentity+"\n\n"+pageGuard : promptWithIdentity;
   const promptText = appendScreenplay(controls
-    ? (promptWithIdentity + "\n" + controls) : promptWithIdentity);
+    ? (promptWithPageGuard + "\n" + controls) : promptWithPageGuard);
   /* Native Kling multi-shot rows override the top-level prompt.  Every row
      therefore receives the same exact screenplay block, rather than relying
      on the top-level prompt. */
@@ -1166,6 +1417,12 @@ async function seedanceGenerate(id, opts){
     fullText:screenplayReference.fullText, targetBeats:screenplayReference.targetBeats,
     targetText:screenplayReference.targetText
   };
+  /* Page bytes already participate in the asset hash.  Hash only the compact
+     page identity here; full URLs belong once in take/pending provenance. */
+  if(hasScreenplayImages) settings.screenplayImages = screenplayImages.map(page=>({
+    id:page.id, page:page.page, totalPages:page.totalPages,
+    sourceSignature:page.sourceSignature, targetBeats:page.targetBeats,
+  }));
   if(screenplayReference && isKling && klingShots.length) settings.klingMultiPrompt=klingShots;
   const hash = vidHash([...images, ...videos, ...audios], promptText, settings);
   // skip-if-unchanged
@@ -1177,6 +1434,31 @@ async function seedanceGenerate(id, opts){
   }
   const proxyImages = await vidProxyReadyUrls((isSora||isKling) ? images.slice(0,1) : images);   // Sora/Kling: the start frame only
   vidAssertIdentity(opts, "video-after-image-prep");
+  const screenplayImageSnapshots = hasScreenplayImages
+    ? _vidFreeze(_vidClone(screenplayImages.map(page=>{
+        const imageIndex=images.indexOf(page.url);
+        const proxyInputUrl=imageIndex>=0 ? (proxyImages[imageIndex]||"") : "";
+        if(imageIndex<0 || !proxyInputUrl)
+          throw new Error("A screenplay page image was not retained in the actual browser-to-proxy image payload; render was not submitted.");
+        /* screenplayImages already stores the exact source URL.  Avoid storing
+           that same potentially multi-megabyte data URL a second time when
+           staging did not transform it; a differing proxyInputUrl (blob→data,
+           refreshed signed URL, etc.) remains exact and is retained. This is
+           the browser-to-proxy input, not a final provider URL. */
+        const snapshot={ id:page.id, label:page.label, page:page.page,
+          totalPages:page.totalPages, sourceSignature:page.sourceSignature,
+          targetBeats:page.targetBeats.slice(), imageIndex:imageIndex+1 };
+        if(proxyInputUrl!==page.url) snapshot.proxyInputUrl=proxyInputUrl;
+        return snapshot;
+      })))
+    : null;
+  const persistedTakeMeta = hasScreenplayImages
+    ? _vidCompactScreenplayTakeMeta(opts.takeMeta,screenplayImages)
+    : (opts.takeMeta||{});
+  /* Provenance is source-descriptor exactness plus the 1-based image slot and,
+     only when staging changed bytes, the exact browser→proxy input.  The
+     transport/proxy may replace that input, so no final provider URL is
+     fabricated or recorded here. */
   const proxyVideos = (isSora||isKling) ? [] : await vidProxyReadyUrls(videos);
   vidAssertIdentity(opts, "video-after-video-prep");
   const proxyAudios = [];
@@ -1202,40 +1484,105 @@ async function seedanceGenerate(id, opts){
        no screenplay freshness check after the provider accepts the paid job:
        a later edit cannot invalidate settlement or trigger a second submit. */
     assertScreenplayCurrent("video-before-submit");
-    const sub = await vidProxy("submit", {
-      model, prompt:pText,
-      ...(isKling
-        ? { image_url:proxyImages[0],
-            ...(proxyEndFrame ? { end_image_url:proxyEndFrame } : {}),
-            ...(klingShots.length>1 ? { multi_prompt:klingShots } : {}) }
-        : useTransition
-        ? { image_url:proxyImages[0], end_image_url:proxyEndFrame }
-        : { image_urls:proxyImages,
-            ...(proxyVideos.length ? { video_urls:proxyVideos } : {}),
-            ...(proxyAudios.length ? { audio_urls:proxyAudios } : {}) }),
-      duration, resolution, aspectRatio,
-      ...(referenceMetadata ? { referenceMetadata } : {}),
-      generateAudio,    // ON with audio refs (they become the speech in the track); user-toggled otherwise
-      bitrateMode,      // "high" = less compression / larger file; "standard" = smaller draft
-      ...(opts.seed!=null && !isSora && !isKling ? { seed:opts.seed } : {}),   // Sora/Kling have no seed control
-    });
-    if(!sub.requestId || !sub.statusUrl || !sub.responseUrl) throw new Error("The video proxy didn't accept the job.");
+    if(opts.shouldCancel && opts.shouldCancel()) throw new Error("Render cancelled.");
+    let pendingReservation="";
+    if(hasScreenplayImages){
+      const pendingCandidate = {
+        requestId:"screenplay-preflight", id, model, statusUrl:"", responseUrl:"",
+        at:Date.now(), projectId:(scope0&&scope0.projectId)||null, uid:(scope0&&scope0.uid)||null,
+        identityCharacterIds:opts.identityCharacterIds||opts.characterIds||[],
+        identityContext:opts.identityContext||null, identityCast:opts.identityCast||[],
+        spend:spendRec, meta:{
+          hash, model, durationMs:opts.durationMs||0, aspectRatio, prompt:pText,
+          ...persistedTakeMeta,
+          ...(hasScreenplayReference ? {
+            actualPrompt:pText, screenplayReference, screenplayReferenceProvenance:screenplayReference,
+            screenplayReferenceBlock:screenplayBlock, screenplayReferenceSignature:screenplayReference.signature,
+          } : {}),
+          screenplayImages, screenplayImageSnapshots,
+          screenplayImagesRequired:true, screenplayImageGuard:pageGuard,
+        },
+      };
+      pendingReservation=_vidPendingReserve(pendingCandidate);
+      if(!pendingReservation)
+        throw new Error(_vidPendingReserveReason==="storage"
+          ? "Browser pending-render storage is unavailable or full, so this required-image render cannot be retained safely for crash recovery. Free local storage and try again; no render was submitted."
+          : _vidPendingReserveReason==="ledger"
+          ? "The browser already has 20 pending paid renders, so this required-image render was not submitted; finish or clear an existing pending render first."
+          : "This screenplay image package is too large to retain safely for crash recovery; reduce the page images or render fewer pages. No render was submitted.");
+    }
+    let sub;
+    try{
+      sub = await vidProxy("submit", {
+        model, prompt:pText,
+        ...(isKling
+          ? { image_url:proxyImages[0],
+              ...(proxyEndFrame ? { end_image_url:proxyEndFrame } : {}),
+              ...(klingShots.length>1 ? { multi_prompt:klingShots } : {}) }
+          : useTransition
+          ? { image_url:proxyImages[0], end_image_url:proxyEndFrame }
+          : { image_urls:proxyImages,
+              ...(proxyVideos.length ? { video_urls:proxyVideos } : {}),
+              ...(proxyAudios.length ? { audio_urls:proxyAudios } : {}) }),
+        duration, resolution, aspectRatio,
+        ...(referenceMetadata ? { referenceMetadata } : {}),
+        generateAudio,    // ON with audio refs (they become the speech in the track); user-toggled otherwise
+        bitrateMode,      // "high" = less compression / larger file; "standard" = smaller draft
+        ...(opts.seed!=null && !isSora && !isKling ? { seed:opts.seed } : {}),   // Sora/Kling have no seed control
+      });
+    }catch(e){
+      _vidPendingRelease(pendingReservation);
+      throw e;
+    }
+    if(!sub.requestId || !sub.statusUrl || !sub.responseUrl){
+      _vidPendingRelease(pendingReservation);
+      throw new Error("The video proxy didn't accept the job.");
+    }
     // persist the job until it DEFINITIVELY completes — a reload mid-poll would otherwise
     // orphan a paid render (recovery re-polls leftovers on the next load). Cancels and
     // timeouts keep the entry on purpose: the job may still finish server-side.
-    const pendingMeta = { hash, model, durationMs:opts.durationMs||0, aspectRatio, prompt:pText, ...(opts.takeMeta||{}) };
-    if(hasScreenplayReference) Object.assign(pendingMeta, {
-      prompt:pText, actualPrompt:pText,
-      screenplayReference, screenplayReferenceProvenance:screenplayReference,
-      screenplayReferenceBlock:screenplayBlock,
-      screenplayReferenceSignature:screenplayReference.signature,
-    });
-    _vidPendingAdd({ requestId:sub.requestId, id, model, statusUrl:sub.statusUrl, responseUrl:sub.responseUrl, at:Date.now(),
-       projectId:(scope0&&scope0.projectId)||null, uid:(scope0&&scope0.uid)||null,   // recovery is project-scoped
-       identityCharacterIds:opts.identityCharacterIds||opts.characterIds||[],
-       identityContext:opts.identityContext||null, identityCast:opts.identityCast||[],
-      spend:spendRec,   // settled at COMPLETION by whichever path delivers first — event id dedupes
-      meta:pendingMeta });
+    let pendingPersistenceWarning=false;
+    const warnPendingPersistence=()=>{
+      pendingPersistenceWarning=true;
+      const warning="Render submitted, but browser storage could not retain crash-recovery metadata; live polling and settlement continue in this tab. Keep this tab open until it finishes.";
+      try{ if(typeof window.appToast==="function") window.appToast(warning,"error"); }catch(e){}
+      try{ emit("WARNING · crash-recovery metadata was not saved; live polling continues"); }catch(e){}
+    };
+    try{
+      const pendingMeta = { hash, model, durationMs:opts.durationMs||0, aspectRatio, prompt:pText, ...persistedTakeMeta };
+      if(hasScreenplayReference) Object.assign(pendingMeta, {
+        prompt:pText, actualPrompt:pText,
+        screenplayReference, screenplayReferenceProvenance:screenplayReference,
+        screenplayReferenceBlock:screenplayBlock,
+        screenplayReferenceSignature:screenplayReference.signature,
+      });
+      if(hasScreenplayImages) Object.assign(pendingMeta, {
+        screenplayImages, screenplayImageSnapshots,
+        screenplayImagesRequired:true, screenplayImageGuard:pageGuard,
+      });
+      const pendingJob = { requestId:sub.requestId, id, model, statusUrl:sub.statusUrl, responseUrl:sub.responseUrl, at:Date.now(),
+         projectId:(scope0&&scope0.projectId)||null, uid:(scope0&&scope0.uid)||null,   // recovery is project-scoped
+         identityCharacterIds:opts.identityCharacterIds||opts.characterIds||[],
+         identityContext:opts.identityContext||null, identityCast:opts.identityCast||[],
+        spend:spendRec,   // settled at COMPLETION by whichever path delivers first — event id dedupes
+         meta:pendingMeta };
+      let pendingSaved=true;
+      if(hasScreenplayImages){
+        /* The marker reserved provider-field headroom, but validate the
+           actual response URLs and the complete ledger before releasing it. */
+        const actualSerialized=_vidPendingSerialized(pendingJob,pendingReservation);
+        pendingSaved=actualSerialized!=null && actualSerialized.length<=VID_PENDING_SCREENPLAY_BUDGET;
+      }
+      const quotaReleased=_vidPendingRelease(pendingReservation); // free the reserved quota immediately before the real pending save
+      if(hasScreenplayImages && !quotaReleased) pendingSaved=false;
+      if(pendingSaved) pendingSaved=_vidPendingAdd(pendingJob,hasScreenplayImages);
+      if(hasScreenplayImages && !pendingSaved) warnPendingPersistence();
+    }catch(pendingError){
+      if(!hasScreenplayImages) throw pendingError;
+      warnPendingPersistence();
+    }finally{
+      _vidPendingRelease(pendingReservation);
+    }
     _vidPollLease.add(sub.requestId);   // this poll OWNS the job while it runs — recovery keeps its hands off
     try{
     emit(sub.status||"IN_QUEUE");
@@ -1298,12 +1645,16 @@ async function seedanceGenerate(id, opts){
            The job's event id keeps a racing recovery pass from charging again. */
         _vidSettleSpend(spendRec);
         const meta = { hash, model, durationMs:opts.durationMs||0, aspectRatio, seed:st.seed||null,
-          prompt:pText, ...(opts.takeMeta||{}) };   // Versions-view facts: source, tier, resolution, recipe, audio, batch position…
+          prompt:pText, ...persistedTakeMeta };   // Versions-view facts: source, tier, resolution, recipe, audio, batch position…
         if(hasScreenplayReference) Object.assign(meta, {
           prompt:pText, actualPrompt:pText,
           screenplayReference, screenplayReferenceProvenance:screenplayReference,
           screenplayReferenceBlock:screenplayBlock,
           screenplayReferenceSignature:screenplayReference.signature,
+        });
+        if(hasScreenplayImages) Object.assign(meta, {
+          screenplayImages, screenplayImageSnapshots,
+          screenplayImagesRequired:true, screenplayImageGuard:pageGuard,
         });
         try{ vidAssertIdentity(opts, "video-before-commit"); }
         catch(identityErr){
@@ -1335,7 +1686,7 @@ async function seedanceGenerate(id, opts){
           if(cr && cr.skipped) return { videoUrl:st.videoUrl, seed:st.seed||null, cached:false, stale:true };
         }
         _vidPendingRemove(sub.requestId);   // delivered — nothing left to recover
-        return { videoUrl:st.videoUrl, seed:st.seed||null, cached:false };
+        return { videoUrl:st.videoUrl, seed:st.seed||null, cached:false, ...(pendingPersistenceWarning ? { pendingPersistenceWarning:true } : {}) };
       }
     }
     throw new Error("The video render timed out — try again, or pick a faster tier / lower resolution in Render settings.");

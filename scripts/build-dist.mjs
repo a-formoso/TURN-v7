@@ -81,7 +81,7 @@ for(const name of studioOrder){
 }
 // The screenplay contract is evaluated lazily by videogen, after startup. Its
 // source readers and UI must nevertheless load in order before Stage mounts.
-const screenplayOrder=["app/shot-screenplay.js","app/shot-scene-context.js","app/stage-screenplay.js","app/stage-screenplay-ui.jsx","app/stage.jsx"];
+const screenplayOrder=["app/shot-screenplay.js","app/shot-scene-context.js","app/stage-screenplay.js","app/stage-screenplay-images.js","app/stage-screenplay-ui.jsx","app/stage.jsx"];
 prior=-1;
 for(const name of screenplayOrder){
   const at=html.indexOf(name);

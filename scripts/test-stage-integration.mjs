@@ -166,7 +166,7 @@ const imageSource=readFileSync("app/imagegen.jsx","utf8");
 const videoSource=readFileSync("app/videogen.jsx","utf8");
 const proxySource=readFileSync("supabase/functions/image-proxy/index.ts","utf8");
 ok("no mount-time canonical duration autofit",!source.includes("onUpdateShot(sh.id,{ dur:want })"));
-ok("render metadata carries plan and reference provenance",source.includes("renderPlan,")&&source.includes("referenceSourceVersions"));
+ok("render metadata carries plan and reference provenance",source.includes("renderPlan:attemptRenderPlan")&&source.includes("referenceSourceVersions"));
 ok("every Stage resolution surface uses the server guard",
   (source.match(/stageServerResolutionAllowed\(modelId,r,runtimeCaps,capabilityTarget\)/g)||[]).length>=4);
 ok("Render settings exposes disabled semantics for pending resolutions",

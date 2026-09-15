@@ -39,13 +39,13 @@ Full-scene screenplay images are reading context, not visual compositions or add
 
 **Why:** The full scene helps interpret an opening, but its later entrances and remote dialogue can also cause the image model to depict the wrong moment. A screenshot does not weaken the target beat's opening-presence restrictions.
 
-**How to apply:** Keep the complete scene text alongside any page images, identify the target beat, and preserve the opening-frame bindings. Canonical identity/location images take priority over optional screenplay pages; disclose page omissions rather than claiming the whole scene was pictured.
+**How to apply:** Keep complete scene text alongside page images, identify the target beat, and preserve opening-frame bindings. For Art Room stills, canonical identity/location images take priority over optional screenplay pages; disclose omissions. Stage video instead requires all pages, as below.
 
-For Stage video, send the full scene as labeled prompt text, not automatic screenplay-page images. Keep the selected beat/shot/part as the performance boundary.
+For Stage video, attach actual full-scene screenplay page images for each beat, alongside labeled source text. Keep the selected beat/shot/part as the performance boundary.
 
-**Why:** Video providers share a text-prompt input but not a document input, and screenplay images would consume scarce visual-reference slots. Sending current source separately is insufficient if the editable direction still narrates stale saved shot action. A scene change outside the selected beat should refresh its reading context, not introduce that other beat's action into its direction.
+**Why:** Text-only delivery was explicitly rejected: the generator must receive the actual screenplay screenshot despite its image-slot cost. The page is reading context, never an opening frame or composition. Sending current source separately is still insufficient if editable direction narrates stale saved shot action.
 
-**How to apply:** Check the actual submitted prompt as well as the editable beat direction. Preserve manual edits with source-drift review. Full-beat context must not instruct every single-shot or split-part render to replay the entire beat; reject known provider limits rather than excerpting source.
+**How to apply:** Verify actual image payloads, not just thumbnails or prompt text. Required Stage pages consume image slots and must never be silently omitted; block routes that cannot attach them separately. Preserve manual edits with source-drift review. Scene changes refresh reading context without adding another beat's performance. Reject known limits rather than excerpting source.
 
 Missing screenplay-version provenance means unknown alignment, not evidence that the screenplay changed.
 
