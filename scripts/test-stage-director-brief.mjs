@@ -489,6 +489,135 @@ const auto=recipe("narrative",fullClip,[shotOpening],shotOpening,true,[shotOpeni
 ok("recipe dispatch uses the default helper when explicit style is absent",
   auto.includes("BEAT CONTRACT")&&auto.includes("DIALOGUE AND SOUND"));
 
+/*
+ * Beat-level coverage: three legacy cuts drafted against a three-row paraphrased
+ * plan while the screenplay beat carries six action blocks and two lines. The
+ * clip covers the whole beat, so nothing blocks; the brief prints the authored
+ * beat once, every cut keeps its Shots-tab design, and the timed plan's floor
+ * comes from the coverage rows rather than the whole beat repeated per cut.
+ */
+const levelScene={id:"level-scene",no:7,title:"The Kitchen Count",loc:"INT. KITCHEN — NIGHT",order:3};
+const levelBlocks=[
+  {beat:1,type:"scene",text:"INT. KITCHEN — NIGHT"},
+  {beat:1,type:"action",text:"Marcus counts the pills onto the table."},
+  {beat:1,type:"action",text:"He lines them up in a row."},
+  {beat:1,type:"char",text:"MARCUS"},
+  {beat:1,type:"dia",text:"Twelve pills."},
+  {beat:1,type:"action",text:"The phone buzzes once."},
+  {beat:1,type:"action",text:"He does not look at it."},
+  {beat:1,type:"action",text:"The kettle clicks off."},
+  {beat:1,type:"action",text:"He sweeps the pills back into the bottle."},
+  {beat:1,type:"char",text:"MARCUS"},
+  {beat:1,type:"dia",text:"Somebody."},
+];
+const levelPlan=["Marcus counts pills at the table.","The phone buzzes; he ignores it.","He puts the pills away."];
+const levelShots=[
+  {id:"level-1",sceneId:levelScene.id,order:1,beatN:1,dur:5,covers:[1],subjects:["marcus"],
+    size:"Wide",angle:"Eye level",move:"Static",lens:"35mm",
+    action:"Marcus alone at the kitchen table, pills in a neat row.",composition:"Table fills the lower third.",
+    purpose:"Establish the ritual.",directives:"Hold the wide; no push-in.",
+    dialogue:"Twelve pills.",lineAudio:{speaker:"Marcus",text:"Twelve pills.",durationMs:4640},
+    beatPlan:{micro:levelPlan}},
+  {id:"level-2",sceneId:levelScene.id,order:2,beatN:1,covers:[2],subjects:["marcus"],
+    size:"Medium",angle:"Eye level",move:"Static",lens:"50mm",
+    action:"The phone face-up beside his hand.",composition:"Phone in the foreground, Marcus soft behind.",
+    beatPlan:{micro:levelPlan}},
+  {id:"level-3",sceneId:levelScene.id,order:3,beatN:1,covers:[3],subjects:["marcus"],
+    size:"Insert",angle:"High",move:"Static",lens:"85mm",
+    action:"Pills sliding back into the bottle.",composition:"Tight on the bottle mouth.",
+    beatPlan:{micro:levelPlan}},
+];
+const levelChars=[{id:"marcus",name:"Marcus",states:[]}];
+const levelCtx={...ctx,scenes:[scene,laterScene,levelScene],
+  drafts:{...drafts,[levelScene.id]:{version:"level-v1",blocks:levelBlocks}},
+  characters:levelChars,charById:Object.fromEntries(levelChars.map(x=>[x.id,x])),
+  sceneShots:levelShots,shotsByScene:{[levelScene.id]:levelShots},props:[],propById:{},locations:[]};
+const levelBefore=JSON.stringify({levelShots,levelBlocks});
+const levelData=buildClipData(levelScene,{shots:levelShots,start:0,dur:9},levelCtx,15);
+const levelIssues=levelData.screenplayDirectionIssues||[];
+ok("beat-level coverage compiles with a review notice instead of a blocker",
+  !levelIssues.some(x=>x.blocking)
+  &&levelIssues.some(x=>x.code==="screenplay-coverage-beat-level"&&x.blocking===false
+    &&/3-moment coverage plan/.test(x.message)&&/6 authored action blocks/.test(x.message)),
+  JSON.stringify(levelIssues));
+const levelLines=levelData.panelLines||[];
+ok("beat-level panel rows carry coverage, staging and Shots-tab design fields",
+  levelLines.length===3&&levelLines.every(p=>p.beatLevel&&(p.beatActionBlocks||[]).length===6&&(p.actionBlocks||[]).length===0)
+  &&levelLines.map(p=>p.coverage.join("|")).join("/")===levelPlan.join("/")
+  &&levelLines[0].purpose==="Establish the ritual."&&levelLines[0].directives==="Hold the wide; no push-in."
+  &&levelLines[1].staging==="The phone face-up beside his hand.",
+  JSON.stringify(levelLines.map(p=>[p.beatLevel,p.coverage,p.staging,p.purpose])));
+const levelRefs={assets:[
+  {tag:"@Image3",kind:"image",role:"character",referenceKind:"character",entityId:"marcus",label:"Marcus · identity"},
+  {tag:"@Audio2",kind:"audio",role:"dialogue",referenceKind:"audio",shotId:"level-1",label:"Marcus · exact line"},
+],audioForShot:id=>id==="level-1"?"@Audio2":""};
+const levelBrief=brief(makeClip(levelData,"level-clip",levelScene),levelShots,levelShots[0],true,["level-1"],levelRefs,{...opts,durationSec:10});
+const levelPlanSection=section(levelBrief,"ACTION AND CAMERA PLAN","PERFORMANCE");
+const countOf=(hay,needle)=>hay.split(needle).length-1;
+ok("beat-level brief prints the authored beat once, in screenplay order, with dialogue markers",
+  !/^BLOCKED/.test(levelBrief)&&/BEAT 1 · AUTHORED ACTION/.test(levelPlanSection)
+  &&countOf(levelPlanSection,"Marcus counts the pills onto the table.")===1
+  &&countOf(levelPlanSection,"He sweeps the pills back into the bottle.")===1
+  &&levelPlanSection.indexOf("He lines them up in a row.")<levelPlanSection.indexOf("[D1 — Marcus]")
+  &&levelPlanSection.indexOf("[D1 — Marcus]")<levelPlanSection.indexOf("The phone buzzes once.")
+  &&levelPlanSection.indexOf("He sweeps the pills back")<levelPlanSection.indexOf("[D2 — Marcus]"),
+  levelPlanSection);
+ok("beat-level cuts carry coverage rows, staging, camera and Shots-tab notes",
+  /CUT 1/.test(levelPlanSection)&&/CUT 2/.test(levelPlanSection)&&/CUT 3/.test(levelPlanSection)
+  &&levelPlanSection.includes("Coverage: Marcus counts pills at the table.")
+  &&levelPlanSection.includes("Staging: The phone face-up beside his hand.")
+  &&levelPlanSection.includes("Camera: Wide · Eye level · Static · 35mm")
+  &&levelPlanSection.includes("Composition: Tight on the bottle mouth.")
+  &&levelPlanSection.includes("Intent: Establish the ritual.")
+  &&levelPlanSection.includes("Director's notes (binding): Hold the wide; no push-in."),
+  levelPlanSection);
+ok("beat-level cut 1 owns its exact line and the second line stays clip-level",
+  section(levelPlanSection,"CUT 1","CUT 2").includes("[D1 — Marcus]")
+  &&!section(levelPlanSection,"CUT 2","CUT 3").includes("[D")
+  &&/Unassigned clip-level dialogue/.test(levelPlanSection)
+  &&/D2 · Marcus\b[^\n]*Somebody\./.test(levelBrief)
+  &&/D1 · Marcus\b[^\n]*@Audio2/.test(levelBrief),
+  levelBrief);
+const levelTimed=box.stageBuildTimedPlan(levelData.promptShots,{maxSeconds:15,modelId:"seedance-2.5",audioMode:"locked",panelLines:levelLines});
+ok("beat-level timed plan floors on coverage rows, not the whole beat per cut",
+  levelTimed&&!levelTimed.issues.some(x=>x.blocking)&&levelTimed.minimumSec>=8&&levelTimed.minimumSec<=10,
+  JSON.stringify(levelTimed&&{minimumSec:levelTimed.minimumSec,issues:levelTimed.issues}));
+const levelTimedAtMin=box.stageBuildTimedPlan(levelData.promptShots,{maxSeconds:15,modelId:"seedance-2.5",audioMode:"locked",panelLines:levelLines,durationSec:levelTimed.minimumSec});
+ok("the plan's own minimum satisfies the plan",!levelTimedAtMin.issues.some(x=>x.code==="duration-too-short"));
+ok("repeated per-shot blockers read once in the prompt",
+  brief(makeClip({...levelData,screenplayDirectionIssues:[
+    {code:"x",blocking:true,shotId:"level-1",message:"Same fact."},
+    {code:"x",blocking:true,shotId:"level-2",message:"Same fact."},
+    {code:"x",blocking:true,shotId:"level-3",message:"Same fact."}]},"level-blocked",levelScene),
+    levelShots,levelShots[0],true,[],levelRefs,opts)==="BLOCKED: Same fact.");
+if(process.env.SHOW_BRIEF)console.log(levelBrief);
+ok("beat-level compilation is immutable",JSON.stringify({levelShots,levelBlocks})===levelBefore);
+/* Covers that point outside the stored plan leave a cut with no coverage rows: it
+   times against its own staging line — never the whole authored beat once per cut,
+   which would budget three beats and raise a false over-duration blocker. */
+const strayShots=levelShots.map((sh,i)=>({...sh,covers:[i===1?9:sh.covers[0]]}));
+const strayCtx={...levelCtx,sceneShots:strayShots,shotsByScene:{[levelScene.id]:strayShots}};
+const strayData=buildClipData(levelScene,{shots:strayShots,start:0,dur:9},strayCtx,15);
+const strayLines=strayData.panelLines||[];
+ok("an out-of-range cut in a complete beat keeps every peer beat-level",
+  strayLines.length===3&&strayLines.every(p=>p.beatLevel&&(p.actionBlocks||[]).length===0)
+  &&strayLines[1].coverage.length===0&&strayLines[0].coverage.join("|")===levelPlan[0]
+  &&(strayLines[1].micro||[]).join("|")==="The phone face-up beside his hand."
+  &&!(strayData.screenplayDirectionIssues||[]).some(x=>x.blocking),
+  JSON.stringify(strayLines.map(p=>[p.beatLevel,p.coverage,p.micro])));
+const strayTimed=box.stageBuildTimedPlan(strayData.promptShots,{maxSeconds:15,modelId:"seedance-2.5",audioMode:"locked",panelLines:strayLines});
+ok("a cut without coverage rows times against its staging line, not the whole beat",
+  strayTimed&&!strayTimed.issues.some(x=>x.blocking)&&strayTimed.minimumSec>=8&&strayTimed.minimumSec<=10
+  &&(strayTimed.units||[]).every(u=>!/Marcus counts the pills onto the table/.test(u.action||"")),
+  JSON.stringify(strayTimed&&{minimumSec:strayTimed.minimumSec,units:(strayTimed.units||[]).map(u=>u.action),issues:strayTimed.issues}));
+const strayBrief=brief(makeClip(strayData,"stray-clip",levelScene),strayShots,strayShots[0],true,["level-1"],levelRefs,{...opts,durationSec:10});
+const strayPlanSection=section(strayBrief,"ACTION AND CAMERA PLAN","PERFORMANCE");
+ok("the mixed beat performs each authored block exactly once",
+  !/^BLOCKED/.test(strayBrief)&&countOf(strayPlanSection,"Marcus counts the pills onto the table.")===1
+  &&countOf(strayPlanSection,"He sweeps the pills back into the bottle.")===1
+  &&/Coverage: no Shots-tab plan note/.test(section(strayPlanSection,"CUT 2","CUT 3")),
+  strayPlanSection);
+
 const timed=box.stageBuildTimedPlan([shotPart],{durationSec:2,maxSeconds:15,modelId:"seedance-2.5"});
 ok("timed plan still blocks an over-short requested duration",
   timed&&timed.issues&&timed.issues.some(x=>x.code==="duration-too-short"&&x.blocking));

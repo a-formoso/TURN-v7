@@ -272,6 +272,24 @@ function stageBeatSource(scene,sh,ctx){
  * navigation.  The returned object is prompt data, never a write-back to a
  * shot or a screenplay draft.
  */
+/* One review notice per clip for beat-level coverage (see stageCurrentScreenplayDirection). */
+function stageBeatLevelCoverageNote(coverage){
+  const c=coverage||{};
+  const plan=Number(c.planRows)>0
+    ? "a "+c.planRows+"-moment coverage plan" : "no per-shot coverage map";
+  return "The "+(Number(c.shots)||0)+" shots of this beat were drafted against "+plan
+    +", while the screenplay beat has "+(Number(c.blocks)||0)+" authored action block"+(Number(c.blocks)===1?"":"s")
+    +". The prompt performs the complete beat from the screenplay; each cut keeps its Shots-tab camera, composition and coverage notes as staging. "
+    +"Re-draft the beat's shots from the screenplay in Shots to map cuts to specific blocks.";
+}
+/* What a beat-level cut is TIMED against: its stored coverage rows, else its own
+   Shots-tab staging line. Never the authored beat — the timed plan would budget the
+   whole beat once per cut and raise a false over-duration blocker. */
+function stageBeatLevelTimingRows(direction, sh){
+  const rows=(direction&&Array.isArray(direction.coverage)) ? direction.coverage.map(x=>String(x||"").trim()).filter(Boolean) : [];
+  if(rows.length) return rows;
+  return [String((sh&&sh.action)||"").replace(/\s+/g," ").trim()].filter(Boolean);
+}
 function stageCurrentScreenplayDirection(scene,sh,ctx,peerShots,clipBeatComplete){
   const source=stageBeatSource(scene,sh,ctx);
   if(!source||!source.hasSource||!Array.isArray(source.blocks)) return null;
@@ -292,18 +310,56 @@ function stageCurrentScreenplayDirection(scene,sh,ctx,peerShots,clipBeatComplete
   const completeBeat=!!clipBeatComplete;
   const wholeBeat=completeBeat&&group.length===1&&group[0]&&group[0].id===sh.id;
   /*
+   * Covers index the shot's STORED coverage plan when one exists (beatPlan.micro —
+   * the moments the shots were drafted against, often an AI paraphrase of the
+   * beat). Only shots drafted without a plan index the authored action blocks
+   * directly. A stored plan maps onto the authored blocks ONLY when it has the
+   * same number of rows; a count mismatch is a paraphrase granularity fact, not
+   * evidence that the screenplay changed.
+   */
+  const planOf=x=>(x&&x.beatPlan&&Array.isArray(x.beatPlan.micro))
+    ? x.beatPlan.micro.map(v=>String(v||"").replace(/\s+/g," ").trim()).filter(Boolean) : [];
+  const coversOf=x=>Array.isArray(x&&x.covers) ? x.covers.map(Number).filter(Number.isFinite) : [];
+  const shotMappable=x=>{
+    const rows=planOf(x).length, cv=coversOf(x), target=rows||actions.length;
+    return cv.length>0&&cv.every(n=>Number.isInteger(n)&&n>=1&&n<=target)&&(!rows||rows===actions.length);
+  };
+  const planRows=oldMicro.length;
+  const coverTarget=planRows||actions.length;
+  const coversInRange=covers.length>0&&covers.every(n=>Number.isInteger(n)&&n>=1&&n<=coverTarget);
+  const planAligned=!planRows||planRows===actions.length;
+  /*
+   * A COMPLETE multi-shot beat renders every authored block whichever way the
+   * cuts divide them. When the stored plan cannot be mapped onto the authored
+   * blocks one-to-one (row-count mismatch, missing or out-of-range covers), the
+   * beat is still fully covered by the clip: keep the authored blocks at BEAT
+   * level (the performance source) and carry each shot's stored coverage rows as
+   * navigation only. Never fuzzy-match paraphrased rows onto authored blocks.
+   * The decision is made once for the WHOLE beat: if any peer is unmappable,
+   * every cut of the beat is beat-level — otherwise a mapped cut would perform
+   * its authored blocks a second time beside the beat-level block.
+   */
+  const beatMappable=[sh].concat(group.filter(x=>x&&x.id!==sh.id)).every(shotMappable);
+  const beatLevel=completeBeat&&!wholeBeat&&group.length>0&&!beatMappable;
+  /*
    * The clip builder marks a beat complete only when it contains every
    * scene/beat peer. A sole peer is therefore a whole-beat unit too; a
    * part/single-shot render is not. Resolve partial coverage against every
    * scene/beat peer, never against the selected clip's shortened peer list.
+   * A PARTIAL render has no beat-level fallback: it must know which authored
+   * blocks belong to the shot, so an unmappable plan stops it truthfully.
    */
-  if(!wholeBeat){
+  if(!wholeBeat&&!beatLevel){
     if(!group.length||!covers.length)
       return issue("This partial screenplay beat has no explicit shot coverage. Reconcile Covers in Shots before rendering.");
-    if(covers.some(n=>!Number.isInteger(n)||n<1||n>actions.length))
-      return issue("This shot's screenplay coverage no longer maps to the current authored action blocks. Review Covers in Shots before rendering.");
-    if(oldMicro.length&&oldMicro.length!==actions.length)
-      return issue("The screenplay action blocks changed shape under an existing multi-shot coverage map. Reconcile the shot boundaries in Shots before rendering.");
+    if(!coversInRange)
+      return issue("This shot's Covers point outside the beat's "+(planRows
+        ? "stored coverage plan ("+planRows+" moment"+(planRows===1?"":"s")+")"
+        : "authored action blocks ("+actions.length+")")+". Review Covers in Shots before rendering.");
+    if(!planAligned)
+      return issue("This shot's stored coverage plan has "+planRows+" moment"+(planRows===1?"":"s")
+        +" but the screenplay beat has "+actions.length+" authored action block"+(actions.length===1?"":"s")
+        +", so a partial render cannot tell which blocks this shot covers. Render the whole beat in one clip, or re-draft the beat's shots from the screenplay in Shots.");
   }
   /*
    * Covers are the stable association.  Apply them before looking at any
@@ -312,8 +368,8 @@ function stageCurrentScreenplayDirection(scene,sh,ctx,peerShots,clipBeatComplete
    * rewrites fall back to the stable covered index only when the action shape
    * is unchanged. Never fuzzy-match a rewrite or infer an ordinal.
    */
-  let actionIndexes=wholeBeat ? actions.map((_,i)=>i) : covers.map(n=>n-1);
-  if(!wholeBeat&&oldMicro.length){
+  let actionIndexes=wholeBeat ? actions.map((_,i)=>i) : beatLevel ? [] : covers.map(n=>n-1);
+  if(!wholeBeat&&!beatLevel&&oldMicro.length){
     const coveredOld=covers.map(n=>oldMicro[n-1]).filter(Boolean);
     const exactIndexes=[];
     coveredOld.forEach(old=>{
@@ -385,13 +441,27 @@ function stageCurrentScreenplayDirection(scene,sh,ctx,peerShots,clipBeatComplete
   }
   const actionItems=selectedActions.map(textOf).filter(Boolean);
   const line=selectedDialogue[0]||null;
-  const scriptParts=actionItems.slice();
+  /*
+   * Beat-level coverage: the shot's stored plan rows (navigation, never
+   * screenplay text) ride separately; the shot's text is the whole authored
+   * beat — the performance source its prompt speaks — so the cast scan sees
+   * every named identity and identical texts de-duplicate across the cuts.
+   */
+  const coverageRows=beatLevel&&coversInRange ? covers.map(n=>oldMicro[n-1]).filter(Boolean) : [];
+  const beatActionItems=beatLevel ? actions.map(textOf).filter(Boolean) : [];
+  const spokenItems=beatLevel ? beatActionItems : actionItems;
+  const scriptParts=spokenItems.slice();
   if(line)scriptParts.push(String(line.speaker||"the speaker")+": "+String(line.text||"").trim());
   return {
     source,
     actions:actionItems,
     actionBlocks:selectedActions,
-    text:actionItems.join(" "),
+    beatLevel,
+    coverage:coverageRows,
+    beatActions:beatActionItems,
+    beatActionBlocks:beatLevel ? actions.slice() : [],
+    beatCoverage:beatLevel ? {planRows,blocks:actions.length,shots:group.length,coversInRange} : null,
+    text:spokenItems.join(" "),
     script:scriptParts.join(" "),
     dialogues:selectedDialogue.slice(),
     clipDialogues,
@@ -688,6 +758,10 @@ function buildClipData(scene, g, ctx, maxSec){
         code:direction.code||"screenplay-coverage-review",blocking:true,
         shotId:sh&&sh.id,message:direction.message
       });
+      else if(direction.beatLevel&&direction.beatCoverage) screenplayDirectionIssues.push({
+        code:"screenplay-coverage-beat-level",blocking:false,shotId:sh&&sh.id,
+        message:stageBeatLevelCoverageNote(direction.beatCoverage)
+      });
     }
   });
   // in-frame cast (union across the clip's shots), de-duped, names + ids
@@ -805,7 +879,9 @@ function buildClipData(scene, g, ctx, maxSec){
       : exactLine && exactLine.text
       ? (exactLine.char ? { id:exactLine.char.id, name:exactLine.char.name } : { id:"", name:exactLine.speaker||"the speaker" })
       : (String(sh&&sh.dialogue||"").trim() ? stageDialogueSpeaker(scene, ctx.drafts, ctx.beatsMap, sh, ctx) : null);
-    const micro = canonical ? [] : (manualVideo ? [] : (currentDirection ? currentDirection.actions : stageShotMicroTexts(sh)));
+    const beatLevel=!!(currentDirection&&currentDirection.beatLevel&&!manualVideo);
+    const micro = canonical ? [] : (manualVideo ? [] : (currentDirection
+      ? (beatLevel ? stageBeatLevelTimingRows(currentDirection, sh) : currentDirection.actions) : stageShotMicroTexts(sh)));
     const microText = canonical ? String(beatSource.text||"")
       : (currentDirection ? currentDirection.text
         : stageShotMicroPromptText(scene, ctx.drafts, ctx.beatsMap, sh, 190));
@@ -815,7 +891,19 @@ function buildClipData(scene, g, ctx, maxSec){
     const camSpec = (typeof shotSizeOf==="function")
       ? [shotSizeOf(sh.size).label, shotAngleOf(sh.angle).label, shotMoveOf(sh.move).label, shotLensOf(sh.lens).label].filter(Boolean).join(" · ")
       : "";
+    // the rest of the Shots-tab design, verbatim and labelled: the card's purpose,
+    // its storyboard staging line, the director's own notes and any explicitly
+    // chosen advanced camera settings (auto values are omitted, never invented)
+    const cameraSettings = (typeof shotCameraSettingsClause==="function")
+      ? String(shotCameraSettingsClause(sh)||"").replace(/^Advanced camera settings\s*—\s*/i,"").trim() : "";
     return { shotId:sh.id, beatN:sh.beatN, sheetPage:meta.page, sheetPanel:meta.panel, half:meta.half,
+      beatLevel, coverage:beatLevel ? (currentDirection.coverage||[]).slice() : [],
+      beatActionBlocks:beatLevel ? (currentDirection.beatActionBlocks||[]).slice() : [],
+      beatCoverage:beatLevel ? currentDirection.beatCoverage : null,
+      staging:String((sh&&sh.action)||"").replace(/\s+/g," ").trim(),
+      purpose:String((sh&&sh.purpose)||"").replace(/\s+/g," ").trim(),
+      directives:String((sh&&sh.directives)||"").replace(/\s+/g," ").trim(),
+      cameraSettings,
       // sh.vidText = the user's per-shot VIDEO description override (Multi-shot
       // editor) — video-only, never touches the canon action the image side uses
       text: canonical ? String(beatSource.text||"") : (manualVideo || (currentDirection ? microText
@@ -954,7 +1042,10 @@ function buildClipData(scene, g, ctx, maxSec){
     const next={...sh};
     const prior=sh&&sh.beatPlan;
     const manualVideo=String(sh&&sh.vidText||"").trim();
-    const micro=manualVideo ? [manualVideo] : (direction.actions||[]).slice();
+    // beat-level shots time against their stored coverage rows (navigation), never
+    // against the whole beat's authored blocks repeated once per cut
+    const micro=manualVideo ? [manualVideo]
+      : direction.beatLevel ? stageBeatLevelTimingRows(direction, sh) : (direction.actions||[]).slice();
     next.beatPlan={...(prior||{}),micro};
     if(Array.isArray(sh.covers)&&sh.covers.length)
       next.covers=micro.map((_,i)=>i+1);
@@ -2558,9 +2649,12 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       const state=states.find(s=>s.id===desc.stateId);
       const version=state?states.indexOf(state)+2:"?";
       const stateLabel=(state&&state.label)||"Unnamed appearance state";
-      message="Required appearance “"+assetLabel+" · "+stateLabel+" (v"+version+")” is unavailable. "
-        +"Load, generate, or import that state in Art Room → Characters → "+assetLabel+" → Continuity · appearance states, "
-        +"or choose “Use master for this shot” beneath the reference tiles";
+      message="Required appearance “"+assetLabel+" · "+stateLabel+" (v"+version+")” is unavailable"
+        +(state&&state.suggested
+          ? " — MUSE suggested this state from the script and its sheet has never been generated. "
+          : ". ")
+        +"Generate or import that state in Art Room → Characters → "+assetLabel+" → Continuity · appearance states, "
+        +"or choose “Use master for this shot” beneath the reference tiles to render this video with the existing master image";
     }else{
       message=String(w&&w.message||"Required reference is unavailable")+" — "+assetLabel;
     }
@@ -2888,9 +2982,12 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       const state=(c.states||[]).find(s=>s.id===r.stateId);
       const status=typeof window.stageReferenceStatus==="function"
         ?window.stageReferenceStatus({imageId:c.id},{...ctx,images:imgs}):null;
-      return {sh,c,master,hasOverride,shotN:i+1,stateLabel:state
+      return {sh,c,master,hasOverride,shotN:i+1,state:state||null,stateLabel:state
         ?(state.label||"Unnamed appearance")+" (v"+((c.states||[]).indexOf(state)+2)+")"
-        :"Scene appearance",masterReady:!!imgs[c.id]&&!!status&&!status.missing&&!status.excluded};
+        :"Scene appearance",
+        // the required appearance state has no generated sheet → this shot is blocked
+        stateMissing:!!(r.stateId&&r.required&&r.status&&r.status.missing),
+        masterReady:!!imgs[c.id]&&!!status&&!status.missing&&!status.excluded};
     }).filter(Boolean);
   });
   const setCharacterReferenceChoice=(row)=>{
@@ -2901,6 +2998,25 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     if(!row.hasOverride)setOff(prev=>{const n=new Set(prev);n.delete("resolved:characters:"+row.c.id);return n;});
     onUpdateShot(row.sh.id,{stageCharacterReferenceOverrides:next});
   };
+  // ONE explicit decision per character for every clip shot still pointing at an
+  // appearance state that has no generated sheet: the same persisted, per-shot,
+  // revertible video-input override the row buttons write — never automatic, and
+  // never a rewrite of the Art Room's appearance canon.
+  const characterReferenceMissingRows=characterReferenceChoices.filter(row=>row.stateMissing&&!row.hasOverride);
+  const characterReferenceMissingIds=_uniq(characterReferenceMissingRows.map(row=>row.c.id));
+  const characterReferenceBulk=Array.from(characterReferenceMissingRows
+    .reduce((m,row)=>{
+      const g=m.get(row.c.id)||{c:row.c,state:row.state,stateLabel:row.stateLabel,rows:[],shotNs:[]};
+      g.rows.push(row); g.shotNs.push(row.shotN); m.set(row.c.id,g); return m;
+    },new Map()).values())
+    .filter(g=>g.rows.length>1)
+    .map(g=>({...g,shotsLabel:stageShotRangeLabel(g.shotNs),masterReady:g.rows.every(r=>r.masterReady),
+      suggested:!!(g.state&&g.state.suggested)}));
+  const applyCharacterReferenceBulk=(g)=>{
+    if(readOnly||!onUpdateShot||gening||!g.masterReady)return;
+    g.rows.forEach(row=>setCharacterReferenceChoice(row));
+  };
+  const canBulkCharacterReference=!readOnly&&!!onUpdateShot&&!gening;
   const assetState = (a)=> !a.ready ? "missing" : a.locked ? "required" : on(a) ? "included" : "excluded";
   const assetStateLabel = (a)=> assetState(a)==="required" ? "Required" : assetState(a)==="included" ? "Included" : assetState(a)==="excluded" ? "Excluded" : "Missing";
   const assetTitle = (a)=>{
@@ -3162,12 +3278,44 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       return changed ? n : f;
     });
   }, [recipe, msTotal, msOff, modelId]);
-  const duration = (voiceLocked && measuredSec)
-    ? Math.max(measuredSec, durationOverride||0)
-    : (durationOverride
-        || (recipe==="multishot"
-            ? Math.max(3, Math.min(model.maxClipSec||15, Math.round(msTotal)))
-            : d.dur));
+  // The timed plan's own floor (speech + action time per shot, before any requested
+  // duration). AUTO duration must come from the same plan that validates it —
+  // otherwise Generate sits behind a "needs N seconds" blocker nobody chose.
+  const basePlan = (typeof window.stageBuildTimedPlan==="function")
+    ? window.stageBuildTimedPlan(promptShots,{modelId,maxSeconds:model.maxClipSec||15,
+        maxShots:model.maxShotsPerClip||Infinity,maxDialogue:10,
+        audioMode:voiceLocked?"locked":"native",panelLines:d.panelLines||[],
+        scene,drafts,characters:ctx.characters||[],beatsMap})
+    : null;
+  const planFloorSec = basePlan && Number(basePlan.minimumSec)>0 ? Number(basePlan.minimumSec) : 0;
+  const autoDuration = (voiceLocked && measuredSec)
+    ? measuredSec
+    : (recipe==="multishot"
+        ? Math.max(3, Math.min(model.maxClipSec||15, Math.round(msTotal)))
+        : d.dur);
+  // an explicit pick stands (the plan blocker speaks if it is too short); auto never
+  // sits below the plan floor — nor is it clamped to the model ceiling here, so an
+  // overlong beat reports "over-duration" instead of quietly compressing
+  const autoDurationSec = Math.max(Number(autoDuration)||0, planFloorSec);
+  const duration = durationOverride
+    ? ((voiceLocked && measuredSec) ? Math.max(measuredSec, durationOverride) : durationOverride)
+    : autoDurationSec;
+  // the clip's true minimum for every duration picker: measured voice + air, or the
+  // plan floor when the coverage's action/speech time asks for more
+  const durationFloorSec = Math.max(durationLocked ? Math.ceil(measuredSec) : 0, planFloorSec);
+  const durationFloorIsPlan = planFloorSec>0 && planFloorSec>(durationLocked ? measuredSec : 0);
+  const durationTitle = durationFloorIsPlan
+    ? "Minimum "+_fmtSecs(planFloorSec)+" — this coverage's speech and action time; extend for more acting time"
+    : durationLocked
+      ? "The measured voice + breathing room ("+_fmtSecs(measuredSec)+") is the MINIMUM — extend for more acting time"
+      : "Clip duration";
+  // shorter picks are not offered rather than offered-then-blocked
+  const durationOptions = _uniq([duration, durationFloorSec, measuredSec||0, 4,5,6,8,10,12,15, model.maxClipSec||15])
+    .filter(v=> v>0 && v<=(model.maxClipSec||15) && v>=durationFloorSec)
+    .sort((a,b)=>a-b);
+  const durationOptionNote = (v)=> v===durationFloorSec
+    ? (durationFloorIsPlan ? " · coverage minimum" : durationLocked ? " · voice + air (min)" : "")
+    : "";
   // VOICE CAST — when locked line-audio rides the render, declare which audio
   // reference is WHOSE voice BEFORE any dialogue instruction, so the model casts
   // the voices first and then performs the lines. @AudioN numbering mirrors the
@@ -3230,9 +3378,11 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const effPromptStyle = (promptStyle!=="auto" && promptStyleAvailable(promptStyle)) ? promptStyle : null;
   // per-shot overrides (vidText / dur) and include toggles recompile the prompt live
   const msSig = msAllShots.map(s=>s.id+":"+(s.vidText||"")+":"+msRuntime(s)+":"+(msOff.has(s.id)?0:1)).join("|");
+  // every Shots-tab field the brief prints is a recompile dependency for an untouched box
   const promptProductionSig=JSON.stringify([d.setting,
     d.preset&&[d.preset.name,d.preset.grade,d.preset.lighting],
-    promptShots.map(sh=>[sh.id,sh.size,sh.angle,sh.move,sh.lens,sh.composition])]);
+    promptShots.map(sh=>[sh.id,sh.size,sh.angle,sh.move,sh.lens,sh.composition,
+      sh.purpose||"",sh.directives||"",sh.action||"",sh.cameraSettings||null])]);
   const beatPrompt = effPromptStyle ? recipeText(effPromptStyle, true) : recipeText(recipe);
   const renderPlan = (typeof window.stageBuildTimedPlan==="function")
      ? window.stageBuildTimedPlan(promptShots,{modelId,maxSeconds:model.maxClipSec||15,
@@ -4101,14 +4251,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       onPick:(r)=>{ if(!stageServerResolutionAllowed(modelId,r,runtimeCaps,capabilityTarget)) return;
         if(!planAllowsRes(r)){ openPlansUpsell(); return; } setResolution(r); } },
     { key:"dur", icon:Icon.clock, label:_fmtSecs(duration), heading:"Clip duration",
-      title: durationLocked
-        ? "The measured voice + breathing room ("+_fmtSecs(measuredSec)+") is the MINIMUM — extend for more acting time"
-        : "Clip duration",
-      options:_uniq([duration, measuredSec||0, 4,5,6,8,10,12,15, model.maxClipSec||15])
-        .filter(v=> v>0 && v<=(model.maxClipSec||15) && (!durationLocked || v>=measuredSec))
-        .sort((a,b)=>a-b)
-        .map(v=>({ value:v, label:_fmtSecs(v)+(durationLocked&&v===measuredSec?" · voice + air":""), selected:v===duration })),
-      onPick:(v)=>setDurationOverride(Number(v)===measuredSec ? null : Number(v)) },
+      title: durationTitle,
+      options:durationOptions.map(v=>({ value:v, label:_fmtSecs(v)+durationOptionNote(v), selected:v===duration })),
+      onPick:(v)=>setDurationOverride(Number(v)===autoDurationSec ? null : Number(v)) },
   ].filter(Boolean);
   // (tier / bitrate / audio live as LABELLED rows in the Render settings panel;
   //  References/Elements open from labelled buttons there too)
@@ -4197,9 +4342,18 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     key:"server-resolution",
     text:resolution+" is pending a server update confirmed by the video proxy capability handshake. Choose an advertised resolution such as 720p before rendering."
   });
+  // ONE character's missing appearance state across several shots → the banner
+  // carries the explicit bulk choice (same persisted per-shot override, one click).
+  // With a second character also missing, the panel rows stay the only path: a
+  // banner button must resolve the banner, not one character of two.
+  const bulkChoice=characterReferenceBulk.length===1&&characterReferenceMissingIds.length===1&&modelRefs
+    ? characterReferenceBulk[0] : null;
   if(referenceBlockingWarnings.length) blockers.push({
     key:"required-reference",
-    text:referenceBlockMessage
+    text:referenceBlockMessage,
+    actionLabel:bulkChoice&&canBulkCharacterReference&&bulkChoice.masterReady
+      ? "Use master for "+bulkChoice.shotsLabel : null,
+    action:bulkChoice ? ()=>applyCharacterReferenceBulk(bulkChoice) : null
   });
   if(promptSourceDrift) blockers.push({key:"prompt-drift",
     text:"This hand-edited prompt was written against an older scene screenplay, shot timing, coverage, dialogue or reference version. Review the updated screenplay screenshots and selected references before reusing it.",
@@ -4369,7 +4523,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         o.beta && _stEl("small",{className:"sdbar-beta"},"Beta")),
       o.desc && _stEl("span",{className:"sdbar-option-desc"},o.desc),
       o.note && _stEl("small",{className:"sdbar-option-note"},o.note));
-  const durationMin = durationLocked ? Math.max(1, Math.ceil(measuredSec||1)) : 1;
+  const durationMin = Math.max(1, Math.ceil(durationFloorSec||1));
   const durationMax = Math.max(durationMin, model.maxClipSec||15);
   // ---- MODEL menu (shared by the header card's "Change" and the Model row) ----
   const modelMenu = _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
@@ -4406,10 +4560,13 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     _stEl("div",{className:"sdbar-pop sdbar-pop-duration"},
       _stEl("label",null,"Total duration"),
       _stEl("input",{type:"range",min:durationMin,max:durationMax,step:1,value:Math.round(duration),
-        title:durationLocked ? "Minimum locked to voiced line timing" : "Clip duration",
-        onChange:e=>setDurationOverride(Number(e.target.value))}),
+        title:durationFloorIsPlan ? "Minimum "+_fmtSecs(planFloorSec)+" — this coverage's speech and action time"
+          : durationLocked ? "Minimum locked to voiced line timing" : "Clip duration",
+        onChange:e=>{ const v=Number(e.target.value); setDurationOverride(v===autoDurationSec ? null : v); }}),
       _stEl("div",{className:"sdbar-duration-row"}, _stEl("span",null,"0"), _stEl("span",null,"5"), _stEl("span",null,"10"), _stEl("span",null,String(durationMax))),
-      _stEl("b",null,_fmtSecs(duration))));
+      _stEl("b",null,_fmtSecs(duration)),
+      durationFloorIsPlan && _stEl("small",{className:"sdbar-duration-min"},
+        "Minimum "+_fmtSecs(planFloorSec)+" — this coverage's speech and action time.")));
   const aspectPill = sdPill("aspect","inline","Aspect ratio",
     _stEl(React.Fragment,null, Icon.monitor&&_stEl(Icon.monitor,{s:13}), _stEl("span",null,effAspect)),
     _stEl("div",{className:"sdbar-pop sdbar-pop-format"},
@@ -4551,6 +4708,19 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       addReferencesPopover));
   const characterChoicesEl =
     modelRefs&&characterReferenceChoices.length>0&&_stEl("div",{className:"stage2-character-choices","aria-label":"Shot-only video character references"},
+      characterReferenceBulk.map(g=>_stEl("div",{key:"bulk:"+g.c.id,className:"stage2-character-bulk","data-character-id":g.c.id},
+        _stEl("span",null,
+          _stEl("b",null,g.c.name+" · "+g.stateLabel+" has no generated sheet"),
+          _stEl("small",null,(g.suggested?"MUSE suggested this appearance from the script; it was never generated. ":"")
+            +"Generate it in Art Room → Characters → "+g.c.name+" → Continuity · appearance states, or render "
+            +g.shotsLabel+" with the existing master image — one persisted, per-shot video choice you can undo below.")),
+        _stEl("button",{type:"button","data-bulk-choice":"master",
+          disabled:!canBulkCharacterReference||!g.masterReady,
+          title:readOnly?"View-only access — changing a shot reference requires edit access"
+            :!g.masterReady?"The master image must be loaded and shareable before it can be chosen"
+            :"Use the existing master image for "+g.shotsLabel+" of this clip's video only. Other shots, appearance states and generated images stay unchanged.",
+          onClick:()=>applyCharacterReferenceBulk(g)},
+          "Use master for "+g.shotsLabel))),
       characterReferenceChoices.map(row=>_stEl("div",{key:row.sh.id+":"+row.c.id,
         className:"stage2-character-choice","data-shot-id":row.sh.id,"data-character-id":row.c.id},
         _stEl("span",null,
@@ -4735,8 +4905,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       bar));
       // (cancelling an in-flight render lives in the Render settings panel — "Cancel render";
       //  the REFERENCES-added-at-render preview lives in the panel's Inputs tab)
+  // beat-level coverage is a review notice, never a blocker: the beat renders whole
+  const coverageNotice=(d.screenplayDirectionIssues||[]).find(x=>x&&!x.blocking&&x.code==="screenplay-coverage-beat-level");
   const composerNotices =
-    (blocker || genErr || soundCueMissing || !modelRefs
+    (blocker || genErr || soundCueMissing || !modelRefs || coverageNotice
       || (hasDialogue && (!modelAudioRefs || dialogueAudio==="native"))) && _stEl("div",{className:"stage2-gen-notices"},
       // the PRIMARY blocker — prominent, actionable, and the target of a blocked
       // Generate click (key remount restarts the shake animation on every pulse)
@@ -4756,6 +4928,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           onClick:()=>onGenerate({referenceFree:true})},
           "Retry from text only · "+totalCost+" credit"+(totalCost===1?"":"s")),
         canTextOnlyRecovery && _stEl("span",{className:"stage2-hint"},textOnlyRecoveryBlocked.text)),
+      coverageNotice && _stEl("div",{className:"stage2-hint stage2-coverage-note","data-code":coverageNotice.code}, Icon.info&&_stEl(Icon.info,{s:12}), coverageNotice.message),
       soundCueMissing && _stEl("div",{className:"stage2-hint"}, Icon.mic&&_stEl(Icon.mic,{s:12}), "Native audio is on but the prompt has no sound direction — name the sounds you want (ambience, effects, music) or the soundtrack comes out generic."),
       hasDialogue && !modelAudioRefs && _stEl("div",{className:"stage2-hint"}, Icon.mic&&_stEl(Icon.mic,{s:12}),
         model.label+" performs the dialogue ITSELF from the prompt (native synced voices) — the locked ElevenLabs voices don't ride along on this model. Switch to Seedance for voice-locked lip-sync."),
@@ -5166,13 +5339,12 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
              :disabled?(reachable?(r+" needs the Standard tier"):(r+" isn't available on "+model.label)):(r==="4K"?"4K — ~5× the 720p credit rate":r),
            onClick:()=>{if(!disabled)setResolution(r);}}, r);
       }))),
+    // title stays the stable "Clip duration" hook; the floor's reason rides the option
+    // label ("· coverage minimum" / "· voice + air") and the accessible description
     _ctrlRow("Duration", _stEl("select",{value:String(duration),
-        title: durationLocked ? ("Minimum "+_fmtSecs(measuredSec)+" — the measured voice + breathing room; extend for more acting time") : "Clip duration",
-        onChange:e=>{ const v=Number(e.target.value); setDurationOverride(durationLocked && v===measuredSec ? null : v); }},
-        _uniq([duration, measuredSec||0, 4,5,6,8,10,12,15, model.maxClipSec||15])
-          .filter(v=> v>0 && v<=(model.maxClipSec||15) && (!durationLocked || v>=measuredSec))
-          .sort((a,b)=>a-b)
-          .map(v=>_stEl("option",{key:v,value:String(v)},_fmtSecs(v)+(durationLocked&&v===measuredSec?" · voice + air (min)":""))))),
+        title:"Clip duration","aria-description":durationTitle==="Clip duration"?undefined:durationTitle,
+        onChange:e=>{ const v=Number(e.target.value); setDurationOverride(v===autoDurationSec ? null : v); }},
+        durationOptions.map(v=>_stEl("option",{key:v,value:String(v)},_fmtSecs(v)+durationOptionNote(v))))),
     // the cost math, spelled out — updates live with any choice above (and the batch pill)
     _stEl("div",{className:"stage2-rc-math",title:creditInfo.title},
       (batchN>1 ? (batchN+" takes × ") : "")+_fmtSecs(duration)+" × "+resolution+" × "+tierObj.label

@@ -6012,6 +6012,17 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
 .sdbar-pop-duration input[type=range]{width:100%;accent-color:var(--brand,#d67e00)}
 .sdbar-duration-row{display:flex;justify-content:space-between;color:var(--txt-3);font:700 10px var(--f-mono)}
 .sdbar-pop-duration b{justify-self:end;font:800 12px var(--f-ui);color:var(--txt-0)}
+.sdbar-duration-min{display:block;color:var(--txt-2,#5f574d);font:500 10.5px/1.4 var(--f-ui)}
+/* one decision per character across every affected shot — same persisted per-shot
+   override as the row buttons, written for each listed shot on one click */
+.stage2-character-bulk{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:8px 10px;border:1px solid var(--brand,#d67e00);border-radius:8px;background:color-mix(in srgb,var(--brand,#d67e00) 7%,var(--surface,#fff));font-size:11px}
+.stage2-character-bulk>span{min-width:0;flex:1 1 200px;overflow-wrap:anywhere}
+.stage2-character-bulk b,.stage2-character-bulk small{display:block}
+.stage2-character-bulk small{margin-top:3px;color:var(--muted,#756d63);font-size:10px}
+.stage2-character-bulk button{border:1px solid var(--brand,#d67e00);border-radius:6px;padding:6px 9px;background:var(--brand,#d67e00);color:var(--ink-on-accent,#2c2722);font:inherit;font-weight:700;cursor:pointer}
+.stage2-character-bulk button:hover:not(:disabled){filter:brightness(1.06)}
+.stage2-character-bulk button:focus-visible{outline:2px solid var(--brand,#d67e00);outline-offset:2px}
+.stage2-character-bulk button:disabled{opacity:.55;cursor:not-allowed}
 .sdbar-mention-list{display:grid;gap:4px;max-height:min(440px,58vh);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;padding-right:2px}
 .sdbar-mention-list button{display:flex;align-items:center;gap:8px;border:0;border-radius:9px;background:transparent;text-align:left;color:var(--txt-1);padding:6px;cursor:pointer}
 .sdbar-mention-list button:hover{background:var(--bg-2);color:var(--txt-0)}

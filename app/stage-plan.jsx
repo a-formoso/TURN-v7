@@ -57,7 +57,10 @@
       if(canon.length&&!declared)
         issues.push({code:"inferred-coverage",blocking:false,shotId:sh.id,message:"Micro-beat coverage is inferred, not explicitly mapped. Review this shot's coverage."});
     }
-    const action=opening?text(source.openingAction||sh.action):micro.length?micro.join(" → "):text(p.text||sh.action);
+    // a beat-level panel's text is the WHOLE authored beat (shared by every cut);
+    // a cut without coverage rows times against its own staging line, never that
+    const action=opening?text(source.openingAction||sh.action):micro.length?micro.join(" → ")
+      :p.beatLevel?text(p.staging||sh.action):text(p.text||sh.action);
     const dialogueLines=opening?(source.dialogue||[]).filter(x=>x&&String(x.text||"").trim()):[];
     const dialogue=opening
       ?dialogueLines.map(x=>String(x.speaker||"the speaker")+": "+String(x.text||"").trim()).join(" ")

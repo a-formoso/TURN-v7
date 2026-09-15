@@ -36,3 +36,6 @@
 - [Video proxy task modes](video-proxy-task-modes.md) — body.task is the op selector (Seedance task rides videoTask); device video = signed upload + stage: refs; input length is a billing fact, never a default.
 - [Provider host checks](proxy-provider-host-check.md) — provider keys only go to exact/subdomain https hosts via the shared okFalHost; bare endsWith suffix tests leak the key.
 - [Browser test fixture quirks](stage-browser-fixture.md) — raw-string fixture HTML (use indexOf); node --experimental-websocket; composer is ~590px wide until the viewport is ~1760 — set it explicitly for layout checks.
+- [Coverage plan vs action blocks](coverage-plan-vs-action-blocks.md) — plan rows are paraphrases: complete beats render beat-level (decided per beat), partials block truthfully, cuts time against rows/staging.
+- [Auto duration floor](auto-duration-floor.md) — auto duration = same timed plan that validates it; pickers never offer sub-floor values; landing on auto clears the override.
+- [Suggested appearance states](suggested-appearance-states.md) — suggested-but-ungenerated states are hard requirements; explicit bulk "use master" per character, never auto-substitution.

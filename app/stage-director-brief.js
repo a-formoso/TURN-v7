@@ -27,8 +27,9 @@
     const continuous=list.length===1;
     const duration=Number(opts.durationSec)||Number(d.dur)||0;
     const limit=Number(opts.maxSeconds)||0;
+    // one shared fact reads once, even when every shot of the clip reports it
     if(d.screenplayDirectionIssues&&d.screenplayDirectionIssues.some(x=>x.blocking))
-      return "BLOCKED: "+d.screenplayDirectionIssues.filter(x=>x.blocking).map(x=>x.message).join(" ");
+      return "BLOCKED: "+unique(d.screenplayDirectionIssues.filter(x=>x.blocking).map(x=>text(x.message))).join(" ");
     if(list.some(sh=>sh.keyframeMode==="beat-opening"
       &&(!scripts[sh.beatN]||!scripts[sh.beatN].hasSource||!text(scripts[sh.beatN].text))))
       return "BLOCKED: canonical screenplay source is unavailable for this beat-opening shot.";
@@ -108,14 +109,52 @@
       firstOpening&&laterNames.length?"Later physical participants: "+laterNames.join(", ")+". Enter only at the authored moment; do not place them in the opening image.":"",
       "Follow authored entrances, exits, geography and prop placement. A selected identity reference does not itself place that character in the scene; remote participants remain offscreen."
     ]);
+    const marker=x=>"["+x.label+" — "+speaker(x.row)+"]";
+    const ordered=events=>{
+      if(events.every(e=>e.at!==null))events.sort((a,b)=>a.at-b.at||a.ordinal-b.ordinal);
+      return events;
+    };
+    /*
+     * Beat-level coverage: the clip renders a complete beat whose cuts cannot be
+     * mapped one-to-one onto the authored action blocks (their stored coverage
+     * plan is a paraphrase with a different row count). The authored beat is
+     * printed ONCE per beat as the sole performance source, with every dialogue
+     * marker in screenplay order; each cut then carries its own coverage rows
+     * (navigation, never screenplay text), staging, framing and design notes.
+     */
+    const isBeatLevel=u=>!!(u.p&&u.p.beatLevel&&Array.isArray(u.p.beatActionBlocks)&&u.p.beatActionBlocks.length);
+    const beatBlocks=unique(units.filter(isBeatLevel).map(u=>Number(u.sh.beatN))).map(beat=>{
+      const u=units.find(x=>isBeatLevel(x)&&Number(x.sh.beatN)===beat);
+      const blocks=u.p.beatActionBlocks.filter(b=>/^(action|trans)$/i.test(b.type||"")&&text(b.text));
+      const rows=dialogue.filter(x=>x.beat===beat);
+      const events=ordered(blocks.map((b,j)=>({at:index(b),ordinal:j,value:text(b.text)}))
+        .concat(rows.map((x,j)=>({at:index(x.row),ordinal:blocks.length+j,value:marker(x)}))));
+      const cuts=units.filter(x=>Number(x.sh.beatN)===beat).map(x=>x.i+1);
+      return ["BEAT "+beat+" · AUTHORED ACTION — perform every line below, in order, across Cut"
+          +(cuts.length===1?" ":"s ")+cuts.join(", ")
+          +". Each cut's Coverage line is its Shots-tab plan note (navigation only); this block is the only performance source."]
+        .concat(events.map(e=>e.value)).join("\n");
+    });
+    const normal=v=>text(v).replace(/\s+/g," ").toLowerCase();
     const actionRows=units.map(u=>{
       const ownDialogue=dialogue.filter(x=>x.unit===u);
-      const events=u.actions.map((b,j)=>({at:index(b),ordinal:j,value:b.text}))
-        .concat(ownDialogue.map((x,j)=>({at:index(x.row),ordinal:u.actions.length+j,value:"["+x.label+" — "+speaker(x.row)+"]"})));
-      if(events.every(e=>e.at!==null))events.sort((a,b)=>a.at-b.at||a.ordinal-b.ordinal);
+      const beatLevel=isBeatLevel(u);
+      const events=ordered(u.actions.map((b,j)=>({at:index(b),ordinal:j,value:b.text}))
+        .concat(ownDialogue.map((x,j)=>({at:index(x.row),ordinal:u.actions.length+j,value:marker(x)}))));
+      const coverage=(u.p.coverage||[]).map(text).filter(Boolean);
+      const staging=text(u.p.staging);
+      // the storyboard staging line is authored Shots-tab design; print it when it
+      // adds to the authored blocks rather than repeating one of them verbatim
+      const stagingAdds=staging&&!u.actions.some(b=>normal(b.text)===normal(staging));
       let action=u.actions.length?events.map(e=>e.value).join("\n")
+        :beatLevel?[
+            coverage.length
+              ?"Coverage: "+coverage.join(" → ")
+              :"Coverage: no Shots-tab plan note — continue the authored action above in order across the cuts.",
+            ownDialogue.map(marker).join(" ")
+          ].filter(Boolean).join("\n")
         :[text(u.p.text)||text(u.p.script)||text(u.sh.vidText)||text(u.sh.action),
-            ownDialogue.map(x=>"["+x.label+" — "+speaker(x.row)+"]").join(" ")].filter(Boolean).join("\n");
+            ownDialogue.map(marker).join(" ")].filter(Boolean).join("\n");
       // Label only authored values. Vocabulary helpers otherwise supply default
       // lenses/framing for missing fields, which are not canonical shot choices.
       const camera=[["size",root.shotSizeOf],["angle",root.shotAngleOf],
@@ -124,14 +163,24 @@
           if(!raw||raw==="auto")return "";
           return typeof lookup==="function"?text((lookup(raw)||{}).label)||raw:raw;
         }).filter(Boolean).join(" · ");
+      // the rest of the Shots-tab card, labelled with the Art Room's own vocabulary
+      const cameraSettings=text(u.p.cameraSettings)
+        ||(typeof root.shotCameraSettingsClause==="function"
+          ?text(root.shotCameraSettingsClause(u.sh)).replace(/^Advanced camera settings\s*—\s*/i,""):"");
       return [(continuous?"SHOT ":"CUT ")+(u.i+1)+" · Beat "+(u.sh.beatN||"unassigned"),
-        action,camera?"Camera: "+camera:"",
-        text(u.p.composition)?"Composition: "+u.p.composition:""].filter(Boolean).join("\n");
+        action,
+        (beatLevel||(u.actions.length&&stagingAdds))&&staging?"Staging: "+staging:"",
+        camera?"Camera: "+camera:"",
+        text(u.p.composition)?"Composition: "+u.p.composition:"",
+        text(u.p.purpose)?"Intent: "+u.p.purpose:"",
+        text(u.p.directives)?"Director's notes (binding): "+u.p.directives:"",
+        cameraSettings?"Advanced camera settings: "+cameraSettings:""].filter(Boolean).join("\n");
     });
     const action=section("ACTION AND CAMERA PLAN",[
       continuous?"One continuous shot. No invented cuts, inserts, montage or extra keyframes."
         :"Use the following authored shot sequence. Cut only between its listed setups; do not invent additional coverage.",
       opening&&!continuous?"Each beat-opening unit is continuous within its own authored shot; no inserts or montage inside it.":"",
+      ...beatBlocks,
       ...actionRows,
       dialogue.some(x=>!x.unit)?"Unassigned clip-level dialogue follows the screenplay's action/line order; do not invent shot or audio associations for it.":""
     ]);

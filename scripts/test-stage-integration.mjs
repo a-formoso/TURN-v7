@@ -77,8 +77,73 @@ const rewriteCtx={drafts:{shared:{version:"rewrite",blocks:[
   {beat:1,type:"action",text:"One rewritten block replaces two covered actions"}
 ]}},characters:[]};
 const rewrite=box.stageCurrentScreenplayDirection(sharedScene,sharedShots[0],rewriteCtx,sharedShots);
-ok("ambiguous multi-shot rewrite blocks paid coverage",
-  rewrite&&rewrite.blocked&&/changed shape|Reconcile/i.test(rewrite.message));
+ok("ambiguous multi-shot rewrite blocks paid PARTIAL coverage with the plan-count fact",
+  rewrite&&rewrite.blocked&&/coverage plan has 2 moments/.test(rewrite.message)
+  &&/1 authored action block\b/.test(rewrite.message)&&!/changed shape/i.test(rewrite.message));
+// The same shots as a COMPLETE beat: a paraphrased plan whose row count differs
+// from the authored blocks is not evidence that the screenplay changed — the
+// clip covers the whole beat, so it renders at beat level instead of blocking.
+const rewriteComplete=box.stageCurrentScreenplayDirection(sharedScene,sharedShots[0],rewriteCtx,sharedShots,true);
+ok("complete beat under a paraphrased coverage plan renders at beat level",
+  rewriteComplete&&!rewriteComplete.blocked&&rewriteComplete.beatLevel===true
+  &&rewriteComplete.actions.length===0&&rewriteComplete.actionBlocks.length===0
+  &&rewriteComplete.beatActions.join("|")==="One rewritten block replaces two covered actions"
+  &&rewriteComplete.coverage.join("|")==="Old A"
+  &&rewriteComplete.text==="One rewritten block replaces two covered actions"
+  &&rewriteComplete.beatCoverage&&rewriteComplete.beatCoverage.planRows===2&&rewriteComplete.beatCoverage.blocks===1);
+const outOfRange=[{id:"oor-a",sceneId:"shared",beatN:1,covers:[5],beatPlan:{micro:["Old A","Old B"]}},sharedShots[1]];
+const outOfRangePartial=box.stageCurrentScreenplayDirection(sharedScene,outOfRange[0],sharedCtx,outOfRange,false);
+const outOfRangeComplete=box.stageCurrentScreenplayDirection(sharedScene,outOfRange[0],sharedCtx,outOfRange,true);
+ok("out-of-range covers block a partial render and name the stored plan size",
+  outOfRangePartial&&outOfRangePartial.blocked&&/outside the beat's stored coverage plan \(2 moments\)/.test(outOfRangePartial.message));
+ok("out-of-range covers in a complete beat fall back to beat level with no coverage rows",
+  outOfRangeComplete&&!outOfRangeComplete.blocked&&outOfRangeComplete.beatLevel===true
+  &&outOfRangeComplete.coverage.length===0&&outOfRangeComplete.beatActions.join("|")==="Current A|Current B");
+// beat-level is decided once for the whole beat: the mappable peer of an
+// unmappable shot is beat-level too, or its cut would perform its authored blocks
+// a second time beside the beat-level block
+const mixedPeer=box.stageCurrentScreenplayDirection(sharedScene,outOfRange[1],sharedCtx,outOfRange,true);
+ok("the mappable peer of an unmappable shot renders beat-level as well",
+  mixedPeer&&!mixedPeer.blocked&&mixedPeer.beatLevel===true&&mixedPeer.actions.length===0
+  &&mixedPeer.coverage.join("|")==="Old B"&&mixedPeer.beatActions.join("|")==="Current A|Current B");
+ok("a fully mappable complete beat keeps per-shot authored blocks",
+  (()=>{const a=box.stageCurrentScreenplayDirection(sharedScene,sharedShots[0],sharedCtx,sharedShots,true);
+    const b=box.stageCurrentScreenplayDirection(sharedScene,sharedShots[1],sharedCtx,sharedShots,true);
+    return a&&b&&!a.beatLevel&&!b.beatLevel&&a.actions.join("|")==="Current A"&&b.actions.join("|")==="Current B";})());
+// A legacy three-cut beat drafted against a three-row plan while the screenplay
+// beat carries six blocks and two lines: exact dialogue still binds per shot,
+// the second line stays clip-level, and no shot pretends to own specific blocks.
+const beatLevelPlan=["Row one","Row two","Row three"];
+const beatLevelShots=[
+  {id:"bl-1",sceneId:"bl",beatN:1,covers:[1],dur:5,dialogue:"Twelve pills.",beatPlan:{micro:beatLevelPlan}},
+  {id:"bl-2",sceneId:"bl",beatN:1,covers:[2],beatPlan:{micro:beatLevelPlan}},
+  {id:"bl-3",sceneId:"bl",beatN:1,covers:[3],beatPlan:{micro:beatLevelPlan}},
+];
+const beatLevelScene={id:"bl",loc:"INT. KITCHEN — NIGHT"};
+const beatLevelCtx={drafts:{bl:{version:"bl",blocks:[
+  {beat:1,type:"scene",text:"INT. KITCHEN — NIGHT"},
+  {beat:1,type:"action",text:"Block one."},
+  {beat:1,type:"action",text:"Block two."},
+  {beat:1,type:"char",text:"MARCUS"},
+  {beat:1,type:"dia",text:"Twelve pills."},
+  {beat:1,type:"action",text:"Block three."},
+  {beat:1,type:"action",text:"Block four."},
+  {beat:1,type:"action",text:"Block five."},
+  {beat:1,type:"action",text:"Block six."},
+  {beat:1,type:"char",text:"MARCUS"},
+  {beat:1,type:"dia",text:"Somebody."}
+]}},characters:[{id:"marcus",name:"Marcus"}]};
+const bl=beatLevelShots.map(sh=>box.stageCurrentScreenplayDirection(beatLevelScene,sh,beatLevelCtx,beatLevelShots,true));
+ok("six-block beat over a three-row plan renders whole with per-shot coverage rows",
+  bl.every(x=>x&&!x.blocked&&x.beatLevel&&x.beatActions.length===6)
+  &&bl.map(x=>x.coverage.join("|")).join("/")==="Row one/Row two/Row three");
+ok("beat-level shots keep exact dialogue binding and clip-level speech",
+  bl[0].dialogue==="Twelve pills."&&bl[0].dialogues.length===1
+  &&bl[1].dialogues.length===0&&bl[2].dialogues.length===0
+  &&bl.every(x=>x.clipDialogues.map(d=>d.text).join("|")==="Somebody."));
+const beatLevelPartial=box.stageCurrentScreenplayDirection(beatLevelScene,beatLevelShots[1],beatLevelCtx,beatLevelShots,false);
+ok("a single cut of that beat still cannot render on its own",
+  beatLevelPartial&&beatLevelPartial.blocked&&/3 moments/.test(beatLevelPartial.message)&&/6 authored action blocks/.test(beatLevelPartial.message));
 
 const dialogueCtx={drafts:{shared:{version:"dialogue",blocks:[
   {beat:1,type:"scene",text:"INT. HALL — NIGHT"},

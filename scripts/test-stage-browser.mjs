@@ -572,8 +572,13 @@ async function main() {
       if(!option)return false;
       s.value=option.value;s.dispatchEvent(new Event("change",{bubbles:true}));return true;
     })()`);
-    await waitFor(()=>c.eval(`document.querySelector('.stage2-rendercard select[title="Clip duration"],.stage2-rendercard .stage2-control-row select')?.value==="12"`),
-      "director-brief duration update");
+    try{
+      await waitFor(()=>c.eval(`document.querySelector('.stage2-rendercard select[title="Clip duration"],.stage2-rendercard .stage2-control-row select')?.value==="12"`),
+        "director-brief duration update");
+    }catch(e){
+      const state=await c.eval(`[...document.querySelectorAll(".stage2-rendercard .stage2-control-row")].slice(0,4).map(r=>({label:r.textContent.slice(0,40),select:r.querySelector("select")&&{title:r.querySelector("select").title,value:r.querySelector("select").value,options:[...r.querySelector("select").options].map(o=>o.value)}}))`);
+      throw new Error(e.message+"; render rows: "+JSON.stringify(state));
+    }
     const durationPrompt=await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent||""`);
     assert.match(durationPrompt,/\b12(?:\.0)?s\b/,"default director brief receives the actual selected duration");
     assert.notEqual(durationPrompt,defaultDurationPrompt,"an untouched default prompt recompiles for a duration change");
@@ -1009,14 +1014,20 @@ async function main() {
     const manual="MANUAL FIXTURE PROMPT — preserve this verbatim";
     await c.eval(`(()=>{const e=document.querySelector(".stage2-gen-prompt[contenteditable]");e.focus();e.textContent=${JSON.stringify(manual)};e.dispatchEvent(new InputEvent("input",{bubbles:true,inputType:"insertText",data:"x"}));return true})()`);
     await waitFor(()=>c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent===${JSON.stringify(manual)}`),"manual prompt edit");
+    /* The 4s + 6s coverage needs 10s: the picker never offers a shorter value that
+       Generate would then refuse — the floor is the same timed plan that validates it. */
+    assert.deepEqual(await c.eval(`[...document.querySelector('.stage2-rendercard select[title="Clip duration"]').options].map(o=>Number(o.value)).filter(v=>v<10)`),[],
+      "duration picker offers no value below the coverage minimum");
+    assert.match(await c.eval(`[...document.querySelector('.stage2-rendercard select[title="Clip duration"]').options].find(o=>o.value==="10")?.textContent||""`),/coverage minimum/i,
+      "the coverage minimum option says why it is the floor");
     await c.eval(`(()=>{
       const s=document.querySelector('.stage2-rendercard select[title="Clip duration"],.stage2-rendercard .stage2-control-row select');
       if(!s)return false;
-      const option=[...s.options].find(o=>o.value==="8");
+      const option=[...s.options].find(o=>o.value==="12");
       if(!option)return false;
       s.value=option.value;s.dispatchEvent(new Event("change",{bubbles:true}));return true;
     })()`);
-    await waitFor(()=>c.eval(`document.querySelector('.stage2-rendercard select[title="Clip duration"],.stage2-rendercard .stage2-control-row select')?.value==="8"`),
+    await waitFor(()=>c.eval(`document.querySelector('.stage2-rendercard select[title="Clip duration"],.stage2-rendercard .stage2-control-row select')?.value==="12"`),
       "manual prompt duration update");
     assert.equal(await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent`),manual,
       "actual duration update preserves a manual prompt");
@@ -1576,6 +1587,41 @@ async function main() {
     await waitFor(()=>c.eval(`(()=>{const t=document.querySelector(".stage2-blocker-text")?.textContent.toLowerCase()||"";return t.includes("required appearance")&&t.includes("rain wardrobe")})()`),"undo restores missing appearance requirement");
     assert.equal(await c.eval(`__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`),beforeOverrideResetCalls,"resetting shot overrides invokes no provider");
     assert.equal(await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent||""`),overrideManual,"resetting overrides preserves the manual prompt");
+
+    /* One explicit decision for every affected shot: the blocker banner and the
+       choices panel both offer "Use master for Shots 1–2". It writes the same
+       persisted per-shot override the row buttons write, never touches the
+       appearance-state canon, calls no provider, and per-shot undo still works. */
+    const bulkSelector='.stage2-character-bulk[data-character-id="char-mara"] button[data-bulk-choice="master"]';
+    await waitFor(()=>c.eval(`!!document.querySelector(${JSON.stringify(bulkSelector)})`),"bulk master choice offered while two shots miss the same appearance");
+    assert.equal(await c.eval(`document.querySelector(${JSON.stringify(bulkSelector)}).textContent.trim()`),"Use master for Shots 1–2","bulk choice names the affected shot range");
+    assert.match(await c.eval(`document.querySelector(".stage2-character-bulk")?.textContent||""`),/no generated sheet/i,"bulk row states the appearance has no generated sheet");
+    assert.match(await c.eval(`document.querySelector(".stage2-character-bulk")?.textContent||""`),/Art Room → Characters → Mara → Continuity/,"bulk row points at the Art Room state generator");
+    assert.equal(await c.eval(`document.querySelector(".stage2-blocker-act")?.textContent.trim()||""`),"Use master for Shots 1–2","blocker banner carries the same bulk choice");
+    const bulkReadOnlyBaseline=await c.eval(`({story:JSON.stringify(__story.shots),updates:__fixture.updates.length,providers:__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length})`);
+    await c.eval(`window.__setReadOnly(true)`);
+    await waitFor(()=>c.eval(`document.querySelector(${JSON.stringify(bulkSelector)})?.disabled===true`),"view-only bulk choice disabled");
+    assert.match(await c.eval(`document.querySelector(${JSON.stringify(bulkSelector)})?.title||""`),/view.only|read.only/i,"disabled bulk choice explains view-only access");
+    assert.equal(await c.eval(`!!document.querySelector(".stage2-blocker-act")`),false,"view-only blocker banner offers no bulk action");
+    await c.eval(`document.querySelector(${JSON.stringify(bulkSelector)}).click()`);
+    await new Promise(r=>setTimeout(r,100));
+    assert.deepEqual(await c.eval(`({story:JSON.stringify(__story.shots),updates:__fixture.updates.length,providers:__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length})`),bulkReadOnlyBaseline,"view-only bulk choice cannot mutate story, persist, or call a provider");
+    await c.eval(`window.__setReadOnly(false)`);
+    await waitFor(()=>c.eval(`document.querySelector(${JSON.stringify(bulkSelector)})?.disabled===false`),"editing restores the bulk choice");
+    await waitFor(()=>c.eval(`document.querySelector(".stage2-blocker-act")?.textContent.trim()==="Use master for Shots 1–2"`),"editing restores the banner bulk action");
+    await c.eval(`document.querySelector(".stage2-blocker-act").click()`);
+    await waitFor(()=>c.eval(`__story.shots[0].stageCharacterReferenceOverrides?.["char-mara"]==="master"&&__story.shots[1].stageCharacterReferenceOverrides?.["char-mara"]==="master"`),"bulk choice persists a master override on each affected shot");
+    assert.deepEqual(await c.eval(`__story.shots.map(s=>s.stageCharacterReferenceOverrides||{})`),[{"char-mara":"master"},{"char-mara":"master"},{},{}],"bulk choice is scoped to the affected shots");
+    assert.equal(await c.eval(`JSON.stringify(__story.characters)`),overrideBaseline.characters,"bulk choice leaves the appearance-state canon unchanged");
+    await waitFor(()=>c.eval(`!((document.querySelector(".stage2-blocker-text")?.textContent||"").toLowerCase().includes("required appearance"))`),"bulk masters clear the missing appearance requirement");
+    await waitFor(()=>c.eval(`!document.querySelector(".stage2-character-bulk")`),"bulk row disappears once every shot has a decision");
+    assert.equal(await c.eval(`__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`),beforeOverrideResetCalls,"bulk choice invokes no provider");
+    await c.eval(`document.querySelector(${JSON.stringify(firstSceneSelector)}).click()`);
+    await waitFor(()=>c.eval(`!Object.prototype.hasOwnProperty.call(__story.shots[0].stageCharacterReferenceOverrides||{},"char-mara")`),"per-shot undo after the bulk choice");
+    await c.eval(`document.querySelector(${JSON.stringify(secondSceneSelector)}).click()`);
+    await waitFor(()=>c.eval(`!Object.prototype.hasOwnProperty.call(__story.shots[1].stageCharacterReferenceOverrides||{},"char-mara")`),"second per-shot undo after the bulk choice");
+    await waitFor(()=>c.eval(`(()=>{const t=document.querySelector(".stage2-blocker-text")?.textContent.toLowerCase()||"";return t.includes("required appearance")&&t.includes("rain wardrobe")})()`),"undo after the bulk choice restores the requirement");
+    assert.equal(await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent||""`),overrideManual,"bulk choice and undo preserve the manual prompt");
 
     /* Simulate the real cache completing later. The existing mounted Stage responds to
        nb-gen-done; no story mutation or remount is used for this clearance proof. */
