@@ -38,7 +38,10 @@
 // secret (e.g. REPLICATE_API_TOKEN). The client already sends { provider, model }.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { seedanceCapabilities, validateSeedanceRequest } from "./seedance-capabilities.mjs";
+import {
+  KLING_MOTION_ENDPOINTS, isKlingMotionControl, motionControlCapabilities,
+  seedanceCapabilities, seedanceTaskCoercions, validateMotionControlRequest, validateSeedanceRequest,
+} from "./seedance-capabilities.mjs";
 import {
   imagePricingQuality,
   imageQualityOptions,
@@ -297,6 +300,15 @@ Deno.serve(async (req) => {
   const providerKey = (id: string, envName: string): string => userApiKey(id) || cleanApiKey(Deno.env.get(envName));
   const missingKey = (label: string, envName: string): string =>
     `${label} is not configured on the server. An administrator can add it in TURN's API Keys modal for testing or set the ${envName} server secret.`;
+  // The fal key is only ever attached to fal's own queue hosts: exact "fal.run" or
+  // a subdomain of it, over https. A bare suffix test would also accept
+  // "evilfal.run" and leak the key to whoever a poll/status URL names.
+  const okFalHost = (u: string): boolean => {
+    try {
+      const url = new URL(u);
+      return url.protocol === "https:" && (url.hostname === "fal.run" || url.hostname.endsWith(".fal.run"));
+    } catch (_e) { return false; }
+  };
   const mediaExt = (mime: string): string => {
     const m = (mime || "").toLowerCase();
     if (m.includes("jpeg") || m.includes("jpg")) return "jpg";
@@ -308,8 +320,65 @@ Deno.serve(async (req) => {
     if (m.includes("webm")) return "webm";
     return "png";
   };
+  // Device media staged by the browser straight into storage (see op "stage-upload")
+  // arrives as a `stage:<uid>/stage-tmp/<file>` reference — the bytes never ride the
+  // function body (Edge Functions cap memory/CPU, a 200MB video would never fit).
+  // The path MUST live in the caller's own private stage-tmp namespace; anything
+  // else is rejected before it can be signed.
+  const STAGE_TMP_PREFIX = `${authUser.id}/stage-tmp/`;
+  const stagedRefPath = (s: string): string | null => {
+    const m = /^stage:(.+)$/i.exec(String(s || ""));
+    if (!m) return null;
+    const p = m[1];
+    if (!p.startsWith(STAGE_TMP_PREFIX) || p.includes("..") || /[^A-Za-z0-9/_.-]/.test(p)) throw new Error("Staged media reference is outside your upload namespace.");
+    return p;
+  };
+  // Size/kind limits for device media staged through op "stage-upload"; a signed
+  // upload slot trusts nothing the browser declared, so the object that actually
+  // landed is checked here before it can be handed to a provider.
+  const STAGE_LIMITS = { maxBytes: { video: 200 * 1024 * 1024, image: 30 * 1024 * 1024, audio: 15 * 1024 * 1024 } as Record<string, number>, ttlSeconds: 7200, maxLive: 24 };
+  const stagedObjectFacts = async (path: string): Promise<{ size: number; mime: string; name: string } | null> => {
+    const bucket = Deno.env.get("TURN_BUCKET") || "turn-assets";
+    const sbStage = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const slash = path.lastIndexOf("/");
+    const dir = path.slice(0, slash), name = path.slice(slash + 1);
+    // `search` is a substring match — ask for a few rows and pick the EXACT name
+    const listed = await sbStage.storage.from(bucket).list(dir, { limit: 20, search: name });
+    if (listed.error) throw new Error("Could not verify a staged upload: " + (listed.error.message || "storage list failed"));
+    const hit = (listed.data || []).find((o: any) => o && o.name === name);
+    if (!hit) return null;
+    const meta = (hit as any).metadata || {};
+    return { size: Number(meta.size ?? meta.contentLength ?? 0), mime: String(meta.mimetype || meta.contentType || "").toLowerCase(), name };
+  };
   const videoInputUrl = async (src: unknown, kind: string, idx: number): Promise<string> => {
     const s = String(src || "");
+    const stagedPath = stagedRefPath(s);
+    if (stagedPath) {
+      const bucket = Deno.env.get("TURN_BUCKET") || "turn-assets";
+      const sbStage = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+      const facts = await stagedObjectFacts(stagedPath);
+      if (!facts) throw new Error(`The staged ${kind} upload is no longer in storage (it may have expired — upload it again).`);
+      // an object that fails verification is removed on the spot — it must not sit in
+      // storage until the next sweep, and it can never be signed
+      const reject = async (msg: string): Promise<never> => {
+        try { await sbStage.storage.from(bucket).remove([stagedPath]); } catch (_e) { /* best effort */ }
+        throw new Error(msg);
+      };
+      // every staging object is named `<Date.now()>-<kind>-…`; a missing, malformed or
+      // future stamp fails closed rather than skipping the age check
+      const stamp = Number((/^(\d{13})-/.exec(facts.name) || [])[1]);
+      const age = Date.now() - stamp;
+      if (!Number.isFinite(stamp) || age < -5 * 60 * 1000) return await reject(`The staged ${kind} upload has an invalid timestamp — upload it again.`);
+      if (age > STAGE_LIMITS.ttlSeconds * 1000) return await reject(`The staged ${kind} upload has expired — upload it again.`);
+      const declaredKind = (/^\d{13}-(video|image|audio)-/.exec(facts.name) || [])[1] || "";
+      if (declaredKind !== kind || !facts.mime.startsWith(kind + "/")) return await reject(`The staged upload is not a ${kind} file.`);
+      const maxBytes = STAGE_LIMITS.maxBytes[kind] || 0;
+      if (!(facts.size > 0)) return await reject(`The staged ${kind} upload is empty or unfinished — upload it again.`);
+      if (maxBytes && facts.size > maxBytes) return await reject(`The staged ${kind} upload exceeds ${Math.round(maxBytes / 1024 / 1024)}MB.`);
+      const signed = await sbStage.storage.from(bucket).createSignedUrl(stagedPath, 3600);
+      if (signed.error || !signed.data?.signedUrl) throw new Error(`Could not read the staged ${kind} upload (it may have expired — upload it again).`);
+      return signed.data.signedUrl;
+    }
     if (!s || !/^data:/i.test(s)) return s;
     const blob = dataUrlToBlob(s);
     if (!blob) return s;
@@ -638,8 +707,7 @@ Deno.serve(async (req) => {
       }
       let out: any = await sub.json();
       if (out?.status_url && out?.response_url) {
-        const okHost = (u: string) => { try { return new URL(u).host.endsWith("fal.run"); } catch (_e) { return false; } };
-        if (!okHost(out.status_url) || !okHost(out.response_url)) throw new Error("Bad fal response URLs.");
+        if (!okFalHost(String(out.status_url)) || !okFalHost(String(out.response_url))) throw new Error("Bad fal response URLs.");
         let done = false;
         // POLL BUDGET: 60 × 1.5s = 90s, under the gateway's ~150s wall clock. A line of
         // dialogue renders in seconds; the old 150-iteration loop (225s) could never
@@ -903,6 +971,8 @@ Deno.serve(async (req) => {
       "bytedance/seedance-2.5/text-to-video",
       "fal-ai/sora-2/image-to-video",              "fal-ai/sora-2/image-to-video/pro",
       "fal-ai/kling-video/v3/standard/image-to-video", "fal-ai/kling-video/v3/pro/image-to-video",
+      // Kling 3.0 Motion Control — character image + motion video (Stage "Motion Control" tab)
+      ...KLING_MOTION_ENDPOINTS,
     ]);
     const requestedModel = (body.model || "bytedance/seedance-2.0/reference-to-video").toString();
     const model = !requestedModel.includes("/") && /seedance-2\.5/i.test(requestedModel)
@@ -915,15 +985,64 @@ Deno.serve(async (req) => {
     // Non-spending deployment handshake. New clients use this before exposing
     // capabilities that an older deployed proxy might silently reinterpret.
     // It intentionally needs no provider key and never contacts fal.
+    // Direct-to-storage staging is advertised here too: the browser only offers
+    // device video/image uploads for editing / motion control once this proxy
+    // confirms it can sign uploads and resolve `stage:` references.
+    const STAGING = { signedUpload: true, scheme: "stage:", maxBytes: STAGE_LIMITS.maxBytes, ttlSeconds: STAGE_LIMITS.ttlSeconds };
     if (op === "capabilities") {
       const seedanceModels = [...ALLOWED].filter((m) => /seedance-2\.[05]/.test(m));
+      const capsFor = (m: string) => /seedance-2\.[05]/.test(m) ? { ...seedanceCapabilities(m), staging: STAGING }
+        : isKlingMotionControl(m) ? { ...motionControlCapabilities(m), staging: STAGING }
+        : null;
       return json({
         known: true,
-        schema: "seedance-capabilities-2026-08-18",
+        schema: "seedance-capabilities-2026-09-15",
         model,
-        capabilities: /seedance-2\.[05]/.test(model) ? seedanceCapabilities(model) : null,
-        models: Object.fromEntries(seedanceModels.map((m) => [m, seedanceCapabilities(m)])),
+        capabilities: capsFor(model),
+        staging: STAGING,
+        models: Object.fromEntries([...seedanceModels, ...KLING_MOTION_ENDPOINTS].map((m) => [m, capsFor(m)])),
       });
+    }
+    // Non-spending: hand the browser a one-shot signed upload slot inside its own
+    // private `<uid>/stage-tmp/` namespace (service-role signing — no RLS insert
+    // policy dependency, same as the data-URL staging path above). The browser PUTs
+    // the file there and later submits `stage:<path>`; the file is only ever read
+    // back through a short-lived signed URL when a job is submitted.
+    if (op === "stage-upload") {
+      const kind = String(body.kind || "").toLowerCase();
+      if (!["video", "image", "audio"].includes(kind)) return json({ error: 'stage-upload needs kind "video", "image" or "audio".' }, 400);
+      const mime = String(body.mime || "").toLowerCase();
+      if (!mime.startsWith(kind + "/")) return json({ error: `stage-upload: a ${kind} file is required (received "${mime || "unknown"}").` }, 400);
+      const size = Number(body.sizeBytes);
+      const maxBytes = (STAGING.maxBytes as any)[kind];
+      if (!Number.isFinite(size) || size <= 0) return json({ error: "stage-upload: file size is unresolved." }, 400);
+      if (size > maxBytes) return json({ error: `stage-upload: ${kind} exceeds ${Math.round(maxBytes / 1024 / 1024)}MB.` }, 400);
+      const bucket = Deno.env.get("TURN_BUCKET") || "turn-assets";
+      const sbStage = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+      // Storage has no TTL of its own: every slot request sweeps the caller's expired
+      // staging objects (device uploads AND data-URL stagings share the namespace) and
+      // refuses to open more than a bounded number of live slots per account.
+      {
+        const listed = await sbStage.storage.from(bucket).list(`${authUser.id}/stage-tmp`, { limit: 1000, sortBy: { column: "name", order: "asc" } });
+        if (!listed.error) {
+          const now = Date.now();
+          const stampOf = (n: string) => Number((/^(\d{13})-/.exec(n) || [])[1]);
+          const rows = (listed.data || []).filter((o: any) => o && o.name && !String(o.name).endsWith("/"));
+          const expired = rows.filter((o: any) => { const t = stampOf(String(o.name)); return Number.isFinite(t) && now - t > STAGE_LIMITS.ttlSeconds * 1000; })
+            .map((o: any) => `${authUser.id}/stage-tmp/${o.name}`);
+          if (expired.length) await sbStage.storage.from(bucket).remove(expired.slice(0, 200));
+          // the cap counts DEVICE slots only — data-URL stagings made by ordinary
+          // renders share the folder but are bounded by the render itself
+          const live = rows.filter((o: any) => /-device-/.test(String(o.name))).length
+            - expired.filter((p) => /-device-/.test(p)).length;
+          if (live >= STAGE_LIMITS.maxLive) return json({ error: `stage-upload: too many pending uploads (${live}). Wait for running renders to finish or try again in a couple of hours.` }, 429);
+        }
+      }
+      const id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + "-" + Math.random().toString(36).slice(2)).replace(/-/g, "");
+      const path = `${authUser.id}/stage-tmp/${Date.now()}-${kind}-device-${id}.${mediaExt(mime)}`;
+      const slot = await sbStage.storage.from(bucket).createSignedUploadUrl(path);
+      if (slot.error || !slot.data?.token) return json({ error: "Could not open an upload slot: " + (slot.error?.message || "storage refused") }, 500);
+      return json({ ok: true, bucket, path, token: slot.data.token, ref: "stage:" + path, expiresInSeconds: STAGING.ttlSeconds, maxBytes });
     }
     const falKey = providerKey("fal", "FAL_KEY");
     if (!falKey) return json({ error: missingKey("fal.ai", "FAL_KEY") }, 500);
@@ -952,15 +1071,25 @@ Deno.serve(async (req) => {
     try {
       if (op === "submit") {
         const isSora = model.indexOf("sora-2") >= 0;
+        const isMotion = isKlingMotionControl(model);
+        // Seedance 2.5 task modes: the coercions fal would apply are made explicit
+        // BEFORE validation so an "editing" request never carries a duration the
+        // task ignores (and never gets billed for one).
+        // (body.task is the proxy's own op selector — "video"; the Seedance task mode
+        //  rides as body.videoTask.)
+        const wantedVideoTask = body.videoTask != null && String(body.videoTask) !== "" ? String(body.videoTask) : "";
+        const seedanceTask = /seedance-2\.5\/reference-to-video$/.test(model) ? wantedVideoTask : "";
+        const coerced = seedanceTaskCoercions(seedanceTask || "reference", { duration: body.duration, aspectRatio: body.aspectRatio });
         if (/seedance-2\.[05]/.test(model)) {
           // Pure schema/package validation happens before staging data URLs or
           // contacting fal. Remote media is deliberately not fetched here:
           // duration facts must come from the client's metadata probe.
           const checked = validateSeedanceRequest({
             model,
-            duration: body.duration,
+            task: seedanceTask || undefined,
+            duration: coerced.duration,
             resolution: body.resolution,
-            aspectRatio: body.aspectRatio,
+            aspectRatio: coerced.aspectRatio,
             bitrateMode: body.bitrateMode,
             prompt: body.prompt,
             images: Array.isArray(body.image_urls) ? body.image_urls : [body.image_url, body.end_image_url].filter(Boolean),
@@ -970,8 +1099,37 @@ Deno.serve(async (req) => {
           });
           if (!checked.ok) return json({ error: "Invalid Seedance request: " + checked.errors.join("; ") }, 400);
         }
-        const imageUrls = await videoInputUrls(body.image_urls, "image");
+        if (wantedVideoTask && !seedanceTask)
+          return json({ error: `Video task "${wantedVideoTask}" is only available on Seedance 2.5 reference-to-video.` }, 400);
         let input: any;
+        if (isMotion) {
+          // Kling 3.0 Motion Control: ONE character image + ONE motion video. The
+          // duration limit depends on character_orientation (image ≤10s, video ≤30s)
+          // and is checked against the client's metadata probe before anything is
+          // staged or submitted.
+          const checked = validateMotionControlRequest({
+            model,
+            imageUrl: body.image_url,
+            videoUrl: body.video_url,
+            characterOrientation: body.characterOrientation ?? body.character_orientation,
+            metadata: body.referenceMetadata || {},
+            prompt: body.prompt,
+          });
+          if (!checked.ok) return json({ error: "Invalid motion-control request: " + checked.errors.join("; ") }, 400);
+          input = {
+            image_url: await videoInputUrl(body.image_url, "image", 0),
+            video_url: await videoInputUrl(body.video_url, "video", 1),
+            character_orientation: String(body.characterOrientation ?? body.character_orientation),
+            keep_original_sound: body.keepOriginalSound !== false,
+          };
+          const motionPrompt = String(body.prompt || "").trim();
+          if (motionPrompt) input.prompt = motionPrompt;
+          const r = await fetch("https://queue.fal.run/" + model, { method: "POST", headers: falHead, body: JSON.stringify(input) });
+          if (!r.ok) return json({ error: await falErr(r), status: r.status }, 200);
+          const data = await r.json();
+          return json({ requestId: data.request_id, statusUrl: data.status_url, responseUrl: data.response_url, status: data.status || "IN_QUEUE" });
+        }
+        const imageUrls = await videoInputUrls(body.image_urls, "image");
         if (isSora) {
           // Sora 2 (fal): ONE start image; duration snapped to its 4/8/12/16/20s grid;
           // resolution auto/720p (pro adds 1080p); aspect auto/16:9/9:16; audio is
@@ -1022,10 +1180,11 @@ Deno.serve(async (req) => {
           input = {
             prompt: (body.prompt || "").toString(),
             resolution: videoResolutionForModel(model, body.resolution),
-            duration: (body.duration != null ? String(body.duration) : "auto"),
-            aspect_ratio: (body.aspectRatio || "auto").toString(),
+            duration: (coerced.duration != null ? String(coerced.duration) : "auto"),
+            aspect_ratio: (coerced.aspectRatio || "auto").toString(),
             generate_audio: body.generateAudio !== false,
           };
+          if (seedanceTask) input.task = seedanceTask;
           if (imageUrls.length) input.image_urls = imageUrls;
           if (videoUrls.length) input.video_urls = videoUrls;
           if (audioUrls.length) input.audio_urls = audioUrls;
@@ -1045,8 +1204,7 @@ Deno.serve(async (req) => {
         // only ever attach the key to a fal.run host
         const statusUrl = (body.statusUrl || "").toString();
         const responseUrl = (body.responseUrl || "").toString();
-        const okHost = (u: string) => { try { return new URL(u).host.endsWith("fal.run"); } catch (_e) { return false; } };
-        if (!okHost(statusUrl) || !okHost(responseUrl)) return json({ error: "Bad poll URLs." }, 400);
+        if (!okFalHost(statusUrl) || !okFalHost(responseUrl)) return json({ error: "Bad poll URLs." }, 400);
         // logs=1 → fal streams the model's progress lines ("… 42%") in the status body;
         // queue_position rides along while IN_QUEUE. Both feed the client's progress UI.
         let logsUrl = statusUrl;
@@ -1164,9 +1322,6 @@ Deno.serve(async (req) => {
       }
       return String(d || "").slice(0, 400) || `fal error (${r.status}).`;
     };
-    const okFalHost = (u: string) => {
-      try { return new URL(u).host.endsWith("fal.run"); } catch (_e) { return false; }
-    };
     const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
     try {
@@ -1252,8 +1407,7 @@ Deno.serve(async (req) => {
       const m = /^data:(.*?);base64,(.*)$/.exec(url);
       if (m) return await finishImage({ b64: m[2], mime: m[1] || "image/png", falModel: endpoint, grounded: cfg.family !== "openai" && !!groundSearch }, "fal", model);
 
-      const u = new URL(url);
-      const imageHeaders = u.host.endsWith("fal.run") ? { "Authorization": "Key " + falKey } : undefined;
+      const imageHeaders = okFalHost(url) ? { "Authorization": "Key " + falKey } : undefined;
       const ir = await fetch(url, { headers: imageHeaders });
       if (!ir.ok) return json({ error: `Could not download fal image (${ir.status}).` }, 200);
       const mime = ir.headers.get("content-type") || (img && (img.content_type || img.mime_type)) || "image/png";

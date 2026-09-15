@@ -29,10 +29,19 @@ const VID_MODEL_T2V_FAST = "bytedance/seedance-2.0/fast/text-to-video";
 // 4–30s). fal lists NO fast variant for 2.5, so the
 // "fast" constant aliases the standard endpoint — the registry has no 2.5 fast
 // tier, so it's never selected; the alias just makes a stale opts.fast harmless.
+const VID25_MODEL          = "bytedance/seedance-2.5/reference-to-video";
 const VID25_MODEL_I2V      = "bytedance/seedance-2.5/image-to-video";
 const VID25_MODEL_I2V_FAST = VID25_MODEL_I2V;
 const VID25_MODEL_T2V      = "bytedance/seedance-2.5/text-to-video";
+// Kling 3.0 Motion Control (Stage "Motion Control" tab): character image + motion video.
+const VID_KLING_MOTION_STD = "fal-ai/kling-video/v3/standard/motion-control";
+const VID_KLING_MOTION_PRO = "fal-ai/kling-video/v3/pro/motion-control";
+// Seedance 2.5 reference-to-video task modes (fal `task`): editing rewrites @Video1
+// (duration + aspect follow the source), extension continues @Video1 (aspect follows
+// the source). Only the 2.5 reference endpoint accepts the parameter.
+const VID_TASKS = ["reference","editing","extension"];
 window.VID_MODEL = VID_MODEL; window.VID_MODEL_FAST = VID_MODEL_FAST;
+window.VID25_MODEL = VID25_MODEL; window.VID_KLING_MOTION_STD = VID_KLING_MOTION_STD; window.VID_KLING_MOTION_PRO = VID_KLING_MOTION_PRO;
 window.VID_MODEL_I2V = VID_MODEL_I2V; window.VID_MODEL_I2V_FAST = VID_MODEL_I2V_FAST;
 function vidAssertIdentity(opts, phase){
   opts=opts||{};
@@ -843,7 +852,68 @@ function _vidDataUrlFacts(url){
   const encoded=m[2].replace(/\s/g,""), pad=(encoded.match(/=*$/)||[""])[0].length;
   return { mime:m[1].toLowerCase(), sizeBytes:Math.max(0,Math.floor(encoded.length*3/4)-pad) };
 }
+/* ---- device media staged DIRECTLY into storage ---------------------------------
+   Edge Functions cap request memory/CPU, so a device video (up to 200MB) can never
+   ride the proxy body as a data URL. The proxy instead opens a one-shot signed
+   upload slot in the caller's private `<uid>/stage-tmp/` namespace (op
+   "stage-upload", non-spending); the browser PUTs the file there and submits the
+   returned `stage:<path>` reference, which only the proxy can turn back into a
+   short-lived read URL at job time. Facts (duration / size / mime) are probed
+   from the local file BEFORE upload and kept here so validation never has to load
+   a `stage:` reference in a media element. The registry is per tab on purpose:
+   a `stage:` reference without facts fails closed. */
+const _vidStagedFacts = new Map();
+function vidStagedFacts(ref){ return _vidStagedFacts.get(String(ref||"")) || null; }
+window.vidStagedFacts = vidStagedFacts;
+function vidStagingCapability(caps){
+  const st = caps && caps.staging;
+  return !!(st && st.signedUpload && st.scheme==="stage:");
+}
+window.vidStagingCapability = vidStagingCapability;
+async function vidStageDeviceMedia(file, kind, opts){
+  opts = opts||{};
+  kind = String(kind||"").toLowerCase();
+  if(!file || typeof file.size!=="number") throw new Error("Choose a file from this device first.");
+  if(!["video","image","audio"].includes(kind)) throw new Error("Only video, image or audio files can be staged.");
+  const mime = String(file.type||"").toLowerCase();
+  if(!mime.startsWith(kind+"/")) throw new Error("That file is not a "+kind+" ("+(mime||"unknown type")+").");
+  if(!videoProxyReady()) throw new Error("Device uploads run through your server proxy — sign in and make sure Supabase + the proxy are configured.");
+  // capability handshake (non-spending): an older deployed proxy has no upload
+  // slot op and cannot resolve `stage:` references — refuse before uploading.
+  const runtime = await seedanceGetRuntimeCapabilities(opts.capabilityModel || VID25_MODEL);
+  if(!runtime.known || !vidStagingCapability(runtime.capabilities))
+    throw new Error("Pending server update — device uploads need the updated video proxy (direct-to-storage staging). Deploy the image-proxy Edge Function, or pick one of this clip's takes instead.");
+  const st = runtime.capabilities.staging;
+  const maxBytes = Number((st.maxBytes||{})[kind]) || (kind==="video" ? 200*1024*1024 : kind==="image" ? 30*1024*1024 : 15*1024*1024);
+  if(file.size > maxBytes) throw new Error("That "+kind+" is "+Math.round(file.size/1024/1024)+"MB — the limit is "+Math.round(maxBytes/1024/1024)+"MB.");
+  const blobUrl = URL.createObjectURL(file);
+  let facts;
+  try{ facts = kind==="image" ? { mime, sizeBytes:file.size } : await vidMediaFacts(blobUrl, kind); }
+  catch(e){ URL.revokeObjectURL(blobUrl); throw e; }
+  facts = { ...facts, mime, sizeBytes:file.size };
+  if(opts.onStatus) opts.onStatus("Uploading "+kind+"…");
+  let slot;
+  try{ slot = await vidProxy("stage-upload", { kind, mime, sizeBytes:file.size }); }
+  catch(e){ URL.revokeObjectURL(blobUrl); throw e; }
+  if(!slot || !slot.ok || !slot.path || !slot.token || !slot.ref){ URL.revokeObjectURL(blobUrl); throw new Error("The video proxy did not open an upload slot."); }
+  const sb = window.sbClient();
+  const bucket = slot.bucket || (window.TURN_SUPABASE && window.TURN_SUPABASE.bucket) || "turn-assets";
+  const up = await sb.storage.from(bucket).uploadToSignedUrl(slot.path, slot.token, file, { contentType: mime || "application/octet-stream", upsert:false });
+  if(up && up.error){ URL.revokeObjectURL(blobUrl); throw new Error("Upload failed: "+(up.error.message||"storage refused the file")+"."); }
+  const expiresAt = Date.now() + (Number(slot.expiresInSeconds)||7200)*1000;
+  _vidStagedFacts.set(slot.ref, { ...facts, origin:"device", expiresAt });
+  return { ref:slot.ref, blobUrl, facts:{ ...facts }, expiresAt, name:String(file.name||""), kind };
+}
+window.vidStageDeviceMedia = vidStageDeviceMedia;
+
 async function vidMediaFacts(url, kind){
+  if(/^stage:/i.test(String(url||""))){
+    const staged=_vidStagedFacts.get(String(url));
+    if(!staged) throw new Error("A device upload's metadata is no longer available in this tab — choose the file again before submitting.");
+    if(staged.expiresAt && Date.now()>staged.expiresAt) throw new Error("A device upload has expired — choose the file again before submitting.");
+    const { origin, expiresAt, ...facts } = staged;
+    return kind==="image" ? { mime:facts.mime, sizeBytes:facts.sizeBytes } : { ...facts };
+  }
   const facts=_vidDataUrlFacts(url);
   if(/^blob:/i.test(String(url||""))){
     try{ const b=await (await fetch(url)).blob(); facts.sizeBytes=b.size; facts.mime=b.type||facts.mime; }catch(e){}
@@ -860,6 +930,7 @@ async function vidMediaFacts(url, kind){
   el.removeAttribute("src"); try{ el.load(); }catch(e){}
   return { ...facts, durationSeconds:duration };
 }
+window.vidMediaFacts = vidMediaFacts;
 async function vidReferenceMetadata(images,videos,audios){
   return {
     images:await Promise.all(images.map(u=>vidMediaFacts(u,"image"))),
@@ -899,6 +970,31 @@ function vidValidateSeedancePackage(model, payload){
   let m, re=/@(Image|Video|Audio)(\d+)\b/gi;
   while((m=re.exec(String(payload.prompt||"")))){ const k=m[1].toLowerCase(); if(Number(m[2])<1||Number(m[2])>counts[k]) errors.push(m[0]+" has no matching reference"); }
   if(errors.length) throw new Error("Invalid Seedance reference package: "+errors.join("; ")+".");
+}
+/* Kling 3.0 Motion Control limits (mirrors the proxy's validateMotionControlRequest):
+   ONE character image, ONE motion video of 3–30s — only 3–10s when the character
+   follows the IMAGE (orientation "image"). Checked before anything is spent. */
+function vidMotionControlLimits(orientation){
+  return { minSeconds:3, maxSeconds: orientation==="image" ? 10 : 30, maxBytes:200*1024*1024 };
+}
+window.vidMotionControlLimits = vidMotionControlLimits;
+function vidValidateMotionControlPackage(payload){
+  const errors=[];
+  const orientation=String(payload.characterOrientation||"");
+  if(!["video","image"].includes(orientation)) errors.push("scene control must follow the video or the image");
+  if(!(payload.images||[]).length) errors.push("a character image is required");
+  if(!(payload.videos||[]).length) errors.push("a motion video is required");
+  const lim=vidMotionControlLimits(orientation);
+  const f=((payload.metadata||{}).videos||[])[0]||{};
+  const d=Number(f.durationSeconds), b=Number(f.sizeBytes);
+  if((payload.videos||[]).length){
+    if(!Number.isFinite(d)||d<=0) errors.push("the motion video's duration could not be verified");
+    else if(d<lim.minSeconds) errors.push("the motion video must be at least "+lim.minSeconds+"s");
+    else if(d>lim.maxSeconds+0.05) errors.push("the motion video must be at most "+lim.maxSeconds+"s when the character follows the "+orientation);
+    if(Number.isFinite(b)&&b>lim.maxBytes) errors.push("the motion video exceeds 200MB");
+  }
+  if(String(payload.prompt||"").length>2000) errors.push("the prompt exceeds 2000 characters");
+  if(errors.length) throw new Error("Invalid motion-control package: "+errors.join("; ")+".");
 }
 
 /* fal validates audio references at >= 2.0s ("Audio duration is too short. Minimum is
@@ -1324,7 +1420,14 @@ async function seedanceGenerate(id, opts){
     throw new Error("A text-only video request cannot discard required screenplay page images.");
   if(textOnly && (images.length || videos.length || audios.length))
     throw new Error("A text-only video request cannot include image, video, or audio references.");
-  if(!textOnly && !images.length && !videos.length) throw new Error("This clip has no start frame yet — generate the shot's frame in the Shot List first.");
+  if(!textOnly && !images.length && !videos.length){
+    // task modes and motion control are video-first — name the missing video, not a frame
+    const vt=(opts.videoTask && String(opts.videoTask)!=="reference") ? String(opts.videoTask) : "";
+    if(vt==="editing") throw new Error("Add the video to edit first — it becomes @Video1.");
+    if(vt==="extension") throw new Error("Choose the video to extend first — it becomes @Video1.");
+    if(/motion-control$/.test(String(opts.falModel||""))) throw new Error("Motion Control needs a motion video to copy and a character image.");
+    throw new Error("This clip has no start frame yet — generate the shot's frame in the Shot List first.");
+  }
   /* SORA 2 rides the same queue but a different shape: the tier names its fal endpoint
      (opts.falModel), takes ONE start image, and has no video/audio refs, no end-frame
      transition, no seed. The proxy maps the payload to Sora's field names + snaps the
@@ -1334,17 +1437,44 @@ async function seedanceGenerate(id, opts){
      reference sheets, no audio refs; speech is generated natively by the model),
      optional end frame, and NATIVE MULTI-SHOT — opts.multiShot [{prompt,duration}]
      maps to Kling's multi_prompt so each Multi-shot row renders on its own prompt. */
-  const isKling = /kling-video/.test(String(opts.falModel||""));
+  /* KLING 3.0 MOTION CONTROL is its own shape: ONE character image + ONE motion video,
+     character_orientation "video" | "image", optional prompt, keep_original_sound.
+     No duration/resolution/aspect/seed controls — the output follows the motion video. */
+  const isKlingMotion = /kling-video\/v3\/(standard|pro)\/motion-control$/.test(String(opts.falModel||""));
+  const isKling = /kling-video/.test(String(opts.falModel||"")) && !isKlingMotion;
+  const characterOrientation = isKlingMotion ? String(opts.characterOrientation||"") : "";
+  const keepOriginalSound = isKlingMotion ? (opts.keepOriginalSound!==false) : null;
+  if(isKlingMotion){
+    if(!["video","image"].includes(characterOrientation)) throw new Error("Motion Control needs a scene control choice — follow the motion video or the character image.");
+    if(images.length!==1) throw new Error("Motion Control needs exactly one character image (a clear face and body).");
+    if(videos.length!==1) throw new Error("Motion Control needs exactly one motion video to copy.");
+    if(audios.length) throw new Error("Motion Control takes no audio references — the motion video's own sound is kept or dropped with 'Keep original sound'.");
+    // the prompt is optional flavour text; screenplay delivery would be recorded as
+    // provenance the provider never saw
+    if(hasScreenplayReference || opts.screenplayImages) throw new Error("Motion Control copies a performance and takes no screenplay reference.");
+  }
+  /* SEEDANCE 2.5 TASK MODES — "editing" rewrites @Video1 (fal coerces duration and
+     aspect to the source's), "extension" continues @Video1 (aspect follows the source).
+     Both need a video reference and the 2.5 reference endpoint; both are gated on
+     the deployed proxy advertising them (an older proxy would silently render a
+     plain reference job — and charge for it). */
+  const videoTask = (opts.videoTask && String(opts.videoTask)!=="reference") ? String(opts.videoTask) : "";
+  if(videoTask){
+    if(!VID_TASKS.includes(videoTask)) throw new Error("Unknown video task \""+videoTask+"\".");
+    if(!isSeedance25 || textOnly || isSora || isKling || isKlingMotion) throw new Error((videoTask==="editing"?"Edit Video":"Extend Video")+" runs on Seedance 2.5 only — pick Seedance 2.5 as the model.");
+    if(!videos.length) throw new Error((videoTask==="editing"?"Add the video to edit":"Choose the video to extend")+" first — it becomes @Video1.");
+    if(opts.endImageUrl) throw new Error((videoTask==="editing"?"Edit Video":"Extend Video")+" cannot combine with an end frame.");
+  }
   // a start->end frame transition only makes sense with exactly a start image and no
   // video/audio refs — those require the multimodal reference-to-video shape instead.
   // (Kling takes end_image_url natively on its one endpoint — no endpoint switch.)
-  const endFrame = isSora ? "" : (opts.endImageUrl||"").trim();
-  if(hasScreenplayImages && (isSora || isKling))
+  const endFrame = (isSora || isKlingMotion) ? "" : (opts.endImageUrl||"").trim();
+  if(hasScreenplayImages && (isSora || isKling || isKlingMotion))
     throw new Error("This video model accepts only one start image and cannot consume screenplay page images separately; choose a Seedance reference-to-video route.");
   if(hasScreenplayImages && endFrame)
     throw new Error("Start-to-end image transitions cannot consume screenplay page images separately; choose a Seedance reference-to-video route.");
-  const useTransition = !isKling && !!(endFrame && images.length && !videos.length && !audios.length);
-  const model = (isSora || isKling) ? opts.falModel
+  const useTransition = !isKling && !isKlingMotion && !!(endFrame && images.length && !videos.length && !audios.length);
+  const model = (isSora || isKling || isKlingMotion) ? opts.falModel
     : textOnly
     ? (isSeedance25 ? VID25_MODEL_T2V : (opts.fast ? VID_MODEL_T2V_FAST : VID_MODEL_T2V))
     : isSeedance25
@@ -1354,13 +1484,16 @@ async function seedanceGenerate(id, opts){
     : (opts.fast ? VID_MODEL_FAST : VID_MODEL);
   // Never silently clamp Seedance: reject an unsupported requested duration before spending.
   // Preserve the established snapping/clamping behavior of the unrelated Sora/Kling paths.
-  const duration = opts.durationMs
+  // Editing follows the source video's length and format; extension follows its format.
+  // Motion control follows the motion video. Those requests carry no duration/aspect.
+  const duration = (isKlingMotion || videoTask==="editing") ? "auto"
+    : opts.durationMs
     ? (isKling ? Math.max(3,Math.min(15,Math.round(opts.durationMs/1000)))
       : isSora ? Math.max(4,Math.min(20,Math.round(opts.durationMs/1000)))
       : Math.ceil(opts.durationMs/1000))
     : (opts.duration||"auto");
   const resolution = vidResolutionForModel(model, opts.resolution);
-  const aspectRatio = opts.aspectRatio || "auto";
+  const aspectRatio = (isKlingMotion || videoTask) ? "auto" : (opts.aspectRatio || "auto");
   const controls = (opts.controls||"").trim();
   const onlyDocumentImages = hasScreenplayImages && images.length===screenplayImages.length
     && !videos.length && !audios.length
@@ -1386,7 +1519,9 @@ async function seedanceGenerate(id, opts){
   const pageGuard = hasScreenplayImages ? _vidScreenplayImageGuard(screenplayImages,images) : "";
   const promptWithPageGuard = pageGuard
     ? promptWithIdentity+"\n\n"+pageGuard : promptWithIdentity;
-  const promptText = appendScreenplay(controls
+  // Motion control's prompt is optional guidance only (no @-tokens, no fallback
+  // "comes alive" direction, no controls/identity block — the motion video drives).
+  const promptText = isKlingMotion ? suppliedPrompt : appendScreenplay(controls
     ? (promptWithPageGuard + "\n" + controls) : promptWithPageGuard);
   /* Native Kling multi-shot rows override the top-level prompt.  Every row
      therefore receives the same exact screenplay block, rather than relying
@@ -1411,7 +1546,27 @@ async function seedanceGenerate(id, opts){
     if(!runtime.known || !runtime.capabilities || !runtime.capabilities.resolutions.includes("1080p"))
       throw new Error("Seedance 2.5 1080p is disabled until the deployed video proxy acknowledges the new capability schema. 720p remains available; deploy the updated image-proxy Edge Function to enable 1080p.");
   }
-  const settings = { model, resolution, aspectRatio, duration, endFrame, generateAudio, bitrateMode, seed:opts.seed!=null?opts.seed:null };
+  /* Non-spending capability handshakes for the newer shapes: an older deployed proxy
+     ignores unknown fields, so without the handshake an "editing" job would render
+     (and bill) as a plain reference job, and a motion-control model would be
+     rejected only after staging. Fail closed before any preparation work. */
+  if(videoTask){
+    const runtime=await seedanceGetRuntimeCapabilities(model);
+    vidAssertIdentity(opts, "video-after-capabilities");
+    const tasks=runtime.known && runtime.capabilities && Array.isArray(runtime.capabilities.tasks) ? runtime.capabilities.tasks : [];
+    if(!tasks.includes(videoTask))
+      throw new Error("Pending server update — "+(videoTask==="editing"?"Edit Video":"Extend Video")+" needs the updated video proxy (Seedance 2.5 task modes). Deploy the image-proxy Edge Function to enable it; nothing was submitted.");
+  }
+  if(isKlingMotion){
+    const runtime=await seedanceGetRuntimeCapabilities(model);
+    vidAssertIdentity(opts, "video-after-capabilities");
+    const orientations=runtime.known && runtime.capabilities && Array.isArray(runtime.capabilities.characterOrientations) ? runtime.capabilities.characterOrientations : [];
+    if(!orientations.includes(characterOrientation))
+      throw new Error("Pending server update — Motion Control needs the updated video proxy (Kling 3.0 motion-control endpoints). Deploy the image-proxy Edge Function to enable it; nothing was submitted.");
+  }
+  const settings = { model, resolution, aspectRatio, duration, endFrame, generateAudio, bitrateMode, seed:opts.seed!=null?opts.seed:null,
+    ...(videoTask ? { videoTask } : {}),
+    ...(isKlingMotion ? { characterOrientation, keepOriginalSound } : {}) };
   if(screenplayReference) settings.screenplayReference = {
     signature:screenplayReference.signature, sourceRev:screenplayReference.sourceRev,
     fullText:screenplayReference.fullText, targetBeats:screenplayReference.targetBeats,
@@ -1432,7 +1587,7 @@ async function seedanceGenerate(id, opts){
     assertScreenplayCurrent("video-before-cache-return");
     if(url && meta && meta.hash===hash) return { videoUrl:url, seed:(meta&&meta.seed)||null, cached:true };
   }
-  const proxyImages = await vidProxyReadyUrls((isSora||isKling) ? images.slice(0,1) : images);   // Sora/Kling: the start frame only
+  const proxyImages = await vidProxyReadyUrls((isSora||isKling||isKlingMotion) ? images.slice(0,1) : images);   // Sora/Kling: the start frame only
   vidAssertIdentity(opts, "video-after-image-prep");
   const screenplayImageSnapshots = hasScreenplayImages
     ? _vidFreeze(_vidClone(screenplayImages.map(page=>{
@@ -1467,7 +1622,11 @@ async function seedanceGenerate(id, opts){
   const proxyEndFrame = (useTransition || (isKling && endFrame)) ? await vidProxyReadyUrl(endFrame) : "";
   vidAssertIdentity(opts, "video-after-reference-prep");
   let referenceMetadata = null;
-  if(!isSora && !isKling){
+  if(isKlingMotion){
+    referenceMetadata = await vidReferenceMetadata(proxyImages,proxyVideos,[]);
+    vidValidateMotionControlPackage({ images:proxyImages, videos:proxyVideos, metadata:referenceMetadata,
+      characterOrientation, prompt:promptText });
+  } else if(!isSora && !isKling){
     referenceMetadata = await vidReferenceMetadata(proxyImages,proxyVideos,proxyAudios);
     vidValidateSeedancePackage(model,{ images:proxyImages,videos:proxyVideos,audios:proxyAudios,
       metadata:referenceMetadata,duration,resolution,aspectRatio,bitrateMode,prompt:promptText });
@@ -1513,7 +1672,12 @@ async function seedanceGenerate(id, opts){
     }
     let sub;
     try{
-      sub = await vidProxy("submit", {
+      sub = await vidProxy("submit", isKlingMotion
+        ? { model, prompt:pText,
+            image_url:proxyImages[0], video_url:proxyVideos[0],
+            characterOrientation, keepOriginalSound,
+            referenceMetadata }
+        : {
         model, prompt:pText,
         ...(isKling
           ? { image_url:proxyImages[0],
@@ -1525,6 +1689,7 @@ async function seedanceGenerate(id, opts){
               ...(proxyVideos.length ? { video_urls:proxyVideos } : {}),
               ...(proxyAudios.length ? { audio_urls:proxyAudios } : {}) }),
         duration, resolution, aspectRatio,
+        ...(videoTask ? { videoTask } : {}),   // Seedance 2.5 task mode (editing / extension); body.task stays the proxy op selector
         ...(referenceMetadata ? { referenceMetadata } : {}),
         generateAudio,    // ON with audio refs (they become the speech in the track); user-toggled otherwise
         bitrateMode,      // "high" = less compression / larger file; "standard" = smaller draft
@@ -1645,7 +1810,10 @@ async function seedanceGenerate(id, opts){
            The job's event id keeps a racing recovery pass from charging again. */
         _vidSettleSpend(spendRec);
         const meta = { hash, model, durationMs:opts.durationMs||0, aspectRatio, seed:st.seed||null,
-          prompt:pText, ...persistedTakeMeta };   // Versions-view facts: source, tier, resolution, recipe, audio, batch position…
+          prompt:pText, ...persistedTakeMeta,   // Versions-view facts: source, tier, resolution, recipe, audio, batch position…
+          // provider-request facts the caller cannot restate differently
+          ...(videoTask ? { videoTask } : {}),
+          ...(isKlingMotion ? { characterOrientation, keepOriginalSound } : {}) };
         if(hasScreenplayReference) Object.assign(meta, {
           prompt:pText, actualPrompt:pText,
           screenplayReference, screenplayReferenceProvenance:screenplayReference,

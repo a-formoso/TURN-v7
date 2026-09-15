@@ -33,3 +33,6 @@
 - [Server-only storage namespaces](server-only-storage-namespaces.md) — private receipt paths need a non-UUID second segment; a private-looking first segment alone does not block deletion.
 - [Screenplay image recovery](screenplay-image-recovery.md) — reserve real job-storage capacity before spending; source PNG provenance is not a provider-facing URL.
 - [Stage browser fixture](stage-browser-fixture.md) — icons are stubbed as dots, viewport is tiny, off-screen clicks fire; clamp popover anchors and assert rects against the viewport.
+- [Video proxy task modes](video-proxy-task-modes.md) — body.task is the op selector (Seedance task rides videoTask); device video = signed upload + stage: refs; input length is a billing fact, never a default.
+- [Provider host checks](proxy-provider-host-check.md) — provider keys only go to exact/subdomain https hosts via the shared okFalHost; bare endsWith suffix tests leak the key.
+- [Browser test fixture quirks](stage-browser-fixture.md) — fixture HTML is a raw string (regex escapes die; use indexOf); run with node --experimental-websocket; pending-probe stubs make blocked states observable.

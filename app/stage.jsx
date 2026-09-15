@@ -2380,262 +2380,6 @@ function StageMentionEditor({ value, mentionables, includeMention, maxLen, place
         m.t===swap.tok && _stEl("span",{className:"stage2-mention-kind"},"Current")))));
 }
 
-/* ---- IMAGE tab of the clip composer ---------------------------------------
-   A full frame composer for the ACTIVE SHOT that rides the exact Shots-tab
-   pipeline (shotFrameGenOpts in shots-ui.jsx): same prompt builders, coverage-
-   seed chain, unified reference plan and seed-lineage meta stamps — a frame
-   rendered here is indistinguishable from an Art Room render, and the clip's
-   start-frame asset updates the moment it commits. The caller keys this
-   component by shot id so the gen hook re-initialises cleanly per shot. */
-function StageFrameComposer({ sh, sceneShots, imgCtx, shotNo, onMax }){
-  const pack = (typeof shotFrameGenOpts==="function")
-    ? shotFrameGenOpts(sh, sceneShots||[], imgCtx) : null;
-  const imageChars = Object.values((imgCtx&&imgCtx.charById)||{});
-  const imageIds = (typeof inFrameCast==="function")
-    ? inFrameCast(sh, imgCtx&&imgCtx.scene, imageChars) : ((sh&&sh.subjects)||[]);
-  const imageCast = imageChars.filter(c=>imageIds.some(id=>String(id)===String(c.id)));
-  const imageIdentityContext = { characterIds:imageIds, cast:imageCast,
-    scenes:(imgCtx&&imgCtx.scenes)||[imgCtx&&imgCtx.scene].filter(Boolean),
-    drafts:(imgCtx&&imgCtx.drafts)||{} };
-  // the derived prompt is LIVE (follows the shot's action/refs); an edit takes
-  // over for this session only — the shot's canon Action is never touched here
-  const derived = pack ? (pack.prevShot ? pack.chainPrompt : pack.finalPrompt) : "";
-  const [draft, setDraft] = React.useState("");
-  const edited = draft.trim()!=="" && draft!==derived;
-  const promptText = edited ? draft : derived;
-  // resolution/aspect/quality follow the app-wide image settings (same stores
-  // the Art Room dock writes) — changing them here changes them everywhere
-  const [res, setRes] = React.useState(()=> (typeof nbGetRes==="function") ? nbGetRes() : "");
-  const pickRes = (r)=>{ setRes(r); if(typeof nbSetRes==="function"){ try{ nbSetRes(r); }catch(e){} } };
-  const resolutions = (window.NB_RESOLUTIONS||[]).map(r=> (r&&r.id)||r).filter(Boolean);
-  const [aspect, setAspect] = React.useState(()=> (typeof nbGetAspect==="function") ? nbGetAspect() : "16:9");
-  const pickAspect = (a)=>{ setAspect(a); if(typeof nbSetAspect==="function"){ try{ nbSetAspect(a); }catch(e){} } };
-  const aspects = window.NB_ASPECTS||[];
-  const [modelId, setModelId] = React.useState(()=> (typeof nbGetModel==="function") ? nbGetModel() : "");
-  const pickModel = (mid)=>{
-    setModelId(mid);
-    if(typeof nbGetOaiQuality==="function") setOaiQ(nbGetOaiQuality(mid));
-    if(typeof nbSetModel==="function"){ try{ nbSetModel(mid); }catch(e){} }
-  };
-  const modelDef = (window.NB_MODELS||[]).find(m=>m.id===modelId)||{};
-  const modelLabel = modelDef.label || "Art Room model";
-  const isGpt = modelDef.family==="openai"; // GPT prices by QUALITY on top of K-size
-  const [oaiQ, setOaiQ] = React.useState(()=> (typeof nbGetOaiQuality==="function") ? nbGetOaiQuality(modelId) : "medium");
-  const pickQ = (q)=>{ setOaiQ(q); if(typeof nbSetOaiQuality==="function"){ try{ nbSetOaiQuality(q,modelId); }catch(e){} } };
-  const qualityChoices = (typeof nbOaiQualityChoices==="function")
-    ? (nbOaiQualityChoices(modelId)||[]) : [];
-  const qualityIsExpanded = isGpt && qualityChoices.indexOf("default")>=0;
-  const qualitySupport = (typeof nbImageQualitySupport==="function")
-    ? (nbImageQualitySupport(modelId)||{}) : { loading:false, qualities:qualityChoices, expanded:!qualityIsExpanded };
-  const [,forceQuality] = React.useState(0);
-  const qualityLabel = (q)=> typeof nbOaiQualityLabel==="function" ? nbOaiQualityLabel(q) : q;
-  const qualityCanUse = (q)=>{
-    if(typeof nbCanUseImageQuality==="function") return !!nbCanUseImageQuality(modelId,q);
-    return !qualityIsExpanded || (qualitySupport.qualities||[]).indexOf(q)>=0;
-  };
-  const refreshQuality = (force)=>{
-    if(!qualityIsExpanded || typeof nbRefreshImageQualityCapabilities!=="function") return;
-    Promise.resolve(nbRefreshImageQualityCapabilities({force:!!force}))
-      .catch(()=>{})
-      .then(()=>forceQuality(x=>x+1));
-  };
-  const qualityNotReady = qualityIsExpanded && (!qualitySupport.expanded || qualitySupport.loading);
-  const qualityMessage = qualityNotReady
-    ? (qualitySupport.message || (qualitySupport.loading
-      ? "Checking GPT Image 2.5 quality availability…"
-      : "Extended quality choices are not verified yet."))
-    : "";
-  React.useEffect(()=>{
-    if(typeof nbGetOaiQuality==="function") setOaiQ(nbGetOaiQuality(modelId));
-    refreshQuality(false);
-  },[modelId,qualityIsExpanded]);
-  /* OPTIONS capability events arrive independently from the selected model and
-     quality; always refresh this component when one does. */
-  React.useEffect(()=>{
-    const h = ()=>forceQuality(x=>x+1);
-    window.addEventListener("nb-quality-capabilities",h);
-    return ()=>window.removeEventListener("nb-quality-capabilities",h);
-  },[]);
-  React.useEffect(()=>{
-    const h = ()=>{
-      if(typeof nbGetOaiQuality==="function") setOaiQ(nbGetOaiQuality(modelId));
-    };
-    window.addEventListener("nb-settings-changed",h);
-    return ()=>window.removeEventListener("nb-settings-changed",h);
-  },[modelId]);
-  React.useEffect(()=>{
-    const h = ()=>{
-      const next = typeof nbGetModel==="function" ? nbGetModel() : modelId;
-      setModelId(next);
-      if(typeof nbGetOaiQuality==="function") setOaiQ(nbGetOaiQuality(next));
-    };
-    window.addEventListener("nb-model-changed",h);
-    return ()=>window.removeEventListener("nb-model-changed",h);
-  },[modelId]);
-  const gen = useImageGen(!pack
-    ? { id:"stage-frame-none", slotId:"stage-frame-none", buildFinal:()=>"" }
-    : { ...pack.opts,
-        /* Stage's shared runner receives the same quality snapshot as the
-           Art Room controls.  The runner re-captures synchronously at start,
-           so later picker changes cannot rewrite this run's metadata. */
-        quality: isGpt ? oaiQ : pack.opts.quality,
-        identityCharacterIds:imageIds, identityCast:imageCast, identityContext:imageIdentityContext,
-        buildFinal: ()=> edited ? promptText : pack.opts.buildFinal(),
-        buildFromBase: ()=> edited ? promptText : pack.opts.buildFromBase(),
-        // the "no image" recovery retry must speak the edited prompt too — without
-        // this the fallback silently re-renders from the derived shot prompt
-        // (review finding 2026-09-03)
-        buildSimple: ()=> edited ? promptText : pack.opts.buildSimple(),
-        metaStart: async ({gopts}={})=>{
-          const base = (typeof pack.opts.metaStart==="function")
-            ? await pack.opts.metaStart({gopts}) : {};
-          return { ...(base||{}), requestedModel:modelId,
-            quality:isGpt ? oaiQ : undefined };
-        },
-        rebuildPromptAfterAttachments: (resolvedRefs, mode, gopts)=>{
-          if(edited) return promptText;
-          return (typeof pack.opts.rebuildPromptAfterAttachments==="function")
-            ? pack.opts.rebuildPromptAfterAttachments(resolvedRefs, mode, gopts) : undefined;
-        } });
-  // ONE open dropdown at a time; every bar control is the same pill+menu pattern
-  const [menu, setMenu] = React.useState(null);
-  const barMenu = (id, pillContent, pillTitle, items)=>
-    _stEl("span",{className:"stage2-imgtab-asp"},
-      _stEl("button",{type:"button",className:"sdbar-pill"+(menu===id?" open":""),
-        title:pillTitle,
-        onClick:()=>setMenu(m2=>m2===id?null:id),
-        onBlur:()=>setTimeout(()=>setMenu(m2=>m2===id?null:m2),120)},
-        pillContent, _stEl("span",{className:"stage2-imgtab-caret"},"▾")),
-      menu===id && _stEl("div",{className:"stage2-imgtab-aspmenu"},
-        items.map(it=>_stEl("button",{key:it.key,type:"button",
-           className:"stage2-imgtab-asp-opt"+(it.on?" on":"")+(it.disabled?" disabled":""),
-           disabled:!!it.disabled,"aria-disabled":it.disabled?"true":"false",
-          title:it.title,
-           onMouseDown:e=>{ e.preventDefault(); if(it.disabled)return; setMenu(null); it.pick(); }},
-          it.content))));
-  const specs = (pack && pack.renderPlan && pack.renderPlan.orderedSpecs) || [];
-  const seedUrl = (pack && pack.prevShot && typeof nbGetImage==="function") ? nbGetImage(pack.prevShot.id) : "";
-  const seedNo = (pack && pack.prevShot) ? ((sceneShots||[]).findIndex(x=>x&&x.id===pack.prevShot.id)+1) : 0;
-  // Resolve the same reference images the render pipeline will attach, then show
-  // them as an ordinary gallery. They are not a separate settings concept: every
-  // image in this strip is directly accessible and automatically references the
-  // next frame render.
-  const [resolvedRefs, setResolvedRefs] = React.useState([]);
-  React.useEffect(()=>{
-    let live=true;
-    if(!pack || !pack.opts || typeof pack.opts.attachments!=="function"){ setResolvedRefs([]); return ()=>{ live=false; }; }
-    Promise.resolve(pack.opts.attachments()).then(rs=>{ if(live) setResolvedRefs((rs||[]).filter(r=>r&&r.url)); })
-      .catch(()=>{ if(live) setResolvedRefs([]); });
-    return ()=>{ live=false; };
-  },[sh&&sh.id, specs.map(s=>s&&s.id).join("|")]);
-  return _stEl("div",{className:"stage2-imgtab"},
-    // Every card is simply an image reference available to this render.
-    _stEl("div",{className:"stage2-imgtab-refs"},
-      pack && pack.prevShot && seedUrl && _stEl("button",{type:"button",className:"stage2-imgtab-ref seed",
-        title:"Reference: Shot "+(seedNo>0?seedNo:"?")+" frame — click to view",
-        onClick:()=>{ if(onMax) onMax(seedUrl,"Shot "+(seedNo>0?seedNo:"?")+" reference"); }},
-        seedUrl ? _stEl("img",{src:seedUrl,alt:""}) : (Icon.image&&_stEl(Icon.image,{s:14})),
-        _stEl("span",null,"Image ref · Shot "+(seedNo>0?seedNo:"?"))),
-      resolvedRefs.map((r,i)=>_stEl("button",{key:(r.refId||"ref")+"-"+i,type:"button",className:"stage2-imgtab-ref",
-        title:(r.note||("Image reference "+(i+1)))+" — click to view",
-        onClick:()=>{ if(onMax) onMax(r.url,r.note||("Image reference "+(i+1))); }},
-        _stEl("img",{src:r.url,alt:r.note||("Image reference "+(i+1))}),
-        _stEl("span",null,r.note||("Image ref "+(i+1))))),
-      gen.genUrl && _stEl("button",{type:"button",className:"stage2-imgtab-ref cur",
-        title:"Reference: this shot's current frame — click to view",
-        onClick:()=>{ if(onMax) onMax(gen.genUrl, "Shot "+(shotNo||"")+" frame"); }},
-        _stEl("img",{src:gen.genUrl,alt:""}),
-        _stEl("span",null,"Image ref · Current frame"))),
-    _stEl("div",{className:"stage2-imgtab-box"},
-      _stEl("textarea",{className:"stage2-imgtab-prompt",value:promptText,
-        placeholder:"Describe the frame you want to create…",
-        onChange:e=>setDraft(e.target.value)}),
-      edited && _stEl("button",{type:"button",className:"stage2-prompt-reset",
-        title:"Rebuild this prompt from the shot's action, references and continuity chain — discards manual edits (this render only; the shot's canon Action is never changed)",
-        onClick:()=>setDraft("")},"↺ Reset to shot"),
-      gen.genErr && _stEl("div",{className:"stage2-warn"}, Icon.alert&&_stEl(Icon.alert,{s:12}),
-        _stEl("span",{className:"stage2-warn-text"}, String(gen.genErr))),
-      _stEl("div",{className:"sdbar stage2-imgtab-bar"},
-        _stEl("div",{className:"sdbar-left"},
-          // every control is the same dropdown pill — model, aspect, resolution,
-          // and (GPT only) quality; all write the app-wide Art Room settings
-          barMenu("model",
-            [Icon.image&&_stEl(Icon.image,{key:"i",s:13}), _stEl("span",{key:"t"},modelLabel)],
-            "Image model — app-wide setting, shared with the Art Room",
-            (window.NB_MODELS||[]).map(m=>({ key:m.id, on:m.id===modelId, title:m.note||m.label,
-              pick:()=>pickModel(m.id),
-              content:[_stEl("span",{key:"l"},m.label)] }))),
-          aspects.length>0 && barMenu("aspect",
-            [_stEl("span",{key:"i",className:"sdbar-ratio-ico inline ratio-"+String(aspect).replace(":","x")}),
-             _stEl("span",{key:"t"},aspect)],
-            "Aspect ratio — the frame's shape (app-wide image setting, shared with the Art Room)",
-            aspects.map(a=>({ key:a, on:a===aspect, pick:()=>pickAspect(a),
-              content:[_stEl("span",{key:"i",className:"sdbar-ratio-ico inline ratio-"+String(a).replace(":","x")}),
-                       _stEl("span",{key:"t"},a)] }))),
-          resolutions.length>0 && barMenu("res",
-            [_stEl("span",{key:"t"},res||"2K")],
-            "Resolution — how large the frame renders",
-            resolutions.map(r=>({ key:r, on:r===res, title:"Render at "+r, pick:()=>pickRes(r),
-              content:[_stEl("span",{key:"t"},r)] }))),
-          isGpt && barMenu("quality",
-            [_stEl("span",{key:"t"},qualityLabel(oaiQ))],
-            "GPT Image quality — GPT prices by quality on top of size",
-            qualityChoices.map(q=>({ key:q, on:q===oaiQ, disabled:!qualityCanUse(q),
-              title: qualityCanUse(q) ? qualityLabel(q)
-                : ((qualitySupport.message||"Quality is not available yet.")+" Try refreshing."),
-              pick:()=>{ if(qualityCanUse(q)) pickQ(q); },
-              content:[_stEl("span",{key:"t"},qualityLabel(q)),
-                !qualityCanUse(q) && _stEl("span",{key:"state",className:"stage2-imgtab-asp-disabled"},"Unavailable")] }))),
-          isGpt && qualityMessage && _stEl("span",{className:"stage2-quality-message"},
-            _stEl("span",null,qualityMessage),
-            !qualitySupport.loading && _stEl("button",{type:"button",className:"stage2-quality-retry",
-             onMouseDown:e=>{ e.preventDefault(); refreshQuality(true); }},"Retry"))),
-        _stEl("div",{className:"sdbar-right"},
-          typeof window.nbCostChip==="function" && window.nbCostChip(1),
-          gen.gening && _stEl("button",{type:"button",className:"sdbar-pill static",
-            title:"Stop this render",onClick:()=>{ if(gen.cancelGen) gen.cancelGen(); }},"Stop"),
-          _stEl("button",{type:"button",className:"sdbar-send"+(gen.gening?" working":""),disabled:!!gen.gening,
-            title: gen.gening ? "Rendering…" : (gen.genUrl ? "Re-render this shot's frame" : "Render this shot's frame"),
-            onClick:()=>{ if(!gen.gening) gen.generate(); }}, gen.gening ? "…" : "↑")))));
-}
-
-/* ---- SOUND tab — the beat's spoken lines, voiced through ElevenLabs -------
-   Every line here renders with the character's LOCKED ElevenLabs voice (designed
-   on the character card) — the same audio the lip-sync render rides. */
-function StageSoundPanel({ lineShots, auds, onVoiceLine }){
-  const [busyId, setBusyId] = React.useState("");
-  const rows = lineShots||[];
-  const voice = async (sh)=>{
-    if(!onVoiceLine || busyId) return;
-    setBusyId(sh.id);
-    try{ await onVoiceLine(sh); }
-    catch(e){ if(window.appToast) window.appToast(String((e&&e.message)||"Voice render failed."),"error"); }
-    setBusyId("");
-  };
-  return _stEl("div",{className:"stage2-sndtab"},
-    rows.length ? _stEl("div",{className:"stage2-snd-rows"},
-      rows.map(sh=>{
-        const ready = _shotAudioReady(sh, auds);
-        return _stEl("div",{key:sh.id,className:"stage2-snd-row"+(ready?" ready":"")},
-          _stEl("span",{className:"stage2-snd-ico"},Icon.mic&&_stEl(Icon.mic,{s:13})),
-          _stEl("div",{className:"stage2-snd-main"},
-            (sh.speaker||sh.speakerName) && _stEl("b",null,String(sh.speaker||sh.speakerName)),
-            _stEl("span",{className:"stage2-snd-quote"},"\u201c"+String(sh.dialogue||"").trim()+"\u201d")),
-          ready
-            ? _stEl("span",{className:"stage2-snd-state on",title:"This line has a rendered voice take — it rides the clip's lip-sync render"},"Voiced ✓")
-            : _stEl("button",{type:"button",className:"stage2-snd-voice",disabled:!!busyId||!onVoiceLine,
-                title:"Render this line with the character's locked ElevenLabs voice",
-                onClick:()=>voice(sh)},
-                busyId===sh.id ? _stEl("span",{className:"ns-spin"}) : (Icon.sparkles&&_stEl(Icon.sparkles,{s:12})),
-                busyId===sh.id ? "Voicing…" : "Voice line"));
-      }))
-    : _stEl("div",{className:"stage2-tab-empty"},"No spoken lines in this clip — dialogue is written in the Writers' Room; once a shot carries a line it appears here ready to voice."),
-    _stEl("div",{className:"stage2-snd-foot"},
-      _stEl("span",{className:"stage2-snd-note"},"Voices are designed and locked per character (Art Room → Characters → Voice) and rendered by ElevenLabs."),
-      _stEl("a",{className:"stage2-snd-el",href:"https://elevenlabs.io",target:"_blank",rel:"noopener noreferrer",
-        title:"Open ElevenLabs — the voice engine behind TURN's dialogue"},"Open ElevenLabs ↗")));
-}
-
 function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState={}, auds, beatsMap, drafts, prevClipVideoId, aspect, visualSource, setVisualSource, creditBalance, readOnly=false, onVoiceLine, onUpdateShot, onSelectClip, onFirstVideo, onStageNav, modelId, setModelId, clipScope, setClipScope, pendingReuse, onReuseConsumed }){
   const scene = clip.scene, g = clip.g, d = clip.data;
   // the CLIP is the unit of generation — it may bundle 2+ merged shots (Art Room Shots
@@ -3721,6 +3465,11 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
      Cancel-render button sets it, and onGenerate checks it at the one point that
      matters — right before submission, where credits would be spent. */
   const stagingCancelRef = React.useRef(false);
+  const clipIdRef = React.useRef(clip.id); clipIdRef.current = clip.id;
+  // scene/project navigation unmounts this console while a handler may still be
+  // awaiting asset preparation — the paid submission must not follow from a closed clip
+  const consoleOpenRef = React.useRef(true);
+  React.useEffect(()=>{ consoleOpenRef.current=true; return ()=>{ consoleOpenRef.current=false; }; }, []);
   const onGenerate = async (attemptOptions)=>{
     const referenceFree=!!(attemptOptions&&attemptOptions.referenceFree);
     try{
@@ -3757,6 +3506,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     // pin the spend to the account that LAUNCHES the render — if the signed-in
     // user changes while it cooks, the launcher pays, never the new arrival
     const uid0 = (typeof window.nbCloudScope==="function" && (window.nbCloudScope()||{}).uid) || null;
+    const clipId0 = clip.id;
     try{
     // the start frame leads ONLY when its asset chip is included — an excluded start
     // frame means a promptless-anchor render (prompt + remaining references only),
@@ -3911,6 +3661,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         window.nbAssertMediaIdentity({identityCharacterIds:identityIds,identityCast,identityContext},"stage-video-before-submit");
       assertStageIdentityAssets();
       assertScreenplayCurrent();
+      assertSameClip(clipId0);
       const results = await runPayload(payload);
       const fresh = results.filter(r=>r && !r.cached);
       const lastWithSeed = results.filter(r=>r && r.seed!=null).slice(-1)[0];
@@ -3924,20 +3675,200 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     }catch(e){ if(typeof window.appToast==="function") window.appToast(stageFriendlyVideoError(e)||"Video render failed.","error"); }
     finally{ setStaging(false); setPrepPct(0); }
   };
+  // ---- composer TABS: Create Video | Edit Video | Motion Control -------------
+  // Create is the full beat render composer (References) or a Seedance 2.5
+  // extension of an existing take (Extend Video); Edit rewrites a video through
+  // Seedance 2.5's editing task; Motion Control drives a character image with a
+  // motion video through Kling 3.0. Every per-tab pick resets with the clip.
+  const [composerTab, setComposerTab] = React.useState("create");
+  const [createTask, setCreateTask] = React.useState("reference");   // "reference" | "extension"
+  // media picks: { kind:"take"|"asset"|"device", url, ref, label, seconds?, name? }
+  // — url is what the UI previews (a take/asset URL or a local blob URL); ref is
+  // what the render submits (the same URL, or a `stage:` reference for a device
+  // upload that was staged straight into private storage — its bytes never ride
+  // the proxy body and are never retained on the take).
+  const [extendVideo, setExtendVideo] = React.useState(null);
+  const [editVideo, setEditVideo] = React.useState(null);
+  const [editPrompt, setEditPrompt] = React.useState("");
+  const [motionVideo, setMotionVideo] = React.useState(null);
+  const [motionImage, setMotionImage] = React.useState(null);
+  const [motionTier, setMotionTier] = React.useState("standard");   // Kling 3.0 Motion Control standard | pro
+  const [sceneControl, setSceneControl] = React.useState(true);
+  const [motionOrientation, setMotionOrientation] = React.useState("image");   // character_orientation when scene control is on
+  const [keepOriginalSound, setKeepOriginalSound] = React.useState(true);
+  const [motionPrompt, setMotionPrompt] = React.useState("");
+  const [motionAdvanced, setMotionAdvanced] = React.useState(false);
+  const [motionHelp, setMotionHelp] = React.useState(false);
+  const [mediaBusy, setMediaBusy] = React.useState("");   // which picker is staging a device file
+  const [modeErr, setModeErr] = React.useState("");       // last Edit/Motion/Extend failure (shown under the composer)
+  React.useEffect(()=>{
+    setCreateTask("reference"); setExtendVideo(null); setEditVideo(null); setEditPrompt("");
+    setMotionVideo(null); setMotionImage(null); setMotionPrompt(""); setModeErr("");
+  }, [clip.id]);
+  // the active orientation the request will carry: scene control OFF follows the
+  // motion video's own scene (Kling's "video" orientation — up to 30s of motion)
+  const effMotionOrientation = sceneControl ? motionOrientation : "video";
+  const motionLimits = (typeof window.vidMotionControlLimits==="function")
+    ? window.vidMotionControlLimits(effMotionOrientation) : { minSeconds:3, maxSeconds: effMotionOrientation==="image" ? 10 : 30 };
+  const motionFalModel = motionTier==="pro" ? (window.VID_KLING_MOTION_PRO||"fal-ai/kling-video/v3/pro/motion-control")
+    : (window.VID_KLING_MOTION_STD||"fal-ai/kling-video/v3/standard/motion-control");
+  // per-mode capability handshakes (non-spending). An older deployed proxy has no
+  // task modes, no motion-control endpoints and no direct-to-storage staging: the
+  // tabs then say so and never submit.
+  const [modeCaps, setModeCaps] = React.useState({ tasks:null, motion:null, motionModel:"" });
+  const proxyReadyFlag = (typeof videoProxyReady==="function" && videoProxyReady()) ? 1 : 0;
+  // an unknown answer is re-asked whenever the user opens a mode that needs it (a
+  // transient failure at mount must not pin the tab to "pending" for the session);
+  // a known answer is kept
+  React.useEffect(()=>{
+    if(typeof window.seedanceGetRuntimeCapabilities!=="function") return;
+    if(modeCaps.tasks && modeCaps.tasks.known) return;
+    let alive=true;
+    const sd=window.VID25_MODEL||"bytedance/seedance-2.5/reference-to-video";
+    Promise.resolve().then(()=>window.seedanceGetRuntimeCapabilities(sd))
+      .then(a=>{ if(alive) setModeCaps(m=>({ ...m, tasks:a||{known:false} })); })
+      .catch(()=>{ if(alive) setModeCaps(m=>({ ...m, tasks:{known:false} })); });
+    return ()=>{ alive=false; };
+  }, [proxyReadyFlag, composerTab, createTask]);
+  React.useEffect(()=>{
+    if(typeof window.seedanceGetRuntimeCapabilities!=="function") return;
+    if(modeCaps.motion && modeCaps.motion.known && modeCaps.motionModel===motionFalModel) return;
+    let alive=true;
+    Promise.resolve().then(()=>window.seedanceGetRuntimeCapabilities(motionFalModel))
+      .then(b=>{ if(alive) setModeCaps(m=>({ ...m, motion:b||{known:false}, motionModel:motionFalModel })); })
+      .catch(()=>{ if(alive) setModeCaps(m=>({ ...m, motion:{known:false}, motionModel:motionFalModel })); });
+    return ()=>{ alive=false; };
+  }, [motionFalModel, proxyReadyFlag, composerTab]);
+  const taskCaps = (modeCaps.tasks&&modeCaps.tasks.known&&modeCaps.tasks.capabilities)||null;
+  const motionCaps = (modeCaps.motion&&modeCaps.motion.known&&modeCaps.motionModel===motionFalModel&&modeCaps.motion.capabilities)||null;
+  const serverHasTask = (t)=>!!(taskCaps && Array.isArray(taskCaps.tasks) && taskCaps.tasks.includes(t));
+  const serverHasMotion = !!(motionCaps && Array.isArray(motionCaps.characterOrientations) && motionCaps.characterOrientations.includes(effMotionOrientation));
+  const serverHasStaging = (typeof window.vidStagingCapability==="function") ? window.vidStagingCapability(taskCaps) : false;
+  const capsPending = modeCaps.tasks==null;   // Seedance task handshake still in flight
+  const motionCapsPending = modeCaps.motion==null || modeCaps.motionModel!==motionFalModel;
+  const PENDING_SERVER = "Pending server update — deploy the updated image-proxy Edge Function to enable this.";
+  // ---- Extend / Edit / Motion Control ------------------------------------------
+  // Three paid paths beside the beat render. They share the clip's take list and
+  // a device-file picker (staged straight into private storage as a `stage:`
+  // reference — bytes never ride the proxy body and never persist on the take).
+  const sd25Model = SEEDANCE_MODELS.find(m=>m.id==="seedance-2.5") || null;
+  const sd25Tier = sd25Model ? seedanceTierOf(sd25Model,"standard") : null;
+  const sd25Rate = (r)=>{ const v=Number(sd25Tier&&sd25Tier.creditRate&&sd25Tier.creditRate[r]); return v>0 ? v : null; };
+  const creditScale = Number(window.CREDIT_SCALE)||1;
+  const VIDEO_INPUT_MUL = 0.6;   // fal: token price ×0.6 with video inputs — the input seconds are billed too
+  // A media input's length is a billing fact (fal bills input seconds and sizes
+  // the output by them), so it is never guessed: device files carry probed facts,
+  // takes are measured when picked, and an unmeasured video has NO price.
+  const mediaSeconds = (m)=> (m && Number(m.seconds)>0) ? Number(m.seconds) : null;
+  const takeChoices = orderedVisibleTakes.filter(t=>t&&t.url).map((t,i)=>({
+    kind:"take", id:String(t.id||i), url:t.url, ref:t.url,
+    label:(t.current ? "Current take" : "Take "+(orderedVisibleTakes.length-i)),
+    seconds:(()=>{ const m=(t&&t.meta)||{}; const v=Number(m.durationSec)||Number(m.durationMs)/1000; return v>0 ? v : null; })() }));
+  const mediaSetters = { extend:setExtendVideo, edit:setEditVideo, "motion-video":setMotionVideo, "motion-image":setMotionImage };
+  const blobUrlsRef = React.useRef(new Set());
+  React.useEffect(()=>()=>{ blobUrlsRef.current.forEach(u=>{ try{ URL.revokeObjectURL(u); }catch(_e){} }); blobUrlsRef.current.clear(); }, []);
+  const setMedia = (slot, media)=>{
+    const set=mediaSetters[slot]; if(!set) return; setModeErr("");
+    if(!media || media.kind!=="take"){ set(media); return; }
+    // a take's recorded length is the REQUESTED one; the file itself is the fact
+    // the price rides on — measure it, and keep the pick unpriced until it lands
+    if(typeof window.vidMediaFacts!=="function"){ set({ ...media, seconds:null, measuring:false, measureError:"This build cannot verify a take's length." }); return; }
+    set({ ...media, seconds:null, measuring:true, measureError:"" });
+    const same = (cur)=> !!cur && cur.kind==="take" && cur.id===media.id && cur.url===media.url;
+    window.vidMediaFacts(media.url,"video").then(f=>{
+      const secs=Number(f&&f.durationSeconds)||0;
+      set(cur=> same(cur) ? { ...cur, seconds:secs>0?secs:null, measuring:false, measureError:secs>0?"":"The take's length could not be read." } : cur);
+    }).catch(e=>{ set(cur=> same(cur) ? { ...cur, seconds:null, measuring:false, measureError:(e&&e.message)||String(e) } : cur); });
+  };
+  const mediaUnpriced = (m)=> !m ? "" : m.measuring ? "Measuring the video's length…" : (m.measureError || (mediaSeconds(m)==null ? "The video's length is unknown — choose it again." : ""));
+  const fileInputRef = React.useRef(null);
+  const pendingPickRef = React.useRef(null);
+  const pickDevice = (slot, kind)=>{
+    const el = fileInputRef.current; if(!el) return;
+    pendingPickRef.current = { slot, kind };
+    el.accept = kind==="image" ? "image/*" : "video/*";
+    el.value = ""; el.click();
+  };
+  const onDeviceFile = async (e)=>{
+    const file = e.target.files && e.target.files[0];
+    const pick = pendingPickRef.current; pendingPickRef.current = null;
+    if(!file || !pick) return;
+    if(typeof window.vidStageDeviceMedia!=="function"){ setModeErr("Device uploads are unavailable in this build."); return; }
+    setMediaBusy(pick.slot); setModeErr("");
+    try{
+      const staged = await window.vidStageDeviceMedia(file, pick.kind, {});
+      blobUrlsRef.current.add(staged.blobUrl);
+      setMedia(pick.slot, { kind:"device", url:staged.blobUrl, ref:staged.ref, name:staged.name,
+        label:staged.name || ("Device "+pick.kind), seconds:Number(staged.facts&&staged.facts.durationSeconds)||null,
+        sizeBytes:Number(staged.facts&&staged.facts.sizeBytes)||0, expiresAt:staged.expiresAt });
+    }catch(err){ setModeErr((err&&err.message)||String(err)); }
+    finally{ setMediaBusy(""); }
+  };
+  // the disclosure a take keeps about a media input: never a `stage:` reference or
+  // a device URL — a device file is counted (privateRefs) and labelled by origin only
+  const mediaReference = (m, tag, role)=>({ tag, kind:/Image/.test(tag) ? "image" : "video",
+    label:m.kind==="device" ? "Device upload" : (m.label||tag), role, origin:m.kind,
+    url:m.kind==="device" ? "" : (m.url||"") });
+  const stagedExpired = (m)=> !!(m && m.kind==="device" && m.expiresAt && Date.now()>m.expiresAt);
+  // ---- costs (estimates the button shows; the spend record rides the job) ----
+  // Before a video is chosen the buttons show the output-only estimate; once one
+  // is chosen its measured length is part of the price, and an unmeasured input
+  // has no price at all (the Generate button says why).
+  const extendCost = (()=>{ const rate=sd25Rate(resolution); if(!rate) return null;
+    const inSecs = extendVideo ? mediaSeconds(extendVideo) : 0; if(inSecs==null) return null;
+    return Math.max(1, Math.ceil((duration+inSecs)*rate*VIDEO_INPUT_MUL*creditScale)); })();
+  // editing renders at the source length (fal coerces duration to auto): output + input seconds
+  const editCost = (()=>{ const rate=sd25Rate(resolution); if(!rate) return null;
+    const inSecs = editVideo ? mediaSeconds(editVideo) : null; if(inSecs==null) return null;
+    return Math.max(1, Math.ceil(2*inSecs*rate*VIDEO_INPUT_MUL*creditScale)); })();
+  const motionCreditRate = (typeof window.turnVideoCreditRate==="function")
+    ? window.turnVideoCreditRate("kling-3.0-motion-control", motionTier, motionTier==="pro"?"1080p":"720p") : null;
+  // motion control's output follows the motion video, billed per (whole) second
+  const motionCost = (()=>{ if(!(motionCreditRate>0)) return null;
+    const inSecs = motionVideo ? mediaSeconds(motionVideo) : null; if(inSecs==null) return null;
+    return Math.max(1, Math.ceil(Math.ceil(inSecs)*motionCreditRate*creditScale)); })();
+  const extendCostTitle = extendCost!=null ? (extendCost+" credit"+(extendCost!==1?"s":"")+" — ~"+_fmtSecs(duration)+" added"+(extendVideo&&extendVideo.seconds?" + "+_fmtSecs(Math.round(extendVideo.seconds))+" of input":"")+" × "+resolution+" × Seedance 2.5 (video-input rate)") : "";
+  const editCostTitle = editCost!=null ? (editCost+" credit"+(editCost!==1?"s":"")+" — estimate: the edited length plus the input length × "+resolution+" × Seedance 2.5 (video-input rate)") : "";
+  const motionCostTitle = motionCost!=null ? (motionCost+" credit"+(motionCost!==1?"s":"")+" — "+_fmtSecs(Math.ceil(mediaSeconds(motionVideo)||0))+" × Kling 3.0 Motion Control "+(motionTier==="pro"?"Pro":"Standard")+" (output follows the motion video)") : "";
+  const modeCreditInfo = (cost)=> stageCreditInfo(creditBalance, cost==null?1:cost);
+  const modeGuard = ()=>{
+    if(gening || staging) return "A render is already running.";
+    if(readOnly) return "View-only access — rendering requires edit access.";
+    return "";
+  };
+  // Asset preparation awaits (signed-URL refreshes, staging) run before the paid
+  // submission; if the user moves to another clip meanwhile, the job must not be
+  // committed under the new selection — re-check the clip right before spending.
+  const assertSameClip = (clipId0)=>{
+    if(!consoleOpenRef.current) throw new Error("This clip's console closed while the render was being prepared — nothing was submitted. Reopen the clip and start it again.");
+    if(clipIdRef.current!==clipId0) throw new Error("The clip changed while this render was being prepared — nothing was submitted. Start it again from the clip you want.");
+  };
+  const finishMode = (res, reason, cost)=>{
+    if(res && res.seed!=null) setLastSeed(res.seed);
+    try{ window.dispatchEvent(new CustomEvent("turn-credits-changed",{ detail:{ reason, cost } })); }catch(_e){}
+  };
+  const modeFail = (e)=>{ const msg=stageFriendlyVideoError(e); setModeErr(msg); if(typeof window.appToast==="function") window.appToast(msg,"error"); };
+  const uidNow = ()=> (typeof window.nbCloudScope==="function" && (window.nbCloudScope()||{}).uid) || null;
+  // EXTEND — Seedance 2.5 "extension": continue @Video1 by the chosen duration.
   const onExtend = async ()=>{
-    if(!playerUrl) return;
+    const g=modeGuard(); if(g){ modeFail(new Error(g)); return; }
+    if(!extendVideo){ modeFail(new Error("Choose the video to extend — one of this clip's takes or a file from this device.")); return; }
+    if(stagedExpired(extendVideo)){ modeFail(new Error("That device upload has expired — choose the file again.")); return; }
+    if(!sd25Tier){ modeFail(new Error("Seedance 2.5 is not configured.")); return; }
+    if(modelId!=="seedance-2.5"){ modeFail(new Error("Extend Video runs on Seedance 2.5 — switch the model first.")); return; }
+    if(!serverHasTask("extension")){ modeFail(new Error(PENDING_SERVER)); return; }
     try{
       assertScreenplayCurrent();
       if(promptSourceDrift) throw new Error("Review this edited prompt against the updated scene screenplay before extending.");
-    }catch(e){ if(typeof window.appToast==="function") window.appToast(e.message,"error"); return; }
+    }catch(e){ modeFail(e); return; }
     if(typeof window.nbAssertMediaIdentity==="function"){
-      try{ window.nbAssertMediaIdentity({identityCharacterIds:identityIds,
-        identityCast, identityContext}, "stage-video-extend-start"); }
-      catch(e){ if(typeof window.appToast==="function") window.appToast((e&&e.message)||"Character identity needs review before extending this clip.","error"); return; }
+      try{ window.nbAssertMediaIdentity({identityCharacterIds:identityIds, identityCast, identityContext}, "stage-video-extend-start"); }
+      catch(e){ modeFail(e); return; }
     }
-    if(creditInfo.empty){ if(typeof window.appToast==="function") window.appToast("No generation credits remaining.","error"); return; }
-    // pin the spend to the account that LAUNCHES the extension (same rule as onGenerate)
-    const uid0 = (typeof window.nbCloudScope==="function" && (window.nbCloudScope()||{}).uid) || null;
+    if(mediaUnpriced(extendVideo)){ modeFail(new Error(mediaUnpriced(extendVideo))); return; }
+    if(extendCost==null){ modeFail(new Error("No price is available for "+resolution+" on Seedance 2.5.")); return; }
+    if(modeCreditInfo(extendCost).empty){ modeFail(new Error("Not enough generation credits for this extension.")); return; }
+    const uid0 = uidNow(), clipId0 = clip.id;
     const controls = [cameraProfileLine, "Camera movement: "+camera+". Lighting: "+lighting+". Performance: "+perf+"."]
       .filter(Boolean).join("\n");
     try{
@@ -3956,18 +3887,100 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         +prompt.trim()+(identityPrompt?"\n\nCANONICAL CHARACTER IDENTITY (binding): "+identityPrompt:"");
       if(typeof window.nbAssertMediaIdentity==="function")
         window.nbAssertMediaIdentity({identityCharacterIds:identityIds,identityCast,identityContext},"stage-video-extend-before-submit");
-      const res = await gen.generate({ frameUrl:freshFrameUrl, imageUrls:extendImages, videoUrls:[playerUrl], prompt:extendPrompt, controls,
+      const references=[ mediaReference(extendVideo,"@Video1","Video to extend") ];
+      assertSameClip(clipId0);
+      const res = await gen.generate({ frameUrl:freshFrameUrl, imageUrls:extendImages, videoUrls:[extendVideo.ref], prompt:extendPrompt, controls,
+        videoTask:"extension",
         screenplayReference, screenplayImages, screenplayImagesRequired:true, assertScreenplayCurrent,
-        takeMeta:{screenplayReference,screenplayImages,source:"extend"},
+        takeMeta:{ screenplayReference, screenplayImages, source:"extend", tier:sd25Tier.id, tierLabel:sd25Tier.label, resolution, bitrate,
+          durationSec:duration, inputSeconds:mediaSeconds(extendVideo), references, privateRefs:(extendVideo.kind==="device"?1:0),
+          audio: hasDialogue ? "voice" : (nativeAudio ? "native" : "silent"),
+          inputs:(1+(freshFrameUrl?1:0)+extendImages.length)+" img · 1 vid · 0 aud" },
         identityCharacterIds:identityIds, identityCast, identityContext,
-        spend:{ cost:renderCost, reason:"stage-video-extend", uid:uid0 },   // settled at COMPLETION, rides the job
-        durationMs:duration*1000, aspectRatio:effAspect||"auto", fast:!!tierObj.fast,
-        falModel:tierObj.falModel||undefined, resolution, bitrateMode:bitrate, force:true });
+        spend:{ cost:extendCost, reason:"stage-video-extend", uid:uid0 },   // settled at COMPLETION, rides the job
+        durationMs:duration*1000, aspectRatio:"auto", fast:false, generateAudio: hasDialogue ? true : nativeAudio,
+        falModel:sd25Tier.falModel||undefined, resolution, bitrateMode:bitrate, force:true });
       if(typeof window.nbAssertMediaIdentity==="function")
         window.nbAssertMediaIdentity({identityCharacterIds:identityIds,identityCast,identityContext},"stage-video-extend-after-provider");
-      if(res && res.seed!=null) setLastSeed(res.seed);
-      try{ window.dispatchEvent(new CustomEvent("turn-credits-changed",{ detail:{ reason:"stage-video-extend", cost:renderCost } })); }catch(_e){}
-    }catch(e){ if(typeof window.appToast==="function") window.appToast(stageFriendlyVideoError(e),"error"); }
+      finishMode(res, "stage-video-extend", extendCost);
+    }catch(e){ modeFail(e); }
+  };
+  // EDIT — Seedance 2.5 "editing": rewrite @Video1 from the edit prompt, with the
+  // strip's included images/audio riding as @Image/@Audio references (no screenplay
+  // pages: this is a video rewrite, not a beat render).
+  const editRefImages = onImages.filter(a=>a.referenceKind!=="screenplay" && a.url);
+  const editRefAudios = onAudios.filter(a=>a.url);
+  const editMentionables = [{ t:"@Video1", label:editVideo ? (editVideo.kind==="device" ? "Device upload" : editVideo.label) : "the video to edit", kind:"video", url:"", key:"edit-video", group:"Video to edit", included:true }]
+    .concat(editRefImages.map((a,i)=>({ t:"@Image"+(i+1), label:String(a.label||""), kind:"image", url:String(a.url||""), key:a.key, assetKey:a.key, group:a.group||"References", included:true })))
+    .concat(editRefAudios.map((a,i)=>({ t:"@Audio"+(i+1), label:String(a.label||""), kind:"audio", url:"", key:a.key, assetKey:a.key, group:"Voices", included:true })));
+  const onEditVideo = async ()=>{
+    const g=modeGuard(); if(g){ modeFail(new Error(g)); return; }
+    if(!editVideo){ modeFail(new Error("Add the video to edit first — one of this clip's takes or a file from this device.")); return; }
+    if(stagedExpired(editVideo)){ modeFail(new Error("That device upload has expired — choose the file again.")); return; }
+    if(!String(editPrompt||"").trim()){ modeFail(new Error("Describe the edit — what should change in @Video1.")); return; }
+    if(!sd25Tier){ modeFail(new Error("Seedance 2.5 is not configured.")); return; }
+    if(!planAllowsModel("seedance-2.5")){ openPlansUpsell(); modeFail(new Error("Seedance 2.5 Edit needs the Director plan.")); return; }
+    if(!serverHasTask("editing")){ modeFail(new Error(PENDING_SERVER)); return; }
+    if(mediaUnpriced(editVideo)){ modeFail(new Error(mediaUnpriced(editVideo))); return; }
+    if(editCost==null){ modeFail(new Error("No price is available for "+resolution+" on Seedance 2.5.")); return; }
+    if(modeCreditInfo(editCost).empty){ modeFail(new Error("Not enough generation credits for this edit.")); return; }
+    if(editRefImages.length>29) { modeFail(new Error("Edit Video takes up to 29 image references beside the video.")); return; }
+    const uid0 = uidNow(), clipId0 = clip.id, editSecs = mediaSeconds(editVideo);
+    try{
+      const imageUrls=[];
+      for(const a of editRefImages){ const u=await stageServerAssetUrl(a); if(u) imageUrls.push(u); }
+      const audioUrls = editRefAudios.map(a=>a.url).filter(Boolean);
+      const references=[ mediaReference(editVideo,"@Video1","Video to edit") ]
+        .concat(editRefImages.map((a,i)=>({ tag:"@Image"+(i+1), kind:"image", label:a.label||"", role:"Reference", url:a.url||"" })))
+        .concat(editRefAudios.map((a,i)=>({ tag:"@Audio"+(i+1), kind:"audio", label:a.label||"", role:"Reference", url:"" })));
+      assertSameClip(clipId0);
+      // the edit renders at the source length (fal: editing → duration auto) — record
+      // it so the take carries a real length when it is reused as an input later
+      const res = await gen.generate({ imageUrls, videoUrls:[editVideo.ref], audioUrls, prompt:String(editPrompt).trim(), controls:"",
+        videoTask:"editing",
+        takeMeta:{ source:"edit", tier:sd25Tier.id, tierLabel:sd25Tier.label, resolution, bitrate, references,
+          durationSec:editSecs, inputSeconds:editSecs,
+          privateRefs:(editVideo.kind==="device"?1:0), audio: nativeAudio ? "native" : "silent",
+          inputs:imageUrls.length+" img · 1 vid · "+audioUrls.length+" aud" },
+        spend:{ cost:editCost, reason:"stage-video-edit", uid:uid0 },
+        durationMs:Math.round(editSecs*1000), aspectRatio:"auto", fast:false, generateAudio:nativeAudio,
+        falModel:sd25Tier.falModel||undefined, resolution, bitrateMode:bitrate, force:true });
+      finishMode(res, "stage-video-edit", editCost);
+    }catch(e){ modeFail(e); }
+  };
+  // MOTION CONTROL — Kling 3.0: one character image + one motion video.
+  const motionTooLong = !!(motionVideo && motionVideo.seconds && motionVideo.seconds>motionLimits.maxSeconds+0.05);
+  const motionTooShort = !!(motionVideo && motionVideo.seconds && motionVideo.seconds<motionLimits.minSeconds);
+  const onMotionControl = async ()=>{
+    const g=modeGuard(); if(g){ modeFail(new Error(g)); return; }
+    if(!motionVideo){ modeFail(new Error("Add the motion to copy — a 3–"+motionLimits.maxSeconds+"s video.")); return; }
+    if(!motionImage){ modeFail(new Error("Add your character — an image with a visible face and body.")); return; }
+    if(stagedExpired(motionVideo)||stagedExpired(motionImage)){ modeFail(new Error("A device upload has expired — choose the file again.")); return; }
+    if(motionTooLong){ modeFail(new Error("The motion video is "+_fmtSecs(Math.round(motionVideo.seconds))+" — at most "+motionLimits.maxSeconds+"s when "+(effMotionOrientation==="image"?"the scene follows the character image":"the scene follows the motion video")+".")); return; }
+    if(motionTooShort){ modeFail(new Error("The motion video must be at least "+motionLimits.minSeconds+"s.")); return; }
+    if(!serverHasMotion){ modeFail(new Error(PENDING_SERVER)); return; }
+    if(mediaUnpriced(motionVideo)){ modeFail(new Error(mediaUnpriced(motionVideo))); return; }
+    if(motionCost==null){ modeFail(new Error("No price is available for Kling 3.0 Motion Control.")); return; }
+    if(modeCreditInfo(motionCost).empty){ modeFail(new Error("Not enough generation credits for this motion render.")); return; }
+    const uid0 = uidNow(), clipId0 = clip.id, motionSecs = mediaSeconds(motionVideo);
+    try{
+      const imageRef = motionImage.kind==="device" ? motionImage.ref : await stageServerAssetUrl(motionImage.asset||null, motionImage.url);
+      if(!imageRef) throw new Error("The character image could not be attached.");
+      const references=[ mediaReference(motionImage,"@Image1","Character"), mediaReference(motionVideo,"@Video1","Motion to copy") ];
+      assertSameClip(clipId0);
+      // the output follows the motion video's length — recorded on the take
+      const res = await gen.generate({ frameUrl:imageRef, videoUrls:[motionVideo.ref], prompt:String(motionPrompt||"").trim(), controls:"",
+        characterOrientation:effMotionOrientation, keepOriginalSound,
+        takeMeta:{ source:"motion-control", tier:motionTier, tierLabel:"Kling 3.0 Motion Control "+(motionTier==="pro"?"Pro":"Standard"),
+          resolution:(motionTier==="pro"?"1080p":"720p"), bitrate:"", references, durationSec:motionSecs, inputSeconds:motionSecs,
+          privateRefs:((motionImage.kind==="device"?1:0)+(motionVideo.kind==="device"?1:0)),
+          sceneControl:sceneControl, characterOrientation:effMotionOrientation, keepOriginalSound,
+          audio: keepOriginalSound ? "original" : "silent", inputs:"1 img · 1 vid · 0 aud" },
+        spend:{ cost:motionCost, reason:"stage-video-motion-control", uid:uid0 },
+        durationMs:Math.round(motionSecs*1000), aspectRatio:"auto", fast:false, generateAudio:keepOriginalSound,
+        falModel:motionFalModel, resolution:(motionTier==="pro"?"1080p":"720p"), bitrateMode:"standard", force:true });
+      finishMode(res, "stage-video-motion-control", motionCost);
+    }catch(e){ modeFail(e); }
   };
   const onVoiceClip = async ()=>{
     if(!onVoiceLine || voicingClip) return;
@@ -4237,24 +4250,6 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     onGenerate();
   };
   const [sdMenu, setSdMenu] = React.useState(null);
-  // ---- composer TABS (Image | Video | Sound) + the suggestions row ----------
-  // Video is the full render composer (unchanged); Image mounts the Shots-tab
-  // frame pipeline for the active shot; Sound is the beat's ElevenLabs lines.
-  const [composerTab, setComposerTab] = React.useState("video");
-  // IMAGE tab inputs — the whole scene's shots in canonical running order (the
-  // Shots-tab order, so seed chains resolve identically) and the Shots-tab ctx
-  // shape rebuilt from the Stage ctx.
-  const imgSceneShots = React.useMemo(()=>{
-    const outSh=[]; const seen=new Set();
-    (sceneClips||[]).forEach(sc=>((sc&&sc.data&&sc.data.shots)||[]).forEach(s2=>{
-      if(s2&&s2.id&&!seen.has(s2.id)){ seen.add(s2.id); outSh.push(s2); } }));
-    return (typeof sceneShotsOrdered==="function") ? sceneShotsOrdered(outSh) : outSh;
-  },[sceneClips]);
-  const imgCtx = React.useMemo(()=>({ scene,
-    location:(typeof locationForScene==="function") ? locationForScene((ctx&&ctx.locations)||[], scene&&scene.id) : null,
-     charById:(ctx&&ctx.charById)||{}, propById:(ctx&&ctx.propById)||{},
-     project:(ctx&&ctx.project)||{}, locations:(ctx&&ctx.locations)||[],
-     scenes:(ctx&&ctx.scenes)||[], drafts:(ctx&&ctx.drafts)||{} }),[scene&&scene.id, ctx]);
   const sdBarRef = React.useRef(null);
   // the "Add references" card lives in the reference strip (not the toolbar). Its
   // picker is position:fixed (measured from the card at open time, flipped upward
@@ -4291,6 +4286,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     const close = (e)=>{
       if(sdBarRef.current && sdBarRef.current.contains(e.target)) return;
       if(addRefRef.current && addRefRef.current.contains(e.target)) return;
+      // option rows, the header card's Change and the media pickers each own an
+      // anchor (pill + popover); a press inside any of them is not "outside"
+      if(e.target && e.target.closest && e.target.closest(".sdbar-anchor")) return;
       setSdMenu(null); };
     const esc = (e)=>{ if(e.key==="Escape") setSdMenu(null); };
     document.addEventListener("mousedown", close);
@@ -4352,24 +4350,6 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     setMentionBox(null);
     requestAnimationFrame(()=>{ try{ api && api.applyValue && api.applyValue(next, nextPos); }catch(_e){} });
   };
-  const sourceUiOptions = [
-    { id:"auto", label:beatOpeningClip?"Beat-opening frame":"Omni reference",
-      desc:beatOpeningClip?"Use the one opening keyframe; the full screenplay beat runs as temporal direction.":"Auto-pick the best references for this beat.", onPick:()=>setSourceOverride("auto") },
-    { id:"frame", label:"First frame", desc:"Use one start frame when it exists, or render from prompt alone.", onPick:()=>{ setSourceOverride("frame"); setEndFrameId(""); } },
-    { id:"first-last", label:"First and last frame", desc:"Animate from this beat into a chosen end frame.", disabled:beatOpeningClip||!endFrameAvailable,
-      note:beatOpeningClip ? "Beat-opening shots have one start frame" : endFrameAvailable ? "" : "No compatible end frame",
-      onPick:()=>{ setSourceOverride("frame"); if(!endFrameId && endFrameCandidates[0]) setEndFrameId(endFrameCandidates[0].id); } },
-    { id:"frames", label:"Reference frames", desc:"Attach each ready shot frame as a Seedance reference image.", disabled:beatOpeningClip||(d.shots||[]).length<2, onPick:()=>setSourceOverride("frames") },
-    { id:"halves", label:"Storyboard half", desc:"Use the saved sheet half as a reference image.", disabled:beatOpeningClip||!sourcePlan.hasHalves, note:beatOpeningClip ? "Beat-opening shots use one opening frame" : sourcePlan.hasHalves ? "" : "No saved half", onPick:()=>setSourceOverride("halves") },
-    { id:"sheet", label:"Storyboard sheet", desc:"Use the saved full 2x2 sheet as a reference image.", disabled:beatOpeningClip||!sourcePlan.hasSheet, note:beatOpeningClip ? "Beat-opening shots use one opening frame" : sourcePlan.hasSheet ? "" : "No saved sheet", onPick:()=>setSourceOverride("sheet") },
-  ];
-  const sourceUiLabel = endFrameUrl ? "First and last frame"
-    : sourceOverride==="auto" ? "Omni reference"
-    : sourceMode==="frames" ? "Reference frames"
-    : sourceMode==="frame" ? "First frame"
-    : sourceMode==="halves" ? "Storyboard half"
-    : sourceMode==="sheet" ? "Storyboard sheet"
-    : sourceMeta.pick || sourceMeta.label || "Omni reference";
   // ---- PROMPT STYLE menu — the documented Seedance prompt grammars, choosable per
   // beat. An explicit pick REBUILDS the box in that structure (even over manual edits
   // — the click is the request); Auto returns to the researched director brief.
@@ -4425,63 +4405,110 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       o.note && _stEl("small",{className:"sdbar-option-note"},o.note));
   const durationMin = durationLocked ? Math.max(1, Math.ceil(measuredSec||1)) : 1;
   const durationMax = Math.max(durationMin, model.maxClipSec||15);
+  // ---- MODEL menu (shared by the header card's "Change" and the Model row) ----
+  const modelMenu = _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
+    SEEDANCE_MODELS.map(m=>{
+      const planLocked = m.status==="active" && !planAllowsModel(m.id);
+      return sdOption({ id:m.id, label:m.label, selected:modelId===m.id, disabled:m.status!=="active",
+        desc:m.bestFor, note:m.status!=="active" ? m.note : (planLocked ? "Director plan required" : ""),
+        onPick:()=>{ if(planLocked){ openPlansUpsell(); return; }
+          setModelId(m.id);
+          const t0=seedanceTierOf(m,tier); if(t0) setTier(t0.id); } });
+    }));
+  // ---- in-box chips: "@ Elements" (reference tokens at the caret), sound on/off,
+  // prompt style. The render controls (model, duration, aspect, resolution,
+  // bitrate) are full-width rows BELOW the prompt box; Generate closes the card.
+  const soundOn = hasDialogue ? true : nativeAudio;   // generate_audio as the payload sends it
   const seedanceToolbar = _stEl("div",{ref:sdBarRef,className:"sdbar",onMouseDown:e=>e.stopPropagation()},
     _stEl("div",{className:"sdbar-left"},
-      sdPill("model","model","Video model",
-        _stEl(React.Fragment,null, Icon.cube&&_stEl(Icon.cube,{s:13}), _stEl("span",null,model.label), Icon.sparkles&&_stEl(Icon.sparkles,{s:10})),
-        _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
-          SEEDANCE_MODELS.map(m=>{
-            const planLocked = m.status==="active" && !planAllowsModel(m.id);
-            return sdOption({ id:m.id, label:m.label, selected:modelId===m.id, disabled:m.status!=="active",
-              desc:m.bestFor, note:m.status!=="active" ? m.note : (planLocked ? "Director plan required" : ""),
-              onPick:()=>{ if(planLocked){ openPlansUpsell(); return; }
-                setModelId(m.id);
-                const t0=seedanceTierOf(m,tier); if(t0) setTier(t0.id); } });
-          }))),
-      sdPill("source","source","Reference mode",
-        _stEl(React.Fragment,null, Icon.layers&&_stEl(Icon.layers,{s:13}), _stEl("span",null,sourceUiLabel)),
-        _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
-          sourceUiOptions.map(o=>sdOption({ ...o, selected:o.id==="auto" ? sourceOverride==="auto" : (o.id==="first-last" ? !!endFrameUrl : sourceOverride===o.id) })))),
+      _stEl("button",{type:"button",className:"sdbar-chip elements",
+        title:"Elements — insert a reference token (@Image1, @Video1, @Audio1…) at the cursor and include that asset",
+        onClick:toggleAddRef},
+        _stEl("span",{className:"sdbar-chip-at"},"@"), _stEl("span",null,"Elements")),
+      _stEl("button",{type:"button",className:"sdbar-chip sound"+(soundOn?" on":""),
+        "aria-pressed":soundOn?"true":"false",
+        disabled:hasDialogue,
+        title:hasDialogue ? "Sound stays on — this beat has dialogue, so the audio track carries the performance"
+          : (nativeAudio ? "Sound on — the model renders ambience, effects and music. Click to render silent." : "Silent render — click to turn native sound on."),
+        onClick:()=>{ if(hasDialogue) return; setNativeAudio(v=>!v); }},
+        Icon.mic&&_stEl(Icon.mic,{s:12}), _stEl("span",null,"Sound "+(soundOn?"On":"Off"))),
       sdPill("pstyle","pstyle","Prompt style — how the prompt is written for this beat",
         _stEl(React.Fragment,null, Icon.text&&_stEl(Icon.text,{s:13}), _stEl("span",null,promptStyleUiLabel)),
         _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
-          promptStyleUiOptions.map(o=>sdOption({ ...o, selected:(effPromptStyle||"auto")===o.id })))),
-      sdPill("format","format","Aspect ratio and resolution",
-        _stEl(React.Fragment,null, Icon.monitor&&_stEl(Icon.monitor,{s:13}), _stEl("span",null,effAspect), _stEl("span",{className:"sdbar-muted"},String(resolution).toUpperCase())),
-        _stEl("div",{className:"sdbar-pop sdbar-pop-format"},
-          _stEl("label",null,"Aspect ratio"),
-          _stEl("div",{className:"sdbar-grid six"},
-            ["21:9","16:9","4:3","1:1","3:4","9:16"].map(a=>_stEl("button",{key:a,type:"button",className:a===effAspect?"on":"",
-              onClick:()=>{ setAspectOverride(a); setSdMenu(null); }}, _stEl("span",{className:"sdbar-ratio-ico ratio-"+a.replace(":","x")}), a))),
-          _stEl("label",null,"Resolution"),
-          _stEl("div",{className:"sdbar-grid three"},
-            STAGE_RESOLUTIONS.map(r=>{
-              const serverPending=!stageServerResolutionAllowed(modelId,r,runtimeCaps,capabilityTarget);
-              const planLocked = stageResAllowed(tierObj, r) && !serverPending && !planAllowsRes(r);
-              const disabled = !stageResAllowed(tierObj, r)||serverPending;
-              return _stEl("button",{key:r,type:"button",className:(r===resolution?"on ":"")+(planLocked?"plan-locked":""),
-                disabled:disabled && !planLocked,
-                title:serverPending ? "Pending server update — awaiting the video proxy capability handshake"
-                  : planLocked ? planResNote(r)+" — click to upgrade" : (disabled ? (r+" isn't available on "+model.label) : r),
-                onClick:()=>{ if(planLocked){ openPlansUpsell(); return; } if(disabled) return; setResolution(r); setSdMenu(null); }},
-                String(r).toUpperCase(), (r==="1080p"||r==="4K") && Icon.sparkles&&_stEl(Icon.sparkles,{s:10}));
-            })))),
-      sdPill("duration","duration","Duration",
-        _stEl(React.Fragment,null, Icon.clock&&_stEl(Icon.clock,{s:13}), _stEl("span",null,_fmtSecs(duration))),
-        _stEl("div",{className:"sdbar-pop sdbar-pop-duration"},
-          _stEl("label",null,"Total duration"),
-          _stEl("input",{type:"range",min:durationMin,max:durationMax,step:1,value:Math.round(duration),
-            title:durationLocked ? "Minimum locked to voiced line timing" : "Clip duration",
-            onChange:e=>setDurationOverride(Number(e.target.value))}),
-          _stEl("div",{className:"sdbar-duration-row"}, _stEl("span",null,"0"), _stEl("span",null,"5"), _stEl("span",null,"10"), _stEl("span",null,String(durationMax))),
-          _stEl("b",null,_fmtSecs(duration))))),
+          promptStyleUiOptions.map(o=>sdOption({ ...o, selected:(effPromptStyle||"auto")===o.id }))))),
     _stEl("div",{className:"sdbar-right"},
-      _stEl("span",{className:"sdbar-cost",title:renderCostTitle+". "+creditInfo.title}, Icon.sparkles&&_stEl(Icon.sparkles,{s:11}), composerCredit),
-      _stEl("button",{type:"button",className:"sdbar-send"+(blocker?" blocked":"")+(gening?" working":""),
-        title:blocker ? (blocker.text+" (click to see why)") : renderCostTitle,
-        "aria-disabled":blocker?"true":undefined,
-        disabled:gening,
-        onClick:onSeedanceGenerateClick}, gening ? "…" : "↑")));
+      _stEl("span",{className:"sdbar-count",title:"Prompt length"}, String(prompt||"").length+" / "+PANEL_PROMPT_MAX)));
+  // ---- option ROWS (Higgsfield-style settings list on the paper theme) --------
+  const optRow = (key, cls, title, label, value, popover, extra)=>sdPill(key, "row "+(cls||""), title,
+    _stEl(React.Fragment,null,
+      _stEl("span",{className:"sdrow-label"},label),
+      _stEl("span",{className:"sdrow-value"},value),
+      extra||null),
+    popover);
+  const durationPill = sdPill("duration","cell","Duration",
+    _stEl(React.Fragment,null, Icon.clock&&_stEl(Icon.clock,{s:13}), _stEl("span",null,_fmtSecs(duration))),
+    _stEl("div",{className:"sdbar-pop sdbar-pop-duration"},
+      _stEl("label",null,"Total duration"),
+      _stEl("input",{type:"range",min:durationMin,max:durationMax,step:1,value:Math.round(duration),
+        title:durationLocked ? "Minimum locked to voiced line timing" : "Clip duration",
+        onChange:e=>setDurationOverride(Number(e.target.value))}),
+      _stEl("div",{className:"sdbar-duration-row"}, _stEl("span",null,"0"), _stEl("span",null,"5"), _stEl("span",null,"10"), _stEl("span",null,String(durationMax))),
+      _stEl("b",null,_fmtSecs(duration))));
+  const aspectPill = sdPill("aspect","cell","Aspect ratio",
+    _stEl(React.Fragment,null, Icon.monitor&&_stEl(Icon.monitor,{s:13}), _stEl("span",null,effAspect)),
+    _stEl("div",{className:"sdbar-pop sdbar-pop-format"},
+      _stEl("label",null,"Aspect ratio"),
+      _stEl("div",{className:"sdbar-grid six"},
+        ["21:9","16:9","4:3","1:1","3:4","9:16"].map(a=>_stEl("button",{key:a,type:"button",className:a===effAspect?"on":"",
+          onClick:()=>{ setAspectOverride(a); setSdMenu(null); }}, _stEl("span",{className:"sdbar-ratio-ico ratio-"+a.replace(":","x")}), a)))));
+  const resolutionPill = sdPill("format","cell","Resolution",
+    _stEl(React.Fragment,null, Icon.sparkles&&_stEl(Icon.sparkles,{s:12}), _stEl("span",null,String(resolution).toUpperCase())),
+    _stEl("div",{className:"sdbar-pop sdbar-pop-format"},
+      _stEl("label",null,"Resolution"),
+      _stEl("div",{className:"sdbar-grid three"},
+        STAGE_RESOLUTIONS.map(r=>{
+          const serverPending=!stageServerResolutionAllowed(modelId,r,runtimeCaps,capabilityTarget);
+          const planLocked = stageResAllowed(tierObj, r) && !serverPending && !planAllowsRes(r);
+          const disabled = !stageResAllowed(tierObj, r)||serverPending;
+          return _stEl("button",{key:r,type:"button",className:(r===resolution?"on ":"")+(planLocked?"plan-locked":""),
+            disabled:disabled && !planLocked,
+            title:serverPending ? "Pending server update — awaiting the video proxy capability handshake"
+              : planLocked ? planResNote(r)+" — click to upgrade" : (disabled ? (r+" isn't available on "+model.label) : r),
+            onClick:()=>{ if(planLocked){ openPlansUpsell(); return; } if(disabled) return; setResolution(r); setSdMenu(null); }},
+            String(r).toUpperCase(), (r==="1080p"||r==="4K") && Icon.sparkles&&_stEl(Icon.sparkles,{s:10}));
+        }))));
+  const bitrateRow = optRow("bitrate","", "Bitrate — compression of the delivered file (not price)", "Bitrate",
+    _stEl("span",{className:"sdrow-badge"}, Icon.sparkles&&_stEl(Icon.sparkles,{s:10}), bitrate==="high"?"High":"Standard"),
+    _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
+      [ {id:"standard",label:"Standard",desc:"More compression, smaller file — the usual draft choice."},
+        {id:"high",label:"High",desc:"Less compression, larger file — for finals and grading."} ]
+        .map(o=>sdOption({ ...o, selected:bitrate===o.id, onPick:()=>setBitrate(o.id) }))));
+  const modelRow = optRow("model","", "Video model", "Model",
+    _stEl(React.Fragment,null, _stEl("span",null,model.label), Icon.sparkles&&_stEl(Icon.sparkles,{s:10})),
+    modelMenu);
+  // ---- header card ("GENERAL / <model>" + Change) ------------------------------
+  const heroCard = (kicker, title, opts)=>_stEl("div",{className:"stage2-hero"+(shotStartFrame?" has-bg":"")+(opts&&opts.cls?" "+opts.cls:"")},
+    shotStartFrame && _stEl("div",{className:"stage2-hero-bg",style:{backgroundImage:"url("+JSON.stringify(shotStartFrame)+")"},"aria-hidden":"true"}),
+    shotStartFrame && _stEl("div",{className:"stage2-hero-shade"}),
+    _stEl("div",{className:"stage2-hero-text"},
+      _stEl("span",{className:"stage2-hero-kicker"},kicker),
+      _stEl("span",{className:"stage2-hero-title"},title),
+      opts&&opts.sub && _stEl("span",{className:"stage2-hero-sub"},opts.sub)),
+    opts&&opts.action && _stEl("div",{className:"stage2-hero-action"}, opts.action));
+  const changeModelAction = sdPill("hero-model","hero","Change the video model",
+    _stEl(React.Fragment,null, Icon.pencil&&_stEl(Icon.pencil,{s:12}), _stEl("span",null,"Change")),
+    modelMenu);
+  // ---- Generate (full width, price on the button) -----------------------------
+  const generateButton = (label, cost, onClick, o)=>{
+    o=o||{};
+    const disabled = !!o.disabled || gening;
+    return _stEl("button",{type:"button",className:"stage2-generate"+(o.blocked?" blocked":"")+(gening?" working":""),
+      title:o.title||"", "aria-disabled":o.blocked?"true":undefined, disabled,
+      "data-testid":o.testId||undefined,
+      onClick},
+      _stEl("span",{className:"stage2-generate-label"}, gening ? (genBusyLabel||"Rendering…") : label),
+      cost!=null && _stEl("span",{className:"stage2-generate-cost",title:o.costTitle||""}, Icon.sparkles&&_stEl(Icon.sparkles,{s:12}), String(cost)));
+  };
   // ---- "Add references" card — the FIRST tile of the reference strip (same 72×48
   // rectangle as the thumbnails). Opens the scene-reference picker: mention any
   // ready image / video / audio reference in the prompt with its @tag, or upload.
@@ -4522,29 +4549,19 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       : _stEl("div",{className:"sdbar-empty"},"No scene references are ready yet."),
     _stEl("div",{className:"sdbar-addbox"},
       _stEl("button",{type:"button",onClick:()=>{ if(window.appToast) window.appToast("Upload new references from the Art Room asset tabs."); }},"↑ Upload from device")));
-  // ---- composer header: Image | Video | Sound tabs.
+  // ---- composer header: Create Video | Edit Video | Motion Control tabs -------
+  const TABS = [["create","Create Video","Create a clip for this beat from references, or extend an existing take (Seedance 2.5)"],
+                ["edit","Edit Video","Rewrite an existing video with a prompt — Seedance 2.5 Edit"],
+                ["motion","Motion Control","Drive a character image with a motion video — Kling 3.0 Motion Control"]];
   const composerHeader = _stEl("div",{className:"stage2-ctab-head"},
     _stEl("div",{className:"stage2-ctab-row"},
       _stEl("div",{className:"stage2-ctab-tabs",role:"tablist","aria-label":"Composer mode"},
-        [["image","Image"],["video","Video"],["sound","Sound"]].map(([t,lab])=>
+        TABS.map(([t,lab,tip])=>
           _stEl("button",{key:t,type:"button",role:"tab","aria-selected":composerTab===t?"true":"false",
-            className:"stage2-ctab-btn"+(composerTab===t?" on":""),
-            title: t==="image" ? "Frame composer — render this shot's still frame (same pipeline as the Art Room's Shots tab)"
-              : t==="sound" ? "This beat's spoken lines — voiced with the locked ElevenLabs voices"
-              : "Video composer — render this beat as a clip",
-            onClick:()=>setComposerTab(t)},lab)))));
-  const activeShotNo = imgSceneShots.findIndex(x=>x&&x.id===(activeShot&&activeShot.id))+1;
-  const imageTab = (activeShot && activeShot.id && typeof shotFrameGenOpts==="function" && typeof useImageGen==="function")
-    ? _stEl(StageFrameComposer,{key:"sfc-"+activeShot.id, sh:activeShot, sceneShots:imgSceneShots, imgCtx,
-        shotNo:activeShotNo>0?activeShotNo:"",
-        onMax:(url,label)=>setMaxImg({url,label,kind:"image"})})
-    : _stEl("div",{className:"stage2-tab-empty"},"No shots in this beat yet — design shots on the Art Room's Shots tab first.");
-  const soundTab = _stEl(StageSoundPanel,{lineShots, auds, onVoiceLine});
-  const composer = _stEl("div",{className:"stage2-gen-composer"+(gening?" working":"")+(creditInfo.empty?" no-credits":"")},
-    composerHeader,
-    composerTab==="image" ? imageTab
-    : composerTab==="sound" ? soundTab
-    : _stEl(React.Fragment,null,
+            className:"stage2-ctab-btn"+(composerTab===t?" on":""), title:tip, "data-tab":t,
+            onClick:()=>{ setComposerTab(t); setSdMenu(null); setModeErr(""); }},lab)))));
+  // the shared reference strip (Add references card + thumbnails)
+  const referenceStrip =
     _stEl("div",{className:"stage2-gen-reference-row","aria-label":"Render references"},
       _stEl("div",{ref:addRefRef,className:"stage2-gen-strip"},
       _stEl("div",{className:"stage2-gen-assets"},
@@ -4573,7 +4590,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           a.kind!=="text" && a.ready && _stEl("span",{className:"stage2-gen-asset-tag",title:"Reference this asset in the prompt as "+stageAssetMention(a)},
             a.referenceKind==="screenplay"?stageAssetMention(a):stageAssetTagShort(a)),
           on(a) && _stEl("span",{className:"stage2-gen-asset-check"},Icon.check&&_stEl(Icon.check,{s:10}))))),
-      addReferencesPopover)),
+      addReferencesPopover));
+  const characterChoicesEl =
     modelRefs&&characterReferenceChoices.length>0&&_stEl("div",{className:"stage2-character-choices","aria-label":"Shot-only video character references"},
       characterReferenceChoices.map(row=>_stEl("div",{key:row.sh.id+":"+row.c.id,
         className:"stage2-character-choice","data-shot-id":row.sh.id,"data-character-id":row.c.id},
@@ -4588,7 +4606,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
             :!row.masterReady?"The master image must be loaded and shareable before it can be chosen"
             :"Use the existing master image for this shot's video only. Other shots, appearance states and generated images stay unchanged.",
           onClick:()=>setCharacterReferenceChoice(row)},
-          row.hasOverride?"Use scene appearance":"Use master for this shot")))),
+          row.hasOverride?"Use scene appearance":"Use master for this shot"))));
     // (the recipe TAB row is gone — user ruling 2026-08-02: ONE derived prompt.
     // The smart per-clip pick assembles screenplay text + Art Room cinematography;
     // the Multi-shot row editor below surfaces automatically when the pick lands on it.)
@@ -4597,6 +4615,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     // stepper + a video-only description per shot + an include checkbox. Edits
     // persist on the shot (vidText/dur), feed EVERY recipe, and recompile the prompt
     // live. The canon Action (image side) is never touched; shots are added on the Shots tab.
+  const multishotEditor =
     recipe==="multishot" && _stEl("div",{className:"stage2-ms"},
       (()=>{ // the model's clip ceiling, always visible while picking rows: the live
         // total of TICKED seconds vs the cap — amber at the limit, red over it
@@ -4721,7 +4740,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
             title:"Split this beat into shot-boundary parts without rewriting shot timing.",
             onClick:()=>setClipScope&&setClipScope("beat")},"Fit beat"));
       })(),
-      _stEl("div",{className:"stage2-ms-hint"},"One row = one shot. Edit the text freely — it shapes the video prompt only; Generate renders these rows as one continuous Seedance clip. (Add or remove shots on the Art Room's Shots tab.)")),
+      _stEl("div",{className:"stage2-ms-hint"},"One row = one shot. Edit the text freely — it shapes the video prompt only; Generate renders these rows as one continuous Seedance clip. (Add or remove shots on the Art Room's Shots tab.)"));
+  const promptRow =
     _stEl("div",{className:"stage2-gen-row"+(recipe==="multishot"?" ms":"")},
     _stEl("div",{className:"stage2-gen-box"+(recipe==="multishot"?" ms-mode":"")},
       // in Multi-shot mode the ROWS are the prompt editor — the compiled text is
@@ -4754,9 +4774,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
               _stEl("b",null,m.t), m.label && _stEl("span",{className:"stage2-mention-label"},m.label)),
             _stEl("span",{className:"stage2-mention-kind"},
               m.included?"Included":(m.group|| (m.kind==="image"?"Image":m.kind==="video"?"Video":"Audio"))))))),
-      seedanceToolbar)),
+      seedanceToolbar));
       // (cancelling an in-flight render lives in the Render settings panel — "Cancel render";
       //  the REFERENCES-added-at-render preview lives in the panel's Inputs tab)
+  const composerNotices =
     (blocker || genErr || soundCueMissing || !modelRefs
       || (hasDialogue && (!modelAudioRefs || dialogueAudio==="native"))) && _stEl("div",{className:"stage2-gen-notices"},
       // the PRIMARY blocker — prominent, actionable, and the target of a blocked
@@ -4783,8 +4804,218 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       hasDialogue && modelAudioRefs && dialogueAudio==="native" && _stEl("div",{className:"stage2-hint"}, Icon.mic&&_stEl(Icon.mic,{s:12}),
         "Native performance: the model acts the lines in its own voice with free, natural pacing. Swap to your locked ElevenLabs voices in post with Voice Changer — it keeps the performance and timing, changes only the timbre."),
       !modelRefs && _stEl("div",{className:"stage2-hint"}, Icon.image&&_stEl(Icon.image,{s:12}),
-        model.label+" takes ONE start image and cannot carry the required screenplay screenshots separately. Choose a reference-capable model before rendering.")),
-    tray));
+        model.label+" takes ONE start image and cannot carry the required screenplay screenshots separately. Choose a reference-capable model before rendering."));
+  // ---- media dropzones (Extend / Edit / Motion) ---------------------------------
+  const imageChoices = tagged.filter(a=>a.kind==="image" && a.ready && a.url && a.referenceKind!=="screenplay")
+    .map(a=>({ kind:"asset", id:String(a.key||a.id), url:a.url, ref:a.url, label:String(a.label||"Image"), asset:a }));
+  const mediaZone = (slot, kind, media, o)=>{
+    o=o||{};
+    const busy = mediaBusy===slot;
+    const choices = kind==="video" ? takeChoices : imageChoices;
+    const picked = (c)=> !!media && media.kind===c.kind && media.url===c.url;
+    return _stEl("div",{className:"stage2-dz"+(media?" filled":"")+(o.error?" bad":""),"data-slot":slot,"data-kind":kind},
+      media
+        ? _stEl("div",{className:"stage2-dz-preview"},
+            kind==="video"
+              ? _stEl("video",{className:"stage2-dz-media",src:media.url,muted:true,playsInline:true,preload:"metadata",controls:true})
+              : _stEl("img",{className:"stage2-dz-media",src:media.url,alt:""}),
+            _stEl("div",{className:"stage2-dz-meta"},
+              _stEl("b",null,media.kind==="device" ? (media.name||"Device "+kind) : media.label),
+              _stEl("small",null,[ media.kind==="device" ? "From this device · private to this render" : "From this clip",
+                media.seconds ? _fmtSecs(Math.round(media.seconds)) : (media.measuring ? "measuring length…" : "") ].filter(Boolean).join(" · "))),
+            _stEl("button",{type:"button",className:"stage2-dz-x",title:"Remove",onClick:()=>setMedia(slot,null)}, Icon.x&&_stEl(Icon.x,{s:12})))
+        : _stEl("div",{className:"stage2-dz-empty"},
+            _stEl("span",{className:"stage2-dz-ico"}, kind==="video" ? (Icon.film&&_stEl(Icon.film,{s:18})) : (Icon.userScan&&_stEl(Icon.userScan,{s:18}))),
+            _stEl("b",null,o.title), _stEl("small",null,o.sub)),
+      _stEl("div",{className:"stage2-dz-actions"},
+        sdPill("media-"+slot,"dz",kind==="video" ? "Choose one of this clip's takes" : "Choose one of this clip's images",
+          _stEl(React.Fragment,null, (kind==="video"?Icon.play:Icon.image)&&_stEl(kind==="video"?Icon.play:Icon.image,{s:12}),
+            _stEl("span",null,kind==="video" ? "Clip takes" : "Clip images")),
+          _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
+            choices.length ? choices.map(c=>sdOption({ id:slot+":"+c.id, label:c.label, desc:c.seconds?_fmtSecs(Math.round(c.seconds)):"", selected:picked(c), onPick:()=>setMedia(slot,c) }))
+              : _stEl("div",{className:"sdbar-option-empty"}, kind==="video" ? "No takes on this clip yet — generate one or upload a video." : "No images on this clip yet."))),
+        _stEl("button",{type:"button",className:"stage2-dz-btn upload",disabled:busy||gening,
+          title: serverHasStaging ? ("Upload a "+kind+" from this device — staged privately for this render, never kept on the take") : (capsPending ? "Checking the video proxy…" : PENDING_SERVER+" Device uploads need direct-to-storage staging."),
+          onClick:()=>pickDevice(slot,kind)},
+          busy ? "Uploading…" : "↑ Upload from device")),
+      o.error && _stEl("div",{className:"stage2-dz-err"}, Icon.alert&&_stEl(Icon.alert,{s:12}), o.error),
+      o.note && !o.error && _stEl("div",{className:"stage2-dz-note"}, o.note));
+  };
+  const modeErrEl = modeErr && _stEl("div",{className:"stage2-err sd-gen-err stage2-mode-err",role:"alert"}, Icon.alert&&_stEl(Icon.alert,{s:13}), modeErr);
+  const pendingNote = (what)=> !capsPending && _stEl("div",{className:"stage2-mode-pending"}, Icon.info&&_stEl(Icon.info,{s:12}),
+    what+" is pending a server update — deploy the updated image-proxy Edge Function. Nothing is submitted until the proxy advertises it.");
+  const segmented = (label, value, options, onPick)=>_stEl("div",{className:"stage2-seg",role:"tablist","aria-label":label},
+    options.map(o=>_stEl("button",{key:o.id,type:"button",role:"tab","aria-selected":value===o.id?"true":"false",
+      className:"stage2-seg-btn"+(value===o.id?" on":"")+(o.disabled?" off":""), disabled:!!o.disabled, title:o.title||o.label,
+      onClick:()=>{ if(o.disabled) return; onPick(o.id); }}, o.label)));
+  // ---- CREATE VIDEO -------------------------------------------------------------
+  const extendPlanLocked = !planAllowsModel("seedance-2.5");
+  const pickCreateTask = (t)=>{
+    setCreateTask(t); setSdMenu(null); setModeErr("");
+    if(t==="extension"){
+      if(!extendVideo && takeChoices[0]) setMedia("extend", takeChoices[0]);   // measured like any pick
+      // extension is a Seedance 2.5 task: follow the plan gate, never a silent switch on a locked plan
+      if(modelId!=="seedance-2.5" && !extendPlanLocked){ setModelId("seedance-2.5"); const t0=seedanceTierOf(sd25Model,"standard"); if(t0) setTier(t0.id); }
+    }
+  };
+  const extendBlocker = createTask!=="extension" ? "" :
+    extendPlanLocked ? "Extend Video runs on Seedance 2.5 — Director plan required."
+    : modelId!=="seedance-2.5" ? "Extend Video runs on Seedance 2.5 — choose it as the model."
+    : !extendVideo ? "Choose the video to extend."
+    : mediaUnpriced(extendVideo) ? mediaUnpriced(extendVideo)
+    : (!capsPending && !serverHasTask("extension")) ? PENDING_SERVER : "";
+  const createGenerate = createTask==="extension"
+    ? generateButton("Extend", extendCost, ()=>{ if(gening) return; if(extendPlanLocked){ openPlansUpsell(); return; } onExtend(); },
+        { blocked:!!extendBlocker, title:extendBlocker || extendCostTitle, costTitle:extendCostTitle, testId:"stage-generate-extend",
+          disabled:(!capsPending && !serverHasTask("extension")) })
+    : generateButton(playerUrl ? "Regenerate" : "Generate", totalCost, onSeedanceGenerateClick,
+        { blocked:!!blocker, title: blocker ? (blocker.text+" (click to see why)") : renderCostTitle, costTitle:renderCostTitle, testId:"stage-generate" });
+  const createBody = _stEl(React.Fragment,null,
+    heroCard("GENERAL", model.label, { action:changeModelAction }),
+    segmented("Create mode", createTask,
+      [ { id:"reference", label:"References", title:"Render this beat from its references" },
+        { id:"extension", label:"Extend Video", title:"Continue an existing video (Seedance 2.5 extension task)" } ], pickCreateTask),
+    createTask==="extension" && mediaZone("extend","video",extendVideo,{ title:"Add a video to extend (up to 30s)", sub:"One of this clip's takes, or a video from this device — it becomes @Video1",
+      note: extendVideo ? "Seedance continues @Video1 by "+_fmtSecs(duration)+" in the video's own aspect ratio; the prompt below describes what happens next." : "" }),
+    referenceStrip,
+    createTask==="reference" && characterChoicesEl,
+    createTask==="reference" && multishotEditor,
+    promptRow,
+    _stEl("div",{className:"stage2-opts"},
+      modelRow,
+      _stEl("div",{className:"stage2-opt-grid three"},
+        durationPill,
+        createTask==="extension"
+          ? _stEl("div",{className:"sdbar-anchor"}, _stEl("button",{type:"button",className:"sdbar-pill cell",disabled:true,title:"Extensions keep the source video's aspect ratio"},
+              Icon.monitor&&_stEl(Icon.monitor,{s:13}), _stEl("span",null,"Auto")))
+          : aspectPill,
+        resolutionPill),
+      bitrateRow),
+    createGenerate,
+    modeErrEl,
+    composerNotices);
+  // ---- EDIT VIDEO ---------------------------------------------------------------
+  const editPromptRef = React.useRef(null);
+  const insertEditMention = (m)=>{
+    const tok=String(m&&m.t||"").trim(); if(!tok) return;
+    const api=editPromptRef.current, cur=String(editPrompt||"");
+    let pos = api && api.caretOffset ? api.caretOffset() : cur.length;
+    if(!Number.isFinite(pos)) pos=cur.length; pos=Math.max(0,Math.min(cur.length,pos));
+    const before=cur.slice(0,pos), after=cur.slice(pos);
+    const next=(before+(before&&!/[\s([]$/.test(before)?" ":"")+tok+(after&&!/^[\s.,;:!?)]/.test(after)?" ":"")+after).slice(0,PANEL_PROMPT_MAX);
+    setEditPrompt(next);
+    requestAnimationFrame(()=>{ try{ api && api.applyValue && api.applyValue(next, next.length); }catch(_e){} });
+  };
+  const editBlocker = !editVideo ? "Add the video to edit."
+    : mediaUnpriced(editVideo) ? mediaUnpriced(editVideo)
+    : !String(editPrompt||"").trim() ? "Describe the edit."
+    : extendPlanLocked ? "Seedance 2.5 Edit — Director plan required."
+    : (!capsPending && !serverHasTask("editing")) ? PENDING_SERVER : "";
+  const editBody = _stEl(React.Fragment,null,
+    heroCard("GENERAL", "Seedance 2.5 Edit", { sub:"Rewrite a video from a prompt — same cast, new direction" }),
+    segmented("Edit input", "prompt",
+      [ { id:"prompt", label:"Prompt" },
+        { id:"draw", label:"Draw", disabled:true, title:"Draw-to-edit isn't offered by fal's Seedance 2.5 editing task" } ], ()=>{}),
+    mediaZone("edit","video",editVideo,{ title:"Add a video to edit (up to 30s)", sub:"One of this clip's takes, or a video from this device — it becomes @Video1" }),
+    _stEl("div",{className:"stage2-dz-heading"}, Icon.image&&_stEl(Icon.image,{s:12}), "Add elements or references (up to 29 images or audio)"),
+    referenceStrip,
+    _stEl("div",{className:"stage2-gen-row"},
+      _stEl("div",{className:"stage2-gen-box"},
+        _stEl("div",{className:"stage2-gen-promptwrap"},
+          _stEl(StageMentionEditor,{apiRef:editPromptRef, value:editPrompt, mentionables:editMentionables, includeMention:()=>true,
+            maxLen:PANEL_PROMPT_MAX, placeholder:"Describe the edit — e.g. \"Replace the sky in @Video1 with a storm; keep the actors and camera\"…",
+            onChange:(v)=>setEditPrompt(String(v||"")), onKeyDown:()=>{}})),
+        _stEl("div",{className:"sdbar",onMouseDown:e=>e.stopPropagation()},
+          _stEl("div",{className:"sdbar-left"},
+            sdPill("edit-elements","chip elements","Elements — insert a reference token at the cursor",
+              _stEl(React.Fragment,null, _stEl("span",{className:"sdbar-chip-at"},"@"), _stEl("span",null,"Elements")),
+              _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
+                editMentionables.map(m=>sdOption({ id:m.t, label:m.t, desc:m.label, onPick:()=>insertEditMention(m) })))),
+            _stEl("button",{type:"button",className:"sdbar-chip sound"+(nativeAudio?" on":""),"aria-pressed":nativeAudio?"true":"false",
+              title:nativeAudio ? "Sound on — Seedance renders the edited video's audio. Click for a silent result." : "Silent result — click to render audio.",
+              onClick:()=>setNativeAudio(v=>!v)},
+              Icon.mic&&_stEl(Icon.mic,{s:12}), _stEl("span",null,"Sound "+(nativeAudio?"On":"Off")))),
+          _stEl("div",{className:"sdbar-right"},
+            _stEl("span",{className:"sdbar-count"}, String(editPrompt||"").length+" / "+PANEL_PROMPT_MAX))))),
+    _stEl("div",{className:"stage2-opts"},
+      _stEl("div",{className:"sdbar-anchor"}, _stEl("button",{type:"button",className:"sdbar-pill row",disabled:true,title:"Edit Video runs on Seedance 2.5's editing task"},
+        _stEl("span",{className:"sdrow-label"},"Model"), _stEl("span",{className:"sdrow-value"},"Seedance 2.5 Edit"))),
+      _stEl("div",{className:"stage2-opt-grid two"},
+        resolutionPill,
+        _stEl("div",{className:"sdbar-anchor"}, _stEl("button",{type:"button",className:"sdbar-pill cell",disabled:true,title:"Edits keep the source video's length and aspect ratio"},
+          Icon.clock&&_stEl(Icon.clock,{s:13}), _stEl("span",null,"Length & aspect · Auto")))),
+      bitrateRow),
+    generateButton("Generate", editCost, ()=>{ if(gening) return; if(extendPlanLocked){ openPlansUpsell(); return; } onEditVideo(); },
+      { blocked:!!editBlocker, title:editBlocker||editCostTitle, costTitle:editCostTitle, testId:"stage-generate-edit",
+        disabled:(!capsPending && !serverHasTask("editing")) }),
+    (!capsPending && !serverHasTask("editing")) && pendingNote("Edit Video"),
+    modeErrEl);
+  // ---- MOTION CONTROL -----------------------------------------------------------
+  const motionErr = motionTooLong ? ("This motion video is "+_fmtSecs(Math.round(motionVideo.seconds))+" — Kling allows up to "+motionLimits.maxSeconds+"s when "+(effMotionOrientation==="image"?"the scene follows the character image (switch scene control to Video, or turn it off, for up to 30s)":"the scene follows the motion video")+".")
+    : motionTooShort ? ("This motion video is under "+motionLimits.minSeconds+"s — Kling needs at least "+motionLimits.minSeconds+"s of motion.") : "";
+  const motionBlocker = !motionVideo ? "Add the motion to copy."
+    : mediaUnpriced(motionVideo) ? mediaUnpriced(motionVideo)
+    : !motionImage ? "Add your character image."
+    : motionErr ? motionErr
+    : (!motionCapsPending && !serverHasMotion) ? PENDING_SERVER : "";
+  const motionBody = _stEl(React.Fragment,null,
+    heroCard("MOTION CONTROL", "Control motion with video references", { cls:"motion",
+      action:_stEl("button",{type:"button",className:"stage2-hero-help"+(motionHelp?" on":""),"aria-expanded":motionHelp?"true":"false",
+        onClick:()=>setMotionHelp(v=>!v)}, Icon.info&&_stEl(Icon.info,{s:12}), "How it works") }),
+    motionHelp && _stEl("div",{className:"stage2-howto"},
+      _stEl("b",null,"Kling 3.0 Motion Control"),
+      _stEl("p",null,"Upload a video of someone moving and one image of your character with a visible face and body. Kling transfers the performance — pose, timing, gesture — onto your character. The result is as long as the motion video."),
+      _stEl("p",null,"Scene control ON lets you choose where the background comes from: the character image (motion video up to 10s) or the motion video (up to 30s). Scene control OFF always follows the motion video's scene (up to 30s).")),
+    _stEl("div",{className:"stage2-opt-grid two dz"},
+      mediaZone("motion-video","video",motionVideo,{ title:"Add motion to copy ("+motionLimits.minSeconds+"–"+motionLimits.maxSeconds+"s)", sub:"A video of the movement to transfer", error:motionErr }),
+      mediaZone("motion-image","image",motionImage,{ title:"Add your character", sub:"An image with a visible face and body" })),
+    _stEl("div",{className:"stage2-opts"},
+      optRow("motion-model","", "Motion Control model", "Model",
+        _stEl(React.Fragment,null, _stEl("span",null,"Kling 3.0 Motion Control · "+(motionTier==="pro"?"Pro":"Standard"))),
+        _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
+          [ {id:"standard",label:"Kling 3.0 Motion Control — Standard",desc:"720p-class output · the usual choice"},
+            {id:"pro",label:"Kling 3.0 Motion Control — Pro",desc:"1080p-class output · higher fidelity"} ]
+            .map(o=>sdOption({ ...o, selected:motionTier===o.id, onPick:()=>setMotionTier(o.id) })))),
+      optRow("motion-quality","", "Quality follows the model tier — fal exposes no separate resolution setting for Motion Control", "Quality",
+        _stEl("span",{className:"sdrow-badge"}, motionTier==="pro" ? "1080p · Pro" : "720p · Standard"),
+        _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
+          [ {id:"standard",label:"720p · Standard",desc:"Kling 3.0 Motion Control Standard"},
+            {id:"pro",label:"1080p · Pro",desc:"Kling 3.0 Motion Control Pro"} ]
+            .map(o=>sdOption({ ...o, selected:motionTier===o.id, onPick:()=>setMotionTier(o.id) })))),
+      _stEl("div",{className:"stage2-switch-row"},
+        _stEl("div",{className:"stage2-switch-text"},
+          _stEl("b",null,"Scene control mode"),
+          _stEl("small",null, sceneControl
+            ? "Choose where the background should come from: the character image or the motion video."
+            : "Off — the background follows the motion video (up to 30s of motion).")),
+        _stEl("button",{type:"button",role:"switch","aria-checked":sceneControl?"true":"false",className:"stage2-switch"+(sceneControl?" on":""),
+          title:sceneControl ? "Scene control on — click to follow the motion video's scene" : "Scene control off — click to choose the scene source",
+          onClick:()=>setSceneControl(v=>!v)}, _stEl("span",{className:"stage2-switch-knob"}))),
+      sceneControl && segmented("Scene source", motionOrientation,
+        [ { id:"video", label:"Video", title:"Background from the motion video — motion up to 30s" },
+          { id:"image", label:"Image", title:"Background from the character image — motion up to 10s" } ],
+        (v)=>setMotionOrientation(v)),
+      _stEl("button",{type:"button",className:"stage2-adv-toggle","aria-expanded":motionAdvanced?"true":"false",onClick:()=>setMotionAdvanced(v=>!v)},
+        _stEl(motionAdvanced?Icon.chevU:Icon.chevD,{s:12}), "Advanced settings"),
+      motionAdvanced && _stEl("div",{className:"stage2-adv"},
+        _stEl("div",{className:"stage2-switch-row"},
+          _stEl("div",{className:"stage2-switch-text"}, _stEl("b",null,"Keep original sound"), _stEl("small",null,"Carry the motion video's audio into the result.")),
+          _stEl("button",{type:"button",role:"switch","aria-checked":keepOriginalSound?"true":"false",className:"stage2-switch"+(keepOriginalSound?" on":""),
+            onClick:()=>setKeepOriginalSound(v=>!v)}, _stEl("span",{className:"stage2-switch-knob"}))),
+        _stEl("label",{className:"sd-gen-label"},"Prompt (optional)"),
+        _stEl("textarea",{className:"stage2-motion-prompt",value:motionPrompt,maxLength:2000,rows:3,
+          placeholder:"Optional — e.g. \"cinematic lighting, keep the costume exactly as pictured\"",
+          onChange:e=>setMotionPrompt(e.target.value)}))),
+    generateButton("Generate", motionCost, ()=>{ if(gening) return; onMotionControl(); },
+      { blocked:!!motionBlocker, title:motionBlocker||motionCostTitle, costTitle:motionCostTitle, testId:"stage-generate-motion",
+        disabled:(!motionCapsPending && !serverHasMotion) }),
+    (!motionCapsPending && !serverHasMotion) && pendingNote("Motion Control"),
+    modeErrEl);
+  const composer = _stEl("div",{className:"stage2-gen-composer"+(gening?" working":"")+(creditInfo.empty?" no-credits":""),"data-composer-tab":composerTab},
+    composerHeader,
+    composerTab==="edit" ? editBody : composerTab==="motion" ? motionBody : createBody,
+    _stEl("input",{ref:fileInputRef,type:"file",className:"stage2-file-input",tabIndex:-1,"aria-hidden":"true",onChange:onDeviceFile}),
+    tray);
 
   // ----- CENTER: player + filmstrip + prompt + input assets -----
   const center = _stEl("div",{className:"stage2-center stage2-compose-mode"},
@@ -5065,7 +5296,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     refLines.length>0 && _stEl("div",{className:"stage2-gen-refs",title:"Appended to the prompt at render, so Seedance knows what each attached reference is for. Updates as you include/exclude assets."},
       _stEl("b",null,"REFERENCES — added at render"),
       refLines.map((l,i)=>_stEl("span",{key:i},l))),
-    _ctrlRow("Visual source", _stEl("select",{value:sourceOverride,
+    _ctrlRow("Visual source", _stEl("select",{value:sourceOverride,"data-testid":"stage-visual-source","aria-label":"Visual source",
         title:"Which visual source anchors this render. Auto follows the per-clip rule: dialogue or 1 shot → the shot frame; 2 merged shots → the 2-panel storyboard half; 3–4 merged shots → per-shot frames when they fit the image budget, else the 4-panel sheet.",
         onChange:e=>setSourceOverride(e.target.value)},
       _stEl("option",{value:"auto"},"Auto — "+(beatOpeningClip?"beat-opening frame":sourcePlan.label)),
@@ -5148,13 +5379,14 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         ? _stEl("div",{className:"stage2-gen-busy sd-gen-busy"},
             _stEl("div",{className:"stage2-gen-prog"}, _stEl("div",{className:"orb"}), genBusyLabel),
             _stEl("button",{className:"sd-gen-cancel",type:"button",onClick:()=>{ stagingCancelRef.current=true; gen.cancel(); }},"Cancel render"))
+        : composerTab!=="create" || createTask!=="reference"
+        ? _stEl("div",{className:"stage2-hint sd-gen-hint"}, "Generate from the "+(composerTab==="edit"?"Edit Video":composerTab==="motion"?"Motion Control":"Extend Video")+" composer — its button carries that render's price.")
         : _stEl("button",{className:"sd-gen-submit"+(blocker?" blocked":""),type:"button",
             title: blocker ? (blocker.text+" (click to see why)") : renderCostTitle,
             "aria-disabled": blocker ? "true" : undefined, disabled:gening,
             onClick:()=>{ if(gening) return; if(blocker){ onBlockedGenerate(); return; } onGenerate(); }},
             playerUrl?"Regenerate clip":"Generate clip", Icon.sparkles&&_stEl(Icon.sparkles,{s:15})),
-      _stEl("button",{className:"sd-gen-extend",type:"button",onClick:onExtend,disabled:!playerUrl||gening||creditInfo.empty},
-        Icon.pencil&&_stEl(Icon.pencil,{s:13}),"Extend / edit"),
+      // (Extend / Edit / Motion Control live on the composer's tabs — each with its own Generate)
       _stEl("div",{className:"stage2-credit sd-gen-credit"+(creditInfo.empty?" empty":""),title:creditInfo.title},
         Icon.sparkles&&_stEl(Icon.sparkles,{s:11}),creditInfo.label),
       lastSeed!=null && _stEl("div",{className:"stage2-credit sd-gen-credit",title:"The seed fal returned for the last render — reuse it from the Seed control for repeatable variations"},

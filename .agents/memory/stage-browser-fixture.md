@@ -11,3 +11,7 @@ description: What the headless Stage browser regression can and cannot prove abo
 **Why:** the "Add references" card (Sept 2026) shipped its picker as position:fixed after the first downward-only version was clipped by the scrolling centre column; the fixture's small viewport and off-screen clicks hid that until the assertions compared rects against the viewport.
 
 **How to apply:** when moving or adding a Stage popover, assert popover *and* list rects are inside the viewport in both the default and a short (≈480px) viewport, and check focus entry/restoration explicitly.
+
+## Fixture is a raw string; websocket flag
+- The fixture page is assembled from a plain JS string, so regex escapes in stubs do not survive — match with `indexOf`. Run browser suites with `node --experimental-websocket` (WebSocket ReferenceError otherwise). Stale profiles: `rm -rf /tmp/fixture/browserfiles/chromium-profile-*`.
+- To assert a "blocked until measured" state, stub the async probe (`vidMediaFacts`) with a promise the test releases explicitly; a timed delay would be flaky.

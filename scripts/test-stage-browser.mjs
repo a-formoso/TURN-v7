@@ -197,17 +197,33 @@ window.appToast=(...a)=>window.__fixture.toasts.push(a);
 window.appConfirm=async o=>(window.__fixture.confirms.push(o),true);
 window.confirm=()=>true;
 window.turnVideoCreditRates=()=>({"480p":0.75,"720p":1.6,"1080p":2.4,"4K":5});
+/* Motion Control price + device staging helpers (videogen.jsx is not loaded here). */
+window.turnVideoCreditRate=(modelId,tier,res)=>modelId==="kling-3.0-motion-control"?(tier==="pro"?0.56:0.42):null;
+window.vidStagingCapability=caps=>!!(caps&&caps.staging&&caps.staging.signedUpload&&caps.staging.scheme==="stage:");
+window.vidMotionControlLimits=o=>({minSeconds:3,maxSeconds:o==="image"?10:30,maxBytes:200*1024*1024});
+window.vidStageDeviceMedia=async()=>{ throw new Error("fixture: device staging is not exercised here"); };
+/* Take picks are MEASURED before they can be priced: the probe stays pending until the
+   test releases it, so the unpriced (blocked) state is observable. */
+window.__fixture.measured=[]; window.__fixture.measurePending=[];
+window.vidMediaFacts=(url,kind)=>new Promise(res=>{ window.__fixture.measured.push(String(url));
+  window.__fixture.measurePending.push(()=>res({durationSeconds:10,sizeBytes:4,mime:"video/mp4"})); });
+window.__fixture.releaseMeasure=()=>{ const q=window.__fixture.measurePending.splice(0); q.forEach(f=>f()); return q.length; };
 window.turnTierGates=()=>null;
 window.seedanceCapabilities=()=>({references:{audios:{maxFiles:10}}});
 /* Starts unknown; the test later advertises the exact known-proxy transport shape. */
 window.seedanceGetRuntimeCapabilities=async target=>{
   if(!__fixture.proxyKnown)return {known:false,capabilities:null,reason:"fixture proxy version unknown",target};
-  const capabilities={
+  const motion=String(target||"").indexOf("/motion-control")>0;
+  const capabilities=motion
+    ? { characterOrientations:["image","video"], motionVideo:{minSeconds:3,maxSecondsByOrientation:{image:10,video:30}}, staging:{signedUpload:true,scheme:"stage:"} }
+    : {
     resolutions:["480p","720p","1080p"],
     directAudioFiles:10,
-    references:{audios:{maxFiles:10}}
+    references:{audios:{maxFiles:10}},
+    tasks:["reference","editing","extension"],
+    staging:{signedUpload:true,scheme:"stage:",maxBytes:{video:200*1024*1024,image:30*1024*1024,audio:15*1024*1024}}
   };
-  __fixture.lastRuntimeCapabilities=capabilities;
+  if(!motion) __fixture.lastRuntimeCapabilities=capabilities;
   return {known:true,capabilities,target};
 };
 window.useSeedanceGen=id=>{
@@ -466,7 +482,13 @@ async function main() {
     c=await CDP.connect(target.webSocketDebuggerUrl);
     await c.call("Page.enable"); await c.call("Runtime.enable");
     await c.call("Page.navigate",{url:`http://127.0.0.1:${port}/`});
-    await waitFor(()=>c.eval(`document.querySelector(".stage2-root")&&document.querySelector(".stage2-root").innerText.includes("Seedance 2.5")`),"StageView mount");
+    try{
+      await waitFor(()=>c.eval(`document.querySelector(".stage2-root")&&document.querySelector(".stage2-root").innerText.includes("Seedance 2.5")`),"StageView mount");
+    }catch(e){
+      const diag=await c.eval(`JSON.stringify({errors:(window.__fixture&&__fixture.errors)||[],consoleErrors:(window.__fixture&&__fixture.consoleErrors||[]).slice(0,5),root:!!document.querySelector(".stage2-root"),text:(document.querySelector(".stage2-root")||document.body).innerText.slice(0,1200)})`).catch(()=>"(no diag)");
+      console.error("StageView mount diagnostics:",diag);
+      throw e;
+    }
 
     const text=()=>c.eval(`document.body.innerText`);
     const selectedModel=()=>c.eval(`document.querySelector(".sd-gen-model.on")?.textContent.trim()`);
@@ -1044,13 +1066,13 @@ async function main() {
       regressions.push(`unknown-proxy 1080p is enabled in Render settings: ${JSON.stringify(proxy1080)}`);
     assert.equal(proxy1080.selected,false,"unknown-proxy 1080p cannot be selected");
     /* The compact Format popover is a second control surface and must gate identically. */
-    await c.eval(`document.querySelector('button[title="Aspect ratio and resolution"]').click()`);
+    await c.eval(`document.querySelector('button[title="Resolution"]').click()`);
     await waitFor(()=>c.eval(`!!document.querySelector(".sdbar-pop-format")`),"format menu");
     const unknownFormat1080=await c.eval(`(()=>{const b=[...document.querySelectorAll(".sdbar-pop-format button")].find(x=>x.textContent.trim().toLowerCase()==="1080p");return {found:!!b,disabled:!!b?.disabled,aria:b?.getAttribute("aria-disabled"),title:b?.title||""}})()`);
     assert.ok(unknownFormat1080.found,"Format menu's uppercase 1080P option must be located before checking its state");
     if(!(unknownFormat1080.disabled||unknownFormat1080.aria==="true"))
       regressions.push(`unknown-proxy 1080p is enabled in Format menu: ${JSON.stringify(unknownFormat1080)}`);
-    await c.eval(`document.querySelector('button[title="Aspect ratio and resolution"]').click()`);
+    await c.eval(`document.querySelector('button[title="Resolution"]').click()`);
 
     /* A positive handshake must unlock both controls. It advertises an exact ordered
        resolution list and ten direct-audio slots (covering 6+ line packages) without
@@ -1065,12 +1087,157 @@ async function main() {
     const knownCaps=await c.eval(`window.__fixture.lastRuntimeCapabilities`);
     assert.deepEqual(knownCaps.resolutions,["480p","720p","1080p"],"known proxy uses exact advertised resolution array");
     assert.ok(knownCaps.directAudioFiles>=6&&knownCaps.references.audios.maxFiles>=6,"known proxy advertises 6+ direct audio inputs");
-    await c.eval(`document.querySelector('button[title="Aspect ratio and resolution"]').click()`);
+    await c.eval(`document.querySelector('button[title="Resolution"]').click()`);
     await waitFor(()=>c.eval(`!!document.querySelector(".sdbar-pop-format")`),"known format menu");
     const knownFormat1080=await c.eval(`(()=>{const b=[...document.querySelectorAll(".sdbar-pop-format button")].find(x=>x.textContent.trim().toLowerCase()==="1080p");return {found:!!b,disabled:!!b?.disabled,aria:b?.getAttribute("aria-disabled")}})()`);
     assert.ok(knownFormat1080.found,"Known-proxy check must locate the actual Format menu option");
     assert.ok(!knownFormat1080.disabled&&knownFormat1080.aria!=="true","known-proxy 1080p is enabled in Format menu");
-    await c.eval(`document.querySelector('button[title="Aspect ratio and resolution"]').click()`);
+    await c.eval(`document.querySelector('button[title="Resolution"]').click()`);
+
+    /* ---- Shoot composer modes: Create Video | Edit Video | Motion Control ----
+       Three paid paths, each with its own Generate. Every request below lands in
+       the fixture's generate stub — no provider is reached and no credit moves. */
+    {
+      const tabs=await c.eval(`[...document.querySelectorAll(".stage2-ctab-btn")].map(b=>b.textContent.trim())`);
+      assert.deepEqual(tabs,["Create Video","Edit Video","Motion Control"],"composer tabs follow the Create / Edit / Motion layout");
+      const toolbar=await c.eval(`(()=>{const bar=document.querySelector(".stage2-gen-composer .sdbar");return {
+        elements:!!bar.querySelector(".sdbar-chip.elements"),sound:bar.querySelector(".sdbar-chip.sound")?.textContent.trim()||"",
+        source:document.querySelectorAll(".sdbar button[title='Reference mode']").length,count:bar.querySelector(".sdbar-count")?.textContent.trim()||""};})()`);
+      assert.ok(toolbar.elements,"prompt box carries the @ Elements chip");
+      assert.match(toolbar.sound,/^Sound (On|Off)$/,"prompt box carries the Sound chip");
+      assert.equal(toolbar.source,0,"the Omni reference source pill is gone from the toolbar");
+      assert.match(toolbar.count,/\d+ \/ \d+/,"character counter sits on the right of the toolbar");
+      const rows=await c.eval(`[...document.querySelectorAll(".stage2-opts .sdrow-label")].map(x=>x.textContent.trim())`);
+      assert.deepEqual(rows,["Model","Bitrate"],"Create Video stacks Model and Bitrate rows under the prompt");
+      assert.equal(await c.eval(`document.querySelectorAll(".stage2-opt-grid.three .sdbar-pill.cell").length`),3,"Duration / Aspect / Resolution sit in one 3-up row");
+      const createCost=await c.eval(`document.querySelector('[data-testid="stage-generate"] .stage2-generate-cost')?.textContent.trim()`);
+      assert.ok(Number(createCost)>=1,`Create Video's Generate carries the render price (${createCost})`);
+      const callsBefore=await c.eval(`__fixture.calls.length`);
+
+      /* Extend Video: a Seedance 2.5 extension task on one of this clip's takes. */
+      await c.eval(`[...document.querySelectorAll(".stage2-seg-btn")].find(b=>b.textContent.trim()==="Extend Video").click()`);
+      await waitFor(()=>c.eval(`!!document.querySelector('.stage2-dz[data-slot="extend"].filled')`),"Extend preselects the current take");
+      assert.match(await c.eval(`document.querySelector('.stage2-dz[data-slot="extend"] .stage2-dz-meta b').textContent`),/Current take/);
+      assert.equal(await c.eval(`document.querySelectorAll(".stage2-opts .stage2-seg, .stage2-gen-composer .stage2-ms").length`),0,"multi-shot editor stays a References-mode tool");
+      /* the take's length is a billing fact — until it is measured the button is blocked and unpriced */
+      await waitFor(()=>c.eval(`__fixture.measured.length>0`),"the preselected take is measured");
+      assert.deepEqual(await c.eval(`__fixture.measured`),["data:video/mp4;base64,AAAA#new"],"measurement probes the chosen take itself");
+      const extendWhileMeasuring=await c.eval(`(()=>{const b=document.querySelector('[data-testid="stage-generate-extend"]');return {aria:b.getAttribute("aria-disabled"),title:b.title,cost:b.querySelector(".stage2-generate-cost")?.textContent.trim()||null};})()`);
+      assert.equal(extendWhileMeasuring.aria,"true","Extend stays blocked while the take is being measured");
+      assert.match(extendWhileMeasuring.title,/Measuring the video/,"the blocker says the length is being measured");
+      assert.equal(extendWhileMeasuring.cost,null,"no price is shown for an unmeasured input");
+      assert.match(await c.eval(`document.querySelector('.stage2-dz[data-slot="extend"] .stage2-dz-meta small').textContent`),/measuring length/);
+      assert.equal(await c.eval(`__fixture.releaseMeasure()`),1,"one pending probe released");
+      await waitFor(()=>c.eval(`/0:10|10s/.test(document.querySelector('.stage2-dz[data-slot="extend"] .stage2-dz-meta small').textContent)`),"the measured length shows on the dropzone");
+      await waitFor(()=>c.eval(`(()=>{const b=document.querySelector('[data-testid="stage-generate-extend"]');return b&&!b.disabled&&b.getAttribute("aria-disabled")!=="true";})()`),"Extend is enabled once the proxy advertises the extension task");
+      await c.eval(`document.querySelector('[data-testid="stage-generate-extend"]').click()`);
+      await waitFor(()=>c.eval(`__fixture.calls.length>${callsBefore}`),"extension request reaches the generate stub");
+      const extendCall=await c.eval(`(()=>{const [,id,p]=__fixture.calls.at(-1);return {id,videoTask:p.videoTask,videoUrls:p.videoUrls,aspect:p.aspectRatio,prompt:p.prompt.slice(0,40),spend:p.spend,source:p.takeMeta.source,refs:p.takeMeta.references,inputSeconds:p.takeMeta.inputSeconds,priv:p.takeMeta.privateRefs,falModel:p.falModel,meta:JSON.stringify(p.takeMeta)};})()`);
+      assert.equal(extendCall.videoTask,"extension","Extend Video submits Seedance 2.5's extension task");
+      assert.deepEqual(extendCall.videoUrls,["data:video/mp4;base64,AAAA#new"],"the chosen take rides as @Video1");
+      assert.equal(extendCall.aspect,"auto","extensions follow the source video's aspect");
+      assert.match(extendCall.prompt,/^Extend @Video1 by ~\d+ seconds/,"extension grammar names the video and the added length");
+      assert.equal(extendCall.spend.reason,"stage-video-extend");
+      assert.ok(extendCall.spend.cost>=1,"extension carries a positive spend");
+      assert.equal(extendCall.inputSeconds,10,"the take's MEASURED length is recorded (fal bills input seconds)");
+      assert.equal(extendCall.source,"extend");
+      assert.equal(extendCall.refs[0].role,"Video to extend");
+      assert.equal(extendCall.priv,0,"a clip take is not a private device reference");
+      assert.match(extendCall.falModel,/seedance-2\.5/,"extension runs on Seedance 2.5");
+      await c.eval(`[...document.querySelectorAll(".stage2-seg-btn")].find(b=>b.textContent.trim()==="References").click()`);
+
+      /* Edit Video: Seedance 2.5 editing task with its own prompt. Draw is not offered. */
+      await c.eval(`document.querySelector(".stage2-ctab-btn[data-tab='edit']").click()`);
+      await waitFor(()=>c.eval(`document.querySelector(".stage2-hero-title")?.textContent==="Seedance 2.5 Edit"`),"Edit Video header");
+      assert.equal(await c.eval(`[...document.querySelectorAll(".stage2-seg-btn")].find(b=>b.textContent.trim()==="Draw")?.disabled`),true,"Draw is disabled — fal's editing task has no draw input");
+      const editGenBefore=await c.eval(`(()=>{const b=document.querySelector('[data-testid="stage-generate-edit"]');return {aria:b.getAttribute("aria-disabled"),title:b.title};})()`);
+      assert.equal(editGenBefore.aria,"true","Edit Video cannot generate without a video");
+      assert.match(editGenBefore.title,/Add the video to edit/);
+      assert.equal(await c.eval(`document.querySelectorAll(".sd-gen-submit").length`),0,"the drawer's Generate steps aside on the Edit tab");
+      await c.eval(`document.querySelector('.stage2-dz[data-slot="edit"] .sdbar-pill.dz').click()`);
+      await waitFor(()=>c.eval(`[...document.querySelectorAll(".sdbar-option b")].some(x=>x.textContent==="Take 1")`),"edit take picker lists the clip's takes");
+      await c.eval(`[...document.querySelectorAll(".sdbar-option b")].find(x=>x.textContent==="Take 1").closest("button").click()`);
+      await waitFor(()=>c.eval(`!!document.querySelector('.stage2-dz[data-slot="edit"].filled')`),"edit video chosen");
+      await waitFor(()=>c.eval(`__fixture.measurePending.length>0`),"the edit take is measured before it can be priced");
+      assert.equal(await c.eval(`__fixture.releaseMeasure()`),1);
+      await c.eval(`(()=>{const el=document.querySelectorAll(".stage2-gen-prompt[contenteditable]")[0];el.scrollIntoView({block:"center"});el.focus();})()`);
+      await c.call("Input.insertText",{text:"Replace the sky in @Video1 with a storm, keep the actors"});
+      await waitFor(()=>c.eval(`(()=>{const b=document.querySelector('[data-testid="stage-generate-edit"]');return b&&!b.disabled&&b.getAttribute("aria-disabled")!=="true";})()`),"Edit is enabled with a video and a prompt");
+      const editCalls=await c.eval(`__fixture.calls.length`);
+      await c.eval(`document.querySelector('[data-testid="stage-generate-edit"]').click()`);
+      await waitFor(()=>c.eval(`__fixture.calls.length>${editCalls}`),"editing request reaches the generate stub");
+      const editCall=await c.eval(`(()=>{const [,,p]=__fixture.calls.at(-1);return {videoTask:p.videoTask,videoUrls:p.videoUrls,prompt:p.prompt,durationMs:p.durationMs,inputSeconds:p.takeMeta.inputSeconds,aspect:p.aspectRatio,spend:p.spend,source:p.takeMeta.source,screenplay:!!p.screenplayImages,meta:JSON.stringify(p.takeMeta)};})()`);
+      assert.equal(editCall.videoTask,"editing","Edit Video submits Seedance 2.5's editing task");
+      assert.deepEqual(editCall.videoUrls,["data:video/mp4;base64,AAAA#approved"],"Take 1 rides as @Video1");
+      assert.match(editCall.prompt,/^Replace the sky in @Video1/,"the edit prompt is the user's, not the beat brief");
+      assert.equal(editCall.durationMs,10000,"edits render at the source's MEASURED length (duration auto) and record it");
+      assert.equal(editCall.inputSeconds,10,"the source length rides the take metadata");
+      assert.equal(editCall.spend.cost,Math.max(1,Math.ceil(2*10*1.6*0.6)),"edit price = (output + input seconds) × 720p Seedance 2.5 rate × video-input multiplier");
+      assert.equal(editCall.aspect,"auto");
+      assert.equal(editCall.spend.reason,"stage-video-edit");
+      assert.equal(editCall.source,"edit");
+      assert.equal(editCall.screenplay,false,"edits carry no screenplay pages");
+      assert.ok(!/stage:/.test(editCall.meta),"take metadata never stores staged references");
+
+      /* Motion Control: Kling 3.0 — one motion video + one character image. */
+      await c.eval(`document.querySelector(".stage2-ctab-btn[data-tab='motion']").click()`);
+      await waitFor(()=>c.eval(`document.querySelector(".stage2-hero-title")?.textContent==="Control motion with video references"`),"Motion Control header");
+      assert.equal(await c.eval(`document.querySelector(".stage2-switch[aria-checked]")?.getAttribute("aria-checked")`),"true","Scene control mode defaults ON");
+      assert.equal(await c.eval(`document.querySelector(".stage2-seg-btn.on")?.textContent.trim()`),"Image","Scene source defaults to Image");
+      assert.match(await c.eval(`document.querySelector(".stage2-switch-text small").textContent`),/character image or the motion video/,"scene-control helper explains the choice");
+      assert.match(await c.eval(`document.querySelector('.stage2-dz[data-slot="motion-video"] .stage2-dz-empty b').textContent`),/3–10s/,"Image orientation caps the motion video at 10s");
+      /* Pro ↔ Standard re-runs the capability handshake against the now-known proxy. */
+      await c.eval(`[...document.querySelectorAll(".stage2-opts .sdbar-pill.row")].find(b=>b.textContent.includes("Model")).click()`);
+      await waitFor(()=>c.eval(`[...document.querySelectorAll(".sdbar-option b")].some(x=>x.textContent.includes("Pro"))`),"motion model menu");
+      await c.eval(`[...document.querySelectorAll(".sdbar-option b")].find(x=>x.textContent.includes("Pro")).closest("button").click()`);
+      await waitFor(()=>c.eval(`document.querySelector(".stage2-opts .sdrow-badge")?.textContent.trim()==="1080p · Pro"`),"Pro quality badge");
+      await c.eval(`[...document.querySelectorAll(".stage2-opts .sdbar-pill.row")].find(b=>b.textContent.includes("Model")).click()`);
+      await waitFor(()=>c.eval(`[...document.querySelectorAll(".sdbar-option b")].some(x=>x.textContent.includes("Standard"))`),"motion model menu again");
+      await c.eval(`[...document.querySelectorAll(".sdbar-option b")].find(x=>x.textContent.includes("Standard")).closest("button").click()`);
+      await waitFor(()=>c.eval(`document.querySelector(".stage2-opts .sdrow-badge")?.textContent.trim()==="720p · Standard"`),"Standard quality badge");
+      /* scene control OFF → the scene follows the motion video (30s ceiling) — said in the UI */
+      await c.eval(`document.querySelector(".stage2-switch[aria-checked]").click()`);
+      await waitFor(()=>c.eval(`document.querySelector(".stage2-switch[aria-checked]")?.getAttribute("aria-checked")==="false"`),"scene control off");
+      assert.match(await c.eval(`document.querySelector(".stage2-switch-text small").textContent`),/follows the motion video/,"OFF state states the background source");
+      assert.equal(await c.eval(`document.querySelectorAll(".stage2-seg-btn").length`),0,"Video | Image segmented hides when scene control is off");
+      assert.match(await c.eval(`document.querySelector('.stage2-dz[data-slot="motion-video"] .stage2-dz-empty b').textContent`),/3–30s/,"video orientation allows 30s of motion");
+      await c.eval(`document.querySelector('.stage2-dz[data-slot="motion-video"] .sdbar-pill.dz').click()`);
+      await waitFor(()=>c.eval(`[...document.querySelectorAll(".sdbar-option b")].some(x=>x.textContent==="Current take")`),"motion take picker");
+      await c.eval(`[...document.querySelectorAll(".sdbar-option b")].find(x=>x.textContent==="Current take").closest("button").click()`);
+      await waitFor(()=>c.eval(`__fixture.measurePending.length>0`),"the motion take is measured before it can be priced");
+      assert.equal(await c.eval(`__fixture.releaseMeasure()`),1);
+      await c.eval(`document.querySelector('.stage2-dz[data-slot="motion-image"] .sdbar-pill.dz').click()`);
+      await waitFor(()=>c.eval(`document.querySelectorAll('.stage2-dz[data-slot="motion-image"] .sdbar-option').length>0`),"motion image picker lists clip images");
+      await c.eval(`document.querySelector('.stage2-dz[data-slot="motion-image"] .sdbar-option').click()`);
+      await waitFor(()=>c.eval(`!!document.querySelector('.stage2-dz[data-slot="motion-image"].filled')&&!!document.querySelector('.stage2-dz[data-slot="motion-video"].filled')`),"both motion inputs chosen");
+      await c.eval(`document.querySelector(".stage2-adv-toggle").click()`);
+      await waitFor(()=>c.eval(`!!document.querySelector(".stage2-motion-prompt")`),"advanced settings open");
+      await c.eval(`(()=>{const s=document.querySelectorAll(".stage2-switch[aria-checked]")[1];s.click();})()`);
+      await waitFor(()=>c.eval(`document.querySelectorAll(".stage2-switch[aria-checked]")[1]?.getAttribute("aria-checked")==="false"`),"keep original sound off");
+      await waitFor(()=>c.eval(`(()=>{const b=document.querySelector('[data-testid="stage-generate-motion"]');return b&&!b.disabled&&b.getAttribute("aria-disabled")!=="true";})()`),"Motion Control is enabled with both inputs");
+      const motionCost=await c.eval(`document.querySelector('[data-testid="stage-generate-motion"] .stage2-generate-cost')?.textContent.trim()`);
+      assert.equal(Number(motionCost),Math.max(1,Math.ceil(10*0.42)),"Motion Control's price = measured motion seconds × Standard rate");
+      const motionCalls=await c.eval(`__fixture.calls.length`);
+      await c.eval(`document.querySelector('[data-testid="stage-generate-motion"]').click()`);
+      await waitFor(()=>c.eval(`__fixture.calls.length>${motionCalls}`),"motion request reaches the generate stub");
+      const motionCall=await c.eval(`(()=>{const [,,p]=__fixture.calls.at(-1);return {falModel:p.falModel,durationMs:p.durationMs,orientation:p.characterOrientation,keep:p.keepOriginalSound,videoUrls:p.videoUrls,frameUrl:p.frameUrl,videoTask:p.videoTask,spend:p.spend,source:p.takeMeta.source,refs:p.takeMeta.references.map(r=>r.role),tierLabel:p.takeMeta.tierLabel,screenplay:!!p.screenplayImages,meta:JSON.stringify(p.takeMeta)};})()`);
+      assert.match(motionCall.falModel,/kling-video\/v3\/standard\/motion-control$/,"Standard tier maps to Kling's standard motion-control endpoint");
+      assert.equal(motionCall.orientation,"video","scene control OFF submits character_orientation video");
+      assert.equal(motionCall.keep,false,"Keep original sound follows the advanced switch");
+      assert.deepEqual(motionCall.videoUrls,["data:video/mp4;base64,AAAA#new"]);
+      assert.ok(motionCall.frameUrl,"the character image rides as image_url");
+      assert.equal(motionCall.videoTask,undefined,"motion control is not a Seedance task");
+      assert.equal(motionCall.durationMs,10000,"the output follows the motion video's measured length");
+      assert.equal(motionCall.spend.reason,"stage-video-motion-control");
+      assert.equal(motionCall.source,"motion-control");
+      assert.deepEqual(motionCall.refs,["Character","Motion to copy"]);
+      assert.match(motionCall.tierLabel,/Standard/);
+      assert.equal(motionCall.screenplay,false,"motion control carries no screenplay pages");
+      assert.ok(!/stage:/.test(motionCall.meta),"take metadata never stores staged references");
+      /* back to Create for the remaining checks */
+      await c.eval(`document.querySelector(".stage2-ctab-btn[data-tab='create']").click()`);
+      await waitFor(()=>c.eval(`!!document.querySelector('[data-testid="stage-generate"]')`),"Create Video restored");
+    }
 
     /*
      * Required-reference gate. A selected character appearance state has a canonical
@@ -1484,9 +1651,21 @@ async function main() {
 
     /* Thumbnail states and exact-id recovery, without replacing references or
        generating new assets. Keep these mutations after source/prompt tests. */
-    await c.eval(`document.querySelector('button[title="Reference mode"]').click()`);
-    await waitFor(()=>c.eval(`[...document.querySelectorAll(".sdbar-option b")].some(x=>x.textContent==="Reference frames")`),"reference-frame mode for thumbnail checks");
-    await c.eval(`([...document.querySelectorAll(".sdbar-option b")].find(x=>x.textContent==="Reference frames")).closest("button").click()`);
+    /* Source mode now lives only in Render settings > Inputs ("Visual source"); the
+       toolbar no longer carries a source pill. */
+    {
+      const before=await settingsState();
+      if(!before.open){
+        await c.eval(`document.querySelector('button[title="Expand render settings"],.stage2-console .strip.right')?.click()`);
+        await waitFor(()=>c.eval(`!!document.querySelector(".stage2-settings-drawer")`),"Render settings for Visual source");
+      }
+      await c.eval(`([...document.querySelectorAll(".stage2-settings-tabs .insp-tab")].find(x=>x.textContent.trim()==="Inputs"))?.click()`);
+      await waitFor(()=>c.eval(`!!document.querySelector('select[data-testid="stage-visual-source"]')`),"Visual source select in Inputs");
+      assert.equal(await c.eval(`document.querySelectorAll(".sdbar button[title='Reference mode']").length`),0,"the toolbar no longer carries a source pill");
+      await c.eval(`(()=>{const s=document.querySelector('select[data-testid="stage-visual-source"]');const setter=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,"value").set;setter.call(s,"frames");s.dispatchEvent(new Event("change",{bubbles:true}));})()`);
+      await waitFor(()=>c.eval(`document.querySelector('select[data-testid="stage-visual-source"]')?.value==="frames"`),"reference-frame mode for thumbnail checks");
+      await restoreSettingsState(before);
+    }
     const frameThumb='.stage2-gen-assets [data-asset-id="shot-a"]';
     const thumbBaseline=await c.eval(`({calls:__fixture.calls.length,story:JSON.stringify(__story)})`);
     await c.eval(`__fixture.imageOverrides["shot-a"]="";window.dispatchEvent(new CustomEvent("nb-prefetched"));`);

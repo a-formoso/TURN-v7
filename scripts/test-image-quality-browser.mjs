@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-/* Browser-only quality control fixture. It mounts the real Art Room dock and
-   Stage image composer with recording fakes; no image provider, auth, or app
-   server is involved. */
+/* Browser-only quality control fixture. It mounts the real Art Room dock with
+   recording fakes; no image provider, auth, or app server is involved. (The
+   Stage's separate image composer tab was retired with the Create / Edit /
+   Motion Control composer — Stage image work lives in the Art Room.) */
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
@@ -23,14 +24,10 @@ function transform(source, filename) {
 async function prepare() {
   await mkdir(FIXTURE, { recursive: true });
   const art = await readFile(new URL("../app/artroom.jsx", import.meta.url), "utf8");
-  const stage = await readFile(new URL("../app/stage.jsx", import.meta.url), "utf8");
   const styles = await readFile(new URL("../app/styles.css", import.meta.url));
   const artStart = art.indexOf("function NbControls()");
   const artEnd = art.indexOf("\n/* ENGINE DOCK", artStart);
-  const stageStart = stage.indexOf("function StageFrameComposer(");
-  const stageEnd = stage.indexOf("\n/* ---- SOUND tab", stageStart);
   await writeFile(`${FIXTURE}/artroom.js`, transform(art.slice(artStart, artEnd), "NbControls.jsx"));
-  await writeFile(`${FIXTURE}/stage.js`, transform(stage.slice(stageStart, stageEnd), "StageFrameComposer.jsx"));
   await writeFile(`${FIXTURE}/styles.css`, styles);
   const react = await fetch("https://unpkg.com/react@18.3.1/umd/react.development.js");
   const dom = await fetch("https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js");
@@ -39,7 +36,7 @@ async function prepare() {
   await writeFile(`${FIXTURE}/react-dom.js`, Buffer.from(await dom.arrayBuffer()));
   await writeFile(`${FIXTURE}/index.html`, `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="/styles.css">
-<div id="dock"></div><div id="stage"></div>
+<div id="dock"></div>
 <script src="/react.js"></script><script src="/react-dom.js"></script>
 <script>
 const quality25=["default","auto","low","medium","high","xhigh","max"];
@@ -81,12 +78,9 @@ window._stEl=(...args)=>React.createElement(...args);
 window.ReactDOM.createPortal=(x)=>x;
 function mount(){
   ReactDOM.createRoot(document.querySelector("#dock")).render(React.createElement(NbControls));
-  ReactDOM.createRoot(document.querySelector("#stage")).render(React.createElement(StageFrameComposer,{
-    sh:{id:"shot-quality",subjects:[]},sceneShots:[{id:"shot-quality"}],imgCtx:{charById:{},scenes:[],drafts:{}},shotNo:1,onMax:()=>{}
-  }));
 }
 </script>
-<script src="/artroom.js"></script><script src="/stage.js"></script>
+<script src="/artroom.js"></script>
 <script>/* scripts are loaded after the fixture definitions; mount once ready. */ mount(); window.__mounted=true;</script>`);
 }
 
@@ -175,11 +169,6 @@ try {
   await c.call("Page.reload", { ignoreCache: true });
   await waitFor(() => c.eval(`window.__mounted && document.querySelectorAll("#dock .nb-seg-btn").length>0`), "quality dock reload");
   assert.equal(await c.eval(`[...document.querySelectorAll("#dock .nb-seg-btn")].find(b=>b.textContent.trim()==="Default (High)")?.classList.contains("on")`), true, "selected 2.5 quality survives reload");
-  await c.eval(`window.__capsExpanded=true;window.dispatchEvent(new CustomEvent("nb-quality-capabilities"))`);
-  await waitFor(() => c.eval(`!!document.querySelector('#stage .sdbar-pill[title^="GPT Image quality"]')`), "Stage quality pill");
-  await c.eval(`document.querySelector('#stage .sdbar-pill[title^="GPT Image quality"]').click()`);
-  await waitFor(() => c.eval(`document.querySelectorAll("#stage .stage2-imgtab-aspmenu .stage2-imgtab-asp-opt").length===7`), "Stage quality menu");
-  assert.equal(await c.eval(`document.querySelectorAll("#stage .stage2-imgtab-aspmenu .stage2-imgtab-asp-opt:not([disabled])").length`), 7);
   assert.equal(await c.eval(`window.__providerCalls.length`), 0, "controls do not invoke generation");
   const screenshot = await c.call("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
   const screenshotPath = `${FIXTURE}/quality-controls.png`;
@@ -192,7 +181,7 @@ try {
   const mobileScreenshotPath = `${FIXTURE}/quality-controls-mobile-390.png`;
   await writeFile(mobileScreenshotPath, Buffer.from(mobileScreenshot.data, "base64"));
   console.log(`Screenshots: ${screenshotPath}, ${mobileScreenshotPath}`);
-  console.log("PASS image quality dock and Stage browser fixture");
+  console.log("PASS image quality dock browser fixture");
 } finally {
   c?.close(); chrome.kill(); http.close();
 }

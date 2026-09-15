@@ -80,6 +80,15 @@
           standard: { "480p":0.1260, "720p":0.1260, "1080p":0.1260 },
           pro:      { "480p":0.1680, "720p":0.1680, "1080p":0.1680 },
         },
+        // Kling 3.0 Motion Control (fal-ai/kling-video/v3/{standard,pro}/motion-control),
+        // verified 2026-09-15: $0.126/s standard, $0.168/s pro. fal documents NO
+        // resolution parameter for these endpoints — the 720p/1080p keys are the
+        // inferred tier output used as the Stage "Quality" label, not a request knob.
+        // Output length follows the motion video, so Stage bills ceil(motion seconds).
+        "kling-3.0-motion-control": {
+          standard: { "720p":0.1260 },
+          pro:      { "1080p":0.1680 },
+        },
       },
     },
     packs: {

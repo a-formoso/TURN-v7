@@ -5,6 +5,11 @@ import { transformSync } from "@babel/core";
 import {
   seedanceCapabilities,
   validateSeedanceRequest,
+  KLING_MOTION_ENDPOINTS,
+  seedanceTasksFor,
+  seedanceTaskCoercions,
+  validateMotionControlRequest,
+  motionControlCapabilities,
 } from "../supabase/functions/image-proxy/seedance-capabilities.mjs";
 
 const proxySource = readFileSync("supabase/functions/image-proxy/index.ts", "utf8");
@@ -34,6 +39,37 @@ assert.deepEqual(
   ["480p", "720p"],
 );
 assert.equal(validateSeedanceRequest(valid).ok, true);
+
+/* Server-side task modes: only Seedance 2.5's reference endpoint has them, and fal's
+   coercions (editing → duration+aspect auto, extension → aspect auto) are mirrored
+   so the browser's price and the provider's output length agree. */
+assert.deepEqual(seedanceTasksFor(valid.model), ["reference", "editing", "extension"]);
+assert.deepEqual(seedanceTasksFor("bytedance/seedance-2.0/reference-to-video"), ["reference"]);
+assert.deepEqual(seedanceCapabilities(valid.model).tasks, ["reference", "editing", "extension"]);
+assert.deepEqual(seedanceTaskCoercions("editing", { duration: 12, aspectRatio: "16:9" }), { duration: "auto", aspectRatio: "auto" });
+assert.deepEqual(seedanceTaskCoercions("extension", { duration: 12, aspectRatio: "16:9" }), { duration: 12, aspectRatio: "auto" });
+assert.deepEqual(seedanceTaskCoercions("reference", { duration: 12, aspectRatio: "16:9" }), { duration: 12, aspectRatio: "16:9" });
+assert.equal(validateSeedanceRequest({ ...valid, task: "editing", duration: "auto", aspectRatio: "auto" }).ok, true);
+assert.equal(validateSeedanceRequest({ ...valid, task: "editing", duration: "auto", aspectRatio: "auto", videos: [], metadata: { ...valid.metadata, videos: [] }, prompt: "@Image1 only." }).ok, false,
+  "editing without a video is rejected server-side");
+assert.equal(validateSeedanceRequest({ ...valid, task: "remix" }).ok, false, "unknown tasks are rejected");
+assert.equal(validateSeedanceRequest({ ...valid, model: "bytedance/seedance-2.0/reference-to-video", task: "extension", duration: 12, resolution: "720p" }).ok, false,
+  "Seedance 2.0 has no task modes");
+
+/* Server-side motion control: the endpoint list is closed, orientation is required,
+   and the 10s/30s motion-video ceiling follows the orientation. */
+const motionStd = KLING_MOTION_ENDPOINTS[0];
+assert.equal(motionControlCapabilities("bytedance/seedance-2.5/reference-to-video"), null);
+assert.deepEqual(motionControlCapabilities(motionStd).characterOrientations, ["video", "image"]);
+const motionReq = { model: motionStd, imageUrl: url("image", 1), videoUrl: url("video", 1), characterOrientation: "image", metadata: { videos: facts(1, 8) }, prompt: "" };
+assert.equal(validateMotionControlRequest(motionReq).ok, true);
+assert.equal(validateMotionControlRequest({ ...motionReq, metadata: { videos: facts(1, 12) } }).ok, false, "12s motion video exceeds the image-orientation ceiling");
+assert.equal(validateMotionControlRequest({ ...motionReq, characterOrientation: "video", metadata: { videos: facts(1, 12) } }).ok, true, "12s is fine when the scene follows the video");
+assert.equal(validateMotionControlRequest({ ...motionReq, characterOrientation: "" }).ok, false, "orientation is required");
+assert.equal(validateMotionControlRequest({ ...motionReq, metadata: { videos: facts(1) } }).ok, false, "unresolved motion duration is rejected");
+assert.equal(validateMotionControlRequest({ ...motionReq, imageUrl: "" }).ok, false);
+assert.equal(validateMotionControlRequest({ ...motionReq, prompt: "x".repeat(2001) }).ok, false, "prompt is capped at 2000 characters");
+assert.equal(validateMotionControlRequest({ ...motionReq, model: "fal-ai/kling-video/v3/standard/image-to-video" }).ok, false, "only motion-control endpoints pass");
 
 let paidTransportCalls = 0;
 const mockedSubmit = async (payload) => {
@@ -96,6 +132,8 @@ let expectReservationAtSubmit = false;
 let reservationObservedAtSubmit = false;
 const appToasts = [];
 const attemptedSubmitBodies = [];
+const capabilityCalls = [];
+let motionCapsKnown = false;
 const store = new Map();
 const sandbox = {
   console, Date, Math, JSON, Promise,
@@ -143,11 +181,26 @@ sandbox.sbClient = () => ({
   functions: {
     invoke: async (_name, { body }) => {
       if (body.op === "capabilities") {
+        capabilityCalls.push(body.model);
+        if (/\/motion-control$/.test(String(body.model || ""))) {
+          if (!motionCapsKnown) return { data: { known: false } };
+          return { data: {
+            known: true,
+            schema: "seedance-capabilities-2026-09-15",
+            capabilities: {
+              characterOrientations: ["video", "image"],
+              motionVideo: { minSeconds: 3, maxSeconds: { image: 10, video: 30 } },
+              staging: { signedUpload: true, scheme: "stage:" },
+            },
+          } };
+        }
         return { data: {
           known: true,
-          schema: "seedance-capabilities-2026-08-18",
+          schema: "seedance-capabilities-2026-09-15",
           capabilities: {
             resolutions: ["480p", "720p", "1080p"],
+            tasks: ["reference", "editing", "extension"],
+            staging: { signedUpload: true, scheme: "stage:" },
           },
         } };
       }
@@ -1078,5 +1131,190 @@ assert.equal(raceCloudWrites.length, 1, "film A recovery should cloud-commit onc
 assert.equal(raceCloudWrites[0].projectId, "film-a");
 assert.equal(raceSandbox.vidGetMeta("overlap-clip").screenplayReference.fullText, screenplayReference.fullText,
   "delayed recovery must preserve screenplay provenance");
+
+/* ---- Seedance 2.5 task modes (Edit Video / Extend Video) ------------------------
+   `task` is the proxy's op selector ("video"), so the Seedance task rides `videoTask`;
+   the browser must never smuggle a task into `body.task`. */
+const taskSubmitStart = submitted.length;
+await sandbox.seedanceGenerate("stage-extend-clip", {
+  falModel: "bytedance/seedance-2.5/reference-to-video",
+  videoUrls: ["https://signed.example/take.mp4?token=x&dur=10"],
+  prompt: "Extend @Video1 by ~10 seconds: she turns and leaves.",
+  videoTask: "extension",
+  aspectRatio: "16:9",
+  durationMs: 10000,
+  resolution: "720p",
+  pollMs: 1,
+  maxPolls: 1,
+});
+assert.equal(submitted.length, taskSubmitStart + 1);
+const extensionBody = submitted.at(-1);
+assert.equal(extensionBody.task, "video", "body.task stays the proxy op selector");
+assert.equal(extensionBody.videoTask, "extension", "the Seedance task rides videoTask");
+assert.equal(extensionBody.aspectRatio, "auto", "extensions follow the source video's aspect");
+assert.equal(extensionBody.duration, 10);
+assert.deepEqual(Array.from(extensionBody.video_urls), ["https://signed.example/take.mp4?token=x&dur=10"]);
+assert.deepEqual(Array.from(extensionBody.image_urls), [], "extension carries no still references here");
+assert.equal(sandbox.vidGetMeta("stage-extend-clip").videoTask, "extension", "take metadata records the task");
+
+await sandbox.seedanceGenerate("stage-edit-clip", {
+  falModel: "bytedance/seedance-2.5/reference-to-video",
+  videoUrls: ["https://signed.example/take.mp4?token=x&dur=8"],
+  prompt: "Replace the sky in @Video1 with a storm.",
+  videoTask: "editing",
+  aspectRatio: "9:16",
+  durationMs: 4000,
+  resolution: "1080p",
+  pollMs: 1,
+  maxPolls: 1,
+});
+const editingBody = submitted.at(-1);
+assert.equal(editingBody.videoTask, "editing");
+assert.equal(editingBody.duration, "auto", "edits keep the source length");
+assert.equal(editingBody.aspectRatio, "auto");
+assert.equal(editingBody.resolution, "1080p");
+
+await assert.rejects(sandbox.seedanceGenerate(null, {
+  falModel: "bytedance/seedance-2.5/reference-to-video",
+  prompt: "Edit nothing.",
+  videoTask: "editing",
+  durationMs: 4000, resolution: "720p", pollMs: 1, maxPolls: 1,
+}), /Add the video to edit/, "editing without a video fails before any preparation");
+await assert.rejects(sandbox.seedanceGenerate(null, {
+  falModel: "bytedance/seedance-2.0/reference-to-video",
+  videoUrls: ["https://signed.example/take.mp4?token=x&dur=8"],
+  prompt: "Extend @Video1.",
+  videoTask: "extension",
+  durationMs: 4000, resolution: "720p", pollMs: 1, maxPolls: 1,
+}), /Seedance 2\.5 only/, "task modes are Seedance 2.5 only");
+await assert.rejects(sandbox.seedanceGenerate(null, {
+  falModel: "bytedance/seedance-2.5/reference-to-video",
+  videoUrls: ["https://signed.example/take.mp4?token=x&dur=8"],
+  frameUrl: "https://signed.example/frame.png?token=x",
+  endImageUrl: "https://signed.example/end.png?token=x",
+  prompt: "Extend @Video1 to @Image1.",
+  videoTask: "extension",
+  durationMs: 4000, resolution: "720p", pollMs: 1, maxPolls: 1,
+}), /cannot combine with an end frame/);
+assert.equal(submitted.length, taskSubmitStart + 2, "rejected task requests never reach transport");
+
+/* ---- Kling 3.0 Motion Control --------------------------------------------------- */
+const motionModel = "fal-ai/kling-video/v3/standard/motion-control";
+const motionSubmitStart = submitted.length;
+const motionAttemptStart = submitAttempts;
+/* Older proxy (no motion capabilities): fail closed before staging or spending. */
+await assert.rejects(sandbox.seedanceGenerate(null, {
+  falModel: motionModel,
+  frameUrl: "https://signed.example/character.png?token=x",
+  videoUrls: ["https://signed.example/motion.mp4?token=x&dur=6"],
+  characterOrientation: "image",
+  prompt: "", durationMs: 6000, resolution: "720p", pollMs: 1, maxPolls: 1,
+}), /Pending server update — Motion Control/, "an old proxy never receives a motion-control job");
+assert.equal(submitAttempts, motionAttemptStart, "pending-server refusal does not submit");
+motionCapsKnown = true;
+await assert.rejects(sandbox.seedanceGenerate(null, {
+  falModel: motionModel,
+  frameUrl: "https://signed.example/character.png?token=x",
+  videoUrls: ["https://signed.example/motion.mp4?token=x&dur=6"],
+  prompt: "", durationMs: 6000, resolution: "720p", pollMs: 1, maxPolls: 1,
+}), /scene control choice/, "character_orientation is required");
+await assert.rejects(sandbox.seedanceGenerate(null, {
+  falModel: motionModel,
+  frameUrl: "https://signed.example/character.png?token=x",
+  videoUrls: ["https://signed.example/motion.mp4?token=x&dur=12"],
+  characterOrientation: "image",
+  prompt: "", durationMs: 12000, resolution: "720p", pollMs: 1, maxPolls: 1,
+}), /at most 10s when the character follows the image/, "image orientation caps the motion video at 10s");
+await assert.rejects(sandbox.seedanceGenerate(null, {
+  falModel: motionModel,
+  videoUrls: ["https://signed.example/motion.mp4?token=x&dur=6"],
+  characterOrientation: "video",
+  prompt: "", durationMs: 6000, resolution: "720p", pollMs: 1, maxPolls: 1,
+}), /character image/, "a character image is required");
+assert.equal(submitAttempts, motionAttemptStart, "invalid motion packages never reach transport");
+
+await assert.rejects(sandbox.seedanceGenerate(null, {
+  falModel: motionModel,
+  frameUrl: "https://signed.example/character.png?token=x",
+  videoUrls: ["https://signed.example/motion.mp4?token=x&dur=6"],
+  characterOrientation: "video",
+  screenplayReference,
+  assertScreenplayCurrent: () => true,
+  prompt: "", durationMs: 6000, resolution: "720p", pollMs: 1, maxPolls: 1,
+}), /takes no screenplay reference/, "screenplay provenance cannot be attached to a motion-control take");
+assert.equal(submitAttempts, motionAttemptStart, "screenplay-carrying motion requests never reach transport");
+await sandbox.seedanceGenerate("stage-motion-clip", {
+  falModel: motionModel,
+  frameUrl: "https://signed.example/character.png?token=x",
+  videoUrls: ["https://signed.example/motion.mp4?token=x&dur=12"],
+  characterOrientation: "video",
+  keepOriginalSound: false,
+  prompt: "cinematic lighting",
+  durationMs: 12000, resolution: "720p", pollMs: 1, maxPolls: 1,
+});
+assert.equal(submitted.length, motionSubmitStart + 1);
+const motionBody = submitted.at(-1);
+assert.equal(motionBody.task, "video");
+assert.equal(motionBody.model, motionModel);
+assert.equal(motionBody.image_url, "https://signed.example/character.png?token=x");
+assert.equal(motionBody.video_url, "https://signed.example/motion.mp4?token=x&dur=12");
+assert.equal(motionBody.characterOrientation, "video", "12s of motion is allowed when the scene follows the video");
+assert.equal(motionBody.keepOriginalSound, false);
+assert.equal(motionBody.prompt, "cinematic lighting", "motion control sends the optional prompt verbatim — no screenplay, no beat brief");
+assert.equal(motionBody.videoTask, undefined, "motion control is not a Seedance task");
+assert.equal(motionBody.duration, undefined, "Kling's output length follows the motion video");
+assert.equal(motionBody.image_urls, undefined);
+assert.equal(motionBody.referenceMetadata.videos[0].durationSeconds, 12);
+const motionMeta = sandbox.vidGetMeta("stage-motion-clip");
+assert.equal(motionMeta.characterOrientation, "video");
+assert.equal(motionMeta.keepOriginalSound, false);
+assert.equal(motionMeta.screenplayReference, undefined, "motion control take metadata carries no screenplay provenance");
+assert.ok(capabilityCalls.includes(motionModel), "motion control ran the non-spending capability handshake");
+
+/* ---- stage: references (device media staged directly into storage) -----------
+   The proxy alone can resolve `stage:<path>`; the browser only knows the facts it
+   probed before upload. Without those facts the reference must fail closed. */
+assert.equal(sandbox.vidStagingCapability({ staging: { signedUpload: true, scheme: "stage:" } }), true);
+assert.equal(sandbox.vidStagingCapability({ staging: { signedUpload: true, scheme: "blob:" } }), false);
+assert.equal(sandbox.vidStagingCapability({ resolutions: ["720p"] }), false, "an old proxy advertises no staging");
+assert.equal(sandbox.vidStagedFacts("stage:user-a/stage-tmp/unknown.mp4"), null);
+const stagedAttemptStart = submitAttempts;
+await assert.rejects(sandbox.seedanceGenerate(null, {
+  falModel: motionModel,
+  frameUrl: "https://signed.example/character.png?token=x",
+  videoUrls: ["stage:user-a/stage-tmp/unknown.mp4"],
+  characterOrientation: "video",
+  prompt: "", durationMs: 6000, resolution: "720p", pollMs: 1, maxPolls: 1,
+}), /metadata is no longer available in this tab/, "a stage: reference without probed facts fails closed");
+assert.equal(submitAttempts, stagedAttemptStart, "unverifiable staged media never reaches transport");
+assert.deepEqual(JSON.parse(JSON.stringify(sandbox.vidMotionControlLimits("image"))), { minSeconds: 3, maxSeconds: 10, maxBytes: 200 * 1024 * 1024 });
+assert.deepEqual(JSON.parse(JSON.stringify(sandbox.vidMotionControlLimits("video"))), { minSeconds: 3, maxSeconds: 30, maxBytes: 200 * 1024 * 1024 });
+
+/* Proxy source contract: the Seedance task is read from videoTask, motion endpoints
+   are allow-listed, and stage: references stay a server-side resolution. */
+assert.match(proxySource, /body\.videoTask/, "proxy reads the Seedance task from body.videoTask");
+assert.match(proxySource, /\.\.\.KLING_MOTION_ENDPOINTS/, "proxy allow-lists the shared Kling motion-control endpoint list");
+assert.deepEqual(KLING_MOTION_ENDPOINTS, ["fal-ai/kling-video/v3/standard/motion-control", "fal-ai/kling-video/v3/pro/motion-control"]);
+assert.match(proxySource, /"stage-upload"/, "proxy exposes the non-spending upload-slot op");
+assert.match(proxySource, /stage-tmp/, "proxy scopes staged media to the caller's stage-tmp namespace");
+/* The provider key rides only to fal's own hosts: lift the proxy's host check out of
+   the source and exercise it — a bare suffix test once accepted "evilfal.run". */
+assert.ok(!/host\.endsWith\("fal\.run"\)/.test(proxySource), "no bare fal.run suffix test remains in the proxy");
+const okFalHostSrc = (/const okFalHost = \(u: string\): boolean => \{[\s\S]*?\n  \};/.exec(proxySource) || [])[0];
+assert.ok(okFalHostSrc, "proxy defines one shared okFalHost");
+const okFalHost = new Function(okFalHostSrc.replace(/\(u: string\): boolean/, "(u)") + " return okFalHost;")();
+assert.equal(okFalHost("https://queue.fal.run/fal-ai/x/requests/1/status"), true);
+assert.equal(okFalHost("https://fal.run/x"), true);
+assert.equal(okFalHost("https://evilfal.run/steal"), false, "look-alike hosts never receive the key");
+assert.equal(okFalHost("http://queue.fal.run/x"), false, "plaintext hosts never receive the key");
+assert.equal(okFalHost("https://queue.fal.run.evil.example/x"), false);
+assert.equal(okFalHost("not a url"), false);
+/* Staged uploads are verified as they are consumed: the object that actually landed
+   must exist, be the declared kind, be within size, and be younger than the TTL. */
+assert.match(proxySource, /stagedObjectFacts\(stagedPath\)/, "staged refs are checked against the stored object before signing");
+assert.match(proxySource, /facts\.mime\.startsWith\(kind \+ "\/"\)/, "the stored object's MIME must match the requested kind");
+assert.match(proxySource, /facts\.size > maxBytes/, "the stored object's size is enforced server-side");
+assert.match(proxySource, /STAGE_LIMITS\.maxLive/, "device upload slots are capped per account");
+assert.match(proxySource, /\.remove\(expired/, "expired staging objects are swept when a slot is requested");
 
 console.log("Seedance payload validation tests passed.");
