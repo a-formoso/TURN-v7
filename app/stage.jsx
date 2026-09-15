@@ -2594,7 +2594,7 @@ function StageSoundPanel({ lineShots, auds, onVoiceLine }){
         title:"Open ElevenLabs — the voice engine behind TURN's dialogue"},"Open ElevenLabs ↗")));
 }
 
-function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap, drafts, prevClipVideoId, aspect, visualSource, setVisualSource, creditBalance, readOnly=false, onVoiceLine, onUpdateShot, onSelectClip, onFirstVideo, onStageNav, modelId, setModelId, clipScope, setClipScope, pendingReuse, onReuseConsumed }){
+function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState={}, auds, beatsMap, drafts, prevClipVideoId, aspect, visualSource, setVisualSource, creditBalance, readOnly=false, onVoiceLine, onUpdateShot, onSelectClip, onFirstVideo, onStageNav, modelId, setModelId, clipScope, setClipScope, pendingReuse, onReuseConsumed }){
   const scene = clip.scene, g = clip.g, d = clip.data;
   // the CLIP is the unit of generation — it may bundle 2+ merged shots (Art Room Shots
   // "merge" / Storyboards "Compose from shot frames" / a cropped sheet-half = 1 clip).
@@ -2846,7 +2846,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
       // alone (no image anchor) — the user's call, e.g. to escape a bad frame's pull
       if(firstFrame) out.push({ key:"frame", kind:"image", label:(d.cast[0]?d.cast[0].name+" — shot frame":"Shot start frame"), url:firstFrame, ready:true, id:(d.first||{}).id||activeShot.id,
         assetRole:"shot_anchor", assetSourceQuality:"shot_frame_full_frame" });
-      else out.push({ key:"frame-missing", kind:"image", label:"Shot start frame", ready:false, locked:true });
+      else out.push({ key:"frame-missing", kind:"image", label:"Shot start frame", ready:false, locked:true,
+        id:(d.first||{}).id||activeShot.id });
     }
     if(_mRefs){
       // Active character/location/prop rows come exclusively from the authoritative
@@ -3010,25 +3011,66 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   const [extraOn, setExtraOn] = React.useState(()=>new Set());
   const [imgFail, setImgFail] = React.useState(()=>new Set());   // "key|url" pairs whose image failed to load — keyed BY URL so a regenerated/refreshed image (new URL) automatically retries instead of staying stuck on the placeholder
   const imgFailed = (a)=> imgFail.has(a.key+"|"+(a.url||""));
+  const [imgRetrying,setImgRetrying] = React.useState(()=>new Set());
+  const imgRepairOwner = React.useRef(null);
+  React.useEffect(()=>{
+    const owner={};
+    imgRepairOwner.current=owner;
+    imgRepairRef.current.clear();
+    setImgRetrying(new Set());
+    setImgFail(new Set());
+    return ()=>{ if(imgRepairOwner.current===owner)imgRepairOwner.current=null; };
+  },[ctx.project]);
   // One transparent asset-id rehydrate repairs an expired signed URL or revoked
   // blob URL. Remember both URLs so a genuinely bad asset cannot retry-loop; a
   // later regenerated URL is different and is eligible for its own recovery.
   const imgRepairRef = React.useRef(new Map());
+  const retryImg = (a,manual=false)=>{
+    const k=a.key+"|"+(a.url||"");
+    if(!a.id || a.referenceKind==="screenplay" || typeof nbRefreshImage!=="function") return;
+    const prior=imgRepairRef.current.get(a.id);
+    if(prior && (prior.pending || (!manual&&(prior.failedUrl===a.url || prior.replacementUrl===a.url)))) return;
+    const owner=imgRepairOwner.current;
+    const rec={failedUrl:a.url||"",replacementUrl:"",pending:true};
+    imgRepairRef.current.set(a.id,rec);
+    setImgRetrying(s=>new Set(s).add(k));
+    const owns=()=>imgRepairOwner.current===owner&&imgRepairRef.current.get(a.id)===rec;
+    Promise.resolve().then(()=>nbRefreshImage(a.id,a.url)).then(u=>{
+      if(!owns())return;
+      rec.replacementUrl=u||"";
+      if(u){
+        setImgFail(s=>{ if(!s.has(k)) return s; const n=new Set(s); n.delete(k); return n; });
+        // The local backend does not broadcast refreshes; re-read the exact id
+        // through the parent loader in either backend.
+        window.dispatchEvent(new CustomEvent("nb-prefetched",{detail:{ids:[a.id],refreshed:true}}));
+      }else if(manual&&typeof window.appToast==="function"){
+        window.appToast(a.label+" is still unavailable. Check its source image in the Art Room.","info");
+      }
+    }).catch(()=>{
+      if(!owns())return;
+      setImgFail(s=>new Set(s).add(k));
+      if(manual&&typeof window.appToast==="function")
+        window.appToast("Could not reload "+a.label+". Check its source and access in the Art Room, or try again.","error");
+    }).finally(()=>{
+      rec.pending=false;
+      if(owns())setImgRetrying(s=>{const n=new Set(s);n.delete(k);return n;});
+    });
+  };
   const noteImgFail = (a)=>{
     const k=a.key+"|"+(a.url||"");
     setImgFail(s=>{ if(s.has(k)) return s; const n=new Set(s); n.add(k); return n; });
-    if(!a.id || typeof nbRefreshImage!=="function") return;
-    const prior=imgRepairRef.current.get(a.id);
-    if(prior && (prior.failedUrl===a.url || prior.replacementUrl===a.url)) return;
-    const rec={failedUrl:a.url||"",replacementUrl:""};
-    imgRepairRef.current.set(a.id,rec);
-    nbRefreshImage(a.id,a.url).then(u=>{
-      rec.replacementUrl=u||"";
-      // Re-test even if the refreshed signed URL string is unchanged: the first
-      // load failure may have been transient. A second failure stays visible.
-      if(u) setImgFail(s=>{ if(!s.has(k)) return s; const n=new Set(s); n.delete(k); return n; });
-    }).catch(()=>{});
+    retryImg(a);
   };
+  const thumbnailState = a=>{
+    if(a.kind!=="image")return "";
+    if(imgRetrying.has(a.key+"|"+(a.url||"")))return "loading";
+    if(imgFailed(a))return "error";
+    if(a.url)return "ready";
+    return imageLoadState[a.id]||"unavailable";
+  };
+  const thumbnailLabel = a=>({loading:"Loading…",error:"Load failed",unavailable:"Unavailable"}[thumbnailState(a)]||"");
+  const canRetryImg = a=>a.kind==="image"&&!!a.id&&a.referenceKind!=="screenplay"
+    &&typeof nbRefreshImage==="function"&&["error","unavailable"].includes(thumbnailState(a));
   const on = (a)=> a.ready && (a.sceneOnly ? extraOn.has(a.key) : !off.has(a.key));
   const tagged = React.useMemo(()=>{
     const n={text:0,image:0,video:0,audio:0}, tags={};
@@ -4391,10 +4433,13 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     _stEl("div",{className:"stage2-gen-reference-row","aria-label":"Render references"},
       _stEl("div",{className:"stage2-gen-assets"},
         composerAssets.map(a=>_stEl("button",{key:a.key,type:"button",
-          className:"stage2-gen-asset "+a.kind+(a.locked?" locked":"")+(on(a)?"":" off")+(!a.ready?" missing":""),
-          title:assetTitle(a),"data-reference-kind":a.referenceKind||undefined,
-          onClick:()=>a.referenceKind==="screenplay"
-            ? setMaxImg({url:a.url,label:a.label,kind:"image"}) : toggle(a)},
+          className:"stage2-gen-asset "+a.kind+(a.locked?" locked":"")+(on(a)?"":" off")+(!a.ready?" missing":"")+(canRetryImg(a)?" retryable":""),
+          title:assetTitle(a)+(thumbnailLabel(a)?(" · "+thumbnailLabel(a)+(canRetryImg(a)?" · Click to reload this image (no generation)":"")):""),
+          "data-reference-kind":a.referenceKind||undefined,"data-asset-id":a.id||undefined,
+          "data-thumbnail-state":thumbnailState(a)||undefined,
+          "aria-busy":thumbnailState(a)==="loading"?"true":undefined,
+          onClick:()=>canRetryImg(a)?retryImg(a,true):thumbnailState(a)==="loading"?null
+            :a.referenceKind==="screenplay"?setMaxImg({url:a.url,label:a.label,kind:"image"}):toggle(a)},
           a.kind==="text" ? _stEl("span",{className:"stage2-gen-asset-text"},"T")
           : a.kind==="audio" ? _stEl("span",{className:"stage2-gen-asset-icon"},Icon.mic&&_stEl(Icon.mic,{s:14}))
           : (a.url && !imgFailed(a)) ? (a.kind==="video"
@@ -4402,7 +4447,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
               : _stEl("img",{src:a.url,alt:a.referenceKind==="screenplay"?a.label:"",loading:"lazy",
                   onError:()=>noteImgFail(a)}))
           : _stEl("span",{className:"stage2-gen-asset-ph"+(a.ready?"":" miss")},
-              a.kind==="video" ? (Icon.play&&_stEl(Icon.play,{s:13})) : (Icon.image&&_stEl(Icon.image,{s:13})),
+              a.kind==="image" ? _stEl("strong",null,thumbnailLabel(a))
+                : a.kind==="video" ? (Icon.play&&_stEl(Icon.play,{s:13})) : (Icon.image&&_stEl(Icon.image,{s:13})),
               _stEl("small",null,a.label)),
           (a.url && !imgFailed(a) && (a.kind==="image"||a.kind==="video")) && _stEl("span",{className:"stage2-gen-asset-max",role:"button","aria-label":"Maximise",title:"Maximise "+a.label,
             onClick:(e)=>{ e.stopPropagation(); e.preventDefault(); setMaxImg({url:a.url, label:a.label, kind:a.kind}); }},
@@ -5998,6 +6044,16 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   const sceneOrderKey = JSON.stringify((ordered||[]).map((s,i)=>[i,s.id,s.no,s.order]));
   const locIdsKey = (locations||[]).map(l=>l.id).join(",");
   const propIdsKey = (props||[]).map(p=>p.id).join(",");
+  // Resolve inventory before memoizing hydration: draft/coverage changes can
+  // select another asset without changing scene, clip or entity ids.
+  const requiredReferenceIds = new Set();
+  if(typeof window.stageShotReferencePackage==="function"){
+    scenesWithShots.forEach(scene=>{
+      const pack=window.stageShotReferencePackage(shotsByScene[scene.id]||[],{...ctx,scene,drafts});
+      ["characters","locations","props"].forEach(k=>(pack[k]||[]).forEach(r=>r&&r.assetId&&requiredReferenceIds.add(r.assetId)));
+    });
+  }
+  const requiredReferenceIdsKey=JSON.stringify(Array.from(requiredReferenceIds).sort());
   const neededIds = React.useMemo(()=>{ const s=new Set();
     (shots||[]).forEach(sh=>s.add(sh.id)); (characters||[]).forEach(c=>s.add(c.id));
     (locations||[]).forEach(l=>s.add(l.id)); (props||[]).forEach(p=>s.add(p.id));
@@ -6012,15 +6068,11 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
     // the clip-derived VARIANT ids too — a prop's active state sheet and the scene's
     // coverage sheet aren't in the base id lists above, so they'd never be fetched
     allClips.forEach(c=>{ const dd=c.data||{}; (dd.props||[]).forEach(p=>s.add(p.sheetId||p.id)); if(dd.locSheet&&dd.locSheet.id) s.add(dd.locSheet.id); });
-    if(typeof window.stageShotReferencePackage==="function"){
-      scenesWithShots.forEach(scene=>{
-        const pack=window.stageShotReferencePackage(shotsByScene[scene.id]||[],{...ctx,scene,drafts});
-        ["characters","locations","props"].forEach(k=>(pack[k]||[]).forEach(r=>r&&r.assetId&&s.add(r.assetId)));
-      });
-    }
-    return Array.from(s); }, [shotIdsKey, charIdsKey, sceneOrderKey, locIdsKey, propIdsKey, allClips.map(c=>c.id).join(","), scenesWithShots.map(s=>s.id).join(","),
+    requiredReferenceIds.forEach(id=>s.add(id));
+    return Array.from(s); }, [shotIdsKey, charIdsKey, sceneOrderKey, locIdsKey, propIdsKey, requiredReferenceIdsKey, allClips.map(c=>c.id).join(","), scenesWithShots.map(s=>s.id).join(","),
       JSON.stringify(allClips.map(c=>[(((c.data||{}).props)||[]).map(p=>p.sheetId||p.id).join("|"), (((c.data||{}).locSheet)||{}).id||""]))]);
   const [imgs, setImgs] = React.useState({});
+  const [imageLoadState,setImageLoadState] = React.useState({});
   const [imgTick, setImgTick] = React.useState(0);
   React.useEffect(()=>{ const h=()=>setImgTick(x=>x+1); window.addEventListener("nb-gen-done", h); window.addEventListener("nb-prefetched", h); return ()=>{ window.removeEventListener("nb-gen-done", h); window.removeEventListener("nb-prefetched", h); }; }, []);
   React.useEffect(()=>{ let alive=true;
@@ -6028,6 +6080,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
     const sync = {}, missing = [];
     ids.forEach(id=>{ const u=(typeof nbGetImage==="function")?nbGetImage(id):""; if(u) sync[id]=u; else missing.push(id); });
     setImgs(sync);
+    setImageLoadState(Object.fromEntries(missing.map(id=>[id,typeof nbLoadImage==="function"?"loading":"unavailable"])));
     if(typeof nbLoadImage!=="function" || !missing.length){ return ()=>{ alive=false; }; }
     (async()=>{
       const limit = 8;
@@ -6038,7 +6091,8 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
           try{
             const u = await nbLoadImage(id);
             if(alive && u) setImgs(prev=> prev[id] ? prev : ({...prev, [id]:u}));
-          }catch(e){}
+            if(alive)setImageLoadState(prev=>({...prev,[id]:u?"ready":"unavailable"}));
+          }catch(e){ if(alive)setImageLoadState(prev=>({...prev,[id]:"error"})); }
         }
       };
       await Promise.all(Array.from({length:Math.min(limit, missing.length)}, worker));
@@ -6226,7 +6280,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
             // hash the member shots), and remounting the console wiped the recipe
             // tab + Multi-shot row state mid-edit; the console's own member-overlap
             // effect handles real clip moves within the scene.
-            : _stEl(ClipConsole,{ key:"console-"+selectedScene.id, clip, selectedShot, sceneClips:selectedSceneClips, ctx, imgs, auds, beatsMap, drafts, prevClipVideoId:prevBeatVideoId, aspect, visualSource, setVisualSource, creditBalance, readOnly, onVoiceLine, onUpdateShot, onStageNav, modelId, setModelId, clipScope, setClipScope,
+            : _stEl(ClipConsole,{ key:"console-"+selectedScene.id, clip, selectedShot, sceneClips:selectedSceneClips, ctx, imgs, imageLoadState, auds, beatsMap, drafts, prevClipVideoId:prevBeatVideoId, aspect, visualSource, setVisualSource, creditBalance, readOnly, onVoiceLine, onUpdateShot, onStageNav, modelId, setModelId, clipScope, setClipScope,
                 onSelectClip,
                 onFirstVideo:()=>setStageView("versions"),
                 pendingReuse, onReuseConsumed:()=>setPendingReuse(null) }))));

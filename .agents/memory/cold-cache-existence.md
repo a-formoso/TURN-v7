@@ -12,3 +12,9 @@ description: Existence checks that gate credit-spending generation must await th
 Metadata is not proof of loaded image bytes. For an explicitly required render reference, an available-image inventory takes precedence over cached approval metadata. Block while its image is unavailable/loading and clear the gate after the asynchronous loader finishes; never substitute another reference silently.
 
 **Why:** approval metadata can survive a missing image or arrive before the image itself. Displaying a missing-reference warning without feeding the same condition into the submission gate allowed an incomplete paid render.
+
+Hydration invalidation must follow the resolved image inventory, not just the owning scene, shot or character IDs.
+
+**Why:** A screenplay or coverage change can select a different asset while those owner IDs stay identical. The reference row then points at a valid new asset that the old loading memo never requests.
+
+**How to apply:** Include the exact resolved asset IDs when deciding whether to reload references. Keep loading, unavailable and failed-preview states distinct; a retry must reload the same asset, never generate or substitute one.

@@ -63,8 +63,8 @@ async function prepareFixture() {
   await mkdir(FIXTURE, {recursive:true});
   await mkdir(OUT, {recursive:true});
   let css;
-  try { css=await readFile(new URL("dist/app/styles.css", ROOT)); }
-  catch { css=await readFile(new URL("app/styles.css", ROOT)); }
+  try { css=await readFile(new URL("app/styles.css", ROOT)); }
+  catch { css=await readFile(new URL("dist/app/styles.css", ROOT)); }
   await writeFile(`${FIXTURE}/styles.css`, css);
   await writeFile(`${FIXTURE}/stage-screenplay.css`,
     await readFile(new URL("app/stage-screenplay.css", ROOT)));
@@ -129,7 +129,7 @@ function fixtureHtml() {
 <script src="/react.js"></script><script src="/react-dom.js"></script>
 <script>
 /* Deterministic browser-only boundaries. Every call is recorded for assertions. */
-window.__fixture={calls:[],loadCalls:[],updates:[],confirms:[],toasts:[],errors:[],consoleErrors:[],proxyKnown:false,lastRuntimeCapabilities:null,
+window.__fixture={calls:[],loadCalls:[],imageOverrides:{},refreshResults:{},refreshCalls:[],delayedImages:{},updates:[],confirms:[],toasts:[],errors:[],consoleErrors:[],proxyKnown:false,lastRuntimeCapabilities:null,
   variantLoaded:false,policyRefusal:false,hardRemounts:0,genEvents:0};
 window.addEventListener("nb-gen-done",()=>__fixture.genEvents++);
 const __fixtureConsoleError=console.error.bind(console);
@@ -222,14 +222,30 @@ window.useSeedanceGen=id=>{
     cancel:()=>window.__fixture.calls.push(["cancel",id])
   };
 };
-window.nbGetImage=id=>(
+window.nbGetImage=id=>Object.prototype.hasOwnProperty.call(__fixture.imageOverrides,id)
+  ?__fixture.imageOverrides[id]:(
   (id==="char-mara:wardrobe"&&!__fixture.variantLoaded)||id==="char-mara:storm"
 )?"":px;
 window.nbLoadImage=async id=>{
   __fixture.loadCalls.push(id);
+  if(__fixture.delayedImages[id]){
+    await new Promise(resolve=>setTimeout(resolve,200));
+    __fixture.imageOverrides[id]=__fixture.delayedImages[id];
+    return __fixture.delayedImages[id];
+  }
   if(id==="char-mara:storm"){
     await new Promise(resolve=>setTimeout(resolve,120));
     return px;
+  }
+  return window.nbGetImage(id);
+};
+window.nbRefreshImage=async(id,url)=>{
+  __fixture.refreshCalls.push([id,url||""]);
+  await new Promise(resolve=>setTimeout(resolve,100));
+  if(Object.prototype.hasOwnProperty.call(__fixture.refreshResults,id)){
+    const result=__fixture.refreshResults[id];
+    if(result==="THROW")throw new Error("Fixture network unavailable");
+    __fixture.imageOverrides[id]=result;
   }
   return window.nbGetImage(id);
 };
@@ -1170,6 +1186,60 @@ async function main() {
     const shootDesktop=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
     await writeFile(`${OUT}/stage-shoot-desktop.png`,Buffer.from(shootDesktop.data,"base64"));
 
+    /* Thumbnail states and exact-id recovery, without replacing references or
+       generating new assets. Keep these mutations after source/prompt tests. */
+    await c.eval(`document.querySelector('button[title="Reference mode"]').click()`);
+    await waitFor(()=>c.eval(`[...document.querySelectorAll(".sdbar-option b")].some(x=>x.textContent==="Reference frames")`),"reference-frame mode for thumbnail checks");
+    await c.eval(`([...document.querySelectorAll(".sdbar-option b")].find(x=>x.textContent==="Reference frames")).closest("button").click()`);
+    const frameThumb='.stage2-gen-assets [data-asset-id="shot-a"]';
+    const thumbBaseline=await c.eval(`({calls:__fixture.calls.length,story:JSON.stringify(__story)})`);
+    await c.eval(`__fixture.imageOverrides["shot-a"]="";window.dispatchEvent(new CustomEvent("nb-prefetched"));`);
+    await waitFor(()=>c.eval(`document.querySelector(${JSON.stringify(frameThumb)})?.dataset.thumbnailState==="unavailable"`),"empty source becomes explicitly unavailable after loading");
+    assert.match(await c.eval(`document.querySelector(${JSON.stringify(frameThumb)}).textContent`),/Unavailable/);
+    assert.equal(await c.eval(`getComputedStyle(document.querySelector(${JSON.stringify(frameThumb)})).opacity`),"1","unavailable label is not faded into an unreadable broken-image placeholder");
+    assert.match(await c.eval(`document.querySelector(${JSON.stringify(frameThumb)}).title`),/Click to reload.*no generation/);
+    await c.eval(`__fixture.refreshResults["shot-a"]=px;document.querySelector(${JSON.stringify(frameThumb)}).click();`);
+    await waitFor(()=>c.eval(`document.querySelector(${JSON.stringify(frameThumb)})?.dataset.thumbnailState==="loading"`),"manual reload is visibly loading");
+    await waitFor(()=>c.eval(`document.querySelector(${JSON.stringify(frameThumb)})?.querySelector("img")?.naturalWidth>0`),"manual retry loads the existing exact shot image");
+    assert.equal(await c.eval(`__fixture.refreshCalls.at(-1)[0]`),"shot-a");
+
+    await c.eval(`__fixture.imageOverrides["shot-a"]="data:image/png;base64,broken";__fixture.refreshResults["shot-a"]=px;window.dispatchEvent(new CustomEvent("nb-prefetched"));`);
+    await waitFor(()=>c.eval(`__fixture.refreshCalls.some(x=>x[0]==="shot-a"&&x[1]==="data:image/png;base64,broken")`),"failed URL automatically re-resolves the exact asset");
+    await waitFor(()=>c.eval(`document.querySelector(${JSON.stringify(frameThumb)})?.querySelector("img")?.naturalWidth>0`),"replacement URL paints successfully");
+
+    const beforePersistent=await c.eval(`__fixture.refreshCalls.length`);
+    await c.eval(`__fixture.imageOverrides["shot-a"]="data:image/png;base64,still-broken";__fixture.refreshResults["shot-a"]="THROW";window.dispatchEvent(new CustomEvent("nb-prefetched"));`);
+    await waitFor(()=>c.eval(`document.querySelector(${JSON.stringify(frameThumb)})?.dataset.thumbnailState==="error"`),"persistent preview error is explicitly labelled");
+    await new Promise(r=>setTimeout(r,180));
+    assert.equal(await c.eval(`__fixture.refreshCalls.length`),beforePersistent+1,"automatic refresh failure does not loop");
+    assert.match(await c.eval(`document.querySelector(${JSON.stringify(frameThumb)}).textContent`),/Load failed/);
+    await c.eval(`document.querySelector(${JSON.stringify(frameThumb)}).scrollIntoView({block:"center"});`);
+    const thumbFailure=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
+    await writeFile(`${OUT}/stage-thumbnail-failure.png`,Buffer.from(thumbFailure.data,"base64"));
+    await c.eval(`__fixture.refreshResults["shot-a"]=px;document.querySelector(${JSON.stringify(frameThumb)}).click();`);
+    await waitFor(()=>c.eval(`document.querySelector(${JSON.stringify(frameThumb)})?.querySelector("img")?.naturalWidth>0`),"manual retry remains available after automatic failure");
+
+    // Resolve a new location asset with unchanged scene/clip/entity ids. This
+    // isolates the inventory memo contract from pre-existing derived-clip keys.
+    const locationThumb='.stage2-gen-assets [data-asset-id="loc-fresh-coverage"]';
+    await c.eval(`(()=>{
+      window.__originalRefPackage=window.stageShotReferencePackage;
+      window.stageShotReferencePackage=(shots,ctx)=>{
+        const p=__originalRefPackage(shots,ctx);
+        return ctx.scene?.id==="scene-1"?{...p,signature:p.signature+"-new-coverage",
+          locations:[{assetId:"loc-fresh-coverage",entityId:"loc-observatory",
+            roles:["master_reference"],shotIds:shots.map(s=>s.id)}]}:p;
+      };
+      __fixture.imageOverrides["loc-fresh-coverage"]="";
+      __fixture.delayedImages["loc-fresh-coverage"]=px;
+      window.mount();
+    })()`);
+    await waitFor(()=>c.eval(`__fixture.loadCalls.includes("loc-fresh-coverage")`),"changed reference-package asset id is loaded without a cache event");
+    await waitFor(()=>c.eval(`document.querySelector(${JSON.stringify(locationThumb)})?.querySelector("img")?.naturalWidth>0`),"new coverage image replaces its loading placeholder");
+    assert.equal(await c.eval(`__fixture.calls.length`),thumbBaseline.calls,"thumbnail recovery never calls a generation provider");
+    assert.equal(await c.eval(`JSON.stringify(__story)`),thumbBaseline.story,"thumbnail recovery leaves story and saved reference choices untouched");
+    await c.eval(`window.stageShotReferencePackage=window.__originalRefPackage;window.mount();`);
+
     /* Actual review UI, references, and take controls. */
     await c.eval(`([...document.querySelectorAll(".viewnav button")].find(x=>x.textContent.trim()==="Takes")).click()`);
     await waitFor(()=>c.eval(`document.querySelector(".stage2-vers")?.innerText.includes("2 takes")`),"take review");
@@ -1203,7 +1273,7 @@ async function main() {
     if(regressions.length) throw new Error("Stage regressions:\\n- "+regressions.join("\\n- "));
     console.log("PASS Stage browser regression");
   } catch(error) {
-    if(c) try{ console.error("Stage failure state:",await c.eval(`JSON.stringify({blockers:[...document.querySelectorAll(".stage2-blocker,.stage2-warn")].map(e=>e.textContent),scene:document.querySelector(".stage2-clip-head")?.textContent,source:document.querySelector('[data-testid="stage-scene-screenplay"]')?.textContent.slice(0,200),errors:window.__fixture.errors})`)); }catch{}
+    if(c) try{ console.error("Stage failure state:",await c.eval(`JSON.stringify({blockers:[...document.querySelectorAll(".stage2-blocker,.stage2-warn")].map(e=>e.textContent),scene:document.querySelector(".stage2-clip-head")?.textContent,source:document.querySelector('[data-testid="stage-scene-screenplay"]')?.textContent.slice(0,200),thumbnails:[...document.querySelectorAll(".stage2-gen-assets button")].map(e=>({id:e.dataset.assetId,state:e.dataset.thumbnailState,label:e.textContent})),errors:window.__fixture.errors})`)); }catch{}
     throw error;
   } finally {
     try{c?.close();}catch{}
