@@ -85,6 +85,12 @@ const Icon = {
   video:(p)=>I({...p,children:[
     React.createElement("rect",{key:1,x:3,y:6.5,width:13,height:11,rx:2}),
     React.createElement("path",{key:2,d:"M16 10.5l5-3v9l-5-3z"})]}),
+  volume:(p)=>I({...p,children:[
+    React.createElement("path",{key:1,d:"M11 5L6 9H2.5v6H6l5 4V5z"}),
+    React.createElement("path",{key:2,d:"M15.5 8.5a5 5 0 0 1 0 7M18.7 5.3a9.5 9.5 0 0 1 0 13.4"})]}),
+  volumeX:(p)=>I({...p,children:[
+    React.createElement("path",{key:1,d:"M11 5L6 9H2.5v6H6l5 4V5z"}),
+    React.createElement("path",{key:2,d:"M22 9l-6 6M16 9l6 6"})]}),
   music:(p)=>I({...p,children:[
     React.createElement("path",{key:1,d:"M9 18V6l10-2.5V16"}),
     React.createElement("circle",{key:2,cx:6.5,cy:18,r:2.5}),

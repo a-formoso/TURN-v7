@@ -4350,43 +4350,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     setMentionBox(null);
     requestAnimationFrame(()=>{ try{ api && api.applyValue && api.applyValue(next, nextPos); }catch(_e){} });
   };
-  // ---- PROMPT STYLE menu — the documented Seedance prompt grammars, choosable per
-  // beat. An explicit pick REBUILDS the box in that structure (even over manual edits
-  // — the click is the request); Auto returns to the researched director brief.
-  // Descriptions distilled from the Seedance 2.0/2.5 prompting guides (fal, 2026-08).
-  const pickPromptStyle = (id)=>{
-    setPromptStyle(id);
-    promptEditedRef.current = false;
-    delete promptDraftsRef.current[promptDraftKey];
-    setPrompt((id!=="auto" && promptStyleAvailable(id)) ? recipeText(id, true) : recipeText(defaultRecipe()));
-  };
-  const promptStyleUiOptions = [
-    { id:"auto", label:"Auto — director's brief",
-      desc: modelId==="seedance-2.5"
-        ? "Whole-beat shot sequence: every shot in this beat in order — each with its own micro-beats, camera and dialogue placement, joined by hard cuts. The researched 2.5 default."
-        : "This beat's director brief — subject, ordered micro-beats, dialogue, camera and continuity rules. The researched default.",
-      onPick:()=>pickPromptStyle("auto") },
-    { id:"narrative", label:"Narrative",
-      desc:"One flowing paragraph — who, doing what, where, the spoken line in quotes, camera in its own clause. Best for simple single-action beats.",
-      onPick:()=>pickPromptStyle("narrative") },
-    { id:"timeline", label:"Timeline",
-      desc:"Time-coded windows (0–4s, 4–9s…) paced from each shot or micro-beat — use when several things must land in order.",
-      onPick:()=>pickPromptStyle("timeline") },
-    { id:"panels", label:"Shot list",
-      desc:"Explicit SHOT 1 / SHOT 2 cut points tied to screenplay and storyboard panels, with continuity rules — for stacked shots in one render.",
-      onPick:()=>pickPromptStyle("panels") },
-    { id:"structured", label:"Structured fields",
-      desc:"Labelled control fields — Subject / Action / Dialogue / Setting / Camera / Lighting / Style.",
-      onPick:()=>pickPromptStyle("structured") },
-    { id:"lipsync", label:"Dialogue / lip-sync",
-      desc:"Phrased around the spoken lines — each speaker paired with their own voice reference for exact lip-sync.",
-      disabled:!promptStyleAvailable("lipsync"),
-      note:promptStyleAvailable("lipsync") ? "" : "No spoken lines in this beat",
-      onPick:()=>pickPromptStyle("lipsync") },
-  ];
-  const promptStyleUiLabel = effPromptStyle
-    ? ((promptStyleUiOptions.find(o=>o.id===effPromptStyle)||{}).label||"Auto")
-    : "Auto";
+  // The prompt is always written in the researched director's-brief grammar (the
+  // former PROMPT STYLE menu was removed from the composer bar); promptStyle stays
+  // "auto", so effPromptStyle is null and every rebuild goes through recipeText(recipe).
   const sdPill = (key, cls, title, body, popover)=>_stEl("div",{className:"sdbar-anchor"+(sdMenu===key?" open":"")},
     _stEl("button",{type:"button",className:"sdbar-pill "+(cls||""),title,
       onClick:(e)=>{ e.stopPropagation(); setSdMenu(m=>m===key?null:key); }},
@@ -4423,17 +4389,14 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const composerBar = (chips, tail, o)=>_stEl("div",{ref:o&&o.barRef,className:"sdbar inline"+(o&&o.cls?" "+o.cls:""),onMouseDown:e=>e.stopPropagation()},
     _stEl("div",{className:"sdbar-left"}, ...chips.filter(Boolean)),
     _stEl("div",{className:"sdbar-right"}, ...tail.filter(Boolean)));
+  // icon-only: a speaker for sound on, a crossed speaker for off (the title says why)
   const soundChip = (on, o)=>_stEl("button",{type:"button",className:"sdbar-chip sound"+(on?" on":""),
-      "aria-pressed":on?"true":"false", disabled:!!o.disabled, title:o.title, onClick:o.onClick},
-    Icon.mic&&_stEl(Icon.mic,{s:12}), _stEl("span",null,"Sound "+(on?"On":"Off")));
+      "aria-pressed":on?"true":"false", "aria-label":"Sound "+(on?"on":"off"), disabled:!!o.disabled, title:o.title, onClick:o.onClick},
+    _stEl(on ? Icon.volume : Icon.volumeX, {s:14}));
   const createSoundChip = soundChip(soundOn, { disabled:hasDialogue,
     title:hasDialogue ? "Sound stays on — this beat has dialogue, so the audio track carries the performance"
       : (nativeAudio ? "Sound on — the model renders ambience, effects and music. Click to render silent." : "Silent render — click to turn native sound on."),
     onClick:()=>{ if(hasDialogue) return; setNativeAudio(v=>!v); } });
-  const promptStylePill = sdPill("pstyle","inline pstyle","Prompt style — how the prompt is written for this beat",
-    _stEl(React.Fragment,null, Icon.text&&_stEl(Icon.text,{s:13}), _stEl("span",null,promptStyleUiLabel)),
-    _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
-      promptStyleUiOptions.map(o=>sdOption({ ...o, selected:(effPromptStyle||"auto")===o.id }))));
   const promptCount = (text)=>_stEl("span",{className:"sdbar-count",title:"Prompt length"}, String(text||"").length+" / "+PANEL_PROMPT_MAX);
   // a fixed, non-interactive chip ("Auto" values the task dictates)
   const fixedPill = (title, body)=>_stEl("div",{className:"sdbar-anchor"},
@@ -4873,7 +4836,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     createTask==="reference" && characterChoicesEl,
     createTask==="reference" && multishotEditor,
     promptRowWith(composerBar(
-      [ createSoundChip, promptStylePill, durationPill,
+      [ createSoundChip, durationPill,
         createTask==="extension"
           ? fixedPill("Extensions keep the source video's aspect ratio", _stEl(React.Fragment,null, Icon.monitor&&_stEl(Icon.monitor,{s:13}), _stEl("span",null,"Auto")))
           : aspectPill,

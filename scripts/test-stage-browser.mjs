@@ -1105,10 +1105,14 @@ async function main() {
       const tabs=await c.eval(`[...document.querySelectorAll(".stage2-ctab-btn")].map(b=>b.textContent.trim())`);
       assert.deepEqual(tabs,["Create Video","Edit Video","Motion Control"],"composer tabs follow the Create / Edit / Motion layout");
       const toolbar=await c.eval(`(()=>{const bar=document.querySelector(".stage2-gen-composer .sdbar");return {
-        elements:!!bar.querySelector(".sdbar-chip.elements"),sound:bar.querySelector(".sdbar-chip.sound")?.textContent.trim()||"",
+        elements:!!bar.querySelector(".sdbar-chip.elements"),sound:bar.querySelector(".sdbar-chip.sound")?.getAttribute("aria-label")||"",
+        soundText:bar.querySelector(".sdbar-chip.sound")?.textContent.trim()||"",soundIcon:bar.querySelector(".sdbar-chip.sound [data-icon]")?.getAttribute("data-icon")||"",
+        soundOn:bar.querySelector(".sdbar-chip.sound")?.getAttribute("aria-pressed")||"",
         source:document.querySelectorAll(".sdbar button[title='Reference mode']").length,count:bar.querySelector(".sdbar-count")?.textContent.trim()||""};})()`);
       assert.equal(toolbar.elements,false,"the Create Video prompt box has no @ Elements chip (references come from the Add references card)");
-      assert.match(toolbar.sound,/^Sound (On|Off)$/,"prompt box carries the Sound chip");
+      assert.match(toolbar.sound,/^Sound (on|off)$/,"prompt box carries the Sound chip (labelled for screen readers)");
+      assert.equal(toolbar.soundText,"","the Sound chip is icon-only");
+      assert.equal(toolbar.soundIcon,toolbar.soundOn==="true"?"volume":"volumeX","the speaker icon mirrors the on/off state");
       assert.equal(toolbar.source,0,"the Omni reference source pill is gone from the toolbar");
       assert.match(toolbar.count,/\d+ \/ \d+/,"character counter sits on the right of the toolbar");
       /* the composer bar: every control on ONE line at the foot of the prompt card,
@@ -1123,7 +1127,7 @@ async function main() {
       const bar1=await readBar();
       assert.ok(bar1&&bar1.gen,"Generate sits inside the composer bar, on the right");
       assert.match(bar1.titles[0],/^(Sound|Silent)/,"the Sound chip opens the line");
-      assert.deepEqual(bar1.titles.slice(1),["Prompt style","Duration","Aspect ratio","Resolution","Bitrate"],"Prompt style, Duration, Aspect, Resolution and Bitrate follow it on the same line");
+      assert.deepEqual(bar1.titles.slice(1),["Duration","Aspect ratio","Resolution","Bitrate"],"Duration, Aspect, Resolution and Bitrate follow it on the same line — no prompt-style pill");
       assert.ok(Math.abs(bar1.first.t-bar1.last.t)<1&&Math.abs(bar1.first.b-bar1.last.b)<1,"on a wide composer the chips share one line "+JSON.stringify({first:bar1.first,last:bar1.last,bar:bar1.bar}));
       assert.ok(bar1.genRect.l>=bar1.last.r,"Generate is to the right of the last chip");
       assert.ok(bar1.genRect.h>bar1.last.h&&Math.abs(bar1.genRect.b-bar1.last.b)<2,"Generate stands taller than the chips and shares their baseline");
@@ -1153,7 +1157,7 @@ async function main() {
       await c.eval(`document.querySelector(".stage2-gen-composer .stage2-gen-box")?.scrollIntoView({block:"center"})`);
       await new Promise(r=>setTimeout(r,60));
       await writeFile(`${OUT}/stage-composer-bar-mobile-390.png`,Buffer.from((await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false})).data,"base64"));
-      for(const title of ["Prompt style","Duration","Aspect ratio","Resolution","Bitrate"]){
+      for(const title of ["Duration","Aspect ratio","Resolution","Bitrate"]){
         const pillJs=`[...document.querySelectorAll(".sdbar.inline .sdbar-pill")].find(b=>(b.title||"").startsWith(${JSON.stringify(title)}))`;
         await c.eval(`${pillJs}.click()`);
         await waitFor(()=>c.eval(`!!${pillJs}.parentElement.querySelector(".sdbar-pop")`),title+" menu opens on a phone");

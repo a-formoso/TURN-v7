@@ -6046,6 +6046,7 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
   color:var(--txt-1);font:750 12px var(--f-ui);padding:0 12px 0 10px;white-space:nowrap;cursor:pointer}
 .sdbar-chip:hover:not(:disabled),.sdbar-anchor.open .sdbar-chip{border-color:var(--brand,#d67e00);color:var(--txt-0);background:#fff}
 .sdbar-chip:disabled{opacity:.55;cursor:default}
+.sdbar-chip.sound{width:30px;padding:0;justify-content:center;color:var(--txt-2)}
 .sdbar-chip.sound.on{border-color:var(--brand,#d67e00);color:var(--brand,#d67e00)}
 .sdbar-chip .sdbar-chevron{margin-left:-1px}
 .sdbar-chip-at{display:grid;place-items:center;width:16px;height:16px;border-radius:50%;background:var(--txt-0);color:#fff;font:900 10px/1 var(--f-ui)}
