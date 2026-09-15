@@ -645,6 +645,134 @@ async function main() {
     assert.ok(screenplayPlacement.pageTop>=screenplayPlacement.stripTop
       &&screenplayPlacement.pageBottom<=screenplayPlacement.stripBottom,
       "screenplay image cards occupy the same row as the other inputs while the disclosure is closed");
+    /* "Add references" card — the FIRST tile of the reference strip, the same
+     * rectangle as the thumbnails; the toolbar no longer carries the "@" pill. */
+    const addCard=await c.eval(`(()=>{
+      const strip=document.querySelector(".stage2-gen-assets");
+      const card=strip?.firstElementChild;
+      const thumb=strip?.querySelector(".stage2-gen-asset");
+      const r=card?.getBoundingClientRect(), t=thumb?.getBoundingClientRect();
+      return {
+        isAdd:!!card&&card.classList.contains("stage2-gen-add"),
+        label:card?.querySelector(".stage2-gen-add-label")?.textContent||"",
+        sub:card?.querySelector(".stage2-gen-add-sub")?.textContent||"",
+        icons:card?card.querySelectorAll(".stage2-gen-add-ico svg").length:0,
+        width:r?.width,height:r?.height,thumbWidth:t?.width,thumbHeight:t?.height,
+        leftOfThumb:!!(r&&t)&&r.right<=t.left,
+        toolbarAt:document.querySelectorAll(".sdbar .sdbar-pill.mention").length,
+        popOpen:!!document.querySelector(".stage2-gen-add-pop")
+      };
+    })()`);
+    assert.ok(addCard.isAdd,"the reference strip starts with the Add references card");
+    assert.equal(addCard.label,"Add references");
+    assert.equal(addCard.sub,"Image, Video or Audio");
+    assert.equal(addCard.icons,3,"card shows image, video and audio icons");
+    assert.equal(Math.round(addCard.width),Math.round(addCard.thumbWidth),"card matches the thumbnail width");
+    assert.equal(Math.round(addCard.height),Math.round(addCard.thumbHeight),"card matches the thumbnail height");
+    assert.ok(addCard.leftOfThumb,"card sits to the left of the first thumbnail");
+    assert.equal(addCard.toolbarAt,0,"toolbar no longer renders the @ mention pill");
+    assert.equal(addCard.popOpen,false,"picker is closed until the card is clicked");
+    await c.eval(`(()=>{const s=document.querySelector(".stage2-gen-assets");s.scrollLeft=0;s.scrollIntoView({block:"center",inline:"nearest"});})()`);
+    await new Promise(r=>setTimeout(r,80));
+    await c.eval(`document.querySelector(".stage2-gen-assets .stage2-gen-add").click()`);
+    await waitFor(()=>c.eval(`!!document.querySelector('.stage2-gen-add-pop[role="dialog"]')`),"Add references picker opens");
+    const readAddPop=`(()=>{
+      const pop=document.querySelector(".stage2-gen-add-pop");
+      const card=document.querySelector(".stage2-gen-add").getBoundingClientRect();
+      const p=pop.getBoundingClientRect();
+      const list=pop.querySelector(".sdbar-mention-list");
+      const lr=list?list.getBoundingClientRect():null;
+      const vw=window.innerWidth, vh=window.innerHeight;
+      return {
+        rect:{top:p.top,bottom:p.bottom,left:p.left,right:p.right,vw,vh,cardTop:card.top,cardBottom:card.bottom,listTop:lr&&lr.top,listBottom:lr&&lr.bottom,styleTop:pop.style.top,styleBottom:pop.style.bottom,maxH:pop.style.maxHeight,pos:getComputedStyle(pop).position},
+        inScroller:!!pop.closest(".stage2-gen-assets"),
+        below:p.top>=card.bottom-1, above:p.bottom<=card.top+1,
+        alignedLeft:Math.abs(p.left-card.left)<2||p.left<=8,
+        insideViewport:p.top>=0&&p.left>=0&&p.bottom<=vh+0.5&&p.right<=vw+0.5,
+        listInsideViewport:!lr||(lr.top>=0&&lr.bottom<=vh+0.5),
+        options:pop.querySelectorAll(".sdbar-mention-list button").length,
+        expanded:document.querySelector(".stage2-gen-add").getAttribute("aria-expanded"),
+        controls:document.querySelector(".stage2-gen-add").getAttribute("aria-controls")===pop.id&&!!pop.id,
+        focusInside:pop.contains(document.activeElement),
+        visibleHeight:p.height
+      };
+    })()`;
+    const addPop=await c.eval(readAddPop);
+    assert.equal(addPop.inScroller,false,"picker is rendered outside the horizontal scroller");
+    assert.ok(addPop.below||addPop.above,"picker opens directly below (or, when the viewport is short, above) the card");
+    assert.ok(addPop.alignedLeft,"picker aligns with the card's left edge");
+    assert.ok(addPop.insideViewport&&addPop.listInsideViewport,"picker and its list stay fully inside the viewport (no clipped bottom) "+JSON.stringify(addPop.rect));
+    assert.ok(addPop.options>0,"picker lists the scene's ready references");
+    assert.equal(addPop.expanded,"true");
+    assert.ok(addPop.controls,"card is associated with the picker dialog through aria-controls");
+    assert.ok(addPop.focusInside,"focus enters the picker when it opens");
+    assert.ok(addPop.visibleHeight>40,"picker has visible height");
+    const addReferencesShot=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
+    await writeFile(`${OUT}/stage-add-references-desktop.png`,Buffer.from(addReferencesShot.data,"base64"));
+    await c.eval(`document.querySelector(".stage2-gen-add-pop .sdbar-mention-list button")?.dispatchEvent(new MouseEvent("mousedown",{bubbles:true}))`);
+    await new Promise(r=>setTimeout(r,60));
+    assert.ok(await c.eval(`!!document.querySelector(".stage2-gen-add-pop")`),"mousedown inside the picker keeps it open");
+    await c.eval(`document.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))`);
+    await waitFor(()=>c.eval(`!document.querySelector(".stage2-gen-add-pop")`),"Escape closes the picker");
+    assert.ok(await c.eval(`document.activeElement&&document.activeElement.classList.contains("stage2-gen-add")`),
+      "Escape returns focus to the Add references card");
+    /* Short viewport: the picker flips above the card and still fits. */
+    await c.call("Emulation.setDeviceMetricsOverride",{width:1440,height:480,deviceScaleFactor:1,mobile:false});
+    await c.eval(`document.querySelector(".stage2-gen-assets").scrollIntoView({block:"end",inline:"nearest"})`);
+    await new Promise(r=>setTimeout(r,80));
+    await c.eval(`document.querySelector(".stage2-gen-add").click()`);
+    await waitFor(()=>c.eval(`!!document.querySelector(".stage2-gen-add-pop")`),"picker opens in a short viewport");
+    const shortPop=await c.eval(readAddPop);
+    assert.ok(shortPop.insideViewport&&shortPop.listInsideViewport,"short viewport: picker stays fully visible "+JSON.stringify(shortPop.rect));
+    assert.ok(shortPop.below||shortPop.above,"short viewport: picker still hangs off the card");
+    await c.eval(`document.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))`);
+    await waitFor(()=>c.eval(`!document.querySelector(".stage2-gen-add-pop")`),"short viewport: Escape closes the picker");
+    await c.call("Emulation.clearDeviceMetricsOverride");
+    await new Promise(r=>setTimeout(r,80));
+    /* Picking a reference inserts its @tag at the prompt caret (not appended) and
+     * hands focus to the editor; "Reset to script" then restores the derivation so
+     * the untouched-prompt expectations below are unaffected. */
+    const readPromptValue=`(()=>{const el=document.querySelector(".stage2-gen-prompt[contenteditable]");let out="";
+      const walk=n=>{for(const ch of n.childNodes){if(ch.nodeType===3)out+=ch.nodeValue;else if(ch.nodeType===1){
+        if(ch.getAttribute("data-token"))out+=ch.getAttribute("data-token");else if(ch.tagName==="BR")out+="\\n";else walk(ch);}}};
+      walk(el);return out;})()`;
+    const caretSetup=await c.eval(`(()=>{
+      const el=document.querySelector(".stage2-gen-prompt[contenteditable]");
+      el.scrollIntoView({block:"center"});el.focus();
+      let off=0,target=null;
+      for(const ch of el.childNodes){
+        if(ch.nodeType===3&&ch.nodeValue.length>12){target=ch;break;}
+        if(ch.nodeType===3)off+=ch.nodeValue.length;else if(ch.getAttribute&&ch.getAttribute("data-token"))off+=ch.getAttribute("data-token").length;else off+=(ch.textContent||"").length;
+      }
+      if(!target) return null;
+      const sel=window.getSelection();const r=document.createRange();r.setStart(target,6);r.collapse(true);sel.removeAllRanges();sel.addRange(r);
+      return {offset:off+6};
+    })()`);
+    assert.ok(caretSetup,"prompt exposes a text run to place the caret in");
+    const promptBeforePick=await c.eval(readPromptValue);
+    await c.eval(`document.querySelector(".stage2-gen-add").click()`);
+    await waitFor(()=>c.eval(`!!document.querySelector(".stage2-gen-add-pop .sdbar-mention-list button")`),"picker opens for a pick");
+    const pickedTag=await c.eval(`(()=>{
+      const all=[...document.querySelectorAll(".stage2-gen-add-pop .sdbar-mention-list button")];
+      const b=all.find(x=>x.querySelector(".sdbar-mention-group")?.textContent==="Included")||all[0];
+      const tag=b.querySelector("b").textContent;b.click();return tag;
+    })()`);
+    await waitFor(()=>c.eval(`!document.querySelector(".stage2-gen-add-pop")`),"picker closes after a pick");
+    await waitFor(()=>c.eval(`${readPromptValue}.includes(${JSON.stringify(pickedTag)})`),"picked @tag lands in the prompt");
+    const promptAfterPick=await c.eval(readPromptValue);
+    const expectedHead=promptBeforePick.slice(0,caretSetup.offset);
+    assert.ok(promptAfterPick.startsWith(expectedHead),"text before the caret is untouched");
+    const insertedAt=promptAfterPick.indexOf(pickedTag,expectedHead.length-1);
+    assert.ok(insertedAt>=expectedHead.length&&insertedAt<=expectedHead.length+1,"@tag is inserted at the caret, not appended");
+    // (the prompt may already sit at the length cap, so only the run right after the
+    // caret is compared — the insertion helper trims the far tail, never the middle)
+    const tailRun=promptBeforePick.slice(caretSetup.offset).replace(/^\s+/,"").slice(0,40);
+    assert.ok(promptAfterPick.slice(insertedAt+pickedTag.length).replace(/^\s+/,"").startsWith(tailRun),
+      "text after the caret follows the inserted @tag");
+    assert.ok(await c.eval(`document.activeElement===document.querySelector(".stage2-gen-prompt[contenteditable]")`),
+      "focus moves on to the prompt editor after a pick");
+    await c.eval(`document.querySelector(".stage2-prompt-reset")?.click()`);
+    await waitFor(()=>c.eval(`${readPromptValue}===${JSON.stringify(promptBeforePick)}`),"Reset to script restores the derived prompt");
     await c.eval(`document.querySelector('.stage2-gen-assets [data-reference-kind="screenplay"]')?.scrollIntoView({block:"center",inline:"nearest"})`);
     await new Promise(r=>setTimeout(r,80));
     const screenplayReferenceRow=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
@@ -1017,12 +1145,13 @@ async function main() {
     assert.ok(await c.eval(`!!document.querySelector(${JSON.stringify(firstMasterSelector)})`),"first shot offers the deliberate master choice");
     assert.ok(await c.eval(`!!document.querySelector(${JSON.stringify(secondMasterSelector)})`),"second shot independently offers the deliberate master choice");
 
-    /* The @ picker states which beat the automatic references belong to. */
-    await c.eval(`document.querySelector('.sdbar-pill.mention').click()`);
-    await waitFor(()=>c.eval(`!!document.querySelector('.sdbar-anchor.open .sdbar-mention-scope b')`),"mention picker shows a scope heading");
-    assert.match(await c.eval(`document.querySelector('.sdbar-anchor.open .sdbar-mention-scope b').textContent`),/^Scene \d\d · Beat \d+.*references$/,"scope heading names the scene and beat");
-    assert.match(await c.eval(`document.querySelector('.sdbar-anchor.open .sdbar-mention-scope span').textContent`),/^\d+ attached to this clip/,"scope heading counts attached references");
-    await c.eval(`document.querySelector('.sdbar-pill.mention').click()`);
+    /* The Add references picker states which beat the automatic references belong to. */
+    await c.eval(`document.querySelector('.stage2-gen-add').click()`);
+    await waitFor(()=>c.eval(`!!document.querySelector('.stage2-gen-add-pop .sdbar-mention-scope b')`),"reference picker shows a scope heading");
+    assert.match(await c.eval(`document.querySelector('.stage2-gen-add-pop .sdbar-mention-scope b').textContent`),/^Scene \d\d · Beat \d+.*references$/,"scope heading names the scene and beat");
+    assert.match(await c.eval(`document.querySelector('.stage2-gen-add-pop .sdbar-mention-scope span').textContent`),/^\d+ attached to this clip/,"scope heading counts attached references");
+    await c.eval(`document.querySelector('.stage2-gen-add').click()`);
+    await waitFor(()=>c.eval(`!document.querySelector('.stage2-gen-add-pop')`),"clicking the card again closes the picker");
 
     /* View-only shares expose the decision and its reason, but cannot create one. */
     const readOnlyCreateBaseline=await c.eval(`({story:JSON.stringify(__story.shots),updates:__fixture.updates.length,providers:__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length})`);
@@ -1428,7 +1557,7 @@ async function main() {
     const frontendErrors=await c.eval(`window.__fixture.errors.slice()`);
     assert.deepEqual(frontendErrors,[],"fixture raised frontend errors");
     console.log(`fixture: ${FIXTURE}/index.html`);
-     console.log(`screenshots: ${OUT}/stage-settings-advanced-desktop.png, ${OUT}/stage-settings-advanced-mobile-390.png, ${OUT}/stage-screenplay-strip-desktop.png, ${OUT}/stage-screenplay-lightbox-desktop.png, ${OUT}/stage-screenplay-strip-mobile-390.png, ${OUT}/stage-screenplay-lightbox-mobile-390.png, ${OUT}/stage-shot-master-overrides-desktop.png, ${OUT}/stage-shot-master-overrides-mobile-390.png, ${OUT}/stage-shoot-desktop.png, ${OUT}/stage-desktop.png, ${OUT}/stage-mobile-390.png`);
+     console.log(`screenshots: ${OUT}/stage-settings-advanced-desktop.png, ${OUT}/stage-settings-advanced-mobile-390.png, ${OUT}/stage-add-references-desktop.png, ${OUT}/stage-screenplay-strip-desktop.png, ${OUT}/stage-screenplay-lightbox-desktop.png, ${OUT}/stage-screenplay-strip-mobile-390.png, ${OUT}/stage-screenplay-lightbox-mobile-390.png, ${OUT}/stage-shot-master-overrides-desktop.png, ${OUT}/stage-shot-master-overrides-mobile-390.png, ${OUT}/stage-shoot-desktop.png, ${OUT}/stage-desktop.png, ${OUT}/stage-mobile-390.png`);
     if(regressions.length) throw new Error("Stage regressions:\\n- "+regressions.join("\\n- "));
     console.log("PASS Stage browser regression");
   } catch(error) {

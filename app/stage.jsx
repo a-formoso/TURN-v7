@@ -4256,14 +4256,69 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
      project:(ctx&&ctx.project)||{}, locations:(ctx&&ctx.locations)||[],
      scenes:(ctx&&ctx.scenes)||[], drafts:(ctx&&ctx.drafts)||{} }),[scene&&scene.id, ctx]);
   const sdBarRef = React.useRef(null);
+  // the "Add references" card lives in the reference strip (not the toolbar). Its
+  // picker is position:fixed (measured from the card at open time, flipped upward
+  // when the viewport has more room above, height-capped to the visible space) so
+  // the strip's horizontal scroller and the scrolling centre column never clip it.
+  const addRefRef = React.useRef(null);      // strip wrapper (card + picker) — clicks inside keep the menu open
+  const addRefBtnRef = React.useRef(null);   // the card — focus returns here when the picker closes
+  const addRefPopRef = React.useRef(null);   // the picker — first action receives focus on open
+  const [addRefPos, setAddRefPos] = React.useState(null);
+  const addRefOpen = sdMenu==="mention";
+  const toggleAddRef = (e)=>{
+    e.stopPropagation();
+    if(addRefOpen){ setSdMenu(null); return; }
+    const r = e.currentTarget.getBoundingClientRect();
+    const vw = window.innerWidth, vh = window.innerHeight, gap = 6, edge = 8, minH = 140;
+    const clamp = (v, lo, hi)=>Math.max(lo, Math.min(hi, v));
+    const below = Math.max(0, vh - r.bottom - gap - edge), above = Math.max(0, r.top - gap - edge);
+    const up = below < 260 && above > below;
+    const width = Math.min(320, vw - edge*2);
+    const left = Math.round(clamp(r.left, edge, Math.max(edge, vw - width - edge)));
+    // anchor edge clamped into the viewport (a card scrolled half out of view still
+    // gets an on-screen picker), then the height cap from the clamped anchor
+    const pos = { left, width };
+    if(up){ pos.bottom = Math.round(clamp(vh - r.top + gap, edge, Math.max(edge, vh - edge - minH))); pos.maxH = Math.max(minH, Math.min(560, vh - pos.bottom - edge)); }
+    else { pos.top = Math.round(clamp(r.bottom + gap, edge, Math.max(edge, vh - edge - minH))); pos.maxH = Math.max(minH, Math.min(560, vh - pos.top - edge)); }
+    setAddRefPos(pos);
+    setSdMenu("mention");
+  };
   React.useEffect(()=>{
     if(!sdMenu) return;
-    const close = (e)=>{ if(sdBarRef.current && sdBarRef.current.contains(e.target)) return; setSdMenu(null); };
+    const close = (e)=>{
+      if(sdBarRef.current && sdBarRef.current.contains(e.target)) return;
+      if(addRefRef.current && addRefRef.current.contains(e.target)) return;
+      setSdMenu(null); };
     const esc = (e)=>{ if(e.key==="Escape") setSdMenu(null); };
     document.addEventListener("mousedown", close);
     document.addEventListener("keydown", esc);
     return ()=>{ document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); };
   }, [sdMenu]);
+  React.useEffect(()=>{
+    // the fixed picker cannot follow its card: close it when anything else scrolls or the window resizes
+    if(!addRefOpen) return;
+    const onScroll = (e)=>{ if(addRefPopRef.current && e.target && e.target.nodeType===1 && addRefPopRef.current.contains(e.target)) return; setSdMenu(null); };
+    const onResize = ()=>setSdMenu(null);
+    document.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onResize);
+    return ()=>{ document.removeEventListener("scroll", onScroll, true); window.removeEventListener("resize", onResize); };
+  }, [addRefOpen]);
+  const addRefWasOpen = React.useRef(false);
+  React.useEffect(()=>{
+    // focus enters the picker on open; when it closes and focus was lost with the
+    // unmounted picker (Escape / picked option), it returns to the card. A mention
+    // pick then hands focus on to the prompt editor (insertToolbarMention).
+    if(addRefOpen){
+      addRefWasOpen.current = true;
+      const first = addRefPopRef.current && addRefPopRef.current.querySelector(".sdbar-mention-list button, .sdbar-addbox button");
+      if(first){ try{ first.focus({preventScroll:true}); }catch(_e){} }
+      return;
+    }
+    if(!addRefWasOpen.current) return;
+    addRefWasOpen.current = false;
+    const ae = document.activeElement;
+    if((!ae || ae===document.body) && addRefBtnRef.current){ try{ addRefBtnRef.current.focus({preventScroll:true}); }catch(_e){} }
+  }, [addRefOpen]);
   React.useEffect(()=>{ setSdMenu(null); }, [clip.id]);
   const insertToolbarMention = (m)=>{
     if(!m) return;
@@ -4407,30 +4462,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
             title:durationLocked ? "Minimum locked to voiced line timing" : "Clip duration",
             onChange:e=>setDurationOverride(Number(e.target.value))}),
           _stEl("div",{className:"sdbar-duration-row"}, _stEl("span",null,"0"), _stEl("span",null,"5"), _stEl("span",null,"10"), _stEl("span",null,String(durationMax))),
-          _stEl("b",null,_fmtSecs(duration)))),
-      sdPill("mention","mention","Mention references",
-        _stEl(React.Fragment,null,_stEl("span",{className:"sdbar-at"},"@")),
-        _stEl("div",{className:"sdbar-pop sdbar-pop-mention"},
-          _stEl("label",null,'Use "@" to mention'),
-          (()=>{
-            const beatN=(clip.g&&clip.g.beatN)||(activeShot&&activeShot.beatN)||"—";
-            const scopeLabel="Scene "+_pad2(scene.no)+(beatN?(" · Beat "+beatN):"")
-              +((clip.g&&clip.g.parts)>1?(" · Part "+clip.g.part+"/"+clip.g.parts):"");
-            const inc=availableMentionables.filter(m=>m.included).length;
-            const more=availableMentionables.length-inc;
-            return _stEl("div",{className:"sdbar-mention-scope"},
-              _stEl("b",null,scopeLabel+" references"),
-              _stEl("span",null,inc+" attached to this clip"+(more>0?(" · "+more+" more from this scene can be added"):"")));
-          })(),
-          availableMentionables.length
-            ? _stEl("div",{className:"sdbar-mention-list"},
-                availableMentionables.map(m=>_stEl("button",{key:m.assetKey+":"+m.t,type:"button",onClick:()=>{ insertToolbarMention(m); setSdMenu(null); }},
-                  m.kind==="image" && m.url ? _stEl("img",{src:m.url,alt:""}) : _stEl("span",{className:"tile"},m.kind==="audio"?"♪":"▸"),
-                  _stEl("span",null,_stEl("b",null,m.t), _stEl("small",null,m.label)),
-                  _stEl("em",{className:"sdbar-mention-group"},m.included?"Included":m.group))))
-            : _stEl("div",{className:"sdbar-empty"},"No scene references are ready yet."),
-          _stEl("div",{className:"sdbar-addbox"},
-            _stEl("button",{type:"button",onClick:()=>{ if(window.appToast) window.appToast("Upload new references from the Art Room asset tabs."); }},"↑ Upload from device"))))),
+          _stEl("b",null,_fmtSecs(duration))))),
     _stEl("div",{className:"sdbar-right"},
       _stEl("span",{className:"sdbar-cost",title:renderCostTitle+". "+creditInfo.title}, Icon.sparkles&&_stEl(Icon.sparkles,{s:11}), composerCredit),
       _stEl("button",{type:"button",className:"sdbar-send"+(blocker?" blocked":"")+(gening?" working":""),
@@ -4438,6 +4470,46 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         "aria-disabled":blocker?"true":undefined,
         disabled:gening,
         onClick:onSeedanceGenerateClick}, gening ? "…" : "↑")));
+  // ---- "Add references" card — the FIRST tile of the reference strip (same 72×48
+  // rectangle as the thumbnails). Opens the scene-reference picker: mention any
+  // ready image / video / audio reference in the prompt with its @tag, or upload.
+  const addReferencesCard = _stEl("button",{type:"button",ref:addRefBtnRef,
+      className:"stage2-gen-add"+(addRefOpen?" open":""),
+      title:"Add references — Image, Video or Audio. Mention this scene's references in the prompt with @",
+      "aria-label":"Add references — Image, Video or Audio",
+      "aria-haspopup":"dialog","aria-expanded":addRefOpen?"true":"false",
+      "aria-controls":addRefOpen?"stage2-add-ref-picker":undefined,
+      onClick:toggleAddRef},
+    _stEl("span",{className:"stage2-gen-add-icons","aria-hidden":"true"},
+      _stEl("span",{className:"stage2-gen-add-ico"}, Icon.image&&_stEl(Icon.image,{s:9,sw:2})),
+      _stEl("span",{className:"stage2-gen-add-ico"}, Icon.video&&_stEl(Icon.video,{s:9,sw:2})),
+      _stEl("span",{className:"stage2-gen-add-ico"}, Icon.music&&_stEl(Icon.music,{s:9,sw:2}))),
+    _stEl("span",{className:"stage2-gen-add-label"},"Add references"),
+    _stEl("span",{className:"stage2-gen-add-sub"},"Image, Video or Audio"));
+  const addReferencesPopover = addRefOpen && addRefPos && _stEl("div",{ref:addRefPopRef,id:"stage2-add-ref-picker",
+      className:"sdbar-pop sdbar-pop-mention stage2-gen-add-pop",role:"dialog","aria-label":"Add references",
+      style:{left:addRefPos.left+"px",width:addRefPos.width+"px",maxHeight:addRefPos.maxH+"px",
+        top:addRefPos.top!=null?addRefPos.top+"px":"auto",bottom:addRefPos.bottom!=null?addRefPos.bottom+"px":"auto"}},
+    _stEl("label",null,'Add references — use "@" to mention'),
+    (()=>{
+      const beatN=(clip.g&&clip.g.beatN)||(activeShot&&activeShot.beatN)||"—";
+      const scopeLabel="Scene "+_pad2(scene.no)+(beatN?(" · Beat "+beatN):"")
+        +((clip.g&&clip.g.parts)>1?(" · Part "+clip.g.part+"/"+clip.g.parts):"");
+      const inc=availableMentionables.filter(m=>m.included).length;
+      const more=availableMentionables.length-inc;
+      return _stEl("div",{className:"sdbar-mention-scope"},
+        _stEl("b",null,scopeLabel+" references"),
+        _stEl("span",null,inc+" attached to this clip"+(more>0?(" · "+more+" more from this scene can be added"):"")));
+    })(),
+    availableMentionables.length
+      ? _stEl("div",{className:"sdbar-mention-list"},
+          availableMentionables.map(m=>_stEl("button",{key:m.assetKey+":"+m.t,type:"button",onClick:()=>{ insertToolbarMention(m); setSdMenu(null); }},
+            m.kind==="image" && m.url ? _stEl("img",{src:m.url,alt:""}) : _stEl("span",{className:"tile"},m.kind==="audio"?"♪":"▸"),
+            _stEl("span",null,_stEl("b",null,m.t), _stEl("small",null,m.label)),
+            _stEl("em",{className:"sdbar-mention-group"},m.included?"Included":m.group))))
+      : _stEl("div",{className:"sdbar-empty"},"No scene references are ready yet."),
+    _stEl("div",{className:"sdbar-addbox"},
+      _stEl("button",{type:"button",onClick:()=>{ if(window.appToast) window.appToast("Upload new references from the Art Room asset tabs."); }},"↑ Upload from device")));
   // ---- composer header: Image | Video | Sound tabs.
   const composerHeader = _stEl("div",{className:"stage2-ctab-head"},
     _stEl("div",{className:"stage2-ctab-row"},
@@ -4462,7 +4534,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     : composerTab==="sound" ? soundTab
     : _stEl(React.Fragment,null,
     _stEl("div",{className:"stage2-gen-reference-row","aria-label":"Render references"},
+      _stEl("div",{ref:addRefRef,className:"stage2-gen-strip"},
       _stEl("div",{className:"stage2-gen-assets"},
+        addReferencesCard,
         composerAssets.map(a=>_stEl("button",{key:a.key,type:"button",
           className:"stage2-gen-asset "+a.kind+(a.locked?" locked":"")+(on(a)?"":" off")+(!a.ready?" missing":"")+(canRetryImg(a)?" retryable":""),
           title:assetTitle(a)+(thumbnailLabel(a)?(" · "+thumbnailLabel(a)+(canRetryImg(a)?" · Click to reload this image (no generation)":"")):""),
@@ -4486,7 +4560,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
             Icon.maximize&&_stEl(Icon.maximize,{s:10})),
           a.kind!=="text" && a.ready && _stEl("span",{className:"stage2-gen-asset-tag",title:"Reference this asset in the prompt as "+stageAssetMention(a)},
             a.referenceKind==="screenplay"?stageAssetMention(a):stageAssetTagShort(a)),
-          on(a) && _stEl("span",{className:"stage2-gen-asset-check"},Icon.check&&_stEl(Icon.check,{s:10})))))),
+          on(a) && _stEl("span",{className:"stage2-gen-asset-check"},Icon.check&&_stEl(Icon.check,{s:10}))))),
+      addReferencesPopover)),
     modelRefs&&characterReferenceChoices.length>0&&_stEl("div",{className:"stage2-character-choices","aria-label":"Shot-only video character references"},
       characterReferenceChoices.map(row=>_stEl("div",{key:row.sh.id+":"+row.c.id,
         className:"stage2-character-choice","data-shot-id":row.sh.id,"data-character-id":row.c.id},

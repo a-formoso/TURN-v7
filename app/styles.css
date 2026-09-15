@@ -5842,6 +5842,27 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
 .stage2-gen-assets{min-height:38px;display:flex;align-items:center;gap:7px;margin:0;min-width:0;flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch}
 .stage2-gen-assets::-webkit-scrollbar{height:6px}
 .stage2-gen-assets::-webkit-scrollbar-thumb{background:#d9d2c6;border-radius:999px}
+/* the strip wrapper anchors the "Add references" picker OUTSIDE the horizontal
+   scroller (an absolutely positioned popover inside overflow-x:auto gets clipped) */
+.stage2-gen-strip{position:relative;min-width:0}
+/* "Add references" — first tile of the strip, same 72×48 rectangle as the thumbnails:
+   three round image / video / audio icons over the label, dark like a source card */
+.stage2-gen-add{position:relative;width:72px;height:48px;flex:0 0 72px;border:1px solid #2a2b31;border-radius:9px;padding:0;margin:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;background:#1a1b20;color:#e9e6df;cursor:pointer;overflow:hidden}
+.stage2-gen-add:hover,.stage2-gen-add.open{border-color:var(--brand,#d67e00);background:#202128}
+.stage2-gen-add:focus-visible{outline:2px solid var(--brand,#d67e00);outline-offset:2px}
+.stage2-gen-add-icons{display:flex;align-items:center;justify-content:center;gap:2px}
+.stage2-gen-add-ico{width:15px;height:15px;border-radius:50%;display:grid;place-items:center;background:#2c2d34;color:#f2efe8;box-shadow:0 0 0 1px rgba(255,255,255,.06)}
+.stage2-gen-add-ico svg{display:block}
+.stage2-gen-add-label{font:750 7.5px/1 var(--f-ui);letter-spacing:.01em;color:#f2efe8;white-space:nowrap}
+.stage2-gen-add-sub{font:600 6px/1 var(--f-ui);letter-spacing:0;color:#a7a39b;white-space:nowrap}
+/* the picker is position:fixed — placed from the card's rect at open time (below it,
+   or above when the viewport has more room there) and capped to the visible height,
+   so neither the strip's scroller nor the scrolling centre column can clip it.
+   Rows: heading · scope · list (the only row that scrolls) · upload box. */
+.stage2-gen-strip .stage2-gen-add-pop{position:fixed;right:auto;min-width:0;box-sizing:border-box;overflow:hidden;
+  grid-template-rows:auto auto minmax(0,1fr) auto}
+.stage2-gen-strip .stage2-gen-add-pop .sdbar-mention-list{max-height:none;min-height:0}
 .stage2-character-choices{display:grid;gap:6px;margin:0 0 12px}
 .stage2-character-choice{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:8px 10px;border:1px solid var(--line,#ded8ce);border-radius:8px;font-size:11px}
 .stage2-character-choice>span{min-width:0;flex:1 1 160px;overflow-wrap:anywhere}
@@ -5993,7 +6014,6 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
 .sdbar-pop-duration input[type=range]{width:100%;accent-color:var(--brand,#d67e00)}
 .sdbar-duration-row{display:flex;justify-content:space-between;color:var(--txt-3);font:700 10px var(--f-mono)}
 .sdbar-pop-duration b{justify-self:end;font:800 12px var(--f-ui);color:var(--txt-0)}
-.sdbar-at{font:900 15px var(--f-ui)}
 .sdbar-mention-list{display:grid;gap:4px;max-height:min(440px,58vh);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;padding-right:2px}
 .sdbar-mention-list button{display:flex;align-items:center;gap:8px;border:0;border-radius:9px;background:transparent;text-align:left;color:var(--txt-1);padding:6px;cursor:pointer}
 .sdbar-mention-list button:hover{background:var(--bg-2);color:var(--txt-0)}

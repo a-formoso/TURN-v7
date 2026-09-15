@@ -32,3 +32,4 @@
 - [Upload intent compatibility](upload-intent-compatibility.md) — missing cleanup RPCs are distinct from storage denial; protect in-tab unsaved pixels before reloading fixes.
 - [Server-only storage namespaces](server-only-storage-namespaces.md) — private receipt paths need a non-UUID second segment; a private-looking first segment alone does not block deletion.
 - [Screenplay image recovery](screenplay-image-recovery.md) — reserve real job-storage capacity before spending; source PNG provenance is not a provider-facing URL.
+- [Stage browser fixture](stage-browser-fixture.md) — icons are stubbed as dots, viewport is tiny, off-screen clicks fire; clamp popover anchors and assert rects against the viewport.

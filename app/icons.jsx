@@ -82,6 +82,13 @@ const Icon = {
   film:(p)=>I({...p,children:[
     React.createElement("rect",{key:1,x:3,y:4,width:18,height:16,rx:2}),
     React.createElement("path",{key:2,d:"M7 4v16M17 4v16M3 9h4M17 9h4M3 15h4M17 15h4"})]}),
+  video:(p)=>I({...p,children:[
+    React.createElement("rect",{key:1,x:3,y:6.5,width:13,height:11,rx:2}),
+    React.createElement("path",{key:2,d:"M16 10.5l5-3v9l-5-3z"})]}),
+  music:(p)=>I({...p,children:[
+    React.createElement("path",{key:1,d:"M9 18V6l10-2.5V16"}),
+    React.createElement("circle",{key:2,cx:6.5,cy:18,r:2.5}),
+    React.createElement("circle",{key:3,cx:16.5,cy:16,r:2.5})]}),
   box:(p)=>I({...p,children:[
     React.createElement("path",{key:1,d:"M21 8.5l-9-5-9 5v7l9 5 9-5z"}),
     React.createElement("path",{key:2,d:"M3 8.5l9 5 9-5M12 13.5v7"})]}),
