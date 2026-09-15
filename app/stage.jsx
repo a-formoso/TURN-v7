@@ -4480,10 +4480,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       [ {id:"standard",label:"Standard",desc:"More compression, smaller file — the usual draft choice."},
         {id:"high",label:"High",desc:"Less compression, larger file — for finals and grading."} ]
         .map(o=>sdOption({ ...o, selected:bitrate===o.id, onPick:()=>setBitrate(o.id) }))));
-  const modelRow = optRow("model","", "Video model", "Model",
-    _stEl(React.Fragment,null, _stEl("span",null,model.label), Icon.sparkles&&_stEl(Icon.sparkles,{s:10})),
-    modelMenu);
-  // ---- header card ("GENERAL / <model>" + Change) ------------------------------
+  // ---- header card ("GENERAL / <model>" + Change) — the model is changed here,
+  // there is no separate Model row under the prompt ----------------------------
   const heroCard = (kicker, title, opts)=>_stEl("div",{className:"stage2-hero"+(shotStartFrame?" has-bg":"")+(opts&&opts.cls?" "+opts.cls:"")},
     shotStartFrame && _stEl("div",{className:"stage2-hero-bg",style:{backgroundImage:"url("+JSON.stringify(shotStartFrame)+")"},"aria-hidden":"true"}),
     shotStartFrame && _stEl("div",{className:"stage2-hero-shade"}),
@@ -4879,7 +4877,6 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     createTask==="reference" && multishotEditor,
     promptRow,
     _stEl("div",{className:"stage2-opts"},
-      modelRow,
       _stEl("div",{className:"stage2-opt-grid three"},
         durationPill,
         createTask==="extension"

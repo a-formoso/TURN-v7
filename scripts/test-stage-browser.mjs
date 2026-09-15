@@ -1108,7 +1108,8 @@ async function main() {
       assert.equal(toolbar.source,0,"the Omni reference source pill is gone from the toolbar");
       assert.match(toolbar.count,/\d+ \/ \d+/,"character counter sits on the right of the toolbar");
       const rows=await c.eval(`[...document.querySelectorAll(".stage2-opts .sdrow-label")].map(x=>x.textContent.trim())`);
-      assert.deepEqual(rows,["Model","Bitrate"],"Create Video stacks Model and Bitrate rows under the prompt");
+      assert.deepEqual(rows,["Bitrate"],"Create Video keeps only the Bitrate row under the prompt — the model is changed from the header card");
+      assert.equal(await c.eval(`document.querySelectorAll(".stage2-hero .sdbar-pill.hero").length`),1,"the header card keeps its Change (model) control");
       assert.equal(await c.eval(`document.querySelectorAll(".stage2-opt-grid.three .sdbar-pill.cell").length`),3,"Duration / Aspect / Resolution sit in one 3-up row");
       const createCost=await c.eval(`document.querySelector('[data-testid="stage-generate"] .stage2-generate-cost')?.textContent.trim()`);
       assert.ok(Number(createCost)>=1,`Create Video's Generate carries the render price (${createCost})`);
