@@ -1103,7 +1103,7 @@ async function main() {
       const toolbar=await c.eval(`(()=>{const bar=document.querySelector(".stage2-gen-composer .sdbar");return {
         elements:!!bar.querySelector(".sdbar-chip.elements"),sound:bar.querySelector(".sdbar-chip.sound")?.textContent.trim()||"",
         source:document.querySelectorAll(".sdbar button[title='Reference mode']").length,count:bar.querySelector(".sdbar-count")?.textContent.trim()||""};})()`);
-      assert.ok(toolbar.elements,"prompt box carries the @ Elements chip");
+      assert.equal(toolbar.elements,false,"the Create Video prompt box has no @ Elements chip (references come from the Add references card)");
       assert.match(toolbar.sound,/^Sound (On|Off)$/,"prompt box carries the Sound chip");
       assert.equal(toolbar.source,0,"the Omni reference source pill is gone from the toolbar");
       assert.match(toolbar.count,/\d+ \/ \d+/,"character counter sits on the right of the toolbar");

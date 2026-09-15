@@ -4415,16 +4415,13 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           setModelId(m.id);
           const t0=seedanceTierOf(m,tier); if(t0) setTier(t0.id); } });
     }));
-  // ---- in-box chips: "@ Elements" (reference tokens at the caret), sound on/off,
-  // prompt style. The render controls (model, duration, aspect, resolution,
-  // bitrate) are full-width rows BELOW the prompt box; Generate closes the card.
+  // ---- in-box chips: sound on/off and prompt style (references are added from the
+  // "Add references" card in the strip, or by typing @ in the prompt). The render
+  // controls (model, duration, aspect, resolution, bitrate) are full-width rows
+  // BELOW the prompt box; Generate closes the card.
   const soundOn = hasDialogue ? true : nativeAudio;   // generate_audio as the payload sends it
   const seedanceToolbar = _stEl("div",{ref:sdBarRef,className:"sdbar",onMouseDown:e=>e.stopPropagation()},
     _stEl("div",{className:"sdbar-left"},
-      _stEl("button",{type:"button",className:"sdbar-chip elements",
-        title:"Elements — insert a reference token (@Image1, @Video1, @Audio1…) at the cursor and include that asset",
-        onClick:toggleAddRef},
-        _stEl("span",{className:"sdbar-chip-at"},"@"), _stEl("span",null,"Elements")),
       _stEl("button",{type:"button",className:"sdbar-chip sound"+(soundOn?" on":""),
         "aria-pressed":soundOn?"true":"false",
         disabled:hasDialogue,
