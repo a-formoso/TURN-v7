@@ -43,7 +43,7 @@ Full-scene screenplay images are reading context, not visual compositions or add
 
 For Stage video, attach actual full-scene screenplay page images for each beat, alongside labeled source text. Keep the selected beat/shot/part as the performance boundary.
 
-**Why:** Text-only delivery was explicitly rejected: the generator must receive the actual screenplay screenshot despite its image-slot cost. The page is reading context, never an opening frame or composition. Sending current source separately is still insufficient if editable direction narrates stale saved shot action.
+**Why:** Text-only delivery was explicitly rejected: the generator must receive the actual screenplay screenshot despite its image-slot cost. This behavior was later explicitly confirmed as working well. The page is reading context, never an opening frame or composition. Sending current source separately is still insufficient if editable direction narrates stale saved shot action.
 
 **How to apply:** Verify actual image payloads, not just thumbnails or prompt text. Required Stage pages consume image slots and must never be silently omitted; block routes that cannot attach them separately. Preserve manual edits with source-drift review. Scene changes refresh reading context without adding another beat's performance. Reject known limits rather than excerpting source.
 

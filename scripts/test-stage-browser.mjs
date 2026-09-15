@@ -514,24 +514,39 @@ async function main() {
       "screenplay thumbnail is a real PNG reference");
     const screenplayInput=await c.eval(`(()=>{
       const panel=document.querySelector('[data-testid="stage-scene-screenplay"]');
-      const cards=[...document.querySelectorAll(".stage2-assets-row .stage2-asset.image")].filter(x=>
-        /screenplay|page/i.test(x.textContent||"")||/screenplay/i.test(x.getAttribute("data-reference-kind")||""));
+      const referenceRow=document.querySelector(".stage2-gen-reference-row");
+      const cards=[...document.querySelectorAll(".stage2-gen-assets .stage2-gen-asset")].filter(x=>
+        x.getAttribute("data-reference-kind")==="screenplay");
       return {
         panel:panel?.innerText||"",
-        cards:cards.map(x=>({text:x.innerText||"",locked:x.classList.contains("locked")||x.getAttribute("aria-disabled")==="true",
-          kind:x.dataset.referenceKind||x.getAttribute("data-reference-kind")||""})),
-        pngs:[...document.querySelectorAll(".stage2-assets-row img")].map(x=>x.currentSrc||x.src)
+        panelInsideReferenceRow:panel?.parentElement===referenceRow,
+        cards:cards.map(x=>({text:x.innerText||"",kind:x.getAttribute("data-reference-kind")||""})),
+        stripPngs:[...document.querySelectorAll(".stage2-gen-assets img")].map(x=>x.currentSrc||x.src),
+        panelPngs:[...(panel?.querySelectorAll("img")||[])].map(x=>x.currentSrc||x.src)
       };
     })()`);
     assert.match(screenplayInput.panel,/\b\d+\s+screenplay\s+page/i,
       "screenplay panel reports the attached page count");
     assert.match(screenplayInput.panel,/Page \d+ of \d+/i,
       "screenplay thumbnails report required page order and total");
-    assert.ok(screenplayInput.cards.length>=1,"screenplay page has a dedicated image reference card");
-    assert.ok(screenplayInput.cards.every(x=>x.locked||/required|locked/i.test(x.text)),
-      "screenplay image cards are locked required references");
-    assert.ok(screenplayInput.pngs.some(x=>/\.png(?:\?|$)/i.test(x)||x.startsWith("data:image/png")),
-      "input assets include the actual screenplay PNG");
+    assert.equal(screenplayInput.panelInsideReferenceRow,true,
+      "screenplay disclosure is part of the render reference section");
+    assert.equal(screenplayInput.cards.length,0,
+      "screenplay pages are not duplicated as individual reference-strip cards");
+    assert.ok(!screenplayInput.stripPngs.some(x=>x.startsWith("data:image/png")),
+      "reference strip no longer shows duplicate screenplay page thumbnails");
+    assert.ok(screenplayInput.panelPngs.some(x=>x.startsWith("data:image/png")),
+      "screenplay disclosure retains the actual page images");
+    const screenplayPlacement=await c.eval(`(()=>{
+      const panel=document.querySelector('[data-testid="stage-scene-screenplay"]');
+      if(panel)panel.open=false;
+      const summary=panel?.querySelector(":scope > summary")?.getBoundingClientRect();
+      const strip=document.querySelector(".stage2-gen-assets")?.getBoundingClientRect();
+      return {summaryTop:summary?.top,summaryBottom:summary?.bottom,stripTop:strip?.top,stripBottom:strip?.bottom};
+    })()`);
+    assert.ok(screenplayPlacement.summaryTop<screenplayPlacement.stripBottom
+      &&screenplayPlacement.summaryBottom>screenplayPlacement.stripTop,
+      "collapsed screenplay control sits on the same reference row as the other inputs");
     assert.ok(await c.eval(`(()=>{
       const a=[...document.querySelectorAll(".stage2-assets-row .stage2-asset.image")].find(x=>
         !/screenplay|page/i.test(x.textContent||"")&&x.querySelector("img"));
@@ -559,14 +574,13 @@ async function main() {
       await new Promise(r=>setTimeout(r,120));
       assert.equal(await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`),
         beforeSingleFrameBlock,"unsupported single-frame model makes no provider call");
-      assert.ok(await c.eval(`!![...document.querySelectorAll(".stage2-assets-row .stage2-asset.image")].find(x=>
-        /screenplay|page/i.test(x.textContent||"")&&x.classList.contains("locked"))`),
-        "unsupported model keeps required screenplay image cards instead of dropping them");
+      assert.ok(await c.eval(`!!document.querySelector(".stage2-gen-reference-row > [data-testid='stage-scene-screenplay']")`),
+        "unsupported model keeps the required screenplay disclosure in the reference section");
       await c.eval(`([...document.querySelectorAll(".sd-gen-model")].find(x=>/Seedance 2\\.5/.test(x.textContent)))?.click()`);
       await waitFor(()=>c.eval(`/Seedance 2\\.5/.test(document.querySelector(".sd-gen-model.on")?.textContent||"")`),
         "return to screenshot-capable model");
     }
-    await c.eval(`document.querySelector(".stage2-screenplay-page-button")?.click()`);
+    await c.eval(`(()=>{const d=document.querySelector('[data-testid="stage-scene-screenplay"]');if(d)d.open=true;document.querySelector(".stage2-screenplay-page-button")?.click();})()`);
     await waitFor(()=>c.eval(`!!document.querySelector(".lb-overlay .lb-img")`),
       "screenplay page preview");
     assert.ok(await c.eval(`document.querySelector(".lb-overlay .lb-img")?.src?.startsWith("data:image/png")`),
