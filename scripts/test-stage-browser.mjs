@@ -712,6 +712,14 @@ async function main() {
     await c.eval(`document.querySelector(".stage2-gen-add-pop .sdbar-mention-list button")?.dispatchEvent(new MouseEvent("mousedown",{bubbles:true}))`);
     await new Promise(r=>setTimeout(r,60));
     assert.ok(await c.eval(`!!document.querySelector(".stage2-gen-add-pop")`),"mousedown inside the picker keeps it open");
+    // scrolling the page under an open picker re-anchors it to the card (it is position:fixed)
+    await c.eval(`(()=>{const sc=document.querySelector(".stage2-gen-add").closest(".stage2-center")||document.scrollingElement;sc.scrollTop+=24;window.scrollBy(0,24);})()`);
+    await new Promise(r=>setTimeout(r,120));
+    const scrolledPop=await c.eval(`document.querySelector(".stage2-gen-add-pop")?${readAddPop}:null`);
+    if(scrolledPop){
+      assert.ok(scrolledPop.below||scrolledPop.above,"after a scroll the picker still hangs off the card "+JSON.stringify(scrolledPop.rect));
+      assert.ok(scrolledPop.insideViewport&&scrolledPop.listInsideViewport,"after a scroll the picker still fits the viewport");
+    }
     await c.eval(`document.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))`);
     await waitFor(()=>c.eval(`!document.querySelector(".stage2-gen-add-pop")`),"Escape closes the picker");
     assert.ok(await c.eval(`document.activeElement&&document.activeElement.classList.contains("stage2-gen-add")`),

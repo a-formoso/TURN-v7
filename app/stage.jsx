@@ -4265,10 +4265,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const addRefPopRef = React.useRef(null);   // the picker — first action receives focus on open
   const [addRefPos, setAddRefPos] = React.useState(null);
   const addRefOpen = sdMenu==="mention";
-  const toggleAddRef = (e)=>{
-    e.stopPropagation();
-    if(addRefOpen){ setSdMenu(null); return; }
-    const r = e.currentTarget.getBoundingClientRect();
+  const measureAddRef = (btn)=>{
+    const r = btn.getBoundingClientRect();
     const vw = window.innerWidth, vh = window.innerHeight, gap = 6, edge = 8, minH = 140;
     const clamp = (v, lo, hi)=>Math.max(lo, Math.min(hi, v));
     const below = Math.max(0, vh - r.bottom - gap - edge), above = Math.max(0, r.top - gap - edge);
@@ -4277,10 +4275,15 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     const left = Math.round(clamp(r.left, edge, Math.max(edge, vw - width - edge)));
     // anchor edge clamped into the viewport (a card scrolled half out of view still
     // gets an on-screen picker), then the height cap from the clamped anchor
-    const pos = { left, width };
+    const pos = { left, width, offscreen: r.bottom < 0 || r.top > vh || r.right < 0 || r.left > vw };
     if(up){ pos.bottom = Math.round(clamp(vh - r.top + gap, edge, Math.max(edge, vh - edge - minH))); pos.maxH = Math.max(minH, Math.min(560, vh - pos.bottom - edge)); }
     else { pos.top = Math.round(clamp(r.bottom + gap, edge, Math.max(edge, vh - edge - minH))); pos.maxH = Math.max(minH, Math.min(560, vh - pos.top - edge)); }
-    setAddRefPos(pos);
+    return pos;
+  };
+  const toggleAddRef = (e)=>{
+    e.stopPropagation();
+    if(addRefOpen){ setSdMenu(null); return; }
+    setAddRefPos(measureAddRef(e.currentTarget));
     setSdMenu("mention");
   };
   React.useEffect(()=>{
@@ -4295,13 +4298,22 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     return ()=>{ document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); };
   }, [sdMenu]);
   React.useEffect(()=>{
-    // the fixed picker cannot follow its card: close it when anything else scrolls or the window resizes
+    // the fixed picker does not move with its card: when anything else scrolls or the
+    // window resizes it is re-measured against the card (one pass per frame) and
+    // closes only once the card itself has left the viewport
     if(!addRefOpen) return;
-    const onScroll = (e)=>{ if(addRefPopRef.current && e.target && e.target.nodeType===1 && addRefPopRef.current.contains(e.target)) return; setSdMenu(null); };
-    const onResize = ()=>setSdMenu(null);
+    let raf = 0;
+    const follow = ()=>{
+      if(raf) return;
+      raf = requestAnimationFrame(()=>{ raf = 0;
+        const btn = addRefBtnRef.current; if(!btn) return;
+        const pos = measureAddRef(btn);
+        if(pos.offscreen) setSdMenu(null); else setAddRefPos(pos); });
+    };
+    const onScroll = (e)=>{ if(addRefPopRef.current && e.target && e.target.nodeType===1 && addRefPopRef.current.contains(e.target)) return; follow(); };
     document.addEventListener("scroll", onScroll, true);
-    window.addEventListener("resize", onResize);
-    return ()=>{ document.removeEventListener("scroll", onScroll, true); window.removeEventListener("resize", onResize); };
+    window.addEventListener("resize", follow);
+    return ()=>{ if(raf) cancelAnimationFrame(raf); document.removeEventListener("scroll", onScroll, true); window.removeEventListener("resize", follow); };
   }, [addRefOpen]);
   const addRefWasOpen = React.useRef(false);
   React.useEffect(()=>{

@@ -5846,16 +5846,18 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
    scroller (an absolutely positioned popover inside overflow-x:auto gets clipped) */
 .stage2-gen-strip{position:relative;min-width:0}
 /* "Add references" — first tile of the strip, same 72×48 rectangle as the thumbnails:
-   three round image / video / audio icons over the label, dark like a source card */
-.stage2-gen-add{position:relative;width:72px;height:48px;flex:0 0 72px;border:1px solid #2a2b31;border-radius:9px;padding:0;margin:0;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;background:#1a1b20;color:#e9e6df;cursor:pointer;overflow:hidden}
-.stage2-gen-add:hover,.stage2-gen-add.open{border-color:var(--brand,#d67e00);background:#202128}
+   three round image / video / audio icons over the label, on the same paper card
+   surface (--bg-2 / --line-2) as the text and thumbnail tiles beside it */
+.stage2-gen-add{position:relative;width:72px;height:48px;flex:0 0 72px;border:1px solid var(--line-2);border-radius:9px;padding:0;margin:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;background:var(--bg-2,#faf9f5);color:var(--txt-1);cursor:pointer;overflow:hidden}
+.stage2-gen-add:hover,.stage2-gen-add.open{border-color:var(--brand,#d67e00)}
+.stage2-gen-add.open{background:var(--bg-3,#f6f6f4)}
 .stage2-gen-add:focus-visible{outline:2px solid var(--brand,#d67e00);outline-offset:2px}
 .stage2-gen-add-icons{display:flex;align-items:center;justify-content:center;gap:2px}
-.stage2-gen-add-ico{width:15px;height:15px;border-radius:50%;display:grid;place-items:center;background:#2c2d34;color:#f2efe8;box-shadow:0 0 0 1px rgba(255,255,255,.06)}
+.stage2-gen-add-ico{width:15px;height:15px;border-radius:50%;display:grid;place-items:center;background:var(--bg-3,#f6f6f4);color:var(--txt-1);box-shadow:0 0 0 1px var(--line-2)}
 .stage2-gen-add-ico svg{display:block}
-.stage2-gen-add-label{font:750 7.5px/1 var(--f-ui);letter-spacing:.01em;color:#f2efe8;white-space:nowrap}
-.stage2-gen-add-sub{font:600 6px/1 var(--f-ui);letter-spacing:0;color:#a7a39b;white-space:nowrap}
+.stage2-gen-add-label{font:750 7.5px/1 var(--f-ui);letter-spacing:.01em;color:var(--txt-1);white-space:nowrap}
+.stage2-gen-add-sub{font:600 6px/1 var(--f-ui);letter-spacing:0;color:var(--txt-2);white-space:nowrap}
 /* the picker is position:fixed — placed from the card's rect at open time (below it,
    or above when the viewport has more room there) and capped to the visible height,
    so neither the strip's scroller nor the scrolling centre column can clip it.
