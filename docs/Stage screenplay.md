@@ -6,6 +6,12 @@ open its full-size preview. There is no separate expandable **Scene screenplay**
 section. The complete source text still reaches the generator, and the video
 prompt remains editable and is derived from that beat's screenplay and shot design.
 
+Beat-based grouping is the default. The prompt bar has no **Fit beat** dropdown;
+**Render settings → Model → Advanced → Clip grouping** retains Fit beat,
+Single shot and Previous packing. These choose which saved shots belong to a
+render, not the camera cuts within its prompt. Existing grouping preferences and
+historical takes are preserved.
+
 ## What reaches the video generator
 
 Every screenplay page is attached as an actual image reference, not just shown

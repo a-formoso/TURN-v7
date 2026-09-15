@@ -16,3 +16,9 @@ Rule: any user-facing "style/structure" pick for a derived prompt must carry an 
 **Packing decision:** fit each model's time budget at existing shot boundaries, preserving all selected coverage. Never shrink recorded speech or silently write a render's timing back to Art Room canon. An individually overlong shot needs an explicit authoring/revoice decision.
 
 **Why:** automatic chopping would claim an audio-to-micro-beat alignment the project does not possess. Keeping derived clip timing separate also avoids overwriting the director's Art Room decisions.
+
+Keep render grouping separate from camera coverage, and keep exceptional grouping choices out of the main prompt bar.
+
+**Why:** A multi-cut example does not establish that a beat needs multiple separate renders, nor authorize changing continuous-shot defaults. The user wanted the routine Fit beat button removed, but removing the historical grouping route would hide older take groups.
+
+**How to apply:** Preserve grouping preferences and old-take access in secondary settings. Evaluate a new prompt template separately; copying its numbered cuts must not invent or persist new Art Room shots.

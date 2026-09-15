@@ -1,0 +1,50 @@
+SCENE CONTEXT
+Bright day outside, darkness inside a cramped windowless ship cabin. Pirate captain Eduardo works through stacks of papers on a chart desk, sliding sheet after sheet aside, and uncovers an old treasure map — a red X on a small island, a dashed course line running from a drawn ship to that island. The cabin door swings open behind him and a crewman delivers one hoarse line — Eduardo slaps the map back onto the desk and immediately heads for the door. The shot ends on his walk out.
+
+ACTIVE REFERENCES
+@eduardo — lean pirate captain, dark curly hair falling free from under a dusty mustard-yellow cloth bandana, a small white shark tooth pinned to the front of the bandana above his temple, thin moustache, gold hoop earrings, cream linen shirt under a worn brown leather waistcoat, cloth sash and leather belts at the waist. 100% matches the reference; identity, face and wardrobe locked. Studio sheet background and layout NOT inherited.
+@map_prop — square aged parchment map, torn edges: hand-drawn compass cross in the top-left, a small inked sailing ship on the left, a dashed course line running right across the sheet to a small island with two palm trees, marked with a red stitched X. 100% matches the reference; the drawing on the parchment stays exactly as on the reference in every frame.
+@loc_cabin — cramped dark windowless wooden ship cabin: heavy chart desk, one lit hanging lantern above it, coiled ropes, low beamed ceiling, deep shadow in the corners. Controls environment, materials and mood only; reference framing not inherited.
+@eduardo_crew — one weathered pirate crewman taken from the reference group (bandana, rough shirt, vest). 100% matches the reference; he appears ONLY in the doorway in the final cut.
+
+LOCATION MAP
+Interior of @loc_cabin. The chart desk sits midground-center under the hanging lantern — the only light source. The desk is buried in paper: stacked sea charts, folded letters, logbook pages, scattered loose sheets. The cabin door is in the background screen-left, closed until the last cut.
+Foreground: edge of the desk and paper stacks. Background: dark planked wall, rope coils, shadow.
+Camera works from the dark side of the desk, across from the lantern spill.
+
+FIRST FRAME / BLOCKING
+First frame: @eduardo already bent over the desk, screen-center, in profile-three-quarter to camera, both hands in the paper stacks, mid-motion sliding a chart aside. The lantern burns above his head. The door screen-left stays closed. Composition holds him off-center right, the paper field leading toward him.
+
+FORMAT MODE
+Sequence of cuts, no timecodes — cuts only at the specified points, the camera does not cut on its own.
+CUT 1 — MS, 47°: Eduardo bent over the desk, working through the papers in a steady searching rhythm — lifts a sheet, scans it half a second, slides it aside; one loose page slips off the desk edge and seesaws down out of frame. Smooth continuous hand movements, one sheet at a time. As he searches he MUTTERS to himself under his breath, wry and competitive: "You think you're gonna outsmart me?.. Nice try!"
+CUT 2 — MCU, 29°: his hands stop — under loose papers a corner of aged parchment. He pulls @map_prop free with both hands and lifts it into the lantern light, eyes locking onto it — and a slow grin spreads across his face, one corner of the mouth first, the smile of a man who knows he is close to his prize.
+CUT 3 — OVER-THE-SHOULDER MS, 29°, brief: from behind Eduardo's shoulder, at a step's distance — the map held in his hands in the lantern light, occupying part of the frame, his shoulder and head framing it. The red stitched X on the small island and the dashed line from the drawn ship read clearly. A short hold, about 1.5 seconds, no camera move.
+CUT 4 — MS, 47°, past Eduardo toward the door: the door swings open and hard white daylight BLASTS into the dark cabin — @eduardo_crew stands in the doorway as a pure black SILHOUETTE against the burning-bright rectangle, face unreadable, edges rimmed with light. Volumetric light rays shaft past him through the doorway, cutting through the cabin dust, drawing long bright streaks across the floor and desk. He speaks his line, hoarse and urgent. Eduardo startles, head snapping toward the light — and SLAPS the map back down flat onto the desk in one sharp reflex motion, both hands pressing it for a beat — then pushes off the desk and strides straight toward the doorway, empty-handed, walking into the light past the silhouetted crewman. The map stays lying on the desk. The shot ends on his stride toward the exit.
+
+OPTICS
+FOV per cut as stated: 47° neutral for the desk work and the door, 29° portrait compression for the find and the over-the-shoulder map view. No drift mid-segment. In CUT 3 the parchment is sharp, Eduardo's shoulder soft in the near foreground, background falling away.
+
+CAMERA
+Handheld with a quiet 1–2 cm breath, operator on the dark side of the desk across from the lantern, chest height, moving at under 2 km/h. On CUT 3 the camera holds a steady over-the-shoulder position behind him, a step back, no move. Focus rides Eduardo's hands, then the map.
+
+ACTION
+Eduardo searches with focused urgency, but every movement stays readable and unhurried in the frame: fingers walk through the stacks, each sheet is lifted, tilted to the lantern, slid aside — one page at a time, papers keeping their shape and place until his hands move them. He freezes the instant the parchment corner appears — one full second of stillness — then draws it out carefully with both hands. On the door opening: a startle reflex — the map slapped back flat onto the desk in one sharp motion — then a decisive push off the desk and a straight, fast walk toward the doorway, hands free. The action ends mid-stride toward the exit.
+
+PERFORMANCE
+Muscle-level acting: jaw set during the search, breath audible and short; on finding the map the breath stops, eyes widen a fraction, pupils flick along the dashed line left to right — then the grin arrives: one corner of the mouth lifting first, eyes brightening, the hungry smile of a man close to his goal, held as he studies the map. Pore-level skin realism, lantern catch-lights in the eyes, living micro-movement in the face.
+
+PHYSICS
+Papers slide and settle with air resistance; every sheet keeps its exact shape, size and markings while it moves — objects on the desk hold stable identity from frame to frame and move only when his hands move them. The parchment is stiff, aged — it bends in a gentle arc, corners trembling slightly in his hands. Dust motes drift through the lantern beam. The whole cabin sways gently, 2–3 cm amplitude; the hanging lantern swings with a slow offset.
+
+LIGHTING
+CUTS 1–3, single practical source: the hanging lantern above the desk, warm 3200K, hard small-source key from above, deep soft shadows everywhere else. Eduardo half-lit — lantern side of his face warm, camera side falling into shadow. Haze thin, visible only inside the lantern beam. CUT 4: the opened door introduces a second, dominant source — hard 5600K sun blasting through the doorway, 3 stops over the cabin exposure, blooming at the frame edge. The crewman reads as a full black silhouette inside it; volumetric god rays fan from the doorway through 40% dust haze, striping the desk and Eduardo's face with light.
+
+AUDIO
+Creak of ship timbers, dry paper rustle, sheet after sheet sliding on wood. Over the search in CUT 1, Eduardo's low muttering to himself, wry, half-grinning: "You think you're gonna outsmart me?.. Nice try!" On CUT 4: door latch clack, hinge groan, then the crewman's hoarse, gravelly voice: "Cap'n — island sighted, dead ahead!" Low room tone of sea against the hull throughout.
+
+STYLE
+Photoreal live-action, cinematic low-key interior, fine film grain, deep blacks with detail held in shadow, 8K master.
+
+POSITIVE LOCKS
+The drawing on @map_prop stays identical in every frame: red X on the two-palm island, dashed line from the drawn ship to the island, compass cross top-left. The lantern stays lit in every cut. The door stays closed until CUT 4; when it opens, the crewman stays a full black silhouette against hard sunlight for the whole cut, light rays visible in the dust. Only two people ever appear: Eduardo and the one crewman in the doorway. Eduardo keeps the map in his hands from CUT 2 until the door opens in CUT 4 — there he slaps it back onto the desk, and the map lies flat on the desk for the rest of the shot. The final frames show Eduardo mid-stride toward the doorway, hands empty, walking into the light. Eduardo's head: mustard-yellow bandana with the small white shark tooth at the front, hair loose. The desk holds only papers and the map — every object keeps a stable shape and identity across frames, moving only when his hands move it. Cuts only at the specified points.

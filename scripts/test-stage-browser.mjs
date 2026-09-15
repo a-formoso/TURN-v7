@@ -129,7 +129,7 @@ function fixtureHtml() {
 <script src="/react.js"></script><script src="/react-dom.js"></script>
 <script>
 /* Deterministic browser-only boundaries. Every call is recorded for assertions. */
-window.__fixture={calls:[],loadCalls:[],imageOverrides:{},refreshResults:{},refreshCalls:[],delayedImages:{},updates:[],confirms:[],toasts:[],errors:[],consoleErrors:[],proxyKnown:false,lastRuntimeCapabilities:null,
+window.__fixture={calls:[],loadCalls:[],imageOverrides:{},refreshResults:{},refreshCalls:[],delayedImages:{},updates:[],confirms:[],toasts:[],errors:[],consoleErrors:[],adoptTakes:[],proxyKnown:false,lastRuntimeCapabilities:null,
   variantLoaded:false,policyRefusal:false,hardRemounts:0,genEvents:0};
 window.addEventListener("nb-gen-done",()=>__fixture.genEvents++);
 const __fixtureConsoleError=console.error.bind(console);
@@ -257,7 +257,8 @@ window.nbGetMeta=id=>{
 };
 window.nbAssetApproval=m=>!!(m&&m.iso&&m.approval&&m.approval.approved&&m.approval.iso===m.iso);
 window.vidLikenessError=msg=>/policy refusal|character reference/i.test(String(msg||""));
-window.vgGetAudio=()=>""; window.vgLoadAudio=async()=>""; window.vidAdoptTakes=async()=>{};
+window.vgGetAudio=()=>""; window.vgLoadAudio=async()=>"";
+window.vidAdoptTakes=async(...args)=>(__fixture.adoptTakes.push(args),null);
 window.shotSourcesStatus=(shots,drafts,meta)=>meta&&meta.fixtureStale?"stale":"current";
 window.shotSourcesEditorialStatus=window.shotSourcesStatus;
 window.shotSourcesSnapshot=()=>[{id:"fixture-source",revision:"current"}];
@@ -459,7 +460,52 @@ async function main() {
 
     const text=()=>c.eval(`document.body.innerText`);
     const selectedModel=()=>c.eval(`document.querySelector(".sd-gen-model.on")?.textContent.trim()`);
-    const selectedScope=()=>c.eval(`document.querySelector('button[title="Clip scope — how much one render covers"]')?.textContent.trim()`);
+    const settingsState=()=>c.eval(`(()=>({
+      open:!!document.querySelector(".stage2-settings-drawer"),
+      tab:[...document.querySelectorAll(".stage2-settings-tabs .insp-tab")].find(x=>x.classList.contains("on"))?.textContent.trim()||null
+    }))()`);
+    const restoreSettingsState=async(state)=>{
+      if(state.open){
+        if(state.tab && state.tab!=="Model")
+          await c.eval(`([...document.querySelectorAll(".stage2-settings-tabs .insp-tab")].find(x=>x.textContent.trim()===${JSON.stringify(state.tab)}))?.click()`);
+        await waitFor(()=>c.eval(`document.querySelector(".stage2-settings-drawer")&&([...document.querySelectorAll(".stage2-settings-tabs .insp-tab")].find(x=>x.classList.contains("on"))?.textContent.trim()||null)===${JSON.stringify(state.tab)}`),"restore Render settings tab");
+      }else if(await c.eval(`!!document.querySelector(".stage2-settings-drawer")`)){
+        await c.eval(`document.querySelector('button[title="Collapse render settings"]')?.click()`);
+        await waitFor(()=>c.eval(`!document.querySelector(".stage2-settings-drawer")`),"restore collapsed Render settings");
+      }
+    };
+    const openModelSettings=async(label)=>{
+      const before=await settingsState();
+      if(!before.open){
+        await c.eval(`document.querySelector('button[title="Expand render settings"],.stage2-console .strip.right')?.click()`);
+        await waitFor(()=>c.eval(`!!document.querySelector(".stage2-settings-drawer")`),`${label||"Stage"} Render settings`);
+      }
+      if((await c.eval(`([...document.querySelectorAll(".stage2-settings-tabs .insp-tab")].find(x=>x.classList.contains("on"))?.textContent.trim()||"")`))!=="Model")
+        await c.eval(`([...document.querySelectorAll(".stage2-settings-tabs .insp-tab")].find(x=>x.textContent.trim()==="Model"))?.click()`);
+      await waitFor(()=>c.eval(`!!document.querySelector('select[data-testid="stage-clip-grouping"][aria-label="Clip grouping"]')`),`${label||"Stage"} Clip grouping control`);
+      return before;
+    };
+    const readClipGrouping=async(label)=>{
+      const before=await openModelSettings(label);
+      const value=await c.eval(`document.querySelector('select[data-testid="stage-clip-grouping"][aria-label="Clip grouping"]')?.value`);
+      await restoreSettingsState(before);
+      return value;
+    };
+    const chooseClipGrouping=async(value,label)=>{
+      const before=await openModelSettings(label);
+      const control=await c.eval(`(()=>{const s=document.querySelector('select[data-testid="stage-clip-grouping"][aria-label="Clip grouping"]');return s&&{value:s.value,label:s.getAttribute("aria-label"),testid:s.dataset.testid,options:[...s.options].map(o=>({value:o.value,label:o.textContent.trim()}))};})()`);
+      assert.ok(control,"Clip grouping control is mounted in Model > Advanced");
+      assert.equal(control.label,"Clip grouping","Clip grouping select is accessible");
+      assert.equal(control.testid,"stage-clip-grouping","Clip grouping select has the requested test id");
+      assert.deepEqual(control.options.map(x=>x.value),["beat","shot","legacy"],"Clip grouping exposes only the supported scope values");
+      assert.deepEqual(control.options.map(x=>x.label),["Fit beat","Single shot","Previous packing"],"Clip grouping labels describe the supported scope values");
+      await c.eval(`(()=>{const s=document.querySelector('select[data-testid="stage-clip-grouping"][aria-label="Clip grouping"]');s.value=${JSON.stringify(value)};s.dispatchEvent(new Event("change",{bubbles:true}));return s.value;})()`);
+      await waitFor(()=>c.eval(`document.querySelector('select[data-testid="stage-clip-grouping"][aria-label="Clip grouping"]')?.value===${JSON.stringify(value)}`),`${label||"Stage"} Clip grouping selection`);
+      const storageValue=value==="legacy"?"auto":value;
+      await waitFor(()=>c.eval(`localStorage.getItem("turn_stage_clip_scope")===${JSON.stringify(storageValue)}`),`${label||"Stage"} Clip grouping persistence`);
+      await restoreSettingsState(before);
+      return value;
+    };
     const chooseNativePerformance=async(label)=>{
       await c.eval(`([...document.querySelectorAll(".stage2-settings-tabs .insp-tab")].find(x=>x.textContent.trim()==="Director"))?.click()`);
       await waitFor(()=>c.eval(`[...document.querySelectorAll("select")].some(s=>[...s.options].some(o=>o.value==="native"&&/Native performance/.test(o.textContent)))`),`${label||"Stage"} native-performance control`);
@@ -467,7 +513,9 @@ async function main() {
       await waitFor(()=>c.eval(`[...document.querySelectorAll("select")].some(s=>s.value==="native"&&[...s.options].some(o=>o.value==="native"&&/Native performance/.test(o.textContent)))`),`${label||"Stage"} native-performance selection`);
     };
     assert.match(await selectedModel(),/Seedance 2\.5/,"new Stage defaults to Seedance 2.5");
-    assert.match(await selectedScope(),/^Fit beat/,"new Stage defaults to beat-fit scope");
+    assert.equal(await c.eval(`!!document.querySelector('.stage2-console-composer button[title^="Clip scope"],.stage2-console-composer .sdbar-pill.scope')`),false,
+      "composer no longer renders the redundant clip-scope pill");
+    assert.equal(await readClipGrouping("initial"),"beat","new Stage defaults to beat grouping");
     await chooseNativePerformance("initial");
 
     const duration=await c.eval(`document.querySelector(".stage2-rendercard .stage2-control-row select")?.value || [...document.querySelectorAll(".stage2-rendercard select")].find(s=>[...s.options].some(o=>o.textContent.includes("10s")))?.value`);
@@ -768,21 +816,37 @@ async function main() {
     await c.eval(`(()=>{const b=[...document.querySelectorAll(".sd-gen-model")].find(x=>x.textContent.includes("Seedance 2.0"));b.click();return true})()`);
     await waitFor(()=>c.eval(`document.querySelector(".sd-gen-model.on")?.textContent.includes("2.0")`),"2.0 selection");
     assert.equal(await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent`),manual,"model update preserves manual prompt");
-    /* Scope update through the actual pill menu. */
-    await c.eval(`document.querySelector('button[title="Clip scope — how much one render covers"]').click()`);
-    await waitFor(()=>c.eval(`[...document.querySelectorAll(".sdbar-option b")].some(x=>x.textContent.trim()==="Single shot")`),"scope menu");
-    await c.eval(`([...document.querySelectorAll(".sdbar-option b")].find(x=>x.textContent.trim()==="Single shot")).closest("button").click()`);
-    await waitFor(()=>c.eval(`localStorage.getItem("turn_stage_clip_scope")==="shot"`),"single-shot persistence");
+    /* Clip grouping now lives in Render settings → Model → Advanced, not in the composer. */
+    await chooseClipGrouping("shot","single-shot");
+    assert.equal(await readClipGrouping("single-shot readback"),"shot","single-shot selection remains active");
+    assert.equal(await c.eval(`!!document.querySelector('.stage2-console-composer button[title^="Clip scope"],.stage2-console-composer .sdbar-pill.scope')`),false,
+      "single-shot selection does not recreate a composer scope pill");
     assert.equal(await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent`),manual,"scope update preserves manual prompt");
     /* Input/reference update. */
     await c.eval(`document.querySelector(".stage2-asset.image:not(.locked)")?.click()`);
     await new Promise(r=>setTimeout(r,100));
     assert.equal(await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent`),manual,"input update preserves manual prompt");
 
-    /* Stored historical choice survives a real reload. */
+    /*
+     * The compatibility value is also a real persisted choice, not a transient
+     * control state. Reload with Previous packing selected and verify the fixture's
+     * existing adoption boundary is called again from the mounted Stage.
+     */
+    await chooseClipGrouping("legacy","previous-packing reload setup");
+    assert.equal(await c.eval(`localStorage.getItem("turn_stage_clip_scope")`),"auto",
+      "previous packing writes the historical auto storage value before reload");
     await c.call("Page.reload",{ignoreCache:true});
     await waitFor(()=>c.eval(`document.querySelector(".sd-gen-model.on")?.textContent.includes("2.0")`),"stored 2.0 reload");
     assert.match(await selectedModel(),/Seedance 2\.0/,"stored 2.0 persists");
+    assert.equal(await readClipGrouping("previous-packing after reload"),"legacy",
+      "previous packing selection persists across reload");
+    assert.equal(await c.eval(`localStorage.getItem("turn_stage_clip_scope")`),"auto",
+      "previous packing keeps old auto storage across reload");
+    await waitFor(()=>c.eval(`window.__fixture.adoptTakes.length>0?window.__fixture.adoptTakes:null`),
+      "legacy take adoption after reload");
+    await chooseClipGrouping("shot","shot restoration after legacy reload");
+    assert.equal(await readClipGrouping("shot restoration after legacy reload readback"),"shot",
+      "single-shot grouping is restored before the remaining shot-scoped checks");
     await chooseNativePerformance("post-reload");
 
     /* Return to 2.5 and check an unknown proxy cannot offer 1080p. */
@@ -856,13 +920,33 @@ async function main() {
     assert.ok(await c.eval(`(()=>{const t=document.querySelector(".stage2-blocker-text")?.textContent.toLowerCase()||"";return t.includes("required appearance")&&t.includes("rain wardrobe")&&t.includes("use master for this shot")})()`),"missing-state guidance remains visible after manual master inclusion");
 
     /*
+     * Previous packing is the compatibility route for old positional take ids. It
+     * persists as the historical "auto" storage value and asks the real adoption
+     * boundary to inspect existing takes; this fixture deliberately does not invent
+     * or migrate take data.
+     */
+    const adoptBaseline=await c.eval(`window.__fixture.adoptTakes.length`);
+    await chooseClipGrouping("legacy","previous-packing");
+    assert.equal(await readClipGrouping("previous-packing readback"),"legacy","previous packing remains selected");
+    const adopted=await waitFor(()=>c.eval(`window.__fixture.adoptTakes.length>${adoptBaseline}?window.__fixture.adoptTakes.slice(${adoptBaseline}):null`),"legacy take adoption boundary");
+    assert.ok(adopted.length>0&&adopted.every(x=>x.length===2&&x[0]&&x[1]&&x[0]!==x[1]),
+      "legacy grouping invokes take adoption with stable and old positional ids");
+    assert.equal(await c.eval(`localStorage.getItem("turn_stage_clip_scope")`),"auto",
+      "legacy grouping preserves the historical auto storage value");
+    assert.equal(await c.eval(`window.__takes.length`),2,
+      "legacy grouping does not fabricate or rewrite fixture take data");
+    await c.eval(`([...document.querySelectorAll(".viewnav button")].find(x=>x.textContent.trim()==="Takes"))?.click()`);
+    await waitFor(()=>c.eval(`document.querySelector(".stage2-vers")?.innerText.includes("2 takes")`),"legacy take review route");
+    assert.match(await text(),/Restore as current|Reuse settings/,"legacy grouping retains the old take review actions");
+    await c.eval(`([...document.querySelectorAll(".viewnav button")].find(x=>x.textContent.trim()==="Shoot"))?.click()`);
+    await waitFor(()=>c.eval(`!!document.querySelector(".stage2-console-composer")`),"return to Stage after legacy take review");
+    await chooseClipGrouping("beat","fit-beat restoration");
+    assert.equal(await readClipGrouping("fit-beat restoration readback"),"beat","beat grouping is restored after legacy review");
+    /*
      * A VIDEO-only master substitution is an explicit, persisted shot decision. Move
      * back to the grouped beat so both shots are visible, then prove selecting one row
      * neither leaks to its sibling nor mutates any story/reference source data.
      */
-    await c.eval(`document.querySelector('button[title="Clip scope — how much one render covers"]').click()`);
-    await waitFor(()=>c.eval(`[...document.querySelectorAll(".sdbar-option b")].some(x=>x.textContent.trim()==="Fit beat")`),"fit-beat menu for shot override");
-    await c.eval(`([...document.querySelectorAll(".sdbar-option b")].find(x=>x.textContent.trim()==="Fit beat")).closest("button").click()`);
     await waitFor(()=>c.eval(`document.querySelectorAll(".stage2-character-choice").length===2`),"both grouped-beat character choices");
     // Use explicit text, not rendered mention-chip labels, to compare the editor
     // with the provider prompt. A chip's visible label is not its @ImageN value.
@@ -1133,10 +1217,23 @@ async function main() {
     assert.ok(!mentionConsoleErrors.some(x=>/same key|unique ["']key["'] prop|encountered two children/i.test(x)),`mention option rendering has no duplicate React keys: ${JSON.stringify(mentionConsoleErrors)}`);
 
     /* Leave the saved-choice check behind and capture the approved beat-first workflow. */
-    await c.eval(`document.querySelector('button[title="Clip scope — how much one render covers"]').click()`);
-    await waitFor(()=>c.eval(`[...document.querySelectorAll(".sdbar-option b")].some(x=>x.textContent.trim()==="Fit beat")`),"fit-beat menu");
-    await c.eval(`([...document.querySelectorAll(".sdbar-option b")].find(x=>x.textContent.trim()==="Fit beat")).closest("button").click()`);
-    await waitFor(()=>c.eval(`localStorage.getItem("turn_stage_clip_scope")==="beat"`),"fit-beat restoration");
+    await chooseClipGrouping("beat","final fit-beat restoration");
+    assert.equal(await readClipGrouping("final fit-beat readback"),"beat","final Stage workflow uses beat grouping");
+    assert.match(await selectedModel(),/Seedance 2\.5/,"final Stage workflow restores the tested default model");
+    await c.call("Emulation.setDeviceMetricsOverride",{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+    const advancedSettingsBeforeShot=await openModelSettings("advanced-settings screenshot");
+    const advancedSettingsState=await c.eval(`(()=>{const s=document.querySelector('select[data-testid="stage-clip-grouping"][aria-label="Clip grouping"]');return {value:s?.value,visible:!!s&&s.getBoundingClientRect().width>0,labels:[...s?.options||[]].map(o=>o.textContent.trim())};})()`);
+    assert.equal(advancedSettingsState.value,"beat","advanced settings screenshot shows the restored beat grouping");
+    assert.equal(advancedSettingsState.visible,true,"advanced settings Clip grouping select is visible");
+    const advancedDesktop=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
+    await writeFile(`${OUT}/stage-settings-advanced-desktop.png`,Buffer.from(advancedDesktop.data,"base64"));
+    await c.call("Emulation.setDeviceMetricsOverride",{width:390,height:844,deviceScaleFactor:2,mobile:true,screenWidth:390,screenHeight:844});
+    await new Promise(r=>setTimeout(r,150));
+    assert.equal(await c.eval(`document.querySelector('select[data-testid="stage-clip-grouping"][aria-label="Clip grouping"]')?.value`),"beat",
+      "advanced settings Clip grouping persists at the mobile breakpoint");
+    const advancedMobile=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
+    await writeFile(`${OUT}/stage-settings-advanced-mobile-390.png`,Buffer.from(advancedMobile.data,"base64"));
+    await restoreSettingsState(advancedSettingsBeforeShot);
     await c.call("Emulation.setDeviceMetricsOverride",{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
     const inspectScreenplayStrip=async(label)=>{
       const state=await c.eval(`(()=>{
@@ -1281,7 +1378,7 @@ async function main() {
     const frontendErrors=await c.eval(`window.__fixture.errors.slice()`);
     assert.deepEqual(frontendErrors,[],"fixture raised frontend errors");
     console.log(`fixture: ${FIXTURE}/index.html`);
-     console.log(`screenshots: ${OUT}/stage-screenplay-strip-desktop.png, ${OUT}/stage-screenplay-lightbox-desktop.png, ${OUT}/stage-screenplay-strip-mobile-390.png, ${OUT}/stage-screenplay-lightbox-mobile-390.png, ${OUT}/stage-shot-master-overrides-desktop.png, ${OUT}/stage-shot-master-overrides-mobile-390.png, ${OUT}/stage-shoot-desktop.png, ${OUT}/stage-desktop.png, ${OUT}/stage-mobile-390.png`);
+     console.log(`screenshots: ${OUT}/stage-settings-advanced-desktop.png, ${OUT}/stage-settings-advanced-mobile-390.png, ${OUT}/stage-screenplay-strip-desktop.png, ${OUT}/stage-screenplay-lightbox-desktop.png, ${OUT}/stage-screenplay-strip-mobile-390.png, ${OUT}/stage-screenplay-lightbox-mobile-390.png, ${OUT}/stage-shot-master-overrides-desktop.png, ${OUT}/stage-shot-master-overrides-mobile-390.png, ${OUT}/stage-shoot-desktop.png, ${OUT}/stage-desktop.png, ${OUT}/stage-mobile-390.png`);
     if(regressions.length) throw new Error("Stage regressions:\\n- "+regressions.join("\\n- "));
     console.log("PASS Stage browser regression");
   } catch(error) {

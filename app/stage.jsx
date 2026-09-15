@@ -4326,20 +4326,6 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
                 setModelId(m.id);
                 const t0=seedanceTierOf(m,tier); if(t0) setTier(t0.id); } });
           }))),
-      sdPill("scope","scope","Clip scope — how much one render covers",
-        _stEl(React.Fragment,null, Icon.film&&_stEl(Icon.film,{s:13}),
-          _stEl("span",null, clipScope==="shot" ? "Single shot" : clipScope==="legacy" ? "Previous packing" : "Fit beat")),
-        _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
-          [ { id:"beat", label:"Fit beat",
-              desc:"Beat-first packing. A long beat splits into numbered parts at shot boundaries without omitting coverage. A single overlong shot is blocked with deliberate split/revoice guidance.",
-              selected:clipScope==="beat", onPick:()=>{ if(typeof setClipScope==="function") setClipScope("beat"); } },
-            { id:"shot", label:"Single shot",
-              desc:"One clip per SHOT — render and judge each shot on its own for maximum control; the rail lists every shot as its own clip.",
-              selected:clipScope==="shot", onPick:()=>{ if(typeof setClipScope==="function") setClipScope("shot"); } },
-            { id:"legacy", label:"Previous packing",
-              desc:"View the earlier automatic groups and their historical takes. This does not delete or migrate them into the beat-first plan.",
-              selected:clipScope==="legacy", onPick:()=>{ if(typeof setClipScope==="function") setClipScope("legacy"); } },
-          ].map(o=>sdOption(o)))),
       sdPill("source","source","Reference mode",
         _stEl(React.Fragment,null, Icon.layers&&_stEl(Icon.layers,{s:13}), _stEl("span",null,sourceUiLabel)),
         _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
@@ -4891,6 +4877,18 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         title:id===autoMode?"Auto-selected from current inputs":"Use "+label},
         label.split(" ").map((w,i)=>_stEl(React.Fragment,{key:w+i},i===2?_stEl("br",null):null,w+(i===label.split(" ").length-1?"":" ")))))),
     _stEl("label",{className:"sd-gen-label"},"Advanced"),
+    // Grouping is separate from the beat's camera cuts. Keep historical take
+    // access available without exposing this as a routine composer choice.
+    _ctrlRow("Clip grouping", _stEl("select",{value:clipScope,
+        "aria-label":"Clip grouping","data-testid":"stage-clip-grouping",
+        title:"How shots are grouped into video clips, not where the camera cuts. Previous packing keeps historical takes accessible.",
+        onChange:e=>{ if(typeof setClipScope==="function")setClipScope(e.target.value); }},
+      _stEl("option",{value:"beat",
+        title:"Fit the beat to the model limit using existing shot boundaries; never omit coverage or shorten dialogue."},"Fit beat"),
+      _stEl("option",{value:"shot",
+        title:"One render per saved shot."},"Single shot"),
+      _stEl("option",{value:"legacy",
+        title:"Browse the earlier automatic groups and their historical takes."},"Previous packing"))),
     // batch takes — parallel renders with distinct seeds; the Render card's cost
     // multiplies live as this changes (same state as the composer's batch pill)
     _ctrlRow("Batch takes", _stEl("div",{className:"stage2-seedrow stage2-batchrow"},
