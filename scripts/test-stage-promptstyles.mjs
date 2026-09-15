@@ -38,6 +38,7 @@ const sandbox = makeSandbox();
 sandbox.window = sandbox;
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
+vm.runInContext(readFileSync("dist/app/stage-director-brief.js", "utf8"), sandbox, { filename: "dist/app/stage-director-brief.js" });
 vm.runInContext(readFileSync("dist/app/stage.js", "utf8"), sandbox, { filename: "dist/app/stage.js" });
 // clip PACKING lives in shots.jsx — its own context so the two files stay honest
 const shotsBox = makeSandbox();
@@ -74,6 +75,7 @@ const mkClip = (over) => ({ id: "c1", label: "Clip 1", scene: { id: "s1", title:
     lineShots: [sh2], lead: "Mara", ...(over || {}) } });
 const EX = { explicitStyle: true };
 const trailerRe = /AUDIO & OVERLAYS: .*NO background music/;
+const directorAudioRe = /Use only authored diegetic sound and natural ambience\. NO background music, NO score\. NO subtitles, captions, panel borders or burned-in text overlays\./;
 
 /* ---- registry ---- */
 ok("recipes registry ids", ["narrative", "panels", "timeline", "structured", "lipsync"]
@@ -140,30 +142,28 @@ ok("recipes registry ids", ["narrative", "panels", "timeline", "structured", "li
 /* ---- AUTO (no explicitStyle) keeps the researched director brief ---- */
 {
   const out = recipePrompt("timeline", mkClip(), [sh1, sh2], sh1, true, [], null);
-  ok("auto: micro-beat director brief", out.indexOf("micro-beats in exact order") >= 0, out.slice(0, 300));
-  ok("auto: performance rule", out.indexOf("Performance: grounded") >= 0, out);
-  ok("auto: not time-coded", !/^\d+(\.\d+)?–\d+(\.\d+)?s: /m.test(out), out);
+  ok("auto: approved director brief", out.indexOf("BEAT CONTRACT") >= 0
+    && out.indexOf("ACTION AND CAMERA PLAN") >= 0, out.slice(0, 300));
+  ok("auto: stable dialogue and ending sections", out.indexOf("DIALOGUE AND SOUND") >= 0
+    && out.indexOf("ENDING AND CONTINUITY LOCKS") >= 0, out);
+  ok("auto: no legacy time-coded plan", !/^\d+(\.\d+)?–\d+(\.\d+)?s: /m.test(out), out);
 }
 
-/* ---- AUTO whole-beat SHOT SEQUENCE (Seedance 2.5 per-beat clips) ---- */
+/* ---- AUTO options still dispatch to the approved brief (not a named style) ---- */
 {
   const out = recipePrompt(null, mkClip(), [sh1, sh2], sh1, true, ["b"], null, { beatSequence: true, directAudioCap: 3, videoRefBase: 0, videoRefCap: 10 });
-  ok("beat-seq: one-clip beat header", out.indexOf("ONE CLIP — BEAT 1 shot as a SEQUENCE OF SHOTS") >= 0, out.slice(0, 160));
-  ok("beat-seq: shot units", /^SHOT 1/m.test(out) && /^SHOT 2/m.test(out), out);
-  ok("beat-seq: hard cut marker", /^Cut to:$/m.test(out), out);
-  ok("beat-seq: per-shot micro-beats", out.indexOf("Micro-beats in exact order: 1) Mara grips the rail") >= 0, out);
-  ok("beat-seq: dialogue placement", out.indexOf('delivers "Go now"') >= 0 && out.indexOf("@Audio1") >= 0, out);
-  ok("beat-seq: hold ending", out.indexOf("HOLD the last composition") >= 0, out);
-  ok("beat-seq: not whole-scene", out.indexOf("ONE CONTINUOUS SCENE") < 0, out.slice(0, 160));
-  ok("beat-seq: trailer", trailerRe.test(out));
+  ok("auto options: still use director brief", out.indexOf("BEAT CONTRACT") >= 0
+    && out.indexOf("ENDING AND CONTINUITY LOCKS") >= 0, out.slice(0, 160));
+  ok("auto options: no invented hard cuts", !/^Cut to:$/m.test(out), out);
+  ok("auto options: approved brief audio guard", directorAudioRe.test(out));
 }
 
-/* ---- dormant whole-scene branch still intact (future whole-scene model) ---- */
+/* ---- dormant whole-scene options still dispatch to the approved brief ---- */
 {
   const out = recipePrompt(null, mkClip(), [sh1, sh2], sh1, true, [], null, { wholeScene: true });
-  ok("whole-scene: one-take header", out.indexOf("ONE CONTINUOUS SCENE") >= 0, out.slice(0, 120));
-  ok("whole-scene: beat section", /^BEAT 1$/m.test(out), out);
-  ok("whole-scene: trailer", trailerRe.test(out));
+  ok("whole-scene options: approved brief", out.indexOf("BEAT CONTRACT") >= 0, out.slice(0, 120));
+  ok("whole-scene options: ending section", out.indexOf("ENDING AND CONTINUITY LOCKS") >= 0, out);
+  ok("whole-scene: approved brief audio guard", directorAudioRe.test(out));
 }
 
 /* ---- explicit style WINS over beat-sequence opts (2.5 + a named style) ---- */

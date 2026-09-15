@@ -12,6 +12,33 @@ Single shot and Previous packing. These choose which saved shots belong to a
 render, not the camera cuts within its prompt. Existing grouping preferences and
 historical takes are preserved.
 
+## Default director's brief
+
+Automatic Seedance direction uses a structured brief:
+
+1. **Beat contract** — selected scene, beat/part and actual render duration.
+2. **Active references** — included files with their actual tags, roles and shot assignments.
+3. **Scene and opening state** — canonical setting, first-frame state and physical presence.
+4. **Action and camera plan** — selected screenplay action in order and existing authored coverage.
+5. **Performance** — screenplay reactions and exact delivery parentheticals, where provided.
+6. **Lighting and physical continuity** — approved project look and event-driven changes.
+7. **Dialogue and sound** — exact, ordered utterances, recorded audio bindings, remote voices and messages.
+8. **Ending and continuity locks** — end after the selected coverage, retaining its resulting positions and prop states.
+
+Unknown facts are not filled in: no invented emotions, geography, optics, lighting
+measurements or prop ownership. Shot-start/aggregate prop inventory is not asserted
+to be the end state after an authored transfer. Dialogue markers retain distinct
+occurrences even when the same words repeat. Message text is not spoken.
+
+One saved shot, including a beat-opening shot, stays continuous. Numbered cuts
+describe existing multiple-shot coverage only; the brief never creates Art Room
+shots, keyframes or extra generation jobs. Named prompt styles bypass this default
+while retaining the selected-coverage and continuous-shot constraints.
+
+Changing duration or authored look/camera settings refreshes an untouched brief.
+Manual edits survive, with review required when their source changes. Mandatory
+screenplay inputs and render/recovery limits apply to every style as before.
+
 ## What reaches the video generator
 
 Every screenplay page is attached as an actual image reference, not just shown

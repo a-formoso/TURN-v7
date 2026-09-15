@@ -16,7 +16,7 @@ const box={
 box.window=box;box.globalThis=box;
 vm.createContext(box);
 for(const file of ["app/shot-screenplay.js","app/shot-scene-context.js","app/stage-screenplay.js",
-  "app/stage-plan.jsx","app/stage-references.jsx","app/stage.jsx"])
+  "app/stage-plan.jsx","app/stage-references.jsx","app/stage-director-brief.js","app/stage.jsx"])
   vm.runInContext(readFileSync(file,"utf8"),box,{filename:file});
 
 let pass=0,fail=0;
@@ -108,15 +108,20 @@ const clip={id:"beat-clip",scene,data:{
 }};
 const refs={character:c=>c.name,speaker:s=>s,setting:s=>s};
 const prompt=box.seedanceRecipePrompt("narrative",clip,[beatShot],beatShot,false,[],refs,
-  {timedPlan:true,modelId:"seedance-2.0",maxSeconds:15,durationSec:18});
-ok("video prompt carries full beat source",prompt.includes("FULL BEAT SCREENPLAY")
-  &&prompt.includes("Daniel's voice comes through")&&prompt.includes("You promised you would never open that door."));
-ok("video prompt keeps remote speaker VO offscreen",prompt.includes("remote/offscreen")
-  &&prompt.includes("do not show their body, face or lips"));
-ok("video prompt never lip-syncs remote dialogue",
-  !prompt.includes("Daniel Reed delivers the exact line")&&prompt.includes("sends the exact text"));
+  {timedPlan:true,modelId:"seedance-2.0",maxSeconds:20,durationSec:18});
+ok("video prompt uses the approved director brief",
+  prompt.includes("BEAT CONTRACT")
+  &&prompt.includes("ACTION AND CAMERA PLAN")
+  &&prompt.includes("DIALOGUE AND SOUND"));
+ok("video prompt carries canonical source action and dialogue",
+  prompt.includes("Marcus sits alone in the kitchen")
+  &&prompt.includes("You promised you would never open that door."));
+ok("video prompt keeps remote speaker VO offscreen",
+  prompt.includes("offscreen voice only")
+  &&prompt.includes("never add a body, face or lip-sync"));
 ok("video prompt does not request a micro-beat montage",
-  !prompt.includes("Micro-beat action plan")&&prompt.includes("one continuous shot"));
+  !prompt.includes("Micro-beat action plan")
+  &&/one continuous shot/i.test(prompt));
 
 const plan=box.stageBuildTimedPlan([beatShot],{
   modelId:"seedance-2.0",maxSeconds:15,maxShots:3,maxDialogue:10,durationSec:15,

@@ -15,7 +15,7 @@ box.stageShotRuntime=sh=>Number(sh.dur)||2;
 box.shotGrammarLabel=sh=>sh.camera||"locked camera";
 vm.createContext(box);
 for(const file of ["app/shot-screenplay.js","app/shot-scene-context.js","app/stage-screenplay.js",
-  "app/stage-plan.jsx","app/stage-references.jsx","app/stage.jsx"])
+  "app/stage-plan.jsx","app/stage-references.jsx","app/stage-director-brief.js","app/stage.jsx"])
   vm.runInContext(readFileSync(file,"utf8"),box,{filename:file});
 
 let pass=0,fail=0;

@@ -52,6 +52,7 @@ const FIXTURE = "/tmp/fixture/browserfiles";
 const SHOTS = ["stage-plan", "stage-references", "stage", "stage-screenplay-ui"];
 const SHARED_SCREENPLAY = ["shot-screenplay", "shot-scene-context", "stage-screenplay",
   "stage-screenplay-images"];
+const STAGE_DIRECTOR_BRIEF = "stage-director-brief";
 const CHROME = process.env.CHROMIUM || "/repl/tools/bin/chromium";
 const OUT = process.env.STAGE_BROWSER_OUT || `${FIXTURE}/screenshots`;
 const reactUrls = {
@@ -107,6 +108,9 @@ async function prepareFixture() {
     const source = await readFile(new URL(`app/${name}.js`, ROOT));
     await writeFile(`${FIXTURE}/${name}.js`, source);
   }
+  /* The default director brief is a lazy Stage helper and must precede stage.js. */
+  await writeFile(`${FIXTURE}/${STAGE_DIRECTOR_BRIEF}.js`,
+    await readFile(new URL(`app/${STAGE_DIRECTOR_BRIEF}.js`, ROOT)));
   for (const [name,url] of Object.entries(reactUrls)) {
     try {
       const existing = await readFile(`${FIXTURE}/${name}`);
@@ -300,7 +304,8 @@ for(const n of ["vidApproveTake","vidRestoreTake","vidDeleteTake","vidUpdateTake
 <script src="/shot-screenplay.js"></script><script src="/shot-scene-context.js"></script><script src="/stage-screenplay.js"></script>
 <script src="/stage-screenplay-images.js"></script>
 <script src="/stage-screenplay-ui.js"></script>
-<script src="/stage-plan.js"></script><script src="/stage-references.js"></script><script src="/stage.js"></script>
+<script src="/stage-plan.js"></script><script src="/stage-references.js"></script>
+<script src="/stage-director-brief.js"></script><script src="/stage.js"></script>
 <script>
 window.turnContinuity={shots:[],drafts:{},props:[],scenes:[],characters:[],locations:[],beatsMap:{},project:null};
 window.__story={
@@ -310,17 +315,17 @@ window.__story={
   {id:"scene-2",no:2,title:"The Landing",loc:"EXT. OBSERVATORY · DAWN",order:2}
  ],
  shots:[
-  {id:"shot-a",sceneId:"scene-1",order:1,beatN:1,dur:4,subjects:["char-mara"],props:["prop-letter"],
-    speaker:"char-mara",dialogue:"The seal is unbroken.",
+   {id:"shot-a",sceneId:"scene-1",order:1,beatN:1,dur:4,subjects:["char-mara"],props:["prop-letter"],
+     speaker:"char-mara",dialogue:"The seal is unbroken.",
    size:"Wide",angle:"Eye level",move:"Slow push",lens:"35mm",action:"Mara crosses to the brass desk.",
    beatPlan:{micro:["Mara crosses to the brass desk.","She ignores the ringing telephone."],protect:"The letter changes hands."},covers:[1]},
-  {id:"shot-b",sceneId:"scene-1",order:2,beatN:1,dur:6,subjects:["char-mara"],props:["prop-letter"],
+   {id:"shot-b",sceneId:"scene-1",order:2,beatN:1,dur:6,subjects:["char-mara"],props:["prop-letter"],
    size:"Close-up",angle:"High",move:"Static",lens:"85mm",action:"Mara lifts the sealed letter into moonlight.",
     beatPlan:{micro:["Mara lifts the sealed letter into moonlight.","The window suddenly breaks."],protect:"The letter changes hands."},covers:[1]},
    {id:"shot-c",sceneId:"scene-1",order:3,beatN:2,dur:5,subjects:["char-mara"],props:["prop-letter"],
     size:"Medium",angle:"Eye level",move:"Static",lens:"50mm",action:"Mara carries the letter to the observatory window.",
     beatPlan:{micro:["Mara carries the letter to the observatory window."],protect:"The letter changes hands."},covers:[1]},
-   {id:"shot-d",sceneId:"scene-2",order:1,beatN:1,dur:5,subjects:["char-mara"],props:[],
+   {id:"shot-d",sceneId:"scene-2",order:1,beatN:1,dur:5,keyframeMode:"beat-opening",subjects:["char-mara"],props:[],
     size:"Wide",angle:"Eye level",move:"Slow push",lens:"35mm",action:"Mara steps onto the landing at dawn.",
     beatPlan:{micro:["Mara steps onto the landing at dawn."],protect:"Mara reaches the outside door."},covers:[1]}
  ],
@@ -344,6 +349,7 @@ window.__story={
     {beat:1,type:"action",text:"Mara lifts the sealed letter into moonlight."},
     {beat:1,type:"char",text:"MARA"},
     {beat:1,type:"dia",text:"The seal is unbroken."},
+
     {beat:2,type:"action",text:"Mara carries the letter to the observatory window."},
     {beat:2,type:"char",text:"MARA"},
     {beat:2,type:"dia",text:"Dawn will tell us who sent it."}
@@ -352,7 +358,11 @@ window.__story={
     {beat:1,type:"scene",text:"EXT. OBSERVATORY · DAWN"},
     {beat:1,type:"action",text:"Mara steps onto the landing at dawn."},
     {beat:1,type:"char",text:"MARA"},
-    {beat:1,type:"dia",text:"The night is finally over."}
+    {beat:1,type:"dia",text:"The night is finally over."},
+    {beat:1,type:"char",text:"MARA"},
+    {beat:1,type:"dia",text:"Yes."},
+    {beat:1,type:"char",text:"MARA"},
+    {beat:1,type:"dia",text:"Yes."}
    ]}
   }
 };
@@ -518,8 +528,33 @@ async function main() {
     assert.equal(await readClipGrouping("initial"),"beat","new Stage defaults to beat grouping");
     await chooseNativePerformance("initial");
 
+    const defaultPrompt=await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent||""`);
+    const defaultHeadings=[
+      "BEAT CONTRACT","ACTIVE REFERENCES","SCENE AND OPENING STATE",
+      "ACTION AND CAMERA PLAN","DIALOGUE AND SOUND","ENDING AND CONTINUITY LOCKS"
+    ];
+    assert.ok(defaultHeadings.every(h=>defaultPrompt.includes(h)),
+      "default Stage prompt uses the approved director-brief headings");
+    assert.ok(defaultHeadings.every((h,i)=>i===0||defaultPrompt.indexOf(h)>defaultPrompt.indexOf(defaultHeadings[i-1])),
+      "default Stage director-brief headings remain in stable order");
+    assert.equal(await c.eval(`typeof window.seedanceDirectorBrief`),"function",
+      "browser fixture loads the lazy director-brief helper before Stage");
+
     const duration=await c.eval(`document.querySelector(".stage2-rendercard .stage2-control-row select")?.value || [...document.querySelectorAll(".stage2-rendercard select")].find(s=>[...s.options].some(o=>o.textContent.includes("10s")))?.value`);
     assert.equal(duration,"10","duration preview equals exact 4s + 6s coverage");
+    const defaultDurationPrompt=defaultPrompt;
+    await c.eval(`(()=>{
+      const s=document.querySelector('.stage2-rendercard select[title="Clip duration"],.stage2-rendercard .stage2-control-row select');
+      if(!s)return false;
+      const option=[...s.options].find(o=>o.value==="12");
+      if(!option)return false;
+      s.value=option.value;s.dispatchEvent(new Event("change",{bubbles:true}));return true;
+    })()`);
+    await waitFor(()=>c.eval(`document.querySelector('.stage2-rendercard select[title="Clip duration"],.stage2-rendercard .stage2-control-row select')?.value==="12"`),
+      "director-brief duration update");
+    const durationPrompt=await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent||""`);
+    assert.match(durationPrompt,/\b12(?:\.0)?s\b/,"default director brief receives the actual selected duration");
+    assert.notEqual(durationPrompt,defaultDurationPrompt,"an untouched default prompt recompiles for a duration change");
     /*
      * The old Render package / Exact queued render block was an implementation
      * preview, not an input the director could act on.  Stage now keeps the
@@ -711,6 +746,10 @@ async function main() {
       "other scene has its own real screenplay page PNG");
     assert.notDeepEqual(sceneTwoScreenplay.images,sceneOneBeatTwo.images,
       "scene navigation changes the attached screenplay PNG");
+    const sceneTwoOpeningPrompt=await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent||""`);
+    const duplicateYesMarkers=sceneTwoOpeningPrompt.match(/D\d+\s+·[^\n]*[“"]Yes\.[”"]/g)||[];
+    assert.ok(duplicateYesMarkers.length>=2,
+      "default opening brief keeps both distinct same-text dialogue occurrences");
 
     await c.eval(`(()=>{
       const row=[...document.querySelectorAll(".stage2-scene-headrow")].find(x=>/The Letter/.test(x.textContent));
@@ -812,6 +851,17 @@ async function main() {
     const manual="MANUAL FIXTURE PROMPT — preserve this verbatim";
     await c.eval(`(()=>{const e=document.querySelector(".stage2-gen-prompt[contenteditable]");e.focus();e.textContent=${JSON.stringify(manual)};e.dispatchEvent(new InputEvent("input",{bubbles:true,inputType:"insertText",data:"x"}));return true})()`);
     await waitFor(()=>c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent===${JSON.stringify(manual)}`),"manual prompt edit");
+    await c.eval(`(()=>{
+      const s=document.querySelector('.stage2-rendercard select[title="Clip duration"],.stage2-rendercard .stage2-control-row select');
+      if(!s)return false;
+      const option=[...s.options].find(o=>o.value==="8");
+      if(!option)return false;
+      s.value=option.value;s.dispatchEvent(new Event("change",{bubbles:true}));return true;
+    })()`);
+    await waitFor(()=>c.eval(`document.querySelector('.stage2-rendercard select[title="Clip duration"],.stage2-rendercard .stage2-control-row select')?.value==="8"`),
+      "manual prompt duration update");
+    assert.equal(await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent`),manual,
+      "actual duration update preserves a manual prompt");
     /* Model update. */
     await c.eval(`(()=>{const b=[...document.querySelectorAll(".sd-gen-model")].find(x=>x.textContent.includes("Seedance 2.0"));b.click();return true})()`);
     await waitFor(()=>c.eval(`document.querySelector(".sd-gen-model.on")?.textContent.includes("2.0")`),"2.0 selection");

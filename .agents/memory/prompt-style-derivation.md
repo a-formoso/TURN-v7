@@ -22,3 +22,15 @@ Keep render grouping separate from camera coverage, and keep exceptional groupin
 **Why:** A multi-cut example does not establish that a beat needs multiple separate renders, nor authorize changing continuous-shot defaults. The user wanted the routine Fit beat button removed, but removing the historical grouping route would hide older take groups.
 
 **How to apply:** Preserve grouping preferences and old-take access in secondary settings. Evaluate a new prompt template separately; copying its numbered cuts must not invent or persist new Art Room shots.
+
+Prefer a structured, source-backed default director's brief over copying a detailed example's scene facts or fixed cut count.
+
+**Why:** On 2026-09-15 the user approved this recommendation after reviewing a scene-specific multi-cut example. Its useful structure should generalize; its pirate setting, photorealism, four cuts and numerical precision should not.
+
+**How to apply:** Use canonical selected coverage, actual attachment roles, authored camera choices and approved look. Omit unknown facts. A prop inventory resolved at a shot's start is not proof of its ending owner after an authored handover.
+
+Dialogue identity is an authored occurrence, not just its words.
+
+**Why:** Repeated identical lines can have different speakers, delivery and assigned audio. Merging by text can silently exchange a visible line with a remote voice or message even when all words survive.
+
+**How to apply:** Match canonical evidence first. Use text fallback only when unambiguous; explicit occurrence indices may disambiguate repeated words without selecting other occurrences.
