@@ -51,7 +51,7 @@ Stage's screenplay screenshots belong as individual image cards alongside the ot
 
 **Why:** The user repeatedly rejected a text summary or grouped summary miniatures as a substitute for placing the actual pages in the image-reference strip.
 
-**How to apply:** Keep the source-reading disclosure secondary. Check placement with it closed, and verify each page card opens the exact PNG and retains its actual input tag.
+**How to apply:** Use the image-reference strip without a separate expandable source-reading section; the user explicitly rejected that extra section as unnecessary. Verify each page card opens the exact PNG and retains its actual input tag. Removing the disclosure must not remove full screenplay data from the generation payload.
 
 Missing screenplay-version provenance means unknown alignment, not evidence that the screenplay changed.
 

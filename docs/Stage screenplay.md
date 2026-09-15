@@ -1,10 +1,10 @@
 # Scene screenplay references on Stage
 
-Each beat's video composer includes **Scene screenplay** with actual PNG page
-images of the complete scene. The selected beat is highlighted. Click a page to
-open its full-size preview. An accessible text disclosure also contains the
-entire scene and the selected beat's exact text. The video prompt remains
-editable and is derived from that beat's screenplay and shot design.
+Each beat's video composer includes actual PNG screenplay page cards alongside
+the other reference images, with the selected beat highlighted. Click a page to
+open its full-size preview. There is no separate expandable **Scene screenplay**
+section. The complete source text still reaches the generator, and the video
+prompt remains editable and is derived from that beat's screenplay and shot design.
 
 ## What reaches the video generator
 
