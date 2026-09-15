@@ -1,6 +1,6 @@
 /* Canonical page images stay visible; text remains available in a secondary
    disclosure for screen readers and exact full-scene reading. */
-function StageSceneScreenplay({reference,imageReference,onPreview}){
+function StageSceneScreenplay({reference,imageReference,pageReferences,onPreview}){
   const r=reference||{}, targetBeats=Array.isArray(r.targetBeats)?r.targetBeats:[],
     sourceErrors=Array.isArray(r.errors)?r.errors:[],
     ready=!!r.hasSource && !sourceErrors.length,
@@ -11,6 +11,7 @@ function StageSceneScreenplay({reference,imageReference,onPreview}){
       && imageReference.signature!==r.signature),
     pages=rawImages.filter(image=>image && typeof image.url==="string" && image.url),
     imagesReady=!!imageReference && !imageErrors.length && !signatureMismatch && pages.length>0,
+    pageTags=Array.isArray(pageReferences)?pageReferences:[],
     pageWord=pages.length===1?"page":"pages",
     imageStatus=imagesReady ? pages.length+" screenplay "+pageWord+" · full scene"
       : (!imageReference ? "Screenplay page images unavailable — renderer is not loaded."
@@ -23,10 +24,24 @@ function StageSceneScreenplay({reference,imageReference,onPreview}){
   };
   return <details className={"stage2-screenplay-reference"+(ready?"":" missing")} data-testid="stage-scene-screenplay">
     <summary>
-      <span className="stage2-screenplay-heading">Scene screenplay</span>
-      <span className="stage2-screenplay-status">{ready
-        ? (imagesReady ? "Included as text + "+pages.length+" screenplay "+pageWord : "Included as text · pages unavailable")
-        : "Missing"}</span>
+      <span className="stage2-screenplay-summary-copy">
+        <span className="stage2-screenplay-heading">Scene screenplay</span>
+        <span className="stage2-screenplay-status">{ready
+          ? (imagesReady ? "Included as text + "+pages.length+" screenplay "+pageWord : "Included as text · pages unavailable")
+          : "Missing"}</span>
+      </span>
+      {imagesReady && <span className="stage2-screenplay-summary-pages" aria-label={pages.length+" screenplay page image references"}>
+        {pages.map((image,index)=>{
+          const tag=pageTags.find(x=>x&&x.id===image.id)||pageTags[index]||{},
+            mention=tag.mention||tag.tag||("@Image"+(index+1));
+          return <span className="stage2-screenplay-summary-page" key={"summary:"+(image.id||index)}
+            title={(image.label||"Screenplay page")+" · attached as "+mention}>
+            <img data-testid="stage-screenplay-summary-image" src={image.url}
+              alt={(image.label||"Screenplay page")+" attached as "+mention} />
+            <small>{mention}</small>
+          </span>;
+        })}
+      </span>}
     </summary>
     {ready ? <div className="stage2-screenplay-body">
       <p>Scene {r.sceneNo||r.sceneId} · {r.sceneTitle||"Full screenplay"}. The complete canonical scene is included; only {targetBeats.length===1?"beat ":"beats "}{beats||"selected"} {targetBeats.length===1?"is":"are"} performed.</p>

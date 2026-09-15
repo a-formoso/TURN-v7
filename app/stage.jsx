@@ -4409,7 +4409,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
           a.kind!=="text" && a.ready && _stEl("span",{className:"stage2-gen-asset-tag",title:"Reference this asset in the prompt as "+stageAssetMention(a)}, stageAssetTagShort(a)),
           on(a) && _stEl("span",{className:"stage2-gen-asset-check"},Icon.check&&_stEl(Icon.check,{s:10}))))),
       typeof window.StageSceneScreenplay==="function" && _stEl(window.StageSceneScreenplay,{
-        reference:screenplayReference,imageReference:screenplayImageReference,onPreview:setMaxImg})),
+        reference:screenplayReference,imageReference:screenplayImageReference,
+        pageReferences:tagged.filter(a=>a.referenceKind==="screenplay").map(a=>({
+          id:a.id,tag:stageAssetTagShort(a),mention:stageAssetMention(a)})),
+        onPreview:setMaxImg})),
     modelRefs&&characterReferenceChoices.length>0&&_stEl("div",{className:"stage2-character-choices","aria-label":"Shot-only video character references"},
       characterReferenceChoices.map(row=>_stEl("div",{key:row.sh.id+":"+row.c.id,
         className:"stage2-character-choice","data-shot-id":row.sh.id,"data-character-id":row.c.id},

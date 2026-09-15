@@ -522,7 +522,12 @@ async function main() {
         panelInsideReferenceRow:panel?.parentElement===referenceRow,
         cards:cards.map(x=>({text:x.innerText||"",kind:x.getAttribute("data-reference-kind")||""})),
         stripPngs:[...document.querySelectorAll(".stage2-gen-assets img")].map(x=>x.currentSrc||x.src),
-        panelPngs:[...(panel?.querySelectorAll("img")||[])].map(x=>x.currentSrc||x.src)
+        panelPngs:[...(panel?.querySelectorAll("img")||[])].map(x=>x.currentSrc||x.src),
+        summaryPages:[...(panel?.querySelectorAll(".stage2-screenplay-summary-page")||[])].map(x=>({
+          src:x.querySelector("img")?.currentSrc||x.querySelector("img")?.src||"",
+          tag:x.querySelector("small")?.textContent||""
+        })),
+        expandedPages:panel?.querySelectorAll(".stage2-screenplay-page-card").length||0
       };
     })()`);
     assert.match(screenplayInput.panel,/\b\d+\s+screenplay\s+page/i,
@@ -537,6 +542,11 @@ async function main() {
       "reference strip no longer shows duplicate screenplay page thumbnails");
     assert.ok(screenplayInput.panelPngs.some(x=>x.startsWith("data:image/png")),
       "screenplay disclosure retains the actual page images");
+    assert.equal(screenplayInput.summaryPages.length,screenplayInput.expandedPages,
+      "reference-row screenplay control visibly represents every rendered page");
+    assert.ok(screenplayInput.summaryPages.every(x=>x.src.startsWith("data:image/png")
+      &&/^@Image\d+$/.test(x.tag)),
+      "each visible screenplay screenshot is identified as an attached image reference");
     const screenplayPlacement=await c.eval(`(()=>{
       const panel=document.querySelector('[data-testid="stage-scene-screenplay"]');
       if(panel)panel.open=false;
@@ -547,6 +557,10 @@ async function main() {
     assert.ok(screenplayPlacement.summaryTop<screenplayPlacement.stripBottom
       &&screenplayPlacement.summaryBottom>screenplayPlacement.stripTop,
       "collapsed screenplay control sits on the same reference row as the other inputs");
+    await c.eval(`document.querySelector('[data-testid="stage-scene-screenplay"]')?.scrollIntoView({block:"center",inline:"nearest"})`);
+    await new Promise(r=>setTimeout(r,80));
+    const screenplayReferenceRow=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
+    await writeFile(`${OUT}/stage-screenplay-reference-row-desktop.png`,Buffer.from(screenplayReferenceRow.data,"base64"));
     assert.ok(await c.eval(`(()=>{
       const a=[...document.querySelectorAll(".stage2-assets-row .stage2-asset.image")].find(x=>
         !/screenplay|page/i.test(x.textContent||"")&&x.querySelector("img"));
@@ -1176,7 +1190,7 @@ async function main() {
     const frontendErrors=await c.eval(`window.__fixture.errors.slice()`);
     assert.deepEqual(frontendErrors,[],"fixture raised frontend errors");
     console.log(`fixture: ${FIXTURE}/index.html`);
-    console.log(`screenshots: ${OUT}/stage-screenplay-expanded-desktop.png, ${OUT}/stage-screenplay-expanded-mobile-390.png, ${OUT}/stage-shot-master-overrides-desktop.png, ${OUT}/stage-shot-master-overrides-mobile-390.png, ${OUT}/stage-shoot-desktop.png, ${OUT}/stage-desktop.png, ${OUT}/stage-mobile-390.png`);
+    console.log(`screenshots: ${OUT}/stage-screenplay-reference-row-desktop.png, ${OUT}/stage-screenplay-expanded-desktop.png, ${OUT}/stage-screenplay-expanded-mobile-390.png, ${OUT}/stage-shot-master-overrides-desktop.png, ${OUT}/stage-shot-master-overrides-mobile-390.png, ${OUT}/stage-shoot-desktop.png, ${OUT}/stage-desktop.png, ${OUT}/stage-mobile-390.png`);
     if(regressions.length) throw new Error("Stage regressions:\\n- "+regressions.join("\\n- "));
     console.log("PASS Stage browser regression");
   } catch(error) {
