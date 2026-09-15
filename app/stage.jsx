@@ -4415,34 +4415,30 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           setModelId(m.id);
           const t0=seedanceTierOf(m,tier); if(t0) setTier(t0.id); } });
     }));
-  // ---- in-box chips: sound on/off and prompt style (references are added from the
-  // "Add references" card in the strip, or by typing @ in the prompt). The render
-  // controls (model, duration, aspect, resolution, bitrate) are full-width rows
-  // BELOW the prompt box; Generate closes the card.
+  // ---- composer bar: ONE line of inline chips at the foot of the card (sound,
+  // prompt style, duration, aspect, resolution, bitrate…) with Generate at the
+  // right end, taller than the chips. Every tab assembles its own bar from these
+  // parts; references are added from the strip's card or by typing @ in the prompt.
   const soundOn = hasDialogue ? true : nativeAudio;   // generate_audio as the payload sends it
-  const seedanceToolbar = _stEl("div",{ref:sdBarRef,className:"sdbar",onMouseDown:e=>e.stopPropagation()},
-    _stEl("div",{className:"sdbar-left"},
-      _stEl("button",{type:"button",className:"sdbar-chip sound"+(soundOn?" on":""),
-        "aria-pressed":soundOn?"true":"false",
-        disabled:hasDialogue,
-        title:hasDialogue ? "Sound stays on — this beat has dialogue, so the audio track carries the performance"
-          : (nativeAudio ? "Sound on — the model renders ambience, effects and music. Click to render silent." : "Silent render — click to turn native sound on."),
-        onClick:()=>{ if(hasDialogue) return; setNativeAudio(v=>!v); }},
-        Icon.mic&&_stEl(Icon.mic,{s:12}), _stEl("span",null,"Sound "+(soundOn?"On":"Off"))),
-      sdPill("pstyle","pstyle","Prompt style — how the prompt is written for this beat",
-        _stEl(React.Fragment,null, Icon.text&&_stEl(Icon.text,{s:13}), _stEl("span",null,promptStyleUiLabel)),
-        _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
-          promptStyleUiOptions.map(o=>sdOption({ ...o, selected:(effPromptStyle||"auto")===o.id }))))),
-    _stEl("div",{className:"sdbar-right"},
-      _stEl("span",{className:"sdbar-count",title:"Prompt length"}, String(prompt||"").length+" / "+PANEL_PROMPT_MAX)));
-  // ---- option ROWS (Higgsfield-style settings list on the paper theme) --------
-  const optRow = (key, cls, title, label, value, popover, extra)=>sdPill(key, "row "+(cls||""), title,
-    _stEl(React.Fragment,null,
-      _stEl("span",{className:"sdrow-label"},label),
-      _stEl("span",{className:"sdrow-value"},value),
-      extra||null),
-    popover);
-  const durationPill = sdPill("duration","cell","Duration",
+  const composerBar = (chips, tail, o)=>_stEl("div",{ref:o&&o.barRef,className:"sdbar inline"+(o&&o.cls?" "+o.cls:""),onMouseDown:e=>e.stopPropagation()},
+    _stEl("div",{className:"sdbar-left"}, ...chips.filter(Boolean)),
+    _stEl("div",{className:"sdbar-right"}, ...tail.filter(Boolean)));
+  const soundChip = (on, o)=>_stEl("button",{type:"button",className:"sdbar-chip sound"+(on?" on":""),
+      "aria-pressed":on?"true":"false", disabled:!!o.disabled, title:o.title, onClick:o.onClick},
+    Icon.mic&&_stEl(Icon.mic,{s:12}), _stEl("span",null,"Sound "+(on?"On":"Off")));
+  const createSoundChip = soundChip(soundOn, { disabled:hasDialogue,
+    title:hasDialogue ? "Sound stays on — this beat has dialogue, so the audio track carries the performance"
+      : (nativeAudio ? "Sound on — the model renders ambience, effects and music. Click to render silent." : "Silent render — click to turn native sound on."),
+    onClick:()=>{ if(hasDialogue) return; setNativeAudio(v=>!v); } });
+  const promptStylePill = sdPill("pstyle","inline pstyle","Prompt style — how the prompt is written for this beat",
+    _stEl(React.Fragment,null, Icon.text&&_stEl(Icon.text,{s:13}), _stEl("span",null,promptStyleUiLabel)),
+    _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
+      promptStyleUiOptions.map(o=>sdOption({ ...o, selected:(effPromptStyle||"auto")===o.id }))));
+  const promptCount = (text)=>_stEl("span",{className:"sdbar-count",title:"Prompt length"}, String(text||"").length+" / "+PANEL_PROMPT_MAX);
+  // a fixed, non-interactive chip ("Auto" values the task dictates)
+  const fixedPill = (title, body)=>_stEl("div",{className:"sdbar-anchor"},
+    _stEl("button",{type:"button",className:"sdbar-pill inline",disabled:true,title}, body));
+  const durationPill = sdPill("duration","inline","Duration",
     _stEl(React.Fragment,null, Icon.clock&&_stEl(Icon.clock,{s:13}), _stEl("span",null,_fmtSecs(duration))),
     _stEl("div",{className:"sdbar-pop sdbar-pop-duration"},
       _stEl("label",null,"Total duration"),
@@ -4451,14 +4447,14 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         onChange:e=>setDurationOverride(Number(e.target.value))}),
       _stEl("div",{className:"sdbar-duration-row"}, _stEl("span",null,"0"), _stEl("span",null,"5"), _stEl("span",null,"10"), _stEl("span",null,String(durationMax))),
       _stEl("b",null,_fmtSecs(duration))));
-  const aspectPill = sdPill("aspect","cell","Aspect ratio",
+  const aspectPill = sdPill("aspect","inline","Aspect ratio",
     _stEl(React.Fragment,null, Icon.monitor&&_stEl(Icon.monitor,{s:13}), _stEl("span",null,effAspect)),
     _stEl("div",{className:"sdbar-pop sdbar-pop-format"},
       _stEl("label",null,"Aspect ratio"),
       _stEl("div",{className:"sdbar-grid six"},
         ["21:9","16:9","4:3","1:1","3:4","9:16"].map(a=>_stEl("button",{key:a,type:"button",className:a===effAspect?"on":"",
           onClick:()=>{ setAspectOverride(a); setSdMenu(null); }}, _stEl("span",{className:"sdbar-ratio-ico ratio-"+a.replace(":","x")}), a)))));
-  const resolutionPill = sdPill("format","cell","Resolution",
+  const resolutionPill = sdPill("format","inline","Resolution",
     _stEl(React.Fragment,null, Icon.sparkles&&_stEl(Icon.sparkles,{s:12}), _stEl("span",null,String(resolution).toUpperCase())),
     _stEl("div",{className:"sdbar-pop sdbar-pop-format"},
       _stEl("label",null,"Resolution"),
@@ -4474,14 +4470,15 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
             onClick:()=>{ if(planLocked){ openPlansUpsell(); return; } if(disabled) return; setResolution(r); setSdMenu(null); }},
             String(r).toUpperCase(), (r==="1080p"||r==="4K") && Icon.sparkles&&_stEl(Icon.sparkles,{s:10}));
         }))));
-  const bitrateRow = optRow("bitrate","", "Bitrate — compression of the delivered file (not price)", "Bitrate",
-    _stEl("span",{className:"sdrow-badge"}, Icon.sparkles&&_stEl(Icon.sparkles,{s:10}), bitrate==="high"?"High":"Standard"),
+  const bitratePill = sdPill("bitrate","inline","Bitrate — compression of the delivered file (not price)",
+    _stEl(React.Fragment,null, _stEl("span",{className:"sdrow-label"},"Bitrate"),
+      _stEl("span",{className:"sdrow-badge"}, Icon.sparkles&&_stEl(Icon.sparkles,{s:10}), bitrate==="high"?"High":"Standard")),
     _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
       [ {id:"standard",label:"Standard",desc:"More compression, smaller file — the usual draft choice."},
         {id:"high",label:"High",desc:"Less compression, larger file — for finals and grading."} ]
         .map(o=>sdOption({ ...o, selected:bitrate===o.id, onPick:()=>setBitrate(o.id) }))));
   // ---- header card ("GENERAL / <model>" + Change) — the model is changed here,
-  // there is no separate Model row under the prompt ----------------------------
+  // there is no separate Model chip in the bar ----------------------------------
   const heroCard = (kicker, title, opts)=>_stEl("div",{className:"stage2-hero"+(shotStartFrame?" has-bg":"")+(opts&&opts.cls?" "+opts.cls:"")},
     shotStartFrame && _stEl("div",{className:"stage2-hero-bg",style:{backgroundImage:"url("+JSON.stringify(shotStartFrame)+")"},"aria-hidden":"true"}),
     shotStartFrame && _stEl("div",{className:"stage2-hero-shade"}),
@@ -4493,7 +4490,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const changeModelAction = sdPill("hero-model","hero","Change the video model",
     _stEl(React.Fragment,null, Icon.pencil&&_stEl(Icon.pencil,{s:12}), _stEl("span",null,"Change")),
     modelMenu);
-  // ---- Generate (full width, price on the button) -----------------------------
+  // ---- Generate (right end of the composer bar, price on the button) ----------
   const generateButton = (label, cost, onClick, o)=>{
     o=o||{};
     const disabled = !!o.disabled || gening;
@@ -4736,7 +4733,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
             onClick:()=>setClipScope&&setClipScope("beat")},"Fit beat"));
       })(),
       _stEl("div",{className:"stage2-ms-hint"},"One row = one shot. Edit the text freely — it shapes the video prompt only; Generate renders these rows as one continuous Seedance clip. (Add or remove shots on the Art Room's Shots tab.)"));
-  const promptRow =
+  const promptRowWith = (bar)=>
     _stEl("div",{className:"stage2-gen-row"+(recipe==="multishot"?" ms":"")},
     _stEl("div",{className:"stage2-gen-box"+(recipe==="multishot"?" ms-mode":"")},
       // in Multi-shot mode the ROWS are the prompt editor — the compiled text is
@@ -4769,7 +4766,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
               _stEl("b",null,m.t), m.label && _stEl("span",{className:"stage2-mention-label"},m.label)),
             _stEl("span",{className:"stage2-mention-kind"},
               m.included?"Included":(m.group|| (m.kind==="image"?"Image":m.kind==="video"?"Video":"Audio"))))))),
-      seedanceToolbar));
+      bar));
       // (cancelling an in-flight render lives in the Render settings panel — "Cancel render";
       //  the REFERENCES-added-at-render preview lives in the panel's Inputs tab)
   const composerNotices =
@@ -4875,17 +4872,13 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     referenceStrip,
     createTask==="reference" && characterChoicesEl,
     createTask==="reference" && multishotEditor,
-    promptRow,
-    _stEl("div",{className:"stage2-opts"},
-      _stEl("div",{className:"stage2-opt-grid three"},
-        durationPill,
+    promptRowWith(composerBar(
+      [ createSoundChip, promptStylePill, durationPill,
         createTask==="extension"
-          ? _stEl("div",{className:"sdbar-anchor"}, _stEl("button",{type:"button",className:"sdbar-pill cell",disabled:true,title:"Extensions keep the source video's aspect ratio"},
-              Icon.monitor&&_stEl(Icon.monitor,{s:13}), _stEl("span",null,"Auto")))
+          ? fixedPill("Extensions keep the source video's aspect ratio", _stEl(React.Fragment,null, Icon.monitor&&_stEl(Icon.monitor,{s:13}), _stEl("span",null,"Auto")))
           : aspectPill,
-        resolutionPill),
-      bitrateRow),
-    createGenerate,
+        resolutionPill, bitratePill ],
+      [ promptCount(prompt), createGenerate ], { barRef:sdBarRef })),
     modeErrEl,
     composerNotices);
   // ---- EDIT VIDEO ---------------------------------------------------------------
@@ -4919,29 +4912,22 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           _stEl(StageMentionEditor,{apiRef:editPromptRef, value:editPrompt, mentionables:editMentionables, includeMention:()=>true,
             maxLen:PANEL_PROMPT_MAX, placeholder:"Describe the edit — e.g. \"Replace the sky in @Video1 with a storm; keep the actors and camera\"…",
             onChange:(v)=>setEditPrompt(String(v||"")), onKeyDown:()=>{}})),
-        _stEl("div",{className:"sdbar",onMouseDown:e=>e.stopPropagation()},
-          _stEl("div",{className:"sdbar-left"},
-            sdPill("edit-elements","chip elements","Elements — insert a reference token at the cursor",
+        // the model is fixed (Seedance 2.5 Edit — said in the header card), so the
+        // bar carries only what the editing task lets you choose
+        composerBar(
+          [ sdPill("edit-elements","inline chip elements","Elements — insert a reference token at the cursor",
               _stEl(React.Fragment,null, _stEl("span",{className:"sdbar-chip-at"},"@"), _stEl("span",null,"Elements")),
               _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
                 editMentionables.map(m=>sdOption({ id:m.t, label:m.t, desc:m.label, onPick:()=>insertEditMention(m) })))),
-            _stEl("button",{type:"button",className:"sdbar-chip sound"+(nativeAudio?" on":""),"aria-pressed":nativeAudio?"true":"false",
-              title:nativeAudio ? "Sound on — Seedance renders the edited video's audio. Click for a silent result." : "Silent result — click to render audio.",
-              onClick:()=>setNativeAudio(v=>!v)},
-              Icon.mic&&_stEl(Icon.mic,{s:12}), _stEl("span",null,"Sound "+(nativeAudio?"On":"Off")))),
-          _stEl("div",{className:"sdbar-right"},
-            _stEl("span",{className:"sdbar-count"}, String(editPrompt||"").length+" / "+PANEL_PROMPT_MAX))))),
-    _stEl("div",{className:"stage2-opts"},
-      _stEl("div",{className:"sdbar-anchor"}, _stEl("button",{type:"button",className:"sdbar-pill row",disabled:true,title:"Edit Video runs on Seedance 2.5's editing task"},
-        _stEl("span",{className:"sdrow-label"},"Model"), _stEl("span",{className:"sdrow-value"},"Seedance 2.5 Edit"))),
-      _stEl("div",{className:"stage2-opt-grid two"},
-        resolutionPill,
-        _stEl("div",{className:"sdbar-anchor"}, _stEl("button",{type:"button",className:"sdbar-pill cell",disabled:true,title:"Edits keep the source video's length and aspect ratio"},
-          Icon.clock&&_stEl(Icon.clock,{s:13}), _stEl("span",null,"Length & aspect · Auto")))),
-      bitrateRow),
-    generateButton("Generate", editCost, ()=>{ if(gening) return; if(extendPlanLocked){ openPlansUpsell(); return; } onEditVideo(); },
-      { blocked:!!editBlocker, title:editBlocker||editCostTitle, costTitle:editCostTitle, testId:"stage-generate-edit",
-        disabled:(!capsPending && !serverHasTask("editing")) }),
+            soundChip(nativeAudio, { title:nativeAudio ? "Sound on — Seedance renders the edited video's audio. Click for a silent result." : "Silent result — click to render audio.",
+              onClick:()=>setNativeAudio(v=>!v) }),
+            resolutionPill,
+            fixedPill("Edits keep the source video's length and aspect ratio", _stEl(React.Fragment,null, Icon.clock&&_stEl(Icon.clock,{s:13}), _stEl("span",null,"Length · Auto"))),
+            bitratePill ],
+          [ promptCount(editPrompt),
+            generateButton("Generate", editCost, ()=>{ if(gening) return; if(extendPlanLocked){ openPlansUpsell(); return; } onEditVideo(); },
+              { blocked:!!editBlocker, title:editBlocker||editCostTitle, costTitle:editCostTitle, testId:"stage-generate-edit",
+                disabled:(!capsPending && !serverHasTask("editing")) }) ]))),
     (!capsPending && !serverHasTask("editing")) && pendingNote("Edit Video"),
     modeErrEl);
   // ---- MOTION CONTROL -----------------------------------------------------------
@@ -4963,19 +4949,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     _stEl("div",{className:"stage2-opt-grid two dz"},
       mediaZone("motion-video","video",motionVideo,{ title:"Add motion to copy ("+motionLimits.minSeconds+"–"+motionLimits.maxSeconds+"s)", sub:"A video of the movement to transfer", error:motionErr }),
       mediaZone("motion-image","image",motionImage,{ title:"Add your character", sub:"An image with a visible face and body" })),
+    _stEl("div",{className:"stage2-gen-box motion"},
     _stEl("div",{className:"stage2-opts"},
-      optRow("motion-model","", "Motion Control model", "Model",
-        _stEl(React.Fragment,null, _stEl("span",null,"Kling 3.0 Motion Control · "+(motionTier==="pro"?"Pro":"Standard"))),
-        _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
-          [ {id:"standard",label:"Kling 3.0 Motion Control — Standard",desc:"720p-class output · the usual choice"},
-            {id:"pro",label:"Kling 3.0 Motion Control — Pro",desc:"1080p-class output · higher fidelity"} ]
-            .map(o=>sdOption({ ...o, selected:motionTier===o.id, onPick:()=>setMotionTier(o.id) })))),
-      optRow("motion-quality","", "Quality follows the model tier — fal exposes no separate resolution setting for Motion Control", "Quality",
-        _stEl("span",{className:"sdrow-badge"}, motionTier==="pro" ? "1080p · Pro" : "720p · Standard"),
-        _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
-          [ {id:"standard",label:"720p · Standard",desc:"Kling 3.0 Motion Control Standard"},
-            {id:"pro",label:"1080p · Pro",desc:"Kling 3.0 Motion Control Pro"} ]
-            .map(o=>sdOption({ ...o, selected:motionTier===o.id, onPick:()=>setMotionTier(o.id) })))),
       _stEl("div",{className:"stage2-switch-row"},
         _stEl("div",{className:"stage2-switch-text"},
           _stEl("b",null,"Scene control mode"),
@@ -5000,9 +4975,24 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         _stEl("textarea",{className:"stage2-motion-prompt",value:motionPrompt,maxLength:2000,rows:3,
           placeholder:"Optional — e.g. \"cinematic lighting, keep the costume exactly as pictured\"",
           onChange:e=>setMotionPrompt(e.target.value)}))),
-    generateButton("Generate", motionCost, ()=>{ if(gening) return; onMotionControl(); },
-      { blocked:!!motionBlocker, title:motionBlocker||motionCostTitle, costTitle:motionCostTitle, testId:"stage-generate-motion",
-        disabled:(!motionCapsPending && !serverHasMotion) }),
+    // model + quality chips and Generate share the card's foot line
+    composerBar(
+      [ sdPill("motion-model","inline","Motion Control model",
+          _stEl(React.Fragment,null, Icon.sparkles&&_stEl(Icon.sparkles,{s:12}), _stEl("span",null,"Kling 3.0 · "+(motionTier==="pro"?"Pro":"Standard"))),
+          _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
+            [ {id:"standard",label:"Kling 3.0 Motion Control — Standard",desc:"720p-class output · the usual choice"},
+              {id:"pro",label:"Kling 3.0 Motion Control — Pro",desc:"1080p-class output · higher fidelity"} ]
+              .map(o=>sdOption({ ...o, selected:motionTier===o.id, onPick:()=>setMotionTier(o.id) })))),
+        sdPill("motion-quality","inline","Quality follows the model tier — fal exposes no separate resolution setting for Motion Control",
+          _stEl(React.Fragment,null, _stEl("span",{className:"sdrow-label"},"Quality"),
+            _stEl("span",{className:"sdrow-badge"}, motionTier==="pro" ? "1080p · Pro" : "720p · Standard")),
+          _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
+            [ {id:"standard",label:"720p · Standard",desc:"Kling 3.0 Motion Control Standard"},
+              {id:"pro",label:"1080p · Pro",desc:"Kling 3.0 Motion Control Pro"} ]
+              .map(o=>sdOption({ ...o, selected:motionTier===o.id, onPick:()=>setMotionTier(o.id) })))) ],
+      [ generateButton("Generate", motionCost, ()=>{ if(gening) return; onMotionControl(); },
+          { blocked:!!motionBlocker, title:motionBlocker||motionCostTitle, costTitle:motionCostTitle, testId:"stage-generate-motion",
+            disabled:(!motionCapsPending && !serverHasMotion) }) ], { cls:"divided" })),
     (!motionCapsPending && !serverHasMotion) && pendingNote("Motion Control"),
     modeErrEl);
   const composer = _stEl("div",{className:"stage2-gen-composer"+(gening?" working":"")+(creditInfo.empty?" no-credits":""),"data-composer-tab":composerTab},

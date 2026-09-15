@@ -6051,26 +6051,29 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
 .sdbar-chip-at{display:grid;place-items:center;width:16px;height:16px;border-radius:50%;background:var(--txt-0);color:#fff;font:900 10px/1 var(--f-ui)}
 .sdbar-count{font:700 11px var(--f-mono);color:var(--txt-3);white-space:nowrap}
 /* stacked option rows (Model / Bitrate / Quality…) + the 3-up cell grid */
+/* composer bar — one line of inline chips at the card's foot, Generate at the right
+   end standing taller than the chips (the chips bottom-align with it) */
+.sdbar.inline{margin-top:10px;padding-top:0;border-top:0;align-items:stretch;gap:12px}
+.sdbar.inline.divided{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+/* the chips behave like inline blocks: one line when the card is wide enough, wrapping
+   onto a second line in a narrower column — either way they pack to the foot of the
+   bar and Generate keeps the right end */
+.sdbar.inline .sdbar-left{flex:1 1 auto;gap:6px;align-content:flex-end}
+.sdbar.inline .sdbar-pill{height:30px;border-radius:999px;padding:0 11px 0 10px;background:#fff;font:750 12px var(--f-ui);gap:6px}
+.sdbar.inline .sdbar-pill span{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.sdbar.inline .sdbar-pill:disabled{cursor:default;opacity:1;color:var(--txt-2)}
+.sdbar.inline .sdbar-pill:disabled:hover{border-color:var(--line-2);background:#fff}
+.sdbar.inline .sdbar-pill:disabled .sdbar-chevron{display:none}
+.sdrow-label{font:650 12px var(--f-ui);color:var(--txt-2)}
+.sdrow-badge{display:inline-flex;align-items:center;gap:4px;height:19px;padding:0 8px;border-radius:999px;background:var(--bg-3,#f0ede6);color:var(--txt-1);font:800 10.5px var(--f-mono);letter-spacing:.02em}
+.sdbar.inline .sdbar-right{flex-direction:column;align-items:flex-end;justify-content:flex-end;gap:6px}
+.sdbar.inline .stage2-generate{flex:1 1 auto;width:auto;min-width:140px;height:auto;min-height:56px;margin:0;padding:0 18px;border-radius:12px}
+/* the right-most chips open their menus flush with the right edge so nothing spills out of the card */
+.sdbar.inline .sdbar-left>.sdbar-anchor:nth-last-child(-n+2) .sdbar-pop{left:auto;right:0}
 .stage2-opts{display:flex;flex-direction:column;gap:8px;margin-top:10px}
-.stage2-opts>.sdbar-anchor,.stage2-opt-grid>.sdbar-anchor{display:block;min-width:0}
-.sdbar-pill.row{width:100%;height:42px;justify-content:space-between;padding:0 12px 0 14px;border-radius:12px;background:var(--bg-2,#faf9f5)}
-.sdbar-pill.row:hover,.sdbar-anchor.open .sdbar-pill.row{background:#fff}
-.sdbar-pill.row:disabled{cursor:default;opacity:1;color:var(--txt-1)}
-.sdbar-pill.row:disabled:hover{border-color:var(--line-2);background:var(--bg-2,#faf9f5)}
-.sdrow-label{font:650 12px var(--f-ui);color:var(--txt-2);margin-right:auto}
-.sdrow-value{display:inline-flex;align-items:center;gap:7px;font:750 12.5px var(--f-ui);color:var(--txt-0);min-width:0;overflow:hidden;text-overflow:ellipsis}
-.sdrow-badge{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;background:var(--bg-3,#f0ede6);color:var(--txt-1);font:800 10.5px var(--f-mono);letter-spacing:.02em}
+.stage2-gen-box .stage2-opts{margin-top:0}
 .stage2-opt-grid{display:grid;gap:8px}
-.stage2-opt-grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}
 .stage2-opt-grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}
-.sdbar-pill.cell{width:100%;height:42px;justify-content:center;border-radius:12px;background:var(--bg-2,#faf9f5);padding:0 10px;overflow:hidden}
-.sdbar-pill.cell span{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.sdbar-pill.cell:hover,.sdbar-anchor.open .sdbar-pill.cell{background:#fff}
-.sdbar-pill.cell:disabled{cursor:default;color:var(--txt-1)}
-.sdbar-pill.cell:disabled:hover{border-color:var(--line-2);background:var(--bg-2,#faf9f5)}
-.stage2-opt-grid .sdbar-pop{left:0;right:auto;max-width:min(92vw,420px)}
-.stage2-opt-grid>.sdbar-anchor:last-child .sdbar-pop{left:auto;right:0}
-.stage2-opts .sdbar-pop{bottom:auto;top:calc(100% + 6px)}
 .stage2-opt-grid.dz{align-items:stretch}
 /* header card — kicker + model name over the shot's start frame, with a Change action */
 .stage2-hero{position:relative;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:74px;padding:14px 16px;margin-bottom:10px;
@@ -6160,8 +6163,16 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
 .stage2-file-input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden}
 .sd-gen-hint{margin-top:8px;font-size:11.5px}
 @media (max-width:560px){
-  .stage2-opt-grid.three,.stage2-opt-grid.two{grid-template-columns:1fr}
+  .stage2-opt-grid.two{grid-template-columns:1fr}
   .stage2-hero{flex-direction:column;align-items:flex-start}
+  /* phones: the chips keep their line(s); the count and a full-width Generate follow below */
+  .sdbar.inline{flex-wrap:wrap}
+  .sdbar.inline .sdbar-right{width:100%;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px}
+  .sdbar.inline .sdbar-count{width:100%;text-align:right}
+  .sdbar.inline .stage2-generate{flex:1 1 100%;height:48px;min-height:48px}
+  /* menus anchor to the whole bar (not the wrapped pill) so they can never leave the screen */
+  .sdbar.inline .sdbar-anchor{position:static}
+  .sdbar.inline .sdbar-pop,.sdbar.inline .sdbar-left>.sdbar-anchor:nth-last-child(-n+2) .sdbar-pop{left:0;right:0;width:auto;min-width:0;max-width:none}
 }
 .stage2-swap-box{max-height:260px;overflow-y:auto}
 .stage2-swap-head{font:700 9px var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--txt-3);padding:7px 10px 5px}

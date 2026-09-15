@@ -35,4 +35,4 @@
 - [Stage browser fixture](stage-browser-fixture.md) — icons are stubbed as dots, viewport is tiny, off-screen clicks fire; clamp popover anchors and assert rects against the viewport.
 - [Video proxy task modes](video-proxy-task-modes.md) — body.task is the op selector (Seedance task rides videoTask); device video = signed upload + stage: refs; input length is a billing fact, never a default.
 - [Provider host checks](proxy-provider-host-check.md) — provider keys only go to exact/subdomain https hosts via the shared okFalHost; bare endsWith suffix tests leak the key.
-- [Browser test fixture quirks](stage-browser-fixture.md) — fixture HTML is a raw string (regex escapes die; use indexOf); run with node --experimental-websocket; pending-probe stubs make blocked states observable.
+- [Browser test fixture quirks](stage-browser-fixture.md) — raw-string fixture HTML (use indexOf); node --experimental-websocket; composer is ~590px wide until the viewport is ~1760 — set it explicitly for layout checks.

@@ -1098,6 +1098,10 @@ async function main() {
        Three paid paths, each with its own Generate. Every request below lands in
        the fixture's generate stub — no provider is reached and no credit moves. */
     {
+      /* desktop width: the composer bar's one-line layout is a desktop fact (on phones
+         the chips wrap and Generate drops below them) */
+      await c.call("Emulation.setDeviceMetricsOverride",{width:1760,height:1000,deviceScaleFactor:1,mobile:false});
+      await new Promise(r=>setTimeout(r,80));
       const tabs=await c.eval(`[...document.querySelectorAll(".stage2-ctab-btn")].map(b=>b.textContent.trim())`);
       assert.deepEqual(tabs,["Create Video","Edit Video","Motion Control"],"composer tabs follow the Create / Edit / Motion layout");
       const toolbar=await c.eval(`(()=>{const bar=document.querySelector(".stage2-gen-composer .sdbar");return {
@@ -1107,10 +1111,61 @@ async function main() {
       assert.match(toolbar.sound,/^Sound (On|Off)$/,"prompt box carries the Sound chip");
       assert.equal(toolbar.source,0,"the Omni reference source pill is gone from the toolbar");
       assert.match(toolbar.count,/\d+ \/ \d+/,"character counter sits on the right of the toolbar");
-      const rows=await c.eval(`[...document.querySelectorAll(".stage2-opts .sdrow-label")].map(x=>x.textContent.trim())`);
-      assert.deepEqual(rows,["Bitrate"],"Create Video keeps only the Bitrate row under the prompt — the model is changed from the header card");
+      /* the composer bar: every control on ONE line at the foot of the prompt card,
+         Generate at the right end and taller than the chips (Higgsfield-style footer) */
+      const readBar=()=>c.eval(`(()=>{const bar=document.querySelector(".stage2-gen-composer .stage2-gen-box .sdbar.inline");if(!bar) return null;
+        const chips=[...bar.querySelectorAll(".sdbar-left > .sdbar-chip, .sdbar-left > .sdbar-anchor > .sdbar-pill")];
+        const gen=bar.querySelector('.sdbar-right [data-testid="stage-generate"]');
+        const rect=el=>{const r=el.getBoundingClientRect();return {l:r.left,r:r.right,t:r.top,b:r.bottom,h:r.height};};
+        return {titles:chips.map(b=>String(b.title||"").split(" — ")[0].trim()),gen:!!gen,genRect:gen&&rect(gen),chips:chips.map(rect),
+          first:rect(chips[0]),last:rect(chips[chips.length-1]),bar:rect(bar),opts:document.querySelectorAll(".stage2-gen-composer .stage2-opts").length,
+          count:bar.querySelector(".sdbar-right .sdbar-count")?.textContent.trim()||""};})()`);
+      const bar1=await readBar();
+      assert.ok(bar1&&bar1.gen,"Generate sits inside the composer bar, on the right");
+      assert.match(bar1.titles[0],/^(Sound|Silent)/,"the Sound chip opens the line");
+      assert.deepEqual(bar1.titles.slice(1),["Prompt style","Duration","Aspect ratio","Resolution","Bitrate"],"Prompt style, Duration, Aspect, Resolution and Bitrate follow it on the same line");
+      assert.ok(Math.abs(bar1.first.t-bar1.last.t)<1&&Math.abs(bar1.first.b-bar1.last.b)<1,"on a wide composer the chips share one line "+JSON.stringify({first:bar1.first,last:bar1.last,bar:bar1.bar}));
+      assert.ok(bar1.genRect.l>=bar1.last.r,"Generate is to the right of the last chip");
+      assert.ok(bar1.genRect.h>bar1.last.h&&Math.abs(bar1.genRect.b-bar1.last.b)<2,"Generate stands taller than the chips and shares their baseline");
+      assert.match(bar1.count,/\d+ \/ \d+/,"the character count sits with Generate on the right");
+      assert.equal(bar1.opts,0,"no stacked option rows remain under the Create Video prompt");
+      await c.eval(`document.querySelector(".stage2-gen-composer .stage2-gen-box")?.scrollIntoView({block:"center"})`);
+      await new Promise(r=>setTimeout(r,60));
+      await writeFile(`${OUT}/stage-composer-bar-desktop.png`,Buffer.from((await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false})).data,"base64"));
+      /* a narrower column (laptop with both rails open): the chips wrap like inline
+         blocks, still packed to the foot of the bar, and Generate keeps the right end */
+      await c.call("Emulation.setDeviceMetricsOverride",{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+      await new Promise(r=>setTimeout(r,80));
+      const bar2=await readBar();
+      assert.ok(bar2.last.t>bar2.first.t,"in a narrower column the chips wrap onto a second line "+JSON.stringify(bar2.bar));
+      assert.ok(bar2.chips.every(r=>r.r<=bar2.genRect.l+0.5),"every chip stays left of Generate when wrapped");
+      assert.ok(Math.abs(bar2.genRect.b-bar2.last.b)<2&&bar2.genRect.h>=56,"Generate keeps its height and the shared foot line when the chips wrap");
+      await c.eval(`document.querySelector(".stage2-gen-composer .stage2-gen-box")?.scrollIntoView({block:"center"})`);
+      await new Promise(r=>setTimeout(r,60));
+      await writeFile(`${OUT}/stage-composer-bar-laptop.png`,Buffer.from((await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false})).data,"base64"));
+      /* phone: Generate spans the bar under the chips, and every chip menu stays on screen
+         (menus anchor to the bar, not to the wrapped pill) */
+      await c.call("Emulation.setDeviceMetricsOverride",{width:390,height:844,deviceScaleFactor:1,mobile:true});
+      await new Promise(r=>setTimeout(r,120));
+      const bar3=await readBar();
+      assert.ok(bar3.genRect.l<=bar3.bar.l+1&&bar3.genRect.r>=bar3.bar.r-1,"on a phone Generate spans the full bar "+JSON.stringify({gen:bar3.genRect,bar:bar3.bar}));
+      assert.ok(bar3.genRect.t>=Math.max(...bar3.chips.map(r=>r.b))-0.5,"on a phone Generate sits below the chips");
+      await c.eval(`document.querySelector(".stage2-gen-composer .stage2-gen-box")?.scrollIntoView({block:"center"})`);
+      await new Promise(r=>setTimeout(r,60));
+      await writeFile(`${OUT}/stage-composer-bar-mobile-390.png`,Buffer.from((await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false})).data,"base64"));
+      for(const title of ["Prompt style","Duration","Aspect ratio","Resolution","Bitrate"]){
+        const pillJs=`[...document.querySelectorAll(".sdbar.inline .sdbar-pill")].find(b=>(b.title||"").startsWith(${JSON.stringify(title)}))`;
+        await c.eval(`${pillJs}.click()`);
+        await waitFor(()=>c.eval(`!!${pillJs}.parentElement.querySelector(".sdbar-pop")`),title+" menu opens on a phone");
+        const pop=await c.eval(`(()=>{const pop=${pillJs}.parentElement.querySelector(".sdbar-pop");const r=pop.getBoundingClientRect();
+          return {l:r.left,r:r.right,w:document.documentElement.clientWidth,sw:document.documentElement.scrollWidth};})()`);
+        assert.ok(pop.l>=0&&pop.r<=pop.w+0.5&&pop.sw<=pop.w,title+" menu stays inside the phone viewport "+JSON.stringify(pop));
+        await c.eval(`${pillJs}.click()`);
+        await waitFor(()=>c.eval(`!${pillJs}.parentElement.querySelector(".sdbar-pop")`),title+" menu closes again");
+      }
+      await c.call("Emulation.setDeviceMetricsOverride",{width:1760,height:1000,deviceScaleFactor:1,mobile:false});
+      await new Promise(r=>setTimeout(r,80));
       assert.equal(await c.eval(`document.querySelectorAll(".stage2-hero .sdbar-pill.hero").length`),1,"the header card keeps its Change (model) control");
-      assert.equal(await c.eval(`document.querySelectorAll(".stage2-opt-grid.three .sdbar-pill.cell").length`),3,"Duration / Aspect / Resolution sit in one 3-up row");
       const createCost=await c.eval(`document.querySelector('[data-testid="stage-generate"] .stage2-generate-cost')?.textContent.trim()`);
       assert.ok(Number(createCost)>=1,`Create Video's Generate carries the render price (${createCost})`);
       const callsBefore=await c.eval(`__fixture.calls.length`);
@@ -1150,6 +1205,16 @@ async function main() {
       /* Edit Video: Seedance 2.5 editing task with its own prompt. Draw is not offered. */
       await c.eval(`document.querySelector(".stage2-ctab-btn[data-tab='edit']").click()`);
       await waitFor(()=>c.eval(`document.querySelector(".stage2-hero-title")?.textContent==="Seedance 2.5 Edit"`),"Edit Video header");
+      const editBar=await c.eval(`(()=>{const bar=document.querySelector(".stage2-gen-composer .stage2-gen-box .sdbar.inline");if(!bar) return null;
+        const chips=[...bar.querySelectorAll(".sdbar-left > .sdbar-chip, .sdbar-left > .sdbar-anchor > .sdbar-pill")];
+        return {titles:chips.map(b=>String(b.title||"").split(" — ")[0].trim()),gen:!!bar.querySelector('.sdbar-right [data-testid="stage-generate-edit"]'),
+          opts:document.querySelectorAll(".stage2-gen-composer .stage2-opts").length};})()`);
+      assert.ok(editBar&&editBar.gen,"Edit Video's Generate sits in its composer bar");
+      assert.deepEqual(editBar.titles.map(t=>t.replace(/^(Sound|Silent).*/,"Sound")),["Elements","Sound","Resolution","Edits keep the source video's length and aspect ratio","Bitrate"],"Edit Video's bar: Elements, Sound, Resolution, fixed length/aspect, Bitrate");
+      assert.equal(editBar.opts,0,"Edit Video no longer stacks a Model row under the prompt");
+      await c.eval(`document.querySelector(".stage2-gen-composer .stage2-gen-box")?.scrollIntoView({block:"center"})`);
+      await new Promise(r=>setTimeout(r,60));
+      await writeFile(`${OUT}/stage-composer-bar-edit.png`,Buffer.from((await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false})).data,"base64"));
       assert.equal(await c.eval(`[...document.querySelectorAll(".stage2-seg-btn")].find(b=>b.textContent.trim()==="Draw")?.disabled`),true,"Draw is disabled — fal's editing task has no draw input");
       const editGenBefore=await c.eval(`(()=>{const b=document.querySelector('[data-testid="stage-generate-edit"]');return {aria:b.getAttribute("aria-disabled"),title:b.title};})()`);
       assert.equal(editGenBefore.aria,"true","Edit Video cannot generate without a video");
@@ -1188,14 +1253,23 @@ async function main() {
       assert.match(await c.eval(`document.querySelector(".stage2-switch-text small").textContent`),/character image or the motion video/,"scene-control helper explains the choice");
       assert.match(await c.eval(`document.querySelector('.stage2-dz[data-slot="motion-video"] .stage2-dz-empty b').textContent`),/3–10s/,"Image orientation caps the motion video at 10s");
       /* Pro ↔ Standard re-runs the capability handshake against the now-known proxy. */
-      await c.eval(`[...document.querySelectorAll(".stage2-opts .sdbar-pill.row")].find(b=>b.textContent.includes("Model")).click()`);
+      /* Model and Quality are chips on the card's foot line, Generate at its right */
+      const motionBar=await c.eval(`(()=>{const bar=document.querySelector(".stage2-gen-box.motion .sdbar.inline");if(!bar) return null;
+        const chips=[...bar.querySelectorAll(".sdbar-left .sdbar-pill")];const gen=bar.querySelector('.sdbar-right [data-testid="stage-generate-motion"]');
+        return {titles:chips.map(b=>b.title.split(" — ")[0]),gen:!!gen,right:gen&&gen.getBoundingClientRect().left>=chips[chips.length-1].getBoundingClientRect().right};})()`);
+      assert.deepEqual(motionBar&&motionBar.titles,["Motion Control model","Quality follows the model tier"],"Motion Control's bar carries Model and Quality chips");
+      assert.ok(motionBar.gen&&motionBar.right,"Motion Control's Generate sits at the right end of the bar");
+      await c.eval(`document.querySelector(".stage2-gen-box.motion")?.scrollIntoView({block:"center"})`);
+      await new Promise(r=>setTimeout(r,60));
+      await writeFile(`${OUT}/stage-composer-bar-motion.png`,Buffer.from((await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false})).data,"base64"));
+      await c.eval(`document.querySelector('.sdbar.inline .sdbar-pill[title="Motion Control model"]').click()`);
       await waitFor(()=>c.eval(`[...document.querySelectorAll(".sdbar-option b")].some(x=>x.textContent.includes("Pro"))`),"motion model menu");
       await c.eval(`[...document.querySelectorAll(".sdbar-option b")].find(x=>x.textContent.includes("Pro")).closest("button").click()`);
-      await waitFor(()=>c.eval(`document.querySelector(".stage2-opts .sdrow-badge")?.textContent.trim()==="1080p · Pro"`),"Pro quality badge");
-      await c.eval(`[...document.querySelectorAll(".stage2-opts .sdbar-pill.row")].find(b=>b.textContent.includes("Model")).click()`);
+      await waitFor(()=>c.eval(`document.querySelector(".sdbar.inline .sdrow-badge")?.textContent.trim()==="1080p · Pro"`),"Pro quality badge");
+      await c.eval(`document.querySelector('.sdbar.inline .sdbar-pill[title="Motion Control model"]').click()`);
       await waitFor(()=>c.eval(`[...document.querySelectorAll(".sdbar-option b")].some(x=>x.textContent.includes("Standard"))`),"motion model menu again");
       await c.eval(`[...document.querySelectorAll(".sdbar-option b")].find(x=>x.textContent.includes("Standard")).closest("button").click()`);
-      await waitFor(()=>c.eval(`document.querySelector(".stage2-opts .sdrow-badge")?.textContent.trim()==="720p · Standard"`),"Standard quality badge");
+      await waitFor(()=>c.eval(`document.querySelector(".sdbar.inline .sdrow-badge")?.textContent.trim()==="720p · Standard"`),"Standard quality badge");
       /* scene control OFF → the scene follows the motion video (30s ceiling) — said in the UI */
       await c.eval(`document.querySelector(".stage2-switch[aria-checked]").click()`);
       await waitFor(()=>c.eval(`document.querySelector(".stage2-switch[aria-checked]")?.getAttribute("aria-checked")==="false"`),"scene control off");
@@ -1238,6 +1312,8 @@ async function main() {
       /* back to Create for the remaining checks */
       await c.eval(`document.querySelector(".stage2-ctab-btn[data-tab='create']").click()`);
       await waitFor(()=>c.eval(`!!document.querySelector('[data-testid="stage-generate"]')`),"Create Video restored");
+      await c.call("Emulation.clearDeviceMetricsOverride");
+      await new Promise(r=>setTimeout(r,80));
     }
 
     /*

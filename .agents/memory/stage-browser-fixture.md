@@ -15,3 +15,7 @@ description: What the headless Stage browser regression can and cannot prove abo
 ## Fixture is a raw string; websocket flag
 - The fixture page is assembled from a plain JS string, so regex escapes in stubs do not survive — match with `indexOf`. Run browser suites with `node --experimental-websocket` (WebSocket ReferenceError otherwise). Stale profiles: `rm -rf /tmp/fixture/browserfiles/chromium-profile-*`.
 - To assert a "blocked until measured" state, stub the async probe (`vidMediaFacts`) with a promise the test releases explicitly; a timed delay would be flaky.
+
+## Composer width in the fixture
+- With the default headless window (after `clearDeviceMetricsOverride`) and even at 1440 wide, the Stage composer is only ~590px because both rails stay open; the full 860px composer needs a ~1760px viewport. Layout assertions that depend on "fits on one line" must set the viewport explicitly and restore it afterwards.
+- `element.click()` on a pill does not flush the menu synchronously — `waitFor` the `.sdbar-pop` before measuring.
