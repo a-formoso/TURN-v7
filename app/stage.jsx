@@ -4390,15 +4390,16 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     : _stEl(React.Fragment,null,
     _stEl("div",{className:"stage2-gen-reference-row","aria-label":"Render references"},
       _stEl("div",{className:"stage2-gen-assets"},
-        composerAssets.filter(a=>a.referenceKind!=="screenplay").map(a=>_stEl("button",{key:a.key,type:"button",
+        composerAssets.map(a=>_stEl("button",{key:a.key,type:"button",
           className:"stage2-gen-asset "+a.kind+(a.locked?" locked":"")+(on(a)?"":" off")+(!a.ready?" missing":""),
           title:assetTitle(a),"data-reference-kind":a.referenceKind||undefined,
-          onClick:()=>toggle(a)},
+          onClick:()=>a.referenceKind==="screenplay"
+            ? setMaxImg({url:a.url,label:a.label,kind:"image"}) : toggle(a)},
           a.kind==="text" ? _stEl("span",{className:"stage2-gen-asset-text"},"T")
           : a.kind==="audio" ? _stEl("span",{className:"stage2-gen-asset-icon"},Icon.mic&&_stEl(Icon.mic,{s:14}))
           : (a.url && !imgFailed(a)) ? (a.kind==="video"
               ? _stEl("video",{src:a.url,muted:true,playsInline:true,preload:"metadata"})
-              : _stEl("img",{src:a.url,alt:"",loading:"lazy",
+              : _stEl("img",{src:a.url,alt:a.referenceKind==="screenplay"?a.label:"",loading:"lazy",
                   onError:()=>noteImgFail(a)}))
           : _stEl("span",{className:"stage2-gen-asset-ph"+(a.ready?"":" miss")},
               a.kind==="video" ? (Icon.play&&_stEl(Icon.play,{s:13})) : (Icon.image&&_stEl(Icon.image,{s:13})),
@@ -4406,12 +4407,11 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
           (a.url && !imgFailed(a) && (a.kind==="image"||a.kind==="video")) && _stEl("span",{className:"stage2-gen-asset-max",role:"button","aria-label":"Maximise",title:"Maximise "+a.label,
             onClick:(e)=>{ e.stopPropagation(); e.preventDefault(); setMaxImg({url:a.url, label:a.label, kind:a.kind}); }},
             Icon.maximize&&_stEl(Icon.maximize,{s:10})),
-          a.kind!=="text" && a.ready && _stEl("span",{className:"stage2-gen-asset-tag",title:"Reference this asset in the prompt as "+stageAssetMention(a)}, stageAssetTagShort(a)),
+          a.kind!=="text" && a.ready && _stEl("span",{className:"stage2-gen-asset-tag",title:"Reference this asset in the prompt as "+stageAssetMention(a)},
+            a.referenceKind==="screenplay"?stageAssetMention(a):stageAssetTagShort(a)),
           on(a) && _stEl("span",{className:"stage2-gen-asset-check"},Icon.check&&_stEl(Icon.check,{s:10}))))),
       typeof window.StageSceneScreenplay==="function" && _stEl(window.StageSceneScreenplay,{
         reference:screenplayReference,imageReference:screenplayImageReference,
-        pageReferences:tagged.filter(a=>a.referenceKind==="screenplay").map(a=>({
-          id:a.id,tag:stageAssetTagShort(a),mention:stageAssetMention(a)})),
         onPreview:setMaxImg})),
     modelRefs&&characterReferenceChoices.length>0&&_stEl("div",{className:"stage2-character-choices","aria-label":"Shot-only video character references"},
       characterReferenceChoices.map(row=>_stEl("div",{key:row.sh.id+":"+row.c.id,

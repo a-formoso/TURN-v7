@@ -47,6 +47,12 @@ For Stage video, attach actual full-scene screenplay page images for each beat, 
 
 **How to apply:** Verify actual image payloads, not just thumbnails or prompt text. Required Stage pages consume image slots and must never be silently omitted; block routes that cannot attach them separately. Preserve manual edits with source-drift review. Scene changes refresh reading context without adding another beat's performance. Reject known limits rather than excerpting source.
 
+Stage's screenplay screenshots belong as individual image cards alongside the other reference images, not as thumbnails inside a screenplay disclosure.
+
+**Why:** The user repeatedly rejected a text summary or grouped summary miniatures as a substitute for placing the actual pages in the image-reference strip.
+
+**How to apply:** Keep the source-reading disclosure secondary. Check placement with it closed, and verify each page card opens the exact PNG and retains its actual input tag.
+
 Missing screenplay-version provenance means unknown alignment, not evidence that the screenplay changed.
 
 **Why:** A warning on every older card made missing tracking metadata look like a screenplay error. Silently stamping those cards current would be equally misleading.

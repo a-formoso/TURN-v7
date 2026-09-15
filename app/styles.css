@@ -5838,7 +5838,7 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
 .stage2-compose-mode>.stage2-assets-warnings{display:none!important}
 .stage2-gen-composer{margin:18px auto 18px;max-width:860px;border-radius:16px;background:#fff;color:var(--txt-0);
   border:1px solid var(--line);box-shadow:0 12px 36px rgba(39,35,29,.06);padding:13px 14px 12px}
-.stage2-gen-reference-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:7px;margin:0 0 11px;min-width:0}
+.stage2-gen-reference-row{display:grid;grid-template-columns:minmax(0,1fr);align-items:start;gap:7px;margin:0 0 11px;min-width:0}
 .stage2-gen-assets{min-height:38px;display:flex;align-items:center;gap:7px;margin:0;min-width:0;flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch}
 .stage2-gen-assets::-webkit-scrollbar{height:6px}
 .stage2-gen-assets::-webkit-scrollbar-thumb{background:#d9d2c6;border-radius:999px}

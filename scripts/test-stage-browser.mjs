@@ -520,13 +520,16 @@ async function main() {
       return {
         panel:panel?.innerText||"",
         panelInsideReferenceRow:panel?.parentElement===referenceRow,
-        cards:cards.map(x=>({text:x.innerText||"",kind:x.getAttribute("data-reference-kind")||""})),
+        cards:cards.map(x=>({
+          src:x.querySelector("img")?.src||"",
+          tag:x.querySelector(".stage2-gen-asset-tag")?.textContent||"",
+          locked:x.classList.contains("locked")&&!x.classList.contains("off"),
+          inStrip:x.parentElement?.classList.contains("stage2-gen-assets"),
+          inDisclosure:!!x.closest("details")
+        })),
         stripPngs:[...document.querySelectorAll(".stage2-gen-assets img")].map(x=>x.currentSrc||x.src),
         panelPngs:[...(panel?.querySelectorAll("img")||[])].map(x=>x.currentSrc||x.src),
-        summaryPages:[...(panel?.querySelectorAll(".stage2-screenplay-summary-page")||[])].map(x=>({
-          src:x.querySelector("img")?.currentSrc||x.querySelector("img")?.src||"",
-          tag:x.querySelector("small")?.textContent||""
-        })),
+        summaryImageCount:panel?.querySelectorAll(":scope > summary img").length||0,
         expandedPages:panel?.querySelectorAll(".stage2-screenplay-page-card").length||0
       };
     })()`);
@@ -536,31 +539,37 @@ async function main() {
       "screenplay thumbnails report required page order and total");
     assert.equal(screenplayInput.panelInsideReferenceRow,true,
       "screenplay disclosure is part of the render reference section");
-    assert.equal(screenplayInput.cards.length,0,
-      "screenplay pages are not duplicated as individual reference-strip cards");
-    assert.ok(!screenplayInput.stripPngs.some(x=>x.startsWith("data:image/png")),
-      "reference strip no longer shows duplicate screenplay page thumbnails");
+    assert.ok(screenplayInput.cards.length>0,"screenplay screenshots are ordinary reference-image cards");
+    assert.equal(screenplayInput.cards.length,screenplayInput.expandedPages,
+      "every screenplay page has its own card beside the other reference images");
     assert.ok(screenplayInput.panelPngs.some(x=>x.startsWith("data:image/png")),
       "screenplay disclosure retains the actual page images");
-    assert.equal(screenplayInput.summaryPages.length,screenplayInput.expandedPages,
-      "reference-row screenplay control visibly represents every rendered page");
-    assert.ok(screenplayInput.summaryPages.every(x=>x.src.startsWith("data:image/png")
-      &&/^@Image\d+$/.test(x.tag)),
-      "each visible screenplay screenshot is identified as an attached image reference");
+    assert.ok(screenplayInput.cards.every(x=>x.src.startsWith("data:image/png")
+      &&/^@Image\d+$/.test(x.tag)&&x.locked&&x.inStrip&&!x.inDisclosure
+      &&screenplayInput.panelPngs.includes(x.src)),
+      "actual page PNGs are locked, tagged image references directly in the main image strip, not in a disclosure");
+    assert.equal(screenplayInput.summaryImageCount,0,"no replacement miniatures inside the screenplay summary");
     const screenplayPlacement=await c.eval(`(()=>{
       const panel=document.querySelector('[data-testid="stage-scene-screenplay"]');
       if(panel)panel.open=false;
-      const summary=panel?.querySelector(":scope > summary")?.getBoundingClientRect();
+      const page=document.querySelector('.stage2-gen-assets [data-reference-kind="screenplay"]')?.getBoundingClientRect();
       const strip=document.querySelector(".stage2-gen-assets")?.getBoundingClientRect();
-      return {summaryTop:summary?.top,summaryBottom:summary?.bottom,stripTop:strip?.top,stripBottom:strip?.bottom};
+      return {pageTop:page?.top,pageBottom:page?.bottom,stripTop:strip?.top,stripBottom:strip?.bottom};
     })()`);
-    assert.ok(screenplayPlacement.summaryTop<screenplayPlacement.stripBottom
-      &&screenplayPlacement.summaryBottom>screenplayPlacement.stripTop,
-      "collapsed screenplay control sits on the same reference row as the other inputs");
-    await c.eval(`document.querySelector('[data-testid="stage-scene-screenplay"]')?.scrollIntoView({block:"center",inline:"nearest"})`);
+    assert.ok(screenplayPlacement.pageTop>=screenplayPlacement.stripTop
+      &&screenplayPlacement.pageBottom<=screenplayPlacement.stripBottom,
+      "screenplay image cards occupy the same row as the other inputs while the disclosure is closed");
+    await c.eval(`document.querySelector('.stage2-gen-assets [data-reference-kind="screenplay"]')?.scrollIntoView({block:"center",inline:"nearest"})`);
     await new Promise(r=>setTimeout(r,80));
     const screenplayReferenceRow=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
     await writeFile(`${OUT}/stage-screenplay-reference-row-desktop.png`,Buffer.from(screenplayReferenceRow.data,"base64"));
+    await c.eval(`document.querySelector('.stage2-gen-assets [data-reference-kind="screenplay"]').click()`);
+    await waitFor(()=>c.eval(`!!document.querySelector(".lb-overlay .lb-img")`),"inline screenplay reference opens full page");
+    assert.equal(await c.eval(`document.querySelector(".lb-overlay .lb-img").src`),screenplayInput.cards[0].src,
+      "clicking the inline reference previews the exact attached PNG without opening the screenplay disclosure");
+    assert.equal(await c.eval(`document.querySelector('[data-testid="stage-scene-screenplay"]').open`),false);
+    await c.eval(`document.querySelector(".lb-overlay button[title='Close'],.lb-overlay .ag-x")?.click()`);
+    await waitFor(()=>c.eval(`!document.querySelector(".lb-overlay .lb-img")`),"close inline page preview");
     assert.ok(await c.eval(`(()=>{
       const a=[...document.querySelectorAll(".stage2-assets-row .stage2-asset.image")].find(x=>
         !/screenplay|page/i.test(x.textContent||"")&&x.querySelector("img"));
