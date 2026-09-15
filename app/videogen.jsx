@@ -62,6 +62,57 @@ function _seedanceEndpoint(modelOrEndpoint){
   return raw;
 }
 
+/* ── STAGE SCREENPLAY REFERENCE -----------------------------------------------
+   Stage owns the immutable source snapshot; this worker owns delivery.  The
+   reference is deliberately text-only.  In particular, it must never turn a
+   screenplay page into a video/image reference or be shortened to fit a
+   provider's media limits. */
+const VID_SCREENPLAY_SCHEMA = "cm-stage-screenplay-v1";
+function _vidClone(value){
+  if(Array.isArray(value)) return value.map(_vidClone);
+  if(value && typeof value==="object"){
+    const out={}; Object.keys(value).forEach(k=>{ out[k]=_vidClone(value[k]); }); return out;
+  }
+  return value;
+}
+function _vidFreeze(value){
+  if(value && typeof value==="object" && !Object.isFrozen(value)){
+    Object.keys(value).forEach(k=>_vidFreeze(value[k]));
+    try{ Object.freeze(value); }catch(e){}
+  }
+  return value;
+}
+function _vidScreenplayReferenceSnapshot(value){
+  if(!value || typeof value!=="object" || Array.isArray(value))
+    throw new Error("Stage screenplay reference is missing or malformed.");
+  if(value.schema!==VID_SCREENPLAY_SCHEMA || value.kind!=="screenplay" || value.delivery!=="prompt-text")
+    throw new Error("Stage screenplay reference has an unsupported schema or delivery mode.");
+  if(value.sceneId==null || String(value.sceneId)==="")
+    throw new Error("Stage screenplay reference is missing sceneId.");
+  if(typeof value.sourceRev!=="string" || !value.sourceRev)
+    throw new Error("Stage screenplay reference is missing sourceRev.");
+  if(typeof value.fullText!=="string" || !value.fullText.trim())
+    throw new Error("Stage screenplay reference has no full scene screenplay source.");
+  if(value.hasSource!==true)
+    throw new Error("Stage screenplay reference has no current screenplay source.");
+  if(!Array.isArray(value.targetBeats) || !value.targetBeats.length
+     || value.targetBeats.some(beat=>typeof beat!=="number" || !Number.isFinite(beat) || beat<=0)
+     || typeof value.targetText!=="string" || !value.targetText.trim() ||
+     !Array.isArray(value.errors) || value.errors.length)
+    throw new Error("Stage screenplay reference is incomplete or contains source errors.");
+  if(typeof value.signature!=="string" || !value.signature)
+    throw new Error("Stage screenplay reference is missing signature.");
+  const copy=_vidClone({
+    schema:value.schema, kind:value.kind, delivery:value.delivery,
+    sceneId:value.sceneId, sceneNo:value.sceneNo==null?"":value.sceneNo,
+    sceneTitle:value.sceneTitle==null?"":String(value.sceneTitle),
+    sourceRev:value.sourceRev, fullText:value.fullText,
+    targetBeats:value.targetBeats, targetText:value.targetText,
+    hasSource:value.hasSource, errors:value.errors, signature:value.signature,
+  });
+  return _vidFreeze(copy);
+}
+
 // video always runs server-side — proxy on + signed-in
 function videoProxyReady(){
   return !!(window.TURN_SUPABASE && window.TURN_SUPABASE.imageProxy
@@ -88,19 +139,65 @@ function vidIdbSet(k,v){ return vidIdbOpen().then(db=>new Promise((res,rej)=>{ c
 function vidIdbGet(k){ return vidIdbOpen().then(db=>new Promise((res,rej)=>{ const tx=db.transaction(VIDIDB_STORE,"readonly"); const r=tx.objectStore(VIDIDB_STORE).get(k); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); })); }
 function vidIdbDel(k){ return vidIdbOpen().then(db=>new Promise((res,rej)=>{ const tx=db.transaction(VIDIDB_STORE,"readwrite"); tx.objectStore(VIDIDB_STORE).delete(k); tx.oncomplete=()=>res(true); tx.onerror=()=>rej(tx.error); })); }
 
-const _vidMem = new Map();      // id -> { url, meta }
+const _vidMem = new Map();      // id -> { url, meta, owner? } (legacy/local entries omit owner)
 function vidKey(id){ return "v:"+id; }
-function vidGetVideo(id){ const e=_vidMem.get(id); return (e&&e.url)||""; }
-function vidGetMeta(id){ const e=_vidMem.get(id); return (e&&e.meta)||null; }
+function _vidCacheOwner(scope){
+  const sc = scope===undefined ? vidScope() : scope;
+  if(!sc || sc.projectId==null){
+    /* New local commits carry the asset epoch so a local film switch cannot
+       lazily read an overlapping IDB key.  Truly old records stay ownerless
+       for backwards compatibility. */
+    return sc && sc.epoch!=null ? { projectId:null, uid:null, epoch:sc.epoch } : null;
+  }
+  return { projectId:sc.projectId, uid:sc.uid==null ? null : sc.uid };
+}
+function _vidStoreEntry(url, meta, scope){
+  const owner = _vidCacheOwner(scope);
+  return owner ? { url, meta:meta||null, owner } : { url, meta:meta||null };
+}
+function _vidCacheEntryVisible(entry, scope){
+  if(!entry || !entry.url) return false;
+  const owner = entry.owner;
+  if(!owner) return true; // legacy/local cache compatibility
+  const sc = scope===undefined ? _vidScopeSnapshot(vidScope()) : scope;
+  if(owner.projectId==null){
+    if(sc && sc.projectId!=null) return true; // preserve legacy/local visibility across cloud mode
+    return owner.epoch==null || sc.epoch==null || owner.epoch===sc.epoch;
+  }
+  return !!sc && sc.projectId===owner.projectId
+    && (owner.uid==null || sc.uid===owner.uid);
+}
+function _vidCacheEntryOwnedBy(entry, scope){
+  if(!entry || !entry.url) return false;
+  const owner = entry.owner;
+  if(!owner)
+    return !scope || scope.projectId==null; // legacy/local deletion stays local-only
+  if(owner.projectId==null)
+    return !!scope && scope.projectId==null
+      && (owner.epoch==null || scope.epoch==null || owner.epoch===scope.epoch);
+  return _vidCacheEntryVisible(entry,scope);
+}
+function vidGetVideo(id){
+  const e=_vidMem.get(id); return _vidCacheEntryVisible(e) ? e.url : "";
+}
+function vidGetMeta(id){
+  const e=_vidMem.get(id); return _vidCacheEntryVisible(e) ? (e.meta||null) : null;
+}
 function vidGetTakes(id){
   const e=_vidMem.get(id), out=[];
+  if(!_vidCacheEntryVisible(e)) return out;
   if(e&&e.url) out.push({ id:id+":current", url:e.url, meta:e.meta||null, current:true });
   (((e&&e.meta&&e.meta.takes)||[])).forEach((t,i)=>{ if(t&&t.url) out.push({ id:id+":take-"+i, url:t.url, meta:t.meta||null, current:false }); });
   return out;
 }
 async function vidLoadVideo(id){
   const sync=vidGetVideo(id); if(sync) return sync;
-  try{ const v=await vidIdbGet(vidKey(id)); if(v && v.url){ _vidMem.set(id,{url:v.url,meta:v.meta||null}); return v.url; } }catch(e){}
+  const scope0 = _vidScopeSnapshot(vidScope());
+  try{
+    const v=await vidIdbGet(vidKey(id));
+    if(!_vidScopeMatches(scope0)) return "";
+    if(v && _vidCacheEntryVisible(v,scope0)){ _vidMem.set(id,v); return v.url; }
+  }catch(e){}
   return "";
 }
 async function vidLoadTakes(id){ await vidLoadVideo(id); return vidGetTakes(id); }
@@ -117,6 +214,28 @@ window.vidResetAll=vidResetAll;
    (localStorage, per project), retries on the next write / film open / reconnect,
    and TELLS the user — never a silent catch. Local mode keeps IDB-only behavior. */
 function vidScope(){ return (typeof window.nbCloudScope==="function") ? window.nbCloudScope() : null; }
+function _vidScopeSnapshot(scope){
+  const live = scope || null;
+  return {
+    projectId:live && live.projectId!=null ? live.projectId : null,
+    uid:live && live.uid!=null ? live.uid : null,
+    epoch:live && live.epoch!=null
+      ? live.epoch
+      : (typeof window.nbEpoch==="function" ? window.nbEpoch() : null),
+  };
+}
+function _vidScopeMatches(scope){
+  if(!scope || typeof scope!=="object") return true;
+  const live = vidScope();
+  const projectId = live && live.projectId!=null ? live.projectId : null;
+  const uid = live && live.uid!=null ? live.uid : null;
+  const epoch = live && live.epoch!=null
+    ? live.epoch
+    : (typeof window.nbEpoch==="function" ? window.nbEpoch() : null);
+  return projectId===scope.projectId
+    && (scope.uid==null || uid===scope.uid)
+    && (scope.epoch==null || epoch===scope.epoch);
+}
 const VID_DIRTY_KEY = "turn_vid_dirty";
 function _vidDirtyAll(){ try{ return JSON.parse(localStorage.getItem(VID_DIRTY_KEY)||"{}")||{}; }catch(e){ return {}; } }
 function _vidDirtySaveAll(m){ try{ localStorage.setItem(VID_DIRTY_KEY, JSON.stringify(m)); }catch(e){} }
@@ -138,7 +257,8 @@ function _vidIdsMark(projectId, id, del){
 }
 let _vidSyncToastAt = 0;
 async function _vidCloudPush(id, entry, scope){
-  const sc = scope || vidScope(); if(!sc) return;               // local mode: IDB only
+  if(scope && !_vidScopeMatches(scope)) return { skipped:true };
+  const sc = scope || vidScope(); if(!sc || sc.projectId==null) return;  // local mode: IDB only
   _vidIdsMark(sc.projectId, id, !(entry && entry.url));         // intended membership, even if the push fails
   try{
     if(entry && entry.url){
@@ -148,6 +268,7 @@ async function _vidCloudPush(id, entry, scope){
       if(typeof window.cloudVideoDelete!=="function") throw new Error("cloud unavailable");
       await window.cloudVideoDelete(sc.projectId, id);
     }
+    if(scope && !_vidScopeMatches(scope)) return { skipped:true };
     _vidDirtyClear(sc.projectId, id);
   }catch(e){
     _vidDirtyMark(sc.projectId, id, !(entry && entry.url));
@@ -161,13 +282,16 @@ async function _vidCloudPush(id, entry, scope){
    reconnect, and before hydrate so local edits win over stale cloud rows) */
 async function vidCloudFlushDirty(){
   const sc = vidScope(); if(!sc) return 0;
+  const scope0 = _vidScopeSnapshot(sc);
   const m = { ...(_vidDirtyAll()[sc.projectId]||{}) };
   let n = 0;
   for(const id of Object.keys(m)){
-    if(m[id]==="del") await _vidCloudPush(id, null, sc);
+    if(!_vidScopeMatches(scope0)) break;
+    if(m[id]==="del") await _vidCloudPush(id, null, scope0);
     else{
-      const e = await _vidLoadEntry(id);
-      if(e && e.url) await _vidCloudPush(id, e, sc);
+      const e = await _vidLoadEntry(id, scope0);
+      if(!_vidScopeMatches(scope0)) break;
+      if(e && e.url) await _vidCloudPush(id, e, scope0);
       else _vidDirtyClear(sc.projectId, id);      // nothing local left to push
     }
     n++;
@@ -182,17 +306,19 @@ function vidCloudHydrate(){
   return _vidQueued(async ()=>{
     const sc = vidScope(); if(!sc) return 0;
     await vidCloudFlushDirty();
+    if(!_vidScopeSame(sc)) return 0;
     const rows = (typeof window.cloudVideoLoadAll==="function") ? await window.cloudVideoLoadAll(sc.projectId) : null;
     if(!rows) return 0;
-    const now = vidScope();                        // film switched while loading → drop
-    if(!now || now.projectId!==sc.projectId) return 0;
+    if(!_vidScopeSame(sc)) return 0;               // film/user/epoch switched while loading → drop
     const dirty = _vidDirtyAll()[sc.projectId]||{};
     const ids = [];
     for(const id of Object.keys(rows)){
       if(dirty[id] || !rows[id] || !rows[id].url) continue;
-      const e = { url:rows[id].url, meta:rows[id].meta||null };
+      if(!_vidScopeSame(sc)) return 0;
+      const e = _vidStoreEntry(rows[id].url, rows[id].meta||null, sc);
       _vidMem.set(id, e);
       try{ await vidIdbSet(vidKey(id), e); }catch(err){}
+      if(!_vidScopeSame(sc)) return 0;
       ids.push(id);
     }
     /* reconcile REMOTE DELETIONS: clips this film was known to have take rows
@@ -203,8 +329,8 @@ function vidCloudHydrate(){
     const removed = [];
     for(const id of known){
       if(rows[id] || dirty[id]) continue;
-      _vidMem.delete(id);
-      try{ await vidIdbDel(vidKey(id)); }catch(err){}
+      await _vidDeleteStoredEntry(id, sc);
+      if(!_vidScopeSame(sc)) return 0;
       _vidIdsMark(sc.projectId, id, true);
       removed.push(id);
     }
@@ -246,14 +372,20 @@ window.clipStableId=clipStableId;
 function vidAdoptTakes(id, legacyId){
   if(!id || !legacyId || id===legacyId) return Promise.resolve(null);
   return _vidQueued(async ()=>{
-    const cur = await _vidLoadEntry(id);
+    const scope0 = _vidScopeSnapshot(vidScope());
+    const cur = await _vidLoadEntry(id, scope0);
+    if(!_vidScopeMatches(scope0)) return null;
     if(cur && cur.url) return null;                      // already migrated / has its own takes
-    const old = await _vidLoadEntry(legacyId);
+    const old = await _vidLoadEntry(legacyId, scope0);
+    if(!_vidScopeMatches(scope0)) return null;
     if(!old || !old.url) return null;
-    await _vidWriteEntry(id, old);
-    _vidMem.delete(legacyId);
-    try{ await vidIdbDel(vidKey(legacyId)); }catch(e){}
-    await _vidCloudPush(legacyId, null);   // retire the old positional cloud row too
+    if(!_vidCacheEntryOwnedBy(old,scope0)) return null;
+    if(!await _vidWriteEntry(id, old, scope0)) return null;
+    if(!_vidScopeMatches(scope0)) return null;
+    await _vidDeleteStoredEntry(legacyId, scope0);
+    if(!_vidScopeMatches(scope0)) return null;
+    const retired = await _vidCloudPush(legacyId, null, scope0);   // retire the old positional cloud row too
+    if(retired && retired.skipped) return null;
     return { migrated:true };
   });
 }
@@ -288,12 +420,20 @@ async function _vidCommitRaw(id, url, meta, scope){
      behind hydrate/cloud I/O while the user switched films. Writing then would
      plant another film's take into the fresh state — skip every write and tell
      the caller, which keeps the job pending for project-scoped recovery. */
-  if(scope){
-    const now = vidScope();
-    if(!now || now.projectId!==scope.projectId || (scope.epoch!=null && now.epoch!==scope.epoch)) return { skipped:true };
+  if(scope && !_vidScopeMatches(scope)) return { skipped:true };
+  const commitScope = scope && typeof scope==="object" ? scope : _vidScopeSnapshot(vidScope());
+  let old = _vidMem.get(id);
+  if(!_vidCacheEntryVisible(old,commitScope)) old = null;
+  if(!old){
+    try{ old = await vidIdbGet(vidKey(id)); }catch(e){ old = null; }
+    /* This check is deliberately immediately after the IDB read.  A project
+       switch here must not install the old film's overlapping clip in memory
+       or roll it into the new film's takes. */
+    if(!_vidScopeMatches(commitScope)) return { skipped:true };
+    if(!_vidCacheEntryOwnedBy(old,commitScope)) old = null;
   }
-  const prev = _vidMem.get(id) || (async()=>{ try{ return await vidIdbGet(vidKey(id)); }catch(e){ return null; } })();
-  const old = prev && typeof prev.then==="function" ? await prev : prev;
+  if(!_vidScopeMatches(commitScope)) return { skipped:true };
+  if(old && !_vidCacheEntryOwnedBy(old,commitScope)) old = null;
   const takes = [];
   const oldMeta = (old&&old.meta)||null;
   if(old&&old.url&&old.url!==url) takes.push({ url:old.url, meta:oldMeta, savedAt:(oldMeta&&oldMeta.createdAt)||Date.now() });
@@ -311,9 +451,13 @@ async function _vidCommitRaw(id, url, meta, scope){
   const capped = [];
   takes.forEach(t=>{ const ap = t&&t.meta&&t.meta.status==="approved"; if(ap || capped.length<20) capped.push(t); });
   meta = { ...meta, createdAt:meta.createdAt||Date.now(), takes:capped };
-  _vidMem.set(id, { url, meta:meta||null });
-  try{ await vidIdbSet(vidKey(id), { url, meta:meta||null }); }catch(e){}
-  await _vidCloudPush(id, { url, meta:meta||null }, scope);
+  const stored = _vidStoreEntry(url, meta, commitScope);
+  _vidMem.set(id, stored);
+  try{ await vidIdbSet(vidKey(id), stored); }catch(e){}
+  if(!_vidScopeMatches(commitScope)) return { skipped:true };
+  const cloudResult = await _vidCloudPush(id, { url, meta:meta||null }, commitScope);
+  if(cloudResult && cloudResult.skipped) return cloudResult;
+  if(!_vidScopeMatches(commitScope)) return { skipped:true };
   try{ window.dispatchEvent(new CustomEvent("vid-done",{ detail:{ ids:[id] } })); }catch(e){}
   return { url };
 }
@@ -321,6 +465,7 @@ async function _vidCommitRaw(id, url, meta, scope){
    user intent aimed at the film that was open at click time — after a switch
    they must not write into the new film's memory/IDB or cloud rows. */
 function _vidScopeSame(a){
+  if(a && typeof a==="object") return _vidScopeMatches(a);
   const b = vidScope();
   if(!a && !b) return true;
   if(!a || !b) return false;
@@ -335,10 +480,9 @@ function vidClear(id){
        switch the new film may hold a same-id take in shared IDB/memory that the
        old film's queued clear must not eat. The cloud delete still lands on the
        old film's row via scope0. */
-    if(_vidScopeSame(scope0)){
-      _vidMem.delete(id);
-      try{ await vidIdbDel(vidKey(id)); }catch(e){}
-    }
+    if(!_vidScopeSame(scope0)) return;
+    await _vidDeleteStoredEntry(id, scope0);
+    if(!_vidScopeSame(scope0)) return;
     await _vidCloudPush(id, null, scope0);
     try{ window.dispatchEvent(new CustomEvent("vid-done",{ detail:{ ids:[id] } })); }catch(e){}
   });
@@ -350,24 +494,49 @@ window.vidCommit=vidCommit; window.vidClear=vidClear;
    All writes run through the same serialized queue as commits so a mid-batch
    completion can never clobber an approval. The clip entry shape is
    { url, meta:{ ..., takes:[{url, meta, savedAt}] } } — current first. ---- */
-async function _vidLoadEntry(id){
+async function _vidLoadEntry(id, scope){
+  const scope0 = scope && typeof scope==="object" ? scope : _vidScopeSnapshot(vidScope());
   let e = _vidMem.get(id);
-  if(!e){ try{ e = await vidIdbGet(vidKey(id)); }catch(err){ e = null; } if(e) _vidMem.set(id, e); }
-  return e || null;
+  if(e && _vidCacheEntryVisible(e,scope0)) return e;
+  e = null;
+  try{ e = await vidIdbGet(vidKey(id)); }catch(err){ e = null; }
+  /* Never install a lazy IDB result after a film/user/epoch switch. */
+  if(!_vidScopeMatches(scope0) || !_vidCacheEntryVisible(e,scope0)) return null;
+  _vidMem.set(id, e);
+  return e;
+}
+async function _vidDeleteStoredEntry(id, scope){
+  const scope0 = scope && typeof scope==="object" ? scope : _vidScopeSnapshot(vidScope());
+  if(!_vidScopeMatches(scope0)) return false;
+  let stored = null;
+  try{ stored = await vidIdbGet(vidKey(id)); }catch(e){}
+  if(!_vidScopeMatches(scope0)) return false;
+  const mem = _vidMem.get(id);
+  if(!_vidCacheEntryOwnedBy(mem,scope0) && !_vidCacheEntryOwnedBy(stored,scope0)) return false;
+  if(_vidCacheEntryOwnedBy(mem,scope0)) _vidMem.delete(id);
+  if(!_vidCacheEntryOwnedBy(stored,scope0)) return _vidScopeMatches(scope0);
+  try{ await vidIdbDel(vidKey(id)); }catch(e){}
+  return _vidScopeMatches(scope0);
 }
 async function _vidWriteEntry(id, e, scope){
-  _vidMem.set(id, e);
-  try{ await vidIdbSet(vidKey(id), e); }catch(err){}
-  await _vidCloudPush(id, e, scope);   // approvals/notes/restores/deletes are project records too
+  const scope0 = scope && typeof scope==="object" ? scope : _vidScopeSnapshot(vidScope());
+  if(!_vidScopeMatches(scope0)) return null;
+  const stored = _vidStoreEntry(e&&e.url, e&&e.meta, scope0);
+  _vidMem.set(id, stored);
+  try{ await vidIdbSet(vidKey(id), stored); }catch(err){}
+  if(!_vidScopeMatches(scope0)) return null;
+  const cloudResult = await _vidCloudPush(id, { url:stored.url, meta:stored.meta }, scope0);   // approvals/notes/restores/deletes are project records too
+  if(cloudResult && cloudResult.skipped) return null;
+  if(!_vidScopeMatches(scope0)) return null;
   try{ window.dispatchEvent(new CustomEvent("vid-done",{ detail:{ ids:[id] } })); }catch(err){}
-  return e;
+  return stored;
 }
 // merge a meta patch into one take (current or archived), matched by url
 function vidUpdateTake(id, url, patch){
   const scope0 = vidScope();
   return _vidQueued(async ()=>{
     if(!_vidScopeSame(scope0)) return null;   // film switched while queued — drop, never cross-write
-    const e = await _vidLoadEntry(id); if(!e || !e.url) return null;
+    const e = await _vidLoadEntry(id, scope0); if(!e || !e.url) return null;
     if(e.url===url) return _vidWriteEntry(id, { url:e.url, meta:{ ...(e.meta||{}), ...patch } }, scope0);
     const takes = ((e.meta&&e.meta.takes)||[]).map(t=> (t&&t.url===url) ? { ...t, meta:{ ...(t.meta||{}), ...patch } } : t);
     return _vidWriteEntry(id, { url:e.url, meta:{ ...(e.meta||{}), takes } }, scope0);
@@ -378,7 +547,7 @@ function vidApproveTake(id, url, on){
   const scope0 = vidScope();
   return _vidQueued(async ()=>{
     if(!_vidScopeSame(scope0)) return null;   // film switched while queued — drop, never cross-write
-    const e = await _vidLoadEntry(id); if(!e || !e.url) return null;
+    const e = await _vidLoadEntry(id, scope0); if(!e || !e.url) return null;
     const set = (m, hit)=>{ const n = { ...(m||{}) }; if(hit && on) n.status="approved"; else delete n.status; return n; };
     const takes = ((e.meta&&e.meta.takes)||[]).map(t=> ({ ...t, meta:set(t&&t.meta, t&&t.url===url) }));
     return _vidWriteEntry(id, { url:e.url, meta:{ ...set(e.meta, e.url===url), takes } }, scope0);
@@ -389,7 +558,7 @@ function vidRestoreTake(id, url){
   const scope0 = vidScope();
   return _vidQueued(async ()=>{
     if(!_vidScopeSame(scope0)) return null;   // film switched while queued
-    const e = await _vidLoadEntry(id); if(!e) return null;
+    const e = await _vidLoadEntry(id, scope0); if(!e) return null;
     const t = ((e.meta&&e.meta.takes)||[]).find(x=>x&&x.url===url);
     if(!t) return null;
     const m = { ...(t.meta||{}) }; delete m.takes;
@@ -401,12 +570,16 @@ function vidDeleteTake(id, url){
   const scope0 = vidScope();
   return _vidQueued(async ()=>{
     if(!_vidScopeSame(scope0)) return null;   // film switched while queued — drop, never cross-write
-    const e = await _vidLoadEntry(id); if(!e || !e.url) return null;
+    const e = await _vidLoadEntry(id, scope0); if(!e || !e.url) return null;
     const takes = ((e.meta&&e.meta.takes)||[]);
     if(e.url===url){
       const next = takes[0];
-      if(!next){ _vidMem.delete(id); try{ await vidIdbDel(vidKey(id)); }catch(err){}
-        await _vidCloudPush(id, null, scope0);
+      if(!next){
+        await _vidDeleteStoredEntry(id, scope0);
+        if(!_vidScopeSame(scope0)) return null;
+        const cloudResult = await _vidCloudPush(id, null, scope0);
+        if(cloudResult && cloudResult.skipped) return null;
+        if(!_vidScopeSame(scope0)) return null;
         try{ window.dispatchEvent(new CustomEvent("vid-done",{ detail:{ ids:[id] } })); }catch(err){}
         return { cleared:true }; }
       return _vidWriteEntry(id, { url:next.url, meta:{ ...(next.meta||{}), takes:takes.slice(1) } }, scope0);
@@ -763,8 +936,8 @@ function _vidSettleSpend(spend){
 }
 async function vidRecoverPending(opts){
   opts = opts||{};
-  const sc = vidScope();
-  const scopeKey = sc ? sc.projectId : null;
+  const recoveryScope = _vidScopeSnapshot(vidScope());
+  const scopeKey = recoveryScope.projectId;
   const list = _vidPendingList().filter(j=> j && (j.projectId||null)===scopeKey);
   if(!list.length) return 0;
   let saved=0, failed=0, expired=0, cooking=0;
@@ -794,7 +967,11 @@ async function vidRecoverPending(opts){
         _vidSettleSpend(j.spend);   // a recovered render is a rendered render — settle its charge (same event id as the live path: never twice)
         try{ vidAssertIdentity({ identityCharacterIds:j.identityCharacterIds, identityContext:j.identityContext, identityCast:j.identityCast }, "video-recovery-before-commit"); }
         catch(identityErr){ cooking++; continue; }
-        await vidCommit(j.id, st.videoUrl, { ...(j.meta||{}), seed:st.seed||null, recovered:true });
+        const commit = await vidCommit(j.id, st.videoUrl,
+          { ...(j.meta||{}), seed:st.seed||null, recovered:true }, recoveryScope);
+        /* The provider job succeeded, but a film/user/epoch switch while its
+           poll was awaiting must leave it for the correct film's recovery. */
+        if(commit && commit.skipped){ cooking++; continue; }
         _vidPendingRemove(j.requestId); saved++;
       } else if(st.error || /^(FAILED|ERROR|CANCELLED|CANCELED)$/i.test(String(st.status||""))){
         _vidPendingRemove(j.requestId); failed++;
@@ -848,6 +1025,41 @@ window.vidLikenessError = vidLikenessError;
 
 async function seedanceGenerate(id, opts){
   opts = opts||{};
+  /* Snapshot before any preparation work.  A Stage render is allowed to use
+     the source it started with, never a refetched/partially edited source. */
+  const hasScreenplayReference = opts.screenplayReference!=null;
+  const screenplayReference = hasScreenplayReference
+    ? _vidScreenplayReferenceSnapshot(opts.screenplayReference) : null;
+  const screenplayAppend = hasScreenplayReference
+    ? window.stageAppendScreenplayReference : null;
+  if(hasScreenplayReference && typeof screenplayAppend!=="function")
+    throw new Error("Stage screenplay helper is unavailable. Reload Stage before rendering; render was not submitted.");
+  const screenplayBlock = hasScreenplayReference
+    ? String(screenplayAppend("",screenplayReference)||"") : "";
+  if(hasScreenplayReference && (!screenplayBlock
+      || screenplayBlock.indexOf(screenplayReference.fullText)<0
+      || screenplayBlock.indexOf(screenplayReference.targetText)<0))
+    throw new Error("Stage screenplay reference delivery helper returned no full scene source; render was not submitted.");
+  const appendScreenplay=(prompt)=>{
+    if(!hasScreenplayReference) return String(prompt==null?"":prompt);
+    const out=screenplayAppend(prompt,screenplayReference);
+    if(typeof out!=="string" || out.indexOf(screenplayReference.fullText)<0
+       || out.indexOf(screenplayReference.targetText)<0)
+      throw new Error("Stage screenplay reference delivery dropped the full scene source; render was not submitted.");
+    return out;
+  };
+  const assertScreenplayCurrent=(phase)=>{
+    if(!hasScreenplayReference) return true;
+    if(typeof opts.assertScreenplayCurrent!=="function")
+      throw new Error("Stage screenplay freshness check is unavailable; render was not submitted.");
+    const result=opts.assertScreenplayCurrent(phase||"video");
+    if(result===false || (result && (result.ok===false || result.valid===false || result.blocked)))
+      throw new Error(String(result.message||"The screenplay changed before the video render was submitted."));
+    return result;
+  };
+  /* Fail stale/malformed source before touching cache, capability handshakes,
+     media preparation, or the paid transport. */
+  assertScreenplayCurrent("video-generate-start");
   vidAssertIdentity(opts, "video-generate-start");
   /* ownership + scope captured at START: Clear bumps the clip's run token; a film
      switch bumps the asset epoch. Both are re-checked after the LAST await before
@@ -911,9 +1123,6 @@ async function seedanceGenerate(id, opts){
       : isSora ? Math.max(4,Math.min(20,Math.round(opts.durationMs/1000)))
       : Math.ceil(opts.durationMs/1000))
     : (opts.duration||"auto");
-  const klingShots = (isKling && Array.isArray(opts.multiShot))
-    ? opts.multiShot.map(s=>({ prompt:String(s&&s.prompt||"").trim(), duration:Math.max(1,Math.round(Number(s&&s.duration)||3)) })).filter(s=>s.prompt)
-    : [];
   const resolution = vidResolutionForModel(model, opts.resolution);
   const aspectRatio = opts.aspectRatio || "auto";
   const controls = (opts.controls||"").trim();
@@ -926,8 +1135,18 @@ async function seedanceGenerate(id, opts){
     ? String(window.turnIdentityPrompt(identityCast)||"").trim() : "";
   const promptWithIdentity = identityPrompt && basePrompt.indexOf(identityPrompt)<0
     ? basePrompt+"\n\nCANONICAL CHARACTER IDENTITY (binding): "+identityPrompt : basePrompt;
-  const promptText = controls
-    ? (promptWithIdentity + "\n" + controls) : promptWithIdentity;
+  const promptText = appendScreenplay(controls
+    ? (promptWithIdentity + "\n" + controls) : promptWithIdentity);
+  /* Native Kling multi-shot rows override the top-level prompt.  Every row
+     therefore receives the same exact screenplay block, rather than relying
+     on the top-level prompt. */
+  const klingShots = (isKling && Array.isArray(opts.multiShot))
+    ? opts.multiShot.map(s=>({ prompt:String(s&&s.prompt||"").trim(), duration:Math.max(1,Math.round(Number(s&&s.duration)||3)) }))
+      .filter(s=>s.prompt)
+      .map(s=>({ ...s, prompt:appendScreenplay(s.prompt) }))
+    : [];
+  if(isKling && klingShots.some(s=>s.prompt.length>2000))
+    throw new Error("Kling native multi-shot screenplay prompt exceeds the provider's 2000-character row limit; shorten the beat prompt or split the beat. The source was not truncated and no render was submitted.");
   /* generate_audio controls the WHOLE output audio track (SFX, ambience AND the
      lip-synced speech built from audio references) — sending false with audio refs
      yields a silent video, so it stays ON whenever line audio rides along. */
@@ -942,34 +1161,48 @@ async function seedanceGenerate(id, opts){
       throw new Error("Seedance 2.5 1080p is disabled until the deployed video proxy acknowledges the new capability schema. 720p remains available; deploy the updated image-proxy Edge Function to enable 1080p.");
   }
   const settings = { model, resolution, aspectRatio, duration, endFrame, generateAudio, bitrateMode, seed:opts.seed!=null?opts.seed:null };
+  if(screenplayReference) settings.screenplayReference = {
+    signature:screenplayReference.signature, sourceRev:screenplayReference.sourceRev,
+    fullText:screenplayReference.fullText, targetBeats:screenplayReference.targetBeats,
+    targetText:screenplayReference.targetText
+  };
+  if(screenplayReference && isKling && klingShots.length) settings.klingMultiPrompt=klingShots;
   const hash = vidHash([...images, ...videos, ...audios], promptText, settings);
   // skip-if-unchanged
   if(id && !opts.force){
     const url = vidGetVideo(id) || await vidLoadVideo(id);
     const meta = vidGetMeta(id);
+    assertScreenplayCurrent("video-before-cache-return");
     if(url && meta && meta.hash===hash) return { videoUrl:url, seed:(meta&&meta.seed)||null, cached:true };
   }
-   const proxyImages = await vidProxyReadyUrls((isSora||isKling) ? images.slice(0,1) : images);   // Sora/Kling: the start frame only
-   vidAssertIdentity(opts, "video-after-image-prep");
-   const proxyVideos = (isSora||isKling) ? [] : await vidProxyReadyUrls(videos);
-   vidAssertIdentity(opts, "video-after-video-prep");
+  const proxyImages = await vidProxyReadyUrls((isSora||isKling) ? images.slice(0,1) : images);   // Sora/Kling: the start frame only
+  vidAssertIdentity(opts, "video-after-image-prep");
+  const proxyVideos = (isSora||isKling) ? [] : await vidProxyReadyUrls(videos);
+  vidAssertIdentity(opts, "video-after-video-prep");
   const proxyAudios = [];
-   if(!isSora && !isKling) for(const u of await vidProxyReadyUrls(audios)) proxyAudios.push(await vidPadShortAudio(u));
-   vidAssertIdentity(opts, "video-after-audio-prep");
-   const proxyEndFrame = (useTransition || (isKling && endFrame)) ? await vidProxyReadyUrl(endFrame) : "";
-   vidAssertIdentity(opts, "video-after-reference-prep");
+  if(!isSora && !isKling) for(const u of await vidProxyReadyUrls(audios)) proxyAudios.push(await vidPadShortAudio(u));
+  vidAssertIdentity(opts, "video-after-audio-prep");
+  const proxyEndFrame = (useTransition || (isKling && endFrame)) ? await vidProxyReadyUrl(endFrame) : "";
+  vidAssertIdentity(opts, "video-after-reference-prep");
   let referenceMetadata = null;
   if(!isSora && !isKling){
     referenceMetadata = await vidReferenceMetadata(proxyImages,proxyVideos,proxyAudios);
     vidValidateSeedancePackage(model,{ images:proxyImages,videos:proxyVideos,audios:proxyAudios,
       metadata:referenceMetadata,duration,resolution,aspectRatio,bitrateMode,prompt:promptText });
   }
+  /* This is the last preparation boundary.  In particular, do not perform a
+     screenplay refetch here: the immutable snapshot is what gets submitted. */
+  assertScreenplayCurrent("video-after-preparation");
   // Exactly one submit→poll pass with the user's final prompt.
   const attempt = async (pText)=>{
     const _tag = opts.statusTag || "";
     const emit = (s)=>{ if(opts.onStatus) opts.onStatus(_tag ? (_tag+" · "+s) : s); };
-     vidAssertIdentity(opts, "video-before-submit");
-     const sub = await vidProxy("submit", {
+    vidAssertIdentity(opts, "video-before-submit");
+    /* Keep this check immediately adjacent to submit.  There is intentionally
+       no screenplay freshness check after the provider accepts the paid job:
+       a later edit cannot invalidate settlement or trigger a second submit. */
+    assertScreenplayCurrent("video-before-submit");
+    const sub = await vidProxy("submit", {
       model, prompt:pText,
       ...(isKling
         ? { image_url:proxyImages[0],
@@ -990,12 +1223,19 @@ async function seedanceGenerate(id, opts){
     // persist the job until it DEFINITIVELY completes — a reload mid-poll would otherwise
     // orphan a paid render (recovery re-polls leftovers on the next load). Cancels and
     // timeouts keep the entry on purpose: the job may still finish server-side.
+    const pendingMeta = { hash, model, durationMs:opts.durationMs||0, aspectRatio, prompt:pText, ...(opts.takeMeta||{}) };
+    if(hasScreenplayReference) Object.assign(pendingMeta, {
+      prompt:pText, actualPrompt:pText,
+      screenplayReference, screenplayReferenceProvenance:screenplayReference,
+      screenplayReferenceBlock:screenplayBlock,
+      screenplayReferenceSignature:screenplayReference.signature,
+    });
     _vidPendingAdd({ requestId:sub.requestId, id, model, statusUrl:sub.statusUrl, responseUrl:sub.responseUrl, at:Date.now(),
        projectId:(scope0&&scope0.projectId)||null, uid:(scope0&&scope0.uid)||null,   // recovery is project-scoped
        identityCharacterIds:opts.identityCharacterIds||opts.characterIds||[],
        identityContext:opts.identityContext||null, identityCast:opts.identityCast||[],
       spend:spendRec,   // settled at COMPLETION by whichever path delivers first — event id dedupes
-      meta:{ hash, model, durationMs:opts.durationMs||0, aspectRatio, prompt:pText, ...(opts.takeMeta||{}) } });
+      meta:pendingMeta });
     _vidPollLease.add(sub.requestId);   // this poll OWNS the job while it runs — recovery keeps its hands off
     try{
     emit(sub.status||"IN_QUEUE");
@@ -1057,8 +1297,14 @@ async function seedanceGenerate(id, opts){
            discard/stale branching (a cleared clip's render was still rendered).
            The job's event id keeps a racing recovery pass from charging again. */
         _vidSettleSpend(spendRec);
-        const meta = { hash, model, durationMs:opts.durationMs||0, aspectRatio, seed:st.seed||null, prompt:pText,
-          ...(opts.takeMeta||{}) };   // Versions-view facts: source, tier, resolution, recipe, audio, batch position…
+        const meta = { hash, model, durationMs:opts.durationMs||0, aspectRatio, seed:st.seed||null,
+          prompt:pText, ...(opts.takeMeta||{}) };   // Versions-view facts: source, tier, resolution, recipe, audio, batch position…
+        if(hasScreenplayReference) Object.assign(meta, {
+          prompt:pText, actualPrompt:pText,
+          screenplayReference, screenplayReferenceProvenance:screenplayReference,
+          screenplayReferenceBlock:screenplayBlock,
+          screenplayReferenceSignature:screenplayReference.signature,
+        });
         try{ vidAssertIdentity(opts, "video-before-commit"); }
         catch(identityErr){
           _vidPendingRemove(sub.requestId);

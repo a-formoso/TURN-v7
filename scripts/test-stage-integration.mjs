@@ -14,7 +14,8 @@ box.window=box;box.globalThis=box;
 box.stageShotRuntime=sh=>Number(sh.dur)||2;
 box.shotGrammarLabel=sh=>sh.camera||"locked camera";
 vm.createContext(box);
-for(const file of ["app/stage-plan.jsx","app/stage-references.jsx","app/stage.jsx"])
+for(const file of ["app/shot-screenplay.js","app/shot-scene-context.js","app/stage-screenplay.js",
+  "app/stage-plan.jsx","app/stage-references.jsx","app/stage.jsx"])
   vm.runInContext(readFileSync(file,"utf8"),box,{filename:file});
 
 let pass=0,fail=0;
@@ -25,6 +26,116 @@ const shots=[
   {id:"b",sceneId:"s",beatN:1,dur:8,covers:[2],beatPlan:{micro:["Open the door","See the letter"]},dialogue:"It is here"},
   {id:"c",sceneId:"s",beatN:2,dur:5,covers:[1],beatPlan:{micro:["Mara runs"]},action:"Mara runs"},
 ];
+const liveScene={id:"s",loc:"INT. HALL — NIGHT"};
+const liveCtx={drafts:{s:{version:"live",blocks:[
+  {beat:1,type:"scene",text:"INT. HALL — NIGHT"},
+  {beat:1,type:"action",text:"Mara crosses to the newly opened observatory window."},
+  {beat:1,type:"action",text:"Mara waits for the signal."}
+]}},characters:[{id:"mara",name:"Mara"}]};
+const liveDirection=box.stageCurrentScreenplayDirection(liveScene,shots[0],liveCtx,shots);
+ok("ordinary shot direction follows current screenplay source",
+  liveDirection&&liveDirection.text==="Mara crosses to the newly opened observatory window."
+  && !liveDirection.text.includes("Open the door"));
+
+const sharedScene={id:"shared",loc:"INT. HALL — NIGHT"};
+const sharedShots=[
+  {id:"shared-a",sceneId:"shared",beatN:1,covers:[1],beatPlan:{micro:["Old A","Old B"]}},
+  {id:"shared-b",sceneId:"shared",beatN:1,covers:[2],beatPlan:{micro:["Old A","Old B"]}}
+];
+const sharedCtx={drafts:{shared:{version:"shared",blocks:[
+  {beat:1,type:"scene",text:"INT. HALL — NIGHT"},
+  {beat:1,type:"action",text:"Current A"},
+  {beat:1,type:"action",text:"Current B"}
+]}},characters:[]};
+const sharedBefore=JSON.stringify(sharedShots);
+const sharedA=box.stageCurrentScreenplayDirection(sharedScene,sharedShots[0],sharedCtx,sharedShots);
+const sharedB=box.stageCurrentScreenplayDirection(sharedScene,sharedShots[1],sharedCtx,sharedShots);
+ok("shared beat micro coverage stays shot-local",
+  sharedA&&sharedA.actions.join("|")==="Current A"&&sharedB&&sharedB.actions.join("|")==="Current B");
+ok("single/part resolution uses complete scene peers",
+  box.stageCurrentScreenplayDirection(sharedScene,sharedShots[0],sharedCtx,sharedShots).actions.length===1);
+ok("screenplay direction derivation is immutable",
+  JSON.stringify(sharedShots)===sharedBefore&&JSON.stringify(sharedCtx.drafts.shared.blocks).includes("Current A"));
+
+const fullBeatScene={id:"full",loc:"INT. ROOM — NIGHT"};
+const fullBeatShot={id:"full-a",sceneId:"full",beatN:1,beatPlan:{micro:["Old full"]},covers:[1]};
+const fullBeatCtx={drafts:{full:{version:"full",blocks:[
+  {beat:1,type:"scene",text:"INT. ROOM — NIGHT"},
+  {beat:1,type:"action",text:"Current full action"},
+  {beat:1,type:"char",text:"MARA"},
+  {beat:1,type:"dia",text:"First exact line"},
+  {beat:1,type:"char",text:"MARA"},
+  {beat:1,type:"dia",text:"Second exact line"}
+]}},characters:[{id:"mara",name:"Mara"}]};
+const fullBeat=box.stageCurrentScreenplayDirection(fullBeatScene,fullBeatShot,fullBeatCtx,[fullBeatShot],true);
+ok("true whole-beat shot retains every authored dialogue line",
+  fullBeat&&fullBeat.dialogues.length===2&&fullBeat.dialogue.includes("First exact line")
+  &&fullBeat.dialogue.includes("Second exact line"));
+
+const rewriteCtx={drafts:{shared:{version:"rewrite",blocks:[
+  {beat:1,type:"scene",text:"INT. HALL — NIGHT"},
+  {beat:1,type:"action",text:"One rewritten block replaces two covered actions"}
+]}},characters:[]};
+const rewrite=box.stageCurrentScreenplayDirection(sharedScene,sharedShots[0],rewriteCtx,sharedShots);
+ok("ambiguous multi-shot rewrite blocks paid coverage",
+  rewrite&&rewrite.blocked&&/changed shape|Reconcile/i.test(rewrite.message));
+
+const dialogueCtx={drafts:{shared:{version:"dialogue",blocks:[
+  {beat:1,type:"scene",text:"INT. HALL — NIGHT"},
+  {beat:1,type:"action",text:"Current A"},
+  {beat:1,type:"action",text:"Current B"},
+  {beat:1,type:"char",text:"MARA"},
+  {beat:1,type:"dia",text:"Line one"},
+  {beat:1,type:"char",text:"MARA"},
+  {beat:1,type:"dia",text:"Line two"}
+]}},characters:[{id:"mara",name:"Mara"}]};
+const dialogueReview=box.stageCurrentScreenplayDirection(sharedScene,sharedShots[0],dialogueCtx,sharedShots);
+ok("unassigned partial dialogue blocks rather than guessing coverage",
+  dialogueReview&&dialogueReview.blocked&&dialogueReview.code==="screenplay-dialogue-review");
+
+const completeSpeechShots=[
+  {id:"speech-a",sceneId:"shared",beatN:1,covers:[1],beatPlan:{micro:["Current A","Current B"]}},
+  {id:"speech-b",sceneId:"shared",beatN:1,covers:[2],beatPlan:{micro:["Current A","Current B"]}}
+];
+const completeSpeechCtx={drafts:{shared:{version:"speech",blocks:[
+  {beat:1,type:"scene",text:"INT. HALL — NIGHT"},
+  {beat:1,type:"action",text:"Current A"},
+  {beat:1,type:"action",text:"Current B"},
+  {beat:1,type:"char",text:"MARA"},
+  {beat:1,type:"dia",text:"Mara's exact line"},
+  {beat:1,type:"char",text:"THEO"},
+  {beat:1,type:"dia",text:"Theo's exact answer"}
+]}},characters:[{id:"mara",name:"Mara"},{id:"theo",name:"Theo"}]};
+const completeSpeech=box.stageCurrentScreenplayDirection(sharedScene,completeSpeechShots[0],completeSpeechCtx,completeSpeechShots,true);
+const partialSpeech=box.stageCurrentScreenplayDirection(sharedScene,completeSpeechShots[0],completeSpeechCtx,[completeSpeechShots[0]],false);
+ok("complete multi-shot beat keeps unassigned multi-speaker speech clip-level once",
+  completeSpeech&&!completeSpeech.blocked&&completeSpeech.dialogues.length===0
+  &&completeSpeech.clipDialogues.map(x=>x.text).join("|")==="Mara's exact line|Theo's exact answer");
+ok("the same beat as a partial shot still blocks unassigned speech",
+  partialSpeech&&partialSpeech.blocked&&partialSpeech.code==="screenplay-dialogue-review");
+
+const assignedSpeechShots=[
+  {id:"assigned-a",sceneId:"shared",beatN:1,covers:[1],dialogueLines:[{text:"Mara's exact line",speaker:"Mara"}],beatPlan:{micro:["Current A","Current B"]}},
+  {id:"assigned-b",sceneId:"shared",beatN:1,covers:[2],beatPlan:{micro:["Current A","Current B"]}}
+];
+const assignedLineCtx={drafts:{shared:{version:"assigned-line",blocks:[
+  {beat:1,type:"scene",text:"INT. HALL — NIGHT"},
+  {beat:1,type:"action",text:"Current A"},
+  {beat:1,type:"action",text:"Current B"},
+  {beat:1,type:"char",text:"MARA"},
+  {beat:1,type:"dia",text:"Mara's exact line"}
+]}},characters:[{id:"mara",name:"Mara"}]};
+const assignedA=box.stageCurrentScreenplayDirection(sharedScene,assignedSpeechShots[0],assignedLineCtx,assignedSpeechShots,true);
+const assignedB=box.stageCurrentScreenplayDirection(sharedScene,assignedSpeechShots[1],assignedLineCtx,assignedSpeechShots,true);
+const assignedPartialSilent=box.stageCurrentScreenplayDirection(sharedScene,assignedSpeechShots[1],assignedLineCtx,assignedSpeechShots,false);
+ok("complete assigned dialogue remains per-shot and locked-voice eligible",
+  assignedA&&!assignedA.blocked&&assignedA.dialogue==="Mara's exact line"
+  &&assignedA.clipDialogues.length===0
+  &&assignedB&&!assignedB.blocked&&assignedB.dialogues.length===0);
+ok("partial silent shot is allowed when every line is assigned elsewhere",
+  assignedPartialSilent&&!assignedPartialSilent.blocked&&assignedPartialSilent.dialogues.length===0
+  &&assignedPartialSilent.clipDialogues.length===0);
+
 const groups=box.stagePlanClips(shots,{modelId:"seedance-2.0",maxSeconds:15,maxShots:3,maxDialogue:10,scope:"beat"});
 ok("planner splits overlong beat at shot boundaries",groups.length===3,JSON.stringify(groups.map(g=>g.shots.map(s=>s.id))));
 ok("planner omits no shots",groups.flatMap(g=>g.shots).map(s=>s.id).join(",")==="a,b,c");

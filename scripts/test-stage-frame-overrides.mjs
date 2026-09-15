@@ -34,6 +34,11 @@ box.nbGetImage = () => "";
 box.nbCostChip = () => null;
 vm.createContext(box);
 
+/* Keep the frame-generation fixture on the same screenplay authority as Stage.
+   These are the real shared modules, not permissive test doubles. */
+for (const file of ["app/shot-screenplay.js", "app/shot-scene-context.js", "app/stage-screenplay.js"])
+  vm.runInContext(readFileSync(file, "utf8"), box, {filename:file});
+
 const stageSource = readFileSync("app/stage.jsx", "utf8");
 const stageStart = stageSource.indexOf("function StageFrameComposer(");
 const stageEnd = stageSource.indexOf("\n/* ---- SOUND tab", stageStart);

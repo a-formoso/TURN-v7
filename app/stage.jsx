@@ -257,6 +257,138 @@ function stageBeatSource(scene,sh,ctx){
   if(live&&live.hasSource)return live;
   return stageBeatOpeningShot(sh) ? {hasSource:false,missing:true} : null;
 }
+/*
+ * Ordinary Stage shots are not beat-opening keyframes, so their historical
+ * action / beatPlan.micro fields used to become the editable video direction.
+ * Those fields are production design from the moment shots were drafted, not
+ * the current Writers' Room source.  Resolve the authored action blocks again
+ * at render time and map them to the selected shot's old coverage only as
+ * navigation.  The returned object is prompt data, never a write-back to a
+ * shot or a screenplay draft.
+ */
+function stageCurrentScreenplayDirection(scene,sh,ctx,peerShots,clipBeatComplete){
+  const source=stageBeatSource(scene,sh,ctx);
+  if(!source||!source.hasSource||!Array.isArray(source.blocks)) return null;
+  const blocks=source.blocks.filter(b=>b&&String(b.type||"").toLowerCase()!=="scene"
+    && String(b.text||"").trim());
+  const actions=blocks.filter(b=>/^(action|trans)$/i.test(String(b.type||"")));
+  const group=(peerShots||[]).filter(x=>x&&Number(x.beatN)===Number(sh&&sh.beatN)
+    && String(x.sceneId||"")===String(sh&&sh.sceneId||""));
+  const oldMicro=(sh&&sh.beatPlan&&Array.isArray(sh.beatPlan.micro))
+    ? sh.beatPlan.micro.map(x=>String(x||"").replace(/\s+/g," ").trim()).filter(Boolean) : [];
+  const textOf=b=>String(b&&b.text||"").replace(/\s+/g," ").trim();
+  const issue=(message,code="screenplay-coverage-review")=>({
+    blocked:true,code,message,source,actions:[],text:"",script:"",
+    dialogue:"",dialogueRow:null,dialogueDelivery:"onscreen"
+  });
+  const covers=Array.isArray(sh&&sh.covers)
+    ? sh.covers.map(Number).filter(Number.isFinite) : [];
+  const completeBeat=!!clipBeatComplete;
+  const wholeBeat=completeBeat&&group.length===1&&group[0]&&group[0].id===sh.id;
+  /*
+   * The clip builder marks a beat complete only when it contains every
+   * scene/beat peer. A sole peer is therefore a whole-beat unit too; a
+   * part/single-shot render is not. Resolve partial coverage against every
+   * scene/beat peer, never against the selected clip's shortened peer list.
+   */
+  if(!wholeBeat){
+    if(!group.length||!covers.length)
+      return issue("This partial screenplay beat has no explicit shot coverage. Reconcile Covers in Shots before rendering.");
+    if(covers.some(n=>!Number.isInteger(n)||n<1||n>actions.length))
+      return issue("This shot's screenplay coverage no longer maps to the current authored action blocks. Review Covers in Shots before rendering.");
+    if(oldMicro.length&&oldMicro.length!==actions.length)
+      return issue("The screenplay action blocks changed shape under an existing multi-shot coverage map. Reconcile the shot boundaries in Shots before rendering.");
+  }
+  /*
+   * Covers are the stable association.  Apply them before looking at any
+   * historical micro text. An exact authored line can relocate within the
+   * selected covered slots (legacy shots stored per-shot micro arrays); all
+   * rewrites fall back to the stable covered index only when the action shape
+   * is unchanged. Never fuzzy-match a rewrite or infer an ordinal.
+   */
+  let actionIndexes=wholeBeat ? actions.map((_,i)=>i) : covers.map(n=>n-1);
+  if(!wholeBeat&&oldMicro.length){
+    const coveredOld=covers.map(n=>oldMicro[n-1]).filter(Boolean);
+    const exactIndexes=[];
+    coveredOld.forEach(old=>{
+      const hits=actions.map((block,i)=>({i,text:textOf(block)}))
+        .filter(x=>x.text===old);
+      if(hits.length===1) exactIndexes.push(hits[0].i);
+    });
+    if(exactIndexes.length===coveredOld.length) actionIndexes=exactIndexes;
+  }
+  const selectedActions=actionIndexes.map(i=>actions[i]).filter(Boolean);
+  const dialogue=Array.isArray(source.dialogue) ? source.dialogue.filter(x=>x&&String(x.text||"").trim()) : [];
+  const selectedDialogue=[];
+  let clipDialogues=[];
+  const explicitDialogueFor=(candidate)=>{
+    const explicitLines=Array.isArray(candidate&&candidate.dialogueLines)
+      ? candidate.dialogueLines.map(x=>String(x&&x.text||x||"").trim()).filter(Boolean)
+      : (String(candidate&&candidate.dialogue||candidate&&candidate.lineAudio&&candidate.lineAudio.text||"").trim()
+        ? [String(candidate.dialogue||candidate.lineAudio.text).trim()] : []);
+    const explicitIndexes=[];
+    ["screenplayDialogueIndex","dialogueIndex","lineIndex","dialogueBlockIndex"].forEach(k=>{
+      const n=Number(candidate&&candidate[k]);
+      if(Number.isInteger(n)&&n>=0) explicitIndexes.push(n);
+    });
+    const indexes=[];
+    for(const i of explicitIndexes){
+      if(i>=dialogue.length)return {error:"A shot's saved dialogue index no longer matches the current authored lines."};
+      if(indexes.indexOf(i)<0)indexes.push(i);
+    }
+    for(const line of explicitLines){
+      const matches=dialogue.map((x,i)=>({x,i}))
+        .filter(v=>String(v.x&&v.x.text||"").trim()===line);
+      if(matches.length!==1)
+        return {error:matches.length
+          ? "A shot's saved dialogue matches multiple authored lines. Reconcile the line assignment before rendering."
+          : "A shot's saved dialogue no longer matches the current authored line. Reconcile the line assignment before rendering."};
+      if(indexes.indexOf(matches[0].i)<0)indexes.push(matches[0].i);
+    }
+    indexes.sort((a,b)=>a-b);
+    return {hasExplicit:!!(explicitLines.length||explicitIndexes.length),indexes};
+  };
+  if(dialogue.length){
+    const localExplicit=explicitDialogueFor(sh);
+    if(localExplicit.error)
+      return issue(localExplicit.error,"screenplay-dialogue-review");
+    const assigned=new Set();
+    const assignments=(group.length?group:[sh]).map(candidate=>explicitDialogueFor(candidate));
+    for(const assignment of assignments){
+      if(assignment.error)
+        return issue(assignment.error,"screenplay-dialogue-review");
+      (assignment.indexes||[]).forEach(i=>assigned.add(i));
+    }
+    const allAssigned=assigned.size===dialogue.length;
+    (localExplicit.indexes||[]).forEach(i=>selectedDialogue.push(dialogue[i]));
+    if(wholeBeat) selectedDialogue.splice(0,selectedDialogue.length,...dialogue);
+    else if(completeBeat) clipDialogues=dialogue.filter((_,i)=>!assigned.has(i));
+    /*
+     * A partial silent shot is safe only when every authored line has an
+     * explicit assignment on another complete-peer shot. Any remaining
+     * unassigned speech must stop the render rather than becoming guessed
+     * silence. Complete clips keep those rows as ordered clip-level speech.
+     */
+    if(!completeBeat&&!allAssigned)
+      return issue("This partial screenplay beat has authored dialogue without an explicit shot line association. Assign every line to a shot before rendering.","screenplay-dialogue-review");
+  }
+  const actionItems=selectedActions.map(textOf).filter(Boolean);
+  const line=selectedDialogue[0]||null;
+  const scriptParts=actionItems.slice();
+  if(line)scriptParts.push(String(line.speaker||"the speaker")+": "+String(line.text||"").trim());
+  return {
+    source,
+    actions:actionItems,
+    text:actionItems.join(" "),
+    script:scriptParts.join(" "),
+    dialogues:selectedDialogue.slice(),
+    clipDialogues,
+    dialogueUnassigned:clipDialogues.length>0,
+    dialogue:selectedDialogue.map(x=>String(x&&x.text||"").trim()).filter(Boolean).join(" "),
+    dialogueRow:line,
+    dialogueDelivery:line&&line.delivery || "onscreen"
+  };
+}
 function stageShotMicroTexts(sh){
   if(stageBeatOpeningShot(sh))return [];
   // the micro-beats this shot COVERS are the story canon ("what happens"); sh.action is
@@ -503,13 +635,54 @@ function stageSheetPanelMeta(g, i, scene){
 }
 
 /* ---------- derive everything a clip needs from existing pre-production --------- */
+function stageScenePeerShots(scene,ctx,fallback){
+  ctx=ctx||{};
+  const sceneId=String(scene&&scene.id||"");
+  let list=[];
+  if(ctx.shotsByScene&&Array.isArray(ctx.shotsByScene[sceneId]))
+    list=ctx.shotsByScene[sceneId];
+  else if(Array.isArray(ctx.sceneShots))
+    list=ctx.sceneShots;
+  else if(Array.isArray(ctx.shots))
+    list=ctx.shots;
+  if(!list.length) list=fallback||[];
+  return list.filter(sh=>sh&&String(sh.sceneId||"")===sceneId);
+}
 function buildClipData(scene, g, ctx, maxSec){
   const shots = g.shots||[];
   const first = shots[0]||{};
+  const scenePeerShots=stageScenePeerShots(scene,ctx,shots);
+  const currentDirections = new Map();
+  const completeBeatNumbers=new Set();
+  const clipDialogueByBeat=new Map();
+  const shotIds=new Set(shots.map(sh=>sh&&sh.id).filter(Boolean));
+  Array.from(new Set(scenePeerShots.map(sh=>Number(sh&&sh.beatN))))
+    .forEach(beatN=>{
+      const peers=scenePeerShots.filter(sh=>Number(sh&&sh.beatN)===beatN);
+      if(peers.length&&peers.every(sh=>shotIds.has(sh&&sh.id))) completeBeatNumbers.add(beatN);
+    });
+  const screenplayDirectionIssues=[];
+  shots.forEach(sh=>{
+    const completeBeat=completeBeatNumbers.has(Number(sh&&sh.beatN));
+    const direction=stageCurrentScreenplayDirection(scene,sh,ctx,scenePeerShots,completeBeat);
+    if(direction){
+      currentDirections.set(sh&&sh.id,direction);
+      if(completeBeat){
+        const lines=direction.clipDialogues||[];
+        if(lines.length&&!clipDialogueByBeat.has(Number(sh&&sh.beatN)))
+          clipDialogueByBeat.set(Number(sh&&sh.beatN),lines);
+      }
+      if(direction.blocked) screenplayDirectionIssues.push({
+        code:direction.code||"screenplay-coverage-review",blocking:true,
+        shotId:sh&&sh.id,message:direction.message
+      });
+    }
+  });
   // in-frame cast (union across the clip's shots), de-duped, names + ids
   const castIds = [];
   shots.forEach(sh=>{
     const beatSource=stageBeatSource(scene,sh,ctx);
+    const currentDirection=currentDirections.get(sh&&sh.id)||null;
     /* A beat-opening frame is the first physical state, not a montage of every
        later action. Use the live source's opening cast and never the stale
        subjects array (which commonly still contains a phone/voicemail participant). */
@@ -524,17 +697,21 @@ function buildClipData(scene, g, ctx, maxSec){
     // prompt names MUST have their identity sheet attached or the model invents them.
     const spoken = (stageBeatOpeningShot(sh)&&beatSource&&beatSource.hasSource)
       ? "" : String(sh.vidText||"").trim()
-      || ((typeof stageShotCanonLine==="function") ? stageShotCanonLine(scene, ctx.drafts, ctx.beatsMap, sh, 190) : "");
+      || (currentDirection ? currentDirection.text
+        : ((typeof stageShotCanonLine==="function") ? stageShotCanonLine(scene, ctx.drafts, ctx.beatsMap, sh, 190) : ""));
     // dialogue surfaces too: the voice-cast preamble, lip-sync recipes and audio role
     // labels all name the SPEAKER — a speaker-only character (never in the prose) still
     // needs their identity sheet attached or lip-sync renders an invented face.
     const dlg = stageBeatOpeningShot(sh)&&beatSource&&beatSource.hasSource
-      ? (beatSource.dialogue||[]).map(x=>x&&x.text||"").join(" ") : String(sh.dialogue||"");
+      ? (beatSource.dialogue||[]).map(x=>x&&x.text||"").join(" ")
+      : (currentDirection ? currentDirection.dialogue : String(sh.dialogue||""));
     const spk = dlg.trim() && (typeof stageDialogueSpeaker==="function")
       ? stageDialogueSpeaker(scene, ctx.drafts, ctx.beatsMap, sh, ctx) : null;
     const named = stageBeatOpeningShot(sh)&&beatSource&&beatSource.hasSource
       ? [] : ((typeof scanTextForChars==="function")
-      ? scanTextForChars([spoken, dlg, (spk&&spk.name)||""].filter(Boolean).join("\n"), ctx.characters||[]) : []);
+      ? scanTextForChars([spoken, dlg,
+          (currentDirection&&currentDirection.dialogueRow&&currentDirection.dialogueRow.speaker)
+            || (spk&&spk.name)||""].filter(Boolean).join("\n"), ctx.characters||[]) : []);
     const namedIds=Array.isArray(named)?named:[];
     inc.concat(namedIds).forEach(id=>{ if(castIds.indexOf(id)<0) castIds.push(id); });
   });
@@ -605,8 +782,10 @@ function buildClipData(scene, g, ctx, maxSec){
   const panelLines = shots.map((sh,i)=>{
     const meta = stageSheetPanelMeta(g, i, scene);
     const beatSource=stageBeatSource(scene,sh,ctx);
+    const currentDirection=currentDirections.get(sh&&sh.id)||null;
     const canonical=stageBeatOpeningShot(sh)&&beatSource&&
       (beatSource.hasSource||beatSource.missing);
+    const manualVideo=String(sh.vidText||"").trim();
     const exactLine = stageShotDialogueLine(scene, ctx.drafts, sh, ctx);
     const primaryDialogue=canonical&&beatSource.dialogue&&beatSource.dialogue[0]||null;
     const speaker = primaryDialogue && primaryDialogue.text
@@ -614,8 +793,10 @@ function buildClipData(scene, g, ctx, maxSec){
       : exactLine && exactLine.text
       ? (exactLine.char ? { id:exactLine.char.id, name:exactLine.char.name } : { id:"", name:exactLine.speaker||"the speaker" })
       : (String(sh&&sh.dialogue||"").trim() ? stageDialogueSpeaker(scene, ctx.drafts, ctx.beatsMap, sh, ctx) : null);
-    const micro = canonical ? [] : stageShotMicroTexts(sh);
-    const microText = canonical ? String(beatSource.text||"") : stageShotMicroPromptText(scene, ctx.drafts, ctx.beatsMap, sh, 190);
+    const micro = canonical ? [] : (manualVideo ? [] : (currentDirection ? currentDirection.actions : stageShotMicroTexts(sh)));
+    const microText = canonical ? String(beatSource.text||"")
+      : (currentDirection ? currentDirection.text
+        : stageShotMicroPromptText(scene, ctx.drafts, ctx.beatsMap, sh, 190));
     // the Shots tab's camera grammar, preserved PER SHOT — the clip-level "camera arc"
     // flattens these into one description; the shoot package and timeline recipes need
     // each setup intact (size · angle · move · lens + the composition note).
@@ -625,15 +806,26 @@ function buildClipData(scene, g, ctx, maxSec){
     return { shotId:sh.id, beatN:sh.beatN, sheetPage:meta.page, sheetPanel:meta.panel, half:meta.half,
       // sh.vidText = the user's per-shot VIDEO description override (Multi-shot
       // editor) — video-only, never touches the canon action the image side uses
-      text: canonical ? String(beatSource.text||"") : (String(sh.vidText||"").trim() || microText || stageShotCanonLine(scene, ctx.drafts, ctx.beatsMap, sh, 190)),
-      script:canonical ? String(beatSource.text||"") : stageShotScriptText(scene, ctx.drafts, sh, 190),
-      sheet:canonical ? String(beatSource.openingAction||sh.action||"") : stageShotSheetText(scene, ctx.beatsMap, sh, 190),
-      speaker,
+      text: canonical ? String(beatSource.text||"") : (manualVideo || (currentDirection ? microText
+        : stageShotCanonLine(scene, ctx.drafts, ctx.beatsMap, sh, 190))),
+      script:canonical ? String(beatSource.text||"")
+        : (manualVideo || (currentDirection ? currentDirection.script
+          : stageShotScriptText(scene, ctx.drafts, sh, 190))),
+      sheet:canonical ? String(beatSource.openingAction||sh.action||"")
+        : (manualVideo || (currentDirection ? currentDirection.text
+          : stageShotSheetText(scene, ctx.beatsMap, sh, 190))),
+      speaker: currentDirection&&currentDirection.dialogueRow
+        ? {id:currentDirection.dialogueRow.speakerId||"",name:currentDirection.dialogueRow.speaker||"the speaker"} : speaker,
       camera:camSpec, composition:String((sh&&sh.composition)||"").trim(),
       dur:(typeof stageShotRuntime==="function") ? stageShotRuntime(sh) : 0,
       dialogue:canonical ? String((primaryDialogue&&primaryDialogue.text)||"") :
-        (exactLine && exactLine.text ? exactLine.text : String((sh&&sh.dialogue)||"").trim()),
-      dialogueDelivery:canonical ? String((primaryDialogue&&primaryDialogue.delivery)||"onscreen") : "onscreen",
+        (currentDirection ? currentDirection.dialogue
+          : (exactLine && exactLine.text ? exactLine.text : String((sh&&sh.dialogue)||"").trim())),
+      dialogueLines:canonical ? (beatSource.dialogue||[]) :
+        (currentDirection ? (currentDirection.dialogues||[]) : []),
+      dialogueDelivery:canonical ? String((primaryDialogue&&primaryDialogue.delivery)||"onscreen")
+        : (currentDirection&&currentDirection.dialogueRow
+          ? String(currentDirection.dialogueDelivery||"onscreen") : "onscreen"),
       beatScript:canonical ? String(beatSource.text||"") : "",
       beatDialogue:canonical ? (beatSource.dialogue||[]) : [],
       sourceScreenplayRev:canonical ? String(beatSource.sourceRev||sh.sourceScreenplayRev||"") : "",
@@ -664,12 +856,52 @@ function buildClipData(scene, g, ctx, maxSec){
     const src = shots.find(sh=>sh && sh.id===p.shotId) || {};
     return { ...src, dialogue:p.dialogue, lineAudio:src.lineAudio };
   });
+  const clipDialogueLines=Array.from(clipDialogueByBeat.values()).flat();
   const beatDialogues = {};
   const beatScripts = {};
   const remoteCharacterIds = [];
   _uniq(shots.map(sh=>sh&&sh.beatN).filter(Boolean)).forEach(n=>{
-    const src=stageBeatSource(scene,shots.find(sh=>Number(sh&&sh.beatN)===Number(n)),ctx);
-    beatDialogues[n] = (src&&src.hasSource&&src.dialogue) ? src.dialogue : stageBeatDialogueLines(scene, ctx.drafts, n);
+    const beatShots=shots.filter(sh=>Number(sh&&sh.beatN)===Number(n));
+    const src=stageBeatSource(scene,beatShots[0],ctx);
+    const panelDialogue=panelLines.filter(p=>Number(p&&p.beatN)===Number(n))
+      .flatMap(p=>(Array.isArray(p.dialogueLines)&&p.dialogueLines.length
+        ? p.dialogueLines : (String(p&&p.dialogue||"").trim() ? [p] : []))
+        .map(line=>({
+          ...(line&&line.evidence ? line : {}),
+          speaker:(line&&line.speaker)||((p.speaker&&p.speaker.name)||"the speaker"),
+          text:String(line&&line.text!=null ? line.text : p.dialogue||"").trim(),
+          parenthetical:(line&&line.parenthetical)||p.dialogueParenthetical||"",
+          delivery:(line&&line.delivery)||p.dialogueDelivery||"onscreen"
+        })));
+    /*
+     * For ordinary multi-shot coverage, only the line mapped to a selected
+     * shot belongs in its editable direction. The immutable screenplay
+     * reference still carries every authored line in full.
+     */
+    const beatDirection=currentDirections.get(beatShots[0]&&beatShots[0].id);
+    const clipRows=(clipDialogueByBeat.get(Number(n))||[]).slice();
+    const mergedDialogue=(panelDialogue.length||clipRows.length)&&src&&Array.isArray(src.dialogue)
+      ? src.dialogue.map(row=>{
+          const text=String(row&&row.text||"").trim();
+          const assigned=panelDialogue.findIndex(x=>x&&String(x.text||"").trim()===text);
+          if(assigned>=0){
+            const picked=panelDialogue[assigned];
+            panelDialogue.splice(assigned,1);
+            return picked;
+          }
+          const clipIndex=clipRows.findIndex(x=>x&&String(x.text||"").trim()===text);
+          if(clipIndex>=0){
+            const picked=clipRows[clipIndex];
+            clipRows.splice(clipIndex,1);
+            return picked;
+          }
+          return null;
+        }).filter(Boolean)
+      : (panelDialogue.length ? panelDialogue : clipRows);
+    beatDialogues[n] = mergedDialogue&&mergedDialogue.length ? mergedDialogue
+      : (beatDirection ? (beatDirection.dialogues||[])
+        : (src&&src.hasSource&&src.dialogue&&beatShots.length===1 ? src.dialogue
+          : (src&&src.hasSource ? [] : stageBeatDialogueLines(scene, ctx.drafts, n))));
     if(src&&src.hasSource){
       beatScripts[n]={hasSource:true,text:String(src.text||""),openingAction:String(src.openingAction||""),
         sourceRev:String(src.sourceRev||""),dialogue:src.dialogue||[],
@@ -678,8 +910,49 @@ function buildClipData(scene, g, ctx, maxSec){
       (src.remoteCharacterIds||[]).forEach(id=>{if(remoteCharacterIds.indexOf(id)<0)remoteCharacterIds.push(id);});
     }
   });
-  return { shots, first, cast, props:clipProps, loc, locSheet, preset, camera, cameraProfile, lighting, lead, prompt, chips, setting, panelLines, protect, beatDialogues, beatScripts, remoteCharacterIds,
+  /*
+   * stage-plan's timing helper intentionally reads beatPlan.micro.  Give the
+   * prompt/render-plan path a derived copy whose micro rows contain the current
+   * screenplay action, while keeping the canonical shot objects untouched.
+   * Camera, lens, duration, covers, and manual vidText remain from the shot.
+   */
+  const promptShots = shots.map(sh=>{
+    const direction=currentDirections.get(sh&&sh.id);
+    if(!direction) return sh;
+    const next={...sh};
+    const prior=sh&&sh.beatPlan;
+    const manualVideo=String(sh&&sh.vidText||"").trim();
+    const micro=manualVideo ? [manualVideo] : (direction.actions||[]).slice();
+    next.beatPlan={...(prior||{}),micro};
+    if(Array.isArray(sh.covers)&&sh.covers.length)
+      next.covers=micro.map((_,i)=>i+1);
+    return next;
+  });
+  return { shots, promptShots, screenplayDirectionIssues, clipDialogueByBeat, clipDialogueLines, first, cast, props:clipProps, loc, locSheet, preset, camera, cameraProfile, lighting, lead, prompt, chips, setting, panelLines, protect, beatDialogues, beatScripts, remoteCharacterIds,
     dur:_clipDur(g, maxSec), lineShots };
+}
+
+function stageRenderScopeInstruction(clipScope,clip,shots,promptShots,panelLines){
+  const scopeLabel=clipScope==="shot" ? "Single shot"
+    : clipScope==="legacy" ? "previous-packing clip" : "Fit beat";
+  const g=clip&&clip.g||{};
+  const part=Number(g.part)>0&&Number(g.parts)>1 ? " · Part "+g.part+" of "+g.parts : "";
+  const list=(shots||[]).map((sh,i)=>{
+    const p=(panelLines||[]).find(x=>x&&x.shotId===sh.id)||{};
+    const ps=(promptShots||[]).find(x=>x&&x.id===sh.id)||sh;
+    const camera=p.camera||[ps.size,ps.angle,ps.move,ps.lens].filter(Boolean).join(" · ");
+    const direction=String(p.text||p.script||"").trim();
+    return "Shot "+(i+1)+" (beat "+(sh.beatN||"—")+")"
+      +(direction ? ": "+direction : "")
+      +(camera ? " ["+camera+"]" : "");
+  }).filter(Boolean);
+  return [
+    "SELECTED RENDER SCOPE: "+scopeLabel+part+".",
+    "Perform only the selected shot unit"+(list.length===1?"":"s")+" below, in order. "
+      +"The complete target beat above remains immutable reading context for continuity "
+      +"and exact dialogue; do not replay omitted shot or part coverage.",
+    list.length ? list.join("\n") : ""
+  ].filter(Boolean).join("\n");
 }
 
 function stageClipPropDependencySignature(clipData, sceneId, context){
@@ -943,7 +1216,7 @@ const SEEDANCE_CAMERA_MOVES = [
   "Handheld drift", "POV switch", "Aerial shot", "Orbit", "Whip pan", "Tilt up", "Crane up",
   "Locked-off tableau",
 ];
-const STAGE_PROMPT_SCHEMA = "seedance-micro-beats-v5";
+const STAGE_PROMPT_SCHEMA = "seedance-scene-screenplay-v6";
 function _seedanceVoiceSec(sh, textOverride){
   const ms = sh && sh.lineAudio && sh.lineAudio.durationMs;
   if(ms) return Math.round(ms/100)/10;                                  // measured audio
@@ -1009,6 +1282,21 @@ function _stagePromptEntityLabel(refs, kind, item, fallback){
   return _stagePromptEntityToken(refs, kind, item) || String(fallback||"").trim();
 }
 function _seedanceDialogueClause(sh, p, d, refs){
+  const rows=Array.isArray(p&&p.dialogueLines)&&p.dialogueLines.length
+    ? p.dialogueLines : null;
+  if(rows){
+    const aIdx = (typeof stageLineAudioIndex==="function") ? stageLineAudioIndex(d, sh.id) : 0;
+    return rows.map((row,i)=>{
+      const dialogue=String(row&&row.text||"").trim().replace(/^["“]|["”]$/g,"");
+      if(!dialogue)return "";
+      const speakerName=(row&&row.speaker)||(p&&p.speaker&&p.speaker.name)
+        ||(sh&&sh.lineAudio&&sh.lineAudio.speaker)||"the speaker";
+      const speaker=_stagePromptEntityLabel(refs,"speaker",speakerName,speakerName);
+      const paren=String((row&&row.parenthetical)||p&&p.dialogueParenthetical||"").trim();
+      return speaker+" says \""+dialogue+"\""+(paren?(" ("+paren+")"):"")
+        +(aIdx&&i===0?(" (lip-sync @Audio"+aIdx+")"):"");
+    }).filter(Boolean).join("; ");
+  }
   const dialogue = String((p&&p.dialogue) || (sh&&sh.dialogue) || (sh&&sh.lineAudio&&sh.lineAudio.text) || "").trim().replace(/^["“]|["”]$/g,"");
   if(!dialogue) return "";
   const speakerName = (p&&p.speaker&&p.speaker.name) || (sh&&sh.lineAudio&&sh.lineAudio.speaker) || "the speaker";
@@ -1033,6 +1321,16 @@ function _seedanceMicroPlan(d, shots){
   const rows = _seedanceMicroLines(d, shots);
   if(!rows.length) return "";
   return "Micro-beat action plan:\n"+rows.map((r,i)=>"SHOT "+(i+1)+" / Beat "+((r.sh&&r.sh.beatN)||"—")+": "+r.text+".").join("\n");
+}
+function _seedanceClipDialogueClause(d, refs){
+  const rows=Array.isArray(d&&d.clipDialogueLines) ? d.clipDialogueLines : [];
+  return rows.map(row=>{
+    const text=String(row&&row.text||"").trim().replace(/^["“]|["”]$/g,"");
+    if(!text)return "";
+    const name=(row&&row.speaker)||"the speaker";
+    const speaker=_stagePromptEntityLabel(refs,"speaker",name,name);
+    return speaker+" says \""+text+"\"";
+  }).filter(Boolean).join("; ");
 }
 function _seedanceBeatMicroText(d, shots, activeShot){
   const beatN = activeShot && activeShot.beatN;
@@ -1155,12 +1453,14 @@ function seedanceWholeSceneDirectorPrompt(clip, audioRefsOn, audioIncluded, refs
   const cast=(d.cast||[]).map(c=>entity("character",c,c.name)).filter(Boolean);
   const props=(d.props||[]).map(p=>entity("prop",p,p.name)).filter(Boolean);
   const setting=entity("setting",d.loc||d.setting,d.setting||((clip&&clip.scene&&clip.scene.loc)||""));
+  const clipDialogue=_seedanceClipDialogueClause(d,refs);
   return [
     "ONE CONTINUOUS SCENE — perform these dramatic sections in exact order. Do not merge, reorder, skip or invent beats.",
     cast.length&&("Cast: "+cast.join(", ")+"."),
     setting&&("Setting: "+setting+"."),
     props.length&&("Continuity props: "+props.join(", ")+"."),
     sections.join("\n\n"),
+    clipDialogue&&("CLIP-LEVEL ORDERED DIALOGUE (not assigned to a shot; perform these lines once in this order): "+clipDialogue+"."),
     d.lighting&&("Lighting: "+d.lighting+"."),
     d.preset&&("Look: "+d.preset.name+" — "+d.preset.grade+"."),
     "Performance: grounded and subtle; preserve breathing room for looks, pauses and reactions. Keep camera motion motivated and separate from subject motion.",
@@ -1193,7 +1493,9 @@ function seedanceBeatSequenceDirectorPrompt(clip, shots, audioRefsOn, audioInclu
     const action=micro.length
       ? ("Micro-beats in exact order: "+micro.map((m,j)=>(j+1)+") "+m).join("; ")+".")
       : ("Action: "+String(p.text||sh.action||"").trim());
-    const dlg=String((p&&p.dialogue)||sh.dialogue||"").trim().replace(/^["“]|["”]$/g,"");
+    const dlg=Array.isArray(p&&p.dialogueLines)&&p.dialogueLines.length
+      ? p.dialogueLines.map(line=>String(line&&line.text||"").trim()).filter(Boolean).join(" ")
+      : String((p&&p.dialogue)||sh.dialogue||"").trim().replace(/^["“]|["”]$/g,"");
     let dialogue="";
     if(dlg){
       const name=(p.speaker&&p.speaker.name)||"the speaker";
@@ -1216,12 +1518,14 @@ function seedanceBeatSequenceDirectorPrompt(clip, shots, audioRefsOn, audioInclu
   const cast=(d.cast||[]).map(c=>entity("character",c,c.name)).filter(Boolean);
   const propRefs=(d.props||[]).map(p=>entity("prop",p,p.name)).filter(Boolean);
   const setting=entity("setting",d.loc||d.setting,d.setting||((clip&&clip.scene&&clip.scene.loc)||""));
+  const clipDialogue=_seedanceClipDialogueClause(d,refs);
   return [
     "ONE CLIP — BEAT "+beatN+" shot as a SEQUENCE OF SHOTS in exact order. Hard cut between shots; do not merge, reorder, skip or invent shots, and let each shot's last action cause the next shot's first.",
     cast.length&&("Cast: "+cast.join(", ")+"."),
     setting&&("Setting: "+setting+"."),
     propRefs.length&&("Continuity props: "+propRefs.join(", ")+"."),
     units.join("\n"),
+    clipDialogue&&("CLIP-LEVEL ORDERED DIALOGUE (not assigned to a shot; perform these lines once in this order): "+clipDialogue+"."),
     protect&&("Protect the dramatic core: "+protect+"."),
     "Ending: finish the final shot's dramatic result, then HOLD the last composition long enough to read; no new action, cutaway or reset.",
     d.lighting&&("Lighting: "+d.lighting+"."),
@@ -1267,10 +1571,12 @@ function seedancePrompt(recipe, clip, refs){
   const voiceLead = dialogueSpeakers[0] || lead;
   if(recipe==="structured"){
     const dlgLines = shots.map((sh,i)=>_seedanceDialogueClause(sh, panelLines[i]||{}, d, refs)).filter(Boolean);
+    const clipDialogue=_seedanceClipDialogueClause(d,refs);
     return [
       cast.length && ("Subject: "+cast.join(", ")+"."),
       "Action: "+actionLines.join(" "),
       dlgLines.length && ("Dialogue: "+dlgLines.join("; ")+"."),
+      clipDialogue && ("Clip-level ordered dialogue (not assigned to a shot; perform once in order): "+clipDialogue+"."),
       settingRef && ("Setting: "+settingRef+"."),
       "Camera: "+(d.camera||"static")+".",
       d.lighting && ("Lighting: "+d.lighting+"."),
@@ -1294,18 +1600,22 @@ function seedancePrompt(recipe, clip, refs){
       return _stagePromptEntityLabel(refs, "speaker", nm, nm); };
     const sayOf = (sh)=>{ const p = allLines.find(x=>x&&x.shotId===(sh&&sh.id));
       return String((p&&p.dialogue) || (sh&&sh.dialogue) || (sh&&sh.lineAudio&&sh.lineAudio.text) || "").trim().replace(/^["“]|["”]$/g,""); };
+    const clipDialogue=_seedanceClipDialogueClause(d,refs);
+    const clipDialogueNote=clipDialogue
+      ? " CLIP-LEVEL ORDERED DIALOGUE (not assigned to a shot; perform once in order): "+clipDialogue+"."
+      : "";
     const tail = (settingRef?(" "+settingRef+"."):"") + (style?(" "+style+"."):"");
     // NATIVE PERFORMANCE (no audio refs): the model acts the lines itself — name the
     // words, not @Audio files, and leave the pacing to the performance
     if(d.audioRefsOn===false){
       if(lineShots.length>1){
         const seq = lineShots.map((sh)=> nameOf(sh)+" says \""+sayOf(sh)+"\"").join(", then ");
-        return [microPlan, visualLead+" "+seq+" — each performing their line in their own natural, in-character voice. Let the moment breathe between the lines — a look, a reaction. Grounded performances; subtle, motivated motion; hold the framing, lighting and identity steady."+tail].filter(Boolean).join("\n\n");
+        return [microPlan, visualLead+" "+seq+" — each performing their line in their own natural, in-character voice. Let the moment breathe between the lines — a look, a reaction. Grounded performances; subtle, motivated motion; hold the framing, lighting and identity steady."+tail+clipDialogueNote].filter(Boolean).join("\n\n");
       }
       const one = lineShots[0];
       const sp1 = one ? nameOf(one) : voiceLead;
       const ln1 = one ? sayOf(one) : "";
-      return [microPlan, visualLead+" "+sp1+" performs "+(ln1?("\""+ln1+"\" "):"the screenplay line ")+"in a natural, in-character voice with free, believable pacing. Subtle, motivated motion; hold the framing, lighting and identity steady."+tail].filter(Boolean).join("\n\n");
+      return [microPlan, visualLead+" "+sp1+" performs "+(ln1?("\""+ln1+"\" "):"the screenplay line ")+"in a natural, in-character voice with free, believable pacing. Subtle, motivated motion; hold the framing, lighting and identity steady."+tail+clipDialogueNote].filter(Boolean).join("\n\n");
     }
     // PLACEMENT: when the clip runs longer than the speech (the 4s floor, or budgeted
     // air), say where the line lands — otherwise the model guesses and the extra
@@ -1316,13 +1626,13 @@ function seedancePrompt(recipe, clip, refs){
     if(lineShots.length>1){
       const seq = lineShots.map((sh,i)=>{ const w = sayOf(sh);
         return nameOf(sh)+" delivers "+(w?("\""+w+"\""):"their line")+" in @Audio"+(i+1); }).join(", then ");
-      return [microPlan, visualLead+" "+seq+" — each line lip-synced to its own audio reference, and only the named speaker's lips move on their line. Let the micro-beat action plan drive the physical business between and around the lines. Grounded, in-character performances; subtle, motivated motion; hold the framing, lighting and identity steady."+tail].filter(Boolean).join("\n\n");
+       return [microPlan, visualLead+" "+seq+" — each line lip-synced to its own audio reference, and only the named speaker's lips move on their line. Let the micro-beat action plan drive the physical business between and around the lines. Grounded, in-character performances; subtle, motivated motion; hold the framing, lighting and identity steady."+tail+clipDialogueNote].filter(Boolean).join("\n\n");
     }
     const speaker1 = lineShots[0] ? nameOf(lineShots[0]) : voiceLead;
     const words1 = lineShots[0] ? sayOf(lineShots[0]) : "";
     return [microPlan, visualLead+" "+speaker1+" delivers "+(words1?("\""+words1+"\" "):"the screenplay line ")+"in @Audio1 with natural, accurate lip-sync — a grounded, in-character performance."
       +(roomy ? (" The line lands about "+CLIP_AIR.lead+"s in — settle the moment before it and hold "+speaker1+"'s reaction after it.") : "")
-      +" Let the micro-beat action plan drive the physical business. Subtle, motivated motion; hold the framing, lighting and identity steady."+tail].filter(Boolean).join("\n\n");
+       +" Let the micro-beat action plan drive the physical business. Subtle, motivated motion; hold the framing, lighting and identity steady."+tail+clipDialogueNote].filter(Boolean).join("\n\n");
   }
   if(recipe==="timeline"){
     // time-coded windows — Seedance paces motion to described segments (0–4s, 4–9s…).
@@ -1336,6 +1646,7 @@ function seedancePrompt(recipe, clip, refs){
       settingRef && ("Setting: "+settingRef+"."),
       style && ("Style: "+style+"."),
       d.lighting && ("Lighting: "+d.lighting+"."),
+      _seedanceClipDialogueClause(d,refs) && ("Clip-level ordered dialogue (not assigned to a shot; perform once in order): "+_seedanceClipDialogueClause(d,refs)+"."),
     ].filter(Boolean).join(" ");
     // SINGLE-SHOT beats: one shot means one window, which defeats the point of
     // time-stamping. When the beat carries an ordered micro-beat plan (and no spoken
@@ -1420,17 +1731,25 @@ function seedanceNarrativeParagraph(clip, sh, refs){
   const micro = (Array.isArray(p.micro) ? p.micro : []).map(m=>String(m||"").replace(/[\s.;]+$/,"")).filter(Boolean);
   const action = micro.length ? micro.join(", then ")
     : String(p.text || (sh&&sh.action) || "").trim().replace(/[\s.]+$/,"");
-  const dialogue = String((p&&p.dialogue) || (sh&&sh.dialogue) || "").trim().replace(/^["“]|["”]$/g,"");
-  const speakerName = (p.speaker&&p.speaker.name) || "the speaker";
-  const speaker = _stagePromptEntityLabel(refs, "speaker", speakerName, speakerName);
+  const dialogueRows = Array.isArray(p&&p.dialogueLines)&&p.dialogueLines.length
+    ? p.dialogueLines : [{speaker:(p.speaker&&p.speaker.name)||"the speaker",text:p&&p.dialogue||sh&&sh.dialogue||""}];
+  const dialogue = dialogueRows.map(row=>{
+    const words=String(row&&row.text||"").trim().replace(/^["“]|["”]$/g,"");
+    if(!words)return "";
+    const speakerName=(row&&row.speaker)||(p.speaker&&p.speaker.name)||"the speaker";
+    const speaker=_stagePromptEntityLabel(refs,"speaker",speakerName,speakerName);
+    return speaker+" says \""+words+"\""
+      +(d.audioRefsOn===false ? " in a natural, in-character voice." : " — sync the performance to the matching audio reference when one is attached.");
+  }).filter(Boolean).join(" ");
+  const clipDialogue=_seedanceClipDialogueClause(d,refs);
   const grammar = _seedanceShotGrammar(sh) || d.camera || "";
   const style = d.preset ? (d.preset.name+" — "+d.preset.grade) : "";
   return [
     (cast.length ? cast.join(" and ") : "The subject")
       + (settingRef ? (" — "+settingRef+" —") : "")
       + (action ? (" "+(action.charAt(0)===action.charAt(0).toUpperCase() ? action.charAt(0).toLowerCase()+action.slice(1) : action)+".") : " holds the moment."),
-    dialogue && (speaker+" says \""+dialogue+"\""
-      +(d.audioRefsOn===false ? " in a natural, in-character voice." : " — sync the performance to the matching audio reference when one is attached.")),
+    dialogue,
+    clipDialogue && ("Clip-level ordered dialogue (not assigned to a shot; perform once in order): "+clipDialogue+"."),
     grammar && ("Camera: "+grammar+" — keep camera movement in its own motion, separate from the subject's."),
     d.lighting && (d.lighting.charAt(0).toUpperCase()+d.lighting.slice(1).replace(/[\s.]+$/,"")+"."),
     style && (style+"."),
@@ -1463,6 +1782,7 @@ function seedanceBeatPrompt(clip, sh, refs){
       : (script || blocking))+(script && blocking && blockingAdds ? (" Storyboard blocking: "+blocking.replace(/[\s.;…]+$/,"")) : "")),
     dialogue && ("Dialogue/audio: "+speaker+" says \""+dialogue+"\""
       +(d.audioRefsOn===false ? "; performed in a natural, in-character voice." : "; sync performance to the locked audio if present.")),
+    _seedanceClipDialogueClause(d,refs) && ("Clip-level ordered dialogue (not assigned to a shot; perform once in order): "+_seedanceClipDialogueClause(d,refs)+"."),
     settingRef && ("Setting: "+settingRef+"."),
     "Camera: "+(_seedanceShotGrammar(sh)||d.camera||"static")+".",
     d.lighting && ("Lighting: "+d.lighting+"."),
@@ -2339,6 +2659,48 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   const previewFrame = usePanels ? startFrame : (imgs[previewId] || startFrame);
   // the clip's own shots — this IS the render unit now, not a same-beatN subset.
   const shownShots = (d.shots||[]).length ? d.shots : [activeShot].filter(Boolean);
+  /*
+   * promptShots is a render-time, screenplay-derived view built by
+   * buildClipData.  It carries the current authored action into every prompt
+   * style and timed-plan route, while shownShots remains the canonical shot
+   * list used for references, persistence and source freshness checks.
+   */
+  const promptShots = (d.promptShots||[]).length ? d.promptShots : shownShots;
+  const promptActiveShot = promptShots.find(sh=>sh&&sh.id===activeShot.id) || promptShots[0] || activeShot;
+  const screenplayContext = {...ctx, drafts, beatsMap};
+  const screenplayReference = typeof window.stageScreenplayReference==="function"
+    ? window.stageScreenplayReference(scene,shownShots,screenplayContext)
+    : {hasSource:false,errors:["Scene screenplay is unavailable. Reload Stage before rendering."],signature:"missing"};
+  const sourceScreenplayIssue = !screenplayReference.hasSource || (screenplayReference.errors||[]).length
+    ? (screenplayReference.errors||[])[0] || "Write this scene's screenplay in the Writers' Room before rendering."
+    : "";
+  const directionIssue=(d.screenplayDirectionIssues||[]).find(x=>x&&x.blocking);
+  const screenplayIssue=sourceScreenplayIssue || (directionIssue&&directionIssue.message) || "";
+  const scopeInstruction=stageRenderScopeInstruction(clipScope,clip,shownShots,promptShots,d.panelLines||[]);
+  /*
+   * The public screenplay reference remains the immutable contract sent to the
+   * transport worker.  This render-local clone lets the human-facing queued
+   * block state the selected shot/part boundary without changing source text,
+   * target beats, or canonical storage.
+   */
+  const screenplayPromptReference=screenplayReference&&typeof screenplayReference==="object"
+    ? {...screenplayReference,renderScope:{instruction:scopeInstruction}} : screenplayReference;
+  const screenplayCurrentRef = React.useRef(null);
+  screenplayCurrentRef.current = {clipId:clip.id,scene,shots:shownShots,ctx:screenplayContext,
+    fromLiveDrafts:drafts===(window.turnContinuity||{}).drafts};
+  const screenplayMountedRef = React.useRef(true);
+  React.useEffect(()=>{ screenplayMountedRef.current=true; return ()=>{ screenplayMountedRef.current=false; }; },[]);
+  const assertScreenplayCurrent = ()=>{
+    if(screenplayIssue) throw new Error(screenplayIssue);
+    const current=screenplayCurrentRef.current;
+    if(!screenplayMountedRef.current || !current || current.clipId!==clip.id)
+      throw new Error("The selected beat changed. Review its screenplay before rendering.");
+    const liveContext=current.fromLiveDrafts
+      ? {...current.ctx,drafts:(window.turnContinuity||{}).drafts||{}} : current.ctx;
+    const fresh=window.stageScreenplayReference(current.scene,current.shots,liveContext);
+    if(!fresh.hasSource || fresh.signature!==screenplayReference.signature)
+      throw new Error("The scene screenplay changed while preparing this video. Review the updated reference and prompt before rendering.");
+  };
   const referencePackage = (typeof window.stageShotReferencePackage==="function")
     ? window.stageShotReferencePackage(shownShots,{ ...ctx,scene,images:imgs,drafts,
         availableImageIds:new Set(Object.keys(imgs||{})) })
@@ -2874,7 +3236,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   // not just the one shot a user happens to be looking at (_clipMeasuredSec already sums
   // all of the clip's line audio and requires every line to be voiced before it locks).
   const lineShots = d.lineShots || [];
-  const hasDialogue = lineShots.length>0;
+  const clipDialogueLines = Array.isArray(d.clipDialogueLines) ? d.clipDialogueLines : [];
+  const hasUnassignedClipDialogue = clipDialogueLines.length>0;
+  const hasDialogue = lineShots.length>0 || hasUnassignedClipDialogue;
   const voicedLineCount = lineShots.filter(sh=>_shotAudioReady(sh, auds)).length;
   // capability flags from the model registry — Sora-class models take ONE start image
   // (no reference stacks) and perform dialogue themselves (no line-audio lip-sync)
@@ -2883,9 +3247,12 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   // voiceLocked = this render lip-syncs to the ElevenLabs lines (refs + locked clock);
   // otherwise the model performs the dialogue itself (native mode, or a Sora-class engine)
   const voiceLocked = hasDialogue && modelAudioRefs && dialogueAudio==="locked";
-  const voiceReady = !hasDialogue || voicedLineCount===lineShots.length;
+  const voiceReady = !hasDialogue || (!hasUnassignedClipDialogue && voicedLineCount===lineShots.length);
   const needsVoice = voiceLocked && !voiceReady;
-  const audioRefsOn = !hasDialogue || voiceLocked;   // prompts drop @Audio tags without refs
+  // Unassigned clip-level speech has no legal shot ID/audio attachment. Keep the
+  // explicit Locked selection visible, but compile this blocked preview without
+  // invented @Audio refs; the user must choose Native or assign each line first.
+  const audioRefsOn = !hasDialogue || (voiceLocked && !hasUnassignedClipDialogue);
   const measuredSec = _clipMeasuredSec(clip, model.maxClipSec||15);
   const durationLocked = !!measuredSec;
   // measured voice+air is a FLOOR, not a lock — extending buys more acting time, but
@@ -2996,20 +3363,22 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     // 2026-09-02 — the Art Room micro-beat plan continued onto the Stage; whole-
     // scene prompting retired with the packing). A single-shot clip (Single shot
     // scope, or a one-shot beat) reads better as the per-beat director brief.
-    const beatSequence = modelId==="seedance-2.5" && shownShots.length>1;
+    const beatSequence = modelId==="seedance-2.5" && promptShots.length>1;
     const useTimedPlan=typeof window.stageBuildTimedPlan==="function";
     const base = explicit
-      ? seedanceRecipePrompt(id, clip, shownShots, activeShot, audioRefsOn, audioIncluded, promptRefs, { explicitStyle:true })
+      ? seedanceRecipePrompt(id, clip, promptShots, promptActiveShot, audioRefsOn, audioIncluded, promptRefs, { explicitStyle:true })
       : useTimedPlan
-      ? seedanceRecipePrompt(id, clip, shownShots, activeShot, audioRefsOn, audioIncluded, promptRefs,
+      ? seedanceRecipePrompt(id, clip, promptShots, promptActiveShot, audioRefsOn, audioIncluded, promptRefs,
           {timedPlan:true,directAudioCap:directAudioLimit,durationSec:duration,modelId,
             maxSeconds:model.maxClipSec||15,audioMode:voiceLocked?"locked":"native"})
       : beatSequence
-      ? seedanceRecipePrompt(id, clip, shownShots, activeShot, audioRefsOn, audioIncluded, promptRefs,
+      ? seedanceRecipePrompt(id, clip, promptShots, promptActiveShot, audioRefsOn, audioIncluded, promptRefs,
           {beatSequence:true,directAudioCap:directAudioLimit,videoRefBase:onVideos.filter(a=>a&&a.url).length,videoRefCap:10})
-      : id==="multishot" ? seedanceRecipePrompt("timeline", msClip, msShots, activeShot, audioRefsOn, audioIncluded, promptRefs)
-      : seedanceRecipePrompt(id, clip, shownShots, activeShot, audioRefsOn, audioIncluded, promptRefs);
-    return (voiceCast && base) ? (voiceCast+"\n\n"+base) : base;
+      : id==="multishot" ? seedanceRecipePrompt("timeline", msClip,
+          promptShots.filter(sh=>msShots.some(x=>x&&x.id===sh.id)), promptActiveShot,
+          audioRefsOn, audioIncluded, promptRefs)
+      : seedanceRecipePrompt(id, clip, promptShots, promptActiveShot, audioRefsOn, audioIncluded, promptRefs);
+    return [voiceCast,base,scopeInstruction].filter(Boolean).join("\n\n");
   };
   // Dialogue/lip-sync needs spoken lines to phrase around; every other style always applies
   const promptStyleAvailable = (id)=> id!=="lipsync" || (d.lineShots||[]).length>0;
@@ -3018,7 +3387,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   const msSig = msAllShots.map(s=>s.id+":"+(s.vidText||"")+":"+msRuntime(s)+":"+(msOff.has(s.id)?0:1)).join("|");
   const beatPrompt = effPromptStyle ? recipeText(effPromptStyle, true) : recipeText(recipe);
   const renderPlan = (typeof window.stageBuildTimedPlan==="function")
-    ? window.stageBuildTimedPlan(shownShots,{modelId,maxSeconds:model.maxClipSec||15,
+     ? window.stageBuildTimedPlan(promptShots,{modelId,maxSeconds:model.maxClipSec||15,
         maxShots:model.maxShotsPerClip||Infinity,maxDialogue:10,
          audioMode:voiceLocked?"locked":"native",panelLines:d.panelLines||[],durationSec:duration,
          scene,drafts,characters:ctx.characters||[],beatsMap})
@@ -3029,7 +3398,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   // Refs (not state) so the rebuild effect below always reads the CURRENT flag even
   // on the same render pass that switches beats.
   const promptEditedRef = React.useRef(false);
-  const promptSourceSig=(renderPlan&&renderPlan.signature||"")+"·"+(referencePackage.signature||"")+"·"+promptRefSig;
+  const promptSourceSig=(renderPlan&&renderPlan.signature||"")+"·"+(referencePackage.signature||"")+"·"+promptRefSig+"·"+screenplayReference.signature;
   const promptDraftKey=(scene&&scene.id||"")+"|"+shownShots.map(s=>s&&s.id).filter(Boolean).join(",");
   const promptDraftsRef=React.useRef({});
   const [promptSourceStamp,setPromptSourceStamp]=React.useState(promptSourceSig);
@@ -3198,7 +3567,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     // modelId is a real dependency: an explicit style's shot SCOPE follows the model
     // (timed beat/part under either model), so a 2.0↔2.5 switch must recompile
     // an untouched box — otherwise the render ships the wrong scope under the right label
-  }, [clip.id, activeShot.id, recipe, effPromptStyle, modelId, dialogueSpeakers.join("|"), d.lead, audioRefsOn, audioIncluded.join("|"), promptRefSig, msSig]);
+   }, [clip.id, activeShot.id, recipe, effPromptStyle, modelId, dialogueSpeakers.join("|"), d.lead, audioRefsOn, audioIncluded.join("|"), promptRefSig, msSig, screenplayReference.signature, scopeInstruction]);
   React.useEffect(()=>{ setCamera(d.camera); setCameraProfile(d.cameraProfile || "auto"); setLighting(d.lighting); },
     [clip.id, activeShot.id, d.camera, d.cameraProfile, d.lighting]);
   // a different beat resets per-beat render choices — a reused manual seed or end-frame
@@ -3250,6 +3619,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   const stagingCancelRef = React.useRef(false);
   const onGenerate = async (attemptOptions)=>{
     const referenceFree=!!(attemptOptions&&attemptOptions.referenceFree);
+    try{
+      assertScreenplayCurrent();
+      if(promptSourceDrift) throw new Error("Review this edited prompt against the updated scene screenplay before rendering.");
+    }catch(e){ if(typeof window.appToast==="function") window.appToast(e.message,"error"); return; }
     if(typeof window.nbAssertMediaIdentity==="function"){
       try{ window.nbAssertMediaIdentity({identityCharacterIds:identityIds,
         identityCast, identityContext}, "stage-video-start"); }
@@ -3315,8 +3688,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
 	    if(creditInfo.empty){ if(typeof window.appToast==="function") window.appToast("No generation credits remaining.","error"); return; }
 	    const hadTakeBefore = !!((typeof vidGetTakes==="function" && vidGetTakes(beatVideoId).length) || playerUrl || gen.videoUrl);
 	    const seedVal = seedInput.trim() ? Number(seedInput.trim()) : undefined;
-     const promptWithIdentity = identityPrompt && prompt.indexOf(identityPrompt)<0
-         ? prompt+"\n\nCANONICAL CHARACTER IDENTITY (binding): "+identityPrompt : prompt;
+      const promptWithScope = scopeInstruction && prompt.indexOf(scopeInstruction)<0
+          ? prompt+"\n\n"+scopeInstruction : prompt;
+      const promptWithIdentity = identityPrompt && promptWithScope.indexOf(identityPrompt)<0
+          ? promptWithScope+"\n\nCANONICAL CHARACTER IDENTITY (binding): "+identityPrompt : promptWithScope;
      const promptPayload = referenceFree
          ? stageTextOnlyPrompt(promptWithIdentity, promptRefAssets)
          : ((refBlock ? (promptWithIdentity.trim()+"\n\n"+refBlock) : promptWithIdentity)
@@ -3373,12 +3748,13 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
         .map(r=>({assetId:r.assetId,entityId:r.entityId,kind:r.kind,stateId:r.stateId||"",
           snapshot:r.snapshot,shotIds:r.shotIds,usages:r.usages}));
       const attemptRenderPlan=referenceFree&&typeof window.stageBuildTimedPlan==="function"
-        ? window.stageBuildTimedPlan(shownShots,{modelId,maxSeconds:model.maxClipSec||15,
+        ? window.stageBuildTimedPlan(promptShots,{modelId,maxSeconds:model.maxClipSec||15,
             maxShots:model.maxShotsPerClip||Infinity,maxDialogue:10,audioMode:"native",
              panelLines:d.panelLines||[],durationSec:duration,scene,drafts,
              characters:ctx.characters||[],beatsMap})
         : renderPlan;
       const payload = { frameUrl, imageUrls, videoUrls, audioUrls, prompt:promptPayload, controls, multiShot,
+      screenplayReference, assertScreenplayCurrent,
       // the spend record rides the render job itself — settled at COMPLETION
       // (live or crash-recovered), pinned to the launching account, deduped by
       // a per-job event id so no path can charge twice or not at all
@@ -3398,7 +3774,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
             : (counts.text+" text · "+counts.images+" img · "+counts.videos+" vid · "+counts.audio+" aud"),
 	        durationSec: duration, references: takeReferences, shotSources,
           renderPlan:attemptRenderPlan,
-           beatSources,
+            beatSources, screenplayReference,
           referenceSourceVersions:referenceFree?[]:resolvedSourceVersions,
           omittedReferenceSourceVersions:referenceFree?resolvedSourceVersions:[],
           referenceSignature:referenceFree?"":(referencePackage.signature||""),
@@ -3426,6 +3802,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
       if(typeof window.nbAssertMediaIdentity==="function")
         window.nbAssertMediaIdentity({identityCharacterIds:identityIds,identityCast,identityContext},"stage-video-before-submit");
       assertStageIdentityAssets();
+      assertScreenplayCurrent();
       const results = await runPayload(payload);
       const fresh = results.filter(r=>r && !r.cached);
       const lastWithSeed = results.filter(r=>r && r.seed!=null).slice(-1)[0];
@@ -3441,6 +3818,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   };
   const onExtend = async ()=>{
     if(!playerUrl) return;
+    try{
+      assertScreenplayCurrent();
+      if(promptSourceDrift) throw new Error("Review this edited prompt against the updated scene screenplay before extending.");
+    }catch(e){ if(typeof window.appToast==="function") window.appToast(e.message,"error"); return; }
     if(typeof window.nbAssertMediaIdentity==="function"){
       try{ window.nbAssertMediaIdentity({identityCharacterIds:identityIds,
         identityCast, identityContext}, "stage-video-extend-start"); }
@@ -3455,6 +3836,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
       const frameAsset = onImages.find(a=>a.url===startFrame) || onImages[0] || null;
       const freshFrameUrl = await stageServerAssetUrl(frameAsset, startFrame || (frameAsset&&frameAsset.url) || "");
       assertStageIdentityAssets();
+      assertScreenplayCurrent();
       // Seedance's canonical extension grammar: name the video and the added length,
       // then describe the continuation — not a bare re-render with a video attached.
       const extendPrompt = "Extend @Video1 by ~"+Math.round(duration)+" seconds, continuing seamlessly from where it ends: "
@@ -3462,6 +3844,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
       if(typeof window.nbAssertMediaIdentity==="function")
         window.nbAssertMediaIdentity({identityCharacterIds:identityIds,identityCast,identityContext},"stage-video-extend-before-submit");
       const res = await gen.generate({ frameUrl:freshFrameUrl, videoUrls:[playerUrl], prompt:extendPrompt, controls,
+        screenplayReference, assertScreenplayCurrent, takeMeta:{screenplayReference,source:"extend"},
         identityCharacterIds:identityIds, identityCast, identityContext,
         spend:{ cost:renderCost, reason:"stage-video-extend", uid:uid0 },   // settled at COMPLETION, rides the job
         durationMs:duration*1000, aspectRatio:effAspect||"auto", fast:!!tierObj.fast, resolution, bitrateMode:bitrate, force:true });
@@ -3681,6 +4064,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
   // would re-interrupt on every visit); clicking the blocked Generate button shakes
   // and scrolls to it. Where a one-click fix exists, the banner carries the button. ----
   const blockers = [];
+  if(screenplayIssue) blockers.push({key:"screenplay-source",text:screenplayIssue});
   if(!stageServerResolutionAllowed(modelId,resolution,runtimeCaps,capabilityTarget)) blockers.push({
     key:"server-resolution",
     text:resolution+" is pending a server update confirmed by the video proxy capability handshake. Choose an advertised resolution such as 720p before rendering."
@@ -3690,16 +4074,20 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     text:referenceBlockMessage
   });
   if(promptSourceDrift) blockers.push({key:"prompt-drift",
-    text:"This hand-edited prompt was written against older shot timing, coverage, dialogue or reference versions. Review the exact render package before reusing it.",
+    text:"This hand-edited prompt was written against an older scene screenplay, shot timing, coverage, dialogue or reference version. Review the updated screenplay and exact render package before reusing it.",
     actionLabel:"Confirm reviewed",action:()=>setPromptDriftConfirmed(promptSourceSig)});
   const planIssue=renderPlan&&(renderPlan.issues||[]).find(x=>x&&x.blocking);
   if(planIssue) blockers.push({key:"render-plan",text:planIssue.message,
     actionLabel:clipScope==="legacy"?"Fit beat":null,
     action:clipScope==="legacy"?()=>setClipScope("beat"):null});
   if(needsVoice) blockers.push({ key:"voice",
-    text:"Voice this clip before rendering — duration and lip-sync lock to the line audio.",
-    actionLabel: onVoiceLine ? (voicingClip ? "Voicing…" : "Voice clip now") : null,
-    action:onVoiceClip, busy:voicingClip });
+    text:hasUnassignedClipDialogue
+      ? "This complete beat has ordered screenplay dialogue that is not assigned to a shot. Choose Native performance, or assign every line to a shot before using Locked voice; TURN will not invent shot IDs or audio attachments."
+      : "Voice this clip before rendering — duration and lip-sync lock to the line audio.",
+    actionLabel:hasUnassignedClipDialogue ? "Choose Native performance"
+      : (onVoiceLine ? (voicingClip ? "Voicing…" : "Voice clip now") : null),
+    action:hasUnassignedClipDialogue ? ()=>setDialogueAudio("native") : onVoiceClip,
+    busy:hasUnassignedClipDialogue ? false : voicingClip });
   if(sourceBlocking) blockers.push({ key:"source",
     text:"No storyboard source is ready yet — save this clip's "+(sourceMode==="sheet"?"sheet":"halves")+" in Storyboards, or switch Visual source back to shot/prompt rendering." });
   if(clip.g&&clip.g.over&&(!renderPlan||renderPlan.over)) blockers.push({ key:"overcap",
@@ -4003,6 +4391,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
             :"Use the existing master image for this shot's video only. Other shots, appearance states and generated images stay unchanged.",
           onClick:()=>setCharacterReferenceChoice(row)},
           row.hasOverride?"Use scene appearance":"Use master for this shot")))),
+    typeof window.StageSceneScreenplay==="function" && _stEl(window.StageSceneScreenplay,{reference:screenplayReference}),
     // (the recipe TAB row is gone — user ruling 2026-08-02: ONE derived prompt.
     // The smart per-clip pick assembles screenplay text + Art Room cinematography;
     // the Multi-shot row editor below surfaces automatically when the pick lands on it.)
@@ -4264,8 +4653,16 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, auds, beatsMap
     }),
     _stEl("details",{className:"stage-plan-queued"},
       _stEl("summary",null,"Exact queued render"),
-      _stEl("pre",null,(refBlock?(prompt.trim()+"\n\n"+refBlock):prompt.trim())
-        +"\n\n"+[cameraProfileLine,"Camera movement: "+camera+". Lighting: "+lighting+". Performance: "+perf+"."].filter(Boolean).join("\n")),
+      _stEl("pre",null,(()=>{
+        const queuedPrompt=scopeInstruction && prompt.indexOf(scopeInstruction)<0
+          ? prompt.trim()+"\n\n"+scopeInstruction : prompt.trim();
+        const body=(refBlock?(queuedPrompt+"\n\n"+refBlock):queuedPrompt)
+          +"\n\n"+[cameraProfileLine,"Camera movement: "+camera+". Lighting: "+lighting+". Performance: "+perf+"."].filter(Boolean).join("\n");
+        if(!screenplayReference.hasSource || (screenplayReference.errors||[]).length)
+          return body+"\n\nNOT READY: "+screenplayIssue;
+        const withReference=window.stageAppendScreenplayReference(body,screenplayPromptReference);
+        return screenplayIssue ? withReference+"\n\nNOT READY: "+screenplayIssue : withReference;
+      })()),
       _stEl("small",null,"Scene "+_pad2(scene.no)+" · Beat "+((clip.g&&clip.g.beatN)||activeShot.beatN||"—")
         +((clip.g&&clip.g.parts)>1?(" · Part "+clip.g.part+"/"+clip.g.parts):"")+" · "+model.label+" · "+tierObj.label+" · "+resolution+" · "+_fmtSecs(duration)
         +" · "+counts.images+" image · "+counts.videos+" video · "+counts.audio+" audio reference"+(counts.audio===1?"":"s"))),
@@ -5542,7 +5939,8 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
 
   // ctx.scenes = the story-ORDERED list — shotPropSheetId/custodyOwnerAt resolve by story
   // position, so the raw array would mis-resolve active states/holders out of order
-  const ctx = { characters, charById, props, propById, locations, project, beatsMap, drafts, scenes:ordered };
+  const ctx = { characters, charById, props, propById, locations, project, beatsMap, drafts, scenes:ordered,
+    shots, shotsByScene };
   const aspect = _stageAspect(project);
   const charSig = JSON.stringify((characters||[]).map(c=>[c.id,c.name,
     (c.states||[]).map(st=>[st.id,st.label,st.sceneId,st.change,st.version,st.updatedAt]).join("|")]));

@@ -10,12 +10,47 @@
 import assert from "node:assert/strict";
 import {createServer} from "node:http";
 import {mkdir, readFile, writeFile} from "node:fs/promises";
-import {spawn} from "node:child_process";
+import {spawn, spawnSync} from "node:child_process";
 import {transformSync} from "@babel/core";
+
+/*
+ * Node 20 keeps the native WebSocket client behind --experimental-websocket.
+ * Re-enter this same script with that flag so `node scripts/test-stage-browser.mjs`
+ * is independently runnable; the child inherits the caller's stdio and status.
+ * Do this before opening any fixture/server resources so a retry cannot leave a
+ * partially prepared browser run behind.
+ */
+if (typeof globalThis.WebSocket === "undefined") {
+  const websocketFlag="--experimental-websocket";
+  const retried=process.execArgv.includes(websocketFlag);
+  if (retried) {
+    console.error("Stage browser regression requires Node's native WebSocket, but --experimental-websocket did not expose global WebSocket.");
+    process.exit(1);
+  }
+  const major=Number(String(process.versions.node||"0").split(".")[0]);
+  if (!Number.isFinite(major) || major<20) {
+    console.error(`Stage browser regression requires Node 20+ with native WebSocket support (found ${process.versions.node||"unknown"}).`);
+    process.exit(1);
+  }
+  const child=spawnSync(process.execPath,[websocketFlag,...process.argv.slice(1)],{
+    stdio:"inherit",
+    env:process.env
+  });
+  if (child.error) {
+    console.error(`Could not relaunch Stage browser regression with ${websocketFlag}: ${child.error.message}`);
+    process.exit(1);
+  }
+  if (child.status===9) {
+    console.error(`This Node binary does not support ${websocketFlag}; use Node 20+ with the native WebSocket runtime.`);
+    process.exit(1);
+  }
+  process.exit(child.status==null ? 1 : child.status);
+}
 
 const ROOT = new URL("../", import.meta.url);
 const FIXTURE = "/tmp/fixture/browserfiles";
-const SHOTS = ["stage-plan", "stage-references", "stage"];
+const SHOTS = ["stage-plan", "stage-references", "stage", "stage-screenplay-ui"];
+const SHARED_SCREENPLAY = ["shot-screenplay", "shot-scene-context", "stage-screenplay"];
 const CHROME = process.env.CHROMIUM || "/repl/tools/bin/chromium";
 const OUT = process.env.STAGE_BROWSER_OUT || `${FIXTURE}/screenshots`;
 const reactUrls = {
@@ -30,18 +65,38 @@ async function prepareFixture() {
   try { css=await readFile(new URL("dist/app/styles.css", ROOT)); }
   catch { css=await readFile(new URL("app/styles.css", ROOT)); }
   await writeFile(`${FIXTURE}/styles.css`, css);
+  await writeFile(`${FIXTURE}/stage-screenplay.css`,
+    await readFile(new URL("app/stage-screenplay.css", ROOT)));
   for (const name of SHOTS) {
+    /*
+     * Prefer a raw Babel transform over a stale checked-in bundle. This keeps
+     * the browser fixture on the live Stage/UI source while the app build
+     * cache is being refreshed; dist remains a fallback for a source-only
+     * deployment artifact.
+     */
+    try {
+      const source = await readFile(new URL(`app/${name}.jsx`, ROOT), "utf8");
+      const out = transformSync(source, {
+        presets:[["@babel/preset-react",{runtime:"classic"}]],
+        plugins:["@babel/plugin-transform-block-scoping"],
+        comments:false, compact:false, babelrc:false, configFile:false, filename:`${name}.jsx`,
+      });
+      await writeFile(`${FIXTURE}/${name}.js`, out.code);
+      continue;
+    } catch {}
     try {
       const built=await readFile(new URL(`dist/app/${name}.js`, ROOT));
       if(built.length){await writeFile(`${FIXTURE}/${name}.js`,built);continue;}
     } catch {}
-    const source = await readFile(new URL(`app/${name}.jsx`, ROOT), "utf8");
-    const out = transformSync(source, {
-      presets:[["@babel/preset-react",{runtime:"classic"}]],
-      plugins:["@babel/plugin-transform-block-scoping"],
-      comments:false, compact:false, babelrc:false, configFile:false, filename:`${name}.jsx`,
-    });
-    await writeFile(`${FIXTURE}/${name}.js`, out.code);
+  }
+  /*
+   * Stage screenplay is deliberately loaded from the current source rather than
+   * replaced with a fixture shim.  The browser regression must exercise the same
+   * shot-screenplay + full-scene-context contract used by the live composer.
+   */
+  for (const name of SHARED_SCREENPLAY) {
+    const source = await readFile(new URL(`app/${name}.js`, ROOT));
+    await writeFile(`${FIXTURE}/${name}.js`, source);
   }
   for (const [name,url] of Object.entries(reactUrls)) {
     try {
@@ -59,7 +114,7 @@ function fixtureHtml() {
   return `<!doctype html>
 <html data-theme="light"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/stage-screenplay.css">
 <style>html,body,#root{height:100%;margin:0} body{background:#f4f1ea}</style>
 </head><body><div id="root"></div>
 <script src="/react.js"></script><script src="/react-dom.js"></script>
@@ -195,29 +250,70 @@ window.vidGetMeta=()=>takeMeta(true);
 for(const n of ["vidApproveTake","vidRestoreTake","vidDeleteTake","vidUpdateTake"])
   window[n]=async(...args)=>window.__fixture.calls.push([n,...args]);
 </script>
+<script src="/shot-screenplay.js"></script><script src="/shot-scene-context.js"></script><script src="/stage-screenplay.js"></script>
+<script src="/stage-screenplay-ui.js"></script>
 <script src="/stage-plan.js"></script><script src="/stage-references.js"></script><script src="/stage.js"></script>
 <script>
-window.turnContinuity={shots:[],drafts:{},props:[]};
+window.turnContinuity={shots:[],drafts:{},props:[],scenes:[],characters:[],locations:[],beatsMap:{},project:null};
 window.__story={
  project:{id:"fixture-film",title:"Synthetic Stage Browser Fixture",format:{aspect:"16:9"}},
- scenes:[{id:"scene-1",no:1,title:"The Letter",loc:"INT. OBSERVATORY · NIGHT",order:1}],
+ scenes:[
+  {id:"scene-1",no:1,title:"The Letter",loc:"INT. OBSERVATORY · NIGHT",order:1},
+  {id:"scene-2",no:2,title:"The Landing",loc:"EXT. OBSERVATORY · DAWN",order:2}
+ ],
  shots:[
   {id:"shot-a",sceneId:"scene-1",order:1,beatN:1,dur:4,subjects:["char-mara"],props:["prop-letter"],
+    speaker:"char-mara",dialogue:"The seal is unbroken.",
    size:"Wide",angle:"Eye level",move:"Slow push",lens:"35mm",action:"Mara crosses to the brass desk.",
    beatPlan:{micro:["Mara crosses to the brass desk.","She ignores the ringing telephone."],protect:"The letter changes hands."},covers:[1]},
   {id:"shot-b",sceneId:"scene-1",order:2,beatN:1,dur:6,subjects:["char-mara"],props:["prop-letter"],
    size:"Close-up",angle:"High",move:"Static",lens:"85mm",action:"Mara lifts the sealed letter into moonlight.",
-   beatPlan:{micro:["Mara lifts the sealed letter into moonlight.","The window suddenly breaks."],protect:"The letter changes hands."},covers:[1]}
+    beatPlan:{micro:["Mara lifts the sealed letter into moonlight.","The window suddenly breaks."],protect:"The letter changes hands."},covers:[1]},
+   {id:"shot-c",sceneId:"scene-1",order:3,beatN:2,dur:5,subjects:["char-mara"],props:["prop-letter"],
+    size:"Medium",angle:"Eye level",move:"Static",lens:"50mm",action:"Mara carries the letter to the observatory window.",
+    beatPlan:{micro:["Mara carries the letter to the observatory window."],protect:"The letter changes hands."},covers:[1]},
+   {id:"shot-d",sceneId:"scene-2",order:1,beatN:1,dur:5,subjects:["char-mara"],props:[],
+    size:"Wide",angle:"Eye level",move:"Slow push",lens:"35mm",action:"Mara steps onto the landing at dawn.",
+    beatPlan:{micro:["Mara steps onto the landing at dawn."],protect:"Mara reaches the outside door."},covers:[1]}
  ],
   characters:[{id:"char-mara",name:"Mara",states:[]}],
- locations:[{id:"loc-observatory",name:"Old Observatory",scenes:["scene-1"]}],
+  locations:[
+   {id:"loc-observatory",name:"Old Observatory",scenes:["scene-1"]},
+   {id:"loc-landing",name:"Observatory Landing",scenes:["scene-2"]}
+  ],
  props:[{id:"prop-letter",name:"Sealed Letter",ownerId:"char-mara",ownerName:"Mara",kind:"carried"}],
- beatsMap:{"scene-1":{rows:[{n:1,drive:{d:"Mara reaches the desk"},react:{d:"She studies the seal"}}]}},
- drafts:{"scene-1":{version:"fixture-v1",blocks:[
-   {beat:1,type:"action",text:"Mara crosses to the desk and lifts the sealed letter."}
- ]}}
+  beatsMap:{
+   "scene-1":{rows:[
+    {n:1,drive:{d:"Mara reaches the desk"},react:{d:"She studies the seal"}},
+    {n:2,drive:{d:"Mara takes the letter to the window"},react:{d:"The dawn reveals its mark"}}
+   ]},
+   "scene-2":{rows:[{n:1,drive:{d:"Mara reaches the landing"},react:{d:"The outside door opens"}}]}
+  },
+  drafts:{
+   "scene-1":{version:"fixture-v1",blocks:[
+    {beat:1,type:"scene",text:"INT. OBSERVATORY · NIGHT"},
+    {beat:1,type:"action",text:"Mara crosses to the brass desk."},
+    {beat:1,type:"action",text:"Mara lifts the sealed letter into moonlight."},
+    {beat:1,type:"char",text:"MARA"},
+    {beat:1,type:"dia",text:"The seal is unbroken."},
+    {beat:2,type:"action",text:"Mara carries the letter to the observatory window."},
+    {beat:2,type:"char",text:"MARA"},
+    {beat:2,type:"dia",text:"Dawn will tell us who sent it."}
+   ]},
+   "scene-2":{version:"fixture-v1",blocks:[
+    {beat:1,type:"scene",text:"EXT. OBSERVATORY · DAWN"},
+    {beat:1,type:"action",text:"Mara steps onto the landing at dawn."},
+    {beat:1,type:"char",text:"MARA"},
+    {beat:1,type:"dia",text:"The night is finally over."}
+   ]}
+  }
 };
+window.__validScene1Draft=JSON.parse(JSON.stringify(__story.drafts["scene-1"]));
+window.__validScene2Draft=JSON.parse(JSON.stringify(__story.drafts["scene-2"]));
 turnContinuity.shots=__story.shots;turnContinuity.drafts=__story.drafts;turnContinuity.props=__story.props;
+turnContinuity.scenes=__story.scenes;turnContinuity.characters=__story.characters;
+turnContinuity.locations=__story.locations;turnContinuity.beatsMap=__story.beatsMap;
+turnContinuity.project=__story.project;
 let fixtureRoot=ReactDOM.createRoot(document.getElementById("root"));
 function mount(){
  fixtureRoot.render(React.createElement(StageView,{
@@ -233,6 +329,19 @@ window.__setCharacterStates=states=>{
   window.__story={...window.__story,characters:window.__story.characters.map(c=>
     c.id==="char-mara"?{...c,states:states.map(s=>({...s}))}:c)};
   mount();
+};
+window.__setDraft=(sceneId,draft)=>{
+  const next={...(__story.drafts||{})};
+  if(draft==null) delete next[sceneId]; else next[sceneId]=JSON.parse(JSON.stringify(draft));
+  window.__story={...window.__story,drafts:next};
+  turnContinuity.drafts=next;
+  mount();
+};
+window.__setScene1Beat2Text=text=>{
+  const draft=JSON.parse(JSON.stringify(window.__validScene1Draft));
+  const block=draft.blocks.find(b=>Number(b.beat)===2&&b.type==="action");
+  if(block) block.text=String(text||"");
+  window.__setDraft("scene-1",draft);
 };
 window.__setReadOnly=readOnly=>{
   window.__story={...window.__story,readOnly:!!readOnly};
@@ -303,15 +412,151 @@ async function main() {
     const text=()=>c.eval(`document.body.innerText`);
     const selectedModel=()=>c.eval(`document.querySelector(".sd-gen-model.on")?.textContent.trim()`);
     const selectedScope=()=>c.eval(`document.querySelector('button[title="Clip scope — how much one render covers"]')?.textContent.trim()`);
+    const chooseNativePerformance=async(label)=>{
+      await c.eval(`([...document.querySelectorAll(".stage2-settings-tabs .insp-tab")].find(x=>x.textContent.trim()==="Director"))?.click()`);
+      await waitFor(()=>c.eval(`[...document.querySelectorAll("select")].some(s=>[...s.options].some(o=>o.value==="native"&&/Native performance/.test(o.textContent)))`),`${label||"Stage"} native-performance control`);
+      await c.eval(`(()=>{const s=[...document.querySelectorAll("select")].find(x=>[...x.options].some(o=>o.value==="native"&&/Native performance/.test(o.textContent)));s.value="native";s.dispatchEvent(new Event("change",{bubbles:true}));return s.value;})()`);
+      await waitFor(()=>c.eval(`[...document.querySelectorAll("select")].some(s=>s.value==="native"&&[...s.options].some(o=>o.value==="native"&&/Native performance/.test(o.textContent)))`),`${label||"Stage"} native-performance selection`);
+    };
     assert.match(await selectedModel(),/Seedance 2\.5/,"new Stage defaults to Seedance 2.5");
     assert.match(await selectedScope(),/^Fit beat/,"new Stage defaults to beat-fit scope");
+    await chooseNativePerformance("initial");
 
     const duration=await c.eval(`document.querySelector(".stage2-rendercard .stage2-control-row select")?.value || [...document.querySelectorAll(".stage2-rendercard select")].find(s=>[...s.options].some(o=>o.textContent.includes("10s")))?.value`);
     assert.equal(duration,"10","duration preview equals exact 4s + 6s coverage");
     const queued=await c.eval(`document.querySelector(".stage-plan-queued pre")?.textContent||""`);
     assert.match(queued,/Mara crosses to the brass desk/);
     assert.match(queued,/Mara lifts the sealed letter into moonlight/);
-    assert.doesNotMatch(queued,/ringing telephone|window suddenly breaks/,"uncovered micro-beats must not leak into preview");
+    assert.match(queued,/FULL SCENE SCREENPLAY/,"exact queued preview includes the full scene screenplay context");
+    assert.match(queued,/Dawn will tell us who sent it/,"the complete scene ending remains visible in the queued preview");
+
+    /*
+     * The screenplay panel is real Stage UI, backed by the shared source helpers.
+     * Every beat in one scene gets the same lossless full-scene text, while its
+     * target excerpt follows the selected beat. A second scene must never inherit
+     * either the first scene's source or its target boundary.
+     */
+    const sceneOneScreenplay=await c.eval(`(()=>{
+      const d=document.querySelector('[data-testid="stage-scene-screenplay"]');
+      if(d)d.open=true;
+      return {
+        summary:d?.innerText||"",
+        full:d?.querySelector('[data-testid="stage-scene-screenplay-text"]')?.textContent||"",
+        target:d?.querySelector('[data-testid="stage-target-beat-screenplay"]')?.textContent||""
+      };
+    })()`);
+    assert.match(sceneOneScreenplay.summary,/Scene screenplay/);
+    assert.match(sceneOneScreenplay.summary,/Included as text/,"drafted scene is shown as an included text reference");
+    assert.match(sceneOneScreenplay.full,/Dawn will tell us who sent it/,"full screenplay panel exposes the final authored ending");
+    assert.match(sceneOneScreenplay.target,/Mara crosses to the brass desk/,"selected beat target is ready");
+    assert.doesNotMatch(sceneOneScreenplay.target,/Mara carries the letter to the observatory window/,"target panel stays beat-specific");
+
+    await c.eval(`(()=>{
+      const row=[...document.querySelectorAll(".stage2-beat-row")].find(x=>/Beat 2/.test(x.textContent));
+      row?.click();
+      return !!row;
+    })()`);
+    await waitFor(()=>c.eval(`document.querySelector('[data-testid="stage-target-beat-screenplay"]')?.textContent.includes("Mara carries the letter to the observatory window")`),"scene-one beat-two screenplay");
+    const sceneOneBeatTwo=await c.eval(`({
+      full:document.querySelector('[data-testid="stage-scene-screenplay-text"]')?.textContent||"",
+      target:document.querySelector('[data-testid="stage-target-beat-screenplay"]')?.textContent||"",
+      prompt:document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent||""
+    })`);
+    assert.equal(sceneOneBeatTwo.full,sceneOneScreenplay.full,"every beat points at the same full scene source");
+    assert.notEqual(sceneOneBeatTwo.target,sceneOneScreenplay.target,"target screenplay changes with the selected beat");
+    assert.match(sceneOneBeatTwo.prompt,/Mara carries the letter to the observatory window/,"beat-two prompt is specific to its selected target");
+
+    await c.eval(`(()=>{
+      const row=[...document.querySelectorAll(".stage2-beat-row")].find(x=>/Beat 1/.test(x.textContent));
+      row?.click();
+      return !!row;
+    })()`);
+    await waitFor(()=>c.eval(`document.querySelector('[data-testid="stage-target-beat-screenplay"]')?.textContent.includes("Mara crosses to the brass desk")`),"scene-one beat-one return");
+
+    await c.eval(`(()=>{
+      const row=[...document.querySelectorAll(".stage2-scene-headrow")].find(x=>/The Landing/.test(x.textContent));
+      row?.click();
+      return !!row;
+    })()`);
+    await waitFor(()=>c.eval(`document.querySelector('[data-testid="stage-scene-screenplay-text"]')?.textContent.includes("Mara steps onto the landing at dawn")`),"other-scene screenplay");
+    const sceneTwoScreenplay=await c.eval(`({
+      full:document.querySelector('[data-testid="stage-scene-screenplay-text"]')?.textContent||"",
+      target:document.querySelector('[data-testid="stage-target-beat-screenplay"]')?.textContent||""
+    })`);
+    assert.match(sceneTwoScreenplay.full,/The night is finally over/);
+    assert.doesNotMatch(sceneTwoScreenplay.full,/Dawn will tell us who sent it|Mara carries the letter to the observatory window/,"navigating scenes does not leak screenplay text");
+    assert.match(sceneTwoScreenplay.target,/Mara steps onto the landing at dawn/,"other scene has its own ready target");
+
+    await c.eval(`(()=>{
+      const row=[...document.querySelectorAll(".stage2-scene-headrow")].find(x=>/The Letter/.test(x.textContent));
+      row?.click();
+      return !!row;
+    })()`);
+    await waitFor(()=>c.eval(`document.querySelector('[data-testid="stage-scene-screenplay-text"]')?.textContent.includes("Dawn will tell us who sent it")`),"return to scene-one screenplay");
+
+    /*
+     * A non-selected beat is still part of the immutable full-scene reference,
+     * but must not leak into the selected beat's editable direction. The source
+     * panel and queued full-scene text update immediately; changing the selected
+     * beat separately proves that its ready prompt rebuilds for the new target.
+     * Once the director edits it, the exact edit stays in the box but Stage marks
+     * the prompt as drifted instead of silently replacing it.
+     */
+    await c.eval(`window.__setScene1Beat2Text("Mara carries the letter to a newly opened observatory window.")`);
+    await waitFor(()=>c.eval(`document.querySelector('[data-testid="stage-scene-screenplay-text"]')?.textContent.includes("newly opened observatory window")`),"nonselected screenplay update");
+    await waitFor(()=>c.eval(`document.querySelector(".stage-plan-queued pre")?.textContent.includes("newly opened observatory window")`),"queued full-scene update");
+    const beatOnePromptAfterNonselectedEdit=await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent||""`);
+    assert.match(beatOnePromptAfterNonselectedEdit,/Mara crosses to the brass desk/,"beat-one direction remains ready after a nonselected source edit");
+    assert.doesNotMatch(beatOnePromptAfterNonselectedEdit,/newly opened observatory window/,"nonselected beat does not leak into beat-one direction");
+
+    await c.eval(`(()=>{
+      const row=[...document.querySelectorAll(".stage2-beat-row")].find(x=>/Beat 2/.test(x.textContent));
+      row?.click();
+      return !!row;
+    })()`);
+    await waitFor(()=>c.eval(`document.querySelector('[data-testid="stage-target-beat-screenplay"]')?.textContent.includes("newly opened observatory window")`),"selected beat-two screenplay after nonselected edit");
+    await waitFor(()=>c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent.includes("newly opened observatory window")`),"selected beat prompt rebuild");
+    await c.eval(`(()=>{
+      const row=[...document.querySelectorAll(".stage2-beat-row")].find(x=>/Beat 1/.test(x.textContent));
+      row?.click();
+      return !!row;
+    })()`);
+    await waitFor(()=>c.eval(`document.querySelector('[data-testid="stage-target-beat-screenplay"]')?.textContent.includes("Mara crosses to the brass desk")`),"return to beat-one after selected prompt rebuild");
+
+    const editedDriftPrompt="EDITED STAGE PROMPT — preserve this exact direction";
+    await c.eval(`(()=>{const e=document.querySelector(".stage2-gen-prompt[contenteditable]");e.focus();e.textContent=${JSON.stringify(editedDriftPrompt)};e.dispatchEvent(new InputEvent("input",{bubbles:true,inputType:"insertText",data:"x"}));})()`);
+    await waitFor(()=>c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent===${JSON.stringify(editedDriftPrompt)}`),"edited drift prompt");
+    await c.eval(`window.__setScene1Beat2Text("Mara carries the letter beneath a red dawn window.")`);
+    await waitFor(()=>c.eval(`document.querySelector('[data-testid="stage-scene-screenplay-text"]')?.textContent.includes("red dawn window")`),"edited prompt source change");
+    assert.equal(await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent`),editedDriftPrompt,"edited prompt is not silently overwritten by a nonselected source change");
+    assert.match(await c.eval(`document.querySelector(".stage2-blocker")?.textContent||""`),/prompt|hand.edit|older|review|changed/i,"edited prompt drift is actionable");
+
+    /*
+     * Removing the selected scene's draft is a screenplay-source failure, not a
+     * reason to hide unrelated loaded assets or spend a generation credit.
+     */
+    const callsBeforeMissingDraft=await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`);
+    await c.eval(`window.__setDraft("scene-1",null)`);
+    await waitFor(()=>c.eval(`document.querySelector('[data-testid="stage-scene-screenplay"]')?.textContent.includes("Missing")`),"missing scene screenplay");
+    assert.match(await c.eval(`document.querySelector('[data-testid="stage-scene-screenplay"]')?.textContent||""`),/screenplay|draft|write|import/i);
+    assert.match(await c.eval(`document.querySelector(".stage2-blocker")?.textContent||""`),/screenplay|draft|write|import/i,"missing screenplay blocks the selected Stage clip");
+    assert.ok(await c.eval(`!!document.querySelector(".stage2-assets-row .stage2-asset.image")`),"missing screenplay does not remove unrelated visual assets");
+    await c.eval(`document.querySelector(".sd-gen-submit")?.click()`);
+    await new Promise(r=>setTimeout(r,150));
+    assert.equal(await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`),callsBeforeMissingDraft,"missing screenplay invokes no provider");
+    await c.eval(`window.__setScene1Beat2Text("Mara carries the letter beneath a red dawn window.")`);
+    await waitFor(()=>c.eval(`document.querySelector('[data-testid="stage-scene-screenplay"]')?.textContent.includes("Included as text")`),"restore drafted scene screenplay");
+
+    /* Read-only shares retain the source panel but cannot render or mutate it. */
+    const readOnlyScreenplayCalls=await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`);
+    await c.eval(`window.__setReadOnly(true)`);
+    await waitFor(()=>c.eval(`!!document.querySelector('[data-testid="stage-scene-screenplay"]')`),"read-only screenplay panel");
+    assert.match(await c.eval(`document.querySelector('[data-testid="stage-scene-screenplay"]')?.textContent||""`),/Scene screenplay|Included as text/);
+    await c.eval(`document.querySelector(".sd-gen-submit")?.click()`);
+    await new Promise(r=>setTimeout(r,120));
+    assert.equal(await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`),readOnlyScreenplayCalls,"read-only view makes no paid calls");
+    await c.eval(`window.__setReadOnly(false)`);
+    await waitFor(()=>c.eval(`!!document.querySelector('[data-testid="stage-scene-screenplay"]')`),"editing screenplay panel restored");
 
     const manual="MANUAL FIXTURE PROMPT — preserve this verbatim";
     await c.eval(`(()=>{const e=document.querySelector(".stage2-gen-prompt[contenteditable]");e.focus();e.textContent=${JSON.stringify(manual)};e.dispatchEvent(new InputEvent("input",{bubbles:true,inputType:"insertText",data:"x"}));return true})()`);
@@ -335,6 +580,7 @@ async function main() {
     await c.call("Page.reload",{ignoreCache:true});
     await waitFor(()=>c.eval(`document.querySelector(".sd-gen-model.on")?.textContent.includes("2.0")`),"stored 2.0 reload");
     assert.match(await selectedModel(),/Seedance 2\.0/,"stored 2.0 persists");
+    await chooseNativePerformance("post-reload");
 
     /* Return to 2.5 and check an unknown proxy cannot offer 1080p. */
     await c.eval(`([...document.querySelectorAll(".sd-gen-model")].find(x=>x.textContent.includes("Seedance 2.5"))).click()`);
@@ -375,13 +621,15 @@ async function main() {
 
     /*
      * Required-reference gate. A selected character appearance state has a canonical
-     * variant id; while that variant is absent, Stage must neither substitute Mara's
-     * approved master nor let a paid request leave the browser.
+     * variant id; while that variant is absent, Stage must not silently substitute
+     * Mara's approved master or let a paid request leave the browser. The current
+     * blocker intentionally offers an explicit per-shot “Use master for this shot”
+     * override, which is exercised below.
      */
     await c.eval(`window.__fixture.variantLoaded=false;window.__fixture.policyRefusal=false;
       window.__setCharacterStates([{id:"wardrobe",label:"Rain wardrobe",sceneId:"scene-1"}]);
       window.__hardRemount()`);
-    await waitFor(()=>c.eval(`(()=>{const t=document.querySelector(".stage2-blocker-text")?.textContent.toLowerCase()||"";return t.includes("required character appearance")&&t.includes("rain wardrobe")&&t.includes("master reference")&&t.includes("cannot replace this state")})()`),"required character-state warning");
+    await waitFor(()=>c.eval(`(()=>{const t=document.querySelector(".stage2-blocker-text")?.textContent.toLowerCase()||"";return t.includes("required appearance")&&t.includes("rain wardrobe")&&t.includes("use master for this shot")&&t.includes("affects shot 1")})()`),"required character-state warning with explicit master override guidance");
     assert.match(await text(),/Rain wardrobe|appearance reference/i,"missing-state guidance identifies the appearance state rather than treating the master as sufficient");
     assert.equal(await c.eval(`window.nbAssetApproval(window.nbGetMeta("char-mara:wardrobe"))`),true,
       "approved metadata alone does not make an absent inventory image ready");
@@ -402,7 +650,7 @@ async function main() {
     assert.ok(manualMasterFound,"master reference remains available for an explicit manual attachment");
     await new Promise(r=>setTimeout(r,100));
     assert.equal(await c.eval(`document.querySelector(".sd-gen-submit")?.getAttribute("aria-disabled")`),"true","manual master inclusion does not satisfy the missing active-state requirement");
-    assert.ok(await c.eval(`(()=>{const t=document.querySelector(".stage2-blocker-text")?.textContent.toLowerCase()||"";return t.includes("required character appearance")&&t.includes("rain wardrobe")&&t.includes("cannot replace this state")})()`),"missing-state guidance remains visible after manual master inclusion");
+    assert.ok(await c.eval(`(()=>{const t=document.querySelector(".stage2-blocker-text")?.textContent.toLowerCase()||"";return t.includes("required appearance")&&t.includes("rain wardrobe")&&t.includes("use master for this shot")})()`),"missing-state guidance remains visible after manual master inclusion");
 
     /*
      * A VIDEO-only master substitution is an explicit, persisted shot decision. Move
@@ -413,6 +661,10 @@ async function main() {
     await waitFor(()=>c.eval(`[...document.querySelectorAll(".sdbar-option b")].some(x=>x.textContent.trim()==="Fit beat")`),"fit-beat menu for shot override");
     await c.eval(`([...document.querySelectorAll(".sdbar-option b")].find(x=>x.textContent.trim()==="Fit beat")).closest("button").click()`);
     await waitFor(()=>c.eval(`document.querySelectorAll(".stage2-character-choice").length===2`),"both grouped-beat character choices");
+    // Use explicit text, not rendered mention-chip labels, to compare the editor
+    // with the provider prompt. A chip's visible label is not its @ImageN value.
+    await c.eval(`(()=>{const e=document.querySelector(".stage2-gen-prompt[contenteditable]");e.focus();e.textContent="MANUAL SCREENPLAY TAKE — keep the camera steady.";e.dispatchEvent(new InputEvent("input",{bubbles:true,inputType:"insertText",data:"x"}));})()`);
+    await waitFor(()=>c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent==="MANUAL SCREENPLAY TAKE — keep the camera steady."`),"explicit manual take direction");
     const overrideManual=await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent||""`);
     const overrideBaseline=await c.eval(`({
       characters:JSON.stringify(__story.characters),
@@ -421,7 +673,7 @@ async function main() {
       timings:JSON.stringify(__story.shots.map(s=>({id:s.id,order:s.order,beatN:s.beatN,dur:s.dur}))),
       providerCalls:__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length
     })`);
-    assert.deepEqual(await c.eval(`__story.shots.map(s=>s.stageCharacterReferenceOverrides||{})`),[{},{}],"missing appearance state does not create an automatic master override");
+    assert.equal(await c.eval(`__story.shots.every(s=>!Object.keys(s.stageCharacterReferenceOverrides||{}).length)`),true,"missing appearance state does not create an automatic master override");
 
     const firstMasterSelector='.stage2-character-choice[data-shot-id="shot-a"][data-character-id="char-mara"] button[data-choice="master"]';
     const secondMasterSelector='.stage2-character-choice[data-shot-id="shot-b"][data-character-id="char-mara"] button[data-choice="master"]';
@@ -448,9 +700,9 @@ async function main() {
 
     await c.eval(`document.querySelector(${JSON.stringify(firstMasterSelector)}).click()`);
     await waitFor(()=>c.eval(`__story.shots[0].stageCharacterReferenceOverrides?.["char-mara"]==="master"`),"first shot master override persistence");
-    assert.deepEqual(await c.eval(`__story.shots.map(s=>s.stageCharacterReferenceOverrides||{})`),[{"char-mara":"master"},{}],"master override is scoped to the selected shot");
+    assert.deepEqual(await c.eval(`__story.shots.map(s=>s.stageCharacterReferenceOverrides||{})`),[{"char-mara":"master"},{},{},{}],"master override is scoped to the selected shot");
     assert.ok(await c.eval(`!!document.querySelector(${JSON.stringify(secondMasterSelector)})`),"second shot remains on its missing scene appearance");
-    assert.ok(await c.eval(`(()=>{const t=document.querySelector(".stage2-blocker-text")?.textContent.toLowerCase()||"";return t.includes("required character appearance")&&t.includes("rain wardrobe")})()`),"unselected sibling still requires its missing appearance");
+    assert.ok(await c.eval(`(()=>{const t=document.querySelector(".stage2-blocker-text")?.textContent.toLowerCase()||"";return t.includes("required appearance")&&t.includes("rain wardrobe")})()`),"unselected sibling still requires its missing appearance");
     assert.deepEqual(await c.eval(`({
       characters:JSON.stringify(__story.characters),
       first:JSON.stringify(Object.fromEntries(Object.entries(__story.shots[0]).filter(([k])=>k!=="stageCharacterReferenceOverrides"))),
@@ -479,8 +731,8 @@ async function main() {
 
     await c.eval(`document.querySelector(${JSON.stringify(secondMasterSelector)}).click()`);
     await waitFor(()=>c.eval(`__story.shots[1].stageCharacterReferenceOverrides?.["char-mara"]==="master"`),"second shot master override persistence");
-    await waitFor(()=>c.eval(`!((document.querySelector(".stage2-blocker-text")?.textContent||"").toLowerCase().includes("required character appearance"))`),"both explicit masters clear missing appearance requirement");
-    const overridePackage=await c.eval(`(()=>{const p=window.stageShotReferencePackage(window.__story.shots,{...window.__story,scene:window.__story.scenes[0],images:{"char-mara":"loaded","prop-letter":"loaded"},availableImageIds:new Set(["char-mara","prop-letter"])});return p.characters.map(x=>({assetId:x.assetId,stateId:x.stateId,shotIds:x.shotIds,usages:x.usages}))})()`);
+    await waitFor(()=>c.eval(`!((document.querySelector(".stage2-blocker-text")?.textContent||"").toLowerCase().includes("required appearance"))`),"both explicit masters clear missing appearance requirement");
+    const overridePackage=await c.eval(`(()=>{const p=window.stageShotReferencePackage(window.__story.shots.filter(s=>s.sceneId==="scene-1"&&s.beatN===1),{...window.__story,scene:window.__story.scenes[0],images:{"char-mara":"loaded","prop-letter":"loaded"},availableImageIds:new Set(["char-mara","prop-letter"])});return p.characters.map(x=>({assetId:x.assetId,stateId:x.stateId,shotIds:x.shotIds,usages:x.usages}))})()`);
     assert.deepEqual(overridePackage,[{
       assetId:"char-mara",stateId:"",shotIds:["shot-a","shot-b"],
       usages:[
@@ -489,6 +741,7 @@ async function main() {
       ]
     }],"grouped override package attaches one master with shot-specific metadata usages");
     assert.equal(await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent||""`),overrideManual,"both shot overrides preserve the manual prompt");
+    await chooseNativePerformance("override native performance");
     await waitFor(()=>c.eval(`document.querySelector(".stage2-blocker-act")?.textContent.trim()==="Confirm reviewed"`),"shot overrides keep source-drift review separate");
     await c.call("Emulation.setDeviceMetricsOverride",{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
     await c.eval(`document.querySelector(".stage2-character-choices")?.scrollIntoView({block:"center"})`);
@@ -507,6 +760,25 @@ async function main() {
     await waitFor(()=>c.eval(`document.querySelector(".sd-gen-submit")?.getAttribute("aria-disabled")!=="true"`),"override payload Generate unlock");
     await c.eval(`document.querySelector(".sd-gen-submit").click()`);
     await waitFor(()=>c.eval(`__fixture.calls.filter(x=>x[0]==="generate").length>${overrideBaseline.providerCalls}`),"stubbed override payload");
+    const screenplayPayload=await c.eval(`(()=>{
+      const row=__fixture.calls.filter(x=>x[0]==="generate").slice(${overrideBaseline.providerCalls})[0];
+      const payload=row&&row[2]||{};
+      return {
+        prompt:payload.prompt||"",
+        screenplayReference:payload.screenplayReference||payload.takeMeta?.screenplayReference||null,
+        screenplayBlock:payload.screenplayReferenceBlock||payload.takeMeta?.screenplayReferenceBlock||"",
+        targetBeats:payload.screenplayReference?.targetBeats||payload.takeMeta?.screenplayReference?.targetBeats||[],
+        providerPrompt:payload.screenplayReference&&window.stageScreenplayPrompt
+          ? window.stageScreenplayPrompt(payload.screenplayReference) : ""
+      };
+    })()`);
+    assert.ok(screenplayPayload.screenplayReference,"editing a prompt does not remove the screenplay reference from the paid payload");
+    assert.deepEqual(screenplayPayload.targetBeats,[1],"submitted screenplay reference remains scoped to the selected beat");
+    assert.match(screenplayPayload.providerPrompt,/FULL SCENE SCREENPLAY/,"provider-bound Stage payload carries full scene context");
+    assert.match(screenplayPayload.providerPrompt,/Dawn will tell us who sent it/,"provider-bound Stage payload carries the complete scene ending");
+    assert.equal(screenplayPayload.screenplayReference.fullText,await c.eval(`document.querySelector('[data-testid="stage-scene-screenplay-text"]').textContent`),"payload preserves the currently loaded complete scene revision, including after reload");
+    assert.match(screenplayPayload.screenplayReference.fullText,/Dawn will tell us who sent it/,"reference metadata retains lossless full-scene text");
+    assert.ok(screenplayPayload.prompt.includes(overrideManual.trim()),"the submitted editable direction remains intact alongside the screenplay reference");
     const overridePayloadRefs=await c.eval(`__fixture.calls.filter(x=>x[0]==="generate").slice(${overrideBaseline.providerCalls})[0][2].takeMeta.referenceSourceVersions.filter(x=>x.kind==="character")`);
     assert.equal(overridePayloadRefs.length,1,"submitted grouped payload records the master character exactly once");
     assert.equal(overridePayloadRefs[0].assetId,"char-mara","submitted grouped payload is master-only for Mara");
@@ -522,8 +794,8 @@ async function main() {
     await waitFor(()=>c.eval(`!Object.prototype.hasOwnProperty.call(__story.shots[0].stageCharacterReferenceOverrides||{},"char-mara")`),"first master override reset");
     await c.eval(`document.querySelector(${JSON.stringify(secondSceneSelector)}).click()`);
     await waitFor(()=>c.eval(`!Object.prototype.hasOwnProperty.call(__story.shots[1].stageCharacterReferenceOverrides||{},"char-mara")`),"second master override reset");
-    assert.deepEqual(await c.eval(`__story.shots.map(s=>s.stageCharacterReferenceOverrides||{})`),[{},{}],"undo deletes both persisted override keys");
-    await waitFor(()=>c.eval(`(()=>{const t=document.querySelector(".stage2-blocker-text")?.textContent.toLowerCase()||"";return t.includes("required character appearance")&&t.includes("rain wardrobe")})()`),"undo restores missing appearance requirement");
+    assert.equal(await c.eval(`__story.shots.every(s=>!Object.keys(s.stageCharacterReferenceOverrides||{}).length)`),true,"undo deletes both persisted override keys");
+    await waitFor(()=>c.eval(`(()=>{const t=document.querySelector(".stage2-blocker-text")?.textContent.toLowerCase()||"";return t.includes("required appearance")&&t.includes("rain wardrobe")})()`),"undo restores missing appearance requirement");
     assert.equal(await c.eval(`__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`),beforeOverrideResetCalls,"resetting shot overrides invokes no provider");
     assert.equal(await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent||""`),overrideManual,"resetting overrides preserves the manual prompt");
 
@@ -533,6 +805,7 @@ async function main() {
     await waitFor(()=>c.eval(`!((document.querySelector(".stage2-blocker-text")?.textContent||"").toLowerCase().includes("rain wardrobe"))`),"loaded character variant clears missing gate");
     /* The deliberately edited @ prompt now correctly has its separate source-drift
        review gate; acknowledge that only after proving the required-state gate cleared. */
+    await chooseNativePerformance("loaded-state native performance");
     await waitFor(()=>c.eval(`document.querySelector(".stage2-blocker-act")?.textContent.trim()==="Confirm reviewed"`),"prompt drift review after state load");
     await c.eval(`document.querySelector(".stage2-blocker-act").click()`);
     try{
@@ -597,6 +870,12 @@ async function main() {
        same attachment/budget path as autocomplete rather than inserting a hollow tag. */
     await c.eval(`(${masterCardExpr}).click()`);
     await waitFor(()=>c.eval(`(${masterCardExpr})?.getAttribute("aria-pressed")==="false"`),"master excluded before chip swap");
+    // The explicit manual direction deliberately began without reference tokens.
+    // Insert a real included asset's token before exercising chip replacement.
+    const swapSourceToken=await c.eval(`(()=>{const a=[...document.querySelectorAll('.stage2-asset.image')].find(x=>x.getAttribute("aria-pressed")==="true"&&!/Mara\\s*·\\s*Master reference/i.test(x.textContent));return a?.querySelector("small")?.textContent.trim().split(/\\s+/)[0]||"";})()`);
+    assert.match(swapSourceToken,/^@Image\d+$/i,"chip-swap source is an actually included image");
+    await c.eval(`(()=>{const e=document.querySelector(".stage2-gen-prompt[contenteditable]");e.focus();const r=document.createRange();r.selectNodeContents(e);r.collapse(false);const s=getSelection();s.removeAllRanges();s.addRange(r);})()`);
+    await c.call("Input.insertText",{text:" "+swapSourceToken+" "});
     await waitFor(()=>c.eval(`[...document.querySelectorAll(".stage2-chip.image")].some(x=>!/Mara\\s*·\\s*Master reference/i.test(x.title))`),"included image chip available for swap");
     await c.eval(`([...document.querySelectorAll(".stage2-chip.image")].find(x=>!/Mara\\s*·\\s*Master reference/i.test(x.title))).querySelector(".stage2-chip-caret").click()`);
     await waitFor(()=>c.eval(`[...document.querySelectorAll(".stage2-swap-box .stage2-mention-item")].some(x=>/Mara\\s*·\\s*Master reference/i.test(x.textContent))`),"unattached master offered by chip swap");
@@ -613,6 +892,29 @@ async function main() {
     await waitFor(()=>c.eval(`[...document.querySelectorAll(".sdbar-option b")].some(x=>x.textContent.trim()==="Fit beat")`),"fit-beat menu");
     await c.eval(`([...document.querySelectorAll(".sdbar-option b")].find(x=>x.textContent.trim()==="Fit beat")).closest("button").click()`);
     await waitFor(()=>c.eval(`localStorage.getItem("turn_stage_clip_scope")==="beat"`),"fit-beat restoration");
+    await c.call("Emulation.setDeviceMetricsOverride",{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+    await c.eval(`(()=>{const d=document.querySelector('[data-testid="stage-scene-screenplay"]');if(d)d.open=true;d?.scrollIntoView({block:"center"});})()`);
+    const screenplayDesktop=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
+    await writeFile(`${OUT}/stage-screenplay-expanded-desktop.png`,Buffer.from(screenplayDesktop.data,"base64"));
+    await c.call("Emulation.setDeviceMetricsOverride",{width:390,height:844,deviceScaleFactor:2,mobile:true,screenWidth:390,screenHeight:844});
+    await new Promise(r=>setTimeout(r,150));
+    const screenplayMobileMetrics=await c.eval(`(()=>{
+      const d=document.querySelector('[data-testid="stage-scene-screenplay"]');
+      const body=d?.querySelector(".stage2-screenplay-body"),pre=d?.querySelector('[data-testid="stage-scene-screenplay-text"]');
+      d&&(d.open=true);
+      return {innerWidth,scrollWidth:document.documentElement.scrollWidth,open:!!d?.open,
+        bodyLeft:body?.getBoundingClientRect().left,bodyRight:body?.getBoundingClientRect().right,
+        preLeft:pre?.getBoundingClientRect().left,preRight:pre?.getBoundingClientRect().right,
+        fullLines:(pre?.textContent||"").split("\\n").length};
+    })()`);
+    assert.equal(screenplayMobileMetrics.innerWidth,390,"expanded screenplay mobile viewport is 390px");
+    assert.ok(screenplayMobileMetrics.open&&screenplayMobileMetrics.fullLines>=3,"expanded screenplay remains readable on mobile");
+    if(screenplayMobileMetrics.scrollWidth>390)
+      regressions.push(`expanded screenplay overflows horizontally at 390px (${screenplayMobileMetrics.scrollWidth}px document width)`);
+    if((screenplayMobileMetrics.bodyRight||0)>391||(screenplayMobileMetrics.preRight||0)>391)
+      regressions.push(`expanded screenplay is clipped at 390px (body ${Math.round(screenplayMobileMetrics.bodyLeft)}–${Math.round(screenplayMobileMetrics.bodyRight)}px, pre ${Math.round(screenplayMobileMetrics.preLeft)}–${Math.round(screenplayMobileMetrics.preRight)}px)`);
+    const screenplayMobile=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
+    await writeFile(`${OUT}/stage-screenplay-expanded-mobile-390.png`,Buffer.from(screenplayMobile.data,"base64"));
     await c.call("Emulation.setDeviceMetricsOverride",{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
     const shootDesktop=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
     await writeFile(`${OUT}/stage-shoot-desktop.png`,Buffer.from(shootDesktop.data,"base64"));
@@ -646,9 +948,12 @@ async function main() {
     const frontendErrors=await c.eval(`window.__fixture.errors.slice()`);
     assert.deepEqual(frontendErrors,[],"fixture raised frontend errors");
     console.log(`fixture: ${FIXTURE}/index.html`);
-    console.log(`screenshots: ${OUT}/stage-shot-master-overrides-desktop.png, ${OUT}/stage-shot-master-overrides-mobile-390.png, ${OUT}/stage-shoot-desktop.png, ${OUT}/stage-desktop.png, ${OUT}/stage-mobile-390.png`);
+    console.log(`screenshots: ${OUT}/stage-screenplay-expanded-desktop.png, ${OUT}/stage-screenplay-expanded-mobile-390.png, ${OUT}/stage-shot-master-overrides-desktop.png, ${OUT}/stage-shot-master-overrides-mobile-390.png, ${OUT}/stage-shoot-desktop.png, ${OUT}/stage-desktop.png, ${OUT}/stage-mobile-390.png`);
     if(regressions.length) throw new Error("Stage regressions:\\n- "+regressions.join("\\n- "));
     console.log("PASS Stage browser regression");
+  } catch(error) {
+    if(c) try{ console.error("Stage failure state:",await c.eval(`JSON.stringify({blockers:[...document.querySelectorAll(".stage2-blocker,.stage2-warn")].map(e=>e.textContent),scene:document.querySelector(".stage2-clip-head")?.textContent,source:document.querySelector('[data-testid="stage-scene-screenplay"]')?.textContent.slice(0,200),errors:window.__fixture.errors})`)); }catch{}
+    throw error;
   } finally {
     try{c?.close();}catch{}
     chrome.kill("SIGTERM"); server.close();

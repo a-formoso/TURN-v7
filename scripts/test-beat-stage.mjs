@@ -15,7 +15,8 @@ const box={
 };
 box.window=box;box.globalThis=box;
 vm.createContext(box);
-for(const file of ["app/shot-screenplay.js","app/stage-plan.jsx","app/stage-references.jsx","app/stage.jsx"])
+for(const file of ["app/shot-screenplay.js","app/shot-scene-context.js","app/stage-screenplay.js",
+  "app/stage-plan.jsx","app/stage-references.jsx","app/stage.jsx"])
   vm.runInContext(readFileSync(file,"utf8"),box,{filename:file});
 
 let pass=0,fail=0;

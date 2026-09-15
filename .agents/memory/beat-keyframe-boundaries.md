@@ -41,6 +41,12 @@ Full-scene screenplay images are reading context, not visual compositions or add
 
 **How to apply:** Keep the complete scene text alongside any page images, identify the target beat, and preserve the opening-frame bindings. Canonical identity/location images take priority over optional screenplay pages; disclose page omissions rather than claiming the whole scene was pictured.
 
+For Stage video, send the full scene as labeled prompt text, not automatic screenplay-page images. Keep the selected beat/shot/part as the performance boundary.
+
+**Why:** Video providers share a text-prompt input but not a document input, and screenplay images would consume scarce visual-reference slots. Sending current source separately is insufficient if the editable direction still narrates stale saved shot action. A scene change outside the selected beat should refresh its reading context, not introduce that other beat's action into its direction.
+
+**How to apply:** Check the actual submitted prompt as well as the editable beat direction. Preserve manual edits with source-drift review. Full-beat context must not instruct every single-shot or split-part render to replay the entire beat; reject known provider limits rather than excerpting source.
+
 Missing screenplay-version provenance means unknown alignment, not evidence that the screenplay changed.
 
 **Why:** A warning on every older card made missing tracking metadata look like a screenplay error. Silently stamping those cards current would be equally misleading.
