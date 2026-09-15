@@ -4090,7 +4090,7 @@ window.RecentlyDeleted = RecentlyDeleted;
 /* StateRow — one appearance state (continuity variant) as its own v2+ sheet, generated
    as an identity-locked edit of the base character sheet so the variant is provably the
    same character. Falls back to a text spec when no base image exists yet. */
-function StateRow({ c, st, index, project, scenes, props, baseGenUrl, onView, onChange, onDelete }){
+function StateRow({ c, st, index, project, scenes, props, drafts, baseGenUrl, onView, onChange, onDelete }){
   const vtag = "v"+(index+2);
   const stateId = c.id+":"+st.id;
   const baseFinal = (typeof combinedImagePrompt==="function") ? combinedImagePrompt(c, project, props) : buildCharRefPrompt(c, project, props);
@@ -4837,7 +4837,7 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, onUpd
               React.createElement("div",{className:"state-row state-base"},
                 React.createElement("span",{className:"state-vtag base"},"v1"),
                 React.createElement("span",{className:"state-base-lab"},"Base look \u2014 the canonical sheet above")),
-              states.map((st,i)=>React.createElement(StateRow,{key:st.id,c,st,index:i,project,scenes,props,
+              states.map((st,i)=>React.createElement(StateRow,{key:st.id,c,st,index:i,project,scenes,props,drafts,
                 baseGenUrl:gen.genUrl,onView,
                 onChange:(patch)=>updateState(st.id,patch),onDelete:()=>deleteState(st.id)})))
           : React.createElement("div",{className:"state-empty"},
