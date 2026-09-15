@@ -4389,10 +4389,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const composerBar = (chips, tail, o)=>_stEl("div",{ref:o&&o.barRef,className:"sdbar inline"+(o&&o.cls?" "+o.cls:""),onMouseDown:e=>e.stopPropagation()},
     _stEl("div",{className:"sdbar-left"}, ...chips.filter(Boolean)),
     _stEl("div",{className:"sdbar-right"}, ...tail.filter(Boolean)));
-  // icon-only: a speaker for sound on, a crossed speaker for off (the title says why)
+  // a speaker (on) or crossed speaker (off) with a short On/Off word; the title says why
   const soundChip = (on, o)=>_stEl("button",{type:"button",className:"sdbar-chip sound"+(on?" on":""),
       "aria-pressed":on?"true":"false", "aria-label":"Sound "+(on?"on":"off"), disabled:!!o.disabled, title:o.title, onClick:o.onClick},
-    _stEl(on ? Icon.volume : Icon.volumeX, {s:14}));
+    _stEl(on ? Icon.volume : Icon.volumeX, {s:14}), _stEl("span",null, on?"On":"Off"));
   const createSoundChip = soundChip(soundOn, { disabled:hasDialogue,
     title:hasDialogue ? "Sound stays on — this beat has dialogue, so the audio track carries the performance"
       : (nativeAudio ? "Sound on — the model renders ambience, effects and music. Click to render silent." : "Silent render — click to turn native sound on."),
@@ -4442,9 +4442,12 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         .map(o=>sdOption({ ...o, selected:bitrate===o.id, onPick:()=>setBitrate(o.id) }))));
   // ---- header card ("GENERAL / <model>" + Change) — the model is changed here,
   // there is no separate Model chip in the bar ----------------------------------
+  // the still + shade live in their own clipped layer so the card itself can stay
+  // overflow-visible — its Change menu drops below the card instead of being cut off
   const heroCard = (kicker, title, opts)=>_stEl("div",{className:"stage2-hero"+(shotStartFrame?" has-bg":"")+(opts&&opts.cls?" "+opts.cls:"")},
-    shotStartFrame && _stEl("div",{className:"stage2-hero-bg",style:{backgroundImage:"url("+JSON.stringify(shotStartFrame)+")"},"aria-hidden":"true"}),
-    shotStartFrame && _stEl("div",{className:"stage2-hero-shade"}),
+    shotStartFrame && _stEl("div",{className:"stage2-hero-media","aria-hidden":"true"},
+      _stEl("div",{className:"stage2-hero-bg",style:{backgroundImage:"url("+JSON.stringify(shotStartFrame)+")"}}),
+      _stEl("div",{className:"stage2-hero-shade"})),
     _stEl("div",{className:"stage2-hero-text"},
       _stEl("span",{className:"stage2-hero-kicker"},kicker),
       _stEl("span",{className:"stage2-hero-title"},title),
