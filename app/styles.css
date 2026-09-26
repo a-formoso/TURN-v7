@@ -8148,3 +8148,9 @@ html[data-theme="light"] .bd-dot.ok{border-color:oklch(0.55 0.14 150);background
 html[data-theme="light"] .bd-strip-status.ok{color:oklch(0.5 0.14 150)}
 .bd-chip-t{min-width:0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bd-chip.more{border-style:dashed;color:var(--txt-2)}
+/* Run pre-production preview: the writing model the run will use (follows the Writing dock) */
+.cc-model{display:flex;align-items:flex-start;gap:7px;padding:9px 11px;border-radius:9px;background:var(--bg-2);border:1px solid var(--line);font-size:11.5px;line-height:1.45;color:var(--txt-2)}
+.cc-model svg{flex:0 0 auto;margin-top:2px;color:var(--pos)}
+.cc-model b{color:var(--txt-0);font-weight:600}
+/* the Art Room's ⋮ carries its exports — visible at every width there */
+.overflow-wrap.in-art{display:block}

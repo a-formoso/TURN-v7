@@ -71,7 +71,10 @@ function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room }){
     typeof window.turnExportBreakdown==="function" && ["strip","Export stripboard","One coloured strip per scene",()=>window.turnExportBreakdown()],
     typeof window.turnExportArtBible==="function" && ["bible","Export art department bible","Cast, props and locations",()=>window.turnExportArtBible()],
   ].filter(Boolean);
-  return React.createElement("div",{className:"overflow-wrap",ref:ref},
+  // the ⋮ is a phone-only control in the other rooms, but in the ART ROOM it carries the
+  // exports (shot list, stripboard, art department bible), so it shows at every width there
+  // (the 2026-07-19 ruling; the stylesheet had kept it phone-only, hiding them on desktop)
+  return React.createElement("div",{className:"overflow-wrap"+(room==="art"?" in-art":""),ref:ref},
     React.createElement("button",{className:`tb-icon ${open?"on":""}`,onClick:()=>setOpen(o=>!o),"aria-label":"More actions",title:"More"},
       React.createElement(Icon.moreV,{s:18})),
     open && React.createElement("div",{className:"export-menu",style:{maxWidth:"min(300px, calc(100vw - 24px))"}},

@@ -1493,36 +1493,28 @@ async function agentShotDesigner(ctx){
     }
     ctx.emit({k:"observe", t:issues.length+" coverage issue"+(issues.length>1?"s":"")+" — weakest link: Scene "+issue.sceneNo+" — "+issue.msg});
     const turnAt = cov.turnAtOf(issue.sceneId);
-    let fix=null;
-    if(issue.kind==="noanchor"){
-      const cur = cov.shotsOf(issue.sceneId); const anchorId = cov.pickAnchor(cur);
-      fix = { kind:"anchor", anchorId, list: cov.grammarList(cur, anchorId, turnAt),
-        rationale:"Lock the scene to its establishing frame so every other shot matches its light, grade and world." };
-    } else {
-      if(!ctx.ai || !ctx.ai.available){ ctx.emit({k:"flag", t:"The model isn't available to design coverage — skipping Scene "+issue.sceneNo+"."}); skip.add(issue.sceneId); continue; }
-      ctx.emit({k:"act", t:"Designing coverage for Scene "+issue.sceneNo+" — establishing, tightening, landing "+(fwTurnWord()||"the turn")+"…"});
-      let made=null; try{ made = await cov.draftCoverage(scene); }catch(e){}
-      if(ctx.cancelled()) return;
-      if(!made || !made.length){ ctx.emit({k:"flag", t:"Couldn't design coverage for Scene "+issue.sceneNo+". Moving on."}); skip.add(issue.sceneId); continue; }
-      // guarantee the turn LANDS tight: if the model left the turning beat wide, push it to a CU
-      // push-in (also what resolves the weakturn audit so the loop converges, never re-proposes).
-      if(turnAt){ const ti = made.findIndex(s=>s.beatN===turnAt);
-        if(ti>=0 && !_TIGHT_SIZES.has(made[ti].size)){ made[ti] = {...made[ti], size:"CU", move:(made[ti].move==="static"?"push":made[ti].move) }; } }
-      const anchorId = cov.pickAnchor(made);
-      fix = { kind:"coverage", shots:made, anchorId, list: cov.grammarList(made, anchorId, turnAt),
-        rationale:"Coverage that establishes wide, tightens through the middle, and lands "+(fwTurnWord()||"the turn")+" on its most expressive size." };
-    }
+    if(!ctx.ai || !ctx.ai.available){ ctx.emit({k:"flag", t:"The model isn't available to design coverage — skipping Scene "+issue.sceneNo+"."}); skip.add(issue.sceneId); continue; }
+    ctx.emit({k:"act", t:"Designing coverage for Scene "+issue.sceneNo+" — establishing, tightening, landing "+(fwTurnWord()||"the turn")+"…"});
+    let made=null; try{ made = await cov.draftCoverage(scene); }catch(e){}
+    if(ctx.cancelled()) return;
+    if(!made || !made.length){ ctx.emit({k:"flag", t:"Couldn't design coverage for Scene "+issue.sceneNo+". Moving on."}); skip.add(issue.sceneId); continue; }
+    // guarantee the turn LANDS tight: if the model left the turning beat wide, push it to a CU
+    // push-in (also what resolves the weakturn audit so the loop converges, never re-proposes).
+    if(turnAt){ const ti = made.findIndex(s=>s.beatN===turnAt);
+      if(ti>=0 && !_TIGHT_SIZES.has(made[ti].size)){ made[ti] = {...made[ti], size:"CU", move:(made[ti].move==="static"?"push":made[ti].move) }; } }
+    const anchorId = cov.pickAnchor(made);
+    const fix = { shots:made, anchorId, list: cov.grammarList(made, anchorId, turnAt),
+      rationale:"Coverage that establishes wide, tightens through the middle, and lands "+(fwTurnWord()||"the turn")+" on its most expressive size." };
     const curCount = cov.shotsOf(issue.sceneId).length;
     const ok = await ctx.propose({
       title:"Shot coverage — Scene "+issue.sceneNo+" “"+((scene&&scene.title)||"Untitled")+"”",
-      reason:issue.msg + ((fix.kind==="coverage"&&curCount)?(" Each beat's current shot keeps its ID and frames (an image may need re-rendering if its shot changes); any extra shots on a re-planned beat move to Shots Trash, where you can restore them."):""),
+      reason:issue.msg + (curCount?(" Each beat's current shot keeps its ID and frames (an image may need re-rendering if its shot changes); any extra shots on a re-planned beat move to Shots Trash, where you can restore them."):""),
       rationale:fix.rationale,
       list:fix.list,
     });
     if(ctx.cancelled()) return;
     if(ok){
-      if(fix.kind==="anchor") cov.setAnchorOnly(issue.sceneId, fix.anchorId);
-      else cov.applyCoverage(issue.sceneId, fix.shots, fix.anchorId);
+      cov.applyCoverage(issue.sceneId, fix.shots, fix.anchorId);
       fixes++; skip.add(issue.sceneId);   // one design per scene per run — the loop always ends
       ctx.emit({k:"ok", t:"Applied to Scene "+issue.sceneNo+". Re-auditing…"});
     } else {

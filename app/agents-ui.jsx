@@ -205,7 +205,7 @@ function saveAgentReport(projectId, agentId, steps){
   }catch(e){ /* storage full or blocked — the live trace still showed everything */ }
 }
 
-function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput, autoStart, single, viewLabel, introExtra, force }){
+function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput, autoStart, runOnOpen, single, viewLabel, introExtra, force }){
   const [trace, setTrace] = React.useState([]);
   // last saved report for THIS agent on THIS film (read-only agents only)
   const [saved] = React.useState(()=> agent.kind==="report" ? loadAgentReport(agent.id) : null);
@@ -234,6 +234,9 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
   // run starts on the user's press (user ruling 2026-07-16: never start a text
   // generation without the chance to switch engines first).
   React.useEffect(()=>{ if(autoStart && agent.needsInput && (initialInput||"").trim()){ const t=setTimeout(()=>start(),60); return ()=>clearTimeout(t); } },[]);
+  // runOnOpen: the screen that opened this panel already named the writing model and had its
+  // own Run button (Run pre-production's cost preview) — one press, not two (2026-09-26)
+  React.useEffect(()=>{ if(runOnOpen){ const t=setTimeout(()=>start(),60); return ()=>clearTimeout(t); } },[]);
 
   // EVERY agent shows the model it will run on in its header (read-only): the one
   // writing-model control is the floating Writing dock. The run is pinned to what the
@@ -358,7 +361,7 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
           viewLabel||"View story",React.createElement(Icon.chevR,{s:15})))));
 }
 
-function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, onUndo, issues, initialAgentId, initialInput, autoStart, single, viewLabel, introExtra, force }){
+function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, onUndo, issues, initialAgentId, initialInput, autoStart, runOnOpen, single, viewLabel, introExtra, force }){
   const agents = window.AGENTS || [];
   const [active, setActive] = React.useState(()=> initialAgentId ? (agents.find(a=>a.id===initialAgentId)||null) : null);
   const [auto, setAuto] = React.useState(!!autoStart);
@@ -386,7 +389,8 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
             force: active.id===initialAgentId ? force : false,
             onBack: single ? onClose : ()=>{ setAuto(false); setActive(null); },
             initialInput: active.id===initialAgentId ? initialInput : "",
-            autoStart: auto && active.id===initialAgentId})
+            autoStart: auto && active.id===initialAgentId,
+            runOnOpen: !!runOnOpen && active.id===initialAgentId})
         : React.createElement(React.Fragment,null,
             React.createElement("div",{className:"ag-head"},
               React.createElement("div",{className:"ag-head-t"},

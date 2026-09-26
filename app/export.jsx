@@ -43,7 +43,9 @@ function buildFountain(project, scenes, drafts){
 function buildOutline(project, scenes){
   const L = [];
   L.push(project.title.toUpperCase());
-  if(project.format||project.genre) L.push([project.format,project.genre].filter(Boolean).join(" · "));
+  // the format's LABEL ("Feature Film"), never its registry id ("feature")
+  const fmtLabel = project.format ? ((typeof formatOf==="function" && formatOf(project).label) || project.format) : "";
+  if(fmtLabel||project.genre) L.push([fmtLabel,project.genre].filter(Boolean).join(" · "));
   L.push("");
   L.push("PREMISE");
   L.push(esc(project.premise));

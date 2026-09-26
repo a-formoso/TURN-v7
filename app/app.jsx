@@ -488,7 +488,10 @@ function App(){
   const [history, setHistory] = React.useState(()=> (saved && saved.history) || {});   // {sceneId:{back:[ver...], fwd:[ver...]}}
   const [continuityMap, setContinuityMap] = React.useState(()=> (saved && saved.continuityMap) || {});
   const [agentsOpen, setAgentsOpen] = React.useState(false);
-  const [sceneDirLaunch, setSceneDirLaunch] = React.useState(null); // Scene Director: {sceneId}|{} (whole film)|null
+  // Scene Director: {sceneId}|{} (whole film)|null. NO LAUNCH POINT since its "Direct scene"
+  // button left the Shots tab (the audit of 2026-09-26 found the prop went nowhere; the
+  // dead prop is gone). Kept, pending the owner's call: bring a button back, or delete it.
+  const [sceneDirLaunch, setSceneDirLaunch] = React.useState(null);
   const [coloristOpen, setColoristOpen] = React.useState(false);   // Cinematographer / Colorist (Art Room)
   const [shotDesignerOpen, setShotDesignerOpen] = React.useState(false);   // Shot Designer (Art Room)
   const [productionOpen, setProductionOpen] = React.useState(false);   // Production check (Art Room)
@@ -3276,21 +3279,6 @@ function App(){
   // Remove the whole Lookbook (references + statement + their mood frames). Art Room state only —
   // never touches the story or any other tab; lookbookApplied is left intact so the tabs that
   // absorbed the lookbook correctly flag as out-of-date (re-draft to purge the influence).
-  const clearLookbook = async ()=>{
-    const n = (lookbook||[]).length;
-    if(!n && !((lookbookNote||"").trim())) return;
-    let ok = true;
-    if(typeof window.appConfirm==="function"){
-      ok = await window.appConfirm({ title:"Clear the whole Lookbook?",
-        body:"This removes all references and the visual statement (and their mood frames). It doesn't touch your story or any other tab — but tabs you already drafted will show as out-of-date so you can re-draft to remove what they absorbed.",
-        confirmLabel:"Clear lookbook", danger:true });
-    }
-    if(!ok) return;
-    (lookbook||[]).forEach(c=>{ try{ if(typeof nbClearAsset==="function") nbClearAsset(c.id); }catch(e){} });
-    setLookbook([]);
-    setLookbookNote("");
-  };
-
   // ---- Art Room: PROPS ----
   const updateProp = (id,patch)=>{
     // RENAME SYNC (prop card → character): renaming a prop in the Props tab also renames
@@ -3729,14 +3717,6 @@ function App(){
   const [draftingLocIds, setDraftingLocIds] = React.useState([]);
   const draftingLocIdsRef = React.useRef([]); draftingLocIdsRef.current = draftingLocIds;
   const [draftingAllLocs, setDraftingAllLocs] = React.useState(false);
-  const [assigningStyles, setAssigningStyles] = React.useState(false);
-  const addLocation = ()=>{
-    const id = "loc-"+Date.now().toString(36);
-    setLocations(ls=>[...ls, { id, key:id, name:"New location", intExt:"INT", times:[], areas:[], scenes:[],
-      scope:"atomic",parentKey:"",continuityRootKey:id,
-      architecture:"",materials:"",lighting:"",permanentDressing:"",topology:"",continuityAnchors:"",anchorsLocked:true,
-      provenance:{},significance:"",renderStyle:"",negativePrompt:"",variants:[],manual:true }]);
-  };
   const deleteLocation = (id)=>{
     const l = (locations||[]).find(x=>x.id===id); if(!l) return;
     setLocations(ls=>ls.filter(x=>x.id!==id));
@@ -4017,8 +3997,8 @@ function App(){
   },[locations, scenes, drafts, trash.locations, currentShowId, currentProjectId]);
   // read the whole film, design a BESPOKE per-film palette and color-script it
   // along the value-charge spine (see aiAssignSceneStyles).
-  // merge an aiAssignSceneStyles result into project.styleBible. Shared by the quick
-  // "Assign from script" button AND the explainable Colorist agent (on approval).
+  // merge an aiAssignSceneStyles result into project.styleBible — the Colorist agent's
+  // apply step (on approval).
   const applyStyleResult = (res, seed)=>{
     if(!res) return;
     setProject(p=>{
@@ -4043,20 +4023,6 @@ function App(){
       return {...p, styleBible:{ ...sb, presets, sceneStyles, filmStock,
         ...(res.writingProvenance?{writingProvenance:{...res.writingProvenance}}:{}) }};
     });
-  };
-  const assignSceneStyles = async ()=>{
-    if(assigningStyles || !(typeof aiAssignSceneStyles==="function")) return;
-    setAssigningStyles(true);
-    try{
-      const sb = (typeof styleBibleOf==="function") ? styleBibleOf(project) : {};
-      const seed = (sb.presets&&sb.presets.length) ? sb.presets : (window.STYLE_PRESETS_DEFAULT||[]);
-      // the Lookbook's colorist brief is auto-synced into styleBible.lookbookRefs (see the
-      // write-through effect); aiAssignSceneStyles reads it alongside the manual refs.
-      const res = await aiAssignSceneStyles(scenes, seed, drafts, project);
-      applyStyleResult(res, seed);
-      if(res) markApplied("colorist");
-    }catch(e){}
-    setAssigningStyles(false);
   };
   // the user's free-text visual references that steer bespoke palette design
   const setStyleRefs = (refs)=> setProject(p=>({ ...p, styleBible:{ ...((p.styleBible)||{}), refs:String(refs||"") } }));
@@ -5374,9 +5340,6 @@ function App(){
         }
         // (merge helper missing: never destroy — leave the scene's shots as they are)
         return null; },
-      setAnchorOnly: (sceneId, anchorId)=>{
-        _workShots = _workShots.map(s=> s.sceneId===sceneId ? {...s, anchor:s.id===anchorId} : s);
-        setShots(ss=> ss.map(s=> s.sceneId===sceneId ? {...s, anchor:s.id===anchorId} : s)); },
     };
 
     // ---- Casting Director (Characters agent) — draft spec, suggest states, and headless
@@ -5915,11 +5878,6 @@ function App(){
       title:"Scouting location specs",
       detail:"Deriving places from the screenplay, drafting set geography and staging reusable depth grids."
     } :
-    (room==="art" && assigningStyles) ? {
-      role:"Colorist",
-      title:"Assigning scene styles",
-      detail:"Reading the film and color-scripting every scene from the current visual bible."
-    } :
     (room==="art" && deletingShotReference) ? {
       role:"Shot Designer",
       title:"Deleting the selected reference image",
@@ -6262,14 +6220,11 @@ function App(){
             readOnly:roomReadOnly,canReview:!roomReadOnly,onSourceClick:openArtSource,
             onRestoreChar:restoreCharacter,onPurgeChar:purgeCharacter,onRestoreProp:restoreProp,onPurgeProp:purgeProp,
             onRestoreLoc:restoreLocation,onPurgeLoc:purgeLocation,onRestoreShot:restoreShot,onPurgeShot:purgeShot,onEnsureOwner:ensureOwnerSheet,
-            onDirectScene:(sceneId)=>setSceneDirLaunch({ sceneId: sceneId||null }),
             onColorist:(refs)=>{ if(typeof refs==="string") setStyleRefs(refs.trim()); setColoristOpen(true); },
-            onShoot:()=>setShotDesignerOpen(true),
             onCast:()=>setCastingOpen(true),
-            onScout:()=>setLocScoutOpen(true),
             onResearch:()=>setResearchOpen(true),
             lookbook,lookbookNote,onUpdateLookbook:updateLookbookCard,onAddLookbook:addLookbookCard,
-            onDeleteLookbook:deleteLookbookCard,onSetLookbookNote:setLookbookNote,onClearLookbook:clearLookbook,
+            onDeleteLookbook:deleteLookbookCard,onSetLookbookNote:setLookbookNote,
             staleTabs,onApplyLookbook:applyLookbook,onReviewLookbook:(dept)=>applyLookbook(dept,"review"),
             onUpdateChar:updateCharacter,onDraftVisuals:draftCharacterVisuals,onDraftAllVisuals:draftAllVisuals,
             draftingVisualId,draftingAllVisuals,draftingVisualIds,onDeleteCharacter:deleteCharacter,
@@ -6278,10 +6233,10 @@ function App(){
             onAddProp:addProp,onImportProps:importScreenplayProps,onDeleteProp:deleteProp,draftingPropId,draftingPropIds,draftingAllProps,onMergeProps:mergeProps,
             castHasProps:(typeof castHasProps==="function" && castHasProps(characters)),
             locations,onUpdateLocation:updateLocation,onDraftLocation:draftLocationVisuals,onDraftAllLocs:draftAllLocations,
-            onAddLocation:addLocation,onDeleteLocation:deleteLocation,draftingLocIds,draftingAllLocs,
-            onPullFromScript:pullLocationsFromScript,scriptHasLocs:(typeof scriptHasLocations==="function" && scriptHasLocations(scenes)),
+            onDeleteLocation:deleteLocation,draftingLocIds,draftingAllLocs,
+            scriptHasLocs:(typeof scriptHasLocations==="function" && scriptHasLocations(scenes)),
             sluglineUnits,onUpdateUnit:updateSlugUnitOverlay,onRemoveUnit:removeSlugUnitOverlay,
-            onAssignStyles:assignSceneStyles,assigningStyles,onSetStyleRefs:setStyleRefs,onSetScenePreset:setScenePreset,
+            onSetStyleRefs:setStyleRefs,onSetScenePreset:setScenePreset,
             onAddStyleRefImages:addStyleRefImages,onRemoveStyleRefImage:removeStyleRefImage,
             onDraftStaging:draftLocationStaging,draftingStageId,
             shots,beatsMap,onUpdateShot:updateShot,onAddShot:addShot,onDeleteShot:deleteShot,onSplitBeat:splitBeatCoverage,splittingBeat,
@@ -6502,13 +6457,14 @@ function App(){
     // dependency order (lookbook → cast → props → wardrobe → locations → colour → shot
     // coverage), launched from the Art Room's "Run pre-production" button in the view bar.
     // It renders no shot frames and composes no storyboard — those stay in their tabs.
-    // #2 — cost/scope preview before the Coordinator spends: confirm, then launch
+    // #2 — cost/scope preview before the Coordinator spends. It names the writing model, and
+    // its Run button starts the run (the panel opens running — no second Run press).
     coordConfirm && window.CoordConfirm && React.createElement(window.CoordConfirm,{
       project, characters, props, locations, shots, scenes, drafts, wardrobeCount,
       onCancel:()=>setCoordConfirm(false),
       onConfirm:()=>{ setCoordConfirm(false); setCoordOpen(true); }}),
     coordOpen && React.createElement(AgentsPanel,{
-      initialAgentId:"coordinator", autoStart:true, single:true, viewLabel:"View Shots",
+      initialAgentId:"coordinator", autoStart:true, runOnOpen:true, single:true, viewLabel:"View Shots",
       ctxFactory:artAgentCtxFactory,
       onClose:()=>setCoordOpen(false),
       onView:()=>{ setArtView("shots"); setCoordOpen(false); },

@@ -202,8 +202,7 @@ function oaiSetKey(k){ try{
   if(window.turnSetApiKey) window.turnSetApiKey("openai", k);
   k ? localStorage.setItem(OAI_KEY,k) : localStorage.removeItem(OAI_KEY);
 }catch(e){} }
-function oaiHasKey(){ return !!oaiGetKey(); }
-window.oaiGetKey = oaiGetKey; window.oaiSetKey = oaiSetKey; window.oaiHasKey = oaiHasKey;
+window.oaiGetKey = oaiGetKey; window.oaiSetKey = oaiSetKey; 
 
 /* is the server-side image proxy enabled? When on, providers run through the Edge
    Function. The platform server secret is used unless an administrator overrides
@@ -944,37 +943,6 @@ window.nbRemoteImageUrl = nbRemoteImageUrl;
 function nbPreloadBytes(urls){
   for(const u of (urls||[])){ if(!u) continue; try{ const im = new Image(); im.decoding="async"; im.src=u; }catch(e){} }
 }
-/* Pre-warm the URL cache (and image bytes) for many entity ids in ONE batched round-trip,
-   BEFORE their cards mount — so a tab like Characters shows images immediately instead of
-   doing a DB query + signed-URL call per card on click. Skips ids already cached. Cards read
-   the warmed cache synchronously via nbGetImage(); a 'nb-prefetched' event nudges any card
-   that mounted before warming finished. Safe no-op until a backend is selected. */
-async function nbPrefetch(ids){
-  ids = Array.from(new Set((ids||[]).filter(id => id && !_cloudUrlCache.get(id) && !nbGetImage(id))));
-  if(!ids.length) return;
-  if(_nbBackend==="cloud"){
-    if(typeof window.cloudAssetLoadMany!=="function") return;
-    // shared (bible) ids batch against the show scope; the rest against the episode
-    const sharedIds = ids.filter(id=>_scopeFor(id)!==_nbProject);
-    const ownIds = ids.filter(id=>_scopeFor(id)===_nbProject);
-    let map = {};
-    try{
-      const batches = await Promise.all([
-        ownIds.length ? window.cloudAssetLoadMany(_nbProject, ownIds) : {},
-        sharedIds.length ? window.cloudAssetLoadMany(_nbShared, sharedIds) : {},
-      ]);
-      map = Object.assign({}, batches[0]||{}, batches[1]||{});
-    }catch(e){ return; }
-    const got = [], urls = [];
-    for(const id in map){ const u = await cloudHydrate(id, map[id]); if(u){ got.push(id); urls.push(u); } }
-    if(got.length){ nbPreloadBytes(urls); window.dispatchEvent(new CustomEvent("nb-prefetched",{ detail:{ ids:got } })); }
-  } else {
-    const got = [];
-    await Promise.all(ids.map(async id=>{ try{ const u = await localLoadImage(id); if(u) got.push(id); }catch(e){} }));
-    if(got.length) window.dispatchEvent(new CustomEvent("nb-prefetched",{ detail:{ ids:got } }));
-  }
-}
-window.nbPrefetch = nbPrefetch;
 
 /* Pre-warm EVERY asset URL in the current project in one batched round-trip (memoized per
    project), so ANY Art Room tab paints without a per-card DB + signed-URL call. URLs only —
@@ -1128,15 +1096,10 @@ async function localGetRefs(id){ try{ return (await idbGet(nbRefsKey(id)))||[]; 
 async function localSetRefs(id, refs){ try{ (refs&&refs.length) ? await idbSet(nbRefsKey(id), refs) : await idbDel(nbRefsKey(id)); }catch(e){} }
 async function localGetHistory(id){ try{ return (await idbGet(nbHistKey(id)))||[]; }catch(e){ return []; } }
 async function localSetHistory(id, hist){ try{ (hist&&hist.length) ? await idbSet(nbHistKey(id), hist) : await idbDel(nbHistKey(id)); }catch(e){} }
-async function nbGetRefs(id){
-  if(_nbBackend==="cloud"){ const d = (typeof window.cloudLoadDetails==="function") ? await window.cloudLoadDetails(_scopeFor(id), id) : null; return d ? d.refs : []; }
-  return localGetRefs(id);
-}
 async function nbGetHistory(id){
   if(_nbBackend==="cloud"){ const d = (typeof window.cloudLoadDetails==="function") ? await window.cloudLoadDetails(_scopeFor(id), id) : null; return d ? d.history : []; }
   return localGetHistory(id);
 }
-window.nbGetRefs = nbGetRefs;
 window.nbGetHistory = nbGetHistory;   // the fullscreen viewer's version strip reads this
 
 /* per-character generation metadata (model, aspect, size, date) */
@@ -1375,8 +1338,6 @@ function cameoNormalize(rec){
   angles = angles.filter(a=>a && a.url);
   return { ...rec, angles, url: angles.length ? angles[0].url : (rec.url||"") };
 }
-/* sync existence + meta (registry is tiny, lives in localStorage) */
-function nbHasCameo(id){ return !!cameoReg()[id]; }
 function nbCameoMeta(id){ const r=cameoReg()[id]; return r||null; }
 /* sync primary url + all angle urls, if already in memory */
 function nbGetCameo(id){ const r=_cameoMem.get(id); return r&&r.url ? r.url : ""; }
@@ -1433,7 +1394,7 @@ async function nbClearCameo(id){
 }
 /* registry listing for the Cameo Manager: [{id, ...meta}] */
 function nbListCameos(){ const reg=cameoReg(); return Object.keys(reg).map(id=>({ id, ...reg[id] })); }
-window.nbHasCameo=nbHasCameo; window.nbCameoMeta=nbCameoMeta; window.nbGetCameo=nbGetCameo;
+window.nbCameoMeta=nbCameoMeta; window.nbGetCameo=nbGetCameo;
 window.nbGetCameoAngles=nbGetCameoAngles; window.nbLoadCameo=nbLoadCameo;
 window.nbLoadCameoAngles=nbLoadCameoAngles; window.nbLoadCameoFull=nbLoadCameoFull;
 window.nbSetCameo=nbSetCameo; window.nbClearCameo=nbClearCameo; window.nbListCameos=nbListCameos;
@@ -1688,26 +1649,7 @@ function nbDataUrlParts(dataUrl){
 }
 window.nbDataUrlParts = nbDataUrlParts;
 
-/* normalize any image reference (data URL or http(s) signed URL) to inlineData
-   {mimeType,data} for the API. Cloud refs are signed URLs and must be fetched. */
-async function nbToInlineData(src){
-  if(!src) return null;
-  if(/^data:image\//.test(src)){ return (typeof nbDataUrlParts==="function") ? nbDataUrlParts(src) : null; }
-  try{
-    const res = await fetch(src);
-    const blob = await res.blob();
-    const dataUrl = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>resolve(r.result); r.onerror=reject; r.readAsDataURL(blob); });
-    return (typeof nbDataUrlParts==="function") ? nbDataUrlParts(dataUrl) : null;
-  }catch(e){ return null; }
-}
-window.nbToInlineData = nbToInlineData;
 
-/* map our aspect labels to the sizes GPT Image supports (closest match) */
-function oaiSize(aspect){
-  if(aspect==="9:16") return "1024x1536";          // portrait
-  if(aspect==="1:1")  return "1024x1024";           // square
-  return "1536x1024";                                // 16:9 / 21:9 → landscape
-}
 /* any image ref (data URL or signed http URL) -> Blob, for multipart edits */
 async function oaiToBlob(src){
   if(!src) return null;
@@ -1960,9 +1902,7 @@ async function proxyGenerate(prompt, opts, provider){
   if(data && data.url) return await cropImageToAspect(data.url, aspect);
   throw new Error("The proxy returned no image. Try simplifying the prompt.");
 }
-async function oaiGenerate(prompt, opts){ return proxyGenerate(prompt, { ...(opts||{}), model:((opts&&opts.model)||"gpt-image-2") }, "fal"); }
 window.proxyGenerate = proxyGenerate;
-window.oaiGenerate = oaiGenerate;
 
 /* call the selected image model; opts={model, aspectRatio}. resolves to a data URL or throws. */
 async function nbGenerate(prompt, opts){

@@ -123,19 +123,19 @@ const CHAR_RENDER_STYLES = {
   },
   horror: {
     "rendering": "hyperrealistic cinematic photography pushed to horror; full-frame look, fine grain, deep filmic blacks, no illustration or cartoon quality",
-    "lighting": "low-key chiaroscuro — a single hard cold source (moonlight or distant lantern) raking from the side, deep crushed shadows swallowing most of the figure, a thin cold rim for separation, the amber staff-knot the only warm accent; large areas of pure darkness",
-    "atmosphere": "damp marsh haze and low ground fog, faint volumetric light shafts, particulate in the air, a sense of cold wet stillness",
-    "color_grade": "desaturated and cold — sickly green-teal shadows, muted earth midtones, crushed inky blacks; the lone warm amber glow for contrast; grim and oppressive",
-    "surface_texture": "photoreal damp, grimy detail — clammy skin sheen, wet leather, beaded moisture on glass, mud-slick boots; texture readable only where the light catches",
-    "framing": "tense cinematic horror composition — figure emerging from darkness, heavy negative space, unease in the empty dark around her",
-    "background": "deep near-black foggy marsh void rather than a clean studio sweep; the figure lit out of the dark; a faint cold ground haze under the feet",
+    "lighting": "low-key chiaroscuro — a single hard cold source (moonlight or a distant practical) raking from the side, deep crushed shadows swallowing most of the figure, a thin cold rim for separation, at most one small warm accent from the character's own design; large areas of pure darkness",
+    "atmosphere": "damp haze and low ground fog, faint volumetric light shafts, particulate in the air, a sense of cold wet stillness",
+    "color_grade": "desaturated and cold — sickly green-teal shadows, muted midtones, crushed inky blacks; at most one lone warm accent for contrast; grim and oppressive",
+    "surface_texture": "photoreal damp, grimy detail true to THIS character's own materials — clammy skin sheen, wet fabric and leather, beaded moisture on hard surfaces; texture readable only where the light catches",
+    "framing": "tense cinematic horror composition — figure emerging from darkness, heavy negative space, unease in the empty dark around the figure",
+    "background": "deep near-black foggy void rather than a clean studio sweep; the figure lit out of the dark; a faint cold ground haze under the feet",
     "rules": ["no text, labels, watermarks, annotations, typography or captions","low-key cinematic horror lighting, deep atmospheric blacks","atmospheric dread, not gore or graphic injury","consistent lighting, fog and grade across all panels","evenly divided panel layout, figures readable despite the dark"]
   },
   ghibli: {
     "rendering": "soft hand-painted 2D cel animation look; delicate thin organic linework, gentle cel shading with soft painterly edges, a warm hand-drawn quality — not hard-edged graphic cel, not photoreal, not 3D",
     "linework": "fine, soft, slightly irregular hand-drawn lines; light brown or muted dark outlines rather than heavy black; line that breathes and varies gently",
     "shading": "simple soft cel shadows with feathered edges and a warm ambient fill; gentle painterly transitions, no hard graphic blocks",
-    "color_grade": "warm naturalistic earthy palette — soft moss and sap greens, gentle browns, oat-cream, muted amber; slightly desaturated, sunlit, nostalgic",
+    "color_grade": "warm naturalistic palette honouring THIS character's own colours, set among soft natural greens, gentle browns and warm creams; slightly desaturated, sunlit, nostalgic",
     "texture": "subtle hand-painted softness and faint paper/cel warmth; a quiet, still, pastoral mood",
     "background": "soft, simple, lightly hand-painted pale ground (warm cream or gentle sky-tone) so the figure reads cleanly; a soft contact shadow under the feet — uncluttered, but painterly rather than flat",
     "rules": ["no text, labels, watermarks, annotations, typography or captions","soft hand-drawn warmth, gentle naturalistic detail","consistent line, palette and shading across all panels","clean, evenly divided panel layout"]
@@ -144,9 +144,9 @@ const CHAR_RENDER_STYLES = {
     "rendering": "high-quality animated-feature 3D render; appealing stylized character, physically-based shading with soft subsurface scattering, clean polished surfaces, ray-traced soft shadows and warm global illumination",
     "engine_look": "polished animated-movie pipeline render (RenderMan / Arnold quality) — clean, high-sample, idealized, no noise",
     "lighting": "soft, warm, flattering animated-feature lighting — broad key, generous bounce fill, gentle rim, an appealing glow; the 'every frame looks beautiful' look; even enough to read every panel",
-    "materials": "stylized PBR with appeal — soft fuzzy wool, supple rounded leather, cheerfully refractive glass vials, glowing translucent amber, simplified clean mud; gentle worn-edge wear",
+    "materials": "stylized PBR with appeal, true to THIS character's own design — soft fuzzy fabrics, supple rounded leather, cheerfully refractive glass, glowing translucent accents, simplified clean grime; gentle worn-edge wear",
     "expression_and_appeal": "lively acting and personality in face and pose; squash-stretch-friendly appealing forms; charm prioritized over grit",
-    "color_grade": "warm, inviting, slightly saturated earthy palette — moss green, mud brown, oat-cream, warm amber; soft cheerful contrast",
+    "color_grade": "warm, inviting, slightly saturated palette honouring THIS character's own colours; soft cheerful contrast",
     "background": "seamless soft warm light-cream studio sweep with a gentle gradient and a soft grounded contact shadow under the feet",
     "rules": ["no text, labels, watermarks, annotations, typography or captions","clean high-sample render, appealing animated-feature finish, no noise","lively expression and personality, not a stiff neutral sculpt","consistent shaders and lighting across all panels","clean, evenly divided panel layout"]
   },
@@ -163,10 +163,10 @@ const CHAR_RENDER_STYLES = {
   paintedconcept: {
     "rendering": "a richly HAND-PAINTED concept-art illustration — a soft painterly 2D painting (digital or traditional media) in the lineage of Laika and Guillermo del Toro production paintings; NOT a 3D render, NOT flat cel animation, NOT photography",
     "brushwork": "visible expressive brushwork and soft blended edges — layered glazes, gentle impasto on highlights; forms built from paint rather than hard outlines or vector fills; a tactile, hand-made surface",
-    "rendering_detail": "lush volumetric rendering of form — soft form shadows, delicate rim and bounce light, fine texture (downy fuzz, worn fabric, translucent inner glow) suggested with the brush rather than literal micro-detail",
+    "rendering_detail": "lush volumetric rendering of form — soft form shadows, delicate rim and bounce light, fine texture (downy fuzz, worn fabric, soft translucency) suggested with the brush rather than literal micro-detail",
     "character_appeal": "storybook charm with a touch of the whimsical-gothic and uncanny — large soulful eyes, a gentle melancholy, an expressive hand-acted face; appealing but with painterly soul, never glossy or sterile",
-    "color_grade": "muted, warm, earthy painterly palette — umber, sap and moss green, oat-cream, dusky amber glow; soft filmic contrast, slightly desaturated, nostalgic and tactile",
-    "lighting": "soft directional storybook lighting — a gentle warm key, deep soft ambient, a warm glow from the character's own light; painterly chiaroscuro, even enough to read every panel",
+    "color_grade": "muted, warm painterly palette honouring THIS character's own colours, with earthy umbers and a dusky warm glow; soft filmic contrast, slightly desaturated, nostalgic and tactile",
+    "lighting": "soft directional storybook lighting — a gentle warm key, deep soft ambient, a soft warm bounce; painterly chiaroscuro, even enough to read every panel",
     "texture": "faint canvas/paper tooth and soft painterly grain across the image; the warmth of hand-made media, never crisp digital cleanliness",
     "background": "a soft, simple, loosely hand-painted warm-cream or muted ground with quiet painterly atmosphere so the figure reads cleanly; a soft painted contact shadow under the feet",
     "rules": ["no text, labels, watermarks, annotations, typography or captions","richly hand-painted painterly illustration with visible brushwork and soft edges","NOT 3D CG, NOT flat cel/vector, NOT photographic","consistent painted style, palette and lighting across all panels","clean, evenly divided panel layout"]
@@ -210,7 +210,7 @@ const CHAR_RENDER_STYLES = {
     "construction": "visible handmade craft — sculpted silicone skin with faint mould/replacement seams, real felted wool and fabric at true tiny scale with weave and hand-stitching, needle-felted hair, real leather and glass, an armature-posable feel",
     "imperfection": "lovingly handmade quality — faint fingerprints or tool marks, fabric fuzz, tiny irregular stitches, soft sculpt softness; charming, not flawless",
     "photography": "macro / miniature photography — shallow real depth of field, soft practical studio set lighting (gentle key, warm fill, subtle rim), a faint tilt-shift miniature feel, real catchlights and contact shadows",
-    "color_grade": "warm, tactile, slightly filmic earthy palette — moss green, mud brown, oat-cream, warm amber; cozy handmade contrast",
+    "color_grade": "warm, tactile, slightly filmic palette honouring THIS puppet's own colours; cozy handmade contrast",
     "background": "simple soft miniature-set backdrop or a clean neutral surface the puppet stands on, evenly and warmly lit; a real soft contact shadow under the feet; shallow background focus",
     "rules": ["no text, labels, watermarks, annotations, typography or captions","real handmade puppet materials and craft texture, visible at macro scale","physical photographed look, not digital CG smoothness","consistent puppet, lighting and lens across all panels","clean, evenly divided panel layout"]
   },
@@ -228,7 +228,7 @@ const CHAR_RENDER_STYLES = {
     "construction": "modeling-clay / plasticine craft — rounded smooth-sculpted simplified forms, visible thumbprints and sculpting-tool marks, soft matte-to-glossy clay sheen, the subtle handmade wobble of re-sculpted stop-motion clay",
     "imperfection": "lovingly handmade clay quality — fingerprints, tool grooves, tiny surface irregularities, soft uneven edges; charming, never flawless or machined",
     "photography": "macro / miniature photography — shallow real depth of field, soft practical studio set lighting (gentle key, warm fill, subtle rim), real catchlights and contact shadows, a faint tilt-shift miniature feel",
-    "color_grade": "warm, tactile, slightly matte earthy palette — muted moss green, mud brown, oat-cream, warm amber; cozy handmade contrast",
+    "color_grade": "warm, tactile, slightly matte palette honouring THIS character's own colours in soft clay tones; cozy handmade contrast",
     "background": "simple soft miniature-set backdrop or a clean warm surface the puppet stands on, evenly and warmly lit; a real soft contact shadow under the feet; shallow background focus",
     "rules": ["no text, labels, watermarks, annotations, typography or captions","real plasticine clay craft — fingerprints and tool marks visible at macro scale","rounded, simplified, handmade clay forms, not digital CG smoothness","consistent clay puppet, lighting and lens across all panels","clean, evenly divided panel layout"]
   },
@@ -239,7 +239,7 @@ const CHAR_RENDER_STYLES = {
     "linework": "very thick black outer contours with thinner simple interior lines; rounded cartoon silhouettes; no fine realistic rendering",
     "shading": "flat cel shading with one or two simple shadow shapes per form; no painterly blending, no realistic texture, no photographic lighting",
     "photography": "not photographed — illustrated poster-sheet presentation with a crisp, sticker-like finish; dynamic low-angle hero framing for the portrait and clean turnaround panels",
-    "color_grade": "bright, warm, high-saturation cartoon palette — moss green robe, mud brown apron, warm olive-tan skin, glowing amber accents, cyan/blue graphic highlights, warm orange sunset backdrop; cheerful comic contrast",
+    "color_grade": "bright, warm, high-saturation cartoon palette taken from THIS character's own colours (their real wardrobe and skin tone), with cyan/blue graphic highlights against a warm orange sunset backdrop; cheerful comic contrast",
     "background": "stylized flat cartoon backdrop with warm orange sunset gradient, simple coastal atmosphere, simplified suspension bridge and city skyline shapes; clean graphic panel dividers; no realistic miniature-set depth of field",
     "typography": "optional bold graffiti-style title lettering only if requested, with yellow fill, cyan outline, and heavy black drop shadow; otherwise keep the sheet free of labels and captions",
     "rules": ["2D gag-anime cartoon concept-art sheet","thick bold black outlines","flat high-saturation cel-shaded colors","oversized rounded chibi proportions","simple expressive face with huge oval eyes and tiny mouth","minimal detail, soft rounded shapes, sticker-poster aesthetic","consistent same character design across all panels","clean evenly divided concept-sheet layout","no photorealism, no clay, no plasticine, no 3D render, no realistic anatomy"]
@@ -247,7 +247,7 @@ const CHAR_RENDER_STYLES = {
   pixelart: {
     "rendering": "detailed retro pixel art; hard square pixels, NO anti-aliasing, crisp pixel edges, drawn on a clear pixel grid (16/32-bit JRPG / PC-98 fidelity, not chunky 8-bit)",
     "pixel_scale": "consistent medium-resolution pixel grid across all panels; the hero portrait may use a slightly larger sprite but the same pixel size",
-    "palette": "tight limited indexed palette (a warm lo-fi set) — moss greens, warm tans and browns, oat-cream, iron-grey, amber, with a couple of cool shadow tones; cohesive and nostalgic",
+    "palette": "tight limited indexed palette (a warm lo-fi set) built from THIS character's own colours, plus a couple of cool shadow tones; cohesive and nostalgic",
     "shading": "stepped flat shading within the palette, with ordered/checkerboard DITHERING for gradients and soft transitions; pixel-cluster highlights; no smooth gradients",
     "outline": "selective dark pixel outlines on outer contours and key forms; clean, consistent",
     "mood": "cozy, warm, nostalgic lo-fi atmosphere",
@@ -5697,42 +5697,6 @@ function ScenePager({ idx, total, title, sub, onPrev, onNext, scenes, onJump, di
 }
 window.ScenePager = ScenePager;
 
-/* #1 — a compact, always-visible readiness strip across the top of the Art Room.
-   Each stage shows generated/total and jumps to its tab. Refreshes as assets load
-   (nb-prefetched) and as new ones generate (nb-gen-done). */
-function PreProductionStatus({ project, characters, props, locations, shots, scenes, setArtView }){
-  const [, force] = React.useReducer(x=>x+1, 0);
-  React.useEffect(()=>{
-    const bump=()=>force();
-    window.addEventListener("nb-prefetched", bump);
-    window.addEventListener("nb-gen-done", bump);
-    return ()=>{ window.removeEventListener("nb-prefetched", bump); window.removeEventListener("nb-gen-done", bump); };
-  },[]);
-  // show/hide — COLLAPSED BY DEFAULT; only expanded if the user has explicitly opened it
-  // before (their choice persists across sessions, device-local: "0" = shown, "1"/unset = hidden)
-  const [open, setOpen] = React.useState(()=>{ try{ return localStorage.getItem("turn-pp-hidden")==="0"; }catch(e){ return false; } });
-  const toggle = ()=> setOpen(o=>{ const n=!o; try{ localStorage.setItem("turn-pp-hidden", n?"0":"1"); }catch(e){} return n; });
-  const stages = preProdStatus({project,characters,props,locations,shots,scenes}).filter(s=>s.total>0);
-  if(!stages.length) return null;   // nothing to build yet — stay out of the way
-  const done = stages.reduce((a,s)=>a+s.done,0), total = stages.reduce((a,s)=>a+s.total,0);
-  const pct = total ? Math.round(100*done/total) : 0;
-  return React.createElement("div",{className:"pp-status"+(open?"":" collapsed")},
-    React.createElement("button",{className:"pp-status-lead",onClick:toggle,title:open?"Hide readiness":"Show readiness"},
-      React.createElement("span",{className:"pp-status-eyebrow"},"Pre-production"),
-      React.createElement("span",{className:"pp-status-pct"+(pct===100?" done":"")}, pct+"%"),
-      React.createElement((open?Icon.chevD:Icon.chevR)||Icon.chevD,{s:12})),
-    open && React.createElement("div",{className:"pp-chips"},
-      stages.map(s=>{
-        const state = s.done>=s.total ? "pp-complete" : s.done>0 ? "pp-partial" : "pp-empty";
-        return React.createElement("button",{key:s.id,className:"pp-chip "+state,
-          onClick:()=>setArtView&&setArtView(s.navTo||s.id),
-          title:s.label+" — "+s.done+" of "+s.total+(s.noGen?" graded":" generated")+". Click to open."},
-          React.createElement("span",{className:"pp-chip-dot"}),
-          React.createElement("span",{className:"pp-chip-lab"}, s.label),
-          React.createElement("span",{className:"pp-chip-ct"}, s.done+"/"+s.total));
-      })));
-}
-window.PreProductionStatus = PreProductionStatus;
 
 /* #2 — cost/scope preview before the Coordinator runs the whole pipeline (it
    generates a lot, end to end, with no per-step gate). Shows roughly how many
@@ -5754,6 +5718,15 @@ function CoordConfirm({ project, characters, props, locations, shots, scenes, dr
   ];
   const pending = lines.filter(l=>l.n>0);
   const totalGen = pending.reduce((a,l)=>a+l.n,0);
+  // the writing model the run will use (Art Room work = "specs"); follows the Writing dock
+  const [mid, setMid] = React.useState(()=> (typeof window.getWritingModelId==="function") ? window.getWritingModelId("specs") : "");
+  React.useEffect(()=>{
+    const h = ()=>{ if(typeof window.getWritingModelId==="function") setMid(window.getWritingModelId("specs")); };
+    window.addEventListener("turn-writing-model-changed", h);
+    return ()=> window.removeEventListener("turn-writing-model-changed", h);
+  },[]);
+  const midLabel = ((window.WRITING_MODELS||[]).find(m=>m.id===mid)||{}).label || mid || "the default model";
+  const midRec = !!mid && typeof window.recommendedWritingModelId==="function" && window.recommendedWritingModelId("specs")===mid;
   const hasWork = totalGen>0;
   const note = (icon, text, cls)=> React.createElement("div",{className:"cc-note"+(cls?" "+cls:"")},
     React.createElement(Icon[icon]||Icon.alert,{s:12}), React.createElement("span",null,text));
@@ -5777,6 +5750,10 @@ function CoordConfirm({ project, characters, props, locations, shots, scenes, dr
         : note("check","Every sheet and plate already exists — running again refreshes the lookbook, colour and shot coverage (writing credits only) and fills any gaps.","ok"),
       note("info","It also researches the Lookbook, sets the colour grade and designs shot coverage where it's missing or weak (writing credits). Scenes whose shots you approved or locked keep them.","info"),
       note("info","Not included: shot frames and storyboards. Render the frames from the Shots tab, then compose the boards in Storyboards.","info"),
+      React.createElement("div",{className:"cc-model"},
+        React.createElement(Icon.sparkles,{s:12}),
+        React.createElement("span",null,"Writes with ",React.createElement("b",null,midLabel+(midRec?" · recommended":"")),
+          " — switch it in the Writing dock on the right edge before you run. The run starts as soon as you press Run.")),
       React.createElement("div",{className:"cc-foot"},
         React.createElement("button",{className:"ns-btn ghost",onClick:onCancel},"Cancel"),
         React.createElement("button",{className:"ns-btn primary",onClick:onConfirm},
@@ -5784,26 +5761,24 @@ function CoordConfirm({ project, characters, props, locations, shots, scenes, dr
 }
 window.CoordConfirm = CoordConfirm;
 
+/* shown only when a tab's component hasn't loaded (every tab is built — this used to
+   promise a coming-soon increment for tabs that already exist) */
 function ArtComingSoon({ tab }){
-  const map = {
-    locations:["Locations","Pulled from every slugline in your script \u2014 each environment gets a reference plate prompt and an asset slot, so every shot in a place matches.","globe"],
-    shots:["Shot List","Derived from each scene's beats \u2014 every beat becomes a shot with a generated prompt that pulls in the right character sheet and location plate for consistency.","film"],
-    storyboard:["Storyboard","Your shots laid out in sequence with their reference frames \u2014 the visual blueprint of the film, ready to hand to the Stage.","board"],
-  };
-  const [title,desc,icon] = map[tab]||["Coming next","",""];
+  const t = (ART_TABS.find(x=>x.id===tab)||{});
   return React.createElement("div",{className:"art-soon"},
-    React.createElement("div",{className:"art-soon-ic"},React.createElement(Icon[icon]||Icon.sparkles,{s:30})),
-    React.createElement("div",{className:"art-soon-t"},title),
-    React.createElement("div",{className:"art-soon-d"},desc),
-    React.createElement("div",{className:"art-soon-tag"},"Next increment"));
+    React.createElement("div",{className:"art-soon-ic"},React.createElement(Icon[t.icon]||Icon.sparkles,{s:30})),
+    React.createElement("div",{className:"art-soon-t"},t.label||"This tab"),
+    React.createElement("div",{className:"art-soon-d"},"This tab is still loading. If it doesn't appear in a moment, reload the page."),
+    React.createElement("button",{type:"button",className:"art-draftall ghost",style:{marginTop:14},onClick:()=>{ try{ window.location.reload(); }catch(e){} }},
+      React.createElement(Icon.undo,{s:14}),"Reload"));
 }
 
 function ArtRoom({ artView, setArtView, project, characters, scenes, props, drafts, trash, onRestoreChar, onPurgeChar, onRestoreProp, onPurgeProp, onRestoreLoc, onPurgeLoc, onRestoreShot, onPurgeShot, onEnsureOwner, onUpdateChar, onDraftVisuals, onDraftAllVisuals, draftingVisualId, draftingAllVisuals, draftingVisualIds, onCreateOwnedProp,
   onSuggestStates, suggestingStatesId, onRemoveOwnedItem, onRenameOwnedItem, onDeleteCharacter,
   onUpdateProp, onDraftProp, onDraftAllProps, onAddProp, onImportProps, onDeleteProp, draftingPropIds, draftingPropId, draftingAllProps, onMergeProps, castHasProps,
-  locations, onUpdateLocation, onDraftLocation, onDraftAllLocs, onAddLocation, onDeleteLocation, draftingLocIds, draftingAllLocs, onPullFromScript, scriptHasLocs, onScout, onAssignStyles, assigningStyles, onSetStyleRefs, onSetScenePreset, onAddStyleRefImages, onRemoveStyleRefImage, onDraftStaging, draftingStageId, sluglineUnits, onUpdateUnit, onRemoveUnit,
-  shots, beatsMap, onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onRemoveMicroBeatShots, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onDirectScene, onColorist, onShoot, onCast,
-  lookbook, lookbookNote, onUpdateLookbook, onAddLookbook, onDeleteLookbook, onSetLookbookNote, onResearch, onClearLookbook,
+  locations, onUpdateLocation, onDraftLocation, onDraftAllLocs, onDeleteLocation, draftingLocIds, draftingAllLocs, scriptHasLocs, onSetStyleRefs, onSetScenePreset, onAddStyleRefImages, onRemoveStyleRefImage, onDraftStaging, draftingStageId, sluglineUnits, onUpdateUnit, onRemoveUnit,
+  shots, beatsMap, onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onRemoveMicroBeatShots, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onColorist, onCast,
+  lookbook, lookbookNote, onUpdateLookbook, onAddLookbook, onDeleteLookbook, onSetLookbookNote, onResearch,
   staleTabs, onApplyLookbook, onSourceClick, canReview=false, onReviewLookbook, readOnly=false }){
   const _stale = staleTabs || {};
   const PropSheets = window.PropSheets;
@@ -5863,7 +5838,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
     // (pre-production readiness strip removed — user ruling 2026-07-19)
     artView==="lookbook" && LookbookView
       ? React.createElement(LookbookView,{project,lookbook,note:lookbookNote,
-          onUpdate:onUpdateLookbook,onAdd:onAddLookbook,onDelete:onDeleteLookbook,onSetNote:onSetLookbookNote,onResearch,onClear:onClearLookbook})
+          onUpdate:onUpdateLookbook,onAdd:onAddLookbook,onDelete:onDeleteLookbook,onSetNote:onSetLookbookNote,onResearch})
     : artView==="characters"
       ? React.createElement(CharacterSheets,{project,characters,scenes,props,drafts,shots,beatsMap,onUpdate:onUpdateChar,
           onDraftProp,onCreateOwnedProp,
@@ -5881,19 +5856,19 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
           onApplyLookbookDraftOnly:()=>onApplyLookbook&&onApplyLookbook("props","draft")})
     : artView==="locations" && LocationSheets
       ? React.createElement(LocationSheets,{project,locations,scenes,drafts,onUpdate:onUpdateLocation,onDraft:onDraftLocation,sluglineUnits,onUpdateUnit,onRemoveUnit,readOnly,
-          onDraftAll:onDraftAllLocs,onAdd:onAddLocation,onDelete:onDeleteLocation,draftingIds:draftingLocIds,draftingAll:draftingAllLocs,
+          onDraftAll:onDraftAllLocs,onDelete:onDeleteLocation,draftingIds:draftingLocIds,draftingAll:draftingAllLocs,
           trashItems:(trash&&trash.locations)||[],onRestore:onRestoreLoc,onPurge:onPurgeLoc,
-          onPullFromScript,scriptHasLocs,onDraftStaging,draftingStageId,onScout,
+          scriptHasLocs,onDraftStaging,draftingStageId,
           lookbookStale:!!_stale.locations,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("locations"),
           onApplyLookbookDraftOnly:()=>onApplyLookbook&&onApplyLookbook("locations","draft")})
       : artView==="stylebible" && window.StyleBibleView
-      ? React.createElement(window.StyleBibleView,{project,scenes,onAssign:onAssignStyles,assigning:assigningStyles,onSetRefs:onSetStyleRefs,onSetScenePreset,onAddRefImages:onAddStyleRefImages,onRemoveRefImage:onRemoveStyleRefImage,onColorist,
+      ? React.createElement(window.StyleBibleView,{project,scenes,onSetRefs:onSetStyleRefs,onSetScenePreset,onAddRefImages:onAddStyleRefImages,onRemoveRefImage:onRemoveStyleRefImage,onColorist,
           lookbookStale:!!_stale.stylebible,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("colorist")})
     : artView==="shots" && window.ShotList
        ? React.createElement(window.ShotList,{project,scenes,characters,props,locations,shots,beatsMap,
            onUpdateShot,onAddShot,onDeleteShot,onDeleteShotReference:readOnly?null:onDeleteShotReference,onSplitBeat,splittingBeat,onRefineBeat,refiningBeat,
           onRemoveMicroBeatShots:readOnly?null:onRemoveMicroBeatShots,readOnly,
-          onDraftSceneShots,draftingSceneShots,onDraftAllShots,draftingAllShots,onShoot,onDirectScene,
+          onDraftSceneShots,draftingSceneShots,onDraftAllShots,draftingAllShots,
           trashItems:(trash&&trash.shots)||[],onRestore:onRestoreShot,onPurge:onPurgeShot,
           lookbookStale:!!_stale.shots,
           onApplyLookbook:canReview?()=>onApplyLookbook&&onApplyLookbook("shots"):null,

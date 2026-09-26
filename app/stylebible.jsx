@@ -94,20 +94,3 @@ function scenePreset(project, sceneId){
 }
 window.scenePreset = scenePreset;
 
-/* a compact prompt clause encoding a preset's grade + 60/30/10 palette */
-function buildStyleClause(preset){
-  if(!preset) return "";
-  const pal = preset.palette || [];
-  const parts = [];
-  parts.push("VISUAL STYLE \u2014 \""+preset.name+"\": "+(preset.grade||"").replace(/\.$/,""));
-  if(pal.length>=3){
-    parts.push("Colour grade follows the 60/30/10 rule: ~60% "+(preset.dominantLabel||"dominant")+" ("+pal[0]+"), "
-      +"~30% "+(preset.secondaryLabel||"secondary")+" ("+pal[1]+"), "
-      +"~10% "+(preset.accentLabel||"accent")+" ("+pal[2]+") as the accent");
-  }
-  if(preset.lighting) parts.push("Lighting: "+preset.lighting.replace(/\.$/,""));
-  if(preset.lens)     parts.push("Lens: "+preset.lens.replace(/\.$/,""));
-  if(preset.texture)  parts.push("Texture: "+preset.texture.replace(/\.$/,""));
-  return parts.join(". ")+". ";
-}
-window.buildStyleClause = buildStyleClause;

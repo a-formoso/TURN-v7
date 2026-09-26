@@ -766,17 +766,8 @@ function propReferenceSnapshot(propIds, context){
     return { propId:id, name:(p&&p.name)||"Prop", revision:propAssetRevision(id) };
   });
 }
-function propReferenceDependenciesChanged(snapshot, context){
-  if(!Array.isArray(snapshot)||!snapshot.length) return [];
-  const C=context||window.turnContinuity||{};
-  return snapshot.filter(row=>{
-    const exists=(C.props||[]).some(p=>p&&p.id===row.propId);
-    return !exists || String(row.revision||"")!==String(propAssetRevision(row.propId)||"");
-  });
-}
 window.propAssetRevision = propAssetRevision;
 window.propReferenceSnapshot = propReferenceSnapshot;
-window.propReferenceDependenciesChanged = propReferenceDependenciesChanged;
 function propDependencySignature(props, sceneId, beatId, microBeatId, shotId, context){
   return propsActiveAt(props,sceneId,beatId,microBeatId,shotId,context).map(p=>{
     const s=propStateAt(p,sceneId,beatId,microBeatId,shotId,context)||{};

@@ -567,9 +567,6 @@ function seedShotOf(sh, sceneShots){
   return null;
 }
 window.seedShotOf = seedShotOf;
-/* convenience: is this shot a chain head (no predecessor to seed from)? */
-function isShotHead(sh, sceneShots){ return !prevShotOf(sh, sceneShots); }
-window.isShotHead = isShotHead;
 
 /* how hard the location plate weighs, by shot size: the set is the SUBJECT of a wide
    (its geography must read) but only a background/grade anchor in a tight close-up,
@@ -1804,20 +1801,6 @@ function propsForScene(props, sceneId){
 }
 window.propsForScene = propsForScene;
 
-/* the characters a scene most likely frames: its driver + the beats' reactor.
-   Returns an array of character ids resolved against the cast (best-effort by name). */
-function sceneSubjectIds(scene, characters, beats){
-  const ids = [];
-  if(scene && scene.driver) ids.push(scene.driver);
-  const b = beats && beats[scene.id];
-  if(b && b.reactorLabel){
-    const m = (characters||[]).find(c=> (c.name||"").toLowerCase() === b.reactorLabel.toLowerCase()
-      || b.reactorLabel.toLowerCase().includes((c.name||"").toLowerCase()));
-    if(m && ids.indexOf(m.id)<0) ids.push(m.id);
-  }
-  return ids;
-}
-window.sceneSubjectIds = sceneSubjectIds;
 
 /* ---- depth-grid framing scoped to a shot SIZE --------------------------------- */
 /* The location owns the canonical 3×3 depth grid. A shot SIZE decides how much of
@@ -1847,21 +1830,6 @@ function shotFramingClause(location, sizeId){
 }
 window.shotFramingClause = shotFramingClause;
 
-/* a compact single-FRAME description of the location (not the 6-panel plate). */
-function shotLocationClause(location){
-  if(!location) return "";
-  const bits = [];
-  bits.push("LOCATION \u2014 "+(location.name||"the place")+" ("+(location.intExt||"INT")+")");
-  const layers=(typeof locationIdentityLayers==="function")?locationIdentityLayers(location):null;
-  if(layers&&layers.continuity_root) bits.push("continuity root: "+layers.continuity_root.name+" \u2014 inherit its binding place identity");
-  if(location.architecture) bits.push("space: "+location.architecture.replace(/\.$/,""));
-  if(location.materials)    bits.push("materials & palette: "+location.materials.replace(/\.$/,""));
-  if(location.lighting)     bits.push("permanent lighting interfaces: "+location.lighting.replace(/\.$/,""));
-  if(location.topology)     bits.push("spatial topology: "+location.topology.replace(/\.$/,""));
-  if(location.continuityAnchors) bits.push("binding continuity anchors: "+location.continuityAnchors.replace(/\.$/,""));
-  return bits.join(". ")+". ";
-}
-window.shotLocationClause = shotLocationClause;
 
 /* Preserve screen direction through the rolling chain. Shot specs are drafted
    before frames exist, so their prose can contradict the approved predecessor
@@ -2363,51 +2331,6 @@ function combinedShotPrompt(sh, ctx){
 }
 window.combinedShotPrompt = combinedShotPrompt;
 
-/* DERIVE-FROM-ANCHOR — RETIRED. The old star topology re-framed a single scene
-   anchor for every shot; the rolling chain (buildShotPrompt + continuity_anchor,
-   seeded by the previous shot's frame) replaces it because the star can't carry
-   progressive state. Kept only for reference; no longer called. Safe to delete. */
-function deriveShotPrompt(sh, ctx){
-  ctx = ctx || {};
-  const loc = ctx.location || null;
-  const charById = ctx.charById || {};
-   const subjects = ((typeof inFrameCast==="function") ? inFrameCast(sh, ctx.scene, Object.values(charById), ctx) : (sh.subjects||[])).map(id=>charById[id]).filter(Boolean);
-  const size = sizeOf(sh.size), angle = angleOf(sh.angle), move = moveOf(sh.move), lens = lensOf(sh.lens);
-  const clean = (x)=>String(x||"").replace(/\.$/,"").trim();
-  const _asp = (typeof aspectFor==="function") ? aspectFor(ctx.project) : "16:9";
-  const spec = {
-    base_image: "THIS SAME SCENE's key frame \u2014 same set, same moment, same lighting, same colour grade, same people",
-    task: "RE-FRAME the base image to a different camera setup, as one continuous take would",
-    camera: {
-      size: size.name+" ("+size.desc+")",
-      angle: angle.label+" ("+angle.desc+")",
-      lens: lens.label+" ("+lens.desc+")",
-      movement: (sh.move && sh.move!=="static") ? (move.label+" ("+move.desc+")") : "static",
-    },
-    in_frame: subjects.length ? subjects.map(c=>c.name) : undefined,
-    still_in_frame: ([...(ctx.carriedForward||[]), ...(ctx.carriedTextOnly||[])].length)
-      ? [...(ctx.carriedForward||[]), ...(ctx.carriedTextOnly||[])].map(p=> p.name + (p.ownerName?(" ("+p.ownerName+"'s)"):"") + " \u2014 carried from an earlier beat; keep it present") : undefined,
-    action: clean(sh.action) || undefined,
-    dialogue_mid_line: clean(sh.dialogue).replace(/^["\u201c]|["\u201d]$/g,"") || undefined,
-    composition: clean(sh.composition) || undefined,
-    // the director's OWN words (authored on the card): they COMPOSE with the
-    // derived spec — never replace it — and survive every prompt re-derive
-    custom_directives: clean(sh.directives) || undefined,
-    keep_identical_to_base: [
-      "the set's architecture, surfaces, signage and layout",
-      "the light sources and colour grade",
-      "every character's face, hair and wardrobe",
-    ],
-    if_new_space_revealed: "extend the SAME set consistently"+(loc?" from the attached location view — it is one angle of ONE real set":""),
-    format: {
-      frame: "a single "+(_asp==="9:16"?"VERTICAL 9:16 (phone)":_asp)+" frame",
-      rules: ["photoreal, filmic","no text, no watermark, no split panels"],
-    },
-    negative: shotNegativePrompt(sh).split(/,\s*/),
-  };
-  return "The BASE IMAGE is this scene's key frame. Re-frame it EXACTLY as specified by this JSON spec:\n"+JSON.stringify(spec, null, 1);
-}
-window.deriveShotPrompt = deriveShotPrompt;
 
 /* HEADLESS shot-frame generation — the Scene Director's primitive (no mounted
    card). Mirrors ShotCard's pipeline exactly: the ROLLING CHAIN — every shot after
@@ -2892,11 +2815,6 @@ async function generateShotFrame(sh, sceneShots, ctx, opts){
 }
 window.generateShotFrame = generateShotFrame;
 
-/* a shot is "drafted" / generatable once it has a size and at least an action or subject */
-function shotDrafted(sh){
-  return !!(sh && sh.size && (sh.action || (sh.subjects&&sh.subjects.length)));
-}
-window.shotDrafted = shotDrafted;
 
 /* ---- screenplay-grounded fallback: one opening shot per authored beat ------- */
 /* This is a deterministic layout stopgap, not a story generator.  If the scene
@@ -3015,13 +2933,6 @@ function inFrameCast(sh, scene, characters, ctx){
   return ((sh&&sh.subjects)||[]).filter(valid);
 }
 window.inFrameCast = inFrameCast;
-/* Shared identity resolver for manual cards, headless renders and edit paths.
-   Callers should use this rather than binding an image/reference from a prose
-   label that merely happens to contain a character name. */
-function canonicalShotCharacterIds(sh, scene, characters, ctx){
-  return inFrameCast(sh,scene,characters,ctx);
-}
-window.canonicalShotCharacterIds = canonicalShotCharacterIds;
 
 /* THE scene's cast roster — the single authoritative answer to "who is in this scene",
    so the bible, the prop mapping and any future consumer all read ONE definition instead

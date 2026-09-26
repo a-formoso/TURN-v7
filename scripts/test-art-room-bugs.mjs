@@ -92,7 +92,7 @@ await test("a redesign merges like the Shots tab: IDs and frames kept, extras to
   assert.ok(k1&&k1.action==="new"&&k1.imageRev===3&&k1.approved===false,"the beat keeps its shot ID and image history; changed → re-approve");
   assert.deepEqual(plain(m.archived.map(s=>s.id)),["alt1"],"the extra shot goes to Trash, restorable");
   assert.ok(m.shots.some(s=>s.id==="k9")&&m.shots.some(s=>s.id==="x"));
-  const app=read("app/app.jsx"), cov=app.slice(app.indexOf("applyCoverage: (sceneId, newShots, anchorId)=>{"),app.indexOf("setAnchorOnly: (sceneId, anchorId)=>{"));
+  const app=read("app/app.jsx"), a0=app.indexOf("applyCoverage: (sceneId, newShots, anchorId)=>{"), cov=app.slice(a0,app.indexOf("\n    };",a0));
   assert.ok(cov.includes("commitBeatKeyframes(fresh, ()=>{})")&&!cov.includes("ss.filter(s=>s.sceneId!==sceneId)"),"the agent path uses the Shots tab's merge");
   assert.ok(read("app/agents.jsx").includes("any extra shots on a re-planned beat move to Shots Trash"));
 });

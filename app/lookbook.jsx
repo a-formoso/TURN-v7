@@ -84,12 +84,6 @@ function buildSimpleLookbookPrompt(c){
 }
 window.buildSimpleLookbookPrompt = buildSimpleLookbookPrompt;
 
-/* compose the lookbook into the free-text references the Colorist reads (styleBible.refs) */
-function composeLookbookRefs(statement, cards){
-  return [statement, ...dedupeLookbookCards(cards).filter(c=>(c.note||"").trim())
-    .map(c=> (c.source?c.source+" — ":"")+c.note)].filter(Boolean).join("\n");
-}
-window.composeLookbookRefs = composeLookbookRefs;
 
 /* Write-through (legacy migration): the Lookbook's colorist brief now auto-fills the
    Presets references field DIRECTLY (plain text, no markers — see the write-through effect
@@ -314,7 +308,7 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
 }
 
 /* ---- the Lookbook tab ---- */
-function LookbookView({ project, lookbook, note, onUpdate, onAdd, onDelete, onSetNote, onResearch, onClear }){
+function LookbookView({ project, lookbook, note, onUpdate, onAdd, onDelete, onSetNote, onResearch }){
   const [view, setView] = React.useState(null);
   const batch = useBatchGen();
   const batchActiveId = batch.activeId;

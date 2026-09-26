@@ -76,9 +76,6 @@ function deriveLocationTimes(l, scenes){
 }
 window.deriveLocationTimes = deriveLocationTimes;
 
-/* single-value convenience (used for prompt defaults): the earliest-in-the-day time. */
-function deriveLocationTime(l, scenes){ return deriveLocationTimes(l, scenes)[0] || ""; }
-window.deriveLocationTime = deriveLocationTime;
 
 /* normalise a place into a canonical display name: title-case-ish but keep short
    ALL-CAPS acronyms (FBI, CIA); collapse whitespace. Common short words (the, of,
@@ -1906,39 +1903,7 @@ function stagingHasContent(l){
 }
 window.stagingHasContent = stagingHasContent;
 
-/* turn a filled depth grid into spatially-explicit prompt language. Empty cells
-   are skipped (read as open space). Returns "" when nothing is staged. */
-function buildStagingClause(l){
-  const s = stagingOf(l);
-  if(!stagingHasContent(l)) return "";
-  const bits = [];
-  if(s.scaleClass) bits.push("SCALE: "+s.scaleClass.replace(/\.$/,""));
-  const plane = [];
-  if(s.bg.center) plane.push("center background, the primary landmark \u2014 "+s.bg.center.replace(/\.$/,""));
-  if(s.bg.left)   plane.push("left background "+s.bg.left.replace(/\.$/,""));
-  if(s.bg.right)  plane.push("right background "+s.bg.right.replace(/\.$/,""));
-  if(s.mid.left)  plane.push("left midground framing element \u2014 "+s.mid.left.replace(/\.$/,""));
-  if(s.mid.right) plane.push("right midground framing element \u2014 "+s.mid.right.replace(/\.$/,""));
-  if(s.mid.center)plane.push("midground center "+s.mid.center.replace(/\.$/,""));
-  if(s.fg.left)   plane.push("left foreground "+s.fg.left.replace(/\.$/,""));
-  if(s.fg.right)  plane.push("right foreground "+s.fg.right.replace(/\.$/,""));
-  if(s.floor)     plane.push("ground plane underfoot \u2014 "+s.floor.replace(/\.$/,""));
-  let out = "VIEW-SCOPED DEPTH STAGING"+(s.viewLabel?(" for "+s.viewLabel):"")+" (layer this representation for parallax): "+plane.join("; ")+". ";
-  if(bits.length) out = bits.join(". ")+". "+out;
-  if(s.lens) out += "Framed on a "+s.lens.replace(/\.$/,"")+". ";
-  return out;
-}
-window.buildStagingClause = buildStagingClause;
 
-/* the dominant style preset for a location = the preset assigned to the first
-   scene it appears in that has one. Retained for back-compat; the location plate no
-   longer bakes in a grade (grade is a per-scene/per-shot decision). */
-function locDominantPreset(l, project){
-  if(typeof scenePreset!=="function") return null;
-  for(const sid of (l.scenes||[])){ const p = scenePreset(project, sid); if(p) return p; }
-  return null;
-}
-window.locDominantPreset = locDominantPreset;
 
 /* every DISTINCT Style Bible preset the location's scenes use, in scene order.
    Informational only: a location can span scenes with different grades, so we show

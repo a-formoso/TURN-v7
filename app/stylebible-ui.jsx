@@ -166,29 +166,6 @@ function StyleFilmStrip({ scenes, project, presets, onSetScenePreset }){
           React.createElement("span",{className:"sb-legend-ct"},scs.length)))));
 }
 
-function StyleBibleModal({ project, scenes, onClose, onAssign, assigning }){
-  const { presets, sceneStyles } = styleBibleOf(project);
-  const scenesFor = (pid)=> scenesInStoryOrder((scenes||[]).filter(s=>sceneStyles[s.id]===pid));
-  const assignedCount = (scenes||[]).filter(s=>sceneStyles[s.id]).length;
-  return React.createElement("div",{className:"lb-overlay",onMouseDown:(e)=>{ if(e.target===e.currentTarget) onClose(); }},
-    React.createElement("div",{className:"sb-panel"},
-      React.createElement("div",{className:"sb-panel-head"},
-        React.createElement("div",null,
-          React.createElement("div",{className:"sb-panel-title"},"Style Bible"),
-          React.createElement("div",{className:"sb-panel-sub"},
-            presets.length+" preset"+(presets.length!==1?"s":"")+" \u00b7 "+assignedCount+" of "+(scenes||[]).length+" scenes assigned",
-            " \u00b7 stills are CSS colour-grade previews, not AI renders")),
-        React.createElement("div",{style:{display:"flex",gap:8,alignItems:"center"}},
-          onAssign && React.createElement("button",{className:"art-draftall ghost",disabled:assigning,onClick:onAssign,
-            title:"Design a bespoke palette for this film, then color-script each scene along the value-charge spine (replaces the current looks)"},
-            React.createElement(Icon.layers,{s:14}), assigning?"Generating\u2026":"Generate from script"),
-          React.createElement("button",{className:"ag-x",onClick:onClose},React.createElement(Icon.x,{s:17})))),
-      React.createElement("div",{className:"sb-panel-body"},
-        React.createElement(StyleFilmStrip,{scenes,project,presets}),
-        React.createElement("div",{className:"sb-grid"},
-          presets.map(p=>React.createElement(PresetCard,{key:p.id,preset:p,sceneList:scenesFor(p.id),count:scenesFor(p.id).length}))))));
-}
-window.StyleBibleModal = StyleBibleModal;
 
 /* Sample a small palette from an uploaded image, entirely client-side. The model is
    text-only, so we can't send it the image — instead we feed the sampled COLOURS into
@@ -245,7 +222,7 @@ function StyleRefImages({ refImages, onRemoveRefImage }){
    photographers or paintings whose look they want. 'Assign from script' then
    translates that cinematography into this film's bespoke palette. Local state so
    typing is smooth; commits on blur / Enter. */
-function StyleRefsField({ value, onCommit, onAssign, assigning, assignDisabled, refImages, onAddRefImages, onRemoveRefImage, onLight, lightDisabled }){
+function StyleRefsField({ value, onCommit, refImages, onAddRefImages, onRemoveRefImage, onLight, lightDisabled }){
   const [v, setV] = React.useState(value||"");
   const [saved, setSaved] = React.useState(false);
   const tRef = React.useRef(null);
@@ -326,7 +303,7 @@ window.InfoTip = InfoTip;
 /* StyleBibleView — the Style Bible as a full Art Room TAB (not a modal). Reuses the
    film-strip + preset cards. "Assign from script" writes the scene→preset map
    (scene-level, the source of truth); characters / locations / shots merely READ it. */
-function StyleBibleView({ project, scenes, onAssign, assigning, onSetRefs, onSetScenePreset, onAddRefImages, onRemoveRefImage, onColorist, lookbookStale, onApplyLookbook }){
+function StyleBibleView({ project, scenes, onSetRefs, onSetScenePreset, onAddRefImages, onRemoveRefImage, onColorist, lookbookStale, onApplyLookbook }){
   const { presets, sceneStyles, refs, refImages } = styleBibleOf(project);
   const scenesFor = (pid)=> scenesInStoryOrder((scenes||[]).filter(s=>sceneStyles[s.id]===pid));
   const assignedCount = (scenes||[]).filter(s=>sceneStyles[s.id]).length;
@@ -343,7 +320,7 @@ function StyleBibleView({ project, scenes, onAssign, assigning, onSetRefs, onSet
         // Save into one press) — a second copy up here just re-created the confusing
         // two-button layout the merge removed.
         null)),
-    onSetRefs && React.createElement(StyleRefsField,{value:refs,onCommit:onSetRefs,onAssign,assigning,assignDisabled:assigning||!(scenes||[]).length,
+    onSetRefs && React.createElement(StyleRefsField,{value:refs,onCommit:onSetRefs,
       refImages,onAddRefImages,onRemoveRefImage,
       onLight:onColorist,lightDisabled:!(scenes||[]).length}),
     React.createElement(StyleFilmStrip,{scenes,project,presets,onSetScenePreset}),
