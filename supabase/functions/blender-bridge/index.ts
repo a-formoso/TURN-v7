@@ -3,6 +3,7 @@ import { createBlenderRelay } from "./relay-core.mjs";
 import { createSupabaseAdapter } from "./supabase-adapter.mjs";
 import { createStudioService } from "./studio-service.mjs";
 import studioContract from "./studio-contract-module.mjs";
+import { sceneBuilderProviderPrompt } from "./studio-provider-prompt.mjs";
 // The build/deploy step copies app/blender-contract.js here.  It is intentionally
 // not reimplemented in the relay: browser and server must freeze the same schema.
 import * as contractModule from "./shared-contract.js";
@@ -91,7 +92,8 @@ const provider = {
     if (!key) throw new Error("Selected assistant model is unavailable.");
     // Models remain exact caller choices: no fallback or provider/model
     // substitution.  The assistant must return a bounded JSON proposal.
-    const prompt = `Return JSON only: {"summary":string,"ops":array}. Never return code. ${String(input.prompt || "")}`;
+    const prompt = sceneBuilderProviderPrompt({ mode: input.mode, prompt: input.prompt,
+      workspace: input.workspace });
     const image = input.image as Uint8Array | undefined;
     let imageDataUrl: string | null = null;
     if (image) {

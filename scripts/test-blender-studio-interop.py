@@ -169,11 +169,11 @@ def main() -> int:
             # Cancellation goes through StudioRuntime, rather than a hand-made
             # cancellation envelope.  The provider remains queued at its own
             # boundary until this real client asks to cancel it.
-            runtime.request_mesh("meshy/v7/text-to-3d", "Cancelled mesh", prompt="cancel mesh", acknowledge_cost=True)
+            runtime.request_mesh("meshy/v7/image-to-3d", "Cancelled mesh", prompt="cancel mesh", reference_id=workspace["locationId"], acknowledge_cost=True)
             wait_for(runtime, lambda item: item.get("task", {}).get("status") == "queued", "queued mesh task")
             runtime.request_cancel_task()
             wait_for(runtime, lambda item: item.get("task", {}).get("status") == "cancelled", "native mesh cancellation")
-            runtime.request_mesh("meshy/v7/text-to-3d", "Interop triangle", prompt="make triangle", acknowledge_cost=True)
+            runtime.request_mesh("meshy/v7/image-to-3d", "Interop triangle", prompt="make triangle", reference_id=workspace["locationId"], acknowledge_cost=True)
             pending = wait_for(runtime, lambda item: item.get("task", {}).get("status") == "settlement_pending",
                 "validated Meshy stage awaiting settlement")
             pending_task_id = pending["task"].get("id")

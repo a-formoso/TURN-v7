@@ -192,9 +192,11 @@ export function createSupabaseAdapter({
     // Production location rows carry modelId/requestedModel, prompt, ISO and
     // promptCompiler (not a MIME `meta.kind`). Require a real generated image
     // provenance marker and, when supplied, bind the catalog ref version.
-    const provenance = meta && typeof meta === "object" && typeof meta.iso === "string" &&
-      (typeof meta.modelId === "string" || typeof meta.requestedModel === "string" ||
-        typeof meta.promptCompiler === "string");
+    const provenance = meta && typeof meta === "object" && !meta.uploaded &&
+      typeof meta.iso === "string" && Number.isFinite(Date.parse(meta.iso)) &&
+      !/upload/i.test(String(meta.modelId || "") + String(meta.requestedModel || "")) &&
+      (typeof meta.modelId === "string" && !!meta.modelId ||
+        typeof meta.requestedModel === "string" && !!meta.requestedModel);
     if (record.error || !record.data || typeof record.data.storage_path !== "string" || !provenance) return false;
     return version == null || String(version) === String(meta.iso || meta.version);
   }
@@ -204,7 +206,8 @@ export function createSupabaseAdapter({
     const record = await admin.from("turn_generations")
       .select("project_id,owner,entity_id,storage_path,meta")
       .eq("project_id", projectId).eq("entity_id", entityId).maybeSingle();
-    if (record.error || !record.data || typeof record.data.storage_path !== "string") return null;
+    if (record.error || !record.data || typeof record.data.storage_path !== "string" ||
+      (reference?.version != null && String(reference.version) !== String(record.data.meta?.iso))) return null;
     const file = await admin.storage.from(bucket).download(record.data.storage_path);
     if (file.error || !file.data) return null;
     const bytes = new Uint8Array(await file.data.arrayBuffer()), contentType = imageType(bytes);

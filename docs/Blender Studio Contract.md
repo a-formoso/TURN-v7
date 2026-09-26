@@ -20,14 +20,43 @@ Opening another shot in a set must not recreate its environment.
   "parentLocationId": null,
   "rootLocationId": "location-id",
   "revision": 0,
-  "context": {"description": "", "architecture": "", "materials": "", "staging": ""},
+  "context": {
+    "description": "",
+    "architecture": "",
+    "materials": "",
+    "staging": "",
+    "productionPlan": "{\"schema\":\"cm-location-plan-v1\",...}"
+  },
   "objects": [],
   "shots": [],
-  "references": [],
+  "references": [{"entityId":"location-id","label":"Reception","kind":"location","version":"2026-09-24T10:00:00.000Z"}],
   "assets": [],
   "previews": []
 }
 ```
+
+`context.productionPlan` is an optional JSON string (maximum 16,000 printable
+characters) containing the Locations UI's versioned production handoff. Version
+`cm-location-plan-v1` keeps its compatibility field names: `canonicalSet` is the
+UI's **The Space**, `screenplaySpaces` contains **Slugline Units**, and
+`appearanceStates` contains **Time-of-Day Variants**; the remaining layers are
+`requiredSpacePlates`, `coverageViews` and `sceneSetups`. These serialized names
+must not be renamed when the UI terminology changes.
+The optional `sharedSetLayout` field (`cm-spatial-layout-v1`) carries the common
+parent-owned physical plan: `ownerId`, `targetSpace`, review `status`, a named
+orientation `frame`, stable `anchors` (ID, space, name, relational placement,
+basis and panel evidence), `sightlines`, `unresolved`, `corrections` and source
+asset/version. This contract takes precedence over camera-relative staging for
+object placement. It contains no fabricated metric coordinates. Unreviewed plans,
+conflicts and missing dimensions must be surfaced before claiming an exact build.
+Size compaction preserves the shared layout; it must not silently discard it and
+proceed with unrelated camera-grid prose. Older geometry is not moved on import.
+Older workspaces without this field remain valid. The relay updates context when
+the location is opened but never replaces managed geometry, shots or approved
+assets. Consumers must ignore unknown production-plan fields for forward
+compatibility. Descriptive camera bookmarks are guidance, not measured transforms;
+creating or changing a Blender camera still requires an explicit bounded proposal
+and Apply.
 
 Managed object:
 `{id,name,kind,position:[x,y,z],rotation:[x,y,z],scale:[x,y,z],color:[r,g,b],
@@ -46,6 +75,9 @@ The built-in actor is explicitly a blocking stand-in, not reconstructed likeness
 Reference metadata:
 `{entityId,label,kind:"location"|"character"|"prop",version?}`.
 Store reference identity/provenance, never device-origin source pixels.
+Workspace access requires a version-pinned generated reference for its own
+canonical `locationId`. Upload-only, missing, stale or unavailable source images
+cannot unlock Studio. Parent artwork alone does not unlock an ungenerated room.
 Asset metadata:
 `{id,name,kind:"glb",sha256,bytes,modelId,rigged,animated,characterId?}`.
 No untrusted file paths, scripts or executable fields. Bounds and strict validation
@@ -58,11 +90,12 @@ Browser uses its existing access token; desktop uses the paired device token.
 Every action verifies current user/project role; desktop additionally verifies
 current device authority. Responses below are envelopes, not bare documents.
 
-- `studio.capabilities` -> `{schema,models,meshModels,available,billingReady,...}`.
+- `studio.capabilities` -> `{schema,sourcePolicy,models,meshModels,available,billingReady,...}`.
+  Image-derived clients require `sourcePolicy: "generated-project-image-v1"`.
   Capability checks never generate or charge. Unsupported/unverified model access
   must not silently switch to another model.
 - `studio.workspace.open` (browser): `{location:{id,name,parentLocationId?,
-  rootLocationId?,context?},shot?,references?}` -> `{workspace}`. Create if absent,
+  rootLocationId?,context?},shot?,references}` -> `{workspace}`. Create if absent,
   preserve existing geometry and shots, add/update context without replacing
   approved geometry. Select this location/shot for the paired desktop.
 - `studio.workspace.get`: `{locationId}` -> `{workspace}`.
@@ -70,12 +103,16 @@ current device authority. Responses below are envelopes, not bare documents.
 - `studio.workspace.save`: `{locationId,baseRevision,mutationId,workspace}` ->
   `{workspace}`. Compare-and-swap; no automatic retry over concurrent edits.
 - `studio.assistant.submit`: `{locationId,baseRevision,requestId,modelId,
-  mode:"scene"|"animation",prompt,shotId?,snapshot?,imageDataUrl?,acknowledgeCost:true}`
-  -> `{task}`. Snapshot must validate and belong to the selected workspace.
+  mode:"scene"|"animation",prompt,shotId?,snapshot?,referenceId,acknowledgeCost:true}`
+  -> `{task}`. Snapshot must validate and belong to the current workspace revision;
+  its reference authority and production context come from the saved workspace.
+  Scene mode requires `referenceId === locationId`. The relay validates and loads
+  the generated image; raw `imageDataUrl` and prompt-only requests are rejected.
 - `studio.assistant.get` / `studio.assistant.cancel`: `{taskId}` -> `{task}`.
-- `studio.mesh.submit`: `{locationId,requestId,modelId,prompt?,imageDataUrl?,
-  referenceId?,name,characterId?,rigged,animated,animationActionId?,acknowledgeCost:true}`
-  -> `{task}`. Text/image Meshy endpoints are server allowlisted.
+- `studio.mesh.submit`: `{locationId,requestId,modelId,prompt?,
+  referenceId,name,characterId?,rigged,animated,animationActionId?,acknowledgeCost:true}`
+  -> `{task}`. Only the image-to-3D Meshy endpoint is allowlisted. The source must
+  be a version-pinned generated project reference authorized in this workspace.
 - `studio.mesh.get` / `studio.mesh.cancel`: `{taskId}` -> `{task}`.
 - `studio.asset.get`: `{locationId,assetId}` -> `{asset,base64}`.
   Only authenticated, server-retained GLB bytes, never client-provided fetch URLs.

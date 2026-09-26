@@ -58,8 +58,9 @@
     v.tracks.forEach(function (t) { track(t, ids); }); return v;
   }
   function context(v) {
-    keys(v, ["description","architecture","materials","staging"], ["description","architecture","materials","staging"], "context");
-    Object.keys(v).forEach(function (k) { if (typeof v[k] !== "string" || v[k].length > 4000 || /[\u0000-\u001f]/.test(v[k])) fail("Invalid context."); });
+    keys(v, ["description","architecture","materials","staging","productionPlan"], ["description","architecture","materials","staging"], "context");
+    Object.keys(v).forEach(function (k) { var max=k==="productionPlan"?16000:4000;
+      if (typeof v[k] !== "string" || v[k].length > max || /[\u0000-\u001f]/.test(v[k])) fail("Invalid context."); });
   }
   function workspace(v) {
     keys(v, ["schema","projectId","locationId","name","parentLocationId","rootLocationId","revision","context","objects","shots","references","assets","previews"],

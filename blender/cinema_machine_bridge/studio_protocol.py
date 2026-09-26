@@ -193,13 +193,18 @@ def validate_workspace(value: Any) -> Dict[str, Any]:
     if source["schema"] != STUDIO_SCHEMA:
         raise StudioProtocolError("workspace.schema must be cm-studio-v1")
     context = _mapping(source["context"], "workspace.context")
-    _keys(context, ("description", "architecture", "materials", "staging"), "workspace.context")
+    _keys(context, ("description", "architecture", "materials", "staging"), "workspace.context", optional=("productionPlan",))
     checked_context = {}
     for key in ("description", "architecture", "materials", "staging"):
         context_value = context[key]
         if not isinstance(context_value, str) or len(context_value) > 4000 or any(ord(char) < 32 for char in context_value):
             raise StudioProtocolError("workspace.context.%s must be up to 4000 printable characters" % key)
         checked_context[key] = context_value
+    if "productionPlan" in context:
+        production_plan = context["productionPlan"]
+        if not isinstance(production_plan, str) or len(production_plan) > 16000 or any(ord(char) < 32 for char in production_plan):
+            raise StudioProtocolError("workspace.context.productionPlan must be up to 16000 printable characters")
+        checked_context["productionPlan"] = production_plan
     if not isinstance(source["objects"], list) or len(source["objects"]) > 500:
         raise StudioProtocolError("workspace.objects cannot contain more than 500 objects")
     if not isinstance(source["shots"], list) or len(source["shots"]) > 200:

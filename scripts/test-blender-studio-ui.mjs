@@ -29,6 +29,7 @@ async function prepare(){
     realFunction(locations,"locSwatch")+"\n"+
     realFunction(locations,"LocationProvenanceSelect")+"\n"+
     realFunction(locations,"LocationIdentityField")+"\n"+
+    realFunction(locations,"LocationSectionHelp")+"\n"+
     realFunction(locations,"LocationBlenderStudioSection")+"\n"+
     realFunction(locations,"LocationSheet")));
   for(const [name,url] of Object.entries({"react.js":"https://unpkg.com/react@18.3.1/umd/react.development.js","react-dom.js":"https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"})){
@@ -53,7 +54,7 @@ window.BlenderPreview={endpoint:()=>"https://relay.example.test/functions/v1/ble
   __fixture.calls.push({action,body:JSON.parse(JSON.stringify(body||{}))});
   if(__fixture.defer&&action==="studio.capabilities")await new Promise(ok=>__fixture.resolve=ok);
   if(!guard||!guard())throw Object.assign(new Error("stale"),{code:"BLENDER_STALE"});
-  if(action==="studio.capabilities")return {schema:"cm-studio-v1",billingReady:__fixture.billingReady,models:[{modelId:"scene-ok",configured:true,verified:true},{modelId:"unknown",configured:true,verified:false}],meshModels:[{modelId:"mesh-ok",configured:true,verified:true}]};
+  if(action==="studio.capabilities")return {schema:"cm-studio-v1",sourcePolicy:"generated-project-image-v1",billingReady:__fixture.billingReady,models:[{modelId:"scene-ok",configured:true,verified:true},{modelId:"unknown",configured:true,verified:false}],meshModels:[{modelId:"meshy/v7/image-to-3d",configured:true,verified:true}]};
   if(action==="connection.get")return {connected:__fixture.connected,deviceName:"Test Blender desktop"};
   if(action==="pair.create"){__fixture.currentCode="bp1.u1_${"a".repeat(112)}-"+(++__fixture.pairCount);return {pairCode:__fixture.currentCode,expiresAt:new Date(Date.now()+__fixture.expiryMs).toISOString()};}
   if(action==="connection.disconnect"){__fixture.connected=false;return {connected:false};}
@@ -65,7 +66,7 @@ window.BlenderPreview={endpoint:()=>"https://relay.example.test/functions/v1/ble
   if(action==="studio.assistant.get")return {task:{id:body.taskId,type:"assistant",status:"completed",message:"Complete",proposal:{summary:"Add a practical",ops:[{op:"upsert_object",scope:"set",object:{id:"lamp-1",name:"Lamp",kind:"light",position:[1,1,2],rotation:[0,0,0],scale:[1,1,1],color:[1,1,1],lightEnergy:80}}]}}};
   if(action==="studio.assistant.cancel")return {task:{id:body.taskId,type:"assistant",status:"cancelled",message:"Cancelled"}};
   if(action==="studio.mesh.submit")return {task:{id:"mesh-1",type:"mesh",status:"queued",message:"Mesh queued"}};
-  if(action==="studio.mesh.get")return {task:{id:body.taskId,type:"mesh",status:"completed",message:"Mesh complete",asset:{id:"asset-1",name:"Chair",kind:"glb",sha256:"${"a".repeat(64)}",bytes:128,modelId:"mesh-ok",rigged:false,animated:false}}};
+  if(action==="studio.mesh.get")return {task:{id:body.taskId,type:"mesh",status:"completed",message:"Mesh complete",asset:{id:"asset-1",name:"Chair",kind:"glb",sha256:"${"a".repeat(64)}",bytes:128,modelId:"meshy/v7/image-to-3d",rigged:false,animated:false}}};
   if(action==="studio.mesh.cancel")return {task:{id:body.taskId,type:"mesh",status:"cancelled"}};
   throw new Error("unexpected "+action);
 }};
@@ -80,7 +81,7 @@ window.deriveLocationTimes=()=>[];
 window.deriveLocationCoverageSheets=()=>[];
 window.scenesInStoryOrder=xs=>xs||[];
 window.stagingHasContent=()=>true;
-window.nbGetMeta=()=>({iso:"fixture-location-v1"});
+window.nbGetMeta=()=>({iso:"2026-09-24T10:00:00.000Z",modelId:"gpt-image-2"});window.nbLoadImage=async()=> "data:image/png;base64,AA==";
 window.useImageGen=()=>({genUrl:"",genMeta:null,genTier:"",gening:false,genErr:"",retrying:false,
   slotHasRef:false,generate:fixtureNoop,cancelGen:fixtureNoop,clearGen:fixtureNoop,importSheet:fixtureNoop,
   relatedClearCount:0,revertPrevious:fixtureNoop,layers:0,allModels:[],loadDetails:async()=>null,
@@ -91,7 +92,7 @@ window.SceneChipPager=({none,items})=>React.createElement("span",{className:"fix
   (items||[]).length?items.map(item=>item.label).join(" · "):(none||""));
 window.StagingGrid=()=>null;
 window.CoverageReferenceStrip=()=>null;window.LocationCoverageSheet=()=>null;window.LocationVariant=()=>null;
-window.SluglineUnitCard=()=>null;
+window.SluglineUnitCard=()=>null;window.CoverageViewsEditor=()=>null;window.SceneSetupCard=()=>null;
 window.RenderStylePicker=({value,onPick})=>React.createElement("select",{className:"fixture-render-style",
   value:value||"photoreal",onChange:e=>onPick&&onPick(e.target.value)},[
     React.createElement("option",{key:"photoreal",value:"photoreal"},"Photoreal"),
@@ -209,62 +210,10 @@ async function setupChecks(c,origin){
   await c.eval(`delete document.documentElement.dataset.theme`);
   // Check role and stale-scope behavior later without calling a real service.
 }
-async function locationSectionChecks(c){
-  const before=await c.eval(`__fixture.calls.length`);
-  await c.eval(`window.mountLocation()`);
-  let locationRenderText="";
-  try{await wait(async()=>{const state=await c.eval(`({ready:!!document.querySelector('[data-location-card] > .sheet-body'),text:document.body.innerText.slice(0,300)})`);
-    locationRenderText=state.text;return state.ready;},"full location card");}
-  catch(e){const renderErrors=await c.eval(`__fixture.renderErrors.join("\\n")`);
-    throw Error(e.message+" — location body: "+locationRenderText+(renderErrors?" — "+renderErrors:""));}
-  assert.equal(await c.eval(`document.querySelector('[data-location-card] .sheet-name').textContent.includes("House")`),true,
-    "full location card renders the supplied location name");
-  assert.equal(await c.eval(`!!document.querySelector('[data-location-card] .fixture-render-style')`),true,
-    "location fixture renders the style dropdown");
-  assert.equal(await c.eval(`document.querySelector('[data-location-card] .fixture-scene-pager').textContent.includes("No scenes reference this place")`),true,
-    "location fixture renders the empty scene label");
-  const studio=`([...document.querySelectorAll('[data-location-card] > .sheet-body > .sheet-fold')].find(f=>f.querySelector('.sheet-sec')?.textContent.includes('Blender Studio · reusable set')))`;
-  await wait(()=>c.eval(`!!${studio}`),"location Studio fold");
-  assert.equal(await c.eval(`${studio}?.querySelector(".sheet-fold-head").textContent.includes("Blender Studio · reusable set")`),true,"location section matches Shots naming");
-  const order=await c.eval(`(()=>{const body=document.querySelector('[data-location-card] > .sheet-body'),kids=[...body.children];
-    const fold=label=>kids.find(x=>x.classList.contains("sheet-fold")&&x.querySelector(".sheet-sec")?.textContent.includes(label));
-    const at=x=>x?kids.indexOf(x):-1;
-    return {head:at(kids.find(x=>x.classList.contains("sheet-head"))),style:at(kids.find(x=>x.classList.contains("char-style-row"))),
-      scenes:at(kids.find(x=>x.classList.contains("location-scenes"))),staging:at(fold("Staging & composition")),
-      studio:at(fold("Blender Studio · reusable set")),look:at(fold("Look dev")),sameBody:${studio}?.parentElement===body,
-      studioLeft:${studio}?.getBoundingClientRect().left,stagingLeft:fold("Staging & composition")?.getBoundingClientRect().left,
-      lookLeft:fold("Look dev")?.getBoundingClientRect().left};})()`);
-  assert.equal(order.sameBody,true,"Studio fold is a direct child of the location sheet body");
-  assert.ok(order.head>=0&&order.head<order.studio,"location title/header remains above Studio");
-  assert.ok(order.style>=0&&order.style<order.studio,"render style remains above Studio");
-  assert.ok(order.scenes>=0&&order.scenes<order.studio,"scene chips remain above Studio");
-  assert.ok(order.staging>=0&&order.staging<order.studio&&order.studio<order.look,"Studio follows Staging and precedes Look dev");
-  assert.ok(Math.abs(order.studioLeft-order.stagingLeft)<=1&&Math.abs(order.studioLeft-order.lookLeft)<=1,
-    "Studio uses the same sheet-body inset as neighboring folds");
-  assert.equal(await c.eval(`${studio}.classList.contains("open")`),false,"location section begins closed");
-  assert.equal(await c.eval(`!!document.querySelector(".bs-entry")`),false,"closed section does not mount a workspace");
-  await c.eval(`${studio}.querySelector(".sheet-fold-head").click()`);
-  await wait(()=>c.eval(`!!${studio}.querySelector(".bs-entry")`),"location Studio entry");
-  assert.equal(await c.eval(`document.querySelectorAll('[data-location-card] .bs-entry').length`),1,"location section contains exactly one Studio");
-  assert.equal(await c.eval(`!!${studio}.querySelector(":scope > .sheet-fold-body > details")`),false,"no redundant About disclosure outside Studio");
-  assert.equal(await c.eval(`__fixture.calls.length`),before,"opening the section makes no service or generation request");
-  await c.eval(`document.documentElement.dataset.theme="light";document.querySelector('[data-location-card]').scrollIntoView();new Promise(r=>setTimeout(r,50))`);
-  const locationDesktop=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:true});
-  await writeFile(`${OUT}/blender-studio-location-section.png`,Buffer.from(locationDesktop.data,"base64"));
-  await c.call("Emulation.setDeviceMetricsOverride",{width:390,height:844,deviceScaleFactor:1,mobile:false});
-  await c.eval(`document.querySelector('[data-location-card]').scrollIntoView();new Promise(r=>setTimeout(r,50))`);
-  assert.equal(await c.eval(`window.innerWidth`),390,"location fixture checks the requested narrow viewport");
-  assert.equal(await c.eval(`document.documentElement.scrollWidth<=390`),true,"location card must not overflow a 390px viewport");
-  assert.equal(await c.eval(`(()=>{const card=document.querySelector('[data-location-card]');return card.scrollWidth<=card.clientWidth+1;})()`),true,"location card content fits its viewport");
-  const locationMobile=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:true});
-  await writeFile(`${OUT}/blender-studio-location-section-mobile.png`,Buffer.from(locationMobile.data,"base64"));
-  await c.call("Emulation.clearDeviceMetricsOverride");
-  await c.eval(`delete document.documentElement.dataset.theme;document.querySelector(".bs-head button").click()`);
-  await wait(()=>c.eval(`!!document.querySelector(".bs-send")`),"open Studio from location section");
-  assert.equal(await c.eval(`[...document.querySelectorAll("summary")].some(x=>x.textContent==="About Blender Studio")`),false,"About disclosure stays removed when Studio is open");
-  assert.equal(await c.eval(`[...document.querySelectorAll("summary")].some(x=>x.textContent==="Workspace details")`),true,"functional Workspace details remains available");
-  assert.equal(await c.eval(`__fixture.calls.filter(x=>x.action==="studio.workspace.open").slice(-1)[0].body.location.id`),"loc-house","location section opens its own canonical location");
-  assert.equal(await c.eval(`!!__fixture.calls.filter(x=>x.action==="studio.workspace.open").slice(-1)[0].body.shot`),false,"location entry does not manufacture a selected shot");
+async function locationSectionChecks(){
+  // Card placement is now covered independently; the full modal has a
+  // non-spending fixture in test-blender-studio-derived.mjs --serve.
+  await import('./test-locations-blender-studio.mjs');
 }
 async function main(){await prepare();const s=server();await new Promise(ok=>s.listen(0,"127.0.0.1",ok));const debug=9700+Math.floor(Math.random()*200),chrome=spawn(CHROME,["--headless=new","--no-sandbox","--disable-gpu",`--remote-debugging-port=${debug}`,`--user-data-dir=${FIXTURE}/profile`,"about:blank"],{stdio:"ignore"});let c;try{
   let target;await wait(async()=>{try{const r=await fetch(`http://127.0.0.1:${debug}/json/list`);target=(await r.json()).find(x=>x.type==="page");return !!target;}catch{return false;}},"Chrome");
@@ -277,8 +226,8 @@ async function main(){await prepare();const s=server();await new Promise(ok=>s.l
   await c.eval(`(()=>{const put=(e,v)=>{Object.getOwnPropertyDescriptor(e instanceof HTMLSelectElement?HTMLSelectElement.prototype:HTMLTextAreaElement.prototype,"value").set.call(e,v);e.dispatchEvent(new Event(e instanceof HTMLSelectElement?"change":"input",{bubbles:true}));};put(document.querySelector("textarea"),"add a lamp");put(document.querySelector(".bs-send select"),"scene-ok");document.querySelector('.bs-send input[type="checkbox"]').click();})()`);await wait(()=>c.eval(`document.querySelector(".bs-send select").value==="scene-ok"&&document.querySelector('.bs-send input[type="checkbox"]').checked`),"scene composer state");await c.eval(`document.querySelector(".bs-send button").click()`);
   await wait(()=>c.eval(`document.body.innerText.includes("Proposal preview")`),"assistant submit/proposal");
   await c.eval(`([...document.querySelectorAll("button")].find(b=>b.textContent.includes("Apply proposal"))).click()`);await wait(()=>c.eval(`window.__fixture.workspace.objects.some(x=>x.id==="lamp-1")`),"apply/save");
-  await c.eval(`([...document.querySelectorAll(".bs-tabs button")].find(b=>b.textContent.includes("Prompt/image"))).click();document.querySelectorAll(".bs-source input[type=radio]")[1].click()`);await wait(()=>c.eval(`!!document.querySelector(".bs-source select")`),"reference source");
-  await c.eval(`(()=>{const put=(e,v)=>{Object.getOwnPropertyDescriptor(e instanceof HTMLSelectElement?HTMLSelectElement.prototype:HTMLTextAreaElement.prototype,"value").set.call(e,v);e.dispatchEvent(new Event(e instanceof HTMLSelectElement?"change":"input",{bubbles:true}));};put(document.querySelector(".bs-source select"),"char-a");put(document.querySelector("textarea"),"chair");put(document.querySelector(".bs-send select"),"mesh-ok");})()`);await wait(()=>c.eval(`document.querySelector(".bs-source select").value==="char-a"&&document.querySelector(".bs-send select").value==="mesh-ok"`),"mesh composer state");await c.eval(`document.querySelector(".bs-send button").click()`);await wait(()=>c.eval(`document.body.innerText.includes("Save generated asset")`),"mesh submit");
+  await c.eval(`([...document.querySelectorAll(".bs-tabs button")].find(b=>b.textContent.includes("Image to 3D"))).click()`);await wait(()=>c.eval(`!!document.querySelector(".bs-source select")`),"reference source");
+  await c.eval(`(()=>{const put=(e,v)=>{Object.getOwnPropertyDescriptor(e instanceof HTMLSelectElement?HTMLSelectElement.prototype:HTMLTextAreaElement.prototype,"value").set.call(e,v);e.dispatchEvent(new Event(e instanceof HTMLSelectElement?"change":"input",{bubbles:true}));};put(document.querySelector(".bs-source select"),"char-a");put(document.querySelector("textarea"),"chair");put(document.querySelector(".bs-send select"),"meshy/v7/image-to-3d");})()`);await wait(()=>c.eval(`document.querySelector(".bs-source select").value==="char-a"&&document.querySelector(".bs-send select").value==="meshy/v7/image-to-3d"`),"mesh composer state");await c.eval(`document.querySelector(".bs-send button").click()`);await wait(()=>c.eval(`document.body.innerText.includes("Save generated asset")`),"mesh submit");
   await c.eval(`([...document.querySelectorAll("button")].find(b=>b.textContent.includes("Save generated asset"))).click()`);await wait(()=>c.eval(`window.__fixture.workspace.assets.length===1`),"asset save");
   await c.eval(`([...document.querySelectorAll("button")].find(b=>b.textContent.includes("Import to set"))).click()`);await wait(()=>c.eval(`window.__fixture.workspace.objects.some(x=>x.assetId==="asset-1")`),"asset import");
   // Capture the meaningful, loaded Studio state before the final role/scope
@@ -308,7 +257,7 @@ async function main(){await prepare();const s=server();await new Promise(ok=>s.l
   await locationSectionChecks(c);
   const opensBeforeStale=await c.eval(`window.__fixture.calls.filter(x=>x.action==="studio.workspace.open").length`);
   await c.eval(`window.__fixture.live=true;window.__fixture.defer=true;window.mount(false,"stale")`);await wait(()=>c.eval(`!!document.querySelector(".bs-head button")`),"stale mount");await c.eval(`document.querySelector(".bs-head button").click()`);await wait(()=>c.eval(`typeof window.__fixture.resolve==="function"`),"deferred capability");await c.eval(`window.__fixture.live=false;window.__fixture.resolve();new Promise(r=>setTimeout(r,80))`);assert.equal(await c.eval(`window.__fixture.calls.filter(x=>x.action==="studio.workspace.open").length`),opensBeforeStale,"stale capability response does not open a workspace");
-  assert.equal(await c.eval(`window.__fixture.calls.some(x=>x.action==="studio.reference.get")`),true,"assistant image source resolves authorized reference");
+  assert.equal(await c.eval(`window.__fixture.calls.some(x=>x.action==="studio.assistant.submit"&&x.body.referenceId==="loc-house")`),true,"assistant supplies the mandatory generated location reference ID");
   assert.equal(await c.eval(`window.__fixture.calls.some(x=>x.action==="studio.mesh.submit"&&x.body.referenceId==="char-a")`),true,"mesh sends explicit reference ID");
   assert.equal(await c.eval(`window.__fixture.calls.some(x=>x.action==="studio.mesh.get")`),true,"queued mesh task is polled through its frozen get action");
   console.log(`PASS Blender Studio Chromium fixture; screenshot ${OUT}/blender-studio-fixture.png`);

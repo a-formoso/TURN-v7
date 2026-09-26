@@ -39,7 +39,7 @@ from .studio_runtime import StudioRuntime
 bl_info = {
     "name": "Cinema Machine Bridge",
     "author": "Cinema Machine",
-    "version": (1, 0, 1),
+    "version": (1, 0, 3),
     "blender": (4, 2, 0),
     "location": "3D View > Sidebar > CinemaMachine",
     "description": "Render an approved editable Blender proof through the Cinema Machine bridge",
@@ -837,7 +837,7 @@ class CM_OT_studio_generate(bpy.types.Operator):
                     context.window_manager.cm_studio_mesh_model,
                     context.window_manager.cm_studio_asset_name,
                     prompt=context.window_manager.cm_studio_prompt,
-                    image_data_url=snapshot.get("referenceDataUrl") or snapshot.get("localAttachment"),
+                    reference_id=context.window_manager.cm_studio_reference_id.strip() or workspace["locationId"],
                     rigged=context.window_manager.cm_studio_mesh_rigged,
                     animated=context.window_manager.cm_studio_mesh_animated,
                     acknowledge_cost=context.window_manager.cm_studio_cost_ack,
@@ -848,8 +848,8 @@ class CM_OT_studio_generate(bpy.types.Operator):
                     context.window_manager.cm_studio_model,
                     context.window_manager.cm_studio_prompt,
                     local,
-                    snapshot.get("referenceDataUrl") or snapshot.get("localAttachment"),
-                    context.window_manager.cm_studio_cost_ack,
+                    acknowledge_cost=context.window_manager.cm_studio_cost_ack,
+                    reference_id=context.window_manager.cm_studio_reference_id.strip() or workspace["locationId"],
                 )
             context.window_manager.cm_studio_cost_ack = False
         except (StudioProtocolError, studio_scene.StudioSceneError) as error:
@@ -1190,14 +1190,12 @@ def _draw_studio_dialog(layout: Any, context: Any) -> None:
     else:
         prompt.prop(wm, "cm_studio_model", text="Model")
     reference = prompt.row(align=True)
-    reference.operator(CM_OT_studio_attach_file.bl_idname, text="Attach local reference")
-    reference.prop(wm, "cm_studio_reference_id", text="Approved ref")
-    reference.operator(CM_OT_studio_get_reference.bl_idname, text="Attach approved")
-    attachment_name = snapshot.get("attachmentName")
-    if attachment_name:
-        prompt.label(text="Local attachment: %s (transient; not retained in source history)" % attachment_name)
-    elif snapshot.get("referenceDataUrl"):
-        prompt.label(text="Approved project reference attached")
+    if wm.cm_studio_tab != "SCENE":
+        reference.prop(wm, "cm_studio_reference_id", text="Generated image ID")
+        reference.operator(CM_OT_studio_get_reference.bl_idname, text="Preview source")
+    prompt.label(text="Derived from the location image unless another generated asset is selected.")
+    if snapshot.get("referenceDataUrl"):
+        prompt.label(text="Generated project reference preview loaded")
     capabilities = snapshot.get("capabilities", {})
     if isinstance(capabilities, dict):
         if capabilities.get("billingReady") is not True:
@@ -1278,7 +1276,6 @@ _CLASSES = (
     CM_OT_studio_generate,
     CM_OT_studio_apply,
     CM_OT_studio_save,
-    CM_OT_studio_attach_file,
     CM_OT_studio_get_reference,
     CM_OT_studio_task_refresh,
     CM_OT_studio_task_cancel,

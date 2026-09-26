@@ -174,6 +174,7 @@ class StudioRuntime:
         local_workspace: Dict[str, Any],
         image_data_url: Optional[str] = None,
         acknowledge_cost: bool = False,
+        reference_id: Optional[str] = None,
     ) -> None:
         with self._lock:
             billing_disabled = self.capabilities.get("billingReady") is False
@@ -186,6 +187,9 @@ class StudioRuntime:
         if mode not in {"scene", "animation"} or not isinstance(model_id, str) or not model_id:
             self._set_status("Studio error", "Choose a supported mode and model")
             return
+        if self.capabilities.get("sourcePolicy") != "generated-project-image-v1":
+            self._set_status("Studio error", "Update the image-derived Studio relay before generating")
+            return
         if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 4000:
             self._set_status("Studio error", "Prompt must contain 1-4000 characters")
             return
@@ -197,6 +201,10 @@ class StudioRuntime:
         except StudioProtocolError as error:
             self._set_status("Studio error", _error(error))
             return
+        source_id = checked["locationId"] if mode == "scene" else (reference_id or checked["locationId"])
+        if image_data_url or not any(ref.get("entityId") == source_id and ref.get("version") for ref in checked["references"]):
+            self._set_status("Studio error", "Select a saved generated project image; text and temporary uploads cannot replace it")
+            return
         fields: Dict[str, Any] = {
             "locationId": checked["locationId"],
             "baseRevision": checked["revision"],
@@ -206,12 +214,11 @@ class StudioRuntime:
             "prompt": prompt.strip(),
             "snapshot": checked,
             "acknowledgeCost": True,
+            "referenceId": source_id,
         }
         with self._lock:
             if self.shot_id:
                 fields["shotId"] = self.shot_id
-            if image_data_url:
-                fields["imageDataUrl"] = image_data_url
             self.proposal = None
             self.history.append({"role": "You", "text": prompt.strip()[:240]})
         self._set_status("Submitting reviewed Studio request")
@@ -262,6 +269,14 @@ class StudioRuntime:
         if workspace is None:
             self._set_status("Studio error", "Open a workspace before requesting a model")
             return
+        if self.capabilities.get("sourcePolicy") != "generated-project-image-v1":
+            self._set_status("Studio error", "Update the image-derived Studio relay before generating")
+            return
+        if image_data_url or model_id != "meshy/v7/image-to-3d" or not any(
+            ref.get("entityId") == reference_id and ref.get("version") for ref in workspace["references"]
+        ):
+            self._set_status("Studio error", "Image-to-3D requires a saved generated project reference")
+            return
         if not isinstance(model_id, str) or not model_id or not isinstance(name, str) or not name.strip():
             self._set_status("Studio error", "Choose a supported mesh model and asset name")
             return
@@ -275,8 +290,6 @@ class StudioRuntime:
         }
         if prompt:
             fields["prompt"] = prompt[:4000]
-        if image_data_url:
-            fields["imageDataUrl"] = image_data_url
         if reference_id:
             fields["referenceId"] = reference_id
         if character_id:

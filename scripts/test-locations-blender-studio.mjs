@@ -23,7 +23,7 @@ const React={
 const box={
   console,React,
   CardFold:{name:"CardFold"},
-  BlenderStudioEntry:{name:"BlenderStudioEntry"},
+  BlenderStudioLaunch:{name:"BlenderStudioLaunch"},
   nbGetMeta:id=>{calls.push({kind:"meta",id});return {iso:"location-v1"};},
   window:null,globalThis:null
 };
@@ -38,14 +38,12 @@ const location={
   context:{description:"A working kitchen",architecture:"brick",materials:"tile",staging:"island"}
 };
 const tree=box.LocationBlenderStudioSection({location,readOnly:true});
-assert.equal(tree.type,box.CardFold,"the section uses the real CardFold");
-assert.equal(tree.props.label,"Blender Studio · reusable set");
-assert.equal(tree.props.defaultOpen,false,"the reusable-set fold starts closed");
+assert.equal(tree.type,box.BlenderStudioLaunch,"the card only renders a contextual launcher");
 
 const entries=[];
 const visit=node=>{
   if(!node||typeof node!=="object")return;
-  if(node.type===box.BlenderStudioEntry)entries.push(node);
+  if(node.type===box.BlenderStudioLaunch)entries.push(node);
   (node.children||[]).forEach(visit);
 };
 visit(tree);
@@ -58,11 +56,10 @@ assert.deepEqual(entry.props.location.context,location.context);
 assert.equal(JSON.stringify(entry.props.references),
   JSON.stringify([{entityId:"loc-kitchen",label:"Kitchen",kind:"location"}]));
 assert.equal(entry.props.readOnly,true,"readOnly reaches the real entry");
-assert.equal(entry.props.compact,true,"the compact entry contract is preserved");
 assert.equal(JSON.stringify(calls),JSON.stringify([{kind:"meta",id:"loc-kitchen"}]),
   "reference metadata is checked only for the canonical ID");
 
-assert.equal(tree.children.length,1,"the fold contains only the Studio entry");
+assert.equal(tree.children.length,0,"there is no nested Studio workflow inside the card");
 assert.equal(tree.children.some(node=>node&&node.type==="details"),false,
   "the redundant About Blender Studio disclosure is removed");
 
@@ -98,31 +95,69 @@ const sheetBody=astCalls.find(n=>stringValue(n.arguments[0])==="div"&&
   String(propValue(n.arguments[1],"className")||"")==="sheet-body");
 assert.ok(sheetBody,"LocationSheet has a sheet-body producer");
 const bodyChildren=sheetBody.arguments.slice(2);
-const directStudio=bodyChildren.find(n=>firstName(n)==="LocationBlenderStudioSection");
-assert.ok(directStudio,"LocationSheet produces the wrapper inside the sheet body");
+const directStudio=astCalls.find(n=>firstName(n)==="LocationBlenderStudioSection");
+assert.ok(directStudio,"LocationSheet produces the contextual launcher");
+assert.ok(!bodyChildren.includes(directStudio),"Studio is not a separate top-level section");
 const childIndex=n=>bodyChildren.indexOf(n);
 const directClass=needle=>bodyChildren.find(n=>createElement(n)&&
   String(propValue(n.arguments[1],"className")||"").split(/\s+/).includes(needle));
 const directFold=label=>bodyChildren.find(n=>firstName(n)==="CardFold"&&propValue(n.arguments[1],"label")===label);
 const studioIndex=childIndex(directStudio),headIndex=childIndex(directClass("sheet-head")),
   styleIndex=childIndex(directClass("char-style-row")),scenesIndex=childIndex(directClass("location-scenes")),
-  stagingIndex=childIndex(directFold("Staging & composition")),lookIndex=childIndex(directFold("Look dev"));
+  viewsIndex=childIndex(directFold("Spatial Layout & Staging")),
+  promptIndex=childIndex(directFold("Generation Prompt"));
 for(const [name,index] of [["header",headIndex],["render style",styleIndex],["scene chips",scenesIndex],
-  ["Staging & composition",stagingIndex],["Look dev",lookIndex]])
+  ["Spatial Layout & Staging",viewsIndex],["Generation Prompt",promptIndex]])
   assert.ok(index>=0,`LocationSheet retains ${name} before/after Studio`);
-assert.ok(headIndex<studioIndex&&styleIndex<studioIndex&&scenesIndex<studioIndex,
-  "Studio follows the location header, render style, and scenes");
-assert.ok(stagingIndex<studioIndex&&studioIndex<lookIndex,
-  "Studio is after Staging & composition and before Look dev");
+const spatialFold=directFold("Spatial Layout & Staging");
+assert.ok(spatialFold.start<directStudio.start&&spatialFold.end>directStudio.end,
+  "the compact Blender handoff is inside Spatial Layout & Staging");
+assert.ok(!astCalls.some(n=>firstName(n)==="LocationSectionHelp"&&
+  n.start>spatialFold.start&&n.end<spatialFold.end),
+  "Spatial Layout & Staging has no standalone help icon or empty help row");
+const unitsFold=directFold("Slugline Units");
+assert.ok(!astCalls.some(n=>firstName(n)==="LocationSectionHelp"&&
+  n.start>unitsFold.start&&n.end<unitsFold.end),
+  "Slugline Units has no standalone help icon or empty help row");
+assert.ok(viewsIndex<promptIndex,"set preparation still precedes Generation Prompt");
+assert.equal(directFold("Look dev"),undefined,"locations no longer have a standalone Look dev fold");
+const promptFold=directFold("Generation Prompt");
+const styleDetails=astCalls.find(n=>stringValue(n.arguments[0])==="details"&&
+  propValue(n.arguments[1],"className")==="loc-nested-section loc-render-style-details");
+assert.ok(styleDetails&&styleDetails.start>promptFold.start&&styleDetails.end<promptFold.end,
+  "render style details are nested inside Generation Prompt");
+assert.ok(!styleDetails.arguments[1].properties.some(p=>p.key.name==="open"),
+  "render style details start collapsed");
+const styleField=astCalls.find(n=>firstName(n)==="SheetField"&&
+  propValue(n.arguments[1],"label")==="Render style instructions");
+assert.ok(styleField&&styleField.start>styleDetails.start&&styleField.end<styleDetails.end,
+  "the existing free-text style editor remains available in render style details");
+const updates=[];
+Object.assign(box,{
+  SheetField:{name:"SheetField"},l:{id:"loc-kitchen",renderStyle:"Saved custom style"},
+  d:{renderStyle:"Resolved parent style"},styleKey:"anime",onUpdate:(id,patch)=>updates.push({id,...patch})
+});
+const renderStyleField=()=>vm.runInContext(source.slice(styleField.start,styleField.end),box);
+assert.equal(renderStyleField().props.value,"Resolved parent style","the editor displays the effective inherited style");
+renderStyleField().props.onCommit("Updated custom style");
+assert.deepEqual(updates,[{id:"loc-kitchen",renderStyle:"Updated custom style",renderStyleKey:"anime",renderStyleIndependent:true}],
+  "editing the selected room's style explicitly overrides inheritance without changing the parent");
+box.l.renderStyle="";
+box.d.renderStyle="Default style";
+assert.equal(renderStyleField().props.value,"Default style","the original default-style fallback remains");
 const producer=source.slice(directStudio.start,directStudio.end);
 for(const token of [
   "id:l.id","name:l.name","parentLocationId:l.parentLocation&&l.parentLocation.id||null",
   "rootLocationId:l.rootLocationId||l.id","description:l.significance||",
-  "architecture:l.architecture||","materials:l.materials||","staging:l.staging||"
+  "architecture:l.architecture||","materials:l.materials||","staging:l.staging||","productionPlan:"
 ]) assert.ok(producer.includes(token),"LocationSheet producer keeps "+token);
-assert.equal((source.match(/React\.createElement\(window\.BlenderStudioEntry/g)||[]).length,1,
-  "there is no duplicate direct BlenderStudioEntry producer");
-const sectionSource=source.slice(source.indexOf("function LocationBlenderStudioSection"),locationSheet.start);
+assert.ok(producer.includes("locationProductionPlan(l,units)"),
+  "LocationSheet sends the versioned location production package");
+assert.ok(producer.includes("Required Space Plate")&&producer.includes("Time-of-Day Variant"),
+  "approved production-layer references are offered to Studio");
+assert.equal((source.match(/React\.createElement\(window\.BlenderStudioEntry/g)||[]).length,0,
+  "location cards no longer mount the full Studio workflow");
+const sectionSource=source.slice(source.indexOf("function LocationBlenderStudioSection"),source.indexOf("function LocationSpatialAnchorEditor"));
 assert.doesNotMatch(sectionSource,/useEffect|setTimeout|generate\(|request\(/,
   "opening the section does not add effects, generation, or service calls");
 

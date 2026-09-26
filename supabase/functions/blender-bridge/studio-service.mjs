@@ -6,7 +6,7 @@ const text = new TextEncoder();
 const MAX_GLB = 64 * 1024 * 1024;
 const MAX_IMAGE = 8 * 1024 * 1024;
 const MODELS = ["claude-fable-5", "claude-opus-5", "gpt-6-astra", "gpt-5.5-2026-04-23"];
-const MESH_MODELS = ["meshy/v7/text-to-3d", "meshy/v7/image-to-3d"];
+const MESH_MODELS = ["meshy/v7/image-to-3d"];
 const studioActions = new Set([
   "studio.capabilities", "studio.workspace.open", "studio.workspace.get",
   "studio.workspace.current", "studio.workspace.save", "studio.assistant.submit",
@@ -46,9 +46,14 @@ async function sha(bytes) {
   return [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(x => x.toString(16).padStart(2, "0")).join("");
 }
 function defaultWorkspace(projectId, location) {
+  const incoming = object(location.context) ? location.context : {};
+  const context = { description: "", architecture: "", materials: "", staging: "", productionPlan: "" };
+  ["description","architecture","materials","staging","productionPlan"].forEach(key => {
+    if (typeof incoming[key] === "string") context[key] = incoming[key];
+  });
   return { schema: "cm-studio-v1", projectId, locationId: location.id, name: location.name,
     parentLocationId: location.parentLocationId || null, rootLocationId: location.rootLocationId || location.id,
-    revision: 0, context: { description: "", architecture: "", materials: "", staging: "" },
+    revision: 0, context,
     objects: [], shots: [], references: [], assets: [], previews: [] };
 }
 function studio(state) {
@@ -76,11 +81,6 @@ function spendEventId() {
   // to a browser/desktop. It cannot be pre-seeded through legacy user-callable
   // spend receipts, and remains stable for retries once the claim succeeds.
   return `studio-${crypto.randomUUID()}`;
-}
-function dataImage(value) {
-  const m = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})$/.exec(value || "");
-  if (!m) throw bad("Invalid reference image."); const bytes = b64Bytes(m[2], MAX_IMAGE);
-  return { bytes, contentType: `image/${m[1]}` };
 }
 function isTrustedFalUrl(value) {
   let u; try { u = new URL(value); } catch (_) { return false; }
@@ -137,7 +137,7 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
     const value = studio(state).workspaces[locationId]; if (!value) throw error(404, "not_found", "Studio workspace not found."); return value;
   }
   async function validateReferences(ctx, references) {
-    if (!Array.isArray(references)) throw bad("Invalid references.");
+    if (!Array.isArray(references) || references.length > 200) throw bad("Invalid references (maximum 200).");
     if (!references.length) return [];
     if (typeof adapter?.validateStudioReference !== "function") {
       throw error(503, "reference_validation_unavailable", "Studio reference validation is unavailable.");
@@ -151,6 +151,21 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
     }
     await ctx.recheck();
     return clone(references);
+  }
+  async function requireLocationImage(ctx, locationId, references) {
+    const source = (references || []).find(r => r.entityId === locationId && r.kind === "location");
+    if (!source?.version) throw bad("Generate this location's image before opening Blender Studio.");
+    await validateReferences(ctx, [source]);
+    return source;
+  }
+  async function readGeneratedImage(ctx, reference) {
+    const image = typeof adapter?.getStudioReference === "function" &&
+      await adapter.getStudioReference({ projectId: ctx.projectId, entityId: reference.entityId, reference });
+    if (!image || !(image.bytes instanceof Uint8Array) || !image.bytes.length || image.bytes.length > MAX_IMAGE ||
+      !/^image\/(png|jpeg|webp)$/.test(image.contentType || ""))
+      throw bad("The generated source image is unavailable. Regenerate or restore it before opening Studio.");
+    await ctx.recheck();
+    return image;
   }
   function validateBindings(workspace) {
     const assets = new Set(workspace.assets.map(asset => asset.id));
@@ -253,6 +268,7 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
     if (body.action === "studio.capabilities") {
       return {
         schema: "cm-studio-v1",
+        sourcePolicy: "generated-project-image-v1",
         models: MODELS.map(modelId => {
           const configured = !!provider.models?.[modelId], verified = !!provider.verifiedModels?.[modelId];
           return { modelId, configured, verified, selectable: configured,
@@ -271,12 +287,16 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
       if (ctx.kind !== "browser") throw denied("Only a browser session can open a workspace.");
       if (!object(body.location)) throw bad("Location is required."); const loc = body.location;
       id(loc.id, "location id"); str(loc.name, "location name", 120);
+      const source = await requireLocationImage(ctx, loc.id, body.references);
+      await readGeneratedImage(ctx, source);
       let work = data.workspaces[loc.id], changed = false;
       if (!work) { work = defaultWorkspace(ctx.projectId, loc); data.workspaces[loc.id] = work; }
       else {
         if (loc.name && loc.name !== work.name) { work.name = loc.name; changed = true; }
         ["parentLocationId","rootLocationId"].forEach(k => { if (loc[k] !== undefined && work[k] !== (loc[k] || null)) { work[k] = loc[k] || null; changed = true; } });
-        if (loc.context && object(loc.context)) Object.keys(work.context).forEach(k => { if (typeof loc.context[k] === "string" && work.context[k] !== loc.context[k]) { work.context[k] = loc.context[k]; changed = true; } });
+        if (loc.context && object(loc.context)) ["description","architecture","materials","staging","productionPlan"].forEach(k => {
+          if (typeof loc.context[k] === "string" && work.context[k] !== loc.context[k]) { work.context[k] = loc.context[k]; changed = true; }
+        });
       }
       contract.validateWorkspace(work);
       const shotId = body.shot?.id || body.shotId || null;
@@ -298,9 +318,15 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
       if (ctx.browserToken) data.delegatedAuth[ctx.actor.id] = { token: ctx.browserToken, expiresAt: now() + 55 * 60 * 1000 };
       const saved = await persist(ctx, state); return { workspace: clone(saved.state.studio.workspaces[loc.id]) };
     }
+    // Protect reads and writes as well as the UI entry point. Keep task polling
+    // and cancellation available so already-paid work can still be settled.
+    if (locationId && data.workspaces[locationId])
+      await requireLocationImage(ctx, locationId, data.workspaces[locationId].references);
     if (body.action === "studio.workspace.get") return { workspace: clone(workspaceFor(state, locationId)) };
     if (body.action === "studio.workspace.current") {
-      const current = data.current[ctx.actor.id]; return current ? { workspace: clone(data.workspaces[current.locationId] || null), shotId: current.shotId } : { workspace: null, shotId: null };
+      const current = data.current[ctx.actor.id];
+      if(current&&data.workspaces[current.locationId])await requireLocationImage(ctx,current.locationId,data.workspaces[current.locationId].references);
+      return current ? { workspace: clone(data.workspaces[current.locationId] || null), shotId: current.shotId } : { workspace: null, shotId: null };
     }
     if (body.action === "studio.workspace.save") {
       const work = workspaceFor(state, locationId); if (body.baseRevision !== work.revision) throw conflict();
@@ -310,6 +336,7 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
       // client supplied hashes/bytes/previews as an authority claim.
       proposed.assets = clone(work.assets); proposed.previews = clone(work.previews);
       proposed.references = await validateReferences(ctx, proposed.references);
+      await requireLocationImage(ctx, locationId, proposed.references);
       contract.validateWorkspace(proposed); validateBindings(proposed);
       if (proposed.projectId !== ctx.projectId || proposed.locationId !== locationId || proposed.revision !== work.revision) throw conflict();
       if (data.mutations?.[locationId] === body.mutationId) return { workspace: clone(work) };
@@ -332,23 +359,19 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
         "billing_atomic_settlement_unavailable",
         "Studio generation is unavailable until atomic credit settlement is configured.");
       if (!isMesh && body.baseRevision !== work.revision) throw conflict();
-      if (!isMesh && body.snapshot != null) { contract.validateWorkspace(body.snapshot); if (body.snapshot.locationId !== locationId || body.snapshot.projectId !== ctx.projectId) throw bad("Snapshot belongs to another workspace."); }
-      let image = null; if (body.imageDataUrl != null) image = dataImage(body.imageDataUrl);
+      if (!isMesh && body.snapshot != null) { contract.validateWorkspace(body.snapshot); if (body.snapshot.locationId !== locationId || body.snapshot.projectId !== ctx.projectId) throw bad("Snapshot belongs to another workspace."); if(body.snapshot.revision!==work.revision)throw conflict(); }
+      const inputWorkspace=!isMesh&&body.snapshot ? {...clone(body.snapshot),context:clone(work.context),
+        references:clone(work.references),assets:clone(work.assets)} : work;
+      validateBindings(inputWorkspace);
+      if(body.imageDataUrl != null)throw bad("Use a saved generated project reference, not a temporary upload.");
+      const referenceId=id(body.referenceId,"generated source reference id");
+      const source=work.references.find(reference=>reference.entityId===referenceId);
+      if(!source||!source.version)throw bad("Select a saved generated project image in this workspace.");
+      if(!isMesh&&body.mode==="scene"&&referenceId!==locationId)
+        throw bad("Scene Builder must derive the set from its location image.");
+      const image=await readGeneratedImage(ctx,source);
       if (isMesh) {
-        if (!image && !body.prompt && !body.referenceId) throw bad("Mesh prompt, image, or canonical reference is required.");
-        if (body.referenceId) {
-          const referenceId = id(body.referenceId, "reference id");
-          if (!work.references.some(reference => reference.entityId === referenceId) ||
-            typeof adapter?.getStudioReference !== "function") throw bad("Reference is not an authorized generated project asset.");
-          const reference = await adapter.getStudioReference({ projectId: ctx.projectId, entityId: referenceId,
-            reference: work.references.find(item => item.entityId === referenceId) });
-          if (!reference || !(reference.bytes instanceof Uint8Array) || reference.bytes.length > MAX_IMAGE ||
-            !/^image\/(png|jpeg|webp)$/.test(reference.contentType || "")) throw bad("Reference is not an authorized generated project asset.");
-          image = { bytes: reference.bytes, contentType: reference.contentType };
-          await ctx.recheck();
-        }
         if (body.prompt != null) str(body.prompt, "mesh prompt", 600);
-        if (modelId === "meshy/v7/text-to-3d" && image) throw bad("The selected text-to-3D model does not accept an image.");
         if (modelId === "meshy/v7/image-to-3d" && !image) throw bad("The selected image-to-3D model requires an image.");
         if (body.targetPolycount != null && (!Number.isInteger(body.targetPolycount) ||
           body.targetPolycount < 1000 || body.targetPolycount > 100000)) throw bad("Invalid target polycount.");
@@ -398,7 +421,7 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
       try {
         await authorize(ctx, token, 1); await ctx.recheck();
         const answer = await provider.submitAssistant({ modelId, mode: body.mode, prompt: body.prompt,
-          workspace: body.snapshot || work, image: image?.bytes, imageType: image?.contentType, requestId });
+          workspace: inputWorkspace, image: image.bytes, imageType: image.contentType, requestId });
         await ctx.recheck(); const fresh = await ctx.refresh(), next = clone(fresh.state), durable = studio(next).tasks[key];
         if (durable.status !== "cancelled") {
           durable.proposal = typeof answer === "string" ? JSON.parse(answer) : answer?.proposal || answer;

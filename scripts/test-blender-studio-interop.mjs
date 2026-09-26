@@ -121,6 +121,11 @@ const goodGlb = minimalGlb();
 assert.throws(() => validateGlb(maliciousGlb()), /unsafe external content/i, "service GLB guard must reject external URI");
 validateGlb(goodGlb);
 const adapter = {
+  async validateStudioReference({entityId,version}) { return entityId===location.id&&version==="2026-09-24T10:00:00.000Z"; },
+  async getStudioReference({entityId,reference}) {
+    return await this.validateStudioReference({entityId,version:reference?.version})
+      ? {bytes:new Uint8Array([137,80,78,71,13,10,26,10]),contentType:"image/png"}:null;
+  },
   async getUserByAccessToken(token) { return token === browserToken ? { id: ownerId, email: "owner@example.test" } : null; },
   async getUserById(id) { return id === ownerId ? { id, email: "owner@example.test" } : null; },
   async getProjectAccess(id, subject) {
@@ -192,6 +197,8 @@ async function startServer() {
   return { server, endpoint: `http://127.0.0.1:${address.port}` };
 }
 async function post(endpoint, action, body = {}, token = `Bearer ${browserToken}`) {
+  if(action==="studio.workspace.open")body={...body,references:[{entityId:location.id,label:location.name,
+    kind:"location",version:"2026-09-24T10:00:00.000Z"}]};
   const response = await fetch(endpoint, { method: "POST", headers: { authorization: token, "content-type": "application/json" },
     body: JSON.stringify({ action, projectId, ...body }) });
   return { status: response.status, json: await response.json() };
