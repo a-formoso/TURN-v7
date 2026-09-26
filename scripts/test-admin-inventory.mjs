@@ -5,6 +5,10 @@
    the preflight guard, that only postgres can read the schema, that a Show-
    promotion copy a retry would reuse is never offered for deletion, and that
    each storage key is parsed once per file (query plan).
+   Then the same file runs on a LEGACY database (series-production.sql never
+   applied: no project_kind / show_id / episode_no, no upload reservations, no
+   cleanup queue; Shows and Episodes marked only in the doc, as the app writes
+   them there), and again after that database gets the migration.
    Run: node scripts/test-admin-inventory.mjs */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -350,9 +354,10 @@ await db.exec(STUB);
 await db.exec(HOSTILE);
 await seed(db);
 
+let fullRun; // results of the second full-schema run (the last one is the status table)
 await acheck("the SQL file runs cleanly twice (idempotent re-run)", async () => {
   await db.exec(SQL);
-  await db.exec(SQL);
+  fullRun = await db.exec(SQL);
   const views = (await db.query(`select viewname from pg_views where schemaname = 'turn_admin' order by 1`)).rows.map(r => r.viewname);
   assert.deepEqual(views, ["external_media", "files", "orphans", "projects", "referenced_paths", "users"]);
 });
@@ -814,19 +819,572 @@ await acheck("the PREFLIGHT REPORT query alone returns all-ok on a healthy datab
   assert.ok(rows.every(r => r.ok === true), JSON.stringify(rows.filter(r => !r.ok)));
 });
 
-await acheck("saved query 'whole project folders': only folders where EVERY file is safe", async () => {
-  // run the documented snippet exactly as the admin would (comment markers stripped)
-  const start = SQL.indexOf("-- ── Whole project folders that are safe to delete");
-  const body = SQL.slice(start).split("\n").filter(l => /^-- (select|  from|  where|  group|having| where| group| order|       )/.test(l) || /^--  (from|where|group|order)/.test(l))
-    .map(l => l.replace(/^-- ?/, "")).join("\n").replace(/;[\s\S]*$/, "");
-  const rows = (await db.query(body)).rows;
+// the documented 'whole folders' snippet, run exactly as the admin would: every
+// line from its "-- select" to the line ending in ";", comment markers stripped
+const wholeFoldersQuery = () => {
+  const head = SQL.indexOf("-- ── Whole folders of DELETED projects that are safe to delete");
+  assert.ok(head > 0, "the saved query is in the file");
+  const lines = SQL.slice(head).split("\n");
+  const from = lines.findIndex(l => /^-- select\b/.test(l));
+  const to = lines.findIndex((l, i) => i >= from && /;\s*$/.test(l));
+  assert.ok(from > 0 && to > from, "the saved query has a select and an end");
+  return lines.slice(from, to + 1).map(l => l.replace(/^-- ?/, "")).join("\n").replace(/;\s*$/, "");
+};
+
+await acheck("saved query 'whole folders': only DELETED projects' folders where EVERY file is safe", async () => {
+  const rows = (await db.query(wholeFoldersQuery())).rows;
   const key = r => r.user_folder + "/" + r.project_folder;
   const got = new Set(rows.map(key));
   assert.ok(got.has(GONE_USER + "/" + PD), "a deleted account's folder of a deleted film: every file is an orphan");
   assert.ok(!got.has(ALICE + "/" + PD), "the same film's folder under Alice still holds a Blender service file");
   assert.ok(!got.has(ALICE + "/" + P1), "a live film's folder is never listed");
   assert.ok(rows.every(r => Number(r.files) > 0 && r.size));
+  assert.ok(rows.every(r => r.project === "(deleted project)"), "every listed folder belongs to a deleted project");
+  // A live project's folder whose every file is unreferenced right now: a folder
+  // delete would also remove whatever a collaborator uploads after the query, so
+  // the folder is NOT listed; the file itself is offered by exact path in orphans.
+  const stale = `${DAVE}/${P0}/prop/prop-y/sheet-20260101-000000-abab0001.png`;
+  await db.exec(`begin`);
+  try {
+    await db.query(`insert into storage.objects(bucket_id, name, metadata, created_at, updated_at)
+                    values ('turn-assets', $1, $2, now() - interval '2 days', now() - interval '2 days')`,
+      [stale, j({ size: 10, mimetype: "image/png" })]);
+    const f = (await db.query(`select status, safe_to_delete from turn_admin.files where path = $1`, [stale])).rows[0];
+    assert.deepEqual(f, { status: "unreferenced", safe_to_delete: true }, "every file of Dave's live film is safe");
+    const live = (await db.query(wholeFoldersQuery())).rows;
+    assert.ok(!live.some(r => r.user_folder === DAVE && r.project_folder === P0), "a LIVE project's folder is never listed");
+    assert.equal((await db.query(`select count(*)::int as n from turn_admin.orphans where path = $1`, [stale])).rows[0].n, 1,
+      "the file is still offered for an exact-path delete");
+  } finally {
+    await db.exec(`rollback`);
+  }
 });
 
+// ── shared helpers for the status table and the schema-adaptive runs ────────
+const ITEMS = {
+  views: "turn_admin views (read-only)",
+  locked: "Only postgres (the SQL Editor) can read turn_admin",
+  api: "turn_admin kept out of the Data API",
+  rls: "Reader sees every row (row-level security safety net)",
+  pg: "Postgres 15 or newer",
+  core: "Core tables (schema.sql, Supabase Auth and Storage)",
+  bucket: "Bucket turn-assets",
+  series: "Shows & episodes migration (series-production.sql)",
+  intents: "Upload reservations (turn_asset_upload_intents)",
+  queue: "Cleanup queue (turn_asset_cleanup_queue)",
+  cameos: "Cameos (cameos.sql)",
+  credits: "Credits (credits.sql)",
+  files: "Files in turn-assets",
+  projects: "Projects",
+  users: "User accounts",
+  orphans: "Orphans (safe to delete)",
+};
+// the result the SQL Editor shows = the last statement's result
+const statusTable = (results) => {
+  const last = results.at(-1);
+  assert.deepEqual(last.fields.map(f => f.name), ["item", "status", "detail"], "the file ends with the status table");
+  assert.deepEqual(last.rows.map(r => r.item), Object.values(ITEMS), "one row per check / feature / count, in order");
+  return Object.fromEntries(Object.entries(ITEMS).map(([k, item]) => [k, last.rows.find(r => r.item === item)]));
+};
+const viewColumns = async (d) => (await d.query(`
+  select c.relname as view, a.attnum as n, a.attname as col, format_type(a.atttypid, a.atttypmod) as type
+    from pg_attribute a
+    join pg_class c on c.oid = a.attrelid
+    join pg_namespace s on s.oid = c.relnamespace
+   where s.nspname = 'turn_admin' and c.relkind = 'v' and a.attnum > 0 and not a.attisdropped
+   order by 1, 2`)).rows;
+// every view runs with the reader's own rights, however it was built
+const assertInvoker = async (d) => {
+  const rows = (await d.query(`
+    select c.relname, c.reloptions from pg_class c join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'turn_admin' and c.relkind = 'v' order by 1`)).rows;
+  assert.equal(rows.length, 6);
+  for (const r of rows) assert.ok((r.reloptions || []).includes("security_invoker=true"), r.relname + " is not security_invoker");
+};
+const privacyAndLockdown = async (d) => {
+  await assertInvoker(d);
+  for (const v of ["referenced_paths", "files", "orphans", "projects", "users", "external_media"]) {
+    const dump = JSON.stringify((await d.query(`select * from turn_admin.${v}`)).rows, (k, x) => typeof x === "bigint" ? String(x) : x);
+    assert.ok(!dump.includes("SECRET"), `${v} leaks a prompt or subject`);
+  }
+  const r = (await d.query(`
+    select has_schema_privilege('anon', 'turn_admin', 'USAGE') as anon,
+           has_schema_privilege('authenticated', 'turn_admin', 'USAGE') as authed,
+           has_schema_privilege('service_role', 'turn_admin', 'USAGE') as service,
+           has_schema_privilege('public', 'turn_admin', 'USAGE') as pub,
+           has_table_privilege('anon', 'turn_admin.files', 'SELECT') as anon_files,
+           has_table_privilege('authenticated', 'turn_admin.orphans', 'SELECT') as authed_orphans,
+           has_table_privilege('authenticated', 'turn_admin.users', 'SELECT') as authed_users`)).rows[0];
+  assert.deepEqual(r, { anon: false, authed: false, service: false, pub: false, anon_files: false, authed_orphans: false, authed_users: false });
+  await d.exec(`set role anon`);
+  await assert.rejects(d.query(`select count(*) from turn_admin.files`), /permission denied/);
+  await d.exec(`reset role`);
+  const objs = (await d.query(`
+    select c.relkind, count(*)::int as n from pg_class c join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'turn_admin' group by 1`)).rows;
+  assert.deepEqual(objs, [{ relkind: "v", n: 6 }]);
+  const fns = (await d.query(`select count(*)::int as n from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'turn_admin'`)).rows[0].n;
+  assert.equal(fns, 0, "no function left behind in turn_admin");
+  const tmpFns = (await d.query(`select count(*)::int as n from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname in ('public', 'turn_admin') or n.nspname like 'pg_temp%'`)).rows[0].n;
+  assert.equal(tmpFns, 0, "no function left behind anywhere the file could write");
+};
+
+const fullColumns = await viewColumns(db);
+
+check("full schema: the last result is the status table — every check ok, every feature installed, counts match", () => {
+  const t = statusTable(fullRun);
+  for (const k of ["locked", "api", "rls", "pg", "core", "bucket"]) assert.equal(t[k].status, "ok", k);
+  for (const k of ["views", "series", "intents", "queue", "cameos", "credits"]) assert.equal(t[k].status, "installed", k);
+  assert.equal(t.views.detail, "external_media, files, orphans, projects, referenced_paths, users");
+  assert.equal(t.files.status, String(OBJECTS.length));
+  assert.equal(t.orphans.status, String(orphanPaths.size));
+  assert.equal(t.projects.status, "5", "P1, S1, E1, E2, P0 (the deleted film is not counted)");
+  assert.equal(t.projects.detail, "films 2 · Shows 1 · Episodes 2 · deleted projects that still have files 1");
+  assert.equal(t.users.status, "4");
+  assert.equal(t.users.detail, "upload folders of deleted accounts 1");
+  assert.match(t.series.detail, /project_kind, show_id, episode_no/);
+});
+
+await acheck("full schema: every view (also the ones the DO block builds) is security_invoker", async () => {
+  await assertInvoker(db);
+});
+
+check("the column lists of the report, the guard and the status table are identical", () => {
+  const lists = [...SQL.matchAll(/need\(schema_name, table_name, column_name, feature, source\) as \(values\n([\s\S]*?)\n\s*\)/g)]
+    .map(m => m[1].replace(/\s+/g, " ").trim());
+  assert.equal(lists.length, 3);
+  assert.equal(lists[1], lists[0], "guard list = report list");
+  assert.equal(lists[2], lists[0], "status-table list = report list");
+});
+
+// ═══ LEGACY database: series-production.sql never applied ═══════════════════
+// turn_projects has no project_kind / show_id / episode_no; there is no
+// turn_asset_upload_intents and no turn_asset_cleanup_queue. turn_cameos and
+// turn_credits exist (as on the owner's production database).
+const SERIES_COLS = ",\n  project_kind text not null default 'film',\n  show_id uuid references public.turn_projects(id),\n  episode_no integer\n";
+const RES_START = STUB.indexOf("-- series-production.sql (upload reservations");
+const RES_END = STUB.indexOf("-- credits.sql");
+const RESERVATION_DDL = STUB.slice(RES_START, RES_END);
+const STUB_LEGACY = STUB.replace(SERIES_COLS, "\n").replace(RESERVATION_DDL, "");
+assert.ok(STUB.includes(SERIES_COLS) && RES_START > 0 && RES_END > RES_START, "legacy stub derived from STUB");
+assert.ok(!/project_kind|show_id|episode_no|turn_asset_upload_intents|turn_asset_cleanup_queue/.test(STUB_LEGACY), "legacy stub has no series-production objects");
+
+const PX = "0dd00000-0000-4000-8000-0000000000ff";  // Dave's film with a stale, malformed Show marker
+// well-formed doc.showId markers that name no Show: both stay plain films
+const PF = "5f000000-0000-4000-8000-0000000000f2";  // Dave's film whose doc.showId names Alice's FILM P1
+const PG = "9d000000-0000-4000-8000-0000000000f3";  // Dave's film whose doc.showId names the deleted PD
+const L = {
+  current:      `${ALICE}/${P1}/character/adem/sheet-20260101-000000-aaaa1111.png`,
+  cameo:        `${ALICE}/${P1}/cameo/adem/front-20260103-000000-cccc1111.png`,
+  unreferenced: `${ALICE}/${P1}/prop/prop-knife/sheet-20260106-000000-ffff1111.png`,
+  stale:        `${ALICE}/${P1}/location/loc-harbor/sheet-20260926-000000-ffff3333.png`, // 3 h old: no reservation table to keep it
+  fresh:        `${ALICE}/${P1}/shot/shot-s1-1-a/sheet-20260926-000000-ffff2222.png`,
+  relayPng:     `${ALICE}/${P1}/shot/job-123/blender-preview-job-123.png`,
+  marker:       `_internal/blender-bridge/claims/9f8e7d.json`,
+  stageOld:     `${ALICE}/stage-tmp/1758800000000-image-0-a1b2.png`,
+  stageFresh:   `${ALICE}/stage-tmp/1758895000000-image-2-e5f6.png`,
+  showLegacy:   `${CAROL}/${E1}/character/mara/sheet-20250601-000000-77771111.png`,  // the Show row points here
+  epBible:      `${CAROL}/${E2}/location/loc-well/sheet-20250701-000000-77772222.png`,
+  epUnref:      `${CAROL}/${E1}/prop/prop-lamp/sheet-20250702-000000-77773333.png`,
+  deleted:      `${ALICE}/${PD}/prop/prop-x/sheet-20250101-000000-99991111.png`,
+  oddMarker:    `${DAVE}/${PX}/character/zed/sheet-20260110-000000-12121212.png`,
+  notAShow:     `${DAVE}/${PF}/prop/prop-knife/sheet-20260111-000000-13131313.png`, // P1 names prop-knife "Knife"
+};
+const L_OBJECTS = [
+  [L.current, "3 days", 1000, "image/png"],
+  [L.cameo, "2 days", 300, "image/png"],
+  [L.unreferenced, "2 days", 4000, "image/png"],
+  [L.stale, "3 hours", 2600, "image/png"],
+  [L.fresh, "10 minutes", 2500, "image/png"],
+  [L.relayPng, "5 days", 3000, "image/png"],
+  [L.marker, "10 days", 64, "application/json"],
+  [L.stageOld, "3 hours", 7000, "image/png"],
+  [L.stageFresh, "30 minutes", 7200, "image/png"],
+  [L.showLegacy, "100 days", 6000, "image/png"],
+  [L.epBible, "70 days", 6300, "image/png"],
+  [L.epUnref, "70 days", 6400, "image/png"],
+  [L.deleted, "90 days", 5000, "image/png"],
+  [L.oddMarker, "10 days", 700, "image/png"],
+  [L.notAShow, "10 days", 710, "image/png"],
+];
+const L_SAFE = [L.unreferenced, L.stale, L.stageOld, L.epUnref, L.deleted];
+
+async function seedLegacy(d) {
+  await d.exec(`
+    insert into auth.users(id, email, created_at, last_sign_in_at) values
+      ('${ALICE}', 'alice@example.com', now() - interval '200 days', now() - interval '1 day'),
+      ('${BOB}',   'bob@example.com',   now() - interval '150 days', now() - interval '2 days'),
+      ('${CAROL}', 'carol@example.com', now() - interval '120 days', null),
+      ('${DAVE}',  'dave@example.com',  now() - interval '10 days',  null);
+    insert into public.turn_credits(owner, remaining, plan) values
+      ('${ALICE}', 500, 'studio'), ('${CAROL}', 0, 'none');
+    insert into storage.buckets(id, name, public) values ('turn-assets', 'turn-assets', false);
+  `);
+  const q = (sql, params) => d.query(sql, params);
+  const filmDoc = {
+    characters: [{ id: "adem", name: "Adem" }],
+    props: [{ id: "prop-knife", name: "Knife" }],
+    locations: [{ id: "loc-harbor", name: "Harbor" }],
+    shots: [{ id: "shot-s1-1-a", sceneId: "s1", beatN: 1, action: "SECRET-PROMPT-SHOT" }],
+  };
+  // exactly what the pre-migration app stores: the Show is marked by doc.isShow and
+  // keeps its cast in doc.bible; an Episode names its Show in doc.showId and its
+  // number in doc.episodeNo (a JSON number) and carries no characters/locations/props
+  const showDoc = {
+    isShow: true,
+    bible: {
+      characters: [{ id: "mara", name: "Mara" }],
+      locations: [{ id: "loc-well", name: "The Well" }],
+      props: [{ id: "prop-lamp", name: "Lamp" }], lookbook: [], lookbookNote: "", trash: { characters: [], locations: [], props: [] },
+    },
+  };
+  const epDoc = (n) => ({ showId: S1, episodeNo: n, scenes: [], shots: [] });
+  const oddDoc = { showId: "not-a-uuid", episodeNo: "x", characters: [{ id: "zed", name: "Zed" }] };
+  const project = (id, owner, title, doc) => q(`insert into public.turn_projects(id, owner, title, doc) values ($1, $2, $3, $4)`, [id, owner, title, j(doc)]);
+  await project(P1, ALICE, "Neon Harbor", filmDoc);
+  await project(S1, CAROL, "Dust Road", showDoc);
+  await project(E1, CAROL, "Dust Road E1", epDoc(1));
+  await project(E2, CAROL, "Dust Road E2", epDoc(2));
+  await project(PX, DAVE, "Odd Film", oddDoc);
+  await project(PD, ALICE, "Doomed Film", {});
+  await project(PF, DAVE, "Not An Episode", { showId: P1, episodeNo: 2, scenes: [] });
+  await project(PG, DAVE, "Lost Parent", { showId: PD, episodeNo: 3, scenes: [] });
+  const gen = (project, owner, entity, storage_path, meta = {}) => q(
+    `insert into public.turn_generations(project_id, owner, entity_id, storage_path, meta) values ($1, $2, $3, $4, $5)`,
+    [project, owner, entity, storage_path, j(meta)]);
+  await gen(PD, ALICE, "prop-x", L.deleted);
+  await gen(P1, ALICE, "adem", L.current, { prompt: "SECRET-PROMPT-SHEET" });
+  await gen(S1, CAROL, "mara", L.showLegacy);   // Show row → file under Episode 1's folder
+  await gen(E2, CAROL, "loc-well", L.epBible);  // Episode row, name only in the Show Bible
+  await gen(PX, DAVE, "zed", L.oddMarker);
+  await gen(PF, DAVE, "prop-knife", L.notAShow);
+  await q(`insert into public.turn_cameos(project_id, owner, char_id, angles, prov) values ($1, $2, 'adem', $3, $4)`,
+    [P1, ALICE, j([{ label: "Front", storage_path: L.cameo }]), j({ consent: true, subject: "SECRET-SUBJECT-NAME" })]);
+  for (const [path, age, bytes, mime] of L_OBJECTS) {
+    await q(`insert into storage.objects(bucket_id, name, metadata, created_at, updated_at)
+             values ('turn-assets', $1, $2, now() - $3::interval, now() - $3::interval)`,
+      [path, j({ size: bytes, mimetype: mime }), age]);
+  }
+  await q(`delete from public.turn_projects where id = $1`, [PD]);
+}
+
+const ldb = new PGlite();
+await ldb.exec(STUB_LEGACY);
+await ldb.exec(HOSTILE);
+await seedLegacy(ldb);
+
+let legacyRun;
+await acheck("legacy: the preflight guard does not abort, and the file runs cleanly twice", async () => {
+  await ldb.exec(SQL);
+  legacyRun = await ldb.exec(SQL);
+  const views = (await ldb.query(`select viewname from pg_views where schemaname = 'turn_admin' order by 1`)).rows.map(r => r.viewname);
+  assert.deepEqual(views, ["external_media", "files", "orphans", "projects", "referenced_paths", "users"]);
+});
+
+const lrows = async (sql, params) => (await ldb.query(sql, params)).rows;
+const lfiles = await lrows(`select * from turn_admin.files`);
+const lByPath = new Map(lfiles.map(r => [r.path, r]));
+const lfile = (p) => { const r = lByPath.get(p); assert.ok(r, "missing legacy files row for " + p); return r; };
+const lOrphans = new Set((await lrows(`select path from turn_admin.orphans`)).map(r => r.path));
+
+check("legacy: the status table says Shows & episodes, reservations and the queue are not installed", () => {
+  const t = statusTable(legacyRun);
+  assert.equal(t.series.status, "not installed — Shows/episodes read from the document markers");
+  assert.match(t.intents.status, /^not installed — only files under 1 hour old count as uploading$/);
+  assert.match(t.queue.status, /^not installed — no file is marked queued-for-cleanup$/);
+  for (const k of ["views", "cameos", "credits"]) assert.equal(t[k].status, "installed", k);
+  for (const k of ["locked", "api", "rls", "pg", "core", "bucket"]) assert.equal(t[k].status, "ok", k);
+  assert.equal(t.files.status, String(L_OBJECTS.length));
+  assert.equal(t.orphans.status, String(L_SAFE.length));
+  assert.equal(t.projects.status, "7", "P1, S1, E1, E2, PX, PF, PG");
+  assert.equal(t.projects.detail, "films 4 · Shows 1 · Episodes 2 · deleted projects that still have files 1",
+    "PF and PG name a project that is not a Show: they are films, not Episodes");
+  assert.equal(t.users.status, "4");
+  assert.ok(!t.series.status.startsWith("FAIL") && !Object.values(t).some(r => r.status.startsWith("FAIL")));
+});
+
+check("legacy: every file is listed; a live film's files read as on the full schema", () => {
+  assert.equal(lfiles.length, L_OBJECTS.length);
+  const cur = lfile(L.current);
+  assert.equal(cur.status, "current");
+  assert.equal(cur.project_kind, "film");
+  assert.equal(cur.show_title, null);
+  assert.equal(cur.episode, null);
+  assert.equal(cur.entity_name, "Adem");
+  assert.equal(cur.project_title, "Neon Harbor");
+  assert.equal(cur.project_owner_email, "alice@example.com");
+  assert.equal(lfile(L.cameo).status, "cameo-angle");
+  assert.equal(lfile(L.cameo).entity_name, "Adem");
+});
+
+check("legacy Show + Episode: markers resolve kind, Show title, episode number and Bible names", () => {
+  const r = lfile(L.showLegacy);
+  assert.equal(r.status, "current");
+  assert.equal(r.project_id, E1);
+  assert.equal(r.project_title, "Dust Road E1");
+  assert.equal(r.project_kind, "episode");
+  assert.equal(r.show_title, "Dust Road");
+  assert.equal(r.episode, 1);
+  assert.equal(r.entity_id, "mara");
+  assert.equal(r.entity_name, "Mara", "named from the Show Bible");
+  assert.deepEqual(r.referenced_by_project_ids, [S1]);
+  const ep = lfile(L.epBible);
+  assert.equal(ep.entity_name, "The Well", "Episode doc has no locations: the parent Show's Bible names it");
+  assert.equal(ep.episode, 2);
+  assert.equal(ep.show_title, "Dust Road");
+  const un = lfile(L.epUnref);
+  assert.equal(un.status, "unreferenced");
+  assert.equal(un.entity_name, "Lamp");
+  assert.equal(un.safe_to_delete, true);
+});
+
+check("legacy: a Show row referencing a file under Episode 1's folder is NOT an orphan", () => {
+  const r = lfile(L.showLegacy);
+  assert.equal(r.safe_to_delete, false);
+  assert.equal(r.orphan_reason, null);
+  assert.ok(!lOrphans.has(L.showLegacy));
+});
+
+check("legacy: a malformed doc.showId never raises and leaves a plain film", () => {
+  const r = lfile(L.oddMarker);
+  assert.equal(r.project_kind, "film");
+  assert.equal(r.show_title, null);
+  assert.equal(r.episode, null);
+  assert.equal(r.entity_name, "Zed");
+  assert.equal(r.status, "current");
+});
+
+await acheck("legacy: a doc.showId naming a film or a deleted project is NOT an Episode (only a Show parent counts)", async () => {
+  // as series-production.sql's backfill/trigger (parent must be a Show) and the
+  // app's turnSeries.groups() ('unavailable', never an Episode of that project)
+  const r = lfile(L.notAShow);
+  assert.deepEqual([r.project_kind, r.show_title, r.episode], ["film", null, null], "showId → the film P1");
+  assert.equal(r.entity_name, null, "names never come from the unrelated film's doc (P1 calls prop-knife 'Knife')");
+  assert.equal(r.status, "current");
+  const rows = await lrows(`select project_id, kind, show_title, episode from turn_admin.projects where project_id in ($1, $2)`, [PF, PG]);
+  assert.deepEqual(rows.map(p => [p.project_id, p.kind, p.show_title, p.episode]).sort(),
+    [[PF, "film", null, null], [PG, "film", null, null]].sort(), "showId → a film, showId → a deleted project");
+  // the parent's marker is read like the app reads it: 'true' in any case, also as
+  // a string; once the parent stops being a Show, its Episodes read as films
+  const e1 = async () => (await ldb.query(`select kind, show_title, episode from turn_admin.projects where project_id = $1`, [E1])).rows[0];
+  await ldb.exec(`begin`);
+  try {
+    await ldb.query(`update public.turn_projects set doc = jsonb_set(doc, '{isShow}', '"TRUE"') where id = $1`, [S1]);
+    assert.deepEqual(await e1(), { kind: "episode", show_title: "Dust Road", episode: 1 });
+    await ldb.query(`update public.turn_projects set doc = jsonb_set(doc, '{isShow}', 'false') where id = $1`, [S1]);
+    assert.deepEqual(await e1(), { kind: "film", show_title: null, episode: null });
+  } finally {
+    await ldb.exec(`rollback`);
+  }
+});
+
+check("legacy: deleted project's file is an orphan, an unreferenced file is 'unreferenced'", () => {
+  const d = lfile(L.deleted);
+  assert.equal(d.status, "orphan: project deleted");
+  assert.equal(d.project_title, "(deleted project)");
+  assert.equal(d.project_kind, null);
+  assert.equal(d.safe_to_delete, true);
+  const u = lfile(L.unreferenced);
+  assert.equal(u.status, "unreferenced");
+  assert.equal(u.entity_name, "Knife");
+  assert.match(u.orphan_reason, /no generation/);
+});
+
+check("legacy: < 1 h is 'uploading'; without the reservation table an old unreferenced file is not", () => {
+  assert.equal(lfile(L.fresh).status, "uploading");
+  assert.equal(lfile(L.fresh).safe_to_delete, false);
+  assert.equal(lfile(L.stale).status, "unreferenced");
+  assert.ok(!lfiles.some(r => r.status === "queued-for-cleanup"), "no queue, no reservations: nothing is queued");
+});
+
+check("legacy: relay PNG is 'service', _internal marker is a relay-security-marker, stage-tmp by age", () => {
+  assert.equal(lfile(L.relayPng).status, "service");
+  assert.equal(lfile(L.relayPng).safe_to_delete, false);
+  assert.equal(lfile(L.marker).area, "relay-security-marker");
+  assert.equal(lfile(L.marker).status, "service");
+  assert.equal(lfile(L.marker).project_id, null);
+  assert.ok(lOrphans.has(L.stageOld));
+  assert.ok(!lOrphans.has(L.stageFresh));
+});
+
+check("legacy: orphans view is EXACTLY the safe set", () => {
+  assert.deepEqual([...lOrphans].sort(), [...L_SAFE].sort());
+  assert.equal(lfiles.filter(r => r.safe_to_delete).length, L_SAFE.length, "files.safe_to_delete mirrors orphans");
+});
+
+await acheck("legacy: projects and users views (kind from the markers, plan from turn_credits)", async () => {
+  const rows = await lrows(`select * from turn_admin.projects`);
+  const p = (id) => rows.find(r => r.project_id === id);
+  assert.equal(p(S1).kind, "show");
+  assert.equal(p(S1).show_title, "Dust Road");
+  assert.equal(p(S1).episode, null);
+  assert.equal(p(E1).kind, "episode");
+  assert.equal(p(E1).show_title, "Dust Road");
+  assert.equal(p(E1).episode, 1);
+  assert.equal(p(E2).episode, 2);
+  assert.equal(p(P1).kind, "film");
+  assert.equal(p(PX).kind, "film");
+  assert.equal(p(PD).title, "(deleted project)");
+  const users = await lrows(`select * from turn_admin.users`);
+  assert.equal(users.find(u => u.email === "alice@example.com").plan, "studio");
+  assert.equal(Number(users.find(u => u.email === "carol@example.com").film_count), 3);
+});
+
+await acheck("legacy: privacy holds, only postgres can read, nothing but six views, no function left behind", async () => {
+  await privacyAndLockdown(ldb);
+});
+
+await acheck("legacy: the PREFLIGHT REPORT alone is all-ok and names the features that are not installed", async () => {
+  const start = SQL.indexOf("with need(schema_name");
+  const end = SQL.indexOf(";", start);
+  const rows = (await ldb.query(SQL.slice(start, end))).rows;
+  assert.ok(rows.length >= 30);
+  assert.ok(rows.every(r => r.ok === true), JSON.stringify(rows.filter(r => !r.ok)));
+  const st = (name) => rows.find(r => r.check_name === name).status;
+  for (const c of ["project_kind", "show_id", "episode_no"])
+    assert.equal(st(`column public.turn_projects.${c}`), "not installed — Shows/episodes read from the document markers");
+  assert.match(st("column public.turn_asset_upload_intents.expires_at"), /^not installed — /);
+  assert.match(st("column public.turn_asset_cleanup_queue.path"), /^not installed — /);
+  assert.equal(st("column public.turn_cameos.angles"), "ok");
+  assert.equal(st("column public.turn_credits.plan"), "ok");
+  // and the full schema reports everything as plain 'ok'
+  const full = (await db.query(SQL.slice(start, end))).rows;
+  assert.ok(full.every(r => r.status === "ok"), JSON.stringify(full.filter(r => r.status !== "ok")));
+});
+
+await acheck("legacy: saved query 'whole folders' lists only fully-safe folders of deleted projects", async () => {
+  const rows = (await ldb.query(wholeFoldersQuery())).rows;
+  assert.deepEqual(rows.map(r => r.user_folder + "/" + r.project_folder), [ALICE + "/" + PD],
+    "the deleted film's folder only: the live film, the Episode folders (a Show row points into E1) and the odd film all hold live files");
+  assert.equal(Number(rows[0].files), 1);
+  // Bob's folder inside Alice's LIVE film holds only two stale, unreferenced sheets
+  // (older than 1 h, no reservation table on this database). Listing it would send
+  // the owner to a Dashboard folder delete, which would also take a sheet Bob
+  // generates and records there after the query ran.
+  const staleA = `${BOB}/${P1}/character/adem/sheet-20260101-000000-b0b0aaaa.png`;
+  const staleB = `${BOB}/${P1}/character/adem/sheet-20260102-000000-b0b0bbbb.png`;
+  const fresh = `${BOB}/${P1}/character/adem/sheet-20260926-000000-b0b0cccc.png`;
+  const put = (p, age) => ldb.query(`insert into storage.objects(bucket_id, name, metadata, created_at, updated_at)
+                                     values ('turn-assets', $1, $2, now() - $3::interval, now() - $3::interval)`,
+    [p, j({ size: 20, mimetype: "image/png" }), age]);
+  await ldb.exec(`begin`);
+  try {
+    await put(staleA, "3 days");
+    await put(staleB, "2 days");
+    const safe = (await ldb.query(`select path from turn_admin.orphans where path like $1 order by path`, [`${BOB}/${P1}/%`])).rows.map(r => r.path);
+    assert.deepEqual(safe, [staleA, staleB], "both stale sheets are offered, by exact path");
+    const before = (await ldb.query(wholeFoldersQuery())).rows;
+    assert.ok(!before.some(r => r.user_folder === BOB && r.project_folder === P1), "a live project's folder is never listed");
+    // 5 minutes later Bob generates a new sheet in P1: upload, then the row points at it
+    await put(fresh, "0 seconds");
+    await ldb.query(`insert into public.turn_generations(project_id, owner, entity_id, storage_path) values ($1, $2, 'adem-bob', $3)`, [P1, BOB, fresh]);
+    const f = (await ldb.query(`select status, safe_to_delete from turn_admin.files where path = $1`, [fresh])).rows[0];
+    assert.deepEqual(f, { status: "current", safe_to_delete: false });
+    const after = (await ldb.query(`select path from turn_admin.orphans where path like $1 order by path`, [`${BOB}/${P1}/%`])).rows.map(r => r.path);
+    assert.deepEqual(after, [staleA, staleB], "exact-path deletes still leave Bob's new sheet alone");
+  } finally {
+    await ldb.exec(`rollback`);
+  }
+});
+
+await acheck("legacy: each storage key is still parsed once per file (the markers are per project row)", async () => {
+  for (const v of ["files", "orphans", "projects", "users"]) {
+    const plan = (await ldb.query(`explain (verbose, costs off) select * from turn_admin.${v}`)).rows
+      .map(r => r["QUERY PLAN"]).join("\n");
+    assert.equal((plan.match(/\[0-9a-f\]\{8\}-/g) || []).length, 3, `${v}: uuid regex runs once per folder`);
+    assert.equal((plan.match(/string_to_array/g) || []).length, 1, `${v}: the key is split once`);
+    assert.equal(/metadata(?! ->>)/.test(plan), false, `${v}: the metadata jsonb is not carried into later steps`);
+  }
+});
+
+await acheck("same column names and types in every view on the full and the legacy schema", async () => {
+  const legacyColumns = await viewColumns(ldb);
+  assert.ok(fullColumns.length > 60);
+  assert.deepEqual(legacyColumns, fullColumns);
+});
+
+await acheck("preflight guard: a half-installed optional table (reservations without expires_at) aborts", async () => {
+  const tmp = new PGlite();
+  await tmp.exec(STUB_LEGACY + `\ncreate table public.turn_asset_upload_intents (path text primary key, project_id uuid);`);
+  await assert.rejects(tmp.exec(SQL), /preflight: missing public\.turn_asset_upload_intents\.expires_at — a TURN migration is only partly applied/);
+  await tmp.exec(`rollback`).catch(() => {});
+  const n = (await tmp.query(`select count(*)::int as n from pg_namespace where nspname = 'turn_admin'`)).rows[0].n;
+  assert.equal(n, 0, "turn_admin was not created");
+  await tmp.close();
+});
+
+await acheck("preflight guard: a missing REQUIRED table (turn_cameos) still aborts on a legacy database", async () => {
+  const tmp = new PGlite();
+  const noCameos = STUB_LEGACY.replace(/-- cameos\.sql\ncreate table public\.turn_cameos \([\s\S]*?\n\);\n/, "");
+  assert.ok(!noCameos.includes("turn_cameos"));
+  await tmp.exec(noCameos);
+  await assert.rejects(tmp.exec(SQL), /preflight: missing public\.turn_cameos\.angles, public\.turn_cameos\.char_id, public\.turn_cameos\.project_id — run these TURN migrations first: cameos\.sql/);
+  await tmp.exec(`rollback`).catch(() => {});
+  await tmp.close();
+});
+
+await acheck("preflight guard: no 'turn-assets' bucket (a required check) aborts before anything is created", async () => {
+  // the header lists the bucket as required and says a failed required check stops
+  // the run; without the bucket the views would install and simply list nothing
+  const tmp = new PGlite();
+  await tmp.exec(STUB_LEGACY);
+  await seedLegacy(tmp);
+  await tmp.exec(`delete from storage.buckets where id = 'turn-assets'`);
+  await assert.rejects(tmp.exec(SQL), /preflight: the private bucket turn-assets does not exist .*Nothing was created/);
+  await tmp.exec(`rollback`).catch(() => {});
+  const n = (await tmp.query(`select count(*)::int as n from pg_namespace where nspname = 'turn_admin'`)).rows[0].n;
+  assert.equal(n, 0, "turn_admin was not created");
+  // and once the bucket exists the same database installs
+  await tmp.exec(`insert into storage.buckets(id, name, public) values ('turn-assets', 'turn-assets', false)`);
+  const t = statusTable(await tmp.exec(SQL));
+  assert.equal(t.bucket.status, "ok");
+  assert.equal(t.views.status, "installed");
+  await tmp.close();
+});
+
+await acheck("after series-production.sql lands, a re-run switches to the columns with the same view columns", async () => {
+  // the migration, reduced to what the views read: normalized columns backfilled
+  // from the markers, plus the reservation and cleanup tables
+  await ldb.exec(`
+    alter table public.turn_projects
+      add column project_kind text not null default 'film',
+      add column show_id uuid references public.turn_projects(id),
+      add column episode_no integer;
+    update public.turn_projects set project_kind = 'show' where lower(coalesce(doc ->> 'isShow', 'false')) = 'true';
+    update public.turn_projects e
+       set project_kind = 'episode', show_id = s.id, episode_no = (e.doc ->> 'episodeNo')::int
+      from public.turn_projects s
+     where e.doc ->> 'showId' = s.id::text and s.project_kind = 'show' and e.owner = s.owner;
+  ` + RESERVATION_DDL);
+  const t = statusTable(await ldb.exec(SQL));
+  for (const k of ["series", "intents", "queue"]) assert.equal(t[k].status, "installed", k);
+  assert.deepEqual(await viewColumns(ldb), fullColumns, "create or replace view kept every column");
+  await assertInvoker(ldb);
+  const fileRow = async (p) => (await ldb.query(`select * from turn_admin.files where path = $1`, [p])).rows[0];
+  assert.equal((await fileRow(L.showLegacy)).show_title, "Dust Road");
+  // the columns are now the authority: a column value wins over the doc marker
+  await ldb.query(`update public.turn_projects set episode_no = 7 where id = $1`, [E2]);
+  assert.equal((await fileRow(L.epBible)).episode, 7);
+  // …except on a row whose kind is not film / show / episode: then the markers
+  // apply, as the app does (normalizeProjectRow)
+  await ldb.query(`update public.turn_projects set project_kind = '', show_id = null, episode_no = null where id = $1`, [E1]);
+  const e1 = await fileRow(L.showLegacy);
+  assert.deepEqual([e1.project_kind, e1.show_title, e1.episode], ["episode", "Dust Road", 1]);
+  // the same fallback on a row whose doc.showId names a film (P1 has kind 'film'):
+  // still a film, and no names from P1's doc
+  assert.equal((await ldb.query(`select project_kind from public.turn_projects where id = $1`, [PF])).rows[0].project_kind, "film",
+    "the backfill left it a film");
+  await ldb.query(`update public.turn_projects set project_kind = '' where id = $1`, [PF]);
+  const pf = await fileRow(L.notAShow);
+  assert.deepEqual([pf.project_kind, pf.show_title, pf.episode, pf.entity_name], ["film", null, null, null]);
+  // and the reservation / queue rules are live again
+  await ldb.query(`insert into public.turn_asset_upload_intents(path, project_id, uploader, expires_at) values ($1, $2, $3, now() + interval '10 minutes')`, [L.stale, P1, ALICE]);
+  await ldb.query(`insert into public.turn_asset_cleanup_queue(path, project_id, uploader) values ($1, $2, $3)`, [L.unreferenced, P1, ALICE]);
+  assert.equal((await fileRow(L.stale)).status, "uploading");
+  assert.equal((await fileRow(L.unreferenced)).status, "queued-for-cleanup");
+  assert.equal((await fileRow(L.unreferenced)).safe_to_delete, false);
+});
+
+await ldb.close();
 await db.close();
 console.log(`${checks} checks passed`);
