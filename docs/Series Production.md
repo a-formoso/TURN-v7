@@ -184,10 +184,14 @@ its upload-reservation window ends after 30 minutes. Existing object names canno
 be reserved, and an exact path has only one live reservation even across the same
 user's tabs. Expiry never discards the cleanup obligation: expired and
 project-deletion-interrupted intents move atomically to a durable exact-path
-cleanup queue. The original uploader can retry deleting that exact key, and a
-service-role sweeper can lease bounded queue batches, remove only the returned
-keys through the Storage API, and acknowledge the matching leases. Failed work
-returns to the queue. Once a generation or Cameo row is durably confirmed, a
+cleanup queue. The queue's worker contract is installed (service-role only:
+`turn_claim_asset_cleanup_batch` leases bounded batches, `turn_complete_asset_cleanup`
+acknowledges them, failed work returns to the queue), but **the scheduled worker
+itself is not implemented yet**, so nothing drains the queue today. Once a
+project row is gone, Storage's read rule hides its files from every signed-in
+user, so neither the uploader nor the owner's one-hour cleanup grants can remove
+them either; `admin-inventory.sql` lists such files as `queued-for-cleanup` or
+`orphan: project deleted` for removal from the Storage dashboard. Once a generation or Cameo row is durably confirmed, a
 database trigger retires the matching intent or queued obligation in the same
 transaction; the client's finish call is an idempotent acknowledgement. This
 never restores project-wide access or leaves a delete capability attached to a
@@ -233,10 +237,16 @@ RPCs and sync trigger.
 ## Deployment order
 
 Run the Supabase SQL files in the order documented in `supabase/README.md`, with
-`series-production.sql` after the collaboration and role-scope migrations. If
-those older policies are re-run later, re-run the series migration last. If
-Cameos are enabled afterward, re-run the series migration once more so its
-series-aware Cameo policies and cleanup inventory are installed.
+`series-production.sql` after the collaboration and role-scope migrations. Before
+running it on a live project, run the read-only `series-production-probe.sql` and
+clear every `STOP` row. The migration checks its own prerequisites first and stops
+with a `TURN_SERIES_PREREQUISITE` message (changing nothing) when one is missing.
+`series-production.sql` must always run LAST: re-running
+`migrate-remove-producer-admin.sql`, `shared-owners.sql`, `team-collaboration.sql`,
+`enforce-role-scopes.sql`, `storage.sql` or `cameos.sql` silently puts back an
+older, non-Show-aware rule, so re-run the series migration after any of them
+(after `storage.sql`, run `enforce-role-scopes.sql` first). The README has the
+per-file details.
 
 The migration is idempotent, but it is still a production database change. Apply
 it in a staging project first, run the series regression script, then smoke-test:
@@ -250,12 +260,15 @@ it in a staging project first, run the series regression script, then smoke-test
 6. Delete a character in Episode 1, restore it from Episode 2, delete it again,
    then delete Episode 1; confirm its tombstone and generated sheet remain
    recoverable from Episode 2 while Episode 1's deleted shots do not appear there.
-7. Delete a test Show and confirm its exact unshared Storage objects are removed.
+7. Delete a test Show and confirm the Show and its Episodes are gone. Its Storage
+   objects stay until the cleanup worker exists (`admin-inventory.sql` lists them
+   as `orphan: project deleted`).
 8. As an Art director, pause a generation after upload, delete its Episode as the
-   owner, then resume it; confirm the row insert fails and only that uploader's
-   uncommitted object is removed.
-9. Let an upload intent expire without committing a generation, run a cleanup
-   worker against `turn_claim_asset_cleanup_batch`, and confirm the exact key is
+   owner, then resume it; confirm the row insert fails and that uploader's
+   uncommitted object is queued for cleanup (listed as `queued-for-cleanup`).
+9. (Once the cleanup worker exists.) Let an upload intent expire without
+   committing a generation, run the worker against `turn_claim_asset_cleanup_batch`,
+   and confirm the exact key is
    retained on failure and disappears only after Storage removal plus
    `turn_complete_asset_cleanup` acknowledgement.
 10. Invite the same address with mixed casing, remove it once, and confirm only

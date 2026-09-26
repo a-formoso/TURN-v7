@@ -30,17 +30,69 @@ cross-device access, and multiple projects all work.
    makes Show membership and department roles inherit safely to Episodes,
    preserves access to the Show Bible for legacy episode-level invitations,
    and installs transactional RPCs for converting a film into a Show, creating
-   uniquely numbered Episodes, and deleting a whole Show. Lifecycle deletion
-   also installs one-hour, owner-only, DELETE-only grants for each exact
-   image/cameo object key—not a project prefix—and a durable exact-path queue
-   for uploads abandoned between Storage and their database record. A scheduled
-   service-role worker can lease and acknowledge that queue without weakening
-   normal asset access. Run this file after
-   `enforce-role-scopes.sql`; if either collaboration SQL file is re-run later,
-   re-run `series-production.sql` last so its series-aware helpers remain active.
+   uniquely numbered Episodes, and deleting one Episode or a whole Show.
+   Lifecycle deletion also installs one-hour, owner-only, DELETE-only grants
+   for each exact image/cameo object key—not a project prefix—and a durable
+   exact-path queue for uploads abandoned between Storage and their database
+   record. Run this file after `enforce-role-scopes.sql`.
+
+   **Before running it on a live project**, paste
+   **`series-production-probe.sql`** into the SQL Editor and run it. It is one
+   read-only SELECT (it changes nothing) that shows, row by row, whether the
+   database is ready and what the migration would change (legacy Shows and
+   Episodes, promoted memberships, format labels). Fix every `STOP` row and
+   read every `REVIEW` row first. Running it again afterwards should list the
+   Show lifecycle functions as present with no bug note.
+
+   `series-production.sql` checks its prerequisites before creating anything.
+   If something is missing (for example `turn_role_allowed_sections`, which
+   comes from `enforce-role-scopes.sql`), or members still hold the retired
+   `producer_admin` role, it stops with a `TURN_SERIES_PREREQUISITE` message
+   naming the file to run first, and nothing changes. The whole file is one
+   transaction and is safe to re-run.
+
+   **`series-production.sql` must always be the LAST of these files to run.**
+   Re-running any file below silently puts back an older, non-Show-aware rule
+   (Show members lose access to Episodes, or Episode-only rules come back),
+   and nothing reports it. After re-running any of them, re-run
+   `series-production.sql`:
+   - `migrate-remove-producer-admin.sql` — replaces `turn_can_access_project`
+     with the direct-membership-only version.
+   - `shared-owners.sql` — replaces `turn_shared_film_owners` with the
+     direct-membership-only version (Show members lose the "shared by" name).
+   - `team-collaboration.sql` — replaces `turn_can_access_project`,
+     `turn_can_write_assets`, the role trigger and the Storage delete rule.
+   - `enforce-role-scopes.sql` — replaces `turn_can_write_assets`, the role
+     trigger and the Storage delete rule.
+   - `storage.sql` — adds back the owner-only Storage rules (see the warning at
+     the top of that file: it is a one-time bootstrap). Re-running
+     `series-production.sql` removes only the old owner-only delete rule, so
+     after a `storage.sql` re-run, run `enforce-role-scopes.sql` (which drops
+     all four owner-only rules) and then `series-production.sql`.
+   - `cameos.sql` — puts back the owner-only Cameo add/edit rules, which do not
+     check the project.
+
+   Not implemented yet: the scheduled service-role worker that drains the
+   cleanup queue (`turn_claim_asset_cleanup_batch` /
+   `turn_complete_asset_cleanup`). Until it exists, nothing removes a queued
+   upload's bytes, and the files of a deleted Show or Episode stay in Storage
+   too: once the project row is gone, Storage's read rule
+   (`turn assets read collab`, which needs the project) hides its files from
+   every signed-in user, so neither the uploader's client nor the owner's
+   one-hour cleanup grants can delete them. `admin-inventory.sql` lists them
+   as `queued-for-cleanup` or `orphan: project deleted`; remove them from the
+   Storage dashboard (or with the service key) until the worker exists.
+
+   On its first run the file records each legacy Show's source Episode
+   (`sourceEpisodeId`): its Episode 1, or none if Episode 1 was already
+   deleted. Only that Episode's invitations that are older than the Show row
+   (the film's team at conversion) become Show-wide; every other Episode-only
+   invitation stays Episode-only, on the first run and on every re-run.
 4. **SQL Editor → run `cameos.sql`** — creates the `turn_cameos` table (RLS).
    If you enable Cameos, re-run `series-production.sql` once afterward so its
-   project-scoped Cameo write policy is installed too.
+   project-scoped Cameo add/edit rules are installed too (deleting a Cameo
+   stays the right of the person who captured it, and so does deleting its
+   photos while they can still open the project).
 5. **Authentication → Providers** — enable whichever sign-in you chose
    (Email magic-link and/or Google OAuth).
 6. Paste your **Project URL** and **anon public key** into `app/supabase-config.js`.

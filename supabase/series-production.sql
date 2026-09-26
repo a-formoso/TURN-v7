@@ -1,9 +1,17 @@
 -- ============================================================================
 -- TURN — Production-safe Shows / Episodes
 -- Run AFTER team-collaboration.sql AND enforce-role-scopes.sql.
--- Idempotent: safe to run again. If either collaboration file is re-run later,
--- re-run this file last because it deliberately replaces their access helpers
--- and role-enforcement trigger with series-aware versions.
+-- Idempotent: safe to run again. It must always be the LAST of these files to
+-- run: migrate-remove-producer-admin.sql, shared-owners.sql,
+-- team-collaboration.sql, enforce-role-scopes.sql, storage.sql and cameos.sql
+-- each put back an older, non-Show-aware access helper, trigger or rule when
+-- re-run (see supabase/README.md), so re-run this file after any of them.
+--
+-- Section 0 checks every object this file builds on before anything is
+-- created and stops with a message naming the file to run first. The whole
+-- file is one transaction, so a stopped or failed run changes nothing.
+-- supabase/series-production-probe.sql is a read-only preview of what a run
+-- would do on a given database.
 --
 -- The application keeps showId / episodeNo in `doc` for backward compatibility.
 -- This migration adds a normalized, indexed relationship as the database source
@@ -24,6 +32,170 @@
 -- ============================================================================
 
 begin;
+
+-- ── 0. Prerequisite guard ───────────────────────────────────────────────────
+-- Nothing may be created above this block. Every object below that comes from
+-- an earlier file is checked here, so a database that is missing one stops
+-- with a clear message instead of half-working. The worst case this prevents:
+-- without turn_role_allowed_sections(text) the run used to succeed and then
+-- every collaborator save failed inside the role trigger. Optional pieces
+-- (turn_cameos, turn_shared_film_owners, turn_can_write_assets) are only
+-- checked for shape when present. Plain SQL is used only for tables already
+-- proven present, so this block itself cannot fail with a confusing error.
+do $$
+declare
+  problems text[] := array[]::text[];
+  missing text;
+  req record;
+  retired bigint := 0;
+begin
+  -- Supabase platform objects.
+  select string_agg(r, ', ' order by r) into missing
+    from unnest(array['anon', 'authenticated', 'service_role']) r
+   where not exists (select 1 from pg_roles x where x.rolname = r);
+  if missing is not null then
+    problems := array_append(problems, 'missing roles ' || missing || ' (this file must run on a Supabase database)');
+  end if;
+  select string_agg(f, ', ' order by f) into missing
+    from unnest(array['auth.uid()', 'auth.role()', 'storage.foldername(text)']) f
+   where to_regprocedure(f) is null;
+  if missing is not null then
+    problems := array_append(problems, 'missing functions ' || missing || ' (Supabase Auth / Storage)');
+  end if;
+
+  -- Tables and the columns this file reads or writes.
+  for req in
+    select v.tbl, v.src,
+           to_regclass(v.tbl) is not null as present,
+           string_agg(v.col, ', ' order by v.ord) filter (
+             where not exists (
+               select 1 from pg_attribute a
+                where a.attrelid = to_regclass(v.tbl)
+                  and a.attname = v.col and a.attnum > 0 and not a.attisdropped)
+           ) as missing_cols
+      from (values
+        (1,  'auth.users', 'id', 'Supabase Auth'),
+        (2,  'auth.users', 'email', 'Supabase Auth'),
+        (3,  'storage.objects', 'bucket_id', 'Supabase Storage'),
+        (4,  'storage.objects', 'name', 'Supabase Storage'),
+        (10, 'public.turn_projects', 'id', 'schema.sql'),
+        (11, 'public.turn_projects', 'owner', 'schema.sql'),
+        (12, 'public.turn_projects', 'title', 'schema.sql'),
+        (13, 'public.turn_projects', 'doc', 'schema.sql'),
+        (14, 'public.turn_projects', 'created_at', 'schema.sql'),
+        (15, 'public.turn_projects', 'updated_at', 'schema.sql'),
+        (20, 'public.turn_generations', 'project_id', 'schema.sql'),
+        (21, 'public.turn_generations', 'owner', 'schema.sql'),
+        (22, 'public.turn_generations', 'entity_id', 'schema.sql'),
+        (23, 'public.turn_generations', 'storage_path', 'schema.sql'),
+        (24, 'public.turn_generations', 'meta', 'schema.sql'),
+        (25, 'public.turn_generations', 'refs', 'schema.sql'),
+        (26, 'public.turn_generations', 'history', 'schema.sql'),
+        (30, 'public.turn_project_members', 'id', 'team-collaboration.sql'),
+        (31, 'public.turn_project_members', 'project_id', 'team-collaboration.sql'),
+        (32, 'public.turn_project_members', 'owner', 'team-collaboration.sql'),
+        (33, 'public.turn_project_members', 'member_email', 'team-collaboration.sql'),
+        (34, 'public.turn_project_members', 'member_user', 'team-collaboration.sql'),
+        (35, 'public.turn_project_members', 'role', 'team-collaboration.sql'),
+        (36, 'public.turn_project_members', 'status', 'team-collaboration.sql'),
+        (37, 'public.turn_project_members', 'created_at', 'team-collaboration.sql'),
+        (38, 'public.turn_project_members', 'updated_at', 'team-collaboration.sql')
+      ) v(ord, tbl, col, src)
+     group by v.tbl, v.src
+     order by min(v.ord)
+  loop
+    if not req.present then
+      problems := array_append(problems, 'missing table ' || req.tbl
+        || case when req.src like 'Supabase%' then ' (part of ' || req.src || ')' else ' (run ' || req.src || ' first)' end);
+    elsif req.missing_cols is not null then
+      problems := array_append(problems, 'missing columns ' || req.missing_cols || ' on ' || req.tbl
+        || case when req.src like 'Supabase%' then ' (part of ' || req.src || ')' else ' (run ' || req.src || ' first)' end);
+    end if;
+  end loop;
+
+  -- Cameos are optional; when installed, the columns its rules use must exist.
+  if to_regclass('public.turn_cameos') is not null then
+    select string_agg(c, ', ' order by c) into missing
+      from unnest(array['project_id', 'owner', 'char_id', 'angles']) c
+     where not exists (
+       select 1 from pg_attribute a
+        where a.attrelid = to_regclass('public.turn_cameos')
+          and a.attname = c and a.attnum > 0 and not a.attisdropped);
+    if missing is not null then
+      problems := array_append(problems, 'missing columns ' || missing || ' on public.turn_cameos (re-run cameos.sql first)');
+    end if;
+  end if;
+
+  -- Every "on conflict (project_id, member_email)" below needs this exact key.
+  if to_regclass('public.turn_project_members') is not null and not exists (
+    select 1
+      from pg_index i
+     where i.indrelid = to_regclass('public.turn_project_members')
+       and i.indisunique and i.indpred is null and i.indexprs is null
+       and i.indnkeyatts = 2
+       and (select array_agg(a.attname::text order by a.attname::text)
+              from pg_attribute a
+             where a.attrelid = i.indrelid
+               and a.attnum = any (i.indkey::int2[])) = array['member_email', 'project_id']
+  ) then
+    problems := array_append(problems, 'missing the unique (project_id, member_email) key on public.turn_project_members (run team-collaboration.sql first)');
+  end if;
+
+  -- Helper functions from the collaboration files.
+  if to_regprocedure('public.turn_current_email()') is null then
+    problems := array_append(problems, 'missing function public.turn_current_email() (run team-collaboration.sql first)');
+  end if;
+  if to_regprocedure('public.turn_storage_project_id(text)') is null then
+    problems := array_append(problems, 'missing function public.turn_storage_project_id(text) (run team-collaboration.sql first)');
+  end if;
+  if coalesce((select pg_get_function_result(p.oid) from pg_proc p
+                where p.oid = to_regprocedure('public.turn_role_allowed_sections(text)')), '') <> 'text[]' then
+    problems := array_append(problems, 'missing function public.turn_role_allowed_sections(text) returning text[] (run enforce-role-scopes.sql first; the current team-collaboration.sql, from commit d4242ad on, includes it too, but older copies do not)');
+  end if;
+
+  -- "create or replace" below cannot rename arguments or change a result shape.
+  if to_regprocedure('public.turn_can_access_project(uuid,boolean)') is not null
+     and (select p.proargnames::text from pg_proc p
+           where p.oid = to_regprocedure('public.turn_can_access_project(uuid,boolean)'))
+         is distinct from '{pid,write_access}' then
+    problems := array_append(problems, 'public.turn_can_access_project(uuid, boolean) must have the arguments (pid, write_access) that team-collaboration.sql gives it');
+  end if;
+  if to_regprocedure('public.turn_can_write_assets(uuid)') is not null
+     and (select p.proargnames::text from pg_proc p
+           where p.oid = to_regprocedure('public.turn_can_write_assets(uuid)'))
+         is distinct from '{pid}' then
+    problems := array_append(problems, 'public.turn_can_write_assets(uuid) must have the argument (pid) that enforce-role-scopes.sql gives it');
+  end if;
+  if to_regprocedure('public.turn_shared_film_owners()') is not null
+     and (select pg_get_function_result(p.oid) from pg_proc p
+           where p.oid = to_regprocedure('public.turn_shared_film_owners()'))
+         is distinct from 'TABLE(project_id uuid, owner_email text)' then
+    problems := array_append(problems, 'public.turn_shared_film_owners() must return TABLE(project_id uuid, owner_email text) as shared-owners.sql defines it');
+  end if;
+
+  -- The retired role has no sections and no write access under the rules this
+  -- file installs; such people would silently become read-only.
+  if cardinality(problems) = 0 then
+    select count(*) into retired
+      from public.turn_project_members m
+     where m.role = 'producer_admin';
+    if retired > 0 then
+      problems := array_append(problems, retired::text || ' membership row(s) still hold the retired producer_admin role'
+                                           || ' (run migrate-remove-producer-admin.sql first)');
+    end if;
+  end if;
+
+  if cardinality(problems) > 0 then
+    raise exception using
+      errcode = '55000',
+      message = 'TURN_SERIES_PREREQUISITE: series-production.sql stopped before changing anything: '
+                || array_to_string(problems, '; '),
+      hint = 'Run the named file(s) in the Supabase SQL Editor, then run series-production.sql again. '
+             || 'Order: schema.sql, storage.sql, team-collaboration.sql, invitations.sql, shared-owners.sql, '
+             || 'enforce-role-scopes.sql, cameos.sql (optional), then series-production.sql last.';
+  end if;
+end;
+$$;
 
 -- ── 1. Normalized series metadata ───────────────────────────────────────────
 
@@ -834,12 +1006,23 @@ create trigger turn_guard_series_project_delete
   before delete on public.turn_projects
   for each row execute function public.turn_guard_series_project_delete();
 
+-- On a re-run, the Show Bible Episode-key trigger installed by the previous
+-- run already exists. It must not judge the legacy backfill below, exactly as
+-- on a first run (see the note where it is recreated after the backfill): a
+-- Show whose Bible still holds a key for an Episode that is not a live child
+-- (an Episode left standalone, or the '__episode1__' alias) would otherwise
+-- make the whole run fail as soon as the backfill saves that Show's doc.
+drop trigger if exists turn_validate_show_bible_episode_keys on public.turn_projects;
+
 -- Backfill valid legacy Shows first, then their Episodes. Invalid/orphan JSON
 -- remains a standalone normalized row rather than being trusted as a relation.
+-- Rows that are already normalized are left untouched, so a re-run does not
+-- bump their updated_at (the Project Switcher and Home order by it).
 select set_config('turn.series_lifecycle', 'true', true);
 update public.turn_projects p
    set project_kind = 'show', show_id = null, episode_no = null
- where public.turn_series_doc_is_show(p.doc);
+ where public.turn_series_doc_is_show(p.doc)
+   and (p.project_kind is distinct from 'show' or p.show_id is not null or p.episode_no is not null);
 
 update public.turn_projects e
    set project_kind = 'episode',
@@ -851,7 +1034,10 @@ update public.turn_projects e
    and public.turn_series_doc_episode_no(e.doc) is not null
    and e.id <> s.id
    and e.owner = s.owner
-   and (s.project_kind = 'show' or public.turn_series_doc_is_show(s.doc));
+   and (s.project_kind = 'show' or public.turn_series_doc_is_show(s.doc))
+   and (e.project_kind is distinct from 'episode'
+        or e.show_id is distinct from s.id
+        or e.episode_no is distinct from public.turn_series_doc_episode_no(e.doc));
 
 -- A JSON-only Episode from an older client may contain hydrated copies of the
 -- Show-owned departments at its root.  Do not simply remove those copies: first
@@ -867,6 +1053,7 @@ do $$
 declare
   show_row record;
   source_episode_id uuid;
+  source_recorded boolean;
   child_row record;
   bible jsonb;
   candidate jsonb;
@@ -897,21 +1084,35 @@ begin
         then show_row.doc -> 'bible'
       else '{}'::jsonb
     end;
+    -- The source Episode is decided at most once per Show. Its team is promoted
+    -- Show-wide below, so a later guess (for example after Episode 1 was
+    -- deleted) would widen a different Episode's team. Once the key exists
+    -- (even as null) it is final: a recorded Episode that no longer exists
+    -- yields no source, so nobody is promoted.
+    -- When nothing is recorded, only Episode 1 can be the source: every
+    -- conversion (the old browser flow and the RPC alike) turned the original
+    -- film into Episode 1, and the app itself falls back to Episode 1 when
+    -- sourceEpisodeId is missing. If Episode 1 is gone, no remaining Episode
+    -- is the conversion leftover, so null is recorded and nobody is promoted.
+    source_recorded := show_row.doc ? 'sourceEpisodeId';
     source_episode_id := null;
-    select e.id
-      into source_episode_id
-      from public.turn_projects e
-     where e.project_kind = 'episode'
-       and e.show_id = show_row.id
-     order by
-       case
-         when e.id = public.turn_series_try_uuid(show_row.doc ->> 'sourceEpisodeId') then 0
-         when e.episode_no = 1 then 1
-         else 2
-       end,
-       e.episode_no,
-       e.id
-     limit 1;
+    if source_recorded then
+      select e.id
+        into source_episode_id
+        from public.turn_projects e
+       where e.project_kind = 'episode'
+         and e.show_id = show_row.id
+         and e.id = public.turn_series_try_uuid(show_row.doc ->> 'sourceEpisodeId');
+    else
+      select e.id
+        into source_episode_id
+        from public.turn_projects e
+       where e.project_kind = 'episode'
+         and e.show_id = show_row.id
+         and e.episode_no = 1
+       order by e.id
+       limit 1;
+    end if;
 
     shared_trash := public.turn_series_shared_trash(bible -> 'trash');
     if show_row.doc ? 'trash' then
@@ -1020,7 +1221,10 @@ begin
       'bible', bible,
       'schemaVersion', 3
     );
-    if source_episode_id is not null then
+    if not source_recorded then
+      -- Record Episode 1, or an explicit null when the Show has no linked
+      -- Episode 1, so that no later run guesses again. The app treats a null
+      -- sourceEpisodeId exactly like a missing one (Episode 1, if any).
       show_patch := show_patch || jsonb_build_object('sourceEpisodeId', source_episode_id::text);
     end if;
 
@@ -1133,8 +1337,11 @@ alter table public.turn_projects
 
 -- The legacy conversion above must finish before this trigger is installed:
 -- during that backfill a Show can temporarily exist before its first Episode is
--- linked. From this point onward every Episode namespace in a Show Bible must
--- identify a live child row of that exact Show. Besides rejecting malformed or
+-- linked (a re-run drops the previous run's copy before the backfill for the
+-- same reason). The backfill does not prune keys that match no live Episode;
+-- the probe lists such Shows (row 82). From this point onward every Episode
+-- namespace in a saved Show Bible must identify a live child row of that
+-- exact Show. Besides rejecting malformed or
 -- cross-Show keys, the KEY SHARE lock closes the delete/save race: a stale Show
 -- update either lands before deletion and is subsequently pruned, or observes
 -- the committed deletion and is rejected instead of resurrecting its slice.
@@ -1176,7 +1383,7 @@ begin
               raise exception using
                 errcode = '23503',
                 message = 'TURN_SERIES: ' || map_name || ' key ' || episode_key
-                  || ' does not identify a live Episode of this Show';
+                  || ' does not identify a live Episode of this Show (' || new.id::text || ')';
             end if;
 
             perform 1
@@ -1189,7 +1396,7 @@ begin
               raise exception using
                 errcode = '23503',
                 message = 'TURN_SERIES: ' || map_name || ' key ' || episode_key
-                  || ' does not identify a live Episode of this Show';
+                  || ' does not identify a live Episode of this Show (' || new.id::text || ')';
             end if;
           end loop;
         end if;
@@ -1206,7 +1413,7 @@ create trigger turn_validate_show_bible_episode_keys
   before update of doc on public.turn_projects
   for each row execute function public.turn_validate_show_bible_episode_keys();
 
-revoke all on function public.turn_validate_show_bible_episode_keys() from public;
+revoke all on function public.turn_validate_show_bible_episode_keys() from public, anon, authenticated;
 
 -- ── 2. Inherited membership and role lookup ────────────────────────────────
 
@@ -1292,7 +1499,7 @@ $$;
 alter table public.turn_project_members
   validate constraint turn_project_members_email_canonical_check;
 
-revoke all on function public.turn_normalize_member_email() from public;
+revoke all on function public.turn_normalize_member_email() from public, anon, authenticated;
 
 -- Old browser conversion created a Show beside Episode 1 but left the original
 -- direct invitations active. Because legacy Episode grants project back to the
@@ -1300,6 +1507,16 @@ revoke all on function public.turn_normalize_member_email() from public;
 -- by that stale row. Promote only each Show's recorded source Episode here: this
 -- is the known conversion artifact. Do not blanket-promote other Episode-only
 -- grants, which would silently expand their access to every sibling Episode.
+-- sourceEpisodeId was either recorded before this run or decided exactly once
+-- by the backfill above (Episode 1 or null); if that Episode has since been
+-- deleted, the join below matches nothing and nobody is promoted.
+-- Only invitations that already existed when the Show row was created are the
+-- conversion leftover: both the old browser flow and the RPC inserted the Show
+-- row after the film had its team. A grant added to the source Episode later
+-- (a stale client inviting on the open Episode, or a direct REST insert) is an
+-- Episode-only grant like any other, so neither the first run nor any re-run
+-- widens it. created_at is used because updated_at is touched by every edit,
+-- including this file's own email clean-up above.
 insert into public.turn_project_members(
   project_id, owner, member_email, member_user, role, status, created_at, updated_at
 )
@@ -1313,6 +1530,7 @@ select s.id, s.owner, m.member_email, m.member_user, m.role, 'active',
   join public.turn_project_members m
     on m.project_id = e.id
    and m.status = 'active'
+   and m.created_at <= s.created_at
  where s.project_kind = 'show'
 on conflict (project_id, member_email) do nothing;
 
@@ -1401,7 +1619,7 @@ create trigger turn_retire_legacy_episode_memberships
   after insert or update or delete on public.turn_project_members
   for each row execute function public.turn_retire_legacy_episode_memberships();
 
-revoke all on function public.turn_retire_legacy_episode_memberships() from public;
+revoke all on function public.turn_retire_legacy_episode_memberships() from public, anon, authenticated;
 
 -- Internal relationship scope for permission checks. For an Episode this is
 -- [episode, parent Show]. For a Show it is [show, legacy directly-shared child
@@ -1466,9 +1684,9 @@ as $$
      );
 $$;
 
--- Compact role lookup for clients/diagnostics. Enforcement uses the complete
--- set above; this label prefers asset capability when multiple legacy grants
--- overlap.
+-- Compact role lookup for diagnostics (SQL Editor / service_role; not exposed
+-- to the API, see the revokes below). Enforcement uses the complete set above;
+-- this label prefers asset capability when multiple legacy grants overlap.
 create or replace function public.turn_effective_project_role(p_project_id uuid)
 returns text
 language sql
@@ -1534,20 +1752,38 @@ as $$
   );
 $$;
 
-grant execute on function public.turn_can_access_project(uuid, boolean) to authenticated;
-grant execute on function public.turn_can_write_assets(uuid) to authenticated;
-grant execute on function public.turn_effective_project_role(uuid) to authenticated;
+-- These two run inside RLS policies (projects, memberships, generations,
+-- Storage, cameos), and a policy evaluates them as the CALLING role, so both
+-- API roles keep EXECUTE. Without a signed-in user they return false; taking
+-- EXECUTE away from anon would only turn its empty reads into errors.
+grant execute on function public.turn_can_access_project(uuid, boolean) to anon, authenticated;
+grant execute on function public.turn_can_write_assets(uuid) to anon, authenticated;
 
--- Internal helpers should not expose relationship or membership rows directly.
-revoke all on function public.turn_series_membership_scope(uuid) from public;
-revoke all on function public.turn_effective_project_roles(uuid) from public;
-revoke all on function public.turn_series_doc_is_show(jsonb) from public;
-revoke all on function public.turn_series_try_uuid(text) from public;
-revoke all on function public.turn_series_try_positive_int(text) from public;
-revoke all on function public.turn_series_doc_show_id(jsonb) from public;
-revoke all on function public.turn_series_doc_episode_no(jsonb) from public;
-revoke all on function public.turn_sync_project_series_metadata() from public;
-revoke all on function public.turn_guard_series_project_delete() from public;
+-- Internal helpers must not be callable through the API. Supabase's default
+-- privileges grant every new function to anon and authenticated DIRECTLY, so
+-- "revoke ... from public" alone would leave them reachable at /rest/v1/rpc.
+-- They are called only by triggers and by the security-definer functions in
+-- this file, which run as their owner. The app does not call
+-- turn_effective_project_role (it reads membership rows); it stays available to
+-- the SQL Editor and service_role for diagnostics.
+revoke all on function public.turn_effective_project_role(uuid) from public, anon, authenticated;
+revoke all on function public.turn_series_membership_scope(uuid) from public, anon, authenticated;
+revoke all on function public.turn_effective_project_roles(uuid) from public, anon, authenticated;
+revoke all on function public.turn_series_doc_is_show(jsonb) from public, anon, authenticated;
+revoke all on function public.turn_series_try_uuid(text) from public, anon, authenticated;
+revoke all on function public.turn_series_try_positive_int(text) from public, anon, authenticated;
+revoke all on function public.turn_series_doc_show_id(jsonb) from public, anon, authenticated;
+revoke all on function public.turn_series_doc_episode_no(jsonb) from public, anon, authenticated;
+revoke all on function public.turn_series_shared_trash(jsonb) from public, anon, authenticated;
+revoke all on function public.turn_series_entity_list_is_valid(jsonb) from public, anon, authenticated;
+revoke all on function public.turn_series_episode_trash(jsonb) from public, anon, authenticated;
+revoke all on function public.turn_series_episode_trash_is_valid(jsonb) from public, anon, authenticated;
+revoke all on function public.turn_series_merge_shared_trash(jsonb, jsonb) from public, anon, authenticated;
+revoke all on function public.turn_series_prepare_shared_trash(jsonb, uuid) from public, anon, authenticated;
+revoke all on function public.turn_series_bible_is_valid(jsonb) from public, anon, authenticated;
+revoke all on function public.turn_series_prune_episode_from_bible(jsonb, uuid) from public, anon, authenticated;
+revoke all on function public.turn_sync_project_series_metadata() from public, anon, authenticated;
+revoke all on function public.turn_guard_series_project_delete() from public, anon, authenticated;
 
 -- The collaborative UPDATE policy intentionally admits both writing roles so
 -- they can save the doc departments assigned to them. That permission must not
@@ -1599,7 +1835,7 @@ create trigger turn_guard_collaborator_project_columns
   on public.turn_projects
   for each row execute function public.turn_guard_collaborator_project_columns();
 
-revoke all on function public.turn_guard_collaborator_project_columns() from public;
+revoke all on function public.turn_guard_collaborator_project_columns() from public, anon, authenticated;
 
 -- Replaces enforce-role-scopes.sql's trigger function. A Show grant applies to
 -- its Episodes, while a legacy child grant applies to the Show Bible only.
@@ -1652,6 +1888,8 @@ create trigger turn_enforce_role_sections
   when (old.doc is distinct from new.doc or old.owner is distinct from new.owner)
   execute function public.turn_enforce_role_sections();
 
+revoke all on function public.turn_enforce_role_sections() from public, anon, authenticated;
+
 -- Keep owner attribution useful for inherited rows on the Home wall/switcher.
 -- Unlike the original direct-membership-only helper, this returns every project
 -- the caller can actually read under the series-aware policy.
@@ -1669,6 +1907,7 @@ as $$
      and public.turn_can_access_project(p.id, false);
 $$;
 
+revoke all on function public.turn_shared_film_owners() from public, anon;
 grant execute on function public.turn_shared_film_owners() to authenticated;
 
 -- ── 3. Exact-path Storage cleanup authorization ────────────────────────────
@@ -1982,8 +2221,8 @@ begin
 end;
 $$;
 
-revoke all on function public.turn_begin_asset_upload(uuid, text) from public;
-revoke all on function public.turn_finish_asset_upload(text[]) from public;
+revoke all on function public.turn_begin_asset_upload(uuid, text) from public, anon;
+revoke all on function public.turn_finish_asset_upload(text[]) from public, anon;
 grant execute on function public.turn_begin_asset_upload(uuid, text) to authenticated;
 grant execute on function public.turn_finish_asset_upload(text[]) to authenticated;
 
@@ -2010,18 +2249,18 @@ begin
           case when jsonb_typeof(new.refs) = 'array' then new.refs else '[]'::jsonb end
         ) ref
       union
-      select nullif(history ->> 'storage_path', '')
+      select nullif(hist ->> 'storage_path', '')
         from jsonb_array_elements(
           case when jsonb_typeof(new.history) = 'array' then new.history else '[]'::jsonb end
-        ) history
+        ) hist
       union
       select nullif(ref ->> 'storage_path', '')
         from jsonb_array_elements(
           case when jsonb_typeof(new.history) = 'array' then new.history else '[]'::jsonb end
-        ) history
+        ) hist
         cross join lateral jsonb_array_elements(
-          case when jsonb_typeof(history -> 'refs') = 'array'
-            then history -> 'refs' else '[]'::jsonb end
+          case when jsonb_typeof(hist -> 'refs') = 'array'
+            then hist -> 'refs' else '[]'::jsonb end
         ) ref
     ) committed
    where committed.path is not null;
@@ -2084,8 +2323,8 @@ begin
 end;
 $$;
 
-revoke all on function public.turn_finish_generation_upload_intents() from public;
-revoke all on function public.turn_finish_cameo_upload_intents() from public;
+revoke all on function public.turn_finish_generation_upload_intents() from public, anon, authenticated;
+revoke all on function public.turn_finish_cameo_upload_intents() from public, anon, authenticated;
 
 -- Server-side sweeper contract. A scheduled Edge Function using the service key
 -- calls claim, removes each returned exact path through the Storage API, then
@@ -2173,10 +2412,10 @@ begin
 end;
 $$;
 
-revoke all on function public.turn_queue_expired_asset_uploads() from public;
-revoke all on function public.turn_queue_project_asset_uploads(uuid[]) from public;
-revoke all on function public.turn_claim_asset_cleanup_batch(integer) from public;
-revoke all on function public.turn_complete_asset_cleanup(text, uuid, boolean, text) from public;
+revoke all on function public.turn_queue_expired_asset_uploads() from public, anon, authenticated;
+revoke all on function public.turn_queue_project_asset_uploads(uuid[]) from public, anon, authenticated;
+revoke all on function public.turn_claim_asset_cleanup_batch(integer) from public, anon, authenticated;
+revoke all on function public.turn_complete_asset_cleanup(text, uuid, boolean, text) from public, anon, authenticated;
 grant execute on function public.turn_claim_asset_cleanup_batch(integer) to service_role;
 grant execute on function public.turn_complete_asset_cleanup(text, uuid, boolean, text) to service_role;
 
@@ -2215,13 +2454,27 @@ as $$
            and q.project_id = t.project_id
            and q.uploader = auth.uid()
       )
+      -- A cameo is the capturer's own likeness, and deleting it stays their
+      -- right after they lose the art-director role (see the cameo rules
+      -- below). The app removes the photos before the cameo row, so the
+      -- capturer may also delete the photos in their OWN folder:
+      -- {their user id}/{project}/cameo/... . Nobody else's files qualify,
+      -- and other kinds of asset still need Art Room write access.
+      or (
+        auth.uid() is not null
+        and split_part($1, '/', 1) = auth.uid()::text
+        and split_part($1, '/', 3) = 'cameo'
+        and split_part($1, '/', 4) <> ''
+      )
     )
       from target t
   ), false);
 $$;
 
 revoke all on function public.turn_can_delete_asset_path(text) from public;
-grant execute on function public.turn_can_delete_asset_path(text) to authenticated;
+-- Evaluated by the Storage DELETE policy as the calling role (see the note on
+-- turn_can_access_project): both API roles keep EXECUTE; it is false for anon.
+grant execute on function public.turn_can_delete_asset_path(text) to anon, authenticated;
 
 -- Preserve normal live-project authorization, the owner tombstone for a
 -- committed lifecycle delete, and the uploader's exact uncommitted-path intent.
@@ -2238,6 +2491,13 @@ create policy "turn assets delete collab" on storage.objects for delete
 -- Tighten writes so knowing a project UUID is not enough to attach a cameo to
 -- it. The Show-owner lifecycle RPC is the only definer path that reads their
 -- angle object keys, solely so deletion can clean those exact objects.
+-- Deleting stays the capturer's own right (cameos.sql's rule): whoever captured
+-- a cameo must always be able to remove it, even after losing the art-director
+-- role or leaving the project. It is recreated here so a re-run also repairs a
+-- database where an earlier copy of this file had tightened it. The matching
+-- Storage right (their own cameo photos) is in turn_can_delete_asset_path;
+-- Storage still hides a project's files from someone who can no longer open
+-- the project, so after leaving it only the row can be removed.
 do $$
 begin
   if to_regclass('public.turn_cameos') is not null then
@@ -2250,7 +2510,7 @@ begin
       using (auth.uid() = owner and public.turn_can_write_assets(project_id))
       with check (auth.uid() = owner and public.turn_can_write_assets(project_id))';
     execute 'create policy "cameos delete own" on public.turn_cameos for delete
-      using (auth.uid() = owner and public.turn_can_write_assets(project_id))';
+      using (auth.uid() = owner)';
   end if;
 end;
 $$;
@@ -2734,20 +2994,20 @@ begin
         ) as refs(ref)
        where g.project_id = p_episode_id
       union all
-      select history ->> 'storage_path'
+      select hist ->> 'storage_path'
         from public.turn_generations g
         cross join lateral jsonb_array_elements(
           case when jsonb_typeof(g.history) = 'array' then g.history else '[]'::jsonb end
-        ) as versions(history)
+        ) as versions(hist)
        where g.project_id = p_episode_id
       union all
       select ref ->> 'storage_path'
         from public.turn_generations g
         cross join lateral jsonb_array_elements(
           case when jsonb_typeof(g.history) = 'array' then g.history else '[]'::jsonb end
-        ) as versions(history)
+        ) as versions(hist)
         cross join lateral jsonb_array_elements(
-          case when jsonb_typeof(history -> 'refs') = 'array' then history -> 'refs' else '[]'::jsonb end
+          case when jsonb_typeof(hist -> 'refs') = 'array' then hist -> 'refs' else '[]'::jsonb end
         ) as refs(ref)
        where g.project_id = p_episode_id
       union all
@@ -2763,10 +3023,10 @@ begin
         from public.turn_generations g
         cross join lateral jsonb_array_elements(
           case when jsonb_typeof(g.history) = 'array' then g.history else '[]'::jsonb end
-        ) as versions(history)
+        ) as versions(hist)
         cross join lateral jsonb_array_elements_text(
-          case when jsonb_typeof(history -> 'meta' -> 'cleanupPending') = 'array'
-            then history -> 'meta' -> 'cleanupPending' else '[]'::jsonb end
+          case when jsonb_typeof(hist -> 'meta' -> 'cleanupPending') = 'array'
+            then hist -> 'meta' -> 'cleanupPending' else '[]'::jsonb end
         ) as pending(path)
        where g.project_id = p_episode_id
     ) exact;
@@ -2792,20 +3052,20 @@ begin
         ) as refs(ref)
        where g.project_id = any(surviving_project_ids)
       union all
-      select history ->> 'storage_path'
+      select hist ->> 'storage_path'
         from public.turn_generations g
         cross join lateral jsonb_array_elements(
           case when jsonb_typeof(g.history) = 'array' then g.history else '[]'::jsonb end
-        ) as versions(history)
+        ) as versions(hist)
        where g.project_id = any(surviving_project_ids)
       union all
       select ref ->> 'storage_path'
         from public.turn_generations g
         cross join lateral jsonb_array_elements(
           case when jsonb_typeof(g.history) = 'array' then g.history else '[]'::jsonb end
-        ) as versions(history)
+        ) as versions(hist)
         cross join lateral jsonb_array_elements(
-          case when jsonb_typeof(history -> 'refs') = 'array' then history -> 'refs' else '[]'::jsonb end
+          case when jsonb_typeof(hist -> 'refs') = 'array' then hist -> 'refs' else '[]'::jsonb end
         ) as refs(ref)
        where g.project_id = any(surviving_project_ids)
       union all
@@ -2821,10 +3081,10 @@ begin
         from public.turn_generations g
         cross join lateral jsonb_array_elements(
           case when jsonb_typeof(g.history) = 'array' then g.history else '[]'::jsonb end
-        ) as versions(history)
+        ) as versions(hist)
         cross join lateral jsonb_array_elements_text(
-          case when jsonb_typeof(history -> 'meta' -> 'cleanupPending') = 'array'
-            then history -> 'meta' -> 'cleanupPending' else '[]'::jsonb end
+          case when jsonb_typeof(hist -> 'meta' -> 'cleanupPending') = 'array'
+            then hist -> 'meta' -> 'cleanupPending' else '[]'::jsonb end
         ) as pending(path)
        where g.project_id = any(surviving_project_ids)
     ) exact;
@@ -3003,20 +3263,20 @@ begin
         ) as refs(ref)
        where g.project_id = any(cleanup_project_ids)
       union all
-      select history ->> 'storage_path'
+      select hist ->> 'storage_path'
         from public.turn_generations g
         cross join lateral jsonb_array_elements(
           case when jsonb_typeof(g.history) = 'array' then g.history else '[]'::jsonb end
-        ) as versions(history)
+        ) as versions(hist)
        where g.project_id = any(cleanup_project_ids)
       union all
       select ref ->> 'storage_path'
         from public.turn_generations g
         cross join lateral jsonb_array_elements(
           case when jsonb_typeof(g.history) = 'array' then g.history else '[]'::jsonb end
-        ) as versions(history)
+        ) as versions(hist)
         cross join lateral jsonb_array_elements(
-          case when jsonb_typeof(history -> 'refs') = 'array' then history -> 'refs' else '[]'::jsonb end
+          case when jsonb_typeof(hist -> 'refs') = 'array' then hist -> 'refs' else '[]'::jsonb end
         ) as refs(ref)
        where g.project_id = any(cleanup_project_ids)
       union all
@@ -3032,10 +3292,10 @@ begin
         from public.turn_generations g
         cross join lateral jsonb_array_elements(
           case when jsonb_typeof(g.history) = 'array' then g.history else '[]'::jsonb end
-        ) as versions(history)
+        ) as versions(hist)
         cross join lateral jsonb_array_elements_text(
-          case when jsonb_typeof(history -> 'meta' -> 'cleanupPending') = 'array'
-            then history -> 'meta' -> 'cleanupPending' else '[]'::jsonb end
+          case when jsonb_typeof(hist -> 'meta' -> 'cleanupPending') = 'array'
+            then hist -> 'meta' -> 'cleanupPending' else '[]'::jsonb end
         ) as pending(path)
        where g.project_id = any(cleanup_project_ids)
     ) exact;
@@ -3129,11 +3389,11 @@ begin
 end;
 $$;
 
-revoke all on function public.turn_convert_project_to_show(uuid, text, jsonb, text) from public;
-revoke all on function public.turn_create_show_episode(uuid, jsonb, uuid) from public;
-revoke all on function public.turn_delete_show_episode(uuid) from public;
-revoke all on function public.turn_delete_show(uuid) from public;
-revoke all on function public.turn_finish_asset_cleanup(uuid[]) from public;
+revoke all on function public.turn_convert_project_to_show(uuid, text, jsonb, text) from public, anon;
+revoke all on function public.turn_create_show_episode(uuid, jsonb, uuid) from public, anon;
+revoke all on function public.turn_delete_show_episode(uuid) from public, anon;
+revoke all on function public.turn_delete_show(uuid) from public, anon;
+revoke all on function public.turn_finish_asset_cleanup(uuid[]) from public, anon;
 grant execute on function public.turn_convert_project_to_show(uuid, text, jsonb, text) to authenticated;
 grant execute on function public.turn_create_show_episode(uuid, jsonb, uuid) to authenticated;
 grant execute on function public.turn_delete_show_episode(uuid) to authenticated;
