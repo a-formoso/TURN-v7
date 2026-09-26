@@ -50,7 +50,6 @@ function turnFirstStoryScene(scenes){
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "grade": "Teal & Orange",
-  "framework": true,
   "density": "regular",
   "display": "Grotesk",
   "grain": true,
@@ -90,10 +89,15 @@ function StudioProgressOverlay({ title, detail, progress, role }){
 
 /* ---- alternate view: Turn Audit table ---- */
 function TurnAudit({ scenes, selId, onSelect }){
+  // the framework's own audit line and act names (the Board's columns use the same names)
+  const fwT = (typeof frameworkOf==="function") ? frameworkOf(window.turnProject) : null;
+  const ROMAN_T = ["I","II","III","IV"];
+  const actLabel = (a)=> "Act "+(ROMAN_T[a-1]||a)+" \u00b7 "+((fwT&&fwT.acts&&fwT.acts[a])||("Act "+a));
+  const tableTitle = (fwT && fwT.audit && fwT.audit.tableTitle) || "Turn audit · every scene turns";
   return React.createElement(DragScroll,{className:"canvas-scroll",style:{padding:"18px 28px 40px"}},
     React.createElement("div",{style:{maxWidth:880,margin:"0 auto"}},
       React.createElement("div",{className:"divider"},
-        React.createElement("span",{className:"eyebrow"},"Turn Audit · every scene must turn"),
+        React.createElement("span",{className:"eyebrow"},tableTitle),
         React.createElement("span",{className:"ln"})),
       // the table keeps its desktop column widths and scrolls SIDEWAYS inside its
       // own container on narrow screens (minWidth stops the columns crushing)
@@ -106,7 +110,6 @@ function TurnAudit({ scenes, selId, onSelect }){
                 fontSize:9,letterSpacing:".1em",textTransform:"uppercase",color:"var(--txt-2)",
                 borderLeft:i?"1px solid var(--line)":"none"}},h))),
           scenes.map(s=>{
-            const { flagged } = turnInfo(s);
             return React.createElement("div",{key:s.id,onClick:()=>onSelect(s.id),
               style:{display:"grid",gridTemplateColumns:"44px 1fr 120px 150px 110px",cursor:"pointer",
                 borderBottom:"1px solid var(--line)",background:s.id===selId?"var(--bg-3)":"transparent",
@@ -115,7 +118,7 @@ function TurnAudit({ scenes, selId, onSelect }){
               React.createElement("div",{style:{padding:"12px 14px",borderLeft:"1px solid var(--line)"}},
                 React.createElement("div",{style:{fontFamily:"var(--f-display)",fontSize:13,color:"var(--txt-0)",fontWeight:500}},s.title),
                 React.createElement("div",{style:{fontFamily:"var(--f-mono)",fontSize:9.5,color:"var(--txt-3)",marginTop:2}},
-                  `Act ${["I","II","III","IV"][s.act-1]||s.act} · ${s.seq}`,KIND_LABEL[s.kind]?(" · "+KIND_LABEL[s.kind]):"")),
+                  actLabel(s.act)+(s.seq?" · "+s.seq:""),KIND_LABEL[s.kind]?(" · "+KIND_LABEL[s.kind]):"")),
               React.createElement("div",{style:{padding:"12px 14px",borderLeft:"1px solid var(--line)",display:"flex",alignItems:"center",gap:6}},
                 React.createElement(ChargeChip,{value:s.openCharge}),
                 React.createElement("span",{style:{color:"var(--txt-3)",display:"flex"}},React.createElement(Icon.arrowSmall,{s:11})),
@@ -123,27 +126,18 @@ function TurnAudit({ scenes, selId, onSelect }){
               React.createElement("div",{style:{padding:"12px 14px",borderLeft:"1px solid var(--line)",fontSize:11.5,color:"var(--txt-1)"}},
                 `${s.openValue} \u2192 ${s.closeValue}`),
               React.createElement("div",{style:{padding:"12px 14px",borderLeft:"1px solid var(--line)"}},
-                flagged
-                  ? React.createElement("span",{className:"turn-badge no"},React.createElement(Icon.alert,{s:10}),
-                      (typeof fwAuditOf==="function" && fwAuditOf().flagBadge)||"No turn")
-                  : React.createElement("span",{className:"turn-badge ok"},React.createElement(Icon.check,{s:10}),
-                      (typeof fwAuditOf==="function" && fwAuditOf().okBadge)||"Turns")));
+                React.createElement(TurnBadge,{scene:s})));
           }))),
       React.createElement("div",{className:"audit-mobile-list"},
         scenes.map(s=>{
-          const { flagged } = turnInfo(s);
           return React.createElement("button",{key:s.id,type:"button",className:"audit-mobile-card"+(s.id===selId?" sel":""),
             onClick:()=>onSelect(s.id)},
             React.createElement("div",{className:"audit-mobile-top"},
               React.createElement("span",{className:"audit-mobile-no"},String(s.no).padStart(2,"0")),
-              flagged
-                ? React.createElement("span",{className:"turn-badge no"},React.createElement(Icon.alert,{s:10}),
-                    (typeof fwAuditOf==="function" && fwAuditOf().flagBadge)||"No turn")
-                : React.createElement("span",{className:"turn-badge ok"},React.createElement(Icon.check,{s:10}),
-                    (typeof fwAuditOf==="function" && fwAuditOf().okBadge)||"Turns")),
+              React.createElement(TurnBadge,{scene:s})),
             React.createElement("div",{className:"audit-mobile-title"},s.title),
             React.createElement("div",{className:"audit-mobile-meta"},
-              `Act ${["I","II","III","IV"][s.act-1]||s.act} · ${s.seq}`,KIND_LABEL[s.kind]?(" · "+KIND_LABEL[s.kind]):""),
+              actLabel(s.act)+(s.seq?" · "+s.seq:""),KIND_LABEL[s.kind]?(" · "+KIND_LABEL[s.kind]):""),
             React.createElement("div",{className:"audit-mobile-charge"},
               React.createElement(ChargeChip,{value:s.openCharge}),
               React.createElement("span",{className:"audit-mobile-arrow"},React.createElement(Icon.arrowSmall,{s:11})),
@@ -207,7 +201,8 @@ function Board({ scenes, selId, onSelect }){
                   React.createElement(ChargeChip,{value:s.openCharge}),
                   React.createElement("span",{className:"chip-arrow"},React.createElement(Icon.arrowSmall,{s:11})),
                   React.createElement(ChargeChip,{value:s.closeCharge}),
-                  flagged&&React.createElement("span",{className:"tree-flag",style:{marginLeft:"auto"}},React.createElement(Icon.alert,{s:13}))));
+                  flagged&&React.createElement("span",{className:"tree-flag",style:{marginLeft:"auto"}},React.createElement(Icon.alert,{s:13})),
+                  !flagged&&turnInfo(s).progression&&React.createElement("span",{className:"tree-flag prog",style:{marginLeft:"auto"},title:"Progresses \u2014 intensifies on the same side instead of reversing"},React.createElement(Icon.arrowSmall,{s:13}))));
             })));})));
 }
 
@@ -393,6 +388,13 @@ function App(){
   const seriesSnapshotRef = React.useRef(null);
   // Story Contract (outer plot · inner arc · dominance) — patch helper for the rail panel
   const updateContract = (patch)=> setProject(p=>({ ...p, contract:{ ...((p&&p.contract)||{}), ...patch } }));
+  const updateGenre = (genre)=> setProject(p=>({ ...p, genre:String(genre||"").trim() }));
+  // story-level inputs edited in the left rail (premise, controlling idea, Center of
+  // Good, setting, synopsis by act) — a patch object, or a function of the project
+  const updateProjectFields = (patch)=>{
+    if(!canMutateWritersRoom()) return;
+    setProject(p=>({ ...p, ...(typeof patch==="function" ? patch(p) : patch) }));
+  };
   // project augmented with the Lookbook references routed to one department, so each drafter's
   // prompt honours only its relevant references (see lookbookBriefFor / _lookbookBlock).
   const lbProject = (dept)=> ({ ...project, _lookbookBrief:(typeof lookbookBriefFor==="function" ? lookbookBriefFor(dept, lookbook, lookbookNote) : "") });
@@ -429,7 +431,14 @@ function App(){
   const [draftingVisualIds, setDraftingVisualIds] = React.useState([]);
   const draftingVisualIdsRef = React.useRef([]); draftingVisualIdsRef.current = draftingVisualIds;
   const [draftingVisualId, setDraftingVisualId] = React.useState(null);
-  const [view, setView] = React.useState(()=> nav.view || (saved && saved.view) || "spine");
+  // the former Audit tab ("beats") is now the Board's Table layout
+  const _initialView = nav.view || (saved && saved.view) || "spine";
+  const [view, setView] = React.useState(()=> _initialView==="beats" ? "board" : _initialView);
+  const [boardMode, setBoardModeState] = React.useState(()=>{
+    if(_initialView==="beats") return "table";
+    try{ return localStorage.getItem("turn_board_mode")==="table" ? "table" : "columns"; }catch(e){ return "columns"; }
+  });
+  const setBoardMode = (m)=>{ setBoardModeState(m); try{ localStorage.setItem("turn_board_mode", m); }catch(e){} };
   const vp = useViewport();
   // both side panels use the SAME mechanics: in-layout (a persistent collapsed strip when
   // closed, pushes the canvas when open) on tablet + desktop; an overlay drawer only on
@@ -437,7 +446,6 @@ function App(){
   // when closed, unlike the inspector.
   const railDrawer = vp === "mobile";
   const inspDrawer = vp === "mobile";
-  const [aiOpen, setAiOpen] = React.useState(()=> typeof window!=="undefined" && window.innerWidth>=1100);
   const [railOpen, setRailOpen] = React.useState(()=> typeof window==="undefined" || window.innerWidth>=1100);
   const [inspOpen, setInspOpen] = React.useState(()=> typeof window==="undefined" || window.innerWidth>=700);
   // Project hydration and New Story completion are asynchronous. Keep the current
@@ -467,14 +475,13 @@ function App(){
     if(lastVp.current === vp){ return; }
     if(vp==="desktop"){ setRailOpen(true); setInspOpen(true); }
     else if(vp==="tablet"){ setRailOpen(false); setInspOpen(true); }
-    else { setRailOpen(false); setInspOpen(false); setAiOpen(false); }
+    else { setRailOpen(false); setInspOpen(false); }
     lastVp.current = vp;
   },[vp]);
   // on mobile, only one overlay at a time
   const excl = ()=> vp==="mobile";
-  const toggleRail = ()=> setRailOpen(o=>{ const n=!o; if(n && excl()){ setInspOpen(false); setAiOpen(false); } return n; });
-  const toggleInsp = ()=> setInspOpen(o=>{ const n=!o; if(n && excl()){ setRailOpen(false); setAiOpen(false); } return n; });
-  const toggleAI   = ()=> setAiOpen(o=>{ const n=!o; if(n && excl()){ setRailOpen(false); setInspOpen(false); } return n; });
+  const toggleRail = ()=> setRailOpen(o=>{ const n=!o; if(n && excl()){ setInspOpen(false); } return n; });
+  const toggleInsp = ()=> setInspOpen(o=>{ const n=!o; if(n && excl()){ setRailOpen(false); } return n; });
   const [drafts, setDrafts] = React.useState(()=> (saved && saved.drafts) || ({}));
   const [drafting, setDrafting] = React.useState(null);
   const [beatsMap, setBeatsMap] = React.useState(()=> (saved && saved.beatsMap) || ({}));
@@ -673,13 +680,19 @@ function App(){
   },[]);
   React.useEffect(()=>{
     if(!(typeof cloudConfigured==="function" && cloudConfigured())){ setAuthReady(true); return; }
+    let alive = true;
     let unsub = ()=>{};
+    // Subscribe first. If getSession is waiting behind a stale browser auth lock,
+    // the INITIAL_SESSION / TOKEN_REFRESHED event can still restore the session.
+    unsub = cloudOnAuth((s)=>{ if(alive) setSession(s); });
     (async()=>{
-      try{ setSession(await cloudGetSession()); }catch(e){}
-      setAuthReady(true);   // landing/app gate waits for this so signed-in users never flash the landing
-      unsub = cloudOnAuth((s)=>setSession(s));
+      try{
+        const s=await cloudGetSession();
+        if(alive && s) setSession(s);
+      }catch(e){}
+      if(alive) setAuthReady(true);   // landing/app gate waits for this so signed-in users never flash the landing
     })();
-    return ()=>{ try{ unsub(); }catch(e){} };
+    return ()=>{ alive=false; try{ unsub(); }catch(e){} };
   },[]);
   const signOut = async ()=>{
     if(currentProjectId && !(await flushPendingProjectSave(currentProjectId))){
@@ -697,6 +710,7 @@ function App(){
   const [homeOpen, setHomeOpen] = React.useState(false);   // Home / Dashboard overlay (only shown at >=2 films)
   const homeOpenRef = React.useRef(false); homeOpenRef.current = homeOpen;
   const [currentProjectId, setCurrentProjectId] = React.useState(null);
+  const [cloudConnectionState,setCloudConnectionState] = React.useState("connecting"); // connecting | retrying | connected | idle
   const [projectLoading, setProjectLoading] = React.useState(false);
   const projectLoadingRef = React.useRef(false); projectLoadingRef.current=projectLoading;
   // LIVE mirror of the open film's id. Long async work (agent runs, scene drafting,
@@ -1390,6 +1404,7 @@ function App(){
     if(typeof window.vgResetAll==="function") window.vgResetAll();   // and clear voice/video caches
     if(typeof window.vidResetAll==="function") window.vidResetAll();
     setCurrentProjectId(id);
+    setCloudConnectionState("connected");
     bibleRebaseRef.current=null;
     if(d.showId){
       setCurrentShowId(d.showId);
@@ -1453,6 +1468,7 @@ function App(){
      resets on sign-out so the next sign-in bootstraps again. */
   const bootRef = React.useRef(false);
   const bootLoadWarnedRef = React.useRef(false);
+  const bootRetryDelayRef = React.useRef(1500);
   const [bootRetryTick,setBootRetryTick] = React.useState(0);
   // Depend on the STABLE user id, not the session object: Supabase fires several auth
   // events on sign-in (INITIAL_SESSION / SIGNED_IN / TOKEN_REFRESHED), each a NEW session
@@ -1462,24 +1478,42 @@ function App(){
   const bootUserId = session ? (((typeof cloudUserId==="function") && cloudUserId(session)) || "signed-in") : null;
   React.useEffect(()=>{
     if(!(typeof cloudConfigured==="function" && cloudConfigured())) return;
-    if(!bootUserId){ bootRef.current=false; bootLoadWarnedRef.current=false; setProjects([]); setCurrentProjectId(null); if(typeof nbUseLocal==="function") nbUseLocal(); return; }
+    if(!bootUserId){
+      bootRef.current=false; bootLoadWarnedRef.current=false; bootRetryDelayRef.current=1500;
+      setCloudConnectionState("idle"); setProjects([]); setCurrentProjectId(null);
+      if(typeof nbUseLocal==="function") nbUseLocal();
+      return;
+    }
     if(bootRef.current) return;            // already bootstrapped this sign-in
     bootRef.current = true;
+    setCloudConnectionState(bootRetryTick ? "retrying" : "connecting");
     let alive = true;
+    let retryTimer=null;
+    const retryBoot=(message,showWall)=>{
+      if(!alive) return;
+      bootRef.current=false;
+      setCloudConnectionState("retrying");
+      if(showWall) setHomeOpen(true);
+      if(!bootLoadWarnedRef.current && typeof window.appToast==="function"){
+        bootLoadWarnedRef.current=true;
+        window.appToast(message||"TURN lost the cloud connection. Your open work stays on screen while it reconnects.","info");
+      }
+      const delay=bootRetryDelayRef.current;
+      bootRetryDelayRef.current=Math.min(delay*2,15000);
+      retryTimer=setTimeout(()=>{ if(alive) setBootRetryTick(t=>t+1); },delay);
+    };
     (async()=>{
       let list = await cloudListProjects();
-      // list === null means the REQUEST failed (expired token after the tab slept →
-      // 401s), not an empty account. Without this retry the boot used to finish
-      // against the failure — bootRef stayed latched, no later auth event re-keys
-      // the effect, and the app sat on "Connecting" with an empty canvas until a
-      // manual reload. Poke the session refresh and retry with backoff instead.
-      for(let wait=3000; list===null && alive; wait=Math.min(wait*2,30000)){
-        try{ const sb=(typeof sbClient==="function")&&sbClient(); if(sb) await sb.auth.refreshSession(); }catch(e){}
-        await new Promise(r=>setTimeout(r,wait));
-        if(!alive) return;
-        list = await cloudListProjects();
+      // null is a bounded request failure, not an empty account. Release the boot
+      // latch before retrying so one hung/failed read can never leave the account
+      // chip permanently on Connecting.
+      if(list===null){
+        try{ const sb=(typeof sbClient==="function")&&sbClient(); if(sb) Promise.resolve(sb.auth.refreshSession()).catch(()=>{}); }catch(e){}
+        retryBoot("TURN lost the cloud connection. Your open work stays on screen while it reconnects.",false);
+        return;
       }
       if(!alive) return;
+      bootRetryDelayRef.current=1500;
       // Read the session FRESH here — during sign-in the captured `isAdmin`
       // can lag a render behind the session this bootstrap is running for.
       const s = (typeof cloudGetSession==="function") ? await cloudGetSession() : null;
@@ -1521,27 +1555,37 @@ function App(){
         /* A transient Episode/Show read must not latch boot forever on an empty
            "Connecting" surface. Keep the project wall reachable and retry the
            authoritative load without manufacturing another project row. */
-        setHomeOpen(true);
-        bootRef.current=false;
-        if(!bootLoadWarnedRef.current && typeof window.appToast==="function"){
-          bootLoadWarnedRef.current=true;
-          window.appToast(openable.length
-            ? "Your projects loaded, but none opened yet. TURN will retry automatically."
-            : "Your first film hasn't opened yet. TURN will retry automatically.","info");
-        }
-        setTimeout(()=>{ if(alive) setBootRetryTick(t=>t+1); },3000);
+        retryBoot(openable.length
+          ? "Your projects loaded, but none opened yet. TURN will retry automatically."
+          : "Your first film hasn't opened yet. TURN will retry automatically.",true);
         return;
       }
       bootLoadWarnedRef.current=false;
+      setCloudConnectionState("connected");
       // a studio whose EVERY film is a share (invitee with no own work yet)
       // boots onto the home wall, where the share is explained (owner + role),
       // instead of being dropped wordlessly into someone else's Writers' Room.
       // Skip when an invite landing is about to present its own welcome surface.
       if(alive && openable.length && openable.every(p=>p.isShared) && !inviteLanding)
         setHomeOpen(true);
-    })().catch(()=>{});
-    return ()=>{ alive=false; };
+    })().catch(()=>{
+      retryBoot("TURN hit a connection problem while opening your films. Your work stays on screen and it will retry automatically.",false);
+    });
+    return ()=>{ alive=false; if(retryTimer) clearTimeout(retryTimer); };
   },[bootUserId,bootRetryTick]);
+
+  React.useEffect(()=>{
+    if(!bootUserId) return;
+    const reconnect=()=>{
+      if(projIdRef.current) return;
+      bootRef.current=false;
+      bootRetryDelayRef.current=1500;
+      setCloudConnectionState("retrying");
+      setBootRetryTick(t=>t+1);
+    };
+    window.addEventListener("online",reconnect);
+    return ()=>window.removeEventListener("online",reconnect);
+  },[bootUserId]);
 
   const switchProject = async (id)=>{
     if(id===currentProjectId) return true;
@@ -2938,6 +2982,24 @@ function App(){
   const updateCharacter = (id,patch)=>{
     if(!canMutateSharedFilm()) return;
     const revision=Date.now().toString(36);
+    const prior=(characters||[]).find(c=>c.id===id)||null;
+    const touchesVoice=Object.prototype.hasOwnProperty.call(patch,"voiceLock");
+    if(touchesVoice&&prior){
+      const before=prior.voiceLock||null,after=patch.voiceLock||null;
+      const sig=lock=>(typeof window.vgVoiceLockSignature==="function")
+        ? window.vgVoiceLockSignature(lock) : JSON.stringify(lock||null);
+      const changed=sig(before)!==sig(after)
+        || String((before&&before.revision)||"")!==String((after&&after.revision)||"");
+      if(changed) setShots(ss=>ss.map(sh=>{
+        const la=sh&&sh.lineAudio;
+        if(!la)return sh;
+        const belongs=String(la.speakerId||"")===String(id)
+          || (!!before&&String(la.voiceId||"")===String(before.voiceId||""));
+        return belongs ? {...sh,lineAudio:{...la,stale:true,staleReason:after
+          ? "The character's canonical voice changed; revoice this line before rendering."
+          : "The character's canonical voice was removed; lock a voice and revoice this line.",staleAt:new Date().toISOString()}} : sh;
+      }));
+    }
     const merge=c=>{
       if(c.id!==id) return c;
       const identityChanged=Object.prototype.hasOwnProperty.call(patch,"pronouns")
@@ -3247,6 +3309,10 @@ function App(){
       form:"", material:"", detail:"", renderStyle:"", negativePrompt:"", manual:true,
       origin:(typeof artRoomPropOrigin==="function") ? artRoomPropOrigin("carried","manual") : {kind:"manual"} }]);
   };
+  const importScreenplayProps = (decisions)=>{
+    const next=window.PropScreenplay.accept(propsRef.current,decisions,draftsRef.current);
+    setProps(next.map(p=>Array.isArray(p.scenes)?withEpisodeSceneRefs(p,p.scenes,scenesRef.current):p));
+  };
   const deleteProp = (id)=>{
     const p = (props||[]).find(x=>x.id===id); if(!p) return;
     setProps(ps=>ps.filter(x=>x.id!==id));
@@ -3384,8 +3450,9 @@ function App(){
   // "Draft all props" — the full props pipeline in one click:
   //   1) SYNC any missing cards from the cast (worn/carried, dedup by owner+name)
   //   2) DRAFT every card's spec (form/material/significance/look dev) from the script
-  //   3) MAP every card to the scenes it appears in (worn -> owner presence, carried -> AI)
-  // Replaces the old separate "Pull from cast" + "Re-map scenes" buttons.
+  //   3) MAP every card to the scenes it appears in (reviewed sources, worn -> owner
+  //      presence, anything the screenplay hasn't established -> scenes whose text
+  //      names it; deterministic, no model call)
   const draftAllProps = async ()=>{
     if(draftingAllProps) return;
     setDraftingAllProps(true);
@@ -3403,9 +3470,11 @@ function App(){
           setProps(ps=>ps.map(p=> map[p.id] ? {...p, ...keepPickedStyle(p, map[p.id])} : p)); }
       }
       // 3) map scenes
-      if(typeof aiPropScenes==="function" && working.length){
-        const smap = await aiPropScenes(working, scenes, drafts, characters);
-        if(smap) setProps(ps=>ps.map(p=> smap[p.id] ? withEpisodeSceneRefs(p,smap[p.id],scenes) : p));
+      if(typeof propSceneMap==="function" && working.length){
+        const smap = await propSceneMap(working, scenes, drafts, characters);
+        const lexical = (p)=> !Array.isArray(p.screenplaySources) && (p.kind||"carried")!=="worn";
+        if(smap) setProps(ps=>ps.map(p=> smap[p.id]
+          ? withEpisodeSceneRefs(lexical(p) ? {...p, sceneMapBasis:"lexical"} : p, smap[p.id], scenes) : p));
       }
       if(working.length) markApplied("props");
     }catch(e){}
@@ -3599,97 +3668,49 @@ function App(){
     // and strand the user on a wall of manual draft buttons
     Promise.resolve(draftAllVisuals()).then((ok)=>{ if(ok) setVisualsSeeded(true); });
   },[room, visualsSeeded, characters, hydrationTick]);
-  // map each prop to the scenes it appears in (worn -> owner presence, carried -> AI exact)
-  const [taggingScenes, setTaggingScenes] = React.useState(false);
-  const tagPropScenes = async ()=>{
-    if(taggingScenes || !(typeof aiPropScenes==="function") || !props.length) return;
-    setTaggingScenes(true);
-    try{
-      const map = await aiPropScenes(props, scenes, drafts, characters);
-      if(map) setProps(ps=>ps.map(p=> map[p.id] ? withEpisodeSceneRefs(p,map[p.id],scenes) : p));
-    }catch(e){}
-    setTaggingScenes(false);
-  };
-  // re-map ONE prop's scenes (without re-drafting its spec) — per-card action
-  const [taggingSceneId, setTaggingSceneId] = React.useState(null);
-  const tagOnePropScenes = async (p)=>{
-    if(taggingSceneId || !p || !(typeof aiPropScenes==="function")) return;
-    setTaggingSceneId(p.id);
-    try{
-      const map = await aiPropScenes([p], scenes, drafts, characters);
-      const next = (map && map[p.id]) ? map[p.id] : [];
-      setProps(ps=>ps.map(x=> x.id===p.id ? withEpisodeSceneRefs(x,next,scenes) : x));
-    }catch(e){}
-    setTaggingSceneId(null);
-  };
-
-  /* AUTO RE-MAP — a screenplay or scene-list change (edits, polish, undo/redo,
-     scene add/delete/reorder, import) silently stales every PINNED
-     prop→scene map, and those maps decide what rides into shots and how states
-     and custody resolve. Debounced re-derivation of pinned maps ONLY — unmapped
-     props derive live (effMap: owner presence / name-matching) and never go
-     stale. A prop the re-map EXPLICITLY empties (it HAD appearances, now it has
-     none — a scene cut or a removed mention) is park-deleted to trash with a
-     toast: recoverable, same rule as the sub-space fold, never hard-deleted.
-     Set dressing is exempt from the cull — it belongs to its location, not to
-     scene presence. Fail-safes: any mapper failure/no-op leaves every card
-     untouched (the AI's parse-failure fallback is owner-presence, never a false
-     empty), and a prop whose map changed mid-flight (e.g. a manual Re-map
-     during the await) is skipped — the next debounced pass reconciles it. */
+  /* Deterministic scene remapping (reviewed sources, wearer presence, and the lexical
+     map of objects the screenplay hasn't established). Never performs paid extraction
+     or removes cards. Missing screenplay evidence is reviewed in the Props tab. */
   const propsRef = React.useRef([]); propsRef.current = props;
   const charactersRef = React.useRef([]); charactersRef.current = characters;
   const tagBusyRef = React.useRef(false);
-  tagBusyRef.current = !!(taggingScenes || taggingSceneId || draftingAllProps);
+  tagBusyRef.current = !!draftingAllProps;
   const autoRetagRef = React.useRef(false);
   React.useEffect(()=>{
     if(readOnlyShare) return;
-    if(typeof aiPropScenes!=="function") return;
+    if(typeof propSceneMap!=="function") return;
     const t = setTimeout(async ()=>{
       if(hydratingRef.current || tagBusyRef.current || autoRetagRef.current) return;
-      const pinned = (propsRef.current||[]).filter(p=> p && Array.isArray(p.scenes));
+      const pinned = (propsRef.current||[]).filter(p=> p && Array.isArray(p.scenes)
+        && (Array.isArray(p.screenplaySources)||p.kind==="worn"||p.sceneMapBasis==="lexical"));
       if(!pinned.length) return;
       autoRetagRef.current = true;
       const base = {}; pinned.forEach(p=>{ base[p.id] = p.scenes.join("|"); });   // mid-flight change detector
       // EPOCH gate — the screenplay/scene set identity at send time. If either
-      // moves during the AI await (another edit, undo, scene delete — which also
+      // moves during the await (another edit, undo, scene delete — which also
       // schedules a FRESH debounced pass), this result is stale: applying it
       // could trash a prop the newer script still uses. Abort instead; the
       // newer pass reconciles.
       const draftsEpoch = draftsRef.current, scenesEpoch = scenesRef.current;
       try{
-        const map = await aiPropScenes(pinned, scenesRef.current, draftsRef.current, charactersRef.current);
+        const map = await propSceneMap(pinned, scenesRef.current, draftsRef.current, charactersRef.current);
         if(!map) return;
-        // revalidate at APPLY time: script moved, or a manual Re-map / Design all
-        // props started while we awaited — either way this pass must not land.
+        // revalidate at APPLY time: script moved, or Draft all specifications
+        // started while we awaited — either way this pass must not land.
         if(draftsRef.current!==draftsEpoch || scenesRef.current!==scenesEpoch) return;
         if(tagBusyRef.current || hydratingRef.current) return;
-        const gone = [];
         setProps(ps=>{
           const fresh = (p)=> p && Array.isArray(p.scenes) && (p.id in map) && p.scenes.join("|")===base[p.id];
           const nextOf = (p)=> Array.isArray(map[p.id]) ? map[p.id] : [];
-          const keep = ps.filter(p=>{
-            if(!fresh(p)) return true;
-            const next = nextOf(p);
-            // cull only when the empty verdict is well-founded: the prop had
-            // appearances, it isn't set dressing (belongs to its location), and
-            // it HAS an owner — ownerless carried props get "candidate scenes:
-            // none" from the mapper, which biases the AI toward empty, so an
-            // empty verdict there is weak evidence and never trashes.
-            if(!currentShowId && !next.length && p.scenes.length && (p.kind||"carried")!=="dressing" && (p.ownerId||p.ownerName)){ gone.push(p); return false; }
-            return true;
-          });
+          // Missing evidence is not permission to delete an asset. Preserve cards,
+          // images and events even when a scene is removed or a match goes stale.
+          const keep = ps;
           return keep.map(p=>{
             if(!fresh(p)) return p;
             const next = nextOf(p);
             return (next.join("|")===p.scenes.join("|")) ? p : withEpisodeSceneRefs(p,next,scenesEpoch);
           });
         });
-        if(gone.length){
-          setTrash(t2=>({ ...t2, props:[ ...gone.map(_trashStamp), ...(t2.props||[]).filter(x=> x && !gone.some(g=>g.id===x.id)) ] }));
-          try{ if(window.appToast) window.appToast(
-            gone.map(p=>p.name||"Untitled prop").join(", ")+" no longer appear"+(gone.length>1?"":"s")+" in the script — moved to trash (recoverable)","info");
-          }catch(e){}
-        }
       }catch(e){}
       finally{ autoRetagRef.current = false; }
     }, 2500);
@@ -4096,37 +4117,59 @@ function App(){
   const cancelVoiceAll = ()=>{ voicingCancel.current = true; };
   const resolveLineSpeaker = (shot)=>{
     const scene = scenes.find(s=>s.id===shot.sceneId);
-    /* the SCREENPLAY names the speaker (the character cue above the line) — trust it
-       before any in-frame heuristic, so a two-hander never renders A's line in B's
-       voice. Returned even without a voiceLock: the "lock a voice for X" error must
-       name the character who actually speaks. */
-    if(scene && typeof stageDialogueSpeaker==="function"){
-      try{
-        const charById = {}; characters.forEach(c=>{ charById[c.id]=c; });
-        const sp = stageDialogueSpeaker(scene, drafts, beatsMap, shot, { characters, charById });
-        if(sp && sp.id && charById[sp.id]) return charById[sp.id];
-      }catch(e){}
+    if(!scene) throw new Error("This line has no scene, so TURN cannot verify its speaker.");
+    const norm=v=>String(v||"").toLowerCase().replace(/\(cont'?d\)/ig,"").replace(/[^a-z0-9]+/g," ").trim();
+    const exactCharacter=(id,name)=>{
+      if(id){ const c=(characters||[]).find(x=>String(x.id)===String(id)); if(c)return c; }
+      const n=norm(name),hits=(characters||[]).filter(c=>norm(c&&c.name)===n);
+      return hits.length===1?hits[0]:null;
+    };
+    const saved=Array.isArray(shot.dialogueLines)?shot.dialogueLines.filter(r=>r&&String(r.text||"").trim()):[];
+    if(saved.length>1) throw new Error("This shot owns more than one spoken line. Assign one screenplay line per shot before voicing.");
+    if(saved.length===1){
+      const c=exactCharacter(saved[0].speakerId,saved[0].speaker);
+      if(c)return {character:c,line:saved[0]};
+      throw new Error("The assigned screenplay speaker no longer matches a character. Reassign this line before voicing.");
     }
-    const ids = (typeof inFrameCast==="function") ? inFrameCast(shot, scene, characters) : (shot.subjects||[]);
-    const inFrame = (ids||[]).map(id=>characters.find(c=>c.id===id)).filter(Boolean);
-    const hasVoice = (c)=> !!(c && c.voiceLock && c.voiceLock.voiceId);
-    return inFrame.find(hasVoice)
-        || (scene && characters.find(c=>c.id===scene.driver && hasVoice(c)))
-        || inFrame[0] || (scene && characters.find(c=>c.id===scene.driver)) || null;
+    const lines=(typeof stageBeatDialogueLines==="function")
+      ? stageBeatDialogueLines(scene,drafts,shot.beatN) : [];
+    const index=Number(shot.screenplayDialogueIndex);
+    let row=Number.isInteger(index)&&index>=0 ? lines[index] : null;
+    if(!row){
+      const text=norm(shot.dialogue),matches=(lines||[]).filter(x=>norm(x&&x.text)===text);
+      if(matches.length===1)row=matches[0];
+      else if(matches.length>1)throw new Error("This dialogue occurs more than once. Assign its exact screenplay occurrence before voicing.");
+    }
+    if(row){
+      const c=exactCharacter(row.speakerId,row.speaker);
+      if(c)return {character:c,line:row};
+    }
+    throw new Error("TURN cannot verify who speaks this line. Assign it from the screenplay before voicing; visual cast is never used to guess a voice.");
   };
   const voiceOneLine = async (shot)=>{
     const text = String(shot.dialogue||"").trim();
     if(!text) return { skipped:true };
-    const spk = resolveLineSpeaker(shot);
+    const resolved = resolveLineSpeaker(shot);
+    const spk = resolved&&resolved.character;
+    const performance = resolved&&resolved.line||{};
     if(!spk || !spk.voiceLock || !spk.voiceLock.voiceId)
       throw new Error("No locked voice for "+((spk&&spk.name)||"the speaker")+" — lock one on their character card: The Art Room → Characters tab → the Voice button.");
+    const voiceMasterAssetId=(typeof window.vgVoiceMasterAssetId==="function")?window.vgVoiceMasterAssetId(spk.id):("voice-master-"+spk.id);
+    const voiceMasterFileName=(typeof window.vgVoiceMasterFileName==="function")?window.vgVoiceMasterFileName(spk.name):((spk.name||"Character").replace(/[^A-Za-z0-9]+/g,"_")+"_voice.mp3");
     const r = await window.elGenerate(shot.id, text, { voiceId:spk.voiceLock.voiceId, settings:spk.voiceLock.defaults,
       ...characterMediaOptions(spk),
+      voiceLock:spk.voiceLock,projectId:currentProjectId||"local",
+      assetRole:"dialogue_line",characterId:spk.id,characterName:spk.name||"Character",
       modelId:(typeof window.vgDeliveryModelOf==="function") ? window.vgDeliveryModelOf(spk.voiceLock) : (spk.voiceLock.modelId||window.VG_TTS_MODEL) });
     const durSec = Math.max(0.6, Math.round(((r.durationMs||0)/1000 + 0.4)*10)/10);   // measured + lead/tail pad
     updateShot(shot.id, { dur:durSec, lineAudio:{ durationMs:r.durationMs||0, voiceId:spk.voiceLock.voiceId,
-      speakerId:spk.id, speaker:spk.name, text,
-      hash:(typeof window.vgHash==="function" ? window.vgHash(text, spk.voiceLock.voiceId, spk.voiceLock.defaults) : "") } });
+      voiceName:spk.voiceLock.voiceName||"",voiceRevision:spk.voiceLock.revision||"",
+      voiceSignature:r.voiceSignature||spk.voiceLock.fingerprint||"",
+      speakerId:spk.id, speaker:spk.name, text,parenthetical:performance.parenthetical||"",
+      delivery:performance.delivery||"onscreen",modelId:r.modelId||spk.voiceLock.modelId||"",
+      settings:r.settings||spk.voiceLock.defaults||{},provider:r.provider||"",backend:r.backend||"",
+      outputFormat:r.outputFormat||"",projectId:currentProjectId||"local",renderedAt:r.renderedAt||new Date().toISOString(),
+      hash:r.hash||"",voiceMasterAssetId,voiceMasterFileName,stale:false } });
     return { ok:true, durSec, cached:r.cached };
   };
   const voiceLine = async (shot)=>{
@@ -4664,6 +4707,8 @@ function App(){
   const commitVersion = (id, next)=>{
     if(!canMutateWritersRoom()) return false;
     const prev = drafts[id];
+    // a manual edit or a written beat keeps the card snapshot of the draft it edits
+    if(next && !next.cardSnap && prev && prev.cardSnap) next = { ...next, cardSnap:prev.cardSnap };
     if(prev) setHistory(h=>{ const e=h[id]||{back:[],fwd:[]};
       return {...h,[id]:{ back:[...e.back, prev].slice(-HISTORY_MAX), fwd:[] }}; });
     setDrafts(d=>({...d,[id]:next}));
@@ -4686,6 +4731,11 @@ function App(){
     setDrafts(d=>({...d,[id]:nextV}));
   };
 
+  /* NEEDS REDRAFT: every written draft carries the snapshot of the card it was
+     written from (sceneCardSnap); a card that has changed since marks the script as
+     out of date, with one-click Redraft (redraftScene) or Keep this draft. */
+  const stampDraft = (res, scn, b)=> (res && typeof window.sceneCardSnap==="function")
+    ? { ...res, cardSnap: window.sceneCardSnap(scn, characters, b || beatsMap[scn.id]) } : res;
   const draftOne = async (s)=>{
     if(!canMutateWritersRoom() || drafts[s.id]) return;
     const ordered=scenesInStoryOrder(scenes);
@@ -4698,7 +4748,7 @@ function App(){
     // must not land in the new one (scene ids repeat across films)
     const owner = currentProjectId;
     if(!beats && typeof aiAuthorScene==="function" && aiAvailable()){
-      const authored = await aiAuthorScene(s, prev, characters, project);
+      const authored = await aiAuthorScene(s, prev, characters, project, { keepCard:true });
       if(owner !== projIdRef.current || !canMutateWritersRoom()){ setDrafting(null); return; }
       if(authored){
         scn = {...s, ...authored.patch}; beats = authored.beats;
@@ -4708,7 +4758,7 @@ function App(){
     }
     const res = await aiDraftScene(scn, beats, prev, project);
     if(owner !== projIdRef.current || !canMutateWritersRoom()){ setDrafting(null); return; }
-    setDrafts(d=>({...d,[s.id]:res}));
+    setDrafts(d=>({...d,[s.id]:stampDraft(res, scn, beats)}));
     setDrafting(null);
   };
   const draftAll = async ()=>{
@@ -4729,7 +4779,7 @@ function App(){
         if(have[s.id]) continue;
         let scn = s, beats = beatsMap[s.id];
         if(!beats && typeof aiAuthorScene==="function" && aiAvailable()){
-          const authored = await aiAuthorScene(s, prev, characters, project);
+          const authored = await aiAuthorScene(s, prev, characters, project, { keepCard:true });
           if(owner !== projIdRef.current || writersRoomReadOnlyRef.current) break;
           if(authored){
             scn = {...s, ...authored.patch}; working[i]=scn; beats = authored.beats;
@@ -4737,7 +4787,7 @@ function App(){
             setBeatsFor(s.id, authored.beats);
           }
         }
-        const res = await aiDraftScene(scn, beats, prev, project);
+        const res = stampDraft(await aiDraftScene(scn, beats, prev, project), scn, beats);
         if(owner !== projIdRef.current || writersRoomReadOnlyRef.current) break;
         have[s.id] = res;
         setDrafts(d=>({...d,[s.id]:res}));
@@ -4759,7 +4809,7 @@ function App(){
     try{
       const structural = autoDraftScene(s, beatsForScene, prev);
       const res = await aiPolishScene(s, beatsForScene, structural.blocks, prev, project);
-      if(res && canMutateWritersRoom()){ return commitVersion(s.id, res); }
+      if(res && canMutateWritersRoom()){ return commitVersion(s.id, stampDraft(res, s, beatsForScene)); }
       return false; // fall back to seed prose animation
     }catch(e){
       return false;
@@ -4767,16 +4817,174 @@ function App(){
       setPolishBusy(null);
     }
   };
+  /* REDRAFT one scene's script from its CURRENT card and beats (the "needs redraft"
+     marker's action, and "Redraft script from beats"): confirm, re-derive the prose,
+     commit a VERSION so Undo restores the previous draft. */
+  const redraftScene = async (scn, b, opts)=>{
+    if(!scn || !canMutateWritersRoom()) return false;
+    const confirmIt = !(opts && opts.confirm===false);
+    if(confirmIt && typeof window.appConfirm==="function"){
+      const ok = await window.appConfirm({ title:"Redraft Scene "+scn.no+"\u2019s script?",
+        body:"The screenplay is rewritten from the scene\u2019s CURRENT card and beat cards (writing credits). The current draft stays in version history \u2014 Undo restores it.",
+        confirmLabel:"Redraft script" });
+      if(!ok) return false;
+    }
+    const done = await polishScene(scn, b || beatsMap[scn.id]);
+    if(typeof window.appToast==="function" && !(opts && opts.quiet)){
+      if(done) window.appToast("Scene "+scn.no+" redrafted \u2014 Undo restores the previous draft.","ok");
+      else window.appToast("Couldn\u2019t redraft \u2014 the writing model may be unreachable.","error");
+    }
+    return done;
+  };
 
   const sel = scenes.find(s=>s.id===selId) || null;
   const beats = sel ? beatsMap[sel.id] : null;
 
-  // story-health issues that drive the Writers' Room badge + per-agent counts
-  const turnIssues = scenes.filter(s=>turnInfo(s).flagged).length;
+  // NEEDS REDRAFT — scenes whose card changed after their script was written
+  const staleMap = React.useMemo(()=>{
+    const out = {};
+    if(typeof window.sceneCardSnap!=="function" || typeof window.cardChanges!=="function") return out;
+    scenes.forEach(s=>{
+      const d = drafts[s.id];
+      if(!d || !d.cardSnap || !(d.blocks||[]).length) return;
+      const ch = window.cardChanges(d.cardSnap, window.sceneCardSnap(s, characters, beatsMap[s.id]));
+      if(ch.length) out[s.id] = ch;
+    });
+    return out;
+  },[scenes, drafts, characters, beatsMap]);
+  // drafts written before snapshots existed take today's card as their baseline (once)
+  React.useEffect(()=>{
+    // silent guard: an automatic baseline must never raise the loading / read-only notices
+    if(hydratingRef.current || projectLoadingRef.current || writersRoomReadOnlyRef.current
+      || typeof window.sceneCardSnap!=="function") return;
+    const missing = scenes.filter(s=>{ const d = drafts[s.id]; return d && (d.blocks||[]).length && !d.cardSnap; });
+    if(!missing.length) return;
+    setDrafts(d=>{ const n = {...d};
+      missing.forEach(s=>{ if(n[s.id] && !n[s.id].cardSnap) n[s.id] = { ...n[s.id], cardSnap:window.sceneCardSnap(s, characters, beatsMap[s.id]) }; });
+      return n; });
+  },[drafts, scenes, currentProjectId]);
+  // "Keep this draft": the script is fine as written — adopt the current card as its baseline
+  const keepDraft = (id)=>{
+    const s = scenes.find(x=>x.id===id);
+    if(!s || !canMutateWritersRoom() || typeof window.sceneCardSnap!=="function") return;
+    setDrafts(d=> d[id] ? { ...d, [id]:{ ...d[id], cardSnap:window.sceneCardSnap(s, characters, beatsMap[id]) } } : d);
+  };
+  const [redraftingAll, setRedraftingAll] = React.useState(null);   // null | {i,total}
+  const redraftAllStale = async ()=>{
+    if(redraftingAll || !canMutateWritersRoom()) return;
+    const todo = scenesInStoryOrder(scenes).filter(s=>staleMap[s.id]);
+    if(!todo.length) return;
+    if(typeof window.appConfirm==="function"){
+      const ok = await window.appConfirm({ title:"Redraft "+todo.length+" out-of-date scene"+(todo.length!==1?"s":"")+"?",
+        body:"Each script is rewritten from its scene\u2019s CURRENT card and beats, one after another (writing credits). Every previous draft stays in version history \u2014 Undo restores it, scene by scene.",
+        confirmLabel:"Redraft "+todo.length });
+      if(!ok) return;
+    }
+    const owner = currentProjectId;
+    let done = 0;
+    try{
+      for(let i=0;i<todo.length;i++){
+        if(owner!==projIdRef.current || !canMutateWritersRoom()) break;
+        setRedraftingAll({ i:i+1, total:todo.length });
+        if(await redraftScene(todo[i], beatsMap[todo[i].id], { confirm:false, quiet:true })) done++;
+      }
+    } finally { setRedraftingAll(null); }
+    if(typeof window.appToast==="function") window.appToast(done===todo.length
+      ? ("Redrafted "+done+" scene"+(done!==1?"s":"")+" from their current cards \u2014 Undo restores any of them.")
+      : ("Redrafted "+done+" of "+todo.length+" scenes \u2014 the rest are still marked; the writing model may be unreachable."), done===todo.length?"ok":"error");
+  };
+
+  // NAME EVERY SCENE'S VALUE — older films get a value at stake per scene: the poles
+  // their own words give are used as-is; MUSE supplies only the missing ones
+  const unnamedValueCount = (typeof sceneValueAxis==="function") ? scenes.filter(s=>!sceneValueAxis(s)).length : 0;
+  const [namingValues, setNamingValues] = React.useState(false);
+  const nameAllValues = async ()=>{
+    if(namingValues || !canMutateWritersRoom() || typeof guessValueAxis!=="function") return;
+    const todo = scenesInStoryOrder(scenes).filter(s=>!sceneValueAxis(s));
+    if(!todo.length) return;
+    const items = todo.map(s=>{ const g = guessValueAxis(s) || { pos:"", neg:"" };
+      return { id:s.id, no:s.no, title:s.title, summary:s.summary, openValue:s.openValue, openCharge:s.openCharge,
+        closeValue:s.closeValue, closeCharge:s.closeCharge, pos:g.pos||"", neg:g.neg||"" }; });
+    const complete = items.filter(it=>it.pos && it.neg && it.pos.toLowerCase()!==it.neg.toLowerCase());
+    const needAI = items.filter(it=>complete.indexOf(it)<0);
+    const live = typeof aiAvailable==="function" && aiAvailable();
+    if(typeof window.appConfirm==="function"){
+      const ok = await window.appConfirm({ title:"Name the value at stake for "+todo.length+" scene"+(todo.length!==1?"s":"")+"?",
+        body:(complete.length ? complete.length+" come"+(complete.length===1?"s":"")+" straight from the scene\u2019s own words. " : "")+
+          (needAI.length ? (live ? needAI.length+" need"+(needAI.length===1?"s":"")+" MUSE to supply a missing pole (one writing call). " : needAI.length+" can\u2019t be completed until a writing model is available. ") : "")+
+          "Each scene\u2019s opening and closing words then follow its charges. The scripts aren\u2019t changed and the scenes aren\u2019t marked for a redraft.",
+        confirmLabel:"Name values" });
+      if(!ok) return;
+    }
+    const owner = currentProjectId;
+    setNamingValues(true);
+    let fromAI = {};
+    try{ if(needAI.length && live) fromAI = await window.aiNameSceneValues(needAI, project) || {}; }catch(e){ fromAI = {}; }
+    finally{ setNamingValues(false); }
+    if(owner!==projIdRef.current || !canMutateWritersRoom()) return;
+    const axes = {}; complete.forEach(it=>{ axes[it.id] = { pos:it.pos, neg:it.neg }; }); Object.assign(axes, fromAI);
+    const ids = Object.keys(axes);
+    if(!ids.length){ if(typeof window.appToast==="function") window.appToast("No values could be named \u2014 the writing model may be unreachable.","error"); return; }
+    setScenes(ss=>ss.map(s=> axes[s.id] ? withValueWords({ ...s, value:axes[s.id] }) : s));
+    // a relabel, not a story change: carry the new value into each draft's card snapshot
+    setDrafts(d=>{ const n = {...d};
+      ids.forEach(id=>{ const dr = n[id], sc = scenes.find(x=>x.id===id);
+        if(!dr || !dr.cardSnap || !sc) return;
+        const named = withValueWords({ ...sc, value:axes[id] });
+        n[id] = { ...dr, cardSnap:{ ...dr.cardSnap, value:axes[id].pos+" / "+axes[id].neg, words:(named.openValue||"")+" \u2192 "+(named.closeValue||"") } };
+      });
+      return n; });
+    const left = todo.length - ids.length;
+    if(typeof window.appToast==="function") window.appToast("Named the value at stake for "+ids.length+" scene"+(ids.length!==1?"s":"")+
+      (left ? (" \u2014 "+left+" still need one (name them in the Scene tab).") : "."), left?"info":"ok");
+  };
+
+  // CONTINUITY FACTS — each film's own (built by the continuity ledger). The bundled
+  // sample's facts apply only to the sample's own continuity map.
+  const storyFacts = React.useMemo(()=>{
+    if(project && project.continuityFacts) return project.continuityFacts;
+    const used = Object.values(continuityMap||{}).flatMap(c=>[...((c&&c.establishes)||[]),...((c&&c.references)||[])]);
+    return (used.length && used.every(k=>FACTS[k])) ? FACTS : {};
+  },[project && project.continuityFacts, continuityMap]);
+  const ledgerInfo = (project && project.continuityLedger) || null;
+  const ledgerStale = !!(ledgerInfo && typeof window.continuityLedgerSig==="function"
+    && ledgerInfo.sig !== window.continuityLedgerSig(scenes, drafts));
+  const [ledgerBusy, setLedgerBusy] = React.useState(false);
+  const buildContinuityLedger = async ()=>{
+    if(ledgerBusy || !canMutateWritersRoom() || typeof window.aiContinuityLedger!=="function") return;
+    const owner = currentProjectId;
+    setLedgerBusy(true);
+    try{
+      const L = await window.aiContinuityLedger(scenes, beatsMap, drafts, project);
+      if(owner!==projIdRef.current || !canMutateWritersRoom()) return;
+      setContinuityMap(L.map);
+      setProject(p=>({ ...p, continuityFacts:L.facts, continuityLedger:L.ledger }));
+      if(typeof window.appToast==="function") window.appToast("Continuity ledger built \u2014 "+Object.keys(L.facts).length+" story facts tracked across "+scenes.length+" scenes.","success");
+    }catch(e){
+      if(typeof window.appToast==="function") window.appToast(String((e&&e.message)||"The continuity ledger couldn't be built."),"error");
+    }finally{ setLedgerBusy(false); }
+  };
+
+  // story-health issues that drive the Story Editors panel's per-agent counts. The
+  // Doctor's count is its OWN audit (no-turn, soft peaks, same-side climaxes, flat runs,
+  // one-sided argument, inciting placement), so "your spine is sound" can't show while
+  // the Doctor would still find something.
+  // The banner names what was found: scenes that don't turn are counted apart from the
+  // Doctor's other findings (soft peaks, same-side climaxes, flat runs...).
+  const doctorAudit = React.useMemo(()=>{
+    const noTurn = ()=> scenes.filter(s=>turnInfo(s).flagged).length;
+    try{
+      if(typeof window.auditSpine!=="function"){ const n = noTurn(); return { total:n, noTurn:n, notes:0 }; }
+      const list = window.auditSpine(scenesInStoryOrder(scenes));
+      // ISSUES vs NOTES (approved 2026-09-26 by owner): severity 0 findings (same-side
+      // climaxes, flat rhythm, one-sided runs...) are optional craft notes, not problems
+      return { total:list.length, noTurn:list.filter(i=>i.kind==="noturn").length, notes:list.filter(i=>!(Number(i.sev)>0)).length };
+    }catch(e){ const n = noTurn(); return { total:n, noTurn:n, notes:0 }; }
+  },[scenes, project && project.framework]);
+  const doctorIssues = doctorAudit.total;
   const contIssues = (typeof window.continuityReport==="function")
-    ? window.continuityReport(scenes, continuityMap, FACTS).conflicts.length : 0;
-  const agentIssues = { doctor: turnIssues, continuity: contIssues };
-  const totalIssues = turnIssues + contIssues;
+    ? window.continuityReport(scenes, continuityMap, storyFacts).conflicts.length : 0;
+  const agentIssues = { doctor: doctorIssues, doctorNoTurn: doctorAudit.noTurn, doctorNotes: doctorAudit.notes, continuity: contIssues };
 
   // estimated screen time per scene (≈1 page/min) — drives the spine's pacing readout.
   // "hot" marks scenes that run long against the film's average (the heat signal).
@@ -4823,7 +5031,9 @@ function App(){
   const updateScene = (id,patch)=>{
     if(!canMutateWritersRoom()) return;
     const before = patch.driver ? ((scenes.find(s=>s.id===id)||{}).driver) : null;
-    setScenes(ss=>ss.map(s=>s.id===id?{...s,...patch}:s));
+    // a scene with a value at stake keeps its opening/closing words on that axis
+    const sync = (typeof withValueWords==="function") ? withValueWords : (x=>x);
+    setScenes(ss=>ss.map(s=>s.id===id?sync({...s,...patch}):s));
     // the Beats tab's DRIVER label is a stored string — changing the scene's
     // driver used to leave it (and the beat-card name columns) showing the old
     // character, which read as "my edit did nothing". Keep it in step.
@@ -4848,16 +5058,30 @@ function App(){
       const ns = { id, act:ref.act||1, seq:ref.seq||"New", no:0, title:"New Scene",
         loc:"INT. NEW LOCATION \u00b7 DAY", summary:"A new scene \u2014 describe what happens here.",
         openValue:"Value", openCharge:0, closeValue:"Value", closeCharge:1,
-        conf:1, kind:"normal", driver:defDriver, objective:"", turningPoint:"" };
+        conf:1, kind:"normal", driver:defDriver, objective:"" };
       const out = ss.slice(); out.splice((i<0?ss.length-1:i)+1, 0, ns); return renum(out);
     });
     setSelId(id);
   };
-  const deleteScene = (id)=>{
+  // the last deleted scene with everything that went with it, so "Undo" can restore it
+  // exactly (single level, tied to the film it was deleted from)
+  const [deletedScene, setDeletedScene] = React.useState(null);
+  const deleteScene = async (id)=>{
     if(!canMutateWritersRoom()) return;
     const i = scenes.findIndex(s=>s.id===id);
     const remaining = scenes.filter(s=>s.id!==id);
-    if(!remaining.length) return;
+    if(i<0 || !remaining.length) return;
+    const gone = scenes[i];
+    const hasWork = !!(drafts[id] || (beatsMap[id] && (beatsMap[id].rows||[]).length));
+    if(typeof window.appConfirm==="function"){
+      const ok = await window.appConfirm({
+        title:"Delete Scene "+gone.no+(gone.title?(" \u201c"+gone.title+"\u201d"):"")+"?",
+        body:"This removes the scene card"+(hasWork?", its beat map, screenplay draft and version history":"")+". You can undo it right after.",
+        confirmLabel:"Delete scene", danger:true });
+      if(!ok || !canMutateWritersRoom()) return;
+    }
+    setDeletedScene({ owner:currentProjectId, index:i, scene:gone, beats:beatsMap[id], draft:drafts[id],
+      history:history[id], continuity:continuityMap && continuityMap[id] });
     const nxt = remaining[Math.min(i, remaining.length-1)];
     setScenes(renum(remaining));
     setBeatsMap(m=>{ const n={...m}; delete n[id]; return n; });
@@ -4868,6 +5092,21 @@ function App(){
     setHistory(h=>{ if(!h[id]) return h; const n={...h}; delete n[id]; return n; });
     setContinuityMap(c=>{ if(!c || !c[id]) return c; const n={...c}; delete n[id]; return n; });
     setSelId(nxt ? nxt.id : null);
+  };
+  const undoDeleteScene = ()=>{
+    const d = deletedScene;
+    setDeletedScene(null);
+    if(!d || d.owner!==currentProjectId || !canMutateWritersRoom()) return;
+    const id = d.scene.id;
+    setScenes(ss=>{
+      if(ss.some(s=>s.id===id)) return ss;
+      const out = ss.slice(); out.splice(Math.min(d.index, out.length), 0, d.scene); return renum(out);
+    });
+    if(d.beats) setBeatsMap(m=> m[id] ? m : {...m,[id]:d.beats});
+    if(d.draft) setDrafts(x=> x[id] ? x : {...x,[id]:d.draft});
+    if(d.history) setHistory(h=> h[id] ? h : {...h,[id]:d.history});
+    if(d.continuity) setContinuityMap(c=> (c && c[id]) ? c : {...(c||{}),[id]:d.continuity});
+    setSelId(id);
   };
   const reorderScenes = (fromIdx,toIdx)=>{
     if(!canMutateWritersRoom()) return;
@@ -4881,11 +5120,6 @@ function App(){
     if(!canMutateWritersRoom()) return;
     const identified=(typeof withBeatIdentity==="function")?withBeatIdentity(next,sceneId):next;
     setBeatsMap(m=>({...m,[sceneId]:identified}));
-  };
-
-  const onFixScene = (scene)=>{
-    const target = scene.openCharge >= 0 ? Math.max(-3, scene.openCharge-2) : Math.min(3, scene.openCharge+2);
-    updateScene(scene.id,{closeCharge:target}); setSelId(scene.id);
   };
 
   // ---- AGENTS: build a fresh working model + a sync() that pushes it to app state ----
@@ -5009,7 +5243,7 @@ function App(){
       // after the guard has already decided its result can never be applied
       cancelled: ()=> cancelled() || ownerProjectId !== projIdRef.current || writersRoomReadOnlyRef.current,
       switchedFilms: ()=> ownerProjectId !== projIdRef.current,
-      project, facts:FACTS,
+      project, facts:storyFacts,
       // read-only copies of the Art-Room bibles + gated patchers, for agents that
       // cross-check the script against props/locations (Consistency Check). Patches
       // apply immediately — call them only AFTER a propose() card is approved.
@@ -5023,12 +5257,13 @@ function App(){
       ai:{ available: (typeof aiAvailable==="function" && aiAvailable()),
         suggestTurn:(s,p)=>window.aiSuggestTurn(s,p,model.project),
         plantLine:(s,f,m)=>window.aiPlantLine(s,f,m),
+        continuityLedger:()=>window.aiContinuityLedger(model.scenes, model.beats, model.drafts, model.project),
         tableRead:(sc,dr)=>window.aiTableRead(sc,dr,model.project),
         voiceCheck:(sc,dr)=>window.aiVoiceCheck(sc,dr),
         buildSpine:(b)=>window.aiBuildSpine(b, (project&&project.format)||"film", (project&&project.framework)||"threeact"),
         buildStoryWorld:(b,sp)=>window.aiBuildStoryWorld(b,sp,(project&&project.format)||"film"),
-        authorScene:(s,p)=>window.aiAuthorScene(s,p,model.characters,model.project),
-        draftScene:(s,b,p)=>window.aiDraftScene(s,b,p,model.project),
+        authorScene:(s,p)=>window.aiAuthorScene(s,p,model.characters,model.project,{scenes:model.scenes}),
+        draftScene:(s,b,p)=>window.aiDraftScene(s,b,p,model.project,model.characters,model.scenes),
       } };
   };
 
@@ -5046,7 +5281,8 @@ function App(){
       ? ordered.filter(s=>s.id===sceneDirLaunch.sceneId) : ordered;
     const groups = target.filter(s=>(byScene[s.id]||[]).length).map(scene=>({
       scene, shots:byScene[scene.id],
-      ctx:{ scene, location:(typeof locationForScene==="function")?locationForScene(locations,scene.id):null,
+      ctx:{ scene, scenes:ordered,
+        location:(typeof locationForScene==="function")?locationForScene(locations,scene.id):null,
         charById, propById, project } }));
     return { emit, propose, cancelled, sync:()=>{},
       ai:{ available: typeof aiAvailable==="function" && aiAvailable() },
@@ -5066,7 +5302,7 @@ function App(){
     const shotsByScene = {};
     (shots||[]).forEach(s=>{ (shotsByScene[s.sceneId]=shotsByScene[s.sceneId]||[]).push(s); });
     Object.values(shotsByScene).forEach(arr=>arr.sort((a,b)=>(a.order||0)-(b.order||0) || (a.beatN||0)-(b.beatN||0)));
-    const ctxFor = (scene)=>({ scene,
+    const ctxFor = (scene)=>({ scene, scenes:ordered,
       location:(typeof locationForScene==="function")?locationForScene(locations,scene.id):null,
       charById, propById, project });
 
@@ -5218,31 +5454,12 @@ function App(){
       },
     };
 
-    // ---- Props Master surface (Props tab agent): derive → draft → dedup → generate ----
+    // ---- Props Master surface (Props tab agent): brief proposals → draft → generate ----
     // Works on a per-run copy of the props so each step sees the prior step's result
     // (React state is async); every step also persists via setProps so the live tab updates.
     let _propWork = (props||[]).slice();
     const _propDrafted = (p)=> (typeof propVisualsDrafted==="function") ? propVisualsDrafted(p)
       : !!((p.form||"").trim() && (p.material||"").trim());
-    // merge a duplicate set on BOTH the working copy and the live state (mirrors app-level mergeProps)
-    const _mergePropsWork = (ids)=>{
-      const set = _propWork.filter(p=> ids.indexOf(p.id)>=0);
-      if(set.length<2) return;
-      const hasImg = (id)=> (typeof nbGetImage==="function") ? !!nbGetImage(id) : false;
-      const score = (p)=> ((p.scenes||[]).length*100) + (hasImg(p.id)?40:0) + Math.min((p.name||"").length,30);
-      const survivor = set.slice().sort((a,b)=> score(b)-score(a))[0];
-      const others = set.filter(p=>p.id!==survivor.id);
-      const anyScenes = set.some(p=>p.scenes!==undefined);
-      const patch = {};
-      if(anyScenes) patch.scenes = Array.from(new Set(set.flatMap(p=>p.scenes||[])));
-      ["form","material","detail","renderStyle"].forEach(f=>{
-        if(!String(survivor[f]||"").trim()){ const donor = others.find(o=>String(o[f]||"").trim()); if(donor) patch[f]=donor[f]; }
-      });
-      const apply = (ps)=> ps.map(p=> p.id===survivor.id ? {...p, ...patch} : p).filter(p=> p.id===survivor.id || ids.indexOf(p.id)<0);
-      _propWork = apply(_propWork);
-      setProps(apply);
-      others.forEach(o=>{ try{ if(typeof nbClearAsset==="function") nbClearAsset(o.id); }catch(e){} });
-    };
     const propmaster = {
       // pull the cast's own worn/carried items in (dedup handled by propsFromCast)
       deriveCast: ()=>{
@@ -5250,35 +5467,6 @@ function App(){
         const add = propsFromCast(characters, _propWork, scenes, drafts);
         if(add.length){ _propWork = [..._propWork, ...add]; setProps(ps=>[...ps, ...add]); setPropsSeeded(true); }
         return add.length;
-      },
-      // derive set-dressing objects named in the action (no owner), deduped vs existing by object
-      deriveSet: async ()=>{
-        if(typeof aiDeriveSetDressing!=="function") return 0;
-        const found = await aiDeriveSetDressing(scenes, drafts, project);
-        if(!found || !found.length) return 0;
-        const headOf = (n)=> (typeof propHeadNoun==="function" ? propHeadNoun(n) : "")
-          || ("name:"+String(n||"").toLowerCase().replace(/[^a-z0-9]+/g,"-"));
-        const seen = new Set(_propWork.map(p=>headOf(p.name)));   // skip an object the cast (or a prior card) already owns
-        const slug = (n)=> (typeof propSlug==="function") ? propSlug(n) : String(n||"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,40);
-        const cards = [];
-        // fixture-of link: ownerless set dressing whose scenes ALL resolve to one location
-        // belongs to that location (it renders into the location plate); an object whose
-        // scenes span locations is mobile — likely hand-carried — so it is NOT pinned.
-        const locIdOf = (sid)=>{ const L=(typeof locationForScene==="function")?locationForScene(locations, sid):null; return L?L.id:""; };
-        found.forEach((e,i)=>{
-          const h = headOf(e.name); if(seen.has(h)) return; seen.add(h);
-          const locIds = Array.from(new Set((e.sceneIds||[]).map(locIdOf).filter(Boolean)));
-          // these come from the ACTION with no owner: fixture nouns (and anything pinned
-          // to one place) are SET DRESSING; only clearly handheld/mobile stays carried
-          const kind = (typeof classifyPropKind==="function" && classifyPropKind(e.name, { ownerless:true }))
-            || (locIds.length===1 ? "dressing" : "carried");
-          cards.push({ id:"prop-set-"+slug(e.name)+"-"+i, name:e.name.replace(/^\w/, m=>m.toUpperCase()),
-            kind, ownerId:"", ownerName:"", form:"", material:"", detail:"", renderStyle:"", negativePrompt:"",
-            scenes:e.sceneIds||[], fromSet:true, locationId:(locIds.length===1?locIds[0]:""),
-            origin:(typeof artRoomPropOrigin==="function") ? artRoomPropOrigin(kind,"screenplay") : {kind:"screenplay"} });
-        });
-        if(cards.length){ _propWork = [..._propWork, ...cards]; setProps(ps=>[...ps, ...cards]); }
-        return cards.length;
       },
       // draft form/material/detail/renderStyle for every undrafted prop
       draftSpecs: async (force)=>{
@@ -5291,18 +5479,18 @@ function App(){
         _propWork = patch(_propWork); setProps(patch);
         return Object.keys(map).length;
       },
-      // merge near-duplicate cards (same owner + same object) into one; returns # removed
-      dedup: ()=>{
-        if(typeof findDuplicateProps!=="function") return 0;
-        const groups = findDuplicateProps(_propWork);
-        let merged = 0;
-        Object.keys(groups).forEach(k=>{ const ids = groups[k]; if(ids && ids.length>1){ _mergePropsWork(ids); merged += ids.length-1; } });
-        return merged;
-      },
-      // drafted props that still need a sheet
+      // drafted props that still need a sheet (text-only objects are described in shots instead)
       toGenerate: async (force)=>{
         const out=[];
-        for(const p of _propWork){ if(!_propDrafted(p)) continue; if(!force && await _grabImg(p.id)) continue; out.push(p); }
+        const drafts0=(window.turnContinuity||{}).drafts||drafts;
+        for(const p of _propWork){
+          if(!_propDrafted(p)) continue;
+          const has = await _grabImg(p.id);
+          // a text-only object that already has an image keeps it current on a forced run
+          if(!has && p.kind!=="worn" && window.PropScreenplay && window.PropScreenplay.sheetTier(p,drafts0).tier==="text") continue;
+          if(!force && has) continue;
+          out.push(p);
+        }
         return out;
       },
       generateSheet: async (p)=>{
@@ -5685,11 +5873,6 @@ function App(){
       title:"Assigning scene styles",
       detail:"Reading the film and color-scripting every scene from the current visual bible."
     } :
-    (room==="art" && taggingScenes) ? {
-      role:"Props Master",
-      title:"Mapping props to scenes",
-      detail:"Checking where each prop appears so downstream shots attach the right references."
-    } :
     (room==="art" && deletingShotReference) ? {
       role:"Shot Designer",
       title:"Deleting the selected reference image",
@@ -5735,6 +5918,26 @@ function App(){
       (typeof MuseDock!=="undefined") && React.createElement(MuseDock,{
       scenes:[], selScene:null, project:null, signedIn:false, aiOn:false, onSignIn:()=>openAuth("signup") }));
   }
+  // A signed-in session without an authoritative cloud project is a lightweight
+  // recovery state, not permission to mount the last local workspace. Mounting a
+  // large stale Stage/Art Room here can start hundreds of reference loaders and
+  // starve the very timers that reconnect it. Keep the main thread quiet until a
+  // project lands; the in-memory/local safety copy remains untouched.
+  if(authGate && session && !currentProjectId){
+    const reconnecting=cloudConnectionState==="retrying";
+    return React.createElement("div",{className:"lp-splash"},
+      React.createElement("span",{className:"lp-logo"},"Cinema Machine"),
+      React.createElement("span",{className:"lp-splash-dot"}),
+      React.createElement("div",{className:"acct-status"},reconnecting
+        ? "Reconnecting to your films…"
+        : "Opening your films…"),
+      React.createElement("button",{type:"button",className:"acct-signin",onClick:()=>{
+        bootRef.current=false; bootRetryDelayRef.current=1500;
+        setCloudConnectionState("retrying"); setBootRetryTick(t=>t+1);
+      }},"Retry now"),
+      React.createElement(AccountChip,{session,cloudActive:false,connectionState:cloudConnectionState,
+        saveState,shareRole:"",roleUnavailable:false,onSignOut:signOut}));
+  }
 
   /* New Story has two distinct launch targets while a Show episode is open:
      - blank current Episode: build into it, so the Show-owned format is locked;
@@ -5752,7 +5955,9 @@ function App(){
   const newStoryEpisodeFormat=newStoryFormatEntry&&newStoryFormatEntry.id
     ? String(newStoryFormatEntry.id) : (newStoryBuildsCurrentEpisode?"series":undefined);
 
-  return React.createElement("div",{className:`app vp-${vp} ${densClass} ${premiumClass}`+(roomReadOnly?" is-readonly":"")},
+  return React.createElement("div",{className:`app vp-${vp} ${densClass} ${premiumClass}`+(roomReadOnly?" is-readonly":"")
+      // the Writers' Room right panel is docked open: the floating Writing dock moves beside it
+      +((room==="writers" && scenes.length>0 && inspOpen && !inspDrawer) ? " wr-insp-open" : "")},
     window.ConfirmHost && React.createElement(window.ConfirmHost,null),
     /* VIEW-ONLY BANNER — say it UP FRONT. RLS rejects this user's writes, so without a
        standing notice they could work for an hour and only discover it from a failed save. */
@@ -5836,7 +6041,7 @@ function App(){
           onRestorePoster: restorePoster,
           onGoRoom: async (rid)=>{ if(!currentProjectId){ await createProject(); } setHomeOpen(false); if(rid==="writers") setView("spine"); guardedSetRoom(rid); },
           onClose: ()=>setHomeOpen(false),
-          accountSlot: React.createElement(AccountChip,{ session, cloudActive:cloudMode, saveState, shareRole,roleUnavailable:unknownSharedRole,
+          accountSlot: React.createElement(AccountChip,{ session, cloudActive:cloudMode, connectionState:cloudConnectionState, saveState, shareRole,roleUnavailable:unknownSharedRole,
             onSignIn:()=>setAuthOpen(true), onSignOut:signOut }) }),
     t.grain && React.createElement("div",{style:{position:"fixed",inset:0,pointerEvents:"none",zIndex:50,
       opacity:.025,mixBlendMode:"overlay",
@@ -5849,7 +6054,6 @@ function App(){
     // since the Stage is a single full-width assembly view.
     React.createElement(TopBar,{view,setView,room,setRoom:guardedSetRoom,artView,setArtView,project,scenes,drafts,
       onReset: isAdmin ? resetStory : null,
-      onToggleAI:toggleAI,
       onNewStory:startNewStory,
       // Brief modal's "Rebuild as a new film" — the brief is the story's true
       // source, so recovery-by-regeneration runs the SAME Adaptation build into a
@@ -5863,7 +6067,13 @@ function App(){
           body:"Runs the full story build again from this brief into a BRAND-NEW film \u2014 spine, cast and script freshly generated (a new telling, not a copy; results differ run to run). \u201c"+(project.title||"Untitled")+"\u201d and all its art stay exactly as they are. This spends build credits.",
           confirmLabel:"Build the new film" });
         if(!ok) return;
-        const keep = { format:project.format, framework:project.framework, logline:(project.logline||"").trim() };
+        // a retired framework (Story Circle) rebuilds as the default: the new film is a new
+        // story, and its act-shaped synopsis paragraphs don't carry over to another shape
+        const _fwKeep = (typeof window.choosableFrameworkId==="function" && project.framework)
+          ? window.choosableFrameworkId(project.framework) : project.framework;
+        const _fwSame = _fwKeep===project.framework;
+        const keep = { format:project.format, framework:_fwKeep, logline:(project.logline||"").trim(),
+          ...(project.synopsis && _fwSame ? { synopsis:project.synopsis } : {}) };
         if(cloudMode && typeof createProject==="function"){
           const requestId=typeof window.cloudCreateRequestId==="function"
             ? window.cloudCreateRequestId()
@@ -5891,7 +6101,8 @@ function App(){
         } else { applyDoc(emptyDoc()); setArtView("lookbook"); }
         setRoom("writers"); setView("spine");
         setProject(p=>({ ...p, ...(keep.format?{format:keep.format}:{}), ...(keep.framework?{framework:keep.framework}:{}),
-          logline:keep.logline || p.logline, sourceBrief:brief, sourceBriefAt:new Date().toISOString() }));
+          logline:keep.logline || p.logline, ...(keep.synopsis ? { synopsis:keep.synopsis } : {}),
+          sourceBrief:brief, sourceBriefAt:new Date().toISOString() }));
         setAgentLaunch({id:"adapt", input:brief}); setAgentsOpen(true);
       },
       onHome: cloudMode ? (()=>{
@@ -5931,7 +6142,7 @@ function App(){
         (locations||[]).some(l=>l && l.renderStyleKey)
       ),
       theme,onTheme:setTheme,
-      authSlot: React.createElement(AccountChip,{ session, cloudActive: cloudMode, saveState, shareRole,roleUnavailable:unknownSharedRole,
+      authSlot: React.createElement(AccountChip,{ session, cloudActive: cloudMode, connectionState:cloudConnectionState, saveState, shareRole,roleUnavailable:unknownSharedRole,
         onSignIn:()=>setAuthOpen(true), onSignOut:signOut }),
       projectSlot: cloudMode ? React.createElement(ProjectSwitcher,{ projects, currentId:currentProjectId,
         formatLabel:(typeof formatOf==="function") ? formatOf(project).label : null,
@@ -6006,7 +6217,6 @@ function App(){
             onColorist:(refs)=>{ if(typeof refs==="string") setStyleRefs(refs.trim()); setColoristOpen(true); },
             onShoot:()=>setShotDesignerOpen(true),
             onCast:()=>setCastingOpen(true),
-            onPropsMaster:()=>setPropsMasterOpen(true),
             onScout:()=>setLocScoutOpen(true),
             onResearch:()=>setResearchOpen(true),
             lookbook,lookbookNote,onUpdateLookbook:updateLookbookCard,onAddLookbook:addLookbookCard,
@@ -6016,9 +6226,8 @@ function App(){
             draftingVisualId,draftingAllVisuals,draftingVisualIds,onDeleteCharacter:deleteCharacter,
             onSuggestStates:suggestCharacterStates,suggestingStatesId,onRemoveOwnedItem:removeOwnedProp,onRenameOwnedItem:renameOwnedProp,
             onUpdateProp:updateProp,onDraftProp:draftPropVisuals,onDraftAllProps:draftAllProps,onCreateOwnedProp:createOwnedProp,
-            onAddProp:addProp,onDeleteProp:deleteProp,draftingPropId,draftingPropIds,draftingAllProps,onMergeProps:mergeProps,
-            onSeedFromCast:seedPropsFromCast,castHasProps:(typeof castHasProps==="function" && castHasProps(characters)),
-            scenes,onTagScenes:tagPropScenes,taggingScenes,onTagOne:tagOnePropScenes,taggingSceneId,
+            onAddProp:addProp,onImportProps:importScreenplayProps,onDeleteProp:deleteProp,draftingPropId,draftingPropIds,draftingAllProps,onMergeProps:mergeProps,
+            castHasProps:(typeof castHasProps==="function" && castHasProps(characters)),
             locations,onUpdateLocation:updateLocation,onDraftLocation:draftLocationVisuals,onDraftAllLocs:draftAllLocations,
             onAddLocation:addLocation,onDeleteLocation:deleteLocation,draftingLocIds,draftingAllLocs,
             onPullFromScript:pullLocationsFromScript,scriptHasLocs:(typeof scriptHasLocations==="function" && scriptHasLocations(scenes)),
@@ -6038,13 +6247,13 @@ function App(){
       scenes.length>0 && (railDrawer
         ? (railOpen && React.createElement(LeftRail,{project,characters,scenes,selChar,
             onSelectChar:(id)=>{ setSelChar(id); setInspOpen(true); setRailOpen(false); },
-            onContract:updateContract,
-            showFramework:t.framework,onCollapse:()=>setRailOpen(false),compact:!wide,readOnly:writersRoomBlocked}))
+            onContract:updateContract,onGenre:updateGenre,onProject:updateProjectFields,
+            onCollapse:()=>setRailOpen(false),compact:!wide,readOnly:writersRoomBlocked}))
         : (railOpen
           ? React.createElement(LeftRail,{project,characters,scenes,selChar,
               onSelectChar:(id)=>{ setSelChar(id); setInspOpen(true); },
-              onContract:updateContract,
-              showFramework:t.framework,onCollapse:()=>setRailOpen(false),compact:!wide,readOnly:writersRoomBlocked})
+              onContract:updateContract,onGenre:updateGenre,onProject:updateProjectFields,
+              onCollapse:()=>setRailOpen(false),compact:!wide,readOnly:writersRoomBlocked})
           : React.createElement(CollapsedStrip,{side:"left",label:"Story",icon:Icon.panelLeft,
               onExpand:()=>setRailOpen(true),flagCount:scenes.filter(s=>turnInfo(s).flagged).length}))),
 
@@ -6052,11 +6261,17 @@ function App(){
         React.createElement("div",{className:"canvas-head"},
           React.createElement("div",{className:"canvas-head-copy"},
             React.createElement("div",{className:"canvas-title"},
-              view==="spine"?"Value-Charge Spine":view==="beats"?"Turn Audit":view==="script"?"Screenplay Draft":"Story Board"),
+              view==="spine"?"Value-Charge Spine":view==="script"?"Screenplay Draft":"Story Board"),
             React.createElement("div",{className:"canvas-sub"},
               view==="spine"?"The emotional charge of every scene, end to end":
-              view==="beats"?(((typeof fwAuditOf==="function")&&fwAuditOf().subline)||"If a scene doesn't turn, cut it"):
-              view==="script"?scriptSubtitle():"16 scenes across 3 acts")),
+              view==="script"?scriptSubtitle():
+              (()=>{ const nActs = new Set(scenes.map(s=>s.act)).size;
+                const count = scenes.length+" scene"+(scenes.length!==1?"s":"")+" across "+nActs+" act"+(nActs!==1?"s":"");
+                return boardMode==="table" ? count+" \u00b7 "+(((typeof fwAuditOf==="function")&&fwAuditOf().subline)||"If a scene doesn't turn, cut it") : count; })())),
+          view==="board" && scenes.length>0 && React.createElement("div",{className:"board-mode",role:"group","aria-label":"Board layout"},
+            [["columns","Columns"],["table","Table"]].map(([m,lab])=>React.createElement("button",{key:m,type:"button",
+              className:"board-mode-btn"+(boardMode===m?" on":""),"aria-pressed":boardMode===m,onClick:()=>setBoardMode(m),
+              title:m==="table"?"Every scene's turn in one table (the former Audit)":"Scenes grouped by act"},lab))),
           view==="spine" && React.createElement("div",{className:"legend"},
             runtimeTotal>0 && React.createElement("div",{className:"legend-item",
               title:"Estimated total runtime, ≈1 page/min (drafted scenes from their script; undrafted roughly from beats)"},
@@ -6066,15 +6281,16 @@ function App(){
               React.createElement("span",{className:"legend-swatch",style:{background:"var(--pos)"}}),"POS"),
             React.createElement("div",{className:"legend-item"},
               React.createElement("span",{className:"legend-swatch",style:{background:"var(--neg)"}}),"NEG"),
+            React.createElement("div",{className:"legend-item",title:"Intensifies on the same side instead of reversing"},
+              React.createElement("span",{className:"legend-swatch",style:{background:"var(--prog)"}}),"Progresses"),
             React.createElement("div",{className:"legend-item"},
               React.createElement("span",{className:"legend-swatch",style:{background:"var(--alert)"}}),"No turn"))),
 
         view==="spine" && scenes.length>0 && characters.length>0 && React.createElement(FollowStrip,{
           characters,scenes,beatsMap,followId:followChar,onFollow:setFollowChar}),
         view==="spine" && scenes.length>0 && React.createElement(DragScroll,{className:"canvas-scroll spine-pan"},
-          React.createElement(SpineCanvas,{scenes,selId,onSelect:selectSceneDetail,showFramework:t.framework,
+          React.createElement(SpineCanvas,{scenes,selId,onSelect:selectSceneDetail,staleIds:new Set(Object.keys(staleMap)),
             onReorder:reorderScenes,onAddScene:addScene,runtimes:runtimeMap,readOnly:writersRoomBlocked,
-            valueAxis:(typeof contractAxis==="function")?contractAxis(project):null,
             follow:(()=>{ if(!followChar) return null;
               const c = characters.find(x=>x.id===followChar); if(!c) return null;
               const tl = characterThroughline(c, scenes, beatsMap);
@@ -6084,13 +6300,17 @@ function App(){
         // clean-canvas onboarding: a new/empty project has no scenes yet (shown for
         // ANY view so the data-assuming spine/audit/board/script never render empty).
         scenes.length===0 && emptyCanvas(),
-        view==="beats" && scenes.length>0 && React.createElement(TurnAudit,{scenes,selId,onSelect:selectSceneDetail}),
-        view==="board" && scenes.length>0 && React.createElement(Board,{scenes,selId,onSelect:selectSceneDetail}),
+        view==="board" && boardMode==="table" && scenes.length>0 && React.createElement(TurnAudit,{scenes,selId,onSelect:selectSceneDetail}),
+        view==="board" && boardMode!=="table" && scenes.length>0 && React.createElement(Board,{scenes,selId,onSelect:selectSceneDetail}),
         view==="script" && scenes.length>0 && React.createElement(ScriptView,{scene:sel,beats,
           drafts, scenes, onSelectScene:selectSceneBrowse, onPolish:polishScene,
           onDraftOne:draftOne, onDraftAll:draftAll, drafting, total:scenes.length,
           history: sel ? (history[sel.id]||{back:[],fwd:[]}) : {back:[],fwd:[]},
           labelOf, onRevert:revertVersion, onRedo:redoVersion, onEditScene:commitVersion, continuityMap, project,readOnly:writersRoomBlocked,
+          facts:storyFacts, ledgerInfo, ledgerStale, ledgerBusy, onBuildLedger:buildContinuityLedger,
+          staleChanges: sel ? staleMap[sel.id] : null, staleCount:Object.keys(staleMap).length,
+          onRedraftStale:(scn)=>redraftScene(scn, beatsMap[scn.id]), onKeepDraft:keepDraft,
+          onRedraftAll:redraftAllStale, redraftingAll, redraftBusy:polishBusy,
           // click a beat in the Script gutter → reveal it in the Inspector's Beats tab
           onBeatFocus:(n)=>{ setSelChar(null); setInspTab("beats"); setFocusBeat(n);
             if(!inspDrawer) setInspOpen(true); }}),
@@ -6110,21 +6330,8 @@ function App(){
                 if(inspDrawer) setInspOpen(false); }})
           : React.createElement(Inspector,{scene:sel,beats,draft:(sel?drafts[sel.id]:null),onCharge,onUpdate:updateScene,characters,scenes,
               onAddScene:addScene,onDeleteScene:deleteScene,onMove:moveScene,onBeats:setBeatsFor,
-              // "Redraft script from beats" (Beats tab): the reverse of Rebuild-from-script.
-              // polishScene re-derives the prose from the CURRENT beat cards and commits a
-              // VERSION, so Undo restores the previous draft.
-              onRedraftScript: async (scn, b)=>{
-                const ok = await window.appConfirm({ title:"Redraft the script from beats?",
-                  body:"Scene "+scn.no+"\u2019s screenplay is rewritten from the CURRENT beat cards \u2014 reshape the beats first, then rebuild. The current draft stays in version history (Undo restores it).",
-                  confirmLabel:"Redraft from beats" });
-                if(!ok) return false;
-                const done = await polishScene(scn, b);
-                if(typeof window.appToast==="function"){
-                  if(done) window.appToast("Scene "+scn.no+" redrafted from its beats \u2014 Undo restores the previous draft.","ok");
-                  else window.appToast("Couldn\u2019t redraft \u2014 the writing model may be unreachable.","error");
-                }
-                return done;
-              },
+              stale: sel ? staleMap[sel.id] : null, onRedraft:(scn)=>redraftScene(scn, beatsMap[scn.id]),
+              unnamedValues:unnamedValueCount, onNameAllValues:nameAllValues, namingValues,
               sceneIndex:scenes.findIndex(s=>s.id===selId),sceneCount:scenes.length,
               onCollapse:()=>setInspOpen(false),project,
               tab:inspTab,onTab:setInspTab,focusBeat,readOnly:writersRoomBlocked});
@@ -6139,7 +6346,7 @@ function App(){
     // Agents — Writers' Room modal
     agentsOpen && !writersRoomBlocked && React.createElement(AgentsPanel,{
       onClose:()=>{ setAgentsOpen(false); setAgentLaunch(null); },
-      onView:(v)=>{ setRoom("writers"); setView(v||"spine"); setAgentsOpen(false); setAgentLaunch(null); },
+      onView:(v)=>{ setRoom("writers"); if(v==="beats"){ setView("board"); setBoardMode("table"); } else setView(v||"spine"); setAgentsOpen(false); setAgentLaunch(null); },
       ctxFactory:agentCtxFactory,
       initialAgentId: agentLaunch && agentLaunch.id,
       initialInput: agentLaunch && agentLaunch.input,
@@ -6315,6 +6522,11 @@ function App(){
         setProject(p=>({ ...p,
           ...(effectiveFormatId?{format:effectiveFormatId}:{}), ...(frameworkId?{framework:frameworkId}:{}),
           logline: (logline||"").trim() || p.logline,
+          // the synopsis paragraphs in the framework's shape — each scene prompt reads its
+          // act's paragraph (synopsisParasOf); the brief text alone is clipped at 4000 chars
+          ...((synopsis && synopsis.synopsis && Array.isArray(synopsis.synopsis.paras))
+            ? { synopsis:{ paras:synopsis.synopsis.paras.filter(pg=>pg && String(pg.text||"").trim())
+                .map(pg=>({ key:pg.key||"", label:pg.label||"", text:String(pg.text).trim() })) } } : {}),
           sourceBrief: brief, sourceBriefAt: new Date().toISOString() }));
         setAgentLaunch({id:"adapt", input:brief}); setAgentsOpen(true); }}),
 
@@ -6334,6 +6546,16 @@ function App(){
     // Suppressed for Adaptation (full build-from-scratch): the toast is easy to miss
     // beneath the result modal, and the in-room "Undo last" still covers it.
     studioProgress && React.createElement(StudioProgressOverlay, studioProgress),
+    // scene delete undo — the same affordance, tied to the film the scene came from
+    !writersRoomBlocked && deletedScene && deletedScene.owner===currentProjectId && React.createElement("div",{className:"agent-undo scene-undo"+((agentUndo.length>0 && agentUndo[agentUndo.length-1].label!=="Adaptation")?" stacked":"")},
+      React.createElement("span",{className:"au-ic"},React.createElement(Icon.undo,{s:15})),
+      React.createElement("div",{className:"au-text"},
+        React.createElement("div",{className:"au-t"},"Scene "+deletedScene.scene.no+" deleted"),
+        React.createElement("div",{className:"au-s"},"Restore it with its beats and draft")),
+      React.createElement("button",{className:"au-btn",onClick:undoDeleteScene},
+        React.createElement(Icon.undo,{s:13}),"Undo"),
+      React.createElement("button",{className:"au-x",title:"Dismiss",onClick:()=>setDeletedScene(null)},
+        React.createElement(Icon.x,{s:14}))),
     !writersRoomBlocked && agentUndo.length>0 && agentUndo[agentUndo.length-1].label!=="Adaptation" && React.createElement("div",{className:"agent-undo"},
       React.createElement("span",{className:"au-ic"},React.createElement(Icon.undo,{s:15})),
       React.createElement("div",{className:"au-text"},
@@ -6356,7 +6578,6 @@ function App(){
         options:Object.keys(GRADES),onChange:v=>setTweak("grade",v)}),
       React.createElement(TweakToggle,{label:"Film grain",value:t.grain,onChange:v=>setTweak("grain",v)}),
       React.createElement(TweakSection,{label:"Workspace"}),
-      React.createElement(TweakToggle,{label:"Show story framework",value:t.framework,onChange:v=>setTweak("framework",v)}),
       React.createElement(TweakRadio,{label:"Density",value:t.density,
         options:["compact","regular","comfy"],onChange:v=>setTweak("density",v)}),
       React.createElement(TweakRadio,{label:"Display type",value:t.display,

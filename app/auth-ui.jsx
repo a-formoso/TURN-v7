@@ -92,7 +92,7 @@ function AuthModal({ onClose, onAuthed, initialMode, plan, light }){
 }
 window.AuthModal = AuthModal;
 
-function AccountChip({ session, cloudActive, saveState, shareRole, roleUnavailable, onSignIn, onSignOut }){
+function AccountChip({ session, cloudActive, connectionState, saveState, shareRole, roleUnavailable, onSignIn, onSignOut }){
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef(null);
   React.useEffect(()=>{
@@ -145,6 +145,8 @@ function AccountChip({ session, cloudActive, saveState, shareRole, roleUnavailab
             // healthy state is quiet — "Synced" is reassurance, not news, so it only
             // slides out on hover (desktop) or tap/open (mobile); problem states stay visible
             : React.createElement("span",{className:"acct-cloud quiet"},React.createElement(Icon.check,{s:11}),"Synced"))
+        : connectionState==="retrying"
+        ? React.createElement("span",{className:"acct-cloud warn",title:"The cloud connection paused. TURN is retrying automatically and your open work stays on screen."},React.createElement(Icon.warn,{s:11}),"Reconnecting")
         : React.createElement("span",{className:"acct-cloud warn"},React.createElement(Icon.warn,{s:11}),"Connecting")),
     open && React.createElement("div",{className:"acct-menu"},
       React.createElement("div",{className:"acct-email"}, email),
@@ -152,7 +154,9 @@ function AccountChip({ session, cloudActive, saveState, shareRole, roleUnavailab
         cloudActive ? (saveState==="failed" ? "Signed in \u00b7 the last save FAILED \u2014 your work is still on screen; leave this tab open until it saves."
                      : saveState==="retrying" ? "Signed in \u00b7 retrying a save that didn't go through\u2026"
                      : "Signed in \u00b7 cloud storage active")
-                    : "Signed in, but cloud isn't reachable \u2014 check that the `turn` schema is exposed and the SQL has been run."),
+                    : connectionState==="retrying"
+                    ? "Signed in \u00b7 reconnecting automatically. Your open work stays on screen."
+                    : "Signed in \u00b7 opening cloud storage\u2026"),
       scopedRole && React.createElement("div",{className:"acct-status",
         title:window.teamRoleScopeNote ? window.teamRoleScopeNote(shareRole) : ""},
         "Project role: "+scopedRole),

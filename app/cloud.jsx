@@ -5,6 +5,41 @@
    configured or the library hasn't loaded, so the app still runs locally. */
 
 /* ── client ──────────────────────────────────────────────────────────────── */
+function _cloudWaitMs(kind){
+  const override=Number(window.__TURN_CLOUD_TIMEOUT_MS);
+  if(Number.isFinite(override)&&override>0) return Math.max(10,Math.min(60000,override));
+  return kind==="auth" ? 6000 : 12000;
+}
+function _cloudDeadline(promise, kind, label){
+  let timer=null;
+  const timeout=new Promise((_,reject)=>{
+    timer=setTimeout(()=>{
+      const error=new Error((label||"Cloud request")+" timed out.");
+      error.code="TURN_CLOUD_TIMEOUT";
+      reject(error);
+    },_cloudWaitMs(kind));
+  });
+  return Promise.race([Promise.resolve(promise),timeout]).finally(()=>{ if(timer) clearTimeout(timer); });
+}
+function _cloudQuery(builder,label){
+  let request=builder, controller=null;
+  try{
+    if(typeof AbortController!=="undefined" && request && typeof request.abortSignal==="function"){
+      controller=new AbortController();
+      request=request.abortSignal(controller.signal);
+    }
+  }catch(e){ controller=null; request=builder; }
+  let timer=null;
+  const timeout=new Promise((_,reject)=>{
+    timer=setTimeout(()=>{
+      try{ controller&&controller.abort(); }catch(e){}
+      const error=new Error((label||"Cloud request")+" timed out.");
+      error.code="TURN_CLOUD_TIMEOUT";
+      reject(error);
+    },_cloudWaitMs("request"));
+  });
+  return Promise.race([Promise.resolve(request),timeout]).finally(()=>{ if(timer) clearTimeout(timer); });
+}
 function sbClient(){
   if(window._sbClient) return window._sbClient;
   const cfg = window.TURN_SUPABASE;
@@ -21,6 +56,11 @@ window.sbClient = sbClient;
 window.cloudConfigured = cloudConfigured;
 
 /* ── auth ────────────────────────────────────────────────────────────────── */
+let _cloudSessionSnapshot=null;
+function _cloudRememberSession(session){
+  _cloudSessionSnapshot=(session&&session.user)?session:null;
+  return _cloudSessionSnapshot;
+}
 async function cloudSignUp(email, password){
   const sb = sbClient(); if(!sb) return { error:{ message:"Cloud not configured." } };
   return sb.auth.signUp({ email, password });
@@ -31,7 +71,7 @@ async function cloudSignIn(email, password){
 }
 async function cloudSignOut(){
   const sb = sbClient(); if(!sb) return;
-  try{ await sb.auth.signOut(); }catch(e){}
+  try{ await sb.auth.signOut(); }catch(e){} finally{ _cloudRememberSession(null); }
 }
 async function cloudResetPassword(email){
   const sb = sbClient(); if(!sb) return { error:{ message:"Cloud not configured." } };
@@ -39,12 +79,23 @@ async function cloudResetPassword(email){
 }
 async function cloudGetSession(){
   const sb = sbClient(); if(!sb) return null;
-  try{ const { data } = await sb.auth.getSession(); return data ? data.session : null; }catch(e){ return null; }
+  try{
+    const { data } = await _cloudDeadline(sb.auth.getSession(),"auth","Session check");
+    const session=data&&data.session;
+    // A subscribed SIGNED_OUT event owns cache invalidation. Do not let a stale
+    // null getSession result erase a newer INITIAL_SESSION/TOKEN_REFRESHED event.
+    return session ? _cloudRememberSession(session) : _cloudSessionSnapshot;
+  }catch(e){
+    // Supabase auth can wait behind a stale Web Lock after a tab sleeps. The most
+    // recent auth event is still sufficient to let ordinary requests refresh the
+    // token themselves, so a bounded session check must not strand app bootstrap.
+    return _cloudSessionSnapshot;
+  }
 }
 /* subscribe to auth changes; returns an unsubscribe fn */
 function cloudOnAuth(cb){
   const sb = sbClient(); if(!sb) return ()=>{};
-  const { data } = sb.auth.onAuthStateChange((_event, session)=>{ try{ cb(session); }catch(e){} });
+  const { data } = sb.auth.onAuthStateChange((_event, session)=>{ try{ cb(_cloudRememberSession(session)); }catch(e){} });
   return ()=>{ try{ data.subscription.unsubscribe(); }catch(e){} };
 }
 function cloudUserEmail(session){ return session && session.user ? (session.user.email||"") : ""; }
@@ -247,22 +298,22 @@ async function cloudListProjects(){
     const uid = session && session.user && session.user.id;
     const email = String((session && session.user && session.user.email) || "").toLowerCase();
     const legacyFields="id,owner,title,updated_at,created_at,isShow:doc->>isShow,showId:doc->>showId,episodeNo:doc->>episodeNo,cover:doc->>cover,coverPrev:doc->>coverPrev,fmt:doc->project->>format,logline:doc->project->>logline,ord:doc->>homeOrder,hasShots:doc->shots->0->>id,hasLocs:doc->locations->0->>id";
-    let { data, error } = await sb.from("turn_projects")
+    let { data, error } = await _cloudQuery(sb.from("turn_projects")
       .select("id,owner,title,updated_at,created_at,project_kind,show_id,episode_no,isShow:doc->>isShow,showId:doc->>showId,episodeNo:doc->>episodeNo,cover:doc->>cover,coverPrev:doc->>coverPrev,fmt:doc->project->>format,logline:doc->project->>logline,ord:doc->>homeOrder,hasShots:doc->shots->0->>id,hasLocs:doc->locations->0->>id")
-      .order("updated_at",{ ascending:false });
+      .order("updated_at",{ ascending:false }),"Project list");
     // Older film-only installations do not have the normalized column yet. Keep
     // their project wall usable and fall back to the case-insensitive JSON marker.
     if(error && /project_kind|schema cache/i.test(String(error.message||"")))
-      ({data,error}=await sb.from("turn_projects").select(legacyFields).order("updated_at",{ascending:false}));
+      ({data,error}=await _cloudQuery(sb.from("turn_projects").select(legacyFields).order("updated_at",{ascending:false}),"Legacy project list"));
     // null = REQUEST FAILED (e.g. expired token → 401), [] = genuinely no projects.
     // Callers must not treat a failure as "new user" — that's how an auth hiccup
     // once spawned a create-first-project during boot and stranded the app.
     if(error) return null;
     let memberships = [];
     try{
-      const { data:ms } = await sb.from("turn_project_members")
+      const { data:ms } = await _cloudQuery(sb.from("turn_project_members")
         .select("project_id,role,member_email,status")
-        .or("member_user.eq."+uid+",member_email.eq."+email);
+        .or("member_user.eq."+uid+",member_email.eq."+email),"Project memberships");
       memberships = (ms||[]).filter(m=>String(m.status||"active")==="active");
     }catch(e){}
     const byProject = {};
@@ -274,7 +325,7 @@ async function cloudListProjects(){
     let ownersBy = {};
     if(memberships.length){
       try{
-        const { data:ow, error:oe } = await sb.rpc("turn_shared_film_owners");
+        const { data:ow, error:oe } = await _cloudQuery(sb.rpc("turn_shared_film_owners"),"Shared-film owners");
         if(!oe)(ow||[]).forEach(r=>{ if(r && r.project_id) ownersBy[r.project_id]=r.owner_email||""; });
       }catch(e){}
     }
@@ -556,7 +607,7 @@ async function cloudCreateProject(title, doc, opts){
 async function cloudLoadProject(id){
   const sb = sbClient(); if(!sb) return null;
   try{
-    const { data, error } = await sb.from("turn_projects").select("*").eq("id", id).single();
+    const { data, error } = await _cloudQuery(sb.from("turn_projects").select("*").eq("id", id).single(),"Project load");
     if(error) return null;
     return _cloudNormalizeSeriesRow(data);
   }catch(e){ return null; }
@@ -2708,7 +2759,11 @@ async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, 
     ...(finished.warning?{cleanupWarning:finished.warning}:{}) });
 }
 async function cloudAssetLoad(projectId, entityId){
-  try{ await cloudSweepPurgeReferences(projectId); }catch(e){}
+  /* Per-card and Stage loads are latency-sensitive. Cleanup is maintenance, not a
+     prerequisite for reading this exact current row; awaiting the project-wide
+     sweep here made every individual image request queue behind cleanup and could
+     leave generated sheets showing Loading forever on a recovering connection. */
+  try{ Promise.resolve(cloudSweepPurgeReferences(projectId)).catch(()=>{}); }catch(e){}
   const row = await cloudGetGen(projectId, entityId);
   if(!row || !row.storage_path) return null;
   const url = await cloudSignedUrl(row.storage_path);
