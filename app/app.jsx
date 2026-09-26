@@ -1058,7 +1058,7 @@ function App(){
   // is already sitting on the tab (e.g. reloaded straight into Locations).
   const [hydrationTick, setHydrationTick] = React.useState(0);
 
-  /* A clean canvas — what every NEW registered user (and every "New film") starts
+  /* A clean canvas — what every NEW registered user (and every "New Story" before its story launches) starts
      from. No sample data: empty spine, cast, props, etc. The Matrix sample lives only
      in the seed (story-data.jsx) and in projects already saved to a user's account. */
   const emptyDoc = ()=>({ scenes:[], characters:[], props:[], locations:[], sluglineUnits:[], lookbook:[], lookbookNote:"", lookbookApplied:{}, shots:[],
@@ -2098,7 +2098,7 @@ function App(){
       const opened=await loadProjectIntoState(created.id);
       if(typeof window.appToast==="function") window.appToast(opened
         ? "Episode "+String(no).padStart(2,"0")+" created from the shared Show Bible."
-        : "Episode "+String(no).padStart(2,"0")+" was created and added to the Show, but couldn't be opened yet. Select it from Films & shows to retry.",
+        : "Episode "+String(no).padStart(2,"0")+" was created and added to the Show, but couldn't be opened yet. Select it from the Projects list to retry.",
         opened?"success":"info");
       /* Creation committed even when its first read failed. Returning false made
          the switcher invite a second click, which minted the next E-number. */
@@ -2234,7 +2234,7 @@ function App(){
           const liveShow=fresh.find(p=>String(p.id)===String(target.showId)&&isShowProject(p));
           if(!liveTarget||!liveShow){
             if(typeof window.appToast==="function") window.appToast(
-              "TURN could not verify the final Episode and its Show. Nothing was deleted; refresh Films & shows and try again.","error");
+              "TURN could not verify the final Episode and its Show. Nothing was deleted; refresh the Projects list and try again.","error");
             return false;
           }
           seriesBusyRef.current=""; setSeriesBusy("");
@@ -5113,7 +5113,7 @@ function App(){
   // state for Undo, and to detect edits made while the agent ran.
   /* The open film's list row carries LIVE facts (the list is not re-fetched on switch), so a
      film that gained a scene or a cast member is never mistaken for a blank canvas — in
-     the switcher or on Home — and a blank one reads as "No film yet". */
+     the switcher or on Home — and a blank one reads as "No project yet". */
   React.useEffect(()=>{
     if(!currentProjectId || projectLoading) return;
     const hasScenes = scenes.length ? "1" : null, hasChars = (characters||[]).length ? "1" : null;
@@ -5822,7 +5822,7 @@ function App(){
      locations are derived from it — so it stays blocked until a story exists). */
   const emptyCanvas = ()=> React.createElement("div",{className:"empty-canvas"},
     React.createElement("div",{className:"empty-canvas-card"},
-      React.createElement("div",{className:"empty-canvas-title"},"Start your film"),
+      React.createElement("div",{className:"empty-canvas-title"},"Start your story"),
       React.createElement("div",{className:"empty-canvas-sub"},"Your canvas is clean. Describe an idea and Cinema Machine builds the value-charge spine, scene by scene — then characters, props, script and shots all follow from it."),
       React.createElement("button",{className:"empty-canvas-btn",onClick:startNewStory},"+ New Story")));
   const sceneByBusyShot = draftingSceneShots ? scenes.find(s=>s.id===draftingSceneShots) : null;
@@ -6154,7 +6154,7 @@ function App(){
         // framework badge only when it differs from the default — three-act is the baseline
         frameworkLabel:(typeof frameworkOf==="function" && !currentFilmBlank && frameworkOf(project).id!=="threeact") ? frameworkOf(project).badge : null,
         onSwitch:switchProject, onCreate:createProject, onRename:renameProject, onDelete:deleteProject,
-        // "New film" opens the New Story window (like Home's New Project) — the film is
+        // the switcher's "New Story" opens the New Story window (like Home's New Project) — the film is
         // created when a story launches, so no blank "Untitled film" rows pile up
         onNewStory:()=>{ setRoom("writers"); setView("spine"); startNewStory(); },
         onNewEpisode:createEpisode, onMakeShow:makeShow, onDeleteShow:deleteShow, seriesBusy,

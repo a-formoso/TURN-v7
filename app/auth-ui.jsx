@@ -202,7 +202,8 @@ function _projRowDate(p, all){
 /* A BLANK CANVAS is not a film (owner, 2026-09-26): the working row the app keeps open when
    there is no story yet — default title, no scenes, cast, shots, locations or logline, not a
    Show / Episode / shared film. It used to be listed as a film called "Untitled film", which
-   read as a real project. Blank rows are never listed; the chip says "No film yet". */
+   read as a real project. Blank rows are never listed; the chip says "No project yet" (owner:
+   "project", not "film" — the list holds films AND shows, and formats beyond film). */
 function turnFilmIsBlank(p){
   if(!p) return false;
   if(p.showId || p.isShared || String(p.project_kind||"").toLowerCase()==="show" || String(p.project_kind||"").toLowerCase()==="episode"
@@ -227,7 +228,7 @@ function ProjectSwitcher({ projects, currentId, onSwitch, onCreate, onNewStory, 
 
   const current = (projects||[]).find(p=>p.id===currentId);
   const currentBlank = !!current && turnFilmIsBlank(current);
-  const title = current ? (currentBlank ? "No film yet" : current.title) : "Loading\u2026";
+  const title = current ? (currentBlank ? "No project yet" : current.title) : "Loading\u2026";
   const currentShared = current && current.isShared;
   const currentEpisodeNo = current && Number(current.episodeNo);
   // Phase 3 grouping: SHOW rows hold the shared bible; episodes nest beneath them.
@@ -320,11 +321,11 @@ function ProjectSwitcher({ projects, currentId, onSwitch, onCreate, onNewStory, 
         ? "This removes "+(epNo?("Episode "+String(epNo).padStart(2,"0")):"the episode")+". The show’s shared bible and its other episodes stay."
         : (p.showId
           ? "This removes the episode. Its show is unavailable, so no shared bible or other episode will be deleted."
-          : "This removes the film and its sheets. If it’s your only film, you’ll be on a blank canvas, ready for a new story."),
-      confirmLabel:p.showId?"Delete episode":"Delete film",danger:true
+          : "This removes the project and its sheets. If it’s your only project, you’ll be on a blank canvas, ready for a new story."),
+      confirmLabel:p.showId?"Delete episode":"Delete project",danger:true
     });
     if(!ok) return false;
-    const done = await runAction("delete:"+p.id, ()=>onDelete(p.id), p.showId?"Couldn’t delete this episode.":"Couldn’t delete this film.");
+    const done = await runAction("delete:"+p.id, ()=>onDelete(p.id), p.showId?"Couldn’t delete this episode.":"Couldn’t delete this project.");
     if(done){ setRenaming(null); setOpen(false); }
     return done;
   };
@@ -334,7 +335,7 @@ function ProjectSwitcher({ projects, currentId, onSwitch, onCreate, onNewStory, 
     const isUnavailable = !!(opts&&opts.unavailable);
     const epNo = Number(p.episodeNo);
     return renaming===p.id
-    ? renameEditor(p,p.showId?"episode":"film")
+    ? renameEditor(p,p.showId?"episode":"project")
     : React.createElement("div",{key:p.id,className:"proj-row"+(p.id===currentId?" on":"")+(p.showId?" ep":"")},
         React.createElement("button",{className:"proj-row-main",disabled:allBusy,onClick:async ()=>{
           const done=await runAction("switch:"+p.id,()=>onSwitch(p.id),"Couldn’t open this project."); if(done)setOpen(false); }},
@@ -346,16 +347,16 @@ function ProjectSwitcher({ projects, currentId, onSwitch, onCreate, onNewStory, 
           // creation date disambiguates same-named films (e.g. a rebuild alongside
           // its original); same-day twins also get the time
           (p.created_at||p.updated_at) && React.createElement("span",{className:"proj-row-date"},_projRowDate(p, projects))),
-        canOwn && onRename && React.createElement("button",{className:"proj-row-act",title:"Rename "+(p.showId?"episode":"film"),
-          disabled:allBusy,"aria-label":"Rename "+(p.showId?"episode":"film"),onClick:()=>beginRename(p)},
+        canOwn && onRename && React.createElement("button",{className:"proj-row-act",title:"Rename "+(p.showId?"episode":"project"),
+          disabled:allBusy,"aria-label":"Rename "+(p.showId?"episode":"project"),onClick:()=>beginRename(p)},
           React.createElement(Icon.wand,{s:12})),
-        canOwn && onDelete && React.createElement("button",{className:"proj-row-act danger",title:p.showId?"Delete episode":"Delete film",
-          disabled:allBusy,"aria-label":p.showId?"Delete episode":"Delete film",onClick:()=>requestDeleteEpisode(p)},
+        canOwn && onDelete && React.createElement("button",{className:"proj-row-act danger",title:p.showId?"Delete episode":"Delete project",
+          disabled:allBusy,"aria-label":p.showId?"Delete episode":"Delete project",onClick:()=>requestDeleteEpisode(p)},
           busyIs("delete:"+p.id)?"…":React.createElement(Icon.trash,{s:12})));
   };
 
   return React.createElement("div",{className:"proj-wrap",ref:ref},
-    React.createElement("button",{className:"proj-btn"+(open?" open":""),onClick:()=>setOpen(o=>!o),title:"Switch film"},
+    React.createElement("button",{className:"proj-btn"+(open?" open":""),onClick:()=>setOpen(o=>!o),title:"Switch project"},
       React.createElement(Icon.film,{s:13}),
       React.createElement("span",{className:"proj-name"},title),
       currentShared && React.createElement("span",{className:"proj-format shared"},"Shared"),
@@ -364,10 +365,10 @@ function ProjectSwitcher({ projects, currentId, onSwitch, onCreate, onNewStory, 
       frameworkLabel && React.createElement("span",{className:"proj-format fw"},frameworkLabel),
       React.createElement(Icon.chevD,{s:12})),
     open && React.createElement("div",{className:"proj-menu"},
-      React.createElement("div",{className:"proj-menu-lab"},"Films & shows"),
+      React.createElement("div",{className:"proj-menu-lab"},"Projects"),
       React.createElement("div",{className:"proj-list"},
         (!standalone.length && !shows.length && !unavailable.length) && React.createElement("div",{className:"proj-empty"},
-          "No films yet \u2014 start one with New Story."),
+          "No projects yet \u2014 start one with New Story."),
         standalone.map(row),
         shows.map(s=>{
           const eps=episodesOf(s.id), owns=s.isOwner!==false&&!s.isShared;
@@ -398,11 +399,11 @@ function ProjectSwitcher({ projects, currentId, onSwitch, onCreate, onNewStory, 
           unavailable.map(p=>row(p,{unavailable:true})))),
       canMakeShow && onMakeShow && React.createElement("button",{className:"proj-new ghosted",disabled:allBusy,onClick:async ()=>{
         const done=await runAction("make-show:"+currentId,onMakeShow,"Couldn’t create the show."); if(done)setOpen(false); },
-        title:"This film becomes Episode 1; its cast, locations, props and lookbook become the show's shared bible"},
-        React.createElement(Icon.layers,{s:13}),busyIs("make-show:"+currentId)?"Creating show…":"Turn this film into a show"),
-      React.createElement("button",{className:"proj-new",disabled:allBusy,title:"Start a new film from an idea",onClick:async ()=>{
+        title:"This project becomes Episode 1; its cast, locations, props and lookbook become the show's shared bible"},
+        React.createElement(Icon.layers,{s:13}),busyIs("make-show:"+currentId)?"Creating show…":"Turn this project into a show"),
+      React.createElement("button",{className:"proj-new",disabled:allBusy,title:"Start a new project from an idea \u2014 the same New Story window as the orange button",onClick:async ()=>{
         if(typeof onNewStory==="function"){ setOpen(false); onNewStory(); return; }
-        const done=await runAction("new-film",()=>onCreate("Untitled film"),"Couldn’t create a new film."); if(done)setOpen(false); }},
-        React.createElement(Icon.plus,{s:13}),busyIs("new-film")?"Creating…":"New film")));
+        const done=await runAction("new-film",()=>onCreate("Untitled film"),"Couldn’t create a new project."); if(done)setOpen(false); }},
+        React.createElement(Icon.plus,{s:13}),busyIs("new-film")?"Creating…":"New Story")));
 }
 window.ProjectSwitcher = ProjectSwitcher;

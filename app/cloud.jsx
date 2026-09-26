@@ -1115,7 +1115,7 @@ async function cloudDeleteShow(showId){
   if(responseLost){
     const confirmation=await _seriesConfirmProjectAbsent(sb,showId);
     if(!confirmation.ok) return {ok:false,uncertain:true,retrySafe:true,
-      message:"The connection ended during Show deletion, and TURN could not verify whether it committed. Refresh Films & shows before trying again; no asset cleanup was attempted."};
+      message:"The connection ended during Show deletion, and TURN could not verify whether it committed. Refresh the Projects list before trying again; no asset cleanup was attempted."};
     if(!confirmation.absent) return {ok:false,retrySafe:true,
       message:"Show deletion was not confirmed. The Show is still present, so no assets were removed."};
     /* The row's absence proves the database transaction committed. The response's
@@ -1211,7 +1211,7 @@ async function cloudDeleteShowEpisode(episodeId){
   if(responseLost){
     const confirmation=await _seriesConfirmProjectAbsent(sb,episodeId);
     if(!confirmation.ok) return {ok:false,uncertain:true,retrySafe:true,
-      message:"The connection ended during Episode deletion, and TURN could not verify whether it committed. Refresh Films & shows before trying again; no asset cleanup was attempted."};
+      message:"The connection ended during Episode deletion, and TURN could not verify whether it committed. Refresh the Projects list before trying again; no asset cleanup was attempted."};
     if(!confirmation.absent) return {ok:false,retrySafe:true,
       message:"Episode deletion was not confirmed. The Episode is still present, so no assets were removed."};
     data={episode_id:String(episodeId),show_id:inventory.showId,

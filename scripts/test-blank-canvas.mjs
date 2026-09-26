@@ -1,7 +1,7 @@
 /* A blank canvas is not a film (owner, 2026-09-26): the working row the app keeps when there
    is no story yet used to be listed as a film called "Untitled film". Now it is never listed
-   (switcher or Home), the chip reads "No film yet" with no format badge, "New film" opens the
-   New Story window (no blank rows are minted), and a deletion opens a real film first. */
+   (switcher or Home), the chip reads "No project yet" with no format badge, the switcher's
+   "New Story" opens the New Story window (no blank rows are minted), and a deletion opens a real film first. */
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import vm from "node:vm";
@@ -28,15 +28,18 @@ await test("what counts as a blank canvas",()=>{
   assert.equal(blank({id:"a",title:"Untitled film",isShared:true}),false,"a shared film is never hidden");
 });
 
-await test("the switcher never lists a blank canvas and says 'No film yet'",()=>{
+await test("the switcher never lists a blank canvas and says 'No project yet'",()=>{
   assert.ok(ui.includes('const standalone = (grouped.standalone||[]).filter(p=>!turnFilmIsBlank(p))'));
-  assert.ok(ui.includes('const title = current ? (currentBlank ? "No film yet" : current.title) : "Loading\\u2026";'));
-  assert.ok(ui.includes('"No films yet \\u2014 start one with New Story."'));
+  assert.ok(ui.includes('const title = current ? (currentBlank ? "No project yet" : current.title) : "Loading\\u2026";'));
+  assert.ok(ui.includes('"No projects yet \\u2014 start one with New Story."'));
   assert.ok(!ui.includes("a fresh blank one opens in its place"));
   assert.ok(read("app/styles.css").includes(".proj-empty{"));
 });
 
-await test("'New film' opens the New Story window instead of minting a blank row",()=>{
+await test("the switcher's 'New Story' opens the New Story window instead of minting a blank row",()=>{
+  assert.ok(ui.includes('busyIs("new-film")?"Creating…":"New Story")'),"the button reads New Story, like the orange CTA");
+  assert.ok(app.includes('"empty-canvas-title"},"Start your story")'),"the empty canvas says story, not film");
+  assert.ok(ui.includes('"proj-menu-lab"},"Projects")')&&!/No films? yet|"New film"|Switch film|Delete film/.test(ui),"projects, not films");
   assert.ok(ui.includes('if(typeof onNewStory==="function"){ setOpen(false); onNewStory(); return; }'));
   assert.ok(app.includes('onNewStory:()=>{ setRoom("writers"); setView("spine"); startNewStory(); },'));
 });
@@ -66,7 +69,7 @@ await test("a deletion opens a real film first, and reuses a blank canvas before
 
 await test("MUSE knows",()=>{
   const m=read("app/ai.jsx"); const s=m.slice(m.indexOf("const APP_FEATURES"),m.indexOf("function appBrief"));
-  assert.ok(s.includes('name:"Films & shows switcher (no film yet)"')&&s.includes("There is never a placeholder film called 'Untitled film'"));
+  assert.ok(s.includes('name:"Projects switcher (no project yet)"')&&s.includes("There is never a placeholder project called 'Untitled film'")&&!s.includes("Films & shows"));
 });
 
 console.log(checks+" checks passed");
