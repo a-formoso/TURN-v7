@@ -23,15 +23,26 @@ function GrammarSelect({ label, value, options, onChange }){
       options.map(o=>_el("option",{key:o.id,value:o.id,title:o.desc||""},o.label))));
 }
 
+function CameraFieldLabel({ label, auto }){
+  return _el("span",{className:"shot-gsel-head"},
+    _el("span",{className:"shot-gsel-lab"},label),
+    auto && _el("span",{
+      className:"shot-camera-auto",
+      title:"Auto — showing TURN's inferred value; no explicit camera override",
+      "aria-label":"Auto, inferred value with no explicit camera override"
+    },"Auto"));
+}
+
 function CameraSettingSelect({ label, value, options, onChange, effective }){
   const isAuto = !value || value==="auto";
   const displayOptions = (options||[]).map(o=>{
-    if(o.id==="auto" && isAuto && effective) return { ...o, label:"Recommended: "+effective };
+    if(o.id==="auto" && isAuto && effective) return { ...o, label:effective };
     return o;
   });
-  return _el("label",{className:"shot-gsel"},
-    _el("span",{className:"shot-gsel-lab"},label),
-    _el("select",{className:"prop-select",value:value||"auto",onChange:e=>onChange(e.target.value)},
+  return _el("label",{className:"shot-gsel"+(isAuto?" recommended":"")},
+    _el(CameraFieldLabel,{label,auto:isAuto}),
+    _el("select",{className:"prop-select",value:value||"auto",onChange:e=>onChange(e.target.value),
+      "aria-label":isAuto ? label+" — automatic recommendation: "+(effective||"Auto") : label},
       displayOptions.map(o=>_el("option",{key:o.id,value:o.id,title:o.desc||""},o.label))));
 }
 
@@ -43,7 +54,7 @@ function CameraProfilePicker({ value, options, onChange, recommendedLabel }){
   const list = options || [];
   const cur = list.find(o=>o.id===(value||"auto")) || list[0] || { id:"auto", label:"Project default / None", family:"Camera" };
   const isAuto = !value || value==="auto";
-  const triggerLabel = isAuto ? ("Recommended: "+(recommendedLabel || cur.label || "Project default / None")) : cur.label;
+  const triggerLabel = isAuto ? (recommendedLabel || cur.label || "Project default / None") : cur.label;
   const place = ()=>{ const t=triggerRef.current; if(!t) return; const r=t.getBoundingClientRect(); setPos({ top:r.bottom+4, left:r.left, width:r.width }); };
   React.useEffect(()=>{
     if(!open) return;
@@ -75,7 +86,9 @@ function CameraProfilePicker({ value, options, onChange, recommendedLabel }){
               _el("span",{className:"rs-opt-lab"},o.label)))));
       })), document.body) : null;
   return _el("div",{className:"rs-picker camera-profile-picker"+(open?" open":"")},
-    _el("button",{type:"button",className:"rs-trigger",ref:triggerRef,onClick:()=>{ if(open) setOpen(false); else { place(); setOpen(true); } }},
+    _el("button",{type:"button",className:"rs-trigger",ref:triggerRef,
+      "aria-label":isAuto ? "Camera profile — automatic recommendation: "+triggerLabel : "Camera profile: "+triggerLabel,
+      onClick:()=>{ if(open) setOpen(false); else { place(); setOpen(true); } }},
       _el("span",{className:"rs-trigger-lab"},triggerLabel),
       _el("span",{className:"rs-caret"},"▾")),
     menu);
@@ -91,12 +104,19 @@ function AdvancedCameraSettings({ sh, onUpdate }){
   return _el(CardFold,{label:"Advanced cinematography"+(active?" · custom camera":" · Auto"),defaultOpen:false},
     _el("div",{className:"shot-camera-panel"},
       _el("div",{className:"shot-camera-head"},
-        _el("div",{className:"shot-camera-note"},
-          _el(Icon.info,{s:12}),"Leave controls on Auto unless you want this shot to carry explicit camera language into the frame prompt."),
-        active && _el("button",{className:"shot-camera-reset",onClick:reset,title:"Use TURN's recommended camera settings for this shot"},"Recommended")),
+        _el("button",{type:"button",className:"shot-camera-reset"+(!active?" on":""),onClick:reset,
+          disabled:!active,
+          title:active
+            ? "Use the recommended automatic camera settings for this shot"
+            : "Recommended automatic camera settings are active",
+          "aria-label":active
+            ? "Use recommended automatic camera settings for this shot"
+            : "Recommended automatic camera settings are active"},"Recommended"),
+        window.InfoTip && _el(window.InfoTip,{label:"About automatic camera settings",
+          text:"Leave controls on Auto unless you want this shot to carry explicit camera language into the frame prompt."})),
       _el("div",{className:"shot-camera-grid"},
-        _el("label",{className:"shot-gsel"},
-          _el("span",{className:"shot-gsel-lab"},"Camera profile"),
+        _el("label",{className:"shot-gsel"+((!c.camera||c.camera==="auto")?" recommended":"")},
+          _el(CameraFieldLabel,{label:"Camera profile",auto:!c.camera||c.camera==="auto"}),
           _el(CameraProfilePicker,{value:c.camera,options:(window.SHOT_CAMERA_PROFILES||SHOT_CAMERA_BODIES),onChange:v=>patch("camera",v),recommendedLabel:resolved&&resolved.camera&&resolved.camera.effectiveLabel})),
         _el(CameraSettingSelect,{label:"Lens type",value:c.lensType,options:SHOT_LENS_TYPES,onChange:v=>patch("lensType",v),effective:resolved&&resolved.lensType&&resolved.lensType.effectiveLabel}),
         _el(CameraSettingSelect,{label:"Focal length",value:c.focalLength,options:SHOT_FOCAL_LENGTHS,onChange:v=>patch("focalLength",v),effective:resolved&&resolved.focalLength&&resolved.focalLength.effectiveLabel}),
@@ -142,12 +162,13 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
   // come from the same builder, so a manual render and an agent render can never
   // disagree about what rides along with the frame.
   const renderPlan = (typeof shotRenderPlan==="function") ? shotRenderPlan(sh, ordered, ctx) : null;
-  const requiredLocationAttachments=!!(renderPlan&&Array.isArray(renderPlan.activeLocSpec)
-    &&renderPlan.activeLocSpec.some(s=>s&&s.required));
+  const requiredCanonicalAttachments=!!(renderPlan&&Array.isArray(renderPlan.orderedSpecs)
+    &&renderPlan.orderedSpecs.some(s=>s&&s.required));
   // a non-head shot chains from the previous frame (continuity_anchor present); the
   // head renders fresh from the sheets. carriedForward rides in the prompt too.
   const promptCtx = { ...ctx, prevShot:prevShot||null, laterShots,
     carriedForward:(renderPlan&&renderPlan.carriedForward)||[],
+    carriedTextOnly:(renderPlan&&renderPlan.carriedTextOnly)||[],
     sceneContext:(renderPlan&&renderPlan.sceneContext)||null };
   const finalPrompt = combinedShotPrompt(sh, promptCtx);
   const chainPrompt = (typeof buildShotPrompt==="function") ? buildShotPrompt(sh, { ...promptCtx, prevFrameRole:true }) : finalPrompt;
@@ -229,6 +250,7 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
       const p = (typeof shotRenderPlan==="function") ? shotRenderPlan(sh, ordered, ctx) : null;
       return buildShotPrompt(sh, { ...ctx, prevShot:prevShot||null, laterShots,
          carriedForward:(p&&p.carriedForward)||[],
+         carriedTextOnly:(p&&p.carriedTextOnly)||[],
           sceneContext:(renderPlan&&renderPlan.sceneContext)||null,
           simpleMode:true });
     },
@@ -237,8 +259,8 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
     attachments: collectShotRefs,
     // Required manual location references must survive every Art Room mode,
     // including a simplified retry and the Stage composer.
-    attachmentsRequired:requiredLocationAttachments,
-    attachmentsInSimple:requiredLocationAttachments,
+    attachmentsRequired:requiredCanonicalAttachments,
+    attachmentsInSimple:requiredCanonicalAttachments,
     // buildShotPrompt now names the reference stack in-prose (the spine + staging + References
     // block), so we don't append a second reference sentence here — that would just duplicate it.
     attachmentsText: ()=> "",
@@ -315,7 +337,7 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
          } : null
       };
       // SEED LINEAGE — same stamp the headless path writes: which frame seeded this
-      // render, at what version. shotChainStatus derives "Seed outdated" from it later.
+      // render, at what version. shotChainStatus derives continuity-refresh state later.
       if(typeof shotSeedStamp!=="function") return base;
       // an EDIT reworks THIS frame in place — its chain position is unchanged, so the
       // prior lineage carries forward (the hook builds meta fresh; without this it'd drop)
@@ -481,6 +503,9 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   // exact seedShotOf logic the list used to derive this card's props.
   const framePack = shotFrameGenOpts(sh, sceneShots||[], ctx);
   const renderPlan = framePack.renderPlan;
+  const characterReferenceSpecs=(renderPlan&&Array.isArray(renderPlan.castSpec))
+    ?renderPlan.castSpec
+    :subjects.map(c=>({id:c.id,baseId:c.id,entityId:c.id,label:c.name,referenceKind:"character",version:1}));
   const finalPrompt = framePack.finalPrompt;
   const chainPrompt = framePack.chainPrompt;
   // the "Shot prompt" preview reflects what WILL generate: a non-head shot chains from the
@@ -494,8 +519,6 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
     ? propDependencySignature(((window.turnContinuity||{}).props)||[],sh.sceneId,sh.beatN,sh.microBeatId,sh.id,window.turnContinuity||{}) : "";
   const propDependenciesStale=!!(gen.genUrl&&gen.genMeta&&gen.genMeta.propDependencies!=null
     && gen.genMeta.propDependencies!==currentPropDependencies);
-  const frameSourceOverride = typeof shotSourceOverrideCurrent==="function"
-    && shotSourceOverrideCurrent(sh,(((window.turnContinuity||{}).drafts||{})[sh.sceneId]));
   // SEED-LINEAGE status — DERIVED each render, never flagged: compares the lineage
   // recorded on this frame (which frame seeded it, at what version) against the
   // current seed shot and its current frame. DIRECT lineage: regenerating/reordering/
@@ -503,10 +526,8 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   // go stale as each link above them re-renders (ordered runs walk the whole chain).
   const chainStatus = gen.genUrl && typeof shotChainStatus==="function"
     ? shotChainStatus(sh, sceneShots||[], (xid)=> (typeof nbGetMeta==="function") ? nbGetMeta(xid) : null) : "";
-  // CHAIN VISIBILITY (review finding #5) — answer "what is this frame built from?"
-  // and "what do I invalidate if I change it?" right on the card.
-   // Explicit opening frames may be stored after legacy alternatives. Walk a
-   // dependency-first view rather than assuming storage order is seed order.
+  // Explicit opening frames may be stored after legacy alternatives. Walk a
+  // dependency-first view rather than assuming storage order is seed order.
   const downstreamCount = (()=>{
     if(!Array.isArray(sceneShots) || !sceneShots.length || typeof seedShotOf!=="function") return 0;
     const dep = new Set([sh.id]); let n = 0;
@@ -519,18 +540,11 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
     }
     return n;
   })();
-  const seedLine = (()=>{
-    if(!prevShot) return null;
-    const m = (typeof nbGetMeta==="function") ? nbGetMeta(prevShot.id) : null;
-    // the recorded exception: this frame was deliberately rendered from a seed the
-    // director hadn't approved — stays on the card even after the seed gets approved
-    const exception = !!(gen.genMeta && gen.genMeta.seedSource && gen.genMeta.seedSource.seedUnapproved);
-    return "Seed: "+shotCardReferenceLabel(prevShot,sceneShots)
-      +((m&&m.version!=null)?(" \u00b7 v"+m.version):"")
-      +" \u00b7 "+(prevShot.locked?"approved":"not approved")
-      +(downstreamCount?(" \u00b7 seeds "+downstreamCount+" later shot"+(downstreamCount>1?"s":"")):"")
-      +(exception?" \u00b7 rendered from an unapproved seed (director's choice)":"");
-  })();
+  // Healthy seed provenance remains in frame metadata rather than occupying every
+  // compact card. The separate frame-source check remains enforced by approval and
+  // ordered-render gates without adding a second persistent status label here.
+  const continuityNeedsRefresh = chainStatus==="stale";
+  const seedWasUnapproved = !!(gen.genMeta && gen.genMeta.seedSource && gen.genMeta.seedSource.seedUnapproved);
   const toggleFrameApproval = async ()=>{
     if(sh.locked){ onUpdate(sh.id,{locked:false,sourceOverride:null}); return; }
     if(frameSourceStatus!=="current"){
@@ -664,7 +678,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   // to. Recomputed from the live entity sheets (always displayable), keyed off the ids.
   const [refImgs, setRefImgs] = React.useState([]);    // seed frame + the canon sheets, ordered by location weight
   const [refsLoaded, setRefsLoaded] = React.useState(false);
-  // Beat-scoped, generated full-frame slugline units are editable on an
+  // Beat-scoped, generated full-frame Slugline Units are editable on an
   // existing card too. The older Add Shot picker only covered new shots,
   // leaving an ambiguous compound slugline (for example Kitchen / Living Room)
   // impossible to correct after drafting. This helper intentionally excludes
@@ -676,6 +690,20 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
     ? (shotLocationReferenceChoices(loc||null,sh,scene,ctx.drafts||(window.turnContinuity||{}).drafts||{})||[]) : [];
   const explicitLocationRefs = Array.isArray(sh.referenceLocationIds) ? sh.referenceLocationIds : [];
   const includedLocationRefs = explicitLocationRefs.filter(id=>!(sh.refOff||[]).includes(id));
+  const legacyExcludedLocationRefs = sh.referenceLocationsSet
+    ? explicitLocationRefs.filter(id=>(sh.refOff||[]).includes(id)) : [];
+  // Older cards kept an unchecked manual location in both referenceLocationIds
+  // and refOff, which left a gray ghost thumbnail in the active reference strip.
+  // Location choices remain discoverable in the picker, so migrate the stale
+  // shot-level selection away without deleting the Art Room asset.
+  React.useEffect(()=>{
+    if(!legacyExcludedLocationRefs.length) return;
+    const stale=new Set(legacyExcludedLocationRefs);
+    onUpdate(sh.id,{
+      referenceLocationIds:explicitLocationRefs.filter(id=>!stale.has(id)),
+      refOff:(sh.refOff||[]).filter(id=>!stale.has(id))
+    });
+  },[sh.id,sh.referenceLocationsSet?1:0,explicitLocationRefs.join("|"),legacyExcludedLocationRefs.join("|")]);
   // The helper intentionally permits one image to describe both a slugline
   // unit and an appearance state. Collapse that into one selectable record so
   // checking its alias can never attach the same image twice.
@@ -740,13 +768,15 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
     const known=!!sh.referenceLocationsSet&&explicitLocationRefs.includes(id);
     const curOff=Array.isArray(sh.refOff)?sh.refOff:[];
     const included=known&&!curOff.includes(id);
-    // The chosen-ID list is inventory; refOff controls inclusion. Unchecking
-    // must never remove the thumbnail or its route back into the next render.
-    const next=known?explicitLocationRefs:[...explicitLocationRefs,id];
+    // The picker is the durable catalog and referenceLocationIds is the active
+    // shot selection. Unchecking removes the location from this shot (and its
+    // thumbnail) while leaving the source asset available to select again.
+    const next=included?explicitLocationRefs.filter(x=>x!==id):(known?explicitLocationRefs:[...explicitLocationRefs,id]);
+    const nextOff=curOff.filter(x=>x!==id);
     onUpdate(sh.id,{referenceLocationsSet:true,referenceLocationIds:next,
-      ...(included?{refOff:[...curOff,id]}:curOff.includes(id)?{refOff:curOff.filter(x=>x!==id)}:{})});
+      ...(nextOff.length!==curOff.length?{refOff:nextOff}:{})});
   };
-  const categoryMeta={place:"Continuity-bearing place",unit:"Slugline / subspace units",coverage:"Screenplay Coverage",state:"Appearance States",outside:"Saved / outside this scene",unavailable:"Saved / unavailable"};
+  const categoryMeta={place:"Continuity-bearing place",unit:"Slugline Units",coverage:"Required Space Plates",state:"Time-of-Day Variants",outside:"Saved / outside this scene",unavailable:"Saved / unavailable"};
   const categoryOrder=["place","unit","coverage","state","outside","unavailable"];
   const categoryLabel=(choice)=>{
     const known=(choice.categories||[]).filter(x=>categoryMeta[x]&&x!=="unavailable");
@@ -783,9 +813,9 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
               selected&&_el("i",null,"Selected"));
           }) : _el("p",{className:"shot-location-picker-empty"},
             category==="place"?"No continuity-bearing place reference is available.":
-            category==="unit"?"No slugline or subspace unit is linked to this scene.":
-            category==="coverage"?"No screenplay coverage sheet is available.":
-            category==="state"?"No appearance state reference is available.":"No saved unavailable references."));
+            category==="unit"?"No Slugline Unit is linked to this scene.":
+            category==="coverage"?"No Required Space Plate is available.":
+            category==="state"?"No time-of-day variant reference is available.":"No saved unavailable references."));
       }),
       sh.referenceLocationsSet&&includedLocationRefs.length===0&&_el("p",{className:"shot-location-picker-note"},"No location images included. Check a reference to include it."),
       explicitMissing&&_el("p",{className:"shot-location-picker-error"},"Selected location image missing. Generate is blocked until you uncheck it, restore it or choose Auto."))));
@@ -802,7 +832,8 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   const [refAssetBump, setRefAssetBump] = React.useState(0);
   // Events and async grabs follow the candidate when this shot is a fresh start;
   // following prevShot here would leave an excluded seed thumbnail stale forever.
-  const _liveRefIdsKey = [seedCandidate&&seedCandidate.id, ...liveLocationRefIds(), ...subjects.map(c=>c.id), ...inProps.map(p=>p.id)].filter(Boolean).join("|");
+  const _liveRefIdsKey = [seedCandidate&&seedCandidate.id, ...liveLocationRefIds(),
+    ...characterReferenceSpecs.flatMap(s=>[s&&s.id,s&&s.baseId]), ...inProps.map(p=>p.id)].filter(Boolean).join("|");
   React.useEffect(()=>{
     const matches = (detail)=>{
       if(!detail) return false;
@@ -819,7 +850,8 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   const _refKey = [sh.id, sh.anchor?1:0, seedCandidate&&seedCandidate.id, seedCandidate&&seedCandidate.locked?1:0, prevSeedBump, refAssetBump, loc&&loc.id,
     sh.referenceLocationsSet?1:0, (sh.referenceLocationIds||[]).join(","), locationReferenceChoices.map(x=>x.id+":"+x.label).join("|"),
     _locSpecKey, locWeight,
-    subjects.map(c=>c.id).join(","), inProps.map(p=>p.id).join(","), gen.genUrl||""].join("|");
+    characterReferenceSpecs.map(s=>[s.id,s.baseId,s.stateId,s.version,s.label].join(":")).join(","),
+    inProps.map(p=>p.id).join(","), gen.genUrl||""].join("|");
   React.useEffect(()=>{
     let alive = true;
     setRefsLoaded(false);
@@ -841,7 +873,10 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
           if(target && target.pending) pendingSeed=target;
         }catch(e){}
       }
-      const seed = pendingSeed ? [{
+      // A Fresh shot has no active continuity seed. Do not show the unused
+      // predecessor as a gray reference; the dedicated Fresh control is the
+      // single route for rejoining the chain.
+      const seed = sh.anchor ? [] : pendingSeed ? [{
         url:pendingSeed.url||"", label:"Previous shot · deletion pending", kind:"seed-pending",
          approved:!!seedCandidate.locked, pending:true, refId:seedCandidate.id, meta:pendingSeed,
          ...(pendingSeed.retryable!=null ? {retryable:pendingSeed.retryable} : {}),
@@ -859,6 +894,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         // strict resolver contract.
         const resolved = (typeof shotResolveLocationSpecImages==="function") ? await shotResolveLocationSpecImages(locSpecs, grab,{allowMissing:true}) : [];
         for(const spec of locSpecs){
+          if((sh.refOff||[]).includes(spec.id)) continue; // hide legacy excluded location ghosts before migration commits
           const r=resolved.find(x=>x.refId===spec.id);
           locItems.push({ url:r&&r.url||"", label:String(r&&r.note||spec.label||spec.note||"Location reference").replace(/\s+\([^)]*\)$/,""), kind:"location", refId:spec.id,
             assetRole:r&&r.assetRole||spec.assetRole, assetRoleLabel:r&&r.assetRoleLabel,
@@ -866,7 +902,12 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
             missing:!(r&&r.url) });
         }
       }
-      const castItems = []; for(const c of subjects){ const u=await grab(c.id); if(u) castItems.push({ url:u, label:c.name, kind:"character", refId:c.id }); }
+      const castItems = []; for(const spec of characterReferenceSpecs){
+        const u=await grab(spec.id);
+        castItems.push({url:u||"",label:spec.label||spec.note||"Character",kind:"character",
+          refId:spec.baseId||spec.id,assetId:spec.id,stateId:spec.stateId||"",
+          version:spec.version||1,required:!!spec.required,missing:!u});
+      }
       const propItems = []; for(const p of inProps){ const u=await grab(p.id); if(u) propItems.push({ url:u, label:p.name, kind:"prop", refId:p.id }); }
       const sheetOrder = (locWeight==="ambient") ? [...castItems, ...locItems, ...propItems] : [...locItems, ...castItems, ...propItems];
       if(alive){ setRefImgs([...seed, ...sheetOrder]); setRefsLoaded(true); }
@@ -881,7 +922,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   // with seed approval and reference exclusions intact, not historical snapshots.
   const referenceControls=(refImgs.length>0 || locationReferencePicker) && _el("div",{className:"shot-refs coverage-refs"},
     _el("div",{className:"shot-refs-lab",
-      title:"Check or uncheck references at any time. Unchecked images stay here and are excluded from the next generation. A running render keeps its starting reference selection. Source images are never deleted from this list."},
+      title:"Check or uncheck references at any time. Removing a location reference removes it from this shot and its thumbnail, while the source asset remains available in the Location reference picker. A running render keeps its starting reference selection. Source assets are never deleted here."},
       _el(Icon.layers,{s:11}),"Reference images"),
     locationReferencePicker,
     refImgs.length>0 && _el(window.RefStripScroller||"div",{className:"shot-refs-row coverage-refs-row"},
@@ -892,38 +933,49 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
          const isSeed=r.kind==="seed" || r.kind==="seed-pending";
          const pendingRetryable=!r.pending || (r.retryable!==false && r.status!=="retained-unverified");
         const off = isSeed ? !!sh.anchor : (r.refId!=null && (sh.refOff||[]).indexOf(r.refId)>=0);
-        return _el("div",{key:"a"+i,role:"button",tabIndex:0,
-          className:"shot-ref-thumb "+r.kind+(isSeed&&r.approved===false?" provisional":"")+(off?" off":""),
-          title:(isSeed ? (r.label+" — "+(r.approved?"approved seed":"provisional seed")) : r.label)
-            +(off?" — EXCLUDED from generation (nondestructive; click to re-attach)":" — included in generation")
-            +" — click to enlarge",
-           onClick:()=>r.url&&onView&&onView(r.url,{name:r.label}),
-          onKeyDown:(e)=>{ if(e.target===e.currentTarget&&(e.key==="Enter"||e.key===" ")){ e.preventDefault(); onView&&onView(r.url,{name:r.label}); } }},
-            r.pending
+        const tileBody = r.pending
              ? _el("div",{className:"shot-ref-pending"+(pendingRetryable?"":" retained-unverified"),
                  title:pendingRetryable
                    ? "The source image was evicted before permanent deletion completed."
                    : "The source was retained, but its immutable copy could not be identified for an actionable retry."},
                  _el(Icon.trash,{s:12}),_el("span",null,pendingRetryable?"Deletion pending":"Deletion retained · review Details"))
               : r.missing
-                ? _el("div",{className:"shot-ref-missing",title:"The selected location image is unavailable."},_el(Icon.image,{s:14}),_el("span",null,"Missing"))
-                : _el("img",{src:r.url,alt:r.label,loading:"lazy"}),
+                ? _el("div",{className:"shot-ref-missing",title:r.kind==="character"
+                    ?(r.stateId?"The required appearance-state character sheet is unavailable.":"The character sheet is unavailable.")
+                    :"The selected location image is unavailable."},_el(Icon.image,{s:14}),_el("span",null,"Missing"))
+                : _el("img",{src:r.url,alt:"",loading:"lazy"});
+        const previewTitle="Preview "+r.label+" full size";
+        const toggleLabel=isSeed
+          ? (off?"Re-attach the previous shot as this shot's continuity seed":"Exclude the previous-shot seed and start this shot fresh")
+          : (off?"Include "+r.label+" as a generation reference":"Exclude "+r.label+" from generation without deleting it");
+        return _el("div",{key:"a"+i,
+          className:"shot-ref-thumb "+r.kind+(isSeed&&r.approved===false?" provisional":"")+(off?" off":"")+((r.url&&onView)?"":" no-preview"),
+          title:(isSeed ? (r.label+" — "+(r.approved?"approved continuity seed":"provisional continuity seed")) : r.label)
+            +(off?" — excluded from the next generation":" — included in the next generation")},
+            r.url&&onView
+              ? _el("button",{type:"button",className:"shot-ref-preview","aria-label":previewTitle,title:previewTitle,
+                  onClick:()=>onView(r.url,{name:r.label})},tileBody,
+                  _el("span",{className:"shot-ref-preview-mark","aria-hidden":"true"},_el(Icon.eye,{s:10})))
+              : tileBody,
+            isSeed&&_el("span",{className:"shot-ref-kind","aria-hidden":"true"},"Seed"),
             !r.pending && (isSeed || r.refId!=null) && _el("button",{type:"button",className:"shot-ref-tick"+(off?"":" on"),
             "aria-pressed":!off,
+            "aria-label":toggleLabel,
             title: isSeed
               ? (off
-                ? "Excluded nondestructively — this seed is not attached to the generation. Click to re-attach it."
-                : "Attached seed. Click to exclude it nondestructively; this starts the shot fresh without deleting the source image.")
+                ? "Excluded from generation — re-attach this previous-shot continuity seed. The source image is never deleted here."
+                : "Attached continuity seed — exclude it to start this shot fresh. The source image is never deleted here.")
               : (off ? "Excluded nondestructively — this sheet is NOT attached to the generation. Click to re-attach it."
                 : "Attached as a reference. Click to exclude this sheet nondestructively from the generation (the "+(r.kind==="location"?"set":r.kind)+" stays in the prompt text; only the image is withheld)."),
             onClick:(e)=>{ e.stopPropagation();
               if(isSeed){ onUpdate(sh.id,{anchor:!off}); return; }
+              if(r.kind==="location"){ updateLocationReference(r.refId); return; }
               const cur=sh.refOff||[];
               onUpdate(sh.id,{ refOff: off ? cur.filter(x=>x!==r.refId) : [...cur, r.refId] }); },
             onKeyDown:(e)=>{ if(e.key==="Enter"||e.key===" "){
               e.preventDefault(); e.stopPropagation(); e.currentTarget.click();
             }}},
-            off ? "✕" : "✓")); })));
+            off ? "+" : "✓")); })));
 
   return _el("div",{className:"sheet-card shot-card"+(batchActiveId===sh.id?" batch-on":"")+(gen.gening?" gening":""),"data-shot-card":sh.id},
     _el(SheetFrame,{ gen:genGuarded, slotId:"shot-"+sh.id, name:beatLabel, avatarColor:"linear-gradient(135deg,#7a6cae,#2a2440)",
@@ -934,6 +986,17 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       generateDisabledLabel:"Wait for current shot",
       generateDisabledTitle:"Another shot is generating. Wait for it to finish before starting this frame.",
       menuExtra: [
+        gen.genUrl ? {
+          placement:"beforeEdit",
+          icon:Icon.check,
+          label:sh.locked?"Unlock approved frame":"Approve frame as seed",
+          title:sh.locked
+            ? "Allow an ordered scene/all render to replace this frame; later shots will ask before using it as an unapproved seed."
+            : frameSourceStatus!=="current"
+            ? "Approve this historical frame with an explicit source override, or regenerate it for verified coverage."
+            : "Protect this frame during ordered rendering and use it as the approved continuity seed for later shots.",
+          onClick:toggleFrameApproval,
+        } : null,
         ...(shotMenuExtra||[]),
         onRegenDownstream ? {
           // name the cost up front (finding #5): how many frames this run re-renders
@@ -955,7 +1018,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         if(downstreamCount>0 && typeof window.appConfirm==="function"){
           const ok = await window.appConfirm({
             title:"Delete this shot?",
-            body:downstreamCount+" later shot"+(downstreamCount>1?"s build":" builds")+" on this frame in the scene's chain. After deleting, the shot that chained directly from it flags 'Seed outdated' at once, and an ordered run ('Render scene in order' / 'Regenerate downstream') refreshes the affected shots link by link in dependency order.",
+            body:downstreamCount+" later shot"+(downstreamCount>1?"s build":" builds")+" on this frame in the scene's chain. After deleting, the shot that chained directly from it is marked as needing a continuity refresh, and an ordered run ('Render scene in order' / 'Regenerate downstream') refreshes the affected shots link by link in dependency order.",
             confirmLabel:"Delete shot", cancelLabel:"Cancel", danger:true });
           if(!ok) return;
         }
@@ -965,16 +1028,22 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       /* Compact beat metadata stays in the real card body; its screenplay
          evidence is grouped in Scripted below, never in a duplicate preview. */
       beatContext && _el("div",{className:"shot-beat-context"},beatContext),
-      // the exact seed, named (finding #5): which frame this shot builds from, at what
-      // version, whether it's approved, and how many later shots ride on this one
-      seedLine && _el("div",{className:"shot-seed-line",
-        title:"This shot's continuity anchor — the frame it renders from — plus how many later shots in this scene build on this frame (directly or through the chain)."},
-        seedLine),
+      (seedWasUnapproved || continuityNeedsRefresh) && _el("div",{
+        className:"shot-seed-line"+(continuityNeedsRefresh?" stale":""),
+        role:continuityNeedsRefresh?"status":undefined,
+        title:continuityNeedsRefresh
+          ? "This image was rendered from a continuity frame that has since changed, moved, or been removed. Re-render this frame, or render the scene in order, to match the current chain."
+          : "This frame was deliberately rendered from a continuity frame before that frame was approved."},
+        continuityNeedsRefresh && _el("span",{className:"shot-seed-refresh"},
+          "Continuity needs refresh — re-render this frame or render the scene in order."),
+        seedWasUnapproved && _el("span",{className:"shot-seed-exception"},
+          (continuityNeedsRefresh?" · ":"")+"Director override — rendered from an unapproved continuity frame.")),
       refsLoaded && loc && !sh.referenceLocationsSet && !refImgs.some(r=>r.kind==="location") &&
         _el("div",{className:"shot-ref-quality-note"},
-          "No full-frame slugline unit or screenplay coverage sheet is ready for this beat. Generate one in Locations; TURN will not substitute a cropped master plate."),
+          "No full-frame Slugline Unit or Required Space Plate is ready for this beat. Generate one in Locations; TURN will not substitute a cropped master plate."),
       _el("div",{className:"shot-head"},
-        // order, left-to-right: Beat · Clip · Head · (Approve, once a frame exists)
+        // Keep the compact header for status and review controls. Frame approval lives
+        // in the image's existing Options menu, where its effect can be explained.
         _el("div",{className:"shot-head-right"},
           !beatContext && _el("div",{className:"shot-beat-tag"},beatLabel),
           subLabel && _el("div",{className:"shot-beat-tag sub",title:"This beat has multiple shots (coverage) — this is setup "+subLabel+" in cut order"},"Shot "+subLabel),
@@ -991,26 +1060,9 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
                 : "Make this a fresh start — a hard cut that won't inherit the previous frame's look or state."),
             onClick:()=> !isFirst && onToggleHead && onToggleHead(sh)},
             _el(Icon.pin,{s:11}), isHead && _el("span",null, isFirst?"Head":"Fresh")),
-          // approve / lock — marks this frame as the APPROVED seed the next shot chains from
-          gen.genUrl && frameSourceStatus && frameSourceStatus!=="current" && _el("span",{className:"shot-source-badge "+frameSourceStatus,
-            title:frameSourceStatus==="stale"
-              ? "This historical frame was rendered before this shot specification or screenplay beat changed. Regenerate before using it as current coverage."
-              : "This legacy frame has no source-revision stamp, so its match to the current shot cannot be verified."},
-            frameSourceStatus==="stale"?"Stale source":"Source unverified"),
           gen.genUrl && propDependenciesStale && _el("span",{className:"shot-source-badge stale",
             title:"A prop used by this frame changed holder, placement, condition, visibility, binding mode, or approved sheet after this frame was generated. The approved frame stays pinned until you regenerate it."},
             "Prop reference changed"),
-          gen.genUrl && chainStatus==="stale" && _el("span",{className:"shot-source-badge stale",
-            title:"The frame this shot was seeded from has changed since this render — it was regenerated, re-ordered, or removed — so this frame no longer sits on the current chain. Regenerate this shot, or use 'Regenerate downstream' on the changed frame to bring the whole chain back in line. 'Render scene in order' also re-renders it automatically."},
-            "Seed outdated"),
-          gen.genUrl && _el("button",{className:"shot-lock-btn"+(sh.locked?" on":""),
-            title: sh.locked
-              ? (frameSourceOverride?"Approved by explicit source override. Click to unlock.":"Approved — this frame is the locked coverage reference this beat's shots build on. Click to unlock.")
-              : frameSourceStatus!=="current"
-              ? "Approve this historical frame with an explicit source override, or regenerate for verified coverage."
-              : "Approve this frame as the coverage reference this beat's shots build on.",
-            onClick:toggleFrameApproval},
-            _el(Icon.check,{s:11}), _el("span",null, sh.locked?"Approved":"Approve")),
           (redraftControl||window.QaCheckButton) && _el("div",{className:"shot-review-actions"},
             redraftControl,
             window.QaCheckButton && _el(window.QaCheckButton,{ gen, name:beatLabel, noun:"shot frame", className:"shot-lock-btn",
@@ -1063,8 +1115,8 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         const studioRefs=[studioLocation&&actual(studioLocation)&&{entityId:studioLocation.id,label:studioLocation.name||"Location",kind:"location"},
           ...subjects.filter(actual).map(c=>({entityId:c.id,label:c.name||"Character",kind:"character"})),
           ...inProps.filter(actual).map(p=>({entityId:p.id,label:p.name||"Prop",kind:"prop"}))].filter(Boolean);
-        return window.BlenderStudioEntry && _el(CardFold,{label:"Blender Studio · reusable set",defaultOpen:false},
-          _el(window.BlenderStudioEntry,{location:studioTarget||null,shot:sh,references:studioRefs,readOnly}));
+        return window.BlenderStudioLaunch && _el(window.BlenderStudioLaunch,
+          {location:studioTarget||null,shot:sh,references:studioRefs,readOnly});
       })(),
 
       // the shot's TEXT layer, folded shut by default so the card reads compact —
@@ -1428,9 +1480,13 @@ function AddShotReferenceDialog({ scene, beatN, beatText, plan, ctx, characters,
       setAssets(next); setLoading(false);
       if(!initialized.current){
         initialized.current=true;
-         const readyLocations=locationChoices.filter(x=>next[x.id]);
-         setSelectedLocations(readyLocations.length?[readyLocations[0].id]:[]);
-         setLocationMode("explicit");
+        const autoReady=autoLocationChoices.length===1&&!!next[autoLocationChoices[0].id];
+        const readyLocations=locationChoices.filter(x=>next[x.id]);
+        // Prefer the beat-scoped screenplay match. Older Add Shot modals silently
+        // converted their first available place card into an explicit override,
+        // which could pin a compound/root plate over a Kitchen or Living Room beat.
+        setSelectedLocations(autoReady?[]:(readyLocations.length?[readyLocations[0].id]:[]));
+        setLocationMode(autoReady?"auto":"explicit");
         setSelectedCharacters(characterChoices.filter(x=>next[x.id]).map(x=>x.id));
       }
     })();
@@ -1444,7 +1500,7 @@ function AddShotReferenceDialog({ scene, beatN, beatText, plan, ctx, characters,
       ? String(item.note||"Location reference").replace(/\s+\([^)]*\)$/g,"")
       : item.name;
     const source=kind==="location"
-       ? (item.categories||[]).map(x=>({place:"Continuity-bearing place",unit:"Slugline / subspace unit",coverage:"Screenplay Coverage",state:"Appearance State"})[x]).filter(Boolean).join(" · ")
+       ? (item.categories||[]).map(x=>({place:"Continuity-bearing place",unit:"Slugline Unit",coverage:"Required Space Plate",state:"Time-of-Day Variant"})[x]).filter(Boolean).join(" · ")
       : "Character featured in this beat";
     return _el("button",{key:item.id,type:"button",disabled:!ready,
       className:"shot-ref-choice"+(on?" on":"")+(!ready?" unavailable":""),
@@ -1466,17 +1522,17 @@ function AddShotReferenceDialog({ scene, beatN, beatText, plan, ctx, characters,
       _el("div",{className:"shot-ref-dialog-body"},
           _el("section",null,_el("div",{className:"shot-ref-dialog-label"},"Continuity-bearing place"),
            placeChoices.length?_el("div",{className:"shot-ref-choice-list"},placeChoices.map(x=>choice(x,"location",selectedLocations,setSelectedLocations))):_el("div",{className:"shot-ref-dialog-empty"},"No continuity-bearing place reference is available.")),
-          _el("section",null,_el("div",{className:"shot-ref-dialog-label"},"Slugline / subspace units"),
+          _el("section",null,_el("div",{className:"shot-ref-dialog-label"},"Slugline Units"),
            autoLocationReady && _el("button",{type:"button",className:"shot-ref-choice-auto"+(locationMode==="auto"?" on":""),onClick:()=>{setLocationMode("auto");setSelectedLocations([])}},
              "Auto · "+(autoLocationChoices[0].note||autoLocationChoices[0].name||"matched location")),
           sluglineChoices.length
             ? _el("div",{className:"shot-ref-choice-list"},sluglineChoices.map(x=>choice(x,"location",selectedLocations,setSelectedLocations)))
-            : _el("div",{className:"shot-ref-dialog-empty"},"No generated full-frame slugline unit applies to this scene.")),
+            : _el("div",{className:"shot-ref-dialog-empty"},"No generated full-frame Slugline Unit applies to this scene.")),
         coverageChoices.length>0 && _el("section",null,
-          _el("div",{className:"shot-ref-dialog-label"},"Screenplay coverage sheets"),
+          _el("div",{className:"shot-ref-dialog-label"},"Required Space Plates"),
           _el("div",{className:"shot-ref-choice-list"},coverageChoices.map(x=>choice(x,"location",selectedLocations,setSelectedLocations)))),
-         _el("section",null,_el("div",{className:"shot-ref-dialog-label"},"Appearance States"),
-           stateChoices.length?_el("div",{className:"shot-ref-choice-list"},stateChoices.map(x=>choice(x,"location",selectedLocations,setSelectedLocations))):_el("div",{className:"shot-ref-dialog-empty"},"No appearance state reference is available.")),
+         _el("section",null,_el("div",{className:"shot-ref-dialog-label"},"Time-of-Day Variants"),
+           stateChoices.length?_el("div",{className:"shot-ref-choice-list"},stateChoices.map(x=>choice(x,"location",selectedLocations,setSelectedLocations))):_el("div",{className:"shot-ref-dialog-empty"},"No time-of-day variant reference is available.")),
         _el("section",null,_el("div",{className:"shot-ref-dialog-label"},"Characters in this beat"),
           characterChoices.length
             ? _el("div",{className:"shot-ref-choice-list"},characterChoices.map(x=>choice(x,"character",selectedCharacters,setSelectedCharacters)))
@@ -1868,11 +1924,11 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
               title:"Shots with no generated frame yet — 'Render Scene in order' renders them in chain order."},
               unrendered+" unrendered"),
             staleSeed>0 && _el("span",{className:"ssx-chain-chip warn",
-              title:"Frames built on a seed that has since changed (regenerated, re-ordered or removed) — 'Render Scene in order' re-renders them automatically."},
-              staleSeed+" seed-outdated"),
+              title:"Frames whose continuity source has since changed, moved or been removed — 'Render Scene in order' re-renders them automatically."},
+              staleSeed+" frame"+(staleSeed===1?" needs":"s need")+" continuity refresh"),
             staleSrc>0 && _el("span",{className:"ssx-chain-chip warn",
               title:"Frames rendered before their shot specification or screenplay beat changed — regenerate for verified coverage."},
-              staleSrc+" stale source"),
+              staleSrc+" frame"+(staleSrc===1?" needs":"s need")+" source refresh"),
             solid && _el("span",{className:"ssx-chain-chip ok"},"Chain solid"));
         })(),
         // shots-per-beat strip: coverage distribution at a glance (widths ∝ shot counts)
@@ -1899,7 +1955,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
         _el(SceneCtxItem,{k:"Driver's goal",v:scene.objective}),
         _el(SceneCtxItem,{k:"Antagonism",v:bm.obstacle}),
         scene.conf && _el("div",{className:"ssx-item"},
-          _el("div",{className:"ssx-k"},"Conflict level"),
+          _el("div",{className:"ssx-k"},"Conflict source"),
           _el("div",{className:"ssx-conf"},
             confLab && _el("span",{className:"ssx-conf-lab"},confLab),
             _el("div",{className:"ssx-pips"},
@@ -2089,7 +2145,8 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
       if(Object.keys(patch).length) onUpdateShot(sh.id, patch);
     });
   },[(shots||[]).length]);
-  const ctxFor = (scene)=>({ scene, location:(typeof locationForScene==="function")?locationForScene(locations,scene.id):null,
+  const ctxFor = (scene)=>({ scene, scenes:ordered,
+    location:(typeof locationForScene==="function")?locationForScene(locations,scene.id):null,
     charById, propById, project, locations:locations||[] });
 
   const ordered = React.useMemo(()=> scenesInStoryOrder(scenes),[scenes]);
@@ -2305,8 +2362,8 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
             +(sourceStatus==="stale"?"its shot specification or screenplay has changed since it was generated."
               :"its source information is missing, so its alignment with the current screenplay is unverified.")
             +" Review that existing frame before using it as "+shotLab(target)+"'s reference. "
-            +(seed.locked?"Click Approved to unlock it, then Approve and choose “Approve with override” to deliberately keep it."
-              :"Choose Approve, then “Approve with override” to deliberately use it.")
+            +(seed.locked?"Open that frame's Options menu, choose “Unlock approved frame”, then choose “Approve frame as seed” and “Approve with override” to deliberately keep it."
+              :"Open that frame's Options menu, choose “Approve frame as seed”, then “Approve with override” to deliberately use it.")
             +" Regenerate only if you want a replacement image.");
           return;
         }
@@ -2327,12 +2384,12 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
       if(unapproved){
         // FAIL CLOSED: no confirm dialog available → no silent bypass of the gate
         if(typeof window.appConfirm!=="function"){
-          setNotice(shotLab(target)+" chains from "+shotLab(unapproved)+", whose frame isn't approved yet. Approve "+shotLab(unapproved)+" (\u2713 on its card) first — approved frames are the continuity gate.");
+          setNotice(shotLab(target)+" chains from "+shotLab(unapproved)+", whose frame isn't approved yet. Open "+shotLab(unapproved)+"'s image Options menu and choose “Approve frame as seed” first — approved frames are the continuity gate.");
           return;
         }
         const ok = await window.appConfirm({
           title:"Seed frame isn't approved yet",
-          body:shotLab(target)+" chains from "+shotLab(unapproved)+", whose frame is rendered but not approved. Approving ("+"\u2713"+" on its card) is the continuity gate — or continue now and deliberately use the unapproved frame as this render's seed. The new frame will record that choice on its card.",
+          body:shotLab(target)+" chains from "+shotLab(unapproved)+", whose frame is rendered but not approved. “Approve frame as seed” in its image Options menu is the continuity gate — or continue now and deliberately use the unapproved frame as this render's seed. The new frame will record that choice on its card.",
           confirmLabel:"Use unapproved seed", cancelLabel:"Cancel" });
         if(!ok) return;
         if(!stillCurrent()) return;

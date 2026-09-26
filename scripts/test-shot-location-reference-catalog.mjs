@@ -66,7 +66,7 @@ assert.ok(catalog.some(x=>x.category==="coverage"&&x.id===rootA.id+"-cov-kitchen
 assert.ok(catalog.some(x=>x.category==="state"&&x.id===legacyId));
 const same= catalog.find(x=>x.id===idA);
 assert.ok(same.categories.includes("unit")&&same.categories.includes("state"),
-  "a linked unit and Appearance State share one canonical attachment identity");
+  "a linked unit and Time-of-Day Variant share one canonical attachment identity");
 assert.match(same.label,/Kitchen-a|Kitchen.*INT.*Night/i);
 assert.match(catalog.find(x=>x.id===idB).label,/Estate.*Kitchen|Kitchen.*Estate/i,
   "same-name units retain their continuity-root identity in labels");
@@ -83,7 +83,7 @@ assert.ok(!choices.some(x=>[rootB.id,roomB.id,idB].includes(x.id)),
   "other-scene places and units are not offered, even with identical location names");
 assert.ok(choices.some(x=>x.id===rootA.id+"-cov-kitchen")
   &&choices.some(x=>x.id===legacyId),
-  "scene-linked coverage and the current place's reusable appearance states remain available");
+  "scene-linked coverage and the current place's reusable Time-of-Day Variants remain available");
 const libraryChoices=box.shotLocationReferenceChoices(null,{id:"library"},sceneA,drafts);
 assert.ok(libraryChoices.some(x=>x.id===rootA.id)&&libraryChoices.some(x=>x.id===idA)
   &&!libraryChoices.some(x=>x.id===rootB.id||x.id===idB),
@@ -193,8 +193,40 @@ const prompt=box.buildShotPrompt(renderShot,{
   resolvedRefs:refs,
 });
 assert.match(prompt,/MANUALLY SELECTED LOCATION REFERENCES.*authoritative/i);
-assert.match(prompt,/blue-hour|Appearance State/i);
-assert.match(prompt,/url|legacy-dawn|Appearance State/i);
+assert.match(prompt,/blue-hour|Time-of-Day Variant/i);
+assert.match(prompt,/url|legacy-dawn|Time-of-Day Variant/i);
+
+/* A scene can resolve to its compound root while the beat selects one child.
+   Prompt identity and staging must follow that exact child, not the root's other
+   rooms—the live failure mixed Living Room recliners into a Kitchen frame. */
+const livingA={id:"living-a",key:"living-room-a",name:"Living Room",parentKey:"estate-a",
+  continuityRootKey:"estate-a",intExt:"INT",scenes:["scene-a"],
+  staging:{bg:{center:"front door"},mid:{left:"amber table lamp",right:"plaid recliner"},fg:{},floor:"carpet"}};
+rootA.architecture="ROOT POLLUTION: Living Room recliner, front door and carpet.";
+rootA.staging={bg:{center:"living-room front door"},mid:{left:"living-room lamp",right:"plaid recliner"},fg:{},floor:"olive carpet"};
+roomA.architecture="Kitchen-only cabinets, sink and table.";
+roomA.materials="Painted plaster and laminate.";
+roomA.staging={bg:{center:"kitchen sink wall"},mid:{left:"refrigerator",right:"range"},fg:{},floor:"linoleum"};
+box.stagingOf=l=>l&&l.staging||{bg:{},mid:{},fg:{}};
+box.stagingHasContent=l=>!!(l&&l.staging);
+box.turnContinuity={...box.turnContinuity,locations:[rootA,roomA,livingA,rootB,roomB]};
+const childPrompt=box.buildShotPrompt({id:"child-space",beatN:1,size:"MWS",action:"MARA opens the drawer.",
+  referenceLocationsSet:true,referenceLocationIds:[roomA.id]}, {
+  location:rootA,locations:[rootA,roomA,livingA,rootB,roomB],scene:sceneA,drafts,
+  charById:{},propById:{},scenes:[sceneA],
+});
+assert.match(childPrompt,/Interior\. Kitchen: Kitchen-only cabinets, sink and table/i);
+assert.match(childPrompt,/SHOT SPACE \(binding\): depict only Kitchen inside Estate/i);
+assert.match(childPrompt,/do not import furniture, fixtures or depth staging from sibling spaces such as Living Room/i);
+assert.match(childPrompt,/background landmark: kitchen sink wall/i);
+assert.doesNotMatch(childPrompt,/ROOT POLLUTION|plaid recliner|living-room front door/i,
+  "resolved child-space prose and depth staging replace the compound root's sibling-room details");
+const scopedStyle=box.shotScopedStyleField(
+  "Soft warm grain, halation on the lamp shade, 50mm handheld breath around the recliner",
+  roomA,{locations:[rootA,roomA,livingA]});
+assert.match(scopedStyle,/Soft warm grain/i);
+assert.doesNotMatch(scopedStyle,/lamp|recliner/i,
+  "scene style keeps its transferable look but drops sibling-room object cues");
 
 /* Simple mode retains the written selected-reference contract when the actual
    required refs are supplied; automatic simple recovery still has no map. */
@@ -205,7 +237,7 @@ const simplePrompt=box.buildShotPrompt({...renderShot,refOff:[]},{
     async id=>"url:"+id),
 });
 assert.match(simplePrompt,/MANUALLY SELECTED LOCATION REFERENCES.*authoritative/i);
-assert.match(simplePrompt,/Image 1 is|Appearance State/i);
+assert.match(simplePrompt,/Image 1 is|Time-of-Day Variant/i);
 const automaticSimple=box.buildShotPrompt({id:"auto-simple",beatN:1,action:"MARA opens the drawer."},{
   location:roomA,scene:sceneA,drafts,charById:{},propById:{},scenes:[sceneA],simpleMode:true,
 });

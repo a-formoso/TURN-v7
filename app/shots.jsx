@@ -814,7 +814,7 @@ window.sceneVideoPromptText = sceneVideoPromptText;
 function locationForScene(locations, sceneId){
   // One subspace in the scene -> use that child workspace (Kitchen). More than one
   // subspace -> use their shared continuity root (Father's House), while per-shot
-  // reference scoring selects the exact Kitchen/Living Room slugline unit.
+  // reference scoring selects the exact Kitchen/Living Room Slugline Unit.
   const units=((window.turnContinuity||{}).sluglineUnits)||[];
   const sceneUnits=units.filter(u=>u&&!u.orphan&&Array.isArray(u.scenes)&&u.scenes.indexOf(sceneId)>=0);
   if(sceneUnits.length){
@@ -920,12 +920,22 @@ function shotLocationBeatSource(scene,sh,drafts){
   return null;
 }
 function shotLocationHeadingForIndex(blocks,index,fallback){
-  let heading="";
+  let heading="", actionSinceHeading=0;
   const end=Math.min(Number(index),blocks.length-1);
   for(let i=0;i<=end;i++){
     const b=blocks[i];
-    if(b&&String(b.type||"").toLowerCase()==="scene"&&shotLocationClean(b.text))
+    if(b&&String(b.type||"").toLowerCase()==="scene"&&shotLocationClean(b.text)){
       heading=shotLocationClean(b.text);
+      actionSinceHeading=0;
+      continue;
+    }
+    if(b&&String(b.type||"").toLowerCase()==="action"){
+      if(typeof screenplayInlineSpaceHeading==="function"){
+        const inline=screenplayInlineSpaceHeading(b.text,heading||fallback,actionSinceHeading===0);
+        if(inline) heading=shotLocationClean(inline);
+      }
+      actionSinceHeading++;
+    }
   }
   return heading || shotLocationClean(fallback);
 }
@@ -1053,14 +1063,14 @@ function shotLocationBuildUnitSpec(u){
     sceneIds:Array.isArray(u.scenes)?u.scenes.slice():[],
     role, locPanelQ:null, source:"slugline-unit",
     assetRole:"derived_reference", assetSourceQuality:"slugline_unit_full_frame",
-    note:unitName+" — slugline-unit "+(role||"location")+" coverage plate"
+    note:unitName+" — Slugline Unit "+(role||"location")+" plate"
       +(u.time?(" at "+u.time):"")+" (full-resolution unit anchor)" };
 }
 const SHOT_LOCATION_CATEGORY_LABELS={
   place:"Place",
-  unit:"Slugline / subspace unit",
-  coverage:"Screenplay Coverage",
-  state:"Appearance State",
+  unit:"Slugline Unit",
+  coverage:"Required Space Plate",
+  state:"Time-of-Day Variant",
   unknown:"Unavailable location reference",
 };
 const SHOT_LOCATION_CATEGORY_ORDER={place:0,unit:1,coverage:2,state:3,unknown:9};
@@ -1171,9 +1181,9 @@ function shotLocationCatalogUnitSpec(u,owner,locations){
   return {
     id,category:"unit",categoryLabel:shotLocationCategoryLabel("unit"),categories:["unit"],
     label:bits.join(" · "),description:display+" "+(role||"location")
-      +" slugline/subspace unit"+(u.time?(" at "+u.time):"")
-      +(state?(" with appearance state "+state):"")+" — one full-frame continuity anchor.",
-    note:bits.slice(0,4).join(" · ")+" — slugline/subspace unit full-frame reference; use the entire frame, never a crop",
+      +" Slugline Unit"+(u.time?(" at "+u.time):"")
+      +(state?(" with time-of-day variant "+state):"")+" — one full-frame continuity anchor.",
+    note:bits.slice(0,4).join(" · ")+" — Slugline Unit full-frame reference; use the entire frame, never a crop",
     locationId:String(owner.id),entityId:String(owner.id),baseId:id,unitKey:String(u.key),
     subspaceKey:String(u.subspaceKey||u.locationKey||""),continuityRootKey:String(u.continuityRootKey||u.locationKey||""),
     stateId:"",appearanceState:state,...shotLocationCatalogSceneLinks(u),
@@ -1188,8 +1198,8 @@ function shotLocationCatalogCoverageSpec(l,v,locations){
   return {
     id,category:"coverage",categoryLabel:shotLocationCategoryLabel("coverage"),categories:["coverage"],
     label:[display,name,role].filter(Boolean).join(" · "),
-    description:display+" screenplay-derived "+(role||"coverage")+" coverage view — one full-frame view.",
-    note:name+" — screenplay Coverage "+(role||"location")+" view (one full-frame reference; never a crop)",
+    description:display+" screenplay-derived "+(role||"location")+" Required Space Plate — one full-frame view.",
+    note:name+" — Required Space Plate · "+(role||"location")+" (one full-frame reference; never a crop)",
     locationId:String(l.id),entityId:String(l.id),baseId:id,coverageId:String(v.id),
     ...shotLocationCatalogSceneLinks(v),summary:v.summary||"",scriptExcerpt:v.scriptExcerpt||"",
     triggerWords:(v.triggerWords||[]).map(w=>String(w||"").toLowerCase()).filter(Boolean),
@@ -1208,11 +1218,11 @@ function shotLocationCatalogStateSpec(l,v,locations,units){
   const bits=[display,role,time,state].filter(Boolean);
   return {
     id:String(id),category:"state",categoryLabel:shotLocationCategoryLabel("state"),categories:["state"],
-    label:(bits.length?bits:[display,"appearance state"]).join(" · "),
-    description:display+" appearance state"+(state?(" — "+state):"")
-      +(linked?" linked to the slugline/subspace unit's full-frame asset.":" (legacy state asset)."),
-    note:(bits.length?bits.join(" · "):display)+" — Appearance State reference"
-      +(linked?" linked to the exact slugline unit; full-frame, never a crop":" (legacy full-frame state asset; never a crop)"),
+    label:(bits.length?bits:[display,"time-of-day variant"]).join(" · "),
+    description:display+" time-of-day variant"+(state?(" — "+state):"")
+      +(linked?" linked to the Slugline Unit's full-frame asset.":" (legacy state asset)."),
+    note:(bits.length?bits.join(" · "):display)+" — Time-of-Day Variant reference"
+      +(linked?" linked to the exact Slugline Unit; full-frame, never a crop":" (legacy full-frame state asset; never a crop)"),
     locationId:String(l.id),entityId:String(l.id),baseId:String(id),stateId:String(v.id||""),
     appearanceState:state,unitKey:String(v.unitKey||(linked&&linked.key)||""),
     ...shotLocationCatalogSceneLinks(linked||v),
@@ -1228,7 +1238,7 @@ function shotLocationCatalogAdd(map,spec,index){
   if(spec.category==="state"){
     prior.stateId=spec.stateId||prior.stateId||"";
     prior.appearanceState=spec.appearanceState||prior.appearanceState||"";
-    if(spec.appearanceState && prior.note.indexOf(spec.appearanceState)<0) prior.note+="; Appearance State: "+spec.appearanceState;
+    if(spec.appearanceState && prior.note.indexOf(spec.appearanceState)<0) prior.note+="; Time-of-Day Variant: "+spec.appearanceState;
     if(spec.appearanceState && prior.label.indexOf(spec.appearanceState)<0) prior.label+=" · "+spec.appearanceState;
   }
 }
@@ -1332,7 +1342,7 @@ function shotLocationUnknownSpec(id,loc){
   return {id:ref,category:"unknown",categoryLabel:shotLocationCategoryLabel("unknown"),categories:["unknown"],
     label:"Unavailable · "+ref,description:"The selected location reference is unavailable or was deleted.",
     note:"Unavailable required location reference "+(ref?"\""+ref+"\"":"")
-      +" — the place, slugline unit, Coverage sheet, or Appearance State was deleted or is unavailable; choose another reference.",
+      +" — the place, Slugline Unit, Required Space Plate, or Time-of-Day Variant was deleted or is unavailable; choose another reference.",
     locationId:String(loc&&loc.id||""),entityId:String(loc&&loc.id||""),baseId:ref,
     source:"manual-selection",assetRole:"derived_reference",assetSourceQuality:"unavailable",
     unavailable:true,required:true};
@@ -1432,7 +1442,7 @@ function shotLocationCoverageSpecs(loc, sh, scene, drafts){
   }).filter(Boolean);
   const persistedSheets=Array.isArray(loc.coverageSheets)?loc.coverageSheets:[];
   // Always re-derive for this scene as well as reading persisted metadata. A screenplay
-  // edit can introduce a coverage sheet before the Locations tab has been reopened and
+  // edit can introduce a Required Space Plate before the Locations tab has been reopened and
   // synced; the Add-shot picker must still discover it immediately.
   const derivedSheets=(typeof deriveLocationCoverageSheets==="function")
     ? deriveLocationCoverageSheets(loc,scene?[scene]:[],drafts||C.drafts||{},C.locations||[],C.sluglineUnits||[])
@@ -1452,7 +1462,7 @@ function shotLocationCoverageSpecs(loc, sh, scene, drafts){
     source:"screenplay-coverage",
     assetRole:"derived_reference", assetSourceQuality:"screenplay_coverage_full_frame",
     triggerWords:(v.triggerWords||[]).map(w=>String(w||"").toLowerCase()).filter(Boolean),
-    note:(v.name||loc.name||"location")+" — screenplay-derived "+(v.role||"INT")+" coverage sheet (one full-frame view)" }));
+    note:(v.name||loc.name||"location")+" — screenplay-derived "+(v.role||"INT")+" Required Space Plate (one full-frame view)" }));
   const matches = sheetSpecs.filter(v=>{
     const role = String(v.role||"").toUpperCase();
     const headingsSide=selectedUnits.map(u=>String(u.intExt||"").toUpperCase()).filter(Boolean).concat(targetSides);
@@ -1620,6 +1630,9 @@ function shotPropAttachable(p, sh, scene){
     if(!/^(CU|MCU|ECU|INSERT)$/i.test(String((sh&&sh.size)||""))) return false;
     try{ return !!(typeof nbGetImage==="function" && nbGetImage(p.id)); }catch(e){ return false; }
   }
+  // TEXT-ONLY objects (reviewed evidence says no own image, and none exists) ride as
+  // text in the prompt — never attached, never auto-generated at render time.
+  if(typeof propTextOnly==="function" && propTextOnly(p)) return false;
   if(binding!=="dressing") return true;
   // TIGHT SHOTS keep the dressing sheet: at CU/MCU magnification a background object
   // reads LARGE, and the plate's small distant depiction can't hold its design — the
@@ -1944,6 +1957,71 @@ function shotRenderStyleLine(key, subjects){
 }
 window.shotRenderStyleLine = shotRenderStyleLine;
 
+/* The scene-level location may be a compound continuity root because the scene
+   moves through several rooms. A shot must instead take its prose, depth grid and
+   scale anchor from the resolved beat reference's exact child space. Otherwise a
+   Kitchen plate can be paired with Living Room furniture and staging in text. */
+function shotPromptLocation(baseLoc,specs,ctx){
+  const C=window.turnContinuity||{};
+  const locations=(ctx&&Array.isArray(ctx.locations)&&ctx.locations.length)
+    ?ctx.locations:(Array.isArray(C.locations)?C.locations:[]);
+  const ids=Array.from(new Set((specs||[]).filter(s=>s&&!s.unavailable&&s.locationId)
+    .map(s=>String(s.locationId))));
+  if(ids.length===1){
+    const exact=locations.find(l=>l&&String(l.id)===ids[0]);
+    if(exact) return exact;
+  }
+  return baseLoc||null;
+}
+function shotSpaceBindingClause(baseLoc,promptLoc,ctx){
+  if(!promptLoc)return "";
+  const C=window.turnContinuity||{};
+  const locations=(ctx&&Array.isArray(ctx.locations)&&ctx.locations.length)
+    ?ctx.locations:(Array.isArray(C.locations)?C.locations:[]);
+  const key=String(promptLoc.key||"");
+  const parentKey=String(promptLoc.parentKey||"");
+  const parent=parentKey?locations.find(l=>l&&String(l.key||"")===parentKey):null;
+  const exactChanged=!!(baseLoc&&String(baseLoc.id)!==String(promptLoc.id));
+  if(!parent&&!exactChanged)return "";
+  const siblings=parentKey?locations.filter(l=>l&&l!==promptLoc&&String(l.parentKey||"")===parentKey)
+    .map(l=>String(l.name||"").trim()).filter(Boolean):[];
+  const where=parent?((promptLoc.name||"this space")+" inside "+(parent.name||"the continuity root")):(promptLoc.name||"the selected space");
+  return "SHOT SPACE (binding): depict only "+where+". Use the enclosing continuity root only for shared topology, scale and non-conflicting material identity"
+    +(siblings.length?"; do not import furniture, fixtures or depth staging from sibling spaces such as "+siblings.join(" or "):"")
+    +".";
+}
+function shotScopedStyleField(value,promptLoc,ctx){
+  const raw=String(value||"").trim();
+  if(!raw||!promptLoc||!promptLoc.parentKey)return raw;
+  const C=window.turnContinuity||{};
+  const locations=(ctx&&Array.isArray(ctx.locations)&&ctx.locations.length)
+    ?ctx.locations:(Array.isArray(C.locations)?C.locations:[]);
+  const siblings=locations.filter(l=>l&&l!==promptLoc&&String(l.parentKey||"")===String(promptLoc.parentKey));
+  if(!siblings.length)return raw;
+  const body=l=>[l&&l.name,l&&l.architecture,l&&l.materials,l&&l.lighting,l&&l.permanentDressing,
+    l&&l.topology,l&&l.continuityAnchors,JSON.stringify(l&&l.staging||{})].filter(Boolean).join(" ").toLowerCase();
+  const normToken=w=>w.length>4&&w.endsWith("s")?w.slice(0,-1):w;
+  const tokensOf=text=>String(text||"").toLowerCase().replace(/[^a-z0-9 ]+/g," ").split(/\s+/).filter(Boolean).map(normToken);
+  const current=new Set(tokensOf(body(promptLoc)));
+  const stop=new Set(["this","that","with","from","into","inside","outside","location","interior","exterior",
+    "room","space","house","frame","edge","background","foreground","center","centre","left","right",
+    "wall","walls","floor","light","lighting","camera","shot","furniture","material","materials","scale"]);
+  const forbidden=new Set;
+  siblings.forEach(l=>tokensOf(body(l)).forEach(w=>{
+    if(w.length>=4&&!stop.has(w)&&!current.has(w))forbidden.add(w);
+  }));
+  if(!forbidden.size)return raw;
+  const clauses=raw.split(/[.;,:]+/).map(x=>x.trim()).filter(Boolean);
+  const kept=clauses.filter(clause=>{
+    const words=tokensOf(clause);
+    return !words.some(w=>forbidden.has(w));
+  });
+  return kept.join(", ");
+}
+window.shotPromptLocation=shotPromptLocation;
+window.shotSpaceBindingClause=shotSpaceBindingClause;
+window.shotScopedStyleField=shotScopedStyleField;
+
 /* ---- THE COMPOSER: a shot → one final image prompt ---------------------------- */
 /* ctx = { scene, location, charById, propById, project, prevShot } */
 /* SCREENPLAY SLICE — the beat's own script lines (action + dialogue), pulled from the
@@ -1998,13 +2076,21 @@ function buildShotPrompt(sh, ctx){
     return ((rs&&rs.bindingMode)||p.bindingMode||p.kind)==="worn" && !shotPropAttachable(p, sh, scene);
   });
   const props    = propsAll.filter(p=> shotPropAttachable(p, sh, scene));
+  // text-only objects in frame (and carried over from an earlier beat) are described
+  // in words from their specification instead of an attached image
+  const _textOnly = (typeof propTextOnly==="function") ? propTextOnly : (()=>false);
+  const textProps = [...propsAll.filter(p=> _textOnly(p)), ...((ctx.carriedTextOnly)||[])]
+    .filter((p,i,all)=> all.findIndex(x=>x.id===p.id)===i);
   const size = sizeOf(sh.size), angle = angleOf(sh.angle), move = moveOf(sh.move), lens = lensOf(sh.lens);
   const locWeight = (typeof locWeightForSize==="function") ? locWeightForSize(sh.size) : "primary";
   const _promptRefOff = (sh && Array.isArray(sh.refOff)) ? sh.refOff : [];
   const _promptLocSpecs = (typeof shotLocationCoverageSpecs==="function")
     ? shotLocationCoverageSpecs(loc,sh,scene,ctx.drafts || (window.turnContinuity||{}).drafts || {}) : [];
+  const _activePromptLocSpecs = _promptLocSpecs.filter(s=>s && !s.unavailable && _promptRefOff.indexOf(s.id)<0);
+  const _promptLoc = (typeof shotPromptLocation==="function")
+    ? shotPromptLocation(loc,_activePromptLocSpecs,ctx) : loc;
   const _manualLocSpecs = sh && sh.referenceLocationsSet
-    ? _promptLocSpecs.filter(s=>s && !s.unavailable && _promptRefOff.indexOf(s.id)<0) : [];
+    ? _activePromptLocSpecs : [];
   const _retainRequiredSimpleMap = !!(ctx.simpleMode && _manualLocSpecs.length
     && Array.isArray(ctx.resolvedRefs) && ctx.resolvedRefs.some(r=>r&&r.required));
 
@@ -2021,13 +2107,14 @@ function buildShotPrompt(sh, ctx){
   // ---- THE STYLE SPINE (constant; pasted into every shot) ----
   // the opening line follows the CAST/LOCATION's picked render style — not hardcoded
   // photoreal — so frames come out in the same language as the sheets they composite
-  const _styleKey = shotRenderStyleKey(subjects, loc);
+  const _styleKey = shotRenderStyleKey(subjects, _promptLoc);
   const _styleLine = shotRenderStyleLine(_styleKey, subjects);
   const spine = [];
-  spine.push(_styleLine + ((preset && clean(preset.texture)) ? (", "+clean(preset.texture))
+  const _presetTexture=preset?clean(shotScopedStyleField(preset.texture,_promptLoc,ctx)):"";
+  spine.push(_styleLine + (_presetTexture ? (", "+_presetTexture)
     : (shotStyleIsPhotoreal(_styleKey) ? ", subtle 35mm film grain" : "")));
   if(preset){
-    const gName = clean(preset.name), gTxt = clean(preset.grade);
+    const gName = clean(preset.name), gTxt = clean(shotScopedStyleField(preset.grade,_promptLoc,ctx));
     if(gName && gTxt) spine.push('"'+gName+'" grade: '+gTxt);
     else if(gTxt) spine.push(gTxt);
     else if(gName) spine.push('"'+gName+'" grade');
@@ -2035,21 +2122,25 @@ function buildShotPrompt(sh, ctx){
     if(pal.length>=3) spine.push("Colour follows 60/30/10 — ~60% "+clean(preset.dominantLabel||"dominant")+" "+pal[0]
       +", ~30% "+clean(preset.secondaryLabel||"secondary")+" "+pal[1]
       +", ~10% "+clean(preset.accentLabel||"accent")+" "+pal[2]+" accent");
-    if(clean(preset.lighting)) spine.push(clean(preset.lighting));
-    if(clean(preset.lens))     spine.push(clean(preset.lens));
+    const scopedLighting=clean(shotScopedStyleField(preset.lighting,_promptLoc,ctx));
+    const scopedLens=clean(shotScopedStyleField(preset.lens,_promptLoc,ctx));
+    if(scopedLighting) spine.push(scopedLighting);
+    if(scopedLens)     spine.push(scopedLens);
   }
   const _stock = (typeof filmStockClause==="function") ? clean(filmStockClause(ctx.project)) : "";
   if(_stock) spine.push(_stock);
-  if(loc){
-    const _intext = (loc.intExt==="EXT") ? "Exterior" : (loc.intExt==="INT" ? "Interior" : clean(loc.intExt));
-    const _locBits = [clean(loc.architecture), clean(loc.materials), clean(loc.lighting)].filter(Boolean).join(", ");
-    spine.push((_intext?(_intext+". "):"") + (loc.name||"the location") + (_locBits?(": "+_locBits):""));
+  if(_promptLoc){
+    const _intext = (_promptLoc.intExt==="EXT") ? "Exterior" : (_promptLoc.intExt==="INT" ? "Interior" : clean(_promptLoc.intExt));
+    const _locBits = [clean(_promptLoc.architecture), clean(_promptLoc.materials), clean(_promptLoc.lighting)].filter(Boolean).join(", ");
+    spine.push((_intext?(_intext+". "):"") + (_promptLoc.name||"the location") + (_locBits?(": "+_locBits):""));
   }
   if(_manualLocSpecs.length){
     spine.push("MANUALLY SELECTED LOCATION REFERENCES (authoritative): "
       +_manualLocSpecs.map(s=>s.label||s.note||s.id).join("; ")
-      +". The selected place, room, context and Appearance State override conflicting automatic root or current-slugline location text; use the continuity root only for non-conflicting inherited invariants.");
+      +". The selected place, room, context and Time-of-Day Variant override conflicting automatic root or current-slugline location text; use the continuity root only for non-conflicting inherited invariants.");
   }
+  const _spaceBinding=(typeof shotSpaceBindingClause==="function")?shotSpaceBindingClause(loc,_promptLoc,ctx):"";
+  if(_spaceBinding) spine.push(_spaceBinding);
   spine.push((_asp==="9:16"?"Vertical 9:16 (phone frame)":_asp) + ", no text, no border");
   const STYLE_SPINE = spine.filter(Boolean).join(". ").replace(/\.\s*\./g,".") + ".";
 
@@ -2071,14 +2162,14 @@ function buildShotPrompt(sh, ctx){
   // the director's OWN words (the card's Director's-notes field): appended as their
   // own clause so they COMPOSE with the derived prompt, never replacing any part of it
   if(clean(sh.directives)) stage.push("DIRECTOR'S NOTES (binding): "+clean(sh.directives));
-  const _depth = (typeof shotFramingClause==="function") ? clean(shotFramingClause(loc, sh.size)) : "";
+  const _depth = (typeof shotFramingClause==="function") ? clean(shotFramingClause(_promptLoc, sh.size)) : "";
   if(_depth) stage.push(_depth);
   // SCALE / POV — when an in-frame subject isn't human-scale, recontextualize the world
   // from its perspective (gigantism / miniaturization), or render relative scale for a
   // mixed-scale frame. All-human frames add nothing (inert).
   const _scale = (typeof shotScaleClause==="function") ? shotScaleClause(subjects, propsAll) : "";
   if(_scale) stage.push(_scale);
-  const _objectScale = (typeof shotObjectScaleClause==="function") ? shotObjectScaleClause(subjects, [...propsAll, ...((ctx.carriedForward)||[])], loc) : "";
+  const _objectScale = (typeof shotObjectScaleClause==="function") ? shotObjectScaleClause(subjects, [...propsAll, ...((ctx.carriedForward)||[]), ...((ctx.carriedTextOnly)||[])], _promptLoc) : "";
   if(_objectScale) stage.push(_objectScale);
   // SCENE LOOK-AHEAD — stage for what's COMING (user ruling 2026-07-18): this frame
   // (especially the chain HEAD that seeds every later frame) must accommodate what
@@ -2145,7 +2236,7 @@ function buildShotPrompt(sh, ctx){
     + (s.category==="place"
       ? "a design reference for binding place identity; if compound, preserve its multi-panel meaning and never treat it as a full-frame crop"
       : (s.category==="state"
-        ? "the authoritative Appearance State for this place; preserve its exact light, dressing and condition"
+        ? "the authoritative Time-of-Day Variant for this place; preserve its exact light, dressing and condition"
         : (locWeight==="ambient" ? "a background reference for the grade and surfaces only; the character fills this tight frame" : "reproduce its architecture, surfaces, fixtures, sightlines and signage exactly"))));
   const _castLabels = subjects.filter(c=>_refOff.indexOf(c.id)<0).map(c=> {
     const scale = (typeof canonicalScaleLabel==="function") ? canonicalScaleLabel(c) : (c.name||"character");
@@ -2159,7 +2250,7 @@ function buildShotPrompt(sh, ctx){
   // same story-order rule as appearance states). A handover names the new holder and
   // orders the established design + accumulated wear preserved.
   const _custodyBit = (p, co)=>{ if(!co || !co.handover) return "";
-    const hoSc = _storyScenes.find(s=>s.id===co.handover.fromSceneId);
+    const hoSc = _storyScenes.find(s=>s.id===(co.handover.sceneId||co.handover.fromSceneId));
     return " — passed to "+co.name+(hoSc && hoSc.no!=null ? (" at Sc "+hoSc.no) : "")+"; keep its established design and accumulated wear"; };
   const _propLabels = props.filter(p=>_refOff.indexOf(p.id)<0).map(p=> {
     const scale = (typeof propPhysicalScaleLabel==="function") ? propPhysicalScaleLabel(p) : (p.name||"prop");
@@ -2170,7 +2261,8 @@ function buildShotPrompt(sh, ctx){
     const binding=(rs&&rs.bindingMode)||p.bindingMode||p.kind||"carried";
     const placement=rs&&rs.placement&&rs.placement.note ? ", placed "+rs.placement.note : "";
     const condition=rs&&rs.condition&&rs.condition!=="intact" ? ", "+rs.condition : "";
-    return "the "+p.name+" (prop sheet"+(so.state?(", "+so.state.label+" state"):"")+(holder?(", "+(binding==="worn"?"worn by ":"held by ")+holder):"")+placement+condition+")"+_custodyBit(p, co)+" — match it exactly as designed; physical scale: "+scale;
+    const content=rs&&rs.contentNotes ? "; visible document/screen content"+(rs.contentVersion?" ("+rs.contentVersion+")":"")+": "+rs.contentNotes : "";
+    return "the "+p.name+" (prop sheet"+(so.state?(", "+so.state.label+" state"):"")+(holder?(", "+(binding==="worn"?"worn by ":"held by ")+holder):"")+placement+condition+")"+_custodyBit(p, co)+" — match it exactly as designed; physical scale: "+scale+content;
   });
   const _carriedLabels = (ctx.carriedForward||[]).filter(p=>_refOff.indexOf(p.id)<0).map(p=> {
     const scale = (typeof propPhysicalScaleLabel==="function") ? propPhysicalScaleLabel(p) : (p.name||"prop");
@@ -2211,6 +2303,11 @@ function buildShotPrompt(sh, ctx){
     MAP += " Worn items have no separate sheets — each is part of its owner's character sheet and must match exactly as designed there: "
       + wornProps.map(p=> p.name+" (on "+(p.ownerName||"its owner")+")").join("; ")+".";
   }
+  if(textProps.length){
+    MAP += " Minor objects without reference images \u2014 render each plainly as described, at its real size: "
+      + textProps.map(p=> p.name+[p.form,p.material].map(x=>String(x||"").trim()).filter(Boolean).map(x=>" \u2014 "+x).join("")
+        +(p.ownerName?(" ("+p.ownerName+"'s)"):"")).join("; ")+".";
+  }
   if(_locLabels.length && (!ctx.simpleMode || _retainRequiredSimpleMap)){
     MAP += " If the framing crosses between attached location views, preserve the exact threshold/sightline relationship between them; otherwise extend the SAME set consistently from the attached view.";
   }
@@ -2239,7 +2336,9 @@ function buildShotPrompt(sh, ctx){
       render; never excerpt it here. */
    const _sceneContextPrompt = (typeof shotSceneContextPrompt==="function")
      ? shotSceneContextPrompt(_sceneContext) : "";
-   if(_sceneContextPrompt) out += "\n\n"+_sceneContextPrompt;
+   const _isolatedChildSpace=!!(_promptLoc&&_promptLoc.parentKey&&loc&&String(_promptLoc.id)!==String(loc.id));
+   if(_sceneContextPrompt&&!_isolatedChildSpace) out += "\n\n"+_sceneContextPrompt;
+   else if(_sceneContextPrompt&&_isolatedChildSpace) out += "\n\nCURRENT-SPACE CONTEXT: the exact beat opening above is authoritative. Full-scene screenplay background from sibling rooms is intentionally omitted so it cannot contaminate this "+(_promptLoc.name||"child-space")+" frame.";
   out += "\n\nConstraints: " + shotNegativePrompt(sh, _styleKey) + ".";
   return out;
 }
@@ -2286,8 +2385,8 @@ function deriveShotPrompt(sh, ctx){
       movement: (sh.move && sh.move!=="static") ? (move.label+" ("+move.desc+")") : "static",
     },
     in_frame: subjects.length ? subjects.map(c=>c.name) : undefined,
-    still_in_frame: (ctx.carriedForward && ctx.carriedForward.length)
-      ? ctx.carriedForward.map(p=> p.name + (p.ownerName?(" ("+p.ownerName+"'s)"):"") + " \u2014 carried from an earlier beat; keep it present") : undefined,
+    still_in_frame: ([...(ctx.carriedForward||[]), ...(ctx.carriedTextOnly||[])].length)
+      ? [...(ctx.carriedForward||[]), ...(ctx.carriedTextOnly||[])].map(p=> p.name + (p.ownerName?(" ("+p.ownerName+"'s)"):"") + " \u2014 carried from an earlier beat; keep it present") : undefined,
     action: clean(sh.action) || undefined,
     dialogue_mid_line: clean(sh.dialogue).replace(/^["\u201c]|["\u201d]$/g,"") || undefined,
     composition: clean(sh.composition) || undefined,
@@ -2341,6 +2440,7 @@ function carriedPropsNeedingSheets(sh, scene, charById, propById, extraIds){
       const rs = (typeof propStateAt==="function") ? propStateAt(p, scene.id, sh.beatN, sh.microBeatId, sh.id, window.turnContinuity||{}) : null;
       if((((rs&&rs.bindingMode)||p.bindingMode||p.kind)||"carried")==="worn") return;
       if(typeof nbGetImage==="function" && nbGetImage(p.id)) return;                // sheet exists
+      if(typeof propTextOnly==="function" && propTextOnly(p)) return;               // described in text instead
       if(window.__nbGenInflight && window.__nbGenInflight[p.id]) return;            // already building
       out.push(p);
     };
@@ -2410,6 +2510,53 @@ window.ensureCarriedPropSheets = ensureCarriedPropSheets;
    consume it; neither builds its own. Synchronous on purpose — image resolution
    is the separate shotResolveRenderRefs step.
    ============================================================ */
+/* One canonical character-sheet resolver for every downstream surface.  A
+   character appearance state starts at its pinned scene and remains active until
+   a later state supersedes it.  Shots, Storyboards and Stage all consume the
+   returned canonical asset id (characterId:stateId), so none can quietly fall
+   back to the v1 master when v2+ is the scene's assigned look. */
+function shotCharacterReferenceSpec(character, scene, scenes, opts){
+  opts=opts||{};
+  if(!character||!character.id)return null;
+  let storyScenes=Array.isArray(scenes)&&scenes.length?scenes:null;
+  if(!storyScenes){
+    try{storyScenes=Array.isArray(window.turnContinuity&&window.turnContinuity.scenes)
+      ?window.turnContinuity.scenes:[];}catch(e){storyScenes=[];}
+  }
+  if(typeof scenesInStoryOrder==="function"){
+    try{storyScenes=scenesInStoryOrder(storyScenes);}catch(e){}
+  }
+  let active={version:1,state:null};
+  if(typeof activeStateForScene==="function"){
+    try{active=activeStateForScene(character,scene,storyScenes)||active;}catch(e){}
+  }else if(scene&&storyScenes.length){
+    const sceneIdx=storyScenes.findIndex(s=>s&&s.id===scene.id);
+    let best=null,bestPos=-1,bestVersion=1;
+    (character.states||[]).forEach((st,i)=>{
+      const pos=st&&st.sceneId?storyScenes.findIndex(s=>s&&s.id===st.sceneId):-1;
+      if(pos>=0&&pos<=sceneIdx&&pos>=bestPos){best=st;bestPos=pos;bestVersion=i+2;}
+    });
+    active={version:bestVersion,state:best};
+  }
+  const state=active&&active.state||null;
+  const version=state?Number(active.version)||((character.states||[]).indexOf(state)+2):1;
+  const stateLabel=state?(String(state.label||"").trim()||"Unnamed appearance state"):"";
+  const name=String(character.name||"Character");
+  return {
+    id:state?(character.id+":"+state.id):character.id,
+    baseId:character.id,entityId:character.id,referenceKind:"character",
+    stateId:state&&state.id||"",state,version,
+    label:state?(name+" · "+stateLabel+" · v"+version):name,
+    note:state
+      ?(name+" character sheet — Appearance: "+stateLabel+" (v"+version+")")
+      :(name+" character sheet"),
+    assetRole:state?"appearance_state":"master_reference",
+    assetSourceQuality:"full_frame",
+    required:!!state||!!opts.required
+  };
+}
+window.shotCharacterReferenceSpec=shotCharacterReferenceSpec;
+
 function shotRenderPlan(sh, sceneShots, ctx){
   ctx = ctx || {};
   const prevSh = (typeof seedShotOf==="function") ? seedShotOf(sh, sceneShots)
@@ -2421,16 +2568,24 @@ function shotRenderPlan(sh, sceneShots, ctx){
    const inPr   = (typeof inFrameProps==="function") ? inFrameProps(sh, ctx.scene, ctx.charById, ctx.propById, ctx) : (sh.props||[]);
   // CONTINUITY LEDGER — props an in-frame character was established holding earlier in the
   // scene that this beat's text doesn't re-name; carry them forward so they don't vanish.
-  let carried = [];
+  let carried = [], carriedText = [];
   try{ const ledger = sceneContinuityLedger(ctx.scene, sceneShots, ctx.charById, ctx.propById);
     carried = (ledger[sh.id]||[]).filter(pid=> inPr.indexOf(pid)<0); }catch(e){}
+  // text-only objects carried forward stay in frame as TEXT, not as an attached sheet
+  if(typeof propTextOnly==="function"){
+    carriedText = carried.filter(id=> propTextOnly((ctx.propById||{})[id]));
+    carried = carried.filter(id=> carriedText.indexOf(id)<0);
+  }
   // build the sheet-reference specs, then ORDER by location weight
   const locSpec  = (ctx.location || sh.referenceLocationsSet)
     ? ((typeof shotLocationCoverageSpecs==="function")
        ? shotLocationCoverageSpecs(ctx.location, sh, ctx.scene, ctx.drafts || (window.turnContinuity||{}).drafts || {})
       : [])
     : [];
-  const castSpec = inCast.map(id=>{ const c=(ctx.charById||{})[id]; return c?{ id, note:c.name+" character sheet" }:null; }).filter(Boolean);
+  const _storyScenes=ctx.scenes||((window.turnContinuity||{}).scenes)||[];
+  const castSpec = inCast.map(id=>{ const c=(ctx.charById||{})[id];
+    return c?shotCharacterReferenceSpec(c,ctx.scene,_storyScenes,{required:!!sh.referenceCharactersSet}):null;
+  }).filter(Boolean);
   // same dressing gate as buildShotPrompt — labels must match files
   const _scs = (ctx.scenes || ((window.turnContinuity||{}).scenes) || []);
   const propSpec = inPr.map(id=>{ const p=(ctx.propById||{})[id];
@@ -2476,9 +2631,33 @@ function shotRenderPlan(sh, sceneShots, ctx){
      sceneContextLocation:ctx.location ? { ...ctx.location } : null,
      sceneContextProject:ctx.project ? { ...ctx.project } : null,
     carriedForward: carried.map(id=>(ctx.propById||{})[id]).filter(Boolean),
+    carriedTextOnly: carriedText.map(id=>(ctx.propById||{})[id]).filter(Boolean),
     activeLocSpec, castSpec, propSpec, carrySpec, orderedSpecs };
 }
 window.shotRenderPlan = shotRenderPlan;
+
+/* A required active appearance sheet is a paid-render precondition.  Omitting a
+   missing v2+ sheet would let the provider improvise from the seed or silently
+   reuse v1, which breaks the film's continuity contract. */
+function shotCharacterReferenceError(spec,cause){
+  const id=String(spec&&spec.id||"");
+  const label=String(spec&&spec.label||spec&&spec.note||id||"character appearance");
+  const e=new Error("Required character appearance reference \""+label+"\" has no available image. Generate or import that appearance state in Art Room → Characters before rendering this shot.");
+  e.name="ShotCharacterReferenceError";
+  e.code="SHOT_CHARACTER_REFERENCE_UNAVAILABLE";
+  e.errorFlag="fatal-reference";
+  e.fatalReference=true;
+  e.isFatalReference=true;
+  e.fatal=true;
+  e.requiredReference=true;
+  e.flag="fatal-reference";
+  e.referenceId=id;
+  e.referenceSpec=spec||null;
+  if(cause)e.cause=cause;
+  return e;
+}
+window.shotCharacterReferenceError=shotCharacterReferenceError;
+window.ShotCharacterReferenceError=shotCharacterReferenceError;
 
 /* resolve the plan's ordered specs into the attached reference images — the shared
    resolution loop (location coverage resolves as a group and keeps its slot in the
@@ -2500,10 +2679,16 @@ async function shotResolveRenderRefs(plan, grab){
       }
       continue;
     }
-    const u = await grab(s.id);
+    let u="",grabError=null;
+    try{u=await grab(s.id);}catch(e){grabError=e;}
+    if(!u&&s.required&&s.referenceKind==="character")
+      throw shotCharacterReferenceError(s,grabError);
+    if(grabError)throw grabError;
     if(u){
       const role = s.assetRole || "master_reference";
-      refs.push({ url:u, note:s.note, refId:s.id, assetRole:role,
+      refs.push({ url:u, note:s.note, refId:s.id, baseId:s.baseId||s.id,
+        entityId:s.entityId||s.baseId||s.id,stateId:s.stateId||"",required:!!s.required,
+        referenceKind:s.referenceKind||"",assetRole:role,
         assetRoleLabel:(typeof nbAssetRoleLabel==="function") ? nbAssetRoleLabel(role) : role,
         assetRolePriority:(typeof nbAssetRolePriority==="function") ? nbAssetRolePriority(role) : 0,
         assetSourceQuality:s.assetSourceQuality || "full_frame" });
@@ -2624,7 +2809,7 @@ async function generateShotFrame(sh, sceneShots, ctx, opts){
   const rankedRefs = (typeof nbPreferBestAssetRefs==="function") ? nbPreferBestAssetRefs(refs) : refs;
   const _ordAll = (typeof sceneShotsOrdered==="function") ? sceneShotsOrdered(sceneShots) : (sceneShots||[]);
   const _selfIdx = _ordAll.findIndex(x=>x.id===sh.id);
-  ctx = { ...ctx, carriedForward: plan.carriedForward,
+  ctx = { ...ctx, carriedForward: plan.carriedForward, carriedTextOnly: plan.carriedTextOnly,
     laterShots: _selfIdx>=0 ? _ordAll.slice(_selfIdx+1) : [],
     prevFrameRole: !!seed, prevShot:seed?prevSh:null,
     resolvedRefs:rankedRefs,
@@ -2667,7 +2852,7 @@ async function generateShotFrame(sh, sceneShots, ctx, opts){
   // SEED LINEAGE — record exactly which frame seeded this render (shot id + that
   // frame's version/timestamp, warm in the meta cache because grab() just loaded it).
   // shotChainStatus later DERIVES staleness from this: regenerate/reorder/delete the
-  // seed and every dependent downstream frame reports "Seed outdated" automatically.
+  // seed and every dependent downstream frame reports that continuity needs refreshing.
   // A missing-seed render (prevSh exists but its frame didn't load) records seedShotId:""
   // WITHOUT fresh — truthfully chain-stale until re-rendered on its real anchor.
   const seedSource = (typeof shotSeedStamp==="function")
@@ -2859,6 +3044,56 @@ function sceneRoster(scene, characters, drafts, shots){
 }
 window.sceneRoster = sceneRoster;
 
+/* An appearance-state sheet is the wardrobe authority for its run of scenes. Base
+   worn props are baked into the v1 character design, but must not be re-injected as
+   text or a separate close-up sheet after a costume-change state replaces that
+   design. Keep a wearable only when the active state's own description (or this
+   shot's authored staging) explicitly names it; a director can also force it with
+   referencePropIds. This prevents a base suit belt from being strapped over a v2
+   sweatpants look simply because the prop still belongs to the character bible. */
+function shotWornPropAppliesToAppearance(p,sh,scene,charById,ctx,resolved){
+  if(!p)return false;
+  const binding=(resolved&&resolved.bindingMode)||p.bindingMode||p.kind||"carried";
+  if(binding!=="worn")return true;
+  if(Array.isArray(sh&&sh.referencePropIds)&&sh.referencePropIds.indexOf(p.id)>=0)return true;
+  const holderId=(resolved&&resolved.holderId)||p.ownerId||"";
+  const holderName=String((resolved&&resolved.holderName)||p.ownerName||"").trim().toLowerCase();
+  // Legacy owned props can predate ownerId while still carrying the canonical
+  // ownerName. Resolve that name before giving up, or those old records bypass the
+  // active wardrobe state and leak into every shot prompt.
+  const c=(holderId&&charById&&charById[holderId])
+    ||Object.values(charById||{}).find(x=>String(x&&x.name||"").trim().toLowerCase()===holderName);
+  if(!c)return true;
+  const scenes=(ctx&&ctx.scenes)||((window.turnContinuity||{}).scenes)||[];
+  const spec=(typeof shotCharacterReferenceSpec==="function")
+    ?shotCharacterReferenceSpec(c,scene,scenes):null;
+  const state=spec&&spec.state;
+  if(!state)return true;
+  const stateText=[state.label,state.change,state.description,state.wardrobe,state.accessories,state.look]
+    .filter(Boolean).join(" ");
+  const shotText=[sh&&sh.action,sh&&sh.composition,sh&&sh.dialogue].filter(Boolean).join(" ");
+  return wearableIdentityMentionedInText(p,stateText)||wearableIdentityMentionedInText(p,shotText);
+}
+window.shotWornPropAppliesToAppearance=shotWornPropAppliesToAppearance;
+
+/* Wardrobe retention must identify the wearable itself, not merely two incidental
+   words from its long bible name. The general prop matcher is intentionally broad
+   enough for set dressing, but it made "Father's ... left wrist" match ordinary
+   staging containing "father" and "left". For an active appearance state, accept
+   the exact prop name, its canonical object noun (belt / glasses / watch), or an
+   internal capitalized product/brand token such as Timex. */
+function wearableIdentityMentionedInText(p,text){
+  const clean=s=>String(s||"").toLowerCase().replace(/[^a-z0-9 ]+/g," ").replace(/\s+/g," ").trim();
+  const name=clean(p&&p.name), hay=" "+clean(text)+" ";
+  if(!name||hay.trim()==="")return false;
+  if(hay.indexOf(" "+name+" ")>=0)return true;
+  const head=(typeof propHeadNoun==="function")?clean(propHeadNoun(p&&p.name)):"";
+  if(head&&hay.indexOf(" "+head+" ")>=0)return true;
+  const brands=String(p&&p.name||"").match(/\b[A-Z][A-Za-z0-9]{3,}\b/g)||[];
+  return brands.slice(1).some(w=>hay.indexOf(" "+clean(w)+" ")>=0);
+}
+window.wearableIdentityMentionedInText=wearableIdentityMentionedInText;
+
 /* WHICH props are in THIS frame — precise, so the model isn't handed sheets for objects
    that aren't there. Two ways in: (a) a WORN item of an in-frame character (it's on their
    body); (b) a prop NAMED in the action text. Naming requires a strong match — for a
@@ -2873,9 +3108,10 @@ function inFrameProps(sh, scene, charById, propById, ctx){
   const castIds = (typeof inFrameCast==="function") ? inFrameCast(sh, scene, Object.values(charById||{}), ctx) : ((sh&&sh.subjects)||[]);
   const t = " "+(((sh&&sh.action)||"")+" "+((sh&&sh.composition)||"")).toLowerCase().replace(/[^a-z0-9 ]+/g," ").replace(/\s+/g," ")+" ";
   const out = [];
-  // Manual shot-level picks are true overrides: a director can deliberately include an
-  // off-camera or soon-to-enter object without changing its canonical continuity state.
-  const selected = [].concat((sh&&sh.props)||[],(sh&&sh.referencePropIds)||[]).filter(Boolean);
+  // referencePropIds are explicit director overrides. sh.props is the older derived
+  // cache written by shot drafting; treating that cache as a manual choice reintroduced
+  // stale v1 wardrobe after an appearance-state costume change.
+  const selected = [].concat((sh&&sh.referencePropIds)||[]).filter(Boolean);
   selected.forEach(id=>{ if(propById&&propById[id]&&out.indexOf(id)<0) out.push(id); });
   props.forEach(p=>{
     if(out.indexOf(p.id)>=0) return;
@@ -2883,8 +3119,13 @@ function inFrameProps(sh, scene, charById, propById, ctx){
     if(resolved && !resolved.active) return;
     const holderId=(resolved&&resolved.holderId)||p.ownerId||"";
     const holderIn=!!(holderId && castIds.indexOf(holderId)>=0);
-    // Worn items follow the resolved holder, not the canonical owner.
-    if(((resolved&&resolved.bindingMode)||(p.kind||"carried"))==="worn" && holderIn){ out.push(p.id); return; }
+    // Worn items follow the resolved holder, not the canonical owner. An active
+    // character appearance state supersedes base wardrobe: only wearables explicitly
+    // retained by that state or this shot survive as separate prompt/reference inputs.
+    if(((resolved&&resolved.bindingMode)||(p.kind||"carried"))==="worn" && holderIn){
+      if(shotWornPropAppliesToAppearance(p,sh,scene,charById,ctx,resolved))out.push(p.id);
+      return;
+    }
     const words = Array.from(new Set(String(p.name||"").toLowerCase().replace(/[^a-z0-9 ]+/g," ")
       .split(/\s+/).filter(w=>w.length>=4 && !/^[0-9]+$/.test(w))));
     if(!words.length) return;

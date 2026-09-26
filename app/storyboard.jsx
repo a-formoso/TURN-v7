@@ -345,6 +345,24 @@ window.composeStoryboardSheet = composeStoryboardSheet;
    manager (the Stage's hand-off), the per-panel repair flow, and the details modal.
    The card also SELF-DERIVES: it composes on first view when frames exist, and a
    composed sheet recomposes (debounced) when one of its frames re-renders. */
+// Saved-half timestamps belong in the sheet's Details, not its compact thumbnails.
+function sbHalfDateDetails(halves){
+  return ["top","bottom"].flatMap(h=>{
+    const meta=halves&&halves[h]&&halves[h].meta;
+    if(!meta)return [];
+    let date=meta.date||"",time=meta.time||"";
+    if(meta.iso&&(!date||!time)){
+      const d=new Date(meta.iso);
+      if(!Number.isNaN(d.getTime())){
+        if(!date)date=d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
+        if(!time)time=d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});
+      }
+    }
+    const v=[date,time].filter(Boolean).join(" · ");
+    return v?[{k:"Current "+h+" half saved",v}]:[];
+  });
+}
+
 function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot }){
   const sid = "sbsheet-"+page.id;
   // store/display ONLY — this tab never paints sheets; compose-from-frames is the path
@@ -713,7 +731,8 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
         throw new Error("The repaired frame couldn't be saved — nothing was changed. Check your connection and apply the edit again.");
       _release();
       // the pixels changed: this frame is no longer an APPROVED seed — un-approve it so
-      // the continuity gate holds (re-approve in the Shot List once you're happy)
+      // the continuity gate holds (re-approve from the shot image's Options menu once
+      // you're happy)
       if(sh.locked && typeof onUpdateShot==="function") onUpdateShot(sh.id, { locked:false, sourceOverride:null });
       window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id:sh.id, url:(r&&r.url)||url } }));
       setPanelEdit(null);
@@ -806,14 +825,14 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
        reads as finished while its panels are unrendered, unapproved or stale */
     health && !!health.total && _sbEl("div",{className:"ssx-chain-strip sb-health"},
       _sbEl("span",{className:"ssx-chain-chip"+((health.approved===health.total)?" ok":""),
-        title:"Approved frames are the verified, locked panels — approve in the Shot List."},
+        title:"Approved frames are the verified, locked panels — use Approve frame as seed in the shot image's Options menu."},
         health.approved+"/"+health.total+" approved"),
       health.unrendered>0 && _sbEl("span",{className:"ssx-chain-chip warn",
         title:"Panels with no generated frame yet — they print as empty placeholders."},
         health.unrendered+" unrendered"),
       health.staleSeed>0 && _sbEl("span",{className:"ssx-chain-chip warn",
-        title:"Frames built on a seed that has since changed — 'Render Scene in order' in the Shot List re-renders them."},
-        health.staleSeed+" seed-outdated"),
+        title:"Frames whose continuity source has since changed — 'Render Scene in order' in Shots re-renders them."},
+        health.staleSeed+" frame"+(health.staleSeed===1?" needs":"s need")+" continuity refresh"),
       health.staleSrc>0 && _sbEl("span",{className:"ssx-chain-chip warn",
         title:"Frames rendered before their shot specification or screenplay beat changed — regenerate in the Shot List."},
         health.staleSrc+" stale source"),
@@ -846,7 +865,6 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
             onClick:()=>onView({url:halves[h].url,character:{name:name+" — "+h+" half"}})}),
           _sbEl("div",{className:"sb-half-meta"},
             _sbEl("span",{className:"sb-half-tag"},h.toUpperCase()),
-            halves[h].meta && halves[h].meta.date && _sbEl("span",null,halves[h].meta.date),
             _sbEl("button",{className:"sb-half-btn",onClick:()=>restoreHalf(h),
               title:"Restore this half's previous saved version — the sheet on display switches to the sheet version that half was cut from"},"Restore"),
             _sbEl("button",{className:"sb-half-btn danger",onClick:()=>deleteHalf(h),
@@ -864,7 +882,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
           _sbEl("span",{className:"sb-panel-chip-sub"},(typeof shotSizeOf==="function")?shotSizeOf(sh.size).label:(sh.size||""))))),
       panelEdit.idx!=null && page.shots[panelEdit.idx] && page.shots[panelEdit.idx].locked &&
         _sbEl("div",{className:"sb-panel-note"},
-          "This frame is APPROVED (it seeds later shots). Applying an edit changes its pixels, so it un-approves — re-approve it in the Shot List once you're happy."),
+          "This frame is APPROVED (it seeds later shots). Applying an edit changes its pixels, so it un-approves — use Approve frame as seed in the shot image's Options menu once you're happy."),
       panelEdit.idx!=null && _sbEl("input",{className:"sheet-edit-input",type:"text",autoFocus:true,
         placeholder:"Change panel "+scene.no+"."+((page.start||0)+panelEdit.idx+1)+" — edits that shot's frame, then recomposes…",
         value:panelEdit.text,onChange:e=>setPanelEdit(p=>({ ...p, text:e.target.value })),
@@ -876,7 +894,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
           onClick:applyPanelEdit},
           _sbEl(Icon.wand,{s:12}), panelBusy?"Editing panel…":"Apply to panel"),
         _sbEl("button",{className:"sheet-edit-cancel",onClick:()=>setPanelEdit(null)},"Cancel"))),
-    detailsOpen && ReactDOM.createPortal(_sbEl(window.SheetDetails,{ gen, name, noun:"sheet",
+    detailsOpen && ReactDOM.createPortal(_sbEl(window.SheetDetails,{ gen, name, noun:"sheet",extraMeta:sbHalfDateDetails(halves),
       onClose:()=>setDetailsOpen(false), onView:(url)=>onView({url,character:{name}}) }), document.body));
 }
 
@@ -948,7 +966,7 @@ function StoryboardPage({ project, scene, page, pageCount, ctx, beatsMap, onView
                 const all = (ctx.sceneShots && ctx.sceneShots.length) ? ctx.sceneShots : page.shots;
                 const plan = shotRenderPlan(sh, all, ctx);
                 const si = all.findIndex(x=>x.id===sh.id);
-                pctx = { ...ctx, carriedForward:plan.carriedForward, prevFrameRole:!!plan.prevSh,
+                pctx = { ...ctx, carriedForward:plan.carriedForward, carriedTextOnly:plan.carriedTextOnly, prevFrameRole:!!plan.prevSh,
                   prevShot:plan.prevSh||null, laterShots: si>=0 ? all.slice(si+1) : [] };
               }
             }catch(e){}
@@ -970,7 +988,9 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
   }, [shots]);
   const charById = React.useMemo(()=>{ const m={}; (characters||[]).forEach(c=>m[c.id]=c); return m; },[characters]);
   const propById = React.useMemo(()=>{ const m={}; (props||[]).forEach(p=>m[p.id]=p); return m; },[props]);
-  const ctxFor = (scene)=>({ scene, location:(typeof locationForScene==="function")?locationForScene(locations,scene.id):null, charById, propById, project, locations:locations||[], sceneShots:(shotsByScene[scene.id]||[]) });
+  const ctxFor = (scene)=>({ scene, scenes:ordered,
+    location:(typeof locationForScene==="function")?locationForScene(locations,scene.id):null,
+    charById, propById, project, locations:locations||[], sceneShots:(shotsByScene[scene.id]||[]) });
 
   // scene -> its sheets: 2×2 pages packed on BEAT boundaries (sbPaginateBeats); the id
   // scheme is frozen — the Stage's clip→sheet bridge + the Art Room progress build them.
@@ -1175,7 +1195,7 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
               _sbEl(StoryboardSceneCtxItem,{label:"Driver's goal",value:scene.objective}),
               _sbEl(StoryboardSceneCtxItem,{label:"Antagonism",value:bm.obstacle}),
               scene.conf&&_sbEl("div",{className:"ssx-item"},
-                _sbEl("div",{className:"ssx-k"},"Conflict level"),
+                _sbEl("div",{className:"ssx-k"},"Conflict source"),
                 _sbEl("div",{className:"ssx-conf"},
                   confLab&&_sbEl("span",{className:"ssx-conf-lab"},confLab),
                   _sbEl("div",{className:"ssx-pips"},[1,2,3].map(i=>_sbEl("span",{key:i,className:"ssx-pip"+(i<=scene.conf?" on":"")})))))))),
@@ -1258,7 +1278,7 @@ async function sbBoardHealth(pagesByScene){
 const sbWarnParts = (w)=> !w ? [] : [
   w.unapproved ? (w.unapproved+" not approved") : "",
   w.unrendered ? (w.unrendered+" unrendered") : "",
-  w.staleSeed ? (w.staleSeed+" seed-outdated") : "",
+  w.staleSeed ? (w.staleSeed+" frame"+(w.staleSeed===1?" needs":"s need")+" continuity refresh") : "",
   w.staleSrc ? (w.staleSrc+" stale source") : "",
 ].filter(Boolean);
 async function exportStoryboard(pagesByScene, frames, project){
@@ -1297,7 +1317,7 @@ async function exportStoryboard(pagesByScene, frames, project){
     const ok = await window.appConfirm({ title:"Export with warnings?",
       body:"This board is incomplete"+(sheetState.length?" ("+sheetState.join(", ")+")":"")+
         (_totParts.length?" — across its panels: "+_totParts.join(", "):"")+
-        ". The export preserves partial compositions and marks affected sheets so nothing reads as final. Generate missing frames and approve/re-render in the Shot List for a complete board.",
+        ". The export preserves partial compositions and marks affected sheets so nothing reads as final. Generate missing frames, then use Approve frame as seed in each shot image's Options menu or re-render for a complete board.",
       confirmLabel:"Export with warnings", cancelLabel:"Cancel" });
     if(!ok){ if(prev) prev.close(); if(w){ try{ w.close(); }catch(e){} } return; }
   }

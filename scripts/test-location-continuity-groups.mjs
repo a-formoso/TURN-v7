@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Functional tests for continuity-bearing master locations and room slugline units. */
+/* Functional tests for continuity-bearing master locations and Slugline Units. */
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
@@ -14,7 +14,8 @@ const box={
 box.window=box;box.globalThis=box;
 box.scenesInStoryOrder=(xs)=>xs||[];
 vm.createContext(box);
-vm.runInContext(readFileSync("dist/app/locations.js","utf8"),box,{filename:"dist/app/locations.js"});
+const locationSource=readFileSync("app/locations.jsx","utf8");
+vm.runInContext(locationSource,box,{filename:"app/locations.jsx"});
 
 let pass=0,fail=0;
 const ok=(name,value,detail)=>{if(value)pass++;else{fail++;console.log("FAIL "+name+(detail?" — "+detail:""));}};
@@ -31,7 +32,8 @@ const scenes=[
 const drafts={
   s1:{blocks:[
     {type:"scene",text:"INT. FATHER'S HOUSE - NIGHT"},
-    {type:"action",text:"Marcus stands in his father's house."}
+    {type:"action",text:"A dead man's living room. One lamp fights the dark."},
+    {type:"action",text:"THE KITCHEN. Marcus sets the phone face-down beside the pill bottles."}
   ]},
   s3:{blocks:[
     {type:"scene",text:"INT. KITCHEN - NIGHT"},
@@ -67,31 +69,125 @@ ok("Living Room is an atomic child workspace with inherited root identity",
   living?.scope==="atomic"&&living?.parentKey===parentKey&&living?.continuityRootKey===parentKey,JSON.stringify(living));
 
 const units=box.deriveSluglineUnits(scenes,drafts);
-const wanted=[["Kitchen","INT","Night"],["Kitchen","INT","Dawn"],["Living Room","INT","Dawn"]];
+const wanted=[["Kitchen","INT","Night"],["Kitchen","INT","Dawn"],
+  ["Living Room","INT","Night"],["Living Room","INT","Dawn"]];
 wanted.forEach(([name,side,time])=>ok(
-  name+" "+side+" "+time+" remains a slugline unit",
+  name+" "+side+" "+time+" remains a Slugline Unit",
   units.some(u=>u.name===name&&u.intExt===side&&u.time===time&&u.locationKey===parentKey&&u.subspaceKey===box.locSlug(name)),
   JSON.stringify(units.map(u=>({name:u.name,side:u.intExt,time:u.time,parent:u.locationKey,subspace:u.subspaceKey})))
 ));
 ok("repeated Kitchen Dawn headings consolidate to one unit",
   units.filter(u=>u.name==="Kitchen"&&u.intExt==="INT"&&u.time==="Dawn").length===1);
+const livingNight=units.find(u=>u.name==="Living Room"&&u.time==="Night");
+const kitchenNight=units.find(u=>u.name==="Kitchen"&&u.time==="Night");
+ok("an unslugged establishing room records derived provenance",
+  livingNight?.sourceKinds?.includes("derived-establishing-action")&&
+  livingNight?.occurrences?.some(o=>o.sourceKind==="derived-establishing-action"),JSON.stringify(livingNight));
+ok("an inline room transition records derived provenance",
+  kitchenNight?.sourceKinds?.includes("derived-inline-room-cue")&&
+  kitchenNight?.occurrences?.some(o=>o.sourceKind==="derived-inline-room-cue"),JSON.stringify(kitchenNight));
+ok("each screenplay occurrence retains a bounded source excerpt",
+  units.every(u=>(u.occurrences||[]).every(o=>typeof o.scriptText==="string"&&o.scriptText.length<=1402)));
 
 const kitchenStates=box.locationAppearanceStates({...kitchen,variants:[
   {id:"legacy-dawn",time:"Dawn",state:"gray window light; practicals off"}
 ]},units);
-ok("Appearance States projects both screenplay-addressed Kitchen states",
-  kitchenStates.length===2&&kitchenStates.some(v=>v.time==="Night")&&kitchenStates.some(v=>v.time==="Dawn"),
+ok("Time-of-Day Variants contains only the changed Kitchen state",
+  kitchenStates.length===1&&!kitchenStates.some(v=>v.time==="Night")&&kitchenStates.some(v=>v.time==="Dawn"),
   JSON.stringify(kitchenStates));
 kitchenStates.forEach(v=>ok(
-  "Appearance State shares the "+v.time+" slugline asset id",
+  "Time-of-Day Variant shares the "+v.time+" slugline asset id",
   box.locationAppearanceStateAssetId(kitchen,v,units)===box.sluglineUnitImageId(v.linkedUnit.key),
   JSON.stringify(v)
 ));
 ok("legacy Dawn notes are adopted without creating a duplicate state",
   kitchenStates.filter(v=>v.time==="Dawn").length===1&&kitchenStates.find(v=>v.time==="Dawn")?.state==="gray window light; practicals off",
   JSON.stringify(kitchenStates));
-ok("child subspaces do not derive their own Coverage Views",
+ok("child subspaces do not derive their own Required Space Plates",
   box.deriveLocationCoverageSheets(kitchen,scenes,drafts,masters,units).length===0);
+
+const sideOnlyUnits=[
+  {key:"yard|INT|Night",name:"Yard",subspaceKey:"yard",locationKey:"yard",intExt:"INT",time:"Night",sceneNos:[1],occurrences:[]},
+  {key:"yard|EXT|Night",name:"Yard",subspaceKey:"yard",locationKey:"yard",intExt:"EXT",time:"Night",sceneNos:[1],occurrences:[]}
+];
+ok("INT versus EXT alone is geography, not an appearance state",
+  box.locationAppearanceStates({key:"yard",variants:[]},sideOnlyUnits).length===0);
+
+const kitchenDawn=units.find(u=>u.name==="Kitchen"&&u.time==="Dawn");
+const manualState={id:"storm-state",manualState:true,intExt:"INT",time:"Dawn",state:"Rain lashes the windows"};
+ok("a manual Time-of-Day Variant owns a distinct asset unless explicitly linked",
+  box.locationAppearanceStateAssetId(kitchen,manualState,units)===kitchen.id+"-storm-state"&&
+  box.locationAppearanceStateAssetId(kitchen,manualState,units)!==box.sluglineUnitImageId(kitchenDawn.key));
+ok("a manual Time-of-Day Variant may explicitly share a Slugline Unit asset",
+  box.locationAppearanceStateAssetId(kitchen,{...manualState,unitKey:kitchenDawn.key},units)===
+    box.sluglineUnitImageId(kitchenDawn.key)&&
+  box.locationAppearanceStates({...kitchen,variants:[{...manualState,unitKey:kitchenDawn.key}]},units)
+    .some(v=>v.id===manualState.id&&v.linkedUnit?.key===kitchenDawn.key));
+
+const legacyView=box.locationCoverageViews({id:"loc-kitchen",name:"Kitchen",staging:{viewLabel:"Sink axis",lens:"35mm",bg:{center:"Window"}}});
+ok("legacy staging upgrades to one reusable coverage view without data loss",
+  legacyView.length===1&&legacyView[0].id==="principal"&&legacyView[0].staging.bg.center==="Window"&&legacyView[0].lens==="35mm",
+  JSON.stringify(legacyView));
+const setups=box.locationSceneSetups(kitchen,units);
+ok("scene setups are occurrence scoped rather than stored on the canonical space",
+  setups.length===(units.filter(u=>u.subspaceKey==="kitchen").flatMap(u=>u.occurrences||[])).length&&
+  setups.every(s=>s.id.includes("@")&&s.id.includes("#")&&s.sceneId),JSON.stringify(setups));
+const repeatedSceneSetups=setups.filter(s=>s.sceneId==="s6"&&s.unitKey===kitchenDawn.key);
+ok("repeated visits to one Slugline Unit are visibly distinguishable",
+  repeatedSceneSetups.length===2&&repeatedSceneSetups.map(s=>s.occurrenceOrdinal).join(",")==="1,2"&&
+  repeatedSceneSetups.every(s=>s.occurrenceCount===2),JSON.stringify(repeatedSceneSetups));
+
+const shiftedDrafts={...drafts,s1:{blocks:[
+  drafts.s1.blocks[0],drafts.s1.blocks[1],
+  {type:"action",text:"The old wall clock ticks once."},
+  drafts.s1.blocks[2]
+]}};
+const shiftedUnits=box.deriveSluglineUnits(scenes,shiftedDrafts);
+const setupId=(candidateUnits)=>box.locationSceneSetups(kitchen,candidateUnits)
+  .find(s=>s.unitKey.includes("kitchen|")&&s.sceneId==="s1")?.id;
+ok("Scene Setup identity survives earlier unrelated screenplay block insertion",
+  setupId(units)===setupId(shiftedUnits),setupId(units)+" versus "+setupId(shiftedUnits));
+
+const kitchenNightOccurrence=kitchenNight.occurrences.find(o=>o.sceneId==="s1");
+const legacySetupId=kitchenNight.key+"@s1:"+kitchenNightOccurrence.start;
+const reconciled=box.reconcileSluglineUnits(units,[{key:kitchenNight.key,setups:[
+  {id:legacySetupId,notes:"Keep Marcus by the table"},
+  {id:"retired-setup",sceneId:"deleted-scene",notes:"Preserve this abandoned setup"}
+]}]);
+const reconciledSetups=box.locationSceneSetups(kitchen,reconciled);
+const migratedSetup=reconciledSetups.find(s=>s.unitKey===kitchenNight.key&&s.sceneId==="s1"&&!s.orphan);
+ok("legacy block-offset setup IDs migrate by their old unit and scene prefix",
+  migratedSetup?.id===box.screenplayOccurrenceKey(kitchenNight.key,kitchenNightOccurrence,0,kitchenNight.occurrences)&&
+  migratedSetup?.storageId===legacySetupId&&migratedSetup?.notes==="Keep Marcus by the table",JSON.stringify(reconciledSetups));
+const sceneMatched=box.reconcileSceneSetupRecords(kitchenNight.key,[kitchenNightOccurrence],[
+  {id:"opaque-legacy-id",sceneId:"s1",notes:"Matched by persisted scene identity"}
+]);
+ok("legacy setup records also migrate by their persisted sceneId",
+  sceneMatched[0]?.id===box.screenplayOccurrenceKey(kitchenNight.key,kitchenNightOccurrence,0,[kitchenNightOccurrence])&&
+  sceneMatched[0]?.notes==="Matched by persisted scene identity"&&!sceneMatched[0]?.orphan,
+  JSON.stringify(sceneMatched));
+ok("saved setups with no remaining screenplay occurrence stay visible as orphans",
+  reconciledSetups.some(s=>s.id==="retired-setup"&&s.orphan===true&&s.notes==="Preserve this abandoned setup"),
+  JSON.stringify(reconciledSetups));
+
+const planLocation={...kitchen,id:"loc-kitchen",coverageSheets:[{id:"threshold",name:"Threshold",sceneNos:[1]}],
+  variants:[{id:"manual-rain",manualState:true,time:"Night",state:"Rain on the glass"}],
+  parentLocation:{id:"loc-house",key:parentKey,name:"Father's House",architecture:"A".repeat(1800),
+    materials:"Dark wood",lighting:"Warm practicals",permanentDressing:"Worn furniture",
+    topology:"Living room opens to kitchen",continuityAnchors:"Front door, archway, kitchen window"}};
+const plan=box.locationProductionPlan(planLocation,units);
+ok("the Blender handoff exposes all production layers under a versioned schema",
+  plan.schema==="cm-location-plan-v1"&&Array.isArray(plan.screenplaySpaces)&&
+  Array.isArray(plan.appearanceStates)&&Array.isArray(plan.requiredSpacePlates)&&
+  Array.isArray(plan.coverageViews)&&Array.isArray(plan.sceneSetups)&&
+  plan.requiredSpacePlates[0]?.id==="threshold",JSON.stringify(plan));
+ok("production-plan assets use the exact durable Art Room IDs",
+  plan.screenplaySpaces.every(s=>s.assetId===box.sluglineUnitImageId(s.key))&&
+  plan.appearanceStates.every(s=>typeof s.assetId==="string"&&s.assetId.length>0)&&
+  plan.requiredSpacePlates[0]?.assetId==="loc-kitchen-threshold",JSON.stringify(plan));
+ok("a child production plan carries a bounded parent continuity canon",
+  plan.continuityRoot?.id==="loc-house"&&plan.continuityRoot?.canonicalSet?.materials==="Dark wood"&&
+  plan.continuityRoot?.canonicalSet?.architecture.length===1600,JSON.stringify(plan.continuityRoot));
 
 const competingFold=box.deriveSubspaceFold(scenes.concat([
   {id:"s2",no:2,loc:"INT. FUNERAL HOME OFFICE - NIGHT",summary:"Marcus waits at the funeral home."}
@@ -109,42 +205,80 @@ ok("ambiguous room ownership remains separate",!ambiguous.kitchen,JSON.stringify
 
 const ui=readFileSync("app/locations-ui.jsx","utf8");
 const ai=readFileSync("app/ai.jsx","utf8");
-ok("child cards remain in the location grid",
+const shots=readFileSync("app/shots.jsx","utf8");
+ok("child records retain their explicit parent relationship",
   ui.includes("rawLocations.filter(Boolean).map")&&ui.includes("parentLocation")&&ui.includes("childLocations"));
-ok("child relationship is explicit in the card header",
-  ui.includes('"Child space"')&&ui.includes('" within "')&&ui.includes('" \\u00b7 inherits continuity"'));
+ok("redundant root scope and Contains rows stay out of the clean card header",
+  !ui.includes('className:"loc-scope-line"')&&
+  !ui.includes('className:"loc-child-row"')&&
+  !ui.includes('"Compound place"')&&!ui.includes('"Contains"'));
+ok("child relationship remains explicit as a compact parent breadcrumb",
+  ui.includes('className:"loc-parent-breadcrumb"')&&
+  ui.includes('"within "')&&ui.includes('" \\u00b7 inherits continuity"'));
 ok("unit cards live on their matching subspace workspace",
   ui.includes("String(u.subspaceKey||u.locationKey||\"\")===String(l.key||\"\")"));
-ok("place identity fields stay separate from continuity states",
-  ui.includes('label:"Permanent lighting & daylight interfaces"')&&ui.includes('label:"Appearance states"')&&ui.includes('"Continuity anchors"'));
+ok("place identity fields stay separate from unit environment notes",
+  ui.includes('label:"Permanent lighting & daylight interfaces"')&&
+  ui.includes('label:"Environment notes"')&&ui.includes('"Continuity anchors"'));
 ok("location folds use the approved filmmaker-facing names",
-  ["The space","Story significance","Screenplay sluglines","Appearance states","Coverage views","Staging & composition","Look dev","Compiled prompt"]
+  ["The Space","Narrative Significance","Screenplay Evidence","Slugline Units","Spatial Layout & Staging","Generation Prompt"]
     .every(label=>ui.includes('label:"'+label+'"')));
 ok("location folds follow identity to screenplay to view to generation order",
-  ["label:\"The space\"","label:\"Story significance\"","label:\"Screenplay sluglines\"","label:\"Appearance states\"",
-    "label:\"Coverage views\"","label:\"Staging & composition\"","label:\"Look dev\"","label:\"Compiled prompt\""]
+  ["label:\"The Space\"","label:\"Narrative Significance\"","label:\"Screenplay Evidence\"","label:\"Slugline Units\"",
+    "label:\"Spatial Layout & Staging\"","label:\"Generation Prompt\""]
     .map(token=>ui.indexOf(token)).every((at,i,all)=>at>=0&&(i===0||at>all[i-1])));
+ok("location style fine-tuning is retained under Generation Prompt without a separate Look dev fold",
+  !ui.includes('label:"Look dev"')&&
+  ui.indexOf('"Render style details"')>ui.indexOf('label:"Generation Prompt"')&&
+  ui.includes('label:"Render style instructions"'));
 ok("topology and anchors stay nested inside The Space",
-  ui.indexOf('field:"topology",label:"Spatial topology"')>ui.indexOf('label:"The space"')&&
+  ui.indexOf('field:"topology",label:"Spatial topology"')>ui.indexOf('label:"The Space"')&&
   ui.indexOf('"Continuity anchors"')>ui.indexOf('field:"topology",label:"Spatial topology"')&&
-  ui.indexOf('"Continuity anchors"')<ui.indexOf('label:"Story significance"'));
+  ui.indexOf('"Continuity anchors"')<ui.indexOf('label:"Narrative Significance"'));
+ok("location folds provide concise definitions without expanding the headings",
+  ui.includes("function LocationSectionHelp")&&
+  ui.includes('label:"About The Space"')&&ui.includes("persistent physical location")&&
+  ui.includes('label:"About Narrative Significance"')&&ui.includes("means dramatically")&&
+  ui.includes("Slugline Units identify the rooms, times and scenes")&&ui.includes("Lighting & environment"));
+ok("script evidence and reusable staging have separate roles",
+  ui.includes("Spatial Layout & Staging holds reusable camera views")&&
+  ui.includes("function LocationScreenplayEvidence")&&
+  ui.includes("Shot timing, cuts and performance are directed in Shots / Blender previz."));
 ok("location identity fields expose editable provenance",
   ui.includes("function LocationProvenanceSelect")&&ui.includes('field:"architecture"')&&
   ui.includes('field:"continuityAnchors"')&&ui.includes('className:"loc-prov-select"'));
 ok("continuity-state descriptions reach the actual generator",
   readFileSync("app/locations.jsx","utf8").includes("{ time:v.time, state:v.state }")&&
   readFileSync("app/locations.jsx","utf8").includes('"continuity-state"'));
-ok("slugline and appearance-state cards share one asset resolver",
+ok("linked states have one unit editor, while independent states retain their asset resolver",
   ui.includes("locationAppearanceStateAssetId(l,v,units||[])")&&
-  ui.includes("Shared with Screenplay Sluglines")&&
-  ui.includes("!l.parentLocation && React.createElement(CardFold,{label:\"Coverage views\""));
-ok("Location Scout generates screenplay-derived shared states, not only legacy variants",
+  ui.includes("environment.units.map")&&ui.includes("environment.additional.map")&&
+  !ui.includes('label:"Time-of-Day Variants"')&&
+  ui.includes('"Additional space plates"')&&ui.includes("!l.parentLocation&&coverageSheets.length>0"));
+ok("coverage views and scene setups have distinct editors",
+  ui.includes("function CoverageViewsEditor")&&ui.includes("function SceneSetupCard")&&
+  ui.includes('label:"Blocking & action path"')&&ui.includes('label:"Object states at the start"')&&
+  ui.includes("setup.storageId||setup.id")&&ui.includes('"Saved setup \\u00b7 source removed"')&&
+  ui.includes('"Occurrence ",setup.occurrenceOrdinal," of ",setup.occurrenceCount'));
+ok("visible location-reference copy uses the approved production-layer names",
+  ui.includes('noun:"Slugline Unit plate"')&&
+  ui.includes('label:"Slugline Unit · "')&&
+  ui.includes('label:"Time-of-Day Variant · "')&&
+  ui.includes('title:"Generate canonical location plates for the locations in this scene"')&&
+  shots.includes('" — Required Space Plate · "')&&
+  !shots.includes('" slugline/subspace unit"')&&!shots.includes('" coverage sheet (one full-frame view)"'));
+ok("Location Scout generates screenplay-derived shared variants, not only legacy variants",
   readFileSync("app/app.jsx","utf8").includes("locationAppearanceStates(l,sluglineUnits||[])"));
 ok("MUSE capability manifest names the approved location architecture",
-  ai.includes('{ name:"Location compiled prompt"')&&
-  ai.includes("The visible folds follow the dependency order The Space -> Story Significance -> Screenplay Sluglines -> Appearance States -> Coverage Views -> Staging & Composition -> Look Dev -> Compiled Prompt.")&&
-  ai.includes("two views of the same place/side/time record")&&
-  ai.includes("Child spaces such as Kitchen do not derive Coverage Views of their own"));
+  ai.includes('{ name:"Location Generation Prompt"')&&
+  ai.includes("organizes production work into five explicit layers")&&
+  ai.includes("one card represents each established continuity root")&&
+  ai.includes("Screenplay Evidence -> Slugline Units -> Spatial Layout & Staging")&&
+  ai.includes("TIME-OF-DAY VARIANTS own only persistent environment changes")&&
+  ai.includes("COVERAGE VIEWS own reusable visual interpretations tied to Slugline Units")&&
+  ai.includes("Screenplay Evidence shows actual source passages")&&
+  ai.includes("There is NO separate Time-of-Day Variants fold")&&
+  ai.includes("SCENE SETUPS hold occurrence-specific blocking"));
 
 console.log(pass+" passed, "+fail+" failed");
 process.exit(fail?1:0);

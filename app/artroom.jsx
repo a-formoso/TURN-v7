@@ -182,6 +182,16 @@ const CHAR_RENDER_STYLES = {
     "background": "light neutral comic-art sheet ground with subtle paper/grain texture and a grounded contact shadow",
     "rules": ["no text, labels, watermarks, annotations, typography or captions","bold textured comic inkwork","limited palette, dramatic contrast and etched detail","consistent line and texture across all panels","clean, evenly divided panel layout"]
   },
+  // GTA loading-screen art (added 2026-09-25 by owner). The prompt describes the LOOK and
+  // never names the franchise, so image models render it instead of refusing named IP.
+  gtaLoadingScreen: {
+    "rendering": "open-world crime-game loading-screen poster illustration — semi-realistic figures drawn with bold black ink outlines and crisp cel-shaded forms, confident attitude poses, glossy commercial-poster finish",
+    "linework": "heavy clean black contour lines of varying weight around every form, sharp interior lines for folds, muscles and hair; graphic, never sketchy",
+    "shading": "two-to-three-tone hard-edged cel shadows with a few smooth airbrushed gradients on skin, chrome and fabric; strong directional sunlight, crisp specular highlights",
+    "color_grade": "sun-drenched saturated palette — hot sunset oranges, magentas and teals, deep blue-black shadows, bright skin tones; high contrast, clean colour blocks drawn from THIS character's palette",
+    "background": "flat warm-to-cool gradient poster ground (sunset sky tones) with a crisp contact shadow; no scenery clutter behind the turnaround",
+    "rules": ["no text, labels, watermarks, annotations, typography, logos or captions","bold black outlines and hard cel shading throughout","semi-realistic proportions and faces, never chibi or cartoon-exaggerated","consistent face, outfit and palette across all panels","clean, evenly divided panel layout"]
+  },
   whimsicalwatercolor: {
     "rendering": "whimsical watercolor and fine-ink children's-book illustration — loose transparent washes, delicate hand-drawn line, soft charm and gentle storybook warmth",
     "linework": "thin irregular ink or pencil line with small expressive wiggles; never slick vector or heavy comic outline",
@@ -417,7 +427,7 @@ const RENDER_STYLE_LABELS = {
   flat:"Flat Vector Illustration", flatDesign:"Flat Design Illustration", minimalistLine:"Minimalist Line Art", vintageChildrensBook:"Vintage Children’s Book Illustration",
   horror:"Cinematic horror", ghibli:"Studio Ghibli Anime",
   animated3d:"Animated feature 3D", pixar:"Pixar-style 3D", cartoon3d:"3D Cartoon", textured3dCartoon:"Textured 3D Cartoon", stylizedCartoon:"Stylized Cartoon Illustration", paintedconcept:"Hand-painted concept art",
-  storyboardconcept:"Storyboard concept", texturedcomic:"Textured Comic Illustration", whimsicalwatercolor:"Whimsical Watercolor",
+  storyboardconcept:"Storyboard concept", texturedcomic:"Textured Comic Illustration", gtaLoadingScreen:"GTA Loading-Screen Art", whimsicalwatercolor:"Whimsical Watercolor",
   graphicNovelNoir:"Graphic novel — Noir B&W", ukiyoe:"Ukiyo-e woodblock", paperCutout:"Paper cut-out",
   grittyDigital:"Gritty Digital Illustration", softPainterly:"Soft Painterly Illustration", realisticDigitalDrawing:"Realistic Digital Drawing",
   stopmotion:"Stop-motion / Tactile Miniature",
@@ -451,6 +461,7 @@ const RENDER_STYLE_DESCRIPTIONS = {
   photorealOrnamental:"For elegant creature designs with iridescence, ornament, armor, jewelry-like forms, couture materials, or heightened beauty while staying physically rendered.",
   storyboardconcept:"For production boards and previsualization: clean linework, clear staging, mood and composition over final polish.",
   texturedcomic:"For bold contemporary comic art: expressive ink, etched texture, limited palette and dramatic graphic lighting.",
+  gtaLoadingScreen:"For the GTA loading-screen / cover-art look: semi-realistic figures, bold black outlines, hard cel shading and a saturated sunset palette on a poster finish.",
   whimsicalwatercolor:"For gentle storybook imagery: fine ink, soft watercolor washes, paper grain and delicate hand-painted charm.",
   modernAnime:"For polished contemporary anime: sharp linework, cinematic cel shadows, expressive eyes and dynamic character appeal.",
   digitalAnime:"For smooth refined anime illustration with luminous digital colour and a painterly-polished finish.",
@@ -476,7 +487,7 @@ const RENDER_STYLE_GROUPS = [
   { id:"Photoreal", keys:["photoreal","photorealNatural","photorealCreature","photorealOrnamental"] },
   { id:"Anime / Animation", keys:["ghibli","modernAnime","digitalAnime","roughSketchAnime","painterlyAnime","anime","gaganime"] },
   { id:"Cartoon / 3D", keys:["pixar","render3d","cartoon3d","textured3dCartoon","stylizedCartoon","animated3d"] },
-  { id:"Illustration / Concept Art", keys:["paintedconcept","storyboardconcept","texturedcomic","grittyDigital","softPainterly","realisticDigitalDrawing","horror","graphicNovelNoir"] },
+  { id:"Illustration / Concept Art", keys:["paintedconcept","storyboardconcept","texturedcomic","gtaLoadingScreen","grittyDigital","softPainterly","realisticDigitalDrawing","horror","graphicNovelNoir"] },
   { id:"Graphic / Minimal", keys:["flat","flatDesign","minimalistLine","vintageChildrensBook","pixelart","adv1960s"] },
   { id:"Handmade / Tactile", keys:["stopmotion","claymation","tactileMixedMedia","texturedPaperSculpture","texturedPaperIllustration","whimsicalwatercolor","paperCutout"] },
   { id:"Decorative / Design-led", keys:["tropicalArtNouveau","ukiyoe"] },
@@ -586,8 +597,10 @@ const LOCKED_KEY_PREFIX = "lk_";   // personal
 const GLOBAL_KEY_PREFIX = "gl_";   // admin global
 const BASE_RENDER_STYLE_KEYS = Object.keys(CHAR_RENDER_STYLES); // seed global presets bundled with the app
 const MAX_PERSONAL_STYLES = 10;    // max PERSONAL locked styles per user
-const MAX_GLOBAL_STYLES = 40;      // max TOTAL shared/global styles (seed presets + admin-published combined)
-const MAX_TOTAL_STYLES = 50;       // global cap + personal cap (40 + 10)
+// raised 40 → 100 (2026-09-25 by owner): the 41 built-ins had filled the old 40 cap, leaving
+// no admin slots; the grouped, collapsible picker keeps a list this long easy to browse
+const MAX_GLOBAL_STYLES = 100;     // max TOTAL shared/global styles (seed presets + admin-published combined)
+const MAX_TOTAL_STYLES = 110;      // global cap + personal cap (100 + 10)
 window.turnPersonalStyleCap = MAX_PERSONAL_STYLES;
 window.turnGlobalStyleCap = MAX_GLOBAL_STYLES;
 window.turnTotalStyleCap = MAX_TOTAL_STYLES;
@@ -3410,7 +3423,7 @@ function sheetReviewKey(spec, references, reasons){
   return (hash>>>0).toString(16);
 }
 window.sheetReviewKey=sheetReviewKey;
-function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, drafting, onDraft, entity, onView, slotPlaceholder, noun, onDelete, deleteLabel, specGate, extraMeta, menuExtra, dropToImport, hideUploadButton, onStop, generateDisabled, generateDisabledLabel, generateDisabledTitle, referenceControls, editPropRefs, editSuggestions }){
+function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, drafting, onDraft, entity, onView, slotPlaceholder, noun, onDelete, deleteLabel, specGate, extraMeta, menuExtra, dropToImport, hideUploadButton, onStop, generateDisabled, generateDisabledLabel, generateDisabledTitle, onResolveGenerationBlock, referenceControls, editPropRefs, editSuggestions }){
   const { genUrl, genMeta, genTier, gening, genErr, retrying, slotHasRef,
     editMode, setEditMode, editText, setEditText, generate, cancelGen, clearGen, importSheet, relatedClearCount, revertPrevious, layers, allModels } = gen;
   // Resolution ALWAYS shows on the caption. Prefer the stored size; if it's missing
@@ -3521,8 +3534,9 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
   },[pendingGenerate, drafting]);
 
   const handleGenerateClick = ()=>{
-    if(generateDisabled) return;
     if(gening) return;
+    // Resolving a prerequisite is navigation only, never an implicit generation.
+    if(generateDisabled){if(onResolveGenerationBlock)onResolveGenerationBlock();return;}
     if(gen.pendingSave){gen.retrySave&&gen.retrySave();return;}
     if(specGate && !specGate.ready && !genUrl && !slotHasRef) return; // gated: draft the spec first
     if(!drafted && !genUrl && !slotHasRef){ setPendingGenerate(true); onDraft(); return; }
@@ -3718,14 +3732,15 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
     referenceControls,
     // generate + (while running) stop sit on ONE row — full-width when idle, 50/50 while generating
     React.createElement("div",{className:"sheet-gen-row"},
-    React.createElement("button",{className:"sheet-gen-btn"+(generateDisabled&&!gening?" waiting":""),onClick:handleGenerateClick,disabled:!!generateDisabled||gening||(drafting&&pendingGenerate)||specBlocked,
+    React.createElement("button",{className:"sheet-gen-btn"+(generateDisabled&&!gening?(onResolveGenerationBlock?" needs-review":" waiting"):""),onClick:handleGenerateClick,
+      disabled:gening||(drafting&&pendingGenerate)||(generateDisabled?!onResolveGenerationBlock:specBlocked),
       title:generateDisabled
         ? (generateDisabledTitle||"Wait for the current generation to finish first.")
         : (!drafted && !genUrl && !slotHasRef)
         ? "Fills the text spec from the script first, then generates the sheet in one step"
         : (genUrl ? "Generate a fresh sheet from the current spec" : "Generate the sheet from the current spec")},
       generateDisabled && !gening
-        ? React.createElement(React.Fragment,null,React.createElement(Icon.clock,{s:13}),
+        ? React.createElement(React.Fragment,null,React.createElement(onResolveGenerationBlock?Icon.chevR:Icon.clock,{s:13}),
             generateDisabledLabel||"Wait for current generation")
         : (gening || (drafting && pendingGenerate))
         ? React.createElement(React.Fragment,null,React.createElement("span",{className:"ns-spin dark"}),
@@ -3801,25 +3816,19 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
         React.createElement(Icon.userScan,{s:9,sw:1.8}),"Cameo"),
       genUrl && genMeta
         ? React.createElement("span",{className:"sheet-frame-meta"},
-            React.createElement("span",{className:"sheet-meta-item",title:"Model: "+((genMeta.modelLabel||"")+(genMeta.modelId?(" ("+genMeta.modelId+")"):""))},
+            React.createElement("span",{className:"sheet-meta-item sheet-meta-model",title:"Model: "+((genMeta.modelLabel||"")+(genMeta.modelId?(" ("+genMeta.modelId+")"):""))},
               React.createElement(Icon.sparkles,{s:10,sw:1.8}),
               /* show the commercial name (e.g. "GPT Image 2"), not the raw model id.
                  prefer the stored label, else look it up by id, else fall back to id. */
-              genMeta.modelLabel || ((window.NB_MODELS||[]).find(m=>m.id===genMeta.modelId)||{}).label || genMeta.modelId),
+              React.createElement("span",{className:"sheet-meta-model-name"},
+                genMeta.modelLabel || ((window.NB_MODELS||[]).find(m=>m.id===genMeta.modelId)||{}).label || genMeta.modelId)),
             React.createElement("span",{className:"sheet-meta-item",title:"Aspect ratio"},
               React.createElement(Icon.image,{s:10,sw:1.8}),genMeta.aspect),
             React.createElement("span",{className:"sheet-meta-item",title:"Resolution"},
               React.createElement(Icon.monitor,{s:10,sw:1.8}),
-              (genMeta.uploaded || genMeta.modelId==="uploaded") ? String(resLabel).split(" · ")[0] : resLabel),
-            // Encoder quality is technical provenance, not compact-card information.
-            // It remains available consistently in the shared Details view.
-            // generation DATE — shown on every sheet card (Lookbook, Characters,
-            // Props, Locations, Shots). Prefer the stored short date; else derive it
-            // from the iso timestamp. Time (when present) rides the tooltip.
-            (()=>{ const d = genMeta.date || (genMeta.iso ? (()=>{ try{ return new Date(genMeta.iso).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); }catch(e){ return ""; } })() : "");
-              if(!d) return null;
-              return React.createElement("span",{className:"sheet-meta-item",title:"Generated"+(genMeta.time?(" \u00b7 "+genMeta.time):"")},
-                React.createElement((Icon.calendar||Icon.clock),{s:10,sw:1.8}), d); })())
+              (genMeta.uploaded || genMeta.modelId==="uploaded") ? String(resLabel).split(" · ")[0] : resLabel))
+        // Dates, times and encoder quality remain in Details, not on compact cards.
+        // This is display-only: stored metadata and version history are unchanged.
         : (genUrl || slotHasRef) && React.createElement("span",{className:"sheet-frame-cap-label"},genUrl?"Generated":"Reference frame")),
     /* Portal to <body>: the card has content-visibility:auto (paint/layout
        containment), which would otherwise make this card the containing block for
@@ -4153,7 +4162,7 @@ function StateRow({ c, st, index, project, scenes, props, drafts, baseGenUrl, on
         scenes.map(s=>React.createElement("option",{key:s.id,value:s.id},"Sc "+s.no+" \u00b7 "+s.title)))));
 }
 
-function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, onUpdate, onDraft, drafting, onView, onSuggestStates, suggestingStates, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, batchActiveId, onBatchDone, onDelete }){
+function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voiceOpen, onOpenVoice, onCloseVoice, onUpdate, onDraft, drafting, onView, onSuggestStates, suggestingStates, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, batchActiveId, onBatchDone, onDelete }){
   const drivenScenes = scenes.filter(s=>s.driver===c.id);
   const driven = drivenScenes.length;
   // ALL scenes this character appears in (drives OR is named in the script/summary), not
@@ -4184,8 +4193,9 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, onUpd
   const ownedProps = (props||[]).filter(p=>p.ownerId===c.id);
   /* CUSTODY handovers TO this character (canonical owner is someone else) — informational
      chips only; the prop's card, sheets and style anchor stay with its owner. */
-  const custodyProps = (props||[]).filter(p=> p && p.ownerId && p.ownerId!==c.id
-    && Array.isArray(p.custody) && p.custody.some(e=>e && e.charId===c.id));
+  const handoversTo = (p)=> (typeof propHandoverEvents==="function" ? propHandoverEvents(p, scenes) : [])
+    .filter(e=> e.holderId===c.id);
+  const custodyProps = (props||[]).filter(p=> p && p.ownerId && p.ownerId!==c.id && handoversTo(p).length);
   // Only WORN props become part of the character SHEET (glasses, coat, watch — the
   // permanent look). CARRIED props (phone, gun, pills) are situational, so they're
   // attached at the SHOT level instead, never baked into the neutral turnaround.
@@ -4314,7 +4324,6 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, onUpd
   const [cameoOpen, setCameoOpen] = React.useState(false);
   const [cameoMeta, setCameoMeta] = React.useState(()=> (typeof nbCameoMeta==="function") ? nbCameoMeta(c.id) : null);
   /* voice (locked timbre) — lives on the card now, parallel to Cameo */
-  const [voiceOpen, setVoiceOpen] = React.useState(false);
   const voiceLocked = !!(c.voiceLock && c.voiceLock.voiceId);
   // render-style picker: which visual language the sheet is drawn in (per character). For
   // "surprise" we invent a bespoke style from the bible (once) and cache it on the card.
@@ -4515,7 +4524,7 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, onUpd
     wasGening.current = gen.gening;
   },[batchActiveId, gen.gening, c.id]);
 
-  return React.createElement("div",{className:"sheet-card"+(batchActiveId===c.id?" batch-on":""),"data-char-card":c.id},
+  return React.createElement("div",{className:"sheet-card"+(batchActiveId===c.id?" batch-on":"")+(voiceOpen?" voice-open":""),"data-char-card":c.id},
     React.createElement(SheetFrame,{ gen, slotId:"charref-"+c.id, name:c.name, avatarColor:c.color,
       initials, drafted, drafting, onDraft:()=>onDraft(c), entity:c, onView,
       slotPlaceholder:"Drop reference art", noun:"sheet",
@@ -4537,9 +4546,11 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, onUpd
               onClick:()=>setCameoOpen(true),
               title:cameoMeta?"Likeness locked \u2014 recapture or manage cameo":"Cast a real face \u2014 lock this character's likeness"},
               React.createElement(Icon.userScan,{s:12}), cameoMeta?"Cameo":"Cast"),
-            React.createElement("button",{className:"char-voice-btn"+(voiceLocked?" on":""),
-              onClick:()=>setVoiceOpen(true),
-              title:voiceLocked?("Voice locked: "+((c.voiceLock&&c.voiceLock.voiceName)||"voice")+" \u2014 test or relock"):"Cast a voice \u2014 lock how this character sounds"},
+            React.createElement("button",{className:"char-voice-btn"+(voiceLocked?" on":"")+(voiceOpen?" open":""),type:"button",
+              onClick:()=>onOpenVoice&&onOpenVoice(c.id),
+              "aria-expanded":voiceOpen?"true":"false","aria-controls":"voice-popup-"+String(c.id||"character").replace(/[^A-Za-z0-9_-]/g,"-"),
+              "data-testid":"voice-popup-trigger","data-character-id":c.id,
+              title:voiceOpen?"Voice design is open on this character card":(voiceLocked?("Voice locked: "+((c.voiceLock&&c.voiceLock.voiceName)||"voice")+" \u2014 test or relock"):"Cast a voice \u2014 lock how this character sounds")},
               React.createElement(Icon.mic,{s:12}), "Voice"),
             React.createElement(QaCheckButton,{ gen, name:c.name, noun:"character sheet",
               specFields:()=>({ body:(c.coreBody||""), wardrobe:(c.wardrobeMask||c.wardrobe||""), accessories:(c.accessories||"") }),
@@ -4691,8 +4702,8 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, onUpd
             placeholder:"Recurring objects \u2014 phone, weapon, talisman\u2026",onCommit:val=>onUpdate(c.id,{props:val})})),
         custodyProps.length>0 && React.createElement("div",{className:"linked-prop-list"},
           custodyProps.map(p=>{
-            const e = (p.custody||[]).filter(x=>x && x.charId===c.id).slice(-1)[0];
-            const sc = (scenes||[]).find(s=>s.id===(e&&e.fromSceneId));
+            const e = handoversTo(p).slice(-1)[0];
+            const sc = (scenes||[]).find(s=>s.id===(e&&e.sceneId));
             return React.createElement("div",{key:"cu-"+p.id,className:"linked-prop shot",
               title:"Custody handover \u2014 "+(p.name||"the object")+" passes from "+(p.ownerName||"its owner")+" to "+(c.name||"this character")+(sc&&sc.no!=null?(" at Sc "+sc.no):"")+". Its card and sheets stay anchored to "+(p.ownerName||"the owner")+" in the Props tab."},
               React.createElement(Icon.box,{s:12}),
@@ -4883,9 +4894,9 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, onUpd
             body:"Regenerates the 4-panel character sheet locked to the captured face — the portrait and full-body views will match the real person. You can also do this later with “Apply to sheet”.",
             confirmLabel:"Generate sheet" });
           if(ok && !gen.gening) gen.generate();
-        } }),
-      voiceOpen && window.VoiceModal && React.createElement(window.VoiceModal,{ character:c, project, speaks,
-        onUpdate, onClose:()=>setVoiceOpen(false) })));
+        } })),
+    voiceOpen && window.VoiceModal && React.createElement(window.VoiceModal,{character:c,project,speaks,onUpdate,
+      onClose:()=>onCloseVoice&&onCloseVoice(c.id)}));
 }
 
 function NbKeyBar(){
@@ -5393,6 +5404,22 @@ function ImageLightbox({ url, character, onClose, siblings, startIndex }){
 
 function CharacterSheets({ project, characters, scenes, props, drafts, shots, beatsMap, onUpdate, onDraft, onDraftAll, draftingId, draftingAll, draftingIds, onSuggestStates, suggestingStatesId, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, onDelete, onCast, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly }){
   const [view, setView] = React.useState(null);   // {url, character}
+  // Keep one open flag per character so several card-contained Voice cards can
+  // remain open independently without sharing UI state.
+  const [openVoiceIds, setOpenVoiceIds] = React.useState([]);
+  const openVoice = (id)=>{
+    if(!id) return;
+    setOpenVoiceIds(prev=>prev.indexOf(id)>=0 ? prev : [...prev,id]);
+  };
+  const closeVoice = (id)=>setOpenVoiceIds(prev=>prev.filter(x=>x!==id));
+  const characterIdsKey = (characters||[]).map(c=>c.id).join("|");
+  React.useEffect(()=>{
+    const valid = new Set((characters||[]).map(c=>c.id));
+    setOpenVoiceIds(prev=>{
+      const next=prev.filter(id=>valid.has(id));
+      return next.length===prev.length?prev:next;
+    });
+  },[characterIdsKey]);
   if(window.useRenderStyleVersion) window.useRenderStyleVersion();   // re-render dropdowns when a style is locked/unlocked
   // which characters actually speak (have dialogue) — used to flag the per-card Voice control
   const speakingSet = React.useMemo(()=> (typeof speakingCharIds==="function") ? speakingCharIds(characters, scenes, shots) : new Set(), [characters, scenes, shots]);
@@ -5582,6 +5609,7 @@ function CharacterSheets({ project, characters, scenes, props, drafts, shots, be
     BatchBar && React.createElement(BatchBar,{batch,noun:"character"}),
     React.createElement("div",{className:"sheet-grid"},
       charPager.slice(shown).map(c=>React.createElement(CharacterSheet,{key:c.id,c,project,scenes,props,drafts,cast:characters,speaks:speakingSet.has(c.id),onUpdate,onDraft,
+        voiceOpen:openVoiceIds.indexOf(c.id)>=0,onOpenVoice:openVoice,onCloseVoice:closeVoice,
         drafting:draftingId===c.id||(draftingIds||[]).indexOf(c.id)>=0,onView:(url,ch)=>setView({url,character:ch}),
         batchActiveId,onBatchDone:batch.advance,onDelete:onDelete,
         onSuggestStates,suggestingStates:suggestingStatesId===c.id,onRemoveOwnedItem,onRenameOwnedItem,onDraftProp,onCreateOwnedProp}))),
@@ -5750,9 +5778,9 @@ function ArtComingSoon({ tab }){
 
 function ArtRoom({ artView, setArtView, project, characters, scenes, props, drafts, trash, onRestoreChar, onPurgeChar, onRestoreProp, onPurgeProp, onRestoreLoc, onPurgeLoc, onRestoreShot, onPurgeShot, onEnsureOwner, onUpdateChar, onDraftVisuals, onDraftAllVisuals, draftingVisualId, draftingAllVisuals, draftingVisualIds, onCreateOwnedProp,
   onSuggestStates, suggestingStatesId, onRemoveOwnedItem, onRenameOwnedItem, onDeleteCharacter,
-  onUpdateProp, onDraftProp, onDraftAllProps, onAddProp, onDeleteProp, draftingPropIds, draftingPropId, draftingAllProps, onMergeProps, onSeedFromCast, castHasProps, onTagScenes, taggingScenes, onTagOne, taggingSceneId,
+  onUpdateProp, onDraftProp, onDraftAllProps, onAddProp, onImportProps, onDeleteProp, draftingPropIds, draftingPropId, draftingAllProps, onMergeProps, castHasProps,
   locations, onUpdateLocation, onDraftLocation, onDraftAllLocs, onAddLocation, onDeleteLocation, draftingLocIds, draftingAllLocs, onPullFromScript, scriptHasLocs, onScout, onAssignStyles, assigningStyles, onSetStyleRefs, onSetScenePreset, onAddStyleRefImages, onRemoveStyleRefImage, onDraftStaging, draftingStageId, sluglineUnits, onUpdateUnit, onRemoveUnit,
-  shots, beatsMap, onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onRemoveMicroBeatShots, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onDirectScene, onColorist, onShoot, onCast, onPropsMaster,
+  shots, beatsMap, onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onRemoveMicroBeatShots, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onDirectScene, onColorist, onShoot, onCast,
   lookbook, lookbookNote, onUpdateLookbook, onAddLookbook, onDeleteLookbook, onSetLookbookNote, onResearch, onClearLookbook,
   staleTabs, onApplyLookbook, onSourceClick, canReview=false, onReviewLookbook, readOnly=false }){
   const _stale = staleTabs || {};
@@ -5803,6 +5831,8 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
     // fixed engine dock — Model / Aspect / Resolution, always reachable while
     // scrolling at every viewport
     React.createElement(NbDock,null),
+    window.BlenderStudioHost&&React.createElement(window.BlenderStudioHost,{key:"studio-"+projId,
+      locations,characters,props,scenes,drafts,sluglineUnits,readOnly}),
     // (pre-production readiness strip removed — user ruling 2026-07-19)
     artView==="lookbook" && LookbookView
       ? React.createElement(LookbookView,{project,lookbook,note:lookbookNote,
@@ -5817,9 +5847,9 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
           onApplyLookbookDraftOnly:()=>onApplyLookbook&&onApplyLookbook("characters","draft")})
     : artView==="props" && PropSheets
       ? React.createElement(PropSheets,{project,props,characters,scenes,drafts,onSourceClick,onUpdate:onUpdateProp,onDraft:onDraftProp,
-          onDraftAll:onDraftAllProps,onAdd:onAddProp,onDelete:onDeleteProp,draftingId:draftingPropId,draftingIds:draftingPropIds,draftingAll:draftingAllProps,
+          onDraftAll:onDraftAllProps,onAdd:onAddProp,onImportProps,onDelete:onDeleteProp,draftingId:draftingPropId,draftingIds:draftingPropIds,draftingAll:draftingAllProps,
           trashItems:(trash&&trash.props)||[],onRestore:onRestoreProp,onPurge:onPurgeProp,onEnsureOwner,
-          onSeedFromCast,castHasProps,onTagScenes,taggingScenes,onTagOne,taggingSceneId,onMergeProps,onPropsMaster,
+          castHasProps,onMergeProps,
           lookbookStale:!!_stale.props,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("props"),
           onApplyLookbookDraftOnly:()=>onApplyLookbook&&onApplyLookbook("props","draft")})
     : artView==="locations" && LocationSheets

@@ -301,18 +301,25 @@ function StyleRefsField({ value, onCommit, onAssign, assigning, assignDisabled, 
 function InfoTip({ text, label }){
   const [open, setOpen] = React.useState(false);
   const [hover, setHover] = React.useState(false);
+  const [focused, setFocused] = React.useState(false);
+  const [dismissed, setDismissed] = React.useState(false);
   const ref = React.useRef(null);
+  const tipId = "infotip-"+React.useId().replace(/:/g,"");
   React.useEffect(()=>{ if(!open) return;
     const close=(e)=>{ if(ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener("mousedown", close); return ()=>document.removeEventListener("mousedown", close); },[open]);
-  const show = open || hover;
+    document.addEventListener("pointerdown", close); return ()=>document.removeEventListener("pointerdown", close); },[open]);
+  const show = !dismissed && (open || hover || focused);
   return React.createElement("span",{className:"infotip",ref:ref,
-    onMouseEnter:()=>setHover(true), onMouseLeave:()=>setHover(false)},
+    onMouseEnter:()=>{ setDismissed(false); setHover(true); }, onMouseLeave:()=>setHover(false)},
     React.createElement("button",{type:"button",className:"infotip-btn"+(show?" on":""),
       "aria-label":label||"More information","aria-expanded":show?"true":"false",
-      onClick:(e)=>{ e.stopPropagation(); setOpen(o=>!o); }},
+      "aria-controls":tipId,"aria-describedby":show?tipId:undefined,
+      onFocus:()=>{ setDismissed(false); setFocused(true); },
+      onBlur:()=>{ setFocused(false); setDismissed(false); },
+      onKeyDown:(e)=>{ if(e.key==="Escape"){ e.stopPropagation(); setOpen(false); setHover(false); setDismissed(true); } },
+      onClick:(e)=>{ e.stopPropagation(); setDismissed(false); setFocused(false); setOpen(o=>!o); }},
       React.createElement(Icon.info,{s:13})),
-    show && React.createElement("span",{className:"infotip-pop",role:"tooltip"},text));
+    show && React.createElement("span",{className:"infotip-pop",id:tipId,role:"tooltip"},text));
 }
 window.InfoTip = InfoTip;
 

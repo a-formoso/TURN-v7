@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
 const source = readFileSync("app/locations.jsx", "utf8");
-const start = source.indexOf("function _nbLocRunSnapshot()");
+const start = source.indexOf("function _nbLocRunSnapshot(");
 const end = source.indexOf("\n/* coverage audit", start);
 assert.ok(start >= 0 && end > start, "location generation source boundary");
 
@@ -19,6 +19,10 @@ const box = {
   nbEpoch: () => 1, nbWritingSourcesFor: () => [], dispatchEvent: event => events.push(event),
   combinedLocationPrompt: () => "LOCATION", buildSimpleLocationPrompt: () => "SIMPLE",
   locationAssetDependencySnapshot: () => ({}),
+  locationParentReferences: async () => [], locationParentOf: () => null,
+  locationStateReferences: async () => [{url:"master",refId:"location"}],
+  locationReferenceInstructions: () => "",
+  locationSpatialReferences: async () => [], mergeLocationReferences: (...groups) => groups.flat(),
 };
 box.window = box;
 vm.createContext(box);

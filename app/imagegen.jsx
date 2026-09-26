@@ -666,7 +666,19 @@ function nbAdoptVerifiedAsset(id,expectedEpoch,asset){
   return true;
 }
 window.nbAdoptVerifiedAsset=nbAdoptVerifiedAsset;
-function nbUseCloud(projectId, uid){ if(projectId!==_nbProject) _nbEpoch++; _nbBackend="cloud"; _nbProject=projectId; _nbUid=uid; _cloudUrlCache.clear(); _cloudMetaCache.clear(); if(typeof nbResetPrefetchAll==="function") nbResetPrefetchAll(); }
+function nbUseCloud(projectId, uid){
+  const changed=_nbBackend!=="cloud"||projectId!==_nbProject||uid!==_nbUid;
+  if(projectId!==_nbProject) _nbEpoch++;
+  _nbBackend="cloud"; _nbProject=projectId; _nbUid=uid;
+  /* Connection recovery may re-apply the SAME project scope.  Its already verified
+     URLs include assets generated moments earlier; clearing them here made every
+     mounted consumer wait for another whole-project prefetch and briefly (or, on a
+     slow connection, indefinitely) misreport those assets as missing. */
+  if(changed){
+    _cloudUrlCache.clear(); _cloudMetaCache.clear();
+    if(typeof nbResetPrefetchAll==="function") nbResetPrefetchAll();
+  }
+}
 function nbUseLocal(){ if(_nbProject!==null) _nbEpoch++; _nbBackend="local"; _nbProject=null; _nbUid=null; _nbShared=null; _nbSharedIds=null; _cloudUrlCache.clear(); _cloudMetaCache.clear(); if(typeof nbResetPrefetchAll==="function") nbResetPrefetchAll(); }
 
 /* ── SHOW-SCOPED SHARED ASSETS (series) ───────────────────────────────────────
@@ -679,8 +691,12 @@ function nbUseLocal(){ if(_nbProject!==null) _nbEpoch++; _nbBackend="local"; _nb
    generated before the conversion. */
 let _nbShared = null, _nbSharedIds = null;
 function nbUseShared(scopeId, ids){
-  _nbShared = scopeId || null;
-  _nbSharedIds = (scopeId && ids && ids.length) ? ids.slice() : null;
+  const nextScope=scopeId||null;
+  const nextIds=(scopeId&&ids&&ids.length)?ids.slice():null;
+  const sameIds=JSON.stringify(_nbSharedIds||[])===JSON.stringify(nextIds||[]);
+  if(_nbShared===nextScope&&sameIds)return;
+  _nbShared = nextScope;
+  _nbSharedIds = nextIds;
   _cloudUrlCache.clear(); _cloudMetaCache.clear();
   if(typeof nbResetPrefetchAll==="function") nbResetPrefetchAll();
 }
@@ -774,6 +790,16 @@ async function cloudBytesFromCache(id, path){
   }catch(e){}
   return "";
 }
+async function cloudLatestBytesForScope(id,scope){
+  try{
+    const rec=await idbGet(nbCloudKey(id));
+    const parts=String(rec&&rec.path||"").split("/");
+    // turnStoragePath is {uid}/{projectId}/…; validate the project/show scope
+    // before using an entity-id cache because entity ids repeat across films.
+    if(rec&&rec.blob&&parts[1]===String(scope||""))return _setObjUrl(id,rec.blob,rec.path);
+  }catch(e){}
+  return "";
+}
 let _byteQueue = Promise.resolve();   // serialize background caching — never hog bandwidth
 function cloudCacheBytes(id, path, url){
   if(!path || !url || /^blob:/.test(url)) return;
@@ -793,7 +819,13 @@ function cloudCacheBytes(id, path, url){
 async function cloudHydrate(id, r){
   if(!r || !r.url) return "";
   if(r.path){
-    const cached = await cloudBytesFromCache(id, r.path);
+    /* IndexedDB is a performance cache, never an availability gate. A blocked or
+       slow transaction must not hide the already-signed cloud URL (and make Stage
+       call a generated continuity sheet missing/loading forever). */
+    const cached = await Promise.race([
+      cloudBytesFromCache(id,r.path).catch(()=>""),
+      new Promise(resolve=>setTimeout(()=>resolve(""),300))
+    ]);
     if(cached){ _cloudUrlCache.set(id, cached); _cloudMetaCache.set(id, r.meta||null); return cached; }
     cloudCacheBytes(id, r.path, r.url);
   }
@@ -801,21 +833,64 @@ async function cloudHydrate(id, r){
   return r.url;
 }
 
+const _nbCloudLoadPending=new Map();
+async function nbCloudLoadRecord(scope,id,projectId){
+  const one=async target=>{
+    if(typeof window.cloudAssetLoadMany==="function"){
+      const map=await window.cloudAssetLoadMany(target,[id],true);
+      return map&&map[id]||null;
+    }
+    return typeof window.cloudAssetLoad==="function"?await window.cloudAssetLoad(target,id):null;
+  };
+  let r=await one(scope);
+  if((!r||!r.path)&&scope!==projectId)r=await one(projectId);
+  return r;
+}
 async function nbLoadImage(id){
   if(_nbBackend==="cloud"){
     if(_cloudUrlCache.get(id)) return _cloudUrlCache.get(id);
-    // a whole-project prefetch may already be in flight — ride it instead of
-    // stampeding one DB query + one signing call per mounting card
-    if(_prefetchAllPromise && _prefetchAllProj===_nbProject){
-      try{ await _prefetchAllPromise; }catch(e){}
-      if(_cloudUrlCache.get(id)) return _cloudUrlCache.get(id);
-    }
-    if(typeof window.cloudAssetLoad!=="function") return "";
-    const scope = _scopeFor(id);
-    let r = await window.cloudAssetLoad(scope, id);
-    // shared-scope miss → fall back to the episode scope (pre-conversion sheets)
-    if((!r || !r.path) && scope!==_nbProject){ r = await window.cloudAssetLoad(_nbProject, id); }
-    return await cloudHydrate(id, r);
+    const projectAtStart=_nbProject, scopeAtStart=_scopeFor(id);
+    const key=[projectAtStart,scopeAtStart,id].join("|");
+    if(_nbCloudLoadPending.has(key))return _nbCloudLoadPending.get(key);
+    const load=(async()=>{
+      // The bytes written by the last successful cloud commit are a safe offline
+      // fallback once their storage path proves they belong to this exact scope.
+      // This lets a freshly generated sheet survive a slow auth/signing reconnect.
+      const local=await Promise.race([
+        cloudLatestBytesForScope(id,scopeAtStart),
+        new Promise(resolve=>setTimeout(()=>resolve(""),300))
+      ]);
+      if(local){_cloudUrlCache.set(id,local);return local;}
+      /* Prefer the batched prefetch, but never make a card or Stage package wait
+         forever behind it.  A delayed auth refresh, cleanup sweep or signing batch
+         must not strand an individually requested, already-generated sheet in a
+         permanent Loading state. */
+      if(_prefetchAllPromise&&_prefetchAllProj===projectAtStart){
+        try{ await Promise.race([
+          Promise.resolve(_prefetchAllPromise).catch(()=>{}),
+          new Promise(resolve=>setTimeout(resolve,1200))
+        ]); }catch(e){}
+        if(_cloudUrlCache.get(id))return _cloudUrlCache.get(id);
+      }
+      if(typeof window.cloudAssetLoadMany!=="function"&&typeof window.cloudAssetLoad!=="function")return "";
+      let timedOut=false;
+      let r;
+      try{
+        r=await Promise.race([
+          nbCloudLoadRecord(scopeAtStart,id,projectAtStart),
+          new Promise(resolve=>setTimeout(()=>{timedOut=true;resolve(null);},12000))
+        ]);
+      }catch(e){r=null;}
+      if(timedOut)return "";
+      // A project/show switch while the request awaited must not hydrate the new
+      // scope's cache with the old film's identically named entity.
+      if(projectAtStart!==_nbProject||scopeAtStart!==_scopeFor(id))return "";
+      return await cloudHydrate(id,r);
+    })();
+    _nbCloudLoadPending.set(key,load);
+    const done=()=>{if(_nbCloudLoadPending.get(key)===load)_nbCloudLoadPending.delete(key);};
+    load.then(done,done);
+    return load;
   }
   return localLoadImage(id);
 }

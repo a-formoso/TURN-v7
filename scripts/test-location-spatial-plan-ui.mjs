@@ -1,0 +1,114 @@
+#!/usr/bin/env node
+/* UI-only mocks: no browser state, network, paid calls or saved film changes. */
+import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+import vm from "node:vm";
+
+const noop=()=>{};
+let hooks=[],cursor=0,effects=[],writes=[],aiCalls=0,returned=0;
+const React={
+  createElement:(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity)}),
+  useState:init=>{const i=cursor++;if(!(i in hooks))hooks[i]=typeof init==="function"?init():init;
+    return [hooks[i],v=>hooks[i]=typeof v==="function"?v(hooks[i]):v];},
+  useReducer:(fn,init)=>React.useState(init),
+  useRef:init=>{const i=cursor++;return hooks[i]||(hooks[i]={current:init});},
+  useEffect:(fn,deps)=>{const i=cursor++;if(!hooks[i]||deps.some((d,j)=>d!==hooks[i][j]))effects.push(fn);hooks[i]=deps;}
+};
+const box={console,React,localStorage:{getItem:()=>null},Icon:new Proxy({},{get:()=>noop}),
+  addEventListener:noop,removeEventListener:noop,nbEpoch:()=>1,nbGetMeta:()=>({iso:"v1"})};
+box.window=box;vm.createContext(box);
+vm.runInContext(readFileSync("app/locations.jsx","utf8"),box);
+vm.runInContext(readFileSync("app/locations-ui.jsx","utf8"),box);
+const plan={status:"draft",source:{assetId:"house",iso:"v1"},frame:"From archway toward kitchen",
+  anchors:[{id:"table",space:"Kitchen",name:"Table",placement:"In front of fridge",basis:"observed",evidence:"Both upper panels"}],sightlines:"Open archway",unresolved:"Dimensions unmeasured"};
+const house={id:"house",name:"House",spatialPlan:plan};
+const room={id:"kitchen",name:"Kitchen",parentKey:"house"};house.key="house";
+box.turnContinuity={locations:[house,room]};
+box.aiDraftLocationSpatialPlan=async()=>{aiCalls++;return {...plan,frame:"Candidate frame"};};
+const props={l:room,scenes:[],project:{},onUpdate:(id,patch)=>writes.push({id,patch}),onReturnToImage:()=>returned++};
+const flat=n=>!n||typeof n!=="object"?[]:[n,...n.children.flatMap(flat)];
+const text=n=>n==null||n===false?"":typeof n!=="object"?String(n):n.children.map(text).join("");
+const cls=(tree,name)=>flat(tree).find(n=>(n.props.className||"").split(" ").includes(name));
+const button=(tree,name)=>flat(tree).find(n=>n.type==="button"&&text(n)===name);
+const render=(over={})=>{cursor=0;effects=[];const tree=box.LocationSpatialPlanEditor({...props,...over});effects.forEach(f=>f());return tree;};
+const reset=()=>{hooks=[];writes=[];};
+
+let tree=render();
+assert.equal(tree.props.open,true,"unreviewed layout opens when the outer fold is opened");
+assert.equal(cls(tree,"loc-spatial-assist").props.open,undefined,"paid drafting is collapsed and optional");
+assert.match(text(cls(tree,"loc-spatial-assist")),/Optional/);
+assert.ok(text(tree).indexOf("Confirm shared layout")<text(tree).indexOf("Draft shared layout"));
+assert.equal(flat(tree).filter(n=>n.type==="button"&&text(n)==="Confirm shared layout").length,2);
+assert.equal(button(tree,"Confirm shared layout").props.disabled,false);
+assert.match(text(tree),/Confirmation uses no credits and does not generate an image/);
+assert.equal(writes.length,0);assert.equal(aiCalls,0,"opening never drafts or approves");
+button(tree,"Confirm shared layout").props.onClick();
+assert.equal(writes.length,1);assert.equal(writes[0].id,"house","room review confirms its parent's plan");
+assert.equal(writes[0].patch.spatialPlan.status,"reviewed");assert.equal(aiCalls,0);
+assert.equal(house.spatialPlan.status,"draft","source fixture remains untouched");
+
+reset();tree=render({readOnly:true});
+assert.equal(button(tree,"Confirm shared layout").props.disabled,true);
+assert.equal(flat(tree).find(n=>n.type==="fieldset").props.disabled,true);
+button(tree,"Confirm shared layout").props.onClick();await button(tree,"Draft shared layout").props.onClick();
+assert.equal(writes.length,0);assert.equal(aiCalls,0);
+
+reset();house.spatialPlan={};tree=render();
+assert.match(text(tree),/No layout yet/);
+assert.match(text(tree),/Draft specification writes the location description/);
+assert.match(text(tree),/Uses writing-model credits, not image credits/);
+assert.match(text(tree),/Or enter placements manually/);
+assert.equal(button(tree,"Confirm shared layout"),undefined,"an empty layout offers preparation, not a dead confirm button");
+assert.equal(cls(tree,"loc-spatial-assist"),undefined,"the initial draft action is not hidden in another disclosure");
+assert.ok(flat(cls(tree,"loc-spatial-review")).includes(button(tree,"Draft shared layout")),
+  "empty layouts put the draft action at the top");
+await button(tree,"Draft shared layout").props.onClick();tree=render();
+assert.match(text(tree),/Draft to review/);
+assert.equal(flat(tree).find(n=>n.type==="textarea"&&n.props.value==="Candidate frame").props.value,"Candidate frame");
+assert.equal(flat(tree).find(n=>n.type==="textarea"&&n.props.value==="In front of fridge").props.value,"In front of fridge",
+  "drafting fills object placements as well as the viewing direction");
+assert.equal(button(tree,"Confirm shared layout").props.disabled,false);
+assert.equal(writes.length,0,"filling draft fields does not silently confirm or save geometry");
+
+reset();tree=render({readOnly:true});
+assert.equal(button(tree,"Draft shared layout").props.disabled,true);
+const readOnlyCalls=aiCalls;
+await button(tree,"Draft shared layout").props.onClick();
+assert.equal(aiCalls,readOnlyCalls,"empty-state action also enforces read-only access");
+
+reset();house.spatialPlan={frame:"Facing the window"};tree=render();
+assert.match(text(tree),/Placements incomplete/);
+assert.match(text(tree),/Each object needs a room, name and fixed placement/);
+assert.equal(button(tree,"Confirm shared layout").props.disabled,true);
+
+reset();house.spatialPlan={...plan,status:"reviewed"};tree=render();
+assert.equal(tree.props.open,false);assert.equal(button(tree,"Confirm shared layout"),undefined);
+button(tree,"Back to image").props.onClick();assert.equal(returned,1);assert.equal(writes.length,0);
+let focused=0;
+tree.children[0].props.ref.current={focus:()=>focused++};
+render({reviewRequest:1});tree=render({reviewRequest:1});
+assert.equal(tree.props.open,true);assert.equal(focused,1,"review navigation reopens and focuses the section");
+
+reset();house.spatialPlan={...plan,status:"reviewed",source:{assetId:"house",iso:"old"}};tree=render();
+assert.equal(tree.props.open,true);assert.match(text(tree),/parent image changed/);
+
+reset();house.spatialPlan=plan;tree=render();const beforeDraft=aiCalls;
+await button(tree,"Draft shared layout").props.onClick();tree=render();
+assert.equal(aiCalls,beforeDraft+1);assert.equal(writes.length,0);assert.match(text(tree),/Draft to review/);
+assert.match(text(tree),/saved layout is unchanged until you confirm/);
+button(tree,"Discard draft").props.onClick();tree=render();
+assert.equal(button(tree,"Discard draft"),undefined);assert.equal(writes.length,0);
+await button(tree,"Draft shared layout").props.onClick();tree=render();
+button(tree,"Confirm shared layout").props.onClick();
+assert.equal(writes[0].patch.spatialPlan.frame,"Candidate frame");
+
+reset();house.spatialPlan={};box.aiDraftLocationSpatialPlan=async()=>{throw new Error("Reference image could not be read");};
+tree=render();await button(tree,"Draft shared layout").props.onClick();tree=render();
+assert.match(text(flat(tree).find(n=>n.props.role==="alert")),/Reference image could not be read/);
+assert.equal(button(tree,"Draft shared layout").props.disabled,false,"a failed draft leaves a usable retry action");
+assert.equal(writes.length,0);
+
+reset();tree=box.LocationSpatialAnchorEditor({anchor:plan.anchors[0],onRemove:noop});
+assert.equal(tree.props.open,false);assert.match(text(tree.children[0]),/In front of fridge/,
+  "collapsed object exposes placement, not just its name");
+console.log("PASS shared-layout review hierarchy, empty/ready/stale/read-only states, parent ownership, optional draft/discard, navigation focus and readable placements");

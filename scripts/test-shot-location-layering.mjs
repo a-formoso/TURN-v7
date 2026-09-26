@@ -22,18 +22,16 @@ async function inspectLayout(c,expected){
     const hit=document.elementFromPoint(ir.left+ir.width/2,ir.top+ir.height/2);
     return {
       id:card.dataset.shotCard,
-      cardCenter:(cr.left+cr.right)/2,
-      panelCenter:(pr.left+pr.right)/2,
       cardLeft:cr.left,cardRight:cr.right,panelLeft:pr.left,panelRight:pr.right,
-      panelTop:pr.top,summaryBottom:sr.bottom,
+      panelTop:pr.top,summaryBottom:sr.bottom,summaryRight:sr.right,
       panelHit:!!hit?.closest('.shot-location-picker-panel'),
       hitCard:hit?.closest('.sheet-card')?.dataset.shotCard||null,
     };
   }))()`);
   assert.equal(rows.length,expected,"every open picker should have one measurable panel");
   for(const row of rows){
-    assert.ok(Math.abs(row.panelCenter-row.cardCenter)<1,
-      `${row.id} panel center ${row.panelCenter} must track card center ${row.cardCenter}`);
+    assert.ok(Math.abs(row.panelRight-row.summaryRight)<1,
+      `${row.id} panel right ${row.panelRight} must align with summary right ${row.summaryRight}`);
     assert.ok(row.panelLeft>=row.cardLeft+8,
       `${row.id} panel must stay inset from the card's left edge`);
     assert.ok(row.panelRight<=row.cardRight-8,

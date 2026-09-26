@@ -10,7 +10,7 @@ function characterArc(charId, scenes){
   if(driven.length){
     from = driven[0].openCharge;
     to = driven[driven.length-1].closeCharge;
-    turned = Math.sign(from)!==Math.sign(to) || Math.abs(to-from)>=2;
+    turned = (typeof chargeTurn==="function") ? chargeTurn(from, to).turned : Math.sign(from)*Math.sign(to) < 0;
   }
   return { driven, turned, from, to };
 }
@@ -170,7 +170,26 @@ function CharacterPanel({ character, scenes, drafts, cast, onUpdate, onDraft, dr
             React.createElement(EditText,{value:voiceDNA[field]||"",readOnly,multiline:true,placeholder,
               onCommit:v=>setVoice(field,v)})))),
 
-      // ARC (derived)
+      // ARC — the authored arc and where it stands in each act (the scene writer reads the
+      // driver's stage for the scene's act), then the derived evidence from the spine
+      React.createElement("div",{className:"insp-block"},
+        React.createElement("div",{className:"insp-block-head"},
+          React.createElement("span",{className:"eyebrow"},React.createElement(Icon.graph,{s:12}),"Arc")),
+        React.createElement("div",{className:"char-field"},
+          React.createElement("div",{className:"obj-lab"},"Inner arc"),
+          React.createElement(EditText,{value:c.arc||"",readOnly,placeholder:"e.g. Doubt \u2192 belief \u2192 self-realization",
+            onCommit:v=>onUpdate(c.id,{arc:v})})),
+        (()=>{
+          const acts = (typeof frameworkOf==="function") ? frameworkOf(window.turnProject).acts : {1:"Act I",2:"Act II",3:"Act III"};
+          const stages = (c.arcStages && typeof c.arcStages==="object") ? c.arcStages : {};
+          return React.createElement("div",{className:"char-field"},
+            React.createElement("div",{className:"obj-lab",title:"Where their inner arc stands in each act. Scenes they drive are written with the stage for that scene's act."},"Arc by act"),
+            Object.keys(acts).map(k=>React.createElement("div",{key:k,className:"char-arc-stage"},
+              React.createElement("span",{className:"char-arc-stage-act"},acts[k]),
+              React.createElement(EditText,{value:stages[k]||"",readOnly,multiline:true,
+                placeholder:k==="1"?"The mask they wear\u2026":"Where it cracks \u2014 or the choice that shows who they are\u2026",
+                onCommit:v=>onUpdate(c.id,{arcStages:{...stages,[k]:v}})}))));
+        })()),
       React.createElement("div",{className:"insp-block"},
         React.createElement("div",{className:"insp-block-head"},
           React.createElement("span",{className:"eyebrow"},React.createElement(Icon.graph,{s:12}),"Arc \u00b7 derived from the spine"),

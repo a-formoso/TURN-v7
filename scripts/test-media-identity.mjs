@@ -294,12 +294,14 @@ function voiceBox() {
   const box = makeSandbox();
   box.TURN_SUPABASE = { imageProxy: true, imageProxyFn: "fake-voice-proxy" };
   box._voiceCalls = 0;
+  box._voiceBodies = [];
   box.sbClient = () => ({
     functions: {
       invoke: async (_fn, request) => {
         box._voiceCalls++;
         const body = request.body || {};
-        if (body.op === "tts") return { data: { audioB64: "AA==", mime: "audio/mpeg", durationMs: 200 }, error: null };
+        box._voiceBodies.push(body);
+        if (body.op === "tts") return { data: { audioB64: "AA==", mime: "audio/mpeg", durationMs: 200, via: "fal" }, error: null };
         if (body.op === "design") return { data: { previews: [{ generatedVoiceId: "generated-1", audioB64: "AA==" }] }, error: null };
         if (body.op === "saveVoice") return { data: { voiceId: "saved-1", name: "Saved" }, error: null };
         if (body.op === "listVoices") return { data: { voices: [{ voiceId: "library-1", name: "Library" }] }, error: null };
@@ -366,6 +368,83 @@ async function voiceTests() {
     await box.elCloneVoice(["data:audio/wav;base64,AA=="], { ...o, name: "Clean", description: "Voice" });
     await box.elGenerate("line", "Hello", o);
     assert.equal(box._voiceCalls, 5);
+  });
+
+  await check("Voice Design locks a permanent ElevenLabs voice before rendering the named canonical master", async () => {
+    const box = voiceBox();
+    const character = { ...clean, name: "MARCUS TILLMON" };
+    const context = { characterIds: [character.id], cast: [character], scenes: [], drafts: {} };
+    const identity = { identityLive: true, identityEpoch: 0, identityCharacter: character,
+      identityCharacterIds: [character.id], identityCast: [character], identityContext: context };
+    box.turnIdentityContext = context;
+    const phrase = "That quick beige fox jumped in the air over each thin dog. Look out, I shout, for he's foiled you again, creating chaos";
+    assert.equal(box.VG_VOICE_MASTER_TEXT, phrase);
+    assert.equal(box.vgVoiceMasterFileName(character.name), "MARCUS_TILLMON_voice.mp3");
+    assert.equal(box.vgVoiceMasterFileName("  Marcus / O'Neil  "), "Marcus_ONeil_voice.mp3");
+
+    const previews = await box.elDesignVoice("A warm, expressive original voice", { ...identity, text: phrase, seed: 42 });
+    const saved = await box.elSaveVoice(previews[0].generatedVoiceId, { ...identity, name: character.name, description: "Original voice" });
+    const lock = { voiceId: saved.voiceId, voiceName: saved.name, source: "designed",
+      modelId: "eleven_v3", modelChosen: true, revision: "master-v1",
+      defaults: { stability: 0.7, similarity: 0.75, style: 0.1, speed: 1, speakerBoost: true },
+      identityRevision: character.identityRevision, identityPronouns: character.pronouns };
+    const rendered = await box.elGenerateVoiceMaster(character, lock, { ...identity, projectId: "film-a" });
+    assert.deepEqual(box._voiceBodies.map(x => x.op), ["design", "saveVoice", "tts"]);
+    assert.equal(box._voiceBodies[0].text, phrase);
+    assert.equal(box._voiceBodies[1].generatedVoiceId, "generated-1");
+    assert.equal(box._voiceBodies[2].voiceId, "saved-1");
+    assert.equal(box._voiceBodies[2].text, phrase);
+    assert.equal(rendered.assetId, "voice-master-clean");
+    assert.equal(rendered.fileName, "MARCUS_TILLMON_voice.mp3");
+    assert.equal(rendered.assetRole, "character_voice_master");
+    assert.equal(rendered.characterId, character.id);
+    assert.equal(rendered.projectId, "film-a");
+    assert.equal(box.vgVoiceMasterStatus(lock, rendered.audioUrl, rendered, "film-a").ready, true);
+    assert.equal(box.vgGetAudio(rendered.assetId, "film-b"), "");
+
+    const calls = box._voiceCalls;
+    const cached = await box.elGenerateVoiceMaster(character, lock, { ...identity, projectId: "film-a" });
+    assert.equal(cached.cached, true);
+    assert.equal(box._voiceCalls, calls);
+    const relocked = { ...lock, voiceId: "saved-2", revision: "master-v2" };
+    await box.elGenerateVoiceMaster(character, relocked, { ...identity, projectId: "film-a" });
+    assert.equal(box._voiceCalls, calls + 1);
+    assert.equal(box._voiceBodies.at(-1).voiceId, "saved-2");
+  });
+
+  await check("canonical voice masters pin model/settings and line readiness requires matching bytes + lineage", async () => {
+    const box = voiceBox();
+    const lock = {
+      voiceId: "voice-1", modelId: "eleven_multilingual_v2", modelChosen: false,
+      revision: "voice-v2", defaults: { stability: 0.6, similarity: 0.8, style: 0.05, speed: 1, speakerBoost: true },
+      identityRevision: clean.identityRevision, identityPronouns: clean.pronouns,
+    };
+    assert.equal(box.vgDeliveryModelOf(lock), "eleven_multilingual_v2");
+    const context = { characterIds: [clean.id], cast: [clean], scenes: [], drafts: {} };
+    box.turnIdentityContext = context;
+    const rendered = await box.elGenerate("line-provenance", "Hello", {
+      voiceId: lock.voiceId, settings: lock.defaults, modelId: box.vgDeliveryModelOf(lock),
+      voiceLock: lock, force: true, projectId: "film-a",
+      identityLive: true, identityEpoch: 0, identityCharacter: clean,
+      identityCharacterIds: [clean.id], identityCast: [clean], identityContext: context,
+    });
+    const expectedHash = box.vgHash("Hello", lock.voiceId, {
+      ...box.vgResolvedSettings(lock), modelId: "eleven_multilingual_v2",
+    });
+    assert.equal(rendered.hash, expectedHash);
+    assert.equal(rendered.voiceSignature, box.vgVoiceLockSignature(lock));
+    assert.equal(rendered.provider, "fal");
+    assert.equal(rendered.projectId, "film-a");
+    const lineAudio = {
+      durationMs: rendered.durationMs, text: "Hello", voiceId: lock.voiceId,
+      voiceRevision: lock.revision, voiceSignature: rendered.voiceSignature,
+      modelId: rendered.modelId, settings: rendered.settings, hash: rendered.hash, projectId: "film-a",
+    };
+    assert.equal(box.vgLineAudioStatus(lineAudio, lock, "Hello", rendered.audioUrl, "film-a", rendered).ready, true);
+    assert.equal(box.vgLineAudioStatus(lineAudio, lock, "Hello", "", "film-a", rendered).state, "missing-bytes");
+    assert.equal(box.vgLineAudioStatus(lineAudio, {...lock, voiceId:"voice-2"}, "Hello", rendered.audioUrl, "film-a", rendered).state, "stale-voice");
+    assert.equal(box.vgLineAudioStatus(lineAudio, lock, "Hello", rendered.audioUrl, "film-b", rendered).state, "wrong-project");
+    assert.equal(box.vgLineAudioStatus(lineAudio, lock, "Hello", rendered.audioUrl, "film-a", {...rendered,hash:"other"}).state, "stale-bytes");
   });
 }
 
@@ -445,9 +524,67 @@ async function sourceCoverageTests() {
     const voiceUi = source("app/voices-ui.jsx");
     const voice = source("app/voicegen.jsx");
     assert.match(voiceUi, /identityRevision/);
-    assert.match(voiceUi, /voiceLock:lock/);
+    assert.match(voiceUi, /elGenerateVoiceMaster\(c,voiceLock/);
     for (const marker of ["voice-design-start", "voice-save-start", "voice-list-start", "voice-clone-start", "voice-before-submit"])
       assert.match(voice, new RegExp(marker));
+  });
+  await check("production voice flow uses exact speaker evidence, repeatable auditions and Seedance vocal identity roles", async () => {
+    const app = source("app/app.jsx");
+    const voiceUi = source("app/voices-ui.jsx");
+    const stage = source("app/stage.jsx");
+    const brief = source("app/stage-director-brief.js");
+    assert.match(app, /voiceLock:spk\.voiceLock/);
+    assert.match(app, /visual cast is never used to guess a voice/i);
+    assert.doesNotMatch(app.slice(app.indexOf("const resolveLineSpeaker"), app.indexOf("const voiceOneLine")), /inFrameCast/);
+    assert.match(voiceUi, /VC_AUDITION_TEXT/);
+    assert.match(voiceUi, /text:VC_AUDITION_TEXT,seed:vcStableSeed/);
+    assert.match(voiceUi, /Generate voice file/);
+    assert.match(voiceUi, /Download/);
+    assert.match(voiceUi, /sample phrase is never substituted for a line/i);
+    assert.match(voiceUi, /specSnapshot/);
+    assert.match(app, /assetRole:"dialogue_line"/);
+    assert.match(app, /voiceMasterAssetId,voiceMasterFileName/);
+    assert.match(stage, /authoritative voice-performance reference for this exact line only/);
+    assert.match(stage, /timbre, vocal age and register, tone, accent or dialect, cadence, pacing, emphasis, breath and delivery/);
+    assert.match(brief, /authoritative exact-line voice performance/);
+  });
+  await check("multiple Voice cards stay independently open inside their character cards", async () => {
+    const art = source("app/artroom.jsx");
+    const voiceUi = source("app/voices-ui.jsx");
+    const styles = source("app/styles.css");
+    const styleBibleUi = source("app/stylebible-ui.jsx");
+    const modal = voiceUi.slice(voiceUi.indexOf("function VoiceModal"));
+    assert.match(art, /openVoiceIds/);
+    assert.match(art, /voiceOpen && window\.VoiceModal/);
+    assert.match(art, /onCloseVoice:closeVoice/);
+    assert.match(art, /"aria-controls":"voice-popup-"/);
+    assert.doesNotMatch(art, /voice-workspace|openVoiceCharacters\.map|Compare another voice/);
+    assert.match(voiceUi, /aria-modal":"false"/);
+    assert.match(voiceUi, /data-testid":"voice-popup"/);
+    assert.match(voiceUi, /data-testid":"voice-card-overlay"/);
+    assert.match(voiceUi, /siblings\.forEach\(el=>\{ el\.setAttribute\("inert",""\)/);
+    assert.match(voiceUi, /panelRef\.current\.focus/);
+    assert.doesNotMatch(modal, /lb-overlay|dt-overlay|voice-workspace/);
+    assert.match(voiceUi, /const \[playingUrl, setPlayingUrl\] = React\.useState\(""\)/);
+    assert.match(voiceUi, /current\.audio\.pause\(\)/);
+    assert.match(voiceUi, /current && current\.url===url/);
+    assert.match(voiceUi, /masterStatus\.ready\?\(isPlaying\(masterAudio\.audioUrl\)\?"Pause":"Play"\)/);
+    assert.match(voiceUi, /"aria-pressed":isPlaying\(p\.audioUrl\)\?"true":"false"/);
+    assert.match(voiceUi, /className:"vc-btn audio-toggle"\+\(masterStatus\.ready\?" playback":""\)/);
+    assert.match(voiceUi, /window\.InfoTip && _vcEl\(window\.InfoTip/);
+    assert.match(voiceUi, /label:"How the voice master is used"/);
+    assert.doesNotMatch(voiceUi, /className:"vc-master-foot"/);
+    assert.doesNotMatch(voiceUi, /_vcAudioByOwner|vcStopOwner/);
+    assert.doesNotMatch(voiceUi, /A\/B auditions|comparison window|voice-workspace/);
+    assert.match(styles, /\.sheet-card\.voice-open\{position:relative;isolation:isolate;content-visibility:visible\}/);
+    assert.match(styles, /\.voice-card-overlay\{position:absolute;inset:0[\s\S]*?align-items:center;justify-content:center;padding:20px/);
+    assert.match(styles, /@media \(max-width:760px\)[\s\S]*?\.voice-card-overlay\{padding:10px\}/);
+    assert.match(styles, /\.vc-btn\.audio-toggle\.playback\{width:82px;flex:0 0 82px/);
+    assert.match(styles, /\.vc-master-tools \.infotip-pop\{left:auto;right:0;width:min\(280px,calc\(100vw - 56px\)\)/);
+    assert.match(styleBibleUi, /const \[focused, setFocused\] = React\.useState\(false\)/);
+    assert.match(styleBibleUi, /"aria-describedby":show\?tipId:undefined/);
+    assert.match(styleBibleUi, /onKeyDown:\(e\)=>\{ if\(e\.key==="Escape"\)/);
+    assert.doesNotMatch(styles, /\.voice-workspace/);
   });
   await check("video payload and recovery preserve identity context", async () => {
     const video = source("app/videogen.jsx");

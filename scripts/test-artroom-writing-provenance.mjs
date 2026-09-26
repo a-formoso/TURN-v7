@@ -16,7 +16,7 @@ const checks = [
   ["character specs are stamped", ai.includes('writingStamp("Character specification")')],
   ["prop specs are stamped", ai.includes('writingStamp("Prop specification")')],
   ["location specs are stamped", ai.includes('writingStamp("Location specification")')],
-  ["location staging is stamped", ai.includes('writingStamp("Staging & composition")')],
+  ["location coverage-view composition is stamped", ai.includes('writingStamp("Coverage view composition")')],
   ["lookbook research is stamped", ai.includes('writingStamp("Lookbook research")')],
   ["style bible is stamped", ai.includes('writingStamp("Style bible")') && app.includes("res.writingProvenance?{writingProvenance")],
   ["appearance states are stamped", ai.includes('writingStamp("Appearance state")')],
