@@ -19,9 +19,9 @@ Automatic Seedance direction uses a structured brief:
 1. **Beat contract** — selected scene, beat/part and actual render duration.
 2. **Active references** — included files with their actual tags, roles and shot assignments.
 3. **Scene and opening state** — canonical setting, first-frame state and physical presence.
-4. **Action and camera plan** — selected screenplay action in order and existing authored coverage.
-5. **Performance** — screenplay reactions and exact delivery parentheticals, where provided.
-6. **Lighting and physical continuity** — approved project look and event-driven changes.
+4. **Action and camera plan** — selected screenplay action in order, existing authored coverage and the render plan's exact time window for every saved shot. Later cuts restate carry-over positions, screen direction, gaze, scale and prop state; a final timing hold sustains the achieved state instead of inventing filler action.
+5. **Performance** — screenplay reactions and exact delivery parentheticals, where provided. Direction describes visible behavior in pursuit of the authored objective rather than asking for a generic emotion.
+6. **Lighting and physical continuity** — approved project look, event-driven changes and physical weight/contact/follow-through for bodies, cloth and props.
 7. **Dialogue and sound** — exact, ordered utterances, recorded audio bindings, remote voices and messages.
 8. **Ending and continuity locks** — end after the selected coverage, retaining its resulting positions and prop states.
 
@@ -39,12 +39,21 @@ Changing duration or authored look/camera settings refreshes an untouched brief.
 Manual edits survive, with review required when their source changes. Mandatory
 screenplay inputs and render/recovery limits apply to every style as before.
 
+The automatic brief declares each included reference role once. Stage does not
+append a second copy of the same scope or reference block at submission; manually
+edited and older named-style prompts still receive the hard boundary guards. The
+primary prompt remains editable up to 12,000 characters, so touching a long
+screenplay-backed brief cannot silently cut it down to the old 1,999-character UI
+limit.
+
 ## What reaches the video generator
 
-Every screenplay page is attached as an actual image reference, not just shown
+Checked screenplay pages are attached as actual image references, not just shown
 in the composer. These PNGs are rendered locally from the current canonical
-screenplay, not invented by an image model. Each page counts toward the selected
-model's image and total input limits. They are required and cannot be toggled off.
+screenplay, not invented by an image model. Each checked page counts toward the
+selected model's image and total input limits. Page chips can be unchecked and
+checked again; canonical screenplay text remains binding even when no page image
+is attached.
 
 The complete scene is also appended to the submitted prompt as labeled source
 text. Pages and text are reading context—not a composition reference or a

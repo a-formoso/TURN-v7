@@ -16,6 +16,24 @@
       &&text(a&&a.delivery)===text(b&&b.delivery);
   };
   const section=(name,lines)=>{const body=lines.filter(Boolean);return body.length?name+"\n"+body.join("\n"):"";};
+  const seconds=v=>{
+    const n=Math.round((Number(v)||0)*10)/10;
+    return String(n);
+  };
+  const fallbackPlan=(list,duration)=>{
+    const raw=list.map(sh=>Math.max(.5,Number(sh&&sh.dur)||2));
+    const sum=raw.reduce((n,v)=>n+v,0);
+    const total=Math.max(Number(duration)||0,sum);
+    let clock=0;
+    return {durationSec:total,units:list.map((sh,i)=>{
+      const start=clock;
+      const own=raw[i];
+      clock+=own;
+      const last=i===list.length-1;
+      const end=last?total:clock;
+      return {shotId:sh.id,start,end,holdSec:last?Math.max(0,total-sum):0};
+    })};
+  };
 
   function seedanceDirectorBrief(clip,shots,activeShot,audioRefsOn,audioIncluded,refs,opts){
     opts=opts||{}; refs=refs||{};
@@ -25,8 +43,11 @@
     const panels=d.panelLines||[],scripts=d.beatScripts||{};
     const opening=list.some(sh=>sh.keyframeMode==="beat-opening");
     const continuous=list.length===1;
-    const duration=Number(opts.durationSec)||Number(d.dur)||0;
+    const suppliedPlan=opts.renderPlan&&Array.isArray(opts.renderPlan.units)?opts.renderPlan:null;
+    const duration=Number(opts.durationSec)||Number(suppliedPlan&&suppliedPlan.durationSec)||Number(d.dur)||0;
     const limit=Number(opts.maxSeconds)||0;
+    const timedPlan=suppliedPlan||fallbackPlan(list,duration);
+    const timedByShot=new Map((timedPlan.units||[]).map((u,i)=>[String(u.shotId||((list[i]||{}).id)||i),u]));
     // one shared fact reads once, even when every shot of the clip reports it
     if(d.screenplayDirectionIssues&&d.screenplayDirectionIssues.some(x=>x.blocking))
       return "BLOCKED: "+unique(d.screenplayDirectionIssues.filter(x=>x.blocking).map(x=>text(x.message))).join(" ");
@@ -75,11 +96,19 @@
     const laterNames=(source.physicalCharacterIds||[]).filter(id=>!(source.openingCharacterIds||[]).includes(id)).map(name).filter(Boolean);
     const startAsset=assets.find(a=>a.key==="frame")
       ||assets.find(a=>a.key==="shotframe:"+(first&&first.sh.id));
-    const refsLines=assets.filter(a=>a.kind!=="text").map(a=>{
+    const screenplayAssets=assets.filter(a=>a.kind!=="text"&&a.referenceKind==="screenplay");
+    const refsLines=assets.filter(a=>a.kind!=="text"&&a.referenceKind!=="screenplay").map(a=>{
       const role=typeof stageAssetRole==="function"?stageAssetRole(a,refs):"";
       const assigned=(a.requiredByShots||[]).map(id=>list.findIndex(sh=>sh.id===id)+1).filter(n=>n>0);
       return role+(role&&assigned.length?" Assigned to Shot "+assigned.join(", ")+".":"");
     }).filter(Boolean);
+    if(screenplayAssets.length){
+      const tags=screenplayAssets.map(token).filter(Boolean);
+      const pages=screenplayAssets.map(a=>Number(a.page)).filter(n=>n>0).sort((a,b)=>a-b);
+      refsLines.push(tags.join(", ")+" are screenplay page image"
+        +(tags.length===1?"":"s")+(pages.length?" "+pages.join(", "):"")
+        +". Read them only as writing context for the selected coverage; never photograph or animate the pages, text, highlights or borders, or use them as framing or identity references.");
+    }
     if(!refsLines.length){
       (d.cast||[]).forEach(c=>{
         const tag=typeof refs.character==="function"?refs.character(c):"";
@@ -167,25 +196,31 @@
       const cameraSettings=text(u.p.cameraSettings)
         ||(typeof root.shotCameraSettingsClause==="function"
           ?text(root.shotCameraSettingsClause(u.sh)).replace(/^Advanced camera settings\s*—\s*/i,""):"");
-      return [(continuous?"SHOT ":"CUT ")+(u.i+1)+" · Beat "+(u.sh.beatN||"unassigned"),
+      const timing=timedByShot.get(String(u.sh.id));
+      const window=timing?(" · "+seconds(timing.start)+"–"+seconds(timing.end)+"s"):"";
+      return [(continuous?"SHOT ":"CUT ")+(u.i+1)+window+" · Beat "+(u.sh.beatN||"unassigned"),
         action,
         (beatLevel||(u.actions.length&&stagingAdds))&&staging?"Staging: "+staging:"",
+        !continuous&&u.i>0?"Carry-over: preserve prior positions, screen direction, gaze targets, relative scale and prop state; nothing resets or teleports.":"",
         camera?"Camera: "+camera:"",
         text(u.p.composition)?"Composition: "+u.p.composition:"",
         text(u.p.purpose)?"Intent: "+u.p.purpose:"",
         text(u.p.directives)?"Director's notes (binding): "+u.p.directives:"",
         cameraSettings?"Advanced camera settings: "+cameraSettings:""].filter(Boolean).join("\n");
     });
+    const holdUnit=(timedPlan.units||[]).find(u=>Number(u.holdSec)>0);
+    const holdStart=holdUnit?Math.max(Number(holdUnit.start)||0,(Number(holdUnit.end)||0)-Number(holdUnit.holdSec||0)):0;
     const action=section("ACTION AND CAMERA PLAN",[
       continuous?"One continuous shot. No invented cuts, inserts, montage or extra keyframes."
         :"Use the following authored shot sequence. Cut only between its listed setups; do not invent additional coverage.",
       opening&&!continuous?"Each beat-opening unit is continuous within its own authored shot; no inserts or montage inside it.":"",
       ...beatBlocks,
       ...actionRows,
+      holdUnit?"FINAL HOLD · "+seconds(holdStart)+"–"+seconds(holdUnit.end)+"s — sustain the resulting pose, gaze, prop state and diegetic ambience; do not invent new action.":"",
       dialogue.some(x=>!x.unit)?"Unassigned clip-level dialogue follows the screenplay's action/line order; do not invent shot or audio associations for it.":""
     ]);
     const performance=section("PERFORMANCE",[
-      "Play the observable actions, reactions and delivery specified by the screenplay. Preserve authored pauses and changes of attention without adding emotional business.",
+      "Play objectives through observable behavior, never generic emotion labels. Preserve authored pauses and changes through gaze, posture, breath, tempo and hand activity; keep eyes naturally alive without adding unrequested business.",
       ...unique(dialogue.map(x=>x.parenthetical
         ?x.label+" · "+speaker(x.row)+": "+x.parenthetical:""))
     ]);
@@ -194,7 +229,8 @@
     const lighting=section("LIGHTING AND PHYSICAL CONTINUITY",[
       text(opts.lightingOverride)||(d.preset&&text(d.preset.lighting)),
       d.preset?[text(d.preset.name),text(d.preset.grade)].filter(Boolean).join(" — "):"",
-      "Lighting and physical changes follow the authored events. Preserve object design through motion, pickups and handovers; a reference image is not a requirement to keep an object in the same hands."
+      "Lighting and physical changes follow the authored events. Preserve object design through motion, pickups and handovers; a reference image is not a requirement to keep an object in the same hands.",
+      "Bodies, cloth and props obey gravity, contact, mass, inertia, weight transfer and follow-through. No floating feet, rubbery motion or frictionless movement."
     ]);
     const audio=section("DIALOGUE AND SOUND",[
       ...dialogue.map(x=>{
@@ -210,14 +246,15 @@
           +(isText?" — written/message content only; do not speak it or animate lips. Show it only where the screenplay calls for diegetic text."
             :remote?" — offscreen voice only; never add a body, face or lip-sync."
             :" — exact spoken words; lip-sync only when this speaker is visible.")
-          +(!isText&&audioTag?" Follow "+audioTag+" for this recorded line and its timing.":"");
+          +(!isText&&audioTag?(" Use "+audioTag+" as "+speaker(row)+"'s authoritative exact-line voice performance defined in ACTIVE REFERENCES; follow its recorded words, vocal identity and timing."):"");
       }),
       "Preserve the source order and exact words of every assigned line, including repetitions. Dialogue markers above are directions, never visible text.",
-      "Use only authored diegetic sound and natural ambience. NO background music, NO score. NO subtitles, captions, panel borders or burned-in text overlays."
+      "Build sound from visible physical causes and the authored environment: dialogue, ambience, foley and impacts only when present. NO background music, NO score. NO subtitles, captions, panel borders or burned-in text overlays."
     ]);
     const ending=section("ENDING AND CONTINUITY LOCKS",[
       "End at the final authored action in this selected coverage. Retain the resulting positions, visibility and prop states for the next beat or part; do not reset, replay earlier action or invent an ending.",
       "Preserve assigned identity, appearance and wardrobe references. Do not inherit studio backgrounds, reference-sheet layouts or extra cast. Screenplay pages are never opening frames or compositions.",
+      "Preserve canonical body and object scale plus relative size between subjects; do not normalize different subjects to the same height or proportions.",
       "Do not add unprovided technical measurements or change the approved project look."
     ]);
     return [contract,section("ACTIVE REFERENCES",refsLines),openingState,action,performance,lighting,audio,ending].filter(Boolean).join("\n\n");

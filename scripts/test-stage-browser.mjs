@@ -233,7 +233,12 @@ window.useSeedanceGen=id=>{
     generate:async payload=>{
       window.__fixture.calls.push(["generate",id,payload]);setErr(null);
       if(__fixture.policyRefusal){
-        const error=new Error("policy refusal: character reference rejected");
+        const detail="The images or videos provided may contain likenesses of real people or other private information that cannot be processed.";
+        const error=new Error("The provider rejected this render under its content, safety, or likeness policy. No automatic retry was submitted. Provider detail: "+detail);
+        error.name="ProviderPolicyError";
+        error.providerDetail=detail;
+        error.requestMode=payload&&payload.textOnly?"text-only":"reference";
+        error.inputCounts={images:(payload&&payload.imageUrls||[]).length+(payload&&payload.frameUrl?1:0),videos:(payload&&payload.videoUrls||[]).length,audio:(payload&&payload.audioUrls||[]).length};
         setErr(error);throw error;
       }
       return {url:fakeVideo,seed:4242};
@@ -550,6 +555,31 @@ async function main() {
     assert.equal(await readClipGrouping("initial"),"beat","new Stage defaults to beat grouping");
     await chooseNativePerformance("initial");
 
+    /* The Shoot strip is a scene assembly preview: one stable current-take slot
+       per beat clip.  The fixture starts with a stale current take so both beats
+       remain visible but non-playable; making that current take fresh and
+       unapproved must fill both slots immediately without an approval click. */
+    const initialSceneSlots=await c.eval(`(()=>[...document.querySelectorAll('[data-testid="stage-scene-beat-take"]')].map(x=>({
+      scene:x.dataset.sceneId,clip:x.dataset.clipId,beat:x.dataset.beat,state:x.dataset.state,text:x.textContent.trim()
+    })))()`);
+    assert.equal(initialSceneSlots.length,2,"Shoot shows one stable slot for each scene-one beat clip");
+    assert.deepEqual(initialSceneSlots.map(x=>x.beat),["1","2"],"scene beat slots stay in story order");
+    assert.ok(initialSceneSlots.every(x=>x.scene==="scene-1"&&x.state==="stale"&&/Needs review/.test(x.text)),
+      "stale chosen takes remain visible as Needs review instead of disappearing");
+    await c.eval(`(()=>{__fixture.sceneSlotOriginalMeta={...__takes[0].meta};__takes[0].meta={...__takes[0].meta,fixtureStale:false};delete __takes[0].meta.status;
+      const ids=[...document.querySelectorAll('[data-testid="stage-scene-beat-take"]')].map(x=>x.dataset.clipId);
+      window.dispatchEvent(new CustomEvent("vid-done",{detail:{ids}}));})()`);
+    await waitFor(()=>c.eval(`[...document.querySelectorAll('[data-testid="stage-scene-beat-take"]')].length===2&&[...document.querySelectorAll('[data-testid="stage-scene-beat-take"]')].every(x=>x.dataset.state==="ready"&&/Current/.test(x.textContent)&&!/Approved/.test(x.textContent))`),
+      "fresh unapproved current takes populate the scene strip");
+    await c.eval(`document.querySelector('[data-testid="stage-scene-beat-take"][data-beat="2"]')?.click()`);
+    await waitFor(()=>c.eval(`document.querySelector('[data-testid="stage-scene-beat-take"].on')?.dataset.beat==="2"`),
+      "clicking a scene-strip beat selects its clip");
+    await c.eval(`(()=>{__takes[0].meta=__fixture.sceneSlotOriginalMeta;
+      const first=document.querySelector('[data-testid="stage-scene-beat-take"][data-beat="1"]');const ids=[...document.querySelectorAll('[data-testid="stage-scene-beat-take"]')].map(x=>x.dataset.clipId);
+      window.dispatchEvent(new CustomEvent("vid-done",{detail:{ids}}));first?.click();})()`);
+    await waitFor(()=>c.eval(`document.querySelector('[data-testid="stage-scene-beat-take"].on')?.dataset.beat==="1"`),
+      "scene-strip fixture returns to beat one");
+
     const defaultPrompt=await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent||""`);
     const defaultHeadings=[
       "BEAT CONTRACT","ACTIVE REFERENCES","SCENE AND OPENING STATE",
@@ -559,6 +589,15 @@ async function main() {
       "default Stage prompt uses the approved director-brief headings");
     assert.ok(defaultHeadings.every((h,i)=>i===0||defaultPrompt.indexOf(h)>defaultPrompt.indexOf(defaultHeadings[i-1])),
       "default Stage director-brief headings remain in stable order");
+    assert.match(defaultPrompt,/CUT 1 · 0–4s · Beat 1/,
+      "default Seedance brief carries the first planned shot window");
+    assert.match(defaultPrompt,/CUT 2 · 4–10s · Beat 1/,
+      "default Seedance brief carries the second planned shot window");
+    const promptBudget=await c.eval(`(()=>{const el=document.querySelector(".stage2-gen-prompt[contenteditable]");return {length:(el?.textContent||"").length,max:Number(el?.dataset.maxLength||0)};})()`);
+    assert.ok(promptBudget.max===12000&&promptBudget.length<=promptBudget.max,
+      "automatic prompt is fully editable inside the declared 12,000-character UI ceiling");
+    assert.equal(await c.eval(`document.body.textContent.includes("Acting focus")`),true,
+      "Director settings name the performer selector as Acting focus rather than an emotion preset");
     assert.equal(await c.eval(`typeof window.seedanceDirectorBrief`),"function",
       "browser fixture loads the lazy director-brief helper before Stage");
 
@@ -581,6 +620,10 @@ async function main() {
     }
     const durationPrompt=await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent||""`);
     assert.match(durationPrompt,/\b12(?:\.0)?s\b/,"default director brief receives the actual selected duration");
+    assert.match(durationPrompt,/CUT 2 · 4–12s · Beat 1/,
+      "changing duration recompiles the final cut window");
+    assert.match(durationPrompt,/FINAL HOLD · 10–12s/,
+      "unused duration becomes an explicit final hold instead of invented action");
     assert.notEqual(durationPrompt,defaultDurationPrompt,"an untouched default prompt recompiles for a duration change");
     /*
      * The old Render package / Exact queued render block was an implementation
@@ -614,7 +657,7 @@ async function main() {
       "screenplay image helper returns complete real PNG page provenance");
 
     /*
-     * Screenplay pages are ordinary locked reference cards in the main Stage
+     * Screenplay pages are ordinary toggleable reference cards in the main Stage
      * strip. The former expandable Scene screenplay disclosure is deliberately
      * absent; source text and target provenance are checked through the shared
      * helpers and the launch payload below.
@@ -627,7 +670,7 @@ async function main() {
         cards:cards.map(x=>({
           src:x.querySelector("img")?.src||"",
           tag:x.querySelector(".stage2-gen-asset-tag")?.textContent||"",
-          locked:x.classList.contains("locked")&&!x.classList.contains("off"),
+          included:x.getAttribute("aria-pressed")==="true"&&!x.classList.contains("off"),
           inStrip:x.parentElement?.classList.contains("stage2-gen-assets"),
           inDisclosure:!!x.closest("details")
         }))
@@ -635,7 +678,7 @@ async function main() {
     })()`);
     assert.equal(sceneOneScreenplay.disclosureCount,0,
       "Stage no longer renders the expandable screenplay disclosure");
-    assert.ok(sceneOneScreenplay.images.length>=1,"selected beat exposes required screenplay page cards");
+    assert.ok(sceneOneScreenplay.images.length>=1,"selected beat exposes screenplay page cards");
     assert.ok(sceneOneScreenplay.images.every(x=>x.startsWith("data:image/png")),
       "screenplay page cards use real PNG references");
     const screenplayInput=await c.eval(`(()=>{
@@ -646,7 +689,7 @@ async function main() {
         cards:cards.map(x=>({
           src:x.querySelector("img")?.src||"",
           tag:x.querySelector(".stage2-gen-asset-tag")?.textContent||"",
-          locked:x.classList.contains("locked")&&!x.classList.contains("off"),
+          included:x.getAttribute("aria-pressed")==="true"&&!x.classList.contains("off"),
           inStrip:x.parentElement?.classList.contains("stage2-gen-assets"),
           inDisclosure:!!x.closest("details")
         })),
@@ -657,12 +700,12 @@ async function main() {
       "no screenplay disclosure is mounted beside the reference strip");
     assert.ok(screenplayInput.cards.length>0,"screenplay screenshots are ordinary reference-image cards");
     assert.equal(screenplayInput.cards.length,imageContract.images.length,
-      "every generated screenplay page has one locked strip card");
+      "every generated screenplay page has one strip card");
     assert.deepEqual(screenplayInput.cards.map(x=>x.src),imageContract.images.map(x=>x.url),
       "strip cards retain the exact PNGs returned by the screenplay image helper");
     assert.ok(screenplayInput.cards.every(x=>x.src.startsWith("data:image/png")
-      &&/^@Image\d+$/.test(x.tag)&&x.locked&&x.inStrip&&!x.inDisclosure),
-      "actual page PNGs are locked, tagged image references directly in the main image strip");
+      &&/^@Image\d+$/.test(x.tag)&&x.included&&x.inStrip&&!x.inDisclosure),
+      "actual page PNGs start included as toggleable, tagged references in the main image strip");
     const screenplayCardSources=()=>c.eval(`([...document.querySelectorAll('.stage2-gen-assets [data-reference-kind="screenplay"]')].map(x=>x.querySelector("img")?.src||""))`);
     const screenplayPlacement=await c.eval(`(()=>{
       const page=document.querySelector('.stage2-gen-assets [data-reference-kind="screenplay"]')?.getBoundingClientRect();
@@ -812,10 +855,21 @@ async function main() {
     await new Promise(r=>setTimeout(r,80));
     const screenplayReferenceRow=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
     await writeFile(`${OUT}/stage-screenplay-strip-desktop.png`,Buffer.from(screenplayReferenceRow.data,"base64"));
-    await c.eval(`document.querySelector('.stage2-gen-assets [data-reference-kind="screenplay"]').click()`);
+    const firstScreenplaySelector='.stage2-gen-assets [data-reference-kind="screenplay"]';
+    assert.equal(await c.eval(`document.querySelector(${JSON.stringify(firstScreenplaySelector)})?.getAttribute("aria-pressed")`),"true",
+      "screenplay page starts checked");
+    await c.eval(`document.querySelector(${JSON.stringify(firstScreenplaySelector)})?.click()`);
+    await waitFor(()=>c.eval(`document.querySelector(${JSON.stringify(firstScreenplaySelector)})?.getAttribute("aria-pressed")==="false"`),
+      "screenplay page can be unchecked");
+    assert.ok(await c.eval(`document.querySelector(${JSON.stringify(firstScreenplaySelector)})?.classList.contains("off")`),
+      "unchecked screenplay page is visibly excluded");
+    await c.eval(`document.querySelector(${JSON.stringify(firstScreenplaySelector)})?.click()`);
+    await waitFor(()=>c.eval(`document.querySelector(${JSON.stringify(firstScreenplaySelector)})?.getAttribute("aria-pressed")==="true"`),
+      "screenplay page can be checked again");
+    await c.eval(`document.querySelector('.stage2-gen-assets [data-reference-kind="screenplay"] .stage2-gen-asset-max').click()`);
     await waitFor(()=>c.eval(`!!document.querySelector(".lb-overlay .lb-img")`),"inline screenplay reference opens full page");
     assert.equal(await c.eval(`document.querySelector(".lb-overlay .lb-img").src`),screenplayInput.cards[0].src,
-      "clicking the inline reference previews the exact attached PNG without opening a screenplay disclosure");
+      "the separate maximise control previews the exact attached PNG without opening a screenplay disclosure");
     assert.equal(await c.eval(`document.querySelectorAll('[data-testid="stage-scene-screenplay"],.stage2-screenplay-reference').length`),0);
     await c.eval(`document.querySelector(".lb-overlay button[title='Close'],.lb-overlay .ag-x")?.click()`);
     await waitFor(()=>c.eval(`!document.querySelector(".lb-overlay .lb-img")`),"close inline page preview");
@@ -839,8 +893,8 @@ async function main() {
       await waitFor(()=>c.eval(`document.querySelector(".sd-gen-model.on")?.textContent.includes(${JSON.stringify(unsupportedSingleFrame.label)})`),
         "unsupported single-frame model selection");
       assert.match(await c.eval(`document.querySelector(".stage2-blocker-text")?.textContent||""`),
-        /screenplay screenshot|cannot include/i,
-        "single-start-frame model blocks required screenplay screenshots");
+        /cannot accept screenplay-page images|exclude those optional page references/i,
+        "single-start-frame model explains how to exclude optional screenplay screenshots");
       const beforeSingleFrameBlock=await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`);
       await c.eval(`document.querySelector(".sd-gen-submit")?.click()`);
       await new Promise(r=>setTimeout(r,120));
@@ -848,15 +902,15 @@ async function main() {
         beforeSingleFrameBlock,"unsupported single-frame model makes no provider call");
       assert.equal(await c.eval(`document.querySelectorAll('[data-testid="stage-scene-screenplay"],.stage2-screenplay-reference').length`),0,
         "unsupported model does not reintroduce the removed screenplay disclosure");
-      assert.ok(await c.eval(`document.querySelectorAll('.stage2-gen-assets [data-reference-kind="screenplay"].locked').length>0`),
-        "unsupported model keeps required screenplay page cards in the reference strip");
+      assert.ok(await c.eval(`document.querySelectorAll('.stage2-gen-assets [data-reference-kind="screenplay"][aria-pressed="true"]').length>0`),
+        "unsupported model keeps included screenplay page cards available to toggle");
       await c.eval(`([...document.querySelectorAll(".sd-gen-model")].find(x=>/Seedance 2\\.5/.test(x.textContent)))?.click()`);
       await waitFor(()=>c.eval(`/Seedance 2\\.5/.test(document.querySelector(".sd-gen-model.on")?.textContent||"")`),
         "return to screenshot-capable model");
     }
     for(let i=0;i<screenplayInput.cards.length;i++){
       const expected=screenplayInput.cards[i].src;
-      await c.eval(`document.querySelectorAll('.stage2-gen-assets [data-reference-kind="screenplay"]')[${i}]?.click()`);
+      await c.eval(`document.querySelectorAll('.stage2-gen-assets [data-reference-kind="screenplay"]')[${i}]?.querySelector('.stage2-gen-asset-max')?.click()`);
       await waitFor(()=>c.eval(`!!document.querySelector(".lb-overlay .lb-img")`),
         "screenplay strip page "+(i+1)+" preview");
       assert.equal(await c.eval(`document.querySelector(".lb-overlay .lb-img")?.src`),expected,
@@ -941,7 +995,7 @@ async function main() {
       return JSON.stringify(xs)!==JSON.stringify(__fixture.beatOnePngBefore) ? xs : null;
     })()`),"updated screenplay PNG after source edit");
     assert.notDeepEqual(beatOneImageAfterSourceEdit,beatOneImageBeforeSourceEdit,
-      "editing screenplay source changes the required PNG reference");
+      "editing screenplay source changes the available PNG reference");
     const beatOnePromptAfterNonselectedEdit=await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent||""`);
     assert.match(beatOnePromptAfterNonselectedEdit,/Mara crosses to the brass desk/,"beat-one direction remains ready after a nonselected source edit");
     assert.doesNotMatch(beatOnePromptAfterNonselectedEdit,/newly opened observatory window/,"nonselected beat does not leak into beat-one direction");
@@ -997,14 +1051,14 @@ async function main() {
     await c.eval(`window.__setScene1Beat2Text("Mara carries the letter beneath a red dawn window.")`);
     await waitFor(async()=>((await screenplayCardSources()).length>0),"restore drafted scene screenplay pages");
 
-    /* Read-only shares retain the required page cards but cannot render or mutate them. */
+    /* Read-only shares retain page cards but cannot launch a paid render. */
     const readOnlyScreenplayCalls=await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`);
     await c.eval(`window.__setReadOnly(true)`);
     await waitFor(async()=>((await screenplayCardSources()).length>0),"read-only screenplay page cards");
     assert.equal(await c.eval(`document.querySelectorAll('[data-testid="stage-scene-screenplay"],.stage2-screenplay-reference').length`),0,
       "read-only Stage has no screenplay disclosure");
-    assert.ok(await c.eval(`document.querySelectorAll('.stage2-gen-assets [data-reference-kind="screenplay"].locked').length>0`),
-      "read-only Stage retains locked screenplay page cards");
+    assert.ok(await c.eval(`document.querySelectorAll('.stage2-gen-assets [data-reference-kind="screenplay"][aria-pressed="true"]').length>0`),
+      "read-only Stage retains included screenplay page cards");
     await c.eval(`document.querySelector(".sd-gen-submit")?.click()`);
     await new Promise(r=>setTimeout(r,120));
     assert.equal(await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`),readOnlyScreenplayCalls,"read-only view makes no paid calls");
@@ -1137,8 +1191,10 @@ async function main() {
           count:bar.querySelector(".sdbar-right .sdbar-count")?.textContent.trim()||""};})()`);
       const bar1=await readBar();
       assert.ok(bar1&&bar1.gen,"Generate sits inside the composer bar, on the right");
-      assert.match(bar1.titles[0],/^(Sound|Silent)/,"the Sound chip opens the line");
-      assert.deepEqual(bar1.titles.slice(1),["Duration","Aspect ratio","Resolution","Bitrate"],"Duration, Aspect, Resolution and Bitrate follow it on the same line — no prompt-style pill");
+      assert.deepEqual(bar1.titles.slice(0,4),["Video model","Aspect ratio","Resolution","Duration"],
+        "Model, Aspect ratio, Resolution and Duration open the line in production order");
+      assert.match(bar1.titles[4],/^(Sound|Silent)/,"Sound follows Duration");
+      assert.equal(bar1.titles[5],"Bitrate","Bitrate closes the composer controls");
       assert.ok(Math.abs(bar1.first.t-bar1.last.t)<1&&Math.abs(bar1.first.b-bar1.last.b)<1,"on a wide composer the chips share one line "+JSON.stringify({first:bar1.first,last:bar1.last,bar:bar1.bar}));
       assert.ok(bar1.genRect.l>=bar1.last.r,"Generate is to the right of the last chip");
       /* the chips share Generate's rounded-rectangle shape — no pill (fully round) corners */
@@ -1146,6 +1202,9 @@ async function main() {
         .map(el=>{const cs=getComputedStyle(el);return {c:el.className,radius:parseFloat(cs.borderTopLeftRadius),h:el.getBoundingClientRect().height};})`);
       assert.ok(shapes.length>=6,"chips, badge and Generate are all measured "+JSON.stringify(shapes));
       assert.ok(shapes.every(x=>x.radius>0&&x.radius<=12&&x.radius<x.h/2-2),"every chip is a rounded rectangle like Generate, not a pill "+JSON.stringify(shapes));
+      const controlColours=await c.eval(`(()=>{const bar=document.querySelector(".stage2-gen-composer .sdbar.inline");const pill=bar.querySelector(".sdbar-pill");const sound=bar.querySelector(".sdbar-chip.sound");const read=el=>{const cs=getComputedStyle(el);return {border:cs.borderColor,color:cs.color,background:cs.backgroundColor,opacity:cs.opacity};};return {pill:read(pill),sound:read(sound)};})()`);
+      assert.deepEqual(controlColours.sound,controlColours.pill,
+        "Sound uses the same border, text, background and opacity as the neighboring controls");
       assert.ok(bar1.genRect.h>bar1.last.h&&Math.abs(bar1.genRect.b-bar1.last.b)<2,"Generate stands taller than the chips and shares their baseline");
       assert.match(bar1.count,/\d+ \/ \d+/,"the character count sits with Generate on the right");
       assert.equal(bar1.opts,0,"no stacked option rows remain under the Create Video prompt");
@@ -1170,33 +1229,30 @@ async function main() {
       const bar3=await readBar();
       assert.ok(bar3.genRect.l<=bar3.bar.l+1&&bar3.genRect.r>=bar3.bar.r-1,"on a phone Generate spans the full bar "+JSON.stringify({gen:bar3.genRect,bar:bar3.bar}));
       assert.ok(bar3.genRect.t>=Math.max(...bar3.chips.map(r=>r.b))-0.5,"on a phone Generate sits below the chips");
-      /* the header card keeps its model picker at the right on a phone, level with the title,
-         and its menu opens fully below the card (not clipped by it) inside the viewport */
-      const heroPhone=await c.eval(`(()=>{const hero=document.querySelector(".stage2-gen-composer .stage2-hero");const pill=hero.querySelector(".sdbar-pill.hero");const title=hero.querySelector(".stage2-hero-title");
-        const h=hero.getBoundingClientRect(),p=pill.getBoundingClientRect(),t=title.getBoundingClientRect();
-        return {heroR:h.right,pillR:p.right,pillL:p.left,titleR:t.right,pillT:p.top,pillB:p.bottom,titleT:t.top,titleB:t.bottom,vw:document.documentElement.clientWidth};})()`);
-      assert.ok(heroPhone.heroR-heroPhone.pillR<=20&&heroPhone.pillR<=heroPhone.vw,"on a phone the model picker hugs the card's right edge "+JSON.stringify(heroPhone));
-      assert.ok(heroPhone.pillL>=heroPhone.titleR-0.5&&heroPhone.pillT<heroPhone.titleB&&heroPhone.pillB>heroPhone.titleT,"on a phone the model picker sits beside the title, not under it "+JSON.stringify(heroPhone));
+      /* Model is the first inline production control. Its menu must remain usable at
+         phone and desktop widths after moving it out of the old hero card. */
+      const modelPillJs=`document.querySelector('.stage2-gen-composer .sdbar.inline .sdbar-pill[title="Video model"]')`;
+      const modelPhone=await c.eval(`(()=>{const p=${modelPillJs}.getBoundingClientRect();return {l:p.left,r:p.right,vw:document.documentElement.clientWidth};})()`);
+      assert.ok(modelPhone.l>=0&&modelPhone.r<=modelPhone.vw,"the inline model picker stays inside the phone viewport "+JSON.stringify(modelPhone));
       const checkModelMenu=async (where)=>{
-        await c.eval(`document.querySelector(".stage2-gen-composer .stage2-hero").scrollIntoView({block:"start"})`);
-        await c.eval(`document.querySelector(".stage2-gen-composer .stage2-hero .sdbar-pill.hero").click()`);
-        await waitFor(()=>c.eval(`!!document.querySelector(".stage2-hero-action .sdbar-pop")`),"model menu opens "+where);
-        const m=await c.eval(`(()=>{const pop=document.querySelector(".stage2-hero-action .sdbar-pop");const hero=document.querySelector(".stage2-gen-composer .stage2-hero");
-          const r=pop.getBoundingClientRect(),h=hero.getBoundingClientRect(),pb=hero.querySelector(".sdbar-pill.hero").getBoundingClientRect().bottom;const cx=(r.left+r.right)/2,cy=(r.top+r.bottom)/2;const hit=document.elementFromPoint(cx,cy);
-          return {l:r.left,r:r.right,t:r.top,b:r.bottom,heroB:h.bottom,pillB:pb,vw:document.documentElement.clientWidth,vh:document.documentElement.clientHeight,
+        await c.eval(`document.querySelector(".stage2-gen-composer .stage2-gen-box").scrollIntoView({block:"center"})`);
+        await c.eval(`${modelPillJs}.click()`);
+        await waitFor(()=>c.eval(`!!${modelPillJs}.parentElement.querySelector(".sdbar-pop")`),"model menu opens "+where);
+        const m=await c.eval(`(()=>{const pill=${modelPillJs};const pop=pill.parentElement.querySelector(".sdbar-pop");
+          const r=pop.getBoundingClientRect(),pb=pill.getBoundingClientRect().bottom;const cx=(r.left+r.right)/2,cy=(r.top+r.bottom)/2;const hit=document.elementFromPoint(cx,cy);
+          return {l:r.left,r:r.right,t:r.top,b:r.bottom,pillB:pb,vw:document.documentElement.clientWidth,vh:document.documentElement.clientHeight,
             hitInside:!!(hit&&pop.contains(hit)),options:pop.querySelectorAll(".sdbar-option").length};})()`);
         assert.ok(m.options>=2,"the model menu lists the models "+where+" "+JSON.stringify(m));
-        assert.ok(m.t>=m.pillB&&m.b>m.heroB+40,"the model menu hangs from the picker and reaches well below the header card "+where+" "+JSON.stringify(m));
         assert.ok(m.l>=0&&m.r<=m.vw+0.5&&m.b<=m.vh+0.5,"the model menu stays inside the viewport "+where+" "+JSON.stringify(m));
-        assert.ok(m.hitInside,"the model menu is not clipped by the header card "+where+" "+JSON.stringify(m));
-        await c.eval(`document.querySelector(".stage2-gen-composer .stage2-hero .sdbar-pill.hero").click()`);
-        await waitFor(()=>c.eval(`!document.querySelector(".stage2-hero-action .sdbar-pop")`),"model menu closes "+where);
+        assert.ok(m.hitInside,"the inline model menu is not clipped "+where+" "+JSON.stringify(m));
+        await c.eval(`${modelPillJs}.click()`);
+        await waitFor(()=>c.eval(`!${modelPillJs}.parentElement.querySelector(".sdbar-pop")`),"model menu closes "+where);
       };
       await checkModelMenu("on a phone");
       await c.eval(`document.querySelector(".stage2-gen-composer .stage2-gen-box")?.scrollIntoView({block:"center"})`);
       await new Promise(r=>setTimeout(r,60));
       await writeFile(`${OUT}/stage-composer-bar-mobile-390.png`,Buffer.from((await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false})).data,"base64"));
-      for(const title of ["Duration","Aspect ratio","Resolution","Bitrate"]){
+      for(const title of ["Aspect ratio","Resolution","Duration","Bitrate"]){
         const pillJs=`[...document.querySelectorAll(".sdbar.inline .sdbar-pill")].find(b=>(b.title||"").startsWith(${JSON.stringify(title)}))`;
         await c.eval(`${pillJs}.click()`);
         await waitFor(()=>c.eval(`!!${pillJs}.parentElement.querySelector(".sdbar-pop")`),title+" menu opens on a phone");
@@ -1208,7 +1264,8 @@ async function main() {
       }
       await c.call("Emulation.setDeviceMetricsOverride",{width:1760,height:1000,deviceScaleFactor:1,mobile:false});
       await new Promise(r=>setTimeout(r,80));
-      assert.equal(await c.eval(`document.querySelectorAll(".stage2-hero .sdbar-pill.hero").length`),1,"the header card keeps its Change (model) control");
+      assert.equal(await c.eval(`document.querySelectorAll('.stage2-gen-composer .sdbar.inline .sdbar-pill[title="Video model"]').length`),1,"the composer has one inline model picker");
+      assert.equal(await c.eval(`document.querySelectorAll(".stage2-hero .sdbar-pill.hero").length`),0,"the old hero model picker is gone");
       await checkModelMenu("on desktop");
       await c.eval(`document.querySelector(".stage2-gen-composer .stage2-gen-box")?.scrollIntoView({block:"center"})`);
       const createCost=await c.eval(`document.querySelector('[data-testid="stage-generate"] .stage2-generate-cost')?.textContent.trim()`);
@@ -1412,7 +1469,7 @@ async function main() {
       "legacy grouping does not fabricate or rewrite fixture take data");
     await c.eval(`([...document.querySelectorAll(".viewnav button")].find(x=>x.textContent.trim()==="Takes"))?.click()`);
     await waitFor(()=>c.eval(`document.querySelector(".stage2-vers")?.innerText.includes("2 takes")`),"legacy take review route");
-    assert.match(await text(),/Restore as current|Reuse settings/,"legacy grouping retains the old take review actions");
+    assert.match(await text(),/Chosen for timeline|Choose for timeline|Reuse settings/,"legacy grouping retains the take review actions");
     await c.eval(`([...document.querySelectorAll(".viewnav button")].find(x=>x.textContent.trim()==="Shoot"))?.click()`);
     await waitFor(()=>c.eval(`!!document.querySelector(".stage2-console-composer")`),"return to Stage after legacy take review");
     await chooseClipGrouping("beat","fit-beat restoration");
@@ -1541,8 +1598,8 @@ async function main() {
       };
     })()`);
     assert.ok(screenplayPayload.screenplayReference,"editing a prompt does not remove the screenplay reference from the paid payload");
-    assert.equal(screenplayPayload.screenplayImagesRequired,true,
-      "Stage launch marks screenplay screenshots as mandatory");
+    assert.equal(screenplayPayload.screenplayImagesRequired,false,
+      "Stage launch records screenplay screenshots as director-selectable references");
     assert.ok(screenplayPayload.screenplayImages.length>=1,
       "Stage launch carries screenplay image provenance");
     assert.ok(screenplayPayload.screenplayImages.every(x=>x.referenceKind==="screenplay"||x.sourceSignature||x.targetBeats),
@@ -1552,7 +1609,7 @@ async function main() {
       "screenplay image provenance contains actual PNG data URLs");
     assert.ok(screenplayPayload.imageUrls.length>=screenplayPayload.screenplayImages.length
       && screenplayPayload.screenplayImages.every(x=>screenplayPayload.imageUrls.includes(x.url)),
-      "the same required screenplay PNGs are included in imageUrls");
+      "the same checked screenplay PNGs are included in imageUrls");
     assert.ok(screenplayPayload.frameUrl&&!screenplayPayload.frameUrl.startsWith("data:image/png"),
       "regular image frame remains the separate start frame");
     assert.deepEqual(screenplayPayload.targetBeats,[1],"submitted screenplay reference remains scoped to the selected beat");
@@ -1588,26 +1645,18 @@ async function main() {
     assert.equal(await c.eval(`__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`),beforeOverrideResetCalls,"resetting shot overrides invokes no provider");
     assert.equal(await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent||""`),overrideManual,"resetting overrides preserves the manual prompt");
 
-    /* One explicit decision for every affected shot: the blocker banner and the
-       choices panel both offer "Use master for Shots 1–2". It writes the same
-       persisted per-shot override the row buttons write, never touches the
-       appearance-state canon, calls no provider, and per-shot undo still works. */
-    const bulkSelector='.stage2-character-bulk[data-character-id="char-mara"] button[data-bulk-choice="master"]';
-    await waitFor(()=>c.eval(`!!document.querySelector(${JSON.stringify(bulkSelector)})`),"bulk master choice offered while two shots miss the same appearance");
-    assert.equal(await c.eval(`document.querySelector(${JSON.stringify(bulkSelector)}).textContent.trim()`),"Use master for Shots 1–2","bulk choice names the affected shot range");
-    assert.match(await c.eval(`document.querySelector(".stage2-character-bulk")?.textContent||""`),/no generated sheet/i,"bulk row states the appearance has no generated sheet");
-    assert.match(await c.eval(`document.querySelector(".stage2-character-bulk")?.textContent||""`),/Art Room → Characters → Mara → Continuity/,"bulk row points at the Art Room state generator");
+    /* One explicit decision for every affected shot: the primary blocker owns the
+       single bulk action. The choices panel keeps the per-shot controls but does not
+       repeat the same missing-sheet warning immediately above the blocker. */
+    assert.equal(await c.eval(`!!document.querySelector(".stage2-character-bulk")`),false,"single-state blocker is not duplicated in the choices panel");
     assert.equal(await c.eval(`document.querySelector(".stage2-blocker-act")?.textContent.trim()||""`),"Use master for Shots 1–2","blocker banner carries the same bulk choice");
     const bulkReadOnlyBaseline=await c.eval(`({story:JSON.stringify(__story.shots),updates:__fixture.updates.length,providers:__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length})`);
     await c.eval(`window.__setReadOnly(true)`);
-    await waitFor(()=>c.eval(`document.querySelector(${JSON.stringify(bulkSelector)})?.disabled===true`),"view-only bulk choice disabled");
-    assert.match(await c.eval(`document.querySelector(${JSON.stringify(bulkSelector)})?.title||""`),/view.only|read.only/i,"disabled bulk choice explains view-only access");
     assert.equal(await c.eval(`!!document.querySelector(".stage2-blocker-act")`),false,"view-only blocker banner offers no bulk action");
-    await c.eval(`document.querySelector(${JSON.stringify(bulkSelector)}).click()`);
+    await c.eval(`document.querySelector(${JSON.stringify(firstSceneSelector)})?.click()`);
     await new Promise(r=>setTimeout(r,100));
-    assert.deepEqual(await c.eval(`({story:JSON.stringify(__story.shots),updates:__fixture.updates.length,providers:__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length})`),bulkReadOnlyBaseline,"view-only bulk choice cannot mutate story, persist, or call a provider");
+    assert.deepEqual(await c.eval(`({story:JSON.stringify(__story.shots),updates:__fixture.updates.length,providers:__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length})`),bulkReadOnlyBaseline,"view-only character choices cannot mutate story, persist, or call a provider");
     await c.eval(`window.__setReadOnly(false)`);
-    await waitFor(()=>c.eval(`document.querySelector(${JSON.stringify(bulkSelector)})?.disabled===false`),"editing restores the bulk choice");
     await waitFor(()=>c.eval(`document.querySelector(".stage2-blocker-act")?.textContent.trim()==="Use master for Shots 1–2"`),"editing restores the banner bulk action");
     await c.eval(`document.querySelector(".stage2-blocker-act").click()`);
     await waitFor(()=>c.eval(`__story.shots[0].stageCharacterReferenceOverrides?.["char-mara"]==="master"&&__story.shots[1].stageCharacterReferenceOverrides?.["char-mara"]==="master"`),"bulk choice persists a master override on each affected shot");
@@ -1627,6 +1676,9 @@ async function main() {
        nb-gen-done; no story mutation or remount is used for this clearance proof. */
     await c.eval(`window.__fixture.variantLoaded=true;window.dispatchEvent(new CustomEvent("nb-gen-done",{detail:{id:"char-mara:wardrobe"}}))`);
     await waitFor(()=>c.eval(`!((document.querySelector(".stage2-blocker-text")?.textContent||"").toLowerCase().includes("rain wardrobe"))`),"loaded character variant clears missing gate");
+    await waitFor(()=>c.eval(`!document.querySelector(".stage2-character-choices")`),"loaded assigned appearance removes redundant master-substitution rows");
+    assert.equal(await c.eval(`document.querySelectorAll('.stage2-character-choice button[data-choice="master"]').length`),0,
+      "an available assigned appearance does not look like an unresolved reference decision");
     /* The deliberately edited @ prompt now correctly has its separate source-drift
        review gate; acknowledge that only after proving the required-state gate cleared. */
     await chooseNativePerformance("loaded-state native performance");
@@ -1660,17 +1712,39 @@ async function main() {
       return b ? {disabled:!!b.disabled,aria:b.getAttribute("aria-disabled"),title:b.title||"",text:b.textContent||""} : null;
     })()`);
     assert.ok(stageTextOnlyRecovery,"policy errors expose the real recovery control");
-    assert.ok(stageTextOnlyRecovery.disabled||stageTextOnlyRecovery.aria==="true",
-      "Stage text-only recovery stays disabled when required screenshots cannot travel");
-    assert.match(stageTextOnlyRecovery.title,/screenshot|screenplay|cannot.*text.only/i,
-      "disabled Stage text-only recovery explains the mandatory screenshot");
-    assert.match((await text()).toLowerCase(),/screenplay screenshot|text.only.*cannot|cannot.*text.only/,
-      "Stage makes the screenshot requirement explicit after a media-policy refusal");
-    const policyCallsBeforeDisabledRecovery=await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`);
+    assert.ok(!stageTextOnlyRecovery.disabled&&stageTextOnlyRecovery.aria!=="true",
+      "Stage text-only recovery remains available because page screenshots are optional references");
+    assert.match(stageTextOnlyRecovery.title,/no image, video, or recorded-voice files will be sent/i,
+      "text-only recovery explains that every optional media reference is omitted");
+    const policyNoticeLayout=await c.eval(`(()=>{const warn=[...document.querySelectorAll(".stage2-gen-notices>.stage2-warn")].find(x=>/policy refusal|provider rejected|likeness policy/i.test(x.textContent||""));const note=document.querySelector(".stage2-gen-notices>.stage2-text-only-note");const r=warn&&warn.getBoundingClientRect();return {height:r&&r.height,nestedHint:!!(warn&&warn.querySelector(".stage2-hint")),separateHint:!!note};})()`);
+    assert.ok(policyNoticeLayout.height>0&&policyNoticeLayout.height<=36,
+      "provider rejection uses a compact warning row "+JSON.stringify(policyNoticeLayout));
+    assert.equal(policyNoticeLayout.nestedHint,false,"recovery guidance does not stretch the provider error row");
+    assert.equal(policyNoticeLayout.separateHint,false,"no obsolete mandatory-screenshot constraint is shown");
+    const policyCallsBeforeTextOnlyRecovery=await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate").length`);
     await c.eval(`document.querySelectorAll("button").length&&[...document.querySelectorAll("button")].find(x=>/text only/i.test(x.textContent||""))?.click()`);
-    await new Promise(r=>setTimeout(r,120));
-    assert.equal(await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`),
-      policyCallsBeforeDisabledRecovery,"disabled Stage text-only recovery makes no provider call");
+    await waitFor(()=>c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate").length>${policyCallsBeforeTextOnlyRecovery}`),
+      "text-only recovery provider call");
+    const textOnlyPayload=await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate").slice(${policyCallsBeforeTextOnlyRecovery})[0]?.[2]||null`);
+    assert.ok(textOnlyPayload&&textOnlyPayload.textOnly===true,"recovery is submitted explicitly as text-only");
+    assert.deepEqual(textOnlyPayload.imageUrls||[],[],"text-only recovery sends no screenplay page images");
+    assert.equal(textOnlyPayload.screenplayImages,undefined,"text-only recovery carries no screenplay image provenance");
+    await waitFor(()=>c.eval(`!!document.querySelector(".stage2-policy-note")`),"text-only policy failure diagnosis");
+    const repeatedTextOnlyRecovery=await c.eval(`[...document.querySelectorAll("button")].some(x=>/retry from text only/i.test(x.textContent||""))`);
+    assert.equal(repeatedTextOnlyRecovery,false,"a rejected media-free request never offers the same paid retry again");
+    const policyDiagnosis=await c.eval(`({
+      note:document.querySelector(".stage2-policy-note")?.textContent||"",
+      summary:document.querySelector(".stage2-gen-notices>.stage2-warn")?.textContent||"",
+      details:document.querySelector(".stage2-policy-details")?.textContent||""
+    })`);
+    assert.match(policyDiagnosis.summary,/media-free render/i,"the compact summary identifies which attempt failed");
+    assert.match(policyDiagnosis.note,/sent no images, video or recorded voice/i,"diagnosis states the verified zero-media fact");
+    assert.match(policyDiagnosis.details,/likenesses of real people/i,"exact provider detail remains available on demand");
+    const callsBeforeContext=await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate").length`);
+    await c.eval(`[...document.querySelectorAll("button")].find(x=>/add fictional context/i.test(x.textContent||""))?.click()`);
+    await waitFor(()=>c.eval(`(document.querySelector(".stage2-gen-prompt")?.textContent||"").startsWith("FICTIONAL CONTEXT:")`),"fictional context prompt edit");
+    assert.equal(await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate").length`),callsBeforeContext,
+      "adding fictional context edits the prompt without submitting or spending");
     await c.eval(`window.__fixture.policyRefusal=false`);
 
     /* Change only the live character state assignment (same character id, no remount
@@ -1755,7 +1829,7 @@ async function main() {
         return {
           disclosureCount:document.querySelectorAll('[data-testid="stage-scene-screenplay"],.stage2-screenplay-reference').length,
           count:cards.length,src:first?.querySelector("img")?.src||"",
-          locked:cards.every(x=>x.classList.contains("locked")&&!x.classList.contains("off")),
+          included:cards.every(x=>x.getAttribute("aria-pressed")==="true"&&!x.classList.contains("off")),
           tagged:cards.every(x=>/^@Image\\d+$/.test(x.querySelector(".stage2-gen-asset-tag")?.textContent||"")),
           left:r?.left,top:r?.top,right:r?.right,bottom:r?.bottom,
           viewport:innerWidth,scrollWidth:document.documentElement.scrollWidth
@@ -1763,7 +1837,7 @@ async function main() {
       })()`);
       assert.equal(state.disclosureCount,0,`${label} has no screenplay disclosure`);
       assert.ok(state.count>0,`${label} screenplay strip retains page cards`);
-      assert.ok(state.locked&&state.tagged,`${label} screenplay cards stay locked and tagged`);
+      assert.ok(state.included&&state.tagged,`${label} screenplay cards start included and tagged`);
       assert.ok(/^data:image\/png/.test(state.src),`${label} strip card is a real PNG`);
       assert.ok((state.left||-1)>=0&&(state.right||0)<=state.viewport+1
         &&(state.top||-1)<1000&&(state.bottom||0)>0,
@@ -1774,7 +1848,7 @@ async function main() {
     const screenplayStripDesktop=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
     await writeFile(`${OUT}/stage-screenplay-strip-desktop.png`,Buffer.from(screenplayStripDesktop.data,"base64"));
     const desktopScreenplaySrc=screenplayDesktopStrip.src;
-    await c.eval(`document.querySelector('.stage2-gen-assets [data-reference-kind="screenplay"]')?.click()`);
+    await c.eval(`document.querySelector('.stage2-gen-assets [data-reference-kind="screenplay"] .stage2-gen-asset-max')?.click()`);
     await waitFor(()=>c.eval(`!!document.querySelector(".lb-overlay .lb-img")`),"desktop screenplay lightbox");
     assert.equal(await c.eval(`document.querySelector(".lb-overlay .lb-img")?.src`),desktopScreenplaySrc,
       "desktop screenplay strip opens its exact PNG in the lightbox");
@@ -1792,7 +1866,7 @@ async function main() {
     const screenplayStripMobile=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
     await writeFile(`${OUT}/stage-screenplay-strip-mobile-390.png`,Buffer.from(screenplayStripMobile.data,"base64"));
     const mobileScreenplaySrc=screenplayMobileStripState.src;
-    await c.eval(`document.querySelector('.stage2-gen-assets [data-reference-kind="screenplay"]')?.click()`);
+    await c.eval(`document.querySelector('.stage2-gen-assets [data-reference-kind="screenplay"] .stage2-gen-asset-max')?.click()`);
     await waitFor(()=>c.eval(`!!document.querySelector(".lb-overlay .lb-img")`),"mobile screenplay lightbox");
     assert.equal(await c.eval(`document.querySelector(".lb-overlay .lb-img")?.src`),mobileScreenplaySrc,
       "mobile screenplay strip opens its exact PNG in the lightbox");
@@ -1879,9 +1953,11 @@ async function main() {
     assert.match(review,/References need review/i);
     assert.match(review,/References used/i);
     assert.match(review,/Letter continuity/);
-    assert.match(review,/Restore as current/);
+    assert.match(review,/Chosen for timeline/);
     assert.match(review,/Approve this take/);
     assert.match(review,/Reuse settings/);
+    await c.eval(`([...document.querySelectorAll(".stage2-vcard")].find(x=>!x.classList.contains("sel")))?.click()`);
+    await waitFor(()=>c.eval(`document.querySelector(".stage2-versions-tools .stage2-vtool")?.textContent.trim()==="Choose for timeline"`),"archived take can be chosen for the timeline");
 
     await c.call("Emulation.setDeviceMetricsOverride",{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
     const desktop=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});

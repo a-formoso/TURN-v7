@@ -322,6 +322,18 @@ ok("default brief uses actual nonsequential image tag",fullBrief.includes("@Imag
 ok("default brief uses actual audio tag",fullBrief.includes("@Audio4")&&!fullBrief.includes("@Audio1"));
 ok("brief carries requested duration and model contract",
   /\b9(?:\.0)?s\b/.test(fullBrief));
+ok("single-shot brief carries its exact render window and explicit final hold",
+  /SHOT 1 · 0–9s · Beat 1/.test(fullBrief)
+  &&/FINAL HOLD · 5–9s/.test(fullBrief),fullBrief);
+const pageBrief=brief(fullClip,[shotOpening],shotOpening,true,[shotOpening.id],{
+  ...refs,assets:refs.assets.concat([
+    {tag:"@Image11",kind:"image",referenceKind:"screenplay",page:1,totalPages:2,label:"Screenplay page 1"},
+    {tag:"@Image12",kind:"image",referenceKind:"screenplay",page:2,totalPages:2,label:"Screenplay page 2"},
+  ])
+},opts);
+ok("screenplay page references share one concise role declaration",
+  pageBrief.includes("@Image11, @Image12 are screenplay page images 1, 2")
+  &&(pageBrief.match(/Read them only as writing context/g)||[]).length===1,pageBrief);
 
 const dataPart=makeData([shotPart]);
 const partBrief=brief(makeClip(dataPart,"brief-part-clip"),[shotPart],shotPart,true,[shotPart.id],refs,opts);
@@ -422,6 +434,10 @@ const multiBrief=brief(makeClip(multiData,"brief-multi"),[shotOpening,shotPart],
   [shotOpening.id,shotPart.id],refs,{...opts,durationSec:9});
 ok("multiple existing shots receive numbered cuts",
   /CUT\s+1/i.test(multiBrief)&&/CUT\s+2/i.test(multiBrief));
+ok("multiple shots carry continuous non-overlapping time windows",
+  /CUT 1 · 0–5s · Beat 1/.test(multiBrief)
+  &&/CUT 2 · 5–9s · Beat 1/.test(multiBrief)
+  &&/Carry-over: preserve prior positions/.test(multiBrief),multiBrief);
 ok("single saved non-opening shot has no new cuts",
   !/CUT(?:\s+TO)?\s+\d+/i.test(partBrief));
 
@@ -460,10 +476,12 @@ const sparseData={...fullData,lighting:"",preset:null,props:[],cast:[],loc:null,
   panelLines:fullData.panelLines.map(x=>({...x,actionBlocks:x.actionBlocks||[]}))};
 const sparseBrief=brief(makeClip(sparseData,"brief-sparse"),[shotOpening],shotOpening,false,[],{assets:[]},
   {...opts,modelQuality:""});
-ok("unknown performance uses only the source-backed behavior rule",
+ok("unknown performance uses only the behavior-first rule",
   sparseBrief.includes("PERFORMANCE")
-  &&sparseBrief.includes("observable actions, reactions and delivery")
+  &&sparseBrief.includes("objectives through observable behavior")
   &&!/fearful|angry|seductive|heroic|comedic/i.test(sparseBrief));
+ok("default brief carries a physical weight lock without inventing measurements",
+  sparseBrief.includes("gravity, contact, mass, inertia, weight transfer and follow-through"));
 ok("unknown lighting and scene specifics are omitted rather than invented",
   !/cinematic|golden hour|shallow depth|f\/\d|Lighting:\s/i.test(sparseBrief));
 ok("unknown references never invent image or audio tokens",
@@ -538,7 +556,8 @@ const levelIssues=levelData.screenplayDirectionIssues||[];
 ok("beat-level coverage compiles with a review notice instead of a blocker",
   !levelIssues.some(x=>x.blocking)
   &&levelIssues.some(x=>x.code==="screenplay-coverage-beat-level"&&x.blocking===false
-    &&/3-moment coverage plan/.test(x.message)&&/6 authored action blocks/.test(x.message)),
+    &&/3 planned action moments/.test(x.message)&&/6 authored action blocks/.test(x.message)
+    &&/3 designed shots/.test(x.message)),
   JSON.stringify(levelIssues));
 const levelLines=levelData.panelLines||[];
 ok("beat-level panel rows carry coverage, staging and Shots-tab design fields",

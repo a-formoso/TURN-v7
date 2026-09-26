@@ -19,6 +19,13 @@
 const VG_TTS_MODEL = "eleven_v3";      // DEFAULT delivery: the most expressive model
 const VG_OUTPUT_FORMAT = "mp3_44100_128";
 const VG_DEFAULTS = { stability:0.70, similarity:0.75, style:0.10, speed:1.0, speakerBoost:true };
+const VG_VOICE_MASTER_TEXT = "That quick beige fox jumped in the air over each thin dog. Look out, I shout, for he's foiled you again, creating chaos";
+function vgVoiceMasterAssetId(characterId){ return "voice-master-"+String(characterId||"character"); }
+function vgVoiceMasterFileName(characterName){
+  const stem=String(characterName||"character").trim().replace(/[\u2018\u2019']/g,"")
+    .replace(/[^A-Za-z0-9]+/g,"_").replace(/^_+|_+$/g,"")||"character";
+  return stem+"_voice.mp3";
+}
 // selectable per-character DELIVERY models (stored on the voice lock, honoured on every
 // line render + test line). v3 is the app default; v2 stays available for a flatter,
 // maximally-consistent timbre.
@@ -26,14 +33,16 @@ const VG_TTS_MODELS = [
   { id:"eleven_v3", label:"Expressive (v3)", note:"The default — most expressive delivery; understands audio tags like [whispers] or [sighs] written into the line." },
   { id:"eleven_multilingual_v2", label:"Classic (v2)", note:"Flatter but maximally consistent timbre — pick when a voice should never vary." },
 ];
-/* which model actually renders a locked voice's lines: an EXPLICIT per-character pick
-   (lock.modelChosen) wins; otherwise the app default. Locks created before the
-   delivery selector stored the old default automatically — nobody chose it — so they
-   follow the current default (v3) instead of being pinned to v2 forever. */
+/* A voice lock is a production master, so its delivery model is immutable until the
+   director explicitly changes it. Silently migrating an older lock to a new global
+   default can mix two delivery engines inside one character's scene. */
 function vgDeliveryModelOf(lock){
-  return (lock && lock.modelChosen && lock.modelId) ? lock.modelId : VG_TTS_MODEL;
+  return (lock && lock.modelId) ? lock.modelId : VG_TTS_MODEL;
 }
 window.VG_DEFAULTS = VG_DEFAULTS; window.VG_TTS_MODEL = VG_TTS_MODEL; window.VG_TTS_MODELS = VG_TTS_MODELS;
+window.VG_VOICE_MASTER_TEXT=VG_VOICE_MASTER_TEXT;
+window.vgVoiceMasterAssetId=vgVoiceMasterAssetId;
+window.vgVoiceMasterFileName=vgVoiceMasterFileName;
 window.vgDeliveryModelOf = vgDeliveryModelOf;
 
 /* voice always runs server-side — so it needs the proxy on, the Supabase client,
@@ -65,14 +74,24 @@ function vgIdbGet(k){ return vgIdbOpen().then(db=>new Promise((res,rej)=>{ const
 function vgIdbDel(k){ return vgIdbOpen().then(db=>new Promise((res,rej)=>{ const tx=db.transaction(VGIDB_STORE,"readwrite"); tx.objectStore(VGIDB_STORE).delete(k); tx.oncomplete=()=>res(true); tx.onerror=()=>rej(tx.error); })); }
 
 // in-memory mirror for instant SYNC reads (mirrors imagegen's _nbImgMemory)
-const _vgMem = new Map();          // id -> { url, meta }
-function vgKey(id){ return "a:"+id; }
+const _vgMem = new Map();          // project:id -> { url, meta }
+function vgProjectScope(projectId){ return String(projectId||window.__turnCurrentProjectId||"local"); }
+function vgMemKey(id,projectId){ return vgProjectScope(projectId)+":"+id; }
+function vgKey(id,projectId){ return "a:"+vgProjectScope(projectId)+":"+id; }
 
-function vgGetAudio(id){ const e=_vgMem.get(id); return (e&&e.url)||""; }
-function vgGetMeta(id){ const e=_vgMem.get(id); return (e&&e.meta)||null; }
-async function vgLoadAudio(id){
-  const sync=vgGetAudio(id); if(sync) return sync;
-  try{ const v=await vgIdbGet(vgKey(id)); if(v && v.url){ _vgMem.set(id,{url:v.url,meta:v.meta||null}); return v.url; } }catch(e){}
+function vgGetAudio(id,projectId){ const e=_vgMem.get(vgMemKey(id,projectId)); return (e&&e.url)||""; }
+function vgGetMeta(id,projectId){ const e=_vgMem.get(vgMemKey(id,projectId)); return (e&&e.meta)||null; }
+async function vgLoadAudio(id,projectId){
+  const scope=vgProjectScope(projectId),memKey=vgMemKey(id,scope);
+  const sync=vgGetAudio(id,scope); if(sync) return sync;
+  try{
+    let v=await vgIdbGet(vgKey(id,scope));
+    // One-time read compatibility for audio created before film-scoped keys. The
+    // Stage lineage guard still validates its text/voice/hash before attachment.
+    if(!v)v=await vgIdbGet("a:"+id);
+    if(v&&v.meta&&v.meta.projectId&&String(v.meta.projectId)!==scope)return "";
+    if(v && v.url){ _vgMem.set(memKey,{url:v.url,meta:v.meta||null}); return v.url; }
+  }catch(e){}
   return "";
 }
 window.vgGetAudio=vgGetAudio; window.vgGetMeta=vgGetMeta; window.vgLoadAudio=vgLoadAudio;
@@ -89,20 +108,95 @@ function vgHash(text, voiceId, settings){
 }
 window.vgHash=vgHash;
 
+function vgResolvedSettings(lock){
+  const d=(lock&&lock.defaults)||{};
+  return {
+    stability:d.stability!=null?d.stability:VG_DEFAULTS.stability,
+    similarity:d.similarity!=null?d.similarity:VG_DEFAULTS.similarity,
+    style:d.style!=null?d.style:VG_DEFAULTS.style,
+    speed:d.speed!=null?d.speed:VG_DEFAULTS.speed,
+    speakerBoost:d.speakerBoost!=null?d.speakerBoost:VG_DEFAULTS.speakerBoost
+  };
+}
+/* Stable fingerprint for the canonical voice master. It covers the actual voice,
+   delivery model and effective settings, but not per-line words or performance. */
+function vgVoiceLockSignature(lock){
+  if(!lock||!lock.voiceId)return "";
+  const settings=vgResolvedSettings(lock);
+  return vgHash("",lock.voiceId,{modelId:vgDeliveryModelOf(lock),...settings});
+}
+function vgVoiceMasterStatus(lock,audioUrl,assetMeta,projectId){
+  const fail=(state,reason)=>({ready:false,state,reason});
+  if(!lock||!lock.voiceId)return fail("missing-lock","Lock the character's canonical voice first.");
+  if(!audioUrl)return fail("missing","Generate the canonical voice master.");
+  const meta=assetMeta||{};
+  if(!meta.voiceId||!meta.text)return fail("unverified","This older sample has no canonical voice provenance. Regenerate it once.");
+  if(String(meta.text||"").trim()!==VG_VOICE_MASTER_TEXT)return fail("stale-text","The canonical voice-master phrase changed. Regenerate the sample.");
+  if(String(meta.voiceId||"")!==String(lock.voiceId||""))return fail("stale-voice","This sample belongs to a different voice. Regenerate it.");
+  const modelId=vgDeliveryModelOf(lock),signature=vgVoiceLockSignature(lock);
+  if(meta.modelId&&String(meta.modelId)!==String(modelId))return fail("stale-model","This sample uses a different delivery model. Regenerate it.");
+  if(meta.voiceSignature&&meta.voiceSignature!==signature)return fail("stale-settings","This sample uses older voice settings. Regenerate it.");
+  if(meta.projectId&&projectId&&String(meta.projectId)!==String(projectId))return fail("wrong-project","This sample belongs to a different film.");
+  return {ready:true,state:"ready",reason:""};
+}
+/* One shared readiness rule for Shoot: bytes AND matching provenance are required.
+   Legacy rows without version fields remain usable when their words + voiceId match;
+   every newly rendered row is checked strictly. Stale bytes stay recoverable in IDB,
+   but can never be attached to a paid video request. */
+function vgLineAudioStatus(lineAudio,lock,text,audioUrl,projectId,assetMeta){
+  const la=lineAudio||{},spoken=String(text||"").trim();
+  const fail=(state,reason)=>({ready:false,state,reason});
+  if(!spoken)return {ready:true,state:"silent",reason:""};
+  if(!lock||!lock.voiceId)return fail("missing-lock","The speaker has no canonical voice lock.");
+  if(!la.durationMs)return fail("missing","This line has not been voiced.");
+  if(!audioUrl)return fail("missing-bytes","The line metadata exists, but its audio file is unavailable.");
+  if(la.stale)return fail("stale",la.staleReason||"The character's canonical voice changed.");
+  if(String(la.text||"").trim()!==spoken)return fail("stale-text","The screenplay words changed after this audio was rendered.");
+  if(String(la.voiceId||"")!==String(lock.voiceId||""))return fail("stale-voice","This line was rendered with a different voice.");
+  const modelId=vgDeliveryModelOf(lock),signature=vgVoiceLockSignature(lock);
+  if(la.modelId&&String(la.modelId)!==String(modelId))return fail("stale-model","This line was rendered with a different delivery model.");
+  if(la.voiceSignature&&la.voiceSignature!==signature)return fail("stale-settings","This line was rendered with different voice settings.");
+  if(la.voiceRevision&&lock.revision&&String(la.voiceRevision)!==String(lock.revision))
+    return fail("stale-revision","This line belongs to an older version of the canonical voice.");
+  if(la.projectId&&projectId&&String(la.projectId)!==String(projectId))
+    return fail("wrong-project","This audio belongs to a different film.");
+  if(assetMeta){
+    if(assetMeta.projectId&&projectId&&String(assetMeta.projectId)!==String(projectId))
+      return fail("wrong-project","The stored audio file belongs to a different film.");
+    if(la.hash&&assetMeta.hash&&la.hash!==assetMeta.hash)
+      return fail("stale-bytes","The stored audio file does not match this line's render record.");
+    if(assetMeta.voiceId&&String(assetMeta.voiceId)!==String(lock.voiceId))
+      return fail("stale-bytes","The stored audio file was made with a different voice.");
+    if(assetMeta.text&&String(assetMeta.text).trim()!==spoken)
+      return fail("stale-bytes","The stored audio file contains different words.");
+  }
+  if(la.modelId&&la.hash){
+    const expected=vgHash(spoken,lock.voiceId,{...vgResolvedSettings(lock),modelId});
+    if(la.hash!==expected)return fail("stale-render","This line's render fingerprint no longer matches its voice master.");
+  }
+  return {ready:true,state:"ready",reason:""};
+}
+window.vgResolvedSettings=vgResolvedSettings;
+window.vgVoiceLockSignature=vgVoiceLockSignature;
+window.vgVoiceMasterStatus=vgVoiceMasterStatus;
+window.vgLineAudioStatus=vgLineAudioStatus;
+
 // ---- persist one rendered line ----------------------------------------------
 async function elCommit(id, dataUrl, meta){
-  _vgMem.set(id, { url:dataUrl, meta:meta||null });
+  const scope=vgProjectScope(meta&&meta.projectId),memKey=vgMemKey(id,scope);
+  _vgMem.set(memKey, { url:dataUrl, meta:meta||null });
   // cloud extension hook (the turn_audios table) — guarded; defaults to local IDB until wired
   if(typeof window.cloudCommitAudio==="function" && typeof window.nbBackend==="function" && window.nbBackend()==="cloud"){
-    try{ const r=await window.cloudCommitAudio(id, dataUrl, meta); if(r && r.url){ _vgMem.set(id,{url:r.url,meta:meta||null}); } }catch(e){}
+    try{ const r=await window.cloudCommitAudio(id, dataUrl, meta); if(r && r.url){ _vgMem.set(memKey,{url:r.url,meta:meta||null}); } }catch(e){}
   }
-  try{ await vgIdbSet(vgKey(id), { url:dataUrl, meta:meta||null }); }catch(e){}
+  try{ await vgIdbSet(vgKey(id,scope), { url:dataUrl, meta:meta||null }); }catch(e){}
   try{ window.dispatchEvent(new CustomEvent("vg-audio-done",{ detail:{ ids:[id] } })); }catch(e){}
   return { url:dataUrl };
 }
 async function vgClearAudio(id){
-  _vgMem.delete(id);
-  try{ await vgIdbDel(vgKey(id)); }catch(e){}
+  const scope=vgProjectScope();
+  _vgMem.delete(vgMemKey(id,scope));
+  try{ await vgIdbDel(vgKey(id,scope)); }catch(e){}
   try{ window.dispatchEvent(new CustomEvent("vg-audio-done",{ detail:{ ids:[id] } })); }catch(e){}
 }
 window.elCommit=elCommit; window.vgClearAudio=vgClearAudio;
@@ -218,11 +312,14 @@ async function elGenerate(id, text, opts){
   const settings = { ...VG_DEFAULTS, ...(opts.settings||{}) };
   const modelId = opts.modelId || VG_TTS_MODEL;
   const hash = vgHash(t, voiceId, { ...settings, modelId });
+  const voiceSignature = vgVoiceLockSignature(opts.voiceLock||{
+    voiceId,modelId,modelChosen:true,defaults:settings
+  });
   // skip-if-unchanged: same text+voice+settings already rendered for this id → reuse
   if(id && !opts.force){
-    const url = vgGetAudio(id) || await vgLoadAudio(id);
-    const meta = vgGetMeta(id);
-    if(url && meta && meta.hash===hash) return { audioUrl:url, durationMs:meta.durationMs||0, alignment:meta.alignment||null, cached:true };
+    const url = vgGetAudio(id,opts.projectId) || await vgLoadAudio(id,opts.projectId);
+    const meta = vgGetMeta(id,opts.projectId);
+    if(url && meta && meta.hash===hash) return { ...meta,audioUrl:url,cached:true };
   }
   vgAssertIdentity(opts, "voice-before-submit");
   const d = await vgProxy("tts", { voiceId, text:t, modelId, settings, outputFormat:VG_OUTPUT_FORMAT,
@@ -236,11 +333,35 @@ async function elGenerate(id, text, opts){
   let durationMs = d.durationMs||0;
   if(!durationMs) durationMs = await vgMeasureDuration(audioUrl);
   vgAssertIdentity(opts, "voice-before-commit");
-  const meta = { durationMs, voiceId, text:t, modelId, hash, alignment:d.alignment||null };
+  const meta = { durationMs, voiceId, text:t, modelId, settings, hash, voiceSignature,
+    projectId:opts.projectId||"",
+    provider:d.via||d.provider||"elevenlabs", backend:d.via||d.backend||"elevenlabs",
+    outputFormat:VG_OUTPUT_FORMAT, renderedAt:new Date().toISOString(), alignment:d.alignment||null,
+    fileName:opts.fileName||"",assetRole:opts.assetRole||"",
+    characterId:opts.characterId||"",characterName:opts.characterName||"" };
   if(id) await elCommit(id, audioUrl, meta);
-  return { audioUrl, durationMs, alignment:d.alignment||null, cached:false };
+  return { ...meta,audioUrl,cached:false };
 }
 window.elGenerate=elGenerate;
+
+/* Render the one durable, human-auditionable master sample for a canonical voice.
+   Scene dialogue never reuses these words: it renders each screenplay line through
+   the same voiceId. The sample is proof/download of that identity, with a stable
+   character-named file and the same model/settings fingerprint used by production. */
+async function elGenerateVoiceMaster(character,lock,opts){
+  opts=opts||{};
+  if(!character||!character.id)throw new Error("The voice master needs a character.");
+  if(!lock||!lock.voiceId)throw new Error("Lock this character's voice before generating its master sample.");
+  const assetId=vgVoiceMasterAssetId(character.id),fileName=vgVoiceMasterFileName(character.name);
+  const r=await elGenerate(assetId,VG_VOICE_MASTER_TEXT,{
+    ...opts,
+    voiceId:lock.voiceId,settings:lock.defaults,modelId:vgDeliveryModelOf(lock),voiceLock:lock,
+    projectId:opts.projectId||vgProjectScope(),fileName,assetRole:"character_voice_master",
+    characterId:character.id,characterName:character.name||"Character"
+  });
+  return {...r,assetId,fileName,text:VG_VOICE_MASTER_TEXT};
+}
+window.elGenerateVoiceMaster=elGenerateVoiceMaster;
 
 // ---- New Story "Talk it through" voice: one-off speak (no caching/commit) + transcribe ----
 // Resolve a default interviewer voice once: the account's first voice, else a known public one.
@@ -286,6 +407,9 @@ async function elDesignVoice(description, opts){
   return (d.previews||[]).map(p=>({
     generatedVoiceId: p.generatedVoiceId,
     audioUrl: p.audioB64 ? ("data:"+(p.mime||"audio/mpeg")+";base64,"+p.audioB64) : "",
+    auditionText:p.text||d.text||opts.text||"",
+    seed:opts.seed!=null?opts.seed:null,
+    designModel:opts.modelId||"eleven_ttv_v3",
   })).filter(p=>p.generatedVoiceId);
 }
 // lock a chosen preview into a permanent voiceId (the identity lock)
@@ -324,26 +448,29 @@ window.elListVoices=elListVoices; window.elCloneVoice=elCloneVoice;
 function useVoiceGen(id){
   const [audioUrl,setAudioUrl]=React.useState(()=>vgGetAudio(id));
   const [durationMs,setDurationMs]=React.useState(()=>(vgGetMeta(id)||{}).durationMs||0);
+  const [meta,setMeta]=React.useState(()=>vgGetMeta(id)||null);
   const [gening,setGening]=React.useState(false);
   const [err,setErr]=React.useState("");
   const idRef=React.useRef(id); idRef.current=id;
 
   React.useEffect(()=>{ let alive=true;
-    if(!vgGetAudio(id)){ vgLoadAudio(id).then(u=>{ if(alive&&u){ setAudioUrl(u); setDurationMs((vgGetMeta(id)||{}).durationMs||0); } }); }
+    const sync=vgGetAudio(id),syncMeta=vgGetMeta(id);
+    if(sync){ setAudioUrl(sync); setDurationMs((syncMeta||{}).durationMs||0); setMeta(syncMeta||null); }
+    else{ vgLoadAudio(id).then(u=>{ if(alive&&u){ const m=vgGetMeta(id); setAudioUrl(u); setDurationMs((m||{}).durationMs||0); setMeta(m||null); } }); }
     const onDone=(e)=>{ if(!alive||!e.detail||!e.detail.ids||e.detail.ids.indexOf(idRef.current)<0) return;
-      setAudioUrl(vgGetAudio(idRef.current)); setDurationMs((vgGetMeta(idRef.current)||{}).durationMs||0); };
+      const m=vgGetMeta(idRef.current); setAudioUrl(vgGetAudio(idRef.current)); setDurationMs((m||{}).durationMs||0); setMeta(m||null); };
     window.addEventListener("vg-audio-done", onDone);
     return ()=>{ alive=false; window.removeEventListener("vg-audio-done", onDone); };
   },[id]);
 
   const generate = React.useCallback(async (text, opts)=>{
     setGening(true); setErr("");
-    try{ const r=await elGenerate(idRef.current, text, opts); setAudioUrl(r.audioUrl); setDurationMs(r.durationMs||0); return r; }
+    try{ const r=await elGenerate(idRef.current, text, opts); setAudioUrl(r.audioUrl); setDurationMs(r.durationMs||0); setMeta(r); return r; }
     catch(e){ setErr(String((e&&e.message)||"Voice render failed.")); throw e; }
     finally{ setGening(false); }
   },[]);
-  const clear = React.useCallback(async ()=>{ await vgClearAudio(idRef.current); setAudioUrl(""); setDurationMs(0); },[]);
+  const clear = React.useCallback(async ()=>{ await vgClearAudio(idRef.current); setAudioUrl(""); setDurationMs(0); setMeta(null); },[]);
 
-  return { audioUrl, durationMs, gening, err, generate, clear };
+  return { audioUrl, durationMs, meta, gening, err, generate, clear };
 }
 window.useVoiceGen=useVoiceGen;

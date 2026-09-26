@@ -1,8 +1,8 @@
-# PLAN / SPEC — Character Voices + Lip-Sync (ElevenLabs → Seedance 2.0)
+# Character Voices + Lip-Sync — production contract
 
-> **Status: PLAN ONLY. Nothing in `app/` is built from this yet.** This document is a proposal
-> for review. The Story Pipeline insertion wording in §2 is a *proposal* — `docs/Story Pipeline.md`
-> stays untouched until the user approves the exact wording.
+> **Status: IMPLEMENTED.** Voice casting now lives on each Characters-tab card and line audio flows
+> into The Stage → Shoot. Sections labelled “proposed” below are retained as design history only;
+> they do not change `docs/Story Pipeline.md`, whose order remains user-owned.
 >
 > Branding rule (inherited): everything user-facing is **the Infinite Studio method**. Never name
 > the underlying vendors in MUSE-facing copy beyond what the model picker already exposes.
@@ -22,6 +22,30 @@ The line is rendered **before** the video. Its **duration is the spine everythin
 
 **Reframing:** audio is not "an asset attached to a shot." Audio is **the clock the shots are cut to.**
 This is the difference between this plan and a naïve "generate video, then dub it."
+
+### 0A. Canonical voice master and consistency contract (2026-09-17)
+
+A consistent character voice is a versioned production master, not merely an audio attachment:
+
+1. Build an acoustic descriptor from audible traits: vocal age/register, pitch, timbre/resonance,
+   explicit accent or dialect, habitual cadence, texture/quirks, and a clean close-mic/no-noise
+   recording condition. Never use a real actor's name as shorthand.
+2. Audition every designed candidate with the same diagnostic line and repeatable seed. Lock the
+   chosen `voiceId`, descriptor snapshot, model, effective settings, audition text, revision,
+   fingerprint and date. A model-default update must never silently migrate an existing lock.
+3. Resolve a line's speaker from its exact saved screenplay occurrence/cue. Never infer a voice from
+   the bodies visible in the shot; V.O., phone and offscreen speakers remain valid voice owners.
+4. Render the exact screenplay words through that master. The line record keeps the master revision,
+   model, settings, provider/backend, project id and model-inclusive render hash.
+5. Shoot considers the line usable only when both bytes and metadata match the current film, exact
+   text and current voice master. Relocking, removing a lock or changing its delivery model marks all
+   affected lines stale until they are deliberately revoiced.
+6. Every Seedance `@AudioN` role says that it is the named character's authoritative performance for
+   that exact line. It governs timbre, vocal age/register, tone, accent/dialect, cadence, pacing,
+   emphasis, breath, delivery, exact words and timing — never visuals, blocking, ambience, music or
+   extra dialogue. Only a visible assigned speaker drives lips; remote delivery stays offscreen.
+7. Takes preserve immutable per-line voice provenance. If only some line references are included,
+   the take is labelled `mixed`, never fully voice-locked.
 
 ---
 

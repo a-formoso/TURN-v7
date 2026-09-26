@@ -375,6 +375,28 @@ const pendingReservationKeys = () =>
 assert.deepEqual(pendingReservationKeys(), [],
   "successful completion must release the actual localStorage reservation marker");
 
+/* Shoot may deliberately exclude individual screenplay screenshots. The exact
+   checked subset still receives the reading-context guard and provenance, but
+   is not misreported as the complete required page set. */
+const optionalPageSubmitStart = submitted.length;
+await sandbox.seedanceGenerate("screenplay-page-optional-subset", {
+  falModel: "bytedance/seedance-2.5/reference-to-video",
+  frameUrl: "https://signed.example/optional-start.png",
+  imageUrls: [pagePng2],
+  prompt: "Perform only the selected doorway beat from the screenplay.",
+  screenplayReference, screenplayImages:[screenplayImages[1]], screenplayImagesRequired:false,
+  assertScreenplayCurrent: () => true,
+  durationMs: 4000, resolution: "720p", pollMs: 1, maxPolls: 1,
+});
+assert.equal(submitted.length, optionalPageSubmitStart + 1);
+assert.deepEqual(Array.from(submitted.at(-1).image_urls), [
+  "https://signed.example/optional-start.png", pagePng2,
+]);
+assert.match(submitted.at(-1).prompt, /reading context/i);
+const optionalPageMeta = sandbox.vidGetMeta("screenplay-page-optional-subset");
+assert.equal(optionalPageMeta.screenplayImagesRequired,false);
+assert.deepEqual(optionalPageMeta.screenplayImages.map(x=>x.page),[2]);
+
 const fullPendingLedger = Array.from({ length: 20 }, (_, i) => ({
   requestId: `paid-old-${i}`, id: `old-clip-${i}`, model: "seedance",
   statusUrl: `https://queue.example/status/${i}`,
@@ -524,7 +546,7 @@ await rejectPage({
 await rejectPage({
   imageUrls: [pagePng1, pagePng2],
   textOnly: true,
-}, /text-only.*discard|required screenplay page/i);
+}, /text-only.*cannot include screenplay page images/i);
 await assert.rejects(sandbox.seedanceGenerate(null, {
   falModel: "bytedance/seedance-2.5/reference-to-video",
   imageUrls: [pagePng1, pagePng2],
@@ -708,6 +730,8 @@ assert.ok(policyError, "provider moderation refusal must reject");
 assert.equal(policyError.name, "ProviderPolicyError");
 assert.equal(policyError.providerDetail, policyDetail, "exact provider detail must be preserved");
 assert.equal(policyError.errorCode, "CONTENT_POLICY", "provider error code must be preserved");
+assert.equal(policyError.requestMode, "reference", "policy failure records that media references were submitted");
+assert.equal(JSON.stringify(policyError.inputCounts), JSON.stringify({ images:1, videos:0, audio:0 }), "policy failure records non-sensitive media counts");
 assert.match(policyError.message, /No automatic retry was submitted/);
 assert.equal(submitted.length, submitsBeforePolicy + 1, "moderation refusal must cause exactly one submit");
 assert.equal(submitted.at(-1).prompt, policyPrompt, "policy handling must not alter the submitted prompt");
@@ -831,6 +855,32 @@ assert.deepEqual(Array.from(textOnlySubmit.audio_urls || []), []);
 assert.equal(textOnlySubmit.bitrateMode, null, "text-only client request must not ask for bitrate control");
 assert.match(proxySource, /body\.bitrateMode && !\/text-to-video\$\/\.test\(model\)/,
   "the proxy must not forward bitrate_mode to Seedance text-to-video");
+
+const textOnlyPolicyDetail = "The images or videos provided may contain likenesses of real people or other private information that cannot be processed.";
+const submitsBeforeTextOnlyPolicy = submitted.length;
+pollFailure = { status:"FAILED", error:textOnlyPolicyDetail, errorCode:"CONTENT_POLICY" };
+let textOnlyPolicyError;
+try {
+  await sandbox.seedanceGenerate(null, {
+    falModel:"bytedance/seedance-2.5/reference-to-video",
+    textOnly:true,
+    prompt:"A fictional scene unfolds in the described room.",
+    durationMs:8000,
+    aspectRatio:"16:9",
+    resolution:"720p",
+    pollMs:1,
+    maxPolls:1,
+  });
+} catch (error) {
+  textOnlyPolicyError=error;
+}
+pollFailure=null;
+assert.ok(textOnlyPolicyError,"a provider policy refusal on the media-free endpoint must reject");
+assert.equal(textOnlyPolicyError.name,"ProviderPolicyError");
+assert.equal(textOnlyPolicyError.requestMode,"text-only","media-free refusal retains the failed request mode");
+assert.equal(JSON.stringify(textOnlyPolicyError.inputCounts),JSON.stringify({images:0,videos:0,audio:0}),"media-free refusal proves that no media was submitted");
+assert.equal(textOnlyPolicyError.providerDetail,textOnlyPolicyDetail,"generic provider wording is preserved without misreporting submitted media");
+assert.equal(submitted.length,submitsBeforeTextOnlyPolicy+1,"text-only policy handling does not launch a hidden retry");
 
 /* Every selected video route receives the same full text reference: text-only
    Seedance, image-to-video transitions, Sora, and Kling native multi-shot. */

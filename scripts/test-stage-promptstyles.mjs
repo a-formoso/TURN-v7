@@ -75,7 +75,7 @@ const mkClip = (over) => ({ id: "c1", label: "Clip 1", scene: { id: "s1", title:
     lineShots: [sh2], lead: "Mara", ...(over || {}) } });
 const EX = { explicitStyle: true };
 const trailerRe = /AUDIO & OVERLAYS: .*NO background music/;
-const directorAudioRe = /Use only authored diegetic sound and natural ambience\. NO background music, NO score\. NO subtitles, captions, panel borders or burned-in text overlays\./;
+const directorAudioRe = /Build sound from visible physical causes and the authored environment:[^\n]*NO background music, NO score\. NO subtitles, captions, panel borders or burned-in text overlays\./;
 
 /* ---- registry ---- */
 ok("recipes registry ids", ["narrative", "panels", "timeline", "structured", "lipsync"]
@@ -146,7 +146,8 @@ ok("recipes registry ids", ["narrative", "panels", "timeline", "structured", "li
     && out.indexOf("ACTION AND CAMERA PLAN") >= 0, out.slice(0, 300));
   ok("auto: stable dialogue and ending sections", out.indexOf("DIALOGUE AND SOUND") >= 0
     && out.indexOf("ENDING AND CONTINUITY LOCKS") >= 0, out);
-  ok("auto: no legacy time-coded plan", !/^\d+(\.\d+)?–\d+(\.\d+)?s: /m.test(out), out);
+  ok("auto: director brief carries timed cut windows",
+    /CUT 1 · 0–4s · Beat 1/.test(out)&&/CUT 2 · 4–10s · Beat 1/.test(out),out);
 }
 
 /* ---- AUTO options still dispatch to the approved brief (not a named style) ---- */

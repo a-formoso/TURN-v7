@@ -65,12 +65,15 @@
     // Metadata can outlive the image bytes (or arrive before the cloud download).
     // When the caller supplies its loaded-image inventory it is authoritative.
     // Historical version-only reviews without that inventory remain unchecked.
-    const availabilityKnown=!!(ctx&&(own(ctx,"images")||own(ctx,"availableImageIds")));
+    const availabilityKnown=!!(ctx&&(own(ctx,"images")||own(ctx,"availableImageIds")||own(ctx,"loadingImageIds")));
     const loaded=!!(ctx&&ctx.availableImageIds&&(
       typeof ctx.availableImageIds.has==="function"?ctx.availableImageIds.has(imageId):arr(ctx.availableImageIds).indexOf(imageId)>=0
     ))||!!(ctx&&ctx.images&&ctx.images[imageId]);
+    const loading=!!(ctx&&ctx.loadingImageIds&&(
+      typeof ctx.loadingImageIds.has==="function"?ctx.loadingImageIds.has(imageId):arr(ctx.loadingImageIds).indexOf(imageId)>=0
+    ));
     const available=availabilityKnown?loaded:!!current;
-    if(imageId&&!available)reasons.push("Reference image is missing or has not finished loading");
+    if(imageId&&!available&&!loading)reasons.push("Reference image is missing or has not finished loading");
     const usedIso=String(used.iso||used.imageIso||"");
     const currentIso=String((current&&current.iso)||"");
     if(usedIso&&currentIso&&usedIso!==currentIso)reasons.push("Reference version changed");
@@ -102,7 +105,8 @@
     const assetApproved=isApproved(current);
     return {
       imageId,
-      missing:!available,
+      missing:!available&&!loading,
+      loading:!available&&loading,
       availabilityKnown,
       excluded:excluded(ref,current),
       stale:unique.some(x=>/changed|missing/i.test(x)),
@@ -172,6 +176,8 @@
       addUsage(d,String(sh.id||""),spec.role,spec.source);
       if(status.missing)warn(sh.id,spec.assetId,"missing-reference",
         (spec.required?"Required ":"Implicit ")+kind+" reference image is missing",severity);
+      if(status.loading)warn(sh.id,spec.assetId,"loading-reference",
+        (spec.required?"Required ":"Implicit ")+kind+" reference image is still loading",severity);
       /* Art Room master assets use their current saved version automatically.
          Availability, privacy and actual source/version drift remain actionable;
          a separate manual approval flag is not a Stage requirement. */
@@ -250,15 +256,24 @@
           if(got)shotRow.characters.push(got);
           return;
         }
-        let active={version:1,state:null};
-        if(typeof g.activeStateForScene==="function"){
-          try{active=g.activeStateForScene(c,scene,scenes)||active;}catch(e){}
+        let resolved=null;
+        if(typeof g.shotCharacterReferenceSpec==="function"){
+          try{resolved=g.shotCharacterReferenceSpec(c,scene,scenes,{required:!!sh.referenceCharactersSet});}catch(e){}
         }
-        const st=active.state||null;
-        const assetId=st?c.id+":"+st.id:c.id; // canonical ID used by Art Room StateRow
-        const got=put("character",{assetId,baseId:c.id,entityId:c.id,stateId:st&&st.id,
+        if(!resolved){
+          let active={version:1,state:null};
+          if(typeof g.activeStateForScene==="function"){
+            try{active=g.activeStateForScene(c,scene,scenes)||active;}catch(e){}
+          }
+          const st=active.state||null;
+          resolved={id:st?c.id+":"+st.id:c.id,baseId:c.id,entityId:c.id,
+            stateId:st&&st.id||"",state:st,required:!!st||!!sh.referenceCharactersSet};
+        }
+        const st=resolved.state||null;
+        const got=put("character",{assetId:resolved.id,baseId:resolved.baseId||c.id,
+          entityId:resolved.entityId||c.id,stateId:resolved.stateId||"",
           role:roleFor("character",!!st),source:st?"active-state":"base",
-          required:!!st||!!sh.referenceCharactersSet},sh);
+          required:!!resolved.required},sh);
         if(got)shotRow.characters.push(got);
       });
       /* Keep an explicit offscreen selection actionable, but never promote a stale

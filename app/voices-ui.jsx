@@ -7,9 +7,11 @@
 
 const _vcEl = React.createElement;
 
-// one shared <audio> so auditions don't overlap
-let _vcAudio = null;
-function vcPlay(url){ try{ if(_vcAudio) _vcAudio.pause(); if(!url) return; _vcAudio = new Audio(url); _vcAudio.play().catch(()=>{}); }catch(e){} }
+function vcAudioIcon(playing){
+  return playing
+    ? _vcEl("span",{className:"vc-pause-mark","aria-hidden":"true"})
+    : _vcEl(Icon.play,{s:11});
+}
 
 // parse the canonical "FUNCTION · ARCHETYPE — IDENTITY" role string
 function vcParseRole(role){
@@ -38,7 +40,7 @@ function vcOriginFrom(text, charName){
 
 // a non-empty, editable VOICE descriptor built deterministically from the bible
 // (no AI call) — every clause describes SOUND (age/gender → explicit accent →
-// pitch/timbre → pacing/delivery → quirks → audio quality); biography words are
+// pitch/timbre → habitual cadence → quirks → recording quality); biography words are
 // dropped because they don't change the voice. The character's authored VOICE
 // BLOCK (c.voice = { accent, pitch, pace, quirks } — written at spine build and
 // enriched by Script Breakdown) wins over every heuristic. User refines before
@@ -76,7 +78,7 @@ function buildVoiceSpec(c){
     accent,
     pitch+"; "+pace,
     quirks,
-    "clear studio-quality recording"
+    "clean close-mic recording, dry, with no background noise"
   ].filter(Boolean).join("; ")+".";
   const identity = (typeof window.turnIdentityPrompt==="function")
     ? String(window.turnIdentityPrompt([c])||"").trim() : "";
@@ -87,10 +89,21 @@ function buildVoiceSpec(c){
 // falls back to scene drivers when no shots/dialogue exist yet
 function speakingCharIds(characters, scenes, shots){
   const set = new Set();
+  const norm=v=>String(v||"").toLowerCase().replace(/\(cont'?d\)/ig,"").replace(/[^a-z0-9]+/g," ").trim();
+  const byName=name=>{ const n=norm(name); return (characters||[]).find(c=>norm(c&&c.name)===n); };
   const byScene = {}; (shots||[]).forEach(sh=>{ (byScene[sh.sceneId]=byScene[sh.sceneId]||[]).push(sh); });
   (scenes||[]).forEach(scene=>{
     (byScene[scene.id]||[]).forEach(sh=>{
-      if(!String(sh.dialogue||"").trim()) return;
+      if(!String(sh.dialogue||"").trim()&&!(Array.isArray(sh.dialogueLines)&&sh.dialogueLines.length)) return;
+      let exact=false;
+      (Array.isArray(sh.dialogueLines)?sh.dialogueLines:[]).forEach(row=>{
+        const c=(row&&row.speakerId&&(characters||[]).find(x=>x.id===row.speakerId))||byName(row&&row.speaker);
+        if(c){ set.add(c.id); exact=true; }
+      });
+      const stamped=(sh.lineAudio&&sh.lineAudio.speakerId&&(characters||[]).find(c=>c.id===sh.lineAudio.speakerId))
+        ||byName(sh.lineAudio&&sh.lineAudio.speaker);
+      if(stamped){ set.add(stamped.id); exact=true; }
+      if(exact) return; // a remote/VO speaker is not required to be physically in frame
       const ids = (typeof inFrameCast==="function") ? inFrameCast(sh, scene, characters||[]) : (sh.subjects||[]);
       (ids||[]).forEach(id=>set.add(id));
     });
@@ -101,24 +114,40 @@ function speakingCharIds(characters, scenes, shots){
 window.speakingCharIds = speakingCharIds;
 
 const VC_SRC_LABEL = { designed:"Designed", library:"Library", cloned:"Cloned" };
+const VC_AUDITION_TEXT = window.VG_VOICE_MASTER_TEXT || "That quick beige fox jumped in the air over each thin dog. Look out, I shout, for he's foiled you again, creating chaos";
+function vcStableSeed(id){
+  const s=String(id||"voice");let h=2166136261;
+  for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}
+  return h>>>0;
+}
 
-function VoiceCard({ c, project, speaks, onUpdate }){
+function VoiceCard({ c, project, speaks, onUpdate, titleId }){
   const lock = c.voiceLock && c.voiceLock.voiceId ? c.voiceLock : null;
+  const projectId=(project&&project.id)||window.__turnCurrentProjectId||"local";
+  const masterAssetId=(typeof window.vgVoiceMasterAssetId==="function")
+    ? window.vgVoiceMasterAssetId(c.id) : ("voice-master-"+c.id);
+  const masterFileName=(typeof window.vgVoiceMasterFileName==="function")
+    ? window.vgVoiceMasterFileName(c.name) : ((c.name||"Character").replace(/[^A-Za-z0-9]+/g,"_")+"_voice.mp3");
+  const masterAudio=window.useVoiceGen(masterAssetId);
+  const masterStatus=(typeof window.vgVoiceMasterStatus==="function")
+    ? window.vgVoiceMasterStatus(lock,masterAudio.audioUrl,masterAudio.meta,projectId)
+    : {ready:!!masterAudio.audioUrl,state:masterAudio.audioUrl?"ready":"missing",reason:""};
   const [spec, setSpec] = React.useState(()=> c.voiceSpec || buildVoiceSpec(c));
-  // per-character DELIVERY model — how locked lines are rendered (v3 expressive default /
-  // v2 classic). An EXPLICIT pick (modelChosen) pins the character; otherwise the lock
-  // follows the app default, so old locks upgraded to v3 automatically.
+  // Per-character delivery model. Once a voice is locked, its model is part of that
+  // canonical production master and never follows a later app-default migration.
   const effModel = (typeof window.vgDeliveryModelOf==="function") ? window.vgDeliveryModelOf(lock) : ((lock&&lock.modelId) || window.VG_TTS_MODEL || "eleven_v3");
   const [ttsModel, setTtsModel] = React.useState(effModel);
-  const [deliveryChosen, setDeliveryChosen] = React.useState(false);
   const ttsModels = window.VG_TTS_MODELS || [{ id:"eleven_v3", label:"Expressive (v3)" }];
   const changeDelivery = (v)=>{
-    setTtsModel(v); setDeliveryChosen(true);
+    setTtsModel(v);
     if(lock){
-      onUpdate(c.id, { voiceLock:{ ...lock, modelId:v, modelChosen:true } });
+      const revision=Date.now().toString(36);
+      const next={ ...lock, modelId:v, modelChosen:true, revision, revisedAt:new Date().toISOString() };
+      next.fingerprint=(typeof window.vgVoiceLockSignature==="function")?window.vgVoiceLockSignature(next):"";
+      onUpdate(c.id, { voiceLock:next });
       if(typeof window.appToast==="function"){
         const m = ttsModels.find(x=>x.id===v);
-        window.appToast("Delivery model set to "+((m&&m.label)||v)+" — new line renders use it (already-voiced lines keep their audio until re-voiced).","ok");
+        window.appToast("Delivery model set to "+((m&&m.label)||v)+" — existing lines are marked for revoice.","ok");
       }
     }
   };
@@ -130,27 +159,122 @@ function VoiceCard({ c, project, speaks, onUpdate }){
   const [samples, setSamples] = React.useState([]);       // clone: data URLs
   const [consent, setConsent] = React.useState(false);
   const ready = (typeof voiceProxyReady==="function") && voiceProxyReady();
+  const aliveRef = React.useRef(true);
+  const audioRef = React.useRef(null); // { audio, url } — private to this character card
+  const [playingUrl, setPlayingUrl] = React.useState("");
+  const stopAudio = React.useCallback((discard)=>{
+    const current=audioRef.current;
+    if(!current) return;
+    try{ current.audio.pause(); }catch(e){}
+    if(discard){
+      current.audio.onended=null;
+      current.audio.onerror=null;
+      audioRef.current=null;
+    }
+    if(aliveRef.current) setPlayingUrl("");
+  },[]);
+  const toggleAudio = React.useCallback((url)=>{
+    if(!url) return;
+    const current=audioRef.current;
+    if(current && current.url===url){
+      if(!current.audio.paused && !current.audio.ended){
+        current.audio.pause();
+        if(aliveRef.current) setPlayingUrl("");
+        return;
+      }
+      if(current.audio.ended){ try{ current.audio.currentTime=0; }catch(e){} }
+      if(aliveRef.current) setPlayingUrl(url);
+      try{
+        const started=current.audio.play();
+        if(started && typeof started.catch==="function") started.catch(()=>{
+          if(aliveRef.current && audioRef.current===current) setPlayingUrl("");
+        });
+      }catch(e){ if(aliveRef.current && audioRef.current===current) setPlayingUrl(""); }
+      return;
+    }
+    if(current){
+      try{ current.audio.pause(); }catch(e){}
+      current.audio.onended=null;
+      current.audio.onerror=null;
+    }
+    const audio=new Audio(url);
+    const entry={audio,url};
+    audioRef.current=entry;
+    audio.onended=()=>{
+      if(audioRef.current!==entry) return;
+      try{ audio.currentTime=0; }catch(e){}
+      if(aliveRef.current) setPlayingUrl("");
+    };
+    audio.onerror=()=>{
+      if(audioRef.current!==entry) return;
+      audioRef.current=null;
+      if(aliveRef.current) setPlayingUrl("");
+    };
+    if(aliveRef.current) setPlayingUrl(url);
+    try{
+      const started=audio.play();
+      if(started && typeof started.catch==="function") started.catch(audio.onerror);
+    }catch(e){ audio.onerror(); }
+  },[]);
+  React.useEffect(()=>{
+    aliveRef.current=true;
+    return ()=>{
+      aliveRef.current=false;
+      const current=audioRef.current;
+      if(current){
+        try{ current.audio.pause(); }catch(e){}
+        current.audio.onended=null;
+        current.audio.onerror=null;
+        audioRef.current=null;
+      }
+    };
+  },[c.id]);
+  const isPlaying=(url)=>!!url && playingUrl===url;
 
   const initials = (c.name||"?").split(/\s+/).map(w=>w[0]).join("").slice(0,2).toUpperCase();
   const roleSummary = (c.role||"").split(/\s[—-]\s/)[0] || "Character";
 
-  const lockVoice = (voiceId, voiceName, source)=>{
+  const lockVoice = (voiceId, voiceName, source, provenance)=>{
     const fallbackName = (typeof clipWords==="function") ? clipWords(spec,40) : spec.slice(0,40);
-    onUpdate(c.id, { voiceSpec: spec, voiceLock: {
+    const now=new Date().toISOString();
+    const next={
       voiceId, voiceName: voiceName||fallbackName, source,
       modelId: ttsModel || (window.VG_TTS_MODEL||"eleven_v3"),
-      modelChosen: deliveryChosen,   // only an explicit pick pins the model; else follow the app default
+      modelChosen:true,
       identityRevision: c.identityRevision!=null ? String(c.identityRevision) : "",
       identityPronouns: c.canonicalPronouns || c.pronouns || "",
       defaults: window.VG_DEFAULTS || { stability:0.7, similarity:0.75, style:0.1, speed:1.0, speakerBoost:true },
+      revision:Date.now().toString(36), lockedAt:now, specSnapshot:spec,
+      auditionText:(provenance&&provenance.auditionText)||VC_AUDITION_TEXT,
+      auditionSeed:(provenance&&provenance.seed)!=null?provenance.seed:null,
+      designModel:(provenance&&provenance.designModel)||"",
+      generatedVoiceId:(provenance&&provenance.generatedVoiceId)||"",
+      master:null,
       consent: source==="cloned", sync:false,
-    }});
+    };
+    next.fingerprint=(typeof window.vgVoiceLockSignature==="function")?window.vgVoiceLockSignature(next):"";
+    onUpdate(c.id, { voiceSpec: spec, voiceLock:next });
     setPreviews([]); setLibrary([]); setErr("");
+    return next;
+  };
+
+  const renderMaster = async (voiceLock,force)=>{
+    const r=await window.elGenerateVoiceMaster(c,voiceLock,{force:!!force,projectId,
+      identityCharacter:c,identityCharacterIds:[c.id],identityCast:[c],
+      identityContext:{characterIds:[c.id],cast:[c]} });
+    const master={assetId:r.assetId||masterAssetId,fileName:r.fileName||masterFileName,
+      text:r.text||VC_AUDITION_TEXT,durationMs:r.durationMs||0,hash:r.hash||"",
+      voiceId:voiceLock.voiceId,voiceRevision:voiceLock.revision||"",
+      voiceSignature:r.voiceSignature||voiceLock.fingerprint||"",modelId:r.modelId||voiceLock.modelId||"",
+      provider:r.provider||"",backend:r.backend||"",renderedAt:r.renderedAt||new Date().toISOString()};
+    onUpdate(c.id,{voiceLock:{...voiceLock,master}});
+    if(aliveRef.current) toggleAudio(r.audioUrl);
+    return r;
   };
 
   const design = async ()=>{
-    if(busy) return; setBusy(true); setErr(""); setPreviews([]);
-    try{ const ps = await window.elDesignVoice(spec, { identityCharacter:c, identityCharacterIds:[c.id],
+    if(busy) return; stopAudio(true); setBusy(true); setErr(""); setPreviews([]);
+    try{ const ps = await window.elDesignVoice(spec, { text:VC_AUDITION_TEXT,seed:vcStableSeed(c.id),identityCharacter:c, identityCharacterIds:[c.id],
       identityCast:[c], identityContext:{characterIds:[c.id],cast:[c]} }); setPreviews(ps||[]);
       if(!ps || !ps.length) setErr("No previews came back — tweak the description and try again.");
     }catch(e){ setErr(String((e&&e.message)||"Couldn't design a voice.")); }
@@ -158,13 +282,18 @@ function VoiceCard({ c, project, speaks, onUpdate }){
   };
   const lockPreview = async (p)=>{
     if(busy) return; setBusy(true); setErr("");
+    stopAudio(true);
     try{ const r = await window.elSaveVoice(p.generatedVoiceId, { name:c.name, description:spec,
-        identityCharacter:c, identityCharacterIds:[c.id], identityCast:[c], identityContext:{characterIds:[c.id],cast:[c]} }); lockVoice(r.voiceId, r.name, "designed"); }
+        identityCharacter:c, identityCharacterIds:[c.id], identityCast:[c], identityContext:{characterIds:[c.id],cast:[c]} });
+      const next=lockVoice(r.voiceId, r.name, "designed",p);
+      try{ await renderMaster(next,false); }
+      catch(e){ setErr("Voice locked, but its named master file could not be generated yet. Retry below. "+String((e&&e.message)||"")); }
+    }
     catch(e){ setErr(String((e&&e.message)||"Couldn't lock that voice.")); }
     setBusy(false);
   };
   const browse = async ()=>{
-    if(busy) return; setBusy(true); setErr(""); setLibrary([]);
+    if(busy) return; stopAudio(true); setBusy(true); setErr(""); setLibrary([]);
     try{ const vs = await window.elListVoices({ identityCharacter:c, identityCharacterIds:[c.id],
       identityCast:[c], identityContext:{characterIds:[c.id],cast:[c]} }); setLibrary(vs||[]); if(!vs||!vs.length) setErr("No library voices on this account yet."); }
     catch(e){ setErr(String((e&&e.message)||"Couldn't load the library.")); }
@@ -182,11 +311,10 @@ function VoiceCard({ c, project, speaks, onUpdate }){
     catch(e){ setErr(String((e&&e.message)||"Cloning failed.")); }
     setBusy(false);
   };
-  const test = async ()=>{
-    if(busy || !lock) return; setBusy(true); setErr("");
-    try{ const r = await window.elGenerate("voice-test-"+c.id, "This is how I sound in every scene.", { voiceId:lock.voiceId, settings:lock.defaults, modelId:effModel, force:true,
-      voiceLock:lock, identityCharacter:c, identityCharacterIds:[c.id], identityCast:[c], identityContext:{characterIds:[c.id],cast:[c]} }); vcPlay(r.audioUrl); }
-    catch(e){ setErr(String((e&&e.message)||"Couldn't render a test line.")); }
+  const test = async (force)=>{
+    if(busy || !lock) return; stopAudio(true); setBusy(true); setErr("");
+    try{ await renderMaster(lock,!!force); }
+    catch(e){ setErr(String((e&&e.message)||"Couldn't render the voice master.")); }
     setBusy(false);
   };
 
@@ -194,7 +322,7 @@ function VoiceCard({ c, project, speaks, onUpdate }){
     _vcEl("div",{className:"vc-head"},
       _vcEl("span",{className:"vc-av",style:{background:c.color||"var(--bg-4)"}}, initials),
       _vcEl("div",{className:"vc-id"},
-        _vcEl("div",{className:"vc-name"}, c.name||"Character"),
+        _vcEl("div",{className:"vc-name",id:titleId||undefined}, c.name||"Character"),
         _vcEl("div",{className:"vc-role"}, roleSummary)),
       speaks ? _vcEl("span",{className:"vc-tag speaks"},"Speaks")
              : _vcEl("span",{className:"vc-tag"},"No dialogue")),
@@ -205,16 +333,44 @@ function VoiceCard({ c, project, speaks, onUpdate }){
             _vcEl(Icon.check,{s:14}),
             _vcEl("span",{className:"vc-locked-name"}, lock.voiceName||"Voice"),
             _vcEl("span",{className:"vc-src"}, VC_SRC_LABEL[lock.source]||lock.source)),
+          _vcEl("div",{className:"vc-role"},"Canonical voice · "+((ttsModels.find(m=>m.id===effModel)||{}).label||effModel)
+            +(lock.voiceId?(" · ID "+String(lock.voiceId).slice(0,8)):"")
+            +(lock.lockedAt?(" · locked "+new Date(lock.lockedAt).toLocaleDateString()):"")),
+          _vcEl("div",{className:"vc-note"},
+            _vcEl("span",null,lock.specSnapshot||c.voiceSpec||"This voice is the character's reusable production master.")),
+          _vcEl("div",{className:"vc-master","data-testid":"character-voice-master","data-state":masterStatus.state},
+            _vcEl("div",{className:"vc-master-head"},
+              _vcEl("div",null,
+                _vcEl("div",{className:"vc-lab"},"Voice master"),
+                _vcEl("div",{className:"vc-master-file"},masterFileName)),
+              _vcEl("div",{className:"vc-master-tools"},
+                window.InfoTip && _vcEl(window.InfoTip,{
+                  label:"How the voice master is used",
+                  text:"Scene dialogue is synthesized from its exact screenplay words using this same voice ID; the sample phrase is never substituted for a line."
+                }),
+                _vcEl("span",{className:"vc-master-state "+masterStatus.state},masterStatus.ready?"Ready":"Needs render"))),
+            _vcEl("div",{className:"vc-master-text"},"“"+VC_AUDITION_TEXT+"”"),
+            !masterStatus.ready && masterStatus.reason && _vcEl("div",{className:"vc-note vc-master-note"},masterStatus.reason),
+            _vcEl("div",{className:"vc-actions vc-master-actions"},
+              _vcEl("button",{className:"vc-btn audio-toggle"+(masterStatus.ready?" playback":"")+(isPlaying(masterAudio.audioUrl)?" playing":""),type:"button",
+                onClick:masterStatus.ready?()=>toggleAudio(masterAudio.audioUrl):()=>test(false),
+                disabled:masterStatus.ready?false:(busy||!ready),
+                "aria-pressed":masterStatus.ready?(isPlaying(masterAudio.audioUrl)?"true":"false"):undefined,
+                "aria-label":masterStatus.ready?((isPlaying(masterAudio.audioUrl)?"Pause":"Play")+" the saved canonical voice master for "+(c.name||"character")):"Generate the canonical voice master",
+                title:masterStatus.ready?(isPlaying(masterAudio.audioUrl)?"Pause the saved canonical voice master":"Play the saved canonical voice master"):"Generate the canonical voice master through ElevenLabs"},
+                masterStatus.ready?vcAudioIcon(isPlaying(masterAudio.audioUrl)):_vcEl(Icon.sparkles,{s:13}),
+                masterStatus.ready?(isPlaying(masterAudio.audioUrl)?"Pause":"Play"):(busy?"…":"Generate voice file")),
+              masterStatus.ready && _vcEl("a",{className:"vc-btn",href:masterAudio.audioUrl,download:masterFileName,
+                title:"Download "+masterFileName},"Download"),
+              masterStatus.ready && _vcEl("button",{className:"vc-btn ghost",onClick:()=>test(true),disabled:busy||!ready,title:"Render the canonical phrase again with the current voice settings"},"Regenerate"))),
           _vcEl("div",{className:"vc-field"},
             _vcEl("div",{className:"vc-lab"},"Delivery model"),
             _vcEl("select",{className:"vc-delivery",value:effModel,
-              title:"How this locked voice renders its lines — switching applies to NEW renders; already-voiced lines keep their audio until re-voiced",
+              title:"How this canonical voice renders its lines — switching marks existing lines for revoice",
               onChange:e=>changeDelivery(e.target.value)},
               ttsModels.map(m=>_vcEl("option",{key:m.id,value:m.id,title:m.note},m.label+(m.note?(" — "+m.note):""))))),
           _vcEl("div",{className:"vc-actions"},
-            _vcEl("button",{className:"vc-btn",onClick:test,disabled:busy||!ready,title:ready?"Render a test line":"Needs the server proxy"},
-              _vcEl(Icon.sparkles,{s:13}), busy?"…":"Test line"),
-            _vcEl("button",{className:"vc-btn ghost",onClick:()=>onUpdate(c.id,{ voiceLock:null })},"Remove")),
+            _vcEl("button",{className:"vc-btn ghost",onClick:()=>{ stopAudio(true); onUpdate(c.id,{ voiceLock:null }); }},"Remove")),
           err && _vcEl("div",{className:"vc-err"}, err))
 
       : _vcEl("div",{className:"vc-body"},
@@ -222,7 +378,7 @@ function VoiceCard({ c, project, speaks, onUpdate }){
             _vcEl(Icon.alert,{s:12}),
             _vcEl("span",null,"Voice runs on your server — deploy the media proxy and set the ElevenLabs key to design and lock voices.")),
           _vcEl("div",{className:"vc-modes"},
-            ["design","library","clone"].map(m=> _vcEl("button",{key:m,className:"vc-mode"+(mode===m?" on":""),onClick:()=>{ setMode(m); setErr(""); }},
+            ["design","library","clone"].map(m=> _vcEl("button",{key:m,className:"vc-mode"+(mode===m?" on":""),onClick:()=>{ stopAudio(true); setMode(m); setErr(""); }},
               m==="design"?"Design":m==="library"?"Library":"Clone"))),
 
           mode!=="library" && _vcEl("div",{className:"vc-field"},
@@ -257,8 +413,12 @@ function VoiceCard({ c, project, speaks, onUpdate }){
             _vcEl("button",{className:"vc-btn primary",onClick:design,disabled:busy||!ready||!spec.trim()},
               busy?_vcEl(React.Fragment,null,_vcEl("span",{className:"ns-spin"}),"Designing…"):_vcEl(React.Fragment,null,_vcEl(Icon.sparkles,{s:14}),"Design voices")),
             previews.length>0 && _vcEl("div",{className:"vc-previews"},
+              _vcEl("div",{className:"vc-note"},"Every option uses the same audition line: “"+VC_AUDITION_TEXT+"”"),
               previews.map((p,i)=> _vcEl("div",{key:p.generatedVoiceId||i,className:"vc-preview"},
-                _vcEl("button",{className:"vc-play",onClick:()=>vcPlay(p.audioUrl),title:"Play"}, _vcEl(Icon.sparkles,{s:13})),
+                _vcEl("button",{className:"vc-play"+(isPlaying(p.audioUrl)?" playing":""),type:"button",onClick:()=>toggleAudio(p.audioUrl),
+                  title:isPlaying(p.audioUrl)?"Pause":"Play","aria-pressed":isPlaying(p.audioUrl)?"true":"false",
+                  "aria-label":(isPlaying(p.audioUrl)?"Pause":"Play")+" Option "+(i+1)+" for "+(c.name||"character"),
+                  "data-voice-option":i+1}, vcAudioIcon(isPlaying(p.audioUrl))),
                 _vcEl("span",{className:"vc-preview-lab"},"Option "+(i+1)),
                 _vcEl("button",{className:"vc-btn",onClick:()=>lockPreview(p),disabled:busy},"Lock this"))))),
 
@@ -267,9 +427,11 @@ function VoiceCard({ c, project, speaks, onUpdate }){
               busy?"Loading…":"Browse library"),
             library.length>0 && _vcEl("div",{className:"vc-previews"},
               library.slice(0,12).map(v=> _vcEl("div",{key:v.voiceId,className:"vc-preview"},
-                v.previewUrl && _vcEl("button",{className:"vc-play",onClick:()=>vcPlay(v.previewUrl),title:"Play"}, _vcEl(Icon.sparkles,{s:13})),
+                v.previewUrl && _vcEl("button",{className:"vc-play"+(isPlaying(v.previewUrl)?" playing":""),type:"button",onClick:()=>toggleAudio(v.previewUrl),
+                  title:isPlaying(v.previewUrl)?"Pause":"Play","aria-pressed":isPlaying(v.previewUrl)?"true":"false",
+                  "aria-label":(isPlaying(v.previewUrl)?"Pause ":"Play ")+(v.name||"library voice")+" for "+(c.name||"character")}, vcAudioIcon(isPlaying(v.previewUrl))),
                 _vcEl("span",{className:"vc-preview-lab"}, v.name||v.voiceId),
-                _vcEl("button",{className:"vc-btn",onClick:()=>lockVoice(v.voiceId, v.name, "library"),disabled:busy},"Lock"))))),
+                _vcEl("button",{className:"vc-btn",onClick:()=>{ stopAudio(true); lockVoice(v.voiceId, v.name, "library"); },disabled:busy},"Lock"))))),
 
           mode==="clone" && _vcEl(React.Fragment,null,
             _vcEl("label",{className:"vc-upload"},
@@ -284,16 +446,46 @@ function VoiceCard({ c, project, speaks, onUpdate }){
           err && _vcEl("div",{className:"vc-err"}, err)));
 }
 
-/* VoiceModal — voice-locking now lives ON the character card (parallel to Cameo). This
-   hosts the existing VoiceCard in a centered popup; VoiceCard carries its own header +
-   the full design / library / clone / test / remove flow, writing voiceLock + voiceSpec
-   via onUpdate(c.id, …). Reuses the shared lb-overlay/dt-panel modal chrome. */
+/* VoiceModal is deliberately NON-modal and card-contained. CharacterSheets owns the
+   set of open character IDs, while each mounted CharacterSheet hosts its own dimmer +
+   Voice card so several characters' cards can remain open independently. */
 function VoiceModal({ character, project, speaks, onUpdate, onClose }){
-  return _vcEl("div",{className:"lb-overlay dt-overlay",
-    onMouseDown:(e)=>{ if(e.target===e.currentTarget) onClose&&onClose(); }},
-    _vcEl("div",{className:"dt-panel voice-modal"},
-      _vcEl("button",{className:"ag-x voice-modal-x",onClick:onClose,title:"Close"}, _vcEl(Icon.x,{s:17})),
+  const safeId=String((character&&character.id)||"character").replace(/[^A-Za-z0-9_-]/g,"-");
+  const titleId="voice-window-title-"+safeId;
+  const popupId="voice-popup-"+safeId;
+  const overlayRef=React.useRef(null);
+  const panelRef=React.useRef(null);
+  React.useEffect(()=>{
+    const overlay=overlayRef.current;
+    const siblings=overlay&&overlay.parentElement
+      ? Array.from(overlay.parentElement.children).filter(el=>el!==overlay) : [];
+    const previous=siblings.map(el=>({el,inert:el.hasAttribute("inert"),ariaHidden:el.getAttribute("aria-hidden")}));
+    siblings.forEach(el=>{ el.setAttribute("inert",""); el.setAttribute("aria-hidden","true"); });
+    if(panelRef.current){ try{ panelRef.current.focus({preventScroll:true}); }catch(e){ panelRef.current.focus(); } }
+    return ()=>{
+      previous.forEach(row=>{
+        if(row.inert) row.el.setAttribute("inert",""); else row.el.removeAttribute("inert");
+        if(row.ariaHidden==null) row.el.removeAttribute("aria-hidden"); else row.el.setAttribute("aria-hidden",row.ariaHidden);
+      });
+      requestAnimationFrame(()=>{
+        const trigger=Array.from(document.querySelectorAll('[data-testid="voice-popup-trigger"]'))
+          .find(el=>el.getAttribute("data-character-id")===String(character&&character.id));
+        if(trigger){ try{ trigger.focus({preventScroll:true}); }catch(e){ trigger.focus(); } }
+      });
+    };
+  },[character&&character.id]);
+  return _vcEl("div",{className:"voice-card-overlay",ref:overlayRef,"data-testid":"voice-card-overlay",
+      "data-character-id":character&&character.id,
+      onClick:e=>{ if(e.target===e.currentTarget) onClose&&onClose(); }},
+    _vcEl("section",{
+        className:"dt-panel voice-modal voice-window",ref:panelRef,id:popupId,
+        role:"dialog","aria-modal":"false","aria-labelledby":titleId,tabIndex:-1,
+        "data-testid":"voice-popup","data-character-id":character&&character.id,
+        onKeyDown:e=>{ if(e.key==="Escape"){ e.stopPropagation(); onClose&&onClose(); } }},
+      _vcEl("button",{className:"ag-x voice-modal-x",type:"button",onClick:onClose,
+        "aria-label":"Close voice design for "+((character&&character.name)||"character"),
+        "data-testid":"voice-popup-close",title:"Close "+((character&&character.name)||"voice")}, _vcEl(Icon.x,{s:17})),
       _vcEl("div",{className:"dt-scroll voice-modal-scroll"},
-        _vcEl(VoiceCard,{c:character,project,speaks,onUpdate}))));
+        _vcEl(VoiceCard,{c:character,project,speaks,onUpdate,titleId}))));
 }
 window.VoiceModal = VoiceModal;

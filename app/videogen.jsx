@@ -137,12 +137,14 @@ function _vidSameNumbers(a,b){
   return Array.isArray(a) && Array.isArray(b) && a.length===b.length
     && a.every((v,i)=>v===b[i]);
 }
-function _vidScreenplayImagesSnapshot(value, screenplayReference, imageUrls, frameUrl){
+function _vidScreenplayImagesSnapshot(value, screenplayReference, imageUrls, frameUrl, requireComplete){
   if(value===undefined) return null;
   if(!Array.isArray(value))
-    throw new Error("Stage screenplayImages must be an array of complete page descriptors; render was not submitted.");
-  if(!value.length)
-    throw new Error("Stage screenplayImages must contain every screenplay page; no page images were supplied.");
+    throw new Error("Stage screenplayImages must be an array of page descriptors; render was not submitted.");
+  if(!value.length){
+    if(requireComplete) throw new Error("Stage screenplayImages must contain every screenplay page; no page images were supplied.");
+    return null;
+  }
   if(!screenplayReference)
     throw new Error("Stage screenplayImages require a matching screenplayReference; render was not submitted.");
   const actual = _vidDedup(Array.isArray(imageUrls) ? imageUrls : []);
@@ -179,7 +181,7 @@ function _vidScreenplayImagesSnapshot(value, screenplayReference, imageUrls, fra
       throw new Error("Stage screenplayImages contains duplicate page descriptors; render was not submitted.");
     seenPages.add(page.page); seenIds.add(page.id); seenUrls.add(page.url);
   });
-  if(pages.length!==total || pages.some((page,i)=>!seenPages.has(i+1)))
+  if(requireComplete && (pages.length!==total || pages.some((page,i)=>!seenPages.has(i+1))))
     throw new Error("Stage screenplayImages must contain the complete page set 1–"+total+"; render was not submitted.");
   const snapshot=_vidClone(pages);
   return _vidFreeze(snapshot);
@@ -1325,13 +1327,23 @@ function vidPolicyError(value){
     && (VID_LIKENESS_RE.test(s) || /policy|moderation|safety|sensitive|risk|likeness/i.test(code));
 }
 function vidLikenessError(value){ return vidPolicyError(value); } // compatibility for Stage callers
-function vidPolicyFailure(error){
+function vidPolicyFailure(error, request){
+  request=request||{};
   const detail=String(error && (error.providerDetail||error.message) || error || "The provider supplied no detail.");
   const out=new Error("The provider rejected this render under its content, safety, or likeness policy. No automatic retry was submitted. Provider detail: "+detail+" Review the submitted inputs and policy requirements, or contact the provider if you believe the decision was mistaken.");
   out.name="ProviderPolicyError";
   out.providerDetail=detail;
   out.providerStatus=error&&error.providerStatus;
   out.httpStatus=error&&error.httpStatus;
+  // Keep the failed request mode and non-sensitive input counts with the error.
+  // Stage needs this to avoid offering the same paid text-only retry again when
+  // the provider has already rejected a request containing no media at all.
+  out.requestMode=request.textOnly ? "text-only" : "reference";
+  out.inputCounts={
+    images:Math.max(0,Number(request.images)||0),
+    videos:Math.max(0,Number(request.videos)||0),
+    audio:Math.max(0,Number(request.audio)||0)
+  };
   if(error&&error.errorCode!=null) out.errorCode=error.errorCode;
   if(error&&error.code!=null) out.code=error.code;
   out.cause=error;
@@ -1411,13 +1423,14 @@ async function seedanceGenerate(id, opts){
   const videos = _vidDedup(opts.videoUrls||[]);
   const audios = _vidDedup([opts.audioUrl, ...(opts.audioUrls||[])]);
   const screenplayImages = _vidScreenplayImagesSnapshot(
-    opts.screenplayImages, screenplayReference, imageUrls, opts.frameUrl
+    opts.screenplayImages, screenplayReference, imageUrls, opts.frameUrl,
+    opts.screenplayImagesRequired===true
   );
   const hasScreenplayImages = !!screenplayImages;
   if(opts.screenplayImagesRequired===true && !hasScreenplayImages)
     throw new Error("This render requires complete screenplay page images; render was not submitted.");
   if(hasScreenplayImages && textOnly)
-    throw new Error("A text-only video request cannot discard required screenplay page images.");
+    throw new Error("A text-only video request cannot include screenplay page images.");
   if(textOnly && (images.length || videos.length || audios.length))
     throw new Error("A text-only video request cannot include image, video, or audio references.");
   if(!textOnly && !images.length && !videos.length){
@@ -1659,13 +1672,13 @@ async function seedanceGenerate(id, opts){
             screenplayReferenceBlock:screenplayBlock, screenplayReferenceSignature:screenplayReference.signature,
           } : {}),
           screenplayImages, screenplayImageSnapshots,
-          screenplayImagesRequired:true, screenplayImageGuard:pageGuard,
+          screenplayImagesRequired:opts.screenplayImagesRequired===true, screenplayImageGuard:pageGuard,
         },
       };
       pendingReservation=_vidPendingReserve(pendingCandidate);
       if(!pendingReservation)
         throw new Error(_vidPendingReserveReason==="storage"
-          ? "Browser pending-render storage is unavailable or full, so this required-image render cannot be retained safely for crash recovery. Free local storage and try again; no render was submitted."
+          ? "Browser pending-render storage is unavailable or full, so this screenplay-image render cannot be retained safely for crash recovery. Free local storage and try again; no render was submitted."
           : _vidPendingReserveReason==="ledger"
           ? "The browser already has 20 pending paid renders, so this required-image render was not submitted; finish or clear an existing pending render first."
           : "This screenplay image package is too large to retain safely for crash recovery; reduce the page images or render fewer pages. No render was submitted.");
@@ -1723,7 +1736,7 @@ async function seedanceGenerate(id, opts){
       });
       if(hasScreenplayImages) Object.assign(pendingMeta, {
         screenplayImages, screenplayImageSnapshots,
-        screenplayImagesRequired:true, screenplayImageGuard:pageGuard,
+        screenplayImagesRequired:opts.screenplayImagesRequired===true, screenplayImageGuard:pageGuard,
       });
       const pendingJob = { requestId:sub.requestId, id, model, statusUrl:sub.statusUrl, responseUrl:sub.responseUrl, at:Date.now(),
          projectId:(scope0&&scope0.projectId)||null, uid:(scope0&&scope0.uid)||null,   // recovery is project-scoped
@@ -1822,7 +1835,7 @@ async function seedanceGenerate(id, opts){
         });
         if(hasScreenplayImages) Object.assign(meta, {
           screenplayImages, screenplayImageSnapshots,
-          screenplayImagesRequired:true, screenplayImageGuard:pageGuard,
+          screenplayImagesRequired:opts.screenplayImagesRequired===true, screenplayImageGuard:pageGuard,
         });
         try{ vidAssertIdentity(opts, "video-before-commit"); }
         catch(identityErr){
@@ -1862,7 +1875,12 @@ async function seedanceGenerate(id, opts){
   };
   try{ return await attempt(promptText); }
   catch(e){
-    if(vidPolicyError(e)) throw vidPolicyFailure(e);
+    if(vidPolicyError(e)) throw vidPolicyFailure(e,{
+      textOnly,
+      images:images.length,
+      videos:videos.length,
+      audio:audios.length
+    });
     throw e;
   }
 }
@@ -1925,8 +1943,9 @@ function useSeedanceGen(id){
         if(!r.discarded && !r.stale) setVideoUrl(r.videoUrl);
         return r;
       }catch(e){
-        const m = String((e&&e.message)||"Video render failed.");
-        _vidJobPatch(jid, { err:m });
+        // Preserve structured provider evidence (request mode, exact provider
+        // detail and input counts) instead of flattening it to a string.
+        _vidJobPatch(jid, { err:e||new Error("Video render failed.") });
         throw e;
       }finally{
         _vidJobPatch(jid, { gening:false, status:"", promise:null, cancelRef:null });
@@ -1966,9 +1985,10 @@ function useSeedanceGen(id){
         const ok = settled.filter(s=>s.status==="fulfilled").map(s=>s.value);
         const bad = settled.filter(s=>s.status==="rejected");
         if(!ok.length){
-          const m = String((bad[0]&&bad[0].reason&&bad[0].reason.message)||"Video render failed.");
-          _vidJobPatch(jid, { err:m });
-          throw new Error(m);
+          const reason=bad[0]&&bad[0].reason;
+          const m = String((reason&&reason.message)||"Video render failed.");
+          _vidJobPatch(jid, { err:reason||new Error(m) });
+          throw (reason||new Error(m));
         }
         if(bad.length) _vidJobPatch(jid, { err:bad.length+" of "+n+" takes failed: "+String((bad[0].reason&&bad[0].reason.message)||"render error") });
         setVideoUrl(vidGetVideo(jid));
