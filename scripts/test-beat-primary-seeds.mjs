@@ -10,20 +10,17 @@ const sandbox={console};
 sandbox.window=sandbox;
 vm.createContext(sandbox);
 vm.runInContext(readFileSync("app/shots.jsx","utf8"),sandbox,{filename:"app/shots.jsx"});
-vm.runInContext(readFileSync("app/agents.jsx","utf8"),sandbox,{filename:"app/agents.jsx"});
 
 const primary=sandbox.shotPrimaryOf;
 const beatPrimary=sandbox.shotBeatPrimaryOf;
 const seed=sandbox.seedShotOf;
 const plan=sandbox.shotRenderPlan;
 const dependencyOrder=sandbox.sceneShotsDependencyOrdered;
-const sceneDirector=sandbox.agentSceneDirector;
 assert.equal(typeof primary,"function");
 assert.equal(typeof beatPrimary,"function");
 assert.equal(typeof seed,"function");
 assert.equal(typeof plan,"function");
 assert.equal(typeof dependencyOrder,"function");
-assert.equal(typeof sceneDirector,"function");
 
 const shot=(id,beatN,order,extra={})=>({id,sceneId:"scene",beatN,order,...extra});
 const p1=shot("beat-1-primary",1,0,{keyframeMode:"beat-opening",locked:true});
@@ -104,44 +101,10 @@ primary(stored);beatPrimary(stored,"2");seed(p3,stored);
 dependencyOrder(stored);plan(p3,stored,{scene:{id:"scene"},charById:{},propById:{},project:{}});
 assert.equal(JSON.stringify(stored),before,"all shared continuity helpers leave input shots immutable");
 
-const agentFrames=new Map([
-  ["beat-1-primary","frame-beat-1-primary"],
-  ["beat-2-primary","frame-beat-2-primary"],
-]);
-const generated=[],qcCalls=[],events=[];
-let proposals=0;
-const agentCtx={
-  art:{
-    scenes:[{scene:{id:"scene",no:7,title:"Control Room"},shots:stored,ctx:{}}],
-    frameOf:async id=>agentFrames.get(id)||"",
-    shotFrame:async (sh,ordered)=>{
-      generated.push({id:sh.id,order:Array.from(ordered,x=>x.id)});
-      agentFrames.set(sh.id,"frame-"+sh.id);
-    },
-    qc:async (sh,url,anchorUrl)=>{
-      qcCalls.push({id:sh.id,url,anchorUrl});
-      return {overall:"ok"};
-    },
-  },
-  emit:event=>events.push(event),
-  propose:async()=>{proposals++;return true;},
-  cancelled:()=>false,
-};
-await sceneDirector(agentCtx);
-assert.equal(proposals,1,"the real Scene Director still uses its existing consent gate once");
-assert.deepEqual(generated.map(x=>x.id),
-  ["beat-2-legacy","beat-2-alternative","beat-3-primary"],
-  "Scene Director renders missing frames in dependency-first order");
-assert.ok(generated.every(x=>JSON.stringify(x.order)===JSON.stringify([
-  "beat-1-primary","beat-2-primary","beat-2-legacy","beat-2-alternative","beat-3-primary"
-])), "the agent passes dependency-first order to its frame runner without rewriting storage");
-const qcById=Object.fromEntries(qcCalls.map(x=>[x.id,x]));
-assert.equal(qcById["beat-3-primary"].anchorUrl,"frame-beat-2-primary",
-  "Scene Director QC uses Beat 2's semantic primary, not the missing legacy tail");
-assert.equal(qcById["beat-2-alternative"].anchorUrl,"frame-beat-2-primary",
-  "same-beat alternative QC uses its own beat primary");
-const beat3Act=events.find(e=>e.k==="act"&&String(e.t).includes("7.5"));
-assert.ok(beat3Act && !String(beat3Act.t).includes("opening key frame"),
-  "a Beat 3 primary is not mislabeled as a scene head when its prior primary is fresh");
+// the Shots tab's chain runner renders a scene dependency-first (the Scene Director, which also
+// did, was removed 2026-09-26 — the runner replaced it on 2026-06-19)
+const ui=readFileSync("app/shots-ui.jsx","utf8");
+assert.ok(/sceneShotsDependencyOrdered/.test(ui.slice(ui.indexOf("const chainOrderIds"),ui.indexOf("const chainOrderIds")+600)),
+  "Render Scene X in order walks the scene in dependency-first order");
 
-console.log("PASS beat-primary continuity: semantic helpers, render plan, labels, dependency order, Scene Director alignment, fallbacks and immutability");
+console.log("PASS beat-primary continuity: semantic helpers, render plan, labels, dependency order, the chain runner, fallbacks and immutability");

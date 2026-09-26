@@ -270,7 +270,7 @@ function buildFilmBible(doc){
       title: undef(project.title), genre: undef(project.genre), logline: undef(project.logline||project.premise),
       controlling_idea: (project.controllingIdea && Object.keys(project.controllingIdea).length) ? project.controllingIdea : undefined,
       setting: project.setting || undefined,
-      format: undef(project.formatId), framework: undef(project.frameworkId),
+      format: undef(project.format), framework: undef(project.framework),
     },
     look: {
       visual_statement: undef(doc.lookbookNote),
@@ -488,10 +488,6 @@ function App(){
   const [history, setHistory] = React.useState(()=> (saved && saved.history) || {});   // {sceneId:{back:[ver...], fwd:[ver...]}}
   const [continuityMap, setContinuityMap] = React.useState(()=> (saved && saved.continuityMap) || {});
   const [agentsOpen, setAgentsOpen] = React.useState(false);
-  // Scene Director: {sceneId}|{} (whole film)|null. NO LAUNCH POINT since its "Direct scene"
-  // button left the Shots tab (the audit of 2026-09-26 found the prop went nowhere; the
-  // dead prop is gone). Kept, pending the owner's call: bring a button back, or delete it.
-  const [sceneDirLaunch, setSceneDirLaunch] = React.useState(null);
   const [coloristOpen, setColoristOpen] = React.useState(false);   // Cinematographer / Colorist (Art Room)
   const [shotDesignerOpen, setShotDesignerOpen] = React.useState(false);   // Shot Designer (Art Room)
   const [productionOpen, setProductionOpen] = React.useState(false);   // Production check (Art Room)
@@ -1745,7 +1741,7 @@ function App(){
     if(topKey && topKey!=="photoreal"){
       const block = (window.CHAR_RENDER_STYLES||{})[topKey];
       const medium = block && block.rendering;
-      if(medium) style = { label:String((window.RENDER_STYLE_LABELS||{})[topKey]||topKey).replace(/^[🔒🌐]\s*/,""), medium };
+      if(medium) style = { label:String(((typeof window.renderStylePromptName==="function") && window.renderStylePromptName(topKey)) || (window.RENDER_STYLE_LABELS||{})[topKey] || topKey).replace(/^[🔒🌐]\s*/,""), medium };
     }
     // one asset read covers everything: lead cast (identity-critical) + the first
     // few locations/props (world grounding — the poster must show THIS film's
@@ -2261,7 +2257,15 @@ function App(){
 
   /* Series is not merely a badge: once its first story exists, establish the
      Show container and Episode 1 automatically. This does not insert or reorder
-     any story-building step; it makes the selected format's storage model true. */
+     any story-building step; it makes the selected format's storage model true.
+     It WAITS while the New Story build (the Adaptation agent) is still writing: converting
+     mid-run swapped the cast for the Show Bible under the running agent (2026-09-26). */
+  const [agentRunTick, setAgentRunTick] = React.useState(0);
+  React.useEffect(()=>{
+    const h = ()=> setAgentRunTick(t=>t+1);
+    window.addEventListener("turn-agent-running", h);
+    return ()=> window.removeEventListener("turn-agent-running", h);
+  },[]);
   React.useEffect(()=>{
     const fmt=(typeof formatOf==="function")?formatOf(project):null;
     const row=(projects||[]).find(p=>p.id===currentProjectId);
@@ -2275,6 +2279,7 @@ function App(){
       return;
     }
     if(seriesBusyRef.current) return;
+    if(((window.__turnAgentRunCount||{}).adapt||0)>0) return;   // re-checked when the build ends (agentRunTick)
     const attemptKey=String(project&&project.format||fmt.id)+":"+String(scenes.length);
     const projectKey=String(currentProjectId);
     // seriesBusy flips during every attempt. Without this eligibility fence, a
@@ -2285,7 +2290,7 @@ function App(){
     if(autoSeriesAttemptRef.current[projectKey]===attemptKey) return;
     autoSeriesAttemptRef.current[projectKey]=attemptKey;
     makeShow({automatic:true});
-  },[cloudMode,currentProjectId,currentShowId,scenes.length,project&&project.format,projects.length,seriesBusy]);
+  },[cloudMode,currentProjectId,currentShowId,scenes.length,project&&project.format,projects.length,seriesBusy,agentRunTick]);
   const [agentLaunch, setAgentLaunch] = React.useState(null);   // {id, input} to auto-run an agent
   /* Existing-film identity resolution can hand the user to the Production check: its
      script read proposes pronouns from exact screenplay evidence, and its script pass
@@ -5266,34 +5271,6 @@ function App(){
       } };
   };
 
-  // Scene Director — the visual ctx (docs/Scene Director Agent Plan.md §8): the
-  // scene groups with their shots + resolution ctx, frame reads, the headless
-  // generation primitive, and the vision QC. Scoped to one scene when launched
-  // from a scene group's "Direct scene", or the whole film from the header.
-  const sceneDirectorCtxFactory = ({ emit, propose, cancelled })=>{
-    const ordered = scenesInStoryOrder(scenes);
-    const charById = {}; characters.forEach(c=>{ charById[c.id]=c; });
-    const propById = {}; props.forEach(p=>{ propById[p.id]=p; });
-    const byScene = {}; (shots||[]).forEach(s=>{ (byScene[s.sceneId]=byScene[s.sceneId]||[]).push(s); });
-    Object.values(byScene).forEach(a=>a.sort((x,y)=>(x.order||0)-(y.order||0) || (x.beatN||0)-(y.beatN||0)));
-    const target = (sceneDirLaunch && sceneDirLaunch.sceneId)
-      ? ordered.filter(s=>s.id===sceneDirLaunch.sceneId) : ordered;
-    const groups = target.filter(s=>(byScene[s.id]||[]).length).map(scene=>({
-      scene, shots:byScene[scene.id],
-      ctx:{ scene, scenes:ordered,
-        location:(typeof locationForScene==="function")?locationForScene(locations,scene.id):null,
-        charById, propById, project } }));
-    return { emit, propose, cancelled, sync:()=>{},
-      ai:{ available: typeof aiAvailable==="function" && aiAvailable() },
-      art:{
-        scenes: groups,
-        frameOf: async (id)=>{ let u=(typeof nbGetImage==="function")?nbGetImage(id):"";
-          if(!u && typeof nbLoadImage==="function"){ try{ u=await nbLoadImage(id); }catch(e){} } return u; },
-        shotFrame: (sh, sceneShots, sctx, o)=> window.generateShotFrame(sh, sceneShots, sctx, o),
-        qc: (sh, frameUrl, anchorUrl)=> window.aiQcShotFrame(sh, frameUrl, anchorUrl),
-      } };
-  };
-
   const artAgentCtxFactory = ({ input, emit, propose, cancelled, agentName, force })=>{
     const ordered = scenesInStoryOrder(scenes);
     const charById = {}; characters.forEach(c=>{ charById[c.id]=c; });
@@ -6361,15 +6338,6 @@ function App(){
       issues:agentIssues,
       aiOn: (typeof aiAvailable==="function" && aiAvailable())}),
 
-    // Scene Director — gated per scene (plan card before each scene's spend); takes a
-    // shot list to a consistent frame set: anchor → derive → vision QC → bounded repair.
-    sceneDirLaunch && React.createElement(AgentsPanel,{
-      initialAgentId:"scenedirector", autoStart:true, single:true, viewLabel:"View Shots",
-      ctxFactory:sceneDirectorCtxFactory,
-      onClose:()=>setSceneDirLaunch(null),
-      onView:()=>{ setArtView("shots"); setSceneDirLaunch(null); },
-      issues:{}, undoCount:0,
-      aiOn: (typeof aiAvailable==="function" && aiAvailable())}),
 
     // Cinematographer / Colorist — gated agent (proposes the colour system for approval);
     // its idle screen shows the current visual references so you can add taste before it runs.

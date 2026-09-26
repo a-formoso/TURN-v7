@@ -822,8 +822,11 @@ async function agentAdaptation(ctx){
   if(!brief){ ctx.emit({k:"flag", t:"No logline provided. Type a logline or synopsis above and run again."}); ctx.emit({k:"done",t:"Nothing to build."}); return; }
   const _fwA = (typeof frameworkOf==="function") ? frameworkOf(window.turnProject) : null;
   const _kishoA = !!(_fwA && _fwA.id==="kishotenketsu");
+  const _heroA = !!(_fwA && _fwA.id==="herosjourney");
   ctx.emit({k:"plan", t: _kishoA
     ? "Designing a complete kish\u014dtenketsu spine from your logline \u2014 four movements (ki \u00b7 sh\u014d \u00b7 ten \u00b7 ketsu), with a value charge tracing each scene's movement."
+    : _heroA
+    ? "Designing a complete Hero's Journey spine from your logline \u2014 departure, initiation and return, each scene placed on its stage with a value charge that turns."
     : "Designing a complete three-act spine from your logline \u2014 scenes, acts, and a value charge for each that turns."});
   ctx.emit({k:"act", t:"Generating the scene breakdown\u2026"});
   const spine = await ctx.ai.buildSpine(brief);
@@ -873,7 +876,7 @@ async function agentAdaptation(ctx){
   ctx.model.project = {
     ...base,
     title: spine.title || base.title,
-    format: base.format || "Short Film",
+    format: base.format || "film",   // the registry id, never a label
     // like the Center of Good: a completed world build decides the genre, so an old
     // story's genre never leaks into a new one; only a failed build inherits
     genre: world ? (world.genre || "") : (base.genre || ""),
@@ -1195,6 +1198,20 @@ function breakdownPronounEvidence(character, scene, draft, cast){
   }catch(e){}
   return {pronouns:"",quote:""};
 }
+/* one emotion, one key: the breakdown labels freely, so "rage" and "anger" used to split a
+   character's tally (and a near-synonym could push a real signature out of the top 3) */
+const _EMOTION_SYNONYMS = { rage:"anger", fury:"anger", furious:"anger", angry:"anger", irritation:"anger",
+  sorrow:"grief", sadness:"grief", sad:"grief", mourning:"grief", heartbreak:"grief",
+  terror:"fear", dread:"fear", afraid:"fear", scared:"fear", panic:"fear", anxiety:"fear",
+  happiness:"joy", happy:"joy", delight:"joy", elation:"joy",
+  shame:"guilt", remorse:"guilt", resolve:"determination", resolute:"determination" };
+function _emotionKey(label){
+  // the breakdown keeps "/" on purpose ("grief/anger"): normalise each side, never fuse them
+  return String(label||"").toLowerCase().split("/").map(part=>{
+    const k = part.replace(/[^a-z ]/g,"").replace(/\s+/g," ").trim();
+    return _EMOTION_SYNONYMS[k] || k;
+  }).filter(Boolean).join("/");
+}
 /* Returns { drift, reconciled, enriched, exprSet, propScenes }, or nothing when the run
    was stopped. Emits no "done" line: the Production check closes the run. Every card is
    tagged writes:"art" (they change the cast sheets). */
@@ -1223,7 +1240,7 @@ async function productionScriptRead(ctx){
       if(ctx.cancelled()) return;
       const ch = findChar(c.name); if(!ch) continue;
       // tally the emotion this scene shows for the character (aggregated into their 3 signature expressions after the pass)
-      if(c.emotion){ (emoTally[ch.id]=emoTally[ch.id]||{})[c.emotion]=(emoTally[ch.id][c.emotion]||0)+1; }
+      if(c.emotion){ const em=_emotionKey(c.emotion); if(em) (emoTally[ch.id]=emoTally[ch.id]||{})[em]=(emoTally[ch.id][em]||0)+1; }
       // (1) DRIFT CHECK — validate the model's per-scene gender tag against an
       // exact screenplay quote first. A breakdown label alone is not identity
       // evidence: accepting it here used to let contradictory scenes flip the
@@ -1347,9 +1364,10 @@ async function productionScriptRead(ctx){
       }
     }
   }
-  // SIGNATURE EXPRESSIONS — each character's 3 most-prevalent emotions across the story,
-  // stored on the character as acting/continuity notes. ONE approval card for the whole
-  // cast (they used to be written without asking); unchanged characters are left out.
+  // SIGNATURE EXPRESSIONS — each character's 3 most-prevalent emotions across the story.
+  // ONE approval card for the whole cast (they used to be written without asking);
+  // unchanged characters are left out. They reach the models as TEXT — the Shot Designer's
+  // performance register — never as pixels on the (deliberately neutral) character sheet.
   const exprChanges = [];
   Object.keys(emoTally).forEach(cid=>{
     const top = Object.entries(emoTally[cid]).sort((a,b)=>b[1]-a[1]).slice(0,3).map(e=>e[0]);
@@ -1365,7 +1383,7 @@ async function productionScriptRead(ctx){
     const ok = await ctx.propose({ writes:"art",
       title:"Signature expressions — "+exprChanges.length+" character"+(exprChanges.length===1?"":"s"),
       reason:"Across the script, these are the emotions each character shows most often.",
-      rationale:"Approve to store each character's three most frequent emotions from the script as their signature expressions (acting and continuity notes). Nothing is re-rendered.",
+      rationale:"Approve to store each character's three most frequent emotions from the script as their signature expressions. The Shot Designer uses them as film-level acting context when it drafts each shot's composition. Nothing is re-rendered; the character sheet stays neutral.",
       before:exprChanges.map(c=>c.name+": "+(c.before.length?c.before.join(", "):"none yet")).join("\n"),
       after:exprChanges.map(c=>c.name+": "+c.after.join(", ")).join("\n") });
     if(ctx.cancelled()) return;
@@ -1914,102 +1932,6 @@ async function agentDepartmentCoordinator(ctx){
   ctx.emit({k:"done", t:"Pre-production complete — lookbook, cast, props, wardrobe, locations, colour and shot coverage, built in order. Shot frames and storyboards aren't rendered by this run: render the frames from the Shots tab (Generate all shots, or Render Scene in order), then compose the boards in Storyboards."});
 }
 
-/* =========================================================
-   AGENT — SCENE DIRECTOR  (Art Room ▸ Shot List, gated)
-   Per docs/Scene Director Agent Plan.md: takes a scene from shot list to a
-   CONSISTENT set of frames — renders the shots in order as a rolling chain
-   (each seeded by the previous shot's frame), visually QCs each result
-   against its seed, and repairs drift with bounded corrective regens. A plan
-   gate (propose) sits BEFORE every scene's spend. Reads ctx.art:
-   { scenes:[{scene,shots,ctx}], frameOf(id), shotFrame(sh,shots,ctx,opts),
-     qc(sh,frameUrl,anchorUrl) }.
-   ========================================================= */
-async function agentSceneDirector(ctx){
-  const art = ctx.art;
-  const MAX_GENS = 24, MAX_REPAIRS = 2;
-  if(!art || !art.scenes || !art.scenes.length){
-    ctx.emit({k:"flag", t:"No shots to direct yet — break your scenes into shots in the Shots tab first."});
-    ctx.emit({k:"done", t:"Nothing to direct."}); return;
-  }
-  let gens = 0, qcDown = false;
-  ctx.emit({k:"plan", t:"Directing "+art.scenes.length+" scene"+(art.scenes.length>1?"s":"")
-    +" — per scene: render every shot IN ORDER as a rolling chain (each seeded by the previous frame), visually inspect each result against its seed, repair drift (max "+MAX_REPAIRS+" per shot). Capped at "+MAX_GENS+" generations this run."});
-  for(const grp of art.scenes){
-    if(ctx.cancelled()) return;
-    const { scene, shots } = grp, sctx = grp.ctx;
-    const ordered = (typeof sceneShotsDependencyOrdered==="function")
-      ? sceneShotsDependencyOrdered(shots)
-      : ((typeof sceneShotsOrdered==="function") ? sceneShotsOrdered(shots) : shots);
-    const idxOf = (s)=> ordered.indexOf(s);
-    const no = (i)=> scene.no+"."+(i+1);
-    const seedShot = (s)=> (typeof seedShotOf==="function") ? seedShotOf(s, ordered)
-      : ((typeof prevShotOf==="function") ? prevShotOf(s, ordered) : null);
-    const seedOf = async (s)=>{ const p=seedShot(s); return p ? await art.frameOf(p.id) : null; };
-    const missing = [];
-    for(const s of ordered){ if(!(await art.frameOf(s.id))) missing.push(s); }
-    const planned = missing.length;
-    // PLAN GATE — generation costs money; ask before spending on this scene
-    const ok = await ctx.propose({
-      title:"Direct Scene "+scene.no+" — "+(scene.title||"Untitled"),
-      reason: missing.length+" frame"+(missing.length!==1?"s":"")+" to render in chain order (each seeded by the previous frame) · then visual QC of every shot with up to "+MAX_REPAIRS+" repairs per drifted frame.",
-      rationale:"Roughly "+Math.max(planned,1)+"–"+(planned+Math.min(ordered.length,4))+" image generations. Every frame is version-committed — each change is revertible on its card.",
-      before: shots.length+" shots · "+(shots.length-missing.length)+" frame"+((shots.length-missing.length)!==1?"s":"")+" already exist",
-      after:  "All "+shots.length+" frames rendered in order, each inspected against its seed, drifted ones repaired",
-    });
-    if(ctx.cancelled()) return;
-    if(!ok){ ctx.emit({k:"flag", t:"Skipped Scene "+scene.no+"."}); continue; }
-    // 1) RENDER the missing frames IN ORDER — each chains from the previous shot's frame
-    for(const s of missing){
-      if(ctx.cancelled()) return;
-      if(gens>=MAX_GENS){ ctx.emit({k:"flag", t:"Generation cap reached — stopping."}); break; }
-      const head = !seedShot(s);
-      ctx.emit({k:"act", t:(head ? "Scene "+scene.no+": rendering the opening key frame — " : "Rendering "+no(idxOf(s))+" seeded by the previous frame — ")+(typeof shotGrammarLabel==="function"?shotGrammarLabel(s):"")+"…"});
-      try{ await art.shotFrame(s, ordered, sctx, {}); gens++; }
-      catch(e){ ctx.emit({k:"flag", t:no(idxOf(s))+" failed: "+((e&&e.message)||e)+". Moving on."}); }
-    }
-    // 2) QC — inspect each frame against its SEED (the previous shot's frame)
-    const flagged = []; let repaired = 0;
-    if(!qcDown && art.qc){
-      for(const s of ordered){
-        if(ctx.cancelled()) return;
-        const u = await art.frameOf(s.id); if(!u) continue;
-        const seedUrl = await seedOf(s);
-        ctx.emit({k:"act", t:"QC: inspecting "+no(idxOf(s))+(seedUrl?" against its seed frame":"")+"…"});
-        let v = null; try{ v = await art.qc(s, u, seedUrl); }catch(e){}
-        if(v && v.unsupported){ qcDown = true;
-          ctx.emit({k:"flag", t:"Visual QC unavailable — the image-proxy needs a redeploy to accept image inputs on its text task (supabase functions deploy image-proxy). Frames are generated; QC and repair skipped."});
-          break; }
-        if(!v){ ctx.emit({k:"flag", t:"No QC verdict for "+no(idxOf(s))+" — leaving the frame as is."}); continue; }
-        if(v.overall==="fail"){ flagged.push({ s, v });
-          ctx.emit({k:"observe", t:"Drift in "+no(idxOf(s))+": "+(v.issues||[]).slice(0,2).map(i=>i.dim+" — "+i.reason).join("; ")}); }
-        else ctx.emit({k:"ok", t:no(idxOf(s))+" consistent"+(v.overall==="minor"?" (minor notes)":"")+"."});
-      }
-    }
-    // 3) REPAIR — bounded corrective regenerations
-    for(const f of flagged){
-      let fixed = false;
-      for(let r=0; r<MAX_REPAIRS && !fixed; r++){
-        if(ctx.cancelled()) return;
-        if(gens>=MAX_GENS){ ctx.emit({k:"flag", t:"Generation cap reached — stopping repairs."}); break; }
-        ctx.emit({k:"act", t:"Repairing "+no(idxOf(f.s))+" — "+(f.v.fix||"re-rendering to match the seed and sheets")+"…"});
-        try{ await art.shotFrame(f.s, shots, sctx, { correction:f.v.fix||"match the previous frame's grade, lighting and established state, and the character/location sheets, exactly" }); gens++; }
-        catch(e){ ctx.emit({k:"flag", t:"Repair failed: "+((e&&e.message)||e)}); break; }
-        const u2 = await art.frameOf(f.s.id);
-        const seed2 = await seedOf(f.s);
-        let v2 = null; try{ v2 = await art.qc(f.s, u2, seed2); }catch(e){}
-        if(!v2 || v2.unsupported || v2.overall!=="fail"){ fixed = true; repaired++; ctx.emit({k:"ok", t:no(idxOf(f.s))+" repaired."}); }
-        else f.v = v2;
-      }
-      if(!fixed) ctx.emit({k:"flag", t:no(idxOf(f.s))+" still drifts after "+MAX_REPAIRS+" repairs — needs your eye (its card has Edit frame / Render without the previous frame, and every version is revertible)."});
-    }
-    ctx.emit({k:"ok", t:"Scene "+scene.no+" directed — "+shots.length+" frames"
-      +(repaired?(", "+repaired+" repaired"):"")
-      +((flagged.length-repaired)>0?(", "+(flagged.length-repaired)+" still flagged"):"")+"."});
-  }
-  ctx.emit({k:"done", t:"Direction complete — "+gens+" generation"+(gens!==1?"s":"")+" spent"
-    +(qcDown?" (visual QC was unavailable — redeploy the image-proxy to enable it)":"")
-    +". Review flagged frames in the Shots tab; every change is revertible per card."});
-}
 
 /* ---- Consistency Check — the scene-progression auditor. Rule-based and FREE
    (no model calls): the script/beats are canon, so every downstream layer —
@@ -2660,9 +2582,6 @@ const AGENTS = [
   { id:"locscout", name:"Location Scout", icon:"globe", kind:"build", room:"art", autonomous:true,
     blurb:"Scouts your film's locations on its own \u2014 pulls every place from the sluglines, drafts each one's staging + depth-grid spec, generates the plate, and adds the time-of-day variants the script calls for. Also flags any scene whose slugline location has no card yet. Runs autonomously; press Stop anytime.",
     run:agentLocationScout },
-  { id:"scenedirector", name:"Scene Director", icon:"clapper", kind:"build", room:"art",
-    blurb:"Takes a scene from shot list to a CONSISTENT set of frames: renders the shots in order as a rolling chain (each seeded by the previous frame), visually inspects each result against its seed, and repairs the drifted ones — asking before it spends on each scene.",
-    run:agentSceneDirector },
   { id:"coordinator", name:"Art Department Coordinator", icon:"robot", kind:"build", room:"art", autonomous:true,
     blurb:"Runs your pre-production in the right order, on its own \u2014 the lookbook, the cast, the props (worn ones reference their owner's sheet), the cast dressed in those props, the locations, the colour system and shot coverage. One click, no stops: its proposals are applied automatically, but scenes whose shots you approved or locked are left alone. It doesn't render shot frames or storyboards \u2014 do those from the Shots and Storyboards tabs. Press Stop anytime.",
     run:agentDepartmentCoordinator },

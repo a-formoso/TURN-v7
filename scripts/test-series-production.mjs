@@ -692,7 +692,7 @@ ok("Art directors get a read-only Writers' Room without losing Art Room editabil
   && /const\s+artRoomReadOnly\s*=\s*!_sharedCanWriteRoom\(["']art["']\)/.test(app)
   && /readOnly:writersRoomBlocked/.test(app)
   && /canReview:!roomReadOnly/.test(app));
-const writersAgentBlock = section(app, "const agentCtxFactory", "// Scene Director");
+const writersAgentBlock = section(app, "const agentCtxFactory", "const artAgentCtxFactory = (");
 ok("Writers' Room agents fence commits and cancellation against live role changes",
   /if\s*\(writersRoomReadOnlyRef\.current\)/.test(writersAgentBlock)
   && /cancelled:[^\n]*writersRoomReadOnlyRef\.current/.test(writersAgentBlock));

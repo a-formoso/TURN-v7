@@ -60,7 +60,12 @@ await test("props that went nowhere are gone, with the paths only they reached",
   assert.ok(!/\bonClear\b/.test(read("app/lookbook.jsx").slice(0,read("app/lookbook.jsx").indexOf("function LookbookView(")+200)));
   assert.ok(!/assignDisabled/.test(read("app/stylebible-ui.jsx")));
   assert.ok(!ag.includes('issue.kind==="noanchor"')&&!ag.includes("cov.setAnchorOnly"));
-  assert.ok(/NO LAUNCH POINT/.test(app),"the Scene Director's missing launch point is written down, pending the owner's call");
+  // the Scene Director is gone completely (owner, 2026-09-26: its buttons left the Shots tab on
+  // 2026-06-19 — Render Scene X in order replaced it)
+  for(const gone of ["sceneDirLaunch","sceneDirectorCtxFactory","NO LAUNCH POINT"]) assert.ok(!app.includes(gone),"app.jsx: "+gone);
+  assert.ok(!ag.includes("agentSceneDirector")&&!ag.includes('"scenedirector"'));
+  assert.ok(!ai.includes("aiQcShotFrame")&&!read("app/shots.jsx").includes("function generateShotFrame"));
+  assert.ok(ai.includes("no automatic QC-and-repair agent"),"MUSE still knows there is no such agent");
 });
 
 await test("Run pre-production is one press, and its preview names the writing model",()=>{

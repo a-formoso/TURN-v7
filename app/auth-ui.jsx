@@ -162,14 +162,14 @@ function AccountChip({ session, cloudActive, connectionState, saveState, shareRo
         "Project role: "+scopedRole),
       roleUnavailable && React.createElement("div",{className:"acct-status acct-status-bad"},
         "Project role unavailable \u00b7 read-only until the owner reassigns access"),
-      // GENERATION CREDITS (video renders debit these) + WRITING-MODEL spend meter
-      // (display-only estimate of Claude/text use \u2014 counted per call in ai.jsx)
+      // CREDITS (images, video and writing-model calls debit these server-side) + the
+      // WRITING-MODEL meter (a local running tally of those calls \u2014 counted in ai.jsx)
       (()=>{
         const bal = window.turnCreditBalance;
         const ts = (typeof window.turnTextSpend==="function") ? window.turnTextSpend() : null;
         const since = ts && ts.since ? new Date(ts.since) : null;
         return React.createElement(React.Fragment,null,
-          bal && React.createElement("div",{className:"acct-status",title:"Generation credits \u2014 spent by video renders (see the Stage footer for per-render costs)"},
+          bal && React.createElement("div",{className:"acct-status",title:"Credits \u2014 spent by image and video generation and by writing-model calls (see the Stage footer for per-render costs)"},
             "Credits: "+bal.remaining+" remaining"+(window.turnIsPaidPlan&&window.turnIsPaidPlan(bal.plan)?(" \u00b7 "+bal.plan+" plan"):"")),
           // upgrade / manage plan \u2014 opens the Cinema Machine plans modal
           window.turnOpenPlans && React.createElement("button",{className:"acct-upgrade",
@@ -177,7 +177,7 @@ function AccountChip({ session, cloudActive, connectionState, saveState, shareRo
             React.createElement(Icon.sparkles,{s:12}),
             (bal && window.turnIsPaidPlan && window.turnIsPaidPlan(bal.plan)) ? "Change plan" : "Get credits \u00b7 Choose a plan"),
           ts && React.createElement("div",{className:"acct-status",
-            title:"Writing model (Claude) use \u2014 every drafting, agent, MUSE and vision-QC call is counted here with a per-model estimate. Display-only: not deducted from your generation credits."},
+            title:"Writing model use \u2014 a running tally on this device of drafting, agent and QA calls. The server deducts each call's real token cost from your credits; MUSE is free."},
             "Writing model: "+ts.calls+" call"+(ts.calls===1?"":"s")+" \u00b7 \u2248"+(ts.credits||0)+" credits"
               +(since?(" since "+since.toLocaleDateString()):"")));
       })(),

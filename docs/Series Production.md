@@ -86,7 +86,9 @@ The application uses owner-only, transactional RPCs from
 `supabase/series-production.sql`:
 
 - `turn_convert_project_to_show` atomically creates the Show and attaches the
-  existing film as Episode 1. If the RPC response is lost or incomplete, the
+  existing film as Episode 1. A TV Series New Story converts automatically, but only
+  once its build (the Adaptation agent) has finished writing — converting mid-run swapped
+  the cast for the Show Bible under the running agent (2026-09-26). If the RPC response is lost or incomplete, the
   client reads back and verifies the Episode/Show relationship; it either returns
   that committed pair or keeps an explicit safe-retry state. A retry returns the
   same committed pair.

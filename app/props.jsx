@@ -108,7 +108,7 @@ function buildPropRefPrompt(p, project){
     },
     style_name: ((p.renderStyleKey==="surprise" && p.surpriseRender && p.surpriseRender.label)
       ? p.surpriseRender.label
-      : ((window.RENDER_STYLE_LABELS||{})[_styleKey||"photoreal"] || undefined)),
+      : (((typeof window.renderStylePromptName==="function") ? window.renderStylePromptName(_styleKey||"photoreal") : (window.RENDER_STYLE_LABELS||{})[_styleKey||"photoreal"]) || undefined)),
   };
   return "Render this object reference sheet EXACTLY as specified by this JSON spec (continuity fields are binding):\n"+JSON.stringify(spec, null, 1);
 }
@@ -421,12 +421,12 @@ const PROP_RENDER_TEXT = {
   pixar:     "Pixar-style animated-feature 3D object, soft warm flattering light, appealing rounded stylized form, clean tactile PBR materials, idealized charming finish, no noise",
   storyboardconcept:"clean storyboard / production concept object reference, expressive linework, clear silhouette, restrained color wash, readable production-board detail",
   texturedcomic:"textured contemporary comic-art object reference, bold ink contours, etched hatching, limited palette, dramatic graphic light, visible grain",
-  gtaLoadingScreen:"open-world crime-game loading-screen poster object, semi-realistic form with bold black ink outlines, hard cel shading, crisp specular highlights, saturated sunset palette, glossy poster finish, no text or logos",
+  gtaLoadingScreen:"open-world crime-game loading-screen poster object, semi-realistic form with bold black ink outlines, hard cel shading, crisp specular highlights, saturated high-contrast palette true to the object's own colours, glossy poster finish, no text or logos",
   whimsicalwatercolor:"whimsical watercolor and fine-ink object reference, transparent washes, paper grain, delicate hand-drawn line, soft storybook charm",
   stopmotion:"photograph of a real handmade stop-motion prop, sculpted silicone/felt/wood at miniature scale, soft practical macro light, shallow depth of field",
   claymation:"photograph of a real plasticine claymation prop, rounded clay forms with thumbprints and tool marks, soft practical macro light, shallow depth of field",
   adv1960s:  "1960s painted commercial illustration of the object, smooth airbrushed gouache, vintage halftone print texture, mid-century mustard/avocado/teal palette",
-  gaganime:  "1990s gag-anime 2D cel cartoon object, thick bold black outlines, flat high-saturation colors, simple graphic shadows, sticker-poster finish",
+  gaganime:  "1990s gag-anime 2D cel cartoon object, thick bold black outlines, flat high-saturation colors, simple graphic shadows, sticker-like finish",
   pixelart:  "retro 16/32-bit pixel-art object, hard square pixels, no anti-aliasing, limited indexed palette, dithered shading, crisp pixel outlines",
 };
 Object.assign(PROP_RENDER_TEXT, {

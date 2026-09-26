@@ -6,7 +6,7 @@
 
 const PROJECT = {
   title: "THE MATRIX",
-  format: "Feature Film",
+  format: "feature",
   runtime: "2h 16m",
   genre: "Science Fiction / Action",
   premise:

@@ -232,17 +232,20 @@ const CHAR_RENDER_STYLES = {
     "background": "simple soft miniature-set backdrop or a clean warm surface the puppet stands on, evenly and warmly lit; a real soft contact shadow under the feet; shallow background focus",
     "rules": ["no text, labels, watermarks, annotations, typography or captions","real plasticine clay craft — fingerprints and tool marks visible at macro scale","rounded, simplified, handmade clay forms, not digital CG smoothness","consistent clay puppet, lighting and lens across all panels","clean, evenly divided panel layout"]
   },
+  // gag-anime (owner decision 2026-09-26): its backdrop was one postcard — a sunset coastal
+  // city with a suspension bridge — behind EVERY character, plus a graffiti title field and no
+  // no-text rule. A character sheet is an identity reference: the backdrop is now a plain warm
+  // gradient (the sunset lives in the colour, not in a place) and the sheet carries no lettering.
   gaganime: {
-    "rendering": "playful 1990s Japanese gag-anime cartoon concept-art sheet — flat 2D cel-shaded illustration with bold black outlines, not claymation, not photography, not CG",
+    "rendering": "playful 1990s Japanese gag-anime cartoon illustration — flat 2D cel-shaded art with bold black outlines, not claymation, not photography, not CG",
     "construction": "clean vector-like cartoon construction — oversized rounded chibi proportions, simplified shapes, soft bulbous forms, minimal internal detail, thick confident ink outlines, flat high-saturation color fills, simple graphic shadow shapes",
     "imperfection": "handmade cartoon charm through expressive asymmetry, slightly wobbly line rhythm, exaggerated comic proportions, playful simplified wrinkles and features; clean but not sterile",
     "linework": "very thick black outer contours with thinner simple interior lines; rounded cartoon silhouettes; no fine realistic rendering",
     "shading": "flat cel shading with one or two simple shadow shapes per form; no painterly blending, no realistic texture, no photographic lighting",
-    "photography": "not photographed — illustrated poster-sheet presentation with a crisp, sticker-like finish; dynamic low-angle hero framing for the portrait and clean turnaround panels",
-    "color_grade": "bright, warm, high-saturation cartoon palette taken from THIS character's own colours (their real wardrobe and skin tone), with cyan/blue graphic highlights against a warm orange sunset backdrop; cheerful comic contrast",
-    "background": "stylized flat cartoon backdrop with warm orange sunset gradient, simple coastal atmosphere, simplified suspension bridge and city skyline shapes; clean graphic panel dividers; no realistic miniature-set depth of field",
-    "typography": "optional bold graffiti-style title lettering only if requested, with yellow fill, cyan outline, and heavy black drop shadow; otherwise keep the sheet free of labels and captions",
-    "rules": ["2D gag-anime cartoon concept-art sheet","thick bold black outlines","flat high-saturation cel-shaded colors","oversized rounded chibi proportions","simple expressive face with huge oval eyes and tiny mouth","minimal detail, soft rounded shapes, sticker-poster aesthetic","consistent same character design across all panels","clean evenly divided concept-sheet layout","no photorealism, no clay, no plasticine, no 3D render, no realistic anatomy"]
+    "presentation": "not photographed — a clean illustrated character sheet with a crisp, sticker-like finish; straight-on, eye-level framing in every panel so the face and chibi proportions read clearly as the identity anchor",
+    "color_grade": "bright, warm, high-saturation cartoon palette taken from THIS character's own colours (their real wardrobe and skin tone), kept true to those colours; the warm sunset feel (apricot, tangerine, soft coral) lives only in the backdrop gradient and small highlight accents, with crisp cyan graphic glints; cheerful comic contrast",
+    "background": "plain flat cartoon ground — a soft, low-saturation warm gradient from pale cream at the bottom to light apricot at the top, identical in every panel, with a simple flat cel-shadow shape under the feet; nothing behind the figure: no scenery, buildings, landmarks or objects; clean graphic panel dividers",
+    "rules": ["no text, labels, watermarks, annotations, typography or captions","2D gag-anime cartoon character sheet","thick bold black outlines","flat high-saturation cel-shaded colors","oversized rounded chibi proportions","simple expressive face with huge oval eyes and tiny mouth","minimal detail, soft rounded shapes, sticker-like finish","plain place-free backdrop — the figure alone on the flat warm gradient","consistent same character design across all panels","clean evenly divided concept-sheet layout","no photorealism, no clay, no plasticine, no 3D render, no realistic anatomy"]
   },
   pixelart: {
     "rendering": "detailed retro pixel art; hard square pixels, NO anti-aliasing, crisp pixel edges, drawn on a clear pixel grid (16/32-bit JRPG / PC-98 fidelity, not chunky 8-bit)",
@@ -395,7 +398,7 @@ Object.assign(CHAR_RENDER_STYLES, {
   graphicNovelNoir: {
     rendering: "high-contrast black-and-white graphic-novel illustration — bold chiaroscuro ink, heavy spot blacks, screentone and hatching for midtones, hard-boiled noir atmosphere",
     linework: "confident brush-and-ink contours, thick expressive outer lines, dry-brush and cross-hatching for texture — tone comes from ink density and screentone, never grey gradients",
-    shading: "a single hard key light carving faces and forms out of shadow; venetian-blind slats, rain-streaked highlights, deep pooled blacks",
+    shading: "a single hard key light carving faces and forms out of shadow; hard-edged graphic shadow shapes, deep pooled blacks",
     color_grade: "strictly black and white; at most ONE restrained accent colour when THIS character's design demands it, otherwise pure monochrome",
     background: "flat white or light paper-tone panel background with a hard-edged cast shadow — no studio sweep",
     rules: ["no text, labels, watermarks, annotations, typography or captions","strictly monochrome ink unless a single named accent colour","consistent ink weight and screentone across all panels","clean, evenly divided panel layout"]
@@ -455,7 +458,7 @@ const RENDER_STYLE_DESCRIPTIONS = {
   stopmotion:"For stop-motion puppetry: handmade armature look, fabric and clay textures, miniature-set charm.",
   adv1960s:"For 1960s advertising illustration: mid-century palettes, printed grain and period graphic styling.",
   claymation:"For claymation: sculpted plasticine forms, thumbprint texture and handmade animated appeal.",
-  gaganime:"For 90s gag-anime: loose comedic linework, exaggerated expressions and retro TV-anime energy.",
+  gaganime:"For 90s gag-anime: thick bold outlines, flat cel colour, chibi proportions, exaggerated comic expressions and a warm sunset palette.",
   pixelart:"For retro pixel-art: 16/32-bit sprites, dithered shading, crisp pixels and no anti-aliasing.",
   graphicNovelNoir:"For hard-boiled monochrome: chiaroscuro ink, heavy spot blacks, screentone midtones — optionally one accent colour.",
   ukiyoe:"For Japanese woodblock prints: flat mineral pigments, calligraphic keyblock lines, washi texture and bokashi gradation.",
@@ -466,7 +469,7 @@ const RENDER_STYLE_DESCRIPTIONS = {
   photorealOrnamental:"For elegant creature designs with iridescence, ornament, armor, jewelry-like forms, couture materials, or heightened beauty while staying physically rendered.",
   storyboardconcept:"For production boards and previsualization: clean linework, clear staging, mood and composition over final polish.",
   texturedcomic:"For bold contemporary comic art: expressive ink, etched texture, limited palette and dramatic graphic lighting.",
-  gtaLoadingScreen:"For the GTA loading-screen / cover-art look: semi-realistic figures, bold black outlines, hard cel shading and a saturated sunset palette on a poster finish.",
+  gtaLoadingScreen:"For the GTA loading-screen / cover-art look: semi-realistic figures, bold black outlines, hard cel shading and saturated colour on a glossy poster finish.",
   whimsicalwatercolor:"For gentle storybook imagery: fine ink, soft watercolor washes, paper grain and delicate hand-painted charm.",
   modernAnime:"For polished contemporary anime: sharp linework, cinematic cel shadows, expressive eyes and dynamic character appeal.",
   digitalAnime:"For smooth refined anime illustration with luminous digital colour and a painterly-polished finish.",
@@ -486,6 +489,11 @@ const RENDER_STYLE_DESCRIPTIONS = {
   texturedPaperIllustration:"For layered paper-craft / printmaking illustration with grain, stipple and collage texture.",
   tropicalArtNouveau:"For lush decorative Art Nouveau: organic lines, botanical motifs, flat ornamental elegance.",
 };
+/* The name a style goes by INSIDE generation prompts (style_name), where it differs from its
+   menu label: a prompt never names a franchise, whatever the menu calls the look. */
+const RENDER_STYLE_PROMPT_NAMES = { gtaLoadingScreen:"open-world crime-game loading-screen art" };
+function renderStylePromptName(key){ return RENDER_STYLE_PROMPT_NAMES[key] || (window.RENDER_STYLE_LABELS||{})[key] || ""; }
+window.renderStylePromptName = renderStylePromptName;
 window.RENDER_STYLE_DESCRIPTIONS = RENDER_STYLE_DESCRIPTIONS;
 const _humanizeStyle = (k)=> String(k||"").replace(/[-_]+/g," ").replace(/([a-z])([0-9])/g,"$1 $2").replace(/\b\w/g,m=>m.toUpperCase());
 const RENDER_STYLE_GROUPS = [
@@ -575,7 +583,8 @@ function renderStyleLabelFromMeta(meta){
   if(start>=0){
     try{
       const spec = JSON.parse(prompt.slice(start));
-      if(spec && spec.style_name) return clean(spec.style_name);
+      if(spec && spec.style_name){ const back = Object.keys(RENDER_STYLE_PROMPT_NAMES).find(k=>RENDER_STYLE_PROMPT_NAMES[k]===spec.style_name);
+        return clean(back ? ((window.RENDER_STYLE_LABELS||{})[back]||spec.style_name) : spec.style_name); }
       const rendering = spec && spec.render && spec.render.rendering;
       if(rendering){
         const styles = window.CHAR_RENDER_STYLES || {};
@@ -1120,7 +1129,10 @@ function buildCharRefPrompt(c, project, props){
   // separate negative prompt (rules and the old negative were doing the same job).
   const _rb = charRenderBlock(c);
   const _noTextRule = "no text, labels, rulers, measurement marks, numbers, captions, watermarks, logos, annotations, UI elements or typography anywhere on the sheet";
-  const _rulesBase = (_rb.rules||[]).map(r=> /no text/i.test(r) ? _noTextRule : r);
+  // the stronger sheet rule replaces a style's own no-text rule — keeping any extra marks that
+  // style is prone to (ukiyo-e prints carry calligraphy cartouches and seals)
+  const _rulesBase = (_rb.rules||[]).map(r=> /no text/i.test(r)
+    ? _noTextRule+(/calligraph|seal|stamp/i.test(r) ? "; no calligraphy, seals or stamps either" : "") : r);
   const _negItems = String(c.negativePrompt || v.negativePrompt || "").split(/,\s*/).map(x=>x.replace(/\.$/,"").trim()).filter(Boolean);
   const _rules = _negItems.length ? [ ..._rulesBase, "strictly avoid: "+_negItems.join(", ") ] : _rulesBase;
   // HELD MOBILITY / SIGNATURE SUPPORT ITEM (cane-class): if the spec's own text
@@ -1157,6 +1169,11 @@ function buildCharRefPrompt(c, project, props){
         ? ("one hand closed around the "+_heldItem+" with weight settled naturally onto it — in EVERY full-body view; the other hand empty and relaxed at side")
         : "both hands empty and relaxed at sides",
     },
+    // NO EXPRESSION ROW, BY DESIGN (owner decision 2026-09-26): the sheet rides on EVERY shot
+    // of the character, and image/video models copy what they see — expressive or extra faces
+    // leak into frames and can split identity (d79a9ce). One neutral hero face is the anchor.
+    // Signature expressions (c.expressions) reach the models as TEXT instead: the Shot
+    // Designer's performance register in aiDraftOpeningKeyframes (ai.jsx).
     layout: {
       format: "a 4-panel casting reference sheet in 16:9 landscape: four tall vertical panels divided by thin clean vertical lines; panel 1 is a large hero face portrait and panels 2-4 are full-body turnaround views; the SAME character throughout",
       panels_left_to_right: [
@@ -1177,7 +1194,7 @@ function buildCharRefPrompt(c, project, props){
     render: { ..._rb, rules: _rules, aspect: "16:9" },
     style_name: ((c.renderStyleKey==="surprise" && c.surpriseRender && c.surpriseRender.label)
       ? c.surpriseRender.label
-      : ((window.RENDER_STYLE_LABELS||{})[(typeof inferCharacterRenderStyleKey==="function"?inferCharacterRenderStyleKey(c):(c.renderStyleKey||"photoreal"))] || undefined)),
+      : (renderStylePromptName(typeof inferCharacterRenderStyleKey==="function"?inferCharacterRenderStyleKey(c):(c.renderStyleKey||"photoreal")) || undefined)),
   };
   return "Render this character casting reference sheet EXACTLY as specified by this JSON spec (continuity fields are binding):\n"+JSON.stringify(spec, null, 1);
 }

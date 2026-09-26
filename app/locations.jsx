@@ -1836,12 +1836,12 @@ const LOC_RENDER_TEXT = {
   pixar:     "Pixar-style animated-feature 3D environment, soft warm global illumination, appealing rounded stylized forms, clean tactile PBR materials, 'every frame a painting' warmth, idealized charming finish, no noise",
   storyboardconcept:"clean storyboard / production concept environment, expressive linework, clear cinematic staging, restrained color wash, readable layout and mood",
   texturedcomic:"textured contemporary comic-art environment, bold ink contours, etched hatching, limited palette, dramatic graphic light, visible grain",
-  gtaLoadingScreen:"open-world crime-game loading-screen poster environment, semi-realistic architecture and streets with bold black ink outlines, hard cel-shaded light and shadow, sun-drenched saturated sunset palette, glossy poster finish, no text or logos",
+  gtaLoadingScreen:"open-world crime-game loading-screen poster environment, semi-realistic architecture with bold black ink outlines, hard cel-shaded light and shadow, saturated high-contrast colour that follows this plate's own time of day, glossy poster finish, no text or logos",
   whimsicalwatercolor:"whimsical watercolor and fine-ink environment, transparent washes, paper grain, delicate hand-drawn line, soft storybook charm",
   stopmotion:"photograph of a real handmade miniature stop-motion set, felt/wood/clay at tiny scale, soft practical studio light, faint tilt-shift miniature depth",
   claymation:"photograph of a real plasticine claymation miniature set, rounded clay forms with tool marks, soft practical light, faint tilt-shift miniature depth",
   adv1960s:  "1960s painted commercial illustration of the place, airbrushed gouache, vintage halftone print texture, mid-century mustard/avocado/teal palette",
-  gaganime:  "1990s gag-anime 2D cartoon background, thick bold black outlines, flat high-saturation colors, simple graphic shapes, sticker-poster finish",
+  gaganime:  "1990s gag-anime 2D cartoon background, thick bold black outlines, flat high-saturation colors, simple graphic shapes, sticker-like finish",
   pixelart:  "retro 16/32-bit pixel-art environment, hard square pixels, no anti-aliasing, limited indexed palette, dithered skies and shadows, crisp pixel grid",
 };
 Object.assign(LOC_RENDER_TEXT, {

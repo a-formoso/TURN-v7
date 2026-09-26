@@ -565,7 +565,7 @@ Deno.serve(async (req) => {
         role: m.role === "assistant" ? "model" : "user",
         parts: [{ text: String(m.content || "") }],
       }));
-      // vision: data-URL images attach to the last user turn (powers the Scene Director's QC).
+      // vision: data-URL images attach to the last user turn (powers the QA check, prop fitting critique and location plan).
       // gAttached counts what was ACTUALLY attached — vision:true must never be claimed
       // for images that were sent but silently skipped (non-data URLs).
       let gAttached = 0;
@@ -656,7 +656,7 @@ Deno.serve(async (req) => {
       const turns = messages
         .filter((m: any) => m.role !== "system")
         .map((m: any) => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.content || "") }));
-      // vision: image blocks attach to the last turn (powers the Scene Director's QC).
+      // vision: image blocks attach to the last turn (powers the QA check, prop fitting critique and location plan).
       // aAttached counts what was ACTUALLY attached — vision:true must never be claimed
       // for images that were sent but silently skipped (non-data URLs).
       let aAttached = 0;

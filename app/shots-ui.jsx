@@ -145,10 +145,9 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
     : ((typeof prevShotOf==="function") ? prevShotOf(sh, ordered) : null);
   const _si = ordered.findIndex(x=>x && x.id===sh.id);
   const laterShots = _si>=0 ? ordered.slice(_si+1) : [];
-  // ONE RENDER PLAN (shared with the headless Scene Director — see shotRenderPlan in
-  // shots.jsx): seed, ledger-carried props, and the weight-ordered reference stack all
-  // come from the same builder, so a manual render and an agent render can never
-  // disagree about what rides along with the frame.
+  // ONE RENDER PLAN (see shotRenderPlan in shots.jsx): seed, ledger-carried props, and
+  // the weight-ordered reference stack all come from one builder, so the prompt's image
+  // map and the real attachments can never disagree about what rides along.
   const renderPlan = (typeof shotRenderPlan==="function") ? shotRenderPlan(sh, ordered, ctx) : null;
   const requiredCanonicalAttachments=!!(renderPlan&&Array.isArray(renderPlan.orderedSpecs)
     &&renderPlan.orderedSpecs.some(s=>s&&s.required));
@@ -202,8 +201,8 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
   // reference SHEETS (the locked canon) — the seed frame rides separately as the base image.
   // UNIFIED PATH: the plan (what attaches, in what order, with what labels — including
   // the continuity ledger's carried props) comes from shotRenderPlan, and the images
-  // resolve through shotResolveRenderRefs — the exact same two steps the headless
-  // Scene Director runs. Rebuilt fresh at generate time so late edits are honored.
+  // resolve through shotResolveRenderRefs. Rebuilt fresh at generate time so late
+  // edits are honored.
   const collectShotRefs = async (gopts)=>{
     assertSceneContext();
     const grab = async (id)=> (typeof shotGrabImage==="function") ? await shotGrabImage(id) : "";
@@ -263,10 +262,13 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
          +"It must not broaden the edit, add later-beat action or introduce remote/mentioned people. "
          +"Change ONLY the requested edit while preserving the current frame and canonical references.";
        if(Array.isArray(resolvedRefs) && resolvedRefs.length){
-         out += "\n\nATTACHED REFERENCE ORDER (read-only; do not recompose): "
-           +resolvedRefs.map((r,i)=>"Image "+(i+1)+" is "+(r.assetRole==="screenplay_context"
+         // an edit sends the frame being edited FIRST (the edit base), so the references
+         // start at Image 2 — they used to be numbered from 1, one slot off
+         out += "\n\nATTACHED REFERENCE ORDER (read-only; do not recompose): Image 1 is the frame being edited — keep its composition, pose, expression and lighting. "
+           +resolvedRefs.map((r,i)=>"Image "+(i+2)+" is "+(r.assetRole==="screenplay_context"
              ? "an ephemeral screenplay context page"
-             : (r.note||r.assetRoleLabel||"a canonical reference"))+".").join(" ");
+             : (r.note||r.assetRoleLabel||"a canonical reference")
+               +(r.referenceKind==="character" ? " (identity only: take the face, build, hair and wardrobe from it; never copy its background, pose, lighting or panel layout)" : ""))+".").join(" ");
        }
        return out;
     },

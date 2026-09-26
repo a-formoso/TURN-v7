@@ -107,8 +107,12 @@ window.FORMAT_GROUPS = FORMAT_GROUPS; window.formatsForPicker = formatsForPicker
 /* normalize anything stored in project.format (registry id, legacy freeform text
    like "Feature Film", or nothing) to a registry entry. Default: film. */
 function formatOf(project){
-  const raw = ((project && project.format) || "").toString().toLowerCase();
+  const raw = ((project && project.format) || "").toString().toLowerCase().trim();
+  // an exact id or an exact LABEL wins ("Feature Film" is the feature format's own label —
+  // it used to fall through to the loose match and land on Short Film); loose legacy text
+  // still takes the first registry entry it contains (owner, 2026-09-26: old films deleted)
   return FORMATS.find(f=>f.id===raw)
+      || FORMATS.find(f=>f.label.toLowerCase()===raw)
       || FORMATS.find(f=>raw.includes(f.id) || raw.includes(f.label.toLowerCase()))
       || FORMATS.find(f=>f.id==="film");
 }

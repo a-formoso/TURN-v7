@@ -214,6 +214,9 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
   const [input, setInput] = React.useState(initialInput||"");
   const resolver = React.useRef(null);
   const cancelled = React.useRef(false);
+  // each run's own id: "Run again" after Stop starts a NEW run and must never revive the
+  // stopped one (both used to read one shared flag, which start() resets to false)
+  const runIdRef = React.useRef(0);
   const bodyRef = React.useRef(null);
   const inputRef = React.useRef(initialInput||"");
   React.useEffect(()=>{ inputRef.current = input; },[input]);
@@ -254,26 +257,41 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
   const _mid = _mid0 || "claude-fable-5";
   const _midLabel = ((_MODELS.find(m=>m.id===_mid)||{}).label) || _mid;
   const start = async ()=>{
+    const myRun = ++runIdRef.current;
     cancelled.current = false;
     setTrace([]); setPending(null); setStatus("running");
     const runLog = [];   // synchronous copy of the trace — state updates are async
     const reportProjectId = agentReportProjectId();   // the film this run BELONGS to — captured now, not at save time
     const prevForce = window.__forceWritingModel;
     window.__forceWritingModel = _mid;   // pin the run to exactly what the header shows
-    const ctx = ctxFactory({
+    // how many runs of each agent are live, app-wide (the Series auto-conversion waits for a
+    // New Story build). A COUNT, not a flag: a stopped run still winding down must never
+    // clear the mark of a newer run of the same agent.
+    const runs = window.__turnAgentRunCount = window.__turnAgentRunCount || {};
+    runs[agent.id] = (runs[agent.id]||0) + 1;
+    try{ window.dispatchEvent(new CustomEvent("turn-agent-running",{ detail:{ id:agent.id, running:true } })); }catch(e){}
+    let ctx = null, spend0 = null;
+    try{
+    ctx = ctxFactory({
       input: inputRef.current,
       agentName: agent.name,
       force: force,   // false | true | "draft" (re-draft specs but skip image generation)
-      emit:(step)=>{ runLog.push(step); setTrace(tr=>[...tr, step]); },
-      propose:(card)=> new Promise(res=>{ setPending(card); setStatus("waiting");
+      emit:(step)=>{ if(runIdRef.current!==myRun) return; runLog.push(step); setTrace(tr=>[...tr, step]); },
+      propose:(card)=> runIdRef.current!==myRun ? Promise.resolve(false) : new Promise(res=>{ setPending(card); setStatus("waiting");
         resolver.current = (val)=>{ resolver.current=null; setPending(null); setStatus("running"); res(val); }; }),
-      cancelled:()=>cancelled.current,
+      cancelled:()=>cancelled.current || runIdRef.current!==myRun,
     });
     // meter snapshot — the delta shows what THIS run cost in writing-model use
-    const spend0 = (typeof window.turnTextSpend==="function") ? window.turnTextSpend() : null;
-    try{ await agent.run(ctx); }
-    catch(e){ setTrace(tr=>[...tr,{k:"flag",t:"The agent hit an error and stopped: "+(e.message||e)}]); }
-    finally{ window.__forceWritingModel = prevForce; }
+    spend0 = (typeof window.turnTextSpend==="function") ? window.turnTextSpend() : null;
+    await agent.run(ctx);
+    }
+    catch(e){ if(runIdRef.current===myRun) setTrace(tr=>[...tr,{k:"flag",t:"The agent hit an error and stopped: "+(e.message||e)}]); }
+    finally{
+      window.__forceWritingModel = prevForce;
+      runs[agent.id] = Math.max(0, (runs[agent.id]||1) - 1);
+      try{ window.dispatchEvent(new CustomEvent("turn-agent-running",{ detail:{ id:agent.id, running:false } })); }catch(e){}
+    }
+    if(runIdRef.current!==myRun) return;   // superseded by "Run again": its tail never touches the new run's panel
     if(spend0 && typeof window.turnTextSpend==="function"){
       const s1 = window.turnTextSpend();
       const calls = s1.calls - spend0.calls;
@@ -283,7 +301,7 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
     }
     // a film switch mid-run cancels the run silently at its next check — say so,
     // and never save a report from it (partial, and it belongs to the other film)
-    const swapped = typeof ctx.switchedFilms==="function" && ctx.switchedFilms();
+    const swapped = !!ctx && typeof ctx.switchedFilms==="function" && ctx.switchedFilms();
     if(swapped) setTrace(tr=>[...tr,{k:"flag",t:"You switched films, so this run stopped \u2014 nothing was changed or saved. Reopen the film it started in to run it there."}]);
     if(!cancelled.current) setStatus("done");
     // keep a read-only agent's report for next time the panel opens

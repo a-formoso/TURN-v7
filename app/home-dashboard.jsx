@@ -25,11 +25,9 @@
 (function(){
   const h = React.createElement;
 
-  // Nicer display names than the bare format labels ("Short" -> "Short Film").
-  const FMT_DISPLAY = { short:"Short Film", film:"Feature Film", series:"TV Series",
-    commercial:"Commercial", microdrama:"Micro-Drama", documentary:"Documentary" };
+  // The format registry's own labels (formats.jsx). A local display map here went stale when
+  // the lineup changed on 2026-09-25 — it showed every Short Film as "Feature Film".
   function displayType(p){
-    if(p && p.fmt && FMT_DISPLAY[p.fmt]) return FMT_DISPLAY[p.fmt];
     if(typeof formatOf==="function" && p && p.fmt){
       try{ const f=formatOf({ format:p.fmt }); if(f&&f.label) return f.label; }catch(e){}
     }

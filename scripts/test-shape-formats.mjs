@@ -28,7 +28,11 @@ await test("the lineup: long form, short form, non-fiction & brand",()=>{
 await test("ids are unchanged, and unknown or legacy formats still resolve to the 16-scene film",()=>{
   assert.equal(box.formatOf({}).id,"film");
   assert.equal(box.formatOf({format:"something odd"}).id,"film");
-  assert.equal(box.formatOf({format:"Feature Film"}).id,"film","legacy freeform text keeps its old meaning");
+  // an exact label wins (owner, 2026-09-26: old films deleted, so the old "Feature Film" -> film
+  // compatibility mapping is dropped); loose legacy text still resolves as before
+  assert.equal(box.formatOf({format:"Feature Film"}).id,"feature","the feature format's own label is the feature format");
+  assert.equal(box.formatOf({format:"Short Film"}).id,"film");
+  assert.equal(box.formatOf({format:"an indie feature film"}).id,"film","loose legacy text keeps its old meaning");
   assert.equal(box.formatOf({format:"feature"}).id,"feature");
   assert.equal(box.formatOf({format:"short"}).label,"Micro Short");
   assert.equal(box.FORMATS[0].id,"film");

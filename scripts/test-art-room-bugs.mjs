@@ -100,7 +100,7 @@ await test("a redesign merges like the Shots tab: IDs and frames kept, extras to
 // ---- bug 3: the Coordinator promises only what it does ----
 await test("the Coordinator's copy matches its seven steps; no storyboard promises",()=>{
   const ag=read("app/agents.jsx"), app=read("app/app.jsx"), chrome=read("app/chrome.jsx");
-  const coord=ag.slice(ag.indexOf("async function agentDepartmentCoordinator"),ag.indexOf("AGENT — SCENE DIRECTOR"));
+  const coord=ag.slice(ag.indexOf("async function agentDepartmentCoordinator"),ag.indexOf("Consistency Check — the scene-progression auditor"));
   assert.ok(coord.includes("autoApprove:true"));
   assert.ok(/Shot frames and storyboards aren't rendered by this run/.test(coord)&&!/and the storyboard are all built/.test(coord));
   const blurb=ag.slice(ag.indexOf('{ id:"coordinator"'),ag.indexOf("run:agentDepartmentCoordinator"));

@@ -122,20 +122,17 @@ assert.ok(manual.opts.buildEdit("tighten the crop").includes("EDIT READING CONTR
 assert.ok(manual.finalPrompt.includes("FULL SCENE CONTEXT"));
 const manualMeta=await manual.opts.metaExtra();
 assert.equal(manualMeta.sceneContext.sourceRev,context.sourceRev);
-const frame=await box.generateShotFrame(sh,[sh],ctx);
-assert.equal(frame,"fake://frame");
-assert.equal(providerCalls,1);
-assert.ok(providerPrompt.includes("FULL SCENE CONTEXT"));
-assert.ok(providerPrompt.includes("TARGET BEAT OPENING"));
-assert.ok(providerPrompt.includes("He crosses the room and opens the desk."));
-assert.ok(providerPrompt.includes("DANIEL's phone buzzes from the hallway."));
-assert.ok(providerOpts.extraImages && providerOpts.extraImages.some(u=>String(u).startsWith("data:image/png")));
-assert.ok(providerOpts.extraImageMaxDims && providerOpts.extraImageMaxDims.some(n=>n===1536),
-  "screenplay pages keep their readable source dimensions per reference");
-assert.equal(committedMeta.sceneContext.sceneId,"scene-a");
-assert.equal(committedMeta.sceneContext.targetBeat,1);
-assert.ok(committedMeta.sceneContext.renderedPages>0);
-assert.ok((committedRefs||[]).filter(r=>r&&r.ephemeral).every(r=>!r.url),
+// the full-scene context reaches the prompt the Shots card actually sends (the headless
+// Scene Director path that used to be exercised here was removed 2026-09-26)
+assert.ok(actualManualPrompt.includes("TARGET BEAT OPENING"));
+assert.ok(actualManualPrompt.includes("He crosses the room and opens the desk."));
+assert.ok(actualManualPrompt.includes("DANIEL's phone buzzes from the hallway."));
+assert.equal(manualMeta.sceneContext.sceneId,"scene-a");
+assert.equal(manualMeta.sceneContext.targetBeat,1);
+// the live generator keeps screenplay pages readable and never persists their bytes
+const artSrc=readFileSync("app/artroom.jsx","utf8");
+assert.ok(/a && a\.assetRole==="screenplay_context" \? 1536/.test(artSrc),"screenplay pages keep their readable source dimensions per reference");
+assert.ok(/if\(a && a\.ephemeral && a\.persist===false\)\{[\s\S]{0,120}?url:"", refId:a\.refId, ephemeral:true/.test(artSrc),
   "ephemeral screenplay page bytes stay out of persisted refs");
 const originalDrafts=ctx.drafts;
 let fallbackPaidCalls=0;
@@ -152,14 +149,9 @@ ctx.drafts=originalDrafts;
 ctx.drafts={"scene-a":{blocks:blocks.map((b,i)=>i===1?{...b,text:"MARCUS kneels."}:b)}};
 await assert.rejects(()=>manual.opts.metaExtra(),/changed before render|screenplay changed/);
 ctx.drafts=originalDrafts;
-mutateAfterProvider=true;
-await assert.rejects(()=>box.generateShotFrame(sh,[sh],ctx),/changed after render|screenplay changed/);
-assert.equal(commitCalls,1,"stale post-provider output is not committed");
-mutateAfterProvider=false;
-commitTier="stale";
-const doneBeforeStale=doneEvents;
-await assert.rejects(()=>box.generateShotFrame(sh,[sh],ctx),/discarded during persistence/);
-assert.equal(doneEvents,doneBeforeStale,"stale persistence never announces nb-gen-done");
-commitTier="";
+// a screenplay edit while the provider was rendering: the card's post-render check discards it
+ctx.drafts={"scene-a":{blocks:blocks.map((b,i)=>i===1?{...b,text:"MARCUS kneels."}:b)}};
+await assert.rejects(()=>manual.opts.assertPostGenerate(),/changed|screenplay changed/);
+ctx.drafts=originalDrafts;
 
 console.log("shot scene context tests passed");

@@ -26,7 +26,7 @@ inside it. (Branding rule applies: never name McKee in any user-facing output.)
 | **The spine builder** | `spineBatch` ranges in `app/ai.jsx` ("all of ACT I… midpoint… Act II climax / lowest point…"), per-scene `a:1–3` | three-act escalation grammar |
 | **Story Doctor** | `agents.jsx` audit loop | flags non-turning scenes, weak act climaxes; proposes re-charges |
 | **Beats** | drive/react rows, `turnAt` | action-vs-reaction conflict beats |
-| **Shot Designer / Scene Director** | coverage language | "land its turn on its most expressive size" |
+| **Shot Designer** | coverage language | "land its turn on its most expressive size" |
 
 Good news: every consumer of the rule already goes through `turnInfo` (or its one
 duplicate), the ruler already groups **arbitrary consecutive `scene.act` integers**,

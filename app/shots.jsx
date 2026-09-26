@@ -1611,8 +1611,8 @@ function propPhysicalScaleLabel(p){
    (CU/MCU/ECU/INSERT) or the object being what the action is ABOUT (named in the
    action's first clause). Wides and mediums trust the plate — one canon per fixture,
    no two-designs conflict, no wasted reference slot. Worn/carried props are untouched.
-   Used by buildShotPrompt (image-map labels), collectShotRefs and generateShotFrame
-   (real attachments) — all three MUST apply it identically or labels mislabel files. */
+   Used by buildShotPrompt (image-map labels) and collectShotRefs (real
+   attachments) — both MUST apply it identically or labels mislabel files. */
 function shotPropAttachable(p, sh, scene){
   if(!p) return false;
   const resolved=(typeof propStateAt==="function")
@@ -2190,7 +2190,7 @@ function buildShotPrompt(sh, ctx){
 
   // ---- THE NUMBERED IMAGE MAP (the FIRST thing in the prompt) — tells the generator
   // which attached file is which, BY POSITION. The order MUST mirror the real attachment
-  // order in collectShotRefs (shots-ui.jsx) and generateShotFrame: the seed (previous
+  // order in collectShotRefs (shots-ui.jsx): the seed (previous
   // approved frame) leads as Image 1 when present, then the sheets by location weight
   // (wide → set first; tight → cast first), then props, then carried-forward. ----
   const imgs = [];
@@ -2208,7 +2208,7 @@ function buildShotPrompt(sh, ctx){
         : (locWeight==="ambient" ? "a background reference for the grade and surfaces only; the character fills this tight frame" : "reproduce its architecture, surfaces, fixtures, sightlines and signage exactly"))));
   const _castLabels = subjects.filter(c=>_refOff.indexOf(c.id)<0).map(c=> {
     const scale = (typeof canonicalScaleLabel==="function") ? canonicalScaleLabel(c) : (c.name||"character");
-    return c.name+"'s character sheet — match the face, build, hair and wardrobe exactly; canonical scale: "+scale;
+    return c.name+"'s character sheet — match the face, build, hair and wardrobe exactly; canonical scale: "+scale+SHOT_SHEET_IDENTITY_ONLY;
   });
   // STATE-AWARE prop labels: when a prop's ACTIVE appearance state (story-order ≤ this
   // scene) has a generated variant sheet, that variant is what attaches — the label must
@@ -2257,7 +2257,8 @@ function buildShotPrompt(sh, ctx){
        if(r.assetRole==="screenplay_context"){
          imgs.push("ephemeral SCREENPLAY PAGE REFERENCE — full-scene screenplay text only; do not copy its style, composition, or layout");
        }else{
-         imgs.push(r.note || r.assetRoleLabel || ("reference image "+(ri+1)));
+         imgs.push((r.note || r.assetRoleLabel || ("reference image "+(ri+1)))
+           +(r.referenceKind==="character" ? SHOT_SHEET_IDENTITY_ONLY : ""));
        }
      });
    }
@@ -2332,14 +2333,6 @@ function combinedShotPrompt(sh, ctx){
 window.combinedShotPrompt = combinedShotPrompt;
 
 
-/* HEADLESS shot-frame generation — the Scene Director's primitive (no mounted
-   card). Mirrors ShotCard's pipeline exactly: the ROLLING CHAIN — every shot after
-   the scene's head seeds from the PREVIOUS shot's committed frame (so the look AND
-   progressive state carry forward) on top of the locked sheets; the head renders
-   from the sheets alone. References are ordered by the shot's location weight
-   (wides lead with the set, tights with the cast). quality "medium", commit +
-   nb-gen-done so any mounted card adopts the result.
-   opts: { fresh, correction } — fresh ignores the chain seed; correction is the QC repair. */
 /* ============================================================
    CARRIED PROPS ON DEMAND — a shot that should ATTACH a carried prop whose sheet was
    never generated builds that sheet first (mirroring the location staging auto-draft:
@@ -2368,7 +2361,7 @@ function carriedPropsNeedingSheets(sh, scene, charById, propById, extraIds){
       out.push(p);
     };
     for(const id of (inPr||[])) consider(id, true);
-    // props the continuity ledger carries forward from earlier beats — generateShotFrame
+    // props the continuity ledger carries forward from earlier beats — the render plan
     // attaches these too (carrySpec), so their sheets must exist just the same
     for(const id of (extraIds||[])) consider(id, false);
   }catch(e){}
@@ -2423,16 +2416,19 @@ async function ensureCarriedPropSheets(sh, scene, charById, propById, project, e
 window.ensureCarriedPropSheets = ensureCarriedPropSheets;
 
 /* ============================================================
-   ONE RENDER PLAN FOR BOTH PATHS (architect review 2026-09-01): the manual card
-   (ShotCard) and the headless Scene Director (generateShotFrame) used to assemble
-   their reference stacks independently — the card path silently lacked the
-   continuity ledger's carried props, so a manual render could drop a prop the
-   agent would have kept in frame. shotRenderPlan is now the single source of
-   truth for WHAT a shot renders from: seed shot, in-frame cast/props, ledger-
-   carried props, spec notes, and the weight-ordered attachment list. Both paths
-   consume it; neither builds its own. Synchronous on purpose — image resolution
-   is the separate shotResolveRenderRefs step.
+   ONE RENDER PLAN (architect review 2026-09-01): shotRenderPlan is the single
+   source of truth for WHAT a shot renders from — seed shot, in-frame cast/props,
+   ledger-carried props, spec notes, and the weight-ordered attachment list. The
+   Shots card (shotFrameGenOpts / collectShotRefs) and the Storyboard's planned-
+   prompt box consume it; neither builds its own. Synchronous on purpose — image
+   resolution is the separate shotResolveRenderRefs step.
    ============================================================ */
+/* A character sheet is an IDENTITY reference: every panel is a neutral studio view on a plain
+   ground. Say so in the image map, as Stage already does (stage.jsx), so a frame never inherits
+   the sheet's backdrop, pose, flat lighting or neutral face — the beat supplies the performance
+   (owner decisions 2026-09-26: no expression row on the sheet; place-free style backdrops). */
+const SHOT_SHEET_IDENTITY_ONLY = " (identity only: take the face, build, hair and wardrobe from it; never copy its background, pose, lighting or panel layout; its face is neutral by design, so the expression comes from this beat)";
+window.SHOT_SHEET_IDENTITY_ONLY = SHOT_SHEET_IDENTITY_ONLY;
 /* One canonical character-sheet resolver for every downstream surface.  A
    character appearance state starts at its pinned scene and remains active until
    a later state supersedes it.  Shots, Storyboards and Stage all consume the
@@ -2662,158 +2658,6 @@ function shotWritingSources(sh,ctx){
 }
 window.shotWritingSources=shotWritingSources;
 
-async function generateShotFrame(sh, sceneShots, ctx, opts){
-  const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;   // asset scope at generation start
-  const sourceCtx = ctx; // retain the live caller context for post-provider source checks
-  opts = opts || {};
-  const requestedModel=opts.model||(typeof nbGetModel==="function"?nbGetModel():undefined);
-  // Keep the legacy GPT Image 2 medium guard; 2.5 honors the selected tier.
-  const requestedQuality=opts.quality!=null?opts.quality:
-    (/^gpt-image-2\.5-/.test(requestedModel||"")&&typeof nbGetOaiQuality==="function"?nbGetOaiQuality(requestedModel):"medium");
-  // the ONE render plan shared with the manual card path — see shotRenderPlan above
-  const plan = shotRenderPlan(sh, sceneShots, ctx);
-  const identityCast = (plan.inCast||[]).map(id=>(ctx.charById||{})[id]).filter(Boolean);
-  const identityContext = { characterIds:(plan.inCast||[]), scenes:ctx.scenes||[ctx.scene],
-    drafts:ctx.drafts||{}, cast:identityCast };
-  if(typeof window.nbAssertMediaIdentity==="function")
-    window.nbAssertMediaIdentity({identityCharacterIds:plan.inCast||[],identityCast,identityContext},"shot-start");
-  if(typeof window.nbRequireImageQuality==="function") await window.nbRequireImageQuality(requestedModel,requestedQuality);
-  if(_ep!=null && typeof nbEpoch==="function" && nbEpoch()!==_ep)
-    throw new Error("Film changed before render; nothing was rendered.");
-  const prevSh = plan.prevSh;
-  const grab = async (id)=> (typeof shotGrabImage==="function") ? await shotGrabImage(id) : "";
-  // the SEED: the reference frame — within a beat, the beat's FIRST shot's committed
-  // frame (the coverage anchor); for a beat opener, the previous shot's frame
-  // (cross-beat continuity). Carries grade + physical state forward.
-  const seed = (prevSh && !opts.fresh) ? await grab(prevSh.id) : "";
-  if(typeof window.nbAssertMediaIdentity==="function")
-    window.nbAssertMediaIdentity({identityCharacterIds:plan.inCast||[],identityCast,identityContext},"shot-after-seed");
-  /* Explicit location choices are a paid-render prerequisite. Resolve just the
-     required subset before any convenience prop preparation can generate an
-     image; the resolver throws ShotLocationReferenceError on a missing or
-     unavailable selection. The full ordered stack is still resolved below. */
-  const requiredLocationSpecs=(plan.activeLocSpec||[]).filter(s=>s&&s.required);
-  if(requiredLocationSpecs.length && typeof shotResolveLocationSpecImages==="function"){
-    await shotResolveLocationSpecImages(requiredLocationSpecs,grab);
-    if(plan.sceneContext && typeof shotSceneContextStillCurrent==="function"){
-      const preflightScene=shotSceneContextStillCurrent(plan.sceneContext,sh,sourceCtx);
-      if(!preflightScene.ok) throw new Error(preflightScene.reason||"Scene screenplay changed before render; nothing was rendered.");
-    }
-    if(_ep!=null && typeof nbEpoch==="function" && nbEpoch()!==_ep)
-      throw new Error("Film changed before render; nothing was rendered.");
-  }
-  // build any missing carried-prop sheet this shot would attach BEFORE resolving refs —
-  // both the in-frame props AND the ledger-carried ones (they attach as carrySpec).
-  // Cross-instance lock + fail-open inside; a failure just renders the shot as before.
-  if(typeof ensureCarriedPropSheets==="function")
-    await ensureCarriedPropSheets(sh, ctx.scene, ctx.charById, ctx.propById, ctx.project, plan.carried);
-  if(typeof window.nbAssertMediaIdentity==="function")
-    window.nbAssertMediaIdentity({identityCharacterIds:plan.inCast||[],identityCast,identityContext},"shot-after-props");
-  const refs = await shotResolveRenderRefs(plan, grab);
-  if(typeof window.nbAssertMediaIdentity==="function")
-    window.nbAssertMediaIdentity({identityCharacterIds:plan.inCast||[],identityCast,identityContext},"shot-after-refs");
-  if(plan.sceneContext && typeof shotSceneContextStillCurrent==="function"){
-    const sceneCheck = shotSceneContextStillCurrent(plan.sceneContext,sh,sourceCtx);
-    if(!sceneCheck.ok) throw new Error(sceneCheck.reason||"Scene screenplay changed before render; nothing was rendered.");
-  }
-  if(_ep!=null && typeof nbEpoch==="function" && nbEpoch()!==_ep)
-    throw new Error("Film changed before render; nothing was rendered.");
-  /* Legacy character sheets have no canonical snapshot and canon-changed sheets
-     are explicitly stale.  Do not silently pass one through the shot pipeline. */
-  if(typeof window.nbAssertIdentityAssetFresh==="function"){
-    identityCast.forEach(c=>{
-      const hit=refs.find(r=>r&&r.refId&&
-        (String(r.refId)===String(c.id)||String(r.refId).indexOf(String(c.id)+":")===0));
-      if(hit) window.nbAssertIdentityAssetFresh(hit.refId,c,identityContext);
-    });
-  }
-  // buildShotPrompt now emits the STYLE SPINE + staging + the named reference stack itself
-  // (it reads ctx.carriedForward + ctx.prevFrameRole), so we don't re-list references here.
-  const rankedRefs = (typeof nbPreferBestAssetRefs==="function") ? nbPreferBestAssetRefs(refs) : refs;
-  const _ordAll = (typeof sceneShotsOrdered==="function") ? sceneShotsOrdered(sceneShots) : (sceneShots||[]);
-  const _selfIdx = _ordAll.findIndex(x=>x.id===sh.id);
-  ctx = { ...ctx, carriedForward: plan.carriedForward, carriedTextOnly: plan.carriedTextOnly,
-    laterShots: _selfIdx>=0 ? _ordAll.slice(_selfIdx+1) : [],
-    prevFrameRole: !!seed, prevShot:seed?prevSh:null,
-    resolvedRefs:rankedRefs,
-    sceneContext:plan.sceneContext };
-  let prompt = combinedShotPrompt(sh, ctx);
-  if(opts.correction) prompt += "\n\nCORRECTIONS (the previous attempt failed visual QC): "+opts.correction.replace(/\.$/,"")+".";
-  const identityPrompt = identityCast.length && typeof window.turnIdentityPrompt==="function"
-    ? String(window.turnIdentityPrompt(identityCast)||"").trim() : "";
-  if(identityPrompt && prompt.indexOf(identityPrompt)<0)
-    prompt += "\n\nCANONICAL CHARACTER IDENTITY (binding): "+identityPrompt;
-  const gopts = {
-    aspectRatio:(typeof aspectFor==="function") ? aspectFor(ctx.project) : "16:9",
-    model:requestedModel, quality:requestedQuality,
-    referenceMaxDim:768,
-    identityCharacterIds:plan.inCast||[], identityCast, identityContext,
-  };
-  if(seed) gopts.referenceImage = seed;
-  gopts.extraImageMaxDims = rankedRefs.map(r=>r&&r.assetRole==="screenplay_context" ? 1536 : 768);
-  if(rankedRefs.length) gopts.extraImages = rankedRefs.map(r=>r.url);
-  if(typeof window.nbAssertMediaIdentity==="function")
-    window.nbAssertMediaIdentity(gopts,"shot-before-submit");
-  if(plan.sceneContext && typeof shotSceneContextStillCurrent==="function"){
-    const finalSceneCheck = shotSceneContextStillCurrent(plan.sceneContext,sh,sourceCtx);
-    if(!finalSceneCheck.ok) throw new Error(finalSceneCheck.reason||"Scene screenplay changed before render; nothing was rendered.");
-  }
-  if(_ep!=null && typeof nbEpoch==="function" && nbEpoch()!==_ep)
-    throw new Error("Film changed before render; nothing was rendered.");
-  const url = await nbGenerate(prompt, gopts);
-  if(typeof window.nbAssertMediaIdentity==="function")
-    window.nbAssertMediaIdentity(gopts,"shot-after-provider");
-  if(plan.sceneContext && typeof shotSceneContextStillCurrent==="function"){
-    const postSceneCheck = shotSceneContextStillCurrent(plan.sceneContext,sh,sourceCtx);
-    if(!postSceneCheck.ok) throw new Error(postSceneCheck.reason||"Scene screenplay changed after render; result discarded.");
-  }
-  if(_ep!=null && typeof nbEpoch==="function" && nbEpoch()!==_ep)
-    throw new Error("Film changed after render; result discarded.");
-  const now = new Date();
-  const prior = (typeof nbGetMeta==="function") ? (nbGetMeta(sh.id)||{}) : {};
-  const advancedCamera = (typeof shotCameraMetadata==="function") ? shotCameraMetadata(sh) : null;
-  // SEED LINEAGE — record exactly which frame seeded this render (shot id + that
-  // frame's version/timestamp, warm in the meta cache because grab() just loaded it).
-  // shotChainStatus later DERIVES staleness from this: regenerate/reorder/delete the
-  // seed and every dependent downstream frame reports that continuity needs refreshing.
-  // A missing-seed render (prevSh exists but its frame didn't load) records seedShotId:""
-  // WITHOUT fresh — truthfully chain-stale until re-rendered on its real anchor.
-  const seedSource = (typeof shotSeedStamp==="function")
-    ? (seed ? { ...shotSeedStamp(prevSh, (typeof nbGetMeta==="function") ? nbGetMeta(prevSh.id) : null),
-               // durable record when the seed wasn't approved at render time (ordered
-               // runs approve each link first, so this only marks genuine exceptions)
-               ...(prevSh.locked ? {} : { seedUnapproved:true }) }
-            : { seedShotId:"", ...((prevSh && opts.fresh) ? { fresh:true } : {}) })
-    : null;
-  const meta = { ...prior, mode: seed?"base":"final", prompt, director:true,
-    ...(requestedModel?{modelId:requestedModel,
-      modelLabel:((window.NB_MODELS||[]).find(m=>m.id===requestedModel)||{}).label||requestedModel,
-      quality:/^gpt-image/.test(requestedModel)?requestedQuality:null}:{}),
-    identityCharacterIds:plan.inCast||[],
-    identitySnapshots:identityCast.map(c=>typeof window.nbIdentitySnapshot==="function" ? window.nbIdentitySnapshot(c) : null).filter(Boolean),
-    ...(seedSource ? { seedSource } : {}),
-    assetRole:"shot_anchor", assetRoleLabel:(typeof nbAssetRoleLabel==="function") ? nbAssetRoleLabel("shot_anchor") : "Shot anchor",
-    advancedCamera,
-    sourceReferences:rankedRefs.map(r=>({ refId:r.refId||"", note:r.note||"", assetRole:r.assetRole||"", assetSourceQuality:r.assetSourceQuality||"" })),
-     sceneContext:plan.sceneContext ? {
-       sceneId:plan.sceneContext.sceneId, sourceRev:plan.sceneContext.sourceRev,
-       targetBeat:plan.sceneContext.targetBeat, pages:plan.sceneContext.pages||0,
-       renderedPages:plan.sceneContext.renderedPages||0, omittedPages:plan.sceneContext.omittedPages||0,
-       omissions:(plan.sceneContext.omissions||[]).slice()
-     } : null,
-    writingSources:shotWritingSources(sh,ctx),
-    promptCompiler:"TURN prompt compiler",
-    date:now.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}),
-    time:now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}), iso:now.toISOString(),
-    version:((prior.version||0)+1), ...(opts.correction?{editInstruction:opts.correction}:{}) };
-  const r = (typeof nbCommit==="function") ? await nbCommit(sh.id, url, meta, [], "shot", _ep) : null;
-  if(r && (r.tier==="stale" || r.tier==="cancelled" || r.tier==="cancellation-error" || r.tier==="error"))
-    throw new Error("Shot render was discarded during persistence ("+r.tier+"); no frame was installed.");
-  const committed = (r && r.url) || url;
-  try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id:sh.id, url:committed } })); }catch(e){}
-  return committed;
-}
-window.generateShotFrame = generateShotFrame;
 
 
 /* ---- screenplay-grounded fallback: one opening shot per authored beat ------- */

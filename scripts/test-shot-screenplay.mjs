@@ -123,23 +123,6 @@ assert.ok(box.buildShotPrompt(normalized,{
   drafts,beatsMap,location:null,project:{}
 }).includes("SCREENPLAY OPENING SOURCE"));
 
-/* Exercise the actual render path with a fake provider and no external call. */
-let providerCalls=0;
-Object.assign(box,{
-  nbEpoch:()=>1, nbAssertMediaIdentity:()=>{},
-  shotGrabImage:async()=>"", nbLoadImage:async()=>null, nbGetImage:()=>"",
-  nbGenerate:async()=>{ providerCalls++; return "fake://frame"; },
-  nbGetMeta:()=>({}), nbPreferBestAssetRefs:refs=>refs,
-  nbAssetRoleLabel:id=>id, nbAssetRolePriority:()=>0,
-  nbCommit:async(id,url)=>({url}),
-});
-const frame=await box.generateShotFrame(normalized,[normalized],{
-  scene,characters:chars,charById:Object.fromEntries(chars.map(c=>[c.id,c])),
-  propById:{},drafts,beatsMap,location:null,project:{}
-});
-assert.equal(frame,"fake://frame");
-assert.equal(providerCalls,1);
-
 const changedDrafts={"scene-1":{version:"draft-v2",blocks:blocks.map((b,i)=>
   i===1 ? {...b,text:b.text.replace("stands","kneels")} : b)}};
 const changed=box.shotBeatScreenplay(scene,1,{drafts:changedDrafts,characters:chars,beatsMap});
