@@ -3198,7 +3198,7 @@ window.sceneContinuityLedger = sceneContinuityLedger;
    characters are in play (the frame could mis-resolve it), and (b) a prop established
    earlier in the scene whose owner is still present but which this beat's text drops (it
    may pop out of the cut). Deterministic. `props` = [{name, owner|ownerName, type|kind}]
-   (e.g. the Script Breakdown's tag-out). The lint reads the BEAT rows, never the screenplay
+   (the props mapped to the scene in the Props tab). The lint reads the BEAT rows, never the screenplay
    prose (prose is meant to use pronouns). */
 function beatContinuityLint(scene, beats, props, characters){
   const rows = (beats && beats.rows) || [];

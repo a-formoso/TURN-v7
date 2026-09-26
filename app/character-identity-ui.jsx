@@ -32,11 +32,26 @@ function CharacterIdentityNotice({ character, scenes, drafts, cast, onUpdate, re
     onUpdate(character.id,{ pronouns, pronounProvenance:"user", pronounSource:"user" });
     setResolutionNote("Canonical pronouns updated. Existing profile/specifications and images were left untouched — review the remaining evidence and explicitly re-draft or regenerate them when ready.");
   };
+  /* The second choice hands off to the Art Room's Production check only where it can
+     act: its script pass rewrites THEY/THEM lines to a gendered profile, and its script
+     read proposes UNSET pronouns from exact screenplay evidence. It never rewrites one
+     gendered pronoun into another, so that case says where to fix it by hand. */
+  const theyScript = report.scriptPronouns==="they/them";
+  const second = report.status==="unset"
+    ? (theyScript ? null : { label:"Run Production check", open:true,
+        note:"The Production check proposes "+name+"'s pronouns from the exact screenplay evidence, one approval card at a time; nothing was changed automatically." })
+    : theyScript
+    ? { label:"Keep profile · run Production check", open:true,
+        note:"Profile kept. The Production check's script pass offers to rewrite the screenplay's they/them lines for "+name+" to "+(report.pronouns||"the profile's pronouns")+"; nothing was changed automatically." }
+    : { label:"Keep profile", open:false,
+        note:"Profile kept. The screenplay's pronouns for "+name+" aren't rewritten automatically — correct the quoted lines in the Script view." };
   const retainProfile = ()=>{
-    setResolutionNote("Profile retained. Run the existing Consistency Check to propose screenplay rewrites; nothing was changed automatically.");
-    if(typeof window.turnOpenConsistencyCheck==="function") window.turnOpenConsistencyCheck({characterId:character.id});
+    if(!second) return;
+    setResolutionNote(second.note);
+    if(!second.open) return;
+    if(typeof window.turnOpenProductionCheck==="function") window.turnOpenProductionCheck({characterId:character.id});
     else{
-      try{ window.dispatchEvent(new CustomEvent("turn-open-consistency-check",{detail:{characterId:character.id}})); }catch(e){}
+      try{ window.dispatchEvent(new CustomEvent("turn-open-production-check",{detail:{characterId:character.id}})); }catch(e){}
     }
   };
   const sourceName = source => source==="screenplay" ? "Screenplay"
@@ -63,8 +78,8 @@ function CharacterIdentityNotice({ character, scenes, drafts, cast, onUpdate, re
     ? React.createElement("div",{style:{display:"flex",flexWrap:"wrap",gap:7,marginTop:10}},
         React.createElement("button",{type:"button",className:"char-draft-btn",disabled:!!readOnly,onClick:chooseScreenplay},
           "Use "+report.scriptPronouns+" from screenplay"),
-        React.createElement("button",{type:"button",className:"char-draft-btn",onClick:retainProfile},
-          "Retain profile · run Consistency Check"))
+        second && React.createElement("button",{type:"button",className:"char-draft-btn",onClick:retainProfile},
+          second.label))
     : null;
 
   if(report.status==="conflict"){
@@ -81,7 +96,7 @@ function CharacterIdentityNotice({ character, scenes, drafts, cast, onUpdate, re
     return React.createElement("div",{className:"character-identity-notice unset",style,role:"status"},
       React.createElement("div",{style:{fontWeight:700,color:"var(--txt-0)"}},"Pronouns unset — identity unverified"),
       React.createElement("div",{style:{marginTop:3}},report.scriptPronouns
-        ? "The screenplay has direct evidence for "+report.scriptPronouns+"; choose explicitly or retain the profile and run Consistency Check."
+        ? "The screenplay has direct evidence for "+report.scriptPronouns+(second ? "; choose explicitly, or run the Production check to review it card by card." : "; set the pronouns explicitly.")
         : "No direct identity evidence was detected. Choose explicit pronouns before treating the identity as canon."),
       advisories,actions,
       resolutionNote && React.createElement("div",{style:{marginTop:7,color:"var(--txt-2)"}},resolutionNote));

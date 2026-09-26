@@ -1166,13 +1166,14 @@ async function agentTableRead(ctx){
 }
 
 /* =========================================================
-   SCRIPT BREAKDOWN  (Writers' Room — the 1st-AD pass, runs on Claude)
+   SCRIPT READ  (the first half of the Art Room's Production check — the 1st-AD pass,
+   formerly the Writers' Room "Script Breakdown" agent; merged 2026-09-26, owner-approved)
    Reads every WRITTEN scene's beats + screenplay, tags each beat's characters (anatomy /
-   features / appearance states + the pronoun the script uses), props handled, and set
-   dressing. Two jobs: (1) ENRICH the cast sheets with script-only details; (2) the
-   bible↔script DRIFT CHECK — flag where the script's pronouns contradict a character's
-   canonical pronouns, with a reconcile proposal (catches the Lumi gender case). Props are
-   NOT re-tagged here: the beat lint reads the reviewed Props inventory (read-only).
+   features / appearance states + the pronoun the script uses). Two jobs: (1) ENRICH the
+   cast sheets with script-only details; (2) the bible↔script DRIFT CHECK — flag where the
+   script's pronouns contradict a character's canonical pronouns, with a reconcile proposal
+   (catches the Lumi gender case). Props are NOT re-tagged here, and the beat lint runs
+   once, in the Production check's second half.
    ========================================================= */
 function breakdownPronounEvidence(character, scene, draft, cast){
   const ctx={ scenes:scene?[scene]:[], drafts:scene&&scene.id?{[scene.id]:draft}: {}, cast:cast||[] };
@@ -1194,18 +1195,18 @@ function breakdownPronounEvidence(character, scene, draft, cast){
   }catch(e){}
   return {pronouns:"",quote:""};
 }
-async function agentScriptBreakdown(ctx){
-  if(!ctx.ai || !ctx.ai.available){ ctx.emit({k:"flag", t:"The model isn't available — the breakdown needs it."}); ctx.emit({k:"done",t:"Aborted."}); return; }
+/* Returns { drift, reconciled, enriched, exprSet, propScenes }, or nothing when the run
+   was stopped. Emits no "done" line: the Production check closes the run. Every card is
+   tagged writes:"art" (they change the cast sheets). */
+async function productionScriptRead(ctx){
   const scenes = scenesInStoryOrder(ctx.model.scenes);
   const written = scenes.filter(s=> ctx.model.drafts[s.id]);
-  if(!written.length){ ctx.emit({k:"flag", t:"No scenes are written yet — build the script first (New Story / Adaptation), then run the breakdown."}); ctx.emit({k:"done",t:"Nothing to break down."}); return; }
-  ctx.emit({k:"plan", t:"Breaking down "+written.length+" written scene"+(written.length>1?"s":"")+" — tagging each beat's characters and features, checking the script against the cast sheets, and checking each beat against the props mapped to its scene."});
   const pronOf = (g)=> g==="he"?"he/him":g==="she"?"she/her":g==="they"?"they/them":"";
   const charByName = {}; (ctx.model.characters||[]).forEach(c=>{ if(c.name) charByName[c.name.toLowerCase()]=c; });
   const findChar = (nm)=>{ const low=(nm||"").toLowerCase();
     return charByName[low] || (ctx.model.characters||[]).find(x=>{ const xn=(x.name||"").toLowerCase(); return xn && (xn.includes(low)||low.includes(xn)); }); };
-  let drift=0, reconciled=0, enriched=0, propScenes=0, lintCount=0;
-  // the reviewed Props inventory (read-only) is the single prop list for the lint
+  let drift=0, reconciled=0, enriched=0, propScenes=0;
+  // the reviewed Props inventory (read-only): listed per scene for the record
   const inventoryProps = ((ctx.bible && ctx.bible.props) || []).filter(p=> p && p.name);
   const scriptPronounsByChar = {};
   const emoTally = {};   // charId → { emotion: count } — the character's emotions across the story
@@ -1213,17 +1214,8 @@ async function agentScriptBreakdown(ctx){
     if(ctx.cancelled()) return;
     ctx.emit({k:"act", t:"Reading Sc "+s.no+" “"+s.title+"”…"});
     let bd=null; try{ bd = await window.aiScriptBreakdown(s, ctx.model.beats[s.id], ctx.model.drafts[s.id], ctx.model.characters); }catch(e){}
-    if(!bd){ ctx.emit({k:"flag", t:"Sc "+s.no+": couldn't read a breakdown — skipping."}); continue; }
-    // (4) REFERENTIAL-COMPLETENESS LINT — flag beats whose text isn't self-contained
-    // (ambiguous pronoun, or a prop established earlier that this beat drops) before any
-    // frame is generated. Deterministic, reads the beat map + the reviewed Props inventory
-    // mapped to this scene (the same list Shots and Stage use).
+    if(!bd){ ctx.emit({k:"flag", t:"Sc "+s.no+": couldn't read this scene — skipping it."}); continue; }
     const sceneProps = inventoryProps.filter(p=> Array.isArray(p.scenes) && p.scenes.indexOf(s.id)>=0);
-    if(typeof window.beatContinuityLint==="function"){
-      const lf = window.beatContinuityLint(s, ctx.model.beats[s.id], sceneProps, ctx.model.characters);
-      lf.forEach(f=> ctx.emit({k:"flag", t:"Sc "+s.no+" · "+f.msg}));
-      lintCount += lf.length;
-    }
     bd.characters.forEach(c=>{ const bits=[]; if(c.features.length) bits.push(c.features.length+" feature"+(c.features.length>1?"s":"")); if(c.states.length) bits.push(c.states.length+" state"+(c.states.length>1?"s":""));
       ctx.emit({k:"observe", t:"Sc "+s.no+" · "+c.name+(bits.length?(" — "+bits.join(", ")):"")+(c.gender_used!=="unclear"?(" · script says “"+c.gender_used+"”"):"")}); });
     if(sceneProps.length){ propScenes++; ctx.emit({k:"observe", t:"Sc "+s.no+" props (from the Props inventory): "+sceneProps.map(p=>p.name+(p.ownerName?(" ("+p.ownerName+")"):"")).join(", ")}); }
@@ -1257,11 +1249,16 @@ async function agentScriptBreakdown(ctx){
       }
       if(scriptPron && !priorScriptPron) scriptPronounsByChar[ch.id]={ pronouns:scriptPron, quote:evidence.quote||"", scene:s.no };
       if(scriptPron==="they/them"){
-        // house rule: singular they never becomes canon — the SCRIPT is what needs fixing
-        ctx.emit({k:"flag", t:"Sc "+s.no+" refers to "+ch.name+" with singular \u201cthey\u201d \u2014 rewrite to "+(canonPron||"he/she or the name")+" (house rule: explicit pronouns only; Consistency Check can fix this)."});
+        // house rule: singular they never becomes canon — the SCRIPT is what needs fixing.
+        // Under an explicitly gendered sheet the script pass (second half of this check)
+        // offers the rewrite; a sheet that really says they/them is right as written.
+        const explicit = String(ch.pronouns||"").toLowerCase().trim();
+        if(explicit==="they/them"){ /* sheet and script agree */ }
+        else if(_CONS_GENDER[explicit]) ctx.emit({k:"observe", t:"Sc "+s.no+" calls "+ch.name+" \u201cthey\u201d \u2014 the script pass below offers the rewrite to "+explicit+" wherever the subject is clear (house rule: explicit pronouns only)."});
+        else ctx.emit({k:"flag", t:"Sc "+s.no+" calls "+ch.name+" \u201cthey\u201d, but their sheet has no pronouns set"+(canonPron?" (the description suggests "+canonPron+")":"")+" \u2014 set them in the Cast panel, then run the Production check again so its script pass can rewrite the scene (house rule: explicit pronouns only)."});
       } else if(scriptPron && canonPron && scriptPron!==canonPron){
         drift++;
-        const ok = await ctx.propose({
+        const ok = await ctx.propose({ writes:"art",
           title:"Gender drift — "+ch.name,
           reason:"Sc "+s.no+" has exact screenplay evidence for "+ch.name+" as “"+scriptPron+"”: “"+(evidence.quote||"source unavailable")+"”. The cast sheet's pronouns are "+canonPron+".",
           rationale:"Approve only if the quoted screenplay evidence is the intended canon, setting "+ch.name+"'s sheet to "+scriptPron+". Reject to keep "+canonPron+" and fix the script; this pass never silently trusts a model tag.",
@@ -1278,10 +1275,10 @@ async function agentScriptBreakdown(ctx){
         // enforce (the Odette case: script said "he" for a woman whose sheet was blank).
         // Settle the sheet NOW so every future generation is anchored.
         drift++;
-        const ok = await ctx.propose({
+        const ok = await ctx.propose({ writes:"art",
           title:"Pronouns unset — "+ch.name,
            reason:"Sc "+s.no+" has exact screenplay evidence for "+ch.name+" as “"+scriptPron+"”: “"+(evidence.quote||"source unavailable")+"”, but the cast sheet has NO pronouns set — the generators had nothing to enforce.",
-           rationale:"Approve explicit screenplay adoption only if the quoted source is correct, setting "+ch.name+"'s canonical pronouns to "+scriptPron+". If the script is wrong, reject, set the right pronouns in the Cast panel, then re-run the Consistency Check to rewrite the scene.",
+           rationale:"Approve explicit screenplay adoption only if the quoted source is correct, setting "+ch.name+"'s canonical pronouns to "+scriptPron+". If the script is wrong, reject, set the right pronouns in the Cast panel and correct the scene's pronouns in the Script view.",
            before:"Sheet: unset", after:"Sheet: "+scriptPron+" · source: "+(evidence.quote||"unavailable") });
         if(ctx.cancelled()) return;
         if(ok){ const i=ctx.model.characters.findIndex(x=>x.id===ch.id);
@@ -1289,7 +1286,7 @@ async function agentScriptBreakdown(ctx){
               pronounProvenance:"user", pronounSource:"user",
               identityProvenance:{ ...(ctx.model.characters[i].identityProvenance||{}), pronouns:"user" }};
             charByName[(ch.name||"").toLowerCase()]=ctx.model.characters[i]; ctx.sync(); reconciled++; ctx.emit({k:"ok", t:ch.name+" → "+scriptPron}); } }
-        else ctx.emit({k:"flag", t:ch.name+": pronouns still unset — set them in the Cast panel, then re-run the Consistency Check so the script is rewritten to match."});
+        else ctx.emit({k:"flag", t:ch.name+": pronouns still unset — set them in the Cast panel (and correct the script's pronouns in the Script view if they're the wrong ones)."});
       }
       // (1b) SCALE DRIFT — the script implies a scale class that contradicts the sheet's
       const SCALE_MAP = { human:"A", critter:"B", giant:"C", microscopic:"D" };
@@ -1298,7 +1295,7 @@ async function agentScriptBreakdown(ctx){
       const canonCls = (typeof window.scaleClassOf==="function") ? window.scaleClassOf(ch) : "A";
       if(scriptCls && scriptCls!==canonCls){
         drift++;
-        const ok = await ctx.propose({
+        const ok = await ctx.propose({ writes:"art",
           title:"Scale drift — "+ch.name,
           reason:"Sc "+s.no+" reads "+ch.name+" as “"+c.scale_used+"” scale, but the sheet is "+(SCALE_LAB[canonCls]||canonCls)+".",
           rationale:"Approve to set "+ch.name+"'s scale class to "+(SCALE_LAB[scriptCls]||scriptCls)+" — it drives the height sheet's ruler and how the world is rendered from their POV in shots.",
@@ -1312,7 +1309,7 @@ async function agentScriptBreakdown(ctx){
       const newFeats = c.features.filter(f=> f && !existing.includes(f.toLowerCase().slice(0,16)));
       for(const f of newFeats){
         if(ctx.cancelled()) return;
-        const ok = await ctx.propose({
+        const ok = await ctx.propose({ writes:"art",
           title:"Add to "+ch.name+"'s sheet",
           reason:"Sc "+s.no+" reveals a detail not on "+ch.name+"'s sheet: “"+f+"”.",
           rationale:"Approve to append it to the character's physical description so every sheet and shot includes it.",
@@ -1335,7 +1332,7 @@ async function agentScriptBreakdown(ctx){
         const field = isAccent ? "accent" : "quirks";
         const cur = ch.voice || {};
         if(isAccent && cur.accent) continue;   // an authored accent wins over a script cue
-        const ok = await ctx.propose({
+        const ok = await ctx.propose({ writes:"art",
           title:"Voice — "+ch.name,
           reason:"Sc "+s.no+" states how "+ch.name+" SOUNDS: “"+q+"”.",
           rationale:"Approve to record it on "+ch.name+"'s voice block ("+field+") — voice casting builds its description from these fields, so the locked voice matches the script.",
@@ -1350,16 +1347,35 @@ async function agentScriptBreakdown(ctx){
       }
     }
   }
-  // SIGNATURE EXPRESSIONS — each character's 3 most-prevalent emotions across the story become
-  // the expression-headshot row on their sheet (replacing the generic joy/anger/sadness default).
-  let exprSet=0;
+  // SIGNATURE EXPRESSIONS — each character's 3 most-prevalent emotions across the story,
+  // stored on the character as acting/continuity notes. ONE approval card for the whole
+  // cast (they used to be written without asking); unchanged characters are left out.
+  const exprChanges = [];
   Object.keys(emoTally).forEach(cid=>{
     const top = Object.entries(emoTally[cid]).sort((a,b)=>b[1]-a[1]).slice(0,3).map(e=>e[0]);
-    if(top.length){ const i=ctx.model.characters.findIndex(x=>x.id===cid);
-      if(i>=0){ ctx.model.characters[i]={...ctx.model.characters[i], expressions:top}; exprSet++; } }
+    const ch = ctx.model.characters.find(x=>x.id===cid);
+    if(!ch || !top.length) return;
+    const cur = Array.isArray(ch.expressions) ? ch.expressions : [];
+    if(cur.join("|").toLowerCase()===top.join("|").toLowerCase()) return;
+    exprChanges.push({ id:cid, name:ch.name, before:cur, after:top });
   });
-  if(exprSet){ ctx.sync(); ctx.emit({k:"ok", t:"Set signature expressions for "+exprSet+" character"+(exprSet!==1?"s":"")+" from the story."}); }
-  ctx.emit({k:"done", t:"Breakdown complete — "+drift+" drift flag"+(drift!==1?"s":"")+" ("+reconciled+" reconciled), "+enriched+" feature"+(enriched!==1?"s":"")+" added to the cast, "+(exprSet?exprSet+" expression set"+(exprSet!==1?"s":"")+", ":"")+lintCount+" continuity warning"+(lintCount!==1?"s":"")+" flagged"+(propScenes?"":" (no props are mapped to these scenes yet — run Art Room → Props → Extract screenplay props so the beat check can catch props that drop out)")+"."});
+  let exprSet=0;
+  if(exprChanges.length){
+    if(ctx.cancelled()) return;
+    const ok = await ctx.propose({ writes:"art",
+      title:"Signature expressions — "+exprChanges.length+" character"+(exprChanges.length===1?"":"s"),
+      reason:"Across the script, these are the emotions each character shows most often.",
+      rationale:"Approve to store each character's three most frequent emotions from the script as their signature expressions (acting and continuity notes). Nothing is re-rendered.",
+      before:exprChanges.map(c=>c.name+": "+(c.before.length?c.before.join(", "):"none yet")).join("\n"),
+      after:exprChanges.map(c=>c.name+": "+c.after.join(", ")).join("\n") });
+    if(ctx.cancelled()) return;
+    if(ok){
+      exprChanges.forEach(c=>{ const i=ctx.model.characters.findIndex(x=>x.id===c.id);
+        if(i>=0){ ctx.model.characters[i]={...ctx.model.characters[i], expressions:c.after}; exprSet++; } });
+      if(exprSet){ ctx.sync(); ctx.emit({k:"ok", t:"Signature expressions set for "+exprSet+" character"+(exprSet!==1?"s":"")+"."}); }
+    }
+  }
+  return { drift, reconciled, enriched, exprSet, propScenes };
 }
 
 /* =========================================================
@@ -2007,7 +2023,9 @@ async function agentSceneDirector(ctx){
    (no model calls): the script/beats are canon, so every downstream layer —
    prop cards, the location bible, staging, render styles, pronouns — is diffed
    against them. Unambiguous repairs become approval cards; judgement calls are
-   flagged for the writer. ---- */
+   flagged for the writer. Since 2026-09-26 it runs in two scopes: the story checks
+   are the Writers' Room's Consistency Check, the production checks are the second
+   half of the Art Room's Production check (see agentProductionCheck). ---- */
 
 const _consEsc = (s)=> String(s||"").replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
 const _consCap = (s)=> s.charAt(0).toUpperCase()+s.slice(1);
@@ -2078,15 +2096,27 @@ function _consOSA(a,b){
   }
   return d[m][n];
 }
-async function agentConsistency(ctx){
+async function agentConsistency(ctx, opts){
+  // SCOPE (2026-09-26, owner-approved): "story" is the Writers' Room Consistency Check —
+  // cast-name spelling, beat tags, time-of-day jumps, app vocabulary on the page and the
+  // cast's argument. "production" is the second half of the Art Room's Production check —
+  // unslugged spaces, they/them lines, props, locations, render styles, wardrobe, shots
+  // and the beat lint. No scope runs every check (tests). noDone: the caller closes the run.
+  opts = opts || {};
+  const story = opts.scope!=="production", prod = opts.scope!=="story";
   const MAX_CARDS = 12;
   const bible = ctx.bible || { props:[], locations:[], shots:[], patchProp:()=>{}, patchLocation:()=>{} };
   const cast = ctx.model.characters.map(c=>({ id:c.id, name:c.name, styleKey:c.renderStyleKey||"",
     g:_CONS_GENDER[String(c.pronouns||"").toLowerCase().trim()]||null, pronouns:c.pronouns||"" }));
   const drafted = scenesInStoryOrder(ctx.model.scenes)
     .filter(s=> ctx.model.drafts[s.id] && (ctx.model.drafts[s.id].blocks||[]).length);
-  ctx.emit({k:"plan", t:"Auditing "+drafted.length+" drafted scene"+(drafted.length===1?"":"s")+" — the script and beats are canon; props, locations, staging, styles and pronouns are diffed against them. No model calls, so this pass is free."});
-  if(!drafted.length){ ctx.emit({k:"done", t:"No drafted scenes to audit yet — write or draft a scene first."}); return; }
+  const nSc = drafted.length+" drafted scene"+(drafted.length===1?"":"s");
+  ctx.emit({k:"plan", t: !prod
+    ? "Auditing "+nSc+" for story consistency — cast-name spelling, beat tags, time-of-day jumps, app vocabulary on the page and the cast's argument. No model calls, so this pass is free."
+    : !story
+    ? "Holding "+nSc+" to the script — unslugged spaces, they/them lines, props, locations, render styles, wardrobe and shots. No model calls, so this pass is free."
+    : "Auditing "+nSc+" — the script and beats are canon; props, locations, staging, styles and pronouns are diffed against them. No model calls, so this pass is free."});
+  if(!drafted.length){ if(!opts.noDone) ctx.emit({k:"done", t:"No drafted scenes to audit yet — write or draft a scene first."}); return { fixes:0, flags:0, cards:0 }; }
   let cards = 0, flags = 0, fixes = 0;
 
   /* 0.4 — TIME-OF-DAY CONTINUITY: consecutive scenes whose sluglines hard-flip the
@@ -2095,7 +2125,7 @@ async function agentConsistency(ctx){
      ("LATER", "the next morning") or keep the clock. Conservative: only DAY-class ↔
      NIGHT-class flips are flagged, and any passage cue in either scene's slugline,
      summary or script clears it. Flag-only (a judgement call, never auto-fixed). */
-  (function(){
+  if(story) (function(){
     const cls = (loc)=>{ const m=String(loc||"").toUpperCase();
       if(/\b(NIGHT|EVENING|DUSK|MIDNIGHT)\b/.test(m)) return "NIGHT";
       if(/\b(DAY|MORNING|DAWN|NOON|AFTERNOON)\b/.test(m)) return "DAY";
@@ -2138,7 +2168,7 @@ async function agentConsistency(ctx){
        exactly matches NO cast/prop/location word is almost certainly a typo —
        one approval fixes every occurrence in the scene's script AND beats.
        Deterministic, no model calls. */
-    if(cards < MAX_CARDS){
+    if(story && cards < MAX_CARDS){
       const bmSp = ctx.model.beats[scene.id] || {};
       const beatText = [bmSp.desire,bmSp.obstacle,bmSp.driverLabel,bmSp.reactorLabel]
         .concat((bmSp.rows||[]).reduce((a,r)=>a.concat([r.drive&&r.drive.a,r.drive&&r.drive.d,r.react&&r.react.a,r.react&&r.react.d]),[]))
@@ -2204,7 +2234,7 @@ async function agentConsistency(ctx){
        — content match, story order preserved, script text untouched. */
     refresh();
     const bmEntry = ctx.model.beats[scene.id] || {};
-    if(typeof window.realignBlockBeats==="function" && (bmEntry.rows||[]).length && blocks.length && cards<MAX_CARDS){
+    if(story && typeof window.realignBlockBeats==="function" && (bmEntry.rows||[]).length && blocks.length && cards<MAX_CARDS){
       const fixed = window.realignBlockBeats(blocks, bmEntry);
       const moved = fixed.reduce((a,b,i)=> a + ((blocks[i] && Number(blocks[i].beat)!==Number(b.beat)) ? 1 : 0), 0);
       if(moved >= 2){
@@ -2227,7 +2257,7 @@ async function agentConsistency(ctx){
        The fix belongs in the screenplay, not in a parallel art record: slug it, and the
        existing derive → draft → plate → shots chain picks it up with no new plumbing.
        Deterministic (this tier makes no model calls); one card per scene. */
-    if(cards < MAX_CARDS && typeof window.findImpliedSpaces==="function"){
+    if(prod && cards < MAX_CARDS && typeof window.findImpliedSpaces==="function"){
       refresh();
       let implied = [];
       try{ implied = window.findImpliedSpaces(scene, blocks) || []; }catch(e){ implied = []; }
@@ -2239,7 +2269,7 @@ async function agentConsistency(ctx){
       if(implied.length){
         cards++;
         const lines = implied.map(sp=> window.impliedSpaceSlugline(sp)+"   ← from: \u201c"+sp.evidence+"\u201d");
-        const ok = await ctx.propose({
+        const ok = await ctx.propose({ writes:"script",
           title:"Scene "+scene.no+" \u2014 slug the space"+(implied.length>1?"s":"")+" the action plays inside",
           reason:implied.length+" enclosed space"+(implied.length===1?" is":"s are")+" played in but never slugged, so "+(implied.length===1?"it gets":"they get")+" no location card, no plate and no shot coverage.",
           rationale:"Locations are derived from sluglines, so an unslugged space is invisible to the Art Room. Adding the heading is how the screenplay says \u201cwe cut inside here\u201d \u2014 and it makes the set designable. Time of day is inherited from the scene heading; nothing else in the page changes.",
@@ -2265,7 +2295,7 @@ async function agentConsistency(ctx){
        image & video models of usable info. */
     refresh();
     let pronounBlocks = [], ambiguous = 0;
-    blocks.forEach((b,i)=>{
+    if(prod) blocks.forEach((b,i)=>{
       if(b.type!=="action") return;
       const r = _consFixBlockPronouns(b.text, cast);
       ambiguous += r.ambiguous;
@@ -2273,7 +2303,7 @@ async function agentConsistency(ctx){
     });
     if(pronounBlocks.length && cards<MAX_CARDS){
       cards++;
-      const ok = await ctx.propose({
+      const ok = await ctx.propose({ writes:"script",
         title:"Scene "+scene.no+" — use the cast's real pronouns",
         reason:pronounBlocks.length+" action line"+(pronounBlocks.length===1?"":"s")+" say they/them for a character whose sheet is gendered — ambiguous for the image and video models.",
         rationale:"Rewritten from the cast bible ("+cast.filter(c=>c.g).map(c=>c.name+" "+c.pronouns).join(", ")+"). Characters whose pronouns really are they/them are left untouched.",
@@ -2291,6 +2321,7 @@ async function agentConsistency(ctx){
 
     if(ctx.cancelled()) return;
 
+    if(prod){
     /* 2 — PROP TYPE vs the script's verbs: cupped/lifted/carried by someone ⇒ a
        carried prop with that owner; strung/mounted/planted ⇒ set dressing. */
     for(const p of sceneProps){
@@ -2313,7 +2344,7 @@ async function agentConsistency(ctx){
       if(carrier && fixture){ flags++; ctx.emit({k:"flag", t:"Sc "+scene.no+" · \""+p.name+"\": the script shows it both handled and fixed in place — decide its home yourself."}); }
       else if(carrier && (p.kind!=="carried" || p.ownerId!==carrier.id) && cards<MAX_CARDS){
         cards++;
-        const ok = await ctx.propose({
+        const ok = await ctx.propose({ writes:"art",
           title:"Scene "+scene.no+" — \""+p.name+"\" is carried by "+carrier.name,
           reason:"The script shows "+carrier.name+" handling it (“"+sentences.find(s=>_CONS_CARRY.test(s)).trim().slice(0,110)+"”) but the card says "+(p.kind==="dressing"?"set dressing":(p.kind||"carried")+(p.ownerName?" · "+p.ownerName:" · unassigned"))+".",
           rationale:"An object a character handles is a prop with an owner — never part of the location. Its sheet will reference "+carrier.name+"'s look.",
@@ -2324,7 +2355,7 @@ async function agentConsistency(ctx){
       }
       else if(!carrier && fixture && p.kind!=="dressing" && cards<MAX_CARDS){
         cards++;
-        const ok = await ctx.propose({
+        const ok = await ctx.propose({ writes:"art",
           title:"Scene "+scene.no+" — \""+p.name+"\" is part of the set",
           reason:"The script shows it fixed in place, but the card says "+(p.kind||"carried")+(p.ownerName?" · "+p.ownerName:"")+".",
           rationale:"Fixtures render into the location plate and inherit its style — they don't need a hand or an owner.",
@@ -2336,7 +2367,7 @@ async function agentConsistency(ctx){
       /* dressing prop with no home, in a scene that resolves to one location */
       if(p.kind==="dressing" && !p.locationId && loc && cards<MAX_CARDS){
         cards++;
-        const ok = await ctx.propose({
+        const ok = await ctx.propose({ writes:"art",
           title:"\""+p.name+"\" — pin its location",
           reason:"It's set dressing with no place to live, so it can't bake into any plate.",
           rationale:"Scene "+scene.no+" resolves to "+loc.name+" — the obvious home.",
@@ -2365,7 +2396,7 @@ async function agentConsistency(ctx){
         if(_consTruncated(v)){ flags++; ctx.emit({k:"flag", t:"Sc "+scene.no+" · "+loc.name+"'s "+lab+" ends mid-sentence (“…"+String(v).trim().slice(-40)+"”) — an old draft cap cut it off; re-draft or finish the line."}); }
       });
     } else {
-      flags++; ctx.emit({k:"flag", t:"Sc "+scene.no+" · no location card resolves to this scene — the Location Scout can pull it from the slugline."});
+      flags++; ctx.emit({k:"flag", t:"Sc "+scene.no+" · no location card resolves to this scene — check its slugline (the Locations tab builds its cards from sluglines)."});
     }
 
     /* 4 — RENDER-STYLE agreement: one film, one language. */
@@ -2380,7 +2411,7 @@ async function agentConsistency(ctx){
     if(majority && odd.length && cards<MAX_CARDS){
       cards++;
       const lab = (k)=>{ const o=(window.CHAR_RENDER_STYLE_OPTIONS||[]).find(x=>x.key===k); return o?o.label.replace(/^[🔒🌐]\s*/,""):k; };
-      const ok = await ctx.propose({
+      const ok = await ctx.propose({ writes:"art",
         title:"Scene "+scene.no+" — "+odd.length+" card"+(odd.length===1?"":"s")+" speak a different render style",
         reason:"Most of this scene renders as \""+lab(majority)+"\", but "+odd.map(e=>e.name).join(", ")+" "+(odd.length===1?"is":"are")+" set to something else — frames will clash.",
         rationale:"Align the odd ones to the scene's majority. Pick a different style anytime from any card's dropdown.",
@@ -2441,7 +2472,7 @@ async function agentConsistency(ctx){
         if(cards>=MAX_CARDS) break;
         cards++;
         const excerpt = scriptText.slice(Math.max(0,m2.index-60), m2.index+m2[0].length+20).trim();
-        const ok = await ctx.propose({
+        const ok = await ctx.propose({ writes:"art",
           title:"Wardrobe drift — "+ch.name+" has no "+stem,
           reason:"Sc "+scene.no+" puts a "+stem+" on "+ch.name+" (\u201c\u2026"+excerpt.slice(0,110)+"\u2026\u201d) but their sheet's wardrobe doesn't carry one — the sheet renders the script's continuity home missing.",
           rationale:"Approve to append \u201ca worn "+stem+"\u201d to "+ch.name+"'s wardrobe so every future sheet and shot includes it. Regenerate the sheet when ready (not done automatically — it spends credits). Reject if the "+stem+" is scene-specific — then add it as an APPEARANCE STATE on the card instead.",
@@ -2465,10 +2496,12 @@ async function agentConsistency(ctx){
       }
     }
 
+    }   // end of the production-only checks 2, 3, 4 and 4b
+
     /* 4c — DEVELOPMENT-METADATA LEAK: app vocabulary that belongs in the beat map,
        not on the page — charge notation, beat numbers, turn flags. The screenplay
        must read clean to someone who never saw the app. Report-only. */
-    {
+    if(story){
       const LEAK_RX = [
         [/\((?:[+\u2212\-]\d)\)/, "value-charge notation like \u201c(+2)\u201d"],
         [/\bbeat\s+\d+\b/i, "a beat number (\u201cbeat 3\u201d)"],
@@ -2485,7 +2518,7 @@ async function agentConsistency(ctx){
     /* 5 — SHOTS vs the script: the scene-3 stale-coverage bug. A shot's subjects come
        from who its action text names, so coverage drafted against an OLD script can
        silently drop a character, keep dead dialogue, or dress the wrong body. */
-    if(sceneShots.length){
+    if(prod && sceneShots.length){
       const subj = new Set(); sceneShots.forEach(sh=>(sh.subjects||[]).forEach(x=>subj.add(x)));
       const speakers = new Set(blocks.filter(b=>b.type==="char").map(b=>String(b.text||"").trim().toUpperCase().replace(/\s*\(.*\)$/,"")));
       rosterIds.forEach(id=>{
@@ -2515,7 +2548,7 @@ async function agentConsistency(ctx){
     }
 
     /* 6 — beat-level lint (the existing checker) */
-    if(typeof beatContinuityLint==="function" && ctx.model.beats[scene.id]){
+    if(prod && typeof beatContinuityLint==="function" && ctx.model.beats[scene.id]){
       const rosterChars = ctx.model.characters.filter(c=> rosterIds.indexOf(c.id)>=0);
       (beatContinuityLint(scene, ctx.model.beats[scene.id], sceneProps, rosterChars)||[]).forEach(f=>{
         flags++; ctx.emit({k:"flag", t:"Sc "+scene.no+" · beats · "+f.msg});
@@ -2529,7 +2562,7 @@ async function agentConsistency(ctx){
      (a distinct stance on the controlling idea); a cast where only the lead argues
      something produces swappable dialogue and function-only characters. Free check
      on the authored fields; "Draft with MUSE" (Cast panel) fills them. */
-  {
+  if(story){
     const _cast = ctx.model.characters||[];
     const _drivers = new Set((ctx.model.scenes||[]).map(s=>s.driver).filter(Boolean));
     const significant = _cast.filter(c=> _drivers.has(c.id));
@@ -2543,13 +2576,58 @@ async function agentConsistency(ctx){
   }
 
   /* prop spec truncation + missing sizes — film-wide, one summary flag each */
-  const cut = bible.props.filter(p=> _consTruncated(p.form)||_consTruncated(p.material));
-  if(cut.length){ flags++; ctx.emit({k:"flag", t:cut.length+" prop spec"+(cut.length===1?"":"s")+" end mid-sentence ("+cut.slice(0,4).map(p=>p.name).join(", ")+(cut.length>4?"…":"")+") — re-draft the card or finish the line."}); }
-  const sizeless = bible.props.filter(p=> p.kind!=="worn" && !String(p.size||"").trim());
-  if(sizeless.length){ flags++; ctx.emit({k:"flag", t:sizeless.length+" prop"+(sizeless.length===1?" has":"s have")+" no physical size — the scale system can't hold them steady across shots. \"Design all props\" drafts real dimensions in one pass."}); }
+  if(prod){
+    const cut = bible.props.filter(p=> _consTruncated(p.form)||_consTruncated(p.material));
+    if(cut.length){ flags++; ctx.emit({k:"flag", t:cut.length+" prop spec"+(cut.length===1?"":"s")+" end mid-sentence ("+cut.slice(0,4).map(p=>p.name).join(", ")+(cut.length>4?"…":"")+") — re-draft the card or finish the line."}); }
+    const sizeless = bible.props.filter(p=> p.kind!=="worn" && !String(p.size||"").trim());
+    if(sizeless.length){ flags++; ctx.emit({k:"flag", t:sizeless.length+" prop"+(sizeless.length===1?" has":"s have")+" no physical size — the scale system can't hold them steady across shots. \"Design all props\" drafts real dimensions in one pass."}); }
+  }
 
-  if(cards>=MAX_CARDS) ctx.emit({k:"flag", t:"Stopped at "+MAX_CARDS+" proposals this run — run me again after applying to pick up the rest."});
-  ctx.emit({k:"done", t:"Audit complete — "+fixes+" fix"+(fixes===1?"":"es")+" applied, "+flags+" thing"+(flags===1?"":"s")+" flagged for your judgement."+(fixes||flags?"":" Every layer agrees with the script.")});
+  if(cards>=MAX_CARDS) ctx.emit({k:"flag", t:"Stopped at "+MAX_CARDS+" proposals this run — run this check again after applying to pick up the rest."});
+  if(!opts.noDone) ctx.emit({k:"done", t:"Audit complete — "+fixes+" fix"+(fixes===1?"":"es")+" applied, "+flags+" thing"+(flags===1?"":"s")+" flagged for your judgement."+(fixes||flags?"":" Every layer agrees with the script.")});
+  return { fixes, flags, cards };
+}
+
+
+/* ---- Production check (Art Room) — owner-approved 2026-09-26: the old Writers' Room
+   "Script Breakdown" and the production half of the Consistency Check, merged into one
+   pass. First it reads the script INTO the cast sheets (pronouns, scale, physical details,
+   voice, signature expressions — model calls), then it holds every Art Room layer to the
+   script and rewrites what the script owes the sheets (they/them lines, unslugged spaces
+   — free). Sheet-from-script runs first, so the script pass reads the settled sheets.
+   ROLE-AWARE: every card says what it writes ("script" or "art"); when this collaborator's
+   role can't save that area, the card is noted in the trace instead of shown. ---- */
+async function agentProductionCheck(ctx){
+  const drafted = scenesInStoryOrder(ctx.model.scenes)
+    .filter(s=> ctx.model.drafts[s.id] && (ctx.model.drafts[s.id].blocks||[]).length);
+  if(!drafted.length){ ctx.emit({k:"done", t:"No scenes are written yet — build the script first, then run the Production check."}); return; }
+  const can = ctx.can || {};
+  const allowed = (area)=> typeof can[area]!=="function" || !!can[area]();
+  const pctx = Object.assign({}, ctx, { propose: async (card)=>{
+    if(card && card.writes && !allowed(card.writes)){
+      ctx.emit({k:"flag", t:card.title+" — "+(card.writes==="script"
+        ? "your role can't change the script, so this is noted, not applied. A Writer or the film's owner can apply it."
+        : "your role can't change the Art Room, so this is noted, not applied. An Art director or the film's owner can apply it.")});
+      return false;
+    }
+    return ctx.propose(card);
+  }});
+  const aiOn = !!(ctx.ai && ctx.ai.available);
+  ctx.emit({k:"plan", t:"Checking "+drafted.length+" written scene"+(drafted.length===1?"":"s")+" for production: "
+    +(aiOn ? "first reading the script into the cast sheets (pronouns, scale, physical details, voice, signature expressions), then " : "")
+    +"holding props, locations, render styles, wardrobe and shots to the script. Every change asks for your approval."});
+  let read = null;
+  if(aiOn){ read = await productionScriptRead(pctx); if(ctx.cancelled() || !read) return; }
+  else ctx.emit({k:"flag", t:"The writing model isn't available, so the script read (pronouns, scale, physical details, voice, expressions) was skipped. The free checks below still run."});
+  const cons = await agentConsistency(pctx, { scope:"production", noDone:true });
+  if(ctx.cancelled() || !cons) return;
+  const castFixes = read ? read.reconciled + read.enriched + (read.exprSet?1:0) : 0;
+  const fixes = castFixes + cons.fixes;
+  const mapped = ((ctx.bible && ctx.bible.props) || []).some(p=> p && Array.isArray(p.scenes) && p.scenes.length);
+  ctx.emit({k:"done", t:"Production check complete — "+fixes+" fix"+(fixes===1?"":"es")+" applied"
+    +(castFixes ? " ("+castFixes+" to the cast sheets)" : "")+", "+cons.flags+" thing"+(cons.flags===1?"":"s")+" flagged for your judgement."
+    +(read && read.drift ? " "+read.drift+" pronoun or scale difference"+(read.drift===1?"":"s")+" between the script and the cast came up." : "")
+    +(mapped ? "" : " No props are mapped to scenes yet — run Props → Extract screenplay props so this check can catch props that drop out.")});
 }
 
 const AGENTS = [
@@ -2557,8 +2635,8 @@ const AGENTS = [
     blurb:"Scans the spine for the weakest link \u2014 scenes that don't turn, soft peaks, flat runs \u2014 and proposes a fix for each, re-auditing until the spine holds.",
     run:agentStoryDoctor },
   { id:"consistency", name:"Consistency Check", icon:"check", kind:"fix",
-    blurb:"The script and beats are canon \u2014 this audits every drafted scene's other layers against them: prop cards that contradict the script's verbs, handheld props baked into location plates, render styles that clash mid-scene, they/them action lines that starve the image models, cut-off bible fields and stale scene mappings. Free \u2014 no model calls; unambiguous repairs come back as one-click approvals.",
-    run:agentConsistency },
+    blurb:"The script and beats are canon \u2014 this free, rule-based pass audits every drafted scene's story layer: cast names misspelled in the script or beats, script blocks tagged to the wrong beat, clocks that hard-flip between day and night with no time cue, app vocabulary leaking onto the page (charge notation, beat numbers) and scene-driving characters with no human truth. No model calls; unambiguous repairs come back as one-click approval cards. The production checks (props, locations, styles, wardrobe, shots, they/them lines) live in the Art Room's Production check.",
+    run:(ctx)=>agentConsistency(ctx, { scope:"story" }) },
   { id:"continuity", name:"Continuity Repair", icon:"link", kind:"fix",
     blurb:"Runs the continuity check, then plants missing setups and pays off dangling threads \u2014 re-checking after each repair until it's clean.",
     run:agentContinuityRepair },
@@ -2569,9 +2647,9 @@ const AGENTS = [
   { id:"tableread", name:"Final Read", icon:"film", kind:"report",
     blurb:"Reads the finished screenplay as actor, director, editor and sound designer \u2014 reporting visual writing, sound, page rhythm, action/dialogue causality, voice, pacing and thematic payoff across the whole film.",
     run:agentTableRead },
-  { id:"breakdown", name:"Script Breakdown", icon:"clipboard", kind:"fix",
-    blurb:"The 1st-AD pass: reads every written scene beat by beat and tags each character's physical details and appearance changes \u2014 then enriches the cast sheets with script-only details, flags where the script's pronouns contradict a character's sheet (one-click reconcile), and warns about beats whose text isn't self-contained (an ambiguous pronoun, or a prop from the Props tab that drops out) before you generate. It doesn't add props; use Art Room \u2192 Props \u2192 Extract screenplay props for that.",
-    run:agentScriptBreakdown },
+  { id:"production", name:"Production check", icon:"clipboard", kind:"fix", room:"art",
+    blurb:"The 1st-AD pass before you render: reads every written scene into the cast sheets (pronouns, scale, physical details, voice, signature expressions), then holds props, locations, render styles, wardrobe and shots to the script \u2014 and offers to rewrite they/them lines to the cast's real pronouns and to slug the spaces the action plays inside. Every change is an approval card. The script read uses the writing model; the checks after it are free.",
+    run:agentProductionCheck },
   { id:"colorist", name:"Colorist", icon:"palette", kind:"build", room:"art",
     blurb:"Designs your film's colour system \u2014 a bespoke palette + film stock from the story and your visual references \u2014 then color-scripts every scene along the value-charge spine and shows you why, for your approval.",
     run:agentColorist },

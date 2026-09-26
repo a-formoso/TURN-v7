@@ -64,8 +64,8 @@ image generated on the card is always attached.
 
 Deterministic, no model call: reviewed passages give exact scenes, worn items follow
 their owner's on-screen presence, and cards the screenplay hasn't established map to
-the scenes whose action text names them (dialogue doesn't count). The Script Breakdown
-agent doesn't tag props; its beat check reads the props mapped to each scene.
+the scenes whose action text names them (dialogue doesn't count). The Art Room's
+Production check doesn't tag props; its checks read the props mapped to each scene.
 
 ## Card sections
 

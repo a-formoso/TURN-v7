@@ -43,7 +43,7 @@ function vcOriginFrom(text, charName){
 // pitch/timbre → habitual cadence → quirks → recording quality); biography words are
 // dropped because they don't change the voice. The character's authored VOICE
 // BLOCK (c.voice = { accent, pitch, pace, quirks } — written at spine build and
-// enriched by Script Breakdown) wins over every heuristic. User refines before
+// enriched by the Production check's script read) wins over every heuristic. User refines before
 // designing.
 function buildVoiceSpec(c){
   const role = vcParseRole(c.role);

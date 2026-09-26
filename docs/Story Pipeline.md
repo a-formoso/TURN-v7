@@ -177,7 +177,8 @@ scene — then the **psychology check** against the script, then the **continuit
 > identity block** — `voice: { accent, pitch, pace, quirks }` — the same way physique and wardrobe
 > are captured for the face. The **accent is named as sound** (e.g. "noticeable Turkish accent,
 > London inflections"), consistent with the character's identity, the setting and the period — never
-> bare ethnicity or biography (voice models don't infer accent from backstory). **Script Breakdown**
+> bare ethnicity or biography (voice models don't infer accent from backstory). The **Production
+> check** (Art Room; formerly the Writers' Room's Script Breakdown — merged 2026-09-26, owner-approved)
 > later enriches this block from voice details the screenplay actually states (approval-gated, like
 > feature enrichment), and **Voice Design** builds its casting description from these fields before
 > any heuristic.

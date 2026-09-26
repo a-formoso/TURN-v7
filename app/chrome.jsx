@@ -104,7 +104,7 @@ window.OverflowMenu = OverflowMenu;
    Room tabs) as a full-width bar directly beneath the top bar, at every screen
    size. Moved out of the top bar to free its space; the panel toggles ride along
    at the edges (Writers' Room only). Replaces the old mobile-only bottom bar. */
-function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen, onToggleRail, onToggleInsp, onCoordinate, onAgents, staleTabs, attnTabs, hiddenTabs, readOnly }){
+function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen, onToggleRail, onToggleInsp, onCoordinate, onProductionCheck, productionReadOnly, onAgents, staleTabs, attnTabs, hiddenTabs, readOnly }){
   // The Stage is a single full-width assembly view — no sub-view tabs (don't fall through
   // to the Writers' Room tabs); its own header carries the context.
   if(room==="stage") return null;
@@ -123,7 +123,7 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
           title:readOnly?"View-only access — pre-production cannot be changed":"Art Department Coordinator — runs pre-production in dependency order: lookbook → cast → props → wardrobe → locations → colour → shot coverage, in one click (shot frames and storyboards stay in their tabs)"},
           React.createElement(Icon.robot,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Run pre-production")))
     : (onAgents && React.createElement("button",{className:"tb-btn accent vn-cta",onClick:onAgents,disabled:readOnly,
-        title:readOnly?"View-only access — Story Editors cannot change this film":"Story Editors — AI agents that refine your story: Story Doctor, Consistency Check, Continuity Repair, Final Read, Script Breakdown"},
+        title:readOnly?"View-only access — Story Editors cannot change this film":"Story Editors — AI agents that refine your story: Story Doctor, Consistency Check, Continuity Repair, Final Read"},
         React.createElement(Icon.robot,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Story Editors")));
   return React.createElement("nav",{className:"viewnav","aria-label":inArt?"Art Room views":"Writers’ Room views"},
     // LEFT zone — story-panel toggle. DRAWER MODES ONLY (hidden ≥1100px via CSS):
@@ -151,6 +151,13 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
       inArt&&React.createElement("button",{type:"button",className:"tb-btn vn-studio",title:"Blender Studio — derive a set from a generated location image",
         "aria-label":"Blender Studio",onClick:()=>window.dispatchEvent(new CustomEvent("turn-open-blender-studio"))},
         React.createElement(Icon.box,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Blender Studio")),
+      // the 1st-AD pass: the script read into the cast sheets, then every Art Room layer
+      // held to the script. Open to a Writer too (its script cards are theirs to apply).
+      inArt && onProductionCheck && React.createElement("button",{type:"button",className:"tb-btn vn-studio",
+        onClick:onProductionCheck,disabled:!!productionReadOnly,"aria-label":"Production check",
+        title:productionReadOnly?"View-only access — the Production check cannot change this film"
+          :"Production check — reads the script into the cast sheets (pronouns, scale, details, voice), then holds props, locations, render styles, wardrobe and shots to the script. Every change asks for your approval."},
+        React.createElement(Icon.clipboard||Icon.check,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Production check")),
       cta),
     // RIGHT zone — the inspector toggle, drawer modes only (balances the left zone)
     React.createElement("div",{className:"vn-side vn-right"},

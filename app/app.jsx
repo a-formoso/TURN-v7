@@ -491,6 +491,7 @@ function App(){
   const [sceneDirLaunch, setSceneDirLaunch] = React.useState(null); // Scene Director: {sceneId}|{} (whole film)|null
   const [coloristOpen, setColoristOpen] = React.useState(false);   // Cinematographer / Colorist (Art Room)
   const [shotDesignerOpen, setShotDesignerOpen] = React.useState(false);   // Shot Designer (Art Room)
+  const [productionOpen, setProductionOpen] = React.useState(false);   // Production check (Art Room)
   const [castingOpen, setCastingOpen] = React.useState(false);   // Casting Director (Art Room)
   const [propsMasterOpen, setPropsMasterOpen] = React.useState(false);   // Props Master (Art Room)
   const [locScoutOpen, setLocScoutOpen] = React.useState(false);   // Location Scout (Art Room)
@@ -733,6 +734,8 @@ function App(){
   const writersRoomReadOnly = !_sharedCanWriteRoom("writers");
   const artRoomReadOnly = !_sharedCanWriteRoom("art");
   const writersRoomBlocked = projectLoading || writersRoomReadOnly;
+  // the Production check edits the script AND the Art Room: open to anyone who can save either
+  const productionCheckBlocked = projectLoading || (writersRoomReadOnly && artRoomReadOnly);
   const roomReadOnly = projectLoading || (room==="writers" ? writersRoomReadOnly
     : room==="art" ? artRoomReadOnly : readOnlyShare);
   /* LIVE refs fence async results whose collaborator role changes while model work
@@ -743,6 +746,8 @@ function App(){
   roomReadOnlyRef.current = roomReadOnly;
   const writersRoomReadOnlyRef = React.useRef(false);
   writersRoomReadOnlyRef.current = writersRoomBlocked;
+  const artRoomReadOnlyRef = React.useRef(false);
+  artRoomReadOnlyRef.current = projectLoading || artRoomReadOnly;
   const characterBibleWritableRef = React.useRef(true);
   characterBibleWritableRef.current = !(_projRow&&_projRow.isShared)
     || (typeof window.teamCanWriteSection==="function"
@@ -2279,23 +2284,23 @@ function App(){
     makeShow({automatic:true});
   },[cloudMode,currentProjectId,currentShowId,scenes.length,project&&project.format,projects.length,seriesBusy]);
   const [agentLaunch, setAgentLaunch] = React.useState(null);   // {id, input} to auto-run an agent
-  /* Existing-film identity resolution can deliberately hand the writer back to
-     the same Consistency Check used elsewhere in the Writers' Room.  The
-     Character panel and Art Room share this event so neither has to reach into
-     the other room's React state. */
+  /* Existing-film identity resolution can hand the user to the Production check: its
+     script read proposes pronouns from exact screenplay evidence, and its script pass
+     rewrites they/them lines to the profile's pronouns. The Character panel and the Art
+     Room share this event so neither has to reach into the other room's React state.
+     It opens READY (never auto-runs), like every Art Room agent. */
   React.useEffect(()=>{
-    const openConsistency=()=>{
-      if(writersRoomBlocked) return;
-      setRoom("writers"); setView("script");
-      setAgentLaunch({id:"consistency"}); setAgentsOpen(true);
+    const openProduction=()=>{
+      if(productionCheckBlocked) return;
+      setProductionOpen(true);
     };
-    window.turnOpenConsistencyCheck=openConsistency;
-    window.addEventListener("turn-open-consistency-check",openConsistency);
+    window.turnOpenProductionCheck=openProduction;
+    window.addEventListener("turn-open-production-check",openProduction);
     return ()=>{
-      window.removeEventListener("turn-open-consistency-check",openConsistency);
-      if(window.turnOpenConsistencyCheck===openConsistency) delete window.turnOpenConsistencyCheck;
+      window.removeEventListener("turn-open-production-check",openProduction);
+      if(window.turnOpenProductionCheck===openProduction) delete window.turnOpenProductionCheck;
     };
-  },[writersRoomBlocked]);
+  },[productionCheckBlocked]);
 
   // persist navigation (room/view/artView) to the device-local key on every change
   React.useEffect(()=>{
@@ -5131,7 +5136,11 @@ function App(){
   const agentLiveRef = React.useRef(null);
   agentLiveRef.current = { scenes, characters, project, beats: beatsMap, drafts, continuity: continuityMap };
   window.__turnCurrentProjectId = currentProjectId;
-  const agentCtxFactory = ({ input, emit, propose, cancelled, agentName })=>{
+  const agentCtxFactory = ({ input, emit, propose, cancelled, agentName, scope })=>{
+    // scope "production" = the Art Room's Production check: it edits the script AND the
+    // Art Room, so it runs for anyone who can save either — each card is gated on the
+    // area it writes (ctx.can), and an Art director's commits carry the cast only.
+    const production = scope==="production";
     // deep snapshot of the LIVE story state (not the run-start closure), committed
     // to the undo stack when the agent applies its first change — so edits made
     // between run start and first commit are recoverable too.
@@ -5170,10 +5179,17 @@ function App(){
     // every state signature this run has written (seeded with the run-start state);
     // a live state outside this set = someone edited while the agent ran
     const writtenSigs = new Set([sigOf(shapeOf(model))]);
+    // the cast as last committed, by id — an art-only commit writes just the fields this
+    // run changed since then, so a collaborator's mid-run cast edit is never overwritten
+    const castBase = {}; model.characters.forEach(c=>{ castBase[c.id]=c; });
     const sync = ()=>{
+      // the Production check run by an Art director commits the cast only (see below)
+      const artOnly = production && writersRoomReadOnlyRef.current && !artRoomReadOnlyRef.current;
       if(writersRoomReadOnlyRef.current){
-        try{ emit && emit({k:"flag", t:"Your role cannot change the Writers' Room, so these proposed changes were NOT applied. Ask the owner for Writer access."}); }catch(e){}
-        return;
+        if(!artOnly){
+          try{ emit && emit({k:"flag", t:"Your role cannot change the Writers' Room, so these proposed changes were NOT applied. Ask the owner for Writer access."}); }catch(e){}
+          return;
+        }
       }
       // WRONG-FILM GUARD: an agent run takes minutes and the film switcher stays live.
       // Unguarded, a run that finished after a switch wrote its captured scenes, drafts,
@@ -5181,6 +5197,20 @@ function App(){
       // undo snapshot belonged to the ORIGINAL film, so pressing Undo compounded it.
       if(ownerProjectId !== projIdRef.current){
         try{ emit && emit({k:"flag", t:"You switched films while this ran, so its changes were NOT applied — they belong to the film it started in. Reopen that film and run it again."}); }catch(e){}
+        return;
+      }
+      // ART-ONLY COMMIT (the Production check run by an Art director): their approved cards
+      // only ever change the cast sheets (script cards are noted, not shown), so only the
+      // cast is written — the story state they can't save is left exactly as it is.
+      if(artOnly){
+        const patches = {};
+        (model.characters||[]).forEach(c=>{
+          const was = castBase[c.id]; if(!was || was===c) return;
+          const p = {}; Object.keys(c).forEach(k=>{ if(c[k]!==was[k]) p[k]=c[k]; });
+          if(Object.keys(p).length) patches[c.id] = p;
+          castBase[c.id] = c;
+        });
+        if(Object.keys(patches).length) setCharacters(cs=>cs.map(c=> patches[c.id] ? {...c, ...patches[c.id]} : c));
         return;
       }
       // MID-RUN EDIT GUARD: if the film changed under the run (an edit of the user's
@@ -5241,11 +5271,14 @@ function App(){
       // a film switch cancels the RUN, not just the commit — otherwise an agent keeps
       // burning model calls (and reading the newly opened film's globals) for minutes
       // after the guard has already decided its result can never be applied
-      cancelled: ()=> cancelled() || ownerProjectId !== projIdRef.current || writersRoomReadOnlyRef.current,
+      cancelled: ()=> cancelled() || ownerProjectId !== projIdRef.current || (production ? (writersRoomReadOnlyRef.current && artRoomReadOnlyRef.current) : writersRoomReadOnlyRef.current),
       switchedFilms: ()=> ownerProjectId !== projIdRef.current,
+      // live write access per area — the Production check notes (not shows) a card whose
+      // area this role can't save
+      can:{ script:()=> !writersRoomReadOnlyRef.current, art:()=> !artRoomReadOnlyRef.current },
       project, facts:storyFacts,
       // read-only copies of the Art-Room bibles + gated patchers, for agents that
-      // cross-check the script against props/locations (Consistency Check). Patches
+      // cross-check the script against props/locations (the Production check). Patches
       // apply immediately — call them only AFTER a propose() card is approved.
       bible:{
         props: props.map(p=>({...p})),
@@ -6193,6 +6226,8 @@ function App(){
       hiddenTabs:(typeof tabHidden==="function") ? Object.fromEntries((window.ART_TABS||[]).map(t=>[t.id, tabHidden(project, t.id)])) : null,
       railOpen,inspOpen,onToggleRail:toggleRail,onToggleInsp:toggleInsp,
       onCoordinate:async ()=>{ if(await requireStory("Art Department Coordinator")) setCoordConfirm(true); },
+      onProductionCheck:async ()=>{ if(productionCheckBlocked) return; if(await requireStory("The Production check")) setProductionOpen(true); },
+      productionReadOnly:productionCheckBlocked,
       onAgents:async ()=>{ if(!canMutateWritersRoom()) return; if(await requireStory("Story Editors")) setAgentsOpen(true); }}),
 
     authOpen && React.createElement(AuthModal,{ initialMode:authMode, plan:intendedPlan,
@@ -6409,6 +6444,16 @@ function App(){
       ctxFactory:artAgentCtxFactory,
       onClose:()=>setShotDesignerOpen(false),
       onView:()=>{ setArtView("shots"); setShotDesignerOpen(false); },
+      issues:{}, undoCount:0,
+      aiOn: (typeof aiAvailable==="function" && aiAvailable())}),
+
+    // Production check — the 1st-AD pass (script read → cast sheets, then every Art Room
+    // layer held to the script), launched from the Art Room view bar. Gated per card; the
+    // ctx knows which areas this role can save.
+    productionOpen && !productionCheckBlocked && React.createElement(AgentsPanel,{
+      initialAgentId:"production", single:true,
+      ctxFactory:(args)=>agentCtxFactory({ ...args, scope:"production" }),
+      onClose:()=>setProductionOpen(false),
       issues:{}, undoCount:0,
       aiOn: (typeof aiAvailable==="function" && aiAvailable())}),
 

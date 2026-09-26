@@ -3,7 +3,7 @@
    and gates every change behind an Approve / Reject proposal card. */
 
 function AgentIcon({ name, s=18 }){
-  const map = { stethoscope:Icon.target, link:Icon.layers, flask:Icon.flask, film:Icon.film, board:Icon.board, palette:Icon.palette, userScan:Icon.userScan, box:Icon.box, globe:Icon.globe, robot:Icon.robot, image:Icon.image, clapper:Icon.clapper, clipboard:Icon.eye, check:Icon.check };
+  const map = { stethoscope:Icon.target, link:Icon.layers, flask:Icon.flask, film:Icon.film, board:Icon.board, palette:Icon.palette, userScan:Icon.userScan, box:Icon.box, globe:Icon.globe, robot:Icon.robot, image:Icon.image, clapper:Icon.clapper, clipboard:Icon.clipboard||Icon.eye, check:Icon.check };
   const Ic = map[name] || Icon.sparkles;
   return React.createElement(Ic,{s});
 }
@@ -421,7 +421,8 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
             React.createElement("div",{className:"ag-grid"},
               // creation lives in "New Story" now — hide the build agent (Adaptation)
               // from the picker, but keep it in the registry so New Story can drive it.
-              agents.filter(a=>a.kind!=="build").map(a=>{
+              // Art Room agents (the Production check included) launch from the Art Room.
+              agents.filter(a=>a.kind!=="build" && a.room!=="art").map(a=>{
                 const n = a.id==="doctor" ? 0 : (iss[a.id]||0);
                 const db = doctorBadge(a);
                 return React.createElement("button",{key:a.id,className:"ag-card",onClick:()=>setActive(a)},

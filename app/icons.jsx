@@ -129,6 +129,11 @@ const Icon = {
   monitor:(p)=>I({...p,children:[
     React.createElement("rect",{key:1,x:3,y:4,width:18,height:13,rx:2}),
     React.createElement("path",{key:2,d:"M8 21h8M12 17v4"})]}),
+  // a clipboard with a tick — the Production check (the 1st-AD pass)
+  clipboard:(p)=>I({...p,children:[
+    React.createElement("path",{key:1,d:"M9 4h6v3H9z"}),
+    React.createElement("path",{key:2,d:"M9 5.5H6.5A1.5 1.5 0 0 0 5 7v12.5A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V7a1.5 1.5 0 0 0-1.5-1.5H15"}),
+    React.createElement("path",{key:3,d:"M9 14l2 2 4-4.5"})]}),
   copy:(p)=>I({...p,children:[
     React.createElement("rect",{key:1,x:9,y:9,width:11,height:11,rx:2}),
     React.createElement("path",{key:2,d:"M5 15V5a2 2 0 012-2h8"})]}),

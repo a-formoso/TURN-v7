@@ -55,7 +55,8 @@ flowchart TB
     AG2["Continuity Repair — fix"]:::mod
     AG3["Adaptation — build"]:::mod
     AG4["Final Read — report"]:::mod
-    AG --> AG1 & AG2 & AG3 & AG4
+    AG5["Consistency Check — fix<br/><i>story checks</i>"]:::mod
+    AG --> AG1 & AG2 & AG3 & AG4 & AG5
   end
 
   %% ---------- ART ROOM ----------
@@ -69,6 +70,8 @@ flowchart TB
     T5["Shot List<br/><i>1 beat = 1 shot</i>"]:::tab
     T6["Storyboard<br/><i>1 scene = 1 composite sheet</i>"]:::tab
     ARv --> T1 --> T2 --> T3 --> T4 --> T5 --> T6
+    PC["Production check — fix<br/><i>script read → cast sheets, then every layer held to the script</i>"]:::mod
+    ARv -.-> PC
   end
 
   %% ---------- STAGE / CUTTING ----------
@@ -128,6 +131,6 @@ flowchart LR
 | Art Room shell + tab list | `app/artroom.jsx` (`ART_TABS`) |
 | Writers' views | `app/spine.jsx`, `app/inspector.jsx`, `app/script.jsx` |
 | Art tabs | `app/props.jsx`, `app/character.jsx`, `app/locations*.jsx`, `app/stylebible*.jsx`, `app/shots*.jsx`, `app/storyboard.jsx` |
-| AI agents (Writers' Room modal) | `app/agents.jsx`, `app/agents-ui.jsx` |
+| AI agents (Writers' Room modal; Art Room agents incl. the Production check) | `app/agents.jsx`, `app/agents-ui.jsx` |
 | MUSE help assistant | `app/muse.jsx`, `app/ai.jsx` (`museSystemPrompt`, `APP_FEATURES`) |
 | Sample film data | `app/story-data.jsx` |
