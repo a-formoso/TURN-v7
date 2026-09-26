@@ -120,7 +120,7 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
   // Art Room → Run pre-production only; Writers' Room → the Story Editors panel.
   const cta = inArt
     ? (onCoordinate && React.createElement("button",{className:"tb-btn accent vn-cta",onClick:onCoordinate,disabled:readOnly,
-          title:readOnly?"View-only access — pre-production cannot be changed":"Art Department Coordinator — runs your whole pre-production in dependency order: props → cast → locations → colour → shots → storyboard, in one click"},
+          title:readOnly?"View-only access — pre-production cannot be changed":"Art Department Coordinator — runs pre-production in dependency order: lookbook → cast → props → wardrobe → locations → colour → shot coverage, in one click (shot frames and storyboards stay in their tabs)"},
           React.createElement(Icon.robot,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Run pre-production")))
     : (onAgents && React.createElement("button",{className:"tb-btn accent vn-cta",onClick:onAgents,disabled:readOnly,
         title:readOnly?"View-only access — Story Editors cannot change this film":"Story Editors — AI agents that refine your story: Story Doctor, Consistency Check, Continuity Repair, Final Read, Script Breakdown"},

@@ -5312,6 +5312,7 @@ function App(){
     const _WIDE = new Set(["EWS","WS","FS","MWS"]);
     const _shotsOf = (sid)=> _workShots.filter(s=>s.sceneId===sid).slice().sort((a,b)=>(a.order||0)-(b.order||0)||(a.beatN||0)-(b.beatN||0));
     const coverage = {
+      sceneCount: ordered.length,
       audit: ()=> (typeof auditCoverage==="function") ? auditCoverage(ordered, _workShots, beatsMap) : [],
       sceneById: (id)=> ordered.find(s=>s.id===id),
       shotsOf: _shotsOf,
@@ -5326,9 +5327,20 @@ function App(){
       applyCoverage: (sceneId, newShots, anchorId)=>{
         // chain model: the head is the FIRST shot in order, so coverage shots carry no
         // explicit .anchor (that flag now means a manual fresh-start / chain break).
-        const fresh = (newShots||[]).map(s=>({...s, anchor:false}));
-        _workShots = _workShots.filter(s=>s.sceneId!==sceneId).concat(fresh);
-        setShots(ss=> ss.filter(s=>s.sceneId!==sceneId).concat(fresh.map(s=>({...s})))); },
+        const fresh = (newShots||[]).filter(s=>s && s.sceneId===sceneId).map(s=>({...s, anchor:false}));
+        // SAFE MERGE (fixed 2026-09-26) — the Shots tab's own Re-draft path: each beat's
+        // current shot keeps its ID, frames and take history (un-approved only if its spec
+        // changed), extra shots on a re-planned beat move to Shots Trash where they can be
+        // restored, and shots on beats the new plan doesn't cover stay. It used to replace
+        // the scene's shots outright — hand-made shots and alternatives vanished with no
+        // Trash entry and rendered frames lost their link.
+        if(typeof window.mergeBeatKeyframes==="function"){
+          const merged = commitBeatKeyframes(fresh, ()=>{});
+          _workShots = window.mergeBeatKeyframes(_workShots, fresh).shots;
+          return merged;
+        }
+        // (merge helper missing: never destroy — leave the scene's shots as they are)
+        return null; },
       setAnchorOnly: (sceneId, anchorId)=>{
         _workShots = _workShots.map(s=> s.sceneId===sceneId ? {...s, anchor:s.id===anchorId} : s);
         setShots(ss=> ss.map(s=> s.sceneId===sceneId ? {...s, anchor:s.id===anchorId} : s)); },
@@ -5733,6 +5745,7 @@ function App(){
   // with newly built worn-prop sheets (the one-tap "Update sheet with new wardrobe"
   // action is sitting on the card). A nudge, never a roadblock — updating is optional.
   const [wardrobeAttn, setWardrobeAttn] = React.useState(false);
+  const [wardrobeCount, setWardrobeCount] = React.useState(0);   // sheets waiting to wear new props
   const [wardrobeTick, setWardrobeTick] = React.useState(0);
   React.useEffect(()=>{
     const bump = ()=>setWardrobeTick(t=>t+1);
@@ -5743,17 +5756,18 @@ function App(){
   React.useEffect(()=>{
     let live = true;
     // sync signal — a worn-prop batch finished with failures (the card explains itself)
-    if((characters||[]).some(c=>c && c.wornPropBootstrap && c.wornPropBootstrap.status==="attention")){
-      setWardrobeAttn(true); return;
-    }
+    const bootAttn = (characters||[]).some(c=>c && c.wornPropBootstrap && c.wornPropBootstrap.status==="attention");
+    if(bootAttn) setWardrobeAttn(true);
     // async signal — debounced: this loads sheet meta per character and generations land
     // in bursts. Reuses the SAME staleness audit the card banner and the Coordinator use
-    // (wornPropsWithSheets), via the latest render's factory.
+    // (wornPropsWithSheets), via the latest render's factory, and COUNTS every character
+    // whose master must be re-rendered to wear its props (Run pre-production's estimate).
     const t = setTimeout(async ()=>{
       try{
         const mk = artAgentCtxFactoryRef.current;
-        if(!mk){ if(live) setWardrobeAttn(false); return; }
+        if(!mk){ if(live){ setWardrobeAttn(bootAttn); setWardrobeCount(0); } return; }
         const cast = mk({ input:"", emit:()=>{}, propose:null, cancelled:()=>!live, agentName:"Badge", force:false }).art.cast;
+        let n = 0;
         for(const c of (characters||[])){
           if(!live) return;
           // only characters whose master EXISTS — the update action lives on that sheet
@@ -5762,10 +5776,10 @@ function App(){
           if(!master && typeof nbLoadImage==="function"){ try{ master = await nbLoadImage(c.id); }catch(e){} }
           if(!master) continue;
           const stale = await cast.wornPropsWithSheets(c);
-          if(stale && stale.length){ if(live) setWardrobeAttn(true); return; }
+          if(stale && stale.length) n++;
         }
-        if(live) setWardrobeAttn(false);
-      }catch(e){ if(live) setWardrobeAttn(false); }
+        if(live){ setWardrobeAttn(bootAttn || n>0); setWardrobeCount(n); }
+      }catch(e){ if(live) setWardrobeAttn(bootAttn); }
     }, 500);
     return ()=>{ live=false; clearTimeout(t); };
   },[characters, props, wardrobeTick]);
@@ -6408,8 +6422,9 @@ function App(){
       aiOn: (typeof aiAvailable==="function" && aiAvailable())}),
 
 
-    // Props Master — autonomous props agent (derive → draft → dedup → generate),
-    // launched from the Props header; runs before the cast so the references exist.
+    // Props Master — autonomous props agent (proposals → draft → generate), launched from
+    // the Props header; in Run pre-production it runs after the cast, so each worn or
+    // owned prop can reference its owner's sheet (then the Wardrobe step re-renders them).
     propsMasterOpen && React.createElement(AgentsPanel,{
       initialAgentId:"propsmaster", autoStart:true, single:true, viewLabel:"View Props", force:propsMasterForce,
       ctxFactory:artAgentCtxFactory,
@@ -6438,19 +6453,20 @@ function App(){
       issues:{}, undoCount:0,
       aiOn: (typeof aiAvailable==="function" && aiAvailable())}),
 
-    // Art Department Coordinator — the meta-agent that runs the whole pre-production
-    // pipeline in dependency order (props → cast → locations → colour → shots → storyboard),
-    // launched from the Art Room's "Run pre-production" button in the view bar.
+    // Art Department Coordinator — the meta-agent that runs the pre-production pipeline in
+    // dependency order (lookbook → cast → props → wardrobe → locations → colour → shot
+    // coverage), launched from the Art Room's "Run pre-production" button in the view bar.
+    // It renders no shot frames and composes no storyboard — those stay in their tabs.
     // #2 — cost/scope preview before the Coordinator spends: confirm, then launch
     coordConfirm && window.CoordConfirm && React.createElement(window.CoordConfirm,{
-      project, characters, props, locations, shots, scenes,
+      project, characters, props, locations, shots, scenes, drafts, wardrobeCount,
       onCancel:()=>setCoordConfirm(false),
       onConfirm:()=>{ setCoordConfirm(false); setCoordOpen(true); }}),
     coordOpen && React.createElement(AgentsPanel,{
-      initialAgentId:"coordinator", autoStart:true, single:true, viewLabel:"View Storyboards",
+      initialAgentId:"coordinator", autoStart:true, single:true, viewLabel:"View Shots",
       ctxFactory:artAgentCtxFactory,
       onClose:()=>setCoordOpen(false),
-      onView:()=>{ setArtView("storyboard"); setCoordOpen(false); },
+      onView:()=>{ setArtView("shots"); setCoordOpen(false); },
       issues:{}, undoCount:0,
       aiOn: (typeof aiAvailable==="function" && aiAvailable())}),
 

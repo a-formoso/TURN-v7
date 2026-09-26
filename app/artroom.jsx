@@ -5723,42 +5723,50 @@ window.PreProductionStatus = PreProductionStatus;
 /* #2 — cost/scope preview before the Coordinator runs the whole pipeline (it
    generates a lot, end to end, with no per-step gate). Shows roughly how many
    images it will produce so a paid user isn't surprised. */
-function CoordConfirm({ project, characters, props, locations, shots, scenes, onCancel, onConfirm }){
-  const stages = preProdStatus({project,characters,props,locations,shots,scenes})
-    .filter(s=>!s.noGen)                                   // Style grading isn't an image generation
-    .map(s=>({ ...s, pending:Math.max(0, s.total - s.done) }));
-  const pending = stages.filter(s=>s.pending>0);
-  const totalGen = pending.reduce((a,s)=>a+s.pending,0);
-  const freshShots = (shots||[]).length===0 && (scenes||[]).length>0;   // it will design shots first, then frame them
-  const hasWork = totalGen>0 || freshShots;
+function CoordConfirm({ project, characters, props, locations, shots, scenes, drafts, wardrobeCount, onCancel, onConfirm }){
+  // HONEST ESTIMATE (fixed 2026-09-26): only the images Run pre-production really renders —
+  // cast sheets and their appearance variants, prop sheets (not text-only objects, which
+  // shots describe instead), wardrobe re-renders and location plates. It used to count shot
+  // frames and storyboard sheets the run never makes, and missed the wardrobe re-renders.
+  const img = (id)=> (typeof nbGetImage==="function") ? !!nbGetImage(id) : false;
+  const C=characters||[], P=props||[], L=locations||[];
+  const tierOf = (p)=>{ try{ return (window.PropScreenplay && window.PropScreenplay.sheetTier) ? window.PropScreenplay.sheetTier(p, drafts||{}).tier : "own"; }catch(e){ return "own"; } };
+  const lines = [
+    { id:"cast",     label:"Cast sheets",         unit:"sheet",   n:C.filter(c=>c && !img(c.id)).length },
+    { id:"variants", label:"Appearance variants", unit:"variant", n:C.reduce((a,c)=> a + ((c&&c.states)||[]).filter(st=>st && !img(c.id+":"+st.id)).length, 0) },
+    { id:"props",    label:"Prop sheets",         unit:"sheet",   n:P.filter(p=>p && !img(p.id) && (p.kind==="worn" || tierOf(p)!=="text")).length },
+    { id:"wardrobe", label:"Wardrobe updates",    unit:"re-rendered sheet", n:Math.max(0, Number(wardrobeCount)||0) },
+    { id:"plates",   label:"Location plates",     unit:"plate",   n:L.filter(l=>l && !img(l.id)).length },
+  ];
+  const pending = lines.filter(l=>l.n>0);
+  const totalGen = pending.reduce((a,l)=>a+l.n,0);
+  const hasWork = totalGen>0;
+  const note = (icon, text, cls)=> React.createElement("div",{className:"cc-note"+(cls?" "+cls:"")},
+    React.createElement(Icon[icon]||Icon.alert,{s:12}), React.createElement("span",null,text));
   return React.createElement("div",{className:"ns-overlay",onMouseDown:e=>{ if(e.target===e.currentTarget) onCancel(); }},
     React.createElement("div",{className:"cc-modal"},
       React.createElement("div",{className:"cc-head"},
         React.createElement("span",{className:"cc-orb"}, React.createElement(Icon.robot,{s:17})),
         React.createElement("div",null,
           React.createElement("div",{className:"cc-title"},"Run pre-production"),
-          React.createElement("div",{className:"cc-sub"},"The Coordinator builds the whole visual package in one pass — Lookbook → Cast → Props → Locations → Style → Shots → Storyboards."))),
+          React.createElement("div",{className:"cc-sub"},"Runs the pre-production chain in one pass — Lookbook → Cast → Props → Wardrobe → Locations → Colour → Shot coverage."))),
       hasWork
         ? React.createElement(React.Fragment,null,
             React.createElement("div",{className:"cc-est"},
-              React.createElement("span",{className:"cc-est-n"}, "≈ "+totalGen+(freshShots?"+":"")),
+              React.createElement("span",{className:"cc-est-n"}, "≈ "+totalGen),
               React.createElement("span",{className:"cc-est-l"}, "image"+(totalGen===1?"":"s")+" to generate")),
-            pending.length>0 && React.createElement("ul",{className:"cc-list"},
-              pending.map(s=>React.createElement("li",{key:s.id},
-                React.createElement("span",{className:"cc-list-lab"}, s.label),
-                React.createElement("span",{className:"cc-list-n"}, s.pending+" "+s.unit+(s.pending===1?"":"s"))))),
-            React.createElement("div",{className:"cc-note"},
-              React.createElement(Icon.alert,{s:12}),
-              React.createElement("span",null, freshShots
-                ? "Plus the shots designed from your scenes and their frames. Each generation uses credits."
-                : "Each generation uses credits. It also drafts the Lookbook, colour grade and any missing shot coverage as needed.")))
-        : React.createElement("div",{className:"cc-note ok"},
-            React.createElement(Icon.check,{s:12}),
-            React.createElement("span",null,"Everything already has art — running again refines the pipeline and fills any gaps.")),
+            React.createElement("ul",{className:"cc-list"},
+              pending.map(l=>React.createElement("li",{key:l.id},
+                React.createElement("span",{className:"cc-list-lab"}, l.label),
+                React.createElement("span",{className:"cc-list-n"}, l.n+" "+l.unit+(l.n===1?"":"s"))))),
+            note("alert","Plus any missing time-of-day variants for the locations, and a wardrobe update for anyone whose worn prop is made in this run. Each image uses credits."))
+        : note("check","Every sheet and plate already exists — running again refreshes the lookbook, colour and shot coverage (writing credits only) and fills any gaps.","ok"),
+      note("info","It also researches the Lookbook, sets the colour grade and designs shot coverage where it's missing or weak (writing credits). Scenes whose shots you approved or locked keep them.","info"),
+      note("info","Not included: shot frames and storyboards. Render the frames from the Shots tab, then compose the boards in Storyboards.","info"),
       React.createElement("div",{className:"cc-foot"},
         React.createElement("button",{className:"ns-btn ghost",onClick:onCancel},"Cancel"),
         React.createElement("button",{className:"ns-btn primary",onClick:onConfirm},
-          React.createElement(Icon.robot,{s:15}), hasWork?"Generate everything":"Run anyway"))));
+          React.createElement(Icon.robot,{s:15}), "Run pre-production"))));
 }
 window.CoordConfirm = CoordConfirm;
 

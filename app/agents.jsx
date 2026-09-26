@@ -1453,14 +1453,28 @@ async function agentShotDesigner(ctx){
     ctx.emit({k:"flag", t:"No shot data available — build the spine and beats first, then break the scenes into shots."});
     ctx.emit({k:"done", t:"Aborted."}); return;
   }
-  const MAX=12, skip=new Set();
+  // every scene can be designed in one run (at most once each), so a 40-scene feature or a
+  // 24-scene episode is fully covered — it used to stop silently after 12 fixes
+  const MAX=Math.max(12, (Number(cov.sceneCount)||0)+1), skip=new Set();
+  // Run pre-production auto-approves, so there it never re-plans a scene whose shots you
+  // approved or locked; the Shot Designer run on its own still asks, scene by scene
+  const protectedScene = (sid)=> !!ctx.autoApprove && cov.shotsOf(sid).some(s=>s && (s.approved || s.locked));
+  let protectedN=0, capped=false;
   ctx.emit({k:"plan", t:"Auditing coverage scene by scene — does each scene establish wide, tighten through the middle, and LAND "+(fwTurnWord()||"its turn")+" on its most expressive size?"});
   let fixes=0;
   for(let iter=0;iter<MAX;iter++){
     if(ctx.cancelled()) return;
     const issues = cov.audit().filter(i=>!skip.has(i.sceneId));
-    if(!issues.length){ ctx.emit({k:"ok", t:"Re-audit complete — every scene establishes, tightens and lands "+(fwTurnWord()||"its turn")+". Coverage holds."}); break; }
+    if(!issues.length){ const all = cov.audit();
+      ctx.emit({k:"ok", t: all.length ? "Re-audit complete for every scene it could work on."
+        : "Re-audit complete — every scene establishes, tightens and lands "+(fwTurnWord()||"its turn")+". Coverage holds."}); break; }
+    if(iter===MAX-1){ capped=true; }
     const issue=issues[0]; const scene=cov.sceneById(issue.sceneId);
+    if(protectedScene(issue.sceneId)){
+      protectedN++; skip.add(issue.sceneId);
+      ctx.emit({k:"observe", t:"Scene "+issue.sceneNo+" has approved or locked shots — left as it is. To re-plan it, use Re-draft on that scene in the Shots tab."});
+      continue;
+    }
     ctx.emit({k:"observe", t:issues.length+" coverage issue"+(issues.length>1?"s":"")+" — weakest link: Scene "+issue.sceneNo+" — "+issue.msg});
     const turnAt = cov.turnAtOf(issue.sceneId);
     let fix=null;
@@ -1485,7 +1499,7 @@ async function agentShotDesigner(ctx){
     const curCount = cov.shotsOf(issue.sceneId).length;
     const ok = await ctx.propose({
       title:"Shot coverage — Scene "+issue.sceneNo+" “"+((scene&&scene.title)||"Untitled")+"”",
-      reason:issue.msg + ((fix.kind==="coverage"&&curCount)?(" This REPLACES the scene's "+curCount+" current shot"+(curCount!==1?"s":"")+"."):""),
+      reason:issue.msg + ((fix.kind==="coverage"&&curCount)?(" Each beat's current shot keeps its ID and frames (an image may need re-rendering if its shot changes); any extra shots on a re-planned beat move to Shots Trash, where you can restore them."):""),
       rationale:fix.rationale,
       list:fix.list,
     });
@@ -1493,14 +1507,19 @@ async function agentShotDesigner(ctx){
     if(ok){
       if(fix.kind==="anchor") cov.setAnchorOnly(issue.sceneId, fix.anchorId);
       else cov.applyCoverage(issue.sceneId, fix.shots, fix.anchorId);
-      fixes++;
+      fixes++; skip.add(issue.sceneId);   // one design per scene per run — the loop always ends
       ctx.emit({k:"ok", t:"Applied to Scene "+issue.sceneNo+". Re-auditing…"});
     } else {
       ctx.emit({k:"flag", t:"Skipped Scene "+issue.sceneNo+"."});
       skip.add(issue.sceneId);
     }
   }
-  ctx.emit({k:"done", t: fixes ? ("Designed coverage for "+fixes+" scene"+(fixes!==1?"s":"")+". Click ‘Generate all shots’ in the Shot List to render the chain in order.") : "No coverage changes applied." });
+  // say what is left instead of stopping quietly
+  const left = cov.audit().filter(i=>skip.has(i.sceneId) || capped);
+  const leftScenes = new Set(left.map(i=>i.sceneId)).size;
+  ctx.emit({k:"done", t:(fixes ? ("Designed coverage for "+fixes+" scene"+(fixes!==1?"s":"")+". Render the frames from the Shots tab (Generate all shots, or Render Scene in order).") : "No coverage changes applied.")
+    + (protectedN ? (" "+protectedN+" scene"+(protectedN!==1?"s":"")+" with approved or locked shots "+(protectedN!==1?"were":"was")+" left as "+(protectedN!==1?"they are":"it is")+".") : "")
+    + (leftScenes ? (" "+leftScenes+" scene"+(leftScenes!==1?"s":"")+" still "+(leftScenes!==1?"have":"has")+" coverage notes"+(capped?" — run the Shot Designer again to continue":"")+".") : "") });
 }
 
 /* =========================================================
@@ -1662,7 +1681,7 @@ async function agentPropsMaster(ctx){
   try{ todo = await pm.toGenerate(ctx.force); }catch(e){}
   if(!todo.length){
     if(ctx.art.markApplied && (ctx.force||drafted)) ctx.art.markApplied("props");
-    ctx.emit({k:"done", t:"Props ready — "+castN+" brief proposal"+(castN!==1?"s":"")+", "+drafted+" drafted; every drafted prop that needs its own image already has one. The cast can reference them."}); return;
+    ctx.emit({k:"done", t:"Props ready — "+castN+" brief proposal"+(castN!==1?"s":"")+", "+drafted+" drafted; every drafted prop that needs its own image already has one."}); return;
   }
   ctx.emit({k:"act", t:"Generating "+todo.length+" prop sheet"+(todo.length!==1?"s":"")+"…"});
   let sheets=0;
@@ -1674,7 +1693,7 @@ async function agentPropsMaster(ctx){
     catch(e){ ctx.emit({k:"flag", t:"Couldn't generate "+(p.name||"the prop")+"'s sheet: "+((e&&e.message)||e)+". Moving on."}); }
   }
   if(ctx.art.markApplied && (ctx.force||drafted||sheets)) ctx.art.markApplied("props");
-  ctx.emit({k:"done", t:"Props mastered — "+castN+" brief proposal"+(castN!==1?"s":"")+", "+drafted+" drafted, "+sheets+" sheet"+(sheets!==1?"s":"")+" generated. The cast can now reference them."});
+  ctx.emit({k:"done", t:"Props mastered — "+castN+" brief proposal"+(castN!==1?"s":"")+", "+drafted+" drafted, "+sheets+" sheet"+(sheets!==1?"s":"")+" generated. Worn props that changed show on their owner's sheet as a wardrobe update."});
 }
 
 async function agentLocationScout(ctx){
@@ -1853,9 +1872,10 @@ async function agentVisualResearcher(ctx){
 }
 
 async function agentDepartmentCoordinator(ctx){
-  // The meta-agent: chains the six Art Room agents in dependency order. The four
-  // autonomous ones (Props, Characters, Locations, Storyboard) run hands-off; the two
-  // approval-gated ones (Colour, Shots) pause at their proposal cards and resume on your yes.
+  // The meta-agent: chains seven steps in dependency order — Lookbook, Characters, Props,
+  // Wear props, Locations, Colour, Shot coverage — hands-off: every proposal is approved
+  // automatically (autoApprove), except that the Shot Designer leaves scenes with approved
+  // or locked shots alone. It renders NO shot frames and composes NO storyboard.
   const steps = [
     ["Lookbook",   agentVisualResearcher],
     ["Characters", agentCastingDirector],
@@ -1872,6 +1892,7 @@ async function agentDepartmentCoordinator(ctx){
   const subCtx = Object.assign({}, ctx, {
     emit:(e)=> ctx.emit((e && e.k==="done") ? Object.assign({}, e, {k:"ok"}) : e),
     propose:()=> Promise.resolve(true),
+    autoApprove:true,   // steps that would change your approved work hold back (Shot Designer)
   });
   let n=0;
   for(const step of steps){
@@ -1882,7 +1903,7 @@ async function agentDepartmentCoordinator(ctx){
     catch(e){ ctx.emit({k:"flag", t:step[0]+" step hit an error: "+((e&&e.message)||e)+". Continuing with the next."}); }
   }
   if(ctx.cancelled()){ ctx.emit({k:"flag", t:"Stopped — completed "+n+" of "+steps.length+" steps."}); return; }
-  ctx.emit({k:"done", t:"Pre-production complete — props, cast, locations, colour, shots and the storyboard are all built in order. Review or tweak anything in its tab."});
+  ctx.emit({k:"done", t:"Pre-production complete — lookbook, cast, props, wardrobe, locations, colour and shot coverage, built in order. Shot frames and storyboards aren't rendered by this run: render the frames from the Shots tab (Generate all shots, or Render Scene in order), then compose the boards in Storyboards."});
 }
 
 /* =========================================================
@@ -2096,9 +2117,14 @@ async function agentConsistency(ctx){
 
   for(const scene of drafted){
     if(ctx.cancelled()) return;
-    const draft = ctx.model.drafts[scene.id];
-    const blocks = draft.blocks||[];
-    const scriptText = blocks.map(b=>b.text).join(" ");
+    // LIVE SCENE (fixed 2026-09-26): every approved fix lands on the CURRENT draft and the
+    // next check reads it again. Each fix used to rebuild from the scene's original text,
+    // so approving several in one scene kept only the last (the beat re-map even reverted
+    // typo fixes) and a slugline insert shifted the lines the pronoun fix then edited.
+    let draft = ctx.model.drafts[scene.id];
+    let blocks = draft.blocks||[];
+    let scriptText = blocks.map(b=>b.text).join(" ");
+    const refresh = ()=>{ draft = ctx.model.drafts[scene.id] || draft; blocks = draft.blocks||[]; scriptText = blocks.map(b=>b.text).join(" "); };
     const sceneProps = bible.props.filter(p=> Array.isArray(p.scenes) && p.scenes.indexOf(scene.id)>=0);
     const loc = (typeof locationForScene==="function") ? locationForScene(bible.locations, scene.id) : null;
     const sceneShots = bible.shots.filter(sh=> sh.sceneId===scene.id);
@@ -2157,6 +2183,7 @@ async function agentConsistency(ctx){
         if(ctx.cancelled()) return;
         if(ok){
           const fix=(x)=> typeof x==="string" ? x.replace(rx,rep) : x;
+          refresh();
           ctx.model.drafts[scene.id] = { ...draft, blocks: blocks.map(b=>({ ...b, text:fix(b.text) })) };
           const nb = ctx.model.beats[scene.id];
           if(nb){ ctx.model.beats[scene.id] = { ...nb, desire:fix(nb.desire), obstacle:fix(nb.obstacle),
@@ -2164,7 +2191,7 @@ async function agentConsistency(ctx){
             rows:(nb.rows||[]).map(r=>({ ...r,
               drive:{ ...(r.drive||{}), a:fix(r.drive&&r.drive.a), d:fix(r.drive&&r.drive.d) },
               react:{ ...(r.react||{}), a:fix(r.react&&r.react.a), d:fix(r.react&&r.react.d) } })) }; }
-          ctx.sync(); fixes++;
+          ctx.sync(); fixes++; refresh();
           ctx.emit({k:"ok", t:"Sc "+scene.no+": \u201c"+t.tok+"\u201d \u2192 \u201c"+rep+"\u201d \u2014 "+count+" occurrence"+(count===1?"":"s")+" fixed."});
         }
       }
@@ -2175,6 +2202,7 @@ async function agentConsistency(ctx){
        dialogue-speaker lookups all read the script through these tags, so drift here
        skews everything downstream. Free, deterministic re-alignment (realignBlockBeats)
        — content match, story order preserved, script text untouched. */
+    refresh();
     const bmEntry = ctx.model.beats[scene.id] || {};
     if(typeof window.realignBlockBeats==="function" && (bmEntry.rows||[]).length && blocks.length && cards<MAX_CARDS){
       const fixed = window.realignBlockBeats(blocks, bmEntry);
@@ -2187,7 +2215,7 @@ async function agentConsistency(ctx){
           before:"beat tags: "+blocks.map(b=> b.beat==null ? "—" : b.beat).join(" · "),
           after:"beat tags: "+fixed.map(b=>b.beat).join(" · ") });
         if(ctx.cancelled()) return;
-        if(ok){ ctx.model.drafts[scene.id] = { ...draft, blocks:fixed }; ctx.sync(); fixes++;
+        if(ok){ ctx.model.drafts[scene.id] = { ...draft, blocks:fixed }; ctx.sync(); fixes++; refresh();
           ctx.emit({k:"ok", t:"Sc "+scene.no+": beat mapping re-aligned — "+moved+" block"+(moved===1?"":"s")+" re-tagged."}); }
       }
     }
@@ -2200,6 +2228,7 @@ async function agentConsistency(ctx){
        existing derive → draft → plate → shots chain picks it up with no new plumbing.
        Deterministic (this tier makes no model calls); one card per scene. */
     if(cards < MAX_CARDS && typeof window.findImpliedSpaces==="function"){
+      refresh();
       let implied = [];
       try{ implied = window.findImpliedSpaces(scene, blocks) || []; }catch(e){ implied = []; }
       // don't propose a space that already has its own location card
@@ -2226,7 +2255,7 @@ async function agentConsistency(ctx){
             nb.splice(at, 0, { beat:(nb[at]&&nb[at].beat)||1, type:"scene", text:window.impliedSpaceSlugline(sp) });
           });
           ctx.model.drafts[scene.id] = {...draft, blocks:nb, edited:true};
-          fixes++;
+          ctx.sync(); fixes++; refresh();   // the insert was never synced, so it was lost unless a later fix committed it
           ctx.emit({k:"ok", t:"Scene "+scene.no+" \u2014 slugged "+implied.map(sp=>sp.name).join(", ")+". Run \u201cDesign all locations\u201d to build the new set."});
         } else sceneIssues.push("implied space left unslugged");
       }
@@ -2234,6 +2263,7 @@ async function agentConsistency(ctx){
 
     /* 1 — PRONOUNS: they/them action lines under a gendered character starve the
        image & video models of usable info. */
+    refresh();
     let pronounBlocks = [], ambiguous = 0;
     blocks.forEach((b,i)=>{
       if(b.type!=="action") return;
@@ -2252,10 +2282,11 @@ async function agentConsistency(ctx){
       if(ok){
         const nb = blocks.map((b,i)=>{ const p = pronounBlocks.find(x=>x.i===i); return p ? {...b, text:p.after} : b; });
         ctx.model.drafts[scene.id] = {...draft, blocks:nb, edited:true};
-        ctx.sync(); fixes++;
+        ctx.sync(); fixes++; refresh();
         ctx.emit({k:"ok", t:"Scene "+scene.no+": pronouns now match the cast bible."});
       }
     }
+    refresh();   // the read-only checks below see the script as fixed
     if(ambiguous){ flags++; ctx.emit({k:"flag", t:"Sc "+scene.no+" · "+ambiguous+" sentence"+(ambiguous===1?"":"s")+" use they/them with no clear subject — name who acts so the shot prompts stay unambiguous."}); }
 
     if(ctx.cancelled()) return;
@@ -2563,7 +2594,7 @@ const AGENTS = [
     blurb:"Takes a scene from shot list to a CONSISTENT set of frames: renders the shots in order as a rolling chain (each seeded by the previous frame), visually inspects each result against its seed, and repairs the drifted ones — asking before it spends on each scene.",
     run:agentSceneDirector },
   { id:"coordinator", name:"Art Department Coordinator", icon:"robot", kind:"build", room:"art", autonomous:true,
-    blurb:"Runs your whole pre-production in the right order, on its own \u2014 props, then the cast that references them, then locations, then the colour system, then shot coverage, then the storyboard. One click = 'do my pre-production', end to end with no stops: the colour and shot-coverage steps are applied automatically rather than waiting for approval. Press Stop anytime.",
+    blurb:"Runs your pre-production in the right order, on its own \u2014 the lookbook, the cast, the props (worn ones reference their owner's sheet), the cast dressed in those props, the locations, the colour system and shot coverage. One click, no stops: its proposals are applied automatically, but scenes whose shots you approved or locked are left alone. It doesn't render shot frames or storyboards \u2014 do those from the Shots and Storyboards tabs. Press Stop anytime.",
     run:agentDepartmentCoordinator },
 ];
 window.AGENTS = AGENTS;
