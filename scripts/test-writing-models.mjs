@@ -17,6 +17,9 @@ assert.match(ai, /thinkingLevel:\s*m\.thinkingLevel\s*\|\|\s*undefined/);
 assert.match(ai, /records GPT-6 Astra in generation provenance/);
 assert.match(ai, /records Gemini 3\.8 Flash in generation provenance/);
 assert.match(dock, /"gpt-6-astra":"ASTRA"/);
+assert.match(ai, /\{\s*id:"claude-opus-5-5",\s*label:"Opus 5\.5",\s*provider:"anthropic"/);
+assert.match(dock, /"claude-opus-5-5":"OPUS5\.5"/);
+assert.match(proxy, /"claude-opus-5-5":\s*\{\s*input:\s*4,\s*output:\s*20\s*\}/);   // Anthropic list price
 assert.match(dock, /"gemini-3\.8-flash":"GEM3\.8"/);
 assert.match(proxy, /"gpt-6-astra":\s*\{\s*input:\s*10,\s*output:\s*50\s*\}/);
 assert.match(proxy, /"gemini-3\.8-flash":\s*\{\s*input:\s*0\.75,\s*output:\s*3\.75\s*\}/);
@@ -25,7 +28,9 @@ assert.doesNotMatch(proxy, /provider\s*===\s*"openai"[\s\S]{0,1400}?\{\s*max_tok
 assert.match(proxy, /body\.maxCompletionTokens\s*\|\|\s*body\.maxTokens/);
 assert.match(proxy, /\{\s*reasoning_effort:\s*reasoningEffort\s*\}/);
 assert.match(proxy, /thinkingConfig:\s*\{\s*thinkingLevel\s*\}/);
-assert.match(html, /app\/aiwriter\.jsx\?v=20260909-gemini38/);
-assert.match(html, /app\/ai\.jsx\?v=20260911-series\d+/);
+// Cache keys are re-bumped on every edit; require one at or after the 2026-09-11 series release.
+const cacheDate=f=>Number((html.match(new RegExp("app/"+f.replace(/\./g,"\\.")+"\\?v=(\\d{8})"))||[])[1]||0);
+assert.ok(cacheDate("ai.jsx")>=20260911, "ai.jsx cache key predates the series release");
+assert.ok(cacheDate("aiwriter.jsx")>=20260909, "aiwriter.jsx cache key predates the Gemini 3.8 dock labels");
 
 console.log("PASS current writing-model registry, proxy routing, reasoning, pricing and cache keys");

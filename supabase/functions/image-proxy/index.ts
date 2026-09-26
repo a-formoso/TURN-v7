@@ -116,8 +116,14 @@ const IMAGE_PROVIDER_USD: Record<string, Record<string, number>> = {
   "gpt-image-2.5-sunburst": { default: 0.045, auto: 0.21072, low: 0.005, medium: 0.012, high: 0.045, xhigh: 0.09366, max: 0.21072 },
 };
 const TEXT_PROVIDER_USD_PER_1M: Record<string, { input: number; output: number }> = {
-  "claude-opus-5": { input: 15, output: 75 },
-  "claude-fable-5": { input: 25, output: 100 },
+  // Anthropic list prices (platform.claude.com/docs/en/about-claude/pricing, checked
+  // 2026-09-26; corrected by owner from 15/75 and 25/100, which overcharged ~3x / ~2.5x)
+  "claude-opus-5": { input: 5, output: 25 },
+  // Opus 5.5 (added 2026-09-25): Anthropic list price $4 / $20 per 1M input / output tokens
+  // (platform.claude.com/docs/en/about-claude/pricing, checked 2026-09-26)
+  "claude-opus-5-5": { input: 4, output: 20 },
+  "claude-fable-5": { input: 10, output: 50 },
+  "claude-fable-5-1": { input: 10, output: 50 },
   // Google introductory Gemini 3.8 Flash pricing through 2026-12-31.
   "gemini-3.8-flash": { input: 0.75, output: 3.75 },
   "gemini-3.5-flash": { input: 0.35, output: 1.05 },
@@ -288,6 +294,10 @@ Deno.serve(async (req) => {
     : "";
   const thinkingLevel = /^(low|medium|high)$/.test(String(body.thinkingLevel || ""))
     ? String(body.thinkingLevel)
+    : "";
+  // Claude EFFORT (output_config.effort) — how much the model thinks and writes
+  const claudeEffort = /^(low|medium|high|xhigh|max)$/.test(String(body.effort || ""))
+    ? String(body.effort)
     : "";
   const cleanApiKey = (k: unknown) => String(k || "")
     .replace(/[\s\u00a0\u200b-\u200d\ufeff]/g, "")
@@ -663,7 +673,12 @@ Deno.serve(async (req) => {
         const r = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
-          body: JSON.stringify({ model, max_tokens: reqMaxTokens || 4096, ...(sys ? { system: sys } : {}), messages: turns.length ? turns : [{ role: "user", content: "" }] }),
+          // THINKING ROOM (2026-09-26): current Claude models think, and max_tokens caps
+          // thinking + text together — 4096 cut spine replies off mid-JSON. It's only a cap
+          // (billing follows tokens actually used), so every Claude call gets at least 16k.
+          body: JSON.stringify({ model, max_tokens: Math.max(reqMaxTokens || 0, 16000),
+            ...(claudeEffort && /^claude-(fable|mythos|opus-5|sonnet-5)/.test(model) ? { output_config: { effort: claudeEffort } } : {}),
+            ...(sys ? { system: sys } : {}), messages: turns.length ? turns : [{ role: "user", content: "" }] }),
         });
         if (!r.ok) { let d = ""; try { d = (await r.json())?.error?.message || ""; } catch (_e) { /* noop */ } return json({ error: d || `Anthropic error (${r.status}).`, status: r.status }, 200); }
         const data = await r.json();

@@ -1,28 +1,11 @@
 /* aiwriter.jsx — shared AI-writer bits still in use:
    - AiOrb: the animated MUSE orb glyph (window.AiOrb)
-   - WritingModelPicker: text-model picker for MUSE/spec drafting/agents (window.WritingModelPicker)
+   - WritingDock: the one writing-model control (the floating dock on the right edge)
    The old in-panel MUSE chat component lived here too but is dead code — the live
    help assistant is MuseDock (app/muse.jsx), so it was removed. */
 
 function AiOrb({ s=24 }){ return React.createElement("div",{className:"ai-orb",style:{width:s,height:s}}); }
 
-/* Writing-model picker — chooses the text model behind MUSE, spec drafting and the
-   agents (persisted globally; re-reads on the change event). */
-function WritingModelPicker(){
-  const models = window.WRITING_MODELS || [];
-  const [mid, setMid] = React.useState(()=> (typeof window.getWritingModelId==="function") ? window.getWritingModelId() : (models[0]&&models[0].id));
-  React.useEffect(()=>{
-    const h = ()=> setMid((typeof window.getWritingModelId==="function") ? window.getWritingModelId() : mid);
-    window.addEventListener("turn-writing-model-changed", h);
-    return ()=>window.removeEventListener("turn-writing-model-changed", h);
-  },[]);
-  if(models.length < 2) return null;
-  return React.createElement("select",{className:"muse-model-sel", value:mid,
-    title:"Writing model — powers MUSE, spec drafting and the Agents",
-    onChange:e=>{ if(typeof window.setWritingModelId==="function") window.setWritingModelId(e.target.value); setMid(e.target.value); }},
-    models.map(m=>React.createElement("option",{key:m.id, value:m.id}, m.label)));
-}
-window.WritingModelPicker = WritingModelPicker;
 
 /* WritingDock — the floating WRITING-engine control, mirroring the image dock
    (NbDock) on the right edge: a collapsed pill showing the current engine, and an
@@ -50,7 +33,7 @@ function WritingDock({ task }){
   const pick = (typeof window.getWritingPick==="function") ? window.getWritingPick() : null;
   const recStory = (typeof window.recommendedWritingModelId==="function") ? window.recommendedWritingModelId("story") : "";
   const recSpecs = (typeof window.recommendedWritingModelId==="function") ? window.recommendedWritingModelId("specs") : "";
-  const SHORT = { "claude-opus-5":"OPUS5", "claude-fable-5":"FABLE", "gemini-3.8-flash":"GEM3.8", "gemini-3.5-flash":"GEM3.5",
+  const SHORT = { "claude-opus-5-5":"OPUS5.5", "claude-fable-5":"FABLE", "claude-fable-5-1":"FABLE5.1", "gemini-3.8-flash":"GEM3.8", "gemini-3.5-flash":"GEM3.5",
     "gpt-6-astra":"ASTRA", "gpt-5.5-2026-04-23":"GPT5", "kimi-k3":"K3", "kimi-k2.7-code":"K2.7" };
   // resolve the engine for THIS room's task (Art Room → specs, Writers' Room → story) so
   // the collapsed pill NAMES the model at a glance — whether Auto-resolved or a manual pick

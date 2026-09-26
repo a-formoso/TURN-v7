@@ -33,8 +33,11 @@
     text: {
       note: "Token-based proxy accounting for successful text calls; creditRates are a display fallback for older proxy deploys.",
       creditRates: {
-        "claude-fable-5": 0.25,
-        "claude-opus-5": 0.15,
+        // display fallbacks scaled to Anthropic list prices (checked 2026-09-26)
+        "claude-fable-5": 0.11,
+        "claude-fable-5-1": 0.11,
+        "claude-opus-5": 0.06,
+        "claude-opus-5-5": 0.04,
         "claude-sonnet-5": 0.08,
         "kimi-k3": 0.06,
         "kimi-k2.7-code": 0.03,
