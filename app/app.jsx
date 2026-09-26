@@ -2098,7 +2098,7 @@ function App(){
       const opened=await loadProjectIntoState(created.id);
       if(typeof window.appToast==="function") window.appToast(opened
         ? "Episode "+String(no).padStart(2,"0")+" created from the shared Show Bible."
-        : "Episode "+String(no).padStart(2,"0")+" was created and added to the Show, but couldn't be opened yet. Select it from the Projects list to retry.",
+        : "Episode "+String(no).padStart(2,"0")+" was created and added to the Show, but couldn't be opened yet. Select it from Films & TV Shows to retry.",
         opened?"success":"info");
       /* Creation committed even when its first read failed. Returning false made
          the switcher invite a second click, which minted the next E-number. */
@@ -2234,7 +2234,7 @@ function App(){
           const liveShow=fresh.find(p=>String(p.id)===String(target.showId)&&isShowProject(p));
           if(!liveTarget||!liveShow){
             if(typeof window.appToast==="function") window.appToast(
-              "TURN could not verify the final Episode and its Show. Nothing was deleted; refresh the Projects list and try again.","error");
+              "TURN could not verify the final Episode and its Show. Nothing was deleted; refresh Films & TV Shows and try again.","error");
             return false;
           }
           seriesBusyRef.current=""; setSeriesBusy("");

@@ -254,7 +254,7 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
     window.addEventListener("turn-writing-model-changed", h);
     return ()=>window.removeEventListener("turn-writing-model-changed", h);
   },[isArt]);
-  const _mid = _mid0 || "claude-fable-5";
+  const _mid = _mid0 || "claude-opus-5-5";
   const _midLabel = ((_MODELS.find(m=>m.id===_mid)||{}).label) || _mid;
   const start = async ()=>{
     const myRun = ++runIdRef.current;

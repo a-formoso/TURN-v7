@@ -24,10 +24,11 @@ let bodies=[], replies=[];
 Object.assign(box,{safeError:m=>m,attributedError:(a,b,c)=>c,textSpendAdd:()=>{},CustomEvent:function(){},dispatchEvent:()=>{},
   sbClient:()=>({functions:{invoke:async(fn,{body})=>{ bodies.push(body); return { data:replies.shift() }; }}})});
 
-await test("Fable 5.1 replaces Opus 5 in the picker; Fable 5 stays the default",()=>{
+await test("Fable 5.1 replaces Opus 5 in the picker; Opus 5.5 is the default (owner, 2026-09-27)",()=>{
   const ids=box.WRITING_MODELS.map(m=>m.id);
   assert.ok(ids.includes("claude-fable-5-1")&&!ids.includes("claude-opus-5")&&ids.includes("claude-opus-5-5"));
-  assert.equal(box.getWritingModelId("story"),"claude-fable-5"); assert.equal(box.getWritingModelId("specs"),"claude-fable-5");
+  assert.equal(box.getWritingModelId("story"),"claude-opus-5-5"); assert.equal(box.getWritingModelId("specs"),"claude-opus-5-5");
+  assert.equal(box.WRITING_MODELS[0].id,"claude-opus-5-5","Opus 5.5 leads the picker and is the fallback");
   assert.ok(dock.includes('"claude-fable-5-1":"FABLE5.1"')&&!dock.includes('"claude-opus-5":"OPUS5"'));
 });
 await test("the proxy prices Claude at Anthropic's list prices",()=>{
@@ -45,7 +46,7 @@ await test("specs drafting runs at medium effort; story work keeps the model's d
   box.__writingTaskHint="specs"; await box.claude.complete({messages:[{role:"user",content:"spec"}]});
   box.__writingTaskHint=undefined; await box.claude.complete({messages:[{role:"user",content:"scene"}]});
   assert.equal(bodies[0].effort,"medium"); assert.equal(bodies[1].effort,undefined);
-  assert.equal(bodies[0].model,"claude-fable-5");
+  assert.equal(bodies[0].model,"claude-opus-5-5");
 });
 await test("a cut-off reply is asked for once more with the largest budget",async()=>{
   bodies=[]; replies=[{text:'{"scenes":[{"a":1',truncated:true},{text:'{"scenes":[]}'}];

@@ -1345,7 +1345,7 @@ ok("switcher groups through the shared invariant", /turnSeries\.groups\s*\(\s*pr
 ok("all list surfaces classify Shows case-insensitively through the shared helper",
   /turnSeries\.isShowDoc/.test(app) && /turnSeries\.isShowDoc/.test(authUI)
     && /turnSeries\.isShowDoc/.test(homeDashboard) && /turnSeries\.isShowDoc/.test(cloud));
-ok("switcher labels the mixed collection Projects (films and shows)", /"proj-menu-lab"\},"Projects"\)/.test(authUI));
+ok("switcher labels the mixed collection Films & TV Shows", /"proj-menu-lab"\},"Films & TV Shows"\)/.test(authUI));
 ok("Show rows expose owner rename and delete actions", /Rename show/.test(authUI) && /Delete show/.test(authUI));
 const destructiveSeriesUX = app + "\n" + authUI;
 ok("whole-Show confirmation names episodes, shared Bible, and assets",

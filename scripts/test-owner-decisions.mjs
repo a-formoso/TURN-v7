@@ -121,7 +121,7 @@ await test("a TV Series build finishes before the film becomes a Show",()=>{
 
 await test("MUSE's writing-model facts match the code",()=>{
   const m=ai.slice(ai.indexOf("const APP_FEATURES"),ai.indexOf("function appBrief"));
-  assert.ok(!m.includes("defaults to the fast engine")&&m.includes("default to Fable 5"));
+  assert.ok(!m.includes("defaults to the fast engine")&&m.includes("default to Opus 5.5"));
   assert.ok(!m.includes("they are NOT deducted")&&m.includes("deducts it from the account's credit balance"));
 });
 
