@@ -60,9 +60,11 @@ function buildOutline(project, scenes){
   scenes.forEach(s=>{
     if(s.act!==lastAct){ L.push(""); L.push(acts[s.act]||("ACT "+s.act)); lastAct=s.act; }
     const ch=(v)=>v>0?("+"+v):(""+v);
-    const turns = (Math.sign(s.openCharge)!==Math.sign(s.closeCharge)||Math.abs(s.closeCharge-s.openCharge)>=2);
+    // the film's own framework rule (exempt beats settle; a same-side move is a progression)
+    const ti = (typeof turnInfo==="function") ? turnInfo(s) : { flagged:false };
     L.push("");
-    L.push(String(s.no).padStart(2,"0")+". "+esc(s.title)+"   ["+esc(s.openValue)+" "+ch(s.openCharge)+" \u2192 "+esc(s.closeValue)+" "+ch(s.closeCharge)+"]"+(turns?"":"  \u26A0 does not turn"));
+    L.push(String(s.no).padStart(2,"0")+". "+esc(s.title)+"   ["+esc(s.openValue)+" "+ch(s.openCharge)+" \u2192 "+esc(s.closeValue)+" "+ch(s.closeCharge)+"]"+
+      (ti.flagged?"  \u26A0 does not turn":ti.progression?"  (progresses \u2014 does not reverse)":""));
     if(s.loc) L.push("    "+esc(s.loc));
     if(s.summary) L.push("    "+esc(s.summary));
   });
@@ -74,8 +76,9 @@ function buildCSV(scenes){
   const q=(v)=>'"'+String(v==null?"":v).replace(/"/g,'""')+'"';
   const rows=[["#","Act","Title","Location","Open value","Open charge","Close value","Close charge","Turns","Driver"]];
   scenes.forEach(s=>{
-    const turns=(Math.sign(s.openCharge)!==Math.sign(s.closeCharge)||Math.abs(s.closeCharge-s.openCharge)>=2);
-    rows.push([s.no,s.act,s.title,s.loc,s.openValue,s.openCharge,s.closeValue,s.closeCharge,turns?"yes":"no",s.driver]);
+    const ti = (typeof turnInfo==="function") ? turnInfo(s) : { flagged:false };
+    const turns = ti.flagged ? "no" : ti.progression ? "progresses" : (ti.exempt && !ti.turned) ? "settles" : "yes";
+    rows.push([s.no,s.act,s.title,s.loc,s.openValue,s.openCharge,s.closeValue,s.closeCharge,turns,s.driver]);
   });
   return rows.map(r=>r.map(q).join(",")).join("\r\n");
 }

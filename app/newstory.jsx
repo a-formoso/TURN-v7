@@ -375,6 +375,12 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
   // so loglines, research, synopsis and the spine build all run on the picked engine
   const [mid, setMid] = React.useState(()=> (typeof window.getWritingModelId==="function") ? window.getWritingModelId("story") : "");
   const pickModel = (id)=>{ setMid(id); if(typeof window.setWritingModelId==="function") window.setWritingModelId(id); };
+  // follow a change made in the Writing dock while this window is open
+  React.useEffect(()=>{
+    const h = ()=>{ if(typeof window.getWritingModelId==="function") setMid(window.getWritingModelId("story")); };
+    window.addEventListener("turn-writing-model-changed", h);
+    return ()=>window.removeEventListener("turn-writing-model-changed", h);
+  },[]);
   const _rec = (window.recommendedWritingModelId && window.recommendedWritingModelId("story")) || "";
   const _initialFormat = ((window.FORMATS||[]).some(f=>f.id===initialFormat) ? initialFormat : "film");
   const [format, setFormat] = React.useState(_initialFormat);   // Step 0 — what are we making?
@@ -544,19 +550,24 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
                 ". Every episode shares one format; create a separate Show to use a different one.")),
             React.createElement("div",{className:"ns-seclab"},formatLocked
               ? "Show format — inherited by every episode"
-              : "Pick a format — it sets the size, not the method"),
-            React.createElement("div",{className:"ns-formats"},
-              (window.FORMATS||[]).map(f=>
-                React.createElement("button",{key:f.id,className:"ns-format "+(format===f.id?"on":""),
-                  disabled:!!formatLocked,
-                  title:formatLocked?("Inherited from "+(formatOwnerLabel||"this Show")):undefined,
-                  onClick:()=>{ if(formatLocked) return; setFormat(f.id); setFormatTouched(true); }},
-                  React.createElement(Icon[f.icon]||Icon.film,{s:16}),
-                  React.createElement("span",{className:"ns-format-name"},f.label),
-                  React.createElement("span",{className:"ns-format-blurb"},f.blurb)))),
+              : "Pick a format — it sets the size, not the method; every format works with every structure"),
+            // formats in their groups (Long form · Short form · Non-fiction & brand)
+            ((typeof window.formatsForPicker==="function") ? window.formatsForPicker()
+              : [{ id:"all", label:"", formats:(window.FORMATS||[]) }]).map(g=>
+              React.createElement("div",{key:g.id,className:"ns-format-group"},
+                g.label && React.createElement("div",{className:"ns-format-grouplab"},g.label),
+                React.createElement("div",{className:"ns-formats"},
+                  g.formats.map(f=>
+                    React.createElement("button",{key:f.id,className:"ns-format "+(format===f.id?"on":""),
+                      disabled:!!formatLocked,
+                      title:formatLocked?("Inherited from "+(formatOwnerLabel||"this Show")):undefined,
+                      onClick:()=>{ if(formatLocked) return; setFormat(f.id); setFormatTouched(true); }},
+                      React.createElement(Icon[f.icon]||Icon.film,{s:16}),
+                      React.createElement("span",{className:"ns-format-name"},f.label),
+                      React.createElement("span",{className:"ns-format-blurb"},f.blurb)))))),
             React.createElement("div",{className:"ns-seclab",style:{marginTop:18}},"How should it be told?"),
             React.createElement("div",{className:"ns-formats fw"},
-              (window.FRAMEWORKS||[]).map(f=>
+              ((typeof window.frameworkChoices==="function") ? window.frameworkChoices() : (window.FRAMEWORKS||[])).map(f=>
                 React.createElement("button",{key:f.id,className:"ns-format "+(framework===f.id?"on":""),
                   onClick:()=>{ setFramework(f.id); setFrameworkTouched(true); }},
                   React.createElement(Icon[f.icon]||Icon.graph,{s:16}),

@@ -108,7 +108,8 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
   // The Stage is a single full-width assembly view — no sub-view tabs (don't fall through
   // to the Writers' Room tabs); its own header carries the context.
   if(room==="stage") return null;
-  const writersNav = [["spine","Spine",Icon.graph],["beats","Audit",Icon.grid],["board","Board",Icon.board],["script","Script",Icon.script]];
+  // the former Audit tab is the Board's Table layout
+  const writersNav = [["spine","Spine",Icon.graph],["board","Board",Icon.board],["script","Script",Icon.script]];
   // a format may hide tabs entirely (registry `tabs` map — used sparingly)
   const artNav = (window.ART_TABS||[]).filter(t=>!(hiddenTabs&&hiddenTabs[t.id])).map(t=>[t.id,t.label,Icon[t.icon]||Icon.user]);
   const inArt = room==="art";
@@ -122,7 +123,7 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
           title:readOnly?"View-only access — pre-production cannot be changed":"Art Department Coordinator — runs your whole pre-production in dependency order: props → cast → locations → colour → shots → storyboard, in one click"},
           React.createElement(Icon.robot,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Run pre-production")))
     : (onAgents && React.createElement("button",{className:"tb-btn accent vn-cta",onClick:onAgents,disabled:readOnly,
-        title:readOnly?"View-only access — Story Editors cannot change this film":"Story Editors — AI agents that refine your story: Story Doctor, Continuity Repair, Table-Read"},
+        title:readOnly?"View-only access — Story Editors cannot change this film":"Story Editors — AI agents that refine your story: Story Doctor, Consistency Check, Continuity Repair, Final Read, Script Breakdown"},
         React.createElement(Icon.robot,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Story Editors")));
   return React.createElement("nav",{className:"viewnav","aria-label":inArt?"Art Room views":"Writers’ Room views"},
     // LEFT zone — story-panel toggle. DRAWER MODES ONLY (hidden ≥1100px via CSS):
@@ -147,6 +148,9 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
             attn ? React.createElement("span",{className:"seg-attn-dot"})
               : (stale && React.createElement("span",{className:"seg-stale-dot"})));
         })),
+      inArt&&React.createElement("button",{type:"button",className:"tb-btn vn-studio",title:"Blender Studio — derive a set from a generated location image",
+        "aria-label":"Blender Studio",onClick:()=>window.dispatchEvent(new CustomEvent("turn-open-blender-studio"))},
+        React.createElement(Icon.box,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Blender Studio")),
       cta),
     // RIGHT zone — the inspector toggle, drawer modes only (balances the left zone)
     React.createElement("div",{className:"vn-side vn-right"},
@@ -335,12 +339,12 @@ window.FilmBibleModal = FilmBibleModal;
    (private, capped at 10 — delete to make room). ADMIN additionally sees and manages the
    GLOBAL platform list everyone sees: bundled presets and admin-published styles in one
    curated order. Admin can publish, remove/hide, restore and reorder. The combined global
-   pool is capped at 40. Two tiers — see app/artroom.jsx engine + supabase/styles.sql. */
+   pool is capped at 100. Two tiers — see app/artroom.jsx engine + supabase/styles.sql. */
 function RenderStylesModal({ onClose }){
   if(typeof window.useRenderStyleVersion==="function") window.useRenderStyleVersion();   // re-render on change
   const isAdmin = !!(window.turnIsStyleAdmin && window.turnIsStyleAdmin());
   const personalCap = window.turnPersonalStyleCap || 10;
-  const globalCap = window.turnGlobalStyleCap || 40;
+  const globalCap = window.turnGlobalStyleCap || 100;
   const [busy, setBusy] = React.useState("");
   const lists = (typeof window.turnListStyles==="function") ? window.turnListStyles() : { user:[], global:[] };
   const userCount = (lists.user||[]).length, atCap = userCount >= personalCap;
@@ -425,9 +429,17 @@ window.RenderStylesModal = RenderStylesModal;
    beats and cast were built from, so the user can review exactly what was generated and
    spot where anything deviated. Saved at build time on project.sourceBrief. */
 function StoryBriefModal({ project, onClose, onRebuild }){
-  // the rebuild runs the full story build, so the WRITING MODEL is chosen here
-  // first — the same picker (and persisted choice) as the New Story window
-  const [mid, setMid] = React.useState(()=> (typeof window.getWritingModelId==="function") ? window.getWritingModelId("story") : "");
+  // the rebuild is a full story build that starts as soon as it's confirmed, so the
+  // WRITING MODEL is chosen here first (like the New Story window). It is the same one
+  // setting as the Writing dock: a pick here moves the dock, and a dock change made
+  // while this window is open shows here.
+  const _curMid = ()=> (typeof window.getWritingModelId==="function") ? window.getWritingModelId("story") : "";
+  const [mid, setMid] = React.useState(_curMid);
+  React.useEffect(()=>{
+    const h = ()=> setMid(_curMid());
+    window.addEventListener("turn-writing-model-changed", h);
+    return ()=>window.removeEventListener("turn-writing-model-changed", h);
+  },[]);
   const pickModel = (id)=>{ setMid(id); if(typeof window.setWritingModelId==="function") window.setWritingModelId(id); };
   const _rec = (window.recommendedWritingModelId && window.recommendedWritingModelId("story")) || "";
   const p = project || {};
@@ -447,13 +459,15 @@ function StoryBriefModal({ project, onClose, onRebuild }){
       // never an in-place overwrite: the current film and all its art stay intact).
       brief && onRebuild && React.createElement("div",{className:"brief-rebuild-row"},
         React.createElement("button",{className:"flag-btn primary",onClick:()=>{ onClose(); onRebuild(); },
-          title:"Run the full story build again from this brief into a NEW film — spine, cast and script freshly generated. This film is untouched."},
+          title:"Builds a fresh telling from this brief \u2014 this film stays untouched. Runs the full story build again into a NEW film: spine, cast and script freshly generated."},
           React.createElement(Icon.sparkles,{s:13}),"Rebuild as a new film"),
-        React.createElement("label",{className:"brief-model-pick",title:"The engine the rebuild runs on — same picker as the New Story window; your choice persists"},
+        // the model picker sits at the row's far right
+        React.createElement("label",{className:"brief-model-pick",title:"The writing model the rebuild runs on \u2014 the same setting as the Writing dock and the New Story window"},
           React.createElement("span",{className:"obj-lab",style:{marginBottom:0}},"Writing model"),
-          React.createElement("select",{className:"ns-model-sel",value:mid,onChange:(e)=>pickModel(e.target.value)},
-            (window.WRITING_MODELS||[]).map(m=>React.createElement("option",{key:m.id,value:m.id,title:m.note||""},m.label + (m.id===_rec ? "  · recommended" : ""))))),
-        React.createElement("span",{className:"brief-rebuild-note"},"builds a fresh telling from this brief \u2014 this film stays untouched")),
+          React.createElement("select",{className:"brief-model-sel",value:mid,"aria-label":"Writing model for the rebuild",
+              onChange:(e)=>pickModel(e.target.value)},
+            (window.WRITING_MODELS||[]).map(m=>React.createElement("option",{key:m.id,value:m.id,title:m.note||""},
+              m.label + (m.id===_rec ? "  \u00b7 recommended" : "")))))),
       brief
         ? React.createElement("pre",{className:"bible-pre brief-pre"}, brief)
         : React.createElement("div",{className:"brief-empty"},
@@ -466,7 +480,7 @@ function StoryBriefModal({ project, onClose, onRebuild }){
 }
 window.StoryBriefModal = StoryBriefModal;
 
-function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, onToggleAI, onAgents, onViewBible, onManageStyles, onRebuildFromBrief, hasFilmStyle, theme, onTheme, authSlot, projectSlot, teamSlot, presenceSlot, roomEntitlements, onHome }){
+function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, onAgents, onViewBible, onManageStyles, onRebuildFromBrief, hasFilmStyle, theme, onTheme, authSlot, projectSlot, teamSlot, presenceSlot, roomEntitlements, onHome }){
   const [bibleOpen, setBibleOpen] = React.useState(false);
   const [briefOpen, setBriefOpen] = React.useState(false);
   const [stylesOpen, setStylesOpen] = React.useState(false);
@@ -561,8 +575,139 @@ function RailSection({ label, icon:Ic, onAdd, defaultOpen=true, children }){
     open && children);
 }
 
-function LeftRail({ project, characters, scenes, selChar, onSelectChar, onContract, showFramework, onCollapse, compact, readOnly }){
-  const ci = project.controllingIdea;
+/* ---- left rail: SETTING (story world) ---- */
+const _SLUG_PREFIX = /^\s*(INT\.?\/EXT\.?|EXT\.?\/INT\.?|I\/E\.?|INT\.?|EXT\.?)\s+/i;
+/* "INT. FATHER'S HOUSE - NIGHT" -> { place:"Father's House", tod:"NIGHT" } */
+function railSlugParts(loc){
+  const raw = String(loc||"").trim(); if(!raw) return null;
+  const body = raw.replace(_SLUG_PREFIX,"");
+  const cut = body.lastIndexOf(" - ");
+  const place = (cut>0 ? body.slice(0,cut) : body).trim();
+  const tod = (cut>0 ? body.slice(cut+3) : "").trim().toUpperCase();
+  const nice = place.toLowerCase().replace(/(^|[\s\-\/(])([a-z\u00e0-\u00ff])/g,(m,p1,ch)=>p1+ch.toUpperCase());
+  return { place:nice, key:place.toUpperCase(), tod };
+}
+function railTodKind(tod){
+  if(/NIGHT|MIDNIGHT|LATE/.test(tod)) return "night";
+  if(/DAWN|DUSK|SUNSET|SUNRISE|EVENING|TWILIGHT|MAGIC HOUR/.test(tod)) return "dusk";
+  if(/DAY|MORNING|NOON|AFTERNOON/.test(tod)) return "day";
+  return "other";
+}
+const _CONF_NAMES = ["Inner","Personal","Extra-personal"];
+function WorldPane({ project, scenes, edit, setSetting }){
+  const st = project.setting || {};
+  const order = (typeof scenesInStoryOrder==="function") ? scenesInStoryOrder(scenes||[]) : (scenes||[]);
+  const slugs = order.map(sc=>({ sc, p:railSlugParts(sc.loc) }));
+  // places the script actually visits, most-used first
+  const places = {};
+  slugs.forEach(({p})=>{ if(p && p.place){ const e = places[p.key] || (places[p.key] = { name:p.place, n:0 }); e.n++; } });
+  const topPlaces = Object.values(places).sort((x,y)=>y.n-x.n);
+  const conf = [0,0,0];
+  order.forEach(sc=>{ const c = Number(sc.conf)||0; if(c>=1 && c<=3) conf[c-1]++; });
+  const confTotal = conf[0]+conf[1]+conf[2];
+  const fields = [
+    { k:"period", lab:"Period", Ic:Icon.calendar, ph:"When the story happens" },
+    { k:"duration", lab:"Duration", Ic:Icon.clock, ph:"How much time it spans",
+      extra: order.length ? React.createElement("div",{className:"world-ctx"},
+        React.createElement("div",{className:"world-tod",role:"img","aria-label":"Time of day across the film"},
+          slugs.map(({sc,p},i)=>React.createElement("span",{key:sc.id||i,className:"world-tod-cell "+railTodKind(p?p.tod:""),
+            title:"Scene "+(sc.no||i+1)+(p&&p.tod?" \u00b7 "+p.tod:"")}))),
+        React.createElement("div",{className:"world-ctx-note"},
+          ["day","dusk","night"].map(k=>{ const n = slugs.filter(({p})=>railTodKind(p?p.tod:"")===k).length;
+            return n ? React.createElement("span",{key:k,className:"world-key "+k},n+" "+k+(n!==1?"s":"")) : null; }))) : null },
+    { k:"location", lab:"Location", Ic:Icon.pin, ph:"A bounded, concrete place",
+      extra: topPlaces.length ? React.createElement("div",{className:"world-ctx"},
+        React.createElement("div",{className:"world-ctx-lab"},"In the script \u00b7 "+topPlaces.length+" place"+(topPlaces.length!==1?"s":"")),
+        React.createElement("div",{className:"world-places"},
+          topPlaces.slice(0,5).map(pl=>React.createElement("span",{key:pl.name,className:"world-place",title:pl.n+" scene"+(pl.n!==1?"s":"")},
+            pl.name, React.createElement("b",null,pl.n))),
+          topPlaces.length>5 && React.createElement("span",{className:"world-place more"},"+"+(topPlaces.length-5)))) : null },
+    { k:"conflict", lab:"Conflict", Ic:Icon.layers, ph:"The level of conflict: inner, personal, institutional, environmental",
+      extra: confTotal ? React.createElement("div",{className:"world-ctx"},
+        React.createElement("div",{className:"world-ctx-lab"},"Conflict source by scene"),
+        React.createElement("div",{className:"world-conf"},
+          conf.map((n,i)=> n ? React.createElement("span",{key:i,className:"world-conf-seg c"+(i+1),style:{flexGrow:n},
+            title:_CONF_NAMES[i]+" \u00b7 "+n+" scene"+(n!==1?"s":"")}) : null)),
+        React.createElement("div",{className:"world-ctx-note"},
+          conf.map((n,i)=> n ? React.createElement("span",{key:i,className:"world-key c"+(i+1)},n+" "+_CONF_NAMES[i].toLowerCase()) : null))) : null },
+  ];
+  return React.createElement("div",{className:"world-pane"},
+    fields.map(f=>React.createElement("div",{key:f.k,className:"world-field"+(String(st[f.k]||"").trim()?"":" empty")},
+      React.createElement("div",{className:"world-head"},
+        React.createElement("span",{className:"world-ic"},f.Ic && React.createElement(f.Ic,{s:13})),
+        React.createElement("span",{className:"world-lab"},f.lab)),
+      React.createElement(EditText,{value:st[f.k]||"",multiline:true,readOnly:edit,className:"rail-setting-val",
+        placeholder:f.ph,onCommit:(v)=>setSetting(f.k, v)}),
+      f.extra || null)));
+}
+
+/* ---- left rail: CAST ---- */
+/* "MIRROR · THE PRODIGAL — the brother who ran" -> { tags:["Mirror","The Prodigal"], desc:"the brother who ran" } */
+function railRoleParts(role){
+  const r = String(role||""); const at = r.indexOf("\u2014");
+  const head = at<0 ? r : r.slice(0,at), desc = at<0 ? "" : r.slice(at+1).trim();
+  const tags = head.split(/\u00b7|\|/).map(t=>t.trim()).filter(Boolean)
+    .map(t=> t===t.toUpperCase() ? t.toLowerCase().replace(/(^|\s)([a-z\u00e0-\u00ff])/g,(m,p1,ch)=>p1+ch.toUpperCase()) : t);
+  return (at<0 && tags.length===1 && tags[0].length>28) ? { tags:[], desc:r } : { tags, desc };
+}
+function CastPane({ characters, scenes, selChar, onSelectChar }){
+  const order = (typeof scenesInStoryOrder==="function") ? scenesInStoryOrder(scenes||[]) : (scenes||[]);
+  const beatsMap = ((window.turnContinuity||{}).beatsMap) || {};
+  const lead = (typeof window.protagonistOf==="function") ? window.protagonistOf(characters, order) : null;
+  // the protagonist first; the rest keep their cast order
+  const list = lead ? [lead].concat((characters||[]).filter(c=>c.id!==lead.id)) : (characters||[]);
+  const faces = (c, sc)=>{ const b = beatsMap[sc.id]; if(!b || typeof window.castMemberByLabel!=="function") return false;
+    const r = window.castMemberByLabel(b.reactorLabel, characters); return !!(r && r.id===c.id && sc.driver!==c.id); };
+  if(!list.length) return React.createElement("div",{className:"cast-empty"},"No cast yet \u2014 the story build designs it from the synopsis.");
+  return React.createElement("div",{className:"cast-pane"},
+    list.map(c=>{
+      const rp = railRoleParts(c.role);
+      const driven = order.filter(sc=>sc.driver===c.id).length;
+      const isLead = lead && c.id===lead.id;
+      const pick = ()=> onSelectChar && onSelectChar(c.id);
+      let lastAct = null;
+      return React.createElement("div",{key:c.id,role:"button",tabIndex:0,
+          className:"cast-card"+(selChar===c.id?" sel":"")+(isLead?" lead":""),
+          onClick:pick, onKeyDown:(e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); pick(); } }},
+        React.createElement("div",{className:"cast-top"},
+          React.createElement("div",{className:"cast-av",style:{background:c.color}},
+            (c.name||"?").split(" ").map(w=>w[0]||"").slice(0,2).join("")),
+          React.createElement("div",{className:"cast-id"},
+            React.createElement("div",{className:"cast-name"},c.name||"Unnamed"),
+            (isLead || rp.tags.length) ? React.createElement("div",{className:"cast-tags"},
+              rp.tags.map((t,i)=>React.createElement("span",{key:i,className:"cast-tag"+(i===0?" arch":"")},t))) : null),
+          React.createElement("div",{className:"cast-drives",title:driven+" scene"+(driven!==1?"s":"")+" driven"},
+            React.createElement("b",null,driven), React.createElement("span",null,"drives"))),
+        rp.desc && React.createElement("div",{className:"cast-desc"},rp.desc),
+        order.length ? React.createElement("div",{className:"cast-track",role:"img",
+            "aria-label":(c.name||"This character")+" drives "+driven+" of "+order.length+" scenes"},
+          order.map((sc,i)=>{
+            const brk = lastAct!==null && sc.act!==lastAct; lastAct = sc.act;
+            const kind = sc.driver===c.id ? "drive" : faces(c, sc) ? "face" : "";
+            return React.createElement("span",{key:sc.id||i,className:"cast-cell"+(kind?" "+kind:"")+(brk?" brk":""),
+              style: kind==="drive" ? {background:c.color} : undefined,
+              title:"Scene "+(sc.no||i+1)+(sc.title?" \u00b7 "+sc.title:"")+(kind==="drive"?" \u2014 drives":kind==="face"?" \u2014 faces the driver":"")});
+          })) : null);
+    }),
+    React.createElement("div",{className:"cast-legend"},
+      React.createElement("span",null,React.createElement("i",{className:"cast-cell drive"}),"drives the scene"),
+      React.createElement("span",null,React.createElement("i",{className:"cast-cell face"}),"faces the driver")));
+}
+
+function LeftRail({ project, characters, scenes, selChar, onSelectChar, onContract, onGenre, onProject, onCollapse, compact, readOnly }){
+  const ci = project.controllingIdea || {};
+  // STORY-LEVEL INPUTS are editable here (approved 2026-09-25 by owner): premise,
+  // controlling idea, Center of Good, setting and the synopsis by act all feed every
+  // scene prompt. `onProject(patch | p=>patch)` merges into the project.
+  const edit = readOnly || !onProject;
+  const setIdea = (k,v)=> onProject && onProject(p=>({ controllingIdea:{ ...(p.controllingIdea||{}), [k]:v } }));
+  const setSetting = (k,v)=> onProject && onProject(p=>({ setting:{ ...(p.setting||{}), [k]:String(v||"").trim() } }));
+  const fw = (typeof frameworkOf==="function") ? frameworkOf(project) : null;
+  const shape = (fw && fw.synopsis && fw.synopsis.paras) || [];
+  const synTextOf = (proj, pg)=>{ const have = (typeof synopsisParasOf==="function") ? synopsisParasOf(proj) : [];
+    return ((have.find(h=>h.key===pg.key) || have.find(h=>h.label===pg.label) || {}).text) || ""; };
+  const setSynopsis = (key, v)=> onProject && onProject(p=>({ synopsis:{ paras: shape.map(pg=>({ key:pg.key, label:pg.label,
+    text: pg.key===key ? String(v||"").trim() : synTextOf(p, pg) })) } }));
   const secOpen = !compact;
   const railTabs = [["premise","Premise"],["setting","Setting"],["cast","Cast"]];
   const [railTabState,setRailTabState] = React.useState(()=>{
@@ -594,53 +739,51 @@ function LeftRail({ project, characters, scenes, selChar, onSelectChar, onContra
       // PREMISE + CONTROLLING IDEA
       railTabState==="premise" && React.createElement("div",{className:"rail-tab-pane",role:"tabpanel"},
         React.createElement("div",{className:"idea-card"},
-          React.createElement("div",{className:"premise"},`"${project.premise}"`),
-          showFramework && React.createElement("div",{className:"ctrl-idea"},
-            React.createElement("div",{className:"eyebrow",style:{marginBottom:6}},"Controlling Idea"),
-            React.createElement("span",{className:"val"},ci.value)," ",
-            React.createElement("span",{className:"cause"},ci.cause),
-            React.createElement("span",{className:"tag-ironic"},`${ci.polarity} ending`)),
+          React.createElement("div",{className:"eyebrow",style:{marginBottom:4},title:"The open question the story explores \u2014 every scene prompt reads it"},"Premise"),
+          React.createElement(EditText,{value:project.premise||"",multiline:true,className:"premise premise-edit",readOnly:edit,
+            placeholder:"What would happen if\u2026?",onCommit:(v)=>onProject&&onProject({premise:String(v||"").trim()})}),
+          // GENRE rides into every writing prompt ("FILM: Title — genre"); the story build
+          // drafts it, and older films can set it here
+          React.createElement("div",{className:"rail-genre",title:"The film's genre \u2014 every writing prompt reads it"},
+            React.createElement("span",{className:"eyebrow"},"Genre"),
+            React.createElement(EditText,{value:project.genre||"",placeholder:"Add a genre (e.g. psychological thriller)",
+              readOnly:readOnly||!onGenre,onCommit:(v)=>onGenre&&onGenre(v)})),
+          React.createElement("div",{className:"ctrl-idea ctrl-idea-edit"},
+            React.createElement("div",{className:"eyebrow",style:{marginBottom:6},title:"Value + cause: the meaning the climax will prove. Every scene prompt reads it."},"Controlling Idea"),
+            React.createElement(EditText,{value:ci.value||"",className:"val",readOnly:edit,placeholder:"Value (e.g. Love survives)",onCommit:(v)=>setIdea("value",String(v||"").trim())}),
+            React.createElement(EditText,{value:ci.cause||"",className:"cause",multiline:true,readOnly:edit,placeholder:"because\u2026 / when\u2026",onCommit:(v)=>setIdea("cause",String(v||"").trim())}),
+            React.createElement("select",{className:"insp-select ctrl-polarity",disabled:edit,value:ci.polarity||"ironic",
+              title:"The ending's charge",onChange:(e)=>setIdea("polarity",e.target.value)},
+              [["idealistic","Idealistic ending"],["pessimistic","Pessimistic ending"],["ironic","Ironic ending"]].map(([k,l])=>React.createElement("option",{key:k,value:k},l)))),
           // CENTER OF GOOD — the film-level empathy anchor (sympathy optional, empathy
           // absolute). Drafted by the story build; fed to every scene draft via storyContext.
-          showFramework && project.centerOfGood && React.createElement("div",{className:"ctrl-idea"},
+          React.createElement("div",{className:"ctrl-idea"},
             React.createElement("div",{className:"eyebrow",style:{marginBottom:6},
               title:"Where the audience's identification anchors \u2014 it can live inside a dark protagonist (the one loyalty they never betray), but it must exist, even with monsters."},"Center of Good"),
-            React.createElement("span",{className:"cause"},project.centerOfGood)))),
+            React.createElement(EditText,{value:project.centerOfGood||"",className:"cause",multiline:true,readOnly:edit,
+              placeholder:"Where the audience's empathy lives\u2026",onCommit:(v)=>onProject&&onProject({centerOfGood:String(v||"").trim()})})))),
+
+      // SYNOPSIS BY ACT — each scene prompt reads its own act's paragraph
+      railTabState==="premise" && shape.length>0 && React.createElement(RailSection,
+        {label:"Synopsis by act",icon:Icon.script||Icon.layers,defaultOpen:false},
+        React.createElement("div",{className:"rail-synopsis"},
+          shape.map(pg=>React.createElement("div",{key:pg.key,className:"rail-syn-para"},
+            React.createElement("div",{className:"obj-lab",title:pg.guide||""},pg.label),
+            React.createElement(EditText,{value:synTextOf(project, pg),multiline:true,readOnly:edit,
+              placeholder:"What happens in this movement\u2026",onCommit:(v)=>setSynopsis(pg.key, v)}))))),
 
       // STORY CONTRACT — outer plot · inner arc · which change the climax pays off
-      railTabState==="premise" && showFramework && (typeof ContractSection==="function") && React.createElement(RailSection,
+      railTabState==="premise" && (typeof ContractSection==="function") && React.createElement(RailSection,
         {label:"Story Contract",icon:Icon.bolt,defaultOpen:secOpen},
         React.createElement(ContractSection,{project,scenes,onContract,readOnly})),
 
-      // SETTING
+      // SETTING — the story world, each field read against the film it describes
       railTabState==="setting" && React.createElement("div",{className:"rail-tab-pane rail-setting-pane",role:"tabpanel"},
-        React.createElement("div",{style:{padding:"0 4px",display:"flex",flexDirection:"column",gap:9}},
-          [["Period",project.setting.period],["Duration",project.setting.duration],
-           ["Location",project.setting.location],["Conflict",project.setting.conflict]].map(([k,v])=>
-            React.createElement("div",{key:k},
-              React.createElement("div",{className:"obj-lab",style:{marginBottom:2}},k),
-              React.createElement("div",{style:{fontSize:12.5,color:"var(--txt-0)",lineHeight:1.45}},v))))),
+        React.createElement(WorldPane,{project, scenes, edit, setSetting})),
 
-      // CHARACTERS
+      // CHARACTERS — one card per cast member with where they carry the film
       railTabState==="cast" && React.createElement("div",{className:"rail-tab-pane rail-cast-pane",role:"tabpanel"},
-        characters.map(c=>{
-          const driven = scenes.filter(s=>s.driver===c.id).length;
-          return React.createElement("div",{key:c.id,
-            className:"char-row"+(selChar===c.id?" sel":""),
-            onClick:()=>onSelectChar&&onSelectChar(c.id)},
-            React.createElement("div",{className:"char-av",style:{background:c.color}},
-              (c.name||"?").split(" ").map(w=>w[0]||"").slice(0,2).join("")),
-            React.createElement("div",{className:"char-info"},
-              React.createElement("div",{className:"char-name"},c.name||"Unnamed"),
-              React.createElement("div",{className:"char-role"},
-                // the archetype label ("MIRROR · PRIVILEGE") stays small-caps; the
-                // free-text description after the em dash reads as written
-                ...(function(role){ const at = role.indexOf("\u2014");
-                  return at<0 ? [role]
-                    : [role.slice(0,at), React.createElement("span",{key:"d",style:{textTransform:"none"}},role.slice(at))];
-                })(c.role||""))),
-            React.createElement("span",{className:"char-drives",title:driven+" scene"+(driven!==1?"s":"")+" driven"},driven));
-        })),
+        React.createElement(CastPane,{characters, scenes, selChar, onSelectChar})),
     ));
 }
 window.LeftRail = LeftRail;

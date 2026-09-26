@@ -8,11 +8,25 @@ const COL_W = 138, GAP = 6, GRAPH_H = 300, PAD_T = 28, PAD_B = 30;
    so every call site keeps working; the inline body is the safety fallback. */
 function turnInfo(sc){
   if(typeof fwAuditOf==="function"){ try{ return fwAuditOf().rule(sc); }catch(e){} }
-  const o = Math.sign(sc.openCharge), c = Math.sign(sc.closeCharge);
-  const turned = (o !== c) || Math.abs(sc.closeCharge - sc.openCharge) >= 2;
+  const t = (typeof chargeTurn==="function") ? chargeTurn(sc.openCharge, sc.closeCharge)
+    : { turned: Math.sign(sc.openCharge)*Math.sign(sc.closeCharge) < 0, progression:false };
   const exempt = sc.kind === "resolution";
-  return { turned, flagged: !turned && !exempt, exempt };
+  return { turned:t.turned, progression:t.progression, flagged: !t.turned && !t.progression && !exempt, exempt };
 }
+/* one badge for a scene's turn status, everywhere it's shown: turns / progresses (same
+   side, no reversal) / settles (a structural beat allowed to settle) / no turn */
+function TurnBadge({ scene }){
+  const ti = turnInfo(scene), aud = (typeof fwAuditOf==="function" && fwAuditOf()) || {};
+  const h = React.createElement;
+  if(ti.flagged) return h("span",{className:"turn-badge no"},h(Icon.alert,{s:10}),aud.flagBadge||"No turn");
+  if(ti.progression) return h("span",{className:"turn-badge prog",title:"Intensifies on the same side instead of reversing"},
+    h(Icon.arrowSmall,{s:10}),aud.progBadge||"Progresses");
+  const reversed = (typeof chargeTurn==="function") ? chargeTurn(scene.openCharge, scene.closeCharge).turned : ti.turned;
+  if(ti.exempt && !reversed) return h("span",{className:"turn-badge settle",title:"This structural beat may settle rather than turn"},
+    h(Icon.check,{s:10}),"Settles");
+  return h("span",{className:"turn-badge ok"},h(Icon.check,{s:10}),aud.okBadge||"Turns");
+}
+window.TurnBadge = TurnBadge;
 function chargeClass(v){ return v > 0 ? "pos" : v < 0 ? "neg" : "zero"; }
 function chargeStr(v){ return v > 0 ? `+${v}` : `${v}`; }
 window.turnInfo = turnInfo;
@@ -80,7 +94,7 @@ window.ChargeChip = ChargeChip;
    Derived ONLY from data the spine already owns (scenes + beatsMap), so it can
    never drift from the story: drives = scene.driver; appears = named as the
    beats' driver/reactor or in the summary; arc turns = the charge of consecutive
-   DRIVEN scenes flips sign or jumps >= 2 (same threshold as turnInfo). */
+   DRIVEN scenes reverses sign (the same turn rule as turnInfo — chargeTurn). */
 function charSolidColor(c){
   const m = /#[0-9a-fA-F]{3,8}/.exec((c && c.color) || "");
   return m ? m[0] : "#8d8a84";
@@ -98,7 +112,8 @@ function characterThroughline(char, scenes, beatsMap){
   const turnIds = new Set(); const turnsByAct = {1:0, 2:0, 3:0};
   driven.forEach((s, i) => {
     const prev = i ? driven[i-1].closeCharge : s.openCharge;
-    const turned = Math.sign(prev) !== Math.sign(s.closeCharge) || Math.abs(s.closeCharge - prev) >= 2;
+    const turned = (typeof chargeTurn==="function") ? chargeTurn(prev, s.closeCharge).turned
+      : Math.sign(prev)*Math.sign(s.closeCharge) < 0;
     if(turned){ turnIds.add(s.id); turnsByAct[s.act] = (turnsByAct[s.act]||0) + 1; }
   });
   // verdict — names the classic failure: a character who turns early then coasts
@@ -167,7 +182,7 @@ function smoothD(pts){
   return d;
 }
 
-function SpineCanvas({ scenes, selId, onSelect, showFramework, onReorder, onAddScene, follow, runtimes, readOnly, valueAxis }){
+function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, runtimes, readOnly, staleIds }){
   // minutes per act, for the ruler's pacing readout
   const actMin = (act)=>{
     if(!runtimes) return null;
@@ -241,7 +256,7 @@ function SpineCanvas({ scenes, selId, onSelect, showFramework, onReorder, onAddS
           onClick:()=>toggle(r.act),title:`Collapse Act ${roman(r.act)}`},
           React.createElement("span",{className:"act-fold-ic"},React.createElement(Icon.chevD,{s:11})),
           React.createElement("span",{className:"no"},`ACT ${roman(r.act)}`),
-          showFramework && React.createElement("span",{className:"nm"},actName(r.act)),
+          React.createElement("span",{className:"nm"},actName(r.act)),
           mins!=null && React.createElement("span",{className:"act-min",
             title:`Act ${roman(r.act)} estimated screen time (≈1 page/min)`},`≈${mins} min`),
           React.createElement("span",{className:"pct"},`${pct}%`));
@@ -250,8 +265,10 @@ function SpineCanvas({ scenes, selId, onSelect, showFramework, onReorder, onAddS
     // ---- graph ----
     React.createElement("div",{className:"graph-box",style:{width:totalW}},
       // Story Contract: the outer plot names the external value this axis tracks
-      React.createElement("div",{className:"graph-ylabel top"},(valueAxis&&valueAxis.pos)?valueAxis.pos+" +":"Positive +"),
-      React.createElement("div",{className:"graph-ylabel bot"},(valueAxis&&valueAxis.neg)?valueAxis.neg+" \u2212":"Negative \u2212"),
+      // every scene turns its OWN value at stake (Scene panel), so the axis is the charge
+      // itself — it used to borrow the Story Contract's outer value (Love / Hate) for all
+      React.createElement("div",{className:"graph-ylabel top"},"Positive +"),
+      React.createElement("div",{className:"graph-ylabel bot"},"Negative \u2212"),
       React.createElement("svg",{className:"graph-svg",width:totalW,height:GRAPH_H,
         viewBox:`0 0 ${totalW} ${GRAPH_H}`},
         React.createElement("defs",null,
@@ -307,10 +324,12 @@ function SpineCanvas({ scenes, selId, onSelect, showFramework, onReorder, onAddS
           strokeWidth:1,opacity:fInvolved(p.s)?.35:.08,pointerEvents:"none"})),
         // markers (decorative — clicks handled by the hit columns below)
         pts.map(p => {
-          const { flagged } = turnInfo(p.s);
+          const { flagged, progression } = turnInfo(p.s);
           const sel = p.s.id === selId;
           const col = p.s.closeCharge>0?"oklch(0.78 0.15 62)":p.s.closeCharge<0?"oklch(0.72 0.10 232)":"#8d8a84";
-          const big = ["incite","story-climax","act-climax","midpoint","crisis"].includes(p.s.kind);
+          // the framework's structural peaks get the big marker (every framework, not just three-act)
+          const _peaks = (typeof frameworkOf==="function" && frameworkOf(window.turnProject).peakKinds) || ["incite","story-climax","act-climax","midpoint","crisis"];
+          const big = _peaks.includes(p.s.kind);
           const fDrives = follow && follow.drivenIds.has(p.s.id);
           const fTurn = follow && follow.turnIds.has(p.s.id);
           return React.createElement("g",{key:"m"+p.i,pointerEvents:"none",opacity:fInvolved(p.s)?1:.22},
@@ -325,11 +344,14 @@ function SpineCanvas({ scenes, selId, onSelect, showFramework, onReorder, onAddS
               stroke:"var(--bg-0)",strokeWidth:2}),
             flagged && React.createElement("circle",{cx:p.x,cy:p.y,r:big?6:4.5,fill:"none",
               stroke:"var(--alert)",strokeWidth:2}),
+            // progression: intensified on the same side instead of reversing
+            progression && React.createElement("circle",{cx:p.x,cy:p.y,r:big?6:4.5,fill:"none",
+              stroke:"var(--prog)",strokeWidth:2,strokeDasharray:"2 2"}),
             big && React.createElement("circle",{cx:p.x,cy:p.y,r:9.5,fill:"none",stroke:col,
               strokeWidth:1,opacity:.4}));
         }),
         // kind labels above big beats (CAPS) + secondary plot labels (Title Case)
-        showFramework && pts.map(p => {
+        pts.map(p => {
           const main = KIND_LABEL[p.s.kind];
           const label = main || p.s.plot;
           if(!label) return null;
@@ -364,7 +386,7 @@ function SpineCanvas({ scenes, selId, onSelect, showFramework, onReorder, onAddS
           React.createElement("span",{style:{writingMode:"vertical-rl",fontFamily:"var(--f-display)",fontSize:12,fontWeight:500,color:"var(--txt-2)"}},actName(c.act)),
           React.createElement("span",{style:{fontFamily:"var(--f-mono)",fontSize:10,color:"var(--txt-3)"}},c.count));
         const s = c.s, ci = c.i;
-        const { flagged } = turnInfo(s);
+        const ti = turnInfo(s), { flagged } = ti;
         const sel = s.id === selId;
         const fDrives = follow && follow.drivenIds.has(s.id);
         return React.createElement("div",{key:s.id,
@@ -382,7 +404,7 @@ function SpineCanvas({ scenes, selId, onSelect, showFramework, onReorder, onAddS
           !readOnly && React.createElement("span",{className:"scard-grip",title:"Drag to reorder"},React.createElement(Icon.grip,{s:14})),
           React.createElement("div",{className:"scard-top"},
             React.createElement("span",{className:"scard-no"},String(s.no).padStart(2,"0")),
-            React.createElement("div",{className:"scard-conf",title:`Conflict level ${s.conf}`},
+            React.createElement("div",{className:"scard-conf",title:`Conflict source: ${["Inner","Personal","Extra-personal"][s.conf-1]||s.conf}`},
               [1,2,3].map(i=>React.createElement("span",{key:i,className:`conf-pip ${i<=s.conf?"on":""}`})))),
           React.createElement("div",{className:"scard-title"},s.title),
           React.createElement("div",{className:"scard-charge"},
@@ -390,11 +412,10 @@ function SpineCanvas({ scenes, selId, onSelect, showFramework, onReorder, onAddS
             React.createElement("span",{className:"chip-arrow"},React.createElement(Icon.arrowSmall,{s:11})),
             React.createElement(ChargeChip,{value:s.closeCharge})),
           React.createElement("div",{className:"scard-foot"},
-            flagged
-              ? React.createElement("span",{className:"turn-badge no"},
-                  React.createElement(Icon.alert,{s:10}),"No turn")
-              : React.createElement("span",{className:"turn-badge ok"},
-                  React.createElement(Icon.check,{s:10}),"Turns"),
+            React.createElement(TurnBadge,{scene:s}),
+            (staleIds && staleIds.has(s.id)) && React.createElement("span",{className:"scard-stale",
+              title:"Script out of date \u2014 the card changed after the draft. Redraft it from the Script view or the Scene tab."},
+              React.createElement(Icon.history,{s:11})),
             (runtimes && runtimes[s.id]) && React.createElement("span",{
               className:"scard-rt"+(runtimes[s.id].hot?" hot":""),
               style:{marginLeft:"auto"},

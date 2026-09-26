@@ -138,43 +138,79 @@ function Stepper({ value, onChange, readOnly }){
       React.createElement(Icon.plus,{s:14})));
 }
 
-function ChargeEditor({ scene, onCharge, onUpdate, readOnly }){
-  return React.createElement("div",{className:"charge-grid"},
-    React.createElement("div",{className:"charge-cell"},
-      React.createElement("div",{className:"lab"},"Opening value"),
-      React.createElement(EditText,{value:scene.openValue,className:"charge-name",readOnly,
-        onCommit:v=>onUpdate(scene.id,{openValue:v})}),
-      React.createElement(Stepper,{value:scene.openCharge,readOnly,onChange:v=>onCharge("openCharge",v)})),
-    React.createElement("div",{className:"charge-arrow"},React.createElement(Icon.arrowR,{s:16})),
-    React.createElement("div",{className:"charge-cell"},
-      React.createElement("div",{className:"lab"},"Closing value"),
-      React.createElement(EditText,{value:scene.closeValue,className:"charge-name",readOnly,
-        onCommit:v=>onUpdate(scene.id,{closeValue:v})}),
-      React.createElement(Stepper,{value:scene.closeCharge,readOnly,onChange:v=>onCharge("closeCharge",v)})));
+function ChargeEditor({ scene, onCharge, onUpdate, readOnly, unnamedValues, onNameAllValues, namingValues }){
+  // ONE VALUE AT STAKE: the scene's axis (Love ↔ Hate); the opening and closing words
+  // follow the charges. A scene without an axis keeps its two legacy free words, and
+  // the axis fields offer a guess taken from them.
+  const axis = (typeof sceneValueAxis==="function") ? sceneValueAxis(scene) : null;
+  const guess = (!axis && typeof guessValueAxis==="function") ? guessValueAxis(scene) : null;
+  const setPole = (k,v)=>{
+    const cur = axis || { pos:(guess&&guess.pos)||"", neg:(guess&&guess.neg)||"" };
+    onUpdate(scene.id,{ value:{ ...cur, [k]:String(v||"").trim() } });
+  };
+  const word = (field, charge)=> axis
+    ? React.createElement("div",{className:"charge-name derived",title:"Follows the value at stake and this charge"},valueWordFor(axis, charge)||"\u2014")
+    : React.createElement(EditText,{value:scene[field],className:"charge-name",readOnly,onCommit:v=>onUpdate(scene.id,{[field]:v})});
+  return React.createElement("div",{className:"charge-wrap"},
+    React.createElement("div",{className:"value-axis",title:"The one value this scene is about. It opens and closes on this axis; the charges say which side it stands on."},
+      React.createElement("div",{className:"lab"},"Value at stake"),
+      React.createElement("div",{className:"va-row"},
+        React.createElement("span",{className:"va-pole pos"},"+"),
+        React.createElement(EditText,{value:axis?axis.pos:"",className:"va-in",readOnly,
+          placeholder:(guess&&guess.pos)||"e.g. Love",onCommit:v=>setPole("pos",v)}),
+        React.createElement("span",{className:"va-sep"},"\u2194"),
+        React.createElement("span",{className:"va-pole neg"},"\u2212"),
+        React.createElement(EditText,{value:axis?axis.neg:"",className:"va-in",readOnly,
+          placeholder:(guess&&guess.neg)||"e.g. Hate",onCommit:v=>setPole("neg",v)})),
+      !axis && React.createElement("div",{className:"va-hint"},"Name the one value this scene turns. Until you do, the opening and closing words below are free text."),
+      !axis && onNameAllValues && unnamedValues>1 && React.createElement("button",{className:"char-draft-btn va-name-all",disabled:readOnly||namingValues,
+          onClick:onNameAllValues,title:"Fill every scene's value at stake: the poles their own words give are used as-is, and MUSE supplies only the missing ones. Scripts aren't changed."},
+        React.createElement(Icon.sparkles,{s:12}), namingValues ? "Naming values\u2026" : ("Name every scene's value ("+unnamedValues+")"))),
+    React.createElement("div",{className:"charge-grid"},
+      React.createElement("div",{className:"charge-cell"},
+        React.createElement("div",{className:"lab"},"Opening value"),
+        word("openValue", scene.openCharge),
+        React.createElement(Stepper,{value:scene.openCharge,readOnly,onChange:v=>onCharge("openCharge",v)})),
+      React.createElement("div",{className:"charge-arrow"},React.createElement(Icon.arrowR,{s:16})),
+      React.createElement("div",{className:"charge-cell"},
+        React.createElement("div",{className:"lab"},"Closing value"),
+        word("closeValue", scene.closeCharge),
+        React.createElement(Stepper,{value:scene.closeCharge,readOnly,onChange:v=>onCharge("closeCharge",v)}))));
 }
 
 function Verdict({ scene }){
-  const { flagged } = turnInfo(scene);
+  const ti = turnInfo(scene), { flagged } = ti;
   // titles + flag icon come from the project's narrative framework (frameworks.jsx);
-  // three-act reads exactly as before. The detail lines stay charge-factual.
+  // the detail lines stay charge-factual.
   const aud = (typeof fwAuditOf==="function") ? fwAuditOf() : null;
+  const move = `${scene.openValue} (${chargeStr(scene.openCharge)}) \u2192 ${scene.closeValue} (${chargeStr(scene.closeCharge)}). `;
   if(flagged) return React.createElement("div",{className:"verdict no"},
     React.createElement("span",{className:"verdict-icn"},React.createElement(Icon[(aud&&aud.flagIcon)||"scissors"]||Icon.scissors,{s:18})),
     React.createElement("div",null,
       React.createElement("div",{className:"verdict-t"},(aud&&aud.flagTitle)||"This scene doesn't turn"),
       React.createElement("div",{className:"verdict-d"},
-        `Opens and closes on the same charge (${chargeStr(scene.openCharge)} \u2192 ${chargeStr(scene.closeCharge)}). `,
+        `Moves ${chargeStr(scene.openCharge)} \u2192 ${chargeStr(scene.closeCharge)} without reversing. `,
         (aud&&aud.flagDetail) || "If a scene doesn't turn a value, it's exposition \u2014 recharge it or cut it.")));
+  if(ti.progression) return React.createElement("div",{className:"verdict prog"},
+    React.createElement("span",{className:"verdict-icn"},React.createElement(Icon.arrowR,{s:18})),
+    React.createElement("div",null,
+      React.createElement("div",{className:"verdict-t"},(aud&&aud.progTitle)||"This scene progresses"),
+      React.createElement("div",{className:"verdict-d"}, move,
+        (aud&&aud.progDetail) || "The value intensifies on the same side instead of reversing. That's fine inside a run of scenes; at a structural peak, make it flip.")));
+  if(ti.exempt && !(typeof chargeTurn==="function" ? chargeTurn(scene.openCharge, scene.closeCharge).turned : ti.turned))
+    return React.createElement("div",{className:"verdict ok"},
+      React.createElement("span",{className:"verdict-icn"},React.createElement(Icon.check,{s:18})),
+      React.createElement("div",null,
+        React.createElement("div",{className:"verdict-t"},"This beat settles"),
+        React.createElement("div",{className:"verdict-d"}, move, "Its place in the structure lets it settle rather than reverse.")));
   return React.createElement("div",{className:"verdict ok"},
     React.createElement("span",{className:"verdict-icn"},React.createElement(Icon.check,{s:18})),
     React.createElement("div",null,
       React.createElement("div",{className:"verdict-t"},(aud&&aud.okTitle)||"This scene turns"),
-      React.createElement("div",{className:"verdict-d"},
-        `${scene.openValue} (${chargeStr(scene.openCharge)}) \u2192 ${scene.closeValue} (${chargeStr(scene.closeCharge)}). `,
+      React.createElement("div",{className:"verdict-d"}, move,
         "A value-charged condition reverses \u2014 the scene earns its place.")));
 }
 
-/* ---------- editable beat map ---------- */
 function BeatEditor({ scene, beats, onBeats, focusBeat, draft, characters, project, readOnly }){
   const [deriving, setDeriving] = React.useState(false);
   const hasScript = !!(draft && ((draft.blocks && draft.blocks.length) || (Array.isArray(draft) && draft.length)));
@@ -319,6 +355,17 @@ function BeatEditor({ scene, beats, onBeats, focusBeat, draft, characters, proje
       React.createElement(Icon.plus,{s:14}),"Add beat"));
 }
 
+/* the beat marked as the turning point (Beats tab → Mark turn), as a sentence */
+function turningBeatText(beats){
+  const rows = (beats && beats.rows) || [];
+  if(!rows.length) return "";
+  const r = rows.find(x=>x && beats.turnBeatId && x.id===beats.turnBeatId) || (beats.turnAt ? rows[beats.turnAt-1] : null);
+  if(!r) return "";
+  const n = rows.indexOf(r)+1;
+  const bit = (side)=> side && (side.d || side.a) ? String(side.d || side.a).replace(/\.$/,"") : "";
+  return "Beat "+n+": "+[bit(r.drive), bit(r.react)].filter(Boolean).join(" \u2014 ")+".";
+}
+
 const ANALYSIS = (scene, beats) => [
   { lab:"Conflict", txt: React.createElement(React.Fragment,null,
       "Driver wants ", React.createElement("em",null,(scene.objective||"\u2014").replace(/^To /,"to ")),
@@ -330,13 +377,17 @@ const ANALYSIS = (scene, beats) => [
       : "Not yet broken into beats." },
   { lab:"Closing Value", txt: React.createElement(React.Fragment,null,
       React.createElement("em",null,`${scene.closeValue} (${chargeStr(scene.closeCharge)})`),
-      turnInfo(scene).turned
-        ? ((typeof fwAuditOf==="function" && fwAuditOf().analysisTurned)||" \u2014 the value has reversed. The scene turns.")
-        : ((typeof fwAuditOf==="function" && fwAuditOf().analysisFlat)||" \u2014 unchanged. Flat exposition.")) },
-  { lab:"Turning Point", txt: scene.turningPoint || "Locate the beat where the gap opens." },
+      (()=>{ const ti = turnInfo(scene), aud = (typeof fwAuditOf==="function") ? fwAuditOf() : {};
+        const t = (typeof chargeTurn==="function") ? chargeTurn(scene.openCharge, scene.closeCharge) : ti;
+        if(t.turned) return aud.analysisTurned || " \u2014 the value has reversed. The scene turns.";
+        if(t.progression) return aud.analysisProg || " \u2014 intensified on the same side. A progression, not a turn.";
+        if(ti.exempt) return " \u2014 settles, as its place in the structure allows.";
+        return aud.analysisFlat || " \u2014 unchanged. Flat exposition."; })()) },
+  { lab:"Turning Point", txt: turningBeatText(beats) || scene.turningPoint || "Mark the beat where the gap opens (Beats tab \u2192 Mark turn)." },
 ];
 
-function Inspector({ scene, beats, draft, onCharge, onUpdate, characters, scenes, onAddScene, onDeleteScene, onMove, onBeats, onRedraftScript,
+function Inspector({ scene, beats, draft, onCharge, onUpdate, characters, scenes, onAddScene, onDeleteScene, onMove, onBeats, stale, onRedraft,
+                     unnamedValues, onNameAllValues, namingValues,
                      sceneIndex, sceneCount, onCollapse, project, tab:tabProp, onTab, focusBeat, readOnly }){
   // tab is controllable by the parent (e.g. the Script gutter opens the Beats tab);
   // falls back to local state when no controller is wired.
@@ -386,9 +437,14 @@ function Inspector({ scene, beats, draft, onCharge, onUpdate, characters, scenes
         React.createElement("div",{className:"insp-block",style:{marginTop:16}},
           React.createElement("div",{className:"insp-block-head"},
             React.createElement("span",{className:"eyebrow"},React.createElement(Icon.graph,{s:12}),"Value Charge")),
-          React.createElement(ChargeEditor,{scene,onCharge,onUpdate,readOnly}),
+          React.createElement(ChargeEditor,{scene,onCharge,onUpdate,readOnly,unnamedValues,onNameAllValues,namingValues}),
           React.createElement("div",{style:{height:12}}),
-          React.createElement(Verdict,{scene})),
+          React.createElement(Verdict,{scene}),
+          // NEEDS REDRAFT — the card changed after this scene's script was written
+          (stale && stale.length) ? React.createElement("div",{className:"insp-stale",role:"status"},
+            React.createElement("span",null,React.createElement("b",null,"Script out of date: "),"changed since the draft \u2014 ",stale.join(", "),"."),
+            onRedraft && React.createElement("button",{className:"char-draft-btn",disabled:readOnly,onClick:()=>onRedraft(scene)},
+              React.createElement(Icon.sparkles,{s:12}),"Redraft script")) : null),
 
         // which side of the controlling idea this scene argues — auto-derived from the
         // closing charge (positive asserts the idea), overridable per scene
@@ -434,21 +490,25 @@ function Inspector({ scene, beats, draft, onCharge, onUpdate, characters, scenes
           React.createElement("div",{className:"obj-row"},
             React.createElement("span",{className:"obj-icn"},React.createElement(Icon.layers,{s:14})),
             React.createElement("div",null,
-              React.createElement("div",{className:"obj-lab",style:{marginBottom:5}},
-                "Conflict level \u00b7 ",["Inner","Personal","Extra-personal"][scene.conf-1]),
+              React.createElement("div",{className:"obj-lab",style:{marginBottom:5},
+                title:"Where this scene's antagonism comes from: inner (the driver against their own mind), personal (family, friends, lovers) or extra-personal (institutions, society, the physical world). Set deliberately, it steers the next draft."},
+                "Conflict source \u00b7 ",["Inner","Personal","Extra-personal"][scene.conf-1]),
               React.createElement("div",{className:"conf-edit"},
                 [1,2,3].map(i=>React.createElement("button",{key:i,className:`pip ${i<=scene.conf?"on":""}`,disabled:readOnly,
                   title:["Inner","Personal","Extra-personal"][i-1],
-                  onClick:()=>onUpdate(scene.id,{conf:i})}))))),
+                  onClick:()=>onUpdate(scene.id,{conf:i, confAuthored:true})}))))),
           // conflict MODE — how the antagonism is conducted on the page (a dialogue
           // grammar). Auto = the drafter silently picks the fittest mode; locking one
           // binds every drafting/polish pass to it.
           React.createElement("div",{className:"obj-row"},
             React.createElement("span",{className:"obj-icn"},React.createElement(Icon.mask,{s:14})),
-            React.createElement("div",{style:{flex:1}},
-              React.createElement("div",{className:"obj-lab",style:{marginBottom:4}},"Conflict mode"),
+            // minWidth:0 lets the column shrink to the panel; without it the long option
+            // labels size the select wider than the panel, under the scrollbar
+            React.createElement("div",{style:{flex:1,minWidth:0}},
+              React.createElement("div",{className:"obj-lab",style:{marginBottom:4},
+                title:"How the antagonism is conducted on the page \u2014 the scene's dialogue grammar. Auto lets MUSE choose per draft; a pick binds every draft of this scene."},"Conflict style"),
               // an unrecognized stored value (legacy/import) displays — and behaves — as Auto
-              React.createElement("select",{className:"insp-select",disabled:readOnly,
+              React.createElement("select",{className:"insp-select insp-select-full",disabled:readOnly,
                 value:((window.CONFLICT_MODES||[]).some(m=>m.id===scene.conflictMode) ? scene.conflictMode : ""),
                 onChange:e=>onUpdate(scene.id,{conflictMode:e.target.value})},
                 [React.createElement("option",{key:"",value:""},"Auto \u2014 MUSE picks per draft")].concat(

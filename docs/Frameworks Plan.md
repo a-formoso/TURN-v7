@@ -129,6 +129,9 @@ charge-rule can't test "does the twist recontextualize?". So the audit splits:
   you/need · go/search · find/take · return/change — classic turn rule, change
   exempt). Both are pure registry entries plus `assignPlotPoints` stage maps;
   the spine builder reads any framework's `spine` grammar generically.
+- **Retired 2026-09-25 (owner)**: **Story Circle** is no longer offered for new
+  stories (`retired:true` in the registry; `frameworkChoices()` lists the rest).
+  The entry stays so films already built on it keep their four act bands.
 - **Out of scope for now**: beat-sheet presets (trademarked brands), per-scene
   framework mixing, retroactive conversion of an existing story between frameworks
   (charges survive, `act`/`kind` need remapping — ship as a Doctor proposal,

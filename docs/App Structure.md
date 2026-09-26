@@ -46,16 +46,15 @@ flowchart TB
     direction TB
     WRv["View tabs"]:::room
     V1["Spine<br/><i>Value-Charge Spine</i>"]:::view
-    V2["Audit<br/><i>Turn Audit — if a scene<br/>doesn't turn, cut it</i>"]:::view
-    V3["Board<br/><i>16 scenes / 3 acts</i>"]:::view
+    V3["Board<br/><i>Columns by act · Table = turn audit</i>"]:::view
     V4["Script<br/><i>Screenplay draft</i>"]:::view
-    WRv --> V1 --> V2 --> V3 --> V4
+    WRv --> V1 --> V3 --> V4
 
     AG["Writers' Room modal — AI agents"]:::mod
     AG1["Story Doctor — fix"]:::mod
     AG2["Continuity Repair — fix"]:::mod
     AG3["Adaptation — build"]:::mod
-    AG4["Table-Read — report"]:::mod
+    AG4["Final Read — report"]:::mod
     AG --> AG1 & AG2 & AG3 & AG4
   end
 
@@ -102,7 +101,7 @@ flowchart LR
 
   seed["Seed / idea<br/>(New Story · Adaptation)"]:::d
   spine["Scenes + value charges<br/>(Spine)"]:::d
-  beats["Beats / subtext<br/>(Audit · Board)"]:::d
+  beats["Beats / subtext<br/>(Board)"]:::d
   script["Screenplay<br/>(Script)"]:::d
   art["Props · Characters · Locations<br/>+ Style Bible grade"]:::d
   shots["Shot List<br/>(1 beat → 1 shot frame)"]:::d

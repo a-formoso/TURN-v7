@@ -19,25 +19,69 @@
    three-act gets the classic labels (Inciting Incident, Act Climax, Midpoint,
    Crisis, Story Climax, Resolution); Kishōtenketsu gets its movements (Planting,
    Deepening, The Twist, Recontextualization, Reconciliation). */
+/* the stages the spine DECLARED (scene._stage). Keeps the LONGEST run of real stages of
+   this framework in canonical order (a stray, out-of-order tag is dropped instead of
+   poisoning the tags after it), each stage once unless the framework lets it repeat, and
+   only when that run covers the must-have stages; otherwise null = positional fallback */
+function acceptDeclaredStages(fw, scenes){
+  const sp = fw && fw.spine;
+  if(!sp || !Array.isArray(sp.stages)) return null;
+  const order = sp.stages, repeat = sp.stageRepeat || [];
+  const tagged = [];
+  scenes.forEach((s,i)=>{ const k = String((s && s._stage) || "").toLowerCase().trim(), at = order.indexOf(k);
+    if(at>=0) tagged.push({ i, k, at }); });
+  if(!tagged.length) return null;
+  const follows = (a,b)=> b.at>a.at || (b.at===a.at && repeat.includes(b.k));
+  // score = [stages kept, must-have stages kept]: the longest run wins, and between equally
+  // long runs the one holding the must-have stages (a stray Elixir loses to the Ordeal)
+  const must = sp.stageMust || [];
+  const better = (p,q)=> p[0]>q[0] || (p[0]===q[0] && p[1]>q[1]);
+  const score = tagged.map(t=>[1, must.includes(t.k)?1:0]), prev = tagged.map(()=>-1);
+  for(let x=0; x<tagged.length; x++) for(let y=0; y<x; y++){
+    if(!follows(tagged[y],tagged[x])) continue;
+    const cand = [score[y][0]+1, score[y][1]+(must.includes(tagged[x].k)?1:0)];
+    if(better(cand, score[x])){ score[x]=cand; prev[x]=y; }
+  }
+  let end = 0; score.forEach((sc,x)=>{ if(better(sc, score[end])) end = x; });
+  const out = scenes.map(()=>null), used = new Set();
+  for(let x=end; x>=0; x=prev[x]){ out[tagged[x].i] = tagged[x].k; used.add(tagged[x].k); }
+  return must.every(k=>used.has(k)) ? out : null;
+}
 function assignPlotPoints(scenes){
   // a model/writer-declared Inciting Incident survives the mechanical re-assignment —
   // the Doctor's placement audit then checks a REAL declaration, not this function's
   // positional guess (three-act only; other frameworks keep their own grammar)
   const declaredIncite = scenes.findIndex(s=>s.kind==="incite");
+  const fwD = (typeof frameworkOf==="function") ? frameworkOf(window.turnProject) : null;
+  const declared = acceptDeclaredStages(fwD, scenes);
   scenes.forEach(s=>{ s.kind = "normal"; s.plot = ""; });
   const idxByAct = (act)=> scenes.map((s,i)=>s.act===act?i:-1).filter(i=>i>=0);
   const set = (i,k)=>{ if(i>=0 && i<scenes.length) scenes[i].kind = k; };
   const fw = (typeof frameworkOf==="function") ? frameworkOf(window.turnProject) : null;
   if(fw && fw.id==="herosjourney"){
+    // 4 scenes or fewer: the minimum journey, stage by stage (frameworks.jsx), matching
+    // exactly what the spine prompt asked for
+    const mini = (typeof heroMiniStages==="function") ? heroMiniStages(scenes.length) : null;
+    if(mini || declared){
+      // a tiny journey uses its fixed table; otherwise the stages the spine declared
+      scenes.forEach((s,i)=>{ const k = mini ? (mini[i] && mini[i][0]) : declared[i]; if(k) s.kind = k; });
+      scenes.forEach(s=>{ if(s.kind!=="normal") return; s.plot = s.act===1 ? "Departure" : s.act===2 ? "Trials" : "Return"; });
+      return scenes;
+    }
     const h1=idxByAct(1), h2=idxByAct(2), h3=idxByAct(3);
     const used = new Set();
     const mark = (i,k)=>{ if(i>=0 && !used.has(i)){ set(i,k); used.add(i); } };
     if(h1.length){
       mark(h1[0],"ordinary-world");
       if(h1.length>=2) mark(h1[h1.length-1],"threshold");
-      if(h1.length>=3) mark(h1[Math.floor((h1.length-1)/2)],"call");
-      if(h1.length>=4) mark(h1[Math.floor((h1.length-1)/2)+1],"refusal");
-      if(h1.length>=5) mark(h1[h1.length-2],"mentor");
+      // the scenes between the ordinary world and the threshold carry the call, the
+      // refusal and the mentor, in story order and end-aligned; when there's no room
+      // for all three the mentor outranks the refusal (it used to be dropped whenever
+      // the Departure had fewer than six scenes)
+      const between = h1.slice(1, -1);
+      const stages = between.length>=3 ? ["call","refusal","mentor"] : between.length===2 ? ["call","mentor"] : between.length===1 ? ["call"] : [];
+      const slots = between.slice(between.length - stages.length);
+      stages.forEach((k,j)=>mark(slots[j],k));
     }
     if(h2.length){
       const mid = h2[Math.floor((h2.length-1)/2)];
@@ -67,10 +111,13 @@ function assignPlotPoints(scenes){
   }
   if(fw && fw.id==="kishotenketsu"){
     const k1=idxByAct(1), k2=idxByAct(2), k3=idxByAct(3), k4=idxByAct(4);
-    if(k1.length) set(k1[0],"plant");
-    if(k2.length) set(k2[k2.length-1],"deepen");
-    if(k3.length){ set(k3[0],"ten"); k3.slice(1).forEach(i=>set(i,"re-read")); }
-    if(k4.length) set(k4[k4.length-1],"ketsu");
+    if(declared){ declared.forEach((k,i)=>{ if(k) set(i,k); }); }
+    else{
+      if(k1.length) set(k1[0],"plant");
+      if(k2.length) set(k2[k2.length-1],"deepen");
+      if(k3.length){ set(k3[0],"ten"); k3.slice(1).forEach(i=>set(i,"re-read")); }
+      if(k4.length) set(k4[k4.length-1],"ketsu");
+    }
     scenes.forEach(s=>{ if(s.kind!=="normal") return;
       s.plot = s.act===1 ? "Planting" : s.act===2 ? "Deepening" : s.act===3 ? "Re-reading" : "Settling"; });
     return scenes;
@@ -102,6 +149,20 @@ function assignPlotPoints(scenes){
     set(a3[a3.length-2],"story-climax");
     set(a3[a3.length-1],"resolution");
   }
+  // HOOK + PINCH POINTS (added 2026-09-25 by owner): scene 1 hooks when it has no
+  // other structural job; with a full second act (10+ scenes) a pinch point sits
+  // between the Act I climax and the midpoint, and another between the midpoint and
+  // the Act II climax — the antagonistic force showing its power
+  if(scenes.length && scenes[0].kind==="normal") set(0,"hook");
+  if(scenes.length>=10 && a2.length && midIdx>=0){
+    const endI = a1.length ? a1[a1.length-1] : -1, endII = a2[a2.length-1];
+    const between = (lo,hi)=>{
+      const open = scenes.map((_,i)=>i).filter(i=>i>lo && i<hi && scenes[i].kind==="normal");
+      return open.length ? open[Math.floor((open.length-1)/2)] : -1;
+    };
+    set(between(endI, midIdx),"pinch");
+    set(between(midIdx, endII),"pinch");
+  }
   // secondary Title-Case labels for the remaining (non-major) scenes
   scenes.forEach((s,i)=>{
     if(s.kind!=="normal") return;
@@ -125,9 +186,10 @@ window.assignPlotPoints = assignPlotPoints;
    second copy of the three-act arithmetic here; inline body = safety fallback */
 function sd_turnInfo(s){
   if(typeof window.turnInfo==="function"){ try{ return window.turnInfo(s); }catch(e){} }
-  const turned = Math.sign(s.openCharge)!==Math.sign(s.closeCharge) || Math.abs(s.closeCharge-s.openCharge)>=2;
+  const t = (typeof chargeTurn==="function") ? chargeTurn(s.openCharge, s.closeCharge)
+    : { turned: Math.sign(s.openCharge)*Math.sign(s.closeCharge) < 0, progression:false };
   const exempt = s.kind==="resolution";
-  return { turned, flagged: !turned && !exempt };
+  return { turned:t.turned, progression:t.progression, flagged: !t.turned && !t.progression && !exempt };
 }
 function auditSpine(scenes){
   const issues = [];
@@ -137,24 +199,31 @@ function auditSpine(scenes){
     issues.push({ kind:"noturn", sceneId:s.id, sceneNo:s.no, sev:2,
       msg: _kisho
         ? '"'+s.title+'" sits flat ('+chargeStr(s.openCharge)+" \u2192 "+chargeStr(s.closeCharge)+") \u2014 it neither plants, deepens, nor shifts the pattern. It's inert."
-        : '"'+s.title+'" opens and closes on the same charge ('+chargeStr(s.openCharge)+" \u2192 "+chargeStr(s.closeCharge)+") \u2014 it doesn't turn." }); });
+        : '"'+s.title+'" moves '+chargeStr(s.openCharge)+" \u2192 "+chargeStr(s.closeCharge)+" without reversing its value \u2014 it doesn't turn." }); });
   // 2) flat peaks — framework-specific. Three-act: a big-beat scene that lands
   // soft. Kishōtenketsu: only the TEN must land hard — a soft ten can't re-read
   // anything (ki/shō scenes are ALLOWED to be quiet).
   if(_kisho){
     scenes.forEach(s=>{
       const isTen = s.kind==="ten" || (Number(s.act)===3 && ["crisis","story-climax"].includes(s.kind));
-      const delta = Math.abs(s.closeCharge - s.openCharge);
-      const flip = Math.sign(s.openCharge)!==Math.sign(s.closeCharge);
-      if(isTen && !flip && delta<2)
+      const t = (typeof chargeTurn==="function") ? chargeTurn(s.openCharge, s.closeCharge) : { turned:false, progression:false };
+      // a flat ten is already a "noturn"; a ten that only intensifies is a soft peak
+      if(isTen && t.progression)
         issues.push({ kind:"weakpeak", sceneId:s.id, sceneNo:s.no, sev:1,
-          msg:'"'+s.title+'" is the TEN but barely shifts ('+chargeStr(s.openCharge)+" \u2192 "+chargeStr(s.closeCharge)+"). The twist must break the pattern hard enough to make the audience re-read everything before it." });
+          msg:'"'+s.title+'" is the TEN but only intensifies ('+chargeStr(s.openCharge)+" \u2192 "+chargeStr(s.closeCharge)+"). The twist must reverse the pattern hard enough to make the audience re-read everything before it." });
     });
   } else {
     const bigKinds = (typeof fwAuditOf==="function" && fwAuditOf().bigKinds) || ["midpoint","story-climax","act-climax","crisis"];
     scenes.forEach(s=>{
       const big = bigKinds.includes(s.kind);
-      if(big && Math.abs(s.closeCharge)<2 && !sd_turnInfo(s).flagged)
+      if(!big) return;
+      const ti = sd_turnInfo(s);
+      // a structural peak must REVERSE its value: intensifying on the same side is a
+      // progression — fine inside a run, not at a peak
+      if(ti.progression)
+        issues.push({ kind:"weakpeak", sceneId:s.id, sceneNo:s.no, sev:1,
+          msg:'"'+s.title+'" is a '+(KIND_LABEL[s.kind]||s.kind)+" but only progresses ("+chargeStr(s.openCharge)+" \u2192 "+chargeStr(s.closeCharge)+") \u2014 it intensifies on the same side. A peak must reverse its value." });
+      else if(Math.abs(s.closeCharge)<2 && !ti.flagged)
         issues.push({ kind:"weakpeak", sceneId:s.id, sceneNo:s.no, sev:1,
           msg:'"'+s.title+'" is a '+(KIND_LABEL[s.kind]||s.kind)+" but lands soft (close "+chargeStr(s.closeCharge)+"). A peak should hit \u00b13." });
     });
@@ -197,7 +266,7 @@ function auditSpine(scenes){
     if(sign!==0 && run.every(s=>Math.sign(s.closeCharge)===sign)){
       const spread = Math.max.apply(null,run.map(s=>s.closeCharge)) - Math.min.apply(null,run.map(s=>s.closeCharge));
       if(spread<=1){ issues.push({ kind:"monotony", sceneId:run[1].id, sceneNo:run[1].no, sev:0,
-        msg:"Scenes "+run[0].no+"\u2013"+run[2].no+" all sit on the "+(sign>0?"positive":"negative")+" side with little movement \u2014 the rhythm flattens." });
+        msg:"Scenes "+run[0].no+"\u2013"+run[2].no+" all END on the "+(sign>0?"positive":"negative")+" side at about the same level ("+run.map(s=>chargeStr(s.closeCharge)).join(", ")+") \u2014 three landings in a row on one note flatten the rhythm." });
         break; }
     }
   }
@@ -225,6 +294,36 @@ function auditSpine(scenes){
     }
     if(!issues.some(i=>i.kind==="themerun")) flag();
   }
+  // 7) CONFLICT PROGRESSION (three-act family; approved 2026-09-25 by owner) — acts
+  //    escalate by KIND, not volume: a later act must reach a level of conflict the
+  //    first act never touched — WIDER (institutions, society, the physical world) or
+  //    DEEPER (the protagonist's war with themselves). Reads only deliberately set
+  //    levels (the story build sets one per scene; the Conflict source pips mark a
+  //    manual one), and needs most scenes to carry one before it judges.
+  if(!_kisho){
+    const LV = { 1:"inner", 2:"personal", 3:"extra-personal" };
+    const authored = scenes.filter(s=>s.confAuthored && LV[Number(s.conf)]);
+    const acts = [...new Set(scenes.map(s=>Number(s.act)||1))].sort((a,b)=>a-b);
+    if(scenes.length>=6 && acts.length>=2 && authored.length>=Math.ceil(scenes.length*0.6)){
+      const levelsIn = (act)=> new Set(authored.filter(s=>(Number(s.act)||1)===act).map(s=>Number(s.conf)));
+      const first = levelsIn(acts[0]);
+      const later = new Set(acts.slice(1).flatMap(a=>[...levelsIn(a)]));
+      if(first.size && ![...later].some(l=>!first.has(l))){
+        // re-level the final act's first structural peak (the crisis or its equivalent):
+        // DEEPER first — a bounded world escalates inward — then wider
+        const bigK = (typeof fwAuditOf==="function" && fwAuditOf().bigKinds) || ["midpoint","story-climax","act-climax","crisis"];
+        const inLast = scenes.filter(s=>(Number(s.act)||1)===acts[acts.length-1]);
+        const target = inLast.find(s=>bigK.includes(s.kind)) || inLast[0];
+        const to = [1,3,2].find(l=>!first.has(l));
+        if(target && to) issues.push({ kind:"flatconflict", sceneId:target.id, sceneNo:target.no, sev:0,
+          fromLevel:Number(target.conf)||2, toLevel:to, levels:[...first].sort().map(l=>LV[l]),
+          msg:"Every act fights on the same level of conflict ("+[...first].sort().map(l=>LV[l]).join(" and ")+") \u2014 the conflict grows only in volume, never in kind. A later act must reach "
+            +(to===1 ? "DEEPER, into the protagonist's war with themselves (inner)"
+              : to===3 ? "WIDER, into institutions, society or the physical world (extra-personal)"
+              : "the personal level \u2014 family, friends, lovers")+"." });
+      }
+    }
+  }
   issues.sort((a,b)=>b.sev-a.sev);
   return issues;
 }
@@ -239,7 +338,7 @@ async function agentStoryDoctor(ctx){
   const _fwDoc = (typeof frameworkOf==="function") ? frameworkOf(window.turnProject) : null;
   ctx.emit({k:"plan", t:"Scanning all "+ctx.model.scenes.length+" scenes for the weakest structural link \u2014 "
     +((_fwDoc && _fwDoc.id!=="threeact" && _fwDoc.doctorCriteria) ? _fwDoc.doctorCriteria
-      : "scenes that don't turn, soft peaks, same-side climaxes, a late inciting incident, flat runs, and one-sided stretches of the controlling idea's argument")+"."});
+      : "scenes that don't turn, soft peaks, same-side climaxes, a late inciting incident, flat runs, one-sided stretches of the controlling idea's argument, and conflict that never escalates in kind")+"."});
   // Story Contract — the declared dominant value is a checkable promise on the climax.
   // Read the project from the agent's captured context (not the window global, which
   // can be stale mid-run); initial status here, enforcement after the fix loop below.
@@ -302,13 +401,25 @@ async function agentStoryDoctor(ctx){
       const cc = -Math.sign(scene.closeCharge)*Math.max(2, Math.abs(scene.closeCharge));
       fix = { closeValue:scene.closeValue, closeCharge:cc,
         rationale:"Alternate the charge \u2014 two climaxes landing on the same side halve each other's impact; flip this one so each peak hits fresh." };
+    } else if(issue.kind==="flatconflict"){
+      // escalate by kind: re-level this scene; its next draft sources the antagonism there
+      fix = { conf:issue.toLevel, rationale:"Acts escalate by kind, not volume. Moving Scene "+scene.no+"'s conflict "
+        +(issue.toLevel===1 ? "inward \u2014 the protagonist against their own mind \u2014" : issue.toLevel===3 ? "outward \u2014 against institutions, society or the physical world \u2014" : "to the personal level")
+        +" gives the final act a new kind of pressure. The level steers the next draft of this scene (Draft with MUSE or Redraft script from beats); the current script isn't rewritten." };
     } else { // monotony — nudge the middle scene to break the run
       const cc = -Math.sign(scene.closeCharge)*2;
       fix = { closeValue:scene.closeValue, closeCharge:cc, rationale:"Push this scene to the opposite pole to break the flat run and restore contrast." };
     }
 
     const sideLabel = (s)=> s==="idea" ? "the idea" : s==="counter" ? "the counter-idea" : "neither side";
-    const ok = await ctx.propose({
+    const levelLabel = (l)=> ({1:"Inner",2:"Personal",3:"Extra-personal"})[l] || "Personal";
+    const ok = await ctx.propose(issue.kind==="flatconflict" ? {
+      title:"Escalate the conflict in Scene "+scene.no+" \u2014 "+scene.title,
+      reason:issue.msg,
+      rationale:fix.rationale,
+      before:"Conflict source: "+levelLabel(issue.fromLevel),
+      after:"Conflict source: "+levelLabel(fix.conf),
+    } : {
       title:"Re-charge Scene "+scene.no+" \u2014 "+scene.title,
       reason:issue.msg,
       rationale:fix.rationale,
@@ -320,9 +431,15 @@ async function agentStoryDoctor(ctx){
         : scene.openValue+" ("+chargeStr(scene.openCharge)+") \u2192 "+fix.closeValue+" ("+chargeStr(fix.closeCharge)+")",
     });
     if(ctx.cancelled()) return;
-    if(ok){
-      ctx.model.scenes[idx] = {...scene, closeValue:fix.closeValue, closeCharge:fix.closeCharge,
-        ...(fix.argues!==undefined ? {argues:fix.argues} : {})};
+    if(ok && issue.kind==="flatconflict"){
+      ctx.model.scenes[idx] = {...scene, conf:fix.conf, confAuthored:true};
+      ctx.sync();
+      fixes++;
+      ctx.emit({k:"ok", t:"Applied. Scene "+scene.no+" now fights at the "+levelLabel(fix.conf).toLowerCase()+" level \u2014 redraft it to feel the change. Re-auditing\u2026"});
+    } else if(ok){
+      const _sync = (typeof withValueWords==="function") ? withValueWords : (x=>x);
+      ctx.model.scenes[idx] = _sync({...scene, closeValue:fix.closeValue, closeCharge:fix.closeCharge,
+        ...(fix.argues!==undefined ? {argues:fix.argues} : {})});
       ctx.sync();
       fixes++;
       ctx.emit({k:"ok", t:"Applied. Scene "+scene.no+" now turns "+chargeStr(scene.openCharge)+" \u2192 "+chargeStr(fix.closeCharge)+". Re-auditing\u2026"});
@@ -343,8 +460,11 @@ async function agentStoryDoctor(ctx){
       const con = (typeof contractOf==="function") ? contractOf(_ccProject()) : null;
       const dom = con && (con.dominant==="inner" ? con.innerDef : con.outerDef);
       if(csc && dom){
-        const upward = (csc.closeCharge||0) >= (csc.openCharge||0);
-        const ov = upward ? dom.axis.neg : dom.axis.pos, cv = upward ? dom.axis.pos : dom.axis.neg;
+        // the climax's VALUE AT STAKE becomes the contract's dominant axis; its words then
+        // follow its charges (withValueWords)
+        const axis = { pos:dom.axis.pos, neg:dom.axis.neg };
+        const _vw = (c)=> (typeof valueWordFor==="function") ? valueWordFor(axis, c) : (c>=0 ? axis.pos : axis.neg);
+        const ov = _vw(csc.openCharge), cv = _vw(csc.closeCharge);
         const okc = await ctx.propose({
           title:"Re-value the climax onto the contract's dominant axis",
           reason:cc.msg,
@@ -354,7 +474,7 @@ async function agentStoryDoctor(ctx){
         });
         if(ctx.cancelled()) return;
         if(okc){
-          ctx.model.scenes[cIdx] = {...csc, openValue:ov, closeValue:cv};
+          ctx.model.scenes[cIdx] = {...csc, value:axis, openValue:ov, closeValue:cv};
           ctx.sync(); fixes++;
           cc = _ccRun();
         }
@@ -416,6 +536,22 @@ async function agentStoryDoctor(ctx){
 async function agentContinuityRepair(ctx){
   const MAX = 5;
   ctx.emit({k:"plan", t:"Running the continuity check across the spine, then repairing each break \u2014 planting missing setups and paying off dangling threads."});
+  // the check needs this film's setups/payoffs mapped: build the ledger first when it's
+  // missing, or when the script changed since it was built
+  const P0 = ctx.model.project || {};
+  const L0 = P0.continuityLedger;
+  // a hand-made map without a ledger (the bundled sample) is used as it is
+  const legacyMap = !L0 && Object.keys(ctx.facts||{}).length>0;
+  const stale = !legacyMap && (!L0 || !P0.continuityFacts || (typeof window.continuityLedgerSig==="function"
+    && L0.sig !== window.continuityLedgerSig(ctx.model.scenes, ctx.model.drafts)));
+  if(stale && ctx.ai.continuityLedger){
+    if(!ctx.ai.available){ ctx.emit({k:"flag", t:"This film's setups and payoffs aren't mapped yet, and the writing model isn't available to map them."}); ctx.emit({k:"done", t:"Nothing to check yet."}); return; }
+    if(L0) ctx.emit({k:"observe", t:"The script changed since the continuity ledger was built \u2014 rebuilding it first."});
+    await buildContinuityLedgerStep(ctx);
+    if(ctx.cancelled()) return;
+    if(!(ctx.model.project||{}).continuityFacts){ ctx.emit({k:"done", t:"Continuity repair stopped \u2014 nothing was changed."}); return; }
+  }
+  let planted = 0;   // lines written into scene cards (their scripts then need a redraft)
   for(let iter=0; iter<MAX; iter++){
     if(ctx.cancelled()) return;
     const report = continuityReport(ctx.model.scenes, ctx.model.continuity, ctx.facts);
@@ -463,7 +599,7 @@ async function agentContinuityRepair(ctx){
       ctx.model.continuity = cont;
       // also reflect the planted line in the scene summary
       if(line){ const sidx = ctx.model.scenes.findIndex(s=>s.id===target.id);
-        ctx.model.scenes[sidx] = {...target, summary: target.summary+"  "+line}; }
+        ctx.model.scenes[sidx] = {...target, summary: target.summary+"  "+line}; planted++; }
       ctx.sync();
       ctx.emit({k:"ok", t:"Applied to Scene "+target.no+". Re-running the continuity check\u2026"});
     } else {
@@ -471,7 +607,9 @@ async function agentContinuityRepair(ctx){
       break;
     }
   }
-  ctx.emit({k:"done", t:"Continuity repair finished. Open the Script view's continuity check to confirm."});
+  ctx.emit({k:"done", t: planted
+    ? "Continuity repair finished. Its "+planted+" line"+(planted!==1?"s":"")+" went into the scene cards \u2014 those scenes are now marked \u201cneeds redraft\u201d in the Script view, so the planted setups and payoffs reach the screenplay with one click."
+    : "Continuity repair finished. Open the Script view's continuity check to confirm."});
 }
 
 /* =========================================================
@@ -552,7 +690,9 @@ async function writeScenesSeq(ctx, indices){
         if(out && !(out.auto && ctx.ai.available)){ res = out; standIn = false; break; }
         if(out){ res = out; standIn = true; }   // keep the newest stand-in while retrying
       }
-      if(res) ctx.model.drafts[scn.id] = res;
+      // the draft remembers the card it was written from (the "needs redraft" marker)
+      if(res) ctx.model.drafts[scn.id] = (typeof window.sceneCardSnap==="function")
+        ? { ...res, cardSnap:window.sceneCardSnap(scn, ctx.model.characters, beats) } : res;
       ctx.sync();
       if(!res) return fail(false, "the model returned no usable screenplay");
       if(standIn) return fail(true, "the model call failed, so a rough structural draft stands in \u2014 open it and redraft");
@@ -626,6 +766,30 @@ function reportSceneFailures(ctx, r){
   if(r.failures.length>6) ctx.emit({k:"flag", t:"\u2026and "+(r.failures.length-6)+" more scenes failed the same way."});
 }
 
+/* CONTINUITY LEDGER at the end of a build (approved 2026-09-25, owner-delegated): map what
+   each written scene sets up and what later scenes rely on, so the continuity check,
+   Continuity Repair and the Story Editors count work the moment a story exists. One
+   writing call; never fatal — a failure leaves the film buildable, marked "not mapped". */
+async function buildContinuityLedgerStep(ctx){
+  if(ctx.cancelled() || !ctx.ai.available || !ctx.ai.continuityLedger) return;
+  const written = (ctx.model.scenes||[]).some(s=>{ const d=ctx.model.drafts[s.id]; return d && (d.blocks||[]).length; });
+  if(!written) return;
+  ctx.emit({k:"act", t:"Mapping continuity \u2014 what each scene sets up and what later scenes rely on\u2026"});
+  try{
+    const L = await ctx.ai.continuityLedger();
+    if(ctx.cancelled()) return;
+    ctx.model.continuity = L.map;
+    ctx.model.project = { ...ctx.model.project, continuityFacts:L.facts, continuityLedger:L.ledger };
+    ctx.facts = L.facts;
+    ctx.sync();
+    const n = Object.keys(L.facts).length;
+    const issues = (typeof continuityReport==="function") ? continuityReport(ctx.model.scenes, L.map, L.facts).conflicts.length : 0;
+    ctx.emit({k:"ok", t:"Continuity mapped \u2014 "+n+" story fact"+(n!==1?"s":"")+" tracked"+(issues?(", "+issues+" setup/payoff issue"+(issues!==1?"s":"")+" for Continuity Repair."):", every setup pays off.")});
+  }catch(e){
+    ctx.emit({k:"flag", t:"Couldn't map continuity this time ("+((e&&e.message)||e)+"). The film is fine \u2014 build the ledger later from the Script view's Continuity report."});
+  }
+}
+
 async function agentAdaptation(ctx){
   const brief = (ctx.input||"").trim();
   if(!ctx.ai.available){ ctx.emit({k:"flag", t:"The model isn't available, so a full spine can't be generated here."}); ctx.emit({k:"done",t:"Aborted."}); return; }
@@ -647,6 +811,7 @@ async function agentAdaptation(ctx){
       if(r.stopped) return;
       ctx.sync();
       reportSceneFailures(ctx, r);
+      await buildContinuityLedgerStep(ctx);
       ctx.emit({k:"done", t: r.failures.length
         ? ("Finished "+r.written+" scene"+(r.written===1?"":"s")+" \u2014 "+r.failures.length+" still failed even after automatic retries (listed above). Run again later to retry just those.")
         : ("All "+have.length+" scenes now have beats and screenplay. Open the Script view to read the film.")});
@@ -664,7 +829,7 @@ async function agentAdaptation(ctx){
   const spine = await ctx.ai.buildSpine(brief);
   if(ctx.cancelled()) return;
   if(!spine){ ctx.emit({k:"flag", t:"The model didn't return a usable spine. Try a more concrete logline."}); ctx.emit({k:"done",t:"Aborted."}); return; }
-  const turns = spine.scenes.filter(s=> Math.sign(s.openCharge)!==Math.sign(s.closeCharge) || Math.abs(s.closeCharge-s.openCharge)>=2).length;
+  const turns = spine.scenes.filter(s=> (typeof chargeTurn==="function") ? chargeTurn(s.openCharge, s.closeCharge).turned : Math.sign(s.openCharge)*Math.sign(s.closeCharge)<0).length;
   const _actsN = _fwA ? Object.keys(_fwA.acts).length : 3;
   const _isNew = !(ctx.model.scenes||[]).length;   // a fresh project has nothing to replace
   ctx.emit({k:"observe", t:'"'+spine.title+'" \u2014 '+spine.scenes.length+" scenes across "+_actsN+" "+(_kishoA?"movements":"acts")+", "+turns+" of them "+(_kishoA?"moving":"turning")+". Review below before it "+(_isNew?"becomes your project.":"replaces the current project.")});
@@ -689,9 +854,13 @@ async function agentAdaptation(ctx){
     id:"g"+Date.now().toString(36)+i, no:i+1, act:s.act, seq:"",
     title:s.title, loc:s.loc, summary:s.summary, driver:s.driver,
     openValue:s.openValue, openCharge:s.openCharge, closeValue:s.closeValue, closeCharge:s.closeCharge,
-    conf:2, kind:(s.kind==="incite"?"incite":"normal"), objective:"", turningPoint:"",
+    ...(s.value ? { value:s.value } : {}),
+    conf:s.conf||2, ...(s.confAuthored ? { confAuthored:true } : {}),
+    kind:(s.kind==="incite"?"incite":"normal"), objective:"",
+    _stage:s.stage||"",   // the stage the spine declared (read once by assignPlotPoints)
   }));
   assignPlotPoints(newScenes);
+  newScenes.forEach(s=>{ delete s._stage; });
   // card sequence label = the secondary plot function (major beats carry their own badge)
   newScenes.forEach(s=>{ s.seq = s.plot || ""; });
   ctx.model.scenes = newScenes;
@@ -705,6 +874,17 @@ async function agentAdaptation(ctx){
     ...base,
     title: spine.title || base.title,
     format: base.format || "Short Film",
+    // like the Center of Good: a completed world build decides the genre, so an old
+    // story's genre never leaks into a new one; only a failed build inherits
+    genre: world ? (world.genre || "") : (base.genre || ""),
+    // the continuity map was reset above; the old story's facts/ledger go with it
+    continuityFacts: undefined, continuityLedger: undefined,
+    // the synopsis paragraphs belong to the brief they were written for: a run from a
+    // different (typed) brief must not inherit another story's synopsis
+    synopsis: (base.synopsis && String(base.sourceBrief||"").trim()===brief) ? base.synopsis : undefined,
+    // the saved brief is the one THIS build ran from (a typed-brief run used to keep the
+    // previous story's, which the synopsis fallback would then read)
+    ...(String(base.sourceBrief||"").trim()===brief ? {} : { sourceBrief:brief, sourceBriefAt:new Date().toISOString() }),
     premise: (world && world.premise) || base.premise,
     controllingIdea: (world && world.controllingIdea) || base.controllingIdea,
     // the empathy anchor (Center of Good) arrives with the story world. A COMPLETED
@@ -749,6 +929,9 @@ async function agentAdaptation(ctx){
     name: c.name || titleCase(c.id) || ("Character "+(i+1)),
     role: c.role || "", color: palette[i%palette.length],
     conscious:"", unconscious:"", arc:"", look:"", wardrobe:"", props:"",
+    // the world build's voice identity block (accent / pitch / pace / quirks) seeds
+    // voice casting — keep it, never rebuild the member without it
+    ...(c.voice && typeof c.voice==="object" ? { voice:{...c.voice} } : {}),
   }));
   // dedup: the model sometimes splits one person into multiple entries (e.g. an
   // "expanded" later-act version). Merge cast members with the same name into one.
@@ -763,6 +946,10 @@ async function agentAdaptation(ctx){
         const lead = (r)=>/protagon|lead|hero/i.test(r||"");
         if(lead(c.role) && !lead(prev.role)) prev.role = c.role;
         else if((c.role||"").length > (prev.role||"").length && !lead(prev.role)) prev.role = c.role;
+        // a split entry may carry the voice details the kept one lacks
+        if(c.voice){ const pv = prev.voice || {};
+          const merged = {...c.voice, ...Object.fromEntries(Object.entries(pv).filter(([,v])=>String(v||"").trim()))};
+          prev.voice = merged; }
       } else { byName[key] = c; kept.push(c); }
     });
     if(kept.length !== cast.length){
@@ -843,6 +1030,22 @@ async function agentAdaptation(ctx){
   ctx.sync();
   ctx.emit({k:"ok", t:"Built "+newScenes.length+" scenes"+(world?", plus the premise, controlling idea, setting and cast":"")+". Now writing each scene \u2014 beats first, then the screenplay \u2014 threading continuity scene to scene."});
 
+  // ---- PSYCHOLOGY BEFORE THE BEATS (approved 2026-09-25 by owner): want, contradicting
+  // need, arc by act and Voice DNA for the principal cast, designed from the synopsis and
+  // the spine — so every scene is written FROM who these people are ----
+  if(ctx.cancelled()) return;
+  if(ctx.ai.available && typeof window.aiCastPsychology==="function" && ctx.model.characters && ctx.model.characters.length){
+    ctx.emit({k:"act", t:"Designing the cast's inner life before writing \u2014 want, contradicting need, arc by act and dialogue fingerprint\u2026"});
+    try{
+      const psych = await window.aiCastPsychology(ctx.model.characters, ctx.model.scenes, ctx.model.project, {
+        scenes:ctx.model.scenes, drafts:{}, cast:ctx.model.characters, mode:"before"
+      });
+      if(ctx.cancelled()) return;
+      if(psych){ ctx.model.characters = ctx.model.characters.map(c=> psych[c.id] ? {...c, ...psych[c.id]} : c);
+        ctx.sync(); ctx.emit({k:"ok", t:"The principal cast has a want, a need that pulls against it, an arc by act and a dialogue fingerprint \u2014 the scenes are written from them."}); }
+    }catch(e){ ctx.emit({k:"flag", t:"Couldn't design the cast's inner life first ("+((e&&e.message)||e)+"); the scenes will be written without it and the check after the script fills it in."}); }
+  }
+
   // ---- seamlessly author beats + script for every scene (no manual Auto-draft needed) ----
   const r = await writeScenesSeq(ctx, ctx.model.scenes.map((_,i)=>i));
   if(r.stopped) return;
@@ -851,18 +1054,43 @@ async function agentAdaptation(ctx){
   ctx.emit({k:"ok", t:"Wrote "+r.written+" of "+ctx.model.scenes.length+" scenes"+
     (r.failures.length ? " \u2014 "+r.failures.length+" didn't take even after automatic retries (flagged above); run Adaptation again later to retry just those." : " \u2014 beats and screenplay are in place.")});
 
-  // ---- draft each character's psychology and dialogue fingerprint so the cast isn't blank ----
+  // ---- map setups and payoffs so continuity is checkable from the start ----
+  await buildContinuityLedgerStep(ctx);
+
+  // ---- CHECK THE PSYCHOLOGY AGAINST THE SCRIPT: true character is what choices under
+  // pressure reveal — keep what the scenes bear out, revise what they contradict ----
   if(ctx.cancelled()) return;
   if(ctx.ai.available && typeof window.aiCastPsychology==="function" && ctx.model.characters && ctx.model.characters.length){
-    ctx.emit({k:"act", t:"Drafting the cast's inner life and Voice DNA \u2014 want, contradicting need, dimensions, arc and dialogue behaviour\u2026"});
+    const designed = ctx.model.characters.some(c=>String(c.conscious||"").trim());
+    ctx.emit({k:"act", t: designed
+      ? "Checking the cast's psychology against the choices the script shows\u2026"
+      : "Drafting the cast's inner life and Voice DNA from the script \u2014 want, contradicting need, dimensions, arc and dialogue behaviour\u2026"});
     try{
       const psych = await window.aiCastPsychology(ctx.model.characters, ctx.model.scenes, ctx.model.project, {
-        scenes:ctx.model.scenes, drafts:ctx.model.drafts, cast:ctx.model.characters
+        scenes:ctx.model.scenes, drafts:ctx.model.drafts, cast:ctx.model.characters, ...(designed ? { mode:"reconcile" } : {})
       });
       if(ctx.cancelled()) return;
-      if(psych){ ctx.model.characters = ctx.model.characters.map(c=> psych[c.id] ? {...c, ...psych[c.id]} : c);
-        ctx.sync(); ctx.emit({k:"ok", t:"The principal cast now has a want, need, arc and dialogue fingerprint \u2014 visible in the Cast panel."}); }
-    }catch(e){ /* arc still derives from the spine even without this */ }
+      if(psych){
+        const notes = [];
+        ctx.model.characters = ctx.model.characters.map(c=>{
+          const p = psych[c.id]; if(!p) return c;
+          const { _revised, ...fields } = p;
+          if(_revised) notes.push(c.name+": "+_revised);
+          return {...c, ...fields};
+        });
+        // the script is canon here — the psychology caught up with it, so the drafts
+        // are NOT out of date: re-baseline their card snapshots
+        if(typeof window.sceneCardSnap==="function") ctx.model.scenes.forEach(sc=>{
+          const d = ctx.model.drafts[sc.id];
+          if(d && (d.blocks||[]).length) ctx.model.drafts[sc.id] = { ...d, cardSnap:window.sceneCardSnap(sc, ctx.model.characters, ctx.model.beats[sc.id]) };
+        });
+        ctx.sync();
+        if(designed) notes.forEach(n=>ctx.emit({k:"observe", t:"Revised from the script \u2014 "+n}));
+        ctx.emit({k:"ok", t: designed
+          ? (notes.length ? "Psychology checked \u2014 "+notes.length+" character"+(notes.length!==1?"s":"")+" revised to match the choices on the page." : "Psychology checked \u2014 the script bears out every character.")
+          : "The principal cast now has a want, need, arc and dialogue fingerprint \u2014 visible in the Cast panel."});
+      } else if(designed) ctx.emit({k:"ok", t:"Psychology checked \u2014 the script bears out every character."});
+    }catch(e){ /* the psychology designed before the script stands */ }
   }
 
   // ---- design the cast's visual bible so The Art Room sheets arrive pre-filled ----
@@ -944,7 +1172,7 @@ async function agentTableRead(ctx){
    dressing. Two jobs: (1) ENRICH the cast sheets with script-only details; (2) the
    bible↔script DRIFT CHECK — flag where the script's pronouns contradict a character's
    canonical pronouns, with a reconcile proposal (catches the Lumi gender case). Props are
-   tagged + listed for the Props Master to generate (this Writers' ctx can't write props).
+   NOT re-tagged here: the beat lint reads the reviewed Props inventory (read-only).
    ========================================================= */
 function breakdownPronounEvidence(character, scene, draft, cast){
   const ctx={ scenes:scene?[scene]:[], drafts:scene&&scene.id?{[scene.id]:draft}: {}, cast:cast||[] };
@@ -971,12 +1199,14 @@ async function agentScriptBreakdown(ctx){
   const scenes = scenesInStoryOrder(ctx.model.scenes);
   const written = scenes.filter(s=> ctx.model.drafts[s.id]);
   if(!written.length){ ctx.emit({k:"flag", t:"No scenes are written yet — build the script first (New Story / Adaptation), then run the breakdown."}); ctx.emit({k:"done",t:"Nothing to break down."}); return; }
-  ctx.emit({k:"plan", t:"Breaking down "+written.length+" written scene"+(written.length>1?"s":"")+" — tagging each beat's characters, features, props and set dressing, and checking the script against the cast sheets."});
+  ctx.emit({k:"plan", t:"Breaking down "+written.length+" written scene"+(written.length>1?"s":"")+" — tagging each beat's characters and features, checking the script against the cast sheets, and checking each beat against the props mapped to its scene."});
   const pronOf = (g)=> g==="he"?"he/him":g==="she"?"she/her":g==="they"?"they/them":"";
   const charByName = {}; (ctx.model.characters||[]).forEach(c=>{ if(c.name) charByName[c.name.toLowerCase()]=c; });
   const findChar = (nm)=>{ const low=(nm||"").toLowerCase();
     return charByName[low] || (ctx.model.characters||[]).find(x=>{ const xn=(x.name||"").toLowerCase(); return xn && (xn.includes(low)||low.includes(xn)); }); };
-  let drift=0, reconciled=0, enriched=0, propsFound=0, dressFound=0, lintCount=0;
+  let drift=0, reconciled=0, enriched=0, propScenes=0, lintCount=0;
+  // the reviewed Props inventory (read-only) is the single prop list for the lint
+  const inventoryProps = ((ctx.bible && ctx.bible.props) || []).filter(p=> p && p.name);
   const scriptPronounsByChar = {};
   const emoTally = {};   // charId → { emotion: count } — the character's emotions across the story
   for(const s of written){
@@ -986,16 +1216,17 @@ async function agentScriptBreakdown(ctx){
     if(!bd){ ctx.emit({k:"flag", t:"Sc "+s.no+": couldn't read a breakdown — skipping."}); continue; }
     // (4) REFERENTIAL-COMPLETENESS LINT — flag beats whose text isn't self-contained
     // (ambiguous pronoun, or a prop established earlier that this beat drops) before any
-    // frame is generated. Deterministic, reads the beat map + the breakdown's prop list.
+    // frame is generated. Deterministic, reads the beat map + the reviewed Props inventory
+    // mapped to this scene (the same list Shots and Stage use).
+    const sceneProps = inventoryProps.filter(p=> Array.isArray(p.scenes) && p.scenes.indexOf(s.id)>=0);
     if(typeof window.beatContinuityLint==="function"){
-      const lf = window.beatContinuityLint(s, ctx.model.beats[s.id], bd.props, ctx.model.characters);
+      const lf = window.beatContinuityLint(s, ctx.model.beats[s.id], sceneProps, ctx.model.characters);
       lf.forEach(f=> ctx.emit({k:"flag", t:"Sc "+s.no+" · "+f.msg}));
       lintCount += lf.length;
     }
     bd.characters.forEach(c=>{ const bits=[]; if(c.features.length) bits.push(c.features.length+" feature"+(c.features.length>1?"s":"")); if(c.states.length) bits.push(c.states.length+" state"+(c.states.length>1?"s":""));
       ctx.emit({k:"observe", t:"Sc "+s.no+" · "+c.name+(bits.length?(" — "+bits.join(", ")):"")+(c.gender_used!=="unclear"?(" · script says “"+c.gender_used+"”"):"")}); });
-    if(bd.props.length){ propsFound+=bd.props.length; ctx.emit({k:"observe", t:"Sc "+s.no+" props: "+bd.props.map(p=>p.name+(p.owner?(" ("+p.owner+")"):"")).join(", ")}); }
-    if(bd.set_dressing.length){ dressFound+=bd.set_dressing.length; ctx.emit({k:"observe", t:"Sc "+s.no+" set dressing: "+bd.set_dressing.join(", ")}); }
+    if(sceneProps.length){ propScenes++; ctx.emit({k:"observe", t:"Sc "+s.no+" props (from the Props inventory): "+sceneProps.map(p=>p.name+(p.ownerName?(" ("+p.ownerName+")"):"")).join(", ")}); }
     for(const c of bd.characters){
       if(ctx.cancelled()) return;
       const ch = findChar(c.name); if(!ch) continue;
@@ -1128,7 +1359,7 @@ async function agentScriptBreakdown(ctx){
       if(i>=0){ ctx.model.characters[i]={...ctx.model.characters[i], expressions:top}; exprSet++; } }
   });
   if(exprSet){ ctx.sync(); ctx.emit({k:"ok", t:"Set signature expressions for "+exprSet+" character"+(exprSet!==1?"s":"")+" from the story."}); }
-  ctx.emit({k:"done", t:"Breakdown complete — "+drift+" drift flag"+(drift!==1?"s":"")+" ("+reconciled+" reconciled), "+enriched+" feature"+(enriched!==1?"s":"")+" added to the cast, "+(exprSet?exprSet+" expression set"+(exprSet!==1?"s":"")+", ":"")+propsFound+" prop"+(propsFound!==1?"s":"")+" + "+dressFound+" set-dressing item"+(dressFound!==1?"s":"")+" tagged, "+lintCount+" continuity warning"+(lintCount!==1?"s":"")+" flagged. Generate the tagged props in the Art Room → Props (Props Master)."});
+  ctx.emit({k:"done", t:"Breakdown complete — "+drift+" drift flag"+(drift!==1?"s":"")+" ("+reconciled+" reconciled), "+enriched+" feature"+(enriched!==1?"s":"")+" added to the cast, "+(exprSet?exprSet+" expression set"+(exprSet!==1?"s":"")+", ":"")+lintCount+" continuity warning"+(lintCount!==1?"s":"")+" flagged"+(propScenes?"":" (no props are mapped to these scenes yet — run Art Room → Props → Extract screenplay props so the beat check can catch props that drop out)")+"."});
 }
 
 /* =========================================================
@@ -1395,17 +1626,15 @@ async function agentPropsMaster(ctx){
     ctx.emit({k:"done", t:"Nothing to do."}); return;
   }
   ctx.emit({k:"plan", t: ctx.draftOnly
-    ? "Re-drafting the props from the updated Lookbook — derive any new props, re-draft each spec, dedup near-duplicates. Specs only — every generated sheet stays untouched."
-    : "Mastering the props — derive every prop the script names (worn/carried by the cast + the set dressing in the action), draft each spec, dedup near-duplicates, then generate a reference sheet for each so the cast can reference them."});
+    ? "Re-drafting existing prop specifications from the updated Lookbook. Specs only — generated sheets stay untouched."
+    : "Drafting and generating the current prop inventory. Screenplay discoveries require review in Props → Extract screenplay props; this pass never silently adds or merges them."});
 
-  // 1) derive props from the script: cast-owned + set dressing
-  ctx.emit({k:"act", t:"Reading the script for props…"});
-  let castN=0, setN=0;
+  // 1) character-brief design proposals (screenplay props come from the review flow)
+  ctx.emit({k:"act", t:"Synchronizing character-brief design proposals…"});
+  let castN=0;
   try{ castN = pm.deriveCast(); }catch(e){}
   if(ctx.cancelled()) return;
-  try{ setN = await pm.deriveSet(); }
-  catch(e){ ctx.emit({k:"flag", t:"Couldn't derive set dressing: "+((e&&e.message)||e)}); }
-  ctx.emit({k:"observe", t:"Derived "+castN+" cast prop"+(castN!==1?"s":"")+" + "+setN+" set-dressing object"+(setN!==1?"s":"")+"."});
+  ctx.emit({k:"observe", t:"Added "+castN+" character-brief proposal(s). Use Props → Extract screenplay props to review script-established objects and link them to this inventory."});
   if(ctx.cancelled()) return;
 
   // 2) draft prop specs (force = re-draft ALL, applying the current Lookbook)
@@ -1417,26 +1646,23 @@ async function agentPropsMaster(ctx){
   ctx.emit({k:"observe", t:drafted?("Drafted "+drafted+" spec"+(drafted!==1?"s":"")+"."):"Specs already complete."});
   if(ctx.cancelled()) return;
 
-  // 3) dedup near-duplicates (same owner + same object) into one card each
-  let merged=0;
-  try{ merged = pm.dedup(); }catch(e){}
-  if(merged) ctx.emit({k:"ok", t:"Merged "+merged+" near-duplicate"+(merged!==1?"s":"")+" into one card each."});
-  if(ctx.cancelled()) return;
+  // Similar names are not object identity: no automatic dedup. Only an explicit user
+  // merge on the Props tab may remove a card.
 
   // draft-only ("Re-draft only" on the Lookbook-stale banner): the specs now carry the
   // updated Lookbook — stop before generation so every existing sheet stays untouched.
   if(ctx.draftOnly){
     if(ctx.art.markApplied) ctx.art.markApplied("props");
-    ctx.emit({k:"done", t:"Props re-drafted — "+(castN+setN)+" derived, "+drafted+" spec"+(drafted!==1?"s":"")+" updated from the Lookbook. Sheets left untouched — regenerate them from the Props tab when ready."});
+    ctx.emit({k:"done", t:"Props re-drafted — "+castN+" brief proposal"+(castN!==1?"s":"")+", "+drafted+" spec"+(drafted!==1?"s":"")+" updated from the Lookbook. Sheets left untouched — regenerate them from the Props tab when ready."});
     return;
   }
 
-  // 4) generate sheets (force = regenerate ALL drafted props)
+  // 3) generate sheets (force = regenerate ALL drafted props that need their own image)
   let todo=[];
   try{ todo = await pm.toGenerate(ctx.force); }catch(e){}
   if(!todo.length){
     if(ctx.art.markApplied && (ctx.force||drafted)) ctx.art.markApplied("props");
-    ctx.emit({k:"done", t:"Props ready — "+(castN+setN)+" derived, "+drafted+" drafted; every drafted prop already has a sheet. The cast can reference them."}); return;
+    ctx.emit({k:"done", t:"Props ready — "+castN+" brief proposal"+(castN!==1?"s":"")+", "+drafted+" drafted; every drafted prop that needs its own image already has one. The cast can reference them."}); return;
   }
   ctx.emit({k:"act", t:"Generating "+todo.length+" prop sheet"+(todo.length!==1?"s":"")+"…"});
   let sheets=0;
@@ -1448,7 +1674,7 @@ async function agentPropsMaster(ctx){
     catch(e){ ctx.emit({k:"flag", t:"Couldn't generate "+(p.name||"the prop")+"'s sheet: "+((e&&e.message)||e)+". Moving on."}); }
   }
   if(ctx.art.markApplied && (ctx.force||drafted||sheets)) ctx.art.markApplied("props");
-  ctx.emit({k:"done", t:"Props mastered — "+(castN+setN)+" derived, "+drafted+" drafted, "+sheets+" sheet"+(sheets!==1?"s":"")+" generated. The cast can now reference them."});
+  ctx.emit({k:"done", t:"Props mastered — "+castN+" brief proposal"+(castN!==1?"s":"")+", "+drafted+" drafted, "+sheets+" sheet"+(sheets!==1?"s":"")+" generated. The cast can now reference them."});
 }
 
 async function agentLocationScout(ctx){
@@ -1520,17 +1746,19 @@ async function agentLocationScout(ctx){
   }
   ctx.emit({k:"act", t:"Generating "+plates.length+" plate"+(plates.length!==1?"s":"")+(variants.length?(" + "+variants.length+" variant"+(variants.length!==1?"s":"")):"")+"…"});
   let madeP=0, madeV=0;
-  for(const l of plates){
+  for(const l of (typeof locationGenerationOrder==="function"?locationGenerationOrder(plates):plates)){
     if(ctx.cancelled()){ ctx.emit({k:"flag", t:"Stopped — "+madeP+" plate"+(madeP!==1?"s":"")+", "+madeV+" variant"+(madeV!==1?"s":"")+" generated."}); return; }
     ctx.emit({k:"act", t:"Generating "+(l.name||"a location")+"'s plate…"});
-    try{ await ls.generatePlate(l); madeP++; ctx.emit({k:"ok", t:(l.name||"Location")+" — plate generated."}); }
+    try{ if(await ls.generatePlate(l)===false)throw new Error("Generation did not complete; the existing plate is unchanged.");
+      madeP++; ctx.emit({k:"ok", t:(l.name||"Location")+" — plate generated."}); }
     catch(e){ ctx.emit({k:"flag", t:"Couldn't generate "+(l.name||"the location")+"'s plate: "+((e&&e.message)||e)+". Moving on."}); }
   }
   for(const pair of variants){
     if(ctx.cancelled()){ ctx.emit({k:"flag", t:"Stopped — "+madeP+" plates, "+madeV+" variants generated."}); return; }
     const l=pair.l, v=pair.v;
     ctx.emit({k:"act", t:"Generating "+(l.name||"a location")+" — "+(v.time||"variant")+"…"});
-    try{ await ls.generateVariant(l, v); madeV++; ctx.emit({k:"ok", t:(l.name||"Location")+" — "+(v.time||"variant")+" generated."}); }
+    try{ if(await ls.generateVariant(l, v)===false)throw new Error("Generation did not complete; the existing plate is unchanged.");
+      madeV++; ctx.emit({k:"ok", t:(l.name||"Location")+" — "+(v.time||"variant")+" generated."}); }
     catch(e){ ctx.emit({k:"flag", t:"Couldn't generate "+(l.name||"the location")+" — "+(v.time||"variant")+": "+((e&&e.message)||e)+"."}); }
   }
   if(ctx.art.markApplied && (ctx.force||specs||madeP||madeV)) ctx.art.markApplied("locations");
@@ -2311,7 +2539,7 @@ const AGENTS = [
     blurb:"Reads the finished screenplay as actor, director, editor and sound designer \u2014 reporting visual writing, sound, page rhythm, action/dialogue causality, voice, pacing and thematic payoff across the whole film.",
     run:agentTableRead },
   { id:"breakdown", name:"Script Breakdown", icon:"clipboard", kind:"fix",
-    blurb:"The 1st-AD pass: reads every written scene beat by beat and tags each character's physical details, appearance changes, props and set dressing \u2014 then enriches the cast sheets with script-only details, flags where the script's pronouns contradict a character's sheet (one-click reconcile), and warns about beats whose text isn't self-contained (an ambiguous pronoun, or a prop that drops out) before you generate. Tagged props are listed for the Props Master.",
+    blurb:"The 1st-AD pass: reads every written scene beat by beat and tags each character's physical details and appearance changes \u2014 then enriches the cast sheets with script-only details, flags where the script's pronouns contradict a character's sheet (one-click reconcile), and warns about beats whose text isn't self-contained (an ambiguous pronoun, or a prop from the Props tab that drops out) before you generate. It doesn't add props; use Art Room \u2192 Props \u2192 Extract screenplay props for that.",
     run:agentScriptBreakdown },
   { id:"colorist", name:"Cinematographer", icon:"palette", kind:"build", room:"art",
     blurb:"Designs your film's colour system \u2014 a bespoke palette + film stock from the story and your visual references \u2014 then color-scripts every scene along the value-charge spine and shows you why, for your approval.",
@@ -2323,7 +2551,7 @@ const AGENTS = [
     blurb:"Designs your whole cast on its own \u2014 drafts each character's look, finds their appearance changes, then generates the master sheet (with prop + cameo references) and every state variant. Runs autonomously; press Stop anytime.",
     run:agentCastingDirector },
   { id:"propsmaster", name:"Props Master", icon:"box", kind:"build", room:"art", autonomous:true,
-    blurb:"Derives every prop the script names \u2014 worn/carried by the cast plus the set dressing in the action \u2014 drafts each spec, dedups near-duplicates, and generates the reference sheets, each owned prop referencing its owner's character sheet so it matches that character's look (runs after the cast). Runs autonomously; press Stop anytime.",
+    blurb:"Adds the worn/carried items listed in the cast's character briefs as proposals, drafts every prop's spec, and generates the reference images for the props that need their own (text-only objects are described in shots instead), each owned prop referencing its owner's character sheet so it matches that character's look (runs after the cast). It never adds or merges screenplay props \u2014 use Props \u2192 Extract screenplay props for that. Runs autonomously; press Stop anytime.",
     run:agentPropsMaster },
   { id:"researcher", name:"Visual Researcher", icon:"image", kind:"build", room:"art", autonomous:true,
     blurb:"Builds the film's lookbook brief — writes the visual statement, gathers/dedupes reference touchstones (palette, lighting, lens, texture), and proposes the film's RENDER STYLE from the story (your approval sets every character/prop/location style dropdown in one pass). Use Generate all frames afterwards to render the mood frames. The colour system (the Styles tab) reads these references when it designs the palette.",

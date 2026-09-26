@@ -36,6 +36,15 @@ const SHOT_SPEC_FIELDS = ["beatN","size","angle","move","lens","composition","su
   "focalDistance","movementSpeed"];
 function shotSpecFingerprint(shot){
   const spec={}; SHOT_SPEC_FIELDS.forEach(k=>{ if(shot&&shot[k]!==undefined) spec[k]=shot[k]; });
+  // Advanced cinematography is stored as a nested object. Only explicit overrides
+  // belong to source provenance: missing settings, {} and six "auto" values are
+  // semantically identical, while a real override changes the generated prompt.
+  const camera={};
+  ["camera","lensType","focalLength","aperture","shutter","iso"].forEach(k=>{
+    const v=shot&&shot.cameraSettings&&shot.cameraSettings[k];
+    if(v && v!=="auto") camera[k]=v;
+  });
+  if(Object.keys(camera).length) spec.cameraSettings=camera;
   return storyRevisionOf(spec);
 }
 function shotSpecRevision(shot){ return Math.max(1,Math.round(Number(shot&&shot.specRev))||1); }
@@ -144,6 +153,21 @@ function withBeatMapIdentity(beatsMap){
 
 window.compareSceneOrder = compareSceneOrder;
 window.scenesInStoryOrder = scenesInStoryOrder;
+/* the scene's TURNING POINT as text: the beat marked as the turn (Beats tab → Mark
+   turn), else the legacy stored field (only the bundled sample ever filled it) */
+function sceneTurnText(scene, beatsMap){
+  if(!scene) return "";
+  const map = beatsMap || ((typeof window!=="undefined" && window.turnContinuity && window.turnContinuity.beatsMap) || {});
+  const b = map[scene.id], rows = (b && b.rows) || [];
+  const r = rows.find(x=>x && b.turnBeatId && x.id===b.turnBeatId) || (b && b.turnAt ? rows[b.turnAt-1] : null);
+  if(r){
+    const t = [r.drive && (r.drive.d || r.drive.a), r.react && (r.react.d || r.react.a)]
+      .filter(Boolean).map(x=>String(x).trim().replace(/\.$/,"")).join(" \u2014 ");
+    if(t) return t+".";
+  }
+  return String(scene.turningPoint || "");
+}
+window.sceneTurnText = sceneTurnText;
 window.storyRevisionOf = storyRevisionOf;
 window.screenplayBeatRevision = screenplayBeatRevision;
 window.shotSpecFingerprint = shotSpecFingerprint;

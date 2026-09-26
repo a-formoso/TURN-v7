@@ -235,16 +235,21 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
   // generation without the chance to switch engines first).
   React.useEffect(()=>{ if(autoStart && agent.needsInput && (initialInput||"").trim()){ const t=setTimeout(()=>start(),60); return ()=>clearTimeout(t); } },[]);
 
-  // EVERY agent gets the live model PICKER in its header — pre-set to the app's
-  // recommendation for its kind of work (story prose vs structured specs), locked
-  // while running. The run is pinned to whatever the picker shows.
+  // EVERY agent shows the model it will run on in its header (read-only): the one
+  // writing-model control is the floating Writing dock. The run is pinned to what the
+  // header shows, and the label follows a change made in the dock.
   const isArt = agent.room === "art";
   const _MODELS = window.WRITING_MODELS || [];
   const _task = isArt ? "specs" : "story";
   const [_mid0, setMid0] = React.useState(()=> (typeof window.getWritingModelId==="function") ? window.getWritingModelId(isArt?"specs":"story") : "");
   const _rec = (window.recommendedWritingModelId && window.recommendedWritingModelId(_task)) || "";
-  const pickArtModel = (id)=>{ setMid0(id); if(typeof window.setWritingModelId==="function") window.setWritingModelId(id); };
+  React.useEffect(()=>{
+    const h = ()=>{ if(typeof window.getWritingModelId==="function") setMid0(window.getWritingModelId(isArt?"specs":"story")); };
+    window.addEventListener("turn-writing-model-changed", h);
+    return ()=>window.removeEventListener("turn-writing-model-changed", h);
+  },[isArt]);
   const _mid = _mid0 || "claude-fable-5";
+  const _midLabel = ((_MODELS.find(m=>m.id===_mid)||{}).label) || _mid;
   const start = async ()=>{
     cancelled.current = false;
     setTrace([]); setPending(null); setStatus("running");
@@ -301,10 +306,9 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
           status==="idle"?"Ready":status==="done"?"Finished":status==="waiting"?"Awaiting your approval":"Working\u2026")),
       // model picker sits at the header's right edge — the SAME spot as the New Story
       // window's picker, so the badge doesn't jump around between steps of one flow
-      React.createElement("select",{className:"ag-runner-model ag-runner-model-sel",disabled:running,
-          title:running?"Finishes this run on the current model — switch between runs":"Model running this agent — pick before you start",
-          value:_mid,onChange:(e)=>pickArtModel(e.target.value)},
-          _MODELS.map(m=>React.createElement("option",{key:m.id,value:m.id,title:m.note||""},m.label + (m.id===_rec ? "  · recommended" : "")))),
+      React.createElement("span",{className:"ag-runner-model",
+          title:"The writing model this agent runs on"+(_mid===_rec?" (recommended for this work)":"")+". Change it in the Writing dock on the right edge, between runs."},
+          _midLabel + (_mid===_rec ? " \u00b7 recommended" : "")),
       React.createElement("button",{className:"ag-x",onClick:onClose,title:"Close"},React.createElement(Icon.x,{s:16}))),
 
     agent.needsInput && status==="idle" && React.createElement("div",{className:"ag-input-wrap"},
@@ -359,10 +363,22 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
   const [active, setActive] = React.useState(()=> initialAgentId ? (agents.find(a=>a.id===initialAgentId)||null) : null);
   const [auto, setAuto] = React.useState(!!autoStart);
   const iss = issues || {};
-  const turnN = iss.doctor||0, contN = iss.continuity||0, totalN = turnN+contN;
+  const turnN = iss.doctor||0, contN = iss.continuity||0;
   const issueParts = [];
-  if(turnN) issueParts.push(turnN+(turnN>1?" scenes that don\u2019t turn":" scene that doesn\u2019t turn"));
+  // the Doctor's count is its full audit: say which part is scenes that don't turn and
+  // which part is its other structural notes, never call them all "don't turn"
+  // ISSUES (red: a scene that doesn't turn, a soft peak, a late inciting incident, a
+  // continuity gap) vs NOTES (neutral: optional rhythm advice, severity 0)
+  const noTurnN = Math.min(turnN, (iss.doctorNoTurn==null ? turnN : iss.doctorNoTurn)||0);
+  const notesN = Math.min(turnN - noTurnN, Math.max(0, Number(iss.doctorNotes)||0));
+  const structN = turnN - noTurnN - notesN;
+  const issuesN = noTurnN + structN + contN;
+  if(noTurnN) issueParts.push(noTurnN+(noTurnN>1?" scenes that don\u2019t turn":" scene that doesn\u2019t turn"));
+  if(structN) issueParts.push(structN+" structural issue"+(structN>1?"s":""));
+  const notesTx = notesN+" rhythm note"+(notesN>1?"s":"");
   if(contN) issueParts.push(contN+(contN>1?" continuity gaps":" continuity gap"));
+  const doctorBadge = (a)=> a.id!=="doctor" ? null
+    : (noTurnN+structN)>0 ? { n:noTurnN+structN, cls:"", word:"issue" } : notesN>0 ? { n:notesN, cls:" note", word:"note" } : null;
   return React.createElement("div",{className:"ag-overlay",onMouseDown:(e)=>{ if(e.target===e.currentTarget) onClose(); }},
     React.createElement("div",{className:"ag-panel"},
       active
@@ -379,13 +395,19 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
                   React.createElement("div",{className:"ag-title"},"Agents"),
                   React.createElement("div",{className:"ag-sub"},"AI agents that refine your whole story"))),
               React.createElement("button",{className:"ag-x",onClick:onClose},React.createElement(Icon.x,{s:17}))),
-            totalN>0
+            issuesN>0
               ? React.createElement("div",{className:"ag-issues-row"},
-                  React.createElement("span",{className:"ag-issues-badge"},totalN),
+                  React.createElement("span",{className:"ag-issues-badge"},issuesN),
                   React.createElement("span",{className:"ag-issues-tx"},
-                    React.createElement("b",null,"That \u201c"+totalN+"\u201d is your story health \u2014 "),
-                    issueParts.join(" \u00b7 "),". ",
-                    "Open ",(turnN?"Story Doctor":"Continuity Repair")," below to fix ",(totalN>1?"them":"it"),"."))
+                    React.createElement("b",null,"That \u201c"+issuesN+"\u201d is your story health \u2014 "),
+                    issueParts.join(" \u00b7 "),(notesN?" (plus "+notesTx+")":""),". ",
+                    "Open ",((noTurnN+structN)?"Story Doctor":"Continuity Repair")," below to fix ",(issuesN>1?"them":"it"),"."))
+              : notesN>0
+              ? React.createElement("div",{className:"ag-issues-row notes"},
+                  React.createElement("span",{className:"ag-issues-badge note"},notesN),
+                  React.createElement("span",{className:"ag-issues-tx"},
+                    React.createElement("b",null,"No structural or continuity issues. "),
+                    "The Story Doctor has "+notesTx+" \u2014 optional craft advice, worth a look. Open Story Doctor below to review "+(notesN>1?"them":"it")+"."))
               : React.createElement("div",{className:"ag-issues-row clean"},
                   React.createElement("span",{className:"ag-issues-badge ok"},React.createElement(Icon.check,{s:12})),
                   React.createElement("span",{className:"ag-issues-tx"},"No open structural or continuity issues \u2014 your spine is sound.")),
@@ -400,12 +422,14 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
               // creation lives in "New Story" now — hide the build agent (Adaptation)
               // from the picker, but keep it in the registry so New Story can drive it.
               agents.filter(a=>a.kind!=="build").map(a=>{
-                const n = iss[a.id]||0;
+                const n = a.id==="doctor" ? 0 : (iss[a.id]||0);
+                const db = doctorBadge(a);
                 return React.createElement("button",{key:a.id,className:"ag-card",onClick:()=>setActive(a)},
                   React.createElement("div",{className:"ag-card-top"},
                     React.createElement("span",{className:"ag-card-ic"},React.createElement(AgentIcon,{name:a.icon,s:18})),
                     React.createElement("div",{className:"ag-card-tags"},
                       n>0 && React.createElement("span",{className:"ag-card-count"},n+(n>1?" issues":" issue")),
+                      db && React.createElement("span",{className:"ag-card-count"+db.cls},db.n+" "+db.word+(db.n>1?"s":"")),
                       React.createElement("span",{className:"ag-card-kind k-"+a.kind},
                         a.kind==="fix"?"Fixes":a.kind==="build"?"Builds":"Reports"))),
                   React.createElement("div",{className:"ag-card-name"},a.name),

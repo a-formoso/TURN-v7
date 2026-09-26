@@ -30,16 +30,22 @@ The user provides a seed: a logline, a premise, or a rough idea. Nothing is assu
 - *(approved 2026-07-04)* A **logline seed is always offered verbatim** as the first, pre-selected
   candidate ("yours — untouched"); the sharpened variants are optional, never the default.
 
-### 1. Shape — Format & Framework  *(was Step 0; reordered after Seed 2026-07-11 by owner approval. Format added 2026-06-11; framework added 2026-06-11 by owner-delegated decision; Hero's Journey + Story Circle added 2026-06-12 by owner approval)*
+### 1. Shape — Format & Framework  *(was Step 0; reordered after Seed 2026-07-11 by owner approval. Format added 2026-06-11; framework added 2026-06-11 by owner-delegated decision; Hero's Journey + Story Circle added 2026-06-12 by owner approval; Story Circle retired 2026-09-25 by owner)*
 Now a **confirmation step**: the seed's recommendation arrives pre-selected with its rationale,
 and the user confirms or overrides. The choices themselves are unchanged — **what we are making**:
-film · short · commercial · micro-drama · series · documentary (the registry in `app/formats.jsx`;
-default **Film**) — and **how it should be told**: the narrative FRAMEWORK (the registry in
+feature film · TV series · short film · micro short · micro-drama · music video · documentary ·
+commercial (the registry in `app/formats.jsx`, shown in three groups — long form, short form, non-fiction &
+brand; lineup revised 2026-09-25 by owner: Feature Film, TV Series and Music Video added, Film renamed Short
+Film, Short renamed Micro Short; every format works with every framework; default **Short Film**, the classic 16) — and **how it should be told**: the narrative FRAMEWORK (the registry in
 `app/frameworks.jsx`; default **Three-Act Turns**, the classic method; alternatives:
 **Kishōtenketsu**, four movements where the *ten* recontextualizes rather than clashes;
-**Hero's Journey**, the twelve-stage mythic round across Departure/Initiation/Return;
-**Story Circle**, eight steps — you · need · go · search · find · take · return · change — over
-four act bands. Hero's Journey and Story Circle added 2026-06-12 with owner approval). The format
+**Hero's Journey**, the twelve-stage mythic round across Departure/Initiation/Return (plus two
+optional stages from the original seventeen — Belly of the Whale and Rescue from Without —
+added 2026-09-25 by owner, chosen by hand, never assigned by position). Hero's Journey added
+2026-06-12 with owner approval. **Story Circle** (eight steps over four act bands, added
+2026-06-12) was **retired 2026-09-25 by owner**: it is no longer offered or recommended for a
+new story; a film already built on it keeps its four act bands, and rebuilding one as a new
+film uses Three-Act Turns). The format
 sets the spine's **target scene count and runtime**, the screenplay emphasis, and downstream
 room/Stage defaults; the framework sets the **act bands, the audit question, and the build/doctor
 criteria**. Both change the *size and telling* of what's built — never the steps below.
@@ -55,8 +61,7 @@ web** to gather real, grounding material for the Fact pillar. Three owner-approv
   verifiability; a micro-drama researches the scroll-stopping hook. Films keep the classic lenses.
 - **The synopsis takes the FRAMEWORK's shape** (registry `synopsis.paras`): three-act keeps the
   classic three paragraphs below verbatim; Kishōtenketsu writes Ki / Shō / Ten / Ketsu;
-  Hero's Journey writes Departure / Initiation / Return; Story Circle writes You & Need /
-  Go & Search / Find & Take / Return & Change.
+  Hero's Journey writes Departure / Initiation / Return.
 
 - **Memory** — inward: honest, universal emotional truths the seed touches (family, betrayal, joy).
 - **Imagination** — living the characters' hours and days in the mind until scenes feel like déjà vu;
@@ -104,20 +109,56 @@ setting-appropriate character names** (never role-words like "Antagonist", never
 > author-prep step or UI — the research stage already is the reservoir.
 
 ### 3. Build the spine to the format's target, in the framework's grammar  *(amended 2026-06-11; framework clause by owner-delegated decision)*
-From the synopsis, build a full spine at the **format's target scene count** (Film = the
-classic 16), using the **framework's act grammar** (Three-Act keeps today's exact build
+From the synopsis, build a full spine at the **format's target scene count** (Short Film = the
+classic 16, Feature Film = 40, TV Series episode = 24), using the **framework's act grammar** (Three-Act keeps today's exact build
 language; Kishōtenketsu builds four movements where the *ten* is a recontextualization,
 never a conflict escalation; Hero's Journey builds the mythic round where every trial
-costs; Story Circle builds the descent-and-return where every gain carries a price): the **scenes**, then the **premise**, **controlling idea**,
-**setting**, and **cast**, then **beats + screenplay** for every scene — threading
-continuity scene to scene.
+costs): the **scenes**, then the **premise**, **controlling idea**,
+**setting**, and **cast**, then the **cast's inner life** (want, contradicting need, arc by act,
+Voice DNA), then **beats + screenplay** for every scene — threading continuity scene to
+scene — then the **psychology check** against the script, then the **continuity ledger**.
+
+> **Any format with any framework** *(approved 2026-09-25 by owner)*: the synopsis and the spine are
+> always told **what is being made**, whatever the framework — the framework shapes the order of the
+> turns, the format decides what each scene can hold (a documentary never invents events or words for
+> real people; a commercial lands its product promise; a music video follows the song's sections). A
+> Hero's Journey of **4 scenes or fewer** builds the minimum journey — Ordinary World → Crossing the
+> Threshold → The Ordeal → Return with the Elixir (3 scenes: Threshold → Ordeal → Elixir).
+
+> **One cast, real stages** *(approved 2026-09-25 by owner)*: the spine's two halves are no longer
+> written in parallel — the second is written after the first and handed it, so every person keeps
+> one name and role and no title repeats. Hero's Journey and Kishōtenketsu scenes carry the stage the
+> story actually gives them: the spine declares each scene's stage and the build keeps the longest
+> in-order run, falling back to position only when the key stages are missing.
+
+> **Psychology before the script** *(approved 2026-09-25 by owner)*: the principal cast's
+> desire complex is designed **before any beat is written** — from the synopsis and the scenes
+> each character will drive — so the scenes are written *from* it: every scene prompt carries
+> the driver's want, the need that contradicts it (the "unsayable" the turning beat releases)
+> and where their arc stands in that act (**arc by act**, one line per act, editable in the
+> Cast panel), plus the protagonist's through-line. After the script is written, a **check
+> pass** keeps each field the scenes bear out and revises only what the characters' actual
+> choices under pressure contradict — true character is still revealed by choices. Voice DNA
+> therefore exists for the first drafts.
+
+> **Structural role in every scene prompt** *(approved 2026-09-25 by owner)*: the scene writer
+> is told where the scene sits and what its structural beat must **do** — act and position
+> ("scene 8 of 16"), the act's job (the framework's synopsis guide for that movement), the
+> beat's job from the framework registry (e.g. the Mid-Act Climax reveals the true nature of the
+> conflict and turns the protagonist from reacting to acting), and a pacing note from the nested
+> hierarchy: peaks hit harder than anything before them, the approach tightens, the scene after
+> a major peak breathes. The prompt also carries the premise, the setting, the synopsis
+> paragraph for the scene's act, a locked Argues side, and a deliberately set conflict source
+> (inner · personal · extra-personal — the spine build now sets one per scene). It also carries
+> the **reactor's inner life** *(added 2026-09-25 by owner)* — want, need and arc stage for the
+> act, for the reactor named in the beat map — so the other side of the duel is a person too.
 
 > **Story world discipline** *(approved 2026-08-31 by owner)*: two rules on the world pass.
 > **Question, never message** — the premise is drafted as an *open question* the story explores
 > ("What would happen if…?"), never a thesis it proves; a brief that arrives as a message is
 > converted into the question underneath it, and the controlling idea is framed as *provisional*
 > — a hypothesis the finished story tests. Working backward from a fixed message creates
-> mouthpieces, not characters (the human-truth jury and the table-read's mouthpiece flag police
+> mouthpieces, not characters (the human-truth jury and the Final Read's mouthpiece flag police
 > the same failure downstream). *Commercial is exempt by design:* a spot is promise-led — the
 > brand promise stays intact as the brief's contract, and the open question lives only inside
 > its dramatic wrapper. **Creative limitation** — the build prefers the *smallest,
@@ -179,8 +220,45 @@ continuity scene to scene.
 ### 4. Structural core — the Spine
 Every story is a sequence of scenes, each carrying a **value charge** (opening → closing, e.g. +2 → −1).
 The **Spine view** plots that charge across all scenes so the rhythm of the whole arc is visible.
-Each scene must **turn** a value (open and close differ in sign or by ≥2). The **continuity / turn check**
-flags scenes that don't turn, and setups/payoffs that are missing or out of order.
+Each scene must **turn** its value: the charge **reverses sign** (+ → − or − → +; from a neutral 0,
+only a decisive ±2 or more counts). Moving 2+ on the **same side** (+1 → +3) is a **progression** —
+shown in violet, fine inside a run of scenes, weak at a structural peak (the Doctor flags a peak
+that only progresses). Anything smaller is flat. The **continuity / turn check** flags scenes
+that don't turn, and setups/payoffs that are missing or out of order.
+
+> **The turn and the value at stake** *(approved 2026-09-25 by owner, superseding "sign or by
+> ≥2")*: each scene names **one value at stake** — an axis such as Love ↔ Hate — and opens and
+> closes on it; the opening and closing words follow the charges, so they can no longer drift
+> apart. The spine build and beat authoring produce the axis; older scenes keep their two free
+> words until the writer sets it (the Inspector offers a guess from them). Framework exemptions
+> are unchanged: a Resolution, Elixir, Changed or Ketsu may settle; Kishōtenketsu Ki/Shō scenes
+> only need movement; the Ten must reverse. Older films can fill every missing axis at once
+> (**Name every scene's value**, added 2026-09-25 by owner): the poles a scene's own words give
+> are kept, the model names only the missing ones, and no script is touched.
+
+> **Continuity ledger** *(added 2026-09-25 by owner-delegated decision)*: once every scene is
+> written — and again when a partly written film is finished — the build maps the film's
+> continuity in one writing call: the story facts the audience carries from scene to scene
+> (information, secrets, promises, threats, objects that matter, abilities, rules,
+> relationships), the scene that sets each one up, and the later scenes that rely on it. This
+> ledger is what the continuity check and Continuity Repair read. It never blocks the build: a
+> failure leaves the film marked "not mapped" (build it later from the Script view's Continuity
+> report), and script edits mark it stale until it is rebuilt.
+
+> **Conflict escalates by kind** *(added 2026-09-25 by owner)*: every scene carries a conflict
+> source — inner, personal or extra-personal — set by the spine build (or by the writer on the
+> Conflict source pips). The Story Doctor flags a story whose later acts never reach a source the
+> first act didn't already use (the conflict grows only in volume), and proposes re-levelling the
+> final act's first peak — deeper (inner) first, since a bounded world escalates inward, else
+> wider (extra-personal). It judges only deliberately set sources, and skips Kishōtenketsu, where
+> conflict is optional. A re-levelled scene is written at its new level on its next draft.
+
+> **Hook and pinch points** *(added 2026-09-25 by owner)*: in Three-Act Turns, scene 1 is the
+> **Hook** (open in motion on a question the audience needs answered) unless it is already the
+> Inciting Incident; stories with a full second act (10+ scenes) get two **Pinch Points** — the
+> antagonistic force showing its power and what is at stake — midway between the Act I climax and
+> the Mid-Act Climax, and midway between the Mid-Act Climax and the Act II climax (scenes 6 and
+> 10 of 16). Shorter formats keep only the Hook.
 
 > **Structural design** *(approved 2026-08-31 by owner)*: the story is a **nested hierarchy of
 > turns** — beats → scenes → acts → Story Climax; every level turns a value, each level hits
@@ -216,7 +294,7 @@ shows the screenplay with a left gutter indicating which beat each block expands
 > power — the weaker side fights obliquely), **indirect** (polite surface hides veiled warfare),
 > **comic** (blind obsessions collide), **reflexive** (a character at war with their own mind),
 > **minimal** (sparse words, rich subtext). The drafter picks the mode silently per pass, or the
-> writer locks one in the Inspector; the mode is never named on the page. Deliberately **not**
+> writer locks one in the Inspector's **Conflict style** select; the mode is never named on the page. Deliberately **not**
 > adopted: the five-step worksheet as form fields (the steps are already live machinery — value
 > charges, the turn check, the turning-beat marker) and named film models for the modes (the
 > behavioral definitions do the work without inviting echoes of existing films).
@@ -233,7 +311,7 @@ shows the screenplay with a left gutter indicating which beat each block expands
 > word held to the end, for tension) vs. cumulative (core first, conversational); the core word
 > timed for the cue; a pause or wordless gesture as the ultimate economy. The conflict rules
 > bind *dramatic* dialogue only — documentary testimony and narration, VO beds, archive and
-> required commercial copy exist to inform, and are exempt. The **Table-Read**
+> required commercial copy exist to inform, and are exempt. The **Final Read**
 > audits a named flaw checklist — empty talk, on-the-nose, author's mouthpiece, melodrama,
 > monologue, duelogue collapse — and applies the **paraphrasing test** to every note: if
 > rewording wouldn't fix it, the note is marked a *scene-design* problem (back to the beats and
@@ -251,7 +329,7 @@ shows the screenplay with a left gutter indicating which beat each block expands
 
 ### 7. Working across the whole story — the Writers' Room agents
 **Story Doctor** (finds the weakest structural link, proposes a fix, re-audits), **Continuity Repair**,
-**Adaptation** (full build-from-source), **Table-Read**. Each proposes changes the user approves,
+**Adaptation** (full build-from-source), **Final Read**. Each proposes changes the user approves,
 with one-click Undo.
 
 > **Runs you can trust** *(approved 2026-08-31 by owner)*: an agent run is pinned to the film it
@@ -259,10 +337,18 @@ with one-click Undo.
 > the wrong film. Edits made *while* an agent runs are never silently lost: the run notices, keeps
 > those newer edits on the Undo stack, and says so. Adaptation reports every scene it could **not**
 > write (by number, with the reason) instead of a cheerful partial count, and offers to **finish
-> just the unwritten scenes** on the next run rather than rebuilding everything. The Table-Read's
+> just the unwritten scenes** on the next run rather than rebuilding everything. The Final Read's
 > voice pass distinguishes "your script has too little dialogue" from "the model was unavailable /
-> failed — run again". Read-only reports (Table-Read) are **kept per film** and shown when the
+> failed — run again". Read-only reports (Final Read) are **kept per film** and shown when the
 > panel reopens, so a full report is never lost by closing the window.
+
+> **Needs redraft** *(added 2026-09-25 by owner)*: every written scene remembers the card it was
+> drafted from. When the card later changes in a way that steers the draft — value at stake,
+> charges, conflict source or style, Argues, beat type, driver, objective, summary, slugline, or
+> the driver's or reactor's psychology — the scene is marked **needs redraft** until the writer
+> redrafts it from the current card or keeps the draft as it is. Agent fixes (a Doctor
+> re-level, a Continuity Repair planted line) mark their scenes the same way, so an approved
+> change always reaches the page.
 
 ### 8. MUSE
 The in-app co-writer answers how-to / product questions and helps draft, all framed in the
@@ -290,11 +376,16 @@ Each entity gets a canonical, reusable reference so every generated image stays 
 - **"Draft all" batch drafters are consistent across tabs.** Each tab's primary action fills every
   card's full written spec from the script in one pass — the same fields the per-card "Draft details"
   writes, and exactly what the **Master reference prompt** is built from:
-  - **Draft all props** → Object, Significance, Look dev. (Props also runs the full props pipeline here:
-    it first pulls any missing worn/carried items in from the cast, then drafts the specs, then maps every
-    prop to the scenes it appears in — so there's no separate "Pull from cast" button. A per-card
-    "Re-map scenes" button on each prop re-tags just that prop's scenes after a script change without
-    re-drafting its spec.)
+  - **Draft all specifications** (Props) → Object, Narrative significance, Generation prompt. It first
+    adds any missing worn/carried items from the character briefs as proposals (each marked **Not in
+    screenplay** until a screenplay passage is linked to it), then drafts the specs, then maps every prop
+    to its scenes: reviewed passages give exact scenes, worn items follow their owner's on-screen
+    presence, and unconfirmed cards map to the scenes whose action text names them. Mapping uses no
+    model call and refreshes by itself after a script change, so there's no "Pull from cast" or
+    "Re-map scenes" button. It never extracts from the screenplay: screenplay objects come only from
+    **Extract screenplay props**, which proposes them for review and adds nothing until applied.
+    **Generate all images** then skips objects marked **Text only** (seen once and never handled), which
+    shots describe in words instead of attaching an image.
   - **Draft all characters** → Identity, Wardrobe, Props & accessories, Continuity (appearance states,
     where the script shows the look change), Look dev. **The cast is auto-drafted once, silently, the
     first time the Art Room is opened** (any tab) — only for characters that have no spec yet, never

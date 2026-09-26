@@ -25,6 +25,11 @@ reads from.
 
 ---
 
+> **Lineup revised 2026-09-25 (owner):** Feature Film (`feature`, 40 scenes), TV Series (`series`,
+> now ~30-minute episodes of 24 scenes) and Music Video (`musicvideo`) added; Film is labelled
+> **Short Film** and Short **Micro Short** (ids unchanged). The Shape step shows the formats in three
+> groups (long form · short form · non-fiction & brand) and every format works with every framework.
+
 ## Phase 1 — Format as a first-class project property  *(small)*
 
 **1.1 The registry — single source of truth.** New file `app/formats.jsx`:

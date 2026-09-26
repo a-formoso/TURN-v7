@@ -17,7 +17,9 @@ assert.match(app, /const hadScenesRef = React\.useRef\(scenes\.length>0\);[\s\S]
   "new asynchronously built stories must receive the same handoff without overriding a valid selection");
 assert.match(ai, /When a story loads after sign-in with the right Inspector open,[\s\S]{0,320}?newly created story first gains scenes/,
   "MUSE capability knowledge must describe the behavior");
-assert.match(html, /app\/app\.jsx\?v=20260911-series\d+/);
-assert.match(html, /app\/ai\.jsx\?v=20260911-series\d+/);
+// Cache keys are re-bumped on every edit; require one at or after the 2026-09-11 series release.
+const cacheDate=f=>Number((html.match(new RegExp("app/"+f.replace(/\./g,"\\.")+"\\?v=(\\d{8})"))||[])[1]||0);
+assert.ok(cacheDate("app.jsx")>=20260911, "app.jsx cache key predates the series release");
+assert.ok(cacheDate("ai.jsx")>=20260911, "ai.jsx cache key predates the series release");
 
 console.log("PASS first-scene defaults and mutually focused Writers' Room panels (7 assertions)");

@@ -233,7 +233,8 @@ function harness({
   const h = {
     console,
     window: null,
-    React: { useRef: value => ({ current: value }) },
+    // the extracted section also declares the shot-reference delete state; inert here
+    React: { useRef: value => ({ current: value }), useState: value => [value, () => {}] },
     shots: plain(shots),
     trash: { shots: plain(trashShots) },
     scenes: [scene],

@@ -2,8 +2,8 @@
    contract.jsx — the STORY CONTRACT (Infinite Studio method)
    Two axes of change, declared up front on the project:
      · OUTER PLOT (plot of fortune) — what changes in the WORLD.
-       Names the external value pair the Spine's vertical axis
-       tracks (e.g. Crime → Justice / Injustice).
+       Names the external value pair at stake in the world
+       (e.g. Crime → Justice / Injustice).
      · INNER ARC (plot of character) — what changes INSIDE the
        protagonist (e.g. Redemption → corruption → integrity).
      · DOMINANCE — which change the Story Climax must pay off.
@@ -88,12 +88,6 @@ function contractOf(project){
 }
 window.contractOf = contractOf;
 
-/* the external value pair the Spine graph's vertical axis tracks (outer plot's axis) */
-function contractAxis(project){
-  const c = contractOf(project);
-  return c.outerDef ? c.outerDef.axis : null;
-}
-window.contractAxis = contractAxis;
 
 /* prompt block — rides in storyContext() so every drafter writes toward the contract */
 function contractBrief(project){
@@ -121,13 +115,15 @@ function contractClimaxCheck(project, scenes){
   const dom = c.dominant==="inner" ? c.innerDef : c.outerDef;
   const climax = [...scenes].reverse().find(s=>s && s.kind==="story-climax") || scenes[scenes.length-1];
   let flagged = false;
-  if(typeof window.turnInfo==="function"){ try{ flagged = !!(window.turnInfo(climax)||{}).flagged; }catch(e){} }
+  // the climax must REVERSE its value: a same-side progression doesn't pay off the promise
+  if(typeof window.turnInfo==="function"){ try{ const ti = window.turnInfo(climax)||{}; flagged = !!(ti.flagged || ti.progression); }catch(e){} }
   if(flagged) return { status:"no-turn", sceneId:climax.id,
     msg:`Scene ${climax.no} (\u201c${climax.title}\u201d) is the climax but doesn't turn \u2014 the declared ${c.dominant} value (${dom.axis.pos} / ${dom.axis.neg}) must move decisively there.` };
   // strict = the climax values NAME the dominant axis (verifiable payoff);
   // loose  = they only use words related to it (keywords) — reported honestly as
   //          "related but unverified", never as a pass.
-  const text = (String(climax.openValue||"")+" "+String(climax.closeValue||"")).toLowerCase();
+  const text = (String(climax.openValue||"")+" "+String(climax.closeValue||"")+" "+
+    ((climax.value && typeof climax.value==="object") ? (String(climax.value.pos||"")+" "+String(climax.value.neg||"")) : "")).toLowerCase();
   const axisWords = (dom.axis.pos+" "+dom.axis.neg).toLowerCase().split(/[^a-z\u00e9]+/).filter(w=>w.length>2);
   const strict = axisWords.some(w=>text.indexOf(w)!==-1);
   const loose = !strict && (dom.keywords||[]).some(w=>text.indexOf(String(w).toLowerCase())!==-1);
@@ -156,24 +152,28 @@ function ContractSection({ project, scenes, onContract, readOnly }){
       d.label)));
   const verdict = contractClimaxCheck(project, scenes);
   const verdictCls = verdict.status==="ok" ? "ok" : "warn";
-  // .obj-lab uppercases; keep the explanation after the dash in lowercase
-  const lab = (main, sub)=> React.createElement("div",{className:"obj-lab",style:{marginBottom:4}},
-    main, sub && React.createElement("span",{style:{textTransform:"none"}}," \u2014 "+sub));
+  // one question per group: a readable title, a one-line hint, then the picks
+  const head = (title, hint)=> React.createElement("div",{className:"contract-q"},
+    React.createElement("div",{className:"contract-q-t"},title),
+    hint && React.createElement("div",{className:"contract-q-h"},hint));
+  const meta = (k, v)=> React.createElement("div",{className:"contract-meta"},
+    React.createElement("span",{className:"k"},k), React.createElement("span",{className:"v"},v));
+  const VIc = verdict.status==="ok" ? Icon.check : (Icon.warn||Icon.alert||Icon.info);
   return React.createElement("div",{className:"contract-wrap"},
-    raw.suggested && (c.outerDef||c.innerDef) && React.createElement("div",{className:"contract-note"},
-      "Suggested from your story brief \u2014 confirm by leaving it, or change any pick to make it yours."),
-    React.createElement("div",null,
-      lab("Outer plot","what changes in the world"),
+    raw.suggested && (c.outerDef||c.innerDef) && React.createElement("div",{className:"contract-banner"},
+      Icon.sparkles && React.createElement(Icon.sparkles,{s:12}),
+      React.createElement("span",null,"Suggested from your story brief. Keep it, or change any pick to make it yours.")),
+    React.createElement("div",{className:"contract-group"},
+      head("Outer plot","What changes in the world"),
       chips(PLOTS_OF_FORTUNE,"outer",c.outer),
-      c.outerDef && React.createElement("div",{className:"contract-axis"},
-        "Spine tracks: "+c.outerDef.axis.pos+" / "+c.outerDef.axis.neg)),
-    React.createElement("div",null,
-      lab("Inner arc","what changes in the protagonist"),
+      c.outerDef && meta("Outer value", c.outerDef.axis.pos+" \u2194 "+c.outerDef.axis.neg)),
+    React.createElement("div",{className:"contract-group"},
+      head("Inner arc","What changes inside the protagonist"),
       chips(PLOTS_OF_CHARACTER,"inner",c.inner),
-      c.innerDef && React.createElement("div",{className:"contract-axis"},"Arc: "+c.innerDef.arc),
-      c.innerDef && React.createElement("div",{className:"contract-note"},c.innerDef.demands)),
-    (c.outerDef||c.innerDef) && React.createElement("div",null,
-      React.createElement("div",{className:"obj-lab",style:{marginBottom:4}},"Which change does the climax pay off?"),
+      c.innerDef && meta("Arc", String(c.innerDef.arc||"").replace(/^./,ch=>ch.toUpperCase())),
+      c.innerDef && React.createElement("div",{className:"contract-demands"},c.innerDef.demands)),
+    (c.outerDef||c.innerDef) && React.createElement("div",{className:"contract-group"},
+      head("Climax pays off","Which change the story climax must resolve"),
       React.createElement("div",{className:"contract-chips"},
         React.createElement("button",{className:"contract-chip"+(c.dominant==="outer"?" sel":""),
           disabled:!!readOnly||!c.outerDef, title:c.outerDef?("The climax must resolve "+c.outerDef.axis.pos+" / "+c.outerDef.axis.neg):"Pick an outer plot first",
@@ -181,8 +181,10 @@ function ContractSection({ project, scenes, onContract, readOnly }){
         React.createElement("button",{className:"contract-chip"+(c.dominant==="inner"?" sel":""),
           disabled:!!readOnly||!c.innerDef, title:c.innerDef?("The climax must complete "+c.innerDef.arc):"Pick an inner arc first",
           onClick:()=>set({dominant:c.dominant==="inner"?null:"inner"})},"Inner-led"))),
-    verdict.status!=="unset" && verdict.msg && React.createElement("div",{className:"contract-verdict "+verdictCls},
-      React.createElement("span",{className:"dot"}),
-      React.createElement("span",null,verdict.msg)));
+    verdict.status!=="unset" && verdict.msg && React.createElement("div",{className:"contract-verdict "+verdictCls,role:"status"},
+      React.createElement("span",{className:"contract-verdict-ic"},VIc && React.createElement(VIc,{s:14})),
+      React.createElement("div",{className:"contract-verdict-tx"},
+        React.createElement("div",{className:"contract-verdict-t"},verdict.status==="ok" ? "Climax check passed" : "Climax check"),
+        React.createElement("div",null,verdict.msg))));
 }
 window.ContractSection = ContractSection;

@@ -329,20 +329,30 @@ function CarryLedger({ cells }){
       React.createElement("div",{className:"cval"},c.node || c.val))));
 }
 
-function ContinuityReport({ report, onJump, onClose, currentId }){
+function ContinuityReport({ report, ledger, onJump, onClose, currentId }){
   const conflicts = report.conflicts;
+  const L = ledger || {};
+  // the check can only see what the ledger mapped: say so instead of reporting "clean"
+  const ledgerRow = L.onBuild && (!L.mapped || L.stale) && React.createElement("div",{className:"cont-ledger"},
+    React.createElement("span",null, !L.mapped
+      ? "This film's setups and payoffs haven't been mapped yet, so there is nothing to check. Build the continuity ledger: MUSE reads the written scenes and lists what each one sets up and what later scenes rely on (writing credits)."
+      : "The script changed since the continuity ledger was built. Rebuild it so the check reads the current scenes."),
+    React.createElement("button",{className:"draft-btn sm",disabled:!!L.busy||!!L.readOnly,onClick:L.onBuild},
+      React.createElement(Icon.sparkles,{s:13}), L.busy ? "Reading the film\u2026" : (L.mapped ? "Rebuild ledger" : "Build continuity ledger")));
   return React.createElement("div",{className:"cont-report"},
     React.createElement("div",{className:"cont-report-head"},
       React.createElement("div",{className:"t"},
         React.createElement(Icon.layers,{s:14}),"Continuity check"),
       React.createElement("div",{className:"sub"},
-        conflicts.length ? conflicts.length+" issue"+(conflicts.length>1?"s":"")+" across "+report.total+" scenes" : report.total+" scenes \u00b7 no conflicts"),
+        conflicts.length ? conflicts.length+" issue"+(conflicts.length>1?"s":"")+" across "+report.total+" scenes"
+          : (L.onBuild && !L.mapped) ? report.total+" scenes \u00b7 not mapped yet" : report.total+" scenes \u00b7 no conflicts"),
       React.createElement("button",{className:"ai-x",onClick:onClose},React.createElement(Icon.x,{s:14}))),
     React.createElement("div",{className:"cont-explain"},
       "Tracks what every scene ", React.createElement("b",null,"sets up"), " and ", React.createElement("b",null,"pays off"),
       ". It flags a payoff with no earlier setup, a reference that lands before its setup, or a setup that never pays off \u2014 and updates live as you reorder or edit scenes."),
+    ledgerRow,
     conflicts.length===0
-      ? React.createElement("div",{className:"cont-clean"},
+      ? (L.onBuild && !L.mapped) ? null : React.createElement("div",{className:"cont-clean"},
           React.createElement("span",{className:"ic"},React.createElement(Icon.check,{s:18})),
           "Every referenced fact is set up before it's used, and every setup pays off.")
       : conflicts.map((c,i)=>{
@@ -399,9 +409,14 @@ function ScriptCheckReport({ scene, report, onClose, onIssue }){
 }
 
 function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, onDraftAll, onPolish, drafting, total,
-                     history, labelOf, onRevert, onRedo, onEditScene, continuityMap, project, onBeatFocus, readOnly }){
+                     history, labelOf, onRevert, onRedo, onEditScene, continuityMap, project, onBeatFocus, readOnly,
+                     facts, ledgerInfo, ledgerStale, ledgerBusy, onBuildLedger,
+                     staleChanges, staleCount, onRedraftStale, onKeepDraft, onRedraftAll, redraftingAll, redraftBusy }){
   const CONT = continuityMap || (window.TURN_DATA||{}).CONTINUITY || {};
-  const FACTS = (window.TURN_DATA||{}).FACTS || {};
+  // this film's own facts (the continuity ledger); the sample's only as a legacy fallback
+  const FACTS = facts || (window.TURN_DATA||{}).FACTS || {};
+  const ledger = { info:ledgerInfo, stale:ledgerStale, busy:ledgerBusy, onBuild:onBuildLedger,
+    mapped:Object.keys(FACTS).length>0, readOnly };
   const live = typeof aiAvailable==="function" && aiAvailable();
   const [activeBeat, setActiveBeat] = React.useState(null);
   const [showReport, setShowReport] = React.useState(false);
@@ -477,10 +492,13 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
   }
 
   // continuity button
+  // an unmapped film has nothing to check — never show it as a green "clean"
+  const unmapped = !!ledger.onBuild && !ledger.mapped;
   const contBtn = React.createElement("button",{
-    className:`cont-btn ${report.conflicts.length?"warn":"ok"}`,onClick:()=>setShowReport(v=>!v)},
-    React.createElement(report.conflicts.length?Icon.alert:Icon.check,{s:14}),
-    report.conflicts.length ? `Continuity \u00b7 ${report.conflicts.length}` : "Continuity");
+    className:`cont-btn ${report.conflicts.length?"warn":unmapped?"":"ok"}`,onClick:()=>setShowReport(v=>!v),
+    title:unmapped?"Setups and payoffs aren't mapped for this film yet":undefined},
+    React.createElement(report.conflicts.length||unmapped?Icon.alert:Icon.check,{s:14}),
+    report.conflicts.length ? `Continuity \u00b7 ${report.conflicts.length}` : unmapped ? "Continuity \u00b7 not mapped" : (ledger.stale ? "Continuity \u00b7 stale" : "Continuity"));
   const scriptCheckBtn = screenplay && React.createElement("button",{
     className:`cont-btn ${scriptCheck.issues.length?"warn":"ok"}`,onClick:()=>setShowScriptCheck(v=>!v)},
     React.createElement(scriptCheck.issues.length?Icon.alert:Icon.check,{s:14}),
@@ -674,7 +692,7 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
     // two groups so mobile can stack them as two lines with the SAME desktop look:
     // A = the housed glued strip (Continuity/Undo/Redo/Edit), B = Redraft + pager
     React.createElement("div",{className:"script-tools"},
-      React.createElement("div",{className:"st-group a"}, contBtn, scriptCheckBtn, versionUI, editBtn),
+      React.createElement("div",{className:"st-group a"}, contBtn, scriptCheckBtn, redraftAllBtn, versionUI, editBtn),
       React.createElement("div",{className:"st-group b"}, polishUI, control,
         React.createElement("div",{className:"script-scenestep",title:"Step through the screenplay scene by scene"},
           React.createElement("button",{className:"panel-collapse",onClick:(e)=>go(-1,e),disabled:idx<=0,
@@ -682,6 +700,24 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
           `Scene ${idx+1} / ${scenes.length}`,
           React.createElement("button",{className:"panel-collapse",onClick:(e)=>go(1,e),disabled:idx>=scenes.length-1,
             title:"Next scene",style:{opacity:idx>=scenes.length-1?.4:1}},React.createElement(Icon.chevR,{s:14}))))));
+
+  // NEEDS REDRAFT: this scene's card changed after its script was written
+  const staleFlag = (screenplay && staleChanges && staleChanges.length) ? React.createElement("div",
+    {className:"cont-inline stale-inline",role:"status"},
+    React.createElement("span",{className:"ic"},React.createElement(Icon.history,{s:15})),
+    React.createElement("div",{className:"tx"},
+      React.createElement("b",null,"Script out of date: "),
+      "the scene card changed after this draft (",staleChanges.join(", "),"). The screenplay may no longer match it."),
+    React.createElement("div",{className:"stale-acts"},
+      React.createElement("button",{className:"draft-btn sm",disabled:readOnly||!!redraftBusy,onClick:()=>onRedraftStale&&onRedraftStale(scene)},
+        React.createElement(Icon.sparkles,{s:13}), redraftBusy ? "Redrafting\u2026" : "Redraft script"),
+      React.createElement("button",{className:"draft-btn sm ghost",disabled:readOnly||!!redraftBusy,onClick:()=>onKeepDraft&&onKeepDraft(scene.id),
+        title:"The script is fine as written \u2014 adopt the current card as its baseline"},"Keep this draft"))) : null;
+  // several scenes out of date: redraft them all from the header
+  const redraftAllBtn = (staleCount>1 && onRedraftAll) ? React.createElement("button",{className:"cont-btn stale",
+      disabled:readOnly||!!redraftingAll,onClick:onRedraftAll,title:"Rewrite every out-of-date script from its current card and beats"},
+    React.createElement(Icon.history,{s:14}),
+    redraftingAll ? ("Redrafting "+redraftingAll.i+" / "+redraftingAll.total) : ("Redraft "+staleCount+" out-of-date")) : null;
 
   // inline per-scene continuity flag
   const inlineFlag = sceneConflicts.length ? React.createElement("div",
@@ -695,7 +731,7 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
   if(!screenplay){
     return React.createElement("div",{className:"script-scroll"},
       header,
-      showReport && React.createElement(ContinuityReport,{report,currentId:scene.id,onJump:(id)=>onSelectScene(id),onClose:()=>setShowReport(false)}),
+      showReport && React.createElement(ContinuityReport,{report,ledger,currentId:scene.id,onJump:(id)=>onSelectScene(id),onClose:()=>setShowReport(false)}),
       showScriptCheck && screenplay && React.createElement(ScriptCheckReport,{scene,report:scriptCheck,onClose:()=>setShowScriptCheck(false),onIssue:jumpToScriptIssue}),
       React.createElement(TransitionBar,{trans:transIn,fromTo:prevScene?`from Sc.${String(prevScene.no).padStart(2,"0")}`:null}),
       React.createElement(CarryLedger,{cells:carry}),
@@ -714,8 +750,9 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
 
   return React.createElement("div",{className:"script-scroll"},
     header,
-    showReport && React.createElement(ContinuityReport,{report,currentId:scene.id,onJump:(id)=>onSelectScene(id),onClose:()=>setShowReport(false)}),
+    showReport && React.createElement(ContinuityReport,{report,ledger,currentId:scene.id,onJump:(id)=>onSelectScene(id),onClose:()=>setShowReport(false)}),
     showScriptCheck && React.createElement(ScriptCheckReport,{scene,report:scriptCheck,onClose:()=>setShowScriptCheck(false),onIssue:jumpToScriptIssue}),
+    staleFlag,
     inlineFlag,
     React.createElement(TransitionBar,{trans:transIn,fromTo:prevScene?`from Sc.${String(prevScene.no).padStart(2,"0")} ${prevScene.title}`:null}),
     React.createElement(CarryLedger,{cells:carry}),

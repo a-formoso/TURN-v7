@@ -7,27 +7,30 @@
 
 /* hero media — the Value-Charge Spine, the product's visual signature, drawn as
    an animated SVG inside the film frame (corner brackets kept). A deliberate
-   ABSTRACTION, not a screenshot: it sells the one idea — scenes plotted by
-   emotional charge, turning end to end. The line wears a charge gradient
-   (green above the midline, red below) with a soft glow, scenes land as
-   halo'd nodes, and after the draw a playhead of light travels the spine on
-   a slow loop — the story being read. The 13-scene arc is invented. */
-function HeroSpine(){
+   ABSTRACTION, not a screenshot: a BASIC version of whichever narrative structure
+   the headline is showing (Three-Act Turns, Hero's Journey, Kishōtenketsu), with
+   its act bands and a few named beats. The line wears a charge gradient (green
+   above the midline, red below), scenes land as halo'd nodes, and a playhead of
+   light reads the spine once it's drawn. It redraws each time the headline turns. */
+const LP_STRUCTURES = [
+  { word:"Three-Act Turns",
+    bands:["Act I \u00b7 Setup","Act II \u00b7 Complication","Act III \u00b7 Resolution"], breaks:[3,6],
+    scenes:[{c:0.5},{c:-1.1},{c:1.9,m:"Inciting Incident"},{c:-1.8,m:"Act Climax"},
+            {c:1.3},{c:-2.4,m:"Mid-Act Climax"},{c:1.0},{c:-2.8,m:"Crisis"},{c:2.3,m:"Story Climax"}] },
+  { word:"a Hero\u2019s Journey",
+    bands:["Departure","Initiation","Return"], breaks:[4,6],
+    scenes:[{c:0.5,m:"Ordinary World"},{c:-1.0},{c:1.8,m:"Call to Adventure"},{c:-1.3},{c:1.6,m:"Threshold"},
+            {c:-2.8,m:"The Ordeal"},{c:1.9,m:"Reward"},{c:-2.2,m:"Resurrection"},{c:2.3,m:"Return with the Elixir"}] },
+  { word:"Kish\u014dtenketsu",
+    bands:["Ki","Sh\u014d","Ten","Ketsu"], breaks:[1,4,6],
+    scenes:[{c:0.5,m:"Planting"},{c:-0.4},{c:0.7},{c:-0.5},{c:1.1,m:"Deepening"},
+            {c:-2.7,m:"The Twist"},{c:1.4},{c:-0.6},{c:1.3,m:"Reconciliation"}] },
+];
+function HeroSpine({ structure }){
+  const S = structure || LP_STRUCTURES[0];
   const W=1260, H=540, MID=H/2, AMP=64, X0=76, X1=W-52;
-  // Charges STRICTLY ALTERNATE (every node is a crest or a trough — never a dot
-  // stranded mid-slope), matching how the in-app spine reads: an even, rolling
-  // wave with horizontal tangents at every scene. Crest/trough depths still vary
-  // so the film has its own topography.
-  const SCENES=[
-    {c:0.4},{c:-1.0},{c:1.8,m:"Inciting Incident",up:true},{c:-2.3,m:"Act Climax"},
-    {c:1.0},{c:-1.5},{c:2.5,m:"False Victory",up:true},{c:-2.6,m:"Mid-Act Climax"},
-    {c:1.9,m:"Reversal",up:true},{c:-2.9,m:"Low Point"},{c:0.8},{c:-1.4},
-    {c:2.4,m:"Climax",up:true},
-  ];
-  const pts=SCENES.map((s,i)=>({ ...s, x:X0+(X1-X0)*i/(SCENES.length-1), y:MID-s.c*AMP }));
-  // Catmull-rom → cubic beziers. TENSION sets curve handle length: smaller =
-  // rounder, fuller crests/troughs (standard is 6; ~4.4 gives softer, more
-  // organic peaks without overshooting into loops).
+  const pts=S.scenes.map((sc,i)=>({ ...sc, up:sc.c>=0, x:X0+(X1-X0)*i/(S.scenes.length-1), y:MID-sc.c*AMP }));
+  // Catmull-rom → cubic beziers; TENSION ~4.4 gives soft, organic crests
   const TENSION = 4.4;
   let d="M"+pts[0].x.toFixed(1)+" "+pts[0].y.toFixed(1);
   for(let i=0;i<pts.length-1;i++){
@@ -37,15 +40,15 @@ function HeroSpine(){
              .map(n=>n.toFixed(1)).join(" ");
   }
   const area = d+" L"+X1+" "+MID+" L"+X0+" "+MID+" Z";
-  // act breaks land right AFTER their closing milestone: Act I ends on the Act
-  // Climax (idx 3), Act II ends on the Low Point (idx 9) — Act III is the recovery.
-  const actX=[(pts[3].x+pts[4].x)/2, (pts[9].x+pts[10].x)/2];
+  // act breaks land between a band's last scene and the next band's first
+  const actX = S.breaks.map(i=>(pts[i].x+pts[i+1].x)/2);
+  const edges = [X0-26].concat(actX, [X1+26]);
   const mono={fontFamily:"var(--f-mono)",letterSpacing:".14em"};
   const runStyle={offsetPath:'path("'+d+'")'};
-  return React.createElement("div",{className:"lp-video","aria-label":"The value-charge spine — every scene plotted by its emotional charge"},
+  return React.createElement("div",{className:"lp-video","aria-label":"The value-charge spine of "+S.word.replace(/^a /,"")+" \u2014 every scene plotted by its emotional charge"},
     React.createElement("div",{className:"lp-video-corners","aria-hidden":"true"}),
     React.createElement("div",{className:"lp-video-corners b","aria-hidden":"true"}),
-    React.createElement("svg",{className:"lp-spine",viewBox:"0 0 "+W+" "+H,preserveAspectRatio:"xMidYMid meet","aria-hidden":"true"},
+    React.createElement("svg",{key:S.word,className:"lp-spine",viewBox:"0 0 "+W+" "+H,preserveAspectRatio:"xMidYMid meet","aria-hidden":"true"},
       React.createElement("defs",null,
         React.createElement("linearGradient",{id:"lpgLine",gradientUnits:"userSpaceOnUse",x1:0,y1:MID-3*AMP,x2:0,y2:MID+3*AMP},
           React.createElement("stop",{offset:"0",stopColor:"var(--pos-bright)"}),
@@ -63,12 +66,11 @@ function HeroSpine(){
       React.createElement("line",{x1:X0-26,y1:MID,x2:X1+26,y2:MID,stroke:"rgba(255,255,255,.18)",strokeWidth:1}),
       React.createElement("text",{x:X0-26,y:92,fill:"rgba(255,255,255,.38)",fontSize:44,style:mono},"+"),
       React.createElement("text",{x:X0-26,y:H-58,fill:"rgba(255,255,255,.38)",fontSize:44,style:mono},"-"),
-      // act bands
+      // act bands: dashed breaks + a centred name over each band
       actX.map((x,i)=>React.createElement("line",{key:"ax"+i,x1:x,y1:64,x2:x,y2:H-48,
         stroke:"rgba(255,255,255,.12)",strokeWidth:1,strokeDasharray:"3 6"})),
-      React.createElement("text",{x:X0+150,y:46,fill:"rgba(255,255,255,.34)",fontSize:11,textAnchor:"middle",style:mono},"ACT I · SETUP"),
-      React.createElement("text",{x:(actX[0]+actX[1])/2,y:46,fill:"rgba(255,255,255,.34)",fontSize:11,textAnchor:"middle",style:mono},"ACT II · COMPLICATION"),
-      React.createElement("text",{x:X1+26,y:46,fill:"rgba(255,255,255,.34)",fontSize:11,textAnchor:"end",style:mono},"ACT III · RESOLUTION"),
+      S.bands.map((b,i)=>React.createElement("text",{key:"b"+i,x:(edges[i]+edges[i+1])/2,y:46,fill:"rgba(255,255,255,.34)",
+        fontSize:11,textAnchor:"middle",style:mono},b.toUpperCase())),
       // charge-tinted area under the wave, then the glow pass, then the line
       React.createElement("path",{className:"lp-spine-area",d:area,fill:"url(#lpgFill)"}),
       React.createElement("path",{className:"lp-spine-path glow",d,pathLength:1,stroke:"url(#lpgLine)",
@@ -81,14 +83,16 @@ function HeroSpine(){
       pts.map((p,i)=>React.createElement("circle",{key:"n"+i,className:"lp-spine-node",cx:p.x,cy:p.y,r:5.5,
         fill:p.c>=0?"var(--pos-bright)":"var(--neg-bright)",stroke:"var(--lpw-black)",strokeWidth:2.5,
         style:{animationDelay:(0.35+i*0.16)+"s"}})),
-      // milestone captions with a short leader tick to their node (like the in-app spine)
+      // named beats with a short leader tick to their node (like the in-app spine)
       pts.filter(p=>p.m).map((p,i)=>React.createElement("line",{key:"mt"+i,className:"lp-spine-lab",
         x1:p.x,y1:p.up?p.y-12:p.y+12,x2:p.x,y2:p.up?p.y-20:p.y+20,
-        stroke:"rgba(255,255,255,.28)",strokeWidth:1,style:{animationDelay:(1.4+i*0.12)+"s"}})),
-      pts.filter(p=>p.m).map((p,i)=>React.createElement("text",{key:"m"+i,className:"lp-spine-lab",
-        x:p.x,y:p.up?p.y-28:p.y+36,textAnchor:"middle",fill:"rgba(255,255,255,.5)",fontSize:11,
-        style:{...mono,animationDelay:(1.4+i*0.12)+"s"}},p.m)),
-      // the playhead — a dot of light reading the story on a loop
+        stroke:"rgba(255,255,255,.28)",strokeWidth:1,style:{animationDelay:(1.2+i*0.1)+"s"}})),
+      // edge labels anchor inward so a long name never runs off the frame
+      pts.filter(p=>p.m).map((p,i)=>{ const at = pts.indexOf(p), edge = at===0 ? "start" : at===pts.length-1 ? "end" : "middle";
+        return React.createElement("text",{key:"m"+i,className:"lp-spine-lab",
+          x:p.x+(edge==="start"?-10:edge==="end"?10:0),y:p.up?p.y-28:p.y+36,textAnchor:edge,fill:"rgba(255,255,255,.5)",fontSize:11,
+          style:{...mono,animationDelay:(1.2+i*0.1)+"s"}},p.m); }),
+      // the playhead — a dot of light reading this structure once it's drawn
       React.createElement("circle",{className:"lp-spine-run halo",r:10,fill:"rgba(255,255,255,.35)",
         filter:"url(#lpgBlur)",style:runStyle}),
       React.createElement("circle",{className:"lp-spine-run",r:3.5,fill:"#fff",style:runStyle})));
@@ -106,22 +110,19 @@ const LP_ROOMS = [
     cta:"Start with Stage", plan:"studio" },
 ];
 
-/* the hero's rotating phrase — the FOUR narrative structures a film can be told
-   in (the launch differentiation: one idea, four ways). Remounts on each tick
-   (key change) so the entrance animation replays; ~2.2s per phrase. */
-const LP_WORDS = ["a three-act drama","a hero’s journey","a story circle","a kishōtenketsu"];
-function RotatingWord(){
-  const [i, setI] = React.useState(0);
-  React.useEffect(()=>{
-    const t = setInterval(()=> setI(x=>(x+1)%LP_WORDS.length), 2200);
-    return ()=> clearInterval(t);
-  },[]);
-  return React.createElement("span",{className:"lp-rotate",key:LP_WORDS[i]}, LP_WORDS[i]);
+/* the hero's rotating phrase — the THREE narrative structures a film can be told in
+   (one idea, three ways). The phrase and the hero diagram turn together: Landing
+   owns the index, the word remounts so its entrance replays, and the spine redraws
+   as that structure. ~5.2s per structure, time for the diagram to draw and be read. */
+const LP_WORDS = LP_STRUCTURES.map(x=>x.word);
+const LP_TURN_MS = 5200;
+function RotatingWord({ word }){
+  return React.createElement("span",{className:"lp-rotate",key:word}, word);
 }
 
 const LP_STEPS = [
   { n:"1", t:"Bring an idea", d:"A logline, a “what if” — or just talk it through out loud." },
-  { n:"2", t:"Choose how it’s told", d:"Three-act, hero’s journey, story circle or kishōtenketsu — your idea, your structure." },
+  { n:"2", t:"Choose how it’s told", d:"Three-Act Turns, Hero’s Journey or Kishōtenketsu — for a feature, a series, a short or a music video." },
   { n:"3", t:"Build the film", d:"Story, script, cast, places, shots — it all grows in one place." },
 ];
 
@@ -139,6 +140,11 @@ function Landing({ onStart, onSignIn }){
   if(typeof window.usePlansVersion==="function") window.usePlansVersion();   // reflect admin plan-copy edits
   const Icn = (name, s)=> React.createElement(Icon[name] || Icon.sparkles, {s:s||18});
   const [menuOpen, setMenuOpen] = React.useState(false);   // mobile hamburger menu
+  const [structIdx, setStructIdx] = React.useState(0);     // which structure the hero shows
+  React.useEffect(()=>{
+    const t = setInterval(()=> setStructIdx(x=>(x+1)%LP_STRUCTURES.length), LP_TURN_MS);
+    return ()=> clearInterval(t);
+  },[]);
   return React.createElement("div",{className:"landing"},
     React.createElement("div",{className:"lp-page"},
 
@@ -167,7 +173,7 @@ function Landing({ onStart, onSignIn }){
     React.createElement("section",{className:"lp-hero"},
       React.createElement("div",{className:"lp-hero-copy"},
         React.createElement("h1",{className:"lp-h1"},"Your film, told",React.createElement("br",null),
-          "as ",React.createElement(RotatingWord,null),"."),
+          "as ",React.createElement(RotatingWord,{word:LP_WORDS[structIdx]}),"."),
         React.createElement("div",{className:"lp-hero-cta"},
           React.createElement("button",{className:"lp-btn primary big",onClick:()=>onStart("writer")},"Start with Writers' Room"),
           React.createElement("button",{className:"lp-btn ghost big",onClick:onSignIn},"Sign in"))),
@@ -177,7 +183,7 @@ function Landing({ onStart, onSignIn }){
 
     // hero media — the 21:9 short-film placeholder, still outside the frame
     React.createElement("section",{className:"lp-hero-media"},
-      React.createElement(HeroSpine,null)),
+      React.createElement(HeroSpine,{structure:LP_STRUCTURES[structIdx]})),
 
     // the hairline-framed column starts BELOW the hero (features onward)
     React.createElement("div",{className:"lp-frame"},
