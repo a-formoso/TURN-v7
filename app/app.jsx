@@ -561,7 +561,7 @@ function App(){
       return;
     }
     const draftOnly = mode==="draft";
-    const label = { characters:"Characters", props:"Props", locations:"Locations", colorist:"Styles" }[dept] || dept;
+    const label = { characters:"Characters", props:"Props", locations:"Locations", colorist:"Color" }[dept] || dept;
     let ok = true;
     if(typeof window.appConfirm==="function"){
       ok = await window.appConfirm(draftOnly
@@ -5646,7 +5646,7 @@ function App(){
           setLookbook(_lbWork);
         }
         // No write-through: the Colorist reads the lookbook LIVE (see art.designStyles), so the
-        // references propagate downstream without mutating the Styles tab's persisted data.
+        // references propagate downstream without mutating the Color tab's persisted data.
         return { statement:r.statement||"", added:cards.length, renderStyle:r.renderStyle||null };
       },
       // the current dominant style label (for the proposal card's "before" line)
@@ -6374,7 +6374,7 @@ function App(){
     // Scene Director — gated per scene (plan card before each scene's spend); takes a
     // shot list to a consistent frame set: anchor → derive → vision QC → bounded repair.
     sceneDirLaunch && React.createElement(AgentsPanel,{
-      initialAgentId:"scenedirector", autoStart:true, single:true, viewLabel:"View Shot List",
+      initialAgentId:"scenedirector", autoStart:true, single:true, viewLabel:"View Shots",
       ctxFactory:sceneDirectorCtxFactory,
       onClose:()=>setSceneDirLaunch(null),
       onView:()=>{ setArtView("shots"); setSceneDirLaunch(null); },

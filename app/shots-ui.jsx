@@ -1181,10 +1181,10 @@ function SceneCtxItem({ k, v }){
 
 function SceneStyleChip({ project, sceneId }){
   // Keep this live: Shots should never cache a scene's style on the shot card.
-  // The Styles tab owns the scene→preset map, so every Shots render resolves the
+  // The Color tab owns the scene→preset map, so every Shots render resolves the
   // current assignment from project.styleBible.
   const preset = (typeof scenePreset==="function") ? scenePreset(project, sceneId) : null;
-  if(!preset) return _el("span",{className:"shot-style-chip empty",title:"No Style Bible preset assigned to this scene yet. Use the Styles tab / Light the film."},
+  if(!preset) return _el("span",{className:"shot-style-chip empty",title:"No colour look assigned to this scene yet. Use the Color tab / Light the film."},
     _el(Icon.layers,{s:11}),"No style preset");
   const pal = (preset.palette||[]).slice(0,3);
   const title = [

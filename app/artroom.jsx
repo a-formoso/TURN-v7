@@ -16,7 +16,9 @@ const ART_TABS = [
   { id:"characters", label:"Characters", icon:"user" },
   { id:"props",      label:"Props",      icon:"box" },
   { id:"locations",  label:"Locations",  icon:"globe" },
-  { id:"stylebible", label:"Styles", icon:"layers" },
+  // "Color" (was "Styles", renamed 2026-09-26 by owner): the tab is the Colorist's grades;
+  // "Styles" stays the top-bar manager for RENDER styles (photoreal, anime…)
+  { id:"stylebible", label:"Color", icon:"layers" },
   { id:"shots",      label:"Shots",  icon:"film" },
   { id:"storyboard", label:"Storyboards", icon:"board" },
 ];
@@ -894,7 +896,13 @@ window.turnRefreshLockedStyles();
    Admin can also remove/hide global styles (including built-in presets) the same way.
    The menu is rendered through a PORTAL with position:fixed.
    The trigger is a FIXED width so the row never reflows when the selected style name changes. */
-function RenderStylePicker({ value, onPick, disabled, placeholderLabel }){
+/* per-tab display names for built-in styles (context = "prop" | "location") */
+const RENDER_STYLE_CONTEXT_LABELS = {
+  prop:     { photoreal:"Photoreal - Cinematic" },
+  location: { photoreal:"Photoreal - Cinematic" },
+};
+window.RENDER_STYLE_CONTEXT_LABELS = RENDER_STYLE_CONTEXT_LABELS;
+function RenderStylePicker({ value, onPick, disabled, placeholderLabel, context }){
   if(window.useRenderStyleVersion) window.useRenderStyleVersion();   // re-render when styles change
   const [open, setOpen] = React.useState(false);
   const [expanded, setExpanded] = React.useState({});
@@ -917,6 +925,9 @@ function RenderStylePicker({ value, onPick, disabled, placeholderLabel }){
   },[open]);
   const opts = window.CHAR_RENDER_STYLE_OPTIONS||[];
   const clean = (lab)=> String(lab||"").replace(/^[🔒🌐]\s*/,"");
+  // a style's name can read differently on props and locations ("Human cinematic" is a
+  // character-sheet name); the style itself is the same
+  const labelOf = (o)=> ((RENDER_STYLE_CONTEXT_LABELS[context]||{})[o && o.key]) || (o && o.label);
   const isPlaceholder = (value==="" || value==null) && !!placeholderLabel;
   const cur = isPlaceholder
     ? { key:"", label:placeholderLabel, desc:"Choose one render style to apply to all items.", group:"" }
@@ -929,7 +940,7 @@ function RenderStylePicker({ value, onPick, disabled, placeholderLabel }){
   const toggle = ()=>{ if(disabled) return; if(open){ setOpen(false); } else { place(); setOpen(true); } };
   const pick = (key)=>{ setOpen(false); if(onPick) onPick(key); };
   const del = async (e, key, isGlobal)=>{ e.stopPropagation();
-    const lab = clean((opts.find(o=>o.key===key)||{}).label);
+    const lab = clean(labelOf(opts.find(o=>o.key===key)||{}));
     const fallback = (opts.find(o=>o.key!==key && o.key!=="surprise") || opts.find(o=>o.key!==key) || { key:"photoreal" }).key;
     if(window.appConfirm && !(await window.appConfirm({ title: isGlobal?"Delete this global style?":"Delete your saved style?",
       body: isGlobal?("Every signed-in user loses \""+lab+"\"."):("Removes \""+lab+"\" from your saved styles.") }))) return;
@@ -967,8 +978,8 @@ function RenderStylePicker({ value, onPick, disabled, placeholderLabel }){
               const isUser = window.turnIsUserStyle && window.turnIsUserStyle(o.key);
               const isGlobalAdmin = window.turnIsGlobalStyle && window.turnIsGlobalStyle(o.key) && window.turnIsStyleAdmin && window.turnIsStyleAdmin();
               const canDel = isUser || isGlobalAdmin;
-              return React.createElement("div",{ key:o.key, className:"rs-opt"+(o.key===value?" sel":""), title:o.desc||clean(o.label), onClick:()=>pick(o.key) },
-                React.createElement("span",{className:"rs-opt-lab"}, clean(o.label)),
+              return React.createElement("div",{ key:o.key, className:"rs-opt"+(o.key===value?" sel":""), title:o.desc||clean(labelOf(o)), onClick:()=>pick(o.key) },
+                React.createElement("span",{className:"rs-opt-lab"}, clean(labelOf(o))),
                 canDel && React.createElement("button",{ type:"button", className:"rs-opt-del",
                   title: isGlobalAdmin?"Delete this global style (admin)":"Delete this saved style",
                   onClick:(e)=>del(e,o.key,isGlobalAdmin) },
@@ -977,7 +988,7 @@ function RenderStylePicker({ value, onPick, disabled, placeholderLabel }){
       })), document.body) : null;
   return React.createElement("div",{className:"rs-picker"+(open?" open":"")},
     React.createElement("button",{ type:"button", className:"rs-trigger", ref:triggerRef, disabled:!!disabled, onClick:toggle },
-      React.createElement("span",{className:"rs-trigger-lab"}, clean(cur.label)),
+      React.createElement("span",{className:"rs-trigger-lab"}, clean(labelOf(cur))),
       React.createElement("span",{className:"rs-caret"}, "▾")),
     // (the inline trash beside the trigger was removed by user decision 2026-07-06 —
     // deleting a style still works from the dropdown's per-option delete and the

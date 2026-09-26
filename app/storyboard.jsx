@@ -5,7 +5,7 @@
    instant, free, with REAL annotation text (always legible, always correct — the thing
    image models can't do) — and re-derives itself: a scene whose frames exist composes
    on first view, and a composed sheet re-composes whenever one of its shot frames
-   re-renders in the Shot List. Sheets paginate on BEAT BOUNDARIES (a beat never splits
+   re-renders in the Shots tab. Sheets paginate on BEAT BOUNDARIES (a beat never splits
    across sheets unless it overflows a page on its own) and honor the project's format
    aspect. Presentation furniture: one-scene pager, per-panel beat & shot briefs with
    jump-to-Shot-List links, saved top/bottom halves (the Stage's video-gen hand-off),
@@ -36,7 +36,7 @@ const SB_CONF_LABELS = ["Inner","Personal","Extra-personal"];
 function StoryboardSceneStyleChip({ project, sceneId }){
   const preset = (typeof scenePreset==="function") ? scenePreset(project, sceneId) : null;
   if(!preset) return _sbEl("span",{className:"shot-style-chip empty",
-    title:"No Style Bible preset assigned to this scene yet. Use the Styles tab to set one."},
+    title:"No colour look assigned to this scene yet. Use the Color tab to set one."},
     _sbEl(Icon.layers,{s:11}),"No style preset");
   const pal = (preset.palette||[]).slice(0,3);
   const title = [preset.name||"Scene style",preset.grade,
@@ -232,7 +232,7 @@ window.sbComposeSheet = sbComposeSheet;   // exported for the headless coordinat
    the frames laid into a 2×2 grid on a canvas, in the format's native frame (16:9,
    or vertical 9:16 for micro-drama), with the CAMERA / MOTION / ACTION /
    PERFORMANCE strips drawn as REAL text. Per-panel repair comes free: regenerate
-   one shot in the Shot List, the sheet recomposes around it.
+   one shot in the Shots tab, the sheet recomposes around it.
    ============================================================================ */
 async function sbLoadBitmap(url){
   if(!url) return null;
@@ -312,7 +312,7 @@ async function composeStoryboardSheet(scene, page, ctx, beatsMap){
       g.fillStyle="#6f6a60"; g.font="500 15px 'Hanken Grotesk', sans-serif"; g.textAlign="center";
       g.fillText("Frame not generated — Shot "+scene.no+"."+(off+i+1), x+CELL_W/2, y+IMG_H/2-8);
       g.font="500 12px 'Space Mono', monospace";
-      g.fillText("generate it in the Shot List — the sheet recomposes itself", x+CELL_W/2, y+IMG_H/2+14);
+      g.fillText("generate it in the Shots tab — the sheet recomposes itself", x+CELL_W/2, y+IMG_H/2+14);
       g.textAlign="left";
     }
     // annotation strip — real text, exact content
@@ -475,7 +475,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
     if(halvesBusy || !gen.genUrl || halvesCurrent) return;   // duplicate guard
     if(isComposed && readyRef.current.n < readyRef.current.total){
       setHalvesErr("Stage hand-off needs every required panel. This sheet is partial ("+
-        readyRef.current.n+"/"+readyRef.current.total+" frames); generate the missing frames in the Shot List first.");
+        readyRef.current.n+"/"+readyRef.current.total+" frames); generate the missing frames in the Shots tab first.");
       setMenuOpen(false);
       return;
     }
@@ -551,7 +551,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
       const res = await sbComposeSheet(scene, page, ctx, beatsMap,
         { missing: readyRef.current.total-readyRef.current.n, aspect:sheetAsp });
       if(res.status==="skipped")
-        setComposeErr("The sheet couldn't be drawn from the shot frames — try regenerating the frames in the Shot List, then compose again.");
+        setComposeErr("The sheet couldn't be drawn from the shot frames — try regenerating the frames in the Shots tab, then compose again.");
       else if(res.status==="failed")
         setComposeErr("Compose failed — "+(res.error||"the sheet couldn't be saved. Try again."));
       // "composed" and "stale" (film switched) both end quietly — the coordinator
@@ -587,7 +587,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
       if(alive){ setReady({ n, total:shotIds.length }); setHealth(h); }
     };
     count();
-    // a page shot's frame landed or RE-RENDERED (Shot List, chain render, panel edit):
+    // a page shot's frame landed or RE-RENDERED (Shots tab, chain render, panel edit):
     // refresh the count, and if this sheet is a composed one, re-compose it around the
     // new frame — the board always mirrors the latest frames. Debounced: a chain render
     // delivers frames one by one. (Skipped while a panel edit owns the recompose, and
@@ -622,8 +622,8 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
   },[gen.genUrl, ready.n, composing]);
 
   // ---- per-panel repair --------------------------------------------------------
-  // Edit the underlying SHOT FRAME (same language as the Shot List's edit), then
-  // recompose; the Shot List card adopts the new frame too. Composed sheets only —
+  // Edit the underlying SHOT FRAME (same language as the Shots tab's edit), then
+  // recompose; the Shots card adopts the new frame too. Composed sheets only —
   // an uploaded sheet has no per-shot frames to edit through.
   const [panelEdit, setPanelEdit] = React.useState(null);   // {idx:int|null, text:string} | null
   const [panelErr, setPanelErr] = React.useState("");
@@ -634,14 +634,14 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
     const requestedModel=typeof nbGetModel==="function"?nbGetModel():undefined;
     const requestedQuality=/^gpt-image-2\.5-/.test(requestedModel||"")&&typeof nbGetOaiQuality==="function"
       ?nbGetOaiQuality(requestedModel):"medium";
-    // never race the Shot List: if this shot is generating right now (chain run,
+    // never race the Shots tab: if this shot is generating right now (chain run,
     // manual render), a second writer would double-commit — refuse up front
     if(!window.__nbGenInflight) window.__nbGenInflight = {};
     if(window.__nbGenInflight[sh.id]){
-      setPanelErr("That shot is rendering right now in the Shot List — wait for it to finish, then edit the panel."); return;
+      setPanelErr("That shot is rendering right now in the Shots tab — wait for it to finish, then edit the panel."); return;
     }
     // FIRST-CLASS RUN: claim the shot in the shared inflight registry BEFORE any await,
-    // so a Shot List / batch render (and a double-tap on Apply) sees this edit and
+    // so a Shots tab / batch render (and a double-tap on Apply) sees this edit and
     // refuses to start a competing writer. Token-owned: only this run may clear it,
     // and a takeover (cancel + newer render) is detected by the token changing.
     const _tok = "sbpanel-"+Date.now()+"-"+Math.random().toString(36).slice(2);
@@ -664,7 +664,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
         throw new Error("Film changed before render; nothing was rendered.");
       let frame = (typeof nbGetImage==="function") ? nbGetImage(sh.id) : "";
       if(!frame && typeof nbLoadImage==="function"){ try{ frame = await nbLoadImage(sh.id); }catch(e){} }
-      if(!frame) throw new Error("This panel has no frame yet — generate it in the Shot List first.");
+      if(!frame) throw new Error("This panel has no frame yet — generate it in the Shots tab first.");
       if(typeof window.nbAssertMediaIdentity==="function")
         window.nbAssertMediaIdentity(panelIdentityOpts(),"storyboard-panel-edit-after-frame");
       const prompt = "Edit this film frame. Apply ONLY this change: "+text+". "
@@ -696,7 +696,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
       if(typeof window.nbAssertMediaIdentity==="function")
         window.nbAssertMediaIdentity(afterProviderIdentity,"storyboard-panel-edit-after-provider");
       // ownership re-check after the long model await: if a newer run took the shot
-      // over (a cancel released our token, then a Shot List render claimed it), that
+      // over (a cancel released our token, then a Shots tab render claimed it), that
       // render is the newer intent — discard this edit; the newer owner's events
       // drive the UI, not ours, so no cancel event is fired here
       if(!_own()){
@@ -800,7 +800,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
           : _sbEl("div",{className:"sb-comp-choices"},
               _sbEl("button",{className:"sb-comp-choice primary",onClick:doCompose,disabled:!ready.n,
                 title: ready.n ? "Lay the shots' generated frames into the sheet — instant, free, real text strips"
-                               : "No shot frames yet — generate frames in the Shot List; the sheet composes itself"},
+                               : "No shot frames yet — generate frames in the Shots tab; the sheet composes itself"},
                 _sbEl(Icon.board,{s:16}),_sbEl("span",null,"Compose from shot frames"),
                 _sbEl("span",{className:"sb-comp-empty-sub"}, ready.n+" of "+ready.total+" frames ready · instant · free")),
               _sbEl("button",{className:"sb-comp-choice",onClick:pickUpload,
@@ -821,7 +821,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
           _sbEl("button",{className:"sb-sheet-err-btn primary",
             onClick:()=>{ if(halvesErr){ saveHalves(); } else { doCompose(); } }},
             "Try again")))),
-    /* PANEL HEALTH strip — same chips as the Shot List's chain strip, so a sheet never
+    /* PANEL HEALTH strip — same chips as the Shots tab's chain strip, so a sheet never
        reads as finished while its panels are unrendered, unapproved or stale */
     health && !!health.total && _sbEl("div",{className:"ssx-chain-strip sb-health"},
       _sbEl("span",{className:"ssx-chain-chip"+((health.approved===health.total)?" ok":""),
@@ -834,7 +834,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
         title:"Frames whose continuity source has since changed — 'Render Scene in order' in Shots re-renders them."},
         health.staleSeed+" frame"+(health.staleSeed===1?" needs":"s need")+" continuity refresh"),
       health.staleSrc>0 && _sbEl("span",{className:"ssx-chain-chip warn",
-        title:"Frames rendered before their shot specification or screenplay beat changed — regenerate in the Shot List."},
+        title:"Frames rendered before their shot specification or screenplay beat changed — regenerate in the Shots tab."},
         health.staleSrc+" stale source"),
       !health.unrendered && !health.staleSeed && !health.staleSrc && health.approved===health.total &&
         _sbEl("span",{className:"ssx-chain-chip ok"},"Sheet solid")),
@@ -909,7 +909,7 @@ function StoryboardPage({ project, scene, page, pageCount, ctx, beatsMap, onView
       _sbEl("span",{className:"sb-sheet-hi page"}, _sbEl("b",null,"PAGE: "), (page.index+1)+" of "+pageCount)),
     _sbEl(StoryboardComposite,{ scene, page, ctx, beatsMap, onView, onUpdateShot }),
 
-    // full per-panel detail — Shot List fields + Writers' Room beat subtext + the final frame prompt
+    // full per-panel detail — Shots tab fields + Writers' Room beat subtext + the final frame prompt
     _sbEl(CardFold,{label:"Beat & shot briefs",defaultOpen:false},
       (()=>{ const bm = sbBeatMeta(beatsMap, scene.id);
         return (bm.driverLabel || bm.reactorLabel || bm.desire || bm.obstacle)
@@ -929,7 +929,7 @@ function StoryboardPage({ project, scene, page, pageCount, ctx, beatsMap, onView
           _sbEl("div",{className:"sb-brief-head"},
             _sbEl("span",{className:"sb-brief-no"}, scene.no+"."+((page.start||0)+i+1)),
             _sbEl("span",{className:"sb-brief-gram"}, (typeof shotGrammarLabel==="function")?shotGrammarLabel(sh):""),
-            _sbEl("button",{className:"sb-brief-jump",onClick:()=>jumpToShot(sh),title:"Edit in Shot List"},
+            _sbEl("button",{className:"sb-brief-jump",onClick:()=>jumpToShot(sh),title:"Edit in Shots"},
               _sbEl(Icon.film,{s:10}),"Edit")),
           _sbEl("div",{className:"sb-brief-line"},_sbEl("b",null,"In frame — "), who.length?who.join(", "):"—"),
           sh.action && _sbEl("div",{className:"sb-brief-line"},_sbEl("b",null,"Action — "), sh.action),
@@ -955,7 +955,7 @@ function StoryboardPage({ project, scene, page, pageCount, ctx, beatsMap, onView
               _sbEl("b",null,"Rendered from — "), seedTxt+(refN?(" · "+refN+" reference sheet"+(refN>1?"s":"")):""));
           })(),
           // the prompt: the frame's AS-RENDERED prompt when it exists; otherwise the
-          // PLANNED prompt built from the same render plan the Shot List would use now
+          // PLANNED prompt built from the same render plan the Shots tab would use now
           (()=>{
             const m = (typeof nbGetMeta==="function") ? nbGetMeta(sh.id) : null;
             if(m && m.prompt) return _sbEl(CopyBox,{label:"Frame prompt — as rendered",text:m.prompt});
@@ -970,7 +970,7 @@ function StoryboardPage({ project, scene, page, pageCount, ctx, beatsMap, onView
                   prevShot:plan.prevSh||null, laterShots: si>=0 ? all.slice(si+1) : [] };
               }
             }catch(e){}
-            return _sbEl(CopyBox,{label:"Planned frame prompt — as the Shot List would render it now",text:combinedShotPrompt(sh, pctx)});
+            return _sbEl(CopyBox,{label:"Planned frame prompt — as the Shots tab would render it now",text:combinedShotPrompt(sh, pctx)});
           })());
       })));
 }
@@ -1058,7 +1058,7 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
     } else if(out.composed){
       window.appToast("Composed "+out.composed+" sheet"+(out.composed===1?"":"s")+(out.skipped?(" — "+out.skipped+" skipped (no generated frames yet)"):"")+".");
     } else if(out.skipped){
-      window.appToast("No sheets composed — "+out.skipped+" skipped: no generated frames yet. Render frames in the Shot List first.","error");
+      window.appToast("No sheets composed — "+out.skipped+" skipped: no generated frames yet. Render frames in the Shots tab first.","error");
     }
   };
   const composeAll = async ()=>{
@@ -1078,7 +1078,7 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
     reportComposeRun(out);
   };
 
-  // jump to a shot in the Shot List (pre-expand its scene, switch tab, scroll + flash)
+  // jump to a shot in the Shots tab (pre-expand its scene, switch tab, scroll + flash)
   const jumpToShot = (sh)=>{
     try{ const c = JSON.parse(localStorage.getItem("turn_shots_collapsed")||"{}")||{}; c[sh.sceneId]=false;
       localStorage.setItem("turn_shots_collapsed", JSON.stringify(c)); }catch(e){}
@@ -1108,9 +1108,9 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
         _sbEl("div",{className:"art-soon-ic"},_sbEl(Icon.board,{s:30})),
         _sbEl("div",{className:"art-soon-t"},"No shots to board yet"),
         _sbEl("div",{className:"art-soon-d"},
-          "Break your scenes into shots in the Shot List and generate their frames — each scene's storyboard sheet then composes itself here."),
+          "Break your scenes into shots in the Shots tab and generate their frames — each scene's storyboard sheet then composes itself here."),
         _sbEl("button",{className:"art-draftall",style:{marginTop:16},onClick:()=> setArtView && setArtView("shots")},
-          _sbEl(Icon.film,{s:14}),"Go to Shot List")));
+          _sbEl(Icon.film,{s:14}),"Go to Shots")));
   }
 
   return _sbEl("div",{className:"art-scroll"},
@@ -1126,7 +1126,7 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
         _sbEl("div",{style:{flex:1}},
           _sbEl("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Storyboard Artist",
             _sbEl(window.InfoTip,{label:"About Storyboards",
-              text:"Storyboards are the presentation layer of your shot chain: each scene's generated shot frames lay into printable 2×2 sheets — paginated on beat boundaries, with real CAMERA / MOTION / ACTION / PERFORMANCE annotations — and re-compose automatically whenever a frame re-renders in the Shot List. Save top/bottom halves to hand panel rows to the Stage, repair a single panel (it edits that shot's frame), upload a board made elsewhere, or export the whole board as a print-ready PDF."})),
+              text:"Storyboards are the presentation layer of your shot chain: each scene's generated shot frames lay into printable 2×2 sheets — paginated on beat boundaries, with real CAMERA / MOTION / ACTION / PERFORMANCE annotations — and re-compose automatically whenever a frame re-renders in the Shots tab. Save top/bottom halves to hand panel rows to the Stage, repair a single panel (it edits that shot's frame), upload a board made elsewhere, or export the whole board as a print-ready PDF."})),
           _sbEl("div",{style:{fontFamily:"var(--f-mono)",fontSize:11,letterSpacing:".03em",color:"var(--txt-3)",marginTop:4}},
             readiness.complete+"/"+totalSheets+" complete"+
             (readiness.partial ? " · "+readiness.partial+"/"+totalSheets+" partial" : "")+

@@ -323,7 +323,7 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
         introExtra,
         React.createElement("div",{className:"ag-intro-note"},
           React.createElement(Icon.eye,{s:13}),
-          agent.autonomous?"Runs on its own \u2014 it boards every scene and you'll see each step. Press Stop anytime.":
+          agent.autonomous?"Runs on its own \u2014 you'll see each step as it works. Press Stop anytime.":
           agent.kind==="report"?"Read-only \u2014 it reports, it won't change anything.":
           "Every change is shown for your approval before it's applied. Nothing happens without your OK.")),
       status==="idle" && saved && React.createElement(React.Fragment,null,

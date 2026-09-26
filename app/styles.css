@@ -2080,8 +2080,11 @@ html[data-theme="light"] .ag-errbar{background:oklch(0.62 0.16 30 / .1);border-c
 .art-scroll{padding:24px 28px 60px;max-width:1280px;margin:0 auto}
 
 .art-intro{margin-bottom:22px}
-.art-intro-row{display:flex;align-items:flex-start;gap:16px}
-.art-intro-row > div:first-child{flex:1;min-width:0}
+.art-intro-row{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap}
+/* the tab title keeps one line ("Props Master", "Location Scout"): when the actions don't
+   fit beside it they wrap below instead of squeezing the title onto two lines */
+.art-intro-row > div:first-child{flex:1 1 240px;min-width:0}
+.art-intro-row .art-intro-t{white-space:nowrap}
 .art-intro-actions{display:flex;gap:8px;flex:0 0 auto;flex-wrap:wrap;justify-content:flex-end}
 .art-intro-t{font-family:"Spectral",Georgia,serif;font-size:25px;font-weight:600;letter-spacing:-.01em;color:var(--txt-0);margin-bottom:6px}
 .art-intro-d{font-size:13px;line-height:1.6;color:var(--txt-2);max-width:680px}

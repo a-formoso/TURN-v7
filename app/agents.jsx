@@ -1114,8 +1114,8 @@ async function agentAdaptation(ctx){
    ========================================================= */
 async function agentTableRead(ctx){
   const drafted = ctx.model.scenes.filter(s=>ctx.model.drafts[s.id]).length;
-  if(!drafted){ ctx.emit({k:"flag", t:"No scenes are drafted yet. Draft some scenes (or Auto-draft all), then run the table-read."}); ctx.emit({k:"done",t:"Nothing to read."}); return; }
-  if(!ctx.ai.available){ ctx.emit({k:"flag", t:"The model isn't available, so a table-read can't run here."}); ctx.emit({k:"done",t:"Aborted."}); return; }
+  if(!drafted){ ctx.emit({k:"flag", t:"No scenes are drafted yet. Draft some scenes (or Auto-draft all), then run the Final Read."}); ctx.emit({k:"done",t:"Nothing to read."}); return; }
+  if(!ctx.ai.available){ ctx.emit({k:"flag", t:"The model isn't available, so the Final Read can't run here."}); ctx.emit({k:"done",t:"Aborted."}); return; }
   ctx.emit({k:"plan", t:"Reading all "+drafted+" drafted scenes end-to-end as actor, director, editor and sound designer \u2014 checking page rhythm, visual writing, action/dialogue causality, voice and thematic payoff."});
   ctx.emit({k:"act", t:"Performing the final read\u2026"});
   const rep = await ctx.ai.tableRead(ctx.model.scenes, ctx.model.drafts);
@@ -1138,7 +1138,7 @@ async function agentTableRead(ctx){
     rep.notes.push({ scene:m.scene, fixAt:"lines", flaw:"monologue",
       issue:"Monologue \u2014 "+m.speaker+" speaks "+m.words+" words unbroken (\u201c"+m.excerpt+"\u201d). Interlace it with action and reaction \u2014 no speech should run this long without the scene pushing back." });
   });
-  ctx.emit({k:"report", t:"Table-read complete.", report:rep});
+  ctx.emit({k:"report", t:"Final Read complete.", report:rep});
   // voice distinctiveness pass — the sharpest note a real table-read produces:
   // lines that could swap speakers without anyone noticing
   ctx.emit({k:"act", t:"Re-reading the dialogue per character — checking every voice is distinct enough that no line could swap speakers…"});
@@ -1159,8 +1159,8 @@ async function agentTableRead(ctx){
     ctx.emit({k:"flag", t: why==="fewSpeakers"
       ? "Voice check skipped — it needs at least two characters with spoken lines."
       : why==="noModel"
-      ? "Voice check skipped — the writing model isn't available right now; the table-read notes above still stand."
-      : "Voice check FAILED — the model's answer couldn't be read. Your dialogue is fine to check; run the Table-Read again to retry the voice pass."});
+      ? "Voice check skipped — the writing model isn't available right now; the Final Read notes above still stand."
+      : "Voice check FAILED — the model's answer couldn't be read. Your dialogue is fine to check; run the Final Read again to retry the voice pass."});
     ctx.emit({k:"done", t:rep.notes.length+" specific notes flagged. Click a note to jump to that scene."});
   }
 }
@@ -1839,7 +1839,7 @@ async function agentVisualResearcher(ctx){
   try{ res = await lb.research(); }
   catch(e){ ctx.emit({k:"flag", t:"Research hit an error: "+((e&&e.message)||e)}); }
   if(res && res.statement) ctx.emit({k:"observe", t:"Look statement — "+res.statement.slice(0,150)});
-  ctx.emit({k:"observe", t:(res&&res.added ? ("Gathered "+res.added+" reference"+(res.added!==1?"s":"")) : "References already gathered")+" — the colour system (the Styles tab) reads these directly when it designs the palette."});
+  ctx.emit({k:"observe", t:(res&&res.added ? ("Gathered "+res.added+" reference"+(res.added!==1?"s":"")) : "References already gathered")+" — the colour system (the Color tab) reads these directly when it designs the palette."});
   if(ctx.cancelled()) return;
 
   // 2) RENDER STYLE — the researcher also proposes the film's MEDIUM (one unified pick
@@ -1920,7 +1920,7 @@ async function agentSceneDirector(ctx){
   const art = ctx.art;
   const MAX_GENS = 24, MAX_REPAIRS = 2;
   if(!art || !art.scenes || !art.scenes.length){
-    ctx.emit({k:"flag", t:"No shots to direct yet — break your scenes into shots in the Shot List first."});
+    ctx.emit({k:"flag", t:"No shots to direct yet — break your scenes into shots in the Shots tab first."});
     ctx.emit({k:"done", t:"Nothing to direct."}); return;
   }
   let gens = 0, qcDown = false;
@@ -2000,7 +2000,7 @@ async function agentSceneDirector(ctx){
   }
   ctx.emit({k:"done", t:"Direction complete — "+gens+" generation"+(gens!==1?"s":"")+" spent"
     +(qcDown?" (visual QC was unavailable — redeploy the image-proxy to enable it)":"")
-    +". Review flagged frames in the Shot List; every change is revertible per card."});
+    +". Review flagged frames in the Shots tab; every change is revertible per card."});
 }
 
 /* ---- Consistency Check — the scene-progression auditor. Rule-based and FREE
@@ -2572,7 +2572,7 @@ const AGENTS = [
   { id:"breakdown", name:"Script Breakdown", icon:"clipboard", kind:"fix",
     blurb:"The 1st-AD pass: reads every written scene beat by beat and tags each character's physical details and appearance changes \u2014 then enriches the cast sheets with script-only details, flags where the script's pronouns contradict a character's sheet (one-click reconcile), and warns about beats whose text isn't self-contained (an ambiguous pronoun, or a prop from the Props tab that drops out) before you generate. It doesn't add props; use Art Room \u2192 Props \u2192 Extract screenplay props for that.",
     run:agentScriptBreakdown },
-  { id:"colorist", name:"Cinematographer", icon:"palette", kind:"build", room:"art",
+  { id:"colorist", name:"Colorist", icon:"palette", kind:"build", room:"art",
     blurb:"Designs your film's colour system \u2014 a bespoke palette + film stock from the story and your visual references \u2014 then color-scripts every scene along the value-charge spine and shows you why, for your approval.",
     run:agentColorist },
   { id:"shotdesigner", name:"Shot Designer", icon:"film", kind:"build", room:"art",
@@ -2585,7 +2585,7 @@ const AGENTS = [
     blurb:"Adds the worn/carried items listed in the cast's character briefs as proposals, drafts every prop's spec, and generates the reference images for the props that need their own (text-only objects are described in shots instead), each owned prop referencing its owner's character sheet so it matches that character's look (runs after the cast). It never adds or merges screenplay props \u2014 use Props \u2192 Extract screenplay props for that. Runs autonomously; press Stop anytime.",
     run:agentPropsMaster },
   { id:"researcher", name:"Visual Researcher", icon:"image", kind:"build", room:"art", autonomous:true,
-    blurb:"Builds the film's lookbook brief — writes the visual statement, gathers/dedupes reference touchstones (palette, lighting, lens, texture), and proposes the film's RENDER STYLE from the story (your approval sets every character/prop/location style dropdown in one pass). Use Generate all frames afterwards to render the mood frames. The colour system (the Styles tab) reads these references when it designs the palette.",
+    blurb:"Builds the film's lookbook brief — writes the visual statement, gathers/dedupes reference touchstones (palette, lighting, lens, texture), and proposes the film's RENDER STYLE from the story (your approval sets every character/prop/location style dropdown in one pass). Use Generate all frames afterwards to render the mood frames. The colour system (the Color tab) reads these references when it designs the palette.",
     run:agentVisualResearcher },
   { id:"locscout", name:"Location Scout", icon:"globe", kind:"build", room:"art", autonomous:true,
     blurb:"Scouts your film's locations on its own \u2014 pulls every place from the sluglines, drafts each one's staging + depth-grid spec, generates the plate, and adds the time-of-day variants the script calls for. Also flags any scene whose slugline location has no card yet. Runs autonomously; press Stop anytime.",
