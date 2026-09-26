@@ -50,7 +50,7 @@ function harness(options={}){
       state.order.push("upload");
       state.uploads.push({path,size:blob.size,type:blob.type});
       if(state.storageThrow) throw state.storageThrow;
-      if(options.failReference&&/\/ref-/.test(path))
+      if(options.failReference&&/(\/|-)ref-/.test(path))   // old layout ".../ref-kind-…", new ".../{stamp}-ref-kind-…"
         return {error:{status:403,code:"42501",message:"reference snapshot denied"}};
       return {error:state.storageError};
     },

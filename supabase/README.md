@@ -55,13 +55,21 @@ cross-device access, and multiple projects all work.
   two backends: `local` (current IndexedDB) and `supabase`. The app code is
   unchanged; only the backend swaps based on auth state. Local stays as an offline
   cache; Supabase is the source of truth when signed in.
-- **Images** are uploaded as real PNG **files** (not base64 in a DB column) to
-  `turn-assets/{user}/{project}/{assetType}/{entity}/{role}[-v{N}]-{timestamp}-{shortId}.png`
-  (assetType ∈ character|prop|location|shot|cameo; role ∈ sheet|ref-*|cameo-angle; the
-  optional `v{N}` is a non-authoritative version-at-birth hint on sheets),
-  fixing the 4K bloat problem. The first path segment is always the user id — RLS
-  pins it to `auth.uid()` — and only stable IDs (never display names) appear in paths,
-  so renaming a project or character never orphans its files.
+- **Images** are uploaded as real image **files** (not base64 in a DB column) to
+  `turn-assets/{uploader}/{project}/{folder}/{entity}[/states/{stateId}|/{sub}]/{timestamp}-{role}[-v{N}]-{shortId}.{ext}`
+  (folder ∈ character|prop|location|shot|storyboard|lookbook|cameo|other; an appearance
+  state nests inside its character; role ∈ sheet|ref-*|cameo-angle; the optional `v{N}`
+  is a non-authoritative version-at-birth hint; `{ext}` is the real file type). Files
+  made before 2026-09-26 keep their older names (`asset/`, `locunit/`, storyboards under
+  `character/`, `{role}-…-{timestamp}` names) and keep working.
+  The first two segments are the uploader's user id and the project id — the storage
+  policies check exactly those two — so they stay ids, and only stable IDs (never
+  display names) appear in paths: renaming a project or character never orphans a file.
+- **Reading the tree as an admin:** the Supabase Storage browser can only show those
+  ids. Run `admin-inventory.sql` once in the SQL Editor, then query the read-only
+  `turn_admin` views (Storage by project / by user, Film detail, Orphans) to see owner
+  emails, film titles and item names. Never delete a whole user folder: it also holds
+  that user's uploads to other people's films.
 - **Metadata, reference lists, and version history** live in `turn.generations`.
 - **Projects** scope every asset; switching projects loads that film's doc + assets.
 

@@ -1928,15 +1928,20 @@ async function cloudSignedUrlsBatch(paths){
   return out;
 }
 /* Storage path convention (forward-only — see supabase/README.md and storage.sql):
-     {userId}/{projectId}/{assetType}/{entityId}/{role}[-v{N}]-{timestamp}-{shortId}.png
-   Level 1 MUST be the user id: RLS in storage.sql pins it to auth.uid(). Only stable
-   IDs appear in the path — never mutable display names — so renaming a project or
-   character never orphans a file. assetType ∈ character|prop|location|shot|cameo;
-   role ∈ sheet|ref-<kind>|<cameo-angle>. The optional v{N} is a NON-AUTHORITATIVE
-   version-at-birth hint (the live version shown in Details comes from the DB and
-   stays correct after restore/delete; this filename token never changes). The
-   {timestamp}-{shortId} remains the real uniqueness key (collision-proof). Old files
-   keep their original paths and keep working; only new uploads use this. */
+     {userId}/{projectId}/{folder}/{entity}[/states/{stateId} | /{sub}]/{timestamp}-{role}[-v{N}]-{shortId}.{ext}
+   Level 1 MUST be the uploader's user id and level 2 the project id: the storage policies
+   and the upload reservation check exactly those two folders (and nothing below them), so
+   they can never carry readable names — the admin inventory (supabase/admin-inventory.sql)
+   turns them into emails and titles. Only stable IDs appear in the path — never mutable
+   display names — so renaming a project or character never orphans a file.
+   folder ∈ character|prop|location|shot|storyboard|lookbook|cameo|other (turnAssetFolder);
+   an appearance state nests inside its character ("adem/states/st-1"), a sub-slot inside
+   its owner ("sbsheet-p1/half-top"). role ∈ sheet|ref-<kind>|<cameo-angle>. The optional
+   v{N} is a NON-AUTHORITATIVE version-at-birth hint (the live version comes from the DB).
+   The timestamp leads so a folder lists in time order; one save shares one timestamp
+   across its sheet and reference snapshots; {shortId} keeps every key unique; {ext} is the
+   file's real type. Old files keep their original paths and keep working (2026-09-26
+   tidy: storyboards used to land in character/, lookbook and location plates in asset/). */
 function turnSafeSeg(s){ return String(s==null?"":s).replace(/[^a-zA-Z0-9_:-]/g,"_"); }
 function turnStamp(){
   const d = new Date(), p = (n)=>String(n).padStart(2,"0");   // sortable UTC YYYYMMDD-HHMMSS
@@ -1946,11 +1951,42 @@ function turnShortId(){
   const u = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now()+"-"+Math.random().toString(36).slice(2));
   return String(u).replace(/-/g,"").slice(0,8);
 }
-function turnStoragePath(uid, projectId, entityId, assetType, role, ext, version){
-  const vtag = (version!=null && version!=="") ? ("v"+turnSafeSeg(version)+"-") : "";
-  return uid+"/"+projectId+"/"+turnSafeSeg(assetType||"asset")+"/"+turnSafeSeg(entityId)+"/"
-    + turnSafeSeg(role||"file")+"-"+vtag+turnStamp()+"-"+turnShortId()+"."+(ext||"png");
+/* the readable folder for an asset: the entity's own prefix decides first (storyboard
+   sheets, lookbook frames, scale sheets, slugline units), then the caller's kind. The
+   kind itself is left untouched upstream — it also drives reference-role inference. */
+function turnAssetFolder(kind, entityId){
+  const id = String(entityId||""), k = String(kind||"");
+  if(id.indexOf("sbsheet-")===0) return "storyboard";
+  if(id.indexOf("look-")===0) return "lookbook";
+  if(id.indexOf("charscale-")===0) return "character";
+  if(id.indexOf("locunit-")===0 || k==="locunit") return "location";
+  if(k==="character" || k==="prop" || k==="location" || k==="shot" || k==="cameo") return k;
+  if(k==="asset") return /^loc-/.test(id) ? "location" : "other";
+  return k ? "other" : "character";   // a commit with no kind was always a character sheet
 }
+/* "adem:st-mrnfi0nm-0" → "adem/states/st-mrnfi0nm-0"; "sbsheet-p1:half-top" → "sbsheet-p1/half-top" */
+function turnEntityPath(entityId){
+  const id = turnSafeSeg(entityId), i = id.indexOf(":");
+  if(i<=0) return id.replace(/:/g,"-");
+  const base = id.slice(0,i), sub = id.slice(i+1).replace(/:/g,"-") || "sub";
+  return base+"/"+(/^st-/.test(sub) ? "states/" : "")+sub;
+}
+/* a readable path segment from a display label ("¾ Left" → "three-quarter-left") */
+function turnReadableSeg(label, fallback){
+  const t = String(label==null?"":label).replace(/¾/g," three-quarter ").replace(/½/g," half ").replace(/¼/g," quarter ")
+    .normalize("NFKD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"");
+  return t || fallback || "file";
+}
+function turnExtForMime(mime){
+  const m = String(mime||"").toLowerCase();
+  return m==="image/jpeg" || m==="image/jpg" ? "jpg" : m==="image/webp" ? "webp" : m==="image/gif" ? "gif" : "png";
+}
+function turnStoragePath(uid, projectId, entityId, assetType, role, ext, version, stamp){
+  const vtag = (version!=null && version!=="") ? ("-v"+turnSafeSeg(version)) : "";
+  return uid+"/"+projectId+"/"+turnAssetFolder(assetType, entityId)+"/"+turnEntityPath(entityId)+"/"
+    + (stamp||turnStamp())+"-"+turnSafeSeg(role||"file")+vtag+"-"+turnShortId()+"."+(ext||"png");
+}
+window.turnAssetFolder = turnAssetFolder;
 window.turnStoragePath = turnStoragePath;   // exposed for inspection / tests
 
 /* Storage and Postgres cannot commit atomically. Reserve each exact object key
@@ -2086,7 +2122,7 @@ async function _seriesFinishAssetUploadIntents(paths){
   }catch(e){ return false; }
 }
 
-async function cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, role, version, allowRemote, diagnostics){
+async function cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, role, version, allowRemote, diagnostics, stamp){
   const sb = sbClient();
   if(!sb){
     _seriesRecordUploadError(diagnostics,"client",null,
@@ -2127,7 +2163,7 @@ async function cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, ro
     return null;
   }
   let path;
-  try{ path = turnStoragePath(uid, projectId, entityId, assetType, role, "png", version); }
+  try{ path = turnStoragePath(uid, projectId, entityId, assetType, role, turnExtForMime(blob.type), version, stamp); }
   catch(e){
     _seriesRecordUploadError(diagnostics,"input",e,"The generated image path could not be prepared.");
     return null;
@@ -2559,6 +2595,7 @@ async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, 
   // version-at-birth hint in the filename (non-authoritative; the live version comes
   // from the DB). refs/cameo angles aren't versioned, so they pass no version.
   const ver = (meta && meta.version) || 1, created=[];
+  const saveStamp = turnStamp();   // one save = one timestamp across the sheet and its reference snapshots
   let row;
   try{ row=await cloudGetGenStrict(projectId,entityId); }
   catch(e){
@@ -2577,7 +2614,7 @@ async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, 
     return commitError("Cloud purge receipts could not be verified before saving.");
   }
   if(_cxl()) return { tier:"cancelled", url:dataUrl };
-  const newPath = await cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, "sheet", ver, false, uploadDiagnostics);
+  const newPath = await cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, "sheet", ver, false, uploadDiagnostics, saveStamp);
   if(!newPath) return commitError(
     (uploadDiagnostics.error&&uploadDiagnostics.error.message)||"Image upload failed.");
   created.push(newPath);
@@ -2605,7 +2642,7 @@ async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, 
     let p = null;
     /* Reference snapshots remain best-effort. A failed optional reference keeps
        its null storage_path/provenance row and must not abort the generated sheet. */
-    if(r&&r.url) p = await cloudUploadImage(projectId, uid, entityId, r.url, assetType, "ref-"+turnSafeSeg(r.kind||"img"),undefined,true);
+    if(r&&r.url) p = await cloudUploadImage(projectId, uid, entityId, r.url, assetType, "ref-"+turnSafeSeg(r.kind||"img"),undefined,true,undefined,saveStamp);
     if(p) created.push(p);
     if(_cxl()) return await cleanupCreated(withDiagnostics({tier:"cancelled",url:dataUrl}));
     refRows.push({...provenance,storage_path:p});
@@ -3651,7 +3688,7 @@ async function cloudSyncCameo(projectId, uid, charId, rec){
   if(prev && prev.angles){ try{ await sb.storage.from(turnBucket()).remove((prev.angles||[]).map(a=>a.storage_path).filter(Boolean)); }catch(e){} }
   const angleRows = [];
   for(const a of (rec.angles||[])){
-    const p = await cloudUploadImage(projectId, uid, charId, a.url, "cameo", turnSafeSeg(a.label||"angle"));
+    const p = await cloudUploadImage(projectId, uid, charId, a.url, "cameo", turnReadableSeg(a.label, "angle"));
     if(p) angleRows.push({ label:a.label, storage_path:p });
   }
   const prov = { consent:!!rec.consent, source:rec.source||"webcam", subject:rec.subject||"",

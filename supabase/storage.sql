@@ -1,12 +1,17 @@
 -- ============================================================================
 -- TURN — Supabase Storage  (paste the WHOLE contents into the SQL Editor → Run)
--- Private bucket for generated images; every file is locked to the folder of the
--- user who owns it. Path convention (built in app/cloud.jsx -> turnStoragePath):
---   turn-assets/{user_id}/{project_id}/{assetType}/{entityId}/{role}[-v{N}]-{timestamp}-{shortId}.png
--- assetType: character|prop|location|shot|cameo; role: sheet|ref-<kind>|<cameo-angle>.
--- v{N} is a non-authoritative version-at-birth hint on sheets; {timestamp}-{shortId}
--- is the real uniqueness key. The live version label comes from the DB, not the name.
--- IMPORTANT: the RLS below pins folder[1] to auth.uid(), so {user_id} MUST stay first.
+-- ⚠ ONE-TIME BOOTSTRAP. Do NOT re-run on a live project: the owner-only policies
+--   below were superseded by team-collaboration.sql / enforce-role-scopes.sql /
+--   series-production.sql, and re-running this file brings the old ones back.
+-- Private bucket for generated images. Path convention (app/cloud.jsx -> turnStoragePath):
+--   turn-assets/{uploader_id}/{project_id}/{folder}/{entity}[/states/{stateId}|/{sub}]/{timestamp}-{role}[-v{N}]-{shortId}.{ext}
+-- folder: character|prop|location|shot|storyboard|lookbook|cameo|other (files made
+-- before 2026-09-26 also use asset/ and locunit/, and keep their old names);
+-- role: sheet|ref-<kind>|<cameo-angle>. v{N} is a non-authoritative version hint;
+-- {timestamp}-{shortId} is the real uniqueness key; {ext} is the file's real type.
+-- IMPORTANT: storage policies check folder[1] (the uploader) and folder[2] (the
+-- project) — they MUST stay first and stay ids. To see names (emails, titles) for
+-- those ids, use the admin views in admin-inventory.sql, never folder names.
 -- ============================================================================
 
 insert into storage.buckets (id, name, public)

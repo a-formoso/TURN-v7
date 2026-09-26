@@ -10,6 +10,7 @@
     "@babel/core": "^7.29.7",
     "@babel/plugin-transform-block-scoping": "^7.29.7",
     "@babel/preset-react": "^7.29.7",
+    "@electric-sql/pglite": "^0.5.8",
     "terser": "^5.51.2"
   }
 }
