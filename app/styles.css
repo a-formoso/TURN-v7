@@ -2822,6 +2822,8 @@ html[data-theme="dark"] .dt-viewing svg{color:oklch(0.82 0.09 296)}
 .proj-menu{position:absolute;top:calc(100% + 8px);left:0;min-width:250px;background:var(--bg-4);
   border:1px solid var(--line-2);border-radius:11px;padding:8px;z-index:60;box-shadow:0 12px 36px rgba(0,0,0,.6)}
 .proj-menu-lab{font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--txt-3);padding:4px 8px 7px}
+/* no films yet: the switcher says so instead of listing a blank canvas as "Untitled film" */
+.proj-empty{padding:8px 9px 10px;font-size:12px;line-height:1.45;color:var(--txt-2)}
 .proj-list{display:flex;flex-direction:column;gap:2px;max-height:320px;overflow-y:auto}
 .proj-row{display:flex;align-items:center;gap:2px;border-radius:7px}
 .proj-row.on{background:var(--bg-5)}

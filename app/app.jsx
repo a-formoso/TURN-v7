@@ -731,6 +731,9 @@ function App(){
   const _sharedCanWriteRoom = id=>!(_projRow&&_projRow.isShared)
     || (typeof window.teamCanWriteRoom==="function" && window.teamCanWriteRoom(shareRole,id));
   const writersRoomReadOnly = !_sharedCanWriteRoom("writers");
+  // the open film is a blank canvas (see turnFilmIsBlank in auth-ui.jsx): no badges on its chip
+  const currentFilmBlank = !!_projRow && typeof window.turnFilmIsBlank==="function" && window.turnFilmIsBlank(_projRow)
+    && !scenes.length && !(characters||[]).length;
   const artRoomReadOnly = !_sharedCanWriteRoom("art");
   const writersRoomBlocked = projectLoading || writersRoomReadOnly;
   // the Production check edits the script AND the Art Room: open to anyone who can save either
@@ -2137,6 +2140,10 @@ function App(){
     [...(preferred||[]),...(remaining||[])].forEach(row=>{
       if(row&&!isShowProject(row)&&!ordered.some(x=>x.id===row.id)) ordered.push(row);
     });
+    // open a real film next; a blank canvas only when none is left — and reuse one that
+    // already exists before creating another (they are never listed, so they'd pile up)
+    const _blank=(r)=> typeof window.turnFilmIsBlank==="function" && window.turnFilmIsBlank(r);
+    ordered.sort((a,b)=> (_blank(a)?1:0)-(_blank(b)?1:0));
     for(const row of ordered){
       if(await loadProjectIntoState(row.id,{discardPending:true})) return true;
     }
@@ -5104,6 +5111,21 @@ function App(){
   // run-START values by design (that's the agent's working snapshot); this ref is
   // how sync() sees what the film looks like NOW — to snapshot the true pre-commit
   // state for Undo, and to detect edits made while the agent ran.
+  /* The open film's list row carries LIVE facts (the list is not re-fetched on switch), so a
+     film that gained a scene or a cast member is never mistaken for a blank canvas — in
+     the switcher or on Home — and a blank one reads as "No film yet". */
+  React.useEffect(()=>{
+    if(!currentProjectId || projectLoading) return;
+    const hasScenes = scenes.length ? "1" : null, hasChars = (characters||[]).length ? "1" : null;
+    const logline = String((project&&project.logline)||"");
+    setProjects(ps=>{ let changed=false;
+      const next=(ps||[]).map(p=>{
+        if(!p || p.id!==currentProjectId) return p;
+        if(!!p.hasScenes===!!hasScenes && !!p.hasChars===!!hasChars && String(p.logline||"")===logline) return p;
+        changed=true; return { ...p, hasScenes, hasChars, logline };
+      });
+      return changed ? next : ps; });
+  },[currentProjectId, projectLoading, scenes.length>0, (characters||[]).length>0, project&&project.logline]);
   const agentLiveRef = React.useRef(null);
   agentLiveRef.current = { scenes, characters, project, beats: beatsMap, drafts, continuity: continuityMap };
   window.__turnCurrentProjectId = currentProjectId;
@@ -6127,10 +6149,14 @@ function App(){
       authSlot: React.createElement(AccountChip,{ session, cloudActive: cloudMode, connectionState:cloudConnectionState, saveState, shareRole,roleUnavailable:unknownSharedRole,
         onSignIn:()=>setAuthOpen(true), onSignOut:signOut }),
       projectSlot: cloudMode ? React.createElement(ProjectSwitcher,{ projects, currentId:currentProjectId,
-        formatLabel:(typeof formatOf==="function") ? formatOf(project).label : null,
+        // no format / framework badge on a blank canvas: nothing has been chosen yet
+        formatLabel:(typeof formatOf==="function" && !currentFilmBlank) ? formatOf(project).label : null,
         // framework badge only when it differs from the default — three-act is the baseline
-        frameworkLabel:(typeof frameworkOf==="function" && frameworkOf(project).id!=="threeact") ? frameworkOf(project).badge : null,
+        frameworkLabel:(typeof frameworkOf==="function" && !currentFilmBlank && frameworkOf(project).id!=="threeact") ? frameworkOf(project).badge : null,
         onSwitch:switchProject, onCreate:createProject, onRename:renameProject, onDelete:deleteProject,
+        // "New film" opens the New Story window (like Home's New Project) — the film is
+        // created when a story launches, so no blank "Untitled film" rows pile up
+        onNewStory:()=>{ setRoom("writers"); setView("spine"); startNewStory(); },
         onNewEpisode:createEpisode, onMakeShow:makeShow, onDeleteShow:deleteShow, seriesBusy,
         canMakeShow: !currentShowId && scenes.length>0 && !(((projects||[]).find(p=>p.id===currentProjectId)||{}).isShared) }) : null,
       presenceSlot: (cloudMode && window.PresenceDots)

@@ -297,9 +297,9 @@ async function cloudListProjects(){
     const session = await cloudGetSession();
     const uid = session && session.user && session.user.id;
     const email = String((session && session.user && session.user.email) || "").toLowerCase();
-    const legacyFields="id,owner,title,updated_at,created_at,isShow:doc->>isShow,showId:doc->>showId,episodeNo:doc->>episodeNo,cover:doc->>cover,coverPrev:doc->>coverPrev,fmt:doc->project->>format,logline:doc->project->>logline,ord:doc->>homeOrder,hasShots:doc->shots->0->>id,hasLocs:doc->locations->0->>id";
+    const legacyFields="id,owner,title,updated_at,created_at,isShow:doc->>isShow,showId:doc->>showId,episodeNo:doc->>episodeNo,cover:doc->>cover,coverPrev:doc->>coverPrev,fmt:doc->project->>format,logline:doc->project->>logline,ord:doc->>homeOrder,hasShots:doc->shots->0->>id,hasLocs:doc->locations->0->>id,hasScenes:doc->scenes->0->>id,hasChars:doc->characters->0->>id";
     let { data, error } = await _cloudQuery(sb.from("turn_projects")
-      .select("id,owner,title,updated_at,created_at,project_kind,show_id,episode_no,isShow:doc->>isShow,showId:doc->>showId,episodeNo:doc->>episodeNo,cover:doc->>cover,coverPrev:doc->>coverPrev,fmt:doc->project->>format,logline:doc->project->>logline,ord:doc->>homeOrder,hasShots:doc->shots->0->>id,hasLocs:doc->locations->0->>id")
+      .select("id,owner,title,updated_at,created_at,project_kind,show_id,episode_no,isShow:doc->>isShow,showId:doc->>showId,episodeNo:doc->>episodeNo,cover:doc->>cover,coverPrev:doc->>coverPrev,fmt:doc->project->>format,logline:doc->project->>logline,ord:doc->>homeOrder,hasShots:doc->shots->0->>id,hasLocs:doc->locations->0->>id,hasScenes:doc->scenes->0->>id,hasChars:doc->characters->0->>id")
       .order("updated_at",{ ascending:false }),"Project list");
     // Older film-only installations do not have the normalized column yet. Keep
     // their project wall usable and fall back to the case-insensitive JSON marker.

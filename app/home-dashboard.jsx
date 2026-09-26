@@ -77,7 +77,9 @@
     // real films only (shows are containers), newest-updated first (list already sorted)
     const films = (projects||[]).filter(p=>!(window.turnSeries&&typeof window.turnSeries.isShowDoc==="function"
       ? window.turnSeries.isShowDoc(p)
-      : p&&(String(p.project_kind||"").toLowerCase()==="show"||String(p.isShow).toLowerCase()==="true")));
+      : p&&(String(p.project_kind||"").toLowerCase()==="show"||String(p.isShow).toLowerCase()==="true")))
+      // a blank canvas (no story yet) is not a film — never a card called "Untitled film"
+      .filter(p=>!(typeof window.turnFilmIsBlank==="function" && window.turnFilmIsBlank(p)));
     // owned vs shared-with-me: Recent Projects stays OWNED films only (ordering,
     // paging and poster behaviour unchanged); shared films get their own section
     const mine = films.filter(p=> !p.isShared);

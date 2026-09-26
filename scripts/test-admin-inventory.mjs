@@ -814,5 +814,19 @@ await acheck("the PREFLIGHT REPORT query alone returns all-ok on a healthy datab
   assert.ok(rows.every(r => r.ok === true), JSON.stringify(rows.filter(r => !r.ok)));
 });
 
+await acheck("saved query 'whole project folders': only folders where EVERY file is safe", async () => {
+  // run the documented snippet exactly as the admin would (comment markers stripped)
+  const start = SQL.indexOf("-- ── Whole project folders that are safe to delete");
+  const body = SQL.slice(start).split("\n").filter(l => /^-- (select|  from|  where|  group|having| where| group| order|       )/.test(l) || /^--  (from|where|group|order)/.test(l))
+    .map(l => l.replace(/^-- ?/, "")).join("\n").replace(/;[\s\S]*$/, "");
+  const rows = (await db.query(body)).rows;
+  const key = r => r.user_folder + "/" + r.project_folder;
+  const got = new Set(rows.map(key));
+  assert.ok(got.has(GONE_USER + "/" + PD), "a deleted account's folder of a deleted film: every file is an orphan");
+  assert.ok(!got.has(ALICE + "/" + PD), "the same film's folder under Alice still holds a Blender service file");
+  assert.ok(!got.has(ALICE + "/" + P1), "a live film's folder is never listed");
+  assert.ok(rows.every(r => Number(r.files) > 0 && r.size));
+});
+
 await db.close();
 console.log(`${checks} checks passed`);

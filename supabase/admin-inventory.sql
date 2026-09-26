@@ -901,3 +901,17 @@ select 'turn_admin installed' as result,
 -- select reason, size, path, uploader_email, project_title, entity_name, created_at
 --   from turn_admin.orphans
 --  order by bytes desc nulls last;
+
+-- ── Whole project folders that are safe to delete ───────────────────────────
+-- EVERY file inside the folder is safe (so the folder can go in one step in the
+-- Dashboard: Storage → turn-assets → <user_folder> → select <project_folder> → Delete).
+-- A folder with even one referenced, service or in-progress file is not listed.
+-- Re-run right before deleting: the list is a snapshot.
+-- select split_part(f.path, '/', 1) as user_folder, max(f.uploader_email) as uploader_email,
+--        split_part(f.path, '/', 2) as project_folder, max(f.project_title) as project,
+--        count(*) as files, pg_size_pretty(sum(coalesce(f.bytes, 0))) as size
+--   from turn_admin.files f
+--  where split_part(f.path, '/', 2) ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+--  group by 1, 3
+-- having bool_and(f.safe_to_delete)
+--  order by 1, 3;
