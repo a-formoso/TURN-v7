@@ -21,6 +21,9 @@ const ART_TABS = [
   { id:"stylebible", label:"Color", icon:"layers" },
   { id:"shots",      label:"Shots",  icon:"film" },
   { id:"storyboard", label:"Storyboards", icon:"board" },
+  // the First AD's stripboard: what every scene still needs before it can be shot
+  // (owner-approved 2026-09-26). Reads the other tabs; generates nothing.
+  { id:"breakdown",  label:"Breakdown",   icon:"grid" },
 ];
 window.ART_TABS = ART_TABS;
 
@@ -5813,6 +5816,11 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
   // other tabs still load bytes on click, but with no round-trip first.
   const projId = project && project.id;
   React.useEffect(()=>{ if(typeof nbPrefetchAll==="function") nbPrefetchAll(); },[projId]);
+  // the ⋮ menu's "Export art department bible" — from any Art Room tab
+  React.useEffect(()=>{
+    window.turnExportArtBible = ()=> window.exportArtBible && window.exportArtBible({ project, characters, props, locations, scenes, drafts, shots });
+    return ()=>{ if(window.turnExportArtBible) delete window.turnExportArtBible; };
+  });
   const tabPreloadIds = ()=>{
     if(artView==="lookbook") return (lookbook||[]).map(c=>c&&c.id).filter(Boolean);
     if(artView==="characters") return (characters||[]).flatMap(c=> (c&&c.id) ? [c.id, ...(c.states||[]).map(s=>c.id+":"+s.id)] : []);
@@ -5893,6 +5901,8 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
       : artView==="storyboard" && window.StoryboardView
       ? React.createElement(window.StoryboardView,{project,scenes,shots,characters,props,locations,beatsMap,setArtView,onUpdateShot,
           stale:!!_stale.storyboard,onReviewLookbook:canReview?()=>onReviewLookbook&&onReviewLookbook("storyboard"):null})
+      : artView==="breakdown" && window.BreakdownView
+      ? React.createElement(window.BreakdownView,{project,scenes,characters,props,locations,shots,drafts,setArtView})
       : React.createElement(ArtComingSoon,{tab:artView})));
 }
 window.ArtRoom = ArtRoom;

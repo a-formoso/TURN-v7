@@ -8090,3 +8090,61 @@ span.ag-runner-model{font-family:var(--f-mono);font-size:10px;letter-spacing:.06
   .stage-plan-actions{align-items:stretch;justify-content:flex-start}
   .stage-plan-actions button{flex:1 1 120px}
 }
+
+/* ---- Breakdown (Art Room · the First AD's stripboard, 2026-09-26) ----
+   One strip per scene, coloured the crew way: white INT day, yellow EXT day, blue INT
+   night, green EXT night, pink dawn/dusk. --bd-c carries the strip colour. */
+.bd-sum{font-family:var(--f-mono);font-size:11px;letter-spacing:.03em;color:var(--txt-3);margin-top:4px;line-height:1.5}
+.bd-filter{display:inline-flex;gap:2px;padding:3px;background:var(--bg-2);border:1px solid var(--line-2);border-radius:9px}
+.bd-filter-btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 11px;border:0;border-radius:7px;background:transparent;color:var(--txt-2);font-family:var(--f-ui);font-size:12px;font-weight:500;cursor:pointer}
+.bd-filter-btn:hover{color:var(--txt-0)}
+.bd-filter-btn.on{background:var(--bg-4);color:var(--txt-0)}
+.bd-filter-n{font-family:var(--f-mono);font-size:10px;color:var(--txt-3)}
+.bd-legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin:-6px 0 14px;font-size:11px;color:var(--txt-2)}
+.bd-legend-i{display:inline-flex;align-items:center;gap:6px}
+.bd-sw{width:14px;height:10px;border-radius:2px;border:1px solid var(--line-3);background:var(--bd-c,var(--bg-4))}
+.bd-board{display:flex;flex-direction:column;gap:8px}
+.bd-strip{--bd-c:var(--txt-3);display:grid;grid-template-columns:92px minmax(0,1fr) 150px;background:var(--bg-2);border:1px solid var(--line-2);border-left:6px solid var(--bd-c);border-radius:10px;overflow:hidden}
+.bd-k-int-day{--bd-c:#f1efe8}
+.bd-k-ext-day{--bd-c:oklch(0.87 0.15 95)}
+.bd-k-int-night{--bd-c:oklch(0.68 0.13 252)}
+.bd-k-ext-night{--bd-c:oklch(0.74 0.14 150)}
+.bd-k-dusk{--bd-c:oklch(0.78 0.12 355)}
+.bd-strip-id{padding:12px 10px;background:color-mix(in srgb, var(--bd-c) 12%, transparent);border-right:1px solid var(--line);display:flex;flex-direction:column;gap:5px}
+.bd-strip-no{font-family:var(--f-mono);font-size:22px;font-weight:600;color:var(--txt-0);line-height:1}
+.bd-strip-ie{font-family:var(--f-mono);font-size:9.5px;letter-spacing:.06em;color:var(--txt-2);text-transform:uppercase;line-height:1.35;overflow-wrap:anywhere}
+.bd-strip-body{padding:10px 14px 12px;min-width:0}
+.bd-strip-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.bd-strip-title{font-size:14px;font-weight:600;color:var(--txt-0)}
+.bd-strip-set{font-size:12px;color:var(--txt-2)}
+.bd-rows{display:flex;flex-direction:column;gap:6px}
+.bd-row{display:flex;align-items:flex-start;gap:10px}
+.bd-row-lab{flex:0 0 62px;padding-top:5px;font-family:var(--f-mono);font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--txt-3)}
+.bd-chips{display:flex;flex-wrap:wrap;gap:5px;min-width:0}
+.bd-chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:3px 9px;border:1px solid var(--line-2);border-radius:999px;background:var(--bg-3);color:var(--txt-1);font-family:var(--f-ui);font-size:11.5px;line-height:1.35;cursor:pointer;text-align:left}
+.bd-chip:hover{border-color:var(--line-3);color:var(--txt-0)}
+.bd-chip.text{border-style:dashed;color:var(--txt-2)}
+.bd-chip-sub{color:var(--txt-3)}
+.bd-dot{flex:0 0 auto;width:7px;height:7px;border-radius:50%;border:1.5px solid var(--pos);background:transparent}
+.bd-dot.ok{border-color:oklch(0.72 0.14 150);background:oklch(0.72 0.14 150)}
+.bd-empty{font-size:11.5px;color:var(--txt-3);padding-top:3px}
+.bd-strip-status{padding:12px;border-left:1px solid var(--line);display:flex;flex-direction:column;align-items:flex-start;gap:4px;font-size:11.5px;color:var(--txt-2);min-width:0}
+.bd-strip-status.ok{flex-direction:row;align-items:center;justify-content:center;gap:6px;color:oklch(0.76 0.14 150);font-weight:600}
+.bd-need-n{font-family:var(--f-mono);font-size:20px;font-weight:600;color:var(--pos);line-height:1}
+.bd-need-list{display:flex;flex-direction:column;gap:2px;margin-top:4px;min-width:0;width:100%}
+.bd-need{border:0;background:none;padding:0;text-align:left;color:var(--txt-1);font-family:var(--f-ui);font-size:11px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.bd-need:hover{color:var(--txt-0);text-decoration:underline}
+.bd-need.more{color:var(--txt-3);cursor:default}
+.bd-need.more:hover{text-decoration:none}
+.bd-none{padding:28px;text-align:center;color:var(--txt-2);font-size:13px;border:1px dashed var(--line-2);border-radius:10px}
+@media (max-width:760px){
+  .bd-strip{grid-template-columns:70px minmax(0,1fr)}
+  .bd-strip-status{grid-column:1 / -1;border-left:0;border-top:1px solid var(--line);flex-direction:row;flex-wrap:wrap;align-items:center}
+  .bd-need-list{flex-direction:row;flex-wrap:wrap;gap:4px 10px;margin:0;width:auto}
+  .bd-row-lab{flex-basis:54px}
+}
+html[data-theme="light"] .bd-k-int-day{--bd-c:#d9d6cc}
+html[data-theme="light"] .bd-dot.ok{border-color:oklch(0.55 0.14 150);background:oklch(0.55 0.14 150)}
+html[data-theme="light"] .bd-strip-status.ok{color:oklch(0.5 0.14 150)}
+.bd-chip-t{min-width:0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bd-chip.more{border-style:dashed;color:var(--txt-2)}

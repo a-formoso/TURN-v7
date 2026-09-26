@@ -66,6 +66,11 @@ function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room }){
     ["csv", Icon.grid, "Spine data (.csv)"],
   ];
   const inWriters = room!=="art" && (scenes||[]).length>0;   // export: Writers'/Stage action, only once a story exists
+  const artExports = room!=="art" ? [] : [
+    typeof window.turnExportShotList==="function" && ["shots","Export shot list","Printable AD-style table",()=>window.turnExportShotList()],
+    typeof window.turnExportBreakdown==="function" && ["strip","Export stripboard","One coloured strip per scene",()=>window.turnExportBreakdown()],
+    typeof window.turnExportArtBible==="function" && ["bible","Export art department bible","Cast, props and locations",()=>window.turnExportArtBible()],
+  ].filter(Boolean);
   return React.createElement("div",{className:"overflow-wrap",ref:ref},
     React.createElement("button",{className:`tb-icon ${open?"on":""}`,onClick:()=>setOpen(o=>!o),"aria-label":"More actions",title:"More"},
       React.createElement(Icon.moreV,{s:18})),
@@ -81,15 +86,17 @@ function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room }){
           React.createElement("span",{className:"export-item-ic"},React.createElement(Ic,{s:15})),
           React.createElement("span",{className:"export-item-t"},
             React.createElement("span",{className:"t"},title)))),
-      // Art Room: the Shots tab registers window.turnExportShotList while mounted —
-      // "Export shot list" lives HERE, not on the Art Room screen (user ruling 2026-07-19)
-      room==="art" && typeof window.turnExportShotList==="function" && React.createElement(React.Fragment,null,
+      // Art Room exports live HERE, not on the Art Room screen (user ruling 2026-07-19).
+      // Each registers itself while it can run: the shot list from the Shots tab, the
+      // stripboard from the Breakdown tab, the art department bible from any Art Room tab.
+      artExports.length>0 && React.createElement(React.Fragment,null,
         React.createElement("div",{className:"export-subhead"},"Export"),
-        React.createElement("button",{className:"export-item",onClick:()=>{ setOpen(false); window.turnExportShotList(); }},
-          React.createElement("span",{className:"export-item-ic"},React.createElement(Icon.download,{s:15})),
-          React.createElement("span",{className:"export-item-t"},
-            React.createElement("span",{className:"t"},"Export shot list"),
-            React.createElement("span",{className:"s"},"Printable AD-style table")))),
+        artExports.map(([key,title,sub,fn])=>
+          React.createElement("button",{key,className:"export-item",onClick:()=>{ setOpen(false); fn(); }},
+            React.createElement("span",{className:"export-item-ic"},React.createElement(Icon.download,{s:15})),
+            React.createElement("span",{className:"export-item-t"},
+              React.createElement("span",{className:"t"},title),
+              React.createElement("span",{className:"s"},sub))))),
       // admin-only (app.jsx passes onReset only for the admin account)
       onReset && React.createElement("div",{className:"export-foot"},
         React.createElement("button",{className:"export-item reset",

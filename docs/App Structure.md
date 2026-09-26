@@ -69,7 +69,8 @@ flowchart TB
     T4["Style Bible<br/><i>per-scene grade + film stock</i>"]:::tab
     T5["Shot List<br/><i>1 beat = 1 shot</i>"]:::tab
     T6["Storyboard<br/><i>1 scene = 1 composite sheet</i>"]:::tab
-    ARv --> T1 --> T2 --> T3 --> T4 --> T5 --> T6
+    T7["Breakdown<br/><i>stripboard · what each scene still needs</i>"]:::tab
+    ARv --> T1 --> T2 --> T3 --> T4 --> T5 --> T6 --> T7
     PC["Production check — fix<br/><i>script read → cast sheets, then every layer held to the script</i>"]:::mod
     ARv -.-> PC
   end
@@ -130,7 +131,7 @@ flowchart LR
 | App state + composition (room/view/artView) | `app/app.jsx` |
 | Art Room shell + tab list | `app/artroom.jsx` (`ART_TABS`) |
 | Writers' views | `app/spine.jsx`, `app/inspector.jsx`, `app/script.jsx` |
-| Art tabs | `app/props.jsx`, `app/character.jsx`, `app/locations*.jsx`, `app/stylebible*.jsx`, `app/shots*.jsx`, `app/storyboard.jsx` |
+| Art tabs | `app/props.jsx`, `app/character.jsx`, `app/locations*.jsx`, `app/stylebible*.jsx`, `app/shots*.jsx`, `app/storyboard.jsx`, `app/breakdown.jsx` (Breakdown + art department bible export) |
 | AI agents (Writers' Room modal; Art Room agents incl. the Production check) | `app/agents.jsx`, `app/agents-ui.jsx` |
 | MUSE help assistant | `app/muse.jsx`, `app/ai.jsx` (`museSystemPrompt`, `APP_FEATURES`) |
 | Sample film data | `app/story-data.jsx` |
