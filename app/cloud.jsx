@@ -2288,13 +2288,18 @@ function _seriesSafeUploadMessage(error,fallback){
   let message=String((error&&error.message)||error||fallback||"Cloud upload failed.");
   /* Error text is user-visible diagnostics. Keep the actionable database/storage
      reason, but never echo a URL, bearer token, object key, or scoped identifier. */
+  /* The keyword groups CAPTURE so "$1" keeps the label ("token=[redacted]", "project
+     [redacted]") instead of printing a literal "$1". Object keys are redacted before
+     bare ids: an id replaced first leaves "[redacted-id]/…/file.png", which the
+     object pattern can no longer match, so the rest of the key (and a readable
+     folder's handle / project name) used to survive. */
   message=message
     .replace(/\b(?:https?|blob|data|storage):\/\/?[^\s"'<>]+/ig,"[redacted-url]")
-    .replace(/\b(?:access[_ -]?token|refresh[_ -]?token|token|password)\s*[:=]\s*["']?[^,\s"']+/ig,"$1=[redacted]")
-    .replace(/\b(?:p_)?(?:path|project[_ -]?id|user[_ -]?id|owner|entity[_ -]?id|uid)\s*[:=]\s*["']?[^,\s"']+/ig,"$1=[redacted]")
-    .replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/ig,"[redacted-id]")
+    .replace(/\b(access[_ -]?token|refresh[_ -]?token|token|password)\s*[:=]\s*["']?[^,\s"']+/ig,"$1=[redacted]")
+    .replace(/\b((?:p_)?(?:path|project[_ -]?id|user[_ -]?id|owner|entity[_ -]?id|uid))\s*[:=]\s*["']?[^,\s"']+/ig,"$1=[redacted]")
     .replace(/(^|[\s"'(])\/?(?:[A-Za-z0-9_.:-]+\/){2,}[A-Za-z0-9_.:-]+(?=$|[\s"')])/g,"$1[redacted-object]")
-    .replace(/\b(?:project|user|owner|entity)(?:\s+id)?\s*[:=]?\s+[A-Za-z0-9_.:-]+/ig,"$1 [redacted]");
+    .replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/ig,"[redacted-id]")
+    .replace(/\b(project|user|owner|entity)(?:\s+id)?\s*[:=]?\s+[A-Za-z0-9_.:-]+/ig,"$1 [redacted]");
   return message;
 }
 function _seriesUploadErrorMeta(error,fallback){
