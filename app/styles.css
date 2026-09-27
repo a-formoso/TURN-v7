@@ -3060,9 +3060,10 @@ html[data-theme="dark"] .dt-viewing svg{color:oklch(0.82 0.09 296)}
 /* open (selected) keeps the HOVER look — same 1px border weight/colour and the soft
    raised pill — instead of the heavier near-black ring it used to switch to */
 .nb-dock.open .nb-dock-toggle{border-color:var(--line-3);transform:translateY(-1px)}
-.nb-dock-label{display:block;font:700 7.5px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;
+/* dock label + chips one step smaller (owner, 2026-09-27) */
+.nb-dock-label{display:block;font:700 6.5px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;
   text-align:center;color:var(--txt-3);white-space:nowrap}
-.nb-dock-chip{display:block;font-family:var(--f-mono);font-size:8.5px;font-weight:600;
+.nb-dock-chip{display:block;font-family:var(--f-mono);font-size:7.5px;font-weight:600;
   letter-spacing:.03em;text-align:center;color:var(--txt-2);background:var(--bg-3);
   border:1px solid var(--line);border-radius:999px;padding:5px 0;white-space:nowrap}
 .nb-dock-chip.model{background:var(--txt-0);color:var(--bg-2);border-color:var(--txt-0)}

@@ -1073,7 +1073,7 @@ const iconProxy = new Proxy({}, { get: (_, k) => { const f = () => null; f.iconN
   // the first pass's files (styles + icons unchanged since) keep its key; every file the review pass
   // changed carries the review key
   // a later change's key also counts (the Admin Storage merge re-keyed styles.css and ai.jsx)
-  const LATER = ["20260927-merge1"];
+  const LATER = ["20260927-merge1", "20260927-dock1"];
   for (const f of ["app/icons.jsx", "app/styles.css"])
     ok("K cache key bumped: " + f, key(f) === "20260927-tablocks1" || LATER.includes(key(f)), key(f));
   for (const f of ["app/app.jsx", "app/artroom.jsx", "app/chrome.jsx", "app/props.jsx", "app/ai.jsx", "app/agents.jsx", "app/art-tab-locks.js", "app/lookbook.jsx", "app/image-slot.js"])
