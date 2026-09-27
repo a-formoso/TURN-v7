@@ -142,6 +142,12 @@ palette, sheet prompts) — that is drafted in the Art Room once the Lookbook ha
 > pass** keeps each field the scenes bear out and revises only what the characters' actual
 > choices under pressure contradict — true character is still revealed by choices. Voice DNA
 > therefore exists for the first drafts.
+>
+> **In an Episode of an existing Show** *(2026-09-27, owner-approved)*: the check pass may refine
+> only the characters **that episode introduced** in that build. Characters that already existed in
+> the Show (an earlier episode's cast) keep their canon — a revision there would silently change
+> another episode's scripts. Every scene's "drafted from" stamp follows the cast that was **actually
+> saved**, so the build's own check never marks its scenes **needs redraft**.
 
 > **Structural role in every scene prompt** *(approved 2026-09-25 by owner)*: the scene writer
 > is told where the scene sits and what its structural beat must **do** — act and position
@@ -286,6 +292,22 @@ A scene is built from **beats** — an action/reaction subtext map (editable: ad
 mark the turning beat). The **screenplay prose** is generated *from* those beats. The Script view
 shows the screenplay with a left gutter indicating which beat each block expands.
 
+> **Screen time per scene** *(2026-09-27, owner-approved — delivers the runtime Step 1 promises)*:
+> each scene is written to a screen-time budget — the format's runtime divided by its scene count —
+> and the beat map is sized to it: **2–3 beats** per scene for Commercial, Micro-drama and Music
+> Video, **3–4** for Micro Short, **4–6** for every other format. Format runtimes used: Commercial
+> **30 s**, Micro-drama 1–3 min per episode, Micro Short under 5 min, Music Video **4 min**,
+> Short Film 10–20 min, TV episode ~30 min, Documentary **10 min**, Feature Film **100 min**. The
+> spine, beat and scene prompts all state the budget, and a redraft never makes a scene longer. A
+> scene that still runs long gets a **free warning** on its card and in the Script view — nothing
+> is rewritten automatically, so no credits are spent on it.
+>
+> **Page forms the check accepts** *(2026-09-27, owner-approved)*: standard screenplay devices —
+> on-screen text, inserts, supers, readouts, records and recorded voices — are action, not
+> dialogue, and a mid-speech **(beat)** is standard form. A documentary writes an interviewer's
+> questions as **INTERVIEWER (O.S.)** and planned testimony as **EXPECTED TESTIMONY: <subject> on
+> <topic>** in action, never as invented lines for a real person.
+
 > **Scene engineering** *(approved 2026-08-31 by owner)*: dialogue is **step five, never step
 > one** — behavior runs desire → sense of antagonism → choice of action → action → expression;
 > in TURN this is structural (prose is generated *from* the beat map), and beat authoring now
@@ -340,7 +362,10 @@ with one-click Undo.
 > the wrong film. Edits made *while* an agent runs are never silently lost: the run notices, keeps
 > those newer edits on the Undo stack, and says so. Adaptation reports every scene it could **not**
 > write (by number, with the reason) instead of a cheerful partial count, and offers to **finish
-> just the unwritten scenes** on the next run rather than rebuilding everything. The Final Read's
+> just the unwritten scenes** on the next run rather than rebuilding everything — including any
+> scene left as a **rough stand-in** *(2026-09-27, owner-approved)*: a stand-in is built from the
+> beat cards when the writer's draft is rejected, is marked as such in the Script view (the Script
+> check does not show it as clean), and keeps that mark until MUSE writes the scene. The Final Read's
 > voice pass distinguishes "your script has too little dialogue" from "the model was unavailable /
 > failed — run again". Read-only reports (Final Read) are **kept per film** and shown when the
 > panel reopens, so a full report is never lost by closing the window.
