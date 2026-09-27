@@ -230,8 +230,9 @@ opens a database connection, as `postgres` over the auto-injected
 Deleted projects keep no tombstone (owner decision, 2026-09-27), so the page
 names them "Deleted project · <short id>" with their uploaders' emails. The page
 is an operator tool and is deliberately not listed in MUSE's `APP_FEATURES`.
-Offline test: `node scripts/test-admin-storage.mjs` (the real function core
-against the real SQL on PGlite).
+Offline tests: `node scripts/test-admin-storage.mjs` (the real function core
+against the real SQL on PGlite) and `node scripts/test-admin-storage-ui.mjs`
+(the page itself, `app/admin-storage.jsx`, against a fake function).
 
 ## Optional: server-side image proxy (`image-proxy` Edge Function)
 

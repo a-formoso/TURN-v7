@@ -1,0 +1,912 @@
+#!/usr/bin/env node
+/* test-admin-storage-ui.mjs — Admin Storage page, UI half (spec §10.2).
+   Owner: platform admin · 2026-09-27. Offline: no network, no Supabase, no
+   browser. app/admin-storage.jsx and app/auth-ui.jsx are transpiled exactly as
+   scripts/build-dist.mjs does (preset-react classic + block scoping; no dist/
+   needed) and run in a vm with a small hooks runtime (state, effects, refs,
+   memo, keyed paths), so the REAL modal is driven end to end against a fake
+   sb.functions.invoke that answers like supabase/functions/admin-storage. */
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+import { transformSync } from "@babel/core";
+
+const ROOT = new URL("../", import.meta.url);
+const read = (f) => readFileSync(new URL(f, ROOT), "utf8");
+const transform = (src, filename) => transformSync(src, {
+  presets: [["@babel/preset-react", { runtime: "classic" }]],
+  plugins: ["@babel/plugin-transform-block-scoping"],
+  babelrc: false, configFile: false, filename,
+}).code;
+const ADMIN_SRC = read("app/admin-storage.jsx");
+// ADMIN_STORAGE_UI_DIST=1 runs the same checks over the minified production build
+// (node scripts/build-dist.mjs first); the default transpiles the source directly.
+const DIST = !!process.env.ADMIN_STORAGE_UI_DIST;
+const ADMIN_JS = DIST ? read("dist/app/admin-storage.js") : transform(ADMIN_SRC, "admin-storage.jsx");
+const ADMIN_CODE = ADMIN_SRC.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");   // comments stripped
+const AUTH_JS = DIST ? read("dist/app/auth-ui.js") : transform(read("app/auth-ui.jsx"), "auth-ui.jsx");
+
+let checks = 0;
+const plain = (x) => x === undefined ? undefined : JSON.parse(JSON.stringify(x));
+const same = (a, b, m) => assert.deepEqual(plain(a), plain(b), m);   // vm-realm arrays/objects compare by value
+async function test(name, fn){ await fn(); checks++; console.log("PASS", name); }
+const settle = async (n = 40) => { for (let i = 0; i < n; i++) await new Promise((r) => setImmediate(r)); };
+
+/* ── a tiny React: enough hooks to run the real components ─────────────── */
+function createRuntime(){
+  const FRAGMENT = "fragment";
+  const stores = new Map();
+  const roots = new Set();
+  let current = null, visited = new Set(), pending = [], scheduled = false, renders = 0;
+  const rt = { focused: null };
+  function createElement(type, props, ...children){
+    const p = Object.assign({}, props || {});
+    const key = p.key; delete p.key;
+    const kids = children.flat(Infinity);
+    if (kids.length) p.children = kids;
+    return { $$el: true, type, props: p, key: key == null ? null : String(key) };
+  }
+  const childPath = (path, c, i) => path + "." + (c && c.$$el && c.key != null ? "k" + c.key : i);
+  function renderNode(el, path, out){
+    if (el === null || el === undefined || el === false || el === true || el === "") return;
+    if (Array.isArray(el)) { el.forEach((c, i) => renderNode(c, childPath(path, c, i), out)); return; }
+    if (typeof el === "string" || typeof el === "number") { out.push(String(el)); return; }
+    if (!el.$$el) throw new Error("not a renderable child: " + String(el).slice(0, 80));
+    const { type, props } = el;
+    if (typeof type === "function") {
+      const id = path + ":" + (type.name || "anon");
+      visited.add(id);
+      let store = stores.get(id);
+      if (!store) { store = { hooks: [] }; stores.set(id, store); }
+      const prev = current; current = { store, i: 0 };
+      let res;
+      try { res = type(props); } finally { current = prev; }
+      renderNode(res, id, out);
+      return;
+    }
+    if (type === FRAGMENT) { renderNode(props.children || [], path + "/f", out); return; }
+    const node = { type, props: Object.assign({}, props), children: [] };
+    delete node.props.children;
+    if (props.ref && typeof props.ref === "object") { node.focus = () => { rt.focused = node; }; props.ref.current = node; }
+    (props.children || []).forEach((c, i) => renderNode(c, childPath(path + "/" + type, c, i), node.children));
+    out.push(node);
+  }
+  function flush(){
+    if (++renders > 5000) throw new Error("render loop");
+    visited = new Set();
+    let i = 0;
+    for (const r of roots) { const out = []; renderNode(r.element, "root" + (i++), out); r.tree = { type: "root", props: {}, children: out }; }
+    for (const [id, store] of stores) {
+      if (visited.has(id)) continue;
+      for (const cell of store.hooks) if (cell && typeof cell.cleanup === "function") { try { cell.cleanup(); } catch {} }
+      stores.delete(id);
+    }
+    const effects = pending; pending = [];
+    for (const { cell, fn } of effects) {
+      if (typeof cell.cleanup === "function") cell.cleanup();
+      const c = fn();
+      cell.cleanup = typeof c === "function" ? c : null;
+    }
+  }
+  function schedule(){
+    if (scheduled) return;
+    scheduled = true;
+    queueMicrotask(() => { scheduled = false; flush(); });
+  }
+  function hook(){
+    if (!current) throw new Error("hook called outside a component");
+    return [current.store.hooks, current.i++];
+  }
+  const changed = (a, b) => !a || !b || a.length !== b.length || a.some((x, j) => !Object.is(x, b[j]));
+  const React = {
+    createElement, Fragment: FRAGMENT,
+    useState(init){
+      const [hooks, i] = hook();
+      if (!hooks[i]) {
+        const cell = { v: typeof init === "function" ? init() : init };
+        cell.set = (nv) => { const next = typeof nv === "function" ? nv(cell.v) : nv; if (Object.is(next, cell.v)) return; cell.v = next; schedule(); };
+        hooks[i] = cell;
+      }
+      return [hooks[i].v, hooks[i].set];
+    },
+    useEffect(fn, deps){
+      const [hooks, i] = hook();
+      if (!hooks[i]) { hooks[i] = { deps, cleanup: null }; pending.push({ cell: hooks[i], fn }); return; }
+      if (changed(hooks[i].deps, deps)) { hooks[i].deps = deps; pending.push({ cell: hooks[i], fn }); }
+    },
+    useRef(init){ const [hooks, i] = hook(); if (!hooks[i]) hooks[i] = { current: init === undefined ? null : init }; return hooks[i]; },
+    useMemo(fn, deps){
+      const [hooks, i] = hook();
+      if (!hooks[i] || changed(hooks[i].deps, deps)) hooks[i] = { v: fn(), deps };
+      return hooks[i].v;
+    },
+    useCallback(fn, deps){ return React.useMemo(() => fn, deps); },
+    useContext(){ return undefined; },
+    createContext(){ return { Provider: "provider" }; },
+  };
+  const ReactDOM = {
+    createRoot(el){
+      const r = { el, element: null, tree: null };
+      return {
+        render(element){ r.element = element; roots.add(r); flush(); },
+        unmount(){ roots.delete(r); flush(); },
+      };
+    },
+  };
+  rt.React = React; rt.ReactDOM = ReactDOM;
+  rt.tree = () => { const r = [...roots][0]; return r ? r.tree : null; };
+  rt.roots = roots;
+  rt.mount = (element) => ReactDOM.createRoot({}).render(element);
+  return rt;
+}
+
+/* ── tree queries ──────────────────────────────────────────────────────── */
+const text = (n) => n == null ? "" : typeof n === "string" ? n : (n.children || []).map(text).join("");
+function findAll(n, pred, acc = []){
+  if (n && typeof n === "object") { if (n.type && n.type !== "root" && pred(n)) acc.push(n); (n.children || []).forEach((c) => findAll(c, pred, acc)); }
+  return acc;
+}
+const find = (n, pred) => findAll(n, pred)[0] || null;
+const hasClass = (n, c) => String(n.props.className || "").split(/\s+/).includes(c);
+const byClass = (n, c) => findAll(n, (x) => hasClass(x, c));
+const button = (n, re) => find(n, (x) => x.type === "button" && re.test(text(x)));
+const evt = (node, extra) => Object.assign({ stopPropagation(){}, preventDefault(){}, target: node, currentTarget: node }, extra || {});
+async function click(node){ assert.ok(node, "clickable node exists"); assert.ok(!node.props.disabled, "node is enabled: " + text(node)); node.props.onClick(evt(node)); await settle(); }
+
+/* ── a vm box with the page loaded ─────────────────────────────────────── */
+function makeBox(invoke, opts = {}){
+  const rt = createRuntime();
+  const listeners = {}, timers = [], intervals = [], toasts = [];
+  const body = { children: [], appendChild(el){ this.children.push(el); el.parentNode = this; }, removeChild(el){ this.children = this.children.filter((x) => x !== el); el.parentNode = null; } };
+  const box = {
+    console, React: rt.React, ReactDOM: rt.ReactDOM, queueMicrotask,
+    Icon: new Proxy({}, { get: () => function IconStub(){ return null; } }),
+    document: {
+      body,
+      createElement: (tag) => ({ tagName: tag, className: "" }),
+      addEventListener: (t, fn) => { (listeners[t] ||= []).push(fn); },
+      removeEventListener: (t, fn) => { listeners[t] = (listeners[t] || []).filter((f) => f !== fn); },
+      getElementById: () => null,
+    },
+    setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+    clearTimeout: () => {},
+    setInterval: (fn) => { intervals.push(fn); return intervals.length; },
+    clearInterval: () => {},
+    appToast: (m, k) => toasts.push([m, k]),
+    turnIsAdmin: opts.admin !== false,
+  };
+  box.window = box;
+  if (invoke !== null) box.sbClient = () => ({ functions: { invoke } });
+  vm.createContext(box);
+  vm.runInContext(ADMIN_JS, box);
+  const key = async (k) => { for (const fn of listeners.keydown || []) fn({ key: k, preventDefault(){} }); await settle(); };
+  return { box, rt, timers, toasts, key, body, tree: () => rt.tree() };
+}
+
+/* ── the fake admin-storage function ───────────────────────────────────── */
+const U = (c) => c.repeat(8) + "-" + c.repeat(4) + "-4" + c.repeat(3) + "-8" + c.repeat(3) + "-" + c.repeat(12);
+const A = U("a"), B = U("b"), C = U("c"), D = U("d");
+const P1 = U("1"), P2 = U("2"), P3 = U("3"), P4 = U("4"), PD1 = U("e"), PD2 = U("f");
+const MB = 1024 * 1024, GB = 1024 * MB;
+const iso = (msAgo) => new Date(Date.now() - msAgo).toISOString();
+const SETUP = (over = {}, flags = {}) => Object.assign({
+  admin: { id: A, email: "admin@infinitestudioai.com" },
+  db: { user: "postgres", superuser: true, bypassRls: true, serverVersion: "17.4" },
+  seesAll: true,
+  setup: Object.assign({ views: 6, missingColumns: [], audit: true, queue: true, intents: true, queueWorker: true }, flags),
+  browseEnabled: true, deleteEnabled: true, drainEnabled: true,
+}, over);
+const folder = (user_folder, project_folder, project_id, o) => Object.assign({
+  user_folder, project_folder, project_id, uploader_id: /^[0-9a-f]{8}-/.test(user_folder) ? user_folder : null,
+  uploader_email: null, files: 0, bytes: 0, safe_files: 0, safe_bytes: 0, orphan_deleted: 0, queued: 0, uploading: 0,
+  kept_retry: 0, service: 0, unreferenced: 0, referenced: 0, last_upload: iso(86400000), verdict: "in-use",
+}, o);
+function OVERVIEW(over = {}){
+  return Object.assign({
+    asOf: new Date().toISOString(),
+    setup: SETUP(),
+    accounts: [
+      { user_id: A, email: "alice@example.test", plan: "director", created_at: iso(9e9), last_sign_in_at: iso(3 * 86400000), film_count: 3, file_count: 16, total_bytes: 3 * GB, deleted_account: false },
+      { user_id: B, email: "bob@example.test", plan: null, created_at: iso(9e9), last_sign_in_at: null, film_count: 0, file_count: 2, total_bytes: 20 * MB, deleted_account: false },
+      { user_id: C, email: "carol@example.test", plan: "writer", created_at: iso(9e9), last_sign_in_at: iso(3600e3), film_count: 1, file_count: 5, total_bytes: 50 * MB, deleted_account: false },
+      { user_id: D, email: "(deleted account)", plan: null, created_at: null, last_sign_in_at: null, film_count: 0, file_count: 4, total_bytes: 400 * MB, deleted_account: true },
+    ],
+    projects: [
+      { project_id: P1, owner_id: A, owner_email: "alice@example.test", title: "Neon Harbor", kind: "film", show_title: null, episode: null, live: true, files: 4, total_bytes: 30 * MB, orphan_files: 0, uploader_emails: "alice@example.test", last_upload: iso(86400000) },
+      { project_id: P2, owner_id: A, owner_email: "alice@example.test", title: "Dust Road", kind: "show", show_title: "Dust Road", episode: null, live: true, files: 0, total_bytes: 0, orphan_files: 0, uploader_emails: null, last_upload: null },
+      { project_id: P3, owner_id: A, owner_email: "alice@example.test", title: "Dust Road \u2014 Episode 2", kind: "episode", show_title: "Dust Road", episode: 2, live: true, files: 0, total_bytes: 0, orphan_files: 0, uploader_emails: null, last_upload: null },
+      { project_id: P4, owner_id: C, owner_email: "carol@example.test", title: "Carol's film", kind: "film", show_title: null, episode: null, live: true, files: 7, total_bytes: 70 * MB, orphan_files: 0, uploader_emails: "bob@example.test, carol@example.test", last_upload: iso(7200e3) },
+      { project_id: PD1, owner_id: null, owner_email: null, title: "(deleted project)", kind: null, show_title: null, episode: null, live: false, files: 11, total_bytes: GB + 10 * MB, orphan_files: 9, uploader_emails: "alice@example.test", last_upload: iso(5 * 86400000) },
+      { project_id: PD2, owner_id: null, owner_email: null, title: "(deleted project)", kind: null, show_title: null, episode: null, live: false, files: 4, total_bytes: 400 * MB, orphan_files: 4, uploader_emails: null, last_upload: iso(40 * 86400000) },
+    ],
+    folders: [
+      folder(A, P1, P1, { uploader_email: "alice@example.test", files: 3, bytes: 28 * MB, referenced: 3 }),
+      folder(A, "studio-previews", P1, { uploader_email: "alice@example.test", files: 1, bytes: 2 * MB, service: 1 }),
+      folder(B, P4, P4, { uploader_email: "bob@example.test", files: 2, bytes: 20 * MB, referenced: 2 }),
+      folder(C, P4, P4, { uploader_email: "carol@example.test", files: 5, bytes: 50 * MB, referenced: 5 }),
+      folder(A, PD1, PD1, { uploader_email: "alice@example.test", files: 10, bytes: GB, safe_files: 8, safe_bytes: 900 * MB, orphan_deleted: 8, queued: 2, verdict: "some" }),
+      folder(A, "studio-previews", PD1, { uploader_email: "alice@example.test", files: 1, bytes: 10 * MB, safe_files: 1, safe_bytes: 10 * MB, service: 1, verdict: "some" }),
+      folder(D, PD2, PD2, { uploader_email: null, files: 4, bytes: 400 * MB, safe_files: 4, safe_bytes: 400 * MB, orphan_deleted: 4, verdict: "delete-folder" }),
+      folder("_internal", "relay", null, { files: 2, bytes: 1024, service: 2 }),
+      folder(A, "stage-tmp", null, { uploader_email: "alice@example.test", files: 3, bytes: 3 * MB, safe_files: 1, safe_bytes: MB, service: 3 }),
+    ],
+    queue: {
+      byReason: [
+        { reason: "abandoned_upload", total: 3, ready: 2, next_at: iso(-600e3), oldest: iso(86400000), stuck: 0 },
+        { reason: "project_deleted", total: 2, ready: 1, next_at: null, oldest: iso(2 * 86400000), stuck: 1 },
+      ],
+      stuck: [{ path: A + "/" + PD1 + "/character/c1/1-sheet.png", reason: "project_deleted", project_id: PD1, attempts: 3, last_error: "Storage 503", queued_at: iso(2 * 86400000), project_live: false }],
+    },
+  }, over);
+}
+const ok = (data) => ({ data: Object.assign({ ok: true, version: "admin-storage@2026-09-27.1", elapsedMs: 1234 }, data), error: null });
+const httpErr = (status, code, extra) => ({ data: null, error: { name: "FunctionsHttpError", message: "Edge Function returned a non-2xx status code",
+  context: { status, json: async () => code ? { ok: false, error: Object.assign({ code, message: "server says " + code }, extra || {}) } : { code: "NOT_FOUND", message: "Requested function was not found" } } } });
+function server(routes){
+  const calls = [];
+  const invoke = async (name, opts) => {
+    assert.equal(name, "admin-storage", "only the admin-storage function is called");
+    const body = JSON.parse(JSON.stringify(opts && opts.body));
+    calls.push(body);
+    const r = routes[body.action];
+    if (!r) throw new Error("unexpected action " + body.action);
+    return typeof r === "function" ? r(body, calls) : r;
+  };
+  return { calls, invoke, routes, count: (a) => calls.filter((c) => c.action === a).length };
+}
+function deferred(){ let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; }
+async function openPage(routes, opts){
+  const srv = server(routes);
+  const page = makeBox(srv.invoke, opts);
+  const opened = page.box.turnOpenAdminStorage();
+  await settle();
+  return Object.assign(page, { srv, opened });
+}
+
+/* ── 1. pure helpers ───────────────────────────────────────────────────── */
+const lib = makeBox(null).box.AdminStorageLib;
+await test("AdminStorageLib exports the spec §8.12 helpers", () => {
+  for (const k of ["fmtBytes", "fmtCount", "fmtAgo", "shortId", "statusChip", "parseStorageRef", "buildModel", "keptLines", "errorMessage"])
+    assert.equal(typeof lib[k], "function", k);
+});
+await test("fmtBytes is 1024-based; counts, ids and ages format plainly", () => {
+  assert.equal(lib.fmtBytes(0), "0 B");
+  assert.equal(lib.fmtBytes(1023), "1023 B");
+  assert.equal(lib.fmtBytes(1024), "1 KB");
+  assert.equal(lib.fmtBytes(1536), "1.5 KB");
+  assert.equal(lib.fmtBytes(5.5 * GB), "5.5 GB");
+  assert.equal(lib.fmtBytes(812 * MB), "812 MB");
+  assert.equal(lib.fmtBytes(1.2 * GB), "1.2 GB");
+  assert.equal(lib.fmtBytes(null), "\u2014");
+  assert.equal(lib.fmtCount(4224), "4,224");
+  assert.equal(lib.shortId(PD1), "eeeeeeee");
+  const now = Date.now();
+  assert.equal(lib.fmtAgo(new Date(now - 3 * 86400000).toISOString(), now), "3 d ago");
+  assert.equal(lib.fmtAgo(new Date(now - 5 * 60000).toISOString(), now), "5 min ago");
+  assert.equal(lib.fmtAgo(null, now), "never");
+});
+await test("parseStorageRef resolves dashboard paths, studio previews, bare uuids; junk is null", () => {
+  same(lib.parseStorageRef("turn-assets/" + A + "/" + P1 + "/character/c1/1700-sheet.png"), { uid: A, pid: P1, bare: false });
+  same(lib.parseStorageRef(A + "/" + P1), { uid: A, pid: P1, bare: false });
+  same(lib.parseStorageRef("  " + A.toUpperCase() + "/" + P1.toUpperCase() + "/  "), { uid: A, pid: P1, bare: false });
+  same(lib.parseStorageRef(A + "/studio-previews/" + PD1 + "/job/preview.png"), { uid: A, pid: PD1, bare: false });
+  same(lib.parseStorageRef(B), { uid: B, pid: null, bare: true });
+  same(lib.parseStorageRef(A + "/stage-tmp/x.png"), { uid: A, pid: null, bare: false });
+  same(lib.parseStorageRef("https://abc.supabase.co/storage/v1/object/sign/turn-assets/" + A + "/" + P1 + "/shot/s1/x.png?token=zzz"), { uid: A, pid: P1, bare: false });
+  for (const junk of ["", "   ", "hello", "_internal/relay/x", "blender-studio-internal/m.glb", "1234", A.slice(0, 30), "not-a-uuid/" + P1])
+    assert.equal(lib.parseStorageRef(junk), null, JSON.stringify(junk));
+});
+await test("status vocabulary: one chip map (spec §8.3)", () => {
+  const c = (s, safe, live) => { const x = lib.statusChip(s, safe, live); return x.text + "|" + x.tone; };
+  assert.equal(c("current, history"), "In use|neutral");
+  assert.equal(lib.statusChip("current, history").title, "current, history");
+  assert.equal(c("service"), "Service \u00b7 keep|neutral");
+  assert.equal(c("uploading"), "Uploading|amber");
+  assert.equal(c("queued-for-cleanup"), "Queued for cleanup|amber");
+  assert.equal(c("kept-for-promotion-retry"), "Kept for Show retry|amber");
+  assert.equal(c("orphan: project deleted", false), "Project deleted|alert");
+  assert.equal(c("orphan: project deleted", true), "Project deleted \u00b7 safe to delete|alert");
+  assert.equal(c("unreferenced", true, true), "Unreferenced|alert");
+  assert.match(lib.statusChip("unreferenced", true, true).title, /Not deleted from this page/);
+});
+await test("buildModel groups Owns / Uploaded elsewhere / Deleted and totals from the folders", () => {
+  const m = lib.buildModel(OVERVIEW());
+  const acct = (id) => m.accountsById[id];
+  same(m.accounts.map((a) => a.id), [A, D, C, B], "largest upload folder first");
+  same(acct(A).owns.map((p) => p.label), ["Neon Harbor", "Dust Road (Show)", "Ep 2 \u2014 Dust Road"]);
+  assert.equal(acct(A).elsewhere.length, 0);
+  assert.equal(acct(A).deleted.length, 1);
+  const d = acct(A).deleted[0];
+  assert.equal(d.project.id, PD1);
+  assert.equal(d.files, 11, "the deleted project's asset folder + its studio previews");
+  assert.equal(d.safe_files, 9);
+  assert.equal(d.counts.queued, 2);
+  assert.equal(d.verdict, "some");
+  same(acct(B).owns, []);
+  same(acct(B).elsewhere.map((e) => [e.project.id, e.files]), [[P4, 2]], "bob uploaded to carol's live film");
+  same(acct(C).owns.map((p) => p.id), [P4]);
+  assert.equal(acct(C).elsewhere.length, 0, "an owner's own uploads are not 'elsewhere'");
+  same(acct(D).deleted.map((x) => [x.project.id, x.verdict]), [[PD2, "delete-folder"]]);
+  assert.equal(m.totals.files, 31);
+  assert.equal(m.totals.accounts, 3);
+  assert.equal(m.totals.deletedAccounts, 1);
+  assert.equal(m.totals.deletedProjects, 2);
+  assert.equal(m.totals.deletedSafeFiles, 13);
+  same(m.totals.queue, { ready: 3, later: 2, stuck: 1, total: 5 });
+  const svc = m.service.map((s) => s.label);
+  assert.ok(svc.includes("Relay security markers (_internal)"));
+  assert.ok(svc.includes("Temporary image files (*/stage-tmp)"));
+  assert.ok(svc.includes("Blender previews of live projects"), "a LIVE project's Blender previews are service");
+  assert.equal(m.projectsById[PD1].label, "Deleted project \u00b7 eeeeeeee");
+  assert.equal(m.projectsById[P1].uploaders[0].files, 4);
+});
+await test("keptLines: plain language, only non-zero lines (spec §8.7)", () => {
+  const m = lib.buildModel(OVERVIEW());
+  const lines = lib.keptLines({ kept: { files: 9, byStatus: { "queued-for-cleanup": 4, "current": 1, "kept-for-promotion-retry": 2, "uploading": 1, "service": 1, "unreferenced": 0 },
+    usedBy: [{ projectId: P2, files: 1 }] } }, m.projectsById);
+  same(lines, [
+    "4 queued for cleanup (the cleanup queue removes these)",
+    "1 still used by Dust Road (Show)",
+    "2 kept for a Show-promotion retry",
+    "1 still uploading",
+    "1 service file (Blender relay preview)",
+  ]);
+  same(lib.keptLines({ kept: { files: 0, byStatus: {}, usedBy: [] } }, m.projectsById), []);
+  same(lib.keptLines({ kept: { files: 3, byStatus: { "current, history": 3, "outside the TURN asset layout": 2 }, usedBy: [] } }, {}),
+    ["3 still in use", "2 outside the TURN asset layout (review by hand)"]);
+});
+await test("errorMessage maps every server code to the page's copy (spec §8.10)", () => {
+  const M = lib.MSG;
+  const e = (status, code, extra) => lib.errorMessage({ status, code, message: "x", extra: extra || {} });
+  assert.equal(e(404, "not_deployed"), M.notDeployed);
+  assert.equal(e(0, "not_deployed"), M.notDeployed);
+  assert.equal(e(401, "sign_in"), "Sign in again to use this page.");
+  assert.equal(e(403, "admin_only"), "This page is only for the platform admin account.");
+  assert.equal(e(412, "views_missing"), "Run supabase/admin-inventory.sql in the SQL Editor, then Refresh.");
+  assert.equal(e(412, "views_drift"), "Run supabase/admin-inventory.sql in the SQL Editor, then Refresh.");
+  assert.equal(e(412, "audit_missing"), "Deleting is off until supabase/admin-storage.sql is run in the SQL Editor.");
+  assert.match(e(412, "not_full_reader"), /can't see every row, so nothing is marked safe and deleting is off \(check SUPABASE_DB_URL \/ ADMIN_STORAGE_DB_URL\)/);
+  assert.equal(e(503, "db_unreachable"), "The database couldn't be reached from the function.");
+  assert.equal(e(409, "project_live"), "One of these projects exists again, so nothing was deleted. Refresh.");
+  assert.equal(e(409, "preview_expired"), "This review expired. Review again.");
+  const started = new Date(2026, 8, 27, 14, 2, 0).toISOString();
+  assert.equal(e(409, "run_busy", { startedAt: started }), "This delete is already running (started 14:02). It will show in History.");
+  assert.equal(e(500, "internal"), "Something went wrong on the server. Nothing further was deleted; History shows what happened.");
+  assert.equal(e(0, "timeout"), "The server took too long. History shows whether anything was deleted.");
+});
+
+/* ── 2. entry point: the account chip + the opener ─────────────────────── */
+await test("the AccountChip menu item renders only for the admin, and opens the page", async () => {
+  const rt = createRuntime();
+  const opened = [];
+  const box = { console, React: rt.React, ReactDOM: rt.ReactDOM, queueMicrotask, document: { addEventListener(){}, removeEventListener(){} },
+    Icon: new Proxy({}, { get: () => function IconStub(){ return null; } }),
+    cloudConfigured: () => true, cloudUserEmail: () => "someone@example.test", turnIsAdmin: false };
+  box.window = box;
+  vm.createContext(box);
+  vm.runInContext(AUTH_JS, box);
+  box.turnOpenAdminStorage = () => { opened.push(1); return true; };   // loaded for everyone in production
+  const reopen = async () => { await click(find(rt.tree(), (n) => hasClass(n, "acct-chip"))); await click(find(rt.tree(), (n) => hasClass(n, "acct-chip"))); };
+  rt.mount(rt.React.createElement(box.AccountChip, { session: { user: {} }, cloudActive: true, saveState: "saved" }));
+  await click(find(rt.tree(), (n) => hasClass(n, "acct-chip")));
+  assert.ok(find(rt.tree(), (n) => hasClass(n, "acct-menu")), "menu open");
+  assert.equal(button(rt.tree(), /Storage · admin/), null, "non-admin: no item, even with the opener loaded");
+  box.turnIsAdmin = true; delete box.turnOpenAdminStorage;     // admin, but the page script isn't loaded
+  await reopen();
+  assert.equal(button(rt.tree(), /Storage · admin/), null, "no opener: no item");
+  box.turnOpenAdminStorage = () => { opened.push(1); return true; };
+  await reopen();
+  const item = button(rt.tree(), /Storage · admin/);
+  assert.ok(item && hasClass(item, "acct-admin") && hasClass(item, "acct-upgrade"));
+  const kids = find(rt.tree(), (n) => hasClass(n, "acct-menu")).children;
+  assert.ok(kids.indexOf(item) >= 0 && kids.indexOf(item) < kids.findIndex((n) => hasClass(n, "acct-signout")), "above Sign out");
+  await click(item);
+  assert.equal(opened.length, 1);
+  assert.equal(find(rt.tree(), (n) => hasClass(n, "acct-menu")), null, "the menu closes");
+});
+await test("the opener refuses a non-admin and fetches nothing before it opens", async () => {
+  const srv = server({ overview: ok(OVERVIEW()) });
+  const page = makeBox(srv.invoke, { admin: false });
+  assert.equal(srv.calls.length, 0, "loading the script calls nothing");
+  assert.equal(page.box.turnOpenAdminStorage(), false);
+  await settle();
+  assert.equal(page.body.children.length, 0);
+  assert.equal(srv.calls.length, 0);
+  page.box.turnIsAdmin = true;
+  assert.equal(page.box.turnOpenAdminStorage(), true);
+  assert.equal(page.box.turnOpenAdminStorage(), false, "one instance at a time");
+  assert.equal(page.body.children.length, 1);
+  assert.equal(page.body.children[0].className, "adm-root");
+  await settle();
+  same(srv.calls, [{ action: "overview" }]);
+});
+
+await test("the page closes itself once the admin flag drops (sign-out)", async () => {
+  const page = await openPage({ overview: ok(OVERVIEW()) });
+  assert.equal(page.body.children.length, 1);
+  page.box.turnIsAdmin = false;
+  await click(button(page.tree(), /^Projects$/));
+  assert.equal(page.body.children.length, 0);
+});
+
+/* ── 3. loading, empty and error states (inline, not only toasts) ─────── */
+await test("loading: skeleton tiles, 'Reading the bucket…', focus on close; Esc and backdrop close", async () => {
+  const gate = deferred();
+  const page = await openPage({ overview: () => gate.promise });
+  const t = page.tree();
+  assert.equal(byClass(t, "skel").length, 4);
+  assert.match(text(t), /Reading the bucket… a few seconds\./);
+  assert.match(text(find(t, (n) => hasClass(n, "adm-sub"))), /admin · reading/);
+  const dlg = find(t, (n) => n.props.role === "dialog");
+  assert.equal(dlg.props["aria-modal"], "true");
+  assert.equal(dlg.props["aria-labelledby"], "adm-title");
+  assert.ok(hasClass(dlg, "bible-modal") && hasClass(dlg, "adm-storage"));
+  assert.equal(page.rt.focused && page.rt.focused.props["aria-label"], "Close", "focus goes to the close button");
+  gate.resolve(ok(OVERVIEW()));
+  await settle();
+  assert.match(text(find(page.tree(), (n) => hasClass(n, "adm-sub"))), /^admin · as of \d\d:\d\d:\d\d · 1\.2 s$/);
+  await page.key("Escape");
+  assert.equal(page.body.children.length, 0, "Esc closes");
+  assert.equal(page.box.turnOpenAdminStorage(), true, "re-openable");
+  await settle();
+  const overlay = find(page.tree(), (n) => hasClass(n, "adm-overlay"));
+  overlay.props.onMouseDown({ target: overlay, currentTarget: overlay });
+  await settle();
+  assert.equal(page.body.children.length, 0, "a backdrop click closes");
+});
+const STATES = [
+  ["404 not deployed", httpErr(404, null), /isn't deployed yet \(supabase\/README\.md → Admin Storage page\)/],
+  ["fetch error", { data: null, error: { name: "FunctionsFetchError", message: "Failed to send a request" } }, /isn't deployed yet/],
+  ["relay error", { data: null, error: { name: "FunctionsRelayError", message: "Relay Error" } }, /isn't deployed yet/],
+  ["401", httpErr(401, "sign_in"), /^Sign in again to use this page\.$/],
+  ["403", httpErr(403, "admin_only"), /^This page is only for the platform admin account\.$/],
+  ["412 views_missing", httpErr(412, "views_missing"), /^Run supabase\/admin-inventory\.sql in the SQL Editor, then Refresh\.$/],
+  ["412 views_drift", httpErr(412, "views_drift"), /^Run supabase\/admin-inventory\.sql/],
+  ["503", httpErr(503, "db_unreachable"), /^The database couldn't be reached from the function\.$/],
+  ["500", httpErr(500, "internal"), /^Something went wrong on the server/],
+];
+for (const [name, resp, re] of STATES) {
+  await test("error state renders its copy inline: " + name, async () => {
+    const page = await openPage({ overview: resp });
+    const err = find(page.tree(), (n) => hasClass(n, "adm-error"));
+    assert.ok(err, "blocking error panel");
+    assert.equal(err.props.role, "alert");
+    assert.match(text(find(err, (n) => hasClass(n, "adm-error-msg"))), re);
+    const again = button(err, name === "503" ? /^Retry$/ : /^Refresh$/);
+    assert.ok(again, "offers " + (name === "503" ? "Retry" : "Refresh"));
+    page.srv.routes.overview = ok(OVERVIEW());
+    await click(again);
+    assert.equal(page.srv.count("overview"), 2);
+    assert.equal(find(page.tree(), (n) => hasClass(n, "adm-error")), null, "recovers on retry");
+  });
+}
+await test("client timeout (90 s) and a missing cloud client each say so", async () => {
+  const page = await openPage({ overview: () => new Promise(() => {}) });
+  const t90 = page.timers.find((t) => t.ms === 90000);
+  assert.ok(t90, "a 90 s race timer");
+  t90.fn(); await settle();
+  assert.match(text(page.tree()), /The server took too long\. History shows whether anything was deleted\./);
+  const none = makeBox(null);
+  none.box.turnOpenAdminStorage(); await settle();
+  assert.match(text(none.tree()), /Cloud isn't configured in this build/);
+});
+await test("empty bucket, audit-off banner, not-full-reader banner, no queue", async () => {
+  let page = await openPage({ overview: ok(OVERVIEW({ folders: [], projects: [], queue: { byReason: [], stuck: [] },
+    accounts: [{ user_id: A, email: "admin@infinitestudioai.com", plan: null, film_count: 0, file_count: 0, total_bytes: 0, deleted_account: false }] })) });
+  assert.match(text(page.tree()), /No files in storage yet\./);
+  await click(button(page.tree(), /^Cleanup queue$/));
+  assert.match(text(page.tree()), /The cleanup queue is empty\./);
+  assert.equal(button(page.tree(), /Run cleanup now/).props.disabled, true, "nothing ready");
+
+  page = await openPage({ overview: ok(OVERVIEW({ setup: SETUP({ deleteEnabled: false, drainEnabled: false }, { audit: false }) })) });
+  let t = page.tree();
+  const banner = find(t, (n) => hasClass(n, "adm-setup"));
+  assert.match(text(banner), /Deleting is off until supabase\/admin-storage\.sql is run in the SQL Editor\./);
+  assert.equal(button(t, /^History$/), null, "History hidden until the audit schema exists");
+  assert.ok(button(t, /^Accounts$/) && button(t, /^Projects$/));
+  await click(button(t, /Deleted accounts/));
+  await click(find(page.tree(), (n) => hasClass(n, "adm-acct-head")));
+  assert.equal(button(page.tree(), /Review & delete/), null, "no delete action while deleting is off");
+  assert.match(text(page.tree()), /Deleting off/);
+
+  page = await openPage({ overview: ok(OVERVIEW({ setup: SETUP({ seesAll: false, deleteEnabled: false, drainEnabled: false }) })) });
+  assert.match(text(find(page.tree(), (n) => hasClass(n, "adm-setup"))),
+    /The function's database role can't see every row, so nothing is marked safe and deleting is off \(check SUPABASE_DB_URL \/ ADMIN_STORAGE_DB_URL\)\./);
+
+  page = await openPage({ overview: ok(OVERVIEW({ queue: null, setup: SETUP({ drainEnabled: false }, { queue: false }) })) });
+  t = page.tree();
+  assert.equal(button(t, /^Cleanup queue$/), null, "queue tab hidden without a queue");
+  assert.match(text(t), /Not installed/);
+});
+
+/* ── 4. tiles, accounts, search, projects, detail ──────────────────────── */
+await test("tiles and the Accounts tab (default): cards, groups, filters, service row", async () => {
+  const page = await openPage({ overview: ok(OVERVIEW()) });
+  let t = page.tree();
+  const tiles = byClass(t, "adm-tile").map(text);
+  assert.match(tiles[0], /^Stored31 files61\.\d MB$|^Stored31 files1\.\d GB$/);
+  assert.equal(tiles[1], "Accounts31 deleted account folder");
+  assert.match(tiles[2], /^Deleted projects2 · 1\.\d GB1\.\d GB safe to delete$/);
+  assert.equal(tiles[3], "Cleanup queue3 ready · 2 later · 1 stuck");
+  same(findAll(t, (n) => n.props.role === "tab").map(text), ["Accounts", "Projects", "Cleanup queue", "History"]);
+  assert.equal(find(t, (n) => n.props.role === "tab" && n.props["aria-selected"] === true).children[0], "Accounts");
+  const cards = byClass(t, "adm-acct");
+  assert.equal(cards.length, 4);
+  assert.match(text(cards[0]), /alice@example\.test/);
+  assert.match(text(cards[0]), /Neon Harbor · Dust Road \(Show\) · Ep 2 — Dust Road/);
+  assert.match(text(cards[0]), /3 projects/);
+  assert.match(text(cards[0]), /last sign-in 3 d ago/);
+  assert.match(text(cards[1]), /Deleted account · dddddddd/);
+  assert.match(text(find(t, (n) => hasClass(n, "adm-service"))), /Service & temporary files · keep.*Relay security markers/);
+  await click(find(cards[0], (n) => hasClass(n, "adm-acct-head")));
+  t = page.tree();
+  const alice = byClass(t, "adm-acct")[0];
+  assert.equal(alice.children[0].props["aria-expanded"], true);
+  const groups = byClass(alice, "adm-group-h").map(text);
+  same(groups, ["Owns", "Deleted projects still holding files"]);
+  assert.match(text(alice), /Deleted project · eeeeeeee/);
+  assert.match(text(alice), /9 safe · /);
+  assert.match(text(alice), /Some safe/);
+  assert.match(text(alice), /alice 4/, "uploaded-by summary");
+  assert.match(text(alice), /no files/, "owned project with 0 files");
+  assert.ok(button(alice, /Review & delete/));
+  await click(find(byClass(page.tree(), "adm-acct")[3], (n) => hasClass(n, "adm-acct-head")));
+  const bob = byClass(page.tree(), "adm-acct")[3];
+  same(byClass(bob, "adm-group-h").map(text), ["Uploaded to other people's projects"]);
+  assert.match(text(bob), /Carol's film · owned by carol@example\.test/);
+  await click(button(page.tree(), /^Deleted accounts$/));
+  assert.equal(byClass(page.tree(), "adm-acct").length, 1);
+  await click(button(page.tree(), /^Has deleted projects$/));
+  assert.equal(byClass(page.tree(), "adm-acct").length, 2);
+});
+await test("search: text filters; a pasted path, folder or uuid resolves to its account or project", async () => {
+  const files = { rows: [], nextCursor: null, total: 0 };
+  const page = await openPage({ overview: ok(OVERVIEW()), "project-files": ok(files) });
+  const input = () => find(page.tree(), (n) => n.type === "input" && n.props.type === "search");
+  assert.equal(input().props.placeholder, "Email, title, or paste a Storage path / folder / UUID");
+  input().props.onChange({ target: { value: "carol" } }); await settle();
+  same(byClass(page.tree(), "adm-acct").map((n) => /carol@/.test(text(n))), [true]);
+  input().props.onChange({ target: { value: "turn-assets/" + A + "/" + P1 + "/character/c1/1-sheet.png" } }); await settle();
+  let detail = find(page.tree(), (n) => hasClass(n, "adm-detail"));
+  assert.ok(detail, "uid/pid opens the project detail");
+  assert.match(text(detail), /Neon Harbor/);
+  same(page.srv.calls.at(-1), { action: "project-files", projectId: P1 });
+  await page.key("Escape");
+  assert.equal(find(page.tree(), (n) => hasClass(n, "adm-detail")), null, "Esc closes the detail first");
+  assert.equal(page.body.children.length, 1, "…not the page");
+  await click(button(page.tree(), /^Deleted accounts$/));
+  input().props.onChange({ target: { value: B } }); await settle();
+  const bob = byClass(page.tree(), "adm-acct").find((n) => /bob@/.test(text(n)));
+  assert.ok(bob && hasClass(bob, "open"), "a bare uid expands that account (and clears a hiding filter)");
+  input().props.onChange({ target: { value: PD2 } }); await settle();
+  assert.match(text(find(page.tree(), (n) => hasClass(n, "adm-detail"))), /Deleted project · ffffffff/, "a bare project id opens it");
+  await page.key("Escape");
+  input().props.onChange({ target: { value: U("9") + "/" + U("8") } }); await settle();
+  assert.equal(text(find(page.tree(), (n) => hasClass(n, "adm-note"))), "No account or project with that id in storage.");
+});
+await test("project detail: folders with Copy, files grouped, tags, Load more, footer rules", async () => {
+  const other = A + "/" + P1 + "/character/c9/1-sheet.png";
+  const rows1 = [
+    { path: A + "/" + PD1 + "/character/c1/1-sheet.png", bytes: 3 * MB, mime: "image/png", created_at: iso(5 * 86400000), uploader_email: "alice@example.test",
+      asset_folder: "character", entity_id: "c1", entity_name: "Mara", status: "orphan: project deleted", safe_to_delete: true, orphan_reason: "x", referenced_by_project_ids: null, stored_elsewhere: false },
+    { path: A + "/" + PD1 + "/character/c2/1-sheet.png", bytes: MB, mime: "image/png", created_at: iso(5 * 86400000), uploader_email: "alice@example.test",
+      asset_folder: "character", entity_id: "c2", entity_name: "Ben", status: "current", safe_to_delete: false, orphan_reason: null, referenced_by_project_ids: [P2], stored_elsewhere: false },
+  ];
+  const rows2 = [{ path: other, bytes: MB, mime: "image/png", created_at: iso(86400000), uploader_email: "alice@example.test",
+    asset_folder: "character", entity_id: "c9", entity_name: "Show sheet", status: "current", safe_to_delete: false, orphan_reason: null, referenced_by_project_ids: [PD1], stored_elsewhere: true }];
+  const page = await openPage({ overview: ok(OVERVIEW()),
+    "project-files": (b) => b.cursor ? ok({ rows: rows2, nextCursor: null, total: null }) : ok({ rows: rows1, nextCursor: rows1[1].path, total: 3 }) });
+  await click(button(page.tree(), /^Projects$/));
+  const row = find(page.tree(), (n) => hasClass(n, "adm-row") && /Deleted project · eeeeeeee/.test(text(n)) && n.props.onClick);
+  await click(row);
+  let d = find(page.tree(), (n) => hasClass(n, "adm-detail"));
+  assert.match(text(d), /OwnerDeleted project/);
+  assert.match(text(d), new RegExp("Project id" + PD1));
+  assert.ok(find(d, (n) => n.type === "button" && n.props["aria-label"] === "Copy project id"));
+  assert.match(text(find(d, (n) => hasClass(n, "adm-folders"))), new RegExp("Storage folders:" + A + "/" + PD1 + "alice@example\\.test · 10 files"));
+  assert.match(text(d), /Showing 2 of 3 files/);
+  assert.match(text(d), /Project deleted · safe to delete/);
+  assert.match(text(d), /Used by Dust Road \(Show\)/, "a kept file used by a live project names it");
+  assert.match(text(find(d, (n) => hasClass(n, "adm-detail-foot"))), /Review & delete/);
+  assert.equal(button(find(d, (n) => hasClass(n, "adm-detail-foot")), /Review & delete/).props.disabled, false);
+  await click(button(d, /^Load more$/));
+  same(page.srv.calls.at(-1), { action: "project-files", projectId: PD1, cursor: rows1[1].path });
+  d = find(page.tree(), (n) => hasClass(n, "adm-detail"));
+  assert.match(text(d), /stored under another project's folder/);
+  assert.equal(button(d, /^Load more$/), null);
+  await click(find(d, (n) => hasClass(n, "adm-back")));
+  const empty = await openPage({ overview: ok(OVERVIEW()), "project-files": ok({ rows: [], nextCursor: null, total: 0 }) });
+  await click(button(empty.tree(), /^Projects$/));
+  await click(find(empty.tree(), (n) => hasClass(n, "adm-row") && /Dust Road \(Show\)/.test(text(n)) && n.props.onClick));
+  d = find(empty.tree(), (n) => hasClass(n, "adm-detail"));
+  assert.match(text(d), /No files stored for this project\./);
+  assert.equal(find(d, (n) => hasClass(n, "adm-detail-foot")), null, "live projects have no delete footer");
+});
+
+/* ── 5. review sheet → delete loop → result ────────────────────────────── */
+const PREVIEW = (over = {}) => ok(Object.assign({
+  runId: U("7"), previewExpiresAt: new Date(Date.now() + 14.5 * 60000).toISOString(),
+  total: { files: 12, bytes: 1.2 * GB },
+  kept: { files: 9, byStatus: { "queued-for-cleanup": 4, "current": 1, "kept-for-promotion-retry": 2, "uploading": 1, "service": 1 }, usedBy: [{ projectId: P2, files: 1 }] },
+  projects: [{ projectId: PD1, files: 8, bytes: GB, kept: 3, keptByStatus: {} }, { projectId: PD2, files: 4, bytes: 0.2 * GB, kept: 6, keptByStatus: {} }],
+  sample: [],
+}, over));
+const DEL = (o) => ok(Object.assign({ runId: U("7"), status: "partial", planned: 12, removed: 0, removedBytes: 0, alreadyGone: 0,
+  skipped: { count: 0, byStatus: {} }, failed: { count: 0, sample: [] }, remaining: 12 }, o));
+await test("bulk review from Projects: checkbox gates Delete, countdown, kept lines, progress, partial → Retry → done", async () => {
+  const gates = [];
+  const script = [
+    DEL({ removed: 5, removedBytes: 0.5 * GB, remaining: 7 }),
+    DEL({ removed: 10, removedBytes: GB, remaining: 2, failed: { count: 2, sample: [{ path: "x", detail: "Service Unavailable" }] } }),
+    DEL({ removed: 10, removedBytes: GB, remaining: 2, failed: { count: 2, sample: [{ path: "x", detail: "Service Unavailable" }] } }),
+    DEL({ status: "done", removed: 12, removedBytes: 1.2 * GB, remaining: 0, leftInProjects: { "queued-for-cleanup": 4 } }),
+  ];
+  const page = await openPage({ overview: ok(OVERVIEW()), "preview-delete": PREVIEW(), runs: ok({ runs: [] }),
+    delete: () => { const g = deferred(); gates.push(g); return g.promise; } });
+  await click(button(page.tree(), /^Projects$/));
+  const boxes = findAll(page.tree(), (n) => n.type === "input" && n.props.type === "checkbox");
+  assert.equal(boxes.length, 2, "only deleted projects with safe files get a checkbox");
+  boxes[0].props.onChange({ target: { checked: true } }); await settle();
+  findAll(page.tree(), (n) => n.type === "input" && n.props.type === "checkbox")[1].props.onChange({ target: { checked: true } }); await settle();
+  const bulk = find(page.tree(), (n) => hasClass(n, "adm-bulk"));
+  assert.match(text(bulk), /^Review & delete 2 projects · 1\.\d GB safe/);
+  await click(button(bulk, /Review & delete/));
+  same(page.srv.calls.at(-1), { action: "preview-delete", projectIds: [PD1, PD2] });
+  let sh = find(page.tree(), (n) => hasClass(n, "adm-sheet"));
+  assert.equal(text(find(sh, (n) => hasClass(n, "adm-sheet-title"))), "Delete 12 files (1.2 GB) from 2 deleted projects?");
+  assert.match(text(sh), /Only files nothing in TURN uses any more\. Each file is checked again right before it is deleted, and the Storage folders of live projects are never touched\./);
+  same(find(sh, (n) => n.type === "ul").children.map(text), [
+    "4 queued for cleanup (the cleanup queue removes these)", "1 still used by Dust Road (Show)", "2 kept for a Show-promotion retry",
+    "1 still uploading", "1 service file (Blender relay preview)"]);
+  assert.match(text(find(sh, (n) => hasClass(n, "adm-expiry"))), /^This review expires in 1[34]:\d\d$/);
+  assert.ok(find(sh, (n) => n.type === "details"), "per-project breakdown, collapsible");
+  let del = button(sh, /^Delete 12 files$/);
+  assert.equal(del.props.disabled, true, "disabled until the box is checked");
+  del.props.onClick(evt(del)); await settle();
+  assert.equal(page.srv.count("delete"), 0, "an unchecked click does nothing");
+  assert.match(text(sh), /I understand these files are deleted permanently\./);
+  find(sh, (n) => n.type === "input" && n.props.type === "checkbox").props.onChange({ target: { checked: true } }); await settle();
+  del = button(find(page.tree(), (n) => hasClass(n, "adm-sheet")), /^Delete 12 files$/);
+  assert.equal(del.props.disabled, false);
+  await click(del);
+  same(page.srv.calls.at(-1), { action: "delete", runId: U("7") }, "the browser sends only the run id");
+  sh = find(page.tree(), (n) => hasClass(n, "adm-sheet"));
+  assert.match(text(sh), /If you close this window, the current step finishes or stops on its own\. History shows where it stopped, and Resume carries on\./);
+  const overlay = find(page.tree(), (n) => hasClass(n, "adm-overlay"));
+  overlay.props.onMouseDown({ target: overlay, currentTarget: overlay }); await page.key("Escape");
+  assert.equal(page.body.children.length, 1, "no backdrop/Esc close while a delete call is in flight");
+  assert.ok(find(page.tree(), (n) => hasClass(n, "adm-sheet")));
+  gates[0].resolve(script[0]); await settle();
+  assert.match(text(find(page.tree(), (n) => hasClass(n, "adm-progress-lab"))), /^Deleting… 5 of 12 · 512 MB freed$/);
+  assert.equal(find(page.tree(), (n) => n.props.role === "progressbar").props["aria-valuenow"], 5);
+  gates[1].resolve(script[1]); await settle();
+  gates[2].resolve(script[2]); await settle();
+  assert.equal(page.srv.count("delete"), 3, "loops while partial makes progress, stops when it doesn't");
+  sh = find(page.tree(), (n) => hasClass(n, "adm-sheet"));
+  assert.equal(text(find(sh, (n) => hasClass(n, "adm-result"))), "Deleted 10 of 12. 2 couldn't be deleted (Storage error: Service Unavailable).");
+  const overviewsBefore = page.srv.count("overview");
+  await click(button(sh, /^Retry failed \(2\)$/));
+  gates[3].resolve(script[3]); await settle();
+  sh = find(page.tree(), (n) => hasClass(n, "adm-sheet"));
+  assert.equal(text(find(sh, (n) => hasClass(n, "adm-result"))), "Deleted 12 files · 1.2 GB freed.");
+  assert.match(text(sh), /4 files remain: queued for cleanup\./);
+  assert.ok(page.toasts.some(([m, k]) => m === "Deleted 12 files · 1.2 GB freed." && k === "success"), "also a toast");
+  assert.ok(page.srv.count("overview") > overviewsBefore, "the overview refreshes afterwards");
+  await click(button(sh, /^Close$/));
+  assert.equal(find(page.tree(), (n) => hasClass(n, "adm-sheet")), null);
+});
+await test("review sheet: expiry state, 'Review again', and 409 messages", async () => {
+  const page = await openPage({ overview: ok(OVERVIEW()), "preview-delete": PREVIEW({ previewExpiresAt: new Date(Date.now() - 1000).toISOString() }),
+    "project-files": ok({ rows: [], nextCursor: null, total: 0 }) });
+  await click(find(byClass(page.tree(), "adm-acct")[0], (n) => hasClass(n, "adm-acct-head")));
+  await click(button(page.tree(), /Review & delete/));
+  same(page.srv.calls.at(-1), { action: "preview-delete", projectIds: [PD1] });
+  let sh = find(page.tree(), (n) => hasClass(n, "adm-sheet"));
+  assert.match(text(sh), /This review expired\. Review again\./);
+  assert.equal(find(sh, (n) => n.type === "input" && n.props.type === "checkbox"), null);
+  assert.equal(button(sh, /^Delete 12 files$/).props.disabled, true);
+  page.srv.routes["preview-delete"] = PREVIEW();
+  await click(button(sh, /^Review again$/));
+  assert.equal(page.srv.count("preview-delete"), 2);
+  sh = find(page.tree(), (n) => hasClass(n, "adm-sheet"));
+  assert.match(text(sh), /This review expires in/);
+
+  page.srv.routes.delete = httpErr(409, "project_live", { ids: [PD1] });
+  find(sh, (n) => n.type === "input" && n.props.type === "checkbox").props.onChange({ target: { checked: true } }); await settle();
+  await click(button(find(page.tree(), (n) => hasClass(n, "adm-sheet")), /^Delete 12 files$/));
+  sh = find(page.tree(), (n) => hasClass(n, "adm-sheet"));
+  assert.match(text(sh), /One of these projects exists again, so nothing was deleted\. Refresh\./);
+
+  assert.equal(button(sh, /^(Retry failed|Try again)/), null, "no retry once a project exists again");
+  const again = async () => {
+    await click(button(find(page.tree(), (n) => hasClass(n, "adm-sheet")), /^Close$/));
+    await click(button(page.tree(), /Review & delete/));
+    find(find(page.tree(), (n) => hasClass(n, "adm-sheet")), (n) => n.type === "input" && n.props.type === "checkbox").props.onChange({ target: { checked: true } });
+    await settle();
+    await click(button(find(page.tree(), (n) => hasClass(n, "adm-sheet")), /^Delete 12 files$/));
+    return find(page.tree(), (n) => hasClass(n, "adm-sheet"));
+  };
+  const started = new Date(2026, 8, 27, 14, 2, 0).toISOString();
+  page.srv.routes.delete = httpErr(409, "run_busy", { startedAt: started });
+  sh = await again();
+  assert.match(text(sh), /This delete is already running \(started 14:02\)\. It will show in History\./);
+  const deletesBefore = page.srv.count("delete");
+  await click(button(sh, /^Try again \(12 left\)$/));
+  assert.equal(page.srv.count("delete"), deletesBefore + 1, "Try again re-sends the same run id");
+  page.srv.routes.delete = httpErr(409, "preview_expired");
+  sh = await again();
+  assert.match(text(sh), /This review expired\. Review again\./);
+  await click(button(sh, /^Review again$/));
+  assert.ok(button(find(page.tree(), (n) => hasClass(n, "adm-sheet")), /^Delete 12 files$/), "a fresh review");
+
+  page.srv.routes["preview-delete"] = httpErr(409, "project_live", { ids: [PD1] });
+  await click(button(find(page.tree(), (n) => hasClass(n, "adm-sheet")), /^Cancel$/));
+  await click(button(page.tree(), /Review & delete/));
+  sh = find(page.tree(), (n) => hasClass(n, "adm-sheet"));
+  assert.equal(text(find(sh, (n) => hasClass(n, "adm-sheet-title"))), "Nothing was deleted");
+  assert.match(text(sh), /One of these projects exists again/);
+});
+
+await test("a slow preview never reopens a sheet the admin already closed", async () => {
+  const gate = deferred();
+  const page = await openPage({ overview: ok(OVERVIEW()), "preview-delete": () => gate.promise });
+  await click(find(byClass(page.tree(), "adm-acct")[0], (n) => hasClass(n, "adm-acct-head")));
+  await click(button(page.tree(), /Review & delete/));
+  assert.match(text(find(page.tree(), (n) => hasClass(n, "adm-sheet"))), /Planning the delete/);
+  await page.key("Escape");
+  assert.equal(find(page.tree(), (n) => hasClass(n, "adm-sheet")), null);
+  gate.resolve(PREVIEW()); await settle();
+  assert.equal(find(page.tree(), (n) => hasClass(n, "adm-sheet")), null, "stays closed");
+});
+
+/* ── 6. History: statuses, Resume, Interrupted, item pages ─────────────── */
+await test("History: status chips, Resume for Partial and Interrupted, expandable items", async () => {
+  const base = { admin_email: "admin@infinitestudioai.com", project_ids: [PD1, PD2], planned_files: 12, planned_bytes: 1.2 * GB, kept_files: 9,
+    removed_files: 0, removed_bytes: 0, already_gone: 0, skipped_files: 0, failed_files: 0, created_at: iso(3600e3), started_at: null,
+    finished_at: null, preview_expires_at: iso(-600e3), lease_expires_at: null, last_error: null, interrupted: false, preview_expired: false };
+  const run = (id, o) => Object.assign({}, base, { id, action: "delete-deleted-project-files" }, o);
+  const runs = [
+    run(U("1"), { status: "done", removed_files: 12, removed_bytes: 1.2 * GB }),
+    run(U("2"), { status: "partial", removed_files: 10, removed_bytes: GB, failed_files: 2, last_error: "Service Unavailable" }),
+    run(U("3"), { status: "running", interrupted: true, removed_files: 4 }),
+    run(U("4"), { status: "previewed", preview_expired: true }),
+    run(U("5"), { status: "previewed" }),
+    run(U("6"), { status: "done", action: "drain-cleanup-queue", admin_email: "cron", project_ids: [], removed_files: 30, removed_bytes: 30 * MB }),
+    run(U("8"), { status: "running", interrupted: false }),
+  ];
+  const resumed = deferred();
+  const page = await openPage({ overview: ok(OVERVIEW()),
+    runs: (b) => b.runId
+      ? ok({ run: runs[1], outcomes: { failed: 2, removed: 10, kept: 9 }, outcome: b.outcome, nextCursor: null,
+          items: b.outcome === "failed" ? [{ path: A + "/" + PD1 + "/character/c1/x.png", project_id: PD1, bytes: MB, outcome: "failed", detail: "Service Unavailable", attempts: 2 }] : [] })
+      : ok({ runs }),
+    delete: () => resumed.promise });
+  await click(button(page.tree(), /^History$/));
+  same(page.srv.calls.at(-1), { action: "runs", limit: 50 });
+  const rows = byClass(page.tree(), "adm-run");
+  const chipOf = (r) => text(find(r, (n) => hasClass(n, "c-state")));
+  same(rows.map(chipOf), ["Done", "Partial", "Interrupted", "Expired", "Reviewed, not run", "Done", "Running"]);
+  assert.match(text(rows[0]), /Deleted files of 2 deleted projects/);
+  assert.match(text(rows[0]), /12 of 12 · 1\.2 GB/);
+  assert.match(text(rows[5]), /Cleanup queue \(scheduled\)/);
+  same(rows.map((r) => !!button(r, /^Resume$/)), [false, true, true, false, false, false, false]);
+  await click(find(rows[1], (n) => hasClass(n, "adm-row")));
+  same(page.srv.calls.at(-1), { action: "runs", runId: U("2"), outcome: "failed" });
+  let open = byClass(page.tree(), "adm-run")[1];
+  assert.match(text(open), /Failed \(2\)/);
+  assert.match(text(open), /Service Unavailable/);
+  await click(button(open, /^Skipped/));
+  same(page.srv.calls.at(-1), { action: "runs", runId: U("2"), outcome: "skipped" });
+  assert.match(text(byClass(page.tree(), "adm-run")[1]), /Nothing skipped\./);
+  await click(button(byClass(page.tree(), "adm-run")[2], /^Resume$/));
+  same(page.srv.calls.at(-1), { action: "delete", runId: U("3") });
+  assert.match(text(find(page.tree(), (n) => hasClass(n, "adm-sheet"))), /Deleting… 0 of 12/);
+  resumed.resolve(DEL({ runId: U("3"), status: "done", removed: 12, removedBytes: 1.2 * GB, remaining: 0, leftInProjects: {} }));
+  await settle();
+  const sh = find(page.tree(), (n) => hasClass(n, "adm-sheet"));
+  assert.equal(text(find(sh, (n) => hasClass(n, "adm-result"))), "Deleted 12 files · 1.2 GB freed.");
+  assert.match(text(sh), /Nothing left to delete in these projects\./);
+  assert.ok(page.srv.count("runs") >= 4, "History reloads after the run");
+  const empty = await openPage({ overview: ok(OVERVIEW()), runs: ok({ runs: [] }) });
+  await click(button(empty.tree(), /^History$/));
+  assert.match(text(empty.tree()), /No deletions yet\./);
+});
+
+/* ── 7. Cleanup queue: table, stuck list, manual drain ─────────────────── */
+await test("Cleanup queue: by reason, stuck list, inline confirm, drain result (manual, no schedule)", async () => {
+  const page = await openPage({ overview: ok(OVERVIEW()), runs: ok({ runs: [] }),
+    "drain-queue": ok({ runId: U("9"), status: "done", claimed: 42, removed: 30, removedBytes: 30 * MB, alreadyGone: 4, keptReferenced: 1, held: 2, failed: 0, notQueued: 0, stillQueued: 5 }) });
+  await click(button(page.tree(), /^Cleanup queue$/));
+  let t = page.tree();
+  const q = find(t, (n) => hasClass(n, "adm-queue"));
+  assert.match(text(q), /Abandoned upload/);
+  assert.match(text(q), /Project deleted/);
+  assert.match(text(t), /Stuck \(1\)/);
+  assert.match(text(t), new RegExp(A + "/" + PD1 + "/character/c1/1-sheet\\.png"));
+  assert.match(text(t), /Storage 503/);
+  await click(button(t, /^Run cleanup now$/));
+  t = page.tree();
+  assert.match(text(find(t, (n) => hasClass(n, "adm-confirm"))),
+    /^Remove up to 3 queued uploads that are ready\? Each is checked first: anything still in use is kept, and uploads abandoned less than 24 hours ago in live projects wait\./);
+  await click(button(t, /^Run cleanup$/));
+  same(page.srv.calls.find((c) => c.action === "drain-queue"), { action: "drain-queue", max: 3 });
+  assert.equal(text(find(page.tree(), (n) => hasClass(n, "adm-result"))),
+    "Removed 30 · already gone 4 · kept (in use) 1 · waiting (24 h) 2 · failed 0 · still queued 5");
+  const off = await openPage({ overview: ok(OVERVIEW({ setup: SETUP({ drainEnabled: false }, { queueWorker: false }) })) });
+  assert.match(text(find(off.tree(), (n) => hasClass(n, "adm-setup"))), /worker functions are missing/);
+  await click(button(off.tree(), /^Cleanup queue$/));
+  assert.equal(button(off.tree(), /^Run cleanup now$/).props.disabled, true);
+  const busy = await openPage({ overview: ok(OVERVIEW()), "drain-queue": httpErr(409, "run_busy") });
+  await click(button(busy.tree(), /^Cleanup queue$/));
+  await click(button(busy.tree(), /^Run cleanup now$/));
+  await click(button(busy.tree(), /^Run cleanup$/));
+  assert.match(text(busy.tree()), /A cleanup run is already in progress\. It will show in History\./);
+  assert.ok(!/cron|schedule/i.test(ADMIN_CODE.replace(/"Cleanup queue \(scheduled\)"/, "").replace(/admin_email === "cron"/, "")),
+    "the page never schedules anything");
+});
+
+/* ── 8. what the browser sends, markup and wiring ──────────────────────── */
+await test("the browser never names a file: bodies carry ids, a run id, or a keyset cursor only", () => {
+  // every body the flows above sent went through server(); re-run the invariant over a fresh sweep
+  const allowed = { overview: [], "project-files": ["projectId", "cursor"], "preview-delete": ["projectIds"], delete: ["runId"],
+    runs: ["limit", "runId", "outcome", "cursor"], "drain-queue": ["max"] };
+  const src = ADMIN_CODE;
+  const bodies = [...src.matchAll(/callAdminStorage\(([^)]*\{[^}]*\})/g)].map((m) => m[1]);
+  assert.ok(bodies.length >= 6, "call sites found");
+  for (const b of bodies) {
+    const action = (b.match(/action:"([a-z-]+)"/) || [])[1];
+    assert.ok(action in allowed, "known action " + action);
+    const keys = [...b.matchAll(/([a-zA-Z]+):/g)].map((m) => m[1]).filter((k) => k !== "action");
+    for (const k of keys) assert.ok(allowed[action].includes(k), action + " sends only " + allowed[action] + " (saw " + k + ")");
+  }
+  assert.ok(!/\.remove\(|storage\.from\(|\.list\(/.test(src), "no Storage API call from the browser");
+  assert.equal((src.match(/sb\.functions\.invoke\(/g) || []).length, 1, "one invoke site");
+  assert.ok(src.includes('const FN = "admin-storage"'));
+});
+await test("styles: the .adm-* block uses existing tokens only, phone rules and the neutral admin menu item", () => {
+  const css = read("app/styles.css");
+  const at = css.lastIndexOf("/*", css.indexOf("ADMIN STORAGE PAGE (app/admin-storage.jsx)"));
+  assert.ok(at > 0, "the block is appended");
+  const block = css.slice(at);
+  const root = css.slice(css.indexOf(":root {"), css.indexOf("color-scheme:dark;"));
+  const defined = new Set([...root.matchAll(/(--[a-z0-9-]+):/g)].map((m) => m[1]));
+  const used = new Set([...block.matchAll(/var\((--[a-z0-9-]+)\)/g)].map((m) => m[1]));
+  for (const v of used) assert.ok(defined.has(v), "token " + v + " exists in :root");
+  assert.ok(!/data-theme/.test(block.replace(/\/\*[\s\S]*?\*\//g, "")), "no theme-specific overrides needed");
+  assert.match(block, /\.acct-upgrade\.acct-admin\{background:var\(--bg-2\);border-color:var\(--line-2\)/);
+  assert.match(block, /\.bible-modal\.adm-storage\{position:relative;width:min\(1100px,96vw\);height:90vh/);
+  const phone = block.slice(block.indexOf("@media (max-width:640px)"));
+  assert.ok(phone.length > 100, "phone rules");
+  assert.match(phone, /\.bible-modal\.adm-storage\{width:100vw;height:100dvh;max-height:100dvh;border:0;border-radius:0\}/);
+  assert.match(phone, /\.adm-tiles\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(phone, /\.adm-tabs\{[^}]*overflow-x:auto/);
+  assert.match(phone, /\.adm-row\{display:flex;[^}]*\}\s*\.adm-row\.adm-head-row\{display:none\}/, "head rows stay hidden on phones (after, and more specific than, .adm-row)");
+  assert.match(phone, /min-height:40px/);
+  assert.match(phone, /env\(safe-area-inset-bottom\)/);
+  assert.match(block, /\.adm-detail\{[^}]*width:min\(560px,100%\)/);
+  // every row cell sits in a grid area its table defines (no implicit tracks)
+  for (const [table, cells] of Object.entries({ "adm-own": "title kind state files size by date go", "adm-else": "title files size go",
+      "adm-del": "title state files size safe by date act", "adm-proj": "pick title owner kind state files size safe date",
+      "adm-queue": "title total ready next oldest stuck", "adm-hist": "date owner title result state act" }))
+    assert.ok(block.includes("." + table + " .adm-row{") && block.includes('grid-template-areas:"' + cells + '"'), table);
+});
+await test("wiring: TURN.html tag after auth-ui with a ?v= key, APP_FEATURES untouched, no app.jsx dependency", () => {
+  const html = read("TURN.html");
+  const auth = html.indexOf('src="app/auth-ui.jsx?v=');
+  const adm = html.indexOf('<script type="text/babel" src="app/admin-storage.jsx?v=20260927-admstorage1"></script>');
+  assert.ok(auth > 0 && adm > auth, "admin-storage.jsx loads after auth-ui.jsx");
+  const lines = html.split("\n");
+  const li = lines.findIndex((l) => l.includes('src="app/auth-ui.jsx?v='));
+  assert.match(lines[li + 1], /src="app\/admin-storage\.jsx\?v=/, "right after it");
+  assert.ok(html.includes('src="app/auth-ui.jsx?v=20260927-admstorage1"') && html.includes('href="app/styles.css?v=20260927-admstorage1"'), "cache keys bumped");
+  const ai = read("app/ai.jsx");
+  const i = ai.indexOf("const APP_FEATURES");
+  assert.match(ai.slice(ai.lastIndexOf("\n", i - 2), i), /Admin-only operator tools \(Storage page, price watch\) are deliberately NOT listed/);
+  const manifest = ai.slice(i, ai.indexOf("];", i));
+  assert.ok(!/admin-storage|Storage · admin|Admin Storage|Storage page/i.test(manifest), "not in MUSE's manifest");
+  assert.ok(!/admin-storage|turnOpenAdminStorage/.test(read("app/app.jsx")), "app.jsx is not touched");
+  assert.match(ADMIN_SRC, /deliberately NOT listed in APP_FEATURES/);
+  assert.match(ADMIN_SRC, /no tombstone/);
+});
+
+console.log(`PASS test-admin-storage-ui: ${checks} checks` + (DIST ? " (dist build)" : ""));
