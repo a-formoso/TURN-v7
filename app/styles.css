@@ -8166,3 +8166,54 @@ html[data-theme="light"] .bd-strip-status.ok{color:oklch(0.5 0.14 150)}
 .cc-model b{color:var(--txt-0);font-weight:600}
 /* the Art Room's ⋮ carries its exports — visible at every width there */
 .overflow-wrap.in-art{display:block}
+
+/* ── Art Room TAB LOCKS (2026-09-27, owner-approved — docs/Story Pipeline.md step 9) ──────────
+   A locked tab stays visible: muted, with a padlock in the tab bar and in the phone ⋮ menu; its
+   content area shows the lock card (what it waits for + a button to the step that unlocks it).
+   Theme tokens only, so light and dark both follow the theme. */
+.artroom-tools{display:contents}
+.seg.locked{color:var(--txt-3)}
+.seg.locked:hover{color:var(--txt-2)}
+.seg.locked.on{color:var(--txt-1)}
+.seg:focus-visible{outline:2px solid var(--pos-line);outline-offset:1px}
+.seg-lock{flex:0 0 auto;display:inline-flex;align-items:center;margin-left:1px;opacity:.9}
+.art-lock{flex:1;min-height:60vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+  text-align:center;padding:40px 16px;max-width:580px;margin:0 auto;box-sizing:border-box}
+.art-lock-ic{position:relative;width:64px;height:64px;border-radius:16px;display:grid;place-items:center;
+  background:var(--bg-2);border:1px solid var(--line);color:var(--txt-2)}
+.art-lock-badge{position:absolute;right:-7px;bottom:-7px;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
+  background:var(--bg-4);border:1px solid var(--line-2);color:var(--txt-1)}
+.art-lock-t{margin:6px 0 0;font-family:"Spectral",Georgia,serif;font-size:22px;font-weight:600;letter-spacing:-.01em;color:var(--txt-0);overflow-wrap:anywhere}
+.art-lock-d{margin:0;font-size:13px;line-height:1.6;color:var(--txt-2);max-width:460px;overflow-wrap:anywhere}
+.art-lock-meter{width:min(240px,100%);height:4px;border-radius:4px;background:var(--bg-3);border:1px solid var(--line);overflow:hidden}
+.art-lock-meter > span{display:block;height:100%;background:var(--pos);border-radius:4px}
+.art-lock-go{margin-top:6px}
+.art-lock-go:focus-visible{outline:2px solid var(--pos-line);outline-offset:3px}
+.art-lock-order{list-style:none;margin:16px 0 0;padding:0;display:flex;flex-wrap:wrap;justify-content:center;gap:6px;max-width:100%}
+.art-lock-step{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;border:1px solid var(--line-2);
+  background:var(--bg-1);font-family:var(--f-mono);font-size:10px;letter-spacing:.04em;color:var(--txt-2);white-space:nowrap}
+.art-lock-step.is-locked{color:var(--txt-3);border-style:dashed}
+.art-lock-step.is-current{color:var(--txt-0);border-color:var(--pos-line)}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+/* the ⋮ menu's Art Room tab list: phone only (the tab bar is icons-only there) */
+.export-art-tabs{display:none}
+.export-item.is-locked .t{color:var(--txt-2)}
+.export-item.is-locked .export-item-ic{color:var(--txt-3)}
+.export-item.on .t{color:var(--txt-0);font-weight:600}
+/* Props tab: "No props in this story" (unlocks Locations when a story has none) */
+.prop-empty-actions{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap;justify-content:center;max-width:100%}
+.prop-noprops{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:12px;padding:8px 12px;
+  border-radius:9px;border:1px solid var(--line-2);background:var(--bg-2);font-size:12px;line-height:1.45;color:var(--txt-1);max-width:100%}
+.prop-noprops > svg{flex:0 0 auto;color:var(--pos)}
+.prop-noprops > span{min-width:0;overflow-wrap:anywhere}
+.prop-noprops-undo{border:0;background:transparent;color:var(--txt-0);font:600 12px var(--f-ui);text-decoration:underline;cursor:pointer;padding:2px 4px;border-radius:4px}
+.prop-noprops-undo:focus-visible{outline:2px solid var(--pos-line);outline-offset:2px}
+@media (max-width:700px){
+  .export-art-tabs{display:block}
+  /* the ⋮ now also lists the tabs: keep the whole menu reachable on a short / landscape phone */
+  .overflow-wrap .export-menu{max-height:calc(100vh - 64px);overflow-y:auto;overscroll-behavior:contain}
+  .art-lock{padding:28px 16px;min-height:50vh}
+  .art-lock-t{font-size:20px}
+  .art-lock-go{min-height:44px}
+  .prop-empty-actions > button{min-height:44px}
+}

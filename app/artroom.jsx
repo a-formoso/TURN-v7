@@ -5814,7 +5814,52 @@ function ArtComingSoon({ tab }){
       React.createElement(Icon.undo,{s:14}),"Reload"));
 }
 
-function ArtRoom({ artView, setArtView, project, characters, scenes, props, drafts, trash, onRestoreChar, onPurgeChar, onRestoreProp, onPurgeProp, onRestoreLoc, onPurgeLoc, onRestoreShot, onPurgeShot, onEnsureOwner, onUpdateChar, onDraftVisuals, onDraftAllVisuals, draftingVisualId, draftingAllVisuals, draftingVisualIds, onCreateOwnedProp,
+/* TAB LOCKS (2026-09-27, owner-approved — docs/Story Pipeline.md step 9, "The tabs unlock in that
+   order"). A locked tab stays visible in the tab bar; opening it shows THIS card in the content area:
+   what the tab is waiting for and one primary button to the step that unlocks it, plus the build
+   order with each step's state. Tabs are named as the tab bar labels them, with the format's own
+   department name in brackets where it differs ("Props (Artifacts & Archive)", "Characters
+   (Subjects)"). When the step before this tab is locked too, the card names it and its button goes to
+   the first OPEN step of the chain — never to another lock card. `locks` is App's turnArtTabLocks
+   result (app/art-tab-locks.js). The card is rendered OUTSIDE the view-only `inert` boundary: it
+   changes nothing (the button only switches tab), so a View-only or Writer collaborator can read it
+   with a screen reader and use its button. */
+function ArtTabLock({ tab, locks, onGo }){
+  const lock = (locks && locks[tab]) || {};
+  const order = window.TURN_ART_TAB_ORDER || ["lookbook","characters","props","locations","stylebible","shots","storyboard"];
+  const headId = "art-lock-t-"+tab;
+  const t = ART_TABS.find(x=>x.id===tab) || {};
+  const TabIc = Icon[t.icon] || Icon.sparkles;
+  const prog = lock.progress;
+  return React.createElement("section",{className:"art-lock","aria-labelledby":headId},
+    React.createElement("div",{className:"art-lock-ic","aria-hidden":"true"},
+      React.createElement(TabIc,{s:26}),
+      React.createElement("span",{className:"art-lock-badge"},React.createElement(Icon.padlock||Icon.alert,{s:13}))),
+    React.createElement("h2",{className:"art-lock-t",id:headId},(lock.display||lock.name||t.label||"This tab")+" is locked"),
+    React.createElement("p",{className:"art-lock-d"},lock.waitingFor||""),
+    (prog && prog.total>0) && React.createElement("div",{className:"art-lock-meter",role:"progressbar",
+        "aria-label":"Written specs","aria-valuemin":0,"aria-valuemax":prog.total,"aria-valuenow":prog.done},
+      React.createElement("span",{style:{width:Math.round(100*prog.done/prog.total)+"%"}})),
+    lock.unlockTab && React.createElement("button",{type:"button",className:"art-draftall art-lock-go",
+        onClick:()=>{
+          if(onGo) onGo(lock.unlockTab);
+          // this button unmounts with the card — hand keyboard focus to the tab it opened
+          setTimeout(()=>{ try{ const b = typeof document!=="undefined" && document.querySelector('.viewnav .seg[aria-current="page"]'); if(b && b.focus) b.focus(); }catch(e){} }, 0);
+        }},
+      "Go to "+lock.unlockLabel, React.createElement(Icon.arrowR,{s:14})),
+    React.createElement("ol",{className:"art-lock-order","aria-label":"The Art Room builds in this order"},
+      order.map(id=>{
+        const e = (locks && locks[id]) || {};
+        const state = id===tab ? "current" : (e.locked ? "locked" : "open");
+        return React.createElement("li",{key:id,className:"art-lock-step is-"+state,"aria-current":id===tab?"step":undefined},
+          e.locked && React.createElement(Icon.padlock||Icon.alert,{s:10}),
+          React.createElement("span",null,e.label||((ART_TABS.find(x=>x.id===id)||{}).label)||id),
+          e.locked && React.createElement("span",{className:"sr-only"}," (locked)"));
+      })));
+}
+window.ArtTabLock = ArtTabLock;
+
+function ArtRoom({ artView, setArtView, project, characters, scenes, props, drafts, trash, tabLocks, noPropsConfirmed, onSetNoProps, onRestoreChar, onPurgeChar, onRestoreProp, onPurgeProp, onRestoreLoc, onPurgeLoc, onRestoreShot, onPurgeShot, onEnsureOwner, onUpdateChar, onDraftVisuals, onDraftAllVisuals, draftingVisualId, draftingAllVisuals, draftingVisualIds, onCreateOwnedProp,
   onSuggestStates, suggestingStatesId, onRemoveOwnedItem, onRenameOwnedItem, onDeleteCharacter,
   onUpdateProp, onDraftProp, onDraftAllProps, onAddProp, onImportProps, onDeleteProp, draftingPropIds, draftingPropId, draftingAllProps, onMergeProps, castHasProps,
   locations, onUpdateLocation, onDraftLocation, onDraftAllLocs, onDeleteLocation, draftingLocIds, draftingAllLocs, scriptHasLocs, onSetStyleRefs, onSetScenePreset, onAddStyleRefImages, onRemoveStyleRefImage, onDraftStaging, draftingStageId, sluglineUnits, onUpdateUnit, onRemoveUnit,
@@ -5837,7 +5882,10 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
     window.turnExportArtBible = ()=> window.exportArtBible && window.exportArtBible({ project, characters, props, locations, scenes, drafts, shots });
     return ()=>{ if(window.turnExportArtBible) delete window.turnExportArtBible; };
   });
+  // a LOCKED tab shows only its lock card (see ArtTabLock) — nothing behind it mounts or preloads
+  const lockedView = !!(tabLocks && tabLocks[artView] && tabLocks[artView].locked);
   const tabPreloadIds = ()=>{
+    if(lockedView) return [];
     if(artView==="lookbook") return (lookbook||[]).map(c=>c&&c.id).filter(Boolean);
     if(artView==="characters") return (characters||[]).flatMap(c=> (c&&c.id) ? [c.id, ...(c.states||[]).map(s=>c.id+":"+s.id)] : []);
     if(artView==="props") return (props||[]).map(p=>p&&p.id).filter(Boolean);
@@ -5859,25 +5907,31 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
     const ids = tabPreloadIds();
     if(!ids.length) return;
     if(typeof nbPrefetchAll==="function") nbPrefetchAll().then(()=>nbPreloadFor(ids)); else nbPreloadFor(ids);
-  },[artView, projId, (characters||[]).length, (props||[]).length, (locations||[]).length, (shots||[]).length, (lookbook||[]).length]);
+  },[artView, projId, lockedView, (characters||[]).length, (props||[]).length, (locations||[]).length, (shots||[]).length, (lookbook||[]).length]);
 
   return React.createElement(ArtReviewContext.Provider,{value:!!canReview},React.createElement("div",{
-    className:"artroom"+(readOnly?" is-readonly":""),
-    "aria-disabled":readOnly?"true":undefined,
+    className:"artroom"+(readOnly?" is-readonly":"")+(lockedView?" is-locked":""),
+    "aria-disabled":(readOnly && !lockedView)?"true":undefined,
     /* Art cards own several direct image-generation/edit controls rather than
        routing every mutation through App callbacks. `inert` is therefore the
        single fail-closed boundary for a view-only role (and while another
        project is hydrating): it blocks paid model launches as well as fields,
-       menus and destructive controls, while normal page scrolling still works. */
-    inert:readOnly?"":undefined
+       menus and destructive controls, while normal page scrolling still works.
+       On a LOCKED tab the boundary moves onto the tools wrapper below, so the
+       lock card (read-only by nature: its one button switches tab) stays usable. */
+    inert:(readOnly && !lockedView)?"":undefined
   },
-    // fixed engine dock — Model / Aspect / Resolution, always reachable while
-    // scrolling at every viewport
-    React.createElement(NbDock,null),
-    window.BlenderStudioHost&&React.createElement(window.BlenderStudioHost,{key:"studio-"+projId,
-      locations,characters,props,scenes,drafts,sluglineUnits,readOnly}),
+    React.createElement("div",{className:"artroom-tools",inert:(readOnly && lockedView)?"":undefined},
+      // fixed engine dock — Model / Aspect / Resolution, always reachable while
+      // scrolling at every viewport
+      React.createElement(NbDock,null),
+      // Blender Studio is always open (it reads the locations, not a visual step): never behind a lock
+      window.BlenderStudioHost&&React.createElement(window.BlenderStudioHost,{key:"studio-"+projId,
+        locations,characters,props,scenes,drafts,sluglineUnits,readOnly})),
     // (pre-production readiness strip removed — user ruling 2026-07-19)
-    artView==="lookbook" && LookbookView
+    lockedView
+      ? React.createElement(ArtTabLock,{tab:artView,locks:tabLocks,onGo:setArtView})
+    : artView==="lookbook" && LookbookView
       ? React.createElement(LookbookView,{project,lookbook,note:lookbookNote,
           onUpdate:onUpdateLookbook,onAdd:onAddLookbook,onDelete:onDeleteLookbook,onSetNote:onSetLookbookNote,onResearch})
     : artView==="characters"
@@ -5893,7 +5947,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
       ? React.createElement(PropSheets,{project,props,characters,scenes,drafts,onSourceClick,onUpdate:onUpdateProp,onDraft:onDraftProp,
           onDraftAll:onDraftAllProps,onAdd:onAddProp,onImportProps,onDelete:onDeleteProp,draftingId:draftingPropId,draftingIds:draftingPropIds,draftingAll:draftingAllProps,
           trashItems:(trash&&trash.props)||[],onRestore:onRestoreProp,onPurge:onPurgeProp,onEnsureOwner,
-          castHasProps,onMergeProps,
+          castHasProps,onMergeProps,noPropsConfirmed,onSetNoProps,
           lookbookStale:!!_stale.props,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("props"),
           onApplyLookbookDraftOnly:()=>onApplyLookbook&&onApplyLookbook("props","draft")})
     : artView==="locations" && LocationSheets

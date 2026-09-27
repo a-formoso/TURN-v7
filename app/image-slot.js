@@ -95,7 +95,7 @@
         tombstones.clear();
       })
       .catch(() => {})
-      .then(() => { loaded = true; subs.forEach((fn) => fn()); });
+      .then(() => { loaded = true; subs.forEach((fn) => fn()); announce(null); });
     return loadP;
   }
 
@@ -126,11 +126,21 @@
     return typeof v === 'string' ? { u: v, s: 1, x: 0, y: 0 } : v;
   }
 
+  // TURN hook (read-only): the image dropped on a slot, by id, whether or not its element is
+  // mounted, plus an `image-slot-change` window event on every drop / clear / sidecar load. State
+  // outside the element follows a drop through these — e.g. the Art Room tab locks count an image
+  // dropped on a Lookbook reference card while the Lookbook tab is closed (app/lookbook.jsx).
+  function announce(id) {
+    try { window.dispatchEvent(new CustomEvent('image-slot-change', { detail: { id: id || null } })); } catch (e) {}
+  }
+  window.imageSlotStored = (id) => { const v = id ? getSlot(id) : null; return (v && v.u) || null; };
+
   function setSlot(id, val) {
     if (!id) return;
     if (val) { slots[id] = val; tombstones.delete(id); }
     else { delete slots[id]; if (!loaded) tombstones.add(id); }
     subs.forEach((fn) => fn());
+    announce(id);
     // A drop is rare + high-value — write immediately so nav-away can't lose
     // it. Gate on the initial read so we don't overwrite a sidecar we haven't
     // merged yet; the merge in load() keeps this change once the read lands.

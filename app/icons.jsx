@@ -172,6 +172,10 @@ const Icon = {
     React.createElement("circle",{key:1,cx:12,cy:5,r:1.6,fill:"currentColor",stroke:"none"}),
     React.createElement("circle",{key:2,cx:12,cy:12,r:1.6,fill:"currentColor",stroke:"none"}),
     React.createElement("circle",{key:3,cx:12,cy:19,r:1.6,fill:"currentColor",stroke:"none"})]}),
+  // a locked Art Room tab (named "padlock", not "lock": the API-key buttons fall back through Icon.lock)
+  padlock:(p)=>I({...p,children:[
+    React.createElement("rect",{key:1,x:5,y:11,width:14,height:10,rx:2}),
+    React.createElement("path",{key:2,d:"M8 11V8a4 4 0 0 1 8 0v3"})]}),
 };
 
 window.Icon = Icon;

@@ -56,6 +56,12 @@ function lookbookCardHasContent(c){
   try{
     if(c.id && typeof nbGetImage==="function" && nbGetImage(c.id)) return true;                      // its mood frame
     if(c.id && typeof nbGetSlotImage==="function" && nbGetSlotImage("lookref-"+c.id)) return true;    // a dropped image
+    // …read from the <image-slot> store too (app/image-slot.js): the element above only exists while
+    // the Lookbook tab is open, but the Art Room tab locks and the silent cast draft judge the look
+    // from the other tabs. The store holds only the user's drops (data URLs).
+    const stored = (c.id && typeof window!=="undefined" && typeof window.imageSlotStored==="function")
+      ? window.imageSlotStored("lookref-"+c.id) : null;
+    if(typeof stored==="string" && stored.startsWith("data:image/")) return true;
   }catch(e){}
   return false;
 }

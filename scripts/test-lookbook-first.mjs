@@ -781,9 +781,14 @@ const bootNav = () => JSON.parse(store.get("turn-nav-v1") || "null") || {};
   ok("E MUSE Art Room: only roles that save the Art Room; agents wait for a running Draft all",
     /only for someone whose role saves Art Room changes \(the owner or an Art director\)/.test(arr)
     && /'Run pre-production', 'Design the cast' and a Characters re-draft say they can start once the specs land/.test(arr));
-  ok("E MUSE Art Room: New Story films arrive with the cast already drafted (truthful about the build)",
-    /A film built with New Story is different: the build itself already drafts every character's spec \(before any Lookbook exists\)/.test(arr)
-    && /'Lookbook changed' banner/.test(arr));
+  // 2026-09-27 (owner-approved): the story build no longer drafts the cast's look, so a New Story
+  // film's cast is designed by this same silent draft once the Lookbook has a look (and only
+  // pre-change films, which carry a build-drafted spec, get the 'Lookbook changed' banner)
+  ok("E MUSE Art Room: New Story films arrive with NO cast look — the silent draft designs it from the Lookbook (truthful about the build)",
+    /A film built with New Story arrives the same way: the STORY BUILD NO LONGER DRAFTS THE CAST'S LOOK/.test(arr)
+    && /the silent draft designs the whole cast from the Lookbook once/.test(arr)
+    && !/the build itself already drafts every character's spec/.test(arr)
+    && /Films built before this change already carry a build-drafted spec/.test(arr) && /'Lookbook changed' banner/.test(arr));
   ok("E MUSE Art Room: tab remembered per film, new films/Episodes on the Lookbook",
     /remembered PER FILM/.test(arr) && /never opened in the Art Room opens on the LOOKBOOK/.test(arr) && /every new Episode of a series start on the Lookbook/.test(arr));
   ok("E MUSE Art Room: recommended order starts with the Lookbook", /The recommended order of work is: Lookbook → Characters/.test(arr));
@@ -813,8 +818,11 @@ const bootNav = () => JSON.parse(store.get("turn-nav-v1") || "null") || {};
     const key = cacheKey(f);
     ok("F cache key bumped: " + f, !!key && key !== pre && Number(key.slice(0, 8)) >= 20260927, { key, pre });
   }
-  ok("F cache keys: the files changed in the review pass carry the review key",
-    ["app/app.jsx", "app/lookbook.jsx", "app/ai.jsx"].every(f => cacheKey(f) === "20260927-lookfirst2"), ["app/app.jsx", "app/lookbook.jsx", "app/ai.jsx"].map(cacheKey));
+  // the review-pass key, or a LATER change's key (e.g. 20260927-tablocks1) — never the first-pass key
+  const reviewOrLater = f => { const k = cacheKey(f); return k === "20260927-lookfirst2"
+    || (!!k && k !== "20260927-lookfirst1" && k !== PRE_CHANGE[f] && Number(k.slice(0, 8)) >= 20260927); };
+  ok("F cache keys: the files changed in the review pass carry the review key (or a later change's)",
+    ["app/app.jsx", "app/lookbook.jsx", "app/ai.jsx"].every(reviewOrLater), ["app/app.jsx", "app/lookbook.jsx", "app/ai.jsx"].map(cacheKey));
 }
 
 console.log(`${passes} passed, ${failures} failed`);

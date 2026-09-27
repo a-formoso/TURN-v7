@@ -49,7 +49,7 @@ function ExportMenu({ project, scenes, drafts, onReset }){
 /* OverflowMenu — mobile-only kebab that holds the actions whose labels don't
    fit the narrow bar (New Story; the export targets in the Writers' Room only;
    the admin-only Reset). Keeps every action reachable on a phone. */
-function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room }){
+function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room, artView, setArtView, artTabLocks, hiddenArtTabs }){
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef(null);
   React.useEffect(()=>{
@@ -71,6 +71,12 @@ function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room }){
     typeof window.turnExportBreakdown==="function" && ["strip","Export stripboard","One coloured strip per scene",()=>window.turnExportBreakdown()],
     typeof window.turnExportArtBible==="function" && ["bible","Export art department bible","Cast, props and locations",()=>window.turnExportArtBible()],
   ].filter(Boolean);
+  // PHONE ONLY (CSS shows .export-art-tabs at ≤700px, where the tab bar is icons only): the Art Room
+  // tabs by name, each locked one with its padlock and the step it follows (docs/Story Pipeline.md
+  // step 9) — named like the tab bar, with the format's department name in brackets where it differs
+  // ("unlocks after Characters (Subjects)"). A locked tab still opens — onto its lock card.
+  const artTabs = (room==="art" && typeof setArtView==="function")
+    ? (window.ART_TABS||[]).filter(t=>!(hiddenArtTabs&&hiddenArtTabs[t.id])) : [];
   // the ⋮ is a phone-only control in the other rooms, but in the ART ROOM it carries the
   // exports (shot list, stripboard, art department bible), so it shows at every width there
   // (the 2026-07-19 ruling; the stylesheet had kept it phone-only, hiding them on desktop)
@@ -83,6 +89,22 @@ function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room }){
         React.createElement("span",{className:"export-item-t"},
           React.createElement("span",{className:"t"},"New Story"),
           React.createElement("span",{className:"s"},"Start from an idea"))),
+      artTabs.length>0 && React.createElement("div",{className:"export-art-tabs",role:"group","aria-label":"Art Room tabs"},
+        React.createElement("div",{className:"export-subhead"},"Art Room tabs"),
+        artTabs.map(t=>{
+          const lock = artTabLocks && artTabLocks[t.id];
+          const locked = !!(lock && lock.locked);
+          const TabIc = Icon[t.icon]||Icon.user;
+          return React.createElement("button",{key:"tab-"+t.id,type:"button",
+              className:"export-item"+(locked?" is-locked":"")+(artView===t.id?" on":""),
+              "aria-current":artView===t.id?"page":undefined,
+              title:locked ? (t.label+" \u2014 locked. "+lock.waitingFor) : t.label,
+              onClick:()=>{ setOpen(false); setArtView(t.id); }},
+            React.createElement("span",{className:"export-item-ic"},React.createElement(locked?(Icon.padlock||TabIc):TabIc,{s:15})),
+            React.createElement("span",{className:"export-item-t"},
+              React.createElement("span",{className:"t"},t.label),
+              locked && React.createElement("span",{className:"s"},"Locked \u00b7 unlocks after "+(lock.afterLabel||lock.unlockLabel))));
+        })),
       inWriters && React.createElement("div",{className:"export-subhead"},"Export"),
       inWriters && exp.map(([kind,Ic,title])=>
         React.createElement("button",{key:kind,className:"export-item",onClick:()=>run(kind)},
@@ -114,7 +136,7 @@ window.OverflowMenu = OverflowMenu;
    Room tabs) as a full-width bar directly beneath the top bar, at every screen
    size. Moved out of the top bar to free its space; the panel toggles ride along
    at the edges (Writers' Room only). Replaces the old mobile-only bottom bar. */
-function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen, onToggleRail, onToggleInsp, onCoordinate, onProductionCheck, productionReadOnly, onAgents, staleTabs, attnTabs, hiddenTabs, readOnly }){
+function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen, onToggleRail, onToggleInsp, onCoordinate, onProductionCheck, productionReadOnly, onAgents, staleTabs, attnTabs, hiddenTabs, tabLocks, readOnly }){
   // The Stage is a single full-width assembly view — no sub-view tabs (don't fall through
   // to the Writers' Room tabs); its own header carries the context.
   if(room==="stage") return null;
@@ -146,16 +168,24 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
     React.createElement("div",{className:"vn-center"},
       React.createElement("div",{className:"segmented"},
         nav.map(([id,lab,Ic])=>{
+          // TAB LOCKS (docs/Story Pipeline.md step 9): a locked Art Room tab stays visible with a
+          // padlock; clicking it still opens the tab, which shows its lock card (what it waits for
+          // + a button to the step that unlocks it). Its accessible name says "locked".
+          const lock = inArt && tabLocks && tabLocks[id];
+          const locked = !!(lock && lock.locked);
           // yellow "needs you" dot beats the amber lookbook-stale dot when both apply —
           // it marks a waiting one-tap action, not just drift
-          const attn = inArt && attnTabs && attnTabs[id];
-          const stale = inArt && staleTabs && staleTabs[id];
-           return React.createElement("button",{key:id,className:`seg ${cur===id?"on":""}`,onClick:()=>setCur(id),
+          const attn = !locked && inArt && attnTabs && attnTabs[id];
+          const stale = !locked && inArt && staleTabs && staleTabs[id];
+           return React.createElement("button",{key:id,className:`seg ${cur===id?"on":""}${locked?" locked":""}`,onClick:()=>setCur(id),
              "aria-current":cur===id?"page":undefined,
-            title: attn ? (lab+" — a character sheet is waiting to wear its new props: tap \u201cUpdate sheet with new wardrobe\u201d on the card")
+            "aria-label": locked ? (lab+" (locked)") : undefined,
+            title: locked ? (lab+" \u2014 locked. "+lock.waitingFor)
+              : attn ? (lab+" — a character sheet is waiting to wear its new props: tap \u201cUpdate sheet with new wardrobe\u201d on the card")
               : (stale ? (lab+" — the Lookbook changed since this was drafted") : lab)},
             React.createElement(Ic,{s:14}),React.createElement("span",{className:"seg-lab"},lab),
-            attn ? React.createElement("span",{className:"seg-attn-dot"})
+            locked ? React.createElement("span",{className:"seg-lock","aria-hidden":"true"},React.createElement(Icon.padlock||Icon.alert,{s:11}))
+              : attn ? React.createElement("span",{className:"seg-attn-dot"})
               : (stale && React.createElement("span",{className:"seg-stale-dot"})));
         })),
       inArt&&React.createElement("button",{type:"button",className:"tb-btn vn-studio",title:"Blender Studio — derive a set from a generated location image",
@@ -497,7 +527,7 @@ function StoryBriefModal({ project, onClose, onRebuild }){
 }
 window.StoryBriefModal = StoryBriefModal;
 
-function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, onAgents, onViewBible, onManageStyles, onRebuildFromBrief, hasFilmStyle, theme, onTheme, authSlot, projectSlot, teamSlot, presenceSlot, roomEntitlements, onHome }){
+function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, onAgents, onViewBible, onManageStyles, onRebuildFromBrief, hasFilmStyle, theme, onTheme, authSlot, projectSlot, teamSlot, presenceSlot, roomEntitlements, onHome, artView, setArtView, artTabLocks, hiddenArtTabs }){
   const [bibleOpen, setBibleOpen] = React.useState(false);
   const [briefOpen, setBriefOpen] = React.useState(false);
   const [stylesOpen, setStylesOpen] = React.useState(false);
@@ -553,7 +583,8 @@ function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, o
       // whitelisted controls, so users lose nothing.
       // EXCEPTION (user ruling 2026-07-19): in the ART ROOM the ⋮ shows for everyone —
       // it carries "Export shot list" (moved off the Shots screen); admin extras stay gated.
-      (window.turnIsAdmin || room==="art") && React.createElement(OverflowMenu,{onNewStory,project,scenes,drafts,onReset,room}),
+      (window.turnIsAdmin || room==="art") && React.createElement(OverflowMenu,{onNewStory,project,scenes,drafts,onReset,room,
+        artView,setArtView,artTabLocks,hiddenArtTabs}),
       // Story Editors live only in the Writers' Room ViewNav; the Art Room exposes
       // its separate Run pre-production coordinator in the corresponding position.
       authSlot || React.createElement("div",{className:"avatar"},"MV")),

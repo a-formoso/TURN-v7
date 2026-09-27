@@ -116,7 +116,8 @@ window.buildPropRefPrompt = buildPropRefPrompt;
 
 /* ---- derive standalone prop cards from the cast's existing per-character
    "Props & accessories" fields (c.accessories = worn, c.props = carried),
-   which the visual bible already fills during a build. Splits multi-item
+   which the cast's visual draft fills in the Art Room (the story build no longer
+   drafts the cast's look — docs/Story Pipeline.md, 2026-09-27). Splits multi-item
    fields, assigns the owner, and dedups against props already in the tab so
    re-running never creates duplicates. No AI / no pipeline step — it just
    surfaces data the character sheets already hold. */
@@ -1481,7 +1482,7 @@ function PropExtractionReview({review,onChange,onApply,onClose,props,characters,
   );
 }
 
-function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDraft, onDraftAll, onAdd, onImportProps, onDelete, draftingId, draftingIds, draftingAll, castHasProps, onMergeProps, trashItems, onRestore, onPurge, onEnsureOwner, onSourceClick, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly }){
+function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDraft, onDraftAll, onAdd, onImportProps, onDelete, draftingId, draftingIds, draftingAll, castHasProps, onMergeProps, trashItems, onRestore, onPurge, onEnsureOwner, onSourceClick, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, noPropsConfirmed, onSetNoProps }){
   const [view, setView] = React.useState(null);   // {url, character/prop}
   if(window.useRenderStyleVersion) window.useRenderStyleVersion();   // re-render dropdowns when a style is locked/unlocked
   const [sceneFilter, setSceneFilter] = React.useState("");   // "" = all
@@ -1513,6 +1514,9 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
   const batch = useBatchGen();
   const batchActiveId = batch.activeId;
   const list = props || [];
+  // the tab names for the "No props in this story" copy, as the lock copy names them (the tab bar's
+  // label, plus the format's department name in brackets where it differs)
+  const noPropsNames = (typeof window.turnArtTabDisplayNames==="function") ? window.turnArtTabDisplayNames(project) : { locations:"Locations" };
   // STYLE · ALL PROPS — apply one render style to every prop at once (mirrors the cast's
   // 'Style · all cast'); each prop can still be overridden on its own card.
   const [allStyling, setAllStyling] = React.useState(null);   // null | {i,total} (surprise progress)
@@ -1819,10 +1823,22 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
           React.createElement("div",{className:"art-soon-d"}, castHasProps
             ? "Your cast already lists worn & carried items on their character sheets \u2014 \u201cDraft all specifications\u201d pulls them in as department proposals, drafts each spec, and maps their scenes in one pass. Or add one by hand."
             : "Add a prop to start building its reference sheet \u2014 a weapon, a phone, a talisman, anything that recurs across scenes."),
-          React.createElement("div",{style:{display:"flex",gap:8,marginTop:16}},
+          React.createElement("div",{className:"prop-empty-actions"},
             castHasProps && React.createElement("button",{className:"art-draftall",disabled:draftingAll,onClick:onDraftAll},
               React.createElement(Icon.sparkles,{s:14}), draftingAll?"Drafting\u2026":"Draft all specifications"),
             React.createElement("button",{className:castHasProps?"art-draftall ghost":"art-draftall",onClick:onAdd},
-              React.createElement(Icon.plus,{s:14}),castHasProps?"Add by hand":"Add your first prop"))));
+              React.createElement(Icon.plus,{s:14}),castHasProps?"Add by hand":"Add your first prop"),
+            // TAB LOCKS (docs/Story Pipeline.md step 9): a story with no props says so explicitly —
+            // the mark unlocks Locations (app/art-tab-locks.js). Only an Art Room-writing role gets
+            // the button (App passes onSetNoProps=null to everyone else).
+            (onSetNoProps && !noPropsConfirmed) && React.createElement("button",{type:"button",className:"art-draftall ghost",
+                onClick:()=>onSetNoProps(true),
+                title:"Confirm this story has no props \u2014 the "+noPropsNames.locations+" tab unlocks without a prop step. You can undo it."},
+              React.createElement(Icon.check,{s:14}),"No props in this story")),
+          noPropsConfirmed && React.createElement("div",{className:"prop-noprops",role:"status"},
+            React.createElement(Icon.check,{s:14}),
+            React.createElement("span",null,"Marked \u201cNo props in this story\u201d \u2014 "+noPropsNames.locations+" is unlocked."),
+            onSetNoProps && React.createElement("button",{type:"button",className:"prop-noprops-undo",onClick:()=>onSetNoProps(false),
+              title:"Clear the mark \u2014 "+noPropsNames.locations+" then waits for props again (anything already built there stays reachable)"},"Undo"))));
 }
 window.PropSheets = PropSheets;

@@ -635,6 +635,35 @@ function App(){
     if(staleDepts.storyboard) t.storyboard = true;
     return t;
   },[lookbook, lookbookNote, lookbookApplied, characters, props, locations, shots, project]);
+  // ---- Art Room TAB LOCKS: the tabs unlock in pipeline order (2026-09-27, owner-approved —
+  // docs/Story Pipeline.md step 9). One pure decision (app/art-tab-locks.js) shared by the tab bar,
+  // the phone ⋮ menu and the Art Room's lock card. A series episode's state already holds the Show
+  // Bible's shared cast / props / locations / Lookbook, so it unlocks from those. A tab that already
+  // has content is never locked; a locked tab stays visible and its click shows the lock card.
+  // No story yet → no locks: the whole Art Room is gated behind the onboarding then (emptyCanvas).
+  // `trash` rides along: a tab's "Recently deleted" bin is content (its restore lives in the tab).
+  const artTabLocksOf = (s)=> ((s.scenes||[]).length && typeof window.turnArtTabLocks==="function")
+    ? window.turnArtTabLocks(s) : {};
+  const artLockInputs = { project, characters, props, locations, shots, trash, lookbook, lookbookNote, scenes };
+  const artLockInputsRef = React.useRef(artLockInputs); artLockInputsRef.current = artLockInputs;
+  // Some content is an IMAGE the doc doesn't hold: a character sheet in the image cache (the cloud
+  // URL cache fills after the first paint) or a reference image dropped on a Lookbook card (it lives
+  // in the <image-slot> store, not in `lookbook`). Re-check the locks when those land, and re-render
+  // only when the answer actually changes.
+  const [artLockTick, setArtLockTick] = React.useState(0);
+  const artTabLocks = React.useMemo(()=> artTabLocksOf(artLockInputs),
+    [project, characters, props, locations, shots, trash, lookbook, lookbookNote, scenes, artLockTick]);
+  const artTabLocksRef = React.useRef(artTabLocks); artTabLocksRef.current = artTabLocks;
+  React.useEffect(()=>{
+    const sig = (r)=> JSON.stringify(Object.keys(r||{}).map(k=>[k, !!r[k].locked, r[k].waitingFor||""]));
+    const recheck = ()=>{
+      try{ if(sig(artTabLocksOf(artLockInputsRef.current))!==sig(artTabLocksRef.current)) setArtLockTick(t=>t+1); }catch(e){}
+    };
+    const evs = ["nb-prefetched","nb-gen-done","image-slot-change"];
+    evs.forEach(ev=>window.addEventListener(ev, recheck));
+    return ()=>evs.forEach(ev=>window.removeEventListener(ev, recheck));
+  },[]);
+  const artTabLocked = (tab)=> !!(artTabLocks && artTabLocks[tab] && artTabLocks[tab].locked);
   // re-draft one department from the updated Lookbook (confirm first; agent runs in force
   // mode). mode "full" (default) also regenerates the sheets; mode "draft" re-drafts the
   // specs only and leaves every generated image untouched — regenerate later, when ready.
@@ -3555,6 +3584,15 @@ function App(){
   const [draftingPropIds, setDraftingPropIds] = React.useState([]);
   const draftingPropIdsRef = React.useRef([]); draftingPropIdsRef.current = draftingPropIds;
   const [draftingAllProps, setDraftingAllProps] = React.useState(false);
+  // "No props in this story" (2026-09-27, owner-approved — docs/Story Pipeline.md step 9): with no
+  // props at all, this explicit mark is what unlocks the Locations tab (see app/art-tab-locks.js).
+  // It lives on `project` (saved per film / episode, merged key by key, writable by the owner and
+  // the Art director) and only an Art Room-writing role can set or clear it. Stored as a boolean,
+  // never deleted, so the key-wise project merge carries an Undo like any other change.
+  const setNoPropsConfirmed = (on)=>{
+    if(!canMutateSharedFilm()) return;
+    setProject(p=> (!!(p && p.noPropsConfirmed)===!!on) ? p : ({ ...p, noPropsConfirmed:!!on }));
+  };
   const addProp = ()=>{
     const id = "prop-"+Date.now().toString(36);
     setProps(ps=>[...ps, { id, name:"New prop", kind:"carried", ownerId:"", ownerName:"",
@@ -3742,19 +3780,27 @@ function App(){
     if(derived.length) setProps(ps=>[...ps, ...derived]);
   },[characters, props]);
   // auto-seed once per story: when you first open the Art Room with an empty
-  // Props tab while the cast already carries items, fill it from them.
+  // Props tab while the cast already carries items, fill it from them. Never behind a LOCKED
+  // Props tab (it shows only its lock card): seeding there would add cards the user never saw,
+  // and a tab with content is never locked, so the lock would vanish on its own.
   React.useEffect(()=>{
     if(propsSeeded || hydratingRef.current) return;
     if(room!=="art" || artView!=="props") return;
+    if(artTabLocked("props")) return;
     if(props.length) { setPropsSeeded(true); return; }   // user already has props -> don't auto-pull
     if(typeof castHasProps==="function" && castHasProps(characters)) seedPropsFromCast();
-  },[room, artView, propsSeeded, props.length, characters, seedPropsFromCast, hydrationTick]);
+  },[room, artView, propsSeeded, props.length, characters, seedPropsFromCast, hydrationTick, artTabLocks]);
 
   /* INITIAL CHARACTER -> WORN PROP BOOTSTRAP
      The first committed identity sheet is the best visual seed for accessories that
      belong on that character. Build those prop sheets in the background immediately,
      then let the existing dependency snapshot mark the character master out of date.
-     Carried props are deliberately excluded: they bind at the shot where they appear. */
+     Carried props are deliberately excluded: they bind at the shot where they appear.
+     TAB LOCKS: this is the ONE auto-fill that may add prop cards while the Props tab is still
+     locked (the other cast members lack a written spec) — Characters come before Props, so the
+     owner's committed sheet is exactly the reference these worn props need. Its cards are Props
+     content, so Props then opens (a tab with content is never locked — docs/Story Pipeline.md
+     step 9); APP_FEATURES says so, so MUSE can explain an early-open Props tab. */
   React.useEffect(()=>{
     window.__turnWornPropBootstrap = window.__turnWornPropBootstrap || {};
     const onCharacterSheetDone = async (e)=>{
@@ -3906,6 +3952,10 @@ function App(){
   // Pipeline.md step 9). The Lookbook steers the wardrobe, so the silent draft waits until the
   // Lookbook has a look (a visual statement or at least one reference card) and then fires the first
   // time an Art Room tab OTHER than the Lookbook is open — never while the user is still curating it.
+  // With the tab locks (app/art-tab-locks.js) that tab is normally Characters: the same look unlocks
+  // it, and the tabs after it wait for the cast's specs this draft writes (a remembered later tab
+  // shows its lock card, and the draft still runs there). The story build no longer drafts the
+  // cast's look (docs/Story Pipeline.md, 2026-09-27), so a New Story film's cast is drafted here too.
   // (It used to run on the first Art Room visit even with an empty Lookbook, so Characters was later
   // flagged "Lookbook changed — re-draft" and the cast was drafted twice.) It never runs while any
   // agent is running (Run pre-production drafts the cast itself; agentRunTick re-checks when runs
@@ -4233,13 +4283,15 @@ function App(){
         areas:[...new Set([...(l.areas||[]),...(m.areas||[])])]}) : l; }));
     }
   },[scenes, locations, drafts, currentShowId, currentProjectId]);
-  // auto-seed once per story: first time the Locations tab opens empty, derive them
+  // auto-seed once per story: first time the Locations tab opens empty, derive them — never behind
+  // a LOCKED Locations tab (same reason as the Props seed above)
   React.useEffect(()=>{
     if(locsSeeded || hydratingRef.current) return;
     if(room!=="art" || artView!=="locations") return;
+    if(artTabLocked("locations")) return;
     if(locations.length){ setLocsSeeded(true); return; }
     if(typeof scriptHasLocations==="function" && scriptHasLocations(scenes)) pullLocationsFromScript();
-  },[room, artView, locsSeeded, locations.length, scenes, pullLocationsFromScript, hydrationTick]);
+  },[room, artView, locsSeeded, locations.length, scenes, pullLocationsFromScript, hydrationTick, artTabLocks]);
   // LOCATION HIERARCHY SYNC — grouping now establishes inheritance instead of
   // disposing of child cards. Restore a previously folded child from recoverable
   // Trash when possible; otherwise derive the missing child with its stable ID.
@@ -6320,6 +6372,7 @@ function App(){
     // room switcher, theme toggle, etc.) — only its own sub-view tabs (ViewNav) are skipped,
     // since the Stage is a single full-width assembly view.
     React.createElement(TopBar,{view,setView,room,setRoom:guardedSetRoom,artView,setArtView,project,scenes,drafts,
+      artTabLocks,hiddenArtTabs:(typeof tabHidden==="function") ? Object.fromEntries((window.ART_TABS||[]).map(t=>[t.id, tabHidden(project, t.id)])) : null,
       onReset: isAdmin ? resetStory : null,
       onNewStory:startNewStory,
       // Brief modal's "Rebuild as a new film" — the brief is the story's true
@@ -6445,7 +6498,7 @@ function App(){
 
     // the room's view tabs, moved out of the top bar to a full-width bar beneath it
     room!=="stage" && React.createElement(ViewNav,{room,view,setView,artView,setArtView,staleTabs,
-      attnTabs:{ characters: wardrobeAttn },
+      attnTabs:{ characters: wardrobeAttn },tabLocks:artTabLocks,
       readOnly:roomReadOnly,
       hiddenTabs:(typeof tabHidden==="function") ? Object.fromEntries((window.ART_TABS||[]).map(t=>[t.id, tabHidden(project, t.id)])) : null,
       railOpen,inspOpen,onToggleRail:toggleRail,onToggleInsp:toggleInsp,
@@ -6485,7 +6538,8 @@ function App(){
           // show the onboarding instead of empty (and partly broken) tabs.
           ? React.createElement("div",{className:"canvas"}, emptyCanvas())
           : React.createElement(ArtRoom,{key:(cloudMode?currentProjectId:"local"),artView,setArtView,project,characters,scenes,props,drafts,trash,
-            readOnly:roomReadOnly,canReview:!roomReadOnly,onSourceClick:openArtSource,
+            readOnly:roomReadOnly,canReview:!roomReadOnly,onSourceClick:openArtSource,tabLocks:artTabLocks,
+            noPropsConfirmed:!!(project && project.noPropsConfirmed),onSetNoProps:roomReadOnly?null:setNoPropsConfirmed,
             onRestoreChar:restoreCharacter,onPurgeChar:purgeCharacter,onRestoreProp:restoreProp,onPurgeProp:purgeProp,
             onRestoreLoc:restoreLocation,onPurgeLoc:purgeLocation,onRestoreShot:restoreShot,onPurgeShot:purgeShot,onEnsureOwner:ensureOwnerSheet,
             onColorist:(refs)=>{ if(typeof refs==="string") setStyleRefs(refs.trim()); setColoristOpen(true); },

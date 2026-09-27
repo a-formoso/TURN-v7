@@ -116,7 +116,9 @@ never a conflict escalation; Hero's Journey builds the mythic round where every 
 costs): the **scenes**, then the **premise**, **controlling idea**,
 **setting**, and **cast**, then the **cast's inner life** (want, contradicting need, arc by act,
 Voice DNA), then **beats + screenplay** for every scene — threading continuity scene to
-scene — then the **psychology check** against the script, then the **continuity ledger**.
+scene — then the **psychology check** against the script, then the **continuity ledger**. The build
+stops there *(2026-09-27, owner-approved)*: it does **not** draft the cast's visual look (wardrobe,
+palette, sheet prompts) — that is drafted in the Art Room once the Lookbook has a look (step 9).
 
 > **Any format with any framework** *(approved 2026-09-25 by owner)*: the synopsis and the spine are
 > always told **what is being made**, whatever the framework — the framework shapes the order of the
@@ -367,6 +369,24 @@ Each entity gets a canonical, reusable reference so every generated image stays 
 > locations, Palette / Lighting shape the colour grade, Lens / Composition shape the shots. A department
 > drafted before the Lookbook exists is later flagged "Lookbook changed — re-draft" and drafted twice, so
 > the order is **Lookbook → Characters → Props → Wear props → Locations → Color → Shots → Storyboards**.
+>
+> **The tabs unlock in that order** *(2026-09-27, owner-approved)*. Every tab stays visible; a locked
+> tab shows what it is waiting for and a button to the step that unlocks it:
+> - **Lookbook** — always open.
+> - **Characters** — once the Lookbook has a look (a visual statement, or a reference card with a note,
+>   a named touchstone or an image).
+> - **Props** — once every character has a written spec (generated sheets are not required).
+> - **Locations** — once every prop has a written spec, or the user marks **No props in this story**.
+> - **Color** — once every location has a written spec.
+> - **Shots** — once the Color tab has a look (the colour system / film stock).
+> - **Storyboards** — once shot coverage exists.
+> - **Breakdown**, **Production check** and **Blender Studio** are always open (they read the script,
+>   not the visual steps).
+>
+> A step with nothing to do unlocks the next one by itself (e.g. no props, once confirmed). Anything
+> already built stays reachable: a tab that already has content is never locked. **Run pre-production**
+> is unchanged and fills the steps in this order. A TV Series episode unlocks from the Show's shared
+> cast, props, locations and Lookbook.
 
 > **Characters come before Props** *(2026-06-15)*: a worn/owned prop must look like it belongs to its
 > character, so the **character is generated first** and each prop is then generated **referencing its
@@ -374,13 +394,14 @@ Each entity gets a canonical, reusable reference so every generated image stays 
 > isolation comes out generic — not part of that character's world. After the props exist, re-generating
 > a character makes its master ingest the finalized worn-prop sheets so it wears the exact prop.
 
-- **Voices** *(approved 2026-06-13; tab planned, not yet built — see Step 10)* — each speaking
+- **Voices** *(approved 2026-06-13; they live on each character's card — see Step 10)* — each speaking
   character gets a **locked voice** the way Cameo locks a face. A voice is **designed from the
   character's own bible** (age, identity, archetype, drive — and the cast **voice block**:
   accent / pitch / pace / quirks *(added 2026-07-02)*), **picked from a library**, or **cloned from
   a real voice sample** (consent-gated, exactly like a cameo). Locking writes a canonical `voiceId` so
-  the same character sounds identical in every line. A candidate spec is auto-drafted on first Art Room
-  open (mirroring the silent cast auto-draft); the user auditions and locks — never silently committed.
+  the same character sounds identical in every line. Nothing is drafted silently *(corrected 2026-09-27,
+  owner-approved — the app never auto-drafted voices)*: on each character's card the user designs a voice
+  from their bible, picks one from the library or clones a consented sample, auditions it and locks it.
 
 - **"Draft all" batch drafters are consistent across tabs.** Each tab's primary action fills every
   card's full written spec from the script in one pass — the same fields the per-card "Draft details"

@@ -295,15 +295,17 @@ async function adaptationTimeline() {
     w.state = { ...w.state, drafts, beatsMap: beats, project: { ...model } };
     await w.save("S3 scenes " + (i + 1) + "-" + (i + 4));
   }
+  // docs/Story Pipeline.md build order: the psychology check against the script, THEN the
+  // continuity ledger (agents.jsx agentAdaptation runs them in that order)
+  w.state = { ...w.state, characters: w.state.characters.map(c => ({ ...c, arc: "revised" })), project: { ...model } };
+  await w.save("S4 psychology reconcile");
   const facts = {}; for (let k = 1; k <= 15; k++) facts["f" + k] = { label: "Fact " + k, detail: "detail " + k, kind: "object" };
   const cmap = {}; scenes16.forEach(s => { cmap[s.id] = { establishes: ["f1"], references: [] }; });
   model = { ...model, continuityFacts: facts, continuityLedger: { sig: "abc", at: "2026-09-27T00:25:00Z", built: 15 } };
   w.state = { ...w.state, continuityMap: cmap, project: { ...model } };
-  await w.save("S4 continuity mapped");
-  w.state = { ...w.state, characters: w.state.characters.map(c => ({ ...c, arc: "revised" })), project: { ...model } };
-  await w.save("S5 psychology reconcile");
-  w.state = { ...w.state, characters: w.state.characters.map(c => ({ ...c, look: "soot-streaked", wardrobe: "wool" })), project: { ...model } };
-  await w.save("S6 cast visual bible");
+  await w.save("S5 continuity mapped");
+  // the build stops here (2026-09-27, owner-approved — docs/Story Pipeline.md): it no longer
+  // drafts the cast's visual look, so there is no "cast visual bible" save after the ledger
   return w;
 }
 
@@ -375,13 +377,13 @@ async function adaptationTimeline() {
 /* ── 1. the incident timeline: one window, no other writer ───────────────── */
 {
   const w = await adaptationTimeline();
-  ok("1 Adaptation timeline S0-S6 saves without any conflict", !w.saves.some(s => s.result !== "ok"), w.saves.map(s => s.label + ":" + s.result + (s.conflicts ? JSON.stringify(s.conflicts) : "")));
+  ok("1 Adaptation timeline S0-S5 saves without any conflict", !w.saves.some(s => s.result !== "ok"), w.saves.map(s => s.label + ":" + s.result + (s.conflicts ? JSON.stringify(s.conflicts) : "")));
   ok("1 no conflict dialog opened", w.dialogs.length === 0, w.dialogs.map(d => d.body));
   ok("1 chip ends Saved and the save is not dirty", w.saveState === "saved" && w.ui.dirtyRef.current === false, { chip: w.saveState, dirty: w.ui.dirtyRef.current });
   const srv = await serverDoc(w.id);
   ok("1 continuity facts (15) and ledger reach the server", srv.project.continuityFacts && Object.keys(srv.project.continuityFacts).length === 15 && srv.project.continuityLedger && srv.project.continuityLedger.built === 15, Object.keys(srv.project));
   ok("1 continuity map reaches the server", Object.keys(srv.continuityMap || {}).length === 16);
-  ok("1 psychology reconcile + visual bible reach the server", srv.characters.length === 5 && srv.characters.every(c => c.arc === "revised" && c.look === "soot-streaked" && c.wardrobe === "wool"), srv.characters[0]);
+  ok("1 psychology reconcile reaches the server, and the build wrote no cast look", srv.characters.length === 5 && srv.characters.every(c => c.arc === "revised" && !c.look && !c.wardrobe && !c.coreBody && !c.wardrobeMask), srv.characters[0]);
   ok("1 contract / controllingIdea / setting survive intact", srv.project.contract.dominant === "inner" && srv.project.controllingIdea.polarity === "ironic" && srv.project.setting.location === "Edinburgh rooftops");
   ok("1 fence bookkeeping matches the server revision", sandbox.cloudSeenRev(w.id) === Number(srv._rev) && Number(srv._rev) > 0, { seen: sandbox.cloudSeenRev(w.id), rev: srv._rev });
   ok("1 server project equals the window's project (nothing left unsaved or unadopted)", stableJson(srv.project) === stableJson(w.state.project));
@@ -393,7 +395,7 @@ async function adaptationTimeline() {
   let w;
   try { w = await adaptationTimeline(); } finally { sandbox._seriesJsonSame = realJsonSame; }
   const first = w.saves.find(s => s.result === "CONFLICT");
-  ok("1b legacy comparator: first conflict is the continuity save (the incident)", first && first.label.startsWith("S4"), w.saves.map(s => s.label + ":" + s.result));
+  ok("1b legacy comparator: first conflict is the continuity save (the incident)", first && /continuity mapped$/.test(first.label), w.saves.map(s => s.label + ":" + s.result));
   ok("1b legacy comparator: conflicts are the client-built nested project keys",
     first && ["project.contract", "project.controllingIdea", "project.setting"].every(k => first.conflicts.includes(k)), first && first.conflicts);
   ok("1b legacy comparator: exactly one dialog; the chip still reads Not saved after later conflicts (never stuck on SAVING)",

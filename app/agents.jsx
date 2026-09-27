@@ -1025,8 +1025,10 @@ async function agentAdaptation(ctx){
     if(drop.length) cast = cast.filter(c=> drop.indexOf(c.id)<0);
   })();
   ctx.model.characters = cast;
-  // auto-populate Art Room visual fields: deterministic defaults instantly, so
-  // character sheets are never empty when the user opens The Art Room
+  // Art Room sheet fields get their deterministic placeholders only (scale class, height,
+  // negative prompt, a key/shadow/climax swatch from the avatar colour — the same defaults the
+  // sheet falls back to anyway). This is NOT the cast's look: no Body, wardrobe or sheet prompt
+  // is drafted here — that waits for the Lookbook, in the Art Room (docs/Story Pipeline.md).
   if(typeof window.charVisualDefaults==="function"){
     cast.forEach(c=>{ Object.assign(c, window.charVisualDefaults(c)); });
   }
@@ -1057,11 +1059,11 @@ async function agentAdaptation(ctx){
   ctx.emit({k:"ok", t:"Wrote "+r.written+" of "+ctx.model.scenes.length+" scenes"+
     (r.failures.length ? " \u2014 "+r.failures.length+" didn't take even after automatic retries (flagged above); run Adaptation again later to retry just those." : " \u2014 beats and screenplay are in place.")});
 
-  // ---- map setups and payoffs so continuity is checkable from the start ----
-  await buildContinuityLedgerStep(ctx);
-
   // ---- CHECK THE PSYCHOLOGY AGAINST THE SCRIPT: true character is what choices under
-  // pressure reveal — keep what the scenes bear out, revise what they contradict ----
+  // pressure reveal — keep what the scenes bear out, revise what they contradict.
+  // docs/Story Pipeline.md build order: … the psychology check against the script, THEN the
+  // continuity ledger (below). The two are independent — the check never edits the script text
+  // the ledger reads (only the drafts' card snapshots, which the ledger signature ignores). ----
   if(ctx.cancelled()) return;
   if(ctx.ai.available && typeof window.aiCastPsychology==="function" && ctx.model.characters && ctx.model.characters.length){
     const designed = ctx.model.characters.some(c=>String(c.conscious||"").trim());
@@ -1096,20 +1098,18 @@ async function agentAdaptation(ctx){
     }catch(e){ /* the psychology designed before the script stands */ }
   }
 
-  // ---- design the cast's visual bible so The Art Room sheets arrive pre-filled ----
+  // ---- map setups and payoffs so continuity is checkable from the start: the LAST step ----
+  await buildContinuityLedgerStep(ctx);
+
+  // ---- THE BUILD STOPS HERE (2026-09-27, owner-approved — docs/Story Pipeline.md): it does NOT
+  // draft the cast's visual look (wardrobe, palette, sheet prompts). The Lookbook steers every
+  // costume, so the look is drafted in the Art Room once the Lookbook has one (the silent cast
+  // auto-draft / Characters' Draft all) — drafting it here, before any Lookbook existed, meant the
+  // Characters tab was flagged "Lookbook changed — re-draft" and the cast was drafted twice. ----
   if(ctx.cancelled()) return;
-  if(ctx.ai.available && typeof window.aiCastVisualBible==="function" && ctx.model.characters && ctx.model.characters.length){
-    ctx.emit({k:"act", t:"Designing the cast's visual bible for The Art Room \u2014 look, wardrobe, palette\u2026"});
-    try{
-      const bible = await window.aiCastVisualBible(ctx.model.characters, ctx.model.scenes, ctx.model.project);
-      if(ctx.cancelled()) return;
-      if(bible){ ctx.model.characters = ctx.model.characters.map(c=> bible[c.id] ? {...c, ...bible[c.id]} : c);
-        ctx.sync(); ctx.emit({k:"ok", t:"Character sheets are ready in The Art Room \u2014 body, two wardrobe states, palette and a master grid prompt each."}); }
-    }catch(e){ /* deterministic defaults already populated the sheets */ }
-  }
   ctx.emit({k:"done", t: r.failures.length
     ? ('\u201c'+spine.title+'\u201d is built \u2014 '+r.written+" of "+ctx.model.scenes.length+" scenes written, "+r.failures.length+" flagged above. Run Adaptation again to finish just those.")
-    : ('\u201c'+spine.title+'\u201d is fully written. Open the Script view to read it, or the Spine to see the charge graph.')});
+    : ('\u201c'+spine.title+'\u201d is fully written. Open the Script view to read it, or the Spine to see the charge graph. Pre-production starts in the Art Room with the Lookbook \u2014 the cast\u2019s look is designed from it.')});
 }
 
 /* =========================================================
