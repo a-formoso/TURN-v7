@@ -5433,7 +5433,19 @@ function ImageLightbox({ url, character, onClose, siblings, startIndex }){
               :React.createElement(React.Fragment,null,React.createElement(Icon.download,{s:14}),"Download "+res)))));
 }
 
-function CharacterSheets({ project, characters, scenes, props, drafts, shots, beatsMap, onUpdate, onDraft, onDraftAll, draftingId, draftingAll, draftingIds, onSuggestStates, suggestingStatesId, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, onDelete, onCast, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly }){
+/* LOOKBOOK FIRST (2026-09-27, owner-approved — docs/Story Pipeline.md step 9): the cast drafts itself
+   silently only once the Lookbook has a look, so while the Lookbook is EMPTY and some character still
+   has no spec the Characters tab says so quietly — with Draft all still one tap away. Hidden while a
+   Draft all is already running (each card shows its own "Drafting from script…"). */
+function charLookbookFirstHint(lookbook, lookbookNote, characters, draftingAll){
+  if(draftingAll) return false;
+  if(typeof window.lookbookHasLook!=="function" || window.lookbookHasLook(lookbook, lookbookNote)) return false;
+  const drafted = (typeof window.charVisualsDrafted==="function") ? window.charVisualsDrafted : (()=>true);
+  return (characters||[]).some(c=> !!c && !drafted(c));
+}
+window.charLookbookFirstHint = charLookbookFirstHint;
+
+function CharacterSheets({ project, characters, scenes, props, drafts, shots, beatsMap, onUpdate, onDraft, onDraftAll, draftingId, draftingAll, draftingIds, onSuggestStates, suggestingStatesId, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, onDelete, onCast, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, lookbook, lookbookNote, onOpenLookbook }){
   const [view, setView] = React.useState(null);   // {url, character}
   // Keep one open flag per character so several card-contained Voice cards can
   // remain open independently without sharing UI state.
@@ -5515,10 +5527,11 @@ function CharacterSheets({ project, characters, scenes, props, drafts, shots, be
   const draftedIds = (subset)=> subset.filter(c=>charVisualsDrafted(c)).map(c=>c.id);
   // eligible = drafted characters only (so a card with no look/wardrobe never makes a generic sheet)
   const eligibleAll = list.filter(c=>charVisualsDrafted(c)).length;
-  // some cast still has no spec (e.g. an auto-draft didn't finish) — only THEN
-  // do we surface the manual "Draft" button; otherwise it's
-  // noise. The cast is auto-drafted once on first Art Room entry.
+  // some cast still has no spec (e.g. an auto-draft didn't finish, or the Lookbook is still
+  // empty) — only THEN do we surface the manual "Draft" button; otherwise it's noise. The cast
+  // is auto-drafted once, after the Lookbook has a look (see charLookbookFirstHint).
   const someUndrafted = eligibleAll < list.length;
+  const lookbookFirst = charLookbookFirstHint(lookbook, lookbookNote, list, draftingAll);
   // STAGED HEADER (design-clarity ruling 2026-07-14): exactly ONE primary action
   // per pipeline stage — draft (specs missing) → generate (specs done, sheets
   // missing) → done. The other actions stay reachable but demoted to ghosts,
@@ -5603,7 +5616,18 @@ function CharacterSheets({ project, characters, scenes, props, drafts, shots, be
             React.createElement(Icon.sparkles,{s:14}), draftingAll?"Designing\u2026":(eligibleAll>0?"Draft remaining":"Draft all (specs only)")),
           castStage!=="draft" && React.createElement("button",{className:"art-draftall",disabled:!!batchActiveId||!eligibleAll,onClick:startAllBatch,
             title:"Generate (or regenerate) the reference sheet for every drafted character \u2014 you choose whether to redo ones that already have a sheet"},
-            React.createElement(Icon.sparkles,{s:14}), batchActiveId?"Generating\u2026":"Generate all characters", typeof window.nbCostChip==="function" && window.nbCostChip(1))))),
+            React.createElement(Icon.sparkles,{s:14}), batchActiveId?"Generating\u2026":"Generate all characters", typeof window.nbCostChip==="function" && window.nbCostChip(1)))),
+      lookbookFirst && React.createElement("div",{className:"char-lookbook-hint",role:"note"},
+        React.createElement(Icon.image,{s:12}),
+        React.createElement("span",null,
+          onOpenLookbook
+            ? React.createElement("button",{type:"button",className:"char-lookbook-hint-link",onClick:onOpenLookbook,
+                title:"Open the Lookbook tab"},"Build the Lookbook first")
+            : "Build the Lookbook first",
+          " \u2014 the cast drafts itself from it once it has a look. Or ",
+          React.createElement("button",{type:"button",className:"char-lookbook-hint-link",onClick:onDraftAll,
+            title:"Draft the spec for every character that doesn't have one yet (specs only, no images)"},"draft now"),
+          "."))),
     list.length>0 && React.createElement("div",{className:"prop-toolbar"},
       React.createElement("div",{className:"prop-searchbar collapsible"+((searchOpen||q)?" open":""),
         title:(searchOpen||q)?"":"Search characters",
@@ -5863,7 +5887,8 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
           trashItems:(trash&&trash.characters)||[],onRestore:onRestoreChar,onPurge:onPurgeChar,
           onSuggestStates,suggestingStatesId,onRemoveOwnedItem,onRenameOwnedItem,onDelete:onDeleteCharacter,onCast,
           lookbookStale:!!_stale.characters,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("characters"),
-          onApplyLookbookDraftOnly:()=>onApplyLookbook&&onApplyLookbook("characters","draft")})
+          onApplyLookbookDraftOnly:()=>onApplyLookbook&&onApplyLookbook("characters","draft"),
+          lookbook,lookbookNote,onOpenLookbook:setArtView?()=>setArtView("lookbook"):null})
     : artView==="props" && PropSheets
       ? React.createElement(PropSheets,{project,props,characters,scenes,drafts,onSourceClick,onUpdate:onUpdateProp,onDraft:onDraftProp,
           onDraftAll:onDraftAllProps,onAdd:onAddProp,onImportProps,onDelete:onDeleteProp,draftingId:draftingPropId,draftingIds:draftingPropIds,draftingAll:draftingAllProps,

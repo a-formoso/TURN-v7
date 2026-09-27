@@ -40,6 +40,32 @@ window.dedupeLookbookCards = dedupeLookbookCards;
 function lookbookCardDrafted(c){ return !!((c && (c.note||"")).trim()); }
 window.lookbookCardDrafted = lookbookCardDrafted;
 
+/* LOOKBOOK FIRST (2026-09-27, owner-approved — docs/Story Pipeline.md step 9): the Lookbook "has a look"
+   (has something in it) once it holds a non-empty visual statement or at least one reference card. From
+   then on the cast can be drafted FROM it — the silent cast auto-draft (app.jsx) waits for this, and the
+   Characters tab shows a quiet "Build the Lookbook first" hint while it's still empty.
+   A card counts as a reference once it holds something: a "what to borrow" note, a touchstone someone
+   named (the Visual Researcher always names its cards), or an image. The blank card "+ Add reference"
+   drops in (auto-named "Palette study", no note, no image) is a placeholder, not a reference — counting it
+   drafted the cast from an EMPTY brief, which the first real note then flagged "Lookbook changed —
+   re-draft": the double draft this rule exists to stop. */
+function lookbookCardHasContent(c){
+  if(!c || typeof c!=="object") return false;
+  if(lookbookCardDrafted(c)) return true;
+  if(!c.autoNamed && String(c.source||"").trim()) return true;
+  try{
+    if(c.id && typeof nbGetImage==="function" && nbGetImage(c.id)) return true;                      // its mood frame
+    if(c.id && typeof nbGetSlotImage==="function" && nbGetSlotImage("lookref-"+c.id)) return true;    // a dropped image
+  }catch(e){}
+  return false;
+}
+window.lookbookCardHasContent = lookbookCardHasContent;
+function lookbookHasLook(lookbook, statement){
+  if(String(statement||"").trim()) return true;
+  return Array.isArray(lookbook) && lookbook.some(lookbookCardHasContent);
+}
+window.lookbookHasLook = lookbookHasLook;
+
 function lookbookDefaultName(c){
   const category = String((c&&c.category)||"Visual").trim();
   const note = String((c&&c.note)||"").trim().replace(/\s+/g," ");

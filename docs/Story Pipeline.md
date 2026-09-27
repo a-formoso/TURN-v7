@@ -357,8 +357,16 @@ Infinite Studio method vocabulary (values, charges, beats, turns).
 
 ### 9. Pre-production — the Art Room (visual pipeline)
 Once the script exists, the **Art Room** turns it into a visual reference package (separate from the
-Writers' Room). Tabs, left-to-right: **Characters → Props → Voices → Locations → Style Bible → Shot List → Storyboard**.
+Writers' Room). Tabs, left-to-right: **Lookbook → Characters → Props → Locations → Color → Shots → Storyboards →
+Breakdown**, plus **Production check** *(tab list refreshed 2026-09-27, owner-approved: Voices now live on each
+character card, "Style Bible" is the Color tab, "Shot List" is the Shots tab)*.
 Each entity gets a canonical, reusable reference so every generated image stays consistent.
+
+> **The Lookbook comes first** *(2026-09-27, owner-approved)*: the Lookbook steers every department
+> downstream — its Wardrobe references shape each character's costume, Production design shapes props and
+> locations, Palette / Lighting shape the colour grade, Lens / Composition shape the shots. A department
+> drafted before the Lookbook exists is later flagged "Lookbook changed — re-draft" and drafted twice, so
+> the order is **Lookbook → Characters → Props → Wear props → Locations → Color → Shots → Storyboards**.
 
 > **Characters come before Props** *(2026-06-15)*: a worn/owned prop must look like it belongs to its
 > character, so the **character is generated first** and each prop is then generated **referencing its
@@ -388,18 +396,23 @@ Each entity gets a canonical, reusable reference so every generated image stays 
     **Generate all images** then skips objects marked **Text only** (seen once and never handled), which
     shots describe in words instead of attaching an image.
   - **Draft all characters** → Identity, Wardrobe, Props & accessories, Continuity (appearance states,
-    where the script shows the look change), Look dev. **The cast is auto-drafted once, silently, the
-    first time the Art Room is opened** (any tab) — only for characters that have no spec yet, never
-    overwriting drafted or hand-edited ones — so the user normally skips this step entirely. Each
+    where the script shows the look change), Look dev. **The cast is auto-drafted once, silently, once
+    the Lookbook has something in it** (a visual statement or at least one reference) — the first time any
+    Art Room tab other than the Lookbook is opened after that *(2026-09-27, owner-approved: it used to run on
+    the first Art Room visit even with no Lookbook, so the wardrobe was drafted twice)*. It never runs while
+    an agent (e.g. **Run pre-production**) is working, only for characters that have no spec yet, and never
+    overwrites drafted or hand-edited ones — so the user normally skips this step entirely. With no Lookbook,
+    nothing is drafted silently: the Characters tab's **Draft all** button drafts the cast on demand. Each
     undrafted card shows a quiet inline "Drafting from script…" status while it runs. The manual
     "Draft" button only appears when some character still lacks a spec (e.g. one added by hand, or if
     auto-draft didn't finish); once the whole cast is drafted it disappears. This makes the intended
-    order: **Characters → Generate all → Props → Draft all → Generate all → (re-generate Characters)** —
-    characters FIRST so each worn/owned prop can be generated referencing its owner's character sheet
+    order: **Lookbook → Characters → Generate all → Props → Draft all → Generate all → (re-generate
+    Characters)** — the look first, then characters BEFORE props so each worn/owned prop can be generated referencing its owner's character sheet
     (so it matches them); then, with the props made, re-generating a character makes its master wear the
     exact finalized prop. The Coordinator's **Run pre-production** does this automatically: Lookbook →
     Characters → Props → **Wear props** (re-generates each affected master and refreshes any existing
-    appearance variant off it) → Locations → Style Bible → Shot List → Storyboard.
+    appearance variant off it) → Locations → Color → Shots (coverage); shot frames and Storyboards are then
+    made from their own tabs.
   - **Draft all locations** → The space, Significance, Staging · Depth Grid, Look dev. (Locations also runs
     the full locations pipeline here: it first pulls any missing places in from the script's sluglines and
     refreshes existing scene chips, then drafts the specs, then stages each depth grid — so there's no

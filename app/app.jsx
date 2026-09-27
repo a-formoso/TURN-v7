@@ -45,6 +45,104 @@ function clearStory(){ try{ localStorage.removeItem(STORY_KEY); }catch(e){} }
    cloud hydration can't flip it afterwards (that flip was the old Art Room flash). */
 const NAV_KEY = "turn-nav-v1";
 function loadNav(){ try{ return JSON.parse(localStorage.getItem(NAV_KEY)||"null")||{}; }catch(e){ return {}; } }
+/* ART ROOM TAB PER FILM (2026-09-27, owner-approved). The Art Room tab used to be one device-wide
+   value, so a brand-new film opened on whatever tab another film was left on (the owner saw Shots).
+   NAV_KEY now also carries artViewByProject — { [projectId]: { v:tab, n:recency } }, capped to the
+   NAV_ARTVIEW_CAP most recently used films. A film never opened in the Art Room starts on the
+   Lookbook; returning to a film (switch, Home, a new Episode, New Story, reload) restores ITS last
+   tab. nav.artView stays the last tab on screen, used only while no film is open (signed-out local
+   mode, the moments before a film loads). The Writers' Room view memory is unchanged. */
+const NAV_ARTVIEW_CAP = 50;
+// Voices is no longer a tab — it lives on the character card
+function turnNavArtTab(v){ const s = String(v||"").trim(); return s==="voices" ? "characters" : s; }
+function turnNavCapArtViews(map, cap){
+  const lim = Math.max(1, Number(cap)||NAV_ARTVIEW_CAP);
+  const keys = Object.keys(map||{});
+  if(keys.length<=lim) return map;
+  const out = {};
+  keys.sort((a,b)=>(Number(map[b].n)||0)-(Number(map[a].n)||0)).slice(0,lim).forEach(k=>{ out[k]=map[k]; });
+  return out;
+}
+// sanitize whatever NAV_KEY held (missing on devices that predate per-film memory → {})
+function turnNavArtViewMap(raw, cap){
+  const out = {};
+  if(!raw || typeof raw!=="object" || Array.isArray(raw)) return out;
+  Object.keys(raw).forEach(k=>{
+    const e = raw[k], v = turnNavArtTab(e && typeof e==="object" ? e.v : e);
+    if(k && v) out[k] = { v, n:Number(e && e.n)||0 };
+  });
+  return turnNavCapArtViews(out, cap);
+}
+// the tab a film opens on: its own remembered tab, or the Lookbook for a film never opened in the Art Room
+function turnNavArtViewFor(map, key){
+  const e = key && map ? map[String(key)] : null;
+  return (e && turnNavArtTab(e.v)) || "lookbook";
+}
+// remember `tab` for film `key` as its most recent entry (the same object back when nothing changes).
+// `now` (App passes Date.now()) makes the recency a wall-clock stamp, so two open windows can tell
+// whose entry for a film is newer when they merge (turnNavMergeArtViews); it never goes backwards.
+function turnNavRememberArtView(map, key, tab, cap, now){
+  const k = String(key||""), v = turnNavArtTab(tab), m = map || {};
+  if(!k || !v) return m;
+  const top = Object.keys(m).reduce((a,x)=>Math.max(a, Number(m[x] && m[x].n)||0), 0);
+  const cur = m[k];
+  if(cur && cur.v===v && (Number(cur.n)||0)===top) return m;
+  return turnNavCapArtViews({ ...m, [k]:{ v, n:Math.max(top+1, Number(now)||0) } }, cap);
+}
+/* TWO WINDOWS: each window holds its own copy of the map, so a plain write would erase the films
+   another window remembered since this one loaded. Merge per film instead — the newer stamp wins, a
+   tie keeps this window's (`local`) entry — then cap. Returns `local` itself when the stored map adds
+   nothing newer (no re-render, no loop). */
+function turnNavMergeArtViews(stored, local, cap){
+  const s = stored || {}, l = local || {};
+  let out = null;
+  Object.keys(s).forEach(k=>{
+    const a = s[k], b = l[k];
+    if(!a || (b && (Number(b.n)||0) >= (Number(a.n)||0))) return;
+    if(!out) out = { ...l };
+    out[k] = a;
+  });
+  return out ? turnNavCapArtViews(out, cap) : l;
+}
+/* LOOKBOOK FIRST (2026-09-27, owner-approved — docs/Story Pipeline.md step 9): one pure decision for
+   the silent cast auto-draft (the effect lives in App). "start" = draft the undrafted cast now;
+   "latch" = everyone already has a spec (set visualsSeeded); "wait" = not now — the effect re-checks
+   whenever an input changes (tab, Lookbook, cast, an agent run starting or ending, a film switch).
+   canWrite: the draft writes `characters` + `visualsSeeded`, so it runs only for someone whose saves
+   keep both (owner / Art director, never while the film is loading). A Writer or View-only collaborator
+   can open the Art Room, but autosave rolls those sections back for them — a latch there looped
+   latch → rollback → latch, and a start spent their credits on a draft that was thrown away.
+   latched: a latch is written once per film per session, so nothing can ever loop on it. */
+function turnAgentRunsActive(runs){
+  return !!runs && typeof runs==="object" && Object.keys(runs).some(k=>(Number(runs[k])||0)>0);
+}
+function turnCastAutoDraftStep(s){
+  s = s || {};
+  if(!s.canWrite) return "wait";                                    // role can't save the cast (or film loading)
+  if(s.visualsSeeded || s.hydrating) return "wait";
+  if(s.room!=="art") return "wait";
+  const cast = Array.isArray(s.characters) ? s.characters : [];
+  if(!cast.length) return "wait";                                   // wait for hydration
+  const hasLook = (typeof window.lookbookHasLook==="function") && window.lookbookHasLook(s.lookbook, s.lookbookNote);
+  if(!hasLook) return "wait";                                       // no Lookbook yet → nothing silent
+  if(s.artView==="lookbook") return "wait";                         // still curating the look
+  if(turnAgentRunsActive(s.agentRuns)) return "wait";               // e.g. Run pre-production drafts the cast itself
+  if(s.draftingAll) return "wait";                                  // a Draft all is already running
+  const drafted = (typeof s.drafted==="function") ? s.drafted : (()=>true);
+  if(!cast.some(c=>!drafted(c))) return s.latched ? "wait" : "latch";
+  if(s.tried) return "wait";                                        // once per film per session
+  return "start";
+}
+/* The reverse gate: while a Draft all (manual or the silent auto-draft) is drafting the cast, an
+   agent that drafts the cast — Run pre-production, Design the cast, a Characters re-draft from the
+   Lookbook — would work from a snapshot of the SAME undrafted characters and pay to draft them twice.
+   Say so and let the user start it once the specs land (a few seconds, not a lock). */
+function turnCastDraftingBlocksAgent(draftingAll, what){
+  if(!draftingAll) return false;
+  if(typeof window.appToast==="function") window.appToast((what||"That")+" can start as soon as the cast's specs "
+    +"finish drafting — starting it now would draft the same characters twice.","info");
+  return true;
+}
 function turnFirstStoryScene(scenes){
   const ordered = (typeof scenesInStoryOrder==="function")
     ? scenesInStoryOrder(scenes) : (Array.isArray(scenes)?scenes:[]);
@@ -411,19 +509,18 @@ function App(){
   // NAV_KEY — read synchronously so it's correct on first paint. applyDoc never
   // re-applies room, so cloud hydration can't flip it (that flip was the old flash).
   const [room, setRoom] = React.useState(()=> nav.room || "writers");
-  const [artView, setArtView] = React.useState(()=>{
-    // first-ever Art Room visit lands on the LOOKBOOK (the look steers everything
-    // downstream); any later visit restores the tab the user last left (nav/doc).
-    const v = nav.artView || (saved && saved.artView) || "lookbook";
-    return v==="voices" ? "characters" : v;   // Voices is no longer a tab — it lives on the character card
-  });
+  // The Art Room TAB is remembered PER FILM (see turnNavArtViewMap) and derived further down, once
+  // the open film's id is known: artViewByProject holds each film's last tab; artViewNoFilm is the
+  // tab shown while no film is open (signed-out local mode, the moments before a film loads).
+  const [artViewByProject, setArtViewByProject] = React.useState(()=> turnNavArtViewMap(nav.artViewByProject));
+  const [artViewNoFilm, setArtViewNoFilm] = React.useState(()=> turnNavArtTab(nav.artView || (saved && saved.artView)) || "lookbook");
   // once-per-story guard so auto-seeding the Props tab from the cast doesn't
   // re-add props the user has deliberately deleted.
   const [propsSeeded, setPropsSeeded] = React.useState(()=> !!(saved && saved.propsSeeded));
   const [locsSeeded, setLocsSeeded] = React.useState(()=> !!(saved && saved.locsSeeded));
-  // once-per-story guard so the cast is auto-drafted the first time the Art Room
-  // opens (not re-drafted on every visit), plus the set of character ids currently
-  // being drafted so each card can show its own inline "Drafting…" status.
+  // once-per-story guard so the cast is auto-drafted once (after the Lookbook has a look —
+  // see "LOOKBOOK FIRST" below), not re-drafted on every visit, plus the set of character ids
+  // currently being drafted so each card can show its own inline "Drafting…" status.
   const [visualsSeeded, setVisualsSeeded] = React.useState(()=> !!(saved && saved.visualsSeeded));
   // RECENTLY DELETED (restore bin): deleting a character/prop/location/shot moves the full
   // object here (with its scenes + spec + generated sheet kept) so it can be restored.
@@ -510,8 +607,8 @@ function App(){
     // meant the "Lookbook changed" banner couldn't appear until the first Draft & Generate.
     // Counting present cards lets it appear the moment the Lookbook diverges from what was
     // last applied — there's something to apply it to. (Characters/props stay on the
-    // drafted gate: the cast AUTO-drafts on Art Room open, and gating on mere existence
-    // would pop a false banner right after that silent draft; both are usually drafted
+    // drafted gate: the cast AUTO-drafts once the Lookbook has a look (LOOKBOOK FIRST), and gating on
+    // mere existence would pop a false banner right after that silent draft; both are usually drafted
     // via their batch anyway, so the strict gate rarely bites there.)
     const lbContentFlags = {
       characters: (characters||[]).some(c=> (typeof charVisualsDrafted==="function") ? charVisualsDrafted(c) : !!(c&&c.id)),
@@ -565,6 +662,7 @@ function App(){
     }
     const draftOnly = mode==="draft";
     const label = { characters:"Characters", props:"Props", locations:"Locations", colorist:"Color" }[dept] || dept;
+    if(dept==="characters" && turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Re-drafting Characters")) return;
     let ok = true;
     if(typeof window.appConfirm==="function"){
       ok = await window.appConfirm(draftOnly
@@ -577,6 +675,7 @@ function App(){
     }
     if(!ok) return;
     const f = draftOnly ? "draft" : true;
+    if(dept==="characters" && turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Re-drafting Characters")) return;
     if(dept==="characters"){ setCastingForce(f); setCastingOpen(true); }
     else if(dept==="props"){ setPropsMasterForce(f); setPropsMasterOpen(true); }
     else if(dept==="locations"){ setLocScoutForce(f); setLocScoutOpen(true); }
@@ -722,6 +821,37 @@ function App(){
   // result that lands after a switch belongs to a film that is no longer open.
   const projIdRef = React.useRef(null); projIdRef.current = currentProjectId;
   const cloudMode = !!(session && currentProjectId);
+  /* ART ROOM TAB PER FILM — derived, never synced by an effect: the tab on screen is always THIS
+     film's remembered tab (the Lookbook for a film never opened in the Art Room), so a switch can
+     never paint — or record — another film's tab on the new one. */
+  const artViewKey = currentProjectId ? String(currentProjectId) : "";
+  const artViewKeyRef = React.useRef(artViewKey); artViewKeyRef.current = artViewKey;
+  const artView = artViewKey ? turnNavArtViewFor(artViewByProject, artViewKey) : artViewNoFilm;
+  // record a tab for a SPECIFIC film (the film just created, before React has re-rendered onto it).
+  // Merged with NAV_KEY first, so this choice is stamped newer than anything another open window
+  // saved — the user's latest pick always wins, whatever the windows' clocks and counters say.
+  const setArtViewFor = (key, tab)=>{
+    const v = turnNavArtTab(tab); if(!v) return;
+    if(key) setArtViewByProject(m=> turnNavRememberArtView(
+      turnNavMergeArtViews(turnNavArtViewMap(loadNav().artViewByProject), m), key, v, undefined, Date.now()));
+    setArtViewNoFilm(v);
+  };
+  const setArtView = (tab)=> setArtViewFor(artViewKeyRef.current, typeof tab==="function" ? tab(artView) : tab);
+  // opening a film first picks up any newer tab another open window saved for it (NAV_KEY), then
+  // bumps the film's recency so the cap forgets the films opened longest ago. A layout effect, so a
+  // tab restored from the other window lands before paint (no flash of the Lookbook).
+  React.useLayoutEffect(()=>{
+    if(!artViewKey) return;
+    setArtViewByProject(m=>{
+      const next = turnNavMergeArtViews(turnNavArtViewMap(loadNav().artViewByProject), m);
+      return next[artViewKey] ? turnNavRememberArtView(next, artViewKey, next[artViewKey].v, undefined, Date.now()) : next;
+    });
+  },[artViewKey]);
+  /* WHICH FILM a long cast draft belongs to: the cloud film's id, or the signed-out "local" slot plus
+     its generation (a signed-out New Story bumps localStoryGenRef — the slot is reused). The silent
+     auto-draft keys its once-guard on it, and draftAllVisuals drops a result that lands after a switch. */
+  const localStoryGenRef = React.useRef(0);
+  const castDraftFilmKey = ()=> projIdRef.current ? "film:"+projIdRef.current : "local:"+localStoryGenRef.current;
   /* SHARE ROLE on the open film. Room access and room mutability are deliberately
      separate: an Art director may inspect the Writers' Room, but only Writer/owner
      roles may change its story sections. The section helper is also the autosave
@@ -757,6 +887,12 @@ function App(){
   characterBibleWritableRef.current = !(_projRow&&_projRow.isShared)
     || (typeof window.teamCanWriteSection==="function"
       && window.teamCanWriteSection(shareRole,"characters"));
+  // the silent cast auto-draft writes `characters` + `visualsSeeded` — only for a role whose saves keep
+  // BOTH (the same allow-list autosave enforces), and never while the film is still loading
+  const _sharedCanWriteSection = k=>!(_projRow&&_projRow.isShared)
+    || (typeof window.teamCanWriteSection==="function" && window.teamCanWriteSection(shareRole,k));
+  const castAutoDraftWritable = !projectLoading && !artRoomReadOnly
+    && _sharedCanWriteSection("characters") && _sharedCanWriteSection("visualsSeeded");
   const readOnlyNoticeRef = React.useRef(0);
   const _mutationNotice = roomId=>{
     const now = Date.now();
@@ -1114,7 +1250,8 @@ function App(){
       setSelId(_navSelOk ? _navSel : (d.selId||(isAdmin?"s4":null)));
     }
     // Navigation (room / view / artView) is device-local UI state owned by NAV_KEY
-    // and restored synchronously in useState above. Intentionally do NOT re-apply
+    // and restored synchronously in useState above (the Art Room tab per film, keyed
+    // by the project id — see turnNavArtViewMap). Intentionally do NOT re-apply
     // any of it from the hydrated doc — that re-application is what produced the
     // Art Room flash (and would fight the user's restored place) on load.
     setPropsSeeded(!!d.propsSeeded);
@@ -1688,7 +1825,9 @@ function App(){
       return {ok:false,created:true,id:created.id,
         message:"The new film was saved, but it couldn\u2019t be opened yet. Retrying is safe and won\u2019t create a duplicate."};
     }
-    setArtView("lookbook");   // a fresh film opens the Art Room on the Lookbook (front of the pipeline)
+    // a fresh film opens the Art Room on the Lookbook (front of the pipeline). Keyed to the NEW film:
+    // React hasn't re-rendered onto it yet, so a plain setArtView would re-tab the film we just left.
+    setArtViewFor(created.id, "lookbook");
     return created.id;
   };
   /* Dashboard: mint an AI poster for a film from its title + logline and persist it
@@ -2320,10 +2459,15 @@ function App(){
     };
   },[productionCheckBlocked]);
 
-  // persist navigation (room/view/artView) to the device-local key on every change
+  // persist navigation (room/view/artView + each film's Art Room tab) to the device-local key on every change.
+  // Each film's tab is MERGED with what NAV_KEY holds now, so a second open window never erases the
+  // tabs this one doesn't know about (newer stamp wins per film — see turnNavMergeArtViews).
   React.useEffect(()=>{
-    try{ localStorage.setItem(NAV_KEY, JSON.stringify({ room, view, artView, selId })); }catch(e){}
-  },[room, view, artView, selId]);
+    try{
+      const merged = turnNavMergeArtViews(turnNavArtViewMap(loadNav().artViewByProject), artViewByProject);
+      localStorage.setItem(NAV_KEY, JSON.stringify({ room, view, artView, selId, artViewByProject:merged }));
+    }catch(e){}
+  },[room, view, artView, selId, artViewByProject]);
 
   // MULTI-WINDOW CONFLICT: the save fence (cloud.jsx) refused to overwrite a
   // newer revision written by another window. Neither version may be discarded
@@ -3299,26 +3443,35 @@ function App(){
     catch(e){ if(typeof window.appToast==="function") window.appToast("Couldn't generate "+(c.name||"the owner")+"'s sheet first: "+((e&&e.message)||"error"),"error"); }
   };
   const [draftingAllVisuals, setDraftingAllVisuals] = React.useState(false);
+  const draftingAllVisualsRef = React.useRef(false); draftingAllVisualsRef.current = draftingAllVisuals;   // live, for async handlers
   // "Draft all characters" — fills the spec ONLY for characters that haven't been
   // drafted yet (identity, wardrobe, props & accessories, look dev), then suggests
   // continuity states for them. NON-DESTRUCTIVE by design: already-drafted or
   // hand-edited characters are never overwritten, so this is safe to auto-run.
+  // FILM-FENCED: the model call takes a while and the film switcher stays live, so the film it started
+  // in is captured and every write (merge, states, markApplied) is dropped if another film is open by
+  // then — character ids are name slugs that repeat across films, so an unfenced merge would overwrite
+  // a same-named character's spec in the new film. A dropped result reports false (nothing landed here).
   const draftAllVisuals = async ()=>{
     if(draftingAllVisuals || !(typeof aiCastVisualBible==="function")) return false;
     const drafted = (typeof window.charVisualsDrafted==="function") ? window.charVisualsDrafted : (()=>true);
     const targets = characters.filter(c=> !drafted(c));
     if(!targets.length) return true;            // nothing to do — that's a success
+    const filmAtStart = castDraftFilmKey();
+    const sameFilm = ()=> castDraftFilmKey()===filmAtStart;
     const targetIds = targets.map(c=>c.id);
     setDraftingVisualIds(targetIds);
     setDraftingAllVisuals(true);
     let landed = false;                          // did any spec actually land?
     try{
       const map = await aiCastVisualBible(targets, scenes, lbProject("characters"), { scenes, drafts });
-      // merge ONLY the targeted (undrafted) characters — never touch the rest
+      if(!sameFilm()) throw new Error("film switched");
+      // merge ONLY the targeted (undrafted) characters — never touch the rest. Re-checked at apply
+      // time: a card that got a spec while the model was out (a hand edit, or an agent's draft) keeps it.
       if(map){
         const allow = new Set(targetIds);
         landed = targetIds.some(id=>map[id]);
-        setCharacters(cs=>cs.map(c=> (allow.has(c.id) && map[c.id]) ? {...c, ...map[c.id]} : c));
+        setCharacters(cs=>cs.map(c=> (allow.has(c.id) && map[c.id] && !drafted(c)) ? {...c, ...map[c.id]} : c));
       }
       // continuity (if applicable): add suggested appearance states, dedup by label, never remove
       if(typeof aiSuggestStates==="function"){
@@ -3329,7 +3482,7 @@ function App(){
           catch(e){ return { id:c.id, states:null }; }
         }));
         const add = {}; results.forEach(r=>{ if(r.states && r.states.length) add[r.id]=r.states; });
-        if(Object.keys(add).length){
+        if(Object.keys(add).length && sameFilm()){
           setCharacters(cs=>cs.map(c=>{
             const sug = add[c.id]; if(!sug) return c;
             const existing = c.states || [];
@@ -3339,11 +3492,11 @@ function App(){
           }));
         }
       }
-      if(targets.length) markApplied("characters");
+      if(targets.length && sameFilm()) markApplied("characters");
     }catch(e){}
     setDraftingAllVisuals(false);
     setDraftingVisualIds([]);
-    return landed;
+    return landed && sameFilm();
   };
 
   // ---- Art Room: LOOKBOOK (References) ----
@@ -3749,24 +3902,40 @@ function App(){
       window.removeEventListener("nb-prop-drafted",onPropDrafted); };
   },[characters, props, scenes, drafts, project, lookbook, lookbookNote]);
 
-  // auto-draft the cast once per story: the FIRST time the Art Room opens (any tab),
-  // silently fill the spec for any undrafted character so the user can go straight
-  // to Props → generate → Characters → generate without a manual "Draft all" step.
-  // Guarded so it only ever attempts once and never overwrites drafted/edited cards.
-  const _autoDraftTried = React.useRef(false);   // once per SESSION guard (never loops)
+  // auto-draft the cast once per story — LOOKBOOK FIRST (2026-09-27, owner-approved; docs/Story
+  // Pipeline.md step 9). The Lookbook steers the wardrobe, so the silent draft waits until the
+  // Lookbook has a look (a visual statement or at least one reference card) and then fires the first
+  // time an Art Room tab OTHER than the Lookbook is open — never while the user is still curating it.
+  // (It used to run on the first Art Room visit even with an empty Lookbook, so Characters was later
+  // flagged "Lookbook changed — re-draft" and the cast was drafted twice.) It never runs while any
+  // agent is running (Run pre-production drafts the cast itself; agentRunTick re-checks when runs
+  // end), fills only characters with no spec, and never overwrites drafted/edited cards. With no
+  // Lookbook nothing is drafted silently: the Characters tab hints, and its Draft all still works.
+  // The once-guard is per FILM (a second film opened this session auto-drafts too) and latches only
+  // when an attempt actually STARTS — a visit gated out by the rules above never burns it. Only a role
+  // that can save the cast runs it (castAutoDraftWritable); a latch is written once per film per
+  // session; and a draft still in flight when the user switches films lands nowhere (draftAllVisuals
+  // drops it) and re-arms the film it belonged to, instead of latching the film now open.
+  const _autoDraftTried = React.useRef({});          // { [film key]: true } — a draft STARTED for this film this session
+  const _autoDraftLatched = React.useRef({});        // { [film key]: true } — visualsSeeded latched for it this session
+  const _autoDraftKey = castDraftFilmKey();
   React.useEffect(()=>{
-    if(visualsSeeded || hydratingRef.current) return;
-    if(room!=="art") return;
-    if(!characters.length) return;                 // wait for hydration
-    if(_autoDraftTried.current) return;
-    _autoDraftTried.current = true;
-    const drafted = (typeof window.charVisualsDrafted==="function") ? window.charVisualsDrafted : (()=>true);
-    if(!characters.some(c=>!drafted(c))){ setVisualsSeeded(true); return; }
+    const key = _autoDraftKey;
+    const step = turnCastAutoDraftStep({ canWrite:castAutoDraftWritable, room, artView, visualsSeeded,
+      hydrating:hydratingRef.current, characters, lookbook, lookbookNote, agentRuns:window.__turnAgentRunCount,
+      draftingAll:draftingAllVisuals, tried:!!_autoDraftTried.current[key], latched:!!_autoDraftLatched.current[key],
+      drafted:window.charVisualsDrafted });
+    if(step==="latch"){ _autoDraftLatched.current[key] = true; setVisualsSeeded(true); return; }   // everyone already has a spec
+    if(step!=="start") return;
+    _autoDraftTried.current[key] = true;
     // latch the per-story flag ONLY when specs actually landed — a failed attempt
     // (model unreachable, cast mid-hydration after a rebuild) used to latch forever
     // and strand the user on a wall of manual draft buttons
-    Promise.resolve(draftAllVisuals()).then((ok)=>{ if(ok) setVisualsSeeded(true); });
-  },[room, visualsSeeded, characters, hydrationTick]);
+    Promise.resolve(draftAllVisuals()).then((ok)=>{
+      if(castDraftFilmKey()!==key){ delete _autoDraftTried.current[key]; return; }   // switched films mid-draft
+      if(ok){ _autoDraftLatched.current[key] = true; setVisualsSeeded(true); }
+    });
+  },[castAutoDraftWritable, room, artView, visualsSeeded, characters, lookbook, lookbookNote, agentRunTick, draftingAllVisuals, _autoDraftKey, hydrationTick]);
   /* Deterministic scene remapping (reviewed sources, wearer presence, and the lexical
      map of objects the screenplay hasn't established). Never performs paid extraction
      or removes cards. Missing screenplay evidence is reviewed in the Props tab. */
@@ -6196,7 +6365,7 @@ function App(){
               (why?" \u2014 "+why:"")+". The current film was not rebuilt or replaced.","error");
             return;
           }
-        } else { applyDoc(emptyDoc()); setArtView("lookbook"); }
+        } else { localStoryGenRef.current++; applyDoc(emptyDoc()); setArtView("lookbook"); }
         setRoom("writers"); setView("spine");
         setProject(p=>({ ...p, ...(keep.format?{format:keep.format}:{}), ...(keep.framework?{framework:keep.framework}:{}),
           logline:keep.logline || p.logline, ...(keep.synopsis ? { synopsis:keep.synopsis } : {}),
@@ -6280,7 +6449,9 @@ function App(){
       readOnly:roomReadOnly,
       hiddenTabs:(typeof tabHidden==="function") ? Object.fromEntries((window.ART_TABS||[]).map(t=>[t.id, tabHidden(project, t.id)])) : null,
       railOpen,inspOpen,onToggleRail:toggleRail,onToggleInsp:toggleInsp,
-      onCoordinate:async ()=>{ if(await requireStory("Art Department Coordinator")) setCoordConfirm(true); },
+      onCoordinate:async ()=>{
+        if(turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Run pre-production")) return;
+        if(await requireStory("Art Department Coordinator")) setCoordConfirm(true); },
       onProductionCheck:async ()=>{ if(productionCheckBlocked) return; if(await requireStory("The Production check")) setProductionOpen(true); },
       productionReadOnly:productionCheckBlocked,
       onAgents:async ()=>{ if(!canMutateWritersRoom()) return; if(await requireStory("Story Editors")) setAgentsOpen(true); }}),
@@ -6318,7 +6489,7 @@ function App(){
             onRestoreChar:restoreCharacter,onPurgeChar:purgeCharacter,onRestoreProp:restoreProp,onPurgeProp:purgeProp,
             onRestoreLoc:restoreLocation,onPurgeLoc:purgeLocation,onRestoreShot:restoreShot,onPurgeShot:purgeShot,onEnsureOwner:ensureOwnerSheet,
             onColorist:(refs)=>{ if(typeof refs==="string") setStyleRefs(refs.trim()); setColoristOpen(true); },
-            onCast:()=>setCastingOpen(true),
+            onCast:()=>{ if(!turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Design the cast")) setCastingOpen(true); },
             onResearch:()=>setResearchOpen(true),
             lookbook,lookbookNote,onUpdateLookbook:updateLookbookCard,onAddLookbook:addLookbookCard,
             onDeleteLookbook:deleteLookbookCard,onSetLookbookNote:setLookbookNote,
@@ -6550,7 +6721,9 @@ function App(){
     coordConfirm && window.CoordConfirm && React.createElement(window.CoordConfirm,{
       project, characters, props, locations, shots, scenes, drafts, wardrobeCount,
       onCancel:()=>setCoordConfirm(false),
-      onConfirm:()=>{ setCoordConfirm(false); setCoordOpen(true); }}),
+      onConfirm:()=>{ setCoordConfirm(false);
+        if(turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Run pre-production")) return;
+        setCoordOpen(true); }}),
     coordOpen && React.createElement(AgentsPanel,{
       initialAgentId:"coordinator", autoStart:true, runOnOpen:true, single:true, viewLabel:"View Shots",
       ctxFactory:artAgentCtxFactory,
@@ -6609,7 +6782,7 @@ function App(){
               return;
             }
           }
-          else { applyDoc(emptyDoc()); setArtView("lookbook"); }
+          else { localStoryGenRef.current++; applyDoc(emptyDoc()); setArtView("lookbook"); }
         }
         // A new story always starts in the Writers' Room on the spine — the story is
         // built first; pre-production (the Art Room) comes after. Without this, launching
