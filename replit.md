@@ -14,7 +14,11 @@ Story-architecture app for AI filmmakers. Build a spine, write scenes that turn,
 node serve.js
 ```
 
-The workflow "Start application" is already configured and will start this automatically.
+The workflow "Start application" runs this on port 5000 and serves the Replit preview.
+The browser app is buildless, so `node serve.js` needs no npm packages; the
+declared npm dependencies are installed for `npm run build`. Signed-out work
+uses local browser storage. Sign-in, cloud sync, and generation require the
+existing Supabase project and its server-side services to be available.
 
 ## Project layout
 
