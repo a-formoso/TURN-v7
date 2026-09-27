@@ -35,7 +35,14 @@
   const LOOP_CAP = 60;                        // delete calls per click, however it goes
   const UUID_SRC = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
   const UUID_RE = new RegExp("^" + UUID_SRC + "$", "i");
-  const REF_RE = new RegExp("^(" + UUID_SRC + ")(?:/(" + UUID_SRC + ")|/studio-previews/(" + UUID_SRC + "))?(?:/.*)?$", "i");
+  /* One storage folder → its id: legacy "{uuid}" (any case, as before) or readable
+     "{name}--{uuid}" (2026-09-27), through app/storage-keys.js. Only the uuid is
+     ever used; the name is display text. Without the parser: legacy only. */
+  function folderId(seg){
+    const k = (typeof window !== "undefined" && window.TurnStorageKeys) || null;
+    if(k && typeof k.segmentIdLoose === "function") return k.segmentIdLoose(seg);
+    return typeof seg === "string" && UUID_RE.test(seg) ? seg.toLowerCase() : null;
+  }
 
   const MSG = {
     loading: "Reading the bucket… a few seconds.",
@@ -177,8 +184,10 @@
   }
 
   /* Accepts what the Supabase dashboard lets you copy: a Storage path (with or
-     without "turn-assets/"), a folder, a studio-previews path, a bare uuid, or
-     a signed/public object URL. → { uid, pid, bare } or null. */
+     without "turn-assets/"), a folder, a studio-previews path, a bare uuid or a
+     bare readable folder ("pine-soot--<uuid>": resolveRef tries it as an account,
+     then as a project), or a signed/public object URL. Folders may be legacy or
+     readable. → { uid, pid, bare } or null. */
   function parseStorageRef(text){
     let s = String(text === null || text === undefined ? "" : text).trim();
     if(!s || s.length > 2048) return null;
@@ -187,10 +196,11 @@
     if(at >= 0) s = s.slice(at + "turn-assets/".length);
     s = s.replace(/^\/+/, "");
     if(/%[0-9a-f]{2}/i.test(s)){ try{ s = decodeURIComponent(s); }catch(e){} }
-    const m = REF_RE.exec(s);
-    if(!m) return null;
-    const pid = lc(m[2] || m[3] || null);
-    return { uid:m[1].toLowerCase(), pid:pid, bare:!pid && UUID_RE.test(s.replace(/\/+$/, "")) };
+    const seg = s.split("/");
+    const uid = folderId(seg[0]);
+    if(!uid) return null;
+    const pid = seg[1] === "studio-previews" ? folderId(seg[2]) : folderId(seg[1]);
+    return { uid:uid, pid:pid || null, bare:!pid && seg.slice(1).every((x)=> x === "") };
   }
 
   function serviceLabel(f){
@@ -235,7 +245,7 @@
       if(!f0) continue;
       const f = Object.assign({}, f0, { files:num(f0.files), bytes:num(f0.bytes), safe_files:num(f0.safe_files),
         safe_bytes:num(f0.safe_bytes), project_id:lc(f0.project_id),
-        uploader_id:lc(f0.uploader_id) || (UUID_RE.test(String(f0.user_folder || "")) ? lc(f0.user_folder) : null) });
+        uploader_id:lc(f0.uploader_id) || folderId(String(f0.user_folder || "")) });
       files += f.files; bytes += f.bytes;
       let p = f.project_id ? projectsById[f.project_id] : null;
       if(f.project_id && !p){       // a folder the projects view didn't list: treat as deleted

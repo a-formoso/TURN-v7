@@ -2,6 +2,7 @@
  * Additive cm-studio-v1 extension.  This deliberately receives authenticated
  * relay hooks instead of implementing a second, weaker auth stack.
  */
+import { resolveStorageFolders, studioPreviewPath } from "./storage-paths.mjs";
 const text = new TextEncoder();
 const MAX_GLB = 64 * 1024 * 1024;
 const MAX_IMAGE = 8 * 1024 * 1024;
@@ -540,7 +541,10 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
       contract.validateCamera(body.actualCamera);
       if (body.shotId != null && !work.shots.some(shot => shot.id === id(body.shotId, "shot id"))) throw bad("Shot is not in this workspace.");
       if (typeof adapter?.uploadStudioAsset !== "function") throw error(503, "storage_unavailable", "Studio preview storage is unavailable.");
-      const digest = await sha(bytes), path = `${ctx.access.ownerId}/studio-previews/${ctx.projectId}/${locationId}/${previewId}.png`;
+      // readable owner/project folders when valid (2026-09-27), else the legacy key;
+      // reads always use the stored data.previewPaths[id], so old previews keep working
+      const folders = await resolveStorageFolders(adapter, ctx.access.ownerId, ctx.projectId);
+      const digest = await sha(bytes), path = studioPreviewPath(folders, ctx.access.ownerId, ctx.projectId, locationId, previewId);
       await adapter.uploadStudioAsset(path, bytes, "image/png"); await ctx.recheck();
       const preview = { id: previewId, ...(body.shotId ? { shotId: body.shotId } : {}), sha256: digest, bytes: bytes.length, actualCamera: clone(body.actualCamera) };
       work.previews.push(preview); if (!object(data.previewPaths)) data.previewPaths = {}; data.previewPaths[previewId] = path; work.revision++;

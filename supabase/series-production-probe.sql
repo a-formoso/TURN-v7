@@ -614,7 +614,7 @@ rows_ as (
       (50, 'Security', 'Storage rules on storage.objects',
        case when c.has_read_collab then 'INFO' else 'REVIEW' end,
        coalesce(c.storage_policies, 'none'),
-       'The file replaces only the delete rule. "turn assets read collab" is expected (team-collaboration / enforce-role-scopes).'),
+       'The file replaces the delete rule and the two upload rules (write / update collab, the same text as team-collaboration / enforce-role-scopes; they accept bare-id and readable name--id folders). "turn assets read collab" is expected (team-collaboration / enforce-role-scopes).'),
       (51, 'Security', 'Rules on turn_cameos',
        'INFO',
        coalesce(c.cameo_policies, 'none'),

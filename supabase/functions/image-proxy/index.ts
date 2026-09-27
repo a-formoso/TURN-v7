@@ -49,6 +49,11 @@ import {
   providerQualityPayload,
   validateImageQuality,
 } from "./image-quality.mjs";
+// Staging keys (legacy {uid}/stage-tmp/… or readable {handle}--{uid}/stage-tmp/…);
+// pure helpers over ./storage-keys.js, a byte-for-byte copy of app/storage-keys.js.
+import {
+  planStageSweep, resolveAccountFolder, stageDirs, stagedRefPath as parseStagedRef, stagePath,
+} from "./stage-paths.mjs";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -331,17 +336,24 @@ Deno.serve(async (req) => {
     return "png";
   };
   // Device media staged by the browser straight into storage (see op "stage-upload")
-  // arrives as a `stage:<uid>/stage-tmp/<file>` reference — the bytes never ride the
-  // function body (Edge Functions cap memory/CPU, a 200MB video would never fit).
-  // The path MUST live in the caller's own private stage-tmp namespace; anything
-  // else is rejected before it can be signed.
-  const STAGE_TMP_PREFIX = `${authUser.id}/stage-tmp/`;
-  const stagedRefPath = (s: string): string | null => {
-    const m = /^stage:(.+)$/i.exec(String(s || ""));
-    if (!m) return null;
-    const p = m[1];
-    if (!p.startsWith(STAGE_TMP_PREFIX) || p.includes("..") || /[^A-Za-z0-9/_.-]/.test(p)) throw new Error("Staged media reference is outside your upload namespace.");
-    return p;
+  // arrives as a `stage:<account folder>/stage-tmp/<file>` reference — the bytes never
+  // ride the function body (Edge Functions cap memory/CPU, a 200MB video would never
+  // fit). The path MUST live in the caller's own private stage-tmp namespace, in
+  // either folder form: legacy `<uid>/stage-tmp/<file>` or readable
+  // `<handle>--<uid>/stage-tmp/<file>` (2026-09-27; only the uid is checked, see
+  // stage-paths.mjs); anything else is rejected before it can be signed.
+  const stagedRefPath = (s: string): string | null => parseStagedRef(s, authUser.id);
+  // The caller's account folder for NEW staging keys: readable once
+  // supabase/storage-readable-folders.sql is installed (service-role RPC), else the
+  // bare uid. Resolved lazily, at most once per request.
+  let accountFolderOnce: Promise<string> | null = null;
+  const accountFolder = (): Promise<string> => {
+    if (!accountFolderOnce) {
+      accountFolderOnce = resolveAccountFolder(() =>
+        createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!)
+          .rpc("turn_storage_folders_for", { p_user: authUser.id, p_project_id: null }), authUser.id);
+    }
+    return accountFolderOnce;
   };
   // Size/kind limits for device media staged through op "stage-upload"; a signed
   // upload slot trusts nothing the browser declared, so the object that actually
@@ -394,7 +406,7 @@ Deno.serve(async (req) => {
     if (!blob) return s;
     const bucket = Deno.env.get("TURN_BUCKET") || "turn-assets";
     const id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + "-" + Math.random().toString(36).slice(2)).replace(/-/g, "");
-    const path = `${authUser.id}/stage-tmp/${Date.now()}-${kind}-${idx}-${id}.${mediaExt(blob.type || "")}`;
+    const path = stagePath(await accountFolder(), `${Date.now()}-${kind}-${idx}-${id}.${mediaExt(blob.type || "")}`);
     // Staging uses the SERVICE-ROLE client, not the user-scoped sbAuth: auth and the
     // entitlement gate have already run above, and user-client storage writes depend
     // on the live RLS policies on storage.objects — a missing/drifted insert policy
@@ -1019,7 +1031,7 @@ Deno.serve(async (req) => {
       });
     }
     // Non-spending: hand the browser a one-shot signed upload slot inside its own
-    // private `<uid>/stage-tmp/` namespace (service-role signing — no RLS insert
+    // private `<account folder>/stage-tmp/` namespace (service-role signing — no RLS insert
     // policy dependency, same as the data-URL staging path above). The browser PUTs
     // the file there and later submits `stage:<path>`; the file is only ever read
     // back through a short-lived signed URL when a job is submitted.
@@ -1036,25 +1048,26 @@ Deno.serve(async (req) => {
       const sbStage = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
       // Storage has no TTL of its own: every slot request sweeps the caller's expired
       // staging objects (device uploads AND data-URL stagings share the namespace) and
-      // refuses to open more than a bounded number of live slots per account.
+      // refuses to open more than a bounded number of live slots per account. Both
+      // folder forms are swept (the legacy `<uid>/stage-tmp` holds files staged before
+      // readable folders), and live slots are counted across both.
+      const acct = await accountFolder();
       {
-        const listed = await sbStage.storage.from(bucket).list(`${authUser.id}/stage-tmp`, { limit: 1000, sortBy: { column: "name", order: "asc" } });
-        if (!listed.error) {
-          const now = Date.now();
-          const stampOf = (n: string) => Number((/^(\d{13})-/.exec(n) || [])[1]);
-          const rows = (listed.data || []).filter((o: any) => o && o.name && !String(o.name).endsWith("/"));
-          const expired = rows.filter((o: any) => { const t = stampOf(String(o.name)); return Number.isFinite(t) && now - t > STAGE_LIMITS.ttlSeconds * 1000; })
-            .map((o: any) => `${authUser.id}/stage-tmp/${o.name}`);
-          if (expired.length) await sbStage.storage.from(bucket).remove(expired.slice(0, 200));
+        const listings: { dir: string; rows: any[] }[] = [];
+        for (const dir of stageDirs(authUser.id, acct)) {
+          const listed = await sbStage.storage.from(bucket).list(dir, { limit: 1000, sortBy: { column: "name", order: "asc" } });
+          if (!listed.error) listings.push({ dir, rows: listed.data || [] });
+        }
+        if (listings.length) {
           // the cap counts DEVICE slots only — data-URL stagings made by ordinary
           // renders share the folder but are bounded by the render itself
-          const live = rows.filter((o: any) => /-device-/.test(String(o.name))).length
-            - expired.filter((p) => /-device-/.test(p)).length;
+          const { expired, live } = planStageSweep(listings, Date.now(), STAGE_LIMITS.ttlSeconds * 1000);
+          if (expired.length) await sbStage.storage.from(bucket).remove(expired.slice(0, 200));
           if (live >= STAGE_LIMITS.maxLive) return json({ error: `stage-upload: too many pending uploads (${live}). Wait for running renders to finish or try again in a couple of hours.` }, 429);
         }
       }
       const id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + "-" + Math.random().toString(36).slice(2)).replace(/-/g, "");
-      const path = `${authUser.id}/stage-tmp/${Date.now()}-${kind}-device-${id}.${mediaExt(mime)}`;
+      const path = stagePath(acct, `${Date.now()}-${kind}-device-${id}.${mediaExt(mime)}`);
       const slot = await sbStage.storage.from(bucket).createSignedUploadUrl(path);
       if (slot.error || !slot.data?.token) return json({ error: "Could not open an upload slot: " + (slot.error?.message || "storage refused") }, 500);
       return json({ ok: true, bucket, path, token: slot.data.token, ref: "stage:" + path, expiresInSeconds: STAGING.ttlSeconds, maxBytes });

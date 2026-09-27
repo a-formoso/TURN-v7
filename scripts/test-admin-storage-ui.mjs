@@ -30,6 +30,8 @@ const DIST = !!process.env.ADMIN_STORAGE_UI_DIST;
 const ADMIN_JS = DIST ? read("dist/app/admin-storage.js") : transform(ADMIN_SRC, "admin-storage.jsx");
 const ADMIN_CODE = ADMIN_SRC.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");   // comments stripped
 const AUTH_JS = DIST ? read("dist/app/auth-ui.js") : transform(read("app/auth-ui.jsx"), "auth-ui.jsx");
+// TURN.html loads the storage-key parser before cloud.jsx (and so before this page)
+const KEYS_JS = DIST ? read("dist/app/storage-keys.js") : read("app/storage-keys.js");
 
 let checks = 0;
 const plain = (x) => x === undefined ? undefined : JSON.parse(JSON.stringify(x));
@@ -185,6 +187,7 @@ function makeBox(invoke, opts = {}){
   box.window = box;
   if (invoke !== null) box.sbClient = () => Object.assign({ functions: { invoke } }, opts.auth ? { auth: opts.auth } : {});
   vm.createContext(box);
+  if (!opts.noKeys) vm.runInContext(KEYS_JS, box);
   vm.runInContext(ADMIN_JS, box);
   const key = async (k) => { for (const fn of listeners.keydown || []) fn({ key: k, preventDefault(){} }); await settle(); };
   const tick = async (ms) => { for (const { fn, ms: every } of [...intervals.values()]) if (every === ms) fn(); await settle(); };
@@ -303,6 +306,34 @@ await test("parseStorageRef resolves dashboard paths, studio previews, bare uuid
   same(lib.parseStorageRef("https://abc.supabase.co/storage/v1/object/sign/turn-assets/" + A + "/" + P1 + "/shot/s1/x.png?token=zzz"), { uid: A, pid: P1, bare: false });
   for (const junk of ["", "   ", "hello", "_internal/relay/x", "blender-studio-internal/m.glb", "1234", A.slice(0, 30), "not-a-uuid/" + P1])
     assert.equal(lib.parseStorageRef(junk), null, JSON.stringify(junk));
+});
+await test("parseStorageRef reads readable folders (2026-09-27): paths, URLs, studio previews and bare folders; the id decides", () => {
+  same(lib.parseStorageRef("alice--" + A + "/pine-soot--" + P1 + "/character/c1/20260927-101500-sheet-v1-ab12cd34.png"), { uid: A, pid: P1, bare: false });
+  same(lib.parseStorageRef("turn-assets/alice--" + A + "/studio-previews/pine-soot--" + PD1 + "/loc-1/preview.png"), { uid: A, pid: PD1, bare: false });
+  same(lib.parseStorageRef("https://abc.supabase.co/storage/v1/object/sign/turn-assets/alice--" + A + "/pine-soot--" + P1 + "/shot/s1/x.png?token=zzz"), { uid: A, pid: P1, bare: false });
+  same(lib.parseStorageRef("turn-assets/alice--" + A + "%2Fpine-soot--" + P1 + "%2Fshot%2Fs1%2Fx.png"), { uid: A, pid: P1, bare: false });
+  same(lib.parseStorageRef("pine-soot--" + P1), { uid: P1, pid: null, bare: true }, "a bare folder: resolveRef tries the account, then the project");
+  same(lib.parseStorageRef("alice--" + A + "/"), { uid: A, pid: null, bare: true });
+  same(lib.parseStorageRef("alice--" + A + "/stage-tmp/1758800000000-image-0-a1b2.png"), { uid: A, pid: null, bare: false });
+  same(lib.parseStorageRef("alice--" + A + "/" + P1 + "/prop/p/x.png"), { uid: A, pid: P1, bare: false }, "mixed forms");
+  same(lib.parseStorageRef(A + "/untitled--" + P1), { uid: A, pid: P1, bare: false });
+  same(lib.parseStorageRef("alice--" + A + "/Pine-Soot--" + P1), { uid: A, pid: null, bare: false }, "an invalid project folder is not a project");
+  for (const junk of ["Alice--" + A, "deadbeef--" + A, "a--b--" + A, "alice-" + A, "--" + A, "alice--" + A.toUpperCase(), "x".repeat(65) + "--" + A, "alice_x--" + A + "/" + P1])
+    assert.equal(lib.parseStorageRef(junk), null, JSON.stringify(junk));
+  // without the parser (an old cached page): legacy keys only, as before
+  const bare = makeBox(null, { noKeys: true }).box.AdminStorageLib;
+  same(bare.parseStorageRef(A.toUpperCase() + "/" + P1), { uid: A, pid: P1, bare: false });
+  assert.equal(bare.parseStorageRef("alice--" + A + "/pine-soot--" + P1), null);
+});
+await test("buildModel takes the uploader of a readable account folder from its id", () => {
+  const ov = OVERVIEW();
+  ov.folders = ov.folders.concat([folder("alice--" + A, "pine-soot--" + P1, P1, { uploader_id: null, uploader_email: "alice@example.test", files: 2, bytes: 2 * MB, referenced: 2 })]);
+  const m = lib.buildModel(ov);
+  const p1 = m.projectsById[P1];
+  const readable = p1.folders.find((f) => f.user_folder === "alice--" + A);
+  assert.ok(readable, "the readable folder joins its project by id");
+  assert.equal(readable.uploader_id, A);
+  assert.equal(p1.folders.reduce((n, f) => n + f.files, 0), 3 + 1 + 2, "legacy, preview and readable folders of one project add up");
 });
 await test("status vocabulary: one chip map (spec §8.3)", () => {
   const c = (s, safe, live) => { const x = lib.statusChip(s, safe, live); return x.text + "|" + x.tone; };
@@ -1110,7 +1141,9 @@ await test("styles: the .adm-* block uses existing tokens only, phone rules and 
 await test("wiring: TURN.html tag after auth-ui with a ?v= key, APP_FEATURES untouched, no app.jsx dependency", () => {
   const html = read("TURN.html");
   const auth = html.indexOf('src="app/auth-ui.jsx?v=');
-  const adm = html.indexOf('<script type="text/babel" src="app/admin-storage.jsx?v=20260927-admstorage2"></script>');
+  // a later change's key counts too (readable storage folders re-keyed it: 20260927-readable1)
+  const adm = Math.max(html.indexOf('<script type="text/babel" src="app/admin-storage.jsx?v=20260927-admstorage2"></script>'),
+    html.indexOf('<script type="text/babel" src="app/admin-storage.jsx?v=20260927-readable1"></script>'));
   assert.ok(auth > 0 && adm > auth, "admin-storage.jsx loads after auth-ui.jsx");
   const lines = html.split("\n");
   const li = lines.findIndex((l) => l.includes('src="app/auth-ui.jsx?v='));

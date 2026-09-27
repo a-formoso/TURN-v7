@@ -25,6 +25,8 @@
 --      to the signed-in user's own top-level folder AND require asset-write
 --      capability; reads need read access; deletes are asset-capable only
 --      (which already covers history cleanup under any member's folder).
+--      Folders may be bare ids or readable 'name--id' folders (2026-09-27);
+--      the storage key helpers in section 3 read only the id.
 --
 -- View-only (and any unknown role) stays fully read-only: the update RLS
 -- policy only admits 'writer'/'art_director', so such rows never reach the
@@ -174,6 +176,77 @@ create trigger turn_generations_keep_owner
   when (old.owner is distinct from new.owner)
   execute function public.turn_generations_keep_owner();
 
+-- >>> TURN storage key helpers — canonical copy. Keep this block byte-identical in
+--     team-collaboration.sql, enforce-role-scopes.sql, series-production.sql and
+--     storage-readable-folders.sql (scripts/test-storage-readable-folders.mjs checks it).
+-- A turn-assets key starts with the uploader's folder and the project's folder.
+-- Each of those folders is either a bare lowercase UUID (every key written before
+-- 2026-09-27; valid forever) or a readable 'label--uuid', name first because the
+-- Storage dashboard cuts off the end of long names:
+--   admin--b2444e18-5133-4155-bb2f-d2719dcdb442/pine-soot--d4432e3f-3682-40e6-bff4-0c218dae6d1e/character/…
+-- A label is lowercase [a-z0-9] runs joined by single hyphens, 1-64 characters,
+-- with no 8 hex digits in a row anywhere: a legacy folder's first 8 characters
+-- are always hex digits and a readable folder's never are, and no label can hold
+-- a UUID, a UUID without hyphens or any 8-digit group of one. Access rules read
+-- ONLY the UUID; a label is display text, is never compared with anything, and
+-- proves nothing about who owns a file (anyone may label their OWN id).
+create or replace function public.turn_storage_segment_id(seg text)
+returns uuid
+language sql
+immutable
+parallel safe
+set search_path = ''
+as $$
+  select case
+    when seg ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then seg::uuid
+    when char_length(seg) <= 102
+     and seg ~ '^[a-z0-9]+(?:-[a-z0-9]+)*--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+     and left(seg, -38) !~ '[0-9a-f]{8}'
+      then right(seg, 36)::uuid
+  end;
+$$;
+
+-- The uploader id of a key (folder 1). For a legacy key this is exactly the old
+-- rule (storage.foldername(name))[1] = auth.uid()::text: at least two segments
+-- and a canonical lowercase UUID in folder 1.
+create or replace function public.turn_storage_uid(path text)
+returns uuid
+language sql
+immutable
+parallel safe
+set search_path = ''
+as $$
+  select case when coalesce(array_length(string_to_array(path, '/'), 1), 0) >= 2
+              then public.turn_storage_segment_id(split_part(path, '/', 1)) end;
+$$;
+
+-- The project id of a key (folder 2; the argument keeps the name `path`, which
+-- "create or replace" cannot change). Wherever the pre-2026-09-27 version
+-- returned a value it still returns exactly that value: its folders[2]::uuid
+-- cast (which also accepts uppercase, braces and UUIDs without hyphens) is the
+-- fallback branch. Readable folders never overlap it (a uuid cast rejects '--').
+-- 'stage-tmp' and 'studio-previews' never resolve to a project.
+create or replace function public.turn_storage_project_id(path text)
+returns uuid
+language sql
+immutable
+parallel safe
+set search_path = ''
+as $$
+  select case when coalesce(array_length(string_to_array(path, '/'), 1), 0) >= 3 then
+    coalesce(public.turn_storage_segment_id(split_part(path, '/', 2)),
+             case when split_part(path, '/', 2)
+                       ~* '^(\{[0-9a-f]{4}(-?[0-9a-f]{4}){7}\}|[0-9a-f]{4}(-?[0-9a-f]{4}){7})$'
+                  then split_part(path, '/', 2)::uuid end)
+  end;
+$$;
+
+-- Storage rules evaluate these as the calling role, so every API role keeps EXECUTE.
+grant execute on function public.turn_storage_segment_id(text) to anon, authenticated, service_role;
+grant execute on function public.turn_storage_uid(text)        to anon, authenticated, service_role;
+grant execute on function public.turn_storage_project_id(text) to anon, authenticated, service_role;
+-- <<< end of the TURN storage key helpers
+
 -- ── 3. Storage: own folder + asset-write capability on the film's paths ──────
 drop policy if exists "turn assets read own"   on storage.objects;
 drop policy if exists "turn assets write own"  on storage.objects;
@@ -193,14 +266,14 @@ create policy "turn assets read collab" on storage.objects for select
 create policy "turn assets write collab" on storage.objects for insert
   with check (
     bucket_id = 'turn-assets'
-    and (storage.foldername(name))[1] = auth.uid()::text
+    and public.turn_storage_uid(name) = auth.uid()
     and public.turn_can_write_assets(public.turn_storage_project_id(name))
   );
 
 create policy "turn assets update collab" on storage.objects for update
   using (
     bucket_id = 'turn-assets'
-    and (storage.foldername(name))[1] = auth.uid()::text
+    and public.turn_storage_uid(name) = auth.uid()
     and public.turn_can_write_assets(public.turn_storage_project_id(name))
   );
 

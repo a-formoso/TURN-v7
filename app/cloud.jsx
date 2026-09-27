@@ -893,18 +893,22 @@ window.cloudCreateShowEpisode=cloudCreateShowEpisode;
    reviewable list of object keys to clean up after that transaction commits.
 
    Never derive deletion keys from a prefix or a display name. A generation row
-   is allowed to nominate only keys whose project-id path segment belongs to the
-   Show inventory (the first segment must also be a valid uploader UUID). This
+   is allowed to nominate only keys whose project folder (folder 2) belongs to the
+   Show inventory (folder 1 must also be a valid uploader folder). Both folders
+   are parsed by app/storage-keys.js — legacy "{uuid}" or readable "{name}--{uuid}";
+   only the uuid is compared, never the name. Anything else (including the
+   uppercase legacy keys the app never wrote) is "unsafe" and therefore kept. This
    prevents stale/corrupt JSON from turning a Show deletion into an arbitrary
    Storage delete. */
 function _seriesScopedStoragePath(path,projectIds){
   const value=String(path||"").trim();
   if(!value || value[0]==="/" || value.indexOf("\\")>=0) return null;
   const parts=value.split("/");
-  const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  if(parts.length<3 || parts.some(part=>!part || part==="." || part==="..") || !uuid.test(parts[0]) || !uuid.test(parts[1]))
+  const keys=_turnStorageKeys();
+  const uploader=keys?keys.segmentId(parts[0]):null, project=keys?keys.segmentId(parts[1]):null;
+  if(parts.length<3 || parts.some(part=>!part || part==="." || part==="..") || !uploader || !project)
     return {path:value,safe:false,inScope:false};
-  return {path:value,safe:true,inScope:projectIds.has(parts[1])};
+  return {path:value,safe:true,inScope:projectIds.has(project)};
 }
 function _seriesReferencedPaths(row){
   const paths=new Map();
@@ -2017,6 +2021,9 @@ async function cloudRenameProject(id, title){
     const { data,error }=await sb.from("turn_projects").update({title:nextTitle}).eq("id",id).select("id");
     if(error) return {ok:false,message:error.message||"The project could not be renamed."};
     if(!data||!data.length) return {ok:false,message:"The project is unavailable or you no longer have permission to rename it."};
+    /* the server names an untitled project's storage folder from its first real
+       title: ask again on the next upload instead of waiting for the cache */
+    turnStorageFoldersForget(id);
     return {ok:true,title:nextTitle};
   }catch(e){ return {ok:false,message:(e&&e.message)||"The project could not be renamed."}; }
 }
@@ -2099,12 +2106,24 @@ async function cloudSignedUrlsBatch(paths){
   return out;
 }
 /* Storage path convention (forward-only — see supabase/README.md and storage.sql):
-     {userId}/{projectId}/{folder}/{entity}[/states/{stateId} | /{sub}]/{timestamp}-{role}[-v{N}]-{shortId}.{ext}
-   Level 1 MUST be the uploader's user id and level 2 the project id: the storage policies
-   and the upload reservation check exactly those two folders (and nothing below them), so
-   they can never carry readable names — the admin inventory (supabase/admin-inventory.sql)
-   turns them into emails and titles. Only stable IDs appear in the path — never mutable
-   display names — so renaming a project or character never orphans a file.
+     {account}/{project}/{folder}/{entity}[/states/{stateId} | /{sub}]/{timestamp}-{role}[-v{N}]-{shortId}.{ext}
+   {account} is the uploader's folder and {project} the project's folder. Since 2026-09-27
+   (owner decision, readable folders) each is either
+     - READABLE: "{name}--{full uuid}", name first because the Supabase dashboard cuts off
+       the end of long names: "alex-smith--8d3e…/pine-soot--5a7b…/character/…"; or
+     - LEGACY: the bare uuid, "{userId}/{projectId}/…" — every key written before, and
+       every key written whenever the server has not handed out readable folders.
+   The grammar (app/storage-keys.js, identical to public.turn_storage_segment_id in SQL):
+   a name is lowercase [a-z0-9] runs joined by single hyphens, 1-64 characters, with no
+   8 hex digits in a row anywhere (a legacy folder's first 8 characters are always hex
+   digits, a readable folder's never are); the uuid is always the last 36 characters.
+   The storage policies and the upload reservation read ONLY the uuid of folder 1 (it
+   must be the caller) and folder 2 (a project the caller may write art for) — never a
+   name — and nothing below folder 2. The names are chosen by the server only
+   (turn_storage_folders: the account handle from the email's local part, the project
+   name from its first real title, both frozen), so a rename never moves or orphans a
+   file. Old keys stay valid forever: signing, removal, history and receipts all use
+   the stored string.
    folder ∈ character|prop|location|shot|storyboard|lookbook|cameo|other (turnAssetFolder);
    an appearance state nests inside its character ("adem/states/st-1"), a sub-slot inside
    its owner ("sbsheet-p1/half-top"). role ∈ sheet|ref-<kind>|<cameo-angle>. The optional
@@ -2152,13 +2171,110 @@ function turnExtForMime(mime){
   const m = String(mime||"").toLowerCase();
   return m==="image/jpeg" || m==="image/jpg" ? "jpg" : m==="image/webp" ? "webp" : m==="image/gif" ? "gif" : "png";
 }
-function turnStoragePath(uid, projectId, entityId, assetType, role, ext, version, stamp){
+/* accountFolder / projectFolder: the two top folders from turnStorageFolders() — for a
+   legacy key simply the uid and the project id. */
+function turnStoragePath(accountFolder, projectFolder, entityId, assetType, role, ext, version, stamp){
   const vtag = (version!=null && version!=="") ? ("-v"+turnSafeSeg(version)) : "";
-  return uid+"/"+projectId+"/"+turnAssetFolder(assetType, entityId)+"/"+turnEntityPath(entityId)+"/"
+  return accountFolder+"/"+projectFolder+"/"+turnAssetFolder(assetType, entityId)+"/"+turnEntityPath(entityId)+"/"
     + (stamp||turnStamp())+"-"+turnSafeSeg(role||"file")+vtag+"-"+turnShortId()+"."+(ext||"png");
 }
 window.turnAssetFolder = turnAssetFolder;
 window.turnStoragePath = turnStoragePath;   // exposed for inspection / tests
+
+/* ── readable storage folders (owner decision 2026-09-27) ─────────────────────
+   The app writes readable top folders ONLY after the server answers
+   turn_storage_folders(p_project_id) (supabase/storage-readable-folders.sql) with
+   folders that parse back to exactly this uid and project id. Every other outcome —
+   the kill switch TURN_SUPABASE.readableStorageKeys === false, the RPC missing
+   (PGRST202: the SQL isn't installed yet), execute revoked (the server kill switch),
+   an error, a timeout, a malformed or mismatched answer, the parser missing — writes a
+   legacy {uid}/{projectId}/… key, which the database accepts forever. The answer
+   (readable or legacy) is cached per uid|project for 5 minutes: that is the feature
+   flag, so clients switch within 5 minutes of the SQL going in or being revoked. */
+const TURN_STORAGE_FOLDER_TTL_MS = 5*60*1000;
+const _turnStorageFolderCache = new Map();      // "uid|pid" → { exp, value }
+const _turnStorageFolderInflight = new Map();   // "uid|pid" → Promise<value>
+let _turnStorageFoldersOffUntil = 0;
+let _turnStorageFolderEpoch = 0;
+function _turnLegacyStorageFolders(uid, projectId){
+  return { account:String(uid), project:String(projectId), readable:false };
+}
+function _turnStorageKeys(){
+  const k = window.TurnStorageKeys;
+  return k && typeof k.segment==="function" && typeof k.uid==="function" && typeof k.projectId==="function" ? k : null;
+}
+/* the server refused a readable key (a stale SQL file was re-run): legacy keys only,
+   for one cache lifetime */
+function turnStorageFoldersDisable(ms){
+  _turnStorageFoldersOffUntil = Date.now() + (Number(ms)>0 ? Number(ms) : TURN_STORAGE_FOLDER_TTL_MS);
+  _turnStorageFolderEpoch++;
+  _turnStorageFolderCache.clear(); _turnStorageFolderInflight.clear();
+}
+function turnStorageFoldersForget(projectId){
+  const tail = "|"+String(projectId);
+  _turnStorageFolderEpoch++;
+  for(const key of Array.from(_turnStorageFolderCache.keys())) if(key.endsWith(tail)) _turnStorageFolderCache.delete(key);
+  for(const key of Array.from(_turnStorageFolderInflight.keys())) if(key.endsWith(tail)) _turnStorageFolderInflight.delete(key);
+}
+/* true when a built key really lives under this uploader and this project */
+function _turnPathInScope(path, uid, projectId){
+  const k = _turnStorageKeys();
+  return !!k && k.uid(path)===String(uid) && k.projectId(path)===String(projectId);
+}
+/* the two top folders a stored key was written under (one save shares one prefix) */
+function _turnFoldersOfPath(path, uid, projectId){
+  const parts = String(path||"").split("/");
+  if(parts.length<3 || !parts[0] || !parts[1]) return null;
+  return { account:parts[0], project:parts[1],
+    readable:parts[0]!==String(uid) || parts[1]!==String(projectId) };
+}
+async function _turnFetchStorageFolders(sb, uid, projectId, keys){
+  const legacy = _turnLegacyStorageFolders(uid, projectId);
+  let timer = null;
+  try{
+    const timeout = new Promise(resolve=>{ timer = setTimeout(()=>resolve({timedOut:true}), 8000); });
+    const res = await Promise.race([Promise.resolve(sb.rpc("turn_storage_folders",{p_project_id:projectId})), timeout]);
+    const data = res && !res.timedOut && !res.error ? res.data : null;
+    if(!data || data.v!==1) return legacy;
+    const account = keys.segment(data.account), project = keys.segment(data.project);
+    if(!account || !project || !account.label || !project.label) return legacy;
+    if(account.id!==String(uid) || project.id!==String(projectId)) return legacy;
+    return { account:data.account, project:data.project, readable:true };
+  }catch(e){ return legacy; }
+  finally{ if(timer!==null) try{ clearTimeout(timer); }catch(e){} }
+}
+async function turnStorageFolders(sb, uid, projectId){
+  const legacy = _turnLegacyStorageFolders(uid, projectId);
+  const cfg = window.TURN_SUPABASE || {};
+  const keys = _turnStorageKeys();
+  if(cfg.readableStorageKeys===false || Date.now()<_turnStorageFoldersOffUntil
+    || !sb || typeof sb.rpc!=="function" || !keys || !uid || !projectId) return legacy;
+  const cacheKey = String(uid)+"|"+String(projectId);
+  const hit = _turnStorageFolderCache.get(cacheKey);
+  if(hit && hit.exp>Date.now()) return { ...hit.value };
+  let pending = _turnStorageFolderInflight.get(cacheKey);
+  if(!pending){
+    const epoch = _turnStorageFolderEpoch;
+    const request = _turnFetchStorageFolders(sb, uid, projectId, keys).then(value=>{
+      /* always retire this request's own in-flight entry (never a newer one); only the
+         cache write is skipped when a disable/forget (of ANY project) happened meanwhile,
+         so a stale answer can never outlive the 5-minute TTL or the kill switch */
+      if(_turnStorageFolderInflight.get(cacheKey)===request) _turnStorageFolderInflight.delete(cacheKey);
+      if(epoch===_turnStorageFolderEpoch)
+        _turnStorageFolderCache.set(cacheKey, { exp:Date.now()+TURN_STORAGE_FOLDER_TTL_MS, value });
+      return value;
+    });
+    _turnStorageFolderInflight.set(cacheKey, request);
+    pending = request;
+  }
+  const value = await pending;
+  // a disable/rename that landed while the RPC was in flight wins
+  if(Date.now()<_turnStorageFoldersOffUntil) return legacy;
+  return { ...value };
+}
+window.turnStorageFolders = turnStorageFolders;
+window.turnStorageFoldersDisable = turnStorageFoldersDisable;
+window.turnStorageFoldersForget = turnStorageFoldersForget;
 
 /* Storage and Postgres cannot commit atomically. Reserve each exact object key
    before upload; if the project is deleted before its generation/Cameo row can
@@ -2234,6 +2350,9 @@ function _seriesRecordMissingUploadIntent(diagnostics){
     try{ if(window.console&&typeof window.console.warn==="function") window.console.warn(_seriesMissingUploadIntentWarning); }catch(e){}
   }
 }
+/* The raw reservation error per diagnostics object (never shown: the recorded
+   message is sanitised). cloudUploadImage reads it to spot a refused readable key. */
+const _seriesReservationErrors=new WeakMap();
 async function _seriesBeginAssetUploadIntent(sb,projectId,path,diagnostics){
   /* Local recording adapters predate Supabase RPC entirely. They are not
      production clients and cannot claim a reservation, but retain the existing
@@ -2263,6 +2382,7 @@ async function _seriesBeginAssetUploadIntent(sb,projectId,path,diagnostics){
         return true;
       }
       _seriesRecordUploadError(diagnostics,"reservation",diagnosticError,"Cloud upload reservation failed.");
+      if(diagnostics&&typeof diagnostics==="object") _seriesReservationErrors.set(diagnostics,error);
       return false;
     }
     _seriesPendingUploadIntents.add(path);
@@ -2274,6 +2394,7 @@ async function _seriesBeginAssetUploadIntent(sb,projectId,path,diagnostics){
       return true;
     }
     _seriesRecordUploadError(diagnostics,"reservation",e,"Cloud upload reservation failed.");
+    if(diagnostics&&typeof diagnostics==="object") _seriesReservationErrors.set(diagnostics,e);
     return false;
   }
 }
@@ -2293,7 +2414,33 @@ async function _seriesFinishAssetUploadIntents(paths){
   }catch(e){ return false; }
 }
 
-async function cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, role, version, allowRemote, diagnostics, stamp){
+/* A readable key refused by the server — the reservation's folder check or the Storage
+   rule — means a stale copy of team-collaboration / enforce-role-scopes /
+   series-production.sql was re-run. A missing Art Room role is NEVER this case. */
+function _turnReadableKeyRefused(stage, error){
+  const text = String((error&&error.message)||error||"");
+  if(/write access is required/i.test(text)) return false;
+  if(stage==="reservation") return /path is outside the caller project scope/i.test(text);
+  const status = Number(error&&(error.statusCode!==undefined?error.statusCode:error.status));
+  return status===403 || /row-level security/i.test(text);
+}
+const TURN_READABLE_FALLBACK_WARNING =
+  "This image was saved under the standard storage folders: the server refused the readable folder names (re-run the current supabase SQL files).";
+/* The fallback is silent for users (the save succeeds); tell whoever has the console
+   open, once per page, where to look: admin-inventory.sql's RESULT row 126. */
+let _turnReadableFallbackWarned = false;
+function _turnWarnReadableFallback(){
+  if(_turnReadableFallbackWarned) return;
+  _turnReadableFallbackWarned = true;
+  try{
+    if(window.console && typeof window.console.warn==="function")
+      window.console.warn("[TURN storage] "+TURN_READABLE_FALLBACK_WARNING
+        +" Admin: run supabase/admin-inventory.sql and read RESULT row 126.");
+  }catch(e){}
+}
+async function cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, role, version, allowRemote, diagnostics, stamp, folders){
+  // callers that pass no diagnostics still need the stage/error for the legacy retry
+  if(!diagnostics || typeof diagnostics!=="object") diagnostics = {};
   const sb = sbClient();
   if(!sb){
     _seriesRecordUploadError(diagnostics,"client",null,
@@ -2333,43 +2480,80 @@ async function cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, ro
       "The generated image data is invalid or could not be read as an image.");
     return null;
   }
-  let path;
-  try{ path = turnStoragePath(uid, projectId, entityId, assetType, role, turnExtForMime(blob.type), version, stamp); }
-  catch(e){
-    _seriesRecordUploadError(diagnostics,"input",e,"The generated image path could not be prepared.");
-    return null;
-  }
-  /* Compatibility contract: _seriesBeginAssetUploadIntent(sb,projectId,path) */
-  if(!await _seriesBeginAssetUploadIntent(sb,projectId,path,diagnostics)) return null;
-  try{
-    const { error } = await sb.storage.from(turnBucket()).upload(path, blob, { contentType:blob.type, upsert:false });
-    if(error){
-      /* if(error){ cloudRemovePaths([path]) remains the exact compensation key. */
-      _seriesRecordUploadError(diagnostics,
-        _seriesUploadNetworkError(error)?"storage-network":"storage",error,
-        "Cloud image storage rejected the upload.");
-      /* The response may be ambiguous even when Storage accepted the bytes.
-         Compensate while the exact intent is live; finish is performed by
-         cloudRemovePaths only after Storage confirms removal. */
-       try{ await cloudRemovePaths([path]); }
-       catch(e){
-         if(diagnostics&&typeof diagnostics==="object")
-           diagnostics.cleanupWarning=_seriesSafeUploadMessage(e,"Cloud upload cleanup failed.");
-       }
+  /* Top folders: the caller's (one save shares one prefix), else resolved here. */
+  let useFolders = (folders && typeof folders==="object" && folders.account && folders.project)
+    ? folders : await turnStorageFolders(sb, uid, projectId);
+  const noteFallback = ()=>{
+    if(diagnostics&&typeof diagnostics==="object") diagnostics.warning=TURN_READABLE_FALLBACK_WARNING;
+    _turnWarnReadableFallback();
+  };
+  for(let attempt=0; attempt<2; attempt++){
+    let path;
+    try{
+      path = turnStoragePath(useFolders.account, useFolders.project, entityId, assetType, role, turnExtForMime(blob.type), version, stamp);
+      /* A readable key must parse back to exactly this uploader and project (the
+         only thing the server checks); anything else is rebuilt as a legacy key. */
+      if(useFolders.readable && !_turnPathInScope(path, uid, projectId)){
+        useFolders = _turnLegacyStorageFolders(uid, projectId);
+        path = turnStoragePath(uid, projectId, entityId, assetType, role, turnExtForMime(blob.type), version, stamp);
+        noteFallback();
+      }
+    }
+    catch(e){
+      _seriesRecordUploadError(diagnostics,"input",e,"The generated image path could not be prepared.");
       return null;
     }
-    return path;
-  }catch(e){
-     try{ await cloudRemovePaths([path]); }
-     catch(cleanupError){
-       if(diagnostics&&typeof diagnostics==="object")
-         diagnostics.cleanupWarning=_seriesSafeUploadMessage(cleanupError,"Cloud upload cleanup failed.");
-     }
-    _seriesRecordUploadError(diagnostics,
-      _seriesUploadNetworkError(e)?"storage-network":"storage",e,
-      "Cloud image storage could not accept the upload.");
-    return null;
+    /* One-shot legacy retry (spec §5.1): only for a readable key the server refused
+       by its folder check, never for a missing Art Room role. */
+    const retryLegacy = (stage, error)=>{
+      if(!useFolders.readable || attempt>0 || !_turnReadableKeyRefused(stage, error)) return false;
+      turnStorageFoldersDisable();
+      useFolders = _turnLegacyStorageFolders(uid, projectId);
+      if(diagnostics&&typeof diagnostics==="object"){
+        for(const key of ["stage","error","message","status","code"]) delete diagnostics[key];
+      }
+      noteFallback();
+      return true;
+    };
+    /* Compatibility contract: _seriesBeginAssetUploadIntent(sb,projectId,path) */
+    if(!await _seriesBeginAssetUploadIntent(sb,projectId,path,diagnostics)){
+      const refusal = _seriesReservationErrors.get(diagnostics);
+      _seriesReservationErrors.delete(diagnostics);
+      if(retryLegacy("reservation", refusal)) continue;
+      return null;
+    }
+    try{
+      const { error } = await sb.storage.from(turnBucket()).upload(path, blob, { contentType:blob.type, upsert:false });
+      if(error){
+        /* if(error){ cloudRemovePaths([path]) remains the exact compensation key. */
+        _seriesRecordUploadError(diagnostics,
+          _seriesUploadNetworkError(error)?"storage-network":"storage",error,
+          "Cloud image storage rejected the upload.");
+        /* The response may be ambiguous even when Storage accepted the bytes.
+           Compensate while the exact intent is live; finish is performed by
+           cloudRemovePaths only after Storage confirms removal. */
+         try{ await cloudRemovePaths([path]); }
+         catch(e){
+           if(diagnostics&&typeof diagnostics==="object")
+             diagnostics.cleanupWarning=_seriesSafeUploadMessage(e,"Cloud upload cleanup failed.");
+         }
+        if(retryLegacy("storage", error)) continue;
+        return null;
+      }
+      return path;
+    }catch(e){
+       try{ await cloudRemovePaths([path]); }
+       catch(cleanupError){
+         if(diagnostics&&typeof diagnostics==="object")
+           diagnostics.cleanupWarning=_seriesSafeUploadMessage(cleanupError,"Cloud upload cleanup failed.");
+       }
+      _seriesRecordUploadError(diagnostics,
+        _seriesUploadNetworkError(e)?"storage-network":"storage",e,
+        "Cloud image storage could not accept the upload.");
+      return null;
+    }
   }
+  return null;
 }
 async function cloudRemovePaths(paths){
   const sb = sbClient(), unique=Array.from(new Set((paths||[]).filter(Boolean)));
@@ -2414,11 +2598,15 @@ function _seriesStableHash(value){
 function _seriesMigrationKey(fromProjectId,entityId){
   return "series-asset-v2:"+String(fromProjectId)+":"+String(entityId);
 }
-function _seriesMigrationTarget(uid,toProjectId,entityId,sourcePath){
+/* folders: the uploader's and the Show's top folders from turnStorageFolders (legacy:
+   uid and Show id). The file name stays deterministic, so a retry under the same
+   folders adopts the same copy; a retry after readable folders switched on makes one
+   extra copy, which admin-inventory lists as superseded once the Show row exists. */
+function _seriesMigrationTarget(folders,entityId,sourcePath){
   const filename=String(sourcePath||"").split("/").pop()||"asset.png";
   const dot=filename.lastIndexOf(".");
   const ext=(dot>0&&/^[.][a-z0-9]{1,10}$/i.test(filename.slice(dot)))?filename.slice(dot).toLowerCase():".png";
-  return [uid,toProjectId,"series-migration",turnSafeSeg(entityId),_seriesStableHash(sourcePath)+ext].join("/");
+  return [folders.account,folders.project,"series-migration",turnSafeSeg(entityId),_seriesStableHash(sourcePath)+ext].join("/");
 }
 function _seriesCopyAlreadyExists(error){
   const status=Number(error&&(error.statusCode||error.status));
@@ -2493,6 +2681,8 @@ async function cloudPromoteProjectAssets(fromProjectId,toProjectId,baseEntityIds
     const session=await cloudGetSession();
     const uid=session&&session.user&&session.user.id;
     if(!uid) return {ok:false,message:"Your session has expired. Sign in again."};
+    // one promotion = one prefix: the uploader's and the Show's folders, resolved once
+    let promotionFolders=await turnStorageFolders(sb,uid,toProjectId);
     const {data:source,error:sourceErr}=await sb.from("turn_generations").select("*")
       .eq("project_id",fromProjectId);
     if(sourceErr) throw sourceErr;
@@ -2521,8 +2711,17 @@ async function cloudPromoteProjectAssets(fromProjectId,toProjectId,baseEntityIds
       }
       const pathMap=new Map();
       for(const sourcePath of sourcePaths){
-        const target=_seriesMigrationTarget(uid,toProjectId,entityId,sourcePath);
-        const {error:copyErr}=await sb.storage.from(turnBucket()).copy(sourcePath,target);
+        let target=_seriesMigrationTarget(promotionFolders,entityId,sourcePath);
+        let {error:copyErr}=await sb.storage.from(turnBucket()).copy(sourcePath,target);
+        if(copyErr && promotionFolders.readable && !_seriesCopyAlreadyExists(copyErr)
+          && _turnReadableKeyRefused("storage",copyErr)){
+          /* a stale SQL re-run refuses readable folders: legacy keys from here on */
+          turnStorageFoldersDisable();
+          if(typeof _turnWarnReadableFallback==="function") _turnWarnReadableFallback();
+          promotionFolders=_turnLegacyStorageFolders(uid,toProjectId);
+          target=_seriesMigrationTarget(promotionFolders,entityId,sourcePath);
+          ({error:copyErr}=await sb.storage.from(turnBucket()).copy(sourcePath,target));
+        }
         if(copyErr && !_seriesCopyAlreadyExists(copyErr)) throw copyErr;
         if(!copyErr) copied.add(target);
         pathMap.set(sourcePath,target);
@@ -2767,6 +2966,8 @@ async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, 
   // from the DB). refs/cameo angles aren't versioned, so they pass no version.
   const ver = (meta && meta.version) || 1, created=[];
   const saveStamp = turnStamp();   // one save = one timestamp across the sheet and its reference snapshots
+  // one save = one prefix: the top folders are resolved ONCE for the sheet and every reference
+  const saveFolders = await turnStorageFolders(activeClient, uid, projectId);
   let row;
   try{ row=await cloudGetGenStrict(projectId,entityId); }
   catch(e){
@@ -2785,10 +2986,13 @@ async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, 
     return commitError("Cloud purge receipts could not be verified before saving.");
   }
   if(_cxl()) return { tier:"cancelled", url:dataUrl };
-  const newPath = await cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, "sheet", ver, false, uploadDiagnostics, saveStamp);
+  const newPath = await cloudUploadImage(projectId, uid, entityId, dataUrl, assetType, "sheet", ver, false, uploadDiagnostics, saveStamp, saveFolders);
   if(!newPath) return commitError(
     (uploadDiagnostics.error&&uploadDiagnostics.error.message)||"Image upload failed.");
   created.push(newPath);
+  /* the references follow the folders the sheet really landed under (a refused
+     readable key retries the sheet as a legacy key) */
+  const refFolders = _turnFoldersOfPath(newPath, uid, projectId) || saveFolders;
   if(_cxl()) return await cleanupCreated(withDiagnostics({tier:"cancelled",url:dataUrl}));
   let history = (row && row.history) || [];
   let dropped=[];
@@ -2813,7 +3017,7 @@ async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, 
     let p = null;
     /* Reference snapshots remain best-effort. A failed optional reference keeps
        its null storage_path/provenance row and must not abort the generated sheet. */
-    if(r&&r.url) p = await cloudUploadImage(projectId, uid, entityId, r.url, assetType, "ref-"+turnSafeSeg(r.kind||"img"),undefined,true,undefined,saveStamp);
+    if(r&&r.url) p = await cloudUploadImage(projectId, uid, entityId, r.url, assetType, "ref-"+turnSafeSeg(r.kind||"img"),undefined,true,undefined,saveStamp,refFolders);
     if(p) created.push(p);
     if(_cxl()) return await cleanupCreated(withDiagnostics({tier:"cancelled",url:dataUrl}));
     refRows.push({...provenance,storage_path:p});
@@ -3858,9 +4062,15 @@ async function cloudSyncCameo(projectId, uid, charId, rec){
   const prev = await cloudCameoRow(projectId, charId);
   if(prev && prev.angles){ try{ await sb.storage.from(turnBucket()).remove((prev.angles||[]).map(a=>a.storage_path).filter(Boolean)); }catch(e){} }
   const angleRows = [];
+  // one cameo = one prefix: resolved once, then the folders the first angle really used
+  let cameoFolders = await turnStorageFolders(sb, uid, projectId);
   for(const a of (rec.angles||[])){
-    const p = await cloudUploadImage(projectId, uid, charId, a.url, "cameo", turnReadableSeg(a.label, "angle"));
-    if(p) angleRows.push({ label:a.label, storage_path:p });
+    const p = await cloudUploadImage(projectId, uid, charId, a.url, "cameo", turnReadableSeg(a.label, "angle"),
+      undefined, undefined, undefined, undefined, cameoFolders);
+    if(p){
+      angleRows.push({ label:a.label, storage_path:p });
+      cameoFolders = _turnFoldersOfPath(p, uid, projectId) || cameoFolders;
+    }
   }
   const prov = { consent:!!rec.consent, source:rec.source||"webcam", subject:rec.subject||"",
     iso:rec.iso, date:rec.date, w:rec.w||0, h:rec.h||0 };

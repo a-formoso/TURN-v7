@@ -2,7 +2,12 @@
 -- TURN — Admin storage inventory  (READ-ONLY views for the platform owner)
 --
 -- PURPOSE
---   Storage keys are ids, not names: {uploader_id}/{project_id}/{folder}/{entity}/...
+--   Storage keys start with two folders, the uploader's account and the project:
+--     legacy    {uploader_id}/{project_id}/{folder}/{entity}/...
+--     readable  {handle}--{uploader_id}/{slug}--{project_id}/{folder}/{entity}/...
+--   (readable since 2026-09-27, storage-readable-folders.sql; name first, the full
+--   id last). Only the id in each folder counts: a name is display text chosen by
+--   the server, never trusted here. These views parse both forms.
 --   These views translate every file in the private 'turn-assets' bucket into
 --   something a human can read — who uploaded it, which film / Show / Episode it
 --   belongs to, which character / prop / location it shows, how big it is — and
@@ -57,6 +62,13 @@
 --                         'queued-for-cleanup'. Without it no file has that status.
 --     credits.sql         turn_credits: the plan column of turn_admin.users.
 --                         Without it the plan is left empty.
+--     storage-readable-folders.sql
+--       Readable folders  turn_storage_accounts.handle and turn_projects.storage_slug:
+--                         turn_admin.users.storage_handle, turn_admin.projects
+--                         .storage_slug, and turn_admin.files.label_note, which
+--                         flags a folder label that differs from the stored handle
+--                         or project name. Without them those columns are empty.
+--                         Readable KEYS are parsed either way (their ids decide).
 --   A feature is either absent or complete. A half-applied one (say the table is
 --   there but a column is not) stops the run: reading it half-way could hide an
 --   upload in progress or show the wrong Show.
@@ -110,7 +122,15 @@
 -- SECURITY FACTS THE VIEWS RESPECT
 --   * folder 1 is the UPLOADER, not the owner: one film can span several user folders
 --     (collaborators). project_owner_email comes from turn_projects.owner.
---   * folder 2 is the project id (studio previews: folder 3).
+--   * folder 2 is the project (studio previews: folder 3).
+--   * A folder is a bare uuid (legacy) or '{label}--{uuid}' (readable: lowercase
+--     [a-z0-9] runs joined by single hyphens, 1-64 characters, no 8 hex digits in a
+--     row anywhere; at most 102 characters in all). Only the uuid is read.
+--     The label is shown (account_label / project_label) and compared with the
+--     stored names only to fill label_note; the owner and project of a file always
+--     come from the uuid, and whether a file is safe to delete never depends on a
+--     label. One account can therefore show two folders in the Dashboard (legacy
+--     and readable); the views group by id.
 --   * '_internal/…' (relay security markers) and 'blender-studio-internal/…' (studio
 --     meshes) are never orphans; neither is anything 'uploading' or referenced.
 --   * Show-promotion copies ('series-migration/…') have fixed names that a retry
@@ -118,9 +138,9 @@
 --   * The views run with the reader's rights (security_invoker). If the reader
 --     cannot see every row (row-level security), nothing is marked safe to delete;
 --     the preflight refuses to install for such a role.
---   * Non-uuid folders are parsed with a regex check before ::uuid, so they never
---     raise; files whose layout is not recognised get area 'unknown' and are never
---     listed as safe to delete — review those by hand.
+--   * Folders are parsed with a regex check before ::uuid, so they never raise;
+--     files whose layout is not recognised get area 'unknown' and are never listed
+--     as safe to delete — review those by hand.
 --   * Show / Episode fields only label rows and pick entity names. Whether a file is
 --     safe to delete never depends on them: files are matched on path only.
 -- ============================================================================
@@ -163,7 +183,10 @@ with need(schema_name, table_name, column_name, feature, source) as (values
   ('public', 'turn_asset_upload_intents', 'expires_at', 'intents', 'series-production.sql'),
   ('public', 'turn_asset_cleanup_queue', 'path', 'queue', 'series-production.sql'),
   ('public', 'turn_credits', 'owner', 'credits', 'credits.sql'),
-  ('public', 'turn_credits', 'plan', 'credits', 'credits.sql')
+  ('public', 'turn_credits', 'plan', 'credits', 'credits.sql'),
+  ('public', 'turn_storage_accounts', 'user_id', 'readable', 'storage-readable-folders.sql'),
+  ('public', 'turn_storage_accounts', 'handle', 'readable', 'storage-readable-folders.sql'),
+  ('public', 'turn_projects', 'storage_slug', 'readable', 'storage-readable-folders.sql')
 ),
 have as (
   select n.*,
@@ -184,7 +207,8 @@ have as (
     from need n
 ),
 -- installed = every column there. absent = an optional feature that is simply not
--- there (for Shows & episodes: none of the three columns, otherwise: no table).
+-- there (for Shows & episodes and readable folders: none of their columns,
+-- otherwise: no table).
 -- missing = a required column is gone. partial = an optional feature half there.
 -- (Keep this query free of semicolons until its end: see the note above it.)
 feat as (
@@ -192,7 +216,7 @@ feat as (
          case
            when bool_and(h.present) then 'installed'
            when h.feature in ('core', 'cameos') then 'missing'
-           when h.feature = 'series' then case when bool_or(h.present) then 'partial' else 'absent' end
+           when h.feature in ('series', 'readable') then case when bool_or(h.present) then 'partial' else 'absent' end
            when bool_or(h.table_present) then 'partial'
            else 'absent'
          end as state
@@ -207,7 +231,8 @@ select 'column ' || h.schema_name || '.' || h.table_name || '.' || h.column_name
               when 'series' then 'Shows/episodes read from the document markers'
               when 'intents' then 'only files under 1 hour old count as uploading'
               when 'queue' then 'no file is marked queued-for-cleanup'
-              when 'credits' then 'plan is left empty in turn_admin.users' end
+              when 'credits' then 'plan is left empty in turn_admin.users'
+              when 'readable' then 'folder labels are shown but not compared (label_note stays empty)' end
          when f.state = 'partial' then 'FAIL — half-installed: the rest of ' || h.source || ' is here, this column is not'
          else 'FAIL — required: run ' || h.source || ' first'
        end as status
@@ -295,7 +320,10 @@ begin
     ('public', 'turn_asset_upload_intents', 'expires_at', 'intents', 'series-production.sql'),
     ('public', 'turn_asset_cleanup_queue', 'path', 'queue', 'series-production.sql'),
     ('public', 'turn_credits', 'owner', 'credits', 'credits.sql'),
-    ('public', 'turn_credits', 'plan', 'credits', 'credits.sql')
+    ('public', 'turn_credits', 'plan', 'credits', 'credits.sql'),
+    ('public', 'turn_storage_accounts', 'user_id', 'readable', 'storage-readable-folders.sql'),
+    ('public', 'turn_storage_accounts', 'handle', 'readable', 'storage-readable-folders.sql'),
+    ('public', 'turn_projects', 'storage_slug', 'readable', 'storage-readable-folders.sql')
   ),
   have as (
     select n.*,
@@ -320,7 +348,7 @@ begin
            case
              when bool_and(h.present) then 'installed'
              when h.feature in ('core', 'cameos') then 'missing'
-             when h.feature = 'series' then case when bool_or(h.present) then 'partial' else 'absent' end
+             when h.feature in ('series', 'readable') then case when bool_or(h.present) then 'partial' else 'absent' end
              when bool_or(h.table_present) then 'partial'
              else 'absent'
            end as state
@@ -487,6 +515,10 @@ comment on view turn_admin.referenced_paths is
 --   {{upload_intents}}  public.turn_asset_upload_intents, or an empty relation
 --   {{cleanup_queue}}   public.turn_asset_cleanup_queue, or an empty relation
 --   {{credits}}         public.turn_credits, or an empty relation
+--   {{accounts}}        public.turn_storage_accounts (user_id, handle), or an empty
+--                       relation; turn_projects.storage_slug rides in {{proj}} (or
+--                       null). Used only for storage_handle, storage_slug and
+--                       label_note — never for ownership or safe_to_delete.
 -- An empty relation (… where false) keeps every rule and every column identical:
 -- no reservation row can match, so a file is 'uploading' only by the < 1 hour rule
 -- and nothing is 'queued-for-cleanup'; plan is null. Column names and types are the
@@ -497,6 +529,8 @@ declare
   has_intents boolean;
   has_queue boolean;
   has_credits boolean;
+  has_readable boolean;
+  slug_expr text;
   -- document markers (per project row, not per file). p = the project, ps = the
   -- Show its doc.showId names, joined only when that row really is a Show (so
   -- ps.id is null for a film, a deleted project or a malformed id). The uuid
@@ -527,6 +561,16 @@ begin
   has_intents := to_regclass('public.turn_asset_upload_intents') is not null;
   has_queue := to_regclass('public.turn_asset_cleanup_queue') is not null;
   has_credits := to_regclass('public.turn_credits') is not null;
+  -- readable folders: the guard has already refused a half-installed feature
+  select count(*) = 3 into has_readable
+    from pg_catalog.pg_attribute a
+    join pg_catalog.pg_class c on c.oid = a.attrelid
+    join pg_catalog.pg_namespace s on s.oid = c.relnamespace
+   where s.nspname = 'public'
+     and ((c.relname = 'turn_storage_accounts' and a.attname in ('user_id', 'handle'))
+          or (c.relname = 'turn_projects' and a.attname = 'storage_slug'))
+     and a.attnum > 0 and not a.attisdropped;
+  slug_expr := case when has_readable then 'p.storage_slug' else 'null' end;
 
   if has_series then
     -- the columns decide; the markers (and the parent join) only for a row whose
@@ -535,7 +579,8 @@ begin
     proj := 'select p.id, p.owner, p.title, p.doc,'
       || E'\n         (case when ' || valid_kind || ' then lower(btrim(p.project_kind)) else ' || doc_kind || ' end)::text as project_kind,'
       || E'\n         (case when ' || valid_kind || ' then p.show_id else ps.id end)::uuid as show_id,'
-      || E'\n         (case when ' || valid_kind || ' then p.episode_no else ' || doc_episode || ' end)::integer as episode_no'
+      || E'\n         (case when ' || valid_kind || ' then p.episode_no else ' || doc_episode || ' end)::integer as episode_no,'
+      || E'\n         (' || slug_expr || ')::text as storage_slug'
       || E'\n    from public.turn_projects p'
       || E'\n    left join public.turn_projects ps'
       || E'\n           on not ' || valid_kind
@@ -547,7 +592,8 @@ begin
     proj := 'select p.id, p.owner, p.title, p.doc,'
       || E'\n         ' || doc_kind || '::text as project_kind,'
       || E'\n         ps.id::uuid as show_id,'
-      || E'\n         ' || doc_episode || '::integer as episode_no'
+      || E'\n         ' || doc_episode || '::integer as episode_no,'
+      || E'\n         (' || slug_expr || ')::text as storage_slug'
       || E'\n    from public.turn_projects p'
       || E'\n    left join public.turn_projects ps'
       || E'\n           on ps.id = ' || doc_show_ref
@@ -587,17 +633,37 @@ parsed as (
          s.seg[1] as seg1, s.seg[2] as seg2, s.seg[3] as seg3,
          s.seg[4] as seg4, s.seg[5] as seg5, s.seg[6] as seg6,
          s.seg[coalesce(array_length(s.seg, 1), 0)] as file_name,
+         -- a folder's id: a bare uuid (legacy; any case, as before) or the last 36
+         -- characters of '{label}--{uuid}' (readable; strict lowercase grammar, the
+         -- same as public.turn_storage_segment_id and app/storage-keys.js)
          case when s.seg[1] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-              then s.seg[1]::uuid end as seg1_uuid,
+              then s.seg[1]::uuid
+              when char_length(s.seg[1]) <= 102
+               and s.seg[1] ~ '^[a-z0-9]+(?:-[a-z0-9]+)*--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+               and left(s.seg[1], -38) !~ '[0-9a-f]{8}'
+              then right(s.seg[1], 36)::uuid end as seg1_uuid,
          case when s.seg[2] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-              then s.seg[2]::uuid end as seg2_uuid,
+              then s.seg[2]::uuid
+              when char_length(s.seg[2]) <= 102
+               and s.seg[2] ~ '^[a-z0-9]+(?:-[a-z0-9]+)*--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+               and left(s.seg[2], -38) !~ '[0-9a-f]{8}'
+              then right(s.seg[2], 36)::uuid end as seg2_uuid,
          case when s.seg[3] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-              then s.seg[3]::uuid end as seg3_uuid
+              then s.seg[3]::uuid
+              when char_length(s.seg[3]) <= 102
+               and s.seg[3] ~ '^[a-z0-9]+(?:-[a-z0-9]+)*--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+               and left(s.seg[3], -38) !~ '[0-9a-f]{8}'
+              then right(s.seg[3], 36)::uuid end as seg3_uuid
     from split s
   offset 0
 ),
 cls as (
   select p.*,
+         -- readable folder labels: a parsed folder longer than a bare uuid is
+         -- '{label}--{uuid}' (no second regex pass)
+         case when p.seg1_uuid is not null and char_length(p.seg1) > 36 then left(p.seg1, -38) end as seg1_label,
+         case when p.seg2_uuid is not null and char_length(p.seg2) > 36 then left(p.seg2, -38) end as seg2_label,
+         case when p.seg3_uuid is not null and char_length(p.seg3) > 36 then left(p.seg3, -38) end as seg3_label,
          case
            when p.seg1 = '_internal' then 'relay-security-marker'
            when p.seg1 = 'blender-studio-internal' then 'studio-mesh'
@@ -629,6 +695,15 @@ cls2 as materialized (
            else c.seg2_uuid
          end as project_id,
          case when c.area in ('asset','show-import-copy','unknown') then c.seg3 end as asset_folder,
+         case
+           when c.area in ('relay-security-marker','studio-mesh') then null
+           else c.seg1_label
+         end as account_label,
+         case
+           when c.area = 'studio-preview' then c.seg3_label
+           when c.area in ('relay-security-marker','studio-mesh','stage-temp') then null
+           else c.seg2_label
+         end as project_label,
          case
            -- new layout: character/{charId}/states/{stateId}/{file} → "charId:stateId"
            when c.area = 'asset' and c.nseg >= 7 and c.seg5 = 'states'
@@ -864,10 +939,22 @@ classified as (
          f.referenced_by_project_ids,
          f.uploader_id,
          (f.project_id is not null and p.id is null) as project_gone,
-         f.is_relay_png
+         f.is_relay_png,
+         f.account_label,
+         f.project_label,
+         -- display only: a readable label that differs from the stored name (an
+         -- untitled project's 'untitled' folder is expected, not flagged)
+         case
+           when f.account_label is not null and sa.handle is not null and f.account_label <> sa.handle
+             then 'account folder label differs from the account handle'
+           when f.project_label is not null and f.project_label <> 'untitled'
+                and p.storage_slug is not null and f.project_label <> p.storage_slug
+             then 'project folder label differs from the project name'
+         end as label_note
     from pre f
     left join names n on n.path = f.path
     left join auth.users uu on uu.id = f.uploader_id
+    left join {{accounts}} sa on sa.user_id = f.uploader_id
     left join proj p on p.id = f.project_id
     left join auth.users po on po.id = p.owner
     left join proj s on s.id = p.show_id
@@ -915,7 +1002,10 @@ select j.area,
        (j.orphan_reason is not null) as safe_to_delete,
        j.orphan_reason,
        j.referenced_by_project_ids,
-       j.uploader_id
+       j.uploader_id,
+       j.account_label,
+       j.project_label,
+       j.label_note
   from judged j
 $view$;
   v := replace(v, '{{proj}}', proj);
@@ -923,6 +1013,8 @@ $view$;
          else '(select null::text as path, null::timestamptz as expires_at where false)' end);
   v := replace(v, '{{cleanup_queue}}', case when has_queue then 'public.turn_asset_cleanup_queue'
          else '(select null::text as path where false)' end);
+  v := replace(v, '{{accounts}}', case when has_readable then 'public.turn_storage_accounts'
+         else '(select null::uuid as user_id, null::text as handle where false)' end);
   if strpos(v, '{{') > 0 then
     raise exception 'TURN admin inventory: internal error, unfilled token in turn_admin.files. Nothing was created.';
   end if;
@@ -953,12 +1045,13 @@ all_projects as (
          p.project_kind as kind,
          case when p.project_kind = 'show' then p.title
               when p.project_kind = 'episode' then s.title end as show_title,
-         p.episode_no as episode
+         p.episode_no as episode,
+         p.storage_slug
     from proj p
     left join auth.users ou on ou.id = p.owner
     left join proj s on s.id = p.show_id
   union all
-  select fs.project_id, null, '(deleted project)', null, null, null
+  select fs.project_id, null, '(deleted project)', null, null, null, null::text
     from fstats fs
    where not exists (select 1 from public.turn_projects p where p.id = fs.project_id)
 )
@@ -973,7 +1066,8 @@ select a.owner_email,
        coalesce(fs.total_bytes, 0) as total_bytes,
        coalesce(fs.orphan_files, 0) as orphan_files,
        fs.uploader_emails,
-       fs.last_upload
+       fs.last_upload,
+       a.storage_slug
   from all_projects a
   left join fstats fs on fs.project_id = a.project_id
  order by a.owner_email, a.title
@@ -1011,20 +1105,24 @@ select u.email,
        coalesce(fs.files, 0) as file_count,
        pg_size_pretty(coalesce(fs.total_bytes, 0)) as total_size,
        coalesce(fs.total_bytes, 0) as total_bytes,
-       u.id as user_id
+       u.id as user_id,
+       sa.handle as storage_handle
   from auth.users u
   left join {{credits}} c on c.owner = u.id
+  left join {{accounts}} sa on sa.user_id = u.id
   left join pstats ps on ps.owner = u.id
   left join fstats fs on fs.uploader_id = u.id
 union all
 select '(deleted account)', null, null, null, 0,
-       fs.files, pg_size_pretty(fs.total_bytes), fs.total_bytes, fs.uploader_id
+       fs.files, pg_size_pretty(fs.total_bytes), fs.total_bytes, fs.uploader_id, null::text
   from fstats fs
  where not exists (select 1 from auth.users u where u.id = fs.uploader_id)
  order by 1, 9
 $view$;
   v := replace(v, '{{credits}}', case when has_credits then 'public.turn_credits'
          else '(select null::uuid as owner, null::text as plan where false)' end);
+  v := replace(v, '{{accounts}}', case when has_readable then 'public.turn_storage_accounts'
+         else '(select null::uuid as user_id, null::text as handle where false)' end);
   if strpos(v, '{{') > 0 then
     raise exception 'TURN admin inventory: internal error, unfilled token in turn_admin.users. Nothing was created.';
   end if;
@@ -1033,7 +1131,7 @@ end;
 $build$;
 
 comment on view turn_admin.files is
-  'One row per file in the turn-assets bucket with readable owner / project / entity names and a status. safe_to_delete mirrors turn_admin.orphans.';
+  'One row per file in the turn-assets bucket with readable owner / project / entity names and a status. safe_to_delete mirrors turn_admin.orphans. Folders may be legacy ids or readable {label}--{id}; only the id decides, label_note flags a label that differs from the stored name.';
 comment on view turn_admin.projects is
   'Per project: owner, kind, Show / Episode, file count and size (by the project id in the file path), safe-to-delete count, uploaders, last upload.';
 comment on view turn_admin.users is
@@ -1169,7 +1267,10 @@ with need(schema_name, table_name, column_name, feature, source) as (values
   ('public', 'turn_asset_upload_intents', 'expires_at', 'intents', 'series-production.sql'),
   ('public', 'turn_asset_cleanup_queue', 'path', 'queue', 'series-production.sql'),
   ('public', 'turn_credits', 'owner', 'credits', 'credits.sql'),
-  ('public', 'turn_credits', 'plan', 'credits', 'credits.sql')
+  ('public', 'turn_credits', 'plan', 'credits', 'credits.sql'),
+  ('public', 'turn_storage_accounts', 'user_id', 'readable', 'storage-readable-folders.sql'),
+  ('public', 'turn_storage_accounts', 'handle', 'readable', 'storage-readable-folders.sql'),
+  ('public', 'turn_projects', 'storage_slug', 'readable', 'storage-readable-folders.sql')
 ),
 have as (
   select n.*,
@@ -1196,8 +1297,8 @@ feat as (
            when h.feature in ('core', 'cameos') then 'FAIL — missing '
                 || string_agg(h.table_name || '.' || h.column_name, ', ' order by h.column_name) filter (where not h.present)
                 || ' (run ' || min(h.source) || ')'
-           when h.feature = 'series' and not bool_or(h.present) then 'absent'
-           when h.feature <> 'series' and not bool_or(h.table_present) then 'absent'
+           when h.feature in ('series', 'readable') and not bool_or(h.present) then 'absent'
+           when h.feature not in ('series', 'readable') and not bool_or(h.table_present) then 'absent'
            else 'FAIL — half-installed, missing '
                 || string_agg(h.table_name || '.' || h.column_name, ', ' order by h.column_name) filter (where not h.present)
          end as state
@@ -1209,6 +1310,43 @@ roles_locked_out as (
   select 0::oid as grantee
   union all
   select r.oid from pg_catalog.pg_roles r where r.rolname in ('anon', 'authenticated', 'service_role')
+),
+-- Readable storage folders need the CURRENT storage key helpers, upload rules and
+-- series-production functions. A copy of team-collaboration / enforce-role-scopes /
+-- series-production.sql from before 2026-09-27 (or a storage.sql re-run) puts back
+-- the id-only versions, and every file under a readable folder disappears from the
+-- app. Checked from the catalog only (nothing is called), so this runs anywhere.
+readable_health as (
+  select nullif(concat_ws('; ',
+           case when to_regprocedure('public.turn_storage_segment_id(text)') is null
+                  or to_regprocedure('public.turn_storage_uid(text)') is null
+                then 'turn_storage_segment_id / turn_storage_uid missing' end,
+           case when coalesce((select p.prosrc from pg_catalog.pg_proc p
+                                where p.oid = to_regprocedure('public.turn_storage_project_id(text)')), '')
+                     not like '%turn_storage_segment_id(%'
+                then 'turn_storage_project_id reads bare ids only' end,
+           case when not exists (select 1 from pg_catalog.pg_policies pl
+                                  where pl.schemaname = 'storage' and pl.tablename = 'objects'
+                                    and pl.policyname = 'turn assets write collab' and pl.cmd = 'INSERT'
+                                    and coalesce(pl.with_check, '') like '%turn_storage_uid(name)%')
+                  or not exists (select 1 from pg_catalog.pg_policies pl
+                                  where pl.schemaname = 'storage' and pl.tablename = 'objects'
+                                    and pl.policyname = 'turn assets update collab' and pl.cmd = 'UPDATE'
+                                    and coalesce(pl.qual, '') like '%turn_storage_uid(name)%')
+                then 'the upload rules do not read folder 1 through turn_storage_uid' end,
+           case when exists (select 1 from pg_catalog.pg_policies pl
+                              where pl.schemaname = 'storage' and pl.tablename = 'objects'
+                                and coalesce(pl.qual, '') || coalesce(pl.with_check, '') like '%turn-assets%'
+                                and coalesce(pl.qual, '') || coalesce(pl.with_check, '') like '%foldername(name))[1]%')
+                then 'a turn-assets rule still compares folder 1 as text' end,
+           case when coalesce((select p.prosrc from pg_catalog.pg_proc p
+                                where p.oid = to_regprocedure('public.turn_begin_asset_upload(uuid,text)')), '')
+                     not like '%turn_storage_uid(%'
+                  or coalesce((select p.prosrc from pg_catalog.pg_proc p
+                                where p.oid = to_regprocedure('public.turn_can_delete_asset_path(text)')), '')
+                     not like '%turn_storage_uid(%'
+                then 'turn_begin_asset_upload / turn_can_delete_asset_path compare folder 1 as text' end
+         ), '') as problems
 ),
 fl as materialized (
   select f.bytes, f.safe_to_delete, f.uploader_id from turn_admin.files f
@@ -1318,6 +1456,25 @@ select r.item, r.status, r.detail
                         else 'finish credits.sql, then re-run this file' end
       from feat f where f.feature = 'credits'
     union all
+    select 125, 'Readable storage folders (storage-readable-folders.sql)',
+           case f.state when 'absent' then 'not installed — folder labels are shown but not compared' else f.state end,
+           case f.state when 'installed' then 'storage_handle, storage_slug and label_note filled from the stored names'
+                        when 'absent' then 'readable keys are parsed either way; label_note stays empty'
+                        else 'finish storage-readable-folders.sql, then re-run this file' end
+      from feat f where f.feature = 'readable'
+    union all
+    select 126, 'Readable storage folders: access helpers and rules are current',
+           case when f.state <> 'installed' then 'not installed — nothing to check'
+                when h.problems is null then 'ok'
+                else 'FAIL — ' || h.problems end,
+           case when f.state <> 'installed' then 'storage-readable-folders.sql has not run here'
+                when h.problems is null then 'files under readable name--id folders are readable, writable and deletable'
+                else 'an out-of-date team-collaboration / enforce-role-scopes / series-production.sql (or storage.sql) '
+                     || 'was re-run after storage-readable-folders.sql, so files under readable folders are hidden '
+                     || 'from everyone and new uploads fall back to bare-id folders. Re-run the current '
+                     || 'storage-readable-folders.sql (safe to re-run; it restores all of it), then run this again' end
+      from feat f cross join readable_health h where f.feature = 'readable'
+    union all
     select 130, 'Files in turn-assets',
            count(*)::text,
            pg_size_pretty(coalesce(sum(fl.bytes), 0)::bigint) || ' in total'
@@ -1356,7 +1513,8 @@ select r.item, r.status, r.detail
 
 -- ── Storage map: who owns each folder you see in the Dashboard ─────────────
 -- One row per <user_folder>/<project_folder> as Storage → turn-assets shows
--- them, with the account's email (or '(deleted account)') and the project's
+-- them (legacy '{id}' and readable '{name}--{id}' folders of one account are two
+-- rows), with the account's email (or '(deleted account)') and the project's
 -- title. delete_folder says 'YES' only for a deleted project's folder whose
 -- every file is safe; a deleted account's user folder can go whole once each
 -- of its rows says YES. Keep _internal and anything that says 'no'.
@@ -1435,7 +1593,7 @@ select r.item, r.status, r.detail
 --        split_part(f.path, '/', 2) as project_folder, max(f.project_title) as project,
 --        count(*) as files, pg_size_pretty(sum(coalesce(f.bytes, 0))) as size
 --   from turn_admin.files f
---  where split_part(f.path, '/', 2) ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+--  where f.project_id is not null and split_part(f.path, '/', 2) <> 'studio-previews'
 --  group by 1, 3
 -- having bool_and(f.safe_to_delete)
 --    and bool_and(f.status = 'orphan: project deleted')

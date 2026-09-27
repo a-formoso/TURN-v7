@@ -29,6 +29,15 @@
 --     Bible, but NOT to sibling Episodes;
 --   * owner ids must match across a Show relationship, preventing a forged
 --     doc.showId from becoming a cross-owner access path.
+--
+-- Storage keys (2026-09-27): section 3 carries the canonical storage key
+-- helpers (turn_storage_segment_id / turn_storage_uid / turn_storage_project_id)
+-- and the Storage write rules, identical to team-collaboration.sql,
+-- enforce-role-scopes.sql and storage-readable-folders.sql. The uploader and
+-- project folders of a key may be bare ids or readable 'name--id' folders; only
+-- the id is ever compared. Re-running this file therefore keeps readable keys
+-- working, and also repairs them after a stale (pre-2026-09-27) copy of
+-- team-collaboration.sql or enforce-role-scopes.sql was re-run.
 -- ============================================================================
 
 begin;
@@ -165,6 +174,15 @@ begin
            where p.oid = to_regprocedure('public.turn_can_write_assets(uuid)'))
          is distinct from '{pid}' then
     problems := array_append(problems, 'public.turn_can_write_assets(uuid) must have the argument (pid) that enforce-role-scopes.sql gives it');
+  end if;
+  if to_regprocedure('public.turn_storage_project_id(text)') is not null
+     and ((select p.proargnames::text from pg_proc p
+            where p.oid = to_regprocedure('public.turn_storage_project_id(text)'))
+          is distinct from '{path}'
+          or (select pg_get_function_result(p.oid) from pg_proc p
+               where p.oid = to_regprocedure('public.turn_storage_project_id(text)'))
+          is distinct from 'uuid') then
+    problems := array_append(problems, 'public.turn_storage_project_id(text) must have the argument (path) and return uuid as team-collaboration.sql defines it');
   end if;
   if to_regprocedure('public.turn_shared_film_owners()') is not null
      and (select pg_get_function_result(p.oid) from pg_proc p
@@ -1912,6 +1930,77 @@ grant execute on function public.turn_shared_film_owners() to authenticated;
 
 -- ── 3. Exact-path Storage cleanup authorization ────────────────────────────
 
+-- >>> TURN storage key helpers — canonical copy. Keep this block byte-identical in
+--     team-collaboration.sql, enforce-role-scopes.sql, series-production.sql and
+--     storage-readable-folders.sql (scripts/test-storage-readable-folders.mjs checks it).
+-- A turn-assets key starts with the uploader's folder and the project's folder.
+-- Each of those folders is either a bare lowercase UUID (every key written before
+-- 2026-09-27; valid forever) or a readable 'label--uuid', name first because the
+-- Storage dashboard cuts off the end of long names:
+--   admin--b2444e18-5133-4155-bb2f-d2719dcdb442/pine-soot--d4432e3f-3682-40e6-bff4-0c218dae6d1e/character/…
+-- A label is lowercase [a-z0-9] runs joined by single hyphens, 1-64 characters,
+-- with no 8 hex digits in a row anywhere: a legacy folder's first 8 characters
+-- are always hex digits and a readable folder's never are, and no label can hold
+-- a UUID, a UUID without hyphens or any 8-digit group of one. Access rules read
+-- ONLY the UUID; a label is display text, is never compared with anything, and
+-- proves nothing about who owns a file (anyone may label their OWN id).
+create or replace function public.turn_storage_segment_id(seg text)
+returns uuid
+language sql
+immutable
+parallel safe
+set search_path = ''
+as $$
+  select case
+    when seg ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then seg::uuid
+    when char_length(seg) <= 102
+     and seg ~ '^[a-z0-9]+(?:-[a-z0-9]+)*--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+     and left(seg, -38) !~ '[0-9a-f]{8}'
+      then right(seg, 36)::uuid
+  end;
+$$;
+
+-- The uploader id of a key (folder 1). For a legacy key this is exactly the old
+-- rule (storage.foldername(name))[1] = auth.uid()::text: at least two segments
+-- and a canonical lowercase UUID in folder 1.
+create or replace function public.turn_storage_uid(path text)
+returns uuid
+language sql
+immutable
+parallel safe
+set search_path = ''
+as $$
+  select case when coalesce(array_length(string_to_array(path, '/'), 1), 0) >= 2
+              then public.turn_storage_segment_id(split_part(path, '/', 1)) end;
+$$;
+
+-- The project id of a key (folder 2; the argument keeps the name `path`, which
+-- "create or replace" cannot change). Wherever the pre-2026-09-27 version
+-- returned a value it still returns exactly that value: its folders[2]::uuid
+-- cast (which also accepts uppercase, braces and UUIDs without hyphens) is the
+-- fallback branch. Readable folders never overlap it (a uuid cast rejects '--').
+-- 'stage-tmp' and 'studio-previews' never resolve to a project.
+create or replace function public.turn_storage_project_id(path text)
+returns uuid
+language sql
+immutable
+parallel safe
+set search_path = ''
+as $$
+  select case when coalesce(array_length(string_to_array(path, '/'), 1), 0) >= 3 then
+    coalesce(public.turn_storage_segment_id(split_part(path, '/', 2)),
+             case when split_part(path, '/', 2)
+                       ~* '^(\{[0-9a-f]{4}(-?[0-9a-f]{4}){7}\}|[0-9a-f]{4}(-?[0-9a-f]{4}){7})$'
+                  then split_part(path, '/', 2)::uuid end)
+  end;
+$$;
+
+-- Storage rules evaluate these as the calling role, so every API role keeps EXECUTE.
+grant execute on function public.turn_storage_segment_id(text) to anon, authenticated, service_role;
+grant execute on function public.turn_storage_uid(text)        to anon, authenticated, service_role;
+grant execute on function public.turn_storage_project_id(text) to anon, authenticated, service_role;
+-- <<< end of the TURN storage key helpers
+
 -- Postgres can atomically delete the Show, Episodes, and their generation rows,
 -- but Storage objects live outside that transaction. Once the project rows are
 -- gone, the ordinary turn_can_write_assets(project_id) policy quite correctly
@@ -2102,7 +2191,8 @@ $$;
 
 -- Begin is the only path which can mint an intent. It requires current Art Room
 -- write access and a canonical key whose first two folders are exactly the caller
--- and target project. Outstanding live intents are bounded per account.
+-- and target project (bare ids or readable 'name--id' folders; only the ids are
+-- compared). Outstanding live intents are bounded per account.
 drop function if exists public.turn_begin_asset_upload(uuid, text);
 create function public.turn_begin_asset_upload(p_project_id uuid, p_path text)
 returns timestamptz
@@ -2127,7 +2217,7 @@ begin
 
   folders := storage.foldername(p_path);
   if array_length(folders, 1) < 4
-     or folders[1] is distinct from caller::text
+     or public.turn_storage_uid(p_path) is distinct from caller
      or public.turn_storage_project_id(p_path) is distinct from p_project_id
      or position(chr(92) in p_path) > 0
      or exists (select 1 from unnest(folders) part where part in ('', '.', '..')) then
@@ -2458,11 +2548,12 @@ as $$
       -- right after they lose the art-director role (see the cameo rules
       -- below). The app removes the photos before the cameo row, so the
       -- capturer may also delete the photos in their OWN folder:
-      -- {their user id}/{project}/cameo/... . Nobody else's files qualify,
+      -- {their user id}/{project}/cameo/... (the user id bare or as
+      -- 'name--id'). Nobody else's files qualify,
       -- and other kinds of asset still need Art Room write access.
       or (
         auth.uid() is not null
-        and split_part($1, '/', 1) = auth.uid()::text
+        and public.turn_storage_uid($1) = auth.uid()
         and split_part($1, '/', 3) = 'cameo'
         and split_part($1, '/', 4) <> ''
       )
@@ -2475,6 +2566,27 @@ revoke all on function public.turn_can_delete_asset_path(text) from public;
 -- Evaluated by the Storage DELETE policy as the calling role (see the note on
 -- turn_can_access_project): both API roles keep EXECUTE; it is false for anon.
 grant execute on function public.turn_can_delete_asset_path(text) to anon, authenticated;
+
+-- Uploads: the same rule text as team-collaboration.sql and
+-- enforce-role-scopes.sql (the signed-in user's own folder in folder 1, bare or
+-- readable, AND Art Room write access on the project in folder 2). Repeated here
+-- because this file always runs last: re-running it restores readable-key
+-- uploads even after a stale copy of those files put back the old id-only rule.
+drop policy if exists "turn assets write collab"  on storage.objects;
+drop policy if exists "turn assets update collab" on storage.objects;
+create policy "turn assets write collab" on storage.objects for insert
+  with check (
+    bucket_id = 'turn-assets'
+    and public.turn_storage_uid(name) = auth.uid()
+    and public.turn_can_write_assets(public.turn_storage_project_id(name))
+  );
+
+create policy "turn assets update collab" on storage.objects for update
+  using (
+    bucket_id = 'turn-assets'
+    and public.turn_storage_uid(name) = auth.uid()
+    and public.turn_can_write_assets(public.turn_storage_project_id(name))
+  );
 
 -- Preserve normal live-project authorization, the owner tombstone for a
 -- committed lifecycle delete, and the uploader's exact uncommitted-path intent.

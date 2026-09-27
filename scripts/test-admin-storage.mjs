@@ -18,6 +18,10 @@
    project re-inserted mid-call, a lease lost between batches and during a
    slow Storage request, a hung request cut off inside the lease, the drain's
    Storage-before-complete order, and History keyset pages.
+   Readable folders (2026-09-27): storage-readable-folders.sql runs after
+   series-production.sql; the path guard accepts "{name}--{uuid}" folders (the
+   uuid decides), and a deleted project holding both key forms is planned and
+   deleted like one holding only legacy keys.
    OFFLINE ONLY: no network, no Supabase project, no credentials.
    Run: node scripts/test-admin-storage.mjs */
 import assert from "node:assert/strict";
@@ -76,8 +80,9 @@ const DELA = "de1e7ed0-0000-4000-8000-0000000000da";    // project re-inserted D
 const DELB = "de1e7ed0-0000-4000-8000-0000000000db";    // lease taken between two batches (260)
 const DELC = "de1e7ed0-0000-4000-8000-0000000000dc";    // lease lost during a slow Storage request (3)
 const DELD = "de1e7ed0-0000-4000-8000-0000000000dd";    // a hung Storage request is cut off (3)
+const DELR = "de1e7ed0-0000-4000-8000-0000000000de";    // readable folders: both key forms in one deleted project (2 + RD)
 const BULK = { [DEL]: 230, [DEL2]: 450, [DEL3]: 410, [DEL4]: 610, [DEL5]: 3, [DEL6]: 3, [DEL7]: 3, [DEL8]: 250,
-  [DEL9]: 250, [DELA]: 450, [DELB]: 260, [DELC]: 3, [DELD]: 3 };
+  [DEL9]: 250, [DELA]: 450, [DELB]: 260, [DELC]: 3, [DELD]: 3, [DELR]: 2 };
 const bulkPath = (pid, i) => `${ALICE}/${pid}/character/c1/f${String(i).padStart(4, "0")}.png`;
 
 const F = {
@@ -104,6 +109,16 @@ const F = {
   internal:      `_internal/blender-bridge/claims/9f8e7d.json`,
   mesh:          `blender-studio-internal/output/n0nce/asset.glb`,
   stageTmp:      `${ALICE}/stage-tmp/1758800000000-image-0-a1b2.png`,
+};
+// readable keys (2026-09-27) in the deleted project DELR ("Doomed de"), next to its 2 legacy files
+const RD = {
+  sheet:    `alice--${ALICE}/doomed-de--${DELR}/character/c9/20260927-101500-sheet-v1-rd000001.png`,
+  bob:      `bob--${BOB}/doomed-de--${DELR}/prop/p1/20260927-101500-sheet-rd000002.png`,
+  untitled: `alice--${ALICE}/untitled--${DELR}/location/l1/20260927-101500-sheet-rd000003.png`,
+  preview:  `alice--${ALICE}/studio-previews/doomed-de--${DELR}/loc-1/preview-rd4.png`,
+  copy:     `alice--${ALICE}/doomed-de--${DELR}/series-migration/x-1/rd0005.png`,
+  relay:    `alice--${ALICE}/doomed-de--${DELR}/shot/job-rd/blender-preview-job-rd.png`,
+  stage:    `alice--${ALICE}/stage-tmp/1758800000000-image-0-rd06.png`,
 };
 const AGE = { delFresh: "10 minutes", stageTmp: "3 hours", f1abandoned: "1 hour" };
 const LATE_ORPHAN = `${ALICE}/${DEL}/prop/p7/20250101-100000-sheet-late0001.png`;
@@ -140,7 +155,8 @@ async function auditStorageCall(db, names) {
                       where i.path = n.path and i.outcome = 'sending'), '{}') as run_pids,
            exists (select 1 from public.turn_projects p
                     where p.id::text = split_part(n.path, '/', 2)
-                       or (split_part(n.path, '/', 2) = 'studio-previews' and p.id::text = split_part(n.path, '/', 3))) as project_live
+                       or p.id::text = right(split_part(n.path, '/', 2), 36)
+                       or (split_part(n.path, '/', 2) = 'studio-previews' and p.id::text = right(split_part(n.path, '/', 3), 36))) as project_live
       from n`, [j(names)])).rows;
   for (const r of rows) {
     const why = [];
@@ -317,6 +333,7 @@ async function buildMainDb() {
   await gen(E2, CAROL, "loc-well", F.e2ref);
   await gen(DEL, ALICE, "c1", bulkPath(DEL, 0));                                         // cascades away with DEL
   for (const [k, p] of Object.entries(F)) await putObject(db, p, AGE[k] || "3 days", 2000);
+  for (const p of Object.values(RD)) await putObject(db, p, p === RD.stage ? "3 hours" : "3 days", 3000);
   for (const [pid, n] of Object.entries(BULK)) {
     await db.query(`insert into storage.objects(bucket_id, name, metadata, created_at, updated_at)
                     select 'turn-assets', value, '{"size":1000,"mimetype":"image/png"}'::jsonb, now() - interval '3 days', now() - interval '3 days'
@@ -327,6 +344,8 @@ async function buildMainDb() {
   await db.query(`insert into storage.objects(bucket_id, name, metadata) values ('other-bucket', $1, '{}')`, [bulkPath(DEL, 0)]);
 
   try { await db.exec(SERIES); } catch (e) { throw new Error("series-production.sql failed: " + e.message); }
+  // readable storage folders (2026-09-27): runs after series-production.sql (README order)
+  try { await db.exec(read("supabase/storage-readable-folders.sql")); } catch (e) { throw new Error("storage-readable-folders.sql failed: " + e.message); }
   const kinds = Object.fromEntries((await db.query(`select id, project_kind from public.turn_projects where id in ($1, $2, $3)`, [S1, E1, E2])).rows.map((r) => [r.id, r.project_kind]));
   assert.deepEqual(kinds, { [S1]: "show", [E1]: "episode", [E2]: "episode" }, "the legacy Show was backfilled");
 
@@ -422,8 +441,11 @@ await acheck("T17 static: every SQL constant is plain $n-parameterised text; q()
   assert.ok(INDEX_SRC.includes('"isolation level repeatable read read only"') && INDEX_SRC.includes('"read write"'));
   assert.ok(!/image-proxy/.test(INDEX_CODE) && !/image-proxy/.test(CORE_CODE), "image-proxy is not referenced in code");
   assert.deepEqual([...core.ACTIONS], ["status", "overview", "project-files", "preview-delete", "delete", "runs", "drain-queue"]);
-  // core.mjs has no imports (Node-testable, like blender-bridge/relay-core.mjs)
-  assert.ok(!/^\s*import\s/m.test(CORE_SRC) && !/\brequire\(/.test(CORE_SRC) && !/\bimport\(/.test(CORE_SRC));
+  // core.mjs imports only the dependency-free storage-key parser (Node-testable, like
+  // blender-bridge/relay-core.mjs); that copy is byte-identical to app/storage-keys.js
+  assert.deepEqual(CORE_SRC.match(/^[ \t]*import\s.*$/gm), ['import "./storage-keys.js";']);
+  assert.ok(!/\brequire\(/.test(CORE_SRC) && !/\bimport\(/.test(CORE_SRC));
+  assert.equal(read("supabase/functions/admin-storage/storage-keys.js"), read("app/storage-keys.js"));
   // owner decisions 2026-09-27: manual drain (no cron file / schedule); not in APP_FEATURES
   assert.ok(!existsSync(new URL("supabase/admin-storage-cron.sql", ROOT)), "no pg_cron schedule file");
   assert.ok(!/cron\.schedule/i.test(OPS));
@@ -441,6 +463,17 @@ await acheck("path guard: TURN asset layout only (units)", async () => {
     `${ALICE}/${DEL}/zzz/x/y.png`, `${ALICE}/${DEL}/character/x.png`, `${ALICE}/stage-tmp/1-a.png`, `${ALICE}/studio-previews/${F1}/l/p.png`,
     `not-a-uuid/${DEL}/character/c/a.png`, `${ALICE}/${DEL}/character/c/a\u0000.png`, "ab", 42, null];
   for (const p of bad) assert.equal(core.pathGuard(p, set), false, String(p));
+  // readable folders (2026-09-27): the uuid decides, the name is never compared
+  const rset = new Set([DELR]);
+  for (const p of [RD.sheet, RD.bob, RD.untitled, RD.preview, RD.copy, `${ALICE}/doomed-de--${DELR}/prop/p/x.png`,
+    `alice--${ALICE}/${DELR}/prop/p/x.png`, `alice--${ALICE}/${DELR.toUpperCase()}/prop/p/x.png`, `any-other-name--${ALICE}/renamed--${DELR}/prop/p/x.png`])
+    assert.equal(core.pathGuard(p, rset), true, p);
+  for (const p of [RD.relay, RD.stage, `alice--${ALICE}/neon-harbor--${F1}/character/c/x.png`, `Alice--${ALICE}/doomed-de--${DELR}/prop/p/x.png`,
+    `alice--${ALICE}/Doomed-de--${DELR}/prop/p/x.png`, `deadbeef--${ALICE}/doomed-de--${DELR}/prop/p/x.png`, `alice--${ALICE}/a--b--${DELR}/prop/p/x.png`,
+    `alice--${ALICE}/doomed-de--${DELR.toUpperCase()}/prop/p/x.png`, `alice--${ALICE}/studio-previews/doomed-de--${F1}/l/p.png`,
+    `alice--${ALICE}/studio-previews/doomed-de--${DELR}`, `alice--${ALICE}/doomed-de--${DELR}/zzz/x/y.png`, `alice-${ALICE}/doomed-de--${DELR}/prop/p/x.png`,
+    `${"x".repeat(65)}--${ALICE}/doomed-de--${DELR}/prop/p/x.png`, `alice--${ALICE}/doomed_de--${DELR}/prop/p/x.png`])
+    assert.equal(core.pathGuard(p, rset), false, p);
   // a Show-promotion copy kept for a retry is never planned, whatever the guard says
   assert.equal(core.plannedRule({ path: F.delMigration, area: "show-import-copy", status: "kept-for-promotion-retry", safe_to_delete: false }, set), false);
   assert.equal(core.plannedRule({ path: F.delRelay, area: "asset", status: "service", safe_to_delete: true }, set), false, "relay PNG");
@@ -837,6 +870,36 @@ await acheck("T12 path guard: injected items outside the layout never reach Stor
     assert.ok((await objectNames(db)).has(p), "still stored: " + p);
   }
   assert.equal(r.skipped.byStatus["outside the TURN asset layout"], injected.length);
+});
+
+await acheck("readable folders: a deleted project holding both key forms is planned and deleted alike; the relay PNG and stage temp stay", async () => {
+  const views = (await db.query(`select path, area, status, safe_to_delete, project_id, uploader_id from turn_admin.files where path = any($1::text[])`,
+    [Object.values(RD)])).rows;
+  const v = Object.fromEntries(views.map((r) => [r.path, r]));
+  assert.deepEqual([v[RD.sheet].project_id, v[RD.sheet].uploader_id, v[RD.bob].uploader_id, v[RD.preview].project_id],
+    [DELR, ALICE, BOB, DELR], "the views read the ids of readable folders");
+  assert.equal(v[RD.relay].status, "service");
+  // the migration named the project and the accounts from their stored titles and emails
+  const names = (await db.query(`select (select handle from public.turn_storage_accounts where user_id = $1) as handle,
+      (select storage_slug from public.turn_projects where id = $2) as slug`, [ALICE, F1])).rows[0];
+  assert.deepEqual(names, { handle: "alice", slug: "neon-harbor" });
+  const h = harness(db);
+  const pv = ok200(await h.call({ action: "preview-delete", projectIds: [DELR] }));
+  const items = await itemsOf(db, pv.runId);
+  const planned = items.filter((i) => i.outcome === "planned").map((i) => i.path);
+  const want = [bulkPath(DELR, 0), bulkPath(DELR, 1), RD.sheet, RD.bob, RD.untitled, RD.preview, RD.copy];
+  assert.deepEqual(sorted(planned), sorted(want), "legacy and readable keys of the deleted project, nothing else");
+  const orphans = (await db.query(`select path from turn_admin.orphans where project_id = $1
+      and area in ('asset', 'show-import-copy', 'studio-preview')`, [DELR])).rows.map((r) => r.path);
+  assert.deepEqual(sorted(planned), sorted(orphans), "planned = turn_admin.orphans for the project");
+  assert.equal(items.find((i) => i.path === RD.relay).outcome, "kept", "the relay PNG is a service file");
+  const r = ok200(await h.call({ action: "delete", runId: pv.runId }));
+  assert.equal(r.status, "done");
+  assert.equal(r.removed, want.length);
+  assert.deepEqual(sorted(h.st.storage.flat()), sorted(want), "Storage saw exactly those names");
+  const after = await objectNames(db);
+  for (const p of want) assert.ok(!after.has(p), "removed: " + p);
+  for (const p of [RD.relay, RD.stage]) assert.ok(after.has(p), "untouched: " + p);
 });
 
 await acheck("T11 expiry: a preview older than 15 minutes → 409 preview_expired and status 'expired'; unknown runs → 409 run_not_found", async () => {

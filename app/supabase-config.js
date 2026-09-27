@@ -19,4 +19,11 @@ window.TURN_SUPABASE = {
      voice. */
   imageProxy: true,
   imageProxyFn: "image-proxy",
+  /* Readable Storage folders (2026-09-27): new image keys start with
+     "{name}--{account id}/{name}--{project id}/…" once the server answers
+     turn_storage_folders (supabase/storage-readable-folders.sql); until then, and
+     whenever it refuses, they stay "{account id}/{project id}/…". Set FALSE to make
+     this client write only the old form (the client kill switch; the server one is
+     in the SQL file's header). Files already stored keep working either way. */
+  readableStorageKeys: true,
 };

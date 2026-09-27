@@ -1041,11 +1041,14 @@ if (promotionExecSource) {
   const to="33333333-3333-4333-8333-333333333333";
   const sourceRow={project_id:from,owner,entity_id:"hero",storage_path:owner+"/"+from+"/character/hero/sheet.png",
     meta:{version:2},refs:[],history:[],updated_at:"before"};
-  const makePromotionHarness=({commitInsert=true,failReadback=false}={})=>{
-    const state={destination:[],objects:new Set(),removed:[],readbacks:0};
+  // the real legacy-folder and refusal helpers from cloud.jsx (the promotion's one-shot retry uses them)
+  const folderHelpersSource=section(cloud,"function _turnLegacyStorageFolders(","function _turnStorageKeys(")
+    +section(cloud,"function _turnReadableKeyRefused(","const TURN_READABLE_FALLBACK_WARNING");
+  const makePromotionHarness=({commitInsert=true,failReadback=false,folders=null,copyRefuses=null,row=sourceRow}={})=>{
+    const state={destination:[],objects:new Set(),removed:[],readbacks:0,copies:[],disabled:0,warned:0};
     const runSelect=filters=>{
       const projectId=filters.project_id;
-      if(projectId===from) return [sourceRow];
+      if(projectId===from) return [row];
       let rows=state.destination.filter(r=>String(r.project_id)===String(projectId));
       if(filters.entity_id!=null) rows=rows.filter(r=>String(r.entity_id)===String(filters.entity_id));
       if(filters.entity_ids) rows=rows.filter(r=>filters.entity_ids.map(String).includes(String(r.entity_id)));
@@ -1077,16 +1080,24 @@ if (promotionExecSource) {
         return q;
       },
       storage:{from(){ return {
-        async copy(_source,target){ state.objects.add(target); return {error:null}; },
+        async copy(_source,target){
+          state.copies.push(target);
+          const refusal=copyRefuses&&copyRefuses(target);
+          if(refusal) return {error:refusal};
+          state.objects.add(target); return {error:null};
+        },
         async remove(paths){ for(const path of paths){ state.removed.push(path); state.objects.delete(path); } return {error:null}; },
       }; }},
     };
     const pbox={JSON,Set,Map,Object,String,Array,Date,Math,Uint8Array,window:null,
       sbClient:()=>sb,turnSafeSeg:s=>String(s).replace(/[^a-zA-Z0-9_:-]/g,"_"),turnBucket:()=>"assets",
-      cloudGetSession:async()=>({user:{id:owner}}),cloudCasGen:async()=>null};
+      cloudGetSession:async()=>({user:{id:owner}}),cloudCasGen:async()=>null,
+      // readable storage folders (cloud.jsx turnStorageFolders): legacy unless the test says otherwise
+      turnStorageFolders:async(_sb,uid,pid)=>(folders||{account:String(uid),project:String(pid),readable:false}),
+      turnStorageFoldersDisable:()=>{ state.disabled++; },_turnWarnReadableFallback:()=>{ state.warned++; }};
     pbox.window=pbox;
     vm.createContext(pbox);
-    vm.runInContext(promotionExecSource+"\nthis.promote=cloudPromoteProjectAssets;",pbox);
+    vm.runInContext(folderHelpersSource+"\n"+promotionExecSource+"\nthis.promote=cloudPromoteProjectAssets;",pbox);
     return {state,promote:pbox.promote};
   };
   const ambiguous=makePromotionHarness();
@@ -1108,6 +1119,50 @@ if (promotionExecSource) {
   const uncertain=plain(await unknown.promote(from,to,["hero"]));
   ok("unverifiable promotion commit retains bytes for a safe retry",
     !uncertain.ok && /retained/i.test(uncertain.cleanupWarning||"") && unknown.state.removed.length===0);
+
+  ok("a legacy promotion copy keeps the {uid}/{showId}/series-migration/ key",
+    stablePath.startsWith(owner+"/"+to+"/series-migration/hero/"));
+  const readable=makePromotionHarness({folders:{account:"alex--"+owner,project:"pine-soot-show--"+to,readable:true}});
+  const readableRun=plain(await readable.promote(from,to,["hero"]));
+  const readablePath=[...readable.state.objects][0]||"";
+  ok("with readable folders the promotion copy lands under the uploader's and the Show's readable folders, same file name",
+    readableRun.ok && readablePath==="alex--"+owner+"/pine-soot-show--"+to+"/series-migration/hero/"+stablePath.split("/").pop()
+    && readable.state.destination[0].storage_path===readablePath);
+
+  // A stale SQL re-run refuses readable folders: the promotion copy retries ONCE as a
+  // legacy key, switches readable folders off, and the rest of the promotion stays legacy.
+  ok("the promotion harness runs the real refusal helpers from cloud.jsx",
+    /function _turnLegacyStorageFolders\(/.test(folderHelpersSource) && /function _turnReadableKeyRefused\(/.test(folderHelpersSource)
+    && folderHelpersSource.length<2000);
+  const rls={statusCode:"403",status:403,message:"new row violates row-level security policy"};
+  const twoPathRow={...sourceRow,refs:[{kind:"owner",storage_path:owner+"/"+from+"/character/hero/ref-owner.png"}]};
+  const refused=makePromotionHarness({row:twoPathRow,folders:{account:"alex--"+owner,project:"pine-soot-show--"+to,readable:true},
+    copyRefuses:(target)=>target.startsWith("alex--")?rls:null});
+  const refusedRun=plain(await refused.promote(from,to,["hero"]));
+  const legacyPrefix=owner+"/"+to+"/series-migration/hero/";
+  ok("a promotion copy refused by Storage row-level security retries once under the legacy folders and the promotion succeeds",
+    refusedRun.ok && refusedRun.moved===1 && [...refused.state.objects].length===2
+    && [...refused.state.objects].every(p=>p.startsWith(legacyPrefix))
+    && refused.state.destination[0].storage_path.startsWith(legacyPrefix)
+    && refused.state.destination[0].refs[0].storage_path.startsWith(legacyPrefix), {refusedRun,objects:[...refused.state.objects]});
+  ok("…it tries the readable key once, switches readable folders off, and copies the rest straight to legacy keys",
+    refused.state.copies.length===3 && refused.state.copies[0].startsWith("alex--")
+    && refused.state.copies.slice(1).every(p=>p.startsWith(legacyPrefix)) && refused.state.disabled===1 && refused.state.warned===1,
+    refused.state.copies);
+  const alsoLegacyRefused=makePromotionHarness({folders:{account:"alex--"+owner,project:"pine-soot-show--"+to,readable:true},copyRefuses:()=>rls});
+  const bothRefused=plain(await alsoLegacyRefused.promote(from,to,["hero"]));
+  ok("…and never twice: a legacy copy refused too fails the promotion",
+    !bothRefused.ok && alsoLegacyRefused.state.copies.length===2 && alsoLegacyRefused.state.destination.length===0, {bothRefused,copies:alsoLegacyRefused.state.copies});
+  const legacyRefused=makePromotionHarness({copyRefuses:()=>rls});
+  const legacyRun=plain(await legacyRefused.promote(from,to,["hero"]));
+  ok("…a legacy promotion copy is never retried, and a non-RLS error on a readable copy is not retried either",
+    !legacyRun.ok && legacyRefused.state.copies.length===1 && legacyRefused.state.disabled===0
+    && await (async()=>{
+      const other=makePromotionHarness({folders:{account:"alex--"+owner,project:"pine-soot-show--"+to,readable:true},
+        copyRefuses:()=>({status:500,message:"storage unavailable"})});
+      const r=plain(await other.promote(from,to,["hero"]));
+      return !r.ok && other.state.copies.length===1 && other.state.disabled===0;
+    })(), legacyRefused.state.copies);
 }
 
 /* ── Database installation and access inheritance ──────────────────────── */
@@ -1262,7 +1317,8 @@ if (sql) {
     && /interval\s+'30 minutes'/i.test(uploadIntentSqlBlock));
   ok("only a current Art Room writer can reserve a canonical caller/project path",
     /turn_begin_asset_upload/i.test(uploadIntentSqlBlock)
-    && /folders\[1\]\s+is\s+distinct\s+from\s+caller::text/i.test(uploadIntentSqlBlock)
+    && /public\.turn_storage_uid\(p_path\)\s+is\s+distinct\s+from\s+caller\b/i.test(uploadIntentSqlBlock)
+    && !/folders\[1\]\s+is\s+distinct\s+from\s+caller::text/i.test(uploadIntentSqlBlock)
     && /turn_storage_project_id\(p_path\)\s+is\s+distinct\s+from\s+p_project_id/i.test(uploadIntentSqlBlock)
     && /not\s+public\.turn_can_write_assets\(p_project_id\)/i.test(uploadIntentSqlBlock)
     && /pg_advisory_xact_lock[\s\S]{0,120}?turn_asset_upload:/i.test(uploadIntentSqlBlock)
@@ -1281,6 +1337,9 @@ if (sql) {
     && /i\.uploader\s*=\s*auth\.uid\(\)/i.test(assetDeleteAuthSqlBlock)
     && /q\.path\s*=\s*\$1/i.test(assetDeleteAuthSqlBlock)
     && /q\.uploader\s*=\s*auth\.uid\(\)/i.test(assetDeleteAuthSqlBlock));
+  ok("a cameo capturer's own-photo delete right reads the uploader id through turn_storage_uid (bare or readable folder)",
+    /public\.turn_storage_uid\(\$1\)\s*=\s*auth\.uid\(\)\s+and\s+split_part\(\$1,\s*'\/',\s*3\)\s*=\s*'cameo'/i.test(assetDeleteAuthSqlBlock)
+    && !/split_part\(\$1,\s*'\/',\s*1\)\s*=\s*auth\.uid\(\)::text/i.test(assetDeleteAuthSqlBlock));
   ok("expired and deletion-interrupted uploads move to an exact durable cleanup queue",
     /create\s+table\s+if\s+not\s+exists\s+public\.turn_asset_cleanup_queue/i.test(uploadIntentSqlBlock)
     && /turn_queue_expired_asset_uploads/i.test(uploadIntentSqlBlock)

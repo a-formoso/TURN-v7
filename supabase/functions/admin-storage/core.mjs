@@ -3,8 +3,10 @@
    the Admin Storage spec (Angle A: an Edge Function over the tested
    turn_admin views from supabase/admin-inventory.sql).
 
-   Pure logic, NO imports: index.ts injects the adapters, and
-   scripts/test-admin-storage.mjs runs this exact file on PGlite.
+   Pure logic: index.ts injects the adapters, and scripts/test-admin-storage.mjs
+   runs this exact file on PGlite. Its only import is ./storage-keys.js, the
+   dependency-free storage-key parser (a byte-for-byte copy of
+   app/storage-keys.js, made by scripts/build-dist.mjs).
      getUser(token)        live GoTrue record (anon client auth.getUser)
      tx(mode, fn)          one Postgres transaction as `postgres` over
                            SUPABASE_DB_URL; fn gets q(text, params) -> rows
@@ -33,7 +35,9 @@
    Deleted projects have no tombstone (owner decision, 2026-09-27): the page
    shows them as "Deleted project · <short id>" with their uploaders' emails. */
 
-export const VERSION = "admin-storage@2026-09-27.1";
+import "./storage-keys.js";
+
+export const VERSION = "admin-storage@2026-09-27.2";
 
 export const ACTIONS = Object.freeze([
   "status", "overview", "project-files", "preview-delete", "delete", "runs", "drain-queue",
@@ -83,7 +87,12 @@ const liveText = (removed, further) => (removed > 0
 const STORAGE_TIMEOUT_MS = 35_000;
 
 // ── path guard (defense in depth: runs at preview and again per batch) ──────
+// Folders are legacy "{uuid}" or readable "{name}--{uuid}" (2026-09-27); only the
+// uuid is compared, never the name, so a deleted project needs no stored name.
+// segmentIdLoose keeps this guard's case-insensitive legacy match.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const KEYS = globalThis.TurnStorageKeys;
+const folderId = (seg) => (KEYS ? KEYS.segmentIdLoose(seg) : null);
 const FOLDERS = new Set(["character", "prop", "location", "shot", "asset", "locunit", "cameo",
   "storyboard", "lookbook", "other", "series-migration"]);
 export function pathGuard(path, projectIds /* Set of lowercase uuids */) {
@@ -92,9 +101,13 @@ export function pathGuard(path, projectIds /* Set of lowercase uuids */) {
   const seg = path.split("/");
   if (seg.some((s) => s === "" || s === "." || s === "..")) return false;
   if (seg[0] === "_internal" || seg[0] === "blender-studio-internal") return false;
-  if (!UUID.test(seg[0])) return false;
-  if (seg[1] === "studio-previews") return seg.length >= 4 && UUID.test(seg[2]) && projectIds.has(seg[2].toLowerCase());
-  if (!UUID.test(seg[1]) || !projectIds.has(seg[1].toLowerCase())) return false;
+  if (!folderId(seg[0])) return false;
+  if (seg[1] === "studio-previews") {
+    const pid = seg.length >= 4 ? folderId(seg[2]) : null;
+    return !!pid && projectIds.has(pid);
+  }
+  const pid = folderId(seg[1]);
+  if (!pid || !projectIds.has(pid)) return false;
   if (!FOLDERS.has(seg[2])) return false;
   if (seg[2] === "shot" && seg.length === 5 && seg[4] === `blender-preview-${seg[3]}.png`) return false; // relay PNG
   return seg.length >= 5;

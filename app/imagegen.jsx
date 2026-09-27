@@ -792,10 +792,14 @@ async function cloudBytesFromCache(id, path){
 async function cloudLatestBytesForScope(id,scope){
   try{
     const rec=await idbGet(nbCloudKey(id));
-    const parts=String(rec&&rec.path||"").split("/");
-    // turnStoragePath is {uid}/{projectId}/…; validate the project/show scope
-    // before using an entity-id cache because entity ids repeat across films.
-    if(rec&&rec.blob&&parts[1]===String(scope||""))return _setObjUrl(id,rec.blob,rec.path);
+    // turnStoragePath is {account}/{project}/… (legacy "{uid}/{projectId}/…" or readable
+    // "{name}--{uid}/{name}--{projectId}/…", app/storage-keys.js); validate the
+    // project/show scope by its id before using an entity-id cache because entity ids
+    // repeat across films. Cached legacy records keep matching.
+    const keys=window.TurnStorageKeys, recPath=String(rec&&rec.path||"");
+    const recScope=keys&&typeof keys.projectId==="function"?keys.projectId(recPath)
+      :(recPath.split("/")[1]||null);   // parser missing: the pre-2026-09-27 legacy check
+    if(rec&&rec.blob&&recScope&&recScope===String(scope||""))return _setObjUrl(id,rec.blob,rec.path);
   }catch(e){}
   return "";
 }

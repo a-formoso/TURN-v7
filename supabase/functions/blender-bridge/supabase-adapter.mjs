@@ -1,8 +1,10 @@
 /*
  * Supabase-only adapter for relay-core.mjs.  Keeping this file free of a
  * static npm/URL import makes the kernel and this adapter testable in Node:
- * tests pass a recording createClient implementation.
+ * tests pass a recording createClient implementation.  (./storage-paths.mjs is
+ * local and pure.)
  */
+import { validStorageFolders } from "./storage-paths.mjs";
 
 export function createSupabaseAdapter({
   createClient, url, anonKey, serviceKey, bucket = "turn-assets",
@@ -55,6 +57,28 @@ export function createSupabaseAdapter({
       canRead: !!member && member.status === "active",
       canWrite: !!member && member.role === "art_director" && member.status === "active",
     };
+  }
+
+  // Readable storage folders (2026-09-27) for the project OWNER's account and the
+  // project: the service-role RPC from supabase/storage-readable-folders.sql.
+  // Returns {account, project} only when both parse back to exactly these ids;
+  // null (legacy keys) when the SQL is not installed, execute was revoked (the
+  // server kill switch), the call fails or times out, or the answer is wrong.
+  async function storageFolders(ownerId, projectId) {
+    let timer = null;
+    try {
+      const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve(null), 5000); });
+      const result = await Promise.race([
+        Promise.resolve().then(() => admin.rpc("turn_storage_folders_for", { p_user: ownerId, p_project_id: projectId })),
+        timeout,
+      ]);
+      if (!result || result.error) return null;
+      return validStorageFolders(result.data, ownerId, projectId);
+    } catch (_error) {
+      return null;
+    } finally {
+      if (timer !== null) clearTimeout(timer);
+    }
   }
 
   async function getState(projectId, entityId) {
@@ -288,6 +312,7 @@ export function createSupabaseAdapter({
     getUserByAccessToken,
     getUserById,
     getProjectAccess,
+    storageFolders,
     getState,
     insertState,
     casState,

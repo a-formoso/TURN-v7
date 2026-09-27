@@ -12,7 +12,8 @@
         the read-only probe before and after, two runs (idempotent), the app's
         RPCs called as signed-in users with the argument names the app sends
         (read from every .rpc() call in app/ and supabase/functions/: convert,
-        create/delete Episode, delete Show, upload reservations),
+        create/delete Episode, delete Show, upload reservations — also under
+        readable 'name--id' Storage folders),
         writer/art-director/outsider/anon access, EXECUTE privileges of every
         function the file creates, cameo and cameo-photo delete rights, which
         Episode teams are (not) widened to the whole Show on the first run
@@ -517,7 +518,11 @@ function appRpc(db, who, name, args, opts = {}) {
   return rows(db, who, sql, keys.map((k) => args[k]), opts);
 }
 // Evaluated inside RLS policies as the calling role, so both API roles need EXECUTE.
-const RLS_HELPERS = ["turn_can_access_project", "turn_can_delete_asset_path", "turn_can_write_assets"];
+const RLS_HELPERS = ["turn_can_access_project", "turn_can_delete_asset_path", "turn_can_write_assets",
+  "turn_storage_project_id", "turn_storage_uid"];
+// Called BY those helpers (turn_storage_uid / turn_storage_project_id parse a key's
+// folders through it), still as the calling role, so both API roles need it too.
+const RLS_INNER = ["turn_storage_segment_id"];
 // The (not yet implemented) cleanup worker's contract: service_role only.
 const SERVICE_ONLY = ["turn_claim_asset_cleanup_batch", "turn_complete_asset_cleanup"];
 
@@ -659,9 +664,10 @@ section("A: README chain + legacy data");
   const inPolicies = CREATED.filter((n) => new RegExp("\\b" + n + "\\(").test(policyText)).sort();
   ok("A: the RLS-helper allow-list is exactly the file's functions used by RLS policies",
     JSON.stringify(inPolicies) === JSON.stringify(RLS_HELPERS), inPolicies);
-  const badAnon = priv.filter((r) => r.anon !== RLS_HELPERS.includes(r.proname)).map((r) => r.proname + (r.anon ? " (anon CAN)" : " (anon cannot)"));
+  const anonAllowed = new Set([...RLS_HELPERS, ...RLS_INNER]);
+  const badAnon = priv.filter((r) => r.anon !== anonAllowed.has(r.proname)).map((r) => r.proname + (r.anon ? " (anon CAN)" : " (anon cannot)"));
   ok("A: anon can execute only the RLS helpers (no RPC, no internal helper)", badAnon.length === 0, badAnon);
-  const authAllowed = new Set([...APP_RPCS, ...RLS_HELPERS]);
+  const authAllowed = new Set([...APP_RPCS, ...RLS_HELPERS, ...RLS_INNER]);
   const badAuth = priv.filter((r) => r.auth !== authAllowed.has(r.proname)).map((r) => r.proname + (r.auth ? " (authenticated CAN)" : " (authenticated cannot)"));
   ok("A: authenticated can execute exactly the app RPCs plus the RLS helpers", badAuth.length === 0, badAuth);
   ok("A: service_role can execute the cleanup-worker contract",
@@ -759,6 +765,29 @@ section("A: README chain + legacy data");
   ok("A: an art director can edit their cameo, and that retires its reservation",
     bobCameo.ok && bobCameo.value === 1 && (await q(db, `select count(*)::int n from public.turn_asset_upload_intents where path = $1`, [bobCameoUpload]))[0].n === 0, bobCameo);
 
+  // Readable folders (2026-09-27): '{handle}--{uid}/{name}--{pid}/...' keys reserve,
+  // upload and commit exactly like bare-id keys; only the ids are compared.
+  const readable = (uid, pid, rest, handle, name) => `${handle}--${uid}/${name}--${pid}/${rest}`;
+  const bobReadable = readable(B, P.F2, "prop/lamp/20260202-110000-sheet-v2-bbbb9990.png", "bob", "shared-film");
+  const bobReadableBegin = await appRpc(db, U.bob, "turn_begin_asset_upload", { p_project_id: P.F2, p_path: bobReadable }, { commit: true });
+  const bobReadableObject = await affected(db, U.bob, `insert into storage.objects(bucket_id, name, owner) values ('turn-assets', $1, $2)`, [bobReadable, B], { commit: true });
+  const bobReadableGen = await affected(db, U.bob, `update public.turn_generations set storage_path = $1 where project_id = $2 and entity_id = 'lamp'`, [bobReadable, P.F2], { commit: true });
+  ok("A: an art director can reserve, upload and record an asset under readable folders, and the commit retires that reservation",
+    bobReadableBegin.ok && bobReadableObject.ok && bobReadableObject.value === 1 && bobReadableGen.ok && bobReadableGen.value === 1
+    && (await q(db, `select count(*)::int n from public.turn_asset_upload_intents where path = $1`, [bobReadable]))[0].n === 0,
+    [bobReadableBegin.error, bobReadableObject.error, bobReadableGen.error]);
+  const carolReadsReadable = await rows(db, U.carol, `select name from storage.objects where name = $1`, [bobReadable]);
+  ok("A: a writer can read a file stored under readable folders", carolReadsReadable.ok && carolReadsReadable.value.length === 1, carolReadsReadable);
+  const spoofed = readable(A, P.F2, "prop/lamp/20260202-110000-sheet-bbbb9991.png", "bob", "shared-film");
+  const spoofBegin = await appRpc(db, U.bob, "turn_begin_asset_upload", { p_project_id: P.F2, p_path: spoofed });
+  const spoofObject = await affected(db, U.bob, `insert into storage.objects(bucket_id, name, owner) values ('turn-assets', $1, $2)`, [spoofed, B]);
+  ok("A: nobody can reserve or upload under another account's id, whatever handle the folder shows",
+    !spoofBegin.ok && /outside the caller project scope/.test(spoofBegin.error) && !spoofObject.ok && /row-level security/.test(spoofObject.error),
+    [spoofBegin, spoofObject]);
+  const carolReadableBegin = await appRpc(db, U.carol, "turn_begin_asset_upload",
+    { p_project_id: P.F2, p_path: readable(C, P.F2, "prop/x/20260204-110000-sheet-cccc7778.png", "carol", "shared-film") });
+  ok("A: a writer still cannot reserve an upload under readable folders", !carolReadableBegin.ok && /Art Room write access/.test(carolReadableBegin.error), carolReadableBegin);
+
   // writer (mixed-case email invite, never linked to an account id)
   const carolDoc = await rows(db, U.carol, `select doc from public.turn_projects where id = $1`, [P.F2]);
   ok("A: a writer invited by a mixed-case email can read the film", carolDoc.ok && carolDoc.value.length === 1, carolDoc);
@@ -824,6 +853,16 @@ section("A: README chain + legacy data");
   const bobPhotoAgain = await rows(db, U.bob, `select count(*)::int n from storage.objects where name = any($1)`, [[path.f2cameo, path.f2carolSheet, path.f2carolCameo]]);
   ok("A: Bob's photo and Carol's sheet are still there; Carol's photo is gone",
     bobPhotoAgain.ok && bobPhotoAgain.value[0].n === 2, bobPhotoAgain);
+  // the same right for a cameo photo stored under readable folders
+  const carolReadableCameo = `carol--${C}/shared-film--${P.F2}/cameo/carol-cam/20260103-110000-left-cccc9003.png`;
+  const carolHandleOnBob = `carol--${B}/shared-film--${P.F2}/cameo/trin/20260103-110000-left-bbbb0004.png`;
+  for (const name of [carolReadableCameo, carolHandleOnBob]) {
+    await db.query(`insert into storage.objects(bucket_id, name, metadata) values ('turn-assets', $1, '{"size":100}')`, [name]);
+  }
+  const carolReadablePhoto = await storageDelete(U.carol, carolReadableCameo);
+  ok("A: ...and can delete her own cameo photo stored under readable folders", carolReadablePhoto.ok && carolReadablePhoto.value.length === 1, carolReadablePhoto);
+  const carolSpoofPhoto = await storageDelete(U.carol, carolHandleOnBob);
+  ok("A: ...but not a cameo photo in someone else's folder labelled with her handle", carolSpoofPhoto.ok && carolSpoofPhoto.value.length === 0, carolSpoofPhoto);
   const carolDeletes = await affected(db, U.carol, `delete from public.turn_cameos where owner = $1 and project_id = $2`, [C, P.F2], { commit: true });
   ok("A: ...but can still delete their own cameo row", carolDeletes.ok && carolDeletes.value === 1, carolDeletes);
   const carolDeletesBobs = await affected(db, U.carol, `delete from public.turn_cameos where owner = $1`, [B]);

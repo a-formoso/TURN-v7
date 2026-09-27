@@ -463,7 +463,8 @@ ok("cloud image loads cannot remain trapped behind a whole-project prefetch",
     &&imageSource.includes("timedOut=true;resolve(null)")
     &&imageSource.includes('new Promise(resolve=>setTimeout(()=>resolve(""),300))')
     &&imageSource.includes("cloudLatestBytesForScope(id,scopeAtStart)")
-    &&imageSource.includes('parts[1]===String(scope||"")')
+    // the scope check reads the project id of legacy AND readable keys (app/storage-keys.js, 2026-09-27)
+    &&imageSource.includes('recScope===String(scope||"")')
     &&cloudSource.includes("Promise.resolve(cloudSweepPurgeReferences(projectId)).catch(()=>{})"));
 ok("reapplying the same cloud scope preserves already verified generated assets",
   imageSource.includes('const changed=_nbBackend!=="cloud"||projectId!==_nbProject||uid!==_nbUid')

@@ -9,6 +9,9 @@
    applied: no project_kind / show_id / episode_no, no upload reservations, no
    cleanup queue; Shows and Episodes marked only in the doc, as the app writes
    them there), and again after that database gets the migration.
+   Readable folders (2026-09-27): every key and every reference of the full
+   fixture rewritten to "{handle}--{uid}/{slug}--{pid}/…" classifies exactly
+   like its legacy twin; label columns, label_note, and the grammar rejects.
    Run: node scripts/test-admin-inventory.mjs */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -119,6 +122,14 @@ create table public.turn_credits (
   plan text not null default 'none',
   updated_at timestamptz not null default now()
 );
+-- storage-readable-folders.sql (the stored folder names; the views read only these)
+alter table public.turn_projects add column storage_slug text;
+create table public.turn_storage_accounts (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  handle text not null,
+  created_at timestamptz not null default now()
+);
+alter table public.turn_storage_accounts enable row level security;
 `;
 
 // A hostile starting point: the schema already exists and was (wrongly) opened
@@ -713,7 +724,9 @@ await acheck("speed: each storage key is parsed once per file in every view (no 
       .map(r => r["QUERY PLAN"]).join("\n");
     // before the fix the planner copied these into every later expression: 54 uuid
     // regexes and 206 string_to_array calls per file
-    assert.equal((plan.match(/\[0-9a-f\]\{8\}-/g) || []).length, 3, `${v}: uuid regex runs once per folder`);
+    // per folder (3): the legacy uuid match + the readable grammar's uuid, and its label check (no 8 hex digits in a row)
+    assert.equal((plan.match(/\[0-9a-f\]\{8\}-/g) || []).length, 2 * 3, `${v}: the folder regexes run once per folder`);
+    assert.equal((plan.match(/\[0-9a-f\]\{8\}'/g) || []).length, 3, `${v}: the label check runs once per folder`);
     assert.equal((plan.match(/string_to_array/g) || []).length, 1, `${v}: the key is split once`);
     assert.equal(/metadata(?! ->>)/.test(plan), false, `${v}: the metadata jsonb is not carried into later steps`);
   }
@@ -896,6 +909,8 @@ const ITEMS = {
   queue: "Cleanup queue (turn_asset_cleanup_queue)",
   cameos: "Cameos (cameos.sql)",
   credits: "Credits (credits.sql)",
+  readable: "Readable storage folders (storage-readable-folders.sql)",
+  readableHealth: "Readable storage folders: access helpers and rules are current",
   files: "Files in turn-assets",
   projects: "Projects",
   users: "User accounts",
@@ -956,7 +971,7 @@ const fullColumns = await viewColumns(db);
 check("full schema: the last result is the status table — every check ok, every feature installed, counts match", () => {
   const t = statusTable(fullRun);
   for (const k of ["locked", "api", "rls", "pg", "core", "bucket"]) assert.equal(t[k].status, "ok", k);
-  for (const k of ["views", "series", "intents", "queue", "cameos", "credits"]) assert.equal(t[k].status, "installed", k);
+  for (const k of ["views", "series", "intents", "queue", "cameos", "credits", "readable"]) assert.equal(t[k].status, "installed", k);
   assert.equal(t.views.detail, "external_media, files, orphans, projects, referenced_paths, users");
   assert.equal(t.files.status, String(OBJECTS.length));
   assert.equal(t.orphans.status, String(orphanPaths.size));
@@ -965,6 +980,11 @@ check("full schema: the last result is the status table — every check ok, ever
   assert.equal(t.users.status, "4");
   assert.equal(t.users.detail, "upload folders of deleted accounts 1");
   assert.match(t.series.detail, /project_kind, show_id, episode_no/);
+  // this stub has the readable tables but none of the access files, so the read-only
+  // stale-copy check (row 126) must say so; the real SQL chain is exercised in
+  // scripts/test-storage-readable-folders.mjs (healthy, stale copies, repair)
+  assert.match(t.readableHealth.status, /^FAIL — turn_storage_segment_id \/ turn_storage_uid missing; turn_storage_project_id reads bare ids only; the upload rules/);
+  assert.match(t.readableHealth.detail, /Re-run the current storage-readable-folders\.sql/);
 });
 
 await acheck("full schema: every view (also the ones the DO block builds) is security_invoker", async () => {
@@ -979,6 +999,177 @@ check("the column lists of the report, the guard and the status table are identi
   assert.equal(lists[2], lists[0], "status-table list = report list");
 });
 
+// ═══ READABLE folders (2026-09-27): every key rewritten, same answers ════════
+// Two fresh copies of the full fixture: one exactly as seeded (legacy keys), one
+// with every object key AND every stored reference rewritten to readable top
+// folders ("{handle}--{uid}/{slug}--{pid}/…", studio previews: folder 3), plus
+// the stored names (turn_storage_accounts, turn_projects.storage_slug). Only the
+// ids decide, so each readable key must classify exactly like its legacy twin.
+const HANDLE = { [ALICE]: "alice", [BOB]: "bob", [CAROL]: "carol", [DAVE]: "dave", [GONE_USER]: "gone-user" };
+const SLUG = { [P1]: "neon-harbor", [S1]: "dust-road-show", [E1]: "dust-road-e1", [E2]: "dust-road-e2",
+  [PD]: "doomed-film", [P0]: "empty-film" };
+const R = (p) => {
+  if (typeof p !== "string" || !p.includes("/")) return p;
+  const seg = p.split("/");
+  if (!HANDLE[seg[0]]) return p;
+  seg[0] = HANDLE[seg[0]] + "--" + seg[0];
+  if (seg[1] === "studio-previews") { if (SLUG[seg[2]]) seg[2] = SLUG[seg[2]] + "--" + seg[2]; }
+  else if (SLUG[seg[1]]) seg[1] = SLUG[seg[1]] + "--" + seg[1];
+  return seg.join("/");
+};
+const deepR = (v) => typeof v === "string" ? R(v)
+  : Array.isArray(v) ? v.map(deepR)
+  : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, deepR(x)])) : v;
+async function toReadable(d) {
+  for (const r of (await d.query(`select id, name from storage.objects where bucket_id = 'turn-assets'`)).rows)
+    await d.query(`update storage.objects set name = $2 where id = $1`, [r.id, R(r.name)]);
+  for (const r of (await d.query(`select id, storage_path, meta, refs, history from public.turn_generations`)).rows)
+    await d.query(`update public.turn_generations set storage_path = $2, meta = $3, refs = $4, history = $5 where id = $1`,
+      [r.id, R(r.storage_path), j(deepR(r.meta)), j(deepR(r.refs)), j(deepR(r.history))]);
+  for (const r of (await d.query(`select id, angles from public.turn_cameos`)).rows)
+    await d.query(`update public.turn_cameos set angles = $2 where id = $1`, [r.id, j(deepR(r.angles))]);
+  for (const t of ["turn_asset_upload_intents", "turn_asset_cleanup_queue"])
+    for (const r of (await d.query(`select path from public.${t}`)).rows)
+      await d.query(`update public.${t} set path = $2 where path = $1`, [r.path, R(r.path)]);
+  for (const [id, handle] of Object.entries(HANDLE))
+    await d.query(`insert into public.turn_storage_accounts(user_id, handle) select id, $2 from auth.users where id = $1`, [id, handle]);
+  for (const [id, slug] of Object.entries(SLUG))
+    await d.query(`update public.turn_projects set storage_slug = $2 where id = $1`, [id, slug]);
+}
+const tdb = new PGlite();
+await tdb.exec(STUB);
+await seed(tdb);
+await tdb.exec(SQL);
+const rdb = new PGlite();
+await rdb.exec(STUB);
+await seed(rdb);
+await toReadable(rdb);
+const readableRun = await rdb.exec(SQL);
+const tFiles = new Map((await tdb.query(`select * from turn_admin.files`)).rows.map(r => [r.path, r]));
+const rFiles = new Map((await rdb.query(`select * from turn_admin.files`)).rows.map(r => [r.path, r]));
+const SAME_COLS = ["area", "bytes", "mime", "uploader_email", "project_id", "project_owner_email", "project_title",
+  "project_kind", "show_title", "episode", "asset_folder", "entity_id", "entity_name", "status", "safe_to_delete",
+  "orphan_reason", "referenced_by_project_ids", "uploader_id"];
+
+check("readable: the fixture really holds readable keys for every area (and the status table says installed)", () => {
+  const areas = new Set([...rFiles.values()].filter(r => r.account_label).map(r => r.area));
+  for (const a of ["asset", "show-import-copy", "stage-temp", "studio-preview", "unknown"]) assert.ok(areas.has(a), a);
+  assert.ok([...rFiles.values()].some(r => r.path === R(F.relayPng) && r.path !== F.relayPng));
+  assert.equal(rFiles.size, tFiles.size);
+  assert.equal(statusTable(readableRun).readable.status, "installed");
+});
+
+check("readable: every readable key classifies exactly like its legacy twin (area, owner, project, names, status, safety)", () => {
+  for (const [path, legacy] of tFiles) {
+    const twin = rFiles.get(R(path));
+    assert.ok(twin, "readable twin of " + path);
+    for (const c of SAME_COLS) assert.deepEqual(twin[c], legacy[c], `${c} of ${R(path)}`);
+    assert.equal(legacy.account_label, null, "legacy keys have no labels: " + path);
+    assert.equal(legacy.project_label, null);
+    assert.equal(legacy.label_note, null);
+    assert.equal(twin.label_note, null, "labels equal to the stored names are not flagged: " + R(path));
+  }
+});
+
+check("readable: account_label / project_label come from the right folder (studio previews: folder 3)", () => {
+  const row = (p) => { const r = rFiles.get(R(p)); assert.ok(r, "missing " + R(p)); return r; };
+  assert.deepEqual([row(F.current).account_label, row(F.current).project_label], ["alice", "neon-harbor"]);
+  assert.deepEqual([row(F.collab).account_label, row(F.collab).project_label], ["bob", "neon-harbor"]);
+  assert.deepEqual([row(F.showCopy).account_label, row(F.showCopy).project_label], ["carol", "dust-road-show"]);
+  assert.deepEqual([row(F.previewGone).account_label, row(F.previewGone).project_label, row(F.previewGone).project_id], ["alice", "doomed-film", PD]);
+  assert.deepEqual([row(F.stageOld).account_label, row(F.stageOld).project_label, row(F.stageOld).area], ["alice", null, "stage-temp"]);
+  assert.deepEqual([row(F.goneUser).account_label, row(F.goneUser).project_label, row(F.goneUser).uploader_email], ["gone-user", "doomed-film", null]);
+  assert.equal(row(F.marker).account_label, null, "_internal is never an account");
+  assert.equal(row(F.relayPng).status, "service", "the readable relay PNG is still a service file");
+  assert.equal(row(F.nonUuid2).account_label, "alice");
+  assert.equal(row(F.nonUuid2).area, "unknown");
+});
+
+await acheck("readable: orphans, projects, users and the saved queries answer as on the legacy keys", async () => {
+  const orph = async (d) => (await d.query(`select path, reason from turn_admin.orphans order by path`)).rows;
+  const tOrph = (await orph(tdb)).map(r => [R(r.path), r.reason]).sort();
+  const rOrph = (await orph(rdb)).map(r => [r.path, r.reason]).sort();
+  assert.deepEqual(rOrph, tOrph);
+  const drop = (rows, cols) => rows.map(r => Object.fromEntries(Object.entries(r).filter(([k]) => !cols.includes(k))));
+  const tProj = drop((await tdb.query(`select * from turn_admin.projects order by project_id`)).rows, ["last_upload", "storage_slug"]);
+  const rProjRows = (await rdb.query(`select * from turn_admin.projects order by project_id`)).rows;
+  assert.deepEqual(drop(rProjRows, ["last_upload", "storage_slug"]), tProj);
+  assert.equal(rProjRows.find(r => r.project_id === P1).storage_slug, "neon-harbor");
+  assert.equal(rProjRows.find(r => r.project_id === PD).storage_slug, null, "a deleted project has no stored name");
+  const tUsers = drop((await tdb.query(`select * from turn_admin.users order by user_id`)).rows, ["created_at", "last_sign_in_at", "storage_handle"]);
+  const rUserRows = (await rdb.query(`select * from turn_admin.users order by user_id`)).rows;
+  assert.deepEqual(drop(rUserRows, ["created_at", "last_sign_in_at", "storage_handle"]), tUsers);
+  assert.equal(rUserRows.find(r => r.user_id === ALICE).storage_handle, "alice");
+  assert.equal(rUserRows.find(r => r.user_id === GONE_USER).storage_handle, null);
+  // whole-folder deletes: the same (deleted) folders, under their readable names
+  const whole = async (d) => (await d.query(wholeFoldersQuery())).rows.map(r => r.user_folder + "/" + r.project_folder).sort();
+  assert.deepEqual(await whole(rdb), (await whole(tdb)).map(k => R(k + "/x").split("/").slice(0, 2).join("/")).sort());
+  assert.ok((await whole(rdb)).includes(`gone-user--${GONE_USER}/doomed-film--${PD}`));
+  const map = (await rdb.query(savedQuery("-- ── Storage map: who owns each folder you see in the Dashboard"))).rows;
+  const alice = map.find(r => r.user_folder === `alice--${ALICE}` && r.project_folder === `neon-harbor--${P1}`);
+  assert.ok(alice && alice.whose === "alice@example.com" && alice.project === "Neon Harbor", "a readable folder is named by its ids");
+});
+
+await acheck("readable: label_note flags a label that differs from the stored name; never changes owner, project or safety", async () => {
+  const put = (p) => rdb.query(`insert into storage.objects(bucket_id, name, metadata, created_at, updated_at)
+                                values ('turn-assets', $1, $2, now() - interval '3 days', now() - interval '3 days')`,
+    [p, j({ size: 10, mimetype: "image/png" })]);
+  const K = {
+    wrongAcct:    `mallory--${ALICE}/neon-harbor--${P1}/prop/prop-knife/20260927-101500-sheet-lbl00001.png`,
+    wrongProj:    `alice--${ALICE}/other-name--${P1}/prop/prop-knife/20260927-101500-sheet-lbl00002.png`,
+    untitled:     `alice--${ALICE}/untitled--${P1}/prop/prop-knife/20260927-101500-sheet-lbl00003.png`,
+    noSlug:       `dave--${DAVE}/whatever--${P0}/prop/prop-y/20260927-101500-sheet-lbl00004.png`,
+    wrongPreview: `alice--${ALICE}/studio-previews/wrong--${P1}/loc-1/preview-lbl5.png`,
+    goneHandle:   `anything--${GONE_USER}/any-name--${PD}/character/c1/20260927-101500-sheet-lbl00006.png`,
+    upperLabel:   `Alice--${ALICE}/neon-harbor--${P1}/prop/prop-knife/20260927-101500-sheet-lbl00007.png`,
+    hexLabel:     `deadbeef--${ALICE}/neon-harbor--${P1}/prop/prop-knife/20260927-101500-sheet-lbl00008.png`,
+    twoSeps:      `a--b--${ALICE}/neon-harbor--${P1}/prop/prop-knife/20260927-101500-sheet-lbl00009.png`,
+    badProject:   `alice--${ALICE}/neon_harbor--${P1}/prop/prop-knife/20260927-101500-sheet-lbl00010.png`,
+    tooLong:      `${"x".repeat(65)}--${ALICE}/neon-harbor--${P1}/prop/prop-knife/20260927-101500-sheet-lbl00011.png`,
+    // review 2026-09-27: Bob's uuid dressed up as a label on Alice's own id
+    spoofExtra:   `${BOB.replace("-", "a-")}--${ALICE}/neon-harbor--${P1}/prop/prop-knife/20260927-101500-sheet-lbl00012.png`,
+    spoofNoHyph:  `${BOB.replace(/-/g, "")}--${ALICE}/neon-harbor--${P1}/prop/prop-knife/20260927-101500-sheet-lbl00013.png`,
+    spoofInside:  `x-${BOB}--${ALICE}/neon-harbor--${P1}/prop/prop-knife/20260927-101500-sheet-lbl00014.png`,
+  };
+  await rdb.exec(`begin`);
+  try {
+    await rdb.query(`update public.turn_projects set storage_slug = null where id = $1`, [P0]);
+    for (const p of Object.values(K)) await put(p);
+    const row = async (p) => (await rdb.query(`select * from turn_admin.files where path = $1`, [p])).rows[0];
+    const a = await row(K.wrongAcct);
+    assert.equal(a.label_note, "account folder label differs from the account handle");
+    assert.deepEqual([a.uploader_id, a.uploader_email, a.project_id, a.area, a.status, a.safe_to_delete],
+      [ALICE, "alice@example.com", P1, "asset", "unreferenced", true], "the id decides, the label only earns a note");
+    assert.equal((await row(K.wrongProj)).label_note, "project folder label differs from the project name");
+    assert.equal((await row(K.untitled)).label_note, null, "'untitled' is expected before the first real title");
+    assert.equal((await row(K.noSlug)).label_note, null, "no stored project name: nothing to compare");
+    const pv = await row(K.wrongPreview);
+    assert.deepEqual([pv.area, pv.project_id, pv.project_label, pv.label_note],
+      ["studio-preview", P1, "wrong", "project folder label differs from the project name"]);
+    const g = await row(K.goneHandle);
+    assert.deepEqual([g.uploader_id, g.project_id, g.label_note, g.status], [GONE_USER, PD, null, "orphan: project deleted"]);
+    for (const k of ["upperLabel", "hexLabel", "twoSeps", "tooLong", "spoofExtra", "spoofNoHyph", "spoofInside"]) {
+      const r = await row(K[k]);
+      assert.deepEqual([r.area, r.uploader_id, r.safe_to_delete, r.account_label], ["unknown", null, false, null], k + " is not a folder");
+    }
+    const b = await row(K.badProject);
+    assert.deepEqual([b.area, b.uploader_id, b.project_id, b.safe_to_delete], ["unknown", ALICE, null, false]);
+  } finally {
+    await rdb.exec(`rollback`);
+  }
+});
+
+await acheck("readable: views keep one parse per file with readable keys too", async () => {
+  for (const v of ["files", "orphans", "projects", "users"]) {
+    const plan = (await rdb.query(`explain (verbose, costs off) select * from turn_admin.${v}`)).rows
+      .map(r => r["QUERY PLAN"]).join("\n");
+    assert.equal((plan.match(/string_to_array/g) || []).length, 1, `${v}: the key is split once`);
+  }
+  assert.deepEqual(await viewColumns(rdb), fullColumns);
+});
+await tdb.close();
+await rdb.close();
+
 // ═══ LEGACY database: series-production.sql never applied ═══════════════════
 // turn_projects has no project_kind / show_id / episode_no; there is no
 // turn_asset_upload_intents and no turn_asset_cleanup_queue. turn_cameos and
@@ -987,9 +1178,11 @@ const SERIES_COLS = ",\n  project_kind text not null default 'film',\n  show_id 
 const RES_START = STUB.indexOf("-- series-production.sql (upload reservations");
 const RES_END = STUB.indexOf("-- credits.sql");
 const RESERVATION_DDL = STUB.slice(RES_START, RES_END);
-const STUB_LEGACY = STUB.replace(SERIES_COLS, "\n").replace(RESERVATION_DDL, "");
+const READABLE_DDL = STUB.slice(STUB.indexOf("-- storage-readable-folders.sql"));
+const STUB_LEGACY = STUB.replace(SERIES_COLS, "\n").replace(RESERVATION_DDL, "").replace(READABLE_DDL, "");
 assert.ok(STUB.includes(SERIES_COLS) && RES_START > 0 && RES_END > RES_START, "legacy stub derived from STUB");
-assert.ok(!/project_kind|show_id|episode_no|turn_asset_upload_intents|turn_asset_cleanup_queue/.test(STUB_LEGACY), "legacy stub has no series-production objects");
+assert.ok(READABLE_DDL.startsWith("-- storage-readable-folders.sql") && READABLE_DDL.length > 100, "readable DDL found");
+assert.ok(!/project_kind|show_id|episode_no|turn_asset_upload_intents|turn_asset_cleanup_queue|turn_storage_accounts|storage_slug/.test(STUB_LEGACY), "legacy stub has no series-production or readable-folder objects");
 
 const PX = "0dd00000-0000-4000-8000-0000000000ff";  // Dave's film with a stale, malformed Show marker
 // well-formed doc.showId markers that name no Show: both stay plain films
@@ -1114,6 +1307,8 @@ check("legacy: the status table says Shows & episodes, reservations and the queu
   assert.equal(t.series.status, "not installed — Shows/episodes read from the document markers");
   assert.match(t.intents.status, /^not installed — only files under 1 hour old count as uploading$/);
   assert.match(t.queue.status, /^not installed — no file is marked queued-for-cleanup$/);
+  assert.equal(t.readable.status, "not installed — folder labels are shown but not compared");
+  assert.equal(t.readableHealth.status, "not installed — nothing to check");
   for (const k of ["views", "cameos", "credits"]) assert.equal(t[k].status, "installed", k);
   for (const k of ["locked", "api", "rls", "pg", "core", "bucket"]) assert.equal(t[k].status, "ok", k);
   assert.equal(t.files.status, String(L_OBJECTS.length));
@@ -1269,6 +1464,7 @@ await acheck("legacy: the PREFLIGHT REPORT alone is all-ok and names the feature
   assert.match(st("column public.turn_asset_cleanup_queue.path"), /^not installed — /);
   assert.equal(st("column public.turn_cameos.angles"), "ok");
   assert.equal(st("column public.turn_credits.plan"), "ok");
+  assert.equal(st("column public.turn_projects.storage_slug"), "not installed — folder labels are shown but not compared (label_note stays empty)");
   // and the full schema reports everything as plain 'ok'
   const full = (await db.query(SQL.slice(start, end))).rows;
   assert.ok(full.every(r => r.status === "ok"), JSON.stringify(full.filter(r => r.status !== "ok")));
@@ -1313,7 +1509,9 @@ await acheck("legacy: each storage key is still parsed once per file (the marker
   for (const v of ["files", "orphans", "projects", "users"]) {
     const plan = (await ldb.query(`explain (verbose, costs off) select * from turn_admin.${v}`)).rows
       .map(r => r["QUERY PLAN"]).join("\n");
-    assert.equal((plan.match(/\[0-9a-f\]\{8\}-/g) || []).length, 3, `${v}: uuid regex runs once per folder`);
+    // per folder (3): the legacy uuid match + the readable grammar's uuid, and its label check (no 8 hex digits in a row)
+    assert.equal((plan.match(/\[0-9a-f\]\{8\}-/g) || []).length, 2 * 3, `${v}: the folder regexes run once per folder`);
+    assert.equal((plan.match(/\[0-9a-f\]\{8\}'/g) || []).length, 3, `${v}: the label check runs once per folder`);
     assert.equal((plan.match(/string_to_array/g) || []).length, 1, `${v}: the key is split once`);
     assert.equal(/metadata(?! ->>)/.test(plan), false, `${v}: the metadata jsonb is not carried into later steps`);
   }
@@ -1329,6 +1527,16 @@ await acheck("preflight guard: a half-installed optional table (reservations wit
   const tmp = new PGlite();
   await tmp.exec(STUB_LEGACY + `\ncreate table public.turn_asset_upload_intents (path text primary key, project_id uuid);`);
   await assert.rejects(tmp.exec(SQL), /preflight: missing public\.turn_asset_upload_intents\.expires_at — a TURN migration is only partly applied/);
+  await tmp.exec(`rollback`).catch(() => {});
+  const n = (await tmp.query(`select count(*)::int as n from pg_namespace where nspname = 'turn_admin'`)).rows[0].n;
+  assert.equal(n, 0, "turn_admin was not created");
+  await tmp.close();
+});
+
+await acheck("preflight guard: half of the readable-folder feature (storage_slug without turn_storage_accounts) aborts", async () => {
+  const tmp = new PGlite();
+  await tmp.exec(STUB_LEGACY + `\nalter table public.turn_projects add column storage_slug text;`);
+  await assert.rejects(tmp.exec(SQL), /preflight: missing public\.turn_storage_accounts\.handle, public\.turn_storage_accounts\.user_id — a TURN migration is only partly applied here \(storage-readable-folders\.sql\)/);
   await tmp.exec(`rollback`).catch(() => {});
   const n = (await tmp.query(`select count(*)::int as n from pg_namespace where nspname = 'turn_admin'`)).rows[0].n;
   assert.equal(n, 0, "turn_admin was not created");

@@ -1,0 +1,513 @@
+{
+  "comment": "Shared test vectors for the TURN storage key grammar (app/storage-keys.js and public.turn_storage_segment_id / turn_storage_uid / turn_storage_project_id). projectId is the STRICT folder-2 id (the SQL function also keeps a legacy-only permissive uuid cast). parseProjectId is TurnStorageKeys.parse(path).projectId (folder 3 for studio previews). Generated 2026-09-27; edit by hand if needed. A label never holds 8 hex digits in a row (so a readable folder's first 8 characters are never all hex digits, unlike a legacy folder's).",
+  "uuid": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+  "projectUuid": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+  "ownerUuid": "0de1e7ed-0000-4000-8000-000000000005",
+  "segments": [
+    {
+      "seg": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "note": "legacy uuid"
+    },
+    {
+      "seg": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "id": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "note": "legacy uuid"
+    },
+    {
+      "seg": "admin--b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "note": "readable account"
+    },
+    {
+      "seg": "pine-soot--d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "id": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "note": "readable project"
+    },
+    {
+      "seg": "deadbeef1--b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": null,
+      "note": "9 hex digits in a row (a uuid group plus one character)"
+    },
+    {
+      "seg": "u-deadbee-01--b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "note": "7 hex digits in a row are fine"
+    },
+    {
+      "seg": "deadbee-1--b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "note": "7 hex digits then a hyphen"
+    },
+    {
+      "seg": "cafe-babe-1234567--b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "note": "hex-only label, no run of 8"
+    },
+    {
+      "seg": "abcdefgh--b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "note": "6 hex digits then letters beyond f"
+    },
+    {
+      "seg": "take-2026-09-27--d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "id": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "note": "a date with hyphens"
+    },
+    {
+      "seg": "untitled--d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "id": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "note": "untitled project"
+    },
+    {
+      "seg": "studio-previews--d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "id": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "note": "a project NAMED studio previews"
+    },
+    {
+      "seg": "a--b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "note": "one-letter label"
+    },
+    {
+      "seg": "0--b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "note": "digit label"
+    },
+    {
+      "seg": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx--b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "note": "64-char label (the maximum)"
+    },
+    {
+      "seg": "Admin--b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": null,
+      "note": "uppercase label"
+    },
+    {
+      "seg": "admin--B2444E18-5133-4155-BB2F-D2719DCDB442",
+      "id": null,
+      "note": "uppercase uuid in a readable folder"
+    },
+    {
+      "seg": "a--b--b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": null,
+      "note": "two separators"
+    },
+    {
+      "seg": "--b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": null,
+      "note": "empty label"
+    },
+    {
+      "seg": "admin---b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": null,
+      "note": "triple hyphen"
+    },
+    {
+      "seg": "-admin--b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": null,
+      "note": "leading hyphen"
+    },
+    {
+      "seg": "admin-b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": null,
+      "note": "single hyphen separator"
+    },
+    {
+      "seg": "deadbeef--b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": null,
+      "note": "8 hex digits then the separator"
+    },
+    {
+      "seg": "deadbeef-x--b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": null,
+      "note": "8 hex digits and a hyphen"
+    },
+    {
+      "seg": "b2444e18-5133--b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": null,
+      "note": "uuid-looking label"
+    },
+    {
+      "seg": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx--b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": null,
+      "note": "65-char label"
+    },
+    {
+      "seg": "a_b--b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": null,
+      "note": "underscore"
+    },
+    {
+      "seg": "a.b--b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": null,
+      "note": "dot"
+    },
+    {
+      "seg": "é--b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": null,
+      "note": "non-ascii"
+    },
+    {
+      "seg": "a b--b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": null,
+      "note": "space"
+    },
+    {
+      "seg": "admin--b2444e18-5133-4155-bb2f-d2719dcdb442x",
+      "id": null,
+      "note": "trailing junk"
+    },
+    {
+      "seg": "admin--b2444e18-5133-4155-bb2f-d2719dcdb44",
+      "id": null,
+      "note": "short uuid"
+    },
+    {
+      "seg": "b2444e18a-5133-4155-bb2f-d2719dcdb442--0de1e7ed-0000-4000-8000-000000000005",
+      "id": null,
+      "note": "spoof: another account's uuid with one extra character, on the attacker's own id"
+    },
+    {
+      "seg": "0b2444e18-5133-4155-bb2f-d2719dcdb442--0de1e7ed-0000-4000-8000-000000000005",
+      "id": null,
+      "note": "spoof: another account's uuid with a leading 0"
+    },
+    {
+      "seg": "b2444e1851334155bb2fd2719dcdb442--0de1e7ed-0000-4000-8000-000000000005",
+      "id": null,
+      "note": "spoof: another account's uuid without hyphens"
+    },
+    {
+      "seg": "x-b2444e18-5133-4155-bb2f-d2719dcdb442--d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "id": null,
+      "note": "spoof: a uuid inside the label (a project title's slug)"
+    },
+    {
+      "seg": "b2444e1-85133-4155-bb2f-d2719dcdb442--0de1e7ed-0000-4000-8000-000000000005",
+      "id": null,
+      "note": "spoof: regrouped uuid (its last group is 12 hex digits)"
+    },
+    {
+      "seg": "take-20260927--d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "id": null,
+      "note": "8 digits in a row at the end of the label"
+    },
+    {
+      "seg": "abc12345678--b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": null,
+      "note": "11 hex digits in a row"
+    },
+    {
+      "seg": "u-deadbeef-01--b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "id": null,
+      "note": "8 hex digits in a row after a prefix"
+    },
+    {
+      "seg": "stage-tmp",
+      "id": null,
+      "note": "service segment"
+    },
+    {
+      "seg": "studio-previews",
+      "id": null,
+      "note": "service segment"
+    },
+    {
+      "seg": "_internal",
+      "id": null,
+      "note": "relay markers root"
+    },
+    {
+      "seg": "blender-studio-internal",
+      "id": null,
+      "note": "studio meshes root"
+    },
+    {
+      "seg": "series-migration",
+      "id": null,
+      "note": "folder name"
+    },
+    {
+      "seg": "B2444E18-5133-4155-BB2F-D2719DCDB442",
+      "id": null,
+      "note": "uppercase legacy uuid (strict)"
+    },
+    {
+      "seg": "{b2444e18-5133-4155-bb2f-d2719dcdb442}",
+      "id": null,
+      "note": "braces"
+    },
+    {
+      "seg": "b2444e1851334155bb2fd2719dcdb442",
+      "id": null,
+      "note": "uuid without hyphens"
+    },
+    {
+      "seg": "",
+      "id": null,
+      "note": "empty"
+    },
+    {
+      "seg": ".",
+      "id": null,
+      "note": "dot segment"
+    },
+    {
+      "seg": "..",
+      "id": null,
+      "note": "dot-dot segment"
+    }
+  ],
+  "keys": [
+    {
+      "path": "b2444e18-5133-4155-bb2f-d2719dcdb442/d4432e3f-3682-40e6-bff4-0c218dae6d1e/character/wai-suk-ying/20260927-101500-sheet-v1-ab12cd34.png",
+      "uid": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "projectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "area": "asset",
+      "parseProjectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "relayPng": false
+    },
+    {
+      "path": "admin--b2444e18-5133-4155-bb2f-d2719dcdb442/pine-soot--d4432e3f-3682-40e6-bff4-0c218dae6d1e/character/wai-suk-ying/20260927-101500-sheet-v1-ab12cd34.png",
+      "uid": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "projectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "area": "asset",
+      "parseProjectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "relayPng": false
+    },
+    {
+      "path": "admin--b2444e18-5133-4155-bb2f-d2719dcdb442/pine-soot--d4432e3f-3682-40e6-bff4-0c218dae6d1e/character/adem/states/st-1/20260927-101500-sheet-v3-ab12cd34.jpg",
+      "uid": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "projectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "area": "asset",
+      "parseProjectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "relayPng": false
+    },
+    {
+      "path": "admin--b2444e18-5133-4155-bb2f-d2719dcdb442/untitled--d4432e3f-3682-40e6-bff4-0c218dae6d1e/storyboard/sbsheet-p1/half-top/20260927-101500-sheet-v1-ab12cd34.png",
+      "uid": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "projectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "area": "asset",
+      "parseProjectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "relayPng": false
+    },
+    {
+      "path": "b2444e18-5133-4155-bb2f-d2719dcdb442/d4432e3f-3682-40e6-bff4-0c218dae6d1e/series-migration/mara/1a2b3c.png",
+      "uid": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "projectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "area": "show-import-copy",
+      "parseProjectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "relayPng": false
+    },
+    {
+      "path": "admin--b2444e18-5133-4155-bb2f-d2719dcdb442/pine-soot-show--d4432e3f-3682-40e6-bff4-0c218dae6d1e/series-migration/mara/1a2b3c.png",
+      "uid": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "projectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "area": "show-import-copy",
+      "parseProjectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "relayPng": false
+    },
+    {
+      "path": "b2444e18-5133-4155-bb2f-d2719dcdb442/stage-tmp/1759000000000-video-device-aaaa.mp4",
+      "uid": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "projectId": null,
+      "area": "stage-temp",
+      "parseProjectId": null,
+      "relayPng": false
+    },
+    {
+      "path": "admin--b2444e18-5133-4155-bb2f-d2719dcdb442/stage-tmp/1759000000000-image-1-bbbb.png",
+      "uid": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "projectId": null,
+      "area": "stage-temp",
+      "parseProjectId": null,
+      "relayPng": false
+    },
+    {
+      "path": "0de1e7ed-0000-4000-8000-000000000005/studio-previews/d4432e3f-3682-40e6-bff4-0c218dae6d1e/loc-1/preview-r1.png",
+      "uid": "0de1e7ed-0000-4000-8000-000000000005",
+      "projectId": null,
+      "area": "studio-preview",
+      "parseProjectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "relayPng": false
+    },
+    {
+      "path": "owner--0de1e7ed-0000-4000-8000-000000000005/studio-previews/pine-soot--d4432e3f-3682-40e6-bff4-0c218dae6d1e/loc-1/preview-r1.png",
+      "uid": "0de1e7ed-0000-4000-8000-000000000005",
+      "projectId": null,
+      "area": "studio-preview",
+      "parseProjectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "relayPng": false
+    },
+    {
+      "path": "0de1e7ed-0000-4000-8000-000000000005/d4432e3f-3682-40e6-bff4-0c218dae6d1e/shot/job-1/blender-preview-job-1.png",
+      "uid": "0de1e7ed-0000-4000-8000-000000000005",
+      "projectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "area": "asset",
+      "parseProjectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "relayPng": true
+    },
+    {
+      "path": "owner--0de1e7ed-0000-4000-8000-000000000005/pine-soot--d4432e3f-3682-40e6-bff4-0c218dae6d1e/shot/job-1/blender-preview-job-1.png",
+      "uid": "0de1e7ed-0000-4000-8000-000000000005",
+      "projectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "area": "asset",
+      "parseProjectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "relayPng": true
+    },
+    {
+      "path": "owner--0de1e7ed-0000-4000-8000-000000000005/pine-soot--d4432e3f-3682-40e6-bff4-0c218dae6d1e/shot/job-1/blender-preview-job-2.png",
+      "uid": "0de1e7ed-0000-4000-8000-000000000005",
+      "projectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "area": "asset",
+      "parseProjectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "relayPng": false
+    },
+    {
+      "path": "admin--b2444e18-5133-4155-bb2f-d2719dcdb442/studio-previews--d4432e3f-3682-40e6-bff4-0c218dae6d1e/character/c/x.png",
+      "uid": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "projectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "area": "asset",
+      "parseProjectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "relayPng": false
+    },
+    {
+      "path": "_internal/blender-bridge/claims/9f8e7d.json",
+      "uid": null,
+      "projectId": null,
+      "area": "unknown",
+      "parseProjectId": null,
+      "relayPng": false
+    },
+    {
+      "path": "blender-studio-internal/output/n0nce/asset.glb",
+      "uid": null,
+      "projectId": null,
+      "area": "unknown",
+      "parseProjectId": null,
+      "relayPng": false
+    },
+    {
+      "path": "admin--b2444e18-5133-4155-bb2f-d2719dcdb442/pine-soot--d4432e3f-3682-40e6-bff4-0c218dae6d1e/zzz/x/y.png",
+      "uid": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "projectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "area": "unknown",
+      "parseProjectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "relayPng": false
+    },
+    {
+      "path": "admin--b2444e18-5133-4155-bb2f-d2719dcdb442/pine-soot--d4432e3f-3682-40e6-bff4-0c218dae6d1e/character/x.png",
+      "uid": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "projectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "area": "unknown",
+      "parseProjectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "relayPng": false
+    },
+    {
+      "path": "admin--b2444e18-5133-4155-bb2f-d2719dcdb442/pine-soot--d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "uid": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "projectId": null,
+      "area": "unknown",
+      "parseProjectId": null,
+      "relayPng": false
+    },
+    {
+      "path": "admin--b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "uid": null,
+      "projectId": null,
+      "area": "unknown",
+      "parseProjectId": null,
+      "relayPng": false
+    },
+    {
+      "path": "b2444e18-5133-4155-bb2f-d2719dcdb442/D4432E3F-3682-40E6-BFF4-0C218DAE6D1E/character/c/x.png",
+      "uid": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "projectId": null,
+      "area": "unknown",
+      "parseProjectId": null,
+      "relayPng": false
+    },
+    {
+      "path": "Admin--b2444e18-5133-4155-bb2f-d2719dcdb442/pine-soot--d4432e3f-3682-40e6-bff4-0c218dae6d1e/character/c/x.png",
+      "uid": null,
+      "projectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "area": "unknown",
+      "parseProjectId": null,
+      "relayPng": false
+    },
+    {
+      "path": "deadbeef--b2444e18-5133-4155-bb2f-d2719dcdb442/pine-soot--d4432e3f-3682-40e6-bff4-0c218dae6d1e/character/c/x.png",
+      "uid": null,
+      "projectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "area": "unknown",
+      "parseProjectId": null,
+      "relayPng": false
+    },
+    {
+      "path": "admin--b2444e18-5133-4155-bb2f-d2719dcdb442/deadbeef--d4432e3f-3682-40e6-bff4-0c218dae6d1e/character/c/x.png",
+      "uid": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "projectId": null,
+      "area": "unknown",
+      "parseProjectId": null,
+      "relayPng": false
+    },
+    {
+      "path": "admin--b2444e18-5133-4155-bb2f-d2719dcdb442/studio-previews/loc-1/p.png",
+      "uid": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "projectId": null,
+      "area": "unknown",
+      "parseProjectId": null,
+      "relayPng": false
+    },
+    {
+      "path": "admin--b2444e18-5133-4155-bb2f-d2719dcdb442/studio-previews/pine-soot--d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "uid": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "projectId": null,
+      "area": "unknown",
+      "parseProjectId": null,
+      "relayPng": false
+    },
+    {
+      "path": "admin--b2444e18-5133-4155-bb2f-d2719dcdb442/stage-tmp",
+      "uid": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "projectId": null,
+      "area": "unknown",
+      "parseProjectId": null,
+      "relayPng": false
+    },
+    {
+      "path": "admin--b2444e18-5133-4155-bb2f-d2719dcdb442/pine-soot--d4432e3f-3682-40e6-bff4-0c218dae6d1e/shot/job-1/blender-preview-job-1.png/extra",
+      "uid": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "projectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "area": "asset",
+      "parseProjectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "relayPng": false
+    },
+    {
+      "path": "admin--b2444e18-5133-4155-bb2f-d2719dcdb442/pine-soot--d4432e3f-3682-40e6-bff4-0c218dae6d1e/shot/job-1/blender-preview-job-2.png",
+      "uid": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "projectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "area": "asset",
+      "parseProjectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "relayPng": false
+    },
+    {
+      "path": "admin--b2444e18-5133-4155-bb2f-d2719dcdb442/pine-soot--d4432e3f-3682-40e6-bff4-0c218dae6d1e/series-migration/0123456789abcdef.png",
+      "uid": "b2444e18-5133-4155-bb2f-d2719dcdb442",
+      "projectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "area": "unknown",
+      "parseProjectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "relayPng": false
+    },
+    {
+      "path": "b2444e18a-5133-4155-bb2f-d2719dcdb442--0de1e7ed-0000-4000-8000-000000000005/pine-soot--d4432e3f-3682-40e6-bff4-0c218dae6d1e/character/x/f.png",
+      "uid": null,
+      "projectId": "d4432e3f-3682-40e6-bff4-0c218dae6d1e",
+      "area": "unknown",
+      "parseProjectId": null,
+      "relayPng": false
+    }
+  ]
+}
