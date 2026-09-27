@@ -113,7 +113,8 @@ await test("the classic 16 keeps its exact act language; a feature splits 10 · 
     assert.ok(syn&&syn.includes("FORMAT: this is a documentary")&&syn.includes("never invent events"),syn&&syn.slice(0,500));
     prompts.length=0;
     await box.aiResearchSynopsis("A courier races a storm.","","kishotenketsu","commercial");
-    assert.ok(prompts.find(p=>/write the SYNOPSIS/.test(p)).includes("30–60 second commercial"));
+    // the Commercial is a 30-second spot (owner-approved runtimes, Story Pipeline step 5, 2026-09-27)
+    assert.ok(prompts.find(p=>/write the SYNOPSIS/.test(p)).includes("30-second commercial"));
   });
 }
 

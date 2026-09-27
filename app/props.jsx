@@ -1118,7 +1118,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
     const merged=continuityEvents.slice();
     legacyAppearanceStates.forEach((st,i)=>{
       const legacy=_propLegacyStateEvent(p,st,i);
-      const { _legacy, _seq, ...event }=legacy;
+      const event={ ...legacy }; delete event._legacy; delete event._seq;   // explicit copy (no object-rest: shared Babel helper)
       if(!merged.some(e=>e&&(e.referenceAssetId===event.referenceAssetId||e.referenceStateId===event.referenceStateId))){
         merged.push(event);
       }
@@ -1127,7 +1127,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
     legacyCustody.forEach((cu,i)=>{
       const legacy=_propLegacyCustodyEvent(cu,i);
       if(!legacy) return;
-      const { _legacy, _seq, ...event }=legacy;
+      const event={ ...legacy }; delete event._legacy; delete event._seq;   // explicit copy (no object-rest: shared Babel helper)
       if(!merged.some(e=>e&&e.id===event.id)) merged.push(event);
     });
     // Keep the generated propId:stateId image in storage; the migrated event points to

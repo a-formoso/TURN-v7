@@ -654,6 +654,12 @@ function standInWhy(f, retried){
 }
 window.standInWhy = standInWhy;
 
+/* a rough stand-in draft (script.jsx isStandInDraft — Story Pipeline step 7), with the same rule
+   inline when script.jsx isn't loaded */
+function standInDraft(d){
+  return (typeof window.isStandInDraft==="function") ? window.isStandInDraft(d)
+    : !!(d && (d.blocks||[]).length && (d.standIn===true || (d.auto===true && !d.ai && !d.by)));
+}
 async function writeScenesSeq(ctx, indices){
   let written = 0; let failures = [];
   const stopRes = ()=>{
@@ -675,6 +681,10 @@ async function writeScenesSeq(ctx, indices){
   const attemptScene = async (i, draftTries, repairBeatsOnly, priorFailure)=>{
     let scn = ctx.model.scenes[i], beats = ctx.model.beats[scn.id];
     const prev = i>0 ? ctx.model.scenes[i-1] : null;
+    // the rough stand-in this scene ALREADY has (a finish run, or this run's own retry): an
+    // attempt that fails again keeps it — the user may have edited it (the mark survives
+    // edits) — instead of replacing it with a fresh stand-in built from the same cards
+    const heldStandIn = (()=>{ const d = ctx.model.drafts[scn.id]; return standInDraft(d) ? d : null; })();
     const fail = (wrote, why, failure)=>({ idx:i, no:scn.no, title:scn.title, wrote, why, failure:failure||null });
     try{
       if(!(beats && (beats.rows||[]).length)){
@@ -722,8 +732,9 @@ async function writeScenesSeq(ctx, indices){
         if(out && !(out.auto && ctx.ai.available)){ res = out; standIn = false; break; }
         if(out){ res = out; standIn = true; lastFailure = out.failure || lastFailure; }   // keep the newest stand-in while retrying
       }
-      // the draft remembers the card it was written from (the "needs redraft" marker)
-      if(res) ctx.model.drafts[scn.id] = (typeof window.sceneCardSnap==="function")
+      // the draft remembers the card it was written from (the "needs redraft" marker); a
+      // failed attempt on a scene that already had a stand-in leaves that stand-in as it is
+      if(res && !(standIn && heldStandIn)) ctx.model.drafts[scn.id] = (typeof window.sceneCardSnap==="function")
         ? { ...res, cardSnap:window.sceneCardSnap(scn, ctx.model.characters, beats) } : res;
       ctx.sync();
       if(!res) return fail(false, "the model returned no usable screenplay");
@@ -748,7 +759,9 @@ async function writeScenesSeq(ctx, indices){
     const f = await attemptScene(i, 2);
     if(f && f.cancelled) return stopRes();
     if(!f){ written++; continue; }
-    if(f.wrote) written++;
+    // `written` counts real screenplays only: a rough stand-in is not a written scene (Story
+    // Pipeline step 7 — no cheerful count); a real script still missing its beat map is one
+    if(f.beatsOnly) written++;
     retryQueue.push(f);
     if(!f.beatsOnly) failures.push(f);
   }
@@ -776,9 +789,9 @@ async function writeScenesSeq(ctx, indices){
       if(ctx.cancelled()) return stopRes();
       const g = await attemptScene(f.idx, 1, !!f.beatsOnly, f.failure);
       if(g && g.cancelled) return stopRes();
-      const hadDraft = !!(f.wrote || f.beatsOnly);
-      const hasDraft = !g || !!(g.wrote || g.beatsOnly);
-      if(!hadDraft && hasDraft) written++;
+      const hadScript = !!f.beatsOnly;               // a stand-in is not a script (see above)
+      const hasScript = !g || !!g.beatsOnly;
+      if(!hadScript && hasScript) written++;
       if(!g){ ctx.emit({k:"ok", t:"Sc "+f.no+" \u201c"+f.title+"\u201d came good on the retry."}); continue; }
       if(g.beatsOnly){ still.push(beatsOnlyFail(g, true)); continue; }   // screenplay is real; the beat map is still missing — that's outstanding work
       still.push({ ...g, why: g.wrote
@@ -828,14 +841,27 @@ async function agentAdaptation(ctx){
   // FINISH WHAT EXISTS: a stopped or partly failed build leaves scenes without a
   // screenplay. Offer to write JUST those before proposing a full rebuild — a rebuild
   // regenerates everything and replaces work the user already approved.
+  // A ROUGH STAND-IN is unwritten too (Story Pipeline step 7, owner-approved 2026-09-27):
+  // its text is the beat cards, not a screenplay, so it is offered for finishing — the run
+  // log's "run again, it offers to finish just the unwritten scenes" covers it. It is
+  // written from the beat cards it ALREADY has (writeScenesSeq authors beats only for a
+  // scene with none), and the stand-in it replaces stays on the agent Undo.
   const have = ctx.model.scenes||[];
-  const unwritten = have.map((s,i)=>i).filter(i=>{ const d = ctx.model.drafts[have[i].id]; return !(d && (d.blocks||[]).length); });
+  const isStandIn = standInDraft;
+  const unwritten = have.map((s,i)=>i).filter(i=>{ const d = ctx.model.drafts[have[i].id]; return !(d && (d.blocks||[]).length) || isStandIn(d); });
   if(have.length && unwritten.length){
+    const standIns = unwritten.filter(i=>isStandIn(ctx.model.drafts[have[i].id])).length;
+    const blank = unwritten.length - standIns;
+    const what = !standIns
+      ? unwritten.length+" of "+have.length+" scenes have no screenplay yet."
+      : !blank
+      ? standIns+" of "+have.length+" scenes "+(standIns===1?"is":"are")+" still a rough stand-in built from the beat cards \u2014 not written yet."
+      : unwritten.length+" of "+have.length+" scenes aren\u2019t written yet: "+blank+" "+(blank===1?"has":"have")+" no screenplay and "+standIns+" "+(standIns===1?"is a rough stand-in":"are rough stand-ins")+" built from the beat cards.";
     const finish = await ctx.propose({
       title:"Finish writing this film first?",
-      reason: unwritten.length+" of "+have.length+" scenes have no screenplay yet. Approve to write beats + script for JUST those scenes \u2014 everything already written stays untouched. Decline to rebuild the whole film from your logline instead.",
+      reason: what+" Approve to write beats + script for JUST those scenes"+(standIns ? " (a stand-in is written from the beat cards it already has; Undo agent changes brings it back)" : "")+" \u2014 everything already written stays untouched. Decline to rebuild the whole film from your logline instead.",
       rationale:"The fastest, cheapest path: nothing regenerates, nothing you approved is replaced.",
-      list: unwritten.map(i=>"Sc "+have[i].no+" \u00b7 "+have[i].title),
+      list: unwritten.map(i=>"Sc "+have[i].no+" \u00b7 "+have[i].title+(isStandIn(ctx.model.drafts[have[i].id]) ? " (rough stand-in)" : "")),
     });
     if(ctx.cancelled()) return;
     if(finish){
@@ -844,8 +870,10 @@ async function agentAdaptation(ctx){
       ctx.sync();
       reportSceneFailures(ctx, r);
       await buildContinuityLedgerStep(ctx);
+      // r.written counts only scenes that now have a real screenplay: a stand-in that failed
+      // again is not "finished"
       ctx.emit({k:"done", t: r.failures.length
-        ? ("Finished "+r.written+" scene"+(r.written===1?"":"s")+" \u2014 "+r.failures.length+" still failed even after automatic retries (listed above). Run again later to retry just those.")
+        ? ((r.written ? "Finished "+r.written+" scene"+(r.written===1?"":"s")+" \u2014 " : "No scene was finished this time \u2014 ")+r.failures.length+" still failed even after automatic retries (listed above). Run again later to retry just those.")
         : ("All "+have.length+" scenes now have beats and screenplay. Open the Script view to read the film.")});
       return;
     }
@@ -1108,23 +1136,60 @@ async function agentAdaptation(ctx){
       });
       if(ctx.cancelled()) return;
       if(psych){
-        const notes = [];
+        const keyOf = (c)=> String(c && c.id!=null ? c.id : "");
+        const nameKey = (c)=> String(c && c.name || "").toLowerCase().replace(/[^a-z0-9]+/g,"");
+        // IN AN EPISODE OF AN EXISTING SHOW (docs/Story Pipeline.md step 3) the check may refine
+        // only the characters THIS build introduced: one the Show already had when the build
+        // started is left exactly as it is — not even an empty field is filled, since any change
+        // to it would move the "drafted from" stamps of another episode's scenes
+        const canon = (c)=> typeof ctx.castCanon==="function" && !!ctx.castCanon(c);
+        const before = ctx.model.characters.slice();
+        const revisions = [];
         ctx.model.characters = ctx.model.characters.map(c=>{
           const p = psych[c.id]; if(!p) return c;
-          const { _revised, ...fields } = p;
-          if(_revised) notes.push(c.name+": "+_revised);
-          return {...c, ...fields};
+          // an explicit copy, never object-rest destructuring: in the page every Babel-compiled
+          // file shares ONE global helper list, so rest-destructuring outside app.jsx strips the
+          // wrong keys (the "_revised" note used to be saved on every character)
+          const fields = { ...p }; delete fields._revised;
+          const held = canon(c);
+          if(p._revised) revisions.push({ id:keyOf(c), name:c.name, nk:nameKey(c), note:p._revised, fields, held });
+          return held ? c : {...c, ...fields};
         });
-        // the script is canon here — the psychology caught up with it, so the drafts
-        // are NOT out of date: re-baseline their card snapshots
+        // COMMIT FIRST, so the stamps below read the cast actually saved (an Episode's save
+        // reconciles against the live Show cast — docs/Story Pipeline.md step 3).
+        ctx.sync();
+        // THEN stamp every draft from the cast ACTUALLY saved, and commit again: the script is
+        // canon here, so the build's own check never marks its scenes "needs redraft"
         if(typeof window.sceneCardSnap==="function") ctx.model.scenes.forEach(sc=>{
           const d = ctx.model.drafts[sc.id];
           if(d && (d.blocks||[]).length) ctx.model.drafts[sc.id] = { ...d, cardSnap:window.sceneCardSnap(sc, ctx.model.characters, ctx.model.beats[sc.id]) };
         });
         ctx.sync();
-        if(designed) notes.forEach(n=>ctx.emit({k:"observe", t:"Revised from the script \u2014 "+n}));
+        // HONEST LOG: a revision counts only when it landed in the saved cast; one the Show's
+        // canon kept out is said so, never counted as revised
+        const sameVal = (a,b)=> JSON.stringify(a===undefined ? null : a)===JSON.stringify(b===undefined ? null : b);
+        const find = (list, r)=> list.find(c=>c && keyOf(c)===r.id) || list.find(c=>c && r.nk && nameKey(c)===r.nk) || null;
+        const landed = [], kept = [];
+        revisions.forEach(r=>{
+          const was = find(before, r) || {};
+          const changed = Object.keys(r.fields).filter(k=> !sameVal(r.fields[k], was[k]));
+          if(!changed.length) return;                                   // nothing to apply
+          if(r.held){ kept.push(r); return; }                           // Show canon: never applied
+          const now = find(ctx.model.characters, r);
+          const took = now ? changed.filter(k=> sameVal(now[k], r.fields[k])) : [];
+          if(took.length===changed.length) landed.push(r); else kept.push(r);
+        });
+        // (the reason names what is true in every case: the character was in the Show's cast
+        // when this build started — an earlier episode's, or an earlier build of this one)
+        if(designed){
+          landed.forEach(r=>ctx.emit({k:"observe", t:"Revised from the script \u2014 "+r.name+": "+r.note}));
+          kept.forEach(r=>ctx.emit({k:"observe", t:"Kept as Show canon \u2014 "+r.name+" was already in the Show\u2019s cast when this build started, so the check\u2019s revision was not applied: in an Episode the check refines only the characters the build introduces, since changing an existing character could silently change another episode\u2019s scripts. The check suggested: "+r.note}));
+        }
+        const keptLine = kept.length ? kept.length+" character"+(kept.length!==1?"s":"")+" kept as Show canon (already in the Show\u2019s cast when this build started)." : "";
         ctx.emit({k:"ok", t: designed
-          ? (notes.length ? "Psychology checked \u2014 "+notes.length+" character"+(notes.length!==1?"s":"")+" revised to match the choices on the page." : "Psychology checked \u2014 the script bears out every character.")
+          ? (landed.length ? "Psychology checked \u2014 "+landed.length+" character"+(landed.length!==1?"s":"")+" revised to match the choices on the page."+(keptLine ? " "+keptLine : "")
+            : kept.length ? "Psychology checked \u2014 no revision applied: "+keptLine
+            : "Psychology checked \u2014 the script bears out every character.")
           : "The principal cast now has a want, need, arc and dialogue fingerprint \u2014 visible in the Cast panel."});
       } else if(designed) ctx.emit({k:"ok", t:"Psychology checked \u2014 the script bears out every character."});
     }catch(e){ /* the psychology designed before the script stands */ }

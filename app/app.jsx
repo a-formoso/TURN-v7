@@ -466,8 +466,10 @@ function App(){
   const [scenes, setScenes] = React.useState(()=> (saved && saved.scenes) || []);
   const [characters, setCharacters] = React.useState(()=>{
     const loaded = (saved && saved.characters) || [];
-    return typeof window.turnPruneAccidentalManualCast==="function"
+    const pruned = typeof window.turnPruneAccidentalManualCast==="function"
       ? window.turnPruneAccidentalManualCast(loaded, saved||{}) : loaded;
+    // the psychology check's stray "_revised" note never stays on a loaded cast (cast-policy.js)
+    return typeof window.turnStripStrayRevised==="function" ? window.turnStripStrayRevised(pruned) : pruned;
   });
   const [props, setProps] = React.useState(()=> (saved && saved.props) || []);
   const [locations, setLocations] = React.useState(()=> (saved && saved.locations) || []);
@@ -1251,9 +1253,16 @@ function App(){
     const _scenesIn = Array.isArray(d.scenes)?d.scenes:(isAdmin?SCENES:[]);
     setScenes(_scenesIn);
     const loadedCharacters = d.characters||(isAdmin?CHARACTERS:[]);
-    setCharacters(typeof window.turnPruneAccidentalManualCast==="function"
+    const prunedCharacters = typeof window.turnPruneAccidentalManualCast==="function"
       ? window.turnPruneAccidentalManualCast(loadedCharacters, { ...d, characters:loadedCharacters })
-      : loadedCharacters);
+      : loadedCharacters;
+    // films and the Show Bible cast (an Episode hydrates it here) both drop the stray
+    // "_revised" note in memory. The section baseline below is taken WITHOUT it too, so
+    // opening a project never counts as a cast change (no save on open, and no false
+    // "your role can't save the cast" rollback for a Writer); the stored copy loses the
+    // note with the next real cast save, which sends the clean cast
+    setCharacters(typeof window.turnStripStrayRevised==="function"
+      ? window.turnStripStrayRevised(prunedCharacters) : prunedCharacters);
     setProps(d.props||(isAdmin?(window.PROPS_SEED||[]):[]));
     setLocations(d.locations||[]);
     setSlugUnitsOv(Array.isArray(d.sluglineUnits)?d.sluglineUnits:[]);
@@ -1298,7 +1307,11 @@ function App(){
       ["scenes","characters","props","locations","sluglineUnits","lookbook","lookbookNote","lookbookApplied","shots",
        "project","drafts","beatsMap","history","continuityMap","trash","selId",
        "propsSeeded","locsSeeded","visualsSeeded"].forEach(k=>{
-        if(d[k]!==undefined) base[k] = stableJson(d[k]);
+        if(d[k]===undefined) return;
+        // the stray "_revised" strip above is a load-time cleanup, not an edit: the baseline
+        // leaves it out as well (the accidental-cast prune still reads as a change, as before)
+        base[k] = stableJson(k==="characters" && Array.isArray(d[k]) && typeof window.turnStripStrayRevised==="function"
+          ? window.turnStripStrayRevised(d[k]) : d[k]);
       });
       lastSentRef.current = base;
     }catch(e){ lastSentRef.current = {}; }
@@ -5038,7 +5051,8 @@ function App(){
   const rememberRejection = (id, f)=>{
     if(id==null) return;
     const k = String(currentProjectId||"")+"::"+id;
-    if(f && f.kind==="invalid") polishRetryRef.current[k] = f; else delete polishRetryRef.current[k];
+    // a format rejection, or a redraft discarded for running longer than the current script
+    if(f && (f.kind==="invalid" || f.kind==="long")) polishRetryRef.current[k] = f; else delete polishRetryRef.current[k];
   };
   /* NEEDS REDRAFT: every written draft carries the snapshot of the card it was
      written from (sceneCardSnap); a card that has changed since marks the script as
@@ -5142,8 +5156,11 @@ function App(){
     let failure = null;
     try{
       const structural = autoDraftScene(s, beatsForScene, prev);
+      // the current draft and the film's scenes ride along for the SCREEN TIME budget: a
+      // redraft never makes the scene longer (Story Pipeline step 5) — aiPolishScene discards
+      // a reply that runs longer than the current script
       const res = await aiPolishScene(s, beatsForScene, structural.blocks, prev, project, report,
-        { retry:polishRetryRef.current[String(currentProjectId||"")+"::"+s.id] || null });
+        { retry:polishRetryRef.current[String(currentProjectId||"")+"::"+s.id] || null, current:drafts[s.id] || null, scenes });
       if(res && canMutateWritersRoom()){ lastPolishFailureRef.current = null; rememberRejection(s.id, null); return commitVersion(s.id, stampDraft(res, s, beatsForScene)); }
       if(res) return false;          // the film became read-only mid-call: it says so itself
       failure = report.failure || { kind:"service", issues:[], details:[], technical:"no reply" };
@@ -5155,7 +5172,7 @@ function App(){
       setPolishBusy(null);
       if(failure){
         lastPolishFailureRef.current = failure;
-        if(failure.kind==="invalid") rememberRejection(s && s.id, failure);
+        if(failure.kind==="invalid" || failure.kind==="long") rememberRejection(s && s.id, failure);
         if(!(opts && opts.quiet) && typeof window.appToast==="function" && typeof window.screenplayFailureMessage==="function")
           window.appToast(window.screenplayFailureMessage("redraft", s && s.no, failure,
             { kept:"Your current draft is unchanged.", retryLabel:"press Redraft again", carries:true }), "error", { force:true });
@@ -5340,14 +5357,19 @@ function App(){
   const agentIssues = { doctor: doctorIssues, doctorNoTurn: doctorAudit.noTurn, doctorNotes: doctorAudit.notes, continuity: contIssues };
 
   // estimated screen time per scene (≈1 page/min) — drives the spine's pacing readout.
-  // "hot" marks scenes that run long against the film's average (the heat signal).
+  // SCREEN TIME PER SCENE (docs/Story Pipeline.md step 5, owner-approved 2026-09-27): each
+  // scene's budget is the format's runtime ÷ the scene count (sceneBudgetFor, formats.jsx);
+  // a drafted scene past 1.5× it is "long for this format" (sceneLengthCheck) — a free
+  // warning on its card and in the Script view, nothing rewritten. It replaces the old
+  // film-average heat, which never lit when every scene ran equally long.
+  const sceneBudget = (typeof sceneBudgetFor==="function") ? sceneBudgetFor(project, scenes.length) : null;
   const runtimeMap = {}; let runtimeTotal = 0;
   if(typeof sceneRuntime==="function") scenes.forEach(s=>{
-    const r = sceneRuntime(s, drafts[s.id], beatsMap[s.id]);
-    runtimeMap[s.id] = r; runtimeTotal += r.sec;
+    const r = sceneRuntime(s, drafts[s.id], beatsMap[s.id], sceneBudget);
+    const chk = (typeof sceneLengthCheck==="function") ? sceneLengthCheck(r, sceneBudget) : { long:false };
+    runtimeMap[s.id] = { ...r, budget:sceneBudget, long:!!chk.long, ratio:chk.ratio||0 };
+    runtimeTotal += r.sec;
   });
-  const rtAvg = scenes.length ? runtimeTotal/scenes.length : 0;
-  Object.values(runtimeMap).forEach(r=>{ r.hot = rtAvg>0 && r.sec > rtAvg*1.75; });
 
   // ---- editing handlers (scenes + beats) ----
   const [recastBusy, setRecastBusy] = React.useState(null);   // {no, name} while a driver recast runs
@@ -5529,9 +5551,16 @@ function App(){
     // has itself written is remembered; at sync time, a live state whose signature
     // is NOT one of ours means the user (or a collaborator) edited mid-run — their
     // state gets its own undo snapshot before being replaced, and they're told.
-    const sigOf = (st)=>{ const j = JSON.stringify(st); let h=5381;
+    // STABLE: key order never counts (a save's echo comes back from jsonb reordered), and a
+    // character's scene links (scenes / episodeScenes) are left out — they are derived per
+    // Episode, and a Show Bible save re-derives them, so this window's own save echo must
+    // never read as someone else's edit (nor push an extra undo snapshot).
+    const sigOf = (st)=>{ const j = stableJson(st); let h=5381;
       for(let i=0;i<j.length;i++){ h=((h<<5)+h+j.charCodeAt(i))|0; } return h+":"+j.length; };
-    const shapeOf = (src)=>({ scenes:src.scenes, characters:src.characters, project:src.project,
+    const castForSig = (list)=> Array.isArray(list) ? list.map(c=>{
+      if(!c || typeof c!=="object") return c;
+      const o = { ...c }; delete o.scenes; delete o.episodeScenes; return o; }) : list;
+    const shapeOf = (src)=>({ scenes:src.scenes, characters:castForSig(src.characters), project:src.project,
       beats:src.beats, drafts:src.drafts, continuity:src.continuity });
     let warnedMidRunEdit = false;
     let warnedRestrictedCast = false;
@@ -5552,6 +5581,22 @@ function App(){
     // the cast as last committed, by id — an art-only commit writes just the fields this
     // run changed since then, so a collaborator's mid-run cast edit is never overwritten
     const castBase = {}; model.characters.forEach(c=>{ castBase[c.id]=c; });
+    // EPISODE CAST (docs/Story Pipeline.md step 3, "In an Episode of an existing Show"):
+    // the Show's cast when this run started is canon; the people THIS run appends are
+    // its own, so later commits (the psychology check) may still refine them
+    const runStartCastIds = new Set(model.characters.map(c=>String(c&&c.id!=null?c.id:"")).filter(Boolean));
+    const runIntroducedCastIds = new Set();
+    // the cast exactly as this run last committed it, by id (plain copies): a later Episode
+    // commit changes only the fields the run itself changed since (mergeAdaptationCast's
+    // options.base) — a collaborator's mid-run edit to anything else survives, and a mid-run
+    // rename stays the same person instead of becoming a duplicate
+    let castCommitted = null;
+    // React refreshes agentLiveRef only on a LATER render: two commits in one synchronous
+    // stretch (the psychology check's commit, then its re-stamp) would both read the render
+    // from before the first. liveAtCommit is the render the last commit read, castAtCommit the
+    // cast it set — with no render since, that cast IS the live one, and a state already
+    // checked for mid-run edits is never checked (or snapshotted onto Undo) twice
+    let liveAtCommit = null, castAtCommit = null;
     const sync = ()=>{
       // the Production check run by an Art director commits the cast only (see below)
       const artOnly = production && writersRoomReadOnlyRef.current && !artRoomReadOnlyRef.current;
@@ -5586,7 +5631,10 @@ function App(){
       // MID-RUN EDIT GUARD: if the film changed under the run (an edit of the user's
       // or a collaborator's), snapshot THAT state onto the undo stack before this
       // commit replaces it, and say so once — never silently discard newer work.
-      if(!writtenSigs.has(sigOf(shapeOf(agentLiveRef.current)))){
+      // (Only a render this run hasn't already checked: see liveAtCommit above.)
+      const liveNow = agentLiveRef.current;
+      const freshRender = !liveAtCommit || liveNow !== liveAtCommit;
+      if(freshRender && !writtenSigs.has(sigOf(shapeOf(liveNow)))){
         if(committed){ const snap = snapshot(); setAgentUndo(st=>[...st, snap].slice(-8)); }
         if(!warnedMidRunEdit){ warnedMidRunEdit = true;
           try{ emit && emit({k:"flag", t:"The film was edited while this agent ran, and this update replaced those newer edits. They're safe: Undo agent changes restores the film exactly as it was just before."}); }catch(e){}
@@ -5600,11 +5648,16 @@ function App(){
       if(currentShowId && agentName==="Adaptation" && model.characters
         && window.turnSeries && typeof window.turnSeries.mergeAdaptationCast==="function"){
         const allowNewCast=!!characterBibleWritableRef.current;
-        const reconciled=window.turnSeries.mergeAdaptationCast(
-          (agentLiveRef.current&&agentLiveRef.current.characters)||characters,
-          model.characters,model.scenes,{allowNew:allowNewCast});
+        const liveCast=(!freshRender && castAtCommit) ? castAtCommit
+          : ((liveNow&&liveNow.characters)||characters);
+        const reconciled=window.turnSeries.mergeAdaptationCast(liveCast,
+          model.characters,model.scenes,{allowNew:allowNewCast,revisable:Array.from(runIntroducedCastIds),base:castCommitted});
+        (reconciled.addedIds||[]).forEach(id=>{
+          const k=String(id==null?"":id); if(k && !runStartCastIds.has(k)) runIntroducedCastIds.add(k); });
         model.characters=reconciled.characters;
         model.scenes=reconciled.scenes;
+        castCommitted={};
+        model.characters.forEach(c=>{ if(c && c.id!=null) castCommitted[String(c.id)]=JSON.parse(JSON.stringify(c)); });
         if(!allowNewCast && reconciled.blockedNames&&reconciled.blockedNames.length&&!warnedRestrictedCast){
           warnedRestrictedCast=true;
           try{ emit&&emit({k:"flag",t:"Your Writer role can shape this Episode but cannot change the Show cast. New cast candidates were not added; scene character links were kept within the existing Show canon. Ask the owner or Art director to add any genuinely new character."}); }catch(e){}
@@ -5634,10 +5687,17 @@ function App(){
       setContinuityMap(Object.fromEntries(Object.entries(model.continuity).map(([k,v])=>[k,{...v}])));
       // remember exactly what was written (with the beat identities as stored), so the
       // next sync doesn't mistake this run's own commit for an external edit
-      writtenSigs.add(sigOf({ scenes:model.scenes, characters:model.characters, project:model.project,
-        beats:beatsW, drafts:model.drafts, continuity:model.continuity }));
+      writtenSigs.add(sigOf(shapeOf({ scenes:model.scenes, characters:model.characters, project:model.project,
+        beats:beatsW, drafts:model.drafts, continuity:model.continuity })));
+      liveAtCommit = liveNow;
+      castAtCommit = model.characters ? model.characters.map(c=>({...c})) : null;
     };
     return { model, sync, input, emit, propose,
+      // EPISODE CANON (docs/Story Pipeline.md step 3, "In an Episode of an existing Show"): true
+      // for a character the Show already had when this build started (or when the Writer can't
+      // change the Show cast at all) — the psychology check leaves it exactly as it is
+      castCanon: (c)=> !!(currentShowId && agentName==="Adaptation" && c && c.id!=null
+        && (!characterBibleWritableRef.current || !runIntroducedCastIds.has(String(c.id)))),
       // a film switch cancels the RUN, not just the commit — otherwise an agent keeps
       // burning model calls (and reading the newly opened film's globals) for minutes
       // after the guard has already decided its result can never be applied
@@ -6662,9 +6722,10 @@ function App(){
               title:m==="table"?"Every scene's turn in one table (the former Audit)":"Scenes grouped by act"},lab))),
           view==="spine" && React.createElement("div",{className:"legend"},
             runtimeTotal>0 && React.createElement("div",{className:"legend-item",
-              title:"Estimated total runtime, ≈1 page/min (drafted scenes from their script; undrafted roughly from beats)"},
+              title:"Estimated total runtime, ≈1 page/min (drafted scenes from their script; undrafted ones at this format’s budget per scene)"+
+                (sceneBudget ? " — this "+sceneBudget.label+" is meant to run about "+sceneBudget.runtimeText : "")},
               React.createElement(Icon.clock,{s:11}),
-              "≈ "+Math.round(runtimeTotal/60)+" min"),
+              "≈ "+((typeof fmtRuntime==="function") ? fmtRuntime(runtimeTotal) : Math.round(runtimeTotal/60)+" min")),
             React.createElement("div",{className:"legend-item"},
               React.createElement("span",{className:"legend-swatch",style:{background:"var(--pos)"}}),"POS"),
             React.createElement("div",{className:"legend-item"},

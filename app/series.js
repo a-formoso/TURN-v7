@@ -441,15 +441,51 @@
     return true;
   }
 
+  /* Scene-link fields are derived per Episode (prepareBibleForEpisode /
+     bibleForEpisode); a build's working copy of them is never newer than the live
+     cast's, so a revisable character never takes them from the incoming record. */
+  var CAST_DERIVED_KEYS = { id:true, scenes:true, episodeScenes:true };
+
+  /* key-order-blind value equality (a save's echo comes back from jsonb reordered) */
+  function stableText(v){
+    if(Array.isArray(v)) return "["+v.map(stableText).join(",")+"]";
+    if(v && typeof v==="object") return "{"+Object.keys(v).sort().map(function(k){
+      return JSON.stringify(k)+":"+stableText(v[k]); }).join(",")+"}";
+    return v===undefined ? "null" : JSON.stringify(v);
+  }
+  function sameValue(a, b){ return stableText(a)===stableText(b); }
+
   /* A New Story inside an episode may return only the cast it just discovered.
      Reconcile it into the existing Show cast instead of replacing the Bible. Existing
      canonical facts win; new fields fill gaps, and genuinely new people are appended.
-     Scene drivers are remapped to the retained canonical id when names match. */
+     Scene drivers are remapped to the retained canonical id when names match.
+     options.revisable (docs/Story Pipeline.md step 3, "In an Episode of an existing
+     Show", owner-approved 2026-09-27): ids of the characters THIS build introduced —
+     absent from the Show when the run started. A field the build changed takes the
+     build's value (the psychology check may refine them); every other character keeps
+     its canon and only fills gaps. The result's addedIds lists the people appended here.
+     options.base: { id: record } — each character exactly as THIS run last committed it
+     (the caller's previous reconcile). With it:
+       - a field the run has NOT changed since that commit never touches the live record,
+         so a collaborator's mid-run edit (a palette, a voice, a role — or a cleared
+         field) survives every later commit, for canon and for the run's own people;
+       - an incoming record held under the id AND name the run committed it with descends
+         from the live record with that id, so a mid-run RENAME is the same person (the
+         live name stands) — never an id collision that appends a duplicate and relinks
+         the scenes to it. */
   function mergeAdaptationCast(existing, incoming, scenes, options){
     options=options||{};
     var allowNew=options.allowNew!==false;
+    var revisable={};
+    (Array.isArray(options.revisable) ? options.revisable : []).forEach(function(id){
+      if(id!=null && String(id)) revisable[String(id)]=true;
+    });
+    var lastCommit=(options.base && typeof options.base==="object" && !Array.isArray(options.base)) ? options.base : null;
+    function baseOf(id){
+      return (lastCommit && id!=null && Object.prototype.hasOwnProperty.call(lastCommit,String(id))) ? lastCommit[String(id)] : null;
+    }
     var out = (Array.isArray(existing) ? existing : []).map(function(c){ return Object.assign({}, c); });
-    var byId = {}, byName = {}, idMap = {}, blockedNames=[];
+    var byId = {}, byName = {}, idMap = {}, blockedNames=[], addedIds=[];
     out.forEach(function(c){
       if(c && c.id) byId[String(c.id)] = c;
       var nk = normIdentity(c && c.name); if(nk) byName[nk] = c;
@@ -466,19 +502,29 @@
       var idFound=candidate.id && byId[String(candidate.id)];
       var nameFound=nameKey && byName[nameKey];
       var idName=normIdentity(idFound && idFound.name);
+      // the run's own copy of a live record (committed by this run before, under the
+      // same name): the same person under a new name when the live side renamed it
+      // mid-run. A record the run holds under a DIFFERENT name than it committed for
+      // that id (a freshly generated cast reusing an id) gets no such trust.
+      var prior=idFound ? baseOf(candidate.id) : null;
+      if(prior && normIdentity(prior.name)!==nameKey) prior=null;
       // Names identify people more reliably than generated ids. A generated id that
       // collides with a DIFFERENT canonical name must create a new, collision-safe
       // character rather than silently merging two people into one.
-      var idCollision=!!(idFound && nameKey && idName && nameKey!==idName);
-      var found=nameFound || (idCollision ? null : idFound);
+      var idCollision=!prior && !!(idFound && nameKey && idName && nameKey!==idName);
+      var found=prior ? idFound : (nameFound || (idCollision ? null : idFound));
       if(found){
         if(candidate.id) idMap[String(candidate.id)] = found.id;
         /* A Writer may shape Episode story without owning the Show cast. In that
            mode matching names may be remapped, but the generated record must not
            quietly fill or alter canonical character fields. */
+        var ownRun=!!(found.id!=null && revisable[String(found.id)]);
         if(allowNew) Object.keys(candidate).forEach(function(k){
-          if(k==="id") return;
-          if(!meaningful(found[k]) && meaningful(candidate[k])) found[k] = candidate[k];
+          if(k==="id" || !meaningful(candidate[k])) return;
+          // unchanged by the run since its last commit: the live value stands
+          if(prior && sameValue(candidate[k], prior[k])) return;
+          if(!meaningful(found[k])) found[k] = candidate[k];
+          else if(ownRun && !CAST_DERIVED_KEYS[k]) found[k] = candidate[k];
         });
         return;
       }
@@ -492,7 +538,7 @@
       var originalId=added.id;
       if(!added.id || byId[String(added.id)]) added.id=availableId(added.id,added.name);
       out.push(added);
-      if(added.id) byId[String(added.id)] = added;
+      if(added.id){ byId[String(added.id)] = added; addedIds.push(added.id); }
       if(originalId && String(originalId)!==String(added.id)) idMap[String(originalId)]=added.id;
       nameKey = normIdentity(added.name); if(nameKey) byName[nameKey] = added;
     });
@@ -522,7 +568,7 @@
       });
       return changed ? Object.assign({},scene,patch) : scene;
     });
-    return { characters:out, scenes:remappedScenes, idMap:idMap, blockedNames:blockedNames };
+    return { characters:out, scenes:remappedScenes, idMap:idMap, blockedNames:blockedNames, addedIds:addedIds };
   }
 
   /* Merge duplicate canonical cards without throwing away scene references that

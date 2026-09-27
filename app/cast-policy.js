@@ -56,5 +56,25 @@
     return list.filter(function(c){ return !remove.has(c&&c.id); });
   }
 
+  /* One narrowly-scoped cleanup (owner-approved 2026-09-27): the build's psychology
+     check once saved its internal revision note ("_revised") onto characters — a
+     shared Babel helper made the strip in agents.jsx miss it. Drop that one field
+     when a project loads (films and the Show Bible cast alike), so it disappears on
+     the next save. Idempotent: a clean cast comes back as the very same array. */
+  function turnStripStrayRevised(characters){
+    var list = scalarList(characters);
+    var dirty = list.some(function(c){
+      return c && typeof c==="object" && Object.prototype.hasOwnProperty.call(c,"_revised");
+    });
+    if(!dirty) return list;
+    return list.map(function(c){
+      if(!c || typeof c!=="object" || !Object.prototype.hasOwnProperty.call(c,"_revised")) return c;
+      var clean = Object.assign({}, c);
+      delete clean._revised;
+      return clean;
+    });
+  }
+
   window.turnPruneAccidentalManualCast = turnPruneAccidentalManualCast;
+  window.turnStripStrayRevised = turnStripStrayRevised;
 })();

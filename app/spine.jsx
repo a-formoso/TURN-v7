@@ -47,29 +47,58 @@ window.themeArgues = themeArgues;
 /* ---- runtime estimation — 1 screenplay page ≈ 55 lines ≈ 60 seconds ----
    Drafted scenes are estimated from their actual blocks (action wraps ~12 words
    a line, dialogue ~7 in its narrow column); undrafted scenes fall back to a
-   rough figure from their beat count and are marked approx (~). */
-function sceneRuntime(scene, draft, beats){
+   rough figure and are marked approx (~).
+   `budget` (optional, sceneBudgetFor() in formats.jsx — docs/Story Pipeline.md step 5): it
+   measures SCREEN TIME against the format's budget, so
+   - a scene heading or a transition counts nothing (neither plays on screen — and a 30 s
+     Commercial's 7.5 s scene can't spend 2 s of it on its slugline);
+   - a documentary's planned testimony note ("EXPECTED TESTIMONY: …") counts the seconds the
+     recorded testimony will play (budget.testimonySec), not the two lines the note takes;
+   - an undrafted scene is assumed to play its screen-time budget, and a drafted scene's
+     20 s floor never rises above the budget (a floor never makes a short scene look long);
+   - a drafted scene also reports `lines` and the unfloored seconds `raw` (the redraft's
+     "never longer" ceiling compares those).
+   Without a budget the figures are as before (beats × 35 s, 45–240 s; 90 s; 20 s floor). */
+const _TESTIMONY_NOTE_RE = /\bEXPECTED TESTIMONY\b/g;
+function sceneRuntime(scene, draft, beats, budget){
   const blocks = draft && draft.blocks;
+  const hasBudget = !!(budget && budget.sec > 0);
   if(blocks && blocks.length){
-    let lines = 0;
+    let lines = 0, extraSec = 0;
+    const bite = hasBudget ? (Number(budget.testimonySec)||0) : 0;
     blocks.forEach(b=>{
-      const w = (b.text||"").trim().split(/\s+/).filter(Boolean).length;
-      if(b.type==="scene") lines += 2;
-      else if(b.type==="action") lines += Math.ceil(w/12)+1;
+      const text = String((b && b.text)||"");
+      const w = text.trim().split(/\s+/).filter(Boolean).length;
+      if(b.type==="scene") lines += hasBudget ? 0 : 2;
+      else if(b.type==="action"){
+        // each testimony note plays as its testimony; the rest of the paragraph still counts
+        const notes = bite ? (text.match(_TESTIMONY_NOTE_RE)||[]).length : 0;
+        const rw = notes ? text.replace(/\bEXPECTED TESTIMONY\b[^.!?…]*[.!?…]*/g, " ").trim().split(/\s+/).filter(Boolean).length : w;
+        if(rw || !notes) lines += Math.ceil(rw/12)+1;
+        extraSec += notes*bite;
+      }
       else if(b.type==="char") lines += 2;
       else if(b.type==="paren") lines += 1;
       else if(b.type==="dia") lines += Math.ceil(w/7);
-      else lines += 2; // transitions and anything else
+      else lines += hasBudget && b.type==="trans" ? 0 : 2; // transitions and anything else
     });
-    return { sec: Math.max(20, Math.round(lines/55*60)), approx:false };
+    const raw = Math.round(lines/55*60 + extraSec);
+    if(!hasBudget) return { sec: Math.max(20, raw), approx:false };
+    const floor = Math.max(1, Math.min(20, Math.floor(budget.sec)));
+    return { sec: Math.max(floor, raw), approx:false, raw, lines: lines + Math.round(extraSec/60*55) };
   }
+  if(hasBudget) return { sec: Math.max(1, Math.round(budget.sec)), approx:true, fromBudget:true };
   const rows = (beats && beats.rows) ? beats.rows.length : 0;
   if(rows) return { sec: Math.min(240, Math.max(45, rows*35)), approx:true };
   return { sec: 90, approx:true };
 }
 function fmtClock(sec){ const m = Math.floor(sec/60), s = Math.round(sec%60); return m+":"+String(s).padStart(2,"0"); }
+/* a total or an act's length: seconds under two minutes (a 30 s spot reads "30 s", not
+   "1 min" or "0 min"), whole minutes above */
+function fmtRuntime(sec){ const s = Math.max(0, Number(sec)||0); return s < 120 ? Math.round(s)+" s" : Math.round(s/60)+" min"; }
 window.sceneRuntime = sceneRuntime;
 window.fmtClock = fmtClock;
+window.fmtRuntime = fmtRuntime;
 
 /* Milestone-kind labels. The CANONICAL vocabulary lives in the project's
    narrative framework (frameworks.jsx `kinds`); this Proxy keeps every existing
@@ -182,12 +211,26 @@ function smoothD(pts){
   return d;
 }
 
+/* the scene card's screen-time tooltip. LONG FOR THIS FORMAT (docs/Story Pipeline.md step 5):
+   a drafted scene past 1.5× its budget (sceneLengthCheck in formats.jsx) — a free warning;
+   nothing is rewritten automatically. */
+function runtimeTip(r){
+  if(!r) return "";
+  const b = r.budget;
+  const of = (b && typeof budgetPhrase==="function") ? " ("+budgetPhrase(b)+")" : "";
+  if(r.long && b) return "Long for this format \u2014 about "+fmtClock(r.sec)+" against a budget of about "+fmtClock(b.sec)+of+
+    ". Nothing is rewritten automatically: trim it in the Script view, or reshape the beats and Redraft script from beats.";
+  if(r.approx) return "Estimated screen time (rough \u2014 "+(r.fromBudget ? "this format\u2019s budget per scene" : "from beats")+", not yet drafted)";
+  return "Estimated screen time (from the draft, \u22481 page/min)"+(b ? " \u2014 budget about "+fmtClock(b.sec)+of : "");
+}
+window.runtimeTip = runtimeTip;
+
 function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, runtimes, readOnly, staleIds }){
   // minutes per act, for the ruler's pacing readout
   const actMin = (act)=>{
     if(!runtimes) return null;
     const sec = scenes.filter(s=>s.act===act).reduce((a,s)=> a + ((runtimes[s.id]||{}).sec||0), 0);
-    return sec ? Math.round(sec/60) : null;
+    return sec ? fmtRuntime(sec) : null;
   };
   const [dragIdx, setDragIdx] = React.useState(null);
   const [overIdx, setOverIdx] = React.useState(null);
@@ -258,7 +301,7 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
           React.createElement("span",{className:"no"},`ACT ${roman(r.act)}`),
           React.createElement("span",{className:"nm"},actName(r.act)),
           mins!=null && React.createElement("span",{className:"act-min",
-            title:`Act ${roman(r.act)} estimated screen time (≈1 page/min)`},`≈${mins} min`),
+            title:`Act ${roman(r.act)} estimated screen time (≈1 page/min)`},`≈${mins}`),
           React.createElement("span",{className:"pct"},`${pct}%`));
       })),
 
@@ -416,12 +459,15 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
             (staleIds && staleIds.has(s.id)) && React.createElement("span",{className:"scard-stale",
               title:"Script out of date \u2014 the card changed after the draft. Redraft it from the Script view or the Scene tab."},
               React.createElement(Icon.history,{s:11})),
+            // LONG FOR THIS FORMAT: amber with a warning mark (a word would overflow the
+            // 138px card beside a PROGRESSES badge); the tooltip names both lengths
             (runtimes && runtimes[s.id]) && React.createElement("span",{
-              className:"scard-rt"+(runtimes[s.id].hot?" hot":""),
-              style:{marginLeft:"auto"},
-              title: runtimes[s.id].hot
-                ? "Estimated screen time — runs long against the film's average scene"
-                : "Estimated screen time"+(runtimes[s.id].approx?" (rough — from beats, not yet drafted)":" (from the draft, ≈1 page/min)")},
+              className:"scard-rt"+(runtimes[s.id].long?" hot":""),
+              style: runtimes[s.id].long ? {marginLeft:"auto",display:"inline-flex",alignItems:"center",gap:3} : {marginLeft:"auto"},
+              "data-long":runtimes[s.id].long?"1":undefined,
+              "aria-label": runtimes[s.id].long ? fmtClock(runtimes[s.id].sec)+", long for this format" : undefined,
+              title: runtimeTip(runtimes[s.id])},
+              runtimes[s.id].long && React.createElement(Icon.alert,{s:9}),
               (runtimes[s.id].approx?"~":"")+fmtClock(runtimes[s.id].sec))));
       }),
       onAddScene && React.createElement("button",{className:"spine-add",style:{height:"auto"},disabled:readOnly,

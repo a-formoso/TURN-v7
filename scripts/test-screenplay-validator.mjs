@@ -1205,6 +1205,9 @@ await test("script.jsx and ai.jsx load in step: shared cache key, never a pre-fi
   // only the classifier's RULES behind the same interface (SP_LABELS_VERSION, checked below, is
   // unchanged; ai.jsx untouched), so script.jsx moved ahead alone — never the reverse, a script.jsx
   // older than ai.jsx. (ai.jsx keeps its key: test-art-tab-locks.mjs allows only listed ai.jsx keys.)
+  // The page-forms change (scripts/test-page-forms.mjs) changed both files' shared contract — the
+  // testimony class and the dialogue grammar — so it re-keyed them together and raised
+  // SP_LABELS_VERSION to 3; the equality check below keeps them in step.
   const step = (k)=>{ const m = /^(\d{8}-[a-z-]*?)(\d+)$/.exec(k); return m ? [m[1], Number(m[2])] : [k, 0]; };
   const [sStem, sN] = step(key("app/script.jsx")), [aStem, aN] = step(key("app/ai.jsx"));
   assert.ok(key("app/script.jsx")===key("app/ai.jsx") || (sStem===aStem && sN>aN),

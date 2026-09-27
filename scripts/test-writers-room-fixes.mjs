@@ -101,7 +101,7 @@ test("a blank genre never prints 'FILM: Title — .'",()=>{
 // ---- 7. beat authoring: framework-aware turn, and the writer's card is kept ----
 {
   const fw=read("app/frameworks.jsx"); vm.runInContext(fw,box);
-  load(ai,aiAst,["writingProjectOf","writingLoglineOf","synopsisParasOf","protagonistOf","characterInnerBrief","castMemberByLabel","sceneReactorOf","storyContext","clampCharge","_beatChg","aiAuthorScene"]);
+  load(ai,aiAst,["writingProjectOf","writingLoglineOf","synopsisParasOf","protagonistOf","characterInnerBrief","castMemberByLabel","sceneReactorOf","storyContext","clampCharge","_beatChg","screenTimeBudgetOf","beatCountAsk","aiAuthorScene"]);
   vm.runInContext("var CONFLICT_LEVELS={};",box);
   vm.runInContext("var SELF_CONTAINED_BEATS='';",box);
   Object.assign(box,{aiAvailable:()=>true,castPronounBlock:()=>"",conflictModeBrief:()=>"",writingStamp:()=>"t",chargeStr:v=>String(v),extractJSON:JSON.parse,contractBrief:()=>""});

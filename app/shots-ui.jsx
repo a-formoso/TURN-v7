@@ -1202,9 +1202,14 @@ function beatScriptText(sceneId, n){
     if(b.type==="scene"||b.type==="trans"||b.type==="paren"||b.type==="dia") continue;
     if(b.type==="char"){
       const par=blocks[i+1]&&blocks[i+1].type==="paren" ? String(blocks[i+1].text||"").replace(/\s+/g," ").trim() : "";
-      const di=i+(par?2:1), nx=blocks[di];
+      let di=i+(par?2:1); const nx=blocks[di];
       if(nx&&nx.type==="dia"&&String(nx.text||"").trim()){
-        parts.push(t+": "+(par?"("+par+") ":"")+"\u201c"+String(nx.text).replace(/\s+/g," ").trim()+"\u201d"); i=di;
+        let said=String(nx.text).replace(/\s+/g," ").trim();
+        // the same speech after a mid-speech "(beat)" (cue → dia → paren → dia) stays with it
+        while(blocks[di+1]&&blocks[di+1].type==="paren"&&blocks[di+2]&&blocks[di+2].type==="dia"&&String(blocks[di+2].text||"").trim()){
+          said+=" ("+String(blocks[di+1].text||"").replace(/\s+/g," ").trim().replace(/^\(|\)$/g,"")+") "+String(blocks[di+2].text).replace(/\s+/g," ").trim(); di+=2;
+        }
+        parts.push(t+": "+(par?"("+par+") ":"")+"\u201c"+said+"\u201d"); i=di;
       }
       continue;
     }
@@ -1226,9 +1231,14 @@ function deriveBeatMicroPlan(sceneId, n, beatRow){
     if(b.type==="scene"||b.type==="trans"||b.type==="paren"||b.type==="dia") continue;
     if(b.type==="char"){
       const par=blocks[i+1]&&blocks[i+1].type==="paren" ? clean(blocks[i+1].text) : "";
-      const di=i+(par?2:1), nx=blocks[di];
+      let di=i+(par?2:1); const nx=blocks[di];
       if(nx&&nx.type==="dia"&&String(nx.text||"").trim()){
-        push("dialogue",t+(par?(" "+par):"")+": \u201c"+clean(nx.text)+"\u201d",t); i=di;
+        let said=clean(nx.text);
+        // the same speech after a mid-speech "(beat)" (cue → dia → paren → dia) stays one unit
+        while(blocks[di+1]&&blocks[di+1].type==="paren"&&blocks[di+2]&&blocks[di+2].type==="dia"&&clean(blocks[di+2].text)){
+          said+=" ("+clean(blocks[di+1].text).replace(/^\(|\)$/g,"")+") "+clean(blocks[di+2].text); di+=2;
+        }
+        push("dialogue",t+(par?(" "+par):"")+": \u201c"+said+"\u201d",t); i=di;
       }
       continue;
     }

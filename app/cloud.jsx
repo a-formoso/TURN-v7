@@ -1645,12 +1645,22 @@ function _seriesMergeEntity(latest,incoming,baseline,episodeId,id,department){
     const localChanged=!_seriesJsonSame(localOwn,baseOwn);
     const remoteChanged=!_seriesJsonSame(remoteOwn,baseOwn);
     if(localChanged&&remoteChanged&&!_seriesJsonSame(localOwn,remoteOwn)) conflicts.push(String(id)+".episodeScenes."+episodeId);
-    const episodeScenes={...priorMap};
-    if(localChanged || !Object.prototype.hasOwnProperty.call(episodeScenes,episodeId)) episodeScenes[episodeId]=localOwn;
-    // Ignore every non-calling slice in the incoming snapshot. It may be stale;
-    // the freshest server row remains authoritative for those Episodes.
-    out.episodeScenes=episodeScenes;
-    out.scenes=_seriesRebuildSceneUnion(episodeScenes);
+    /* Do not manufacture empty relationship fields (the rule series.js follows in
+       prepareBibleForEpisode): an entity with no scene map on either side, no flat
+       links and no links in this Episode keeps exactly the fields it has. Writing
+       `episodeScenes:{[episode]:[]}` + `scenes:[]` onto such canon made every save's
+       echo differ from what this window sent, which the agent read as a mid-run edit. */
+    const hasLinks=Object.keys(priorMap).length>0 || Object.keys(nextMap).length>0
+      || (Array.isArray(latest&&latest.scenes)&&latest.scenes.length>0)
+      || (Array.isArray(incoming&&incoming.scenes)&&incoming.scenes.length>0);
+    if(hasLinks || localChanged || localOwn.length>0){
+      const episodeScenes={...priorMap};
+      if(localChanged || !Object.prototype.hasOwnProperty.call(episodeScenes,episodeId)) episodeScenes[episodeId]=localOwn;
+      // Ignore every non-calling slice in the incoming snapshot. It may be stale;
+      // the freshest server row remains authoritative for those Episodes.
+      out.episodeScenes=episodeScenes;
+      out.scenes=_seriesRebuildSceneUnion(episodeScenes);
+    }
   }
   if(locationEpisode){
     const priorMap=_seriesLocationMetaMap(latest);

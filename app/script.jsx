@@ -79,10 +79,46 @@ function autoDraftScene(scene, beats, prevScene){
     note: slugCount>1 ? `This unit spans ${slugCount} sluglines.` : null };
 }
 
+/* ROUGH STAND-IN (docs/Story Pipeline.md step 7, owner-approved 2026-09-27): a draft that
+   autoDraftScene built from the beat cards (because the writer's draft was rejected, or no
+   writing model was reachable) is NOT a written screenplay, however finished its sentences
+   read. It is marked as such in the Script view, the Script check never shows it as clean,
+   and it keeps that mark until MUSE writes the scene.
+   - A fresh stand-in is the structural draft itself: auto:true, no ai flag, no `by` stamp
+     (every draft MUSE writes carries ai:true and a `by` stamp).
+   - A manual edit clears `auto` (the version is a "Manual edit" now), so the edit handlers
+     carry the mark forward as standIn:true (keepStandInMark). Writing one missing beat
+     keeps it too: the rest of the scene is still the beat cards.
+   - A successful Draft / Redraft / story build REPLACES the whole draft object with MUSE's
+     own ({ blocks, ai:true, by, … }), which has no standIn key, so the mark clears there
+     and nowhere else. Undo back to the stand-in brings the mark back with it. */
+function isStandInDraft(d){
+  if(!d || !Array.isArray(d.blocks) || !d.blocks.length) return false;
+  if(d.standIn === true) return true;
+  return d.auto === true && !d.ai && !d.by;
+}
+function keepStandInMark(prev, next){
+  return (next && isStandInDraft(prev)) ? { ...next, standIn:true } : next;
+}
+
 window.parseSlug = parseSlug;
 window.sceneTransition = sceneTransition;
 window.sceneCarry = sceneCarry;
 window.autoDraftScene = autoDraftScene;
+window.isStandInDraft = isStandInDraft;
+window.keepStandInMark = keepStandInMark;
+
+/* LONG FOR THIS FORMAT, for the Script view: the scene's estimated screen time (sceneRuntime,
+   spine.jsx) against its budget (sceneBudgetFor, formats.jsx) — the same inputs the spine's
+   scene card uses, so the two never disagree. null when the helpers are missing. */
+function scriptLengthInfo(scene, draft, beats, project, sceneCount){
+  if(!scene || typeof sceneBudgetFor!=="function" || typeof sceneRuntime!=="function" || typeof sceneLengthCheck!=="function") return null;
+  const budget = sceneBudgetFor(project, sceneCount);
+  const rt = sceneRuntime(scene, draft, beats, budget);
+  const chk = sceneLengthCheck(rt, budget);
+  return { sec:rt.sec, approx:!!rt.approx, budget, long:!!chk.long, ratio:chk.ratio||0 };
+}
+window.scriptLengthInfo = scriptLengthInfo;
 
 function _spClean(t){
   return String(t||"").replace(/\s+/g," ").trim();
@@ -103,9 +139,15 @@ function screenplayBeatExcerpt(screenplay, beatN, max){
     if(b.type==="scene") continue;
     if(b.type==="char"){
       const par = blocks[i+1] && blocks[i+1].type==="paren" ? _spClean(blocks[i+1].text) : "";
-      const di = i+(par?2:1), dia = blocks[di] || {};
+      let di = i+(par?2:1); const dia = blocks[di] || {};
       if(dia.type==="dia" && _spClean(dia.text)){
-        pieces.push(txt+": "+(par?"("+par+") ":"")+_spClean(dia.text));
+        let line = txt+": "+(par?"("+par+") ":"")+_spClean(dia.text);
+        // the same speech continued after a mid-speech "(beat)" (cue → dia → paren → dia)
+        while(blocks[di+1] && blocks[di+1].type==="paren" && blocks[di+2] && blocks[di+2].type==="dia" && _spClean(blocks[di+2].text)){
+          line += " ("+_spClean(blocks[di+1].text).replace(/^\(|\)$/g,"")+") "+_spClean(blocks[di+2].text);
+          di += 2;
+        }
+        pieces.push(line);
         i=di; continue;
       }
     }
@@ -159,6 +201,12 @@ window.screenplayBeatNumbers = screenplayBeatNumbers;
                  "GRACINDA'S ALBUM — LEONOR" (another cast member); "HOLDING GRACINDA'S
                  ALBUM" and "LEONOR, GRACINDA'S ALBUM" (someone else holds it); "NINA'S
                  MOTHER" (not a kept object)
+     testimony — a documentary's planned testimony naming its subject, in exactly this
+                 shape: "EXPECTED TESTIMONY — <cast name>:" (a dash or slash, the name alone,
+                 no brackets or only a production note). Its text passes only as a NOTE of
+                 what they will cover (see the kind below), never as their words. "INTERVIEW —
+                 NINA:", "TESTIMONY — NINA:", "EXPECTED TESTIMONY — NINA'S MOTHER:" and
+                 "EXPECTED TESTIMONY — NINA (V.O.):" stay that person's line
      role      — a person by role ("GUARD", "THIRD GUARD", "MAN ON SCREEN", "DUTY MANAGER")
      voice     — a nameless voice (VOICEMAIL, NARRATOR, RADIO, TV, DISPATCH, RECORDED …)
      written   — a surface that SHOWS words (INSERT, SUPER, TEXT, STATUS, LOG, GAUGE …)
@@ -189,7 +237,20 @@ window.screenplayBeatNumbers = screenplayBeatNumbers;
                 I / you / we or a quote are their line; after a screen label ("INTERVIEW
                 (sit-down):") a question, a contraction, an interjection, a greeting or
                 someone addressed still counts as spoken; a "!" or "?" after any label
-                with a note does too; all-CAPS words read as before
+                with a note does too; all-CAPS words read as before.
+                After "EXPECTED TESTIMONY — <cast name>:" (docs/Story Pipeline.md step 5,
+                "Page forms": "<subject> on <topic>") EVERY sentence, and every part after
+                a colon, must open as a TOPIC: "on …" / "about …", a third-person account
+                of something ("her account of the flood night, and what her father said",
+                "Her account of the night the wall went.") or an indirect question ("how
+                the salt pans were worked") — lowercase words alone ("i never went back",
+                "nobody came"), "In her own words, …", "Her words: …", "Her testimony: …",
+                a statement, CAPS words, quotes, I / you / we (a lowercase "i" too), "!" or
+                "?", a contraction, an interjection, an order, a greeting or someone
+                addressed are their line. Any "EXPECTED TESTIMONY" label, with or without
+                the name, also rejects a quoted span ("…on what her father said: “Keep the
+                pans.”"): words in quotes are lines written for a real person — except a
+                quoted title or nickname (the report "Salt and Tide, 1953", the "Iron Wall")
      voice    — spoken words after a nameless voice label (the writers turn it into a cue)
      device   — on-screen text, inserts, supers, camera or sound direction, song sections,
                 a description of what a screen or speaker shows ("TV: A reporter stands…"),
@@ -202,7 +263,10 @@ window.screenplayBeatNumbers = screenplayBeatNumbers;
    How far a label's text reaches: the first sentence, and the sentences after it until
    narration resumes (a sentence opening with He / She / The / A / a cast name …), so
    "OPERATOR: CARROW, N. Graham doesn't react." reads only "CARROW, N." as the readout. */
-const SP_LABELS_VERSION = 2;   // ai.jsx checks this: a stale cached script.jsx is reported, never silent
+// ai.jsx checks this: a stale cached script.jsx is reported, never silent. v3 (2026-09-27, page
+// forms): the testimony class and the shared dialogue grammar (screenplaySpeechLinks) — the
+// writers' validator and the Script check both accept a mid-speech parenthetical
+const SP_LABELS_VERSION = 3;
 const _SP_WORDS = s=>new Set(s.split(/\s+/).filter(Boolean));
 const _SP_WRITTEN = _SP_WORDS(
   "INSERT SUPER SUPERIMPOSE SUPERIMPOSED TITLE TITLES CARD CHYRON CAPTION CAPTIONS SUBTITLE SUBTITLES "+
@@ -294,8 +358,9 @@ const _SP_SEP = "(?:\\s*[\u2014\u2013\\/]\\s*|\\s+-\\s*|\\s*-\\s+|\\s+)";
 const _SP_LABEL_RE = new RegExp("(^|[\\s\u201c\"\u2018'(\\[\u2014\u2013])((?=[A-Z])"+_SP_TOK+"(?:"+_SP_SEP+_SP_TOK+"){0,5}\\.?)(\\s*\\(([^()]{1,40})\\))?\\s*:(?=\\s|$|[\"\u201c'\u2018])","g");
 const _SP_MIXED_RE = /(^|[.!?]["”’']?\s+)([A-Z][a-z'’]+(?:\s[A-Z][a-z'’]+){0,2})(\s*\(([^()]{1,40})\))?:\s/g;
 // pronoun-level speech: I / me / my / you / we / us / our / let's (case-aware: "US" the
-// country and "ME" in a readout are not pronouns), "sir", "ma'am"
-const _SP_PRON_RE = /\b(?:[Mm]e|[Mm]y|[Mm]ine|[Mm]yself|[Yy]ou|[Yy]our|[Yy]ours|[Yy]ourself|[Yy]ourselves|[Ww]e|[Uu]s|[Oo]ur|[Oo]urs|[Oo]urselves|[Ll]et[’']s)\b|\bI(?:[’'](?:m|ve|ll|d))?\s+[a-z]|\b(?:sir|ma[’']am)\b/;
+// country and "ME" in a readout are not pronouns), "sir", "ma'am" — and a lowercase "i" used
+// as the pronoun ("i never went back", "i'm"), never "i.e." or "i/o"
+const _SP_PRON_RE = /\b(?:[Mm]e|[Mm]y|[Mm]ine|[Mm]yself|[Yy]ou|[Yy]our|[Yy]ours|[Yy]ourself|[Yy]ourselves|[Ww]e|[Uu]s|[Oo]ur|[Oo]urs|[Oo]urselves|[Ll]et[’']s)\b|\bI(?:[’'](?:m|ve|ll|d))?\s+[a-z]|(?:^|[\s"“‘(\[—–-])i(?:[’'](?:m|ve|ll|d)\b|\s+[a-z])|\b(?:sir|ma[’']am)\b/;
 // lighter speech signs, read in the FIRST sentence only: a contraction, an interjection, a question
 const _SP_WEAK_RE = /[A-Za-z](?:n[’']t|[’'](?:re|ve|ll|m|d))\b|^(?:[Oo]h|[Hh]ey|[Yy]eah|[Yy]ep|[Nn]ope|[Oo]kay|[Oo]k|[Ss]orry|[Tt]hanks|[Tt]hank you|[Hh]ello|[Hh]i|[Ll]isten|[Hh]mm|[Uu]h|[Uu]m|[Hh]uh|[Ww]ow)\b|^[Pp]lease,|\?/;
 // an order a person shouts — read only after a ROLE label ("GUARD: Hands up."): an app or a
@@ -378,6 +443,8 @@ function screenplayLabelClass(label, speakers, ext){
     const kseg = P.segs[sp.seg], kh = heads[sp.seg];
     const opens = kseg[0].poss || (kseg.length>2 && kseg[1].poss && speakers.has(kseg[0].t+" "+kseg[1].t));
     if(sp.role==="owner" && opens && _spTokenIn(_SP_KEEPSAKE, kh) && !_spOtherSpeaker(P, sp, speakers) && _spObjectExt(ext, speakers)) return "keepsake";
+    // EXPECTED TESTIMONY — LEONOR: a documentary's planned testimony naming its subject
+    if(_spExpectedTestimony(P, sp, speakers, ext)) return "testimony";
     return "speaker";
   }
   const e = String(ext||"").replace(/\s+/g," ").trim().toUpperCase();
@@ -413,6 +480,52 @@ function _spProductionNote(ext, speakers){
   }
   return note ? { person, names } : null;
 }
+/* "EXPECTED TESTIMONY — LEONOR" (docs/Story Pipeline.md step 5, "Page forms"): exactly two parts —
+   "EXPECTED TESTIMONY", then the subject's name alone (a cast member, no possessive, no other
+   word) — with no brackets or only a production note ("(record)", "(Leonor, sit-down)"). A voice
+   or delivery bracket ("(V.O.)", "(softly)") keeps it her line. */
+function _spExpectedTestimony(P, sp, speakers, ext){
+  if(!sp || sp.role!=="subject" || sp.seg!==1 || P.segs.length!==2) return false;
+  if(P.segs[0].map(x=>x.t).join(" ")!=="EXPECTED TESTIMONY") return false;
+  const name = P.segs[1];
+  if(name.some(x=>x.poss) || !speakers.has(name.map(x=>x.t).join(" "))) return false;
+  return !String(ext||"").trim() || !!_spProductionNote(ext, speakers);
+}
+/* any label that is planned testimony: "EXPECTED TESTIMONY", with or without its subject's name */
+function _spTestimonyLabel(label){ return /^EXPECTED TESTIMONY(?:$|\s*[—–\/]|\s+-\s)/.test(_spParseLabel(label).base); }
+/* a quoted span — words written for someone: "…", “…”, ‘two words’ or 'two words' (an
+   apostrophe — "father's", "’53" — is not a quote) */
+const _SP_QUOTE_SPAN_RE = /["“”]|‘[^‘’]*\s[^‘’]*’|(?:^|[\s(—–-])'[^']*\s[^']*'(?=$|[\s.,;:!?…)—–-])/;
+/* quoted words in planned testimony: true when a quote is a LINE written for someone. A quoted
+   TITLE or NICKNAME is not — the report "Salt and Tide, 1953", the "Iron Wall", the song “Mar
+   Salgado”: up to eight words, each capitalised (or a number, or a small joining word such as
+   "and", "of", "de"), no sentence punctuation, no I / me / we / you. An unmatched quote mark is
+   read as a line. */
+const _SP_TITLE_JOIN = _SP_WORDS("a an the and or of in on at to for by with from de da do das dos del la le el y e van von");
+function _spTitleSpan(inner){
+  const t = String(inner||"").trim();
+  if(!t || /[.!?…]/.test(t)) return false;
+  const words = t.split(/\s+/).map(w=>w.replace(/^[(\[]+|[),;:—–\]]+$/g,"")).filter(Boolean);
+  if(!words.length || words.length>8 || !/^[A-Z0-9À-Ý]/.test(words[0])) return false;
+  if(words.some(w=>/^(?:i|me|my|mine|we|us|our|ours|you|your|yours)$/i.test(w))) return false;
+  return words.every(w=>/^[A-Z0-9À-Ý]/.test(w) || _SP_TITLE_JOIN.has(w));
+}
+function _spQuotesLine(text){
+  const t = String(text||"");
+  if(!_SP_QUOTE_SPAN_RE.test(t)) return false;
+  const spans = [], re = /"([^"“”]*)"|“([^“”"]*)”|‘([^‘’]*)’|(?:^|[\s(—–-])'([^']*\s[^']*)'(?=$|[\s.,;:!?…)—–-])/g;
+  let m, rest = t;
+  while((m = re.exec(t))){ spans.push(m[1]!=null ? m[1] : m[2]!=null ? m[2] : m[3]!=null ? m[3] : m[4]); rest = rest.replace(m[0], " "); }
+  if(!spans.length || /["“”]|‘[^‘’]*\s/.test(rest)) return true;            // a stray quote mark
+  return spans.some(x=>!_spTitleSpan(x));
+}
+/* what the named form's text must be (docs/Story Pipeline.md step 5: "EXPECTED TESTIMONY:
+   <subject> on <topic>"): every sentence, and every part after a colon, opens as a TOPIC —
+   "on …" / "about …", a third-person account OF something ("her account of the flood night",
+   "Leonor's recollection of …") or an indirect question ("how the salt pans were worked", "what
+   the tide took"). Lowercase words alone are no licence ("i never went back", "nobody came"),
+   and "In her own words, …" / "Her words: …" / "Her testimony: …" introduce words, not a topic. */
+const _SP_TOPIC_RE = /^(?:(?:on|about|regarding)\s+\S|(?:(?:[A-Za-zÀ-ÿ'’-]+(?:\s[A-Za-zÀ-ÿ'’-]+)?[’']s|his|her|their)\s+(?:own\s+)?(?:account|recollection|memory|memories|telling|version|story|description|testimony)\s+(?:of|about|from|on)\s+\S)|(?:how|what|why|where|when|whether|who)\s+(?:the|his|her|their|its|he|she|they|a|an)\b)/i;
 /* the brackets of a kept object that leave it an object: none, a visual word, a year or page, a note */
 function _spObjectExt(ext, speakers){
   const e = String(ext||"").trim();
@@ -531,6 +644,22 @@ function _spTextKind(cls, ext, content, reach, ctx){
   // a named speaker's (TEXT) / (SMS) is a message shown on a screen; their (ON SCREEN)
   // is the person on a video call — still that character speaking
   const writtenExt = !!ext && /\b(?:TEXT|SMS|E-?MAIL|MESSAGE|CAPTION|SUPER|INSERT|READOUT|DISPLAY|GRAPHIC)\b/i.test(ext);
+  // planned testimony ("EXPECTED TESTIMONY", with or without its subject's name) never quotes
+  // anyone: words in quotes are a line written for a real person (a quoted title or nickname is
+  // not — _spQuotesLine)
+  if(ctx && ctx.testimony && _spQuotesLine(reach || content)) return "dialogue";
+  // EXPECTED TESTIMONY — LEONOR: a NOTE of what she will cover, never her words — every sentence
+  // (and every part after a colon) opens as a topic (_SP_TOPIC_RE: "on the flood night", "her
+  // account of the flood night", "how the salt pans were worked"), nothing that reads as spoken;
+  // CAPS text is a shouted line, as after any named speaker
+  if(cls==="testimony"){
+    if(!/[A-Za-z]/.test(all)) return "data";
+    const ss = _spSentences(all), sp = ctx && ctx.speakers;
+    if(!hasLower || quoted || pron || weak || imperative || /[!?]/.test(all)
+      || ss.some(x=>_SP_WEAK_RE.test(x) || _spRecordSpeech(x, sp))) return "dialogue";
+    const parts = ss.flatMap(x=>x.replace(/[.…]+$/,"").split(/:/)).map(x=>x.trim()).filter(Boolean);
+    return (parts.length && parts.every(x=>_SP_TOPIC_RE.test(x))) ? "data" : "dialogue";
+  }
   if(cls==="speaker" || cls==="keepsake"){
     if(!/[A-Za-z]/.test(all)) return "data";
     if(writtenExt) return "device";
@@ -681,7 +810,7 @@ function screenplayActionLabels(text, speakers){
       if(ev && !/:/.test(ctxText.slice(ev.index + ev[0].length))) written = true;
     }
     out.push({ ...h, content:raw.trim(), reach, reachEnd:h.end + rlen, labelClass:cls,
-      kind:_spTextKind(cls, h.ext, raw, reach, { speakers, written }), last:i===hits.length-1 });
+      kind:_spTextKind(cls, h.ext, raw, reach, { speakers, written, testimony:_spTestimonyLabel(h.label) }), last:i===hits.length-1 });
   });
   return out;
 }
@@ -777,6 +906,45 @@ window.screenplayCueDevice = screenplayCueDevice;
 window.screenplaySpeakers = screenplaySpeakers;
 window.screenplayStripScreenText = screenplayStripScreenText;
 
+/* THE DIALOGUE GRAMMAR the Script check and the writers' validator (validateScreenplayBlocks,
+   ai.jsx) share: a cue, an optional parenthetical, then dialogue — and a MID-SPEECH
+   parenthetical between two dialogue blocks of the same speech continues it (cue → dia →
+   "(beat)" → dia), the standard form (docs/Story Pipeline.md step 5, "Page forms"). Two
+   dialogue blocks in a row, dialogue after action, and a parenthetical with no dialogue after it
+   are still out of the grammar — a speech that resumes after action needs its cue again,
+   "NAME (CONT’D)" (the writers' normaliser adds it). Returns, per block, true when a "paren"
+   or "dia" block sits in a speech. */
+function screenplaySpeechLinks(blocks){
+  const list = Array.isArray(blocks) ? blocks : [];
+  const ok = new Array(list.length).fill(false);
+  for(let i=0;i<list.length;i++){
+    const b = list[i] || {}, p = list[i-1] || {}, n = list[i+1] || {};
+    if(b.type==="paren") ok[i] = n.type==="dia" && (p.type==="char" || (p.type==="dia" && ok[i-1]));
+    else if(b.type==="dia") ok[i] = p.type==="char" || (p.type==="paren" && ok[i-1]);
+  }
+  return ok;
+}
+window.screenplaySpeechLinks = screenplaySpeechLinks;
+
+/* A PARENTHETICAL THAT CARRIES A LINE — "(JOHN: Out.)", "(beat; Mara: Where?)": a speaker label
+   (a CAPS name, or a cast member's name) followed by words. A parenthetical is tone or business
+   inside ONE speech (a mid-speech "(beat)" included); another person's words there would never
+   be cued, voiced or counted, so the writers reject it and the Script check flags it. A cue
+   extension ("(V.O.: …)") is not a name. */
+function screenplayParenLine(text, speakers){
+  const t = String(text||"").replace(/^\s*\(\s*|\s*\)\s*$/g,"");
+  const re = /(?:^|[\s;,—–(-])([A-Z][A-Za-zÀ-ÖØ-öø-ÿ'’.-]*(?:\s+[A-Z][A-Za-zÀ-ÖØ-öø-ÿ'’.-]*){0,3})\s*:\s*\S/g;
+  let m;
+  while((m = re.exec(t))){
+    const label = m[1].replace(/\s+/g," ").trim(), up = label.toUpperCase();
+    if(/^(?:V\.?\s?O\.?|O\.?\s?S\.?|O\.?\s?C\.?|CONT[’']?D\.?|FILTERED)$/i.test(label)) continue;
+    if(label===up && /[A-Z]{2}/.test(label)) return true;                      // "JOHN:", "OFFICER REYES:"
+    if(speakers && (speakers.has(up) || up.split(" ").some(w=>speakers.has(w)))) return true;   // "John:"
+  }
+  return false;
+}
+window.screenplayParenLine = screenplayParenLine;
+
 /* SCRIPT CHECK — deterministic screenplay grammar + production-unit visibility.
    Read-only by design: this reports what is on the page and never rewrites it. */
 function screenplayFormatReport(scene, screenplay, beats){
@@ -804,6 +972,9 @@ function screenplayFormatReport(scene, screenplay, beats){
     }
     if(t!==t.toUpperCase()) add("slugline-case","warn",i,beat,"Scene headings should be uppercase.");
   });
+  // the dialogue grammar the writers use (screenplaySpeechLinks): a mid-speech "(beat)" between
+  // two dialogue blocks of one speech is standard form, never an orphan
+  const linked = screenplaySpeechLinks(blocks);
   for(let i=0;i<blocks.length;i++){
     const b=blocks[i]||{}, t=clean(b), beat=Number(b.beat);
     if(b.type==="char"){
@@ -812,13 +983,13 @@ function screenplayFormatReport(scene, screenplay, beats){
       if(!blocks[j] || blocks[j].type!=="dia" || !clean(blocks[j]))
         add("cue-without-dialogue","error",i,beat,"Character cue is not followed by dialogue.");
     } else if(b.type==="dia"){
-      let j=i-1;
-      if(blocks[j]&&blocks[j].type==="paren") j--;
-      if(j<0 || !blocks[j] || blocks[j].type!=="char")
+      if(!linked[i])
         add("orphan-dialogue","error",i,beat,"Dialogue has no character cue.");
     } else if(b.type==="paren"){
-      if(i===0 || !blocks[i-1] || blocks[i-1].type!=="char" || !blocks[i+1] || blocks[i+1].type!=="dia")
-        add("orphan-parenthetical","error",i,beat,"Parenthetical must sit between a character cue and dialogue.");
+      if(!linked[i])
+        add("orphan-parenthetical","error",i,beat,"Parenthetical must sit between a character cue and dialogue, or between two lines of the same speech.");
+      else if(screenplayParenLine(t, speakers))
+        add("dialogue-in-parenthetical","warn",i,beat,"This parenthetical appears to contain another character’s line; give it its own character cue and dialogue.");
     } else if(b.type==="action" && t){
       // on-screen text, inserts and readouts (INSERT — PHONE: …, SUPER: …, <FIELD>: <VALUE>)
       // are standard action-line devices and are NOT flagged. The warning fires on exactly
@@ -836,6 +1007,12 @@ function screenplayFormatReport(scene, screenplay, beats){
   }
   if(blocks.length && !units.length)
     add("missing-heading","error",0,Number(blocks[0]&&blocks[0].beat),"This dramatic scene has no valid production scene heading.");
+  // a rough stand-in is never "clean": its blocks can be well formed while the scene is
+  // still the beat cards, not a screenplay (Story Pipeline step 7). A WARNING, so the Script
+  // check button counts it and never shows green; listed first, it points at the top.
+  if(isStandInDraft(screenplay))
+    issues.unshift({code:"stand-in",severity:"warn",blockIndex:0,beat:Number(blocks[0]&&blocks[0].beat),
+      message:"This scene is a rough stand-in built from its beat cards — MUSE hasn’t written it yet. Press Redraft script from beats to have MUSE write it."});
   const errors=issues.filter(x=>x.severity==="error").length;
   const notes=issues.filter(x=>x.severity==="info").length;
   return {issues,units,stats:{blocks:blocks.length,productionUnits:units.length,errors,warnings:issues.length-errors-notes,notes}};
@@ -1067,9 +1244,9 @@ function ScriptCheckReport({ scene, report, onClose, onIssue }){
             className:"script-check-issue "+x.severity,onClick:()=>onIssue(x)},
             React.createElement("span",{className:"ic",style:x.severity==="info"?{color:"var(--txt-3)"}:undefined},React.createElement(x.severity==="error"?Icon.alert:Icon.info,{s:14})),
             React.createElement("span",{className:"script-check-issuebody"},
-              React.createElement("b",null,x.severity==="error"?"Format error":x.severity==="info"?"Check this line":"Format note"),
+              React.createElement("b",null,x.code==="stand-in"?"Rough stand-in":x.severity==="error"?"Format error":x.severity==="info"?"Check this line":"Format note"),
               React.createElement("span",null,x.message)),
-            React.createElement("span",{className:"script-check-goto"},"Beat "+(Number.isFinite(x.beat)?x.beat:"—")+" · Go to line")))));
+            React.createElement("span",{className:"script-check-goto"},x.code==="stand-in"?"Whole scene · Go to top":"Beat "+(Number.isFinite(x.beat)?x.beat:"—")+" · Go to line")))));
 }
 
 function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, onDraftAll, onPolish, drafting, total,
@@ -1255,7 +1432,7 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
       const gi = screenplay.blocks.indexOf(b);
       if(gi<0) return;
       const nextBlocks = screenplay.blocks.map((x,j)=> j===gi ? {...x, text:newText} : x);
-      onEditScene(scene.id, { ...screenplay, blocks:nextBlocks, edited:true, polished:false, ai:false, auto:false, by:null });
+      onEditScene(scene.id, keepStandInMark(screenplay, { ...screenplay, blocks:nextBlocks, edited:true, polished:false, ai:false, auto:false, by:null }));
     };
 
     // EDIT MODE: remove one element outright (the direct undo for an added box).
@@ -1265,7 +1442,7 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
       const gi = screenplay.blocks.indexOf(b);
       if(gi<0) return;
       const blocks = screenplay.blocks.filter((x,j)=> j!==gi);
-      onEditScene(scene.id, { ...screenplay, blocks, edited:true, polished:false, ai:false, auto:false, by:null });
+      onEditScene(scene.id, keepStandInMark(screenplay, { ...screenplay, blocks, edited:true, polished:false, ai:false, auto:false, by:null }));
     };
 
     // EDIT MODE: insert new element(s) at the END of a beat's blocks. "charline"
@@ -1280,7 +1457,7 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
         ? [ { beat:beatN, type:"char", text:"" }, { beat:beatN, type:"dia", text:"" } ]
         : [ { beat:beatN, type:kind, text:"" } ];
       blocks.splice(at+1, 0, ...fresh);
-      onEditScene(scene.id, { ...screenplay, blocks, edited:true, polished:false, ai:false, auto:false, by:null });
+      onEditScene(scene.id, keepStandInMark(screenplay, { ...screenplay, blocks, edited:true, polished:false, ai:false, auto:false, by:null }));
     };
     const beatRow = (n)=> beats && beats.rows.find(r=>r.n===n);
     // WRITE A MISSING BEAT: the map defines beat N but no screenplay block dramatizes it.
@@ -1297,7 +1474,7 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
           let at = -1;   // after the last block belonging to an EARLIER beat (slug rides as beat 1)
           for(let j=0;j<blocks.length;j++){ if((Number(blocks[j].beat)||1) < n) at = j; }
           blocks.splice(at+1, 0, ...res.blocks);
-          onEditScene(scene.id, { ...screenplay, blocks, ai:true, auto:false, edited:false, by:res.by||null });
+          onEditScene(scene.id, keepStandInMark(screenplay, { ...screenplay, blocks, ai:true, auto:false, edited:false, by:res.by||null }));
           setVerFlash(new Set(res.blocks));
           clearTimeout(verFlashTimer.current);
           verFlashTimer.current = setTimeout(()=>setVerFlash(null), 2600);
@@ -1386,6 +1563,27 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
         React.createElement(Icon.sparkles,{s:13}), redraftBusy ? "Redrafting\u2026" : "Redraft script"),
       React.createElement("button",{className:"draft-btn sm ghost",disabled:readOnly||!!redraftBusy,onClick:()=>onKeepDraft&&onKeepDraft(scene.id),
         title:"The script is fine as written \u2014 adopt the current card as its baseline"},"Keep this draft"))) : null;
+  // ROUGH STAND-IN (Story Pipeline step 7): a plain marker in words, not a provenance badge —
+  // the scene is still its beat cards, so say so with the one action that writes it
+  const standInFlag = isStandInDraft(screenplay) ? React.createElement("div",
+    {className:"cont-inline standin-inline",role:"status","data-standin":"1"},
+    React.createElement("span",{className:"ic"},React.createElement(Icon.alert,{s:15})),
+    React.createElement("div",{className:"tx"},
+      React.createElement("b",null,"Rough stand-in: "),
+      "built from the beat cards — MUSE hasn’t written this scene yet. ",
+      live ? "Press Redraft script from beats to have MUSE write it."
+           : "Once MUSE is available, Redraft script from beats writes it.")) : null;
+  // LONG FOR THIS FORMAT (docs/Story Pipeline.md step 5, owner-approved 2026-09-27): the same
+  // free check as the scene card (no model call) — the draft's estimated screen time against
+  // the scene's budget (the format's runtime ÷ the scene count). Nothing is rewritten.
+  const lengthInfo = scriptLengthInfo(scene, screenplay, beats, project, orderedScenes.length);
+  const longFlag = (lengthInfo && lengthInfo.long) ? React.createElement("div",
+    {className:"cont-inline warn long-inline",role:"status","data-long":"1"},
+    React.createElement("span",{className:"ic"},React.createElement(Icon.clock,{s:15})),
+    React.createElement("div",{className:"tx"},
+      React.createElement("b",null,"Long for this format: "),
+      "about "+fmtClock(lengthInfo.sec)+" of screen time against a budget of about "+fmtClock(lengthInfo.budget.sec)+
+      " ("+budgetPhrase(lengthInfo.budget)+"). Nothing is rewritten automatically — trim it with Edit, or reshape the beats and press Redraft script from beats, which writes to the budget.")) : null;
   // several scenes out of date: redraft them all from the header
   const redraftAllBtn = (staleCount>1 && onRedraftAll) ? React.createElement("button",{className:"cont-btn stale",
       disabled:readOnly||!!redraftingAll,onClick:onRedraftAll,title:"Rewrite every out-of-date script from its current card and beats"},
@@ -1425,7 +1623,9 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
     header,
     showReport && React.createElement(ContinuityReport,{report,ledger,currentId:scene.id,onJump:(id)=>onSelectScene(id),onClose:()=>setShowReport(false)}),
     showScriptCheck && React.createElement(ScriptCheckReport,{scene,report:scriptCheck,onClose:()=>setShowScriptCheck(false),onIssue:jumpToScriptIssue}),
+    standInFlag,
     staleFlag,
+    longFlag,
     inlineFlag,
     React.createElement(TransitionBar,{trans:transIn,fromTo:prevScene?`from Sc.${String(prevScene.no).padStart(2,"0")} ${prevScene.title}`:null}),
     React.createElement(CarryLedger,{cells:carry}),

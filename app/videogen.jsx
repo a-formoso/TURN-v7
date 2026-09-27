@@ -913,7 +913,9 @@ async function vidMediaFacts(url, kind){
     const staged=_vidStagedFacts.get(String(url));
     if(!staged) throw new Error("A device upload's metadata is no longer available in this tab — choose the file again before submitting.");
     if(staged.expiresAt && Date.now()>staged.expiresAt) throw new Error("A device upload has expired — choose the file again before submitting.");
-    const { origin, expiresAt, ...facts } = staged;
+    // explicit copy, never object-rest destructuring (the page's Babel files share one
+    // global helper list, so rest-destructuring outside app.jsx drops the wrong keys)
+    const facts = { ...staged }; delete facts.origin; delete facts.expiresAt;
     return kind==="image" ? { mime:facts.mime, sizeBytes:facts.sizeBytes } : { ...facts };
   }
   const facts=_vidDataUrlFacts(url);
