@@ -71,6 +71,16 @@ const PLAN_STATUSES = new Set(["orphan: project deleted", "service"]);
 const OUTCOMES = ["planned", "kept", "sending", "removed", "already-gone", "skipped", "failed"];
 const OUTSIDE = "outside the TURN asset layout";
 const LIVE_MSG = "a project in this run exists again; nothing was deleted";
+// 2026-09-27 review: a run that already removed files must never read "nothing was deleted"
+const liveMsg = (removed) => (removed > 0
+  ? `stopped: a project in this run exists again; ${removed} ${removed === 1 ? "file" : "files"} had already been deleted`
+  : LIVE_MSG);
+const liveText = (removed, further) => (removed > 0
+  ? `One of these projects exists again, so deleting stopped. ${removed} ${removed === 1 ? "file" : "files"} had already been deleted. Refresh.`
+  : `One of these projects exists again, so nothing ${further ? "further " : ""}was deleted. Refresh.`);
+// Storage must answer well inside the 90 s run lease that MARK_SENDING renews
+// (index.ts aborts the request at 30 s; this is the adapter-independent guard).
+const STORAGE_TIMEOUT_MS = 35_000;
 
 // ── path guard (defense in depth: runs at preview and again per batch) ──────
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -258,9 +268,6 @@ returning *`,
   from turn_admin_ops.storage_runs where id = $1::uuid`,
   RUN_EXPIRE: `update turn_admin_ops.storage_runs set status = 'expired'
  where id = $1::uuid and status = 'previewed' and preview_expires_at <= now()`,
-  RUN_RELEASE: `update turn_admin_ops.storage_runs
-   set status = 'partial', lease_token = null, lease_expires_at = null, last_error = $3::text
- where id = $1::uuid and lease_token = $2::uuid`,
   RECONCILE: `update turn_admin_ops.storage_run_items i
    set outcome = case when exists (select 1 from storage.objects o
                                     where o.bucket_id = 'turn-assets' and o.name = i.path)
@@ -291,17 +298,22 @@ update turn_admin_ops.storage_run_items i
  where i.run_id = ok.id and i.path in (select value from jsonb_array_elements_text($3::jsonb))
    and i.outcome in ('planned', 'failed')
 returning i.path`,
-  ITEMS_CONFIRM: `update turn_admin_ops.storage_run_items i
+  // lease-guarded too (2026-09-27 review): a call whose lease expired during a
+  // slow Storage request must not overwrite the new holder's 'sending' items
+  ITEMS_CONFIRM: `with ok as (select id from turn_admin_ops.storage_runs where id = $1::uuid and lease_token = $4::uuid)
+update turn_admin_ops.storage_run_items i
    set outcome = case when x.gone then 'removed' else 'failed' end,
        detail  = case when x.gone then null else $3::text end, updated_at = now()
-  from (select value->>'path' as path, (value->>'gone')::boolean as gone
-          from jsonb_array_elements($2::jsonb)) x
- where i.run_id = $1::uuid and i.path = x.path and i.outcome = 'sending'`,
+  from ok, (select value->>'path' as path, (value->>'gone')::boolean as gone
+              from jsonb_array_elements($2::jsonb)) x
+ where i.run_id = ok.id and i.path = x.path and i.outcome = 'sending'
+returning i.path`,
   ITEM_COUNTS: `select count(*) filter (where outcome = 'removed')::int as removed,
        coalesce(sum(bytes) filter (where outcome = 'removed'), 0)::bigint as removed_bytes,
        count(*) filter (where outcome = 'already-gone')::int as already_gone,
        count(*) filter (where outcome = 'skipped')::int as skipped,
        count(*) filter (where outcome = 'skipped' and detail like 'held:%')::int as held,
+       count(*) filter (where outcome = 'skipped' and detail = 'held: upload in progress')::int as held_upload,
        count(*) filter (where outcome = 'failed')::int as failed,
        count(*) filter (where outcome = 'kept')::int as kept,
        count(*) filter (where outcome in ('planned', 'failed', 'sending'))::int as remaining,
@@ -324,14 +336,19 @@ returning id`,
  where f.project_id in (select value::uuid from jsonb_array_elements_text($1::jsonb))
  group by f.status order by f.status`,
 
-  // ── runs (History)
+  // ── runs (History). Keyset pages (created_at, id) so no run falls off the
+  // list; $2 false hides reviews that were never run (previewed / expired).
+  // created_at::text round-trips the full microseconds for the cursor.
   RUNS_LIST: `select id, action, admin_email, project_ids, status, planned_files, planned_bytes, kept_files,
        removed_files, removed_bytes, already_gone, skipped_files, failed_files, created_at, started_at,
        finished_at, preview_expires_at, lease_expires_at, last_error,
        (status = 'running' and lease_expires_at < now()) as interrupted,
-       (status = 'previewed' and preview_expires_at <= now()) as preview_expired
+       (status = 'previewed' and preview_expires_at <= now()) as preview_expired,
+       created_at::text as cursor_at
   from turn_admin_ops.storage_runs
- order by created_at desc
+ where ($2::boolean or status not in ('previewed', 'expired'))
+   and ($3::timestamptz is null or (created_at, id) < ($3::timestamptz, $4::uuid))
+ order by created_at desc, id desc
  limit $1::int`,
   RUN_DETAIL: `select id, action, admin_email, project_ids, status, planned_files, planned_bytes, kept_files,
        removed_files, removed_bytes, already_gone, skipped_files, failed_files, created_at, started_at,
@@ -465,6 +482,16 @@ function optCursor(v) {
   if (typeof v !== "string" || v.length > 1024) fail(400, "bad_request", "cursor must be a string of at most 1024 characters.");
   return v;
 }
+// History keyset: "<created_at as Postgres text>|<run id>" (from a previous page)
+const TS_TEXT = /^\d{4}-\d\d-\d\d[ T]\d\d:\d\d:\d\d(\.\d{1,6})?([+-]\d\d(:?\d\d)?|Z)?$/;
+function runsCursor(v) {
+  const s = optCursor(v);
+  if (s === null) return null;
+  const at = s.lastIndexOf("|");
+  const ts = s.slice(0, at), id = s.slice(at + 1);
+  if (at < 1 || !TS_TEXT.test(ts) || !UUID.test(id)) fail(400, "bad_request", "cursor is not a History cursor.");
+  return { ts, id: id.toLowerCase() };
+}
 function clampInt(v, lo, hi, dflt) {
   const n = typeof v === "number" ? v : (typeof v === "string" && v.trim() !== "" ? Number(v) : NaN);
   if (!Number.isFinite(n)) return dflt;
@@ -503,6 +530,17 @@ export function createAdminStorage({
   const adminEmails = (env.adminEmails || []).map(normEmail).filter(Boolean);
   const adminUserIds = (env.adminUserIds || []).map((s) => String(s).trim().toLowerCase()).filter(Boolean);
   const cronSecret = typeof env.cronSecret === "string" && env.cronSecret.length >= 32 ? env.cronSecret : "";
+  const storageTimeoutMs = clampInt(env.storageTimeoutMs, 1, 60_000, STORAGE_TIMEOUT_MS);
+
+  // A Storage request that hangs is reported as a failure well inside the
+  // lease; its items are re-verified by absence on the next call.
+  function bounded(promise) {
+    let timer = null;
+    const late = new Promise((resolve) => {
+      timer = setTimeout(() => resolve({ error: { message: `Storage did not answer within ${Math.max(1, Math.round(storageTimeoutMs / 1000))} s` } }), storageTimeoutMs);
+    });
+    return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+  }
 
   // One unit of work = one transaction; SET LOCAL timeouts first.
   function runTx(mode, timeout, fn) {
@@ -784,23 +822,37 @@ export function createAdminStorage({
         return q(S.MARK_SENDING, [runId, token, JSON.stringify(send)]);
       });
       if (!send.length) return { sent: 0, removed: 0 };
-      if (marked.length < send.length) return { leaseLost: true };
-      // Storage, with no transaction open
+      if (marked.length < send.length) return { leaseLost: "before" };
+      // Storage, with no transaction open, bounded well inside the lease
       const names = exactNames(send);
       let storageError = null;
       try {
-        const res = await io.storageRemove(names);
+        const res = await bounded(io.storageRemove(names));
         if (res && res.error) storageError = errText(res.error);
       } catch (e) {
         storageError = errText(e);
       }
-      // confirmed by absence
+      // confirmed by absence; written only while this call still holds the lease
       const still = new Set((await runTx("read", READ_TIMEOUT, (q) => q(S.PRESENT, [JSON.stringify(send)]))).map((r) => r.name));
       const outcomes = send.map((p) => ({ path: p, gone: !still.has(p) }));
       const detail = storageError || "still present after remove";
-      await runTx("write", WRITE_TIMEOUT, (q) => q(S.ITEMS_CONFIRM, [runId, JSON.stringify(outcomes), detail]));
+      const confirmed = await runTx("write", WRITE_TIMEOUT, (q) => q(S.ITEMS_CONFIRM, [runId, JSON.stringify(outcomes), detail, token]));
+      if (confirmed.length < send.length) return { leaseLost: "during" };   // the new holder settles them by absence
       const removed = outcomes.filter((o) => o.gone).length;
       return { sent: send.length, removed, error: removed < send.length ? detail : null };
+    }
+
+    // A project exists again: stop, and say how much this run had already removed.
+    async function stopLive(liveRows, further) {
+      const ids409 = liveRows.map((r) => r.id);
+      const [c] = await runTx("write", WRITE_TIMEOUT, async (q) => {
+        const counts = await q(S.ITEM_COUNTS, [runId]);
+        const k = counts[0];
+        await q(S.RUN_FINISH, [runId, token, "partial", k.removed, k.removed_bytes, k.already_gone, k.skipped, k.failed, liveMsg(k.removed)]);
+        return counts;
+      });
+      const result = await summarize(runId, run, "partial", false);
+      fail(409, "project_live", liveText(c.removed, further), { ids: ids409, result });
     }
 
     try {
@@ -811,10 +863,7 @@ export function createAdminStorage({
         if (stillLive.length) return { live: stillLive, cands: [], open: [] };
         return { live: [], cands: await q(S.CANDIDATES, [idsJson]), open: await q(S.ITEMS_OPEN, [runId]) };
       });
-      if (v.live.length) {
-        await runTx("write", WRITE_TIMEOUT, (q) => q(S.RUN_RELEASE, [runId, token, LIVE_MSG]));
-        fail(409, "project_live", "One of these projects exists again, so nothing was deleted. Refresh.", { ids: v.live.map((r) => r.id) });
-      }
+      if (v.live.length) await stopLive(v.live, false);
       const byPath = new Map(v.cands.map((r) => [r.path, r]));
       const settled = [], targets = [];
       for (const it of v.open) {
@@ -832,7 +881,8 @@ export function createAdminStorage({
         if (zero >= ZERO_PROGRESS_STOP) break;
         const r = await runBatch(batch);
         if (r.live) { live = r.live; break; }
-        if (r.leaseLost) { lastError = "lease lost to another call; stopped before calling Storage"; break; }
+        if (r.leaseLost === "before") { lastError = "lease lost to another call; stopped before calling Storage"; break; }
+        if (r.leaseLost) { lastError = "lease lost to another call during a Storage request; that call records these files"; break; }
         if (r.error) lastError = r.error;
         if (r.sent > 0) zero = r.removed === 0 ? zero + 1 : 0;
       }
@@ -842,14 +892,15 @@ export function createAdminStorage({
       lastError = errText(e);
       log("admin-storage: delete stopped", runId, lastError);
     }
+    if (live && !unexpected) await stopLive(live, true);
 
     // finish: counters recomputed from the items
     let status;
     try {
       status = await runTx("write", WRITE_TIMEOUT, async (q) => {
         const [c] = await q(S.ITEM_COUNTS, [runId]);
-        const st = c.remaining === 0 && !live ? "done" : "partial";
-        const err = st === "done" ? null : (live ? LIVE_MSG : lastError);
+        const st = c.remaining === 0 ? "done" : "partial";
+        const err = st === "done" ? null : lastError;
         await q(S.RUN_FINISH, [runId, token, st, c.removed, c.removed_bytes, c.already_gone, c.skipped, c.failed, err]);
         return st;
       });
@@ -857,7 +908,6 @@ export function createAdminStorage({
       log("admin-storage: could not finish run", runId, errText(e));
       throw unexpected || e;   // the run stays 'running'; its lease expires -> Interrupted
     }
-    if (live) fail(409, "project_live", "One of these projects exists again, so nothing further was deleted. Refresh.", { ids: live.map((r) => r.id) });
     if (unexpected) throw unexpected;
     return summarize(runId, run, status, status === "done");
   }
@@ -868,7 +918,13 @@ export function createAdminStorage({
     if (!s.setup.audit) fail(412, "audit_missing", MESSAGES.audit_missing);
     if (req.runId === undefined || req.runId === null) {
       const limit = clampInt(req.limit, 1, 50, 20);
-      return { runs: await runTx("read", READ_TIMEOUT, (q) => q(S.RUNS_LIST, [limit])) };
+      const reviews = req.reviews !== false;
+      const at = runsCursor(req.cursor);
+      const rows = await runTx("read", READ_TIMEOUT, (q) => q(S.RUNS_LIST, [limit, reviews, at ? at.ts : null, at ? at.id : null]));
+      const last = rows.length === limit ? rows[rows.length - 1] : null;
+      const nextCursor = last ? last.cursor_at + "|" + last.id : null;
+      for (const r of rows) delete r.cursor_at;
+      return { runs: rows, nextCursor };
     }
     const runId = reqUuid(req.runId, "runId");
     const outcome = req.outcome === undefined || req.outcome === null ? "failed" : req.outcome;
@@ -945,26 +1001,33 @@ export function createAdminStorage({
         }
       }
       const written = await runTx("write", WRITE_TIMEOUT, (q) => q(S.DRAIN_ITEMS_WRITE, [runId, token, JSON.stringify(items)]));
-      if (written.length < items.length) return { leaseLost: true };
-      for (const [c, removed, error] of completes) await complete(c, removed, error);
-      if (!toRemove.length) return {};
-      const names = exactNames(toRemove.map((c) => c.path));
-      let storageError = null;
-      try {
-        const res = await io.storageRemove(names);
-        if (res && res.error) storageError = errText(res.error);
-      } catch (e) {
-        storageError = errText(e);
+      if (written.length < items.length) return { leaseLost: "before" };
+      // Storage comes RIGHT after the recheck (2026-09-27 review): completing the
+      // kept / held / already-gone rows is one RPC per row, and doing it first
+      // left seconds in which a file could become referenced and still be sent.
+      let error = null, leaseLost = null;
+      if (toRemove.length) {
+        const names = exactNames(toRemove.map((c) => c.path));
+        let storageError = null;
+        try {
+          const res = await bounded(io.storageRemove(names));
+          if (res && res.error) storageError = errText(res.error);
+        } catch (e) {
+          storageError = errText(e);
+        }
+        const still = new Set((await runTx("read", READ_TIMEOUT, (q) => q(S.PRESENT, [JSON.stringify(names)]))).map((r) => r.name));
+        const detail = storageError || "still present after remove";
+        const outcomes = toRemove.map((c) => ({ path: c.path, gone: !still.has(c.path) }));
+        const confirmed = await runTx("write", WRITE_TIMEOUT, (q) => q(S.ITEMS_CONFIRM, [runId, JSON.stringify(outcomes), detail, token]));
+        if (confirmed.length < toRemove.length) leaseLost = "during";   // a takeover settles our items by absence
+        for (const c of toRemove) {
+          const gone = !still.has(c.path);
+          await complete(c, gone, gone ? null : detail);   // queue-lease guarded, confirmed by absence
+        }
+        if (outcomes.some((o) => !o.gone)) error = detail;
       }
-      const still = new Set((await runTx("read", READ_TIMEOUT, (q) => q(S.PRESENT, [JSON.stringify(names)]))).map((r) => r.name));
-      const detail = storageError || "still present after remove";
-      const outcomes = toRemove.map((c) => ({ path: c.path, gone: !still.has(c.path) }));
-      await runTx("write", WRITE_TIMEOUT, (q) => q(S.ITEMS_CONFIRM, [runId, JSON.stringify(outcomes), detail]));
-      for (const c of toRemove) {
-        const gone = !still.has(c.path);
-        await complete(c, gone, gone ? null : detail);
-      }
-      return { error: outcomes.some((o) => !o.gone) ? detail : null };
+      for (const [c, removed, err] of completes) await complete(c, removed, err);
+      return { error, leaseLost };
     }
 
     try {
@@ -977,7 +1040,11 @@ export function createAdminStorage({
         if (!rows.length) break;
         claimed += rows.length;
         const r = await drainBatch(rows);
-        if (r.leaseLost) { cutShort = true; lastError = "lease lost; stopped before calling Storage"; break; }
+        if (r.leaseLost) {
+          cutShort = true;
+          lastError = r.leaseLost === "before" ? "lease lost; stopped before calling Storage" : "lease lost during a Storage request; stopped";
+          break;
+        }
         if (r.error) lastError = r.error;
         if (rows.length < take) break;
       }
@@ -1008,6 +1075,7 @@ export function createAdminStorage({
       runId, status: fin.st, claimed,
       removed: fin.c.removed, removedBytes: fin.c.removed_bytes, alreadyGone: fin.c.already_gone,
       keptReferenced: fin.c.kept, held: fin.c.held, failed: fin.c.failed,
+      heldUpload: fin.c.held_upload, heldGrace: fin.c.held - fin.c.held_upload,
       notQueued: fin.c.skipped - fin.c.held, stillQueued: fin.stillQueued,
     };
   }

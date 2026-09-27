@@ -5,7 +5,12 @@
    scripts/build-dist.mjs does (preset-react classic + block scoping; no dist/
    needed) and run in a vm with a small hooks runtime (state, effects, refs,
    memo, keyed paths), so the REAL modal is driven end to end against a fake
-   sb.functions.invoke that answers like supabase/functions/admin-storage. */
+   sb.functions.invoke that answers like supabase/functions/admin-storage.
+   2026-09-27 review: sign-out closes the page with no click, Resume asks
+   first, History pages and hides unrun reviews, selection / footer / × /
+   50-cap rules, keyboard (Enter stays on the control, sheet focus, Tab trap),
+   network vs not-deployed copy, a mid-run project_live with the server's
+   counts, labels, and phone / light-theme CSS. */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -28,7 +33,7 @@ const AUTH_JS = DIST ? read("dist/app/auth-ui.js") : transform(read("app/auth-ui
 
 let checks = 0;
 const plain = (x) => x === undefined ? undefined : JSON.parse(JSON.stringify(x));
-const same = (a, b, m) => assert.deepEqual(plain(a), plain(b), m);   // vm-realm arrays/objects compare by value
+const same = (a, b, m) => assert.deepEqual(plain(a), plain(b), ...(m === undefined ? [] : [m]));   // vm-realm arrays/objects compare by value
 async function test(name, fn){ await fn(); checks++; console.log("PASS", name); }
 const settle = async (n = 40) => { for (let i = 0; i < n; i++) await new Promise((r) => setImmediate(r)); };
 
@@ -156,8 +161,10 @@ async function click(node){ assert.ok(node, "clickable node exists"); assert.ok(
 /* ── a vm box with the page loaded ─────────────────────────────────────── */
 function makeBox(invoke, opts = {}){
   const rt = createRuntime();
-  const listeners = {}, timers = [], intervals = [], toasts = [];
-  const body = { children: [], appendChild(el){ this.children.push(el); el.parentNode = this; }, removeChild(el){ this.children = this.children.filter((x) => x !== el); el.parentNode = null; } };
+  const listeners = {}, timers = [], intervals = new Map(), toasts = [], classes = new Set();
+  let nextInterval = 0;
+  const body = { children: [], appendChild(el){ this.children.push(el); el.parentNode = this; }, removeChild(el){ this.children = this.children.filter((x) => x !== el); el.parentNode = null; },
+    classList: { toggle: (c, on) => { if (on) classes.add(c); else classes.delete(c); return !!on; }, contains: (c) => classes.has(c) } };
   const box = {
     console, React: rt.React, ReactDOM: rt.ReactDOM, queueMicrotask,
     Icon: new Proxy({}, { get: () => function IconStub(){ return null; } }),
@@ -170,17 +177,18 @@ function makeBox(invoke, opts = {}){
     },
     setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     clearTimeout: () => {},
-    setInterval: (fn) => { intervals.push(fn); return intervals.length; },
-    clearInterval: () => {},
+    setInterval: (fn, ms) => { const id = ++nextInterval; intervals.set(id, { fn, ms }); return id; },
+    clearInterval: (id) => { intervals.delete(id); },
     appToast: (m, k) => toasts.push([m, k]),
     turnIsAdmin: opts.admin !== false,
   };
   box.window = box;
-  if (invoke !== null) box.sbClient = () => ({ functions: { invoke } });
+  if (invoke !== null) box.sbClient = () => Object.assign({ functions: { invoke } }, opts.auth ? { auth: opts.auth } : {});
   vm.createContext(box);
   vm.runInContext(ADMIN_JS, box);
   const key = async (k) => { for (const fn of listeners.keydown || []) fn({ key: k, preventDefault(){} }); await settle(); };
-  return { box, rt, timers, toasts, key, body, tree: () => rt.tree() };
+  const tick = async (ms) => { for (const { fn, ms: every } of [...intervals.values()]) if (every === ms) fn(); await settle(); };
+  return { box, rt, timers, intervals, listeners, classes, toasts, key, tick, body, tree: () => rt.tree() };
 }
 
 /* ── the fake admin-storage function ───────────────────────────────────── */
@@ -223,7 +231,7 @@ function OVERVIEW(over = {}){
       folder(A, P1, P1, { uploader_email: "alice@example.test", files: 3, bytes: 28 * MB, referenced: 3 }),
       folder(A, "studio-previews", P1, { uploader_email: "alice@example.test", files: 1, bytes: 2 * MB, service: 1 }),
       folder(B, P4, P4, { uploader_email: "bob@example.test", files: 2, bytes: 20 * MB, referenced: 2 }),
-      folder(C, P4, P4, { uploader_email: "carol@example.test", files: 5, bytes: 50 * MB, referenced: 5 }),
+      folder(C, P4, P4, { uploader_email: "carol@example.test", files: 5, bytes: 50 * MB, referenced: 4, unreferenced: 1, safe_files: 1, safe_bytes: MB, verdict: "some" }),
       folder(A, PD1, PD1, { uploader_email: "alice@example.test", files: 10, bytes: GB, safe_files: 8, safe_bytes: 900 * MB, orphan_deleted: 8, queued: 2, verdict: "some" }),
       folder(A, "studio-previews", PD1, { uploader_email: "alice@example.test", files: 1, bytes: 10 * MB, safe_files: 1, safe_bytes: 10 * MB, service: 1, verdict: "some" }),
       folder(D, PD2, PD2, { uploader_email: null, files: 4, bytes: 400 * MB, safe_files: 4, safe_bytes: 400 * MB, orphan_deleted: 4, verdict: "delete-folder" }),
@@ -313,7 +321,13 @@ await test("buildModel groups Owns / Uploaded elsewhere / Deleted and totals fro
   const m = lib.buildModel(OVERVIEW());
   const acct = (id) => m.accountsById[id];
   same(m.accounts.map((a) => a.id), [A, D, C, B], "largest upload folder first");
-  same(acct(A).owns.map((p) => p.label), ["Neon Harbor", "Dust Road (Show)", "Ep 2 \u2014 Dust Road"]);
+  same(acct(A).owns.map((p) => p.label), ["Neon Harbor", "Dust Road \u2014 Episode 2", "Dust Road (Show)"], "an episode shows its own title");
+  assert.equal(lib.kindLabel(m.projectsById[P3]), "Ep 2 \u00b7 Dust Road", "the Kind column carries the episode number");
+  const ep = (o) => lib.projectLabel(Object.assign({ live: true, kind: "episode", show_title: "Dust Road" }, o));
+  assert.notEqual(ep({ title: "The Well" }), ep({ title: "The Storm" }), "two unnumbered episodes stay distinguishable");
+  assert.equal(ep({ title: null, episode: null }), "Dust Road \u00b7 Episode");
+  assert.equal(ep({ title: null, episode: 3 }), "Dust Road \u00b7 Episode 3");
+  assert.equal(lib.kindLabel({ live: true, kind: "episode", show_title: "Dust Road", episode: null }), "Episode \u00b7 Dust Road");
   assert.equal(acct(A).elsewhere.length, 0);
   assert.equal(acct(A).deleted.length, 1);
   const d = acct(A).deleted[0];
@@ -354,6 +368,14 @@ await test("keptLines: plain language, only non-zero lines (spec §8.7)", () => 
   same(lib.keptLines({ kept: { files: 0, byStatus: {}, usedBy: [] } }, m.projectsById), []);
   same(lib.keptLines({ kept: { files: 3, byStatus: { "current, history": 3, "outside the TURN asset layout": 2 }, usedBy: [] } }, {}),
     ["3 still in use", "2 outside the TURN asset layout (review by hand)"]);
+  // 2026-09-27 review: 'history-ref' (and any referenced kind) is in use, listed once, never as a raw code
+  same(lib.keptLines({ kept: { files: 1, byStatus: { "history-ref": 1 }, usedBy: [{ projectId: P2, files: 1 }] } }, m.projectsById),
+    ["1 still used by Dust Road (Show)"]);
+  same(lib.keptLines({ kept: { files: 1, byStatus: { "history-ref": 1 }, usedBy: [] } }, {}), ["1 still in use"]);
+  same(lib.keptLines({ kept: { files: 4, byStatus: { "current, history-ref": 2, "cameo-angle, history-cleanup-pending": 1, "kept": 1 }, usedBy: [] } }, {}),
+    ["3 still in use", "1 kept"]);
+  for (const l of lib.keptLines({ kept: { files: 2, byStatus: { "history-ref": 1, "ref, history-ref": 1 }, usedBy: [] } }, {}))
+    assert.doesNotMatch(l, /history-ref|kept:/);
 });
 await test("errorMessage maps every server code to the page's copy (spec §8.10)", () => {
   const M = lib.MSG;
@@ -373,6 +395,9 @@ await test("errorMessage maps every server code to the page's copy (spec §8.10)
   assert.equal(e(409, "run_busy", { startedAt: started }), "This delete is already running (started 14:02). It will show in History.");
   assert.equal(e(500, "internal"), "Something went wrong on the server. Nothing further was deleted; History shows what happened.");
   assert.equal(e(0, "timeout"), "The server took too long. History shows whether anything was deleted.");
+  assert.equal(e(0, "fetch"), "Lost the connection to the server. History shows whether anything was deleted.", "a dropped connection is not 'not deployed'");
+  assert.equal(e(409, "project_live", { result: { removed: 0 } }), M.projectLive);
+  assert.equal(e(409, "project_live", { result: { removed: 200 } }), "One of these projects exists again, so deleting stopped. 200 files had already been deleted. Refresh.");
 });
 
 /* ── 2. entry point: the account chip + the opener ─────────────────────── */
@@ -408,6 +433,7 @@ await test("the opener refuses a non-admin and fetches nothing before it opens",
   const srv = server({ overview: ok(OVERVIEW()) });
   const page = makeBox(srv.invoke, { admin: false });
   assert.equal(srv.calls.length, 0, "loading the script calls nothing");
+  assert.equal(page.timers.length + page.intervals.size + Object.keys(page.listeners).length, 0, "…and schedules or listens to nothing (every visitor loads it)");
   assert.equal(page.box.turnOpenAdminStorage(), false);
   await settle();
   assert.equal(page.body.children.length, 0);
@@ -421,12 +447,31 @@ await test("the opener refuses a non-admin and fetches nothing before it opens",
   same(srv.calls, [{ action: "overview" }]);
 });
 
-await test("the page closes itself once the admin flag drops (sign-out)", async () => {
+await test("the page closes itself once the admin flag drops (sign-out), with no click: the 1 s watch and the auth listener", async () => {
   const page = await openPage({ overview: ok(OVERVIEW()) });
   assert.equal(page.body.children.length, 1);
-  page.box.turnIsAdmin = false;
-  await click(button(page.tree(), /^Projects$/));
-  assert.equal(page.body.children.length, 0);
+  assert.ok(page.classes.has("adm-open"), "body.adm-open while open (hides the price-drift card)");
+  page.box.turnIsAdmin = false;                      // app.jsx, after a sign-out in another tab
+  await page.tick(1000);
+  assert.equal(page.body.children.length, 0, "gone within a second, nothing clicked");
+  assert.ok(!page.classes.has("adm-open"));
+  assert.equal(page.intervals.size, 0, "its timers are cleared");
+  // supabase-js reports the sign-out before app.jsx re-renders
+  let cb = null, unsubscribed = 0;
+  const auth = { onAuthStateChange(fn){ cb = fn; return { data: { subscription: { unsubscribe(){ unsubscribed++; } } } }; } };
+  const second = await openPage({ overview: ok(OVERVIEW()) }, { auth });
+  assert.equal(typeof cb, "function");
+  cb("TOKEN_REFRESHED", { user: {} }); await settle();
+  assert.equal(second.body.children.length, 1, "a refreshed session keeps it open");
+  cb("SIGNED_OUT", null); await settle();
+  assert.equal(second.body.children.length, 0, "a sign-out closes it at once");
+  assert.equal(unsubscribed, 1);
+  // a stale close from a closed instance never closes a newer one
+  const stale = cb;
+  assert.equal(second.box.turnOpenAdminStorage(), true); await settle();
+  assert.notEqual(cb, stale, "the new instance subscribed afresh");
+  stale("SIGNED_OUT", null); await settle();
+  assert.equal(second.body.children.length, 1);
 });
 
 /* ── 3. loading, empty and error states (inline, not only toasts) ─────── */
@@ -508,6 +553,13 @@ await test("empty bucket, audit-off banner, not-full-reader banner, no queue", a
   await click(find(page.tree(), (n) => hasClass(n, "adm-acct-head")));
   assert.equal(button(page.tree(), /Review & delete/), null, "no delete action while deleting is off");
   assert.match(text(page.tree()), /Deleting off/);
+  page.srv.routes["project-files"] = ok({ rows: [], nextCursor: null, total: 0 });
+  await click(button(page.tree(), /^Projects$/));
+  assert.equal(findAll(page.tree(), (n) => n.type === "input" && n.props.type === "checkbox").length, 0, "no checkboxes while deleting is off");
+  await click(find(page.tree(), (n) => hasClass(n, "adm-row") && /Deleted project · eeeeeeee/.test(text(n)) && n.props.onClick));
+  const foot = find(page.tree(), (n) => hasClass(n, "adm-detail-foot"));
+  assert.equal(button(foot, /Review & delete/).props.disabled, true, "the detail footer follows the same rule");
+  assert.match(text(foot), /Deleting is off until supabase\/admin-storage\.sql is run/);
 
   page = await openPage({ overview: ok(OVERVIEW({ setup: SETUP({ seesAll: false, deleteEnabled: false, drainEnabled: false }) })) });
   assert.match(text(find(page.tree(), (n) => hasClass(n, "adm-setup"))),
@@ -533,7 +585,8 @@ await test("tiles and the Accounts tab (default): cards, groups, filters, servic
   const cards = byClass(t, "adm-acct");
   assert.equal(cards.length, 4);
   assert.match(text(cards[0]), /alice@example\.test/);
-  assert.match(text(cards[0]), /Neon Harbor · Dust Road \(Show\) · Ep 2 — Dust Road/);
+  assert.match(text(cards[0]), /Neon Harbor · Dust Road — Episode 2 · Dust Road \(Show\)/);
+  assert.match(text(cards[0]), /3 GB uploaded · 16 files/, "the card size says it is what this account uploaded");
   assert.match(text(cards[0]), /3 projects/);
   assert.match(text(cards[0]), /last sign-in 3 d ago/);
   assert.match(text(cards[1]), /Deleted account · dddddddd/);
@@ -675,6 +728,10 @@ await test("bulk review from Projects: checkbox gates Delete, countdown, kept li
   const overlay = find(page.tree(), (n) => hasClass(n, "adm-overlay"));
   overlay.props.onMouseDown({ target: overlay, currentTarget: overlay }); await page.key("Escape");
   assert.equal(page.body.children.length, 1, "no backdrop/Esc close while a delete call is in flight");
+  const x = find(page.tree(), (n) => n.type === "button" && n.props["aria-label"] === "Close" && hasClass(n, "bible-x"));
+  assert.equal(x.props.disabled, true, "the header \u00d7 is disabled while deleting");
+  x.props.onClick(evt(x)); await settle();
+  assert.equal(page.body.children.length, 1, "\u2026and inert even if clicked");
   assert.ok(find(page.tree(), (n) => hasClass(n, "adm-sheet")));
   gates[0].resolve(script[0]); await settle();
   assert.match(text(find(page.tree(), (n) => hasClass(n, "adm-progress-lab"))), /^Deleting… 5 of 12 · 512 MB freed$/);
@@ -759,8 +816,118 @@ await test("a slow preview never reopens a sheet the admin already closed", asyn
   assert.equal(find(page.tree(), (n) => hasClass(n, "adm-sheet")), null, "stays closed");
 });
 
+/* ── 5b. 2026-09-27 review: selection rules, errors, keyboard, focus ──── */
+const checkboxes = (t) => findAll(t, (n) => n.type === "input" && n.props.type === "checkbox");
+await test("Projects: a live project's unused files are never selectable, say so in the row, and stay out of 'Safe to delete'", async () => {
+  const page = await openPage({ overview: ok(OVERVIEW()) });
+  await click(button(page.tree(), /^Projects$/));
+  const carol = find(page.tree(), (n) => hasClass(n, "adm-row") && /Carol's film/.test(text(n)) && n.props.onClick);
+  assert.equal(checkboxes(carol).length, 0, "no checkbox on a live project, even with safe files");
+  assert.equal(text(find(carol, (n) => hasClass(n, "c-safe"))), "1 unused · kept (live)", "visible on a phone, not only in a tooltip");
+  assert.equal(checkboxes(page.tree()).length, 2);
+  await click(button(page.tree(), /^Safe to delete$/));
+  same(byClass(page.tree(), "adm-row").filter((n) => n.props.onClick).map((n) => text(find(n, (x) => hasClass(x, "c-title")))),
+    ["Deleted project · eeeeeeee", "Deleted project · ffffffff"]);
+  const pick = find(page.tree(), (n) => n.type === "label" && hasClass(n, "c-pick"));
+  assert.ok(pick && find(pick, (n) => n.type === "input"), "the whole pick cell is the tap target");
+});
+await test("Projects: at most 50 projects per review; picks that stop being deletable after a Refresh drop out", async () => {
+  const many = Array.from({ length: 51 }, (_, i) => "dd" + String(i).padStart(6, "0") + "-0000-4000-8000-000000000000");
+  const ov = OVERVIEW({
+    projects: many.map((id) => ({ project_id: id, owner_id: null, owner_email: null, title: "(deleted project)", kind: null, show_title: null, episode: null,
+      live: false, files: 1, total_bytes: MB, orphan_files: 1, uploader_emails: "alice@example.test", last_upload: iso(86400000) })),
+    folders: many.map((id) => folder(A, id, id, { uploader_email: "alice@example.test", files: 1, bytes: MB, safe_files: 1, safe_bytes: MB, orphan_deleted: 1, verdict: "delete-folder" })),
+  });
+  const page = await openPage({ overview: ok(ov), "preview-delete": PREVIEW() });
+  await click(button(page.tree(), /^Projects$/));
+  for (let i = 0; i < 51; i++) { checkboxes(page.tree())[i].props.onChange({ target: { checked: true } }); await settle(); }
+  assert.ok(page.toasts.some(([m]) => m === "Review at most 50 projects at a time."));
+  assert.equal(checkboxes(page.tree()).filter((c) => c.props.checked).length, 50);
+  await click(button(find(page.tree(), (n) => hasClass(n, "adm-bulk")), /^Review & delete 50 projects/));
+  assert.equal(page.srv.calls.at(-1).projectIds.length, 50, "the review sends 50 ids");
+  await click(button(find(page.tree(), (n) => hasClass(n, "adm-sheet")), /^Cancel$/));
+  // a Refresh that shows one picked project with nothing safe left, and one gone live
+  const next = JSON.parse(JSON.stringify(ov));
+  next.folders[0].safe_files = 0; next.folders[0].safe_bytes = 0;
+  next.projects[1].live = true; next.projects[1].owner_id = C; next.projects[1].title = "Back";
+  page.srv.routes.overview = ok(next);
+  await click(button(page.tree(), /^Refresh$/));
+  assert.match(text(find(page.tree(), (n) => hasClass(n, "adm-bulk"))), /^Review & delete 48 projects/, "stale picks drop out of the review");
+  page.srv.routes.overview = ok(Object.assign({}, next, { setup: SETUP({ deleteEnabled: false, drainEnabled: false }, { audit: false }) }));
+  await click(button(page.tree(), /^Refresh$/));
+  assert.equal(find(page.tree(), (n) => hasClass(n, "adm-bulk")), null, "no bulk delete once deleting is off");
+});
+await test("Accounts: a deleted project shared by several uploaders says the review covers the whole project; keyboard stays on the control", async () => {
+  const ov = OVERVIEW();
+  ov.projects.find((p) => p.project_id === PD1).files = 13;
+  ov.folders.push(folder(B, PD1, PD1, { uploader_email: "bob@example.test", files: 2, bytes: 2 * MB, safe_files: 2, safe_bytes: 2 * MB, orphan_deleted: 2, verdict: "delete-folder" }));
+  const page = await openPage({ overview: ok(ov), "preview-delete": PREVIEW(), "project-files": ok({ rows: [], nextCursor: null, total: 0 }) });
+  await click(find(byClass(page.tree(), "adm-acct")[0], (n) => hasClass(n, "adm-acct-head")));
+  const alice = byClass(page.tree(), "adm-acct")[0];
+  assert.match(text(alice), /Review & delete covers the whole project, including files other accounts uploaded\./);
+  const row = find(alice, (n) => hasClass(n, "adm-row") && n.props.role === "button");
+  assert.equal(text(find(row, (n) => hasClass(n, "c-files"))), "11 of 13 files", "this account's share of the project");
+  const review = button(row, /^Review & delete whole project$/);
+  assert.ok(review);
+  // Enter on the button: the button acts, the row behind it does not also open the detail
+  row.props.onKeyDown({ key: "Enter", target: review, currentTarget: row, preventDefault(){} }); await settle();
+  assert.equal(find(page.tree(), (n) => hasClass(n, "adm-detail")), null, "no detail drawer behind the sheet");
+  row.props.onKeyDown({ key: "Enter", target: row, currentTarget: row, preventDefault(){} }); await settle();
+  assert.ok(find(page.tree(), (n) => hasClass(n, "adm-detail")), "Enter on the row itself opens it");
+  await page.key("Escape");
+  await click(button(page.tree(), /^Projects$/));
+  const prow = find(page.tree(), (n) => hasClass(n, "adm-row") && /Deleted project · eeeeeeee/.test(text(n)) && n.props.onClick);
+  prow.props.onKeyDown({ key: "Enter", target: checkboxes(prow)[0], currentTarget: prow, preventDefault(){} }); await settle();
+  assert.equal(find(page.tree(), (n) => hasClass(n, "adm-detail")), null, "Enter on a checkbox doesn't open the detail");
+  prow.props.onKeyDown({ key: " ", target: prow, currentTarget: prow, preventDefault(){} }); await settle();
+  assert.ok(find(page.tree(), (n) => hasClass(n, "adm-detail")), "Space on the row opens it, like a button");
+});
+await test("review sheet takes focus when it opens; Tab stays inside it (and inside the page)", async () => {
+  const page = await openPage({ overview: ok(OVERVIEW()), "preview-delete": PREVIEW() });
+  await click(find(byClass(page.tree(), "adm-acct")[0], (n) => hasClass(n, "adm-acct-head")));
+  await click(button(page.tree(), /Review & delete/));
+  const sh = find(page.tree(), (n) => hasClass(n, "adm-sheet"));
+  assert.ok(page.rt.focused && hasClass(page.rt.focused, "adm-sheet") && page.rt.focused.props.role === "alertdialog", "focus moved into the alertdialog");
+  assert.equal(sh.props.tabIndex, -1);
+  const dlg = find(page.tree(), (n) => n.props.role === "dialog");
+  assert.equal(typeof dlg.props.onKeyDown, "function", "the page traps Tab");
+  // trapTab over a fake container: wraps both ways, pulls stray focus back in
+  const mk = (name) => ({ name, focus(){ doc.activeElement = this; } });
+  const [a, b, c] = [mk("a"), mk("b"), mk("c")];
+  const box = { querySelectorAll: () => [a, b, c], contains: (el) => [a, b, c].includes(el), focus(){ doc.activeElement = box; } };
+  const doc = { activeElement: c };
+  const tab = (shift) => { let prevented = false; const moved = lib.trapTab({ key: "Tab", shiftKey: shift, preventDefault(){ prevented = true; } }, box, doc); return [moved, prevented]; };
+  same(tab(false), [true, true]); assert.equal(doc.activeElement, a, "Tab on the last control wraps to the first");
+  same(tab(true), [true, true]); assert.equal(doc.activeElement, c, "Shift+Tab on the first wraps to the last");
+  doc.activeElement = b; same(tab(false), [false, false], "inside the list the browser moves focus");
+  doc.activeElement = { name: "app underneath" }; tab(false); assert.equal(doc.activeElement, a, "focus outside is pulled back in");
+  assert.equal(lib.trapTab({ key: "Escape" }, box, doc), false);
+});
+await test("a dropped connection during a delete says so; a project that reappears mid-run shows what was already deleted", async () => {
+  const page = await openPage({ overview: ok(OVERVIEW()), "preview-delete": PREVIEW(), runs: ok({ runs: [] }),
+    delete: { data: null, error: { name: "FunctionsFetchError", message: "Failed to send a request to the Edge Function" } } });
+  const reviewAndDelete = async () => {
+    await click(button(page.tree(), /Review & delete/));
+    find(find(page.tree(), (n) => hasClass(n, "adm-sheet")), (n) => n.type === "input" && n.props.type === "checkbox").props.onChange({ target: { checked: true } });
+    await settle();
+    await click(button(find(page.tree(), (n) => hasClass(n, "adm-sheet")), /^Delete 12 files$/));
+    return find(page.tree(), (n) => hasClass(n, "adm-sheet"));
+  };
+  await click(find(byClass(page.tree(), "adm-acct")[0], (n) => hasClass(n, "adm-acct-head")));
+  let sh = await reviewAndDelete();
+  assert.equal(text(find(sh, (n) => hasClass(n, "adm-banner"))), "Lost the connection to the server. History shows whether anything was deleted.");
+  assert.doesNotMatch(text(sh), /isn't deployed/, "the function answered before, so it is deployed");
+  await click(button(sh, /^Close$/));
+  page.srv.routes.delete = httpErr(409, "project_live", { ids: [PD1],
+    result: { runId: U("7"), status: "partial", planned: 450, removed: 200, removedBytes: 200 * MB, alreadyGone: 0, skipped: { count: 0, byStatus: {} }, failed: { count: 0, sample: [] }, remaining: 250 } });
+  sh = await reviewAndDelete();
+  assert.equal(text(find(sh, (n) => hasClass(n, "adm-result"))), "Deleted 200 of 450.", "the server's counts, not 0");
+  assert.equal(text(find(sh, (n) => hasClass(n, "adm-banner"))), "One of these projects exists again, so deleting stopped. 200 files had already been deleted. Refresh.");
+  assert.equal(button(sh, /^(Retry failed|Try again)/), null);
+});
+
 /* ── 6. History: statuses, Resume, Interrupted, item pages ─────────────── */
-await test("History: status chips, Resume for Partial and Interrupted, expandable items", async () => {
+await test("History: reviews hidden by default, status chips, Resume asks first (danger), expandable items, Load more", async () => {
   const base = { admin_email: "admin@infinitestudioai.com", project_ids: [PD1, PD2], planned_files: 12, planned_bytes: 1.2 * GB, kept_files: 9,
     removed_files: 0, removed_bytes: 0, already_gone: 0, skipped_files: 0, failed_files: 0, created_at: iso(3600e3), started_at: null,
     finished_at: null, preview_expires_at: iso(-600e3), lease_expires_at: null, last_error: null, interrupted: false, preview_expired: false };
@@ -774,22 +941,32 @@ await test("History: status chips, Resume for Partial and Interrupted, expandabl
     run(U("6"), { status: "done", action: "drain-cleanup-queue", admin_email: "cron", project_ids: [], removed_files: 30, removed_bytes: 30 * MB }),
     run(U("8"), { status: "running", interrupted: false }),
   ];
+  const older = run(U("9"), { status: "partial", removed_files: 1, created_at: iso(90 * 86400000) });
   const resumed = deferred();
   const page = await openPage({ overview: ok(OVERVIEW()),
-    runs: (b) => b.runId
-      ? ok({ run: runs[1], outcomes: { failed: 2, removed: 10, kept: 9 }, outcome: b.outcome, nextCursor: null,
-          items: b.outcome === "failed" ? [{ path: A + "/" + PD1 + "/character/c1/x.png", project_id: PD1, bytes: MB, outcome: "failed", detail: "Service Unavailable", attempts: 2 }] : [] })
-      : ok({ runs }),
+    runs: (b) => {
+      if (b.runId) return ok({ run: runs[1], outcomes: { failed: 2, removed: 10, kept: 9 }, outcome: b.outcome, nextCursor: null,
+        items: b.outcome === "failed" ? [{ path: A + "/" + PD1 + "/character/c1/x.png", project_id: PD1, bytes: MB, outcome: "failed", detail: "Service Unavailable", attempts: 2 }] : [] });
+      if (b.cursor) return ok({ runs: [older], nextCursor: null });
+      const list = b.reviews ? runs : runs.filter((r) => r.status !== "previewed" && r.status !== "expired");
+      return ok({ runs: list, nextCursor: "2026-09-27 01:00:00+00|" + U("8") });
+    },
     delete: () => resumed.promise });
   await click(button(page.tree(), /^History$/));
-  same(page.srv.calls.at(-1), { action: "runs", limit: 50 });
-  const rows = byClass(page.tree(), "adm-run");
+  same(page.srv.calls.at(-1), { action: "runs", limit: 50, reviews: false }, "reviews that were never run are left out by default");
   const chipOf = (r) => text(find(r, (n) => hasClass(n, "c-state")));
+  same(byClass(page.tree(), "adm-run").map(chipOf), ["Done", "Partial", "Interrupted", "Done", "Running"]);
+  await click(button(page.tree(), /^Include reviews not run$/));
+  same(page.srv.calls.at(-1), { action: "runs", limit: 50, reviews: true });
+  let rows = byClass(page.tree(), "adm-run");
   same(rows.map(chipOf), ["Done", "Partial", "Interrupted", "Expired", "Reviewed, not run", "Done", "Running"]);
   assert.match(text(rows[0]), /Deleted files of 2 deleted projects/);
+  assert.match(text(rows[3]), /Review of 2 deleted projects \(not run\)/, "a review that was never run doesn't say 'Deleted'");
+  assert.match(text(rows[4]), /Review of 2 deleted projects \(not run\)/);
   assert.match(text(rows[0]), /12 of 12 · 1\.2 GB/);
   assert.match(text(rows[5]), /Cleanup queue \(scheduled\)/);
   same(rows.map((r) => !!button(r, /^Resume$/)), [false, true, true, false, false, false, false]);
+  assert.ok(hasClass(button(rows[1], /^Resume$/), "danger"), "Resume is styled as the destructive action it is");
   await click(find(rows[1], (n) => hasClass(n, "adm-row")));
   same(page.srv.calls.at(-1), { action: "runs", runId: U("2"), outcome: "failed" });
   let open = byClass(page.tree(), "adm-run")[1];
@@ -798,15 +975,39 @@ await test("History: status chips, Resume for Partial and Interrupted, expandabl
   await click(button(open, /^Skipped/));
   same(page.srv.calls.at(-1), { action: "runs", runId: U("2"), outcome: "skipped" });
   assert.match(text(byClass(page.tree(), "adm-run")[1]), /Nothing skipped\./);
+  // Enter on Resume belongs to the button, not to the row around it
+  const row2 = find(byClass(page.tree(), "adm-run")[2], (n) => hasClass(n, "adm-row"));
+  row2.props.onKeyDown({ key: "Enter", target: button(row2, /^Resume$/), currentTarget: row2, preventDefault(){} }); await settle();
+  assert.equal(byClass(page.tree(), "adm-run")[2].props.className.includes("open"), false, "the row did not expand");
+  // Resume asks first: nothing is deleted until the admin confirms
   await click(button(byClass(page.tree(), "adm-run")[2], /^Resume$/));
+  assert.equal(page.srv.count("delete"), 0, "one click on Resume deletes nothing");
+  let confirmBox = find(byClass(page.tree(), "adm-run")[2], (n) => hasClass(n, "adm-confirm"));
+  assert.match(text(confirmBox), /^Resume deleting up to 8 files from 2 deleted projects\? Each file is checked again right before it is deleted/);
+  await click(button(confirmBox, /^Cancel$/));
+  assert.equal(find(byClass(page.tree(), "adm-run")[2], (n) => hasClass(n, "adm-confirm")), null);
+  assert.equal(page.srv.count("delete"), 0);
+  await click(button(byClass(page.tree(), "adm-run")[2], /^Resume$/));
+  confirmBox = find(byClass(page.tree(), "adm-run")[2], (n) => hasClass(n, "adm-confirm"));
+  assert.ok(hasClass(button(confirmBox, /^Resume deleting$/), "danger"));
+  await click(button(confirmBox, /^Resume deleting$/));
   same(page.srv.calls.at(-1), { action: "delete", runId: U("3") });
   assert.match(text(find(page.tree(), (n) => hasClass(n, "adm-sheet"))), /Deleting… 0 of 12/);
+  assert.equal(button(byClass(page.tree(), "adm-run")[1], /^Resume$/).props.disabled, true, "no second Resume while one is deleting");
   resumed.resolve(DEL({ runId: U("3"), status: "done", removed: 12, removedBytes: 1.2 * GB, remaining: 0, leftInProjects: {} }));
   await settle();
   const sh = find(page.tree(), (n) => hasClass(n, "adm-sheet"));
   assert.equal(text(find(sh, (n) => hasClass(n, "adm-result"))), "Deleted 12 files · 1.2 GB freed.");
   assert.match(text(sh), /Nothing left to delete in these projects\./);
-  assert.ok(page.srv.count("runs") >= 4, "History reloads after the run");
+  assert.ok(page.srv.count("runs") >= 5, "History reloads after the run");
+  await click(button(sh, /^Close$/));
+  // older runs stay reachable: Load more pages on with the server's cursor
+  await click(button(page.tree(), /^Load more$/));
+  same(page.srv.calls.at(-1), { action: "runs", limit: 50, reviews: true, cursor: "2026-09-27 01:00:00+00|" + U("8") });
+  rows = byClass(page.tree(), "adm-run");
+  assert.equal(rows.length, 8);
+  assert.ok(button(rows[7], /^Resume$/), "a 90-day-old Partial run can still be resumed");
+  assert.equal(button(page.tree(), /^Load more$/), null);
   const empty = await openPage({ overview: ok(OVERVIEW()), runs: ok({ runs: [] }) });
   await click(button(empty.tree(), /^History$/));
   assert.match(text(empty.tree()), /No deletions yet\./);
@@ -815,7 +1016,7 @@ await test("History: status chips, Resume for Partial and Interrupted, expandabl
 /* ── 7. Cleanup queue: table, stuck list, manual drain ─────────────────── */
 await test("Cleanup queue: by reason, stuck list, inline confirm, drain result (manual, no schedule)", async () => {
   const page = await openPage({ overview: ok(OVERVIEW()), runs: ok({ runs: [] }),
-    "drain-queue": ok({ runId: U("9"), status: "done", claimed: 42, removed: 30, removedBytes: 30 * MB, alreadyGone: 4, keptReferenced: 1, held: 2, failed: 0, notQueued: 0, stillQueued: 5 }) });
+    "drain-queue": ok({ runId: U("9"), status: "done", claimed: 42, removed: 30, removedBytes: 30 * MB, alreadyGone: 4, keptReferenced: 1, held: 2, heldGrace: 1, heldUpload: 1, failed: 0, notQueued: 0, stillQueued: 5 }) });
   await click(button(page.tree(), /^Cleanup queue$/));
   let t = page.tree();
   const q = find(t, (n) => hasClass(n, "adm-queue"));
@@ -831,7 +1032,8 @@ await test("Cleanup queue: by reason, stuck list, inline confirm, drain result (
   await click(button(t, /^Run cleanup$/));
   same(page.srv.calls.find((c) => c.action === "drain-queue"), { action: "drain-queue", max: 3 });
   assert.equal(text(find(page.tree(), (n) => hasClass(n, "adm-result"))),
-    "Removed 30 · already gone 4 · kept (in use) 1 · waiting (24 h) 2 · failed 0 · still queued 5");
+    "Removed 30 · already gone 4 · kept (in use) 1 · waiting (24 h) 1 · upload in progress 1 · failed 0 · still queued 5",
+    "a live re-upload is not reported as a 24 h wait");
   const off = await openPage({ overview: ok(OVERVIEW({ setup: SETUP({ drainEnabled: false }, { queueWorker: false }) })) });
   assert.match(text(find(off.tree(), (n) => hasClass(n, "adm-setup"))), /worker functions are missing/);
   await click(button(off.tree(), /^Cleanup queue$/));
@@ -849,10 +1051,11 @@ await test("Cleanup queue: by reason, stuck list, inline confirm, drain result (
 await test("the browser never names a file: bodies carry ids, a run id, or a keyset cursor only", () => {
   // every body the flows above sent went through server(); re-run the invariant over a fresh sweep
   const allowed = { overview: [], "project-files": ["projectId", "cursor"], "preview-delete": ["projectIds"], delete: ["runId"],
-    runs: ["limit", "runId", "outcome", "cursor"], "drain-queue": ["max"] };
+    runs: ["limit", "reviews", "runId", "outcome", "cursor"], "drain-queue": ["max"] };
   const src = ADMIN_CODE;
-  const bodies = [...src.matchAll(/callAdminStorage\(([^)]*\{[^}]*\})/g)].map((m) => m[1]);
-  assert.ok(bodies.length >= 6, "call sites found");
+  const bodies = [...src.matchAll(/callAdminStorage\(([^)]*\{[^}]*\})/g), ...src.matchAll(/const body = (\{[^}]*\})/g)].map((m) => m[1]);
+  assert.ok(bodies.length >= 7, "call sites found");
+  for (const m of src.matchAll(/body\.([a-zA-Z]+) = /g)) assert.equal(m[1], "cursor", "a body built in steps only adds a keyset cursor");
   for (const b of bodies) {
     const action = (b.match(/action:"([a-z-]+)"/) || [])[1];
     assert.ok(action in allowed, "known action " + action);
@@ -884,6 +1087,20 @@ await test("styles: the .adm-* block uses existing tokens only, phone rules and 
   assert.match(phone, /min-height:40px/);
   assert.match(phone, /env\(safe-area-inset-bottom\)/);
   assert.match(block, /\.adm-detail\{[^}]*width:min\(560px,100%\)/);
+  // 2026-09-27 review: light theme, phone width, the admin price card
+  const light = css.slice(css.indexOf('html[data-theme="light"]{'), css.indexOf("}", css.indexOf('html[data-theme="light"]{')));
+  const lightVal = (tok) => (light.match(new RegExp(tok + ":([^;]+);")) || [])[1].trim();
+  for (const sel of ["adm-skel-line", "adm-bar", "adm-progress"]) {
+    const rule = block.match(new RegExp("\\." + sel + "\\{([^}]*)\\}"))[1];
+    const tok = (rule.match(/background:var\((--[a-z0-9-]+)\)/) || [])[1];
+    assert.ok(tok, sel + " has a token background");
+    assert.notEqual(lightVal(tok), lightVal("--bg-2"), sel + " is visible on a light card");
+    assert.notEqual(lightVal(tok).toUpperCase(), "#FFFFFF", sel + " is not white on white");
+  }
+  assert.match(block, /body\.adm-open \.pricing-watch-card\{display:none\}/, "the price-drift card never covers the sheet");
+  assert.match(phone, /\.adm-search input,\.adm-sort select\{font-size:16px\}/, "16px fields: no iOS focus zoom");
+  assert.match(phone, /\.adm-row > \.c-pick\{min-width:40px;min-height:40px/, "a 40px pick target");
+  assert.match(phone, /\.adm-acct-main\{flex:1 1 0\}\s*\.adm-acct-chev\{order:2\}\s*\.adm-acct-side\{order:3;flex:1 1 100%/, "the chevron stays on the email's line");
   // every row cell sits in a grid area its table defines (no implicit tracks)
   for (const [table, cells] of Object.entries({ "adm-own": "title kind state files size by date go", "adm-else": "title files size go",
       "adm-del": "title state files size safe by date act", "adm-proj": "pick title owner kind state files size safe date",
@@ -893,12 +1110,12 @@ await test("styles: the .adm-* block uses existing tokens only, phone rules and 
 await test("wiring: TURN.html tag after auth-ui with a ?v= key, APP_FEATURES untouched, no app.jsx dependency", () => {
   const html = read("TURN.html");
   const auth = html.indexOf('src="app/auth-ui.jsx?v=');
-  const adm = html.indexOf('<script type="text/babel" src="app/admin-storage.jsx?v=20260927-admstorage1"></script>');
+  const adm = html.indexOf('<script type="text/babel" src="app/admin-storage.jsx?v=20260927-admstorage2"></script>');
   assert.ok(auth > 0 && adm > auth, "admin-storage.jsx loads after auth-ui.jsx");
   const lines = html.split("\n");
   const li = lines.findIndex((l) => l.includes('src="app/auth-ui.jsx?v='));
   assert.match(lines[li + 1], /src="app\/admin-storage\.jsx\?v=/, "right after it");
-  assert.ok(html.includes('src="app/auth-ui.jsx?v=20260927-admstorage1"') && html.includes('href="app/styles.css?v=20260927-admstorage1"'), "cache keys bumped");
+  assert.ok(html.includes('src="app/auth-ui.jsx?v=20260927-admstorage1"') && html.includes('href="app/styles.css?v=20260927-admstorage2"'), "cache keys bumped");
   const ai = read("app/ai.jsx");
   const i = ai.indexOf("const APP_FEATURES");
   assert.match(ai.slice(ai.lastIndexOf("\n", i - 2), i), /Admin-only operator tools \(Storage page, price watch\) are deliberately NOT listed/);
@@ -907,6 +1124,8 @@ await test("wiring: TURN.html tag after auth-ui with a ?v= key, APP_FEATURES unt
   assert.ok(!/admin-storage|turnOpenAdminStorage/.test(read("app/app.jsx")), "app.jsx is not touched");
   assert.match(ADMIN_SRC, /deliberately NOT listed in APP_FEATURES/);
   assert.match(ADMIN_SRC, /no tombstone/);
+  // the every-visitor script tag is a recorded trade-off (spec), not an oversight
+  assert.match(ADMIN_SRC, /Trade-off recorded 2026-09-27 \(review\): TURN\.html loads this file for every\s+visitor/);
 });
 
 console.log(`PASS test-admin-storage-ui: ${checks} checks` + (DIST ? " (dist build)" : ""));

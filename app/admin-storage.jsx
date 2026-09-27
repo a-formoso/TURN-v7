@@ -18,7 +18,15 @@
    - Deleted projects keep no tombstone (owner decision, 2026-09-27): they show
      as "Deleted project · <short id>" with their uploaders' emails.
    - window.AdminStorageLib holds the pure helpers
-     (scripts/test-admin-storage-ui.mjs). */
+     (scripts/test-admin-storage-ui.mjs).
+   - Closes itself when the session ends while it is open (another tab signs
+     out, a failed token refresh, a different user signs in): it re-reads
+     window.turnIsAdmin every second and listens for sign-out (2026-09-27).
+   - Trade-off recorded 2026-09-27 (review): TURN.html loads this file for every
+     visitor, as the spec asked (about 16 KB gzipped in dist/, and its operator
+     strings ship with it). Non-admins get no menu item, and loading it mounts,
+     fetches and schedules nothing. Loading it only when the admin clicks the
+     menu item would avoid the cost; that is an owner decision, not made here. */
 (function(){
   const FN = "admin-storage";
   const CALL_TIMEOUT_MS = 90 * 1000;          // client timeout per call (spec §8.10)
@@ -51,9 +59,12 @@
     expired: "This review expired. Review again.",
     internal: "Something went wrong on the server. Nothing further was deleted; History shows what happened.",
     timeout: "The server took too long. History shows whether anything was deleted.",
+    network: "Lost the connection to the server. History shows whether anything was deleted.",
     reviewBody: "Only files nothing in TURN uses any more. Each file is checked again right before it is deleted, and the Storage folders of live projects are never touched.",
     closeNote: "If you close this window, the current step finishes or stops on its own. History shows where it stopped, and Resume carries on.",
     liveReadOnly: "Not deleted from this page: the project is live (the SQL Editor's turn_admin.orphans stays the tool for live projects).",
+    liveKept: "kept (live)",
+    wholeProject: "Review & delete covers the whole project, including files other accounts uploaded.",
   };
 
   function h(){ return React.createElement.apply(React, arguments); }
@@ -151,14 +162,17 @@
     const kind = String(p.kind || "").toLowerCase();
     const title = p.title || "Untitled";
     if(kind === "show") return title + " (Show)";
-    if(kind === "episode") return "Ep " + (p.episode != null ? p.episode : "?") + " — " + (p.show_title || title);
+    if(kind === "episode"){            // its own title; the Kind column already says "Ep N · Show"
+      if(p.title) return p.title;
+      return (p.show_title || "Untitled") + " · Episode" + (p.episode != null ? " " + p.episode : "");
+    }
     return title;
   }
   function kindLabel(p){
     if(!p || !p.live) return "—";
     const kind = String(p.kind || "").toLowerCase();
     if(kind === "show") return "Show";
-    if(kind === "episode") return "Ep " + (p.episode != null ? p.episode : "?") + (p.show_title ? " · " + p.show_title : "");
+    if(kind === "episode") return (p.episode != null ? "Ep " + p.episode : "Episode") + (p.show_title ? " · " + p.show_title : "");
     return "Film";
   }
 
@@ -326,14 +340,12 @@
     const lines = [];
     const n = (k)=> num(by[k]);
     if(n("queued-for-cleanup")) lines.push(fmtCount(n("queued-for-cleanup")) + " queued for cleanup (the cleanup queue removes these)");
-    let referenced = 0;
-    const other = [];
+    let referenced = 0, noStatus = 0;
     for(const [k, v] of Object.entries(by)){
       if(!num(v)) continue;
       if(KNOWN_STATUS.has(k) || k === "outside the TURN asset layout") continue;
-      if(k === "orphan: project deleted"){ continue; }
-      if(/^(current|history|cameo-angle|cleanup-pending|history-cleanup-pending|ref)(, |$)/.test(k)) referenced += num(v);
-      else other.push([k, num(v)]);
+      if(k === "kept") noStatus += num(v);
+      else referenced += num(v);            // any referenced kind ("current, history", "history-ref", …), like statusChip
     }
     const usedBy = Array.isArray(kept.usedBy) ? kept.usedBy : [];
     if(usedBy.length){
@@ -351,7 +363,7 @@
     if(n("outside the TURN asset layout")) lines.push(fmtCount(n("outside the TURN asset layout")) + " outside the TURN asset layout (review by hand)");
     if(n("unreferenced")) lines.push(fmtCount(n("unreferenced")) + " unreferenced (not deleted from this page)");
     if(n("orphan: project deleted")) lines.push(fmtCount(n("orphan: project deleted")) + " not marked safe to delete");
-    for(const [k, v] of other) lines.push(fmtCount(v) + " kept: " + k);
+    if(noStatus) lines.push(fmtCount(noStatus) + " kept");
     return lines;
   }
 
@@ -361,7 +373,8 @@
     const c = String(err.code || ""), s = num(err.status), extra = err.extra || {};
     if(c === "no_cloud") return MSG.noCloud;
     if(c === "timeout") return MSG.timeout;
-    if(c === "not_deployed" || c === "fetch" || s === 404) return MSG.notDeployed;
+    if(c === "not_deployed" || s === 404) return MSG.notDeployed;
+    if(c === "fetch") return MSG.network;
     if(s === 401 || c === "sign_in") return MSG.signIn;
     if(s === 403 || c === "admin_only") return MSG.adminOnly;
     if(c === "views_missing" || c === "views_drift") return MSG.views;
@@ -369,7 +382,12 @@
     if(c === "not_full_reader") return MSG.notFullReader;
     if(c === "queue_missing") return MSG.queueMissing;
     if(s === 503 || c === "db_unreachable") return MSG.db;
-    if(c === "project_live") return MSG.projectLive;
+    if(c === "project_live"){
+      const r = extra.result;                 // the run's counts (server 2026-09-27)
+      return r && num(r.removed) > 0
+        ? "One of these projects exists again, so deleting stopped. " + plural(r.removed, "file") + " had already been deleted. Refresh."
+        : MSG.projectLive;
+    }
     if(c === "preview_expired") return MSG.expired;
     if(c === "run_busy"){
       if(ctx === "drain") return "A cleanup run is already in progress. It will show in History.";
@@ -395,6 +413,11 @@
     if(!run || run.action !== "delete-deleted-project-files") return false;
     return run.status === "partial" || (run.status === "running" && !!run.interrupted);
   }
+  /* files a Resume may still delete (failed ones are retried); an upper bound */
+  function resumeCount(run){
+    if(!run) return 0;
+    return Math.max(0, num(run.planned_files) - num(run.removed_files) - num(run.already_gone) - num(run.skipped_files));
+  }
   function leftLine(left){
     const entries = Object.entries(left || {}).filter(([, n])=> num(n) > 0);
     if(!entries.length) return "Nothing left to delete in these projects.";
@@ -403,15 +426,46 @@
       + entries.map(([st, n])=> (entries.length > 1 ? fmtCount(n) + " " : "") + statusChip(st).text.toLowerCase()).join(", ") + ".";
   }
 
+  /* Keyboard for div role=button rows: Enter / Space act only when the row
+     itself has focus, never when the key belongs to a control inside it. */
+  function rowKey(fn){
+    return (e)=>{
+      if(!e || e.target !== e.currentTarget) return;
+      if(e.key !== "Enter" && e.key !== " ") return;
+      if(e.preventDefault) e.preventDefault();
+      fn();
+    };
+  }
+  /* Keeps Tab inside box (the review sheet, else the page). → true if it moved focus. */
+  const FOCUSABLE = "button:not([disabled]),[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex='-1'])";
+  function trapTab(e, box, doc){
+    if(!e || e.key !== "Tab" || !box || typeof box.querySelectorAll !== "function") return false;
+    const shown = (el)=> typeof el.getClientRects !== "function" || el.getClientRects().length > 0;
+    const list = Array.prototype.filter.call(box.querySelectorAll(FOCUSABLE), shown);
+    const go = (el)=>{ if(e.preventDefault) e.preventDefault(); try{ el.focus(); }catch(x){} return true; };
+    if(!list.length) return go(box);
+    const first = list[0], last = list[list.length - 1];
+    const active = doc ? doc.activeElement : null;
+    const inside = !!active && typeof box.contains === "function" && box.contains(active);
+    if(!inside) return go(e.shiftKey ? last : first);
+    if(e.shiftKey && (active === first || active === box)) return go(last);
+    if(!e.shiftKey && active === last) return go(first);
+    return false;
+  }
+
   /* ── the one server call ───────────────────────────────────────────────── */
+  /* A request that never got an answer means "not deployed" only until the
+     function has answered once; after that it is a dropped connection. */
+  let reached = false;
   async function readInvokeError(error){
     const name = String((error && error.name) || "");
-    if(name === "FunctionsFetchError" || name === "FunctionsRelayError") return { status:0, code:"not_deployed", message:"", extra:{} };
+    if(name === "FunctionsFetchError" || name === "FunctionsRelayError") return { status:0, code:reached ? "fetch" : "not_deployed", message:"", extra:{} };
     const ctx = error && error.context;
     const status = ctx && typeof ctx.status === "number" ? ctx.status : 0;
     let body = null;
     try{ if(ctx && typeof ctx.json === "function") body = await ctx.json(); }catch(e){}
     const e = body && body.error && typeof body.error === "object" ? body.error : {};
+    if(typeof e.code === "string") reached = true;       // our function answered
     const extra = Object.assign({}, e); delete extra.code; delete extra.message;
     const code = typeof e.code === "string" ? e.code : (status === 404 ? "not_deployed" : status ? "http_" + status : "fetch");
     return { status:status, code:code, message:typeof e.message === "string" ? e.message : "", extra:extra };
@@ -432,9 +486,10 @@
         const e = (data && data.error) || {};
         return { ok:false, error:{ status:0, code:e.code || "internal", message:e.message || "", extra:{} } };
       }
+      reached = true;
       return { ok:true, data:data };
     }catch(e){
-      return { ok:false, error:{ status:0, code:"fetch", message:String((e && e.message) || e), extra:{} } };
+      return { ok:false, error:{ status:0, code:reached ? "fetch" : "not_deployed", message:String((e && e.message) || e), extra:{} } };
     }finally{
       if(timer) clearTimeout(timer);
     }
@@ -544,8 +599,8 @@
             a.deleted.length ? h("span", { className:"adm-chip alert" }, plural(a.deleted.length, "deleted project")) : null),
           owned.length ? h("div", { className:"adm-acct-l3" }, titles) : null),
         h("div", { className:"adm-acct-side" },
-          h("div", { className:"adm-acct-size" }, fmtBytes(a.total_bytes),
-            h("span", { className:"adm-muted" }, " · " + plural(a.file_count, "file"))),
+          h("div", { className:"adm-acct-size" }, fmtBytes(a.total_bytes),         // this account's own upload folder
+            h("span", { className:"adm-muted" }, " uploaded · " + plural(a.file_count, "file"))),
           h("div", { className:"adm-bar", "aria-hidden":"true" }, h("span", { style:{ width:pct + "%" } })),
           h("div", { className:"adm-acct-seen" }, a.deleted_account ? "account deleted"
             : a.last_sign_in_at ? "last sign-in " + fmtAgo(a.last_sign_in_at) : "never signed in")),
@@ -580,16 +635,18 @@
               h("span", { className:"c-go" }, "›"))))) : null,
         a.deleted.length ? h("div", { className:"adm-group" },
           h("div", { className:"adm-group-h" }, "Deleted projects still holding files"),
+          // the row counts this account's uploads; a review plans every file of the project
+          a.deleted.some((d)=> d.project.files > d.files) ? h("div", { className:"adm-group-note" }, MSG.wholeProject) : null,
           h("div", { className:"adm-rows adm-del" },
             a.deleted.map((d)=>{
               const why = deleteBlockReason(setup, d.project.safeFiles);
+              const shared = d.project.files > d.files;
               return h("div", { key:d.project.id, className:"adm-row adm-click", role:"button", tabIndex:0,
-                onClick:()=> onOpenProject(d.project.id),
-                onKeyDown:(e)=>{ if(e.key === "Enter"){ onOpenProject(d.project.id); } } },
+                onClick:()=> onOpenProject(d.project.id), onKeyDown:rowKey(()=> onOpenProject(d.project.id)) },
                 h("span", { className:"c-title" }, "Deleted project · " + shortId(d.project.id)),
                 h("span", { className:"c-state" }, chip(verdictChip(d.verdict))),
                 h("span", { className:"adm-br" }),
-                h("span", { className:"c-files" }, plural(d.files, "file")),
+                h("span", { className:"c-files" }, shared ? fmtCount(d.files) + " of " + plural(d.project.files, "file") : plural(d.files, "file")),
                 h("span", { className:"c-size" }, fmtBytes(d.bytes)),
                 h("span", { className:"c-safe" }, fmtCount(d.safe_files) + " safe · " + fmtBytes(d.safe_bytes)),
                 h("span", { className:"adm-br" }),
@@ -597,7 +654,8 @@
                 h("span", { className:"c-date" }, d.last_upload ? fmtDate(d.last_upload) : "—"),
                 h("span", { className:"c-act" }, !why
                   ? h("button", { type:"button", className:"adm-btn danger sm",
-                      onClick:(e)=>{ if(e && e.stopPropagation) e.stopPropagation(); onReview([d.project.id]); } }, "Review & delete")
+                      onClick:(e)=>{ if(e && e.stopPropagation) e.stopPropagation(); onReview([d.project.id]); } },
+                      shared ? "Review & delete whole project" : "Review & delete")
                   : d.project.safeFiles > 0 ? h("span", { className:"adm-muted", title:why }, "Deleting off") : null));
             }))) : null));
   }
@@ -626,8 +684,7 @@
         model.service.map((s)=> h("div", { key:s.label, className:"adm-service-row" },
           h("span", { className:"c-title" }, s.label),
           h("span", { className:"c-size" }, plural(s.files, "file") + " · " + fmtBytes(s.bytes)),
-          s.safe_files ? h("span", { className:"adm-muted", title:"Shown read-only; not deleted from this page." },
-            fmtCount(s.safe_files) + " expired") : null))) : null);
+          s.safe_files ? h("span", { className:"adm-muted" }, fmtCount(s.safe_files) + " expired · kept") : null))) : null);
   }
 
   /* ── Projects tab ──────────────────────────────────────────────────────── */
@@ -639,7 +696,7 @@
     let list = model.projects.slice();
     if(filter === "live") list = list.filter((p)=> p.live);
     else if(filter === "deleted") list = list.filter((p)=> !p.live);
-    else if(filter === "safe") list = list.filter((p)=> p.safeFiles > 0);
+    else if(filter === "safe") list = list.filter((p)=> !p.live && p.safeFiles > 0);      // live projects are never deleted here
     if(q) list = list.filter((p)=> [p.title, p.show_title, p.owner_email, p.uploader_emails, p.id]
       .some((v)=> String(v || "").toLowerCase().includes(q)));
     if(sort === "name") list.sort((a, b)=> String(a.label).localeCompare(String(b.label)));
@@ -653,7 +710,7 @@
     return h("div", { className:"adm-tab-body" },
       h("div", { className:"adm-toolbar" },
         h(FilterChips, { value:filter, onChange:setFilter, label:"Filter projects",
-          options:[["all", "All"], ["live", "Live"], ["deleted", "Deleted"], ["safe", "Has safe files"]] }),
+          options:[["all", "All"], ["live", "Live"], ["deleted", "Deleted"], ["safe", "Safe to delete"]] }),
         h("label", { className:"adm-sort" }, "Sort",
           h("select", { value:sort, onChange:(e)=> setSort(e.target.value), "aria-label":"Sort projects" },
             h("option", { value:"size" }, "Size"), h("option", { value:"name" }, "Name"), h("option", { value:"last" }, "Last upload")))),
@@ -662,20 +719,23 @@
         headRow([["pick", ""], ["title", "Project"], ["owner", "Owner"], ["kind", "Kind"], ["state", "State"],
           ["files", "Files"], ["size", "Size"], ["safe", "Safe"], ["date", "Last upload"]]),
         list.map((p)=> h("div", { key:p.id, className:"adm-row adm-click" + (picked.includes(p.id) ? " picked" : ""),
-            role:"button", tabIndex:0, onClick:()=> onOpenProject(p.id),
-            onKeyDown:(e)=>{ if(e.key === "Enter") onOpenProject(p.id); } },
-          h("span", { className:"c-pick" }, pickable(p) ? h("input", { type:"checkbox", checked:picked.includes(p.id),
-            "aria-label":"Select " + p.label, onClick:(e)=>{ if(e && e.stopPropagation) e.stopPropagation(); },
-            onChange:()=> toggle(p.id) }) : null),
+            role:"button", tabIndex:0, onClick:()=> onOpenProject(p.id), onKeyDown:rowKey(()=> onOpenProject(p.id)) },
+          // the whole cell is the tap target (40 px on phones), never the row behind it
+          pickable(p) ? h("label", { className:"c-pick", title:"Select " + p.label,
+              onClick:(e)=>{ if(e && e.stopPropagation) e.stopPropagation(); } },
+              h("input", { type:"checkbox", checked:picked.includes(p.id), "aria-label":"Select " + p.label,
+                onClick:(e)=>{ if(e && e.stopPropagation) e.stopPropagation(); }, onChange:()=> toggle(p.id) }))
+            : h("span", { className:"c-pick" }),
           h("span", { className:"c-title" }, p.label),
           h("span", { className:"c-kind" }, kindLabel(p)),
           h("span", { className:"c-state" }, chip(p.live ? { text:"Live", tone:"ok" } : { text:"Deleted", tone:"alert" })),
           h("span", { className:"adm-br" }),
           h("span", { className:"c-files" }, fmtCount(p.files), h("span", { className:"adm-unit" }, " files")),
           h("span", { className:"c-size" }, fmtBytes(p.total_bytes)),
-          h("span", { className:"c-safe", title:p.live && p.safeFiles ? MSG.liveReadOnly : undefined },
-            p.safeFiles ? fmtCount(p.safeFiles) + " · " + fmtBytes(p.safeBytes) : "—",
-            h("span", { className:"adm-unit" }, p.safeFiles ? " safe" : "")),
+          p.live && p.safeFiles
+            ? h("span", { className:"c-safe adm-muted", title:MSG.liveReadOnly }, fmtCount(p.safeFiles) + " unused · " + MSG.liveKept)
+            : h("span", { className:"c-safe" }, p.safeFiles ? fmtCount(p.safeFiles) + " · " + fmtBytes(p.safeBytes) : "—",
+                h("span", { className:"adm-unit" }, p.safeFiles ? " safe" : "")),
           h("span", { className:"adm-br" }),
           h("span", { className:"c-owner" }, p.live ? (p.owner_email || "unknown owner") : (p.uploader_emails ? "uploads: " + p.uploader_emails : "Deleted project")),
           h("span", { className:"c-date" }, p.last_upload ? fmtDate(p.last_upload) : "—"))))
@@ -747,8 +807,9 @@
           })) : null,
         summary.length ? h("div", { className:"adm-summary" },
           summary.map(([st, n])=> h("span", { key:st, className:"adm-sum" }, chip(statusChip(st, st === "orphan: project deleted" && project.safeFiles > 0, project.live)), " ", fmtCount(n))),
-          project.safeFiles ? h("span", { className:"adm-sum adm-muted", title:project.live ? MSG.liveReadOnly : undefined },
-            fmtCount(project.safeFiles) + " safe · " + fmtBytes(project.safeBytes)) : null) : null,
+          project.safeFiles ? h("span", { className:"adm-sum adm-muted" }, project.live
+            ? fmtCount(project.safeFiles) + " unused · " + fmtBytes(project.safeBytes) + ". " + MSG.liveReadOnly
+            : fmtCount(project.safeFiles) + " safe · " + fmtBytes(project.safeBytes)) : null) : null,
         err ? h("div", { className:"adm-banner alert" }, errorMessage(err),
           h("button", { type:"button", className:"adm-btn sm", onClick:()=> load(null) }, "Retry")) : null,
         !err && !loading && !rows.length ? h(Empty, { text:MSG.noFiles }) : null,
@@ -781,9 +842,15 @@
   }
 
   /* ── Review sheet: plan → confirm → delete (loops through 'partial') ───── */
-  function ReviewSheet({ sheet, model, onCheck, onDelete, onRetry, onReviewAgain, onClose }){
+  function ReviewSheet({ sheet, model, boxRef, onCheck, onDelete, onRetry, onReviewAgain, onClose }){
     const [, setTick] = React.useState(0);
     const phase = sheet.phase;
+    // an alertdialog takes focus when it opens and hands it back when it closes
+    React.useEffect(()=>{
+      const prev = typeof document !== "undefined" ? document.activeElement : null;
+      try{ if(boxRef && boxRef.current && boxRef.current.focus) boxRef.current.focus(); }catch(e){}
+      return ()=>{ try{ if(prev && prev.focus && (!document.contains || document.contains(prev))) prev.focus(); }catch(e){} };
+    }, []);
     React.useEffect(()=>{
       if(phase !== "ready") return undefined;
       const t = setInterval(()=> setTick((x)=> x + 1), 1000);
@@ -854,7 +921,7 @@
         body = h(React.Fragment, null,
           h("div", { className:"adm-result " + (statusDone ? "ok" : "amber") },
             statusDone ? "Deleted " + plural(r.removed, "file") + " · " + fmtBytes(r.removedBytes) + " freed."
-              : "Deleted " + fmtCount(r.removed) + " of " + fmtCount(planned) + "." + (failed
+              : "Deleted " + fmtCount(r.removed) + " of " + fmtCount(num(r.planned) || planned) + "." + (failed
                 ? " " + fmtCount(failed) + " couldn't be deleted" + (detail ? " (Storage error: " + detail + ")" : "") + "." : "")),
           sheet.error ? h("div", { className:"adm-banner alert" }, errorMessage(sheet.error)) : null,
           statusDone && r.leftInProjects ? h("div", { className:"adm-muted" }, leftLine(r.leftInProjects)) : null,
@@ -869,7 +936,8 @@
       }
     }
     return h("div", { className:"adm-sheet-wrap" },
-      h("div", { className:"adm-sheet", role:"alertdialog", "aria-modal":"true", "aria-labelledby":"adm-sheet-title" },
+      h("div", { className:"adm-sheet", role:"alertdialog", "aria-modal":"true", "aria-labelledby":"adm-sheet-title",
+          tabIndex:-1, ref:boxRef },
         h("div", { className:"adm-sheet-title", id:"adm-sheet-title" }, title),
         body));
   }
@@ -925,7 +993,9 @@
         err ? h("div", { className:"adm-banner alert" }, errorMessage(err, "drain")) : null,
         result ? h("div", { className:"adm-result " + (result.failed ? "amber" : "ok") },
           "Removed " + fmtCount(result.removed) + " · already gone " + fmtCount(result.alreadyGone)
-          + " · kept (in use) " + fmtCount(result.keptReferenced) + " · waiting (24 h) " + fmtCount(result.held)
+          + " · kept (in use) " + fmtCount(result.keptReferenced)
+          + (result.heldGrace == null ? " · waiting " + fmtCount(result.held)          // older server: one number
+            : " · waiting (24 h) " + fmtCount(result.heldGrace) + (num(result.heldUpload) ? " · upload in progress " + fmtCount(result.heldUpload) : ""))
           + " · failed " + fmtCount(result.failed) + (num(result.notQueued) ? " · no longer queued " + fmtCount(result.notQueued) : "")
           + " · still queued " + fmtCount(result.stillQueued)
           + (result.status === "partial" ? ". Stopped early; run it again to continue." : "")) : null),
@@ -944,6 +1014,7 @@
   function runWhat(run){
     if(run.action === "drain-cleanup-queue") return run.admin_email === "cron" ? "Cleanup queue (scheduled)" : "Cleanup queue";
     const n = Array.isArray(run.project_ids) ? run.project_ids.length : 0;
+    if(run.status === "previewed" || run.status === "expired") return "Review of " + plural(n, "deleted project") + " (not run)";
     return "Deleted files of " + plural(n, "deleted project");
   }
   function runResult(run){
@@ -988,10 +1059,13 @@
   }
   function RunRow({ run, onResume, busy }){
     const [open, setOpen] = React.useState(false);
+    const [confirming, setConfirming] = React.useState(false);      // Resume deletes: it asks first
     const st = runStatus(run);
+    const n = resumeCount(run);
+    const nProjects = Array.isArray(run.project_ids) ? run.project_ids.length : 0;
     return h("div", { className:"adm-run" + (open ? " open" : "") },
       h("div", { className:"adm-row adm-click", role:"button", tabIndex:0, "aria-expanded":open,
-          onClick:()=> setOpen((o)=> !o), onKeyDown:(e)=>{ if(e.key === "Enter") setOpen((o)=> !o); } },
+          onClick:()=> setOpen((o)=> !o), onKeyDown:rowKey(()=> setOpen((o)=> !o)) },
         h("span", { className:"c-date" }, fmtWhen(run.created_at)),
         h("span", { className:"c-owner" }, run.admin_email || "—"),
         h("span", { className:"c-title" }, runWhat(run)),
@@ -999,32 +1073,51 @@
         h("span", { className:"c-result" }, runResult(run)),
         h("span", { className:"c-state" }, chip(st)),
         h("span", { className:"c-act" }, canResume(run)
-          ? h("button", { type:"button", className:"adm-btn sm", disabled:busy,
-              onClick:(e)=>{ if(e && e.stopPropagation) e.stopPropagation(); onResume(run); } }, "Resume") : null)),
+          ? h("button", { type:"button", className:"adm-btn danger sm", disabled:busy || confirming,
+              onClick:(e)=>{ if(e && e.stopPropagation) e.stopPropagation(); if(!busy) setConfirming(true); } }, "Resume") : null)),
+      confirming ? h("div", { className:"adm-confirm adm-run-confirm", role:"group", "aria-label":"Resume this delete" },
+        h("p", null, "Resume deleting up to " + plural(n, "file") + " from " + plural(nProjects, "deleted project")
+          + "? Each file is checked again right before it is deleted, and deleted files can't be recovered."),
+        h("div", { className:"adm-sheet-acts" },
+          h("button", { type:"button", className:"adm-btn", onClick:()=> setConfirming(false) }, "Cancel"),
+          h("button", { type:"button", className:"adm-btn danger", disabled:busy,
+            onClick:()=>{ if(busy) return; setConfirming(false); onResume(run); } }, "Resume deleting"))) : null,
       open ? h("div", { className:"adm-run-body" },
         run.last_error ? h("div", { className:"adm-banner amber" }, run.last_error) : null,
         h(RunItems, { runId:run.id })) : null);
   }
+  /* Newest first, 50 a page with Load more, so no run (and no Resume) falls off.
+     Reviews that were never run are hidden unless asked for. */
   function HistoryTab({ reloadKey, onResume, busy }){
     const [runs, setRuns] = React.useState(null);
+    const [next, setNext] = React.useState(null);
     const [err, setErr] = React.useState(null);
     const [loading, setLoading] = React.useState(true);
-    const load = React.useCallback(async ()=>{
+    const [scope, setScope] = React.useState("runs");
+    const load = React.useCallback(async (cursor)=>{
       setLoading(true); setErr(null);
-      const r = await callAdminStorage({ action:"runs", limit:50 });
-      if(r.ok) setRuns(Array.isArray(r.data.runs) ? r.data.runs : []);
-      else setErr(r.error);
+      const body = { action:"runs", limit:50, reviews:scope === "all" };
+      if(cursor) body.cursor = cursor;
+      const r = await callAdminStorage(body);
+      if(r.ok){
+        const got = Array.isArray(r.data.runs) ? r.data.runs : [];
+        setRuns((cur)=> cursor && cur ? cur.concat(got) : got);
+        setNext(r.data.nextCursor || null);
+      } else setErr(r.error);
       setLoading(false);
-    }, []);
-    React.useEffect(()=>{ load(); }, [load, reloadKey]);
+    }, [scope]);
+    React.useEffect(()=>{ load(null); }, [load, reloadKey]);
     return h("div", { className:"adm-tab-body" },
+      h(FilterChips, { value:scope, onChange:setScope, label:"Which runs",
+        options:[["runs", "Deletes & cleanups"], ["all", "Include reviews not run"]] }),
       err ? h("div", { className:"adm-banner alert" }, errorMessage(err),
-        h("button", { type:"button", className:"adm-btn sm", onClick:load }, "Retry")) : null,
+        h("button", { type:"button", className:"adm-btn sm", onClick:()=> load(null) }, "Retry")) : null,
       loading && !runs ? h("div", { className:"adm-muted adm-count" }, "Loading history…") : null,
       runs && !runs.length ? h(Empty, { text:MSG.noRuns }) : null,
       runs && runs.length ? h("div", { className:"adm-rows adm-hist" },
         headRow([["date", "When"], ["owner", "By"], ["title", "What"], ["result", "Result"], ["state", "Status"], ["act", ""]]),
-        runs.map((run)=> h(RunRow, { key:run.id, run:run, onResume:onResume, busy:busy }))) : null);
+        runs.map((run)=> h(RunRow, { key:run.id, run:run, onResume:onResume, busy:busy }))) : null,
+      next && !loading ? h("button", { type:"button", className:"adm-btn", onClick:()=> load(next) }, "Load more") : null);
   }
 
   /* ── the modal ─────────────────────────────────────────────────────────── */
@@ -1042,6 +1135,8 @@
     const [busy, setBusy] = React.useState(false);
     const [historyKey, setHistoryKey] = React.useState(0);
     const closeRef = React.useRef(null);
+    const modalRef = React.useRef(null);
+    const sheetRef = React.useRef(null);
     const busyRef = React.useRef(false);
     const reviewSeq = React.useRef(0);          // a late preview never reopens a closed / newer sheet
     busyRef.current = busy;
@@ -1067,6 +1162,22 @@
       };
       document.addEventListener("keydown", onKey);
       return ()=> document.removeEventListener("keydown", onKey);
+    }, [onClose]);
+    // The session can end while the page is open (a sign-out in another tab, a
+    // failed token refresh, another user signing in): every account's data must
+    // leave the screen then, not on the next click. app.jsx drops
+    // window.turnIsAdmin; re-read it every second and listen for sign-out.
+    React.useEffect(()=>{
+      const t = setInterval(()=>{ if(!window.turnIsAdmin) onClose(); }, 1000);
+      let sub = null;
+      try{
+        const sb = typeof window.sbClient === "function" ? window.sbClient() : null;
+        if(sb && sb.auth && typeof sb.auth.onAuthStateChange === "function"){
+          const r = sb.auth.onAuthStateChange((event, session)=>{ if(event === "SIGNED_OUT" || !session) onClose(); });
+          sub = r && r.data ? r.data.subscription : null;
+        }
+      }catch(e){}
+      return ()=>{ clearInterval(t); try{ if(sub && sub.unsubscribe) sub.unsubscribe(); }catch(e){} };
     }, [onClose]);
 
     const model = React.useMemo(()=> ov ? buildModel(ov) : null, [ov]);
@@ -1120,7 +1231,13 @@
         progress:{ planned:planned, removed:0, removedBytes:0 } }));
       for(let i = 0; i < LOOP_CAP; i++){
         const r = await callAdminStorage({ action:"delete", runId:runId });
-        if(!r.ok){ error = r.error; break; }
+        if(!r.ok){
+          error = r.error;
+          // a project exists again: the server sends the run's real counts (files may already be gone)
+          const counts = error && error.extra && error.extra.result;
+          if(counts && typeof counts === "object") last = counts;
+          break;
+        }
         last = r.data;
         const pl = num(last.planned) || planned;
         setSheet((s)=> s && Object.assign({}, s, { planned:pl, progress:Object.assign({}, last, { planned:pl }) }));
@@ -1162,7 +1279,10 @@
 
     return h("div", { className:"bible-overlay adm-overlay",
         onMouseDown:(e)=>{ if(e.target === e.currentTarget && !busyRef.current) onClose(); } },
-      h("div", { className:"bible-modal adm-storage" + (detail ? " has-detail" : ""), role:"dialog", "aria-modal":"true", "aria-labelledby":"adm-title" },
+      h("div", { className:"bible-modal adm-storage" + (detail ? " has-detail" : ""), role:"dialog", "aria-modal":"true", "aria-labelledby":"adm-title",
+          ref:modalRef,
+          // Tab stays inside the review sheet while it is open, else inside the page
+          onKeyDown:(e)=>{ trapTab(e, (stateRef.current.sheet && sheetRef.current) || modalRef.current, typeof document !== "undefined" ? document : null); } },
         h("div", { className:"bible-head adm-head" },
           h("div", { className:"bible-title" }, icon("box", 15),
             h("span", { id:"adm-title" }, "Storage"),
@@ -1197,7 +1317,7 @@
                 : h(HistoryTab, { reloadKey:historyKey, onResume:resume, busy:busy })))),
         detail ? h(ProjectDetail, { key:detail.id, project:detail, model:model, setup:setup, asOf:ov && ov.asOf,
           onClose:()=> setDetailId(null), onReview:openReview }) : null,
-        sheet ? h(ReviewSheet, { sheet:sheet, model:model,
+        sheet ? h(ReviewSheet, { sheet:sheet, model:model, boxRef:sheetRef,
           onCheck:(v)=> setSheet((s)=> s && Object.assign({}, s, { checked:v })),
           onDelete:startDelete, onRetry:retry,
           onReviewAgain:()=> openReview(sheet.projectIds), onClose:closeSheet }) : null));
@@ -1206,26 +1326,34 @@
   /* SELF-MOUNTING opener (plans.jsx pattern): the account chip calls
      window.turnOpenAdminStorage(). Admin only; one instance at a time. */
   let _root = null, _el = null;
+  const bodyClass = (on)=>{      // body.adm-open hides the admin price-drift card (styles.css), which sits above this page
+    try{ const cl = document.body && document.body.classList; if(cl) cl.toggle("adm-open", !!on); }catch(e){}
+  };
   function openAdminStorage(){
     if(!window.turnIsAdmin) return false;
     if(_el) return false;                                   // already open
     if(typeof document === "undefined" || !window.ReactDOM) return false;
-    _el = document.createElement("div");
-    _el.className = "adm-root";
-    document.body.appendChild(_el);
-    _root = window.ReactDOM.createRoot(_el);
-    const close = ()=>{
-      try{ if(_root) _root.unmount(); }catch(e){}
-      if(_el && _el.parentNode) _el.parentNode.removeChild(_el);
-      _root = null; _el = null;
+    const el = document.createElement("div");
+    el.className = "adm-root";
+    document.body.appendChild(el);
+    const root = window.ReactDOM.createRoot(el);
+    _el = el; _root = root;
+    bodyClass(true);
+    let closed = false;
+    const close = ()=>{                                     // this instance only; safe to call twice
+      if(closed) return;
+      closed = true;
+      try{ root.unmount(); }catch(e){}
+      if(el.parentNode) el.parentNode.removeChild(el);
+      if(_el === el){ _root = null; _el = null; bodyClass(false); }
     };
-    _root.render(h(AdminStorageModal, { onClose:close }));
+    root.render(h(AdminStorageModal, { onClose:close }));
     return true;
   }
   window.turnOpenAdminStorage = openAdminStorage;
   window.AdminStorageModal = AdminStorageModal;
   window.AdminStorageLib = {
     fmtBytes, fmtCount, fmtAgo, shortId, statusChip, parseStorageRef, buildModel, keptLines, errorMessage,
-    runStatus, canResume, leftLine, projectLabel, kindLabel, callAdminStorage, MSG,
+    runStatus, canResume, leftLine, projectLabel, kindLabel, callAdminStorage, MSG, rowKey, trapTab, resumeCount,
   };
 })();

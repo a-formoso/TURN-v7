@@ -73,11 +73,18 @@ function db() {
 }
 
 // ── channel (b): service-role client ────────────────────────────────────────
+// Every request is aborted after 30 s (2026-09-27 review): a hung Storage
+// remove() must end well inside the 90 s run lease, or a second call takes the
+// lease while this one still waits. core.mjs has its own 35 s guard as well.
+const SERVICE_TIMEOUT_MS = 30_000;
+const timedFetch: typeof fetch = (input, init = {}) =>
+  fetch(input, { ...init, signal: init.signal ?? AbortSignal.timeout(SERVICE_TIMEOUT_MS) });
 // deno-lint-ignore no-explicit-any
 let service: any = null;
 const svc = () =>
   (service ??= createClient(SUPABASE_URL, SERVICE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: { fetch: timedFetch },
   }));
 
 const app = createAdminStorage({

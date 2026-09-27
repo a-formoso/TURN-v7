@@ -8166,7 +8166,11 @@ html[data-theme="light"] .bd-strip-status.ok{color:oklch(0.5 0.14 150)}
    header, 2×2 tiles, a scrolling tab strip, rows fold into short cards,
    the detail becomes a pushed screen, and the review sheet and bulk bar
    sit at the bottom above the safe area.
+   2026-09-27 review: tracks and skeletons use a --line token (ink over any
+   surface; --bg-4 is pure white in light mode), phone fields are 16px (no iOS
+   focus zoom), and the admin price-drift card hides while this page is open.
    ============================================================ */
+body.adm-open .pricing-watch-card{display:none}
 .acct-upgrade.acct-admin{background:var(--bg-2);border-color:var(--line-2);color:var(--txt-1)}
 .acct-upgrade.acct-admin:hover{background:var(--bg-3);color:var(--txt-0)}
 .bible-overlay.adm-overlay{z-index:124}
@@ -8201,7 +8205,7 @@ html[data-theme="light"] .bd-strip-status.ok{color:oklch(0.5 0.14 150)}
 .adm-tile-val{margin-top:4px;font-family:var(--f-display);font-size:15.5px;font-weight:600;line-height:1.25;color:var(--txt-0);overflow-wrap:anywhere}
 .adm-tile-sub{margin-top:2px;font-size:11.5px;color:var(--txt-2)}
 .adm-tile.skel{min-height:66px}
-.adm-skel-line{height:10px;margin-top:10px;border-radius:5px;background:var(--bg-4);animation:admPulse 1.2s ease-in-out infinite}
+.adm-skel-line{height:10px;margin-top:10px;border-radius:5px;background:var(--line-2);animation:admPulse 1.2s ease-in-out infinite}
 .adm-skel-line.short{width:45%;margin-top:0}
 @keyframes admPulse{0%,100%{opacity:.5}50%{opacity:1}}
 /* search, tabs, filters */
@@ -8249,12 +8253,13 @@ html[data-theme="light"] .bd-strip-status.ok{color:oklch(0.5 0.14 150)}
 .adm-acct-l3{font-size:11.5px;color:var(--txt-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .adm-acct-side{flex:0 0 190px;display:flex;flex-direction:column;align-items:flex-end;gap:4px;font-size:11.5px;color:var(--txt-2)}
 .adm-acct-size{font-family:var(--f-mono);font-size:12.5px;color:var(--txt-0)}
-.adm-bar{width:100%;height:4px;overflow:hidden;border-radius:2px;background:var(--bg-4)}
+.adm-bar{width:100%;height:4px;overflow:hidden;border-radius:2px;background:var(--line-2)}
 .adm-bar > span{display:block;height:100%;border-radius:2px;background:var(--txt-2)}
 .adm-acct-chev{flex:0 0 auto;color:var(--txt-3)}
 .adm-acct-body{display:flex;flex-direction:column;gap:12px;padding:10px 13px 13px;border-top:1px solid var(--line);background:var(--bg-1)}
 .adm-group{display:flex;flex-direction:column;gap:6px}
 .adm-group-h{font-family:var(--f-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--txt-3)}
+.adm-group-note{font-size:11.5px;line-height:1.4;color:var(--txt-2)}
 .adm-service{display:flex;flex-direction:column;gap:6px;padding:11px 13px;border:1px dashed var(--line-2);border-radius:11px}
 .adm-service-row{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--txt-1)}
 .adm-service-row .c-title{flex:1 1 220px;min-width:0}
@@ -8275,6 +8280,7 @@ html[data-theme="light"] .bd-strip-status.ok{color:oklch(0.5 0.14 150)}
 .adm-row:not(.adm-head-row) > :is(.c-date,.c-by,.c-owner,.c-next,.c-oldest,.c-kind){font-size:11.5px;color:var(--txt-2);white-space:nowrap}
 .adm-row > .c-go{color:var(--txt-3);text-align:right}
 .adm-row > .c-act{text-align:right;overflow:visible}
+.adm-row > .c-pick{display:flex;align-items:center;justify-content:center;align-self:stretch;cursor:pointer}
 .adm-row > .c-pick input{width:16px;height:16px;accent-color:var(--alert);cursor:pointer}
 .adm-row > .c-title{grid-area:title}.adm-row > .c-kind{grid-area:kind}.adm-row > .c-state{grid-area:state}
 .adm-row > .c-files{grid-area:files}.adm-row > .c-size{grid-area:size}.adm-row > .c-safe{grid-area:safe}
@@ -8284,13 +8290,14 @@ html[data-theme="light"] .bd-strip-status.ok{color:oklch(0.5 0.14 150)}
 .adm-row > .c-oldest{grid-area:oldest}.adm-row > .c-stuck{grid-area:stuck}
 .adm-own .adm-row{grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) 56px 70px 70px minmax(0,1.3fr) 96px 12px;grid-template-areas:"title kind state files size by date go"}
 .adm-else .adm-row{grid-template-columns:minmax(0,1fr) 80px 76px 12px;grid-template-areas:"title files size go"}
-.adm-del .adm-row{grid-template-columns:minmax(0,1.2fr) 84px 70px 70px minmax(0,1fr) minmax(0,1.2fr) 96px auto;grid-template-areas:"title state files size safe by date act"}
+.adm-del .adm-row{grid-template-columns:minmax(0,1.2fr) 84px 96px 70px minmax(0,1fr) minmax(0,1.2fr) 96px auto;grid-template-areas:"title state files size safe by date act"}
 .adm-proj .adm-row{grid-template-columns:20px minmax(0,1.6fr) minmax(0,1.3fr) minmax(0,.9fr) 74px 58px 72px minmax(0,.9fr) 96px;grid-template-areas:"pick title owner kind state files size safe date"}
 .adm-queue .adm-row{grid-template-columns:minmax(0,1.4fr) 70px 80px minmax(0,1fr) minmax(0,1fr) 60px;grid-template-areas:"title total ready next oldest stuck"}
 .adm-hist .adm-row{grid-template-columns:110px minmax(0,1fr) minmax(0,1.4fr) minmax(0,1.2fr) 112px 84px;grid-template-areas:"date owner title result state act"}
 .adm-run{border-top:1px solid var(--line)}
 .adm-run-body{display:flex;flex-direction:column;gap:8px;padding:8px 12px 12px;background:var(--bg-1)}
 .adm-run-items{display:flex;flex-direction:column;gap:6px}
+.adm-run-confirm{margin:0 12px 10px}
 .adm-bulk{position:sticky;bottom:0;z-index:3;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;
   border:1px solid var(--line-3);border-radius:11px;background:var(--bg-4);box-shadow:var(--shadow-pop)}
 /* project detail: a right-hand drawer (a pushed screen on phone) */
@@ -8335,7 +8342,7 @@ html[data-theme="light"] .bd-strip-status.ok{color:oklch(0.5 0.14 150)}
 .adm-check{display:flex;align-items:center;gap:8px;min-height:40px;font-size:12.5px;color:var(--txt-0);cursor:pointer}
 .adm-check input{width:18px;height:18px;accent-color:var(--alert)}
 .adm-sheet-acts{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
-.adm-progress{height:8px;overflow:hidden;border-radius:4px;background:var(--bg-4)}
+.adm-progress{height:8px;overflow:hidden;border-radius:4px;background:var(--line-2)}
 .adm-progress > span{display:block;height:100%;background:var(--alert);transition:width .3s}
 .adm-progress-lab{font-family:var(--f-mono);font-size:12.5px;color:var(--txt-0)}
 .adm-result{padding:10px 12px;border:1px solid var(--line-2);border-radius:9px;background:var(--bg-3);font-size:13px;line-height:1.45;color:var(--txt-0)}
@@ -8355,6 +8362,7 @@ html[data-theme="light"] .bd-strip-status.ok{color:oklch(0.5 0.14 150)}
   .adm-tabs::-webkit-scrollbar{display:none}
   .adm-tab{flex:0 0 auto}
   .adm-tab,.adm-btn,.adm-btn.sm,.adm-filter,.adm-search,.adm-copy,.adm-back,.adm-sort select{min-height:40px}
+  .adm-search input,.adm-sort select{font-size:16px}
   .adm-row{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;padding:10px 12px}
   .adm-row.adm-head-row{display:none}
   .adm-br{display:block;flex:0 0 100%;height:0}
@@ -8363,9 +8371,13 @@ html[data-theme="light"] .bd-strip-status.ok{color:oklch(0.5 0.14 150)}
   .adm-row > .c-go{margin-left:auto}
   .adm-row > .c-act{flex:0 0 100%;text-align:left}
   .adm-row > .c-act:empty{display:none}
+  .adm-row > .c-pick{min-width:40px;min-height:40px;margin:-9px 0 -9px -12px}
+  .adm-row > .c-pick:empty{display:none}
   .adm-row > .c-pick input{width:22px;height:22px}
   .adm-acct-head{flex-wrap:wrap;gap:8px 12px}
-  .adm-acct-side{flex:1 1 100%;align-items:flex-start}
+  .adm-acct-main{flex:1 1 0}
+  .adm-acct-chev{order:2}
+  .adm-acct-side{order:3;flex:1 1 100%;align-items:flex-start}
   .adm-detail{width:100%;border-left:0;box-shadow:none}
   .adm-back-phone{display:inline-flex}
   .adm-back-desk{display:none}

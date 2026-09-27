@@ -12,7 +12,12 @@
    setup states, privileges, scale, and static checks on the source.
    Every name handed to the fake Storage API is audited at call time: it must
    exist, be unreferenced, be marked 'sending' first, and (for deletes) pass the
-   path guard and belong to no live project.
+   path guard and belong to no live project; for drains, pass the path guard
+   for its queue row and hold no live upload reservation.
+   2026-09-27 review: a crash between 'sending' and the Storage request, a
+   project re-inserted mid-call, a lease lost between batches and during a
+   slow Storage request, a hung request cut off inside the lease, the drain's
+   Storage-before-complete order, and History keyset pages.
    OFFLINE ONLY: no network, no Supabase project, no credentials.
    Run: node scripts/test-admin-storage.mjs */
 import assert from "node:assert/strict";
@@ -43,6 +48,7 @@ let checks = 0;
 const acheck = async (name, fn) => { await fn(); checks++; console.log("PASS", name); };
 const j = (v) => JSON.stringify(v);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const deferred = () => { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; };
 const sorted = (a) => [...a].sort();
 const VIOLATIONS = [];
 
@@ -64,7 +70,14 @@ const DEL5 = "de1e7ed0-0000-4000-8000-0000000000d5";    // project id re-inserte
 const DEL6 = "de1e7ed0-0000-4000-8000-0000000000d6";    // injected items vs the path guard (3)
 const DEL7 = "de1e7ed0-0000-4000-8000-0000000000d7";    // preview expiry (3)
 const DEL8 = "de1e7ed0-0000-4000-8000-0000000000d8";    // 45 s budget (250)
-const BULK = { [DEL]: 230, [DEL2]: 450, [DEL3]: 410, [DEL4]: 610, [DEL5]: 3, [DEL6]: 3, [DEL7]: 3, [DEL8]: 250 };
+// 2026-09-27 review fixes
+const DEL9 = "de1e7ed0-0000-4000-8000-0000000000d9";    // crash after 'sending', before the Storage request (250)
+const DELA = "de1e7ed0-0000-4000-8000-0000000000da";    // project re-inserted DURING a call (450)
+const DELB = "de1e7ed0-0000-4000-8000-0000000000db";    // lease taken between two batches (260)
+const DELC = "de1e7ed0-0000-4000-8000-0000000000dc";    // lease lost during a slow Storage request (3)
+const DELD = "de1e7ed0-0000-4000-8000-0000000000dd";    // a hung Storage request is cut off (3)
+const BULK = { [DEL]: 230, [DEL2]: 450, [DEL3]: 410, [DEL4]: 610, [DEL5]: 3, [DEL6]: 3, [DEL7]: 3, [DEL8]: 250,
+  [DEL9]: 250, [DELA]: 450, [DELB]: 260, [DELC]: 3, [DELD]: 3 };
 const bulkPath = (pid, i) => `${ALICE}/${pid}/character/c1/f${String(i).padStart(4, "0")}.png`;
 
 const F = {
@@ -113,6 +126,11 @@ async function auditStorageCall(db, names) {
            exists (select 1 from storage.objects o where o.bucket_id = 'turn-assets' and o.name = n.path) as present,
            exists (select 1 from turn_admin.referenced_paths r where r.path = n.path) as referenced,
            exists (select 1 from public.turn_asset_upload_intents i where i.path = n.path) as reserved,
+           exists (select 1 from public.turn_asset_upload_intents i where i.path = n.path and i.expires_at > now()) as reserved_live,
+           coalesce((select array_agg(distinct i.project_id::text) from turn_admin_ops.storage_run_items i
+                       join turn_admin_ops.storage_runs r on r.id = i.run_id
+                      where i.path = n.path and i.outcome = 'sending' and r.action = 'drain-cleanup-queue'
+                        and i.project_id is not null), '{}') as drain_pids,
            coalesce((select array_agg(r.action) from turn_admin_ops.storage_run_items i
                        join turn_admin_ops.storage_runs r on r.id = i.run_id
                       where i.path = n.path and i.outcome = 'sending'), '{}') as sending_in,
@@ -134,13 +152,17 @@ async function auditStorageCall(db, names) {
       if (r.reserved) why.push("has an upload reservation");
       if (!core.pathGuard(r.path, new Set(r.run_pids))) why.push("fails the path guard");
     }
+    if (r.sending_in.includes("drain-cleanup-queue")) {
+      if (r.reserved_live) why.push("has a live upload reservation (drain)");
+      if (!core.pathGuard(r.path, new Set(r.drain_pids))) why.push("fails the path guard for its queue row (drain)");
+    }
     if (why.length) VIOLATIONS.push(r.path + ": " + why.join(", "));
   }
 }
 
 function harness(db, { env = {}, role = null, tx: txImpl = null } = {}) {
   const st = { tx: 0, openTx: 0, concurrent: false, dead: false, storage: [], rpc: [], mode: null, hook: null,
-    rpcFail: null, storageDelay: 0, rpcDelay: 0, clock: null, logs: [] };
+    rpcFail: null, storageDelay: 0, rpcDelay: 0, clock: null, logs: [], events: [], rpcHook: null, onStatement: null };
   const tx = txImpl || (async (mode, fn) => {
     st.tx++;
     if (st.dead) throw Object.assign(new Error("Connection terminated unexpectedly"), { code: "ECONNRESET" });
@@ -150,7 +172,10 @@ function harness(db, { env = {}, role = null, tx: txImpl = null } = {}) {
         if (mode === "read") await t.query("set transaction isolation level repeatable read, read only");
         else if (mode !== "write") throw new Error("bad tx mode " + mode);
         if (role) await t.query(`set local role ${role}`);
-        return fn(async (text, params = []) => (await t.query(text, params)).rows);
+        return fn(async (text, params = []) => {
+          if (st.onStatement) await st.onStatement(text, t, params);
+          return (await t.query(text, params)).rows;
+        });
       });
     } finally {
       st.openTx--;
@@ -160,6 +185,7 @@ function harness(db, { env = {}, role = null, tx: txImpl = null } = {}) {
   const noOpenTx = (what) => { if (!st.concurrent && st.openTx > 0) VIOLATIONS.push(what + " called inside an open transaction"); };
   const storageRemove = async (names) => {
     noOpenTx("storageRemove");
+    st.events.push("storage");
     const n = st.storage.push(Array.isArray(names) ? names.slice() : names);
     if (!Array.isArray(names) || !names.length || names.length > 200 || names.some((x) => typeof x !== "string")) {
       VIOLATIONS.push("storageRemove got something other than 1-200 exact names");
@@ -171,6 +197,8 @@ function harness(db, { env = {}, role = null, tx: txImpl = null } = {}) {
     if (st.clock) st.clock.t += st.clock.perCall;
     const m = st.mode ? st.mode(n, names) : "ok";
     const mode = typeof m === "string" ? m : "keep";
+    // the instance dies after marking 'sending', before the request leaves: nothing is removed
+    if (mode === "die-before") { st.dead = true; throw new Error("edge instance died before the Storage request"); }
     if (mode === "error") return { data: null, error: { message: "simulated 503 Service Unavailable" } };
     if (mode === "lie") return { data: [], error: null };
     let remove = names;
@@ -185,7 +213,9 @@ function harness(db, { env = {}, role = null, tx: txImpl = null } = {}) {
   // PostgREST as service_role: claims + SET LOCAL ROLE, named arguments
   const rpc = async (name, args) => {
     noOpenTx("rpc " + name);
+    st.events.push("rpc:" + name);
     st.rpc.push([name, args]);
+    if (st.rpcHook) await st.rpcHook(name, args);
     if (st.rpcDelay) await sleep(st.rpcDelay);
     if (st.rpcFail && st.rpcFail(name, args)) return { data: null, error: { message: "simulated PostgREST 502" } };
     const keys = Object.keys(args);
@@ -375,6 +405,12 @@ await acheck("T17 static: every SQL constant is plain $n-parameterised text; q()
   assert.deepEqual([...INDEX_CODE.matchAll(/\.remove\(([^)]*)\)/g)].map((m) => m[1]), ["paths"], "index.ts removes exact paths only");
   assert.ok(/from\("turn-assets"\)\.remove\(paths\)/.test(INDEX_CODE));
   assert.ok(!/delete\s+from\s+storage\.objects/i.test(CORE_CODE + INDEX_CODE), "never deletes storage rows directly");
+  // 2026-09-27 review: every item write after a Storage call is lease-guarded; Storage is bounded inside the lease
+  for (const k of ["ITEMS_SETTLE", "MARK_SENDING", "ITEMS_CONFIRM", "RUN_FINISH", "DRAIN_ITEMS_WRITE", "DRAIN_FINISH"])
+    assert.match(core.S[k], /lease_token = \$\d::uuid/, k + " checks the lease");
+  assert.equal((CORE_CODE.match(/await bounded\(io\.storageRemove\(names\)\)/g) || []).length, 2, "both Storage calls are bounded");
+  assert.match(INDEX_CODE, /AbortSignal\.timeout\(SERVICE_TIMEOUT_MS\)/);
+  assert.match(INDEX_CODE, /global: \{ fetch: timedFetch \}/);
   // the wrapper: pinned driver, lazy pool, CORS + no-store, queue RPCs only
   assert.ok(INDEX_SRC.includes('import postgres from "npm:postgres@3.4.5"'));
   assert.equal((INDEX_SRC.match(/\bpostgres\(DB_URL/g) || []).length, 1);
@@ -769,11 +805,13 @@ await acheck("T6 project id re-inserted between preview and delete → 409, noth
   await db.query(`insert into public.turn_projects(id, owner, title, doc) values ($1, $2, 'Back again', $3)`, [DEL5, ALICE, j(filmDoc("Back again"))]);
   const r = err(await h.call({ action: "delete", runId: pv.runId }), 409, "project_live");
   assert.deepEqual(r.error.ids, [DEL5]);
+  assert.equal(r.error.message, "One of these projects exists again, so nothing was deleted. Refresh.");
+  assert.deepEqual([r.error.result.removed, r.error.result.remaining, r.error.result.status], [0, 3, "partial"], "the 409 carries the run's counts");
   assert.equal(h.st.storage.length, 0, "Storage never called");
   const run = await runRow(db, pv.runId);
   assert.equal(run.status, "partial");
   assert.equal(run.lease_token, null);
-  assert.match(run.last_error, /exists again/);
+  assert.equal(run.last_error, "a project in this run exists again; nothing was deleted");
   for (let i = 0; i < 3; i++) assert.ok((await objectNames(db)).has(bulkPath(DEL5, i)));
   await db.query(`delete from public.turn_projects where id = $1`, [DEL5]);
   const again = ok200(await h.call({ action: "delete", runId: pv.runId }));
@@ -887,6 +925,113 @@ await acheck("45 s budget: no new batch starts after 45 s; the run is partial an
   assert.deepEqual([again.status, again.removed, again.remaining], ["done", 250, 0]);
 });
 
+// ── 2026-09-27 review: interruptions and races inside one delete call ──────
+const namesOf = (pid, n) => Array.from({ length: n }, (_, i) => bulkPath(pid, i));
+const leftOf = async (pid) => (await db.query(`select count(*)::int n from storage.objects where bucket_id = 'turn-assets' and name like $1`, [`${ALICE}/${pid}/%`])).rows[0].n;
+const expireLease = (runId) => db.query(`update turn_admin_ops.storage_runs set lease_expires_at = now() - interval '1 second' where id = $1`, [runId]);
+
+await acheck("T8 crash after marking 'sending' but before the Storage request: a resume puts those items back to planned and deletes them", async () => {
+  const h = harness(db);
+  const pv = ok200(await h.call({ action: "preview-delete", projectIds: [DEL9] }));
+  h.st.mode = (n) => (n === 1 ? "die-before" : "ok");
+  err(await h.call({ action: "delete", runId: pv.runId }), 503, "db_unreachable");
+  h.st.dead = false;
+  assert.deepEqual(byOutcome(await itemsOf(db, pv.runId)), { sending: 200, planned: 50 });
+  assert.equal(await leftOf(DEL9), 250, "nothing was removed");
+  await expireLease(pv.runId);
+  const r = ok200(await h.call({ action: "delete", runId: pv.runId }));
+  assert.deepEqual([r.status, r.removed, r.remaining, r.failed.count], ["done", 250, 0, 0]);
+  assert.equal(await leftOf(DEL9), 0, "the files that were only marked 'sending' are really gone, not just recorded as removed");
+  assert.deepEqual(sorted(h.st.storage.slice(1).flat()), sorted(namesOf(DEL9, 250)), "the resume sent all 250, the 200 again");
+});
+
+await acheck("T6 a project re-inserted DURING a call: the next batch stops, and the run says how many files were already deleted", async () => {
+  const h = harness(db);
+  const pv = ok200(await h.call({ action: "preview-delete", projectIds: [DELA] }));
+  h.st.hook = async (n) => {
+    if (n === 1) await db.query(`insert into public.turn_projects(id, owner, title, doc) values ($1, $2, 'Back mid-run', $3)`, [DELA, ALICE, j(filmDoc("Back"))]);
+  };
+  const r = err(await h.call({ action: "delete", runId: pv.runId }), 409, "project_live");
+  assert.equal(h.st.storage.length, 1, "batch 2 never reached Storage");
+  assert.equal(r.error.message, "One of these projects exists again, so deleting stopped. 200 files had already been deleted. Refresh.");
+  assert.deepEqual([r.error.result.removed, r.error.result.remaining, r.error.result.planned], [200, 250, 450]);
+  let run = await runRow(db, pv.runId);
+  assert.deepEqual([run.status, run.removed_files, run.lease_token], ["partial", 200, null]);
+  assert.equal(run.last_error, "stopped: a project in this run exists again; 200 files had already been deleted");
+  // the next call (still live) stops before any batch and still reports the 200
+  h.st.hook = null;
+  const again = err(await h.call({ action: "delete", runId: pv.runId }), 409, "project_live");
+  assert.match(again.error.message, /deleting stopped\. 200 files had already been deleted/);
+  assert.equal(again.error.result.removed, 200);
+  assert.equal(h.st.storage.length, 1);
+  run = await runRow(db, pv.runId);
+  assert.doesNotMatch(run.last_error, /nothing was deleted/);
+  assert.equal(await leftOf(DELA), 250);
+  await db.query(`delete from public.turn_projects where id = $1`, [DELA]);
+  const done = ok200(await h.call({ action: "delete", runId: pv.runId }));
+  assert.deepEqual([done.status, done.removed], ["done", 450]);
+});
+
+await acheck("lease taken between two batches: the second batch's mark-sending is refused and Storage is not called", async () => {
+  const h = harness(db);
+  const pv = ok200(await h.call({ action: "preview-delete", projectIds: [DELB] }));
+  let marks = 0;
+  h.st.onStatement = async (text, t, params) => {
+    if (text !== core.S.MARK_SENDING || ++marks !== 2) return;
+    // another call (a second tab, or one still running after 90 s) holds the lease now
+    await t.query(`update turn_admin_ops.storage_runs set lease_token = gen_random_uuid(), lease_expires_at = now() + interval '90 seconds' where id = $1`, [params[0]]);
+  };
+  const r = ok200(await h.call({ action: "delete", runId: pv.runId }));
+  h.st.onStatement = null;
+  assert.equal(h.st.storage.length, 1, "only batch 1 was sent");
+  assert.deepEqual([r.status, r.removed, r.remaining], ["partial", 200, 60]);
+  assert.deepEqual(byOutcome(await itemsOf(db, pv.runId)), { removed: 200, planned: 60 }, "batch 2 was never marked 'sending'");
+  const run = await runRow(db, pv.runId);
+  assert.ok(run.status === "running" && run.lease_token, "the other call's lease is untouched");
+  await expireLease(pv.runId);
+  const done = ok200(await h.call({ action: "delete", runId: pv.runId }));
+  assert.deepEqual([done.status, done.removed], ["done", 260]);
+});
+
+await acheck("lease lost during a slow Storage request: the old call's confirm writes nothing, the new holder's removals are credited", async () => {
+  const hA = harness(db), hB = harness(db);
+  hA.st.concurrent = hB.st.concurrent = true;
+  const pv = ok200(await hA.call({ action: "preview-delete", projectIds: [DELC] }));
+  const inA = deferred(), gateA = deferred(), inB = deferred(), gateB = deferred();
+  hA.st.hook = async () => { inA.resolve(); await gateA.promise; };
+  hA.st.mode = () => "error";                      // A's request fails while the files are still there
+  hB.st.hook = async () => { inB.resolve(); await gateB.promise; };
+  const pA = hA.call({ action: "delete", runId: pv.runId });
+  await inA.promise;                               // A marked its 3 items 'sending' and waits on Storage
+  await expireLease(pv.runId);
+  const pB = hB.call({ action: "delete", runId: pv.runId });
+  await inB.promise;                               // B leased the run, reconciled A's items and marked them 'sending'
+  gateA.resolve();
+  const rA = ok200(await pA);
+  assert.equal(rA.failed.count, 0, "A recorded no failure over B's items");
+  assert.deepEqual(byOutcome(await itemsOf(db, pv.runId)), { sending: 3 }, "B's items are still B's");
+  gateB.resolve();
+  const rB = ok200(await pB);
+  assert.deepEqual([rB.status, rB.removed, rB.failed.count, rB.remaining], ["done", 3, 0, 0]);
+  const run = await runRow(db, pv.runId);
+  assert.deepEqual([run.status, run.removed_files, run.failed_files, run.already_gone], ["done", 3, 0, 0], "History credits the removals");
+  assert.equal(await leftOf(DELC), 0);
+});
+
+await acheck("a hung Storage request is reported as failed well inside the lease; the next call settles those files by absence", async () => {
+  const h = harness(db, { env: { storageTimeoutMs: 40 } });
+  const pv = ok200(await h.call({ action: "preview-delete", projectIds: [DELD] }));
+  h.st.storageDelay = 250;                         // answers (and removes) long after the guard
+  const r = ok200(await h.call({ action: "delete", runId: pv.runId }));
+  assert.deepEqual([r.status, r.removed, r.failed.count], ["partial", 0, 3]);
+  assert.ok(r.failed.sample.every((f) => /Storage did not answer within 1 s/.test(f.detail)));
+  await sleep(400);                                // the late request lands
+  h.st.storageDelay = 0;
+  const again = ok200(await h.call({ action: "delete", runId: pv.runId }));
+  assert.deepEqual([again.status, again.alreadyGone, again.remaining], ["done", 3, 0]);
+  assert.equal(await leftOf(DELD), 0);
+});
+
 await acheck("runs: History list (Done / Partial / Interrupted / Expired / Reviewed) and per-outcome detail pages", async () => {
   const h = harness(db);
   const pending = ok200(await h.call({ action: "preview-delete", projectIds: [DEL] }));   // reviewed, not run
@@ -906,6 +1051,27 @@ await acheck("runs: History list (Done / Partial / Interrupted / Expired / Revie
   err(await h.call({ action: "runs", runId: runA, outcome: "everything" }), 400, "bad_request");
   err(await h.call({ action: "runs", runId: "00000000-0000-4000-8000-000000000000" }), 409, "run_not_found");
   assert.equal(ok200(await h.call({ action: "runs", limit: 2 })).runs.length, 2);
+  // 2026-09-27 review: keyset pages, so no run (and no Resume) ever falls off the list
+  const all = list.runs.map((r) => r.id);
+  assert.ok(all.length > 10 && all.length < 50, "the whole history fits one 50-row page here: " + all.length);
+  assert.equal(list.nextCursor, null);
+  assert.ok(!("cursor_at" in list.runs[0]), "the cursor column stays internal");
+  const paged = [];
+  let cursor = null, pages = 0;
+  do {
+    const p = ok200(await h.call({ action: "runs", limit: 3, cursor }));
+    paged.push(...p.runs.map((r) => r.id));
+    cursor = p.nextCursor; pages++;
+    assert.ok(pages <= all.length, "paging moves forward and ends");
+  } while (cursor);
+  assert.ok(pages > 3);
+  assert.deepEqual(paged, all, "3 at a time: the same runs in the same order, no gaps, no repeats");
+  // reviews that were never run can be left out (the page's default view)
+  const real = ok200(await h.call({ action: "runs", limit: 50, reviews: false })).runs;
+  assert.deepEqual(real.map((r) => r.id), list.runs.filter((r) => !["previewed", "expired"].includes(r.status)).map((r) => r.id));
+  assert.ok(real.length > 5 && real.some((r) => r.status === "done"));
+  err(await h.call({ action: "runs", cursor: "not-a-cursor" }), 400, "bad_request");
+  err(await h.call({ action: "runs", cursor: "2026-09-27 03:00:00+00|nope" }), 400, "bad_request");
 });
 
 // ── T15 drain-queue with the real claim / complete ──────────────────────────
@@ -939,6 +1105,7 @@ await acheck("T15 drain: removes unreferenced queued files, keeps referenced one
   assert.equal(failed.five_min, true);
   assert.equal(failed.lease_token, null);
   assert.deepEqual([r.keptReferenced, r.held, r.failed], [1, 1, 1]);
+  assert.deepEqual([r.heldGrace, r.heldUpload], [1, 0], "the 24 h wait and live uploads are counted apart");
   assert.ok(r.removed >= 2 && r.claimed >= 5);
   assert.equal(r.stillQueued, (await db.query(`select count(*)::int n from public.turn_asset_cleanup_queue`)).rows[0].n);
   const run = await runRow(db, r.runId);
@@ -991,21 +1158,89 @@ await acheck("T15 drain: concurrent drains → one 409; a stale drain lease is t
   assert.equal((await db.query(`select count(*)::int n from turn_admin_ops.storage_runs where status = 'running'`)).rows[0].n, 0);
 });
 
-await acheck("T15 drain: a queue RPC failure stops the drain before Storage; its unconfirmed items are settled, never left 'sending'", async () => {
+await acheck("T15 drain: a claim failure stops before Storage; a complete failure after Storage leaves the removal recorded, and the next drain dequeues it", async () => {
   await db.query(`update public.turn_asset_cleanup_queue set available_at = now() - interval '1 minute', lease_token = null, lease_expires_at = null
                    where path = any($1::text[])`, [[pQueueG, F.delShared]]);
+  const lastDrain = async () => (await rowsOf(db, `select * from turn_admin_ops.storage_runs where action = 'drain-cleanup-queue' order by created_at desc limit 1`))[0];
+  const claimFails = harness(db);
+  claimFails.st.rpcFail = (name) => name === "turn_claim_asset_cleanup_batch";
+  err(await claimFails.call({ action: "drain-queue" }), 500, "internal");
+  assert.equal(claimFails.st.storage.length, 0, "Storage was never called");
+  assert.deepEqual([(await lastDrain()).status, (await itemsOf(db, (await lastDrain()).id)).length], ["partial", 0]);
+
   const h = harness(db);
   h.st.rpcFail = (name) => name === "turn_complete_asset_cleanup";
   err(await h.call({ action: "drain-queue" }), 500, "internal");
-  assert.equal(h.st.storage.length, 0, "Storage was never called");
-  const [run] = await rowsOf(db, `select * from turn_admin_ops.storage_runs where action = 'drain-cleanup-queue' order by created_at desc limit 1`);
+  assert.deepEqual(h.st.storage, [[pQueueG]], "the unreferenced file went to Storage straight after the recheck");
+  const run = await lastDrain();
   assert.equal(run.status, "partial");
   assert.match(run.last_error, /simulated PostgREST 502/);
   const items = Object.fromEntries((await itemsOf(db, run.id)).map((i) => [i.path, i]));
-  assert.deepEqual([items[F.delShared].outcome, items[pQueueG].outcome], ["kept", "failed"]);
-  assert.match(items[pQueueG].detail, /drain stopped before confirming/);
-  assert.ok((await objectNames(db)).has(pQueueG) && (await objectNames(db)).has(F.delShared));
-  assert.ok(await queueRow(pQueueG), "still queued (its lease expires and it is claimed again)");
+  assert.deepEqual([items[F.delShared].outcome, items[pQueueG].outcome], ["kept", "removed"], "confirmed by absence, never left 'sending'");
+  assert.ok(!(await objectNames(db)).has(pQueueG) && (await objectNames(db)).has(F.delShared));
+  assert.ok(await queueRow(pQueueG), "still queued: its complete failed");
+  // once the claim leases expire, the next drain dequeues it as already gone
+  await db.query(`update public.turn_asset_cleanup_queue set lease_expires_at = now() - interval '1 second' where path = any($1::text[])`, [[pQueueG, F.delShared]]);
+  const next = ok200(await harness(db).call({ action: "drain-queue" }));
+  assert.equal(await queueRow(pQueueG), undefined);
+  assert.ok(next.alreadyGone >= 1 && next.keptReferenced >= 1);
+});
+
+// ── 2026-09-27 review: drain guards the fake Storage audit now checks too ───
+const Q_RELAY = `${ALICE}/${DEL}/shot/job-5/blender-preview-job-5.png`;
+const Q_RES = `${ALICE}/${DEL}/prop/prop-r/20260926-000000-sheet-reserve1.png`;
+const RACE_HELD = `${ALICE}/${F1}/prop/prop-knife/20260927-010000-sheet-race0001.png`;
+const RACE_OLD = `${ALICE}/${F1}/prop/prop-knife/20260925-010000-sheet-race0002.png`;
+const onlyReady = (paths) => db.query(`update public.turn_asset_cleanup_queue set available_at = now() + interval '1 hour', lease_token = null, lease_expires_at = null
+                                        where not (path = any($1::text[]))`, [paths]);
+await acheck("T15 drain: a queued path outside the asset layout and one with a live upload reservation are never sent to Storage", async () => {
+  for (const p of [Q_RELAY, Q_RES]) await putObject(db, p);
+  await db.query(`insert into public.turn_asset_cleanup_queue(path, project_id, uploader, reason, queued_at, available_at) values
+      ($1, $3, $4, 'project_deleted', now() - interval '2 hours', now() - interval '1 minute'),
+      ($2, $3, $4, 'project_deleted', now() - interval '2 hours', now() - interval '1 minute')`, [Q_RELAY, Q_RES, DEL, ALICE]);
+  await db.query(`insert into public.turn_asset_upload_intents(path, project_id, uploader, expires_at) values ($1, $2, $3, now() + interval '2 hours')`, [Q_RES, DEL, ALICE]);
+  await onlyReady([Q_RELAY, Q_RES]);
+  const v0 = VIOLATIONS.length;
+  const h = harness(db);
+  const r = ok200(await h.call({ action: "drain-queue" }));
+  assert.equal(VIOLATIONS.length, v0, "audit: " + VIOLATIONS.slice(v0).join("; "));
+  assert.deepEqual(h.st.storage, [], "nothing was sent");
+  const names = await objectNames(db);
+  assert.ok(names.has(Q_RELAY) && names.has(Q_RES));
+  const items = Object.fromEntries((await itemsOf(db, r.runId)).map((i) => [i.path, i]));
+  assert.deepEqual([items[Q_RELAY].outcome, items[Q_RELAY].detail], ["failed", "path outside the TURN asset layout; review by hand"]);
+  assert.deepEqual([items[Q_RES].outcome, items[Q_RES].detail], ["skipped", "held: upload in progress"]);
+  assert.deepEqual([r.heldUpload, r.heldGrace, r.failed], [1, 0, 1]);
+  assert.match((await queueRow(Q_RELAY)).last_error, /outside the TURN asset layout/);
+  assert.match((await queueRow(Q_RES)).last_error, /^held: upload in progress/);
+});
+
+await acheck("T15 drain: Storage is called right after the recheck; completing the held rows waits, so a reference committed meanwhile is never raced", async () => {
+  await putObject(db, RACE_HELD, "1 hour");
+  await putObject(db, RACE_OLD, "26 hours");
+  await db.query(`insert into public.turn_asset_cleanup_queue(path, project_id, uploader, reason, queued_at, available_at) values
+      ($1, $3, $4, 'abandoned_upload', now() - interval '1 hour', now() - interval '1 minute'),
+      ($2, $3, $4, 'abandoned_upload', now() - interval '25 hours', now() - interval '1 minute')`, [RACE_HELD, RACE_OLD, F1, ALICE]);
+  await onlyReady([RACE_HELD, RACE_OLD]);
+  const v0 = VIOLATIONS.length;
+  const h = harness(db);
+  let fired = false;
+  // the uploader commits a generation that uses RACE_OLD while the drain is completing a queue row
+  h.st.rpcHook = async (name) => {
+    if (name !== "turn_complete_asset_cleanup" || fired) return;
+    fired = true;
+    await db.query(`insert into public.turn_generations(project_id, owner, entity_id, storage_path) values ($1, $2, 'race', $3)`, [F1, ALICE, RACE_OLD]);
+  };
+  const r = ok200(await h.call({ action: "drain-queue" }));
+  assert.ok(fired);
+  assert.equal(VIOLATIONS.length, v0, "audit: " + VIOLATIONS.slice(v0).join("; "));
+  const storageAt = h.st.events.indexOf("storage");
+  const firstComplete = h.st.events.indexOf("rpc:turn_complete_asset_cleanup");
+  assert.ok(storageAt >= 0 && storageAt < firstComplete, "no queue RPC between the recheck and Storage: " + h.st.events.join(" "));
+  assert.deepEqual(h.st.storage, [[RACE_OLD]]);
+  assert.deepEqual([r.removed, r.heldGrace], [1, 1]);
+  assert.ok((await objectNames(db)).has(RACE_HELD));
+  assert.match((await queueRow(RACE_HELD)).last_error, /^held: abandoned less than 24 h ago/);
 });
 
 // ── T13 (rest): fail closed ─────────────────────────────────────────────────
