@@ -132,14 +132,17 @@ window.turnAttrError = attributedError;
   // toast (user ruling 2026-07-16: always show errors on the open form/modal).
   // The sink returns true when it consumed the message.
   window.turnErrorSink = window.turnErrorSink || null;
-  window.appToast = function(message, type){
+  // opts.force: the direct answer to a click the user just made (e.g. "Couldn't redraft
+  // Scene 4 — …") is never swallowed by the de-dupe — pressing Redraft twice within the
+  // 30 s billing window used to show the overlay and then nothing at all
+  window.appToast = function(message, type, opts){
     try{
       const msg = String(message||"").trim(); if(!msg) return;
       const now = (typeof performance!=="undefined" && performance.now) ? performance.now() : (+new Date());
       for(const k in recent){ if((now-recent[k])>60000) delete recent[k]; }
       const key = msg.slice(0,200);
       const win = LONG_DEDUPE_RE.test(msg) ? 30000 : 4000;
-      if(recent[key]!=null && (now-recent[key])<win) return;   // de-dupe bursts
+      if(!(opts && opts.force) && recent[key]!=null && (now-recent[key])<win) return;   // de-dupe bursts
       recent[key]=now;
       if(type==="error" && typeof window.turnErrorSink==="function"){
         let took=false; try{ took = !!window.turnErrorSink(msg); }catch(e){}
@@ -989,54 +992,398 @@ function realignBlockBeats(blocks, bm){
 }
 window.realignBlockBeats = realignBlockBeats;
 
+/* NORMALISE the model's blocks into the renderer's block types BEFORE they are aligned
+   and validated (2026-09-27 incident: screen-heavy scenes were thrown out because
+   standard screenplay devices tripped the dialogue-in-action check). It never invents,
+   drops or rewords a word — it only re-types or splits what the model wrote:
+     • an on-screen-text device filed as a character cue becomes ONE action line
+       ("SUPER" + "WRENHAM, 4:07 A.M." → "SUPER: …"; "PHONE (ON SCREEN)" + its text) —
+       nobody speaks a SUPER. Decided by screenplayCueDevice (script.jsx): never for a
+       known speaker or a person's label (THIRD GUARD, CARD DEALER, a building's SUPER
+       saying "Rent's due Friday."), so a real line is never demoted to action;
+     • a NAMELESS recorded / broadcast / narrator voice written into action ("VOICEMAIL:
+       “You've reached Nina.”", "VO: Know before it comes.") becomes a cue + dialogue,
+       "VOICEMAIL (V.O.)" / "NARRATOR (V.O.)" — only the words that belong to the voice
+       (its quoted span, or its sentences until narration resumes), so the action around
+       it stays action ("The machine clicks." / "Dev hangs up."). A description of what
+       a speaker or screen does ("TV: A reporter stands…", "INTERCOM: It crackles.") stays
+       action, and a voice label naming a cast member ("BRAM OVER RADIO:", "RADIO (BRAM):")
+       is that character's line — left for the validator to reject, never re-cued;
+     • a transition written as action ("CUT TO:") becomes a transition, and "CUT TO:
+       EXT. ROOF - NIGHT" a transition plus that secondary slugline;
+     • an INSERT / BACK TO SCENE / CLOSE ON heading filed as a slugline becomes action (it
+       is not a place: a "scene" block would become a bogus Location card).
+   A CHARACTER's line packed into action ("MARCUS: Sorry, sir.") is deliberately NOT
+   repaired here: validateScreenplayBlocks still rejects it. Returns { blocks, notes };
+   the writers log the notes for admins (logScreenplayNormalized). */
+function normalizeScreenplayBlocks(blocks, ctx){
+  ctx = ctx || {};
+  const list = Array.isArray(blocks) ? blocks.filter(Boolean) : [];
+  const haveLabels = typeof screenplayActionLabels==="function" && typeof screenplaySpeakers==="function" && typeof screenplayCueDevice==="function";
+  if(!haveLabels) return { blocks:list, notes:[] };
+  const speakers = screenplaySpeakers(list, ctx.bm, ctx.cast, ctx.speakers);
+  const EXT_RE = /^(?:V\.?\s?O\.?|O\.?\s?S\.?|O\.?\s?C\.?|FILTERED|CONT[’']?D)$/i;
+  const voiceCue = (label, ext)=>{
+    const base = String(label||"").replace(/\s+/g," ").trim().toUpperCase();
+    const name = /^(?:V\.?O\.?|VOICE[- ]?OVER)$/.test(base) ? "NARRATOR" : base;
+    const e = String(ext||"").trim();
+    if(!e) return { cue:name+" (V.O.)" };
+    return EXT_RE.test(e) ? { cue:name+" ("+e.toUpperCase()+")" } : { cue:name+" (V.O.)", paren:e };
+  };
+  const unquote = (t)=>{
+    const x = String(t||"").trim();
+    const m = x.match(/^(["“‘'])([\s\S]*?)(["”’'])([.,!?…]*)$/);
+    return (m ? m[2]+(/[.!?…]$/.test(m[2]) ? "" : m[4]) : x).trim();
+  };
+  const out = [], notes = [];
+  for(let i=0;i<list.length;i++){
+    const b = list[i], text = String(b.text||"").trim();
+    if(b.type==="char"){
+      const nx = list[i+1], nxt = nx ? String(nx.text||"").trim() : "";
+      if(nx && nxt && (nx.type==="dia" || nx.type==="action") && screenplayCueDevice(text, nxt, speakers)){
+        out.push({ ...b, type:"action", text:text.replace(/[\s:]+$/,"")+": "+nxt });
+        notes.push("on-screen text filed as a character cue → action: "+text);
+        i++; continue;
+      }
+    }
+    if(b.type==="scene" && !/^(?:INT|EXT|I\/E)\b/i.test(text)
+      && /^(?:INSERT\b|BACK\s+TO\s+(?:SCENE|PRESENT)\b|CLOSE\s+ON\b|ANGLE\s+ON\b|ON[- ]SCREEN\b|POV\b|SUPER\b)/i.test(text)){
+      out.push({ ...b, type:"action" });
+      notes.push("insert heading filed as a slugline → action: "+text);
+      continue;
+    }
+    if(b.type==="action" && text){
+      if(text===text.toUpperCase() && typeof isSpTransition==="function" && isSpTransition(text)){
+        out.push({ ...b, type:"trans" }); notes.push("transition filed as action → transition: "+text); continue;
+      }
+      const cut = text.match(/^((?:(?:SMASH|MATCH|HARD|JUMP|QUICK)\s+)?CUT\s+TO:|DISSOLVE\s+TO:)\s+((?:INT|EXT|I\/E)[.\/]\s*\S.*)$/);
+      if(cut){
+        out.push({ ...b, type:"trans", text:cut[1] }, { ...b, type:"scene", text:cut[2].trim() });
+        notes.push("transition + slugline filed as action → split: "+text); continue;
+      }
+      const labels = screenplayActionLabels(text, speakers);
+      if(labels.some(h=>h.kind==="voice") && !labels.some(h=>h.kind==="dialogue")){
+        const pieces = [], mark = notes.length; let cursor = 0, ok = true;
+        for(const h of labels){
+          if(h.kind!=="voice") continue;
+          const before = text.slice(cursor, h.start).trim();
+          const dia = unquote(h.reach);
+          // only at a sentence boundary, and only with words to speak
+          if(!dia || (before && !/[.!?…"”’)\]:]$/.test(before))){ ok = false; break; }
+          if(before) pieces.push({ type:"action", text:before });
+          const vc = voiceCue(h.label, h.ext);
+          pieces.push({ type:"char", text:vc.cue });
+          if(vc.paren) pieces.push({ type:"paren", text:vc.paren });
+          pieces.push({ type:"dia", text:dia });
+          cursor = h.reachEnd;
+          notes.push("voice written into action → cue + dialogue: "+h.label);
+        }
+        if(ok){
+          const after = text.slice(cursor).trim();
+          if(after) pieces.push({ type:"action", text:after });
+          pieces.forEach(p=>out.push({ ...b, ...p }));
+          continue;
+        }
+        notes.length = mark;   // nothing converted: the validator decides
+      }
+    }
+    out.push(b);
+  }
+  return { blocks:out, notes };
+}
+window.normalizeScreenplayBlocks = normalizeScreenplayBlocks;
+
 /* Shared screenplay structure resolver. It keeps cue→parenthetical→dialogue
-   bundles intact, reports orphan dialogue / cue text embedded in action, and can
-   require every authored beat to have real prose. AI callers reject invalid
-   output instead of silently shipping a malformed or truncated screenplay. */
+   bundles intact, reports orphan dialogue / a character's line embedded in action, and
+   can require every authored beat to have real prose. AI callers reject invalid output
+   instead of silently shipping a malformed or truncated screenplay — and say WHY
+   (details: one entry per problem, with its beat and the offending text).
+   The dialogue-in-action check (screenplayEmbeddedDialogue, script.jsx) rejects exactly
+   what the Script check warns about: a SPEAKER's line — a known cast/cue name (shouted
+   CAPS too), a cue extension such as (V.O.) or (into radio), a role label with a
+   sentence or an order, plainly spoken words after any label — and a nameless voice the
+   normaliser could not turn into a cue. It accepts on-screen text, inserts, supers,
+   readouts, camera/sound directions and messages shown on a screen. */
+const _LEGACY_EMBEDDED_CUE_RE = /(?:^|\s)[A-Z][A-Z .'’-]{1,30}:\s*[“"']?[A-Z]/;
+// script.jsx and ai.jsx must load together (same cache key in TURN.html): a stale cached
+// script.jsx without the label classifier would silently fall back to the legacy rule
+// that caused the 2026-09-27 incident, so the mismatch is reported once in the console.
+const SP_LABELS_EXPECTED = 2;
+let _spVersionWarned = false;
+function screenplayLabelsInStep(){
+  const ok = window.SP_LABELS_VERSION===SP_LABELS_EXPECTED && typeof screenplayEmbeddedDialogue==="function";
+  if(!ok && !_spVersionWarned){
+    _spVersionWarned = true;
+    try{ console.warn("[screenplay] script.jsx (label classifier v"+(window.SP_LABELS_VERSION||"none")+") is out of step with ai.jsx (expects v"+SP_LABELS_EXPECTED+") — a stale cached file; hard-reload the page."); }catch(e){}
+  }
+  return ok;
+}
+window.screenplayLabelsInStep = screenplayLabelsInStep;
 function validateScreenplayBlocks(blocks, bm, opts){
   opts = opts || {};
   const list = Array.isArray(blocks) ? blocks.filter(b=>b&&String(b.text||"").trim()) : [];
-  const issues = [];
+  const issues = [], details = [];
+  const flag = (issue, b, extra)=>{ issues.push(issue);
+    details.push({ issue, beat:(b && Number(b.beat)) || null, text:b ? String(b.text||"").slice(0,160) : "", ...(extra||{}) }); };
+  screenplayLabelsInStep();
+  const speakers = (typeof screenplaySpeakers==="function")
+    ? screenplaySpeakers(list, bm, opts.cast || window.turnCast, opts.speakers) : null;
   let cue = null;
   list.forEach((b,i)=>{
     if(b.type==="char"){
-      if(cue) issues.push("character cue without dialogue");
+      if(cue) flag("character cue without dialogue", list[cue.at]);
       cue={ beat:Number(b.beat)||1, at:i }; return;
     }
     if(b.type==="paren"){
-      if(!cue) issues.push("parenthetical without a character cue");
+      if(!cue) flag("parenthetical without a character cue", b);
       return;
     }
     if(b.type==="dia"){
-      if(!cue) issues.push("dialogue without a character cue");
-      else if(Number(b.beat)!==cue.beat) issues.push("dialogue separated from its character cue");
+      if(!cue) flag("dialogue without a character cue", b);
+      else if(Number(b.beat)!==cue.beat) flag("dialogue separated from its character cue", b);
       cue = null; return;
     }
-    if(cue) issues.push("character cue interrupted before dialogue");
+    if(cue) flag("character cue interrupted before dialogue", list[cue.at]);
     if(b.type==="action"){
-      // Catch the common model failure where a cue and its spoken line are packed
-      // into an action paragraph (e.g. "MARCUS: Sorry, sir.").
-      if(/(?:^|\s)[A-Z][A-Z .'\u2019-]{1,30}:\s*[“"']?[A-Z]/.test(String(b.text||"")))
-        issues.push("character cue or dialogue embedded in action");
+      // a character's line packed into an action paragraph ("MARCUS: Sorry, sir.")
+      const text = String(b.text||"");
+      const hit = speakers && typeof screenplayEmbeddedDialogue==="function"
+        ? screenplayEmbeddedDialogue(text, speakers)
+        : (_LEGACY_EMBEDDED_CUE_RE.test(text) ? { label:"" } : null);
+      if(hit) flag("character cue or dialogue embedded in action", b, { label:hit.label });
     }
     cue = null;
   });
-  if(cue) issues.push("character cue without dialogue");
+  if(cue) flag("character cue without dialogue", list[cue.at]);
   if(opts.requireAllBeats && bm && Array.isArray(bm.rows)){
     const present = new Set(list.filter(b=>b.type!=="scene"&&b.type!=="trans").map(b=>Number(b.beat)));
-    bm.rows.forEach(r=>{ if(!present.has(Number(r.n))) issues.push("missing screenplay section for beat "+r.n); });
+    bm.rows.forEach(r=>{ if(!present.has(Number(r.n))) flag("missing screenplay section for beat "+r.n, null, { beat:Number(r.n) }); });
   }
-  return { blocks:list, issues:Array.from(new Set(issues)), valid:issues.length===0 };
+  return { blocks:list, issues:Array.from(new Set(issues)), details, valid:issues.length===0 };
 }
 window.validateScreenplayBlocks = validateScreenplayBlocks;
 
 function resolveScreenplayResponse(res, scene, bm, opts){
+  opts = opts || {};
   const parsed = parseScreenplay(res, scene);
-  if(!parsed) return { blocks:null, issues:["screenplay response was not parseable"], valid:false };
-  const aligned = bm ? realignBlockBeats(parsed, bm) : parsed;
-  return validateScreenplayBlocks(aligned, bm, opts);
+  if(!parsed) return { blocks:null, issues:["screenplay response was not parseable"], details:[], valid:false,
+    empty:!String(res==null?"":res).trim() };
+  const norm = normalizeScreenplayBlocks(parsed, { bm, cast:opts.cast || window.turnCast, speakers:opts.speakers });
+  const aligned = bm ? realignBlockBeats(norm.blocks, bm) : norm.blocks;
+  return { ...validateScreenplayBlocks(aligned, bm, opts), normalized:norm.notes };
 }
 window.resolveScreenplayResponse = resolveScreenplayResponse;
+
+/* ---- WHY A SCREENPLAY WRITE CAME BACK EMPTY-HANDED ----
+   Every writer (scene draft, redraft/polish, write-missing-beat, driver recast) records
+   a typed failure so its caller can say what happened in plain language instead of
+   failing silently:
+     invalid     — the reply broke screenplay format (validator issues + offending lines)
+     incomplete  — the reply left part of the job out (a recast with too few beats)
+     unreadable  — the reply was not screenplay JSON        empty — the reply was empty
+     truncated   — the reply was cut off
+     plan        — the USER's own account has no plan credits for it (the proxy's 402)
+     credits     — the studio's provider account is out of funds. That is internal
+                   (safeError masks it as "briefly unavailable (ref CM-11)" for everyone
+                   but admins), so only ADMINS are ever told it is about credits
+     signin      — signed out                                unavailable — no writing model
+     service     — any other model / transport error (with its opaque ref code, if any)
+   window.__lastScreenplayFailure keeps the newest one (with the raw reply) for admins
+   diagnosing a live report — nothing is persisted. User-facing text never names a
+   vendor or model and never points at "another message" (it may have been merged or
+   never shown); admins additionally see the technical reason. */
+function screenplayFailure(kind, o){
+  const f = Object.assign({ kind, issues:[], details:[], technical:"", at:new Date().toISOString() }, o||{});
+  try{ window.__lastScreenplayFailure = f; }catch(e){}
+  return f;
+}
+function screenplayFailureFromCheck(checked, raw, where){
+  const rawText = String(raw==null?"":raw).slice(0,60000);
+  if(checked && checked.empty) return screenplayFailure("empty", { where, technical:"empty reply", raw:rawText });
+  if(!checked || !checked.blocks) return screenplayFailure("unreadable", { where, issues:(checked&&checked.issues)||[], technical:"reply was not screenplay JSON", raw:rawText });
+  return screenplayFailure("invalid", { where, issues:checked.issues||[], details:checked.details||[],
+    technical:"format check rejected the reply: "+(checked.issues||[]).join("; "), raw:rawText });
+}
+const _PLAN_CREDITS_RE = /choose a plan|plan[’']s credits|needs \d+ credits, but this account has|did not have enough credits/i;
+function screenplayFailureFromError(e, where){
+  const msg = String((e && e.message) || e || "unknown error");
+  const ref = (msg.match(/\(ref (CM-\d+)\)/)||[])[1] || "";
+  if(/truncat/i.test(msg)) return screenplayFailure("truncated", { where, technical:msg });
+  if(_PLAN_CREDITS_RE.test(msg)) return screenplayFailure("plan", { where, technical:msg });
+  if(ref==="CM-11" || (!ref && ERR_CODES[0].re.test(msg))) return screenplayFailure("credits", { where, technical:msg, ref:"CM-11" });
+  if(/\bsign in\b/i.test(msg)) return screenplayFailure("signin", { where, technical:msg });
+  return screenplayFailure("service", { where, technical:msg, ref });
+}
+const _SP_ISSUE_PLAIN = [
+  [/embedded in action/, ()=>"a character’s line was written inside an action paragraph"],
+  [/missing screenplay section for beat (\d+)/, m=>"beat "+m[1]+" was left unwritten"],
+  [/cue without dialogue|interrupted before dialogue/, ()=>"a character name had no line after it"],
+  [/dialogue without a character cue|parenthetical without/, ()=>"a line of dialogue had no speaker"],
+  [/separated from its character cue/, ()=>"a line of dialogue was split from its speaker"],
+];
+function _spIssuePlain(issue){
+  for(const [re, fn] of _SP_ISSUE_PLAIN){ const m = String(issue||"").match(re); if(m) return fn(m); }
+  return "the screenplay format check failed";
+}
+const _spCap = s=>s.charAt(0).toUpperCase()+s.slice(1);
+/* the short plain-language reason (no vendor names; billing detail for admins only) */
+function screenplayFailureReason(f){
+  if(!f) return "the writing model returned nothing usable";
+  const ref = f.ref ? " (ref "+f.ref+")" : "";
+  switch(f.kind){
+    case "invalid": {
+      const plain = Array.from(new Set((f.issues||[]).map(_spIssuePlain)));
+      return "the new draft broke screenplay format ("+(plain[0]||"format check failed")+(plain.length>1 ? ", and "+(plain.length-1)+" more problem"+(plain.length>2?"s":"") : "")+"), so it was discarded";
+    }
+    case "incomplete": return f.plain || "the writing model’s reply left part of it out";
+    case "unreadable": return "the writing model’s reply couldn’t be read as a screenplay";
+    case "empty": return "the writing model sent back an empty reply";
+    case "truncated": return "the writing model’s reply was cut off before the scene was finished";
+    case "plan": return "your account has no plan credits left for writing";
+    case "credits": return window.turnIsAdmin ? "the writing provider’s account is out of credits" : "the writing service is briefly unavailable"+ref;
+    case "signin": return "you’re signed out of the writing service";
+    case "unavailable": return "the writing model isn’t available right now";
+    default: return f.ref ? "the writing service is briefly unavailable"+ref : "the writing service returned an error";
+  }
+}
+/* what to try next, in plain language. opts.carries: this action's next attempt is told
+   what the check rejected (redraft / draft) — only then does the advice say so. */
+function screenplayFailureAdvice(f, retryLabel, opts){
+  const again = retryLabel || "try again";
+  const carries = !!(opts && opts.carries);
+  if(!f) return _spCap(again)+".";
+  if(f.kind==="invalid") return carries ? _spCap(again)+" — the next attempt is told what the check rejected." : _spCap(again)+".";
+  if(f.kind==="incomplete") return _spCap(again)+".";
+  if(f.kind==="plan") return "Choose a plan or add credits, then "+again+".";
+  if(f.kind==="credits") return window.turnIsAdmin ? "Top up the provider account, then "+again+"."
+    : _spCap(again)+" in a moment; if it keeps failing, quote ref "+(f.ref||"CM-11")+" to support.";
+  if(f.kind==="signin" || f.kind==="unavailable") return "Sign in, then "+again+".";
+  if(f.kind==="truncated") return _spCap(again)+"; if it keeps happening, shorten the longest beat cards.";
+  if(f.kind==="service" && f.ref) return _spCap(again)+" in a moment; if it keeps failing, quote ref "+f.ref+" to support.";
+  return _spCap(again)+" in a moment.";
+}
+/* admins only: the technical reason — the offending line FIRST (it's what you need to
+   diagnose), then the kind and the check / error, cut to fit `max` characters */
+function screenplayFailureTechnical(f, max){
+  if(!f) return "no failure recorded";
+  const cap = Math.max(40, Number(max) || 600);
+  const d = (f.details||[]).find(x=>x && x.text) || null;
+  let line = "";
+  if(d){
+    let t = String(d.text);
+    const lineMax = Math.max(20, Math.min(110, cap - String(f.kind).length - 20));
+    if(t.length>lineMax) t = t.slice(0,lineMax).replace(/\s+\S*$/,"")+"…";
+    line = "beat "+(d.beat||"?")+": “"+t+"”";
+  }
+  const tech = String(f.kind+" — "+(f.technical||""));
+  const room = cap - line.length - (line ? 3 : 0);
+  const techCut = room<=0 ? f.kind : tech.length>room ? tech.slice(0, Math.max(f.kind.length, room-1)).replace(/\s+\S*$/,"")+"…" : tech;
+  return scrubBrand((line ? line+" · " : "")+techCut);
+}
+/* "Couldn't redraft Scene 4 — <reason>. <kept> <what to try>" (+ the technical reason for
+   admins, fitted so the whole message survives the toast's 400-character limit) */
+const SP_TOAST_MAX = 400;
+function screenplayFailureMessage(action, sceneNo, f, opts){
+  opts = opts || {};
+  const head = "Couldn’t "+action+(sceneNo!=null && sceneNo!=="" ? " Scene "+sceneNo : "")+" — ";
+  const kept = opts.kept ? " "+opts.kept : "";
+  const msg = head+screenplayFailureReason(f)+"."+kept+" "+screenplayFailureAdvice(f, opts.retryLabel, opts);
+  if(!window.turnIsAdmin) return msg;
+  return msg+" [admin: "+screenplayFailureTechnical(f, SP_TOAST_MAX - msg.length - 10)+"]";
+}
+/* one message for a batch (Draft all, Redraft all): every failed scene with ITS OWN
+   reason, grouped ("Scene 4: …; Scenes 7, 9: …"), then ONE sentence of what to try that
+   covers every kind present, all inside the toast's 400 characters (reasons step down to
+   a short, then a tiny form until it fits — never one scene's reason for another; the
+   admin tail gets what is left).
+   items: [{ no, failure }] — a null failure reads as opts.nullReason / opts.nullShort.
+   head: the text before the list; opts.next: what to do ("Open each and press …"). */
+const _SP_SHORT_REASON = { invalid:"failed the screenplay format check", unreadable:"the reply was unreadable", empty:"the reply was empty",
+  truncated:"the reply was cut off", plan:"no plan credits left", signin:"signed out", unavailable:"no writing model available" };
+const _SP_TINY_REASON = { invalid:"format check", unreadable:"unreadable reply", empty:"empty reply", truncated:"cut off",
+  plan:"plan credits", signin:"signed out", unavailable:"unavailable", incomplete:"incomplete" };
+function _spShortReason(f){
+  if(f.kind==="incomplete") return f.plain || "the reply was incomplete";
+  if(f.kind==="credits") return window.turnIsAdmin ? "the provider account is out of credits" : "the service was unavailable (ref "+(f.ref||"CM-11")+")";
+  if(_SP_SHORT_REASON[f.kind]) return _SP_SHORT_REASON[f.kind];
+  return f.ref ? "the service was unavailable (ref "+f.ref+")" : "a service error";
+}
+function _spTinyReason(f){
+  if(f.kind==="credits") return window.turnIsAdmin ? "provider credits" : "service (ref "+(f.ref||"CM-11")+")";
+  if(_SP_TINY_REASON[f.kind]) return _SP_TINY_REASON[f.kind];
+  return f.ref ? "service (ref "+f.ref+")" : "service error";
+}
+function screenplayBatchFailureMessage(head, items, opts){
+  opts = opts || {};
+  const list = items || [];
+  const compose = (tier)=>{
+    const groups = [];
+    list.forEach(it=>{
+      const f = it.failure;
+      const reason = !f ? ((tier===2 && opts.nullShort) || opts.nullReason || "it was not written")
+        : tier===2 ? _spTinyReason(f) : tier===1 ? _spShortReason(f) : screenplayFailureReason(f).replace(/, so it was discarded$/, "");
+      let g = groups.find(x=>x.reason===reason);
+      if(!g){ g = { reason, nos:[] }; groups.push(g); }
+      g.nos.push(it.no);
+    });
+    return groups.map(g=>"Scene"+(g.nos.length!==1?"s ":" ")+g.nos.join(", ")+": "+g.reason).join("; ")+".";
+  };
+  const fs = list.map(it=>it.failure).filter(Boolean);
+  const has = (k)=>fs.some(f=>f.kind===k);
+  const refs = Array.from(new Set(fs.filter(f=>f.ref && (f.kind==="service" || (f.kind==="credits" && !window.turnIsAdmin))).map(f=>f.ref)));
+  const extra = [];
+  if(has("invalid") && opts.carries) extra.push("the next attempt is told what the check rejected");
+  if(has("plan")) extra.push("choose a plan or add credits first");
+  if(has("signin") || has("unavailable")) extra.push("sign in first");
+  if(has("credits") && window.turnIsAdmin) extra.push("top up the provider account first");
+  if(has("truncated")) extra.push("shorten long beat cards");
+  if(refs.length) extra.push("if it keeps failing, quote ref "+refs.join(", ")+" to support");
+  const next = (opts.next || "Try again")+(extra.length ? " \u2014 "+extra.join("; ") : "")+".";
+  const firstF = fs[0];
+  const adminTail = (m)=> (window.turnIsAdmin && firstF) ? " [admin: "+screenplayFailureTechnical(firstF, SP_TOAST_MAX - m.length - 10)+"]" : "";
+  let msg = "";
+  for(const tier of [0,1,2]){ msg = head+compose(tier)+" "+next; if((msg+adminTail(msg)).length<=SP_TOAST_MAX) break; }
+  return msg+adminTail(msg);
+}
+/* the retry note a writer adds to its prompt after a format rejection, so a retry is
+   never the identical request: what the check rejected, the rejected line itself (this
+   scene's own previous reply), and how to write it instead */
+function screenplayRetryNote(prior){
+  if(!(prior && prior.kind==="invalid" && (prior.issues||[]).length)) return "";
+  const d = (prior.details||[]).find(x=>x && x.text && /embedded in action/.test(x.issue||""));
+  const line = d ? String(d.text).slice(0,160) : "";
+  return "\n\nA PREVIOUS ATTEMPT AT THIS SCENE WAS REJECTED by the screenplay format check: "+prior.issues.slice(0,4).join("; ")+"."+
+    (line ? " The rejected action line was: \""+line+"\"." : "")+
+    " Fix exactly that: a character's SPOKEN line goes in its own \"char\" → optional \"paren\" → \"dia\" blocks "+
+    "(a voice on a phone, radio or screen is a cue with (V.O.) plus an optional (filtered) parenthetical) — never NAME: line inside \"action\"; "+
+    "words that APPEAR on a screen stay in \"action\" (a readout as <FIELD>: <VALUE>; a message a character sends as \"A text from <NAME>: <message>\" or \"INSERT — PHONE: <NAME>: <message>\"); "+
+    "and every beat number gets its own prose.";
+}
+/* log a failure for admins (console) — the full issue list, offending lines and raw reply */
+function logScreenplayFailure(label, f){
+  try{ if(window.turnIsAdmin && f && typeof console!=="undefined") console.warn("[screenplay] "+label+": "+screenplayFailureTechnical(f), f); }catch(e){}
+}
+/* what the normaliser re-typed in an ACCEPTED reply — admins see it (console), and the
+   newest list is kept on window.__lastScreenplayNormalized; nobody else is bothered */
+function logScreenplayNormalized(label, notes){
+  if(!(notes && notes.length)) return;
+  try{ window.__lastScreenplayNormalized = { label, notes:notes.slice(), at:new Date().toISOString() }; }catch(e){}
+  try{ if(window.turnIsAdmin && typeof console!=="undefined") console.info("[screenplay] "+label+": tidied "+notes.length+" element"+(notes.length!==1?"s":""), notes); }catch(e){}
+}
+/* a stand-in draft carries its failure as a NON-enumerable property: callers can read
+   res.failure, while spreading / saving the draft never persists it */
+function withScreenplayFailure(draft, f){
+  if(draft && f){ try{ Object.defineProperty(draft, "failure", { value:f, enumerable:false, configurable:true, writable:true }); }catch(e){} }
+  return draft;
+}
+window.screenplayFailureReason = screenplayFailureReason;
+window.screenplayFailureAdvice = screenplayFailureAdvice;
+window.screenplayIssuePlain = _spIssuePlain;
+window.screenplayFailureMessage = screenplayFailureMessage;
+window.screenplayFailureTechnical = screenplayFailureTechnical;
+window.screenplayBatchFailureMessage = screenplayBatchFailureMessage;
+window.screenplayRetryNote = screenplayRetryNote;
+window.logScreenplayFailure = logScreenplayFailure;
 
 const BLOCK_SPEC = 'Return ONLY JSON: {"beats":[{"n":<beat#>,"blocks":[{"type":"action|char|paren|dia|trans|scene","text":"..."}]}]}. '+
   'Use professional screenplay elements (same standard as the exported script): '+
@@ -1051,7 +1398,13 @@ const BLOCK_SPEC = 'Return ONLY JSON: {"beats":[{"n":<beat#>,"blocks":[{"type":"
   'Do NOT slug a mere direction of attention within one space (looking across a room, a shelf, a corner) \u2014 only a space the camera must physically enter. '+
   'Also use "INTERCUT \u2014 <PLACE A> / <PLACE B>" for a two-ended phone/comm conversation AFTER the second place has been slugged once. '+
   'NEVER emit the scene\u2019s own opening slugline (the app adds it). '+
-  'Use as many blocks as professional formatting requires: spoken dialogue MUST be separate "char", optional "paren", then "dia" blocks (never embed a cue or spoken line inside "action"). Keep action blocks to one or two sentences and dialogue under 18 words. No commentary, no markdown.';
+  'Use as many blocks as professional formatting requires: spoken dialogue MUST be separate "char", optional "paren", then "dia" blocks (never embed a cue or spoken line inside "action"). '+
+  // placeholders only: a concrete example here would be copied into every film's script
+  'ON-SCREEN TEXT is not dialogue: a phone or monitor screen, a readout, a log line, a sign, a text message, a SUPER, a title card or a chyron goes in "action" as LABEL: TEXT '+
+  '(e.g. "INSERT \u2014 PHONE: <WHAT THE SCREEN SHOWS>", "SUPER: <PLACE>, <TIME>", "<FIELD>: <VALUE>"); a message a character TYPES or SENDS stays on screen the same way '+
+  '("A text from <NAME>: <message>" or "INSERT \u2014 PHONE: <NAME>: <message>"). '+
+  'A VOICE heard through a phone, radio, speaker, voicemail or recording IS dialogue: a "char" cue with (V.O.) or (O.S.), an optional "paren" such as (filtered), then "dia" \u2014 never NAME: line inside "action". '+
+  'Keep action blocks to one or two sentences and dialogue under 18 words. No commentary, no markdown.';
 
 /* House style — distilled from a professional shooting script (the project blueprint).
    Injected into every generative pass so MUSE writes like a real screenplay. */
@@ -1078,31 +1431,38 @@ const SCREENPLAY_STYLE = 'HOUSE STYLE (write like a professional shooting script
   '\u2022 SCOPE OF THE DIALOGUE RULES: the three-spheres, ammunition, trialogue and line-design rules bind DRAMATIC dialogue \u2014 characters in conflict on the page. Documentary interview questions and testimony, narration and VO beds, archival material, and required commercial copy (product promises, supers, end cards) exist to INFORM: write those clear and true to their format, exempt from the conflict rules above.\n'+
   '\u2022 ORIGINALITY \u2014 critical: this is an ORIGINAL film. NEVER borrow, paraphrase, or echo lines, images, character names, or signature moments from existing movies, even if the premise resembles one. If the story feels close to a famous film (e.g. a hidden controlled reality, a chosen one, a heist crew), deliberately AVOID that film\u2019s iconic dialogue and beats \u2014 no \u201cred pill,\u201d \u201cthere is no spoon,\u201d \u201cwake up,\u201d \u201cthe one,\u201d etc. Invent fresh, specific lines grounded in THIS film\u2019s unique world, props, and characters. Generic genre clich\u00e9s and quotable movie-isms are forbidden; surprise the reader with the particular.';
 
-/* ---- DRAFTING: beats -> brand-new screenplay prose ---- */
-async function aiDraftScene(scene, beats, prevScene, project, characters, scenes){
-  if(!aiAvailable()) return autoDraftScene(scene, beats, prevScene);
+/* ---- DRAFTING: beats -> brand-new screenplay prose ----
+   opts.retry — the failure of this scene's previous attempt (the story build's retries):
+   a format rejection rides into the prompt so the retry is not the identical request.
+   On failure the rough stand-in carries res.failure (non-enumerable, never saved) so
+   callers can say WHY a stand-in landed (format / model error / credits). */
+async function aiDraftScene(scene, beats, prevScene, project, characters, scenes, opts){
+  if(!aiAvailable()) return withScreenplayFailure(autoDraftScene(scene, beats, prevScene), screenplayFailure("unavailable", { where:"draft", technical:"no writing model available" }));
   // the caller's working cast wins (a New Story build drafts before the live cast syncs)
   const cast = (Array.isArray(characters) && characters.length) ? characters : window.turnCast;
   // the project FORMAT's screenplay emphasis (commercial \u2192 VO/supers; documentary
   // \u2192 interview beats); "full" formats carry no brief and draft as before
   const P = writingProjectOf(project);
   const fmtBrief = (typeof formatOf==="function") ? (formatOf(P).screenplayBrief||"") : "";
+  const retryNote = screenplayRetryNote(opts && opts.retry);
   const prompt = storyContext(scene, prevScene, P, cast, scenes, beats) + "\n" + castPronounBlock(cast) + voiceDnaBrief(cast) + beatsBrief(beats) +
     "\n\nWrite this scene as original screenplay prose, expanding each beat in order. "+
     "It must dramatize the value turn through action and subtext \u2014 never state the theme outright.\n\n" +
     conflictModeBrief(scene) +
-    (fmtBrief ? "FORMAT: "+fmtBrief+".\n\n" : "") + SCREENPLAY_STYLE + "\n\n" + BLOCK_SPEC;
+    (fmtBrief ? "FORMAT: "+fmtBrief+".\n\n" : "") + SCREENPLAY_STYLE + "\n\n" + BLOCK_SPEC + retryNote;
+  let failure = null;
   try{
     const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }], maxTokens:8192 });
     if(window.__lastWritingTruncated) throw new Error("Screenplay draft was truncated.");
-    const checked = resolveScreenplayResponse(res, scene, beats, {requireAllBeats:true});
-    const blocks = checked.valid ? checked.blocks : null;
-    // never trust the model's beat tags positionally — re-align them by CONTENT
-    // against the beat map (shots, storyboards and dialogue-speaker lookups all
-    // read the script through these tags)
-    if(blocks) return { blocks, ai:true, auto:false, by:writingStamp() };
-  }catch(e){}
-  return autoDraftScene(scene, beats, prevScene);
+    // realigns beat tags by CONTENT against the beat map (shots, storyboards and
+    // dialogue-speaker lookups all read the script through these tags)
+    const checked = resolveScreenplayResponse(res, scene, beats, {requireAllBeats:true, cast});
+    if(checked.valid){ logScreenplayNormalized("Scene "+(scene&&scene.no)+" draft", checked.normalized);
+      return { blocks:checked.blocks, ai:true, auto:false, by:writingStamp() }; }
+    failure = screenplayFailureFromCheck(checked, res, "draft");
+  }catch(e){ failure = screenplayFailureFromError(e, "draft"); }
+  logScreenplayFailure("Scene "+(scene&&scene.no)+" draft", failure);
+  return withScreenplayFailure(autoDraftScene(scene, beats, prevScene), failure);
 }
 window.aiDraftScene = aiDraftScene;
 
@@ -1112,9 +1472,14 @@ window.aiDraftScene = aiDraftScene;
    character drives: summary, objective, desire, antagonism and every beat's
    drive side — same beat count, same escalation shape, reactor kept unless the
    new driver WAS the reactor. The screenplay is then rebuilt separately via
-   "Redraft script from beats" (user-triggered, so nothing overwrites unseen). */
-async function aiRecastDriver(scene, beats, characters, newDriverId, oldDriverId, project){
-  if(!aiAvailable() || !scene || !beats) return null;
+   "Redraft script from beats" (user-triggered, so nothing overwrites unseen).
+   Returns the recast, or null with report.failure saying why. The beat rewrite IS the
+   recast: a reply with the wrong number of beats is a failure ("incomplete"), never a
+   half-recast whose summary names the new driver while the beats still describe the old. */
+async function aiRecastDriver(scene, beats, characters, newDriverId, oldDriverId, project, report){
+  const fail = (f)=>{ if(report && typeof report==="object") report.failure = f; logScreenplayFailure("Scene "+(scene&&scene.no)+" recast", f); return null; };
+  if(!aiAvailable()) return fail(screenplayFailure("unavailable", { where:"recast", technical:"no writing model available" }));
+  if(!scene || !beats) return null;
   const nameOf = (id)=>(((characters||[]).find(c=>c.id===id)||{}).name || String(id||"").toUpperCase());
   const NEW = nameOf(newDriverId), OLD = nameOf(oldDriverId);
   const rows = (beats.rows||[]).map(r=>({ n:r.n,
@@ -1136,16 +1501,20 @@ async function aiRecastDriver(scene, beats, characters, newDriverId, oldDriverId
     'Return ONLY JSON: {"summary":"...","objective":"...","desire":"...","antagonism":"...","result":"...","rows":[{"n":1,"drive":{"a":"...","d":"..."},"react":{"a":"...","d":"..."}}]}';
   try{
     const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }], maxTokens:4096 });
-    if(window.__lastWritingTruncated) return null;
-    const j = extractJSON(res); if(!j) return null;
+    if(window.__lastWritingTruncated) return fail(screenplayFailure("truncated", { where:"recast", technical:"reply truncated at the output cap" }));
+    const j = extractJSON(res);
+    if(!j) return fail(screenplayFailure(String(res==null?"":res).trim() ? "unreadable" : "empty", { where:"recast", technical:"reply was not recast JSON", raw:String(res||"").slice(0,20000) }));
+    const got = Array.isArray(j.rows) ? j.rows.length : 0;
+    if(got!==rows.length) return fail(screenplayFailure("incomplete", { where:"recast", technical:"rows "+got+" of "+rows.length,
+      plain:"the rewrite came back with "+got+" of the scene\u2019s "+rows.length+" beats", raw:String(res||"").slice(0,20000) }));
     const cl = (x,n)=>scrubBrand(String(x||"").trim()).slice(0,n);
-    const outRows = (Array.isArray(j.rows) && j.rows.length===rows.length) ? j.rows.map((r,i)=>({ n:i+1,
+    const outRows = j.rows.map((r,i)=>({ n:i+1,
       ...(rows[i] && rows[i].charge!=null ? {charge: rows[i].charge} : {}),
       drive:{ a:cl(r.drive&&r.drive.a,42)||rows[i].drive.a||"Action", d:cl(r.drive&&r.drive.d,320)||rows[i].drive.d },
-      react:{ a:cl(r.react&&r.react.a,42)||rows[i].react.a||"Reaction", d:cl(r.react&&r.react.d,320)||rows[i].react.d } })) : null;
+      react:{ a:cl(r.react&&r.react.a,42)||rows[i].react.a||"Reaction", d:cl(r.react&&r.react.d,320)||rows[i].react.d } }));
     return { summary:cl(j.summary,320), objective:cl(j.objective,200),
       desire:cl(j.desire,260), obstacle:cl(j.antagonism||j.obstacle,260), result:cl(j.result,320), rows:outRows, by:writingStamp() };
-  }catch(e){ return null; }
+  }catch(e){ return fail(screenplayFailureFromError(e, "recast")); }
 }
 window.aiRecastDriver = aiRecastDriver;
 
@@ -1352,9 +1721,14 @@ async function aiBeatsFromScript(scene, draft, characters, project){
 }
 window.aiBeatsFromScript = aiBeatsFromScript;
 
-/* ---- POLISH PASS: structural draft -> final prose, beats locked ---- */
-async function aiPolishScene(scene, beats, structuralBlocks, prevScene, project){
-  if(!aiAvailable()) return null;
+/* ---- POLISH PASS: structural draft -> final prose, beats locked ----
+   Returns the new draft, or null. `report` (optional object) receives report.failure —
+   why nothing came back — so the Script view can say so instead of failing silently.
+   opts.retry — this scene's previous rejected redraft: pressing Redraft again tells the
+   model what the check rejected (screenplayRetryNote), never the identical request. */
+async function aiPolishScene(scene, beats, structuralBlocks, prevScene, project, report, opts){
+  const fail = (f)=>{ if(report && typeof report==="object") report.failure = f; logScreenplayFailure("Scene "+(scene&&scene.no)+" redraft", f); return null; };
+  if(!aiAvailable()) return fail(screenplayFailure("unavailable", { where:"redraft", technical:"no writing model available" }));
   const rough = (structuralBlocks||[]).filter(b=>b.type!=="scene")
     .map(b=>`[beat ${b.beat}] ${b.text}`).join("\n");
   // the FORMAT's screenplay emphasis rides into the polish too (a documentary's
@@ -1362,14 +1736,16 @@ async function aiPolishScene(scene, beats, structuralBlocks, prevScene, project)
   const fmtBrief = (typeof formatOf==="function") ? (formatOf(writingProjectOf(project)).screenplayBrief||"") : "";
   const prompt = storyContext(scene, prevScene, project, null, null, beats) + "\n" + castPronounBlock(window.turnCast) + voiceDnaBrief(window.turnCast) + beatsBrief(beats) +
     "\n\nSTRUCTURAL DRAFT (rough beat expansion):\n" + rough +
-    "\n\nRewrite this into FINAL, polished screenplay prose. The beats are LOCKED \u2014 keep the same beat numbers and the same dramatic action in each; only elevate the craft.\n\n" + conflictModeBrief(scene) + (fmtBrief ? "FORMAT: "+fmtBrief+".\n\n" : "") + SCREENPLAY_STYLE + "\n\n" + BLOCK_SPEC;
+    "\n\nRewrite this into FINAL, polished screenplay prose. The beats are LOCKED \u2014 keep the same beat numbers and the same dramatic action in each; only elevate the craft.\n\n" + conflictModeBrief(scene) + (fmtBrief ? "FORMAT: "+fmtBrief+".\n\n" : "") + SCREENPLAY_STYLE + "\n\n" + BLOCK_SPEC +
+    screenplayRetryNote(opts && opts.retry);
   try{
     const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }], maxTokens:8192 });
-    if(window.__lastWritingTruncated) return null;
+    if(window.__lastWritingTruncated) return fail(screenplayFailure("truncated", { where:"redraft", technical:"reply truncated at the output cap" }));
     const checked = resolveScreenplayResponse(res, scene, beats, {requireAllBeats:true});
-    if(checked.valid) return { blocks:checked.blocks, ai:true, auto:false, polished:true, by:writingStamp() };
-  }catch(e){}
-  return null;
+    if(checked.valid){ logScreenplayNormalized("Scene "+(scene&&scene.no)+" redraft", checked.normalized);
+      return { blocks:checked.blocks, ai:true, auto:false, polished:true, by:writingStamp() }; }
+    return fail(screenplayFailureFromCheck(checked, res, "redraft"));
+  }catch(e){ return fail(screenplayFailureFromError(e, "redraft")); }
 }
 window.aiPolishScene = aiPolishScene;
 
@@ -1378,8 +1754,10 @@ window.aiPolishScene = aiPolishScene;
    to this beat"). The neighbouring beats' existing text rides as READ-ONLY context so
    the new prose bridges seamlessly; returns blocks force-tagged to that beat, ready to
    splice in beat order (the caller commits the result as a normal version). */
-async function aiWriteBeatText(scene, beats, beatN, screenplay, prevScene, project){
-  if(!aiAvailable() || !beats || !screenplay) return null;
+async function aiWriteBeatText(scene, beats, beatN, screenplay, prevScene, project, report){
+  const fail = (f)=>{ if(report && typeof report==="object") report.failure = f; logScreenplayFailure("Scene "+(scene&&scene.no)+" beat "+beatN, f); return null; };
+  if(!aiAvailable()) return fail(screenplayFailure("unavailable", { where:"beat", technical:"no writing model available" }));
+  if(!beats || !screenplay) return null;
   const n = Number(beatN);
   const row = (beats.rows||[]).find(x=>Number(x.n)===n);
   if(!row) return null;
@@ -1405,13 +1783,21 @@ async function aiWriteBeatText(scene, beats, beatN, screenplay, prevScene, proje
     (((typeof formatOf==="function") && (formatOf(writingProjectOf(project)).screenplayBrief||"")) ? "FORMAT: "+formatOf(writingProjectOf(project)).screenplayBrief+".\n\n" : "") + SCREENPLAY_STYLE + "\n\n" + BLOCK_SPEC;
   try{
     const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }], maxTokens:2048 });
-    if(window.__lastWritingTruncated) return null;
-    const checked = resolveScreenplayResponse(res, scene, null, {});
-    const parsed = checked.valid ? checked.blocks : [];
-    const out = parsed.filter(b=> b && b.type!=="scene" && String(b.text||"").trim())
-      .map(b=>({ beat:n, type:b.type, text:scrubBrand(String(b.text).trim()) })).slice(0,6);
-    return out.length ? { blocks:out, by:writingStamp() } : null;
-  }catch(e){ return null; }
+    if(window.__lastWritingTruncated) return fail(screenplayFailure("truncated", { where:"beat", technical:"reply truncated at the output cap" }));
+    // the scene's existing cues count as speakers (a gap-fill sees only its own lines)
+    const checked = resolveScreenplayResponse(res, scene, null, { speakers:blocks.filter(b=>b&&b.type==="char").map(b=>b.text) });
+    if(!checked.valid) return fail(screenplayFailureFromCheck(checked, res, "beat"));
+    logScreenplayNormalized("Scene "+(scene&&scene.no)+" beat "+n, checked.normalized);
+    const all = checked.blocks.filter(b=> b && b.type!=="scene" && String(b.text||"").trim())
+      .map(b=>({ beat:n, type:b.type, text:scrubBrand(String(b.text).trim()) }));
+    // a gap-fill stays short (about six elements), but the cap never splits a cue from
+    // its dialogue: the cut moves past the rest of an open cue→(paren)→dialogue bundle
+    // (the normaliser can split one voice line into three blocks, so this matters)
+    let cutAt = Math.min(6, all.length);
+    while(cutAt<all.length && cutAt>0 && (all[cutAt-1].type==="char" || all[cutAt-1].type==="paren")) cutAt++;
+    const out = all.slice(0, cutAt);
+    return out.length ? { blocks:out, by:writingStamp() } : fail(screenplayFailure("empty", { where:"beat", technical:"no usable blocks in the reply", raw:String(res||"").slice(0,4000) }));
+  }catch(e){ return fail(screenplayFailureFromError(e, "beat")); }
 }
 window.aiWriteBeatText = aiWriteBeatText;
 
@@ -1626,6 +2012,11 @@ if(_qaFeature) _qaFeature.what = _qaFeature.what
   .replace(" — except on the LOOKBOOK, whose grid mixes rendered and unrendered cards: there a frameless card shows the button DISABLED with a tooltip explaining it unlocks once the mood frame is generated (so it never looks randomly missing)", "")
   .replace("characters (master sheet, each appearance-state variant, and the scale/height sheet), props, locations (plate AND each time-of-day variant), shot frames, Lookbook mood frames, and storyboard sheets", "characters (master sheet, each appearance-state variant, and the scale/height sheet), props, locations (plate AND each time-of-day variant), shot frames, and storyboard sheets; Lookbook reference cards are excluded");
 APP_FEATURES.push({ name:"Screenplay craft: moving sequences, INTERCUT & shooting-script exports", what:"The scene drafter writes with professional shooting-script craft: action in lean 1\u20133 line paragraphs with standalone one-line stingers for percussion; every principal introduced with CAPS plus one characterizing clause; significant SOUNDS in CAPS. When a scene's action physically MOVES (a chase, an escape), the drafter cuts locations with SECONDARY SLUGLINES inside the scene (INT. HALL \u2192 EXT. FIRE ESCAPE \u2192 EXT. ROOF) instead of narrating travel under one heading \u2014 and those mid-scene places automatically become Location cards in the Art Room (the Location Scout and 'Pull from script' read them too). Two-ended phone or comm conversations use the INTERCUT convention: the second place is slugged once, then 'INTERCUT \u2014 A / B' lets the script cut freely between both speakers without (V.O.) on every cue. In the Script view only the scene's opening slugline carries the shooting-script scene number in the margins; secondary slugs render as plain headings. EXPORTS are shooting-script formatted: the PDF numbers every slugline in both margins, and the .fountain export tags each scene's opening slugline with its number (#N#) so professional screenwriting apps import the numbering." });
+APP_FEATURES.push({ name:"Screenplay format check (on-screen text, inserts & honest failures)", what:"Every screenplay MUSE writes (Draft with MUSE, Draft all, the story build, Redraft script from beats, and writing a missing beat) passes a format check before it replaces anything. ON-SCREEN TEXT IS STANDARD FORMAT, NOT DIALOGUE: phone and monitor screens, readouts, log lines, signs, text messages and the professional devices INSERT, ON SCREEN, SUPER, TITLE CARD, CHYRON, LOWER THIRD, CLOSE ON, POV and SFX, written in an action line as LABEL: TEXT (e.g. 'INSERT \u2014 PHONE: 3 MISSED CALLS', 'SUPER: 4:07 A.M.', 'STATUS: OFFLINE'), are accepted \u2014 and so are a message a character sends shown on a screen ('A text from JO: \u2026', 'INSERT \u2014 PHONE: JO: \u2026'), a documentary's ARCHIVE / INTERVIEW / LOWER THIRD lines, a commercial's SUPERs, END CARD and VO, and a music video's VERSE / CHORUS / BRIDGE labels. MUSE files a few misplaced devices into the right element automatically, without changing a word: an on-screen SUPER or 'PHONE (ON SCREEN)' written as a character cue becomes an action line, but a cue that could be a person (a cast member, THIRD GUARD, CARD DEALER, a building's SUPER speaking a line) always stays a speaking character; a nameless recorded, broadcast or narrator voice written into action ('VOICEMAIL: \u2026', 'VO: \u2026', 'RADIO: \u2026') becomes a proper cue with (V.O.) and its dialogue, while the action around it stays action and a description of what a speaker or screen does ('TV: A reporter stands on the quay.') stays action; 'CUT TO:' written as action becomes a transition; an INSERT heading filed as a slugline becomes an action line (it is not a place, so it never becomes a Location card). A voice heard through a phone or radio is written as a normal cue \u2014 NAME (V.O.) or (O.S.), with (filtered) as a parenthetical. STILL REJECTED: a character's spoken line packed into an action paragraph ('MARCUS: Sorry, sir.', 'JO (into radio): \u2026', 'JO ON SCREEN: \u2026', a cast member shouting in CAPS, a GUARD giving an order), a character name with no line after it, dialogue with no speaker, or a beat left unwritten. NEVER SILENT: when a redraft is rejected or the writing model fails, the Script view says 'Couldn't redraft Scene N \u2014' with the reason in plain words and what to try, and the current draft stays unchanged; pressing Redraft again tells the model what the check rejected, so the next attempt is not the same request. Writing a missing beat does the same, and Draft with MUSE, Draft all and Redraft all name each affected scene with its own reason. The story build's report says WHY a scene's rough stand-in landed \u2014 the format check (with the problem in plain words) or a writing-service error \u2014 and its automatic retries tell the model what the previous attempt got wrong instead of repeating the identical request. Administrators also see the technical reason (the offending line and the exact check that failed). THE SCRIPT CHECK MATCHES THE WRITERS: its 'dialogue in action' warning fires on exactly the lines the writers reject, so on-screen text never triggers it and a scene MUSE just wrote never shows it. A line that could go either way \u2014 an unknown NAME: followed by a plain sentence, such as 'MARCUS: The gate is open.' \u2014 is accepted but listed inside the Script check as a 'Check this line' note (it is not counted on the Script check button): make it a cue and dialogue if a character is speaking, or leave it if it is on-screen text." });
+{ const _rd = APP_FEATURES.find(f=>f.name==="Redraft script from beats");
+  if(_rd) _rd.what += " If a redraft can't be used (the new text failed the screenplay format check, the reply was cut off, or the writing service failed), a message says so in plain words with what to try, and the current draft is kept; pressing Redraft again after a format rejection tells the model what was rejected \u2014 see 'Screenplay format check'."; }
+{ const _ri = APP_FEATURES.find(f=>String(f.name||"").startsWith("Writers' Room run integrity"));
+  if(_ri) _ri.what += " STAND-IN REASONS: the report names why each rough stand-in landed \u2014 the screenplay format check (with the problem in plain words) or a writing-service error \u2014 and a retry after a format rejection tells the model what to fix."; }
 
 APP_FEATURES.push({ name:"Provider keys (no key needed)", what:"Subscribers never enter any API key. Writing/text generation uses the selected text provider through the server proxy; image generation routes through fal.ai first; Stage video remains on fal.ai; and ElevenLabs voice design, save, list, clone, text-to-speech and speech-to-text stay direct to ElevenLabs through the proxy unless a reliable fal.ai equivalent is intentionally adopted later. Cinema Machine's own keys are held as server secrets, so no provider key lives in the user's browser and there is nothing for subscribers to configure. Your plan's credits cover the provider costs. (An API Keys panel exists for platform administrators only, to manage those server keys; regular accounts don't see it.)" });
 const _voiceFeature = APP_FEATURES.find(f=>f.name==="Voice (on the character card)");

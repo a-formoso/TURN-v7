@@ -135,7 +135,8 @@ test("a blank genre never prints 'FILM: Title — .'",()=>{
 test("Writers' Room drafting passes keepCard; the story build does not",()=>{
   assert.equal((app.match(/aiAuthorScene\(s, prev, characters, project, \{ keepCard:true \}\)/g)||[]).length,2);
   assert.ok(app.includes("authorScene:(s,p)=>window.aiAuthorScene(s,p,model.characters,model.project,{scenes:model.scenes}),"));
-  assert.ok(app.includes("draftScene:(s,b,p)=>window.aiDraftScene(s,b,p,model.project,model.characters,model.scenes),"));
+  // the 4th argument carries the previous attempt's failure into a retry (format-check fix, 2026-09-27)
+  assert.ok(app.includes("draftScene:(s,b,p,o)=>window.aiDraftScene(s,b,p,model.project,model.characters,model.scenes,o),"));
 });
 
 // ---- 8. scene delete: confirmation + undo ----

@@ -624,6 +624,35 @@ async function agentContinuityRepair(ctx){
    (throttle, timeout) usually clear in moments. Every caller re-checks ctx.cancelled()
    immediately after, so Stop stays honest through a pause. */
 function scenePause(ms){ return new Promise(r=>setTimeout(r, ms)); }
+/* WHY a scene ended as a rough structural stand-in, from the drafter's typed failure
+   (ai.jsx screenplayFailure): the screenplay format check vs a model / service error vs
+   the user's own plan credits \u2014 they used to read identically ("the model call
+   failed"). The studio's PROVIDER account running dry is internal: safeError masks it
+   as "briefly unavailable (ref CM-11)" for everyone but admins, so only admins are told
+   it is about credits. Admins also get the technical reason; no vendor or model is ever
+   named. */
+function standInWhy(f, retried){
+  const plain = (x)=> (typeof window.screenplayIssuePlain==="function") ? window.screenplayIssuePlain(x) : "a format problem";
+  const ref = (f && f.ref) ? " (ref "+f.ref+")" : "";
+  let base, next = "open it and redraft";
+  if(!f) base = retried ? "the model call kept failing" : "the model call failed";
+  else if(f.kind==="invalid"){
+    const p = Array.from(new Set((f.issues||[]).map(plain)));
+    base = "the model\u2019s screenplay "+(retried ? "kept failing" : "failed")+" the format check ("+(p[0]||"a format problem")+(p.length>1 ? ", and "+(p.length-1)+" more" : "")+")";
+  }
+  else if(f.kind==="credits"){
+    if(window.turnIsAdmin){ base = "the writing provider\u2019s account ran out of credits"; next = "top it up, then open it and redraft"; }
+    else { base = "the writing service was briefly unavailable"+ref; next = "open it and redraft in a moment"; }
+  }
+  else if(f.kind==="plan"){ base = "your account ran out of plan credits for writing"; next = "choose a plan or add credits, then open it and redraft"; }
+  else if(f.kind==="signin"){ base = "you were signed out of the writing service"; next = "sign in, then open it and redraft"; }
+  else if(f.kind==="truncated") base = "the model\u2019s reply "+(retried ? "kept getting" : "was")+" cut off";
+  else if(f.kind==="unreadable" || f.kind==="empty") base = "the model\u2019s reply "+(retried ? "kept coming back" : "came back")+" "+(f.kind==="empty" ? "empty" : "unreadable");
+  else base = (retried ? "the model call kept failing" : "the model call failed")+ref;
+  const admin = (f && window.turnIsAdmin && typeof window.screenplayFailureTechnical==="function") ? " [admin: "+window.screenplayFailureTechnical(f)+"]" : "";
+  return base+", so a rough structural draft stands in \u2014 "+next+admin;
+}
+window.standInWhy = standInWhy;
 
 async function writeScenesSeq(ctx, indices){
   let written = 0; let failures = [];
@@ -643,10 +672,10 @@ async function writeScenesSeq(ctx, indices){
        {idx,no,title,wrote:true, beatsOnly:true} — draft is real but the beat map never generated
        {idx,no,title,wrote,why}            — draft failed (wrote=true means a rough
                                              stand-in was committed so the film isn't blank) */
-  const attemptScene = async (i, draftTries, repairBeatsOnly)=>{
+  const attemptScene = async (i, draftTries, repairBeatsOnly, priorFailure)=>{
     let scn = ctx.model.scenes[i], beats = ctx.model.beats[scn.id];
     const prev = i>0 ? ctx.model.scenes[i-1] : null;
-    const fail = (wrote, why)=>({ idx:i, no:scn.no, title:scn.title, wrote, why });
+    const fail = (wrote, why, failure)=>({ idx:i, no:scn.no, title:scn.title, wrote, why, failure:failure||null });
     try{
       if(!(beats && (beats.rows||[]).length)){
         // author the beat map; retry once with a breather if the model hiccups — a scene
@@ -675,27 +704,30 @@ async function writeScenesSeq(ctx, indices){
       // draft IS the product, so a single try is correct then.
       const canRetry = !!(ctx.ai.draftScene && ctx.ai.available);
       const tries = canRetry ? Math.max(1, draftTries) : 1;
-      let res = null, standIn = false;
+      // lastFailure: WHY the previous attempt fell back (the drafter's res.failure). A
+      // format rejection rides into the next attempt's prompt, so a retry is never the
+      // identical request, and the final stand-in message says what actually went wrong.
+      let res = null, standIn = false, lastFailure = priorFailure || null;
       for(let t=0; t<tries; t++){
         if(t){
           ctx.emit({k:"act", t:"Sc "+scn.no+" \u201c"+scn.title+"\u201d didn't take \u2014 trying again\u2026"});
           await scenePause(900); if(ctx.cancelled()) return {cancelled:true};
         }
         let out = null;
-        try{ out = ctx.ai.draftScene ? await ctx.ai.draftScene(scn, beats, prev) : null; }
-        catch(e){ if(t===tries-1) throw e; out = null; }
+        try{ out = ctx.ai.draftScene ? await ctx.ai.draftScene(scn, beats, prev, lastFailure ? { retry:lastFailure } : undefined) : null; }
+        catch(e){ if(t===tries-1) throw e; out = null; lastFailure = { kind:"service", issues:[], technical:String((e&&e.message)||e||"") }; }
         // Stop pressed (or film switched) WHILE that draft was in flight — commit
         // nothing more; the count in the stop message stays truthful
         if(ctx.cancelled()) return {cancelled:true};
         if(out && !(out.auto && ctx.ai.available)){ res = out; standIn = false; break; }
-        if(out){ res = out; standIn = true; }   // keep the newest stand-in while retrying
+        if(out){ res = out; standIn = true; lastFailure = out.failure || lastFailure; }   // keep the newest stand-in while retrying
       }
       // the draft remembers the card it was written from (the "needs redraft" marker)
       if(res) ctx.model.drafts[scn.id] = (typeof window.sceneCardSnap==="function")
         ? { ...res, cardSnap:window.sceneCardSnap(scn, ctx.model.characters, beats) } : res;
       ctx.sync();
       if(!res) return fail(false, "the model returned no usable screenplay");
-      if(standIn) return fail(true, "the model call failed, so a rough structural draft stands in \u2014 open it and redraft");
+      if(standIn) return fail(true, standInWhy(lastFailure, false), lastFailure);
       if(!(beats && (beats.rows||[]).length)) return { idx:i, no:scn.no, title:scn.title, wrote:true, beatsOnly:true };
       return null;
     }catch(e){
@@ -742,7 +774,7 @@ async function writeScenesSeq(ctx, indices){
       ctx.emit({k:"act", t:"Retrying Sc "+f.no+" \u201c"+f.title+"\u201d \u2014 "+(k+1)+" of "+retryQueue.length+"\u2026"});
       await scenePause(900);
       if(ctx.cancelled()) return stopRes();
-      const g = await attemptScene(f.idx, 1, !!f.beatsOnly);
+      const g = await attemptScene(f.idx, 1, !!f.beatsOnly, f.failure);
       if(g && g.cancelled) return stopRes();
       const hadDraft = !!(f.wrote || f.beatsOnly);
       const hasDraft = !g || !!(g.wrote || g.beatsOnly);
@@ -750,7 +782,7 @@ async function writeScenesSeq(ctx, indices){
       if(!g){ ctx.emit({k:"ok", t:"Sc "+f.no+" \u201c"+f.title+"\u201d came good on the retry."}); continue; }
       if(g.beatsOnly){ still.push(beatsOnlyFail(g, true)); continue; }   // screenplay is real; the beat map is still missing — that's outstanding work
       still.push({ ...g, why: g.wrote
-        ? "the model call kept failing, so a rough structural draft stands in \u2014 open it and redraft"
+        ? standInWhy(g.failure, true)
         : (g.why==="the model returned no usable screenplay" ? "the model returned no usable screenplay, even on the automatic retry" : g.why) });
     }
     failures = still;

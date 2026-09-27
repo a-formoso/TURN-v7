@@ -111,9 +111,34 @@
     return at<0 ? raw : raw.slice(Math.max(0,at-120),Math.min(raw.length,at+name.length+120));
   }
 
+  /* A name that appears ONLY as on-screen text — the CAPS value of a readout label
+     ("OPERATOR: CARROW, N.", "CALLER: LUPE CARRILLO") — is a mention, not a body in the
+     room. Camera labels (CLOSE ON:, ANGLE ON:, INSERT:, POV:, CUT TO:) are not readouts:
+     "CLOSE ON: NELL's hands" still photographs Nell. */
+  function readoutOnly(value, character){
+    const raw=String(value||"");
+    const toks=uniq(tokens(character&&character.name||"")).filter(t=>t.length>=2);
+    if(!raw||!toks.length) return false;
+    let seen=0;
+    for(const t of toks){
+      const re=new RegExp("\\b"+escaped(t)+"\\b","gi"); let m;
+      while((m=re.exec(raw))){
+        seen++;
+        const hit=raw.slice(m.index,m.index+m[0].length);
+        if(hit!==hit.toUpperCase()) return false;                       // "Nell turns" — a body
+        const before=raw.slice(0,m.index).split(/[.!?]\s+(?=[A-Z])/).pop();
+        const lab=before.match(/(?:^|[\s(\[—–])([A-Z][A-Z0-9 .'’&#\/—–-]*?)\s*:\s*[A-Z0-9 ,.'’&#\/—–-]*$/);
+        if(!lab) return false;
+        if(/^(?:CLOSE|ANGLE|INSERT|POV|WIDE|CUT|SMASH|MATCH|DISSOLVE|FADE|BACK|INTERCUT|LATER|MOMENTS|FLASHBACK|MONTAGE|ON)\b/.test(lab[1].trim())) return false;
+      }
+    }
+    return seen>0;
+  }
+
   function remoteEvidence(value, character){
     const raw=String(value||""), around=nameContext(raw,character);
     if(!around) return false;
+    if(readoutOnly(raw,character)) return true;
     const n=escaped(character&&character.name||"");
     const short=tokens(character&&character.name||"")[0];
     const nr=n+(short&&short!==norm(character&&character.name||"") ? "|"+escaped(short) : "");

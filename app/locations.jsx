@@ -1246,7 +1246,12 @@ window.locationSpecPromptStale = locationSpecPromptStale;
 const DRESS_LEXICON = ["rack","booth","desk","chair","table","bench","stool","lamp","sign","signage","poster","notice","monitor","screen","tv","television","phone","paper","file","folder","clipboard","cot","bunk","locker","shelf","shelves","cabinet","drawer","crate","box","barrel","drum","bin","dumpster","cart","trolley","truck","van","car","bus","forklift","scaffold","ladder","stair","stairs","railing","fence","gate","chain","wire","cable","pipe","vent","fan","speaker","camera","mirror","curtain","blind","blinds","rug","carpet","mattress","pillow","blanket","tarp","puddle","graffiti","rust","moss","vines","ivy","stain","helmet","vest","radio","key","keys","mug","bottle","can","ashtray","cigarette","candle","clock","calendar","flag","banner","whiteboard","chalkboard","bulletin","urn","kettle","fridge","stove","sink","toilet","shower","towel","bucket","mop","broom","hose","extinguisher","generator","cone","cones","barrier","barricade","turnstile","door","window","awning","billboard","neon","chandelier","bookshelf","book","books","magazine","newspaper","envelope","suitcase","backpack","duffel","umbrella","coat","jacket","boots","gloves","rope","toolbox","wrench","hammer","plank","plywood","sandbag","pallet","pallets"];
 const DRESS_CAPS_STOP = new Set(["INT","EXT","EST","DAY","NIGHT","MORNING","EVENING","DAWN","DUSK","NOON","MIDNIGHT","LATER","CONTINUOUS","SAME","MOMENTS","AFTERNOON","TWILIGHT","OS","VO","OC","CU","INTERCUT","CUT","ANGLE","POV","CLOSE","WIDE","SUPER","TITLE","TITLES","END","FADE","IN","OUT","ON","OFF","BACK","TO","THE","AND","THEN","NEXT","OK","OKAY","SCENE","FLASHBACK","MONTAGE","SERIES","EVENTS","PRELAP","SMASH","MATCH","DISSOLVE","WIPE","INSERT","BEAT","NOTE","NOTES","OF"]);
 function deriveUnitDressing(actionText, exclude){
-  const text = String(actionText||"");
+  // ON-SCREEN WORDS are not set dressing: a readout or insert ("STATUS: REQUEST DENIED.",
+  // "OPERATOR: CARROW, N.") is CAPS by convention and used to crowd the 12 slots with
+  // "Request Denied", "Operator", a character's surname… (script.jsx strips the label and
+  // the words it shows; spoken or direction labels are left alone)
+  const text = (typeof window.screenplayStripScreenText==="function")
+    ? window.screenplayStripScreenText(String(actionText||"")) : String(actionText||"");
   if(!text.trim()) return [];
   const out = []; const seen = {};
   const push = (raw)=>{

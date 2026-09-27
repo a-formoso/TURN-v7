@@ -128,6 +128,409 @@ function screenplayBeatNumbers(screenplay, beats){
 window.screenplayBeatExcerpt = screenplayBeatExcerpt;
 window.screenplayBeatNumbers = screenplayBeatNumbers;
 
+/* ACTION-LINE LABELS — "LABEL: text" inside an action paragraph. Professional scripts
+   use this shape for on-screen text and inserts (INSERT — PHONE: …, SUPER: …, a readout
+   such as <FIELD>: <VALUE>), and a model also uses it to smuggle a character's line into
+   action ("MARCUS: Sorry, sir."). The two look alike, so this classifies each label by
+   WHO or WHAT it names and HOW the text after it reads, instead of rejecting every caps
+   label followed by a capital (2026-09-27 incident: screen-heavy scenes such as a tide
+   app or a telemetry wall were rejected on every attempt). Shared by the screenplay
+   writers' validator (ai.jsx) and the Script check below — the writers reject exactly
+   the kinds the Script check warns about (dialogue, voice); "unclear" is only a note.
+
+   WHAT A LABEL NAMES (screenplayLabelClass), checked in this order:
+     speaker   — a known cast / cue name anywhere in it ("GRAHAM ON SCREEN", "PHONE —
+                 DILYS", "BRAM OVER RADIO", "RADIO (BRAM)"), unless the name only OWNS or
+                 SENDS written text ("NINA'S PHONE", "EMAIL FROM NINA", "TEXT — DEV")
+     role      — a person by role ("GUARD", "THIRD GUARD", "MAN ON SCREEN", "DUTY MANAGER")
+     voice     — a nameless voice (VOICEMAIL, NARRATOR, RADIO, TV, DISPATCH, RECORDED …)
+     written   — a surface that SHOWS words (INSERT, SUPER, TEXT, STATUS, LOG, GAUGE …)
+     direction — camera / sound / edit / song section (CLOSE ON, SFX, CUT TO, CHORUS …)
+     live      — a screen or phone that can carry a person (SCREEN, MONITOR, PHONE,
+                 INTERVIEW, ARCHIVE …): words there count as dialogue only if spoken
+     data      — a field name (ID, DATE, SOURCE, ADDRESS, PRESSURE …)
+   A compound label is read by its HEAD word (the last word before any "ON/FROM/OVER…"
+   phrase): "CARD DEALER" is a dealer, "TITLE CARD" a card, "SIGN LANGUAGE INTERPRETER"
+   an interpreter, so a device word inside a person's label never hides them.
+
+   WHAT THE TEXT IS (kind):
+     dialogue — a speaker's line packed into action (any words after a known speaker —
+                shouted CAPS too — a cue extension such as (V.O.) / (into radio), a role
+                label with a sentence or an order, or plainly spoken words after any
+                label: I / you / we, a contraction, an interjection, a question, quotes)
+     voice    — spoken words after a nameless voice label (the writers turn it into a cue)
+     device   — on-screen text, inserts, supers, camera or sound direction, song sections,
+                a description of what a screen or speaker shows ("TV: A reporter stands…"),
+                and a message a character SENDS that appears on a screen ("A text from DEV:
+                …", "INSERT — PHONE: NINA: …", "The phone lights up. NINA: …")
+     data     — a readout value: CAPS, digits, a name ("DUTY MANAGER: Graham Pell."), or a
+                telegraphic phrase ("TIDEWATCH: Wrenham gauge running high.")
+     unclear  — an unknown label followed by a full sentence that is not clearly speech
+                ("MARCUS: The gate is open.") — accepted, but the Script check lists it
+   How far a label's text reaches: the first sentence, and the sentences after it until
+   narration resumes (a sentence opening with He / She / The / A / a cast name …), so
+   "OPERATOR: CARROW, N. Graham doesn't react." reads only "CARROW, N." as the readout. */
+const SP_LABELS_VERSION = 2;   // ai.jsx checks this: a stale cached script.jsx is reported, never silent
+const _SP_WORDS = s=>new Set(s.split(/\s+/).filter(Boolean));
+const _SP_WRITTEN = _SP_WORDS(
+  "INSERT SUPER SUPERIMPOSE SUPERIMPOSED TITLE TITLES CARD CHYRON CAPTION CAPTIONS SUBTITLE SUBTITLES "+
+  "TEXT TEXTS SMS MMS EMAIL E-MAIL MAIL MESSAGE MESSAGES DM CHAT NOTIFICATION BANNER ALERT WARNING CAUTION DANGER "+
+  "ERROR FAULT POPUP POP-UP READOUT DISPLAY LOG ENTRY HEADER HEADLINE SIGN PLACARD POSTER NOTE NOTICE LABEL STATUS "+
+  "TICKER CRAWL GRAPHIC GRAPHICS PAGE LETTER FILE DOCUMENT FORM RECORD MAP WEBSITE URL LINK LOGO TAGLINE PACKSHOT "+
+  "DISCLAIMER LEGEND GAUGE METER DIAL CLOCK TIMER COUNTDOWN TELEMETRY TILE WALL CONSOLE TERMINAL PRINTOUT FAX "+
+  "WHITEBOARD SCREENSHOT PHOTO PHOTOGRAPH IMAGE APP LOCKSCREEN PREVIEW INBOX CALENDAR BADGE TAG PROMPT INSTRUCTION "+
+  "INSTRUCTIONS TRANSCRIPT RESULT RESULTS HANDSHAKE");
+const _SP_LIVE = _SP_WORDS(
+  "SCREEN SCREENS ONSCREEN ON-SCREEN MONITOR MONITORS VIDEO FEED CCTV WEBCAM CAMERA FOOTAGE CLIP ARCHIVE NEWSREEL "+
+  "INTERVIEW TESTIMONY PHONE MOBILE CELL CELLPHONE SMARTPHONE LAPTOP TABLET COMPUTER CALL FACETIME LIVESTREAM STREAM");
+const _SP_DIRECTION = _SP_WORDS(
+  "CLOSE CLOSEUP CLOSE-UP ANGLE POV WIDE SHOT SCENE LATER MONTAGE FLASHBACK INTERCUT CUT DISSOLVE FADE WIPE SMASH "+
+  "MATCH BACK SERIES SFX FX SOUND SOUNDS MUSIC SCORE SONG KLAXON ALARM SIREN BELL HORN BEEP BUZZER RINGTONE STATIC "+
+  "VERSE CHORUS PRE-CHORUS BRIDGE HOOK INTRO OUTRO BREAKDOWN DROP INSTRUMENTAL PERFORMANCE NARRATIVE LYRIC LYRICS SILENCE");
+const _SP_VOICE = _SP_WORDS("VOICE VOICES VOICEMAIL VOICEOVER VOICE-OVER VO V.O ANSWERPHONE NARRATOR NARRATION ANNOUNCER ANNCR TANNOY INTERCOM LOUDSPEAKER SPEAKERPHONE PA P.A");
+const _SP_VOICE_HEAD = _SP_WORDS("RADIO SCANNER TV TELEVISION BROADCAST RECORDING ANNOUNCEMENT MACHINE DISPATCH HQ");
+const _SP_ROLE = _SP_WORDS(
+  "MAN WOMAN MEN WOMEN BOY GIRL KID KIDS CHILD TEEN TEENAGER GUY LADY GENTLEMAN GUARD COP OFFICER SERGEANT SGT "+
+  "DETECTIVE INSPECTOR CONSTABLE TROOPER DEPUTY SHERIFF AGENT SOLDIER CAPTAIN LIEUTENANT SAILOR PILOT NURSE DOCTOR "+
+  "PARAMEDIC MEDIC SURGEON FIREFIGHTER FIREMAN WAITER WAITRESS BARTENDER BARMAN CLERK CASHIER DRIVER CABBIE COURIER "+
+  "RECEPTIONIST SECRETARY ASSISTANT MANAGER BOSS FOREMAN WORKER TECHNICIAN ENGINEER JANITOR PRIEST VICAR PASTOR "+
+  "TEACHER STUDENT JUDGE LAWYER STRANGER CUSTOMER PASSENGER NEIGHBOUR NEIGHBOR FRIEND MOTHER FATHER MUM MOM DAD "+
+  "SISTER BROTHER SON DAUGHTER WIFE HUSBAND AUNT UNCLE GRANDMOTHER GRANDFATHER GRAN GRANNY GRANDMA GRANDPA "+
+  "DISPATCHER REPORTER JOURNALIST CALLER CROWD ALL EVERYONE");
+const _SP_DATA = _SP_WORDS(
+  "ID NO NUM NUMBER NAME NAMES DATE TIME TIMESTAMP SOURCE ORIGIN DESTINATION ADDRESS LOCATION POSITION COORDINATES "+
+  "GRID SECTOR ZONE UNIT CODE REF REFERENCE TYPE PRIORITY LEVEL SIGNAL STRENGTH SPEED DEPTH HEIGHT PRESSURE TEMP "+
+  "TEMPERATURE ETA ETD DURATION COUNT TOTAL BALANCE ACCOUNT CASE INCIDENT SUBJECT RE CC FROM TO REASON CAUSE "+
+  "CREDENTIAL CREDENTIALS USER USERNAME LOGIN ACCESS ANI ALI MODE PHASE STAGE STEP LOAD FUEL BATTERY POWER VOLTAGE "+
+  "FREQUENCY CHANNEL VALUE READING TIDE WIND VISIBILITY");
+const _SP_PREP = _SP_WORDS("ON OVER FROM BY IN VIA THROUGH AT OF FOR WITH TO INTO ONTO");
+const _SP_HONORIFIC = _SP_WORDS("MR MR. MRS MRS. MS MS. DR DR. MISS SIR MADAM");
+// a parenthetical that names a VISUAL device ("PHONE (ON SCREEN)") rather than a voice
+const _SP_VISUAL_PAREN = /\b(?:ON[- ]?SCREEN|TEXT|DISPLAY|READOUT|INSERT|SUPER|CAPTION|GRAPHIC)\b/i;
+/* a label: CAPS words joined by spaces, a spaced dash, an em/en dash or a slash. Dots sit
+   INSIDE a word (V.O., P.A.) or end the whole label — never between two words, so a
+   readout ending in a period ("MISSED CALL. NINA:") can't swallow the next name. */
+const _SP_TOK = "(?:(?:MR|MRS|MS|DR|ST|SGT|LT|CAPT|CPT|DET|PROF|REV|INSP|FR)\\.|[A-Z0-9#][A-Z0-9'\u2019&#]*(?:[.\\-][A-Z0-9'\u2019&#]+)*)";
+const _SP_SEP = "(?:\\s*[\u2014\u2013\\/]\\s*|\\s+-\\s*|\\s*-\\s+|\\s+)";
+const _SP_LABEL_RE = new RegExp("(^|[\\s\u201c\"\u2018'(\\[\u2014\u2013])((?=[A-Z])"+_SP_TOK+"(?:"+_SP_SEP+_SP_TOK+"){0,5}\\.?)(\\s*\\(([^()]{1,40})\\))?\\s*:(?=\\s|$|[\"\u201c'\u2018])","g");
+const _SP_MIXED_RE = /(^|[.!?]["”’']?\s+)([A-Z][a-z'’]+(?:\s[A-Z][a-z'’]+){0,2})(\s*\(([^()]{1,40})\))?:\s/g;
+// pronoun-level speech: I / me / my / you / we / us / our / let's (case-aware: "US" the
+// country and "ME" in a readout are not pronouns), "sir", "ma'am"
+const _SP_PRON_RE = /\b(?:[Mm]e|[Mm]y|[Mm]ine|[Mm]yself|[Yy]ou|[Yy]our|[Yy]ours|[Yy]ourself|[Yy]ourselves|[Ww]e|[Uu]s|[Oo]ur|[Oo]urs|[Oo]urselves|[Ll]et[’']s)\b|\bI(?:[’'](?:m|ve|ll|d))?\s+[a-z]|\b(?:sir|ma[’']am)\b/;
+// lighter speech signs, read in the FIRST sentence only: a contraction, an interjection, a question
+const _SP_WEAK_RE = /[A-Za-z](?:n[’']t|[’'](?:re|ve|ll|m|d))\b|^(?:[Oo]h|[Hh]ey|[Yy]eah|[Yy]ep|[Nn]ope|[Oo]kay|[Oo]k|[Ss]orry|[Tt]hanks|[Tt]hank you|[Hh]ello|[Hh]i|[Ll]isten|[Hh]mm|[Uu]h|[Uu]m|[Hh]uh|[Ww]ow)\b|^[Pp]lease,|\?/;
+// an order a person shouts — read only after a ROLE label ("GUARD: Hands up."): an app or a
+// sign gives orders too ("TIDEWATCH: Move to higher ground."), so it never counts elsewhere
+const _SP_IMPERATIVE_RE = /^(?:Hold (?:it|on|still|position|fire)|Stop|Wait|Go(?: on| back| home)?\b|Get (?:down|out|back|up|in|off|away|clear)|Stay|Move|Run|Come (?:on|here|back|in|with)|Look(?: out| at| here)?\b|Listen|Hurry|Freeze|Halt|Hands up|Drop (?:it|the)|Shut (?:up|it|the)|Help|Quiet|Easy|Careful|Enough|Leave (?:it|me|him|her|them|now)|Answer (?:me|it)|Pick up|Talk to|Tell (?:me|him|her|them)|Give (?:me|it|him|her)|Show (?:me|us)|Open (?:up|the|it|this|that)|Close (?:the|it|that|this)|Back off|Stand (?:down|back|up|still)|Sit down|Calm down|Keep (?:going|moving|quiet|still|back)|Watch out|Over here|Don[’']t|Let (?:me|him|her|them|go))\b/;
+// narration resumes: a sentence that opens like action prose
+const _SP_NARRATION_RE = /^(?:He|She|They|It|His|Her|Their|Its|The|A|An|Then|Nobody|No one|Someone|Everyone|Somewhere|Outside|Inside|Behind|Beside|Across|Above|Below|Beneath)\b/;
+// a message that appears on a phone: "a text from DEV:", "The phone lights up. NINA: …"
+const _SP_MSG_FROM_RE = /\b(?:text|texts|text message|message|messages|email|e-mail|sms|dm|note|notification|reply|post|preview|caption)\s+(?:from|by)\s*$/i;
+const _SP_MSG_EVENT_RE = /\b(?:phone|mobile|cell(?:phone)?|smartphone|lock ?screen|watch|pager)\b[^.!?]*\b(?:lights? up|lit up|glows?|flash(?:es)?(?: up)?|pings?|chimes?)\b|\b(?:text|message|notification|sms|email|e-mail|dm)\b[^.!?]*\b(?:arrives?|appears?|pops? up|comes? in|lands?|flashes up)\b/i;
+// what a screen or speaker SHOWS / makes, rather than words it speaks
+const _SP_DESCRIBE_RE = /^(?:A|An|The|It|Its|Static|Silence|Nothing|Dead air|White noise|Hiss|Hissing|Crackle|Crackling|Feedback|Garbled|Muffled|Distorted|Indistinct|Chatter|Crosstalk|Noise|Music|Beep|Beeping|Clicks?|Dial tone|Ringing|Busy signal|Laughter|Applause|Screams?|Breathing|Footsteps|Snow)\b|\b(?:plays|loops|repeats|crackles|hisses|dies|fades|stops|starts|continues|ends|rings|beeps|clicks|buzzes|drones|blares|flickers|shows|stands|sits|cuts (?:out|off)|goes (?:dead|silent|quiet))\b/;
+
+function _spTokenIn(set, t){ return set.has(t) || (t.length>3 && /S$/.test(t) && set.has(t.slice(0,-1))); }
+function _spParseLabel(label){
+  const base = String(label||"").replace(/\s*\([^()]*\)\s*$/,"").replace(/\s+/g," ").trim().toUpperCase();
+  const segs = base.split(/\s*[\u2014\u2013\/]\s*|\s+-\s*|\s*-\s+/).map(seg=>
+    seg.split(" ").filter(Boolean).map(w=>({
+      t:w.replace(/[’']S$/,"").replace(/^[#.'’]+|[.'’]+$/g,""),
+      poss:/[’']S$/.test(w) && w.length>2,
+    })).filter(x=>x.t && !/^#?\d+$/.test(x.t))
+  ).filter(sg=>sg.length);
+  return { base, segs };
+}
+/* a segment's HEAD word: the last word before an "ON / FROM / OVER …" phrase; a leading
+   locative ("ON THE SCREEN") is the device itself */
+function _spHead(seg){
+  let i = 0;
+  if(seg.length>1 && _SP_PREP.has(seg[0].t)){ const rest = seg.filter(x=>x.t!=="THE" && !_SP_PREP.has(x.t)); return rest.length ? rest[rest.length-1].t : seg[seg.length-1].t; }
+  while(i<seg.length && !(i>0 && _SP_PREP.has(seg[i].t))) i++;
+  return seg[Math.max(0,i-1)].t;
+}
+/* where a known speaker sits in the label: "subject", "owner" (NINA'S), "author" (FROM
+   NINA), "object" (ON NINA) — or null */
+function _spSpeakerIn(P, speakers){
+  if(!speakers || !speakers.size) return null;
+  if(speakers.has(P.base)) return { seg:0, role:"subject" };
+  for(let s=0;s<P.segs.length;s++){
+    const seg = P.segs[s];
+    if(speakers.has(seg.map(x=>x.t).join(" "))) return { seg:s, role:seg.some(x=>x.poss) ? "owner" : "subject" };
+    for(let i=0;i<seg.length;i++){
+      const pair = i+1<seg.length ? seg[i].t+" "+seg[i+1].t : "";
+      if(!(speakers.has(seg[i].t) || (pair && speakers.has(pair)))) continue;
+      const preps = seg.slice(0,i).filter(x=>_SP_PREP.has(x.t)).map(x=>x.t);
+      const lastPrep = preps[preps.length-1];
+      const role = (seg[i].poss || (pair && seg[i+1].poss)) ? "owner"
+        : (lastPrep==="FROM" || lastPrep==="BY") ? "author" : lastPrep ? "object" : "subject";
+      return { seg:s, role };
+    }
+  }
+  return null;
+}
+function _spHeadClass(h){
+  if(_spTokenIn(_SP_ROLE, h)) return "role";
+  if(_spTokenIn(_SP_VOICE, h) || _spTokenIn(_SP_VOICE_HEAD, h)) return "voice";
+  if(_spTokenIn(_SP_WRITTEN, h)) return "written";
+  if(_spTokenIn(_SP_DIRECTION, h)) return "direction";
+  if(_spTokenIn(_SP_LIVE, h)) return "live";
+  if(_spTokenIn(_SP_DATA, h)) return "data";
+  return "";
+}
+/* what a bare label NAMES — see the header comment. ext: the label's parenthetical. */
+function screenplayLabelClass(label, speakers, ext){
+  const P = _spParseLabel(label);
+  if(!P.base || !P.segs.length) return "";
+  const heads = P.segs.map(_spHead);
+  const hc = heads.map(_spHeadClass);
+  const lowerThird = /\bLOWER THIRD\b|\bLOCK ?SCREEN\b|\bHOME SCREEN\b/.test(P.base);
+  const sp = _spSpeakerIn(P, speakers);
+  if(sp){
+    const segHead = hc[sp.seg];
+    const writtenBefore = hc.slice(0, sp.seg).includes("written");
+    if(writtenBefore) return "written";                                           // TEXT — DEV
+    if((sp.role==="owner" || sp.role==="author") && (segHead==="written" || segHead==="live" || lowerThird)) return "written"; // NINA'S PHONE, EMAIL FROM NINA
+    if((sp.role==="owner" || sp.role==="object") && segHead==="direction") return "direction"; // NINA'S POV, CLOSE ON NINA
+    return "speaker";
+  }
+  const e = String(ext||"").replace(/\s+/g," ").trim().toUpperCase();
+  if(e && speakers && speakers.has(e)) return "speaker";                          // RADIO (BRAM)
+  if(lowerThird) return "written";
+  const idx = (c)=>hc.indexOf(c);
+  if(idx("role")>=0 && !(idx("written")>=0 && idx("written")<idx("role"))) return "role"; // TEXT — MOTHER is written
+  if(P.segs.some(sg=>sg.some(x=>_spTokenIn(_SP_VOICE, x.t))) || /^(?:PRE-?)?RECORDED\b|^AUTOMATED\b/.test(P.base) || idx("voice")>=0) return "voice";
+  for(const c of ["written","direction","live","data"]) if(idx(c)>=0) return c;
+  return "";
+}
+function _spFirstSentence(s){
+  const t = String(s||"").trim();
+  const m = t.match(/^[\s\S]*?[.!?…]+(?=["”’']?(?:\s|$))["”’']?/);
+  return (m ? m[0] : t).trim();
+}
+function _spStartsWithSpeaker(sentence, speakers){
+  if(!speakers || !speakers.size) return false;
+  const w = String(sentence||"").trim().split(/\s+/).slice(0,2).map(x=>x.replace(/[’']s$/i,"").replace(/[^A-Za-z'’-]/g,"").toUpperCase());
+  return !!w[0] && (speakers.has(w[0]) || (w[1] && speakers.has(w[0]+" "+w[1])));
+}
+/* how many characters of `content` belong to its label: a quoted span, or the first
+   sentence plus the sentences after it until narration resumes */
+function _spReachLen(content, speakers){
+  const t = String(content||"");
+  if(!t.trim()) return 0;
+  const lead = t.length - t.replace(/^\s+/,"").length;
+  const body = t.slice(lead);
+  const open = body.charAt(0);
+  const close = open==="“" ? "”" : open==="‘" ? "’" : (open==='"' || open==="'") ? open : "";
+  if(close){
+    for(let i=1;i<body.length;i++){
+      if(body.charAt(i)!==close && !(open==='"' && body.charAt(i)==="”")) continue;
+      if(close==="'" || close==="’"){ const nx = body.charAt(i+1); if(nx && /[A-Za-z]/.test(nx)) continue; }   // You've, Nina's
+      let j = i+1; while(j<body.length && /[.,!?…]/.test(body.charAt(j))) j++;
+      return lead + j;
+    }
+  }
+  const ends = [], bre = /[.!?…]+["”’']?(?=\s|$)/g;
+  let mm; while((mm = bre.exec(body))) ends.push(mm.index + mm[0].length);
+  if(!ends.length || body.slice(ends[ends.length-1]).trim()) ends.push(body.length);
+  let len = ends[0];
+  // a CAPS readout ("ACTUATOR: RESPONDING.") ends where lowercase prose resumes
+  const capsFirst = !/[a-z]/.test(body.slice(0, ends[0]));
+  for(let k=1;k<ends.length;k++){
+    const st = body.slice(ends[k-1], ends[k]).trim();
+    if(!st) continue;
+    if((capsFirst && /[a-z]/.test(st)) || _SP_NARRATION_RE.test(st) || _spStartsWithSpeaker(st, speakers)) break;
+    len = ends[k];
+  }
+  return lead + body.slice(0, len).replace(/\s+$/,"").length;
+}
+const _SP_FINITE_RE = /\b(?:the|a|an|this|that|these|those|is|are|was|were|am|be|been|being|has|have|had|does|did|do|will|would|can|could|should|shall|may|might|must|he|she|they|it|his|her|their|its|there|here)\b/;
+/* a full sentence (not a telegraphic readout like "Wrenham gauge running high.") */
+function _spIsSentence(plain){
+  if(!/^[A-Z]/.test(plain)) return false;
+  const lowerWords = plain.split(/\s+/).filter(w=>/^[a-z]/.test(w.replace(/^["“‘'(]+/,""))).length;
+  if(lowerWords<2) return false;
+  return _SP_FINITE_RE.test(plain.charAt(0).toLowerCase()+plain.slice(1));
+}
+/* a readout that opens with a person's name: "Emrys Prydderch, 07700 900123." */
+function _spProperStart(plain){
+  return /^(?:(?:Dr|Mr|Mrs|Ms|St|Sgt|Lt|Capt|Det|Prof)\.?\s+)?[A-Z][a-zà-ÿ’'-]+(?:\s+(?:[A-Z][a-zà-ÿ’'-]+|[A-Z]\.))+\s*(?:[,.;]|$)/.test(plain);
+}
+function _spTextKind(cls, ext, content, reach, ctx){
+  const unq = x=>String(x||"").trim().replace(/^["“‘']+|["”’']+$/g,"").trim();
+  const first = _spFirstSentence(reach || content);
+  const plain = unq(first), all = unq(reach || content);
+  if(!plain) return "data";                                       // "CLOSED BY:" at the end of a line
+  const hasLower = /[a-z]/.test(all), firstLower = /[a-z]/.test(plain);
+  const quoted = /^["“‘']/.test(String(reach||"").trim()) && hasLower;
+  // roman numerals after a capitalised word ("Phase I", "Act I") are not the pronoun
+  const pron = hasLower && _SP_PRON_RE.test(all.replace(/\b[A-Z][a-z]+ I\b/g,""));
+  const vocative = !!(ctx && ctx.speakers) && /^[A-Z][A-Za-z'’-]+,\s/.test(plain) && _spStartsWithSpeaker(plain, ctx.speakers);
+  const weak = firstLower && (_SP_WEAK_RE.test(plain) || vocative);
+  const imperative = _SP_IMPERATIVE_RE.test(plain);
+  const visualExt = !!ext && _SP_VISUAL_PAREN.test(ext);
+  const cueExt = !!ext && !visualExt;
+  // a named speaker's (TEXT) / (SMS) is a message shown on a screen; their (ON SCREEN)
+  // is the person on a video call — still that character speaking
+  const writtenExt = !!ext && /\b(?:TEXT|SMS|E-?MAIL|MESSAGE|CAPTION|SUPER|INSERT|READOUT|DISPLAY|GRAPHIC)\b/i.test(ext);
+  if(cls==="speaker"){
+    if(!/[A-Za-z]/.test(all)) return "data";
+    if(writtenExt) return "device";
+    // a message a character sends, shown on a screen ("INSERT — PHONE: NINA: …")
+    if(!ext && ctx && ctx.written) return "device";
+    return "dialogue";                                            // "DEV: GET DOWN!" counts too
+  }
+  if(cls==="written" || cls==="direction" || visualExt) return "device";
+  if(cueExt && hasLower) return cls==="voice" ? "voice" : "dialogue";
+  if(cls==="voice") return !hasLower ? "data" : (!pron && _SP_DESCRIBE_RE.test(plain)) ? "device" : "voice";
+  if(cls==="live") return (quoted || pron) ? "dialogue" : "device";
+  if(!firstLower) return (cls==="role" && /[!?]/.test(first)) ? "dialogue" : "data";   // GUARD: HALT!
+  if(/^[a-z0-9]/.test(plain) || cls==="data") return pron ? "dialogue" : "data";
+  if(_spProperStart(plain) && !pron) return "data";
+  const sentence = _spIsSentence(plain);
+  if(cls==="role") return (quoted || pron || weak || imperative || sentence) ? "dialogue" : "data";
+  return (quoted || pron || weak) ? "dialogue" : sentence ? "unclear" : "data";
+}
+/* every "LABEL:" in one action paragraph, classified. speakers: a Set from
+   screenplaySpeakers(). Each hit: { start, end, label, ext, content, reach, reachEnd,
+   labelClass, kind, last } — reach/reachEnd: the words that belong to the label. */
+function screenplayActionLabels(text, speakers){
+  const s = String(text||"");
+  const hits = [];
+  _SP_LABEL_RE.lastIndex = 0;
+  let m;
+  while((m = _SP_LABEL_RE.exec(s))){
+    const start = m.index + m[1].length;
+    hits.push({ start, end:m.index + m[0].length, label:m[2].replace(/\s+/g," ").trim(), ext:m[4] ? m[4].trim() : "" });
+  }
+  // a MIXED-case label counts only when it is a known speaker ("Dev: Wrenham, ops.")
+  if(speakers && speakers.size){
+    _SP_MIXED_RE.lastIndex = 0;
+    while((m = _SP_MIXED_RE.exec(s))){
+      const start = m.index + m[1].length;
+      if(hits.some(h=>h.start===start)) continue;
+      if(_spSpeakerIn(_spParseLabel(m[2]), speakers)) hits.push({ start, end:m.index + m[0].length - 1, label:m[2], ext:m[4] ? m[4].trim() : "" });
+    }
+    hits.sort((a,b)=>a.start-b.start);
+  }
+  const out = [];
+  hits.forEach((h,i)=>{
+    const stop = i+1<hits.length ? hits[i+1].start : s.length;
+    const raw = s.slice(h.end, stop);
+    const rlen = _spReachLen(raw, speakers);
+    const reach = raw.slice(0, rlen).trim();
+    const cls = screenplayLabelClass(h.label, speakers, h.ext);
+    // is this label's text a message SHOWN on a screen? (only matters for a speaker)
+    let written = false;
+    if(cls==="speaker"){
+      const prev = out[out.length-1];
+      const between = prev ? s.slice(prev.end, h.start) : "";
+      if(prev && prev.labelClass==="written" && /^[\s—–-]*$/.test(between)) written = true;   // INSERT — PHONE: NINA: …
+      const pre = s.slice(0, h.start);
+      const mm = pre.match(/([^.!?…]*[.!?…]+["”’']?\s*)?([^.!?…]*)$/) || [];
+      if(_SP_MSG_FROM_RE.test(mm[2]||"")) written = true;                                    // a text from DEV: …
+      const ctxText = (mm[1]||"")+(mm[2]||""), ev = ctxText.match(_SP_MSG_EVENT_RE);
+      // "The phone lights up. NINA: …" — but not "The phone lights up: MISSED CALL. NINA: …",
+      // where the screen already showed its own words and NINA is a new, spoken element
+      if(ev && !/:/.test(ctxText.slice(ev.index + ev[0].length))) written = true;
+    }
+    out.push({ ...h, content:raw.trim(), reach, reachEnd:h.end + rlen, labelClass:cls,
+      kind:_spTextKind(cls, h.ext, raw, reach, { speakers, written }), last:i===hits.length-1 });
+  });
+  return out;
+}
+/* the kinds the screenplay writers reject and the Script check warns about */
+function screenplayRejectsLabel(h){ return !!h && (h.kind==="dialogue" || h.kind==="voice"); }
+/* the first smuggled-dialogue label in an action paragraph (a leftover voice counts:
+   the writers turn every convertible one into a cue first), or null */
+function screenplayEmbeddedDialogue(text, speakers){
+  return screenplayActionLabels(text, speakers).find(screenplayRejectsLabel) || null;
+}
+/* on-screen-text cue phrases no character could be called */
+const _SP_CUE_WRITTEN_RE = /^(?:INSERT\b.*|(?:SUPER(?:IMPOSED?)?|MAIN|END|OPENING|CLOSING)\s+(?:CARD|TITLES?)|TITLE\s+CARD|LOWER\s+THIRD|CHYRON|SUPERIMPOSED?|SUPER\s+TITLE|CAPTIONS?|SUBTITLES?|TEXT\s+MESSAGES?|SMS|READOUT|NOTIFICATION|(?:LOCK|HOME)\s+SCREEN)$/;
+const _SP_CUE_LIVE_RE = /^(?:ON[- ]?(?:THE\s+)?SCREEN\b.*|ONSCREEN\b.*|(?:PHONE|MOBILE|CELL|LAPTOP|TABLET|COMPUTER|WALL|TV|CONSOLE|DASHBOARD|WATCH|SECURITY)\s+(?:SCREEN|DISPLAY|READOUT|MONITOR))$/;
+// a single word that is usually a device but can name a person (a building's SUPER, Bruce BANNER)
+const _SP_CUE_DEVICE_WORD = _SP_WORDS("SUPER TITLE CARD SCREEN SIGN BANNER TEXT DISPLAY LEGEND GRAPHIC TICKER CRAWL DISCLAIMER");
+/* Is this CHARACTER CUE really an on-screen device (so cue + "dialogue" is one action
+   line)? Never for a known speaker or a person's label (THIRD GUARD, CARD DEALER); a
+   written device phrase always; a live screen only when the words aren't spoken; an
+   ambiguous single word (SUPER, TITLE, BANNER…) only over CAPS on-screen text. */
+function screenplayCueDevice(cue, next, speakers){
+  const t = String(cue||"").replace(/\s+/g," ").trim().toUpperCase();
+  const pm = t.match(/\(([^()]*)\)\s*$/);
+  const base = t.replace(/\s*\([^()]*\)\s*$/,"").replace(/[\s:]+$/,"").trim();
+  if(!base) return false;
+  if(speakers && _spSpeakerIn(_spParseLabel(base), speakers)) return false;
+  const nx = String(next||"").trim();
+  const spoken = /^["“‘']/.test(nx) || _SP_PRON_RE.test(nx);
+  if(pm && _SP_VISUAL_PAREN.test(pm[1])) return /TEXT|INSERT|SUPER|CAPTION|READOUT|DISPLAY|GRAPHIC/.test(pm[1]) || !spoken;
+  if(_SP_CUE_WRITTEN_RE.test(base)) return true;
+  if(_SP_CUE_LIVE_RE.test(base)) return !spoken;
+  if(_SP_CUE_DEVICE_WORD.has(base)) return !!nx && !/[a-z]/.test(nx);
+  return false;
+}
+/* a cue on the page that is NOT a person: a voice label or an on-screen device */
+function _spCueIsNotPerson(raw){
+  const t = String(raw||"").replace(/\s+/g," ").trim().toUpperCase();
+  const pm = t.match(/\(([^()]*)\)\s*$/);
+  const base = t.replace(/\s*\([^()]*\)\s*$/,"").trim();
+  if(pm && _SP_VISUAL_PAREN.test(pm[1])) return true;
+  if(_SP_CUE_WRITTEN_RE.test(base) || _SP_CUE_LIVE_RE.test(base) || _SP_CUE_DEVICE_WORD.has(base)) return true;
+  const c = screenplayLabelClass(base, null);
+  return c==="voice" || c==="written" || c==="direction" || c==="live";
+}
+/* the names that SPEAK in this scene: the cast (full, first and last names, ids) and the
+   beat map's driver/reactor — always, whatever their names say ("Rosa Bell", "Bruce
+   Banner", a character called Pa) — plus every character cue on the page, and every name
+   the action introduces with an age ("MARCUS (40s)"), but never a voice or device cue
+   such as RECORDED VOICE or PHONE (ON SCREEN) */
+function screenplaySpeakers(blocks, bm, cast, extra){
+  const out = new Set();
+  const norm = raw=>String(raw||"").replace(/\s*\([^()]*\)/g,"").replace(/\s+/g," ").trim().toUpperCase();
+  const addParts = (full)=>{
+    if(full.length<2) return;
+    out.add(full);
+    const parts = full.split(" ").filter(p=>p.length>=2 && !_SP_HONORIFIC.has(p));
+    if(parts.length>1){ out.add(parts[0]); if(parts[parts.length-1].length>=3) out.add(parts[parts.length-1]); }
+  };
+  const addPerson = raw=>addParts(norm(raw));
+  const addCue = raw=>{ if(!_spCueIsNotPerson(raw)) addParts(norm(raw)); };
+  (Array.isArray(cast)?cast:[]).forEach(c=>{ if(c){ addPerson(c.name); if(c.id && /^[a-z]{3,24}$/i.test(c.id)) addPerson(String(c.id)); } });
+  if(bm){ addPerson(bm.driverLabel); addPerson(bm.reactorLabel); }
+  (Array.isArray(blocks)?blocks:[]).forEach(b=>{
+    if(!b) return;
+    if(b.type==="char") addCue(b.text);
+    else if(b.type==="action"){
+      const re = /(?:^|[^A-Za-z])([A-Z][A-Z'’-]+(?:\s+[A-Z][A-Z'’-]+){0,2})\s*\(\s*(?:(?:(?:early|mid|late)[\s-]*)?\d0(?:s|’s|'s)|\d{2})\s*\)/g;
+      let m; while((m = re.exec(String(b.text||"")))) addPerson(m[1]);
+    }
+  });
+  (Array.isArray(extra)?extra:[]).forEach(addCue);
+  return out;
+}
+/* the action text with its ON-SCREEN words removed (the label and the words it shows),
+   for readers that look for physical things in action prose — set dressing, who is in
+   the room. "She highlights the handshake. OPERATOR: CARROW, N." → "She highlights the
+   handshake." Spoken or direction labels are left alone. */
+function screenplayStripScreenText(text, speakers){
+  const s = String(text||"");
+  const hits = screenplayActionLabels(s, speakers||null)
+    .filter(h=>(h.kind==="device" || h.kind==="data" || h.kind==="unclear") && h.labelClass!=="direction");
+  if(!hits.length) return s;
+  let out = "", at = 0;
+  hits.forEach(h=>{ out += s.slice(at, h.start); at = Math.max(at, h.reachEnd); });
+  out += s.slice(at);
+  return out.replace(/\s+([.,;:!?])/g,"$1").replace(/\s{2,}/g," ").trim();
+}
+window.SP_LABELS_VERSION = SP_LABELS_VERSION;
+window.screenplayLabelClass = screenplayLabelClass;
+window.screenplayActionLabels = screenplayActionLabels;
+window.screenplayRejectsLabel = screenplayRejectsLabel;
+window.screenplayEmbeddedDialogue = screenplayEmbeddedDialogue;
+window.screenplayCueDevice = screenplayCueDevice;
+window.screenplaySpeakers = screenplaySpeakers;
+window.screenplayStripScreenText = screenplayStripScreenText;
+
 /* SCRIPT CHECK — deterministic screenplay grammar + production-unit visibility.
    Read-only by design: this reports what is on the page and never rewrites it. */
 function screenplayFormatReport(scene, screenplay, beats){
@@ -137,6 +540,9 @@ function screenplayFormatReport(scene, screenplay, beats){
   const add = (code,severity,blockIndex,beat,message)=>
     issues.push({code,severity,blockIndex,beat,message});
   const clean = b=>String((b&&b.text)||"").trim();
+  // who speaks in this scene (its own cues + the live cast) — lets the dialogue-in-action
+  // check tell "NINA: Go." (a smuggled line) from "OPERATOR: CARROW, N." (a readout)
+  const speakers = screenplaySpeakers(blocks, beats, window.turnCast);
   blocks.forEach((b,i)=>{
     const t=clean(b), beat=Number(b&&b.beat);
     if(!t) add("empty-block","error",i,beat,"Empty "+((b&&b.type)||"screenplay")+" element.");
@@ -167,14 +573,26 @@ function screenplayFormatReport(scene, screenplay, beats){
     } else if(b.type==="paren"){
       if(i===0 || !blocks[i-1] || blocks[i-1].type!=="char" || !blocks[i+1] || blocks[i+1].type!=="dia")
         add("orphan-parenthetical","error",i,beat,"Parenthetical must sit between a character cue and dialogue.");
-    } else if(b.type==="action" && t && /(?:^|\s)[A-Z][A-Z .'\u2019-]{1,30}:\s*[“"']?[A-Z]/.test(t)){
-      add("dialogue-in-action","warn",i,beat,"This action paragraph appears to contain dialogue; use a character cue and dialogue block.");
+    } else if(b.type==="action" && t){
+      // on-screen text, inserts and readouts (INSERT — PHONE: …, SUPER: …, <FIELD>: <VALUE>)
+      // are standard action-line devices and are NOT flagged. The warning fires on exactly
+      // what the screenplay writers reject (screenplayRejectsLabel: a speaker's line, a
+      // spoken voice), so a line MUSE just wrote never trips it; an unknown label followed
+      // by a plain sentence ("MARCUS: The gate is open.") is only an INFO note to review.
+      const labels = screenplayActionLabels(t, speakers);
+      if(labels.some(screenplayRejectsLabel))
+        add("dialogue-in-action","warn",i,beat,"This action paragraph appears to contain dialogue; use a character cue and dialogue block.");
+      else {
+        const u = labels.find(h=>h.kind==="unclear");
+        if(u) add("check-action-label","info",i,beat,"Check “"+u.label+":” — if a character is speaking, make it a character cue and dialogue; if it is on-screen text or a readout, it is fine as written.");
+      }
     }
   }
   if(blocks.length && !units.length)
     add("missing-heading","error",0,Number(blocks[0]&&blocks[0].beat),"This dramatic scene has no valid production scene heading.");
   const errors=issues.filter(x=>x.severity==="error").length;
-  return {issues,units,stats:{blocks:blocks.length,productionUnits:units.length,errors,warnings:issues.length-errors}};
+  const notes=issues.filter(x=>x.severity==="info").length;
+  return {issues,units,stats:{blocks:blocks.length,productionUnits:units.length,errors,warnings:issues.length-errors-notes,notes}};
 }
 window.screenplayFormatReport = screenplayFormatReport;
 
@@ -401,9 +819,9 @@ function ScriptCheckReport({ scene, report, onClose, onIssue }){
       : React.createElement("div",{className:"script-check-issues"},issues.map((x,i)=>
           React.createElement("button",{key:x.code+"-"+x.blockIndex+"-"+i,type:"button",
             className:"script-check-issue "+x.severity,onClick:()=>onIssue(x)},
-            React.createElement("span",{className:"ic"},React.createElement(x.severity==="error"?Icon.alert:Icon.info,{s:14})),
+            React.createElement("span",{className:"ic",style:x.severity==="info"?{color:"var(--txt-3)"}:undefined},React.createElement(x.severity==="error"?Icon.alert:Icon.info,{s:14})),
             React.createElement("span",{className:"script-check-issuebody"},
-              React.createElement("b",null,x.severity==="error"?"Format error":"Format note"),
+              React.createElement("b",null,x.severity==="error"?"Format error":x.severity==="info"?"Check this line":"Format note"),
               React.createElement("span",null,x.message)),
             React.createElement("span",{className:"script-check-goto"},"Beat "+(Number.isFinite(x.beat)?x.beat:"—")+" · Go to line")))));
 }
@@ -499,10 +917,12 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
     title:unmapped?"Setups and payoffs aren't mapped for this film yet":undefined},
     React.createElement(report.conflicts.length||unmapped?Icon.alert:Icon.check,{s:14}),
     report.conflicts.length ? `Continuity \u00b7 ${report.conflicts.length}` : unmapped ? "Continuity \u00b7 not mapped" : (ledger.stale ? "Continuity \u00b7 stale" : "Continuity"));
+  // the badge counts real problems only; "Check this line" notes are listed inside
+  const scriptCheckCount = scriptCheck.issues.filter(x=>x.severity!=="info").length;
   const scriptCheckBtn = screenplay && React.createElement("button",{
-    className:`cont-btn ${scriptCheck.issues.length?"warn":"ok"}`,onClick:()=>setShowScriptCheck(v=>!v)},
-    React.createElement(scriptCheck.issues.length?Icon.alert:Icon.check,{s:14}),
-    scriptCheck.issues.length ? `Script check · ${scriptCheck.issues.length}` : "Script check");
+    className:`cont-btn ${scriptCheckCount?"warn":"ok"}`,onClick:()=>setShowScriptCheck(v=>!v)},
+    React.createElement(scriptCheckCount?Icon.alert:Icon.check,{s:14}),
+    scriptCheckCount ? `Script check · ${scriptCheckCount}` : "Script check");
 
 
   // ---- screenplay present: render the STORED draft directly (no blend) ----
@@ -523,7 +943,11 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
       if(readOnly || polishing || !live) return;
       setPolishing(true); setPolishWait(true); setJustPolished(false);
       let ok = false;
-      if(onPolish){ try{ ok = await onPolish(scene, beats); }catch(e){} }
+      // onPolish (app.jsx polishScene) explains its own failures in a toast; an unexpected
+      // throw is still never silent
+      if(onPolish){ try{ ok = await onPolish(scene, beats); }catch(e){
+        if(window.appToast) window.appToast("Couldn\u2019t redraft Scene "+scene.no+" \u2014 something went wrong. Your current draft is unchanged; press Redraft again.","error", { force:true });
+      } }
       setPolishWait(false); setPolishing(false);
       if(ok){ setJustPolished(true); setTimeout(()=>setJustPolished(false), 1400); }
     };
@@ -619,8 +1043,9 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
     const writeMissingBeat = async (n)=>{
       if(readOnly || beatWriting || !live || !onEditScene) return;
       setBeatWriting(n);
+      const report = {};
       try{
-        const res = (typeof aiWriteBeatText==="function") ? await aiWriteBeatText(scene, beats, n, screenplay, prevScene, project) : null;
+        const res = (typeof aiWriteBeatText==="function") ? await aiWriteBeatText(scene, beats, n, screenplay, prevScene, project, report) : null;
         if(res && res.blocks && res.blocks.length){
           const blocks = screenplay.blocks.slice();
           let at = -1;   // after the last block belonging to an EARLIER beat (slug rides as beat 1)
@@ -630,7 +1055,9 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
           setVerFlash(new Set(res.blocks));
           clearTimeout(verFlashTimer.current);
           verFlashTimer.current = setTimeout(()=>setVerFlash(null), 2600);
-        } else if(window.appToast) window.appToast("Couldn't write this beat — try again.","error");
+        } else if(window.appToast) window.appToast(report.failure && typeof window.screenplayFailureMessage==="function"
+          ? window.screenplayFailureMessage("write beat "+n+" of", scene.no, report.failure, { kept:"The script is unchanged." })
+          : "Couldn't write this beat — try again.","error", { force:true });
       } finally { setBeatWriting(null); }
     };
     body = React.createElement(React.Fragment,null,

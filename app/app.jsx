@@ -5029,6 +5029,17 @@ function App(){
     setDrafts(d=>({...d,[id]:nextV}));
   };
 
+  // RETRY MEMORY: the newest format rejection per FILM + scene id (scene ids repeat
+  // across films — one film's rejected line must never ride into another's prompt). The
+  // next Redraft of that scene hands it to the model (aiPolishScene opts.retry →
+  // screenplayRetryNote), so "press Redraft again" is never the identical request; a
+  // success clears it.
+  const polishRetryRef = React.useRef({});
+  const rememberRejection = (id, f)=>{
+    if(id==null) return;
+    const k = String(currentProjectId||"")+"::"+id;
+    if(f && f.kind==="invalid") polishRetryRef.current[k] = f; else delete polishRetryRef.current[k];
+  };
   /* NEEDS REDRAFT: every written draft carries the snapshot of the card it was
      written from (sceneCardSnap); a card that has changed since marks the script as
      out of date, with one-click Redraft (redraftScene) or Keep this draft. */
@@ -5058,6 +5069,14 @@ function App(){
     if(owner !== projIdRef.current || !canMutateWritersRoom()){ setDrafting(null); return; }
     setDrafts(d=>({...d,[s.id]:stampDraft(res, scn, beats)}));
     setDrafting(null);
+    // a rough structural stand-in landed instead of MUSE's prose \u2014 say why, never silently
+    const failure = res && res.auto && res.failure;
+    if(failure){
+      rememberRejection(s.id, failure);   // the Redraft it points to is told what was rejected
+      if(typeof window.appToast==="function" && typeof window.screenplayFailureMessage==="function")
+        window.appToast(window.screenplayFailureMessage("draft", s.no, failure,
+          { kept:"A rough structural draft from its beats stands in.", retryLabel:"press Redraft script from beats", carries:true }), "error", { force:true });
+    }
   };
   const draftAll = async ()=>{
     if(!canMutateWritersRoom() || draftingRef.current) return;
@@ -5069,6 +5088,7 @@ function App(){
     const tot = working.length;
     const have = {...drafts};
     const owner = currentProjectId;   // abort the whole run if the user switches films
+    const standIns = [];              // { no, failure } \u2014 rough stand-ins, reported at the end
     try{
       for(let i=0;i<tot;i++){
         if(owner !== projIdRef.current || writersRoomReadOnlyRef.current) break;
@@ -5085,7 +5105,9 @@ function App(){
             setBeatsFor(s.id, authored.beats);
           }
         }
-        const res = stampDraft(await aiDraftScene(scn, beats, prev, project), scn, beats);
+        const raw = await aiDraftScene(scn, beats, prev, project);
+        if(raw && raw.auto && raw.failure){ standIns.push({ no:s.no, failure:raw.failure }); rememberRejection(s.id, raw.failure); }
+        const res = stampDraft(raw, scn, beats);
         if(owner !== projIdRef.current || writersRoomReadOnlyRef.current) break;
         have[s.id] = res;
         setDrafts(d=>({...d,[s.id]:res}));
@@ -5094,25 +5116,50 @@ function App(){
       setTimeout(()=>setDrafting(null), 320);
     } finally {
       draftingRef.current = false;
+      // scenes that got a rough stand-in instead of MUSE's prose are named, EACH with its
+      // own reason (a format rejection and a service error are different problems)
+      if(standIns.length && typeof window.appToast==="function" && typeof window.screenplayBatchFailureMessage==="function")
+        window.appToast(window.screenplayBatchFailureMessage(
+          (standIns.length!==1 ? standIns.length+" scenes" : "Scene "+standIns[0].no)+" got a rough structural draft instead \u2014 ", standIns,
+          { next:"Open "+(standIns.length!==1?"each":"it")+" and press Redraft script from beats", carries:true }), "error", { force:true });
     }
   };
   // polish: regenerate one scene's prose as genuinely new final text (beats locked)
   const [polishBusy, setPolishBusy] = React.useState(null);
-  const polishScene = async (s, beatsForScene)=>{
+  // NEVER SILENT (2026-09-27 incident): a redraft the model returns but the screenplay
+  // check rejects \u2014 or a model error \u2014 used to end with the page unchanged and no
+  // message. Every failure now says why, in plain words, with what to try (admins also
+  // get the technical reason); opts.quiet leaves the message to a batch caller, which
+  // reads lastPolishFailureRef.
+  const lastPolishFailureRef = React.useRef(null);
+  const polishScene = async (s, beatsForScene, opts)=>{
     if(!canMutateWritersRoom()) return false;
     setPolishBusy({ no:s && s.no });
     const ordered=scenesInStoryOrder(scenes);
     const i = ordered.findIndex(x=>x.id===s.id);
     const prev=i>0?ordered[i-1]:null;
+    const report = {};
+    let failure = null;
     try{
       const structural = autoDraftScene(s, beatsForScene, prev);
-      const res = await aiPolishScene(s, beatsForScene, structural.blocks, prev, project);
-      if(res && canMutateWritersRoom()){ return commitVersion(s.id, stampDraft(res, s, beatsForScene)); }
-      return false; // fall back to seed prose animation
+      const res = await aiPolishScene(s, beatsForScene, structural.blocks, prev, project, report,
+        { retry:polishRetryRef.current[String(currentProjectId||"")+"::"+s.id] || null });
+      if(res && canMutateWritersRoom()){ lastPolishFailureRef.current = null; rememberRejection(s.id, null); return commitVersion(s.id, stampDraft(res, s, beatsForScene)); }
+      if(res) return false;          // the film became read-only mid-call: it says so itself
+      failure = report.failure || { kind:"service", issues:[], details:[], technical:"no reply" };
+      return false;
     }catch(e){
+      failure = { kind:"service", issues:[], details:[], technical:String((e&&e.message)||e||"unknown error") };
       return false;
     }finally{
       setPolishBusy(null);
+      if(failure){
+        lastPolishFailureRef.current = failure;
+        if(failure.kind==="invalid") rememberRejection(s && s.id, failure);
+        if(!(opts && opts.quiet) && typeof window.appToast==="function" && typeof window.screenplayFailureMessage==="function")
+          window.appToast(window.screenplayFailureMessage("redraft", s && s.no, failure,
+            { kept:"Your current draft is unchanged.", retryLabel:"press Redraft again", carries:true }), "error", { force:true });
+      }
     }
   };
   /* REDRAFT one scene's script from its CURRENT card and beats (the "needs redraft"
@@ -5127,11 +5174,10 @@ function App(){
         confirmLabel:"Redraft script" });
       if(!ok) return false;
     }
-    const done = await polishScene(scn, b || beatsMap[scn.id]);
-    if(typeof window.appToast==="function" && !(opts && opts.quiet)){
-      if(done) window.appToast("Scene "+scn.no+" redrafted \u2014 Undo restores the previous draft.","ok");
-      else window.appToast("Couldn\u2019t redraft \u2014 the writing model may be unreachable.","error");
-    }
+    // polishScene explains its own failure (unless quiet); this only confirms success
+    const done = await polishScene(scn, b || beatsMap[scn.id], { quiet:!!(opts && opts.quiet) });
+    if(done && typeof window.appToast==="function" && !(opts && opts.quiet))
+      window.appToast("Scene "+scn.no+" redrafted \u2014 Undo restores the previous draft.","ok");
     return done;
   };
 
@@ -5180,16 +5226,25 @@ function App(){
     }
     const owner = currentProjectId;
     let done = 0;
+    const failed = [];   // { no, failure } \u2014 so the summary says WHY, not a guess
     try{
       for(let i=0;i<todo.length;i++){
         if(owner!==projIdRef.current || !canMutateWritersRoom()) break;
         setRedraftingAll({ i:i+1, total:todo.length });
+        lastPolishFailureRef.current = null;
         if(await redraftScene(todo[i], beatsMap[todo[i].id], { confirm:false, quiet:true })) done++;
+        else failed.push({ no:todo[i].no, failure:lastPolishFailureRef.current });
       }
     } finally { setRedraftingAll(null); }
+    // every failed scene with ITS OWN reason; one that stopped because the film became
+    // read-only mid-run has no failure and says so, rather than borrowing another's
+    const head = "Redrafted "+done+" of "+todo.length+" scenes \u2014 the rest are still marked and unchanged. ";
     if(typeof window.appToast==="function") window.appToast(done===todo.length
       ? ("Redrafted "+done+" scene"+(done!==1?"s":"")+" from their current cards \u2014 Undo restores any of them.")
-      : ("Redrafted "+done+" of "+todo.length+" scenes \u2014 the rest are still marked; the writing model may be unreachable."), done===todo.length?"ok":"error");
+      : (failed.length && typeof window.screenplayBatchFailureMessage==="function"
+          ? window.screenplayBatchFailureMessage(head, failed, { next:"Redraft them again", carries:true, nullReason:"the film became read-only, so it was left as is", nullShort:"read-only" })
+          : head+"Redraft them again to retry."),
+      done===todo.length?"ok":"error", done===todo.length ? undefined : { force:true });
   };
 
   // NAME EVERY SCENE'S VALUE — older films get a value at stake per scene: the poles
@@ -5313,17 +5368,24 @@ function App(){
       confirmLabel:"Recast for "+NEW, cancelLabel:"Keep the text as is" });
     if(!ok) return;
     setRecastBusy({ no:scn.no, name:NEW });
+    const report = {};
     try{
-      const res = await window.aiRecastDriver(scn, b, characters, newId, oldId, project);
+      const res = await window.aiRecastDriver(scn, b, characters, newId, oldId, project, report);
       if(res && canMutateWritersRoom()){
         updateScene(sceneId, { ...(res.summary?{summary:res.summary}:{}), ...(res.objective?{objective:res.objective}:{}) });
         setBeatsMap(m=>{ const cur=m[sceneId]||b; return { ...m, [sceneId]:{ ...cur, driverLabel:NEW,
           desire:res.desire||cur.desire, obstacle:res.obstacle||cur.obstacle, result:res.result||cur.result, rows:res.rows||cur.rows } }; });
         if(typeof window.appToast==="function")
           window.appToast("Scene "+scn.no+" recast for "+NEW+" \u2014 review the beats, then \u2018Redraft script from beats\u2019 to rebuild the screenplay.","ok");
-      } else if(typeof window.appToast==="function")
-        window.appToast("Couldn\u2019t recast the scene \u2014 the writing model may be unreachable.","error");
-    }catch(e){ if(typeof window.appToast==="function") window.appToast("Couldn\u2019t recast: "+((e&&e.message)||"error"),"error"); }
+      } else if(!res && typeof window.appToast==="function"){
+        // WHY, never a guess (a reply with the wrong number of beats is a failure too:
+        // nothing is applied, so the card never ends up half-recast)
+        const f = report.failure || null;
+        window.appToast(typeof window.screenplayFailureMessage==="function"
+          ? window.screenplayFailureMessage("recast", scn.no, f, { kept:"Nothing was changed.", retryLabel:"set the driver back and forth to retry" })
+          : "Couldn\u2019t recast Scene "+scn.no+" \u2014 nothing was changed.", "error", { force:true });
+      }
+    }catch(e){ if(typeof window.appToast==="function") window.appToast("Couldn\u2019t recast Scene "+scn.no+" \u2014 something went wrong, so nothing was changed.","error", { force:true }); }
     setRecastBusy(null);
   };
   const updateScene = (id,patch)=>{
@@ -5604,7 +5666,7 @@ function App(){
         buildSpine:(b)=>window.aiBuildSpine(b, (project&&project.format)||"film", (project&&project.framework)||"threeact"),
         buildStoryWorld:(b,sp)=>window.aiBuildStoryWorld(b,sp,(project&&project.format)||"film"),
         authorScene:(s,p)=>window.aiAuthorScene(s,p,model.characters,model.project,{scenes:model.scenes}),
-        draftScene:(s,b,p)=>window.aiDraftScene(s,b,p,model.project,model.characters,model.scenes),
+        draftScene:(s,b,p,o)=>window.aiDraftScene(s,b,p,model.project,model.characters,model.scenes,o),
       } };
   };
 
