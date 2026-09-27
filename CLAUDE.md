@@ -19,6 +19,10 @@ How MUSE is allowed to answer users (scope, confidentiality, tone, refusals, sta
 ## 🔀 Two working copies — never reason about Replit from branch names
 Work happens in **two places**: this local repo and the **Replit workspace**. Either can be ahead.
 
+**Home since 2026-09-27: `github.com/a-formoso/TURN-v6`** (the Mac's `origin`; the old TURN-v5 repo is kept
+read-only as the `v5-archive` remote) and the **Replit project TURN-v6**, connected to it. The old Replit project
+*TURN-v5* is retired: its remote was also pointed at TURN-v6, so never push from it.
+
 **Before proposing any `reset --hard`, merge, sync-conflict resolution, or "Replit is behind" claim:**
 
 1. **Push from Replit first.** In the Replit *Shell* (not the agent chat), on separate lines — chaining
