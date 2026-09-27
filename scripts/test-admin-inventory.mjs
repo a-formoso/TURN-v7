@@ -831,6 +831,28 @@ const wholeFoldersQuery = () => {
   return lines.slice(from, to + 1).map(l => l.replace(/^-- ?/, "")).join("\n").replace(/;\s*$/, "");
 };
 
+const savedQuery = (heading) => {
+  const head = SQL.indexOf(heading);
+  assert.ok(head > 0, "the saved query is in the file: " + heading);
+  const lines = SQL.slice(head).split("\n");
+  const from = lines.findIndex(l => /^-- select\b/.test(l));
+  const to = lines.findIndex((l, i) => i >= from && /;\s*$/.test(l));
+  assert.ok(from > 0 && to > from);
+  return lines.slice(from, to + 1).map(l => l.replace(/^-- ?/, "")).join("\n").replace(/;\s*$/, "");
+};
+await acheck("saved query 'Storage map': every folder named, YES only where the whole project folder can go", async () => {
+  const rows = (await db.query(savedQuery("-- ── Storage map: who owns each folder you see in the Dashboard"))).rows;
+  const by = k => rows.find(r => r.user_folder + "/" + r.project_folder === k);
+  assert.ok(rows.length > 0 && rows.every(r => r.whose && r.project && Number(r.files) > 0));
+  assert.equal(by(GONE_USER + "/" + PD).whose, "(deleted account)");
+  assert.equal(by(GONE_USER + "/" + PD).delete_folder, "YES: delete this project folder");
+  assert.notEqual(by(ALICE + "/" + PD).delete_folder, "YES: delete this project folder", "a Blender service file keeps it");
+  assert.ok(!by(ALICE + "/" + P1).delete_folder.startsWith("YES"), "a live film's folder is never a whole-folder delete");
+  assert.ok(rows.some(r => r.delete_folder === "no: in use"), "folders with nothing safe say no");
+  assert.ok(rows.filter(r => r.delete_folder.startsWith("YES")).every(r => r.project === "(deleted project)"));
+  assert.ok(rows.filter(r => r.user_folder === "_internal").every(r => r.whose === "(service files: keep)" && !r.delete_folder.startsWith("YES")));
+});
+
 await acheck("saved query 'whole folders': only DELETED projects' folders where EVERY file is safe", async () => {
   const rows = (await db.query(wholeFoldersQuery())).rows;
   const key = r => r.user_folder + "/" + r.project_folder;

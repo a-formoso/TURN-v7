@@ -1354,6 +1354,33 @@ select r.item, r.status, r.detail
 -- They read only the turn_admin views, so they work on every TURN database.
 -- ============================================================================
 
+-- ── Storage map: who owns each folder you see in the Dashboard ─────────────
+-- One row per <user_folder>/<project_folder> as Storage → turn-assets shows
+-- them, with the account's email (or '(deleted account)') and the project's
+-- title. delete_folder says 'YES' only for a deleted project's folder whose
+-- every file is safe; a deleted account's user folder can go whole once each
+-- of its rows says YES. Keep _internal and anything that says 'no'.
+-- select split_part(f.path, '/', 1) as user_folder,
+--        case split_part(f.path, '/', 1)
+--          when '_internal' then '(service files: keep)'
+--          when 'blender-studio-internal' then '(service files: keep)'
+--          else coalesce(max(f.uploader_email), '(deleted account)') end as whose,
+--        split_part(f.path, '/', 2) as project_folder,
+--        case split_part(f.path, '/', 2)
+--          when 'stage-tmp' then '(temporary image files)'
+--          when 'studio-previews' then '(Blender previews)'
+--          else coalesce(max(f.project_title), '(not a project)') end as project,
+--        max(f.project_owner_email) as project_owner,
+--        count(*) as files,
+--        pg_size_pretty(sum(coalesce(f.bytes, 0))) as size,
+--        case when bool_and(f.safe_to_delete) and bool_and(f.status = 'orphan: project deleted')
+--               then 'YES: delete this project folder'
+--             when bool_or(f.safe_to_delete) then 'some files: see turn_admin.orphans'
+--             else 'no: in use' end as delete_folder
+--   from turn_admin.files f
+--  group by 1, 3
+--  order by 2, 4;
+
 -- ── Storage by project ──────────────────────────────────────────────────────
 -- select owner_email, title, kind, show_title, episode, files, total_size,
 --        orphan_files, uploader_emails, last_upload, project_id
