@@ -157,15 +157,15 @@ previews).
 
 ### Readable storage folders: rollout, rollback and checks
 
-- **Before the functions and the app go live (owner decision O1, open).** Readable
+- **Before the functions and the app go live (owner decision O1, approved 2026-09-27).** Readable
   keys carry the account handle (the email's local part, e.g. `john-smith` for
   john.smith@acme.com) and the project's first real title. Every signed URL shows
   its object key, so these names reach whoever gets such a URL: collaborators, people
   a URL is shared with, and the AI providers (fal.ai and others) that image-proxy
   hands staged inputs to (`{handle}--{uid}/stage-tmp/…`), in their request logs.
-  `privacy.html` ("We send only what the feature needs") does not say so yet. Add the
-  sentence the owner approves to `privacy.html` before deploying `image-proxy` /
-  `blender-bridge` and publishing the app. Until then the SQL can go in on its own
+  `privacy.html` now says so ("Where your data lives", the owner-approved sentence of
+  2026-09-27); keep that sentence in place before deploying `image-proxy` /
+  `blender-bridge` and publishing the app. The SQL can go in on its own first
   (nothing writes a readable key until the functions and the app do). Names are
   frozen: a title typed by mistake (a client's or a person's name) stays in every
   later key of that project; only an admin can change `turn_projects.storage_slug`

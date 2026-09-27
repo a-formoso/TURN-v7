@@ -1392,6 +1392,10 @@ section("E: the four files agree; app calls; README");
   ok("E: README's rollout notes gate the functions and the app on the privacy.html sentence (owner decision O1), stage-tmp included",
     rollout.length > 500 && /owner decision O1/.test(rollout) && /privacy\.html/.test(rollout) && /stage-tmp/.test(rollout) && /fal\.ai/.test(rollout)
     && /before deploying `image-proxy`/.test(rollout));
+  const PRIVACY = readFileSync("privacy.html", "utf8");
+  ok("E: privacy.html carries the owner-approved sentence (O1, 2026-09-27): account handle from the email local part, first title, time-limited links, AI providers",
+    /account handle \(taken from the part of your email address before the @\)/.test(PRIVACY) && /first title/.test(PRIVACY)
+    && /time-limited links/.test(PRIVACY) && /AI providers when a feature needs a file/.test(PRIVACY));
   ok("E: README warns that rolling back or redeploying blender-bridge / image-proxy from an older checkout breaks readable relay PNGs and stage refs",
     /Edge Function rollback:\*\* never deploy `blender-bridge` or `image-proxy` from a\s+checkout without/.test(rollout)
     && /Blender result is unavailable/.test(rollout) && /never removes a replaced readable shot PNG/.test(rollout) && /sweep never lists/.test(rollout));
