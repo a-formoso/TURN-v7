@@ -22,6 +22,13 @@
      4. genuine dialogue smuggled into action is STILL rejected — through device / voice
         words in the label, in any sentence, after a CAPS readout, shouted in CAPS — while
         readouts with names, "US", telegraphic app text and on-screen text messages pass;
+        and (sample builds, same day) CAPS records naming a cast member beside a field
+        ("…PRUITT, OPAL — NOTE: …"), documentary production notes in brackets ("(record,
+        do not prompt)") and a person's paper record ("GRACINDA'S ALBUM") pass too, while
+        a cast member's line in those same shapes is still rejected, and E2 Sc 22 /
+        Documentary Sc 6 now get a real draft instead of a stand-in; and every problem the
+        review of that fix found is pinned (#1–#7), with each documented guard of the three
+        new rules decided by a line that only it decides (#8);
      5. the Script check warns on exactly what the writers reject ("unclear" is a note);
      6. no failure is silent or misleading: every writer and batch says WHY, per scene;
         a provider-account failure is never shown to non-admins as "credits"; a repeated
@@ -468,6 +475,267 @@ await test("an unknown NAME: + plain sentence is accepted (it may be a readout) 
   assert.ok(dr.failure.details.some(d=>d.text==="EMRYS: Put it in writing first."));
 });
 
+/* ---- the sample builds of 2026-09-27 (TV Series E2, Documentary): three more false rejections.
+   Lines are verbatim from the admin console log, cut where screenplayFailureTechnical cut them;
+   E2 Sc 22 and Documentary Sc 6 ended as stand-ins after three tries. Each film's own cast. */
+const E2_CAST = ["MARISOL VEGA","ARTURO BENAVIDES","LUPE CARRILLO","RAY HALVORSEN","DALE WHITCOMB","DR. INGRID PASZEK","WENDELL FAIRCLOTH",
+  "TOMÁS CARRILLO","MARA VOSS","ELI LUSK","TOMAS ITURBE","IVO MARANGONI","ODALYS FERRER","WALT AMBROSE","DUNSTAN MAYHEW","OPAL PRUITT"].map(name=>({ name }));
+const DOC_CAST = ["ARMINDO SARMENTO","LEONOR SARMENTO","GRACINDA SARMENTO","BENEDITA SARMENTO","QUITÉRIA LOBATO","DAMIÃO REBELO"].map(name=>({ name }));
+const SAMPLE_REAL = {
+  // 1. an all-caps record naming a cast member beside a field: the field NOTE / ADDRESS, not Opal / Lusk speaking
+  e2: ["INSERT — CAD LOG: WELFARE CHK — PRUITT, OPAL — NOTE: 'NO PROWLER. ASK ABOUT THE LILACS. SAY GOOD MORNING.' —",   // Sc 22 b3 (stand-in)
+    "CAD LOG — 0431 WELFARE CHK / PRUITT, OPAL / NO PROWLER OBSERVED / NOTE: CALLER ASKED MY NAME TWICE. ASK ABOUT",       // Sc 22 b3, 1st try
+    "INSERT — ALI: CLASS: RESD / SUBSCRIBER: LUSK / ADDRESS: 14 LARKSPUR RD"],                                               // Sc 6 b2
+  // 2. documentary production notes in brackets are notes, not (V.O.)-style voice directions; 3. a person's paper record
+  doc: ["EXPECTED TESTIMONY (record, do not prompt): Leonor's own account of the moment, in her own words, placed here",     // Sc 6 b5 (stand-in)
+    "TESTIMONY BED (Armindo, sit-down, to be recorded): how the soles of his feet read the night's tide. His own",            // Sc 1 b1
+    "ARCHIVE — GRACINDA'S ALBUM: a black-and-white print. A salt pan whose walls have slumped into open lagoon,"],            // Sc 12 b1
+};
+const SAMPLE_NEAR = {
+  e2: ["INSERT — CAD LOG: WELFARE CHK — PRUITT, OPAL — NOTE: 'NO PROWLER. ASK ABOUT THE LILACS. SAY GOOD MORNING.' — T.I.",
+    "Tomas scrolls the log. INSERT — CAD LOG: WELFARE CHK — PRUITT, OPAL — NOTE: NO PROWLER. ASK ABOUT THE LILACS. Tomas stares at it.",
+    "The log reads: WELFARE CHK — PRUITT, OPAL — NOTE: NO PROWLER.", "The screen reads: PRUITT, OPAL — NOTE: NO PROWLER.",
+    "INSERT — CAD LOG: WELFARE CHK — OPAL PRUITT — NOTE: NO PROWLER.", "INSERT — CAD LOG: 0431 — PRUITT, OPAL — STATUS: CLEARED.",
+    "CAD LOG — 0431 WELFARE CHK / PRUITT, OPAL / NO PROWLER OBSERVED / NOTE: CALLER ASKED MY NAME TWICE. ASK ABOUT THE LILACS.",
+    "INSERT — ALI: SUBSCRIBER: LUSK / ADDRESS: 14 Larkspur Rd", "WELFARE CHK — PRUITT, OPAL — NOTE: no prowler, ask about lilacs."],
+  doc: ["EXPECTED TESTIMONY (record, do not prompt): Leonor's own account of the moment, in her own words, placed here as the turn.",
+    "EXPECTED TESTIMONY (record, do not prompt): The walls stood for forty years.",
+    "EXPECTED TESTIMONY (Leonor, record): her own account of the moment, in her own words.",
+    "TESTIMONY (sit-down, to be recorded): what the tide took.", "INTERVIEW (Armindo, sit-down): hands, heel and clay, in his own words.",
+    "NEWSREEL (archive): Sandbags on the quay.", "HARBOUR (b-roll): gulls over the quay.",
+    "GRACINDA'S ALBUM: a black-and-white print.", "GRACINDA SARMENTO'S ALBUM: a black-and-white print.",
+    "ARCHIVE — LEONOR'S DIARY: a page of tide times in pencil.", "ARCHIVE — GRACINDA'S ALBUM: The salt heaps, last summer."],
+};
+// genuine smuggled dialogue in the same shapes — every one must stay rejected
+const SAMPLE_SMUGGLED = {
+  e2: ["PRUITT: No prowler, I said.", "Tomas reads the log. PRUITT: No prowler, I said.", "Opal: Say good morning.",
+    "OPAL — NOTE: NO PROWLER.", "OPAL — NOTE: Say good morning.",                                  // the name opens the line: hers
+    "WELFARE CHK — OPAL — NOTE: Go back to bed.",                                                   // an order
+    "WELFARE CHK — PRUITT, OPAL — NOTE: Tomas, go back to bed.",                                    // a vocative
+    "INSERT — CAD LOG: WELFARE CHK — PRUITT, OPAL — NOTE: I told you, no prowler.",               // I / you
+    "INSERT — CAD LOG: WELFARE CHK — PRUITT, OPAL — NOTE: “No prowler.”",                         // quoted speech
+    "INSERT — CAD LOG: WELFARE CHK — PRUITT, OPAL — NOTE: The prowler was never there.",          // a full sentence
+    "INSERT — CAD LOG: PRUITT, OPAL — NOTE: WHY WON'T ANYONE LISTEN?", "LOG: 0431 — TOMAS — STATUS: GET OUT NOW!",   // shouted / asked
+    "INSERT — CAD LOG: WELFARE CHK — PRUITT, OPAL — NOTE (V.O.): NO PROWLER.",                    // a voice extension
+    "INSERT — CAD LOG: WELFARE CHK. OPAL — NOTE: Say good morning, will you?",                    // a new sentence: no record
+    "Tomas leans in and says PRUITT, OPAL — NOTE: GET OUT NOW.",                                   // prose, not a record
+    "INSERT — CAD LOG: WELFARE CHK — PRUITT, OPAL — NOTE: NO PROWLER. Tomas reads it twice. OPAL: Say good morning.",
+    "OPAL (record): Say good morning.", "OPAL (sit-down, to be recorded): Say good morning."],
+  doc: ["EXPECTED TESTIMONY (record, do not prompt): We kept the walls up for forty years.",
+    "EXPECTED TESTIMONY (record, do not prompt): Oh, the walls stood for forty years.",
+    "EXPECTED TESTIMONY (Leonor, record): “The wall went at midnight.”", "TESTIMONY (Armindo, to be recorded): The gate never listened.",
+    "TESTIMONY (to be recorded): I never wanted the gate.", "INTERVIEW (sit-down): What happened that night?",
+    "INTERVIEW (sit-down, to Leonor): Tell me about the wall.",
+    "INTERVIEW (LATER, TO LEONOR): What did your father say when he gave you the rodo?",          // real (Sc 11): a question put to her
+    "ARMINDO (b-roll): The tide is turning.", "LEONOR (V.O., to be recorded): the notice in her own words.",
+    "INTERVIEW (Armindo, sit-down): Hands, heel and clay.", "MARCUS (archive): Two minutes.", "CROWD (b-roll): Out! Out! Out!",   // a person on camera
+    "MARCUS (record): The gate is open.", "MARCUS (recorded): Sorry, sir.", "REPORTER (archive): The flood came at night.",
+    "GUARD (to be recorded later): Hands up. Now.",
+    "GRACINDA'S MOTHER: Put the album away.", "GRACINDA'S VOICE: I kept every photo.", "ARCHIVE — GRACINDA: I kept every photo.",
+    "ARCHIVE — GRACINDA'S ALBUM: I kept every photo of him.", "GRACINDA'S DIARY (V.O.): I never told him.", "DIARY — GRACINDA: I never told him."],
+};
+const castOf = (k)=>k==="e2" ? E2_CAST : DOC_CAST;
+
+await test("sample builds: CAPS records naming a cast member, documentary production notes and a person's paper record pass", ()=>{
+  for(const k of ["e2", "doc"]){
+    for(const l of SAMPLE_REAL[k]){
+      assert.equal(box.validateScreenplayBlocks([{ beat:1, type:"action", text:l }], null, { cast:castOf(k) }).valid, true, "the writers accept the real line: "+l);
+      assertAccepted(l, castOf(k));
+    }
+    for(const l of SAMPLE_NEAR[k]) assertAccepted(l, castOf(k));
+  }
+  // what the classifier reads: inside the record, "PRUITT, OPAL" is the previous field's value and the label is only NOTE
+  const sp = box.screenplaySpeakers([], null, E2_CAST);
+  const cad = box.screenplayActionLabels(SAMPLE_REAL.e2[0], sp);
+  assert.deepEqual(plain(cad.map(h=>[h.label, h.labelClass, h.kind])), [["INSERT — CAD LOG","written","device"], ["NOTE","written","device"]]);
+  assert.equal(cad[0].reach, "WELFARE CHK — PRUITT, OPAL —");
+  assert.deepEqual(plain(box.screenplayActionLabels(SAMPLE_REAL.e2[2], sp).map(h=>h.label)), ["INSERT — ALI","CLASS","RESD / SUBSCRIBER","ADDRESS"]);
+  // on-screen words are stripped for readers of physical things; the prose around them stays
+  assert.equal(box.screenplayStripScreenText(SAMPLE_NEAR.e2[1], sp), "Tomas scrolls the log. Tomas stares at it.");
+  // a production note is not a delivery extension; (V.O.) / (to Leonor) / bare (recorded) still are
+  const dsp = box.screenplaySpeakers([], null, DOC_CAST);
+  const ext = (l)=>box.screenplayActionLabels(l, dsp)[0];
+  assert.equal(ext(SAMPLE_REAL.doc[0]).kind, "device");
+  assert.equal(ext(SAMPLE_REAL.doc[1]).kind, "data", "a lowercase note of what Armindo will cover is not his line");
+  assert.deepEqual(plain([ext(SAMPLE_REAL.doc[2]).labelClass, ext(SAMPLE_REAL.doc[2]).kind]), ["keepsake","device"], "GRACINDA'S ALBUM is a thing she keeps");
+  // a nameless voice with a production note is still re-cued, the note kept as its parenthetical
+  const nv = verdict("NARRATOR (to be recorded): The river remembers every wall.", DOC_CAST);
+  assert.equal(nv.valid, true);
+  assert.deepEqual(plain(types(nv.blocks).slice(-3)), ["char|NARRATOR (V.O.)", "paren|to be recorded", "dia|The river remembers every wall."]);
+});
+
+await test("sample builds: a cast member's line in those shapes is STILL rejected (records, production notes, possessives)", ()=>{
+  for(const k of ["e2", "doc"]) for(const l of SAMPLE_SMUGGLED[k]) assertRejected(l, castOf(k));
+});
+
+await test("sample builds: E2 Sc 22 and Documentary Sc 6 get a real draft, not a stand-in; a smuggled line still fails with its reason", async ()=>{
+  const row = (n, d)=>({ n, drive:{ a:"Acts", d }, react:{ a:"Reacts", d:"The room waits." } });
+  const cases = [
+    { cast:E2_CAST, proj:{ title:"Series", format:"series", genre:"drama" }, real:SAMPLE_REAL.e2[0], bad:"PRUITT: No prowler, I said.",
+      scene:{ id:"e2-22", no:22, act:2, title:"Welfare Check", loc:"INT. DISPATCH ROOM - NIGHT", driver:"x", summary:"The log.", objective:"",
+        openValue:"Calm", openCharge:1, closeValue:"Dread", closeCharge:-2 },
+      bm:{ driverLabel:"TOMAS ITURBE", reactorLabel:"MARA VOSS", desire:"", obstacle:"", result:"", turnAt:2,
+        rows:[row(1, "Tomas pulls the old call."), row(2, "Tomas reads the CAD log for Opal Pruitt.")] },
+      speech:[["char","TOMAS"],["dia","She asked my name twice."]] },
+    { cast:DOC_CAST, proj:{ title:"Documentary", format:"documentary", genre:"documentary" }, real:SAMPLE_REAL.doc[0],
+      bad:"EXPECTED TESTIMONY (Leonor, record): “The wall went at midnight.”",
+      scene:{ id:"doc-6", no:6, act:2, title:"The Wall", loc:"EXT. SALT PAN - DAY", driver:"x", summary:"Leonor at the wall.", objective:"",
+        openValue:"Hope", openCharge:1, closeValue:"Loss", closeCharge:-2 },
+      bm:{ driverLabel:"LEONOR SARMENTO", reactorLabel:"ARMINDO SARMENTO", desire:"", obstacle:"", result:"", turnAt:2,
+        rows:[row(1, "Leonor walks the slumped wall."), row(2, "Leonor recalls the night the wall went.")] },
+      speech:[["action","Leonor stops at the breach."]] },
+  ];
+  for(const c of cases){
+    const rep = (line)=>reply([[1, [["action","Wide. The room is still."], ...c.speech]], [2, [["action", line], ["action","Nobody moves."]]]]);
+    reset(); box.__replies = [rep(c.real)];
+    const dr = await box.aiDraftScene(c.scene, c.bm, null, c.proj, c.cast, [c.scene]);
+    assert.equal(dr.auto, false, c.scene.id+" is a real screenplay: "+JSON.stringify(dr.failure && dr.failure.details));
+    assert.ok(dr.blocks.some(b=>b.type==="action" && b.text===c.real), c.scene.id+" keeps the line word for word as action");
+    reset(); box.__replies = [rep(c.bad)];
+    const bad = await box.aiDraftScene(c.scene, c.bm, null, c.proj, c.cast, [c.scene]);
+    assert.equal(bad.auto, true, c.scene.id+": a smuggled line still gets the stand-in");
+    assert.ok(bad.failure.details.some(d=>d.issue==="character cue or dialogue embedded in action" && d.text===c.bad && d.beat===2), JSON.stringify(bad.failure.details));
+  }
+});
+
+/* ---- the review of that fix (same day): each problem it found, pinned. #N = the review's item. ---- */
+const CAD = "INSERT — CAD LOG: WELFARE CHK — PRUITT, OPAL — ";
+const DELIVERY = ["voiceover", "voice-over", "V/O", "V.O.", "VO", "O.S.", "O/S", "off-screen", "offscreen", "off", "off-camera", "softly", "crying", "angrily", "tearful",
+  "reading", "reading aloud", "aloud", "hushed", "beat", "pause", "laughs", "sighs", "voice breaking", "sotto voce", "whispering", "filtered", "cont'd", "recorded",
+  "to Leonor", "to camera", "to the crew", "into radio", "into the mic", "over the phone", "on the phone", "on speaker", "off the record"];
+const REVIEW = [
+  // [item, cast, verdict, lines]
+  ["#1 a kept page shown on a screen or in an INSERT is a device, like a sent message", "doc", "accept", [
+    "INSERT: LEONOR'S DIARY: I never told him.", "INSERT — PAGE: LEONOR'S DIARY: I never told him.", "INSERT — PHONE: GRACINDA'S ALBUM: I kept every photo.",
+    "The phone lights up. LEONOR'S DIARY: I never told him.", "A text from LEONOR'S DIARY: I never told him.", "LEONOR'S DIARY (SMS): I never told him.",
+    "LEONOR'S DIARY (EMAIL): I never told him.", "LEONOR'S DIARY (MESSAGE): I never told him.", "GRACINDA'S ALBUM (INSERT): I kept every photo."]],
+  ["#1 …off a screen, the owner's first-person words are still hers", "doc", "reject", [
+    "CLOSE ON: LEONOR'S DIARY: I never told him.", "Leonor picks up the phone. LEONOR'S DIARY: I never told him.", "GRACINDA'S ALBUM (ON SCREEN): I kept every photo."]],
+  ["#2 a second cast member, or a person on camera, over a kept object is speaking", "doc", "reject", [
+    "GRACINDA'S ALBUM — LEONOR: This was the salt pan, before the storm.", "ARCHIVE — GRACINDA'S ALBUM — LEONOR: This was the salt pan, before the storm.",
+    "GRACINDA'S ALBUM (Leonor, sit-down): This was the salt pan, before the storm.", "GRACINDA'S ALBUM (sit-down): This was the salt pan, before the storm.",
+    "Leonor turns a page. LEONOR, GRACINDA'S ALBUM: This was the salt pan, before the storm.",
+    "Leonor turns a page. LEONOR, HOLDING GRACINDA'S ALBUM: This was the salt pan, before the storm.", "HOLDING GRACINDA'S ALBUM: This was the salt pan, before the storm.",
+    "LEONOR'S DIARY — ARMINDO: The tide is turning.", "GRACINDA'S ALBUM (LEONOR): This was the salt pan.", "GRACINDA'S ALBUM (Leonor reading): the salt pan, before the storm."]],
+  ["#2 …while the kept object itself, and a lowercase note of what is filmed, stay objects", "doc", "accept", [
+    "GRACINDA'S ALBUM (archive): a black-and-white print.", "GRACINDA'S ALBUM (1962): a black-and-white print.", "GRACINDA'S ALBUM (sit-down): a black-and-white print.",
+    "GRACINDA'S ALBUM (Leonor, sit-down): the salt pan, before the storm.", "GRACINDA'S OLD DIARY: tide times in pencil."]],
+  ["#3 one delivery or performance word keeps the brackets a cue extension, whatever production word is beside it", "doc", "reject",
+    DELIVERY.flatMap(d=>[`NEWSREEL (archive, ${d}): The flood came at night and took the quay.`, `INTERVIEW (${d}, sit-down): The wall went at midnight.`,
+      `TESTIMONY (${d}, to be recorded): The wall went at midnight.`, `MARCUS (${d}, record): the gate is open.`])],
+  ["#4 the name opens the sentence (SURNAME, FIRST too) or follows a lead-in that speaks: still that person's line", "e2", "reject", [
+    "PRUITT, OPAL — NOTE: Say good morning.", "PRUITT, OPAL — NOTE: NOBODY CAME.", "Opal grips the phone. PRUITT, OPAL — NOTE: Nobody came for Walt.",
+    "ITURBE, TOMAS — STATUS: Coming home.", "CALL 22. PRUITT, OPAL — NOTE: Nobody came.", "Opal whispers: PRUITT, OPAL — NOTE: Nobody came for Walt.",
+    "He says: PRUITT, OPAL — NOTE: NO PROWLER.", "Opal says into the phone: 0431 — OPAL — NOTE: Nobody came for Walt.", "Opal leans into the mic: 0431 — OPAL — NOTE: Walk away",
+    "Opal reads it out: PRUITT, OPAL — NOTE: NO PROWLER.", "Opal says, reading the log: PRUITT, OPAL — NOTE: NO PROWLER."]],
+  ["#4 …a lead-in that SHOWS the record still passes", "e2", "accept", [
+    "The screen reads: PRUITT, OPAL — NOTE: NO PROWLER.", "The log reads: WELFARE CHK — PRUITT, OPAL — NOTE: NO PROWLER.", "The monitor shows: PRUITT, OPAL — NOTE: NO PROWLER.",
+    "Tomas pulls up the log: WELFARE CHK — PRUITT, OPAL — NOTE: NO PROWLER. He exhales.", "Tomas reads: PRUITT, OPAL — NOTE: NO PROWLER."]],
+  ["#5 inside a record, someone addressed or an order is a line (trailing vocatives, unlisted orders)", "e2", "reject",
+    ["Goodbye, Tomas.", "Good night, Tomas.", "Come home, Walt.", "Forgive him, Mara.", "Tomas. Come home.", "Hurry, Tomas.", "Good morning, dear.", "Forgive him.",
+      "Come home.", "Please come.", "go back to bed.", "Mama, come home.", "no prowler, Tomas.", "He's back."].map(x=>CAD+"NOTE: "+x)],
+  ["#6 the CAD / ALI fields a dispatch series uses re-anchor like NOTE", "e2", "accept", [
+    ...["REMARKS", "COMMENTS", "NARRATIVE", "DISPOSITION", "DISPO", "NATURE", "COMPLAINT", "DETAILS", "SUMMARY", "RESPONSE", "OUTCOME", "CALLBACK", "CBN", "AGE", "DOB",
+      "SEX", "CITY", "CONTACT", "UNIT ASSIGNED", "NEXT OF KIN", "CLASS"].map(f=>CAD+f+": NO PROWLER, CLEARED."),
+    "INSERT — ALI: SUBSCRIBER: LUSK, ELI / CITY: TAMARISK", "INSERT — CAD LOG: WELFARE CHK — PRUITT, OPAL — CALLER: PRUITT, OPAL.",
+    "INSERT — CAD LOG: WELFARE CHK — PRUITT, OPAL — DISPATCHER: ITURBE, T.", "INSERT — CAD LOG: WELFARE CHK — PRUITT, OPAL — OFFICER: HALVORSEN."]],
+  ["#6 …but not a field that carries someone's own words, an unknown field, or a person's field with a sentence", "e2", "reject", [
+    ...["MESSAGE", "TEXT", "TRANSCRIPT", "QUOTE", "REPLY", "SAYS", "ANSWER"].map(f=>CAD+f+": NO PROWLER."), CAD+"CALLER: No prowler observed.", CAD+"CALLER: Say good morning."]],
+  ["#7 documentary notes in sentence case, and the wider production vocabulary, are notes", "doc", "accept", [
+    "TESTIMONY BED (Armindo, sit-down, to be recorded): How the soles of his feet read the night's tide.",
+    "EXPECTED TESTIMONY (Leonor, record, do not prompt): Leonor's own account of the moment, in her own words, placed here as the turn.",
+    "EXPECTED TESTIMONY (Leonor, record): Her account of the night the wall went.", "EXPECTED TESTIMONY (Leonor, record): In her own words, the night the wall went.",
+    "TESTIMONY BED (Armindo, sit-down, to be recorded): Hands, heel and clay: how he reads the tide.", "TESTIMONY (Armindo, to be recorded): What the tide took.",
+    ...["sit down", "b roll", "filmed later", "shoot later", "interview", "family interview", "observational", "found footage", "home movie", "TBC", "pending", "stock",
+      "cutaway", "wild track", "Leonor, in her own words"].map(n=>`EXPECTED TESTIMONY (${n}): Leonor's own account of the moment, in her own words.`)]],
+  ["#7 …a third-person account is not a licence: their own words are still their line", "doc", "reject", [
+    "EXPECTED TESTIMONY (Leonor, record): Her account was a lie.", "EXPECTED TESTIMONY (Leonor, record): His story never changed.",
+    "EXPECTED TESTIMONY (Leonor, record): My own account of the night the wall went.", "EXPECTED TESTIMONY (Leonor, record): Her account of the night? Lies.",
+    "TESTIMONY (Armindo, to be recorded): How the mighty have fallen.", "TESTIMONY (Armindo, to be recorded): What a night.",
+    "TESTIMONY BED (Armindo, sit-down, to be recorded): Listen: how the tide turns.", "TESTIMONY BED (Armindo, sit-down, to be recorded): Hands, heel and clay: how I read the tide.",
+    "EXPECTED TESTIMONY (off-camera): Leonor's own account of the moment, in her own words.", "EXPECTED TESTIMONY (to camera): Leonor's own account of the moment, in her own words.",
+    "EXPECTED TESTIMONY (in Portuguese): Leonor's own account of the moment, in her own words.", "EXPECTED TESTIMONY (Armindo): Leonor's own account of the moment, in her own words."]],
+];
+for(const [item, k, v, lines] of REVIEW)
+  await test("sample-build review "+item, ()=>{ for(const l of lines) v==="accept" ? assertAccepted(l, castOf(k)) : assertRejected(l, castOf(k)); });
+
+/* #8: every documented guard of the three new rules is pinned by a line that ONLY that guard rejects
+   (or, for the guards that let a line through, a line only it accepts) — removing any one of them
+   fails this test. [guard, cast, verdict, line] */
+const GUARDS = [
+  // record fields (_spRecordField)
+  ["record: no voice extension", "e2", "reject", CAD+"NOTE (V.O.): NO PROWLER."],
+  ["record: a written / data / record field only", "e2", "reject", CAD+"ANSWER: NO PROWLER."],
+  ["record: never a field of someone's own words", "e2", "reject", CAD+"MESSAGE: NO PROWLER."],
+  ["record: a person's field only with a CAPS value", "e2", "reject", CAD+"CALLER: No prowler observed."],
+  ["record: the surname of SURNAME, FIRST is the name", "e2", "reject", "PRUITT, OPAL — NOTE: NOBODY CAME."],
+  ["record: the name never opens the sentence", "e2", "reject", "OPAL — NOTE: NO PROWLER."],
+  ["record: a lead-in must show the record", "e2", "reject", "Opal leans in: PRUITT, OPAL — NOTE: NO PROWLER."],
+  ["record: a lead-in never speaks", "e2", "reject", "Opal reads it out: PRUITT, OPAL — NOTE: NO PROWLER."],
+  ["record: a lead-in that shows passes", "e2", "accept", "The screen reads: PRUITT, OPAL — NOTE: NO PROWLER."],
+  ["record: no '!'", "e2", "reject", CAD+"NOTE: no prowler!"],
+  ["record: no '?'", "e2", "reject", CAD+"NOTE: where is he?"],
+  ["record: every sentence is read", "e2", "reject", CAD+"NOTE: no prowler. Go back to bed."],
+  ["record: role-level speech (I / you)", "e2", "reject", CAD+"NOTE: I told you, no prowler."],
+  ["record: an order opening a sentence", "e2", "reject", CAD+"NOTE: Come home."],
+  ["record: an order after 'Mama,'", "e2", "reject", CAD+"NOTE: Mama, come home."],
+  ["record: a greeting", "e2", "reject", CAD+"NOTE: Goodbye."],
+  ["record: a cast member addressed", "e2", "reject", CAD+"NOTE: no prowler, Tomas."],
+  ["record: an endearment", "e2", "reject", CAD+"NOTE: no prowler, dear."],
+  ["record: he's / there's", "e2", "reject", CAD+"NOTE: He's back."],
+  ["record: CAPS record text reads as before", "e2", "accept", CAD+"NOTE: 'NO PROWLER. ASK ABOUT THE LILACS. SAY GOOD MORNING.'"],
+  // kept objects (keepsake)
+  ["keepsake: quotes", "doc", "reject", "GRACINDA'S ALBUM: “The salt pan, before the storm.”"],
+  ["keepsake: '!'", "doc", "reject", "GRACINDA'S ALBUM: The salt pan, before the storm!"],
+  ["keepsake: '?' in a later sentence", "doc", "reject", "GRACINDA'S ALBUM: The salt pan. Before the storm?"],
+  ["keepsake: a contraction", "doc", "reject", "GRACINDA'S ALBUM: The salt pan wasn't always a lagoon."],
+  ["keepsake: an interjection", "doc", "reject", "GRACINDA'S ALBUM: Oh, the salt pan before the storm."],
+  ["keepsake: an order (role list)", "doc", "reject", "GRACINDA'S ALBUM: Careful with the old salt pan."],
+  ["keepsake: I / you / we", "doc", "reject", "ARCHIVE — GRACINDA'S ALBUM: I kept every photo of him."],
+  ["keepsake: someone addressed", "doc", "reject", "GRACINDA'S DIARY: The salt pan, Leonor."],
+  ["keepsake: a voice extension makes it hers", "doc", "reject", "GRACINDA'S DIARY (V.O.): The salt pan, before the storm."],
+  ["keepsake: any other bracket makes it hers", "doc", "reject", "GRACINDA'S DIARY (reading): The salt pan, before the storm."],
+  ["keepsake: a kept word that is a cast name is someone", "ledger", "reject", "GRACINDA'S LEDGER: The salt pan, before the storm."],
+  ["keepsake: the owner opens that part of the label", "doc", "reject", "HOLDING GRACINDA'S ALBUM: This was the salt pan, before the storm."],
+  ["keepsake: no other cast member in the label", "doc", "reject", "GRACINDA'S ALBUM — LEONOR: This was the salt pan, before the storm."],
+  ["keepsake: no cast member glued on by a comma", "doc", "reject", "Leonor turns a page. LEONOR, GRACINDA'S ALBUM: This was the salt pan, before the storm."],
+  ["keepsake: (ON SCREEN) is judged by its words", "doc", "reject", "GRACINDA'S ALBUM (ON SCREEN): I kept every photo."],
+  ["keepsake: a person note means someone is filmed", "doc", "reject", "GRACINDA'S ALBUM (sit-down): This was the salt pan, before the storm."],
+  ["keepsake: a year is no cue extension", "doc", "accept", "GRACINDA'S ALBUM (1962): a black-and-white print."],
+  ["keepsake: shown in an INSERT", "doc", "accept", "INSERT: LEONOR'S DIARY: I never told him."],
+  ["keepsake: a kept object passes", "doc", "accept", "ARCHIVE — GRACINDA'S ALBUM: a black-and-white print."],
+  ["keepsake: a sign-off is a signature, not someone addressed", "doc", "accept", "GRACINDA'S POSTCARD: Greetings from Lisbon. Love, Leonor."],
+  // production notes
+  ["note: V.O. beside a note", "doc", "reject", "INTERVIEW (V.O., sit-down): The wall went at midnight."],
+  ["note: O.S. beside a note", "doc", "reject", "TESTIMONY (O.S., record): The wall went at midnight."],
+  ["note: 'to X' beside a note", "doc", "reject", "INTERVIEW (sit-down, to Leonor): The wall went at midnight."],
+  ["note: into / over beside a note", "doc", "reject", "INTERVIEW (into radio, record): The wall went at midnight."],
+  ["note: on the phone beside a note", "doc", "reject", "INTERVIEW (on the phone, record): The wall went at midnight."],
+  ["note: off the record is not 'record'", "doc", "reject", "INTERVIEW (off the record, sit-down): The wall went at midnight."],
+  ["note: bare (recorded) stays a cue extension", "doc", "reject", "INTERVIEW (recorded): The wall went at midnight."],
+  ["note: all-CAPS words never read the brackets", "doc", "accept", "NEWSREEL (archive): FLOOD!"],
+  ["note: '!' after a screen label with a note", "doc", "reject", "INTERVIEW (sit-down): Never again!"],
+  ["note: an interjection after a screen label with a note", "doc", "reject", "INTERVIEW (sit-down): Oh, the wall went at midnight."],
+  ["note: someone addressed after a screen label with a note", "doc", "reject", "TESTIMONY (record, do not prompt): Leonor. The wall is gone."],
+  ["note: '!' after any label with a note", "doc", "reject", "CROWD (b-roll): Out! Out! Out!"],
+  ["note: a named cast member is filmed", "doc", "reject", "INTERVIEW (Armindo, sit-down): Hands, heel and clay."],
+  ["note: an unknown label is filmed", "doc", "reject", "MARCUS (record): The gate is open."],
+  ["note: names alone are not a note", "doc", "reject", "INTERVIEW (Armindo, Leonor): Her account of the night the wall went."],
+  ["note: a third-person account passes", "doc", "accept", "EXPECTED TESTIMONY (Leonor, record): Her account of the night the wall went."],
+  ["note: …never with an auxiliary", "doc", "reject", "EXPECTED TESTIMONY (Leonor, record): Her account was a lie."],
+  ["note: …never with a verb after the account", "doc", "reject", "EXPECTED TESTIMONY (Leonor, record): His story never changed."],
+  ["note: …never with I / you / we", "doc", "reject", "EXPECTED TESTIMONY (Leonor, record): Her account of the night, as she told me."],
+  ["note: …every sentence of it", "doc", "reject", "EXPECTED TESTIMONY (Leonor, record): Her account of the night. Lies, all of it."],
+  ["note: a production note is no cue extension", "doc", "accept", "EXPECTED TESTIMONY (record, do not prompt): Leonor's own account of the moment, in her own words."],
+];
+const guardCast = (k)=>k==="ledger" ? [...DOC_CAST, { name:"Tomas Ledger" }] : castOf(k);
+await test("sample-build review #8: each documented guard is pinned by a line only it decides", ()=>{
+  for(const [guard, k, v, l] of GUARDS){
+    const ok = verdict(l, guardCast(k)).valid;
+    assert.equal(ok, v==="accept", guard+" — "+l);
+  }
+});
+
 /* ======================= 5. the Script check agrees with the writers ======================= */
 await test("the Script check warns on exactly what the writers reject; an unclear line is an uncounted note", ()=>{
   const devices = Object.values(R).flatMap(flagged).concat(["INSERT - PHONE: KING TIDE ADVISORY","SUPER: 4:07 A.M.","OPERATOR: CARROW, N."]);
@@ -500,6 +768,27 @@ await test("for every line in this file, 'the writers reject it' and 'the Script
     const check = box.screenplayFormatReport(SC, { blocks:[{ beat:1, type:"scene", text:SC.loc }, { beat:1, type:"action", text:l }] }, null)
       .issues.some(x=>x.code==="dialogue-in-action");
     assert.equal(check, writers, l);
+  }
+  // …and the sample-build lines, each against its own film's cast (accepted and rejected alike)
+  for(const k of ["e2", "doc"]){
+    box.turnCast = castOf(k);
+    for(const l of [...SAMPLE_REAL[k], ...SAMPLE_NEAR[k], ...SAMPLE_SMUGGLED[k]]){
+      const writers = !box.validateScreenplayBlocks([{ beat:1, type:"action", text:l }], null, { cast:castOf(k) }).valid;
+      const check = box.screenplayFormatReport(SC, { blocks:[{ beat:1, type:"scene", text:SC.loc }, { beat:1, type:"action", text:l }] }, null)
+        .issues.some(x=>x.code==="dialogue-in-action");
+      assert.equal(check, writers, k+": "+l);
+      assert.equal(writers, SAMPLE_SMUGGLED[k].includes(l), k+" verdict: "+l);
+    }
+  }
+  // …and every line of the fix's review (the #1–#8 lines above), with its cast
+  for(const [item, k, v, l] of [...REVIEW.flatMap(([item, k, v, lines])=>lines.map(l=>[item, k, v, l])), ...GUARDS]){
+    const cast = guardCast(k);
+    box.turnCast = cast;
+    const writers = !box.validateScreenplayBlocks([{ beat:1, type:"action", text:l }], null, { cast }).valid;
+    const check = box.screenplayFormatReport(SC, { blocks:[{ beat:1, type:"scene", text:SC.loc }, { beat:1, type:"action", text:l }] }, null)
+      .issues.some(x=>x.code==="dialogue-in-action");
+    assert.equal(check, writers, item+": "+l);
+    assert.equal(writers, v==="reject", item+" verdict: "+l);
   }
   box.turnCast = undefined;
   // and a scene the writers just produced never shows the warning
@@ -911,7 +1200,18 @@ await test("script.jsx and ai.jsx load in step: shared cache key, never a pre-fi
     const k = key(f);
     assert.ok(k && !STALE.includes(k) && k.slice(0,8)>="20260927", f+" carries a post-fix cache key: "+k);
   }
-  assert.equal(key("app/script.jsx"), key("app/ai.jsx"), "the classifier (script.jsx) and its callers (ai.jsx) are cached together");
+  // the classifier (script.jsx) and its callers (ai.jsx) are cached together: the same key, or
+  // script.jsx a LATER step of the same change's key. The sample-build fix and its review changed
+  // only the classifier's RULES behind the same interface (SP_LABELS_VERSION, checked below, is
+  // unchanged; ai.jsx untouched), so script.jsx moved ahead alone — never the reverse, a script.jsx
+  // older than ai.jsx. (ai.jsx keeps its key: test-art-tab-locks.mjs allows only listed ai.jsx keys.)
+  const step = (k)=>{ const m = /^(\d{8}-[a-z-]*?)(\d+)$/.exec(k); return m ? [m[1], Number(m[2])] : [k, 0]; };
+  const [sStem, sN] = step(key("app/script.jsx")), [aStem, aN] = step(key("app/ai.jsx"));
+  assert.ok(key("app/script.jsx")===key("app/ai.jsx") || (sStem===aStem && sN>aN),
+    "script.jsx / ai.jsx keys in step: "+key("app/script.jsx")+" / "+key("app/ai.jsx"));
+  // the reviewed classifier ships under a new script.jsx key — past the pre-fix keys and the
+  // unreviewed draft's (spcheck3), which a local preview may have cached
+  assert.ok(!["20260927-spcheck1", "20260927-spcheck2", "20260927-spcheck3"].includes(key("app/script.jsx")), "script.jsx is past the earlier keys: "+key("app/script.jsx"));
   assert.equal(box.SP_LABELS_VERSION, vm.runInContext("SP_LABELS_EXPECTED", box));
   reset();
   assert.equal(box.screenplayLabelsInStep(), true);

@@ -141,7 +141,24 @@ window.screenplayBeatNumbers = screenplayBeatNumbers;
    WHAT A LABEL NAMES (screenplayLabelClass), checked in this order:
      speaker   — a known cast / cue name anywhere in it ("GRAHAM ON SCREEN", "PHONE —
                  DILYS", "BRAM OVER RADIO", "RADIO (BRAM)"), unless the name only OWNS or
-                 SENDS written text ("NINA'S PHONE", "EMAIL FROM NINA", "TEXT — DEV")
+                 SENDS written text ("NINA'S PHONE", "EMAIL FROM NINA", "TEXT — DEV") or
+                 keeps a paper record or picture (keepsake, below). Inside a CAPS record a
+                 name glued to the next FIELD ("…WELFARE CHK — PRUITT, OPAL — NOTE: …",
+                 "SUBSCRIBER: LUSK, ELI / CITY: …") is the previous field's value, so the
+                 label is only that field (_spRecordField) — never when the name opens the
+                 sentence ("PRUITT, OPAL — NOTE:" too), follows a lead-in that speaks
+                 ("Opal whispers:"), the label carries a voice extension, the field carries
+                 someone's own words (MESSAGE, TRANSCRIPT, REPLY), or its text reads as speech
+     keepsake  — a paper record or picture a cast member keeps, the owner's name opening
+                 that part of the label ("ARCHIVE — GRACINDA'S ALBUM", "LEONOR'S DIARY"): its
+                 words count as dialogue only if they read as spoken (quotes, I / you / we, a
+                 question, a contraction, an interjection, an order, a greeting, someone
+                 addressed, a "!"); shown on a screen ("INSERT: LEONOR'S DIARY: …", "(SMS)")
+                 it is a device like a sent message. Still a speaker: "NINA'S DIARY (V.O.)"
+                 or any bracket but a visual word, a year / page or a production note;
+                 "GRACINDA'S ALBUM — LEONOR" (another cast member); "HOLDING GRACINDA'S
+                 ALBUM" and "LEONOR, GRACINDA'S ALBUM" (someone else holds it); "NINA'S
+                 MOTHER" (not a kept object)
      role      — a person by role ("GUARD", "THIRD GUARD", "MAN ON SCREEN", "DUTY MANAGER")
      voice     — a nameless voice (VOICEMAIL, NARRATOR, RADIO, TV, DISPATCH, RECORDED …)
      written   — a surface that SHOWS words (INSERT, SUPER, TEXT, STATUS, LOG, GAUGE …)
@@ -157,7 +174,22 @@ window.screenplayBeatNumbers = screenplayBeatNumbers;
      dialogue — a speaker's line packed into action (any words after a known speaker —
                 shouted CAPS too — a cue extension such as (V.O.) / (into radio), a role
                 label with a sentence or an order, or plainly spoken words after any
-                label: I / you / we, a contraction, an interjection, a question, quotes)
+                label: I / you / we, a contraction, an interjection, a question, quotes).
+                A PRODUCTION note in the brackets ("(record, do not prompt)", "(sit-down,
+                to be recorded)", "(b-roll)", "(archive)") is not a cue extension — only
+                when EVERY part of the brackets is a production phrase or a cast name, so
+                "(archive, voiceover)", "(crying, sit-down)", "(to Leonor, record)" stay
+                cue extensions, as do bare "(recorded)" and "(off-camera)". The text is
+                then read as if the brackets were not there — but the note says someone is
+                filmed: after a cast member it names, an unknown label ("MARCUS (record):")
+                or a kept object with a person note ("GRACINDA'S ALBUM (sit-down):"), only
+                a lowercase note of what they will cover ("how the soles of his feet read
+                the tide") or a third-person account ("Her account of the night the wall
+                went.", "How the soles of his feet…") passes — other capitalised words,
+                I / you / we or a quote are their line; after a screen label ("INTERVIEW
+                (sit-down):") a question, a contraction, an interjection, a greeting or
+                someone addressed still counts as spoken; a "!" or "?" after any label
+                with a note does too; all-CAPS words read as before
      voice    — spoken words after a nameless voice label (the writers turn it into a cue)
      device   — on-screen text, inserts, supers, camera or sound direction, song sections,
                 a description of what a screen or speaker shows ("TV: A reporter stands…"),
@@ -180,6 +212,12 @@ const _SP_WRITTEN = _SP_WORDS(
   "DISCLAIMER LEGEND GAUGE METER DIAL CLOCK TIMER COUNTDOWN TELEMETRY TILE WALL CONSOLE TERMINAL PRINTOUT FAX "+
   "WHITEBOARD SCREENSHOT PHOTO PHOTOGRAPH IMAGE APP LOCKSCREEN PREVIEW INBOX CALENDAR BADGE TAG PROMPT INSTRUCTION "+
   "INSTRUCTIONS TRANSCRIPT RESULT RESULTS HANDSHAKE");
+// a paper record or picture a person KEEPS — read as an object only when a cast member owns it
+// ("ARCHIVE — GRACINDA'S ALBUM"), never on its own, so "DIARY — NINA:" is still Nina
+const _SP_KEEPSAKE = _SP_WORDS(
+  "ALBUM SCRAPBOOK SKETCHBOOK YEARBOOK DIARY JOURNAL NOTEBOOK LOGBOOK LEDGER REGISTER DEED LEASE CERTIFICATE "+
+  "CLIPPING CLIPPINGS NEWSPAPER POSTCARD SNAPSHOT POLAROID PORTRAIT DRAWING SKETCH PAINTING RECEIPT TICKET "+
+  "INVOICE CONTRACT PASSPORT ROSTER MANIFEST");
 const _SP_LIVE = _SP_WORDS(
   "SCREEN SCREENS ONSCREEN ON-SCREEN MONITOR MONITORS VIDEO FEED CCTV WEBCAM CAMERA FOOTAGE CLIP ARCHIVE NEWSREEL "+
   "INTERVIEW TESTIMONY PHONE MOBILE CELL CELLPHONE SMARTPHONE LAPTOP TABLET COMPUTER CALL FACETIME LIVESTREAM STREAM");
@@ -207,6 +245,47 @@ const _SP_PREP = _SP_WORDS("ON OVER FROM BY IN VIA THROUGH AT OF FOR WITH TO INT
 const _SP_HONORIFIC = _SP_WORDS("MR MR. MRS MRS. MS MS. DR DR. MISS SIR MADAM");
 // a parenthetical that names a VISUAL device ("PHONE (ON SCREEN)") rather than a voice
 const _SP_VISUAL_PAREN = /\b(?:ON[- ]?SCREEN|TEXT|DISPLAY|READOUT|INSERT|SUPER|CAPTION|GRAPHIC)\b/i;
+/* a PRODUCTION note in the brackets — what the crew records, not how a line is delivered:
+   "(record, do not prompt)", "(Armindo, sit-down, to be recorded)", "(b-roll)", "(archive)".
+   EVERY part of the brackets (split at , ; / + & "and") must be one of these phrases or a cast
+   name, so one delivery or performance word anywhere — "(archive, voiceover)", "(crying,
+   sit-down)", "(V/O, record)", "(to Leonor, sit-down)", "(off-screen, to be recorded)",
+   "(softly, record)" — keeps the whole bracket a cue extension. "(off-camera)" is the spelled-out
+   O.C. extension, and bare "(recorded)" is playback of that person's voice: neither is a note.
+   PERSON notes say someone is filmed talking; NEUTRAL ones are footage or paperwork. */
+const _SP_NOTE_PERSON_RE = /^(?:(?:(?:still |yet )?to be (?:recorded|filmed|shot|captured|scheduled)|to (?:record|film|shoot))(?: later| on location)?|(?:recorded|filmed|shot|record|film|shoot) later|record(?: only)?|do not (?:prompt|script|stage|coach|lead|feed|direct)|don[’']t (?:prompt|script|stage|coach|lead)|no prompting|unprompted|unscripted|unstaged|sit[- ]?down(?: interview)?|(?:family |formal |informal |follow[- ]up |on[- ]camera |walking |group )?interview|in (?:his|her|their) own words)$/i;
+const _SP_NOTE_NEUTRAL_RE = /^(?:b[- ]?roll|archive(?: footage| film| photos?| stills?)?|archival(?: footage| film| photos?)?|stock(?: footage)?|library(?: footage)?|found footage|home movies?|home video|(?:8|16|35) ?mm|cutaways?|handheld|wild ?track|location sound|observational|obs|verit[eé]|fly[- ]on[- ]the[- ]wall|pick[- ]?ups?|placeholder|tbc|tbd|pending|if cleared|(?:rights|clearance) pending|to be (?:sourced|cleared|licensed|confirmed))$/i;
+/* a keepsake's brackets that keep it an object: an on-screen word ("(INSERT)"), a year or a page
+   ("(1962)", "(p. 4)") or a production note — anything else, "(V.O.)", "(reading)", "(softly)",
+   "(LEONOR)", makes the label that person's */
+const _SP_OBJECT_PAREN_RE = /^(?:(?:c\.|circa)\s*)?(?:1[89]|20)\d\ds?$|^(?:p|pp|pg|page|vol|no)\.?\s*\d+$/i;
+/* fields a CAPS record (a CAD log, an ALI readout, a case file) runs through beyond the written
+   and data words above — read only by _spRecordField, never as label classes of their own */
+const _SP_RECORD_FIELD = _SP_WORDS(
+  "NOTES REMARK REMARKS COMMENT COMMENTS NARRATIVE DISPOSITION DISPO NATURE COMPLAINT DETAIL DETAILS SUMMARY RESPONSE "+
+  "OUTCOME CALLBACK CBN AGE DOB SEX GENDER CITY STATE ZIP POSTCODE COUNTY CONTACT ASSIGNED FLAG FLAGS HISTORY HAZARD "+
+  "HAZARDS RELATIONSHIP KIN MEDS MEDICATION MEDICATIONS ALLERGY ALLERGIES OCCUPATION EMPLOYER VEHICLE PLATE CHARGE "+
+  "CHARGES OFFENCE OFFENSE VERDICT SENTENCE ROOM BED WARD DIAGNOSIS CONDITION CLASS SUBSCRIBER CARRIER");
+// ...but never a field that carries someone's own words ("— PRUITT, OPAL — MESSAGE:" is hers)
+const _SP_MESSAGE_FIELD = _SP_WORDS("TEXT TEXTS SMS MMS EMAIL E-MAIL MAIL MESSAGE MESSAGES DM CHAT TRANSCRIPT LETTER QUOTE REPLY STATEMENT SAYS SAID");
+// a lead-in that SHOWS a record ("The log reads:", "Tomas pulls up the log:") — never one that speaks
+const _SP_SHOWS_RE = /\b(?:reads?|shows?|showing|displays?|displaying|lists?|listing|flashes|scrolls?|scrolling|prints?|printout|pulls? up|brings? up|logs?|entry|entries|records?|files?|screens?|monitors?|display|readout|card|form|sheet|page|insert|terminal|console|report|ticket|board|tablet|laptop|computer)\b/i;
+const _SP_SAYS_RE = /\b(?:says?|said|saying|tells?|told|asks?|asked|answers?|answered|repl(?:y|ies|ied)|whispers?|whispered|shouts?|shouted|yells?|yelled|screams?|screamed|calls?(?! up)|called|mutters?|muttered|murmurs?|murmured|sings?|sang|breathes|pleads?|begs?|cries|cried|sobs?|hisses|snaps|barks|orders?|announces?|speaks?|spoke|aloud|out loud|reads?\s+(?:it\s+|them\s+|this\s+)?out|into (?:the |her |his |a )?(?:mic|microphone|phone|radio|headset|handset|receiver))\b/i;
+// speech signs a role label does not look for, read in the mixed-case sentences of a record field
+// or a kept page: an order opening a sentence ("Come home.", "Forgive him.", "Mama, come home."),
+// a greeting, an endearment addressed ("…, dear."). A sign-off ("Love, Gracinda.") is a signature.
+const _SP_RECORD_ORDER_RE = /^(?:Come|Go|Get|Give|Take|Bring|Send|Tell|Say|Ask|Call|Answer|Forgive|Forget|Remember|Leave|Let|Help|Save|Find|Stop|Wait|Stay|Hold|Keep|Look|Listen|Watch|Mind|Hurry|Run|Move|Hide|Promise|Trust|Believe|Pray|Kiss|Hug|Please|Open|Close|Shut|Turn|Put|Sit|Stand|Try|Pick|Drop|Wake|Walk|Follow|Meet|Be|Do|Don[’']t|Make|Check|Knock|Lock|Breathe|Relax|Calm)\b/i;
+const _SP_FAMILY_RE = /^(?:Mama|Mamma|Mum|Mummy|Mom|Mommy|Mother|Papa|Pa|Dad|Daddy|Father|Grandma|Grandpa|Granny|Darling|Honey|Sweetheart|Love|Son|Kid|Baby)$/;
+const _SP_GREETING_RE = /^(?:Good[- ]?(?:bye|night|morning|evening|afternoon|luck)|Bye|Farewell|Hello|Hi|Hey)\b/i;
+const _SP_SIGNOFF_RE = /^(?:Love|Yours(?: truly| ever| always)?|Regards|Always|Forever|Fondly|Warmly|Best|Kisses|Hugs|x+)\s*,\s*[A-Z][A-Za-zÀ-ÖØ-öø-ÿ'’-]+(?:\s[A-Z][A-Za-zÀ-ÖØ-öø-ÿ'’-]+)?\s*[.…]*$/i;
+const _SP_ENDEARMENT_RE = /,\s*(?:dear|darling|honey|love|sweetheart|sweetie|son|kid|mate|pal|buddy|boss|officer|mum|mom|mama|dad|papa|grandma|grandpa|baby|babe)\s*[.…,;]*["”’']?\s*$/i;
+/* a note of what a filmed person will cover, in the third person — not their words: "How the
+   soles of his feet read the night's tide", "Leonor's own account of the moment", "Her account
+   of the night the wall went", "In her own words, the night the wall went", "Hands, heel and
+   clay: how he reads the tide". Never with an auxiliary ("Her account was a lie.") or a verb
+   right after the account ("His story never changed.") */
+const _SP_ACCOUNT_RE = /^(?:(?:[A-Z][a-zà-ÿ'’-]+(?:\s[A-Z][a-zà-ÿ'’-]+)?[’']s|His|Her|Their)\s+(?:own\s+)?(?:account|recollection|memory|memories|testimony|telling|version|story|words|description)(?=\s+(?:of|about|from|in|as|at)\b|\s*[,.;:—–…]|\s*$)|In (?:his|her|their) own words\b|(?:[^.!?:]*:\s*)?(?:How|What|Why|Where|When|Whether|Who|how|what|why|where|when|whether|who)\s+(?:the|his|her|their|its|he|she|they)\b)/;
+const _SP_AUX_RE = /\b(?:is|was|were|are|am|be|been|has|had|have|will|would|can|could|should|shall|must|may|might|did|does|do)\b/i;
 /* a label: CAPS words joined by spaces, a spaced dash, an em/en dash or a slash. Dots sit
    INSIDE a word (V.O., P.A.) or end the whole label — never between two words, so a
    readout ending in a period ("MISSED CALL. NINA:") can't swallow the next name. */
@@ -292,6 +371,13 @@ function screenplayLabelClass(label, speakers, ext){
     if(writtenBefore) return "written";                                           // TEXT — DEV
     if((sp.role==="owner" || sp.role==="author") && (segHead==="written" || segHead==="live" || lowerThird)) return "written"; // NINA'S PHONE, EMAIL FROM NINA
     if((sp.role==="owner" || sp.role==="object") && segHead==="direction") return "direction"; // NINA'S POV, CLOSE ON NINA
+    // GRACINDA'S ALBUM: a thing she keeps. Never when her name does not open that part of the
+    // label ("HOLDING GRACINDA'S ALBUM"), another cast member is in it ("GRACINDA'S ALBUM —
+    // LEONOR", or a "thing" that is itself someone in the cast), or the brackets make it a
+    // person's ("NINA'S DIARY (V.O.)", "(reading)", "(LEONOR)")
+    const kseg = P.segs[sp.seg], kh = heads[sp.seg];
+    const opens = kseg[0].poss || (kseg.length>2 && kseg[1].poss && speakers.has(kseg[0].t+" "+kseg[1].t));
+    if(sp.role==="owner" && opens && _spTokenIn(_SP_KEEPSAKE, kh) && !_spOtherSpeaker(P, sp, speakers) && _spObjectExt(ext, speakers)) return "keepsake";
     return "speaker";
   }
   const e = String(ext||"").replace(/\s+/g," ").trim().toUpperCase();
@@ -313,6 +399,72 @@ function _spStartsWithSpeaker(sentence, speakers){
   const w = String(sentence||"").trim().split(/\s+/).slice(0,2).map(x=>x.replace(/[’']s$/i,"").replace(/[^A-Za-z'’-]/g,"").toUpperCase());
   return !!w[0] && (speakers.has(w[0]) || (w[1] && speakers.has(w[0]+" "+w[1])));
 }
+/* a bracket that is ONLY a production note (see _SP_NOTE_PERSON_RE): { person, names } or null.
+   person — a part says someone is filmed talking (sit-down, interview, record, do not prompt);
+   names — a part is a cast member ("Armindo, sit-down, to be recorded") */
+function _spProductionNote(ext, speakers){
+  const parts = String(ext||"").split(/\s*(?:[,;\/+&]|\band\b)\s*/i).map(x=>x.replace(/[.\s]+$/,"").trim()).filter(Boolean);
+  let note = false, person = false, names = false;
+  for(const p of parts){
+    if(_SP_NOTE_PERSON_RE.test(p)){ note = person = true; continue; }
+    if(_SP_NOTE_NEUTRAL_RE.test(p)){ note = true; continue; }
+    if(speakers && speakers.has(p.toUpperCase().replace(/[’']S$/,"").replace(/\s+/g," "))){ names = true; continue; }
+    return null;
+  }
+  return note ? { person, names } : null;
+}
+/* the brackets of a kept object that leave it an object: none, a visual word, a year or page, a note */
+function _spObjectExt(ext, speakers){
+  const e = String(ext||"").trim();
+  return !e || _SP_VISUAL_PAREN.test(e) || _SP_OBJECT_PAREN_RE.test(e) || !!_spProductionNote(e, speakers);
+}
+/* a cast member in the label other than the keepsake's owner: "GRACINDA'S ALBUM — LEONOR" */
+function _spOtherSpeaker(P, sp, speakers){
+  const own = P.segs[sp.seg][0].poss ? 1 : 2;               // "GRACINDA'S" / "GRACINDA SARMENTO'S"
+  return P.segs.some((seg, s)=>seg.some((x, i)=>!(s===sp.seg && i<own) &&
+    (speakers.has(x.t) || (i+1<seg.length && speakers.has(x.t+" "+seg[i+1].t)))));
+}
+/* the text before a label ends with a cast name and a comma: "LEONOR, GRACINDA'S ALBUM:" */
+function _spNameComma(pre, speakers){
+  const m = String(pre||"").match(/([A-Za-zÀ-ÖØ-öø-ÿ'’-]+)(?:\s+([A-Za-zÀ-ÖØ-öø-ÿ'’-]+))?,\s*$/);
+  if(!m || !speakers || !speakers.size) return false;
+  const a = m[1].toUpperCase(), b = m[2] ? m[2].toUpperCase() : "";
+  return speakers.has(b || a) || (!!b && speakers.has(a+" "+b));
+}
+/* a note of what a filmed person will cover, not their words — see _SP_ACCOUNT_RE. Every
+   sentence of it opens as an account or in lowercase, and none has an auxiliary */
+function _spAccountNote(text){
+  const t = String(text||"").trim();
+  if(!_SP_ACCOUNT_RE.test(t) || _SP_AUX_RE.test(t)) return false;
+  return (t.match(/[^.…]+[.…]*/g) || []).every(x=>{ x = x.trim(); return !x || /^[a-z]/.test(x) || _SP_ACCOUNT_RE.test(x); });
+}
+/* one sentence ADDRESSES someone: a greeting, an endearment, or a cast member ("Tomas." /
+   "Tomas, …" opening it, "…, Tomas." closing a clause) */
+function _spAddressed(x, speakers){
+  const t = String(x||"").trim().replace(/^["“‘']+|["”’']+$/g,"").trim();
+  if(_SP_SIGNOFF_RE.test(t)) return false;                                  // "Love, Gracinda." signs it
+  if(_SP_GREETING_RE.test(t) || _SP_ENDEARMENT_RE.test(t)) return true;
+  const open = t.match(/^([A-Z][A-Za-zÀ-ÖØ-öø-ÿ'’-]+)\s*(?:[,.…;]|$)/);
+  if(open && _spIsCast(open[1], speakers)) return true;
+  const re = /,\s*([A-Z][A-Za-zÀ-ÖØ-öø-ÿ'’-]+)\s*(?=[,.…;]|$)/g;
+  let m; while((m = re.exec(t))) if(_spIsCast(m[1], speakers)) return true;
+  return false;
+}
+function _spIsCast(w, speakers){ return !!speakers && speakers.has(String(w).toUpperCase()); }
+/* speech a role label would not catch, in one mixed-case sentence of a record field or a kept
+   page: an order opening it ("Come home.", "Mama, come home."), "he's" / "there's", or it
+   addresses someone (_spAddressed). CAPS record text is left to the role rules. */
+function _spRecordSpeech(x, speakers){
+  const t = String(x||"").trim().replace(/^["“‘']+|["”’']+$/g,"").trim();
+  if(!/[a-z]/.test(t)) return false;
+  const lead = t.match(/^([A-Z][A-Za-zÀ-ÖØ-öø-ÿ'’-]+),?\s+(.+)$/);
+  const rest = lead && (_SP_FAMILY_RE.test(lead[1]) || _spIsCast(lead[1], speakers)) ? lead[2] : "";
+  if(_SP_RECORD_ORDER_RE.test(t) || (rest && _SP_RECORD_ORDER_RE.test(rest))) return true;
+  if(/\b(?:he|she|it|that|there|here|who|what|where|how|everyone|nobody|somebody|someone)[’']s\b/i.test(t)) return true;
+  return _spAddressed(t, speakers);
+}
+/* the sentences of a label's text */
+function _spSentences(all){ return (String(all||"").match(/[^.…]+[.…]*["”’']?/g) || []).map(x=>x.trim()).filter(Boolean); }
 /* how many characters of `content` belong to its label: a quoted span, or the first
    sentence plus the sentences after it until narration resumes */
 function _spReachLen(content, speakers){
@@ -369,27 +521,114 @@ function _spTextKind(cls, ext, content, reach, ctx){
   const weak = firstLower && (_SP_WEAK_RE.test(plain) || vocative);
   const imperative = _SP_IMPERATIVE_RE.test(plain);
   const visualExt = !!ext && _SP_VISUAL_PAREN.test(ext);
-  const cueExt = !!ext && !visualExt;
+  // a production note is not a cue extension — except after a nameless voice, which the
+  // writers re-cue with the note as its parenthetical ("NARRATOR (V.O.)" + "(to be recorded)").
+  // A keepsake's brackets were vetted as an object's ("(1962)", "(archive)"): never a cue either
+  const pnote = !!ext && !visualExt ? _spProductionNote(ext, ctx && ctx.speakers) : null;
+  const cueExt = !!ext && !visualExt && !(pnote && cls!=="voice") && cls!=="keepsake";
+  // (all-CAPS words never read the brackets — "NEWSREEL (archive): FLOOD!" is a headline as before)
+  const note = !!pnote && hasLower;
   // a named speaker's (TEXT) / (SMS) is a message shown on a screen; their (ON SCREEN)
   // is the person on a video call — still that character speaking
   const writtenExt = !!ext && /\b(?:TEXT|SMS|E-?MAIL|MESSAGE|CAPTION|SUPER|INSERT|READOUT|DISPLAY|GRAPHIC)\b/i.test(ext);
-  if(cls==="speaker"){
+  if(cls==="speaker" || cls==="keepsake"){
     if(!/[A-Za-z]/.test(all)) return "data";
     if(writtenExt) return "device";
-    // a message a character sends, shown on a screen ("INSERT — PHONE: NINA: …")
+    // a message a character sends, shown on a screen ("INSERT — PHONE: NINA: …"), and a kept
+    // page shown the same way ("INSERT: LEONOR'S DIARY: I never told him.")
     if(!ext && ctx && ctx.written) return "device";
-    return "dialogue";                                            // "DEV: GET DOWN!" counts too
+    if(cls==="speaker") return "dialogue";                        // "DEV: GET DOWN!" counts too
   }
-  if(cls==="written" || cls==="direction" || visualExt) return "device";
+  // (a keepsake "(ON SCREEN)" is still judged by its words below)
+  if(cls==="written" || cls==="direction" || (visualExt && cls!=="keepsake")) return "device";
+  // a production note says someone is being filmed: a cast member the note names ("TESTIMONY
+  // BED (Armindo, sit-down, to be recorded):") is the person on camera, and so may be an
+  // unknown label ("MARCUS (record):") or someone sat with a kept object ("GRACINDA'S ALBUM
+  // (sit-down):"). Only a lowercase note of what they will cover ("how the soles of his feet
+  // read the night's tide") or a third-person account ("Her account of the night the wall
+  // went.", "How the soles of his feet…") passes; other capitalised words are their line
+  const filmed = note && (!cls || (cls==="keepsake" && pnote.person) || ((cls==="live" || cls==="data" || cls==="keepsake") && pnote.names));
+  if(filmed) cls = "role";
   if(cueExt && hasLower) return cls==="voice" ? "voice" : "dialogue";
   if(cls==="voice") return !hasLower ? "data" : (!pron && _SP_DESCRIBE_RE.test(plain)) ? "device" : "voice";
-  if(cls==="live") return (quoted || pron) ? "dialogue" : "device";
+  const sp = ctx && ctx.speakers;
+  // a kept object shows words or pictures; anything that reads as spoken is the owner's line:
+  // quotes, I / you / we, a question, a contraction, an interjection, a "!", an order ("Come
+  // home.", "Mama, come home."), a greeting, or someone addressed ("Keep the pans, Leonor.")
+  if(cls==="keepsake") return (quoted || pron || weak || imperative || /[!?]/.test(all) || _spSentences(all).some(x=>_spRecordSpeech(x, sp))) ? "dialogue" : "device";
+  // with a production note a screen label is a person being filmed ("INTERVIEW (sit-down): What
+  // happened?"): a question, a contraction, an interjection, a "!", a greeting or someone
+  // addressed ("Leonor. The wall is gone.") is their line too
+  if(cls==="live") return (quoted || pron || (note && (weak || /[!?]/.test(all) || _spSentences(all).some(x=>_spAddressed(x, sp))))) ? "dialogue" : "device";
+  if(note && /[!?]/.test(all)) return "dialogue";                     // CROWD (b-roll): Out! Out!
+  if(filmed && !/^[a-z]/.test(plain))                                 // MARCUS (record): Two minutes.
+    return (_spAccountNote(all) && !pron && !quoted && !weak && !imperative) ? "data" : "dialogue";
   if(!firstLower) return (cls==="role" && /[!?]/.test(first)) ? "dialogue" : "data";   // GUARD: HALT!
   if(/^[a-z0-9]/.test(plain) || cls==="data") return pron ? "dialogue" : "data";
   if(_spProperStart(plain) && !pron) return "data";
   const sentence = _spIsSentence(plain);
   if(cls==="role") return (quoted || pron || weak || imperative || sentence) ? "dialogue" : "data";
   return (quoted || pron || weak) ? "dialogue" : sentence ? "unclear" : "data";
+}
+/* a CAPS record whose field VALUE is a person's name, glued to the NEXT field's label by a
+   separator: "INSERT — CAD LOG: WELFARE CHK — PRUITT, OPAL — NOTE: 'NO PROWLER.'",
+   "SUBSCRIBER: LUSK / ADDRESS: 14 LARKSPUR RD". The label pattern reads "OPAL — NOTE" and
+   "LUSK / ADDRESS" as one label naming a cast member; inside a record it is the field
+   NOTE / ADDRESS, and the name is the value before it. Re-anchored to the field only when
+   ALL of these hold:
+     0. the label is all CAPS and carries no voice extension ("OPAL — NOTE (V.O.):" is hers),
+     1. the name sits in a segment BEFORE the field ("ON SCREEN - GRAHAM:" stays Graham's),
+     2. the field alone names a written surface, a data field or a record field (NOTE,
+        STATUS, ADDRESS, REMARKS, DISPOSITION, CITY …), or a person's field with a CAPS
+        value ("CALLER: PRUITT, OPAL.") — never one that carries someone's own words
+        (MESSAGE, TEXT, TRANSCRIPT, QUOTE, REPLY),
+     3. the record runs right up to the name: the sentence before it is CAPS record text,
+        or a lead-in that SHOWS the record ("The log reads:", "Tomas pulls up the log:") —
+        never when the name opens the sentence ("NINA — NOTE: Go back to bed.", "PRUITT,
+        OPAL — NOTE: …": the surname of "SURNAME, FIRST" is the name too) and never after a
+        lead-in that speaks ("Opal whispers:", "He says:", "…into the phone:"),
+     4. the field's text is not speech: no "!" or "?" anywhere; no sentence of it would be a
+        line after a person's role label (quotes, I / you / we, a contraction, an
+        interjection, an order such as "Go back to bed.", a vocative, a full sentence); and
+        no mixed-case sentence opens with an order or a greeting ("Come home.", "Mama,
+        come home.", "Goodbye, Tomas."), says "he's" / "there's", or addresses a cast
+        member or a "dear" ("Tomas. Come home.", "Come home, Walt.", "…, dear."). CAPS
+        record text reads as before (the CAD style: "ASK ABOUT THE LILACS.").
+   Returns { start, label } for the field alone, or null. */
+function _spRecordField(s, h, stop, speakers){
+  if(!speakers || !speakers.size || /[a-z]/.test(h.label)) return null;
+  if(h.ext && !_SP_VISUAL_PAREN.test(h.ext)) return null;          // "OPAL — NOTE (V.O.):" is a voice, not a field
+  const raw = s.slice(h.start, h.end).replace(/\s*(?:\([^()]*\))?\s*:$/, "");
+  const sepRe = /\s*[—–\/]\s*|\s+-\s*|\s*-\s+/g;
+  let m, cut = -1;
+  while((m = sepRe.exec(raw))) cut = m.index + m[0].length;
+  if(cut<=0 || cut>=raw.length) return null;
+  const field = raw.slice(cut).replace(/\s+/g," ").trim();
+  if(!_spSpeakerIn(_spParseLabel(raw.slice(0, cut).replace(/[\s—–\/-]+$/,"")), speakers)) return null;   // 1
+  const fw = _spParseLabel(field).segs.flat().map(x=>x.t);                                                     // 2
+  if(fw.some(t=>_spTokenIn(_SP_MESSAGE_FIELD, t))) return null;
+  const fc = screenplayLabelClass(field, speakers, h.ext);
+  const after = s.slice(h.end, stop);
+  const reach = after.slice(0, _spReachLen(after, speakers)).trim();
+  // a person's field (CALLER, OFFICER, DISPATCHER) only with a CAPS value: "CALLER: PRUITT, OPAL."
+  if(!(fc==="written" || fc==="data" || (fc==="role" && !/[a-z]/.test(reach)) ||
+    ((fc==="" || fc==="direction") && fw.some(t=>_spTokenIn(_SP_RECORD_FIELD, t))))) return null;
+  const pre = s.slice(0, h.start);                                                                             // 3
+  const sm = pre.match(/(?:^|[.!?…]["”’']?\s)([^.!?…]*)$/);
+  // the SURNAME of a "PRUITT, OPAL" value is part of the name, not record text before it
+  let lead = (sm ? sm[1] : pre).replace(/(?:[A-Z][A-Z'’.-]*\s+)?[A-Z][A-Z'’-]*,\s*$/, "");
+  let shown = false;
+  if(/[a-z]/.test(lead)){
+    const c = lead.lastIndexOf(":");
+    const intro = c<0 ? "" : lead.slice(0, c);
+    if(!_SP_SHOWS_RE.test(intro) || _SP_SAYS_RE.test(intro)) return null;
+    lead = lead.slice(c + 1); shown = true;
+  }
+  if(/[a-z]/.test(lead) || !(shown || /[A-Z0-9]/.test(lead))) return null;
+  if(/[!?]/.test(reach)) return null;                                                                          // 4
+  const ss = _spSentences(reach);                                                                               // …in ANY sentence
+  if([reach, ...ss].some(x=>_spTextKind("role", "", x, x, { speakers })==="dialogue") || ss.some(x=>_spRecordSpeech(x, speakers))) return null;
+  return { start:h.start + cut, label:field };
 }
 /* every "LABEL:" in one action paragraph, classified. speakers: a Set from
    screenplaySpeakers(). Each hit: { start, end, label, ext, content, reach, reachEnd,
@@ -413,16 +652,23 @@ function screenplayActionLabels(text, speakers){
     }
     hits.sort((a,b)=>a.start-b.start);
   }
+  // a name inside a CAPS record is the previous field's value, not part of the next label
+  hits.forEach((h,i)=>{
+    const f = _spRecordField(s, h, i+1<hits.length ? hits[i+1].start : s.length, speakers);
+    if(f){ h.start = f.start; h.label = f.label; }
+  });
   const out = [];
   hits.forEach((h,i)=>{
     const stop = i+1<hits.length ? hits[i+1].start : s.length;
     const raw = s.slice(h.end, stop);
     const rlen = _spReachLen(raw, speakers);
     const reach = raw.slice(0, rlen).trim();
-    const cls = screenplayLabelClass(h.label, speakers, h.ext);
-    // is this label's text a message SHOWN on a screen? (only matters for a speaker)
+    let cls = screenplayLabelClass(h.label, speakers, h.ext);
+    // "LEONOR, GRACINDA'S ALBUM:" — a cast member glued to a kept object by a comma is that person
+    if(cls==="keepsake" && _spNameComma(s.slice(0, h.start), speakers)) cls = "speaker";
+    // is this label's text a message SHOWN on a screen? (only matters for a speaker or a keepsake)
     let written = false;
-    if(cls==="speaker"){
+    if(cls==="speaker" || cls==="keepsake"){
       const prev = out[out.length-1];
       const between = prev ? s.slice(prev.end, h.start) : "";
       if(prev && prev.labelClass==="written" && /^[\s—–-]*$/.test(between)) written = true;   // INSERT — PHONE: NINA: …
