@@ -941,16 +941,45 @@ if(rpcMissingSource){
 }
 
 const projectMergeSource=section(cloud,"function _seriesMergeProjectObject","/* COLLABORATIVE SECTION SAVE");
-if(projectMergeSource){
+/* 2026-09-27 (Pine Soot): run the REAL comparator. The old stub here was its own
+   JSON.stringify and every fixture shared one key order, which is exactly how an
+   order-sensitive merge shipped and raised a false "Another window saved this
+   film first" in a single tab. */
+const jsonSameSource=section(cloud,"function _seriesJsonSame","function _seriesOwnSceneSlice");
+const stableJsonSource=section(app,"function stableJson(v){","/* ---- persistence");
+ok("real _seriesJsonSame and stableJson sources are extractable", !!jsonSameSource && !!stableJsonSource);
+if(projectMergeSource&&jsonSameSource){
   const projectBox={JSON,Set,Object,Array}; vm.createContext(projectBox);
-  vm.runInContext("function _seriesJsonSame(a,b){return JSON.stringify(a)===JSON.stringify(b);}\n"
-    +projectMergeSource+"\nthis.mergeProject=_seriesMergeProjectObject;",projectBox);
+  vm.runInContext(jsonSameSource+"\n"+stableJsonSource+"\n"
+    +projectMergeSource+"\nthis.mergeProject=_seriesMergeProjectObject;this.jsonSame=_seriesJsonSame;this.stableJson=stableJson;",projectBox);
+  const J=projectBox.jsonSame;
+  ok("merge comparator ignores object key order", J({a:1,b:{c:1,d:2}},{b:{d:2,c:1},a:1}));
+  ok("merge comparator keeps array order significant", !J([1,2],[2,1]));
+  ok("merge comparator treats an undefined-valued key as missing", J({a:1,b:undefined},{a:1}));
+  ok("merge comparator keeps undefined and null distinct", !J(undefined,null));
+  {
+    // The three copies one save really sees: baseline = JSON.parse(stableJson(p))
+    // (alphabetical), latest = server jsonb order (shorter keys first), incoming =
+    // React build order — identical contract, plus the continuity step's new keys.
+    const p={title:"Pine Soot",contract:{outer:"punitive",inner:"education",dominant:"inner",suggested:true}};
+    const baseline=JSON.parse(projectBox.stableJson(p));
+    const latest={title:"Pine Soot",contract:{inner:"education",outer:"punitive",dominant:"inner",suggested:true}};
+    const incoming={title:"Pine Soot",contract:{outer:"punitive",inner:"education",dominant:"inner",suggested:true},
+      continuityFacts:{f1:{label:"Fact 1"}}};
+    const merged=plain(projectBox.mergeProject(latest,incoming,baseline));
+    ok("project merge: identical content in three key orders is not a conflict", merged.ok===true, JSON.stringify(merged.conflicts));
+    ok("project merge: the continuity step's new keys land", !!(merged.value&&merged.value.continuityFacts&&merged.value.continuityFacts.f1));
+  }
   const baseline={title:"Base",genre:"Drama",styleBible:{tone:"old"}};
   const latest={title:"Base",genre:"Drama",styleBible:{tone:"new"},remoteFlag:true};
   const incoming={title:"Writer title",genre:"Drama",styleBible:{tone:"old"}};
   const disjoint=plain(projectBox.mergeProject(latest,incoming,baseline));
   same("project three-way merge preserves disjoint writer and art-direction changes",
     disjoint.value,{title:"Writer title",genre:"Drama",styleBible:{tone:"new"},remoteFlag:true});
+  // cloudSaveSections remembers `applied` keys of a write whose response was lost and
+  // later treats a server value equal to them as this tab's own: remote keys must never be in it
+  same("project merge reports only this window's changes as applied (never the remote styleBible/remoteFlag)",
+    disjoint.applied,["title"]);
   const overlapProject=plain(projectBox.mergeProject(
     {title:"Remote",genre:"Drama"},{title:"Local",genre:"Drama"},{title:"Base",genre:"Drama"}));
   ok("project three-way merge surfaces overlapping key edits",

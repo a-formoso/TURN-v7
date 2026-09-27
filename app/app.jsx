@@ -21,8 +21,11 @@ window.turnIsPaidPlan = function(plan){
    Every baseline write and comparison must go through this canonical form. */
 function stableJson(v){
   if(v===null || typeof v!=="object") return JSON.stringify(v);
-  if(Array.isArray(v)) return "["+v.map(x=> x===undefined ? "null" : stableJson(x)).join(",")+"]";
-  const ks = Object.keys(v).filter(k=>v[k]!==undefined).sort();
+  // JSON rules for values JSON can't hold: null in arrays (holes included — map()
+  // skipped them and emitted "[,1]", which JSON.parse rejects), dropped from objects.
+  const skip = x=> x===undefined || typeof x==="function" || typeof x==="symbol";
+  if(Array.isArray(v)) return "["+Array.from(v, x=> skip(x) ? "null" : stableJson(x)).join(",")+"]";
+  const ks = Object.keys(v).filter(k=>!skip(v[k])).sort();
   return "{"+ks.map(k=>JSON.stringify(k)+":"+stableJson(v[k])).join(",")+"}";
 }
 
@@ -2373,18 +2376,86 @@ function App(){
   };
   const _docConflictCheck = (r)=>{
     if(r && r.roleScope){ _docRoleScope(r); return; }
-    if(!r || !r.conflict || _conflictBusy.current) return;
-    _conflictBusy.current = true;
+    if(!r || !r.conflict) return;
+    /* 2026-09-27 (Pine Soot): mark Not saved BEFORE the one-dialog guard. performSave
+       already showed "saving"; a repeat conflict while the dialog was open used to
+       return here first and leave the chip on SAVING under the dialog. Stale
+       generations never reach this point (_docSaveResult filters them). */
     dirtyRef.current = true;
     setSaveState("failed");
+    if(_conflictBusy.current) return;
+    _conflictBusy.current = true;
     const conflictedProjectId=currentProjectId;
     const conflictedShowId=showIdRef.current;
+    /* Say what actually conflicted. A merge conflict carries its reason and the
+       overlapping keys; only the bare lost-fence result (4 tries, no detail) is
+       reported as "Another window saved this film first". The merges report
+       internal keys ("project.controllingIdea", Show Bible "c1.name",
+       "c2 (delete conflicted)", "trash.characters.c3"); writers see the setting
+       or the entity's name instead, and the raw keys go to the console. */
+    const conflictKeys=(Array.isArray(r.conflicts)?r.conflicts:[]).map(String).filter(Boolean);
+    if(conflictKeys.length){ try{ console.info("[TURN] save conflict:",conflictKeys.join(", ")); }catch(e){} }
+    const _words=s=>{
+      const t=String(s||"").replace(/([a-z0-9])([A-Z])/g,"$1 $2").replace(/[_-]+/g," ").trim().toLowerCase();
+      return t?t.charAt(0).toUpperCase()+t.slice(1):"";
+    };
+    const _fieldNames={controllingIdea:"Controlling idea",contract:"Story contract",centerOfGood:"Center of good",
+      styleBible:"Style bible",continuityFacts:"Continuity facts",continuityLedger:"Continuity ledger",
+      beatsMap:"Beats",drafts:"Script drafts",continuityMap:"Continuity map",sluglineUnits:"Slugline units",
+      lookbookApplied:"Applied lookbook",framework:"Structure",trash:"Recently deleted"};
+    const _field=k=>_fieldNames[k]||_words(k);
+    const _entityName=id=>{
+      const bin=(trashRef&&trashRef.current)||{};
+      const pools=[["character",characters],["location",locations],["prop",props],
+        ["character",bin.characters],["location",bin.locations],["prop",bin.props]];
+      for(const [kind,list] of pools){
+        const hit=(Array.isArray(list)?list:[]).find(x=>x&&x.id!=null&&String(x.id)===String(id));
+        if(hit) return String(hit.name||hit.title||hit.label||_words(kind))+" ("+kind+")";
+      }
+      return null;
+    };
+    const _why={"delete conflicted":"deleted here but changed elsewhere","deleted remotely":"deleted elsewhere but changed here",
+      "missing merge baseline":"no reliable saved copy to compare"};
+    const conflictLabel=raw=>{
+      const key=String(raw); let m;
+      if((m=/^project\.(.+)$/.exec(key))) return "Project settings: "+_field(m[1]);
+      if(/^project \(/.test(key)) return "Project settings (no reliable saved copy to compare)";
+      if(key==="invalid department shape") return "A Show Bible department (no reliable saved copy to compare)";
+      if((m=/^trash\.(characters|locations|props)\.(.+)$/.exec(key))) return "Recently deleted: "+conflictLabel(m[2]);
+      if((m=/^(.+?) \((delete conflicted|deleted remotely|missing merge baseline)\)$/.exec(key))){
+        const who=_entityName(m[1]);
+        return (who||_words(m[1]))+": "+_why[m[2]];
+      }
+      if((m=/^(.+?) \((invalid[^)]*)\)$/.exec(key))) return _field(m[1])+" (no reliable saved copy to compare)";
+      if((m=/^([^.\s]+)\.(.+)$/.exec(key))){
+        const who=_entityName(m[1]);
+        if(who){
+          const f=m[2];
+          const what=/^episodeScenes\./.test(f)?"scene links in this Episode"
+            :/^episodeLocationMeta\./.test(f)?"location details in this Episode":_field(f).toLowerCase();
+          return who+": "+what;
+        }
+      }
+      if(/^[A-Za-z]+$/.test(key)) return _field(key);   // a whole section or Bible department
+      return key;
+    };
+    const conflictItems=conflictKeys.slice(0,8).map(conflictLabel);
+    if(conflictKeys.length>conflictItems.length)
+      conflictItems.push("\u2026and "+(conflictKeys.length-conflictItems.length)+" more");
+    const conflictLead=(r.message||conflictKeys.length)
+      ? String(r.message||"These settings changed in another window.")
+      : "Another window saved this film first.";
+    const conflictBody=conflictLead+" Your local edit is still visible and has NOT been saved. Load the cloud version now? This will replace the unsaved edit in this window.";
     const decide=(typeof window.appConfirm==="function")
       ? window.appConfirm({
           title:"Cloud version changed",
-          body:"Another window saved this film first. Your local edit is still visible and has NOT been saved. Load the cloud version now? This will replace the unsaved edit in this window.",
+          body:conflictBody,
+          items:conflictItems.length?conflictItems:undefined,
           note:"Choose Keep my edits to leave this window untouched while you copy or review the local work.",
-          confirmLabel:"Load cloud version",cancelLabel:"Keep my edits",danger:true
+          confirmLabel:"Load cloud version",cancelLabel:"Keep my edits",danger:true,
+          /* Autosave opens this unprompted, often mid-typing: focus Keep my edits
+             and never map a stray Enter/Space to the destructive choice. */
+          safeDefault:true
         })
       : Promise.resolve(false);
     Promise.resolve(decide).then(async replaceLocal=>{
@@ -2431,14 +2502,31 @@ function App(){
      did not touch in the same save, so it can never stomp on what the user is typing;
      lastSentRef is updated in step so the adoption doesn't look like a local edit and
      bounce straight back out as another write. */
-  const _adoptTheirs = (cloudDoc, mineKeys)=>{
-    if(!cloudDoc) return;
+  const _adoptTheirs = (cloudDoc, mineKeys, mergedProject)=>{
+    let adopted = 0;
+    /* `project` is three-way merged on the server, so a save that sent it can
+       come back holding keys ANOTHER window changed (e.g. setting.location).
+       The loop below skips sections this window wrote, and _docRevSeen already
+       jumped to the merged revision, so without this the other window's value
+       stayed invisible here until some third write. Callers invoke this only for
+       the newest save generation, so the merged value can't stomp a newer edit. */
+    if(mineKeys.indexOf("project")>=0 && mergedProject && typeof mergedProject==="object" && !Array.isArray(mergedProject)){
+      const merged = stableJson(mergedProject);
+      if(merged !== lastSentRef.current.project){
+        lastSentRef.current.project = merged;
+        try{ setProject(mergedProject); adopted++; }catch(e){}
+      }
+    }
+    if(!cloudDoc){
+      if(adopted && typeof window.appToast==="function")
+        window.appToast("Picked up changes a collaborator just made.","info");
+      return;
+    }
     const setters = { scenes:setScenes, characters:setCharacters, props:setProps, locations:setLocations,
       sluglineUnits:setSlugUnitsOv,
       lookbook:setLookbook, lookbookNote:setLookbookNote, lookbookApplied:setLookbookApplied, shots:setShots,
       project:setProject, drafts:setDrafts, beatsMap:setBeatsMap, history:setHistory,
       continuityMap:setContinuityMap, trash:setTrash };
-    let adopted = 0;
     Object.keys(setters).forEach(k=>{
       if(mineKeys.indexOf(k)>=0) return;                    // this window just wrote it
       if(cloudDoc[k]===undefined) return;
@@ -2541,7 +2629,13 @@ function App(){
     if(r && r.ok){ saveFailsRef.current = 0; dirtyRef.current = false; setSaveState("saved"); return true; }
     const n = ++saveFailsRef.current;
     if(n <= 3){ setSaveState("retrying"); setTimeout(()=>setRetryTick(t=>t+1), n*2500); }
-    else setSaveState("failed");
+    else{
+      setSaveState("failed");
+      // A save the server declined with no newer version (RLS / trigger) is not a
+      // conflict; once the retries are spent, say why instead of a silent Not saved.
+      if(n===4 && r && r.rejected && typeof window.appToast==="function")
+        window.appToast(String(r.message||"The server did not accept this save."),"error");
+    }
     return false;
   };
   React.useEffect(()=>{
@@ -2795,7 +2889,7 @@ function App(){
           // those departments would leave a collaborator's same-department addition
           // invisible here; on the next edit, its absence could then be interpreted
           // as an explicit deletion against the newly advanced Bible baseline.
-          if(_saveGenerationLatest(ctx) && ep) _adoptTheirs(ep.r.doc,_mineKeys);
+          if(_saveGenerationLatest(ctx) && ep) _adoptTheirs(ep.r.doc,_mineKeys,ep.r.project);
           if(bs){
             const merged=bs.r.bible||_bibleStored;
             if(_saveGenerationLatest(ctx)){
@@ -2830,7 +2924,7 @@ function App(){
         const result=await cloudSaveSections(ctx.projectId,_changed,_sectionSaveOpts(_changed));
         if(result&&result.ok&&_saveScopeActive(ctx)){
           _rememberSent();
-          if(_saveGenerationLatest(ctx)) _adoptTheirs(result.doc,_mineKeys);
+          if(_saveGenerationLatest(ctx)) _adoptTheirs(result.doc,_mineKeys,result.project);
         }
         return result&&result.ok ? _finishSuccess() : _docSaveResult(result,ctx);
       }catch(e){

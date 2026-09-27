@@ -8,7 +8,10 @@
 function _cloudWaitMs(kind){
   const override=Number(window.__TURN_CLOUD_TIMEOUT_MS);
   if(Number.isFinite(override)&&override>0) return Math.max(10,Math.min(60000,override));
-  return kind==="auth" ? 6000 : 12000;
+  /* "save": a fenced doc read/write can carry a multi-MB film over a slow uplink,
+     so it gets a long deadline. It still needs one: a request that never settles
+     used to leave the chip on SAVING and block every queued save behind it. */
+  return kind==="auth" ? 6000 : kind==="save" ? 60000 : 12000;
 }
 function _cloudDeadline(promise, kind, label){
   let timer=null;
@@ -21,7 +24,7 @@ function _cloudDeadline(promise, kind, label){
   });
   return Promise.race([Promise.resolve(promise),timeout]).finally(()=>{ if(timer) clearTimeout(timer); });
 }
-function _cloudQuery(builder,label){
+function _cloudQuery(builder,label,kind){
   let request=builder, controller=null;
   try{
     if(typeof AbortController!=="undefined" && request && typeof request.abortSignal==="function"){
@@ -36,7 +39,7 @@ function _cloudQuery(builder,label){
       const error=new Error((label||"Cloud request")+" timed out.");
       error.code="TURN_CLOUD_TIMEOUT";
       reject(error);
-    },_cloudWaitMs("request"));
+    },_cloudWaitMs(kind||"request"));
   });
   return Promise.race([Promise.resolve(request),timeout]).finally(()=>{ if(timer) clearTimeout(timer); });
 }
@@ -630,6 +633,29 @@ function _roleScopeErr(error){
   if(msg.indexOf("TURN_ROLE_SCOPE") < 0) return null;
   return msg.replace(/^.*TURN_ROLE_SCOPE:\s*/, "");
 }
+/* 0 ROWS IS NOT ALWAYS A LOST RACE (2026-09-27 review). A fenced UPDATE that
+   matches 0 rows is normally another writer's newer _rev. RLS filtering the
+   UPDATE (a collaborator demoted mid-session) or a BEFORE trigger returning NULL
+   also returns 0 rows, but then the re-read still shows the SAME _rev: _rev only
+   ever grows, and a writer that left it unchanged would still have matched our
+   filter. Report that as a plain failure (Not saved + retry with backoff), not
+   as {conflict} — the conflict dialog would blame "another window" and offer the
+   destructive Load cloud version, and every later edit would re-open it. */
+function _seriesSaveNotAccepted(what){
+  const subject = what==="bible" ? "this Show Bible save"
+    : what==="patch" ? "this change" : "this save";
+  return { ok:false, rejected:true,
+    message:"The server did not accept "+subject+". No newer cloud version exists, so another window did not cause it; your access to this film may have changed. Your edit is still on screen and not saved." };
+}
+/* A merge that could not even compare (missing or malformed baseline) is not
+   evidence of another window. Say so instead of reusing the overlap message. */
+function _seriesConflictMessage(conflicts, overlapMessage){
+  const list = Array.isArray(conflicts) ? conflicts : [];
+  const structural = list.length>0 && list.every(c=>/invalid|missing merge baseline/.test(String(c)));
+  return structural
+    ? "TURN couldn't safely compare this save with the cloud copy because this window has no reliable saved baseline for it. Reload before applying these edits."
+    : overlapMessage;
+}
 async function cloudSaveDoc(id, doc){
   const sb = sbClient(); if(!sb || !id) return { ok:false };
   const seen = _docRevSeen[id] || 0;
@@ -659,24 +685,28 @@ async function cloudSaveDoc(id, doc){
    autosave conflicts honestly and takes the reload path instead of clobbering. */
 async function cloudPatchDoc(id, mutate){
   const sb = sbClient(); if(!sb || !id) return { ok:false };
+  let zeroRowRev = null;
   for(let attempt=0; attempt<3; attempt++){
     try{
-      const { data, error } = await sb.from("turn_projects").select("doc").eq("id", id).single();
+      const { data, error } = await _cloudQuery(sb.from("turn_projects").select("doc").eq("id", id).single(),"Project patch read","save");
       if(error) return { ok:false };
       const doc = (data && data.doc) || {};
       const cur = Number(doc._rev) || 0;
+      // 0 rows at an unchanged _rev: nobody else wrote (see _seriesSaveNotAccepted)
+      if(zeroRowRev!==null && cur===zeroRowRev) return _seriesSaveNotAccepted("patch");
       const wasInSync = (_docRevSeen[id] || 0) === cur;
       if(mutate(doc) === false) return { ok:false, skipped:true };
       let q = sb.from("turn_projects").update({ doc: { ...doc, _rev: cur + 1 } }).eq("id", id);
       q = cur ? q.eq("doc->>_rev", String(cur))
               : q.or("doc->>_rev.is.null,doc->>_rev.eq.0");
-      const { data: rows, error: wErr } = await q.select("id");
+      const { data: rows, error: wErr } = await _cloudQuery(q.select("id"),"Project patch","save");
       if(wErr){ const rs = _roleScopeErr(wErr); return rs ? { ok:false, roleScope:true, message:rs } : { ok:false }; }
       if(rows && rows.length){
         if(wasInSync) _docRevSeen[id] = cur + 1;
         _pushDocRev(id, cur + 1);
         return { ok:true, doc };
       }
+      zeroRowRev = cur;
       // someone else wrote between our read and write — re-read and retry
     }catch(e){ return { ok:false }; }
   }
@@ -1278,7 +1308,7 @@ function _seriesMergeProjectObject(latest,incoming,baseline){
       :{ok:false,value:latest,conflicts:["project (missing merge baseline)"]};
   }
   if(!object(baseline)) return {ok:false,value:latest,conflicts:["project (invalid merge baseline)"]};
-  const out={...latest}, conflicts=[];
+  const out={...latest}, conflicts=[], applied=[];
   const keys=new Set([...Object.keys(baseline),...Object.keys(incoming)]);
   keys.forEach(key=>{
     const localChanged=!_seriesJsonSame(incoming[key],baseline[key]);
@@ -1287,11 +1317,12 @@ function _seriesMergeProjectObject(latest,incoming,baseline){
       conflicts.push("project."+key); return;
     }
     if(localChanged){
+      applied.push(key);   // this window's value is what the write puts on the server
       if(Object.prototype.hasOwnProperty.call(incoming,key)) out[key]=incoming[key];
       else delete out[key];
     }
   });
-  return {ok:!conflicts.length,value:out,conflicts};
+  return {ok:!conflicts.length,value:out,conflicts,applied};
 }
 
 /* COLLABORATIVE SECTION SAVE — the collaboration fix.
@@ -1304,26 +1335,89 @@ function _seriesMergeProjectObject(latest,incoming,baseline){
    three-way merge, so writer metadata and an art director's styleBible can coexist while
    two divergent edits to the same key stop with an explicit conflict.
    Returns { ok, doc } where `doc` is the cloud doc AS READ (before our overlay), so the
-   caller can adopt the sections OTHER people changed. */
+   caller can adopt the sections OTHER people changed. When `project` was saved it
+   also returns `project`: the merged value now on the server, which can hold keys
+   another window changed that this window has not seen yet. */
+/* UNACKNOWLEDGED WRITES (2026-09-27 review). A fenced UPDATE can commit while its
+   response is lost (flaky wifi, a timeout). The caller then keeps its old
+   baseline, so its retry saw this tab's OWN committed value as a remote change
+   and, if the same setting moved again meanwhile, raised a false "changed in
+   another window" in a single tab. Remember what each such attempt wrote for
+   the baseline-merged parts (project keys, recovery-journal sections) — per
+   project, this tab only — and treat a server value equal to one of them as
+   ours. Only this window's LOCAL changes are recorded, never keys the merge took
+   from the server, so a collaborator's value can't be mistaken for ours and
+   reverted. Cleared once a later write of those parts is acknowledged. */
+const _seriesUnackedWrites = {};   // project id -> [{project:{key:value}|null, sections:{key:value}|null}], oldest first
+function _seriesRememberUnacked(id, sent){
+  if(!id || !sent) return;
+  const list = _seriesUnackedWrites[id] || (_seriesUnackedWrites[id] = []);
+  list.push(sent);
+  while(list.length > 4) list.shift();
+}
+function _seriesSettleUnacked(id, settledProject, settledSections){
+  const list = _seriesUnackedWrites[id]; if(!list) return;
+  const kept = [];
+  list.forEach(sent=>{
+    const project = settledProject ? null : sent.project;
+    let sections = sent.sections ? { ...sent.sections } : null;
+    if(sections) settledSections.forEach(k=>{ delete sections[k]; });
+    if(sections && !Object.keys(sections).length) sections = null;
+    if(project || sections) kept.push({ project, sections });
+  });
+  if(kept.length) _seriesUnackedWrites[id] = kept; else delete _seriesUnackedWrites[id];
+}
+function _seriesOwnUnacked(latestValue, key, list, field){
+  for(let i=list.length-1; i>=0; i--){   // newest first
+    const sent = list[i] && list[i][field];
+    if(!sent || !Object.prototype.hasOwnProperty.call(sent,key)) continue;
+    if(_seriesJsonSame(latestValue, sent[key])) return { hit:true, value:sent[key] };
+  }
+  return { hit:false };
+}
 async function cloudSaveSections(id, sections, opts){
   const sb = sbClient(); if(!sb || !id) return { ok:false };
   const keys = Object.keys(sections||{});
   if(!keys.length) return { ok:true, noop:true };
+  let zeroRowRev = null;
   for(let attempt=0; attempt<4; attempt++){
+    let sent = null;   // set only while a write that changes baseline-merged parts is on the wire
     try{
-      const { data, error } = await sb.from("turn_projects").select("doc").eq("id", id).single();
+      const { data, error } = await _cloudQuery(sb.from("turn_projects").select("doc").eq("id", id).single(),"Project save read","save");
       if(error) return { ok:false };
       const cloudDoc = (data && data.doc) || {};
       const cur = Number(cloudDoc._rev) || 0;
+      if(zeroRowRev!==null && cur===zeroRowRev) return _seriesSaveNotAccepted("project");
       const next = { ...cloudDoc };
       const sectionBaseline=opts&&opts.baseline&&typeof opts.baseline==="object"
         ? opts.baseline : {};
+      const unacked = _seriesUnackedWrites[id] || [];
+      const record = { project:null, sections:null };
+      const settledSections = [];
+      let mergedProject;
       if(keys.indexOf("project")>=0){
-        const baseline=sectionBaseline.project;
-        const merged=_seriesMergeProjectObject(cloudDoc.project||{},sections.project,baseline);
+        let baseline=sectionBaseline.project;
+        const latestProject=cloudDoc.project||{};
+        if(unacked.length && baseline && typeof baseline==="object" && !Array.isArray(baseline)){
+          const candidates = new Set();
+          unacked.forEach(sentBefore=>{ if(sentBefore.project) Object.keys(sentBefore.project).forEach(k=>candidates.add(k)); });
+          candidates.forEach(key=>{
+            const own=_seriesOwnUnacked(latestProject[key],key,unacked,"project");
+            if(!own.hit) return;
+            if(baseline===sectionBaseline.project) baseline={...baseline};
+            if(own.value===undefined) delete baseline[key]; else baseline[key]=own.value;
+          });
+        }
+        const merged=_seriesMergeProjectObject(latestProject,sections.project,baseline);
         if(!merged.ok) return {ok:false,conflict:true,conflicts:merged.conflicts,
-          message:"Project settings changed in another window. Reload before applying overlapping edits."};
+          message:_seriesConflictMessage(merged.conflicts,
+            "Project settings changed in another window. Reload before applying overlapping edits.")};
         next.project=merged.value;
+        mergedProject=merged.value;
+        (merged.applied||[]).forEach(key=>{
+          record.project=record.project||{};
+          record.project[key]=Object.prototype.hasOwnProperty.call(sections.project,key)?sections.project[key]:undefined;
+        });
       }
       const sectionConflicts=[];
       keys.forEach(k=>{
@@ -1334,12 +1428,17 @@ async function cloudSaveSections(id, sections, opts){
            overwriting their newer work with the journal's old snapshot. Normal
            debounced saves omit these baselines and retain section-level merge. */
         if(Object.prototype.hasOwnProperty.call(sectionBaseline,k)){
-          const base=sectionBaseline[k], incoming=sections[k], latest=cloudDoc[k];
+          let base=sectionBaseline[k];
+          const incoming=sections[k], latest=cloudDoc[k];
+          const own=unacked.length?_seriesOwnUnacked(latest,k,unacked,"sections"):{hit:false};
+          if(own.hit) base=own.value;
           const localChanged=!_seriesJsonSame(incoming,base);
           const remoteChanged=!_seriesJsonSame(latest,base);
           if(localChanged&&remoteChanged&&!_seriesJsonSame(incoming,latest)){
             sectionConflicts.push(k); return;
           }
+          settledSections.push(k);
+          if(localChanged){ record.sections=record.sections||{}; record.sections[k]=incoming; }
           next[k]=localChanged?incoming:latest;
           return;
         }
@@ -1351,15 +1450,22 @@ async function cloudSaveSections(id, sections, opts){
       let q = sb.from("turn_projects").update({ doc: next }).eq("id", id);
       q = cur ? q.eq("doc->>_rev", String(cur))
               : q.or("doc->>_rev.is.null,doc->>_rev.eq.0");
-      const { data: rows, error: wErr } = await q.select("id");
+      if(record.project || record.sections) sent = record;
+      const { data: rows, error: wErr } = await _cloudQuery(q.select("id"),"Project save","save");
+      sent = null;   // a response arrived, so this attempt's outcome is known
       if(wErr){ const rs = _roleScopeErr(wErr); return rs ? { ok:false, roleScope:true, message:rs } : { ok:false }; }
       if(rows && rows.length){
+        _seriesSettleUnacked(id, keys.indexOf("project")>=0, settledSections);
         _docRevSeen[id] = cur + 1;      // we merged onto the freshest doc, so we ARE current
         _pushDocRev(id, cur + 1);       // wake collaborators' windows right away
-        return { ok:true, doc:cloudDoc };
+        return mergedProject!==undefined ? { ok:true, doc:cloudDoc, project:mergedProject } : { ok:true, doc:cloudDoc };
       }
+      zeroRowRev = cur;
       // someone wrote between our read and our write — re-read and merge again
-    }catch(e){ return { ok:false }; }
+    }catch(e){
+      if(sent) _seriesRememberUnacked(id, sent);   // committed or not: unknown
+      return { ok:false };
+    }
   }
   return { ok:false, conflict:true };   // pathological contention only
 }
@@ -1370,9 +1476,70 @@ window.cloudSaveSections = cloudSaveSections;
    departments at once. Merge only the changed Bible departments onto the freshest
    Show doc and fence the write. Same-department edits remain last-writer-wins; cast
    work can no longer erase a location edit merely because both live in `bible`. */
+/* ORDER-INSENSITIVE (2026-09-27, "Pine Soot" false conflict). Every merge here
+   compares three copies of one value in three key orders: the baseline
+   (JSON.parse(stableJson) → alphabetical), the server doc (jsonb → shorter keys
+   first) and React state (build order). Plain JSON.stringify called identical
+   content "changed on both sides", so one window running Adaptation got a
+   bogus "Another window saved this film first" and lost everything from the
+   continuity step on. Meaning: equal exactly when JSON.stringify output would
+   be equal apart from object key order (jsonb can't keep key order anyway).
+   Array order stays significant; undefined/function/symbol values drop out of
+   objects and become null in arrays, holes read as null, NaN/Infinity as null,
+   toJSON and boxed primitives apply — JSON.stringify's own rules. A structural
+   walk, not string building: it stops at the first difference and costs about
+   one JSON.stringify on equal values (a sorted-key canonical string cost ~5x).
+   Cyclic or BigInt values fall back to identity, as JSON.stringify's throw did.
+   Kept self-contained (cloud.jsx loads before app.jsx; tests vm-extract it). */
 function _seriesJsonSame(a,b){
   if(a===undefined&&b===undefined) return true;
-  try{ return JSON.stringify(a)===JSON.stringify(b); }catch(e){ return a===b; }
+  const absent=v=>v===undefined||typeof v==="function"||typeof v==="symbol";
+  const norm=(v,key)=>{
+    if(v!==null&&typeof v==="object"){
+      if(typeof v.toJSON==="function") v=v.toJSON(key);
+      if(v instanceof Number) v=Number(v);
+      else if(v instanceof String) v=String(v);
+      else if(v instanceof Boolean) v=v.valueOf();
+    }
+    if(typeof v==="bigint") throw new TypeError("BigInt value can't be serialized in JSON");
+    return (typeof v==="number"&&!isFinite(v)) ? null : v;
+  };
+  const pathA=[], pathB=[];
+  const same=(x,y)=>{
+    if(x===y) return true;
+    if(x===null||y===null||typeof x!=="object"||typeof y!=="object") return false;
+    const list=Array.isArray(x);
+    if(list!==Array.isArray(y)) return false;
+    if(pathA.indexOf(x)>=0||pathB.indexOf(y)>=0) throw new TypeError("Converting circular structure to JSON");
+    pathA.push(x); pathB.push(y);
+    try{
+      if(list){
+        if(x.length!==y.length) return false;
+        for(let i=0;i<x.length;i++){
+          let u=norm(x[i],String(i)), w=norm(y[i],String(i));
+          if(absent(u)) u=null;
+          if(absent(w)) w=null;
+          if(!same(u,w)) return false;
+        }
+        return true;
+      }
+      let present=0;
+      for(const k of Object.keys(x)){
+        const u=norm(x[k],k);
+        if(absent(u)) continue;
+        present++;
+        const w=Object.prototype.propertyIsEnumerable.call(y,k)?norm(y[k],k):undefined;
+        if(absent(w)||!same(u,w)) return false;
+      }
+      for(const k of Object.keys(y)) if(!absent(norm(y[k],k))) present--;
+      return present===0;
+    }finally{ pathA.pop(); pathB.pop(); }
+  };
+  try{
+    const x=norm(a,""), y=norm(b,"");
+    if(absent(x)||absent(y)) return absent(x)&&absent(y);
+    return same(x,y);
+  }catch(e){ return a===b; }
 }
 function _seriesOwnSceneSlice(item,episodeId){
   const map=item&&item.episodeScenes&&typeof item.episodeScenes==="object"?item.episodeScenes:{};
@@ -1602,9 +1769,10 @@ async function cloudSaveBibleSections(showId, sections, opts){
   const sb = sbClient(); if(!sb || !showId) return { ok:false, message:"Cloud storage is unavailable." };
   const keys = Object.keys(sections||{});
   if(!keys.length) return { ok:true, noop:true };
+  let zeroRowRev = null;
   for(let attempt=0; attempt<4; attempt++){
     try{
-      const { data, error } = await sb.from("turn_projects").select("doc").eq("id", showId).single();
+      const { data, error } = await _cloudQuery(sb.from("turn_projects").select("doc").eq("id", showId).single(),"Show Bible read","save");
       if(error) return { ok:false, message:error.message||"The Show Bible could not be loaded." };
       const cloudDoc = (data && data.doc) || {};
       if(!((window.turnSeries&&typeof window.turnSeries.isShowDoc==="function")
@@ -1615,6 +1783,7 @@ async function cloudSaveBibleSections(showId, sections, opts){
         && !window.turnSeries.validBibleShape(cloudDoc.bible))
         return {ok:false,message:"The linked Show Bible is incomplete or malformed. Run the current series-production migration before saving."};
       const cur = Number(cloudDoc._rev) || 0;
+      if(zeroRowRev!==null && cur===zeroRowRev) return _seriesSaveNotAccepted("bible");
       const bible = { ...((cloudDoc && cloudDoc.bible)||{}) };
       const episodeId=opts&&opts.episodeId?String(opts.episodeId):"";
       const baseline=opts&&opts.baseline&&typeof opts.baseline==="object"?opts.baseline:{};
@@ -1630,11 +1799,12 @@ async function cloudSaveBibleSections(showId, sections, opts){
         if(!merged.ok) conflicts.push(...merged.conflicts);
       });
       if(conflicts.length) return {ok:false,conflict:true,conflicts,
-        message:"The Show Bible changed in another Episode. Reload before applying overlapping edits."};
+        message:_seriesConflictMessage(conflicts,
+          "The Show Bible changed in another Episode. Reload before applying overlapping edits.")};
       const next = { ...cloudDoc, bible, _rev:cur+1 };
       let q = sb.from("turn_projects").update({doc:next}).eq("id",showId);
       q = cur ? q.eq("doc->>_rev",String(cur)) : q.or("doc->>_rev.is.null,doc->>_rev.eq.0");
-      const { data:rows, error:wErr } = await q.select("id");
+      const { data:rows, error:wErr } = await _cloudQuery(q.select("id"),"Show Bible save","save");
       if(wErr){
         const rs=_roleScopeErr(wErr);
         return rs ? {ok:false,roleScope:true,message:rs} : {ok:false,message:wErr.message||"The Show Bible could not be saved."};
@@ -1644,6 +1814,7 @@ async function cloudSaveBibleSections(showId, sections, opts){
         _pushDocRev(showId,cur+1);
         return {ok:true,doc:next,bible};
       }
+      zeroRowRev=cur;
     }catch(e){ return {ok:false,message:(e&&e.message)||"The Show Bible could not be saved."}; }
   }
   return {ok:false,conflict:true,message:"The Show Bible changed in another window."};
