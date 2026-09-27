@@ -1072,10 +1072,12 @@ const iconProxy = new Proxy({}, { get: (_, k) => { const f = () => null; f.iconN
   const key = f => (html.match(new RegExp(f.replace(/\./g, "\\.") + "\\?v=([^\"']+)")) || [])[1] || "";
   // the first pass's files (styles + icons unchanged since) keep its key; every file the review pass
   // changed carries the review key
+  // a later change's key also counts (the Admin Storage merge re-keyed styles.css and ai.jsx)
+  const LATER = ["20260927-merge1"];
   for (const f of ["app/icons.jsx", "app/styles.css"])
-    ok("K cache key bumped: " + f, key(f) === "20260927-tablocks1", key(f));
+    ok("K cache key bumped: " + f, key(f) === "20260927-tablocks1" || LATER.includes(key(f)), key(f));
   for (const f of ["app/app.jsx", "app/artroom.jsx", "app/chrome.jsx", "app/props.jsx", "app/ai.jsx", "app/agents.jsx", "app/art-tab-locks.js", "app/lookbook.jsx", "app/image-slot.js"])
-    ok("K cache key bumped (review pass): " + f, key(f) === "20260927-tablocks2", key(f));
+    ok("K cache key bumped (review pass): " + f, key(f) === "20260927-tablocks2" || LATER.includes(key(f)), key(f));
   const at = html.indexOf('src="app/art-tab-locks.js'), ar = html.indexOf('src="app/artroom.jsx');
   ok("K art-tab-locks.js is a plain script loaded before the Art Room", at > 0 && at < ar && !/type="text\/babel" src="app\/art-tab-locks/.test(html));
 }
