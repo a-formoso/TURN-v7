@@ -54,6 +54,9 @@ import {
 import {
   planStageSweep, resolveAccountFolder, stageDirs, stagedRefPath as parseStagedRef, stagePath,
 } from "./stage-paths.mjs";
+// Which text calls ride MUSE's free path: only MUSE's own pinned model, text only, MUSE-sized
+// (2026-09-28). The browser's usageKind "muse" alone no longer skips metering.
+import { MUSE_LIMITS, museAllowanceSince, textBillingKind } from "./muse-billing.mjs";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -536,13 +539,38 @@ Deno.serve(async (req) => {
   // messages through to the provider's chat API and return the completion text.
   if (task === "text") {
     if (!messages.length) return json({ error: "No messages supplied." }, 400);
-    if (usageKind !== "muse") {
+    // FREE MUSE, FOR MUSE ONLY (2026-09-28): `textKind` is what this call is metered as —
+    // "muse" (0 credits, no spend check) only when the call really is MUSE's (its pinned model,
+    // text only, MUSE-sized: see muse-billing.mjs); a "muse" label on anything else is metered
+    // like any other text call. Other usage kinds are unchanged.
+    const textReq = {
+      usageKind, provider, model, messages, images,
+      maxTokens: body.maxCompletionTokens || body.maxTokens,
+      effort: body.effort, reasoningEffort: body.reasoningEffort, thinkingLevel: body.thinkingLevel,
+    };
+    let textBill = textBillingKind(textReq);
+    // FREE MUSE HAS A DAILY ALLOWANCE (2026-09-28, Round 1 review): a call that is otherwise free
+    // counts this account's free MUSE calls in the last 24 hours (their own usage rows, readable
+    // under turn_usage_events_select_own); past MUSE_LIMITS.dailyFreeCalls it is metered like any
+    // writing call. A count that fails leaves the call free — help never breaks on a hiccup.
+    if (textBill.free && !isAdmin) {
+      let freeCallsToday = 0;
+      try {
+        const { count, error } = await sbAuth.from("turn_usage_events").select("id", { count: "exact", head: true })
+          .eq("owner", authUser.id).eq("task", "text").eq("metadata->>usageKind", "muse")
+          .gte("created_at", museAllowanceSince(Date.now()));
+        if (!error) freeCallsToday = Number(count) || 0;
+      } catch (_e) { /* uncounted: stays free */ }
+      textBill = textBillingKind(textReq, { freeCallsToday });
+    }
+    const textKind = textBill.kind;
+    if (textKind !== "muse") {
       const block = ensureCanSpend(1);
       if (block) return block;
     }
     const finishText = async (providerName: string, modelName: string, providerData: any, text: string, vision: boolean) => {
       const tokens = normaliseTextUsage(providerName, providerData);
-      const estimate = textUsageEstimate(providerName, modelName, tokens, usageKind);
+      const estimate = textUsageEstimate(providerName, modelName, tokens, textKind);
       const usage = await recordUsage({
         kind: "generation",
         providerName,
@@ -552,7 +580,7 @@ Deno.serve(async (req) => {
         inputTokens: tokens.inputTokens,
         outputTokens: tokens.outputTokens,
         providerCostUsd: estimate.providerCostUsd,
-        metadata: { usageKind, vision, totalTokens: tokens.inputTokens + tokens.outputTokens },
+        metadata: { usageKind: textKind, ...(textKind !== usageKind ? { requestedUsageKind: usageKind } : {}), vision, totalTokens: tokens.inputTokens + tokens.outputTokens },
       });
       // relay output-cap truncation so the client can warn instead of silently
       // degrading (a truncated shot-list draft salvages early beats and one-shot
@@ -688,8 +716,10 @@ Deno.serve(async (req) => {
           // THINKING ROOM (2026-09-26): current Claude models think, and max_tokens caps
           // thinking + text together — 4096 cut spine replies off mid-JSON. It's only a cap
           // (billing follows tokens actually used), so every Claude call gets at least 16k.
-          body: JSON.stringify({ model, max_tokens: Math.max(reqMaxTokens || 0, 16000),
-            ...(claudeEffort && /^claude-(fable|mythos|opus-5|sonnet-5)/.test(model) ? { output_config: { effort: claudeEffort } } : {}),
+          // A FREE MUSE call (2026-09-28) is the exception: a few sentences, capped at
+          // MUSE_LIMITS.maxOutputTokens, with no effort setting — the platform pays for it.
+          body: JSON.stringify({ model, max_tokens: textKind === "muse" ? MUSE_LIMITS.maxOutputTokens : Math.max(reqMaxTokens || 0, 16000),
+            ...(textKind !== "muse" && claudeEffort && /^claude-(fable|mythos|opus-5|sonnet-5)/.test(model) ? { output_config: { effort: claudeEffort } } : {}),
             ...(sys ? { system: sys } : {}), messages: turns.length ? turns : [{ role: "user", content: "" }] }),
         });
         if (!r.ok) { let d = ""; try { d = (await r.json())?.error?.message || ""; } catch (_e) { /* noop */ } return json({ error: d || `Anthropic error (${r.status}).`, status: r.status }, 200); }

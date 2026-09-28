@@ -60,6 +60,9 @@
      contextual inspector. */
   --rail-w:380px;
   --insp-w:380px;
+  /* clearance for the floating MUSE bubble (bottom 22px + 54px + 12px air): the end of a
+     scroll area that reaches the bottom-right corner scrolls clear of it (2026-09-28) */
+  --muse-clear:88px;
 
   color-scheme:dark;
 }
@@ -140,6 +143,11 @@ body{
   border-bottom:1px solid var(--line);
   position:relative;z-index:30;
 }
+/* a menu or window opened FROM the top bar (⋯, Export, the room / film / account menus, the Story
+   brief, Team, the Film bible…) is rendered inside it, and the bar's z-index:30 capped them all: on a
+   phone the Scene drawer, the MUSE bubble and the Writing dock covered them. While one is open the
+   bar sits above those layers; dialogs (appConfirm) and toasts stay higher still (2026-09-28). */
+.topbar:has(.export-menu, .room-menu, .proj-menu, .acct-menu, .bible-overlay){z-index:130}
 .brand{display:flex;align-items:center;gap:10px;cursor:default}
 .brand-mark{
   width:26px;height:26px;border-radius:7px;
@@ -658,6 +666,9 @@ html[data-theme="light"] .seg-attn-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .legend{display:flex;align-items:center;gap:16px;margin-left:auto}
 .legend-item{display:flex;align-items:center;gap:7px;font-family:var(--f-mono);font-size:10.5px;letter-spacing:.05em;color:var(--txt-2);text-transform:uppercase}
 .legend-swatch{width:12px;height:12px;border-radius:3px}
+/* the film's estimated total runtime (the one legend item with no swatch) reads on one line,
+   however narrow the canvas (2026-09-28) */
+.legend-item:not(:has(> .legend-swatch)){white-space:nowrap}
 
 .canvas-scroll{flex:1;overflow-x:auto;overflow-y:auto;padding:8px 22px 26px;-webkit-overflow-scrolling:touch}
 .spine-wrap{min-width:max-content}
@@ -692,6 +703,8 @@ html[data-theme="light"] .seg-attn-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .act-band:hover{background:var(--bg-3)}
 .act-band:hover .act-fold-ic{color:var(--txt-1)}
 .act-band.collapsed .no{color:var(--txt-2)}
+/* the act bands and scene cards take keyboard focus (2026-09-28) */
+.act-band:focus-visible{outline:2px solid var(--pos-line);outline-offset:-2px}
 .spine-act-strip:hover{background:var(--bg-3)}
 
 /* graph */
@@ -714,6 +727,7 @@ html[data-theme="light"] .seg-attn-dot{box-shadow:0 0 0 2px var(--bg-3)}
   display:flex;flex-direction:column;gap:9px;
 }
 .scard:hover{background:var(--bg-3)}
+.scard:focus-visible{outline:2px solid var(--pos-line);outline-offset:-2px}
 .scard.sel{background:var(--bg-3);box-shadow:inset 0 0 0 1px var(--pos-line)}
 .scard.sel::before{
   content:"";position:absolute;top:-1px;left:0;right:0;height:2px;background:var(--pos);
@@ -775,6 +789,9 @@ html[data-theme="light"] .seg-attn-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .insp-tab.on{color:var(--txt-0)}
 .insp-tab.on::after{content:"";position:absolute;left:8px;right:8px;bottom:-1px;height:2px;background:var(--pos);border-radius:2px}
 .insp-scroll{flex:1;overflow-y:auto;padding:16px}
+/* the Scene / Character panel reaches the bottom-right corner at every width, where the MUSE
+   bubble floats: its last row (the scene's Delete sits far right) scrolls clear (2026-09-28) */
+.insp-scroll{padding-bottom:var(--muse-clear)}
 
 /* The Writers' Room's film-level information uses the inspector's exact tab
    language on the left. The scene spine stays below as persistent navigation. */
@@ -1184,6 +1201,9 @@ html[data-theme="light"] .seg-attn-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .st-group.a>.cont-btn.ok,.st-group.a>.cont-btn.warn{border:0;border-radius:0}
 .st-group.a>.ver-ctl{border:0;border-radius:0;background:transparent;padding:0 3px}
 .st-group.a>.ver-ctl+*{border-left:1px solid var(--line-2)}
+/* "Redraft N out-of-date" — its own housed strip, the same look as group A (2026-09-28) */
+.st-group.r{border:1px solid var(--line-2);border-radius:9px;background:var(--bg-3);overflow:hidden}
+.st-group.r>*{height:32px;border:0;border-radius:0;flex:0 0 auto}
 .st-group.b{gap:8px;align-items:center}
 .st-group.b .draft-btn.sm{height:32px}
 .st-group.b .script-scenestep{height:32px;border:1px solid var(--line-2);border-radius:9px;background:var(--bg-3);padding:0 8px}
@@ -1271,6 +1291,9 @@ textarea.edit-in{line-height:1.5;min-height:36px;font-family:var(--f-ui);box-siz
 .eil-del{flex:0 0 auto;opacity:0;background:transparent;border:none;color:var(--txt-3);cursor:pointer;
   padding:4px;border-radius:5px;display:inline-flex;align-items:center;margin-top:4px;transition:.1s}
 .eil-row:hover .eil-del{opacity:1}
+/* keyboard reachable (2026-09-28): it shows while focus is in its row */
+.eil-row:focus-within .eil-del{opacity:1}
+.eil-del:focus-visible{opacity:1;outline:2px solid var(--pos-line);outline-offset:1px}
 .eil-del:hover{background:var(--bg-3);color:var(--alert)}
 .eil-add{align-self:flex-start;display:inline-flex;align-items:center;gap:5px;margin-top:3px;
   background:transparent;border:1px dashed var(--line-3);color:var(--txt-2);font-family:var(--f-ui);font-size:11px;
@@ -1881,6 +1904,9 @@ html[data-theme="light"] .ag-errbar{background:oklch(0.62 0.16 30 / .1);border-c
   background:var(--bg-3);border:1px solid var(--line-3);box-shadow:var(--shadow-pop);
   animation:undoIn .22s cubic-bezier(.2,.8,.2,1)}
 @keyframes undoIn{from{opacity:0;transform:translate(-50%,12px)}to{opacity:1;transform:translate(-50%,0)}}
+/* sized to its words, not to half the window (2026-09-28): on a portrait tablet the left:50% box
+   wrapped the text into a taller toast that ran under the stacked one */
+.agent-undo{width:max-content;max-width:calc(100vw - 24px)}
 /* a deleted-scene undo sits above an agent undo when both are showing */
 .agent-undo.scene-undo.stacked{bottom:86px}
 .agent-undo .au-ic{width:30px;height:30px;border-radius:9px;flex:0 0 30px;display:grid;place-items:center;
@@ -1897,6 +1923,19 @@ html[data-theme="light"] .ag-errbar{background:oklch(0.62 0.16 30 / .1);border-c
 @media (max-width:640px){
   .agent-undo{left:12px;right:12px;bottom:12px;transform:none}
   @keyframes undoIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+  /* 2026-09-28: the toast's right end (its ×) sat under the MUSE bubble. It now stops short of
+     the bubble, sheds its decorative icons to keep its words room, and the stacked one sits
+     higher since a narrower toast can wrap to more lines. */
+  .agent-undo{right:var(--muse-clear);width:auto;max-width:none}
+  .agent-undo .au-ic,.agent-undo .au-btn svg{display:none}
+  .agent-undo .au-text{flex:1 1 auto;min-width:0;padding-right:0}
+  .agent-undo .au-btn{padding:0 12px;flex:0 0 auto}
+  .agent-undo.scene-undo.stacked{bottom:98px}
+}
+@media (max-width:380px){
+  /* the narrowest phones: tighter spacing, and the stacked toast higher still */
+  .agent-undo{gap:8px;padding:9px 10px 9px 12px}
+  .agent-undo.scene-undo.stacked{bottom:124px}
 }
 
 /* ============================================================
@@ -4342,6 +4381,9 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
 
 /* ---- bottom nav + overflow + context: defaults (desktop, hidden/idle) ---- */
 .overflow-wrap{position:relative;display:none}
+/* ⋯ entries for top-bar buttons a phone hides (Story brief, Team): the Art Room shows this
+   menu at every width, beside those buttons, so they show only at ≤700px (2026-09-28) */
+.export-menu .export-item.ovf-phone{display:none}
 .bottom-nav{display:none}
 .context-group{display:flex;align-items:center;gap:14px;min-width:0}
 /* zones must never let their CHILDREN spill into the centred nav, but their
@@ -4408,7 +4450,9 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
   .topbar{gap:8px;padding:0 12px}
   .topbar-divider{display:none}
   .canvas-head{padding:12px 16px 0}
-  .legend{display:none}
+  /* the colour key hides, but the film's estimated total runtime (the one legend item with
+     no swatch) stays on tablets and phones (2026-09-28) */
+  .legend-item:has(> .legend-swatch){display:none}
   .canvas-scroll{padding:8px 14px 24px}
 }
 
@@ -4419,8 +4463,11 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
   .app.vp-mobile .rail{top:50px}
   .app.vp-mobile .inspector{top:50px}
   .brand-name{display:none}                       /* glyph only */
-  .tb-btn:not(.accent){display:none}              /* New Story + Export → overflow kebab */
+  .tb-btn:not(.accent){display:none}              /* New Story, Export, Brief, Team → overflow kebab */
   .overflow-wrap{display:block}
+  .export-menu .export-item.ovf-phone{display:flex}
+  /* the Story panel drawer covers the MUSE bubble's corner too (2026-09-28) */
+  .app.vp-mobile .rail-scroll{padding-bottom:var(--muse-clear)}
   .avatar{display:none}
 
   /* merged context control: room + film read as one pill.
@@ -4561,7 +4608,8 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
   /* script view fluid */
   .script-head{flex-direction:column;align-items:stretch;gap:10px;padding:14px 14px 0}
   /* toolbar groups stack as TWO centered lines on phones, each keeping the exact
-     desktop look (housed strip / Redraft + pager); group A scrolls if ever wider */
+     desktop look (housed strip / Redraft + pager); group A scrolls if ever wider.
+     "Redraft N out-of-date" (.st-group.r), when shown, is a third line between them. */
   .script-tools{flex-direction:column;align-items:center;gap:8px}
   .st-group{max-width:100%}
   /* on phones the Redraft button GLUES to the pager in one housed strip, and the

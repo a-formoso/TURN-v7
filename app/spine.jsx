@@ -14,19 +14,25 @@ function turnInfo(sc){
   return { turned:t.turned, progression:t.progression, flagged: !t.turned && !t.progression && !exempt, exempt };
 }
 /* one badge for a scene's turn status, everywhere it's shown: turns / progresses (same
-   side, no reversal) / settles (a structural beat allowed to settle) / no turn */
-function TurnBadge({ scene }){
+   side, no reversal) / settles (a structural beat allowed to settle) / no turn.
+   turnBadgeOf is what the badge says: one source for the badge and for the scene
+   card's spoken name (2026-09-28). */
+function turnBadgeOf(scene){
   const ti = turnInfo(scene), aud = (typeof fwAuditOf==="function" && fwAuditOf()) || {};
-  const h = React.createElement;
-  if(ti.flagged) return h("span",{className:"turn-badge no"},h(Icon.alert,{s:10}),aud.flagBadge||"No turn");
-  if(ti.progression) return h("span",{className:"turn-badge prog",title:"Intensifies on the same side instead of reversing"},
-    h(Icon.arrowSmall,{s:10}),aud.progBadge||"Progresses");
+  if(ti.flagged) return { cls:"no", icon:"alert", word:aud.flagBadge||"No turn" };
+  if(ti.progression) return { cls:"prog", icon:"arrowSmall", word:aud.progBadge||"Progresses",
+    title:"Intensifies on the same side instead of reversing" };
   const reversed = (typeof chargeTurn==="function") ? chargeTurn(scene.openCharge, scene.closeCharge).turned : ti.turned;
-  if(ti.exempt && !reversed) return h("span",{className:"turn-badge settle",title:"This structural beat may settle rather than turn"},
-    h(Icon.check,{s:10}),"Settles");
-  return h("span",{className:"turn-badge ok"},h(Icon.check,{s:10}),aud.okBadge||"Turns");
+  if(ti.exempt && !reversed) return { cls:"settle", icon:"check", word:"Settles",
+    title:"This structural beat may settle rather than turn" };
+  return { cls:"ok", icon:"check", word:aud.okBadge||"Turns" };
+}
+function TurnBadge({ scene }){
+  const b = turnBadgeOf(scene), h = React.createElement;
+  return h("span",{className:"turn-badge "+b.cls,...(b.title?{title:b.title}:null)},h(Icon[b.icon],{s:10}),b.word);
 }
 window.TurnBadge = TurnBadge;
+window.turnBadgeOf = turnBadgeOf;
 function chargeClass(v){ return v > 0 ? "pos" : v < 0 ? "neg" : "zero"; }
 function chargeStr(v){ return v > 0 ? `+${v}` : `${v}`; }
 window.turnInfo = turnInfo;
@@ -130,15 +136,27 @@ function charSolidColor(c){
 }
 function characterThroughline(char, scenes, beatsMap){
   const first = (((char && char.name) || "").trim().toLowerCase().split(/\s+/)[0]) || "";
+  // 2026-09-28 (Round 1): the first name must appear as a WHOLE word ("Al" is not in "also",
+  // "Jo" not in "join"); letters of any alphabet count as word letters, so "Zoë" and
+  // "Zoë's" match while "Zoëlle" doesn't.
+  const esc = first.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  let named = null;
+  try{ named = first ? new RegExp("(^|[^\\p{L}\\p{N}_])"+esc+"(?![\\p{L}\\p{N}_])", "u") : null; }
+  catch(e){ named = first ? new RegExp("(^|[^a-z0-9_])"+esc+"(?![a-z0-9_])") : null; }
   const driven = scenes.filter(s => s.driver === char.id);
   const involvedIds = new Set(driven.map(s => s.id));
   scenes.forEach(s => {
     if(involvedIds.has(s.id)) return;
     const b = (beatsMap && beatsMap[s.id]) || {};
     const hay = [b.driverLabel, b.reactorLabel, s.summary].filter(Boolean).join(" ").toLowerCase();
-    if(first && hay.includes(first)) involvedIds.add(s.id);
+    if(named && named.test(hay)) involvedIds.add(s.id);
   });
-  const turnIds = new Set(); const turnsByAct = {1:0, 2:0, 3:0};
+  // 2026-09-28 (Round 1): count every act the story's structure has (a four-act shape such as
+  // Kishōtenketsu has an Act IV), plus any act a driven scene sits in beyond it.
+  const actNos = ((typeof fwActNos==="function") ? fwActNos() : null) || [1, 2, 3];
+  const acts = Array.from(new Set(actNos.concat(driven.map(s => Number(s.act)).filter(a => a > 0)))).sort((a, b) => a - b);
+  const turnIds = new Set(); const turnsByAct = {};
+  acts.forEach(a => { turnsByAct[a] = 0; });
   driven.forEach((s, i) => {
     const prev = i ? driven[i-1].closeCharge : s.openCharge;
     const turned = (typeof chargeTurn==="function") ? chargeTurn(prev, s.closeCharge).turned
@@ -153,12 +171,13 @@ function characterThroughline(char, scenes, beatsMap){
   else {
     const lastTurnIdx = driven.reduce((acc, s, i) => turnIds.has(s.id) ? i : acc, -1);
     const coastAfter = driven.length - 1 - lastTurnIdx;
-    if(turnsByAct[1] >= 2 && !turnsByAct[2] && !turnsByAct[3]){
+    const roman = (a)=> ["I","II","III","IV","V","VI"][a-1] || String(a);
+    if(turnsByAct[1] >= 2 && acts.every(a => a === 1 || !turnsByAct[a])){
       verdict = `All the movement is in Act I (×${turnsByAct[1]}) — the arc coasts from there.`; flat = true;
     } else if(coastAfter >= 3){
       verdict = `Turns ${total}×, then coasts — the last ${coastAfter} scenes they drive don’t move them.`; flat = true;
     } else {
-      verdict = `Arc turns ${total}× · Act I ×${turnsByAct[1]} · II ×${turnsByAct[2]} · III ×${turnsByAct[3]}.`;
+      verdict = `Arc turns ${total}× · ` + acts.map((a, i) => (i ? "" : "Act ") + roman(a) + " ×" + turnsByAct[a]).join(" · ") + ".";
     }
   }
   return { driven, involvedIds, turnIds, turnsByAct, verdict, flat };
@@ -243,6 +262,20 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
   // act names come from the project's narrative framework (Three-Act: Setup /
   // Complication / Resolution; Kishōtenketsu: Ki / Shō / Ten / Ketsu)
   const actName = (a)=> (typeof fwActName==="function") ? fwActName(a) : (({1:"Setup",2:"Complication",3:"Resolution"})[a] || ("Act "+a));
+  // 2026-09-28 (Round 1): the act bands and scene cards are clickable divs, so they also take
+  // keyboard focus and act on Enter / Space, and carry a spoken name (screen readers).
+  const keyActivate = (fn)=> (e)=>{
+    if(e.target!==e.currentTarget) return;
+    if(e.key==="Enter" || e.key===" "){ e.preventDefault(); fn(); }
+  };
+  // a scene card's spoken name: what the card shows (the grip, dots and chips are visual only)
+  const sceneCardLabel = (s, stale, rt)=> "Scene "+s.no+(s.title?": "+s.title:"")+
+    ", "+chargeStr(s.openCharge)+" to "+chargeStr(s.closeCharge)+", "+turnBadgeOf(s).word+
+    (stale ? ", script out of date" : "")+
+    (rt ? ", "+(rt.long ? fmtClock(rt.sec)+", long for this format" : (rt.approx?"about ":"")+fmtClock(rt.sec)) : "");
+  const actBandA11y = (act, isCollapsed, figures)=>({ role:"button", tabIndex:0, "aria-expanded":!isCollapsed,
+    "aria-label":(isCollapsed?"Expand":"Collapse")+" Act "+roman(act)+" — "+actName(act)+(figures?", "+figures:""),
+    onKeyDown:keyActivate(()=>toggle(act)) });
 
   const yFor = (charge) => {
     // charge -3..+3 -> y within graph (PAD_T..GRAPH_H-PAD_B)
@@ -290,13 +323,15 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
       ruler.map(r => {
         if(r.collapsed) return React.createElement("div",{key:r.act,className:"act-band collapsed",
           style:{width:COLLAPSED_W,cursor:"pointer",justifyContent:"center",gap:4,padding:0},
-          onClick:()=>toggle(r.act),title:`Expand Act ${roman(r.act)}`},
+          onClick:()=>toggle(r.act),title:`Expand Act ${roman(r.act)}`,
+          ...actBandA11y(r.act, true, r.count+" scene"+(r.count!==1?"s":""))},
           React.createElement(Icon.chevR,{s:12}),
           React.createElement("span",{className:"no"},roman(r.act)));
         const pct = Math.round((r.count / scenes.length) * 100);
         const mins = actMin(r.act);
         return React.createElement("div",{key:r.act,className:"act-band",style:{width:bandW(r),cursor:"pointer"},
-          onClick:()=>toggle(r.act),title:`Collapse Act ${roman(r.act)}`},
+          onClick:()=>toggle(r.act),title:`Collapse Act ${roman(r.act)}`,
+          ...actBandA11y(r.act, false, (mins!=null ? "about "+mins+", " : "")+pct+"% of the scenes")},
           React.createElement("span",{className:"act-fold-ic"},React.createElement(Icon.chevD,{s:11})),
           React.createElement("span",{className:"no"},`ACT ${roman(r.act)}`),
           React.createElement("span",{className:"nm"},actName(r.act)),
@@ -443,7 +478,10 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
                     `${dragIdx===ci?"dragging":""} ${overIdx===ci&&dragIdx!=null&&dragIdx!==ci?"dragover":""} `+
                     `${follow && !fInvolved(s) ? "dim":""}`,
           style:{width:COL_W, ...(fDrives ? {boxShadow:`inset 0 2px 0 ${follow.color}`+(sel?", inset 0 0 0 1px var(--pos-line)":"")} : null)},
-          onClick:()=>onSelect(s.id)},
+          onClick:()=>onSelect(s.id),
+          role:"button", tabIndex:0, onKeyDown:keyActivate(()=>onSelect(s.id)),
+          "aria-current":sel?"true":undefined,
+          "aria-label":sceneCardLabel(s, staleIds && staleIds.has(s.id), runtimes && runtimes[s.id])},
           !readOnly && React.createElement("span",{className:"scard-grip",title:"Drag to reorder"},React.createElement(Icon.grip,{s:14})),
           React.createElement("div",{className:"scard-top"},
             React.createElement("span",{className:"scard-no"},String(s.no).padStart(2,"0")),

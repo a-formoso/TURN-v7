@@ -38,8 +38,11 @@ await test("the proxy prices Claude at Anthropic's list prices",()=>{
   assert.ok(pricing.includes('"claude-fable-5-1": 0.11')&&ai.includes('"claude-fable-5-1": 0.11'));
 });
 await test("every Claude call has room to think, and effort reaches Anthropic",()=>{
-  assert.ok(proxy.includes("max_tokens: Math.max(reqMaxTokens || 0, 16000)"));
+  // (2026-09-28) every METERED Claude call keeps its 16k floor; a free MUSE call has its own cap
+  // and no effort setting (muse-billing.mjs MUSE_LIMITS.maxOutputTokens)
+  assert.ok(proxy.includes('max_tokens: textKind === "muse" ? MUSE_LIMITS.maxOutputTokens : Math.max(reqMaxTokens || 0, 16000)'));
   assert.ok(/output_config: \{ effort: claudeEffort \}/.test(proxy)&&/claudeEffort = \/\^\(low\|medium\|high\|xhigh\|max\)\$\//.test(proxy));
+  assert.ok(proxy.includes('...(textKind !== "muse" && claudeEffort && /^claude-(fable|mythos|opus-5|sonnet-5)/.test(model) ? { output_config: { effort: claudeEffort } } : {})'));
 });
 await test("specs drafting runs at medium effort; story work keeps the model's default",async()=>{
   bodies=[]; replies=[{text:"ok"},{text:"ok"}];

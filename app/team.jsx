@@ -301,12 +301,22 @@ window.teamInviteInviter = teamInviteInviter;
 
 function TeamButton({ projectId, projectTitle, projectMeta, series, onChanged }){
   const [open, setOpen] = React.useState(false);
-  if(!projectId) return null;
   const shared = projectMeta && projectMeta.isShared;
+  const hint = shared
+    ? ((series?"Show shared with you":"Shared with you")+" · "+teamRoleLabel(projectMeta.shareRole))
+    : (series?"Show team · shared Bible and all episodes":"Team collaboration");
+  // 2026-09-28 (Round 1): a phone (≤700px) hides this button with the other plain top-bar
+  // buttons, so while it is up for a film it registers itself for the top bar's ⋯ menu
+  // (chrome.jsx OverflowMenu), which then offers "Team" and opens this same window.
+  React.useEffect(()=>{
+    if(!projectId) return;
+    const entry = { open:()=>setOpen(true), hint };
+    window.turnTeamMenu = entry;
+    return ()=>{ if(window.turnTeamMenu===entry) window.turnTeamMenu = null; };
+  },[projectId, hint]);
+  if(!projectId) return null;
   return React.createElement(React.Fragment,null,
-    React.createElement("button",{className:"tb-btn",onClick:()=>setOpen(true),title:shared
-      ? ((series?"Show shared with you":"Shared with you")+" · "+teamRoleLabel(projectMeta.shareRole))
-      : (series?"Show team · shared Bible and all episodes":"Team collaboration")},
+    React.createElement("button",{className:"tb-btn",onClick:()=>setOpen(true),title:hint},
       React.createElement(Icon.user,{s:14}),"Team"),
     open && React.createElement(TeamModal,{projectId,projectTitle,projectMeta,series,onChanged,onClose:()=>setOpen(false)}));
 }

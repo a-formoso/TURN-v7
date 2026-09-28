@@ -172,7 +172,7 @@ const GRADES = {
   "Ember & Ice":   { pos:"oklch(0.68 0.18 35)", posH:"35", neg:"oklch(0.74 0.09 210)", negH:"210" },
 };
 
-function StudioProgressOverlay({ title, detail, progress, role }){
+function StudioProgressOverlay({ title, detail, progress, role, onStop, stopping }){
   const pct = progress==null ? null : Math.max(0, Math.min(100, Math.round(progress)));
   return React.createElement("div",{className:"redraft-overlay studio-progress-overlay",
     role:"status","aria-live":"polite","aria-atomic":"true","aria-label":title},
@@ -185,7 +185,11 @@ function StudioProgressOverlay({ title, detail, progress, role }){
       detail && React.createElement("div",{className:"redraft-d"},detail),
       pct!=null && React.createElement("div",{className:"studio-progress-bar",role:"progressbar",
         "aria-label":"Progress","aria-valuemin":0,"aria-valuemax":100,"aria-valuenow":pct},
-        React.createElement("i",{style:{width:pct+"%"}}))));
+        React.createElement("i",{style:{width:pct+"%"}})),
+      // a long batch (Auto-draft all) can be stopped between scenes (2026-09-28)
+      onStop && React.createElement("button",{type:"button",className:"appconfirm-btn ghost",
+        disabled:!!stopping, onClick:onStop, style:{marginTop:4}},
+        stopping ? "Stopping\u2026" : "Stop")));
 }
 
 /* ---- alternate view: Turn Audit table ---- */
@@ -260,12 +264,15 @@ function Board({ scenes, selId, onSelect }){
   const [collapsed,setCollapsed]=React.useState(()=>{ try{ return JSON.parse(localStorage.getItem("turn_board_collapsed")||"{}")||{}; }catch(e){ return {}; } });
   React.useEffect(()=>{ try{ localStorage.setItem("turn_board_collapsed",JSON.stringify(collapsed)); }catch(e){} },[collapsed]);
   const toggle=(act)=> setCollapsed(c=>({...c,[act]:!c[act]}));
+  // keyboard: a clickable card or strip answers Enter and Space like a button (2026-09-28)
+  const keyActivate=(fn)=>(e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); fn(); } };
   return React.createElement(DragScroll,{className:"canvas-scroll board-pan",style:{padding:"18px 22px 40px"}},
     React.createElement("div",{style:{display:"flex",gap:14,minWidth:"max-content"}},
       acts.map(a=>{
         const roman=["I","II","III","IV"][a.act-1]||String(a.act);
         // collapsed → a slim, clickable vertical strip
         if(collapsed[a.act]) return React.createElement("div",{key:a.act,className:"board-act-strip",
+          role:"button",tabIndex:0,"aria-label":`Expand ${titles[a.act]}`,onKeyDown:keyActivate(()=>toggle(a.act)),
           onClick:()=>toggle(a.act),title:`Expand ${titles[a.act]}`,
           style:{width:46,flex:"0 0 46px",alignSelf:"flex-start",cursor:"pointer",
             display:"flex",flexDirection:"column",alignItems:"center",gap:12,padding:"10px 0",
@@ -288,6 +295,8 @@ function Board({ scenes, selId, onSelect }){
             a.scenes.map(s=>{
               const {flagged}=turnInfo(s);
               return React.createElement("div",{key:s.id,onClick:()=>onSelect(s.id),
+                role:"button",tabIndex:0,"aria-pressed":s.id===selId,"aria-label":"Scene "+s.no+(s.title?": "+s.title:""),
+                onKeyDown:keyActivate(()=>onSelect(s.id)),
                 className:`scard ${s.id===selId?"sel":""}`,
                 style:{width:"auto",borderRadius:"var(--r-m)",border:"1px solid var(--line)",borderTop:"1px solid var(--line)"}},
                 React.createElement("div",{className:"scard-top"},
@@ -580,10 +589,13 @@ function App(){
     else { setRailOpen(false); setInspOpen(false); }
     lastVp.current = vp;
   },[vp]);
-  // on mobile, only one overlay at a time
-  const excl = ()=> vp==="mobile";
+  // on mobile, only one overlay at a time — and on a TABLET only one side panel at a time too
+  // (2026-09-28): the two 380px panels side by side left the Spine/Script canvas a few pixels wide
+  const excl = ()=> vp==="mobile" || vp==="tablet";
   const toggleRail = ()=> setRailOpen(o=>{ const n=!o; if(n && excl()){ setInspOpen(false); } return n; });
   const toggleInsp = ()=> setInspOpen(o=>{ const n=!o; if(n && excl()){ setRailOpen(false); } return n; });
+  const openRail = ()=>{ setRailOpen(true); if(excl()) setInspOpen(false); };
+  const openInsp = ()=>{ setInspOpen(true); if(excl()) setRailOpen(false); };
   const [drafts, setDrafts] = React.useState(()=> (saved && saved.drafts) || ({}));
   const [drafting, setDrafting] = React.useState(null);
   const [beatsMap, setBeatsMap] = React.useState(()=> (saved && saved.beatsMap) || ({}));
@@ -883,6 +895,12 @@ function App(){
      auto-draft keys its once-guard on it, and draftAllVisuals drops a result that lands after a switch. */
   const localStoryGenRef = React.useRef(0);
   const castDraftFilmKey = ()=> projIdRef.current ? "film:"+projIdRef.current : "local:"+localStoryGenRef.current;
+  // FILM TOKEN for async work (2026-09-28): capture window.turnFilmToken() before an await, then pass
+  // it to onEditScene / onBeats (commitVersion / setBeatsFor drop a stale one) or check
+  // window.turnSameFilm(token) — a Redraft, script.jsx "Write this beat", the Inspector's beat maps.
+  // Scene ids repeat across films, so a late result must land only in the film it was asked for.
+  window.turnFilmToken = castDraftFilmKey;
+  window.turnSameFilm = (tok)=> tok===castDraftFilmKey();
   /* SHARE ROLE on the open film. Room access and room mutability are deliberately
      separate: an Art director may inspect the Writers' Room, but only Writer/owner
      roles may change its story sections. The section helper is also the autosave
@@ -3368,7 +3386,7 @@ function App(){
     // surface the selected scene's details — expand a collapsed inspector.
     // Panel modes only: on mobile the inspector is a full overlay drawer, and
     // auto-opening it would hijack the canvas on every browsing tap.
-    if(!inspDrawer) setInspOpen(true);
+    if(!inspDrawer) openInsp();
   };
   const selectSceneBrowse = (id)=>{ setSelId(id); setSelChar(null); setFocusBeat(null); };
   // Art Room provenance links return to the exact screenplay source. Mentions from
@@ -4987,6 +5005,13 @@ function App(){
     return ()=> clearTimeout(timer);
   },[selId, view]);
   const [agentUndo, setAgentUndo] = React.useState([]);   // stack of pre-run snapshots
+  const agentUndoRef = React.useRef(agentUndo); agentUndoRef.current = agentUndo;
+  // a film switch drops the other film's agent-undo snapshots: they can never be applied here
+  // (2026-09-28 — Undo after a switch used to write film A's story over film B)
+  React.useEffect(()=>{
+    const k = castDraftFilmKey();
+    setAgentUndo(st=> st.some(x=>!x || x.filmKey!==k) ? st.filter(x=>x && x.filmKey===k) : st);
+  },[currentProjectId]);
   const draftingRef = React.useRef(false);
   // Scene-id counter. SEEDED FROM THE LOADED SCENES, not a fixed 1000: a bare counter
   // restarts every page load, so session 2's first "+ Add scene" re-issued s1001 and
@@ -5015,13 +5040,32 @@ function App(){
   // the doc on every commit — in local mode it eventually blew the localStorage quota and
   // (because that write is a bare try/catch) saves then failed silently forever.
   const HISTORY_MAX = 12;
-  const commitVersion = (id, next)=>{
+  /* commitVersion(id, next, filmToken?) — filmToken (window.turnFilmToken(), captured BEFORE an
+     await) makes a late result land only in the film it was asked for (2026-09-28): scene ids
+     repeat across films, so a result for film A's Sc 4 must never replace film B's. */
+  const commitVersion = (id, next, filmToken)=>{
+    if(filmToken!==undefined && filmToken!==castDraftFilmKey()) return false;
     if(!canMutateWritersRoom()) return false;
     const prev = drafts[id];
     // a manual edit or a written beat keeps the card snapshot of the draft it edits
     if(next && !next.cardSnap && prev && prev.cardSnap) next = { ...next, cardSnap:prev.cardSnap };
+    /* THE CAP NEVER EATS WHAT UNDO PROMISED (2026-09-28). Every single-line manual edit is a
+       version too, so a normal editing pass used to push out the draft a Redraft had promised
+       "Undo restores it". Over the cap, the oldest IN-BETWEEN manual step goes first (a manual
+       edit that was itself followed by another manual edit); a version that preceded a Redraft,
+       a written beat or any MUSE draft — and the last manual state before one — is dropped only
+       when nothing else can be, oldest first, as before. */
+    const trim = (back)=>{
+      const out = back.slice(), manual = (v)=> !!(v && v.edited);
+      while(out.length > HISTORY_MAX){
+        let drop = 0;
+        for(let i=0;i<out.length;i++){ if(manual(out[i]) && manual(i+1<out.length ? out[i+1] : next)){ drop = i; break; } }
+        out.splice(drop, 1);
+      }
+      return out;
+    };
     if(prev) setHistory(h=>{ const e=h[id]||{back:[],fwd:[]};
-      return {...h,[id]:{ back:[...e.back, prev].slice(-HISTORY_MAX), fwd:[] }}; });
+      return {...h,[id]:{ back:trim([...e.back, prev]), fwd:[] }}; });
     setDrafts(d=>({...d,[id]:next}));
     return true;
   };
@@ -5094,7 +5138,9 @@ function App(){
   };
   const draftAll = async ()=>{
     if(!canMutateWritersRoom() || draftingRef.current) return;
-    draftingRef.current = true;
+    // the run's own record (truthy = a run is live): .stop is set by the progress overlay's Stop
+    const run = { stop:false };
+    draftingRef.current = run;
     // One canonical, mutable story-order snapshot for the whole run. When authoring
     // fills a blank scene, patch this working sequence before drafting its successor
     // so continuity never reads the stale render-closure scene.
@@ -5103,11 +5149,25 @@ function App(){
     const have = {...drafts};
     const owner = currentProjectId;   // abort the whole run if the user switches films
     const standIns = [];              // { no, failure } \u2014 rough stand-ins, reported at the end
+    // STOP ON A FAILURE RETRYING CAN'T FIX (2026-09-28, agents.jsx failureNeedsAction): out of
+    // plan credits, signed out, the provider account dry. Every later scene would fail the same
+    // way and become a rough stand-in (which then counts as drafted, so "Auto-draft all" would
+    // vanish). The run stops there instead: everything written is kept, that scene and the
+    // rest are left UNDRAFTED — so "Auto-draft all" picks them up later — and it says why once.
+    const aiAtStart = (typeof aiAvailable==="function") && aiAvailable();
+    const needsAction = (f)=> !!(aiAtStart && f && (typeof window.turnFailureNeedsAction==="function"
+      ? window.turnFailureNeedsAction(f) : (f.kind==="plan" || f.kind==="signin" || f.kind==="credits")));
+    // …and the same service failure on two scenes in a row (2026-09-28, agents.jsx
+    // repeatedServiceFailure): the first keeps its rough stand-in, the second and the rest stay undrafted
+    let prevFail = null;
+    const repeatedFail = (f)=> !!(aiAtStart && typeof window.turnRepeatedServiceFailure==="function" && window.turnRepeatedServiceFailure(prevFail, f));
+    let halted = null, stoppedAt = null, drafted = 0;
     try{
       for(let i=0;i<tot;i++){
         if(owner !== projIdRef.current || writersRoomReadOnlyRef.current) break;
         const s = working[i], prev=i>0?working[i-1]:null;
-        setDrafting({ i, total:tot });
+        if(run.stop && !have[s.id]){ stoppedAt = s; break; }
+        setDrafting({ i, total:tot, ...(run.stop ? { stopping:true } : {}) });
         if(have[s.id]) continue;
         let scn = s, beats = beatsMap[s.id];
         if(!beats && typeof aiAuthorScene==="function" && aiAvailable()){
@@ -5118,12 +5178,16 @@ function App(){
             setScenes(ss=>ss.map(x=>x.id===s.id?{...x,...authored.patch}:x));
             setBeatsFor(s.id, authored.beats);
           }
+          if(run.stop){ stoppedAt = s; break; }   // Stop while its beats were written: they're kept
         }
         const raw = await aiDraftScene(scn, beats, prev, project);
+        if(owner !== projIdRef.current || writersRoomReadOnlyRef.current) break;
+        if(raw && raw.auto && needsAction(raw.failure)){ halted = { no:s.no, failure:raw.failure }; break; }
+        if(raw && raw.auto && repeatedFail(raw.failure)){ halted = { no:s.no, failure:raw.failure, repeated:true }; break; }
+        prevFail = (raw && raw.auto && raw.failure) || null;
         if(raw && raw.auto && raw.failure){ standIns.push({ no:s.no, failure:raw.failure }); rememberRejection(s.id, raw.failure); }
         const res = stampDraft(raw, scn, beats);
-        if(owner !== projIdRef.current || writersRoomReadOnlyRef.current) break;
-        have[s.id] = res;
+        have[s.id] = res; drafted++;
         setDrafts(d=>({...d,[s.id]:res}));
       }
       setDrafting({ i:tot, total:tot });
@@ -5136,7 +5200,25 @@ function App(){
         window.appToast(window.screenplayBatchFailureMessage(
           (standIns.length!==1 ? standIns.length+" scenes" : "Scene "+standIns[0].no)+" got a rough structural draft instead \u2014 ", standIns,
           { next:"Open "+(standIns.length!==1?"each":"it")+" and press Redraft script from beats", carries:true }), "error", { force:true });
+      const left = working.filter(x=>!have[x.id]).length;
+      if(halted && typeof window.appToast==="function"){
+        const why = (typeof window.screenplayFailureReason==="function") ? window.screenplayFailureReason(halted.failure) : "the writing service can\u2019t be reached";
+        const next = (typeof window.screenplayFailureAdvice==="function") ? window.screenplayFailureAdvice(halted.failure, "press Auto-draft all to finish them") : "Press Auto-draft all to finish them.";
+        window.appToast("Auto-draft all stopped at Scene "+halted.no+" \u2014 "+why+(halted.repeated
+          ? ", for the second scene in a row, so the other scenes would most likely fail the same way. "
+          : ", so the other scenes would fail the same way. ")+
+          (drafted ? drafted+" scene"+(drafted!==1?"s were":" was")+" drafted and kept; " : "")+
+          left+" scene"+(left!==1?"s are":" is")+" left undrafted (no rough stand-ins). "+next, "error", { force:true });
+      } else if(stoppedAt && typeof window.appToast==="function"){
+        window.appToast("Auto-draft all stopped"+(drafted ? " \u2014 "+drafted+" scene"+(drafted!==1?"s were":" was")+" drafted and kept" : "")+". "+
+          left+" scene"+(left!==1?"s are":" is")+" still undrafted \u2014 press Auto-draft all to continue.", "info");
+      }
     }
+  };
+  // the drafting overlay's Stop: the run ends after the scene it is writing now (that scene is kept)
+  const stopDraftAll = ()=>{
+    const run = draftingRef.current;
+    if(run && typeof run==="object" && !run.stop){ run.stop = true; setDrafting(d=> d ? { ...d, stopping:true } : d); }
   };
   // polish: regenerate one scene's prose as genuinely new final text (beats locked)
   const [polishBusy, setPolishBusy] = React.useState(null);
@@ -5148,6 +5230,10 @@ function App(){
   const lastPolishFailureRef = React.useRef(null);
   const polishScene = async (s, beatsForScene, opts)=>{
     if(!canMutateWritersRoom()) return false;
+    // the film this redraft belongs to (2026-09-28): a reply that comes back after a film switch
+    // is dropped — scene ids repeat across films (the same film token the Script view's and the
+    // Inspector's late writers use)
+    const filmTok = (typeof window.turnFilmToken==="function") ? window.turnFilmToken() : undefined;
     setPolishBusy({ no:s && s.no });
     const ordered=scenesInStoryOrder(scenes);
     const i = ordered.findIndex(x=>x.id===s.id);
@@ -5161,7 +5247,12 @@ function App(){
       // a reply that runs longer than the current script
       const res = await aiPolishScene(s, beatsForScene, structural.blocks, prev, project, report,
         { retry:polishRetryRef.current[String(currentProjectId||"")+"::"+s.id] || null, current:drafts[s.id] || null, scenes });
-      if(res && canMutateWritersRoom()){ lastPolishFailureRef.current = null; rememberRejection(s.id, null); return commitVersion(s.id, stampDraft(res, s, beatsForScene)); }
+      if(res && filmTok!==undefined && !window.turnSameFilm(filmTok)){
+        // (quiet: "Redraft N out-of-date" says it once, for the whole batch)
+        if(!(opts && opts.quiet) && typeof window.appToast==="function") window.appToast("You switched films while Scene "+(s && s.no)+" was being redrafted, so the new draft was not applied. Reopen that film and redraft it there.","info");
+        return false;
+      }
+      if(res && canMutateWritersRoom()){ lastPolishFailureRef.current = null; rememberRejection(s.id, null); return commitVersion(s.id, stampDraft(res, s, beatsForScene), filmTok); }
       if(res) return false;          // the film became read-only mid-call: it says so itself
       failure = report.failure || { kind:"service", issues:[], details:[], technical:"no reply" };
       return false;
@@ -5230,7 +5321,9 @@ function App(){
     if(!s || !canMutateWritersRoom() || typeof window.sceneCardSnap!=="function") return;
     setDrafts(d=> d[id] ? { ...d, [id]:{ ...d[id], cardSnap:window.sceneCardSnap(s, characters, beatsMap[id]) } } : d);
   };
-  const [redraftingAll, setRedraftingAll] = React.useState(null);   // null | {i,total}
+  // null | {i,total,no,run,stopping} — `run` is the batch's own record: the progress card's Stop
+  // sets run.stop, read between scenes (2026-09-28)
+  const [redraftingAll, setRedraftingAll] = React.useState(null);
   const redraftAllStale = async ()=>{
     if(redraftingAll || !canMutateWritersRoom()) return;
     const todo = scenesInStoryOrder(scenes).filter(s=>staleMap[s.id]);
@@ -5244,15 +5337,38 @@ function App(){
     const owner = currentProjectId;
     let done = 0;
     const failed = [];   // { no, failure } \u2014 so the summary says WHY, not a guess
+    // STOP BETWEEN SCENES (2026-09-28): the batch's progress card (studioProgress) shows "i of N"
+    // and a Stop; the scene being redrafted when it is pressed finishes (and is kept), the rest
+    // stay marked out of date
+    const run = { stop:false };
+    let stopped = false;
     try{
       for(let i=0;i<todo.length;i++){
         if(owner!==projIdRef.current || !canMutateWritersRoom()) break;
-        setRedraftingAll({ i:i+1, total:todo.length });
+        if(run.stop){ stopped = true; break; }
+        setRedraftingAll({ i:i+1, total:todo.length, no:todo[i].no, run });
         lastPolishFailureRef.current = null;
         if(await redraftScene(todo[i], beatsMap[todo[i].id], { confirm:false, quiet:true })) done++;
         else failed.push({ no:todo[i].no, failure:lastPolishFailureRef.current });
       }
+      if(run.stop && done+failed.length<todo.length) stopped = true;
     } finally { setRedraftingAll(null); }
+    // a film switch stopped the batch (2026-09-28): say that once — the scene in flight was not
+    // applied in either film — instead of listing it as a failure with a borrowed reason
+    if(owner!==projIdRef.current){
+      if(typeof window.appToast==="function") window.appToast("You switched films, so Redraft out-of-date stopped: "+done+" of "+todo.length+" scene"+(todo.length!==1?"s were":" was")+
+        " redrafted in that film, and the rest are still marked out of date there — reopen it to redraft them.","info");
+      return;
+    }
+    if(stopped && typeof window.appToast==="function"){
+      const left = todo.length - done - failed.length;
+      const stopHead = "Redraft out-of-date stopped: "+done+" of "+todo.length+" scene"+(todo.length!==1?"s":"")+" redrafted \u2014 "+
+        left+" "+(left===1?"is":"are")+" still marked out of date and unchanged. ";
+      window.appToast(failed.length && typeof window.screenplayBatchFailureMessage==="function"
+        ? window.screenplayBatchFailureMessage(stopHead, failed, { next:"Redraft them again", carries:true, nullReason:"the film became read-only, so it was left as is", nullShort:"read-only" })
+        : stopHead+"Press Redraft out-of-date to continue.", failed.length ? "error" : "info", failed.length ? { force:true } : undefined);
+      return;
+    }
     // every failed scene with ITS OWN reason; one that stopped because the film became
     // read-only mid-run has no failure and says so, rather than borrowing another's
     const head = "Redrafted "+done+" of "+todo.length+" scenes \u2014 the rest are still marked and unchanged. ";
@@ -5262,6 +5378,12 @@ function App(){
           ? window.screenplayBatchFailureMessage(head, failed, { next:"Redraft them again", carries:true, nullReason:"the film became read-only, so it was left as is", nullShort:"read-only" })
           : head+"Redraft them again to retry."),
       done===todo.length?"ok":"error", done===todo.length ? undefined : { force:true });
+  };
+
+  // the batch's progress card Stop: the scene being redrafted now finishes, the rest stay marked
+  const stopRedraftAll = ()=>{
+    const r = redraftingAll && redraftingAll.run;
+    if(r && !r.stop){ r.stop = true; setRedraftingAll(x=> x ? { ...x, stopping:true } : x); }
   };
 
   // NAME EVERY SCENE'S VALUE — older films get a value at stake per scene: the poles
@@ -5379,6 +5501,7 @@ function App(){
      then rebuilt with "Redraft script from beats" so nothing rewrites unseen. */
   const _offerDriverRecast = async (sceneId, oldId, newId)=>{
     if(!canMutateWritersRoom()) return;
+    const owner = currentProjectId;   // the film this recast belongs to
     const scn = scenes.find(s=>s.id===sceneId); if(!scn) return;
     const b = beatsMap[sceneId];
     if(!b || !b.rows || !b.rows.length) return;
@@ -5388,11 +5511,13 @@ function App(){
     const ok = await window.appConfirm({ title:"Recast the scene for "+NEW+"?",
       body:"The driver changed ("+OLD+" \u2192 "+NEW+"), but Scene "+scn.no+"\u2019s summary, desire and beat texts still describe "+OLD+" doing the driving. Rewrite the subtext so "+NEW+" drives? You review the beats, then \u2018Redraft script from beats\u2019 rebuilds the screenplay.",
       confirmLabel:"Recast for "+NEW, cancelLabel:"Keep the text as is" });
-    if(!ok) return;
+    if(!ok || owner !== projIdRef.current) return;
     setRecastBusy({ no:scn.no, name:NEW });
     const report = {};
     try{
       const res = await window.aiRecastDriver(scn, b, characters, newId, oldId, project, report);
+      // a recast that comes back after a film switch belongs to the other film (2026-09-28)
+      if(owner !== projIdRef.current){ setRecastBusy(null); return; }
       if(res && canMutateWritersRoom()){
         updateScene(sceneId, { ...(res.summary?{summary:res.summary}:{}), ...(res.objective?{objective:res.objective}:{}) });
         setBeatsMap(m=>{ const cur=m[sceneId]||b; return { ...m, [sceneId]:{ ...cur, driverLabel:NEW,
@@ -5494,11 +5619,30 @@ function App(){
     if(!canMutateWritersRoom()) return;
     setScenes(ss=>{
       if(toIdx<0||toIdx>=ss.length||fromIdx===toIdx||fromIdx<0) return ss;
-      const out=ss.slice(); const [m]=out.splice(fromIdx,1); out.splice(toIdx,0,m); return renum(out);
+      const out=ss.slice(); const [m]=out.splice(fromIdx,1); out.splice(toIdx,0,m);
+      // THE ACT FOLLOWS THE POSITION (2026-09-28): a scene moved across an act boundary used to
+      // keep its old act (the spine ruler read "ACT I | ACT II | ACT I", the Board filed it in the
+      // wrong column, and the writer was prompted with the old act). The moved scene takes an act
+      // its new neighbours allow — its own when it still fits between them, else the nearer
+      // one's — so acts stay in story order; no other scene's act changes. (addScene copies the
+      // neighbour's act the same way.)
+      const actOf = (x)=>{ const a = Number(x && x.act); return Number.isFinite(a) && a>0 ? a : null; };
+      const lo = actOf(out[toIdx-1]), hi = actOf(out[toIdx+1]), mine = actOf(m);
+      let act = mine;
+      if(lo!=null && hi!=null && lo>hi) act = lo;                 // neighbours already out of order: join the scene before
+      else{
+        if(lo!=null && (act==null || act<lo)) act = lo;
+        if(hi!=null && (act==null || act>hi)) act = hi;
+      }
+      if(act!=null && act!==mine) out[toIdx] = { ...m, act };
+      return renum(out);
     });
   };
   const moveScene = (id,dir)=>{ const i=scenes.findIndex(s=>s.id===id); reorderScenes(i,i+dir); };
-  const setBeatsFor = (sceneId,next)=>{
+  // setBeatsFor(sceneId, next, filmToken?) — as commitVersion: a beat map built after an await
+  // (Inspector "Create beat map" / "Rebuild from script") lands only in the film it was asked for
+  const setBeatsFor = (sceneId,next,filmToken)=>{
+    if(filmToken!==undefined && filmToken!==castDraftFilmKey()) return;
     if(!canMutateWritersRoom()) return;
     const identified=(typeof withBeatIdentity==="function")?withBeatIdentity(next,sceneId):next;
     setBeatsMap(m=>({...m,[sceneId]:identified}));
@@ -5528,6 +5672,9 @@ function App(){
   const agentLiveRef = React.useRef(null);
   agentLiveRef.current = { scenes, characters, project, beats: beatsMap, drafts, continuity: continuityMap };
   window.__turnCurrentProjectId = currentProjectId;
+  // WHICH FILM an agent-undo snapshot belongs to (2026-09-28): the same key long cast drafts use —
+  // the cloud film's id, or the signed-out slot plus its generation (New Story reuses that slot)
+  const agentFilmKey = ()=> (typeof castDraftFilmKey==="function") ? castDraftFilmKey() : String(projIdRef.current||"");
   const agentCtxFactory = ({ input, emit, propose, cancelled, agentName, scope })=>{
     // scope "production" = the Art Room's Production check: it edits the script AND the
     // Art Room, so it runs for anyone who can save either — each card is gated on the
@@ -5536,8 +5683,14 @@ function App(){
     // deep snapshot of the LIVE story state (not the run-start closure), committed
     // to the undo stack when the agent applies its first change — so edits made
     // between run start and first commit are recoverable too.
+    // AGENT UNDO IS TIED TO ITS FILM (2026-09-28): each snapshot records the film it was taken
+    // in (filmKey — the cloud film's id, or the signed-out slot and its generation) and shares
+    // this run's write record, so Undo is never offered or applied in another film, and it can
+    // tell whether the film has changed since the run wrote it: runWrite.changed() is true when
+    // the live film is none of the states this run wrote (writtenSigs, below).
+    const runWrite = { changed:()=> !writtenSigs.has(sigOf(shapeOf(agentLiveRef.current))) };
     const snapshot = ()=>{ const L = agentLiveRef.current; return {
-      label: agentName || "Agent", ts: Date.now(),
+      label: agentName || "Agent", ts: Date.now(), filmKey: agentFilmKey(), runWrite,
       scenes: L.scenes.map(s=>({...s})),
       characters: L.characters.map(c=>({...c})),
       project: {...L.project},
@@ -6216,22 +6369,38 @@ function App(){
     return ()=>{ live=false; clearTimeout(t); };
   },[characters, props, wardrobeTick]);
 
-  // restore the most recent pre-run snapshot
-  const undoLastAgent = ()=>{
-    if(!canMutateWritersRoom()) return;
-    setAgentUndo(st=>{
-      if(!st.length) return st;
-      const snap = st[st.length-1];
-      setScenes(snap.scenes.map(s=>({...s})));
-      if(snap.characters) setCharacters(snap.characters.map(c=>({...c})));
-      if(snap.project) setProject({...snap.project});
-      setBeatsMap((typeof withBeatMapIdentity==="function")?withBeatMapIdentity(snap.beats):{...snap.beats});
-      setDrafts({...snap.drafts});
-      setContinuityMap(Object.fromEntries(Object.entries(snap.continuity).map(([k,v])=>[k,{...v}])));
-      const ids = new Set(snap.scenes.map(s=>s.id));
-      if(!ids.has(selId)) setSelId(snap.scenes[0] ? snap.scenes[0].id : null);
-      return st.slice(0,-1);
-    });
+  // restore the most recent pre-run snapshot OF THE OPEN FILM (2026-09-28: a snapshot from
+  // another film is never offered, never applied)
+  const agentUndoHere = agentUndo.filter(x=>x && x.filmKey===agentFilmKey());
+  const agentUndoTop = ()=>{ const k = agentFilmKey();
+    const st = (agentUndoRef.current||[]).filter(x=>x && x.filmKey===k); return st[st.length-1] || null; };
+  const agentUndoAskingRef = React.useRef(false);
+  const undoLastAgent = async ()=>{
+    if(agentUndoAskingRef.current || !canMutateWritersRoom()) return;
+    const snap = agentUndoTop(); if(!snap) return;
+    // CHANGED SINCE THE RUN? (2026-09-28) Undo restores the WHOLE film to before the run. When
+    // the film has moved on since the run's last write (a redraft, beat edits, a cast change),
+    // those later changes go too — so it asks first and says so. Unchanged: undo at once.
+    const moved = !!(snap.runWrite && typeof snap.runWrite.changed==="function" && snap.runWrite.changed());
+    if(moved && typeof window.appConfirm==="function"){
+      agentUndoAskingRef.current = true;
+      let ok = false;
+      try{ ok = await window.appConfirm({ title:"Undo "+snap.label+"\u2019s changes?",
+        body:"The film has changed since "+snap.label+" made its changes. Undo puts the whole film back the way it was just before "+snap.label+" ran, so everything changed after it \u2014 script edits, redrafts, beat and cast changes \u2014 will be lost too.",
+        confirmLabel:"Undo anyway", cancelLabel:"Keep everything", danger:true, safeDefault:true }); }
+      finally{ agentUndoAskingRef.current = false; }
+      // the film, the stack or the role may have moved while the question was open
+      if(!ok || agentUndoTop()!==snap || !canMutateWritersRoom()) return;
+    }
+    setScenes(snap.scenes.map(s=>({...s})));
+    if(snap.characters) setCharacters(snap.characters.map(c=>({...c})));
+    if(snap.project) setProject({...snap.project});
+    setBeatsMap((typeof withBeatMapIdentity==="function")?withBeatMapIdentity(snap.beats):{...snap.beats});
+    setDrafts({...snap.drafts});
+    setContinuityMap(Object.fromEntries(Object.entries(snap.continuity).map(([k,v])=>[k,{...v}])));
+    const ids = new Set(snap.scenes.map(s=>s.id));
+    if(!ids.has(selId)) setSelId(snap.scenes[0] ? snap.scenes[0].id : null);
+    setAgentUndo(st=> st.filter(x=>x!==snap));
   };
 
   // apply grade vars (re-shaded for light mode)
@@ -6279,6 +6448,17 @@ function App(){
      Master, Location Scout, Colorist, Shot Designer) so the agent panels and these
      pop-ups tell the same story. */
   const studioProgress =
+    // "Redraft N out-of-date" (2026-09-28): the batch's own card — where it is, and a Stop —
+    // in place of the single-scene card below, which said only "Redrafting Scene X"
+    redraftingAll ? {
+      role:"Screenwriter",
+      title:"Redrafting "+redraftingAll.i+" of "+redraftingAll.total+" out-of-date scenes",
+      detail:redraftingAll.stopping
+        ? "Stopping after Scene "+redraftingAll.no+" \u2014 it is kept, and the rest stay marked out of date."
+        : "Scene "+redraftingAll.no+": rebuilding its screenplay from the current card and beats. Every previous draft stays in version history (Undo restores it).",
+      progress:((Number(redraftingAll.i)-1+0.5)/Math.max(1, Number(redraftingAll.total)))*100,
+      onStop:stopRedraftAll, stopping:!!redraftingAll.stopping
+    } :
     polishBusy ? {
       role:"Screenwriter",
       title:"Redrafting Scene "+(polishBusy.no!=null?polishBusy.no:""),
@@ -6296,8 +6476,11 @@ function App(){
         : "Drafting the screenplay",
       detail:drafting.one
         ? "Writing Scene "+draftSceneNo+" from its beats while preserving continuity."
+        : drafting.stopping
+        ? "Stopping after the scene being written now \u2014 it is kept, and the rest stay undrafted for Auto-draft all."
         : "Threading continuity scene by scene — "+Math.min(Number(drafting.i||0)+1, Number(drafting.total||scenes.length))+" of "+Number(drafting.total||scenes.length)+".",
-      progress:draftingProgress
+      progress:draftingProgress,
+      ...(drafting.one ? {} : { onStop:stopDraftAll, stopping:!!drafting.stopping })
     } :
     (room==="art" && draftingAllVisuals) ? {
       role:"Casting Director",
@@ -6697,11 +6880,11 @@ function App(){
             onCollapse:()=>setRailOpen(false),compact:!wide,readOnly:writersRoomBlocked}))
         : (railOpen
           ? React.createElement(LeftRail,{project,characters,scenes,selChar,
-              onSelectChar:(id)=>{ setSelChar(id); setInspOpen(true); },
+              onSelectChar:(id)=>{ setSelChar(id); openInsp(); },
               onContract:updateContract,onGenre:updateGenre,onProject:updateProjectFields,
               onCollapse:()=>setRailOpen(false),compact:!wide,readOnly:writersRoomBlocked})
           : React.createElement(CollapsedStrip,{side:"left",label:"Story",icon:Icon.panelLeft,
-              onExpand:()=>setRailOpen(true),flagCount:scenes.filter(s=>turnInfo(s).flagged).length}))),
+              onExpand:openRail,flagCount:scenes.filter(s=>turnInfo(s).flagged).length}))),
 
       React.createElement("div",{className:"canvas"},
         React.createElement("div",{className:"canvas-head"},
@@ -6758,9 +6941,12 @@ function App(){
           staleChanges: sel ? staleMap[sel.id] : null, staleCount:Object.keys(staleMap).length,
           onRedraftStale:(scn)=>redraftScene(scn, beatsMap[scn.id]), onKeepDraft:keepDraft,
           onRedraftAll:redraftAllStale, redraftingAll, redraftBusy:polishBusy,
+          // "Write this beat" lands in the scene's LATEST script and only in the film it was
+          // asked for (2026-09-28): the app's live drafts and film key, read after the await
+          getDraft:(id)=>draftsRef.current[id], filmKey:castDraftFilmKey,
           // click a beat in the Script gutter → reveal it in the Inspector's Beats tab
           onBeatFocus:(n)=>{ setSelChar(null); setInspTab("beats"); setFocusBeat(n);
-            if(!inspDrawer) setInspOpen(true); }}),
+            if(!inspDrawer) openInsp(); }}),
 
         // Floating Writers' Room (Agents) launcher — the agents refine an existing
         // story, so it only appears once a story exists (scenes > 0).
@@ -6787,7 +6973,7 @@ function App(){
           : (inspOpen
             ? inspectorEl
             : React.createElement(CollapsedStrip,{side:"right",label:"Inspector",icon:Icon.panelRight,
-                onExpand:()=>setInspOpen(true)}));
+                onExpand:openInsp}));
       })())),
 
     // Agents — Writers' Room modal
@@ -6798,9 +6984,15 @@ function App(){
       initialAgentId: agentLaunch && agentLaunch.id,
       initialInput: agentLaunch && agentLaunch.input,
       autoStart: !!agentLaunch,
-      undoCount:agentUndo.length,
-      undoLabel:agentUndo.length?agentUndo[agentUndo.length-1].label:null,
+      undoCount:agentUndoHere.length,
+      undoLabel:agentUndoHere.length?agentUndoHere[agentUndoHere.length-1].label:null,
       onUndo:undoLastAgent,
+      // "Finish writing this film" (2026-09-28): scenes with no screenplay or only a rough stand-in
+      ...(()=>{ const standIn = (d)=> typeof window.isStandInDraft==="function" ? window.isStandInDraft(d) : false;
+        let n = 0, st = 0;
+        scenes.forEach(s=>{ const d = drafts[s.id];
+          if(!(d && (d.blocks||[]).length)) n++; else if(standIn(d)){ n++; st++; } });
+        return { unwritten:n, unwrittenStandIns:st, finishInput:String((project && (project.sourceBrief || project.logline)) || "") }; })(),
       issues:agentIssues,
       aiOn: (typeof aiAvailable==="function" && aiAvailable())}),
 
@@ -7000,7 +7192,7 @@ function App(){
     // beneath the result modal, and the in-room "Undo last" still covers it.
     studioProgress && React.createElement(StudioProgressOverlay, studioProgress),
     // scene delete undo — the same affordance, tied to the film the scene came from
-    !writersRoomBlocked && deletedScene && deletedScene.owner===currentProjectId && React.createElement("div",{className:"agent-undo scene-undo"+((agentUndo.length>0 && agentUndo[agentUndo.length-1].label!=="Adaptation")?" stacked":"")},
+    !writersRoomBlocked && deletedScene && deletedScene.owner===currentProjectId && React.createElement("div",{className:"agent-undo scene-undo"+((agentUndoHere.length>0 && agentUndoHere[agentUndoHere.length-1].label!=="Adaptation")?" stacked":"")},
       React.createElement("span",{className:"au-ic"},React.createElement(Icon.undo,{s:15})),
       React.createElement("div",{className:"au-text"},
         React.createElement("div",{className:"au-t"},"Scene "+deletedScene.scene.no+" deleted"),
@@ -7009,15 +7201,15 @@ function App(){
         React.createElement(Icon.undo,{s:13}),"Undo"),
       React.createElement("button",{className:"au-x",title:"Dismiss",onClick:()=>setDeletedScene(null)},
         React.createElement(Icon.x,{s:14}))),
-    !writersRoomBlocked && agentUndo.length>0 && agentUndo[agentUndo.length-1].label!=="Adaptation" && React.createElement("div",{className:"agent-undo"},
+    !writersRoomBlocked && agentUndoHere.length>0 && agentUndoHere[agentUndoHere.length-1].label!=="Adaptation" && React.createElement("div",{className:"agent-undo"},
       React.createElement("span",{className:"au-ic"},React.createElement(Icon.undo,{s:15})),
       React.createElement("div",{className:"au-text"},
-        React.createElement("div",{className:"au-t"},agentUndo[agentUndo.length-1].label+" changed your story"),
+        React.createElement("div",{className:"au-t"},agentUndoHere[agentUndoHere.length-1].label+" changed your story"),
         React.createElement("div",{className:"au-s"},
-          agentUndo.length>1 ? (agentUndo.length+" agent runs can be undone") : "One click to revert it")),
+          agentUndoHere.length>1 ? (agentUndoHere.length+" agent runs can be undone") : "One click to revert it")),
       React.createElement("button",{className:"au-btn",onClick:undoLastAgent},
         React.createElement(Icon.undo,{s:13}),"Undo"),
-      React.createElement("button",{className:"au-x",title:"Keep changes",onClick:()=>setAgentUndo([])},
+      React.createElement("button",{className:"au-x",title:"Keep changes","aria-label":"Keep changes",onClick:()=>setAgentUndo([])},
         React.createElement(Icon.x,{s:14}))),
 
     // Tweaks panel

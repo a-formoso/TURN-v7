@@ -205,7 +205,7 @@ function saveAgentReport(projectId, agentId, steps){
   }catch(e){ /* storage full or blocked — the live trace still showed everything */ }
 }
 
-function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput, autoStart, runOnOpen, single, viewLabel, introExtra, force }){
+function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput, autoStart, runOnOpen, single, viewLabel, introExtra, force, onRunningChange }){
   const [trace, setTrace] = React.useState([]);
   // last saved report for THIS agent on THIS film (read-only agents only)
   const [saved] = React.useState(()=> agent.kind==="report" ? loadAgentReport(agent.id) : null);
@@ -262,8 +262,15 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
     setTrace([]); setPending(null); setStatus("running");
     const runLog = [];   // synchronous copy of the trace — state updates are async
     const reportProjectId = agentReportProjectId();   // the film this run BELONGS to — captured now, not at save time
-    const prevForce = window.__forceWritingModel;
-    window.__forceWritingModel = _mid;   // pin the run to exactly what the header shows
+    // PIN THE RUN to exactly what the header shows. Each LIVE run holds its own pin (2026-09-28):
+    // a stopped run still winding down used to restore the pin it had captured — the NEWER run's
+    // model — after that run ended, so the pin outlived every run and later Drafts, Redrafts and
+    // spec calls ignored the Writing dock until reload. Now the newest live run's pin wins, and
+    // when no run is live there is no pin at all: the dock decides again.
+    const pins = window.__turnWritingPins = window.__turnWritingPins || [];
+    const myPin = { model:_mid };
+    pins.push(myPin);
+    window.__forceWritingModel = _mid;
     // how many runs of each agent are live, app-wide (the Series auto-conversion waits for a
     // New Story build). A COUNT, not a flag: a stopped run still winding down must never
     // clear the mark of a newer run of the same agent.
@@ -287,7 +294,8 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
     }
     catch(e){ if(runIdRef.current===myRun) setTrace(tr=>[...tr,{k:"flag",t:"The agent hit an error and stopped: "+(e.message||e)}]); }
     finally{
-      window.__forceWritingModel = prevForce;
+      const at = pins.indexOf(myPin); if(at>=0) pins.splice(at,1);
+      window.__forceWritingModel = pins.length ? pins[pins.length-1].model : undefined;
       runs[agent.id] = Math.max(0, (runs[agent.id]||1) - 1);
       try{ window.dispatchEvent(new CustomEvent("turn-agent-running",{ detail:{ id:agent.id, running:false } })); }catch(e){}
     }
@@ -314,6 +322,9 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
   const decide = (val)=>{ if(resolver.current) resolver.current(val); };
 
   const running = status==="running" || status==="waiting";
+  // the panel asks before a close would silently stop a running build (2026-09-28)
+  React.useEffect(()=>{ if(onRunningChange) onRunningChange(status==="running"); },[status]);
+  React.useEffect(()=>()=>{ if(onRunningChange) onRunningChange(false); },[]);
 
   return React.createElement("div",{className:"ag-runner"},
     React.createElement("div",{className:"ag-runner-head"},
@@ -379,10 +390,35 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
           viewLabel||"View story",React.createElement(Icon.chevR,{s:15})))));
 }
 
-function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, onUndo, issues, initialAgentId, initialInput, autoStart, runOnOpen, single, viewLabel, introExtra, force }){
+function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, onUndo, issues, initialAgentId, initialInput, autoStart, runOnOpen, single, viewLabel, introExtra, force, unwritten, unwrittenStandIns, finishInput }){
   const agents = window.AGENTS || [];
   const [active, setActive] = React.useState(()=> initialAgentId ? (agents.find(a=>a.id===initialAgentId)||null) : null);
   const [auto, setAuto] = React.useState(!!autoStart);
+  /* CLOSING A RUNNING BUILD (2026-09-28): the X, a click on the dark backdrop or "All agents"
+     unmounts the runner, and that stops the run. For the story build (a long, paid run) that
+     used to happen silently on one stray click — now it asks first. */
+  const runningRef = React.useRef(false);
+  const leaveOk = async ()=>{
+    const building = active && active.kind==="build" && active.room!=="art";
+    if(!(runningRef.current && building) || typeof window.appConfirm!=="function") return true;
+    return !!(await window.appConfirm({ title:"Stop building this film?",
+      body:"Closing this window stops the build now. Every scene already written is kept. To finish just the unwritten scenes later, open Story Editors and choose Finish writing this film.",
+      confirmLabel:"Stop the build", cancelLabel:"Keep building", danger:true, safeDefault:true }));
+  };
+  const close = async ()=>{ if(await leaveOk()) onClose(); };
+  /* FINISH WRITING THIS FILM (docs/Story Pipeline.md step 7 — "offers to finish just the unwritten
+     scenes on the next run"; made reachable 2026-09-28): once the build window is closed, the
+     build agent is hidden from the grid, so this row opens Adaptation on THIS film, READY (never
+     auto-started), with the film's own brief. Its first proposal is "Finish writing this film first?". */
+  const [finishLaunch, setFinishLaunch] = React.useState(null);
+  const unwrittenN = Math.max(0, Number(unwritten)||0), standInN = Math.min(unwrittenN, Math.max(0, Number(unwrittenStandIns)||0));
+  const openFinish = ()=>{ const a = agents.find(x=>x.id==="adapt"); if(!a) return;
+    setFinishLaunch({ input:String(finishInput||"") }); setAuto(false); setActive(a); };
+  const finishing = !!(finishLaunch && active && active.id==="adapt");
+  const finishNote = finishing && React.createElement("div",{className:"ag-intro-note"},
+    React.createElement(Icon.sparkles,{s:13}),
+    "This film has "+unwrittenN+" unwritten scene"+(unwrittenN!==1?"s":"")+(standInN ? " ("+standInN+" of them "+(standInN===1?"a rough stand-in":"rough stand-ins")+")" : "")+
+    ". Press Run Adaptation: it first offers to write just "+(unwrittenN===1?"that one":"those")+" \u2014 every scene already written stays untouched. Decline only if you want to rebuild the whole film from the logline above.");
   const iss = issues || {};
   const turnN = iss.doctor||0, contN = iss.continuity||0;
   const issueParts = [];
@@ -400,15 +436,17 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
   if(contN) issueParts.push(contN+(contN>1?" continuity gaps":" continuity gap"));
   const doctorBadge = (a)=> a.id!=="doctor" ? null
     : (noTurnN+structN)>0 ? { n:noTurnN+structN, cls:"", word:"issue" } : notesN>0 ? { n:notesN, cls:" note", word:"note" } : null;
-  return React.createElement("div",{className:"ag-overlay",onMouseDown:(e)=>{ if(e.target===e.currentTarget) onClose(); }},
+  return React.createElement("div",{className:"ag-overlay",onMouseDown:(e)=>{ if(e.target===e.currentTarget) close(); }},
     React.createElement("div",{className:"ag-panel"},
       active
-        ? React.createElement(AgentRunner,{agent:active,ctxFactory,onClose,onView,single,viewLabel,introExtra,
+        ? React.createElement(AgentRunner,{agent:active,ctxFactory,onClose:close,onView,single,viewLabel,
+            introExtra: finishing ? finishNote : introExtra,
+            onRunningChange:(v)=>{ runningRef.current = !!v; },
             force: active.id===initialAgentId ? force : false,
-            onBack: single ? onClose : ()=>{ setAuto(false); setActive(null); },
-            initialInput: active.id===initialAgentId ? initialInput : "",
-            autoStart: auto && active.id===initialAgentId,
-            runOnOpen: !!runOnOpen && active.id===initialAgentId})
+            onBack: single ? close : async ()=>{ if(!(await leaveOk())) return; setAuto(false); setFinishLaunch(null); setActive(null); },
+            initialInput: finishing ? finishLaunch.input : (active.id===initialAgentId ? initialInput : ""),
+            autoStart: !finishing && auto && active.id===initialAgentId,
+            runOnOpen: !!runOnOpen && active.id===initialAgentId && !finishing})
         : React.createElement(React.Fragment,null,
             React.createElement("div",{className:"ag-head"},
               React.createElement("div",{className:"ag-head-t"},
@@ -416,7 +454,7 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
                 React.createElement("div",null,
                   React.createElement("div",{className:"ag-title"},"Agents"),
                   React.createElement("div",{className:"ag-sub"},"AI agents that refine your whole story"))),
-              React.createElement("button",{className:"ag-x",onClick:onClose},React.createElement(Icon.x,{s:17}))),
+              React.createElement("button",{className:"ag-x",onClick:close,title:"Close","aria-label":"Close"},React.createElement(Icon.x,{s:17}))),
             issuesN>0
               ? React.createElement("div",{className:"ag-issues-row"},
                   React.createElement("span",{className:"ag-issues-badge"},issuesN),
@@ -433,6 +471,12 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
               : React.createElement("div",{className:"ag-issues-row clean"},
                   React.createElement("span",{className:"ag-issues-badge ok"},React.createElement(Icon.check,{s:12})),
                   React.createElement("span",{className:"ag-issues-tx"},"No open structural or continuity issues \u2014 your spine is sound.")),
+            unwrittenN>0 && aiOn && React.createElement("div",{className:"ag-undo-row ag-finish-row"},
+              React.createElement(Icon.flask,{s:14}),
+              React.createElement("span",{className:"ag-undo-tx"},
+                unwrittenN+" scene"+(unwrittenN!==1?"s aren\u2019t":" isn\u2019t")+" written yet"+(standInN ? " ("+standInN+" "+(standInN===1?"is a rough stand-in":"are rough stand-ins")+")" : "")+
+                " \u2014 Adaptation can write just "+(unwrittenN===1?"that one":"those")+", leaving everything already written untouched."),
+              React.createElement("button",{className:"ag-undo-btn",onClick:openFinish},"Finish writing this film")),
             undoCount>0 && React.createElement("div",{className:"ag-undo-row"},
               React.createElement(Icon.undo,{s:14}),
               React.createElement("span",{className:"ag-undo-tx"},

@@ -1125,7 +1125,9 @@ await test("the build says WHY a stand-in landed, and its retries tell the model
   const pl = await build("FF1", ()=>new Error(PLAN));
   assert.deepEqual(plain(pl.r.failures.map(f=>f.why)), ["your account ran out of plan credits for writing, so a rough structural draft stands in — choose a plan or add credits, then open it and redraft"]);
   const tx = await build("FF1", ()=>new Error("Couldn't reach the writing model: Failed to fetch."));
-  assert.deepEqual(plain(tx.r.failures.map(f=>f.why)), ["the model call kept failing, so a rough structural draft stands in — open it and redraft"]);
+  // an unmasked transport error is read for its reference too (2026-09-28), so a run can tell the
+  // SAME failure twice in a row (agents.jsx repeatedServiceFailure)
+  assert.deepEqual(plain(tx.r.failures.map(f=>f.why)), ["the model call kept failing (ref CM-14), so a rough structural draft stands in — open it and redraft"]);
   const crA = await build("FF1", ()=>new Error("Writing model: Your credit balance is too low to access the API."), true);
   assert.ok(crA.r.failures[0].why.startsWith("the writing provider’s account ran out of credits, so a rough structural draft stands in — top it up, then open it and redraft [admin: credits"), crA.r.failures[0].why);
   const good = await build("FF25", (n)=> n===1 ? SMUGGLED_REPLY("FF25") : reply(unflag(R.FF25)));

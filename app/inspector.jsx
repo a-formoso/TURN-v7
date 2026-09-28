@@ -123,18 +123,25 @@ function EditableItemList({ value, placeholder, onCommit, onItemRemoved, onItemR
       items.map((it,i)=>React.createElement("li",{className:"eil-row",key:i},
         React.createElement("span",{className:"eil-dot"}),
         React.createElement(EditText,{value:it,placeholder:"Item\u2026",multiline:true,onCommit:val=>setAt(i,val)}),
-        React.createElement("button",{className:"eil-del",title:"Remove item",onClick:()=>removeAt(i),tabIndex:-1},
+        // keyboard reachable (2026-09-28): it used to be skipped by Tab (tabIndex -1)
+        React.createElement("button",{type:"button",className:"eil-del",title:"Remove item",
+            "aria-label":"Remove item"+((it||"").trim()?" \u201c"+(it||"").trim().slice(0,60)+"\u201d":""),onClick:()=>removeAt(i)},
           React.createElement(Icon.x,{s:12}))))),
     React.createElement("button",{className:"eil-add",onClick:add},
       React.createElement(Icon.plus,{s:12}), items.length?"Add item":(placeholder||"Add item")));
 }
 
-function Stepper({ value, onChange, readOnly }){
-  return React.createElement("div",{className:"stepper"},
-    React.createElement("button",{className:"step-btn",disabled:readOnly,onClick:()=>onChange(Math.max(-3,value-1))},
+/* the −/+ charge stepper. `label` names what it steps ("opening value") for the buttons'
+   spoken names and tooltips (2026-09-28: they were icon-only). */
+function Stepper({ value, onChange, readOnly, label }){
+  const what = label || "charge";
+  return React.createElement("div",{className:"stepper",role:"group","aria-label":what.charAt(0).toUpperCase()+what.slice(1)},
+    React.createElement("button",{type:"button",className:"step-btn",disabled:readOnly,onClick:()=>onChange(Math.max(-3,value-1)),
+        "aria-label":"Lower the "+what,title:"Lower the "+what},
       React.createElement(Icon.minus,{s:14})),
     React.createElement("div",{className:`step-val ${chargeClass(value)}`},chargeStr(value)),
-    React.createElement("button",{className:"step-btn",disabled:readOnly,onClick:()=>onChange(Math.min(3,value+1))},
+    React.createElement("button",{type:"button",className:"step-btn",disabled:readOnly,onClick:()=>onChange(Math.min(3,value+1)),
+        "aria-label":"Raise the "+what,title:"Raise the "+what},
       React.createElement(Icon.plus,{s:14})));
 }
 
@@ -170,12 +177,12 @@ function ChargeEditor({ scene, onCharge, onUpdate, readOnly, unnamedValues, onNa
       React.createElement("div",{className:"charge-cell"},
         React.createElement("div",{className:"lab"},"Opening value"),
         word("openValue", scene.openCharge),
-        React.createElement(Stepper,{value:scene.openCharge,readOnly,onChange:v=>onCharge("openCharge",v)})),
+        React.createElement(Stepper,{value:scene.openCharge,readOnly,label:"opening value",onChange:v=>onCharge("openCharge",v)})),
       React.createElement("div",{className:"charge-arrow"},React.createElement(Icon.arrowR,{s:16})),
       React.createElement("div",{className:"charge-cell"},
         React.createElement("div",{className:"lab"},"Closing value"),
         word("closeValue", scene.closeCharge),
-        React.createElement(Stepper,{value:scene.closeCharge,readOnly,onChange:v=>onCharge("closeCharge",v)}))));
+        React.createElement(Stepper,{value:scene.closeCharge,readOnly,label:"closing value",onChange:v=>onCharge("closeCharge",v)}))));
 }
 
 function Verdict({ scene }){
@@ -218,18 +225,24 @@ function BeatEditor({ scene, beats, onBeats, focusBeat, draft, characters, proje
     if(!(hasScript && typeof window.aiBeatsFromScript==="function" && typeof aiAvailable==="function" && aiAvailable())) return null;
     try{ return await window.aiBeatsFromScript(scene, draft, characters, project); }catch(e){ return null; }
   };
+  // THE FILM A BEAT MAP BELONGS TO (2026-09-28): captured before the await, and passed on so a
+  // map that comes back after a film switch is dropped (app.jsx setBeatsFor) — scene ids repeat
+  // across films, so film A's Sc 4 map must never land on film B's Sc 4.
+  const filmToken = ()=> (typeof window.turnFilmToken==="function") ? window.turnFilmToken() : undefined;
   // empty-state button: derive from the script if it exists, else drop a blank skeleton.
   const createMap = async ()=>{
     if(readOnly || deriving) return;
+    const tok = filmToken();
     if(hasScript){ setDeriving(true); const m = await deriveFromScript(); setDeriving(false);
-      if(m && m.rows && m.rows.length){ onBeats(scene.id, m); return; } }
+      if(m && m.rows && m.rows.length){ onBeats(scene.id, m, tok); return; } }
     onBeats(scene.id, { driverLabel:"DRIVER", reactorLabel:"REACTOR", desire:"", obstacle:"", result:"", turnAt:0,
-      rows:[{n:1,drive:{a:"Action",d:""},react:{a:"Reaction",d:""}}] });
+      rows:[{n:1,drive:{a:"Action",d:""},react:{a:"Reaction",d:""}}] }, tok);
   };
   // in-editor button: (re)build the beats from the script WITHOUT clobbering on failure;
   // confirms first if the current map already has the user's content.
   const rebuildFromScript = async (blank)=>{
     if(readOnly || deriving) return;
+    const tok = filmToken();   // before the question too: the map is built from THIS film's script
     if(!blank && typeof window.appConfirm==="function"){
       const ok = await window.appConfirm({ title:"Rebuild the beat map from the script?",
         body:"This replaces the current beats with ones derived from this scene's screenplay.",
@@ -237,7 +250,7 @@ function BeatEditor({ scene, beats, onBeats, focusBeat, draft, characters, proje
       if(!ok) return;
     }
     setDeriving(true); const m = await deriveFromScript(); setDeriving(false);
-    if(m && m.rows && m.rows.length) onBeats(scene.id, m);
+    if(m && m.rows && m.rows.length) onBeats(scene.id, m, tok);
   };
   const id = scene.id;
   beats = (typeof withBeatIdentity==="function") ? withBeatIdentity(beats,id) : beats;
@@ -338,9 +351,13 @@ function BeatEditor({ scene, beats, onBeats, focusBeat, draft, characters, proje
           React.createElement("button",{className:"beat-turn-btn",disabled:readOnly,onClick:()=>toggleTurn(r)},
             React.createElement(Icon.bolt,{s:10}), r.id===beats.turnBeatId?"Turning point":"Mark turn"),
           React.createElement("div",{className:"beat-edit-tools"},
-            React.createElement("button",{className:"bx",disabled:readOnly||i===0,onClick:()=>moveBeat(i,-1)},React.createElement(Icon.chevU,{s:14})),
-            React.createElement("button",{className:"bx",disabled:readOnly||i===beats.rows.length-1,onClick:()=>moveBeat(i,1)},React.createElement(Icon.chevD,{s:14})),
-            React.createElement("button",{className:"bx",disabled:readOnly,onClick:()=>delBeat(i)},React.createElement(Icon.x,{s:13})))),
+            // spoken names + tooltips (2026-09-28: these were icon-only)
+            React.createElement("button",{type:"button",className:"bx",disabled:readOnly||i===0,onClick:()=>moveBeat(i,-1),
+              "aria-label":"Move beat "+r.n+" up",title:"Move beat up"},React.createElement(Icon.chevU,{s:14})),
+            React.createElement("button",{type:"button",className:"bx",disabled:readOnly||i===beats.rows.length-1,onClick:()=>moveBeat(i,1),
+              "aria-label":"Move beat "+r.n+" down",title:"Move beat down"},React.createElement(Icon.chevD,{s:14})),
+            React.createElement("button",{type:"button",className:"bx",disabled:readOnly,onClick:()=>delBeat(i),
+              "aria-label":"Delete beat "+r.n,title:"Delete beat"},React.createElement(Icon.x,{s:13})))),
         React.createElement("div",{className:"beat-edit-cols"},
           React.createElement("div",{className:"beat-edit-col"},
             React.createElement("div",{className:"clab"},beats.driverLabel||"Action"),

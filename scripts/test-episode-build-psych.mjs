@@ -239,13 +239,15 @@ const S0 = v => JSON.stringify(jsonb(v === undefined ? null : v));
   };
   ok("B Episode 1's cast keeps its canon: every field it already had is unchanged", canonKept("marisol").length === 0 && canonKept("tomas").length === 0,
     { marisol: canonKept("marisol"), tomas: canonKept("tomas") });
-  // "only gaps fill" BEFORE the script (the spine's cast, the design pass — as at HEAD); nothing else moves
+  // 2026-09-28 (owner round 1): the pass BEFORE the script designs only the characters this build
+  // introduced, so no field of an existing Show character moves — not even an empty one. (The one
+  // exception is series.js's deliberate story-world gap fill of an avatar colour the Show character
+  // never had: it steers no script and no "drafted from" stamp.)
   const filledGaps = id => {
     const was = withoutLinks(startById(id)), now = withoutLinks(byId(id));
-    return Object.keys(now).filter(k => S(was[k]) !== S(now[k]));
+    return Object.keys(now).filter(k => S(was[k]) !== S(now[k]) && k !== "color");
   };
-  const onlyGaps = id => filledGaps(id).every(k => startById(id)[k] === undefined || startById(id)[k] === "");
-  ok("B …only EMPTY canon fields changed at all (filled before the script, never by the check)", onlyGaps("marisol") && onlyGaps("tomas"),
+  ok("B …no canon field changes (neither before the script nor by the check)", filledGaps("marisol").length === 0 && filledGaps("tomas").length === 0,
     { marisol: filledGaps("marisol"), tomas: filledGaps("tomas") });
   ok("B the CHECK fills no field of an existing character, not even an empty one (Marisol's empty humanTruth stays empty)",
     marisol.humanTruth === "" && !JSON.stringify([marisol, tomas]).includes("REVISED")

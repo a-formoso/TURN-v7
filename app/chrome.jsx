@@ -46,9 +46,16 @@ function ExportMenu({ project, scenes, drafts, onReset }){
             React.createElement("span",{className:"s"},"Discard edits, restore The Matrix demo")))) ));
 }
 
+/* the top bar's "Brief" button shows only in the Writers' Room, once the film has a brief or a
+   logline to show. One rule for the button and for its ⋯ menu entry on a phone. */
+function storyBriefShown(room, project){
+  return room==="writers" && !!project && !!(project.sourceBrief||project.logline||project.premise);
+}
+window.storyBriefShown = storyBriefShown;
+
 /* OverflowMenu — mobile-only kebab that holds the actions whose labels don't
-   fit the narrow bar (New Story; the export targets in the Writers' Room only;
-   the admin-only Reset). Keeps every action reachable on a phone. */
+   fit the narrow bar (New Story; the Story brief and Team; the export targets in
+   the Writers' Room only; the admin-only Reset). Keeps every action reachable on a phone. */
 function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room, artView, setArtView, artTabLocks, hiddenArtTabs }){
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef(null);
@@ -77,6 +84,15 @@ function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room, artV
   // ("unlocks after Characters (Subjects)"). A locked tab still opens — onto its lock card.
   const artTabs = (room==="art" && typeof setArtView==="function")
     ? (window.ART_TABS||[]).filter(t=>!(hiddenArtTabs&&hiddenArtTabs[t.id])) : [];
+  // 2026-09-28 (Round 1): a phone (≤700px) hides every plain top-bar button, so this menu
+  // also carries the Story brief (with its "Rebuild as a new film") and Team there. Each
+  // entry shows exactly when its top-bar button would: the brief by the same rule as the
+  // button; Team while the top bar's Team button is up for a saved film (team.jsx registers
+  // window.turnTeamMenu then). Both are phone-only entries (.ovf-phone), because the Art
+  // Room shows this menu at every width, beside the visible buttons.
+  const briefShown = storyBriefShown(room, project);
+  const team = window.turnTeamMenu && typeof window.turnTeamMenu.open==="function" ? window.turnTeamMenu : null;
+  const openBrief = ()=>{ setOpen(false); window.dispatchEvent(new CustomEvent("turn-open-brief")); };
   // the ⋮ is a phone-only control in the other rooms, but in the ART ROOM it carries the
   // exports (shot list, stripboard, art department bible), so it shows at every width there
   // (the 2026-07-19 ruling; the stylesheet had kept it phone-only, hiding them on desktop)
@@ -89,6 +105,18 @@ function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room, artV
         React.createElement("span",{className:"export-item-t"},
           React.createElement("span",{className:"t"},"New Story"),
           React.createElement("span",{className:"s"},"Start from an idea"))),
+      briefShown && React.createElement("button",{type:"button",className:"export-item ovf-phone",onClick:openBrief},
+        React.createElement("span",{className:"export-item-ic"},React.createElement((Icon.book||Icon.file||Icon.layers),{s:15})),
+        React.createElement("span",{className:"export-item-t"},
+          React.createElement("span",{className:"t"},"Story brief"),
+          React.createElement("span",{className:"s"},project.sourceBrief
+            ? "What this story was built from · rebuild as a new film"
+            : "The logline this story was built from"))),
+      team && React.createElement("button",{type:"button",className:"export-item ovf-phone",onClick:()=>{ setOpen(false); team.open(); }},
+        React.createElement("span",{className:"export-item-ic"},React.createElement(Icon.user,{s:15})),
+        React.createElement("span",{className:"export-item-t"},
+          React.createElement("span",{className:"t"},"Team"),
+          team.hint && React.createElement("span",{className:"s"},team.hint))),
       artTabs.length>0 && React.createElement("div",{className:"export-art-tabs",role:"group","aria-label":"Art Room tabs"},
         React.createElement("div",{className:"export-subhead"},"Art Room tabs"),
         artTabs.map(t=>{
@@ -533,6 +561,8 @@ function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, o
   const [stylesOpen, setStylesOpen] = React.useState(false);
   const [apiKeysOpen, setApiKeysOpen] = React.useState(false);
   React.useEffect(()=>{ const h=()=>setApiKeysOpen(true); window.addEventListener("turn-open-api-keys",h); return ()=>window.removeEventListener("turn-open-api-keys",h); },[]);
+  // the phone ⋯ menu's "Story brief" entry opens the same window as the Brief button
+  React.useEffect(()=>{ const h=()=>setBriefOpen(true); window.addEventListener("turn-open-brief",h); return ()=>window.removeEventListener("turn-open-brief",h); },[]);
   return React.createElement("div",{className:"topbar"},
     bibleOpen && onViewBible && React.createElement(FilmBibleModal,{ getBible:onViewBible, onClose:()=>setBibleOpen(false) }),
     briefOpen && React.createElement(StoryBriefModal,{ project, onClose:()=>setBriefOpen(false), onRebuild:onRebuildFromBrief }),
@@ -557,7 +587,7 @@ function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, o
       presenceSlot || null,      // who else has this film open right now
       teamSlot || null,
       // Writers' Room: review the logline + synopsis the story was built from
-      room==="writers" && project && (project.sourceBrief||project.logline||project.premise) && React.createElement("button",{className:"tb-btn",onClick:()=>setBriefOpen(true),
+      storyBriefShown(room, project) && React.createElement("button",{className:"tb-btn",onClick:()=>setBriefOpen(true),
         title:"Story brief — the logline & synopsis this story was built from"},
         React.createElement((Icon.book||Icon.file||Icon.layers),{s:14}),"Brief"),
       // Styles manager: ADMIN ONLY. Its real job is curating the GLOBAL style tier
@@ -583,7 +613,12 @@ function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, o
       // whitelisted controls, so users lose nothing.
       // EXCEPTION (user ruling 2026-07-19): in the ART ROOM the ⋮ shows for everyone —
       // it carries "Export shot list" (moved off the Shots screen); admin extras stay gated.
-      (window.turnIsAdmin || room==="art") && React.createElement(OverflowMenu,{onNewStory,project,scenes,drafts,onReset,room,
+      // EXCEPTION (2026-09-28, Round 1): in the WRITERS' ROOM it renders for everyone too. The
+      // 07-14 ruling holds on desktop, where the stylesheet keeps the ⋯ hidden outside the Art
+      // Room; but a phone (≤700px) hides every plain top-bar button, and without the ⋯ a
+      // non-admin there had no Export, Brief / Rebuild or Team. The menu carries each of them
+      // under the same conditions as its button; Reset stays admin-only.
+      (window.turnIsAdmin || room==="art" || room==="writers") && React.createElement(OverflowMenu,{onNewStory,project,scenes,drafts,onReset,room,
         artView,setArtView,artTabLocks,hiddenArtTabs}),
       // Story Editors live only in the Writers' Room ViewNav; the Art Room exposes
       // its separate Run pre-production coordinator in the corresponding position.

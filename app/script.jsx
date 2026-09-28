@@ -4,7 +4,17 @@
    hinges + a continuity ledger threaded scene to scene. */
 
 const BLOCK_CLASS = { scene:"spb-scene", action:"spb-action", char:"spb-char", paren:"spb-paren", dia:"spb-dia", trans:"spb-trans" };
-const ROMAN = ["I","II","III"];
+/* an act number as a roman numeral, for ANY act count (2026-09-28: the old three-entry
+   table printed "ACT III → undefined" at a Kishōtenketsu film's Ten → Ketsu cut). Anything
+   that isn't a whole act number is shown as it is. */
+function actRoman(act){
+  const n = Number(act);
+  if(!Number.isInteger(n) || n<1 || n>39) return (act==null || act==="") ? "\u2014" : String(act);
+  const R = [[10,"X"],[9,"IX"],[5,"V"],[4,"IV"],[1,"I"]];
+  let out = "", r = n;
+  R.forEach(([v,s])=>{ while(r>=v){ out += s; r -= v; } });
+  return out;
+}
 
 function parseSlug(loc){
   let left = String(loc||"").trim();
@@ -22,12 +32,28 @@ function parseSlug(loc){
 }
 function slugText(loc){ return String(loc).replace(/\s*\u00b7\s*/g," \u2013 "); }
 
-/* the hinge between two consecutive scenes — McKee's Principle of Transition */
-function sceneTransition(prev, cur){
+/* a structure whose movements don't run on clash, so an act break needn't flip the charge
+   (Kishōtenketsu: "no clash required" — its twist recontextualizes). Every other framework
+   uses the classic turn rule and keeps the three-act advice. */
+function _actBreakNoClash(fw){ return !!fw && fw.id==="kishotenketsu"; }
+/* the hinge between two consecutive scenes — McKee's Principle of Transition. project
+   (optional) picks the framework, so the act-break note fits its structure; the open film
+   by default. */
+function sceneTransition(prev, cur, project){
   if(!prev) return { type:"COLD OPEN", cls:"act", gloss:"The film opens cold \u2014 no setup, straight into motion." };
-  if(prev.act !== cur.act)
-    return { type:`ACT ${ROMAN[prev.act-1]} \u2192 ${ROMAN[cur.act-1]}`, cls:"act",
+  if(prev.act !== cur.act){
+    const type = `ACT ${actRoman(prev.act)} \u2192 ${actRoman(cur.act)}`;
+    const fw = typeof frameworkOf==="function" ? frameworkOf(project || window.turnProject) : null;
+    // 2026-09-28: a four-movement Kishōtenketsu film names the movement it enters and gets no
+    // "the charge must alternate" advice, which contradicts its own "no clash required"
+    if(_actBreakNoClash(fw)){
+      const lab = (fw.acts && fw.acts[cur.act]) ? String(fw.acts[cur.act]).replace(/\s+[\u2014\u2013]\s+(.+)$/," ($1)") : "";
+      return { type, cls:"act",
+               gloss:"Movement break \u2014 the story crosses into "+(lab || "a new movement")+". No clash is required here; the charge doesn\u2019t have to alternate." };
+    }
+    return { type, cls:"act",
              gloss:"Act break \u2014 the story crosses into a new movement; the charge must alternate here." };
+  }
   const a = parseSlug(prev.loc), b = parseSlug(cur.loc);
   const ps = Math.sign(prev.closeCharge), cs = Math.sign(cur.openCharge);
   if(ps!==0 && cs!==0 && ps!==cs)
@@ -206,7 +232,9 @@ window.screenplayBeatNumbers = screenplayBeatNumbers;
                  no brackets or only a production note). Its text passes only as a NOTE of
                  what they will cover (see the kind below), never as their words. "INTERVIEW —
                  NINA:", "TESTIMONY — NINA:", "EXPECTED TESTIMONY — NINA'S MOTHER:" and
-                 "EXPECTED TESTIMONY — NINA (V.O.):" stay that person's line
+                 "EXPECTED TESTIMONY — NINA (V.O.):" stay that person's line. A cast name in
+                 mixed case with a colon after it, "EXPECTED TESTIMONY: Nina: …" or
+                 "EXPECTED TESTIMONY — Nina: …", is read as this named form too (2026-09-28)
      role      — a person by role ("GUARD", "THIRD GUARD", "MAN ON SCREEN", "DUTY MANAGER")
      voice     — a nameless voice (VOICEMAIL, NARRATOR, RADIO, TV, DISPATCH, RECORDED …)
      written   — a surface that SHOWS words (INSERT, SUPER, TEXT, STATUS, LOG, GAUGE …)
@@ -491,6 +519,14 @@ function _spExpectedTestimony(P, sp, speakers, ext){
   if(name.some(x=>x.poss) || !speakers.has(name.map(x=>x.t).join(" "))) return false;
   return !String(ext||"").trim() || !!_spProductionNote(ext, speakers);
 }
+/* "EXPECTED TESTIMONY: Leonor: …" / "EXPECTED TESTIMONY — Leonor: …" — a cast member's name in
+   mixed case with a colon right after it (docs/Story Pipeline.md step 5 accepts "EXPECTED
+   TESTIMONY: <subject> on <topic>", never words written for them). 2026-09-28: the mixed-case
+   name was never read as a label, so her invented line passed both checks as the unnamed
+   form's text; screenplayActionLabels now reads it as the NAMED form and holds it to that
+   form's topic rule. (A CAPS name is already a label of its own.) Groups: 4 the label's
+   brackets, 5 the name, 7 the name's brackets. */
+const _SP_TESTIMONY_NAMED_RE = /(^|[^A-Za-z])(EXPECTED TESTIMONY)(\s*\(([^()]{1,40})\))?(?:\s*:|\s*[\u2014\u2013\/]|\s+-)\s*([A-Z\u00c0-\u00dd][A-Za-z\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u00ff'\u2019-]*(?:\s[A-Z\u00c0-\u00dd][A-Za-z\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u00ff'\u2019-]*){0,2})(\s*\(([^()]{1,40})\))?:(?=\s|$)/g;
 /* any label that is planned testimony: "EXPECTED TESTIMONY", with or without its subject's name */
 function _spTestimonyLabel(label){ return /^EXPECTED TESTIMONY(?:$|\s*[—–\/]|\s+-\s)/.test(_spParseLabel(label).base); }
 /* a quoted span — words written for someone: "…", “…”, ‘two words’ or 'two words' (an
@@ -778,6 +814,16 @@ function screenplayActionLabels(text, speakers){
       const start = m.index + m[1].length;
       if(hits.some(h=>h.start===start)) continue;
       if(_spSpeakerIn(_spParseLabel(m[2]), speakers)) hits.push({ start, end:m.index + m[0].length - 1, label:m[2], ext:m[4] ? m[4].trim() : "" });
+    }
+    // "EXPECTED TESTIMONY: Leonor: …" is the named form (_SP_TESTIMONY_NAMED_RE): one label,
+    // "EXPECTED TESTIMONY — Leonor", replacing the unnamed label it starts with
+    _SP_TESTIMONY_NAMED_RE.lastIndex = 0;
+    while((m = _SP_TESTIMONY_NAMED_RE.exec(s))){
+      const name = m[5].replace(/\s+/g," ").trim();
+      if(!/[a-z\u00df-\u00ff]/.test(name) || !speakers.has(name.toUpperCase())) continue;
+      const start = m.index + m[1].length, end = m.index + m[0].length;
+      for(let k=hits.length-1;k>=0;k--) if(hits[k].start>=start && hits[k].start<end) hits.splice(k,1);
+      hits.push({ start, end, label:"EXPECTED TESTIMONY \u2014 "+name, ext:(m[7] || m[4] || "").trim() });
     }
     hits.sort((a,b)=>a.start-b.start);
   }
@@ -1084,6 +1130,34 @@ function ScriptBlock({ b, contd, sceneNo, flash, blockIndex }){
   return React.createElement("div",{className:(BLOCK_CLASS[type]||"spb-action")+fl,"data-sp-block-index":blockIndex}, text);
 }
 
+/* the text a line holds while it is being edited (no-break spaces as spaces, no trailing
+   line breaks) — what EditableBlock commits, and what a × click commits first (2026-09-28) */
+function _editableText(el){ return String((el && el.innerText) || "").replace(/\u00a0/g," ").replace(/\n+$/,""); }
+/* EDIT MODE keys (2026-09-28): a block keeps one key for as long as it lives, and an edited
+   copy inherits it (_spInheritKey), so removing an earlier line never hands the line being
+   typed in — its DOM node — to the next block. The keys were bare indexes, and the typing
+   was lost. */
+const _SP_BLOCK_KEYS = new WeakMap();
+let _spBlockKeyN = 0;
+function _spBlockKey(b){
+  let k = _SP_BLOCK_KEYS.get(b);
+  if(k==null){ k = "b"+(++_spBlockKeyN); _SP_BLOCK_KEYS.set(b, k); }
+  return k;
+}
+function _spInheritKey(from, to){ if(from && to && _SP_BLOCK_KEYS.has(from)) _SP_BLOCK_KEYS.set(to, _SP_BLOCK_KEYS.get(from)); return to; }
+/* `blocks` (the block list on the page) with the words of the line being typed in written
+   in. A line commits on blur, and the × keeps the focus where it is, so a × click used to
+   drop them (2026-09-28). The edited copy keeps its key, so the line keeps its caret. */
+function _spWithPendingText(blocks){
+  const ae = (typeof document!=="undefined" && document) ? document.activeElement : null;
+  if(!ae || !ae.isContentEditable || typeof ae.closest!=="function" || !Array.isArray(blocks)) return blocks;
+  const host = ae.closest("[data-sp-block-index]");
+  const gi = host ? Number(host.getAttribute("data-sp-block-index")) : -1;
+  const b = (Number.isInteger(gi) && gi>=0) ? blocks[gi] : null;
+  if(!b) return blocks;
+  const text = _editableText(ae);
+  return text===(b.text||"") ? blocks : blocks.map((x,j)=> j===gi ? _spInheritKey(x, { ...x, text }) : x);
+}
 /* EDIT MODE: a single screenplay block as a directly-editable line. Uncontrolled
    contentEditable — React never manages its text (no children in the vdom), so
    re-renders mid-typing can't reset the caret; the raw text is pushed in via a ref
@@ -1091,11 +1165,13 @@ function ScriptBlock({ b, contd, sceneNo, flash, blockIndex }){
 function EditableBlock({ b, onCommit, onRemove, flash, sceneNo, blockIndex }){
   const ref = React.useRef(null);
   const raw = b.text || "";
-  React.useEffect(()=>{ if(ref.current && ref.current.innerText !== raw) ref.current.innerText = raw; },[raw]);
+  // (compared as committed text, so words committed while the line keeps the focus — a ×
+  // click — don't reset it and jump the caret over a no-break space)
+  React.useEffect(()=>{ if(ref.current && _editableText(ref.current) !== raw) ref.current.innerText = raw; },[raw]);
   const cls = (BLOCK_CLASS[b.type]||"spb-action") + " sp-editable" + (flash?" spb-flash":"");
   const commit = ()=>{
     if(!ref.current) return;
-    const v = ref.current.innerText.replace(/ /g," ").replace(/\n+$/,"");
+    const v = _editableText(ref.current);
     if(v !== raw) onCommit(v);
   };
   // single-line block types blur on Enter; action/dialogue allow line breaks
@@ -1252,7 +1328,8 @@ function ScriptCheckReport({ scene, report, onClose, onIssue }){
 function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, onDraftAll, onPolish, drafting, total,
                      history, labelOf, onRevert, onRedo, onEditScene, continuityMap, project, onBeatFocus, readOnly,
                      facts, ledgerInfo, ledgerStale, ledgerBusy, onBuildLedger,
-                     staleChanges, staleCount, onRedraftStale, onKeepDraft, onRedraftAll, redraftingAll, redraftBusy }){
+                     staleChanges, staleCount, onRedraftStale, onKeepDraft, onRedraftAll, redraftingAll, redraftBusy,
+                     getDraft, filmKey }){
   const CONT = continuityMap || (window.TURN_DATA||{}).CONTINUITY || {};
   // this film's own facts (the continuity ledger); the sample's only as a legacy fallback
   const FACTS = facts || (window.TURN_DATA||{}).FACTS || {};
@@ -1271,6 +1348,13 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
   // from what's on screen, so the user sees exactly what the undo changed.
   const [verFlash, setVerFlash] = React.useState(null);
   const verFlashTimer = React.useRef(null);
+  // 2026-09-28: the NEWEST props, for work that lands after an await ('Write this beat'). By
+  // then the click-time `drafts` / `onEditScene` can be stale: an edit, Undo or a redraft made
+  // meanwhile, or another film opened. getDraft(id) / filmKey() (app.jsx, optional) read the
+  // app's live state; liveRef.closed is set once this view is gone and gets no new props.
+  const liveRef = React.useRef(null);
+  liveRef.current = { drafts, onEditScene, getDraft, filmKey, sceneId:scene ? scene.id : null };
+  React.useEffect(()=>{ liveRef.closed = false; return ()=>{ liveRef.closed = true; }; },[]);
   React.useEffect(()=>{ setActiveBeat(null); setShowScriptCheck(false); setPolishing(false); setPolishWait(false); setJustPolished(false); setEditing(false); setVerFlash(null); setBeatWriting(null); },[scene && scene.id]);
   React.useEffect(()=>{ if(readOnly) setEditing(false); },[readOnly]);
   // once the restored version renders, bring the first changed block into view if it's
@@ -1301,8 +1385,8 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
   const draftedCount = orderedScenes.filter(s=>drafts[s.id]).length;
   const go = (d, e)=>{ if(e && e.stopPropagation) e.stopPropagation(); const n = orderedScenes[idx+d]; if(n) onSelectScene(n.id); };
 
-  const transIn = sceneTransition(prevScene, scene);
-  const transOut = nextScene ? sceneTransition(scene, nextScene) : null;
+  const transIn = sceneTransition(prevScene, scene, project);
+  const transOut = nextScene ? sceneTransition(scene, nextScene, project) : null;
   const carry = sceneCarry(prevScene, scene, project);
 
   const report = continuityReport(orderedScenes, CONT, FACTS);
@@ -1425,23 +1509,28 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
           React.createElement(Icon.redo,{s:13}), "Redo"));
     }
 
+    // edit-mode keys (_spBlockKey): stable per block; a repeat in one list gets a suffix
+    const usedKeys = new Set();
+    const editKey = (b)=>{ let k = _spBlockKey(b); if(usedKeys.has(k)) k = k+"~"+usedKeys.size; usedKeys.add(k); return k; };
+
     // EDIT: rewrite one block's raw text and commit it as a new version (so Undo/Redo
     // covers manual edits too). Matches the block by identity in the canonical block list.
     const commitEdit = (b, newText)=>{
       if(!onEditScene) return;
       const gi = screenplay.blocks.indexOf(b);
       if(gi<0) return;
-      const nextBlocks = screenplay.blocks.map((x,j)=> j===gi ? {...x, text:newText} : x);
+      const nextBlocks = screenplay.blocks.map((x,j)=> j===gi ? _spInheritKey(x, {...x, text:newText}) : x);
       onEditScene(scene.id, keepStandInMark(screenplay, { ...screenplay, blocks:nextBlocks, edited:true, polished:false, ai:false, auto:false, by:null }));
     };
 
     // EDIT MODE: remove one element outright (the direct undo for an added box).
-    // Commits as a version like any edit, so Undo brings it back.
+    // Commits as a version like any edit, so Undo brings it back. A line still being typed
+    // in keeps its words: they are committed in the same version (2026-09-28).
     const removeBlock = (b)=>{
       if(!onEditScene) return;
       const gi = screenplay.blocks.indexOf(b);
       if(gi<0) return;
-      const blocks = screenplay.blocks.filter((x,j)=> j!==gi);
+      const blocks = _spWithPendingText(screenplay.blocks).filter((x,j)=> j!==gi);
       onEditScene(scene.id, keepStandInMark(screenplay, { ...screenplay, blocks, edited:true, polished:false, ai:false, auto:false, by:null }));
     };
 
@@ -1449,7 +1538,7 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
     // = a character cue plus an empty dialogue line in one press.
     const insertBlock = (beatN, kind)=>{
       if(!onEditScene) return;
-      const blocks = screenplay.blocks.slice();
+      const blocks = _spWithPendingText(screenplay.blocks).slice();
       let at = -1;
       for(let j=0;j<blocks.length;j++){ if((blocks[j].beat||1)===beatN) at = j; }
       if(at<0){ for(let j=0;j<blocks.length;j++){ if((blocks[j].beat||1)<beatN) at = j; } }
@@ -1463,25 +1552,64 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
     // WRITE A MISSING BEAT: the map defines beat N but no screenplay block dramatizes it.
     // One click AI-writes just that beat's prose (neighbouring text as read-only context),
     // splices it in beat order and commits a NEW version (Undo restores the gap).
+    // 2026-09-28: the beat lands in the scene's LATEST script (liveRef), not the one on screen
+    // at the click, so edits, Undo or a redraft made while MUSE wrote survive; it is dropped,
+    // with a message, if another film is open now or the gap has been filled meanwhile.
     const writeMissingBeat = async (n)=>{
       if(readOnly || beatWriting || !live || !onEditScene) return;
       setBeatWriting(n);
       const report = {};
+      const sid = scene.id, sno = scene.no;
+      const filmAtClick = typeof filmKey==="function" ? filmKey() : null;
+      const say = (m)=>{ if(window.appToast) window.appToast(m, "error", { force:true }); };
       try{
         const res = (typeof aiWriteBeatText==="function") ? await aiWriteBeatText(scene, beats, n, screenplay, prevScene, project, report) : null;
         if(res && res.blocks && res.blocks.length){
-          const blocks = screenplay.blocks.slice();
+          // (liveRef is optional: the handler tests run this without the view)
+          const LR = typeof liveRef==="object" && liveRef ? liveRef : { current:null };
+          const L = LR.current || {};
+          // another film is open now — its scene with this id is a different scene
+          if(typeof L.filmKey==="function" && L.filmKey()!==filmAtClick){
+            say("MUSE finished beat "+n+" of Scene "+sno+" after you switched films, so it wasn\u2019t added \u2014 nothing changed in either film. Go back to that film and press Write this beat again.");
+            return;
+          }
+          const seen = L.drafts ? L.drafts[sid] : screenplay;
+          const latest = typeof L.getDraft==="function" ? L.getDraft(sid) : seen;
+          // the Script view closed meanwhile: its last props can be out of date, so only a
+          // scene the app confirms untouched since then is safe to write into
+          if(LR.closed && (typeof L.getDraft!=="function" || latest!==seen)){
+            say("Beat "+n+" of Scene "+sno+" wasn\u2019t added: the Script view closed while MUSE was writing it, so the scene\u2019s latest text couldn\u2019t be checked. The script is unchanged \u2014 open the scene and press Write this beat again.");
+            return;
+          }
+          if(!latest || !Array.isArray(latest.blocks)){
+            say("Scene "+sno+" no longer has a script, so beat "+n+" wasn\u2019t added.");
+            return;
+          }
+          // the gap was filled meanwhile (an edit, Undo or a redraft): never write over it
+          const beatWords = (d)=>(d.blocks||[]).filter(b=>String(b.beat)===String(n)).map(b=>String(b.text||"").trim()).filter(Boolean).join("\n");
+          if(beatWords(latest)!==beatWords(screenplay)){
+            say("Beat "+n+" of Scene "+sno+" already has text now, so MUSE\u2019s version wasn\u2019t added. Your script is unchanged.");
+            return;
+          }
+          const blocks = latest.blocks.slice();
           let at = -1;   // after the last block belonging to an EARLIER beat (slug rides as beat 1)
           for(let j=0;j<blocks.length;j++){ if((Number(blocks[j].beat)||1) < n) at = j; }
           blocks.splice(at+1, 0, ...res.blocks);
-          onEditScene(scene.id, keepStandInMark(screenplay, { ...screenplay, blocks, ai:true, auto:false, edited:false, by:res.by||null }));
-          setVerFlash(new Set(res.blocks));
-          clearTimeout(verFlashTimer.current);
-          verFlashTimer.current = setTimeout(()=>setVerFlash(null), 2600);
+          const commit = L.onEditScene || onEditScene;
+          const ok = commit(sid, keepStandInMark(latest, { ...latest, blocks, ai:true, auto:false, edited:false, by:res.by||null }));
+          if(ok!==false && !LR.closed){
+            setVerFlash(new Set(res.blocks));
+            clearTimeout(verFlashTimer.current);
+            verFlashTimer.current = setTimeout(()=>setVerFlash(null), 2600);
+          }
         } else if(window.appToast) window.appToast(report.failure && typeof window.screenplayFailureMessage==="function"
           ? window.screenplayFailureMessage("write beat "+n+" of", scene.no, report.failure, { kept:"The script is unchanged." })
           : "Couldn't write this beat — try again.","error", { force:true });
-      } finally { setBeatWriting(null); }
+      } finally {
+        // another scene may be open, with a beat of its own being written: leave its spinner
+        const LR = typeof liveRef==="object" && liveRef ? liveRef : { current:null };
+        if(!LR.closed && (!LR.current || LR.current.sceneId===sid)) setBeatWriting(null);
+      }
     };
     body = React.createElement(React.Fragment,null,
       polishWait && React.createElement("div",{className:"polish-note"},
@@ -1504,7 +1632,7 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
               React.createElement("div",{className:"sp-page-inner"},
                 (fg[n]||[]).length
                   ? (fg[n]||[]).map((b,i)=> editing
-                  ? React.createElement(EditableBlock,{key:i,b,blockIndex:screenplay.blocks.indexOf(b),onCommit:(t)=>commitEdit(b,t),onRemove:()=>removeBlock(b),sceneNo:(b===firstSlugBlock?scene.no:null),flash:!!(verFlash&&verFlash.has(b))})
+                  ? React.createElement(EditableBlock,{key:editKey(b),b,blockIndex:screenplay.blocks.indexOf(b),onCommit:(t)=>commitEdit(b,t),onRemove:()=>removeBlock(b),sceneNo:(b===firstSlugBlock?scene.no:null),flash:!!(verFlash&&verFlash.has(b))})
                   : React.createElement(ScriptBlock,{key:i,b,blockIndex:screenplay.blocks.indexOf(b),contd:contdSet.has(b),sceneNo:(b===firstSlugBlock?scene.no:null),flash:!!(verFlash&&verFlash.has(b))}))
                   : React.createElement("div",{className:"spb-missing-wrap"},
                       React.createElement("div",{className:"spb-action spb-missing"},"No screenplay text assigned to this beat."),
@@ -1529,6 +1657,13 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
     React.createElement(editing?Icon.check:Icon.pencil,{s:14}),
     editing ? "Done editing" : "Edit") : null;
 
+  // several scenes out of date: redraft them all from the header. Declared BEFORE `header`,
+  // which renders it (2026-09-28: it sat below, so the lowered `var` was still undefined when
+  // the header was built and the button never appeared; native const would throw).
+  const redraftAllBtn = (staleCount>1 && onRedraftAll) ? React.createElement("button",{className:"cont-btn stale",
+      disabled:readOnly||!!redraftingAll,onClick:onRedraftAll,title:"Rewrite every out-of-date script from its current card and beats"},
+    React.createElement(Icon.history,{s:14}),
+    redraftingAll ? ("Redrafting "+redraftingAll.i+" / "+redraftingAll.total) : ("Redraft "+staleCount+" out-of-date")) : null;
   const missing = (typeof sceneMissing==="function") ? sceneMissing(scene, drafts) : [];
   const header = React.createElement("div",{className:"script-head"},
     React.createElement("div",{className:"meta"},
@@ -1540,9 +1675,13 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
         React.createElement("div",{className:"script-missing"},React.createElement(Icon.alert,{s:12}),
           "Missing: "+missing.join(", ")))),
     // two groups so mobile can stack them as two lines with the SAME desktop look:
-    // A = the housed glued strip (Continuity/Undo/Redo/Edit), B = Redraft + pager
+    // A = the housed glued strip (Continuity/Undo/Redo/Edit), B = Redraft + pager.
+    // "Redraft N out-of-date" is its own housed strip between them (2026-09-28): inside A it pushed
+    // Edit (and Undo/Redo) out of a phone's sideways-scrolling strip; on its own it takes its own
+    // line on a phone and wraps with the others in a narrow column.
     React.createElement("div",{className:"script-tools"},
-      React.createElement("div",{className:"st-group a"}, contBtn, scriptCheckBtn, redraftAllBtn, versionUI, editBtn),
+      React.createElement("div",{className:"st-group a"}, contBtn, scriptCheckBtn, versionUI, editBtn),
+      redraftAllBtn && React.createElement("div",{className:"st-group r"}, redraftAllBtn),
       React.createElement("div",{className:"st-group b"}, polishUI, control,
         React.createElement("div",{className:"script-scenestep",title:"Step through the screenplay scene by scene"},
           React.createElement("button",{className:"panel-collapse",onClick:(e)=>go(-1,e),disabled:idx<=0,
@@ -1584,11 +1723,6 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
       React.createElement("b",null,"Long for this format: "),
       "about "+fmtClock(lengthInfo.sec)+" of screen time against a budget of about "+fmtClock(lengthInfo.budget.sec)+
       " ("+budgetPhrase(lengthInfo.budget)+"). Nothing is rewritten automatically — trim it with Edit, or reshape the beats and press Redraft script from beats, which writes to the budget.")) : null;
-  // several scenes out of date: redraft them all from the header
-  const redraftAllBtn = (staleCount>1 && onRedraftAll) ? React.createElement("button",{className:"cont-btn stale",
-      disabled:readOnly||!!redraftingAll,onClick:onRedraftAll,title:"Rewrite every out-of-date script from its current card and beats"},
-    React.createElement(Icon.history,{s:14}),
-    redraftingAll ? ("Redrafting "+redraftingAll.i+" / "+redraftingAll.total) : ("Redraft "+staleCount+" out-of-date")) : null;
 
   // inline per-scene continuity flag
   const inlineFlag = sceneConflicts.length ? React.createElement("div",

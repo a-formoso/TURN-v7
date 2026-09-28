@@ -548,8 +548,9 @@ await test("F the files that changed load under a new cache key, script.jsx and 
   const key = (f)=>(html.match(new RegExp(f.replace(/\./g, "\\.")+"\\?v=([^\"']+)")) || [])[1] || "";
   assert.equal(key("app/script.jsx"), key("app/ai.jsx"), "script.jsx and ai.jsx share a key");
   // this change's key — or a LATER change's (the page-forms fix re-keyed formats.jsx, script.jsx
-  // and ai.jsx; never back to a pre-change key)
-  const LATER = ["20260927-pageforms1", "20260927-review1", "20260928-dock2"];
+  // and ai.jsx; never back to a pre-change key; the Round 1 fixes of 2026-09-28 re-keyed spine.jsx,
+  // script.jsx, ai.jsx and app.jsx together)
+  const LATER = ["20260927-pageforms1", "20260927-review1", "20260928-dock2", "20260928-round1"];
   for(const f of ["app/formats.jsx", "app/spine.jsx", "app/script.jsx", "app/ai.jsx", "app/app.jsx"])
     assert.ok(key(f)==="20260927-screentime1" || LATER.includes(key(f)), f+" re-keyed: "+key(f));
   // formats.jsx and spine.jsx load before the files that read their helpers

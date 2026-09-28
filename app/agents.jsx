@@ -653,6 +653,27 @@ function standInWhy(f, retried){
   return base+", so a rough structural draft stands in \u2014 "+next+admin;
 }
 window.standInWhy = standInWhy;
+/* A FAILURE RETRYING CAN'T FIX (2026-09-28, owner round 1): out of plan credits, signed out
+   of the writing service, the writing provider's account run dry (the kinds standInWhy tells
+   apart), or no writing model reachable any more although there was one when the run began.
+   Every later call fails the same way, so a batch — the story build, Auto-draft all — stops
+   at the first one instead of turning every remaining scene into a rough stand-in (and
+   reopening the plans window for each). What is already written is kept. */
+function failureNeedsAction(f){
+  return !!(f && (f.kind==="plan" || f.kind==="signin" || f.kind==="credits" || f.kind==="unavailable"
+    // the writing provider's key rejected or missing (ref CM-12, 2026-09-28 review): nothing the
+    // next scene does can succeed until it is fixed on the studio's side
+    || (f.kind==="service" && f.ref==="CM-12")));
+}
+window.turnFailureNeedsAction = failureNeedsAction;
+/* THE SAME SERVICE FAILURE TWICE IN A ROW (2026-09-28, Round 1 review): the provider throttled or
+   unreachable (refs CM-13, CM-14) can be a passing blip, so one such scene is not a stop — but two
+   scenes in a row failing with the same reference (each already retried) means the rest would
+   most likely fail the same way. `prev` is the previous scene's failure (null after a success). */
+function repeatedServiceFailure(prev, f){
+  return !!(prev && f && prev.kind==="service" && f.kind==="service" && f.ref && prev.ref===f.ref);
+}
+window.turnRepeatedServiceFailure = repeatedServiceFailure;
 
 /* a rough stand-in draft (script.jsx isStandInDraft — Story Pipeline step 7), with the same rule
    inline when script.jsx isn't loaded */
@@ -660,15 +681,40 @@ function standInDraft(d){
   return (typeof window.isStandInDraft==="function") ? window.isStandInDraft(d)
     : !!(d && (d.blocks||[]).length && (d.standIn===true || (d.auto===true && !d.ai && !d.by)));
 }
+/* WHERE "finish just the unwritten scenes" lives (2026-09-28): the open build panel's Run
+   again, or — once it's closed — Story Editors' "Finish writing this film" row */
+const FINISH_WHERE = "press Run again, or later open Story Editors and choose Finish writing this film";
 async function writeScenesSeq(ctx, indices){
   let written = 0; let failures = [];
   const stopRes = ()=>{
     const swapped = typeof ctx.switchedFilms==="function" && ctx.switchedFilms();
     ctx.emit({k:"flag", t: swapped
-      ? "You switched films, so this run stopped safely \u2014 nothing was written into the film now open. Reopen the film it started in and run Adaptation again: it offers to finish just the unwritten scenes."
-      : "Stopped \u2014 "+written+" of "+indices.length+" scenes written this run. Run Adaptation again: it offers to FINISH just the unwritten scenes; nothing already written is redone."});
+      ? "You switched films, so this run stopped safely \u2014 nothing was written into the film now open. Reopen the film it started in, open Story Editors and choose Finish writing this film to write just the unwritten scenes."
+      : "Stopped \u2014 "+written+" of "+indices.length+" scenes written this run. To finish just the unwritten scenes, "+FINISH_WHERE+"; nothing already written is redone."});
     return { written, failures, stopped:true };
   };
+  /* STOP ON A FAILURE RETRYING CAN'T FIX (2026-09-28): out of plan credits, signed out, the
+     provider account dry — every remaining scene would fail the same way (and reopen the
+     plans window each time). The build stops after that scene: everything written is kept,
+     the failed scene keeps its rough stand-in, the rest are left for the finish run, and
+     the log says why ONCE. */
+  const haltRes = (f, repeated)=>{
+    const fl = f.failure || {};
+    const reason = (typeof window.screenplayFailureReason==="function") ? window.screenplayFailureReason(fl)
+      : fl.kind==="plan" ? "your account has no plan credits left for writing" : fl.kind==="credits" ? "the writing service is unavailable" : "you\u2019re signed out of the writing service";
+    const first = fl.kind==="plan" ? "Choose a plan or add credits"
+      : fl.kind==="credits" ? (window.turnIsAdmin ? "Top up the provider account" : "Wait a little (if it keeps failing, quote ref "+(fl.ref||"CM-11")+" to support)")
+      : fl.kind==="service" ? "Wait a little (if it keeps failing, quote ref "+(fl.ref||"CM-14")+" to support)"
+      : "Sign in";
+    const left = indices.length - written;
+    ctx.emit({k:"flag", t:"Stopped at Sc "+f.no+" \u201c"+f.title+"\u201d: "+reason+(repeated
+      ? ", for the second scene in a row, so the remaining scenes would most likely fail the same way. "
+      : ", and every remaining scene would fail the same way. ")+
+      written+" of "+indices.length+" scenes "+(written===1?"is":"are")+" written and kept; "+left+" "+(left===1?"isn\u2019t":"aren\u2019t")+" written yet"+
+      (f.wrote ? " (Sc "+f.no+" has a rough stand-in)" : "")+". "+first+", then finish just the unwritten scenes: "+FINISH_WHERE+"."});
+    return { written, failures, stopped:true, halted:fl };
+  };
+  const mustHalt = (f)=> !!(f && f.failure && ctx.ai.available && failureNeedsAction(f.failure));
 
   /* One full attempt at scene index i. `draftTries` bounds the model draft calls
      THIS attempt makes (the deterministic rough draft is only accepted once they're
@@ -731,6 +777,9 @@ async function writeScenesSeq(ctx, indices){
         if(ctx.cancelled()) return {cancelled:true};
         if(out && !(out.auto && ctx.ai.available)){ res = out; standIn = false; break; }
         if(out){ res = out; standIn = true; lastFailure = out.failure || lastFailure; }   // keep the newest stand-in while retrying
+        // a failure retrying can't fix (out of credits, signed out): no second try — the
+        // batch stops after this scene (failureNeedsAction, 2026-09-28)
+        if(standIn && failureNeedsAction(lastFailure)) break;
       }
       // the draft remembers the card it was written from (the "needs redraft" marker); a
       // failed attempt on a scene that already had a stand-in leaves that stand-in as it is
@@ -751,6 +800,10 @@ async function writeScenesSeq(ctx, indices){
 
   // ---- main pass ----
   const retryQueue = [];
+  // the previous scene's failure (null after a scene that took): the same service failure on two
+  // scenes in a row stops the build too (repeatedServiceFailure, 2026-09-28)
+  let prevFail = null;
+  const repeated = (f)=> !!(f && ctx.ai.available && !failureNeedsAction(f.failure) && repeatedServiceFailure(prevFail, f.failure));
   for(let k=0;k<indices.length;k++){
     if(ctx.cancelled()) return stopRes();
     const i = indices[k];
@@ -758,12 +811,15 @@ async function writeScenesSeq(ctx, indices){
     ctx.emit({k:"act", t:"Writing Sc "+s.no+" \u201c"+s.title+"\u201d \u2014 "+(k+1)+" of "+indices.length+"\u2026"});
     const f = await attemptScene(i, 2);
     if(f && f.cancelled) return stopRes();
-    if(!f){ written++; continue; }
+    if(!f){ written++; prevFail = null; continue; }
     // `written` counts real screenplays only: a rough stand-in is not a written scene (Story
     // Pipeline step 7 — no cheerful count); a real script still missing its beat map is one
     if(f.beatsOnly) written++;
     retryQueue.push(f);
     if(!f.beatsOnly) failures.push(f);
+    if(mustHalt(f)) return haltRes(f);
+    if(repeated(f)) return haltRes(f, true);
+    prevFail = f.beatsOnly ? null : (f.failure || null);
   }
 
   // cancellation during the LAST scene's attempt surfaces as an ordinary failure
@@ -792,11 +848,15 @@ async function writeScenesSeq(ctx, indices){
       const hadScript = !!f.beatsOnly;               // a stand-in is not a script (see above)
       const hasScript = !g || !!g.beatsOnly;
       if(!hadScript && hasScript) written++;
-      if(!g){ ctx.emit({k:"ok", t:"Sc "+f.no+" \u201c"+f.title+"\u201d came good on the retry."}); continue; }
-      if(g.beatsOnly){ still.push(beatsOnlyFail(g, true)); continue; }   // screenplay is real; the beat map is still missing — that's outstanding work
+      if(!g){ ctx.emit({k:"ok", t:"Sc "+f.no+" \u201c"+f.title+"\u201d came good on the retry."}); prevFail = null; continue; }
+      if(g.beatsOnly){ still.push(beatsOnlyFail(g, true)); prevFail = null; continue; }   // screenplay is real; the beat map is still missing — that's outstanding work
       still.push({ ...g, why: g.wrote
         ? standInWhy(g.failure, true)
         : (g.why==="the model returned no usable screenplay" ? "the model returned no usable screenplay, even on the automatic retry" : g.why) });
+      if(mustHalt(g)){ failures = still; return haltRes(g); }
+      // (a repeat on the LAST retry skips nothing, so the round just ends as usual)
+      if(k<retryQueue.length-1 && repeated(g)){ failures = still; return haltRes(g, true); }
+      prevFail = g.failure || null;
     }
     failures = still;
   } else {
@@ -873,7 +933,7 @@ async function agentAdaptation(ctx){
       // r.written counts only scenes that now have a real screenplay: a stand-in that failed
       // again is not "finished"
       ctx.emit({k:"done", t: r.failures.length
-        ? ((r.written ? "Finished "+r.written+" scene"+(r.written===1?"":"s")+" \u2014 " : "No scene was finished this time \u2014 ")+r.failures.length+" still failed even after automatic retries (listed above). Run again later to retry just those.")
+        ? ((r.written ? "Finished "+r.written+" scene"+(r.written===1?"":"s")+" \u2014 " : "No scene was finished this time \u2014 ")+r.failures.length+" still failed even after automatic retries (listed above). To retry just those, "+FINISH_WHERE+".")
         : ("All "+have.length+" scenes now have beats and screenplay. Open the Script view to read the film.")});
       return;
     }
@@ -889,13 +949,18 @@ async function agentAdaptation(ctx){
     ? "Designing a complete Hero's Journey spine from your logline \u2014 departure, initiation and return, each scene placed on its stage with a value charge that turns."
     : "Designing a complete three-act spine from your logline \u2014 scenes, acts, and a value charge for each that turns."});
   ctx.emit({k:"act", t:"Generating the scene breakdown\u2026"});
+  try{ window.__lastSpineFailure = null; }catch(e){}   // a reason is only ever this build's own
   const spine = await ctx.ai.buildSpine(brief);
   if(ctx.cancelled()) return;
-  if(!spine){ ctx.emit({k:"flag", t:"The model didn't return a usable spine. Try a more concrete logline."}); ctx.emit({k:"done",t:"Aborted."}); return; }
+  // WHY IT FAILED (2026-09-28, Round 1): aiBuildSpine leaves a plain reason in
+  // window.__lastSpineFailure (a half that never came back, too few scenes) — say that, not a guess
+  if(!spine){ ctx.emit({k:"flag", t:window.__lastSpineFailure || "The model didn't return a usable spine. Try a more concrete logline."}); ctx.emit({k:"done",t:"Aborted."}); return; }
   const turns = spine.scenes.filter(s=> (typeof chargeTurn==="function") ? chargeTurn(s.openCharge, s.closeCharge).turned : Math.sign(s.openCharge)*Math.sign(s.closeCharge)<0).length;
   const _actsN = _fwA ? Object.keys(_fwA.acts).length : 3;
   const _isNew = !(ctx.model.scenes||[]).length;   // a fresh project has nothing to replace
   ctx.emit({k:"observe", t:'"'+spine.title+'" \u2014 '+spine.scenes.length+" scenes across "+_actsN+" "+(_kishoA?"movements":"acts")+", "+turns+" of them "+(_kishoA?"moving":"turning")+". Review below before it "+(_isNew?"becomes your project.":"replaces the current project.")});
+  // a spine shorter than the format aims for is still offered, but never silently (2026-09-28)
+  if(spine.short && spine.short.note) ctx.emit({k:"flag", t:spine.short.note+" You can approve it as it is, or decline and run it again."});
 
   const ok = await ctx.propose({
     title:(_isNew?"Create the project \u201c":"Replace the project with \u201c")+spine.title+"\u201d",
@@ -912,6 +977,9 @@ async function agentAdaptation(ctx){
   ctx.emit({k:"act", t:"Building the story world \u2014 premise, controlling idea, setting and cast\u2026"});
   let world = null;
   try{ world = ctx.ai.buildStoryWorld ? await ctx.ai.buildStoryWorld(brief, spine) : null; }catch(e){}
+  // HONEST LOG (2026-09-28): a story world that didn't come back used to pass silently — the
+  // build carries on (the spine stands on its own), but the writer is told what is missing
+  if(!world && ctx.ai.buildStoryWorld && !ctx.cancelled()) ctx.emit({k:"flag", t:"Couldn't build the story world this time, so this film has no new premise, controlling idea or setting, and the cast has names but no identities or voices. The build carries on with the scenes; fill those in afterwards in the Story panel on the left."});
 
   const newScenes = spine.scenes.map((s,i)=>({
     id:"g"+Date.now().toString(36)+i, no:i+1, act:s.act, seq:"",
@@ -1099,15 +1167,30 @@ async function agentAdaptation(ctx){
   // need, arc by act and Voice DNA for the principal cast, designed from the synopsis and
   // the spine — so every scene is written FROM who these people are ----
   if(ctx.cancelled()) return;
-  if(ctx.ai.available && typeof window.aiCastPsychology==="function" && ctx.model.characters && ctx.model.characters.length){
+  // IN AN EPISODE OF AN EXISTING SHOW (docs/Story Pipeline.md step 3; 2026-09-28): the Show's
+  // characters keep their canon here too — not even an EMPTY field of theirs is designed, since
+  // any change moves the "drafted from" stamps of another episode's scenes. They ride along as
+  // context only (opts.cast); only the characters THIS build introduced are designed.
+  const canonCast = (c)=> typeof ctx.castCanon==="function" && !!ctx.castCanon(c);
+  // (third-circle texture characters get no psychology pass at all — aiCastPsychology's depth
+  // budget — so a build whose new people are all texture has nothing to design here)
+  const designFor = (ctx.model.characters||[]).filter(c=>!canonCast(c)
+    && (typeof window.castOrbit!=="function" || window.castOrbit(c, ctx.model.scenes)<=2));
+  if(ctx.ai.available && typeof window.aiCastPsychology==="function" && designFor.length){
     ctx.emit({k:"act", t:"Designing the cast's inner life before writing \u2014 want, contradicting need, arc by act and dialogue fingerprint\u2026"});
+    const beforeReport = {};   // aiCastPsychology's failedIds: whose answer never came back readable
     try{
-      const psych = await window.aiCastPsychology(ctx.model.characters, ctx.model.scenes, ctx.model.project, {
-        scenes:ctx.model.scenes, drafts:{}, cast:ctx.model.characters, mode:"before"
+      const psych = await window.aiCastPsychology(designFor, ctx.model.scenes, ctx.model.project, {
+        scenes:ctx.model.scenes, drafts:{}, cast:ctx.model.characters, mode:"before", report:beforeReport
       });
       if(ctx.cancelled()) return;
-      if(psych){ ctx.model.characters = ctx.model.characters.map(c=> psych[c.id] ? {...c, ...psych[c.id]} : c);
-        ctx.sync(); ctx.emit({k:"ok", t:"The principal cast has a want, a need that pulls against it, an arc by act and a dialogue fingerprint \u2014 the scenes are written from them."}); }
+      if(psych){ ctx.model.characters = ctx.model.characters.map(c=> (psych[c.id] && !canonCast(c)) ? {...c, ...psych[c.id]} : c);
+        ctx.sync(); ctx.emit({k:"ok", t:"The principal cast has a want, a need that pulls against it, an arc by act and a dialogue fingerprint \u2014 the scenes are written from them."});
+        const missedB = (Array.isArray(beforeReport.failedIds) ? beforeReport.failedIds : []).map(id=>{
+          const c = designFor.find(x=>x && String(x.id)===String(id)); return c ? c.name : ""; }).filter(Boolean);
+        if(missedB.length) ctx.emit({k:"flag", t:"Couldn't design the inner life of "+missedB.join(", ")+" before writing this time; their scenes are written without it. Open "+(missedB.length===1?"that character":"each")+" in the Cast panel and press Draft with MUSE to fill it in."}); }
+      // HONEST LOG (2026-09-28): nothing came back — say so, never pass in silence
+      else ctx.emit({k:"flag", t:"Couldn't design the cast's inner life before writing this time; the scenes are written without it, and the check after the script tries again."});
     }catch(e){ ctx.emit({k:"flag", t:"Couldn't design the cast's inner life first ("+((e&&e.message)||e)+"); the scenes will be written without it and the check after the script fills it in."}); }
   }
 
@@ -1117,7 +1200,7 @@ async function agentAdaptation(ctx){
   ctx.sync();
   reportSceneFailures(ctx, r);
   ctx.emit({k:"ok", t:"Wrote "+r.written+" of "+ctx.model.scenes.length+" scenes"+
-    (r.failures.length ? " \u2014 "+r.failures.length+" didn't take even after automatic retries (flagged above); run Adaptation again later to retry just those." : " \u2014 beats and screenplay are in place.")});
+    (r.failures.length ? " \u2014 "+r.failures.length+" didn't take even after automatic retries (flagged above); to retry just those, "+FINISH_WHERE+"." : " \u2014 beats and screenplay are in place.")});
 
   // ---- CHECK THE PSYCHOLOGY AGAINST THE SCRIPT: true character is what choices under
   // pressure reveal — keep what the scenes bear out, revise what they contradict.
@@ -1126,23 +1209,34 @@ async function agentAdaptation(ctx){
   // the ledger reads (only the drafts' card snapshots, which the ledger signature ignores). ----
   if(ctx.cancelled()) return;
   if(ctx.ai.available && typeof window.aiCastPsychology==="function" && ctx.model.characters && ctx.model.characters.length){
-    const designed = ctx.model.characters.some(c=>String(c.conscious||"").trim());
+    // IN AN EPISODE OF AN EXISTING SHOW (docs/Story Pipeline.md step 3) the check may refine
+    // only the characters THIS build introduced: one the Show already had when the build
+    // started is left exactly as it is — not even an empty field is filled, since any change
+    // to it would move the "drafted from" stamps of another episode's scenes
+    const canon = (c)=> typeof ctx.castCanon==="function" && !!ctx.castCanon(c);
+    // "designed" is judged on the characters the check may change (2026-09-28): the Show's canon
+    // cast always has a want, so a failed pass before the script used to send the episode's NEW
+    // people through reconcile mode — which returns only revisions — and they stayed empty
+    const own = ctx.model.characters.filter(c=>!canon(c));
+    const designed = (own.length ? own : ctx.model.characters).some(c=>String(c.conscious||"").trim());
     ctx.emit({k:"act", t: designed
       ? "Checking the cast's psychology against the choices the script shows\u2026"
       : "Drafting the cast's inner life and Voice DNA from the script \u2014 want, contradicting need, dimensions, arc and dialogue behaviour\u2026"});
+    // HONEST LOG (2026-09-28): aiCastPsychology fills this report — failedIds are the characters
+    // whose answer never came back readable, even after its retry — so a check that didn't run is
+    // never reported as "the script bears out every character"
+    const psyReport = {};
+    const namesOf = (ids)=> (ids||[]).map(id=>{ const c = ctx.model.characters.find(x=>x && String(x.id)===String(id)); return (c && c.name) || String(id); });
     try{
       const psych = await window.aiCastPsychology(ctx.model.characters, ctx.model.scenes, ctx.model.project, {
-        scenes:ctx.model.scenes, drafts:ctx.model.drafts, cast:ctx.model.characters, ...(designed ? { mode:"reconcile" } : {})
+        scenes:ctx.model.scenes, drafts:ctx.model.drafts, cast:ctx.model.characters, report:psyReport, ...(designed ? { mode:"reconcile" } : {})
       });
       if(ctx.cancelled()) return;
+      const missed = namesOf(Array.isArray(psyReport.failedIds) ? psyReport.failedIds.filter(id=>{
+        const c = ctx.model.characters.find(x=>x && String(x.id)===String(id)); return !(c && canon(c)); }) : []);
       if(psych){
         const keyOf = (c)=> String(c && c.id!=null ? c.id : "");
         const nameKey = (c)=> String(c && c.name || "").toLowerCase().replace(/[^a-z0-9]+/g,"");
-        // IN AN EPISODE OF AN EXISTING SHOW (docs/Story Pipeline.md step 3) the check may refine
-        // only the characters THIS build introduced: one the Show already had when the build
-        // started is left exactly as it is — not even an empty field is filled, since any change
-        // to it would move the "drafted from" stamps of another episode's scenes
-        const canon = (c)=> typeof ctx.castCanon==="function" && !!ctx.castCanon(c);
         const before = ctx.model.characters.slice();
         const revisions = [];
         ctx.model.characters = ctx.model.characters.map(c=>{
@@ -1189,10 +1283,21 @@ async function agentAdaptation(ctx){
         ctx.emit({k:"ok", t: designed
           ? (landed.length ? "Psychology checked \u2014 "+landed.length+" character"+(landed.length!==1?"s":"")+" revised to match the choices on the page."+(keptLine ? " "+keptLine : "")
             : kept.length ? "Psychology checked \u2014 no revision applied: "+keptLine
+            : missed.length ? "Psychology checked for the rest of the cast \u2014 the script bears them out."
             : "Psychology checked \u2014 the script bears out every character.")
           : "The principal cast now has a want, need, arc and dialogue fingerprint \u2014 visible in the Cast panel."});
-      } else if(designed) ctx.emit({k:"ok", t:"Psychology checked \u2014 the script bears out every character."});
-    }catch(e){ /* the psychology designed before the script stands */ }
+        // part of the cast never got a readable answer: name them
+        if(missed.length) ctx.emit({k:"flag", t:"Couldn't "+(designed ? "check " : "design the inner life of ")+missed.join(", ")+(designed ? " against the script" : "")+" this time"+
+          (designed ? " \u2014 the psychology designed before the script stands." : ".")+" To revisit a character, open it in the Cast panel and press Draft with MUSE."});
+      }
+      // nothing came back: the check never ran (every answer unreadable), or — reconcile only — it
+      // ran and found nothing to revise. Only the second is "the script bears out every character".
+      else if(!designed) ctx.emit({k:"flag", t:"Couldn't design the cast's inner life this time, so the characters have no want, need or arc yet. Open each one in the Cast panel and press Draft with MUSE to fill it in."});
+      else if(missed.length) ctx.emit({k:"flag", t:"Couldn't check "+missed.join(", ")+" against the script this time \u2014 the psychology designed before the script stands. To revisit a character, open it in the Cast panel and press Draft with MUSE."});
+      else if(Array.isArray(psyReport.failedIds)) ctx.emit({k:"ok", t:"Psychology checked \u2014 the script bears out every character."});
+      // (a writer without the report can't tell a clean check from a failed one: claim neither)
+      else ctx.emit({k:"observe", t:"Psychology check: no revisions came back for the cast."});
+    }catch(e){ ctx.emit({k:"flag", t:"Couldn't check the cast's psychology against the script this time ("+((e&&e.message)||e)+") \u2014 the psychology designed before the script stands."}); }
   }
 
   // ---- map setups and payoffs so continuity is checkable from the start: the LAST step ----
@@ -1205,7 +1310,7 @@ async function agentAdaptation(ctx){
   // Characters tab was flagged "Lookbook changed — re-draft" and the cast was drafted twice. ----
   if(ctx.cancelled()) return;
   ctx.emit({k:"done", t: r.failures.length
-    ? ('\u201c'+spine.title+'\u201d is built \u2014 '+r.written+" of "+ctx.model.scenes.length+" scenes written, "+r.failures.length+" flagged above. Run Adaptation again to finish just those.")
+    ? ('\u201c'+spine.title+'\u201d is built \u2014 '+r.written+" of "+ctx.model.scenes.length+" scenes written, "+r.failures.length+" flagged above. To finish just those, "+FINISH_WHERE+".")
     : ('\u201c'+spine.title+'\u201d is fully written. Open the Script view to read it, or the Spine to see the charge graph. Pre-production starts in the Art Room with the Lookbook \u2014 the cast\u2019s look is designed from it.')});
 }
 
