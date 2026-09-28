@@ -75,7 +75,7 @@
 
 import "./storage-keys.js";
 
-export const VERSION = "admin-storage@2026-09-28.1";
+export const VERSION = "admin-storage@2026-09-28.2";
 
 export const ACTIONS = Object.freeze([
   "status", "overview", "project-files", "preview-delete", "delete", "runs", "drain-queue",
@@ -200,8 +200,12 @@ export function normalize(v) {
 }
 
 // ── SQL: every statement the function runs. Constants only; inputs are $n. ──
-// Arrays travel as one JSON text parameter ($n::jsonb), so the same text runs
-// on postgres.js and PGlite.
+// Arrays travel as one JSON text parameter, cast $n::text::jsonb, so the same
+// text runs on postgres.js and PGlite. Never $n::jsonb or $n::timestamptz: postgres.js
+// serialises a parameter by the type the server describes, so a jsonb slot gets
+// JSON.stringify() of our JSON string (a jsonb scalar: "cannot extract elements from
+// a scalar", production 2026-09-28) and a timestamptz slot gets new Date(x), which
+// drops the cursor's microseconds. Through ::text both arrive exactly as sent.
 export const S = Object.freeze({
   SET_TIMEOUTS: `select set_config('statement_timeout', $1::text, true) as statement_timeout,
        set_config('idle_in_transaction_session_timeout', $2::text, true) as idle_timeout`,
@@ -354,20 +358,20 @@ select (select count(*)::int from pg_catalog.pg_views where schemaname = 'turn_a
  limit $3::int`,
 
   // ── preview-delete
-  LIVE_CHECK: `select id from public.turn_projects where id in (select value::uuid from jsonb_array_elements_text($1::jsonb))`,
+  LIVE_CHECK: `select id from public.turn_projects where id in (select value::uuid from jsonb_array_elements_text($1::text::jsonb))`,
   CANDIDATES: `select f.path, f.project_id, f.bytes, f.status, f.area, f.safe_to_delete, f.referenced_by_project_ids
   from turn_admin.files f
- where f.project_id in (select value::uuid from jsonb_array_elements_text($1::jsonb))`,
+ where f.project_id in (select value::uuid from jsonb_array_elements_text($1::text::jsonb))`,
   RUN_INSERT: `insert into turn_admin_ops.storage_runs
   (id, action, admin_id, admin_email, project_ids, status, planned_files, planned_bytes, kept_files,
    preview_expires_at, function_version)
 values ($1::uuid, 'delete-deleted-project-files', $2::uuid, $3::text,
-        array(select value::uuid from jsonb_array_elements_text($4::jsonb)),
+        array(select value::uuid from jsonb_array_elements_text($4::text::jsonb)),
         'previewed', $5::int, $6::bigint, $7::int, now() + interval '15 minutes', $8::text)
 returning preview_expires_at`,
   ITEMS_INSERT: `insert into turn_admin_ops.storage_run_items (run_id, path, project_id, bytes, outcome, detail)
 select $1::uuid, x->>'path', (x->>'project_id')::uuid, (x->>'bytes')::bigint, x->>'outcome', x->>'detail'
-  from jsonb_array_elements($2::jsonb) x`,
+  from jsonb_array_elements($2::text::jsonb) x`,
 
   // ── delete
   LEASE: `update turn_admin_ops.storage_runs
@@ -399,19 +403,19 @@ returning *`,
 update turn_admin_ops.storage_run_items i
    set outcome = x.outcome, detail = x.detail, updated_at = now()
   from ok, (select value->>'path' as path, value->>'outcome' as outcome, value->>'detail' as detail
-              from jsonb_array_elements($3::jsonb)) x
+              from jsonb_array_elements($3::text::jsonb)) x
  where i.run_id = ok.id and i.path = x.path and i.outcome in ('planned', 'failed')
 returning i.path`,
-  RECHECK_REFS: `select distinct path from turn_admin.referenced_paths where path in (select value from jsonb_array_elements_text($1::jsonb))`,
-  RECHECK_INTENTS: `select path from public.turn_asset_upload_intents where path in (select value from jsonb_array_elements_text($1::jsonb))`,
-  RECHECK_QUEUE: `select path from public.turn_asset_cleanup_queue where path in (select value from jsonb_array_elements_text($1::jsonb))`,
-  PRESENT: `select name from storage.objects where bucket_id = 'turn-assets' and name in (select value from jsonb_array_elements_text($1::jsonb))`,
+  RECHECK_REFS: `select distinct path from turn_admin.referenced_paths where path in (select value from jsonb_array_elements_text($1::text::jsonb))`,
+  RECHECK_INTENTS: `select path from public.turn_asset_upload_intents where path in (select value from jsonb_array_elements_text($1::text::jsonb))`,
+  RECHECK_QUEUE: `select path from public.turn_asset_cleanup_queue where path in (select value from jsonb_array_elements_text($1::text::jsonb))`,
+  PRESENT: `select name from storage.objects where bucket_id = 'turn-assets' and name in (select value from jsonb_array_elements_text($1::text::jsonb))`,
   MARK_SENDING: `with ok as (update turn_admin_ops.storage_runs set lease_expires_at = now() + interval '90 seconds'
              where id = $1::uuid and lease_token = $2::uuid returning id)
 update turn_admin_ops.storage_run_items i
    set outcome = 'sending', attempts = i.attempts + 1, updated_at = now()
   from ok
- where i.run_id = ok.id and i.path in (select value from jsonb_array_elements_text($3::jsonb))
+ where i.run_id = ok.id and i.path in (select value from jsonb_array_elements_text($3::text::jsonb))
    and i.outcome in ('planned', 'failed')
 returning i.path`,
   // lease-guarded too (2026-09-27 review): a call whose lease expired during a
@@ -421,7 +425,7 @@ update turn_admin_ops.storage_run_items i
    set outcome = case when x.gone then 'removed' else 'failed' end,
        detail  = case when x.gone then null else $3::text end, updated_at = now()
   from ok, (select value->>'path' as path, (value->>'gone')::boolean as gone
-              from jsonb_array_elements($2::jsonb)) x
+              from jsonb_array_elements($2::text::jsonb)) x
  where i.run_id = ok.id and i.path = x.path and i.outcome = 'sending'
 returning i.path`,
   ITEM_COUNTS: `select count(*) filter (where outcome = 'removed')::int as removed,
@@ -449,7 +453,7 @@ returning id`,
   FAILED_SAMPLE: `select path, detail from turn_admin_ops.storage_run_items
  where run_id = $1::uuid and outcome = 'failed' order by path limit 20`,
   LEFT_IN_PROJECTS: `select f.status, count(*)::int as n from turn_admin.files f
- where f.project_id in (select value::uuid from jsonb_array_elements_text($1::jsonb))
+ where f.project_id in (select value::uuid from jsonb_array_elements_text($1::text::jsonb))
  group by f.status order by f.status`,
 
   // ── clear old temp files (2026-09-28)
@@ -497,7 +501,7 @@ returning *`,
   // overwritten in the last 24 h (database clock; a missing timestamp counts as
   // recent); and not 'sending' in another temp run ($2 = this run), whose resume
   // settles it (2026-09-28 review: never two runs recording one removal)
-  TEMP_RECHECK: `with b as (select value as path from jsonb_array_elements_text($1::jsonb))
+  TEMP_RECHECK: `with b as (select value as path from jsonb_array_elements_text($1::text::jsonb))
 select b.path, (o.name is not null) as present,
        coalesce(o.created_at < now() - interval '24 hours'
                 and o.updated_at < now() - interval '24 hours', false) as old,
@@ -518,7 +522,7 @@ select b.path, (o.name is not null) as present,
        created_at::text as cursor_at
   from turn_admin_ops.storage_runs
  where ($2::boolean or status not in ('previewed', 'expired'))
-   and ($3::timestamptz is null or (created_at, id) < ($3::timestamptz, $4::uuid))
+   and ($3::text::timestamptz is null or (created_at, id) < ($3::text::timestamptz, $4::uuid))
  order by created_at desc, id desc
  limit $1::int`,
   RUN_DETAIL: `select id, action, admin_email, project_ids, status, planned_files, planned_bytes, kept_files,
@@ -565,7 +569,7 @@ values ($1::uuid, 'drain-cleanup-queue', $2::uuid, $3::text, '{}', 'running', no
         $4::uuid, now() + interval '10 minutes', $5::text)`,
   // the spec's recheck, plus: still queued under OUR lease, a live upload
   // reservation, the 24 h grace test on the database clock, and the size
-  DRAIN_RECHECK: `with b as (select value as path from jsonb_array_elements_text($1::jsonb))
+  DRAIN_RECHECK: `with b as (select value as path from jsonb_array_elements_text($1::text::jsonb))
 select b.path, q.reason, q.queued_at, q.project_id, q.lease_token,
        (q.path is not null) as queued,
        coalesce(q.queued_at > now() - interval '24 hours', false) as within_grace,
@@ -580,7 +584,7 @@ select b.path, q.reason, q.queued_at, q.project_id, q.lease_token,
 insert into turn_admin_ops.storage_run_items (run_id, path, project_id, bytes, outcome, detail, attempts)
 select ok.id, x->>'path', (x->>'project_id')::uuid, (x->>'bytes')::bigint, x->>'outcome', x->>'detail',
        case when x->>'outcome' = 'sending' then 1 else 0 end
-  from ok cross join jsonb_array_elements($3::jsonb) x
+  from ok cross join jsonb_array_elements($3::text::jsonb) x
 on conflict (run_id, path) do update
    set outcome = excluded.outcome, detail = excluded.detail, bytes = excluded.bytes,
        attempts = turn_admin_ops.storage_run_items.attempts + excluded.attempts, updated_at = now()

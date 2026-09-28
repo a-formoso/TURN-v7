@@ -35,6 +35,9 @@
    unique index storage_runs_one_running_temp (and 23505 -> 409); overview.temp
    counts accounts by id and only the old files in the clearable layout; the
    upgrade runs the FROZEN first version (scripts/fixtures/admin-storage-v1/).
+   Driver encoding (2026-09-28): every statement's parameters are serialised
+   the way postgres.js 3.4.5 does (by described type), which PGlite alone did not
+   do; the first production "Clear old temp files" failed on $n::jsonb.
    OFFLINE ONLY: no network, no Supabase project, no credentials.
    Run: node scripts/test-admin-storage.mjs */
 import assert from "node:assert/strict";
@@ -200,6 +203,34 @@ async function auditStorageCall(db, names) {
   }
 }
 
+/* 2026-09-28: send every parameter the way index.ts's driver does. postgres.js 3.4.5
+   asks the server for each parameter's type and serialises by it: json/jsonb ->
+   JSON.stringify(value), date/timestamp/timestamptz -> new Date(value).toISOString(),
+   bool -> 't'/'f', int8 -> toString(), everything else '' + value. PGlite passes a
+   string through untouched, which hid a production-only bug: every "$n::jsonb" got
+   an already-JSON string double-encoded into a jsonb scalar ("cannot extract
+   elements from a scalar" on the first "Clear old temp files"). The type is read
+   from the $n::type cast (every S parameter is cast, one way; checked below against
+   describeQuery), so this also runs inside PGlite transactions. */
+const PGJS_JSON = new Set(["json", "jsonb"]);
+const PGJS_DATE = new Set(["date", "timestamp", "timestamptz"]);
+function pgjsParamTypes(text) {
+  const types = {};
+  for (const m of text.matchAll(/\$(\d+)::([a-z_]+)/g)) if (!(m[1] in types)) types[m[1]] = m[2];
+  return types;
+}
+function pgjsSerialize(text, params) {
+  const types = pgjsParamTypes(text);
+  return params.map((x, i) => {
+    if (x === null || x === undefined) return null;
+    const t = types[i + 1];
+    if (PGJS_JSON.has(t)) return JSON.stringify(x);
+    if (PGJS_DATE.has(t)) return (x instanceof Date ? x : new Date(x)).toISOString();
+    if (t === "boolean" || t === "bool") return x === true ? "t" : "f";
+    return "" + x;
+  });
+}
+
 function harness(db, { env = {}, role = null, tx: txImpl = null } = {}) {
   const st = { tx: 0, openTx: 0, concurrent: false, dead: false, storage: [], rpc: [], mode: null, hook: null,
     rpcFail: null, storageDelay: 0, rpcDelay: 0, clock: null, logs: [], events: [], rpcHook: null, onStatement: null };
@@ -214,7 +245,7 @@ function harness(db, { env = {}, role = null, tx: txImpl = null } = {}) {
         if (role) await t.query(`set local role ${role}`);
         return fn(async (text, params = []) => {
           if (st.onStatement) await st.onStatement(text, t, params);
-          return (await t.query(text, params)).rows;
+          return (await t.query(text, pgjsSerialize(text, params))).rows;
         });
       });
     } finally {
@@ -680,6 +711,23 @@ await acheck("T14 admin-storage.sql: idempotent, RESULT rows ok, no grant to pub
   assert.equal(exposed[3].item, "turn_admin_ops kept out of the Data API");
   assert.match(exposed[3].status, /^FAIL/);
   await db.exec(`alter role authenticator set pgrst.db_schemas = 'public, graphql_public'`);
+});
+
+// ── driver encoding (2026-09-28; after admin-storage.sql, so every S statement describes): what postgres.js would transform never reaches a typed slot
+await acheck("driver encoding: no S parameter is described as json/jsonb/date/timestamp(tz), and the harness reads each type as the server does", async () => {
+  const OID = { text: 25, uuid: 2950, int: 23, bigint: 20, boolean: 16, jsonb: 3802, json: 114, timestamptz: 1184 };
+  const TRANSFORMED = new Set([114, 3802, 1082, 1114, 1184]);
+  for (const [name, text] of Object.entries(core.S)) {
+    assert.ok(!/\$\d+::(jsonb?|date|timestamp|timestamptz)\b/.test(text), `${name}: JSON and dates travel as $n::text first`);
+    const d = await db.describeQuery(text);
+    const cast = pgjsParamTypes(text);
+    d.queryParams.forEach((p, i) => {
+      assert.ok(!TRANSFORMED.has(p.dataTypeID), `${name} $${i + 1}: the server describes type ${p.dataTypeID}, which postgres.js would re-encode`);
+      assert.equal(p.dataTypeID, OID[cast[i + 1]], `${name} $${i + 1}: the harness reads ::${cast[i + 1]}, the server describes ${p.dataTypeID}`);
+    });
+  }
+  // the harness really re-encodes the way the driver does (a JSON string becomes a jsonb scalar)
+  assert.deepEqual(pgjsSerialize("select $1::jsonb, $2::text::jsonb", ['["a"]', '["a"]']), ['"[\\"a\\"]"', '["a"]']);
 });
 
 // ── T2 overview equals the SQL Editor ───────────────────────────────────────
