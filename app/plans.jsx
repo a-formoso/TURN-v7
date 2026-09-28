@@ -370,7 +370,7 @@ function PlansModal({ onClose, currentPlan }){
                     unavailable ? "Coming soon" : ("Buy "+p.credits.toLocaleString())));
               })))),
       React.createElement("div",{className:"plans-foot"},
-        "Secure checkout by Stripe · Kinolot by Infinite Studio AI")));
+        "Secure checkout by Stripe · Kinolot by Infinite Studio AI · Billing questions: kinolot-billing@infinitestudioai.com")));
 }
 window.PlansModal = PlansModal;
 

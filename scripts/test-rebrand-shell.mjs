@@ -113,7 +113,9 @@ const visible = (s)=> s.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, " ").replac
   .replace(/&middot;/g, "·").replace(/&amp;/g, "&").replace(/&rarr;|&larr;/g, "").replace(/\s+/g, " ").trim();
 /* the legal wording with the product name and domain neutralised; the rename must not move it.
    Changing it is an owner (and lawyer) decision — update the fingerprint only with that sign-off. */
-const LEGAL_FINGERPRINT = { "privacy.html":"c66001895b4852cb", "terms.html":"eac5e16e1286b97c" };
+/* 2026-09-28 owner sign-off: contact addresses switched (privacy@ for data requests; kinolot-support@,
+   kinolot-billing@ and legal@ in the terms); no other wording changed. */
+const LEGAL_FINGERPRINT = { "privacy.html":"2578db46e8e13d6c", "terms.html":"cedfe38ac567a0c0" };
 const legalText = (f)=> visible(legalMain(f)).replace(/Kinolot by Infinite Studio AI/g, "{PRODUCT} by {COMPANY}")
   .replace(/kinolot\.infinitestudioai\.com/g, "{DOMAIN}").replace(/Kinolot/g, "{PRODUCT}");
 for(const f of ["privacy.html", "terms.html"]){
@@ -220,7 +222,7 @@ check("C the checkout footer and the welcome cards say Kinolot by Infinite Studi
   const welcome = pb.WelcomePlanCard({ plan:"studio", credits:9000, activating:false, onNewStory:noop, onClose:noop });
   const pack = pb.WelcomeCreditPackCard({ credits:300, activating:false, onClose:noop });
   const choose = findAll(modal, hasClass("plan-cta")).map(textOf);
-  return foot==="Secure checkout by Stripe · Kinolot by Infinite Studio AI"
+  return foot==="Secure checkout by Stripe · Kinolot by Infinite Studio AI · Billing questions: kinolot-billing@infinitestudioai.com"
     && textOf(findAll(welcome, hasClass("welcome-eyebrow"))[0])==="Kinolot" && textOf(findAll(pack, hasClass("welcome-eyebrow"))[0])==="Kinolot"
     && textOf(findAll(welcome, hasClass("welcome-title"))[0])==="Your Producer plan is live" && choose.includes("Choose Producer");
 });
