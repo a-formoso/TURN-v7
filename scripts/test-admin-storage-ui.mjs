@@ -1562,7 +1562,7 @@ await test("wiring: TURN.html tag after auth-ui with a ?v= key, APP_FEATURES unt
   assert.match(lines[li + 1], /src="app\/admin-storage\.jsx\?v=/, "right after it");
   // the merge with the tab-lock work re-keyed both files (20260927-merge1): a later key counts too
   assert.ok((html.includes('src="app/auth-ui.jsx?v=20260927-admstorage1"') || html.includes('src="app/auth-ui.jsx?v=20260927-merge1"'))
-    && (html.includes('href="app/styles.css?v=20260927-admstorage2"') || html.includes('href="app/styles.css?v=20260927-merge1"') || html.includes('href="app/styles.css?v=20260927-dock1"')), "cache keys bumped");
+    && (html.includes('href="app/styles.css?v=20260927-admstorage2"') || html.includes('href="app/styles.css?v=20260927-merge1"') || html.includes('href="app/styles.css?v=20260927-dock1"') || html.includes('href="app/styles.css?v=20260928-dock2"')), "cache keys bumped");
   const ai = read("app/ai.jsx");
   const i = ai.indexOf("const APP_FEATURES");
   assert.match(ai.slice(ai.lastIndexOf("\n", i - 2), i), /Admin-only operator tools \(Storage page, price watch\) are deliberately NOT listed/);

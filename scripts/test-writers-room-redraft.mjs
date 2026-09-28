@@ -215,9 +215,13 @@ await test("the Board's Table speaks the structure's language; the spine axis is
   assert.ok(!/valueAxis/.test(spine)&&spine.includes('"Positive +"')&&!read("app/contract.jsx").includes("function contractAxis"));
   assert.ok(read("app/contract.jsx").includes('meta("Outer value"'));
 });
-await test("the Writing dock steps aside for the open Scene / Character panel",()=>{
-  assert.ok(app.includes('((room==="writers" && scenes.length>0 && inspOpen && !inspDrawer) ? " wr-insp-open" : "")'));
-  assert.ok(read("app/styles.css").includes(".app.wr-insp-open .write-dock{right:calc(var(--insp-w) + 14px)}"));
+await test("the Writing dock keeps its right-edge spot when the Scene / Character panel opens (owner 2026-09-28)",()=>{
+  const css=read("app/styles.css");
+  assert.ok(!app.includes("wr-insp-open")&&!css.includes("wr-insp-open"),"nothing moves the dock when the panel opens");
+  assert.ok(!/insp[^{}]*\.write-dock\s*\{[^}]*\bright\s*:/.test(css),"no inspector state overrides the dock's right edge");
+  assert.ok(css.includes(".nb-dock{display:block;position:fixed;right:22px;top:50%;transform:translateY(-50%);z-index:120}"),"it floats above the layout");
+  const inspZ=[...css.matchAll(/\.inspector\s*\{([^}]*)\}/g)].map(m=>/z-index:\s*(\d+)/.exec(m[1])).filter(Boolean).map(m=>Number(m[1]));
+  assert.ok(inspZ.every(z=>z<120),"every panel layer (the phone drawer is 60) sits below the dock");
 });
 await test("Story Doctor notes are neutral and never counted as issues",()=>{
   assert.ok(agentsUi.includes("const issuesN = noTurnN + structN + contN;")&&agentsUi.includes('"No structural or continuity issues. "'));

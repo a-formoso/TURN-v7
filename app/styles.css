@@ -3037,9 +3037,10 @@ html[data-theme="dark"] .dt-viewing svg{color:oklch(0.82 0.09 296)}
 .nb-dock{display:block;position:fixed;right:22px;top:50%;transform:translateY(-50%);z-index:120}
 /* the writing-engine dock sits ABOVE the image dock on the same edge */
 .write-dock{top:50%;transform:translateY(calc(-50% - 118px))}
-/* Writers' Room: with the Scene / Character panel docked open, the dock sits just left of
-   the panel instead of on top of its fields (it used to cover beat text and names) */
-.app.wr-insp-open .write-dock{right:calc(var(--insp-w) + 14px)}
+/* Writers' Room: the dock keeps its right-edge spot when the Scene / Character panel opens
+   and floats above it (z-index 120; the panel makes no stacking context). Owner decision
+   2026-09-28: it used to step left of the panel and then covered script buttons such as
+   "Keep this draft". */
 .write-dock-panel{width:min(280px,calc(100vw - 92px));padding:10px}
 .write-dock-title{font-family:var(--f-mono);font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--txt-3);margin:0 0 8px}
 .write-dock-panel .nb-ctl{margin:0 0 9px}

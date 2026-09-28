@@ -6396,9 +6396,7 @@ function App(){
   const newStoryEpisodeFormat=newStoryFormatEntry&&newStoryFormatEntry.id
     ? String(newStoryFormatEntry.id) : (newStoryBuildsCurrentEpisode?"series":undefined);
 
-  return React.createElement("div",{className:`app vp-${vp} ${densClass} ${premiumClass}`+(roomReadOnly?" is-readonly":"")
-      // the Writers' Room right panel is docked open: the floating Writing dock moves beside it
-      +((room==="writers" && scenes.length>0 && inspOpen && !inspDrawer) ? " wr-insp-open" : "")},
+  return React.createElement("div",{className:`app vp-${vp} ${densClass} ${premiumClass}`+(roomReadOnly?" is-readonly":"")},
     window.ConfirmHost && React.createElement(window.ConfirmHost,null),
     /* VIEW-ONLY BANNER — say it UP FRONT. RLS rejects this user's writes, so without a
        standing notice they could work for an hour and only discover it from a failed save. */

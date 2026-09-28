@@ -1079,7 +1079,7 @@ const iconProxy = new Proxy({}, { get: (_, k) => { const f = () => null; f.iconN
   // app.jsx and ai.jsx, with script.jsx on ai.jsx's key; the page-forms fix re-keyed ai.jsx,
   // with script.jsx on ai.jsx's key; the review fixes to those four re-keyed app.jsx, ai.jsx and
   // agents.jsx, with script.jsx on ai.jsx's key)
-  const LATER = ["20260927-merge1", "20260927-dock1", "20260927-spcheck1", "20260927-spcheck2", "20260927-epbuild1", "20260927-standin1", "20260927-screentime1", "20260927-pageforms1", "20260927-review1"];
+  const LATER = ["20260927-merge1", "20260927-dock1", "20260927-spcheck1", "20260927-spcheck2", "20260927-epbuild1", "20260927-standin1", "20260927-screentime1", "20260927-pageforms1", "20260927-review1", "20260928-dock2"];
   for (const f of ["app/icons.jsx", "app/styles.css"])
     ok("K cache key bumped: " + f, key(f) === "20260927-tablocks1" || LATER.includes(key(f)), key(f));
   for (const f of ["app/app.jsx", "app/artroom.jsx", "app/chrome.jsx", "app/props.jsx", "app/ai.jsx", "app/agents.jsx", "app/art-tab-locks.js", "app/lookbook.jsx", "app/image-slot.js"])
