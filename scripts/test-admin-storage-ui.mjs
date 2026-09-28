@@ -10,7 +10,17 @@
    first, History pages and hides unrun reviews, selection / footer / × /
    50-cap rules, keyboard (Enter stays on the control, sheet focus, Tab trap),
    network vs not-deployed copy, a mid-run project_live with the server's
-   counts, labels, and phone / light-theme CSS. */
+   counts, labels, and phone / light-theme CSS.
+   2026-09-28: Clear old temp files — the "Old temp files" tile, the "Cleanup"
+   tab (it was "Cleanup queue") and when it shows, every reason the button is
+   off, the confirm copy (more remain, nothing planned), the run loop (partial
+   then done, stalled), the result line, an older server, the error copy, the
+   History labels and Resume of a temp run.
+   2026-09-28 review: a stopped clear offers Try again / Retry failed on the
+   same run (no new review), the confirm's expiry countdown and expired state,
+   temp_interrupted copy, no made-up counts when a temp Resume got no answer,
+   the Accounts tab's temp row pointing at Cleanup, and the tab strip that
+   never shrinks on phones. */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -204,8 +214,8 @@ const SETUP = (over = {}, flags = {}) => Object.assign({
   admin: { id: A, email: "admin@infinitestudioai.com" },
   db: { user: "postgres", superuser: true, bypassRls: true, serverVersion: "17.4" },
   seesAll: true,
-  setup: Object.assign({ views: 6, missingColumns: [], audit: true, queue: true, intents: true, queueWorker: true }, flags),
-  browseEnabled: true, deleteEnabled: true, drainEnabled: true,
+  setup: Object.assign({ views: 6, missingColumns: [], audit: true, queue: true, intents: true, queueWorker: true, temp_action: true }, flags),
+  browseEnabled: true, deleteEnabled: true, drainEnabled: true, tempEnabled: true,
 }, over);
 const folder = (user_folder, project_folder, project_id, o) => Object.assign({
   user_folder, project_folder, project_id, uploader_id: /^[0-9a-f]{8}-/.test(user_folder) ? user_folder : null,
@@ -248,6 +258,8 @@ function OVERVIEW(over = {}){
       ],
       stuck: [{ path: A + "/" + PD1 + "/character/c1/1-sheet.png", reason: "project_deleted", project_id: PD1, attempts: 3, last_error: "Storage 503", queued_at: iso(2 * 86400000), project_live: false }],
     },
+    // overview.temp (server 2026-09-28): the stage-tmp folder above, 1 of its 3 files older than 24 h
+    temp: { files: 3, bytes: 3 * MB, oldFiles: 1, oldBytes: MB, accounts: 1, oldest: iso(3 * 86400000), cutoffHours: 24 },
   }, over);
 }
 const ok = (data) => ({ data: Object.assign({ ok: true, version: "admin-storage@2026-09-27.1", elapsedMs: 1234 }, data), error: null });
@@ -347,6 +359,7 @@ await test("status vocabulary: one chip map (spec §8.3)", () => {
   assert.equal(c("orphan: project deleted", true), "Project deleted \u00b7 safe to delete|alert");
   assert.equal(c("unreferenced", true, true), "Unreferenced|alert");
   assert.match(lib.statusChip("unreferenced", true, true).title, /Not deleted from this page/);
+  assert.equal(lib.statusChip("service").title, "Server-owned file (relay marker, Blender mesh or preview). Kept.", "temp files are no longer called kept (2026-09-28)");
 });
 await test("buildModel groups Owns / Uploaded elsewhere / Deleted and totals from the folders", () => {
   const m = lib.buildModel(OVERVIEW());
@@ -570,11 +583,11 @@ await test("empty bucket, audit-off banner, not-full-reader banner, no queue", a
   let page = await openPage({ overview: ok(OVERVIEW({ folders: [], projects: [], queue: { byReason: [], stuck: [] },
     accounts: [{ user_id: A, email: "admin@infinitestudioai.com", plan: null, film_count: 0, file_count: 0, total_bytes: 0, deleted_account: false }] })) });
   assert.match(text(page.tree()), /No files in storage yet\./);
-  await click(button(page.tree(), /^Cleanup queue$/));
+  await click(button(page.tree(), /^Cleanup$/));
   assert.match(text(page.tree()), /The cleanup queue is empty\./);
   assert.equal(button(page.tree(), /Run cleanup now/).props.disabled, true, "nothing ready");
 
-  page = await openPage({ overview: ok(OVERVIEW({ setup: SETUP({ deleteEnabled: false, drainEnabled: false }, { audit: false }) })) });
+  page = await openPage({ overview: ok(OVERVIEW({ setup: SETUP({ deleteEnabled: false, drainEnabled: false, tempEnabled: false }, { audit: false }) })) });
   let t = page.tree();
   const banner = find(t, (n) => hasClass(n, "adm-setup"));
   assert.match(text(banner), /Deleting is off until supabase\/admin-storage\.sql is run in the SQL Editor\./);
@@ -598,8 +611,14 @@ await test("empty bucket, audit-off banner, not-full-reader banner, no queue", a
 
   page = await openPage({ overview: ok(OVERVIEW({ queue: null, setup: SETUP({ drainEnabled: false }, { queue: false }) })) });
   t = page.tree();
-  assert.equal(button(t, /^Cleanup queue$/), null, "queue tab hidden without a queue");
   assert.match(text(t), /Not installed/);
+  // 2026-09-28: the tab is "Cleanup" and the audit log alone keeps it (temp files are cleared there)
+  await click(button(t, /^Cleanup$/));
+  const qs = find(page.tree(), (n) => n.props["aria-label"] === "Cleanup queue");
+  assert.match(text(qs), /^Cleanup queueThe cleanup queue isn't installed\.$/, "no queue: only that section says so");
+  assert.ok(find(page.tree(), (n) => n.props["aria-label"] === "Old temp files"), "the temp-file section still shows");
+  page = await openPage({ overview: ok(OVERVIEW({ queue: null, setup: SETUP({ deleteEnabled: false, drainEnabled: false, tempEnabled: false }, { queue: false, audit: false }) })) });
+  assert.equal(button(page.tree(), /^Cleanup/), null, "no queue and no audit log: no Cleanup tab");
 });
 
 /* ── 4. tiles, accounts, search, projects, detail ──────────────────────── */
@@ -611,7 +630,8 @@ await test("tiles and the Accounts tab (default): cards, groups, filters, servic
   assert.equal(tiles[1], "Accounts31 deleted account folder");
   assert.match(tiles[2], /^Deleted projects2 · 1\.\d GB1\.\d GB safe to delete$/);
   assert.equal(tiles[3], "Cleanup queue3 ready · 2 later · 1 stuck");
-  same(findAll(t, (n) => n.props.role === "tab").map(text), ["Accounts", "Projects", "Cleanup queue", "History"]);
+  assert.equal(tiles[4], "Old temp files1 · 1 MBolder than 24 hours");
+  same(findAll(t, (n) => n.props.role === "tab").map(text), ["Accounts", "Projects", "Cleanup", "History"]);
   assert.equal(find(t, (n) => n.props.role === "tab" && n.props["aria-selected"] === true).children[0], "Accounts");
   const cards = byClass(t, "adm-acct");
   assert.equal(cards.length, 4);
@@ -621,7 +641,15 @@ await test("tiles and the Accounts tab (default): cards, groups, filters, servic
   assert.match(text(cards[0]), /3 projects/);
   assert.match(text(cards[0]), /last sign-in 3 d ago/);
   assert.match(text(cards[1]), /Deleted account · dddddddd/);
-  assert.match(text(find(t, (n) => hasClass(n, "adm-service"))), /Service & temporary files · keep.*Relay security markers/);
+  // 2026-09-28 review: the temp folder is no longer "kept" — it points at Cleanup; service files stay kept
+  const svc = find(t, (n) => hasClass(n, "adm-service"));
+  assert.equal(text(find(svc, (n) => hasClass(n, "adm-group-h"))), "Service & temporary files");
+  const svcRows = Object.fromEntries(byClass(svc, "adm-service-row").map((r) => [text(find(r, (n) => hasClass(n, "c-title"))), text(find(r, (n) => hasClass(n, "adm-muted")))]));
+  same(svcRows, { "Temporary image files (*/stage-tmp)": "1 older than 24 hours · clear them in Cleanup",
+    "Blender previews of live projects": "kept", "Relay security markers (_internal)": "kept" });
+  assert.doesNotMatch(text(svc), /expired · kept/, "no 'kept' next to the files Cleanup clears");
+  // the tab strip never shrinks (phones: overflow-x:auto makes its min-height 0 in the .adm-body column)
+  assert.equal(find(t, (n) => n.props.role === "tablist").props.style.flexShrink, 0);
   await click(find(cards[0], (n) => hasClass(n, "adm-acct-head")));
   t = page.tree();
   const alice = byClass(t, "adm-acct")[0];
@@ -948,6 +976,7 @@ await test("a dropped connection during a delete says so; a project that reappea
   let sh = await reviewAndDelete();
   assert.equal(text(find(sh, (n) => hasClass(n, "adm-banner"))), "Lost the connection to the server. History shows whether anything was deleted.");
   assert.doesNotMatch(text(sh), /isn't deployed/, "the function answered before, so it is deployed");
+  assert.equal(text(find(sh, (n) => hasClass(n, "adm-result"))), "Deleted 0 of 12.", "a project delete keeps its line (only temp runs changed, 2026-09-28)");
   await click(button(sh, /^Close$/));
   page.srv.routes.delete = httpErr(409, "project_live", { ids: [PD1],
     result: { runId: U("7"), status: "partial", planned: 450, removed: 200, removedBytes: 200 * MB, alreadyGone: 0, skipped: { count: 0, byStatus: {} }, failed: { count: 0, sample: [] }, remaining: 250 } });
@@ -1048,8 +1077,9 @@ await test("History: reviews hidden by default, status chips, Resume asks first 
 await test("Cleanup queue: by reason, stuck list, inline confirm, drain result (manual, no schedule)", async () => {
   const page = await openPage({ overview: ok(OVERVIEW()), runs: ok({ runs: [] }),
     "drain-queue": ok({ runId: U("9"), status: "done", claimed: 42, removed: 30, removedBytes: 30 * MB, alreadyGone: 4, keptReferenced: 1, held: 2, heldGrace: 1, heldUpload: 1, failed: 0, notQueued: 0, stillQueued: 5 }) });
-  await click(button(page.tree(), /^Cleanup queue$/));
+  await click(button(page.tree(), /^Cleanup$/));
   let t = page.tree();
+  assert.equal(text(find(find(t, (n) => n.props["aria-label"] === "Cleanup queue"), (n) => hasClass(n, "adm-group-h"))), "Cleanup queue", "the queue keeps its name as the section heading");
   const q = find(t, (n) => hasClass(n, "adm-queue"));
   assert.match(text(q), /Abandoned upload/);
   assert.match(text(q), /Project deleted/);
@@ -1067,10 +1097,10 @@ await test("Cleanup queue: by reason, stuck list, inline confirm, drain result (
     "a live re-upload is not reported as a 24 h wait");
   const off = await openPage({ overview: ok(OVERVIEW({ setup: SETUP({ drainEnabled: false }, { queueWorker: false }) })) });
   assert.match(text(find(off.tree(), (n) => hasClass(n, "adm-setup"))), /worker functions are missing/);
-  await click(button(off.tree(), /^Cleanup queue$/));
+  await click(button(off.tree(), /^Cleanup$/));
   assert.equal(button(off.tree(), /^Run cleanup now$/).props.disabled, true);
   const busy = await openPage({ overview: ok(OVERVIEW()), "drain-queue": httpErr(409, "run_busy") });
-  await click(button(busy.tree(), /^Cleanup queue$/));
+  await click(button(busy.tree(), /^Cleanup$/));
   await click(button(busy.tree(), /^Run cleanup now$/));
   await click(button(busy.tree(), /^Run cleanup$/));
   assert.match(text(busy.tree()), /A cleanup run is already in progress\. It will show in History\./);
@@ -1078,14 +1108,394 @@ await test("Cleanup queue: by reason, stuck list, inline confirm, drain result (
     "the page never schedules anything");
 });
 
+/* ── 7b. Clear old temp files (2026-09-28) ─────────────────────────────── */
+const TEMP_RUN = U("5");
+const TEMP_PREVIEW = (over = {}) => ok(Object.assign({ version: "admin-storage@2026-09-28.1",
+  runId: TEMP_RUN, plannedFiles: 1905, plannedBytes: 159 * MB, keptFiles: 0, keptByDetail: {}, accounts: 1,
+  oldest: iso(20 * 86400000), newest: iso(2 * 86400000), moreRemain: 0,
+  previewExpiresAt: new Date(Date.now() + 15 * 60000).toISOString(), cutoffHours: 24 }, over));
+const CLEAR = (o) => ok(Object.assign({ version: "admin-storage@2026-09-28.1", runId: TEMP_RUN, status: "partial", planned: 1905,
+  removed: 0, removedBytes: 0, alreadyGone: 0, skipped: { count: 0, byStatus: {} }, failed: { count: 0, sample: [] }, remaining: 1905 }, o));
+const TEMP_BIG = { files: 1910, bytes: 160 * MB, oldFiles: 1905, oldBytes: 159 * MB, accounts: 1, oldest: iso(20 * 86400000), cutoffHours: 24 };
+// what a server from before 2026-09-28 sends: no overview.temp, no tempEnabled, no temp_action
+function OLD_OVERVIEW(){
+  const ov = OVERVIEW();
+  delete ov.temp; delete ov.setup.tempEnabled; delete ov.setup.setup.temp_action;
+  return ov;
+}
+const tempSection = (t) => find(t, (n) => n.props["aria-label"] === "Old temp files");
+const tempButton = (t) => button(tempSection(t), /^(Clear old temp files|Checking temp files…)$/);
+
+await test("temp helpers: error copy, why the button is off, stats, confirm / empty / result lines, History labels", () => {
+  const M = lib.MSG;
+  const e = (status, code, extra, ctx, message) => lib.errorMessage({ status, code, message: message || "x", extra: extra || {} }, ctx);
+  assert.equal(M.tempOff, "Clearing temp files is off until supabase/admin-storage.sql is run again in the SQL Editor.");
+  assert.equal(e(412, "temp_action_missing", {}, "temp"), M.tempOff);
+  assert.equal(e(412, "temp_action_missing"), M.tempOff, "whatever the context");
+  const started = new Date(2026, 8, 28, 14, 2, 0).toISOString();
+  assert.equal(e(409, "run_busy", { startedAt: started }, "temp"), "Temp files are already being cleared (started 14:02). Wait for that to finish; it will show in History.");
+  assert.equal(e(409, "run_busy", {}, "temp"), "Temp files are already being cleared. Wait for that to finish; it will show in History.");
+  assert.equal(e(409, "run_busy", { startedAt: started }), "This delete is already running (started 14:02). It will show in History.", "a project delete keeps its copy");
+  assert.equal(e(409, "preview_expired", {}, "temp"), "This review expired. Review again.");
+  assert.equal(e(409, "temp_interrupted", { startedAt: started, runId: TEMP_RUN, plannedFiles: 3 }, "temp"), "An earlier clear of old temp files was interrupted (started 14:02). Resume it in History first.");
+  assert.equal(e(409, "temp_interrupted", {}), "An earlier clear of old temp files was interrupted. Resume it in History first.");
+  assert.equal(e(409, "run_not_found", {}, "temp"), "That run no longer exists. Refresh History.");
+  assert.equal(e(400, "bad_request", {}, "temp", "Unknown action."), "The admin-storage function needs updating before temp files can be cleared.");
+  assert.equal(e(400, "bad_request", {}, undefined, "Unknown action."), "The server refused the request: Unknown action.", "only the temp flow reads it as an older server");
+  assert.equal(e(400, "bad_request", {}, "temp", "runId must be a uuid."), "The server refused the request: runId must be a uuid.");
+
+  const why = (over, flags, temp) => lib.tempBlockReason(SETUP(over, flags), temp);
+  const T = { oldFiles: 3, oldBytes: MB, accounts: 1, cutoffHours: 24 };
+  assert.equal(why({}, {}, T), "", "a full reader, the audit log, the upgraded check and old files: on");
+  assert.equal(why({ seesAll: false, deleteEnabled: false, tempEnabled: false }, { temp_action: false }, T), M.notFullReader, "not a full reader comes first");
+  assert.equal(why({ deleteEnabled: false, tempEnabled: false }, { audit: false, temp_action: false }, T), M.auditOff);
+  assert.equal(why({ tempEnabled: false }, { temp_action: false }, T), M.tempOff);
+  assert.equal(why({}, {}, Object.assign({}, T, { oldFiles: 0 })), "Nothing to clear yet.");
+  assert.equal(why({}, {}, undefined), M.tempUpdate, "no overview.temp: an older server");
+  const old = SETUP(); delete old.tempEnabled; delete old.setup.temp_action;
+  assert.equal(lib.tempBlockReason(old, T), M.tempUpdate);
+
+  assert.match(lib.tempStatsLine(TEMP_BIG), /^1,905 files · 159 MB older than 24 hours, in 1 account\. Oldest [A-Z][a-z]{2} \d{1,2}, \d\d:\d\d\.$/);
+  assert.equal(lib.tempStatsLine(Object.assign({}, TEMP_BIG, { oldFiles: 1, oldBytes: 2 * MB, accounts: 2, oldest: null })), "1 file · 2 MB older than 24 hours, in 2 accounts.");
+  assert.equal(lib.tempStatsLine({ oldFiles: 0, oldBytes: 0, accounts: 0, cutoffHours: 24 }), "No old temp files to clear.");
+
+  const pv = (o) => TEMP_PREVIEW(o).data;
+  assert.equal(lib.tempConfirmText(pv()), "Delete 1,905 temporary files (159 MB)? They were staged more than 24 hours ago, have expired, and no project uses them. Each file is checked again just before it's deleted. This can't be undone.");
+  assert.equal(lib.tempConfirmText(pv({ plannedFiles: 1, plannedBytes: 2 * MB })), "Delete 1 temporary file (2 MB)? It was staged more than 24 hours ago, has expired, and no project uses it. Each file is checked again just before it's deleted. This can't be undone.");
+  assert.equal(lib.tempKeptLine({ "held: changed in the last 24 hours": 1, "held: upload in progress": 2, "surprise": 1 }), "2 still uploading, 1 changed in the last 24 hours, 1 kept for another reason");
+  assert.equal(lib.tempKeptLine({ "held: in an interrupted clear": 4 }), "4 waiting for an interrupted clear (resume it in History)");
+  assert.equal(lib.tempEmptyText(pv({ plannedFiles: 0, plannedBytes: 0 })), "Nothing to delete right now.");
+  assert.equal(lib.tempEmptyText(pv({ plannedFiles: 0, plannedBytes: 0, keptFiles: 1, keptByDetail: { "no longer in storage": 1 } })), "Nothing to delete right now. 1 old temp file is held back: 1 already gone.");
+  assert.equal(lib.tempResultLine(CLEAR({ status: "done", removed: 1905, removedBytes: 159 * MB, remaining: 0 }).data), "Removed 1,905 · 159 MB · already gone 0 · kept 0 · failed 0");
+  assert.equal(lib.tempResultLine(CLEAR({ removed: 10, removedBytes: 10 * MB, alreadyGone: 1, skipped: { count: 2, byStatus: {} }, failed: { count: 3, sample: [] }, remaining: 1892 }).data),
+    "Removed 10 · 10 MB · already gone 1 · kept 2 · failed 3. Stopped early.");
+  // Try again carries on with the same run, unless the answer says it can't
+  const tr = (o) => lib.tempCanRetry(Object.assign({ phase: "result", result: { status: "partial", remaining: 5 } }, o));
+  assert.equal(tr({}), true);
+  assert.equal(tr({ error: { code: "run_busy" } }), true, "busy / timeout / dropped: try the same run again");
+  assert.equal(tr({ error: { code: "timeout" } }), true);
+  for (const code of ["preview_expired", "temp_interrupted", "run_not_found", "temp_action_missing", "bad_request"]) assert.equal(tr({ error: { code } }), false, code);
+  assert.equal(tr({ result: { status: "done" } }), false);
+  assert.equal(tr({ phase: "error" }), false);
+  assert.equal(lib.tempCanRetry(null), false);
+  // the Accounts tab's temp-folder row
+  const svcRow = (label, safe) => ({ label, files: 3, bytes: 3 * MB, safe_files: safe });
+  assert.equal(lib.serviceNote(svcRow("Temporary image files (*/stage-tmp)", 3), TEMP_BIG), "1,905 older than 24 hours · clear them in Cleanup");
+  assert.equal(lib.serviceNote(svcRow("Temporary image files (*/stage-tmp)", 3), Object.assign({}, TEMP_BIG, { oldFiles: 0 })), "none older than 24 hours");
+  assert.equal(lib.serviceNote(svcRow("Temporary image files (*/stage-tmp)", 3), undefined), "3 expired · kept", "an older server: as before");
+  assert.equal(lib.serviceNote(svcRow("Relay security markers (_internal)", 0), TEMP_BIG), "kept");
+  assert.equal(lib.serviceNote(svcRow("Relay security markers (_internal)", 2), TEMP_BIG), "2 expired · kept");
+
+  const run = (o) => Object.assign({ id: TEMP_RUN, action: "clear-old-temp-files", project_ids: [], planned_files: 1905, planned_bytes: 159 * MB,
+    removed_files: 0, removed_bytes: 0, already_gone: 0, skipped_files: 0, failed_files: 0 }, o);
+  assert.equal(lib.runWhat(run({ status: "done" })), "Cleared old temp files");
+  assert.equal(lib.runWhat(run({ status: "partial" })), "Cleared old temp files");
+  assert.equal(lib.runWhat(run({ status: "previewed" })), "Review of old temp files (not run)");
+  assert.equal(lib.runWhat(run({ status: "expired" })), "Review of old temp files (not run)");
+  assert.equal(lib.runResult(run({ status: "done", removed_files: 1905, removed_bytes: 159 * MB })), "1,905 of 1,905 · 159 MB");
+  assert.equal(lib.runResult(run({ status: "previewed" })), "1,905 files planned · 159 MB");
+  assert.equal(lib.canResume(run({ status: "partial" })), true, "a partial temp run resumes");
+  assert.equal(lib.canResume(run({ status: "running", interrupted: true })), true);
+  assert.equal(lib.canResume(run({ status: "done" })), false);
+  assert.equal(lib.canResume(run({ status: "partial", action: "drain-cleanup-queue" })), false, "a queue drain never resumes");
+});
+
+await test("the Old temp files tile: count · size, 'none' at zero; an older server keeps the four tiles", async () => {
+  let page = await openPage({ overview: ok(OVERVIEW({ temp: TEMP_BIG })) });
+  let tiles = byClass(page.tree(), "adm-tile").map(text);
+  assert.equal(tiles.length, 5);
+  assert.equal(tiles[4], "Old temp files1,905 · 159 MBolder than 24 hours");
+  const row = find(page.tree(), (n) => hasClass(n, "adm-tiles"));
+  assert.equal(row.props.style.gridTemplateColumns, "repeat(auto-fit,minmax(130px,1fr))", "five tiles share one row; 2 across at phone width");
+  page = await openPage({ overview: ok(OVERVIEW({ temp: { files: 4, bytes: 4 * MB, oldFiles: 0, oldBytes: 0, accounts: 1, oldest: iso(3600e3), cutoffHours: 24 } })) });
+  assert.equal(byClass(page.tree(), "adm-tile").map(text)[4], "Old temp files0 · 0 Bnone");
+  page = await openPage({ overview: ok(OLD_OVERVIEW()) });
+  tiles = byClass(page.tree(), "adm-tile").map(text);
+  assert.equal(tiles.length, 4, "no temp summary: no tile");
+  assert.equal(find(page.tree(), (n) => hasClass(n, "adm-tiles")).props.style, undefined, "…and the stylesheet's grid");
+});
+
+await test("Cleanup tab: the queue, then Old temp files with its stats; each reason the button is off shows beside it", async () => {
+  const page = await openPage({ overview: ok(OVERVIEW({ temp: TEMP_BIG })) });
+  await click(button(page.tree(), /^Cleanup$/));
+  let t = page.tree();
+  const sections = findAll(t, (n) => n.type === "section").map((n) => n.props["aria-label"]);
+  same(sections, ["Cleanup queue", "Old temp files"], "the queue section first");
+  const sec = tempSection(t);
+  assert.equal(text(find(sec, (n) => hasClass(n, "adm-group-h"))), "Old temp files");
+  assert.match(text(sec), /Images and videos TURN staged for AI generation\. They expire after 2 hours, and no project uses them\./);
+  assert.match(text(sec), /1,905 files · 159 MB older than 24 hours, in 1 account\. Oldest /);
+  const btn = tempButton(t);
+  assert.ok(btn && hasClass(btn, "adm-btn") && hasClass(btn, "danger"));
+  assert.equal(btn.props.disabled, false);
+
+  const CASES = [
+    ["not a full reader", SETUP({ seesAll: false, deleteEnabled: false, drainEnabled: false, tempEnabled: false }), TEMP_BIG, lib.MSG.notFullReader],
+    ["audit off", SETUP({ deleteEnabled: false, drainEnabled: false, tempEnabled: false }, { audit: false }), TEMP_BIG, lib.MSG.auditOff],
+    ["temp action missing", SETUP({ tempEnabled: false }, { temp_action: false }), TEMP_BIG, "Clearing temp files is off until supabase/admin-storage.sql is run again in the SQL Editor."],
+    ["nothing old", SETUP(), Object.assign({}, TEMP_BIG, { oldFiles: 0, oldBytes: 0 }), "Nothing to clear yet."],
+    ["older server", null, undefined, "The admin-storage function needs updating before temp files can be cleared."],
+  ];
+  for (const [name, setup, temp, reason] of CASES) {
+    const ov = setup ? OVERVIEW({ setup, temp }) : OLD_OVERVIEW();
+    const p = await openPage({ overview: ok(ov), "preview-clear-temp": TEMP_PREVIEW() });
+    await click(button(p.tree(), /^Cleanup$/));
+    const s2 = tempSection(p.tree());
+    const b = tempButton(p.tree());
+    assert.equal(b.props.disabled, true, name + ": off");
+    assert.equal(b.props.title, reason, name + ": the reason on hover");
+    assert.equal(text(find(find(s2, (n) => hasClass(n, "adm-drain-row")), (n) => hasClass(n, "adm-muted"))), reason, name + ": …and visible beside it (phones)");
+    b.props.onClick(evt(b)); await settle();
+    assert.equal(p.srv.count("preview-clear-temp"), 0, name + ": a click does nothing");
+    if (name === "nothing old") assert.match(text(s2), /No old temp files to clear\./);
+    if (name === "older server") assert.doesNotMatch(text(s2), /older than 24 hours/, "no stats without a summary");
+  }
+});
+
+await test("Clear old temp files asks first: the confirm copy, 'more will remain', held-back files, Cancel, and a review with nothing to delete", async () => {
+  const page = await openPage({ overview: ok(OVERVIEW({ temp: TEMP_BIG })), "preview-clear-temp": TEMP_PREVIEW(), "clear-temp": CLEAR({ status: "done" }) });
+  await click(button(page.tree(), /^Cleanup$/));
+  await click(tempButton(page.tree()));
+  same(page.srv.calls.at(-1), { action: "preview-clear-temp" }, "the review sends the action and nothing else");
+  let box = find(tempSection(page.tree()), (n) => hasClass(n, "adm-confirm"));
+  assert.ok(box, "an inline confirm, like the queue's");
+  assert.equal(text(box.children[0]), "Delete 1,905 temporary files (159 MB)? They were staged more than 24 hours ago, have expired, and no project uses them. Each file is checked again just before it's deleted. This can't be undone.");
+  assert.doesNotMatch(text(box), /more will remain|Not included/);
+  same(findAll(find(box, (n) => hasClass(n, "adm-sheet-acts")), (n) => n.type === "button").map(text), ["Cancel", "Delete temp files"]);
+  assert.ok(hasClass(button(box, /^Delete temp files$/), "danger"));
+  assert.equal(tempButton(page.tree()), null, "the confirm replaces the button");
+  await click(button(box, /^Cancel$/));
+  assert.equal(find(tempSection(page.tree()), (n) => hasClass(n, "adm-confirm")), null);
+  assert.equal(tempButton(page.tree()).props.disabled, false, "back to the button");
+  assert.equal(page.srv.count("clear-temp"), 0, "Cancel deletes nothing");
+
+  page.srv.routes["preview-clear-temp"] = TEMP_PREVIEW({ plannedFiles: 5000, plannedBytes: 400 * MB, moreRemain: 12, keptFiles: 3,
+    keptByDetail: { "held: upload in progress": 2, "held: changed in the last 24 hours": 1 } });
+  await click(tempButton(page.tree()));
+  box = find(tempSection(page.tree()), (n) => hasClass(n, "adm-confirm"));
+  assert.match(text(box), /^Delete 5,000 temporary files \(400 MB\)\?/);
+  assert.match(text(box), /12 more will remain — run it again afterwards\./);
+  assert.match(text(box), /Not included: 2 still uploading, 1 changed in the last 24 hours\./);
+  await click(button(box, /^Cancel$/));
+
+  page.srv.routes["preview-clear-temp"] = TEMP_PREVIEW({ plannedFiles: 0, plannedBytes: 0, keptFiles: 2, keptByDetail: { "held: in the cleanup queue": 2 }, oldest: null, newest: null });
+  await click(tempButton(page.tree()));
+  const sec = tempSection(page.tree());
+  assert.equal(button(sec, /^Delete temp files$/), null, "nothing planned: no Delete offered");
+  assert.equal(find(sec, (n) => hasClass(n, "adm-confirm")), null);
+  assert.equal(text(find(sec, (n) => hasClass(n, "adm-note"))), "Nothing to delete right now. 2 old temp files are held back: 2 queued for cleanup.");
+  assert.equal(tempButton(page.tree()).props.disabled, false);
+  assert.equal(page.srv.count("clear-temp"), 0);
+});
+
+await test("the temp confirm counts down to the review's expiry; once expired, Delete is off and Review again reviews anew", async () => {
+  const page = await openPage({ overview: ok(OVERVIEW({ temp: TEMP_BIG })), "preview-clear-temp": TEMP_PREVIEW({ previewExpiresAt: new Date(Date.now() + 5 * 60000 + 30000).toISOString() }),
+    "clear-temp": CLEAR({ status: "done" }) });
+  await click(button(page.tree(), /^Cleanup$/));
+  await click(tempButton(page.tree()));
+  let box = find(tempSection(page.tree()), (n) => hasClass(n, "adm-confirm"));
+  assert.match(text(find(box, (n) => hasClass(n, "adm-expiry"))), /^This review expires in 5:(29|30)$/);
+  assert.equal(button(box, /^Delete temp files$/).props.disabled, false);
+  assert.ok([...page.intervals.values()].some((i) => i.ms === 1000), "a 1 s tick while the confirm is open");
+  // the review runs out while the confirm is open
+  page.srv.routes["preview-clear-temp"] = TEMP_PREVIEW({ previewExpiresAt: new Date(Date.now() - 1000).toISOString() });
+  await click(button(box, /^Cancel$/));
+  await click(tempButton(page.tree()));
+  box = find(tempSection(page.tree()), (n) => hasClass(n, "adm-confirm"));
+  assert.equal(find(box, (n) => hasClass(n, "adm-expiry")), null);
+  assert.match(text(find(box, (n) => hasClass(n, "adm-banner"))), /^This review expired\. Review again\./);
+  const del = button(box, /^Delete temp files$/);
+  assert.equal(del.props.disabled, true, "an expired review can't run");
+  del.props.onClick(evt(del)); await settle();
+  assert.equal(page.srv.count("clear-temp"), 0);
+  const reviews = page.srv.count("preview-clear-temp");
+  page.srv.routes["preview-clear-temp"] = TEMP_PREVIEW();
+  await click(button(box, /^Review again$/));
+  assert.equal(page.srv.count("preview-clear-temp"), reviews + 1, "Review again asks the server for a new review");
+  box = find(tempSection(page.tree()), (n) => hasClass(n, "adm-confirm"));
+  assert.match(text(find(box, (n) => hasClass(n, "adm-expiry"))), /^This review expires in 1[45]:\d\d$/);
+  await click(button(box, /^Delete temp files$/));
+  assert.equal(page.srv.count("clear-temp"), 1);
+});
+
+await test("Clear old temp files runs the delete loop: partial → partial → done, progress, busy, tab switch, result line, toast, refresh", async () => {
+  const gates = [];
+  const page = await openPage({ overview: ok(OVERVIEW({ temp: TEMP_BIG })), "preview-clear-temp": TEMP_PREVIEW(),
+    "clear-temp": () => { const g = deferred(); gates.push(g); return g.promise; } });
+  await click(button(page.tree(), /^Cleanup$/));
+  await click(tempButton(page.tree()));
+  await click(button(tempSection(page.tree()), /^Delete temp files$/));
+  same(page.srv.calls.at(-1), { action: "clear-temp", runId: TEMP_RUN }, "the browser sends only the run id");
+  let sec = tempSection(page.tree());
+  assert.equal(text(find(sec, (n) => hasClass(n, "adm-progress-lab"))), "Deleting… 0 of 1,905");
+  assert.match(text(sec), /History shows where it stopped, and Resume carries on\./);
+  const x = find(page.tree(), (n) => n.type === "button" && n.props["aria-label"] === "Close" && hasClass(n, "bible-x"));
+  assert.equal(x.props.disabled, true, "no closing the page mid-run");
+  assert.equal(button(page.tree(), /^Refresh$/).props.disabled, true);
+  assert.equal(button(page.tree(), /^Run cleanup now$/).props.disabled, true, "one destructive step at a time");
+  await page.key("Escape");
+  assert.equal(page.body.children.length, 1, "Esc doesn't close it either");
+  const overviewsBefore = page.srv.count("overview");
+  gates[0].resolve(CLEAR({ removed: 800, removedBytes: 60 * MB, remaining: 1105 })); await settle();
+  assert.equal(text(find(tempSection(page.tree()), (n) => hasClass(n, "adm-progress-lab"))), "Deleting… 800 of 1,905");
+  assert.equal(find(tempSection(page.tree()), (n) => n.props.role === "progressbar").props["aria-valuenow"], 800);
+  // the run lives in the modal: another tab and back loses nothing
+  await click(button(page.tree(), /^Accounts$/));
+  await click(button(page.tree(), /^Cleanup$/));
+  assert.equal(text(find(tempSection(page.tree()), (n) => hasClass(n, "adm-progress-lab"))), "Deleting… 800 of 1,905");
+  gates[1].resolve(CLEAR({ removed: 1600, removedBytes: 130 * MB, remaining: 305 })); await settle();
+  assert.equal(page.srv.count("clear-temp"), 3, "loops while each call makes progress");
+  gates[2].resolve(CLEAR({ status: "done", removed: 1900, removedBytes: 158 * MB, alreadyGone: 3,
+    skipped: { count: 2, byStatus: { "held: changed in the last 24 hours": 2 } }, remaining: 0 })); await settle();
+  assert.equal(page.srv.count("clear-temp"), 3, "done: no more calls");
+  sec = tempSection(page.tree());
+  const res = find(sec, (n) => hasClass(n, "adm-result"));
+  assert.ok(hasClass(res, "ok"));
+  assert.equal(text(res), "Removed 1,900 · 158 MB · already gone 3 · kept 2 · failed 0");
+  assert.ok(page.toasts.some(([m, k]) => m === "Cleared 1,900 old temp files · 158 MB freed." && k === "success"), "a toast too");
+  assert.ok(page.srv.count("overview") > overviewsBefore, "the overview refreshes afterwards");
+  assert.equal(find(page.tree(), (n) => n.type === "button" && n.props["aria-label"] === "Close" && hasClass(n, "bible-x")).props.disabled, false, "not busy any more");
+  assert.equal(tempButton(page.tree()).props.disabled, false, "and it can run again");
+});
+
+await test("a stalled clear stops with 'Stopped early'; busy, expired, switched-off and older-server answers each say so", async () => {
+  const stalled = CLEAR({ removed: 100, removedBytes: 8 * MB, failed: { count: 5, sample: [{ path: "x", detail: "Service Unavailable" }] }, remaining: 1805 });
+  const page = await openPage({ overview: ok(OVERVIEW({ temp: TEMP_BIG })), "preview-clear-temp": TEMP_PREVIEW(), "clear-temp": stalled });
+  await click(button(page.tree(), /^Cleanup$/));
+  const reviewAndRun = async () => {
+    await click(tempButton(page.tree()));
+    const del = button(tempSection(page.tree()), /^Delete temp files$/);
+    if (del) await click(del);
+    return tempSection(page.tree());
+  };
+  let sec = await reviewAndRun();
+  assert.equal(page.srv.count("clear-temp"), 2, "a call that makes no progress ends the loop");
+  let res = find(sec, (n) => hasClass(n, "adm-result"));
+  assert.ok(hasClass(res, "amber"));
+  assert.equal(text(res), "Removed 100 · 8 MB · already gone 0 · kept 0 · failed 5. Stopped early.");
+  assert.ok(page.toasts.some(([m, k]) => m === "Removed 100 of 1,905 old temp files." && k === "error"));
+  // 2026-09-28 review: a stopped clear carries on with the SAME run (like the sheet's Retry), not a new review
+  assert.equal(tempButton(page.tree()), null, "no new review while the run can carry on");
+  const acts = find(sec, (n) => hasClass(n, "adm-temp-retry"));
+  same(findAll(acts, (n) => n.type === "button").map(text), ["Close", "Retry failed (5)"]);
+  assert.ok(sec.children.find((c) => hasClass(c, "adm-drain")).children.indexOf(res) < sec.children.find((c) => hasClass(c, "adm-drain")).children.indexOf(acts), "the result line, then its buttons");
+  const reviews = page.srv.count("preview-clear-temp");
+  await click(button(acts, /^Retry failed \(5\)$/));
+  assert.equal(page.srv.count("preview-clear-temp"), reviews, "no new review");
+  same(page.srv.calls.filter((c) => c.action === "clear-temp").at(-1), { action: "clear-temp", runId: TEMP_RUN }, "the same run id");
+  assert.equal(page.srv.count("clear-temp"), 4);
+  page.srv.routes["clear-temp"] = CLEAR({ status: "partial", removed: 1900, removedBytes: 150 * MB, remaining: 5 });
+  await click(button(find(tempSection(page.tree()), (n) => hasClass(n, "adm-temp-retry")), /^Retry failed \(5\)$/));
+  assert.equal(text(button(find(tempSection(page.tree()), (n) => hasClass(n, "adm-temp-retry")), /^Try again/)), "Try again (5 left)");
+  await click(button(find(tempSection(page.tree()), (n) => hasClass(n, "adm-temp-retry")), /^Close$/));
+  assert.equal(find(tempSection(page.tree()), (n) => hasClass(n, "adm-result")), null, "Close clears the result");
+  assert.equal(tempButton(page.tree()).props.disabled, false, "back to a new review");
+  page.srv.routes["clear-temp"] = stalled;
+
+  const started = new Date(2026, 8, 28, 14, 2, 0).toISOString();
+  page.srv.routes["preview-clear-temp"] = httpErr(409, "run_busy", { startedAt: started });
+  sec = await reviewAndRun();
+  assert.equal(text(find(sec, (n) => hasClass(n, "adm-banner"))), "Temp files are already being cleared (started 14:02). Wait for that to finish; it will show in History.");
+  assert.equal(find(sec, (n) => hasClass(n, "adm-result")), null, "a refused review shows no result line");
+  assert.equal(tempButton(page.tree()).props.disabled, false, "and it can be tried again");
+
+  page.srv.routes["preview-clear-temp"] = httpErr(412, "temp_action_missing");
+  sec = await reviewAndRun();
+  assert.equal(text(find(sec, (n) => hasClass(n, "adm-banner"))), "Clearing temp files is off until supabase/admin-storage.sql is run again in the SQL Editor.");
+
+  page.srv.routes["preview-clear-temp"] = TEMP_PREVIEW();
+  page.srv.routes["clear-temp"] = httpErr(409, "preview_expired");
+  sec = await reviewAndRun();
+  assert.equal(text(find(sec, (n) => hasClass(n, "adm-banner"))), "This review expired. Review again.");
+  assert.equal(find(sec, (n) => hasClass(n, "adm-result")), null, "no counts from the server: no made-up result line");
+
+  assert.equal(button(sec, /^(Try again|Retry failed)/), null, "an expired review can't carry on");
+  assert.equal(tempButton(page.tree()).props.disabled, false, "…a new review can");
+
+  page.srv.routes["clear-temp"] = httpErr(409, "run_busy", { startedAt: started });
+  sec = await reviewAndRun();
+  assert.match(text(find(sec, (n) => hasClass(n, "adm-banner"))), /^Temp files are already being cleared \(started 14:02\)/);
+  assert.equal(text(button(sec, /^Try again/)), "Try again", "no counts from the server: no made-up count on the button");
+
+  // another clear was interrupted: resume it first (no Try again)
+  const p2 = await openPage({ overview: ok(OVERVIEW({ temp: TEMP_BIG })), "preview-clear-temp": httpErr(409, "temp_interrupted", { startedAt: started, runId: U("9"), plannedFiles: 3 }) });
+  await click(button(p2.tree(), /^Cleanup$/));
+  await click(tempButton(p2.tree()));
+  assert.equal(text(find(tempSection(p2.tree()), (n) => hasClass(n, "adm-banner"))), "An earlier clear of old temp files was interrupted (started 14:02). Resume it in History first.");
+  assert.equal(tempButton(p2.tree()).props.disabled, false);
+  assert.equal(p2.srv.count("clear-temp"), 0);
+
+  // a page newer than the deployed function: the old server doesn't know the action
+  const old = await openPage({ overview: ok(OVERVIEW({ temp: TEMP_BIG })), "preview-clear-temp": httpErr(400, "bad_request", { message: "Unknown action." }) });
+  await click(button(old.tree(), /^Cleanup$/));
+  await click(tempButton(old.tree()));
+  assert.equal(text(find(tempSection(old.tree()), (n) => hasClass(n, "adm-banner"))), "The admin-storage function needs updating before temp files can be cleared.");
+  assert.equal(old.body.children.length, 1, "no crash: the page stays open");
+});
+
+await test("History: temp runs say what they were; a partial one resumes through clear-temp (asks first, temp copy)", async () => {
+  const base = { admin_email: "admin@infinitestudioai.com", project_ids: [], planned_files: 1905, planned_bytes: 159 * MB, kept_files: 0,
+    removed_files: 0, removed_bytes: 0, already_gone: 0, skipped_files: 0, failed_files: 0, created_at: iso(3600e3), started_at: null,
+    finished_at: null, preview_expires_at: iso(-600e3), lease_expires_at: null, last_error: null, interrupted: false, preview_expired: false };
+  const run = (id, o) => Object.assign({}, base, { id, action: "clear-old-temp-files" }, o);
+  const runs = [
+    run(U("1"), { status: "done", removed_files: 1905, removed_bytes: 159 * MB }),
+    run(TEMP_RUN, { status: "partial", removed_files: 1000, removed_bytes: 80 * MB, failed_files: 5, last_error: "Service Unavailable" }),
+    run(U("3"), { status: "previewed" }),
+    run(U("4"), { status: "expired" }),
+    run(U("6"), { status: "done", action: "drain-cleanup-queue", admin_email: "admin@infinitestudioai.com", removed_files: 3, removed_bytes: 3 * MB, planned_files: 0 }),
+  ];
+  const gates = [];
+  const page = await openPage({ overview: ok(OVERVIEW()), runs: (b) => b.runId ? ok({ run: runs[1], outcomes: {}, outcome: b.outcome, items: [], nextCursor: null }) : ok({ runs, nextCursor: null }),
+    "clear-temp": () => { const g = deferred(); gates.push(g); return g.promise; } });
+  await click(button(page.tree(), /^History$/));
+  await click(button(page.tree(), /^Include reviews not run$/));
+  let rows = byClass(page.tree(), "adm-run");
+  same(rows.map((r) => text(find(r, (n) => hasClass(n, "c-title")))),
+    ["Cleared old temp files", "Cleared old temp files", "Review of old temp files (not run)", "Review of old temp files (not run)", "Cleanup queue"]);
+  same(rows.map((r) => text(find(r, (n) => hasClass(n, "c-result")))),
+    ["1,905 of 1,905 · 159 MB", "1,000 of 1,905 · 80 MB", "1,905 files planned · 159 MB", "1,905 files planned · 159 MB", "Removed 3 · 3 MB"]);
+  for (const r of rows) assert.doesNotMatch(text(r), /deleted project/, "a temp run never counts projects");
+  same(rows.map((r) => !!button(r, /^Resume$/)), [false, true, false, false, false]);
+  await click(button(rows[1], /^Resume$/));
+  assert.equal(page.srv.count("clear-temp"), 0, "Resume asks first");
+  const box = find(byClass(page.tree(), "adm-run")[1], (n) => hasClass(n, "adm-confirm"));
+  assert.equal(text(box.children[0]), "Resume clearing up to 905 old temp files? Each file is checked again right before it is deleted, and deleted files can't be recovered.");
+  await click(button(box, /^Resume deleting$/));
+  same(page.srv.calls.at(-1), { action: "clear-temp", runId: TEMP_RUN }, "a temp run resumes through clear-temp, never delete");
+  assert.equal(page.srv.count("delete"), 0);
+  assert.match(text(find(page.tree(), (n) => hasClass(n, "adm-sheet"))), /Deleting… 0 of 1,905/);
+  const started = new Date(2026, 8, 28, 14, 2, 0).toISOString();
+  gates[0].resolve(httpErr(409, "run_busy", { startedAt: started })); await settle();
+  let sh = find(page.tree(), (n) => hasClass(n, "adm-sheet"));
+  assert.equal(text(find(sh, (n) => hasClass(n, "adm-banner"))), "Temp files are already being cleared (started 14:02). Wait for that to finish; it will show in History.", "the sheet speaks of temp files");
+  // 2026-09-28 review: the server sent no counts, so no made-up "Deleted 0 of 1,905"
+  assert.equal(find(sh, (n) => hasClass(n, "adm-result")), null);
+  assert.match(text(sh), /History shows how far it got\./);
+  assert.equal(text(button(sh, /^Try again/)), "Try again");
+  await click(button(sh, /^Try again/));
+  same(page.srv.calls.at(-1), { action: "clear-temp", runId: TEMP_RUN }, "Try again keeps the action");
+  gates[1].resolve(CLEAR({ status: "done", removed: 1900, removedBytes: 150 * MB, alreadyGone: 5, remaining: 0 })); await settle();
+  sh = find(page.tree(), (n) => hasClass(n, "adm-sheet"));
+  assert.equal(text(find(sh, (n) => hasClass(n, "adm-result"))), "Deleted 1,900 files · 150 MB freed.");
+  assert.doesNotMatch(text(sh), /these projects/, "no project leftovers line for a temp run");
+});
+
 /* ── 8. what the browser sends, markup and wiring ──────────────────────── */
 await test("the browser never names a file: bodies carry ids, a run id, or a keyset cursor only", () => {
   // every body the flows above sent went through server(); re-run the invariant over a fresh sweep
   const allowed = { overview: [], "project-files": ["projectId", "cursor"], "preview-delete": ["projectIds"], delete: ["runId"],
-    runs: ["limit", "reviews", "runId", "outcome", "cursor"], "drain-queue": ["max"] };
+    runs: ["limit", "reviews", "runId", "outcome", "cursor"], "drain-queue": ["max"],
+    "preview-clear-temp": [], "clear-temp": ["runId"] };
   const src = ADMIN_CODE;
-  const bodies = [...src.matchAll(/callAdminStorage\(([^)]*\{[^}]*\})/g), ...src.matchAll(/const body = (\{[^}]*\})/g)].map((m) => m[1]);
-  assert.ok(bodies.length >= 7, "call sites found");
+  // + the run loop's requests (RUN_CALL: "delete" / "clear-temp" -> a run id only)
+  const bodies = [...src.matchAll(/callAdminStorage\(([^)]*\{[^}]*\})/g), ...src.matchAll(/const body = (\{[^}]*\})/g),
+    ...src.matchAll(/=> \((\{ action:"[^}]*\})\)/g)].map((m) => m[1]);
+  assert.ok(bodies.length >= 9, "call sites found");
+  for (const a of ["preview-clear-temp", "clear-temp", "delete"]) assert.ok(bodies.some((b) => b.includes('action:"' + a + '"')), a + " body checked");
+  // every other argument is a known builder: the loop's call(runId), a cursor ternary, or a `const body` checked above
+  const named = new Set([...src.matchAll(/callAdminStorage\(([a-zA-Z]+)/g)].map((m) => m[1]));
+  same([...named].sort(), ["body", "call", "cursor"]);
   for (const m of src.matchAll(/body\.([a-zA-Z]+) = /g)) assert.equal(m[1], "cursor", "a body built in steps only adds a keyset cursor");
   for (const b of bodies) {
     const action = (b.match(/action:"([a-z-]+)"/) || [])[1];
@@ -1142,8 +1552,10 @@ await test("wiring: TURN.html tag after auth-ui with a ?v= key, APP_FEATURES unt
   const html = read("TURN.html");
   const auth = html.indexOf('src="app/auth-ui.jsx?v=');
   // a later change's key counts too (readable storage folders re-keyed it: 20260927-readable1)
+  // …and Clear old temp files (2026-09-28): 20260928-temp1
   const adm = Math.max(html.indexOf('<script type="text/babel" src="app/admin-storage.jsx?v=20260927-admstorage2"></script>'),
-    html.indexOf('<script type="text/babel" src="app/admin-storage.jsx?v=20260927-readable1"></script>'));
+    html.indexOf('<script type="text/babel" src="app/admin-storage.jsx?v=20260927-readable1"></script>'),
+    html.indexOf('<script type="text/babel" src="app/admin-storage.jsx?v=20260928-temp1"></script>'));
   assert.ok(auth > 0 && adm > auth, "admin-storage.jsx loads after auth-ui.jsx");
   const lines = html.split("\n");
   const li = lines.findIndex((l) => l.includes('src="app/auth-ui.jsx?v='));

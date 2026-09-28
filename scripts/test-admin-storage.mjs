@@ -22,10 +22,24 @@
    series-production.sql; the path guard accepts "{name}--{uuid}" folders (the
    uuid decides), and a deleted project holding both key forms is planned and
    deleted like one holding only legacy keys.
+   Clear old temp files (2026-09-28): preview-clear-temp plans only image-proxy
+   stage-tmp files older than 24 h (database clock) that pass tempPathGuard, with
+   the 5,000 cap and moreRemain; clear-temp runs through the delete executor with
+   its own per-batch recheck (age incl. overwrites, references, reservations,
+   queue, guard); each lease refuses the other action's runs; one live temp
+   clear at a time; crash resume; overview.temp; the 412 before the SQL re-run;
+   and admin-storage.sql upgrading the first version's inline action check.
+   2026-09-28 review: an interrupted temp clear blocks new reviews and other
+   runs (409 temp_interrupted) until it is resumed, and a file 'sending' in
+   another temp run is held, so no file is ever 'removed' by two runs; the
+   unique index storage_runs_one_running_temp (and 23505 -> 409); overview.temp
+   counts accounts by id and only the old files in the clearable layout; the
+   upgrade runs the FROZEN first version (scripts/fixtures/admin-storage-v1/).
    OFFLINE ONLY: no network, no Supabase project, no credentials.
    Run: node scripts/test-admin-storage.mjs */
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import * as core from "../supabase/functions/admin-storage/core.mjs";
@@ -142,6 +156,9 @@ async function auditStorageCall(db, names) {
            exists (select 1 from turn_admin.referenced_paths r where r.path = n.path) as referenced,
            exists (select 1 from public.turn_asset_upload_intents i where i.path = n.path) as reserved,
            exists (select 1 from public.turn_asset_upload_intents i where i.path = n.path and i.expires_at > now()) as reserved_live,
+           exists (select 1 from public.turn_asset_cleanup_queue q where q.path = n.path) as queued,
+           coalesce((select o.created_at < now() - interval '24 hours' and o.updated_at < now() - interval '24 hours'
+                       from storage.objects o where o.bucket_id = 'turn-assets' and o.name = n.path), false) as old,
            coalesce((select array_agg(distinct i.project_id::text) from turn_admin_ops.storage_run_items i
                        join turn_admin_ops.storage_runs r on r.id = i.run_id
                       where i.path = n.path and i.outcome = 'sending' and r.action = 'drain-cleanup-queue'
@@ -171,6 +188,13 @@ async function auditStorageCall(db, names) {
     if (r.sending_in.includes("drain-cleanup-queue")) {
       if (r.reserved_live) why.push("has a live upload reservation (drain)");
       if (!core.pathGuard(r.path, new Set(r.drain_pids))) why.push("fails the path guard for its queue row (drain)");
+    }
+    // 2026-09-28: clear old temp files
+    if (r.sending_in.includes("clear-old-temp-files")) {
+      if (!core.tempPathGuard(r.path)) why.push("fails the temp path guard");
+      if (r.reserved) why.push("has an upload reservation (temp)");
+      if (r.queued) why.push("is in the cleanup queue (temp)");
+      if (!r.old) why.push("was created or written in the last 24 hours (temp)");
     }
     if (why.length) VIOLATIONS.push(r.path + ": " + why.join(", "));
   }
@@ -440,7 +464,8 @@ await acheck("T17 static: every SQL constant is plain $n-parameterised text; q()
   assert.ok(INDEX_SRC.includes('"turn_claim_asset_cleanup_batch", "turn_complete_asset_cleanup"'));
   assert.ok(INDEX_SRC.includes('"isolation level repeatable read read only"') && INDEX_SRC.includes('"read write"'));
   assert.ok(!/image-proxy/.test(INDEX_CODE) && !/image-proxy/.test(CORE_CODE), "image-proxy is not referenced in code");
-  assert.deepEqual([...core.ACTIONS], ["status", "overview", "project-files", "preview-delete", "delete", "runs", "drain-queue"]);
+  assert.deepEqual([...core.ACTIONS], ["status", "overview", "project-files", "preview-delete", "delete", "runs", "drain-queue",
+    "preview-clear-temp", "clear-temp"]);
   // core.mjs imports only the dependency-free storage-key parser (Node-testable, like
   // blender-bridge/relay-core.mjs); that copy is byte-identical to app/storage-keys.js
   assert.deepEqual(CORE_SRC.match(/^[ \t]*import\s.*$/gm), ['import "./storage-keys.js";']);
@@ -481,6 +506,62 @@ await acheck("path guard: TURN asset layout only (units)", async () => {
   assert.equal(core.plannedRule({ path: F.stageTmp, area: "stage-temp", status: "service", safe_to_delete: true }, set), false);
 });
 
+// ── Clear old temp files (2026-09-28): the guard and the SQL, statically ────
+const OLD_TEMP_RULE = `f.area = 'stage-temp' and f.status = 'service' and f.safe_to_delete
+   and f.created_at < now() - interval '24 hours'
+   and f.project_id is null and f.referenced_by_project_ids is null`;
+// the overview counts only the old files in the layout tempPathGuard() accepts (2026-09-28 review)
+const TEMP_SHAPE = `char_length(f.path) <= 1024 and f.path ~ '^[^/]+/stage-tmp/[A-Za-z0-9_-][A-Za-z0-9_.-]*$'`;
+await acheck("temp guard (units): exactly {account}/stage-tmp/{plain name}; legacy or readable account folder; nothing else", async () => {
+  const good = [`${ALICE}/stage-tmp/1758000000001-image-0-old00001.png`, `alice--${ALICE}/stage-tmp/1758000000003-image-0-rd.png`,
+    `${ALICE.toUpperCase()}/stage-tmp/1758000000001-x.png`, `${BOB}/stage-tmp/a_b-c.d`, `${BOB}/stage-tmp/abc`, F.stageTmp, RD.stage];
+  for (const p of good) assert.equal(core.tempPathGuard(p), true, p);
+  const bad = [`${ALICE}/stage-tmp/sub/1758000000008-x.png`, `${ALICE}/stage-tmp/.hidden`, `${ALICE}/stage-tmp/`, `${ALICE}/stage-tmp/..`,
+    `${ALICE}/stage-tmp/.`, `${ALICE}//x.png`, `${ALICE}/studio-previews/x.png`, `${ALICE}/${F1}/character/c/x.png`, `${ALICE}/${F1}/x.png`,
+    `_internal/stage-tmp/x.png`, `blender-studio-internal/stage-tmp/x.png`, `not-a-uuid/stage-tmp/x.png`, `Alice--${ALICE}/stage-tmp/x.png`,
+    `deadbeef--${ALICE}/stage-tmp/x.png`, `/${ALICE}/stage-tmp/x.png`, `${ALICE}\\stage-tmp/x.png`, `${ALICE}/stage-tmp/a\\b.png`,
+    `${ALICE}/stage-tmp/a b.png`, `${ALICE}/stage-tmp/a\u0000.png`, `${ALICE}/stage-tmp/a\n.png`, `${ALICE}/stage-tmp/a\u007f.png`,
+    `${ALICE}/Stage-tmp/x.png`, `${ALICE}/stage-tmp/ä.png`, `${ALICE}/stage-tmp/x.png/`, `stage-tmp/x.png`, `${ALICE}/stage-tmp`,
+    `${ALICE}/stage-tmp/${"x".repeat(1024)}`, "ab", "", 42, null, undefined, {}];
+  for (const p of bad) assert.equal(core.tempPathGuard(p), false, String(p));
+  // the project guard still refuses every temp file, and the temp guard every asset
+  for (const p of good) if (typeof p === "string") assert.equal(core.pathGuard(p, new Set([DEL, F1])), false, p);
+  for (const p of [bulkPath(DEL, 1), F.delPreview, F.delMigration, RD.sheet]) assert.equal(core.tempPathGuard(p), false, p);
+});
+await acheck("temp SQL (static): one old-file rule for plan and overview, database clock only, each lease pinned to its own action", async () => {
+  assert.ok(core.S.TEMP_CANDIDATES.includes(OLD_TEMP_RULE), "TEMP_CANDIDATES holds the rule");
+  assert.equal(core.S.Q3_FOLDERS.split(OLD_TEMP_RULE + "\n   and " + TEMP_SHAPE).length - 1, 3,
+    "Q3_FOLDERS counts, sums and dates the old files with the same rule, word for word, narrowed to the guard's layout");
+  assert.ok(!core.S.TEMP_CANDIDATES.includes(TEMP_SHAPE), "the review still records files outside the layout as kept");
+  for (const k of ["TEMP_CANDIDATES", "TEMP_RECHECK", "Q3_FOLDERS"]) assert.match(core.S[k], /now\(\) - interval '24 hours'/, k);
+  assert.match(core.S.TEMP_RECHECK, /o\.created_at < now\(\) - interval '24 hours'\s+and o\.updated_at < now\(\) - interval '24 hours'/);
+  assert.match(core.S.TEMP_CANDIDATES, /order by f\.created_at, f\.path\s+limit \$1::int/, "oldest first, capped");
+  assert.equal(core.TEMP_MAX_PLAN, 5000);
+  assert.equal(core.TEMP_CUTOFF_HOURS, 24);
+  // the delete statements are unchanged: pinned to the project delete
+  assert.match(core.S.LEASE, /action = 'delete-deleted-project-files'/);
+  assert.match(core.S.RUN_INSERT, /'delete-deleted-project-files'/);
+  assert.ok(!/clear-old-temp-files/.test(core.S.LEASE + core.S.RUN_INSERT + core.S.CANDIDATES));
+  assert.match(core.S.TEMP_LEASE, /where id = \$1::uuid and action = 'clear-old-temp-files'/);
+  // 2026-09-28 review: any other 'running' temp run (live OR interrupted) blocks a lease and a review
+  assert.match(core.S.TEMP_LEASE, /not exists \(select 1 from turn_admin_ops\.storage_runs o\s+where o\.action = 'clear-old-temp-files' and o\.id <> \$1::uuid\s+and o\.status = 'running'\)/);
+  assert.match(core.S.TEMP_BUSY, /where action = 'clear-old-temp-files' and status = 'running' and id <> \$1::uuid/);
+  assert.ok(!/lease_expires_at/.test(core.S.TEMP_BUSY.slice(core.S.TEMP_BUSY.indexOf("\n where "))), "TEMP_BUSY does not filter on a live lease");
+  assert.match(core.S.TEMP_RECHECK, /i\.outcome = 'sending' and i\.run_id <> \$2::uuid\s+and r\.action = 'clear-old-temp-files'\) as in_other_run/);
+  assert.match(OPS, /create unique index if not exists storage_runs_one_running_temp\s+on turn_admin_ops\.storage_runs\(\(action\)\) where action = 'clear-old-temp-files' and status = 'running';/);
+  assert.match(core.S.S_SETUP, /i\.relname = 'storage_runs_one_running_temp'\s+and i\.relkind = 'i' and x\.indisunique/);
+  assert.match(core.S.TEMP_RUN_INSERT, /'clear-old-temp-files'/);
+  // the setup check reads the catalog (never to_regclass), like the other presence checks
+  assert.match(core.S.S_SETUP, /pg_catalog\.pg_get_constraintdef\(k\.oid\), 'clear-old-temp-files'\) > 0\)/);
+  assert.ok(!/to_regclass/.test(core.S.S_SETUP));
+  // admin-storage.sql: fresh installs list all three; the upgrade block replaces action checks only
+  assert.match(OPS, /action\s+text not null check \(action in \('delete-deleted-project-files', 'drain-cleanup-queue', 'clear-old-temp-files'\)\)/);
+  assert.match(OPS, /add constraint storage_runs_action_check\s+check \(action in \('delete-deleted-project-files', 'drain-cleanup-queue', 'clear-old-temp-files'\)\)/);
+  assert.match(OPS, /a\.attnum = any\(c\.conkey\)/);
+  assert.ok(OPS.indexOf("do $action_check$") > OPS.indexOf("create table if not exists turn_admin_ops.storage_runs") &&
+    OPS.indexOf("do $action_check$") < OPS.indexOf("commit;"), "inside the same transaction, after the table");
+});
+
 // ── T1 auth ─────────────────────────────────────────────────────────────────
 await acheck("T1 auth: sign-in, allowlist, confirmed, not anonymous, aud, uid pin, cron secret, action allowlist, body; no SQL before auth", async () => {
   const h = harness(db);
@@ -515,7 +596,7 @@ await acheck("T1 auth: sign-in, allowlist, confirmed, not anonymous, aud, uid pi
   // cron: only drain-queue, only with a 32+ character secret
   const SECRET = "c".repeat(40);
   const cron = harness(db, { env: { cronSecret: SECRET } });
-  for (const action of ["status", "overview", "preview-delete", "delete", "runs", "nope"]) {
+  for (const action of ["status", "overview", "preview-delete", "delete", "runs", "preview-clear-temp", "clear-temp", "nope"]) {
     err(await cron.app.handle({ cronSecret: SECRET, body: j({ action }) }), 403, "admin_only");
   }
   err(await cron.app.handle({ cronSecret: SECRET.slice(1) + "x", body: j({ action: "drain-queue" }) }), 401, "sign_in");
@@ -535,14 +616,16 @@ await acheck("T13 no audit schema: status says why, overview works, every deleti
   assert.equal(s.db.user, "postgres");
   assert.equal(s.db.superuser, true);
   assert.equal(s.seesAll, true);
-  assert.deepEqual(s.setup, { views: 6, missingColumns: [], audit: false, queue: true, intents: true, queueWorker: true });
-  assert.deepEqual([s.browseEnabled, s.deleteEnabled, s.drainEnabled], [true, false, false]);
+  assert.deepEqual(s.setup, { views: 6, missingColumns: [], audit: false, queue: true, intents: true, queueWorker: true, temp_action: false });
+  assert.deepEqual([s.browseEnabled, s.deleteEnabled, s.drainEnabled, s.tempEnabled], [true, false, false, false]);
   ok200(await h.call({ action: "overview" }));
   ok200(await h.call({ action: "project-files", projectId: F1 }));
   err(await h.call({ action: "preview-delete", projectIds: [DEL] }), 412, "audit_missing");
   err(await h.call({ action: "delete", runId: ADMIN_ID }), 412, "audit_missing");
   err(await h.call({ action: "runs" }), 412, "audit_missing");
   err(await h.call({ action: "drain-queue" }), 412, "audit_missing");
+  err(await h.call({ action: "preview-clear-temp" }), 412, "audit_missing");
+  err(await h.call({ action: "clear-temp", runId: ADMIN_ID }), 412, "audit_missing");
   assert.equal(h.st.storage.length + h.st.rpc.length, 0);
 });
 
@@ -571,7 +654,8 @@ const opsRun = await db.exec(OPS);
 await acheck("T14 admin-storage.sql: idempotent, RESULT rows ok, no grant to public/anon/authenticated/service_role, not in the Data API", async () => {
   const last = opsRun.at(-1);
   assert.deepEqual(last.fields.map((f) => f.name), ["item", "status", "detail"]);
-  assert.deepEqual(last.rows.map((r) => r.status), ["ok", "ok", "ok", "ok", "0"]);
+  assert.deepEqual(last.rows.map((r) => r.status), ["ok", "ok", "ok", "ok", "ok", "0"]);
+  assert.equal(last.rows[1].item, "Temp-file clearing allowed", "row 15 (2026-09-28)");
   const acl = (await db.query(`
     select count(*)::int n from (
       select a.grantee from pg_namespace n cross join lateral aclexplode(n.nspacl) a where n.nspname = 'turn_admin_ops'
@@ -593,7 +677,8 @@ await acheck("T14 admin-storage.sql: idempotent, RESULT rows ok, no grant to pub
   // row 30 notices an exposed schema
   await db.exec(`alter role authenticator set pgrst.db_schemas = 'public, turn_admin_ops'`);
   const exposed = (await db.exec(OPS)).at(-1).rows;
-  assert.match(exposed[2].status, /^FAIL/);
+  assert.equal(exposed[3].item, "turn_admin_ops kept out of the Data API");
+  assert.match(exposed[3].status, /^FAIL/);
   await db.exec(`alter role authenticator set pgrst.db_schemas = 'public, graphql_public'`);
 });
 
@@ -604,6 +689,7 @@ await acheck("T2 overview: accounts = turn_admin.users, projects = turn_admin.pr
   assert.ok(!Number.isNaN(Date.parse(ov.asOf)));
   assert.equal(ov.setup.deleteEnabled, true);
   assert.equal(ov.setup.drainEnabled, true);
+  assert.deepEqual([ov.setup.tempEnabled, ov.setup.setup.temp_action], [true, true]);
   const users = await rowsOf(db, `select * from turn_admin.users`);
   const authIds = new Set((await db.query(`select id from auth.users`)).rows.map((r) => r.id));
   const key = (r) => r.user_id;
@@ -1306,6 +1392,311 @@ await acheck("T15 drain: Storage is called right after the recheck; completing t
   assert.match((await queueRow(RACE_HELD)).last_error, /^held: abandoned less than 24 h ago/);
 });
 
+// ── Clear old temp files (2026-09-28), on the main fixture ──────────────────
+// image-proxy staging keys: {account}/stage-tmp/{13-digit ms}-{kind}-…
+const TMP = {
+  old:        `${ALICE}/stage-tmp/1758000000001-image-0-old00001.png`,          // 3 days → planned
+  old2:       `${BOB}/stage-tmp/1758000000002-image-1-old00002.png`,            // 2 days → planned
+  readable:   `alice--${ALICE}/stage-tmp/1758000000003-image-0-rdold003.png`,   // 30 h, readable folder → planned
+  young:      `${ALICE}/stage-tmp/1758000000004-image-0-young004.png`,          // 23 h → not in the run
+  ref:        `${ALICE}/stage-tmp/1758000000005-image-0-refd0005.png`,          // referenced by a live film → not in the run
+  intent:     `${ALICE}/stage-tmp/1758000000006-device-0-intent06.png`,         // upload reservation → kept
+  queued:     `${ALICE}/stage-tmp/1758000000007-image-0-queued07.png`,          // in the cleanup queue → kept
+  fourSeg:    `${ALICE}/stage-tmp/sub/1758000000008-image-0-four0008.png`,      // 4 segments → kept (guard)
+  hidden:     `${ALICE}/stage-tmp/.hidden`,                                     // hidden name → kept (guard)
+  // planned, then changed between the review and the clear:
+  lateTouch:  `${ALICE}/stage-tmp/1758000000009-image-0-touch009.png`,          // overwritten (updated_at now)
+  lateNew:    `${ALICE}/stage-tmp/1758000000010-image-0-renew010.png`,          // removed and stored again
+  lateRef:    `${ALICE}/stage-tmp/1758000000011-image-0-lref0011.png`,          // a film starts using it
+  lateIntent: `${ALICE}/stage-tmp/1758000000012-device-0-lint0012.png`,         // an upload reservation appears
+  lateQueue:  `${ALICE}/stage-tmp/1758000000013-image-0-lque0013.png`,          // queued for cleanup
+  gone:       `${ALICE}/stage-tmp/1758000000014-image-0-gone0014.png`,          // removed by someone else
+  carolYoung: `${CAROL}/stage-tmp/1758000000015-image-0-cyoung15.png`,          // an account with only young temp files
+};
+const TMP_AGE = { old: "3 days", old2: "2 days", readable: "30 hours", young: "23 hours", carolYoung: "2 hours" };
+const TMP_PLANNED = [TMP.old, TMP.old2, TMP.readable, TMP.lateTouch, TMP.lateNew, TMP.lateRef, TMP.lateIntent, TMP.lateQueue, TMP.gone];
+const TMP_KEPT = { [TMP.intent]: "held: upload in progress", [TMP.queued]: "held: in the cleanup queue",
+  [TMP.fourSeg]: "outside the temp-file layout", [TMP.hidden]: "outside the temp-file layout" };
+const tempRuns = async () => rowsOf(db, `select * from turn_admin_ops.storage_runs where action = 'clear-old-temp-files' order by created_at`);
+let tempRunId = null;
+
+await acheck("overview.temp: every stage-temp file, the old ones by the plan's own rule, folded into the folder scan (rows unchanged)", async () => {
+  for (const [k, p] of Object.entries(TMP)) await putObject(db, p, TMP_AGE[k] || "3 days", 5000);
+  await db.query(`insert into public.turn_generations(project_id, owner, entity_id, refs) values ($1, $2, 'stage-ref', $3)`, [F1, ALICE, j([{ storage_path: TMP.ref }])]);
+  await db.query(`insert into public.turn_asset_upload_intents(path, project_id, uploader, created_at, expires_at) values ($1, $2, $3, now() - interval '1 hour', now() + interval '1 hour')`, [TMP.intent, F1, ALICE]);
+  await db.query(`insert into public.turn_asset_cleanup_queue(path, project_id, uploader, reason, available_at) values ($1, $2, $3, 'abandoned_upload', now() + interval '1 hour')`, [TMP.queued, F1, ALICE]);
+  const v = Object.fromEntries((await rowsOf(db, `select path, area, status, safe_to_delete, project_id from turn_admin.files where path = any($1::text[])`, [Object.values(TMP)])).map((r) => [r.path, r]));
+  assert.deepEqual([v[TMP.old].area, v[TMP.old].status, v[TMP.old].safe_to_delete, v[TMP.old].project_id], ["stage-temp", "service", true, null]);
+  assert.deepEqual([v[TMP.ref].status, v[TMP.ref].safe_to_delete], ["ref", false], "a referenced temp file is not 'service'");
+  assert.deepEqual([v[TMP.intent].status, v[TMP.queued].status, v[TMP.fourSeg].area], ["service", "service", "stage-temp"], "the view alone would call these safe");
+
+  const h = harness(db);
+  const ov = ok200(await h.call({ action: "overview" }));
+  // 2026-09-28 review: accounts / oldest describe the old files only, accounts by account id
+  const OLD = `${OLD_TEMP_RULE}\n   and ${TEMP_SHAPE}`;
+  const [want] = await rowsOf(db, `select count(*)::int as files, coalesce(sum(f.bytes), 0)::bigint as bytes,
+        count(distinct lower(right(split_part(f.path, '/', 1), 36))) filter (where ${OLD})::int as accounts,
+        min(f.created_at) filter (where ${OLD}) as oldest,
+        count(*) filter (where ${OLD})::int as old_files,
+        coalesce(sum(f.bytes) filter (where ${OLD}), 0)::bigint as old_bytes
+      from turn_admin.files f where f.area = 'stage-temp'`);
+  assert.deepEqual(ov.temp, { files: want.files, bytes: want.bytes, oldFiles: want.old_files, oldBytes: want.old_bytes,
+    accounts: want.accounts, oldest: want.oldest, cutoffHours: 24 });
+  assert.equal(ov.temp.oldFiles, TMP_PLANNED.length + 2, "old = planned + held (reservation, queue); the 2 files outside the layout are not counted");
+  assert.equal(ov.temp.oldBytes, (TMP_PLANNED.length + 2) * 5000);
+  assert.equal(ov.temp.accounts, 2, "ALICE (legacy and readable folders: one account) and BOB; CAROL has only young temp files");
+  const [oldestPlanned] = await rowsOf(db, `select min(created_at) as t from storage.objects where name = any($1::text[])`, [[TMP.old, TMP.intent, TMP.queued]]);
+  assert.equal(ov.temp.oldest, oldestPlanned.t, "the oldest OLD file, not the oldest temp file of any kind");
+  assert.ok(ov.temp.files > ov.temp.oldFiles + 2, "files / bytes still count every temp file (young, referenced, outside the layout)");
+  assert.ok(ov.folders.every((f) => !Object.keys(f).some((k) => k.startsWith("temp_"))), "folder rows carry no temp_* columns");
+  const [cands] = await rowsOf(db, core.S.TEMP_CANDIDATES, [core.TEMP_MAX_PLAN]);
+  assert.equal(cands.total, ov.temp.oldFiles + 2, "a review also considers (and keeps) the 2 files outside the layout");
+});
+
+await acheck("preview-clear-temp: planned = stage-temp, service, safe, unreferenced, > 24 h, guard; kept explains itself; nothing else in the run", async () => {
+  const h = harness(db);
+  const n0 = await runCount();
+  const pv = ok200(await h.call({ action: "preview-clear-temp", projectIds: [DEL], paths: [F.f1current] }));   // extra fields are ignored
+  tempRunId = pv.runId;
+  assert.equal(await runCount(), n0 + 1);
+  const run = await runRow(db, pv.runId);
+  assert.deepEqual([run.action, run.status, run.project_ids, run.admin_email, run.admin_id, run.function_version],
+    ["clear-old-temp-files", "previewed", [], "admin@infinitestudioai.com", ADMIN_ID, core.VERSION]);
+  assert.deepEqual([run.planned_files, run.planned_bytes, run.kept_files], [TMP_PLANNED.length, TMP_PLANNED.length * 5000, 4]);
+  const items = await itemsOf(db, pv.runId);
+  assert.deepEqual(sorted(items.filter((i) => i.outcome === "planned").map((i) => i.path)), sorted(TMP_PLANNED));
+  assert.deepEqual(Object.fromEntries(items.filter((i) => i.outcome === "kept").map((i) => [i.path, i.detail])), TMP_KEPT);
+  assert.equal(items.length, TMP_PLANNED.length + 4, "the young, the referenced, assets, previews and the 3-hour-old stage files are not in the run");
+  for (const p of [TMP.young, TMP.carolYoung, TMP.ref, F.stageTmp, RD.stage, LATE_ORPHAN, F.f1preview, F.f1current, F.internal, F.mesh, F.delRelay])
+    assert.ok(!items.some((i) => i.path === p), "never a candidate: " + p);
+  assert.ok((await rowsOf(db, `select project_id from turn_admin_ops.storage_run_items where run_id = $1`, [pv.runId])).every((r) => r.project_id === null));
+  const mins = (Date.parse(pv.previewExpiresAt) - Date.now()) / 60000;
+  assert.ok(mins > 14 && mins <= 15.1, "expires in 15 minutes");
+  const [ages] = await rowsOf(db, `select min(created_at) as oldest, max(created_at) as newest from storage.objects where name = any($1::text[])`, [TMP_PLANNED]);
+  assert.deepEqual(pv, { ok: true, version: core.VERSION, elapsedMs: pv.elapsedMs, runId: pv.runId,
+    plannedFiles: TMP_PLANNED.length, plannedBytes: TMP_PLANNED.length * 5000, keptFiles: 4,
+    keptByDetail: { "held: upload in progress": 1, "held: in the cleanup queue": 1, "outside the temp-file layout": 2 },
+    accounts: 2, oldest: ages.oldest, newest: ages.newest, moreRemain: 0, previewExpiresAt: pv.previewExpiresAt, cutoffHours: 24 });
+  assert.equal(h.st.storage.length, 0, "a review never calls Storage");
+});
+
+await acheck("clear-temp: only planned ∩ still old / unreferenced / unreserved / unqueued / present files go to Storage; outcomes recorded", async () => {
+  // between the review and the clear
+  await db.query(`update storage.objects set updated_at = now() - interval '1 hour' where bucket_id = 'turn-assets' and name = $1`, [TMP.lateTouch]);
+  await db.query(`delete from storage.objects where bucket_id = 'turn-assets' and name = any($1::text[])`, [[TMP.lateNew, TMP.gone]]);
+  await putObject(db, TMP.lateNew, "5 minutes", 5000);
+  await db.query(`insert into public.turn_generations(project_id, owner, entity_id, refs) values ($1, $2, 'stage-late-ref', $3)`, [F1, ALICE, j([{ storage_path: TMP.lateRef }])]);
+  await db.query(`insert into public.turn_asset_upload_intents(path, project_id, uploader, created_at, expires_at) values ($1, $2, $3, now() - interval '1 minute', now() + interval '1 hour')`, [TMP.lateIntent, F1, ALICE]);
+  await db.query(`insert into public.turn_asset_cleanup_queue(path, project_id, uploader, reason, available_at) values ($1, $2, $3, 'abandoned_upload', now() + interval '1 hour')`, [TMP.lateQueue, F1, ALICE]);
+  const before = await objectNames(db);
+  const v0 = VIOLATIONS.length;
+  const h = harness(db);
+  const r = ok200(await h.call({ action: "clear-temp", runId: tempRunId }));
+  assert.equal(VIOLATIONS.length, v0, "audit: " + VIOLATIONS.slice(v0).join("; "));
+  const sent = [TMP.old, TMP.old2, TMP.readable];
+  assert.deepEqual(h.st.storage.map(sorted), [sorted(sent)], "one batch of exactly the still-safe names");
+  const items = Object.fromEntries((await itemsOf(db, tempRunId)).map((i) => [i.path, i]));
+  for (const p of sent) assert.equal(items[p].outcome, "removed", p);
+  assert.deepEqual([items[TMP.lateTouch].outcome, items[TMP.lateTouch].detail], ["skipped", "held: changed in the last 24 hours"]);
+  assert.deepEqual([items[TMP.lateNew].outcome, items[TMP.lateNew].detail], ["skipped", "held: changed in the last 24 hours"]);
+  assert.deepEqual([items[TMP.lateRef].outcome, items[TMP.lateRef].detail], ["skipped", "held: in use"]);
+  assert.deepEqual([items[TMP.lateIntent].outcome, items[TMP.lateIntent].detail], ["skipped", "held: upload in progress"]);
+  assert.deepEqual([items[TMP.lateQueue].outcome, items[TMP.lateQueue].detail], ["skipped", "held: in the cleanup queue"]);
+  assert.deepEqual([items[TMP.gone].outcome, items[TMP.gone].detail], ["already-gone", "no longer in storage"]);
+  for (const p of Object.keys(TMP_KEPT)) assert.equal(items[p].outcome, "kept", p);
+  // the same response shape as delete (no leftInProjects: there is no project)
+  assert.deepEqual(r, { ok: true, version: core.VERSION, elapsedMs: r.elapsedMs, runId: tempRunId, status: "done",
+    planned: TMP_PLANNED.length, removed: 3, removedBytes: 15000, alreadyGone: 1,
+    skipped: { count: 5, byStatus: { "held: changed in the last 24 hours": 2, "held: in the cleanup queue": 1, "held: in use": 1, "held: upload in progress": 1 } },
+    failed: { count: 0, sample: [] }, remaining: 0 });
+  const after = await objectNames(db);
+  assert.deepEqual(sorted([...before].filter((p) => !after.has(p))), sorted(sent), "storage.objects diff = the removed items");
+  for (const p of [TMP.young, TMP.ref, TMP.intent, TMP.queued, TMP.fourSeg, TMP.hidden, TMP.lateTouch, TMP.lateNew, TMP.lateRef,
+    TMP.lateIntent, TMP.lateQueue, F.stageTmp, RD.stage, F.f1current, LATE_ORPHAN]) assert.ok(after.has(p), "untouched: " + p);
+  const run = await runRow(db, tempRunId);
+  assert.deepEqual([run.status, run.lease_token, run.removed_files, run.removed_bytes, run.already_gone, run.skipped_files, run.failed_files, run.last_error],
+    ["done", null, 3, 15000, 1, 5, 0, null], "counters recomputed from the items");
+  assert.ok(run.finished_at && run.started_at);
+  // replay: the stored result, Storage untouched
+  const again = ok200(await h.call({ action: "clear-temp", runId: tempRunId }));
+  assert.deepEqual([again.status, again.replayed, again.removed, "leftInProjects" in again], ["done", true, 3, false]);
+  assert.equal(h.st.storage.length, 1);
+  // History lists it by its action
+  const hist = ok200(await h.call({ action: "runs", limit: 5 }));
+  const row = hist.runs.find((x) => x.id === tempRunId);
+  assert.deepEqual([row.action, row.status, row.project_ids, row.removed_files], ["clear-old-temp-files", "done", [], 3]);
+  const d = ok200(await h.call({ action: "runs", runId: tempRunId, outcome: "skipped" }));
+  assert.equal(d.items.length, 5);
+});
+
+await acheck("each lease takes only its own runs: delete refuses a temp run, clear-temp refuses a project delete and a drain; a temp review expires", async () => {
+  const h = harness(db);
+  const tv = ok200(await h.call({ action: "preview-clear-temp" }));
+  const pd = ok200(await h.call({ action: "preview-delete", projectIds: [DEL] }));
+  const [drain] = await rowsOf(db, `select id from turn_admin_ops.storage_runs where action = 'drain-cleanup-queue' order by created_at limit 1`);
+  const e1 = err(await h.call({ action: "delete", runId: tv.runId }), 409, "run_not_found");
+  assert.equal(e1.error.message, "No such delete run.");
+  for (const id of [pd.runId, runA, drain.id]) {
+    const e = err(await h.call({ action: "clear-temp", runId: id }), 409, "run_not_found");
+    assert.equal(e.error.message, "No such temp-file clearing run.");
+  }
+  assert.deepEqual([(await runRow(db, tv.runId)).status, (await runRow(db, pd.runId)).status], ["previewed", "previewed"], "neither run was leased");
+  assert.equal((await runRow(db, runA)).status, "done");
+  err(await h.call({ action: "clear-temp", runId: "not-a-uuid" }), 400, "bad_request");
+  err(await h.call({ action: "clear-temp" }), 400, "bad_request");
+  err(await h.call({ action: "clear-temp", runId: "00000000-0000-4000-8000-000000000000" }), 409, "run_not_found");
+  await db.query(`update turn_admin_ops.storage_runs set preview_expires_at = now() - interval '1 minute' where id = $1`, [tv.runId]);
+  err(await h.call({ action: "clear-temp", runId: tv.runId }), 409, "preview_expired");
+  assert.equal((await runRow(db, tv.runId)).status, "expired");
+  assert.equal(h.st.storage.length, 0, "Storage was never called");
+});
+
+const TMP_RACE = [0, 1, 2].map((i) => `${ALICE}/stage-tmp/17580000002${i}0-image-0-race${i}.png`);
+const TMP_CRASH = [0, 1, 2].map((i) => `${BOB}/stage-tmp/17580000003${i}0-image-0-crash${i}.png`);
+await acheck("clear-temp: two calls at once → one runs, one 409 run_busy", async () => {
+  for (const p of TMP_RACE) await putObject(db, p, "3 days", 700);
+  const h = harness(db);
+  const pv = ok200(await h.call({ action: "preview-clear-temp" }));
+  assert.equal(pv.plannedFiles, 3);
+  // left from the clear above: the overwritten file is now held at review time, not planned again
+  assert.equal(pv.keptByDetail["held: changed in the last 24 hours"], 1);
+  assert.equal((await itemsOf(db, pv.runId)).find((i) => i.path === TMP.lateTouch).outcome, "kept");
+  h.st.storageDelay = 25;
+  h.st.concurrent = true;
+  const [r1, r2] = await Promise.all([h.call({ action: "clear-temp", runId: pv.runId }), h.call({ action: "clear-temp", runId: pv.runId })]);
+  const done = [r1, r2].find((r) => r.status === 200), busy = [r1, r2].find((r) => r.status !== 200);
+  assert.ok(done && busy, r1.status + " / " + r2.status);
+  const b = err(busy, 409, "run_busy");
+  assert.equal(b.error.message, "Temp files are already being cleared. It will show in History.");
+  assert.deepEqual([done.json.status, done.json.removed], ["done", 3]);
+  assert.deepEqual(h.st.storage.map(sorted), [sorted(TMP_RACE)]);
+});
+
+await acheck("clear-temp: an interrupted run blocks a new review and another run, then resumes by absence; the other run finds them already gone", async () => {
+  for (const p of TMP_CRASH) await putObject(db, p, "3 days", 900);
+  const h = harness(db);
+  const x = ok200(await h.call({ action: "preview-clear-temp" }));
+  const y = ok200(await h.call({ action: "preview-clear-temp" }));   // a second review of the same files, before either runs
+  assert.deepEqual([x.plannedFiles, y.plannedFiles], [3, 3]);
+  h.st.mode = () => "crash";                                          // removes, then the instance dies
+  err(await h.call({ action: "clear-temp", runId: x.runId }), 503, "db_unreachable");
+  h.st.dead = false; h.st.mode = null;
+  assert.equal((await runRow(db, x.runId)).status, "running");
+  const mid = byOutcome(await itemsOf(db, x.runId));
+  assert.deepEqual([mid.sending, mid.planned, mid.removed], [3, undefined, undefined], "left 'sending'");
+  for (const p of TMP_CRASH) assert.ok(!(await objectNames(db)).has(p), "the remove happened before the crash");
+  // while X holds a live lease: no new review, Y cannot start, X itself is busy
+  const nr = err(await h.call({ action: "preview-clear-temp" }), 409, "run_busy");
+  assert.equal(nr.error.message, "Temp files are already being cleared. Wait for that to finish, then review again.");
+  err(await h.call({ action: "clear-temp", runId: y.runId }), 409, "run_busy");
+  err(await h.call({ action: "clear-temp", runId: x.runId }), 409, "run_busy");
+  assert.equal((await runRow(db, y.runId)).status, "previewed", "Y was not leased");
+  // after the lease: History says Interrupted, and it still blocks everything else
+  // (2026-09-28 review) until it is resumed
+  await expireLease(x.runId);
+  assert.equal(ok200(await h.call({ action: "runs" })).runs.find((r) => r.id === x.runId).interrupted, true);
+  const n0 = await runCount();
+  const ni = err(await h.call({ action: "preview-clear-temp" }), 409, "temp_interrupted");
+  assert.equal(ni.error.message, "An earlier clear of old temp files was interrupted. Resume it in History first.");
+  assert.deepEqual([ni.error.runId, ni.error.plannedFiles, typeof ni.error.startedAt], [x.runId, 3, "string"]);
+  assert.equal(await runCount(), n0, "no run row for a refused review");
+  const yi = err(await h.call({ action: "clear-temp", runId: y.runId }), 409, "temp_interrupted");
+  assert.equal(yi.error.runId, x.runId);
+  assert.equal((await runRow(db, y.runId)).status, "previewed", "Y was not leased");
+  const calls = h.st.storage.length;
+  const rx = ok200(await h.call({ action: "clear-temp", runId: x.runId }));
+  assert.deepEqual([rx.status, rx.removed, rx.remaining, rx.failed.count], ["done", 3, 0, 0]);
+  assert.equal(h.st.storage.length, calls, "nothing was sent again");
+  const settled = (await itemsOf(db, x.runId)).filter((i) => i.outcome === "removed");
+  assert.deepEqual(sorted(settled.map((i) => i.path)), sorted(TMP_CRASH));
+  assert.ok(settled.every((i) => i.detail === "reconciled after an interrupted step"));
+  const ry = ok200(await h.call({ action: "clear-temp", runId: y.runId }));
+  assert.deepEqual([ry.status, ry.removed, ry.alreadyGone, ry.remaining], ["done", 0, 3, 0]);
+  assert.equal(h.st.storage.length, calls, "already gone: never sent");
+  assert.equal((await db.query(`select count(*)::int n from turn_admin_ops.storage_runs where status = 'running'`)).rows[0].n, 0);
+});
+
+// 2026-09-28 review: never two runs recording one removal
+const TMP_DIE = [0, 1, 2].map((i) => `${ALICE}/stage-tmp/17580000004${i}0-image-0-die${i}.png`);
+const TMP_HOLD = [0, 1].map((i) => `${BOB}/stage-tmp/17580000005${i}0-image-0-hold${i}.png`);
+const removedCounts = async (paths) => (await rowsOf(db, `select p.path, (select count(*)::int from turn_admin_ops.storage_run_items i
+    where i.path = p.path and i.outcome = 'removed') as n from unnest($1::text[]) p(path) order by 1`, [paths])).map((r) => r.n);
+await acheck("clear-temp: died before the Storage request, lease expired → a new review is refused (resume first); the resume removes each file once", async () => {
+  for (const p of TMP_DIE) await putObject(db, p, "3 days", 1000);
+  const h = harness(db);
+  const r1 = ok200(await h.call({ action: "preview-clear-temp" }));
+  assert.equal(r1.plannedFiles, 3);
+  h.st.mode = () => "die-before";
+  err(await h.call({ action: "clear-temp", runId: r1.runId }), 503, "db_unreachable");
+  h.st.dead = false; h.st.mode = null;
+  assert.deepEqual(byOutcome((await itemsOf(db, r1.runId)).filter((i) => TMP_DIE.includes(i.path))), { sending: 3 });
+  for (const p of TMP_DIE) assert.ok((await objectNames(db)).has(p), "nothing was removed");
+  await expireLease(r1.runId);
+  // the page's only button starts a new review: refused, naming the run to resume
+  const n0 = await runCount();
+  const e = err(await h.call({ action: "preview-clear-temp" }), 409, "temp_interrupted");
+  assert.deepEqual([e.error.runId, e.error.plannedFiles], [r1.runId, 3]);
+  assert.equal(await runCount(), n0);
+  const calls = h.st.storage.length;
+  const rr = ok200(await h.call({ action: "clear-temp", runId: r1.runId }));
+  assert.deepEqual([rr.status, rr.removed, rr.removedBytes, rr.remaining], ["done", 3, 3000, 0]);
+  assert.deepEqual(h.st.storage.slice(calls).map(sorted), [sorted(TMP_DIE)], "the resume sent them, once");
+  assert.deepEqual(await removedCounts(TMP_DIE), [1, 1, 1], "each file is 'removed' in exactly one run");
+  ok200(await h.call({ action: "preview-clear-temp" }));   // and new reviews work again
+});
+
+await acheck("clear-temp: a run stopped by an error while files are 'sending' → a new review keeps them, another run skips them, only its resume removes them", async () => {
+  for (const p of TMP_HOLD) await putObject(db, p, "3 days", 1100);
+  const h = harness(db);
+  const y = ok200(await h.call({ action: "preview-clear-temp" }));    // reviewed before R1 runs
+  const r1 = ok200(await h.call({ action: "preview-clear-temp" }));
+  for (const pv of [y, r1]) for (const p of TMP_HOLD) assert.equal((await itemsOf(db, pv.runId)).find((i) => i.path === p).outcome, "planned");
+  // Storage answers 503 (nothing removed), then reading storage.objects fails: the
+  // call ends 500 with R1 finished 'partial' and its items still 'sending'
+  h.st.mode = () => "error";
+  let armed = true;
+  h.st.onStatement = (text) => { if (armed && text === core.S.PRESENT) { armed = false; throw new Error("simulated failure reading storage.objects"); } };
+  err(await h.call({ action: "clear-temp", runId: r1.runId }), 500, "internal");
+  h.st.onStatement = null; h.st.mode = null;
+  assert.equal((await runRow(db, r1.runId)).status, "partial");
+  assert.deepEqual(byOutcome((await itemsOf(db, r1.runId)).filter((i) => TMP_HOLD.includes(i.path))), { sending: 2 });
+  // a new review keeps them
+  const r2 = ok200(await h.call({ action: "preview-clear-temp" }));
+  assert.equal(r2.keptByDetail["held: in an interrupted clear"], 2);
+  for (const p of TMP_HOLD) assert.deepEqual((({ outcome, detail }) => [outcome, detail])((await itemsOf(db, r2.runId)).find((i) => i.path === p)), ["kept", "held: in an interrupted clear"]);
+  // Y (reviewed earlier) may run, but its batch recheck skips them: Storage never sees them
+  const calls = h.st.storage.length;
+  const ry = ok200(await h.call({ action: "clear-temp", runId: y.runId }));
+  assert.equal(ry.skipped.byStatus["held: in an interrupted clear"], 2);
+  assert.ok(!h.st.storage.slice(calls).flat().some((n) => TMP_HOLD.includes(n)), "never sent by Y");
+  for (const p of TMP_HOLD) assert.equal((await itemsOf(db, y.runId)).find((i) => i.path === p).outcome, "skipped");
+  // R1's resume reconciles them (still present → planned) and removes them
+  const rr = ok200(await h.call({ action: "clear-temp", runId: r1.runId }));
+  assert.deepEqual([rr.status, rr.removed, rr.remaining], ["done", 2, 0]);
+  assert.deepEqual(await removedCounts(TMP_HOLD), [1, 1], "each file is 'removed' in exactly one run");
+  for (const p of TMP_HOLD) assert.ok(!(await objectNames(db)).has(p));
+});
+
+await acheck("one temp clear at a time, strictly: the unique index refuses a second 'running' temp run; a lease that loses that race is 409 run_busy", async () => {
+  const h = harness(db);
+  const a = ok200(await h.call({ action: "preview-clear-temp" }));
+  const b = ok200(await h.call({ action: "preview-clear-temp" }));
+  await db.query(`update turn_admin_ops.storage_runs set status = 'running' where id = $1`, [a.runId]);
+  await assert.rejects(db.query(`update turn_admin_ops.storage_runs set status = 'running' where id = $1`, [b.runId]), /storage_runs_one_running_temp/);
+  await db.query(`update turn_admin_ops.storage_runs set status = 'expired' where id = $1`, [a.runId]);
+  // two leases in the same instant: the loser's unique violation (PGlite has one connection, so it is injected)
+  h.st.onStatement = (text) => {
+    if (text === core.S.TEMP_LEASE) throw Object.assign(new Error('duplicate key value violates unique constraint "storage_runs_one_running_temp"'), { code: "23505" });
+  };
+  const e = err(await h.call({ action: "clear-temp", runId: b.runId }), 409, "run_busy");
+  assert.equal(e.error.message, "Temp files are already being cleared. It will show in History.");
+  h.st.onStatement = null;
+  assert.equal((await runRow(db, b.runId)).status, "previewed", "nothing was leased");
+  assert.equal(h.st.storage.length, 0);
+  // the project delete's lease is not wrapped: any error there stays what it was
+  assert.ok(!/23505/.test(CORE_CODE.slice(CORE_CODE.indexOf("const DELETE_KIND"), CORE_CODE.indexOf("const TEMP_KIND"))));
+});
+
 // ── T13 (rest): fail closed ─────────────────────────────────────────────────
 await acheck("T13 a reader limited by row-level security: seesAll false, deleting and draining off", async () => {
   await db.exec(`
@@ -1317,10 +1708,13 @@ await acheck("T13 a reader limited by row-level security: seesAll false, deletin
   const s = ok200(await h.call({ action: "status" }));
   assert.deepEqual([s.db.user, s.db.superuser, s.db.bypassRls, s.seesAll], ["auditor", false, false, false]);
   assert.equal(s.setup.audit, true, "the audit tables exist (read from the catalog, no USAGE needed)");
-  assert.deepEqual([s.browseEnabled, s.deleteEnabled, s.drainEnabled], [true, false, false]);
+  assert.equal(s.setup.temp_action, true, "the audit check is read from the catalog too");
+  assert.deepEqual([s.browseEnabled, s.deleteEnabled, s.drainEnabled, s.tempEnabled], [true, false, false, false]);
   err(await h.call({ action: "preview-delete", projectIds: [DEL] }), 412, "not_full_reader");
   err(await h.call({ action: "delete", runId: runA }), 412, "not_full_reader");
   err(await h.call({ action: "drain-queue" }), 412, "not_full_reader");
+  err(await h.call({ action: "preview-clear-temp" }), 412, "not_full_reader");
+  err(await h.call({ action: "clear-temp", runId: runA }), 412, "not_full_reader");
   assert.equal(h.st.storage.length + h.st.rpc.length, 0);
 });
 
@@ -1342,6 +1736,7 @@ await acheck("T13 a view recreated without a column the function reads → 412 v
   err(await h.call({ action: "overview" }), 412, "views_missing");
   err(await h.call({ action: "preview-delete", projectIds: [DEL] }), 412, "views_missing");
   err(await h.call({ action: "drain-queue" }), 412, "views_missing");
+  err(await h.call({ action: "preview-clear-temp" }), 412, "views_missing");
   ok200(await h.call({ action: "runs" }));   // History still reads the audit log
   // T14: re-running admin-inventory.sql leaves the audit tables intact
   await db.exec(INV);
@@ -1420,4 +1815,159 @@ await acheck("T16 scale: 20k files, overview payload under 250 KB, project pages
   await big.close();
 });
 
+// ── admin-storage.sql upgrade (2026-09-28): production ran the first version ─
+// The first version, FROZEN (2026-09-28 review: never rebuilt from the current
+// file, so a later edit to the table can't leak into "production"): commit
+// b6f1667's file, below a guard that raises if the fixture is run as it is.
+// Production ran it 2026-09-28; 0 runs recorded.
+const V1_FIXTURE = "scripts/fixtures/admin-storage-v1/admin-storage.b6f1667.DO-NOT-RUN.txt";
+const V1_MARK = "-- ── the frozen copy starts below this line (the test strips everything above) ──\n";
+const V1_SHA256 = "7ed6b1aba2352d85345d83157efd564d3aba80e814e986086002dac0bfb10445";   // sha256 of `git show b6f1667:supabase/admin-storage.sql`
+const V1_RAW = read(V1_FIXTURE);
+const OPS_V1 = V1_RAW.slice(V1_RAW.indexOf(V1_MARK) + V1_MARK.length);
+const actionChecks = async (d) => rowsOf(d, `select c.conname, c.oid::int8 as oid, pg_get_constraintdef(c.oid) as def
+    from pg_constraint c join pg_attribute a on a.attrelid = c.conrelid and a.attname = 'action'
+   where c.conrelid = 'turn_admin_ops.storage_runs'::regclass and c.contype = 'c' and a.attnum = any(c.conkey) order by 1`);
+const statusCheck = async (d) => rowsOf(d, `select c.conname, pg_get_constraintdef(c.oid) as def from pg_constraint c
+   where c.conrelid = 'turn_admin_ops.storage_runs'::regclass and c.contype = 'c' and pg_get_constraintdef(c.oid) like '%status%'`);
+const insertRun = (d, action, status = "previewed") => d.query(`insert into turn_admin_ops.storage_runs(id, action, admin_email, status, preview_expires_at)
+    values (gen_random_uuid(), $1, 'admin@infinitestudioai.com', $2, now())`, [action, status]);
+await acheck("admin-storage.sql upgrade: the first version's inline check is replaced (status check kept), the 412 lifts, re-runs are no-ops", async () => {
+  assert.ok(V1_RAW.indexOf(V1_MARK) > 0, "the fixture's guard marker");
+  assert.equal(createHash("sha256").update(OPS_V1).digest("hex"), V1_SHA256, "below the guard: byte-identical to commit b6f1667");
+  assert.match(V1_RAW, /^-- #+\n-- TEST FIXTURE — DO NOT RUN\./);
+  assert.ok(!OPS_V1.includes("clear-old-temp-files") && !OPS_V1.includes("$action_check$"), "the first version knows two actions");
+  const up = new PGlite({ extensions: { pgcrypto } });
+  await up.exec(INV_STUB);
+  await up.exec(`insert into storage.buckets(id, name) values ('turn-assets', 'turn-assets')`);
+  await up.exec(INV);
+  // pasted as it is, the fixture stops before creating anything
+  await assert.rejects(up.exec(V1_RAW), /TEST FIXTURE — DO NOT RUN/);
+  await up.exec("rollback").catch(() => {});
+  assert.equal((await up.query(`select count(*)::int n from pg_namespace where nspname = 'turn_admin_ops'`)).rows[0].n, 0);
+  await up.exec(OPS_V1);
+  const v1 = await actionChecks(up);
+  assert.deepEqual(v1.map((c) => c.conname), ["storage_runs_action_check"], "Postgres named the inline check");
+  assert.ok(!v1[0].def.includes("clear-old-temp-files"));
+  await insertRun(up, "drain-cleanup-queue", "done");   // a run recorded before the upgrade
+  await assert.rejects(insertRun(up, "clear-old-temp-files"), /storage_runs_action_check/);
+  // the function before the re-run: deleting works, clearing temp files is a 412 with the plain message
+  const h = harness(up);
+  const s = ok200(await h.call({ action: "status" }));
+  assert.deepEqual([s.setup.audit, s.setup.temp_action, s.deleteEnabled, s.tempEnabled], [true, false, true, false]);
+  const ov = ok200(await h.call({ action: "overview" }));
+  assert.deepEqual([ov.setup.tempEnabled, ov.setup.setup.temp_action], [false, false]);
+  assert.ok(ov.temp && typeof ov.temp.oldFiles === "number", "the summary still shows");
+  const e412 = err(await h.call({ action: "preview-clear-temp" }), 412, "temp_action_missing");
+  assert.equal(e412.error.message, "Clearing temp files is off until supabase/admin-storage.sql is run again in the SQL Editor.");
+  err(await h.call({ action: "clear-temp", runId: ADMIN_ID }), 412, "temp_action_missing");
+  // the re-run
+  const res = (await up.exec(OPS)).at(-1).rows;
+  assert.deepEqual(res.map((r) => [r.item, r.status]).slice(0, 2), [["Audit tables", "ok"], ["Temp-file clearing allowed", "ok"]]);
+  assert.deepEqual(res.map((r) => r.status), ["ok", "ok", "ok", "ok", "ok", "1"]);
+  const v2 = await actionChecks(up);
+  assert.deepEqual(v2.map((c) => c.conname), ["storage_runs_action_check"]);
+  for (const a of ["delete-deleted-project-files", "drain-cleanup-queue", "clear-old-temp-files"]) assert.ok(v2[0].def.includes(`'${a}'`), a);
+  const st = await statusCheck(up);
+  assert.equal(st.length, 1, "the status check survived");
+  assert.equal(st[0].conname, "storage_runs_status_check");
+  await insertRun(up, "clear-old-temp-files");
+  await assert.rejects(insertRun(up, "clear-old-temp-files", "bogus"), /storage_runs_status_check/, "the status check still rejects a bogus status");
+  await assert.rejects(insertRun(up, "bogus-action"), /storage_runs_action_check/);
+  assert.equal((await up.query(`select count(*)::int n from turn_admin_ops.storage_runs`)).rows[0].n, 2, "recorded runs kept");
+  const s2 = ok200(await h.call({ action: "status" }));
+  assert.deepEqual([s2.setup.temp_action, s2.tempEnabled], [true, true]);
+  ok200(await h.call({ action: "preview-clear-temp" }));
+  // a second re-run changes nothing (same constraint object)
+  const again = (await up.exec(OPS)).at(-1).rows;
+  assert.deepEqual(again.map((r) => r.status), ["ok", "ok", "ok", "ok", "ok", "3"]);
+  assert.deepEqual(await actionChecks(up), v2, "idempotent: the very same check");
+  assert.deepEqual(await statusCheck(up), st);
+  // a half-applied state: an extra check on action that leaves the new value out
+  await up.exec(`alter table turn_admin_ops.storage_runs add constraint v1_action_check
+                   check (action in ('delete-deleted-project-files', 'drain-cleanup-queue', 'clear-old-temp-files', 'x')) not valid;
+                 alter table turn_admin_ops.storage_runs add constraint v0_action_check check (action <> 'nothing') not valid`);
+  assert.equal(ok200(await h.call({ action: "status" })).setup.temp_action, false, "a check on action without the value turns clearing off");
+  const fixed = (await up.exec(OPS)).at(-1).rows;
+  assert.equal(fixed[1].status, "ok");
+  assert.deepEqual((await actionChecks(up)).map((c) => c.conname), ["storage_runs_action_check"], "every check on action replaced by the one");
+  assert.deepEqual((await statusCheck(up)).map((c) => c.conname), ["storage_runs_status_check"]);
+  assert.equal(ok200(await h.call({ action: "status" })).setup.temp_action, true);
+  // without the one-at-a-time index, clearing is off too; a re-run puts it back
+  await up.exec(`drop index turn_admin_ops.storage_runs_one_running_temp`);
+  assert.equal(ok200(await h.call({ action: "status" })).setup.temp_action, false, "no index: clearing off");
+  const RESULT_ONLY = OPS.slice(OPS.indexOf("-- ── RESULT"));
+  assert.equal((await up.exec(RESULT_ONLY)).at(-1).rows[1].status, "FAIL — re-run the whole file", "RESULT row 15 notices it");
+  assert.equal((await up.exec(OPS)).at(-1).rows[1].status, "ok", "the re-run creates it again");
+  assert.equal(ok200(await h.call({ action: "status" })).setup.temp_action, true);
+  // a check the catalog test cannot see through (it names the value): the insert refusal is still a 412, never a 500
+  await up.exec(`alter table turn_admin_ops.storage_runs add constraint odd_action_check check (action <> 'clear-old-temp-files') not valid`);
+  assert.equal(ok200(await h.call({ action: "status" })).setup.temp_action, true);
+  err(await h.call({ action: "preview-clear-temp" }), 412, "temp_action_missing");
+  (await up.exec(OPS)).at(-1);
+  assert.deepEqual((await actionChecks(up)).map((c) => c.conname), ["storage_runs_action_check"]);
+  ok200(await h.call({ action: "preview-clear-temp" }));
+  // a fresh database gets the three-value check straight from create table (the block is a no-op)
+  const fresh = new PGlite({ extensions: { pgcrypto } });
+  await fresh.exec(INV_STUB);
+  await fresh.exec(`insert into storage.buckets(id, name) values ('turn-assets', 'turn-assets')`);
+  await fresh.exec(INV);
+  const fr = (await fresh.exec(OPS)).at(-1).rows;
+  assert.deepEqual(fr.map((r) => r.status), ["ok", "ok", "ok", "ok", "ok", "0"]);
+  const fc = await actionChecks(fresh);
+  assert.deepEqual(fc.map((c) => c.conname), ["storage_runs_action_check"]);
+  (await fresh.exec(OPS)).at(-1);
+  assert.deepEqual(await actionChecks(fresh), fc, "no-op on a fresh install too");
+  assert.equal(h.st.storage.length, 0);
+  await fresh.close();
+  await up.close();
+});
+
+// ── the 5,000-file cap, and 25 batches end to end (admin-inventory's stub) ──
+await acheck("temp cap: 5,010 old temp files → a review plans the 5,000 oldest, moreRemain 10; the clear removes them in 200-name batches", async () => {
+  const cap = new PGlite({ extensions: { pgcrypto } });
+  await cap.exec(INV_STUB);
+  await cap.exec(`insert into storage.buckets(id, name) values ('turn-assets', 'turn-assets')`);
+  const U = "c4000000-0000-4000-8000-00000000000c";
+  await cap.query(`insert into auth.users(id, email) values ($1, 'cap@example.com')`, [U]);
+  // oldest first: file i was created (6000 - i) seconds before 2 days ago
+  await cap.query(`insert into storage.objects(bucket_id, name, metadata, created_at, updated_at)
+      select 'turn-assets', $1 || '/stage-tmp/' || (1757000000000 + g)::text || '-image-0-c' || g || '.png', '{"size":100,"mimetype":"image/png"}'::jsonb,
+             now() - interval '2 days' - (6000 - g) * interval '1 second', now() - interval '2 days' - (6000 - g) * interval '1 second'
+        from generate_series(1, 5010) g`, [U]);
+  await cap.query(`insert into storage.objects(bucket_id, name, metadata, created_at, updated_at)
+      select 'turn-assets', $1 || '/stage-tmp/' || (1759000000000 + g)::text || '-image-0-y' || g || '.png', '{"size":100}'::jsonb,
+             now() - interval '2 hours', now() - interval '2 hours'
+        from generate_series(1, 5) g`, [U]);
+  await cap.exec(INV);
+  await cap.exec(OPS);
+  const v0 = VIOLATIONS.length;
+  const h = harness(cap);
+  const ov = ok200(await h.call({ action: "overview" }));
+  assert.deepEqual([ov.temp.files, ov.temp.oldFiles, ov.temp.bytes, ov.temp.oldBytes, ov.temp.accounts], [5015, 5010, 501500, 501000, 1]);
+  const pv = ok200(await h.call({ action: "preview-clear-temp" }));
+  assert.deepEqual([pv.plannedFiles, pv.plannedBytes, pv.keptFiles, pv.moreRemain, pv.accounts], [5000, 500000, 0, 10, 1]);
+  const planned = new Set((await itemsOf(cap, pv.runId)).map((i) => i.path));
+  const newestOld = Array.from({ length: 10 }, (_, i) => `${U}/stage-tmp/${1757000000000 + 5001 + i}-image-0-c${5001 + i}.png`);
+  for (const p of newestOld) assert.ok(!planned.has(p), "the 10 newest old files wait: " + p);
+  assert.ok(planned.has(`${U}/stage-tmp/1757000000001-image-0-c1.png`), "the oldest is in");
+  assert.ok(Date.parse(pv.oldest) < Date.parse(pv.newest));
+  // the page calls again until done (the 45 s budget may split it)
+  let r, calls = 0;
+  do { r = ok200(await h.call({ action: "clear-temp", runId: pv.runId })); calls++; } while (r.status !== "done" && calls < 10);
+  assert.deepEqual([r.status, r.removed, r.remaining, r.failed.count, r.planned], ["done", 5000, 0, 0, 5000]);
+  assert.equal(h.st.storage.length, 25, "25 batches");
+  assert.ok(h.st.storage.every((b) => b.length <= 200));
+  assert.equal(new Set(h.st.storage.flat()).size, 5000);
+  assert.equal(VIOLATIONS.length, v0, "audit: " + VIOLATIONS.slice(v0, v0 + 3).join("; "));
+  const left = (await cap.query(`select count(*)::int n from storage.objects where name like $1`, [`${U}/stage-tmp/%`])).rows[0].n;
+  assert.equal(left, 15, "the 10 newest old files and the 5 young ones");
+  const next = ok200(await h.call({ action: "preview-clear-temp" }));
+  assert.deepEqual([next.plannedFiles, next.moreRemain], [10, 0], "the next review takes the rest");
+  const ov2 = ok200(await h.call({ action: "overview" }));
+  assert.deepEqual([ov2.temp.files, ov2.temp.oldFiles], [15, 10]);
+  await cap.close();
+});
+
+assert.deepEqual(VIOLATIONS, [], "every Storage call, including the separate databases, audited clean");
 console.log(`${checks} checks passed`);

@@ -14,8 +14,9 @@
      rpc(name, args)       service-role PostgREST call (queue functions only)
 
    Guarantees (spec §6.1), all enforced here, never by the browser:
-   - The browser never names a file: it sends project ids (preview) or a run
-     id (delete). Every path comes from the server's own queries.
+   - The browser never names a file: it sends project ids (preview), nothing
+     (temp-file review) or a run id (delete / clear-temp). Every path comes
+     from the server's own queries.
    - Only DELETED projects, only what turn_admin.files calls safe, narrowed by
      area, status and pathGuard(); rechecked per call and per 200-file batch.
    - Write-ahead audit in turn_admin_ops (supabase/admin-storage.sql): plan,
@@ -25,6 +26,43 @@
    - Removal is confirmed by absence of the storage.objects row.
    - No transaction is ever held open across a Storage or RPC call.
    - Every statement is a constant in S below; inputs only arrive as $n.
+
+   Clear old temp files (owner request 2026-09-28; manual, from the page, no
+   schedule). image-proxy stages media under {account}/stage-tmp/ and never
+   reads a staged file again after ~3 hours (2 h accept + 1 h signed URL), but
+   its own sweep only runs on device uploads, so data-URL stagings pile up.
+   - preview-clear-temp plans a 'clear-old-temp-files' run from the server's
+     own query: turn_admin.files area 'stage-temp', status 'service', safe,
+     no referencing project, created more than 24 HOURS ago on the DATABASE
+     clock, and tempPathGuard() (exactly {account}/stage-tmp/{plain name}).
+     The review also applies the per-batch holds below (reservation, queue,
+     written in the last 24 h) and records those files 'kept', never planned.
+     At most TEMP_MAX_PLAN files per review, oldest first (moreRemain says how
+     many more wait for the next review). Same audit tables, same item states.
+   - One temp clear at a time, strictly (2026-09-28 review): while another temp
+     run is 'running' a review and every other temp run's lease are refused:
+     409 run_busy while its lease is live, 409 temp_interrupted once the lease
+     has expired (it must be resumed first, so the files it left 'sending' are
+     settled by exactly one run). Two leases in the same instant: the unique
+     index storage_runs_one_running_temp (23505 -> 409 run_busy). A file that
+     is 'sending' in another temp run (a partial run stopped by an error before
+     its confirm) is kept by the review and skipped by the batch recheck as
+     "held: in an interrupted clear" until that run's resume settles it.
+   - clear-temp {runId} runs it through the SAME executor as delete (lease,
+     reconcile, write-ahead 'sending', 200-name batches, confirm by absence,
+     45 s budget, counters from the items). Its per-batch recheck replaces the
+     project checks: tempPathGuard again; still in storage.objects; created_at
+     AND updated_at both older than 24 h (an overwritten object is kept); not
+     referenced; no upload reservation; not in the cleanup queue; not 'sending'
+     in another temp run.
+   - Each lease takes only runs of its own action: delete never runs a temp
+     run, clear-temp never runs a project delete or a queue drain.
+   - Needs the audit check that allows the action and the one-at-a-time index
+     (admin-storage.sql re-run, 2026-09-28); until then both actions are 412
+     temp_action_missing.
+   - overview.temp: files / bytes count every stage-temp file; oldFiles,
+     oldBytes, accounts (by account id) and oldest describe only the old files
+     in the layout a clear accepts.
 
    Operator tool: deliberately NOT listed in APP_FEATURES (app/ai.jsx). MUSE
    answers every user, and MUSE Protocol §3 forbids describing how TURN is
@@ -37,10 +75,11 @@
 
 import "./storage-keys.js";
 
-export const VERSION = "admin-storage@2026-09-27.2";
+export const VERSION = "admin-storage@2026-09-28.1";
 
 export const ACTIONS = Object.freeze([
   "status", "overview", "project-files", "preview-delete", "delete", "runs", "drain-queue",
+  "preview-clear-temp", "clear-temp",
 ]);
 
 // The only turn_admin columns this function reads (412 views_drift if one is gone).
@@ -70,6 +109,11 @@ const WRITE_TIMEOUT = "10s";
 const PREVIEW_TIMEOUT = "30s";
 const IDLE_TIMEOUT = "30s";
 const DELETE_ACTION = "delete-deleted-project-files";
+const TEMP_ACTION = "clear-old-temp-files";
+export const TEMP_MAX_PLAN = 5000;      // files per temp-file review, oldest first
+export const TEMP_CUTOFF_HOURS = 24;    // display only: the SQL says interval '24 hours' (database clock)
+const TEMP_OUTSIDE = "outside the temp-file layout";
+const TEMP_HELD_OTHER = "held: in an interrupted clear";   // 'sending' in another temp run
 const PLAN_AREAS = new Set(["asset", "show-import-copy", "studio-preview"]);
 const PLAN_STATUSES = new Set(["orphan: project deleted", "service"]);
 const OUTCOMES = ["planned", "kept", "sending", "removed", "already-gone", "skipped", "failed"];
@@ -122,6 +166,24 @@ function keepDetail(row, idSet) {
   if (row.safe_to_delete === true && PLAN_AREAS.has(row.area) && PLAN_STATUSES.has(row.status)
       && !pathGuard(row.path, idSet)) return OUTSIDE;
   return row.status || "kept";
+}
+
+// ── temp-file guard (2026-09-28): image-proxy's staging layout, nothing else ─
+// Exactly {account}/stage-tmp/{file}: the account folder parses to an id the
+// same way pathGuard reads it (legacy uuid in any case, or readable
+// "{label}--{uuid}"), and the file is one plain name (image-proxy's own
+// FILE_RE in stage-paths.mjs), never hidden. Runs at review and per batch.
+const TEMP_FILE = /^[A-Za-z0-9_.-]+$/;
+export function tempPathGuard(path) {
+  if (typeof path !== "string" || path.length < 3 || path.length > 1024) return false;
+  if (/[\\\u0000-\u001f\u007f]/.test(path) || path.startsWith("/")) return false;
+  const seg = path.split("/");
+  if (seg.length !== 3) return false;
+  if (seg.some((s) => s === "" || s === "." || s === "..")) return false;
+  if (seg[0] === "_internal" || seg[0] === "blender-studio-internal") return false;
+  if (!folderId(seg[0])) return false;
+  if (seg[1] !== "stage-tmp") return false;
+  return TEMP_FILE.test(seg[2]) && !seg[2].startsWith(".");
 }
 
 // int8 -> Number, timestamptz -> ISO string (postgres.js and PGlite alike).
@@ -189,7 +251,28 @@ select (select count(*)::int from pg_catalog.pg_views where schemaname = 'turn_a
        (select count(*) from cols where t = 'turn_asset_upload_intents' and col in ('path', 'expires_at')) = 2 as intents,
        (select count(distinct p.proname) from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid = p.pronamespace
          where n.nspname = 'public'
-           and p.proname in ('turn_claim_asset_cleanup_batch', 'turn_complete_asset_cleanup')) = 2 as queue_worker`,
+           and p.proname in ('turn_claim_asset_cleanup_batch', 'turn_complete_asset_cleanup')) = 2 as queue_worker,
+       -- 2026-09-28: the audit log accepts 'clear-old-temp-files' runs: a CHECK on
+       -- storage_runs names it, and no CHECK on its action column leaves it out
+       -- (admin-storage.sql's re-run replaces the first version's inline check),
+       -- and the unique index that allows one running temp clear at a time exists
+       (exists (select 1 from pg_catalog.pg_constraint k
+                  join pg_catalog.pg_class c on c.oid = k.conrelid
+                  join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+                 where n.nspname = 'turn_admin_ops' and c.relname = 'storage_runs' and k.contype = 'c'
+                   and strpos(pg_catalog.pg_get_constraintdef(k.oid), 'clear-old-temp-files') > 0)
+        and not exists (select 1 from pg_catalog.pg_constraint k
+                  join pg_catalog.pg_class c on c.oid = k.conrelid
+                  join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+                  join pg_catalog.pg_attribute a on a.attrelid = c.oid and a.attname = 'action'
+                 where n.nspname = 'turn_admin_ops' and c.relname = 'storage_runs' and k.contype = 'c'
+                   and a.attnum = any(k.conkey)
+                   and strpos(pg_catalog.pg_get_constraintdef(k.oid), 'clear-old-temp-files') = 0)
+        and exists (select 1 from pg_catalog.pg_class i
+                  join pg_catalog.pg_namespace n on n.oid = i.relnamespace
+                  join pg_catalog.pg_index x on x.indexrelid = i.oid
+                 where n.nspname = 'turn_admin_ops' and i.relname = 'storage_runs_one_running_temp'
+                   and i.relkind = 'i' and x.indisunique)) as temp_action`,
 
   // ── overview
   Q1_ACCOUNTS: `select u.user_id, u.email, u.plan, u.created_at, u.last_sign_in_at, u.film_count, u.file_count, u.total_bytes,
@@ -199,7 +282,13 @@ select (select count(*)::int from pg_catalog.pg_views where schemaname = 'turn_a
        (tp.id is not null) as live, p.files, p.total_bytes, p.orphan_files, p.uploader_emails, p.last_upload
   from turn_admin.projects p
   left join public.turn_projects tp on tp.id = p.project_id`,
-  // the saved "Storage map" query (admin-inventory.sql) + project_id as a third key
+  // the saved "Storage map" query (admin-inventory.sql) + project_id as a third key,
+  // + the temp-file tallies for overview.temp (2026-09-28: folded into this one
+  // scan of turn_admin.files; overview() strips the temp_* columns off each row).
+  // "old" is the SQL half of the temp plan rule, word for word as in TEMP_CANDIDATES,
+  // narrowed to the layout tempPathGuard() accepts (exactly {account}/stage-tmp/
+  // {plain name}; the view already checked the account folder), so a file a clear
+  // would always keep is never counted as one to clear (2026-09-28 review).
   Q3_FOLDERS: `select split_part(f.path, '/', 1) as user_folder,
        split_part(f.path, '/', 2) as project_folder,
        f.project_id,
@@ -219,7 +308,21 @@ select (select count(*)::int from pg_catalog.pg_views where schemaname = 'turn_a
                                                'kept-for-promotion-retry','service','unreferenced'))::int as referenced,
        max(f.created_at) as last_upload,
        case when bool_and(f.safe_to_delete) and bool_and(f.status = 'orphan: project deleted') then 'delete-folder'
-            when bool_or(f.safe_to_delete) then 'some' else 'in-use' end as verdict
+            when bool_or(f.safe_to_delete) then 'some' else 'in-use' end as verdict,
+       count(*) filter (where f.area = 'stage-temp')::int as temp_files,
+       coalesce(sum(f.bytes) filter (where f.area = 'stage-temp'), 0)::bigint as temp_bytes,
+       count(*) filter (where f.area = 'stage-temp' and f.status = 'service' and f.safe_to_delete
+   and f.created_at < now() - interval '24 hours'
+   and f.project_id is null and f.referenced_by_project_ids is null
+   and char_length(f.path) <= 1024 and f.path ~ '^[^/]+/stage-tmp/[A-Za-z0-9_-][A-Za-z0-9_.-]*$')::int as temp_old_files,
+       coalesce(sum(f.bytes) filter (where f.area = 'stage-temp' and f.status = 'service' and f.safe_to_delete
+   and f.created_at < now() - interval '24 hours'
+   and f.project_id is null and f.referenced_by_project_ids is null
+   and char_length(f.path) <= 1024 and f.path ~ '^[^/]+/stage-tmp/[A-Za-z0-9_-][A-Za-z0-9_.-]*$'), 0)::bigint as temp_old_bytes,
+       min(f.created_at) filter (where f.area = 'stage-temp' and f.status = 'service' and f.safe_to_delete
+   and f.created_at < now() - interval '24 hours'
+   and f.project_id is null and f.referenced_by_project_ids is null
+   and char_length(f.path) <= 1024 and f.path ~ '^[^/]+/stage-tmp/[A-Za-z0-9_-][A-Za-z0-9_.-]*$') as temp_old_oldest
   from turn_admin.files f
  group by 1, 2, 3`,
   Q4_QUEUE: `select q.reason, count(*)::int as total,
@@ -349,6 +452,61 @@ returning id`,
  where f.project_id in (select value::uuid from jsonb_array_elements_text($1::jsonb))
  group by f.status order by f.status`,
 
+  // ── clear old temp files (2026-09-28)
+  // the plan: the SQL half of the rule (tempPathGuard() is the other half),
+  // oldest first, capped; total = every old temp file, so moreRemain is exact
+  TEMP_CANDIDATES: `select f.path, f.bytes, f.created_at, count(*) over () as total
+  from turn_admin.files f
+ where f.area = 'stage-temp' and f.status = 'service' and f.safe_to_delete
+   and f.created_at < now() - interval '24 hours'
+   and f.project_id is null and f.referenced_by_project_ids is null
+ order by f.created_at, f.path
+ limit $1::int`,
+  // another temp clear still 'running' (2026-09-28 review): with a live lease it
+  // is working now; with an expired one it was interrupted and holds 'sending'
+  // items, so nothing new may start until it is resumed. $1 = the caller's run
+  // (the review's new id, or the run a clear-temp call asked for).
+  TEMP_BUSY: `select id, started_at, planned_files,
+       (lease_expires_at is not null and lease_expires_at > now()) as lease_live
+  from turn_admin_ops.storage_runs
+ where action = 'clear-old-temp-files' and status = 'running' and id <> $1::uuid
+ order by started_at
+ limit 1`,
+  TEMP_RUN_INSERT: `insert into turn_admin_ops.storage_runs
+  (id, action, admin_id, admin_email, project_ids, status, planned_files, planned_bytes, kept_files,
+   preview_expires_at, function_version)
+values ($1::uuid, 'clear-old-temp-files', $2::uuid, $3::text, '{}',
+        'previewed', $4::int, $5::bigint, $6::int, now() + interval '15 minutes', $7::text)
+returning preview_expires_at`,
+  // LEASE for temp runs only, and only while no OTHER temp run is 'running', live
+  // or interrupted (2026-09-28 review: an interrupted run must be resumed first).
+  // Two leases racing on different rows are settled by the unique index
+  // storage_runs_one_running_temp (admin-storage.sql): the loser gets 23505.
+  TEMP_LEASE: `update turn_admin_ops.storage_runs
+   set status = 'running', lease_token = $2::uuid, lease_expires_at = now() + interval '90 seconds',
+       started_at = coalesce(started_at, now()), last_error = null
+ where id = $1::uuid and action = 'clear-old-temp-files'
+   and status in ('previewed', 'partial', 'running')
+   and (lease_expires_at is null or lease_expires_at <= now())
+   and (status <> 'previewed' or preview_expires_at > now())
+   and not exists (select 1 from turn_admin_ops.storage_runs o
+                    where o.action = 'clear-old-temp-files' and o.id <> $1::uuid
+                      and o.status = 'running')
+returning *`,
+  // per file (review and every batch): still stored; neither created nor
+  // overwritten in the last 24 h (database clock; a missing timestamp counts as
+  // recent); and not 'sending' in another temp run ($2 = this run), whose resume
+  // settles it (2026-09-28 review: never two runs recording one removal)
+  TEMP_RECHECK: `with b as (select value as path from jsonb_array_elements_text($1::jsonb))
+select b.path, (o.name is not null) as present,
+       coalesce(o.created_at < now() - interval '24 hours'
+                and o.updated_at < now() - interval '24 hours', false) as old,
+       exists (select 1 from turn_admin_ops.storage_run_items i
+                 join turn_admin_ops.storage_runs r on r.id = i.run_id
+                where i.path = b.path and i.outcome = 'sending' and i.run_id <> $2::uuid
+                  and r.action = 'clear-old-temp-files') as in_other_run
+  from b left join storage.objects o on o.bucket_id = 'turn-assets' and o.name = b.path`,
+
   // ── runs (History). Keyset pages (created_at, id) so no run falls off the
   // list; $2 false hides reviews that were never run (previewed / expired).
   // created_at::text round-trips the full microseconds for the cursor.
@@ -466,9 +624,18 @@ const MESSAGES = {
   audit_missing: "Deleting is off until supabase/admin-storage.sql is run in the SQL Editor.",
   not_full_reader: "The function's database role can't see every row, so deleting is off (check SUPABASE_DB_URL / ADMIN_STORAGE_DB_URL).",
   queue_missing: "The cleanup queue is not fully installed (series-production.sql), so it cannot be drained.",
+  temp_action_missing: "Clearing temp files is off until supabase/admin-storage.sql is run again in the SQL Editor.",
+  temp_interrupted: "An earlier clear of old temp files was interrupted. Resume it in History first.",
   db_unreachable: "The database couldn't be reached from the function.",
   internal: "Something went wrong on the server. Nothing further was deleted; History shows what happened.",
 };
+// Another temp clear is 'running' (TEMP_BUSY row): working now -> run_busy;
+// interrupted (lease expired) -> temp_interrupted, resume it first. Both 409.
+function tempBusyFail(busy, liveMessage) {
+  const extra = { startedAt: busy.started_at || null, runId: busy.id || null, plannedFiles: Number(busy.planned_files) || 0 };
+  if (busy.lease_live === true) fail(409, "run_busy", liveMessage, extra);
+  fail(409, "temp_interrupted", MESSAGES.temp_interrupted, extra);
+}
 const UNREACHABLE = new Set(["db_unreachable", "ECONNREFUSED", "ECONNRESET", "ENOTFOUND", "ETIMEDOUT",
   "EAI_AGAIN", "EHOSTUNREACH", "ENETUNREACH", "EPIPE", "CONNECT_TIMEOUT", "CONNECTION_CLOSED",
   "CONNECTION_ENDED", "CONNECTION_DESTROYED", "57P01", "57P03", "53300"]);
@@ -624,14 +791,18 @@ export function createAdminStorage({
     // the queue, the reservations and the two queue RPCs come from one migration
     // (series-production.sql); the drain reads all of them
     const drainEnabled = deleteEnabled && queue && intents && queueWorker;
+    // 2026-09-28: clearing temp files also needs the audit check that allows
+    // its action (admin-storage.sql re-run)
+    const tempAction = row.st.temp_action === true;
+    const tempEnabled = deleteEnabled && tempAction;
     return {
       db: {
         user: row.role.db_user ?? null, superuser: row.role.rolsuper === true,
         bypassRls: row.role.rolbypassrls === true, serverVersion: row.role.server_version ?? null,
       },
       seesAll,
-      setup: { views, missingColumns, audit, queue, intents, queueWorker },
-      browseEnabled, deleteEnabled, drainEnabled,
+      setup: { views, missingColumns, audit, queue, intents, queueWorker, temp_action: tempAction },
+      browseEnabled, deleteEnabled, drainEnabled, tempEnabled,
       missingViews,
       queueTable: row.st.queue_table === true,
       intentsTable: row.st.intents_table === true,
@@ -641,6 +812,7 @@ export function createAdminStorage({
     admin: { id: actor.id, email: actor.email },
     db: s.db, seesAll: s.seesAll, setup: s.setup,
     browseEnabled: s.browseEnabled, deleteEnabled: s.deleteEnabled, drainEnabled: s.drainEnabled,
+    tempEnabled: s.tempEnabled,
   });
   function requireBrowse(s) {
     if (s.browseEnabled) return;
@@ -655,6 +827,10 @@ export function createAdminStorage({
   function requireDrain(s) {
     requireDelete(s);
     if (!s.drainEnabled) fail(412, "queue_missing", MESSAGES.queue_missing);
+  }
+  function requireTemp(s) {
+    requireDelete(s);
+    if (!s.tempEnabled) fail(412, "temp_action_missing", MESSAGES.temp_action_missing);
   }
 
   // ── status / overview / project-files (P1) ───────────────────────────────
@@ -680,7 +856,31 @@ export function createAdminStorage({
         stuck: await q(S.Q5_STUCK, []),
       }));
     }
-    return { asOf, setup: publicSetup(actor, s), accounts, projects, folders, queue };
+    return { asOf, setup: publicSetup(actor, s), accounts, projects, folders, queue, temp: tempSummary(folders) };
+  }
+
+  // overview.temp (2026-09-28), from Q3's temp_* tallies; the folder rows go
+  // out exactly as before. files / bytes: every stage-temp file. oldFiles /
+  // oldBytes / accounts / oldest describe only the old files a clear would
+  // consider (2026-09-28 review): accounts are counted by account id, so one
+  // account's legacy "{uid}" and readable "{name}--{uid}" folders are one.
+  function tempSummary(folders) {
+    const temp = { files: 0, bytes: 0, oldFiles: 0, oldBytes: 0, accounts: 0, oldest: null, cutoffHours: TEMP_CUTOFF_HOURS };
+    const accounts = new Set();
+    for (const f of folders) {
+      temp.files += Number(f.temp_files) || 0;
+      temp.bytes += Number(f.temp_bytes) || 0;
+      const old = Number(f.temp_old_files) || 0;
+      if (old > 0) {
+        temp.oldFiles += old;
+        temp.oldBytes += Number(f.temp_old_bytes) || 0;
+        accounts.add(folderId(f.user_folder) || f.user_folder);
+        if (f.temp_old_oldest && (!temp.oldest || f.temp_old_oldest < temp.oldest)) temp.oldest = f.temp_old_oldest;
+      }
+      delete f.temp_files; delete f.temp_bytes; delete f.temp_old_files; delete f.temp_old_bytes; delete f.temp_old_oldest;
+    }
+    temp.accounts = accounts.size;
+    return temp;
   }
 
   async function projectFiles(req) {
@@ -753,7 +953,78 @@ export function createAdminStorage({
     });
   }
 
-  // ── delete (P2) ───────────────────────────────────────────────────────────
+  // ── preview-clear-temp (2026-09-28) ───────────────────────────────────────
+  // Plans from the server's own query; the browser sends nothing but the action.
+  async function previewClearTemp(req, actor) {
+    const setup = await readSetup();
+    requireTemp(setup);
+    const runId = uuid();
+    try {
+      return await runTx("write", PREVIEW_TIMEOUT, async (q) => {
+        const [busy] = await q(S.TEMP_BUSY, [runId]);
+        if (busy) tempBusyFail(busy, "Temp files are already being cleared. Wait for that to finish, then review again.");
+        const rows = await q(S.TEMP_CANDIDATES, [TEMP_MAX_PLAN]);
+        const total = rows.length ? Number(rows[0].total) || 0 : 0;
+        const j = JSON.stringify(rows.map((r) => r.path));
+        // The review applies the per-batch recheck too, so it counts what a clear
+        // would really remove: the view calls a stage file 'service' even with a
+        // reservation or a queue row (neither is expected under stage-tmp), and
+        // it knows only when a file was created, not when it was last written.
+        const intents = setup.intentsTable && rows.length ? new Set((await q(S.RECHECK_INTENTS, [j])).map((r) => r.path)) : new Set();
+        const queued = setup.queueTable && rows.length ? new Set((await q(S.RECHECK_QUEUE, [j])).map((r) => r.path)) : new Set();
+        const age = rows.length ? new Map((await q(S.TEMP_RECHECK, [j, runId])).map((r) => [r.path, r])) : new Map();
+        const items = [];
+        const keptByDetail = {};
+        const accounts = new Set();
+        let plannedFiles = 0, plannedBytes = 0, keptFiles = 0, oldest = null, newest = null;
+        for (const r of rows) {
+          const bytes = r.bytes == null ? null : Number(r.bytes);
+          const a = age.get(r.path);
+          const detail = !tempPathGuard(r.path) ? TEMP_OUTSIDE
+            : intents.has(r.path) ? "held: upload in progress"
+            : queued.has(r.path) ? "held: in the cleanup queue"
+            : a && a.in_other_run === true ? TEMP_HELD_OTHER
+            : !a || a.present !== true ? "no longer in storage"
+            : a.old !== true ? "held: changed in the last 24 hours"
+            : null;
+          if (detail) {
+            items.push({ path: r.path, project_id: null, bytes, outcome: "kept", detail });
+            keptFiles++;
+            keptByDetail[detail] = (keptByDetail[detail] || 0) + 1;
+            continue;
+          }
+          items.push({ path: r.path, project_id: null, bytes, outcome: "planned", detail: null });
+          plannedFiles++; plannedBytes += bytes || 0;
+          accounts.add(folderId(r.path.split("/")[0]));        // by account id (the guard parsed it)
+          if (!oldest || r.created_at < oldest) oldest = r.created_at;
+          if (!newest || r.created_at > newest) newest = r.created_at;
+        }
+        const [run] = await q(S.TEMP_RUN_INSERT, [runId, actor.id, actor.email, plannedFiles, plannedBytes, keptFiles, VERSION]);
+        for (const part of chunks(items, ITEM_CHUNK)) await q(S.ITEMS_INSERT, [runId, JSON.stringify(part)]);
+        return {
+          runId,
+          plannedFiles, plannedBytes, keptFiles, keptByDetail,
+          accounts: accounts.size,
+          oldest, newest,
+          moreRemain: Math.max(0, total - rows.length),
+          previewExpiresAt: run.preview_expires_at,
+          cutoffHours: TEMP_CUTOFF_HOURS,
+        };
+      });
+    } catch (e) {
+      // The setup check read the catalog; a check on storage_runs that still
+      // refuses the run (its status is a constant 'previewed', so it is the
+      // action) is the same state, and says so instead of a 500.
+      const table = String((e && (e.table_name || e.table)) || "");
+      if (!(e instanceof ApiError) && String(e && e.code) === "23514"
+          && (table === "storage_runs" || /relation "storage_runs"/.test(errText(e)))) {
+        fail(412, "temp_action_missing", MESSAGES.temp_action_missing);
+      }
+      throw e;
+    }
+  }
+
+  // ── delete (P2) and clear-temp: one run executor ─────────────────────────
   async function summarize(runId, run, status, withLeft) {
     const ids = (run.project_ids || []).map((x) => String(x).toLowerCase());
     const s = await runTx("read", READ_TIMEOUT, async (q) => {
@@ -775,28 +1046,158 @@ export function createAdminStorage({
     return out;
   }
 
-  async function leaseRefused(runId) {
+  async function leaseRefused(runId, kind) {
     const [run] = await runTx("read", READ_TIMEOUT, (q) => q(S.RUN_GET, [runId]));
-    if (!run || run.action !== DELETE_ACTION) fail(409, "run_not_found", "No such delete run.");
-    if (run.status === "done") return { ...(await summarize(runId, run, "done", true)), replayed: true };
+    if (!run || run.action !== kind.action) fail(409, "run_not_found", kind.notFound);
+    if (run.status === "done") return { ...(await summarize(runId, run, "done", kind.withLeft)), replayed: true };
     if (run.status === "expired" || (run.status === "previewed" && run.preview_expired)) {
       if (run.status === "previewed") await runTx("write", WRITE_TIMEOUT, (q) => q(S.RUN_EXPIRE, [runId]));
       fail(409, "preview_expired", "This review expired. Review again.");
     }
-    fail(409, "run_busy", "This delete is already running. It will show in History.", { startedAt: run.started_at || null });
+    // temp runs: refused because ANOTHER temp clear is running or interrupted
+    if (kind.refusedBy && !run.lease_live) await kind.refusedBy(runId);
+    fail(409, "run_busy", kind.busy, { startedAt: run.started_at || null });
   }
 
-  async function deleteRun(req, actor, t0) {
+  // A plan kind supplies what differs between run actions: the setup it
+  // needs, the lease (which runs it may take), the full re-verify at the start
+  // of a call and the per-batch recheck. Everything else (reconcile,
+  // write-ahead 'sending', Storage, confirm by absence, the batch loop, the
+  // finish and the summary) is the one code path below.
+  const DELETE_KIND = {
+    action: DELETE_ACTION,
+    stoppedLog: "admin-storage: delete stopped",
+    gate: requireDelete,
+    lease: (q, runId, token) => q(S.LEASE, [runId, token]),
+    withLeft: true,
+    notFound: "No such delete run.",
+    busy: "This delete is already running. It will show in History.",
+    open(run, setup, runId) {
+      const ids = (run.project_ids || []).map((x) => String(x).toLowerCase());
+      const idSet = new Set(ids);
+      const idsJson = JSON.stringify(ids);
+      return {
+        // full re-verify: one view scan
+        async verify() {
+          const v = await runTx("read", READ_TIMEOUT, async (q) => {
+            const stillLive = await q(S.LIVE_CHECK, [idsJson]);
+            if (stillLive.length) return { live: stillLive, cands: [], open: [] };
+            return { live: [], cands: await q(S.CANDIDATES, [idsJson]), open: await q(S.ITEMS_OPEN, [runId]) };
+          });
+          if (v.live.length) return { live: v.live };
+          const byPath = new Map(v.cands.map((r) => [r.path, r]));
+          const settled = [], targets = [];
+          for (const it of v.open) {
+            const row = byPath.get(it.path);
+            if (!pathGuard(it.path, idSet)) settled.push({ path: it.path, outcome: "skipped", detail: OUTSIDE });
+            else if (!row) settled.push({ path: it.path, outcome: "already-gone", detail: "no longer in storage" });
+            else if (!plannedRule(row, idSet)) settled.push({ path: it.path, outcome: "skipped", detail: row.status || "no longer safe" });
+            else targets.push(it.path);
+          }
+          return { settled, targets };
+        },
+        // recheck, read-only: project still absent, not referenced / reserved /
+        // queued, still present, and the guard again
+        async recheck(batch) {
+          const rc = await runTx("read", READ_TIMEOUT, async (q) => {
+            const stillLive = await q(S.LIVE_CHECK, [idsJson]);
+            if (stillLive.length) return { live: stillLive };
+            const j = JSON.stringify(batch);
+            const refs = new Set((await q(S.RECHECK_REFS, [j])).map((r) => r.path));
+            const intents = setup.intentsTable ? new Set((await q(S.RECHECK_INTENTS, [j])).map((r) => r.path)) : new Set();
+            const queued = setup.queueTable ? new Set((await q(S.RECHECK_QUEUE, [j])).map((r) => r.path)) : new Set();
+            const present = new Set((await q(S.PRESENT, [j])).map((r) => r.name));
+            return { refs, intents, queued, present };
+          });
+          if (rc.live) return { live: rc.live };
+          const settled = [], send = [];
+          for (const p of batch) {
+            if (!pathGuard(p, idSet)) settled.push({ path: p, outcome: "skipped", detail: OUTSIDE });
+            else if (rc.refs.has(p)) settled.push({ path: p, outcome: "skipped", detail: "referenced" });
+            else if (rc.intents.has(p)) settled.push({ path: p, outcome: "skipped", detail: "upload in progress" });
+            else if (rc.queued.has(p)) settled.push({ path: p, outcome: "skipped", detail: "queued-for-cleanup" });
+            else if (!rc.present.has(p)) settled.push({ path: p, outcome: "already-gone", detail: "no longer in storage" });
+            else send.push(p);
+          }
+          return { settled, send };
+        },
+      };
+    },
+  };
+
+  const TEMP_KIND = {
+    action: TEMP_ACTION,
+    stoppedLog: "admin-storage: clear-temp stopped",
+    gate: requireTemp,
+    // one running temp clear at a time: the NOT EXISTS in TEMP_LEASE, and the
+    // unique index for two leases in the same instant (23505 -> 409)
+    async lease(q, runId, token) {
+      try {
+        return await q(S.TEMP_LEASE, [runId, token]);
+      } catch (e) {
+        if (String(e && e.code) === "23505") fail(409, "run_busy", TEMP_KIND.busy, { startedAt: null });
+        throw e;
+      }
+    },
+    async refusedBy(runId) {
+      const [busy] = await runTx("read", READ_TIMEOUT, (q) => q(S.TEMP_BUSY, [runId]));
+      if (busy) tempBusyFail(busy, TEMP_KIND.busy);
+    },
+    withLeft: false,
+    notFound: "No such temp-file clearing run.",
+    busy: "Temp files are already being cleared. It will show in History.",
+    open(run, setup, runId) {
+      return {
+        // no project to re-check and no heavy view scan: every file is
+        // re-verified in full just before its batch
+        async verify() {
+          const open = await runTx("read", READ_TIMEOUT, (q) => q(S.ITEMS_OPEN, [runId]));
+          const settled = [], targets = [];
+          for (const it of open) {
+            if (!tempPathGuard(it.path)) settled.push({ path: it.path, outcome: "skipped", detail: TEMP_OUTSIDE });
+            else targets.push(it.path);
+          }
+          return { settled, targets };
+        },
+        // recheck, read-only: the guard, not referenced / reserved / queued,
+        // not 'sending' in another temp run, still present, created AND last
+        // written more than 24 h ago
+        async recheck(batch) {
+          const rc = await runTx("read", READ_TIMEOUT, async (q) => {
+            const j = JSON.stringify(batch);
+            const refs = new Set((await q(S.RECHECK_REFS, [j])).map((r) => r.path));
+            const intents = setup.intentsTable ? new Set((await q(S.RECHECK_INTENTS, [j])).map((r) => r.path)) : new Set();
+            const queued = setup.queueTable ? new Set((await q(S.RECHECK_QUEUE, [j])).map((r) => r.path)) : new Set();
+            const age = new Map((await q(S.TEMP_RECHECK, [j, runId])).map((r) => [r.path, r]));
+            return { refs, intents, queued, age };
+          });
+          const settled = [], send = [];
+          for (const p of batch) {
+            const a = rc.age.get(p);
+            if (!tempPathGuard(p)) settled.push({ path: p, outcome: "skipped", detail: TEMP_OUTSIDE });
+            else if (rc.refs.has(p)) settled.push({ path: p, outcome: "skipped", detail: "held: in use" });
+            else if (rc.intents.has(p)) settled.push({ path: p, outcome: "skipped", detail: "held: upload in progress" });
+            else if (rc.queued.has(p)) settled.push({ path: p, outcome: "skipped", detail: "held: in the cleanup queue" });
+            else if (a && a.in_other_run === true) settled.push({ path: p, outcome: "skipped", detail: TEMP_HELD_OTHER });
+            else if (!a || a.present !== true) settled.push({ path: p, outcome: "already-gone", detail: "no longer in storage" });
+            else if (a.old !== true) settled.push({ path: p, outcome: "skipped", detail: "held: changed in the last 24 hours" });
+            else send.push(p);
+          }
+          return { settled, send };
+        },
+      };
+    },
+  };
+
+  async function executeRun(req, t0, kind) {
     const runId = reqUuid(req.runId, "runId");
     const setup = await readSetup();
-    requireDelete(setup);
+    kind.gate(setup);
     const token = uuid();
-    const [run] = await runTx("write", WRITE_TIMEOUT, (q) => q(S.LEASE, [runId, token]));
-    if (!run) return leaseRefused(runId);
+    const [run] = await runTx("write", WRITE_TIMEOUT, (q) => kind.lease(q, runId, token));
+    if (!run) return leaseRefused(runId, kind);
 
-    const ids = (run.project_ids || []).map((x) => String(x).toLowerCase());
-    const idSet = new Set(ids);
-    const idsJson = JSON.stringify(ids);
+    const plan = kind.open(run, setup, runId);
     let lastError = null, live = null, unexpected = null;
 
     const settle = async (list) => {
@@ -806,28 +1207,9 @@ export function createAdminStorage({
     };
 
     async function runBatch(batch) {
-      // recheck, read-only: project still absent, not referenced / reserved /
-      // queued, still present, and the guard again
-      const rc = await runTx("read", READ_TIMEOUT, async (q) => {
-        const stillLive = await q(S.LIVE_CHECK, [idsJson]);
-        if (stillLive.length) return { live: stillLive };
-        const j = JSON.stringify(batch);
-        const refs = new Set((await q(S.RECHECK_REFS, [j])).map((r) => r.path));
-        const intents = setup.intentsTable ? new Set((await q(S.RECHECK_INTENTS, [j])).map((r) => r.path)) : new Set();
-        const queued = setup.queueTable ? new Set((await q(S.RECHECK_QUEUE, [j])).map((r) => r.path)) : new Set();
-        const present = new Set((await q(S.PRESENT, [j])).map((r) => r.name));
-        return { refs, intents, queued, present };
-      });
+      const rc = await plan.recheck(batch);
       if (rc.live) return { live: rc.live };
-      const settled = [], send = [];
-      for (const p of batch) {
-        if (!pathGuard(p, idSet)) settled.push({ path: p, outcome: "skipped", detail: OUTSIDE });
-        else if (rc.refs.has(p)) settled.push({ path: p, outcome: "skipped", detail: "referenced" });
-        else if (rc.intents.has(p)) settled.push({ path: p, outcome: "skipped", detail: "upload in progress" });
-        else if (rc.queued.has(p)) settled.push({ path: p, outcome: "skipped", detail: "queued-for-cleanup" });
-        else if (!rc.present.has(p)) settled.push({ path: p, outcome: "already-gone", detail: "no longer in storage" });
-        else send.push(p);
-      }
+      const { settled, send } = rc;
       // settle + mark sending + renew the lease, one write transaction
       const marked = await runTx("write", WRITE_TIMEOUT, async (q) => {
         if (settled.length) await q(S.ITEMS_SETTLE, [runId, token, JSON.stringify(settled)]);
@@ -855,7 +1237,8 @@ export function createAdminStorage({
       return { sent: send.length, removed, error: removed < send.length ? detail : null };
     }
 
-    // A project exists again: stop, and say how much this run had already removed.
+    // A project exists again (delete runs only): stop, and say how much this
+    // run had already removed.
     async function stopLive(liveRows, further) {
       const ids409 = liveRows.map((r) => r.id);
       const [c] = await runTx("write", WRITE_TIMEOUT, async (q) => {
@@ -870,26 +1253,12 @@ export function createAdminStorage({
 
     try {
       await runTx("write", WRITE_TIMEOUT, (q) => q(S.RECONCILE, [runId]));
-      // full re-verify: one view scan
-      const v = await runTx("read", READ_TIMEOUT, async (q) => {
-        const stillLive = await q(S.LIVE_CHECK, [idsJson]);
-        if (stillLive.length) return { live: stillLive, cands: [], open: [] };
-        return { live: [], cands: await q(S.CANDIDATES, [idsJson]), open: await q(S.ITEMS_OPEN, [runId]) };
-      });
-      if (v.live.length) await stopLive(v.live, false);
-      const byPath = new Map(v.cands.map((r) => [r.path, r]));
-      const settled = [], targets = [];
-      for (const it of v.open) {
-        const row = byPath.get(it.path);
-        if (!pathGuard(it.path, idSet)) settled.push({ path: it.path, outcome: "skipped", detail: OUTSIDE });
-        else if (!row) settled.push({ path: it.path, outcome: "already-gone", detail: "no longer in storage" });
-        else if (!plannedRule(row, idSet)) settled.push({ path: it.path, outcome: "skipped", detail: row.status || "no longer safe" });
-        else targets.push(it.path);
-      }
-      if (settled.length) await settle(settled);
+      const v = await plan.verify();
+      if (v.live) await stopLive(v.live, false);
+      if (v.settled.length) await settle(v.settled);
 
       let zero = 0;
-      for (const batch of chunks(targets, BATCH)) {
+      for (const batch of chunks(v.targets, BATCH)) {
         if (now() - t0 >= BUDGET_MS) break;
         if (zero >= ZERO_PROGRESS_STOP) break;
         const r = await runBatch(batch);
@@ -903,7 +1272,7 @@ export function createAdminStorage({
       if (e instanceof ApiError) throw e;
       unexpected = e;
       lastError = errText(e);
-      log("admin-storage: delete stopped", runId, lastError);
+      log(kind.stoppedLog, runId, lastError);
     }
     if (live && !unexpected) await stopLive(live, true);
 
@@ -922,8 +1291,11 @@ export function createAdminStorage({
       throw unexpected || e;   // the run stays 'running'; its lease expires -> Interrupted
     }
     if (unexpected) throw unexpected;
-    return summarize(runId, run, status, status === "done");
+    return summarize(runId, run, status, kind.withLeft && status === "done");
   }
+
+  const deleteRun = (req, actor, t0) => executeRun(req, t0, DELETE_KIND);
+  const clearTemp = (req, actor, t0) => executeRun(req, t0, TEMP_KIND);
 
   // ── runs (History) ───────────────────────────────────────────────────────
   async function runs(req) {
@@ -1101,6 +1473,8 @@ export function createAdminStorage({
     "delete": deleteRun,
     "runs": runs,
     "drain-queue": drainQueue,
+    "preview-clear-temp": previewClearTemp,
+    "clear-temp": clearTemp,
   };
 
   function errorResponse(e) {

@@ -286,8 +286,10 @@ address and find the film shared).
 
 ## Admin Storage page (`admin-storage` Edge Function)
 
-**Status (2026-09-27): built and tested offline; not deployed, and
-`admin-storage.sql` has not been run on production.**
+**Status (2026-09-28): the first version of the function was deployed on
+2026-09-27 and the first version of `admin-storage.sql` was run on production on
+2026-09-28. "Clear old temp files" needs both again: run the current SQL file
+once (step 5), then redeploy the function.**
 
 The platform admin's Storage page (account chip → **Storage · admin**) reads the
 whole `turn-assets` bucket through the `turn_admin` views and deletes files
@@ -305,6 +307,13 @@ whole `turn-assets` bucket through the `turn_admin` views and deletes files
 - **Run cleanup now** drains the upload cleanup queue on demand. Anything still
   referenced is kept, and an upload abandoned less than 24 h ago in a live
   project waits.
+- **Clear old temp files** (Cleanup tab, manual only, 2026-09-28) removes the
+  media `image-proxy` staged under `{account}/stage-tmp/` more than 24 hours
+  ago (database clock); the app never reads one again after about 3 hours. Same
+  guarantees as Review & delete: the server plans from its own query, the admin
+  confirms, every file is rechecked just before its batch, and every removal is
+  recorded. One clear at a time; an interrupted one must be resumed from
+  **History** before a new one can start.
 
 The browser never names a file. The function checks the session first (live
 sign-in, the allowlisted admin email, confirmed, not anonymous) and only then
@@ -327,7 +336,9 @@ opens a database connection, as `postgres` over the auto-injected
    should report `db.user = postgres`, 6 of 6 views, and a reader that sees
    every row. Browsing works from here.
 5. *(SQL Editor)* To turn deleting on, paste **`admin-storage.sql`** → Run →
-   rows 10–40 read `ok`. It creates only the private audit schema
+   rows 10–40 read `ok` (row 15, "Temp-file clearing allowed", is the
+   2026-09-28 addition; a database that ran the first version needs this re-run
+   once, and the page says so until then). It creates only the private audit schema
    `turn_admin_ops` (no functions, triggers, policies or grants; never exposed
    in the Data API). Remove it with `drop schema turn_admin_ops cascade;`.
 6. **First real delete:** one small deleted project. Check that removed equals

@@ -25,7 +25,15 @@
 // the queue is drained manually from the page; no schedule is installed.
 // image-proxy is not involved and not touched.
 //
-// Deploy (Mac, owner approval required; not deployed as of 2026-09-27):
+// 2026-09-28: 'preview-clear-temp' + 'clear-temp' ("Clear old temp files",
+// manual only) remove image-proxy's stage-tmp files older than 24 hours through
+// the same two channels: the plan and every recheck over (a), Storage remove()
+// of exact names over (b). No new secret, RPC or permission; core.mjs holds
+// the rules. Needs supabase/admin-storage.sql re-run (412 temp_action_missing
+// until then).
+//
+// Deploy (Mac, owner approval required; first deployed 2026-09-27, redeploy for
+// "Clear old temp files" after admin-storage.sql is re-run):
 //   npx -y supabase@latest functions deploy admin-storage --project-ref <ref> --use-api
 // Operator tool: deliberately NOT listed in APP_FEATURES (see core.mjs).
 

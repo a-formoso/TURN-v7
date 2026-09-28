@@ -15,6 +15,20 @@
      built (owner decision, 2026-09-27).
    - Cleanup queue: drained MANUALLY with "Run cleanup now"; no schedule is
      installed (owner decision, 2026-09-27).
+   - Clear old temp files (owner request, 2026-09-28): the "Cleanup" tab (it was
+     "Cleanup queue") also clears image-proxy's staged media under
+     {account}/stage-tmp/ that is more than 24 hours old on the DATABASE clock.
+     Manual only, no schedule. The browser sends only the action
+     (preview-clear-temp), then the run id (clear-temp); the server plans from
+     its own query, writes the audit ahead and rechecks every file just before
+     its batch. It runs through the same loop as the project delete (loopRun),
+     and a partial or interrupted temp run resumes from History like a delete.
+     An older server (no overview.temp) gets a "needs updating" line, not a
+     crash. 2026-09-28 review: a stopped clear offers Try again on the SAME run
+     (a new review is for when it is done); the confirm shows when the review
+     expires; an interrupted clear must be resumed first (409 temp_interrupted);
+     the Accounts tab points the temp folder at Cleanup; the tab strip never
+     shrinks on phones.
    - Deleted projects keep no tombstone (owner decision, 2026-09-27): they show
      as "Deleted project · <short id>" with their uploaders' emails.
    - window.AdminStorageLib holds the pure helpers
@@ -33,6 +47,8 @@
   const MAX_REVIEW = 50;                      // project ids per review (server cap)
   const MAX_DRAIN = 500;
   const LOOP_CAP = 60;                        // delete calls per click, however it goes
+  const DELETE_ACTION = "delete-deleted-project-files";      // storage_runs.action values
+  const TEMP_ACTION = "clear-old-temp-files";
   const UUID_SRC = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
   const UUID_RE = new RegExp("^" + UUID_SRC + "$", "i");
   /* One storage folder → its id: legacy "{uuid}" (any case, as before) or readable
@@ -72,6 +88,9 @@
     liveReadOnly: "Not deleted from this page: the project is live (the SQL Editor's turn_admin.orphans stays the tool for live projects).",
     liveKept: "kept (live)",
     wholeProject: "Review & delete covers the whole project, including files other accounts uploaded.",
+    tempAbout: "Images and videos TURN staged for AI generation. They expire after 2 hours, and no project uses them.",
+    tempOff: "Clearing temp files is off until supabase/admin-storage.sql is run again in the SQL Editor.",
+    tempUpdate: "The admin-storage function needs updating before temp files can be cleared.",
   };
 
   function h(){ return React.createElement.apply(React, arguments); }
@@ -145,7 +164,7 @@
   function statusChip(status, safe, live){
     const s = String(status || "");
     if(s === "service") return { text:"Service · keep", tone:"neutral",
-      title:"Server-owned file (relay marker, Blender mesh or preview, temporary image). Kept." };
+      title:"Server-owned file (relay marker, Blender mesh or preview). Kept." };
     if(s === "uploading") return { text:"Uploading", tone:"amber",
       title:"Uploaded less than an hour ago, or an upload is still in progress." };
     if(s === "queued-for-cleanup") return { text:"Queued for cleanup", tone:"amber",
@@ -203,10 +222,11 @@
     return { uid:uid, pid:pid || null, bare:!pid && seg.slice(1).every((x)=> x === "") };
   }
 
+  const TEMP_SERVICE = "Temporary image files (*/stage-tmp)";
   function serviceLabel(f){
     if(f.user_folder === "_internal") return "Relay security markers (_internal)";
     if(f.user_folder === "blender-studio-internal") return "Blender Studio meshes (blender-studio-internal)";
-    if(f.project_folder === "stage-tmp") return "Temporary image files (*/stage-tmp)";
+    if(f.project_folder === "stage-tmp") return TEMP_SERVICE;
     if(f.project_folder === "studio-previews") return "Blender previews of live projects";
     return "Files outside the project layout";
   }
@@ -377,7 +397,8 @@
     return lines;
   }
 
-  /* A normalised call error → the page's copy (spec §8.10). */
+  /* A normalised call error → the page's copy (spec §8.10). ctx: "drain" (the
+     cleanup queue), "temp" (clearing old temp files), else a project delete. */
   function errorMessage(err, ctx){
     if(!err) return "";
     const c = String(err.code || ""), s = num(err.status), extra = err.extra || {};
@@ -391,6 +412,7 @@
     if(c === "audit_missing") return MSG.auditOff;
     if(c === "not_full_reader") return MSG.notFullReader;
     if(c === "queue_missing") return MSG.queueMissing;
+    if(c === "temp_action_missing") return MSG.tempOff;
     if(s === 503 || c === "db_unreachable") return MSG.db;
     if(c === "project_live"){
       const r = extra.result;                 // the run's counts (server 2026-09-27)
@@ -399,12 +421,19 @@
         : MSG.projectLive;
     }
     if(c === "preview_expired") return MSG.expired;
+    if(c === "temp_interrupted"){           // another temp clear stopped mid-way: resume it first (server 2026-09-28)
+      const at = extra.startedAt ? fmtClock(extra.startedAt, false) : "";
+      return "An earlier clear of old temp files was interrupted" + (at ? " (started " + at + ")" : "") + ". Resume it in History first.";
+    }
     if(c === "run_busy"){
       if(ctx === "drain") return "A cleanup run is already in progress. It will show in History.";
       const at = extra.startedAt ? fmtClock(extra.startedAt, false) : "";
+      if(ctx === "temp") return "Temp files are already being cleared" + (at ? " (started " + at + ")" : "") + ". Wait for that to finish; it will show in History.";
       return "This delete is already running" + (at ? " (started " + at + ")" : "") + ". It will show in History.";
     }
     if(c === "run_not_found") return "That run no longer exists. Refresh History.";
+    // a server from before 2026-09-28 doesn't know the temp-file actions
+    if(ctx === "temp" && (c === "bad_request" || s === 400) && /unknown action/i.test(String(err.message || ""))) return MSG.tempUpdate;
     if(c === "bad_request" || s === 400 || s === 413) return "The server refused the request" + (err.message ? ": " + err.message : ".");
     if(s >= 500 || c === "internal") return MSG.internal;
     return err.message || ("Something went wrong (" + (c || s || "unknown") + ").");
@@ -419,8 +448,9 @@
     if(st === "previewed") return { text:"Reviewed, not run", tone:"neutral" };
     return { text:st || "Unknown", tone:"neutral" };
   }
+  /* Resume: a project delete or a temp-file clear (2026-09-28), never a queue drain */
   function canResume(run){
-    if(!run || run.action !== "delete-deleted-project-files") return false;
+    if(!run || (run.action !== DELETE_ACTION && run.action !== TEMP_ACTION)) return false;
     return run.status === "partial" || (run.status === "running" && !!run.interrupted);
   }
   /* files a Resume may still delete (failed ones are retried); an upper bound */
@@ -434,6 +464,77 @@
     const total = entries.reduce((a, [, n])=> a + num(n), 0);
     return plural(total, "file") + (total === 1 ? " remains: " : " remain: ")
       + entries.map(([st, n])=> (entries.length > 1 ? fmtCount(n) + " " : "") + statusChip(st).text.toLowerCase()).join(", ") + ".";
+  }
+
+  /* ── clear old temp files (2026-09-28) ─────────────────────────────────── */
+  /* Why "Clear old temp files" is off, or "" when it can run. temp is
+     overview.temp; an older server sends none (and no setup.tempEnabled). */
+  function tempBlockReason(setup, temp){
+    if(setup && setup.seesAll === false) return MSG.notFullReader;
+    if(setup && setup.setup && setup.setup.audit === false) return MSG.auditOff;
+    if(!setup || !temp || typeof temp !== "object" || setup.tempEnabled === undefined) return MSG.tempUpdate;
+    if(setup.setup && setup.setup.temp_action === false) return MSG.tempOff;
+    if(!setup.tempEnabled) return "Clearing temp files is off.";
+    if(!num(temp.oldFiles)) return "Nothing to clear yet.";
+    return "";
+  }
+  const tempHours = (x)=> num(x && x.cutoffHours) || 24;
+  function tempStatsLine(temp){
+    if(!temp || typeof temp !== "object") return "";
+    const hrs = tempHours(temp);
+    if(!num(temp.oldFiles)) return "No old temp files to clear.";
+    return plural(temp.oldFiles, "file") + " · " + fmtBytes(temp.oldBytes) + " older than " + hrs + " hours, in "
+      + plural(temp.accounts, "account") + "." + (temp.oldest ? " Oldest " + fmtWhen(temp.oldest) + "." : "");
+  }
+  /* the review's (or a run's) held-back files, in plain words: "2 still uploading, 1 …" */
+  const TEMP_KEPT = [["held: upload in progress", "still uploading"], ["held: in the cleanup queue", "queued for cleanup"],
+    ["held: changed in the last 24 hours", "changed in the last 24 hours"], ["held: in use", "in use"],
+    ["held: in an interrupted clear", "waiting for an interrupted clear (resume it in History)"],
+    ["outside the temp-file layout", "outside the temp-file layout"], ["no longer in storage", "already gone"]];
+  function tempKeptLine(byDetail){
+    const by = byDetail && typeof byDetail === "object" ? byDetail : {};
+    const known = new Set(TEMP_KEPT.map(([k])=> k));
+    const parts = TEMP_KEPT.filter(([k])=> num(by[k]) > 0).map(([k, t])=> fmtCount(by[k]) + " " + t);
+    const other = Object.entries(by).filter(([k, n])=> !known.has(k) && num(n) > 0).reduce((a, [, n])=> a + num(n), 0);
+    if(other) parts.push(fmtCount(other) + " kept for another reason");
+    return parts.join(", ");
+  }
+  function tempConfirmText(pv){
+    const n = num(pv && pv.plannedFiles), hrs = tempHours(pv);
+    return "Delete " + plural(n, "temporary file") + " (" + fmtBytes(pv && pv.plannedBytes) + ")? "
+      + (n === 1 ? "It was staged more than " + hrs + " hours ago, has expired, and no project uses it."
+        : "They were staged more than " + hrs + " hours ago, have expired, and no project uses them.")
+      + " Each file is checked again just before it's deleted. This can't be undone.";
+  }
+  function tempEmptyText(pv){
+    const kept = num(pv && pv.keptFiles), line = tempKeptLine(pv && pv.keptByDetail);
+    return "Nothing to delete right now." + (kept
+      ? " " + plural(kept, "old temp file") + (kept === 1 ? " is" : " are") + " held back" + (line ? ": " + line : "") + "." : "");
+  }
+  /* clear-temp's answer → the result line */
+  function tempResultLine(r){
+    const x = r || {};
+    return "Removed " + fmtCount(x.removed) + " · " + fmtBytes(num(x.removedBytes)) + " · already gone " + fmtCount(x.alreadyGone)
+      + " · kept " + fmtCount(x.skipped && x.skipped.count) + " · failed " + fmtCount(x.failed && x.failed.count)
+      + (x.status === "done" ? "" : ". Stopped early.");
+  }
+  /* a stopped clear: the same run can carry on (Try again), unless the answer
+     says it can't: an expired review, another clear to resume first, a switched-off
+     or older server, or a run that no longer exists */
+  const TEMP_NO_RETRY = new Set(["preview_expired", "temp_interrupted", "run_not_found", "temp_action_missing",
+    "audit_missing", "not_full_reader", "views_missing", "views_drift", "bad_request", "sign_in", "admin_only", "not_deployed", "no_cloud"]);
+  function tempCanRetry(t){
+    if(!t || t.phase !== "result" || !t.result || t.result.status === "done") return false;
+    return !(t.error && TEMP_NO_RETRY.has(String(t.error.code || "")));
+  }
+  /* the Accounts tab's service row for the temp folder (new server: overview.temp) */
+  function serviceNote(s, temp){
+    if(s.label === TEMP_SERVICE && temp && typeof temp === "object"){
+      const hrs = tempHours(temp);
+      return num(temp.oldFiles) ? fmtCount(temp.oldFiles) + " older than " + hrs + " hours · clear them in Cleanup"
+        : "none older than " + hrs + " hours";
+    }
+    return s.safe_files ? fmtCount(s.safe_files) + " expired · kept" : "kept";
   }
 
   /* Keyboard for div role=button rows: Enter / Space act only when the row
@@ -504,6 +605,39 @@
       if(timer) clearTimeout(timer);
     }
   }
+  /* The one run loop: a project delete ("delete") and a temp-file clear
+     ("clear-temp", 2026-09-28). Calls the action with the run id until the
+     server says done, an error stops it, or a call makes no progress; at most
+     LOOP_CAP calls. The request carries the run id only (RUN_CALL).
+     → { result, error, answered } (answered: the server sent real counts) */
+  const RUN_CALL = {
+    delete:(runId)=> ({ action:"delete", runId:runId }),
+    "clear-temp":(runId)=> ({ action:"clear-temp", runId:runId }),
+  };
+  async function loopRun(action, runId, planned, onProgress){
+    const call = RUN_CALL[action];
+    let last = null, error = null, prevRemaining = Infinity;
+    for(let i = 0; call && i < LOOP_CAP; i++){
+      const r = await callAdminStorage(call(runId));
+      if(!r.ok){
+        error = r.error;
+        // a project exists again: the server sends the run's real counts (files may already be gone)
+        const counts = error && error.extra && error.extra.result;
+        if(counts && typeof counts === "object") last = counts;
+        break;
+      }
+      last = r.data;
+      if(onProgress) onProgress(Object.assign({}, last, { planned:num(last.planned) || planned }));
+      if(last.status === "done") break;
+      const rem = num(last.remaining);
+      if(!(rem < prevRemaining) || rem === 0) break;      // no progress: stop and offer Retry
+      prevRemaining = rem;
+    }
+    const result = last ? Object.assign({}, last, { planned:num(last.planned) || planned })
+      : { status:"partial", removed:0, removedBytes:0, planned:planned, alreadyGone:0, skipped:{ count:0, byStatus:{} },
+          failed:{ count:0, sample:[] }, remaining:planned };
+    return { result:result, error:error, answered:!!last };
+  }
   function copyText(text){
     try{
       if(typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.writeText){
@@ -539,14 +673,20 @@
       h("div", { className:"adm-tile-val" }, value),
       sub ? h("div", { className:"adm-tile-sub" }, sub) : null);
   }
-  function Tiles({ model }){
+  /* temp: overview.temp (2026-09-28); an older server sends none, and then the
+     row stays the four tiles it always was */
+  function Tiles({ model, temp }){
     if(!model){
       return h("div", { className:"adm-tiles", "aria-busy":"true" },
         [0, 1, 2, 3].map((i)=> h("div", { key:i, className:"adm-tile skel" },
           h("div", { className:"adm-skel-line short" }), h("div", { className:"adm-skel-line" }))));
     }
     const t = model.totals;
-    return h("div", { className:"adm-tiles" },
+    const hasTemp = !!(temp && typeof temp === "object");
+    // five tiles: one row where they fit (desktop) instead of a lone fifth tile
+    // on a second row; two across on a phone, as the stylesheet's phone rule
+    // (inline, so styles.css and its cache key stay as they are)
+    return h("div", { className:"adm-tiles", style:hasTemp ? { gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))" } : undefined },
       h(Tile, { label:"Stored", value:plural(t.files, "file"), sub:fmtBytes(t.bytes) }),
       h(Tile, { label:"Accounts", value:fmtCount(t.accounts),
         sub:t.deletedAccounts ? plural(t.deletedAccounts, "deleted account folder") : null }),
@@ -554,7 +694,9 @@
         sub:fmtBytes(t.deletedSafeBytes) + " safe to delete", tone:t.deletedSafeBytes > 0 ? "alert" : "" }),
       h(Tile, { label:"Cleanup queue",
         value:t.queue ? fmtCount(t.queue.ready) + " ready · " + fmtCount(t.queue.later) + " later · " + fmtCount(t.queue.stuck) + " stuck" : "Not installed",
-        tone:t.queue && t.queue.stuck ? "amber" : "" }));
+        tone:t.queue && t.queue.stuck ? "amber" : "" }),
+      hasTemp ? h(Tile, { label:"Old temp files", value:fmtCount(temp.oldFiles) + " · " + fmtBytes(num(temp.oldBytes)),
+        sub:num(temp.oldFiles) ? "older than " + tempHours(temp) + " hours" : "none" }) : null);
   }
 
   function headRow(cols){
@@ -670,7 +812,7 @@
             }))) : null));
   }
 
-  function AccountsTab({ model, setup, filterText, filter, setFilter, expanded, onToggle, onOpenProject, onReview }){
+  function AccountsTab({ model, setup, temp, filterText, filter, setFilter, expanded, onToggle, onOpenProject, onReview }){
     const q = String(filterText || "").trim().toLowerCase();
     let list = model.accounts;
     if(filter === "deleted-projects") list = list.filter((a)=> a.deleted.length);
@@ -689,12 +831,14 @@
         : h(Empty, { text:filter === "deleted-projects" ? MSG.noDeleted
             : filter === "deleted-accounts" ? "No deleted accounts are holding files."
             : q ? "No account matches “" + filterText + "”." : "No accounts yet." }),
+      // 2026-09-28 review: service files are kept; the temp folder's old files
+      // are cleared from Cleanup → Old temp files (serviceNote)
       model.service.length ? h("div", { className:"adm-service" },
-        h("div", { className:"adm-group-h" }, "Service & temporary files · keep"),
+        h("div", { className:"adm-group-h" }, "Service & temporary files"),
         model.service.map((s)=> h("div", { key:s.label, className:"adm-service-row" },
           h("span", { className:"c-title" }, s.label),
           h("span", { className:"c-size" }, plural(s.files, "file") + " · " + fmtBytes(s.bytes)),
-          s.safe_files ? h("span", { className:"adm-muted" }, fmtCount(s.safe_files) + " expired · kept") : null))) : null);
+          h("span", { className:"adm-muted" }, serviceNote(s, temp))))) : null);
   }
 
   /* ── Projects tab ──────────────────────────────────────────────────────── */
@@ -868,6 +1012,7 @@
     }, [phase]);
     const pv = sheet.preview;
     const nProjects = (sheet.projectIds || []).length;
+    const ctx = sheet.action === "clear-temp" ? "temp" : undefined;      // a temp run resumed from History
     let body = null, title = "";
     if(phase === "loading"){
       title = "Planning the delete…";
@@ -875,7 +1020,7 @@
     } else if(phase === "error"){
       title = "Nothing was deleted";
       body = h(React.Fragment, null,
-        h("div", { className:"adm-banner alert" }, errorMessage(sheet.error)),
+        h("div", { className:"adm-banner alert" }, errorMessage(sheet.error, ctx)),
         h("div", { className:"adm-sheet-acts" },
           sheet.projectIds && sheet.projectIds.length ? h("button", { type:"button", className:"adm-btn", onClick:onReviewAgain }, "Review again") : null,
           h("button", { type:"button", className:"adm-btn", onClick:onClose }, "Close")));
@@ -927,20 +1072,24 @@
         const statusDone = r.status === "done";
         const detail = r.failed && r.failed.sample && r.failed.sample[0] && r.failed.sample[0].detail;
         const code = sheet.error ? String(sheet.error.code || "") : "";
+        // a temp run resumed from History whose call got no counts back (busy,
+        // timeout, dropped connection): no made-up "Deleted 0 of N" (2026-09-28 review)
+        const noCounts = ctx === "temp" && sheet.answered === false;
         title = statusDone ? "Done" : sheet.error ? "Stopped" : "Partly done";
         body = h(React.Fragment, null,
-          h("div", { className:"adm-result " + (statusDone ? "ok" : "amber") },
+          noCounts ? h("div", { className:"adm-muted" }, "History shows how far it got.")
+          : h("div", { className:"adm-result " + (statusDone ? "ok" : "amber") },
             statusDone ? "Deleted " + plural(r.removed, "file") + " · " + fmtBytes(r.removedBytes) + " freed."
               : "Deleted " + fmtCount(r.removed) + " of " + fmtCount(num(r.planned) || planned) + "." + (failed
                 ? " " + fmtCount(failed) + " couldn't be deleted" + (detail ? " (Storage error: " + detail + ")" : "") + "." : "")),
-          sheet.error ? h("div", { className:"adm-banner alert" }, errorMessage(sheet.error)) : null,
+          sheet.error ? h("div", { className:"adm-banner alert" }, errorMessage(sheet.error, ctx)) : null,
           statusDone && r.leftInProjects ? h("div", { className:"adm-muted" }, leftLine(r.leftInProjects)) : null,
           h("div", { className:"adm-sheet-acts" },
             statusDone || code === "project_live" ? null
               : code === "preview_expired" ? (sheet.projectIds && sheet.projectIds.length
                   ? h("button", { type:"button", className:"adm-btn", onClick:onReviewAgain }, "Review again") : null)
               : failed ? h("button", { type:"button", className:"adm-btn danger", onClick:onRetry }, "Retry failed (" + fmtCount(failed) + ")")
-              : num(r.remaining) ? h("button", { type:"button", className:"adm-btn danger", onClick:onRetry }, "Try again (" + fmtCount(r.remaining) + " left)")
+              : num(r.remaining) ? h("button", { type:"button", className:"adm-btn danger", onClick:onRetry }, noCounts ? "Try again" : "Try again (" + fmtCount(r.remaining) + " left)")
               : null,
             h("button", { type:"button", className:"adm-btn", onClick:onClose }, "Close")));
       }
@@ -952,21 +1101,23 @@
         body));
   }
 
-  /* ── Cleanup queue tab ─────────────────────────────────────────────────── */
+  /* ── Cleanup tab: the cleanup queue + old temp files (2026-09-28) ─────── */
   const REASON = { abandoned_upload:"Abandoned upload", project_deleted:"Project deleted" };
-  function QueueTab({ model, setup, onRefresh, setBusy }){
+  function QueueSection({ model, setup, onRefresh, setBusy, busy }){
     const [confirming, setConfirming] = React.useState(false);
     const [running, setRunning] = React.useState(false);
     const [result, setResult] = React.useState(null);
     const [err, setErr] = React.useState(null);
     const q = model.queue;
-    if(!q) return h("div", { className:"adm-tab-body" }, h(Empty, { text:"The cleanup queue isn't installed." }));
+    const head = h("div", { className:"adm-group-h" }, "Cleanup queue");
+    if(!q) return h("section", { className:"adm-tab-body", "aria-label":"Cleanup queue" }, head, h(Empty, { text:"The cleanup queue isn't installed." }));
     const ready = Math.min(MAX_DRAIN, q.ready);
     const why = !setup || !setup.drainEnabled
       ? (setup && setup.seesAll === false ? MSG.notFullReader
         : setup && setup.setup && setup.setup.audit === false ? MSG.auditOff : MSG.queueWorker)
       : !q.ready ? "Nothing in the queue is ready yet." : "";
     const run = async ()=>{
+      if(busy) return;                       // a temp-file clear is running: one destructive step at a time
       setConfirming(false); setRunning(true); setErr(null); setResult(null); setBusy(true);
       const r = await callAdminStorage({ action:"drain-queue", max:ready || 1 });
       setBusy(false); setRunning(false);
@@ -976,7 +1127,8 @@
       } else setErr(r.error);
       onRefresh();
     };
-    return h("div", { className:"adm-tab-body" },
+    return h("section", { className:"adm-tab-body", "aria-label":"Cleanup queue" },
+      head,
       q.byReason.length ? h("div", { className:"adm-rows adm-queue" },
         headRow([["title", "Reason"], ["total", "Total"], ["ready", "Ready now"], ["next", "Next ready"],
           ["oldest", "Oldest"], ["stuck", "Stuck"]]),
@@ -995,10 +1147,10 @@
               h("p", null, "Remove up to " + fmtCount(ready) + " queued upload" + (ready === 1 ? "" : "s") + " that " + (ready === 1 ? "is" : "are") + " ready? Each is checked first: anything still in use is kept, and uploads abandoned less than 24 hours ago in live projects wait."),
               h("div", { className:"adm-sheet-acts" },
                 h("button", { type:"button", className:"adm-btn", onClick:()=> setConfirming(false) }, "Cancel"),
-                h("button", { type:"button", className:"adm-btn danger", onClick:run }, "Run cleanup")))
+                h("button", { type:"button", className:"adm-btn danger", disabled:busy, onClick:run }, "Run cleanup")))
           : h("div", { className:"adm-drain-row" },
-              h("button", { type:"button", className:"adm-btn danger", disabled:!!why || running, title:why || undefined,
-                onClick:()=>{ if(!why && !running) setConfirming(true); } }, running ? "Cleaning up…" : "Run cleanup now"),
+              h("button", { type:"button", className:"adm-btn danger", disabled:!!why || running || busy, title:why || undefined,
+                onClick:()=>{ if(!why && !running && !busy) setConfirming(true); } }, running ? "Cleaning up…" : "Run cleanup now"),
               why ? h("span", { className:"adm-muted" }, why) : null),
         err ? h("div", { className:"adm-banner alert" }, errorMessage(err, "drain")) : null,
         result ? h("div", { className:"adm-result " + (result.failed ? "amber" : "ok") },
@@ -1020,9 +1172,92 @@
           h("div", { className:"adm-file-path" }, h("span", { className:"adm-mono" }, s.path), h(CopyBtn, { text:s.path, label:"path" }))))) : null);
   }
 
+  /* Old temp files: review → confirm → the run loop. The modal holds tempRun
+     (phase: loading | confirm | running | result | empty | error), so switching
+     tabs mid-run loses nothing. The browser never names a file. A stopped run
+     offers Try again on the same run id (onRun with the same review), like the
+     review sheet's Retry; the confirm counts down to the review's expiry. */
+  function TempSection({ setup, temp, tempRun, busy, onReview, onRun, onCancel }){
+    const [, setTick] = React.useState(0);
+    const t = tempRun || {};
+    const phase = t.phase || "idle";
+    const pv = t.preview || null;
+    const why = tempBlockReason(setup, temp);
+    React.useEffect(()=>{
+      if(phase !== "confirm") return undefined;
+      const id = setInterval(()=> setTick((x)=> x + 1), 1000);
+      return ()=> clearInterval(id);
+    }, [phase]);
+    const retrying = tempCanRetry(t) && !!(pv && pv.runId);
+    let main;
+    if(phase === "confirm" && pv){
+      const more = num(pv.moreRemain), kept = num(pv.keptFiles), line = tempKeptLine(pv.keptByDetail);
+      const expAt = Date.parse(pv.previewExpiresAt);
+      const expMs = Number.isFinite(expAt) ? expAt - Date.now() : Infinity;
+      const expired = !(expMs > 0);
+      main = h("div", { className:"adm-confirm", role:"group", "aria-label":"Clear old temp files" },
+        h("p", null, tempConfirmText(pv)),
+        more ? h("p", null, fmtCount(more) + " more will remain — run it again afterwards.") : null,
+        kept ? h("p", { className:"adm-muted" }, "Not included: " + (line || plural(kept, "file")) + ".") : null,
+        expired
+          ? h("div", { className:"adm-banner amber" }, MSG.expired,
+              h("button", { type:"button", className:"adm-btn sm", disabled:busy, onClick:()=>{ if(!busy) onReview(); } }, "Review again"))
+          : Number.isFinite(expMs) ? h("div", { className:"adm-expiry" }, "This review expires in " + fmtCountdown(expMs)) : null,
+        h("div", { className:"adm-sheet-acts" },
+          h("button", { type:"button", className:"adm-btn", onClick:onCancel }, "Cancel"),
+          h("button", { type:"button", className:"adm-btn danger", disabled:busy || expired,
+            onClick:()=>{ if(!busy && !expired) onRun(pv); } }, "Delete temp files")));
+    } else if(phase === "running"){
+      const p = t.progress || {};
+      const planned = num(p.planned), done = num(p.removed);
+      const pct = planned > 0 ? Math.min(100, Math.round(done / planned * 100)) : 0;
+      main = h(React.Fragment, null,
+        h("div", { className:"adm-progress", role:"progressbar", "aria-label":"Clearing old temp files",
+            "aria-valuemin":0, "aria-valuemax":planned, "aria-valuenow":done },
+          h("span", { style:{ width:pct + "%" } })),
+        h("div", { className:"adm-progress-lab" }, "Deleting… " + fmtCount(done) + " of " + fmtCount(planned)),
+        h("p", { className:"adm-muted" }, MSG.closeNote));
+    } else if(retrying){
+      // stopped early: carry on with the SAME run; a new review is for when it is done
+      const failed = num(t.result.failed && t.result.failed.count), left = num(t.result.remaining);
+      main = h("div", { className:"adm-sheet-acts adm-temp-retry" },
+        h("button", { type:"button", className:"adm-btn", disabled:busy, onClick:onCancel }, "Close"),
+        h("button", { type:"button", className:"adm-btn danger", disabled:busy, onClick:()=>{ if(!busy) onRun(pv); } },
+          !t.answered ? "Try again" : failed ? "Retry failed (" + fmtCount(failed) + ")" : "Try again (" + fmtCount(left) + " left)"));
+    } else {
+      const loading = phase === "loading";
+      main = h("div", { className:"adm-drain-row" },
+        h("button", { type:"button", className:"adm-btn danger", disabled:!!why || loading || busy, title:why || undefined,
+          onClick:()=>{ if(!why && !loading && !busy) onReview(); } }, loading ? "Checking temp files…" : "Clear old temp files"),
+        why ? h("span", { className:"adm-muted" }, why) : null);
+    }
+    const r = t.result || {};
+    const clean = r.status === "done" && !num(r.failed && r.failed.count);
+    return h("section", { className:"adm-tab-body", "aria-label":"Old temp files" },
+      h("div", { className:"adm-group-h" }, "Old temp files"),
+      h("div", { className:"adm-group-note" }, MSG.tempAbout),
+      temp && typeof temp === "object" ? h("div", { className:"adm-sheet-p" }, tempStatsLine(temp)) : null,
+      h("div", { className:"adm-drain" },
+        retrying ? null : main,
+        phase === "empty" && pv ? h("div", { className:"adm-note", role:"status" }, tempEmptyText(pv)) : null,
+        phase === "result" && t.answered ? h("div", { className:"adm-result " + (clean ? "ok" : "amber") }, tempResultLine(r)) : null,
+        (phase === "result" || phase === "error") && t.error ? h("div", { className:"adm-banner alert" }, errorMessage(t.error, "temp")) : null,
+        retrying ? main : null));
+  }
+
+  function CleanupTab({ model, setup, temp, tempRun, busy, setBusy, onRefresh, onTempReview, onTempRun, onTempCancel }){
+    return h("div", { className:"adm-tab-body" },
+      h(QueueSection, { model:model, setup:setup, onRefresh:onRefresh, setBusy:setBusy, busy:busy }),
+      h(TempSection, { setup:setup, temp:temp, tempRun:tempRun, busy:busy,
+        onReview:onTempReview, onRun:onTempRun, onCancel:onTempCancel }));
+  }
+
   /* ── History tab ───────────────────────────────────────────────────────── */
   function runWhat(run){
     if(run.action === "drain-cleanup-queue") return run.admin_email === "cron" ? "Cleanup queue (scheduled)" : "Cleanup queue";
+    if(run.action === TEMP_ACTION){             // no project: project_ids is empty
+      return run.status === "previewed" || run.status === "expired" ? "Review of old temp files (not run)" : "Cleared old temp files";
+    }
     const n = Array.isArray(run.project_ids) ? run.project_ids.length : 0;
     if(run.status === "previewed" || run.status === "expired") return "Review of " + plural(n, "deleted project") + " (not run)";
     return "Deleted files of " + plural(n, "deleted project");
@@ -1073,6 +1308,7 @@
     const st = runStatus(run);
     const n = resumeCount(run);
     const nProjects = Array.isArray(run.project_ids) ? run.project_ids.length : 0;
+    const temp = run.action === TEMP_ACTION;
     return h("div", { className:"adm-run" + (open ? " open" : "") },
       h("div", { className:"adm-row adm-click", role:"button", tabIndex:0, "aria-expanded":open,
           onClick:()=> setOpen((o)=> !o), onKeyDown:rowKey(()=> setOpen((o)=> !o)) },
@@ -1086,7 +1322,8 @@
           ? h("button", { type:"button", className:"adm-btn danger sm", disabled:busy || confirming,
               onClick:(e)=>{ if(e && e.stopPropagation) e.stopPropagation(); if(!busy) setConfirming(true); } }, "Resume") : null)),
       confirming ? h("div", { className:"adm-confirm adm-run-confirm", role:"group", "aria-label":"Resume this delete" },
-        h("p", null, "Resume deleting up to " + plural(n, "file") + " from " + plural(nProjects, "deleted project")
+        h("p", null, (temp ? "Resume clearing up to " + plural(n, "old temp file")
+            : "Resume deleting up to " + plural(n, "file") + " from " + plural(nProjects, "deleted project"))
           + "? Each file is checked again right before it is deleted, and deleted files can't be recovered."),
         h("div", { className:"adm-sheet-acts" },
           h("button", { type:"button", className:"adm-btn", onClick:()=> setConfirming(false) }, "Cancel"),
@@ -1144,11 +1381,13 @@
     const [sheet, setSheet] = React.useState(null);
     const [busy, setBusy] = React.useState(false);
     const [historyKey, setHistoryKey] = React.useState(0);
+    const [tempRun, setTempRun] = React.useState(null);      // the Cleanup tab's temp-file clear (2026-09-28)
     const closeRef = React.useRef(null);
     const modalRef = React.useRef(null);
     const sheetRef = React.useRef(null);
     const busyRef = React.useRef(false);
     const reviewSeq = React.useRef(0);          // a late preview never reopens a closed / newer sheet
+    const tempSeq = React.useRef(0);            // …nor a cancelled temp-file review
     busyRef.current = busy;
     const stateRef = React.useRef({});
     stateRef.current = { sheet:sheet, detailId:detailId };
@@ -1194,7 +1433,8 @@
     const setup = ov && ov.setup ? ov.setup : null;
     const hasQueue = !!(model && model.queue);
     const hasAudit = !!(setup && setup.setup && setup.setup.audit);
-    const curTab = (tab === "queue" && !hasQueue) || (tab === "history" && !hasAudit) ? "accounts" : tab;
+    const hasCleanup = hasQueue || hasAudit;         // the queue, or the audit log that temp clearing writes to
+    const curTab = (tab === "cleanup" && !hasCleanup) || (tab === "history" && !hasAudit) ? "accounts" : tab;
 
     React.useEffect(()=>{
       if(!expanded || typeof document === "undefined" || typeof document.getElementById !== "function") return;
@@ -1232,36 +1472,23 @@
       if(r.ok) setSheet({ kind:"review", projectIds:projectIds, phase:"ready", preview:r.data, checked:false });
       else setSheet({ kind:"review", projectIds:projectIds, phase:"error", error:r.error });
     };
+    /* the sheet's run: a project delete, or a temp-file run resumed from
+       History (base.action "clear-temp"); Retry keeps the sheet's action */
     const runDelete = async (runId, planned, base)=>{
       reviewSeq.current++;
       busyRef.current = true;
       setBusy(true);
-      let last = null, error = null, prevRemaining = Infinity;
-      setSheet((s)=> Object.assign({}, base || s, { phase:"running", runId:runId, planned:planned, error:null,
+      const action = (base && base.action) || "delete";
+      setSheet((s)=> Object.assign({}, base || s, { phase:"running", action:action, runId:runId, planned:planned, error:null,
         progress:{ planned:planned, removed:0, removedBytes:0 } }));
-      for(let i = 0; i < LOOP_CAP; i++){
-        const r = await callAdminStorage({ action:"delete", runId:runId });
-        if(!r.ok){
-          error = r.error;
-          // a project exists again: the server sends the run's real counts (files may already be gone)
-          const counts = error && error.extra && error.extra.result;
-          if(counts && typeof counts === "object") last = counts;
-          break;
-        }
-        last = r.data;
-        const pl = num(last.planned) || planned;
-        setSheet((s)=> s && Object.assign({}, s, { planned:pl, progress:Object.assign({}, last, { planned:pl }) }));
-        if(last.status === "done") break;
-        const rem = num(last.remaining);
-        if(!(rem < prevRemaining) || rem === 0) break;      // no progress: stop and offer Retry
-        prevRemaining = rem;
-      }
+      const out = await loopRun(action, runId, planned,
+        (p)=> setSheet((s)=> s && Object.assign({}, s, { planned:p.planned, progress:p })));
       setBusy(false);
-      const result = last ? Object.assign({}, last, { planned:num(last.planned) || planned })
-        : { status:"partial", removed:0, removedBytes:0, planned:planned, failed:{ count:0, sample:[] }, remaining:planned };
-      setSheet((s)=> s && Object.assign({}, s, { phase:"result", result:result, error:error }));
+      const result = out.result, error = out.error;
+      setSheet((s)=> s && Object.assign({}, s, { phase:"result", result:result, error:error, answered:out.answered }));
       if(result.status === "done") toast("Deleted " + plural(result.removed, "file") + " · " + fmtBytes(result.removedBytes) + " freed.", "success");
-      else toast(error ? errorMessage(error) : "Deleted " + fmtCount(result.removed) + " of " + fmtCount(result.planned) + ".", "error");
+      else toast(error ? errorMessage(error, action === "clear-temp" ? "temp" : undefined)
+        : "Deleted " + fmtCount(result.removed) + " of " + fmtCount(result.planned) + ".", "error");
       setHistoryKey((k)=> k + 1);
       load();
     };
@@ -1272,9 +1499,39 @@
     const retry = ()=>{ if(sheet && sheet.runId) runDelete(sheet.runId, num(sheet.planned), sheet); };
     const resume = (run)=>{
       if(!run || !run.id || busyRef.current) return;
-      runDelete(run.id, num(run.planned_files), { kind:"run", projectIds:(run.project_ids || []).map(lc) });
+      if(run.action === TEMP_ACTION) runDelete(run.id, num(run.planned_files), { kind:"run", action:"clear-temp", projectIds:[] });
+      else runDelete(run.id, num(run.planned_files), { kind:"run", projectIds:(run.project_ids || []).map(lc) });
     };
     const closeSheet = ()=>{ if(!busyRef.current){ reviewSeq.current++; setSheet(null); } };
+
+    /* clear old temp files (2026-09-28): review → confirm → the run loop */
+    const openTempReview = async ()=>{
+      if(busyRef.current) return;
+      const seq = ++tempSeq.current;
+      setTempRun({ phase:"loading" });
+      const r = await callAdminStorage({ action:"preview-clear-temp" });
+      if(seq !== tempSeq.current) return;
+      if(!r.ok) setTempRun({ phase:"error", error:r.error });
+      else setTempRun({ phase:num(r.data.plannedFiles) > 0 ? "confirm" : "empty", preview:r.data });
+    };
+    const cancelTemp = ()=>{ if(!busyRef.current){ tempSeq.current++; setTempRun(null); } };
+    const runTempClear = async (pv)=>{
+      if(!pv || !pv.runId || busyRef.current) return;
+      tempSeq.current++;
+      busyRef.current = true;
+      setBusy(true);
+      const planned = num(pv.plannedFiles);
+      setTempRun({ phase:"running", preview:pv, progress:{ planned:planned, removed:0, removedBytes:0 } });
+      const out = await loopRun("clear-temp", pv.runId, planned,
+        (p)=> setTempRun((t)=> t && t.phase === "running" ? Object.assign({}, t, { progress:p }) : t));
+      setBusy(false);
+      const r = out.result;
+      setTempRun({ phase:"result", preview:pv, result:r, answered:out.answered, error:out.error });
+      if(r.status === "done" && !out.error) toast("Cleared " + plural(r.removed, "old temp file") + " · " + fmtBytes(num(r.removedBytes)) + " freed.", "success");
+      else toast(out.error ? errorMessage(out.error, "temp") : "Removed " + fmtCount(r.removed) + " of " + plural(r.planned, "old temp file") + ".", "error");
+      setHistoryKey((k)=> k + 1);
+      load();
+    };
 
     const admin = !!window.turnIsAdmin;
     React.useEffect(()=>{ if(!admin) onClose(); }, [admin, onClose]);
@@ -1284,7 +1541,7 @@
       : ov ? "admin · as of " + fmtClock(ov.asOf) + " · " + fmtMs(ov.elapsedMs) : "admin";
     const fatal = err && !ov;
     const tabs = [["accounts", "Accounts"], ["projects", "Projects"]]
-      .concat(hasQueue ? [["queue", "Cleanup queue"]] : [])
+      .concat(hasCleanup ? [["cleanup", "Cleanup"]] : [])
       .concat(hasAudit ? [["history", "History"]] : []);
 
     return h("div", { className:"bible-overlay adm-overlay",
@@ -1308,22 +1565,26 @@
           : h(React.Fragment, null,
               err ? h("div", { className:"adm-banner alert" }, errorMessage(err)) : null,
               h(SetupStrip, { setup:setup }),
-              h(Tiles, { model:model }),
+              h(Tiles, { model:model, temp:ov && ov.temp }),
               !model ? h("div", { className:"adm-muted adm-loading" }, MSG.loading) : h(React.Fragment, null,
                 h("div", { className:"adm-search" }, icon("search", 13),
                   h("input", { type:"search", value:query, placeholder:"Email, title, or paste a Storage path / folder / UUID",
                     "aria-label":"Search storage", onChange:(e)=> onSearch(e.target.value),
                     onKeyDown:(e)=>{ if(e.key === "Enter"){ const ref = parseStorageRef(query); if(ref) resolveRef(ref); } } })),
                 note ? h("div", { className:"adm-note", role:"status" }, note) : null,
-                h("div", { className:"adm-tabs", role:"tablist" },
+                // flex-shrink 0 (2026-09-28 review): on phones the strip scrolls sideways
+                // (overflow-x:auto → min-height 0), so a tall tab squeezed it to a sliver
+                h("div", { className:"adm-tabs", role:"tablist", style:{ flexShrink:0 } },
                   tabs.map(([k, t])=> h("button", { key:k, type:"button", role:"tab", "aria-selected":curTab === k,
                     className:"adm-tab" + (curTab === k ? " on" : ""), onClick:()=> setTab(k) }, t))),
-                curTab === "accounts" ? h(AccountsTab, { model:model, setup:setup, filterText:filterText, expanded:expanded,
+                curTab === "accounts" ? h(AccountsTab, { model:model, setup:setup, temp:ov && ov.temp, filterText:filterText, expanded:expanded,
                     filter:acctFilter, setFilter:setAcctFilter,
                     onToggle:(id)=> setExpanded((cur)=> cur === id ? null : id), onOpenProject:setDetailId, onReview:openReview })
                 : curTab === "projects" ? h(ProjectsTab, { model:model, setup:setup, filterText:filterText,
                     onOpenProject:setDetailId, onReview:openReview })
-                : curTab === "queue" ? h(QueueTab, { model:model, setup:setup, onRefresh:()=>{ load(); setHistoryKey((k)=> k + 1); }, setBusy:setBusy })
+                : curTab === "cleanup" ? h(CleanupTab, { model:model, setup:setup, temp:ov && ov.temp, tempRun:tempRun, busy:busy,
+                    setBusy:setBusy, onRefresh:()=>{ load(); setHistoryKey((k)=> k + 1); },
+                    onTempReview:openTempReview, onTempRun:runTempClear, onTempCancel:cancelTemp })
                 : h(HistoryTab, { reloadKey:historyKey, onResume:resume, busy:busy })))),
         detail ? h(ProjectDetail, { key:detail.id, project:detail, model:model, setup:setup, asOf:ov && ov.asOf,
           onClose:()=> setDetailId(null), onReview:openReview }) : null,
@@ -1365,5 +1626,7 @@
   window.AdminStorageLib = {
     fmtBytes, fmtCount, fmtAgo, shortId, statusChip, parseStorageRef, buildModel, keptLines, errorMessage,
     runStatus, canResume, leftLine, projectLabel, kindLabel, callAdminStorage, MSG, rowKey, trapTab, resumeCount,
+    loopRun, runWhat, runResult, tempBlockReason, tempStatsLine, tempKeptLine, tempConfirmText, tempEmptyText, tempResultLine,
+    tempCanRetry, serviceNote,
   };
 })();

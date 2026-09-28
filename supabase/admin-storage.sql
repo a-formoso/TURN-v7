@@ -1,22 +1,36 @@
 -- ============================================================================
 -- TURN — Admin Storage page: audit log for server-side deletes (supabase/admin-storage.sql)
--- Owner: platform admin · 2026-09-27. Not yet run on production.
+-- Owner: platform admin · 2026-09-27. First run on production 2026-09-28.
+-- Last changed 2026-09-28: the audit log also accepts "Clear old temp files" runs.
 --
 -- PURPOSE
 --   The Admin Storage page (the admin-storage Edge Function,
 --   supabase/functions/admin-storage/) deletes the files of DELETED projects
---   through the Storage API, and drains the upload cleanup queue on demand.
+--   through the Storage API, drains the upload cleanup queue on demand, and
+--   clears image-proxy temp files older than 24 hours on demand.
 --   Every delete is planned, executed and recorded here first, so a run can be
 --   resumed after a crash and every removed file has a who / when / why.
 --   Reading storage needs nothing from this file (the page reads the turn_admin
 --   views from admin-inventory.sql); without it the page browses but deleting
 --   stays OFF.
 --
+-- WHAT THE 2026-09-28 RE-RUN ADDS
+--   Two changes for the page's "Clear old temp files" button: the run table's
+--   list of allowed actions gains a third value, 'clear-old-temp-files', and a
+--   new index lets only one of those runs work at a time. If you ran the first
+--   version of this file, run this WHOLE file again once; until then that
+--   button stays off and says so. Nothing else changes: no table is recreated,
+--   no row is touched, recorded runs stay as they are.
+--
 -- HOW TO RUN
 --   Supabase Dashboard → SQL Editor → New query → paste this WHOLE file → Run,
 --   as postgres (the SQL Editor's role). Run admin-inventory.sql first.
 --   The editor then shows a small table (item / status / detail). Rows 10-40
---   should read 'ok'; row 50 counts the runs recorded. Safe to re-run at any time.
+--   (including 15, "Temp-file clearing allowed") should read 'ok'; row 50
+--   counts the runs recorded.
+--   Safe to re-run at any time, on a new database or on one that already has
+--   these tables: tables and indexes are created only when missing, and the
+--   allowed-actions check is replaced only while it lacks the new action.
 --
 -- WHAT IT CREATES
 --   Schema turn_admin_ops with two tables (storage_runs, storage_run_items).
@@ -54,7 +68,7 @@ revoke all on schema turn_admin_ops from anon, authenticated, service_role;
 
 create table if not exists turn_admin_ops.storage_runs (
   id                 uuid primary key,
-  action             text not null check (action in ('delete-deleted-project-files', 'drain-cleanup-queue')),
+  action             text not null check (action in ('delete-deleted-project-files', 'drain-cleanup-queue', 'clear-old-temp-files')),
   admin_id           uuid,                          -- null for a scheduled drain
   admin_email        text not null,                 -- 'cron' for a scheduled drain
   project_ids        uuid[] not null default '{}',
@@ -77,6 +91,45 @@ create table if not exists turn_admin_ops.storage_runs (
   last_error         text
 );
 
+-- 2026-09-28 upgrade: a table made by the first version of this file checks
+-- action against two values only (an inline check Postgres named
+-- storage_runs_action_check). Replace every CHECK on the action column, and only
+-- those (the status check stays), with one named check allowing all three
+-- actions. Does nothing once that check is in place, so every re-run is a no-op.
+do $action_check$
+declare
+  k record;
+  in_place boolean;
+begin
+  select count(*) = 1
+         and coalesce(bool_and(c.conname = 'storage_runs_action_check'
+                               and strpos(pg_catalog.pg_get_constraintdef(c.oid), '''delete-deleted-project-files''') > 0
+                               and strpos(pg_catalog.pg_get_constraintdef(c.oid), '''drain-cleanup-queue''') > 0
+                               and strpos(pg_catalog.pg_get_constraintdef(c.oid), '''clear-old-temp-files''') > 0), false)
+    into in_place
+    from pg_catalog.pg_constraint c
+    join pg_catalog.pg_attribute a on a.attrelid = c.conrelid and a.attname = 'action'
+   where c.conrelid = 'turn_admin_ops.storage_runs'::regclass
+     and c.contype = 'c'
+     and a.attnum = any(c.conkey);
+  if in_place then
+    return;
+  end if;
+  for k in
+    select c.conname
+      from pg_catalog.pg_constraint c
+      join pg_catalog.pg_attribute a on a.attrelid = c.conrelid and a.attname = 'action'
+     where c.conrelid = 'turn_admin_ops.storage_runs'::regclass
+       and c.contype = 'c'
+       and a.attnum = any(c.conkey)
+  loop
+    execute format('alter table turn_admin_ops.storage_runs drop constraint %I', k.conname);
+  end loop;
+  alter table turn_admin_ops.storage_runs add constraint storage_runs_action_check
+    check (action in ('delete-deleted-project-files', 'drain-cleanup-queue', 'clear-old-temp-files'));
+end;
+$action_check$;
+
 create table if not exists turn_admin_ops.storage_run_items (
   run_id     uuid not null references turn_admin_ops.storage_runs(id) on delete cascade,
   path       text not null check (char_length(path) between 3 and 1024),
@@ -95,6 +148,10 @@ create index if not exists storage_runs_created_idx      on turn_admin_ops.stora
 -- at most one queue drain at a time (a crashed one is taken over after its lease)
 create unique index if not exists storage_runs_one_running_drain
   on turn_admin_ops.storage_runs((action)) where action = 'drain-cleanup-queue' and status = 'running';
+-- at most one "Clear old temp files" run at a time (2026-09-28); an interrupted
+-- one stays 'running' until it is resumed from the page's History
+create unique index if not exists storage_runs_one_running_temp
+  on turn_admin_ops.storage_runs((action)) where action = 'clear-old-temp-files' and status = 'running';
 
 alter table turn_admin_ops.storage_runs      enable row level security;
 alter table turn_admin_ops.storage_run_items enable row level security;
@@ -117,6 +174,31 @@ select r.item, r.status, r.detail
                  and to_regclass('turn_admin_ops.storage_run_items') is not null
                 then 'ok' else 'FAIL — re-run the whole file' end as status,
            'turn_admin_ops.storage_runs, turn_admin_ops.storage_run_items' as detail
+    union all
+    -- the admin-storage function reads the same three facts (core.mjs S_SETUP temp_action)
+    select 15, 'Temp-file clearing allowed',
+           case when exists (
+                  select 1 from pg_catalog.pg_constraint k
+                    join pg_catalog.pg_class c on c.oid = k.conrelid
+                    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+                   where n.nspname = 'turn_admin_ops' and c.relname = 'storage_runs' and k.contype = 'c'
+                     and strpos(pg_catalog.pg_get_constraintdef(k.oid), 'clear-old-temp-files') > 0)
+                 and not exists (
+                  select 1 from pg_catalog.pg_constraint k
+                    join pg_catalog.pg_class c on c.oid = k.conrelid
+                    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+                    join pg_catalog.pg_attribute a on a.attrelid = c.oid and a.attname = 'action'
+                   where n.nspname = 'turn_admin_ops' and c.relname = 'storage_runs' and k.contype = 'c'
+                     and a.attnum = any(k.conkey)
+                     and strpos(pg_catalog.pg_get_constraintdef(k.oid), 'clear-old-temp-files') = 0)
+                 and exists (
+                  select 1 from pg_catalog.pg_class i
+                    join pg_catalog.pg_namespace n on n.oid = i.relnamespace
+                    join pg_catalog.pg_index x on x.indexrelid = i.oid
+                   where n.nspname = 'turn_admin_ops' and i.relname = 'storage_runs_one_running_temp'
+                     and i.relkind = 'i' and x.indisunique)
+                then 'ok' else 'FAIL — re-run the whole file' end,
+           'the audit log accepts "Clear old temp files" runs, one at a time (added 2026-09-28)'
     union all
     select 20, 'Only postgres can read turn_admin_ops',
            case when exists (
@@ -148,6 +230,6 @@ select r.item, r.status, r.detail
     union all
     select 50, 'Runs recorded',
            (select count(*) from turn_admin_ops.storage_runs)::text,
-           'deletes and queue drains made from the Admin Storage page'
+           'deletes, queue drains and temp-file clears made from the Admin Storage page'
   ) r
  order by r.ord;

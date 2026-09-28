@@ -1,0 +1,166 @@
+-- ############################################################################
+-- TEST FIXTURE — DO NOT RUN.
+-- A FROZEN copy of supabase/admin-storage.sql as of commit b6f1667: the FIRST
+-- version, the one the owner ran on production on 2026-09-28 (its run table
+-- allows two actions only). It exists only so that scripts/test-admin-storage.mjs
+-- can rebuild production's audit schema offline and prove that re-running the
+-- current file upgrades it. Pasted into the SQL Editor it would do nothing
+-- useful and leave "Clear old temp files" switched off. The statement below
+-- stops any run at once, before anything changes. The real file is
+-- supabase/admin-storage.sql.
+-- ############################################################################
+do $fixture$ begin raise exception 'TEST FIXTURE — DO NOT RUN: this is a frozen first-version copy of supabase/admin-storage.sql (scripts/fixtures). Run the current supabase/admin-storage.sql instead.'; end $fixture$;
+-- ── the frozen copy starts below this line (the test strips everything above) ──
+-- ============================================================================
+-- TURN — Admin Storage page: audit log for server-side deletes (supabase/admin-storage.sql)
+-- Owner: platform admin · 2026-09-27. Not yet run on production.
+--
+-- PURPOSE
+--   The Admin Storage page (the admin-storage Edge Function,
+--   supabase/functions/admin-storage/) deletes the files of DELETED projects
+--   through the Storage API, and drains the upload cleanup queue on demand.
+--   Every delete is planned, executed and recorded here first, so a run can be
+--   resumed after a crash and every removed file has a who / when / why.
+--   Reading storage needs nothing from this file (the page reads the turn_admin
+--   views from admin-inventory.sql); without it the page browses but deleting
+--   stays OFF.
+--
+-- HOW TO RUN
+--   Supabase Dashboard → SQL Editor → New query → paste this WHOLE file → Run,
+--   as postgres (the SQL Editor's role). Run admin-inventory.sql first.
+--   The editor then shows a small table (item / status / detail). Rows 10-40
+--   should read 'ok'; row 50 counts the runs recorded. Safe to re-run at any time.
+--
+-- WHAT IT CREATES
+--   Schema turn_admin_ops with two tables (storage_runs, storage_run_items).
+--   No functions, triggers, policies or grants. Only postgres can read or write
+--   it; it is NOT exposed in the Data API (keep it out of
+--   Project Settings → Data API → Exposed schemas).
+--   It is a separate schema on purpose: admin-inventory.sql's documented removal
+--   (drop schema turn_admin cascade) must never take the audit log with it, and
+--   turn_admin must keep holding exactly its six read-only views.
+--   Nothing here touches turn_projects: deleted projects get no tombstone (owner
+--   decision, 2026-09-27), so the page names them by short id and uploaders.
+--
+-- HOW TO REMOVE IT
+--   drop schema turn_admin_ops cascade;   (deleting then turns off in the page)
+-- ============================================================================
+begin;
+
+do $preflight$
+begin
+  if to_regclass('turn_admin.files') is null then
+    raise exception 'TURN admin storage: run admin-inventory.sql first. Nothing was created.';
+  end if;
+  if not exists (select 1 from pg_catalog.pg_roles r
+                  where r.rolname = current_user and (r.rolsuper or r.rolbypassrls)) then
+    raise exception 'TURN admin storage: run this in the SQL Editor as postgres (role % cannot see every row). Nothing was created.', current_user;
+  end if;
+end;
+$preflight$;
+
+create schema if not exists turn_admin_ops;
+comment on schema turn_admin_ops is
+  'TURN Admin Storage page: audit log of server-side storage deletes. Readable only by postgres. Remove with: drop schema turn_admin_ops cascade;';
+revoke all on schema turn_admin_ops from public;
+revoke all on schema turn_admin_ops from anon, authenticated, service_role;
+
+create table if not exists turn_admin_ops.storage_runs (
+  id                 uuid primary key,
+  action             text not null check (action in ('delete-deleted-project-files', 'drain-cleanup-queue')),
+  admin_id           uuid,                          -- null for a scheduled drain
+  admin_email        text not null,                 -- 'cron' for a scheduled drain
+  project_ids        uuid[] not null default '{}',
+  status             text not null check (status in ('previewed', 'running', 'partial', 'done', 'expired')),
+  planned_files      integer not null default 0,
+  planned_bytes      bigint  not null default 0,
+  kept_files         integer not null default 0,
+  removed_files      integer not null default 0,
+  removed_bytes      bigint  not null default 0,
+  already_gone       integer not null default 0,
+  skipped_files      integer not null default 0,
+  failed_files       integer not null default 0,
+  created_at         timestamptz not null default now(),
+  preview_expires_at timestamptz not null,
+  started_at         timestamptz,
+  finished_at        timestamptz,
+  lease_token        uuid,
+  lease_expires_at   timestamptz,
+  function_version   text,
+  last_error         text
+);
+
+create table if not exists turn_admin_ops.storage_run_items (
+  run_id     uuid not null references turn_admin_ops.storage_runs(id) on delete cascade,
+  path       text not null check (char_length(path) between 3 and 1024),
+  project_id uuid,
+  bytes      bigint,
+  outcome    text not null check (outcome in ('planned', 'kept', 'sending', 'removed', 'already-gone', 'skipped', 'failed')),
+  detail     text,
+  attempts   integer not null default 0,
+  updated_at timestamptz not null default now(),
+  primary key (run_id, path)
+);
+
+create index if not exists storage_run_items_outcome_idx on turn_admin_ops.storage_run_items(run_id, outcome);
+create index if not exists storage_run_items_path_idx    on turn_admin_ops.storage_run_items(path);
+create index if not exists storage_runs_created_idx      on turn_admin_ops.storage_runs(created_at desc);
+-- at most one queue drain at a time (a crashed one is taken over after its lease)
+create unique index if not exists storage_runs_one_running_drain
+  on turn_admin_ops.storage_runs((action)) where action = 'drain-cleanup-queue' and status = 'running';
+
+alter table turn_admin_ops.storage_runs      enable row level security;
+alter table turn_admin_ops.storage_run_items enable row level security;
+-- after creating: a global default privilege must not hand these to an API role
+revoke all on all tables in schema turn_admin_ops from public;
+revoke all on all tables in schema turn_admin_ops from anon, authenticated, service_role;
+
+commit;
+
+-- ── RESULT — the table the SQL Editor shows after Run ───────────────────────
+with locked_out as (
+  select 0::oid as grantee
+  union all
+  select r.oid from pg_catalog.pg_roles r where r.rolname in ('anon', 'authenticated', 'service_role')
+)
+select r.item, r.status, r.detail
+  from (
+    select 10 as ord, 'Audit tables' as item,
+           case when to_regclass('turn_admin_ops.storage_runs') is not null
+                 and to_regclass('turn_admin_ops.storage_run_items') is not null
+                then 'ok' else 'FAIL — re-run the whole file' end as status,
+           'turn_admin_ops.storage_runs, turn_admin_ops.storage_run_items' as detail
+    union all
+    select 20, 'Only postgres can read turn_admin_ops',
+           case when exists (
+                  select 1 from pg_catalog.pg_namespace n
+                   cross join lateral aclexplode(n.nspacl) a
+                   where n.nspname = 'turn_admin_ops' and a.grantee in (select grantee from locked_out)
+                  union all
+                  select 1 from pg_catalog.pg_class c
+                    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+                   cross join lateral aclexplode(c.relacl) a
+                   where n.nspname = 'turn_admin_ops' and a.grantee in (select grantee from locked_out))
+                then 'FAIL — an API role still has access; re-run the whole file' else 'ok' end,
+           'no access for anon, authenticated, service_role or public'
+    union all
+    select 30, 'turn_admin_ops kept out of the Data API',
+           case when exists (
+                  select 1 from pg_catalog.pg_roles r
+                   cross join lateral unnest(coalesce(r.rolconfig, array[]::text[])) cfg
+                   where r.rolname = 'authenticator'
+                     and cfg ilike 'pgrst.db_schemas=%'
+                     and cfg ~* '(^|[=,[:space:]"])turn_admin_ops($|[,[:space:]"])')
+                then 'FAIL — remove turn_admin_ops from Data API → Exposed schemas' else 'ok' end,
+           'also confirm by eye: Project Settings → Data API → Exposed schemas'
+    union all
+    select 40, 'turn_admin views (admin-inventory.sql)',
+           case when (select count(*) from pg_catalog.pg_views v where v.schemaname = 'turn_admin') = 6
+                then 'ok' else 'FAIL — run admin-inventory.sql' end,
+           'the page reads these; this file adds nothing to turn_admin'
+    union all
+    select 50, 'Runs recorded',
+           (select count(*) from turn_admin_ops.storage_runs)::text,
+           'deletes and queue drains made from the Admin Storage page'
+  ) r
+ order by r.ord;
