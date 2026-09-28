@@ -1,4 +1,5 @@
-/* agents-ui.jsx — the Agents panel (a modal "Writers' Room").
+/* agents-ui.jsx — the Story Editors panel (a modal in the Writers' Room; the Art Room's
+   Department Heads open in it one at a time).
    Drives a chosen agent's bounded loop, renders the live reasoning trace,
    and gates every change behind an Approve / Reject proposal card. */
 
@@ -328,12 +329,14 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
 
   return React.createElement("div",{className:"ag-runner"},
     React.createElement("div",{className:"ag-runner-head"},
-      React.createElement("button",{className:"ag-x",onClick:onBack,title:"All agents"},React.createElement(Icon.chevL,{s:16})),
+      React.createElement("button",{className:"ag-x",onClick:onBack,title:single?"Close":"All Story Editors","aria-label":single?"Close":"All Story Editors"},React.createElement(Icon.chevL,{s:16})),
       React.createElement("span",{className:"ag-runner-ic"},React.createElement(AgentIcon,{name:agent.icon,s:16})),
       React.createElement("div",{className:"ag-runner-t"},
-        // same fiction as the studio progress pop-ups: MUSE wearing this department's hat
+        // the umbrella (Story Editors / Department Heads), then the job title — no persona:
+        // the help assistant only answers, the editors do the work (owner, 2026-09-28)
         React.createElement("div",{className:"ag-runner-name"},
-          React.createElement("span",{className:"ag-runner-muse"},"MUSE \u00b7 "),agent.name),
+          React.createElement("span",{className:"ag-runner-muse"},
+            ((typeof window.turnAgentUmbrella==="function") ? window.turnAgentUmbrella(agent) : "Story Editors")+" \u00b7 "),agent.name),
         React.createElement("div",{className:"ag-runner-sub"},
           status==="idle"?"Ready":status==="done"?"Finished":status==="waiting"?"Awaiting your approval":"Working\u2026")),
       // model picker sits at the header's right edge — the SAME spot as the New Story
@@ -362,7 +365,9 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
         React.createElement("div",{className:"ag-intro-note"},
           React.createElement(Icon.eye,{s:13}),
           "Last report \u2014 "+new Date(saved.ts).toLocaleString()+". Run again below for a fresh read."),
-        (saved.steps||[]).map((s,i)=>React.createElement(TraceStep,{key:"sv"+i,step:s}))),
+        // a kept report shows today's names (a report saved before a rename says the old ones)
+        (saved.steps||[]).map((s,i)=>React.createElement(TraceStep,{key:"sv"+i,
+          step:(s && typeof s.t==="string" && typeof window.turnDisplayNames==="function") ? { ...s, t:window.turnDisplayNames(s.t) } : s}))),
       trace.map((s,i)=>React.createElement(TraceStep,{key:i,step:s})),
       running && !pending && React.createElement("div",{className:"ag-thinking"},
         React.createElement("span",{className:"ai-typing"},React.createElement("i",null),React.createElement("i",null),React.createElement("i",null))),
@@ -383,7 +388,7 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
           setTrace(tr=>[...tr,{k:"flag",t:"Stopped by you."}]); }},
         React.createElement(Icon.x,{s:15}),"Stop"),
       status==="done" && React.createElement(React.Fragment,null,
-        React.createElement("button",{className:"ag-run ghost",onClick: single?onClose:onBack}, single?"Close":"\u2190 All agents"),
+        React.createElement("button",{className:"ag-run ghost",onClick: single?onClose:onBack}, single?"Close":"\u2190 All Story Editors"),
         React.createElement("button",{className:"ag-run ghost",onClick:start},
           React.createElement(Icon.sparkles,{s:15}),"Run again"),
         onView && React.createElement("button",{className:"ag-run",onClick:()=>onView("spine")},
@@ -392,9 +397,10 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
 
 function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, onUndo, issues, initialAgentId, initialInput, autoStart, runOnOpen, single, viewLabel, introExtra, force, unwritten, unwrittenStandIns, finishInput }){
   const agents = window.AGENTS || [];
+  const dn = (t)=> (typeof window.turnDisplayNames==="function") ? window.turnDisplayNames(t) : t;
   const [active, setActive] = React.useState(()=> initialAgentId ? (agents.find(a=>a.id===initialAgentId)||null) : null);
   const [auto, setAuto] = React.useState(!!autoStart);
-  /* CLOSING A RUNNING BUILD (2026-09-28): the X, a click on the dark backdrop or "All agents"
+  /* CLOSING A RUNNING BUILD (2026-09-28): the X, a click on the dark backdrop or "All Story Editors"
      unmounts the runner, and that stops the run. For the story build (a long, paid run) that
      used to happen silently on one stray click — now it asks first. */
   const runningRef = React.useRef(false);
@@ -452,8 +458,8 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
               React.createElement("div",{className:"ag-head-t"},
                 React.createElement("span",{className:"ag-orb"}),
                 React.createElement("div",null,
-                  React.createElement("div",{className:"ag-title"},"Agents"),
-                  React.createElement("div",{className:"ag-sub"},"AI agents that refine your whole story"))),
+                  React.createElement("div",{className:"ag-title"},"Story Editors"),
+                  React.createElement("div",{className:"ag-sub"},"They read your whole story and suggest what to fix \u2014 nothing changes without your OK"))),
               React.createElement("button",{className:"ag-x",onClick:close,title:"Close","aria-label":"Close"},React.createElement(Icon.x,{s:17}))),
             issuesN>0
               ? React.createElement("div",{className:"ag-issues-row"},
@@ -461,7 +467,7 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
                   React.createElement("span",{className:"ag-issues-tx"},
                     React.createElement("b",null,"That \u201c"+issuesN+"\u201d is your story health \u2014 "),
                     issueParts.join(" \u00b7 "),(notesN?" (plus "+notesTx+")":""),". ",
-                    "Open ",((noTurnN+structN)?"Story Doctor":"Continuity Repair")," below to fix ",(issuesN>1?"them":"it"),"."))
+                    "Open ",((noTurnN+structN)?"Story Doctor":"Setups & Payoffs")," below to fix ",(issuesN>1?"them":"it"),"."))
               : notesN>0
               ? React.createElement("div",{className:"ag-issues-row notes"},
                   React.createElement("span",{className:"ag-issues-badge note"},notesN),
@@ -480,10 +486,10 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
             undoCount>0 && React.createElement("div",{className:"ag-undo-row"},
               React.createElement(Icon.undo,{s:14}),
               React.createElement("span",{className:"ag-undo-tx"},
-                undoCount>1 ? (undoCount+" agent runs can be undone \u2014 last was "+undoLabel) : (undoLabel+" made changes you can undo")),
+                undoCount>1 ? (undoCount+" runs can be undone \u2014 last was "+dn(undoLabel)) : (dn(undoLabel)+" made changes you can undo")),
               React.createElement("button",{className:"ag-undo-btn",onClick:onUndo},"Undo last")),
             !aiOn && React.createElement("div",{className:"ag-warn"},
-              React.createElement(Icon.alert,{s:13}),"The model isn't available right now \u2014 agents will use deterministic fallbacks where they can, but generative steps are limited."),
+              React.createElement(Icon.alert,{s:13}),"The writing model isn't available right now \u2014 the Story Editors use their built-in checks where they can, but anything that writes is limited."),
             React.createElement("div",{className:"ag-grid"},
               // creation lives in "New Story" now — hide the build agent (Adaptation)
               // from the picker, but keep it in the registry so New Story can drive it.

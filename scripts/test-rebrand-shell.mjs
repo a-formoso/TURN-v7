@@ -1,0 +1,358 @@
+#!/usr/bin/env node
+/* test-rebrand-shell.mjs — Kinolot rebrand guard for the app shell, marketing, legal, admin and
+   Blender surfaces (owner decisions 2026-09-28; builder 1's files).
+
+   What it pins:
+   A. No user-visible string in these files says the internal codename "TURN", the old product
+      name "Cinema Machine", the assistant's old name "MUSE", an old agent name, "the Agents",
+      "table-reads", the curly or missing apostrophe of "Writers' Room", "Infinite Studio"
+      without "AI", or the old "Studio plan". Only string literals, template text and JSX text
+      are read — comments, identifiers, storage keys and event names are internal.
+      Allowed literals: the admin server's byStatus KEY "outside the TURN asset layout" (matched
+      as the server sends it, SHOWN as "outside the Kinolot asset layout"), and the legacy host
+      cinemamachine.ai in LIVE_HOSTS.
+   B. The page head (title, description, og:*), the favicon (the app's value-charge zig-zag, not
+      the old "E"), and the legal pages: product Kinolot, domain kinolot.infinitestudioai.com,
+      "Kinolot by Infinite Studio AI" — with the legal wording itself unchanged (a fingerprint of
+      the text with the product name and domain neutralised).
+   C. Executed in a sandbox: the two-tone wordmark (ink "Kino" + accent "lot"); straight
+      "Writers' Room"; the Story Editors / Art Coordinator tooltips; the plans (LIVE_HOSTS with
+      the new home and the legacy hosts, the "studio" tier SHOWN as "Producer", a saved "Studio"
+      override shown as "Producer", checkout footer "Kinolot by Infinite Studio AI"); the
+      "writer" role SHOWN as "Co-writer" with every id unchanged; the account chip; the landing
+      and Home footers ("Kinolot by Infinite Studio AI", the company linking to its site); the
+      admin Storage page's copy and its display-time renaming of server text.
+   D. The Blender add-on shows "Kinolot Bridge" / the "Kinolot" sidebar tab / author "Infinite
+      Studio AI", keeps its package id (cinema_machine_bridge) so an existing install updates in
+      place, and the packaged ZIP (and its page copy) matches the source.
+
+   Run: node scripts/test-rebrand-shell.mjs  (no browser, no network) */
+import { readFileSync, existsSync } from "node:fs";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import { createHash } from "node:crypto";
+import zlib from "node:zlib";
+import vm from "node:vm";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const require = createRequire(join(ROOT, "package.json"));
+const babel = require("@babel/core");
+const read = (f)=>readFileSync(join(ROOT, f), "utf8");
+
+let pass = 0, fail = 0;
+function ok(name, cond, extra){
+  if(cond){ pass++; console.log("PASS", name); }
+  else { fail++; console.log("FAIL", name, extra!==undefined ? JSON.stringify(extra).slice(0, 700) : ""); }
+}
+function check(name, fn){
+  try{ const r = fn(); ok(name, r!==false, r===false ? "returned false" : undefined); }
+  catch(e){ ok(name, false, e && e.stack ? e.stack.split("\n").slice(0, 3).join(" | ") : String(e)); }
+}
+const transform = (src, filename)=>babel.transformSync(src, { babelrc:false, configFile:false, filename,
+  presets:[[require.resolve("@babel/preset-react"), { runtime:"classic" }]],
+  plugins:[require.resolve("@babel/plugin-transform-block-scoping")] }).code;
+
+/* ── A. user-visible strings in builder 1's JS files ─────────────────────────────── */
+const FILES = ["app/chrome.jsx", "app/landing.jsx", "app/auth-ui.jsx", "app/plans.jsx", "app/home-dashboard.jsx",
+  "app/team.jsx", "app/admin-storage.jsx", "app/blender-preview-ui.jsx", "app/blender-studio-setup.jsx"];
+const BANNED = [
+  ["the internal codename TURN", /\bTURN\b/],
+  ["the old product name", /Cinema ?Machine/i],
+  ["the assistant's old name", /\bMUSE\b/],
+  ["an old agent name", /Consistency Check|Continuity Repair|Art Department Coordinator/],
+  ["the Agents / table-reads (they are the Story Editors / Final Read)", /\bthe Agents\b|table-reads?\b/],
+  ["a curly or missing Writers' Room apostrophe", /Writers’ Room|Writers’ Room|Writers Room\b|Writer's Room/],
+  ["the company without AI", /Infinite Studio(?! AI)/],
+  ["the plan name Studio", /\bStudio plan\b/],
+];
+const ALLOWED = new Set(["app/admin-storage.jsx|outside the TURN asset layout",   // the admin server's byStatus key
+  "app/plans.jsx|cinemamachine.ai"]);                                          // a legacy host in LIVE_HOSTS
+for(const f of FILES){
+  const src = read(f); let ast;
+  try{ ast = babel.parseSync(src, { filename:f, babelrc:false, configFile:false, sourceType:"script",
+    presets:[require.resolve("@babel/preset-react")] }); }
+  catch(e){ ok("A "+f+" parses", false, e.message); continue; }
+  const hits = [];
+  babel.traverse(ast, { enter(p){
+    const n = p.node; let t = null;
+    if(n.type==="StringLiteral") t = n.value; else if(n.type==="TemplateElement") t = n.value.cooked; else if(n.type==="JSXText") t = n.value;
+    if(t==null || ALLOWED.has(f+"|"+t)) return;
+    for(const [what, re] of BANNED) if(re.test(t)) hits.push(f+":"+n.loc.start.line+" "+what+": "+t.slice(0, 140));
+  }});
+  ok("A "+f+" shows no old, internal or drifting names", hits.length===0, hits);
+}
+check("A the allowed literals: the admin server's status key (matched, never shown) and a legacy host", ()=>{
+  const src = read("app/admin-storage.jsx").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  return src.split('"outside the TURN asset layout"').length===2 && src.includes('const OUTSIDE_LAYOUT = "outside the TURN asset layout";')
+    && src.includes('" outside the Kinolot asset layout (review by hand)"');
+});
+
+/* ── B. page head, favicon, legal pages ─────────────────────────────────────────── */
+const html = read("TURN.html");
+const headTag = (re)=>{ const m = re.exec(html); return m ? m[1] : null; };
+check("B the page title and share previews name Kinolot by Infinite Studio AI", ()=>{
+  const title = headTag(/<title>([^<]*)<\/title>/), desc = headTag(/<meta name="description" content="([^"]*)"/);
+  const site = headTag(/<meta property="og:site_name" content="([^"]*)"/), ogt = headTag(/<meta property="og:title" content="([^"]*)"/);
+  const ogd = headTag(/<meta property="og:description" content="([^"]*)"/), type = headTag(/<meta property="og:type" content="([^"]*)"/);
+  if(title!=="Kinolot — Story architecture for AI filmmakers" || ogt!==title || site!=="Kinolot" || type!=="website") return false;
+  if(!/^Kinolot by Infinite Studio AI: /.test(desc) || !/Infinite Studio AI/.test(ogd)) return false;
+  return [title, desc, site, ogt, ogd].every(t=>!BANNED.some(([, re])=>re.test(t)));
+});
+check("B the favicon is the app's value-charge zig-zag on the teal-to-amber grade (the old 'E' is gone)", ()=>{
+  const svg = read("favicon.svg");
+  const link = /<link rel="icon" type="image\/svg\+xml" href="favicon\.svg(\?v=[\w-]+)?" \/>/.test(html);
+  // the BrandMark path M4 16 l5-9 6 11 5-7, scaled ×2.2 about (12, 12.5) into a 64-unit tile
+  const pts = [[4,16],[9,7],[15,18],[20,11]].map(([x, y])=>[+(32+(x-12)*2.2).toFixed(1), +(32+(y-12.5)*2.2).toFixed(1)]);
+  const d = "M"+pts.map(p=>p.join(" ")).join("L");
+  return link && svg.includes('d="'+d+'"') && !svg.includes("M16 14h32v8H24") && /stroke-width="6\.5"/.test(svg)
+    && svg.includes('stop-color="#5db0d8"') && svg.includes('stop-color="#f29a43"') && read("app/chrome.jsx").includes('d:"M4 16l5-9 6 11 5-7"');
+});
+const legalMain = (f)=>{ const s = read(f); return s.slice(s.indexOf("<main>"), s.indexOf("</main>")); };
+const visible = (s)=> s.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, " ").replace(/<!--[\s\S]*?-->/g, " ").replace(/<[^>]+>/g, " ")
+  .replace(/&middot;/g, "·").replace(/&amp;/g, "&").replace(/&rarr;|&larr;/g, "").replace(/\s+/g, " ").trim();
+/* the legal wording with the product name and domain neutralised; the rename must not move it.
+   Changing it is an owner (and lawyer) decision — update the fingerprint only with that sign-off. */
+const LEGAL_FINGERPRINT = { "privacy.html":"c66001895b4852cb", "terms.html":"eac5e16e1286b97c" };
+const legalText = (f)=> visible(legalMain(f)).replace(/Kinolot by Infinite Studio AI/g, "{PRODUCT} by {COMPANY}")
+  .replace(/kinolot\.infinitestudioai\.com/g, "{DOMAIN}").replace(/Kinolot/g, "{PRODUCT}");
+for(const f of ["privacy.html", "terms.html"]){
+  const s = read(f), text = visible(s);
+  check("B "+f+": Kinolot at kinolot.infinitestudioai.com, by Infinite Studio AI — no old name or host", ()=>
+    s.includes('<a class="logo" href="/">Kinolot</a>') && s.includes('<span class="foot-logo">Kinolot</span>')
+    && s.includes('<div class="meta">Kinolot by Infinite Studio AI &middot; Effective 12 July 2026</div>')
+    && text.includes("kinolot.infinitestudioai.com") && !/cinema\.infinitestudioai\.com|cinemamachine/i.test(s)
+    && !BANNED.some(([, re])=>re.test(text)) && /<title>[^<]*— Kinolot<\/title>/.test(s));
+  check("B "+f+": the legal wording is unchanged (fingerprint)", ()=>{
+    const got = createHash("sha256").update(legalText(f)).digest("hex").slice(0, 16);
+    if(got!==LEGAL_FINGERPRINT[f]){ console.log("  "+f+" fingerprint "+got); return false; }
+    return true;
+  });
+}
+check("B the owner-approved storage-folder sentence and 'no ownership' stay word for word", ()=>
+  visible(read("privacy.html")).includes("Files you create, such as generated images, are kept in private storage folders named after your account handle (taken from the part of your email address before the @) and your project's first title.")
+  && visible(read("terms.html")).includes("We claim no ownership over your films.")
+  && visible(read("terms.html")).includes('These terms are an agreement between you and Infinite Studio AI ("we", "us")'));
+
+/* ── C. the surfaces, executed ──────────────────────────────────────────────────── */
+const el = (type, props, ...children)=>({ type, props:props||{}, children:children.flat(Infinity) });
+const walk = (n, f)=>{ if(!n || typeof n!=="object") return; if(Array.isArray(n)){ n.forEach(x=>walk(x, f)); return; } f(n); (n.children||[]).forEach(x=>walk(x, f)); };
+const findAll = (tree, pred)=>{ const out = []; walk(tree, n=>{ if(pred(n)) out.push(n); }); return out; };
+const hasClass = (c)=>(n)=> String((n.props && n.props.className) || "").split(/\s+/).includes(c);
+const textOf = (n)=> (typeof n==="string" || typeof n==="number") ? String(n) : (!n || typeof n!=="object") ? ""
+  : Array.isArray(n) ? n.map(textOf).join("") : (n.children||[]).map(textOf).join("");
+/* renders function components too (so text inside them is visible), with a hook stub */
+function makeReact(){
+  const R = { Fragment:"fragment", createElement:el, state:null, calls:0,
+    useState(init){ const i = R.calls++; const v = (R.state && i in R.state) ? R.state[i] : (typeof init==="function" ? init() : init); return [v, ()=>{}]; },
+    useEffect(){}, useRef:(v)=>({ current:v===undefined ? null : v }), useMemo:(f)=>f(), useCallback:(f)=>f, useLayoutEffect(){},
+    reset(state){ R.state = state || null; R.calls = 0; } };
+  return R;
+}
+const deep = (n)=>{ if(!n || typeof n!=="object") return n; if(Array.isArray(n)) return n.map(deep);
+  if(typeof n.type==="function"){ return deep(n.type({ ...n.props, children:n.children })); }
+  return { ...n, children:(n.children||[]).map(deep) }; };
+const noop = ()=>{};
+const iconProxy = new Proxy({}, { get:()=>()=>null });
+function box(extra){
+  const React = makeReact();
+  const b = { console, React, Icon:iconProxy, ReactDOM:{ createRoot:()=>({ render:noop, unmount:noop }) },
+    document:{ addEventListener:noop, removeEventListener:noop, createElement:()=>({}), body:{ appendChild:noop } },
+    localStorage:{ getItem:()=>null, setItem:noop, removeItem:noop }, sessionStorage:{ getItem:()=>null, setItem:noop },
+    CustomEvent:class { constructor(t){ this.type = t; } }, addEventListener:noop, removeEventListener:noop, dispatchEvent:()=>true,
+    setTimeout, clearTimeout, setInterval:()=>0, clearInterval:noop, location:{ hostname:"localhost" }, ...(extra||{}) };
+  b.window = b; vm.createContext(b); return b;
+}
+const run = (b, f)=> vm.runInContext(transform(read(f), f), b, { filename:f });
+
+// chrome.jsx (+ team.jsx for the role names it shows)
+const cb = box(); run(cb, "app/team.jsx"); run(cb, "app/chrome.jsx");
+check("C the top-bar wordmark reads Kinolot, two-tone: ink 'Kino' + accent 'lot' (.brand-name b)", ()=>{
+  cb.React.reset();
+  const bar = cb.TopBar({ room:"writers", setRoom:noop, project:{ title:"F" }, scenes:[], drafts:{}, onNewStory:noop, theme:"dark", onTheme:noop, onHome:noop });
+  const marks = findAll(bar, n=>n.type===cb.BrandWordmark);
+  const wm = cb.BrandWordmark();
+  const css = read("app/styles.css");
+  return marks.length===1 && hasClass("brand-name")(wm) && wm.children[0]==="Kino" && wm.children[1].type==="b"
+    && textOf(wm.children[1])==="lot" && textOf(wm)==="Kinolot" && css.includes(".brand-name b{color:var(--pos);font-weight:700}");
+});
+check("C rooms say Writers' Room with a straight apostrophe; the Story Editors and Art Coordinator are named", ()=>{
+  const nav = cb.ViewNav({ room:"writers", view:"spine", setView:noop, onAgents:noop, onToggleRail:noop, onToggleInsp:noop });
+  const art = cb.ViewNav({ room:"art", artView:"characters", setArtView:noop, onCoordinate:noop });
+  const cta = (t)=> findAll(t, hasClass("vn-cta"))[0];
+  return cb.ROOMS[0].label==="Writers' Room" && nav.props["aria-label"]==="Writers' Room views"
+    && cta(nav).props.title==="Story Editors — AI editors that refine your story: Story Doctor, Script Supervisor, Setups & Payoffs, Final Read"
+    && /^Art Coordinator — runs pre-production/.test(cta(art).props.title)
+    && cb.turnApiProviders[0].hint==="Writing, the Story Editors and Frances when that text provider is selected";
+});
+
+// plans.jsx
+const pb = box({ CREDIT_SCALE:10 }); run(pb, "app/plans.jsx");
+check("C checkout uses LIVE links on the new home and every legacy host, TEST links anywhere else", ()=>{
+  const plan = pb.CINEMA_PLANS[0], link = (h)=>{ pb.location = { hostname:h }; return pb.turnPlanLink(plan); };
+  const hosts = ["kinolot.infinitestudioai.com", "cinema.infinitestudioai.com", "cinema-machine.replit.app", "cinemamachine.ai"];
+  return hosts.every(h=>link(h)===plan.live) && link("localhost")===plan.test && link("turn-v6.replit.dev")===plan.test
+    && read("app/plans.jsx").includes('const LIVE_HOSTS = ["kinolot.infinitestudioai.com", "cinema.infinitestudioai.com", "cinema-machine.replit.app", "cinemamachine.ai"];');
+});
+check("C the top plan is SHOWN as Producer; its id, price and grant stay 'studio' / $149 / 9,000", ()=>{
+  const p = pb.CINEMA_PLANS.map(x=>[x.tier, x.name, x.price, x.credits]);
+  const D = pb.turnPlanDisplayName;
+  return JSON.stringify(p)===JSON.stringify([["writer","Writer","$19",800],["director","Director","$49",2400],["studio","Producer","$149",9000]])
+    && D("studio")==="Producer" && D("Studio")==="Producer" && D("STUDIO")==="Producer" && D("writer")==="Writer" && D("director")==="Director"
+    && D("pro")==="Director" && D("none")==="None" && D("")===""
+    && pb.turnRoomRequiredPlan("stage")==="Producer" && pb.turnRoomRequiredPlan("art")==="Director" && pb.turnRoomRequiredPlan("writers")==="Writer"
+    && pb.turnPlanForRes("4K")==="Producer" && pb.turnPlanForRes("1080p")==="Director" && pb.turnPlanForRes("720p")===null
+    && pb.turnTierGates({ plan:"studio" }).maxRes==="4K";
+});
+check("C a saved plan-copy override that still says 'Studio' is shown as Producer; any other name is the admin's", ()=>{
+  pb.turnApplyPlanCopy({ studio:{ name:"Studio" } });
+  const a = pb.CINEMA_PLANS[2].name;
+  pb.turnApplyPlanCopy({ studio:{ name:"Studio Max" } });
+  const b = pb.CINEMA_PLANS[2].name;
+  pb.turnApplyPlanCopy({ studio:{ name:"Producer" } });
+  return a==="Producer" && b==="Studio Max" && pb.CINEMA_PLANS[2].tier==="studio" && pb.turnPlanDisplayName("studio")==="Producer";
+});
+check("C the checkout footer and the welcome cards say Kinolot by Infinite Studio AI (the exact phrase)", ()=>{
+  pb.React.reset(); pb.usePlansVersion = ()=>0;
+  const modal = pb.PlansModal({ onClose:noop, currentPlan:null });
+  const foot = textOf(findAll(modal, hasClass("plans-foot"))[0]);
+  pb.React.reset();
+  const welcome = pb.WelcomePlanCard({ plan:"studio", credits:9000, activating:false, onNewStory:noop, onClose:noop });
+  const pack = pb.WelcomeCreditPackCard({ credits:300, activating:false, onClose:noop });
+  const choose = findAll(modal, hasClass("plan-cta")).map(textOf);
+  return foot==="Secure checkout by Stripe · Kinolot by Infinite Studio AI"
+    && textOf(findAll(welcome, hasClass("welcome-eyebrow"))[0])==="Kinolot" && textOf(findAll(pack, hasClass("welcome-eyebrow"))[0])==="Kinolot"
+    && textOf(findAll(welcome, hasClass("welcome-title"))[0])==="Your Producer plan is live" && choose.includes("Choose Producer");
+});
+
+// team.jsx roles (in the chrome box)
+check("C the 'writer' ROLE is SHOWN as Co-writer; its id, section map and write rules are unchanged", ()=>{
+  const roles = cb.TEAM_ROLES.map(r=>[r.id, r.label]);
+  return JSON.stringify(roles)===JSON.stringify([["view_only","View-only"],["writer","Co-writer"],["art_director","Art director"]])
+    && cb.teamRoleLabel("writer")==="Co-writer" && cb.teamRoleLabel("producer_admin")==="Legacy role"
+    && JSON.stringify(cb.TEAM_ROLE_SECTIONS.writer)===JSON.stringify(["scenes","beatsMap","drafts","history","continuityMap","project"])
+    && cb.teamCanWriteSection("writer", "scenes") && !cb.teamCanWriteSection("writer", "characters")
+    && /^Your Co-writer role covers the story/.test(cb.teamRoleScopeNote("writer"))
+    && cb.teamRoleBlurb(null)==="The current collaborator role couldn't be verified. Access is read-only until the owner assigns View-only, Co-writer or Art director."
+    && /\(View-only, Co-writer or Art director\)/.test(cb.teamRoleScopeNote(""));
+});
+
+// auth-ui.jsx: sign-in mark, plan chip, account chip
+const ab = box({ cloudConfigured:()=>true, cloudUserEmail:()=>"ana@example.com", turnCreditBalance:{ remaining:120, plan:"studio" },
+  turnIsPaidPlan:()=>true, turnTextSpend:()=>({ calls:3, credits:12, since:null }), turnOpenPlans:noop, CREDIT_SCALE:10 });
+run(ab, "app/plans.jsx"); run(ab, "app/team.jsx"); run(ab, "app/auth-ui.jsx");
+check("C sign-in shows Kinolot; a Producer choice follows the visitor into sign-up", ()=>{
+  ab.React.reset();
+  const m = ab.AuthModal({ onClose:noop, onAuthed:noop, initialMode:"signup", plan:"studio", light:true });
+  return textOf(findAll(m, hasClass("auth-mark"))[0])==="Kinolot" && textOf(findAll(m, hasClass("auth-plan"))[0]).startsWith("Producer plan · $149/mo");
+});
+check("C the account chip: Co-writer role, the Producer plan by name, Frances free, no codename in any tooltip", ()=>{
+  ab.React.reset({ 0:true });
+  const chip = ab.AccountChip({ session:{}, cloudActive:true, saveState:"saved", shareRole:"writer", onSignIn:noop, onSignOut:noop });
+  const all = JSON.stringify(chip);
+  ab.React.reset();
+  const bad = ab.AccountChip({ session:{}, cloudActive:true, saveState:"saved", shareRole:"writer", roleUnavailable:true });
+  ab.React.reset();
+  const retry = ab.AccountChip({ session:{}, cloudActive:false, connectionState:"retrying" });
+  const titles = [bad, retry].map(t=>findAll(t, hasClass("acct-cloud"))[0].props.title);
+  return textOf(chip).includes("Co-writer") && textOf(chip).includes("Project role: Co-writer") && textOf(chip).includes("Credits: 120 remaining · Producer plan")
+    && all.includes("MUSE")===false && all.includes("Frances is free.") && titles.every(t=>t && !/\bTURN\b/.test(t))
+    && titles[0].startsWith("Your role on this shared project couldn't be verified") && /retrying automatically/.test(titles[1]);
+});
+
+// landing.jsx + home-dashboard.jsx
+const lb = box(); run(lb, "app/plans.jsx"); run(lb, "app/landing.jsx");
+check("C the landing: 'Kinolot' in the nav, Producer on the pricing, footer 'Kinolot by Infinite Studio AI' linking to the company site", ()=>{
+  lb.React.reset(); lb.usePlansVersion = ()=>0;
+  const page = deep(lb.Landing({ onStart:noop, onSignIn:noop }));
+  const logos = findAll(page, hasClass("lp-logo")).map(textOf);
+  const brand = findAll(page, hasClass("lp-foot-brand"))[0];
+  const link = brand && findAll(brand, n=>n.type==="a")[0];
+  const tiers = findAll(page, hasClass("lp-tier-name")).map(textOf);
+  return JSON.stringify(logos)===JSON.stringify(["Kinolot","Kinolot"]) && textOf(brand)==="Kinolotby Infinite Studio AI"
+    && link.props.href==="https://infinitestudioai.com" && link.props.rel==="noopener" && link.props.target==="_blank"
+    && JSON.stringify(tiers)===JSON.stringify(["Writer","Director","Producer"]) && !/Cinema|\bTURN\b|\bMUSE\b/.test(JSON.stringify(page));
+});
+check("C Home: the same two-tone wordmark, the straight Writers' Room, the landing's footer brand", ()=>{
+  const s = read("app/home-dashboard.jsx");
+  return s.includes('h("span",{className:"hd-brand-name"},"Kino",h("b",null,"lot"))') && s.includes('name:"Writers\' Room"')
+    && s.includes('(typeof LandingFootBrand==="function") ? h(LandingFootBrand,null) : h("span",{className:"lp-logo sm"},"Kinolot")')
+    && read("app/styles.css").includes(".lp-foot-brand{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;min-width:0}");
+});
+
+// admin-storage.jsx
+const sb = box(); vm.runInContext(transform(read("app/admin-storage.jsx"), "admin-storage.jsx"), sb, { filename:"app/admin-storage.jsx" });
+check("C admin Storage: its copy says Kinolot, and server text is renamed at display time (codes and turn_* names kept)", ()=>{
+  const L = sb.AdminStorageLib, t = L.serverText;
+  const kept = L.keptLines({ kept:{ files:3, byStatus:{ "current, history":3, "outside the TURN asset layout":2 }, usedBy:[] } }, {});
+  return t("path outside the TURN asset layout; review by hand")==="path outside the Kinolot asset layout; review by hand"
+    && t("TURN_ROLE_SCOPE: denied")==="TURN_ROLE_SCOPE: denied" && t("see turn_admin.orphans")==="see turn_admin.orphans"
+    && t(null)===null && t(undefined)===undefined && t("")===""
+    && JSON.stringify(kept)===JSON.stringify(["3 still in use", "2 outside the Kinolot asset layout (review by hand)"])
+    && L.MSG.reviewBody.startsWith("Only files nothing in Kinolot uses any more.") && L.MSG.tempAbout.startsWith("Images and videos Kinolot staged")
+    && L.statusChip("unreferenced", false, false).title==="Nothing in Kinolot points at this file."
+    && L.statusChip("orphan: project deleted", true).title==="Its project was deleted and nothing in Kinolot points at this file."
+    && L.errorMessage({ code:"bad_request", status:400, message:"outside the TURN asset layout" })==="The server refused the request: outside the Kinolot asset layout"
+    && !Object.values(L.MSG).some(m=>/\bTURN\b/.test(m));
+});
+
+/* ── D. the Blender add-on ──────────────────────────────────────────────────────── */
+const PKG = "blender/cinema_machine_bridge";
+const init = read(PKG+"/__init__.py");
+check("D Blender shows 'Kinolot Bridge' by Infinite Studio AI, in a 'Kinolot' sidebar tab", ()=>{
+  const info = /bl_info = \{([\s\S]*?)\n\}/.exec(init)[1];
+  const cats = [...init.matchAll(/bl_category = "([^"]*)"/g)].map(m=>m[1]);
+  const labels = [...init.matchAll(/bl_label = "([^"]*)"/g)].map(m=>m[1]);
+  return info.includes('"name": "Kinolot Bridge"') && info.includes('"author": "Infinite Studio AI"')
+    && info.includes('"location": "3D View > Sidebar > Kinolot"') && info.includes('"description": "Render an approved editable Blender proof through the Kinolot bridge"')
+    && info.includes('"blender": (4, 2, 0)') && cats.length===2 && cats.every(c=>c==="Kinolot")
+    && labels.includes("Kinolot") && labels.includes("Kinolot Studio") && labels.includes("Open Kinolot Studio");
+});
+check("D no text Blender shows or writes into the .blend says Cinema Machine or TURN, and no data name keeps the old 'CM ' prefix", ()=>{
+  const shown = [];
+  for(const f of ["__init__.py", "studio_scene.py", "studio_runtime.py", "renderer.py", "protocol.py", "studio_protocol.py"]){
+    const s = read(PKG+"/"+f);
+    for(const re of [/bl_(?:label|description) = "([^"]*)"/g, /\.report\(\{[^}]*\},\s*"([^"]*)"/g, /label\(text="([^"]*)"/g,
+      /(?:StudioSceneError|RuntimeError|ValueError)\(\s*"([^"]*)"/g, /"name": "([^"]*)"/g, /"description": "([^"]*)"/g,
+      // button / field text and property names and tooltips (layout.prop / layout.operator text=, *Property(name=, description=))
+      /\btext="([^"]*)"/g, /Property\([^)]*?\bname="([^"]*)"/g, /\bdescription="([^"]*)"/g,
+      // the data-blocks a proof render or a Studio workspace adds to the user's file: every bpy.data.*.new name and material
+      /\.(?:scenes|worlds|collections|objects|cameras|lights|materials|meshes)\.new\(\s*"([^"]*)"/g, /_(?:new_)?material\((?:bpy,\s*)?"([^"]*)"/g,
+      /_add_(?:box|cylinder|octahedron)\([^,]+,\s*"([^"]*)"/g, /\bname = "([^"]*)"/g])
+      for(const m of s.matchAll(re)) shown.push(f+": "+m[1]);
+  }
+  // no exemptions: the proof scene / world / camera are found by their cinemaMachineProof tag, not their name
+  const bad = shown.filter(t=>/Cinema ?Machine|\bTURN\b|: CM\s/i.test(t));
+  if(bad.length) console.log("  ", bad);
+  return bad.length===0 && shown.some(t=>t==="studio_scene.py: Kinolot Studio") && shown.some(t=>t==="renderer.py: Kinolot Proof")
+    && shown.some(t=>t==="renderer.py: Kinolot Proof Camera") && shown.some(t=>/^studio_scene\.py: Kinolot Studio — $/.test(t))
+    && shown.some(t=>t==="__init__.py: Function URL" || /Function URL/.test(t));
+});
+check("D the package id stays cinema_machine_bridge (an existing install updates in place, operators keep their ids)", ()=>
+  existsSync(join(ROOT, PKG, "__init__.py")) && [...init.matchAll(/bl_idname = "([^"]*)"/g)].map(m=>m[1]).filter(x=>x.includes(".")).every(x=>x.startsWith("cinema_machine."))
+  && /version": \(1, 0, 4\)/.test(init));
+check("D the downloadable ZIP and its page copy are built from this source (names included)", ()=>{
+  const zip = readFileSync(join(ROOT, "app/downloads/cinema-machine-blender.zip"));
+  const files = {}; let off = zip.readUInt32LE(zip.length-6), count = zip.readUInt16LE(zip.length-12);
+  for(let i = 0; i < count; i++){
+    const nameLen = zip.readUInt16LE(off+28), extra = zip.readUInt16LE(off+30), comment = zip.readUInt16LE(off+32), local = zip.readUInt32LE(off+42);
+    const name = zip.slice(off+46, off+46+nameLen).toString("utf8"), size = zip.readUInt32LE(off+20);
+    const lName = zip.readUInt16LE(local+26), lExtra = zip.readUInt16LE(local+28);
+    files[name] = zlib.inflateRawSync(zip.slice(local+30+lName+lExtra, local+30+lName+lExtra+size));
+    off += 46+nameLen+extra+comment;
+  }
+  const same = Object.entries(files).every(([n, b])=>b.equals(readFileSync(join(ROOT, "blender", n))));
+  const data = /window\.CinemaMachineBlenderAddon = Object\.freeze\((\{.*\})\);/.exec(read("app/blender-addon-data.js"));
+  const bundle = data && JSON.parse(data[1]);
+  return same && files["cinema_machine_bridge/__init__.py"].toString("utf8").includes('"name": "Kinolot Bridge"')
+    && bundle.filename==="cinema-machine-blender.zip" && Buffer.from(bundle.base64, "base64").equals(zip) && bundle.byteLength===zip.length;
+});
+check("D the setup steps name 'Kinolot Bridge', the 'Kinolot' tab and the saved file kinolot-blender.zip (the packaged path keeps its internal name)", ()=>{
+  const a = read("app/blender-preview-ui.jsx"), b = read("app/blender-studio-setup.jsx");
+  return a.includes('"Select kinolot-blender.zip without unzipping it, then enable Kinolot Bridge."') && a.includes('"Connect Blender to Kinolot"')
+    && a.includes("Choose the Kinolot tab.") && a.includes('link.download="kinolot-blender.zip"') && a.includes("Look for kinolot-blender.zip in your Downloads folder.")
+    && b.includes('"Choose kinolot-blender.zip without unzipping it, then enable Kinolot Bridge."') && b.includes("open the Kinolot tab.");
+});
+
+console.log(pass+" passed, "+fail+" failed");
+if(fail) process.exit(1);

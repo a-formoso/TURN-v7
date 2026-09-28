@@ -1,8 +1,8 @@
-/* app.jsx — compose Cinema Machine: state, views, tweaks */
+/* app.jsx — compose Kinolot (codename TURN): state, views, tweaks */
 
 const { PROJECT, CHARACTERS, SCENES, BEATS, SCREENPLAY, CONTINUITY, FACTS } = window.TURN_DATA;
 
-/* Is this ledger's plan a REAL, paid subscription? Cinema Machine has NO free tier,
+/* Is this ledger's plan a REAL, paid subscription? Kinolot has NO free tier,
    so "", "none" (cancelled) AND "free" (the generic Get-started signup default) are
    all NOT active plans — only Writer/Director/Studio count. Every plan-gate check
    funnels through here so the app can't disagree with itself about what "on a plan"
@@ -178,9 +178,9 @@ function StudioProgressOverlay({ title, detail, progress, role, onStop, stopping
     role:"status","aria-live":"polite","aria-atomic":"true","aria-label":title},
     React.createElement("div",{className:"redraft-card studio-progress-card"},
       React.createElement("span",{className:"orb"}),
-      // ONE consistent fiction across every tab: MUSE is the studio's AI, wearing the
-      // department hat that owns this tab — the eyebrow names the hat, the title the work.
-      role && React.createElement("div",{className:"redraft-role"},"MUSE \u00b7 "+role),
+      // the eyebrow names the department doing the work (its job title), the title the work —
+      // no persona: the help assistant, Frances, only answers (owner, 2026-09-28)
+      role && React.createElement("div",{className:"redraft-role"},role),
       React.createElement("div",{className:"redraft-t"},title),
       detail && React.createElement("div",{className:"redraft-d"},detail),
       pct!=null && React.createElement("div",{className:"studio-progress-bar",role:"progressbar",
@@ -725,7 +725,7 @@ function App(){
     else if(dept==="colorist"){ setColoristOpen(true); }
   };
   const [researchOpen, setResearchOpen] = React.useState(false);   // Visual Researcher (Lookbook)
-  const [coordOpen, setCoordOpen] = React.useState(false);   // Art Department Coordinator (meta-agent)
+  const [coordOpen, setCoordOpen] = React.useState(false);   // Art Coordinator (meta-agent)
   const [coordConfirm, setCoordConfirm] = React.useState(false);  // cost/scope preview gate before it runs
   const [newStoryOpen, setNewStoryOpen] = React.useState(false);
 
@@ -910,6 +910,12 @@ function App(){
   const readOnlyShare = shareRole === "view_only";
   const unknownSharedRole = !!(_projRow && _projRow.isShared
     && !["view_only","writer","art_director"].includes(shareRole));
+  // THE SCREENPLAY CREDIT on a shared film (owner, 2026-09-28: authorship is the writer's): the
+  // film's OWNER, by their handle — never the collaborator who presses Export; no owner name known,
+  // no credit line. export.jsx screenplayWriter() reads it; null on the user's own film.
+  window.turnOpenFilmCredit = (_projRow && _projRow.isShared)
+    ? { shared:true, owner:(typeof cloudHandleName==="function" ? cloudHandleName(_projRow.ownerEmail) : "") }
+    : null;
   const _sharedCanWriteRoom = id=>!(_projRow&&_projRow.isShared)
     || (typeof window.teamCanWriteRoom==="function" && window.teamCanWriteRoom(shareRole,id));
   const writersRoomReadOnly = !_sharedCanWriteRoom("writers");
@@ -1093,6 +1099,10 @@ function App(){
   React.useEffect(()=>{ window.turnUserEmail = userEmail;
     // the Supabase uid rides into Stripe as client_reference_id (see plans.jsx)
     window.turnUserId = (session && session.user && session.user.id) || null;
+    // the WRITER a screenplay export credits when the film names no author of its own (owner,
+    // 2026-09-28: authorship is the user's, never the company's) — display name, else the account
+    // handle; empty when signed out, and the export then omits the credit line
+    window.turnUserDisplayName = (typeof cloudUserDisplayName==="function") ? cloudUserDisplayName(session) : "";
     if(typeof window.turnRefreshLockedStyles==="function") window.turnRefreshLockedStyles(); },[userEmail, session]);
   // CONTINUITY from the landing pricing → checkout: if the visitor picked a paid plan
   // before signing up, open that plan's Stripe checkout automatically once they're in.
@@ -1703,7 +1713,7 @@ function App(){
       if(showWall) setHomeOpen(true);
       if(!bootLoadWarnedRef.current && typeof window.appToast==="function"){
         bootLoadWarnedRef.current=true;
-        window.appToast(message||"TURN lost the cloud connection. Your open work stays on screen while it reconnects.","info");
+        window.appToast(message||"Lost the cloud connection. Your open work stays on screen while we reconnect.","info");
       }
       const delay=bootRetryDelayRef.current;
       bootRetryDelayRef.current=Math.min(delay*2,15000);
@@ -1716,7 +1726,7 @@ function App(){
       // chip permanently on Connecting.
       if(list===null){
         try{ const sb=(typeof sbClient==="function")&&sbClient(); if(sb) Promise.resolve(sb.auth.refreshSession()).catch(()=>{}); }catch(e){}
-        retryBoot("TURN lost the cloud connection. Your open work stays on screen while it reconnects.",false);
+        retryBoot("Lost the cloud connection. Your open work stays on screen while we reconnect.",false);
         return;
       }
       if(!alive) return;
@@ -1763,8 +1773,8 @@ function App(){
            "Connecting" surface. Keep the project wall reachable and retry the
            authoritative load without manufacturing another project row. */
         retryBoot(openable.length
-          ? "Your projects loaded, but none opened yet. TURN will retry automatically."
-          : "Your first film hasn't opened yet. TURN will retry automatically.",true);
+          ? "Your projects loaded, but none opened yet. We\u2019ll retry automatically."
+          : "Your first film hasn't opened yet. We\u2019ll retry automatically.",true);
         return;
       }
       bootLoadWarnedRef.current=false;
@@ -1776,7 +1786,7 @@ function App(){
       if(alive && openable.length && openable.every(p=>p.isShared) && !inviteLanding)
         setHomeOpen(true);
     })().catch(()=>{
-      retryBoot("TURN hit a connection problem while opening your films. Your work stays on screen and it will retry automatically.",false);
+      retryBoot("We hit a connection problem while opening your films. Your work stays on screen and we\u2019ll retry automatically.",false);
     });
     return ()=>{ alive=false; if(retryTimer) clearTimeout(retryTimer); };
   },[bootUserId,bootRetryTick]);
@@ -2130,7 +2140,7 @@ function App(){
         ? await window.cloudSaveCover(proj.id,url,keepPrev) : null;
       if(!(saved&&saved.ok)){
         pendingSaves[proj.id]={url,keepPrev};
-        throw new Error("The poster was generated but couldn't be saved. Try again to save this same image — TURN won't generate or charge for another one.");
+        throw new Error("The poster was generated but couldn't be saved. Try again to save this same image — no new poster is generated or charged.");
       }
       setProjects(ps=>ps.map(p=>p.id===proj.id?{ ...p, cover:url, ...(keepPrev!==undefined?{coverPrev:keepPrev}:{}) }:p));
       return url;
@@ -2424,7 +2434,7 @@ function App(){
         const fresh=(typeof window.cloudListProjects==="function")?await window.cloudListProjects():null;
         if(!fresh){
           if(typeof window.appToast==="function") window.appToast(
-            "TURN could not refresh the Show before deciding whether this is its final Episode. Nothing was deleted; try again.","error");
+            "We couldn't refresh the Show before deciding whether this is its final Episode. Nothing was deleted; try again.","error");
           return false;
         }
         setProjects(fresh);
@@ -2436,7 +2446,7 @@ function App(){
           const liveShow=fresh.find(p=>String(p.id)===String(target.showId)&&isShowProject(p));
           if(!liveTarget||!liveShow){
             if(typeof window.appToast==="function") window.appToast(
-              "TURN could not verify the final Episode and its Show. Nothing was deleted; refresh Films & TV Shows and try again.","error");
+              "We couldn't verify the final Episode and its Show. Nothing was deleted; refresh Films & TV Shows and try again.","error");
             return false;
           }
           seriesBusyRef.current=""; setSeriesBusy("");
@@ -3053,7 +3063,7 @@ function App(){
               episodePatch:_epChanged,episodeBaseline:_episodeSectionSaveOpts(_epChanged,true)?.baseline||{},
               biblePatch:_biblePatch,bibleBaseline:_bibleBaselinePatch});
             if(!_pairJournalKey) return _docSaveResult({ok:false,
-              message:"TURN couldn’t create the local safety journal for this Episode + Show Bible save. No cloud changes were sent; keep this tab open and try again."},ctx);
+              message:"We couldn’t create the local safety journal for this Episode + Show Bible save. No cloud changes were sent; keep this tab open and try again."},ctx);
           }
           if(_writeEpisode)
             jobs.push({kind:"episode",run:()=>cloudSaveSections(ctx.projectId,_epChanged,_episodeSectionSaveOpts(_epChanged))});
@@ -3193,7 +3203,7 @@ function App(){
   const requireStory = async (what)=>{
     if(scenes.length) return true;
     const ok = await window.appConfirm({ title:"Create a story first",
-      body:what+" works on your story — and there isn't one yet. Bring an idea and Cinema Machine builds the story with you, scene by scene.",
+      body:what+" works on your story — and there isn't one yet. Bring an idea and Kinolot builds the story with you, scene by scene.",
       confirmLabel:"+ New Story", cancelLabel:"Not now" });
     if(ok) startNewStory();
     return false;
@@ -3479,7 +3489,7 @@ function App(){
     const meta = { modelId:model, aspect:"16:9", iso:new Date().toISOString(), prompt, agent:"Prop owner pre-gen",
       identitySnapshot:typeof window.nbIdentitySnapshot==="function"?window.nbIdentitySnapshot(c):null,
       writingSources:(typeof window.nbWritingSourcesFor==="function")?window.nbWritingSourcesFor(c):[],
-      promptCompiler:"TURN prompt compiler" };
+      promptCompiler:"Kinolot prompt compiler" };
     const kind = (typeof slotAssetKind==="function") ? slotAssetKind("charref-"+c.id) : "character";
     const saved=await window.nbCommit(c.id, url, meta, [], kind, identityOptions.identityEpoch);
     if(saved && saved.tier==="stale") return "";
@@ -4446,7 +4456,7 @@ function App(){
   const cancelVoiceAll = ()=>{ voicingCancel.current = true; };
   const resolveLineSpeaker = (shot)=>{
     const scene = scenes.find(s=>s.id===shot.sceneId);
-    if(!scene) throw new Error("This line has no scene, so TURN cannot verify its speaker.");
+    if(!scene) throw new Error("This line has no scene, so its speaker can\u2019t be verified.");
     const norm=v=>String(v||"").toLowerCase().replace(/\(cont'?d\)/ig,"").replace(/[^a-z0-9]+/g," ").trim();
     const exactCharacter=(id,name)=>{
       if(id){ const c=(characters||[]).find(x=>String(x.id)===String(id)); if(c)return c; }
@@ -4473,7 +4483,7 @@ function App(){
       const c=exactCharacter(row.speakerId,row.speaker);
       if(c)return {character:c,line:row};
     }
-    throw new Error("TURN cannot verify who speaks this line. Assign it from the screenplay before voicing; visual cast is never used to guess a voice.");
+    throw new Error("We can\u2019t verify who speaks this line. Assign it from the screenplay before voicing; visual cast is never used to guess a voice.");
   };
   const voiceOneLine = async (shot)=>{
     const text = String(shot.dialogue||"").trim();
@@ -5029,7 +5039,7 @@ function App(){
   };
   const renum = (arr)=>arr.map((s,i)=>({...s,no:i+1}));
   // human label describing a draft's provenance
-  const labelOf = (v)=> !v ? null : v.edited ? "Manual edit" : v.polished ? "MUSE polish" : (v.ai ? "MUSE draft" : (v.auto ? "Structural draft" : "Original draft"));
+  const labelOf = (v)=> !v ? null : v.edited ? "Manual edit" : v.polished ? "AI polish" : (v.ai ? "AI draft" : (v.auto ? "Structural draft" : "Original draft"));
 
   // SCRIPT SUBTITLE — static explainer (the provenance badge that used to render here
   // was removed by request; engine/version info still lives in the Undo/Redo tooltips).
@@ -5053,7 +5063,7 @@ function App(){
        version too, so a normal editing pass used to push out the draft a Redraft had promised
        "Undo restores it". Over the cap, the oldest IN-BETWEEN manual step goes first (a manual
        edit that was itself followed by another manual edit); a version that preceded a Redraft,
-       a written beat or any MUSE draft — and the last manual state before one — is dropped only
+       a written beat or any AI draft — and the last manual state before one — is dropped only
        when nothing else can be, oldest first, as before. */
     const trim = (back)=>{
       const out = back.slice(), manual = (v)=> !!(v && v.edited);
@@ -5127,7 +5137,7 @@ function App(){
     if(owner !== projIdRef.current || !canMutateWritersRoom()){ setDrafting(null); return; }
     setDrafts(d=>({...d,[s.id]:stampDraft(res, scn, beats)}));
     setDrafting(null);
-    // a rough structural stand-in landed instead of MUSE's prose \u2014 say why, never silently
+    // a rough structural stand-in landed instead of the model's prose \u2014 say why, never silently
     const failure = res && res.auto && res.failure;
     if(failure){
       rememberRejection(s.id, failure);   // the Redraft it points to is told what was rejected
@@ -5194,7 +5204,7 @@ function App(){
       setTimeout(()=>setDrafting(null), 320);
     } finally {
       draftingRef.current = false;
-      // scenes that got a rough stand-in instead of MUSE's prose are named, EACH with its
+      // scenes that got a rough stand-in instead of the model's prose are named, EACH with its
       // own reason (a format rejection and a service error are different problems)
       if(standIns.length && typeof window.appToast==="function" && typeof window.screenplayBatchFailureMessage==="function")
         window.appToast(window.screenplayBatchFailureMessage(
@@ -5342,22 +5352,47 @@ function App(){
     // stay marked out of date
     const run = { stop:false };
     let stopped = false;
+    /* STOP ON A FAILURE RETRYING CAN'T FIX, and on the same service failure twice in a row
+       (2026-09-28, the rule Auto-draft all and the story build follow — agents.jsx
+       failureNeedsAction / repeatedServiceFailure): every later scene would fail the same way,
+       so the batch stops there; what was redrafted is kept, the rest stay marked, said once. */
+    const aiAtStart = (typeof aiAvailable==="function") && aiAvailable();
+    let prevFail = null, halted = null;
     try{
       for(let i=0;i<todo.length;i++){
         if(owner!==projIdRef.current || !canMutateWritersRoom()) break;
         if(run.stop){ stopped = true; break; }
         setRedraftingAll({ i:i+1, total:todo.length, no:todo[i].no, run });
         lastPolishFailureRef.current = null;
-        if(await redraftScene(todo[i], beatsMap[todo[i].id], { confirm:false, quiet:true })) done++;
-        else failed.push({ no:todo[i].no, failure:lastPolishFailureRef.current });
+        if(await redraftScene(todo[i], beatsMap[todo[i].id], { confirm:false, quiet:true })){ done++; prevFail = null; }
+        else {
+          const f = lastPolishFailureRef.current;
+          failed.push({ no:todo[i].no, failure:f });
+          if(aiAtStart && f && owner===projIdRef.current){
+            if(typeof window.turnFailureNeedsAction==="function" && window.turnFailureNeedsAction(f)){ halted = { no:todo[i].no, failure:f }; break; }
+            if(typeof window.turnRepeatedServiceFailure==="function" && window.turnRepeatedServiceFailure(prevFail, f)){ halted = { no:todo[i].no, failure:f, repeated:true }; break; }
+          }
+          prevFail = f || null;
+        }
       }
-      if(run.stop && done+failed.length<todo.length) stopped = true;
+      if(!halted && run.stop && done+failed.length<todo.length) stopped = true;
     } finally { setRedraftingAll(null); }
     // a film switch stopped the batch (2026-09-28): say that once — the scene in flight was not
     // applied in either film — instead of listing it as a failure with a borrowed reason
     if(owner!==projIdRef.current){
       if(typeof window.appToast==="function") window.appToast("You switched films, so Redraft out-of-date stopped: "+done+" of "+todo.length+" scene"+(todo.length!==1?"s were":" was")+
         " redrafted in that film, and the rest are still marked out of date there — reopen it to redraft them.","info");
+      return;
+    }
+    if(halted && typeof window.appToast==="function"){
+      const why = (typeof window.screenplayFailureReason==="function") ? window.screenplayFailureReason(halted.failure) : "the writing service can\u2019t be reached";
+      const next = (typeof window.screenplayFailureAdvice==="function") ? window.screenplayFailureAdvice(halted.failure, "press Redraft out-of-date to continue") : "Press Redraft out-of-date to continue.";
+      const left = todo.length - done;
+      window.appToast("Redraft out-of-date stopped at Scene "+halted.no+" \u2014 "+why+(halted.repeated
+        ? ", for the second scene in a row, so the other scenes would most likely fail the same way. "
+        : ", so the other scenes would fail the same way. ")+
+        (done ? done+" scene"+(done!==1?"s were":" was")+" redrafted and kept; " : "")+
+        left+" scene"+(left!==1?"s are":" is")+" still marked out of date and unchanged. "+next, "error", { force:true });
       return;
     }
     if(stopped && typeof window.appToast==="function"){
@@ -5387,7 +5422,7 @@ function App(){
   };
 
   // NAME EVERY SCENE'S VALUE — older films get a value at stake per scene: the poles
-  // their own words give are used as-is; MUSE supplies only the missing ones
+  // their own words give are used as-is; the writing model supplies only the missing ones
   const unnamedValueCount = (typeof sceneValueAxis==="function") ? scenes.filter(s=>!sceneValueAxis(s)).length : 0;
   const [namingValues, setNamingValues] = React.useState(false);
   const nameAllValues = async ()=>{
@@ -5403,7 +5438,7 @@ function App(){
     if(typeof window.appConfirm==="function"){
       const ok = await window.appConfirm({ title:"Name the value at stake for "+todo.length+" scene"+(todo.length!==1?"s":"")+"?",
         body:(complete.length ? complete.length+" come"+(complete.length===1?"s":"")+" straight from the scene\u2019s own words. " : "")+
-          (needAI.length ? (live ? needAI.length+" need"+(needAI.length===1?"s":"")+" MUSE to supply a missing pole (one writing call). " : needAI.length+" can\u2019t be completed until a writing model is available. ") : "")+
+          (needAI.length ? (live ? needAI.length+" need"+(needAI.length===1?"s":"")+" a missing pole written (one writing call). " : needAI.length+" can\u2019t be completed until a writing model is available. ") : "")+
           "Each scene\u2019s opening and closing words then follow its charges. The scripts aren\u2019t changed and the scenes aren\u2019t marked for a redraft.",
         confirmLabel:"Name values" });
       if(!ok) return;
@@ -5755,7 +5790,7 @@ function App(){
       const artOnly = production && writersRoomReadOnlyRef.current && !artRoomReadOnlyRef.current;
       if(writersRoomReadOnlyRef.current){
         if(!artOnly){
-          try{ emit && emit({k:"flag", t:"Your role cannot change the Writers' Room, so these proposed changes were NOT applied. Ask the owner for Writer access."}); }catch(e){}
+          try{ emit && emit({k:"flag", t:"Your role cannot change the Writers' Room, so these proposed changes were NOT applied. Ask the owner for Co-writer access."}); }catch(e){}
           return;
         }
       }
@@ -5813,7 +5848,7 @@ function App(){
         model.characters.forEach(c=>{ if(c && c.id!=null) castCommitted[String(c.id)]=JSON.parse(JSON.stringify(c)); });
         if(!allowNewCast && reconciled.blockedNames&&reconciled.blockedNames.length&&!warnedRestrictedCast){
           warnedRestrictedCast=true;
-          try{ emit&&emit({k:"flag",t:"Your Writer role can shape this Episode but cannot change the Show cast. New cast candidates were not added; scene character links were kept within the existing Show canon. Ask the owner or Art director to add any genuinely new character."}); }catch(e){}
+          try{ emit&&emit({k:"flag",t:"Your Co-writer role can shape this Episode but cannot change the Show cast. New cast candidates were not added; scene character links were kept within the existing Show canon. Ask the owner or Art director to add any genuinely new character."}); }catch(e){}
         }
       }
       setScenes(model.scenes.map(s=>({...s})));
@@ -6018,7 +6053,7 @@ function App(){
           ...(referenceImage?{referenceImage}:{}), ...(extra.length?{ extraImages:extra }:{}),
           commitRefs, metaExtra:{ specPrompt:(typeof combinedImagePrompt==="function") ? combinedImagePrompt(c, project, props) : prompt,
             writingSources:(typeof window.nbWritingSourcesFor==="function")?window.nbWritingSourcesFor(c):[],
-            promptCompiler:"TURN prompt compiler",
+            promptCompiler:"Kinolot prompt compiler",
             wornSig:(typeof window.wornPropsSig==="function")?window.wornPropsSig(worn,c.id):"",
             wornReferences, wornRefSummary:{total:wornReferences.length,visual,text:wornReferences.length-visual} } }); },
       generateState: async (c, st, baseUrl)=>{
@@ -6032,7 +6067,7 @@ function App(){
         const stateEntity={...c,appearanceState:st};
         const opts = { ...identityOptions, model:_modelFor(c), metaExtra:{
           writingSources:(typeof window.nbWritingSourcesFor==="function")?window.nbWritingSourcesFor(stateEntity):[],
-          promptCompiler:"TURN prompt compiler" } };
+          promptCompiler:"Kinolot prompt compiler" } };
         if(baseUrl) opts.referenceImage = baseUrl;
         if(cameo.length) opts.extraImages = cameo;
         return _genCharImage(c.id+":"+st.id, prompt, opts); },
@@ -6375,6 +6410,8 @@ function App(){
   const agentUndoTop = ()=>{ const k = agentFilmKey();
     const st = (agentUndoRef.current||[]).filter(x=>x && x.filmKey===k); return st[st.length-1] || null; };
   const agentUndoAskingRef = React.useRef(false);
+  // an agent's name as users see it today (a label recorded under an older name is renamed)
+  const agentLabel = (l)=> (typeof window.turnDisplayNames==="function") ? window.turnDisplayNames(l) : l;
   const undoLastAgent = async ()=>{
     if(agentUndoAskingRef.current || !canMutateWritersRoom()) return;
     const snap = agentUndoTop(); if(!snap) return;
@@ -6385,8 +6422,9 @@ function App(){
     if(moved && typeof window.appConfirm==="function"){
       agentUndoAskingRef.current = true;
       let ok = false;
-      try{ ok = await window.appConfirm({ title:"Undo "+snap.label+"\u2019s changes?",
-        body:"The film has changed since "+snap.label+" made its changes. Undo puts the whole film back the way it was just before "+snap.label+" ran, so everything changed after it \u2014 script edits, redrafts, beat and cast changes \u2014 will be lost too.",
+      const who = agentLabel(snap.label);
+      try{ ok = await window.appConfirm({ title:"Undo "+who+"\u2019s changes?",
+        body:"The film has changed since "+who+" made its changes. Undo puts the whole film back the way it was just before "+who+" ran, so everything changed after it \u2014 script edits, redrafts, beat and cast changes \u2014 will be lost too.",
         confirmLabel:"Undo anyway", cancelLabel:"Keep everything", danger:true, safeDefault:true }); }
       finally{ agentUndoAskingRef.current = false; }
       // the film, the stack or the role may have moved while the question was open
@@ -6429,7 +6467,7 @@ function App(){
   const emptyCanvas = ()=> React.createElement("div",{className:"empty-canvas"},
     React.createElement("div",{className:"empty-canvas-card"},
       React.createElement("div",{className:"empty-canvas-title"},"Start your story"),
-      React.createElement("div",{className:"empty-canvas-sub"},"Your canvas is clean. Describe an idea and Cinema Machine builds the value-charge spine, scene by scene — then characters, props, script and shots all follow from it."),
+      React.createElement("div",{className:"empty-canvas-sub"},"Your canvas is clean. Describe an idea and Kinolot builds the value-charge spine, scene by scene — then characters, props, script and shots all follow from it."),
       React.createElement("button",{className:"empty-canvas-btn",onClick:startNewStory},"+ New Story")));
   const sceneByBusyShot = draftingSceneShots ? scenes.find(s=>s.id===draftingSceneShots) : null;
   const draftSceneNow = drafting ? scenes[Math.min(drafting.i||0, Math.max(0, scenes.length-1))] : null;
@@ -6442,9 +6480,9 @@ function App(){
   const draftingProgress = drafting && (drafting.total||scenes.length)
     ? ((Number(drafting.i||0) + (drafting.one ? 0.35 : 1)) / Math.max(1, Number(drafting.total||scenes.length))) * 100
     : null;
-  /* ONE fiction across every busy overlay: MUSE is the studio's AI, and each tab is a
-     department profession — the overlay names the hat MUSE is wearing (role) and the
-     work being done (title). Roles match the agent roster (Casting Director, Props
+  /* ONE fiction across every busy overlay: each tab is a department profession — the
+     overlay names the department doing the work (role, a job title) and the work being
+     done (title). Roles match the agent roster (Casting Director, Props
      Master, Location Scout, Colorist, Shot Designer) so the agent panels and these
      pop-ups tell the same story. */
   const studioProgress =
@@ -6530,7 +6568,7 @@ function App(){
   // landing at a user who turns out to be signed in.
   if(authGate && !authReady){
     return React.createElement("div",{className:"lp-splash"},
-      React.createElement("span",{className:"lp-logo"},"Cinema Machine"),
+      React.createElement("span",{className:"lp-logo"},"Kinolot"),
       React.createElement("span",{className:"lp-splash-dot"}));
   }
   if(authGate && !session && typeof Landing!=="undefined"){
@@ -6550,7 +6588,7 @@ function App(){
   if(authGate && session && !currentProjectId){
     const reconnecting=cloudConnectionState==="retrying";
     return React.createElement("div",{className:"lp-splash"},
-      React.createElement("span",{className:"lp-logo"},"Cinema Machine"),
+      React.createElement("span",{className:"lp-logo"},"Kinolot"),
       React.createElement("span",{className:"lp-splash-dot"}),
       React.createElement("div",{className:"acct-status"},reconnecting
         ? "Reconnecting to your films…"
@@ -6587,12 +6625,12 @@ function App(){
       React.createElement(Icon.eye||Icon.warn,{s:13}),
       React.createElement("span",null,
         React.createElement("b",null,"View-only access — "),
-        "you can navigate, inspect, export and play this film. Editing and AI-write actions are disabled. Ask the owner for Writer access to edit it.")),
+        "you can navigate, inspect, export and play this film. Editing and AI-write actions are disabled. Ask the owner for Co-writer access to edit it.")),
     unknownSharedRole && React.createElement("div",{className:"readonly-banner",role:"status"},
       React.createElement(Icon.warn||Icon.eye,{s:13}),
       React.createElement("span",null,
         React.createElement("b",null,"Role unavailable — "),
-        "TURN could not verify a current collaborator role for this shared project. It is read-only and changes or AI actions will not save. Ask the owner to reassign View-only, Writer or Art director access.")),
+        "We couldn\u2019t verify a current collaborator role for this shared project. It is read-only and changes or AI actions will not save. Ask the owner to reassign View-only, Co-writer or Art director access.")),
     !readOnlyShare && !unknownSharedRole && room==="writers" && shareRole==="art_director" && writersRoomReadOnly && React.createElement("div",{className:"readonly-banner",role:"status"},
       React.createElement(Icon.eye||Icon.warn,{s:13}),
       React.createElement("span",null,
@@ -6807,7 +6845,7 @@ function App(){
       railOpen,inspOpen,onToggleRail:toggleRail,onToggleInsp:toggleInsp,
       onCoordinate:async ()=>{
         if(turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Run pre-production")) return;
-        if(await requireStory("Art Department Coordinator")) setCoordConfirm(true); },
+        if(await requireStory("Art Coordinator")) setCoordConfirm(true); },
       onProductionCheck:async ()=>{ if(productionCheckBlocked) return; if(await requireStory("The Production check")) setProductionOpen(true); },
       productionReadOnly:productionCheckBlocked,
       onAgents:async ()=>{ if(!canMutateWritersRoom()) return; if(await requireStory("Story Editors")) setAgentsOpen(true); }}),
@@ -7079,7 +7117,7 @@ function App(){
       issues:{}, undoCount:0,
       aiOn: (typeof aiAvailable==="function" && aiAvailable())}),
 
-    // Art Department Coordinator — the meta-agent that runs the pre-production pipeline in
+    // Art Coordinator (id "coordinator") — the meta-agent that runs the pre-production pipeline in
     // dependency order (lookbook → cast → props → wardrobe → locations → colour → shot
     // coverage), launched from the Art Room's "Run pre-production" button in the view bar.
     // It renders no shot frames and composes no storyboard — those stay in their tabs.
@@ -7175,7 +7213,8 @@ function App(){
           sourceBrief: brief, sourceBriefAt: new Date().toISOString() }));
         setAgentLaunch({id:"adapt", input:brief}); setAgentsOpen(true); }}),
 
-    // MUSE — the floating help assistant, available in every room (separate from Agents).
+    // MUSE — Frances (the codename stays MUSE in code), the floating help assistant, available in
+    // every room; it only answers (the Story Editors and Department Heads do the work).
     // Signed-in: full Claude-powered chat over your story. Signed-out: a curated teaser
     // (a few hand-written tastes + a sign-up nudge), so visitors get a feel without the
     // full studio. signedIn flips the mode; onSignIn opens the auth modal.
@@ -7204,9 +7243,9 @@ function App(){
     !writersRoomBlocked && agentUndoHere.length>0 && agentUndoHere[agentUndoHere.length-1].label!=="Adaptation" && React.createElement("div",{className:"agent-undo"},
       React.createElement("span",{className:"au-ic"},React.createElement(Icon.undo,{s:15})),
       React.createElement("div",{className:"au-text"},
-        React.createElement("div",{className:"au-t"},agentUndoHere[agentUndoHere.length-1].label+" changed your story"),
+        React.createElement("div",{className:"au-t"},agentLabel(agentUndoHere[agentUndoHere.length-1].label)+" changed your story"),
         React.createElement("div",{className:"au-s"},
-          agentUndoHere.length>1 ? (agentUndoHere.length+" agent runs can be undone") : "One click to revert it")),
+          agentUndoHere.length>1 ? (agentUndoHere.length+" runs can be undone") : "One click to revert it")),
       React.createElement("button",{className:"au-btn",onClick:undoLastAgent},
         React.createElement(Icon.undo,{s:13}),"Undo"),
       React.createElement("button",{className:"au-x",title:"Keep changes","aria-label":"Keep changes",onClick:()=>setAgentUndo([])},
@@ -7242,7 +7281,7 @@ function App(){
 class AppCrash extends React.Component {
   constructor(p){ super(p); this.state = { err:null }; }
   static getDerivedStateFromError(err){ return { err }; }
-  componentDidCatch(err, info){ try{ console.error("Cinema Machine — render crash:", err, info); }catch(e){} }
+  componentDidCatch(err, info){ try{ console.error("Kinolot — render crash:", err, info); }catch(e){} }
   render(){
     if(!this.state.err) return this.props.children;
     const e = this.state.err;

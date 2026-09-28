@@ -438,11 +438,11 @@ await test("E APP_FEATURES describes the page forms, accurately, with no vendor 
   const F = vm.runInContext("APP_FEATURES", box);
   const pf = F.find(f=>String(f.name).startsWith("Screenplay page forms"));
   assert.ok(pf, "entry exists");
-  for(const s of ["MID-SPEECH (beat)", "cue, line, (beat), line", "never lists it as an orphan", "'NAME (CONT'D)'", "MUSE is told to write it that way",
+  for(const s of ["MID-SPEECH (beat)", "cue, line, (beat), line", "never lists it as an orphan", "'NAME (CONT'D)'", "the writing engine is told to write it that way",
     "rejected and retried \u2014 never repaired by guessing the speaker", "another character whose cue was dropped", "a real subject's answer",
     "two dialogue blocks in a row", "a parenthetical that carries another character's line ('(JOHN: Out.)')", "'INTERVIEWER (O.S.)'", "'EXPECTED TESTIMONY: <subject> on <topic>'",
     "'EXPECTED TESTIMONY \u2014 <subject's name>: <topic>'", "every sentence opens as a topic", "lowercase words are no exception", "'In her own words, \u2026'", "a lowercase 'i' too",
-    "STILL REJECTED: words attributed to a real subject", "quoted words inside any EXPECTED TESTIMONY line", "a quoted title or nickname", "remind MUSE of these forms", "a speech continued after a (beat) stays one dialogue line"])
+    "STILL REJECTED: words attributed to a real subject", "quoted words inside any EXPECTED TESTIMONY line", "a quoted title or nickname", "remind the writing engine of these forms", "a speech continued after a (beat) stays one dialogue line"])
     assert.ok(pf.what.includes(s), "names: "+s);
   // (review) MUSE must not promise the automatic re-cue that no longer exists
   assert.ok(!/adds 'NAME \(CONT'D\)' itself|re-cued 'NAME \(CONT'D\)' automatically/.test(pf.what), "no automatic re-cue claimed");

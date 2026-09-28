@@ -1,4 +1,4 @@
-"""Asynchronous desktop transport state for Cinema Machine Studio.
+"""Asynchronous desktop transport state for Kinolot Studio.
 
 Workers only perform HTTPS through the already-paired bridge client.  Blender
 scene mutation is deliberately left to the add-on timer/UI after events have

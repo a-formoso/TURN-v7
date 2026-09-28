@@ -25,7 +25,6 @@
    node scripts/test-round1-state.mjs */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { execSync } from "node:child_process";
 import vm from "node:vm";
 import { transformSync } from "@babel/core";
 
@@ -490,10 +489,11 @@ await test("6 the pass before the script designs only the characters this build 
   const tomas = r.model.characters.find(c=>c.id==="tomas");
   assert.ok(!/before want/.test(String(tomas.conscious||"")), "no field of a canon character is filled before the script: "+JSON.stringify(tomas));
   assert.equal(r.model.characters.find(c=>c.id==="mara").conscious.startsWith("before want") || r.model.characters.find(c=>c.id==="mara").conscious.startsWith("reconcile"), true);
-  // sensitivity: the build as it shipped before this round sent Tomas too
-  const head = execSync("git show HEAD:app/agents.jsx", { encoding:"utf8" });
-  assert.ok(/const psych = await window\.aiCastPsychology\(ctx\.model\.characters, ctx\.model\.scenes, ctx\.model\.project, \{\s*scenes:ctx\.model\.scenes, drafts:\{\}, cast:ctx\.model\.characters, mode:"before"/.test(head),
-    "HEAD designed every character before the script");
+  // the regression guard: the build as it shipped before round 1 sent the whole cast (Show
+  // canon included) to the design pass. (This used to compare against `git show HEAD`, which
+  // stopped meaning "before the fix" the moment the fix was committed.)
+  assert.ok(!/const psych = await window\.aiCastPsychology\(ctx\.model\.characters, ctx\.model\.scenes, ctx\.model\.project, \{\s*scenes:ctx\.model\.scenes, drafts:\{\}, cast:ctx\.model\.characters, mode:"before"/.test(agentsSrc),
+    "the design pass before the script never takes the whole cast again");
   assert.ok(/const psych = await window\.aiCastPsychology\(designFor, ctx\.model\.scenes/.test(agentsSrc));
 });
 
@@ -513,14 +513,14 @@ await test("11 psychology: a failed pass is said; a check that never ran is neve
   let r = await adaptBuild({ psych:()=>null });
   let flags = r.trace.filter(e=>e.k==="flag").map(e=>e.t);
   assert.ok(flags.includes("Couldn't design the cast's inner life before writing this time; the scenes are written without it, and the check after the script tries again."), JSON.stringify(flags));
-  assert.ok(flags.includes("Couldn't design the cast's inner life this time, so the characters have no want, need or arc yet. Open each one in the Cast panel and press Draft with MUSE to fill it in."), JSON.stringify(flags));
+  assert.ok(flags.includes("Couldn't design the cast's inner life this time, so the characters have no want, need or arc yet. Open each one in the Cast panel and press Draft to fill it in."), JSON.stringify(flags));
   assert.ok(!r.trace.some(e=>/bears out every character/.test(e.t)));
   // designed before, the check returns nothing and REPORTS a failure: flagged, named
   const reported = (failedIds)=>(chars, o)=>{ if(o && o.mode==="reconcile"){ if(o.report) o.report.failedIds = failedIds; return null; }
     return Object.fromEntries(chars.map(c=>[c.id, { conscious:"want "+c.id }])); };
   r = await adaptBuild({ psych:reported(["mara","tomas"]) });
   flags = r.trace.filter(e=>e.k==="flag").map(e=>e.t);
-  assert.ok(flags.includes("Couldn't check Mara Quinn, Tomas Iturbe against the script this time — the psychology designed before the script stands. To revisit a character, open it in the Cast panel and press Draft with MUSE."), JSON.stringify(flags));
+  assert.ok(flags.includes("Couldn't check Mara Quinn, Tomas Iturbe against the script this time — the psychology designed before the script stands. To revisit a character, open it in the Cast panel and press Draft."), JSON.stringify(flags));
   assert.ok(!r.trace.some(e=>/bears out every character/.test(e.t)));
   // it ran and found nothing to revise: the success line stands
   r = await adaptBuild({ psych:reported([]) });

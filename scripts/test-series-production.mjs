@@ -763,7 +763,7 @@ ok("ambiguous conversion responses read back the committed Show and Episode pair
   && /async function _seriesReadConvertedPair[\s\S]*sourceEpisodeId[\s\S]*reconciled:true/.test(cloud));
 ok("unconfirmed conversion keeps an explicit safe-retry state",
   /retryState\s*:\s*\{operation\s*:\s*["']convert-project-to-show["']\s*,\s*episodeId/.test(cloud)
-  && /Try Create show again; TURN will safely reconcile the same Episode 1/i.test(cloud));
+  && /Try Create show again; we'll safely reuse the same Episode 1/i.test(cloud));   // user-visible: no codename (Kinolot rebrand, 2026-09-28)
 ok("episode creation prefers its transactional RPC", /rpc\s*\(\s*["']turn_create_show_episode["']/.test(cloud));
 const createEpisodeCloudBlock = section(cloud, "async function cloudCreateShowEpisode", "window.cloudCreateShowEpisode");
 ok("episode creation sends a durable idempotency key", /p_request_id\s*:\s*requestId/.test(cloud));

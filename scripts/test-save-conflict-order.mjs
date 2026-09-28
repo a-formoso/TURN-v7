@@ -1074,7 +1074,7 @@ async function lostResponseCase({ changeAgain = false, remoteAfter = false, reac
   const ai = read("app/ai.jsx");
   const line = ai.split("\n").find(l => /CONFLICT CHOICE/.test(l)) || "";
   ok("MUSE: the pre-existing CONFLICT CHOICE text is kept word for word",
-    line.includes("if another window wins an overlapping save, TURN keeps this window's local edit visible, marks it Not saved, and asks before loading the cloud version. Keep my edits cancels replacement; Load cloud version is the explicit destructive choice. TURN never auto-reloads over local work."));
+    line.includes("if another window wins an overlapping save, Kinolot keeps this window's local edit visible, marks it Not saved, and asks before loading the cloud version. Keep my edits cancels replacement; Load cloud version is the explicit destructive choice. Kinolot never auto-reloads over local work."));
   ok("MUSE: no absolute 'never reported as another window' promise", !/never reported as another window/.test(line) && /normally not treated as another window's change/.test(line), line.slice(0, 200));
   ok("MUSE: describes plain-word labels, the safe default, declined saves and merged-project adoption",
     /Project settings: Logline/.test(line) && /Keep my edits focused/.test(line) && /declines a save while no newer cloud version exists/.test(line)

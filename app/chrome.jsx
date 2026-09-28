@@ -1,11 +1,21 @@
 /* chrome.jsx — TopBar + LeftRail */
 
+/* The product is KINOLOT (say KEE-no-lot), by Infinite Studio AI — owner decision 2026-09-28.
+   "TURN" is the internal codename only (TURN.html, turn_* tables, window.TURN_* …) and never
+   appears in copy a user can see. The mark is the value-charge zig-zag (favicon.svg draws the
+   same glyph). */
 function BrandMark(){
   return React.createElement("div",{className:"brand-mark"},
     React.createElement("svg",{width:15,height:15,viewBox:"0 0 24 24",fill:"none",
       stroke:"#fff",strokeWidth:2,strokeLinecap:"round",strokeLinejoin:"round"},
       React.createElement("path",{d:"M4 16l5-9 6 11 5-7"})));
 }
+/* the two-tone wordmark: ink "Kino" + accent "lot" (.brand-name b); read as one word */
+function BrandWordmark(){
+  return React.createElement("span",{className:"brand-name"},
+    "Kino",React.createElement("b",null,"lot"));
+}
+window.BrandWordmark = BrandWordmark;
 
 function ExportMenu({ project, scenes, drafts, onReset }){
   const [open, setOpen] = React.useState(false);
@@ -180,12 +190,12 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
   // Art Room → Run pre-production only; Writers' Room → the Story Editors panel.
   const cta = inArt
     ? (onCoordinate && React.createElement("button",{className:"tb-btn accent vn-cta",onClick:onCoordinate,disabled:readOnly,
-          title:readOnly?"View-only access — pre-production cannot be changed":"Art Department Coordinator — runs pre-production in dependency order: lookbook → cast → props → wardrobe → locations → colour → shot coverage, in one click (shot frames and storyboards stay in their tabs)"},
+          title:readOnly?"View-only access — pre-production cannot be changed":"Art Coordinator — runs pre-production in dependency order: lookbook → cast → props → wardrobe → locations → colour → shot coverage, in one click (shot frames and storyboards stay in their tabs)"},
           React.createElement(Icon.robot,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Run pre-production")))
     : (onAgents && React.createElement("button",{className:"tb-btn accent vn-cta",onClick:onAgents,disabled:readOnly,
-        title:readOnly?"View-only access — Story Editors cannot change this film":"Story Editors — AI agents that refine your story: Story Doctor, Consistency Check, Continuity Repair, Final Read"},
+        title:readOnly?"View-only access — Story Editors cannot change this film":"Story Editors — AI editors that refine your story: Story Doctor, Script Supervisor, Setups & Payoffs, Final Read"},
         React.createElement(Icon.robot,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Story Editors")));
-  return React.createElement("nav",{className:"viewnav","aria-label":inArt?"Art Room views":"Writers’ Room views"},
+  return React.createElement("nav",{className:"viewnav","aria-label":inArt?"Art Room views":"Writers' Room views"},
     // LEFT zone — story-panel toggle. DRAWER MODES ONLY (hidden ≥1100px via CSS):
     // on desktop the panels collapse/expand from inside (panel-collapse / CollapsedStrip).
     React.createElement("div",{className:"vn-side vn-left"},
@@ -236,7 +246,7 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
 window.ViewNav = ViewNav;
 
 const ROOMS = [
-  { id:"writers", label:"Writers\u2019 Room", phase:"Development", icon:"script", live:true, entitlement:"writers_room" },
+  { id:"writers", label:"Writers' Room", phase:"Development", icon:"script", live:true, entitlement:"writers_room" },
   { id:"art", label:"The Art Room", phase:"Pre-production", icon:"palette", live:true, entitlement:"art_room" },
   { id:"stage", label:"The Stage", phase:"Production", icon:"clapper", live:true, entitlement:"stage" },
   { id:"cutting", label:"The Cutting Room", phase:"Post", icon:"scissorsCut", live:false },
@@ -309,7 +319,7 @@ window.ThemeToggle = ThemeToggle;
    per-request when present, falling back to its environment secrets otherwise. */
 const TURN_API_KEY_STORE = "turn.providerApiKeys.v1";
 const TURN_API_PROVIDERS = [
-  { id:"anthropic", label:"Anthropic", hint:"Writing, agents and MUSE when that text provider is selected", placeholder:"sk-ant-..." },
+  { id:"anthropic", label:"Anthropic", hint:"Writing, the Story Editors and Frances when that text provider is selected", placeholder:"sk-ant-..." },
   { id:"openai", label:"OpenAI", hint:"OpenAI text models when selected; GPT Image is routed through fal.ai", placeholder:"sk-..." },
   { id:"google", label:"Google AI Studio", hint:"Gemini text models when selected; Nano Banana images are routed through fal.ai", placeholder:"AIza..." },
   { id:"elevenlabs", label:"ElevenLabs", hint:"Voice design, library, clone, text-to-speech and speech-to-text through the server proxy", placeholder:"sk_..." },
@@ -369,7 +379,7 @@ function ApiKeysModal({ onClose }){
         React.createElement("button",{className:"bible-x",onClick:onClose,title:"Close"},React.createElement(Icon.x,{s:16}))),
       React.createElement("div",{className:"api-keys-body"},
         React.createElement("div",{className:"api-keys-note"},
-          "Keys are saved in this browser only. When a generation uses your server proxy, Cinema Machine sends the relevant key with that request; if no user key is saved, the proxy falls back to its server secret. They are not synced across devices."),
+          "Keys are saved in this browser only. When a generation uses your server proxy, Kinolot sends the relevant key with that request; if no user key is saved, the proxy falls back to its server secret. They are not synced across devices."),
         TURN_API_PROVIDERS.map(p=>{
           const has = !!saved[p.id];
           const val = draft[p.id] || "";
@@ -555,6 +565,26 @@ function StoryBriefModal({ project, onClose, onRebuild }){
 }
 window.StoryBriefModal = StoryBriefModal;
 
+/* The top bar is a stacking context (z-index:30), and every menu or window opened from it — the ⋯
+   menu, Export, the room / film / account menus, the Story brief, Team, the Film bible — renders
+   inside it, so on a phone the Scene drawer, the Frances bubble and the Writing dock covered them.
+   styles.css raises the bar while one is open with .topbar:has(…); this mirrors that selector as a
+   class (.topbar.is-raised) for browsers without :has(). Only child-list changes inside the bar are
+   watched, so toggling the class never re-triggers it. Returns the cleanup for useEffect. */
+const TOPBAR_LAYER_SEL = ".export-menu, .room-menu, .proj-menu, .acct-menu, .bible-overlay";
+function turnWatchTopbarLayer(bar){
+  if(!bar || typeof bar.querySelector!=="function" || typeof MutationObserver!=="function") return undefined;
+  const sync = ()=>{
+    const up = !!bar.querySelector(TOPBAR_LAYER_SEL);
+    if(bar.classList.contains("is-raised")!==up) bar.classList.toggle("is-raised", up);
+  };
+  const mo = new MutationObserver(sync);
+  mo.observe(bar, { childList:true, subtree:true });
+  sync();
+  return ()=>mo.disconnect();
+}
+window.turnWatchTopbarLayer = turnWatchTopbarLayer;
+
 function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, onAgents, onViewBible, onManageStyles, onRebuildFromBrief, hasFilmStyle, theme, onTheme, authSlot, projectSlot, teamSlot, presenceSlot, roomEntitlements, onHome, artView, setArtView, artTabLocks, hiddenArtTabs }){
   const [bibleOpen, setBibleOpen] = React.useState(false);
   const [briefOpen, setBriefOpen] = React.useState(false);
@@ -563,7 +593,11 @@ function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, o
   React.useEffect(()=>{ const h=()=>setApiKeysOpen(true); window.addEventListener("turn-open-api-keys",h); return ()=>window.removeEventListener("turn-open-api-keys",h); },[]);
   // the phone ⋯ menu's "Story brief" entry opens the same window as the Brief button
   React.useEffect(()=>{ const h=()=>setBriefOpen(true); window.addEventListener("turn-open-brief",h); return ()=>window.removeEventListener("turn-open-brief",h); },[]);
-  return React.createElement("div",{className:"topbar"},
+  // while a menu or window opened from the bar is up, the bar sits above the drawers, the Frances
+  // bubble and the Writing dock (styles.css .topbar:has(…) / .topbar.is-raised)
+  const barRef = React.useRef(null);
+  React.useEffect(()=>turnWatchTopbarLayer(barRef.current),[]);
+  return React.createElement("div",{className:"topbar",ref:barRef},
     bibleOpen && onViewBible && React.createElement(FilmBibleModal,{ getBible:onViewBible, onClose:()=>setBibleOpen(false) }),
     briefOpen && React.createElement(StoryBriefModal,{ project, onClose:()=>setBriefOpen(false), onRebuild:onRebuildFromBrief }),
     stylesOpen && onManageStyles && React.createElement(RenderStylesModal,{ onClose:()=>setStylesOpen(false) }),
@@ -572,10 +606,10 @@ function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, o
       onHome
         ? React.createElement("button",{className:"brand brand-btn",onClick:onHome,title:"Home — all your films"},
             React.createElement(BrandMark,null),
-            React.createElement("span",{className:"brand-name"},"Cinema ",React.createElement("b",null,"Machine")))
+            React.createElement(BrandWordmark,null))
         : React.createElement("div",{className:"brand"},
             React.createElement(BrandMark,null),
-            React.createElement("span",{className:"brand-name"},"Cinema ",React.createElement("b",null,"Machine"))),
+            React.createElement(BrandWordmark,null)),
       React.createElement("div",{className:"topbar-divider"}),
       // the project title first, then the department (room) switcher to its right
       React.createElement("div",{className:"context-group"},

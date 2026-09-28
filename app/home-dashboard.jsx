@@ -54,7 +54,7 @@
 
   // Pipeline steps mirror window.ROOMS but with the landing-page phrasing.
   const STEPS = [
-    { id:"writers", no:"01", phase:"Development",    name:"Writers Room",   live:true },
+    { id:"writers", no:"01", phase:"Development",    name:"Writers' Room",  live:true },
     { id:"art",     no:"02", phase:"Pre-production", name:"The Art Room",   live:true },
     { id:"stage",   no:"03", phase:"Production",     name:"The Stage",      live:true },
     { id:"cutting", no:"04", phase:"Post",           name:"Coming soon",    live:false },
@@ -165,7 +165,7 @@
         h("div",{className:"hd-topbar-l"},
           h("button",{className:"hd-brand", onClick:onClose, title:"Back to your film"},
             (typeof BrandMark!=="undefined") && h(BrandMark,null),
-            h("span",{className:"hd-brand-name"},"Cinema ",h("b",null,"Machine")))),
+            h("span",{className:"hd-brand-name"},"Kino",h("b",null,"lot")))),
         h("div",{className:"hd-top-actions"},
           h("button",{className:"hd-tbtn hd-accent", onClick:onCreate}, Ic("plus",15), "New Project"),
           accountSlot ? h("div",{className:"hd-acct"}, accountSlot) : null)));
@@ -247,7 +247,7 @@
 
     // ----- shared with me -----------------------------------------------------
     // Films OTHER people own and shared with this account. Every card says who
-    // shared it and what the viewer may do (View-only / Writer / Art director).
+    // shared it and what the viewer may do (View-only / Co-writer / Art director).
     // No poster actions and no auto-painting here — the key art is the owner's.
     const roleLabel = (r)=> (typeof teamRoleLabel==="function") ? teamRoleLabel(r) : (r||"");
     const roleBlurb = (r)=> (typeof teamRoleBlurb==="function") ? (teamRoleBlurb(r)||"") : "";
@@ -287,7 +287,7 @@
     // (1280px column + its own padding), full-bleed band, flush at the bottom.
     const footer = h("footer",{className:"hd-foot"},
       h("div",{className:"lp-foot-in"},
-        h("span",{className:"lp-logo sm"},"Cinema Machine"),
+        (typeof LandingFootBrand==="function") ? h(LandingFootBrand,null) : h("span",{className:"lp-logo sm"},"Kinolot"),
         h("nav",{className:"lp-foot-links","aria-label":"Legal"},
           h("a",{className:"lp-foot-link",href:"/privacy.html",target:"_blank",rel:"noopener"},"Privacy"),
           h("a",{className:"lp-foot-link",href:"/terms.html",target:"_blank",rel:"noopener"},"Terms"))));

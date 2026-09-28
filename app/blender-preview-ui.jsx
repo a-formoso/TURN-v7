@@ -79,7 +79,7 @@ function BlenderAddonDownload(){
       if(bytes.length!==data.byteLength || bytes[0]!==0x50 || bytes[1]!==0x4b || bytes[2]!==3 || bytes[3]!==4)
         throw new Error("Invalid installer ZIP");
     }catch(_error){
-      setState({error:true,message:"The add-on file is unavailable or incomplete. Save your work, then reopen Cinema Machine in its own browser tab and try again."});
+      setState({error:true,message:"The add-on file is unavailable or incomplete. Save your work, then reopen Kinolot in its own browser tab and try again."});
       return;
     }
     let blobUrl="";
@@ -89,13 +89,15 @@ function BlenderAddonDownload(){
       // Keep the detached Blob click inside the user's original gesture: no
       // fetch or await, which can also lose download permission in Safari.
       const link=document.createElement("a");
-      link.href=blobUrl; link.download="cinema-machine-blender.zip";
+      // the SAVED file is named for the product (2026-09-28); the packaged path and the
+      // bundle's own filename stay cinema-machine-blender.zip (internal ids)
+      link.href=blobUrl; link.download="kinolot-blender.zip";
       link.click();
       const releaseUrl=blobUrl; blobUrl="";
       setTimeout(()=>URL.revokeObjectURL(releaseUrl),60000);
-      setState({error:false,message:"Download requested. Look for cinema-machine-blender.zip in your Downloads folder. If no file appears, open Cinema Machine in its own browser tab on your computer and try again."});
+      setState({error:false,message:"Download requested. Look for kinolot-blender.zip in your Downloads folder. If no file appears, open Kinolot in its own browser tab on your computer and try again."});
     }catch(_error){
-      setState({error:true,message:"Your browser could not save the add-on. Open Cinema Machine in its own browser tab on your computer, then try again."});
+      setState({error:true,message:"Your browser could not save the add-on. Open Kinolot in its own browser tab on your computer, then try again."});
     }finally{
       if(blobUrl) URL.revokeObjectURL(blobUrl);
     }
@@ -556,16 +558,16 @@ function BlenderPreviewPanel({ shot, scene, location, subjects, props, readOnly,
               _bpEl("small",null,"Install once on your computer")),
             _bpEl("span",{className:"bp-step-chevron","aria-hidden":"true"},"⌄")),
           _bpEl("div",{className:"bp-step-body"},
-            _bpEl("p",{className:"bp-help"},"Already installed? Fold this step and continue to step 2. You do not need to download it before every picture."),
+            _bpEl("p",{className:"bp-help"},"Already installed, with a Kinolot tab in Blender? Fold this step and continue to step 2. No Kinolot tab means an older add-on: install this one to update it. You do not need to download it before every picture."),
             _bpEl(BlenderAddonDownload),
             _bpEl("ul",{className:"bp-instructions"},
               _bpEl("li",null,"In Blender, open Preferences → Add-ons. Open the small menu at the top right and choose Install from Disk."),
-              _bpEl("li",null,"Select cinema-machine-blender.zip without unzipping it, then enable Cinema Machine Bridge."))))),
+              _bpEl("li",null,"Select kinolot-blender.zip without unzipping it, then enable Kinolot Bridge."))))),
       _bpEl("li",{className:"bp-step","data-testid":"blender-step-connect"},
         _bpEl("div",{className:"bp-step-heading"},
           _bpEl("span",{className:"bp-step-number"},"2"),
           _bpEl("span",{className:"bp-step-label"},
-            _bpEl("strong",null,"Connect Blender to Cinema Machine"),
+            _bpEl("strong",null,"Connect Blender to Kinolot"),
             _bpEl("small",null,connected?"Paired · confirm status in Blender":"After installation · keep Blender open"))),
         _bpEl("div",{className:"bp-step-body"},
           _bpEl("p",{className:"bp-help"},"Pair means connect: create a temporary code here, then enter it in the Blender add-on. This does not make a picture."),
@@ -575,7 +577,7 @@ function BlenderPreviewPanel({ shot, scene, location, subjects, props, readOnly,
             connected && _bpEl("button",{type:"button",className:"char-draft-btn ghost","data-testid":"blender-disconnect",
               disabled:!!readOnly,onClick:disconnect},"Disconnect")),
           pair && _bpEl("div",{className:"bp-pair"},
-            _bpEl("p",{className:"bp-help"},"In Blender, place your pointer over the 3D view and press N to open its side panel. Choose the CinemaMachine tab."),
+            _bpEl("p",{className:"bp-help"},"In Blender, place your pointer over the 3D view and press N to open its side panel. Choose the Kinolot tab. No Kinolot tab? Your add-on is older: install it again from step 1."),
             _bpEl("div",{className:"bp-pair-code","data-testid":"blender-pair-code"},
               _bpEl("div",null,_bpEl("span",null,"Function URL"),_bpEl("code",null,typeof BP.endpoint==="function"?BP.endpoint():""),
                 _bpEl("button",{type:"button",className:"bp-copy","aria-label":"Copy Function URL",onClick:async()=>{

@@ -6,10 +6,13 @@
 /* Exactly THREE collaborator roles (the old "Producer/admin" was removed by user
    decision — it promised team management it never had, and was unrestricted while
    the others were scoped). Each role carries its plain-language permission blurb;
-   the panel shows these wherever a role is chosen so nobody has to guess. */
+   the panel shows these wherever a role is chosen so nobody has to guess.
+   DISPLAY vs ID (owner decision 2026-09-28): the "writer" role is SHOWN as "Co-writer" so it
+   no longer reads like the Writer plan. The id "writer", the stored role values and the
+   section map below are unchanged. */
 const TEAM_ROLES = [
   { id:"view_only", label:"View-only", blurb:"Opens and reads the film. Cannot save any change." },
-  { id:"writer", label:"Writer", blurb:"Saves story work \u2014 spine, scenes, beats, script and continuity. Art Room changes aren't saved." },
+  { id:"writer", label:"Co-writer", blurb:"Saves story work \u2014 spine, scenes, beats, script and continuity. Art Room changes aren't saved." },
   { id:"art_director", label:"Art director", blurb:"Saves Art Room work \u2014 cast, props, locations, lookbook and shots. Story and script aren't saved." },
 ];
 function teamRoleLabel(id){
@@ -20,7 +23,7 @@ function teamRoleBlurb(id){
   const r = TEAM_ROLES.find(x=>x.id===id);
   return r ? r.blurb : (id
     ? "This role no longer exists \u2014 pick one of the three roles to restore this collaborator's access."
-    : "TURN could not verify a current collaborator role. Access is read-only until the owner assigns View-only, Writer or Art director.");
+    : "The current collaborator role couldn't be verified. Access is read-only until the owner assigns View-only, Co-writer or Art director.");
 }
 function teamScopedRoleBlurb(id, series){
   if(!series) return teamRoleBlurb(id);
@@ -69,10 +72,10 @@ function teamCanWriteRoom(role, room){
 }
 /* plain-language name for what a role may NOT touch, for the "that wasn't saved" notice */
 function teamRoleScopeNote(role){
-  if(role==="writer") return "Your Writer role covers the story, script and beats — Art Room changes (cast, props, locations, lookbook, shots) aren't saved.";
+  if(role==="writer") return "Your Co-writer role covers the story, script and beats — Art Room changes (cast, props, locations, lookbook, shots) aren't saved.";
   if(role==="art_director") return "Your Art director role covers the Art Room — story and script changes aren't saved.";
   if(role==="" || (role && role!=="view_only" && !TEAM_ROLES.find(r=>r.id===role)))
-    return "Your role on this film is missing or from an older version of the app, so changes aren't saved. Ask the owner to reassign you a current role (View-only, Writer or Art director).";
+    return "Your role on this film is missing or from an older version of the app, so changes aren't saved. Ask the owner to reassign you a current role (View-only, Co-writer or Art director).";
   return "";
 }
 window.TEAM_ROLE_SECTIONS = TEAM_ROLE_SECTIONS;

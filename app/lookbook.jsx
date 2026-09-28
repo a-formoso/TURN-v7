@@ -265,7 +265,7 @@ async function generateLookbookFrame(c, project){
       time: now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}),
       iso:now.toISOString(), prompt, mode:"final", version:1,
       writingSources:(c.writingProvenance&&c.writingProvenance.model)?[{...c.writingProvenance}]:[],
-      promptCompiler:"TURN prompt compiler" };
+      promptCompiler:"Kinolot prompt compiler" };
     await nbCommit(c.id, url, meta, [], "asset", _ep);
     try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id:c.id, url } })); }catch(e){}
     return true;

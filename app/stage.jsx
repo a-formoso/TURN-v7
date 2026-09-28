@@ -109,9 +109,21 @@ function stageCreditInfo(balance, cost){
       : ("Uses "+cost+" generation credit"+(cost!==1?"s":"")+" · remaining credits unavailable"),
     title: known
       ? ("Current balance: "+remaining+" generation credit"+(remaining===1?"":"s")+". This render costs "+cost+".")
-      : "Cinema Machine could not read a credit balance from the current account/backend yet."
+      : "Your credit balance hasn’t loaded yet."
   };
 }
+/* PLAN NAMES AS USERS SEE THEM — display only. Plan ids, stored values and the names
+   plans.jsx hands back stay as they are ("studio" / "Studio"); the top plan is SHOWN
+   as "Producer" so it no longer reads like the company or Blender Studio. */
+function stagePlanName(p){
+  const s = String(p==null?"":p).trim();
+  return /^studio$/i.test(s) ? "Producer" : s;
+}
+function stagePlanForRes(r){
+  const p = (typeof window!=="undefined" && typeof window.turnPlanForRes==="function") ? window.turnPlanForRes(r) : null;
+  return p ? stagePlanName(p) : null;
+}
+window.stagePlanName = stagePlanName;
 function stageFriendlyVideoError(err){
   const raw = String((err&&err.message)||err||"").trim();
   if(!raw) return "";
@@ -121,7 +133,7 @@ function stageFriendlyVideoError(err){
     return "Seedance refused one selected video reference. Reference videos must be short and draft-resolution (roughly 480p/720p, 2–15s). The Stage now skips unsafe previous-clip references automatically; reload and try the render again.";
   }
   if(low.includes("failed to download") || low.includes("download the file") || low.includes("url is accessible")){
-    return "The video model couldn't download one of the selected input assets. Cinema Machine now refreshes cloud image URLs and stages browser-only blobs through the proxy, so if this persists, one selected asset is likely missing, expired, private, or too large to stage. Re-open or regenerate that source asset, make sure the selected thumbnails load, then try Generate clip again.";
+    return "The video model couldn't download one of the selected images or clips. Kinolot refreshes cloud links and uploads files that only live in this browser before every render, so if this keeps happening, one selected source is probably missing, expired, private or too large. Re-open or regenerate that source, make sure the selected thumbnails load, then try Generate clip again.";
   }
   return raw;
 }
@@ -2800,7 +2812,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       const stateLabel=(state&&state.label)||"Unnamed appearance state";
       message="Required appearance “"+assetLabel+" · "+stateLabel+" (v"+version+")” is unavailable"
         +(state&&state.suggested
-          ? " — MUSE suggested this state from the script and its sheet has never been generated. "
+          ? " — it was suggested from the script and its sheet has never been generated. "
           : ". ")
         +"Generate or import that state in Art Room → Characters → "+assetLabel+" → Continuity · appearance states, "
         +"or choose “Use master for this shot” beneath the reference tiles to render this video with the existing master image";
@@ -3352,13 +3364,13 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       ||runtimeTransportCaps.directAudioFiles||advertisedAudioLimit)
     : Math.min(3,advertisedAudioLimit)));
   // PLAN GATES — per-tier entitlements (plans.jsx): higher plans unlock higher Stage resolution/batch ceilings
-  // models+1080p, Studio=4K+batch. Locked options stay visible and clickable — the
+  // models+1080p, Studio (shown as "Producer")=4K+batch. Locked options stay visible and clickable — the
   // click opens the plans modal (upsell), never a silent dead button.
   const planGate = (typeof window.turnTierGates==="function") ? window.turnTierGates(creditBalance) : null;
   const planAllowsModel = (id)=> !planGate || (typeof window.turnGateAllowsModel!=="function") || window.turnGateAllowsModel(planGate, id);
   const planAllowsRes = (r)=> !planGate || (typeof window.turnGateAllowsRes!=="function") || window.turnGateAllowsRes(planGate, r);
   const planMaxBatch = planGate ? (planGate.maxBatch||1) : 4;
-  const planResNote = (r)=>{ const p = (typeof window.turnPlanForRes==="function") && window.turnPlanForRes(r); return p ? (r+" needs the "+p+" plan") : (r+" is locked on this plan"); };
+  const planResNote = (r)=>{ const p = stagePlanForRes(r); return p ? (r+" needs the "+p+" plan") : (r+" is locked on this plan"); };
   const openPlansUpsell = ()=>{ if(typeof window.turnOpenPlans==="function") window.turnOpenPlans(); };
   // clamp to BOTH ceilings — the model tier's (Fast caps at 720p) and the plan's
   React.useEffect(()=>{
@@ -4508,7 +4520,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           disabled:locked,
           note:serverPending ? "Pending server update — awaiting the video proxy capability handshake"
             : locked ? (anyTier ? (r+" needs the Standard tier") : (r+" isn't available on "+model.label)) : (planLocked ? planResNote(r)+" — click to upgrade" : undefined),
-          tag:planLocked ? ((typeof window.turnPlanForRes==="function" && window.turnPlanForRes(r))||"Plan")+" plan" : undefined,
+          tag:planLocked ? (stagePlanForRes(r)||"Plan")+" plan" : undefined,
           meta: r==="4K" ? [{ icon:Icon.sparkles, label:"5× credits" }] : undefined };
       }),
       onPick:(r)=>{ if(!stageServerResolutionAllowed(modelId,r,runtimeCaps,capabilityTarget)) return;
@@ -4631,7 +4643,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     action:clipScope==="legacy"?()=>setClipScope("beat"):null});
   if(needsVoice) blockers.push({ key:"voice",
     text:hasUnassignedClipDialogue
-      ? "This complete beat has ordered screenplay dialogue that is not assigned to a shot. Choose Native performance, or assign every line to a shot before using Locked voice; TURN will not invent shot IDs or audio attachments."
+      ? "This complete beat has ordered screenplay dialogue that is not assigned to a shot. Choose Native performance, or assign every line to a shot before using Locked voice. Lines are never matched to shots or audio by guesswork."
       : ((firstVoiceIssue&&firstVoiceIssue.reason)||"Voice this clip before rendering — duration and lip-sync lock to current line audio."),
     actionLabel:hasUnassignedClipDialogue ? "Choose Native performance"
       : (onVoiceLine ? (voicingClip ? "Voicing…" : "Voice clip now") : null),
@@ -4984,7 +4996,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       characterReferenceBulk.filter(g=>g!==bulkChoice).map(g=>_stEl("div",{key:"bulk:"+g.c.id,className:"stage2-character-bulk","data-character-id":g.c.id},
         _stEl("span",null,
           _stEl("b",null,g.c.name+" · "+g.stateLabel+" has no generated sheet"),
-          _stEl("small",null,(g.suggested?"MUSE suggested this appearance from the script; it was never generated. ":"")
+          _stEl("small",null,(g.suggested?"Suggested from the script; it was never generated. ":"")
             +"Generate it in Art Room → Characters → "+g.c.name+" → Continuity · appearance states, or render "
             +g.shotsLabel+" with the existing master image — one persisted, per-shot video choice you can undo below.")),
         _stEl("button",{type:"button","data-bulk-choice":"master",
@@ -5725,7 +5737,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         title:"Takes per Generate — "+batchN+" parallel render"+(batchN!==1?"s":"")+" with distinct seeds ("+totalCost+" credits total)"},
         batchN+" / "+planMaxBatch),
       _stEl("button",{type:"button",className:"stage2-seed-btn",disabled:batchN>=4||gening,
-        title:batchN>=planMaxBatch&&planMaxBatch<4 ? "Batch takes need the Studio plan — click to upgrade" : "More takes",
+        title:batchN>=planMaxBatch&&planMaxBatch<4 ? "Batch takes need the "+stagePlanName("Studio")+" plan — click to upgrade" : "More takes",
         onClick:()=>{ if(batchN>=planMaxBatch){ if(planMaxBatch<4) openPlansUpsell(); return; } setBatchN(n=>Math.min(4,n+1)); }},"+"))),
     // bitrate is a Seedance-only lever — Sora-class engines have no bitrate_mode
     modelRefs && _ctrlRow("Bitrate", _stEl("select",{value:bitrate,
@@ -6177,6 +6189,23 @@ function stageExportPlaylist(ordered, vids){
   return (ordered||[]).filter(c=>c && vids && vids[c.id]).map(c=>({ id:c.id, label:c.label||"", url:vids[c.id] }));
 }
 window.stageExportPlaylist = stageExportPlaylist;   // pure — covered by the vm suite
+/* The exported film's file name: the film's title when it has one
+   ("The_Matrix-2026-09-28.webm"), else "Kinolot-film-2026-09-28.webm" (also for the
+   default "Untitled film"). Letters in any script are kept, with their combining marks
+   (Hindi, Thai: "नमस्ते" stays whole); everything else collapses to "_". Never the
+   internal codename. */
+function stageFilmFileName(title, date){
+  const day = String(date || new Date().toISOString().slice(0,10));
+  const raw = String(title||"").trim();
+  if(!raw || /^untitled(?:\s+film)?$/i.test(raw)) return "Kinolot-film-"+day+".webm";
+  let slug = "";
+  try{ slug = raw.normalize("NFC").replace(new RegExp("[^\\p{L}\\p{M}\\p{N}\\-]+","gu"),"_"); }
+  catch(e){ slug = raw.replace(/[^\w\-]+/g,"_"); }
+  slug = Array.from(slug.replace(/_+/g,"_").replace(/^[_\-]+|[_\-]+$/g,"")).slice(0,80).join("")
+    .replace(/[_\-]+$/,"");
+  return slug ? (slug+"-"+day+".webm") : ("Kinolot-film-"+day+".webm");
+}
+window.stageFilmFileName = stageFilmFileName;   // pure — covered by test-rebrand-art
 async function stageExportFilm(playlist, opts){
   opts = opts||{};
   if(!playlist || !playlist.length) throw new Error("No rendered clips to export yet — render takes in the Shoot tab first.");
@@ -6268,7 +6297,7 @@ window.stageExportFilm = stageExportFilm;
    playing the CURRENT take back-to-back ("Choose for timeline" in Takes decides what
    plays). Read-only on purpose: the story defines the order; the Stage tab renders,
    the Takes tab picks takes, this tab watches the film. ---- */
-function StageTimelineView({ allClips, vids, imgs, visualSource, selId, onSelectClip, onOpenStage }){
+function StageTimelineView({ allClips, vids, imgs, visualSource, selId, onSelectClip, onOpenStage, filmTitle }){
   const ordered = allClips||[];
   const startIdx = Math.max(0, ordered.findIndex(c=>c.id===selId));
   const [idx, setIdx] = React.useState(startIdx);
@@ -6290,7 +6319,7 @@ function StageTimelineView({ allClips, vids, imgs, visualSource, selId, onSelect
         shouldCancel:()=>exportCancelRef.current });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = "TURN-film-"+new Date().toISOString().slice(0,10)+".webm";
+      a.download = stageFilmFileName(filmTitle, new Date().toISOString().slice(0,10));
       a.click();
       setTimeout(()=>{ try{ URL.revokeObjectURL(a.href); }catch(e){} }, 60000);
       if(typeof window.appToast==="function") window.appToast("Film exported — "+pl.length+" clip"+(pl.length!==1?"s":"")+" stitched into one WebM file.","success");
@@ -7146,6 +7175,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
                 onReuse:(meta,pin)=>{ setPendingReuse({ clipId:clip.id, meta, pin }); setStageView("stage"); } })
             : stageView==="timeline"
             ? _stEl(StageTimelineView,{ key:"tl", allClips, vids, imgs, visualSource, selId, onSelectClip,
+                filmTitle:(project&&project.title)||"",
                 onOpenStage:(id)=>{ onSelectClip(id); setStageView("stage"); } })
             : stageView==="audio"
             ? _stEl(StageAudioView,{ key:"au", allClips, vids, auds, characters, selId, onSelectClip })

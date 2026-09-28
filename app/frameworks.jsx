@@ -2,7 +2,7 @@
    Single source of truth for everything framework-aware (docs/Frameworks Plan.md).
    The spine's primitive — a charge per scene — is framework-neutral; a framework
    defines the layer above it: the act bands, the audit rule & verdict language,
-   the spine-builder grammar and the Story Doctor's criteria. "The Infinite Studio
+   the spine-builder grammar and the Story Doctor's criteria. "The Infinite Studio AI
    method" is the umbrella; frameworks are interchangeable lenses inside it.
    Orthogonal to FORMAT (formats.jsx): any format × any framework.
 
@@ -188,7 +188,7 @@ const FRAMEWORKS = [
     /* spine-builder grammar (Phase 2): two batched calls — ki+shō, then ten+ketsu.
        The ten is a RECONTEXTUALIZATION; the prompts forbid conflict-escalation. */
     spine:{
-      intro:(total)=>"You are a story architect designing the "+total+"-scene spine of a KISHŌTENKETSU story with the Infinite Studio method — four movements: KI (introduction), SHŌ (development), TEN (twist/recontextualization), KETSU (reconciliation). Conflict is OPTIONAL; the engine is curiosity and the re-read, never a battle. ",
+      intro:(total)=>"You are a story architect designing the "+total+"-scene spine of a KISHŌTENKETSU story with the Infinite Studio AI method — four movements: KI (introduction), SHŌ (development), TEN (twist/recontextualization), KETSU (reconciliation). Conflict is OPTIONAL; the engine is curiosity and the re-read, never a battle. ",
       firstRange:(firstN,total)=>"scenes 1–"+firstN+": the KI (plant the world, people and charged images — establish without forcing conflict) and the SHŌ (develop and deepen what was planted; let it breathe and accumulate meaning)",
       secondRange:(firstN,total)=>"scenes "+(firstN+1)+"–"+total+": the TEN (the twist — ONE recontextualizing revelation or perspective shift that makes the audience RE-READ everything before it; NOT a fight, NOT an escalation) and the KETSU (the reconciliation — settle the new understanding; calm and resonance, not victory)",
       sceneRule:"Every scene MOVES: ki scenes plant a charged image or question; shō scenes deepen it (charges may drift, not clash); the ten scene SHIFTS the pattern hard (a charge sign reversal); ketsu scenes settle. ",
@@ -259,7 +259,7 @@ const FRAMEWORKS = [
     doctorCriteria:"the ordeal must cost something real; the resurrection must prove the change the journey bought; flag a refusal that doesn't raise the stakes",
     beatVocab:{ turnLabel:"the turn" },
     spine:{
-      intro:(total)=>"You are a story architect designing the "+total+"-scene spine of a HERO'S JOURNEY story with the Infinite Studio method — the mythic round in three phases: DEPARTURE (the hero leaves the ordinary world), INITIATION (trials, the ordeal at the journey's heart, the reward), RETURN (the road back, resurrection, the elixir brought home). ",
+      intro:(total)=>"You are a story architect designing the "+total+"-scene spine of a HERO'S JOURNEY story with the Infinite Studio AI method — the mythic round in three phases: DEPARTURE (the hero leaves the ordinary world), INITIATION (trials, the ordeal at the journey's heart, the reward), RETURN (the road back, resurrection, the elixir brought home). ",
       // a spine of 4 scenes or fewer (a commercial) gets the MINIMUM journey, stage by
       // stage (heroMiniStages below) — the same stages assignPlotPoints labels
       firstRange:(firstN,total)=> heroMiniStages(total) ? heroMiniRange(1, firstN, total)
@@ -321,7 +321,7 @@ const FRAMEWORKS = [
     doctorCriteria:"the take must exact a real price for the find; the change must be measurable against scene one's comfort; flag a search that doesn't adapt",
     beatVocab:{ turnLabel:"the turn" },
     spine:{
-      intro:(total)=>"You are a story architect designing the "+total+"-scene spine of a STORY CIRCLE story with the Infinite Studio method — eight steps around the wheel: a character in a zone of COMFORT (you) WANTS something (need), enters an UNFAMILIAR situation (go), ADAPTS to it (search), GETS what they wanted (find), PAYS a heavy price for it (take), RETURNS to the familiar (return), having CHANGED (change). The top of the circle is order; the bottom is chaos. ",
+      intro:(total)=>"You are a story architect designing the "+total+"-scene spine of a STORY CIRCLE story with the Infinite Studio AI method — eight steps around the wheel: a character in a zone of COMFORT (you) WANTS something (need), enters an UNFAMILIAR situation (go), ADAPTS to it (search), GETS what they wanted (find), PAYS a heavy price for it (take), RETURNS to the familiar (return), having CHANGED (change). The top of the circle is order; the bottom is chaos. ",
       firstRange:(firstN,total)=>"scenes 1–"+firstN+": the top of the circle — YOU and NEED (act 1: establish the comfort zone and the want that disturbs it) then GO and SEARCH (act 2: crossing into the unfamiliar and adapting to its rules, road-of-trials style)",
       secondRange:(firstN,total)=>"scenes "+(firstN+1)+"–"+total+": the bottom of the circle and home — FIND and TAKE (act 3: getting what they wanted and paying its true, heavy price) then RETURN and CHANGE (act 4: coming back to the familiar world changed, master of both)",
       sceneRule:"Each scene must TURN its value: the closing charge has the opposite sign of the opening charge. Alternate positive/negative for rhythm. The descent into the unfamiliar always costs — every gain in the bottom half carries a price. ",

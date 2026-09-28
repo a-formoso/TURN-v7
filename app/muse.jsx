@@ -1,44 +1,45 @@
-/* muse.jsx — MUSE, the in-app help assistant, as a text CHATBOX (bottom-right, every room).
-   Two modes:
-   • SIGNED IN  — full, concise Claude-powered chat over your story (aiMuseChat), governed
-     by the MUSE Protocol (docs/MUSE Protocol.md + museSystemPrompt() in ai.jsx).
-   • SIGNED OUT — a curated TEASER: a few hand-written tastes of what Cinema Machine is + the Infinite
-     Studio method, capped, always nudging sign-up. No model call, no story access, so
+/* muse.jsx — Frances, the in-app help assistant (codename MUSE in code), as a text CHATBOX
+   (bottom-right, every room). Two modes:
+   • SIGNED IN  — full, concise chat over your story (aiMuseChat), governed by the MUSE
+     Protocol (docs/MUSE Protocol.md + museSystemPrompt() in ai.jsx).
+   • SIGNED OUT — a curated TEASER: a few hand-written tastes of what Kinolot is + the Infinite
+     Studio AI method, capped, always nudging sign-up. No model call, no story access, so
      visitors get a feel without the platform being fully open for free.
-   MUSE only talks; the Agents change the story. It's brand-silent about what powers it. */
+   Frances only answers; the Story Editors and Department Heads change the story. She is
+   brand-silent about what powers her and never claims to be named after anyone. */
 
 const MUSE_CHIPS = [
   "How do I start a new story?",
-  "What is the Writers’ Room for?",
+  "What is the Writers' Room for?",
   "Which scenes don’t turn?",
-  "How do the Agents work?",
+  "How do the Story Editors work?",
 ];
 
 /* ---------- signed-out teaser (curated, no AI) ---------- */
 const VISITOR_CHIPS = [
-  "What is Cinema Machine?",
-  "What’s the Infinite Studio method?",
+  "What is Kinolot?",
+  "What’s the Infinite Studio AI method?",
   "What can I build here?",
   "Is it free to sign up?",
 ];
 const TEASER_LIMIT = 3;   // free messages before the sign-up gate
 const TEASER_QA = [
-  { k:["cinema machine","what is turn","whats turn","what's turn","what is this","what's this","whats this","about turn","what do you do","what does turn","tell me about"],
-    a:"Cinema Machine is a story-architecture studio for AI filmmakers. You build your film as a value-charge spine — every scene plotted by its emotional charge, so you can see at a glance which scenes truly turn and which fall flat — then design its cast and world, and shoot it, all in one place. Sign up and I’ll architect yours with you." },
-  { k:["infinite studio method","method","the craft","how does it work","philosophy","approach","theory","what makes"],
-    a:"The Infinite Studio method is the craft Cinema Machine runs on: every scene should turn a value — swinging from positive to negative or back — driven by what your characters want against what stands in their way. Get that right and the whole film holds together. Sign up and I’ll pressure-test your scenes against it." },
+  { k:["kinolot","cinema machine","what is this","what's this","whats this","what do you do","tell me about"],
+    a:"Kinolot is a story-architecture studio for AI filmmakers. You build your film as a value-charge spine — every scene plotted by its emotional charge, so you can see at a glance which scenes truly turn and which fall flat — then design its cast and world, and shoot it, all in one place. Sign up and start yours; I’ll answer your questions along the way." },
+  { k:["infinite studio ai method","infinite studio method","method","the craft","how does it work","philosophy","approach","theory","what makes"],
+    a:"The Infinite Studio AI method is the craft Kinolot runs on: every scene should turn a value — swinging from positive to negative or back — driven by what your characters want against what stands in their way. Get that right and the whole film holds together. Sign up and I’ll help you check your scenes against it." },
   { k:["what can i make","what can i build","what can i do","make here","build here","capabilities","features","what's included","whats included","get out of"],
     a:"A complete film: the value-charge spine, scene beats, a generated screenplay, a full Art Room for characters, props, locations, style and shots — and the Stage, where it all becomes footage. Sign up to start your first story." },
   { k:["why sign up","is it free","it free","for free","sign up","signup","create account","cost","costs","price","prices","pricing","how much","plans","subscription","worth it","why should i"],
-    a:"I can help with the story and explain how the studio works, but pricing and credits are handled outside MUSE. Open the account or plans window for the current options, then bring me back to the film you want to make." },
-  { k:["who are you","what are you","your name","are you muse","hello","hi","hey"],
-    a:"I’m MUSE, your story guide inside Cinema Machine. Once you’re signed in I read your spine and help you shape scenes, fix the ones that don’t turn, and answer anything about your film. Sign up and put me to work." },
+    a:"I can help with the story and explain how the studio works, but pricing and credits aren’t something I handle here. Open the account or plans window for the current options, then bring me back to the film you want to make." },
+  { k:["who are you","what are you","your name","are you frances","are you muse","hello","hi","hey"],
+    a:"I’m Frances, your guide inside Kinolot. Once you’re signed in I read your story and answer your questions — which scenes don’t turn, how each department works, what to try next. Sign up and bring me your film." },
 ];
 const TEASER_GATE = "That’s part of the full studio — sign up and I’ll walk you through it with your own story open.";
 function teaserAnswer(q){
   // Normalize curly apostrophes, then match each key on WORD BOUNDARIES — plain
   // substring matching false-fired (e.g. the greeting key "hi" inside "macHIne",
-  // which made "What is Cinema Machine?" answer with MUSE's self-intro).
+  // which made "What is Cinema Machine?" answer with the assistant's self-intro).
   const l = q.toLowerCase().replace(/[‘’]/g,"'");
   for(const item of TEASER_QA){
     if(item.k.some(k=>{
@@ -88,7 +89,7 @@ function MuseDock({ scenes, selScene, project, aiOn, signedIn, onSignIn }){
 
   const capped = !authed && visitorCount >= TEASER_LIMIT;
 
-  // signed-in: real Claude chat with multi-turn memory + the real error surfaced
+  // signed-in: the real chat with multi-turn memory + the real error surfaced
   const askSignedIn = async (text)=>{
     const q = (text!=null?text:input).trim();
     if(!q || busyRef.current) return;
@@ -124,18 +125,18 @@ function MuseDock({ scenes, selScene, project, aiOn, signedIn, onSignIn }){
   const ask = authed ? askSignedIn : askVisitor;
 
   const bubble = React.createElement("button",{className:"muse-bubble"+(open?" open":""),
-    onClick:()=>setOpen(o=>!o), title: open?"Close MUSE":"Ask MUSE", "aria-label":"MUSE help assistant"},
+    onClick:()=>setOpen(o=>!o), title: open?"Close Frances":"Ask Frances", "aria-label":open?"Close Frances, the help assistant":"Ask Frances, the help assistant"},
     open ? React.createElement(Icon.x,{s:20}) : React.createElement("span",{className:"ai-orb"}));
 
   const greet = authed
     ? React.createElement("div",{className:"muse-greet"},
-        React.createElement("div",{className:"muse-greet-t"},"Hi, I’m MUSE."),
+        React.createElement("div",{className:"muse-greet-t"},"Hi, I’m Frances."),
         React.createElement("div",{className:"muse-greet-d"},
-          "Your guide to Cinema Machine. Ask me about your story, any department, or how to get something done."))
+          "Your guide to Kinolot. Ask me about your story, any department, or how to get something done."))
     : React.createElement("div",{className:"muse-greet"},
-        React.createElement("div",{className:"muse-greet-t"},"Hi, I’m MUSE."),
+        React.createElement("div",{className:"muse-greet-t"},"Hi, I’m Frances."),
         React.createElement("div",{className:"muse-greet-d"},
-          "Your story guide inside Cinema Machine. Ask me what this is about — then sign up free and I’ll build your film with you."));
+          "Your story guide inside Kinolot. Ask me what this is about — then sign up free and start your film."));
 
   // suggestion chips: show the questions NOT yet asked, after every answer, so a visitor
   // (or anyone) can keep tapping their next query instead of typing. Hidden once capped.
@@ -148,7 +149,7 @@ function MuseDock({ scenes, selScene, project, aiOn, signedIn, onSignIn }){
       remainingChips.map((c)=>React.createElement("button",{key:c,className:"muse-chip",disabled:busy,onClick:()=>ask(c)},c)));
 
   const askBar = React.createElement("div",{className:"muse-ask-bar"},
-    React.createElement("input",{className:"muse-ask-in",placeholder:"Ask MUSE anything…",ref:inputRef,
+    React.createElement("input",{className:"muse-ask-in",placeholder:"Ask Frances anything…","aria-label":"Ask Frances a question",ref:inputRef,
       value:input, disabled:busy,
       onChange:e=>setInput(e.target.value),
       onKeyDown:e=>{ if(e.key==="Enter") ask(); }}),
@@ -170,7 +171,7 @@ function MuseDock({ scenes, selScene, project, aiOn, signedIn, onSignIn }){
     React.createElement("div",{className:"muse-dock-head"},
       React.createElement("span",{className:"ai-orb"}),
       React.createElement("div",{className:"muse-dock-ht"},
-        React.createElement("div",{className:"muse-dock-t"},"MUSE"),
+        React.createElement("div",{className:"muse-dock-t"},"Frances"),
         React.createElement("div",{className:"muse-dock-status"},
           React.createElement("span",{className:"muse-dot"+((authed&&aiOn)?" on":"")}),
           authed ? (aiOn?"Here to help":"Offline") : "Free preview")),
@@ -194,7 +195,7 @@ function MuseDock({ scenes, selScene, project, aiOn, signedIn, onSignIn }){
     footer,
 
     authed && !aiOn && React.createElement("div",{className:"muse-ask-off"},
-      React.createElement(Icon.alert,{s:12}),"MUSE needs to be online to answer — check your connection."));
+      React.createElement(Icon.alert,{s:12}),"Frances needs to be online to answer — check your connection."));
 
   return React.createElement("div",{className:"muse-dock-wrap"}, panel, bubble);
 }

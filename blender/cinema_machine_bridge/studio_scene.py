@@ -1,4 +1,4 @@
-"""Local, typed scene-building operations for Cinema Machine Studio.
+"""Local, typed scene-building operations for Kinolot Studio.
 
 This module intentionally has no HTTP client and does not interpret prompts.
 It is the main-thread-only half of Studio: callers choose one of the bounded
@@ -128,7 +128,9 @@ def _studio_root(scene: Any) -> Any:
     for child in scene.collection.children:
         if child.get(STUDIO_ROOT_KEY) is True:
             return child
-    root = bpy.data.collections.new("Cinema Machine Studio")
+    # found again by STUDIO_ROOT_KEY, never by name, so a scene saved while the
+    # product was called Cinema Machine keeps working with its old collection name
+    root = bpy.data.collections.new("Kinolot Studio")
     root[STUDIO_ROOT_KEY] = True
     scene.collection.children.link(root)
     return root
@@ -149,7 +151,7 @@ def _workspace_root(scene: Any, project_id: str, location_id: str, create: bool 
             return collection
     if not create:
         return None
-    root = bpy.data.collections.new("CM Studio — " + location_id)
+    root = bpy.data.collections.new("Kinolot Studio — " + location_id)
     root[STUDIO_ROOT_KEY] = True
     root[STUDIO_PROJECT_KEY] = project_id
     root[STUDIO_LOCATION_KEY] = location_id
@@ -214,16 +216,16 @@ def create_location_set(
         return LocationSet(safe_id, str(existing.get("cinemaMachineStudioLabel", existing.name)), existing)
 
     root = _studio_root(scene)
-    collection = bpy.data.collections.new("CM Location — " + safe_label)
+    collection = bpy.data.collections.new("Kinolot Location — " + safe_label)
     collection[STUDIO_LOCATION_KEY] = safe_id
     collection["cinemaMachineStudioLabel"] = safe_label
     collection[STUDIO_KIND_KEY] = "location_set"
     root.children.link(collection)
-    material = _new_material("CM Studio Room")
-    _add_box(collection, "CM Floor — " + safe_label, (0.0, 0.0, -0.06), (width, depth, 0.12), material, "floor")
+    material = _new_material("Kinolot Studio Room")
+    _add_box(collection, "Kinolot Floor — " + safe_label, (0.0, 0.0, -0.06), (width, depth, 0.12), material, "floor")
     _add_box(
         collection,
-        "CM Back Wall — " + safe_label,
+        "Kinolot Back Wall — " + safe_label,
         (0.0, depth * 0.5, height * 0.5),
         (width, 0.12, height),
         material,
@@ -231,7 +233,7 @@ def create_location_set(
     )
     _add_box(
         collection,
-        "CM Left Wall — " + safe_label,
+        "Kinolot Left Wall — " + safe_label,
         (-width * 0.5, 0.0, height * 0.5),
         (0.12, depth, height),
         material,
@@ -239,7 +241,7 @@ def create_location_set(
     )
     _add_box(
         collection,
-        "CM Right Wall — " + safe_label,
+        "Kinolot Right Wall — " + safe_label,
         (width * 0.5, 0.0, height * 0.5),
         (0.12, depth, height),
         material,
@@ -281,13 +283,13 @@ def add_primitive(
     safe_dimensions = _dimensions(dimensions)
     if primitive not in {"box", "cylinder", "marker"}:
         raise StudioSceneError("Primitive must be box, cylinder, or marker")
-    material = _new_material("CM Studio Prop")
+    material = _new_material("Kinolot Studio Prop")
     if primitive == "box":
-        return _add_box(location.collection, "CM Prop — " + safe_label, safe_position, safe_dimensions, material, primitive)
+        return _add_box(location.collection, "Kinolot Prop — " + safe_label, safe_position, safe_dimensions, material, primitive)
     radius = max(safe_dimensions[0], safe_dimensions[1]) * 0.5
     return _add_cylinder(
         location.collection,
-        "CM %s — %s" % (primitive.title(), safe_label),
+        "Kinolot %s — %s" % (primitive.title(), safe_label),
         safe_position,
         radius,
         safe_dimensions[2],
@@ -317,11 +319,11 @@ def add_shot_camera(
         raise StudioSceneError("Camera target must differ from its position")
     lens = _number(focal_length, "Focal length", 8.0, 200.0)
     safe_shot_id = _identifier(shot_id, "shot")
-    data = bpy.data.cameras.new("CM Shot Camera Data — " + safe_label)
+    data = bpy.data.cameras.new("Kinolot Shot Camera Data — " + safe_label)
     data.type = "PERSP"
     data.lens = lens
     data.sensor_width = 36.0
-    camera = bpy.data.objects.new("CM Shot — " + safe_label, data)
+    camera = bpy.data.objects.new("Kinolot Shot — " + safe_label, data)
     _studio_root(scene).objects.link(camera)
     camera[STUDIO_KIND_KEY] = "shot_camera"
     camera[STUDIO_LOCATION_KEY] = location.location_id
@@ -335,7 +337,7 @@ def activate_shot_camera(scene: Any, camera: Any) -> None:
     """Make one Studio shot camera active after an explicit user action."""
 
     if camera is None or camera.type != "CAMERA" or camera.get(STUDIO_KIND_KEY) != "shot_camera":
-        raise StudioSceneError("Select a Cinema Machine Studio shot camera")
+        raise StudioSceneError("Select a Kinolot Studio shot camera")
     if camera not in scene.objects[:]:
         raise StudioSceneError("The selected shot camera is not in this scene")
     scene.camera = camera
@@ -355,7 +357,7 @@ def add_blocking_character(
     safe_label = _label(label, "Character name")
     safe_position = _position(position)
     safe_height = _number(height, "Character height", 0.5, 3.0)
-    root = bpy.data.objects.new("CM Character — " + safe_label, None)
+    root = bpy.data.objects.new("Kinolot Character — " + safe_label, None)
     location.collection.objects.link(root)
     root.location = safe_position
     root[STUDIO_KIND_KEY] = "blocking_character"
@@ -363,11 +365,11 @@ def add_blocking_character(
     root[STUDIO_CHARACTER_KEY] = True
     root["cinemaMachineStudioLabel"] = safe_label
     root["cinemaMachineStudioRigged"] = False
-    material = _new_material("CM Studio Character")
+    material = _new_material("Kinolot Studio Character")
     radius = min(safe_height * 0.19, 0.35)
     body = _add_cylinder(
         location.collection,
-        "CM Character Body — " + safe_label,
+        "Kinolot Character Body — " + safe_label,
         (0.0, 0.0, safe_height * 0.5),
         radius,
         max(0.05, safe_height - 2.0 * radius),
@@ -376,7 +378,7 @@ def add_blocking_character(
     )
     head = _add_octahedron(
         location.collection,
-        "CM Character Head — " + safe_label,
+        "Kinolot Character Head — " + safe_label,
         (0.0, 0.0, safe_height - radius),
         radius,
         material,
@@ -403,7 +405,7 @@ def keyframe_blocking_transform(
     """
 
     if character is None or character.get(STUDIO_CHARACTER_KEY) is not True:
-        raise StudioSceneError("Select a Cinema Machine Studio blocking character")
+        raise StudioSceneError("Select a Kinolot Studio blocking character")
     if isinstance(frame, bool) or not isinstance(frame, int) or frame < 0 or frame > 100000:
         raise StudioSceneError("Frame must be an integer between 0 and 100000")
     if position is not None:
@@ -468,7 +470,7 @@ def import_glb_character(
         _restore_selection(scene, selected_before, active_before)
         raise StudioSceneError("The selected GLB/GLTF did not create any objects")
     display_label = _label(label or os.path.splitext(os.path.basename(resolved))[0], "Character name")
-    root = bpy.data.objects.new("CM Imported Character — " + display_label, None)
+    root = bpy.data.objects.new("Kinolot Imported Character — " + display_label, None)
     location.collection.objects.link(root)
     root[STUDIO_KIND_KEY] = "imported_character"
     root[STUDIO_LOCATION_KEY] = location.location_id
@@ -982,10 +984,10 @@ def _mark_managed(object_: Any, managed: Dict[str, Any], scope: str, shot_id: Op
 
 def _create_managed_object(collection: Any, managed: Dict[str, Any], scope: str, shot_id: Optional[str]) -> Any:
     bpy = _bpy()
-    material = _new_material("CM Studio Managed")
+    material = _new_material("Kinolot Studio Managed")
     color = managed["color"]
     material.diffuse_color = (color[0], color[1], color[2], 1.0)
-    name = "CM " + managed["kind"].title() + " — " + managed["name"]
+    name = "Kinolot " + managed["kind"].title() + " — " + managed["name"]
     if managed["kind"] == "cylinder":
         object_ = _add_cylinder(collection, name, managed["position"], 0.5, 1.0, material, managed["kind"])
     elif managed["kind"] in {"sphere", "actor"}:
@@ -1011,7 +1013,7 @@ def _create_managed_object(collection: Any, managed: Dict[str, Any], scope: str,
 
 
 def _update_managed_object(object_: Any, managed: Dict[str, Any]) -> None:
-    object_.name = "CM " + managed["kind"].title() + " — " + managed["name"]
+    object_.name = "Kinolot " + managed["kind"].title() + " — " + managed["name"]
     object_.location = managed["position"]
     object_.rotation_mode = "XYZ"
     object_.rotation_euler = managed["rotation"]
@@ -1022,8 +1024,8 @@ def _update_managed_object(object_: Any, managed: Dict[str, Any]) -> None:
 
 def _create_workspace_camera(collection: Any, shot: Dict[str, Any], camera_doc: Dict[str, Any]) -> Any:
     bpy = _bpy()
-    data = bpy.data.cameras.new("CM Camera Data — " + shot["name"])
-    camera = bpy.data.objects.new("CM Camera — " + shot["name"], data)
+    data = bpy.data.cameras.new("Kinolot Camera Data — " + shot["name"])
+    camera = bpy.data.objects.new("Kinolot Camera — " + shot["name"], data)
     collection.objects.link(camera)
     camera[STUDIO_KIND_KEY] = "camera"
     camera[STUDIO_SCOPE_KEY] = "shot"

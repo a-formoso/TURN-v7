@@ -10,9 +10,14 @@
      (the pricing-watch.jsx pattern). The browser NEVER names a file: it sends
      project ids (Review) or a run id (Delete / Resume); every path comes from
      the server, which re-verifies each file right before removing it.
-   - Operator tool: deliberately NOT listed in APP_FEATURES (app/ai.jsx). MUSE
-     answers every user, and MUSE Protocol §3 forbids describing how TURN is
-     built (owner decision, 2026-09-27).
+   - Operator tool: deliberately NOT listed in APP_FEATURES (app/ai.jsx). Frances
+     (the help assistant; code: MUSE) answers every user, and MUSE Protocol §3
+     forbids describing how the app is built (owner decision, 2026-09-27).
+   - Naming (owner decision, 2026-09-28): the product is Kinolot; "TURN" is only the
+     internal codename. The page's own copy says Kinolot, and text the server sends
+     (a failed item's detail, a run's last error) is shown through serverText(), which
+     renames a stray "TURN" at display time; server keys such as the byStatus key
+     "outside the TURN asset layout" are matched as they are.
    - Cleanup queue: drained MANUALLY with "Run cleanup now"; no schedule is
      installed (owner decision, 2026-09-27).
    - Clear old temp files (owner request, 2026-09-28): the "Cleanup" tab (it was
@@ -83,12 +88,12 @@
     internal: "Something went wrong on the server. Nothing further was deleted; History shows what happened.",
     timeout: "The server took too long. History shows whether anything was deleted.",
     network: "Lost the connection to the server. History shows whether anything was deleted.",
-    reviewBody: "Only files nothing in TURN uses any more. Each file is checked again right before it is deleted, and the Storage folders of live projects are never touched.",
+    reviewBody: "Only files nothing in Kinolot uses any more. Each file is checked again right before it is deleted, and the Storage folders of live projects are never touched.",
     closeNote: "If you close this window, the current step finishes or stops on its own. History shows where it stopped, and Resume carries on.",
     liveReadOnly: "Not deleted from this page: the project is live (the SQL Editor's turn_admin.orphans stays the tool for live projects).",
     liveKept: "kept (live)",
     wholeProject: "Review & delete covers the whole project, including files other accounts uploaded.",
-    tempAbout: "Images and videos TURN staged for AI generation. They expire after 2 hours, and no project uses them.",
+    tempAbout: "Images and videos Kinolot staged for AI generation. They expire after 2 hours, and no project uses them.",
     tempOff: "Clearing temp files is off until supabase/admin-storage.sql is run again in the SQL Editor.",
     tempUpdate: "The admin-storage function needs updating before temp files can be cleared.",
   };
@@ -158,6 +163,16 @@
   function shortId(id){ return String(id || "").slice(0, 8); }
   function localPart(email){ const s = String(email || ""); const at = s.indexOf("@"); return at > 0 ? s.slice(0, at) : (s || "unknown"); }
 
+  /* the server's byStatus key for files outside the storage layout — a server value, matched
+     as it is; the page SHOWS it as "outside the Kinolot asset layout" */
+  const OUTSIDE_LAYOUT = "outside the TURN asset layout";
+  /* Text the server wrote (a failed item's detail, a run's last error) can still carry the
+     internal codename, e.g. "path outside the TURN asset layout; review by hand". Shown as
+     "Kinolot"; error codes such as TURN_ROLE_SCOPE and turn_* names are left alone. */
+  function serverText(v){
+    return v === null || v === undefined ? v : String(v).replace(/\bTURN\b(?!_)/g, "Kinolot");
+  }
+
   /* One status vocabulary for every chip on the page (spec §8.3). */
   const KNOWN_STATUS = new Set(["service", "uploading", "queued-for-cleanup", "kept-for-promotion-retry",
     "orphan: project deleted", "unreferenced"]);
@@ -172,9 +187,9 @@
     if(s === "kept-for-promotion-retry") return { text:"Kept for Show retry", tone:"amber",
       title:"A Show promotion may still reuse this copy." };
     if(s === "orphan: project deleted") return { text:"Project deleted" + (safe ? " · safe to delete" : ""), tone:"alert",
-      title:safe ? "Its project was deleted and nothing in TURN points at this file." : "Its project was deleted." };
+      title:safe ? "Its project was deleted and nothing in Kinolot points at this file." : "Its project was deleted." };
     if(s === "unreferenced") return { text:"Unreferenced", tone:"alert",
-      title:"Nothing in TURN points at this file." + (live === false ? "" : " " + MSG.liveReadOnly) };
+      title:"Nothing in Kinolot points at this file." + (live === false ? "" : " " + MSG.liveReadOnly) };
     if(!s) return { text:"Unknown", tone:"neutral", title:"" };
     return { text:"In use", tone:"neutral", title:s };            // referenced: the raw kinds, e.g. "current, history"
   }
@@ -373,7 +388,7 @@
     let referenced = 0, noStatus = 0;
     for(const [k, v] of Object.entries(by)){
       if(!num(v)) continue;
-      if(KNOWN_STATUS.has(k) || k === "outside the TURN asset layout") continue;
+      if(KNOWN_STATUS.has(k) || k === OUTSIDE_LAYOUT) continue;
       if(k === "kept") noStatus += num(v);
       else referenced += num(v);            // any referenced kind ("current, history", "history-ref", …), like statusChip
     }
@@ -390,7 +405,7 @@
     if(n("kept-for-promotion-retry")) lines.push(fmtCount(n("kept-for-promotion-retry")) + " kept for a Show-promotion retry");
     if(n("uploading")) lines.push(fmtCount(n("uploading")) + " still uploading");
     if(n("service")) lines.push(plural(n("service"), "service file") + " (Blender relay preview)");
-    if(n("outside the TURN asset layout")) lines.push(fmtCount(n("outside the TURN asset layout")) + " outside the TURN asset layout (review by hand)");
+    if(n(OUTSIDE_LAYOUT)) lines.push(fmtCount(n(OUTSIDE_LAYOUT)) + " outside the Kinolot asset layout (review by hand)");
     if(n("unreferenced")) lines.push(fmtCount(n("unreferenced")) + " unreferenced (not deleted from this page)");
     if(n("orphan: project deleted")) lines.push(fmtCount(n("orphan: project deleted")) + " not marked safe to delete");
     if(noStatus) lines.push(fmtCount(noStatus) + " kept");
@@ -434,9 +449,9 @@
     if(c === "run_not_found") return "That run no longer exists. Refresh History.";
     // a server from before 2026-09-28 doesn't know the temp-file actions
     if(ctx === "temp" && (c === "bad_request" || s === 400) && /unknown action/i.test(String(err.message || ""))) return MSG.tempUpdate;
-    if(c === "bad_request" || s === 400 || s === 413) return "The server refused the request" + (err.message ? ": " + err.message : ".");
+    if(c === "bad_request" || s === 400 || s === 413) return "The server refused the request" + (err.message ? ": " + serverText(err.message) : ".");
     if(s >= 500 || c === "internal") return MSG.internal;
-    return err.message || ("Something went wrong (" + (c || s || "unknown") + ").");
+    return serverText(err.message) || ("Something went wrong (" + (c || s || "unknown") + ").");
   }
 
   function runStatus(run){
@@ -1081,7 +1096,7 @@
           : h("div", { className:"adm-result " + (statusDone ? "ok" : "amber") },
             statusDone ? "Deleted " + plural(r.removed, "file") + " · " + fmtBytes(r.removedBytes) + " freed."
               : "Deleted " + fmtCount(r.removed) + " of " + fmtCount(num(r.planned) || planned) + "." + (failed
-                ? " " + fmtCount(failed) + " couldn't be deleted" + (detail ? " (Storage error: " + detail + ")" : "") + "." : "")),
+                ? " " + fmtCount(failed) + " couldn't be deleted" + (detail ? " (Storage error: " + serverText(detail) + ")" : "") + "." : "")),
           sheet.error ? h("div", { className:"adm-banner alert" }, errorMessage(sheet.error, ctx)) : null,
           statusDone && r.leftInProjects ? h("div", { className:"adm-muted" }, leftLine(r.leftInProjects)) : null,
           h("div", { className:"adm-sheet-acts" },
@@ -1168,7 +1183,7 @@
             h("span", { className:"adm-file-name" }, REASON[s.reason] || s.reason),
             chip(s.project_live ? { text:"Project live", tone:"ok" } : { text:"Project deleted", tone:"alert" }),
             h("span", { className:"adm-muted" }, plural(s.attempts, "attempt"))),
-          s.last_error ? h("div", { className:"adm-file-l2" }, h("span", null, s.last_error)) : null,
+          s.last_error ? h("div", { className:"adm-file-l2" }, h("span", null, serverText(s.last_error))) : null,
           h("div", { className:"adm-file-path" }, h("span", { className:"adm-mono" }, s.path), h(CopyBtn, { text:s.path, label:"path" }))))) : null);
   }
 
@@ -1297,7 +1312,7 @@
       items.map((it)=> h("div", { key:it.path, className:"adm-file" },
         h("div", { className:"adm-file-path" }, h("span", { className:"adm-mono" }, it.path), h(CopyBtn, { text:it.path, label:"path" })),
         h("div", { className:"adm-file-l2" },
-          h("span", null, it.detail || outcome), h("span", null, fmtBytes(it.bytes)),
+          h("span", null, serverText(it.detail) || outcome), h("span", null, fmtBytes(it.bytes)),
           it.attempts ? h("span", null, plural(it.attempts, "attempt")) : null))),
       loading ? h("div", { className:"adm-muted adm-count" }, "Loading…") : null,
       next && !loading ? h("button", { type:"button", className:"adm-btn", onClick:()=> load(next) }, "Load more") : null);
@@ -1330,7 +1345,7 @@
           h("button", { type:"button", className:"adm-btn danger", disabled:busy,
             onClick:()=>{ if(busy) return; setConfirming(false); onResume(run); } }, "Resume deleting"))) : null,
       open ? h("div", { className:"adm-run-body" },
-        run.last_error ? h("div", { className:"adm-banner amber" }, run.last_error) : null,
+        run.last_error ? h("div", { className:"adm-banner amber" }, serverText(run.last_error)) : null,
         h(RunItems, { runId:run.id })) : null);
   }
   /* Newest first, 50 a page with Load more, so no run (and no Resume) falls off.
@@ -1627,6 +1642,6 @@
     fmtBytes, fmtCount, fmtAgo, shortId, statusChip, parseStorageRef, buildModel, keptLines, errorMessage,
     runStatus, canResume, leftLine, projectLabel, kindLabel, callAdminStorage, MSG, rowKey, trapTab, resumeCount,
     loopRun, runWhat, runResult, tempBlockReason, tempStatsLine, tempKeptLine, tempConfirmText, tempEmptyText, tempResultLine,
-    tempCanRetry, serviceNote,
+    tempCanRetry, serviceNote, serverText,
   };
 })();

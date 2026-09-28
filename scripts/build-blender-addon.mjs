@@ -1,5 +1,11 @@
 /*
- * Build the legacy-installable Cinema Machine Blender add-on.
+ * Build the legacy-installable Kinolot Blender add-on ("Kinolot Bridge").
+ *
+ * The package folder (cinema_machine_bridge), the packaged ZIP path (cinema-machine-blender.zip,
+ * also named by serve.js and the Blender tests — the file users SAVE is named kinolot-blender.zip
+ * by the download link and serve.js) and the page global
+ * window.CinemaMachineBlenderAddon keep the product's former name: they are internal,
+ * and renaming the package would install as a second add-on beside the old one.
  *
  * This is a deliberately dependency-free ZIP writer.  Keeping the archive
  * creation in Node avoids requiring a system `zip` command or adding a

@@ -1,20 +1,60 @@
-# TURN — project notes
+# Kinolot — project notes (internal codename: TURN)
 
-Story-architecture app for AI filmmakers (value charges, scenes that turn, beats → script).
-Branding: the method is **the Infinite Studio method** — MUSE must never name McKee / Robert McKee / Claude / Anthropic (there's a system-prompt rule + a `scrubBrand()` safety net in `app/ai.jsx`).
+**Kinolot** (say *KEE-no-lot*) **by Infinite Studio AI** — a story-architecture app for AI filmmakers (value
+charges, scenes that turn, beats → script → Art Room → Stage). Served at **https://kinolot.infinitestudioai.com**;
+`cinema.infinitestudioai.com` and the existing Replit hosts stay working as **legacy hosts** wherever hosts are listed.
+
+## 🏷️ Names users see (owner decisions 2026-09-28) — never regress these
+- **Product: Kinolot.** Where the company is shown: "Kinolot by Infinite Studio AI". "Cinema Machine" is the old name.
+- **Company: always "Infinite Studio AI"** — in UI copy and in everything the models / the assistant are told.
+- **Method: "the Infinite Studio AI method".** Nothing user-facing or model-facing may name McKee / Robert McKee /
+  Claude / Anthropic or any AI vendor (system-prompt rules + the neutral `scrubBrand()` / `museScrubReply()` /
+  `scrubAnalysis()` safety nets in `app/ai.jsx` — they never turn a vendor's name into a claim about the company).
+  Story text gets the narrow `scrubBrand()`; the studio's own analysis fields (Story Doctor rationale, re-read,
+  fusion note, Final Read, voice check) get `scrubAnalysis()`, which removes every McKee but the film's own words.
+- **TURN is the internal codename ONLY** — repo, `TURN.html`, `turn_*` tables, the `turn-assets` bucket,
+  `window.TURN_*` globals, storage keys, ids. It must **never** appear to users: no UI string, tooltip, toast,
+  confirm, error, admin copy, export file name or assistant fact/instruction. **`scripts/test-brand-guard.mjs`**
+  enforces it for the whole app (every user-facing literal, what Frances is told, the HTML pages, the exports) —
+  it also fails on "Cinema Machine", MUSE as a name, the retired agent names and "Infinite Studio" without " AI";
+  the per-area `scripts/test-rebrand-*.mjs` tests pin each surface's exact copy.
+  A new internal literal that must keep an old name goes in its commented ALLOWLIST, never around it. The craft verb
+  in MODEL prompts ("each scene must TURN its value") may stay.
+- **The assistant is Frances** (internal code name **MUSE**: `app/muse.jsx`, `museSystemPrompt()`, `docs/MUSE Protocol.md`
+  keep their names). Frances **only answers** (the help dock + New Story's voice conversation) and never claims to be
+  named after anyone. The WRITING actions carry **no persona**: "Draft", "Drafting…", "Rewriting the prose…", versions
+  "AI draft" / "AI polish", "Auto — picks per draft".
+- **Story Editors** (Writers' Room agents) keep job titles: Story Doctor, Script Supervisor (id `consistency`), Setups &
+  Payoffs (id `continuity`), Adaptation, Final Read (id `tableread`). **Department Heads** (Art Room agents): Visual
+  Researcher, Casting Director, Props Master, Location Scout, Colorist, Shot Designer, Art Coordinator, Production check.
+  One apostrophe style: "Writers' Room" (straight).
+- **Display-only renames** (every internal id, role key, plan id and stored value stays): the collaborator role
+  `writer` shows as **"Co-writer"**; the plan `studio` shows as **"Producer"**. In Stripe only the product's
+  display name may change — its metadata `tier=studio` and `app=cinema-machine` are ids the webhook and the
+  plan gates read (a `producer` tier would fall back to Writers' Room-only access).
+- **Stored data is never migrated:** a label already saved in users' data ("MUSE draft", "TURN prompt compiler", an
+  agent's old name in a saved log) is mapped to today's name **where it is displayed** — `window.turnDisplayNames()`
+  (agents.jsx: old agent names, "MUSE draft/polish", "TURN prompt compiler"), `promptCompilerLabel()` (artroom.jsx),
+  `window.turnPlanDisplayName()` (plans.jsx: `studio` → "Producer"), `teamRoleLabel()` (team.jsx: `writer` →
+  "Co-writer") and `serverText()` (admin-storage.jsx: server text that still says TURN). Show saved text through these.
+- **Screenplay exports credit the writer, never the company:** Fountain `Author:` and the PDF/HTML title page's
+  "written by" show the film's own author if it has one; else, on a film shared WITH the user, the film's owner
+  (`window.turnOpenFilmCredit`, set in app.jsx — never the collaborator who exports); else the signed-in user's
+  display name / handle (`cloudHandleName()`: a "+tag" is dropped); with no name the credit line is left out.
+  A small "Made with Kinolot" tool note is fine; authorship is the user's.
 
 ## 📐 Story-building process — follow the skill
 When building a story (New Story → spine, Adaptation, or any seed→script flow), follow the canonical
 pipeline in **`docs/Story Pipeline.md`**. It is owned by the user — **do not add, remove, reorder, or
 change any step without their explicit prior permission.** Propose changes and wait for a yes.
 
-## ⚠️ Keep MUSE's product knowledge in sync
-MUSE (the in-app AI co-writer) answers users' how-to / product questions from a **single capability manifest**: the `APP_FEATURES` array in `app/ai.jsx`. It is the source of truth fed into MUSE's system prompt via `appBrief()`.
+## ⚠️ Keep Frances's product knowledge in sync
+Frances (the in-app help assistant, codename MUSE) answers users' how-to / product questions from a **single capability manifest**: the `APP_FEATURES` array in `app/ai.jsx`. It is the source of truth fed into her system prompt via `museBrief()` / `appBrief()` (after `musePublicFeature()` drops vendor, plumbing and billing sentences).
 
-**Whenever you add, rename, or change a user-facing feature, update `APP_FEATURES` in `app/ai.jsx` in the same change.** If you don't, MUSE will give users outdated or confabulated answers. MUSE is also instructed to say "I'm not sure" rather than guess about anything not in that list.
+**Whenever you add, rename, or change a user-facing feature, update `APP_FEATURES` in `app/ai.jsx` in the same change.** If you don't, Frances will give users outdated or confabulated answers. She is also instructed to say "I'm not sure" rather than guess about anything not in that list.
 
-## 🛡️ MUSE answer protocol
-How MUSE is allowed to answer users (scope, confidentiality, tone, refusals, staying in character) is governed by **`docs/MUSE Protocol.md`**. The protocol is enforced in code by `museSystemPrompt()` in `app/ai.jsx` (the system prompt), with `scrubBrand()` and `museFinalAnswer()` as safety nets. **If you change one, change the other** so the doc and the prompt stay in sync. MUSE is the floating help assistant (`app/muse.jsx`, voice + chat) — it only answers; it never edits the story.
+## 🛡️ Frances answer protocol
+How Frances is allowed to answer users (scope, identity, confidentiality, tone, refusals, staying in character) is governed by **`docs/MUSE Protocol.md`**. The protocol is enforced in code by `museSystemPrompt()` in `app/ai.jsx` (the system prompt) and, for New Story's voice, by the live-voice instructions in `supabase/functions/image-proxy/index.ts`, with `museScrubReply()` (which runs `scrubBrand()`) and `museFinalAnswer()` as safety nets. **If you change one, change the other** so the doc and the prompts stay in sync. Frances is the floating help assistant (`app/muse.jsx`, voice + chat) — she only answers; she never edits the story.
 
 ## 🔀 Two working copies — never reason about Replit from branch names
 Work happens in **two places**: this local repo and the **Replit workspace**. Either can be ahead.
@@ -48,8 +88,8 @@ deploy`, or you overwrite fixes made elsewhere.
 
 ## Architecture
 - `app/story-data.jsx` — sample film (The Matrix) data: SCENES, BEATS, SCREENPLAY, FACTS + CONTINUITY map.
-- `app/ai.jsx` — model wiring (drafting, polish, scene authoring, MUSE chat, agent helpers: aiSuggestTurn/aiPlantLine/aiTableRead/aiBuildSpine) + `APP_FEATURES`.
-- `app/agents.jsx` — bounded-loop agent engine + 4 agents (Story Doctor, Continuity Repair, Adaptation, Table-Read). Each works on a working `model` and gates changes behind `propose()`.
+- `app/ai.jsx` — model wiring (drafting, polish, scene authoring, the Frances/MUSE chat, agent helpers: aiSuggestTurn/aiPlantLine/aiTableRead/aiBuildSpine) + `APP_FEATURES`.
+- `app/agents.jsx` — bounded-loop agent engine + the Story Editors (Story Doctor, Script Supervisor, Setups & Payoffs, Adaptation, Final Read) and the Art Room's Department Heads. Each works on a working `model` and gates changes behind `propose()`.
 - `app/agents-ui.jsx` — Writers' Room modal: agent picker, reasoning trace, approval cards.
 - `app/spine.jsx` — value-charge graph + filmstrip + DragScroll pan.
 - `app/inspector.jsx` — editable scene/beats/analysis panel.

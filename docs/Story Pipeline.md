@@ -1,12 +1,12 @@
-# SKILL — The TURN Story Pipeline
+# SKILL — The Kinolot Story Pipeline
 
 > **Ownership & governance.** This document is owned by the project manager (the user).
-> It is the canonical, step-by-step process the assistant follows when building a story in TURN.
+> It is the canonical, step-by-step process the assistant follows when building a story in Kinolot.
 > **The assistant MUST NOT add, remove, reorder, or change any step without the user's explicit
 > prior permission.** Propose changes; wait for a yes. The user may edit this file freely at any time.
 >
-> Branding rule (inherited from CLAUDE.md): everything here is **the Infinite Studio method**.
-> Never name McKee / Robert McKee / Claude / Anthropic in any user-facing or MUSE-facing output.
+> Branding rule (inherited from CLAUDE.md): everything here is **the Infinite Studio AI method**.
+> Never name McKee / Robert McKee / Claude / Anthropic in any user-facing or Frances-facing output.
 
 ---
 
@@ -52,7 +52,7 @@ criteria**. Both change the *size and telling* of what's built — never the ste
 
 ### 2. Research → Synopsis  *(the new, defining step; amended 2026-06-12 by owner approval: framework-shaped synopsis, seed pass-through, format-aware research)*
 Before any structure is built, expand the seed into a synopsis using the
-**Three Pillars of Research** (the Infinite Studio research method). The assistant may **search the
+**Three Pillars of Research** (the Infinite Studio AI research method). The assistant may **search the
 web** to gather real, grounding material for the Fact pillar. Three owner-approved rules:
 - **The writer's original seed rides along** into research and synopsis as canon — its names,
   details and questions survive even when the chosen logline compressed them away.
@@ -200,7 +200,7 @@ palette, sheet prompts) — that is drafted in the Art Room once the Lookbook ha
 > a lazy trauma-excuse; keep asking *why* until the want is a live, present-tense hunger the story
 > can dramatize. **Dimensions = contradictions**: 2–4 consistent "trait / counter-trait" pairs
 > visible in behaviour, the **protagonist carrying the most** in the cast (a Cast-panel field,
-> drafted by the build and by "Draft with MUSE"). The **protagonist's arc is pinned to the Story
+> drafted by the build and by "Draft"). The **protagonist's arc is pinned to the Story
 > Contract's declared inner arc**, so the cast document and the contract never drift. The cast is
 > designed **as a system**: *Human truth* + *Argues* give every member a distinct stance on the
 > controlling idea (never a unanimous jury), and **Voice DNA** (vocabulary, syntax under stress,
@@ -250,7 +250,7 @@ that don't turn, and setups/payoffs that are missing or out of order.
 > continuity in one writing call: the story facts the audience carries from scene to scene
 > (information, secrets, promises, threats, objects that matter, abilities, rules,
 > relationships), the scene that sets each one up, and the later scenes that rely on it. This
-> ledger is what the continuity check and Continuity Repair read. It never blocks the build: a
+> ledger is what the continuity check and Setups & Payoffs read. It never blocks the build: a
 > failure leaves the film marked "not mapped" (build it later from the Script view's Continuity
 > report), and script edits mark it stale until it is rebuilt.
 
@@ -310,7 +310,7 @@ shows the screenplay with a left gutter indicating which beat each block expands
 
 > **Scene engineering** *(approved 2026-08-31 by owner)*: dialogue is **step five, never step
 > one** — behavior runs desire → sense of antagonism → choice of action → action → expression;
-> in TURN this is structural (prose is generated *from* the beat map), and beat authoring now
+> in Kinolot this is structural (prose is generated *from* the beat map), and beat authoring now
 > treats each beat's action as a **chosen tactic under antagonism**, with **escalation** — each
 > beat must top the previous, no repeated tactics. Scene conflict is framed as **duelling active
 > infinitives** ("to claim her love" vs. "to block him"), keeping desire and obstacle active,
@@ -347,13 +347,13 @@ shows the screenplay with a left gutter indicating which beat each block expands
 > and the "golden thread" as engine content (it recaps what the pipeline enforces structurally).
 
 ### 6. Drafting controls
-- **Draft with MUSE** — drafts the one selected scene (authors beats first if it has none, then writes the script).
+- **Draft** — drafts the one selected scene (authors beats first if it has none, then writes the script).
 - **Auto-draft all** — drafts every still-undrafted scene in order, threading continuity.
 - **Polish / Re-polish** — rewrites drafted prose to final quality while keeping beats locked.
 - **Version history** — every draft and polish is kept; Revert / Redo move between versions.
 
-### 7. Working across the whole story — the Writers' Room agents
-**Story Doctor** (finds the weakest structural link, proposes a fix, re-audits), **Continuity Repair**,
+### 7. Working across the whole story — the Story Editors (Writers' Room agents)
+**Story Doctor** (finds the weakest structural link, proposes a fix, re-audits), **Setups & Payoffs**,
 **Adaptation** (full build-from-source), **Final Read**. Each proposes changes the user approves,
 with one-click Undo.
 
@@ -365,7 +365,7 @@ with one-click Undo.
 > just the unwritten scenes** on the next run rather than rebuilding everything — including any
 > scene left as a **rough stand-in** *(2026-09-27, owner-approved)*: a stand-in is built from the
 > beat cards when the writer's draft is rejected, is marked as such in the Script view (the Script
-> check does not show it as clean), and keeps that mark until MUSE writes the scene. The Final Read's
+> check does not show it as clean), and keeps that mark until the AI writes the scene. The Final Read's
 > voice pass distinguishes "your script has too little dialogue" from "the model was unavailable /
 > failed — run again". Read-only reports (Final Read) are **kept per film** and shown when the
 > panel reopens, so a full report is never lost by closing the window.
@@ -375,12 +375,12 @@ with one-click Undo.
 > charges, conflict source or style, Argues, beat type, driver, objective, summary, slugline, or
 > the driver's or reactor's psychology — the scene is marked **needs redraft** until the writer
 > redrafts it from the current card or keeps the draft as it is. Agent fixes (a Doctor
-> re-level, a Continuity Repair planted line) mark their scenes the same way, so an approved
+> re-level, a Setups & Payoffs planted line) mark their scenes the same way, so an approved
 > change always reaches the page.
 
-### 8. MUSE
+### 8. Frances
 The in-app co-writer answers how-to / product questions and helps draft, all framed in the
-Infinite Studio method vocabulary (values, charges, beats, turns).
+Infinite Studio AI method vocabulary (values, charges, beats, turns).
 
 ### 9. Pre-production — the Art Room (visual pipeline)
 Once the script exists, the **Art Room** turns it into a visual reference package (separate from the
@@ -455,7 +455,7 @@ Each entity gets a canonical, reusable reference so every generated image stays 
     order: **Lookbook → Characters → Generate all → Props → Draft all → Generate all → (re-generate
     Characters)** — the look first, then characters BEFORE props so each worn/owned prop can be generated referencing its owner's character sheet
     (so it matches them); then, with the props made, re-generating a character makes its master wear the
-    exact finalized prop. The Coordinator's **Run pre-production** does this automatically: Lookbook →
+    exact finalized prop. The Art Coordinator's **Run pre-production** does this automatically: Lookbook →
     Characters → Props → **Wear props** (re-generates each affected master and refreshes any existing
     appearance variant off it) → Locations → Color → Shots (coverage); shot frames and Storyboards are then
     made from their own tabs.
@@ -530,13 +530,13 @@ lines longer than one clip are split at a sentence/beat boundary. Built audio-fi
 ---
 
 ## Implementation status (keep this honest)
-- Steps **3–8** exist in code today (Adaptation agent, Spine, beats→script, drafting controls, Writers' Room, MUSE).
+- Steps **3–8** exist in code today (Adaptation agent, Spine, beats→script, drafting controls, Writers' Room, Frances).
 - Step **2 (Research → Synopsis)** is **now built** (`aiResearchSynopsis` in `app/ai.jsx`, the synopsis-review
   step in `app/newstory.jsx`, threaded into the spine build via `composeStoryBrief`). The New Story flow is
   now: seed → loglines → **research → synopsis (review/edit)** → spine. The model has no live web, so the Fact
   pillar draws on the model's own world knowledge (period, place, the protagonist's role through four lenses:
   what happens / how it feels / frustrating / lovely).
-- `APP_FEATURES` in `app/ai.jsx` has been updated so MUSE can describe the stage.
+- `APP_FEATURES` in `app/ai.jsx` has been updated so Frances can describe the stage.
 - Step **10 (The Stage)**: the **audio-first assembly shell** is built (`app/stage.jsx`, room unlocked) —
   it lays the clip partition + shot frames + dialogue on the cut timeline, timed by ESTIMATED line
   durations. The **Voices** tab (Step 9) and the real voice/video render (ElevenLabs → Seedance) are the

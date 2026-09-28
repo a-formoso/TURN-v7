@@ -171,7 +171,7 @@ function ChargeEditor({ scene, onCharge, onUpdate, readOnly, unnamedValues, onNa
           placeholder:(guess&&guess.neg)||"e.g. Hate",onCommit:v=>setPole("neg",v)})),
       !axis && React.createElement("div",{className:"va-hint"},"Name the one value this scene turns. Until you do, the opening and closing words below are free text."),
       !axis && onNameAllValues && unnamedValues>1 && React.createElement("button",{className:"char-draft-btn va-name-all",disabled:readOnly||namingValues,
-          onClick:onNameAllValues,title:"Fill every scene's value at stake: the poles their own words give are used as-is, and MUSE supplies only the missing ones. Scripts aren't changed."},
+          onClick:onNameAllValues,title:"Fill every scene's value at stake: the poles their own words give are used as-is, and only the missing ones are written (one writing call). Scripts aren't changed."},
         React.createElement(Icon.sparkles,{s:12}), namingValues ? "Naming values\u2026" : ("Name every scene's value ("+unnamedValues+")"))),
     React.createElement("div",{className:"charge-grid"},
       React.createElement("div",{className:"charge-cell"},
@@ -523,12 +523,12 @@ function Inspector({ scene, beats, draft, onCharge, onUpdate, characters, scenes
             // labels size the select wider than the panel, under the scrollbar
             React.createElement("div",{style:{flex:1,minWidth:0}},
               React.createElement("div",{className:"obj-lab",style:{marginBottom:4},
-                title:"How the antagonism is conducted on the page \u2014 the scene's dialogue grammar. Auto lets MUSE choose per draft; a pick binds every draft of this scene."},"Conflict style"),
+                title:"How the antagonism is conducted on the page \u2014 the scene's dialogue grammar. Auto picks one per draft; a pick binds every draft of this scene."},"Conflict style"),
               // an unrecognized stored value (legacy/import) displays — and behaves — as Auto
               React.createElement("select",{className:"insp-select insp-select-full",disabled:readOnly,
                 value:((window.CONFLICT_MODES||[]).some(m=>m.id===scene.conflictMode) ? scene.conflictMode : ""),
                 onChange:e=>onUpdate(scene.id,{conflictMode:e.target.value})},
-                [React.createElement("option",{key:"",value:""},"Auto \u2014 MUSE picks per draft")].concat(
+                [React.createElement("option",{key:"",value:""},"Auto \u2014 picks per draft")].concat(
                   (window.CONFLICT_MODES||[]).map(m=>React.createElement("option",{key:m.id,value:m.id,title:m.def},
                     m.label+" \u2014 "+m.def.split("\u2014")[0].trim())))),
               React.createElement("div",{className:"argues-hint",style:{marginTop:5}},

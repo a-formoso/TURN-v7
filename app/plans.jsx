@@ -1,4 +1,4 @@
-/* plans.jsx — Cinema Machine subscription plans + paywall modal.
+/* plans.jsx — Kinolot subscription plans + paywall modal.
    The three tiers and one-off credit packs open their Stripe Payment Link, tagged
    with the user's Supabase id (client_reference_id) so the webhook credits the
    right account. Credits are granted server-side by supabase/functions/stripe-webhook.
@@ -9,9 +9,11 @@
    fill in the plan and pack `live:` URLs; no code path changes. Until a `live`
    URL is set it safely falls back to `test`. */
 
-/* Production hostnames that should use the LIVE payment links. Add the custom
-   domain here once cinema.infinitestudioai.com is verified. */
-const LIVE_HOSTS = ["cinema-machine.replit.app", "cinema.infinitestudioai.com", "cinemamachine.ai"];
+/* Production hostnames that should use the LIVE payment links. The app's home is
+   kinolot.infinitestudioai.com (owner decision 2026-09-28); the older hosts stay listed
+   as legacy hosts so checkout keeps using live links there while they still serve the app.
+   A host missing from this list silently gets TEST links, so add any new domain here. */
+const LIVE_HOSTS = ["kinolot.infinitestudioai.com", "cinema.infinitestudioai.com", "cinema-machine.replit.app", "cinemamachine.ai"];
 
 /* Credit DENOMINATION. Credits are counted in a fine unit so plan allowances read
    generously (800, not 80) — this is cosmetic scale, NOT extra value: render/text/
@@ -34,7 +36,9 @@ const PLANS = [
     features:["2,400 credits / month","Writers' Room + Art Room","Characters, props, locations, shots and storyboards"],
     test:"https://buy.stripe.com/test_00waEZ77eeiD6Ti4j1c7u01",
     live:"https://buy.stripe.com/00waEZ77eeiD6Ti4j1c7u01" },
-  { tier:"studio",   name:"Studio",   price:"$149", credits:9000,
+  // the "studio" tier is SHOWN as "Producer" (owner decision 2026-09-28) — display only:
+  // the tier id, Stripe metadata and stored balances keep "studio"
+  { tier:"studio",   name:"Producer", price:"$149", credits:9000,
     blurb:"Move from script to production.",
     entitlements:{ writers_room:true, art_room:true, stage:true },
     features:["9,000 credits / month","Writers' Room + Art Room + Stage","Video, voice, timeline and production assets"],
@@ -42,6 +46,26 @@ const PLANS = [
     live:"https://buy.stripe.com/bJe9AVbnu6QbdhG2aTc7u02" },
 ];
 window.CINEMA_PLANS = PLANS;
+
+/* PLAN NAMES AS USERS SEE THEM. "Studio" read like the company (Infinite Studio AI) and
+   Blender Studio, so the top plan is shown as "Producer". DISPLAY ONLY: plan ids
+   (writer / director / studio / legacy pro), Stripe metadata, stored balances and saved
+   plan-copy overrides keep their values; a saved "Studio" name is shown as "Producer". */
+const PLAN_DISPLAY = { writer:"Writer", director:"Director", pro:"Director", studio:"Producer" };
+function legacyPlanName(tier, name){
+  return (String(tier||"").toLowerCase()==="studio" && /^studio$/i.test(String(name||"").trim())) ? "Producer" : name;
+}
+function planDisplayName(tierOrName){
+  const s = String(tierOrName==null ? "" : tierOrName).trim();
+  if(!s) return "";
+  const k = s.toLowerCase();
+  if(PLAN_DISPLAY[k]){
+    const p = PLANS.find(x=>x.tier===k);
+    return p ? legacyPlanName(p.tier, p.name) : PLAN_DISPLAY[k];
+  }
+  return s.replace(/^./, c=>c.toUpperCase());
+}
+window.turnPlanDisplayName = planDisplayName;
 
 /* One-off top-ups. Create these in Stripe as ONE-OFF products with metadata:
      app=cinema-machine
@@ -80,7 +104,7 @@ window.turnApplyPlanCopy = function(ov){
   let popularTier = null;
   PLANS.forEach(p=>{
     const o = ov[p.tier]; if(!o) return;
-    if(typeof o.name==="string" && o.name.trim()) p.name = o.name.trim();
+    if(typeof o.name==="string" && o.name.trim()) p.name = legacyPlanName(p.tier, o.name.trim());
     if(typeof o.blurb==="string") p.blurb = o.blurb;
     if(Array.isArray(o.features)) p.features = o.features.map(x=>String(x)).filter(x=>x.trim());
     if(o.popular) popularTier = p.tier;
@@ -112,7 +136,7 @@ window.turnCreditPackLink = checkoutLink;
    Enforced in room navigation:
      Writer   → Writers' Room
      Director → Writers' Room + Art Room
-     Studio   → Writers' Room + Art Room + Stage
+     Studio   → Writers' Room + Art Room + Stage   (tier id "studio", shown as "Producer")
    Enforced inside the Stage too (model picker, resolution ladder, takes-per-Generate):
      Writer   → Kling only, up to 720p, single take
      Director → every model, up to 1080p, single take
@@ -153,8 +177,8 @@ window.turnRoomEntitlements = function(balanceOrTier){
 };
 window.turnRoomRequiredPlan = function(room){
   const r = String(room||"").toLowerCase();
-  if(r==="art" || r==="art_room") return "Director";
-  if(r==="stage") return "Studio";
+  if(r==="art" || r==="art_room") return planDisplayName("director");
+  if(r==="stage") return planDisplayName("studio");
   return "Writer";
 };
 window.turnTierGates = function(balance){
@@ -173,7 +197,7 @@ window.turnGateAllowsRes = function(g, r){
   return !g || rank <= (RES_RANK[g.maxRes]!=null ? RES_RANK[g.maxRes] : 3);
 };
 /* which plan unlocks a locked thing — for "needs the X plan" copy */
-window.turnPlanForRes = function(r){ return (RES_RANK[r]>=3) ? "Studio" : (RES_RANK[r]>=2) ? "Director" : null; };
+window.turnPlanForRes = function(r){ return (RES_RANK[r]>=3) ? planDisplayName("studio") : (RES_RANK[r]>=2) ? planDisplayName("director") : null; };
 
 /* open a plan's checkout tagged with the user's id (+ prefilled email). Needs a
    signed-in user — without a uid the webhook can't know whose balance to credit.
@@ -209,10 +233,10 @@ window.turnStartCheckout = startCheckout;
    into the balance — the card updates live and unlocks its CTA when credits land. */
 function WelcomePlanCard({ plan, credits, activating, onNewStory, onClose }){
   const p = PLANS.find(x=>x.tier===String(plan||"").toLowerCase()) || null;
-  const planLabel = p ? p.name : (plan ? String(plan).replace(/^./,c=>c.toUpperCase()) : "");
+  const planLabel = planDisplayName(p ? p.tier : plan);
   return React.createElement("div",{className:"ns-overlay"},
     React.createElement("div",{className:"welcome-card"},
-      React.createElement("div",{className:"welcome-eyebrow"},"Cinema Machine"),
+      React.createElement("div",{className:"welcome-eyebrow"},"Kinolot"),
       React.createElement("div",{className:"welcome-title"},
         activating ? "Setting up your plan…" : ("Your "+planLabel+" plan is live")),
       React.createElement("div",{className:"welcome-sub"},
@@ -228,7 +252,7 @@ window.WelcomePlanCard = WelcomePlanCard;
 function WelcomeCreditPackCard({ credits, activating, onClose }){
   return React.createElement("div",{className:"ns-overlay"},
     React.createElement("div",{className:"welcome-card"},
-      React.createElement("div",{className:"welcome-eyebrow"},"Cinema Machine"),
+      React.createElement("div",{className:"welcome-eyebrow"},"Kinolot"),
       React.createElement("div",{className:"welcome-title"},
         activating ? "Adding your extra credits…" : "Extra credits added"),
       React.createElement("div",{className:"welcome-sub"},
@@ -346,7 +370,7 @@ function PlansModal({ onClose, currentPlan }){
                     unavailable ? "Coming soon" : ("Buy "+p.credits.toLocaleString())));
               })))),
       React.createElement("div",{className:"plans-foot"},
-        "Secure checkout by Stripe · Cinema Machine, by Infinite Studio AI")));
+        "Secure checkout by Stripe · Kinolot by Infinite Studio AI")));
 }
 window.PlansModal = PlansModal;
 

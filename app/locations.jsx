@@ -1630,7 +1630,7 @@ window.deriveLocationCoverageSheets = deriveLocationCoverageSheets;
    glass, ODESSA…", "Inside the booth, Odessa kills the lamp"). That space is a real set
    — its own walls, light and geography — but because locations DERIVE FROM SLUGLINES it
    gets no card, no plate and no coverage. The fix belongs in the screenplay: slug it.
-   Deterministic on purpose — the Consistency Check that consumes this is the FREE tier
+   Deterministic on purpose — the Script Supervisor that consumes this is the FREE tier
    and makes no model calls — and shared so the Writers' Room and the Art Room can never
    disagree about what counts as an implied space.
    Returns [{ name, role, time, evidence, atIndex, noun }], atIndex = the FIRST block that
@@ -2356,7 +2356,7 @@ function _nbLocMeta(prompt, entity, runSnapshot){
     time: now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}),
     iso: now.toISOString(), prompt, mode:"final", version:1,
     writingSources:(typeof window.nbWritingSourcesFor==="function")?window.nbWritingSourcesFor(entity):[],
-    promptCompiler:"TURN prompt compiler" };
+    promptCompiler:"Kinolot prompt compiler" };
 }
 /* SET DRESSING — painted INTO the plate by an EDIT, never attached as reference
    sheets at generation. (Reference sheets at generation time had no anchor image

@@ -1,4 +1,4 @@
-# TURN — Cinema Machine
+# Kinolot by Infinite Studio AI (internal codename: TURN)
 
 Story-architecture app for AI filmmakers. Build a spine, write scenes that turn, develop beats into a screenplay, design cast and world, storyboard the film.
 
@@ -24,7 +24,7 @@ existing Supabase project and its server-side services to be available.
 
 - `TURN.html` — entry point; loads all scripts in order
 - `app/` — all React components (`.jsx`) and styles
-- `app/ai.jsx` — model wiring, MUSE chat, agent helpers, `APP_FEATURES` manifest
+- `app/ai.jsx` — model wiring, the Frances (codename MUSE) help chat, agent helpers, `APP_FEATURES` manifest
 - `app/app.jsx` — top-level state and composition
 - `app/chrome.jsx` — top bar + left rail
 - `app/spine.jsx` — value-charge graph + filmstrip
@@ -42,7 +42,7 @@ existing Supabase project and its server-side services to be available.
 ## Blender product direction
 
 The intended product goes beyond the original one-shot preview proof: Higgsfield-style
-AI-assisted scene building inside Blender, connected to Cinema Machine's existing
+AI-assisted scene building inside Blender, connected to Kinolot's existing
 locations/contained places, character references, and shots. The aim is reusable
 sets and shot blocking/camera references returned for later Seedance animation,
 not isolated throwaway scenes for every shot. See `docs/Blender Studio.md` for the
@@ -51,9 +51,10 @@ boundaries; development must not spend generation credits without approval.
 
 ## Important conventions (see AGENTS.md for full details)
 
-- **MUSE branding**: never name McKee / Robert McKee / Codex / Anthropic in MUSE output; `scrubBrand()` in `ai.jsx` is the safety net
-- **APP_FEATURES** in `ai.jsx` is the source of truth for MUSE's product knowledge — update it whenever you add or rename a user-facing feature
+- **Names users see (owner decisions 2026-09-28)**: the product is **Kinolot** ("Kinolot by Infinite Studio AI"), the company is always **Infinite Studio AI**, the method is **the Infinite Studio AI method**, the help assistant is **Frances** (codename MUSE; she only answers), writing actions carry no persona ("Draft", "AI draft"). **TURN is the internal codename only** and must never appear to users; `scripts/test-brand-guard.mjs` enforces it. See CLAUDE.md for the full list.
+- **Branding**: never name McKee / Robert McKee / Claude / Anthropic or any AI vendor in Frances's output; `scrubBrand()` / `museScrubReply()` / `scrubAnalysis()` in `ai.jsx` are the safety nets
+- **APP_FEATURES** in `ai.jsx` is the source of truth for Frances's product knowledge — update it whenever you add or rename a user-facing feature
 - **Story pipeline** in `docs/Story Pipeline.md` is user-owned — do not reorder or change steps without explicit permission
-- **MUSE protocol** in `docs/MUSE Protocol.md` and `museSystemPrompt()` must stay in sync
+- **Frances protocol** in `docs/MUSE Protocol.md` and `museSystemPrompt()` must stay in sync
 
 ## User preferences

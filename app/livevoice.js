@@ -1,6 +1,7 @@
-/* livevoice.js — GPT-Live voice transport for MUSE's New Story conversation.
-   The browser owns only WebRTC media + session events. A signed-in call to TURN's
-   server proxy exchanges the SDP offer for an answer, so the service key never
+/* livevoice.js — GPT-Live voice transport for the New Story conversation with Frances (the
+   help assistant; codename MUSE in code). Every message here is user-facing: it names Kinolot
+   or Frances, never the internal codename (TURN) or the deployment. The browser owns only WebRTC
+   media + session events. A signed-in call to the app's server proxy exchanges the SDP offer for an answer, so the service key never
    enters the page. The story UI consumes this small transport through
    turnStartLiveVoice(); it decides how transcripts become loglines. */
 (function(){
@@ -11,13 +12,13 @@
       return { ok:false, reason:"Live voice isn’t available in this environment." };
     const local = /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(String(location.hostname||""));
     if(location.protocol !== "https:" && !local)
-      return { ok:false, reason:"Live voice needs a secure page. Open TURN through http://localhost:5000 or HTTPS instead of the local file." };
+      return { ok:false, reason:"Live voice needs a secure page. Open Kinolot over HTTPS (or http://localhost:5000) instead of the local file." };
     if(typeof window.RTCPeerConnection !== "function" || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)
-      return { ok:false, reason:"This browser doesn’t support TURN’s live voice connection." };
+      return { ok:false, reason:"This browser doesn’t support live voice. Try Chrome or Edge, or use the typed interview." };
     if(!(window.TURN_SUPABASE && window.TURN_SUPABASE.imageProxy))
-      return { ok:false, reason:"Live voice needs TURN’s server proxy to be enabled." };
+      return { ok:false, reason:"Live voice isn’t switched on here yet. You can use the typed interview instead." };
     if(typeof window.sbClient !== "function" || !window.sbClient())
-      return { ok:false, reason:"Sign in and connect TURN to its server before starting live voice." };
+      return { ok:false, reason:"Sign in to start live voice." };
     return { ok:true, reason:"" };
   }
 
@@ -28,17 +29,22 @@
 
   function liveProxyMessage(value){
     const message=safeMessage(value);
-    // A proxy deployed before TURN added task:"live" falls through to the
-    // image route and answers with this otherwise-confusing validation error.
+    // A proxy deployed before task:"live" existed falls through to the image route and
+    // answers with this otherwise-confusing validation error. Only an admin can redeploy,
+    // so only an admin is told how.
     if(/no prompt supplied/i.test(message))
-      return "TURN’s live-voice backend is out of date. Deploy the updated image-proxy function, then choose Try live again. You can use the typed interview in the meantime.";
+      return window.turnIsAdmin
+        ? "The live-voice backend is out of date. Deploy the updated image-proxy function, then choose Try live again."
+        : "The live-voice backend is out of date, so live voice can’t start right now. You can use the typed interview in the meantime.";
     return message;
   }
 
   async function proxyErrorMessage(error){
     const status = Number((error && error.context && error.context.status) || (error && error.status) || 0);
-    if(status === 401) return "Sign in to talk with MUSE.";
-    if(status === 404) return "The media proxy isn’t deployed yet. Deploy its live-voice route, then try again.";
+    if(status === 401) return "Sign in to talk with Frances.";
+    if(status === 404) return window.turnIsAdmin
+      ? "The media proxy isn’t deployed yet. Deploy its live-voice route, then try again."
+      : "Live voice isn’t available right now. You can use the typed interview in the meantime.";
     const response = error && error.context;
     if(response && typeof response.clone === "function"){
       try{
@@ -46,7 +52,7 @@
         if(body && (body.error || body.message)) return liveProxyMessage(body.error || body.message);
       }catch(_e){}
     }
-    return safeMessage("Couldn’t reach MUSE: "+((error && error.message) || "unknown connection error")+".");
+    return safeMessage("Couldn’t reach Frances: "+((error && error.message) || "unknown connection error")+".");
   }
 
   function waitForIce(peer){
@@ -83,11 +89,13 @@
     if(error) throw new Error(await proxyErrorMessage(error));
     if(data && data.error) throw new Error(liveProxyMessage(data.error));
     if(!(data && data.transport && data.transport.sdp))
-      throw new Error("MUSE opened no usable audio connection. Redeploy the live-voice proxy and try again.");
+      throw new Error(window.turnIsAdmin
+        ? "Frances opened no usable audio connection. Redeploy the live-voice proxy and try again."
+        : "Frances couldn’t open an audio connection. Try live voice again, or use the typed interview.");
     return data;
   }
 
-  /* Start one live MUSE conversation. Callbacks:
+  /* Start one live conversation with Frances. Callbacks:
        onTranscript({role,delta,startMs,endMs,event})
        onStatus("connecting"|"listening"|"speaking"|"muted"|"closing"|"closed")
        onError(message), onPlaybackBlocked()
@@ -186,7 +194,7 @@
       });
       peer.addEventListener("connectionstatechange",()=>{
         if(cleaned || finalized) return;
-        if(peer.connectionState === "failed") onError("MUSE’s live audio connection failed. Try live voice again or continue by typing.");
+        if(peer.connectionState === "failed") onError("The live audio connection to Frances failed. Try live voice again or continue by typing.");
       });
       microphone = await navigator.mediaDevices.getUserMedia({audio:true});
       microphone.getAudioTracks().forEach(track=>peer.addTrack(track,microphone));
@@ -199,8 +207,8 @@
       events.addEventListener("close",()=>{
         if(cleaned || finalized) return;
         const msg=started
-          ? "MUSE disconnected before the conversation finished. Your transcript is still here."
-          : "MUSE’s live connection closed before it was ready.";
+          ? "Frances disconnected before the conversation finished. Your transcript is still here."
+          : "The live connection to Frances closed before it was ready.";
         rejectStarted(new Error(msg));
         onError(msg);
         cleanup();
@@ -214,7 +222,7 @@
       const result=await createProxySession(sdp,options.mode,options.context);
       sessionId=String((result.session && result.session.id)||"");
       await peer.setRemoteDescription({type:"answer",sdp:result.transport.sdp});
-      startupTimer=window.setTimeout(()=>rejectStarted(new Error("MUSE’s live session didn’t become ready in time.")),15000);
+      startupTimer=window.setTimeout(()=>rejectStarted(new Error("The live session with Frances didn’t become ready in time.")),15000);
       await startedPromise;
       window.clearTimeout(startupTimer);
     }catch(error){

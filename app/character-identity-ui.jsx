@@ -16,7 +16,7 @@ function CharacterIdentityNotice({ character, scenes, drafts, cast, onUpdate, re
     const pronouns = report.scriptPronouns;
     const body = "This changes "+name+"'s canonical profile pronouns to "+pronouns+
       ". Existing profile/specifications and generated images may reflect the previous identity and may require re-drafting or regeneration. "+
-      "TURN will not rewrite the screenplay or delete any assets.";
+      "The screenplay is not rewritten and no assets are deleted.";
     let ok = false;
     if(typeof window.appConfirm==="function"){
       ok = await window.appConfirm({

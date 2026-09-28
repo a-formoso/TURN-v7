@@ -38,14 +38,15 @@ assert.doesNotMatch(proxy,/body\.sdp\.trim\(\)\s*:\s*""/,
 const livePos=html.indexOf('src="app/livevoice.js');
 const storyPos=html.indexOf('src="app/newstory.jsx');
 assert.ok(livePos>=0 && storyPos>livePos,"live transport must load before New Story");
-assert.match(html,/app\/livevoice\.js\?v=20260911-gptlive2/);
+// the live-voice file loads under its own key, or a later change's (the Kinolot rebrand re-keyed it: 20260928-brand1)
+assert.match(html,/app\/livevoice\.js\?v=(?:20260911-gptlive2|20260928-brand1)"/);
 assert.match(story,/function NSLiveInterview/);
 assert.match(story,/Finish & shape loglines/);
 assert.match(story,/aiSeedToLoglines\("talk",transcript\)/);
 assert.match(story,/function NSLegacyInterview/);
 assert.match(story,/Use typed interview/);
 assert.match(ai,/seedType==="talk"\?7000:1200/);
-assert.match(ai,/talk:\s+"The writer talked the story through with MUSE/);
+assert.match(ai,/talk:\s+"The writer talked the story through with Frances/);
 assert.match(ai,/_newStoryLiveFeature/);
 assert.match(protocol,/New Story voice uses a server-created GPT-Live session over WebRTC/);
 

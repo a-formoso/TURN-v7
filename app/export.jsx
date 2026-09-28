@@ -13,12 +13,31 @@ function sceneBlocks(scene, drafts){
   ];
 }
 
+/* THE WRITER A SCREENPLAY CREDITS (owner, 2026-09-28): authorship is the user's — the
+   company is never credited as author. The film's own author field when it has one; else, on
+   a film SHARED with the signed-in user, the film's owner (app.jsx window.turnOpenFilmCredit,
+   their handle) — never the View-only reader, Co-writer or Art director who presses Export;
+   else the signed-in writer's display name or account handle (cloud.jsx cloudUserDisplayName,
+   set by app.jsx). With no name at all the credit line is left out, never invented. */
+function screenplayWriter(project){
+  const clean = (v)=> typeof v==="string" ? v.replace(/\s+/g," ").trim().slice(0, 120) : "";
+  const own = clean(project && project.author);
+  if(own) return own;
+  const w = typeof window!=="undefined" ? window : {};
+  const film = w.turnOpenFilmCredit;
+  if(film && film.shared) return clean(film.owner);
+  return clean(w.turnUserDisplayName);
+}
+
 /* ---------- FOUNTAIN (plain-text screenplay standard) ---------- */
 function buildFountain(project, scenes, drafts){
   const L = [];
+  const writer = screenplayWriter(project);
   L.push("Title: "+esc(project.title));
-  L.push("Credit: written by");
-  L.push("Author: Infinite Studio AI");
+  if(writer){
+    L.push("Credit: written by");
+    L.push("Author: "+esc(writer));
+  }
   L.push("Draft date: "+new Date().toLocaleDateString());
   if(project.genre) L.push("Genre: "+esc(project.genre));
   L.push(""); L.push("===" ); L.push("");   // title-page break
@@ -163,10 +182,10 @@ function screenplayHTML(project, scenes, drafts){
       +'.page:last-child{page-break-after:auto}}'
   ].join("");
 
+  const writer = screenplayWriter(project);
   const tpPage = '<div class="page title-page">'+
     '<div class="ttl">'+ee(project.title||"Untitled")+'</div>'+
-    '<div class="by">written by</div>'+
-    '<div class="auth">\u221E Infinite Studio AI</div>'+
+    (writer ? '<div class="by">written by</div><div class="auth">'+ee(writer)+'</div>' : '')+
     '<div class="tp-meta"><span>'+(project.genre?ee(project.genre):"")+'</span><span>Draft \u00b7 '+ee(dateStr)+'</span></div>'+
     '</div>';
 
@@ -308,6 +327,8 @@ function docPreview({ title, sub, fileName, html, hint }){
   return { setHtml:(h)=>{ cur=h||""; frame.srcdoc=cur; }, close: remove };
 }
 window.docPreview = docPreview;
+
+window.screenplayWriter = screenplayWriter;
 
 const TURNExport = {
   pdf:   (p,s,d)=> screenplayPreview(p,s,d),

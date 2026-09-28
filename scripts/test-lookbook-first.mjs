@@ -531,7 +531,7 @@ function autoDraft(extra, body = effectSrc) {
   ok("A14 a Draft all running → blocks and says why", box.turnCastDraftingBlocksAgent(true, "Run pre-production") === true
     && toasts.length === 1 && /Run pre-production can start as soon as the cast's specs finish drafting/.test(toasts[0].msg) && /twice/.test(toasts[0].msg), toasts);
   ok("A14 Run pre-production checks before the confirm AND when it's confirmed",
-    /onCoordinate:async \(\)=>\{\s*if\(turnCastDraftingBlocksAgent\(draftingAllVisualsRef\.current, "Run pre-production"\)\) return;\s*if\(await requireStory\("Art Department Coordinator"\)\) setCoordConfirm\(true\); \}/.test(app)
+    /onCoordinate:async \(\)=>\{\s*if\(turnCastDraftingBlocksAgent\(draftingAllVisualsRef\.current, "Run pre-production"\)\) return;\s*if\(await requireStory\("Art Coordinator"\)\) setCoordConfirm\(true\); \}/.test(app)
     && /onConfirm:\(\)=>\{ setCoordConfirm\(false\);\s*if\(turnCastDraftingBlocksAgent\(draftingAllVisualsRef\.current, "Run pre-production"\)\) return;\s*setCoordOpen\(true\); \}/.test(app));
   ok("A14 Design the cast checks before opening the Casting Director",
     app.includes('onCast:()=>{ if(!turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Design the cast")) setCastingOpen(true); },'));

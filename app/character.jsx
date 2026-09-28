@@ -1,7 +1,7 @@
 /* character.jsx — focused Character panel.
    Desire (conscious want + unconscious need) is authored; the ARC is DERIVED
    from the scenes this character drives, so it can never drift from the spine.
-   MUSE can draft the desire/arc from those same scenes. */
+   Draft (the writing model) can fill the desire/arc from those same scenes. */
 
 /* scenes this character drives, in story order, + a derived arc verdict */
 function characterArc(charId, scenes){
@@ -101,8 +101,9 @@ function CharacterPanel({ character, scenes, drafts, cast, onUpdate, onDraft, dr
       React.createElement("div",{className:"insp-block",style:{marginTop:16}},
         React.createElement("div",{className:"insp-block-head"},
           React.createElement("span",{className:"eyebrow"},React.createElement(Icon.target,{s:12}),"Desire"),
-          React.createElement("button",{className:"char-draft-btn"+(drafting?" busy":""),disabled:readOnly||drafting,onClick:()=>onDraft(c)},
-            React.createElement(Icon.sparkles,{s:12}), drafting?"Drafting\u2026":"Draft with MUSE")),
+          React.createElement("button",{className:"char-draft-btn"+(drafting?" busy":""),disabled:readOnly||drafting,onClick:()=>onDraft(c),
+            title:"Draft this character\u2019s inner life from the scenes they drive (writing credits)"},
+            React.createElement(Icon.sparkles,{s:12}), drafting?"Drafting\u2026":"Draft")),
         React.createElement("div",{className:"char-field"},
           React.createElement("div",{className:"obj-lab"},"Conscious want"),
           React.createElement(EditText,{value:c.conscious,readOnly,multiline:true,placeholder:"What they consciously pursue\u2026",
@@ -116,7 +117,7 @@ function CharacterPanel({ character, scenes, drafts, cast, onUpdate, onDraft, dr
         // say another. The protagonist should carry the most pairs in the cast.
         React.createElement("div",{className:"char-field"},
           React.createElement("div",{className:"obj-lab",
-            title:"Consistent contradictions that make a character dimensional \u2014 two traits genuinely at war in their behaviour, one pair per line. The protagonist should carry the most. Drafted by \u201cDraft with MUSE\u201d and the story build."},
+            title:"Consistent contradictions that make a character dimensional \u2014 two traits genuinely at war in their behaviour, one pair per line. The protagonist should carry the most. Filled in by Draft (under Desire) and by the story build."},
             "Dimensions \u2014 consistent contradictions"),
           React.createElement(EditText,{value:c.dimensions,readOnly,multiline:true,
             placeholder:"one pair per line \u2014 e.g. ruthless in the deal / sentimental with strangers\u2026",
@@ -140,7 +141,7 @@ function CharacterPanel({ character, scenes, drafts, cast, onUpdate, onDraft, dr
         // character should hold a DISTINCT stance (the cast is the argument's jury).
         React.createElement("div",{className:"char-field"},
           React.createElement("div",{className:"obj-lab",
-            title:"The one observation about human nature this character embodies \u2014 a distinct stance on the film's controlling idea, grounded in what the script shows them DO. Drafted by \u201cDraft with MUSE\u201d; the Consistency Check flags scene-drivers without one."},
+            title:"The one observation about human nature this character embodies \u2014 a distinct stance on the film's controlling idea, grounded in what the script shows them DO. Filled in by Draft (under Desire); the Script Supervisor flags scene-drivers without one."},
             "Human truth \u2014 the insight they embody"),
           React.createElement(EditText,{value:c.humanTruth,readOnly,multiline:true,
             placeholder:"e.g. Dignity starves without witnesses \u2014 he'd rather refuse charity than be pitied\u2026",

@@ -195,15 +195,17 @@ await test("C the Script view shows a plain 'Rough stand-in' line with a one-lin
   assert.equal(lines.length, 1, "one marker");
   const t = textOf(lines[0]);
   assert.ok(t.startsWith("Rough stand-in: "), t);
-  assert.ok(/built from the beat cards/.test(t) && /MUSE hasn’t written this scene yet/.test(t), t);
-  assert.ok(/Press Redraft script from beats to have MUSE write it\.$/.test(t), "the hint names the button: "+t);
+  assert.ok(/built from the beat cards/.test(t) && /this scene hasn’t been written yet/.test(t), t);
+  // (rebrand 2026-09-28) the writing actions carry no persona: no assistant name on the marker
+  assert.ok(!/MUSE|Frances/.test(t), t);
+  assert.ok(/Press Redraft script from beats to write it\.$/.test(t), "the hint names the button: "+t);
   assert.equal(lines[0].props.role, "status");
   assert.equal(standInLine(renderScript(museDraft())).length, 0, "no marker on a MUSE draft");
   assert.equal(standInLine(renderScript({ ...museDraft(), edited:true, ai:false, auto:false, by:null })).length, 0, "none on an edited MUSE draft");
   assert.equal(standInLine(renderScript({ ...standIn(), standIn:true, auto:false, edited:true, ai:false, by:null })).length, 1, "kept on an edited stand-in");
   box.aiAvailable = ()=>false;
   const off = textOf(standInLine(renderScript(standIn()))[0]);
-  assert.ok(/Once MUSE is available, Redraft script from beats writes it\./.test(off), "offline hint: "+off);
+  assert.ok(/Once a writing model is available, Redraft script from beats writes it\./.test(off), "offline hint: "+off);
   box.aiAvailable = ()=>true;
   // it sits ABOVE the script, with the other status rows, not inside the toolbar
   const tree = renderScript(standIn());
@@ -439,7 +441,7 @@ await test("F MUSE's product knowledge describes stand-ins as they behave, names
   const si = what("Rough stand-in drafts (Script view)");
   assert.ok(si, "the entry exists");
   for(const s of ["ROUGH STAND-IN built straight from the scene's beat cards", "MARKED IN THE SCRIPT VIEW", "'Rough stand-in' line",
-    "NEVER GREEN IN THE SCRIPT CHECK", "'Rough stand-in' warning", "THE MARK STAYS UNTIL MUSE WRITES THE SCENE",
+    "NEVER GREEN IN THE SCRIPT CHECK", "'Rough stand-in' warning", "THE MARK STAYS UNTIL THE SCENE IS WRITTEN",
     "small manual edits", "writing a single missing beat keep it", "a successful Redraft script from beats", "clears it",
     "Undo back to the stand-in brings the mark back", "'Finish writing this film first?'", "'(rough stand-in)'", "from the beat cards it already has"])
     assert.ok(si.includes(s), "mentions: "+s);
@@ -459,7 +461,7 @@ await test("F MUSE's product knowledge describes stand-ins as they behave, names
 await test("F the owner's doc still says what this implements (the code follows the doc)", ()=>{
   const doc = read("docs/Story Pipeline.md").replace(/\s+/g, " ").replace(/> /g, "");
   for(const s of ["just the unwritten scenes** on the next run rather than rebuilding everything — including any scene left as a **rough stand-in**",
-    "is marked as such in the Script view (the Script check does not show it as clean), and keeps that mark until MUSE writes the scene"])
+    "is marked as such in the Script view (the Script check does not show it as clean), and keeps that mark until the AI writes the scene"])
     assert.ok(doc.includes(s), "doc: "+s);
 });
 

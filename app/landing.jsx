@@ -1,7 +1,8 @@
 /* landing.jsx — the commercial landing page shown to signed-out visitors INSTEAD of the
-   app. Sells what Cinema Machine is (the departments / the Infinite Studio method) and drives sign-up.
-   The actual app (spine, Writers' Room, Art Room, Agents) is never exposed until sign-in.
-   The floating MUSE teaser still rides on top (mounted by app.jsx) for a live taste.
+   app. Sells what Kinolot is (the departments / the Infinite Studio AI method) and drives sign-up.
+   The product is Kinolot by Infinite Studio AI; "TURN" is only the internal codename.
+   The actual app (spine, Writers' Room, Art Room, Story Editors) is never exposed until sign-in.
+   The floating Frances teaser still rides on top (mounted by app.jsx) for a live taste.
    DESIGN: light editorial look — white page, near-black ink, hairline-framed content
    column, pill buttons (black primary) — independent of the app's dark theme. */
 
@@ -136,6 +137,16 @@ function lpTiers(){
   }));
 }
 
+/* footer brand: "Kinolot by Infinite Studio AI", the company name linking to its site
+   (shared with the Home dashboard footer, app/home-dashboard.jsx) */
+function LandingFootBrand(){
+  return React.createElement("span",{className:"lp-foot-brand"},
+    React.createElement("span",{className:"lp-logo sm"},"Kinolot"),
+    React.createElement("span",{className:"lp-foot-by"},"by ",
+      React.createElement("a",{className:"lp-foot-link",href:"https://infinitestudioai.com",target:"_blank",rel:"noopener"},"Infinite Studio AI")));
+}
+window.LandingFootBrand = LandingFootBrand;
+
 function Landing({ onStart, onSignIn }){
   if(typeof window.usePlansVersion==="function") window.usePlansVersion();   // reflect admin plan-copy edits
   const Icn = (name, s)=> React.createElement(Icon[name] || Icon.sparkles, {s:s||18});
@@ -157,7 +168,7 @@ function Landing({ onStart, onSignIn }){
     React.createElement("header",{className:"lp-nav"},
       React.createElement("div",{className:"lp-nav-in"},
         React.createElement("div",{className:"lp-brand"},
-          React.createElement("span",{className:"lp-logo"},"Cinema Machine")),
+          React.createElement("span",{className:"lp-logo"},"Kinolot")),
         React.createElement("div",{className:"lp-nav-cta"},
           React.createElement("button",{className:"lp-btn ghost",onClick:onSignIn},"Sign in"),
           React.createElement("button",{className:"lp-btn primary",onClick:()=>onStart("writer")},"Start with a room")),
@@ -240,7 +251,7 @@ function Landing({ onStart, onSignIn }){
 
     React.createElement("footer",{className:"lp-foot"},
       React.createElement("div",{className:"lp-foot-in"},
-        React.createElement("span",{className:"lp-logo sm"},"Cinema Machine"),
+        React.createElement(LandingFootBrand,null),
         React.createElement("nav",{className:"lp-foot-links","aria-label":"Legal"},
           React.createElement("a",{className:"lp-foot-link",href:"/privacy.html",target:"_blank",rel:"noopener"},"Privacy"),
           React.createElement("a",{className:"lp-foot-link",href:"/terms.html",target:"_blank",rel:"noopener"},"Terms"))))));

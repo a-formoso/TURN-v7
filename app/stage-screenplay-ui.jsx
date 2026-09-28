@@ -60,7 +60,7 @@ function StageSceneScreenplay({reference,imageReference,onPreview}){
         <pre tabIndex={0} aria-label="Full scene screenplay" data-testid="stage-scene-screenplay-text">{r.fullText}</pre>
         <small>Canonical reading copy of the complete scene; the page images above are the same source with the selected target beat highlighted.</small>
       </details>
-    </div> : <p role="status">{sourceErrors[0]||"Write this scene’s screenplay in the Writers’ Room before rendering."}</p>}
+    </div> : <p role="status">{sourceErrors[0]||"Write this scene’s screenplay in the Writers' Room before rendering."}</p>}
   </details>;
 }
 window.StageSceneScreenplay=StageSceneScreenplay;

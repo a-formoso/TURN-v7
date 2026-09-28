@@ -238,7 +238,7 @@ await test("B a gap filled meanwhile (an edit, Undo or a redraft) is never writt
   await p;
   assert.equal(now.length, 0, "nothing committed");
   assert.equal(box.__toasts.length, 1);
-  assert.equal(box.__toasts[0].m, "Beat 2 of Scene 1 already has text now, so MUSE’s version wasn’t added. Your script is unchanged.");
+  assert.equal(box.__toasts[0].m, "Beat 2 of Scene 1 already has text now, so the new version wasn’t added. Your script is unchanged.");
 });
 await test("B nothing changed meanwhile: the beat lands exactly as before", async ()=>{
   box.__toasts = [];
@@ -267,7 +267,7 @@ await test("C a film switch while MUSE writes drops the beat, with a message; no
   await p;
   assert.equal(commits.length, 0, "film B's scene is untouched");
   assert.equal(box.__toasts.length, 1);
-  assert.equal(box.__toasts[0].m, "MUSE finished beat 2 of Scene 1 after you switched films, so it wasn’t added — nothing changed in either film. Go back to that film and press Write this beat again.");
+  assert.equal(box.__toasts[0].m, "Beat 2 of Scene 1 was finished after you switched films, so it wasn’t added — nothing changed in either film. Go back to that film and press Write this beat again.");
   assert.equal(box.__toasts[0].t, "error");
 });
 await test("C the same film still open (filmKey unchanged): the beat lands", async ()=>{
@@ -288,7 +288,7 @@ await test("C the Script view closed meanwhile: lands only when the app confirms
   unmount(inst);
   finish(BEAT2()); await p;
   assert.equal(commits.length, 0);
-  assert.ok(/the Script view closed while MUSE was writing it/.test(box.__toasts[0].m), box.__toasts[0].m);
+  assert.ok(/the Script view closed while it was being written/.test(box.__toasts[0].m), box.__toasts[0].m);
   // getDraft says the scene is the one the view last saw: safe
   box.__toasts = [];
   const d0 = draftWithGap();

@@ -1,5 +1,5 @@
 /* artroom.jsx — The Art Room (pre-production).
-   Path A: Cinema Machine generates the prompts & specs and holds the asset slots; the user
+   Path A: Kinolot generates the prompts & specs and holds the asset slots; the user
    runs the image/video tools and drops results back in. Everything derives from
    the script so characters/locations/shots stay consistent.
 
@@ -1364,9 +1364,21 @@ function nbReportCancelFailure(result){
 }
 
 /* Text provenance is independent of image provenance. A specification may be
-   written by Fable/Gemini/etc., compiled into a render prompt by TURN, and then
-   rendered by an entirely different image model. Keep each source as a durable
-   creation-time record in the image version's metadata. */
+   written by Fable/Gemini/etc., compiled into a render prompt by Kinolot's prompt
+   compiler, and then rendered by an entirely different image model. Keep each
+   source as a durable creation-time record in the image version's metadata. */
+/* The render-prompt compiler label shown in Image details. New images store
+   PROMPT_COMPILER_LABEL; older ones saved the internal codename ("TURN prompt
+   compiler") or the old product name. Stored metadata is never rewritten — the
+   old label is mapped to the product name at display time. */
+const PROMPT_COMPILER_LABEL = "Kinolot prompt compiler";
+function promptCompilerLabel(v){
+  const s = String(v==null?"":v).trim();
+  if(!s) return "";
+  return s.replace(/\bTURN\b/g,"Kinolot").replace(/\bCinema ?Machine\b/gi,"Kinolot");
+}
+window.PROMPT_COMPILER_LABEL = PROMPT_COMPILER_LABEL;
+window.promptCompilerLabel = promptCompilerLabel;
 function nbWritingSourcesFor(entity){
   if(!entity || typeof entity!=="object") return [];
   const candidates = [
@@ -1871,7 +1883,7 @@ async function nbRunSheetGeneration(env, gopts){
         writingSources,
         // The final render prompt is assembled deterministically from the stored
         // specification and current controls; it is not a second hidden AI draft.
-        promptCompiler:"TURN prompt compiler",
+        promptCompiler:"Kinolot prompt compiler",
         mode: mode,
         editInstruction: isEditMode ? (gopts.editInstruction||"") : "",
         version: priorCount + 1
@@ -2342,7 +2354,7 @@ window.usePager = usePager; window.PagerBar = PagerBar;
 /* shared batch status / choice strip — render just under a tab's toolbar. `noun`
    is the singular card noun ("prop" / "character" / "location"). */
 /* Shared ART-ROOM PROGRESS CARD — spinner + bold title + reassuring subtitle, matching
-   the shots re-design note, so every tab-level "MUSE is working" state reads the same. */
+   the shots re-design note, so every tab-level "AI is working" state reads the same. */
 function ArtProgress({ title, detail, onCancel }){
   return React.createElement("div",{className:"art-progress-card"},
     React.createElement("span",{className:"ns-spin"}),
@@ -2582,7 +2594,7 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
     React.createElement("span",{className:"dt-continuity-mode dt-writing-model"},p.model)));
   if(meta.promptCompiler) writingRows.push(React.createElement("div",{key:"prompt-compiler",className:"dt-continuity-row"},
     React.createElement("span",{className:"dt-continuity-name"},"Render prompt"),
-    React.createElement("span",{className:"dt-continuity-mode dt-writing-model"},meta.promptCompiler)));
+    React.createElement("span",{className:"dt-continuity-mode dt-writing-model"},promptCompilerLabel(meta.promptCompiler))));
   const writingSection = writingRows.length
     ? React.createElement("div",{className:"dt-section"},
         React.createElement("div",{className:"dt-sec-lab"},"Writing & prompt provenance"),
@@ -4171,7 +4183,7 @@ function StateRow({ c, st, index, project, scenes, props, drafts, baseGenUrl, on
       React.createElement("span",{className:"state-vtag"},vtag),
       React.createElement("div",{className:"state-label"},
         React.createElement(EditText,{value:st.label,placeholder:"State name\u2026",onCommit:val=>onChange({label:val})})),
-      st.suggested && React.createElement("span",{className:"state-ai-chip",title:"Suggested by MUSE from the script"},"AI"),
+      st.suggested && React.createElement("span",{className:"state-ai-chip",title:"Suggested from the script"},"AI"),
       React.createElement("button",{className:"state-del",title:"Remove state",onClick:onDelete},React.createElement(Icon.x,{s:13}))),
     React.createElement(SheetFrame,{ gen, slotId:"charref-"+stateId, name:viewEntity.name,
       avatarColor:c.color, initials:vtag, drafted:true, drafting:false, onDraft:()=>{}, entity:viewEntity,
@@ -5187,7 +5199,7 @@ function NbControls(){
           onClick:()=>{ setResv(r); nbSetRes(r); window.dispatchEvent(new CustomEvent("nb-settings-changed")); }},r))))));
 }
 
-/* ENGINE DOCK — a compact floating widget in the MUSE bubble's 54px right-edge
+/* ENGINE DOCK — a compact floating widget in the help bubble's (Frances; code name MUSE) 54px right-edge
    column, vertically centered, floating ABOVE the layout (no content clearance).
    Collapsed: three stacked chips summarising Model / Aspect / Resolution.
    Click: a flyout panel (opens leftward) with the full NbControls. */

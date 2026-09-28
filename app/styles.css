@@ -1,5 +1,5 @@
 /* ============================================================
-   TURN — Story architecture for AI filmmakers
+   Kinolot — Story architecture for AI filmmakers (internal codename: TURN)
    Dark cinematic editing-suite. Teal/orange = value charge.
    ============================================================ */
 
@@ -148,6 +148,9 @@ body{
    phone the Scene drawer, the MUSE bubble and the Writing dock covered them. While one is open the
    bar sits above those layers; dialogs (appConfirm) and toasts stay higher still (2026-09-28). */
 .topbar:has(.export-menu, .room-menu, .proj-menu, .acct-menu, .bible-overlay){z-index:130}
+/* the same raise as a class, set by chrome.jsx turnWatchTopbarLayer, for browsers without :has()
+   (kept a separate rule: a browser that can't parse :has() drops the whole rule it sits in) */
+.topbar.is-raised{z-index:130}
 .brand{display:flex;align-items:center;gap:10px;cursor:default}
 .brand-mark{
   width:26px;height:26px;border-radius:7px;
@@ -2804,7 +2807,7 @@ html[data-theme="dark"] .dt-viewing svg{color:oklch(0.82 0.09 296)}
   font:700 12px var(--f-ui);cursor:pointer;transition:.12s}
 .acct-upgrade:hover{background:var(--pos);color:var(--ink-on-accent)}
 
-/* ---- Cinema Machine plans / paywall modal ---- */
+/* ---- Kinolot plans / paywall modal ---- */
 .plans-modal{position:relative;width:min(880px,94vw);max-height:88vh;overflow:auto;background:var(--bg-1);
   border:1px solid var(--line-2);border-radius:16px;padding:26px 26px 20px;box-shadow:0 30px 90px rgba(0,0,0,.5)}
 .plans-x{position:absolute;top:14px;right:14px}
@@ -4948,6 +4951,9 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
 .lp-foot-links{display:flex;align-items:center;gap:26px}
 .lp-foot-link{font-size:12.5px;color:var(--lpw-sub);text-decoration:none;transition:.12s}
 .lp-foot-link:hover{color:var(--lpw-ink)}
+/* "Kinolot by Infinite Studio AI" — the product name, then the company, linking to its site */
+.lp-foot-brand{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;min-width:0}
+.lp-foot-by{font-size:12.5px;color:var(--lpw-sub)}
 
 /* MUSE bubble on the landing — center it inside the bottom-right grid CELL (the
    square the right rail and the footer rule carve out), so it belongs to the grid.

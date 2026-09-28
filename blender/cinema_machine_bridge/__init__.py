@@ -1,4 +1,9 @@
-"""Cinema Machine Blender Bridge desktop add-on.
+"""Kinolot Bridge: the Blender desktop add-on for Kinolot by Infinite Studio AI.
+
+Shown in Blender as "Kinolot Bridge" (sidebar tab "Kinolot"). The Python package
+stays ``cinema_machine_bridge`` (and the operator ids ``cinema_machine.*``), the
+product's former name, so an existing install is updated in place rather than
+becoming a second add-on.
 
 The add-on is intentionally a legacy-installable package (rather than a
 Blender extension manifest).  It supports Blender 4.2 and newer, makes only
@@ -37,12 +42,12 @@ from .studio_runtime import StudioRuntime
 
 
 bl_info = {
-    "name": "Cinema Machine Bridge",
-    "author": "Cinema Machine",
-    "version": (1, 0, 3),
+    "name": "Kinolot Bridge",
+    "author": "Infinite Studio AI",
+    "version": (1, 0, 4),
     "blender": (4, 2, 0),
-    "location": "3D View > Sidebar > CinemaMachine",
-    "description": "Render an approved editable Blender proof through the Cinema Machine bridge",
+    "location": "3D View > Sidebar > Kinolot",
+    "description": "Render an approved editable Blender proof through the Kinolot bridge",
     "category": "3D View",
 }
 
@@ -680,11 +685,11 @@ class CM_OT_cancel(bpy.types.Operator):
 
 
 class VIEW3D_PT_cinema_machine(bpy.types.Panel):
-    bl_label = "Cinema Machine"
+    bl_label = "Kinolot"
     bl_idname = "VIEW3D_PT_cinema_machine_bridge"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "CinemaMachine"
+    bl_category = "Kinolot"
 
     def draw(self, context: Any) -> None:
         layout = self.layout
@@ -769,7 +774,7 @@ def _studio_reset_cost_ack(self: Any, _context: Any) -> None:
 
 class CM_OT_studio_open(bpy.types.Operator):
     bl_idname = "cinema_machine.studio_open"
-    bl_label = "Open Cinema Machine Studio"
+    bl_label = "Open Kinolot Studio"
     bl_description = "Open the native Studio dialog and fetch the browser-selected workspace"
 
     def invoke(self, context: Any, _event: Any) -> set:
@@ -1047,7 +1052,7 @@ class CM_OT_studio_activate_shot(bpy.types.Operator):
         snapshot = _studio_runtime().snapshot()
         workspace, shot_id = snapshot.get("workspace"), snapshot.get("shotId")
         if not isinstance(workspace, dict) or not isinstance(shot_id, str):
-            self.report({"ERROR"}, "Select a shot in Cinema Machine before activating it")
+            self.report({"ERROR"}, "Select a shot in Kinolot before activating it")
             return {"CANCELLED"}
         try:
             studio_scene.activate_workspace_shot(context.scene, workspace, shot_id)
@@ -1150,7 +1155,7 @@ def _draw_studio_dialog(layout: Any, context: Any) -> None:
         row = layout.row(align=True)
         row.operator(CM_OT_studio_workspace_current.bl_idname, text="Open selected workspace")
         row.operator(CM_OT_studio_capabilities.bl_idname, text="Refresh models")
-        layout.label(text="Select a location/shot in Cinema Machine first.")
+        layout.label(text="Select a location/shot in Kinolot first.")
         return
     layout.label(text="Workspace: %s  •  revision %s" % (workspace["name"], workspace["revision"]))
     if snapshot.get("shotId"):
@@ -1249,11 +1254,11 @@ def _draw_studio_dialog(layout: Any, context: Any) -> None:
 
 
 class VIEW3D_PT_cinema_machine_studio(bpy.types.Panel):
-    bl_label = "Cinema Machine Studio"
+    bl_label = "Kinolot Studio"
     bl_idname = "VIEW3D_PT_cinema_machine_studio"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "CinemaMachine"
+    bl_category = "Kinolot"
 
     def draw(self, _context: Any) -> None:
         layout = self.layout
@@ -1293,12 +1298,12 @@ _CLASSES = (
 
 
 def _tag_cinema_machine_areas() -> None:
-    """Redraw visible Cinema Machine panels from Blender's main thread.
+    """Redraw visible Kinolot panels from Blender's main thread.
 
     This function is called only by operators and ``_timer_callback``.  Worker
     threads communicate through runtime event queues and never enter ``bpy``.
     Tagging the whole VIEW_3D area is intentional: Blender owns the sidebar
-    region and will repaint the CinemaMachine tab if it is currently visible.
+    region and will repaint the Kinolot tab if it is currently visible.
     """
 
     try:

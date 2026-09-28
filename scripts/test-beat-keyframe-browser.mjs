@@ -803,7 +803,7 @@ async function main(){
        }})()`);
        assert.deepEqual(noPct,{
          role:"status",live:"polite",atomic:"true",label:"Drafting specification",
-         text:"MUSE · "+role.toUpperCase()+"\nDrafting specification\nWriting the current screenplay into a reviewable shot specification.",
+         text:role.toUpperCase()+"\nDrafting specification\nWriting the current screenplay into a reviewable shot specification.",
          progress:false
        },`${name} uses the shared accessible progress status without inventing a percentage`);
        await c.eval(`window.__mountProgress(${JSON.stringify(role)},${JSON.stringify("Drafting specification")},${JSON.stringify("Writing the current screenplay into a reviewable shot specification.")},37)`);

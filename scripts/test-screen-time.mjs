@@ -525,7 +525,7 @@ await test("F MUSE's product knowledge describes screen time as it behaves, name
   assert.ok(what("Beats tab").includes("sized to the scene's screen-time budget"));
   assert.ok(what("Script view").includes("'Long for this format' line above its script"));
   assert.ok(what("Redraft script from beats").includes("never makes the scene longer: a reply that runs longer than the current script is discarded"));
-  assert.ok(what("Draft with MUSE").includes("screen-time budget"));
+  assert.ok(what("Draft (one scene)").includes("screen-time budget"));
   const ns = vm.runInContext("APP_FEATURES.find(f=>String(f.name).startsWith('New Story')).what", box);
   assert.ok(ns.includes("Feature Film (about 100 minutes") && ns.includes("Music Video (about 4 minutes") && ns.includes("Commercial (30 seconds)") && ns.includes("Documentary (about 10 minutes)"));
   assert.ok(!/90\+ minutes|30\u201360 seconds|3\u20135 minutes/.test(ns), "no stale runtimes");
@@ -550,7 +550,7 @@ await test("F the files that changed load under a new cache key, script.jsx and 
   // this change's key — or a LATER change's (the page-forms fix re-keyed formats.jsx, script.jsx
   // and ai.jsx; never back to a pre-change key; the Round 1 fixes of 2026-09-28 re-keyed spine.jsx,
   // script.jsx, ai.jsx and app.jsx together)
-  const LATER = ["20260927-pageforms1", "20260927-review1", "20260928-dock2", "20260928-round1"];
+  const LATER = ["20260927-pageforms1", "20260927-review1", "20260928-dock2", "20260928-round1", "20260928-brand1"];
   for(const f of ["app/formats.jsx", "app/spine.jsx", "app/script.jsx", "app/ai.jsx", "app/app.jsx"])
     assert.ok(key(f)==="20260927-screentime1" || LATER.includes(key(f)), f+" re-keyed: "+key(f));
   // formats.jsx and spine.jsx load before the files that read their helpers

@@ -1715,7 +1715,7 @@ async function downscaleRef(dataUrl, maxDim, quality){
 window.downscaleRef = downscaleRef;
 
 /* GPT Image's landscape/portrait Image API canvases are 3:2 / 2:3 even when
-   Cinema Machine requests a cinematic ratio. Crop the returned pixels to the exact chosen
+   Kinolot requests a cinematic ratio. Crop the returned pixels to the exact chosen
    ratio before committing the asset, so a frame labelled 16:9 really is 16:9.
    This is a crop only (no stretch, no invented pixels). */
 async function cropImageToAspect(src, aspect){
@@ -1746,7 +1746,7 @@ async function cropImageToAspect(src, aspect){
 }
 
 /* Generate through the SERVER-SIDE proxy (Supabase Edge Function). For image
-   generation the client sends provider:"fal"; the proxy maps the selected TURN
+   generation the client sends provider:"fal"; the proxy maps the selected Kinolot
    model to fal.ai's Nano Banana / GPT Image route. Requires the user to be signed
    in and the function deployed. Resolves to a data URL; mirrors nbGenerate's
    signature and reports grounding via opts.metaOut. */
@@ -1865,7 +1865,7 @@ async function proxyGenerate(prompt, opts, provider){
     if(status===401) throw new Error("Sign in to use server-side image generation \u2014 it runs on your server, not in the browser.");
     const _safe = window.turnSafeError || (x=>x);
     if(status===404) throw new Error(_safe("The image proxy isn't deployed yet. Deploy supabase/functions/image-proxy and set imageProxy:true in supabase-config.js."));
-    if(status===504) throw new Error("The image generation exceeded the server time limit. Cinema Machine preserved your selected quality and resolution; try again, or manually choose a faster setting if you prefer.");
+    if(status===504) throw new Error("The image took longer than the server allows. Your chosen quality and resolution were kept \u2014 try again, or pick a faster setting if you prefer.");
     if(status===502 || status===503){
       // the function relays the SPECIFIC upstream reason in its JSON body ("Proxy
       // failed to reach fal: <cause>") — surface it instead of swallowing it behind
@@ -1899,7 +1899,7 @@ async function proxyGenerate(prompt, opts, provider){
   if(opts.metaOut && data && typeof data.grounded!=="undefined") opts.metaOut.grounded = !!data.grounded;
   if(data && data.usage && typeof window.dispatchEvent==="function")
     window.dispatchEvent(new CustomEvent("turn-credits-changed",{ detail:data.usage }));
-  // Provider-native landscape/portrait canvases are not always Cinema Machine's selected
+  // Provider-native landscape/portrait canvases are not always Kinolot's selected
   // ratio (GPT Image landscape is 3:2). Normalize BEFORE returning, so callers
   // can only commit a frame whose pixels match its 16:9 / 9:16 / 21:9 label.
   if(data && data.b64) return await cropImageToAspect("data:"+(data.mime||"image/png")+";base64,"+data.b64, aspect);

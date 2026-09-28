@@ -158,7 +158,7 @@ await test("labels read Conflict style / Conflict source, and the tooltip names 
   }
   assert.ok(insp.includes("Conflict style")&&insp.includes("Conflict source"));
   // Script Breakdown moved into the Art Room's Production check (2026-09-26)
-  assert.ok(chrome.includes("Story Doctor, Consistency Check, Continuity Repair, Final Read\"")&&!chrome.includes("Final Read, Script Breakdown"));
+  assert.ok(chrome.includes("Story Doctor, Script Supervisor, Setups & Payoffs, Final Read\"")&&!chrome.includes("Final Read, Script Breakdown"));
 });
 await test("every component the app renders is defined (the Beats tab's BeatEditor was once dropped)",()=>{
   const walk=d=>readdirSync(d,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(d+"/"+e.name):[d+"/"+e.name]);

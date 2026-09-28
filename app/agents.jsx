@@ -1,4 +1,4 @@
-/* agents.jsx — bounded-loop AI agents for Cinema Machine.
+/* agents.jsx — bounded-loop AI agents for Kinolot (the Story Editors and the Art Room's Department Heads).
    Each agent is an async function run(ctx) that:
      • works on ctx.model — a live working copy { scenes, beats, continuity, drafts }
      • emits reasoning steps via ctx.emit({k, t})   (k = plan|act|observe|flag|ok|done)
@@ -405,7 +405,7 @@ async function agentStoryDoctor(ctx){
       // escalate by kind: re-level this scene; its next draft sources the antagonism there
       fix = { conf:issue.toLevel, rationale:"Acts escalate by kind, not volume. Moving Scene "+scene.no+"'s conflict "
         +(issue.toLevel===1 ? "inward \u2014 the protagonist against their own mind \u2014" : issue.toLevel===3 ? "outward \u2014 against institutions, society or the physical world \u2014" : "to the personal level")
-        +" gives the final act a new kind of pressure. The level steers the next draft of this scene (Draft with MUSE or Redraft script from beats); the current script isn't rewritten." };
+        +" gives the final act a new kind of pressure. The level steers the next draft of this scene (Draft or Redraft script from beats); the current script isn't rewritten." };
     } else { // monotony — nudge the middle scene to break the run
       const cc = -Math.sign(scene.closeCharge)*2;
       fix = { closeValue:scene.closeValue, closeCharge:cc, rationale:"Push this scene to the opposite pole to break the flat run and restore contrast." };
@@ -873,7 +873,7 @@ function reportSceneFailures(ctx, r){
 
 /* CONTINUITY LEDGER at the end of a build (approved 2026-09-25, owner-delegated): map what
    each written scene sets up and what later scenes rely on, so the continuity check,
-   Continuity Repair and the Story Editors count work the moment a story exists. One
+   Setups & Payoffs and the Story Editors count work the moment a story exists. One
    writing call; never fatal — a failure leaves the film buildable, marked "not mapped". */
 async function buildContinuityLedgerStep(ctx){
   if(ctx.cancelled() || !ctx.ai.available || !ctx.ai.continuityLedger) return;
@@ -889,7 +889,7 @@ async function buildContinuityLedgerStep(ctx){
     ctx.sync();
     const n = Object.keys(L.facts).length;
     const issues = (typeof continuityReport==="function") ? continuityReport(ctx.model.scenes, L.map, L.facts).conflicts.length : 0;
-    ctx.emit({k:"ok", t:"Continuity mapped \u2014 "+n+" story fact"+(n!==1?"s":"")+" tracked"+(issues?(", "+issues+" setup/payoff issue"+(issues!==1?"s":"")+" for Continuity Repair."):", every setup pays off.")});
+    ctx.emit({k:"ok", t:"Continuity mapped \u2014 "+n+" story fact"+(n!==1?"s":"")+" tracked"+(issues?(", "+issues+" setup/payoff issue"+(issues!==1?"s":"")+" for Setups & Payoffs."):", every setup pays off.")});
   }catch(e){
     ctx.emit({k:"flag", t:"Couldn't map continuity this time ("+((e&&e.message)||e)+"). The film is fine \u2014 build the ledger later from the Script view's Continuity report."});
   }
@@ -1188,7 +1188,7 @@ async function agentAdaptation(ctx){
         ctx.sync(); ctx.emit({k:"ok", t:"The principal cast has a want, a need that pulls against it, an arc by act and a dialogue fingerprint \u2014 the scenes are written from them."});
         const missedB = (Array.isArray(beforeReport.failedIds) ? beforeReport.failedIds : []).map(id=>{
           const c = designFor.find(x=>x && String(x.id)===String(id)); return c ? c.name : ""; }).filter(Boolean);
-        if(missedB.length) ctx.emit({k:"flag", t:"Couldn't design the inner life of "+missedB.join(", ")+" before writing this time; their scenes are written without it. Open "+(missedB.length===1?"that character":"each")+" in the Cast panel and press Draft with MUSE to fill it in."}); }
+        if(missedB.length) ctx.emit({k:"flag", t:"Couldn't design the inner life of "+missedB.join(", ")+" before writing this time; their scenes are written without it. Open "+(missedB.length===1?"that character":"each")+" in the Cast panel and press Draft to fill it in."}); }
       // HONEST LOG (2026-09-28): nothing came back — say so, never pass in silence
       else ctx.emit({k:"flag", t:"Couldn't design the cast's inner life before writing this time; the scenes are written without it, and the check after the script tries again."});
     }catch(e){ ctx.emit({k:"flag", t:"Couldn't design the cast's inner life first ("+((e&&e.message)||e)+"); the scenes will be written without it and the check after the script fills it in."}); }
@@ -1288,12 +1288,12 @@ async function agentAdaptation(ctx){
           : "The principal cast now has a want, need, arc and dialogue fingerprint \u2014 visible in the Cast panel."});
         // part of the cast never got a readable answer: name them
         if(missed.length) ctx.emit({k:"flag", t:"Couldn't "+(designed ? "check " : "design the inner life of ")+missed.join(", ")+(designed ? " against the script" : "")+" this time"+
-          (designed ? " \u2014 the psychology designed before the script stands." : ".")+" To revisit a character, open it in the Cast panel and press Draft with MUSE."});
+          (designed ? " \u2014 the psychology designed before the script stands." : ".")+" To revisit a character, open it in the Cast panel and press Draft."});
       }
       // nothing came back: the check never ran (every answer unreadable), or — reconcile only — it
       // ran and found nothing to revise. Only the second is "the script bears out every character".
-      else if(!designed) ctx.emit({k:"flag", t:"Couldn't design the cast's inner life this time, so the characters have no want, need or arc yet. Open each one in the Cast panel and press Draft with MUSE to fill it in."});
-      else if(missed.length) ctx.emit({k:"flag", t:"Couldn't check "+missed.join(", ")+" against the script this time \u2014 the psychology designed before the script stands. To revisit a character, open it in the Cast panel and press Draft with MUSE."});
+      else if(!designed) ctx.emit({k:"flag", t:"Couldn't design the cast's inner life this time, so the characters have no want, need or arc yet. Open each one in the Cast panel and press Draft to fill it in."});
+      else if(missed.length) ctx.emit({k:"flag", t:"Couldn't check "+missed.join(", ")+" against the script this time \u2014 the psychology designed before the script stands. To revisit a character, open it in the Cast panel and press Draft."});
       else if(Array.isArray(psyReport.failedIds)) ctx.emit({k:"ok", t:"Psychology checked \u2014 the script bears out every character."});
       // (a writer without the report can't tell a clean check from a failed one: claim neither)
       else ctx.emit({k:"observe", t:"Psychology check: no revisions came back for the cast."});
@@ -2135,7 +2135,8 @@ async function agentDepartmentCoordinator(ctx){
 }
 
 
-/* ---- Consistency Check — the scene-progression auditor. Rule-based and FREE
+/* ---- Consistency Check — the scene-progression auditor (users see it as the Script
+   Supervisor; its id stays "consistency"). Rule-based and FREE
    (no model calls): the script/beats are canon, so every downstream layer —
    prop cards, the location bible, staging, render styles, pronouns — is diffed
    against them. Unambiguous repairs become approval cards; judgement calls are
@@ -2677,14 +2678,14 @@ async function agentConsistency(ctx, opts){
   /* CAST ARGUMENT MAP — every scene-driving character should embody a HUMAN TRUTH
      (a distinct stance on the controlling idea); a cast where only the lead argues
      something produces swappable dialogue and function-only characters. Free check
-     on the authored fields; "Draft with MUSE" (Cast panel) fills them. */
+     on the authored fields; the Cast panel's "Draft" fills them. */
   if(story){
     const _cast = ctx.model.characters||[];
     const _drivers = new Set((ctx.model.scenes||[]).map(s=>s.driver).filter(Boolean));
     const significant = _cast.filter(c=> _drivers.has(c.id));
     const missing = significant.filter(c=> !String(c.humanTruth||"").trim());
     if(missing.length){ flags++; ctx.emit({k:"flag",
-      t: missing.length+" scene-driving character"+(missing.length===1?"":"s")+" ("+missing.slice(0,4).map(c=>c.name).join(", ")+(missing.length>4?"\u2026":"")+") "+(missing.length===1?"carries":"carry")+" no HUMAN TRUTH \u2014 each significant character should embody a distinct stance on the controlling idea (Cast panel \u25b8 Human truth; \u201cDraft with MUSE\u201d writes it)."}); }
+      t: missing.length+" scene-driving character"+(missing.length===1?"":"s")+" ("+missing.slice(0,4).map(c=>c.name).join(", ")+(missing.length>4?"\u2026":"")+") "+(missing.length===1?"carries":"carry")+" no HUMAN TRUTH \u2014 each significant character should embody a distinct stance on the controlling idea (Cast panel \u25b8 Human truth; its Draft button writes it)."}); }
     const stanced = _cast.filter(c=> String(c.humanTruth||"").trim() && c.argues);
     const sides = new Set(stanced.map(c=>c.argues));
     if(stanced.length>=3 && sides.size===1){ flags++; ctx.emit({k:"flag",
@@ -2722,7 +2723,7 @@ async function agentProductionCheck(ctx){
   const pctx = Object.assign({}, ctx, { propose: async (card)=>{
     if(card && card.writes && !allowed(card.writes)){
       ctx.emit({k:"flag", t:card.title+" — "+(card.writes==="script"
-        ? "your role can't change the script, so this is noted, not applied. A Writer or the film's owner can apply it."
+        ? "your role can't change the script, so this is noted, not applied. A Co-writer or the film's owner can apply it."
         : "your role can't change the Art Room, so this is noted, not applied. An Art director or the film's owner can apply it.")});
       return false;
     }
@@ -2746,14 +2747,39 @@ async function agentProductionCheck(ctx){
     +(mapped ? "" : " No props are mapped to scenes yet — run Props → Extract screenplay props so this check can catch props that drop out.")});
 }
 
+/* NAMES USERS SEE (owner decisions, 2026-09-28). The Writers' Room agents are the Story Editors
+   and the Art Room's are the Department Heads, each named by job title. Ids, role keys and every
+   stored value stay as they were: text saved under an older name (a kept Final Read report, an
+   agent-Undo label) is shown with today's name at display time, whole phrases only. The writing
+   actions carry no persona ("Draft", "AI draft") — the help assistant, Frances, only answers. */
+const LEGACY_DISPLAY_NAMES = [
+  [/\bDraft with MUSE\b/g, "Draft"],
+  [/\bMUSE draft\b/g, "AI draft"],
+  [/\bMUSE polish\b/g, "AI polish"],
+  [/\bConsistency Check\b/g, "Script Supervisor"],
+  [/\bContinuity Repair\b/g, "Setups & Payoffs"],
+  [/\bArt Department Coordinator\b/g, "Art Coordinator"],
+  [/\bTURN prompt compiler\b/g, "Kinolot prompt compiler"],
+];
+function turnDisplayNames(text){
+  if(typeof text!=="string" || !text) return text;
+  let out = text;
+  for(const [rx, to] of LEGACY_DISPLAY_NAMES) out = out.replace(rx, to);
+  return out;
+}
+window.turnDisplayNames = turnDisplayNames;
+/* the umbrella a panel shows above an agent's own name */
+function agentUmbrella(a){ return (a && a.room==="art") ? "Department Heads" : "Story Editors"; }
+window.turnAgentUmbrella = agentUmbrella;
+
 const AGENTS = [
   { id:"doctor", name:"Story Doctor", icon:"stethoscope", kind:"fix",
     blurb:"Scans the spine for the weakest link \u2014 scenes that don't turn, soft peaks, flat runs \u2014 and proposes a fix for each, re-auditing until the spine holds.",
     run:agentStoryDoctor },
-  { id:"consistency", name:"Consistency Check", icon:"check", kind:"fix",
+  { id:"consistency", name:"Script Supervisor", icon:"check", kind:"fix",
     blurb:"The script and beats are canon \u2014 this free, rule-based pass audits every drafted scene's story layer: cast names misspelled in the script or beats, script blocks tagged to the wrong beat, clocks that hard-flip between day and night with no time cue, app vocabulary leaking onto the page (charge notation, beat numbers) and scene-driving characters with no human truth. No model calls; unambiguous repairs come back as one-click approval cards. The production checks (props, locations, styles, wardrobe, shots, they/them lines) live in the Art Room's Production check.",
     run:(ctx)=>agentConsistency(ctx, { scope:"story" }) },
-  { id:"continuity", name:"Continuity Repair", icon:"link", kind:"fix",
+  { id:"continuity", name:"Setups & Payoffs", icon:"link", kind:"fix",
     blurb:"Runs the continuity check, then plants missing setups and pays off dangling threads \u2014 re-checking after each repair until it's clean.",
     run:agentContinuityRepair },
   { id:"adapt", name:"Adaptation", icon:"flask", kind:"build", needsInput:true, ideaStarters:true,
@@ -2784,7 +2810,7 @@ const AGENTS = [
   { id:"locscout", name:"Location Scout", icon:"globe", kind:"build", room:"art", autonomous:true,
     blurb:"Scouts your film's locations on its own \u2014 pulls every place from the sluglines, drafts each one's staging + depth-grid spec, generates the plate, and adds the time-of-day variants the script calls for. Also flags any scene whose slugline location has no card yet. Runs autonomously; press Stop anytime.",
     run:agentLocationScout },
-  { id:"coordinator", name:"Art Department Coordinator", icon:"robot", kind:"build", room:"art", autonomous:true,
+  { id:"coordinator", name:"Art Coordinator", icon:"robot", kind:"build", room:"art", autonomous:true,
     blurb:"Runs your pre-production in the right order, on its own \u2014 the lookbook, the cast, the props (worn ones reference their owner's sheet), the cast dressed in those props, the locations, the colour system and shot coverage. One click, no stops: its proposals are applied automatically, but scenes whose shots you approved or locked are left alone. It doesn't render shot frames or storyboards \u2014 do those from the Shots and Storyboards tabs. Press Stop anytime.",
     run:agentDepartmentCoordinator },
 ];

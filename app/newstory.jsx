@@ -132,7 +132,7 @@ const Voice = (()=>{
 })();
 
 /* Recovery interview for browsers/environments where GPT-Live cannot open. It
-   retains TURN's previous turn-by-turn TTS/STT + typed conversation. */
+   retains the previous turn-by-turn TTS/STT + typed conversation (the same Frances voice). */
 function NSLegacyInterview({ formatLabel, onComplete, onBack, liveNotice }){
   const [chat, setChat] = React.useState([]);     // [{role:'assistant'|'user', content}]
   const [thinking, setThinking] = React.useState(false);
@@ -176,7 +176,7 @@ function NSLegacyInterview({ formatLabel, onComplete, onBack, liveNotice }){
       if(r.done && r.loglines && r.loglines.length){
         setThinking(false);
         const transcript=[...next,{role:"assistant",content:r.say}]
-          .map(m=>(m.role==="user"?"WRITER: ":"MUSE: ")+m.content).join("\n");
+          .map(m=>(m.role==="user"?"WRITER: ":"FRANCES: ")+m.content).join("\n");
         onComplete(r.loglines,transcript);   // hand off to Step 3 (loglines)
         return;
       }
@@ -217,7 +217,7 @@ function NSLegacyInterview({ formatLabel, onComplete, onBack, liveNotice }){
       React.createElement(Icon.alert,{s:13}),
       React.createElement("span",null,
         React.createElement("b",null,"Voice answers need Chrome or Edge."),
-        " In this browser, just type your replies below — it's the same conversation. Open Cinema Machine in Chrome to talk it through out loud.")),
+        " In this browser, just type your replies below — it's the same conversation. Open Kinolot in Chrome to talk it through out loud.")),
 
     React.createElement("div",{className:"ns-talk-thread",ref:scrollRef},
       chat.map((m,i)=>React.createElement("div",{key:i,className:"ns-talk-msg "+m.role},
@@ -256,7 +256,7 @@ function nsLiveRows(fragments){
   return rows.filter(r=>r.content.trim());
 }
 
-/* The primary "Talk it through" experience: one continuous, interruptible MUSE
+/* The primary "Talk it through" experience: one continuous, interruptible Frances
    conversation over WebRTC. Transcript fragments remain UI/state data; choosing
    Finish explicitly shapes them into candidate loglines through the normal next
    pipeline step. */
@@ -303,28 +303,28 @@ function NSLiveInterview({ formatLabel, onComplete, onBack, onUseFallback }){
   const toggleMute=()=>{ const session=sessionRef.current; if(!session) return;
     const next=session.mute(); setMuted(next); };
   const hear=async()=>{ try{ const session=sessionRef.current; if(session){ await session.play(); setPlaybackBlocked(false); } }
-    catch(_e){ setErr("Your browser is blocking MUSE’s audio. Allow sound for this page, then try again."); } };
+    catch(_e){ setErr("Your browser is blocking Frances’s voice. Allow sound for this page, then try again."); } };
   const finish=async()=>{
     if(finalizing) return;
-    if(!hasWriter){ setErr("Tell MUSE a little about the story before shaping the loglines."); return; }
+    if(!hasWriter){ setErr("Tell Frances a little about the story before shaping the loglines."); return; }
     setFinalizing(true); setErr(""); setStatus("closing");
-    const transcript=rows.map(r=>(r.role==="user"?"WRITER: ":"MUSE: ")+r.content.trim()).join("\n");
+    const transcript=rows.map(r=>(r.role==="user"?"WRITER: ":"FRANCES: ")+r.content.trim()).join("\n");
     try{
       const session=sessionRef.current; sessionRef.current=null;
       if(session) await session.close({timeoutMs:2500});
       setStatus("shaping");
       const lls=typeof aiSeedToLoglines==="function" ? await aiSeedToLoglines("talk",transcript) : null;
-      if(!lls || !lls.length) throw new Error("MUSE couldn’t shape that transcript yet — try Finish again, or continue with the typed interview.");
+      if(!lls || !lls.length) throw new Error("That conversation couldn’t be shaped into loglines yet — try Finish again, or continue with the typed interview.");
       onComplete(lls,transcript);
     }catch(e){ setErr(String((e&&e.message)||"Couldn’t shape the conversation into loglines.")); setStatus("ended"); setFinalizing(false); }
   };
   const statusText=finalizing || status==="shaping" ? "Shaping your loglines…"
-    : status==="connecting" ? "Connecting MUSE…"
-    : status==="speaking" ? "MUSE is speaking…"
+    : status==="connecting" ? "Connecting to Frances…"
+    : status==="speaking" ? "Frances is speaking…"
     : status==="muted" || muted ? "Mic is off"
     : status==="failed" ? "Live voice unavailable"
     : status==="ended" || status==="closed" ? "Conversation ended"
-    : "MUSE is listening…";
+    : "Frances is listening…";
   const orbClass=(status==="connecting"||finalizing||status==="shaping")?" think"
     :(status==="listening"||status==="speaking")?" live":"";
 
@@ -338,18 +338,18 @@ function NSLiveInterview({ formatLabel, onComplete, onBack, onUseFallback }){
 
     React.createElement("div",{className:"ns-talk-note ns-live-note"},
       React.createElement(Icon.mic,{s:13}),
-      React.createElement("span",null,"Speak naturally — MUSE will respond aloud, and you can interrupt as you would in a real conversation. When the idea is clear, finish to shape the transcript into loglines.")),
+      React.createElement("span",null,"Speak naturally — Frances will respond aloud, and you can interrupt as you would in a real conversation. When the idea is clear, finish to shape the transcript into loglines.")),
 
     React.createElement("div",{className:"ns-talk-thread",ref:scrollRef},
       rows.length===0 && React.createElement("div",{className:"ns-talk-empty"},
-        status==="failed"?"The live session didn’t open.":"MUSE will begin in a moment…"),
+        status==="failed"?"The live session didn’t open.":"Frances will begin in a moment…"),
       rows.map((m,i)=>React.createElement("div",{key:i,className:"ns-talk-msg "+m.role},
         React.createElement("div",{className:"ns-talk-bubble"},m.content.trim())))),
 
     playbackBlocked && React.createElement("div",{className:"ns-talk-note"},
       React.createElement(Icon.alert,{s:13}),
-      React.createElement("span",null,"Your browser paused MUSE’s voice."),
-      React.createElement("button",{className:"ns-btn ghost ns-hear",onClick:hear},"Hear MUSE")),
+      React.createElement("span",null,"Your browser paused Frances’s voice."),
+      React.createElement("button",{className:"ns-btn ghost ns-hear",onClick:hear},"Hear Frances")),
     err && React.createElement("div",{className:"ns-err"},(window.turnLinkifyReact?window.turnLinkifyReact(err):err)),
 
     React.createElement("div",{className:"ns-foot ns-live-foot"},
@@ -594,7 +594,7 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
             seed==="talk" && React.createElement("div",{className:"ns-surprise"},
               React.createElement(Icon.mic,{s:15}),
               liveSeedSupport.ok
-                ? "Start once and talk naturally with MUSE — it listens and responds aloud in one continuous conversation. When the idea is clear, finish to shape the transcript into loglines."
+                ? "Start once and talk naturally with Frances — she listens and responds aloud in one continuous conversation. When the idea is clear, finish to shape the transcript into loglines."
                 : Voice.sttSupported
                   ? "I’ll ask a few friendly questions aloud and shape loglines from your answers. Live conversation isn’t available here, so the turn-by-turn mic and typing options will open instead."
                   : "I’ll ask a few friendly questions and shape loglines from your answers. Voice isn’t available here, so you’ll type your answers — same conversation."),

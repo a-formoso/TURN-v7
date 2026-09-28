@@ -297,7 +297,7 @@ def _actual_camera(scene: Any) -> Dict[str, Any]:
 
 
 def _new_world(bpy: Any, scene: Any) -> None:
-    world = bpy.data.worlds.new("CinemaMachine Proof World")
+    world = bpy.data.worlds.new("Kinolot Proof World")
     world.use_nodes = True
     background = world.node_tree.nodes.get("Background")
     if background is not None:
@@ -349,22 +349,22 @@ def create_preview_scene(spec: Mapping[str, Any]) -> Tuple[Any, Any]:
     validated = validate_scene(spec)
     room = validated["room"]
     camera_spec = validated["camera"]
-    scene = bpy.data.scenes.new("CinemaMachine Proof")
+    scene = bpy.data.scenes.new("Kinolot Proof")
     # Switch the active context immediately after the unavoidable scene
     # allocation. Every operator and subsequent data API operation therefore
     # targets the new proof scene, not the user's active scene.
     window = getattr(bpy.context, "window", None)
     if window is not None:
         window.scene = scene
-    geometry = bpy.data.collections.new("CinemaMachine Proof Geometry")
+    geometry = bpy.data.collections.new("Kinolot Proof Geometry")
     scene.collection.children.link(geometry)
     _new_world(bpy, scene)
 
-    floor_material = _material(bpy, "CM Proof Floor", (0.18, 0.2, 0.22))
-    wall_material = _material(bpy, "CM Proof Walls", (0.34, 0.38, 0.43))
-    landmark_material = _material(bpy, "CM Proof Landmarks", (0.78, 0.38, 0.12))
-    prop_material = _material(bpy, "CM Proof Props", (0.16, 0.48, 0.66))
-    standin_material = _material(bpy, "CM Proof Stand-ins", (0.7, 0.7, 0.72))
+    floor_material = _material(bpy, "Kinolot Proof Floor", (0.18, 0.2, 0.22))
+    wall_material = _material(bpy, "Kinolot Proof Walls", (0.34, 0.38, 0.43))
+    landmark_material = _material(bpy, "Kinolot Proof Landmarks", (0.78, 0.38, 0.12))
+    prop_material = _material(bpy, "Kinolot Proof Props", (0.16, 0.48, 0.66))
+    standin_material = _material(bpy, "Kinolot Proof Stand-ins", (0.7, 0.7, 0.72))
 
     width = float(room["width"])
     depth = float(room["depth"])
@@ -431,8 +431,8 @@ def create_preview_scene(spec: Mapping[str, Any]) -> Tuple[Any, Any]:
     for light in (key, fill, top):
         light.rotation_euler[0] = 0.0
 
-    camera_data = bpy.data.cameras.new("CinemaMachine Proof Camera")
-    camera = bpy.data.objects.new("CinemaMachine Proof Camera", camera_data)
+    camera_data = bpy.data.cameras.new("Kinolot Proof Camera")
+    camera = bpy.data.objects.new("Kinolot Proof Camera", camera_data)
     geometry.objects.link(camera)
     camera_data.type = "PERSP"
     camera_data.lens = float(camera_spec["focalLength"])

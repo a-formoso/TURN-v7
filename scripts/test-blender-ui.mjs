@@ -423,7 +423,7 @@ try{
   await waitFor(()=>c.eval(`!!${downloadFrame}&&!!${downloadFrame}.document.querySelector('[data-testid="blender-addon-download"]')`),
     "sandboxed add-on download button");
   const frameUrl=await c.eval(`${downloadFrame}.location.href`);
-  const downloadPath=`${FIXTURE}/downloads/cinema-machine-blender.zip`;
+  const downloadPath=`${FIXTURE}/downloads/kinolot-blender.zip`;   // the saved name (2026-09-28); the packaged path is unchanged
   const bundle=await c.eval(`(()=>{const a=${downloadFrame}.CinemaMachineBlenderAddon;return a&&{filename:a.filename,byteLength:a.byteLength,base64:a.base64,frozen:Object.isFrozen(a)};})()`);
   assert.equal(bundle.frozen,true,"generated add-on bundle is frozen in the browser");
   assert.equal(bundle.filename,"cinema-machine-blender.zip","generated add-on bundle exposes the packaged filename");

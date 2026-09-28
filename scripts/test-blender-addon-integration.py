@@ -131,7 +131,7 @@ def main():
 
         def fake_render(_spec):
             return {
-                "sceneName": "CinemaMachine Proof",
+                "sceneName": "Kinolot Proof",
                 "pngBytes": b"",
                 "pngBase64": base64.b64encode(b"test-png").decode("ascii"),
                 "actualCamera": {

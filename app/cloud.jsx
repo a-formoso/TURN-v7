@@ -1,4 +1,4 @@
-/* cloud.jsx — Supabase integration for Cinema Machine.
+/* cloud.jsx — Supabase integration for Kinolot (codename TURN).
    Increment 1: client initialisation + authentication (email + password).
    Projects, cloud doc sync, and the cloud image storage adapter are layered on
    in later increments. Everything here no-ops gracefully when Supabase isn't
@@ -103,6 +103,28 @@ function cloudOnAuth(cb){
 }
 function cloudUserEmail(session){ return session && session.user ? (session.user.email||"") : ""; }
 function cloudUserId(session){ return session && session.user ? session.user.id : null; }
+/* An email's HANDLE as a name (screenplay credit, 2026-09-28): the local part with any "+tag"
+   dropped (a sorting tag, never part of the name: "jane+kinolot" -> "Jane"), separators read as
+   spaces ("jane.doe" -> "Jane Doe"). "" for no email. */
+function cloudHandleName(email){
+  const local = String(email||"").split("@")[0].split("+")[0].trim();
+  if(!local) return "";
+  const words = local.split(/[._-]+/).filter(Boolean);
+  return words.map(w=> /^[a-z]/.test(w) ? w.charAt(0).toUpperCase()+w.slice(1) : w).join(" ").slice(0, 80);
+}
+/* The name a screenplay export credits as its writer (owner, 2026-09-28): the account's own
+   display name when it has one, else its handle (cloudHandleName). "" when signed out — the export
+   then omits the credit. On a film shared WITH this user the export credits the film's owner
+   instead (app.jsx window.turnOpenFilmCredit), never the collaborator who presses Export. */
+function cloudUserDisplayName(session){
+  const u = session && session.user; if(!u) return "";
+  const m = u.user_metadata || {};
+  for(const k of ["display_name","full_name","name","user_name","preferred_username"]){
+    const v = typeof m[k]==="string" ? m[k].replace(/\s+/g," ").trim() : "";
+    if(v) return v.slice(0, 80);
+  }
+  return cloudHandleName(u.email);
+}
 
 window.cloudSignUp = cloudSignUp;
 window.cloudSignIn = cloudSignIn;
@@ -112,6 +134,8 @@ window.cloudGetSession = cloudGetSession;
 window.cloudOnAuth = cloudOnAuth;
 window.cloudUserEmail = cloudUserEmail;
 window.cloudUserId = cloudUserId;
+window.cloudUserDisplayName = cloudUserDisplayName;
+window.cloudHandleName = cloudHandleName;
 
 /* ── credits / usage balance ─────────────────────────────────────────────────
    The billing schema may evolve, so this reader is intentionally tolerant:
@@ -653,7 +677,7 @@ function _seriesConflictMessage(conflicts, overlapMessage){
   const list = Array.isArray(conflicts) ? conflicts : [];
   const structural = list.length>0 && list.every(c=>/invalid|missing merge baseline/.test(String(c)));
   return structural
-    ? "TURN couldn't safely compare this save with the cloud copy because this window has no reliable saved baseline for it. Reload before applying these edits."
+    ? "We couldn't safely compare this save with the cloud copy because this window has no reliable saved baseline for it. Reload before applying these edits."
     : overlapMessage;
 }
 async function cloudSaveDoc(id, doc){
@@ -758,7 +782,7 @@ function _seriesError(error,fallback){ return String((error&&error.message)||err
 function _seriesConversionRetry(episodeId, message){
   return {ok:false,retrySafe:true,
     retryState:{operation:"convert-project-to-show",episodeId:String(episodeId||"")},
-    message:message||"The server did not confirm the Show conversion. Try Create show again; TURN will safely reconcile the same Episode 1."};
+    message:message||"The server did not confirm the Show conversion. Try Create show again; we'll safely reuse the same Episode 1."};
 }
 async function _seriesReadConvertedPair(sb, episodeId){
   try{
@@ -808,14 +832,14 @@ async function cloudConvertProjectToShow(episodeId, showTitle, bible, episodePro
     if(error){
       if(_seriesRpcMissing(error,"turn_convert_project_to_show")) return {ok:false,setup:true,message:"Show conversion needs the series-production database migration. No projects were changed."};
       if(_seriesAmbiguousTransport(error)) return await _seriesReconcileConversion(sb,episodeId,
-        "The connection ended before Show conversion was confirmed. Try Create show again; TURN will safely reconcile the same Episode 1.");
+        "The connection ended before Show conversion was confirmed. Try Create show again; we'll safely reuse the same Episode 1.");
       return {ok:false,message:_seriesError(error,"The show could not be created.")};
     }
     return await _seriesReconcileConversion(sb,episodeId);
   }catch(e){
     if(_seriesRpcMissing(e,"turn_convert_project_to_show")) return {ok:false,setup:true,message:"Show conversion needs the series-production database migration. No projects were changed."};
     return await _seriesReconcileConversion(sb,episodeId,
-      "The connection ended before Show conversion was confirmed. Try Create show again; TURN will safely reconcile the same Episode 1.");
+      "The connection ended before Show conversion was confirmed. Try Create show again; we'll safely reuse the same Episode 1.");
   }
 }
 window.cloudConvertProjectToShow=cloudConvertProjectToShow;
@@ -870,19 +894,19 @@ async function cloudCreateShowEpisode(showId, blankDoc, opts){
       }
       if(_seriesAmbiguousTransport(error)) return {ok:false,retrySafe:true,
         requestId,retryState:{operation:"create-show-episode",showId:String(showId),requestId},
-        message:"The connection ended before Episode creation was confirmed. Try again; TURN will safely resume the same request."};
+        message:"The connection ended before Episode creation was confirmed. Try again; we'll safely resume the same request."};
       return {ok:false,message:_seriesError(error,"The episode could not be created.")};
     }
     return {ok:false,retrySafe:true,requestId,
       retryState:{operation:"create-show-episode",showId:String(showId),requestId},
-      message:"The server did not confirm which Episode was created. Try again; TURN will safely resume the same request."};
+      message:"The server did not confirm which Episode was created. Try again; we'll safely resume the same request."};
   }catch(e){
     if(_seriesRpcMissing(e,"turn_create_show_episode")){
       return {ok:false,setup:true,message:"Episode creation needs the series-production database migration. No projects were changed."};
     }
     return {ok:false,retrySafe:true,requestId,
       retryState:{operation:"create-show-episode",showId:String(showId),requestId},
-      message:"The connection ended before Episode creation was confirmed. Try again; TURN will safely resume the same request."};
+      message:"The connection ended before Episode creation was confirmed. Try again; we'll safely resume the same request."};
   }
 }
 window.cloudCreateShowEpisode=cloudCreateShowEpisode;
@@ -1149,7 +1173,7 @@ async function cloudDeleteShow(showId){
   if(responseLost){
     const confirmation=await _seriesConfirmProjectAbsent(sb,showId);
     if(!confirmation.ok) return {ok:false,uncertain:true,retrySafe:true,
-      message:"The connection ended during Show deletion, and TURN could not verify whether it committed. Refresh Films & TV Shows before trying again; no asset cleanup was attempted."};
+      message:"The connection ended during Show deletion, and we couldn't verify whether it went through. Refresh Films & TV Shows before trying again; no asset cleanup was attempted."};
     if(!confirmation.absent) return {ok:false,retrySafe:true,
       message:"Show deletion was not confirmed. The Show is still present, so no assets were removed."};
     /* The row's absence proves the database transaction committed. The response's
@@ -1245,7 +1269,7 @@ async function cloudDeleteShowEpisode(episodeId){
   if(responseLost){
     const confirmation=await _seriesConfirmProjectAbsent(sb,episodeId);
     if(!confirmation.ok) return {ok:false,uncertain:true,retrySafe:true,
-      message:"The connection ended during Episode deletion, and TURN could not verify whether it committed. Refresh Films & TV Shows before trying again; no asset cleanup was attempted."};
+      message:"The connection ended during Episode deletion, and we couldn't verify whether it went through. Refresh Films & TV Shows before trying again; no asset cleanup was attempted."};
     if(!confirmation.absent) return {ok:false,retrySafe:true,
       message:"Episode deletion was not confirmed. The Episode is still present, so no assets were removed."};
     data={episode_id:String(episodeId),show_id:inventory.showId,

@@ -9,7 +9,7 @@ function AuthModal({ onClose, onAuthed, initialMode, plan, light }){
   // the tier carried from the landing pricing (writer/director/studio) — shown as a
   // chip so the visitor sees their choice followed them into signup
   const planObj = (window.CINEMA_PLANS||[]).find(p=>String(p.tier).toLowerCase()===String(plan||"").toLowerCase());
-  const planName = planObj ? (planObj.name+" plan · "+planObj.price+"/mo") : null;
+  const planName = planObj ? (((typeof window.turnPlanDisplayName==="function") ? window.turnPlanDisplayName(planObj.tier) : planObj.name)+" plan · "+planObj.price+"/mo") : null;
   const [email, setEmail] = React.useState("");
   const [pw, setPw] = React.useState("");
   const [showPw, setShowPw] = React.useState(false);
@@ -54,7 +54,7 @@ function AuthModal({ onClose, onAuthed, initialMode, plan, light }){
   return React.createElement("div",{className:"auth-overlay"+(light?" auth-light":""),onMouseDown:(e)=>{ if(e.target===e.currentTarget) onClose && onClose(); }},
     React.createElement("div",{className:"auth-panel"+(light?" light":"")},
       React.createElement("div",{className:"auth-head"},
-        React.createElement("div",{className:"auth-mark"},"Cinema Machine"),
+        React.createElement("div",{className:"auth-mark"},"Kinolot"),
         light && React.createElement("div",{className:"auth-act"}, mode==="signup"?"Prologue":"Welcome back"),
         React.createElement("div",{className:"auth-title"}, mode==="signup"?"Create your account":"Sign in"),
         (mode==="signup" && planName) && React.createElement("div",{className:"auth-plan"},
@@ -110,7 +110,8 @@ function AccountChip({ session, cloudActive, connectionState, saveState, shareRo
   }
   const email = (window.cloudUserEmail && window.cloudUserEmail(session)) || "Account";
   const initial = (email[0]||"?").toUpperCase();
-  const scopedRole = shareRole==="writer" ? "Writer"
+  // the "writer" ROLE is shown as "Co-writer" (the Writer PLAN keeps its name) — display only
+  const scopedRole = shareRole==="writer" ? "Co-writer"
     : shareRole==="art_director" ? "Art director"
     : shareRole==="view_only" ? "View only" : "";
   const roleTitle = roleUnavailable ? " Project role unavailable; this shared project is read-only."
@@ -132,21 +133,21 @@ function AccountChip({ session, cloudActive, connectionState, saveState, shareRo
             : saveState==="saving"
             ? React.createElement("span",{className:"acct-cloud",title:"Saving your latest changes."+roleTitle},React.createElement(Icon.cloud||Icon.check,{s:11}),"Saving\u2026")
             : roleUnavailable
-            ? React.createElement("span",{className:"acct-cloud bad",title:"TURN could not verify a current role for this shared project. It is read-only; changes and AI actions will not save. Ask the owner to reassign your role."},
+            ? React.createElement("span",{className:"acct-cloud bad",title:"Your role on this shared project couldn't be verified, so it is read-only: changes and AI actions will not save. Ask the owner to reassign your role."},
                 React.createElement(Icon.warn,{s:11}),"Role unavailable")
             : shareRole==="view_only"
-            ? React.createElement("span",{className:"acct-cloud warn",title:"You have VIEW-ONLY access to this film. You can read and explore it, but changes you make here are not saved. Ask the owner for Writer access to edit."},
+            ? React.createElement("span",{className:"acct-cloud warn",title:"You have VIEW-ONLY access to this film. You can read and explore it, but changes you make here are not saved. Ask the owner for Co-writer access to edit."},
                 React.createElement(Icon.eye||Icon.warn,{s:11}),"View only")
             : scopedRole
             ? React.createElement("span",{className:"acct-cloud",
                 title:(window.teamRoleScopeNote ? window.teamRoleScopeNote(shareRole) : "")+" Changes inside your remit save normally."},
                 React.createElement(Icon.check,{s:11}),
-                shareRole==="writer" ? "Writer" : "Art dir")
+                shareRole==="writer" ? "Co-writer" : "Art dir")
             // healthy state is quiet — "Synced" is reassurance, not news, so it only
             // slides out on hover (desktop) or tap/open (mobile); problem states stay visible
             : React.createElement("span",{className:"acct-cloud quiet"},React.createElement(Icon.check,{s:11}),"Synced"))
         : connectionState==="retrying"
-        ? React.createElement("span",{className:"acct-cloud warn",title:"The cloud connection paused. TURN is retrying automatically and your open work stays on screen."},React.createElement(Icon.warn,{s:11}),"Reconnecting")
+        ? React.createElement("span",{className:"acct-cloud warn",title:"The cloud connection paused. It is retrying automatically, and your open work stays on screen."},React.createElement(Icon.warn,{s:11}),"Reconnecting")
         : React.createElement("span",{className:"acct-cloud warn"},React.createElement(Icon.warn,{s:11}),"Connecting")),
     open && React.createElement("div",{className:"acct-menu"},
       React.createElement("div",{className:"acct-email"}, email),
@@ -170,14 +171,14 @@ function AccountChip({ session, cloudActive, connectionState, saveState, shareRo
         const since = ts && ts.since ? new Date(ts.since) : null;
         return React.createElement(React.Fragment,null,
           bal && React.createElement("div",{className:"acct-status",title:"Credits \u2014 spent by image and video generation and by writing-model calls (see the Stage footer for per-render costs)"},
-            "Credits: "+bal.remaining+" remaining"+(window.turnIsPaidPlan&&window.turnIsPaidPlan(bal.plan)?(" \u00b7 "+bal.plan+" plan"):"")),
-          // upgrade / manage plan \u2014 opens the Cinema Machine plans modal
+            "Credits: "+bal.remaining+" remaining"+(window.turnIsPaidPlan&&window.turnIsPaidPlan(bal.plan)?(" \u00b7 "+((typeof window.turnPlanDisplayName==="function") ? window.turnPlanDisplayName(bal.plan) : bal.plan)+" plan"):"")),
+          // upgrade / manage plan \u2014 opens the Kinolot plans modal
           window.turnOpenPlans && React.createElement("button",{className:"acct-upgrade",
             onClick:()=>{ setOpen(false); window.turnOpenPlans(); }},
             React.createElement(Icon.sparkles,{s:12}),
             (bal && window.turnIsPaidPlan && window.turnIsPaidPlan(bal.plan)) ? "Change plan" : "Get credits \u00b7 Choose a plan"),
           ts && React.createElement("div",{className:"acct-status",
-            title:"Writing model use \u2014 a running tally on this device of drafting, agent and QA calls. The server deducts each call's real token cost from your credits; MUSE is free."},
+            title:"Writing model use \u2014 a running tally on this device of drafting, agent and QA calls. The server deducts each call's real token cost from your credits; Frances is free."},
             "Writing model: "+ts.calls+" call"+(ts.calls===1?"":"s")+" \u00b7 \u2248"+(ts.credits||0)+" credits"
               +(since?(" since "+since.toLocaleDateString()):"")));
       })(),

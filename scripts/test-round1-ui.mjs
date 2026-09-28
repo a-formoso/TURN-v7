@@ -17,6 +17,10 @@
    cascade (no later rule may undo a clearance). Part B lays the real stylesheet out in headless
    Chrome at desktop, tablet and phone sizes (CHROMIUM env, the macOS Chrome app, or Replit's
    chromium); with no browser binary it prints SKIP — and FAILS when CI or REQUIRE_BROWSER is set.
+   Part S (rebrand round, 2026-09-28) lays the SAME fixture out WITHOUT a browser — the stylesheet's
+   cascade resolved per viewport — and asserts the same guarantees on the winning values, so they
+   never silently go unchecked on a machine with no Chrome; where Chrome runs, Part B also checks
+   Part S's computed values against getComputedStyle, so the two can't drift apart.
    No network: the fixture is a local file. */
 import { readFileSync, writeFileSync, mkdtempSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
@@ -75,8 +79,11 @@ function makeBox(){
 }
 
 /* ── the sources ──────────────────────────────────────────────────────────── */
+/* ROUND1_CSS=<file> runs every part against another stylesheet (mutation checks); NO_BROWSER=1
+   runs as a machine without Chrome would (Part B skipped, Part S still asserting) */
 const chromeSrc = read("app/chrome.jsx"), teamSrc = read("app/team.jsx"), inspSrc = read("app/inspector.jsx"),
-  spineSrc = read("app/spine.jsx"), css = read("app/styles.css"), appSrc = read("app/app.jsx");
+  spineSrc = read("app/spine.jsx"), appSrc = read("app/app.jsx"),
+  css = process.env.ROUND1_CSS ? readFileSync(process.env.ROUND1_CSS, "utf8") : read("app/styles.css");
 /* (review 2026-09-28) the stylesheet as the browser reads it: comments out (a rule commented out
    is gone), and every rule with its @media context and declarations, in source order */
 const cssBare = css.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -404,8 +411,44 @@ await test("6 while a top-bar menu or window is open, the bar sits above the dra
   assert.deepEqual(declsOn(".topbar:has(.export-menu, .room-menu, .proj-menu, .acct-menu, .bible-overlay)", ["z-index"]),
     [".topbar:has(.export-menu, .room-menu, .proj-menu, .acct-menu, .bible-overlay){z-index:130}"]);
   // the windows those menus open are rendered inside the bar (so the rule reaches them)
-  assert.ok(/React\.createElement\("div",\{className:"topbar"\},\s*bibleOpen[^\n]*\n\s*briefOpen && React\.createElement\(StoryBriefModal/.test(chromeSrc));
+  assert.ok(/React\.createElement\("div",\{className:"topbar",ref:barRef\},\s*bibleOpen[^\n]*\n\s*briefOpen && React\.createElement\(StoryBriefModal/.test(chromeSrc));
   assert.ok(teamSrc.includes('className:"bible-overlay"'));
+});
+/* (rebrand round, 2026-09-28) the same raise without :has(): a browser that can't parse :has()
+   drops the whole rule, so chrome.jsx mirrors it as a class the bar gets while a layer is inside */
+await test("6 the raise also works without :has(): the bar watches for its own menus and windows and sets .is-raised", ()=>{
+  // one list of layers, in the stylesheet's :has() and in the watcher
+  const hasArgs = /\.topbar:has\(([^)]*)\)\{z-index:130\}/.exec(cssBare);
+  const jsSel = /const TOPBAR_LAYER_SEL = "([^"]+)";/.exec(chromeSrc);
+  assert.ok(hasArgs && jsSel, "both lists exist");
+  const list = (x)=>x.split(",").map(t=>t.trim()).sort();
+  assert.deepEqual(list(jsSel[1]), list(hasArgs[1]), "the watcher looks for exactly the layers the :has() rule does");
+  // its own rule, never in a selector list with :has() (which would drop it with the :has())
+  assert.deepEqual(cssRules.filter(r=>r.sel.includes(".topbar.is-raised")).map(r=>[r.media, r.sel, r.decls]),
+    [["", [".topbar.is-raised"], [["z-index","130"]]]]);
+  const i1 = cssBare.indexOf(".topbar:has("), i2 = cssBare.indexOf(".topbar.is-raised{");
+  assert.ok(i1 > 0 && i2 > i1, "declared right after the :has() rule");
+  // the watcher, against a fake bar and a fake MutationObserver
+  let present = false, observed = null, callback = null, disconnected = 0;
+  const cls = new Set(["topbar"]), toggles = [];
+  const bar = { querySelector:(sel)=>{ assert.equal(sel, jsSel[1]); return present ? {} : null; },
+    classList:{ contains:(c)=>cls.has(c), toggle:(c, on)=>{ toggles.push([c, on]); on ? cls.add(c) : cls.delete(c); } } };
+  cb.MutationObserver = class { constructor(f){ callback = f; } observe(t, o){ observed = [t, o]; } disconnect(){ disconnected++; } };
+  const stop = cb.turnWatchTopbarLayer(bar);
+  assert.ok(observed && observed[0]===bar && JSON.stringify(observed[1])===JSON.stringify({ childList:true, subtree:true }),
+    "child-list changes inside the bar only (the class toggle never re-triggers it)");
+  assert.ok(!cls.has("is-raised"), "resting: no menu, no window");
+  present = true; callback([]);
+  assert.ok(cls.has("is-raised"), "a menu or window opened inside the bar raises it");
+  callback([]); assert.equal(toggles.length, 1, "no churn while it stays open");
+  present = false; callback([]);
+  assert.ok(!cls.has("is-raised"), "closing it lowers the bar again");
+  stop(); assert.equal(disconnected, 1, "the effect's cleanup disconnects");
+  assert.equal(cb.turnWatchTopbarLayer(null), undefined, "no element (first render in a test stub): nothing to watch");
+  delete cb.MutationObserver;
+  assert.equal(cb.turnWatchTopbarLayer(bar), undefined, "no MutationObserver: the :has() rule alone");
+  // TopBar wires it to its own element, once
+  assert.ok(chromeSrc.includes("const barRef = React.useRef(null);\n  React.useEffect(()=>turnWatchTopbarLayer(barRef.current),[]);"));
 });
 await test("6 'Redraft N out-of-date' has its own housed strip, the same look as the tool strip", ()=>{
   assert.ok(cssBare.includes(".st-group.r{border:1px solid var(--line-2);border-radius:9px;background:var(--bg-3);overflow:hidden}"));
@@ -416,7 +459,7 @@ await test("6 'Redraft N out-of-date' has its own housed strip, the same look as
 });
 
 /* ═══ B. the real stylesheet in a real browser ═══════════════════════════════ */
-const CHROME = [process.env.CHROMIUM, "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/repl/tools/bin/chromium"]
+const CHROME = process.env.NO_BROWSER ? null : [process.env.CHROMIUM, "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/repl/tools/bin/chromium"]
   .find(p=>p && existsSync(p));
 const fixture = ()=>`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="styles.css"></head><body>
@@ -457,16 +500,19 @@ const fixture = ()=>`<!doctype html><html lang="en"><head><meta charset="utf-8">
   <ul class="eil-list"><li class="eil-row"><span class="eil-dot"></span><textarea class="edit-in" id="eil-in">Pistol</textarea><button class="eil-del" id="eil-del">×</button></li></ul>
   <div class="insp-actions"><button class="ia-btn">Up</button><button class="ia-btn">Down</button><button class="ia-btn">Add after</button>
     <button class="ia-btn danger" id="del"><svg width="13" height="13"></svg>Delete</button></div>
-</div></aside></div></div>
+</div></aside></div>
+<div class="scrim" id="scrim" style="display:none"></div></div>
 <div class="write-dock nb-dock" id="wdock"><button class="nb-dock-toggle"><span class="nb-dock-label">Writing</span><span class="nb-dock-chip model">GPT5</span><span class="nb-dock-chip">AUTO</span></button></div>
 <div class="agent-undo scene-undo stacked" id="t2"><span class="au-ic"><svg width="15" height="15"></svg></span><div class="au-text"><div class="au-t">Scene 12 deleted</div><div class="au-s">Restore it with its beats and draft</div></div>
   <button class="au-btn" id="t2-undo"><svg width="13" height="13"></svg>Undo</button><button class="au-x" id="t2-x">×</button></div>
-<div class="agent-undo" id="t1"><span class="au-ic"><svg width="15" height="15"></svg></span><div class="au-text"><div class="au-t">Continuity Repair changed your story</div><div class="au-s">3 agent runs can be undone</div></div>
+<div class="agent-undo" id="t1"><span class="au-ic"><svg width="15" height="15"></svg></span><div class="au-text"><div class="au-t">Setups &amp; Payoffs changed your story</div><div class="au-s">3 agent runs can be undone</div></div>
   <button class="au-btn" id="t1-undo"><svg width="13" height="13"></svg>Undo</button><button class="au-x" id="t1-x">×</button></div>
 <div class="muse-dock-wrap"><button class="muse-bubble" id="muse"></button></div>
 <script>
-window.measure = async function(){
+window.measure = async function(xcheck){
   document.querySelector(".app").classList.toggle("vp-mobile", innerWidth <= 700);
+  // a phone's open Scene drawer brings its scrim (app.jsx renders .scrim with an open drawer)
+  document.getElementById("scrim").style.display = innerWidth <= 700 ? "" : "none";
   const $ = (id)=>document.getElementById(id), r = (e)=>e.getBoundingClientRect().toJSON();
   const shown = (e)=>getComputedStyle(e).display!=="none" && e.getBoundingClientRect().width>0;
   const top = (e, x, y)=>{ const h = document.elementFromPoint(x, y); return !!h && (h===e || e.contains(h)); };
@@ -501,18 +547,453 @@ window.measure = async function(){
     toasts:["t1","t2"].map(t=>({ id:t, x:clickable($(t+"-x")), undo:clickable($(t+"-undo")), underMuse:hit($(t), $("muse")), underDock:hit($(t), $("wdock")),
       inView:r($(t)).left>=0 && r($(t)).right<=innerWidth })),
     toastsApart:!hit($("t1"), $("t2")), toastRects:[r($("t1")), r($("t2"))] };
+  // (rebrand round) what Part S predicts, read back from the browser
+  out.styles = {};
+  (xcheck || []).forEach(([sel, prop, maxW])=>{ if(maxW && innerWidth > maxW) return;
+    const e = document.querySelector(sel); out.styles[sel+" "+prop] = e ? getComputedStyle(e).getPropertyValue(prop) : null; });
   return out;
 };
 </script></body></html>`;
+
+/* ═══ S. the same layout, resolved from the stylesheet — no browser needed ═══════════════════
+   (rebrand round, 2026-09-28) Part B needs a Chrome binary; without one it used to print SKIP and
+   the run still ended "N passed, 0 failed", so its layout guarantees could silently go unchecked.
+   This part lays the SAME fixture out as a cascade, deterministically: the fixture HTML parsed into
+   an element tree, every rule of the real stylesheet matched against it per viewport (media
+   queries, selectors incl. :not / :is / :has, specificity, source order, !important, inline
+   styles, inheritance, var(), blockification), and the guarantees Part B measures are asserted on
+   the values that win: which top-bar controls a phone shows, the layer order of the raised bar vs
+   the drawers, the scrim, the Frances bubble, the Writing dock, dialogs and toasts (per stacking
+   context), the bubble clearance of the Scene panel and the undo toasts, the stacked toast's gap,
+   the runtime legend, the item-list ×, and the Script header's Redraft strip. It runs on every
+   machine. Where Chrome runs, Part B also compares these computed values with getComputedStyle,
+   so the model can't drift from a real browser. What only a browser can measure (real text
+   widths: a centred toast vs the bubble above 640px, Edit fitting its strip) stays in Part B. */
+const SIZES = [[1440,900,"desktop"],[1024,768,"tablet (landscape)"],[820,1180,"tablet (portrait)"],[390,844,"phone"],[375,667,"small phone"],[320,568,"narrow phone"]];
+const splitTop = (str, sep)=>{ const out = []; let depth = 0, q = null, cur = "";
+  for(const ch of str){
+    if(q){ cur += ch; if(ch===q) q = null; continue; }
+    if(ch==='"' || ch==="'"){ q = ch; cur += ch; continue; }
+    if(ch==="(" || ch==="[") depth++; else if(ch===")" || ch==="]") depth--;
+    if(ch===sep && depth===0){ out.push(cur); cur = ""; } else cur += ch;
+  }
+  out.push(cur); return out; };
+const parseDecls = (body)=> splitTop(body, ";").map(d=>d.trim()).filter(Boolean).map((d, idx)=>{
+  const k = d.indexOf(":"); if(k < 0) return null;
+  let prop = d.slice(0, k).trim(), value = d.slice(k+1).trim(), important = false;
+  if(/!\s*important$/i.test(value)){ important = true; value = value.replace(/!\s*important$/i, "").trim(); }
+  if(!prop.startsWith("--")) prop = prop.toLowerCase();
+  return { prop, value, important, idx };
+}).filter(Boolean);
+
+/* selectors → [{ comb, c:{ tag, id, cls, attrs, pseudo, pel } }], left to right; comb is the
+   combinator BEFORE the compound (the first one's is null, or ">" in a relative :has(> …)) */
+function parseSel(sel){
+  const s = sel.trim(), out = []; let i = 0, comb = null;
+  const fresh = ()=>({ tag:null, id:null, cls:[], attrs:[], pseudo:[], pel:false });
+  let c = fresh(), empty = true;
+  const ident = ()=>{ let j = i; while(j < s.length && /[\w\-\\ -￿]/.test(s[j])){ if(s[j]==="\\") j++; j++; }
+    if(j===i) throw Error("selector? "+sel); const v = s.slice(i, j).replace(/\\(.)/g, "$1"); i = j; return v; };
+  const paren = ()=>{ let depth = 0, j = i, q = null;
+    for(; j < s.length; j++){ const ch = s[j]; if(q){ if(ch===q) q = null; continue; } if(ch==='"' || ch==="'"){ q = ch; continue; }
+      if(ch==="(") depth++; else if(ch===")"){ depth--; if(!depth) break; } }
+    const arg = s.slice(i+1, j); i = j+1; return arg; };
+  const push = ()=>{ if(!empty) out.push({ comb, c }); c = fresh(); empty = true; };
+  while(i < s.length){
+    const ch = s[i];
+    if(/[\s>+~]/.test(ch)){
+      let j = i, k = null; while(j < s.length && /[\s>+~]/.test(s[j])){ if(!/\s/.test(s[j])) k = s[j]; j++; }
+      if(!empty){ push(); comb = k || " "; } else if(!out.length && k) comb = k;
+      i = j; continue;
+    }
+    empty = false;
+    if(ch==="*"){ i++; continue; }
+    if(ch==="."){ i++; c.cls.push(ident()); continue; }
+    if(ch==="#"){ i++; c.id = ident(); continue; }
+    if(ch==="["){ const j = s.indexOf("]", i), body = s.slice(i+1, j); i = j+1;
+      const m = /^\s*([\w-]+)\s*(?:([~|^$*]?=)\s*(?:"([^"]*)"|'([^']*)'|([^\s\]]+))\s*([is])?)?\s*$/.exec(body);
+      if(!m) throw Error("attribute selector? ["+body+"]");
+      c.attrs.push({ name:m[1].toLowerCase(), op:m[2]||null, val:m[3]!=null ? m[3] : m[4]!=null ? m[4] : m[5], ci:m[6]==="i" }); continue; }
+    if(ch===":"){
+      if(s[i+1]===":"){ i += 2; ident(); if(s[i]==="(") paren(); c.pel = true; continue; }
+      i++; const name = ident().toLowerCase(), arg = s[i]==="(" ? paren() : null;
+      if(["before","after","first-line","first-letter"].includes(name)) c.pel = true; else c.pseudo.push({ name, arg });
+      continue; }
+    c.tag = ident().toLowerCase();
+  }
+  push(); return out;
+}
+const cmpSpec = (x, y)=> x[0]-y[0] || x[1]-y[1] || x[2]-y[2];
+function specOf(P){
+  let a = 0, b = 0, c = 0;
+  for(const { c:k } of P){
+    if(k.id) a++; b += k.cls.length + k.attrs.length; if(k.tag) c++; if(k.pel) c++;
+    for(const p of k.pseudo){
+      if(p.name==="where") continue;
+      if(["not","is","has","matches","-webkit-any"].includes(p.name)){
+        const m = splitTop(p.arg, ",").map(x=>specOf(parseSel(x))).sort(cmpSpec).pop() || [0,0,0];
+        a += m[0]; b += m[1]; c += m[2];
+      } else b++;
+    }
+  }
+  return [a, b, c];
+}
+
+/* the stylesheet: every style rule with its at-rule context (keyframes / font-face skipped) */
+const sheet = (()=>{
+  const src = css.replace(/\/\*[\s\S]*?\*\//g, (m)=>" ".repeat(m.length));
+  const rules = [], stack = []; let start = 0, q = null;
+  for(let i = 0; i < src.length; i++){
+    const ch = src[i];
+    if(q){ if(ch===q) q = null; continue; }
+    if(ch==='"' || ch==="'"){ q = ch; continue; }
+    if(ch==="{"){ stack.push({ prelude:src.slice(start, i).split(";").pop().trim(), bodyStart:i+1 }); start = i+1; }
+    else if(ch==="}"){ const top = stack.pop(); start = i+1; if(!top || top.prelude.startsWith("@")) continue;
+      const ctx = stack.map(x=>x.prelude.replace(/\s+/g, " "));
+      if(ctx.some(p=>/^@(-webkit-)?(keyframes|font-face|page)/i.test(p))) continue;
+      rules.push({ order:rules.length, ctx, selText:splitTop(top.prelude, ",").map(x=>x.trim().replace(/\s+/g, " ")).filter(Boolean),
+        decls:parseDecls(src.slice(top.bodyStart, i)), parsed:null }); }
+  }
+  return rules;
+})();
+const SHORTHANDS = { padding:["padding-top","padding-right","padding-bottom","padding-left"],
+  margin:["margin-top","margin-right","margin-bottom","margin-left"], inset:["top","right","bottom","left"] };
+function longhand(d, prop){
+  if(d.prop===prop) return d.value;
+  for(const [sh, longs] of Object.entries(SHORTHANDS)){
+    const k = longs.indexOf(prop); if(k < 0 || d.prop!==sh) continue;
+    const v = splitTop(d.value.replace(/\s+/g, " ").trim(), " ").filter(Boolean);
+    if(/^(inherit|initial|unset|revert)$/.test(v[0])) return v[0];
+    return (v.length===1 ? [v[0],v[0],v[0],v[0]] : v.length===2 ? [v[0],v[1],v[0],v[1]] : v.length===3 ? [v[0],v[1],v[2],v[1]] : v)[k];
+  }
+  if(d.prop==="flex-flow" && (prop==="flex-direction" || prop==="flex-wrap")){
+    const v = d.value.split(/\s+/);
+    return prop==="flex-direction" ? (v.find(t=>/^(row|column)(-reverse)?$/.test(t)) || "row") : (v.find(t=>/^(nowrap|wrap|wrap-reverse)$/.test(t)) || "nowrap");
+  }
+  if(d.prop==="overflow" && (prop==="overflow-x" || prop==="overflow-y")){ const v = d.value.split(/\s+/); return prop==="overflow-x" ? v[0] : (v[1] || v[0]); }
+  return null;
+}
+const byProp = new Map();   // prop → the rules that may set it (directly or by shorthand)
+function rulesFor(prop){
+  if(!byProp.has(prop)) byProp.set(prop, sheet.filter(r=>r.decls.some(d=>longhand(d, prop)!=null)));
+  return byProp.get(prop);
+}
+
+/* media: width / height from the viewport; hover / pointer from `touch`; reduced motion off */
+function mediaOK(ctx, env){
+  return ctx.every(p=>{
+    if(/^@supports/i.test(p)) return true;
+    if(!/^@media/i.test(p)) throw Error("at-rule context? "+p);
+    return splitTop(p.replace(/^@media/i, "").trim(), ",").some(part=>{
+      let qx = part.trim(), neg = false;
+      if(/^not\s/i.test(qx)){ neg = true; qx = qx.replace(/^not\s+/i, ""); }
+      qx = qx.replace(/^only\s+/i, "");
+      const ok = qx.split(/\s+and\s+/i).map(t=>t.trim()).filter(Boolean).every(t=>{
+        if(/^(screen|all)$/i.test(t)) return true;
+        if(/^print$/i.test(t)) return false;
+        const m = /^\(\s*([a-z-]+)\s*(?::\s*([^)]+))?\)$/i.exec(t); if(!m) throw Error("media query? "+t);
+        const f = m[1].toLowerCase(), v = (m[2]||"").trim().toLowerCase();
+        const px = ()=>{ const n = /^(\d+(?:\.\d+)?)px$/.exec(v); if(!n) throw Error("media length? "+t); return Number(n[1]); };
+        if(f==="max-width") return env.w <= px(); if(f==="min-width") return env.w >= px();
+        if(f==="max-height") return env.h <= px(); if(f==="min-height") return env.h >= px();
+        if(f==="hover" || f==="any-hover") return v==="none" ? env.touch : !env.touch;
+        if(f==="pointer" || f==="any-pointer") return v==="coarse" ? env.touch : v==="fine" ? !env.touch : false;
+        if(f==="prefers-reduced-motion") return v==="no-preference";
+        if(f==="prefers-color-scheme") return v===(env.scheme || "light");
+        if(f==="orientation") return v==="portrait" ? env.h >= env.w : env.w > env.h;
+        throw Error("media feature? "+t);
+      });
+      return neg ? !ok : ok;
+    });
+  });
+}
+
+/* ── a small DOM: the fixture parsed, with the selector engine that runs on it ──────────── */
+function parseHTML(html){
+  const doc = { tag:"#document", attrs:{}, cls:[], id:null, children:[], parent:null, states:new Set(), style:[], text:"" };
+  const VOID = new Set(["meta","link","br","img","input","hr","source","wbr","area","base","col","embed","track"]);
+  const re = /<!--[\s\S]*?-->|<!doctype[^>]*>|<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>|<\/([a-zA-Z][\w-]*)\s*>|<([a-zA-Z][\w-]*)((?:\s+[^\s=>\/]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*(\/?)>|([^<]+)/gi;
+  let cur = doc, m;
+  while((m = re.exec(html))){
+    if(m[2]){ const t = m[2].toLowerCase(); let n = cur; while(n && n.tag!==t) n = n.parent; if(n) cur = n.parent; continue; }
+    if(m[3]){
+      const tag = m[3].toLowerCase(), attrs = {};
+      (m[4]||"").replace(/([^\s=>\/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g, (_, k, a, b, c)=>{ attrs[k.toLowerCase()] = a!=null ? a : b!=null ? b : c!=null ? c : ""; return ""; });
+      const el = { tag, attrs, cls:(attrs.class||"").split(/\s+/).filter(Boolean), id:attrs.id || null, children:[], parent:cur,
+        states:new Set(), style:attrs.style ? parseDecls(attrs.style) : [], text:"" };
+      cur.children.push(el);
+      if(!VOID.has(tag) && !m[5]) cur = el;
+      continue;
+    }
+    if(m[6] && m[6].trim()) cur.text += m[6].trim();
+  }
+  return doc;
+}
+const isEl = (n)=> n && n.tag!=="#document";
+function each(root, f){ for(const ch of root.children){ f(ch); each(ch, f); } }
+const STATE_PSEUDO = new Set(["hover","focus","focus-visible","focus-within","active","visited","target","checked","indeterminate",
+  "placeholder-shown","invalid","valid","required","optional","autofill","fullscreen","modal","popover-open","open","default","user-invalid"]);
+const FORM = new Set(["button","input","select","textarea","option","fieldset"]);
+function nth(arg, n){
+  const a = arg.trim().toLowerCase();
+  if(a==="odd") return n % 2===1; if(a==="even") return n % 2===0;
+  const m = /^([+-]?\d*)n\s*(?:([+-])\s*(\d+))?$/.exec(a.replace(/\s+/g, ""));
+  if(!m) return n===Number(a);
+  const A = m[1]==="" || m[1]==="+" ? 1 : m[1]==="-" ? -1 : Number(m[1]), B = m[2] ? Number(m[2]+m[3]) : 0;
+  return A===0 ? n===B : ((n - B) / A >= 0 && (n - B) % A===0);
+}
+function matchCompound(el, k, scope){
+  if(!isEl(el) || k.pel) return false;
+  if(k.tag && k.tag!==el.tag) return false;
+  if(k.id && k.id!==el.id) return false;
+  for(const c of k.cls) if(!el.cls.includes(c)) return false;
+  for(const a of k.attrs){
+    const has = Object.prototype.hasOwnProperty.call(el.attrs, a.name); if(!has) return false;
+    if(!a.op) continue;
+    let v = String(el.attrs[a.name]), w = String(a.val); if(a.ci){ v = v.toLowerCase(); w = w.toLowerCase(); }
+    const ok = a.op==="=" ? v===w : a.op==="~=" ? v.split(/\s+/).includes(w) : a.op==="^=" ? v.startsWith(w)
+      : a.op==="$=" ? v.endsWith(w) : a.op==="*=" ? v.includes(w) : a.op==="|=" ? (v===w || v.startsWith(w+"-")) : false;
+    if(!ok) return false;
+  }
+  const sibs = el.parent ? el.parent.children : [el], at = sibs.indexOf(el), same = sibs.filter(x=>x.tag===el.tag), atT = same.indexOf(el);
+  for(const p of k.pseudo){
+    const n = p.name, ok =
+      n==="root" ? el.tag==="html"
+      : n==="not" ? !splitTop(p.arg, ",").some(x=>matches(el, x.trim(), scope))
+      : (n==="is" || n==="where" || n==="matches" || n==="-webkit-any") ? splitTop(p.arg, ",").some(x=>matches(el, x.trim(), scope))
+      : n==="has" ? splitTop(p.arg, ",").some(x=>hasRel(el, x.trim()))
+      : n==="first-child" ? at===0 : n==="last-child" ? at===sibs.length-1 : n==="only-child" ? sibs.length===1
+      : n==="nth-child" ? nth(p.arg, at+1) : n==="nth-last-child" ? nth(p.arg, sibs.length-at)
+      : n==="first-of-type" ? atT===0 : n==="last-of-type" ? atT===same.length-1 : n==="only-of-type" ? same.length===1
+      : n==="nth-of-type" ? nth(p.arg, atT+1) : n==="nth-last-of-type" ? nth(p.arg, same.length-atT)
+      : n==="empty" ? (!el.children.length && !el.text)
+      : n==="defined" ? true
+      : n==="disabled" ? (FORM.has(el.tag) && "disabled" in el.attrs)
+      : n==="enabled" ? (FORM.has(el.tag) && !("disabled" in el.attrs))
+      : (n==="link" || n==="any-link") ? (el.tag==="a" && "href" in el.attrs)
+      : n==="read-write" ? ((el.tag==="textarea" || el.tag==="input") && !("readonly" in el.attrs))
+      : n==="read-only" ? !((el.tag==="textarea" || el.tag==="input") && !("readonly" in el.attrs))
+      : STATE_PSEUDO.has(n) ? el.states.has(n)
+      : /^-(webkit|moz|ms)-/.test(n) ? false
+      : (()=>{ throw Error("pseudo-class? :"+n); })();
+    if(!ok) return false;
+  }
+  return true;
+}
+/* right to left; `scope` bounds the walk (a relative :has() argument stays inside its subject) */
+function matchAt(el, P, i, scope){
+  if(!matchCompound(el, P[i].c, scope)) return false;
+  if(i===0) return !scope || (P[0].comb===">" ? el.parent===scope.el : within(el, scope.el));
+  const up = (n)=>{ const p = n.parent; return isEl(p) && (!scope || p!==scope.el) ? p : null; };
+  const prev = (n)=>{ const sibs = n.parent ? n.parent.children : []; const k = sibs.indexOf(n); return k > 0 ? sibs[k-1] : null; };
+  const comb = P[i].comb;
+  if(comb===">"){ const p = up(el); return !!p && matchAt(p, P, i-1, scope); }
+  if(comb==="+"){ const p = prev(el); return !!p && matchAt(p, P, i-1, scope); }
+  if(comb==="~"){ for(let p = prev(el); p; p = prev(p)) if(matchAt(p, P, i-1, scope)) return true; return false; }
+  for(let p = up(el); p; p = up(p)) if(matchAt(p, P, i-1, scope)) return true;
+  return false;
+}
+function within(n, root){ for(let p = n.parent; p; p = p.parent) if(p===root) return true; return false; }
+const parsedCache = new Map();
+const parsedSel = (x)=>{ if(!parsedCache.has(x)) parsedCache.set(x, parseSel(x)); return parsedCache.get(x); };
+const matches = (el, sel, scope)=>{ const P = parsedSel(sel); return P.length ? matchAt(el, P, P.length-1, scope) : false; };
+function hasRel(el, rel){
+  const P = parsedSel(rel); if(!P.length) return false;
+  let found = false; each(el, (d)=>{ if(!found && matchAt(d, P, P.length-1, { el })) found = true; });
+  return found;
+}
+const qsa = (root, sel)=>{ const out = []; each(root, (n)=>{ if(matches(n, sel)) out.push(n); }); return out; };
+const qs = (root, sel)=> qsa(root, sel)[0] || null;
+
+/* ── computed values ─────────────────────────────────────────────────────────── */
+const INHERITED = new Set(["white-space","visibility","color","cursor","font-family","font-size","font-weight","line-height","letter-spacing","text-transform","direction"]);
+const TAG_DISPLAY = { html:"block", body:"block", div:"block", nav:"block", main:"block", aside:"block", header:"block", footer:"block",
+  section:"block", ul:"block", ol:"block", p:"block", li:"list-item", button:"inline-block", select:"inline-block", input:"inline-block",
+  textarea:"inline-block", head:"none", meta:"none", link:"none", title:"none", script:"none", style:"none" };
+const INITIAL = { position:"static", "z-index":"auto", opacity:"1", "white-space":"normal", "flex-direction":"row", "flex-wrap":"nowrap",
+  "padding-top":"0px", "padding-right":"0px", "padding-bottom":"0px", "padding-left":"0px", top:"auto", right:"auto", bottom:"auto", left:"auto",
+  width:"auto", height:"auto", "max-width":"none", transform:"none", filter:"none", isolation:"auto", visibility:"visible",
+  "mix-blend-mode":"normal", contain:"none", "will-change":"auto", perspective:"none", "clip-path":"none", "backdrop-filter":"none",
+  "overflow-x":"visible", "overflow-y":"visible", mask:"none" };
+/* computed values are memoised per element, viewport and document generation; every edit the
+   checks make to the tree (classes, children, inline styles) bumps the generation */
+let GEN = 0;
+const bump = ()=>{ GEN++; };
+const memo = new WeakMap();
+function computed(el, prop, env){
+  const key = GEN+"|"+env.w+"x"+env.h+(env.touch ? "t" : "")+(env.scheme||"")+"|"+prop;
+  let m = memo.get(el); if(!m){ m = new Map(); memo.set(el, m); }
+  if(!m.has(key)) m.set(key, computedRaw(el, prop, env));
+  return m.get(key);
+}
+function computedRaw(el, prop, env){
+  let best = null;
+  const take = (cand)=>{ if(!best || (cand.important!==best.important ? cand.important : (cmpSpec(cand.spec, best.spec) || cand.order - best.order) > 0)) best = cand; };
+  for(const r of rulesFor(prop)){
+    if(!mediaOK(r.ctx, env)) continue;
+    let spec = null;
+    for(const x of r.selText){ const P = parsedSel(x); if(P.length && matchAt(el, P, P.length-1, null)){ const sp = specOf(P); if(!spec || cmpSpec(sp, spec) > 0) spec = sp; } }
+    if(!spec) continue;
+    for(const d of r.decls){ const v = longhand(d, prop); if(v!=null) take({ value:v, important:d.important, spec, order:r.order*1000+d.idx }); }
+  }
+  for(const d of el.style){ const v = longhand(d, prop); if(v!=null) take({ value:v, important:d.important, spec:[1e9,0,0], order:1e12+d.idx }); }
+  const parent = isEl(el.parent) ? el.parent : null, inherits = INHERITED.has(prop) || prop.startsWith("--");
+  let v = best ? best.value : null;
+  if(v!=null && /^inherit$/i.test(v)) v = parent ? computed(parent, prop, env) : initialOf(el, prop);
+  else if(v!=null && /^(initial|unset|revert|revert-layer)$/i.test(v)) v = (!/^initial$/i.test(v) && inherits && parent) ? computed(parent, prop, env) : initialOf(el, prop);
+  else if(v==null) v = (inherits && parent) ? computed(parent, prop, env) : initialOf(el, prop);
+  v = v==null ? null : resolveVars(v, el, env, 0);
+  if(prop==="display" && v){   // blockification: a positioned box, or a flex / grid item
+    const pos = computed(el, "position", env), pd = parent ? computed(parent, "display", env) : "";
+    if(pos==="absolute" || pos==="fixed" || /(^|-)(flex|grid)$/.test(pd))
+      v = v==="inline" || v==="inline-block" ? "block" : v==="inline-flex" ? "flex" : v==="inline-grid" ? "grid" : v;
+  }
+  return v;
+}
+function initialOf(el, prop){
+  if(prop==="display") return TAG_DISPLAY[el.tag] || "inline";
+  if(prop.startsWith("--")) return null;
+  return INITIAL[prop]!=null ? INITIAL[prop] : null;
+}
+function resolveVars(v, el, env, depth){
+  if(depth > 12 || !/var\(/.test(v)) return v;
+  return resolveVars(v.replace(/var\(\s*(--[\w-]+)\s*(?:,\s*([^()]*(?:\([^()]*\)[^()]*)*))?\)/g, (_, name, fb)=>{
+    const c = computed(el, name, env); return c!=null ? c : (fb!=null ? fb.trim() : ""); }), el, env, depth+1);
+}
+const pxOf = (v, label)=>{ const m = /^(-?\d+(?:\.\d+)?)px$/.exec(String(v).trim()); assert.ok(m, label+": a px length, got "+v); return Number(m[1]); };
+/* does this box start a stacking context (the properties this stylesheet could use)? */
+function stacks(el, env){
+  const C = (p)=>computed(el, p, env), pos = C("position"), z = C("z-index");
+  return (pos!=="static" && z!=="auto") || pos==="fixed" || pos==="sticky" || Number(C("opacity")) < 1 || C("transform")!=="none"
+    || C("filter")!=="none" || C("isolation")==="isolate" || C("mix-blend-mode")!=="normal" || /paint|layout|strict|content/.test(C("contain"))
+    || /transform|opacity|filter|perspective/.test(C("will-change")) || C("perspective")!=="none" || C("clip-path")!=="none"
+    || C("backdrop-filter")!=="none";
+}
+/* where a box paints among the page's top-level layers: the z-index of its outermost
+   stacking-context ancestor (or its own), so two boxes in different branches compare correctly */
+function rootLayer(el, env){
+  let top = null;
+  for(let n = el; isEl(n) && n.tag!=="html" && n.tag!=="body"; n = n.parent) if(stacks(n, env)) top = n;
+  if(!top) return 0;
+  const z = computed(top, "z-index", env); return z==="auto" ? 0 : Number(z);
+}
+/* is it laid out at all (it and every ancestor displayed)? */
+const displayed = (el, env)=>{ for(let n = el; isEl(n); n = n.parent) if(computed(n, "display", env)==="none") return false; return true; };
+
+/* the fixture as it stands while Part B measures at this size: the phone class the app sets,
+   the drawer's scrim, the item list's textarea focused, the toasts up, the Team window closed */
+function fixtureState(doc, env){
+  const app = qs(doc, ".app"), scrim = qs(doc, "#scrim"), ta = qs(doc, "#eil-in");
+  app.cls = app.cls.filter(c=>c!=="vp-mobile").concat(env.w <= 700 ? ["vp-mobile"] : []);
+  scrim.style = env.w <= 700 ? [] : parseDecls("display:none");
+  each(doc, (n)=>n.states.clear());
+  ta.states.add("focus"); ta.states.add("focus-visible");
+  for(let p = ta.parent; isEl(p); p = p.parent) p.states.add("focus-within");
+  bump();
+  return doc;
+}
+const fixtureDoc = ()=> parseHTML(fixture());
+/* the cross-check list Part B reads back with getComputedStyle: [selector, property, at ≤ width] */
+const XCHECK = [
+  [".topbar","position"],[".topbar","z-index"],["#ovf","display"],["#ovf-art","display"],["#m-new","display"],["#m-brief","display"],
+  ["#m-team","display"],["#a-team","display"],["#brief","display"],["#newstory","display"],["#ovf .export-menu","position"],["#ovf .export-menu","z-index"],
+  ["#modal","position"],["#modal","z-index"],["#scrim","z-index"],["#scrim","display"],[".inspector","position"],[".inspector","z-index"],
+  [".muse-dock-wrap","position"],[".muse-dock-wrap","z-index"],["#wdock","position"],["#wdock","z-index"],["#iscroll","padding-bottom"],
+  ["#t1","position"],["#t1","z-index"],["#t2","z-index"],["#t1","right",640],["#t2","right",640],["#t1","bottom"],["#t2","bottom"],
+  ["#rt","display"],["#rt","white-space"],["#pos","display"],[".legend","display"],["#eil-del","opacity"],[".script-tools","flex-direction"],
+  [".script-tools","flex-wrap"],["#sgr","display"],["#sga","display"],
+];
+const normCss = (v)=>{ v = String(v==null ? "" : v).trim().replace(/\s+/g, " ").toLowerCase();
+  if(/^-?\d*\.?\d+$/.test(v)) return String(Number(v)); if(/^-?0(px)?$/.test(v)) return "0px"; return v; };
+function staticValues(env){
+  const doc = fixtureState(fixtureDoc(), env), out = {};
+  for(const [sel, prop, maxW] of XCHECK){ if(maxW && env.w > maxW) continue; const el = qs(doc, sel); assert.ok(el, "fixture has "+sel);
+    out[sel+" "+prop] = normCss(computed(el, prop, env)); }
+  return out;
+}
+
+const MIN_TOAST_H = 56;   // an undo toast's floor: 11px + 32px button + 11px padding, 1px borders
+for(const [w, h, name] of SIZES){
+  for(const touch of (w <= 700 ? [false, true] : [false])){
+    const env = { w, h, touch, scheme:"light" };
+    const tag = "S "+name+" "+w+"px"+(touch ? " (touch)" : "")+": ";
+    await test(tag+"layout guarantees, from the cascade", ()=>{
+      const doc = fixtureState(fixtureDoc(), env), $ = (s)=>{ const el = qs(doc, s); assert.ok(el, s); return el; };
+      const C = (s, p)=>computed($(s), p, env), shown = (s)=>displayed($(s), env), L = (s)=>rootLayer($(s), env);
+      // 1. the phone ⋯ carries the buttons a phone hides; desktop keeps them in the bar
+      if(w <= 700) assert.ok(!shown("#brief") && !shown("#team") && !shown("#newstory") && shown("#ovf") && shown("#m-new") && shown("#m-brief")
+        && shown("#m-team") && shown("#ovf-art") && shown("#a-team"), tag+"phone: the plain buttons hide, the ⋯ and its phone entries show");
+      else assert.ok(shown("#brief") && shown("#team") && shown("#newstory") && !shown("#ovf") && shown("#ovf-art") && !shown("#a-team"),
+        tag+"desktop: the buttons stay, the ⋯ only in the Art Room, without the phone entries");
+      // 2. layers: with a menu or window inside, the bar paints above the drawers, the scrim, the Frances
+      //    bubble, the Writing dock and the undo toasts, and below a confirm and the toast stack
+      assert.ok(C(".topbar", "position")!=="static", tag+"the bar is positioned (z-index applies)");
+      const bar = L(".topbar");
+      assert.equal(bar, 130, tag+"the raised bar's layer");
+      for(const s of ["#scrim", ".inspector", ".muse-dock-wrap", "#wdock", "#t1", "#t2"])
+        assert.ok(bar > L(s), tag+"the raised bar is above "+s+" ("+bar+" vs "+L(s)+")");
+      for(const s of ["#ovf .export-menu", "#modal"]) assert.ok(C(s, "position")!=="static", tag+s+" is positioned inside the bar");
+      assert.ok(C("#modal", "position")==="fixed", tag+"a top-bar window covers the viewport from inside the raised bar");
+      assert.ok(L("#wdock") < 130 && L(".muse-dock-wrap") < 130, tag+"Team / Story brief windows (inside the bar) cover the dock and the bubble");
+      if(w <= 700) assert.ok(L(".inspector") > L("#scrim") && L("#t1") > L("#scrim"), tag+"the drawer and the toasts sit above the scrim");
+      // a confirm and the toasts stay on top of the raised bar (appended at the end of <body>, as in the app)
+      const body = qs(doc, "body");
+      const extra = parseHTML('<div class="appconfirm-scrim" id="xc"></div><div id="turn-toasts"></div>');
+      extra.children.forEach(n=>{ n.parent = body; body.children.push(n); }); bump();
+      assert.ok(L("#xc") > bar && L("#turn-toasts") > bar, tag+"dialogs and toasts stay above the raised bar");
+      // resting: no menu and no window inside → the bar is back at its own layer; the class raises it too
+      const top = $(".topbar"), right = qs(top, ".tb-right"), kids = right.children.slice();
+      right.children = kids.filter(n=>!matches(n, ".bible-overlay") && !matches(n, ".overflow-wrap")); bump();
+      assert.equal(L(".topbar"), 30, tag+"resting bar");
+      top.cls.push("is-raised"); bump();
+      assert.equal(L(".topbar"), 130, tag+".is-raised (the no-:has() path) raises it the same");
+      top.cls.pop(); right.children = kids; bump();
+      // 3. the Scene panel's scroll end clears the Frances bubble
+      const clear = pxOf(C("#iscroll", "padding-bottom"), "the Scene panel's bottom padding");
+      const mb = pxOf(C(".muse-dock-wrap", "bottom"), "bubble bottom"), mr = pxOf(C(".muse-dock-wrap", "right"), "bubble right");
+      const bw = pxOf(C("#muse", "width"), "bubble width"), bh = pxOf(C("#muse", "height"), "bubble height");
+      assert.ok(C(".muse-dock-wrap", "position")==="fixed", tag+"the bubble floats");
+      assert.ok(clear >= mb + bh + 8 && clear >= mr + bw + 8, tag+"the Scene panel scrolls its last row above the bubble ("+clear+"px vs "+(mb+bh)+"/"+(mr+bw)+")");
+      assert.ok(/^(auto|scroll)$/.test(C("#iscroll", "overflow-y")), tag+"…because the panel scrolls");
+      assert.ok(shown("#del"), tag+"Delete is laid out");
+      // 4. the undo toasts: clear of the bubble and the Writing dock on a phone, never overlapping each other
+      const t1b = pxOf(C("#t1", "bottom"), "toast bottom"), t2b = pxOf(C("#t2", "bottom"), "stacked toast bottom");
+      assert.ok(t2b - t1b >= MIN_TOAST_H + 2, tag+"the stacked toast sits above the other ("+(t2b - t1b)+"px apart)");
+      assert.ok(C("#t1", "position")==="fixed" && C("#t2", "position")==="fixed");
+      if(w <= 640){
+        for(const t of ["#t1", "#t2"]){
+          const tr = pxOf(C(t, "right"), t+" right"), tl = pxOf(C(t, "left"), t+" left");
+          assert.ok(tr >= mr + bw, tag+t+"'s right end stops short of the bubble ("+tr+"px)");
+          const dr = pxOf(C("#wdock", "right"), "dock right"), dw = /px$/.test(C("#wdock", "width")) ? pxOf(C("#wdock", "width"), "dock width") : 54;
+          assert.ok(tr >= dr + dw, tag+t+" stops short of the Writing dock ("+tr+" vs "+(dr+dw)+")");
+          assert.ok(tl >= 0 && C(t, "transform")==="none" && C(t, "width")==="auto", tag+t+" spans between its insets");
+        }
+      } else assert.ok(C("#t1", "left")==="50%" && /translate/.test(C("#t1", "transform")) && C("#t1", "width")==="max-content", tag+"the toast is centred, sized to its words");
+      // 5. the runtime total always shows, on one line; the colour key only above 900px
+      assert.ok(shown("#rt") && C("#rt", "white-space")==="nowrap" && shown(".legend"), tag+"the runtime shows, on one line");
+      assert.equal(shown("#pos"), w > 900, tag+"the colour key shows only above 900px");
+      // 6. the item list's × shows while its row has focus
+      assert.equal(Number(C("#eil-del", "opacity")), 1, tag+"the × shows with the row focused");
+      assert.ok(shown("#eil-del"));
+      // 7. "Redraft N out-of-date" has its own strip; on a phone the header stacks its strips
+      assert.ok(shown("#sgr") && shown("#s-rall") && shown("#s-edit"), tag+"the Redraft strip and Edit are laid out");
+      const dir = C(".script-tools", "flex-direction"), wrap = C(".script-tools", "flex-wrap");
+      assert.ok(dir==="column" || wrap==="wrap", tag+"the strips wrap or stack instead of pushing Edit away");
+      if(w <= 640) assert.ok(dir==="column" && C("#sgr", "max-width")==="100%", tag+"on a phone each strip has its own line and fits the width");
+    });
+  }
+}
 
 async function browserPart(){
   if(!CHROME){
     // (review) a machine that must run the layout checks can't pass without them
     if(process.env.CI || process.env.REQUIRE_BROWSER){ console.log("FAIL B — no Chrome/Chromium binary, and CI / REQUIRE_BROWSER is set (set CHROMIUM)"); process.exit(1); }
-    console.log("SKIP B — no Chrome/Chromium binary (set CHROMIUM to run the layout checks)"); return; }
+    console.log("SKIP B — no Chrome/Chromium binary (set CHROMIUM to measure in a browser). The layout guarantees still ran from the"
+      +" stylesheet's cascade in Part S above; only real text widths go unmeasured (a centred toast vs the bubble above 640px, Edit fitting its strip).");
+    return; }
   if(typeof WebSocket!=="function"){ console.log("SKIP B — this Node has no WebSocket"); return; }
   const dir = mkdtempSync(join(tmpdir(), "round1-ui-"));
-  writeFileSync(join(dir, "styles.css"), process.env.ROUND1_CSS ? readFileSync(process.env.ROUND1_CSS) : css);
+  writeFileSync(join(dir, "styles.css"), css);
   writeFileSync(join(dir, "fixture.html"), fixture());
   const port = 9300 + Math.floor(Math.random()*400);
   const chrome = spawn(CHROME, ["--headless=new", "--no-sandbox", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
@@ -530,11 +1011,11 @@ async function browserPart(){
     await call("Page.enable");
     await call("Page.navigate", { url:"file://"+join(dir, "fixture.html") });
     await until(()=>evaluate("document.readyState==='complete' && typeof window.measure==='function'"), "fixture");
-    const sizes = [[1440,900,"desktop"],[1024,768,"tablet (landscape)"],[820,1180,"tablet (portrait)"],[390,844,"phone"],[375,667,"small phone"],[320,568,"narrow phone"]];
+    const sizes = SIZES;
     for(const [w, h, name] of sizes){
       await call("Emulation.setDeviceMetricsOverride", { width:w, height:h, deviceScaleFactor:1, mobile:w<=700 });
       await call("Emulation.setFocusEmulationEnabled", { enabled:true });
-      const m = await evaluate("measure()");
+      const m = await evaluate("measure("+JSON.stringify(XCHECK)+")");
       const tag = name+" "+w+"px: ";
       assert.equal(m.w, w, tag+"viewport");
       assert.ok(m.del && !m.delUnderMuse, tag+"the Scene panel's Delete is clear of the MUSE bubble at the end of the scroll "+JSON.stringify(m));
@@ -554,7 +1035,10 @@ async function browserPart(){
       if(w <= 700) assert.ok(m.menuTap, tag+"phone: the ⋯ entries are tappable over the open Scene drawer");
       if(w <= 700) assert.ok(m.tbHidden && m.ovf && m.mNew && m.mBrief && m.mTeam && m.artOvf && m.aTeam, tag+"phone: buttons move into the ⋯ "+JSON.stringify(m));
       else assert.ok(!m.tbHidden && !m.ovf && m.artOvf && !m.aTeam, tag+"desktop: the buttons stay, the ⋯ only in the Art Room, without the phone entries "+JSON.stringify(m));
-      console.log("PASS B "+tag+"layout");
+      // the static cascade (Part S) must agree with the browser on every value it predicts
+      const want = staticValues({ w, h, touch:false, scheme:"light" });
+      for(const k of Object.keys(want)) assert.equal(normCss(m.styles[k]), want[k], tag+"Part S agrees with Chrome on "+k);
+      console.log("PASS B "+tag+"layout ("+Object.keys(want).length+" computed values match Part S)");
       passed++;
     }
   } finally {

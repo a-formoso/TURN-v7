@@ -411,7 +411,7 @@ await test("keptLines: plain language, only non-zero lines (spec §8.7)", () => 
   ]);
   same(lib.keptLines({ kept: { files: 0, byStatus: {}, usedBy: [] } }, m.projectsById), []);
   same(lib.keptLines({ kept: { files: 3, byStatus: { "current, history": 3, "outside the TURN asset layout": 2 }, usedBy: [] } }, {}),
-    ["3 still in use", "2 outside the TURN asset layout (review by hand)"]);
+    ["3 still in use", "2 outside the Kinolot asset layout (review by hand)"]);
   // 2026-09-27 review: 'history-ref' (and any referenced kind) is in use, listed once, never as a raw code
   same(lib.keptLines({ kept: { files: 1, byStatus: { "history-ref": 1 }, usedBy: [{ projectId: P2, files: 1 }] } }, m.projectsById),
     ["1 still used by Dust Road (Show)"]);
@@ -766,7 +766,7 @@ await test("bulk review from Projects: checkbox gates Delete, countdown, kept li
   same(page.srv.calls.at(-1), { action: "preview-delete", projectIds: [PD1, PD2] });
   let sh = find(page.tree(), (n) => hasClass(n, "adm-sheet"));
   assert.equal(text(find(sh, (n) => hasClass(n, "adm-sheet-title"))), "Delete 12 files (1.2 GB) from 2 deleted projects?");
-  assert.match(text(sh), /Only files nothing in TURN uses any more\. Each file is checked again right before it is deleted, and the Storage folders of live projects are never touched\./);
+  assert.match(text(sh), /Only files nothing in Kinolot uses any more\. Each file is checked again right before it is deleted, and the Storage folders of live projects are never touched\./);
   same(find(sh, (n) => n.type === "ul").children.map(text), [
     "4 queued for cleanup (the cleanup queue removes these)", "1 still used by Dust Road (Show)", "2 kept for a Show-promotion retry",
     "1 still uploading", "1 service file (Blender relay preview)"]);
@@ -1223,7 +1223,7 @@ await test("Cleanup tab: the queue, then Old temp files with its stats; each rea
   same(sections, ["Cleanup queue", "Old temp files"], "the queue section first");
   const sec = tempSection(t);
   assert.equal(text(find(sec, (n) => hasClass(n, "adm-group-h"))), "Old temp files");
-  assert.match(text(sec), /Images and videos TURN staged for AI generation\. They expire after 2 hours, and no project uses them\./);
+  assert.match(text(sec), /Images and videos Kinolot staged for AI generation\. They expire after 2 hours, and no project uses them\./);
   assert.match(text(sec), /1,905 files · 159 MB older than 24 hours, in 1 account\. Oldest /);
   const btn = tempButton(t);
   assert.ok(btn && hasClass(btn, "adm-btn") && hasClass(btn, "danger"));
@@ -1552,17 +1552,18 @@ await test("wiring: TURN.html tag after auth-ui with a ?v= key, APP_FEATURES unt
   const html = read("TURN.html");
   const auth = html.indexOf('src="app/auth-ui.jsx?v=');
   // a later change's key counts too (readable storage folders re-keyed it: 20260927-readable1)
-  // …and Clear old temp files (2026-09-28): 20260928-temp1
+  // …and Clear old temp files (2026-09-28): 20260928-temp1; the Kinolot rebrand (2026-09-28): 20260928-brand1
   const adm = Math.max(html.indexOf('<script type="text/babel" src="app/admin-storage.jsx?v=20260927-admstorage2"></script>'),
     html.indexOf('<script type="text/babel" src="app/admin-storage.jsx?v=20260927-readable1"></script>'),
-    html.indexOf('<script type="text/babel" src="app/admin-storage.jsx?v=20260928-temp1"></script>'));
+    html.indexOf('<script type="text/babel" src="app/admin-storage.jsx?v=20260928-temp1"></script>'),
+    html.indexOf('<script type="text/babel" src="app/admin-storage.jsx?v=20260928-brand1"></script>'));
   assert.ok(auth > 0 && adm > auth, "admin-storage.jsx loads after auth-ui.jsx");
   const lines = html.split("\n");
   const li = lines.findIndex((l) => l.includes('src="app/auth-ui.jsx?v='));
   assert.match(lines[li + 1], /src="app\/admin-storage\.jsx\?v=/, "right after it");
   // the merge with the tab-lock work re-keyed both files (20260927-merge1): a later key counts too
-  assert.ok((html.includes('src="app/auth-ui.jsx?v=20260927-admstorage1"') || html.includes('src="app/auth-ui.jsx?v=20260927-merge1"'))
-    && (html.includes('href="app/styles.css?v=20260927-admstorage2"') || html.includes('href="app/styles.css?v=20260927-merge1"') || html.includes('href="app/styles.css?v=20260927-dock1"') || html.includes('href="app/styles.css?v=20260928-dock2"') || html.includes('href="app/styles.css?v=20260928-round1"')), "cache keys bumped");
+  assert.ok((html.includes('src="app/auth-ui.jsx?v=20260927-admstorage1"') || html.includes('src="app/auth-ui.jsx?v=20260927-merge1"') || html.includes('src="app/auth-ui.jsx?v=20260928-brand1"'))
+    && (html.includes('href="app/styles.css?v=20260927-admstorage2"') || html.includes('href="app/styles.css?v=20260927-merge1"') || html.includes('href="app/styles.css?v=20260927-dock1"') || html.includes('href="app/styles.css?v=20260928-dock2"') || html.includes('href="app/styles.css?v=20260928-round1"') || html.includes('href="app/styles.css?v=20260928-brand1"')), "cache keys bumped");
   const ai = read("app/ai.jsx");
   const i = ai.indexOf("const APP_FEATURES");
   assert.match(ai.slice(ai.lastIndexOf("\n", i - 2), i), /Admin-only operator tools \(Storage page, price watch\) are deliberately NOT listed/);

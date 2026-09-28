@@ -252,7 +252,7 @@ function StyleRefsField({ value, onCommit, refImages, onAddRefImages, onRemoveRe
         onKeyDown:e=>{ if(e.key==="Enter" && (e.metaKey||e.ctrlKey)){ e.preventDefault(); commit(); e.target.blur(); } }}),
       onAddRefImages && React.createElement("button",{className:"sb-refbar-btn",disabled:imgs.length>=8,
         onClick:()=>fileRef.current&&fileRef.current.click(),
-        title:imgs.length>=8?"Up to 8 reference images":"Add reference image(s) — Cinema Machine samples their palette to steer the film's grade"},
+        title:imgs.length>=8?"Up to 8 reference images":"Add reference image(s) — their palette is sampled to steer the film's grade"},
         React.createElement(Icon.image,{s:14}), "Image"),
       // ONE button does both: saves whatever is in the box, then sends the Colorist —
       // the old separate Save + "Light the film above" two-step confused users (and

@@ -267,10 +267,13 @@ await test("C3 a stray vendor name in a reply becomes a neutral phrase before sc
   assert.ok(!/Infinite Studio/.test(out), out);
   assert.ok(!VENDOR.test(out), out);
   assert.ok(out.includes("the selected engine — the provider's newest flagship"), out);
-  // before this round the same text came back claiming the vendor's work (kept as the record)
-  assert.match(box.scrubBrand(s), /Infinite Studio Fable 5\.1 — Infinite Studio's newest flagship/);
-  // scrubBrand's own job is unchanged
-  assert.equal(box.scrubBrand("Robert McKee's method"), "Infinite Studio's method");
+  // before this round the same text came back claiming the vendor's work ("Infinite Studio Fable 5.1 —
+  // Infinite Studio's newest flagship"); since the Kinolot rebrand (2026-09-28) scrubBrand alone is neutral too
+  const alone = box.scrubBrand(s);
+  assert.ok(!/Infinite Studio/.test(alone) && alone.includes("the writing engine — the engine provider's newest flagship"), alone);
+  // the method's author becomes the method's (rebranded) name
+  // (review, 2026-09-28: "the method's", never "Infinite Studio AI's" — no authorship claim for the company)
+  assert.equal(box.scrubBrand("Robert McKee's method"), "The Infinite Studio AI method");
   assert.equal(box.museScrubReply("Your fable about a Gemini-born sailor"), "Your fable about a Gemini-born sailor", "story words stay");
 });
 
@@ -310,7 +313,10 @@ await test("D2 the protocol rules are intact, and MUSE is told to say it's not s
   const p = box.museSystemPrompt({ now:"How do I export my screenplay?" }, null);
   const was = old.museSystemPrompt();
   const rules = was.slice(0, was.indexOf("\n\nABOUT THIS APP"));
-  assert.ok(p.startsWith(rules), "the identity and the 8 rules are byte-identical");
+  // the Kinolot rebrand (2026-09-28) renamed the identity and rules 1, 3 and 5 (Frances, Kinolot, Infinite Studio AI);
+  // rules 2, 4, 6, 7 and 8 stay byte-identical
+  const nowRules = p.slice(0, p.indexOf("\n\nABOUT THIS APP"));
+  rules.split("\n").filter(l=>/^[24678]\. /.test(l)).forEach(l=>assert.ok(nowRules.includes(l), "unchanged: "+l.slice(0, 40)));
   for(const n of ["1. SCOPE.","2. ACCURACY.","3. CONFIDENTIALITY.","4. NO NAMES.","5. STAY IN CHARACTER.","6. NO OUTSIDE ADVICE.","7. CONCISE & RIGHT-SIZED.","8. CONVERSATION."]) assert.ok(p.includes(n));
   assert.ok(p.includes("if a question isn't covered here, say you're not sure rather than guess"));
   assert.ok(p.includes("For any other feature you have only its index line: if that line doesn't answer the question, say you're not sure rather than guess."));
@@ -331,7 +337,7 @@ await test("D3 the chat: follow-ups keep their topic, the room is said, the inpu
   const first = body.messages[0].content;
   assert.ok(detailNames(first).includes("Writing engine dock"), "the follow-up still gets the dock's facts");
   assert.ok(first.includes("The writer was last working in the Art Room (Props tab)."));
-  assert.ok(box.museFacts().find(f=>f.name==="MUSE (help assistant)").what.includes("MUSE knows which room, view or Art Room tab you were last working in"), "MUSE's own entry says so");
+  assert.ok(box.museFacts().find(f=>f.name==="Frances (help assistant)").what.includes("Frances knows which room, view or Art Room tab you were last working in"), "Frances's own entry says so");
   assert.equal(textBillingKind({ usageKind:body.usageKind, provider:body.provider, model:body.model, messages:body.messages }).kind, "muse", "a real MUSE call stays free");
   // a long chat and a huge pasted message still fit the ceiling
   const long = [];
@@ -423,10 +429,10 @@ await test("E4 (review) index.ts counts the account's free MUSE calls, and a fre
 await test("E5 (review) past the allowance with nothing left, the MUSE chat says so plainly", async ()=>{
   const res402 = (code)=>({ status:402, clone(){ return { json:async ()=>({ error:code }) }; } });
   box.sbClient = ()=>({ functions:{ invoke: async ()=>({ data:null, error:{ message:"Edge Function returned a non-2xx status code", context:res402("insufficient_credits") } }) } });
-  await assert.rejects(box.museComplete([{ role:"user", content:"hi" }]), /^Error: You’ve used today’s free MUSE messages and your plan has nothing left to continue on\. MUSE is free again within a day\.$/);
+  await assert.rejects(box.museComplete([{ role:"user", content:"hi" }]), /^Error: You’ve used today’s free messages with Frances, and your plan has nothing left to continue on\. Chatting with Frances is free again within a day\.$/);
   // any other 402 keeps the old (masked) message
   box.sbClient = ()=>({ functions:{ invoke: async ()=>({ data:null, error:{ message:"Edge Function returned a non-2xx status code", context:res402("no_plan") } }) } });
-  await assert.rejects(box.museComplete([{ role:"user", content:"hi" }]), (e)=> !/free MUSE messages/.test(e.message) && /briefly unavailable.*\(ref CM-14\)$/.test(e.message));
+  await assert.rejects(box.museComplete([{ role:"user", content:"hi" }]), (e)=> !/free messages with Frances/.test(e.message) && /briefly unavailable.*\(ref CM-14\)$/.test(e.message));
 });
 
 /* ======================= C (review). story words stay; facts hold no competitor or plumbing ======================= */
@@ -470,27 +476,27 @@ await test("C6 (review) MUSE's facts carry no competitor, database plumbing or a
   assert.ok(stage.includes("The Shoot composer has three tabs: CREATE VIDEO"), "the tab how-to stays, minus the competitor");
   const img = box.museFacts().find(f=>f.name==="Generating images (Art Room)").what;
   assert.ok(img.startsWith("Image generation runs on the studio's servers, so you need to be signed in. Besides its standard engines, the image dock offers precision engines"));
-  // the source of truth keeps its wording
-  assert.ok(box.APP_FEATURES.find(f=>f.name==="The Stage (Production)").what.includes("Higgsfield-style layout"));
+  // since the Kinolot rebrand (2026-09-28) the competitor is gone from the manifest itself too
+  assert.ok(!/higgsfield/i.test(box.APP_FEATURES.map(f=>f.what).join(" ")));
 });
 await test("C7 (review) the protocol doc says what the filter really does (plans, on-screen engine labels, the open question)", ()=>{
   const doc = read("docs/MUSE Protocol.md").replace(/\s+/g, " ");
   assert.ok(!doc.includes("The facts therefore never hand MUSE a name it must not say"), "the overstatement is gone");
-  assert.ok(doc.includes("`MUSE_PLAN_TIER`") && doc.includes("a plain \"your plan has nothing left for writing\" still reaches MUSE"));
-  assert.ok(doc.includes("*Nano Banana*") && doc.includes("*Seedance*, *Kling*") && doc.includes("Open question for the owner (2026-09-28)"));
+  assert.ok(doc.includes("`MUSE_PLAN_TIER`") && doc.includes("a plain \"your plan has nothing left for writing\" still reaches Frances"));
+  assert.ok(doc.includes("*Nano Banana*") && doc.includes("*Seedance*, *Kling*") && doc.includes("Open question for the owner (2026-09-28"));
   assert.ok(doc.includes("`museStoryWords()`") && doc.includes("carries only user and assistant turns") && doc.includes("`MUSE_LIMITS.dailyFreeCalls`"));
   // …and the code comment above the filter says the same
-  assert.ok(read("app/ai.jsx").includes("an OPEN OWNER QUESTION (2026-09-28)"));
+  assert.ok(read("app/ai.jsx").includes("an OPEN OWNER QUESTION (2026-09-28"));
   // the round-1 facts MUSE gets never talk MUSE's own allowance (billing — Protocol §3)
-  assert.ok(!/daily allowance/.test(box.museFacts().find(f=>f.name==="MUSE (help assistant)").what));
-  assert.ok(box.APP_FEATURES.find(f=>f.name==="MUSE (help assistant)").what.includes("daily allowance per account (200 MUSE calls in any 24 hours"));
+  assert.ok(!/daily allowance/.test(box.museFacts().find(f=>f.name==="Frances (help assistant)").what));
+  assert.ok(box.APP_FEATURES.find(f=>f.name==="Frances (help assistant)").what.includes("daily allowance per account (200 Frances calls in any 24 hours"));
 });
 
 /* ======================= F. doc ↔ prompt ======================= */
 await test("F the MUSE Protocol doc and the prompt agree (product name, how facts reach MUSE, the backstops)", ()=>{
   const doc = read("docs/MUSE Protocol.md").replace(/\s+/g, " ");
   const p = box.museSystemPrompt({ now:"x" }, null);
-  assert.ok(p.includes("inside Cinema Machine") && doc.includes("MUSE is the in-app guide for **Cinema Machine**"));
+  assert.ok(p.includes("inside Kinolot by Infinite Studio AI") && doc.includes("Frances is the in-app guide for **Kinolot by Infinite Studio AI**"));
   for(const s of ["museBrief()", "musePublicFeature()", "museScrubReply()", "muse-billing.mjs", "MUSE_INPUT_BUDGET"]) assert.ok(doc.includes(s), "doc names "+s);
   assert.ok(doc.includes("OpenAI, GPT, Gemini, Gemma, Google, or any AI vendor or model") && p.includes("OpenAI, GPT, Gemini, Gemma, Google, or any AI vendor or model"), "rule 4 unchanged in both");
 });

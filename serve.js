@@ -52,7 +52,7 @@ http.createServer((req, res) => {
       "Cache-Control": "no-cache",
     };
     if (urlPath === "/app/downloads/cinema-machine-blender.zip") {
-      headers["Content-Disposition"] = 'attachment; filename="cinema-machine-blender.zip"';
+      headers["Content-Disposition"] = 'attachment; filename="kinolot-blender.zip"';   // saved under the product name
     }
     res.writeHead(200, headers);
     res.end(data);

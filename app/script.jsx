@@ -1040,7 +1040,7 @@ function screenplayFormatReport(scene, screenplay, beats){
       // on-screen text, inserts and readouts (INSERT — PHONE: …, SUPER: …, <FIELD>: <VALUE>)
       // are standard action-line devices and are NOT flagged. The warning fires on exactly
       // what the screenplay writers reject (screenplayRejectsLabel: a speaker's line, a
-      // spoken voice), so a line MUSE just wrote never trips it; an unknown label followed
+      // spoken voice), so a line the model just wrote never trips it; an unknown label followed
       // by a plain sentence ("MARCUS: The gate is open.") is only an INFO note to review.
       const labels = screenplayActionLabels(t, speakers);
       if(labels.some(screenplayRejectsLabel))
@@ -1058,7 +1058,7 @@ function screenplayFormatReport(scene, screenplay, beats){
   // check button counts it and never shows green; listed first, it points at the top.
   if(isStandInDraft(screenplay))
     issues.unshift({code:"stand-in",severity:"warn",blockIndex:0,beat:Number(blocks[0]&&blocks[0].beat),
-      message:"This scene is a rough stand-in built from its beat cards — MUSE hasn’t written it yet. Press Redraft script from beats to have MUSE write it."});
+      message:"This scene is a rough stand-in built from its beat cards — it hasn’t been written yet. Press Redraft script from beats to write it."});
   const errors=issues.filter(x=>x.severity==="error").length;
   const notes=issues.filter(x=>x.severity==="info").length;
   return {issues,units,stats:{blocks:blocks.length,productionUnits:units.length,errors,warnings:issues.length-errors-notes,notes}};
@@ -1252,7 +1252,7 @@ function ContinuityReport({ report, ledger, onJump, onClose, currentId }){
   // the check can only see what the ledger mapped: say so instead of reporting "clean"
   const ledgerRow = L.onBuild && (!L.mapped || L.stale) && React.createElement("div",{className:"cont-ledger"},
     React.createElement("span",null, !L.mapped
-      ? "This film's setups and payoffs haven't been mapped yet, so there is nothing to check. Build the continuity ledger: MUSE reads the written scenes and lists what each one sets up and what later scenes rely on (writing credits)."
+      ? "This film's setups and payoffs haven't been mapped yet, so there is nothing to check. Build the continuity ledger: it reads the written scenes and lists what each one sets up and what later scenes rely on (writing credits)."
       : "The script changed since the continuity ledger was built. Rebuild it so the check reads the current scenes."),
     React.createElement("button",{className:"draft-btn sm",disabled:!!L.busy||!!L.readOnly,onClick:L.onBuild},
       React.createElement(Icon.sparkles,{s:13}), L.busy ? "Reading the film\u2026" : (L.mapped ? "Rebuild ledger" : "Build continuity ledger")));
@@ -1408,7 +1408,7 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
     control = React.createElement("div",{className:"draft-prog"},
       React.createElement("div",{className:"orb"}),
       React.createElement("div",null,
-        React.createElement("div",{className:"lbl"},`${live?"MUSE is drafting":"Drafting"} Sc.${String(now?now.no:total).padStart(2,"0")} \u00b7 threading continuity\u2026`),
+        React.createElement("div",{className:"lbl"},`Drafting Sc.${String(now?now.no:total).padStart(2,"0")} \u00b7 threading continuity\u2026`),
         React.createElement("div",{className:"bar"},React.createElement("i",{style:{width:pct+"%"}}))));
   } else if(draftedCount < total){
     control = React.createElement("button",{className:"draft-btn sm",onClick:onDraftAll,disabled:readOnly,
@@ -1474,7 +1474,7 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
               React.createElement("span",{className:"redraft-long"},"script "),"from beats")));
 
     // undo / redo — one linear history of the scene's screenplay states (manual edits,
-    // MUSE polishes and drafts all push onto the same stack). Appears once there's history.
+    // AI polishes and drafts all push onto the same stack). Appears once there's history.
     // Before swapping versions, diff the incoming blocks against what's on screen and
     // FLASH the changed ones (the version's block objects become the rendered ones, so
     // identity survives the swap), scrolling the first change into view if off-screen.
@@ -1494,7 +1494,7 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
       verFlashTimer.current = setTimeout(()=>setVerFlash(null), 2600);
     };
     if(hb.back.length || hb.fwd.length){
-      // the version's engine rides its Undo/Redo tooltip too ("MUSE draft · Kimi K3")
+      // the version's engine rides its Undo/Redo tooltip too ("AI draft · Kimi K3")
       const labelWithBy = (v)=>{ const l=labelOf(v); return (v && !v.edited && v.by && v.by.model) ? l+" · "+v.by.model : l; };
       const prevLabel = hb.back.length ? labelWithBy(hb.back[hb.back.length-1]) : null;
       const nextLabel = hb.fwd.length ? labelWithBy(hb.fwd[0]) : null;
@@ -1553,7 +1553,7 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
     // One click AI-writes just that beat's prose (neighbouring text as read-only context),
     // splices it in beat order and commits a NEW version (Undo restores the gap).
     // 2026-09-28: the beat lands in the scene's LATEST script (liveRef), not the one on screen
-    // at the click, so edits, Undo or a redraft made while MUSE wrote survive; it is dropped,
+    // at the click, so edits, Undo or a redraft made while the model wrote survive; it is dropped,
     // with a message, if another film is open now or the gap has been filled meanwhile.
     const writeMissingBeat = async (n)=>{
       if(readOnly || beatWriting || !live || !onEditScene) return;
@@ -1570,7 +1570,7 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
           const L = LR.current || {};
           // another film is open now — its scene with this id is a different scene
           if(typeof L.filmKey==="function" && L.filmKey()!==filmAtClick){
-            say("MUSE finished beat "+n+" of Scene "+sno+" after you switched films, so it wasn\u2019t added \u2014 nothing changed in either film. Go back to that film and press Write this beat again.");
+            say("Beat "+n+" of Scene "+sno+" was finished after you switched films, so it wasn\u2019t added \u2014 nothing changed in either film. Go back to that film and press Write this beat again.");
             return;
           }
           const seen = L.drafts ? L.drafts[sid] : screenplay;
@@ -1578,7 +1578,7 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
           // the Script view closed meanwhile: its last props can be out of date, so only a
           // scene the app confirms untouched since then is safe to write into
           if(LR.closed && (typeof L.getDraft!=="function" || latest!==seen)){
-            say("Beat "+n+" of Scene "+sno+" wasn\u2019t added: the Script view closed while MUSE was writing it, so the scene\u2019s latest text couldn\u2019t be checked. The script is unchanged \u2014 open the scene and press Write this beat again.");
+            say("Beat "+n+" of Scene "+sno+" wasn\u2019t added: the Script view closed while it was being written, so the scene\u2019s latest text couldn\u2019t be checked. The script is unchanged \u2014 open the scene and press Write this beat again.");
             return;
           }
           if(!latest || !Array.isArray(latest.blocks)){
@@ -1588,7 +1588,7 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
           // the gap was filled meanwhile (an edit, Undo or a redraft): never write over it
           const beatWords = (d)=>(d.blocks||[]).filter(b=>String(b.beat)===String(n)).map(b=>String(b.text||"").trim()).filter(Boolean).join("\n");
           if(beatWords(latest)!==beatWords(screenplay)){
-            say("Beat "+n+" of Scene "+sno+" already has text now, so MUSE\u2019s version wasn\u2019t added. Your script is unchanged.");
+            say("Beat "+n+" of Scene "+sno+" already has text now, so the new version wasn\u2019t added. Your script is unchanged.");
             return;
           }
           const blocks = latest.blocks.slice();
@@ -1613,7 +1613,7 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
     };
     body = React.createElement(React.Fragment,null,
       polishWait && React.createElement("div",{className:"polish-note"},
-        React.createElement(Icon.wand,{s:12}),"MUSE is rewriting the prose \u2014 beats stay locked, only the words change\u2026"),
+        React.createElement(Icon.wand,{s:12}),"Rewriting the prose\u2026 beats stay locked, only the words change."),
       React.createElement("div",{className:`script-body ${justPolished?"just-polished":""} ${editing?"editing":""}`,onMouseLeave:()=>!editing&&setActiveBeat(null)},
         order.map(n=>{
           const r = beatRow(n);
@@ -1636,10 +1636,10 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
                   : React.createElement(ScriptBlock,{key:i,b,blockIndex:screenplay.blocks.indexOf(b),contd:contdSet.has(b),sceneNo:(b===firstSlugBlock?scene.no:null),flash:!!(verFlash&&verFlash.has(b))}))
                   : React.createElement("div",{className:"spb-missing-wrap"},
                       React.createElement("div",{className:"spb-action spb-missing"},"No screenplay text assigned to this beat."),
-                      // one-click gap fix — only when the beat map defines this beat and MUSE is live
+                      // one-click gap fix — only when the beat map defines this beat and a writing model is live
                       r && live && onEditScene && React.createElement("button",{className:"spb-write-btn",
                         disabled: readOnly||beatWriting!=null,
-                        title:"MUSE writes JUST this beat's prose from its beat-map action/reaction ("+((r.drive&&r.drive.a)||"Action")+" / "+((r.react&&r.react.a)||"Reaction")+"), bridging the surrounding text — committed as a new version, Undo restores the gap.",
+                        title:"Writes JUST this beat's prose from its beat-map action/reaction ("+((r.drive&&r.drive.a)||"Action")+" / "+((r.react&&r.react.a)||"Reaction")+"), bridging the surrounding text — committed as a new version, Undo restores the gap.",
                         onClick:()=>writeMissingBeat(n)},
                         beatWriting===n
                           ? React.createElement(React.Fragment,null,React.createElement("span",{className:"ns-spin"}),"Writing beat "+n+"…")
@@ -1709,9 +1709,9 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
     React.createElement("span",{className:"ic"},React.createElement(Icon.alert,{s:15})),
     React.createElement("div",{className:"tx"},
       React.createElement("b",null,"Rough stand-in: "),
-      "built from the beat cards — MUSE hasn’t written this scene yet. ",
-      live ? "Press Redraft script from beats to have MUSE write it."
-           : "Once MUSE is available, Redraft script from beats writes it.")) : null;
+      "built from the beat cards — this scene hasn’t been written yet. ",
+      live ? "Press Redraft script from beats to write it."
+           : "Once a writing model is available, Redraft script from beats writes it.")) : null;
   // LONG FOR THIS FORMAT (docs/Story Pipeline.md step 5, owner-approved 2026-09-27): the same
   // free check as the scene card (no model call) — the draft's estimated screen time against
   // the scene's budget (the format's runtime ÷ the scene count). Nothing is rewritten.
@@ -1744,11 +1744,11 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
         React.createElement("div",{className:"ico"},React.createElement(Icon.wand,{s:26})),
         React.createElement("h3",null,"Not drafted yet"),
         React.createElement("p",null, beats
-          ? `This scene's ${beats.rows.length} beats are mapped. ${live?"MUSE will expand them into original prose, threading":"Expanding them inherits"} the story-state above.`
+          ? `This scene's ${beats.rows.length} beats are mapped. ${live?"Draft expands them into original prose, threading":"Expanding them inherits"} the story-state above.`
           : "Map this scene into beats first, then it can be expanded into screenplay."),
         React.createElement("div",{style:{display:"flex",gap:10,justifyContent:"center"}},
           React.createElement("button",{className:"draft-btn",disabled:readOnly,onClick:()=>onDraftOne(scene)},
-            React.createElement(Icon.wand,{s:15}),live?"Draft with MUSE":"Draft this scene"),
+            React.createElement(Icon.wand,{s:15}),live?"Draft":"Draft this scene"),
           React.createElement("button",{className:"draft-btn ghost",disabled:readOnly,onClick:onDraftAll},
             React.createElement(Icon.sparkles,{s:15}),"Auto-draft all"))));
   }
