@@ -223,8 +223,8 @@ button,input,select,textarea{font-family:inherit}
    (app/chrome.jsx BrandMark) — outer bays in currentColor, the middle bay amber — and the wordmark is
    Spectral 600 at -0.01em in ONE colour. Every logo on every surface uses these two rules; a surface
    only sets size and colour. */
-/* nudged 1px down on every surface (owner 2026-09-29); relative, so no layout moves */
-.brand-mark{display:block;flex:0 0 auto;width:29px;height:16px;color:var(--txt-0);overflow:visible;position:relative;top:1px}
+/* nudged 1.5px down on every surface (owner 2026-09-29: 1px, then 0.5px more); relative, so no layout moves */
+.brand-mark{display:block;flex:0 0 auto;width:29px;height:16px;color:var(--txt-0);overflow:visible;position:relative;top:1.5px}
 .brand-name{
   font-family:"Spectral",Georgia,serif;font-weight:600;font-size:19px;line-height:1;
   letter-spacing:-.01em;color:var(--txt-0);white-space:nowrap;
