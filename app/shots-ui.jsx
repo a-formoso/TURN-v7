@@ -913,7 +913,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   const referenceControls=(refImgs.length>0 || locationReferencePicker) && _el("div",{className:"shot-refs coverage-refs"},
     _el("div",{className:"shot-refs-lab",
       title:"Check or uncheck references at any time. Removing a location reference removes it from this shot and its thumbnail, while the source asset remains available in the Location reference picker. A running render keeps its starting reference selection. Source assets are never deleted here."},
-      _el(Icon.layers,{s:11}),"Reference images"),
+      _el(Icon.layers,{s:12}),"Reference images"),
     locationReferencePicker,
     refImgs.length>0 && _el(window.RefStripScroller||"div",{className:"shot-refs-row coverage-refs-row"},
       refImgs.map((r,i)=>{
@@ -1049,7 +1049,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
                 ? "This shot is a FRESH START (chain break) — it won't be seeded by the previous frame. Click to rejoin the chain."
                 : "Make this a fresh start — a hard cut that won't inherit the previous frame's look or state."),
             onClick:()=> !isFirst && onToggleHead && onToggleHead(sh)},
-            _el(Icon.pin,{s:11}), isHead && _el("span",null, isFirst?"Head":"Fresh")),
+            _el(Icon.pin,{s:12}), isHead && _el("span",null, isFirst?"Head":"Fresh")),
           gen.genUrl && propDependenciesStale && _el("span",{className:"shot-source-badge stale",
             title:"A prop used by this frame changed holder, placement, condition, visibility, binding mode, or approved sheet after this frame was generated. The approved frame stays pinned until you regenerate it."},
             "Prop reference changed"),
@@ -1151,7 +1151,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
               ? inProps.map(p=>_el("span",{key:p.id,className:"shot-inframe-chip prop"},p.name))
               : _el("span",{className:"shot-inframe-none"},"none named in the action")),
           _el("div",{className:"shot-inframe-hint"},
-            _el(Icon.sparkles,{s:11}),"Auto-read from the action — edit the Action line to change who/what is in frame.")),
+            _el(Icon.sparkles,{s:12}),"Auto-read from the action — edit the Action line to change who/what is in frame.")),
         _el("div",{className:"shot-loc-note"},
           _el(Icon.globe,{s:12}),
           loc ? _el("span",null,"Location: ",_el("b",null,loc.name),(typeof stagingHasContent==="function"&&stagingHasContent(loc))?" \u00b7 depth grid inherited":" \u00b7 no depth grid staged")
@@ -1175,7 +1175,7 @@ function SceneStyleChip({ project, sceneId }){
   // current assignment from project.styleBible.
   const preset = (typeof scenePreset==="function") ? scenePreset(project, sceneId) : null;
   if(!preset) return _el("span",{className:"shot-style-chip empty",title:"No colour look assigned to this scene yet. Use the Color tab / Light the film."},
-    _el(Icon.layers,{s:11}),"No style preset");
+    _el(Icon.layers,{s:12}),"No style preset");
   const pal = (preset.palette||[]).slice(0,3);
   const title = [
     preset.name || "Scene style",
@@ -1185,7 +1185,7 @@ function SceneStyleChip({ project, sceneId }){
     preset.texture ? ("Texture: "+preset.texture) : "",
   ].filter(Boolean).join("\n");
   return _el("span",{className:"shot-style-chip",title},
-    _el(Icon.layers,{s:11}),
+    _el(Icon.layers,{s:12}),
     _el("span",{className:"shot-style-chip-text"},"Style: "+(preset.name||"Scene preset")),
     !!pal.length && _el("span",{className:"shot-style-swatches"},
       pal.map((c,i)=>_el("span",{key:i,className:"shot-style-swatch",style:{background:c}}))));
@@ -1389,7 +1389,7 @@ function BeatShotRow({ sh, letter, open, selected, onToggle, isNext, live }){
     _el("span",{className:"bc-shot-gram"},String(sh.size||"")+" \u00b7 "+String(sh.angle||"")+" \u00b7 "+String(sh.lens||"")+"mm"),
     _el("span",{className:"bc-shot-act"},String(sh.action||"")),
     (Array.isArray(sh.covers)&&sh.covers.length>0) && _el("span",{className:"bc-shot-covers"},"Covers"),
-    _el("span",{className:"bc-shot-chev"+(open?" open":"")},_el(Icon.chevR,{s:13})));
+    _el("span",{className:"bc-shot-chev"+(open?" open":"")},_el(Icon.chevR,{s:14})));
 }
 
 /* The beat's large image is a viewport, not another source of truth. It follows
@@ -1409,7 +1409,7 @@ function BeatShotPreview({ sh, letter, scene, sceneStart, onRenderScene, renderB
             _el("button",{className:"char-draft-btn primary bc-cta-btn",disabled:!!renderBusy,
               title:"Render every shot in this scene in chain order",
               onClick:()=>onRenderScene(scene)},
-              _el(Icon.sparkles,{s:13}),"Render Scene "+String(scene.no).padStart(2,"0")+" in order"),
+              _el(Icon.sparkles,{s:14}),"Render Scene "+String(scene.no).padStart(2,"0")+" in order"),
             _el("div",{className:"bc-cta-d"},"Renders every frame in chain order \u2014 or open the next shot below and generate just its frame."))
         : _el("div",{className:"beat-card-img ph"},
             sh ? ("Shot "+letter+" has no frame yet \u2014 open it below to generate") : "Add a shot to begin coverage")),
@@ -1506,7 +1506,7 @@ function AddShotReferenceDialog({ scene, beatN, beatText, plan, ctx, characters,
       className:"shot-ref-choice"+(on?" on":"")+(!ready?" unavailable":""),
        onClick:()=>{ if(!ready) return; if(kind==="location") setLocationMode("explicit"); toggle(setter,item.id); },
        title:ready?(on?"Remove this reference":"Use this reference"):"Generate this asset in the Art Room first"},
-      ready ? _el("img",{src:assets[item.id],alt:""}) : _el("span",{className:"shot-ref-choice-ph"},_el(Icon.image,{s:17})),
+      ready ? _el("img",{src:assets[item.id],alt:""}) : _el("span",{className:"shot-ref-choice-ph"},_el(Icon.image,{s:18})),
       _el("span",{className:"shot-ref-choice-copy"},
         _el("b",null,label),_el("small",null,ready?source:"Not generated yet")),
       ready && _el("span",{className:"shot-ref-choice-check"},on?_el(Icon.check,{s:12}):""));
@@ -1607,10 +1607,10 @@ function BeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, ordered
         _el("span",{className:"beat-lane-count"},L.shots.length+" shot"+(L.shots.length!==1?"s":"")),
         beatScriptText(scene.id,L.n) && onRefineBeat && _el("button",{className:"beat-lane-btn ghost",
           disabled:!!refiningBeat,title:"Re-read this beat's screenplay, update its micro-beats and version/remap its logical shots. Existing media is retained but marked stale when its source no longer matches.",
-          onClick:()=>onRefineBeat(scene,L.n)},_el(Icon.sparkles,{s:11}),refiningBeat?"Refining\u2026":"Refine from screenplay"),
+          onClick:()=>onRefineBeat(scene,L.n)},_el(Icon.sparkles,{s:12}),refiningBeat?"Refining\u2026":"Refine from screenplay"),
         onAddShot && _el("button",{className:"beat-lane-btn ghost bc-add",
           title:"Add one manual shot to this beat — it joins the rolling chain after the beat's last shot",
-          onClick:()=>setAddSeed({})},_el(Icon.plus,{s:11}),"Add shot")),
+          onClick:()=>setAddSeed({})},_el(Icon.plus,{s:12}),"Add shot")),
       // the BEAT itself (from the Writers' Room beat map): driver action | reactor
       // reaction — the dramatic exchange these shots film. Read-only; edit in Beats.
       beatRow && ((beatRow.drive&&beatRow.drive.d)||(beatRow.react&&beatRow.react.d)) && _el("div",{className:"bc-beat",
@@ -1711,7 +1711,7 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
       : renderBusy ? "Finish or stop frame generation before drafting a specification."
       : (draftingBlocked||refiningBeat) ? "Wait for the current specification draft to finish."
       : "Draft one opening-keyframe specification using writing-model credits. This does not generate an image; existing coverage changes require confirmation.",
-    onClick:()=>onRefineBeat(scene,L.n)},_el(Icon.sparkles,{s:11}),refiningBeat?"Drafting…":primary?"Draft specification":"Draft opening keyframe");
+    onClick:()=>onRefineBeat(scene,L.n)},_el(Icon.sparkles,{s:12}),refiningBeat?"Drafting…":primary?"Draft specification":"Draft opening keyframe");
   const scriptedContent=_el("details",{className:"shot-beat-script bc-scripted"},
     _el("summary",null,_el("span",{className:"shot-beat-script-lab"},"Scripted")),
     hasSource?_el("div",{className:"bc-screenplay-copy"},text)
@@ -1891,7 +1891,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
               onClick:()=>{ pager.onJump(i); setJumpOpen(false); }},
               _el("span",{className:"scene-pager-menu-no"},String(sx.no||(i+1)).padStart(2,"0")),
               _el("span",{className:"scene-pager-menu-t"},sx.title||"Untitled scene"),
-              i===pager.idx && _el(Icon.check,{s:13}))))),
+              i===pager.idx && _el(Icon.check,{s:14}))))),
         _el("div",{className:"shot-scene-title"},scene.title||"Untitled scene"),
         _el("div",{className:"shot-scene-style-row"},_el(SceneStyleChip,{project:ctx.project,sceneId:scene.id})),
         _el("div",{className:"shot-scene-sub"},
@@ -2441,7 +2441,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
     view && _el(ImageLightbox,{url:view.url,character:view.character,onClose:()=>setView(null)}),
     notice && _el("div",{className:"shot-notice-scrim",onMouseDown:()=>setNotice("")},
       _el("div",{className:"shot-notice",role:"status",onMouseDown:e=>e.stopPropagation()},
-        _el(Icon.info,{s:17,className:"shot-notice-ic"}),
+        _el(Icon.info,{s:18,className:"shot-notice-ic"}),
         _el("div",{className:"shot-notice-msg"},notice),
         _el("button",{type:"button",className:"shot-notice-x","aria-label":"Close message",
           title:"Close",onClick:()=>setNotice("")},"\u00d7"))),

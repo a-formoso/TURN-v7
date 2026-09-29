@@ -219,9 +219,14 @@ await test("the Writing dock keeps its right-edge spot when the Scene / Characte
   const css=read("app/styles.css");
   assert.ok(!app.includes("wr-insp-open")&&!css.includes("wr-insp-open"),"nothing moves the dock when the panel opens");
   assert.ok(!/insp[^{}]*\.write-dock\s*\{[^}]*\bright\s*:/.test(css),"no inspector state overrides the dock's right edge");
-  assert.ok(css.includes(".nb-dock{display:block;position:fixed;right:22px;top:50%;transform:translateY(-50%);z-index:120}"),"it floats above the layout");
+  // (consistency pass 2026-09-29) the dock's layer is 72: above the panel, below every dialog and Home
+  assert.ok(css.includes(".nb-dock{display:block;position:fixed;right:22px;top:50%;transform:translateY(-50%);z-index:72}"),"it floats above the layout");
   const inspZ=[...css.matchAll(/\.inspector\s*\{([^}]*)\}/g)].map(m=>/z-index:\s*(\d+)/.exec(m[1])).filter(Boolean).map(m=>Number(m[1]));
-  assert.ok(inspZ.every(z=>z<120),"every panel layer (the phone drawer is 60) sits below the dock");
+  assert.ok(inspZ.every(z=>z<72),"every panel layer (the phone drawer is 60) sits below the dock");
+  for(const ov of [".ag-overlay",".ns-overlay",".auth-overlay",".hd-root"]){
+    const m=new RegExp(ov.replace(".","\\.")+"\\s*\\{[^}]*z-index:\\s*(\\d+)").exec(css);
+    assert.ok(m&&Number(m[1])>72,ov+" (a dialog / Home) covers the dock");
+  }
 });
 await test("Story Doctor notes are neutral and never counted as issues",()=>{
   assert.ok(agentsUi.includes("const issuesN = noTurnN + structN + contN;")&&agentsUi.includes('"No structural or continuity issues. "'));

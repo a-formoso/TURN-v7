@@ -2,8 +2,9 @@
    Rendered by app.jsx. Local-first: signing in is optional; it switches the app
    from browser-local storage to the Supabase cloud. */
 
-/* `light` — the Paper & Ink variant used over the marketing landing page;
-   without it the modal keeps the app's dark theme. */
+/* `light` — the paper variant used over the landing page (the website palette + the Kinolot
+   amber); without it the modal follows the app's theme. Both show the Kinolot lockup with the
+   company endorsement, "by Infinite Studio AI". */
 function AuthModal({ onClose, onAuthed, initialMode, plan, light }){
   const [mode, setMode] = React.useState(initialMode==="signup"?"signup":"signin");   // signin | signup
   // the tier carried from the landing pricing (writer/director/studio) — shown as a
@@ -54,11 +55,16 @@ function AuthModal({ onClose, onAuthed, initialMode, plan, light }){
   return React.createElement("div",{className:"auth-overlay"+(light?" auth-light":""),onMouseDown:(e)=>{ if(e.target===e.currentTarget) onClose && onClose(); }},
     React.createElement("div",{className:"auth-panel"+(light?" light":"")},
       React.createElement("div",{className:"auth-head"},
-        React.createElement("div",{className:"auth-mark"},"Kinolot"),
+        // the lockup only: the "by Infinite Studio AI" endorsement goes where the company is already
+        // shown (the footers) — adding it here was new copy the owner hasn't approved (review 2026-09-29)
+        React.createElement("div",{className:"auth-brand"},
+          React.createElement("div",{className:"auth-mark"},(typeof BrandMark==="function") && React.createElement(BrandMark,null),"Kinolot")),
         light && React.createElement("div",{className:"auth-act"}, mode==="signup"?"Prologue":"Welcome back"),
         React.createElement("div",{className:"auth-title"}, mode==="signup"?"Create your account":"Sign in"),
         (mode==="signup" && planName) && React.createElement("div",{className:"auth-plan"},
-          React.createElement(Icon.sparkles,{s:11}), planName, React.createElement("span",{className:"auth-plan-note"},"· checkout opens after signup"))),
+          // the "·" is its own span so a phone can drop it when the note takes its own line (no orphaned dot)
+          React.createElement(Icon.sparkles,{s:11}), planName, React.createElement("span",{className:"auth-plan-sep","aria-hidden":"true"},"·"),
+          React.createElement("span",{className:"auth-plan-note"},"checkout opens after signup"))),
       React.createElement("div",{className:"auth-body"},
         notice && React.createElement("div",{className:"auth-notice"}, notice),
         React.createElement("label",{className:"auth-field"},
@@ -87,7 +93,7 @@ function AuthModal({ onClose, onAuthed, initialMode, plan, light }){
           mode==="signup" ? "Already have an account? " : "New here? ",
           React.createElement("button",{className:"auth-link",onClick:()=>{ setErr(""); setNotice(""); setMode(mode==="signup"?"signin":"signup"); }},
             mode==="signup" ? "Sign in" : "Create one"))),
-      React.createElement("button",{className:"auth-close",onClick:onClose},
+      React.createElement("button",{type:"button",className:"auth-close","aria-label":"Close",title:"Close",onClick:onClose},
         React.createElement(Icon.x,{s:16}))));
 }
 window.AuthModal = AuthModal;

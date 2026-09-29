@@ -157,7 +157,7 @@ function TeamModal({ projectId, projectTitle, projectMeta, series, onClose, onCh
     React.createElement("div",{className:"bible-modal team-modal"},
       React.createElement("div",{className:"bible-head"},
         React.createElement("div",{className:"bible-title"},
-          React.createElement(Icon.user,{s:15}),"Team",
+          React.createElement(Icon.user,{s:16}),"Team",
           React.createElement("span",{className:"bible-sub"},series ? ("Show \u00b7 "+showTitle) : (projectTitle||"Current project"))),
         React.createElement("button",{className:"bible-x",onClick:onClose,title:"Close"},React.createElement(Icon.x,{s:16}))),
       React.createElement("div",{className:"team-body"},
@@ -179,7 +179,7 @@ function TeamModal({ projectId, projectTitle, projectMeta, series, onClose, onCh
           React.createElement("select",{className:"team-role",value:role,disabled:schemaMissing,onChange:e=>setRole(e.target.value)},
             TEAM_ROLES.map(r=>React.createElement("option",{key:r.id,value:r.id,title:scopedRoleBlurb(r.id)},r.label))),
           React.createElement("button",{className:"team-add",disabled:schemaMissing||busy==="invite"||!email.trim(),onClick:invite},
-            React.createElement(Icon.plus,{s:13}),busy==="invite"?"Adding...":"Add")),
+            React.createElement(Icon.plus,{s:14}),busy==="invite"?"Adding...":"Add")),
         // what the selected role allows, in plain language, right where it's being chosen
         canManage && !schemaMissing && React.createElement("div",{className:"team-role-blurb"},
           teamRoleLabel(role)+" \u2014 "+scopedRoleBlurb(role)),
@@ -212,7 +212,7 @@ function TeamModal({ projectId, projectTitle, projectMeta, series, onClose, onCh
                         legacy && React.createElement("option",{value:m.role,disabled:true},"Legacy role"),
                         TEAM_ROLES.map(r=>React.createElement("option",{key:r.id,value:r.id,title:scopedRoleBlurb(r.id)},r.label))),
                       React.createElement("button",{className:"team-remove",disabled:!!busy,title:"Remove collaborator",onClick:()=>remove(m)},
-                        React.createElement(Icon.trash,{s:13})))
+                        React.createElement(Icon.trash,{s:14})))
                   : React.createElement("span",{className:"team-badge",title:scopedRoleBlurb(m.role)},teamRoleLabel(m.role)));
               })
             : React.createElement("div",{className:"team-empty"},"No collaborators yet.")),
@@ -253,7 +253,7 @@ function InviteWelcome({ film, invitedBy, sessionEmail, canSetPassword, onOpen, 
     React.createElement("div",{className:"bible-modal team-modal invite-welcome"},
       React.createElement("div",{className:"bible-head"},
         React.createElement("div",{className:"bible-title"},
-          React.createElement(Icon.mail,{s:15}), film ? (isShow?"You've been added to a Show":"You've been added to a film") : "Invitation not active"),
+          React.createElement(Icon.mail,{s:16}), film ? (isShow?"You've been added to a Show":"You've been added to a film") : "Invitation not active"),
         React.createElement("button",{className:"bible-x",onClick:onClose,title:"Close"},React.createElement(Icon.x,{s:16}))),
       React.createElement("div",{className:"team-body"},
         film

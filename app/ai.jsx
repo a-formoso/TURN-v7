@@ -284,6 +284,49 @@ window.turnTextSpendAdd = textSpendAdd;
 window.TEXT_CREDIT_RATES = TEXT_CREDIT_RATES;
 
 const MUSE_MODEL = { id:"claude-opus-5", provider:"anthropic" };
+/* FRANCES'S DAILY LIMIT (owner decision 2026-09-28): free Frances questions are capped per person
+   per UTC day — 50 unless the server's FRANCES_DAILY_LIMIT secret says otherwise (counted by
+   supabase/frances-daily-limit.sql, decided in supabase/functions/image-proxy/frances-limit.mjs).
+   Past it the proxy answers 429 { error:"frances_daily_limit", limit, resets_at } and calls no
+   model. museComplete turns that into an Error with code "frances_daily_limit" whose message is
+   Frances's own calm reply (francesLimitReply); the chat dock (app/muse.jsx) shows it as a normal
+   reply, not an error — the input stays open for tomorrow and nothing retries.
+   BUSY: a burst of parallel questions from one account (the dock itself sends one at a time) can
+   get 429 { error:"frances_busy" } instead: nothing counted, no model call. museComplete turns it
+   into an Error with code "frances_busy" and a calm line (FRANCES_BUSY_REPLY), never retried.
+   VOICE (owner decision 2026-09-29): each New Story voice session takes one of the same daily
+   slots (image-proxy task "live"); app/livevoice.js shows its own calm lines, counting down with
+   francesBackIn below.
+   FRANCES_DAILY_LIMIT below, the Frances entry in APP_FEATURES and the server's default
+   (frances-limit.mjs) must name the same number — change them together with the secret. */
+const FRANCES_DAILY_LIMIT = 50;
+const FRANCES_BUSY_REPLY = "One question at a time, please — ask me again in a moment.";
+/* " (in about 5 hours)" until resetsAt, or "" when it's missing, past or far off. Shared with the
+   New Story voice conversation's limit line (app/livevoice.js), so both count down the same way. */
+function francesBackIn(resetsAt, nowMs){
+  const now = Number.isFinite(Number(nowMs)) && nowMs != null ? Number(nowMs) : Date.now();
+  const mins = Math.round((Date.parse(String(resetsAt || "")) - now) / 60000);
+  if(!(Number.isFinite(mins) && mins > 0 && mins <= 25*60)) return "";   // a clock that's far off skips the countdown
+  return mins >= 90 ? " (in about "+Math.round(mins/60)+" hours)"
+    : mins >= 45 ? " (in about an hour)"
+    : mins >= 2 ? " (in about "+mins+" minutes)"
+    : " (in a minute or so)";
+}
+window.francesBackIn = francesBackIn;
+function francesLimitReply(info, nowMs){
+  const i = info || {};
+  const n = Math.floor(Number(i.limit));
+  const limit = n > 0 ? n : FRANCES_DAILY_LIMIT;
+  const when = francesBackIn(i.resets_at || i.resetsAt, nowMs);
+  return "That’s today’s "+limit+" free "+(limit===1 ? "question" : "questions")+" — I’ll be back after midnight UTC"+when+".";
+}
+window.francesLimitReply = francesLimitReply;
+function francesLimitError(info){
+  const e = new Error(francesLimitReply(info));
+  e.code = "frances_daily_limit";
+  e.francesLimit = { limit:(info && info.limit) || FRANCES_DAILY_LIMIT, resetsAt:(info && (info.resets_at || info.resetsAt)) || null };
+  return e;
+}
 async function museComplete(messages){
   const sb = (typeof window.sbClient==="function") ? window.sbClient() : null;
   if(!sb || !sb.functions) throw new Error("Sign in to chat with Frances.");
@@ -296,6 +339,13 @@ async function museComplete(messages){
     const status = (error && error.context && error.context.status) || error.status;
     if(status===401) throw new Error("Sign in to chat with Frances.");
     if(status===404) throw new Error(safeError("Frances's text task isn't deployed yet — redeploy image-proxy."));
+    // today's free questions are used up (frances-limit.mjs): Frances's calm reply, never retried
+    if(status===429){
+      let b = null;
+      try{ const ctxRes = error && error.context; b = ctxRes && typeof ctxRes.clone==="function" ? await ctxRes.clone().json() : null; }catch(e){}
+      if(b && b.error==="frances_daily_limit") throw francesLimitError(b);
+      if(b && b.error==="frances_busy"){ const e = new Error(FRANCES_BUSY_REPLY); e.code = "frances_busy"; throw e; }
+    }
     // past the daily free allowance MUSE is metered like writing (image-proxy/muse-billing.mjs,
     // 2026-09-28): with nothing left to meter against, say so plainly
     if(status===402){
@@ -305,6 +355,8 @@ async function museComplete(messages){
     }
     throw new Error(safeError("Couldn't reach Frances: "+((error && error.message) || "unknown error")+"."));
   }
+  if(data && data.error==="frances_daily_limit") throw francesLimitError(data);
+  if(data && data.error==="frances_busy"){ const e = new Error(FRANCES_BUSY_REPLY); e.code = "frances_busy"; throw e; }
   if(data && data.error) throw new Error(safeError(data.error));   // provider error relayed by the proxy
   textSpendAdd(MUSE_MODEL.id, "muse", data && data.usage && data.usage.credits);   // meter the successful call
   return (data && typeof data.text==="string") ? data.text : "";
@@ -2725,7 +2777,13 @@ if(_storyboardsArtFeature) _storyboardsArtFeature.what = _storyboardsArtFeature.
   _r1("Auto-draft all (N left)", "It also stops when the same service problem hits two scenes in a row (each already retried, with the same reference): the first keeps its rough stand-in, and the next one and the rest stay undrafted for the next Auto-draft all.");
   _r1("Writers' Room run integrity", "The story build likewise stops when the same service problem hits two scenes in a row (each already retried), and says it stopped for the second scene in a row.");
   _r1("Mobile & small screens", "On a phone, the top bar's menus (⋯, Export, the film and account menus) and the windows they open (Story brief, Team) show above the side drawers, the Frances bubble and the Writing dock.");
-  _r1("Frances (help assistant)", "Chatting with Frances uses no credits up to a daily allowance per account (200 Frances calls in any 24 hours; a question and its follow-up suggestions are two). Past it, Frances's replies are metered against plan credits like other writing, and with none left Frances says 'You’ve used today’s free messages with Frances…'.");
+  // Frances's daily question limit (owner decision 2026-09-28): supabase/frances-daily-limit.sql +
+  // image-proxy/frances-limit.mjs count it; museComplete / app/muse.jsx show the reply. The first two
+  // sentences reach Frances herself; the credit sentences stay in the team's manifest only.
+  // Voice counts too (owner decision 2026-09-29): each New Story voice session takes one slot
+  // (image-proxy task "live"); app/livevoice.js shows the lines quoted here and in New Story's entry.
+  _r1("Frances (help assistant)", "DAILY LIMIT: Frances is free to use, up to 50 questions a day per person; the count starts again at midnight UTC. When you reach it, Frances says so in the chat instead of answering — 'That’s today’s 50 free questions — I’ll be back after midnight UTC (in about 5 hours).' — and the chat box stays open, so you can ask again once the new day starts. VOICE COUNTS TOO: each New Story voice conversation with Frances ('Talk it through') uses one of the same 50 daily questions as it starts, however long it lasts. It counts even if it then fails to connect, so each 'Try live again' after a failed start uses another. The typed interview isn't counted. Once they're used up, the voice conversation doesn't open and the screen says 'That’s today’s 50 free questions with Frances — voice included. She’ll be back after midnight UTC (in about 5 hours). You can use the typed interview in the meantime.' If several questions reach Frances at the same moment (say, from several open tabs), she may answer one of them with 'One question at a time, please — ask me again in a moment.'; nothing is counted for it. Frances's answers use no credits. An older safeguard stays behind the daily limit and matters only if the daily count can't be kept: a daily allowance per account (200 Frances calls in any 24 hours), past which replies are metered against plan credits like other writing, and with none left Frances says 'You’ve used today’s free messages with Frances…'.");
+  _r1("New Story (format", "LIVE VOICE COUNTS TOWARD FRANCES'S DAILY LIMIT: each live voice conversation with Frances uses one of her 50 free questions for the day (the count starts again at midnight UTC), taken once as the conversation starts, however long it lasts. It counts even if it then fails to connect, so each 'Try live again' after a failed start uses another. The typed interview isn't counted. When today's questions are used up, the live conversation doesn't open and the screen says 'That’s today’s 50 free questions with Frances — voice included. She’ll be back after midnight UTC (in about 5 hours). You can use the typed interview in the meantime.' — nothing retries on its own, and 'Use typed interview' works as before. If two voice conversations (or a voice conversation and a question in the chat) start at the same moment, one may be asked to wait: 'One conversation at a time, please — try again in a moment.'; nothing is counted for it.");
 }
 window.APP_FEATURES = APP_FEATURES;
 

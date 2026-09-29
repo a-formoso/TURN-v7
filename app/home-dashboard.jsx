@@ -8,9 +8,10 @@
    the pipeline steps open the actual rooms (through the app's guarded room
    switch), "New Project" creates a film, and project cards open that film.
 
-   DESIGN: matches the signed-out landing page (landing.jsx) for visual
-   continuity — the same paper palette, Spectral serif headlines, Space Grotesk
-   wordmark, black pill buttons, and Reel-orange as the single warm accent.
+   DESIGN: the signed-out landing page's (landing.jsx) page grid and identity —
+   the Kinolot lockup, Spectral serif headlines, the app's 9px-radius buttons with
+   the amber primary, the Kinolot amber as the single warm accent. Theme-aware:
+   paper in the light theme, the app's charcoal in the dark (styles.css .hd-root).
 
    Gating (in app.jsx): this dashboard is the ONLY Home. It shows once the user
    has >=2 films OR any film shared with them (so someone whose only film is a
@@ -159,13 +160,13 @@
 
     // ----- top bar ----------------------------------------------------------
     // Mirrors the landing nav (.lp-nav): frosted full-width bar, content constrained
-    // to the SAME 1280px column as the rails below, wordmark = the landing logo.
+    // to the SAME 1280px column as the rails below, the lockup = the landing logo.
     const topbar = h("header",{className:"hd-topbar"},
       h("div",{className:"hd-topbar-in"},
         h("div",{className:"hd-topbar-l"},
           h("button",{className:"hd-brand", onClick:onClose, title:"Back to your film"},
             (typeof BrandMark!=="undefined") && h(BrandMark,null),
-            h("span",{className:"hd-brand-name"},"Kino",h("b",null,"lot")))),
+            h("span",{className:"hd-brand-name"},"Kinolot"))),
         h("div",{className:"hd-top-actions"},
           h("button",{className:"hd-tbtn hd-accent", onClick:onCreate}, Ic("plus",15), "New Project"),
           accountSlot ? h("div",{className:"hd-acct"}, accountSlot) : null)));
@@ -188,7 +189,7 @@
     const hero_panel = h("div",{className:"hd-hero-media"},
       h("div",{className:"hd-hero-media-fallback"}),
       h("span",{className:"lp-video-badge"},"PREMIERE · COMING SOON"),
-      h("button",{className:"hd-play", onClick:()=> onGoRoom && onGoRoom("stage"), title:"Go to The Stage"},
+      h("button",{className:"hd-play", onClick:()=> onGoRoom && onGoRoom("stage"), title:"Go to The Stage", "aria-label":"Go to The Stage"},
         Ic("play",26)),
       h("div",{className:"hd-hero-media-note"},"Your finished film will play here"),
       hero && h("div",{className:"hd-hero-media-cap"}, hero.title||"Untitled film"));
@@ -210,9 +211,9 @@
       h("div",{className:"hd-sec-head"},
         h("h2",{className:"hd-sec-title"},"Recent Projects"),
         mine.length > PER && h("div",{className:"hd-nav"},
-          h("button",{className:"hd-navbtn", disabled:from<=0, title:"Previous",
+          h("button",{className:"hd-navbtn", disabled:from<=0, title:"Previous", "aria-label":"Previous projects",
             onClick:()=> setStart(Math.max(0, from - PER))}, Ic("chevL",15)),
-          h("button",{className:"hd-navbtn", disabled:from>=maxStart, title:"Next",
+          h("button",{className:"hd-navbtn", disabled:from>=maxStart, title:"Next", "aria-label":"Next projects",
             onClick:()=> setStart(Math.min(maxStart, from + PER))}, Ic("chevR",15)))),
       h("div",{className:"hd-recent-row"},
         recent.map(p=> h("div",{ key:p.id, className:"hd-card"+(p.id===currentId?" current":""),
@@ -227,13 +228,13 @@
             h("span",{className:"hd-card-pill"}, phaseOf(p).toUpperCase()),
             // poster actions (hover): view full screen / download / regenerate / restore
             h("div",{className:"hd-card-actions"},
-              p.cover && h("button",{className:"hd-cact", title:"View poster full screen",
+              p.cover && h("button",{className:"hd-cact", title:"View poster full screen", "aria-label":"View poster full screen",
                 onClick:(e)=>doView(p,e)}, Ic("maximize",13)),
-              p.cover && h("button",{className:"hd-cact", title:"Download poster",
+              p.cover && h("button",{className:"hd-cact", title:"Download poster", "aria-label":"Download poster",
                 onClick:(e)=>doDownload(p,e)}, Ic("download",13)),
-              h("button",{className:"hd-cact", title:(p.cover?"Regenerate":"Generate")+" poster",
+              h("button",{className:"hd-cact", title:(p.cover?"Regenerate":"Generate")+" poster", "aria-label":(p.cover?"Regenerate":"Generate")+" poster",
                 disabled:!!genBusy[p.id], onClick:(e)=>doRegen(p,e)}, Ic("redo",13)),
-              p.coverPrev && h("button",{className:"hd-cact", title:"Restore previous poster",
+              p.coverPrev && h("button",{className:"hd-cact", title:"Restore previous poster", "aria-label":"Restore previous poster",
                 onClick:(e)=>doRestore(p,e)}, Ic("undo",13))),
             h("div",{className:"hd-card-shade"},
               h("div",{className:"hd-card-name"}, p.title||"Untitled film"),
@@ -255,9 +256,9 @@
       h("div",{className:"hd-sec-head"},
         h("h2",{className:"hd-sec-title"},"Shared with me"),
         shared.length > SPER && h("div",{className:"hd-nav"},
-          h("button",{className:"hd-navbtn", disabled:sFrom<=0, title:"Previous",
+          h("button",{className:"hd-navbtn", disabled:sFrom<=0, title:"Previous", "aria-label":"Previous shared projects",
             onClick:()=> setSStart(Math.max(0, sFrom - SPER))}, Ic("chevL",15)),
-          h("button",{className:"hd-navbtn", disabled:sFrom>=sMax, title:"Next",
+          h("button",{className:"hd-navbtn", disabled:sFrom>=sMax, title:"Next", "aria-label":"Next shared projects",
             onClick:()=> setSStart(Math.min(sMax, sFrom + SPER))}, Ic("chevR",15)))),
       h("div",{className:"hd-recent-row"},
         sharedPage.map(p=> h("div",{ key:p.id, className:"hd-card hd-card-shared"+(p.id===currentId?" current":""),
@@ -299,7 +300,7 @@
       h("div",{className:"lb-panel"},
         h("div",{className:"lb-head"},
           h("span",{className:"lb-title"}, viewer.title),
-          h("button",{className:"ag-x", onClick:()=>setViewer(null), title:"Close (Esc)"}, Ic("x",17))),
+          h("button",{className:"ag-x", onClick:()=>setViewer(null), title:"Close (Esc)", "aria-label":"Close"}, Ic("x",17))),
         h("div",{className:"lb-imgwrap",
             onMouseDown:(e)=>{ if(e.target===e.currentTarget) setViewer(null); }},
           h("img",{className:"lb-img", src:viewer.url, alt:viewer.title+" — poster"})),

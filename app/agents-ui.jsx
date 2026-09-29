@@ -24,7 +24,7 @@ window.turnLinkifyReact = _linkifyText;
 function TraceStep({ step }){
   const Ic = STEP_ICON[step.k] || Icon.sparkles;
   return React.createElement("div",{className:"ag-step k-"+step.k},
-    React.createElement("span",{className:"ag-step-ic"},React.createElement(Ic,{s:13})),
+    React.createElement("span",{className:"ag-step-ic"},React.createElement(Ic,{s:14})),
     React.createElement("div",{className:"ag-step-t"}, _linkifyText(step.t),
       step.report && React.createElement(TableReadReport,{rep:step.report}),
       step.voiceReport && React.createElement(VoiceCheckReport,{rep:step.voiceReport})));
@@ -112,7 +112,7 @@ function ColoristProposal({ proposal }){
 function ProposalCard({ card, onApprove, onReject }){
   return React.createElement("div",{className:"ag-prop"+(card.danger?" danger":"")},
     React.createElement("div",{className:"ag-prop-h"},
-      React.createElement(Icon.sparkles,{s:13}),
+      React.createElement(Icon.sparkles,{s:14}),
       React.createElement("span",{className:"ag-prop-title"},card.title),
       React.createElement("span",{className:"ag-prop-tag"},"Needs approval")),
     card.reason && React.createElement("div",{className:"ag-prop-reason"},card.reason),
@@ -127,7 +127,7 @@ function ProposalCard({ card, onApprove, onReject }){
     card.list && React.createElement("div",{className:"ag-prop-list"},
       card.list.map((x,i)=>React.createElement("div",{key:i,className:"ag-prop-li"},x))),
     card.rationale && React.createElement("div",{className:"ag-prop-rat"},
-      React.createElement(Icon.sparkles,{s:11}),card.rationale),
+      React.createElement(Icon.sparkles,{s:12}),card.rationale),
     React.createElement("div",{className:"ag-prop-act"},
       React.createElement("button",{className:"ag-btn ghost",onClick:onReject},"Reject"),
       React.createElement("button",{className:"ag-btn primary",onClick:onApprove},
@@ -166,7 +166,7 @@ function IdeaHelper({ onPick }){
         React.createElement("button",{key:i,className:"idea-ex",onClick:()=>onPick(ex)},
           React.createElement("span",{className:"idea-ex-q"},"\u201c"),ex))),
     React.createElement("div",{className:"idea-tip"},
-      React.createElement(Icon.sparkles,{s:11}),
+      React.createElement(Icon.sparkles,{s:12}),
       "A good logline names ",React.createElement("b",null,"who"),", what they ",React.createElement("b",null,"want"),
       ", and what ",React.createElement("b",null,"stands in the way"),"."));
 }
@@ -344,7 +344,7 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
       React.createElement("span",{className:"ag-runner-model",
           title:"The writing model this agent runs on"+(_mid===_rec?" (recommended for this work)":"")+". Change it in the Writing dock on the right edge, between runs."},
           _midLabel + (_mid===_rec ? " \u00b7 recommended" : "")),
-      React.createElement("button",{className:"ag-x",onClick:onClose,title:"Close"},React.createElement(Icon.x,{s:16}))),
+      React.createElement("button",{className:"ag-x",onClick:onClose,title:"Close","aria-label":"Close"},React.createElement(Icon.x,{s:16}))),
 
     agent.needsInput && status==="idle" && React.createElement("div",{className:"ag-input-wrap"},
       React.createElement("div",{className:"ag-input-lab"},agent.inputLabel),
@@ -357,13 +357,13 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
         React.createElement("p",null,agent.blurb),
         introExtra,
         React.createElement("div",{className:"ag-intro-note"},
-          React.createElement(Icon.eye,{s:13}),
+          React.createElement(Icon.eye,{s:14}),
           agent.autonomous?"Runs on its own \u2014 you'll see each step as it works. Press Stop anytime.":
           agent.kind==="report"?"Read-only \u2014 it reports, it won't change anything.":
           "Every change is shown for your approval before it's applied. Nothing happens without your OK.")),
       status==="idle" && saved && React.createElement(React.Fragment,null,
         React.createElement("div",{className:"ag-intro-note"},
-          React.createElement(Icon.eye,{s:13}),
+          React.createElement(Icon.eye,{s:14}),
           "Last report \u2014 "+new Date(saved.ts).toLocaleString()+". Run again below for a fresh read."),
         // a kept report shows today's names (a report saved before a rename says the old ones)
         (saved.steps||[]).map((s,i)=>React.createElement(TraceStep,{key:"sv"+i,
@@ -382,17 +382,17 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
 
     React.createElement("div",{className:"ag-runner-foot"},
       status==="idle" && React.createElement("button",{className:"ag-run",onClick:start},
-        React.createElement(Icon.sparkles,{s:15}),"Run "+agent.name),
+        React.createElement(Icon.sparkles,{s:16}),"Run "+agent.name),
       running && React.createElement("button",{className:"ag-run stop",
         onClick:()=>{ cancelled.current=true; if(resolver.current) resolver.current(false); setStatus("done");
           setTrace(tr=>[...tr,{k:"flag",t:"Stopped by you."}]); }},
-        React.createElement(Icon.x,{s:15}),"Stop"),
+        React.createElement(Icon.x,{s:16}),"Stop"),
       status==="done" && React.createElement(React.Fragment,null,
         React.createElement("button",{className:"ag-run ghost",onClick: single?onClose:onBack}, single?"Close":"\u2190 All Story Editors"),
         React.createElement("button",{className:"ag-run ghost",onClick:start},
-          React.createElement(Icon.sparkles,{s:15}),"Run again"),
+          React.createElement(Icon.sparkles,{s:16}),"Run again"),
         onView && React.createElement("button",{className:"ag-run",onClick:()=>onView("spine")},
-          viewLabel||"View story",React.createElement(Icon.chevR,{s:15})))));
+          viewLabel||"View story",React.createElement(Icon.chevR,{s:16})))));
 }
 
 function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, onUndo, issues, initialAgentId, initialInput, autoStart, runOnOpen, single, viewLabel, introExtra, force, unwritten, unwrittenStandIns, finishInput }){
@@ -422,7 +422,7 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
     setFinishLaunch({ input:String(finishInput||"") }); setAuto(false); setActive(a); };
   const finishing = !!(finishLaunch && active && active.id==="adapt");
   const finishNote = finishing && React.createElement("div",{className:"ag-intro-note"},
-    React.createElement(Icon.sparkles,{s:13}),
+    React.createElement(Icon.sparkles,{s:14}),
     "This film has "+unwrittenN+" unwritten scene"+(unwrittenN!==1?"s":"")+(standInN ? " ("+standInN+" of them "+(standInN===1?"a rough stand-in":"rough stand-ins")+")" : "")+
     ". Press Run Adaptation: it first offers to write just "+(unwrittenN===1?"that one":"those")+" \u2014 every scene already written stays untouched. Decline only if you want to rebuild the whole film from the logline above.");
   const iss = issues || {};
@@ -460,7 +460,7 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
                 React.createElement("div",null,
                   React.createElement("div",{className:"ag-title"},"Story Editors"),
                   React.createElement("div",{className:"ag-sub"},"They read your whole story and suggest what to fix \u2014 nothing changes without your OK"))),
-              React.createElement("button",{className:"ag-x",onClick:close,title:"Close","aria-label":"Close"},React.createElement(Icon.x,{s:17}))),
+              React.createElement("button",{className:"ag-x",onClick:close,title:"Close","aria-label":"Close"},React.createElement(Icon.x,{s:16}))),
             issuesN>0
               ? React.createElement("div",{className:"ag-issues-row"},
                   React.createElement("span",{className:"ag-issues-badge"},issuesN),
@@ -489,7 +489,7 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
                 undoCount>1 ? (undoCount+" runs can be undone \u2014 last was "+dn(undoLabel)) : (dn(undoLabel)+" made changes you can undo")),
               React.createElement("button",{className:"ag-undo-btn",onClick:onUndo},"Undo last")),
             !aiOn && React.createElement("div",{className:"ag-warn"},
-              React.createElement(Icon.alert,{s:13}),"The writing model isn't available right now \u2014 the Story Editors use their built-in checks where they can, but anything that writes is limited."),
+              React.createElement(Icon.alert,{s:14}),"The writing model isn't available right now \u2014 the Story Editors use their built-in checks where they can, but anything that writes is limited."),
             React.createElement("div",{className:"ag-grid"},
               // creation lives in "New Story" now — hide the build agent (Adaptation)
               // from the picker, but keep it in the registry so New Story can drive it.
@@ -507,7 +507,7 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
                         a.kind==="fix"?"Fixes":a.kind==="build"?"Builds":"Reports"))),
                   React.createElement("div",{className:"ag-card-name"},a.name),
                   React.createElement("div",{className:"ag-card-blurb"},a.blurb),
-                  React.createElement("div",{className:"ag-card-go"},"Open ",React.createElement(Icon.arrowR,{s:13})));
+                  React.createElement("div",{className:"ag-card-go"},"Open ",React.createElement(Icon.arrowR,{s:14})));
               })))));
 }
 window.AgentsPanel = AgentsPanel;

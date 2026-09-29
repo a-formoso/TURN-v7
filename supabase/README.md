@@ -147,8 +147,10 @@ cross-device access, and multiple projects all work.
 **Fresh install, in order:** `schema.sql`, `storage.sql`, `team-collaboration.sql`,
 `invitations.sql`, `shared-owners.sql`, `enforce-role-scopes.sql`, `cameos.sql`,
 `series-production.sql`, `storage-readable-folders.sql`, then `credits.sql` /
-`app-config.sql` / `styles.sql` as used, `admin-inventory.sql`, and
-`admin-storage.sql` (see **Admin Storage page** below). Offline test of the
+`app-config.sql` / `styles.sql` as used, `admin-inventory.sql`,
+`admin-storage.sql` (see **Admin Storage page** below), and
+`frances-daily-limit.sql` (see **Frances's daily question limit** below; it
+depends on nothing but Supabase Auth, so it can run at any point). Offline test of the
 readable-folders step: `node scripts/test-storage-readable-folders.mjs` (the SQL), plus
 `test-storage-keys.mjs` (the one key parser, JS = SQL), `test-storage-folders-client.mjs`
 (the app's folders, fallbacks and one-shot legacy retry) and
@@ -360,6 +362,107 @@ is an operator tool and is deliberately not listed in MUSE's `APP_FEATURES`.
 Offline tests: `node scripts/test-admin-storage.mjs` (the real function core
 against the real SQL on PGlite) and `node scripts/test-admin-storage-ui.mjs`
 (the page itself, `app/admin-storage.jsx`, against a fake function).
+
+## Frances's daily question limit (`frances-daily-limit.sql`)
+
+**Status (2026-09-29): the SQL was run on production by the owner on
+2026-09-29 (every RESULT row ok). The `image-proxy` change that uses it is not
+deployed yet: publish the new app first, then deploy (see "Deploy order" below).**
+
+Owner decision (2026-09-28): chatting with Frances stays free, up to **50
+questions per person per UTC day**, so nobody can use her as a free general AI.
+For each free Frances question (only after `muse-billing.mjs` has accepted it as
+hers) `image-proxy` asks `turn_frances_consume` for one of today's slots through
+its service-role client. With none left it answers HTTP 429
+`{ error: "frances_daily_limit", message, limit, used, resets_at }`, calls no model, and
+the chat shows Frances's calm reply ("That’s today’s 50 free questions — I’ll be
+back after midnight UTC (in about 5 hours)."), not an error. Admins are never
+counted. The count starts again at midnight UTC; rows older than 35 days are
+tidied away as people ask.
+
+**Voice counts too** (owner decision 2026-09-29). Each New Story voice session
+(`image-proxy` task `"live"`) takes one of the same daily slots, through the same
+limiter and `turn_frances_consume`, after the request is validated and before any
+session is created: one slot per session, however long it lasts. A session that
+then fails to open is not given back, as with a question, so each "Try live again"
+after a failed start (the audio connection blocked, a provider outage, the 15-second
+startup timer) uses another slot; Frances's facts tell users so. Giving the slot back
+would need a small service-role decrement function in `frances-daily-limit.sql`,
+which means another production run: an owner decision, not done. Past the limit it
+answers the same HTTP 429 `frances_daily_limit` and opens no session; New Story
+shows "That’s today’s 50 free questions with Frances — voice included. She’ll be
+back after midnight UTC (in about 5 hours). You can use the typed interview in
+the meantime." A burst gets 429 `frances_busy` and "One conversation at a time,
+please — try again in a moment." Admins are exempt and it fails open, exactly as
+for questions. The typed New Story interview is not counted. No SQL change is
+needed.
+
+**Deploy order: the app first, then `image-proxy`.** An app still loading the older
+`app/livevoice.js` shows the bare code (`frances_daily_limit` or `frances_busy`) in
+New Story's error box instead of these lines, and the older `app/ai.jsx` shows a
+technical "Couldn't reach Frances" error in the chat instead of Frances's reply. So
+first ship the app with new cache keys in `TURN.html` for `app/livevoice.js?v=`
+(also add the new key to the regex in `scripts/test-gpt-live.mjs`) and
+`app/ai.jsx?v=` (it shares its key with `app/script.jsx`; add the new key to the
+`LATER` lists in `scripts/test-round1-integration.mjs`, `scripts/test-screen-time.mjs`
+and `scripts/test-art-tab-locks.mjs`), and only then deploy `image-proxy`. A new app
+talking to the old proxy behaves exactly as before, so this order is safe.
+
+**Bursts are refused, not served.** The function waits at most 1 second for a
+person's day row (`lock_timeout`). Only that person's own calls hold it, and the
+app sends one question at a time, so a call still waiting after 1 second is one
+of a burst of parallel calls: it counts nothing and the proxy answers HTTP 429
+`{ error: "frances_busy", message }` with no model call; the chat shows "One
+question at a time, please — ask me again in a moment."
+
+**It fails open.** Until this file is run, or whenever the call fails or takes
+longer than 8 seconds (far above a normal answer and the 1-second busy wait, so
+only an outage gets there), Frances answers anyway and the function logs the problem
+once per instance ("Frances daily limit not enforced (missing: …)" in the
+function's logs). The older 24-hour allowance in `muse-billing.mjs` still
+applies meanwhile. So the SQL and the deploy can go in either order; the limit
+is on once both are live. (The file ends by telling the Data API to reload its
+schema. If the logs still say `missing` after the SQL has run, run
+`notify pgrst, 'reload schema';` in the SQL Editor once.)
+
+**Set it up (once):**
+
+1. *(SQL Editor, as postgres)* paste **`frances-daily-limit.sql`** → Run. It
+   needs only Supabase Auth, is one transaction (a failed run changes nothing)
+   and is safe to re-run (counts are kept; the function, its grants and the
+   table's lock-down are put back). Rows 10–50 of the RESULT table must read
+   `ok`; row 60 counts today's questions. It creates the table
+   `public.turn_frances_usage` (row-level security on, no policies, no access for
+   anon / authenticated) and the function `public.turn_frances_consume(uuid, integer)`
+   (security definer, refuses anyone but service_role; EXECUTE for service_role only).
+2. *(Mac, after `git pull` — deploying `image-proxy` from one machine overwrites
+   the other's edits to it)*
+   `npx supabase functions deploy image-proxy --no-verify-jwt`
+   — only once the app with the new `app/livevoice.js` and `app/ai.jsx` cache keys
+   is live (see **Deploy order** above).
+3. *(Optional, Mac)* A different limit:
+   `npx supabase secrets set FRANCES_DAILY_LIMIT=<whole number 1–100000>`.
+   Unset, or anything else, means 50. No SQL change is needed to move it, and the
+   limit reply names whatever limit the server sends. **But Frances's own facts
+   name the number too:** in the same change, update the Frances entry in
+   `APP_FEATURES` (app/ai.jsx: "up to 50 questions a day" and the example reply)
+   and `FRANCES_DAILY_LIMIT` in app/ai.jsx, then bump `app/ai.jsx?v=` in
+   `TURN.html`. Otherwise Frances keeps telling people the old number. (To change
+   the default itself, also change `FRANCES_DAILY_LIMIT_DEFAULT` in
+   `functions/image-proxy/frances-limit.mjs` and redeploy; the offline test checks
+   that these numbers agree.)
+
+**Check** *(SQL Editor)*: `select * from public.turn_frances_usage where day = (now() at time zone 'UTC')::date order by questions desc;`
+Give one person a fresh day: `delete from public.turn_frances_usage where user_id = '<uid>' and day = (now() at time zone 'UTC')::date;`
+
+**Remove:** `drop function if exists public.turn_frances_consume(uuid, integer); drop table if exists public.turn_frances_usage;`
+(the proxy then fails open again: no daily limit).
+
+Offline test: `node scripts/test-frances-limit.mjs` (the SQL on PGlite, the
+proxy's real `index.ts` against it, the decision helper, and the chat's reply);
+`node scripts/test-frances-voice-limit.mjs` (the voice session's slot, refusal,
+admin exemption, fail-open and busy answer on the real `index.ts`, and New Story's
+calm lines).
 
 ## Optional: server-side image proxy (`image-proxy` Edge Function)
 

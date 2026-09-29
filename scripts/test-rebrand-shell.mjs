@@ -11,11 +11,13 @@
       Allowed literals: the admin server's byStatus KEY "outside the TURN asset layout" (matched
       as the server sends it, SHOWN as "outside the Kinolot asset layout"), and the legacy host
       cinemamachine.ai in LIVE_HOSTS.
-   B. The page head (title, description, og:*), the favicon (the app's value-charge zig-zag, not
-      the old "E"), and the legal pages: product Kinolot, domain kinolot.infinitestudioai.com,
+   B. The page head (title, description, og:*), the favicon (the Kinolot mark "The Lot" on the app
+      icon's dark tile since 2026-09-29 — not the old "E" or the zig-zag; scripts/test-identity.mjs
+      pins the geometry), and the legal pages: product Kinolot, domain kinolot.infinitestudioai.com,
       "Kinolot by Infinite Studio AI" — with the legal wording itself unchanged (a fingerprint of
       the text with the product name and domain neutralised).
-   C. Executed in a sandbox: the two-tone wordmark (ink "Kino" + accent "lot"); straight
+   C. Executed in a sandbox: the one-colour Spectral wordmark "Kinolot" (logo direction B, 2026-09-29;
+      it replaced the two-tone "Kino" + accent "lot"); straight
       "Writers' Room"; the Story Editors / Art Coordinator tooltips; the plans (LIVE_HOSTS with
       the new home and the legacy hosts, the "studio" tier SHOWN as "Producer", a saved "Studio"
       override shown as "Producer", checkout footer "Kinolot by Infinite Studio AI"); the
@@ -99,14 +101,13 @@ check("B the page title and share previews name Kinolot by Infinite Studio AI", 
   if(!/^Kinolot by Infinite Studio AI: /.test(desc) || !/Infinite Studio AI/.test(ogd)) return false;
   return [title, desc, site, ogt, ogd].every(t=>!BANNED.some(([, re])=>re.test(t)));
 });
-check("B the favicon is the app's value-charge zig-zag on the teal-to-amber grade (the old 'E' is gone)", ()=>{
+check("B the favicon is the Kinolot mark on the app icon's dark tile (the old 'E' and the zig-zag logo are gone)", ()=>{
   const svg = read("favicon.svg");
   const link = /<link rel="icon" type="image\/svg\+xml" href="favicon\.svg(\?v=[\w-]+)?" \/>/.test(html);
-  // the BrandMark path M4 16 l5-9 6 11 5-7, scaled ×2.2 about (12, 12.5) into a 64-unit tile
-  const pts = [[4,16],[9,7],[15,18],[20,11]].map(([x, y])=>[+(32+(x-12)*2.2).toFixed(1), +(32+(y-12.5)*2.2).toFixed(1)]);
-  const d = "M"+pts.map(p=>p.join(" ")).join("L");
-  return link && svg.includes('d="'+d+'"') && !svg.includes("M16 14h32v8H24") && /stroke-width="6\.5"/.test(svg)
-    && svg.includes('stop-color="#5db0d8"') && svg.includes('stop-color="#f29a43"') && read("app/chrome.jsx").includes('d:"M4 16l5-9 6 11 5-7"');
+  // the geometry itself is pinned by scripts/test-identity.mjs; here: the tile, the amber bay, three arched bays
+  return link && svg.includes('<rect width="64" height="64" rx="16" fill="#0E0F12"/>') && svg.includes('fill="#F29A43"')
+    && (svg.match(/ A7\.25 7\.25 0 0 1 /g) || []).length===3 && !svg.includes("M16 14h32v8H24") && !/stop-color/.test(svg)
+    && !/M14\.4 39\.7L25\.4 19\.9/.test(svg) && !read("app/chrome.jsx").includes('d:"M4 16l5-9 6 11 5-7"');
 });
 const legalMain = (f)=>{ const s = read(f); return s.slice(s.indexOf("<main>"), s.indexOf("</main>")); };
 const visible = (s)=> s.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, " ").replace(/<!--[\s\S]*?-->/g, " ").replace(/<[^>]+>/g, " ")
@@ -121,7 +122,8 @@ const legalText = (f)=> visible(legalMain(f)).replace(/Kinolot by Infinite Studi
 for(const f of ["privacy.html", "terms.html"]){
   const s = read(f), text = visible(s);
   check("B "+f+": Kinolot at kinolot.infinitestudioai.com, by Infinite Studio AI — no old name or host", ()=>
-    s.includes('<a class="logo" href="/">Kinolot</a>') && s.includes('<span class="foot-logo">Kinolot</span>')
+    /<a class="logo" href="\/"><svg class="mark" [^>]*aria-hidden="true"[^>]*>[\s\S]*?<\/svg>Kinolot<\/a>/.test(s)
+    && /<span class="foot-logo"><svg class="mark" [^>]*aria-hidden="true"[^>]*>[\s\S]*?<\/svg>Kinolot<\/span>/.test(s)
     && s.includes('<div class="meta">Kinolot by Infinite Studio AI &middot; Effective 12 July 2026</div>')
     && text.includes("kinolot.infinitestudioai.com") && !/cinema\.infinitestudioai\.com|cinemamachine/i.test(s)
     && !BANNED.some(([, re])=>re.test(text)) && /<title>[^<]*— Kinolot<\/title>/.test(s));
@@ -169,14 +171,14 @@ const run = (b, f)=> vm.runInContext(transform(read(f), f), b, { filename:f });
 
 // chrome.jsx (+ team.jsx for the role names it shows)
 const cb = box(); run(cb, "app/team.jsx"); run(cb, "app/chrome.jsx");
-check("C the top-bar wordmark reads Kinolot, two-tone: ink 'Kino' + accent 'lot' (.brand-name b)", ()=>{
+check("C the top-bar wordmark reads Kinolot, one colour (the mark carries the amber; no .brand-name b)", ()=>{
   cb.React.reset();
   const bar = cb.TopBar({ room:"writers", setRoom:noop, project:{ title:"F" }, scenes:[], drafts:{}, onNewStory:noop, theme:"dark", onTheme:noop, onHome:noop });
   const marks = findAll(bar, n=>n.type===cb.BrandWordmark);
   const wm = cb.BrandWordmark();
   const css = read("app/styles.css");
-  return marks.length===1 && hasClass("brand-name")(wm) && wm.children[0]==="Kino" && wm.children[1].type==="b"
-    && textOf(wm.children[1])==="lot" && textOf(wm)==="Kinolot" && css.includes(".brand-name b{color:var(--pos);font-weight:700}");
+  return marks.length===1 && hasClass("brand-name")(wm) && wm.children.length===1 && wm.children[0]==="Kinolot"
+    && textOf(wm)==="Kinolot" && !css.includes(".brand-name b");
 });
 check("C rooms say Writers' Room with a straight apostrophe; the Story Editors and Art Coordinator are named", ()=>{
   const nav = cb.ViewNav({ room:"writers", view:"spine", setView:noop, onAgents:noop, onToggleRail:noop, onToggleInsp:noop });
@@ -275,9 +277,9 @@ check("C the landing: 'Kinolot' in the nav, Producer on the pricing, footer 'Kin
     && link.props.href==="https://infinitestudioai.com" && link.props.rel==="noopener" && link.props.target==="_blank"
     && JSON.stringify(tiers)===JSON.stringify(["Writer","Director","Producer"]) && !/Cinema|\bTURN\b|\bMUSE\b/.test(JSON.stringify(page));
 });
-check("C Home: the same two-tone wordmark, the straight Writers' Room, the landing's footer brand", ()=>{
+check("C Home: the same one-colour wordmark beside the mark, the straight Writers' Room, the landing's footer brand", ()=>{
   const s = read("app/home-dashboard.jsx");
-  return s.includes('h("span",{className:"hd-brand-name"},"Kino",h("b",null,"lot"))') && s.includes('name:"Writers\' Room"')
+  return s.includes('h("span",{className:"hd-brand-name"},"Kinolot")') && s.includes('h(BrandMark,null)') && s.includes('name:"Writers\' Room"')
     && s.includes('(typeof LandingFootBrand==="function") ? h(LandingFootBrand,null) : h("span",{className:"lp-logo sm"},"Kinolot")')
     && read("app/styles.css").includes(".lp-foot-brand{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;min-width:0}");
 });

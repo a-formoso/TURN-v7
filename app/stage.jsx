@@ -4597,7 +4597,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
             _stEl("small",null, stageAssetTagShort(a)),
             _stEl("span",{className:"stage2-tray-state"}, assetStateLabel(a))),
           (a.url&&(a.kind==="image"||a.kind==="video")) && _stEl("button",{type:"button",className:"stage2-tray-max",title:"Maximise "+a.label,
-            onClick:()=>setMaxImg({url:a.url,label:a.label,kind:a.kind})}, Icon.maximize&&_stEl(Icon.maximize,{s:11}))))
+            onClick:()=>setMaxImg({url:a.url,label:a.label,kind:a.kind})}, Icon.maximize&&_stEl(Icon.maximize,{s:12}))))
       : _stEl("div",{className:"stage2-tray-empty"},"Nothing derived for this clip yet — design its cast, location and props in the Art Room."),
     _stEl("div",{className:"stage2-tray-foot"}, budgetUsed+" / "+assetLimit+" input slots used"));
   // native audio is on but the prompt gives the soundtrack no direction — research flags
@@ -4834,7 +4834,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const fixedPill = (title, body)=>_stEl("div",{className:"sdbar-anchor"},
     _stEl("button",{type:"button",className:"sdbar-pill inline",disabled:true,title}, body));
   const durationPill = sdPill("duration","inline","Duration",
-    _stEl(React.Fragment,null, Icon.clock&&_stEl(Icon.clock,{s:13}), _stEl("span",null,_fmtSecs(duration))),
+    _stEl(React.Fragment,null, Icon.clock&&_stEl(Icon.clock,{s:14}), _stEl("span",null,_fmtSecs(duration))),
     _stEl("div",{className:"sdbar-pop sdbar-pop-duration"},
       _stEl("label",null,"Total duration"),
       _stEl("input",{type:"range",min:durationMin,max:durationMax,step:1,value:Math.round(duration),
@@ -4846,7 +4846,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       durationFloorIsPlan && _stEl("small",{className:"sdbar-duration-min"},
         "Minimum "+_fmtSecs(planFloorSec)+" — this coverage's speech and action time.")));
   const aspectPill = sdPill("aspect","inline","Aspect ratio",
-    _stEl(React.Fragment,null, Icon.monitor&&_stEl(Icon.monitor,{s:13}), _stEl("span",null,effAspect)),
+    _stEl(React.Fragment,null, Icon.monitor&&_stEl(Icon.monitor,{s:14}), _stEl("span",null,effAspect)),
     _stEl("div",{className:"sdbar-pop sdbar-pop-format"},
       _stEl("label",null,"Aspect ratio"),
       _stEl("div",{className:"sdbar-grid six"},
@@ -4912,9 +4912,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       "aria-controls":addRefOpen?"stage2-add-ref-picker":undefined,
       onClick:toggleAddRef},
     _stEl("span",{className:"stage2-gen-add-icons","aria-hidden":"true"},
-      _stEl("span",{className:"stage2-gen-add-ico"}, Icon.image&&_stEl(Icon.image,{s:9,sw:2})),
-      _stEl("span",{className:"stage2-gen-add-ico"}, Icon.video&&_stEl(Icon.video,{s:9,sw:2})),
-      _stEl("span",{className:"stage2-gen-add-ico"}, Icon.music&&_stEl(Icon.music,{s:9,sw:2}))),
+      _stEl("span",{className:"stage2-gen-add-ico"}, Icon.image&&_stEl(Icon.image,{s:10,sw:2})),
+      _stEl("span",{className:"stage2-gen-add-ico"}, Icon.video&&_stEl(Icon.video,{s:10,sw:2})),
+      _stEl("span",{className:"stage2-gen-add-ico"}, Icon.music&&_stEl(Icon.music,{s:10,sw:2}))),
     _stEl("span",{className:"stage2-gen-add-label"},"Add references"),
     _stEl("span",{className:"stage2-gen-add-sub"},"Image, Video or Audio"));
   const addReferencesPopover = addRefOpen && addRefPos && _stEl("div",{ref:addRefPopRef,id:"stage2-add-ref-picker",
@@ -4975,7 +4975,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
                   onError:()=>noteImgFail(a)}))
           : _stEl("span",{className:"stage2-gen-asset-ph"+(a.ready?"":" miss")},
               a.kind==="image" ? _stEl("strong",null,thumbnailLabel(a))
-                : a.kind==="video" ? (Icon.play&&_stEl(Icon.play,{s:13})) : (Icon.image&&_stEl(Icon.image,{s:13})),
+                : a.kind==="video" ? (Icon.play&&_stEl(Icon.play,{s:14})) : (Icon.image&&_stEl(Icon.image,{s:14})),
               _stEl("small",null,a.label)),
           a.kind==="audio"&&a.url&&_stEl("span",{className:"stage2-gen-asset-max",role:"button","aria-label":"Play voice line",title:"Play "+a.label,
             onClick:(e)=>{e.stopPropagation();e.preventDefault();_stagePlayAudio(a.url);}},
@@ -5182,7 +5182,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
             m.kind==="image" && m.url
               ? _stEl("img",{className:"stage2-mention-thumb",src:m.url,alt:""})
               : _stEl("span",{className:"stage2-mention-thumb tile"},
-                  m.kind==="video" ? (Icon.film&&_stEl(Icon.film,{s:13})) : (Icon.mic&&_stEl(Icon.mic,{s:13}))),
+                  m.kind==="video" ? (Icon.film&&_stEl(Icon.film,{s:14})) : (Icon.mic&&_stEl(Icon.mic,{s:14}))),
             _stEl("span",{className:"stage2-mention-main"},
               _stEl("b",null,m.t), m.label && _stEl("span",{className:"stage2-mention-label"},m.label)),
             _stEl("span",{className:"stage2-mention-kind"},
@@ -5309,7 +5309,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       o.error && _stEl("div",{className:"stage2-dz-err"}, Icon.alert&&_stEl(Icon.alert,{s:12}), o.error),
       o.note && !o.error && _stEl("div",{className:"stage2-dz-note"}, o.note));
   };
-  const modeErrEl = modeErr && _stEl("div",{className:"stage2-err sd-gen-err stage2-mode-err",role:"alert"}, Icon.alert&&_stEl(Icon.alert,{s:13}), modeErr);
+  const modeErrEl = modeErr && _stEl("div",{className:"stage2-err sd-gen-err stage2-mode-err",role:"alert"}, Icon.alert&&_stEl(Icon.alert,{s:14}), modeErr);
   const pendingNote = (what)=> !capsPending && _stEl("div",{className:"stage2-mode-pending"}, Icon.info&&_stEl(Icon.info,{s:12}),
     what+" is pending a server update — deploy the updated image-proxy Edge Function. Nothing is submitted until the proxy advertises it.");
   const segmented = (label, value, options, onPick)=>_stEl("div",{className:"stage2-seg",role:"tablist","aria-label":label},
@@ -5351,7 +5351,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     promptRowWith(composerBar(
       [ modelPill,
         createTask==="extension"
-          ? fixedPill("Extensions keep the source video's aspect ratio", _stEl(React.Fragment,null, Icon.monitor&&_stEl(Icon.monitor,{s:13}), _stEl("span",null,"Auto")))
+          ? fixedPill("Extensions keep the source video's aspect ratio", _stEl(React.Fragment,null, Icon.monitor&&_stEl(Icon.monitor,{s:14}), _stEl("span",null,"Auto")))
           : aspectPill,
         resolutionPill, durationPill, createSoundChip, bitratePill ],
       [ promptCount(prompt), createGenerate ], { barRef:sdBarRef })),
@@ -5398,7 +5398,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
             soundChip(nativeAudio, { title:nativeAudio ? "Sound on — Seedance renders the edited video's audio. Click for a silent result." : "Silent result — click to render audio.",
               onClick:()=>setNativeAudio(v=>!v) }),
             resolutionPill,
-            fixedPill("Edits keep the source video's length and aspect ratio", _stEl(React.Fragment,null, Icon.clock&&_stEl(Icon.clock,{s:13}), _stEl("span",null,"Length · Auto"))),
+            fixedPill("Edits keep the source video's length and aspect ratio", _stEl(React.Fragment,null, Icon.clock&&_stEl(Icon.clock,{s:14}), _stEl("span",null,"Length · Auto"))),
             bitratePill ],
           [ promptCount(editPrompt),
             generateButton("Generate", editCost, ()=>{ if(gening) return; if(extendPlanLocked){ openPlansUpsell(); return; } onEditVideo(); },
@@ -5583,13 +5583,13 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
                 onError:()=>noteImgFail(a)}),
               (a.kind==="image"||a.kind==="video") && _stEl("span",{className:"stage2-asset-max",role:"button","aria-label":"Maximise",title:"Maximise",
                 onClick:(e)=>{ e.stopPropagation(); e.preventDefault(); setMaxImg({url:a.url, label:a.label, kind:a.kind}); }},
-                Icon.maximize&&_stEl(Icon.maximize,{s:11})))
+                Icon.maximize&&_stEl(Icon.maximize,{s:12})))
           : _stEl("span",{className:"stage2-asset-icon"}, a.kind==="video" ? (Icon.play&&_stEl(Icon.play,{s:16})) : (Icon.image&&_stEl(Icon.image,{s:16})))),
         _stEl("span",{className:"stage2-asset-name"}, a.label),
         _stEl("small",null,a.tag+(a.locked?" · REQUIRED":on(a)?" · INCLUDED":"")))),
       _stEl("button",{className:"stage2-asset add",type:"button",
         title:"Assets are derived from the selected clip's storyboard, frame, cast, location, props and audio"},
-        _stEl("div",{className:"stage2-asset-vis"},Icon.plus&&_stEl(Icon.plus,{s:17})),
+        _stEl("div",{className:"stage2-asset-vis"},Icon.plus&&_stEl(Icon.plus,{s:18})),
         _stEl("span",{className:"stage2-asset-name"},"Add asset"))),
     (sourceBlocking || assetOver || genErr || needsVoice || creditInfo.empty) && _stEl("div",{className:"stage2-assets-warnings"},
       needsVoice && _stEl("div",{className:"stage2-warn"}, Icon.alert&&_stEl(Icon.alert,{s:12}), "Voice this clip before rendering so timing and lip-sync stay locked."),
@@ -5655,7 +5655,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       _stEl("span",{className:"eyebrow"},"Render"),
       _stEl("b",{className:"stage2-rc-cost"+(creditInfo.empty?" empty":""),
         title:renderCostTitle+". "+creditInfo.title},
-        Icon.sparkles&&_stEl(Icon.sparkles,{s:11}), totalCost+" credit"+(totalCost!==1?"s":""))),
+        Icon.sparkles&&_stEl(Icon.sparkles,{s:12}), totalCost+" credit"+(totalCost!==1?"s":""))),
     // model picker — data-driven from SEEDANCE_MODELS; a future model is one registry
     // entry, so it shows up here (disabled, with its note as a tooltip) automatically.
     _stEl("div",{className:"sd-gen-modelrow",role:"radiogroup","aria-label":"Model"},
@@ -5757,15 +5757,15 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       _stEl("button",{type:"button",className:trayOpen==="refs"?"on":"",
         title:"Every derived input for this render — toggle in/out, inspect",
         onClick:(e)=>openTray("refs", e)},
-        Icon.plus&&_stEl(Icon.plus,{s:13}),"All references ("+budgetUsed+"/"+assetLimit+")"),
+        Icon.plus&&_stEl(Icon.plus,{s:14}),"All references ("+budgetUsed+"/"+assetLimit+")"),
       _stEl("button",{type:"button",className:trayOpen==="elems"?"on":"",
         title:"The story elements referenced in this clip — cast, location, props",
         onClick:(e)=>openTray("elems", e)},
-        (Icon.userScan||Icon.user)&&_stEl(Icon.userScan||Icon.user,{s:13}),"Elements"),
+        (Icon.userScan||Icon.user)&&_stEl(Icon.userScan||Icon.user,{s:14}),"Elements"),
       hasDialogue && modelAudioRefs && _stEl("button",{type:"button",className:trayOpen==="voices"?"on":"",
         title:"Add or remove a character's recorded voice as a reference for this render",
         onClick:(e)=>openTray("voices", e)},
-        Icon.mic&&_stEl(Icon.mic,{s:13}),
+        Icon.mic&&_stEl(Icon.mic,{s:14}),
         "Voices ("+voiceGroups.filter(g=>voiceCharState(g)!=="excluded"&&voiceCharState(g)!=="missing").length+"/"+voiceGroups.length+")")),
     // read-only preview of the auto reference-role block appended at render — kept out
     // of the editable prompt so it always matches the CURRENT included assets.
@@ -5848,10 +5848,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       panelTab==="director" && tabDirector,
       needsVoice && onVoiceLine && _stEl("button",{className:"sd-gen-voice",type:"button",onClick:onVoiceClip,disabled:voicingClip},
         Icon.mic&&_stEl(Icon.mic,{s:14}), voicingClip?"Voicing…":"Voice clip first"),
-      genErr && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:13}), genErr),
-      sourceBlocking && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:13}), "No storyboard source is ready yet."),
-      assetOver && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:13}), "Asset budget is over by "+budgetOverBy+". Exclude optional assets in the center panel."),
-      creditInfo.empty && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:13}), "No generation credits remaining."),
+      genErr && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:14}), genErr),
+      sourceBlocking && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:14}), "No storyboard source is ready yet."),
+      assetOver && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:14}), "Asset budget is over by "+budgetOverBy+". Exclude optional assets in the center panel."),
+      creditInfo.empty && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:14}), "No generation credits remaining."),
       gening
         ? _stEl("div",{className:"stage2-gen-busy sd-gen-busy"},
             _stEl("div",{className:"stage2-gen-prog"}, _stEl("div",{className:"orb"}), genBusyLabel),
@@ -5862,10 +5862,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
             title: blocker ? (blocker.text+" (click to see why)") : renderCostTitle,
             "aria-disabled": blocker ? "true" : undefined, disabled:gening,
             onClick:()=>{ if(gening) return; if(blocker){ onBlockedGenerate(); return; } onGenerate(); }},
-            playerUrl?"Regenerate clip":"Generate clip", Icon.sparkles&&_stEl(Icon.sparkles,{s:15})),
+            playerUrl?"Regenerate clip":"Generate clip", Icon.sparkles&&_stEl(Icon.sparkles,{s:16})),
       // (Extend / Edit / Motion Control live on the composer's tabs — each with its own Generate)
       _stEl("div",{className:"stage2-credit sd-gen-credit"+(creditInfo.empty?" empty":""),title:creditInfo.title},
-        Icon.sparkles&&_stEl(Icon.sparkles,{s:11}),creditInfo.label),
+        Icon.sparkles&&_stEl(Icon.sparkles,{s:12}),creditInfo.label),
       lastSeed!=null && _stEl("div",{className:"stage2-credit sd-gen-credit",title:"The seed fal returned for the last render — reuse it from the Seed control for repeatable variations"},
         "Seed "+lastSeed)));
 
@@ -5878,7 +5878,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         _stEl("div",{className:"lb-panel"},
           _stEl("div",{className:"lb-head"},
             _stEl("span",{className:"lb-title"}, maxImg.label || "Image preview"),
-            _stEl("button",{className:"ag-x",title:"Close",onClick:()=>setMaxImg(null)}, Icon.x&&_stEl(Icon.x,{s:17}))),
+            _stEl("button",{className:"ag-x",title:"Close",onClick:()=>setMaxImg(null)}, Icon.x&&_stEl(Icon.x,{s:18}))),
           _stEl("div",{className:"lb-imgwrap"},
             _stEl("img",{className:"lb-img",src:maxImg.url,alt:maxImg.label||"full view"})))));
   // buttoned strip, matching the Writers' Room Story/Inspector strips exactly
@@ -6043,12 +6043,12 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse }){
         _stEl("span",{className:"stage2-vers-cap-dot"}), c))));
   return _stEl("div",{className:"stage2-vers"},
       _stEl("div",{className:"stage2-versions-head"},
-        _stEl("button",{className:"stage2-iconbtn",title:"Back to Shoot",onClick:onBack}, Icon.chevL&&_stEl(Icon.chevL,{s:15})),
+        _stEl("button",{className:"stage2-iconbtn",title:"Back to Shoot",onClick:onBack}, Icon.chevL&&_stEl(Icon.chevL,{s:16})),
         _stEl("div",{className:"stage2-versions-title"},
           Icon.layers&&_stEl(Icon.layers,{s:14}), "Takes",
           _stEl("span",{className:"stage2-versions-sub"}, (clip&&clip.label)||"")),
         _stEl("span",{className:"stage2-versions-count"}, takes.length+(takes.length===1?" take":" takes")),
-        _stEl("button",{className:"stage2-iconbtn",title:"Back to Shoot",onClick:onBack}, Icon.x&&_stEl(Icon.x,{s:15}))),
+        _stEl("button",{className:"stage2-iconbtn",title:"Back to Shoot",onClick:onBack}, Icon.x&&_stEl(Icon.x,{s:16}))),
       _stEl("div",{className:"stage2-versions-body"},
         // left — version cards
         _stEl("div",{className:"stage2-versions-list"},
@@ -6623,7 +6623,7 @@ function StagePromptArea(props){
         m.kind==="image" && m.url
           ? _stEl("img",{className:"stage2-mention-thumb",src:m.url,alt:""})
           : _stEl("span",{className:"stage2-mention-thumb tile"},
-              m.kind==="video" ? (Icon.film&&_stEl(Icon.film,{s:13})) : (Icon.mic&&_stEl(Icon.mic,{s:13}))),
+              m.kind==="video" ? (Icon.film&&_stEl(Icon.film,{s:14})) : (Icon.mic&&_stEl(Icon.mic,{s:14}))),
         _stEl("span",{className:"stage2-mention-main"},
           _stEl("b",null,m.t), m.label && _stEl("span",{className:"stage2-mention-label"},m.label)),
         _stEl("span",{className:"stage2-mention-kind"},

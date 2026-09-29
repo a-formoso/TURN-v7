@@ -37,14 +37,14 @@ function StoryboardSceneStyleChip({ project, sceneId }){
   const preset = (typeof scenePreset==="function") ? scenePreset(project, sceneId) : null;
   if(!preset) return _sbEl("span",{className:"shot-style-chip empty",
     title:"No colour look assigned to this scene yet. Use the Color tab to set one."},
-    _sbEl(Icon.layers,{s:11}),"No style preset");
+    _sbEl(Icon.layers,{s:12}),"No style preset");
   const pal = (preset.palette||[]).slice(0,3);
   const title = [preset.name||"Scene style",preset.grade,
     preset.lighting?("Lighting: "+preset.lighting):"",
     preset.lens?("Lens: "+preset.lens):"",
     preset.texture?("Texture: "+preset.texture):""].filter(Boolean).join("\n");
   return _sbEl("span",{className:"shot-style-chip",title},
-    _sbEl(Icon.layers,{s:11}),
+    _sbEl(Icon.layers,{s:12}),
     _sbEl("span",{className:"shot-style-chip-text"},"Style: "+(preset.name||"Scene preset")),
     !!pal.length && _sbEl("span",{className:"shot-style-swatches"},
       pal.map((c,i)=>_sbEl("span",{key:i,className:"shot-style-swatch",style:{background:c}}))));
@@ -768,30 +768,30 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
       gen.genUrl && _sbEl("div",{className:"sheet-tools-menu sb-tpanel-menu",ref:menuRef},
         _sbEl("button",{className:"sb-tpanel-opts"+(menuOpen?" on":""),onClick:()=>setMenuOpen(m=>!m),title:"Options"}, _sbEl(Icon.moreV,{s:14})),
         menuOpen && _sbEl("div",{className:"sheet-tools-dropdown"},
-          _sbEl("button",{className:"sheet-tools-item",onClick:()=>{ onView({url:gen.genUrl,character:{name}}); setMenuOpen(false); }}, _sbEl(Icon.eye,{s:13}),"View full"),
-          _sbEl("button",{className:"sheet-tools-item",onClick:()=>{ setDetailsOpen(true); setMenuOpen(false); }}, _sbEl(Icon.info,{s:13}),"Details"),
+          _sbEl("button",{className:"sheet-tools-item",onClick:()=>{ onView({url:gen.genUrl,character:{name}}); setMenuOpen(false); }}, _sbEl(Icon.eye,{s:14}),"View full"),
+          _sbEl("button",{className:"sheet-tools-item",onClick:()=>{ setDetailsOpen(true); setMenuOpen(false); }}, _sbEl(Icon.info,{s:14}),"Details"),
           _sbEl("button",{className:"sheet-tools-item "+(panelEdit?"on":""), disabled:!isComposed,
             title: isComposed ? "Edit one panel — the change is applied to that shot's frame, then the sheet recomposes"
                               : "Panel repair needs a composed sheet (it edits the shot's frame) — this sheet was uploaded or painted elsewhere",
             onClick:()=>{ if(!isComposed) return; setPanelEdit(panelEdit?null:{idx:null,text:""}); setPanelErr(""); setMenuOpen(false); }},
-            _sbEl(Icon.grid,{s:13}), panelEdit?"Close panel edit":"Edit a panel…"),
+            _sbEl(Icon.grid,{s:14}), panelEdit?"Close panel edit":"Edit a panel…"),
           _sbEl("button",{className:"sheet-tools-item",disabled:composing||!ready.n,
             title: ready.n ? "Recompose the sheet from the shots' current frames" : "No shot frames to compose from",
-            onClick:()=>{ doCompose(); setMenuOpen(false); }}, _sbEl(Icon.board,{s:13}),"Recompose from frames"),
-          _sbEl("button",{className:"sheet-tools-item",disabled:composing,onClick:()=>{ setMenuOpen(false); pickUpload(); }}, _sbEl(Icon.image,{s:13}),"Replace with upload"),
+            onClick:()=>{ doCompose(); setMenuOpen(false); }}, _sbEl(Icon.board,{s:14}),"Recompose from frames"),
+          _sbEl("button",{className:"sheet-tools-item",disabled:composing,onClick:()=>{ setMenuOpen(false); pickUpload(); }}, _sbEl(Icon.image,{s:14}),"Replace with upload"),
           _sbEl("button",{className:"sheet-tools-item"+((halvesDone||halvesCurrent)?" on":""),disabled:!gen.genUrl||halvesBusy||halvesCurrent,
             title: halvesCurrent
               ? "Both halves of this sheet version are already saved — recompose or edit the sheet to re-save"
               : "Split the sheet horizontally and save BOTH halves to your project (cloud) — on a 2×2 sheet each half is one panel row (two frames side by side), ready for the Stage's video generation (e.g. Seedance)",
             onClick:saveHalves},
-            _sbEl(Icon.download,{s:13}),
+            _sbEl(Icon.download,{s:14}),
             halvesBusy?"Saving halves…"
               :halvesDone?"Halves saved ✓"
               :halvesCurrent?"Halves saved (current)"
               :(halves.top||halves.bottom)?"Re-save halves (sheet changed)"
               :"Save halves (for the Stage)"),
           _sbEl("div",{className:"sheet-tools-divider"}),
-          _sbEl("button",{className:"sheet-tools-item danger",onClick:clearSheet}, _sbEl(Icon.x,{s:13}),"Clear"))),
+          _sbEl("button",{className:"sheet-tools-item danger",onClick:clearSheet}, _sbEl(Icon.x,{s:14}),"Clear"))),
       gen.genUrl
         ? _sbEl("img",{className:"sb-comp-img",src:gen.genUrl,alt:"",loading:"lazy",onClick:()=>onView({url:gen.genUrl,character:{name}})})
         : composing
@@ -842,7 +842,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
        to enlarge). These are the scene-wide reference sheets, NOT a per-frame input
        list — each panel's actual render inputs are in its beat & shot brief below. */
     refImgs.length>0 && _sbEl("div",{className:"shot-refs sb-refs"},
-      _sbEl("div",{className:"shot-refs-lab"}, _sbEl(Icon.layers,{s:11}),"Scene canon — the Character, Prop & Location designs this scene locks to (per-panel render inputs: see the beat & shot briefs)"),
+      _sbEl("div",{className:"shot-refs-lab"}, _sbEl(Icon.layers,{s:12}),"Scene canon — the Character, Prop & Location designs this scene locks to (per-panel render inputs: see the beat & shot briefs)"),
       _sbEl("div",{className:"shot-refs-row"},
         refImgs.map((r,i)=> _sbEl("button",{key:"a"+i,className:"shot-ref-thumb "+r.kind,
           title:r.label+" — click to enlarge", onClick:()=>onView&&onView({ url:r.url, character:{ name:r.label } })},
@@ -856,7 +856,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
         "aria-expanded":halvesOpen?"true":"false",
         title: halvesOpen?"Hide the saved halves":"Show the saved halves"},
         _sbEl("span",{className:"sb-halves-chev"+(halvesOpen?" open":"")}, _sbEl(Icon.chevR,{s:12})),
-        _sbEl(Icon.board,{s:11}),
+        _sbEl(Icon.board,{s:12}),
         "Saved halves ("+["top","bottom"].filter(h=>halves[h]).length+") — the Stage's video-gen hand-off",
         !halvesCurrent && _sbEl("span",{className:"sb-halves-stale"},"· cut from an older sheet version — re-save from the ⋮ menu")),
       halvesOpen && _sbEl("div",{className:"sb-halves-row"},
@@ -1167,7 +1167,7 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
                     onClick:()=>{setPIdx(i);setJumpOpen(false);}},
                     _sbEl("span",{className:"scene-pager-menu-no"},String(sx.scene.no||(i+1)).padStart(2,"0")),
                     _sbEl("span",{className:"scene-pager-menu-t"},sx.scene.title||"Untitled scene"),
-                    i===pIdx&&_sbEl(Icon.check,{s:13}))))),
+                    i===pIdx&&_sbEl(Icon.check,{s:14}))))),
               _sbEl("div",{className:"shot-scene-title"},scene.title||"Untitled scene"),
               _sbEl("div",{className:"shot-scene-style-row"},
                 _sbEl(StoryboardSceneStyleChip,{project,sceneId:scene.id})),

@@ -321,7 +321,9 @@ function BlenderStudioHost({locations=BS_EMPTY_ITEMS,characters=BS_EMPTY_ITEMS,p
     _bsEl("header",{className:"bs-workspace-head"},_bsEl("div",null,
       _bsEl("h2",{id:"bs-workspace-title"},"Blender Studio"),
       _bsEl("p",null,selection?selection.location.name+(selection.shot?" · "+(selection.shot.name||selection.shot.title||"Shot"):""):"Start with an image. Build a reusable set.")),
-      _bsEl("button",{type:"button",className:"bs-button",onClick:close,"aria-label":"Close Blender Studio",autoFocus:true},"Close")),
+      // the shared dialog close: a × icon button with an accessible name (it was the only dialog with a text "Close")
+      _bsEl("button",{type:"button",className:"ag-x",onClick:close,title:"Close","aria-label":"Close Blender Studio",autoFocus:true},
+        (typeof Icon!=="undefined"&&Icon.x)?_bsEl(Icon.x,{s:16}):"×")),
     _bsEl("div",{className:"bs-workspace-content"},
       busy&&_bsEl("p",{role:"status"},"Checking generated source image…"),
       error&&_bsEl("p",{className:"bs-error",role:"alert"},error),

@@ -6,7 +6,11 @@
      Studio AI method, capped, always nudging sign-up. No model call, no story access, so
      visitors get a feel without the platform being fully open for free.
    Frances only answers; the Story Editors and Department Heads change the story. She is
-   brand-silent about what powers her and never claims to be named after anyone. */
+   brand-silent about what powers her and never claims to be named after anyone.
+   DAILY LIMIT (owner decision 2026-09-28): signed-in questions are free up to a daily limit (50 by
+   default). Past it museComplete (ai.jsx) throws code "frances_daily_limit" with Frances's own calm
+   reply; the dock shows it as a normal answer (not an error), keeps the input open, never retries,
+   and leaves that turn out of the chat history the next question sends. */
 
 const MUSE_CHIPS = [
   "How do I start a new story?",
@@ -94,16 +98,20 @@ function MuseDock({ scenes, selScene, project, aiOn, signedIn, onSignIn }){
     const q = (text!=null?text:input).trim();
     if(!q || busyRef.current) return;
     setInput(""); setBusy(true); busyRef.current = true;
-    const prior = (threadRef.current||[]).flatMap(m=> (m.a && !m.err) ? [{role:"user",text:m.q},{role:"ai",text:m.a}] : []);
+    const prior = (threadRef.current||[]).flatMap(m=> (m.a && !m.err && !m.limit) ? [{role:"user",text:m.q},{role:"ai",text:m.a}] : []);
     const turns = [...prior, {role:"user", text:q}];
     setThread(t=>[...t,{q,a:null}]);
-    let a=null, errMsg=null;
+    let a=null, errMsg=null, limit=false;
     try{
       a = (typeof aiMuseChat==="function") ? await aiMuseChat(turns, scenesRef.current||[], selRef.current, project)
         : (typeof aiMuseReply==="function" ? await aiMuseReply(q, scenesRef.current||[], selRef.current, project) : null);
-    }catch(e){ errMsg = (e && e.message) ? String(e.message) : "I can’t reach you right now — try again in a moment."; }
+    }catch(e){
+      // today's free questions are used up: Frances says so calmly, as a reply — not an error
+      if(e && e.code==="frances_daily_limit" && e.message){ a = String(e.message); limit = true; }
+      else errMsg = (e && e.message) ? String(e.message) : "I can’t reach you right now — try again in a moment.";
+    }
     if(!a && !errMsg) errMsg = "I didn’t catch a reply — try again.";
-    setThread(t=>t.map((m,i)=> i===t.length-1 ? {q,a,err:!!errMsg,errMsg} : m));
+    setThread(t=>t.map((m,i)=> i===t.length-1 ? {q,a,err:!!errMsg,errMsg,limit} : m));
     setBusy(false); busyRef.current = false;
   };
 
@@ -187,7 +195,7 @@ function MuseDock({ scenes, selScene, project, aiOn, signedIn, onSignIn }){
               React.createElement("span",{className:"ai-typing"},React.createElement("i",null),React.createElement("i",null),React.createElement("i",null)))
           : m.err
             ? React.createElement("div",{className:"muse-a err"}, m.errMsg || "I can’t reach you right now — try again in a moment.")
-            : React.createElement("div",{className:"muse-a"+(m.gate?" gate":"")},
+            : React.createElement("div",{className:"muse-a"+(m.gate?" gate":"")+(m.limit?" limit":"")},
                 m.a,
                 m.gate && !authed && React.createElement("button",{className:"muse-inline-signup",onClick:onSignIn},"Sign up free →")))),
       chipsRow),

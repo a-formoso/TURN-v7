@@ -209,12 +209,12 @@ function NSLegacyInterview({ formatLabel, onComplete, onBack, liveNotice }){
         React.createElement(Icon[voiceOn?"sparkles":"x"]||Icon.sparkles,{s:12}), voiceOn?"Voice on":"Voice off")),
 
     liveNotice && React.createElement("div",{className:"ns-talk-note"},
-      React.createElement(Icon.alert,{s:13}),
+      React.createElement(Icon.alert,{s:14}),
       React.createElement("span",null,liveNotice," You can continue with the typed interview here.")),
 
     // tell the user plainly when their browser can't do spoken answers
     !Voice.sttSupported && React.createElement("div",{className:"ns-talk-note"},
-      React.createElement(Icon.alert,{s:13}),
+      React.createElement(Icon.alert,{s:14}),
       React.createElement("span",null,
         React.createElement("b",null,"Voice answers need Chrome or Edge."),
         " In this browser, just type your replies below — it's the same conversation. Open Kinolot in Chrome to talk it through out loud.")),
@@ -337,7 +337,7 @@ function NSLiveInterview({ formatLabel, onComplete, onBack, onUseFallback }){
         React.createElement(Icon[muted?"x":"mic"]||Icon.mic,{s:12}),muted?"Mic off":"Mic on")),
 
     React.createElement("div",{className:"ns-talk-note ns-live-note"},
-      React.createElement(Icon.mic,{s:13}),
+      React.createElement(Icon.mic,{s:14}),
       React.createElement("span",null,"Speak naturally — Frances will respond aloud, and you can interrupt as you would in a real conversation. When the idea is clear, finish to shape the transcript into loglines.")),
 
     React.createElement("div",{className:"ns-talk-thread",ref:scrollRef},
@@ -347,7 +347,7 @@ function NSLiveInterview({ formatLabel, onComplete, onBack, onUseFallback }){
         React.createElement("div",{className:"ns-talk-bubble"},m.content.trim())))),
 
     playbackBlocked && React.createElement("div",{className:"ns-talk-note"},
-      React.createElement(Icon.alert,{s:13}),
+      React.createElement(Icon.alert,{s:14}),
       React.createElement("span",null,"Your browser paused Frances’s voice."),
       React.createElement("button",{className:"ns-btn ghost ns-hear",onClick:hear},"Hear Frances")),
     err && React.createElement("div",{className:"ns-err"},(window.turnLinkifyReact?window.turnLinkifyReact(err):err)),
@@ -512,11 +512,11 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
               :step==="loglines"?"Pick the logline to build from"
               :"Research \u2192 synopsis \u00b7 review before the spine builds"))),
         React.createElement("label",{className:"ns-model-badge",title:"The model that develops this story — loglines, research, synopsis and the spine build"},
-          React.createElement(Icon.sparkles,{s:11}),
+          React.createElement(Icon.sparkles,{s:12}),
           React.createElement("select",{className:"ns-model-sel",value:mid,disabled:loading,
             onChange:(e)=>pickModel(e.target.value)},
             (window.WRITING_MODELS||[]).map(m=>React.createElement("option",{key:m.id,value:m.id,title:m.note||""},m.label + (m.id===_rec ? "  · recommended" : ""))))),
-        React.createElement("button",{className:"ag-x",onClick:onClose},React.createElement(Icon.x,{s:17}))),
+        React.createElement("button",{className:"ag-x",onClick:onClose,title:"Close","aria-label":"Close"},React.createElement(Icon.x,{s:16}))),
 
       // progress stepper — which of the four intake screens we're on
       // (the voice interview is a sub-mode of Seed, so it keeps Seed lit)
@@ -524,11 +524,11 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
         return React.createElement("div",{className:"ns-steps"},
           NS_STEPS.map((s,i)=>React.createElement("div",{key:s.id,
             className:"ns-step "+(i<cur?"done":i===cur?"on":"todo")},
-            React.createElement("span",{className:"ns-step-dot"}, i<cur?React.createElement(Icon.check,{s:11}):String(i+1)),
+            React.createElement("span",{className:"ns-step-dot"}, i<cur?React.createElement(Icon.check,{s:12}):String(i+1)),
             React.createElement("span",{className:"ns-step-lab"},s.label)))); })(),
 
       !aiOn && React.createElement("div",{className:"ag-warn"},
-        React.createElement(Icon.alert,{s:13}),"The model isn\u2019t available right now \u2014 idea development needs it."),
+        React.createElement(Icon.alert,{s:14}),"The model isn\u2019t available right now \u2014 idea development needs it."),
 
       step==="format"
         ? React.createElement("div",{className:"ns-body"},
@@ -592,7 +592,7 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
               React.createElement("textarea",{className:"ns-input",value:text,placeholder:cfg.placeholder,
                 onChange:e=>setText(e.target.value),onKeyDown:onCmdEnter(develop),rows:4,autoFocus:true})),
             seed==="talk" && React.createElement("div",{className:"ns-surprise"},
-              React.createElement(Icon.mic,{s:15}),
+              React.createElement(Icon.mic,{s:16}),
               liveSeedSupport.ok
                 ? "Start once and talk naturally with Frances — she listens and responds aloud in one continuous conversation. When the idea is clear, finish to shape the transcript into loglines."
                 : Voice.sttSupported
@@ -603,12 +603,12 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
               React.createElement("button",{className:"ns-btn ghost",onClick:onClose},"Cancel"),
               seed==="talk"
                 ? React.createElement("button",{className:"ns-btn primary",onClick:()=>{ setErr(""); setStep("interview"); },disabled:!aiOn},
-                    React.createElement(Icon.mic,{s:15}),"Start the conversation")
+                    React.createElement(Icon.mic,{s:16}),"Start the conversation")
                 : React.createElement("button",{className:"ns-btn primary",onClick:develop,disabled:loading||!aiOn},
                     loading?React.createElement(React.Fragment,null,
                       React.createElement("span",{className:"ns-spin"}),"Developing\u2026")
                       :React.createElement(React.Fragment,null,
-                      React.createElement(Icon.sparkles,{s:15}),"Develop into a logline"))))
+                      React.createElement(Icon.sparkles,{s:16}),"Develop into a logline"))))
 
         : step==="interview"
         ? React.createElement(NSInterview,{ formatLabel,
@@ -650,7 +650,7 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
                 synLoading?React.createElement(React.Fragment,null,
                   React.createElement("span",{className:"ns-spin"}),"Researching\u2026")
                   :React.createElement(React.Fragment,null,
-                  React.createElement(Icon.search||Icon.sparkles,{s:15}),"Research \u2192 synopsis"))))
+                  React.createElement(Icon.search||Icon.sparkles,{s:16}),"Research \u2192 synopsis"))))
 
         : React.createElement("div",{className:"ns-body"},
             React.createElement("div",{className:"syn-titlerow"},
@@ -688,6 +688,6 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
               React.createElement("button",{className:"ns-btn link",onClick:researchSynopsis,disabled:synLoading},
                 synLoading?"Re-researching\u2026":"Regenerate"),
               React.createElement("button",{className:"ns-btn primary",onClick:()=>build(),disabled:synLoading||!chosen.trim()},
-                React.createElement(Icon.film,{s:15}),"Build this story")))));
+                React.createElement(Icon.film,{s:16}),"Build this story")))));
 }
 window.NewStoryIntake = NewStoryIntake;

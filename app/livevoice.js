@@ -39,6 +39,39 @@
     return message;
   }
 
+  /* FRANCES'S DAILY LIMIT COVERS VOICE (owner decision 2026-09-29): each voice session uses one of
+     the same free daily questions as the chat. Past them the server answers 429
+     { error:"frances_daily_limit", limit, resets_at }, and during a burst of parallel starts 429
+     { error:"frances_busy" }; either way it opens no session. Both become calm lines (Error.code
+     says which), asked once and never retried; the typed interview is unaffected. The countdown
+     is the chat's own (francesBackIn, app/ai.jsx); the fallback 50 is FRANCES_DAILY_LIMIT there. */
+  const LIVE_BUSY_LINE = "One conversation at a time, please — try again in a moment.";
+  function liveLimitLine(info){
+    const i = info || {};
+    const n = Math.floor(Number(i.limit));
+    const limit = n > 0 ? n : 50;
+    let when = "";
+    try{ when = typeof window.francesBackIn === "function" ? String(window.francesBackIn(i.resets_at || i.resetsAt) || "") : ""; }catch(_e){}
+    return "That’s today’s "+limit+" free "+(limit===1 ? "question" : "questions")+" with Frances — voice included. She’ll be back after midnight UTC"+when+". You can use the typed interview in the meantime.";
+  }
+  function liveLimitError(body){
+    if(!body || typeof body !== "object") return null;
+    if(body.error === "frances_daily_limit"){
+      const e = new Error(liveLimitLine(body));
+      e.code = "frances_daily_limit";
+      e.francesLimit = { limit:Number(body.limit) > 0 ? Math.floor(Number(body.limit)) : 50, resetsAt:body.resets_at || body.resetsAt || null };
+      return e;
+    }
+    if(body.error === "frances_busy"){ const e = new Error(LIVE_BUSY_LINE); e.code = "frances_busy"; return e; }
+    return null;
+  }
+  async function liveLimitFromError(error){
+    const status = Number((error && error.context && error.context.status) || (error && error.status) || 0);
+    const response = error && error.context;
+    if(status !== 429 || !response || typeof response.clone !== "function") return null;
+    try{ return liveLimitError(await response.clone().json()); }catch(_e){ return null; }
+  }
+
   async function proxyErrorMessage(error){
     const status = Number((error && error.context && error.context.status) || (error && error.status) || 0);
     if(status === 401) return "Sign in to talk with Frances.";
@@ -86,8 +119,8 @@
         userApiKeys:window.turnApiKeysForProxy ? window.turnApiKeysForProxy(["openai"]) : undefined,
       }}));
     }catch(e){ error=e; }
-    if(error) throw new Error(await proxyErrorMessage(error));
-    if(data && data.error) throw new Error(liveProxyMessage(data.error));
+    if(error) throw (await liveLimitFromError(error)) || new Error(await proxyErrorMessage(error));
+    if(data && data.error) throw liveLimitError(data) || new Error(liveProxyMessage(data.error));
     if(!(data && data.transport && data.transport.sdp))
       throw new Error(window.turnIsAdmin
         ? "Frances opened no usable audio connection. Redeploy the live-voice proxy and try again."

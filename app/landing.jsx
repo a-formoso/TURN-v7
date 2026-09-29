@@ -3,16 +3,19 @@
    The product is Kinolot by Infinite Studio AI; "TURN" is only the internal codename.
    The actual app (spine, Writers' Room, Art Room, Story Editors) is never exposed until sign-in.
    The floating Frances teaser still rides on top (mounted by app.jsx) for a live taste.
-   DESIGN: light editorial look — white page, near-black ink, hairline-framed content
-   column, pill buttons (black primary) — independent of the app's dark theme. */
+   DESIGN: a paper editorial page — near-black ink, a hairline-framed content column — in
+   the Kinolot identity and the app's own controls: the mark + Spectral wordmark, 9px-radius
+   buttons with the amber primary, the app's eyebrow labels. Always paper, whatever the app
+   theme (styles.css: the shared --lpw-* website palette). */
 
 /* hero media — the Value-Charge Spine, the product's visual signature, drawn as
    an animated SVG inside the film frame (corner brackets kept). A deliberate
    ABSTRACTION, not a screenshot: a BASIC version of whichever narrative structure
    the headline is showing (Three-Act Turns, Hero's Journey, Kishōtenketsu), with
-   its act bands and a few named beats. The line wears a charge gradient (green
-   above the midline, red below), scenes land as halo'd nodes, and a playhead of
-   light reads the spine once it's drawn. It redraws each time the headline turns. */
+   its act bands and a few named beats. The line wears the app's value-charge grade
+   (amber above the midline, teal below — the same colours as the in-app spine),
+   scenes land as halo'd nodes, and a playhead of light reads the spine once it's
+   drawn. It redraws each time the headline turns. */
 const LP_STRUCTURES = [
   { word:"Three-Act Turns",
     bands:["Act I \u00b7 Setup","Act II \u00b7 Complication","Act III \u00b7 Resolution"], breaks:[3,6],
@@ -52,25 +55,25 @@ function HeroSpine({ structure }){
     React.createElement("svg",{key:S.word,className:"lp-spine",viewBox:"0 0 "+W+" "+H,preserveAspectRatio:"xMidYMid meet","aria-hidden":"true"},
       React.createElement("defs",null,
         React.createElement("linearGradient",{id:"lpgLine",gradientUnits:"userSpaceOnUse",x1:0,y1:MID-3*AMP,x2:0,y2:MID+3*AMP},
-          React.createElement("stop",{offset:"0",stopColor:"var(--pos-bright)"}),
+          React.createElement("stop",{offset:"0",stopColor:"var(--lpw-rise)"}),
           React.createElement("stop",{offset:".5",stopColor:"rgba(255,255,255,.95)"}),
-          React.createElement("stop",{offset:"1",stopColor:"var(--neg-bright)"})),
+          React.createElement("stop",{offset:"1",stopColor:"var(--lpw-fall)"})),
         React.createElement("linearGradient",{id:"lpgFill",gradientUnits:"userSpaceOnUse",x1:0,y1:MID-3*AMP,x2:0,y2:MID+3*AMP},
-          React.createElement("stop",{offset:"0",stopColor:"rgba(90,211,152,.22)"}),
+          React.createElement("stop",{offset:"0",stopColor:"rgba(242,154,67,.22)"}),
           React.createElement("stop",{offset:".5",stopColor:"rgba(255,255,255,0)"}),
-          React.createElement("stop",{offset:"1",stopColor:"rgba(226,104,92,.22)"})),
+          React.createElement("stop",{offset:"1",stopColor:"rgba(93,176,216,.22)"})),
         React.createElement("filter",{id:"lpgBlur",x:"-40%",y:"-40%",width:"180%",height:"180%"},
           React.createElement("feGaussianBlur",{stdDeviation:6}))),
       // charge gridlines + the neutral midline
       [-2,-1,1,2].map(c=>React.createElement("line",{key:"g"+c,x1:X0-26,y1:MID-c*AMP,x2:X1+26,y2:MID-c*AMP,
         stroke:"rgba(255,255,255,.05)",strokeWidth:1})),
       React.createElement("line",{x1:X0-26,y1:MID,x2:X1+26,y2:MID,stroke:"rgba(255,255,255,.18)",strokeWidth:1}),
-      React.createElement("text",{x:X0-26,y:92,fill:"rgba(255,255,255,.38)",fontSize:44,style:mono},"+"),
-      React.createElement("text",{x:X0-26,y:H-58,fill:"rgba(255,255,255,.38)",fontSize:44,style:mono},"-"),
+      React.createElement("text",{x:X0-26,y:92,fill:"rgba(255,255,255,.55)",fontSize:44,style:mono},"+"),
+      React.createElement("text",{x:X0-26,y:H-58,fill:"rgba(255,255,255,.55)",fontSize:44,style:mono},"-"),
       // act bands: dashed breaks + a centred name over each band
       actX.map((x,i)=>React.createElement("line",{key:"ax"+i,x1:x,y1:64,x2:x,y2:H-48,
         stroke:"rgba(255,255,255,.12)",strokeWidth:1,strokeDasharray:"3 6"})),
-      S.bands.map((b,i)=>React.createElement("text",{key:"b"+i,x:(edges[i]+edges[i+1])/2,y:46,fill:"rgba(255,255,255,.34)",
+      S.bands.map((b,i)=>React.createElement("text",{key:"b"+i,x:(edges[i]+edges[i+1])/2,y:46,fill:"rgba(255,255,255,.55)",
         fontSize:11,textAnchor:"middle",style:mono},b.toUpperCase())),
       // charge-tinted area under the wave, then the glow pass, then the line
       React.createElement("path",{className:"lp-spine-area",d:area,fill:"url(#lpgFill)"}),
@@ -79,10 +82,10 @@ function HeroSpine({ structure }){
       React.createElement("path",{className:"lp-spine-path",d,pathLength:1,stroke:"url(#lpgLine)",strokeWidth:2.5}),
       // scene nodes: soft halo + core, colored by where the scene CLOSES
       pts.map((p,i)=>React.createElement("circle",{key:"h"+i,className:"lp-spine-halo",cx:p.x,cy:p.y,r:12,
-        fill:p.c>=0?"var(--pos-bright)":"var(--neg-bright)",opacity:.14,
+        fill:p.c>=0?"var(--lpw-rise)":"var(--lpw-fall)",opacity:.14,
         style:{animationDelay:(0.35+i*0.16)+"s"}})),
       pts.map((p,i)=>React.createElement("circle",{key:"n"+i,className:"lp-spine-node",cx:p.x,cy:p.y,r:5.5,
-        fill:p.c>=0?"var(--pos-bright)":"var(--neg-bright)",stroke:"var(--lpw-black)",strokeWidth:2.5,
+        fill:p.c>=0?"var(--lpw-rise)":"var(--lpw-fall)",stroke:"var(--lpw-black)",strokeWidth:2.5,
         style:{animationDelay:(0.35+i*0.16)+"s"}})),
       // named beats with a short leader tick to their node (like the in-app spine)
       pts.filter(p=>p.m).map((p,i)=>React.createElement("line",{key:"mt"+i,className:"lp-spine-lab",
@@ -91,7 +94,7 @@ function HeroSpine({ structure }){
       // edge labels anchor inward so a long name never runs off the frame
       pts.filter(p=>p.m).map((p,i)=>{ const at = pts.indexOf(p), edge = at===0 ? "start" : at===pts.length-1 ? "end" : "middle";
         return React.createElement("text",{key:"m"+i,className:"lp-spine-lab",
-          x:p.x+(edge==="start"?-10:edge==="end"?10:0),y:p.up?p.y-28:p.y+36,textAnchor:edge,fill:"rgba(255,255,255,.5)",fontSize:11,
+          x:p.x+(edge==="start"?-10:edge==="end"?10:0),y:p.up?p.y-28:p.y+36,textAnchor:edge,fill:"rgba(255,255,255,.62)",fontSize:11,
           style:{...mono,animationDelay:(1.2+i*0.1)+"s"}},p.m); }),
       // the playhead — a dot of light reading this structure once it's drawn
       React.createElement("circle",{className:"lp-spine-run halo",r:10,fill:"rgba(255,255,255,.35)",
@@ -141,7 +144,7 @@ function lpTiers(){
    (shared with the Home dashboard footer, app/home-dashboard.jsx) */
 function LandingFootBrand(){
   return React.createElement("span",{className:"lp-foot-brand"},
-    React.createElement("span",{className:"lp-logo sm"},"Kinolot"),
+    React.createElement("span",{className:"lp-logo sm"},(typeof BrandMark==="function") && React.createElement(BrandMark,null),"Kinolot"),
     React.createElement("span",{className:"lp-foot-by"},"by ",
       React.createElement("a",{className:"lp-foot-link",href:"https://infinitestudioai.com",target:"_blank",rel:"noopener"},"Infinite Studio AI")));
 }
@@ -168,7 +171,7 @@ function Landing({ onStart, onSignIn }){
     React.createElement("header",{className:"lp-nav"},
       React.createElement("div",{className:"lp-nav-in"},
         React.createElement("div",{className:"lp-brand"},
-          React.createElement("span",{className:"lp-logo"},"Kinolot")),
+          React.createElement("span",{className:"lp-logo"},(typeof BrandMark==="function") && React.createElement(BrandMark,null),"Kinolot")),
         React.createElement("div",{className:"lp-nav-cta"},
           React.createElement("button",{className:"lp-btn ghost",onClick:onSignIn},"Sign in"),
           React.createElement("button",{className:"lp-btn primary",onClick:()=>onStart("writer")},"Start with a room")),

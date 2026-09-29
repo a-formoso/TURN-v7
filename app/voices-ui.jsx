@@ -10,7 +10,7 @@ const _vcEl = React.createElement;
 function vcAudioIcon(playing){
   return playing
     ? _vcEl("span",{className:"vc-pause-mark","aria-hidden":"true"})
-    : _vcEl(Icon.play,{s:11});
+    : _vcEl(Icon.play,{s:12});
 }
 
 // parse the canonical "FUNCTION · ARCHETYPE — IDENTITY" role string
@@ -358,7 +358,7 @@ function VoiceCard({ c, project, speaks, onUpdate, titleId }){
                 "aria-pressed":masterStatus.ready?(isPlaying(masterAudio.audioUrl)?"true":"false"):undefined,
                 "aria-label":masterStatus.ready?((isPlaying(masterAudio.audioUrl)?"Pause":"Play")+" the saved canonical voice master for "+(c.name||"character")):"Generate the canonical voice master",
                 title:masterStatus.ready?(isPlaying(masterAudio.audioUrl)?"Pause the saved canonical voice master":"Play the saved canonical voice master"):"Generate the canonical voice master through ElevenLabs"},
-                masterStatus.ready?vcAudioIcon(isPlaying(masterAudio.audioUrl)):_vcEl(Icon.sparkles,{s:13}),
+                masterStatus.ready?vcAudioIcon(isPlaying(masterAudio.audioUrl)):_vcEl(Icon.sparkles,{s:14}),
                 masterStatus.ready?(isPlaying(masterAudio.audioUrl)?"Pause":"Play"):(busy?"…":"Generate voice file")),
               masterStatus.ready && _vcEl("a",{className:"vc-btn",href:masterAudio.audioUrl,download:masterFileName,
                 title:"Download "+masterFileName},"Download"),
@@ -435,7 +435,7 @@ function VoiceCard({ c, project, speaks, onUpdate, titleId }){
 
           mode==="clone" && _vcEl(React.Fragment,null,
             _vcEl("label",{className:"vc-upload"},
-              _vcEl(Icon.plus,{s:13}), samples.length?(samples.length+" sample"+(samples.length>1?"s":"")+" ready"):"Add voice samples",
+              _vcEl(Icon.plus,{s:14}), samples.length?(samples.length+" sample"+(samples.length>1?"s":"")+" ready"):"Add voice samples",
               _vcEl("input",{type:"file",accept:"audio/*",multiple:true,onChange:onFiles,style:{display:"none"}})),
             _vcEl("label",{className:"vc-consent"},
               _vcEl("input",{type:"checkbox",checked:consent,onChange:e=>setConsent(e.target.checked)}),
@@ -484,7 +484,7 @@ function VoiceModal({ character, project, speaks, onUpdate, onClose }){
         onKeyDown:e=>{ if(e.key==="Escape"){ e.stopPropagation(); onClose&&onClose(); } }},
       _vcEl("button",{className:"ag-x voice-modal-x",type:"button",onClick:onClose,
         "aria-label":"Close voice design for "+((character&&character.name)||"character"),
-        "data-testid":"voice-popup-close",title:"Close "+((character&&character.name)||"voice")}, _vcEl(Icon.x,{s:17})),
+        "data-testid":"voice-popup-close",title:"Close "+((character&&character.name)||"voice")}, _vcEl(Icon.x,{s:18})),
       _vcEl("div",{className:"dt-scroll voice-modal-scroll"},
         _vcEl(VoiceCard,{c:character,project,speaks,onUpdate,titleId}))));
 }

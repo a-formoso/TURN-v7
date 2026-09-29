@@ -11,6 +11,8 @@ const PUBLIC_ROOT_FILES = new Set([
   "privacy.html",
   "terms.html",
   "favicon.svg",
+  "apple-touch-icon.png",   // the app icon (scripts/render-identity.mjs)
+  "og-image.png",           // the share image — og:image / twitter:image in TURN.html
 ]);
 const TYPES = {
   ".html": "text/html", ".js": "text/javascript", ".jsx": "text/javascript",

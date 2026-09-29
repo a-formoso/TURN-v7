@@ -6,10 +6,10 @@
 .bs-launch .bs-launch-button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .bs-launch .bs-launch-button:disabled{background:var(--bg-3);border-color:var(--line-2);color:var(--txt-2);opacity:.65;cursor:not-allowed}
 .bs-launch small{font-size:11px;color:var(--txt-2);line-height:1.45}
-.bs-workspace{box-sizing:border-box;width:min(1050px,96vw);max-width:96vw;height:90dvh;max-height:94dvh;padding:0;border:1px solid var(--line);border-radius:16px;background:var(--bg-2,#faf9f6);color:var(--txt-0,#24262b);box-shadow:0 24px 90px #0005;overflow:hidden;font-family:var(--f-ui,system-ui,sans-serif)}
+.bs-workspace{box-sizing:border-box;width:min(1050px,96vw);max-width:96vw;height:90dvh;max-height:94dvh;padding:0;border:1px solid var(--line-2);border-radius:var(--r-l,14px);background:var(--bg-2,#faf9f6);color:var(--txt-0,#24262b);box-shadow:0 24px 90px #0005;overflow:hidden;font-family:var(--f-ui,system-ui,sans-serif)}
 .bs-workspace{position:fixed;inset:0;margin:auto}.bs-workspace[open]{display:flex;flex-direction:column}.bs-workspace::backdrop{background:#171b2466;backdrop-filter:blur(4px)}
 .bs-workspace-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:20px 24px;border-bottom:1px solid var(--line);flex-shrink:0;background:var(--bg-3,#fff)}
-.bs-workspace-head h2{margin:0;font-size:20px}.bs-workspace-head p{margin:5px 0 0;font-size:12px;color:var(--txt-2)}
+.bs-workspace-head h2{margin:0;font-family:var(--f-display);font-size:15px;font-weight:600;letter-spacing:-.01em;color:var(--txt-0)}.bs-workspace-head p{margin:5px 0 0;font-size:12px;color:var(--txt-2)}
 .bs-workspace-content{overflow:auto;min-height:0;padding:20px 24px;overscroll-behavior:contain}.bs-workspace-content>.bs-entry{margin:0;border:0;background:transparent}.bs-workspace .bs-body{border:0;padding:0}
 .bs-derived-source{display:flex;align-items:center;gap:16px;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--bg-3,#fff);font-size:13px}
 .bs-derived-source img{width:160px;max-width:35%;aspect-ratio:16/9;object-fit:contain;border-radius:6px}.bs-derived-source p{margin:6px 0 0;font-size:12px;color:var(--txt-2);line-height:1.5}

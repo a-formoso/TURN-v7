@@ -2341,12 +2341,12 @@ function PagerBar({ pager, noun }){
   for(let i=0;i<pages;i++) nums.push(i);
   return React.createElement("div",{className:"pager"},
     React.createElement("button",{className:"pager-btn",disabled:page===0,onClick:()=>go(page-1),"aria-label":"Previous page"},
-      React.createElement(Icon.chevL,{s:13})),
+      React.createElement(Icon.chevL,{s:14})),
     pages<=9
       ? nums.map(i=>React.createElement("button",{key:i,className:"pager-num"+(i===page?" on":""),onClick:()=>go(i)}, i+1))
       : React.createElement("span",{className:"pager-count"},(page+1)+" / "+pages),
     React.createElement("button",{className:"pager-btn",disabled:page===pages-1,onClick:()=>go(page+1),"aria-label":"Next page"},
-      React.createElement(Icon.chevR,{s:13})),
+      React.createElement(Icon.chevR,{s:14})),
     React.createElement("span",{className:"pager-note"}, total+" "+(noun||"card")+(total!==1?"s":"")));
 }
 window.usePager = usePager; window.PagerBar = PagerBar;
@@ -2398,12 +2398,12 @@ function BatchBar({ batch, noun }){
       prompt.missing.length>0 && React.createElement("button",{className:"art-draftall",
         onClick:()=>run(prompt.missing, prompt.existing.length),
         title:"Generate only the "+N+"s that don't have a sheet yet"},
-        React.createElement(Icon.sparkles,{s:13}),"Generate "+prompt.missing.length+" missing",
+        React.createElement(Icon.sparkles,{s:14}),"Generate "+prompt.missing.length+" missing",
         typeof window.nbCostChip==="function" && window.nbCostChip(prompt.missing.length)),
       React.createElement("button",{className:"art-draftall"+(prompt.missing.length?" ghost":""),
         onClick:()=>run([...prompt.missing, ...prompt.existing], 0),
         title:"Generate every "+N+", regenerating ones that already have a sheet"},
-        React.createElement(Icon.sparkles,{s:13}),"Regenerate all "+(prompt.missing.length+prompt.existing.length),
+        React.createElement(Icon.sparkles,{s:14}),"Regenerate all "+(prompt.missing.length+prompt.existing.length),
         typeof window.nbCostChip==="function" && window.nbCostChip(prompt.missing.length+prompt.existing.length)),
       React.createElement("button",{className:"art-draftall ghost",onClick:cancel},"Cancel")),
     // ACTIVELY GENERATING → the shared progress card (spinner + status + reassurance),
@@ -2607,7 +2607,7 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
         React.createElement("div",null,
           React.createElement("div",{className:"dt-title"},name),
           React.createElement("div",{className:"dt-sub"},"Image details")),
-        React.createElement("button",{className:"ag-x",onClick:onClose},React.createElement(Icon.x,{s:17}))),
+        React.createElement("button",{className:"ag-x",onClick:onClose},React.createElement(Icon.x,{s:18}))),
       React.createElement("div",{className:"dt-scroll",ref:scrollRef},
         /* image preview — current OR the earlier version being inspected. If the
            file is gone from storage (dangling path → empty/failed URL), fall back
@@ -2620,7 +2620,7 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
           React.createElement("span",null,selVer?"This version's image is no longer available in storage.":"Image unavailable.")),
         /* banner shown while inspecting an earlier version in place */
         selVer && React.createElement("div",{className:"dt-viewing"},
-          React.createElement(Icon.history,{s:13}),
+          React.createElement(Icon.history,{s:14}),
           React.createElement("span",{className:"dt-viewing-t"},"Viewing an earlier version"
             +(meta.version?(" \u00b7 v"+meta.version):"")+" \u2014 not the current image"),
           React.createElement("button",{className:"dt-viewing-back",onClick:()=>setSelVer(null)},"Back to current")),
@@ -2723,10 +2723,10 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
                       h.url ? React.createElement("img",{className:"dt-hist-thumb",src:h.url,alt:"version",
                         onError:(e)=>{ e.target.style.display="none"; const ph=e.target.parentNode.querySelector(".dt-hist-thumb-ph"); if(ph) ph.style.display="grid"; }}) : null,
                       React.createElement("div",{className:"dt-hist-thumb-ph",style:{display:h.url?"none":"grid"},
-                        title:"Image no longer in storage"},React.createElement(Icon.image,{s:15}))),
+                        title:"Image no longer in storage"},React.createElement(Icon.image,{s:16}))),
                     React.createElement("div",{className:"dt-hist-info"},
                       React.createElement("div",{className:"dt-hist-layer"+(isEdit?" edit":" base")},
-                        React.createElement(Icon[isEdit?"wand":"image"]||Icon.sparkles,{s:11}),
+                        React.createElement(Icon[isEdit?"wand":"image"]||Icon.sparkles,{s:12}),
                         React.createElement("span",{className:"dt-hist-layer-t"},layerLabel)),
                       React.createElement("div",{className:"dt-hist-meta"},
                         modelName,
@@ -2830,7 +2830,7 @@ function SheetReferenceStrip({ gen, loadRefs, onView, refreshKey }){
   };
   return React.createElement("div",{className:"coverage-refs sheet-used-refs"},
     React.createElement("div",{className:"shot-refs-lab"},
-      React.createElement(Icon.layers,{s:11}),gen&&gen.genUrl?"Reference images used":"Reference images"),
+      React.createElement(Icon.layers,{s:12}),gen&&gen.genUrl?"Reference images used":"Reference images"),
     React.createElement(RefStripScroller,{className:"shot-refs-row coverage-refs-row"},
       refs.map((r,i)=>React.createElement("div",{key:(r.refId||r.url||i),role:"button",tabIndex:0,
           className:"shot-ref-thumb "+kindClass(r),title:r.note||r.label||"Reference image",
@@ -2900,17 +2900,17 @@ function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, spe
   return React.createElement("div",{className:"ns-overlay",onMouseDown:e=>{ if(e.target===e.currentTarget) onClose(); }},
     React.createElement("div",{className:"qa-modal"},
       React.createElement("div",{className:"qa-head"},
-        React.createElement("span",{className:"qa-orb "+sev}, React.createElement(Icon.eye,{s:15})),
+        React.createElement("span",{className:"qa-orb "+sev}, React.createElement(Icon.eye,{s:16})),
         React.createElement("div",{className:"qa-head-txt"},
           React.createElement("div",{className:"qa-title"}, name||"Untitled"),
           React.createElement("div",{className:"qa-sub"}, (noun||"sheet")+(r.judgedSpec
             ? " · uploaded image — judged against the card's CURRENT spec (it has no generation prompt)"
             : " · judged against the exact prompt that generated it"))),
         React.createElement("span",{className:"qa-badge "+sev}, sev==="pass"?"Faithful":sev==="minor"?"Minor drift":"Major drift"),
-        React.createElement("button",{className:"ag-x",onClick:onClose},React.createElement(Icon.x,{s:15}))),
+        React.createElement("button",{className:"ag-x",onClick:onClose},React.createElement(Icon.x,{s:16}))),
       clean
         ? React.createElement("div",{className:"qa-clean"},
-            React.createElement(Icon.check,{s:13}),"Faithful to its prompt — nothing to fix.")
+            React.createElement(Icon.check,{s:14}),"Faithful to its prompt — nothing to fix.")
         : React.createElement(React.Fragment,null,
             r.deviations.length>0 && React.createElement("div",{className:"qa-sec"},
               React.createElement("div",{className:"qa-sec-lab"},"Deviations from the prompt"),
@@ -2946,7 +2946,7 @@ function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, spe
         (r.action==="edit" && r.editInstruction) && React.createElement("button",{className:"ns-btn primary",disabled:gening,
           title:"Apply the suggested edit to this image now — one generation; the current version stays in history",
           onClick:()=>{ onRunEdit(r.editInstruction); onClose(); }},
-          React.createElement(Icon.wand,{s:13}),"Run suggested edit"),
+          React.createElement(Icon.wand,{s:14}),"Run suggested edit"),
         // ("Regenerate now" removed, user ruling 2026-07-21: it duplicated the card's
         // own Regenerate button and re-rolled the SAME spec the report just faulted —
         // the modal offers only the two INFORMED repairs: amend the spec, or edit.)
@@ -3168,7 +3168,7 @@ function RegionEditModal({ url, name, noun, entity, editPropRefs, onClose, onApp
         React.createElement("div",null,
           React.createElement("div",{className:"region-edit-title"},"Select area & edit"),
           React.createElement("div",{className:"region-edit-sub"},name||noun||"Image")),
-        React.createElement("button",{className:"ag-x",onClick:onClose},React.createElement(Icon.x,{s:17}))),
+        React.createElement("button",{className:"ag-x",onClick:onClose},React.createElement(Icon.x,{s:18}))),
       React.createElement("div",{className:"region-edit-body"},
         React.createElement("div",{className:"region-edit-canvas"},
           React.createElement("div",{className:"region-edit-imagebox",ref:boxRef,onPointerDown:start},
@@ -3178,7 +3178,7 @@ function RegionEditModal({ url, name, noun, entity, editPropRefs, onClose, onApp
           React.createElement("div",{className:"region-edit-hint"},"Drag on the image to choose the edit area")),
         React.createElement("div",{className:"region-edit-side",ref:sideRef,style:sideStyle},
           React.createElement("div",{className:"region-edit-dragbar",onPointerDown:beginSideDrag,title:"Move prompt card"},
-            React.createElement(Icon.grip,{s:13}),
+            React.createElement(Icon.grip,{s:14}),
             React.createElement("span",null,"Prompt")),
           React.createElement("label",{className:"region-edit-field region-edit-prompt-field"},
             React.createElement("textarea",{value:text,onChange:e=>setText(e.target.value),
@@ -3188,7 +3188,7 @@ function RegionEditModal({ url, name, noun, entity, editPropRefs, onClose, onApp
           React.createElement("div",{className:"region-edit-refs-head"},"Reference image"),
           React.createElement("div",{className:"region-edit-ref-actions"},
             React.createElement("button",{className:"sheet-tools-item region-action",onClick:()=>fileRef.current&&fileRef.current.click()},
-              React.createElement(Icon.image,{s:13}),"Upload reference"),
+              React.createElement(Icon.image,{s:14}),"Upload reference"),
             React.createElement("input",{ref:fileRef,type:"file",accept:"image/*",multiple:true,style:{display:"none"},
               onChange:e=>{ addFiles(e.target.files); e.target.value=""; }})),
           referenceOptions.length>0 && React.createElement("div",{className:"region-props"},
@@ -3306,7 +3306,7 @@ function PropReferenceModal({ url, name, noun, entity, onClose }){
         React.createElement("div",null,
           React.createElement("div",{className:"region-edit-title"},"Attach item to prop"),
           React.createElement("div",{className:"region-edit-sub"},name||noun||"Image")),
-        React.createElement("button",{className:"ag-x",onClick:onClose},React.createElement(Icon.x,{s:17}))),
+        React.createElement("button",{className:"ag-x",onClick:onClose},React.createElement(Icon.x,{s:18}))),
       React.createElement("div",{className:"region-edit-body"},
         React.createElement("div",{className:"region-edit-canvas"},
           React.createElement("div",{className:"region-edit-imagebox",ref:boxRef,onPointerDown:start},
@@ -3403,7 +3403,7 @@ function PropSheetReferenceModal({ prop, onClose }){
         React.createElement("div",null,
           React.createElement("div",{className:"region-edit-title"},"Attach reference to prop"),
           React.createElement("div",{className:"region-edit-sub"},prop && prop.name ? prop.name : "Prop")),
-        React.createElement("button",{className:"ag-x",onClick:onClose},React.createElement(Icon.x,{s:17}))),
+        React.createElement("button",{className:"ag-x",onClick:onClose},React.createElement(Icon.x,{s:18}))),
       React.createElement("div",{className:"region-edit-body"},
         React.createElement("div",{className:"region-edit-canvas prop-ref-list-canvas"},
           rows.length
@@ -3618,40 +3618,40 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
           React.createElement(Icon.moreV,{s:14})),
         menuOpen && React.createElement("div",{className:"sheet-tools-dropdown"},
           canOpenDetails && React.createElement("button",{className:"sheet-tools-item",onClick:()=>{ setDetailsOpen(true); setMenuOpen(false); }},
-            React.createElement(Icon.info,{s:13}),"Details"),
+            React.createElement(Icon.info,{s:14}),"Details"),
           (genUrl && (forceRemaster || remasterEligible(genMeta))) && React.createElement("button",{className:"sheet-tools-item",disabled:gening,
             title:"Re-render the CURRENT image as a fresh, clean, full-quality version \u2014 same design, artifacts and noise removed (stacked edits degrade like a photocopy of a photocopy). Lands as a new version; the old one stays in history.",
             onClick:()=>{ setMenuOpen(false); generate({ editInstruction: (typeof remasterInstruction==="function")?remasterInstruction(noun):"Reproduce this image exactly, clean and artifact-free." }); }},
-            React.createElement(Icon.sparkles,{s:13}),"Remaster \u2014 clean re-render"),
+            React.createElement(Icon.sparkles,{s:14}),"Remaster \u2014 clean re-render"),
           ...(menuItemsBeforeEdit||[]).map((m,i)=>
             React.createElement("button",{key:"mb"+i,className:"sheet-tools-item",disabled:gening||m.disabled,title:m.title,
               onClick:()=>{ setMenuOpen(false); m.onClick&&m.onClick(); }},
-              React.createElement(m.icon||Icon.sparkles,{s:13}), m.label)),
+              React.createElement(m.icon||Icon.sparkles,{s:14}), m.label)),
           genUrl && React.createElement("button",{className:"sheet-tools-item "+(editMode?"on":""),
             onClick:()=>{ setEditMode(m=>!m); setEditText(""); setEditRefs([]); setEditDependencyIds([]); setMenuOpen(false); }},
-            React.createElement(Icon.wand,{s:13}),editMode?"Close edit":"Edit "+editNounLabel),
+            React.createElement(Icon.wand,{s:14}),editMode?"Close edit":"Edit "+editNounLabel),
           genUrl && React.createElement("button",{className:"sheet-tools-item",disabled:gening,
             title:"Draw a rectangle on the image, write a localized edit prompt, and optionally attach a prop sheet or uploaded reference image.",
             onClick:()=>{ setRegionEditOpen(true); setMenuOpen(false); }},
-            React.createElement(Icon.target,{s:13}),"Select area & edit"),
+            React.createElement(Icon.target,{s:14}),"Select area & edit"),
           genUrl && !isPropCardMenu && (((window.turnContinuity||{}).props||[]).length>0) && React.createElement("button",{className:"sheet-tools-item",disabled:gening,
             title:"Select an item in this image and attach that crop to an existing prop as a consistency reference.",
             onClick:()=>{ setPropRefOpen(true); setMenuOpen(false); }},
-            React.createElement(Icon.box,{s:13}),"Attach item to prop\u2026"),
+            React.createElement(Icon.box,{s:14}),"Attach item to prop\u2026"),
           genUrl && isPropCardMenu && React.createElement("button",{className:"sheet-tools-item",disabled:gening,
             title:"Attach an existing character, prop or location sheet as a consistency reference for future prop generations and edits.",
             onClick:()=>{ setSheetRefOpen(true); setMenuOpen(false); }},
-            React.createElement(Icon.layers,{s:13}),"Attach reference to prop\u2026"),
+            React.createElement(Icon.layers,{s:14}),"Attach reference to prop\u2026"),
           // import a finished sheet generated outside the app (e.g. GPT Image 2 in ChatGPT)
           importSheet && React.createElement("button",{className:"sheet-tools-item",disabled:gening,
             title:"Import a finished image you generated elsewhere, at full resolution — it becomes this "+noun,
             onClick:()=>{ setMenuOpen(false); pickUpload(); }},
-            React.createElement(Icon.image,{s:13}), genUrl?"Replace with upload":"Upload a sheet"),
+            React.createElement(Icon.image,{s:14}), genUrl?"Replace with upload":"Upload a sheet"),
           // caller-specific menu items (e.g. Shots: "Generate fresh sample")
           ...(menuItemsDefault||[]).map((m,i)=>
             React.createElement("button",{key:"mx"+i,className:"sheet-tools-item",disabled:gening||m.disabled,title:m.title,
               onClick:()=>{ setMenuOpen(false); m.onClick&&m.onClick(); }},
-              React.createElement(m.icon||Icon.sparkles,{s:13}), m.label)),
+              React.createElement(m.icon||Icon.sparkles,{s:14}), m.label)),
           genUrl && React.createElement("div",{className:"sheet-tools-divider"}),
           genUrl && React.createElement("button",{className:"sheet-tools-item danger",onClick:async ()=>{
               setMenuOpen(false);
@@ -3668,7 +3668,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
                 : window.confirm ? window.confirm(opts.title+"\n\n"+opts.body) : false;
               if(ok) clearGen();
             }},
-            React.createElement(Icon.x,{s:13}),"Clear"),
+            React.createElement(Icon.x,{s:14}),"Clear"),
           onDelete && React.createElement("button",{className:"sheet-tools-item danger",onClick:async ()=>{
               setMenuOpen(false);
               if(/location/i.test(deleteLabel||"")){
@@ -3681,7 +3681,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
               }
               onDelete();
             }},
-            React.createElement(Icon.trash,{s:13}),deleteLabel||"Delete"))))),
+            React.createElement(Icon.trash,{s:14}),deleteLabel||"Delete"))))),
     editMode && React.createElement("div",{className:"sheet-edit-panel"},
       React.createElement("input",{className:"sheet-edit-input",type:"text",autoFocus:true,
         placeholder:"Describe changes\u2026  e.g. "+(noun==="prop sheet"?"make the metal brushed steel":"change jacket to black, add glasses"),
@@ -3709,7 +3709,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
                 insert("Match the attached reference image of \""+s.label+"\" EXACTLY \u2014 its design (shape, materials, construction), never its studio lighting or background.");
                 setEditRefs(rs=> rs.some(r=>r.url===url) ? rs : [...rs, { url, note:(s.label||"fixture")+" \u2014 prop sheet", refId:s.refId }]);
               }},
-              React.createElement(Icon.image,{s:11})));
+              React.createElement(Icon.image,{s:12})));
         })),
       // attached IMAGE INPUTS \u2014 removable thumbs riding on the next Apply edit
       editRefs.length>0 && React.createElement("div",{className:"sheet-edit-refs"},
@@ -3748,7 +3748,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
               React.createElement("div",{className:"sheet-edit-addtitle"},"Add image input"),
             React.createElement("button",{className:"sheet-tools-item",
               onClick:()=>{ setEditAddOpen(false); editFileRef.current && editFileRef.current.click(); }},
-              React.createElement(Icon.image,{s:13}),"Upload from device\u2026"),
+              React.createElement(Icon.image,{s:14}),"Upload from device\u2026"),
             (editPropRefs||[]).map(p=>React.createElement("button",{key:p.id,className:"sheet-tools-item",
               title:"Attach "+p.name+"'s locked sheet as an input. If the instruction box is empty, an 'update it to match this sheet exactly' instruction is written for you \u2014 edit it freely, then Apply.",
               onClick:async ()=>{
@@ -3762,7 +3762,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
                   setEditText("Update the "+p.name+" this character "+verb+" so it matches the attached prop reference sheet EXACTLY \u2014 same shape, materials, colours and construction. If the item isn't visible yet, add it where it naturally belongs. Keep EVERYTHING else identical: the face, body, pose, panel layout, rendering style, lighting and background.");
                 }
               }},
-              React.createElement(Icon.box,{s:13}), p.name.length>34 ? (p.name.slice(0,33)+"\u2026") : p.name)),
+              React.createElement(Icon.box,{s:14}), p.name.length>34 ? (p.name.slice(0,33)+"\u2026") : p.name)),
             !(editPropRefs||[]).length && React.createElement("div",{className:"sheet-edit-addnote"},
               "No generated prop sheets yet \u2014 carried props appear here once their sheets exist."))), document.body),
           React.createElement("input",{ref:editFileRef,type:"file",accept:"image/*",multiple:true,style:{display:"none"},
@@ -3783,13 +3783,13 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
         ? "Fills the text spec from the script first, then generates the sheet in one step"
         : (genUrl ? "Generate a fresh sheet from the current spec" : "Generate the sheet from the current spec")},
       generateDisabled && !gening
-        ? React.createElement(React.Fragment,null,React.createElement(onResolveGenerationBlock?Icon.chevR:Icon.clock,{s:13}),
+        ? React.createElement(React.Fragment,null,React.createElement(onResolveGenerationBlock?Icon.chevR:Icon.clock,{s:14}),
             generateDisabledLabel||"Wait for current generation")
         : (gening || (drafting && pendingGenerate))
         ? React.createElement(React.Fragment,null,React.createElement("span",{className:"ns-spin dark"}),
             gen.saving ? "Saving\u2026" : pendingGenerate ? "Drafting\u2026" :
             retrying ? "Retrying simplified\u2026" : "Generating\u2026")
-        : React.createElement(React.Fragment,null,React.createElement(Icon.sparkles,{s:13}),
+        : React.createElement(React.Fragment,null,React.createElement(Icon.sparkles,{s:14}),
             gen.pendingSave ? "Retry save" : specBlocked ? "Draft specification first" :
             genUrl ? "Generate new image" :
             (slotHasRef ? "Generate from photo" :
@@ -3798,7 +3798,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
     // Stop an in-flight generation — discards the result so it won't commit over the frame.
     gening && React.createElement("button",{className:"sheet-gen-stop",onClick:()=> onStop ? onStop() : (cancelGen && cancelGen()),
       title:"Stop this generation — nothing will be saved over the current frame"},
-      React.createElement(Icon.x,{s:13}),"Stop")),
+      React.createElement(Icon.x,{s:14}),"Stop")),
     // import a finished, full-res sheet generated outside the app (GPT Image 2, etc.)
     React.createElement("input",{ref:uploadRef,type:"file",accept:"image/png,image/jpeg,image/webp,image/avif",
       style:{display:"none"},onChange:onUploadPicked}),
@@ -3841,7 +3841,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
     (genUrl || slotHasRef || genTier==="session" || genTier==="memory") &&
     React.createElement("div",{className:"sheet-frame-cap"},
       slotHasRef && React.createElement("span",{className:"sheet-ref-chip"},
-        React.createElement(Icon.bolt,{s:9,sw:2.2}),"Ref"),
+        React.createElement(Icon.bolt,{s:10,sw:2.2}),"Ref"),
       (genTier==="session"||genTier==="memory") && React.createElement("span",{
         className:"sheet-tier-warn",
         title:"Image is too large to save permanently — download it before closing or refreshing this tab"},
@@ -3852,11 +3852,11 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
       genUrl && genMeta && genMeta.grounded && !(typeof isGptImageModel==="function" && isGptImageModel(genMeta.modelId)) && React.createElement("span",{
         className:"sheet-ground-chip",
         title:genMeta.groundImages ? "Generated with web grounding and image references" : "Generated with web grounding"},
-        React.createElement(Icon.globe,{s:9,sw:2}),"Grounded"),
+        React.createElement(Icon.globe,{s:10,sw:2}),"Grounded"),
       genUrl && genMeta && genMeta.cameo && React.createElement("span",{
         className:"sheet-cameo-chip",
         title:"Face-locked to a cameo likeness"},
-        React.createElement(Icon.userScan,{s:9,sw:1.8}),"Cameo"),
+        React.createElement(Icon.userScan,{s:10,sw:1.8}),"Cameo"),
       genUrl && genMeta
         ? React.createElement("span",{className:"sheet-frame-meta"},
             React.createElement("span",{className:"sheet-meta-item sheet-meta-model",title:"Model: "+((genMeta.modelLabel||"")+(genMeta.modelId?(" ("+genMeta.modelId+")"):""))},
@@ -3955,7 +3955,7 @@ function SceneContinuity({ scene, scenes, characters }){
               state ? state.label : "Base look")),
           React.createElement("span",{className:"cont-vtag"+(state?"":" base")},"v"+version),
           missing && React.createElement("span",{className:"cont-warn",title:"This appearance state has no generated sheet yet"},
-            React.createElement(Icon.warn,{s:11,sw:2})));
+            React.createElement(Icon.warn,{s:12,sw:2})));
       })));
 }
 window.SceneContinuity = SceneContinuity;
@@ -4011,7 +4011,7 @@ function CopyBox({ label, text }){
             React.createElement("span",{className:"copybox-modal-lab"},label),
             React.createElement("span",{className:"copybox-modal-count"}, chars.toLocaleString()+" characters"),
             React.createElement("button",{className:"copybox-btn",onClick:copy},
-              React.createElement(Icon[copied?"check":"copy"]||Icon.check,{s:13}), copied?"Copied":"Copy prompt"),
+              React.createElement(Icon[copied?"check":"copy"]||Icon.check,{s:14}), copied?"Copied":"Copy prompt"),
             React.createElement("button",{className:"copybox-modal-x",onClick:()=>setOpen(false),title:"Close (Esc)"},
               React.createElement(Icon.x,{s:16}))),
           React.createElement("div",{className:"copybox-modal-body"},text))),
@@ -4184,7 +4184,7 @@ function StateRow({ c, st, index, project, scenes, props, drafts, baseGenUrl, on
       React.createElement("div",{className:"state-label"},
         React.createElement(EditText,{value:st.label,placeholder:"State name\u2026",onCommit:val=>onChange({label:val})})),
       st.suggested && React.createElement("span",{className:"state-ai-chip",title:"Suggested from the script"},"AI"),
-      React.createElement("button",{className:"state-del",title:"Remove state",onClick:onDelete},React.createElement(Icon.x,{s:13}))),
+      React.createElement("button",{className:"state-del",title:"Remove state",onClick:onDelete},React.createElement(Icon.x,{s:14}))),
     React.createElement(SheetFrame,{ gen, slotId:"charref-"+stateId, name:viewEntity.name,
       avatarColor:c.color, initials:vtag, drafted:true, drafting:false, onDraft:()=>{}, entity:viewEntity,
       onView, slotPlaceholder:"Generate this appearance state", noun:vtag+" sheet", dropToImport:true }),
@@ -4193,7 +4193,7 @@ function StateRow({ c, st, index, project, scenes, props, drafts, baseGenUrl, on
         specFields:()=>({ what_changed:(st.change||"") }),
         onApplySpec:(patch)=>{ if(patch.what_changed!=null) onChange({ change:patch.what_changed, suggested:false }); } })),
     !baseGenUrl && React.createElement("div",{className:"state-hint"},
-      React.createElement(Icon.alert,{s:11}),
+      React.createElement(Icon.alert,{s:12}),
       "Generate the base sheet above for identity-locked results \u2014 until then this uses the text spec."),
     React.createElement(SheetField,{label:"What changed",value:st.change,multiline:true,
       placeholder:"The visible difference from the base look \u2014 torn shirt, cut brow, dried blood\u2026",
@@ -4603,7 +4603,7 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
                 if(patch.accessories!=null) up.accessories=patch.accessories;
                 onUpdate(c.id, up); } })))),
       cameoMeta && React.createElement("div",{className:"sheet-cameo-status"},
-        React.createElement(Icon.userScan,{s:13}),
+        React.createElement(Icon.userScan,{s:14}),
         React.createElement("span",{className:"scs-t"},"Likeness locked"),
         React.createElement("span",{className:"scs-meta"},
           ((cameoMeta.angleCount||1)+" angle"+((cameoMeta.angleCount||1)!==1?"s":""))+" \u00b7 "
@@ -4713,7 +4713,7 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
                 React.createElement("option",{value:"D"},"Microscopic scale (Class D)"))));
         })(),
         c.bodyRationale && React.createElement("div",{className:"sheet-rationale"},
-          React.createElement(Icon.sparkles,{s:11}),"Why this look: "+tidyTruncated(c.bodyRationale)),
+          React.createElement(Icon.sparkles,{s:12}),"Why this look: "+tidyTruncated(c.bodyRationale)),
         React.createElement(SheetField,{label:"Texture \u2014 skin & material detail",value:c.materialTexture,multiline:true,
           placeholder:"Pore texture, subsurface scattering, blemishes, lighting\u2026",onCommit:val=>onUpdate(c.id,{materialTexture:val})})),
 
@@ -4725,7 +4725,7 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
 
       React.createElement(CardFold,{label:"Props & accessories",defaultOpen:false,foldId:"props-"+c.id},
         React.createElement("div",{className:"sheet-props-note"},
-          React.createElement(Icon.sparkles,{s:11}),
+          React.createElement(Icon.sparkles,{s:12}),
           "Continuity objects \u2014 worn or carried items that recur across scenes."),
         wornProps.length>0 && React.createElement("div",{className:"worn-lock-summary"},
           React.createElement(Icon.layers,{s:12}),
@@ -4769,7 +4769,7 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
                 });
                 if(ok) orphanProps.forEach(p=>onRemoveOwnedItem(c.id, p.name));
               }},
-              React.createElement(Icon.x,{s:11}),"Remove "+orphanProps.length+" orphaned")),
+              React.createElement(Icon.x,{s:12}),"Remove "+orphanProps.length+" orphaned")),
           React.createElement("div",{className:"linked-prop-list"},
             linkedRows.map(row=>{
               // carried props don't attach to the character SHEET \u2014 they ride in at
@@ -4824,7 +4824,7 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
                   onClick:(e)=>{ e.stopPropagation();
                     const made = onCreateOwnedProp(c.id, row.name, row.src);
                     if(made && typeof window.appToast==="function") window.appToast("\u201c"+made.name+"\u201d card created ("+(made.kind==="dressing"?"set dressing":made.kind)+") \u2014 now draft its specification, then generate an image.","success"); }},
-                  React.createElement(Icon.plus,{s:11}),"Create card"),
+                  React.createElement(Icon.plus,{s:12}),"Create card"),
                 // INLINE generation — the sheet is built against THIS character's own
                 // sheet (the owner reference), so it must exist first. Undrafted props
                 // draft first (separate press: the fresh fields must land in state
@@ -4863,7 +4863,7 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
                       setPropBusy(null);
                       setSheetTick(t=>t+1);
                     }},
-                    busy ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.sparkles,{s:11}),
+                    busy ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.sparkles,{s:12}),
                     lab,
                     (pDrafted && !busy && typeof window.nbCostChip==="function") ? window.nbCostChip(1) : null);
                 })(),
@@ -4877,7 +4877,7 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
 
       React.createElement(CardFold,{label:"Continuity \u00b7 appearance states",count:states.length||null,defaultOpen:false},
         React.createElement("div",{className:"sheet-props-note"},
-          React.createElement(Icon.sparkles,{s:11}),
+          React.createElement(Icon.sparkles,{s:12}),
           "Moments where this character's look changes \u2014 wounds, costume shifts, time jumps. Each can become its own v2 sheet."),
         React.createElement("div",{className:"state-actions"},
           React.createElement("button",{className:"state-suggest-btn",disabled:suggestingStates,onClick:()=>onSuggestStates&&onSuggestStates(c)},
@@ -4907,7 +4907,7 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
 
       React.createElement(CardFold,{label:"Scale sheet",defaultOpen:false},
         React.createElement("div",{className:"char-scalesheet-hint"},
-          React.createElement(Icon.sparkles,{s:11}),
+          React.createElement(Icon.sparkles,{s:12}),
           "A full-body height chart on the "+((typeof scaleInfoOf==="function")?scaleInfoOf(c).label:"Human")+" ruler \u2014 rendered from the master sheet. Used as the scale reference in shots; set the class in Identity \u25b8 Scale."),
         React.createElement(SheetFrame,{ gen:scaleGenWrapped, slotId:"charscale-"+c.id, name:(c.name||"")+" \u00b7 scale", avatarColor:c.color,
           initials:"H", drafted:true, drafting:false, onDraft:()=>{}, entity:c, onView,
@@ -5003,16 +5003,16 @@ function NbKeyBar(){
   // Banana only when the image proxy is enabled.)
   // operator info only — the admin account sees the strip; everyone else nothing
   if(proxied) return window.turnIsAdmin ? React.createElement("div",{className:"nb-keybar set"},
-    React.createElement(Icon.check,{s:13}),
+    React.createElement(Icon.check,{s:14}),
     React.createElement("span",null,label+" run on your server"),
     React.createElement("span",{className:"nb-key-note"},"\u00b7 no key needed in the browser; sign in to use it")) : null;
   if(!editing && key) return React.createElement("div",{className:"nb-keybar set"},
-    React.createElement(Icon.check,{s:13}),
+    React.createElement(Icon.check,{s:14}),
     React.createElement("span",null,label+" connected"),
     React.createElement("span",{className:"nb-key-note"},"\u00b7 this device only"),
     React.createElement("button",{className:"nb-key-link",onClick:clear},"Change key"));
   return React.createElement("div",{className:"nb-keybar"+(warn?" warn":"")},
-    React.createElement(Icon.alert,{s:13}),
+    React.createElement(Icon.alert,{s:14}),
     React.createElement("div",{className:"nb-key-help"},
       React.createElement("span",{className:"nb-key-lab"},help),
       React.createElement("span",{className:"nb-key-note"}, warn || deviceNote)),
@@ -5113,7 +5113,7 @@ function NbControls(){
   return React.createElement("div",{className:"nb-controls"+(mOpen?" mopen":""),ref:wrapRef},
     /* mobile-only: collapse all three controls into a dropdown */
     React.createElement("button",{className:"nb-ctl-mtoggle",onClick:()=>setMOpen(o=>!o)},
-      React.createElement(Icon.layers,{s:13}),
+      React.createElement(Icon.layers,{s:14}),
       React.createElement("span",{className:"nb-ctl-msum"}, modelLabel+" \u00b7 "+aspect+" \u00b7 "+resv),
       React.createElement(Icon[mOpen?"chevU":"chevD"],{s:12})),
     React.createElement("div",{className:"nb-ctl-body"},
@@ -5137,12 +5137,12 @@ function NbControls(){
               setGroundTipPos({ top:r.bottom+8, left:Math.max(8, Math.min(r.left, window.innerWidth-276)) });
               setGroundTip(t=>!t); },
             title:"Grounding"},
-            React.createElement(Icon.bolt,{s:11,sw:2.2}),ground?"On":""),
+            React.createElement(Icon.bolt,{s:12,sw:2.2}),ground?"On":""),
           groundTip && groundTipPos && ReactDOM.createPortal(React.createElement("div",{className:"nb-ground-tip",
             ref:tipMenuRef, onMouseEnter:()=>setGroundTip(true),
             style:{ position:"fixed", top:groundTipPos.top+"px", left:groundTipPos.left+"px", zIndex:1300 }},
             React.createElement("div",{className:"nb-ground-tip-head"},
-              React.createElement(Icon.bolt,{s:11,sw:2.2}),
+              React.createElement(Icon.bolt,{s:12,sw:2.2}),
               "Grounding",
               React.createElement("span",{className:"nb-ground-tip-badge"},"Nano Banana 2"),
               React.createElement("span",{className:"nb-ground-tip-sub"},"web references")),
@@ -5404,7 +5404,7 @@ function ImageLightbox({ url, character, onClose, siblings, startIndex }){
         React.createElement("span",{className:"lb-title"},(eChar?eChar.name:"Character sheet")
           +(sibs?(" · "+(Math.min(sIdx, sibs.length-1)+1)+"/"+sibs.length):"")
           +((idx>=0 && versions.length>1)?(" · "+versions[idx].label):"")),
-        React.createElement("button",{className:"ag-x",onClick:onClose},React.createElement(Icon.x,{s:17}))),
+        React.createElement("button",{className:"ag-x",onClick:onClose},React.createElement(Icon.x,{s:18}))),
       React.createElement("div",{className:"lb-imgwrap"},
         React.createElement("img",{className:"lb-img",src:cur,alt:"full view"})),
       // centered filmstrip between the image and the download row — no arrow buttons
@@ -5429,7 +5429,7 @@ function ImageLightbox({ url, character, onClose, siblings, startIndex }){
                 editBaseUrl: cur });
               if(typeof window.appToast==="function") window.appToast("Remastering this version — it will land as the new current");
               onClose(); }},
-            React.createElement(Icon.sparkles,{s:13}),"Remaster this version"),
+            React.createElement(Icon.sparkles,{s:14}),"Remaster this version"),
         React.createElement("span",{className:"lb-foot-lab"},"Download"),
         React.createElement("div",{className:"nb-seg"},
           resolutions.map(r=>{
@@ -5651,7 +5651,7 @@ function CharacterSheets({ project, characters, scenes, props, drafts, shots, be
           onBlur:()=>{ if(!query) setSearchOpen(false); },
           onKeyDown:e=>{ if(e.key==="Escape"){ setQuery(""); setSearchOpen(false); if(searchRef.current) searchRef.current.blur(); } }}),
         q && React.createElement("span",{className:"prop-search-count"}, shown.length+" of "+list.length),
-        q && React.createElement("button",{className:"prop-search-clear",title:"Clear search",onClick:(e)=>{ e.stopPropagation(); setQuery(""); setSearchOpen(false); }},React.createElement(Icon.x,{s:13}))),
+        q && React.createElement("button",{className:"prop-search-clear",title:"Clear search",onClick:(e)=>{ e.stopPropagation(); setQuery(""); setSearchOpen(false); }},React.createElement(Icon.x,{s:14}))),
       characters.length>0 && React.createElement("div",{className:"char-style-all",
         title:"Apply one render style to the whole cast at once. Each character can still be overridden on its own card."},
         React.createElement("span",{className:"char-style-all-lab"},
@@ -5659,7 +5659,7 @@ function CharacterSheets({ project, characters, scenes, props, drafts, shots, be
         React.createElement(window.RenderStylePicker,{value:allStyleKey,disabled:!!allStyling,
           placeholderLabel:"Mixed — per character",onPick:applyStyleAll})),
       sceneList.length>0 && React.createElement("div",{className:"prop-scenebar"},
-        React.createElement("span",{className:"prop-scenebar-lab"},React.createElement(Icon.layers,{s:13}),"Focus a scene"),
+        React.createElement("span",{className:"prop-scenebar-lab"},React.createElement(Icon.layers,{s:14}),"Focus a scene"),
         React.createElement("select",{className:"prop-select prop-scenebar-select",value:sceneFilter,onChange:e=>setSceneFilter(e.target.value)},
           React.createElement("option",{value:""},"All scenes — show every character"),
           sceneList.map(s=>{ const n=(charsInSceneMap[s.id]?charsInSceneMap[s.id].size:0);
@@ -5744,7 +5744,7 @@ function ScenePager({ idx, total, title, sub, onPrev, onNext, scenes, onJump, di
           onClick:()=>{ onJump(i); setOpen(false); }},
           React.createElement("span",{className:"scene-pager-menu-no"}, String(s.no||(i+1)).padStart(2,"0")),
           React.createElement("span",{className:"scene-pager-menu-t"}, s.title||"Untitled scene"),
-          i===idx && React.createElement(Icon.check,{s:13}))))),
+          i===idx && React.createElement(Icon.check,{s:14}))))),
     React.createElement("button",{className:"scene-pager-arrow",onClick:onNext,disabled:!!disabled||idx>=total-1,
       title:"Next scene (→)","aria-label":"Next scene"}, React.createElement(Icon.chevR,{s:18})));
 }
@@ -5786,7 +5786,7 @@ function CoordConfirm({ project, characters, props, locations, shots, scenes, dr
   return React.createElement("div",{className:"ns-overlay",onMouseDown:e=>{ if(e.target===e.currentTarget) onCancel(); }},
     React.createElement("div",{className:"cc-modal"},
       React.createElement("div",{className:"cc-head"},
-        React.createElement("span",{className:"cc-orb"}, React.createElement(Icon.robot,{s:17})),
+        React.createElement("span",{className:"cc-orb"}, React.createElement(Icon.robot,{s:18})),
         React.createElement("div",null,
           React.createElement("div",{className:"cc-title"},"Run pre-production"),
           React.createElement("div",{className:"cc-sub"},"Runs the pre-production chain in one pass — Lookbook → Cast → Props → Wardrobe → Locations → Colour → Shot coverage."))),
@@ -5810,7 +5810,7 @@ function CoordConfirm({ project, characters, props, locations, shots, scenes, dr
       React.createElement("div",{className:"cc-foot"},
         React.createElement("button",{className:"ns-btn ghost",onClick:onCancel},"Cancel"),
         React.createElement("button",{className:"ns-btn primary",onClick:onConfirm},
-          React.createElement(Icon.robot,{s:15}), "Run pre-production"))));
+          React.createElement(Icon.robot,{s:16}), "Run pre-production"))));
 }
 window.CoordConfirm = CoordConfirm;
 
@@ -5846,7 +5846,7 @@ function ArtTabLock({ tab, locks, onGo }){
   return React.createElement("section",{className:"art-lock","aria-labelledby":headId},
     React.createElement("div",{className:"art-lock-ic","aria-hidden":"true"},
       React.createElement(TabIc,{s:26}),
-      React.createElement("span",{className:"art-lock-badge"},React.createElement(Icon.padlock||Icon.alert,{s:13}))),
+      React.createElement("span",{className:"art-lock-badge"},React.createElement(Icon.padlock||Icon.alert,{s:14}))),
     React.createElement("h2",{className:"art-lock-t",id:headId},(lock.display||lock.name||t.label||"This tab")+" is locked"),
     React.createElement("p",{className:"art-lock-d"},lock.waitingFor||""),
     (prog && prog.total>0) && React.createElement("div",{className:"art-lock-meter",role:"progressbar",

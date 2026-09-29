@@ -326,7 +326,7 @@ function BeatEditor({ scene, beats, onBeats, focusBeat, draft, characters, proje
     // or pre-stamp maps have none). Hand-edits keep it — they refine, not re-author.
     (beats.by && beats.by.model) && React.createElement("div",{className:"beat-by-line",
       title:"Beat map drafted by "+beats.by.model+(beats.by.at?(" — "+new Date(beats.by.at).toLocaleString()):"")},
-      React.createElement(Icon.sparkles,{s:11}),
+      React.createElement(Icon.sparkles,{s:12}),
       "Drafted by "+beats.by.model+(beats.by.at?(" · "+new Date(beats.by.at).toLocaleDateString(undefined,{month:"short",day:"numeric"})):"")),
     React.createElement("div",{className:"beat-labels"},
       React.createElement("div",{className:"cell"},
@@ -357,7 +357,7 @@ function BeatEditor({ scene, beats, onBeats, focusBeat, draft, characters, proje
             React.createElement("button",{type:"button",className:"bx",disabled:readOnly||i===beats.rows.length-1,onClick:()=>moveBeat(i,1),
               "aria-label":"Move beat "+r.n+" down",title:"Move beat down"},React.createElement(Icon.chevD,{s:14})),
             React.createElement("button",{type:"button",className:"bx",disabled:readOnly,onClick:()=>delBeat(i),
-              "aria-label":"Delete beat "+r.n,title:"Delete beat"},React.createElement(Icon.x,{s:13})))),
+              "aria-label":"Delete beat "+r.n,title:"Delete beat"},React.createElement(Icon.x,{s:14})))),
         React.createElement("div",{className:"beat-edit-cols"},
           React.createElement("div",{className:"beat-edit-col"},
             React.createElement("div",{className:"clab"},beats.driverLabel||"Action"),
@@ -546,7 +546,7 @@ function Inspector({ scene, beats, draft, onCharge, onUpdate, characters, scenes
           React.createElement("button",{className:"ia-btn",disabled:readOnly,onClick:()=>onAddScene(scene.id)},
             React.createElement(Icon.plus,{s:14}),"Add after"),
           React.createElement("button",{className:"ia-btn danger",disabled:readOnly,onClick:()=>onDeleteScene(scene.id)},
-            React.createElement(Icon.x,{s:13}),"Delete"))),
+            React.createElement(Icon.x,{s:14}),"Delete"))),
 
       tab==="beats" && React.createElement("div",{style:{paddingTop:2}},
         React.createElement("div",{className:"insp-eyebrow",style:{marginBottom:10}},

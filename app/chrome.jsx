@@ -2,18 +2,41 @@
 
 /* The product is KINOLOT (say KEE-no-lot), by Infinite Studio AI — owner decision 2026-09-28.
    "TURN" is the internal codename only (TURN.html, turn_* tables, window.TURN_* …) and never
-   appears in copy a user can see. The mark is the value-charge zig-zag (favicon.svg draws the
-   same glyph). */
+   appears in copy a user can see.
+
+   The mark is "The Lot" (owner decision 2026-09-28, logo direction B): three soundstage bays with
+   arched roofs on a baseline — the middle bay filled amber, the outer bays outlined in the text
+   colour (currentColor, so it follows the dark and paper themes). KINOLOT_MARK is the ONE geometry
+   every logo draws: this component, favicon.svg (a thicker 16/32px cut of the same bays), the app
+   icon and the share image (apple-touch-icon.png, og-image.png — rendered by
+   scripts/render-identity.mjs). scripts/test-identity.mjs pins them together. The value-charge
+   zig-zag is the story graph's glyph, not the logo. */
+const KINOLOT_MARK = Object.freeze({
+  box:"0 0 64 64",           // the reference box the geometry is drawn in
+  crop:"4 20 56 29.25",      // the mark's own bounds (strokes included), for inline use. Its BOTTOM is the ground
+                             // line's bottom edge (47.5 + 3.5/2), so on a baseline-aligned row the roofs stand on the
+                             // text line exactly (owner 2026-09-29: "the logo sits at the bottom with its text")
+  outer:Object.freeze(["M9 46 V31 A7.5 7.5 0 0 1 24 31 V46", "M40 46 V31 A7.5 7.5 0 0 1 55 31 V46"]),
+  middle:"M24.5 46 V31 A7.5 7.5 0 0 1 39.5 31 V46 Z",
+  base:"M6 47.5 H58",
+  stroke:3.5,
+  amber:"#F29A43",           // ≈ --accent oklch(0.76 0.145 62), fixed so the mark reads the same on every surface
+});
+window.KINOLOT_MARK = KINOLOT_MARK;
+/* the mark alone, decorative (the wordmark or the surrounding button names it). Sized by CSS
+   (.brand-mark and each surface's rule); the drawing is anchored to the box's bottom edge. The amber bay is drawn
+   first so the outer bays' inner walls sit on its edges and its roof lines up with theirs. */
 function BrandMark(){
-  return React.createElement("div",{className:"brand-mark"},
-    React.createElement("svg",{width:15,height:15,viewBox:"0 0 24 24",fill:"none",
-      stroke:"#fff",strokeWidth:2,strokeLinecap:"round",strokeLinejoin:"round"},
-      React.createElement("path",{d:"M4 16l5-9 6 11 5-7"})));
+  const M = KINOLOT_MARK, ce = React.createElement;
+  return ce("svg",{ className:"brand-mark", viewBox:M.crop, preserveAspectRatio:"xMidYMax meet", fill:"none", "aria-hidden":"true", focusable:"false" },
+    ce("path",{ className:"brand-mark-bay", d:M.middle, fill:M.amber, stroke:M.amber, strokeWidth:M.stroke, strokeLinejoin:"round" }),
+    ce("g",{ stroke:"currentColor", strokeWidth:M.stroke, strokeLinejoin:"round", strokeLinecap:"round" },
+      ce("path",{ d:M.outer[0] }), ce("path",{ d:M.outer[1] }), ce("path",{ d:M.base })));
 }
-/* the two-tone wordmark: ink "Kino" + accent "lot" (.brand-name b); read as one word */
+window.BrandMark = BrandMark;
+/* the wordmark: "Kinolot" in Spectral 600, one colour — the mark carries the amber (.brand-name) */
 function BrandWordmark(){
-  return React.createElement("span",{className:"brand-name"},
-    "Kino",React.createElement("b",null,"lot"));
+  return React.createElement("span",{className:"brand-name"},"Kinolot");
 }
 window.BrandWordmark = BrandWordmark;
 
@@ -42,7 +65,7 @@ function ExportMenu({ project, scenes, drafts, onReset }){
         "Export \u00b7 ",React.createElement("span",{style:{color:"var(--txt-2)"}}, drafted+" of "+scenes.length+" scenes drafted")),
       items.map(([kind,Ic,title,sub])=>
         React.createElement("button",{key:kind,className:"export-item",onClick:()=>run(kind)},
-          React.createElement("span",{className:"export-item-ic"},React.createElement(Ic,{s:15})),
+          React.createElement("span",{className:"export-item-ic"},React.createElement(Ic,{s:16})),
           React.createElement("span",{className:"export-item-t"},
             React.createElement("span",{className:"t"},title),
             React.createElement("span",{className:"s"},sub)))),
@@ -50,7 +73,7 @@ function ExportMenu({ project, scenes, drafts, onReset }){
       onReset && React.createElement("div",{className:"export-foot"},
         React.createElement("button",{className:"export-item reset",
           onClick:async ()=>{ setOpen(false); const ok=await window.appConfirm({title:"Reset to the sample story?",body:"This permanently discards your edits, drafts and version history.",confirmLabel:"Reset",danger:true}); if(ok) onReset(); }},
-          React.createElement("span",{className:"export-item-ic"},React.createElement(Icon.undo,{s:15})),
+          React.createElement("span",{className:"export-item-ic"},React.createElement(Icon.undo,{s:16})),
           React.createElement("span",{className:"export-item-t"},
             React.createElement("span",{className:"t"},"Reset to sample story"),
             React.createElement("span",{className:"s"},"Discard edits, restore The Matrix demo")))) ));
@@ -111,19 +134,19 @@ function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room, artV
       React.createElement(Icon.moreV,{s:18})),
     open && React.createElement("div",{className:"export-menu",style:{maxWidth:"min(300px, calc(100vw - 24px))"}},
       React.createElement("button",{className:"export-item",onClick:()=>{ setOpen(false); onNewStory&&onNewStory(); }},
-        React.createElement("span",{className:"export-item-ic"},React.createElement(Icon.plus,{s:15})),
+        React.createElement("span",{className:"export-item-ic"},React.createElement(Icon.plus,{s:16})),
         React.createElement("span",{className:"export-item-t"},
           React.createElement("span",{className:"t"},"New Story"),
           React.createElement("span",{className:"s"},"Start from an idea"))),
       briefShown && React.createElement("button",{type:"button",className:"export-item ovf-phone",onClick:openBrief},
-        React.createElement("span",{className:"export-item-ic"},React.createElement((Icon.book||Icon.file||Icon.layers),{s:15})),
+        React.createElement("span",{className:"export-item-ic"},React.createElement((Icon.book||Icon.file||Icon.layers),{s:16})),
         React.createElement("span",{className:"export-item-t"},
           React.createElement("span",{className:"t"},"Story brief"),
           React.createElement("span",{className:"s"},project.sourceBrief
             ? "What this story was built from · rebuild as a new film"
             : "The logline this story was built from"))),
       team && React.createElement("button",{type:"button",className:"export-item ovf-phone",onClick:()=>{ setOpen(false); team.open(); }},
-        React.createElement("span",{className:"export-item-ic"},React.createElement(Icon.user,{s:15})),
+        React.createElement("span",{className:"export-item-ic"},React.createElement(Icon.user,{s:16})),
         React.createElement("span",{className:"export-item-t"},
           React.createElement("span",{className:"t"},"Team"),
           team.hint && React.createElement("span",{className:"s"},team.hint))),
@@ -138,7 +161,7 @@ function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room, artV
               "aria-current":artView===t.id?"page":undefined,
               title:locked ? (t.label+" \u2014 locked. "+lock.waitingFor) : t.label,
               onClick:()=>{ setOpen(false); setArtView(t.id); }},
-            React.createElement("span",{className:"export-item-ic"},React.createElement(locked?(Icon.padlock||TabIc):TabIc,{s:15})),
+            React.createElement("span",{className:"export-item-ic"},React.createElement(locked?(Icon.padlock||TabIc):TabIc,{s:16})),
             React.createElement("span",{className:"export-item-t"},
               React.createElement("span",{className:"t"},t.label),
               locked && React.createElement("span",{className:"s"},"Locked \u00b7 unlocks after "+(lock.afterLabel||lock.unlockLabel))));
@@ -146,7 +169,7 @@ function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room, artV
       inWriters && React.createElement("div",{className:"export-subhead"},"Export"),
       inWriters && exp.map(([kind,Ic,title])=>
         React.createElement("button",{key:kind,className:"export-item",onClick:()=>run(kind)},
-          React.createElement("span",{className:"export-item-ic"},React.createElement(Ic,{s:15})),
+          React.createElement("span",{className:"export-item-ic"},React.createElement(Ic,{s:16})),
           React.createElement("span",{className:"export-item-t"},
             React.createElement("span",{className:"t"},title)))),
       // Art Room exports live HERE, not on the Art Room screen (user ruling 2026-07-19).
@@ -156,7 +179,7 @@ function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room, artV
         React.createElement("div",{className:"export-subhead"},"Export"),
         artExports.map(([key,title,sub,fn])=>
           React.createElement("button",{key,className:"export-item",onClick:()=>{ setOpen(false); fn(); }},
-            React.createElement("span",{className:"export-item-ic"},React.createElement(Icon.download,{s:15})),
+            React.createElement("span",{className:"export-item-ic"},React.createElement(Icon.download,{s:16})),
             React.createElement("span",{className:"export-item-t"},
               React.createElement("span",{className:"t"},title),
               React.createElement("span",{className:"s"},sub))))),
@@ -164,7 +187,7 @@ function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room, artV
       onReset && React.createElement("div",{className:"export-foot"},
         React.createElement("button",{className:"export-item reset",
           onClick:async ()=>{ setOpen(false); const ok=await window.appConfirm({title:"Reset to the sample story?",body:"This permanently discards your edits, drafts and version history.",confirmLabel:"Reset",danger:true}); if(ok) onReset(); }},
-          React.createElement("span",{className:"export-item-ic"},React.createElement(Icon.undo,{s:15})),
+          React.createElement("span",{className:"export-item-ic"},React.createElement(Icon.undo,{s:16})),
           React.createElement("span",{className:"export-item-t"},
             React.createElement("span",{className:"t"},"Reset to sample story"))))));
 }
@@ -195,7 +218,8 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
     : (onAgents && React.createElement("button",{className:"tb-btn accent vn-cta",onClick:onAgents,disabled:readOnly,
         title:readOnly?"View-only access — Story Editors cannot change this film":"Story Editors — AI editors that refine your story: Story Doctor, Script Supervisor, Setups & Payoffs, Final Read"},
         React.createElement(Icon.robot,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Story Editors")));
-  return React.createElement("nav",{className:"viewnav","aria-label":inArt?"Art Room views":"Writers' Room views"},
+  // viewnav-art: the Art Room's eight tabs + three actions need their own narrow-width rule (styles.css)
+  return React.createElement("nav",{className:"viewnav"+(inArt?" viewnav-art":""),"aria-label":inArt?"Art Room views":"Writers' Room views"},
     // LEFT zone — story-panel toggle. DRAWER MODES ONLY (hidden ≥1100px via CSS):
     // on desktop the panels collapse/expand from inside (panel-collapse / CollapsedStrip).
     React.createElement("div",{className:"vn-side vn-left"},
@@ -222,7 +246,7 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
               : attn ? (lab+" — a character sheet is waiting to wear its new props: tap \u201cUpdate sheet with new wardrobe\u201d on the card")
               : (stale ? (lab+" — the Lookbook changed since this was drafted") : lab)},
             React.createElement(Ic,{s:14}),React.createElement("span",{className:"seg-lab"},lab),
-            locked ? React.createElement("span",{className:"seg-lock","aria-hidden":"true"},React.createElement(Icon.padlock||Icon.alert,{s:11}))
+            locked ? React.createElement("span",{className:"seg-lock","aria-hidden":"true"},React.createElement(Icon.padlock||Icon.alert,{s:12}))
               : attn ? React.createElement("span",{className:"seg-attn-dot"})
               : (stale && React.createElement("span",{className:"seg-stale-dot"})));
         })),
@@ -277,7 +301,7 @@ function RoomSwitcher({ room, setRoom, hasStory, roomEntitlements }){
       React.createElement("span",{className:"room-btn-t"},
         React.createElement("span",{className:"room-btn-name"},cur.label),
         React.createElement("span",{className:"room-btn-phase"},cur.phase)),
-      React.createElement(Icon.chevD,{s:13})),
+      React.createElement(Icon.chevD,{s:14})),
     open && React.createElement("div",{className:"room-menu"},
       React.createElement("div",{className:"room-menu-h"},"Production pipeline"),
       ROOMS.map((r,i)=>
@@ -290,7 +314,7 @@ function RoomSwitcher({ room, setRoom, hasStory, roomEntitlements }){
             storyLocked(r) ? "Create a story first — this room works on your story" : undefined,
            onClick:()=>{ if(r.live&&!locked(r)){ setRoom(r.id); setOpen(false); } }},
           React.createElement("span",{className:"room-item-no"},i+1),
-          React.createElement("span",{className:"room-item-ic"},React.createElement(Icon[r.icon]||Icon.script,{s:15})),
+          React.createElement("span",{className:"room-item-ic"},React.createElement(Icon[r.icon]||Icon.script,{s:16})),
           React.createElement("span",{className:"room-item-t"},
             React.createElement("span",{className:"room-item-name"},r.label),
             React.createElement("span",{className:"room-item-phase"},r.phase)),
@@ -374,7 +398,7 @@ function ApiKeysModal({ onClose }){
     React.createElement("div",{className:"bible-modal api-keys-mgr",key:tick},
       React.createElement("div",{className:"bible-head"},
         React.createElement("div",{className:"bible-title"},
-          React.createElement((Icon.key||Icon.lock||Icon.layers),{s:15}),"API keys",
+          React.createElement((Icon.key||Icon.lock||Icon.layers),{s:16}),"API keys",
           React.createElement("span",{className:"bible-sub"},"stored locally on this device")),
         React.createElement("button",{className:"bible-x",onClick:onClose,title:"Close"},React.createElement(Icon.x,{s:16}))),
       React.createElement("div",{className:"api-keys-body"},
@@ -394,7 +418,7 @@ function ApiKeysModal({ onClose }){
                 placeholder:has?"Paste a new key to replace the saved one":p.placeholder}),
               React.createElement("button",{className:"styles-mini",disabled:!turnSanitizeApiKey(val),onClick:()=>save(p)},"Save"),
               React.createElement("button",{className:"styles-mini danger",disabled:!has,onClick:()=>remove(p),title:"Remove saved key"},
-                React.createElement(Icon.trash||Icon.x,{s:13}))));
+                React.createElement(Icon.trash||Icon.x,{s:14}))));
         }))));
 }
 window.ApiKeysModal = ApiKeysModal;
@@ -410,11 +434,11 @@ function FilmBibleModal({ getBible, onClose }){
     React.createElement("div",{className:"bible-modal"},
       React.createElement("div",{className:"bible-head"},
         React.createElement("div",{className:"bible-title"},
-          React.createElement(Icon.layers,{s:15}),"Film Bible — continuity JSON",
+          React.createElement(Icon.layers,{s:16}),"Film Bible — continuity JSON",
           React.createElement("span",{className:"bible-sub"},"deterministic projection of the live story · admin only")),
         React.createElement("div",{className:"bible-head-acts"},
           React.createElement("button",{className:"bible-btn"+(copied?" on":""),onClick:copy},
-            React.createElement((Icon[copied?"check":"copy"]||Icon.check),{s:13}), copied?"Copied":"Copy JSON"),
+            React.createElement((Icon[copied?"check":"copy"]||Icon.check),{s:14}), copied?"Copied":"Copy JSON"),
           React.createElement("button",{className:"bible-x",onClick:onClose,title:"Close"},React.createElement(Icon.x,{s:16})))),
       React.createElement("pre",{className:"bible-pre"}, json)));
 }
@@ -465,7 +489,7 @@ function RenderStylesModal({ onClose }){
       React.createElement("button",{className:"styles-mini styles-mini-square",disabled:!!busy||idx>=globalList.length-1,title:"Move down",
         onClick:()=>moveGlobal(s,1)},"↓"),
       React.createElement("button",{className:"styles-mini danger",disabled:!!busy,title:s.builtIn?"Hide this preset for all signed-in users":"Delete this global style for all signed-in users",
-        onClick:()=>delGlobal(s)}, React.createElement(Icon.trash||Icon.x,{s:13}))));
+        onClick:()=>delGlobal(s)}, React.createElement(Icon.trash||Icon.x,{s:14}))));
   const hiddenRow = (s)=> React.createElement("div",{className:"styles-row styles-row-hidden",key:s.key},
     React.createElement("span",{className:"styles-row-name"},s.label),
     React.createElement("span",{className:"styles-row-badge"},"hidden preset"),
@@ -480,12 +504,12 @@ function RenderStylesModal({ onClose }){
         title:globalRenders.has(JSON.stringify(s.render))?"Already a global style":(globalFull?("Global render-style cap ("+globalCap+") reached — delete a global style first"):"Make this style a global preset everyone sees"),
         onClick:()=>publish(s)}, globalRenders.has(JSON.stringify(s.render))?"Global ✓":"→ Make global"),
       React.createElement("button",{className:"styles-mini danger",disabled:!!busy,title:"Delete this saved style",
-        onClick:()=>delUser(s)}, React.createElement(Icon.trash||Icon.x,{s:13}))));
+        onClick:()=>delUser(s)}, React.createElement(Icon.trash||Icon.x,{s:14}))));
   return React.createElement("div",{className:"bible-overlay",onMouseDown:(e)=>{ if(e.target===e.currentTarget) onClose(); }},
     React.createElement("div",{className:"bible-modal styles-mgr"},
       React.createElement("div",{className:"bible-head"},
         React.createElement("div",{className:"bible-title"},
-          React.createElement((Icon.sparkles||Icon.layers),{s:15}), "Render styles",
+          React.createElement((Icon.sparkles||Icon.layers),{s:16}), "Render styles",
           React.createElement("span",{className:"bible-sub"}, isAdmin?"global + your personal styles":"your personal saved styles")),
         React.createElement("button",{className:"bible-x",onClick:onClose,title:"Close"},React.createElement(Icon.x,{s:16}))),
       React.createElement("div",{className:"styles-body"},
@@ -536,7 +560,7 @@ function StoryBriefModal({ project, onClose, onRebuild }){
     React.createElement("div",{className:"bible-modal brief-modal"},
       React.createElement("div",{className:"bible-head"},
         React.createElement("div",{className:"bible-title"},
-          React.createElement((Icon.book||Icon.file||Icon.layers),{s:15}),"Story brief — what the spine was built from",
+          React.createElement((Icon.book||Icon.file||Icon.layers),{s:16}),"Story brief — what the spine was built from",
           when && React.createElement("span",{className:"bible-sub"},"generated "+when)),
         React.createElement("button",{className:"bible-x",onClick:onClose,title:"Close"},React.createElement(Icon.x,{s:16}))),
       // RECOVERY / RE-ROLL: the brief is the story's true source — rebuild runs the
@@ -545,7 +569,7 @@ function StoryBriefModal({ project, onClose, onRebuild }){
       brief && onRebuild && React.createElement("div",{className:"brief-rebuild-row"},
         React.createElement("button",{className:"flag-btn primary",onClick:()=>{ onClose(); onRebuild(); },
           title:"Builds a fresh telling from this brief \u2014 this film stays untouched. Runs the full story build again into a NEW film: spine, cast and script freshly generated."},
-          React.createElement(Icon.sparkles,{s:13}),"Rebuild as a new film"),
+          React.createElement(Icon.sparkles,{s:14}),"Rebuild as a new film"),
         // the model picker sits at the row's far right
         React.createElement("label",{className:"brief-model-pick",title:"The writing model the rebuild runs on \u2014 the same setting as the Writing dock and the New Story window"},
           React.createElement("span",{className:"obj-lab",style:{marginBottom:0}},"Writing model"),
@@ -604,7 +628,7 @@ function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, o
     apiKeysOpen && React.createElement(ApiKeysModal,{ onClose:()=>setApiKeysOpen(false) }),
     React.createElement("div",{className:"tb-left"},
       onHome
-        ? React.createElement("button",{className:"brand brand-btn",onClick:onHome,title:"Home — all your films"},
+        ? React.createElement("button",{className:"brand brand-btn",onClick:onHome,title:"Home — all your films","aria-label":"Kinolot — Home"},
             React.createElement(BrandMark,null),
             React.createElement(BrandWordmark,null))
         : React.createElement("div",{className:"brand"},
@@ -685,10 +709,10 @@ function RailSection({ label, icon:Ic, onAdd, defaultOpen=true, children }){
   return React.createElement("div",{className:`rail-sec ${open?"":"folded"}`},
     React.createElement("div",{className:"rail-sec-head clickable",onClick:()=>setOpen(o=>!o)},
       React.createElement("span",{className:"eyebrow"},
-        React.createElement("span",{className:"rail-fold-ic"},React.createElement(open?Icon.chevD:Icon.chevR,{s:11})),
+        React.createElement("span",{className:"rail-fold-ic"},React.createElement(open?Icon.chevD:Icon.chevR,{s:12})),
         Ic&&React.createElement(Ic,{s:12}),label),
       onAdd&&React.createElement("button",{className:"rail-add",onClick:(e)=>{e.stopPropagation();onAdd();}},
-        React.createElement(Icon.plus,{s:13}))),
+        React.createElement(Icon.plus,{s:14}))),
     open && children);
 }
 
@@ -751,7 +775,7 @@ function WorldPane({ project, scenes, edit, setSetting }){
   return React.createElement("div",{className:"world-pane"},
     fields.map(f=>React.createElement("div",{key:f.k,className:"world-field"+(String(st[f.k]||"").trim()?"":" empty")},
       React.createElement("div",{className:"world-head"},
-        React.createElement("span",{className:"world-ic"},f.Ic && React.createElement(f.Ic,{s:13})),
+        React.createElement("span",{className:"world-ic"},f.Ic && React.createElement(f.Ic,{s:14})),
         React.createElement("span",{className:"world-lab"},f.lab)),
       React.createElement(EditText,{value:st[f.k]||"",multiline:true,readOnly:edit,className:"rail-setting-val",
         placeholder:f.ph,onCommit:(v)=>setSetting(f.k, v)}),

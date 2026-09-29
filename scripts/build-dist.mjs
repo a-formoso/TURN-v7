@@ -113,7 +113,11 @@ for (const page of ["privacy.html", "terms.html"]) {
   cpSync(join(ROOT, page), join(DIST, page));
   copied++;
 }
-cpSync(join(ROOT, "favicon.svg"), join(DIST, "favicon.svg"));
-copied++;
+// the identity files TURN.html links from the site root: the browser-tab icon, the app icon and
+// the share image (og:image points at https://kinolot.infinitestudioai.com/og-image.png)
+for (const file of ["favicon.svg", "apple-touch-icon.png", "og-image.png"]) {
+  cpSync(join(ROOT, file), join(DIST, file));
+  copied++;
+}
 
 console.log(`dist/ built: ${built} js files transpiled+minified, ${copied} assets copied, index.html rewritten (no Babel).`);

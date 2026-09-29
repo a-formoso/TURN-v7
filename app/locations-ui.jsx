@@ -98,7 +98,7 @@ function LocationRoomLinks({entries,onSelectLocation,section}){
     entries.map(({owner,key,label,detail})=>React.createElement("button",{key,className:"loc-room-link",
       onClick:()=>onSelectLocation(owner.id,section)},
       React.createElement("span",null,React.createElement("b",null,label),React.createElement("small",null,detail)),
-      React.createElement(Icon.chevR,{s:13}))));
+      React.createElement(Icon.chevR,{s:14}))));
 }
 
 /* One visible plate per screenplay unit. Environmental notes share that unit's
@@ -787,7 +787,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
               onState:state=>updateVariant(v.id,{state}),onRemove:()=>removeVariant(v.id),onView})),
             React.createElement(LocationRoomLinks,{entries:roomStates,onSelectLocation,section:"environments"}),
             React.createElement("button",{className:"art-draftall ghost loc-variant-add",onClick:addVariant},
-              React.createElement(Icon.plus,{s:13}),"Add environment state")),
+              React.createElement(Icon.plus,{s:14}),"Add environment state")),
           !l.parentLocation&&coverageSheets.length>0&&React.createElement("details",{className:"loc-nested-section"},
             React.createElement("summary",null,"Additional space plates"),
             React.createElement("p",{className:"loc-layer-note"},"Extra empty-set references required by the screenplay, such as an exterior, threshold or connecting space."),
@@ -880,7 +880,7 @@ function CoverageViewsEditor({l,views,onUpdateView,onAdd,onRemove,onDraftStaging
           placeholder:"Cased archway, sink window, three-pane front door\u2026",
           onCommit:visibleAnchors=>onUpdateView(v.id,{visibleAnchors})}))}))),
     React.createElement("button",{className:"art-draftall ghost loc-variant-add",onClick:onAdd},
-      React.createElement(Icon.plus,{s:13}),"Add coverage view"));
+      React.createElement(Icon.plus,{s:14}),"Add coverage view"));
 }
 function StagingGrid({ l, onUpdate, onDraftStaging, draftingStage, value, onChange, lockViewLabel=false, cameraPosition="",target="",viewDetails }){
   const source=value?{...l,staging:value}:l;
@@ -906,7 +906,7 @@ function StagingGrid({ l, onUpdate, onDraftStaging, draftingStage, value, onChan
       React.createElement("span",{className:"stage-map-title"},"View composition"),
       onDraftStaging && React.createElement("button",{className:"art-draftall",disabled:draftingStage,onClick:()=>onDraftStaging(l),
         title:"Let AI draft this view's staging and composition from the script"},
-        React.createElement(Icon.sparkles,{s:13}), draftingStage?"Drafting\u2026":"Draft layout")),
+        React.createElement(Icon.sparkles,{s:14}), draftingStage?"Drafting\u2026":"Draft layout")),
     React.createElement("div",{className:"stage-composition",role:"group","aria-label":"Camera-relative composition for "+(s.viewLabel||l.name||"this view")},
       React.createElement("div",{className:"stage-map-direction"},target?"Looking toward: "+target:"Farther from the camera"),
       React.createElement("div",{className:"stage-map-columns","aria-hidden":true},
@@ -934,7 +934,7 @@ function StagingGrid({ l, onUpdate, onDraftStaging, draftingStage, value, onChan
         cameraPosition&&React.createElement("small",null,cameraPosition)),
       React.createElement("button",{className:"stage-map-floor"+(isFloor?" selected":""),type:"button","aria-pressed":isFloor,
         title:s.floor||"Describe the surface underfoot",onClick:()=>setSelected({key:"floor"})},
-        React.createElement(Icon.layers?Icon.layers:Icon.eye,{s:13}),React.createElement("b",null,"Floor"),
+        React.createElement(Icon.layers?Icon.layers:Icon.eye,{s:14}),React.createElement("b",null,"Floor"),
         React.createElement("span",null,s.floor||"Add ground surface"))),
     React.createElement("p",{className:"stage-map-disclaimer"},"Camera-relative guide · not a measured floor plan."),
     React.createElement("div",{className:"stage-zone-editor",key:isFloor?"floor":selected.plane+"-"+selected.col},
@@ -1092,7 +1092,7 @@ function CoverageReferenceStrip({ refs, excludedIds, onToggle, onView }){
   excludedIds = excludedIds || [];
   return React.createElement("div",{className:"coverage-refs"},
     React.createElement("div",{className:"shot-refs-lab"},
-      React.createElement(Icon.layers,{s:11}),"Reference images"),
+      React.createElement(Icon.layers,{s:12}),"Reference images"),
     React.createElement(window.RefStripScroller||"div",{className:"shot-refs-row coverage-refs-row"},
       refs.map((r,i)=>{
         // required refs are locked in — no exclude tick (they gate generation)
@@ -1596,7 +1596,7 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
           onBlur:()=>{ if(!query) setSearchOpen(false); },
           onKeyDown:e=>{ if(e.key==="Escape"){ setQuery(""); setSearchOpen(false); if(searchRef.current) searchRef.current.blur(); } }}),
         q && React.createElement("span",{className:"prop-search-count"}, shownGroups.length+" of "+groups.length),
-        q && React.createElement("button",{className:"prop-search-clear",title:"Clear search",onClick:(e)=>{ e.stopPropagation(); setQuery(""); setSearchOpen(false); }},React.createElement(Icon.x,{s:13}))),
+        q && React.createElement("button",{className:"prop-search-clear",title:"Clear search",onClick:(e)=>{ e.stopPropagation(); setQuery(""); setSearchOpen(false); }},React.createElement(Icon.x,{s:14}))),
       // Render style stays editable; world scale is always resolved from the scene's occupants.
       React.createElement("div",{className:"char-style-all",
         title:"Apply one render style to ALL locations at once. Each location can still be overridden on its own card."},
@@ -1605,7 +1605,7 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
         React.createElement(window.RenderStylePicker,{context:"location",value:allStyleKey,disabled:!!allStyling,
           placeholderLabel:"Mixed — per location",onPick:applyStyleAll})),
       sceneList.length>0 && React.createElement("div",{className:"prop-scenebar"},
-        React.createElement("span",{className:"prop-scenebar-lab"},React.createElement(Icon.layers,{s:13}),"Focus a scene"),
+        React.createElement("span",{className:"prop-scenebar-lab"},React.createElement(Icon.layers,{s:14}),"Focus a scene"),
         React.createElement("select",{className:"prop-select prop-scenebar-select",value:sceneFilter,
           onChange:e=>setSceneFilter(e.target.value)},
           React.createElement("option",{value:""},"All scenes \u2014 show every location"),

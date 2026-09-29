@@ -238,7 +238,7 @@ function BreakdownStrip({ row, go }){
                 dot(shots.rendered===shots.total), shots.total+" shot"+(shots.total===1?"":"s")+" · "+shots.rendered+" rendered"+(shots.approved?" · "+shots.approved+" approved":""))
             : _bdEl("button",{type:"button",className:"bd-chip",onClick:()=>go("shots"),title:"Design this scene's coverage in the Shots tab"}, dot(false), "No shots yet"))))),
     _bdEl("div",{className:"bd-strip-status"+(ready?" ok":"")},
-      ready ? _bdEl(React.Fragment,null, _bdEl(Icon.check,{s:13}), "Ready")
+      ready ? _bdEl(React.Fragment,null, _bdEl(Icon.check,{s:14}), "Ready")
         : _bdEl(React.Fragment,null, _bdEl("span",{className:"bd-need-n"}, missing.length), _bdEl("span",null,"to go"),
             _bdEl("div",{className:"bd-need-list"}, missing.slice(0,4).map((m,i)=> _bdEl("button",{key:i,type:"button",className:"bd-need",title:m.text,onClick:()=>go(m.tab)}, m.text)),
               missing.length>4 && _bdEl("span",{className:"bd-need more"},"+"+(missing.length-4)+" more")))));

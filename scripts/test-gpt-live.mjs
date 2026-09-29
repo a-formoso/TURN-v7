@@ -38,8 +38,9 @@ assert.doesNotMatch(proxy,/body\.sdp\.trim\(\)\s*:\s*""/,
 const livePos=html.indexOf('src="app/livevoice.js');
 const storyPos=html.indexOf('src="app/newstory.jsx');
 assert.ok(livePos>=0 && storyPos>livePos,"live transport must load before New Story");
-// the live-voice file loads under its own key, or a later change's (the Kinolot rebrand re-keyed it: 20260928-brand1)
-assert.match(html,/app\/livevoice\.js\?v=(?:20260911-gptlive2|20260928-brand1)"/);
+// the live-voice file loads under its own key, or a later change's (the Kinolot rebrand re-keyed it: 20260928-brand1;
+// the Frances daily limit's voice handling ships under 20260929-look1)
+assert.match(html,/app\/livevoice\.js\?v=(?:20260911-gptlive2|20260928-brand1|20260929-look1)"/);
 assert.match(story,/function NSLiveInterview/);
 assert.match(story,/Finish & shape loglines/);
 assert.match(story,/aiSeedToLoglines\("talk",transcript\)/);

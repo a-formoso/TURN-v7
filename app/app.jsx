@@ -226,7 +226,7 @@ function TurnAudit({ scenes, selId, onSelect }){
                   actLabel(s.act)+(s.seq?" · "+s.seq:""),KIND_LABEL[s.kind]?(" · "+KIND_LABEL[s.kind]):"")),
               React.createElement("div",{style:{padding:"12px 14px",borderLeft:"1px solid var(--line)",display:"flex",alignItems:"center",gap:6}},
                 React.createElement(ChargeChip,{value:s.openCharge}),
-                React.createElement("span",{style:{color:"var(--txt-3)",display:"flex"}},React.createElement(Icon.arrowSmall,{s:11})),
+                React.createElement("span",{style:{color:"var(--txt-3)",display:"flex"}},React.createElement(Icon.arrowSmall,{s:12})),
                 React.createElement(ChargeChip,{value:s.closeCharge})),
               React.createElement("div",{style:{padding:"12px 14px",borderLeft:"1px solid var(--line)",fontSize:11.5,color:"var(--txt-1)"}},
                 `${s.openValue} \u2192 ${s.closeValue}`),
@@ -245,7 +245,7 @@ function TurnAudit({ scenes, selId, onSelect }){
               actLabel(s.act)+(s.seq?" · "+s.seq:""),KIND_LABEL[s.kind]?(" · "+KIND_LABEL[s.kind]):""),
             React.createElement("div",{className:"audit-mobile-charge"},
               React.createElement(ChargeChip,{value:s.openCharge}),
-              React.createElement("span",{className:"audit-mobile-arrow"},React.createElement(Icon.arrowSmall,{s:11})),
+              React.createElement("span",{className:"audit-mobile-arrow"},React.createElement(Icon.arrowSmall,{s:12})),
               React.createElement(ChargeChip,{value:s.closeCharge})),
             React.createElement("div",{className:"audit-mobile-shift"},`${s.openValue} \u2192 ${s.closeValue}`));
         }))));
@@ -287,7 +287,7 @@ function Board({ scenes, selId, onSelect }){
             React.createElement("button",{className:"board-act-fold",onClick:()=>toggle(a.act),
               title:`Collapse ${titles[a.act]}`,
               style:{display:"flex",border:0,background:"transparent",cursor:"pointer",color:"var(--txt-2)",padding:2}},
-              React.createElement(Icon.chevD,{s:13})),
+              React.createElement(Icon.chevD,{s:14})),
             React.createElement("span",{className:"tree-act-no"},roman),
             React.createElement("span",{style:{fontFamily:"var(--f-display)",fontSize:13,fontWeight:500}},titles[a.act].split("· ")[1]),
             React.createElement("span",{style:{fontFamily:"var(--f-mono)",fontSize:10,color:"var(--txt-3)",marginLeft:"auto"}},a.scenes.length)),
@@ -309,10 +309,10 @@ function Board({ scenes, selId, onSelect }){
                   display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}},s.summary),
                 React.createElement("div",{className:"scard-charge"},
                   React.createElement(ChargeChip,{value:s.openCharge}),
-                  React.createElement("span",{className:"chip-arrow"},React.createElement(Icon.arrowSmall,{s:11})),
+                  React.createElement("span",{className:"chip-arrow"},React.createElement(Icon.arrowSmall,{s:12})),
                   React.createElement(ChargeChip,{value:s.closeCharge}),
-                  flagged&&React.createElement("span",{className:"tree-flag",style:{marginLeft:"auto"}},React.createElement(Icon.alert,{s:13})),
-                  !flagged&&turnInfo(s).progression&&React.createElement("span",{className:"tree-flag prog",style:{marginLeft:"auto"},title:"Progresses \u2014 intensifies on the same side instead of reversing"},React.createElement(Icon.arrowSmall,{s:13}))));
+                  flagged&&React.createElement("span",{className:"tree-flag",style:{marginLeft:"auto"}},React.createElement(Icon.alert,{s:14})),
+                  !flagged&&turnInfo(s).progression&&React.createElement("span",{className:"tree-flag prog",style:{marginLeft:"auto"},title:"Progresses \u2014 intensifies on the same side instead of reversing"},React.createElement(Icon.arrowSmall,{s:14}))));
             })));})));
 }
 
@@ -3204,7 +3204,7 @@ function App(){
     if(scenes.length) return true;
     const ok = await window.appConfirm({ title:"Create a story first",
       body:what+" works on your story — and there isn't one yet. Bring an idea and Kinolot builds the story with you, scene by scene.",
-      confirmLabel:"+ New Story", cancelLabel:"Not now" });
+      confirmLabel:"New Story", cancelLabel:"Not now" });
     if(ok) startNewStory();
     return false;
   };
@@ -6441,21 +6441,30 @@ function App(){
     setAgentUndo(st=> st.filter(x=>x!==snap));
   };
 
-  // apply grade vars (re-shaded for light mode)
+  // apply grade vars (re-shaded for light mode). The DEFAULT grade and display type are owned by
+  // app/styles.css (:root + html[data-theme="light"]) — one accent family in CSS, never written
+  // from JS (consistency pass 2026-09-29). Only the edit-mode Tweaks panel's alternative grades /
+  // serif display override them inline; choosing the defaults again clears the overrides.
   React.useEffect(()=>{
-    const g = GRADES[t.grade] || GRADES["Teal & Orange"];
-    const light = effectiveTheme === "light";
-    const pos = light ? shadeOklch(g.pos, -0.16, 0.012) : g.pos;
-    const neg = light ? shadeOklch(g.neg, -0.18, 0.012) : g.neg;
     const r = document.documentElement.style;
-    r.setProperty("--pos", pos);
-    r.setProperty("--neg", neg);
-    r.setProperty("--pos-soft", pos.replace(")", light?" / .14)":" / .16)"));
-    r.setProperty("--neg-soft", neg.replace(")", light?" / .14)":" / .16)"));
-    r.setProperty("--pos-line", pos.replace(")", light?" / .42)":" / .5)"));
-    r.setProperty("--neg-line", neg.replace(")", light?" / .42)":" / .5)"));
-    r.setProperty("--brand", pos);
-    r.setProperty("--f-display", t.display==="Serif" ? '"Spectral",serif' : '"Space Grotesk",sans-serif');
+    const GRADE_VARS = ["--pos","--neg","--pos-soft","--neg-soft","--pos-line","--neg-line"];
+    const isDefault = !GRADES[t.grade] || t.grade==="Teal & Orange";
+    if(isDefault) GRADE_VARS.forEach(v=>r.removeProperty(v));
+    else {
+      const g = GRADES[t.grade];
+      const light = effectiveTheme === "light";
+      const pos = light ? shadeOklch(g.pos, -0.16, 0.012) : g.pos;
+      const neg = light ? shadeOklch(g.neg, -0.18, 0.012) : g.neg;
+      r.setProperty("--pos", pos);
+      r.setProperty("--neg", neg);
+      r.setProperty("--pos-soft", pos.replace(")", light?" / .14)":" / .16)"));
+      r.setProperty("--neg-soft", neg.replace(")", light?" / .14)":" / .16)"));
+      r.setProperty("--pos-line", pos.replace(")", light?" / .42)":" / .5)"));
+      r.setProperty("--neg-line", neg.replace(")", light?" / .42)":" / .5)"));
+    }
+    r.removeProperty("--brand");
+    if(t.display==="Serif") r.setProperty("--f-display", '"Spectral",serif');
+    else r.removeProperty("--f-display");
   },[t.grade,t.display,effectiveTheme]);
 
   const densClass = t.density==="compact"?"dens-compact":t.density==="comfy"?"dens-comfy":"";
@@ -6464,11 +6473,14 @@ function App(){
   /* shared clean-canvas onboarding — used by the empty Writers' Room spine AND the
      hard-gated Art Room (the Art Room is downstream of the story — cast, props and
      locations are derived from it — so it stays blocked until a story exists). */
+  /* the ONE empty-state pattern (the Art Room's .art-soon: an icon tile, a Spectral title, a 13px
+     line, a standard lg primary) — consistency pass 2026-09-29 */
   const emptyCanvas = ()=> React.createElement("div",{className:"empty-canvas"},
     React.createElement("div",{className:"empty-canvas-card"},
+      React.createElement("div",{className:"art-soon-ic","aria-hidden":"true"},React.createElement(Icon.spine||Icon.pen,{s:30})),
       React.createElement("div",{className:"empty-canvas-title"},"Start your story"),
       React.createElement("div",{className:"empty-canvas-sub"},"Your canvas is clean. Describe an idea and Kinolot builds the value-charge spine, scene by scene — then characters, props, script and shots all follow from it."),
-      React.createElement("button",{className:"empty-canvas-btn",onClick:startNewStory},"+ New Story")));
+      React.createElement("button",{className:"empty-canvas-btn",onClick:startNewStory},React.createElement(Icon.plus,{s:14}),"New Story")));
   const sceneByBusyShot = draftingSceneShots ? scenes.find(s=>s.id===draftingSceneShots) : null;
   const draftSceneNow = drafting ? scenes[Math.min(drafting.i||0, Math.max(0, scenes.length-1))] : null;
   const draftSceneNo = draftSceneNow && draftSceneNow.no!=null ? String(draftSceneNow.no).padStart(2,"0") : "";
@@ -6568,7 +6580,7 @@ function App(){
   // landing at a user who turns out to be signed in.
   if(authGate && !authReady){
     return React.createElement("div",{className:"lp-splash"},
-      React.createElement("span",{className:"lp-logo"},"Kinolot"),
+      React.createElement("span",{className:"lp-logo"},(typeof BrandMark==="function") && React.createElement(BrandMark,null),"Kinolot"),
       React.createElement("span",{className:"lp-splash-dot"}));
   }
   if(authGate && !session && typeof Landing!=="undefined"){
@@ -6588,7 +6600,7 @@ function App(){
   if(authGate && session && !currentProjectId){
     const reconnecting=cloudConnectionState==="retrying";
     return React.createElement("div",{className:"lp-splash"},
-      React.createElement("span",{className:"lp-logo"},"Kinolot"),
+      React.createElement("span",{className:"lp-logo"},(typeof BrandMark==="function") && React.createElement(BrandMark,null),"Kinolot"),
       React.createElement("span",{className:"lp-splash-dot"}),
       React.createElement("div",{className:"acct-status"},reconnecting
         ? "Reconnecting to your films…"
@@ -6622,22 +6634,22 @@ function App(){
     /* VIEW-ONLY BANNER — say it UP FRONT. RLS rejects this user's writes, so without a
        standing notice they could work for an hour and only discover it from a failed save. */
     readOnlyShare && React.createElement("div",{className:"readonly-banner",role:"status"},
-      React.createElement(Icon.eye||Icon.warn,{s:13}),
+      React.createElement(Icon.eye||Icon.warn,{s:14}),
       React.createElement("span",null,
         React.createElement("b",null,"View-only access — "),
         "you can navigate, inspect, export and play this film. Editing and AI-write actions are disabled. Ask the owner for Co-writer access to edit it.")),
     unknownSharedRole && React.createElement("div",{className:"readonly-banner",role:"status"},
-      React.createElement(Icon.warn||Icon.eye,{s:13}),
+      React.createElement(Icon.warn||Icon.eye,{s:14}),
       React.createElement("span",null,
         React.createElement("b",null,"Role unavailable — "),
         "We couldn\u2019t verify a current collaborator role for this shared project. It is read-only and changes or AI actions will not save. Ask the owner to reassign View-only, Co-writer or Art director access.")),
     !readOnlyShare && !unknownSharedRole && room==="writers" && shareRole==="art_director" && writersRoomReadOnly && React.createElement("div",{className:"readonly-banner",role:"status"},
-      React.createElement(Icon.eye||Icon.warn,{s:13}),
+      React.createElement(Icon.eye||Icon.warn,{s:14}),
       React.createElement("span",null,
         React.createElement("b",null,"Writers' Room is read-only for Art directors — "),
         "you can inspect the story and script here, then return to the Art Room to change the Show Bible and pre-production work.")),
     !readOnlyShare && !unknownSharedRole && room==="art" && shareRole==="writer" && artRoomReadOnly && React.createElement("div",{className:"readonly-banner",role:"status"},
-      React.createElement(Icon.eye||Icon.warn,{s:13}),
+      React.createElement(Icon.eye||Icon.warn,{s:14}),
       React.createElement("span",null,
         React.createElement("b",null,"Art Room is read-only for Writers — "),
         "you can inspect the shared Bible and pre-production work here, then return to the Writers' Room to change story, beats and script.")),
@@ -6943,7 +6955,7 @@ function App(){
             runtimeTotal>0 && React.createElement("div",{className:"legend-item",
               title:"Estimated total runtime, ≈1 page/min (drafted scenes from their script; undrafted ones at this format’s budget per scene)"+
                 (sceneBudget ? " — this "+sceneBudget.label+" is meant to run about "+sceneBudget.runtimeText : "")},
-              React.createElement(Icon.clock,{s:11}),
+              React.createElement(Icon.clock,{s:12}),
               "≈ "+((typeof fmtRuntime==="function") ? fmtRuntime(runtimeTotal) : Math.round(runtimeTotal/60)+" min")),
             React.createElement("div",{className:"legend-item"},
               React.createElement("span",{className:"legend-swatch",style:{background:"var(--pos)"}}),"POS"),
@@ -7047,7 +7059,7 @@ function App(){
       introExtra: (()=>{ const sb=(typeof styleBibleOf==="function")?styleBibleOf(project):{};
         const refs=(sb.refs||"").trim(); const imgs=sb.refImages||[];
         if(!refs && !imgs.length) return React.createElement("div",{className:"ag-coloref empty"},
-          React.createElement(Icon.image,{s:13}), "No visual references yet — research the look in the Lookbook tab, or add films, photographers or reference images here, to steer the palette.");
+          React.createElement(Icon.image,{s:14}), "No visual references yet — research the look in the Lookbook tab, or add films, photographers or reference images here, to steer the palette.");
         return React.createElement("div",{className:"ag-coloref"},
           React.createElement("div",{className:"ag-coloref-lab"}, React.createElement(Icon.sparkles,{s:12}), "Designing from your references"),
           refs && React.createElement("div",{className:"ag-coloref-txt"}, refs),
@@ -7232,22 +7244,22 @@ function App(){
     studioProgress && React.createElement(StudioProgressOverlay, studioProgress),
     // scene delete undo — the same affordance, tied to the film the scene came from
     !writersRoomBlocked && deletedScene && deletedScene.owner===currentProjectId && React.createElement("div",{className:"agent-undo scene-undo"+((agentUndoHere.length>0 && agentUndoHere[agentUndoHere.length-1].label!=="Adaptation")?" stacked":"")},
-      React.createElement("span",{className:"au-ic"},React.createElement(Icon.undo,{s:15})),
+      React.createElement("span",{className:"au-ic"},React.createElement(Icon.undo,{s:16})),
       React.createElement("div",{className:"au-text"},
         React.createElement("div",{className:"au-t"},"Scene "+deletedScene.scene.no+" deleted"),
         React.createElement("div",{className:"au-s"},"Restore it with its beats and draft")),
       React.createElement("button",{className:"au-btn",onClick:undoDeleteScene},
-        React.createElement(Icon.undo,{s:13}),"Undo"),
+        React.createElement(Icon.undo,{s:14}),"Undo"),
       React.createElement("button",{className:"au-x",title:"Dismiss",onClick:()=>setDeletedScene(null)},
         React.createElement(Icon.x,{s:14}))),
     !writersRoomBlocked && agentUndoHere.length>0 && agentUndoHere[agentUndoHere.length-1].label!=="Adaptation" && React.createElement("div",{className:"agent-undo"},
-      React.createElement("span",{className:"au-ic"},React.createElement(Icon.undo,{s:15})),
+      React.createElement("span",{className:"au-ic"},React.createElement(Icon.undo,{s:16})),
       React.createElement("div",{className:"au-text"},
         React.createElement("div",{className:"au-t"},agentLabel(agentUndoHere[agentUndoHere.length-1].label)+" changed your story"),
         React.createElement("div",{className:"au-s"},
           agentUndoHere.length>1 ? (agentUndoHere.length+" runs can be undone") : "One click to revert it")),
       React.createElement("button",{className:"au-btn",onClick:undoLastAgent},
-        React.createElement(Icon.undo,{s:13}),"Undo"),
+        React.createElement(Icon.undo,{s:14}),"Undo"),
       React.createElement("button",{className:"au-x",title:"Keep changes","aria-label":"Keep changes",onClick:()=>setAgentUndo([])},
         React.createElement(Icon.x,{s:14}))),
 

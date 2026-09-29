@@ -151,11 +151,11 @@ function StyleFilmStrip({ scenes, project, presets, onSetScenePreset }){
             presets.map(p=>React.createElement("button",{key:p.id,className:"sb-pick-item"+(p.id===pid?" on":""),onClick:()=>choose(s.id,p.id)},
               React.createElement("span",{className:"sb-pick-sw",style:{background:swatchOf(p)||"#555"}}),
               React.createElement("span",{className:"sb-pick-nm"},p.name),
-              p.id===pid && React.createElement(Icon.check,{s:13}))),
+              p.id===pid && React.createElement(Icon.check,{s:14}))),
             React.createElement("button",{className:"sb-pick-item"+(!pid?" on":""),onClick:()=>choose(s.id,null)},
               React.createElement("span",{className:"sb-pick-sw none"}),
               React.createElement("span",{className:"sb-pick-nm"},"Unassigned"),
-              !pid && React.createElement(Icon.check,{s:13}))));
+              !pid && React.createElement(Icon.check,{s:14}))));
       })),
     used.length>0 && React.createElement("div",{className:"sb-strip-legend"},
       used.map(({p,scs})=>
@@ -215,7 +215,7 @@ function StyleRefImages({ refImages, onRemoveRefImage }){
       React.createElement("div",{className:"sb-refimg-sw"},
         (ri.colors||[]).slice(0,5).map((c,i)=>React.createElement("span",{key:i,style:{background:c}}))),
       onRemoveRefImage && React.createElement("button",{className:"sb-refimg-x",title:"Remove",
-        onClick:()=>onRemoveRefImage(ri.id)},React.createElement(Icon.x,{s:11})))));
+        onClick:()=>onRemoveRefImage(ri.id)},React.createElement(Icon.x,{s:12})))));
 }
 
 /* Reference-driven look-dev: a free-text field where the user names films,
@@ -295,7 +295,7 @@ function InfoTip({ text, label }){
       onBlur:()=>{ setFocused(false); setDismissed(false); },
       onKeyDown:(e)=>{ if(e.key==="Escape"){ e.stopPropagation(); setOpen(false); setHover(false); setDismissed(true); } },
       onClick:(e)=>{ e.stopPropagation(); setDismissed(false); setFocused(false); setOpen(o=>!o); }},
-      React.createElement(Icon.info,{s:13})),
+      React.createElement(Icon.info,{s:14})),
     show && React.createElement("span",{className:"infotip-pop",id:tipId,role:"tooltip"},text));
 }
 window.InfoTip = InfoTip;

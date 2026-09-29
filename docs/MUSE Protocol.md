@@ -196,6 +196,29 @@ to fit (`MUSE_INPUT_BUDGET` in `app/ai.jsx`). A free call's reply is capped at
 `MUSE_LIMITS.maxOutputTokens` with no reasoning-effort setting, and each account has a daily
 allowance of free assistant calls (`MUSE_LIMITS.dailyFreeCalls` in any 24 hours; past it the chat
 is metered, and with nothing left it says "You’ve used today’s free messages with Frances…").
+Ahead of that allowance sits the **daily question limit** (owner decision 2026-09-28): each person
+gets 50 free questions per UTC day (the image-proxy secret `FRANCES_DAILY_LIMIT`), counted
+atomically by `supabase/frances-daily-limit.sql` and decided in
+`supabase/functions/image-proxy/frances-limit.mjs`. Past it the proxy answers 429
+`frances_daily_limit` and calls no model, and the chat shows Frances's calm reply — "That’s today’s
+50 free questions — I’ll be back after midnight UTC (in about 5 hours)." — as an answer, not an
+error, with no retry. A burst of parallel questions from one account gets 429 `frances_busy`
+instead (nothing counted, no model call; the chat says "One question at a time, please — ask me
+again in a moment."). Admins are exempt, and when the count can't be kept (the SQL not run yet, an
+outage: an error or no answer within 8 seconds) the proxy fails open and logs it once. Her facts say she is free up to 50 questions a day,
+so she can answer questions about the limit; the prompt itself is unchanged.
+**Voice counts too** (owner decision 2026-09-29): each New Story voice session (`task: "live"`)
+takes one of the same daily slots, through the same limiter and RPC, after the request is
+validated and before any session is created — one slot per session, however long it lasts. A
+session that then fails to open is not given back, as with a question, so each "Try live again"
+after a failed start uses another slot; her facts say so. Past
+the limit the proxy answers 429 `frances_daily_limit` and opens no session, and
+`app/livevoice.js` shows "That’s today’s 50 free questions with Frances — voice included. She’ll be
+back after midnight UTC (in about 5 hours). You can use the typed interview in the meantime."; a
+burst gets 429 `frances_busy` and "One conversation at a time, please — try again in a moment.".
+Same rules as the chat: admins exempt, fail open, never retried. The typed New Story interview is
+not counted. Ship the app (new `app/livevoice.js` and `app/ai.jsx` cache keys) before deploying the
+proxy: an older client shows the bare error code (supabase/README.md, **Deploy order**).
 Anything else is metered like any writing call. New Story voice uses a server-created GPT-Live session over WebRTC, with binding
 Frances instructions held in the proxy (`task: "live"` in `supabase/functions/image-proxy/index.ts`:
 the same name, "only answers", no-namesake and no-vendor rules). See `app/muse.jsx` for the

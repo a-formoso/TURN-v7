@@ -320,7 +320,7 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
                 : {source:lookbookDefaultName(c),autoNamed:true}); }})))),
 
       !drafted && !gen.genUrl && React.createElement("div",{className:"sheet-undrafted"},
-        React.createElement(Icon.alert,{s:13}),
+        React.createElement(Icon.alert,{s:14}),
         React.createElement("span",null,"No ‘what to borrow’ note yet — add one below, then generate its mood frame.")),
 
       React.createElement(CardFold,{label:"Reference",defaultOpen:true},

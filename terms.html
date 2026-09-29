@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=kinolot1" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20260929-look1" />
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=20260929-look1" />
 <title>Terms of Service — Kinolot</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -11,7 +12,7 @@
 <style>
   :root{
     --bg:#FCFCFB; --card:#F6F6F4; --line:#E8E8E5; --ink:#0F1012; --ink2:#3C3F44;
-    --sub:#5D6066; --black:#0D0D0E; --accent:#E0742B;
+    --sub:#5D6066; --black:#0D0D0E; --accent:#9E5410;  /* the Kinolot amber as small text on paper (5.5:1) — was the retired "Reel" orange */
   }
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:var(--bg);color:var(--ink2);font-family:"Hanken Grotesk",system-ui,sans-serif;
@@ -25,12 +26,19 @@
     border-bottom:1px solid var(--line)}
   .nav-in{max-width:1280px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;
     gap:16px;padding:13px clamp(20px,4vw,48px)}
-  .logo{font-family:"Space Grotesk",sans-serif;font-weight:700;font-size:19px;letter-spacing:.03em;
-    color:var(--ink);text-decoration:none}
+  /* the Kinolot lockup (app/chrome.jsx BrandMark + the Spectral wordmark): the mark on the wordmark's baseline */
+  .logo,.foot-logo{display:inline-flex;align-items:baseline;gap:9px;font-family:"Spectral",Georgia,serif;font-weight:600;
+    font-size:23px;line-height:1;letter-spacing:-.01em;color:var(--ink);text-decoration:none}
+  .logo .mark{display:block;flex:0 0 auto;width:31px;height:17px;overflow:visible}
   .back{display:inline-flex;align-items:center;gap:8px;padding:9px 17px;border-radius:999px;
     border:1px solid #E1E1DD;background:#fff;color:var(--ink);font-size:13.5px;font-weight:600;
     text-decoration:none;transition:.14s}
   .back:hover{background:#F1F1EE}
+  .back{white-space:nowrap}
+  /* small phones: the lockup steps down as Home's does (≤400px), and at 320–360 the header's gutter
+     and the back pill tighten so "← Back to the studio" stays on one line beside it (review 2026-09-29) */
+  @media (max-width:400px){ .logo{font-size:20px;gap:8px} .logo .mark{width:27px;height:15px} }
+  @media (max-width:360px){ .nav-in{gap:10px;padding-left:16px;padding-right:16px} .back{padding:8px 12px;font-size:13px;gap:6px} }
   main{max-width:760px;margin:0 auto;padding:clamp(40px,6vw,80px) clamp(20px,4vw,48px) 80px}
   h1{font-family:"Spectral",Georgia,serif;font-weight:600;font-size:clamp(30px,4vw,44px);
     line-height:1.1;letter-spacing:-.01em;color:var(--ink);margin-bottom:10px}
@@ -44,7 +52,8 @@
   footer{border-top:1px solid var(--line);color:var(--sub)}
   .foot-in{max-width:1280px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;
     gap:16px;flex-wrap:wrap;height:76px;padding:0 clamp(20px,4vw,48px)}
-  .foot-logo{font-family:"Space Grotesk",sans-serif;font-weight:700;font-size:15px;letter-spacing:.03em;color:var(--ink)}
+  .foot-logo{font-size:17px;gap:7px}
+  .foot-logo .mark{display:block;flex:0 0 auto;width:23px;height:13px;overflow:visible}
   .foot-links{display:flex;align-items:center;gap:26px}
   .foot-links a{font-size:12.5px;color:var(--sub);text-decoration:none}
   .foot-links a:hover{color:var(--ink)}
@@ -55,7 +64,7 @@
 <div class="rails" aria-hidden="true"></div>
 <header>
   <div class="nav-in">
-    <a class="logo" href="/">Kinolot</a>
+    <a class="logo" href="/"><svg class="mark" viewBox="4 20 56 29.25" preserveAspectRatio="xMidYMax meet" aria-hidden="true" focusable="false"><path d="M24.5 46 V31 A7.5 7.5 0 0 1 39.5 31 V46 Z" fill="#F29A43" stroke="#F29A43" stroke-width="3.5" stroke-linejoin="round"/><g fill="none" stroke="currentColor" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"><path d="M9 46 V31 A7.5 7.5 0 0 1 24 31 V46"/><path d="M40 46 V31 A7.5 7.5 0 0 1 55 31 V46"/><path d="M6 47.5 H58"/></g></svg>Kinolot</a>
     <a class="back" href="/">&larr; Back to the studio</a>
   </div>
 </header>
@@ -147,7 +156,7 @@
 </main>
 <footer>
   <div class="foot-in">
-    <span class="foot-logo">Kinolot</span>
+    <span class="foot-logo"><svg class="mark" viewBox="4 20 56 29.25" preserveAspectRatio="xMidYMax meet" aria-hidden="true" focusable="false"><path d="M24.5 46 V31 A7.5 7.5 0 0 1 39.5 31 V46 Z" fill="#F29A43" stroke="#F29A43" stroke-width="3.5" stroke-linejoin="round"/><g fill="none" stroke="currentColor" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"><path d="M9 46 V31 A7.5 7.5 0 0 1 24 31 V46"/><path d="M40 46 V31 A7.5 7.5 0 0 1 55 31 V46"/><path d="M6 47.5 H58"/></g></svg>Kinolot</span>
     <nav class="foot-links" aria-label="Legal">
       <a href="/privacy.html">Privacy</a>
       <a href="/terms.html">Terms</a>

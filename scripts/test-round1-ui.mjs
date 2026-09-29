@@ -258,8 +258,9 @@ await test("2 the Scene panel's scroll end and the phone undo toast clear the MU
   const toast = cssBare.slice(cssBare.indexOf(".agent-undo{position:fixed"));
   const phone = toast.slice(toast.indexOf("@media (max-width:640px){"), toast.indexOf("\n}\n", toast.indexOf("@media (max-width:640px){")));
   assert.ok(phone.includes(".agent-undo{right:var(--muse-clear);width:auto;max-width:none}") && phone.includes(".agent-undo.scene-undo.stacked{bottom:98px}"));
-  // the Writing dock stays exactly as committed in 193deaa
-  assert.ok(css.includes(".nb-dock{display:block;position:fixed;right:22px;top:50%;transform:translateY(-50%);z-index:120}")
+  // the Writing dock stays as committed in 193deaa — except its layer (consistency pass 2026-09-29): 72,
+  // above the panel/drawer (60) but below every dialog and Home, which it used to cover at 120
+  assert.ok(css.includes(".nb-dock{display:block;position:fixed;right:22px;top:50%;transform:translateY(-50%);z-index:72}")
     && css.includes(".write-dock{top:50%;transform:translateY(calc(-50% - 118px))}") && css.includes("  .write-dock{right:10px;bottom:144px}")
     && !css.includes("wr-insp-open"));
 });
@@ -935,6 +936,9 @@ for(const [w, h, name] of SIZES){
       for(const s of ["#ovf .export-menu", "#modal"]) assert.ok(C(s, "position")!=="static", tag+s+" is positioned inside the bar");
       assert.ok(C("#modal", "position")==="fixed", tag+"a top-bar window covers the viewport from inside the raised bar");
       assert.ok(L("#wdock") < 130 && L(".muse-dock-wrap") < 130, tag+"Team / Story brief windows (inside the bar) cover the dock and the bubble");
+      // (review 2026-09-29) on a phone the Images dock sits in the bubble's corner (bottom:18px): the docks
+      // paint above the Frances bubble there, or its 16:9 / 2K chips are hidden under the orb
+      if(w <= 700) assert.ok(L("#wdock") > L(".muse-dock-wrap"), tag+"phone: the engine docks sit above the Frances bubble ("+L("#wdock")+" vs "+L(".muse-dock-wrap")+")");
       if(w <= 700) assert.ok(L(".inspector") > L("#scrim") && L("#t1") > L("#scrim"), tag+"the drawer and the toasts sit above the scrim");
       // a confirm and the toasts stay on top of the raised bar (appended at the end of <body>, as in the app)
       const body = qs(doc, "body");

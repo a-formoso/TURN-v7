@@ -236,7 +236,9 @@ function WelcomePlanCard({ plan, credits, activating, onNewStory, onClose }){
   const planLabel = planDisplayName(p ? p.tier : plan);
   return React.createElement("div",{className:"ns-overlay"},
     React.createElement("div",{className:"welcome-card"},
-      React.createElement("div",{className:"welcome-eyebrow"},"Kinolot"),
+      React.createElement("div",{className:"welcome-eyebrow welcome-brand"},
+        typeof BrandMark==="function" && React.createElement(BrandMark),
+        React.createElement("span",{className:"brand-name"},"Kinolot")),
       React.createElement("div",{className:"welcome-title"},
         activating ? "Setting up your plan…" : ("Your "+planLabel+" plan is live")),
       React.createElement("div",{className:"welcome-sub"},
@@ -244,7 +246,8 @@ function WelcomePlanCard({ plan, credits, activating, onNewStory, onClose }){
           ? "Payment received — your credits are being added. This only takes a few seconds."
           : ((Number(credits)||0).toLocaleString()+" credits, refilled monthly. Every render — images, voices, video — runs on them.")),
       React.createElement("button",{className:"welcome-cta",disabled:!!activating,onClick:onNewStory},
-        activating ? "Activating…" : "+ New Story"),
+        activating ? "Activating…" : React.createElement(React.Fragment,null,
+          typeof Icon!=="undefined" && Icon.plus && React.createElement(Icon.plus,{s:14}),"New Story")),
       React.createElement("button",{className:"welcome-later",onClick:onClose},"I’ll look around first")));
 }
 window.WelcomePlanCard = WelcomePlanCard;
@@ -252,7 +255,9 @@ window.WelcomePlanCard = WelcomePlanCard;
 function WelcomeCreditPackCard({ credits, activating, onClose }){
   return React.createElement("div",{className:"ns-overlay"},
     React.createElement("div",{className:"welcome-card"},
-      React.createElement("div",{className:"welcome-eyebrow"},"Kinolot"),
+      React.createElement("div",{className:"welcome-eyebrow welcome-brand"},
+        typeof BrandMark==="function" && React.createElement(BrandMark),
+        React.createElement("span",{className:"brand-name"},"Kinolot")),
       React.createElement("div",{className:"welcome-title"},
         activating ? "Adding your extra credits…" : "Extra credits added"),
       React.createElement("div",{className:"welcome-sub"},
@@ -323,7 +328,7 @@ function PlansModal({ onClose, currentPlan }){
   };
   return React.createElement("div",{className:"ns-overlay",onMouseDown:e=>{ if(e.target===e.currentTarget && !editing) onClose(); }},
     React.createElement("div",{className:"plans-modal"},
-      React.createElement("button",{className:"ag-x plans-x",onClick:onClose},React.createElement(Icon.x,{s:16})),
+      React.createElement("button",{className:"ag-x plans-x",onClick:onClose,title:"Close","aria-label":"Close"},React.createElement(Icon.x,{s:16})),
       React.createElement("div",{className:"plans-head"},
         React.createElement("div",{className:"plans-title"}, editing ? "Edit plan copy" : "Choose your plan"),
         React.createElement("div",{className:"plans-sub"}, editing
@@ -331,7 +336,7 @@ function PlansModal({ onClose, currentPlan }){
           : "Credits power every render — images, voices, and video. Cancel anytime."),
         isAdmin && !editing && React.createElement("button",{className:"plans-edit-btn",onClick:()=>setEditing(true),
           title:"Admin — edit the plan cards' copy (name, blurb, features, most-popular)"},
-          React.createElement((Icon.wand||Icon.sparkles),{s:13})," Edit copy")),
+          React.createElement((Icon.wand||Icon.sparkles),{s:14})," Edit copy")),
       editing
         ? React.createElement(PlanCopyEditor,{ onDone:()=>setEditing(false) })
         : React.createElement(React.Fragment,null,

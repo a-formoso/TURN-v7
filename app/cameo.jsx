@@ -490,15 +490,15 @@ function CameoModal({ character, onClose, onSaved }){
         liveOk && React.createElement("button",{className:"cameo-autopill"+(auto?" on":""),
           onClick:()=>setAuto(a=>!a),
           title:auto?"Auto-capture on \u2014 snaps when the shot looks good":"Auto-capture off \u2014 capture manually"},
-          React.createElement(Icon.bolt,{s:13}),"Auto"),
+          React.createElement(Icon.bolt,{s:14}),"Auto"),
         liveOk && React.createElement("button",{className:"cameo-autopill"+(voiceOn?" on":""),
           onClick:toggleVoice,
           title:voiceOn?"Spoken directions on \u2014 announces when the shot is good, each capture, and the next pose":"Spoken directions off"},
-          React.createElement(Icon.mic,{s:13}),"Voice"),
+          React.createElement(Icon.mic,{s:14}),"Voice"),
         React.createElement("button",{className:"cameo-btn primary",onClick:save,disabled:!hasFront||!consent||saving,
           title:!hasFront?"Capture the Front angle first":(!consent?"Tick the consent box":"")},
           saving ? React.createElement(React.Fragment,null,React.createElement("span",{className:"ns-spin dark"}),"Saving\u2026")
-                 : React.createElement(React.Fragment,null,React.createElement(Icon.check,{s:15}),
+                 : React.createElement(React.Fragment,null,React.createElement(Icon.check,{s:16}),
                      "Lock likeness",shotCount>1?(" \u00b7 "+shotCount+" angles"):"")) ),
 
       React.createElement("input",{ref:fileRef,type:"file",accept:"image/*",style:{display:"none"},onChange:onPickFile})));
@@ -570,7 +570,7 @@ function CameoManager({ nameOf, onClose, onChanged }){
                     +" \u00b7 "+(c.source||"webcam")+" \u00b7 "+(c.date||"")),
                   React.createElement("div",{className:"cameo-mgr-store"},
                     React.createElement("span",{className:"cameo-store-pill "+(c.sync?"cloud":"local")},
-                      React.createElement(Icon[c.sync?"globe":"check"],{s:9,sw:2}),
+                      React.createElement(Icon[c.sync?"globe":"check"],{s:10,sw:2}),
                       c.sync?"Synced to cloud":"On this device only"))),
                 React.createElement("div",{className:"cameo-mgr-acts"},
                   cloudReady && React.createElement("button",{className:"cameo-mgr-btn",onClick:()=>toggleSync(c.id),

@@ -760,7 +760,9 @@ async function main(){
       assert.equal(reviewRow.contained,true,`${name} neither review button is clipped by the card`);
       const headerButtons=await c.eval(`(()=>[...document.querySelectorAll('${primary} .shot-head-right .shot-anchor-btn, ${primary} .shot-head-right .shot-lock-btn')].map(b=>{const s=getComputedStyle(b);return {text:b.textContent.trim(),height:b.getBoundingClientRect().height,borderWidth:s.borderTopWidth,borderStyle:s.borderTopStyle,borderRadius:s.borderTopLeftRadius}}))()`);
       assert.equal(headerButtons.length,3,`${name} keeps Head, Draft specification and QA controls without an approval chip`);
-      for(const button of headerButtons) assert.deepEqual({...button,text:undefined},{text:undefined,height:24,borderWidth:"1px",borderStyle:"solid",borderRadius:"7px"},
+      // radius: the consistency pass (2026-09-29) put every button on the one --r-m token (9px); these
+      // compact 24px header controls follow it (they were 7px before)
+      for(const button of headerButtons) assert.deepEqual({...button,text:undefined},{text:undefined,height:24,borderWidth:"1px",borderStyle:"solid",borderRadius:"9px"},
         `${name} ${button.text} matches the shared header button geometry`);
       for(const theme of ["dark","light"]){
         const compact=await c.eval(`(async()=>{document.documentElement.dataset.theme=${JSON.stringify(theme)};
