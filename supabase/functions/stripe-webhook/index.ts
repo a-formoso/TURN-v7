@@ -1,12 +1,14 @@
 // ============================================================================
-// Cinema Machine — Stripe webhook  (Supabase Edge Function)
+// Kinolot — Stripe webhook  (Supabase Edge Function)
 //
 // Turns a paid subscription into generation credits, and one-off credit packs into
 // top-ups. Metadata-driven: it reads `app`, `tier` and `plan_credits` off plan
 // PRODUCTS, and `app`, `kind=credit_pack`, `pack_credits` off pack PRODUCTS, so
 // changing grants is a Stripe dashboard edit. It ignores any product whose `app`
-// metadata isn't "cinema-machine", so your Academy / mentorship products on the
-// same Stripe account never grant app credits.
+// metadata isn't Kinolot's ("kinolot", or the pre-rebrand "cinema-machine" — both
+// accepted, owner 2026-09-29; see plan-metadata.mjs), so your Academy / mentorship
+// products on the same Stripe account never grant app credits. A `tier=producer`
+// product is stored as plan "studio" (the Producer plan's id everywhere else).
 //
 // SETUP (once):
 //   1. supabase functions deploy stripe-webhook --no-verify-jwt
@@ -27,6 +29,7 @@
 // ============================================================================
 import Stripe from "npm:stripe@16";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { isKnownTier, isOurApp, looksLikeOurs, planTier } from "./plan-metadata.mjs";
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!);
 const WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
@@ -65,8 +68,8 @@ async function reportGrantFailure(args: {
 }
 
 /** Read tier + credits off a subscription's product metadata. Returns the plan,
- *  or a failure reason when the product isn't a valid Cinema Machine plan.
- *  `app !== "cinema-machine"` is NOT a failure — other brand products on the same
+ *  or a failure reason when the product isn't a valid Kinolot plan.
+ *  A product that isn't Kinolot's (isOurApp) is NOT a failure — other brand products on the same
  *  Stripe account are deliberately ignored (reason "other_app" lets callers skip silently). */
 function readPlan(sub: Stripe.Subscription):
   | { ok: true; tier: string; credits: number; productId: string | null }
@@ -76,7 +79,12 @@ function readPlan(sub: Stripe.Subscription):
   const productId = typeof product === "string" ? product
     : (product && typeof product === "object" ? (product as Stripe.Product).id : null);
   const md = (product && typeof product === "object" ? (product as Stripe.Product).metadata : null) || {};
-  if (md.app !== "cinema-machine") {
+  if (!isOurApp(md.app)) {
+    // a product carrying our credit fields under another `app` is a mistyped Kinolot product,
+    // not another brand's — report it (2026-09-29: an unrecognised app once skipped payments silently)
+    if (md.app && looksLikeOurs(md)) {
+      return { ok: false, reason: "other_app_suspect", productId, details: { app: md.app, tier: md.tier ?? null, plan_credits: md.plan_credits ?? null } };
+    }
     return md.app
       ? { ok: false, reason: "other_app", productId, details: { app: md.app } }
       : { ok: false, reason: "missing_app_metadata", productId, details: { metadata: md } };
@@ -85,7 +93,7 @@ function readPlan(sub: Stripe.Subscription):
   if (!Number.isFinite(credits) || credits <= 0) {
     return { ok: false, reason: "invalid_plan_credits", productId, details: { plan_credits: md.plan_credits ?? null, tier: md.tier ?? null } };
   }
-  return { ok: true, tier: md.tier || "member", credits, productId };
+  return { ok: true, tier: planTier(md.tier), credits, productId };
 }
 
 /** Read a one-off credit-pack grant from a Checkout line item's product metadata. */
@@ -93,7 +101,7 @@ function readCreditPack(product: Stripe.Price.Product | undefined | null): numbe
   const md = (product && typeof product === "object" && !("deleted" in product)
     ? (product as Stripe.Product).metadata
     : null) || {};
-  if (md.app !== "cinema-machine" || md.kind !== "credit_pack") return 0;
+  if (!isOurApp(md.app) || md.kind !== "credit_pack") return 0;
   const credits = parseInt(md.pack_credits ?? "0", 10);
   return Number.isFinite(credits) && credits > 0 ? credits : 0;
 }
@@ -110,14 +118,24 @@ async function uidByCustomer(customerId: string | null): Promise<string | null> 
 async function setPlan(uid: string, sub: Stripe.Subscription, customerId: string, event: Stripe.Event, sessionId?: string | null) {
   const plan = readPlan(sub);
   if (!plan.ok) {
-    // Other-brand products on the same Stripe account are ignored by design.
-    if (plan.reason !== "other_app") {
+    // Other-brand products on the same Stripe account are ignored by design — but never
+    // silently: the function log keeps a trail of every skip.
+    if (plan.reason === "other_app") {
+      console.warn(`SKIP other_app event=${event.id} product=${plan.productId} app=${JSON.stringify(plan.details?.app ?? null)}`);
+    } else {
       await reportGrantFailure({
         event, reason: plan.reason, customerId, sessionId: sessionId ?? null,
         subId: sub.id, productId: plan.productId, uid, details: plan.details,
       });
     }
     return;
+  }
+  if (!isKnownTier(plan.tier)) {
+    // still credited below, but every gate would treat this payer as unpaid — surface it
+    await reportGrantFailure({
+      event, reason: "unknown_tier", customerId, sessionId: sessionId ?? null,
+      subId: sub.id, productId: plan.productId, uid, details: { tier: plan.tier, credits: plan.credits },
+    });
   }
   const { error } = await admin.rpc("turn_set_plan", {
     uid,
@@ -142,7 +160,14 @@ async function addCreditPack(uid: string, session: Stripe.Checkout.Session, even
     const product = item.price?.product;
     const md = (product && typeof product === "object" && !("deleted" in product)
       ? (product as Stripe.Product).metadata : null) || {};
-    if (md.app === "cinema-machine") {
+    if (!isOurApp(md.app) && md.app) {
+      const pid = typeof product === "string" ? product : (product as Stripe.Product)?.id ?? null;
+      console.warn(`SKIP other_app event=${event.id} product=${pid} app=${JSON.stringify(md.app)}`);
+      if (looksLikeOurs(md)) {
+        badProducts.push({ product_id: pid, app: md.app, kind: md.kind ?? null, pack_credits: md.pack_credits ?? null, suspect: true });
+      }
+    }
+    if (isOurApp(md.app)) {
       sawCinemaProduct = true;
       const grant = readCreditPack(product);
       if (grant) {
@@ -156,6 +181,17 @@ async function addCreditPack(uid: string, session: Stripe.Checkout.Session, even
     }
   }
   if (!credits) {
+    const suspect = badProducts.some((b) => b.suspect);
+    if (suspect && !sawCinemaProduct) {
+      await reportGrantFailure({
+        event, reason: "other_app_suspect",
+        customerId: (session.customer as string) ?? null,
+        sessionId: session.id, uid: session.client_reference_id,
+        productId: (badProducts[0]?.product_id as string) ?? null,
+        details: { bad_products: badProducts, line_items: items.data.length },
+      });
+      return;
+    }
     if (sawCinemaProduct || items.data.length === 0) {
       // A cinema-machine payment produced ZERO credits — never swallow this.
       await reportGrantFailure({
@@ -227,7 +263,7 @@ Deno.serve(async (req) => {
           const cinema = items.data.some((it) => {
             const p = it.price?.product;
             return !!(p && typeof p === "object" && !("deleted" in p) &&
-              (p as Stripe.Product).metadata?.app === "cinema-machine");
+              isOurApp((p as Stripe.Product).metadata?.app));
           });
           if (cinema) {
             await reportGrantFailure({

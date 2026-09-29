@@ -119,9 +119,9 @@ const ALLOW = [
   // the dev entry file's NAME (users get "/", served from TURN.html; the build writes dist/index.html)
   { file:"serve.js", rule:"TURN",   text:"TURN.html",  why:"file name" },
   { file:"serve.js", rule:"TURN",   text:"/TURN.html", why:"file name" },
-  // Stripe product metadata app="cinema-machine": the webhook grants credits only for products
-  // tagged this way (the Stripe account also sells other products) — an id, rename-sensitive
-  { file:"supabase/functions/stripe-webhook/index.ts", rule:"CINEMA", text:"cinema-machine", why:"Stripe metadata id", count:4 },
+  // Stripe product metadata: the webhook grants credits only for products with app="kinolot" or the
+  // pre-rebrand app="cinema-machine" (plan-metadata.mjs, 2026-09-29) — an internal id, never shown.
+  { file:"supabase/functions/stripe-webhook/plan-metadata.mjs", rule:"CINEMA", text:"cinema-machine", why:"Stripe metadata id (pre-rebrand products; kinolot is the new label, 2026-09-29)", count:1 },
   // a key-derivation namespace for the Blender relay's stored state — changing it orphans saved state
   { file:"supabase/functions/blender-bridge/relay-core.mjs", rule:"CINEMA", text:"cinema-machine/blender-bridge/state-key/v1", why:"crypto namespace id" },
   // server-side reasons for the free-assistant check: logged, never returned to the page

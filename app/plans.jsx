@@ -36,8 +36,9 @@ const PLANS = [
     features:["2,400 credits / month","Writers' Room + Art Room","Characters, props, locations, shots and storyboards"],
     test:"https://buy.stripe.com/test_00waEZ77eeiD6Ti4j1c7u01",
     live:"https://buy.stripe.com/00waEZ77eeiD6Ti4j1c7u01" },
-  // the "studio" tier is SHOWN as "Producer" (owner decision 2026-09-28) — display only:
-  // the tier id, Stripe metadata and stored balances keep "studio"
+  // the "studio" tier is SHOWN as "Producer" (owner decision 2026-09-28) — display only: the tier
+  // id and stored balances keep "studio"; the Stripe product says tier=producer, which the webhook
+  // maps to "studio" (supabase/functions/stripe-webhook/plan-metadata.mjs, 2026-09-29)
   { tier:"studio",   name:"Producer", price:"$149", credits:9000,
     blurb:"Move from script to production.",
     entitlements:{ writers_room:true, art_room:true, stage:true },
@@ -49,8 +50,9 @@ window.CINEMA_PLANS = PLANS;
 
 /* PLAN NAMES AS USERS SEE THEM. "Studio" read like the company (Infinite Studio AI) and
    Blender Studio, so the top plan is shown as "Producer". DISPLAY ONLY: plan ids
-   (writer / director / studio / legacy pro), Stripe metadata, stored balances and saved
-   plan-copy overrides keep their values; a saved "Studio" name is shown as "Producer". */
+   (writer / director / studio / legacy pro), stored balances and saved plan-copy overrides
+   keep their values (Stripe's tier=producer is mapped to "studio" by the webhook); a saved
+   "Studio" name is shown as "Producer". */
 const PLAN_DISPLAY = { writer:"Writer", director:"Director", pro:"Director", studio:"Producer" };
 function legacyPlanName(tier, name){
   return (String(tier||"").toLowerCase()==="studio" && /^studio$/i.test(String(name||"").trim())) ? "Producer" : name;
@@ -68,7 +70,7 @@ function planDisplayName(tierOrName){
 window.turnPlanDisplayName = planDisplayName;
 
 /* One-off top-ups. Create these in Stripe as ONE-OFF products with metadata:
-     app=cinema-machine
+     app=kinolot            (pre-rebrand products say app=cinema-machine; the webhook accepts both)
      kind=credit_pack
      pack_credits=<credits>
    Then paste each Payment Link below. Leave blank until the Stripe link exists. */

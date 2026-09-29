@@ -29,9 +29,11 @@ charges, scenes that turn, beats → script → Art Room → Stage). Served at *
   Researcher, Casting Director, Props Master, Location Scout, Colorist, Shot Designer, Art Coordinator, Production check.
   One apostrophe style: "Writers' Room" (straight).
 - **Display-only renames** (every internal id, role key, plan id and stored value stays): the collaborator role
-  `writer` shows as **"Co-writer"**; the plan `studio` shows as **"Producer"**. In Stripe only the product's
-  display name may change — its metadata `tier=studio` and `app=cinema-machine` are ids the webhook and the
-  plan gates read (a `producer` tier would fall back to Writers' Room-only access).
+  `writer` shows as **"Co-writer"**; the plan `studio` shows as **"Producer"**. Stripe metadata (owner
+  2026-09-29): products carry `app=kinolot` (pre-rebrand ones `app=cinema-machine`; the webhook accepts both, and
+  nothing else) and the Producer product `tier=producer`, which the webhook stores as plan **`studio`** — the id
+  turn_credits, image-proxy, blender-bridge and the app gates check. Both rules live in
+  `supabase/functions/stripe-webhook/plan-metadata.mjs` (tested by `scripts/test-stripe-metadata.mjs`).
 - **Stored data is never migrated:** a label already saved in users' data ("MUSE draft", "TURN prompt compiler", an
   agent's old name in a saved log) is mapped to today's name **where it is displayed** — `window.turnDisplayNames()`
   (agents.jsx: old agent names, "MUSE draft/polish", "TURN prompt compiler"), `promptCompilerLabel()` (artroom.jsx),
