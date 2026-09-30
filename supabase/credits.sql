@@ -349,8 +349,20 @@ grant execute on function public.turn_credit_balance() to authenticated;
 grant execute on function public.turn_spend_credit(integer, text) to authenticated;
 grant execute on function public.turn_record_usage_event(text,text,text,text,integer,text,text,integer,integer,numeric,jsonb) to authenticated;
 grant execute on function public.turn_join_stage_waitlist() to authenticated;
--- webhook RPCs run under the service role (edge function) — no authenticated grant.
--- turn_grant_credits deliberately gets NO grant either — SQL-editor only.
+-- webhook RPCs run under the service role (edge function); turn_grant_credits is SQL-editor
+-- only. "No grant" is NOT enough: Postgres lets PUBLIC (so anon and authenticated) execute a
+-- new function by default, and these run as SECURITY DEFINER — so revoke explicitly
+-- (2026-09-29; supabase/lock-credit-functions.sql applies the same to an existing database).
+revoke all on function public.turn_grant_credits(text, integer) from public, anon, authenticated;
+revoke all on function public.turn_set_plan(uuid, text, integer, text, text, timestamptz) from public, anon, authenticated;
+revoke all on function public.turn_add_pack(uuid, integer) from public, anon, authenticated;
+revoke all on function public.turn_apply_pack_once(text, uuid, integer, text) from public, anon, authenticated;
+revoke all on function public.turn_end_plan(uuid) from public, anon, authenticated;
+grant execute on function public.turn_set_plan(uuid, text, integer, text, text, timestamptz) to service_role;
+grant execute on function public.turn_add_pack(uuid, integer) to service_role;
+grant execute on function public.turn_apply_pack_once(text, uuid, integer, text) to service_role;
+grant execute on function public.turn_end_plan(uuid) to service_role;
+grant execute on function public.turn_grant_credits(text, integer) to service_role;
 
 -- ── LIVE BALANCE: stream row changes to the app ──────────────────────────────
 -- The app subscribes to this table over Supabase realtime (app.jsx), so a grant
