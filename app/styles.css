@@ -2925,6 +2925,12 @@ html[data-theme="dark"] .dt-viewing svg{color:oklch(0.82 0.09 296)}
   background:var(--pos-soft);border:1px solid var(--pos-line);border-radius:var(--r-m);color:var(--pos-ink);
   font:700 12px var(--f-ui);cursor:pointer;transition:.12s}
 .acct-upgrade:hover{background:var(--accent);color:var(--ink-on-accent)}
+/* Manage plan (2026-09-30): the quieter account action under Change plan, plus its calm note */
+.acct-upgrade.acct-manage{background:var(--bg-2);border-color:var(--line-2);color:var(--txt-1);margin-top:4px}
+.acct-upgrade.acct-manage:hover{background:var(--bg-3);color:var(--txt-0)}
+.acct-upgrade.acct-manage:disabled{background:var(--bg-2);color:var(--txt-1);cursor:progress;opacity:.75}
+.acct-manage .ns-spin{width:11px;height:11px;border-color:var(--line-3);border-top-color:var(--txt-0)}
+.acct-status.acct-note{color:var(--txt-2);margin-top:6px;margin-bottom:8px;line-height:1.4}
 
 /* ---- Kinolot plans / paywall modal ---- */
 .plans-modal{position:relative;width:min(880px,94vw);max-height:88vh;overflow:auto;background:var(--bg-1);

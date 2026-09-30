@@ -58,7 +58,7 @@ const REF = {
 };
 const HOST = "https://kinolot.infinitestudioai.com/";
 const KEY = "20260929-look1";
-const LATER = ["20260929-look2", "20260929-look3", "20260929-look4"];   // a later change that re-keys one of these files adds its key here
+const LATER = ["20260929-look2", "20260929-look3", "20260929-look4", "20260930-portal1"];   // a later change that re-keys one of these files adds its key here (Manage plan 2026-09-30: styles.css, auth-ui.jsx)
 
 /* ── a tiny React stand-in that renders function components (so nested marks are visible) ── */
 const el = (type, props, ...children)=>({ type, props:props||{}, children:children.flat(Infinity) });

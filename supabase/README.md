@@ -363,6 +363,33 @@ Offline tests: `node scripts/test-admin-storage.mjs` (the real function core
 against the real SQL on PGlite) and `node scripts/test-admin-storage-ui.mjs`
 (the page itself, `app/admin-storage.jsx`, against a fake function).
 
+## Manage plan (`billing-portal` Edge Function)
+
+Owner request 2026-09-30. The Stripe dashboard's Customer Portal activation page
+would not save, so the portal is set up through the API instead: signed-in
+subscribers get a **Manage plan** button in the account menu (under *Change
+plan*) that opens a portal session to update their card, see invoices and
+cancel at the end of the billing period. Plan switching is **off** in that
+portal (the webhook doesn't handle `customer.subscription.updated` yet), and
+so is changing the billing email; *Change plan* still opens the plans window.
+
+- The function reads the caller from their JWT only (never from the body), looks
+  up `turn_credits.stripe_customer_id` with the service role (none → `409
+  no_subscription`), and reuses the active portal configuration whose metadata
+  is `app=kinolot` — creating it on the first call. No SQL, no new secret
+  (`STRIPE_SECRET_KEY` is already set for `stripe-webhook`), no dashboard step.
+- The portal's way back is the caller's Origin when it is one of the app's hosts
+  (kinolot.infinitestudioai.com, cinema.infinitestudioai.com, kinolot.replit.app,
+  localhost), else `https://kinolot.infinitestudioai.com/`.
+- *(Mac, owner approval)* Deploy with JWT verification **on** (no
+  `--no-verify-jwt`):
+  `npx -y supabase@latest functions deploy billing-portal --project-ref vubenblfdzginlqiglzw --use-api`
+  Until it is deployed the button shows "Plan management isn't available right
+  now. Try again in a moment."
+
+Offline test: `node scripts/test-billing-portal.mjs` (the function core against
+fake Stripe / Supabase adapters, and the account-menu button).
+
 ## Frances's daily question limit (`frances-daily-limit.sql`)
 
 **Status (2026-09-29): the SQL was run on production by the owner on

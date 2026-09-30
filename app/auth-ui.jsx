@@ -98,8 +98,72 @@ function AuthModal({ onClose, onAuthed, initialMode, plan, light }){
 }
 window.AuthModal = AuthModal;
 
+/* MANAGE PLAN (owner request 2026-09-30) — asks the billing-portal Edge Function for a
+   portal session for the signed-in user (the function reads the user from the JWT and the
+   customer from the database; nothing identifying is sent in the body) and returns its url.
+   The page there updates the card, lists invoices and cancels at the end of the period;
+   switching plans stays on "Change plan". Resolves { ok:true, url } or { ok:false, code }. */
+const BILLING_PORTAL_FN = "billing-portal";
+const BILLING_PORTAL_TIMEOUT_MS = 20000;
+// after handing the page to the portal url: if the page is still here this long after (the
+// "Leave site?" prompt was answered Stay, or Back restored it from the back/forward cache,
+// where timers pause and fire on return), the button works again
+const BILLING_PORTAL_RESET_MS = 4000;
+const BILLING_PORTAL_COPY = {
+  // the button only shows on a paid plan, so this reads as "nothing billed to manage here"
+  // (e.g. a plan granted by the team), not "choose a plan" — the menu already names the plan
+  no_subscription: "There's no subscription on this account to manage here. For billing questions, write to kinolot-billing@infinitestudioai.com.",
+  not_signed_in: "Sign in again to manage your plan.",
+  unavailable: "Plan management isn't available right now. Try again in a moment.",
+  failed: "Couldn't open plan management. Try again in a moment, or write to kinolot-billing@infinitestudioai.com.",
+};
+async function requestBillingPortal(){
+  const sb = (typeof window.sbClient === "function") ? window.sbClient() : null;
+  if(!sb || !sb.functions || typeof sb.functions.invoke !== "function") return { ok:false, code:"unavailable" };
+  let timer = null;
+  const timeout = new Promise((resolve)=>{ timer = setTimeout(()=> resolve({ __timeout:true }), BILLING_PORTAL_TIMEOUT_MS); });
+  try{
+    const r = await Promise.race([sb.functions.invoke(BILLING_PORTAL_FN, { body:{} }), timeout]);
+    if(r && r.__timeout) return { ok:false, code:"failed" };
+    const data = r && r.data, error = r && r.error;
+    if(error){
+      const name = String(error.name || "");
+      if(name === "FunctionsFetchError" || name === "FunctionsRelayError") return { ok:false, code:"unavailable" };
+      const ctx = error.context;
+      const status = ctx && typeof ctx.status === "number" ? ctx.status : 0;
+      let body = null;
+      try{ if(ctx && typeof ctx.json === "function") body = await ctx.json(); }catch(e){}
+      const code = body && typeof body.code === "string" ? body.code : "";
+      if(code === "no_subscription" || code === "not_signed_in") return { ok:false, code:code };
+      if(status === 401) return { ok:false, code:"not_signed_in" };
+      if(status === 404 || code === "not_configured") return { ok:false, code:"unavailable" };
+      return { ok:false, code:"failed" };
+    }
+    const url = data && typeof data.url === "string" ? data.url : "";
+    if(!/^https:\/\//.test(url)) return { ok:false, code:"failed" };
+    return { ok:true, url:url };
+  }catch(e){
+    return { ok:false, code:"failed" };
+  }finally{
+    if(timer) clearTimeout(timer);
+  }
+}
+
 function AccountChip({ session, cloudActive, connectionState, saveState, shareRole, roleUnavailable, onSignIn, onSignOut }){
   const [open, setOpen] = React.useState(false);
+  // Manage plan: busy while the portal session is requested; msg is the calm inline note
+  const [portal, setPortal] = React.useState({ busy:false, msg:"" });
+  const portalResetRef = React.useRef(null);
+  React.useEffect(()=>{
+    // Back from the portal restores this page from the back/forward cache with its state:
+    // make the button usable again right away (the reset timer also covers it)
+    const onShow = (e)=>{ if(e && e.persisted) setPortal({ busy:false, msg:"" }); };
+    if(typeof window.addEventListener==="function") window.addEventListener("pageshow", onShow);
+    return ()=>{
+      if(typeof window.removeEventListener==="function") window.removeEventListener("pageshow", onShow);
+      if(portalResetRef.current){ clearTimeout(portalResetRef.current); portalResetRef.current = null; }
+    };
+  },[]);
   const ref = React.useRef(null);
   React.useEffect(()=>{
     if(!open) return;
@@ -122,8 +186,22 @@ function AccountChip({ session, cloudActive, connectionState, saveState, shareRo
     : shareRole==="view_only" ? "View only" : "";
   const roleTitle = roleUnavailable ? " Project role unavailable; this shared project is read-only."
     : (scopedRole ? " Role: "+scopedRole+"." : "");
+  const managePlan = async ()=>{
+    if(portal.busy) return;
+    setPortal({ busy:true, msg:"" });
+    const r = await requestBillingPortal();
+    if(r.ok){
+      // the portal's return link brings the subscriber back to this app; stay busy while the
+      // page leaves — and if it doesn't leave after all, the button comes back on its own
+      try{ window.location.assign(r.url); }catch(e){ setPortal({ busy:false, msg:BILLING_PORTAL_COPY.failed }); return; }
+      if(portalResetRef.current) clearTimeout(portalResetRef.current);
+      portalResetRef.current = setTimeout(()=>{ portalResetRef.current = null; setPortal({ busy:false, msg:"" }); }, BILLING_PORTAL_RESET_MS);
+      return;
+    }
+    setPortal({ busy:false, msg:BILLING_PORTAL_COPY[r.code] || BILLING_PORTAL_COPY.failed });
+  };
   return React.createElement("div",{className:"acct-wrap",ref:ref},
-    React.createElement("button",{className:"acct-chip"+(open?" open":""),onClick:()=>setOpen(o=>!o),title:email},
+    React.createElement("button",{className:"acct-chip"+(open?" open":""),onClick:()=>{ setOpen(o=>!o); if(!portal.busy && portal.msg) setPortal({ busy:false, msg:"" }); },title:email},
       React.createElement("span",{className:"acct-av"}, initial),
       cloudActive
         // the chip reports the REAL save state — it used to read "Synced" purely because
@@ -183,6 +261,15 @@ function AccountChip({ session, cloudActive, connectionState, saveState, shareRo
             onClick:()=>{ setOpen(false); window.turnOpenPlans(); }},
             React.createElement(Icon.sparkles,{s:12}),
             (bal && window.turnIsPaidPlan && window.turnIsPaidPlan(bal.plan)) ? "Change plan" : "Get credits \u00b7 Choose a plan"),
+          // Manage plan (2026-09-30): paid plans only \u2014 card, invoices, cancel at the end of
+          // the period, on the billing portal the billing-portal Edge Function opens
+          (bal && window.turnIsPaidPlan && window.turnIsPaidPlan(bal.plan) && typeof window.sbClient==="function") &&
+            React.createElement("button",{className:"acct-upgrade acct-manage",disabled:portal.busy,"aria-busy":portal.busy?"true":"false",
+                title:"Update your card, see invoices, or cancel at the end of the billing period",
+                onClick:managePlan},
+              portal.busy ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.clipboard,{s:12}),
+              portal.busy ? "Opening\u2026" : "Manage plan"),
+          portal.msg && React.createElement("div",{className:"acct-status acct-note",role:"status"}, portal.msg),
           ts && React.createElement("div",{className:"acct-status",
             title:"Writing model use \u2014 a running tally on this device of drafting, agent and QA calls. The server deducts each call's real token cost from your credits; Frances is free."},
             "Writing model: "+ts.calls+" call"+(ts.calls===1?"":"s")+" \u00b7 \u2248"+(ts.credits||0)+" credits"
