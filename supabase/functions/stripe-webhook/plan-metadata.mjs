@@ -40,3 +40,16 @@ export function isKnownTier(planId) {
 export function looksLikeOurs(md) {
   return !!md && (md.plan_credits != null || md.pack_credits != null || norm(md.kind) === "credit_pack");
 }
+
+/** The subscription an invoice belongs to, across Stripe API versions. Before 2025-03-31.basil
+    it is invoice.subscription; from basil on it moved to invoice.parent.subscription_details
+    .subscription — and the live endpoint is on 2026-03-25.dahlia (owner's dashboard,
+    2026-09-30), so reading only the old field skipped every renewal silently. Accepts an id
+    string or an expanded object; null when neither is present. */
+export function invoiceSubscriptionId(inv) {
+  if (!inv || typeof inv !== "object") return null;
+  const pick = (v) => (typeof v === "string" && v) ? v
+    : (v && typeof v === "object" && typeof v.id === "string" && v.id) ? v.id : null;
+  const details = inv.parent && typeof inv.parent === "object" ? inv.parent.subscription_details : null;
+  return pick(inv.subscription) || pick(details && details.subscription) || null;
+}

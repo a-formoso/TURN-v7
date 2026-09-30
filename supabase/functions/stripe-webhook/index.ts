@@ -29,7 +29,7 @@
 // ============================================================================
 import Stripe from "npm:stripe@16";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { isKnownTier, isOurApp, looksLikeOurs, planTier } from "./plan-metadata.mjs";
+import { invoiceSubscriptionId, isKnownTier, isOurApp, looksLikeOurs, planTier } from "./plan-metadata.mjs";
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!);
 const WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
@@ -277,9 +277,22 @@ Deno.serve(async (req) => {
       // MONTHLY renewal — refill to the plan allowance (mapped via stored customer)
       case "invoice.paid": {
         const inv = event.data.object as Stripe.Invoice;
-        if (inv.billing_reason === "subscription_cycle" && inv.subscription) {
+        if (inv.billing_reason === "subscription_cycle") {
+          // where the subscription id sits depends on the endpoint's API version (see
+          // invoiceSubscriptionId); as a last resort ask the API, whose pinned SDK version
+          // (stripe@16) still returns invoice.subscription
+          let subId = invoiceSubscriptionId(inv);
+          if (!subId && inv.id) subId = invoiceSubscriptionId(await stripe.invoices.retrieve(inv.id));
+          if (!subId) {
+            await reportGrantFailure({
+              event, reason: "renewal_without_subscription",
+              customerId: (inv.customer as string) ?? null,
+              details: { invoice_id: inv.id ?? null },
+            });
+            break;
+          }
           const uid = await uidByCustomer(inv.customer as string);
-          const sub = await stripe.subscriptions.retrieve(inv.subscription as string, {
+          const sub = await stripe.subscriptions.retrieve(subId, {
             expand: ["items.data.price.product"],
           });
           if (uid) {
@@ -291,7 +304,7 @@ Deno.serve(async (req) => {
               await reportGrantFailure({
                 event, reason: "unknown_customer",
                 customerId: (inv.customer as string) ?? null,
-                subId: inv.subscription as string, productId: plan.productId,
+                subId, productId: plan.productId,
                 details: plan.ok ? { tier: plan.tier, credits: plan.credits } : plan.details,
               });
             }
