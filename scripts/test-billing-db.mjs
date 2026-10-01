@@ -1316,6 +1316,23 @@ if (part("N", "N. reconciliation: turn_open_provider_holds, turn_claim_housekeep
   b = await balanceOf(db, U.P);
   ok("N16 …and 0 once they are finished", b.row.held === 0 && (await balanceOf(db, U.D)).row.held === 0, b.row);
   ok("N17 balances add up", await consistent(db));
+  /* the service-only guard reads the request's JWT the way Supabase's auth.role() does (Replit's real-Postgres run,
+     2026-10-01: a stand-in auth.role() that falls back to current_user refused the SQL editor's own sweep) */
+  await db.exec(`create or replace function auth.role() returns text language sql stable as $f$
+    select coalesce(nullif(current_setting('request.jwt.claim.role', true), ''), current_user)::text $f$`);
+  const editorSweep = await as(db, "editor", "select public.turn_expire_lots() as n");
+  ok("N18 turn__service_only: a session with no JWT (the SQL editor, pg_cron) passes even when auth.role() falls back to the database user",
+    editorSweep.ok, editorSweep);
+  const claimed = await db.transaction(async (tx) => {
+    await tx.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify({ role: "authenticated" })]);
+    try { await tx.query("select public.turn_expire_lots()"); return "ran"; } catch (e) { return e.message; }
+  });
+  const claimedOld = await db.transaction(async (tx) => {
+    await tx.query("select set_config('request.jwt.claim.role', 'anon', true)");
+    try { await tx.query("select public.turn_expire_lots()"); return "ran"; } catch (e) { return e.message; }
+  });
+  ok("N19 …while a request that carries a non-service role is refused by the guard itself (claims JSON or the older claim.role setting)",
+    /is for the service role only/.test(claimed) && /is for the service role only/.test(claimedOld), { claimed, claimedOld });
 }
 
 /* The server's own numbers (image-proxy) and the app's recording limit, so the owner docs (L) and CLAUDE.md (P)

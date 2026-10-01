@@ -328,10 +328,17 @@ returns void
 language plpgsql
 set search_path = ''
 as $$
+declare
+  v_role text;
 begin
   -- EXECUTE grants already limit these functions to the service role; this is the
-  -- second lock. No JWT at all = the SQL editor (postgres), which is allowed.
-  if auth.role() is not null and auth.role() <> 'service_role' then
+  -- second lock. No JWT at all = a direct database session (the SQL editor, pg_cron),
+  -- which is allowed. The role is read from the request's JWT exactly as Supabase's own
+  -- auth.role() reads it, so a stand-in auth.role() that falls back to current_user
+  -- (the real-Postgres test harness) can't turn the SQL editor's session into a refusal.
+  v_role := coalesce(nullif(pg_catalog.current_setting('request.jwt.claim.role', true), ''),
+                     (nullif(pg_catalog.current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'));
+  if v_role is not null and v_role <> 'service_role' then
     raise exception using errcode = '42501', message = 'KINOLOT_BILLING: ' || p_fn || ' is for the service role only';
   end if;
 end $$;
