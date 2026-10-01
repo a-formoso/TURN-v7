@@ -1,6 +1,8 @@
 # Kinolot billing fixes: owner runbook
 
-Written 2026-09-30 for the owner, revised 2026-10-01 after five review rounds. Nothing below has been run, deployed or sent yet. The code is committed and pushed to GitHub (main), so Replit and the Mac deploys get the same code.
+Written 2026-09-30 for the owner, revised 2026-10-01 after five review rounds.
+
+**Status (2026-10-01): day 0 is done.** Steps 1 to 5 ran on 2026-10-01 (SQL, housekeeping schedule, Stripe, deploys, Replit publish of `cbccd80`). Two fixes on the way: the Supabase `STRIPE_SECRET_KEY` was a test key (replaced with the live key), and the owner's own Director subscription was linked to its account by hand. **Step 7 (the notice) is not needed:** the only Stripe subscriber is the owner's own test subscription. **Next:** the switch (step 6), as soon as the updated Terms and Privacy pages are approved (they go live the same day) and a non-admin account has made one paid request (the switch's safety check needs it). Until the switch, the site correctly shows 800 / 2,400 / 9,000 credits and the current packs (300 / 1,200 / 4,000).
 
 Each step says which machine it runs on. Do the steps in this order. Steps 1 to 5 and the notice (step 7) happen on **day 0**. Step 6 is the **switch day**, at least 30 days after the notice.
 
@@ -202,7 +204,9 @@ The new cache keys (`20260930-billing1`) make every browser load the new files.
 
 **If the app is not published:** the old app keeps working against the new server, but it never shows the new banners, the pack balance or the trial.
 
-## (6) Switch day, at least 30 days after the notice
+## (6) Switch day
+
+**Before you start:** the updated `terms.html` / `privacy.html` are approved and committed (they go live in item 5 below, the same day), the "Last updated" date on both pages is set to the switch date, and at least one non-admin account has made a paid request since the day-0 deploy (admins take no holds; the switch refuses without one).
 
 1. **Stripe, a few minutes before the switch:**
    - **deactivate the three old pack links** (300 / 1,200 / 4,000; ids `8x200l63a2zVfpO9Dlc7u03`, `9B6cN73V28YjfpO02Lc7u04`, `8x200l77e1vR4La7vdc7u05`);
@@ -217,11 +221,12 @@ The new cache keys (`20260930-billing1`) make every browser load the new files.
 3. **Stripe, right after:**
    - set the plan products' `plan_credits` metadata to Writer `600`, Director `1600`, Producer `5000`;
    - activate the three new pack payment links.
-4. **Nothing to deploy or publish:**
+4. **No deploy needed:**
    - the functions switch to 1 credit = $0.01 within about 30 seconds;
    - open tabs of the app switch within about 5 minutes, sooner when someone comes back to a tab after a minute away, and at once on a reload;
    - the Plans window then shows 600 / 1,600 / 5,000, the trial line and the new packs;
    - current subscribers see "Your monthly allowance stays … until <date>".
+5. **Replit: Pull, then Publish** — this puts the updated Terms and Privacy pages live, matching the new rules.
 
 **Check:**
 - `select * from public.turn_credit_regime();` shows `switched = true`, `usd_per_credit = 0.01`, `trial_credits = 50`;
@@ -234,7 +239,10 @@ The new cache keys (`20260930-billing1`) make every browser load the new files.
 - **`billing-switch.sql` never runs:** everything stays at the old value, and the notice would be wrong.
 - **Run by mistake** (for example before the notice): see **Rollback** below.
 
-## (7) The 30-day notice (send on day 0, after step 5)
+## (7) The 30-day notice — not needed (owner, 2026-10-01)
+
+The only Stripe subscriber is the owner's own test subscription, so no notice is sent. The text below is kept for a future price change with real subscribers.
+
 
 Fill in the two dates:
 - `<SWITCH DATE>`: at least 30 days away;
