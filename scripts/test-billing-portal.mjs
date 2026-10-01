@@ -601,7 +601,9 @@ await test("C4 the note clears when the menu is reopened, and Retry works", asyn
 await test("D1 TURN.html: the changed files load under 20260930-portal1 (script.jsx shares ai.jsx's key)", () => {
   const html = read("TURN.html");
   const key = (f) => (html.match(new RegExp(f.replace(/\./g, "\\.") + "\\?v=([^\"']+)")) || [])[1] || "";
-  for (const f of ["app/auth-ui.jsx", "app/ai.jsx", "app/script.jsx", "app/styles.css"]) assert.equal(key(f), "20260930-portal1", f);
+  // the billing fixes (2026-09-30) re-keyed all four files again: 20260930-billing1
+  for (const f of ["app/auth-ui.jsx", "app/ai.jsx", "app/script.jsx", "app/styles.css"]) assert.ok(["20260930-portal1", "20260930-billing1"].includes(key(f)), f);
+  assert.equal(key("app/ai.jsx"), key("app/script.jsx"), "script.jsx shares ai.jsx's key");
 });
 await test("D2 CSS: Manage plan is the quieter account action, its spinner and note are styled", () => {
   const css = read("app/styles.css");
@@ -641,7 +643,8 @@ await test("D3 APP_FEATURES: the account-menu how-to names Manage plan (card, in
     "Switching between plans isn't available on that page yet (and the billing email can't be changed there); 'Change plan' still opens the plans window.",
     "If the plan isn't billed through a subscription (for example a plan the team granted), a short note under the button says 'There's no subscription on this account to manage here.' and gives the billing address",
   ]) assert.ok(plans.what.includes(s), s);
-  const added = plans.what.slice(plans.what.indexOf("MANAGE PLAN:"), plans.what.indexOf("Active subscribers can buy"));
+  // (billing fixes, 2026-09-30: the pack facts after it now open with "CREDIT PACKS:")
+  const added = plans.what.slice(plans.what.indexOf("MANAGE PLAN:"), plans.what.indexOf("CREDIT PACKS:"));
   assert.ok(added.length > 200 && !/stripe|portal/i.test(added), "the new how-to names no vendor: " + added);
   // billing how-to never reaches Frances (MUSE Protocol §3): the plans entry is dropped from her facts
   const facts = box.museFacts().map((f) => f.name + ": " + f.what).join("\n");

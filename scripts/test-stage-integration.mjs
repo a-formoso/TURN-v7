@@ -418,7 +418,9 @@ ok("text-only recovery preserves written entities while removing media tokens an
     &&textOnlyPrompt.includes("Funeral Home Office")
     &&textOnlyPrompt.includes("no source media is attached"));
 ok("text-only recovery is a user action and never an automatic provider retry",
-  source.includes('"Retry from text only · "+totalCost+" credit"')
+  // billing repair 2026-09-30 (F22): the text-only retry sends no video references, so it shows (and
+  // quotes) the output-only cost, textOnlyTotal
+  source.includes('"Retry from text only · "+textOnlyTotal.toLocaleString("en-US")+" credit"')
     &&source.includes("onGenerate({referenceFree:true})")
     &&source.includes("textOnly:referenceFree"));
 const clarifiedPrompt=box.stagePolicyContextPrompt("A grieving character stands beside prescription bottles.");

@@ -6,6 +6,13 @@
  */
 import { validStorageFolders } from "./storage-paths.mjs";
 
+/* A credit count as users read it: whole, with thousands separators ("1,709"; billing round 3,
+   S7 — the same rule as image-proxy/billing-policy.mjs formatCredits). */
+export function formatCredits(n) {
+  const v = Math.max(0, Math.floor(Number(n) || 0));
+  return String(v).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
 export function createSupabaseAdapter({
   createClient, url, anonKey, serviceKey, bucket = "turn-assets",
 } = {}) {
@@ -238,34 +245,124 @@ export function createSupabaseAdapter({
     return contentType ? { bytes, contentType } : null;
   }
 
-  // This non-spending preflight intentionally uses the launching browser JWT.
-  // A paired desktop can only use the sealed, short-lived authorization
-  // captured by workspace.open; the JWT is never in a relay response.
-  async function authorizeCredit({ token, cost }) {
+  // This preflight intentionally uses the launching browser JWT for the plan read: a paired
+  // desktop can only use the sealed, short-lived authorization captured by workspace.open; the JWT
+  // is never in a relay response.
+  //
+  // BILLING FIXES (2026-09-30): the old gate ("a paid plan OR a balance above 0") is replaced by
+  //   - the PLAN: Blender Studio lives in the Art Room (Locations), so Director and up; a trial or
+  //     no-plan account (including one holding pack credits) and a frozen account are refused;
+  //   - a HOLD of the job's credits (service role, turn_hold_credits, ref "studio:<event id>")
+  //     before any provider work. The hold ref is returned so settlement settles THAT hold and a
+  //     failed or cancelled job releases it. When the hold functions are not installed yet
+  //     (billing-v2.sql not run), the older balance check stands and settlement debits through
+  //     turn_studio_settle_credit as before (atomic: it never overspends).
+  const STUDIO_PLANS = new Set(["director", "pro", "studio"]);
+  function rpcObject(data, name) {
+    let r = data;
+    if (typeof r === "string") { try { r = JSON.parse(r); } catch (_) { return null; } }
+    if (Array.isArray(r)) r = r.length === 1 ? r[0] : null;
+    if (r && typeof r === "object" && r[name] && typeof r[name] === "object") r = r[name];
+    return r && typeof r === "object" ? r : null;
+  }
+  const missingFunction = (e) => /PGRST202|42883|could not find the function|does not exist/i.test(String((e && (e.code || "")) + " " + (e && e.message || "")));
+  async function authorizeCredit({ token, cost, eventId }) {
     if (!token) return { ok: false, message: "Generation authorization expired." };
     const client = createClient(url, anonKey, {
       global: { headers: { Authorization: `Bearer ${token}` } },
     });
-    // Match image-proxy's server-side entitlement and balance gate before the
-    // debit RPC (the RPC itself clamps at zero, so it is not an authorization
-    // check). A failed read is a failed authorization, never a free desktop
-    // generation.
     const { data: authData, error: authError } = await client.auth.getUser(token);
     if (authError || !authData?.user) return { ok: false, message: "Generation authorization expired." };
     const user = authData.user;
     const required = Math.max(1, Math.ceil(Number(cost) || 1));
-    // Studio's service-role settlement has no email bypass and never creates a
-    // balance row, so its preflight must use the same actual-balance rule.
-    const credits = await client.from("turn_credits").select("plan,remaining")
-      .eq("owner", user.id).limit(1);
-    const row = Array.isArray(credits.data) ? credits.data[0] : credits.data;
+    // turn_credit_balance() (billing-v2.sql) carries frozen / trial; the older row is the fallback.
+    // A failed read is a failed authorization, never a free desktop generation.
+    let row = null;
+    try {
+      const bal = await client.rpc("turn_credit_balance");
+      row = !bal.error ? (Array.isArray(bal.data) ? bal.data[0] : bal.data) : null;
+    } catch (_) { row = null; }
+    if (!row) {
+      const credits = await client.from("turn_credits").select("plan,remaining").eq("owner", user.id).limit(1);
+      row = Array.isArray(credits.data) ? credits.data[0] : credits.data;
+    }
     const plan = String(row?.plan || "none").toLowerCase().trim();
     const remaining = Number(row?.remaining) || 0;
-    if (!row || (!["writer", "director", "studio"].includes(plan) && remaining <= 0)) {
-      return { ok: false, message: "Choose a plan to start creating — every generation runs on your plan's credits." };
+    if (!row) return { ok: false, code: "plan_required", message: "3D needs a paid plan. Choose a plan to start creating." };
+    if (row.frozen === true) return { ok: false, code: "account_frozen", message: "Your account is on hold while a payment is disputed, so spending credits is paused." };
+    if (!STUDIO_PLANS.has(plan)) {
+      return plan === "writer"
+        ? { ok: false, code: "tier_required", message: "Blender Studio needs the Director plan." }
+        : { ok: false, code: "plan_required", message: "3D needs a paid plan. Without a plan, credits cover writing on the default engines and draft images." };
     }
-    if (remaining < required) return { ok: false, message: `This generation needs ${required} credits, but this account has ${remaining}.` };
-    return { ok: true, remaining };
+    if (remaining < required) return { ok: false, code: "insufficient_credits", message: `This generation needs ${formatCredits(required)} credits, but this account has ${formatCredits(remaining)}.` };
+    if (!eventId) return { ok: true, remaining };
+    // the HOLD — atomic and idempotent per ref, so a retried submit holds once
+    const ref = `studio:${eventId}`;
+    let held;
+    try { held = await admin.rpc("turn_hold_credits", { uid: user.id, amount: required, ref, reason: "blender-studio" }); }
+    catch (e) { held = { error: e }; }
+    if (held?.error) {
+      if (missingFunction(held.error)) return { ok: true, remaining };   // before billing-v2.sql: the older settlement
+      return { ok: false, code: "billing_unavailable", message: "Credits can't be checked right now. Please try again in a minute." };
+    }
+    const h = rpcObject(held.data, "turn_hold_credits");
+    if (!h) return { ok: false, code: "billing_unavailable", message: "Credits can't be checked right now. Please try again in a minute." };
+    if (h.ok === false) {
+      const code = String(h.code || "insufficient").toLowerCase();
+      if (code === "frozen") return { ok: false, code: "account_frozen", message: "Your account is on hold while a payment is disputed, so spending credits is paused." };
+      const left = Number.isFinite(Number(h.remaining)) ? Number(h.remaining) : remaining;
+      return { ok: false, code: "insufficient_credits", message: `This generation needs ${formatCredits(required)} credits, but this account has ${formatCredits(left)}.` };
+    }
+    return { ok: true, remaining: Number.isFinite(Number(h.remaining)) ? Number(h.remaining) : remaining, holdRef: ref };
+  }
+
+  // THE LIVE CREDIT UNIT (USD of provider cost per credit), from turn_credit_regime()
+  // (billing-v2.sql): $0.03 until supabase/billing-switch.sql runs, $0.01 after — so this bridge can
+  // ship before the switch day and flips with it. A switched answer is kept for the instance's life
+  // (the switch never goes back); a pre-switch one is re-read every 30 s. Before billing-v2.sql the
+  // function does not exist, which can only mean the old unit. Anything else unreadable → null (the
+  // service then refuses paid work rather than guess).
+  const CREDIT_UNITS = [0.01, 0.03];
+  let regime = null;
+  async function creditUnit() {
+    const at = Date.now();
+    if (regime && (regime.switched || at - regime.at < 30000)) return regime.unit;
+    try {
+      const { data, error } = await admin.rpc("turn_credit_regime");
+      if (error) {
+        if (missingFunction(error)) { regime = { unit: 0.03, switched: false, at }; return 0.03; }
+        return regime ? regime.unit : null;
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      const u = Number(row && row.usd_per_credit);
+      const unit = CREDIT_UNITS.find((k) => Math.abs(k - u) < 1e-9);
+      if (!unit) return regime ? regime.unit : null;
+      regime = { unit, switched: unit === 0.01, at };
+      return unit;
+    } catch (_) {
+      return regime ? regime.unit : null;
+    }
+  }
+
+  async function releaseCredit({ holdRef }) {
+    if (typeof holdRef !== "string" || !holdRef) return { ok: false };
+    const { error } = await admin.rpc("turn_release_hold", { ref: holdRef });
+    return { ok: !error };
+  }
+
+  // Ties a mesh hold to the provider's job id (turn_hold_attach, billing-v2.sql) so the
+  // housekeeping job never releases it while the provider may still finish the job.
+  async function attachHold({ holdRef, providerRef }) {
+    if (typeof holdRef !== "string" || !holdRef || typeof providerRef !== "string" || !providerRef) return { ok: false };
+    try {
+      const { data, error } = await admin.rpc("turn_hold_attach", { ref: holdRef, provider_ref: providerRef });
+      if (error) return { ok: false, unavailable: missingFunction(error) };
+      const row = rpcObject(data, "turn_hold_attach");
+      return { ok: !!row && row.ok !== false, code: row && row.code ? String(row.code) : "" };
+    } catch (_) {
+      return { ok: false };
+    }
   }
 
   async function studioBillingReadyProbe() {
@@ -286,7 +383,51 @@ export function createSupabaseAdapter({
     return studioBillingReady;
   }
 
-  async function spendCredit({ uid, cost, eventId }) {
+  const settleRef = async (ref, cost) => {
+    const { data, error } = await admin.rpc("turn_settle_hold", { ref, actual: cost });
+    if (error) return { error };
+    return { row: rpcObject(data, "turn_settle_hold") };
+  };
+  const settled = (row) => ({ ok: true, remaining: Number.isSafeInteger(Number(row.remaining)) ? Number(row.remaining) : null, plan: typeof row.plan === "string" ? row.plan : null });
+  const wasReleased = (row) => !!row && row.ok === false && (String(row.code || "") === "released" || String(row.status || "") === "released");
+
+  async function spendCredit({ uid, cost, eventId, holdRef }) {
+    // A HELD job (2026-09-30) settles its own hold: min(cost, held) is kept, the rest released.
+    // Idempotent per ref, so a retried settlement never charges twice.
+    if (typeof holdRef === "string" && holdRef) {
+      if (!Number.isSafeInteger(cost) || cost <= 0) return { ok: false, message: "Invalid Studio credit cost." };
+      const first = await settleRef(holdRef, cost);
+      if (first.error) return { ok: false, unavailable: missingFunction(first.error), message: "Could not settle Studio credits." };
+      if (first.row && first.row.ok !== false) return settled(first.row);
+      if (!wasReleased(first.row)) return { ok: false, message: "Could not settle Studio credits." };
+      // ROUND 2 (2026-09-30): the hold was already given back (the housekeeping release, or a
+      // rollback) although the provider did the work. Instead of failing on every retry forever,
+      // the job's ACTUAL cost is held again under a derived ref and settled — idempotent per ref,
+      // so concurrent retries charge once. A derived ref that was itself released moves on to the
+      // next (at most three).
+      if (typeof uid !== "string" || !uid) return { ok: false, message: "Studio launcher is unavailable." };
+      for (let n = 1; n <= 3; n++) {
+        const ref = n === 1 ? `${holdRef}:rehold` : `${holdRef}:rehold${n}`;
+        let held;
+        try { held = await admin.rpc("turn_hold_credits", { uid, amount: cost, ref, reason: "blender-studio:rehold" }); }
+        catch (e) { held = { error: e }; }
+        if (held?.error) return { ok: false, unavailable: missingFunction(held.error), message: "Could not settle Studio credits." };
+        const h = rpcObject(held.data, "turn_hold_credits");
+        if (!h) return { ok: false, message: "Could not settle Studio credits." };
+        if (h.ok === false) {
+          const code = String(h.code || "").toLowerCase();
+          if (code === "released") continue;
+          if (code === "frozen") return { ok: false, message: "Your account is on hold while a payment is disputed, so spending credits is paused." };
+          const left = Number.isFinite(Number(h.remaining)) ? Number(h.remaining) : null;
+          return { ok: false, message: `This generation needs ${formatCredits(cost)} credits${left != null ? `, but this account has ${formatCredits(left)}` : ""}. Add credits, then open it again.` };
+        }
+        const again = await settleRef(ref, cost);
+        if (again.error) return { ok: false, unavailable: missingFunction(again.error), message: "Could not settle Studio credits." };
+        if (again.row && again.row.ok !== false) return settled(again.row);
+        if (!wasReleased(again.row)) return { ok: false, message: "Could not settle Studio credits." };
+      }
+      return { ok: false, message: "Could not settle Studio credits." };
+    }
     // Studio settlement is distinct from legacy browser spend events. The
     // service-role-only RPC atomically checks/debits an already-existing row
     // and checks the private server-generated Studio receipt id; no client can
@@ -301,7 +442,7 @@ export function createSupabaseAdapter({
     const { data, error } = await admin.rpc("turn_studio_settle_credit", {
       launcher_uid: uid, credit_cost: required, studio_event_id: eventId,
     });
-    if (error) return { ok: false, message: error.message || "Could not settle Studio credits." };
+    if (error) return { ok: false, message: "Could not settle Studio credits." };
     const row = Array.isArray(data) ? data[0] : data;
     if (!row || row.ready !== true || !Number.isSafeInteger(row.remaining) || row.remaining < 0 ||
       typeof row.plan !== "string") return { ok: false, message: "Invalid Studio settlement response." };
@@ -327,6 +468,9 @@ export function createSupabaseAdapter({
     validateStudioReference,
     authorizeCredit,
     spendCredit,
+    releaseCredit,
+    attachHold,
+    creditUnit,
     studioBillingReady: studioBillingReadyProbe,
     // Kept for injected/offline adapters. Production readiness comes from the
     // non-spending service-role probe above, and fails closed if absent.

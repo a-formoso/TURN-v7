@@ -105,9 +105,12 @@ if(!canRunTs){
     if(!key) throw new Error("supabaseKey is required.");
     if(key === ENV.SUPABASE_ANON_KEY) return {
       auth:{ getUser:async (tok)=>USERS[tok] ? { data:{ user:USERS[tok] }, error:null } : { data:{ user:null }, error:{ message:"invalid token" } } },
-      from:(t)=>t === "turn_credits" ? chain({ data:[{ plan:"writer", remaining:100 }], error:null })
+      from:(t)=>t === "turn_credits" ? chain({ data:[{ plan:"studio", remaining:100 }], error:null })
         : t === "turn_usage_events" ? chain({ count:0, error:null }) : chain({ data:[], error:null }),
-      rpc:async (name, args)=>{ W.rpcs.push(["user", name, args]); return { data:[{ remaining:100, plan:"writer" }], error:null }; },
+      // billing fixes (2026-09-30): Frances's cap follows the plan (5 / 15 / 30 / 50); a Producer keeps 50 here
+      rpc:async (name, args)=>{ W.rpcs.push(["user", name, args]);
+        if(name === "turn_credit_regime") return { data:[{ switched:false, usd_per_credit:"0.03" }], error:null };
+        return { data:[{ remaining:100, plan:"studio" }], error:null }; },
     };
     if(key === ENV.SUPABASE_SERVICE_ROLE_KEY) return { rpc:(name, args)=>{ W.rpcs.push(["service", name, args]); W.seq.push("slot"); return (W.consume || pgliteConsume)(name, args); } };
     throw new Error("unexpected key "+key);
@@ -307,7 +310,19 @@ await test("P9 index.ts: the live check uses the same limiter and RPC, sits afte
   const start = live.indexOf("    // FRANCES'S DAILY QUESTION LIMIT COVERS VOICE");
   const end = live.indexOf("\n", live.indexOf("if (!francesVoiceCheck.serve)")) + 1;
   assert.ok(start > 0 && end > start);
-  assert.equal(live.slice(0, start) + live.slice(end), liveOf(head), "only the limit block was added to the live path");
+  // billing fixes (2026-09-30): the live path's two provider-error replies no longer pass the
+  // provider's own words (accounts, keys, quotas) to the user — admins still see them
+  const ERR_SCRUB = [
+    ["        return json({ error: detail || `Frances's live voice could not start (${response.status}).`, status: response.status }, 200);\n",
+     "        // the provider's own words are logged, never shown (they can name accounts, keys or quotas)\n"
+     + "        return json({ error: say(detail, `Frances's live voice could not start (${response.status}). Please try again.`), status: response.status }, 200);\n"],
+    ["        : \"The server could not open Frances's live voice: \" + ((e as any)?.message || e) }, 200);\n",
+     "        : isAdmin ? \"The server could not open Frances's live voice: \" + ((e as any)?.message || e)\n"
+     + "        : \"Frances's live voice couldn't open right now. Please try again.\" }, 200);\n"],
+  ];
+  let expected = liveOf(head);
+  for(const [from, to] of ERR_SCRUB){ assert.ok(expected.includes(from), "59e4bff has: "+from); expected = expected.replace(from, to); }
+  assert.equal(live.slice(0, start) + live.slice(end), expected, "only the limit block (and the error scrubbing) changed in the live path");
 });
 
 /* ======================= L. the client: app/livevoice.js ======================= */
@@ -466,18 +481,19 @@ const BILLING = /\b(?:pricing|prices?|billing|checkout|subscriptions?|credits?|p
 const flat = (s)=>String(s).replace(/\s+/g, " ");
 await test("F1 Frances knows voice counts: her entry and New Story's say so with the exact lines, and that part reaches her without vendor, server or billing words", ()=>{
   const fr = ai.APP_FEATURES.find((f)=>f.name === "Frances (help assistant)").what;
-  assert.ok(fr.includes("VOICE COUNTS TOO: each New Story voice conversation with Frances ('Talk it through') uses one of the same 50 daily questions as it starts, however long it lasts. It counts even if it then fails to connect, so each 'Try live again' after a failed start uses another. The typed interview isn't counted."));
+  assert.ok(fr.includes("VOICE COUNTS TOO: each New Story voice conversation with Frances ('Talk it through') uses one of the same daily questions as it starts, however long it lasts. It counts even if it then fails to connect, so each 'Try live again' after a failed start uses another. The typed interview isn't counted."));
   assert.ok(fr.includes("'"+LIMIT_LINE_5H+"'"));
   const ns = ai.APP_FEATURES.find((f)=>String(f.name).startsWith("New Story (format")).what;
-  assert.ok(ns.includes("LIVE VOICE COUNTS TOWARD FRANCES'S DAILY LIMIT: each live voice conversation with Frances uses one of her 50 free questions for the day"));
+  // caps by plan (billing fixes, 2026-09-30): the number depends on the account
+  assert.ok(ns.includes("LIVE VOICE COUNTS TOWARD FRANCES'S DAILY LIMIT: each live voice conversation with Frances uses one of her free questions for the day (between 5 and 50 a day, depending on the account; the count starts again at midnight UTC)"));
   // no refund (P8): a start that then fails to connect still counts, and Frances can tell people so
   assert.ok(ns.includes("taken once as the conversation starts, however long it lasts. It counts even if it then fails to connect, so each 'Try live again' after a failed start uses another."));
   assert.ok(ns.includes("'"+LIMIT_LINE_5H+"'") && ns.includes("'"+BUSY_LINE+"'"));
   const pub = (name)=>ai.museFacts().find((f)=>String(f.name).startsWith(name)).what;
   const frPub = pub("Frances (help assistant)"), nsPub = pub("New Story (format");
-  assert.ok(frPub.includes("uses one of the same 50 daily questions as it starts") && frPub.includes(LIMIT_LINE_5H));
+  assert.ok(frPub.includes("uses one of the same daily questions as it starts") && frPub.includes(LIMIT_LINE_5H));
   for(const t of [frPub, nsPub]) assert.ok(t.includes("It counts even if it then fails to connect, so each 'Try live again' after a failed start uses another."), "the no-refund rule reaches Frances");
-  assert.ok(nsPub.includes("each live voice conversation with Frances uses one of her 50 free questions for the day") && nsPub.includes(LIMIT_LINE_5H) && nsPub.includes(BUSY_LINE));
+  assert.ok(nsPub.includes("each live voice conversation with Frances uses one of her free questions for the day") && nsPub.includes(LIMIT_LINE_5H) && nsPub.includes(BUSY_LINE));
   const voicePart = (s)=>s.slice(s.search(/VOICE COUNTS TOO|LIVE VOICE COUNTS TOWARD/), s.indexOf("nothing is counted for it", s.search(/VOICE COUNTS TOO|LIVE VOICE COUNTS TOWARD/)) + 30);
   for(const part of [voicePart(frPub), voicePart(nsPub)]){
     assert.ok(part.length > 100);

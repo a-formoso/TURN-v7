@@ -1290,7 +1290,7 @@ async function main() {
       await waitFor(()=>c.eval(`(()=>{const b=document.querySelector('[data-testid="stage-generate-extend"]');return b&&!b.disabled&&b.getAttribute("aria-disabled")!=="true";})()`),"Extend is enabled once the proxy advertises the extension task");
       await c.eval(`document.querySelector('[data-testid="stage-generate-extend"]').click()`);
       await waitFor(()=>c.eval(`__fixture.calls.length>${callsBefore}`),"extension request reaches the generate stub");
-      const extendCall=await c.eval(`(()=>{const [,id,p]=__fixture.calls.at(-1);return {id,videoTask:p.videoTask,videoUrls:p.videoUrls,aspect:p.aspectRatio,prompt:p.prompt.slice(0,40),spend:p.spend,source:p.takeMeta.source,refs:p.takeMeta.references,inputSeconds:p.takeMeta.inputSeconds,priv:p.takeMeta.privateRefs,falModel:p.falModel,meta:JSON.stringify(p.takeMeta)};})()`);
+      const extendCall=await c.eval(`(()=>{const [,id,p]=__fixture.calls.at(-1);return {id,videoTask:p.videoTask,videoUrls:p.videoUrls,aspect:p.aspectRatio,prompt:p.prompt.slice(0,40),spend:p.quote,source:p.takeMeta.source,refs:p.takeMeta.references,inputSeconds:p.takeMeta.inputSeconds,priv:p.takeMeta.privateRefs,falModel:p.falModel,meta:JSON.stringify(p.takeMeta)};})()`);
       assert.equal(extendCall.videoTask,"extension","Extend Video submits Seedance 2.5's extension task");
       assert.deepEqual(extendCall.videoUrls,["data:video/mp4;base64,AAAA#new"],"the chosen take rides as @Video1");
       assert.equal(extendCall.aspect,"auto","extensions follow the source video's aspect");
@@ -1334,7 +1334,7 @@ async function main() {
       const editCalls=await c.eval(`__fixture.calls.length`);
       await c.eval(`document.querySelector('[data-testid="stage-generate-edit"]').click()`);
       await waitFor(()=>c.eval(`__fixture.calls.length>${editCalls}`),"editing request reaches the generate stub");
-      const editCall=await c.eval(`(()=>{const [,,p]=__fixture.calls.at(-1);return {videoTask:p.videoTask,videoUrls:p.videoUrls,prompt:p.prompt,durationMs:p.durationMs,inputSeconds:p.takeMeta.inputSeconds,aspect:p.aspectRatio,spend:p.spend,source:p.takeMeta.source,screenplay:!!p.screenplayImages,meta:JSON.stringify(p.takeMeta)};})()`);
+      const editCall=await c.eval(`(()=>{const [,,p]=__fixture.calls.at(-1);return {videoTask:p.videoTask,videoUrls:p.videoUrls,prompt:p.prompt,durationMs:p.durationMs,inputSeconds:p.takeMeta.inputSeconds,aspect:p.aspectRatio,spend:p.quote,source:p.takeMeta.source,screenplay:!!p.screenplayImages,meta:JSON.stringify(p.takeMeta)};})()`);
       assert.equal(editCall.videoTask,"editing","Edit Video submits Seedance 2.5's editing task");
       assert.deepEqual(editCall.videoUrls,["data:video/mp4;base64,AAAA#approved"],"Take 1 rides as @Video1");
       assert.match(editCall.prompt,/^Replace the sky in @Video1/,"the edit prompt is the user's, not the beat brief");
@@ -1397,7 +1397,7 @@ async function main() {
       const motionCalls=await c.eval(`__fixture.calls.length`);
       await c.eval(`document.querySelector('[data-testid="stage-generate-motion"]').click()`);
       await waitFor(()=>c.eval(`__fixture.calls.length>${motionCalls}`),"motion request reaches the generate stub");
-      const motionCall=await c.eval(`(()=>{const [,,p]=__fixture.calls.at(-1);return {falModel:p.falModel,durationMs:p.durationMs,orientation:p.characterOrientation,keep:p.keepOriginalSound,videoUrls:p.videoUrls,frameUrl:p.frameUrl,videoTask:p.videoTask,spend:p.spend,source:p.takeMeta.source,refs:p.takeMeta.references.map(r=>r.role),tierLabel:p.takeMeta.tierLabel,screenplay:!!p.screenplayImages,meta:JSON.stringify(p.takeMeta)};})()`);
+      const motionCall=await c.eval(`(()=>{const [,,p]=__fixture.calls.at(-1);return {falModel:p.falModel,durationMs:p.durationMs,orientation:p.characterOrientation,keep:p.keepOriginalSound,videoUrls:p.videoUrls,frameUrl:p.frameUrl,videoTask:p.videoTask,spend:p.quote,source:p.takeMeta.source,refs:p.takeMeta.references.map(r=>r.role),tierLabel:p.takeMeta.tierLabel,screenplay:!!p.screenplayImages,meta:JSON.stringify(p.takeMeta)};})()`);
       assert.match(motionCall.falModel,/kling-video\/v3\/standard\/motion-control$/,"Standard tier maps to Kling's standard motion-control endpoint");
       assert.equal(motionCall.orientation,"video","scene control OFF submits character_orientation video");
       assert.equal(motionCall.keep,false,"Keep original sound follows the advanced switch");

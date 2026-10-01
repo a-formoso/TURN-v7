@@ -140,6 +140,18 @@ function lpTiers(){
   }));
 }
 
+/* the line under the plan cards (billing fixes, 2026-09-30): the free trial and the packs.
+   Reads the same sources as the in-app Plans window (plans.jsx), with a fallback. Both start on
+   the credit switch day (supabase/billing-switch.sql): before it the line is empty and hidden. */
+function lpPricingNote(){
+  if(typeof window.turnTrialCopy==="function" && !window.turnTrialCopy()) return "";
+  const trial = (typeof window.turnTrialCopy==="function" && window.turnTrialCopy()) || window.TURN_TRIAL_COPY || "New accounts get 50 free credits after confirming their email — enough to try the Writers' Room on the lighter writing engine (a logline, a synopsis, the spine and its first scenes), plus draft images.";
+  const packs = (window.CINEMA_CREDIT_PACKS || []);
+  const from = packs.length ? packs.map(p=>p.price).sort((a,b)=>parseFloat(String(a).replace(/[^\d.]/g,""))-parseFloat(String(b).replace(/[^\d.]/g,"")))[0] : "$10";
+  return trial+" Need more? Credit packs from "+from+" for any account — pack credits last 12 months.";
+}
+window.lpPricingNote = lpPricingNote;
+
 /* footer brand: "Kinolot by Infinite Studio AI", the company name linking to its site
    (shared with the Home dashboard footer, app/home-dashboard.jsx) */
 function LandingFootBrand(){
@@ -241,7 +253,8 @@ function Landing({ onStart, onSignIn }){
             React.createElement("ul",{className:"lp-tier-feats"},
               t.feats.map((f,j)=>React.createElement("li",{key:j},
                 React.createElement(Icon.check,{s:13}), React.createElement("span",null,f)))),
-            React.createElement("button",{className:"lp-btn "+(t.featured?"primary":"ghost")+" full",onClick:()=>onStart(t.id)}, t.cta))))),
+            React.createElement("button",{className:"lp-btn "+(t.featured?"primary":"ghost")+" full",onClick:()=>onStart(t.id)}, t.cta)))),
+        lpPricingNote() && React.createElement("p",{className:"lp-tier-note"}, lpPricingNote())),
 
       // closing band — heading left, actions right (like a product-platform strip)
       React.createElement("section",{className:"lp-final"},

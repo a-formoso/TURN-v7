@@ -315,16 +315,28 @@ window.nbHasKeyForModel = nbHasKeyForModel; window.nbHasKeyForCurrent = nbHasKey
    one place. Shown on Generate buttons so cost is visible BEFORE a render —
    the server deducts whole credits after a successful image generation. */
 const NB_IMG_USD = (window.turnImageProviderUsdTable && window.turnImageProviderUsdTable()) || {
-  "gemini-3.1-flash-lite-image": { "1K":0.034, "2K":0.050, "4K":0.076 },
-  "gemini-3.1-flash-image":      { "1K":0.067, "2K":0.101, "4K":0.151 },
-  "gemini-3-pro-image":          { "1K":0.134, "2K":0.134, "4K":0.240 },
-  "gpt-image-2":                 { low:0.009, medium:0.080, high:0.317 },
+  // fallback copy of app/pricing.jsx (fal prices, 2026-09-29 — the server's table)
+  "gemini-3.1-flash-lite-image": { "1K":0.05, "2K":0.05, "4K":0.05 },
+  "gemini-3.1-flash-image":      { "1K":0.08, "2K":0.12, "4K":0.16 },
+  "gemini-3-pro-image":          { "1K":0.15, "2K":0.15, "4K":0.30 },
+  "gpt-image-2":                 { low:0.012, medium:0.044, high:0.158 },
   "gpt-image-2.5-flare":         { default:0.045, auto:0.21072, low:0.005, medium:0.012, high:0.045, xhigh:0.09366, max:0.21072 },
   "gpt-image-2.5-sunburst":      { default:0.045, auto:0.21072, low:0.005, medium:0.012, high:0.045, xhigh:0.09366, max:0.21072 },
 };
+/* DRAFT IMAGES (owner decision 2026-09-30): a trial / no-plan account may generate draft
+   images only — Nano Banana 2 Lite up to 2K (app/plans.jsx turnPlanImageChoice). Every
+   request and every cost chip goes through this, so the price shown is the engine that
+   will really run. Paid plans, admin and an unloaded ledger pass through unchanged. */
+function nbPlanImageChoice(model, res){
+  if(typeof window.turnPlanImageChoice!=="function") return { model, res, limited:false };
+  try{ return window.turnPlanImageChoice(model, res) || { model, res, limited:false }; }
+  catch(e){ return { model, res, limited:false }; }
+}
+window.nbPlanImageChoice = nbPlanImageChoice;
 function nbImageCredits(opts){
   opts = opts||{};
-  const model = opts.model || nbGetModel();
+  const choice = nbPlanImageChoice(opts.model || nbGetModel(), opts.res || nbGetRes());
+  const model = choice.model;
   const t = NB_IMG_USD[model]; if(!t) return null;
   let usd;
   if(isGptImageModel(model)){
@@ -333,21 +345,27 @@ function nbImageCredits(opts){
     const pricedQuality=q==="default"?"high":q==="auto"?"max":q;
     usd = t[pricedQuality];
     if(usd==null) return null;
+    // GPT Image cost follows the output size, as the server prices it (billing-pricing.mjs)
+    if(typeof window.turnGptImageSizeFactor==="function")
+      usd = usd * window.turnGptImageSizeFactor(model, opts.aspect || opts.aspectRatio || nbGetAspect(), choice.res || nbGetRes());
   } else {
-    const r = opts.res || nbGetRes();
+    const r = choice.res || nbGetRes();
     usd = (t[r]!=null) ? t[r] : t["2K"];
   }
   // ×CREDIT_SCALE so image costs read in the same generous denomination as plan
-  // allowances (grant + cost scale together — real value unchanged).
+  // allowances. Anchor (Option A, 2026-09-30): 1 visible credit = $0.01 of provider cost
+  // — the same $0.10 base anchor as app/pricing.jsx and the image-proxy server.
   return (typeof window.turnCreditsFromProviderUsd==="function")
     ? window.turnCreditsFromProviderUsd(usd)
-    : (usd / 0.30) * (Number(window.CREDIT_SCALE)||1);
+    : (usd / 0.10) * (Number(window.CREDIT_SCALE)||1);
 }
+/* the server charges each image in WHOLE credits (at least 1), so a batch costs
+   count x the rounded per-image price — never the rounded total of fractions */
 function nbImageCostText(count, opts){
   const per = nbImageCredits(opts);
   if(per==null) return "";
-  const total = per * Math.max(1, Number(count)||1);
-  return String(Math.max(1, Math.ceil(total)));
+  const each = Math.max(1, Math.ceil(per - 1e-9));   // the server's rounding (billing-pricing.mjs creditsFromUsd)
+  return String(each * Math.max(1, Number(count)||1));
 }
 /* small cost chip for Generate/Re-generate buttons. A tiny COMPONENT (not a static
    span) so it re-reads the current model/resolution/quality when the picker fires
@@ -360,7 +378,9 @@ function NbCostChipInner({ count, opts }){
     const h = ()=>force(x=>x+1);
     window.addEventListener("nb-model-changed", h);
     window.addEventListener("nb-settings-changed", h);
-    return ()=>{ window.removeEventListener("nb-model-changed", h); window.removeEventListener("nb-settings-changed", h); };
+    // a new price table or credit unit (app/pricing.jsx: admin overrides, turn_credit_regime) re-prices it too
+    window.addEventListener("turn-pricing-changed", h);
+    return ()=>{ window.removeEventListener("nb-model-changed", h); window.removeEventListener("nb-settings-changed", h); window.removeEventListener("turn-pricing-changed", h); };
   },[]);
   const txt = nbImageCostText(count, opts);
   if(!txt) return null;
@@ -1856,12 +1876,23 @@ async function proxyGenerate(prompt, opts, provider){
     // Supabase represents every non-2xx function response as an invocation error.
     // Preserve the Edge Function's JSON explanation (invalid model, no credits,
     // provider rejection, etc.) instead of showing only the SDK's generic message.
-    let relayed = "";
+    let relayed = "", body = null;
     try{
       const ctx = error.context;
       const j = ctx && await ctx.json();
+      body = j || null;
       relayed = (j && (j.error || j.message || j.msg)) || "";
     }catch(e){}
+    /* a BILLING refusal (billing fixes, 2026-09-30: no plan / not enough credits / a frozen
+       account / a plan-only engine) reads as one calm sentence; credit and plan refusals open
+       the Plans window */
+    const billing = (typeof window.turnBillingError==="function") ? window.turnBillingError(body, status) : null;
+    if(billing){
+      const msg = (typeof window.turnHandleBillingError==="function") ? window.turnHandleBillingError(billing) : billing.message;
+      const e = new Error(msg || billing.message);
+      e.billing = billing.code;
+      throw e;
+    }
     if(status===401) throw new Error("Sign in to use server-side image generation \u2014 it runs on your server, not in the browser.");
     const _safe = window.turnSafeError || (x=>x);
     if(status===404) throw new Error(_safe("The image proxy isn't deployed yet. Deploy supabase/functions/image-proxy and set imageProxy:true in supabase-config.js."));
@@ -1909,10 +1940,23 @@ async function proxyGenerate(prompt, opts, provider){
 window.proxyGenerate = proxyGenerate;
 
 /* call the selected image model; opts={model, aspectRatio}. resolves to a data URL or throws. */
+let _nbDraftToastShown = false;
 async function nbGenerate(prompt, opts){
   opts = opts || {};
   nbAssertMediaIdentity(opts, "image-submit");
-  const model = opts.model || nbGetModel();
+  let model = opts.model || nbGetModel();
+  /* trial / no-plan accounts: draft images only — swap in the draft engine (and drop the
+     GPT-only quality knob) rather than send a request the server will refuse */
+  const choice = nbPlanImageChoice(model, opts.imageSize || nbGetRes());
+  if(choice.limited){
+    opts = { ...opts, model:choice.model, imageSize:choice.res };
+    delete opts.quality;
+    model = choice.model;
+    if(!_nbDraftToastShown && typeof window.appToast==="function"){
+      _nbDraftToastShown = true;
+      window.appToast("Without a plan, images are drafts (Nano Banana 2 Lite, up to 2K). Choose a plan for every image engine.","info");
+    }
+  }
   // Snapshot before any async reference conversion/capability check. A change
   // in the dock while this render runs belongs to a subsequent render.
   if(isGptImageModel(model)) opts={...opts,quality:opts.quality==null?nbGetOaiQuality(model):opts.quality};

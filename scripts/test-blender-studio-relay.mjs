@@ -112,7 +112,9 @@ const states = new Map(), files = new Map();
 let writable = true, charges = 0, allowSpend = true, assistantImage = null, assistantWorkspace = null,
   failNextCas = false, refuseAssistant = false, settlementFails = false, lostSettlementResponse = false,
   failCasAfterDebit = false, failStudioUpload = false, failStudioRead = false,
-  expiredProvider = false, meshComplete = false, assistantCalls = 0, meshPolls = 0;
+  expiredProvider = false, meshComplete = false, assistantCalls = 0, meshPolls = 0,
+  // repair 2026-09-30: the provider's own job state (fal's raw words), cancel answers, in-flight cancels
+  meshRemoteStatus = null, cancelAccepts = true, cancelCalls = 0, cancelDuringMesh = null, cancelDuringAssistant = null;
 const clone = value => value == null ? value : structuredClone(value);
 const settledEvents = new Set();
 const settledCosts = [];
@@ -165,10 +167,16 @@ const provider = {
   available: true, models: { "claude-fable-5": true }, verifiedModels: {}, meshConfigured: true,
   async submitAssistant(input) { assistantCalls++; assistantImage = input.image || null;
     assistantWorkspace = clone(input.workspace); if (refuseAssistant) throw new Error("provider refusal");
+    if (cancelDuringAssistant) { const id = cancelDuringAssistant; cancelDuringAssistant = null; assert.equal((await call("studio.assistant.cancel", { taskId: id })).json.task.status, "cancelled"); }
     return { proposal: { summary: "Add nothing until Apply.", ops: [] }, usage: { inputTokens: 1000000, outputTokens: 1000000 } }; },
-  async submitMesh() { return { requestId: "fake-request" }; },
+  async submitMesh(input) {
+    if (cancelDuringMesh) { const id = cancelDuringMesh; cancelDuringMesh = null; await call("studio.mesh.cancel", { taskId: id }); }
+    return { requestId: "fake-request-" + (input?.requestId || "") };
+  },
+  async cancelMesh() { cancelCalls++; return { cancelled: cancelAccepts }; },
   async getMesh() {
     meshPolls++;
+    if (meshRemoteStatus) return { status: meshRemoteStatus };
     if (expiredProvider) return { status: "failed", error: "provider output expired" };
     return meshComplete ? { status: "completed", model_glb: { url: "https://fal.media/result.glb" } } : { status: "queued" };
   },
@@ -236,7 +244,9 @@ assert.equal(response.status, 200);
 assert.equal(response.json.task.status, "completed");
 assert.equal(assistantWorkspace.context.productionPlan, secondProductionPlan,
   "the refreshed production package reaches the Scene Builder provider input");
-assert.equal(settledCosts[0], 4167, "reported provider usage, not the minimum, determines the settlement credit cost");
+// billing fixes (2026-09-30): Fable at its list price ($10 / $50 per 1M) and 1 credit = $0.01 (this
+// adapter has no creditUnit, so the anchor applies): 1M in + 1M out = $60 = 6,000 credits
+assert.equal(settledCosts[0], 6000, "reported provider usage, not the minimum, determines the settlement credit cost");
 response = await call("studio.assistant.submit", request);
 assert.equal(response.status, 200);
 assert.equal(charges, 1, "request-id duplicate does not charge/resubmit");
@@ -393,4 +403,102 @@ const noMigrationResponse = await noMigrationRelay.handle(new Request("https://r
 }));
 assert.equal(noMigrationResponse.status, 503, "missing atomic RPC fails closed before task/provider work");
 assert.equal(assistantCalls, providerBeforeMigrationGate);
+
+// ── REPAIR (2026-09-30): a Studio job's credits come back only when the provider job really stops ──
+// Holds are on for this section: the adapter hands out hold refs, records releases and attaches.
+const released = [], attached = [];
+const authorizeBefore = adapter.authorizeCredit;
+adapter.authorizeCredit = async ({ token, eventId }) => token === "browser" && allowSpend ? { ok: true, holdRef: "studio:" + eventId } : { ok: false, message: "insufficient" };
+adapter.releaseCredit = async ({ holdRef }) => { released.push(holdRef); return { ok: true }; };
+adapter.attachHold = async ({ holdRef, providerRef }) => { attached.push([holdRef, providerRef]); return { ok: true }; };
+allowSpend = true; meshComplete = false; expiredProvider = false;
+const meshSubmit = (requestId) => call("studio.mesh.submit", { locationId: "location-1", requestId, modelId: "meshy/v7/image-to-3d",
+  referenceId: "location-1", prompt: "lamp", name: "Lamp", rigged: false, animated: false, acknowledgeCost: true });
+// fal's raw IN_PROGRESS (lowercased "in_progress") is a job being built — never a failure with its hold released
+meshRemoteStatus = "in_progress";
+response = await meshSubmit("mesh-running");
+assert.equal(response.status, 200);
+assert.equal(response.json.task.status, "running", "in_progress reads as running");
+assert.deepEqual(attached.at(-1), [attached.at(-1)[0], "fake-request-mesh-running"], "the hold is tied to the provider's job id");
+assert.ok(attached.at(-1)[0].startsWith("studio:"));
+const runningId = response.json.task.id;
+assert.equal((await call("studio.mesh.get", { taskId: runningId })).json.task.status, "running");
+assert.equal(released.length, 0, "a running job keeps its hold");
+// cancelling a job the provider is already building: not stopped, not refunded, and it says so
+const cancelsBefore = cancelCalls;
+response = await call("studio.mesh.cancel", { taskId: runningId });
+assert.equal(response.status, 200);
+assert.equal(response.json.task.status, "running");
+assert.match(response.json.task.message, /can't be stopped now/);
+assert.equal(released.length, 0); assert.equal(cancelCalls, cancelsBefore, "a running job isn't even asked to cancel");
+// …it finishes, is delivered and charged
+meshRemoteStatus = null; meshComplete = true;
+const chargesBeforeRunning = charges;
+response = await call("studio.mesh.get", { taskId: runningId });
+assert.equal(response.json.task.status, "settlement_pending", "the validated GLB is checkpointed before any debit");
+response = await call("studio.mesh.get", { taskId: runningId });
+assert.equal(response.json.task.status, "completed"); assert.ok(response.json.task.asset);
+assert.equal(charges, chargesBeforeRunning + 1); assert.equal(released.length, 0);
+// still in the provider's queue and the provider accepts the cancel: cancelled and refunded
+meshComplete = false; meshRemoteStatus = "IN_QUEUE";
+response = await meshSubmit("mesh-queued");
+const queuedId = response.json.task.id, queuedHold = attached.at(-1)[0];
+response = await call("studio.mesh.cancel", { taskId: queuedId });
+assert.equal(response.json.task.status, "cancelled"); assert.deepEqual(released, [queuedHold]);
+// in the queue but the provider refuses the cancel (it just started): kept running, not refunded
+cancelAccepts = false;
+response = await meshSubmit("mesh-race");
+response = await call("studio.mesh.cancel", { taskId: response.json.task.id });
+assert.equal(response.json.task.status, "queued"); assert.equal(released.length, 1);
+cancelAccepts = true;
+// cancelled WHILE the submit was in flight, and the provider is already building it: the job is kept and delivered
+meshRemoteStatus = "running";
+cancelDuringMesh = "studio-mesh-mesh-inflight";
+response = await meshSubmit("mesh-inflight");
+assert.equal(response.status, 200);
+assert.notEqual(response.json.task.status, "cancelled", "a job that can't be stopped isn't abandoned");
+assert.equal(released.length, 1, "…and its hold isn't given back");
+// cancelled while in flight, and the provider accepts the cancel of the queued job: refunded
+meshRemoteStatus = "IN_QUEUE";
+cancelDuringMesh = "studio-mesh-mesh-inflight-queued";
+response = await meshSubmit("mesh-inflight-queued");
+assert.equal(response.json.task.status, "cancelled"); assert.equal(released.length, 2);
+meshRemoteStatus = null;
+// the assistant answered while a cancel arrived: the work is done, so it is kept and charged, not refunded
+const chargesBeforeAssistant = charges;
+const wsNow = (await call("studio.workspace.get", { locationId: "location-1" })).json.workspace;
+cancelDuringAssistant = "studio-assistant-assistant-late-cancel";
+response = await call("studio.assistant.submit", { locationId: "location-1", baseRevision: wsNow.revision, referenceId: "location-1",
+  requestId: "assistant-late-cancel", modelId: "claude-fable-5", mode: "scene", prompt: "a lamp", acknowledgeCost: true });
+assert.equal(response.status, 200, JSON.stringify(response.json));
+assert.equal(response.json.task.status, "completed", "the proposal is kept"); assert.equal(charges, chargesBeforeAssistant + 1);
+assert.ok(!released.includes("studio:" + response.json.task.id), "not refunded");
+// ── ROUND 2 (2026-09-30): once the assistant has ANSWERED, its hold is tied to
+// studio-answer:<event id>:<credits> BEFORE the settle — the 30-minute housekeeping release then
+// leaves it, and the server's reconciliation settles it at that cost if nobody comes back ──
+{
+  const order = [], attachedBefore = attached.length;
+  const spendBefore = adapter.spendCredit, attachRecorder = adapter.attachHold;
+  adapter.spendCredit = async (args) => { order.push("spend"); return spendBefore.call(adapter, args); };
+  adapter.attachHold = async (args) => { order.push("attach"); return attachRecorder(args); };
+  settlementFails = true;
+  const ws = (await call("studio.workspace.get", { locationId: "location-1" })).json.workspace;
+  response = await call("studio.assistant.submit", { locationId: "location-1", baseRevision: ws.revision, referenceId: "location-1",
+    requestId: "assistant-answer-tie", modelId: "claude-fable-5", mode: "scene", prompt: "a desk", acknowledgeCost: true });
+  assert.equal(response.status, 200, JSON.stringify(response.json));
+  assert.equal(response.json.task.status, "settlement_pending", "the settle failed; the answer is kept for a retry");
+  const tie = attached.slice(attachedBefore).find(([, ref]) => ref.startsWith("studio-answer:"));
+  assert.ok(tie, "the answered assistant's hold is tied: " + JSON.stringify(attached.slice(attachedBefore)));
+  assert.match(tie[1], /^studio-answer:studio-[0-9a-f-]{36}:6000$/, "its unique server-side event id and its reported cost (1M in / 1M out on Fable = $60)");
+  assert.equal(tie[0], "studio:" + tie[1].split(":")[1], "on the task's own hold");
+  assert.deepEqual(order.slice(0, 2), ["attach", "spend"], "tied before the settle is tried");
+  settlementFails = false; order.length = 0;
+  response = await call("studio.assistant.get", { taskId: "studio-assistant-assistant-answer-tie" });
+  assert.equal(response.json.task.status, "completed");
+  assert.deepEqual(order, ["attach", "spend"], "the retry ties it again (idempotent) before settling");
+  assert.deepEqual(attached.at(-1), tie);
+  adapter.spendCredit = spendBefore; adapter.attachHold = attachRecorder;
+}
+adapter.authorizeCredit = authorizeBefore; delete adapter.releaseCredit; delete adapter.attachHold;
+
 console.log("Blender Studio relay contract tests passed.");

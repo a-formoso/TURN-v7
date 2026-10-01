@@ -644,6 +644,9 @@ function standInWhy(f, retried){
     if(window.turnIsAdmin){ base = "the writing provider\u2019s account ran out of credits"; next = "top it up, then open it and redraft"; }
     else { base = "the writing service was briefly unavailable"+ref; next = "open it and redraft in a moment"; }
   }
+  else if(f.kind==="plan" && f.billing==="frozen"){ base = "your account is on hold while a payment is disputed"; next = "once the hold is lifted, open it and redraft"; }
+  else if(f.kind==="plan" && f.billing==="unavailable"){ base = "your credits couldn\u2019t be checked just then"; next = "open it and redraft in a minute"; }
+  else if(f.kind==="plan" && f.billing==="engine"){ base = "the writing engine needs more credits for one answer than your account has"; next = "choose a lighter writing engine (or add credits), then open it and redraft"; }
   else if(f.kind==="plan"){ base = "your account ran out of plan credits for writing"; next = "choose a plan or add credits, then open it and redraft"; }
   else if(f.kind==="signin"){ base = "you were signed out of the writing service"; next = "sign in, then open it and redraft"; }
   else if(f.kind==="truncated") base = "the model\u2019s reply "+(retried ? "kept getting" : "was")+" cut off";
@@ -702,7 +705,8 @@ async function writeScenesSeq(ctx, indices){
     const fl = f.failure || {};
     const reason = (typeof window.screenplayFailureReason==="function") ? window.screenplayFailureReason(fl)
       : fl.kind==="plan" ? "your account has no plan credits left for writing" : fl.kind==="credits" ? "the writing service is unavailable" : "you\u2019re signed out of the writing service";
-    const first = fl.kind==="plan" ? "Choose a plan or add credits"
+    const first = fl.kind==="plan" ? (fl.billing==="frozen" ? "Once the payment hold is lifted (write to kinolot-billing@infinitestudioai.com if it\u2019s a mistake)"
+        : fl.billing==="unavailable" ? "Wait a minute" : fl.billing==="engine" ? "Choose a lighter writing engine (or add credits)" : "Choose a plan or add credits")
       : fl.kind==="credits" ? (window.turnIsAdmin ? "Top up the provider account" : "Wait a little (if it keeps failing, quote ref "+(fl.ref||"CM-11")+" to support)")
       : fl.kind==="service" ? "Wait a little (if it keeps failing, quote ref "+(fl.ref||"CM-14")+" to support)"
       : "Sign in";

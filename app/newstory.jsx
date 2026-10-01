@@ -34,15 +34,38 @@ const onCmdEnter = (fn, plainToo)=> (e)=>{
    both through the signed-in proxy) and FALLS BACK to the browser's free Web Speech API when
    the proxy isn't available. The interview/logline logic above is untouched: it still just
    calls speak()/listen(). ElevenLabs STT has no live interim transcript and is tap-to-stop
-   (record until the user clicks the mic again), unlike Web Speech's auto-stop on a pause. ---- */
+   (record until the user clicks the mic again), unlike Web Speech's auto-stop on a pause.
+   FREE-TIER ACCOUNTS (repair 2026-09-30): the paid voice is Writer-and-up (the server refuses it
+   for a trial or no-plan account), so a free-tier account (window.turnOnFreeTier()) always uses
+   the browser's own speech — the paid voice service is never called for it. If the paid voice is
+   refused anyway (a ledger that hadn't loaded yet, a plan that just ended), the interview calls
+   are QUIET (no Plans window, app/voicegen.jsx) and the adapter switches to the browser's speech
+   for the rest of the page session. Writer and up keep the paid voice, which uses credits —
+   NSLegacyInterview says so once, next to the voice toggle.
+   A RECORDING THE SERVER CAN'T TAKE (billing round 5): transcription is charged by the recording's
+   own length, read from the file before anything is held, so the server refuses (400, a plain
+   sentence) a recording it can't read or one longer than the longest answer this adapter records.
+   That refusal is quiet too: the browser's speech recognition listens from the next tap on (the
+   paid voice keeps speaking). A spoken answer records for NS_MAX_ANSWER_SECONDS at most, then stops
+   by itself and is transcribed as if the mic had been tapped. ---- */
+/* the longest spoken answer the interview records (billing round 5) — image-proxy refuses a
+   recording longer than its own limit, which must stay above this */
+const NS_MAX_ANSWER_SECONDS = 300;
+window.NS_MAX_ANSWER_SECONDS = NS_MAX_ANSWER_SECONDS;
 const Voice = (()=>{
   const SR = (typeof window!=="undefined") && (window.SpeechRecognition || window.webkitSpeechRecognition);
   const synth = (typeof window!=="undefined") && window.speechSynthesis;
   const mediaOk = (typeof navigator!=="undefined") && navigator.mediaDevices && navigator.mediaDevices.getUserMedia
     && (typeof window!=="undefined") && window.MediaRecorder;
-  const elReady = ()=> (typeof window!=="undefined") && typeof window.voiceProxyReady==="function" && window.voiceProxyReady()
+  let paidRefused = false;   // a billing refusal this page session: browser speech from now on
+  let sttRefused = false;    // a recording refused as it stands (400): the browser listens from now on
+  const freeTier = ()=>{ try{ return typeof window.turnOnFreeTier==="function" && !!window.turnOnFreeTier(); }catch(e){ return false; } };
+  const elReady = ()=> (typeof window!=="undefined") && !paidRefused && !freeTier()
+    && typeof window.voiceProxyReady==="function" && window.voiceProxyReady()
     && typeof window.elSpeak==="function" && typeof window.elTranscribe==="function";
-  let rec = null, mr = null, mrStream = null, currentAudio = null, speakSeq = 0;
+  let rec = null, mr = null, mrStream = null, currentAudio = null, speakSeq = 0, mrTimer = null;
+  const paidListen = ()=> elReady() && !!mediaOk && !sttRefused;
+  const clearMrTimer = ()=>{ if(mrTimer){ try{ clearTimeout(mrTimer); }catch(e){} mrTimer = null; } };
   const pickRecMime = ()=>{
     const want = ["audio/webm;codecs=opus","audio/webm","audio/mp4","audio/ogg;codecs=opus","audio/ogg"];
     for(const m of want){ try{ if(window.MediaRecorder.isTypeSupported(m)) return m; }catch(e){} }
@@ -57,13 +80,17 @@ const Voice = (()=>{
   };
   return {
     // capability is dynamic: ElevenLabs (proxy + mic) OR the browser fallback
-    get sttSupported(){ return (elReady() && !!mediaOk) || !!SR; },
+    get sttSupported(){ return paidListen() || !!SR; },
+    // spoken answers were refused by the server and this browser has no speech recognition to fall back on
+    get spokenRefused(){ return (sttRefused || paidRefused) && !SR; },
     get ttsSupported(){ return elReady() || !!synth; },
+    // true while the interview uses the paid voice (it uses credits); false = the browser's speech
+    get paidVoice(){ return elReady(); },
     async speak(text, onend){
       this.stopSpeaking();   // cancel anything playing (bumps speakSeq)
       const seq = speakSeq;  // this call now owns the latest generation
       if(elReady()){
-        let url=""; try{ url = await window.elSpeak(text); }catch(e){}
+        let url=""; try{ url = await window.elSpeak(text); }catch(e){ if(e && e.billing) paidRefused = true; }
         if(seq!==speakSeq) return;                 // superseded or stopped while fetching
         if(url){
           try{
@@ -80,7 +107,7 @@ const Voice = (()=>{
     stopSpeaking(){ speakSeq++; try{ if(currentAudio){ currentAudio.pause(); currentAudio=null; } }catch(e){} try{ synth && synth.cancel(); }catch(e){} },
     // begin a single listening turn; callbacks deliver partial (Web Speech only) + final transcripts
     listen({ onInterim, onFinal, onError }){
-      if(elReady() && mediaOk){
+      if(paidListen()){
         navigator.mediaDevices.getUserMedia({ audio:true }).then(stream=>{
           mrStream = stream;
           try{
@@ -89,6 +116,7 @@ const Voice = (()=>{
             mr = new MediaRecorder(stream, mime?{ mimeType:mime }:undefined);
             mr.ondataavailable = (e)=>{ if(e.data && e.data.size) chunks.push(e.data); };
             mr.onstop = async ()=>{
+              clearMrTimer();
               try{ mrStream && mrStream.getTracks().forEach(t=>t.stop()); }catch(e){} mrStream=null;
               const type = (mr && mr.mimeType) || mime || "audio/webm";
               const blob = new Blob(chunks, { type });
@@ -97,9 +125,20 @@ const Voice = (()=>{
                 const b64 = await blobToB64(blob);
                 const text = await window.elTranscribe(b64, type.split(";")[0]);
                 onFinal && onFinal(text||"");
-              }catch(e){ onError && onError("stt-failed"); }
+              }catch(e){
+                // a recording the server can't take (400: unreadable, or too long): the browser
+                // listens from the next tap on, quietly — the paid voice keeps speaking (round 5)
+                if(e && Number(e.status)===400){ sttRefused = true; onError && onError(SR ? "switched-to-browser" : "stt-refused"); }
+                // refused for billing: the browser listens from the next tap on (no Plans window)
+                else if(e && e.billing){ paidRefused = true; onError && onError(SR ? "switched-to-browser" : "stt-refused"); }
+                else onError && onError("stt-failed");
+              }
             };
             mr.start();
+            // the longest answer it records: stop by itself and transcribe what was said (round 5)
+            const thisMr = mr;
+            clearMrTimer();
+            mrTimer = setTimeout(()=>{ mrTimer = null; try{ if(thisMr && thisMr.state==="recording") thisMr.stop(); }catch(e){} }, NS_MAX_ANSWER_SECONDS*1000);
           }catch(e){ try{ stream.getTracks().forEach(t=>t.stop()); }catch(_){} onError && onError(String(e)); }
         }).catch(err=>{ onError && onError(err && (err.name==="NotAllowedError"||err.name==="SecurityError") ? "not-allowed" : "error"); });
         return;
@@ -124,12 +163,18 @@ const Voice = (()=>{
       }catch(e){ onError&&onError(String(e)); }
     },
     stopListening(){
+      clearMrTimer();
       try{ if(mr && mr.state!=="inactive"){ mr.stop(); mr=null; return; } }catch(e){}
       try{ if(mrStream){ mrStream.getTracks().forEach(t=>t.stop()); mrStream=null; } }catch(e){}
       try{ rec && rec.stop(); }catch(e){}
     },
   };
 })();
+
+/* the once-per-account line for the paid interview voice (Writer and up) */
+const NS_PAID_VOICE_NOTE = "Frances’s voice uses a few credits a line here, and so do spoken answers. Turn Voice off, or type, to save them.";
+window.NS_PAID_VOICE_NOTE = NS_PAID_VOICE_NOTE;
+function nsVoiceNoteKey(){ return "turn-interview-voice-note:"+String(window.turnUserId||window.turnUserEmail||"local"); }
 
 /* Recovery interview for browsers/environments where GPT-Live cannot open. It
    retains the previous turn-by-turn TTS/STT + typed conversation (the same Frances voice). */
@@ -142,6 +187,13 @@ function NSLegacyInterview({ formatLabel, onComplete, onBack, liveNotice }){
   const [voiceOn, setVoiceOn] = React.useState(true);
   const [err, setErr] = React.useState("");
   const voiceOnRef = React.useRef(voiceOn); voiceOnRef.current = voiceOn;
+  // a Writer-and-up account hears the paid voice, which uses credits: said ONCE per account, next to
+  // the voice toggle (repair 2026-09-30); free-tier accounts use the browser's own speech (free)
+  const [voiceCostNote] = React.useState(()=>{
+    if(!Voice.paidVoice || window.turnIsAdmin) return false;
+    try{ return !localStorage.getItem(nsVoiceNoteKey()); }catch(e){ return true; }
+  });
+  React.useEffect(()=>{ if(voiceCostNote){ try{ localStorage.setItem(nsVoiceNoteKey(), "1"); }catch(e){} } },[voiceCostNote]);
   const scrollRef = React.useRef(null);
   const hErr = (e)=>String((e&&e.message)||"Something went wrong — try again.");
   const say = (t)=>{ if(voiceOnRef.current) Voice.speak(t); };
@@ -195,6 +247,8 @@ function NSLegacyInterview({ formatLabel, onComplete, onBack, liveNotice }){
       onError:(er)=>{ setListening(false);
         setErr(er==="not-allowed"||er==="service-not-allowed" ? "Mic access was blocked — type your answer instead."
           : er==="unsupported" ? "Voice input isn’t supported here — type your answer instead."
+          : er==="switched-to-browser" ? "Your browser will listen from now on — tap the mic and answer again, or type it."
+          : er==="stt-refused" ? "Spoken answers aren’t available here any more — type your answer."
           : "Didn’t catch that — try again, or type it."); },
     });
   };
@@ -208,12 +262,19 @@ function NSLegacyInterview({ formatLabel, onComplete, onBack, liveNotice }){
         title:voiceOn?"Mute voice":"Unmute voice"},
         React.createElement(Icon[voiceOn?"sparkles":"x"]||Icon.sparkles,{s:12}), voiceOn?"Voice on":"Voice off")),
 
+    voiceCostNote && React.createElement("div",{className:"ns-talk-note ns-voice-cost",role:"note"},
+      React.createElement(Icon.sparkles,{s:14}),
+      React.createElement("span",null,NS_PAID_VOICE_NOTE)),
+
     liveNotice && React.createElement("div",{className:"ns-talk-note"},
       React.createElement(Icon.alert,{s:14}),
       React.createElement("span",null,liveNotice," You can continue with the typed interview here.")),
 
     // tell the user plainly when their browser can't do spoken answers
-    !Voice.sttSupported && React.createElement("div",{className:"ns-talk-note"},
+    !Voice.sttSupported && Voice.spokenRefused && React.createElement("div",{className:"ns-talk-note"},
+      React.createElement(Icon.alert,{s:14}),
+      React.createElement("span",null,"Spoken answers are off for the rest of this visit — type your replies below; it's the same conversation.")),
+    !Voice.sttSupported && !Voice.spokenRefused && React.createElement("div",{className:"ns-talk-note"},
       React.createElement(Icon.alert,{s:14}),
       React.createElement("span",null,
         React.createElement("b",null,"Voice answers need Chrome or Edge."),
@@ -244,14 +305,20 @@ function NSLegacyInterview({ formatLabel, onComplete, onBack, liveNotice }){
       React.createElement("button",{className:"ns-btn ghost",onClick:()=>{ Voice.stopSpeaking(); Voice.stopListening(); onBack(); }},"← Back")));
 }
 
+/* Each fragment carries the conversation it came from (`attempt`: "Start another conversation"
+   opens a NEW session whose clock restarts at 0). A fragment from another conversation always
+   starts a new row — Frances's greeting in the new session is never glued into her last bubble
+   from the earlier one (repair round 2). */
 function nsLiveRows(fragments){
   const rows=[];
   (fragments||[]).forEach(f=>{
     if(!f || !String(f.delta||"")) return;
     const last=rows[rows.length-1];
-    const closeEnough=last && last.role===f.role && (!last.endMs || !f.startMs || f.startMs-last.endMs<1400);
+    const attempt=Number(f.attempt)||0;
+    const closeEnough=last && last.role===f.role && last.attempt===attempt
+      && (!last.endMs || !f.startMs || f.startMs-last.endMs<1400);
     if(closeEnough){ last.content+=String(f.delta); last.endMs=f.endMs||last.endMs; }
-    else rows.push({role:f.role,content:String(f.delta),startMs:f.startMs||0,endMs:f.endMs||0});
+    else rows.push({role:f.role,content:String(f.delta),startMs:f.startMs||0,endMs:f.endMs||0,attempt});
   });
   return rows.filter(r=>r.content.trim());
 }
@@ -268,21 +335,25 @@ function NSLiveInterview({ formatLabel, onComplete, onBack, onUseFallback }){
   const [muted,setMuted]=React.useState(false);
   const [playbackBlocked,setPlaybackBlocked]=React.useState(false);
   const [attempt,setAttempt]=React.useState(0);
+  // the session reached its 15 minutes and ended itself (app/livevoice.js): Frances's line, and the
+  // choice to finish or start another conversation (which uses another of the day's questions)
+  const [timeUp,setTimeUp]=React.useState("");
   const sessionRef=React.useRef(null);
   const scrollRef=React.useRef(null);
   const rows=nsLiveRows(fragments);
   const hasWriter=fragments.some(f=>f.role==="user" && String(f.delta||"").trim());
 
   React.useEffect(()=>{ let alive=true;
-    setStatus("connecting"); setErr(""); setMuted(false); setPlaybackBlocked(false);
+    setStatus("connecting"); setErr(""); setMuted(false); setPlaybackBlocked(false); setTimeUp("");
     (async()=>{
       try{
         const session=await window.turnStartLiveVoice({
           mode:"new-story",context:{formatLabel},
-          onTranscript:fragment=>{ if(alive) setFragments(prev=>[...prev,fragment]); },
+          onTranscript:fragment=>{ if(alive) setFragments(prev=>[...prev,{ ...fragment, attempt }]); },
           onStatus:next=>{ if(alive) setStatus(next); },
           onError:message=>{ if(alive) setErr(String(message||"The live conversation hit an audio error.")); },
           onPlaybackBlocked:()=>{ if(alive) setPlaybackBlocked(true); },
+          onTimeLimit:message=>{ if(alive){ sessionRef.current=null; setTimeUp(String(message||"This conversation with Frances has ended.")); } },
         });
         if(!alive){ session.close({timeoutMs:700}); return; }
         sessionRef.current=session;
@@ -300,6 +371,8 @@ function NSLiveInterview({ formatLabel, onComplete, onBack, onUseFallback }){
     Promise.resolve(session&&session.close({timeoutMs:1400})).finally(fn); };
   const retry=()=>{ const session=sessionRef.current; sessionRef.current=null;
     Promise.resolve(session&&session.close({timeoutMs:700})).finally(()=>{ setFragments([]); setAttempt(n=>n+1); }); };
+  // after the 15-minute end: a NEW conversation, keeping what was already said for the loglines
+  const another=()=>{ setTimeUp(""); setErr(""); setAttempt(n=>n+1); };
   const toggleMute=()=>{ const session=sessionRef.current; if(!session) return;
     const next=session.mute(); setMuted(next); };
   const hear=async()=>{ try{ const session=sessionRef.current; if(session){ await session.play(); setPlaybackBlocked(false); } }
@@ -319,6 +392,7 @@ function NSLiveInterview({ formatLabel, onComplete, onBack, onUseFallback }){
     }catch(e){ setErr(String((e&&e.message)||"Couldn’t shape the conversation into loglines.")); setStatus("ended"); setFinalizing(false); }
   };
   const statusText=finalizing || status==="shaping" ? "Shaping your loglines…"
+    : timeUp ? "Conversation ended"
     : status==="connecting" ? "Connecting to Frances…"
     : status==="speaking" ? "Frances is speaking…"
     : status==="muted" || muted ? "Mic is off"
@@ -343,9 +417,14 @@ function NSLiveInterview({ formatLabel, onComplete, onBack, onUseFallback }){
     React.createElement("div",{className:"ns-talk-thread",ref:scrollRef},
       rows.length===0 && React.createElement("div",{className:"ns-talk-empty"},
         status==="failed"?"The live session didn’t open.":"Frances will begin in a moment…"),
-      rows.map((m,i)=>React.createElement("div",{key:i,className:"ns-talk-msg "+m.role},
-        React.createElement("div",{className:"ns-talk-bubble"},m.content.trim())))),
+      rows.map((m,i)=>React.createElement(React.Fragment,{key:i},
+        i>0 && rows[i-1].attempt!==m.attempt && React.createElement("div",{className:"ns-live-newconv",role:"separator"},"New conversation"),
+        React.createElement("div",{className:"ns-talk-msg "+m.role},
+          React.createElement("div",{className:"ns-talk-bubble"},m.content.trim()))))),
 
+    timeUp && React.createElement("div",{className:"ns-talk-note ns-live-timeup",role:"status"},
+      React.createElement(Icon.mic,{s:14}),
+      React.createElement("span",null,timeUp)),
     playbackBlocked && React.createElement("div",{className:"ns-talk-note"},
       React.createElement(Icon.alert,{s:14}),
       React.createElement("span",null,"Your browser paused Frances’s voice."),
@@ -355,7 +434,8 @@ function NSLiveInterview({ formatLabel, onComplete, onBack, onUseFallback }){
     React.createElement("div",{className:"ns-foot ns-live-foot"},
       React.createElement("button",{className:"ns-btn ghost",disabled:finalizing,onClick:()=>closeAnd(onBack)},"← Back"),
       React.createElement("button",{className:"ns-btn link",disabled:finalizing,onClick:()=>closeAnd(onUseFallback)},"Use typed interview"),
-      status==="failed" && React.createElement("button",{className:"ns-btn ghost",disabled:finalizing,onClick:retry},"Try live again"),
+      status==="failed" && !timeUp && React.createElement("button",{className:"ns-btn ghost",disabled:finalizing,onClick:retry},"Try live again"),
+      timeUp && React.createElement("button",{className:"ns-btn ghost",disabled:finalizing,onClick:another},"Start another conversation"),
       React.createElement("button",{className:"ns-btn primary",disabled:finalizing||!hasWriter,onClick:finish},
         finalizing?React.createElement(React.Fragment,null,React.createElement("span",{className:"ns-spin"}),"Shaping…")
           :React.createElement(React.Fragment,null,React.createElement(Icon.sparkles,{s:14}),"Finish & shape loglines"))));

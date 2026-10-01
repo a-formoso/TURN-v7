@@ -11,7 +11,8 @@
    - seedanceGenerate races: Clear mid-render → discarded (no commit, no
      resurrection); film switch mid-render → stale (job stays pending)
    - vidRecoverPending: project-scoped, COMPLETED saves, FAILED reported,
-     >24h expired, other-film jobs untouched
+     a job older than 7 days polled once and then dropped (billing round 2),
+     other-film jobs untouched
    - stageExportPlaylist (stage.jsx): rendered-only, story order
    - cloudSpendCreditReliable / cloudFlushSpendQueue (cloud.jsx): failed RPC
      queues + toast, later flush drains
@@ -189,11 +190,13 @@ await (async () => {
   /* ---- 9. recovery: project-scoped, honest outcomes ---- */
   pollResponses["s-ok"] = { status: "COMPLETED", videoUrl: "http://cdn/rec.mp4", seed: 3 };
   pollResponses["s-fail"] = { status: "FAILED", error: "boom" };
+  pollResponses["s-still"] = { status: "IN_PROGRESS" };
   V.__toasts.length = 0;
   V.localStorage.setItem("turn_vid_pending", JSON.stringify([
     { requestId: "ra", id: "clip-reca", model: "m", statusUrl: "s-ok", responseUrl: "r", at: Date.now(), projectId: "p1", uid: "u1", meta: { hash: "h" } },
     { requestId: "rb", id: "clip-otherfilm", model: "m", statusUrl: "s-ok", responseUrl: "r", at: Date.now(), projectId: "p2", uid: "u1", meta: {} },
-    { requestId: "rc", id: "clip-old", model: "m", statusUrl: "s-ok", responseUrl: "r", at: Date.now() - 25 * 3600 * 1000, projectId: "p1", uid: "u1", meta: {} },
+    // over a week old and still unfinished: polled once more, then dropped (a day-old job is kept now)
+    { requestId: "rc", id: "clip-old", model: "m", statusUrl: "s-still", responseUrl: "r", at: Date.now() - 8 * 24 * 3600 * 1000, projectId: "p1", uid: "u1", meta: {} },
     { requestId: "rd", id: "clip-recfail", model: "m", statusUrl: "s-fail", responseUrl: "r", at: Date.now(), projectId: "p1", uid: "u1", meta: {} },
   ]));
   const saved = await V.vidRecoverPending();
@@ -202,7 +205,7 @@ await (async () => {
   const left = V.vidPendingList();
   ok("recover: other film's job untouched", left.length === 1 && left[0].requestId === "rb", JSON.stringify(left));
   ok("recover: outcomes disclosed (saved/failed/expired)",
-    toastsWith(/Recovered a finished render/).length === 1 && toastsWith(/failed at the provider/).length === 1 && toastsWith(/over a day old/).length === 1,
+    toastsWith(/Recovered a finished render/).length === 1 && toastsWith(/failed at the provider/).length === 1 && toastsWith(/from over a week ago still couldn’t be collected/).length === 1,
     JSON.stringify(V.__toasts));
 
   /* ---- 10. take MANAGEMENT writes reach the cloud too (review fix) ---- */
@@ -237,21 +240,17 @@ await (async () => {
   ok("reconcile: deletion announced", V.__events.some(e => e.type === "vid-done" && (e.detail.ids || []).includes("clip-dirty")), JSON.stringify(V.__events.map(e => e.detail && e.detail.ids)));
   ok("reconcile: local-mode film untouched", V.vidGetVideo("clip-local") === "http://cdn/l1.mp4");
 
-  /* ---- 13. spend rides the job: settled at COMPLETION, launcher-pinned ---- */
+  /* ---- 13. video is charged on the SERVER (billing fixes 2026-09-30): the browser records no spend ---- */
   const spendCalls = [];
   V.cloudSpendCreditReliable = async (cost, reason, uid, eventId) => { spendCalls.push({ cost, reason, uid, eventId }); return true; };
   released = true; polls = 0;
-  const rSpend = await V.seedanceGenerate("clip-paid", { frameUrl: "http://img/3.png", prompt: "go", pollMs: 5, maxPolls: 400, spend: { cost: 4, reason: "stage-video-render", uid: "u1" } });
-  ok("spend-job: settled at completion with the job's own event id",
-    rSpend && rSpend.videoUrl && spendCalls.length === 1 && spendCalls[0].cost === 4 && spendCalls[0].uid === "u1" && typeof spendCalls[0].eventId === "string" && spendCalls[0].eventId.length > 0,
-    JSON.stringify(spendCalls));
-  // crash-recovery settles the SAME record — same event id, so never a second charge
+  const rSpend = await V.seedanceGenerate("clip-paid", { frameUrl: "http://img/3.png", prompt: "go", pollMs: 5, maxPolls: 400, quote: { cost: 4, reason: "stage-video-render" } });
+  ok("server-billed: a completed render records no browser spend", rSpend && rSpend.videoUrl && spendCalls.length === 0, JSON.stringify(spendCalls));
   V.localStorage.setItem("turn_vid_pending", JSON.stringify([
     { requestId: "rs", id: "clip-recpaid", model: "m", statusUrl: "s-ok", responseUrl: "r", at: Date.now(), projectId: "p1", uid: "u1", meta: {}, spend: { cost: 2, reason: "stage-video-render", uid: "uA", id: "evt-rec-1" } },
   ]));
   await V.vidRecoverPending({ quiet: true });
-  const recSpend = spendCalls.filter(s => s.eventId === "evt-rec-1");
-  ok("spend-job: recovery settles the job's own spend record (launcher's uid)", recSpend.length === 1 && recSpend[0].cost === 2 && recSpend[0].uid === "uA", JSON.stringify(spendCalls));
+  ok("server-billed: crash-recovery records no browser spend", spendCalls.length === 0, JSON.stringify(spendCalls));
   delete V.cloudSpendCreditReliable;
 })();
 

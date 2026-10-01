@@ -65,6 +65,17 @@
     if(body.error === "frances_busy"){ const e = new Error(LIVE_BUSY_LINE); e.code = "frances_busy"; return e; }
     return null;
   }
+  /* FIFTEEN MINUTES A SESSION (owner decision, billing repair 2026-09-30): a live conversation costs
+     the studio by the minute and uses no credits, so each session ends itself 15 minutes after it
+     opens — Frances's line says so, the transcript stays, and the writer can finish (shape the
+     loglines) or start another conversation, which uses another of the day's questions. The daily
+     question count already bounds how many sessions a day there are. Another conversation is a
+     NEW session that starts fresh (the server gives it only the format), so the line says so: the
+     transcript keeps both and Finish shapes both (repair round 2). */
+  const LIVE_SESSION_MAX_MS = 15*60*1000;
+  const LIVE_TIME_UP_LINE = "That’s 15 minutes — this conversation with Frances has ended. Your transcript is still here: finish to shape it into loglines, or start another conversation (it counts as another question). A new conversation starts fresh — Frances won’t hear what was said here — but your loglines use both.";
+  window.TURN_LIVE_SESSION_MAX_MS = LIVE_SESSION_MAX_MS;
+  window.TURN_LIVE_TIME_UP_LINE = LIVE_TIME_UP_LINE;
   async function liveLimitFromError(error){
     const status = Number((error && error.context && error.context.status) || (error && error.status) || 0);
     const response = error && error.context;
@@ -131,7 +142,9 @@
   /* Start one live conversation with Frances. Callbacks:
        onTranscript({role,delta,startMs,endMs,event})
        onStatus("connecting"|"listening"|"speaking"|"muted"|"closing"|"closed")
-       onError(message), onPlaybackBlocked()
+       onError(message), onPlaybackBlocked(),
+       onTimeLimit(message) — the session reached its 15 minutes and is closing itself
+       (options.maxSessionMs overrides the length, for tests)
      Resolves only after session.started, and returns {close,mute,play,sessionId}. */
   async function turnStartLiveVoice(options){
     options = options || {};
@@ -142,7 +155,9 @@
     const onTranscript = typeof options.onTranscript === "function" ? options.onTranscript : function(){};
     const onError = typeof options.onError === "function" ? options.onError : function(){};
     const onPlaybackBlocked = typeof options.onPlaybackBlocked === "function" ? options.onPlaybackBlocked : function(){};
-    let peer=null, events=null, microphone=null, speakingTimer=0, startupTimer=0;
+    const onTimeLimit = typeof options.onTimeLimit === "function" ? options.onTimeLimit : function(){};
+    const maxSessionMs = Number(options.maxSessionMs) > 0 ? Number(options.maxSessionMs) : LIVE_SESSION_MAX_MS;
+    let peer=null, events=null, microphone=null, speakingTimer=0, startupTimer=0, limitTimer=0;
     let started=false, finalized=false, cleaned=false, muted=false, sessionId="", closeTask=null;
     let resolveStarted, rejectStarted, resolveClosed;
     const startedPromise = new Promise((resolve,reject)=>{ resolveStarted=resolve; rejectStarted=reject; });
@@ -156,6 +171,7 @@
       cleaned=true;
       window.clearTimeout(speakingTimer);
       window.clearTimeout(startupTimer);
+      window.clearTimeout(limitTimer);
       try{ microphone && microphone.getTracks().forEach(track=>track.stop()); }catch(_e){}
       try{ events && events.close(); }catch(_e){}
       try{ peer && peer.close(); }catch(_e){}
@@ -178,6 +194,13 @@
         sessionId=String((event.session && event.session.id)||sessionId||"");
         onStatus("listening");
         resolveStarted(event);
+        // the session's own clock: it ends itself after maxSessionMs (15 minutes)
+        window.clearTimeout(limitTimer);
+        limitTimer = window.setTimeout(()=>{
+          if(cleaned || finalized) return;
+          try{ onTimeLimit(LIVE_TIME_UP_LINE); }catch(_e){}
+          close({timeoutMs:1500});
+        }, maxSessionMs);
         // The HTTP request starts the session; never send session.start here.
         send({
           type:"session.commentary.append",

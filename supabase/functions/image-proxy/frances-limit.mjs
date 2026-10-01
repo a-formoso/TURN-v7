@@ -38,7 +38,14 @@
    FRANCES_LIMIT_TIMEOUT_MS (8 s: far above a normal answer and the 1 s busy wait, so only an
    outage gets there), the question is served and the proxy logs the problem once per instance
    and kind. While the limit fails open, the older allowance in muse-billing.mjs
-   (MUSE_LIMITS.dailyFreeCalls in any 24 hours, then metered) still bounds free use. */
+   (MUSE_LIMITS.dailyFreeCalls in any 24 hours, then metered) still bounds free use.
+
+   CAPS BY PLAN (billing fixes, owner decision 2026-09-30): the day's limit now depends on the
+   caller's plan — 5 questions for no plan / a trial / a cancelled or frozen account, 15 Writer,
+   30 Director, 50 Producer (billing-policy.mjs FRANCES_PLAN_LIMITS; admins stay exempt). index.ts
+   passes the plan's cap as `planLimit`; the FRANCES_DAILY_LIMIT secret is now a CEILING over every
+   plan (an emergency brake: set it to 10 and nobody gets more than 10; unset, it is 50, the top
+   plan's cap, so it changes nothing). The limit used is min(planLimit, ceiling). */
 
 export const FRANCES_DAILY_LIMIT_DEFAULT = 50;
 export const FRANCES_LIMIT_MAX = 100000;          // the SQL function refuses anything larger
@@ -77,6 +84,13 @@ export function francesLimitProblem(error) {
 export function francesLimitBusy(error) {
   const e = error || {};
   return String(e.code || "") === "55P03" || /canceling statement due to lock timeout/i.test(String(e.message || ""));
+}
+
+/** The day's limit for a caller: the plan's cap under the FRANCES_DAILY_LIMIT ceiling. */
+export function francesEffectiveLimit(planLimit, ceiling) {
+  const top = francesDailyLimit(ceiling);
+  const p = Number(planLimit);
+  return Number.isInteger(p) && p >= 1 && p <= FRANCES_LIMIT_MAX ? Math.min(p, top) : top;
 }
 
 /** The user-safe line the proxy sends with a busy 429 (the app shows its own copy of it). */
@@ -133,15 +147,16 @@ export function francesLimitDecision({ isAdmin = false, result = null, error = n
  * The proxy's limiter: one per instance (module scope in index.ts), so each kind of failure is
  * logged once per instance, not once per question.
  *   const check = createFrancesLimiter({ log });
- *   const d = await check({ isAdmin, userId, limit, consume: (args) => serviceClient.rpc(FRANCES_LIMIT_RPC, args) });
+ *   const d = await check({ isAdmin, userId, limit, planLimit, consume: (args) => serviceClient.rpc(FRANCES_LIMIT_RPC, args) });
+ * `limit` is the FRANCES_DAILY_LIMIT ceiling, `planLimit` the caller's plan cap (optional).
  *   if (!d.serve) return json(d.body, d.status);
  * `consume` receives { p_user, p_limit } and resolves supabase-js's { data, error }; it may throw.
  */
 export function createFrancesLimiter({ log = (m) => console.warn(m), timeoutMs = FRANCES_LIMIT_TIMEOUT_MS, now = () => Date.now() } = {}) {
   const logged = new Set();
-  return async function checkFrancesLimit({ isAdmin = false, userId, limit, consume } = {}) {
+  return async function checkFrancesLimit({ isAdmin = false, userId, limit, planLimit, consume } = {}) {
     if (isAdmin) return francesLimitDecision({ isAdmin: true });
-    const lim = francesDailyLimit(limit);
+    const lim = francesEffectiveLimit(planLimit, limit);
     let result = null, error = null, timer = null;
     try {
       const call = Promise.resolve().then(() => consume({ p_user: userId, p_limit: lim }));

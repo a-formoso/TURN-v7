@@ -3,6 +3,7 @@
  * relay hooks instead of implementing a second, weaker auth stack.
  */
 import { resolveStorageFolders, studioPreviewPath } from "./storage-paths.mjs";
+import { answerProviderRef, isTrustedFalUrl, meshOutputFile } from "./studio-reconcile.mjs";
 const text = new TextEncoder();
 const MAX_GLB = 64 * 1024 * 1024;
 const MAX_IMAGE = 8 * 1024 * 1024;
@@ -83,12 +84,8 @@ function spendEventId() {
   // spend receipts, and remains stable for retries once the claim succeeds.
   return `studio-${crypto.randomUUID()}`;
 }
-function isTrustedFalUrl(value) {
-  let u; try { u = new URL(value); } catch (_) { return false; }
-  const host = u.hostname.toLowerCase();
-  return u.protocol === "https:" && !u.username && !u.password &&
-    (host === "fal.run" || host.endsWith(".fal.run") || host === "fal.media" || host.endsWith(".fal.media"));
-}
+// isTrustedFalUrl and meshOutputFile live in studio-reconcile.mjs: the housekeeping reconciliation
+// decides a finished mesh's hold with the very same checks (billing round 3, S3).
 export function validateGlb(bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.length < 20 || bytes.length > MAX_GLB) throw bad("Invalid GLB size.");
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -114,21 +111,48 @@ export function validateGlb(bytes) {
   if (!safe || !object(doc.asset) || typeof doc.asset.version !== "string") throw bad("GLB contains unsafe external content.");
   return doc;
 }
-function meshEstimate(rigged, animated) {
-  const providerCostUsd = 1.20 + (rigged ? .20 : 0) + (animated ? .12 : 0);
-  return { providerCostUsd, credits: Math.max(1, Math.ceil(providerCostUsd / .30 * 10)), currency: "USD", basis: "Meshy v7 full texture pricing" };
+/* CREDIT ANCHOR (billing fixes, owner decision 2026-09-30, Option A): 1 credit = $0.01 of
+   provider cost (it was $0.03), rounded up, at least 1. The same anchor lives in
+   supabase/functions/image-proxy/billing-pricing.mjs and app/pricing.jsx — change them together.
+   Until the switch day the balances are still in the old unit, so the service prices in the
+   LIVE unit the adapter reads from turn_credit_regime() (adapter.creditUnit(): $0.03 before
+   supabase/billing-switch.sql, $0.01 after); an adapter without it (tests) uses the anchor. */
+export const PROVIDER_USD_PER_CREDIT = 0.01;
+export function studioCredits(usd, unit = PROVIDER_USD_PER_CREDIT) {
+  const n = Number(usd);
+  const u = Number(unit) >= 0.001 && Number(unit) <= 1 ? Number(unit) : PROVIDER_USD_PER_CREDIT;
+  return !Number.isFinite(n) || n <= 0 ? 1 : Math.max(1, Math.ceil(n / u - 1e-9));
 }
-function assistantEstimate(modelId, usage) {
-  const rates = {
-    "claude-fable-5": [25, 100], "claude-opus-5": [15, 75],
-    "gpt-6-astra": [10, 50], "gpt-5.5-2026-04-23": [10, 30],
-  }[modelId];
+/* Assistant list prices per 1M input / output tokens (platform.claude.com and
+   developers.openai.com pricing, checked 2026-09-29; they were 2-3x too high until 2026-09-30). */
+export const ASSISTANT_RATES = Object.freeze({
+  "claude-fable-5": Object.freeze([10, 50]), "claude-opus-5": Object.freeze([5, 25]),
+  "gpt-6-astra": Object.freeze([10, 50]), "gpt-5.5-2026-04-23": Object.freeze([5, 30]),
+});
+/* The most one assistant call can use: the prompt is bounded (studio-provider-prompt.mjs keeps
+   the workspace context under 24,000 characters, the request prompt under 6,000; with the
+   instructions and one image that stays under 20,000 tokens) and the reply is capped in index.ts
+   (2,048 tokens for Claude, as before; 16,000 for OpenAI, whose cap also covers its reasoning).
+   The hold is this maximum; settlement keeps the reported cost, never more than the hold. */
+export const ASSISTANT_MAX_INPUT_TOKENS = 20000;
+export const ASSISTANT_MAX_OUTPUT_TOKENS = Object.freeze({ claude: 2048, openai: 16000 });
+export function meshEstimate(rigged, animated, unit = PROVIDER_USD_PER_CREDIT) {
+  const providerCostUsd = 1.20 + (rigged ? .20 : 0) + (animated ? .12 : 0);
+  return { providerCostUsd, credits: studioCredits(providerCostUsd, unit), currency: "USD", basis: "Meshy v7 full texture pricing" };
+}
+export function assistantEstimate(modelId, usage, unit = PROVIDER_USD_PER_CREDIT) {
+  const rates = ASSISTANT_RATES[modelId];
   if (!rates) throw bad("Unsupported model.");
   const inputTokens = Math.max(0, Number(usage?.inputTokens) || 0);
   const outputTokens = Math.max(0, Number(usage?.outputTokens) || 0);
   const providerCostUsd = inputTokens / 1000000 * rates[0] + outputTokens / 1000000 * rates[1];
-  return { providerCostUsd, credits: Math.max(1, Math.ceil(providerCostUsd / .30 * 10)),
+  return { providerCostUsd, credits: studioCredits(providerCostUsd, unit),
     currency: "USD", inputTokens, outputTokens, basis: "reported provider token usage" };
+}
+/** The HOLD for one assistant call: its bounded maximum. */
+export function assistantHoldCredits(modelId, unit = PROVIDER_USD_PER_CREDIT) {
+  const out = String(modelId).startsWith("claude-") ? ASSISTANT_MAX_OUTPUT_TOKENS.claude : ASSISTANT_MAX_OUTPUT_TOKENS.openai;
+  return assistantEstimate(modelId, { inputTokens: ASSISTANT_MAX_INPUT_TOKENS, outputTokens: out }, unit).credits;
 }
 
 export function createStudioService({ contract, provider = {}, adapter, now = () => Date.now() } = {}) {
@@ -183,18 +207,89 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
     if (typeof adapter?.studioBillingReady === "function") return (await adapter.studioBillingReady()) === true;
     return adapter?.atomicStudioSettlement === true;
   }
-  async function authorize(ctx, token, cost = 1) {
+  /* BILLING (2026-09-30): authorize checks the plan (Blender Studio is Director and up; no trial,
+     no frozen account) and HOLDS the job's credits before the provider is called — the mesh's
+     price, or the assistant's bounded maximum. The hold's ref rides the task (sealed relay
+     state); settlement then settles that hold (min(actual, held)) and a failed or cancelled job
+     releases it. An adapter without holds (tests, or before billing-v2.sql) keeps the older
+     check-then-debit settlement. Returns the hold ref, or null. */
+  async function authorize(ctx, token, cost = 1, eventId = null) {
     if (!(await billingReady())) {
       throw error(503, "billing_atomic_settlement_unavailable",
         "Studio generation is unavailable until atomic credit settlement is configured.");
     }
     if (typeof adapter?.authorizeCredit !== "function") throw error(503, "billing_unavailable", "Studio billing is unavailable.");
-    const result = await adapter.authorizeCredit({ token, uid: ctx.actor.id, cost });
-    if (!result?.ok) throw error(402, "insufficient_credits", result?.message || "Insufficient credits for this generation.");
+    const result = await adapter.authorizeCredit({ token, uid: ctx.actor.id, cost, eventId });
+    if (!result?.ok) {
+      const code = result?.code || "insufficient_credits";
+      const status = code === "tier_required" || code === "account_frozen" ? 403 : code === "billing_unavailable" ? 503 : 402;
+      throw error(status, code, result?.message || "Insufficient credits for this generation.");
+    }
+    return result.holdRef || null;
   }
+  /* The live credit unit (USD per credit). An adapter without creditUnit keeps the anchor; one
+     that answers nothing usable refuses paid work (503) rather than guess — `display` callers
+     (the capabilities estimate) fall back to the anchor instead. */
+  async function creditUnitNow({ display = false } = {}) {
+    if (typeof adapter?.creditUnit !== "function") return PROVIDER_USD_PER_CREDIT;
+    let unit = null;
+    try { unit = await adapter.creditUnit(); } catch (_) { unit = null; }
+    if (Number(unit) >= 0.001 && Number(unit) <= 1) return Number(unit);
+    if (display) return PROVIDER_USD_PER_CREDIT;
+    throw error(503, "billing_unavailable", "Credits can't be checked right now. Please try again in a minute.");
+  }
+  async function releaseHold(holdRef) {
+    if (!holdRef || typeof adapter?.releaseCredit !== "function") return;
+    try { await adapter.releaseCredit({ holdRef }); } catch (_) { /* idempotent; retried by the next release */ }
+  }
+  /* Tie a mesh hold to the provider's job id (turn_hold_attach) right after the submit: the
+     housekeeping job then never releases it while the provider may still finish the job (the
+     poll settles or releases it). Best effort — a hold that can't be tied is still settled or
+     released by this task; an adapter without it (tests, before billing-v2.sql) skips it. */
+  async function attachHold(holdRef, providerRef) {
+    if (!holdRef || !providerRef || typeof adapter?.attachHold !== "function") return;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try { const r = await adapter.attachHold({ holdRef, providerRef: String(providerRef) }); if (r?.ok !== false) return; } catch (_) { /* retried once */ }
+    }
+  }
+  /* ROUND 2 (2026-09-30): once the assistant has ANSWERED (the provider was paid and the proposal
+     is saved as settlement_pending), its hold is tied to `studio-answer:<event id>:<credits>` —
+     the task's own server-side event id (unique across projects, unlike the client-derived task
+     id) and its reported cost. The 30-minute housekeeping release then leaves it, and the
+     reconciliation (studio-reconcile.mjs) settles it at that cost if nobody comes back to it. */
+  async function attachAnswer(task) {
+    if (!task?.holdRef || task.type !== "assistant") return;
+    await attachHold(task.holdRef, answerProviderRef(task.spendEventId, task.costEstimate?.credits));
+  }
+  /* The provider's own view of a mesh job, normalized: fal reports IN_QUEUE / IN_PROGRESS /
+     COMPLETED (older adapters say queued / running). Anything unknown counts as still running,
+     never as a failure. */
+  function meshState(status) {
+    const v = String(status || "").toLowerCase();
+    if (v === "queued" || v === "in_queue" || v === "pending") return "queued";
+    if (v === "completed") return "completed";
+    if (v === "failed" || v === "cancelled" || v === "canceled" || v === "error") return "failed";
+    return "running";
+  }
+  /* REPAIR (2026-09-30): a mesh job's credits come back on cancel only when the provider job is
+     really stopped — it never started (still in the provider's queue AND the provider accepted
+     the cancellation) or the provider already reports it failed. A job the provider is building
+     (or has built) cannot be stopped; it keeps running, is delivered, and is charged as shown. */
+  async function stopMeshJob(upstreamId) {
+    if (typeof provider.cancelMesh !== "function") return false;
+    if (typeof provider.getMesh === "function") {
+      let remote = null;
+      try { remote = await provider.getMesh(upstreamId); } catch (_) { return false; }
+      const st = meshState(remote?.status);
+      if (st === "failed") return true;
+      if (st !== "queued") return false;
+    }
+    try { const r = await provider.cancelMesh(upstreamId); return r === true || r?.cancelled === true; } catch (_) { return false; }
+  }
+  const MESH_NOT_STOPPABLE = "Already being built — it can't be stopped now. It will finish, arrive in your assets and be charged as shown.";
   async function settle(ctx, task, token) {
     if (typeof adapter?.spendCredit !== "function") throw error(503, "billing_unavailable", "Studio billing is unavailable.");
-    const result = await adapter.spendCredit({ token, uid: ctx.actor.id, cost: task.costEstimate.credits, eventId: task.spendEventId, reason: `blender-studio:${task.type}` });
+    const result = await adapter.spendCredit({ token, uid: ctx.actor.id, cost: task.costEstimate.credits, eventId: task.spendEventId, reason: `blender-studio:${task.type}`, ...(task.holdRef ? { holdRef: task.holdRef } : {}) });
     if (result?.unavailable) throw error(503, "billing_atomic_settlement_unavailable",
       result.message || "Studio atomic credit settlement is unavailable.");
     if (!result?.ok) throw error(402, "insufficient_credits", result?.message || "Insufficient credits for this generation.");
@@ -239,10 +334,11 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
       if (typeof provider.getMesh !== "function") return task;
       const remote = await provider.getMesh(task.upstreamId);
       await ctx.recheck();
-      if (!remote || remote.status === "queued" || remote.status === "running") { task.status = remote?.status === "running" ? "running" : "queued"; return task; }
-      if (remote.status === "failed" || remote.status === "cancelled") { task.status = "failed"; task.error = String(remote.error || "Mesh provider refused this request.").slice(0, 400); task.providerRefusal = true; return task; }
-      const file = remote.animation_glb || (task.rigged ? remote.rigged_character_glb : null) || remote.model_glb;
-      if (!file || !isTrustedFalUrl(file.url)) { task.status = "failed"; task.error = "Provider returned no trusted GLB."; return task; }
+      const state = meshState(remote?.status);
+      if (!remote || state === "queued" || state === "running") { task.status = state === "running" ? "running" : "queued"; return task; }
+      if (state === "failed") { task.status = "failed"; task.error = String(remote.error || "Mesh provider refused this request.").slice(0, 400); task.providerRefusal = true; await releaseHold(task.holdRef); return task; }
+      const file = meshOutputFile(remote, !!task.rigged);
+      if (!file || !isTrustedFalUrl(file.url)) { task.status = "failed"; task.error = "Provider returned no trusted GLB."; await releaseHold(task.holdRef); return task; }
       task.upstreamOutputUrl = file.url; // sealed relay state only; never an API response
       bytes = await fetchOutput(file.url); validateGlb(bytes); await ctx.recheck();
       digest = await sha(bytes);
@@ -281,7 +377,7 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
         available: !!provider.available, billingReady: await billingReady(),
         billingMessage: await billingReady() ? null :
           "Studio generation is unavailable until atomic credit settlement is configured.",
-        meshEstimate: meshEstimate(false, false),
+        meshEstimate: meshEstimate(false, false, await creditUnitNow({ display: true })),
       };
     }
     if (body.action === "studio.workspace.open") {
@@ -383,20 +479,30 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
           throw bad("Character is not an authorized workspace reference.");
         }
       } else { if (body.mode !== "scene" && body.mode !== "animation") throw bad("Invalid assistant mode."); str(body.prompt, "assistant prompt", 6000); }
+      const unit = await creditUnitNow();   // every credit figure for this job, in the live unit
       const type = isMesh ? "mesh" : "assistant", outputNonce = isMesh ? crypto.randomUUID() : null,
-        task = { id: taskId(type, requestId), type, status: "queued", modelId, locationId, baseRevision: isMesh ? undefined : work.revision, requestId, launcherId: ctx.actor.id, message: "Queued.", spendEventId: spendEventId(), costEstimate: isMesh ? meshEstimate(!!body.rigged, !!body.animated) : { providerCostUsd: null, credits: null, basis: "final cost uses reported provider token usage" }, ...(isMesh ? { stagePath: `blender-studio-internal/output/${outputNonce}/asset.glb`, name: str(body.name, "asset name", 120), rigged: !!body.rigged, animated: !!body.animated, characterId: body.characterId ? id(body.characterId, "character id") : undefined } : {}) };
+        task = { id: taskId(type, requestId), type, status: "queued", modelId, locationId, baseRevision: isMesh ? undefined : work.revision, requestId, launcherId: ctx.actor.id, message: "Queued.", spendEventId: spendEventId(), costEstimate: isMesh ? meshEstimate(!!body.rigged, !!body.animated, unit) : { providerCostUsd: null, credits: null, basis: "final cost uses reported provider token usage" }, ...(isMesh ? { stagePath: `blender-studio-internal/output/${outputNonce}/asset.glb`, name: str(body.name, "asset name", 120), rigged: !!body.rigged, animated: !!body.animated, characterId: body.characterId ? id(body.characterId, "character id") : undefined } : {}) };
       const delegated = data.delegatedAuth?.[ctx.actor.id];
       const token = ctx.browserToken || (delegated?.expiresAt > now() ? delegated.token : null);
       if (!token) throw error(401, "billing_authorization_expired", "Open this workspace in a browser again before paid generation.");
       data.tasks[key] = task; const saved = await persist(ctx, state); // record before any provider await
       if (isMesh) {
+        let meshHoldRef = null, submittedId = null;
         try {
-          await authorize(ctx, token, task.costEstimate.credits); await ctx.recheck();
+          meshHoldRef = await authorize(ctx, token, task.costEstimate.credits, task.spendEventId); await ctx.recheck();
           const remote = await provider.submitMesh({ endpoint: modelId, prompt: body.prompt, image: image?.bytes, target_polycount: body.targetPolycount, enable_rigging: !!body.rigged, enable_animation: !!body.animated, animation_action_id: body.animationActionId == null ? 92 : body.animationActionId, requestId });
           await ctx.recheck(); const fresh = await ctx.refresh(), next = clone(fresh.state), durable = studio(next).tasks[key];
-          if (durable.status === "cancelled") return { task: taskPublic(durable) };
-           durable.upstreamId = remote?.requestId || remote?.id;
-           if (!durable.upstreamId) { durable.status = "failed"; durable.error = "Mesh provider did not return a request id."; }
+          submittedId = remote?.requestId || remote?.id || null;
+          if (submittedId && meshHoldRef) await attachHold(meshHoldRef, submittedId);
+          if (durable.status === "cancelled") {
+            // cancelled while the submit was in flight: the credits come back only if the job
+            // really stops at the provider; otherwise it runs on and is delivered and charged
+            if (!submittedId || await stopMeshJob(submittedId)) { await releaseHold(meshHoldRef); return { task: taskPublic(durable) }; }
+            durable.status = "queued"; durable.message = MESH_NOT_STOPPABLE;
+          }
+           if (meshHoldRef) durable.holdRef = meshHoldRef;
+           durable.upstreamId = submittedId;
+           if (!durable.upstreamId) { durable.status = "failed"; durable.error = "Mesh provider did not return a request id."; await releaseHold(meshHoldRef); }
            else {
              // The upstream job must survive an edge response/CAS failure. It
              // can then be reconciled and settled with this same task event.
@@ -409,22 +515,32 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
            }
           if (durable.asset && !next.studio.workspaces[locationId].assets.some(a => a.id === durable.asset.id)) next.studio.workspaces[locationId].assets.push(durable.asset);
           const updated = await persist({ ...ctx, snapshot: fresh }, next); return { task: taskPublic(updated.state.studio.tasks[key]) };
-         } catch (e) { const fresh = await ctx.refresh(), next = clone(fresh.state), durable = studio(next).tasks[key]; if (durable && durable.status !== "cancelled") {
+         } catch (e) { const fresh = await ctx.refresh(), next = clone(fresh.state), durable = studio(next).tasks[key];
+           // cancelled meanwhile: the credits come back when nothing was submitted, or the job stopped
+           if (durable && durable.status === "cancelled" && meshHoldRef && (!submittedId || await stopMeshJob(submittedId))) await releaseHold(meshHoldRef);
+           if (durable && durable.status !== "cancelled") {
+           if (meshHoldRef && !durable.holdRef) durable.holdRef = meshHoldRef;
            if (durable.upstreamId && (e?.status == null || e?.status === 402 || e?.status === 503 || e?.status === 409 || e?.studioOutputDurable || durable.providerCompleted)) {
              durable.status = "settlement_pending"; durable.message = "Provider completed; credit settlement can be retried.";
              durable.error = String(e.message || "Credit settlement pending.").slice(0,400); durable.providerRefusal = false;
-           } else { durable.status = "failed"; durable.error = String(e.message || "Mesh provider refused this request.").slice(0,400); durable.providerRefusal = true; }
+           } else { durable.status = "failed"; durable.error = String(e.message || "Mesh provider refused this request.").slice(0,400); durable.providerRefusal = true; await releaseHold(meshHoldRef); }
            const updated = await persist({ ...ctx, snapshot:fresh },next);
            if (durable.status === "settlement_pending") return {task:taskPublic(updated.state.studio.tasks[key])};
-           if (e?.status === 402 || e?.status === 503) throw e;
+           if (e?.status === 402 || e?.status === 403 || e?.status === 503) throw e;
            return {task:taskPublic(updated.state.studio.tasks[key])}; } throw e; }
       }
+      let assistantHoldRef = null;
       try {
-        await authorize(ctx, token, 1); await ctx.recheck();
+        assistantHoldRef = await authorize(ctx, token, assistantHoldCredits(modelId, unit), task.spendEventId); await ctx.recheck();
         const answer = await provider.submitAssistant({ modelId, mode: body.mode, prompt: body.prompt,
           workspace: inputWorkspace, image: image.bytes, imageType: image.contentType, requestId });
         await ctx.recheck(); const fresh = await ctx.refresh(), next = clone(fresh.state), durable = studio(next).tasks[key];
+        // the provider has ANSWERED (and billed): a cancel that arrived meanwhile can't un-spend it,
+        // so the proposal is kept and charged at its reported usage (never above the hold) instead
+        // of the hold being given back for work that was done (repair, 2026-09-30)
+        if (durable.status === "cancelled") { durable.status = "running"; durable.message = "The assistant had already answered when the cancel arrived."; }
         if (durable.status !== "cancelled") {
+          if (assistantHoldRef) durable.holdRef = assistantHoldRef;
           durable.proposal = typeof answer === "string" ? JSON.parse(answer) : answer?.proposal || answer;
           const proposalWorkspace = next.studio.workspaces[locationId];
           contract.validateProposal(durable.proposal, proposalWorkspace);
@@ -437,7 +553,7 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
               ? { ...shot, objects: [operation.object] } : shot);
             validateBindings(candidate);
           }
-          durable.costEstimate = assistantEstimate(modelId, typeof answer === "object" ? answer.usage : null);
+          durable.costEstimate = assistantEstimate(modelId, typeof answer === "object" ? answer.usage : null, unit);
           // Save the validated provider result before charging. If a debit
           // response is lost or rejects due to a concurrent spend, retry the
           // same private event from assistant.get without resubmitting.
@@ -447,6 +563,7 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
         const prepared = await persist({ ...ctx, snapshot:fresh }, next);
         const settledState = clone(prepared.state), settled = studio(settledState).tasks[key];
         if (settled.status === "cancelled" || settled.status === "completed") return { task: taskPublic(settled) };
+        await attachAnswer(settled);
         try {
           await settle(ctx, settled, token); await ctx.recheck();
           settled.status = "completed"; settled.message = "Proposal ready for explicit Apply.";
@@ -455,14 +572,25 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
         } catch (e) {
           return await recoverTaskResponse(ctx, key, e);
         }
-      } catch (e) { const fresh=await ctx.refresh(), next=clone(fresh.state), durable=studio(next).tasks[key]; if(durable&&durable.status!=="cancelled"&&durable.status!=="settlement_pending"){durable.status="failed";durable.error=String(e.message||"Assistant refused this request.").slice(0,400);durable.providerRefusal=true;const updated=await persist({...ctx,snapshot:fresh},next);if(e?.status===402)throw e;return {task:taskPublic(updated.state.studio.tasks[key])};} throw e; }
+      } catch (e) { const fresh=await ctx.refresh(), next=clone(fresh.state), durable=studio(next).tasks[key]; if(durable&&durable.status==="cancelled")await releaseHold(assistantHoldRef); if(durable&&durable.status!=="cancelled"&&durable.status!=="settlement_pending"){durable.status="failed";durable.error=String(e.message||"Assistant refused this request.").slice(0,400);durable.providerRefusal=true;await releaseHold(assistantHoldRef);const updated=await persist({...ctx,snapshot:fresh},next);if(e?.status===402||e?.status===403)throw e;return {task:taskPublic(updated.state.studio.tasks[key])};} throw e; }
     }
     if (body.action === "studio.assistant.get" || body.action === "studio.mesh.get" || body.action === "studio.assistant.cancel" || body.action === "studio.mesh.cancel") {
       const type = body.action.includes(".mesh.") ? "mesh" : "assistant", task = Object.values(data.tasks).find(t => t.id === id(body.taskId, "task id") && t.type === type);
       if (!task) throw error(404, "not_found", "Studio task not found.");
       if (body.action.endsWith(".cancel")) {
         if (task.launcherId !== ctx.actor.id) throw denied("Only the task launcher can cancel this generation.");
-        if (task.status === "queued" || task.status === "running") { task.status = "cancelled"; task.message = "Cancelled."; if(task.upstreamId && provider.cancelMesh) { await provider.cancelMesh(task.upstreamId); await ctx.recheck(); } const saved=await persist(ctx,state); return {task:taskPublic(saved.state.studio.tasks[Object.keys(data.tasks).find(k=>data.tasks[k].id===task.id)])}; } return { task: taskPublic(task) }; }
+        if (task.status === "queued" || task.status === "running") {
+          const taskKey = Object.keys(data.tasks).find(k => data.tasks[k].id === task.id);
+          // a submitted mesh job is cancelled (and its credits returned) only when it really stops
+          // at the provider; one already being built keeps running and says so
+          if (task.type === "mesh" && task.upstreamId) {
+            const stopped = await stopMeshJob(task.upstreamId); await ctx.recheck();
+            if (!stopped) { task.message = MESH_NOT_STOPPABLE; const saved = await persist(ctx, state); return { task: taskPublic(saved.state.studio.tasks[taskKey]) }; }
+          }
+          task.status = "cancelled"; task.message = "Cancelled."; await releaseHold(task.holdRef);
+          const saved = await persist(ctx, state); return { task: taskPublic(saved.state.studio.tasks[taskKey]) };
+        }
+        return { task: taskPublic(task) }; }
       if (type === "assistant" && task.status === "settlement_pending") {
         if (task.launcherId !== ctx.actor.id) return { task: taskPublic(task) };
         const fresh = await ctx.refresh(), next = clone(fresh.state),
@@ -477,6 +605,7 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
         if (!token) throw error(401, "billing_authorization_expired", "Open this workspace in a browser again before paid generation.");
         try {
           if (typeof ctx.writeCheck === "function") await ctx.writeCheck();
+          await attachAnswer(durable);   // idempotent: ties the hold if the first attach was lost
           await settle(ctx, durable, token); await ctx.recheck();
           durable.status = "completed"; durable.message = "Proposal ready for explicit Apply."; delete durable.error;
           const saved = await persist({ ...ctx, snapshot: fresh }, next);

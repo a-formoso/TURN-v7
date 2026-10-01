@@ -729,6 +729,25 @@ async function vidProxy(op, payload){
         errorBody=await readable.json();
       }catch(e){}
     }
+    /* a BILLING refusal (402 no plan / not enough credits, a frozen account, a plan-only
+       engine) becomes one calm sentence, and credit/plan refusals open the Plans window */
+    const billing = (typeof window.turnBillingError==="function") ? window.turnBillingError(errorBody, status) : null;
+    if(billing){
+      const msg = (typeof window.turnHandleBillingError==="function") ? window.turnHandleBillingError(billing) : billing.message;
+      const ex=new Error(msg||billing.message);
+      ex.billing=billing.code; ex.code=billing.code; ex.httpStatus=status||null;
+      /* a 409 price_changed carries the server's price (creditsRequired) and, when a reference
+         video's length couldn't be read, reason:"length_unreadable" (+ detail: why) — the Stage
+         then offers to render at that price (app/stage.jsx stageWithLengthReprice) */
+      if(errorBody && typeof errorBody==="object"){
+        const need=Math.ceil(Number(errorBody.creditsRequired));
+        if(need>0) ex.creditsRequired=need;
+        if(errorBody.reason!=null) ex.reason=String(errorBody.reason);
+        else if(errorBody.lengthUnverified===true) ex.reason="length_unreadable";   // the first server repair's flag
+        if(typeof errorBody.detail==="string" && errorBody.detail.trim()) ex.detail=errorBody.detail.trim();
+      }
+      throw ex;
+    }
     if(errorBody && typeof errorBody==="object"){
       const raw=errorBody.error!=null ? errorBody.error
         : errorBody.detail!=null ? errorBody.detail : errorBody.message;
@@ -738,6 +757,7 @@ async function vidProxy(op, payload){
         ex.providerDetail=detail;
         if(errorBody.errorCode!=null) ex.errorCode=errorBody.errorCode;
         if(errorBody.code!=null) ex.code=errorBody.code;
+        if(errorBody.retry===true) ex.retry=true;
         ex.providerStatus=errorBody.status!=null ? errorBody.status : status;
         ex.httpStatus=status||null;
         throw ex;
@@ -756,11 +776,46 @@ async function vidProxy(op, payload){
     ex.providerDetail=detail;
     if(data.errorCode!=null) ex.errorCode=data.errorCode;
     if(data.code!=null) ex.code=data.code;
+    if(data.retry===true) ex.retry=true;   // "poll again": the job's credits stay held (result_pending)
     if(data.status!=null) ex.providerStatus=data.status;
     throw ex;
   }
   return data||{};
 }
+/* A POLL ANSWER TO RETRY, NOT A FAILURE (billing round 2). The server answers
+   { error, code:"result_pending", retry:true, status:"IN_PROGRESS" } when it couldn't check the
+   job's credits, couldn't fetch a finished render's result yet, or the result has no video URL
+   yet — it keeps the credits held and the job is still collectable. Treating that as final used
+   to drop the pending record (the server then kept the hold for a video nobody collected) or end
+   a live render with an error (inviting a second paid Generate). */
+function _vidPollRetryable(e){
+  return !!e && (e.retry===true || String(e.code||"")==="result_pending");
+}
+/* the video service briefly failing to report the job's status: an older proxy relays fal's
+   408 / 425 / 429 / 5xx status answer as { error, status:<http number> } (a newer one answers result_pending,
+   above). The job itself is still running, so this is never a final answer (billing round 3). */
+function _vidStatusHiccup(e){
+  const ps=Number(e&&e.providerStatus);
+  return ps===408 || ps===425 || ps===429 || (ps>=500 && ps<600);   // the same codes the server now answers result_pending for
+}
+/* transient for the crash-recovery patrol: a retry answer, an unreachable proxy, a lapsed
+   sign-in, or the video service briefly failing to report the job's status (429 / 5xx) */
+function _vidPollTransient(e){
+  if(_vidPollRetryable(e)) return true;
+  const msg=String((e&&e.message)||"");
+  if(/Couldn't reach the video proxy|Sign in to render video/i.test(msg)) return true;
+  if(Number(e&&e.httpStatus)===401) return true;
+  return _vidStatusHiccup(e);
+}
+/* the server doesn't know this job for the signed-in account (404 render_not_found): another
+   account's render, or one it no longer has — never a provider failure, and nothing to refund */
+function _vidPollNotFound(e){
+  return !!e && String(e.code||"")==="render_not_found";
+}
+function _vidPollTerminal(e){
+  return /^(FAILED|ERROR|CANCELLED|CANCELED)$/i.test(String((e&&e.providerStatus)||"")) || vidPolicyError(e);
+}
+window.vidPollRetryable=_vidPollRetryable;
 
 // ---- render ONE clip: multimodal assets (frame/images + line audio + ref videos) →
 //      lip-synced mp4; cache by hash. Limits are rejected, never silently truncated. ----
@@ -1105,6 +1160,12 @@ window.blackMp4FromAudio = blackMp4FromAudio;
    Every submitted job persists in localStorage until it definitively completes; the
    next load re-polls the leftovers once and commits any finished video as a take. ---- */
 const VID_PENDING_KEY = "turn_vid_pending";
+/* how long an uncollected job stays on the list: at least 7 days (billing round 2). The server
+   keeps a submitted job's credits held until it sees the job finish (settle) or fail (refund), so
+   the app keeps asking for a week instead of dropping the job after a day; even then it polls it
+   once more before letting go (vidRecoverPending). */
+const VID_PENDING_KEEP_MS = 7*24*3600*1000;
+window.VID_PENDING_KEEP_MS = VID_PENDING_KEEP_MS;
 function _vidPendingList(){ try{ return JSON.parse(localStorage.getItem(VID_PENDING_KEY)||"[]")||[]; }catch(e){ return []; } }
 function _vidPendingSave(list, strict, requestId){
   try{
@@ -1124,8 +1185,22 @@ function _vidPendingAdd(job, strict){
   if(strict && l.length>VID_PENDING_LEDGER_LIMIT) return false;
   return _vidPendingSave(l,!!strict,job.requestId);
 }
-function _vidPendingRemove(requestId){ _vidPendingSave(_vidPendingList().filter(j=>j.requestId!==requestId)); }
-function _vidPendingRemoveByClip(id){ if(id!=null) _vidPendingSave(_vidPendingList().filter(j=>!j || j.id!==id)); }
+/* A job whose recovery record this browser COULDN'T SAVE (pendingPersistenceWarning: storage full
+   or unavailable) is kept here, in memory, once its live wait ends — so the patrol below still
+   collects it while this page stays open (billing round 3). It can't survive a reload. */
+const _vidPendingMem = new Map();   // requestId -> pending job
+function _vidPendingAll(){
+  const list=_vidPendingList();
+  const ids=new Set(list.map(j=>j&&j.requestId));
+  _vidPendingMem.forEach((j,id)=>{ if(!ids.has(id)) list.push(j); });
+  return list;
+}
+function _vidPendingRemove(requestId){ _vidPendingMem.delete(requestId); _vidPendingSave(_vidPendingList().filter(j=>j.requestId!==requestId)); }
+function _vidPendingRemoveByClip(id){
+  if(id==null) return;
+  _vidPendingMem.forEach((j,rid)=>{ if(j && j.id===id) _vidPendingMem.delete(rid); });
+  _vidPendingSave(_vidPendingList().filter(j=>!j || j.id!==id));
+}
 /* Screenplay page PNGs are intentionally lossless, so one large source can
    exceed a browser's localStorage quota after it is JSON-encoded.  Only the
    new page-reference path is bounded; legacy callers retain their historical
@@ -1245,23 +1320,28 @@ window.vidPendingList = _vidPendingList;   // read-only view (UI / tests)
    Every outcome is TOLD to the user: recovered, failed at the provider, expired, or
    still cooking (a slow patrol below keeps checking those). */
 const _vidPollLease = new Set();   // requestIds actively polled by THIS tab's generate loop
-/* settle a job's spend record (fire-and-forget): the shared per-job event id
-   means live poll and recovery can BOTH call this for the same render and the
-   charge still lands exactly once, pinned to the launching account. */
-function _vidSettleSpend(spend){
-  if(!spend || !spend.cost || typeof window.cloudSpendCreditReliable!=="function") return;
-  try{
-    const p = window.cloudSpendCreditReliable(spend.cost, spend.reason||"stage-video-render", spend.uid||null, spend.id||null);
-    if(p && p.catch) p.catch(()=>{});
-  }catch(e){}
+/* VIDEO IS CHARGED ON THE SERVER (billing fixes, 2026-09-30). image-proxy HOLDS the
+   render's credits before it submits the job (refusing when the balance can't cover it or
+   the account is on hold), SETTLES the hold when the render completes and RELEASES it when
+   the render fails — so the browser no longer spends anything for video. What stays here:
+   the cost the user was shown rides the submit as quotedCredits (the server may refuse a
+   job whose real price differs from the quote), and every settle point just asks the
+   balance readout to refresh. */
+function _vidBalanceChanged(reason){
+  try{ window.dispatchEvent(new CustomEvent("turn-credits-changed",{ detail:{ reason:reason||"stage-video" } })); }catch(e){}
 }
 async function vidRecoverPending(opts){
   opts = opts||{};
   const recoveryScope = _vidScopeSnapshot(vidScope());
   const scopeKey = recoveryScope.projectId;
-  const list = _vidPendingList().filter(j=> j && (j.projectId||null)===scopeKey);
+  /* ACCOUNT-SCOPED too (billing round 3): the list lives in this browser, and two accounts can
+     share a browser and a film. A record another account launched (its uid set and different from
+     the signed-in one) is skipped and KEPT for that account — the server wouldn't hand it to this
+     one anyway (render_not_found), and dropping it would lose that account's take. */
+  const list = _vidPendingAll().filter(j=> j && (j.projectId||null)===scopeKey
+    && !(j.uid!=null && j.uid!==recoveryScope.uid));
   if(!list.length) return 0;
-  let saved=0, failed=0, expired=0, cooking=0;
+  let saved=0, savedLive=0, failed=0, expired=0, cooking=0, gone=0;
   for(const j of list){
     // a live generate loop OWNS its job — recovery touching it too would
     // double-commit the same finished render (duplicate writes + toasts)
@@ -1281,11 +1361,14 @@ async function vidRecoverPending(opts){
       cooking++;
       continue;
     }
-    if((Date.now()-(j.at||0)) > 24*3600*1000){ _vidPendingRemove(j.requestId); expired++; continue; }
+    /* An OLD record is still polled ONCE before it is dropped (billing round 2): the server then
+       settles and returns a finished video, or refunds a failed one. Only a job still unfinished
+       or unreachable after VID_PENDING_KEEP_MS leaves the list (the server reconciles its hold). */
+    const tooOld = (Date.now()-(j.at||0)) > VID_PENDING_KEEP_MS;
     try{
       const st = await vidProxy("poll", { model:j.model, statusUrl:j.statusUrl, responseUrl:j.responseUrl });
       if(st.status==="COMPLETED" && st.videoUrl){
-        _vidSettleSpend(j.spend);   // a recovered render is a rendered render — settle its charge (same event id as the live path: never twice)
+        _vidBalanceChanged("stage-video-recovered");   // the server settled the hold when it saw the completed job
         try{ vidAssertIdentity({ identityCharacterIds:j.identityCharacterIds, identityContext:j.identityContext, identityCast:j.identityCast }, "video-recovery-before-commit"); }
         catch(identityErr){ cooking++; continue; }
         const commit = await vidCommit(j.id, st.videoUrl,
@@ -1293,23 +1376,38 @@ async function vidRecoverPending(opts){
         /* The provider job succeeded, but a film/user/epoch switch while its
            poll was awaiting must leave it for the correct film's recovery. */
         if(commit && commit.skipped){ cooking++; continue; }
+        if(_vidPendingMem.has(j.requestId)) savedLive++;
         _vidPendingRemove(j.requestId); saved++;
       } else if(st.error || /^(FAILED|ERROR|CANCELLED|CANCELED)$/i.test(String(st.status||""))){
         _vidPendingRemove(j.requestId); failed++;
-      } else cooking++;
+        _vidBalanceChanged("stage-video-released");
+      } else if(tooOld){ _vidPendingRemove(j.requestId); expired++; }
+      else cooking++;
       // still IN_QUEUE / IN_PROGRESS → the patrol below re-checks it
     }catch(e){
-      /* a provider-relayed failure (the proxy throws its error text) is TERMINAL —
-         drop the job and report it; only an unreachable proxy (network blip) leaves
-         the job for the next patrol pass. */
-      if(!/Couldn't reach the video proxy/i.test(String(e&&e.message))){ _vidPendingRemove(j.requestId); failed++; }
+      /* TRANSIENT (a retry answer — result_pending: the job's credits stay held and it can still
+         be collected —, an unreachable proxy, a lapsed sign-in, the video service briefly unable to
+         report the status): the record STAYS for the next pass. A provider-relayed failure (the
+         proxy throws its error text) is TERMINAL — drop the job and report it. */
+      if(_vidPollTransient(e)){
+        if(tooOld){ _vidPendingRemove(j.requestId); expired++; } else cooking++;
+      } else if(_vidPollNotFound(e)){
+        /* the server has no such render for this account (another account's, or one it no longer
+           has): not a provider failure, and no hold of this account's changed — no balance refresh */
+        _vidPendingRemove(j.requestId); gone++;
+      } else {
+        _vidPendingRemove(j.requestId); failed++;
+        if(_vidPollTerminal(e)) _vidBalanceChanged("stage-video-released");
+      }
     }
     }finally{ _vidPollLease.delete(j.requestId); }
   }
   const toast = (m,k)=>{ if(typeof window.appToast==="function") window.appToast(m,k); };
-  if(saved) toast(saved===1 ? "Recovered a finished render from an earlier session — it's saved in its clip's takes." : ("Recovered "+saved+" finished renders from an earlier session — saved as takes."),"success");
+  if(saved && savedLive===saved) toast(saved===1 ? "A render that took longer than expected has finished — it's saved in its clip's takes." : (saved+" renders that took longer than expected have finished — saved as takes."),"success");
+  else if(saved) toast(saved===1 ? "Recovered a finished render from an earlier session — it's saved in its clip's takes." : ("Recovered "+saved+" finished renders from an earlier session — saved as takes."),"success");
+  if(gone) toast(gone===1 ? "A render from an earlier session isn’t available to this account any more (it may belong to another account), so it was taken off the pending list." : (gone+" renders from an earlier session aren’t available to this account any more (they may belong to another account), so they were taken off the pending list."),"info");
   if(failed) toast(failed===1 ? "A render from an earlier session failed at the provider — no take was produced." : (failed+" renders from an earlier session failed at the provider — no takes were produced."),"error");
-  if(expired) toast(expired===1 ? "A pending render was over a day old and could no longer be checked — it was dropped." : (expired+" pending renders were over a day old and were dropped."),"info");
+  if(expired) toast(expired===1 ? "A render from over a week ago still couldn’t be collected, so it was taken off the pending list. It’s charged only if it finished." : (expired+" renders from over a week ago still couldn’t be collected, so they were taken off the pending list. Each is charged only if it finished."),"info");
   if(cooking && !opts.quiet) toast(cooking===1 ? "A render from an earlier session is still processing — it will be saved automatically when it finishes." : (cooking+" renders from an earlier session are still processing — they'll be saved automatically."),"info");
   return saved;
 }
@@ -1317,7 +1415,7 @@ window.vidRecoverPending = vidRecoverPending;
 // one recovery pass per load after the auth/proxy state settles, then a slow
 // patrol while anything is still pending (quiet: no repeat "still processing")
 setTimeout(()=>{ try{ if(videoProxyReady()) vidRecoverPending(); }catch(e){} }, 4000);
-setInterval(()=>{ try{ if(videoProxyReady() && _vidPendingList().length) vidRecoverPending({ quiet:true }); }catch(e){} }, 5*60*1000);
+setInterval(()=>{ try{ if(videoProxyReady() && _vidPendingAll().length) vidRecoverPending({ quiet:true }); }catch(e){} }, 5*60*1000);
 
 /* Provider policy classification is informational only. A policy/moderation refusal
    is terminal for this job: never alter its prompt or launch another paid render. */
@@ -1401,16 +1499,13 @@ async function seedanceGenerate(id, opts){
   const runToken0 = (id!=null) ? vidRunToken(id) : null;
   const scope0 = vidScope();
   const epoch0 = (typeof window.nbEpoch==="function") ? window.nbEpoch() : 0;
-  /* the SPEND RECORD rides the job from submit to settlement: the launcher's
-     uid and one event id fixed here mean the render is charged to whoever
-     LAUNCHED it, exactly once, no matter which path delivers it — live poll,
-     crash-recovery in a later session, or both racing (the shared id dedupes
-     client- and server-side). */
-  const spendRec = (opts.spend && opts.spend.cost) ? {
-    cost: Math.max(1, Number(opts.spend.cost)||1),
-    reason: String(opts.spend.reason||"stage-video-render"),
-    uid: opts.spend.uid||null,
-    id: (typeof crypto!=="undefined" && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36)+"-"+Math.random().toString(36).slice(2)),
+  /* the QUOTE — the credit cost the Stage showed for this job. Display/audit only: the
+     server computes, holds and settles the real charge itself (see _vidBalanceChanged).
+     `spend` is the pre-2026-09-30 name for the same record and is read as a quote. */
+  const quoteSrc = opts.quote || opts.spend || null;
+  const quoteRec = (quoteSrc && Number(quoteSrc.cost)>0) ? {
+    cost: Math.max(1, Math.ceil(Number(quoteSrc.cost)||1)),
+    reason: String(quoteSrc.reason||"stage-video-render"),
   } : null;
   /* SEEDANCE 2.5 rides the same multimodal reference-to-video shape as 2.0, named by
      the tier's falModel: 30s duration ceiling and longer renders (the poll ceiling
@@ -1666,7 +1761,7 @@ async function seedanceGenerate(id, opts){
         at:Date.now(), projectId:(scope0&&scope0.projectId)||null, uid:(scope0&&scope0.uid)||null,
         identityCharacterIds:opts.identityCharacterIds||opts.characterIds||[],
         identityContext:opts.identityContext||null, identityCast:opts.identityCast||[],
-        spend:spendRec, meta:{
+        quote:quoteRec, meta:{
           hash, model, durationMs:opts.durationMs||0, aspectRatio, prompt:pText,
           ...persistedTakeMeta,
           ...(hasScreenplayReference ? {
@@ -1691,7 +1786,8 @@ async function seedanceGenerate(id, opts){
         ? { model, prompt:pText,
             image_url:proxyImages[0], video_url:proxyVideos[0],
             characterOrientation, keepOriginalSound,
-            referenceMetadata }
+            referenceMetadata,
+            ...(quoteRec ? { quotedCredits:quoteRec.cost } : {}) }
         : {
         model, prompt:pText,
         ...(isKling
@@ -1709,11 +1805,21 @@ async function seedanceGenerate(id, opts){
         generateAudio,    // ON with audio refs (they become the speech in the track); user-toggled otherwise
         bitrateMode,      // "high" = less compression / larger file; "standard" = smaller draft
         ...(opts.seed!=null && !isSora && !isKling ? { seed:opts.seed } : {}),   // Sora/Kling have no seed control
+        ...(quoteRec ? { quotedCredits:quoteRec.cost } : {}),   // the price the user saw; the server charges its own
       });
     }catch(e){
       _vidPendingRelease(pendingReservation);
+      /* the server couldn't tie the job to its credit hold, so it stopped the job and returned the
+         credits (code hold_attach_failed): nothing is pending, nothing was charged — say so */
+      if(String((e&&e.code)||"")==="hold_attach_failed"){
+        _vidBalanceChanged("stage-video-released");
+        const back=new Error("The render couldn’t be started right now. Its credits were returned — please try again.");
+        back.code="hold_attach_failed"; back.creditsReturned=true;
+        throw back;
+      }
       throw e;
     }
+    _vidBalanceChanged("stage-video-hold");   // the server held this job's credits at submit
     if(!sub.requestId || !sub.statusUrl || !sub.responseUrl){
       _vidPendingRelease(pendingReservation);
       throw new Error("The video proxy didn't accept the job.");
@@ -1722,6 +1828,7 @@ async function seedanceGenerate(id, opts){
     // orphan a paid render (recovery re-polls leftovers on the next load). Cancels and
     // timeouts keep the entry on purpose: the job may still finish server-side.
     let pendingPersistenceWarning=false;
+    let pendingJob=null;
     const warnPendingPersistence=()=>{
       pendingPersistenceWarning=true;
       const warning="Render submitted, but browser storage could not retain crash-recovery metadata; live polling and settlement continue in this tab. Keep this tab open until it finishes.";
@@ -1740,11 +1847,11 @@ async function seedanceGenerate(id, opts){
         screenplayImages, screenplayImageSnapshots,
         screenplayImagesRequired:opts.screenplayImagesRequired===true, screenplayImageGuard:pageGuard,
       });
-      const pendingJob = { requestId:sub.requestId, id, model, statusUrl:sub.statusUrl, responseUrl:sub.responseUrl, at:Date.now(),
+      pendingJob = { requestId:sub.requestId, id, model, statusUrl:sub.statusUrl, responseUrl:sub.responseUrl, at:Date.now(),
          projectId:(scope0&&scope0.projectId)||null, uid:(scope0&&scope0.uid)||null,   // recovery is project-scoped
          identityCharacterIds:opts.identityCharacterIds||opts.characterIds||[],
          identityContext:opts.identityContext||null, identityCast:opts.identityCast||[],
-        spend:spendRec,   // settled at COMPLETION by whichever path delivers first — event id dedupes
+        quote:quoteRec,   // what the user was shown; the server holds and settles the real charge
          meta:pendingMeta };
       let pendingSaved=true;
       if(hasScreenplayImages){
@@ -1756,7 +1863,9 @@ async function seedanceGenerate(id, opts){
       const quotaReleased=_vidPendingRelease(pendingReservation); // free the reserved quota immediately before the real pending save
       if(hasScreenplayImages && !quotaReleased) pendingSaved=false;
       if(pendingSaved) pendingSaved=_vidPendingAdd(pendingJob,hasScreenplayImages);
-      if(hasScreenplayImages && !pendingSaved) warnPendingPersistence();
+      // any render whose record didn't save says so (billing round 3: not only screenplay-page ones),
+      // so its timeout message never promises a recovery that can't happen
+      if(!pendingSaved) warnPendingPersistence();
     }catch(pendingError){
       if(!hasScreenplayImages) throw pendingError;
       warnPendingPersistence();
@@ -1777,34 +1886,64 @@ async function seedanceGenerate(id, opts){
     const wantSec = typeof duration==="number" ? duration : 8;
     const estSec = (opts.fast ? 50 : 100) + wantSec*(opts.fast ? 4 : 8);   // rough tier-typical wall time
     let lastPct = 0;
-    let pollMiss = 0;   // consecutive unreachable-proxy polls — the render itself is still cooking server-side
+    let pollMiss = 0;   // consecutive unreachable-proxy polls / status hiccups — the render itself is still cooking server-side
+    let statusHiccup = false;   // the last misses were the video service failing to report the status
+    /* THE WAIT ENDS but the job keeps going (billing round 2/3): its pending record stays, so the
+       patrol collects it when it finishes — the message must not invite a second paid render. When
+       the record couldn't be saved (pendingPersistenceWarning), nothing would collect it after this
+       page closes: the job is kept in memory for the patrol while the page stays open, and the
+       message says so. */
+    const stillGoing = (lead)=>{
+      let err;
+      if(pendingPersistenceWarning){
+        if(pendingJob && pendingJob.requestId) _vidPendingMem.set(pendingJob.requestId, { ...pendingJob, inMemory:true });
+        err = new Error(lead+" This browser couldn’t save the record that recovers it later, so it can’t be recovered automatically: keep this film open until it lands. It’s checked every few minutes and saved to this clip’s takes when it finishes, so there’s no need to render it again. It’s charged only if it finishes.");
+        err.notRecoverable = true;
+      } else {
+        err = new Error(lead+" It keeps going on the server and is saved to this clip’s takes automatically when it finishes (while this film is open, or the next time you open it), so there’s no need to render it again. It’s charged only if it finishes.");
+      }
+      err.stillPending = true;
+      return err;
+    };
     for(let i=0; i<maxPolls; i++){
       if(opts.shouldCancel && opts.shouldCancel()) throw new Error("Render cancelled.");
       await new Promise(r=>setTimeout(r, pollMs));
       let st;
-      try{ st = await vidProxy("poll", { model, statusUrl:sub.statusUrl, responseUrl:sub.responseUrl }); pollMiss = 0;
+      try{ st = await vidProxy("poll", { model, statusUrl:sub.statusUrl, responseUrl:sub.responseUrl }); pollMiss = 0; statusHiccup = false;
         vidAssertIdentity(opts, "video-after-poll"); }
       catch(e){
-        // a network blip mid-poll must NOT kill a render that's still running on the
-        // provider — tolerate a few consecutive misses (each already retried inside
-        // vidProxy), then surface the real error. Terminal provider failures don't
-        // land here: they arrive as a successful poll with st.error/st.status.
-        if(/Couldn't reach the video proxy/i.test(String(e&&e.message)) && ++pollMiss<=4){
-          emit("RECONNECTING");
-          continue;
-        }
+        // "poll again" (result_pending / retry:true): the proxy answered, the job's credits stay
+        // held and its video can still be collected — keep polling (within maxPolls), never fail
+        if(_vidPollRetryable(e)){ pollMiss = 0; statusHiccup = false; emit("RECONNECTING"); continue; }
         // A provider-declared terminal result is not recoverable. vidProxy can
         // throw it before the status branch below when the response carries an
         // error body; remove only that definitive job record. Transport errors,
         // user cancellation and ambiguous lost responses deliberately remain.
-        if(/^(FAILED|ERROR|CANCELLED|CANCELED)$/i.test(String(e&&e.providerStatus||"")) || vidPolicyError(e))
+        if(_vidPollTerminal(e)){
           _vidPendingRemove(sub.requestId);
+          _vidBalanceChanged("stage-video-released");   // the server released the failed job's hold
+          throw e;
+        }
+        // a network blip mid-poll, or the video service briefly failing to report the job's
+        // status (429 / 5xx — what the patrol treats as temporary; billing round 3), must NOT kill
+        // a render that's still running on the provider — tolerate a few consecutive misses (each
+        // network miss already retried inside vidProxy). Terminal provider failures don't land
+        // here: they arrive as a successful poll with st.error/st.status.
+        const hiccup = _vidStatusHiccup(e);
+        if((hiccup || /Couldn't reach the video proxy/i.test(String(e&&e.message))) && ++pollMiss<=4){
+          statusHiccup = hiccup;
+          emit("RECONNECTING");
+          continue;
+        }
+        // still no status after the misses: the job is still running — say so, keep its record
+        if(hiccup) throw stillGoing("The video service couldn’t report this render’s status just now.");
         throw e;
       }
       // a terminal failure the proxy relayed without an error field still ends here —
       // throw so the provider's terminal detail surfaces instead of timing out
       if(/^(FAILED|ERROR|CANCELLED|CANCELED)$/i.test(String(st.status||""))){
         _vidPendingRemove(sub.requestId);
+        _vidBalanceChanged("stage-video-released");   // the server released the failed job's hold
         throw new Error(String(st.error||("The provider reported the render as "+st.status+".")));
       }
       if(st.status){
@@ -1820,10 +1959,9 @@ async function seedanceGenerate(id, opts){
         emit(label);
       }
       if(st.status==="COMPLETED" && st.videoUrl){
-        /* the provider rendered — the charge is incurred NOW, before any
-           discard/stale branching (a cleared clip's render was still rendered).
-           The job's event id keeps a racing recovery pass from charging again. */
-        _vidSettleSpend(spendRec);
+        /* the provider rendered — the server settled the job's hold when this poll saw it
+           complete (a cleared clip's render was still rendered, and still charged). */
+        _vidBalanceChanged("stage-video-render");
         const meta = { hash, model, durationMs:opts.durationMs||0, aspectRatio, seed:st.seed||null,
           prompt:pText, ...persistedTakeMeta,   // Versions-view facts: source, tier, resolution, recipe, audio, batch position…
           // provider-request facts the caller cannot restate differently
@@ -1872,7 +2010,9 @@ async function seedanceGenerate(id, opts){
         return { videoUrl:st.videoUrl, seed:st.seed||null, cached:false, ...(pendingPersistenceWarning ? { pendingPersistenceWarning:true } : {}) };
       }
     }
-    throw new Error("The video render timed out — try again, or pick a faster tier / lower resolution in Render settings.");
+    /* the job keeps its pending record: the patrol collects it when it finishes, so the
+       message must not invite a second paid render (billing round 2) */
+    throw stillGoing(statusHiccup ? "The video service couldn’t report this render’s status just now." : "This render is taking longer than expected.");
     }finally{ _vidPollLease.delete(sub.requestId); }   // cancel/timeout/failure: the job is up for recovery again
   };
   try{ return await attempt(promptText); }

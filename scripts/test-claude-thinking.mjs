@@ -10,6 +10,8 @@ const read=f=>readFileSync(f,"utf8");
 let checks=0;
 const test=async(name,f)=>{await f();checks++;console.log("PASS",name);};
 const ai=read("app/ai.jsx"), proxy=read("supabase/functions/image-proxy/index.ts"), pricing=read("app/pricing.jsx"), dock=read("app/aiwriter.jsx");
+// the proxy's price tables live in billing-pricing.mjs since the billing fixes (2026-09-30)
+const proxyPrices=read("supabase/functions/image-proxy/billing-pricing.mjs");
 const ast=parseSync(ai,{sourceType:"script"});
 const box={console}; box.window=box; vm.createContext(box);
 const src=node=>ai.slice(node.start,node.end);
@@ -33,16 +35,19 @@ await test("Fable 5.1 replaces Opus 5 in the picker; Opus 5.5 is the default (ow
 });
 await test("the proxy prices Claude at Anthropic's list prices",()=>{
   for(const [id,i,o] of [["claude-fable-5",10,50],["claude-fable-5-1",10,50],["claude-opus-5",5,25],["claude-opus-5-5",4,20]])
-    assert.ok(new RegExp('"'+id+'":\\s*\\{\\s*input:\\s*'+i+',\\s*output:\\s*'+o+'\\s*\\}').test(proxy),id);
-  assert.ok(!/input:\s*25,\s*output:\s*100|input:\s*15,\s*output:\s*75/.test(proxy.slice(proxy.indexOf("TEXT_PROVIDER_USD_PER_1M"),proxy.indexOf("function creditsFromProviderUsd"))));
-  assert.ok(pricing.includes('"claude-fable-5-1": 0.11')&&ai.includes('"claude-fable-5-1": 0.11'));
+    assert.ok(new RegExp('"'+id+'":\\s*\\{\\s*input:\\s*'+i+',\\s*output:\\s*'+o+'\\s*\\}').test(proxyPrices),id);
+  assert.ok(!/input:\s*25,\s*output:\s*100|input:\s*15,\s*output:\s*75/.test(proxyPrices.slice(proxyPrices.indexOf("TEXT_PROVIDER_USD_PER_1M"),proxyPrices.indexOf("TEXT_CACHE_READ_USD_PER_1M"))));
+  // Option A (billing fixes, 2026-09-30): 1 credit = $0.01, so the display fallbacks are 3x
+  assert.ok(pricing.includes('"claude-fable-5-1": 0.33')&&ai.includes('"claude-fable-5-1": 0.33'));
 });
 await test("every Claude call has room to think, and effort reaches Anthropic",()=>{
   // (2026-09-28) every METERED Claude call keeps its 16k floor; a free MUSE call has its own cap
   // and no effort setting (muse-billing.mjs MUSE_LIMITS.maxOutputTokens)
   assert.ok(proxy.includes('max_tokens: textKind === "muse" ? MUSE_LIMITS.maxOutputTokens : Math.max(reqMaxTokens || 0, 16000)'));
   assert.ok(/output_config: \{ effort: claudeEffort \}/.test(proxy)&&/claudeEffort = \/\^\(low\|medium\|high\|xhigh\|max\)\$\//.test(proxy));
-  assert.ok(proxy.includes('...(textKind !== "muse" && claudeEffort && /^claude-(fable|mythos|opus-5|sonnet-5)/.test(model) ? { output_config: { effort: claudeEffort } } : {})'));
+  // (billing repair F18, 2026-09-30) the effort gate reads the model the call RUNS (runModel:
+  // a free Frances call always runs Opus 5.5 whichever accepted name it carried)
+  assert.ok(proxy.includes('...(textKind !== "muse" && claudeEffort && /^claude-(fable|mythos|opus-5|sonnet-5)/.test(runModel) ? { output_config: { effort: claudeEffort } } : {})'));
 });
 await test("specs drafting runs at medium effort; story work keeps the model's default",async()=>{
   bodies=[]; replies=[{text:"ok"},{text:"ok"}];

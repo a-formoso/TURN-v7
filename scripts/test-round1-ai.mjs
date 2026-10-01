@@ -27,7 +27,7 @@ import { readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import vm from "node:vm";
 import { createRequire } from "node:module";
-import { MUSE_LIMITS, MUSE_MODEL, museAllowanceSince, museMessagesSize, museRefusal, textBillingKind }
+import { MUSE_LIMITS, MUSE_MODEL, MUSE_MODELS, museAllowanceSince, museMessagesSize, museRefusal, textBillingKind }
   from "../supabase/functions/image-proxy/muse-billing.mjs";
 
 const ROOT = new URL("../", import.meta.url).pathname;
@@ -332,13 +332,28 @@ await test("D3 the chat: follow-ups keep their topic, the room is said, the inpu
   const turns = [{ role:"user", text:"How does the Writing engine dock work?" }, { role:"ai", text:"It shows the current engine." }, { role:"user", text:"and where is it?" }];
   const reply = await box.aiMuseChat(turns, mkScenes(4), null, { title:"Salt" });
   assert.equal(reply, "Pick the selected engine — the provider's newest flagship.");
-  assert.equal(body.model, "claude-opus-5"); assert.equal(body.provider, "anthropic"); assert.equal(body.usageKind, "muse");
-  assert.deepEqual({ provider:body.provider, model:body.model }, { ...MUSE_MODEL }, "the app's MUSE model is the one the proxy pins");
-  const first = body.messages[0].content;
-  assert.ok(detailNames(first).includes("Writing engine dock"), "the follow-up still gets the dock's facts");
+  // Frances moves to Opus 5.5 (billing fixes, 2026-09-30): the proxy's free path accepts both models during the move
+  assert.ok(MUSE_MODELS.includes(body.model), body.model); assert.equal(body.provider, "anthropic"); assert.equal(body.usageKind, "muse");
+  assert.equal(body.provider, MUSE_MODEL.provider, "the app's MUSE model is one the proxy accepts");
+  // PROMPT CACHING (billing fixes, 2026-09-30): messages[0] is the stable prefix (protocol + feature
+  // index) as ONE system message with promptCache:true; this question's facts and the place lead the
+  // first user turn after it
+  assert.equal(body.promptCache, true, "the request asks the proxy to cache the prefix");
+  assert.equal(body.messages[0].role, "system");
+  assert.equal(body.messages[0].content, box.museStablePrefix(), "the system message is exactly the stable prefix");
+  assert.ok(!body.messages.slice(1).some(m=>m.role==="system"), "only the leading message is a system message");
+  const first = body.messages[1].content;
+  assert.equal(body.messages[1].role, "user");
+  assert.ok(first.startsWith("DETAILS"), "the per-question facts open the first user turn");
+  assert.ok(detailNames("\n\n"+first).includes("Writing engine dock"), "the follow-up still gets the dock's facts");
   assert.ok(first.includes("The writer was last working in the Art Room (Props tab)."));
+  assert.ok(!body.messages[0].content.includes("The writer was last working"), "nothing per-question in the cached prefix");
+  assert.equal(body.messages[0].content + "\n\n" + first.slice(0, first.indexOf("\n\nCURRENT PROJECT CONTEXT")),
+    box.museSystemPrompt({ now:"and where is it?", before:"How does the Writing engine dock work?", reply:"It shows the current engine." }, { room:"art", view:"spine", artView:"props" }),
+    "the two parts together are the same prompt as before");
   assert.ok(box.museFacts().find(f=>f.name==="Frances (help assistant)").what.includes("Frances knows which room, view or Art Room tab you were last working in"), "Frances's own entry says so");
-  assert.equal(textBillingKind({ usageKind:body.usageKind, provider:body.provider, model:body.model, messages:body.messages }).kind, "muse", "a real MUSE call stays free");
+  assert.equal(textBillingKind({ usageKind:body.usageKind, provider:body.provider, model:body.model, messages:body.messages, promptCache:body.promptCache }).kind, "muse", "a real MUSE call stays free");
+  assert.equal(textBillingKind({ usageKind:body.usageKind, provider:body.provider, model:body.model, messages:body.messages }).free, false, "a system message without promptCache is not a chat turn");
   // a long chat and a huge pasted message still fit the ceiling
   const long = [];
   for(let i=0;i<5;i++){ long.push({ role:"user", text:"Q"+i+" "+"x".repeat(9000) }, { role:"ai", text:"A"+i+" "+"y".repeat(9000) }); }
@@ -346,9 +361,11 @@ await test("D3 the chat: follow-ups keep their topic, the room is said, the inpu
   await box.aiMuseChat(long, mkScenes(40), null, { title:"Salt" });
   assert.ok(museMessagesSize(body.messages) <= box.MUSE_INPUT_BUDGET, "trimmed to "+museMessagesSize(body.messages));
   assert.ok(body.messages.length <= MUSE_LIMITS.maxMessages);
-  assert.equal(textBillingKind({ usageKind:"muse", provider:body.provider, model:body.model, messages:body.messages }).free, true);
+  assert.equal(textBillingKind({ usageKind:"muse", provider:body.provider, model:body.model, messages:body.messages, promptCache:body.promptCache }).free, true);
+  assert.equal(body.messages[0].content, box.museStablePrefix(), "trimming never touches the cached prefix");
   assert.ok(box.MUSE_INPUT_BUDGET < MUSE_LIMITS.maxInputChars, "the app stays under the server's ceiling");
-  assert.match(read("app/ai.jsx"), /const MUSE_MODEL = \{ id:"claude-opus-5", provider:"anthropic" \};/);
+  const appMuse = read("app/ai.jsx").match(/const MUSE_MODEL = \{ id:"(claude-opus-5(?:-5)?)", provider:"anthropic" \};/);
+  assert.ok(appMuse && MUSE_MODELS.includes(appMuse[1]), "app/ai.jsx pins a model the proxy's free path accepts");
 });
 
 /* ======================= E. proxy: the free path is MUSE's only ======================= */
@@ -389,9 +406,11 @@ await test("E2 index.ts meters by the helper's kind: the spend check, the price 
   assert.ok(text.includes("textBill = textBillingKind(textReq, { freeCallsToday });") && text.includes("const textKind = textBill.kind;"));
   assert.ok(text.includes('if (textKind !== "muse") {\n      const block = ensureCanSpend(1);'), "the spend check keys on the verified kind");
   assert.ok(text.includes("textUsageEstimate(providerName, modelName, tokens, textKind)"), "the price keys on the verified kind");
+  assert.ok(text.includes("const block = ensureCanSpend(1);\n      if (block) return block;\n      // PLAN GATE"), "then the server's plan gate (billing fixes, 2026-09-30)");
   assert.ok(text.includes("metadata: { usageKind: textKind,"), "the record says what was metered");
   assert.ok(!/usageKind !== "muse"|usageKind === "muse"/.test(text), "the browser's label alone decides nothing in the text path");
-  assert.ok(ts.includes('if (usageKind === "muse") return { providerCostUsd: 0, credits: 0 };'), "the free price itself is unchanged (reached only by a verified kind)");
+  // (billing fixes, 2026-09-30) a free call costs 0 credits but now records its real provider cost — reached only by a verified kind
+  assert.ok(text.includes('textActualCost(kind === "muse" ? modelName : priceKey, tokens, { vision: kind === "vision", free: kind === "muse", unit })'), "the free price: 0 credits, only for a verified kind");
 });
 
 await test("E3 (review) free MUSE has a daily allowance per account; past it the call is metered", ()=>{
@@ -423,8 +442,13 @@ await test("E4 (review) index.ts counts the account's free MUSE calls, and a fre
   assert.ok(anth.includes('max_tokens: textKind === "muse" ? MUSE_LIMITS.maxOutputTokens : Math.max(reqMaxTokens || 0, 16000)'));
   assert.ok(anth.includes('...(textKind !== "muse" && claudeEffort &&'), "no reasoning-effort setting on a free MUSE call");
   assert.equal(MUSE_LIMITS.maxOutputTokens, 4096);
-  // the app: MUSE sends only user/assistant turns, so every real chat call passes the new role rule
-  assert.ok(!/role:"system"/.test(read("app/ai.jsx").slice(read("app/ai.jsx").indexOf("async function aiMuseChat("), read("app/ai.jsx").indexOf("window.aiMuseFollowups"))));
+  // the app: MUSE sends user/assistant turns after ONE leading system message (the cached prefix,
+  // billing fixes 2026-09-30) and always asks for promptCache with it, so every real chat call passes
+  // the role rule; the follow-up helper still sends a single user turn
+  const chat = read("app/ai.jsx").slice(read("app/ai.jsx").indexOf("async function aiMuseChat("), read("app/ai.jsx").indexOf("window.aiMuseFollowups"));
+  assert.equal((chat.match(/role:"system"/g)||[]).length, 1, "one system message: the stable prefix");
+  assert.ok(chat.includes('return [{ role:"system", content:prefix }].concat(out);') && chat.includes("museComplete(msgs, { promptCache:true })"));
+  assert.ok(text.includes("promptCache ? [{ type: \"text\", text: sys, cache_control: { type: \"ephemeral\" } }] : sys"), "the proxy caches it");
 });
 await test("E5 (review) past the allowance with nothing left, the MUSE chat says so plainly", async ()=>{
   const res402 = (code)=>({ status:402, clone(){ return { json:async ()=>({ error:code }) }; } });

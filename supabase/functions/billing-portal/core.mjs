@@ -26,9 +26,13 @@
      metadata.app is "kinolot" and whose subscription_update is not enabled;
      otherwise one is created with portalConfigBody() (which leaves
      subscription_update out, so it stays off). Plan switching stays
-     OFF: stripe-webhook does not handle customer.subscription.updated yet, so
-     a switch in the portal would change what Stripe charges without changing
-     the plan or credits in the app.
+     OFF until the billing-fixes stripe-webhook (2026-09-30), which handles
+     customer.subscription.updated (upgrade now, downgrade at renewal), and
+     billing-v2.sql are live on production; before that a switch in the portal
+     would change what Stripe charges without changing the plan or credits in
+     the app. Turning it on needs the three plan prices, proration_behavior
+     always_invoice and downgrades at period end — then set
+     PORTAL_PLAN_SWITCHING = true in app/plans.jsx and update APP_FEATURES.
    - return_url is the caller's Origin only when it is one of the app's hosts
      (returnUrlFor), else https://kinolot.infinitestudioai.com/.
    - Errors are plain words with a code; Stripe and database internals only go

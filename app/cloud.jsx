@@ -64,10 +64,45 @@ function _cloudRememberSession(session){
   _cloudSessionSnapshot=(session&&session.user)?session:null;
   return _cloudSessionSnapshot;
 }
-async function cloudSignUp(email, password){
-  const sb = sbClient(); if(!sb) return { error:{ message:"Cloud not configured." } };
-  return sb.auth.signUp({ email, password });
+/* THE CHOSEN PLAN RIDES THE ACCOUNT (billing fixes, 2026-09-30). A visitor who picks a
+   plan on the landing page and confirms their email later — or in another browser — used
+   to lose the choice (it lived only in this browser's localStorage for 20 minutes). The
+   choice is now also saved in the new account's user metadata at sign-up
+   (intended_plan + intended_plan_at), and app.jsx opens that plan's checkout on the first
+   signed-in load wherever the email is confirmed, then clears it. Only a real plan tier is
+   stored; "free" / nothing stores nothing. User metadata is user-editable: it only ever
+   decides which checkout OPENS, never what anyone is granted. */
+const INTENT_TIERS = ["writer","director","studio"];
+function cloudIntendedPlanFromStorage(){
+  try{
+    const p = String(localStorage.getItem("turn-intended-plan")||"").toLowerCase().trim();
+    return INTENT_TIERS.indexOf(p)>=0 ? p : "";
+  }catch(e){ return ""; }
 }
+async function cloudSignUp(email, password, opts){
+  const sb = sbClient(); if(!sb) return { error:{ message:"Cloud not configured." } };
+  const plan = String((opts && opts.plan) || cloudIntendedPlanFromStorage() || "").toLowerCase().trim();
+  const data = INTENT_TIERS.indexOf(plan)>=0 ? { intended_plan:plan, intended_plan_at:new Date().toISOString() } : null;
+  return sb.auth.signUp(data ? { email, password, options:{ data } } : { email, password });
+}
+/* the account's saved plan choice, or null ({ plan, at } with at in ms) */
+function cloudAccountIntendedPlan(session){
+  const m = (session && session.user && session.user.user_metadata) || {};
+  const plan = String(m.intended_plan||"").toLowerCase().trim();
+  if(INTENT_TIERS.indexOf(plan)<0) return null;
+  const at = Date.parse(String(m.intended_plan_at||"")) || 0;
+  return { plan, at };
+}
+/* consume it: best-effort, so a later sign-in never reopens a checkout */
+async function cloudClearAccountIntendedPlan(){
+  const sb = sbClient(); if(!sb || !sb.auth || typeof sb.auth.updateUser!=="function") return false;
+  try{
+    const { error } = await sb.auth.updateUser({ data:{ intended_plan:null, intended_plan_at:null } });
+    return !error;
+  }catch(e){ return false; }
+}
+window.cloudAccountIntendedPlan = cloudAccountIntendedPlan;
+window.cloudClearAccountIntendedPlan = cloudClearAccountIntendedPlan;
 async function cloudSignIn(email, password){
   const sb = sbClient(); if(!sb) return { error:{ message:"Cloud not configured." } };
   return sb.auth.signInWithPassword({ email, password });
@@ -154,11 +189,30 @@ function _turnCreditShape(row, source){
   const plan = pick("plan","tier","subscription_tier");
   const n = remaining==null ? null : Number(remaining);
   if(!Number.isFinite(n)) return null;
+  const num = (v)=> (v==null || !Number.isFinite(Number(v))) ? null : Number(v);
+  /* PLAN vs PACK credits + billing state (billing fixes, 2026-09-30) — the columns
+     turn_credit_balance() gained: plan_remaining, pack_remaining, next_pack_expiry,
+     payment_status, frozen, trial (+ an optional plan_allowance). Only the LEDGER RPC is
+     trusted for them: user-editable auth metadata can never mark an account paid-up,
+     unfrozen or on a trial. Against an older database the fields are null / false and
+     every readout falls back to the single `remaining` total. */
+  const ledger = source==="turn_credit_balance" || source==="turn_spend_credit";
+  const status = ledger ? pick("payment_status") : null;
   return {
     remaining:n,
-    used: used==null || !Number.isFinite(Number(used)) ? null : Number(used),
-    limit: limit==null || !Number.isFinite(Number(limit)) ? null : Number(limit),
+    used: num(used),
+    limit: num(limit),
     plan: plan==null ? "" : String(plan),
+    planRemaining: ledger ? num(pick("plan_remaining")) : null,
+    packRemaining: ledger ? num(pick("pack_remaining")) : null,
+    nextPackExpiry: ledger ? (pick("next_pack_expiry") || null) : null,
+    paymentStatus: status==null ? null : String(status).toLowerCase(),
+    frozen: ledger && (row.frozen===true || row.frozen==="true"),
+    trial: ledger && (row.trial===true || row.trial==="true"),
+    allowance: ledger ? num(pick("plan_allowance","monthly_allowance")) : null,
+    // credits held by jobs still running, if the ledger ever reports them (the low-balance
+    // notice counts them as still spendable: app/plans.jsx lowBalanceStep)
+    held: ledger ? num(pick("held","open_holds")) : null,
     source:source||"unknown"
   };
 }
@@ -200,9 +254,11 @@ async function cloudGetCreditBalance(){
 }
 window.cloudGetCreditBalance = cloudGetCreditBalance;
 
-/* decrement after a successful render (supabase/credits.sql turn_spend_credit).
-   Fire-and-forget from the render path; the UI refreshes via cloudGetCreditBalance
-   on the "turn-credits-changed" event either way. Returns the new balance or null. */
+/* decrement through supabase/credits.sql turn_spend_credit. LEGACY since the billing fixes
+   (2026-09-30): video and voice are charged on the SERVER now (image-proxy holds credits
+   before the job and settles or refunds after), so no render path calls this any more. It
+   stays only to drain spend records an older build queued in this browser before the
+   switch (renders the server did not charge). Returns the new balance or null. */
 async function cloudSpendCredit(cost, eventId){
   const sb = sbClient(); if(!sb) return null;
   try{
@@ -4219,3 +4275,27 @@ async function cloudSaveAppConfig(key, value){
 }
 window.cloudGetAppConfig = cloudGetAppConfig;
 window.cloudSaveAppConfig = cloudSaveAppConfig;
+
+/* ---- THE LIVE CREDIT UNIT (billing fixes, 2026-09-30) ---------------------------
+   turn_credit_regime() (supabase/billing-v2.sql; public facts, callable signed out) says
+   whether supabase/billing-switch.sql has run: before it 1 credit = $0.03 of provider cost and
+   no free trial, after it $0.01 and a 50-credit trial. app/pricing.jsx turnApplyCreditRegime
+   moves every cost chip, plan card and trial line to match. A database without the function
+   (billing-v2.sql not run yet) is the old world: $0.03, no trial. A network failure changes
+   nothing (the last value read, or the switched default, stays). Returns the regime or null. */
+async function cloudLoadCreditRegime(){
+  const sb = sbClient(); if(!sb || typeof sb.rpc!=="function") return null;
+  const apply = (r)=> (typeof window.turnApplyCreditRegime==="function") ? (window.turnApplyCreditRegime(r, "server"), r) : r;
+  try{
+    const { data, error } = await sb.rpc("turn_credit_regime");
+    if(error){
+      const code = String(error.code||""), msg = String(error.message||"");
+      if(code==="PGRST202" || code==="42883" || /could not find the function|does not exist/i.test(msg))
+        return apply({ switched:false, usd_per_credit:0.03, trial_credits:0, legacy_until:null });
+      return null;
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    return row && typeof row.switched==="boolean" ? apply(row) : null;
+  }catch(e){ return null; }
+}
+window.cloudLoadCreditRegime = cloudLoadCreditRegime;

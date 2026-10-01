@@ -149,6 +149,18 @@ async function requestBillingPortal(){
   }
 }
 
+/* The same request for surfaces outside the account menu (billing fixes, 2026-09-30): the
+   "Payment failed" / "Account on hold" banners and the Plans window's Manage plan button
+   (app/plans.jsx turnOpenManagePlan) open the billing portal through this. It goes to the
+   portal, or shows the menu's calm note as a toast. Resolves true when the page is leaving. */
+window.turnOpenBillingPortal = async function(){
+  const r = await requestBillingPortal();
+  if(r.ok){ try{ window.location.assign(r.url); return true; }catch(e){} }
+  const msg = BILLING_PORTAL_COPY[r.code] || BILLING_PORTAL_COPY.failed;
+  if(typeof window.appToast==="function") window.appToast(msg, "info");
+  return false;
+};
+
 function AccountChip({ session, cloudActive, connectionState, saveState, shareRole, roleUnavailable, onSignIn, onSignOut }){
   const [open, setOpen] = React.useState(false);
   // Manage plan: busy while the portal session is requested; msg is the calm inline note
@@ -255,7 +267,11 @@ function AccountChip({ session, cloudActive, connectionState, saveState, shareRo
         const since = ts && ts.since ? new Date(ts.since) : null;
         return React.createElement(React.Fragment,null,
           bal && React.createElement("div",{className:"acct-status",title:"Credits \u2014 spent by image and video generation and by writing-model calls (see the Stage footer for per-render costs)"},
-            "Credits: "+bal.remaining+" remaining"+(window.turnIsPaidPlan&&window.turnIsPaidPlan(bal.plan)?(" \u00b7 "+((typeof window.turnPlanDisplayName==="function") ? window.turnPlanDisplayName(bal.plan) : bal.plan)+" plan"):"")),
+            // one number format everywhere (repair 2026-09-30): "1,234 remaining · 1,000 plan + 234 pack"
+            "Credits: "+(Number(bal.remaining)||0).toLocaleString("en-US")+" remaining"
+              // plan + pack credits once the account has pack credits (billing fixes, 2026-09-30)
+              +((typeof window.turnCreditSplitText==="function" && window.turnCreditSplitText(bal)) ? " \u00b7 "+window.turnCreditSplitText(bal) : "")
+              +(window.turnIsPaidPlan&&window.turnIsPaidPlan(bal.plan)?(" \u00b7 "+((typeof window.turnPlanDisplayName==="function") ? window.turnPlanDisplayName(bal.plan) : bal.plan)+" plan"):"")),
           // upgrade / manage plan \u2014 opens the Kinolot plans modal
           window.turnOpenPlans && React.createElement("button",{className:"acct-upgrade",
             onClick:()=>{ setOpen(false); window.turnOpenPlans(); }},

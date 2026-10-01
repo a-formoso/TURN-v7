@@ -173,7 +173,8 @@ const provider = {
   },
   async getMesh(id) { return upstream.get(id)?.ready ? { status: "completed", model_glb: { url: "https://fal.run/interop-triangle.glb" } } : { status: "queued" }; },
   async fetchFile(url) { check(url === "https://fal.run/interop-triangle.glb", "provider URL allowlist drifted"); return { bytes: goodGlb }; },
-  async cancelMesh() {},
+  // a queued job's cancel is accepted (repair 2026-09-30: credits come back only when the provider confirms)
+  async cancelMesh() { return { cancelled: true }; },
 };
 const relay = createBlenderRelay({
   adapter, contract: globalThis.BlenderStudioContract, serverSecret: "studio-interop-server-secret-must-be-long",

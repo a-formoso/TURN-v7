@@ -45,6 +45,61 @@ charges, scenes that turn, beats → script → Art Room → Stage). Served at *
   display name / handle (`cloudHandleName()`: a "+tag" is dropped); with no name the credit line is left out.
   A small "Made with Kinolot" tool note is fine; authorship is the user's.
 
+## 💳 Billing rules (owner decisions 2026-09-30) — the server decides, the app mirrors
+- **Credit unit:** Option A, 1 credit = **$0.01** of provider cost, rounded up — but only from the switch day
+  (`supabase/billing-switch.sql`, 30 days after the notice); before it $0.03. `turn_credit_regime()` says which is
+  live; `image-proxy` (`billing-pricing.mjs`), `blender-bridge` (`studio-service.mjs`) and the app (`app/pricing.jsx`
+  `turnApplyCreditRegime`, read by `app/cloud.jsx cloudLoadCreditRegime`) all follow it — never hard-code a unit.
+  Allowances: Writer $19/600, Director $49/1,600, Producer $149/5,000 (`app/plans.jsx` `PLAN_ALLOWANCES`, Stripe
+  `plan_credits`); before the switch 800/2,400/9,000; grandfathered subscribers 2,400/7,200/27,000 for 30 days after it.
+- **Holds on the server:** every paid call (writing, images, video, voice, 3D) is priced and HELD by `image-proxy` /
+  `blender-bridge` before the provider runs, then settled (never above the hold) or released on failure
+  (`turn_hold_credits` / `turn_settle_hold` / `turn_release_hold`). The browser never spends; `turn_spend_credit` is
+  legacy (a no-op once `turn_billing_state` has `server_video_billing`). Plan and tier gates are enforced in
+  `image-proxy/billing-policy.mjs`; the app's gates (`TIER_GATES`, `turnDraftImagesOnly`) are UX only.
+- **Length holds (Motion Control, video editing):** hold = min(validator maximum, ceil-to-0.1 s(source length x 1.1
+  + 1 s)) — the motion video / the edit's source (reference videos' input seconds are read the same way), read by
+  `image-proxy/media-length.mjs` from a data URL, a `stage:` device upload, the film's storage or the provider's CDN, and
+  only when it reads cleanly (fragmented, compressed-header, unreadable or untrusted → the validator maximum). Settled from
+  the provider's output length, capped at the hold; a longer output logs `[billing] length_mismatch` and is recorded in
+  `turn_grant_failures` (reason `length_mismatch`). The app's `STAGE_LENGTH_HOLD` uses the same formula with the clip
+  length it knows.
+- **Snapshots:** a length-billed video the account could still change after the read (the film's storage, a `stage:`
+  upload; a data URL's bytes too) is copied / uploaded by `image-proxy` (service role) at submit to
+  `_internal/video-snapshots/<ms>-<hold id>-<n>.<ext>` (`video-snapshots.mjs`), a key no Storage rule lets a signed-in
+  user write, update, delete or list (`scripts/test-storage-billing-snapshots.mjs`, every production rule set); the proxy
+  reads the COPY's length and hands the provider a 24 h signed URL of the copy (a failed copy → unread → the maximum).
+  Deleted when the hold settles or is released (poll or reconcile); the reconcile op removes leftovers older than 2 days
+  (best effort). Never move snapshots under a folder that starts with a user's id: `storage.sql`'s owner-only rules
+  would open them.
+- **Speech-to-text:** held and settled on the recording's own duration read from its container (WebM/Matroska, Ogg,
+  MP4/MOV, WAV), never word timestamps; a longer provider-reported duration is only logged (`stt_length_mismatch`), never
+  charged above the hold; an empty transcript still settles. An unreadable
+  container, a recording above 6 min (`STT_MAX_SECONDS`; the app stops at 5, `NS_MAX_ANSWER_SECONDS`) or an unknown
+  `modelId` gets a 400 before any hold, and the app then switches to the browser's speech recognition. **Image prompts** above 40,000 characters
+  (`IMAGE_PROMPT_MAX_CHARS`) get a 400 on every image route before the hold.
+- **Reconciliation:** every 10 minutes `supabase/billing-housekeeping-cron.sql` (pg_cron + pg_net) POSTs
+  `{"op":"reconcile_holds"}` (no auth, idempotent, throttled by `turn_claim_housekeeping`) to `image-proxy` (video) and
+  `blender-bridge` (3D); each asks the provider about its open provider-tied holds (`turn_open_provider_holds`):
+  finished → settled as its poll would, failed / unknown → released, still running → left (a render nobody collected is
+  charged only if it finished).
+- **Stale holds:** `turn_release_stale_holds(30)` (same cron) releases a hold with no provider job after 30 minutes; a
+  hold with a `provider_ref` is left to the reconciliation and settled at the held amount only as a last resort after 30 days.
+- **Two balances:** plan credits (reset at renewal, end with the plan) and pack lots (`turn_credit_lots`, 12 months,
+  never reset); spent plan first, then the soonest-expiring lot. `turn_credits.remaining` is the total (a trigger).
+  Packs: 250/$10, 1,000/$35, 3,000/$99, any signed-in account, on sale only from the switch day. An old-unit pack
+  (300/1,200/4,000, sold before it) granted after the switch counts x3, decided in the database: `stripe-webhook`
+  passes `legacy_unit` to `turn_add_pack_once`, which checks the switch under the account lock, with the lot insert.
+- **Trial:** 50 credits once per person/mailbox after email confirmation (from the switch day); trial / no-plan accounts
+  get writing on the default engines and draft images only.
+- **Frances caps** (free questions a day): 5 no plan / trial / cancelled / frozen, 15 Writer, 30 Director, 50 Producer;
+  admins exempt (`billing-policy.mjs` `FRANCES_PLAN_LIMITS` = `app/ai.jsx` `FRANCES_PLAN_LIMITS`). Frances runs on
+  Opus 5.5 with her stable prefix cached (`museStablePrefix()`, `promptCache`).
+- **Where it lives:** SQL `supabase/billing-v2.sql` (= the block in `credits.sql`) + `billing-switch.sql`; Stripe →
+  `supabase/functions/stripe-webhook` (grants once per invoice key, refunds, disputes, failed payments); owner order in
+  `supabase/README.md` "Billing v2". Tests: `test-billing-db`, `test-stripe-webhook`, `test-server-charging`,
+  `test-billing-app`, `test-storage-billing-snapshots`. Billing facts go in `APP_FEATURES` too (Frances never repeats them: MUSE Protocol §3).
+
 ## 📐 Story-building process — follow the skill
 When building a story (New Story → spine, Adaptation, or any seed→script flow), follow the canonical
 pipeline in **`docs/Story Pipeline.md`**. It is owned by the user — **do not add, remove, reorder, or

@@ -117,7 +117,8 @@ await test("A3 Story Editors' job titles, the umbrellas, the display-only role a
   const plans = box.APP_FEATURES.find(f=>/^Plans & subscription/.test(f.name));
   assert.equal(plans.name, "Plans & subscription (Writer / Director / Producer)");
   assert.ok(plans.what.includes("Producer $149") && !/\bStudio \$|needing Studio|Studio grants|Studio unlocks/.test(plans.what));
-  assert.ok(F("A plan is required (no free tier)").what.includes("and Producer opens Writers' Room + Art Room + Stage"));
+  // renamed by the billing fixes (2026-09-30): the 50-credit free trial replaced "no free tier"
+  assert.ok(F("A plan is required (free trial: writing and draft images)").what.includes("and Producer opens Writers' Room + Art Room + Stage"));
   // plan tiers still never reach Frances (Protocol §3), with the new display name included
   assert.ok(!/\bProducer \$|Producer grants|Producer opens/.test(allFacts()));
 });

@@ -150,7 +150,9 @@ cross-device access, and multiple projects all work.
 `app-config.sql` / `styles.sql` as used, `admin-inventory.sql`,
 `admin-storage.sql` (see **Admin Storage page** below), and
 `frances-daily-limit.sql` (see **Frances's daily question limit** below; it
-depends on nothing but Supabase Auth, so it can run at any point). Offline test of the
+depends on nothing but Supabase Auth, so it can run at any point). Today's `credits.sql`
+already carries billing v2; run `billing-housekeeping-cron.sql` right after it (required),
+and `billing-switch.sql` once, on the credit switch day (see **Billing v2** below). Offline test of the
 readable-folders step: `node scripts/test-storage-readable-folders.mjs` (the SQL), plus
 `test-storage-keys.mjs` (the one key parser, JS = SQL), `test-storage-folders-client.mjs`
 (the app's folders, fallbacks and one-shot legacy retry) and
@@ -390,6 +392,299 @@ so is changing the billing email; *Change plan* still opens the plans window.
 Offline test: `node scripts/test-billing-portal.mjs` (the function core against
 fake Stripe / Supabase adapters, and the account-menu button).
 
+## Billing v2 (`billing-v2.sql`, `billing-switch.sql`)
+
+**Status (2026-09-30): written and tested offline; NOT run on production.**
+The owner's step-by-step rollout (day 0, switch day, the notice email, rollback) is
+`docs/Billing Rollout Runbook.md`; the proposed Terms / privacy wording is
+`docs/Billing Terms Proposal.md`.
+Owner decisions 2026-09-30: Option A (1 credit = $0.01 of provider cost; new
+subscribers get Writer 600 / Director 1,600 / Producer 5,000 a month at unchanged
+prices), packs in their own 12-month balance, a 50-credit trial, 30 days' notice
+for current subscribers (their balances x3 on the switch day and their old allowance
+in the new units — 2,400 / 7,200 / 27,000 — for renewals until 30 days after it).
+
+### What each file does
+
+| File | Run it | What it does |
+|---|---|---|
+| `credits.sql` | fresh installs only | The base tables plus every billing v2 definition. Ends in exactly the state of an existing database after `billing-v2.sql` (the shared block between the `>>> KINOLOT BILLING V2 DEFINITIONS >>>` markers is byte-identical in both files; the test fails if they drift). |
+| `billing-v2.sql` | **existing databases (production), once now** | Plan and pack balances, holds, once-only Stripe grants, refunds, disputes, failed payments, cancellations, the trial. Backward compatible: today's app, `image-proxy`, `stripe-webhook` and Blender Studio keep working unchanged. First run only: the **carry-over** — for each subscriber anything above today's allowance (800 / 2,400 / 9,000) moves to a 12-month lot; an account without a plan keeps its whole balance as a 12-month lot; nobody's total changes. One transaction, safe to re-run; its RESULT rows must all read `ok`. |
+| `billing-housekeeping-cron.sql` | **once, on day 0, right after `billing-v2.sql` (required)** | Four pg_cron jobs. Every 10 minutes: `turn_release_stale_holds(30)` gives back the holds of a worker that was killed before its own release ran; and the **reconciliation** — pg_net posts `{"op":"reconcile_holds"}` to `image-proxy` and to `blender-bridge`, which ask the provider about video / 3D jobs nobody polled for an hour (a closed tab): finished → charged as the poll would have, failed or unknown → refunded, still running → asked again next time. A provider-tied hold is settled at the held amount only as a last resort, after 30 days. Daily: `turn_expire_lots()`. Enables `pg_net`; safe to re-run (jobs are unscheduled by name and scheduled again); its RESULT lists pg_net and the four jobs. |
+| `billing-switch.sql` | **once, on the switch day** | Every balance x3 (plan credits, lots, open holds, plan grants), grandfathering for 30 days (`pro` = Director), trial on, `turn_credit_regime()` answers $0.01. Refuses with a FAIL row, changing nothing, until the `server_video_billing` marker (day-0 deploys) exists **and** `image-proxy` has taken at least one credit hold after it (proof the new code is live, not just that the marker line ran); raises (nothing committed) unless every total is exactly x3. A marker row makes any re-run a no-op (its RESULT then says "already switched … changed nothing"). Stops, changing nothing, if `billing-v2.sql` hasn't run. RESULT after the commit. |
+| `billing-switch-undo.sql` | **only to take back a mistaken switch**, soon after it | The exact inverse of the switch: trials granted since then taken back, every balance / 3 (rounded up when something was spent since), grandfathering cleared, the switch marker deleted. Refuses when the switch has not run. See "Rollback" below. |
+
+After `billing-v2.sql`, never paste a copy of `credits.sql` from before 2026-09-30,
+nor `spend-idempotency-migration.sql` again (both put back single-balance spend
+functions; the balance trigger would still keep the numbers adding up, but the
+frozen check on spending would be gone). `lock-credit-functions.sql` and
+`studio-credit-settlement-migration.sql` are harmless to re-run.
+
+### Order (owner steps)
+
+The full runbook with the notice email is kept by the owner; the order is:
+
+1. *(SQL Editor, as postgres)* Run **`billing-v2.sql`**. Every RESULT row must read
+   `ok`. Today's app, `image-proxy`, `stripe-webhook` and Blender keep working.
+2. *(SQL Editor)* Run **`billing-housekeeping-cron.sql`** — **required**, not optional:
+   from step 4 on every paid call holds its credits first, and a worker killed before its
+   own release (a time or memory limit, a redeploy) would otherwise leave them spent. Every
+   10 minutes it releases holds with no provider job that are older than 30 minutes, and it
+   asks `image-proxy` and `blender-bridge` to **reconcile** their open provider jobs (POST
+   `{"op":"reconcile_holds"}` through pg_net, no key needed): in plain words, a render whose
+   tab was closed is charged only if it really finished, and refunded if it failed. Daily it
+   zeroes expired packs. Every RESULT row (pg_net and the four jobs) must read `ok`. Until
+   step 4 the two calls just get a refusal from the old functions (harmless).
+3. *(Stripe dashboard)* Billing settings: Smart Retries on, cancel after the final retry,
+   failed-payment emails on; plan links: cards and wallets only. Create the three new
+   pack products (`app=kinolot`, `kind=credit_pack`, `pack_credits` 250 / 1000 / 3000 at
+   $10 / $35 / $99) and their payment links, **deactivated** until the switch day, and put
+   the links into `app/plans.jsx` `CREDIT_PACKS` (the new packs don't appear in the app
+   until the switch). Do **not** add the new webhook events yet (step 4). The old pack links
+   (300 / 1,200 / 4,000) stay on sale until the switch day.
+4. *(Mac, after `git pull`, with the owner's go-ahead)*
+   - **a.** Deploy `stripe-webhook` (`--no-verify-jwt`) **first**;
+   - **b.** *then (Stripe dashboard)* webhook endpoint → add the events `invoice.payment_failed`,
+      `customer.subscription.updated`, `charge.refunded`, `charge.dispute.created`,
+      `charge.dispute.closed`, `checkout.session.async_payment_succeeded` (keep
+      `checkout.session.completed`, `invoice.paid`, `customer.subscription.deleted`: nine
+      in all). The old webhook answers 200 to event types it doesn't know, so an event
+      added before the new webhook is live would be acknowledged and dropped;
+   - **c.** *(SQL Editor)* immediately before deploying `image-proxy`, mark browser spends as
+      retired:
+      `insert into public.turn_billing_state(key, value) values ('server_video_billing', jsonb_build_object('at', now())) on conflict (key) do nothing;`
+      (from then on `turn_spend_credit` changes nothing, so a tab still running the old app
+      is never charged twice for a render; in the minute before the deploy lands, the old
+      proxy's renders cost nothing — an owner cost, never a user's). If more than a day
+      passes between this line and the `image-proxy` deploy (a failed deploy retried later,
+      say), set the marker again immediately before the deploy — both lines together:
+      `delete from public.turn_billing_state where key = 'server_video_billing';` then the
+      insert above. The new `image-proxy` still collects renders started on the old one
+      for 48 hours after the marker's time, so that window must start at the deploy; the
+      switch (step 6) then needs a hold taken after the new marker;
+   - **d.** then deploy `image-proxy` and `blender-bridge` **together**, one straight after
+      the other, from the same `git pull` (both `--no-verify-jwt`), and `billing-portal` if it
+      isn't deployed yet. `image-proxy` and `blender-bridge` follow `turn_credit_regime()`:
+      $0.03 a credit now, $0.01 from the switch, with no redeploy. The server keeps accepting
+      the old Frances model id from tabs that are still open, so nothing has to be removed
+      later. If every paid call is refused with "Credits can't be checked right now",
+      `billing-v2.sql` hasn't run on this database: go back to step 1. A video submit refused
+      with `hold_attach_failed` means the render couldn't be tied to its credits: the render
+      was stopped and its credits returned, so try again. If it repeats, check the
+      `image-proxy` logs for both lines: `[billing] attach … failed` (the database didn't
+      answer) and `[billing] attach … refused` (it answered no — `mismatch`: that job id is
+      already on another hold; `unknown`: the database has no such hold).
+5. *(Replit)* Pull, then Publish the app straight after step 4 (its cost chips, plan
+   cards and trial copy follow `turn_credit_regime()` too). For this release the server
+   goes first, minutes before the app (unlike the "app first" note under Frances's daily
+   limit below): with the marker set, an old tab is never double-charged and only shows
+   some refusals as bare codes for those minutes, while the new app on the old server
+   would get free video renders and metered Frances questions. The old pack links stay
+   on sale (their lots are tripled by the switch like every other balance). Check, signed
+   in: the Plans window shows 800 / 2,400 / 9,000 and the three current packs (300 / 1,200 /
+   4,000) with Buy buttons; the new packs don't appear until the switch.
+6. **Switch day (30 days after the notice):** (a) in Stripe, a few minutes **before**
+   the switch: deactivate the three old pack links (300 / 1,200 / 4,000), then check the
+   webhook endpoint's event deliveries show nothing pending or failed (every old pack paid
+   for is then credited in the old units, and tripled by the switch). A late old-pack grant
+   that still arrives after the switch is tripled too: `stripe-webhook` passes it with
+   `legacy_unit` and the database decides the x3 (`turn_add_pack_once`) under the account
+   lock, together with the lot, so one granted while the switch runs is never missed. The
+   order above stays as belt and braces; (b) run
+   **`billing-switch.sql`** (RESULT all `ok`; it refuses with a FAIL row if the step 4c
+   marker is missing or `image-proxy` has taken no hold since it); (c) right after, in
+   Stripe: set the plan products' `plan_credits` to 600 / 1,600 / 5,000 and activate the
+   three new pack links. Running (b) after (c) would let a renewal in between grant 600
+   old-unit credits; new pack links active before (b) sell credits that (b) then triples.
+   The unit changes by itself, with no redeploy: the functions within about 30 seconds,
+   open tabs of the app within about 5 minutes (sooner when someone returns to a tab after
+   a minute away, at once on a reload).
+7. Send the 30 days' notice on the day of steps 1–5. It must say that, from the switch
+   day on, a cancelled plan's unused monthly credits end with the plan (until then they
+   stay usable, as the published Terms say).
+8. Plan switching in the billing portal only after steps 1–4 (the webhook handles
+   `customer.subscription.updated`; an upgrade adds the allowance difference for the part
+   of the month still to run, as Stripe prorates it); then set
+   `PORTAL_PLAN_SWITCHING = true` in `app/plans.jsx`. Turning on Stripe's "limit customers
+   to one subscription" is recommended too (a second subscription on another customer is
+   refused by the database and recorded as `subscription_conflict`).
+
+### Rollback
+
+- **The switch ran by mistake** (for example before the notice): run
+  **`billing-switch-undo.sql`** in the SQL Editor as soon as possible (RESULT all `ok`; it
+  says "exact" when nothing was spent since, otherwise how many numbers it rounded up in
+  the users' favour). Then *(Mac, after `git pull`)* redeploy `image-proxy` and
+  `blender-bridge`: a warm instance keeps the unit it read for its whole life and would go
+  on pricing at $0.01 against balances that are no longer tripled. In Stripe put
+  `plan_credits` back to 800 / 2,400 / 9,000 and deactivate the new pack links (the old
+  ones back on if they were turned off). Open tabs follow `turn_credit_regime()` within
+  about 5 minutes (sooner on returning to a tab after a minute, at once on a reload).
+- **Rolling back the day-0 code:** the app and `image-proxy` go back **together** (the
+  new app on the old proxy gets free video and metered Frances questions; the old app on
+  the new proxy is fine for minutes only), and then delete the marker
+  `delete from public.turn_billing_state where key = 'server_video_billing';` so the old
+  app's browser spend charges video again. **After the switch** the old code must not run
+  on tripled balances (it prices at a fixed $0.03 and lets trial accounts render video):
+  run `billing-switch-undo.sql` first, or ship a hotfix instead of a rollback. A few
+  minutes after the old `image-proxy` is live, give back the holds the new code left
+  open (the old code never settles or releases them):
+  `select public.turn_release_hold(ref) from public.turn_credit_holds where status = 'held';`
+  (if `blender-bridge` stays on the new code, add `and ref not like 'studio:%'`). The
+  database (`billing-v2.sql`) stays: every old caller keeps working on it. Never restore a
+  whole-database backup for a billing rollback: it also takes back every user's work and
+  every Stripe grant since.
+
+### How the balance works
+
+- `turn_credits.remaining` is the **total** = `plan_remaining` + unexpired
+  `turn_credit_lots`. A trigger (`turn_credits_ledger_sync`) keeps it so; any direct
+  change of `remaining` (Blender's settle function, a hand edit) is spread plan credits
+  first, then lots. To change a balance by hand, use `turn_grant_credits(email, n)`
+  (positive: a 12-month lot; negative: takes credits away) or edit `plan_remaining`.
+- **Spending:** plan credits first, then lots, the soonest-expiring first. Never below 0.
+- **Renewal** resets plan credits only; lots are never touched. **Cancellation** of the
+  stored subscription ends the plan; before the switch day its plan credits stay usable
+  (today's Terms), from the switch day on they end with it; lots keep their expiry.
+  **Upgrade** adds the allowance difference scaled by the part of the paid period still
+  to run (rounded up; with no renewal date known, the next renewal gives the new
+  allowance). A paid subscription that would replace an account's **different, still
+  active** subscription on **another** Stripe customer grants nothing and is recorded in
+  `turn_grant_failures` (`subscription_conflict`) — the owner checks it (a real second
+  subscription: cancel the old one or clear `stripe_sub_id`, delete that event id from
+  `turn_stripe_events`, then resend the event from Stripe; otherwise refund it).
+- **Refund** (full): the unspent credits of the pack lot / plan grant tied to that
+  payment are removed (plan credits held by a running job included: they no longer come
+  back when it is released). **Dispute** open: `frozen` — spending, usage and holds refuse
+  (`CREDITS_FROZEN` / code `frozen`); credits stay visible. **Failed renewal:**
+  `payment_status = 'past_due'`; credits stay usable, the next paid invoice sets it back.
+- **Holds:** the server takes the estimated credits before a job (video, voice, long
+  writing) and settles (keeps the real cost, never more than held) or releases them;
+  the part given back returns to the lot it came from (not to a refunded lot, and plan
+  credits only within the same plan period). Each settle / release writes one
+  `turn_usage_events` row (`kind 'hold'`, `task` = the hold's reason). A hold for a
+  provider job carries the provider's job id (`provider_ref`, attached right after the
+  submit), so the poll finds it. If nobody polls (the tab was closed), the reconciliation
+  every 10 minutes asks the provider: finished → settled as the poll would have, failed or
+  unknown → released. Only a hold the provider never answers for is settled at the held
+  amount, after 30 days. A hold with no provider job is released after 30 minutes.
+- **Renders priced by length (Motion Control, Edit Video):** an edit or a Motion Control
+  render holds about the source video's length plus a margin (its length x 1.1 plus 1
+  second, never more than the longest length allowed) — the motion video for Motion
+  Control, the source video for an edit (its input and output seconds, as the price
+  counts them). The reference videos a render is given are counted by their length the
+  same way. Every place the app takes a video from is held by its length: a data URL, a
+  device upload, a video in the film's own storage and a file on the provider's media
+  CDN — the film's storage and device uploads through the server's own copy (see
+  "Snapshots" below). A file it can't read (a fragmented, damaged or compressed-header
+  video, or one stored anywhere else) holds the longest length, as before. The charge
+  still comes from the finished
+  video's real length, never above the hold. A finished video longer than its hold
+  covered is charged only the hold (you pay the rest), and `image-proxy` logs
+  `[billing] length_mismatch <ref> held=<n> output_s=<s>` and records it for you as a
+  `turn_grant_failures` row with reason `length_mismatch` (query under "Read-only
+  checks"). One now and then is a margin that was too small; many, or many from one
+  account, are worth a look: those files may claim a shorter length than they have.
+- **Snapshots (why, where, cleanup):** a video in the film's storage, or a device upload,
+  could be replaced by its owner after `image-proxy` read its length, and the provider
+  would then render a longer video than the one billed. So at submit `image-proxy` copies
+  such a video, with the service role, to
+  `_internal/video-snapshots/<time>-<hold id>-<n>.<ext>` (the hold id is the render's hold,
+  `video:<hold id>`) — a folder no signed-in user can write, replace, move a file onto,
+  delete or list (the Storage rules only ever open folders that name the user's own id or
+  a film they work on, and `_internal` is neither). It reads the copy's length and gives
+  the provider a 24-hour link to the copy, never to the original. A data URL's bytes are
+  uploaded there the same way; a file on the provider's CDN can't change after the read,
+  so it is read directly. If a copy fails, that video counts as unread: the longest
+  length. The copies are deleted when the render's hold is settled or released, by the
+  app's poll or by the 10-minute reconciliation; the reconciliation also removes, as a
+  best effort, any copy older than 2 days that was left behind (a failed delete, which
+  `image-proxy` logs as `[billing] snapshot cleanup failed`). The admin views list them
+  with the other `_internal` service files, which are never offered for deletion. No SQL
+  to run. Offline test:
+  `node scripts/test-storage-billing-snapshots.mjs` (every Storage rule set production
+  can have: today's, after `storage-readable-folders.sql`, after a `storage.sql` re-run, a
+  fresh install).
+- **Speech-to-text (New Story's spoken interview):** a recording is charged by its real
+  length, which `image-proxy` reads from the file itself (WebM, Ogg, MP4 / MOV or WAV)
+  before it holds anything. The hold and the charge are that length — never the time of
+  the last spoken word, so silence counts and a recording with no words in it is still
+  charged. A longer length reported by the provider is logged
+  (`[billing] stt_length_mismatch`), never charged above the hold. A recording it can't read,
+  or one longer than 6 minutes, is refused with a plain sentence and nothing is held (the
+  app itself stops a spoken answer at 5 minutes); the app then quietly switches to the
+  browser's own speech recognition (free). Only the speech-to-text models the app uses
+  are accepted.
+- **Image prompts:** an image prompt longer than 40,000 characters is refused on every
+  image route before anything is held (the app's longest prompts are well under it), so a
+  long prompt can't use input the flat image price doesn't cover.
+- **Trial:** 50 credits once per account after email confirmation, one per mailbox
+  (lower-case, "+tag" and Gmail dots ignored; only a SHA-256 key of it is stored),
+  granted on the first balance read or spend; never for an account that has paid (a
+  plan or a pack). Starts on the switch day. Subscribing replaces the trial credits
+  with the allowance. What a trial account may generate is enforced by `image-proxy`.
+- **Grandfathering:** while `legacy_until` is in the future, a renewal gives at least
+  the old allowance in the new units (2,400 / 7,200 / 27,000; the legacy `pro` plan counts
+  as Director; an upgrade inside the window adds the old difference, pro rata). After it,
+  the Option A allowance.
+
+### The functions (contract) and who may call them
+
+| Function | Caller | Returns / does |
+|---|---|---|
+| `turn_credit_balance()` | signed-in user | `remaining, plan` (first, as before), `plan_remaining, pack_remaining, next_pack_expiry, payment_status, frozen, trial`, then `plan_allowance` (this period's allowance, for low-balance notices), and last `held` (credits set aside by the account's open holds). Creates the row, zeroes expired packs, grants the trial when due. |
+| `turn_spend_credit(cost, event_id)` | signed-in user | today's browser spend: plan then packs, clamps at 0, once per event id, refuses when frozen; a no-op once `turn_billing_state` has the `server_video_billing` marker (step 4c). |
+| `turn_record_usage_event(…)` | signed-in user | today's image-proxy spend + ledger (`INSUFFICIENT_CREDITS` as before). |
+| `turn_credit_regime()` | anyone | `switched, switched_at, usd_per_credit` (0.03 before the switch, 0.01 after), `trial_credits` (0 / 50), `legacy_until`. |
+| `turn_hold_credits(uid, amount, ref, reason)` | service role | jsonb `{ok, held, remaining, code?}` — atomic, idempotent per ref; codes `insufficient`, `frozen` (also `ref_conflict`, `released`). |
+| `turn_settle_hold(ref, actual)` | service role | jsonb `{ok, status, held, kept, released, given_back, remaining}` — keeps min(actual, held); a repeat reports the first outcome; after a release: `{ok:false, code:'released'}`. |
+| `turn_release_hold(ref)` | service role | jsonb — gives everything back; no-op (`duplicate: true`) if already settled or released. |
+| `turn_hold_attach(ref, provider_ref)` | service role | jsonb `{ok, code?, status?}` — attaches the provider's job id (fal request id, mesh job id) to a hold once; the same value again is ok; a different value, or one already on another hold: `code 'mismatch'`; unknown ref: `code 'unknown'`. |
+| `turn_hold_lookup(provider_ref)` | service role | jsonb `{found, ref, owner, held, status, kept, created_at, reason}` — the hold a provider job belongs to (`{found:false}` when none). |
+| `turn_open_provider_holds(older_than_minutes default 60, max_rows default 50, ref_prefix default null)` | service role | table `(ref, owner, provider_ref, held, reason, created_at)` — open holds with a `provider_ref` older than N minutes, oldest first, at most `max_rows` (1–500); `ref_prefix` (`'video:'`, `'studio:'`) lets each function list only its own. What the reconciliation (`{"op":"reconcile_holds"}`) works through. |
+| `turn_claim_housekeeping(job, every_seconds)` | service role | boolean — an atomic throttle: `true` when this caller may run the job now (its last run is older than `every_seconds`) and the run is recorded (`turn_billing_state` key `housekeeping:<job>`); `false` otherwise. The reconciliation uses `'<function>_reconcile'`, 240. |
+| `turn_set_plan_once(event_id, uid, new_tier, monthly_credits, sub_id, customer_id, renews)` | service role | int total — once per event id / key; renewal resets plan credits only; honours grandfathering; sets `payment_status` active. A subscription conflicting with the account's stored, still-active one on another customer grants nothing (`turn_grant_failures` `subscription_conflict`; the event's result says `skipped`). |
+| `turn_adjust_plan_once(event_id, uid, new_tier, add_credits, sub_id)` | service role | int total — immediate upgrade, once; adds the difference for the part of the period still to run (rounded up; none when no renewal date is known); a different stored subscription is refused and recorded in `turn_grant_failures` (`subscription_mismatch`). |
+| `turn_add_pack_once(event_id, uid, amount, charge_id, legacy_unit default false)` | service role | int total — a 12-month pack lot, once. `legacy_unit = true`: the amount is in the old unit (the 300 / 1,200 / 4,000 packs): granted as sold before the switch, x3 from the switch on — decided after the account lock, together with the lot (the event's result records `legacy_unit` and `x3`). The 4-argument call still works and never multiplies. |
+| `turn_revoke_charge_once(event_id, charge_id)` | service role | int credits removed — once per event; matches lots and plan grants whose charge id **or** grant key equals `charge_id` (pass the charge id for packs, the grant key such as `invoice:in_…` for a plan payment); a plan grant is taken from the plan credits left, then from the plan part of holds still open in its period. |
+| `turn_set_payment_status(uid, status)` | service role | `'active'` or `'past_due'`. |
+| `turn_set_frozen(uid, frozen, reason)` | service role | freeze / unfreeze (disputes); the reason is kept. |
+| `turn_end_plan_for_sub(uid, sub_id)` | service role | boolean — ends the plan only when `sub_id` is the stored subscription; keeps its plan credits before the switch day, ends them from the switch day on. |
+| `turn_release_stale_holds(minutes default 30)`, `turn_expire_lots()` | service role | housekeeping, scheduled by `billing-housekeeping-cron.sql` (step 2): releases holds without a provider job older than `minutes`; leaves a hold with a `provider_ref` to the reconciliation, and only as a last resort settles one still open after 30 days at the held amount. |
+| `turn_set_plan`, `turn_add_pack`, `turn_apply_pack_once`, `turn_end_plan`, `turn_grant_credits` | service role / SQL editor | today's functions, same signatures, new balances (`turn_end_plan` still keeps credits). |
+| `turn_frances_consume(p_user, p_limit)` | service role | unchanged (`frances-daily-limit.sql`); `image-proxy` now passes the per-plan cap: 5 a day with no plan / trial / cancelled, 15 Writer, 30 Director, 50 Producer; admins are not counted. |
+
+Every function above is SECURITY DEFINER with a pinned `search_path`; EXECUTE is
+revoked from public, anon and authenticated and granted only as listed (the service
+functions also refuse any non-service JWT inside, as a second lock). The `turn__*`
+helpers are callable by no API role. Users can read their own `turn_credits` row,
+usage rows and pack lots; nobody writes billing tables through the API.
+
+**Read-only checks:** `select * from public.turn_credit_regime();` ·
+`select key, at, value from public.turn_billing_state;` (the carry-over and switch
+markers with their totals) · open holds older than an hour (a provider job's poll
+may still be running; the housekeeping job handles the rest):
+`select ref, owner, held, provider_ref, created_at from public.turn_credit_holds where status = 'held' and created_at < now() - interval '1 hour';`
+· the housekeeping jobs: `select jobname, schedule, active from cron.job where jobname like 'kinolot-%';`
+· what the reconcile calls answered (`{ok, checked, settled, released, left}`): `select status_code, content, created from net._http_response order by created desc limit 10;`
+· when each reconciliation last ran: `select key, at, value from public.turn_billing_state where key like 'housekeeping:%';`
+· conflicts for the owner: `select * from public.turn_grant_failures where reason = 'subscription_conflict' order by created_at desc;`
+· renders that came back longer than their hold: `select created_at, uid, event_id as hold_ref, details from public.turn_grant_failures where reason = 'length_mismatch' order by created_at desc;`
+(`details`: the credits held, the output's seconds and what it really cost; the same cases are in the dashboard's Edge Functions → `image-proxy` → Logs: search `length_mismatch`)
+· in the same `image-proxy` logs: `snapshot copy failed` / `snapshot upload failed` mean a render's video couldn't be copied, so it was held and billed at the longest length (many in a row point to Storage, not to users); `stt_length_mismatch` means the provider reported a longer recording than the file declared (charged at the file's length, never more)
+· the snapshot copies of renders still running (see "Snapshots"; one older than 2 days is a leftover the reconciliation removes): `select name, created_at from storage.objects where bucket_id = 'turn-assets' and starts_with(name, '_internal/video-snapshots/') order by created_at;`
+· what the webhook applied: `select id, action, uid, result, processed_at from public.turn_stripe_events order by processed_at desc limit 50;`
+Reports over `turn_usage_events` that span the switch mix units: split them at the
+switch marker's date.
+
+Offline test: `node scripts/test-billing-db.mjs` (PGlite: production = `credits.sql`
+at commit 1aaf9ad, then the files, every contract function, legacy callers,
+privileges, holds and provider jobs, expiry, refunds, trial, the switch and its undo,
+the housekeeping schedule and the reconcile calls on pg_cron / pg_net stand-ins, the
+reconciliation's functions, fresh-install equivalence). To run only some sections, set
+`TEST_SECTIONS` to their letters (listed at the top of the file), e.g.
+`TEST_SECTIONS=J node scripts/test-billing-db.mjs`; unset, everything runs.
+
 ## Frances's daily question limit (`frances-daily-limit.sql`)
 
 **Status (2026-09-29): the SQL was run on production by the owner on
@@ -398,6 +693,12 @@ deployed yet: publish the new app first, then deploy (see "Deploy order" below).
 
 Owner decision (2026-09-28): chatting with Frances stays free, up to **50
 questions per person per UTC day**, so nobody can use her as a free general AI.
+**Caps by plan (owner decision 2026-09-30, billing fixes):** 5 questions a day for
+no plan / a trial / a cancelled or frozen account, 15 Writer, 30 Director, 50
+Producer; admins exempt. `image-proxy` passes the caller's cap
+(`billing-policy.mjs` `FRANCES_PLAN_LIMITS`) and the `FRANCES_DAILY_LIMIT` secret is
+a ceiling over every plan. No SQL change: `turn_frances_consume` already takes the
+limit as an argument.
 For each free Frances question (only after `muse-billing.mjs` has accepted it as
 hers) `image-proxy` asks `turn_frances_consume` for one of today's slots through
 its service-role client. With none left it answers HTTP 429
@@ -467,14 +768,15 @@ schema. If the logs still say `missing` after the SQL has run, run
    `npx supabase functions deploy image-proxy --no-verify-jwt`
    — only once the app with the new `app/livevoice.js` and `app/ai.jsx` cache keys
    is live (see **Deploy order** above).
-3. *(Optional, Mac)* A different limit:
+3. *(Optional, Mac)* A different ceiling:
    `npx supabase secrets set FRANCES_DAILY_LIMIT=<whole number 1–100000>`.
-   Unset, or anything else, means 50. No SQL change is needed to move it, and the
-   limit reply names whatever limit the server sends. **But Frances's own facts
-   name the number too:** in the same change, update the Frances entry in
-   `APP_FEATURES` (app/ai.jsx: "up to 50 questions a day" and the example reply)
-   and `FRANCES_DAILY_LIMIT` in app/ai.jsx, then bump `app/ai.jsx?v=` in
-   `TURN.html`. Otherwise Frances keeps telling people the old number. (To change
+   Unset, or anything else, means 50. Since 2026-09-30 it is a ceiling over the
+   plan caps (set it to 10 and nobody gets more than 10). No SQL change is needed to
+   move it, and the limit reply names whatever limit the server sends. **But
+   Frances's own facts name the number too:** in the same change, update the Frances
+   entry in `APP_FEATURES` (app/ai.jsx: the caps by plan and the example reply),
+   `FRANCES_DAILY_LIMIT` and `FRANCES_PLAN_LIMITS` in app/ai.jsx, then bump
+   `app/ai.jsx?v=` in `TURN.html`. Otherwise Frances keeps telling people the old number. (To change
    the default itself, also change `FRANCES_DAILY_LIMIT_DEFAULT` in
    `functions/image-proxy/frances-limit.mjs` and redeploy; the offline test checks
    that these numbers agree.)

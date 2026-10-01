@@ -66,6 +66,15 @@ by editing: when a change is needed, Frances points to the tool that makes it.
   relevant to that question and to where the writer is (room, view, Art Room tab) —
   `museBrief()`, chosen by plain word matching, no extra model call. For any other feature
   Frances has only its index line; if that doesn't answer the question, she says she's not sure.
+- *Cached prefix (2026-09-30, billing fixes):* the part that never changes — these rules
+  (`museProtocolRules()`) and the feature index (`museFeatureIndex()`), together
+  `museStablePrefix()` — is sent as **one leading system message** with `promptCache: true`, which
+  the proxy passes on as a cached system block, so repeat questions read it at the cache price.
+  Everything that changes per question comes after it, at the start of the first user turn: the
+  full facts matched to the question (`museBriefDetails()`), the film and where the writer is
+  (`museContext()`), and the writer's own daily question limit (`museAccountLine()`). The text
+  Frances reads is the same as before, only split in two; nothing per-question, per-film or
+  per-account may go into the prefix.
 - Never invent features, buttons, menus, or behaviour.
 - Reference specific scene numbers when relevant.
 
@@ -85,7 +94,8 @@ If asked any of the above, Frances declines warmly and returns to the work — e
 *What Frances is told is cleaned first (2026-09-28):* `musePublicFeature()` derives Frances's
 view of `APP_FEATURES` and drops every sentence that:
 
-- talks billing, pricing, checkout or credits (`MUSE_BILLING`), or talks about a plan *together
+- talks billing, pricing, checkout, credits or what is charged (`MUSE_BILLING`; "charged" since
+  2026-09-30 — the story's value *charges* are a different word and stay), or talks about a plan *together
   with* a tier (Writer, Director, Producer), an upgrade, "free" or an entitlement
   (`MUSE_PLAN_TIER`) — so a plain "your plan has nothing left for writing" still reaches
   Frances, while plan names and prices do not;
@@ -189,32 +199,43 @@ spoken conversation. Keep either form brief and proportionate:
 | Stay in character | `museSystemPrompt()` | — |
 
 Text Frances runs on her own fixed model via `museComplete()` (separate from the writing-model
-picker). The server treats a call as the assistant's — free — only when it uses that pinned model,
-is text only, carries only user and assistant turns (Frances never sends a system message) and
-stays assistant-sized (`supabase/functions/image-proxy/muse-billing.mjs`); the chat trims itself
+picker; since 2026-09-30 the cheaper Opus-class model the proxy pins, with prompt caching). The
+server treats a call as the assistant's — free — only when it uses that pinned model, is text only,
+carries only user and assistant turns after at most ONE leading system message — the cached prefix,
+allowed only on a request that sets `promptCache` — and stays assistant-sized
+(`supabase/functions/image-proxy/muse-billing.mjs`; the size limits count the prefix too); the chat trims itself
 to fit (`MUSE_INPUT_BUDGET` in `app/ai.jsx`). A free call's reply is capped at
 `MUSE_LIMITS.maxOutputTokens` with no reasoning-effort setting, and each account has a daily
 allowance of free assistant calls (`MUSE_LIMITS.dailyFreeCalls` in any 24 hours; past it the chat
 is metered, and with nothing left it says "You’ve used today’s free messages with Frances…").
 Ahead of that allowance sits the **daily question limit** (owner decision 2026-09-28): each person
-gets 50 free questions per UTC day (the image-proxy secret `FRANCES_DAILY_LIMIT`), counted
-atomically by `supabase/frances-daily-limit.sql` and decided in
+gets a number of free questions per UTC day, **by plan** since 2026-09-30 — 5 for no plan, a trial,
+a cancelled or a frozen account, 15 Writer, 30 Director, 50 Producer (`FRANCES_PLAN_LIMITS` in
+`supabase/functions/image-proxy/billing-policy.mjs`, mirrored in `app/ai.jsx`); the image-proxy
+secret `FRANCES_DAILY_LIMIT` is a ceiling over every plan (unset, 50 free questions per UTC day at
+most). It is counted atomically by `supabase/frances-daily-limit.sql` and decided in
 `supabase/functions/image-proxy/frances-limit.mjs`. Past it the proxy answers 429
-`frances_daily_limit` and calls no model, and the chat shows Frances's calm reply — "That’s today’s
-50 free questions — I’ll be back after midnight UTC (in about 5 hours)." — as an answer, not an
-error, with no retry. A burst of parallel questions from one account gets 429 `frances_busy`
+`frances_daily_limit` (with that person's `limit`) and calls no model, and the chat shows Frances's
+calm reply with their number — with a limit of 50, "That’s today’s 50 free questions — I’ll be back
+after midnight UTC (in about 5 hours)." — as an answer, not an error, with no retry. A burst of parallel questions from one account gets 429 `frances_busy`
 instead (nothing counted, no model call; the chat says "One question at a time, please — ask me
 again in a moment."). Admins are exempt, and when the count can't be kept (the SQL not run yet, an
-outage: an error or no answer within 8 seconds) the proxy fails open and logs it once. Her facts say she is free up to 50 questions a day,
-so she can answer questions about the limit; the prompt itself is unchanged.
+outage: an error or no answer within 8 seconds) the proxy fails open and logs it once. Her facts say
+she is free up to a daily number of questions (between 5 and 50, depending on the account), and the
+per-question part of her prompt tells her this writer's own number (`museAccountLine()`), so she can
+answer questions about the limit without naming plans or prices (§3); the rules themselves are unchanged.
 **Voice counts too** (owner decision 2026-09-29): each New Story voice session (`task: "live"`)
 takes one of the same daily slots, through the same limiter and RPC, after the request is
-validated and before any session is created — one slot per session, however long it lasts. A
+validated and before any session is created — one slot per session, however long it lasts
+(a session ends itself 15 minutes after it opens — `app/livevoice.js`, billing repair 2026-09-30 —
+with "That’s 15 minutes — this conversation with Frances has ended. …"; starting another takes another
+slot, and her facts say so). A
 session that then fails to open is not given back, as with a question, so each "Try live again"
 after a failed start uses another slot; her facts say so. Past
 the limit the proxy answers 429 `frances_daily_limit` and opens no session, and
-`app/livevoice.js` shows "That’s today’s 50 free questions with Frances — voice included. She’ll be
-back after midnight UTC (in about 5 hours). You can use the typed interview in the meantime."; a
+`app/livevoice.js` shows the person's own number — with a limit of 50, "That’s today’s 50 free questions
+with Frances — voice included. She’ll be back after midnight UTC (in about 5 hours). You can use the
+typed interview in the meantime."; a
 burst gets 429 `frances_busy` and "One conversation at a time, please — try again in a moment.".
 Same rules as the chat: admins exempt, fail open, never retried. The typed New Story interview is
 not counted. Ship the app (new `app/livevoice.js` and `app/ai.jsx` cache keys) before deploying the

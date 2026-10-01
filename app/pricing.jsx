@@ -1,58 +1,92 @@
 /* pricing.jsx — internal credit economics.
    This is the small auditable table behind user-facing credit estimates. Keep it
    boring: provider list-price assumptions in USD, then helpers that convert raw
-   provider cost into Cinema Machine credits.
+   provider cost into Kinolot credits.
 
-   Pricing policy:
-   - CREDIT_SCALE only changes the visible denomination (800 instead of 80).
-   - BASE_PROVIDER_USD_PER_CREDIT is the old unscaled anchor: 1 base credit ≈ $0.30.
-   - Therefore 1 visible credit ≈ $0.03 of raw provider spend before Stripe fees,
-     taxes, storage, retries, support, and margin.
+   Pricing policy (OPTION A, owner decision 2026-09-30):
+   - CREDIT_SCALE only changes the visible denomination (600 instead of 60).
+   - BASE_PROVIDER_USD_PER_CREDIT is the unscaled anchor: 1 base credit = $0.10.
+   - Therefore 1 visible credit = $0.01 of raw provider spend (it was $0.03 before the
+     switch, so every action now costs about 3x the credits). Credits always round UP,
+     so no action costs more than $0.01 per credit while the price tables are current.
+   - The SAME anchor lives in supabase/functions/image-proxy/billing-pricing.mjs
+     (PROVIDER_USD_PER_CREDIT) and supabase/functions/blender-bridge/studio-service.mjs — change
+     them together, or the cost a button shows stops matching what the server charges.
+   - THE LIVE UNIT FOLLOWS THE DATABASE (turnApplyCreditRegime, below). Until the owner runs
+     supabase/billing-switch.sql (30 days after the notice), the database's turn_credit_regime()
+     still says 1 credit = $0.03 and the server charges in that unit; app/cloud.jsx reads it at
+     boot (cloudLoadCreditRegime) and this file moves the anchor to match ($0.30 per base credit
+     before the switch, $0.10 after), so a cost chip always quotes what the server will charge.
+     Plan cards and the free-trial copy follow the same switch (app/plans.jsx). With nothing read
+     yet the app assumes the switched unit FOR COST QUOTES (the last value read is remembered in
+     this browser): quoting too high is safe (the server settles the real, lower cost), quoting too
+     low is not (a video render would be refused as costing more than the quote). Until a read (or
+     the saved copy) says which unit is live, the trial line is hidden, packs stay disabled and the
+     plan cards show no allowance number (turnCreditRegimeKnown, repair 2026-09-30).
    - Text rates are provider-token based when the proxy returns usage, with the
      flat table below kept only as an older-deploy display fallback.
    - Image/video rates are provider-cost based. */
 
 (function(){
   const CREDIT_SCALE = 10;
-  const BASE_PROVIDER_USD_PER_CREDIT = 0.30;
+  const BASE_PROVIDER_USD_PER_CREDIT = 0.10;
 
   const TURN_PRICING = {
-    version: "2026-08-18",
+    version: "2026-09-30",
     currency: "USD",
     credit: {
       scale: CREDIT_SCALE,
       baseProviderUsd: BASE_PROVIDER_USD_PER_CREDIT,
       visibleProviderUsd: BASE_PROVIDER_USD_PER_CREDIT / CREDIT_SCALE,
     },
+    // Stripe UK account charging US cards in USD (review of 2026-09-29): one-off packs
+    // 3.15% + 2% currency conversion; subscriptions add 0.7% Billing. Fixed fee ~ $0.30.
     buffers: {
-      stripePercent: 0.029,
+      stripePercent: 0.0515,
+      stripeSubscriptionPercent: 0.0585,
       stripeFixedUsd: 0.30,
       opsBufferPercent: 0.15,
-      targetGrossMarginPercent: 0.45,
+      targetGrossMarginPercent: 0.60,
     },
+    // Option A allowances for NEW subscribers (app/plans.jsx is the display source; Stripe's
+    // plan_credits metadata is what the webhook grants). Existing subscribers keep the
+    // legacy allowance (old x3) for renewals until 30 days after the switch.
+    plans: [
+      { tier:"writer",   priceUsd:19,  credits:600,  legacyCredits:2400 },
+      { tier:"director", priceUsd:49,  credits:1600, legacyCredits:7200 },
+      { tier:"studio",   priceUsd:149, credits:5000, legacyCredits:27000 },
+    ],
+    trialCredits: 50,
     text: {
       note: "Token-based proxy accounting for successful text calls; creditRates are a display fallback for older proxy deploys.",
       creditRates: {
         // display fallbacks scaled to Anthropic list prices (checked 2026-09-26)
-        "claude-fable-5": 0.11,
-        "claude-fable-5-1": 0.11,
-        "claude-opus-5": 0.06,
-        "claude-opus-5-5": 0.04,
-        "claude-sonnet-5": 0.08,
-        "kimi-k3": 0.06,
-        "kimi-k2.7-code": 0.03,
-        muse: 0.03,
-        vision: 0.20,
-        default: 0.10,
+        // (base credits per call at the $0.10 base anchor — 3x the pre-2026-09-30 values)
+        "claude-fable-5": 0.33,
+        "claude-fable-5-1": 0.33,
+        "claude-opus-5": 0.18,
+        "claude-opus-5-5": 0.12,
+        "claude-sonnet-5": 0.24,
+        "kimi-k3": 0.18,
+        "kimi-k2.7-code": 0.09,
+        "gpt-6-astra": 0.60,
+        "gemini-3.8-flash": 0.24,
+        muse: 0.09,
+        vision: 0.60,
+        default: 0.30,
       },
     },
     image: {
-      note: "Estimated accepted-output provider cost per generated image; Art Room image costs are visible before generation and deducted server-side after success.",
+      note: "Provider cost per generated image on fal (the route the app uses) — the SAME table as supabase/functions/image-proxy/billing-pricing.mjs IMAGE_PROVIDER_USD, so a cost chip quotes what the server holds and settles.",
+      // fal prices (checked 2026-09-29): Nano Banana 2 $0.08, 2K x1.5, 4K x2; Nano Banana Pro
+      // $0.15, 4K x2; Nano Banana 2 Lite ~$0.05 at its fixed 1K output. GPT Image rows are the
+      // price at the model's BASELINE size and scale with output size (turnGptImageSizeFactor):
+      // GPT Image 2 high is $0.158 at 1080p, $0.401 at 4K.
       providerUsd: {
-        "gemini-3.1-flash-lite-image": { "1K":0.034, "2K":0.050, "4K":0.076 },
-        "gemini-3.1-flash-image":      { "1K":0.067, "2K":0.101, "4K":0.151 },
-        "gemini-3-pro-image":          { "1K":0.134, "2K":0.134, "4K":0.240 },
-        "gpt-image-2":                 { low:0.009, medium:0.080, high:0.317 },
+        "gemini-3.1-flash-lite-image": { "1K":0.05, "2K":0.05, "4K":0.05 },
+        "gemini-3.1-flash-image":      { "1K":0.08, "2K":0.12, "4K":0.16 },
+        "gemini-3-pro-image":          { "1K":0.15, "2K":0.15, "4K":0.30 },
+        "gpt-image-2":                 { low:0.012, medium:0.044, high:0.158 },
         // GPT Image 2.5 xhigh/max use the official canonical 1024-square
         // output-token baseline. Input-token counts and non-square dimensions
         // vary, so these are estimates rather than exact per-request quotes;
@@ -64,8 +98,11 @@
       },
     },
     video: {
-      note: "Provider USD per output second. Stage converts this into credits and deducts after a successful render.",
-      videoInputPriceMultiplier: { "seedance-2.5":0.6 },
+      note: "Provider USD per output second. Stage converts this into the credit cost it shows; the server holds that cost before the job and settles it when the render finishes (refunded if it fails).",
+      // with video references fal multiplies the price by 0.6 and bills the input seconds too —
+      // for every Seedance family, as the server prices it (billing-pricing.mjs videoCost:
+      // SEEDANCE_VIDEO_INPUT_MULTIPLIER on /^seedance/); the Stage quotes (output + input) × rate × 0.6
+      videoInputPriceMultiplier: { "seedance-2.0":0.6, "seedance-2.5":0.6 },
       providerUsdPerSecond: {
         "seedance-2.0": {
           standard: { "480p":0.1512, "720p":0.3034, "1080p":0.6820, "4K":1.5500 },
@@ -95,18 +132,81 @@
       },
     },
     packs: {
+      // owner decision 2026-09-30 (at the $0.01 rate): 12-month pack lots, never wiped at renewal
       current: [
-        { sku:"credits-300", credits:300, priceUsd:9 },
-        { sku:"credits-1200", credits:1200, priceUsd:29 },
-        { sku:"credits-4000", credits:4000, priceUsd:79 },
+        { sku:"pack-250",  credits:250,  priceUsd:10 },
+        { sku:"pack-1000", credits:1000, priceUsd:35 },
+        { sku:"pack-3000", credits:3000, priceUsd:99 },
       ],
-      saferSuggested: [
-        { sku:"credits-300", credits:300, priceUsd:12 },
-        { sku:"credits-1200", credits:1200, priceUsd:49 },
-        { sku:"credits-4000", credits:4000, priceUsd:159 },
-      ],
+      validMonths: 12,
     },
   };
+
+  /* ── THE LIVE CREDIT UNIT (billing fixes, owner decisions 2026-09-30) ──────
+     turn_credit_regime() (supabase/billing-v2.sql, readable without signing in) says whether
+     supabase/billing-switch.sql has run: before it 1 credit = $0.03 of provider cost and there is
+     no free trial; after it $0.01 and a 50-credit trial. The server prices every call in the
+     live unit (image-proxy creditUnitNow, blender-bridge), so the app moves its anchor to match.
+     The anchor objects are mutated IN PLACE (TURN_PRICING.credit and the text creditRates, which
+     app/ai.jsx TEXT_CREDIT_RATES holds by reference) and "turn-pricing-changed" refreshes every
+     derived copy (the Stage's tier rates); "turn-credit-regime-changed" re-reads plan cards and
+     the trial copy (app/plans.jsx, app/landing.jsx). */
+  const REGIME_KEY = "turn-credit-regime-v1";
+  const SWITCHED_USD_PER_CREDIT = 0.01;
+  const TEXT_RATES_AT_SWITCHED = Object.assign({}, TURN_PRICING.text.creditRates);
+  let _regime = { switched:true, usdPerCredit:SWITCHED_USD_PER_CREDIT, trialCredits:TURN_PRICING.trialCredits, legacyUntil:null, source:"default" };
+  function _normRegime(r){
+    if(!r || typeof r!=="object") return null;
+    const row = Array.isArray(r) ? r[0] : r;
+    if(!row || typeof row!=="object" || typeof row.switched!=="boolean") return null;
+    const usd = Number(row.usdPerCredit!=null ? row.usdPerCredit : row.usd_per_credit);
+    // only the two units the database knows; anything else is a bad read
+    const unit = (Math.abs(usd-0.01) < 1e-9 || Math.abs(usd-0.03) < 1e-9) ? usd : (row.switched ? 0.01 : 0.03);
+    const trial = Number(row.trialCredits!=null ? row.trialCredits : row.trial_credits);
+    const until = row.legacyUntil!=null ? row.legacyUntil : row.legacy_until;
+    return { switched:row.switched, usdPerCredit:unit,
+      trialCredits: Number.isFinite(trial) && trial>=0 ? trial : (row.switched ? TURN_PRICING.trialCredits : 0),
+      legacyUntil: until ? String(until) : null };
+  }
+  function _applyAnchor(){
+    const base = _regime.usdPerCredit * CREDIT_SCALE;          // 0.10 after the switch, 0.30 before
+    TURN_PRICING.credit.baseProviderUsd = base;
+    TURN_PRICING.credit.visibleProviderUsd = _regime.usdPerCredit;
+    const k = BASE_PROVIDER_USD_PER_CREDIT / base;             // 1 after the switch, 1/3 before
+    const rates = TURN_PRICING.text.creditRates;
+    Object.keys(TEXT_RATES_AT_SWITCHED).forEach(m=>{ rates[m] = Math.round(TEXT_RATES_AT_SWITCHED[m]*k*10000)/10000; });
+  }
+  /* apply a regime read from turn_credit_regime() (source "server") or the browser's memory.
+     Returns true when the unit, the trial or the grandfathering date changed, or when this is the
+     first read that makes the unit known. */
+  function turnApplyCreditRegime(r, source){
+    const n = _normRegime(r);
+    if(!n) return false;
+    const changed = n.switched!==_regime.switched || n.usdPerCredit!==_regime.usdPerCredit
+      || n.trialCredits!==_regime.trialCredits || n.legacyUntil!==_regime.legacyUntil;
+    // the first real read also counts as a change for the plan cards, the trial line and the packs,
+    // which wait for a KNOWN unit even when it equals the default (turnCreditRegimeKnown)
+    const becameKnown = _regime.source==="default" && (source || "server")!=="default";
+    _regime = { ...n, source: source || "server" };
+    if(_regime.source==="server"){ try{ localStorage.setItem(REGIME_KEY, JSON.stringify(n)); }catch(e){} }
+    if(changed){
+      _applyAnchor();
+      try{ window.dispatchEvent(new CustomEvent("turn-pricing-changed")); }catch(e){}
+    }
+    if(changed || becameKnown){
+      try{ window.dispatchEvent(new CustomEvent("turn-credit-regime-changed", { detail:{ ..._regime } })); }catch(e){}
+    }
+    return changed || becameKnown;
+  }
+  function turnCreditRegime(){ return { ..._regime }; }
+  /* true once the unit came from the server or this browser's saved copy of it. Cost quotes may
+     keep the safe switched default, but the trial line, the pack buttons and the plan-card
+     allowance numbers show only when this is true (app/plans.jsx) — a first paint before the
+     read, or a failed read, never advertises a trial or a price that may not be live yet. */
+  function turnCreditRegimeKnown(){ return _regime.source!=="default"; }
+  // the last regime this browser read, so the first paint already quotes in it
+  try{ const saved = JSON.parse(localStorage.getItem(REGIME_KEY)||"null"); const n = _normRegime(saved); if(n){ _regime = { ...n, source:"saved" }; } }catch(e){}
+  _applyAnchor();
 
   function turnProviderUsdPerBaseCredit(){
     return TURN_PRICING.credit.baseProviderUsd;
@@ -116,6 +216,30 @@
   }
   function turnImageProviderUsdTable(){
     return TURN_PRICING.image.providerUsd;
+  }
+  /* GPT Image cost scales with output size: fal's two GPT Image 2 points ($0.158 at 2.07 MP,
+     $0.401 at 8.29 MP) fit cost ∝ MP^0.672. Mirrors billing-pricing.mjs gptImageSizeFactor. */
+  const GPT_IMAGE_BASELINE_MP = { "gpt-image-2":1920*1080/1e6, "gpt-image-2.5-flare":1024*1024/1e6, "gpt-image-2.5-sunburst":1024*1024/1e6 };
+  const GPT_IMAGE_SIZES = {
+    "16:9": { "1K":"1280x720", "2K":"2048x1152", "4K":"3840x2160" },
+    "9:16": { "1K":"720x1280", "2K":"1152x2048", "4K":"2160x3840" },
+    "21:9": { "1K":"1344x576", "2K":"2688x1152", "4K":"3808x1632" },
+    "1:1":  { "1K":"1024x1024", "2K":"2048x2048", "4K":"3840x3840" },
+    "3:4":  { "1K":"768x1024", "2K":"1536x2048", "4K":"2880x3840" },
+    "4:3":  { "1K":"1024x768", "2K":"2048x1536", "4K":"3840x2880" },
+  };
+  function turnGptImageSizeFactor(model, aspect, imageSize){
+    const base = GPT_IMAGE_BASELINE_MP[model] || GPT_IMAGE_BASELINE_MP["gpt-image-2"];
+    const tier = ["1K","2K","4K"].indexOf(imageSize)>=0 ? imageSize : "2K";
+    const dims = (GPT_IMAGE_SIZES[aspect] || GPT_IMAGE_SIZES["16:9"])[tier].split("x").map(Number);
+    return Math.pow((dims[0]*dims[1]/1e6)/base, 0.672);
+  }
+  /* whole credits for a provider cost, exactly as the server rounds (billing-pricing.mjs
+     creditsFromUsd): up, at least 1, with a hair of float tolerance */
+  function turnCreditCost(usd){
+    const n = Number(usd);
+    if(!Number.isFinite(n) || n <= 0) return 1;
+    return Math.max(1, Math.ceil(n / TURN_PRICING.credit.visibleProviderUsd - 1e-9));
   }
   function turnVideoCreditRate(modelId, tierId, resolution){
     const usd = (((TURN_PRICING.video.providerUsdPerSecond[modelId]||{})[tierId]||{})[resolution]);
@@ -187,9 +311,14 @@
 
   window.CREDIT_SCALE = CREDIT_SCALE;
   window.TURN_PRICING = TURN_PRICING;
+  window.turnApplyCreditRegime = turnApplyCreditRegime;
+  window.turnCreditRegime = turnCreditRegime;
+  window.turnCreditRegimeKnown = turnCreditRegimeKnown;
   window.turnProviderUsdPerBaseCredit = turnProviderUsdPerBaseCredit;
   window.turnCreditsFromProviderUsd = turnCreditsFromProviderUsd;
   window.turnImageProviderUsdTable = turnImageProviderUsdTable;
+  window.turnGptImageSizeFactor = turnGptImageSizeFactor;
+  window.turnCreditCost = turnCreditCost;
   window.turnVideoCreditRate = turnVideoCreditRate;
   window.turnVideoCreditRates = turnVideoCreditRates;
   window.turnCreditPackEconomics = turnCreditPackEconomics;

@@ -9,7 +9,8 @@ const { PROJECT, CHARACTERS, SCENES, BEATS, SCREENPLAY, CONTINUITY, FACTS } = wi
    means (a new account's ledger comes back plan:"free", which must still be gated). */
 window.turnIsPaidPlan = function(plan){
   const p = String(plan||"").toLowerCase().trim();
-  return !!p && p!=="none" && p!=="free";
+  // "trial" (the 50-credit free trial, 2026-09-30) is not a paid plan either
+  return !!p && p!=="none" && p!=="free" && p!=="trial";
 };
 
 /* ORDER-INSENSITIVE JSON — the collaboration baseline compares section snapshots as
@@ -765,6 +766,14 @@ function App(){
   const [welcomeOpen, setWelcomeOpen] = React.useState(()=>{
     try{ return new URLSearchParams(window.location.search).has("welcome"); }catch(e){ return false; }
   });
+  // which plan the after-payment URL says was bought (/?welcome=1&plan=<tier>), if any
+  const [welcomePlan] = React.useState(()=>{
+    try{
+      let p = String(new URLSearchParams(window.location.search).get("plan")||"").toLowerCase().trim();
+      if(p==="producer") p = "studio";   // the Producer plan's tier id is "studio"
+      return ["writer","director","studio"].indexOf(p)>=0 ? p : "";
+    }catch(e){ return ""; }
+  });
   const [creditPackOpen, setCreditPackOpen] = React.useState(()=>{
     try{
       const qs = new URLSearchParams(window.location.search);
@@ -773,7 +782,7 @@ function App(){
   });
   React.useEffect(()=>{
     if(!welcomeOpen && !creditPackOpen) return;
-    try{ const u = new URL(window.location.href); u.searchParams.delete("welcome"); u.searchParams.delete("credits"); u.searchParams.delete("credit_pack");
+    try{ const u = new URL(window.location.href); u.searchParams.delete("welcome"); u.searchParams.delete("plan"); u.searchParams.delete("credits"); u.searchParams.delete("credit_pack");
       window.history.replaceState({}, "", u.pathname + (u.searchParams.toString()?("?"+u.searchParams.toString()):"") + u.hash); }catch(e){}
   },[]);
   /* INVITE ACCEPTANCE LANDING — /?invite=<projectId> is where every invitation
@@ -822,6 +831,40 @@ function App(){
     (async()=>{ try{
       if(typeof window.turnPricingWatchLoadOverrides==="function") await window.turnPricingWatchLoadOverrides();
     }catch(e){} })();
+    // THE LIVE CREDIT UNIT (billing fixes, 2026-09-30): $0.03 a credit until the owner runs
+    // billing-switch.sql, $0.01 after — read for everyone (signed out too), and again when the
+    // tab comes back after a while, so a tab left open across the switch re-quotes on its own.
+    // REPAIR 2026-09-30: a read that fails (a network error, not a missing function) is retried after
+    // 30 seconds, up to 3 times — until a read lands, the trial line, the packs and the plan cards'
+    // numbers stay hidden (app/plans.jsx creditRegimeKnown) — and an open tab looks again every 5
+    // minutes while visible, and on coming back to the front after a minute, so it follows the switch
+    // within about 5 minutes (at once on a reload).
+    let regimeAt = 0, regimeRetries = 0, regimeRetryT = 0, regimeGone = false;
+    const loadRegime = (minGapMs)=>{
+      if(regimeGone || typeof window.cloudLoadCreditRegime!=="function") return;
+      if(Date.now() - regimeAt < (minGapMs==null ? 60*1000 : minGapMs)) return;
+      regimeAt = Date.now();
+      Promise.resolve().then(()=>window.cloudLoadCreditRegime()).then(r=>{
+        if(r){ regimeRetries = 0; return; }
+        if(regimeGone || regimeRetries >= 3) return;
+        regimeRetries++; clearTimeout(regimeRetryT);
+        regimeRetryT = setTimeout(()=>loadRegime(0), 30*1000);
+      }).catch(()=>{});
+    };
+    loadRegime(0);
+    const onRegimeFocus = ()=>{ try{ if(document.visibilityState!=="hidden") loadRegime(); }catch(e){} };
+    window.addEventListener("focus", onRegimeFocus);
+    document.addEventListener("visibilitychange", onRegimeFocus);
+    const regimeTick = setInterval(()=>{ try{ if(document.visibilityState!=="hidden") loadRegime(4*60*1000); }catch(e){} }, 5*60*1000);
+    // a server "price changed" refusal can mean the unit just switched: read it again now
+    const onRefusal = (e)=>{ if(e && e.detail && e.detail.code==="price_changed"){ loadRegime(0); } };
+    window.addEventListener("turn-credits-changed", onRefusal);
+    return ()=>{
+      regimeGone = true; clearTimeout(regimeRetryT); clearInterval(regimeTick);
+      window.removeEventListener("focus", onRegimeFocus);
+      document.removeEventListener("visibilitychange", onRegimeFocus);
+      window.removeEventListener("turn-credits-changed", onRefusal);
+    };
   },[]);
   React.useEffect(()=>{
     if(!(typeof cloudConfigured==="function" && cloudConfigured())){ setAuthReady(true); return; }
@@ -1104,30 +1147,6 @@ function App(){
     // handle; empty when signed out, and the export then omits the credit line
     window.turnUserDisplayName = (typeof cloudUserDisplayName==="function") ? cloudUserDisplayName(session) : "";
     if(typeof window.turnRefreshLockedStyles==="function") window.turnRefreshLockedStyles(); },[userEmail, session]);
-  // CONTINUITY from the landing pricing → checkout: if the visitor picked a paid plan
-  // before signing up, open that plan's Stripe checkout automatically once they're in.
-  React.useEffect(()=>{
-    if(!(session && session.user && session.user.id)) return;
-    const plan = intendedPlan;
-    if(!plan || plan==="free") return;
-    let fresh = false;
-    try{
-      const at = Number(localStorage.getItem("turn-intended-plan-at")||0);
-      fresh = !!at && (Date.now() - at) < 20*60*1000;
-    }catch(e){}
-    if(!fresh){
-      try{ localStorage.removeItem("turn-intended-plan"); localStorage.removeItem("turn-intended-plan-at"); }catch(e){}
-      setIntendedPlan(null);
-      return;
-    }
-    const planObj = (window.CINEMA_PLANS||[]).find(p=>String(p.tier).toLowerCase()===plan);
-    try{ localStorage.removeItem("turn-intended-plan"); localStorage.removeItem("turn-intended-plan-at"); }catch(e){}
-    setIntendedPlan(null);
-    // sameTab: this fires from an effect (no user gesture) — window.open would be
-    // popup-blocked; navigating this tab to Stripe is never blocked, and the
-    // after-payment redirect brings the buyer straight back into the app.
-    if(planObj && typeof window.turnStartCheckout==="function") setTimeout(()=>window.turnStartCheckout(planObj, { sameTab:true }), 350);
-  },[session, intendedPlan]);
   const [creditBalance, setCreditBalance] = React.useState(null);
   const refreshCreditBalance = React.useCallback(async ()=>{
     if(typeof cloudGetCreditBalance!=="function"){ setCreditBalance(null); return null; }
@@ -1135,6 +1154,9 @@ function App(){
       const b = await cloudGetCreditBalance();
       setCreditBalance(b || null);
       window.turnCreditBalance = b || null;
+      // a free-tier account's writing default is the lighter engine (app/ai.jsx): pickers on "Auto"
+      // follow once the ledger says which tier this is
+      if(typeof window.turnNoteWritingDefault==="function"){ try{ window.turnNoteWritingDefault(); }catch(e){} }
       return b || null;
     }catch(e){ setCreditBalance(null); window.turnCreditBalance = null; return null; }
   },[]);
@@ -1152,6 +1174,44 @@ function App(){
       window.removeEventListener("vg-audio-done", h);
     };
   },[refreshCreditBalance]);
+  // CONTINUITY from the landing pricing → checkout: if the visitor picked a paid plan
+  // before signing up, open that plan's Stripe checkout automatically once they're in.
+  // The choice lives in this browser (20 minutes) AND on the account (user metadata saved
+  // at sign-up, 48 hours — app/cloud.jsx), so it survives email confirmation that takes a
+  // while or happens in another browser (billing fixes, 2026-09-30). It waits for the
+  // ledger so an account that is ALREADY on a paid plan (paid in the other browser) is
+  // never sent to a second checkout, and it is consumed (both copies cleared) on first use.
+  const [intentWaitOver, setIntentWaitOver] = React.useState(false);
+  const intentDoneRef = React.useRef("");   // the uid whose intent was already acted on (once per sign-in)
+  React.useEffect(()=>{
+    setIntentWaitOver(false);
+    if(!(session && session.user && session.user.id)) return;
+    const t = setTimeout(()=>setIntentWaitOver(true), 8000);   // a ledger that never loads can't strand the buyer
+    return ()=>clearTimeout(t);
+  },[session && session.user && session.user.id]);
+  React.useEffect(()=>{
+    if(!(session && session.user && session.user.id)) return;
+    if(intentDoneRef.current===session.user.id) return;
+    const pick = (typeof window.turnPickIntendedPlan==="function") ? window.turnPickIntendedPlan : null;
+    if(!pick) return;
+    let localAt = 0;
+    try{ localAt = Number(localStorage.getItem("turn-intended-plan-at")||0); }catch(e){}
+    const account = (typeof window.cloudAccountIntendedPlan==="function") ? window.cloudAccountIntendedPlan(session) : null;
+    const decision = pick({ local:intendedPlan, localAt, account, now:Date.now(),
+      balance:creditBalance, balanceReady:!!creditBalance || intentWaitOver, isAdmin:!!window.turnIsAdmin });
+    if(decision.action==="wait" || decision.action==="none") return;
+    // consume BOTH copies before navigating, so a reload or another device can't reopen it
+    intentDoneRef.current = session.user.id;
+    try{ localStorage.removeItem("turn-intended-plan"); localStorage.removeItem("turn-intended-plan-at"); }catch(e){}
+    if(intendedPlan && intendedPlan!=="free") setIntendedPlan(null);
+    if(account && typeof window.cloudClearAccountIntendedPlan==="function"){ try{ window.cloudClearAccountIntendedPlan(); }catch(e){} }
+    if(decision.action!=="checkout") return;
+    const planObj = (window.CINEMA_PLANS||[]).find(p=>String(p.tier).toLowerCase()===decision.plan);
+    // sameTab: this fires from an effect (no user gesture) — window.open would be
+    // popup-blocked; navigating this tab to Stripe is never blocked, and the
+    // after-payment redirect brings the buyer straight back into the app.
+    if(planObj && typeof window.turnStartCheckout==="function") setTimeout(()=>window.turnStartCheckout(planObj, { sameTab:true }), 350);
+  },[session, intendedPlan, creditBalance, intentWaitOver]);
   // LIVE balance: refetch whenever the window regains focus, and STREAM the user's
   // turn_credits row from Supabase realtime — a grant from the SQL editor (or a
   // spend on another device) updates the readout with no reload. Realtime needs
@@ -6653,16 +6713,23 @@ function App(){
       React.createElement("span",null,
         React.createElement("b",null,"Art Room is read-only for Writers — "),
         "you can inspect the shared Bible and pre-production work here, then return to the Writers' Room to change story, beats and script.")),
+    // BILLING NOTICES (2026-09-30): "Payment failed — update your card" while past_due,
+    // "Account on hold" while frozen, and the 20% / 5% low-balance notices (app/plans.jsx)
+    session && !isAdmin && creditBalance && window.BillingNotices && React.createElement(window.BillingNotices,{ balance:creditBalance }),
     // the post-checkout welcome card (/?welcome=1): live-updates as the webhook's
-    // grant streams into the balance; its CTA goes straight to New Story
+    // grant streams into the balance; its CTA goes straight to New Story. When the
+    // payment link's after-payment URL names the plan (/?welcome=1&plan=director) it
+    // stays "activating" until THAT plan lands — an upgrade no longer flashes the old one.
     welcomeOpen && session && window.WelcomePlanCard && React.createElement(window.WelcomePlanCard,{
-      plan: creditBalance && creditBalance.plan,
-      credits: creditBalance && creditBalance.remaining,
-      activating: !(creditBalance && window.turnIsPaidPlan(creditBalance.plan)),
+      plan: (creditBalance && creditBalance.plan) || welcomePlan,
+      credits: creditBalance && (creditBalance.planRemaining!=null ? creditBalance.planRemaining : creditBalance.remaining),
+      activating: !(creditBalance && window.turnIsPaidPlan(creditBalance.plan)
+        && (!welcomePlan || String(creditBalance.plan).toLowerCase()===welcomePlan)),
       onNewStory: ()=>{ setWelcomeOpen(false); startNewStory(); },
       onClose: ()=>setWelcomeOpen(false) }),
     creditPackOpen && session && window.WelcomeCreditPackCard && React.createElement(window.WelcomeCreditPackCard,{
       credits: creditBalance && creditBalance.remaining,
+      balance: creditBalance,
       activating: !creditBalance,
       onClose: ()=>setCreditPackOpen(false) }),
     // invite acceptance landing (/?invite=<id>): waits for the claim RPC AND the
@@ -6714,7 +6781,9 @@ function App(){
           onGoRoom: async (rid)=>{ if(!currentProjectId){ await createProject(); } setHomeOpen(false); if(rid==="writers") setView("spine"); guardedSetRoom(rid); },
           onClose: ()=>setHomeOpen(false),
           accountSlot: React.createElement(AccountChip,{ session, cloudActive:cloudMode, connectionState:cloudConnectionState, saveState, shareRole,roleUnavailable:unknownSharedRole,
-            onSignIn:()=>setAuthOpen(true), onSignOut:signOut }) }),
+            onSignIn:()=>setAuthOpen(true), onSignOut:signOut }),
+          // the billing banners, on Home too (Home is a fixed overlay above the studio's own copy)
+          noticesSlot: (session && !isAdmin && creditBalance && window.BillingNotices) ? React.createElement(window.BillingNotices,{ balance:creditBalance }) : null }),
     t.grain && React.createElement("div",{style:{position:"fixed",inset:0,pointerEvents:"none",zIndex:50,
       opacity:.025,mixBlendMode:"overlay",
       backgroundImage:"url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")"}}),

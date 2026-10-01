@@ -198,10 +198,12 @@ check("C checkout uses LIVE links on the new home and every legacy host, TEST li
   return hosts.every(h=>link(h)===plan.live) && link("localhost")===plan.test && link("turn-v6.replit.dev")===plan.test
     && read("app/plans.jsx").includes('const LIVE_HOSTS = ["kinolot.infinitestudioai.com", "cinema.infinitestudioai.com", "cinema-machine.replit.app", "cinemamachine.ai"];');
 });
-check("C the top plan is SHOWN as Producer; its id, price and grant stay 'studio' / $149 / 9,000", ()=>{
+check("C the top plan is SHOWN as Producer; its id, price and grant stay 'studio' / $149 / 5,000", ()=>{
+  // Option A (billing fixes, owner decision 2026-09-30): 600 / 1,600 / 5,000 once the credit unit has
+  // switched — the default when no regime has been read (app/pricing.jsx turnCreditRegime)
   const p = pb.CINEMA_PLANS.map(x=>[x.tier, x.name, x.price, x.credits]);
   const D = pb.turnPlanDisplayName;
-  return JSON.stringify(p)===JSON.stringify([["writer","Writer","$19",800],["director","Director","$49",2400],["studio","Producer","$149",9000]])
+  return JSON.stringify(p)===JSON.stringify([["writer","Writer","$19",600],["director","Director","$49",1600],["studio","Producer","$149",5000]])
     && D("studio")==="Producer" && D("Studio")==="Producer" && D("STUDIO")==="Producer" && D("writer")==="Writer" && D("director")==="Director"
     && D("pro")==="Director" && D("none")==="None" && D("")===""
     && pb.turnRoomRequiredPlan("stage")==="Producer" && pb.turnRoomRequiredPlan("art")==="Director" && pb.turnRoomRequiredPlan("writers")==="Writer"

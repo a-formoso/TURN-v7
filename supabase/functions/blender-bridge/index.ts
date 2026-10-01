@@ -4,6 +4,9 @@ import { createSupabaseAdapter } from "./supabase-adapter.mjs";
 import { createStudioService } from "./studio-service.mjs";
 import studioContract from "./studio-contract-module.mjs";
 import { sceneBuilderProviderPrompt } from "./studio-provider-prompt.mjs";
+// Housekeeping (billing fixes, round 2): POST {"op":"reconcile_holds"} settles or releases the
+// holds of Studio jobs nobody came back to — see studio-reconcile.mjs.
+import { RECONCILE_OP, meshResultState, reconcileStudioHolds } from "./studio-reconcile.mjs";
 // The build/deploy step copies app/blender-contract.js here.  It is intentionally
 // not reimplemented in the relay: browser and server must freeze the same schema.
 import * as contractModule from "./shared-contract.js";
@@ -67,16 +70,64 @@ const provider = {
     });
     if (!response.ok) throw new Error("Mesh provider status failed.");
     const json = await response.json();
-    if (json.status !== "COMPLETED" && json.status !== "completed") return { status: String(json.status || "queued").toLowerCase() };
+    // fal's queue says IN_QUEUE / IN_PROGRESS / COMPLETED; studio-service reads queued / running /
+    // completed / failed. (Passing "in_progress" through used to read as a finished job with no
+    // GLB: the task failed and its hold was released while fal went on building the mesh.)
+    const raw = String(json.status || "").toUpperCase();
+    if (raw === "IN_QUEUE") return { status: "queued" };
+    if (raw === "IN_PROGRESS") return { status: "running" };
+    if (raw === "COMPLETED" && typeof json.error === "string" && json.error) return { status: "failed", error: json.error };
+    if (raw !== "COMPLETED") return { status: /^(FAILED|ERROR|CANCELLED|CANCELED)$/.test(raw) ? "failed" : "running" };
     // Fal queue result URLs stay server-side; studio-service validates output
     // URL host and GLB bytes before persistence.
     const result = await fetch(`https://queue.fal.run/meshy/v7/requests/${encodeURIComponent(requestId)}`, { headers: { Authorization: `Key ${falKey}` } });
     if (!result.ok) throw new Error("Mesh provider result failed.");
     return { status: "completed", ...(await result.json()) };
   },
+  // The queue's own word on a mesh job, for the housekeeping reconciliation: "queued" | "running" |
+  // "completed" | "failed" | "not_found" (fal has no such request) | "unknown" (a transient
+  // failure: the job is left for the next run). ROUND 3 (S3): on COMPLETED it fetches the RESULT
+  // and says "completed" only when it holds a GLB on a trusted fal host (meshResultState — the
+  // launcher's own check); a result without one, or one fal refuses (4xx), is "failed"; a result
+  // fal can't serve right now (429 / 5xx / timeout) is "unknown".
+  async meshStatus(requestId: string) {
+    if (!falKey || typeof requestId !== "string" || !/^[A-Za-z0-9_-]{1,256}$/.test(requestId)) return { state: "unknown" };
+    try {
+      const response = await fetch(`https://queue.fal.run/meshy/v7/requests/${encodeURIComponent(requestId)}/status`, {
+        headers: { Authorization: `Key ${falKey}` }, signal: AbortSignal.timeout(10000),
+      });
+      if (response.status === 404) { try { await response.body?.cancel(); } catch (_e) { /* noop */ } return { state: "not_found" }; }
+      if (!response.ok) { try { await response.body?.cancel(); } catch (_e) { /* noop */ } return { state: "unknown" }; }
+      const json = await response.json();
+      const raw = String(json?.status || "").toUpperCase();
+      if (raw === "IN_QUEUE") return { state: "queued" };
+      if (/^(FAILED|ERROR|CANCELLED|CANCELED)$/.test(raw)) return { state: "failed" };
+      if (raw !== "COMPLETED") return { state: "running" };
+      if (typeof json.error === "string" && json.error) return { state: "failed" };
+      const result = await fetch(`https://queue.fal.run/meshy/v7/requests/${encodeURIComponent(requestId)}`, {
+        headers: { Authorization: `Key ${falKey}` }, signal: AbortSignal.timeout(15000),
+      });
+      if (!result.ok) {
+        try { await result.body?.cancel(); } catch (_e) { /* noop */ }
+        if (result.status === 404) return { state: "not_found" };
+        return { state: result.status === 408 || result.status === 429 || result.status >= 500 ? "unknown" : "failed" };
+      }
+      return { state: meshResultState(await result.json().catch(() => null)) };
+    } catch (_e) {
+      return { state: "unknown" };
+    }
+  },
+  // { cancelled: true } only when fal accepted the cancellation (fal's queue cancel is a PUT; it
+  // answers 202 for a job still in the queue and 400 once the job has completed)
   async cancelMesh(requestId: string) {
-    if (!/^[A-Za-z0-9_-]{1,256}$/.test(requestId)) return;
-    await fetch(`https://queue.fal.run/meshy/v7/requests/${encodeURIComponent(requestId)}/cancel`, { method: "POST", headers: { Authorization: `Key ${falKey}` } });
+    if (!/^[A-Za-z0-9_-]{1,256}$/.test(requestId)) return { cancelled: false };
+    try {
+      const response = await fetch(`https://queue.fal.run/meshy/v7/requests/${encodeURIComponent(requestId)}/cancel`, { method: "PUT", headers: { Authorization: `Key ${falKey}` }, signal: AbortSignal.timeout(10000) });
+      try { await response.body?.cancel(); } catch (_e) { /* noop */ }
+      return { cancelled: response.status >= 200 && response.status < 300 };
+    } catch (_e) {
+      return { cancelled: false };
+    }
   },
   async fetchFile(fileUrl: string, max: number) {
     const response = await fetch(fileUrl);
@@ -107,7 +158,8 @@ const provider = {
         { type: "image", source: { type: "base64", media_type: String(input.imageType), data: imageDataUrl.split(",")[1] } },
         { type: "text", text: prompt },
       ] : prompt;
-      const response = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify({ model: modelId, max_tokens: 2048, messages: [{ role: "user", content }] }) });
+      // 380 s, under the Edge wall clock: a slow answer throws, so the task's hold is released (repair F11)
+      const response = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", signal: AbortSignal.timeout(380000), headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify({ model: modelId, max_tokens: 2048, messages: [{ role: "user", content }] }) });
       if (!response.ok) throw new Error("Assistant provider refused this request.");
       const json = await response.json();
       const proposal = JSON.parse(String(json.content?.[0]?.text || ""));
@@ -119,7 +171,10 @@ const provider = {
     const inputContent: unknown = imageDataUrl ? [{ role: "user", content: [
       { type: "input_text", text: prompt }, { type: "input_image", image_url: imageDataUrl },
     ] }] : prompt;
-    const response = await fetch("https://api.openai.com/v1/responses", { method: "POST", headers: { Authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ model: modelId, input: inputContent }) });
+    // max_output_tokens bounds the reply (reasoning included) so the credit hold taken before
+    // this call (studio-service.mjs assistantHoldCredits / ASSISTANT_MAX_OUTPUT_TOKENS) covers its
+    // whole cost; 16,000 leaves a reasoning model room to think and still answer
+    const response = await fetch("https://api.openai.com/v1/responses", { method: "POST", signal: AbortSignal.timeout(380000), headers: { Authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ model: modelId, input: inputContent, max_output_tokens: 16000 }) });
     if (!response.ok) throw new Error("Assistant provider refused this request.");
     const json = await response.json();
     const proposal = JSON.parse(String(json.output_text || ""));
@@ -143,7 +198,36 @@ const relay = (url && anonKey && serviceKey)
   })
   : null;
 
+/* HOUSEKEEPING (billing fixes, round 2, 2026-09-30): pg_cron + pg_net POST {"op":"reconcile_holds"}
+   here every 10 minutes with NO auth (supabase/billing-housekeeping-cron.sql; this function is
+   deployed --no-verify-jwt). Throttled in the database, bounded, idempotent, and it answers counts
+   only — so it is harmless whoever calls it. Only a small body is looked at. */
+async function reconcileRequest(request: Request): Promise<Response | null> {
+  if (request.method !== "POST") return null;
+  const len = Number(request.headers.get("content-length") ?? "");
+  if (Number.isFinite(len) && len > 4096) return null;
+  let peek: Record<string, unknown> | null = null;
+  try { peek = JSON.parse(await request.clone().text()); } catch (_e) { return null; }
+  if (!peek || typeof peek !== "object" || Array.isArray(peek) || peek.op !== RECONCILE_OP) return null;
+  const reply = (body: unknown, status: number) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  if (!url || !serviceKey) return reply({ ok: false, error: "Not configured." }, 503);
+  try {
+    const svc = createClient(url, serviceKey);
+    const r = await reconcileStudioHolds({
+      rpc: (name: string, args: Record<string, unknown>) => svc.rpc(name, args),
+      meshStatus: falKey ? (id: string) => provider.meshStatus(id) : null,
+      log: (m: string) => console.warn("[blender-bridge] " + m),
+    });
+    return reply(r.body, r.status);
+  } catch (e) {
+    console.warn("[blender-bridge] [billing] reconcile failed: " + String((e as Error)?.message || e).slice(0, 200));
+    return reply({ ok: false, error: "The reconciliation didn't finish." }, 500);
+  }
+}
+
 Deno.serve(async (request) => {
+  const housekeeping = await reconcileRequest(request);
+  if (housekeeping) return housekeeping;
   if (!relay) {
     return new Response(JSON.stringify({
       error: "Blender relay is not configured.", code: "misconfigured",

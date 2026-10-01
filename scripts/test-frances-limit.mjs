@@ -490,11 +490,19 @@ if(!canRunTs){
     if(!key) throw new Error("supabaseKey is required.");
     if(key === ENV.SUPABASE_ANON_KEY) return {
       auth:{ getUser:async (tok)=>USERS[tok] ? { data:{ user:USERS[tok] }, error:null } : { data:{ user:null }, error:{ message:"invalid token" } } },
-      from:(t)=>t === "turn_credits" ? chain({ data:[{ plan:"writer", remaining:100 }], error:null })
+      from:(t)=>t === "turn_credits" ? chain({ data:[{ plan:W.plan, remaining:100 }], error:null })
         : t === "turn_usage_events" ? chain({ count:W.freeCallsToday, error:null }) : chain({ data:[], error:null }),
-      rpc:async (name, args)=>{ W.rpcs.push(["user", name, args]); return { data:[{ remaining:100, plan:"writer" }], error:null }; },
+      // billing fixes (2026-09-30): the proxy reads the plan (Frances's cap follows it: 5 / 15 / 30 / 50)
+      // and the live credit unit; a Producer account keeps this file's limit of 50
+      rpc:async (name, args)=>{ W.rpcs.push(["user", name, args]);
+        if(name === "turn_credit_regime") return { data:[{ switched:false, usd_per_credit:"0.03" }], error:null };
+        return { data:[{ remaining:100, plan:W.plan }], error:null }; },
     };
-    if(key === ENV.SUPABASE_SERVICE_ROLE_KEY) return { rpc:(name, args)=>{ W.rpcs.push(["service", name, args]); return (W.consume || pgliteConsume)(name, args); } };
+    // metered calls HOLD their credits first and settle after (service role, billing-v2.sql)
+    if(key === ENV.SUPABASE_SERVICE_ROLE_KEY) return { rpc:(name, args)=>{ W.rpcs.push(["service", name, args]);
+      if(name === "turn_hold_credits") return Promise.resolve({ data:{ ok:true, held:args.amount, remaining:100 - args.amount }, error:null });
+      if(name === "turn_settle_hold" || name === "turn_release_hold") return Promise.resolve({ data:{ ok:true, kept:name === "turn_settle_hold" ? args.actual : 0, remaining:99 }, error:null });
+      return (W.consume || pgliteConsume)(name, args); } };
     throw new Error("unexpected key "+key);
   };
   nodeModule.registerHooks({
@@ -528,11 +536,20 @@ if(!canRunTs){
   };
   const MUSE = (content = "How do I export my screenplay?")=>({ task:"text", usageKind:"muse", provider:"anthropic", model:"claude-opus-5",
     messages:[{ role:"user", content }] });
-  const reset = ()=>{ W.rpcs = []; W.fetches = []; W.consume = null; W.freeCallsToday = 0; };
+  const reset = ()=>{ W.rpcs = []; W.fetches = []; W.consume = null; W.freeCallsToday = 0; W.plan = "studio"; };
+  W.plan = "studio";
   const limitRpcs = ()=>W.rpcs.filter(r=>r[1] === "turn_frances_consume");
   const usageRecords = ()=>W.rpcs.filter(r=>r[1] === "turn_record_usage_event");
   try{
-    await test("C1 a free Frances question takes a slot through the service-role RPC (limit 50) and is answered", async ()=>{
+    await test("C1 a free Frances question takes a slot through the service-role RPC (limit 50 on Producer; the plan's cap) and is answered", async ()=>{
+      reset();
+      // the cap follows the caller's plan (billing fixes, owner decision 2026-09-30): 5 no plan, 15 Writer, 30 Director
+      for(const [plan, cap] of [["none", 5], ["writer", 15], ["director", 30]]){
+        W.plan = plan; W.rpcs = [];
+        assert.equal((await post("tok-alice", MUSE())).status, 200);
+        assert.equal(limitRpcs()[0][2].p_limit, cap, plan);
+      }
+      await pdb.exec(`delete from public.turn_frances_usage where user_id = '${U.alice}'`);
       reset();
       const r = await post("tok-alice", MUSE());
       assert.equal(r.status, 200, j(r.json)); assert.equal(r.json.text, "Open Export in the top bar.");
@@ -851,20 +868,29 @@ await test("E2 a busy refusal shows Frances's calm line in the chat (no toast), 
 const VENDOR = /anthropic|claude|openai|chatgpt|\bgpt|gemini|gemma|google|moonshot|kimi|\bopus\b|\bfable\b|sonnet|haiku|mythos|elevenlabs|\bfal\b|supabase|stripe|mckee/i;
 const INFRA = /\bproxy\b|edge function|api keys?\b|_API_KEY|redeploy|server secret|\bsql\b|\brpc\b|turn_[a-z_]+|\.sql\b/i;
 const BILLING = /\b(?:pricing|prices?|billing|checkout|subscriptions?|credits?|provider-cost|margin)\b|\$\d/i;
-await test("F1 APP_FEATURES: Frances is free up to 50 questions a day — and that part (no billing, vendor or server words) reaches Frances", ()=>{
+await test("F1 APP_FEATURES: Frances is free up to a daily number of questions (by plan: 5 / 15 / 30 / 50) — and the plan-free part reaches Frances", ()=>{
   const fr = ai.APP_FEATURES.find((f)=>f.name === "Frances (help assistant)");
-  assert.ok(fr.what.includes("DAILY LIMIT: Frances is free to use, up to 50 questions a day per person; the count starts again at midnight UTC."));
+  // caps by plan (billing fixes, owner decision 2026-09-30)
+  assert.ok(fr.what.includes("DAILY LIMIT: Frances is free to use, up to a set number of questions a day per person — between 5 and 50, depending on the account; the count starts again at midnight UTC."));
+  assert.ok(fr.what.includes("Daily questions by plan (owner decision 2026-09-30): 5 without a plan, on the free trial, after cancelling or while an account is on hold; 15 on Writer; 30 on Director; 50 on Producer; admins have no limit."));
   assert.ok(fr.what.includes("'That’s today’s 50 free questions — I’ll be back after midnight UTC (in about 5 hours).'"));
   assert.ok(fr.what.includes("'You’ve used today’s free messages with Frances…'"), "the older safeguard is still described for the team");
   const pub = ai.museFacts().find((f)=>f.name === "Frances (help assistant)").what;
-  assert.ok(pub.includes("Frances is free to use, up to 50 questions a day per person; the count starts again at midnight UTC."));
+  assert.ok(pub.includes("Frances is free to use, up to a set number of questions a day per person — between 5 and 50, depending on the account; the count starts again at midnight UTC."));
+  assert.ok(!/Writer|Director|Producer|Daily questions by plan/.test(pub), "the per-plan caps (plan names) stay in the team's manifest");
   assert.ok(pub.includes("That’s today’s 50 free questions — I’ll be back after midnight UTC"));
   assert.ok(!pub.includes("200 Frances calls") && !/daily allowance/.test(pub) && !pub.includes("use no credits"), "the credit sentences stay in the team's manifest");
   assert.ok(pub.includes("If several questions reach Frances at the same moment (say, from several open tabs), she may answer one of them with 'One question at a time, please — ask me again in a moment.'; nothing is counted for it."),
     "Frances can explain the busy line");
   assert.ok(!VENDOR.test(pub) && !INFRA.test(pub) && !BILLING.test(pub));
   const p = ai.museSystemPrompt({ now:"How many questions can I ask Frances a day?" }, null);
-  assert.ok(p.includes("up to 50 questions a day per person"), "the question brings the fact along");
+  assert.ok(p.includes("between 5 and 50, depending on the account"), "the question brings the fact along");
+  // the writer's own number rides the per-question part (never the cached prefix): FRANCES_PLAN_LIMITS
+  for(const [plan, n] of [["none", 5], ["trial", 5], ["writer", 15], ["director", 30], ["studio", 50], ["pro", 30]])
+    assert.equal(ai.francesDailyLimitFor({ plan, remaining:10 }), n, plan);
+  assert.equal(ai.francesDailyLimitFor({ plan:"studio", frozen:true }), 5, "an account on hold");
+  assert.equal(ai.francesDailyLimitFor(null), null, "unknown: no line");
+  assert.ok(!ai.museStablePrefix().includes("This writer can ask you"), "the cached prefix carries no account");
 });
 await test("F2 Frances's rules are unchanged (the prompt before the facts is identical to 59e4bff)", ()=>{
   let head = null;
@@ -879,13 +905,14 @@ await test("F3 docs: the MUSE Protocol doc and supabase/README.md say how the li
   const doc = read("docs/MUSE Protocol.md").replace(/\s+/g, " ");
   for(const s of ["daily question limit", "50 free questions per UTC day", "`FRANCES_DAILY_LIMIT`", "`supabase/frances-daily-limit.sql`",
     "`supabase/functions/image-proxy/frances-limit.mjs`", "429 `frances_daily_limit`", "That’s today’s 50 free questions — I’ll be back after midnight UTC (in about 5 hours).",
-    "fails open", "the prompt itself is unchanged", "429 `frances_busy`", "no answer within 8 seconds"]) assert.ok(doc.includes(s), "doc: "+s);
+    "fails open", "the rules themselves are unchanged", "429 `frances_busy`", "no answer within 8 seconds",
+    "**by plan** since 2026-09-30 — 5 for no plan, a trial, a cancelled or a frozen account, 15 Writer, 30 Director, 50 Producer", "`museAccountLine()`"]) assert.ok(doc.includes(s), "doc: "+s);
   const rd = read("supabase/README.md").replace(/\s+/g, " ");
   for(const s of ["## Frances's daily question limit (`frances-daily-limit.sql`)", "run on production by the owner", "**It fails open.**", "paste **`frances-daily-limit.sql`** → Run",
     "Rows 10–50 of the RESULT table must read `ok`", "`npx supabase secrets set FRANCES_DAILY_LIMIT=<whole number 1–100000>`", "*(Mac, after `git pull`",
     "`node scripts/test-frances-limit.mjs`", "`frances-daily-limit.sql` (see **Frances's daily question limit** below",
     "**Bursts are refused, not served.**", "`{ error: \"frances_busy\", message }`", "longer than 8 seconds",
-    "**But Frances's own facts name the number too:** in the same change, update the Frances entry in `APP_FEATURES` (app/ai.jsx", "and `FRANCES_DAILY_LIMIT` in app/ai.jsx, then bump `app/ai.jsx?v=` in `TURN.html`"]) assert.ok(rd.includes(s), "README: "+s);
+    "**But Frances's own facts name the number too:** in the same change, update the Frances entry in `APP_FEATURES` (app/ai.jsx", "`FRANCES_DAILY_LIMIT` and `FRANCES_PLAN_LIMITS` in app/ai.jsx, then bump `app/ai.jsx?v=` in `TURN.html`"]) assert.ok(rd.includes(s), "README: "+s);
   assert.ok(!/3 seconds/.test(rd), "the old 3-second timeout is gone from the README");
   const head = SQL.slice(0, SQL.indexOf("begin;"));
   for(const s of ["HOW TO RUN", "HOW TO REMOVE IT", "FAILS OPEN", "FRANCES_DAILY_LIMIT", "rows 10-50", "Safe to re-run", "BUSY:", "within 8 s", "1 s lock_timeout"]) assert.ok(head.replace(/\n--\s+/g, " ").includes(s), "SQL header: "+s);
@@ -918,8 +945,14 @@ await test("F5 every place that names the daily number agrees (so changing it ca
   const m = aiSrc.match(/^const FRANCES_DAILY_LIMIT = (\d+);$/m);
   assert.ok(m, "app/ai.jsx has FRANCES_DAILY_LIMIT"); assert.equal(Number(m[1]), n, "app/ai.jsx FRANCES_DAILY_LIMIT");
   const fr = ai.APP_FEATURES.find((f)=>f.name === "Frances (help assistant)").what;
-  const inFacts = [...fr.matchAll(/up to (\d+) questions a day|today’s (\d+) free questions/g)].map((x)=>Number(x[1] || x[2]));
+  // the example replies use the top cap (a limit of 50); the caps by plan agree with the server's (billing-policy.mjs)
+  const inFacts = [...fr.matchAll(/between 5 and (\d+), depending|today’s (\d+) free questions/g)].map((x)=>Number(x[1] || x[2]));
   assert.ok(inFacts.length >= 2, "the facts name the number"); inFacts.forEach((x)=>assert.equal(x, n, "APP_FEATURES says "+x));
+  const pol = read("supabase/functions/image-proxy/billing-policy.mjs").match(/FRANCES_PLAN_LIMITS = Object\.freeze\(\{ none: (\d+), writer: (\d+), director: (\d+), studio: (\d+) \}\)/);
+  const app = aiSrc.match(/^const FRANCES_PLAN_LIMITS = \{ none:(\d+), writer:(\d+), director:(\d+), studio:(\d+) \};$/m);
+  assert.ok(pol && app, "both name the caps"); assert.deepEqual(app.slice(1), pol.slice(1), "app/ai.jsx caps = server caps");
+  assert.equal(Number(pol[4]), n, "the top plan's cap is the default ceiling");
+  assert.ok(fr.includes("5 without a plan, on the free trial, after cancelling or while an account is on hold; "+pol[2]+" on Writer; "+pol[3]+" on Director; "+pol[4]+" on Producer"), "the manifest names the same caps");
   assert.match(SQL, new RegExp("FRANCES_DAILY_LIMIT \\(default "+n+"\\)"));
   assert.match(read("supabase/README.md"), new RegExp("Unset, or anything else, means "+n+"\\."));
   assert.ok(read("docs/MUSE Protocol.md").replace(/\s+/g, " ").includes(n+" free questions per UTC day"));

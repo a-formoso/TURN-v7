@@ -284,7 +284,7 @@ await test("6 MUSE's facts describe the round, drop the claims that were never t
 /* ======================= 7. cache keys ======================= */
 await test("7 every file changed this round loads under the round's cache key (or a later one)", ()=>{
   const key = (f)=>(html.match(new RegExp(f.replace(/\./g, "\\.")+"\\?v=([^\"']+)")) || [])[1] || "";
-  const LATER = ["20260928-brand1", "20260928-brand2", "20260929-look1", "20260929-look2", "20260929-look3", "20260929-look4", "20260930-portal1"];   // a later change that re-keys one of these files adds its key here (the Kinolot rebrand, the identity pass, Manage plan 2026-09-30: styles.css, ai.jsx, script.jsx)
+  const LATER = ["20260928-brand1", "20260928-brand2", "20260929-look1", "20260929-look2", "20260929-look3", "20260929-look4", "20260930-portal1", "20260930-billing1"];   // a later change that re-keys one of these files adds its key here (the Kinolot rebrand, the identity pass, Manage plan 2026-09-30: styles.css, ai.jsx, script.jsx) (billing fixes 2026-09-30: styles.css, ai.jsx, script.jsx)
   for(const f of ["app/styles.css","app/team.jsx","app/spine.jsx","app/chrome.jsx","app/inspector.jsx","app/script.jsx",
     "app/ai.jsx","app/agents.jsx","app/agents-ui.jsx","app/app.jsx"])
     assert.ok(key(f)==="20260928-round1" || LATER.includes(key(f)), f+" re-keyed: "+key(f));

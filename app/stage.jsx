@@ -93,24 +93,218 @@ function stageScenePlace(scene){
   const loc = parts.find(p=>/\b(?:INT|EXT|INT\/EXT|I\/E)\.?\b/i.test(p)) || parts[0] || stripped;
   return loc.replace(/^\s*\d+[A-Z]?\s+/i,"").trim() || stripped;
 }
-function stageCreditInfo(balance, cost){
+/* THE SERVER'S HOLD FOR RENDERS BILLED BY A VIDEO'S LENGTH (billing rounds 3-4). image-proxy holds
+   Motion Control and Seedance 2.5 editing at the LENGTH IT READS from the chosen video (the motion
+   video; the video to edit) plus a margin — the read length × 1.1 + 1 s, in tenths of a second
+   rounded up (lengthHoldSeconds), never above the longest length its validators allow — but only
+   for a file it works from its OWN COPY of (round 5: index.ts lengthSizesHold + video-snapshots.mjs —
+   a data URL, a `stage:` upload or a signed file in the project's storage, copied at submit into a
+   server-only path; or a take on fal's immutable media CDN); any other file, one it couldn't copy,
+   or one it can't read (not an MP4 / MOV, fragmented, compressed, a slow read), is held at that
+   LONGEST length. It refuses the render when the balance can't cover the hold and settles from the
+   finished video's own length (never above the hold): supabase/functions/image-proxy/
+   billing-pricing.mjs lengthBilledVideoHold, which index.ts feeds with the limits in
+   supabase/functions/image-proxy/seedance-capabilities.mjs and the lengths it read.
+   The Stage mirrors those numbers WITHOUT importing them — they must match the server files, and
+   test-billing-app "K (A1)" compares them for every tier, resolution, orientation and credit unit.
+   (The Stage uses the length it measured itself; the server's own read decides the real hold.) */
+const STAGE_LENGTH_HOLD = Object.freeze({
+  motionSeconds: Object.freeze({ video:30, image:10 }),   // motionControlCapabilities().motionVideo.maxSeconds / .maxSecondsImageOrientation
+  editOutputSeconds: 30,                                  // seedanceCapabilities("…/seedance-2.5/…").duration.max
+  editInputSeconds: 30.2,                                 // seedanceCapabilities("…/seedance-2.5/…").references.videos.maxSecondsCombined
+  videoInputMul: 0.6,                                     // billing-pricing.mjs SEEDANCE_VIDEO_INPUT_MULTIPLIER
+  lengthFactor: 1.1,                                      // billing-pricing.mjs LENGTH_HOLD_FACTOR (round 4): read length × 1.1 …
+  lengthPadSeconds: 1,                                    // … LENGTH_HOLD_PAD_SECONDS: + 1 s, in tenths rounded up
+});
+/* provider USD per second from the live pricing table (admin overrides included, like the server's) */
+function stageUsdPerSecond(family, tier, resolution){
+  const t = typeof window!=="undefined" && window.TURN_PRICING && window.TURN_PRICING.video && window.TURN_PRICING.video.providerUsdPerSecond;
+  const v = Number((((t||{})[family]||{})[tier]||{})[resolution]);
+  return v>0 ? v : null;
+}
+/* whether the SERVER sizes the hold by this video's length (index.ts lengthSizesHold, round 5): a
+   file it copies at submit into a server-only path and works from — a `stage:` upload (a device
+   file), a data URL (a `blob:` pick is sent as one: videogen.jsx vidProxyReadyUrl), or a SIGNED
+   file in this project's storage bucket (video-snapshots.mjs projectStorageObject: the
+   /storage/v1/object/sign/<bucket>/<path>?token=… form, never a service file) — or a take on fal's
+   immutable media CDN. Anything else (a public or another project's link, any other host) is held
+   at the longest length allowed. m: a Stage media pick { kind, url, ref }. */
+function stageProjectStorageObject(u){
+  const cfg = (typeof window!=="undefined" && window.TURN_SUPABASE) || {};
+  let host = ""; try{ host = new URL(String(cfg.url||"")).host; }catch(_e){ host = ""; }
+  const bucket = String(cfg.bucket || "turn-assets");
+  if(u.protocol!=="https:" || !host || u.host!==host || !u.searchParams.get("token")) return false;
+  const m = /^\/storage\/v1\/object\/sign\/([^/]+)\/(.+)$/.exec(u.pathname);
+  if(!m) return false;
+  let b, segs;
+  try{ b = decodeURIComponent(m[1]); segs = m[2].split("/").map(x=>decodeURIComponent(x)); }catch(_e){ return false; }
+  if(b!==bucket) return false;
+  if(!segs.length || segs.some(x=>!x || x==="." || x===".." || x.includes("/") || x.includes("\\") || x.includes("\0"))) return false;
+  return segs.join("/").length<=1024 && segs[0]!=="_internal";
+}
+/* a take's link is the 1-hour signed URL loaded with the film: re-sign it right before a submit so
+   the server can read (and copy) the file — an expired link counts as unread and is held at the
+   longest length. Only a take in this project's storage is re-signed; any other pick goes as it is. */
+async function stageFreshVideoRef(m){
+  const ref = String((m && (m.ref || m.url)) || "");
+  if(!m || m.kind!=="take" || typeof window==="undefined" || typeof window.cloudSignedUrl!=="function") return ref;
+  let u; try{ u = new URL(ref); }catch(_e){ return ref; }
+  if(!stageProjectStorageObject(u)) return ref;
+  let path = "";
+  try{ path = /^\/storage\/v1\/object\/sign\/[^/]+\/(.+)$/.exec(u.pathname)[1].split("/").map(x=>decodeURIComponent(x)).join("/"); }catch(_e){ return ref; }
+  try{ const fresh = await window.cloudSignedUrl(path); return fresh || ref; }catch(_e){ return ref; }
+}
+function stageLengthSizesHold(m){
+  if(!m) return false;
+  const ref = String(m.ref || m.url || "");
+  if(/^stage:/i.test(ref) || /^data:/i.test(ref) || /^blob:/i.test(ref)) return true;
+  let u; try{ u = new URL(ref); }catch(_e){ return false; }
+  if(u.protocol!=="https:") return false;
+  return u.hostname==="fal.media" || u.hostname.endsWith(".fal.media") || stageProjectStorageObject(u);
+}
+/* the credits the server HOLDS for a "motion" or "editing" render — computed in provider USD and
+   rounded exactly as the server rounds (turnCreditCost = creditsFromUsd), in the same order
+   (rate × seconds; rate × 0.6 × (output + input)). o: { usdPerSecond, creditsPerSecond (fallback
+   when the pricing table isn't loaded), orientation ("video" | "image", Motion Control) } */
+function _stageLengthCredits(kind, o, secs){
+  const mul = kind==="editing" ? STAGE_LENGTH_HOLD.videoInputMul : 1;
+  const usd = Number(o.usdPerSecond);
+  if(usd>0 && typeof window!=="undefined" && typeof window.turnCreditCost==="function")
+    return window.turnCreditCost(kind==="motion" ? usd*secs : usd*mul*secs);
+  const cps = Number(o.creditsPerSecond);
+  return cps>0 ? Math.max(1, Math.ceil(cps*mul*secs - 1e-9)) : null;
+}
+/* the seconds held for a video the server read (billing-pricing.mjs lengthHoldSeconds): its length
+   × 1.1 + 1 s, in tenths rounded up */
+function stageLengthHoldSeconds(secs){
+  const L = STAGE_LENGTH_HOLD;
+  return Math.ceil((Number(secs)*L.lengthFactor + L.lengthPadSeconds)*10 - 1e-9)/10;
+}
+/* the HOLD. o.inputSeconds: the chosen video's measured length; o.sizable: the server sizes the hold
+   by it (stageLengthSizesHold). Without both, the longest length allowed — what the server holds then.
+   editing: the output follows the source and the source is the input, so both are held at the
+   margin length (each capped at its own maximum). */
+function stageLengthBilledHold(kind, o){
+  o = o||{};
+  const L = STAGE_LENGTH_HOLD;
+  const inSecs = Number(o.inputSeconds);
+  const held = (o.sizable===true && inSecs>0) ? stageLengthHoldSeconds(inSecs) : null;   // null → the maximum
+  if(kind==="motion"){
+    const max = o.orientation==="image" ? L.motionSeconds.image : L.motionSeconds.video;
+    return _stageLengthCredits(kind, o, held!=null ? Math.min(max, held) : max);
+  }
+  if(kind==="editing") return _stageLengthCredits(kind, o, held!=null
+    ? Math.min(L.editOutputSeconds, held) + Math.min(L.editInputSeconds, held)
+    : L.editOutputSeconds + L.editInputSeconds);
+  return null;
+}
+/* what a hold is sized on, for the tooltip: "length" (the video's length plus the margin), "stored"
+   (a video the server doesn't size by its length — the longest length) or "" (no measured video yet) */
+function stageLengthHoldBasis(m, inputSeconds){
+  if(!m || !(Number(inputSeconds)>0)) return "";
+  return stageLengthSizesHold(m) ? "length" : "stored";
+}
+/* the EXPECTED charge for the chosen video — what the server compares the Stage's quote with
+   (lengthBilledVideoHold's `expected`): the video's length in whole seconds (0.05 s of tolerance)
+   as the output, capped at the longest allowed, and for editing the same video as the input, in
+   tenths rounded up. o.inputSeconds: the chosen video's measured length. */
+function stageLengthBilledEstimate(kind, o){
+  o = o||{};
+  const L = STAGE_LENGTH_HOLD;
+  const inSecs = Number(o.inputSeconds);
+  if(!(inSecs>0)) return null;
+  const whole = Math.max(1, Math.ceil(inSecs - 0.05));
+  if(kind==="motion") return _stageLengthCredits(kind, o, Math.min(o.orientation==="image" ? L.motionSeconds.image : L.motionSeconds.video, whole));
+  if(kind==="editing") return _stageLengthCredits(kind, o, Math.min(L.editOutputSeconds, whole) + Math.min(L.editInputSeconds, Math.ceil(inSecs*10 - 1e-9)/10));
+  return null;
+}
+/* opts.hold: `cost` is what the server HOLDS (a render charged for the finished video's length);
+   opts.estimate: the expected charge for the chosen video, when its length is known;
+   opts.basis: what the hold is sized on (stageLengthHoldBasis: "length" | "stored" | "");
+   opts.floor: `cost` is the LEAST the render can cost (Extend before the video to extend is
+   measured: the added seconds alone).
+   `empty`: the server would refuse this number (Generate's own block). `short`: flag a shortfall
+   on screen (the composer's red outline, its warning, the right panel's error, the red footer) —
+   never for a hold sized at the longest length only because no measured video is chosen yet
+   (billing round 5: a short clip may well fit; the footer still says what is held and why). */
+function stageCreditInfo(balance, cost, opts){
   cost = Number(cost)||1;
+  const hold = !!(opts && opts.hold);
+  const floor = !hold && !!(opts && opts.floor);
+  const estimate = (opts && Number(opts.estimate)>0) ? Math.ceil(Number(opts.estimate)) : null;
+  const basis = String((opts && opts.basis) || "");
+  const pending = hold && basis==="";   // no measured video yet: held at the longest length allowed
   const b = balance || (typeof window!=="undefined" ? window.turnCreditBalance : null);
   const remaining = b && Number(b.remaining);
   const known = Number.isFinite(remaining);
   const after = known ? Math.max(0, remaining-cost) : null;
+  // an account ON HOLD (open payment dispute) can't spend: the server refuses the hold, so
+  // Generate is blocked here too. The tooltip spells out plan vs pack credits when known.
+  const frozen = !!(b && b.frozen===true) && !(typeof window!=="undefined" && window.turnIsAdmin);
+  const breakdown = (known && typeof window!=="undefined" && typeof window.turnCreditBreakdownText==="function")
+    ? window.turnCreditBreakdownText(b) : "";
+  // one number format in the label and the tooltip (repair 2026-09-30): "1,234 remaining", "1,234 credits"
+  const fmt = (n)=> (Number(n)||0).toLocaleString("en-US");
+  // "Holds up to 378 credits; charged for the finished video’s length (about 63 for this video)"
+  const holdText = "olds up to "+fmt(cost)+" credit"+(cost!==1?"s":"")+"; charged for the finished video’s length"
+    +(estimate!=null ? " (about "+fmt(estimate)+" for this video)" : "");
   return {
     known,
     remaining:known ? remaining : null,
     after,
-    empty:known && remaining < cost,
-    label: known
-      ? ("Uses "+cost+" generation credit"+(cost!==1?"s":"")+" · "+remaining+" remaining"+(remaining>=cost ? (" → "+after+" after render") : ""))
-      : ("Uses "+cost+" generation credit"+(cost!==1?"s":"")+" · remaining credits unavailable"),
-    title: known
-      ? ("Current balance: "+remaining+" generation credit"+(remaining===1?"":"s")+". This render costs "+cost+".")
+    frozen,
+    hold,
+    floor,
+    basis,
+    cost,
+    empty:frozen || (known && remaining < cost),
+    short:frozen || (known && remaining < cost && !pending),
+    label: frozen
+      ? "Account on hold — spending credits is paused"
+      : hold
+      ? ("H"+holdText+" · "+(known ? fmt(remaining)+" remaining" : "remaining credits unavailable"))
+      : floor
+      ? ("Uses at least "+fmt(cost)+" generation credit"+(cost!==1?"s":"")+" · "+(known ? fmt(remaining)+" remaining" : "remaining credits unavailable"))
+      : known
+      ? ("Uses "+fmt(cost)+" generation credit"+(cost!==1?"s":"")+" · "+fmt(remaining)+" remaining"+(remaining>=cost ? (" → "+fmt(after)+" after render") : ""))
+      : ("Uses "+fmt(cost)+" generation credit"+(cost!==1?"s":"")+" · remaining credits unavailable"),
+    title: frozen
+      ? "A payment on this account is being disputed, so spending credits is paused until it’s resolved."
+      : hold
+      ? ((known ? "Current balance: "+(breakdown || (fmt(remaining)+" generation credit"+(remaining===1?"":"s")))+". " : "Your credit balance hasn’t loaded yet. ")
+        +"This render h"+holdText+": the credits are held when it starts ("
+        +(basis==="length" ? "this video’s length plus a margin"
+          : basis==="stored" ? "the longest length allowed: only a video the server can copy — one kept in the film’s storage, uploaded from your device, or rendered here — is held by its length"
+          : "the longest length allowed until the video’s length is known")
+        +"), the rest is returned when it finishes, and a render that fails is refunded.")
+      : floor
+      ? ((known ? "Current balance: "+(breakdown || (fmt(remaining)+" generation credit"+(remaining===1?"":"s")))+". " : "Your credit balance hasn’t loaded yet. ")
+        +"This render costs at least "+fmt(cost)+"; the video’s own length is added once it’s chosen and measured. Credits are held when the render starts and refunded if it fails.")
+      : known
+      ? ("Current balance: "+(breakdown || (fmt(remaining)+" generation credit"+(remaining===1?"":"s")))+". This render costs "+fmt(cost)+". Credits are held when the render starts and refunded if it fails.")
       : "Your credit balance hasn’t loaded yet."
   };
+}
+/* the warning under the composer when the OPEN tab's render can't be covered (billing round 4).
+   info: that tab's stageCreditInfo — the References render's cost on Create (the extension's on
+   its Extend task), what the render HOLDS on Motion Control and Edit Video (the composer's
+   footerCredit). "" when it's covered, when no measured video sizes the hold yet (round 5), or
+   when the account is on hold (that has its own warning). */
+function stageCreditShortText(info){
+  if(!info || !info.short || info.frozen) return "";
+  const fmt = (n)=> (Number(n)||0).toLocaleString("en-US");
+  const left = info.known ? ", "+fmt(info.remaining)+" remaining" : "";
+  return info.hold
+    ? "Not enough generation credits — this render holds up to "+fmt(info.cost)+" while it runs"+left+"."
+    : "Not enough generation credits — this render needs "+(info.floor ? "at least " : "")+fmt(info.cost)+left+".";
+}
+/* the right panel's credit error for the OPEN tab's render (round 5): "" when there is no
+   shortfall to flag (stageCreditInfo's `short`) */
+function stageCreditPanelText(info){
+  if(!info || !info.short) return "";
+  return info.frozen ? "Account on hold — spending credits is paused."
+    : info.hold ? "Not enough generation credits to cover what this render holds."
+    : "Not enough generation credits for this render.";
 }
 /* PLAN NAMES AS USERS SEE THEM — display only. Plan ids, stored values and the names
    plans.jsx hands back stay as they are ("studio" / "Studio"); the top plan is SHOWN
@@ -137,6 +331,67 @@ function stageFriendlyVideoError(err){
   }
   return raw;
 }
+/* PRICED AT THE LONGEST LENGTH (billing round 2): when the server can't read a reference video's
+   length (a host it doesn't read, a format it can't parse, a slow read), it prices the render at the
+   longest length allowed and refuses the quote shown with 409 { code:"price_changed",
+   reason:"length_unreadable", creditsRequired:N, detail? }. The Stage asks first — the server's
+   reason and that price — and, if the user agrees, sends the same render again quoting N (the
+   server accepts a quote at or above its price). Nothing is held or charged until then. */
+function stageLengthReprice(err){
+  if(!err || String(err.code||err.billing||"")!=="price_changed") return null;
+  if(err.reason!=="length_unreadable" && err.lengthUnverified!==true) return null;
+  const credits = Math.ceil(Number(err.creditsRequired));
+  if(!(credits>0)) return null;
+  return { credits, detail:String(err.detail||"").trim(), message:String(err.message||"").trim() };
+}
+/* the server's `detail` is a CODE WORD (image-proxy index.ts, the 409's `why` map: host / format /
+   timeout / unreadable), never a sentence — each becomes one plain sentence here (billing round 3).
+   An unknown code shows the refusal's own message instead. */
+const STAGE_LENGTH_UNREAD_WHY = Object.freeze({
+  host: "The video is stored somewhere the server doesn’t read from; uploading it from your device or library avoids this.",
+  format: "The video’s length couldn’t be checked because it isn’t an MP4 or MOV file.",
+  timeout: "Reading the video’s length timed out.",
+  unreadable: "The video’s length couldn’t be read.",
+});
+function stageRepriceText(rp, takes){
+  const k = Math.max(1, Math.floor(Number(takes)||1));
+  const n = rp.credits.toLocaleString("en-US");
+  const code = String(rp.detail||"").trim().toLowerCase();
+  const known = Object.prototype.hasOwnProperty.call(STAGE_LENGTH_UNREAD_WHY, code) ? STAGE_LENGTH_UNREAD_WHY[code] : "";
+  const perTake = k>1 ? " a take ("+(rp.credits*k).toLocaleString("en-US")+" for "+k+" takes)" : "";
+  const safe = "You’re never charged more than that, and a render that fails is refunded.";
+  const own = String(rp.message||"").trim();
+  const body = (!code || known || !own)
+    ? (known || "A reference video’s length couldn’t be read.")+" So this render is priced at the longest length allowed: "+n+" credits"+perTake+". "+safe
+    : own.replace(/([^.!?])$/,"$1.")+(k>1 ? " That’s"+perTake.replace(/^ a take/," per take")+"." : "")+" "+safe;
+  return {
+    title: "Render at "+n+" credits"+(k>1?" a take":"")+"?",
+    body,
+    confirmLabel: "Render at "+n+" credits",
+  };
+}
+async function stageWithLengthReprice(run, req, takes){
+  try{ return await run(req); }
+  catch(e){
+    const rp = stageLengthReprice(e);
+    const quoted = Number(req && req.quote && req.quote.cost) || 0;
+    if(!rp || rp.credits<=quoted) throw e;
+    const t = stageRepriceText(rp, takes);
+    let ok = false;
+    try{
+      ok = typeof window.appConfirm==="function"
+        ? !!(await window.appConfirm({ title:t.title, body:t.body, confirmLabel:t.confirmLabel, cancelLabel:"Cancel" }))
+        : (typeof window.confirm==="function" ? !!window.confirm(t.title+"\n\n"+t.body) : false);
+    }catch(_e){ ok = false; }
+    if(!ok){
+      const no = new Error("Render not started — no credits were used.");
+      no.repriceDeclined = true;
+      throw no;
+    }
+    return await run({ ...req, quote:{ ...(req.quote||{}), cost:rp.credits } });
+  }
+}
+window.stageWithLengthReprice = stageWithLengthReprice;
 function stageCanOfferTextOnlyRecovery(err, modelId){
   if(String(modelId||"")!=="seedance-2.5") return false;
   // A media-free request already took this path. Offering the same paid retry
@@ -1405,8 +1660,8 @@ const SEEDANCE_MODELS = [
   // maxShotsPerClip drives the CLIP PACKER (sceneSequences): 3 keeps per-shot frames +
   // identity refs inside 2.0's 9-image budget; 0 = no shot-count cap (time still caps).
   // creditRate = generation credits PER SECOND at each resolution (cost = ceil(seconds ×
-  // rate), min 1). Scaled off fal's real per-second pricing so the relative cost of every
-  // tier/resolution choice is honest: 1 credit ≈ 1s of 720p Standard (~$0.30 of fal spend).
+  // rate), min 1). Scaled off fal's real per-second pricing at the Option A anchor
+  // (2026-09-30: 1 credit = $0.01 of provider cost), so 1s of 720p Standard ≈ 30 credits.
   // metaRes/metaDur render as small badge chips on each dropdown option;
   // capabilities feed the panel's model card, so the card follows the selection.
   { id:"seedance-2.0", label:"Seedance 2.0", status:"active", maxShotsPerClip:3,
@@ -1420,9 +1675,9 @@ const SEEDANCE_MODELS = [
       // Rates come from app/pricing.jsx as provider USD/sec converted into base
       // credits/sec. The final visible-denomination cost is computed below.
       { id:"standard", label:"Standard", fast:false, maxRes:"4K", note:"Best quality and motion consistency · resolution up to 4K",
-        creditRate:(window.turnVideoCreditRates&&window.turnVideoCreditRates("seedance-2.0","standard")) || { "480p":0.5, "720p":1, "1080p":2, "4K":5 } },
+        creditRate:(window.turnVideoCreditRates&&window.turnVideoCreditRates("seedance-2.0","standard")) || { "480p":1.52, "720p":3.04, "1080p":6.82, "4K":15.5 } },
       { id:"fast",     label:"Fast",     fast:true,  maxRes:"720p",  note:"Lower latency and cost for iteration · capped at 720p",
-        creditRate:(window.turnVideoCreditRates&&window.turnVideoCreditRates("seedance-2.0","fast")) || { "480p":0.4, "720p":0.8 } },
+        creditRate:(window.turnVideoCreditRates&&window.turnVideoCreditRates("seedance-2.0","fast")) || { "480p":1.21, "720p":2.42 } },
     ] },
   // (Sora 2 was removed from the picker 2026-07-05 by user decision — its proxy
   // routing and videogen isSora branch remain dormant, so re-adding it later is
@@ -1445,7 +1700,7 @@ const SEEDANCE_MODELS = [
       // app/pricing.jsx are the real fal per-second prices (2026-08-07).
       { id:"standard", label:"Standard", fast:false, maxRes:"1080p", falModel:"bytedance/seedance-2.5/reference-to-video",
         note:"Beat-first clips up to 30s · up to 50 references · resolution up to 1080p",
-        creditRate:(window.turnVideoCreditRates&&window.turnVideoCreditRates("seedance-2.5","standard")) || { "480p":0.75, "720p":1.6, "1080p":2.4 } },
+        creditRate:(window.turnVideoCreditRates&&window.turnVideoCreditRates("seedance-2.5","standard")) || { "480p":2.21, "720p":4.73, "1080p":11.64 } },
     ],
     note:"Primary beat-first model: timed 4–30s clips, up to 50 references and output through 1080p. Keep Seedance 2.0 Standard for Fast iterations and 4K masters." },
 ];
@@ -1469,8 +1724,13 @@ window.stageServerResolutionAllowed=stageServerResolutionAllowed;
 
 /* this render's credit cost from the registry rates: seconds × tier/resolution rate,
    rounded up, never below 1. Every cost-bearing setting (model tier, resolution,
-   duration) flows through here so the Generate button always shows the true price. */
-function stageRenderCost(tierObj, resolution, durationSec){
+   duration) flows through here so the Generate button always shows the true price.
+   VIDEO REFERENCES (repair 2026-09-30): fal bills a Seedance render's reference-video seconds
+   too, at 0.6 of the rate for output AND input — (output + input) × rate × 0.6, exactly as the
+   server charges it (billing-pricing.mjs videoCost) and as Extend / Edit already quote. The main
+   render used to quote output seconds only (473 shown, 710 charged for 10 s of 720p Seedance 2.5
+   with 15 s of reference video). refs = { videoSec, inputMul } (stageVideoInputMul). */
+function stageRenderCost(tierObj, resolution, durationSec, refs){
   const rate = Number(tierObj && tierObj.creditRate && tierObj.creditRate[resolution]);
   const r = rate>0 ? rate : 1;
   const s = Math.max(1, Number(durationSec)||5);
@@ -1478,8 +1738,27 @@ function stageRenderCost(tierObj, resolution, durationSec){
   // 80) — grant AND cost scale together, so real value is unchanged. Round after
   // scaling so lower-cost models/resolutions don't over-round to a whole base credit.
   const scale = Number(window.CREDIT_SCALE)||1;
-  return Math.max(1, Math.ceil(s*r*scale));
+  // reference seconds in tenths, rounded up — as the server reads them (billing-pricing.mjs tenthsUp)
+  const inSec = Math.ceil(Math.max(0, Number(refs && refs.videoSec)||0)*10 - 1e-9)/10;
+  const mul = Number(refs && refs.inputMul);
+  // a hair of float tolerance, exactly as the server rounds (billing-pricing.mjs creditsFromUsd),
+  // so a product that lands a float-hair above a whole number quotes what the charge will be
+  if(inSec>0 && mul>0) return Math.max(1, Math.ceil((s+inSec)*r*mul*scale - 1e-9));
+  return Math.max(1, Math.ceil(s*r*scale - 1e-9));
 }
+/* the video-input multiplier the server applies to a model's render with video references
+   (app/pricing.jsx videoInputPriceMultiplier = billing-pricing.mjs, every Seedance family); 0 =
+   reference video isn't billed (Kling) */
+function stageVideoInputMul(modelId){
+  const t = (window.TURN_PRICING && window.TURN_PRICING.video && window.TURN_PRICING.video.videoInputPriceMultiplier) || {};
+  const v = Number(t[modelId]);
+  return v>0 ? v : (/^seedance/.test(String(modelId||"")) ? 0.6 : 0);
+}
+/* a reference video longer than a clip can't be attached, so an unmeasured one is priced at
+   the longest clip (a high quote is safe: the server charges the real length) */
+const STAGE_REF_VIDEO_MAX_SEC = 15;
+window.stageRenderCost = stageRenderCost;
+window.stageVideoInputMul = stageVideoInputMul;
 window.SEEDANCE_MODELS = SEEDANCE_MODELS;
 /* tier creditRates are COPIES of the pricing table (turnVideoCreditRates builds a
    new object), so an admin-applied pricing override would leave them stale —
@@ -2696,6 +2975,17 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     ? shotSourcesEditorialStatus(prevSourceShots,((window.turnContinuity||{}).drafts||{}),prevVideoMeta) : "current";
   const prevVideo = prevVideoRaw && ["current","override"].includes(prevEditorialStatus) ? prevVideoRaw : "";
   const prevVideoSafe = !!(prevVideo && stageVideoRefSafe(prevVideoMeta));
+  // the previous clip's REAL length prices the render when it rides as a video reference (fal bills
+  // those seconds; the submit probes the same file): its saved take length until the file is measured
+  const [prevVideoSecs, setPrevVideoSecs] = React.useState(null);
+  React.useEffect(()=>{
+    let live = true; setPrevVideoSecs(null);
+    if(!prevVideoSafe || typeof window.vidMediaFacts!=="function") return undefined;
+    Promise.resolve().then(()=>window.vidMediaFacts(prevVideo,"video"))
+      .then(f=>{ const v=Number(f&&f.durationSeconds); if(live && v>0) setPrevVideoSecs(v); }).catch(()=>{});
+    return ()=>{ live=false; };
+  }, [prevVideo, prevVideoSafe]);
+  const prevVideoMetaSecs = (()=>{ const m=prevVideoMeta||{}; const v=Number(m.durationSec)||Number(m.durationMs)/1000; return v>0 ? v : 0; })();
   const [previewId, setPreviewId] = React.useState(activeShot.id || (d.first||{}).id || null);
   React.useEffect(()=>{ setPreviewId(activeShot.id || (d.first||{}).id || null); }, [activeShot.id, clip.id]);
   const previewFrame = usePanels ? startFrame : (imgs[previewId] || startFrame);
@@ -3825,6 +4115,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   React.useEffect(()=>{ consoleOpenRef.current=true; return ()=>{ consoleOpenRef.current=false; }; }, []);
   const onGenerate = async (attemptOptions)=>{
     const referenceFree=!!(attemptOptions&&attemptOptions.referenceFree);
+    // the quote this job carries: with references, their seconds are part of it; text only, none
+    const quoteCost = referenceFree ? textOnlyCost : renderCost;
     try{
       assertScreenplayCurrent();
       if(promptSourceDrift) throw new Error("Review this edited prompt against the updated scene screenplay before rendering.");
@@ -3856,9 +4148,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     stagingCancelRef.current=false;
     setStaging(true);
     setPrepPct(8);
-    // pin the spend to the account that LAUNCHES the render — if the signed-in
-    // user changes while it cooks, the launcher pays, never the new arrival
-    const uid0 = (typeof window.nbCloudScope==="function" && (window.nbCloudScope()||{}).uid) || null;
+    // (the server charges the account whose session SUBMITS the job — no browser-side
+    // spend record to pin any more, 2026-09-30)
     const clipId0 = clip.id;
     try{
     // the start frame leads ONLY when its asset chip is included — an excluded start
@@ -3894,7 +4185,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     if(imageOver) throw new Error("This render has "+onImages.length+" images including its screenplay pages, over the model's "+imageLimit+" image limit. No references were omitted.");
     if(sourceBlocking&&!referenceFree){ if(typeof window.appToast==="function") window.appToast("Save this clip's storyboard "+(sourceMode==="sheet"?"sheet":"halves")+" in Storyboards first, or switch Visual source back to shot/prompt rendering.","error"); return; }
     if(needsVoice&&!referenceFree){ if(typeof window.appToast==="function") window.appToast("Voice this clip's dialogue first — duration and lip-sync are locked to line audio.","error"); return; }
-	    if(creditInfo.empty){ if(typeof window.appToast==="function") window.appToast("No generation credits remaining.","error"); return; }
+	    if(creditInfo.empty){ if(typeof window.appToast==="function") window.appToast(stageCreditPanelText(creditInfo) || "Not enough generation credits for this render.","error"); return; }
 	    const hadTakeBefore = !!((typeof vidGetTakes==="function" && vidGetTakes(beatVideoId).length) || playerUrl || gen.videoUrl);
 	    const seedVal = seedInput.trim() ? Number(seedInput.trim()) : undefined;
       const assembledPrompt=stageAssembleRenderPrompt(prompt,{
@@ -3975,10 +4266,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
        screenplayReference,
        screenplayImages:referenceFree||!includedScreenplayImages.length?undefined:includedScreenplayImages,
        screenplayImagesRequired:false, assertScreenplayCurrent,
-      // the spend record rides the render job itself — settled at COMPLETION
-      // (live or crash-recovered), pinned to the launching account, deduped by
-      // a per-job event id so no path can charge twice or not at all
-      spend:{ cost:renderCost, reason:"stage-video-render", uid:uid0 },
+      // the QUOTE (the cost the Generate button showed) rides the job — display/audit only:
+      // image-proxy holds the real charge at submit and settles it at completion (2026-09-30)
+      quote:{ cost:quoteCost, reason:"stage-video-render" },
       durationMs:duration*1000, aspectRatio:effAspect||"auto", fast:!!tierObj.fast, resolution,
       seed:seedVal, generateAudio: hasDialogue ? true : nativeAudio,   // audio track must stay ON for the lip-synced line to be heard
       bitrateMode:bitrate,
@@ -4033,18 +4323,19 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       assertStageIdentityAssets();
       assertScreenplayCurrent();
       assertSameClip(clipId0);
-      const results = await runPayload(payload);
+      // a reference whose length the server can't read: ask before rendering at the longest length
+      const results = await stageWithLengthReprice(runPayload, payload, batchN);
       const fresh = results.filter(r=>r && !r.cached);
       const lastWithSeed = results.filter(r=>r && r.seed!=null).slice(-1)[0];
       if(lastWithSeed) setLastSeed(lastWithSeed.seed);
-      // the spend itself was settled per-take at COMPLETION (the record rides the
-      // job — see payload.spend); here we only nudge the credits display
+      // the server settled each take's hold at COMPLETION (refunding failed takes);
+      // here we only nudge the credits display
       try{ window.dispatchEvent(new CustomEvent("turn-credits-changed",{ detail:{ reason:"stage-video-render", cost:renderCost*Math.max(1,fresh.length) } })); }catch(_e){}
       if(!hadTakeBefore && results.some(r=>r) && onFirstVideo) setTimeout(()=>onFirstVideo(), 0);
       if(typeof window.appToast==="function") window.appToast("Clip "+beatLabel+" — "+results.length+" take"+(results.length!==1?"s":"")+" rendered","ok");
     // Inner catch: a submitted provider job failed. The hook retains its
     // structured failure for the inline recovery UI; the toast is immediate.
-    }catch(e){ if(typeof window.appToast==="function") window.appToast(stageFriendlyVideoError(e)||"Video render failed.","error"); }
+    }catch(e){ if(typeof window.appToast==="function") window.appToast(stageFriendlyVideoError(e)||"Video render failed.",e&&e.repriceDeclined?"info":"error"); }
     // Outer catch: asset preparation or payload assembly failed before submit.
     }catch(e){ if(typeof window.appToast==="function") window.appToast(stageFriendlyVideoError(e)||"Video render failed.","error"); }
     finally{ setStaging(false); setPrepPct(0); }
@@ -4184,27 +4475,64 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     label:m.kind==="device" ? "Device upload" : (m.label||tag), role, origin:m.kind,
     url:m.kind==="device" ? "" : (m.url||"") });
   const stagedExpired = (m)=> !!(m && m.kind==="device" && m.expiresAt && Date.now()>m.expiresAt);
-  // ---- costs (estimates the button shows; the spend record rides the job) ----
+  // ---- costs (estimates the button shows; the server holds + settles the real charge) ----
   // Before a video is chosen the buttons show the output-only estimate; once one
   // is chosen its measured length is part of the price, and an unmeasured input
   // has no price at all (the Generate button says why).
   const extendCost = (()=>{ const rate=sd25Rate(resolution); if(!rate) return null;
     const inSecs = extendVideo ? mediaSeconds(extendVideo) : 0; if(inSecs==null) return null;
-    return Math.max(1, Math.ceil((duration+inSecs)*rate*VIDEO_INPUT_MUL*creditScale)); })();
+    return Math.max(1, Math.ceil((duration+inSecs)*rate*VIDEO_INPUT_MUL*creditScale - 1e-9)); })();
+  // MOTION CONTROL AND EDITING ARE BILLED BY THE FINISHED VIDEO'S LENGTH (billing rounds 3-4): the
+  // server HOLDS the chosen video's length plus a margin while the render runs (the longest length
+  // allowed for a video it doesn't size by length) and charges the finished length (stageLengthBilledHold /
+  // stageLengthBilledEstimate mirror image-proxy's lengthBilledVideoHold). The button's chip shows
+  // the expected charge for the chosen video; the label, the tooltip and the footer say what is
+  // held, and Generate is blocked when the balance can't cover the HOLD — the number the server checks.
   // editing renders at the source length (fal coerces duration to auto): output + input seconds
-  const editCost = (()=>{ const rate=sd25Rate(resolution); if(!rate) return null;
-    const inSecs = editVideo ? mediaSeconds(editVideo) : null; if(inSecs==null) return null;
-    return Math.max(1, Math.ceil(2*inSecs*rate*VIDEO_INPUT_MUL*creditScale)); })();
+  const sd25Usd = stageUsdPerSecond("seedance-2.5", "standard", resolution);
+  const sd25Cps = sd25Rate(resolution)!=null ? sd25Rate(resolution)*creditScale : null;
+  const editCost = (sd25Usd||sd25Cps) && editVideo && mediaSeconds(editVideo)!=null
+    ? stageLengthBilledEstimate("editing", { usdPerSecond:sd25Usd, creditsPerSecond:sd25Cps, inputSeconds:mediaSeconds(editVideo) }) : null;
+  const editHold = (sd25Usd||sd25Cps) ? stageLengthBilledHold("editing", { usdPerSecond:sd25Usd, creditsPerSecond:sd25Cps, inputSeconds:mediaSeconds(editVideo), sizable:stageLengthSizesHold(editVideo) }) : null;
   const motionCreditRate = (typeof window.turnVideoCreditRate==="function")
     ? window.turnVideoCreditRate("kling-3.0-motion-control", motionTier, motionTier==="pro"?"1080p":"720p") : null;
+  const motionUsd = stageUsdPerSecond("kling-3.0-motion-control", motionTier, motionTier==="pro"?"1080p":"720p");
+  const motionCps = motionCreditRate>0 ? motionCreditRate*creditScale : null;
   // motion control's output follows the motion video, billed per (whole) second
-  const motionCost = (()=>{ if(!(motionCreditRate>0)) return null;
-    const inSecs = motionVideo ? mediaSeconds(motionVideo) : null; if(inSecs==null) return null;
-    return Math.max(1, Math.ceil(Math.ceil(inSecs)*motionCreditRate*creditScale)); })();
+  const motionCost = (motionUsd||motionCps) && motionVideo && mediaSeconds(motionVideo)!=null
+    ? stageLengthBilledEstimate("motion", { usdPerSecond:motionUsd, creditsPerSecond:motionCps, inputSeconds:mediaSeconds(motionVideo), orientation:effMotionOrientation }) : null;
+  const motionHold = (motionUsd||motionCps) ? stageLengthBilledHold("motion", { usdPerSecond:motionUsd, creditsPerSecond:motionCps, orientation:effMotionOrientation, inputSeconds:mediaSeconds(motionVideo), sizable:stageLengthSizesHold(motionVideo) }) : null;
+  const _fmtN = (n)=> (Number(n)||0).toLocaleString("en-US");
+  const holdLead = (hold)=> "Holds up to "+_fmtN(hold)+" credit"+(hold!==1?"s":"")+"; charged for the finished video’s length";
   const extendCostTitle = extendCost!=null ? (extendCost+" credit"+(extendCost!==1?"s":"")+" — ~"+_fmtSecs(duration)+" added"+(extendVideo&&extendVideo.seconds?" + "+_fmtSecs(Math.round(extendVideo.seconds))+" of input":"")+" × "+resolution+" × Seedance 2.5 (video-input rate)") : "";
-  const editCostTitle = editCost!=null ? (editCost+" credit"+(editCost!==1?"s":"")+" — estimate: the edited length plus the input length × "+resolution+" × Seedance 2.5 (video-input rate)") : "";
-  const motionCostTitle = motionCost!=null ? (motionCost+" credit"+(motionCost!==1?"s":"")+" — "+_fmtSecs(Math.ceil(mediaSeconds(motionVideo)||0))+" × Kling 3.0 Motion Control "+(motionTier==="pro"?"Pro":"Standard")+" (output follows the motion video)") : "";
+  const editCostTitle = editHold!=null ? (holdLead(editHold)
+    +(editCost!=null ? " — about "+_fmtN(editCost)+" for this "+_fmtSecs(Math.round(mediaSeconds(editVideo)*10)/10)+" video (the edited length plus the input length × "+resolution+" × Seedance 2.5, video-input rate)" : "")
+    +". The rest is returned when it finishes.") : "";
+  const motionCostTitle = motionHold!=null ? (holdLead(motionHold)
+    +(motionCost!=null ? " — about "+_fmtN(motionCost)+" for this "+_fmtSecs(Math.max(1, Math.ceil(mediaSeconds(motionVideo)-0.05)))+" motion video × Kling 3.0 Motion Control "+(motionTier==="pro"?"Pro":"Standard") : "")
+    +". The output follows the motion video; the rest is returned when it finishes.") : "";
+  const editHoldInfo = editHold!=null ? stageCreditInfo(creditBalance, editHold, { hold:true, estimate:editCost, basis:stageLengthHoldBasis(editVideo, mediaSeconds(editVideo)) }) : null;
+  const motionHoldInfo = motionHold!=null ? stageCreditInfo(creditBalance, motionHold, { hold:true, estimate:motionCost, basis:stageLengthHoldBasis(motionVideo, mediaSeconds(motionVideo)) }) : null;
   const modeCreditInfo = (cost)=> stageCreditInfo(creditBalance, cost==null?1:cost);
+  // the Create tab's Extend task has its OWN price (round 5: the footer, the red outline and the
+  // warning agree with its button): the extension's cost once the video to extend is measured;
+  // before that, the added seconds alone — the least it can cost ("at least N")
+  const extendFloorCost = (()=>{ const rate=sd25Rate(resolution); if(!rate) return null;
+    return Math.max(1, Math.ceil(duration*rate*VIDEO_INPUT_MUL*creditScale - 1e-9)); })();
+  const extendCreditInfo = (extendVideo && mediaSeconds(extendVideo)!=null && extendCost!=null) ? modeCreditInfo(extendCost)
+    : extendFloorCost!=null ? stageCreditInfo(creditBalance, extendFloorCost, { floor:true }) : null;
+  const modeCreditBlock = (cost, what)=>{
+    const ci = modeCreditInfo(cost);
+    if(!ci.empty) return "";
+    return ci.frozen ? "Your account is on hold while a payment is disputed, so spending credits is paused."
+      : "Not enough generation credits for this "+what+".";
+  };
+  // the same check against what the server HOLDS (Motion Control, editing)
+  const modeHoldBlock = (info, what)=>{
+    if(!info || !info.empty) return "";
+    return info.frozen ? "Your account is on hold while a payment is disputed, so spending credits is paused."
+      : "Not enough generation credits for this "+what+": it holds up to "+_fmtN(info.cost)+" credits while it runs (charged for the finished video’s length), and "+_fmtN(info.remaining)+" remain.";
+  };
   const modeGuard = ()=>{
     if(gening || staging) return "A render is already running.";
     if(readOnly) return "View-only access — rendering requires edit access.";
@@ -4221,8 +4549,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     if(res && res.seed!=null) setLastSeed(res.seed);
     try{ window.dispatchEvent(new CustomEvent("turn-credits-changed",{ detail:{ reason, cost } })); }catch(_e){}
   };
-  const modeFail = (e)=>{ const msg=stageFriendlyVideoError(e); setModeErr(msg); if(typeof window.appToast==="function") window.appToast(msg,"error"); };
-  const uidNow = ()=> (typeof window.nbCloudScope==="function" && (window.nbCloudScope()||{}).uid) || null;
+  const modeFail = (e)=>{
+    // the user declined a render priced at the longest length: a choice, not an error
+    if(e && e.repriceDeclined){ setModeErr(""); if(typeof window.appToast==="function") window.appToast(e.message,"info"); return; }
+    const msg=stageFriendlyVideoError(e); setModeErr(msg); if(typeof window.appToast==="function") window.appToast(msg,"error"); };
   // EXTEND — Seedance 2.5 "extension": continue @Video1 by the chosen duration.
   const onExtend = async ()=>{
     const g=modeGuard(); if(g){ modeFail(new Error(g)); return; }
@@ -4241,8 +4571,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     }
     if(mediaUnpriced(extendVideo)){ modeFail(new Error(mediaUnpriced(extendVideo))); return; }
     if(extendCost==null){ modeFail(new Error("No price is available for "+resolution+" on Seedance 2.5.")); return; }
-    if(modeCreditInfo(extendCost).empty){ modeFail(new Error("Not enough generation credits for this extension.")); return; }
-    const uid0 = uidNow(), clipId0 = clip.id;
+    if(modeCreditBlock(extendCost,"extension")){ modeFail(new Error(modeCreditBlock(extendCost,"extension"))); return; }
+    const clipId0 = clip.id;
     const controls = directorControls();
     try{
       const frameAsset = onImages.find(a=>a.referenceKind!=="screenplay"&&a.url===startFrame) || null;
@@ -4262,7 +4592,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         window.nbAssertMediaIdentity({identityCharacterIds:identityIds,identityCast,identityContext},"stage-video-extend-before-submit");
       const references=[ mediaReference(extendVideo,"@Video1","Video to extend") ];
       assertSameClip(clipId0);
-      const res = await gen.generate({ frameUrl:freshFrameUrl, imageUrls:extendImages, videoUrls:[extendVideo.ref], prompt:extendPrompt, controls,
+      const extendRef = await stageFreshVideoRef(extendVideo);
+      const res = await stageWithLengthReprice(gen.generate, { frameUrl:freshFrameUrl, imageUrls:extendImages, videoUrls:[extendRef], prompt:extendPrompt, controls,
         videoTask:"extension",
         screenplayReference,
         screenplayImages:includedScreenplayImages.length?includedScreenplayImages:undefined,
@@ -4272,7 +4603,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           audio: hasDialogue ? "voice" : (nativeAudio ? "native" : "silent"),
           inputs:(1+(freshFrameUrl?1:0)+extendImages.length)+" img · 1 vid · 0 aud" },
         identityCharacterIds:identityIds, identityCast, identityContext,
-        spend:{ cost:extendCost, reason:"stage-video-extend", uid:uid0 },   // settled at COMPLETION, rides the job
+        quote:{ cost:extendCost, reason:"stage-video-extend" },   // shown price; the server holds + settles the charge
         durationMs:duration*1000, aspectRatio:"auto", fast:false, generateAudio: hasDialogue ? true : nativeAudio,
         falModel:sd25Tier.falModel||undefined, resolution, bitrateMode:bitrate, force:true });
       if(typeof window.nbAssertMediaIdentity==="function")
@@ -4297,10 +4628,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     if(!planAllowsModel("seedance-2.5")){ openPlansUpsell(); modeFail(new Error("Seedance 2.5 Edit needs the Director plan.")); return; }
     if(!serverHasTask("editing")){ modeFail(new Error(PENDING_SERVER)); return; }
     if(mediaUnpriced(editVideo)){ modeFail(new Error(mediaUnpriced(editVideo))); return; }
-    if(editCost==null){ modeFail(new Error("No price is available for "+resolution+" on Seedance 2.5.")); return; }
-    if(modeCreditInfo(editCost).empty){ modeFail(new Error("Not enough generation credits for this edit.")); return; }
+    if(editCost==null || editHold==null){ modeFail(new Error("No price is available for "+resolution+" on Seedance 2.5.")); return; }
+    if(modeHoldBlock(editHoldInfo,"edit")){ modeFail(new Error(modeHoldBlock(editHoldInfo,"edit"))); return; }   // the server checks the HOLD
     if(editRefImages.length>29) { modeFail(new Error("Edit Video takes up to 29 image references beside the video.")); return; }
-    const uid0 = uidNow(), clipId0 = clip.id, editSecs = mediaSeconds(editVideo);
+    const clipId0 = clip.id, editSecs = mediaSeconds(editVideo);
     try{
       const imageUrls=[];
       for(const a of editRefImages){ const u=await stageServerAssetUrl(a); if(u) imageUrls.push(u); }
@@ -4311,13 +4642,14 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       assertSameClip(clipId0);
       // the edit renders at the source length (fal: editing → duration auto) — record
       // it so the take carries a real length when it is reused as an input later
-      const res = await gen.generate({ imageUrls, videoUrls:[editVideo.ref], audioUrls, prompt:String(editPrompt).trim(), controls:"",
+      const editRef = await stageFreshVideoRef(editVideo);
+      const res = await stageWithLengthReprice(gen.generate, { imageUrls, videoUrls:[editRef], audioUrls, prompt:String(editPrompt).trim(), controls:"",
         videoTask:"editing",
         takeMeta:{ source:"edit", tier:sd25Tier.id, tierLabel:sd25Tier.label, resolution, bitrate, references,
           durationSec:editSecs, inputSeconds:editSecs,
           privateRefs:(editVideo.kind==="device"?1:0), audio: nativeAudio ? "native" : "silent",
           inputs:imageUrls.length+" img · 1 vid · "+audioUrls.length+" aud" },
-        spend:{ cost:editCost, reason:"stage-video-edit", uid:uid0 },
+        quote:{ cost:editCost, reason:"stage-video-edit" },
         durationMs:Math.round(editSecs*1000), aspectRatio:"auto", fast:false, generateAudio:nativeAudio,
         falModel:sd25Tier.falModel||undefined, resolution, bitrateMode:bitrate, force:true });
       finishMode(res, "stage-video-edit", editCost);
@@ -4335,23 +4667,24 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     if(motionTooShort){ modeFail(new Error("The motion video must be at least "+motionLimits.minSeconds+"s.")); return; }
     if(!serverHasMotion){ modeFail(new Error(PENDING_SERVER)); return; }
     if(mediaUnpriced(motionVideo)){ modeFail(new Error(mediaUnpriced(motionVideo))); return; }
-    if(motionCost==null){ modeFail(new Error("No price is available for Kling 3.0 Motion Control.")); return; }
-    if(modeCreditInfo(motionCost).empty){ modeFail(new Error("Not enough generation credits for this motion render.")); return; }
-    const uid0 = uidNow(), clipId0 = clip.id, motionSecs = mediaSeconds(motionVideo);
+    if(motionCost==null || motionHold==null){ modeFail(new Error("No price is available for Kling 3.0 Motion Control.")); return; }
+    if(modeHoldBlock(motionHoldInfo,"motion render")){ modeFail(new Error(modeHoldBlock(motionHoldInfo,"motion render"))); return; }   // the server checks the HOLD
+    const clipId0 = clip.id, motionSecs = mediaSeconds(motionVideo);
     try{
       const imageRef = motionImage.kind==="device" ? motionImage.ref : await stageServerAssetUrl(motionImage.asset||null, motionImage.url);
       if(!imageRef) throw new Error("The character image could not be attached.");
       const references=[ mediaReference(motionImage,"@Image1","Character"), mediaReference(motionVideo,"@Video1","Motion to copy") ];
       assertSameClip(clipId0);
       // the output follows the motion video's length — recorded on the take
-      const res = await gen.generate({ frameUrl:imageRef, videoUrls:[motionVideo.ref], prompt:String(motionPrompt||"").trim(), controls:"",
+      const motionRef = await stageFreshVideoRef(motionVideo);
+      const res = await stageWithLengthReprice(gen.generate, { frameUrl:imageRef, videoUrls:[motionRef], prompt:String(motionPrompt||"").trim(), controls:"",
         characterOrientation:effMotionOrientation, keepOriginalSound,
         takeMeta:{ source:"motion-control", tier:motionTier, tierLabel:"Kling 3.0 Motion Control "+(motionTier==="pro"?"Pro":"Standard"),
           resolution:(motionTier==="pro"?"1080p":"720p"), bitrate:"", references, durationSec:motionSecs, inputSeconds:motionSecs,
           privateRefs:((motionImage.kind==="device"?1:0)+(motionVideo.kind==="device"?1:0)),
           sceneControl:sceneControl, characterOrientation:effMotionOrientation, keepOriginalSound,
           audio: keepOriginalSound ? "original" : "silent", inputs:"1 img · 1 vid · 0 aud" },
-        spend:{ cost:motionCost, reason:"stage-video-motion-control", uid:uid0 },
+        quote:{ cost:motionCost, reason:"stage-video-motion-control" },
         durationMs:Math.round(motionSecs*1000), aspectRatio:"auto", fast:false, generateAudio:keepOriginalSound,
         falModel:motionFalModel, resolution:(motionTier==="pro"?"1080p":"720p"), bitrateMode:"standard", force:true });
       finishMode(res, "stage-video-motion-control", motionCost);
@@ -4424,13 +4757,30 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const playerClockLabel = _stageClock(playerUrl ? playerClock.time : 0)+" / "+_stageClock(playerClockDuration);
   // this render's price from the current settings — every cost-bearing choice contributes;
   // a batch multiplies it (N parallel takes) and the balance gates on the TOTAL.
-  const renderCost = stageRenderCost(tierObj, resolution, duration);
+  // included video references (the previous clip) are billed too — measured length, else the saved
+  // take length, else the longest clip (repair 2026-09-30)
+  const refVideoMul = stageVideoInputMul(modelId);
+  const refVideoSec = refVideoMul>0 ? onVideos.reduce((t,a)=>{
+    const secs = a && a.key==="prev" ? (prevVideoSecs || prevVideoMetaSecs) : (Number(a && a.seconds)>0 ? Number(a.seconds) : 0);
+    return t + (secs>0 ? secs : STAGE_REF_VIDEO_MAX_SEC);
+  }, 0) : 0;
+  const renderCost = stageRenderCost(tierObj, resolution, duration, { videoSec:refVideoSec, inputMul:refVideoMul });
+  const textOnlyCost = stageRenderCost(tierObj, resolution, duration);   // "Retry from text only" sends no references
   const totalCost = renderCost*Math.max(1, batchN);
-  const renderCostTitle = totalCost+" credit"+(totalCost!==1?"s":"")+" — "
-    +(batchN>1 ? (batchN+" takes × (") : "")+_fmtSecs(duration)+" × "+resolution+" × "+tierObj.label+(batchN>1?")":"");
+  const textOnlyTotal = textOnlyCost*Math.max(1, batchN);
+  // "710 credits — (10s + 15s of reference video) × 720p × Standard × 0.6 (video-input rate)"
+  const renderSecsText = refVideoSec>0 ? ("("+_fmtSecs(duration)+" + "+_fmtSecs(Math.round(refVideoSec*10)/10)+" of reference video)") : _fmtSecs(duration);
+  const renderCostTitle = totalCost.toLocaleString("en-US")+" credit"+(totalCost!==1?"s":"")+" — "
+    +(batchN>1 ? (batchN+" takes × (") : "")+renderSecsText+" × "+resolution+" × "+tierObj.label
+    +(refVideoSec>0 ? " × "+refVideoMul+" (video-input rate)" : "")+(batchN>1?")":"");
   const creditInfo = stageCreditInfo(creditBalance, totalCost);
+  // the credit footer under the settings panel follows the open composer tab (billing round 3) —
+  // and on the Create tab, its open task: Extend shows the extension's price (round 5)
+  const footerCredit = (composerTab==="edit" && editHoldInfo) ? editHoldInfo
+    : (composerTab==="motion" && motionHoldInfo) ? motionHoldInfo
+    : (composerTab==="create" && createTask==="extension" && extendCreditInfo) ? extendCreditInfo : creditInfo;
   const canTextOnlyRecovery=stageCanOfferTextOnlyRecovery(gen.err||genErr,modelId);
-  const textOnlyRecoveryTitle="Start a new "+totalCost+"-credit render through Seedance 2.5 text-to-video. "
+  const textOnlyRecoveryTitle="Start a new "+textOnlyTotal.toLocaleString("en-US")+"-credit render through Seedance 2.5 text-to-video. "
     +"No image, video, or recorded-voice files will be sent; the screenplay/shot prompt and render settings stay, but cast likeness and exact visual continuity may vary.";
   // Automatic screenplay-backed briefs regularly exceed the old 1,999-character
   // textarea ceiling. Keep the whole compiled direction editable; the paid path
@@ -4667,7 +5017,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   if(imageOver) blockers.push({key:"image-budget",
     text:"This render has "+onImages.length+" selected images; the chosen model allows "+imageLimit+". Exclude optional references or choose a higher-capacity model."});
   if(creditInfo.empty) blockers.push({ key:"credits",
-    text:"Not enough generation credits — this render needs "+totalCost+(creditInfo.known?(", "+creditInfo.remaining+" remaining"):"")+".",
+    text:"Not enough generation credits — this render needs "+totalCost.toLocaleString("en-US")+(creditInfo.known?(", "+Number(creditInfo.remaining).toLocaleString("en-US")+" remaining"):"")+".",
     actionLabel:"Choose a plan", action:()=>{ if(typeof window.turnOpenPlans==="function") window.turnOpenPlans(); } });
   if(!prompt.trim()) blockers.push({ key:"prompt", text:"Write a prompt — describe the motion you want." });
   const blocker = blockers[0] || null;
@@ -5211,7 +5561,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           disabled:gening||creditInfo.empty||!!textOnlyRecoveryBlocked,
           title:textOnlyRecoveryBlocked?(textOnlyRecoveryBlocked.text||"Review the remaining render blocker first."):textOnlyRecoveryTitle,
           onClick:()=>onGenerate({referenceFree:true})},
-          "Retry from text only · "+totalCost+" credit"+(totalCost===1?"":"s"))),
+          "Retry from text only · "+textOnlyTotal.toLocaleString("en-US")+" credit"+(textOnlyTotal===1?"":"s"))),
       genErr && providerPolicyFailure && providerPolicyDetail && _stEl("details",{
           className:"stage2-policy-details"},
         _stEl("summary",null,"Provider details"),
@@ -5331,7 +5681,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     : modelId!=="seedance-2.5" ? "Extend Video runs on Seedance 2.5 — choose it as the model."
     : !extendVideo ? "Choose the video to extend."
     : mediaUnpriced(extendVideo) ? mediaUnpriced(extendVideo)
-    : (!capsPending && !serverHasTask("extension")) ? PENDING_SERVER : "";
+    : (!capsPending && !serverHasTask("extension")) ? PENDING_SERVER
+    : modeCreditBlock(extendCost,"extension");   // every mode's Generate is blocked below what it needs (round 3)
   const createGenerate = createTask==="extension"
     ? generateButton("Extend", extendCost, ()=>{ if(gening) return; if(extendPlanLocked){ openPlansUpsell(); return; } onExtend(); },
         { blocked:!!extendBlocker, title:extendBlocker || extendCostTitle, costTitle:extendCostTitle, testId:"stage-generate-extend",
@@ -5373,7 +5724,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     : mediaUnpriced(editVideo) ? mediaUnpriced(editVideo)
     : !String(editPrompt||"").trim() ? "Describe the edit."
     : extendPlanLocked ? "Seedance 2.5 Edit — Director plan required."
-    : (!capsPending && !serverHasTask("editing")) ? PENDING_SERVER : "";
+    : (!capsPending && !serverHasTask("editing")) ? PENDING_SERVER
+    : modeHoldBlock(editHoldInfo,"edit");   // Generate is blocked when the balance can't cover the hold
   const editBody = _stEl(React.Fragment,null,
     heroCard("GENERAL", "Seedance 2.5 Edit", { sub:"Rewrite a video from a prompt — same cast, new direction" }),
     segmented("Edit input", "prompt",
@@ -5413,7 +5765,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     : mediaUnpriced(motionVideo) ? mediaUnpriced(motionVideo)
     : !motionImage ? "Add your character image."
     : motionErr ? motionErr
-    : (!motionCapsPending && !serverHasMotion) ? PENDING_SERVER : "";
+    : (!motionCapsPending && !serverHasMotion) ? PENDING_SERVER
+    : modeHoldBlock(motionHoldInfo,"motion render");   // Generate is blocked when the balance can't cover the hold
   const motionBody = _stEl(React.Fragment,null,
     heroCard("MOTION CONTROL", "Control motion with video references", { cls:"motion",
       action:_stEl("button",{type:"button",className:"stage2-hero-help"+(motionHelp?" on":""),"aria-expanded":motionHelp?"true":"false",
@@ -5471,7 +5824,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
             disabled:(!motionCapsPending && !serverHasMotion) }) ], { cls:"divided" })),
     (!motionCapsPending && !serverHasMotion) && pendingNote("Motion Control"),
     modeErrEl);
-  const composer = _stEl("div",{className:"stage2-gen-composer"+(gening?" working":"")+(creditInfo.empty?" no-credits":""),"data-composer-tab":composerTab},
+  // the red no-credits outline follows the OPEN tab's render (footerCredit: its cost, or its hold —
+  // flagged only once a measured video sizes the hold: footerCredit.short, round 5)
+  const composer = _stEl("div",{className:"stage2-gen-composer"+(gening?" working":"")+(footerCredit.short?" no-credits":""),"data-composer-tab":composerTab},
     composerHeader,
     composerTab==="edit" ? editBody : composerTab==="motion" ? motionBody : createBody,
     _stEl("input",{ref:fileInputRef,type:"file",className:"stage2-file-input",tabIndex:-1,"aria-hidden":"true",onChange:onDeviceFile}),
@@ -5591,15 +5946,22 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         title:"Assets are derived from the selected clip's storyboard, frame, cast, location, props and audio"},
         _stEl("div",{className:"stage2-asset-vis"},Icon.plus&&_stEl(Icon.plus,{s:18})),
         _stEl("span",{className:"stage2-asset-name"},"Add asset"))),
-    (sourceBlocking || assetOver || genErr || needsVoice || creditInfo.empty) && _stEl("div",{className:"stage2-assets-warnings"},
+    (sourceBlocking || assetOver || genErr || needsVoice || footerCredit.short) && _stEl("div",{className:"stage2-assets-warnings"},
       needsVoice && _stEl("div",{className:"stage2-warn"}, Icon.alert&&_stEl(Icon.alert,{s:12}), "Voice this clip before rendering so timing and lip-sync stay locked."),
       sourceBlocking && _stEl("div",{className:"stage2-warn"}, Icon.alert&&_stEl(Icon.alert,{s:12}), "No storyboard source is ready yet."),
       assetOver && _stEl("div",{className:"stage2-warn"}, Icon.alert&&_stEl(Icon.alert,{s:12}), "Too many inputs selected. Exclude "+budgetOverBy+" optional asset"+(budgetOverBy!==1?"s":"")+" before rendering."),
-      creditInfo.empty && _stEl("div",{className:"stage2-warn"}, Icon.alert&&_stEl(Icon.alert,{s:12}),
-        _stEl("span",{className:"stage2-warn-text"}, "Not enough generation credits — this render needs "+totalCost+(creditInfo.known?(", "+creditInfo.remaining+" remaining"):"")+"."),
-        _stEl("button",{type:"button",className:"stage2-warn-act",
-          title:"Top up your balance with a one-off credit pack, or subscribe for a monthly allowance",
-          onClick:()=>{ if(typeof window.turnOpenPlans==="function") window.turnOpenPlans(); }}, "Get credits")),
+      // the credit warning follows the OPEN tab too (footerCredit), never the References render alone
+      footerCredit.short && (footerCredit.frozen
+        ? _stEl("div",{className:"stage2-warn"}, Icon.alert&&_stEl(Icon.alert,{s:12}),
+          _stEl("span",{className:"stage2-warn-text"}, "Account on hold — spending credits is paused while a payment is disputed."),
+          _stEl("button",{type:"button",className:"stage2-warn-act",
+            title:"Open Manage plan, or write to kinolot-billing@infinitestudioai.com",
+            onClick:()=>{ if(typeof window.turnOpenManagePlan==="function") window.turnOpenManagePlan(); else if(typeof window.turnOpenPlans==="function") window.turnOpenPlans(); }}, "Manage plan"))
+        : _stEl("div",{className:"stage2-warn"}, Icon.alert&&_stEl(Icon.alert,{s:12}),
+          _stEl("span",{className:"stage2-warn-text"}, stageCreditShortText(footerCredit)),
+          _stEl("button",{type:"button",className:"stage2-warn-act",
+            title:"Top up with a credit pack (any account; pack credits last 12 months), or upgrade your plan",
+            onClick:()=>{ if(typeof window.turnOpenPlans==="function") window.turnOpenPlans(); }}, "Get credits"))),
       genErr && _stEl("div",{className:"stage2-warn"}, Icon.alert&&_stEl(Icon.alert,{s:12}), genErr))
     /* Target Stage UI keeps supporting beat/story/reference context out of the main surface. */,
     false && _stEl("div",{className:"stage2-midcards"},
@@ -5702,8 +6064,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     // the cost math, spelled out — updates live with any choice above (and the batch pill)
     _stEl("div",{className:"stage2-rc-math",title:creditInfo.title},
       (batchN>1 ? (batchN+" takes × ") : "")+_fmtSecs(duration)+" × "+resolution+" × "+tierObj.label
-        +" = "+totalCost+" credit"+(totalCost!==1?"s":"")
-        +(creditInfo.known ? (" · "+creditInfo.remaining+" remaining") : "")),
+        +(refVideoSec>0 ? " (+ "+_fmtSecs(Math.round(refVideoSec*10)/10)+" reference video)" : "")
+        +" = "+totalCost.toLocaleString("en-US")+" credit"+(totalCost!==1?"s":"")
+        +(creditInfo.known ? (" · "+Number(creditInfo.remaining).toLocaleString("en-US")+" remaining") : "")),
     // capabilities as compact chips (full text on hover) — replaces the long text list
     _stEl("div",{className:"stage2-rc-caps"},
       (model.capabilities||[]).map((txt,i)=>
@@ -5851,7 +6214,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       genErr && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:14}), genErr),
       sourceBlocking && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:14}), "No storyboard source is ready yet."),
       assetOver && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:14}), "Asset budget is over by "+budgetOverBy+". Exclude optional assets in the center panel."),
-      creditInfo.empty && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:14}), "No generation credits remaining."),
+      // the right panel's credit error follows the open tab's render too (round 5: on hold, a hold, or a cost)
+      footerCredit.short && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:14}), stageCreditPanelText(footerCredit)),
       gening
         ? _stEl("div",{className:"stage2-gen-busy sd-gen-busy"},
             _stEl("div",{className:"stage2-gen-prog"}, _stEl("div",{className:"orb"}), genBusyLabel),
@@ -5864,8 +6228,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
             onClick:()=>{ if(gening) return; if(blocker){ onBlockedGenerate(); return; } onGenerate(); }},
             playerUrl?"Regenerate clip":"Generate clip", Icon.sparkles&&_stEl(Icon.sparkles,{s:16})),
       // (Extend / Edit / Motion Control live on the composer's tabs — each with its own Generate)
-      _stEl("div",{className:"stage2-credit sd-gen-credit"+(creditInfo.empty?" empty":""),title:creditInfo.title},
-        Icon.sparkles&&_stEl(Icon.sparkles,{s:12}),creditInfo.label),
+      // the footer follows the open composer tab: Edit / Motion Control say what their render HOLDS
+      _stEl("div",{className:"stage2-credit sd-gen-credit"+(footerCredit.short?" empty":""),title:footerCredit.title},
+        Icon.sparkles&&_stEl(Icon.sparkles,{s:12}),footerCredit.label),
       lastSeed!=null && _stEl("div",{className:"stage2-credit sd-gen-credit",title:"The seed fal returned for the last render — reuse it from the Seed control for repeatable variations"},
         "Seed "+lastSeed)));
 

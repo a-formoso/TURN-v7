@@ -240,7 +240,10 @@ function vgAssertIdentity(opts, phase){
 window.vgAssertIdentity=vgAssertIdentity;
 
 // ---- the proxy call (task:"voice") ------------------------------------------
-async function vgProxy(op, payload){
+/* opts.quiet (repair 2026-09-30): the New Story interview's voice is optional — the browser's own
+   speech takes over when the paid voice is refused — so its calls never open the Plans window on a
+   billing refusal; the error still carries .billing for the caller's fallback. */
+async function vgProxy(op, payload, opts){
   vgAssertIdentity(payload, "voice-provider-start");
   if(!voiceProxyReady()) throw new Error("Voice runs through your server proxy — sign in and make sure Supabase + the proxy are configured.");
   const sb = window.sbClient();
@@ -253,6 +256,33 @@ async function vgProxy(op, payload){
   if(error){
     const status=(error&&error.context&&error.context.status)||error.status||0;
     const _safe = window.turnSafeError || (x=>x);
+    /* VOICE IS CHARGED ON THE SERVER (billing fixes, 2026-09-30): image-proxy holds the
+       line's credits before calling the voice provider and refunds them if it fails. Its
+       billing refusals (402 no plan / not enough credits, a frozen account, a plan-only
+       feature) become one calm sentence; credit/plan refusals open the Plans window. */
+    let body=null;
+    const ctx=error&&error.context;
+    if(ctx && typeof ctx.json==="function"){
+      try{ body=await (typeof ctx.clone==="function" ? ctx.clone() : ctx).json(); }catch(e){}
+    }
+    const billing=(typeof window.turnBillingError==="function") ? window.turnBillingError(body, status) : null;
+    if(billing){
+      const quiet = !!(opts && opts.quiet);
+      const msg=(!quiet && typeof window.turnHandleBillingError==="function") ? window.turnHandleBillingError(billing) : billing.message;
+      const e=new Error(msg||billing.message);
+      e.code=billing.code; e.billing=billing.code; e.status=status;
+      throw e;
+    }
+    // a request the server refuses as it stands (400 — say, a recording it can't read or one longer
+    // than the app records): its own plain sentence, and the status, so the New Story interview can
+    // switch to the browser's speech recognition quietly (billing round 5)
+    if(status===400){
+      const said=body && typeof body.error==="string" && body.error.trim() && !/^[a-z_]+$/.test(body.error.trim()) ? body.error.trim()
+        : (body && typeof body.message==="string" && body.message.trim() ? body.message.trim() : "");
+      const e=new Error(_safe(said || "The voice service couldn't use this request."));
+      e.code=String((body && body.code) || "bad_request"); e.status=400;
+      throw e;
+    }
     if(status===401) throw new Error("Sign in to render voice — it runs on your server, not the browser.");
     if(status===404) throw new Error(_safe("The media proxy isn't deployed yet. Deploy supabase/functions/image-proxy (the voice route), then have an administrator set ELEVENLABS_API_KEY."));
     throw new Error(_safe("Couldn't reach the voice proxy: "+((error&&error.message)||"unknown error")+"."));
@@ -264,6 +294,10 @@ async function vgProxy(op, payload){
     e.code = data.code || "";
     e.rawMessage = raw;
     throw e;
+  }
+  // a paid voice call settled on the server — refresh the balance readout
+  if(op==="tts" || op==="stt" || op==="design" || op==="clone"){
+    try{ window.dispatchEvent(new CustomEvent("turn-credits-changed",{ detail:{ reason:"voice-"+op } })); }catch(e){}
   }
   return data||{};
 }
@@ -364,11 +398,14 @@ async function elGenerateVoiceMaster(character,lock,opts){
 window.elGenerateVoiceMaster=elGenerateVoiceMaster;
 
 // ---- New Story "Talk it through" voice: one-off speak (no caching/commit) + transcribe ----
+// These calls are QUIET (vgProxy opts.quiet): a billing refusal never opens the Plans window — the
+// interview falls back to the browser's own speech (app/newstory.jsx Voice adapter).
 // Resolve a default interviewer voice once: the account's first voice, else a known public one.
 let _interviewVoiceId = "";
 async function elInterviewVoiceId(){
   if(_interviewVoiceId) return _interviewVoiceId;
-  try{ const r = await elListVoices(); const v = r && r.voices && r.voices[0]; if(v && v.voiceId) _interviewVoiceId = v.voiceId; }catch(e){}
+  try{ const r = await elListVoices({ quiet:true }); const v = r && r.voices && r.voices[0]; if(v && v.voiceId) _interviewVoiceId = v.voiceId; }
+  catch(e){ if(e && e.billing) throw e; }   // refused for billing: no point asking for speech next
   if(!_interviewVoiceId) _interviewVoiceId = "21m00Tcm4TlvDq8ikWAM";   // ElevenLabs default ("Rachel")
   return _interviewVoiceId;
 }
@@ -381,14 +418,14 @@ async function elSpeak(text, opts){
   vgAssertIdentity(opts, "voice-speak-submit");
   const d = await vgProxy("tts", { voiceId, text:t, modelId:opts.modelId||VG_TTS_MODEL, settings, outputFormat:VG_OUTPUT_FORMAT,
     identityCharacter:opts.identityCharacter||opts.character, identityCharacterIds:opts.identityCharacterIds||opts.characterIds,
-    identityContext:opts.identityContext, identityCast:opts.identityCast });
+    identityContext:opts.identityContext, identityCast:opts.identityCast }, { quiet:true });
   if(!d.audioB64) throw new Error("The proxy returned no audio.");
   return "data:"+(d.mime||"audio/mpeg")+";base64,"+d.audioB64;
 }
 // transcribe recorded audio (base64 + mime) → text, via the proxy's ElevenLabs Scribe route.
 async function elTranscribe(audioB64, mime){
   if(!audioB64) return "";
-  const d = await vgProxy("stt", { audioB64, mime: mime||"audio/webm" });
+  const d = await vgProxy("stt", { audioB64, mime: mime||"audio/webm" }, { quiet:true });
   return String(d.text||"").trim();
 }
 window.elInterviewVoiceId=elInterviewVoiceId; window.elSpeak=elSpeak; window.elTranscribe=elTranscribe;
@@ -426,7 +463,8 @@ async function elSaveVoice(generatedVoiceId, opts){
 async function elListVoices(opts){
   opts=opts||{}; vgAssertIdentity(opts, "voice-list-start");
   const d = await vgProxy("listVoices", { identityCharacter:opts.identityCharacter||opts.character,
-    identityCharacterIds:opts.identityCharacterIds||opts.characterIds, identityContext:opts.identityContext, identityCast:opts.identityCast });
+    identityCharacterIds:opts.identityCharacterIds||opts.characterIds, identityContext:opts.identityContext, identityCast:opts.identityCast },
+    { quiet:!!opts.quiet });
   return d.voices||[];
 }
 // instant clone from samples (consent-gated on the client, like a cameo face)

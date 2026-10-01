@@ -660,7 +660,8 @@ await assert.rejects(
     screenplayReference, assertScreenplayCurrent: () => true,
     durationMs: 4000, resolution: "720p", pollMs: 1, maxPolls: 1,
   }),
-  /timed out/,
+  // billing round 2: the wait ends without inviting a second paid render — the job stays pending
+  /taking longer than expected[\s\S]*no need to render it again/,
 );
 pollFailure = null;
 const pendingScreenplay = sandbox.vidPendingList().find(x => x.id === "pending-screenplay");
@@ -761,7 +762,7 @@ await assert.rejects(sandbox.seedanceGenerate(null, {
   resolution: "720p",
   pollMs: 1,
   maxPolls: 1,
-}), /timed out/);
+}), /taking longer than expected/);
 pollTransportError = null;
 assert.equal(submitted.length, submitsBeforeTransient + 1, "lost poll response must not resubmit");
 assert.equal(sandbox.vidPendingList().length, 1, "ambiguous transport failure must retain pending job for recovery");

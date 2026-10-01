@@ -73,7 +73,7 @@
   function HomeDashboard(props){
     const { projects, currentId, room,
             onOpen, onCreate, onGeneratePoster, onRegenPoster, onRestorePoster,
-            onGoRoom, onClose, accountSlot } = props;
+            onGoRoom, onClose, accountSlot, noticesSlot } = props;
 
     // real films only (shows are containers), newest-updated first (list already sorted)
     const films = (projects||[]).filter(p=>!(window.turnSeries&&typeof window.turnSeries.isShowDoc==="function"
@@ -108,8 +108,14 @@
     const [genBusy, setGenBusy] = React.useState({});   // id -> true while its poster renders
     const attempted = React.useRef({});                 // id -> true once tried this mount (no retry loops)
     const missing = recent.filter(p=> !p.cover).map(p=> p.id).join(",");
+    const ledgerKey = window.turnCreditBalance ? String(window.turnCreditBalance.plan||"none") : "";
     React.useEffect(()=>{
       if(typeof onGeneratePoster!=="function") return;
+      // a free-trial / no-plan account's credits are theirs to spend: no automatic posters
+      // (billing fixes, 2026-09-30) — they can still paint one by hand. A signed-in account
+      // waits for its ledger first (the effect re-runs when it loads: ledgerKey).
+      if(window.turnUserId && !window.turnCreditBalance && !window.turnIsAdmin) return;
+      if(typeof window.turnDraftImagesOnly==="function" && window.turnDraftImagesOnly()) return;
       let cancelled = false;
       (async ()=>{
         for(const p of recent){
@@ -131,7 +137,7 @@
         }
       })();
       return ()=>{ cancelled = true; };
-    }, [missing]);   // re-run when the set of cover-less films changes
+    }, [missing, ledgerKey]);   // re-run when the set of cover-less films changes (or the ledger loads)
 
     // ----- full-screen poster preview (the app's shared immersive lightbox) --
     const [viewer, setViewer] = React.useState(null);   // {url, title} | null
@@ -315,6 +321,10 @@
         // full-height vertical rails at the 1280px column edges — the landing's
         // structural signature (.lp-rails), crossing each section rule in a "+"
         h("div",{className:"hd-rails","aria-hidden":"true"}),
+        // THE BILLING NOTICES (billing repair 2026-09-30): Home covers the studio as a fixed overlay, so
+        // the studio's banners (payment failed, account on hold, low balance) were hidden behind it —
+        // app.jsx hands the same banners in here, at the very top
+        noticesSlot ? h("div",{className:"hd-notices"}, noticesSlot) : null,
         topbar,
         h("div",{className:"hd-scroll"},
           heroSection,
