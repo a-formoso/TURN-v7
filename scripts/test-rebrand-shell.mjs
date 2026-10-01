@@ -15,8 +15,11 @@
       icon's dark tile since 2026-09-29 — not the old "E" or the zig-zag; scripts/test-identity.mjs
       pins the geometry), and the legal pages: product Kinolot, domain kinolot.infinitestudioai.com,
       "Kinolot by Infinite Studio AI" — with the legal wording itself pinned (a fingerprint of
-      the text with the product name, domain and "Last updated" date neutralised), and the
-      billing numbers the Terms state read back from the code that charges them.
+      the text with the product name, domain, "Last updated" date and the owner's legal name and
+      address neutralised), the billing numbers the Terms state read back from the code that charges
+      them, and the 2026-10-01 compliance wording (who we are, prices in USD with tax included, the
+      14-day right to cancel = the checkout consent, partial refunds, disputes, closing an account,
+      30 days' notice, why we use data). LEGAL_SWITCH_DAY=1 fails while any "<…>" placeholder remains.
    C. Executed in a sandbox: the one-colour Spectral wordmark "Kinolot" (logo direction B, 2026-09-29;
       it replaced the two-tone "Kino" + accent "lot"); straight
       "Writers' Room"; the Story Editors / Art Coordinator tooltips; the plans (LIVE_HOSTS with
@@ -30,7 +33,7 @@
       place, and the packaged ZIP (and its page copy) matches the source.
 
    Run: node scripts/test-rebrand-shell.mjs  (no browser, no network) */
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -131,8 +134,25 @@ const visible = (s)=> s.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, " ").replac
    and length-billed renders, a New Story voice conversation counts as a Frances question, "on hold"
    (the app's word) for disputes, refunds of plan payments, monthly credits ending after failed
    retries, rate changes, and pack credits on closing an account. Privacy: the trial hash only when
-   the trial is given, the billing records kept, and payment / refund / dispute records in retention. */
-const LEGAL_FINGERPRINT = { "privacy.html":"87586fa47d04d522", "terms.html":"8e52a9c33fc55208" };
+   the trial is given, the billing records kept, and payment / refund / dispute records in retention.
+   2026-10-01 owner decisions (the lawyer list: "Decide for me… keep the prices in dollars"; on closing
+   an account: unused pack credits are NOT refunded — "no"): Terms: "Who we are" (trading name of
+   <legal name>, <business address> — the owner fills both), prices in US dollars with any VAT or sales
+   tax included, a "Your right to cancel" section (14 days, the unused part back, the checkout consent
+   quoted word for word, renewals aren't a new purchase), partial refunds remove the same share of the
+   credits, a closed dispute lifts the hold, closing an account refunds unused paid time only, and
+   "Changes to these terms" (30 days' notice for a higher price or fewer credits, other changes shown
+   in the app). Privacy: "Who we are" (the controller line), "Why we use your data" (contract,
+   legitimate interests incl. the trial fingerprint, legal obligation incl. tax records — in the UK
+   generally six years, consent), the payment country / US state kept for tax and the checkout
+   consent record, tax records kept as long as tax law requires, correcting / objecting and the ICO.
+   2026-10-01 review fixes (owner-authorised legal changes): the checkout consent v2 (the right is lost
+   for credits used — CCR 2013 reg 37 for digital content — and the unused part back), "Your right to
+   cancel" (id "cancel"): any clear statement, e.g. the email, or the cancellation form on the page
+   (with the business address), the refund within 14 days to the same payment method; a closed
+   dispute lifts ITS hold (another open dispute keeps the account on hold). Privacy: the EU
+   representative line (<EU representative>), EU VAT records ten years, "International transfers". */
+const LEGAL_FINGERPRINT = { "privacy.html":"afaf3953592961ba", "terms.html":"8b85ccfa7ad9314a" };
 /* The "Last updated" line holds the placeholder until the switch day; the owner then writes the date
    on BOTH pages in the form "14 November 2026" (docs/Billing Rollout Runbook.md). The fingerprint
    reads either as {DATE}, so filling in the date needs no test change — any other change to the
@@ -143,7 +163,22 @@ const MONTHS = "January|February|March|April|May|June|July|August|September|Octo
 const LEGAL_DATE = "Last updated: (?:&lt;switch date&gt;|(?:[1-9]|[12]\\d|3[01]) (?:"+MONTHS+") 20\\d\\d)";
 const SWITCH_DAY = process.env.LEGAL_SWITCH_DAY==="1";
 const LEGAL_META = new RegExp('<div class="meta">Kinolot by Infinite Studio AI &middot; '+LEGAL_DATE+'</div>');
-const legalText = (f)=> visible(legalMain(f)).replace(new RegExp(LEGAL_DATE, "g"), "Last updated: {DATE}")
+/* The owner's legal name and business address sit in <span data-fill="legal-name"> / <span
+   data-fill="business-address"> on both pages (placeholders "<legal name>" / "<business address>"
+   until the owner fills them in); the fingerprint reads their contents as {LEGAL_NAME} / {BUSINESS_ADDRESS},
+   so filling them needs no test change, and a check below keeps them the same on both pages. */
+/* privacy.html also names the EU data-protection representative in <span data-fill="eu-representative">
+   ("<EU representative>" until the owner appoints one, or deletes that sentence while the service isn't
+   offered in the EU) — read as {EU_REPRESENTATIVE}. */
+const FILL_RE = /<span data-fill="(legal-name|business-address|eu-representative)">([^<]*)<\/span>/g;
+const fills = (f)=>[...read(f).matchAll(FILL_RE)].map(m=>[m[1], m[2].replace(/\s+/g, " ").trim()]);
+const FILL_TOKEN = { "legal-name":"{LEGAL_NAME}", "business-address":"{BUSINESS_ADDRESS}", "eu-representative":"{EU_REPRESENTATIVE}" };
+const neutralFills = (h)=> h.replace(FILL_RE, (m, k)=>FILL_TOKEN[k]);
+/* the EU representative sentence may be deleted by the owner (no EU offer yet): the fingerprint reads
+   the pages without it, and the controller check accepts the section with or without it */
+const EU_REP_SENTENCE = "If you are in the European Union, you can also contact our representative there for data protection: {EU_REPRESENTATIVE}.";
+const EU_REP_RE = / ?If you are in the European Union, you can also contact our representative there for data protection: \{EU_REPRESENTATIVE\} ?\./g;
+const legalText = (f)=> visible(neutralFills(legalMain(f))).replace(EU_REP_RE, "").replace(new RegExp(LEGAL_DATE, "g"), "Last updated: {DATE}")
   .replace(/Kinolot by Infinite Studio AI/g, "{PRODUCT} by {COMPANY}")
   .replace(/kinolot\.infinitestudioai\.com/g, "{DOMAIN}").replace(/Kinolot/g, "{PRODUCT}");
 for(const f of ["privacy.html", "terms.html"]){
@@ -159,10 +194,27 @@ for(const f of ["privacy.html", "terms.html"]){
     if(got!==LEGAL_FINGERPRINT[f]){ console.log("  "+f+" fingerprint "+got); return false; }
     return true;
   });
-  if(SWITCH_DAY) check("B "+f+": the 'Last updated' date is filled in (LEGAL_SWITCH_DAY=1)", ()=>!s.includes("Last updated: &lt;switch date&gt;"));
-  else if(s.includes("Last updated: &lt;switch date&gt;"))
-    console.log("NOTE "+f+": 'Last updated' still reads <switch date> — on the switch day write the date on both pages as e.g. \"14 November 2026\", then run with LEGAL_SWITCH_DAY=1");
+  /* every "<…>" placeholder (written &lt;…&gt; in the page) is a NOTE until the switch day and a FAIL with
+     LEGAL_SWITCH_DAY=1: the date, the owner's legal name and the business address */
+  const holes = [...new Set([...s.matchAll(/&lt;([^&<>]{1,60})&gt;/g)].map(m=>"<"+m[1]+">"))];
+  const hint = (h)=> h==="<switch date>" ? "write the date on both pages as e.g. \"14 November 2026\""
+    : h==="<legal name>" || h==="<business address>" ? "fill it in inside <span data-fill=\""+(h==="<legal name>" ? "legal-name" : "business-address")+"\"> on both pages"
+    : h==="<EU representative>" ? "name your EU representative inside <span data-fill=\"eu-representative\"> (or delete that sentence while you don't offer the service in the EU)"
+    : "replace it";
+  if(SWITCH_DAY) check("B "+f+": no \"<…>\" placeholder is left (LEGAL_SWITCH_DAY=1)", ()=>{
+    if(holes.length) console.log("  "+f+" still has "+holes.join(", "));
+    return holes.length===0;
+  });
+  else for(const h of holes)
+    console.log("NOTE "+f+": "+h+" is still a placeholder — on the switch day "+hint(h)+", then run with LEGAL_SWITCH_DAY=1");
 }
+check("B the legal name and business address are given on both pages, the same everywhere (the placeholder or the owner's text)", ()=>{
+  const all = [...fills("terms.html"), ...fills("privacy.html")];
+  const of = (k)=>[...new Set(all.filter(([n])=>n===k).map(([, v])=>v))];
+  const kinds = (f)=>[...new Set(fills(f).map(([n])=>n).filter(n=>n!=="eu-representative"))].sort().join(",");
+  return kinds("terms.html")==="business-address,legal-name" && kinds("privacy.html")==="business-address,legal-name"
+    && of("legal-name").length===1 && of("business-address").length===1 && of("legal-name")[0]!=="" && of("business-address")[0]!=="";
+});
 check("B privacy.html and terms.html carry the same 'Last updated' (both the placeholder, or the same date)", ()=>{
   const date = (f)=>(new RegExp(LEGAL_DATE).exec(read(f)) || [])[0];
   return !!date("privacy.html") && date("privacy.html")===date("terms.html");
@@ -219,6 +271,81 @@ check("B the owner-approved storage-folder sentence and 'no ownership' stay word
   visible(read("privacy.html")).includes("Files you create, such as generated images, are kept in private storage folders named after your account handle (taken from the part of your email address before the @) and your project's first title.")
   && visible(read("terms.html")).includes("We claim no ownership over your films.")
   && visible(read("terms.html")).includes('These terms are an agreement between you and Infinite Studio AI ("we", "us")'));
+
+/* the 2026-10-01 compliance wording (owner decisions; see the fingerprint note above). The checkout
+   consent (decision D2) is quoted in the Terms word for word, and the app's checkout step must show
+   the same sentence: until the app carries it this is a NOTE, and on the switch day (LEGAL_SWITCH_DAY=1)
+   a FAIL — the Terms must not describe a checkbox the checkout doesn't have. */
+const CHECKOUT_CONSENT = "Start now: I want to use my credits straight away. I understand I lose my right to cancel for credits I use, and if I cancel within 14 days I only get back the part I haven't used.";
+/* one <h2> section of a legal page as a reader sees it (up to the next <h2>), with the fills neutralised */
+const legalSection = (f, h2)=>{ const m = legalMain(f), hit = new RegExp("<h2(?: [^>]*)?>"+h2.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")+"</h2>").exec(m);
+  if(!hit) return ""; const body = m.slice(hit.index+hit[0].length), j = body.search(/<h2[ >]/);
+  return visible(neutralFills(j<0 ? body : body.slice(0, j))).replace(/ ([.,;:)])/g, "$1"); };   // "…</a>." reads "….", not "… ."
+check("B terms.html says who we are (the trading name of the owner's legal name, at the business address)", ()=>
+  legalSection("terms.html", "Who we are")==="Infinite Studio AI is the trading name of {LEGAL_NAME}, {BUSINESS_ADDRESS}. You can reach us at the addresses under Contact below."
+  && /<h2>Who we are<\/h2>\s*<p>Infinite Studio AI is the trading name of <span data-fill="legal-name">/.test(read("terms.html")));
+check("B terms.html: prices are in US dollars and include any VAT or sales tax (owner: keep the prices in dollars)", ()=>{
+  const pay = legalSection("terms.html", "Payments, plan changes and refunds");
+  return pay.startsWith("Prices are in US dollars and include any VAT or sales tax we have to charge where you live. If your card is in another currency, your bank converts the amount and may add a fee.")
+    && !/plus (?:VAT|tax)|excluding (?:VAT|tax)|\bGBP\b|\bEUR\b|£|€/.test(visible(read("terms.html")));
+});
+check("B terms.html 'Your right to cancel' says what the checkout consent says (14 days, the unused part back, renewals aren't new purchases)", ()=>{
+  const c = legalSection("terms.html", "Your right to cancel");
+  return c.includes("You can cancel a plan or a credit pack within 14 days of buying it. To cancel, tell us within those 14 days in any clear way: for example, email kinolot-billing@infinitestudioai.com (writing from your account email helps us find your purchase), or send us the cancellation form below.")
+    && !c.includes("from your account email within those 14 days")
+    && c.includes("Before you pay, you ask us to start straight away, so you can use your credits at once. At checkout you tick a box that says: \""+CHECKOUT_CONSENT+"\"")
+    && c.includes("We refund you within 14 days of the day you tell us, to the card or other payment method you paid with.")
+    // the model cancellation form (CCR 2013 Sch 3 Part B), to the business address
+    && c.includes("Cancellation form (fill it in and send it only if you want to cancel a purchase): To: Infinite Studio AI, {BUSINESS_ADDRESS}, kinolot-billing@infinitestudioai.com I cancel my contract for the following: [the plan or credit pack] Bought on: [date] Name: [your name] Account email: [your email address] Date: [today's date]")
+    // the app's checkout step links here
+    && /<h2 id="cancel">Your right to cancel<\/h2>/.test(read("terms.html"))
+    && c.includes("So when you cancel, you get back the part you haven't used, in proportion to the credits from that purchase you haven't spent: for example, with 300 of a pack's 1,000 credits left, you get back 30% of its price. Those unused credits are then removed from your account, and for a plan, the subscription ends.")
+    && c.includes("A plan renewing each month isn't a new purchase, so it doesn't start a new 14 days.")
+    // the refunds bullet points at it, and the example's numbers are a real pack (1,000 credits) and its share
+    && legalSection("terms.html", "Payments, plan changes and refunds").includes("except as set out under Your right to cancel below or where the law requires otherwise.")
+    && /\{ sku:"pack-\d+", name:"[^"]+", price:"\$\d+", credits:1000,[^}\n]*\bunit:"switched"/.test(read("app/plans.jsx"));
+});
+{
+  /* the app side of the consent: any app file that shows the "Start now" box must use the exact sentence */
+  const appFiles = readdirSync(join(ROOT, "app")).filter(n=>/\.(?:jsx?|mjs)$/.test(n)).map(n=>"app/"+n);
+  const norm = (src)=>src.replace(/\\'/g, "'").replace(/\\u2019/g, "’");
+  const showing = appFiles.filter(f=>norm(read(f)).includes("Start now: I want to use my credits straight away."));
+  const exact = showing.filter(f=>norm(read(f)).includes(CHECKOUT_CONSENT));
+  check("B the app's checkout consent, where present, is the Terms' sentence word for word", ()=>{
+    if(showing.length!==exact.length) console.log("  drifted consent text in "+showing.filter(f=>!exact.includes(f)).join(", "));
+    return showing.length===exact.length;
+  });
+  if(SWITCH_DAY) check("B the app shows the checkout consent the Terms quote (LEGAL_SWITCH_DAY=1)", ()=>exact.length>0);
+  else if(!exact.length) console.log("NOTE the app doesn't show the checkout consent yet (\""+CHECKOUT_CONSENT.slice(0, 49)+"…\") — the Terms quote it; it must be live before the pages are");
+}
+check("B terms.html: partial refunds remove the same share; a closed dispute lifts the hold", ()=>{
+  const pay = legalSection("terms.html", "Payments, plan changes and refunds");
+  return pay.includes("If we refund part of a payment, we remove the same share of the credits it added (rounded up), but never more than you have left of them.")
+    && pay.includes("When the dispute is closed, its hold is lifted (if another payment is still disputed, the account stays on hold until that one closes too). If it was decided in your favour, the unused credits from that payment are removed.")
+    && !pay.includes("until we've spoken with you");
+});
+check("B terms.html: closing an account refunds unused paid time only — never pack credits (owner, 2026-10-01: \"no\")", ()=>{
+  const end = legalSection("terms.html", "Ending your account");
+  return end==="You can stop using the service and ask us to delete your account at any time by emailing kinolot-support@infinitestudioai.com. Credits left on your account, pack credits included, are deleted with it and aren't refunded, except as set out under Your right to cancel. We may close accounts that break these terms. If we close your account for any other reason, we refund the paid time you haven't used."
+    && !/refund[^.]*pack credits|pack credits[^.]*(?:are|will be) refunded/i.test(visible(read("terms.html")));
+});
+check("B terms.html: 30 days' notice of a higher price or fewer credits, other changes shown in the app", ()=>{
+  const ch = legalSection("terms.html", "Changes to these terms"), plans = legalSection("terms.html", "Plans and credits");
+  return ch==="When we change these terms, we update the date at the top. Material changes to a paid plan, such as a higher price or fewer monthly credits, are announced in the app or by email at least 30 days before they apply to you, so you can cancel first. Other changes are shown in the app when they apply. Continuing to use the service after a change means you accept the new terms."
+    && plans.includes("Prices and allowances may change. A higher price or fewer monthly credits on your plan is announced at least 30 days before it applies to you (see Changes to these terms below), so you can cancel first.")
+    && !plans.includes("changes apply from your next billing cycle");
+});
+check("B privacy.html: the controller line, why we use data (lawful bases), the tax records, the ICO", ()=>{
+  const who = legalSection("privacy.html", "Who we are"), why = legalSection("privacy.html", "Why we use your data");
+  const t = visible(neutralFills(legalMain("privacy.html")));
+  const whoBase = "Kinolot is run by Infinite Studio AI, the trading name of {LEGAL_NAME}, {BUSINESS_ADDRESS}. We are the controller of your personal information: we decide how it is used and are responsible for it under data protection law. You can reach us at privacy@infinitestudioai.com.";
+  return (who===whoBase+" "+EU_REP_SENTENCE || who===whoBase)
+    && legalSection("privacy.html", "International transfers")==="Some of the providers that run the service (hosting, payments and AI generation) are in the United States or other countries outside the UK and the European Union. When your information goes to them, it is protected by the safeguards the law requires, such as adequacy regulations (including the UK-US data bridge), the UK International Data Transfer Agreement or the UK Addendum to the EU Standard Contractual Clauses."
+    && why==="To give you the service (our contract with you): your account, your films, generations, payments and support. Our legitimate interests: keeping the service secure and working, and preventing abuse of the free trial — that's what the email fingerprint is for. Legal obligations: keeping tax and accounting records, such as invoices and payment records, for as long as tax law requires (in the UK, generally six years; for EU VAT records, ten years). Your consent, where we ask for it. You can withdraw it at any time."
+    && t.includes("For tax, we also keep the country of each payment (and, in the US, the state), taken from your billing address or card. When you buy, we keep a record that you chose to start straight away.")
+    && t.includes("(such as invoices and records of payments, refunds and disputes), which we keep for as long as tax law requires.")
+    && t.includes("you can complain to the UK Information Commissioner's Office (ico.org.uk) or the data protection authority where you live.");
+});
 
 /* ── C. the surfaces, executed ──────────────────────────────────────────────────── */
 const el = (type, props, ...children)=>({ type, props:props||{}, children:children.flat(Infinity) });

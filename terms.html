@@ -48,6 +48,7 @@
   p{margin:0 0 14px}
   ul{margin:0 0 14px 22px}
   li{margin-bottom:7px}
+  .form{margin:0 0 14px;padding:12px 16px;border-left:3px solid var(--line)}
   a{color:var(--accent)}
   footer{border-top:1px solid var(--line);color:var(--sub)}
   .foot-in{max-width:1280px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;
@@ -75,6 +76,11 @@
   <p>These terms are an agreement between you and Infinite Studio AI ("we", "us") for the use of
   Kinolot, the AI film studio at kinolot.infinitestudioai.com (the "service"). By creating
   an account or using the service you agree to them.</p>
+
+  <h2>Who we are</h2>
+  <p>Infinite Studio AI is the trading name of <span data-fill="legal-name">&lt;legal name&gt;</span>,
+  <span data-fill="business-address">&lt;business address&gt;</span>. You can reach us at the
+  addresses under Contact below.</p>
 
   <h2>The service</h2>
   <p>Kinolot helps you develop story ideas into films: story structure, scripts, character
@@ -122,13 +128,17 @@
     <li>Frances, the in-app help assistant, is free to use up to a daily number of questions that
       depends on your plan (a New Story voice conversation counts as one): 5 without a plan (or
       while your account is on hold), 15 on Writer, 30 on Director and 50 on Producer.</li>
-    <li>Prices and allowances may change; changes apply from your next billing cycle, and we'll
-      tell you first, so you can cancel before they apply. Credit rates for each action may also
-      change as our providers' prices change.</li>
+    <li>Prices and allowances may change. A higher price or fewer monthly credits on your plan is
+      announced at least 30 days before it applies to you (see Changes to these terms below), so
+      you can cancel first. Credit rates for each action may also change as our providers' prices
+      change.</li>
   </ul>
 
   <h2>Payments, plan changes and refunds</h2>
   <ul>
+    <li>Prices are in US dollars and include any VAT or sales tax we have to charge where you
+      live. If your card is in another currency, your bank converts the amount and may add a
+      fee.</li>
     <li>To switch plans, choose Change plan in your account menu. For now that means writing to
       <a href="mailto:kinolot-billing@infinitestudioai.com">kinolot-billing@infinitestudioai.com</a>
       from your account email, and we move you over.</li>
@@ -148,22 +158,54 @@
       After that, your plan's monthly credits end and any pack credits stay usable until they
       expire.</li>
     <li>Because credits are spent on third-party compute as you use them, payments are
-      generally non-refundable once credits have been consumed, except where the law requires
-      otherwise. If we refund a payment in full, the unused credits it added are removed (for a
-      plan payment, the ones it added for the current month), including credits set aside for a
-      generation that is still running. If something went wrong on our side, email us — we're
+      generally non-refundable once credits have been consumed, except as set out under Your right
+      to cancel below or where the law requires otherwise. If we refund a payment in full, the
+      unused credits it added are removed (for a plan payment, the ones it added for the current
+      month), including credits set aside for a generation that is still running. If we refund
+      part of a payment, we remove the same share of the credits it added (rounded up), but never
+      more than you have left of them. If something went wrong on our side, email us — we're
       reasonable.</li>
     <li>If you dispute a payment with your bank, your account is on hold while the dispute is
       open: your credits stay visible but none of them can be spent, pack credits included. Your
       subscription keeps renewing while the account is on hold; you can cancel it from Manage
       plan.</li>
-    <li>If the dispute is decided in your favour, the unused credits from that payment are
-      removed and the account stays on hold until we've spoken with you. If it is decided in our
-      favour, the hold is lifted.</li>
+    <li>When the dispute is closed, its hold is lifted (if another payment is still disputed, the
+      account stays on hold until that one closes too). If it was decided in your favour, the
+      unused credits from that payment are removed.</li>
     <li>If a new subscription is paid for an account that already has an active subscription
       under a different billing account, we don't apply it automatically: we check it with you
       first, and refund it if it was a mistake.</li>
   </ul>
+
+  <h2 id="cancel">Your right to cancel</h2>
+  <ul>
+    <li>You can cancel a plan or a credit pack within 14 days of buying it. To cancel, tell us within
+      those 14 days in any clear way: for example, email
+      <a href="mailto:kinolot-billing@infinitestudioai.com">kinolot-billing@infinitestudioai.com</a>
+      (writing from your account email helps us find your purchase), or send us the cancellation
+      form below.</li>
+    <li>Before you pay, you ask us to start straight away, so you can use your credits at once. At
+      checkout you tick a box that says: "Start now: I want to use my credits straight away. I
+      understand I lose my right to cancel for credits I use, and if I cancel within 14 days I only
+      get back the part I haven't used."</li>
+    <li>So when you cancel, you get back the part you haven't used, in proportion to the credits
+      from that purchase you haven't spent: for example, with 300 of a pack's 1,000 credits left,
+      you get back 30% of its price. Those unused credits are then removed from your account, and
+      for a plan, the subscription ends.</li>
+    <li>We refund you within 14 days of the day you tell us, to the card or other payment method
+      you paid with.</li>
+    <li>A plan renewing each month isn't a new purchase, so it doesn't start a new 14 days. You can
+      still cancel your subscription at any time from Manage plan; it stays active until the end of
+      the paid period.</li>
+  </ul>
+  <p>Cancellation form (fill it in and send it only if you want to cancel a purchase):</p>
+  <p class="form">To: Infinite Studio AI, <span data-fill="business-address">&lt;business address&gt;</span>,
+  kinolot-billing@infinitestudioai.com<br>
+  I cancel my contract for the following: [the plan or credit pack]<br>
+  Bought on: [date]<br>
+  Name: [your name]<br>
+  Account email: [your email address]<br>
+  Date: [today's date]</p>
 
   <h2>Your content and ownership</h2>
   <ul>
@@ -208,14 +250,16 @@
   <h2>Ending your account</h2>
   <p>You can stop using the service and ask us to delete your account at any time by emailing
   <a href="mailto:kinolot-support@infinitestudioai.com">kinolot-support@infinitestudioai.com</a>. Credits left
-  on your account are deleted with it; if you have pack credits you haven't used, say so when you
-  write. We may close accounts that violate these terms, and will refund unused paid time and
-  unused pack credits where the closure isn't for a violation.</p>
+  on your account, pack credits included, are deleted with it and aren't refunded, except as set
+  out under Your right to cancel. We may close accounts that break these terms. If we close your
+  account for any other reason, we refund the paid time you haven't used.</p>
 
   <h2>Changes to these terms</h2>
-  <p>If we change these terms materially we'll update the date at the top and tell you in the app
-  or by email before the change applies. Continuing to use the service after that means you
-  accept the new terms.</p>
+  <p>When we change these terms, we update the date at the top. Material changes to a paid plan,
+  such as a higher price or fewer monthly credits, are announced in the app or by email at least
+  30 days before they apply to you, so you can cancel first. Other changes are shown in the app
+  when they apply. Continuing to use the service after a change means you accept the new
+  terms.</p>
 
   <h2>Contact</h2>
   <p>Help with Kinolot: <a href="mailto:kinolot-support@infinitestudioai.com">kinolot-support@infinitestudioai.com</a><br>
