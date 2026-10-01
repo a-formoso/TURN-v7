@@ -14,8 +14,9 @@
    B. The page head (title, description, og:*), the favicon (the Kinolot mark "The Lot" on the app
       icon's dark tile since 2026-09-29 — not the old "E" or the zig-zag; scripts/test-identity.mjs
       pins the geometry), and the legal pages: product Kinolot, domain kinolot.infinitestudioai.com,
-      "Kinolot by Infinite Studio AI" — with the legal wording itself unchanged (a fingerprint of
-      the text with the product name and domain neutralised).
+      "Kinolot by Infinite Studio AI" — with the legal wording itself pinned (a fingerprint of
+      the text with the product name, domain and "Last updated" date neutralised), and the
+      billing numbers the Terms state read back from the code that charges them.
    C. Executed in a sandbox: the one-colour Spectral wordmark "Kinolot" (logo direction B, 2026-09-29;
       it replaced the two-tone "Kino" + accent "lot"); straight
       "Writers' Room"; the Story Editors / Art Coordinator tooltips; the plans (LIVE_HOSTS with
@@ -115,24 +116,105 @@ const visible = (s)=> s.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, " ").replac
 /* the legal wording with the product name and domain neutralised; the rename must not move it.
    Changing it is an owner (and lawyer) decision — update the fingerprint only with that sign-off. */
 /* 2026-09-28 owner sign-off: contact addresses switched (privacy@ for data requests; kinolot-support@,
-   kinolot-billing@ and legal@ in the terms); no other wording changed. */
-const LEGAL_FINGERPRINT = { "privacy.html":"2578db46e8e13d6c", "terms.html":"cedfe38ac567a0c0" };
-const legalText = (f)=> visible(legalMain(f)).replace(/Kinolot by Infinite Studio AI/g, "{PRODUCT} by {COMPANY}")
+   kinolot-billing@ and legal@ in the terms); no other wording changed.
+   2026-10-01 owner sign-off ("yes, prepare the Terms and Privacy changes"): the billing-switch wording
+   from docs/Billing Terms Proposal.md, as the rules stand from the switch day (supabase/billing-switch.sql);
+   both pages go live that day with it. Terms: "The service" (credits, not "a paid plan is required"),
+   "Plans and credits" rewritten (plans, what each includes, the trial, packs, holds, renders charged
+   only if they finish, the video price check, Frances's daily limits) and a new "Payments, plan
+   changes and refunds" section (upgrades, downgrades, failed payments, cancelling, refunds, disputes,
+   a second subscription). Privacy: the trial's email fingerprint, the cancelling line. Both: the
+   "Effective" date became "Last updated: <switch date>" and "Changes" points at the date at the top.
+   Same day, after the reviews: Terms say plans renew automatically, how to switch plans (Change plan,
+   by email for now), upgrade credits once the proration is paid, plan credits come back from a
+   failed job only within their month, the 30-day render exception inside the rule, the video margin
+   and length-billed renders, a New Story voice conversation counts as a Frances question, "on hold"
+   (the app's word) for disputes, refunds of plan payments, monthly credits ending after failed
+   retries, rate changes, and pack credits on closing an account. Privacy: the trial hash only when
+   the trial is given, the billing records kept, and payment / refund / dispute records in retention. */
+const LEGAL_FINGERPRINT = { "privacy.html":"87586fa47d04d522", "terms.html":"8e52a9c33fc55208" };
+/* The "Last updated" line holds the placeholder until the switch day; the owner then writes the date
+   on BOTH pages in the form "14 November 2026" (docs/Billing Rollout Runbook.md). The fingerprint
+   reads either as {DATE}, so filling in the date needs no test change — any other change to the
+   wording does. On the switch day run the test with LEGAL_SWITCH_DAY=1: the placeholder then FAILS
+   instead of printing a NOTE (the pages describe the rules from the switch day, so they must not be
+   published before it — keep them off main until then). */
+const MONTHS = "January|February|March|April|May|June|July|August|September|October|November|December";
+const LEGAL_DATE = "Last updated: (?:&lt;switch date&gt;|(?:[1-9]|[12]\\d|3[01]) (?:"+MONTHS+") 20\\d\\d)";
+const SWITCH_DAY = process.env.LEGAL_SWITCH_DAY==="1";
+const LEGAL_META = new RegExp('<div class="meta">Kinolot by Infinite Studio AI &middot; '+LEGAL_DATE+'</div>');
+const legalText = (f)=> visible(legalMain(f)).replace(new RegExp(LEGAL_DATE, "g"), "Last updated: {DATE}")
+  .replace(/Kinolot by Infinite Studio AI/g, "{PRODUCT} by {COMPANY}")
   .replace(/kinolot\.infinitestudioai\.com/g, "{DOMAIN}").replace(/Kinolot/g, "{PRODUCT}");
 for(const f of ["privacy.html", "terms.html"]){
   const s = read(f), text = visible(s);
   check("B "+f+": Kinolot at kinolot.infinitestudioai.com, by Infinite Studio AI — no old name or host", ()=>
     /<a class="logo" href="\/"><svg class="mark" [^>]*aria-hidden="true"[^>]*>[\s\S]*?<\/svg>Kinolot<\/a>/.test(s)
     && /<span class="foot-logo"><svg class="mark" [^>]*aria-hidden="true"[^>]*>[\s\S]*?<\/svg>Kinolot<\/span>/.test(s)
-    && s.includes('<div class="meta">Kinolot by Infinite Studio AI &middot; Effective 12 July 2026</div>')
+    && LEGAL_META.test(s) && (s.match(/<div class="meta">/g) || []).length===1
     && text.includes("kinolot.infinitestudioai.com") && !/cinema\.infinitestudioai\.com|cinemamachine/i.test(s)
     && !BANNED.some(([, re])=>re.test(text)) && /<title>[^<]*— Kinolot<\/title>/.test(s));
-  check("B "+f+": the legal wording is unchanged (fingerprint)", ()=>{
+  check("B "+f+": the legal wording is the signed-off text (fingerprint)", ()=>{
     const got = createHash("sha256").update(legalText(f)).digest("hex").slice(0, 16);
     if(got!==LEGAL_FINGERPRINT[f]){ console.log("  "+f+" fingerprint "+got); return false; }
     return true;
   });
+  if(SWITCH_DAY) check("B "+f+": the 'Last updated' date is filled in (LEGAL_SWITCH_DAY=1)", ()=>!s.includes("Last updated: &lt;switch date&gt;"));
+  else if(s.includes("Last updated: &lt;switch date&gt;"))
+    console.log("NOTE "+f+": 'Last updated' still reads <switch date> — on the switch day write the date on both pages as e.g. \"14 November 2026\", then run with LEGAL_SWITCH_DAY=1");
 }
+check("B privacy.html and terms.html carry the same 'Last updated' (both the placeholder, or the same date)", ()=>{
+  const date = (f)=>(new RegExp(LEGAL_DATE).exec(read(f)) || [])[0];
+  return !!date("privacy.html") && date("privacy.html")===date("terms.html");
+});
+/* the brand rule on the legal pages themselves (test-brand-guard's page scan checks retired names only):
+   no McKee, no Claude / Anthropic and no AI vendor or model name in what a reader sees — the named
+   providers are Stripe (payments) and Supabase (storage), which the pages name on purpose */
+const LEGAL_VENDORS = /McKee|\bClaude\b|Anthropic|OpenAI|ChatGPT|\bGPT\b|Gemini|Google|DeepMind|\bfal(?:\.ai)?\b|ElevenLabs|Kling|Runway|Midjourney|Replicate|\bKimi\b|Moonshot|Nano Banana|\bVeo\b|\bSora\b|Seedance|Hailuo|MiniMax|\bLuma\b|\bPika\b|Mistral|\bLlama\b|\bxAI\b|\bGrok\b|\bMeta\b|Microsoft|Azure|\bAWS\b|Amazon/;
+for(const f of ["privacy.html", "terms.html"])
+  check("B "+f+": no McKee, Claude / Anthropic or AI vendor name in the page text", ()=>{
+    const s = read(f), text = visible(s.replace(/<head>[\s\S]*?<\/head>/, " "));
+    const m = LEGAL_VENDORS.exec(text);
+    if(m) console.log("  "+f+": names "+JSON.stringify(m[0])+" — "+text.slice(Math.max(0, m.index-60), m.index+60));
+    return !m && /<title>[^<]*<\/title>/.test(s) && !LEGAL_VENDORS.test((/<title>([^<]*)<\/title>/.exec(s) || [])[1] || "");
+  });
+/* the billing facts the Terms state are the ones the code charges by (2026-10-01): plan prices and
+   allowances (app/plans.jsx PLANS = PLAN_ALLOWANCES.switched), the packs (CREDIT_PACKS), the trial
+   (TRIAL_CREDITS, TRIAL_COPY), the no-plan rule and Frances's daily limits (image-proxy
+   billing-policy.mjs), the 12-month pack lots and the video price check (quote x 1.1 + 2); after the
+   reviews also: a New Story voice conversation counts as a Frances question (image-proxy's live task),
+   the 30-day last resort (turn_release_stale_holds) and switching by email while the billing page
+   can't switch plans (PORTAL_PLAN_SWITCHING). */
+check("B terms.html states the plans, packs, trial, no-plan rule, Frances limits, render and switching rules the code uses", ()=>{
+  const t = visible(read("terms.html")), plans = read("app/plans.jsx");
+  const policy = read("supabase/functions/image-proxy/billing-policy.mjs"), proxy = read("supabase/functions/image-proxy/index.ts");
+  const fmt = (n)=>Number(n).toLocaleString("en-US");
+  const planRows = [...plans.matchAll(/\{ tier:"(\w+)",\s+name:"(\w+)",\s+price:"(\$\d+)", credits:(\d+),/g)];
+  const allow = /switched: \{ writer:(\d+), director:(\d+), studio:(\d+) \}/.exec(plans);
+  const packs = [...plans.matchAll(/\{ sku:"pack-\d+", name:"[^"]+", price:"(\$\d+)", credits:(\d+),[^}\n]*\bunit:"switched"/g)];
+  const trial = /const TRIAL_CREDITS = (\d+);/.exec(plans);
+  const copy = /const TRIAL_COPY = "New accounts get (\d+) free credits after confirming their email — (enough to try [^"]+)";/.exec(plans);
+  const fr = /FRANCES_PLAN_LIMITS = Object\.freeze\(\{ none: (\d+), writer: (\d+), director: (\d+), studio: (\d+) \}\)/.exec(policy);
+  if(planRows.length!==3 || !allow || packs.length!==3 || !trial || !copy || copy[1]!==trial[1] || !fr) return false;
+  const byTier = { writer:allow[1], director:allow[2], studio:allow[3] };
+  const ps = packs.map(([, price, c], i)=>fmt(c)+(i ? "" : " credits")+" for "+price);
+  return planRows.every(([, tier, name, price, credits])=>credits===byTier[tier] && t.includes(name+" ("+price+" a month, "+fmt(credits)+" credits)"))
+    && t.includes("any signed-in account can buy one: "+ps.slice(0, -1).join(", ")+" or "+ps[ps.length-1]+".")
+    && t.includes("New accounts get "+trial[1]+" free credits once, after confirming their email address — "+copy[2])
+    && policy.includes("Without a plan, credits cover writing on the default engines and draft images.")
+    && t.includes("Without a plan, credits (from the free trial or a credit pack) cover writing on the default engines and draft images only.")
+    && t.includes("(a New Story voice conversation counts as one): "+fr[1]+" without a plan (or while your account is on hold), "+fr[2]+" on Writer, "+fr[3]+" on Director and "+fr[4]+" on Producer.")
+    && read("app/ai.jsx").includes("(a New Story voice conversation counts as one)") && /if \(task === "live"\) \{[\s\S]{0,6000}?const francesVoiceCheck: any = await francesLimit\(/.test(proxy)
+    && read("supabase/billing-v2.sql").includes("pg_catalog.now() + interval '12 months'")
+    && t.includes("Pack credits last 12 months from purchase")
+    && proxy.includes("const quoteLimit = (q: number) => Math.ceil(q * 1.1 - 1e-9) + 2;") && t.includes("at most 10% plus 2 credits more.")
+    // the 30-day last resort settles a render's hold at the amount set aside (turn_release_stale_holds)
+    && /h\.created_at < pg_catalog\.now\(\) - interval '30 days'[\s\S]{0,80}perform public\.turn__finish_hold\(v_hold\.ref, v_hold\.held\);/.test(read("supabase/billing-v2.sql"))
+    && t.includes("The one exception: if the provider never tells us the outcome within 30 days, we keep the credits set aside for it")
+    // plan switching is by email until the billing page offers it (app/plans.jsx PORTAL_PLAN_SWITCHING):
+    // turning switching on there fails this until the Terms' "For now…" line is updated with it
+    && plans.includes("const PORTAL_PLAN_SWITCHING = false;")===t.includes("For now that means writing to kinolot-billing@infinitestudioai.com from your account email");
+});
 check("B the owner-approved storage-folder sentence and 'no ownership' stay word for word", ()=>
   visible(read("privacy.html")).includes("Files you create, such as generated images, are kept in private storage folders named after your account handle (taken from the part of your email address before the @) and your project's first title.")
   && visible(read("terms.html")).includes("We claim no ownership over your films.")
