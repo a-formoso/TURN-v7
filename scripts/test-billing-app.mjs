@@ -135,16 +135,24 @@ const renderPlans = (opts = {}) => {
   return P.PlansModal({ onClose: opts.onClose || noop, currentPlan: opts.balance ? opts.balance.plan : null });
 };
 
-await test("B packs: 250 for $10, 1,000 for $35, 3,000 for $99 (3,000 flagged best value); every link slot starts empty", () => {
+await test("B packs: 250 for $10, 1,000 for $35, 3,000 for $99 (3,000 flagged best value); the owner's links (2026-10-01): live on the live hosts, test-mode elsewhere, none of the old packs' live links", () => {
   assert.deepEqual(plain(P.CINEMA_CREDIT_PACKS.map((p) => [p.sku, p.credits, p.price, !!p.popular])),
     [["pack-250", 250, "$10", false], ["pack-1000", 1000, "$35", false], ["pack-3000", 3000, "$99", true]]);
-  assert.ok(P.CINEMA_CREDIT_PACKS.every((p) => p.test === "" && p.live === ""), "no old 300/1,200/4,000 link survives");
+  const LIVE = ["https://buy.stripe.com/fZu6oJ8bib6r0uU9Dlc7u06", "https://buy.stripe.com/dRm00l2QY2zV4La5n5c7u07", "https://buy.stripe.com/5kQ6oJ63a0rN5PeeXFc7u08"];
+  const TEST = ["https://buy.stripe.com/test_8x200l77e1vR4La7vdc7u05", "https://buy.stripe.com/test_9B6cN73V28YjfpO02Lc7u04", "https://buy.stripe.com/test_8x200l63a2zVfpO9Dlc7u03"];
+  assert.deepEqual(plain(P.CINEMA_CREDIT_PACKS.map((p) => p.live)), LIVE);
+  assert.deepEqual(plain(P.CINEMA_CREDIT_PACKS.map((p) => p.test)), TEST);
+  const oldLive = plain(P.TURN_LEGACY_CREDIT_PACKS.map((p) => p.live));
+  assert.ok(P.CINEMA_CREDIT_PACKS.every((p) => !oldLive.includes(p.live)), "no old 300/1,200/4,000 link is reused for a new pack");
   P.location.hostname = "kinolot.infinitestudioai.com";
-  assert.ok(P.CINEMA_CREDIT_PACKS.every((p) => P.turnCreditPackLink(p) === ""), "live host: empty");
+  assert.deepEqual(plain(P.CINEMA_CREDIT_PACKS.map((p) => P.turnCreditPackLink(p))), LIVE, "live host: the live links");
   P.location.hostname = "localhost";
-  assert.ok(P.CINEMA_CREDIT_PACKS.every((p) => P.turnCreditPackLink(p) === ""), "test host: empty");
+  assert.deepEqual(plain(P.CINEMA_CREDIT_PACKS.map((p) => P.turnCreditPackLink(p))), TEST, "test host: the test-mode links");
 });
 await test("B empty slots render a disabled 'Coming soon' and clicking never opens a checkout; the section says 'for any account' and 12 months", () => {
+  const savedLinks = P.CINEMA_CREDIT_PACKS.map((p) => [p.test, p.live]);
+  P.CINEMA_CREDIT_PACKS.forEach((p) => { p.test = ""; p.live = ""; });
+  try {
   const m = renderPlans({ balance: { remaining: 40, plan: "none", trial: true } });
   const packs = findAll(m, hasClass("credit-pack"));
   assert.equal(packs.length, 3);
@@ -156,9 +164,11 @@ await test("B empty slots render a disabled 'Coming soon' and clicking never ope
   const sub = textOf(findAll(m, hasClass("credit-packs-sub"))[0]);
   assert.equal(sub, "One-off packs for any account. Pack credits last 12 months and are never reset when your plan renews — your plan’s monthly credits are used first. Without a plan, credits cover writing on the default engines and draft images.");
   assert.ok(!/active subscription/i.test(JSON.stringify(m)), "the old 'active subscriptions only' rule is gone");
+  } finally { P.CINEMA_CREDIT_PACKS.forEach((p, i) => { p.test = savedLinks[i][0]; p.live = savedLinks[i][1]; }); }
 });
 await test("B once a link is pasted, ANY signed-in account (no plan) can buy: the checkout carries the user id", () => {
   const pack = P.CINEMA_CREDIT_PACKS[0];
+  const savedTest = pack.test;
   pack.test = "https://buy.stripe.com/test_pack250";
   try {
     P.opened.length = 0;
@@ -170,7 +180,7 @@ await test("B once a link is pasted, ANY signed-in account (no plan) can buy: th
     assert.equal(P.opened.length, 1);
     assert.match(P.opened[0], /^https:\/\/buy\.stripe\.com\/test_pack250\?client_reference_id=u-1/);
     assert.equal(P.toasts.filter((t) => /Choose a monthly plan first/.test(t.m)).length, 0);
-  } finally { pack.test = ""; }
+  } finally { pack.test = savedTest; }
 });
 await test("B signed out: the Plans window shows the trial line", () => {
   const m = renderPlans({ uid: null });
@@ -1580,6 +1590,7 @@ await test("M brand: the new copy names no retired name (TURN, MUSE, Cinema Mach
       assert.equal(findAll(out, hasClass("plans-trial")).length, 0, "a signed-out visitor sees no trial line yet");
     } finally { N.CINEMA_CREDIT_PACKS.forEach((p, i) => { p.test = saved[i]; }); }
   });
+  let savedPack0Test = "";   // pack 0's real test link, borrowed by the two tests below and put back
   await test("N before the switch (usd_per_credit 0.03): costs, text fallbacks, cards, trial and packs follow — and the choice is remembered", () => {
     const changed = N.turnApplyCreditRegime([{ switched: false, switched_at: null, usd_per_credit: "0.03", trial_credits: 0, legacy_until: null }], "server");
     assert.equal(changed, true);
@@ -1593,6 +1604,7 @@ await test("M brand: the new copy names no retired name (TURN, MUSE, Cinema Mach
     assert.equal(N.lpPricingNote(), "", "the landing line hides");
     assert.equal(JSON.parse(N.localStorage.getItem("turn-credit-regime-v1")).switched, false, "remembered for the next first paint");
     // a pack link pasted in early still can't open a checkout before the switch
+    savedPack0Test = N.CINEMA_CREDIT_PACKS[0].test;
     N.CINEMA_CREDIT_PACKS[0].test = "https://buy.stripe.com/test_pack250";
     N.turnUserId = "u-1"; N.turnIsPaidPlan = paidFn; N.turnIsAdmin = false; N.usePlansVersion = () => 0;
     N.turnCreditBalance = { remaining: 10, plan: "writer" }; N.React.reset();
@@ -1661,7 +1673,7 @@ await test("M brand: the new copy names no retired name (TURN, MUSE, Cinema Mach
     const btn = findAll(findAll(tree, hasClass("credit-pack"))[0], (n) => n.type === "button")[0];
     assert.equal(btn.props.disabled, false); btn.props.onClick();
     assert.equal(N.opened.length, 1); assert.ok(N.opened[0].startsWith("https://buy.stripe.com/test_pack250?client_reference_id=u-1"));
-    N.CINEMA_CREDIT_PACKS[0].test = "";
+    N.CINEMA_CREDIT_PACKS[0].test = savedPack0Test;
     // grandfathering is told in the Plans window while legacy_until is ahead
     const now = Date.parse("2026-11-01T00:00:00Z");
     assert.equal(N.turnLegacyAllowanceNote({ remaining: 7000, plan: "director", plan_remaining: 7000, pack_remaining: 0, plan_allowance: 7200 }, now),

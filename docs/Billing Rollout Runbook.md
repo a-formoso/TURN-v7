@@ -99,7 +99,7 @@ It is safe to run again: each job is removed by name and scheduled again.
    - Set each link's after-payment URL to `https://kinolot.infinitestudioai.com/?credits=<n>`.
    - Make matching test-mode links too.
    - **Leave the three new live links deactivated until the switch day.**
-   - Send the six links to Claude, or paste them into `CREDIT_PACKS` in `app/plans.jsx` (`live:` and `test:`), before step 5.
+   - Send the six links to Claude, or paste them into `CREDIT_PACKS` in `app/plans.jsx` (`live:` and `test:`), before step 5. **Done 2026-10-01** (the live links stay deactivated in Stripe until the switch day).
    - The new packs don't appear in the app until the switch, even with the links pasted in.
    - **Leave the three old pack links (300 / 1,200 / 4,000) on sale.** They come off on the switch day (step 6).
 4. **Recommended, from the review:**

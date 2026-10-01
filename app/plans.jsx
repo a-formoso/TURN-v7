@@ -174,17 +174,23 @@ window.turnPlanDisplayName = planDisplayName;
      pack_credits=250 | 1000 | 3000
    and set each link's after-payment URL to https://kinolot.infinitestudioai.com/?credits=<n>.
    Then paste each Payment Link into `live` (and a test-mode link into `test`). An empty slot
-   shows "Coming soon" and can never open a checkout. */
+   shows "Coming soon" and can never open a checkout. Links pasted 2026-10-01 (the live ones stay
+   deactivated in Stripe until the switch day; packOnSale also keeps them shut before it). Stripe
+   numbers links per mode, so the sandbox's test_…c7u03-05 (these packs) share their codes with
+   the live OLD packs below (…c7u03-05) — different links, different modes. */
 const CREDIT_PACKS = [
   { sku:"pack-250", name:"250 credits", price:"$10", credits:250, unit:"switched",
     blurb:"A quick top-up for a few more drafts or images.",
-    test:"", live:"" },
+    test:"https://buy.stripe.com/test_8x200l77e1vR4La7vdc7u05",
+    live:"https://buy.stripe.com/fZu6oJ8bib6r0uU9Dlc7u06" },
   { sku:"pack-1000", name:"1,000 credits", price:"$35", credits:1000, unit:"switched",
     blurb:"Room for a heavier design or production pass.",
-    test:"", live:"" },
+    test:"https://buy.stripe.com/test_9B6cN73V28YjfpO02Lc7u04",
+    live:"https://buy.stripe.com/dRm00l2QY2zV4La5n5c7u07" },
   { sku:"pack-3000", name:"3,000 credits", price:"$99", credits:3000, popular:true, unit:"switched",
     blurb:"A production reserve for image, voice and video work.",
-    test:"", live:"" },
+    test:"https://buy.stripe.com/test_8x200l63a2zVfpO9Dlc7u03",
+    live:"https://buy.stripe.com/5kQ6oJ63a0rN5PeeXFc7u08" },
 ];
 window.CINEMA_CREDIT_PACKS = CREDIT_PACKS;
 /* THE CURRENT PACKS, until the switch (repair 2026-09-30): during the 30-day notice nobody could buy
