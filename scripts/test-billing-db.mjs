@@ -34,8 +34,10 @@
         stale holds, expiry and the reconcile calls to image-proxy and blender-bridge
      N  the reconciliation contract: turn_open_provider_holds, turn_claim_housekeeping,
         the 30-day last-resort rule for provider-tied holds, the balance's held column
-     K  fresh install: credits.sql alone = old credits.sql + billing-v2.sql, the
-        shared block is byte-identical, v2 after it changes nothing
+     K  fresh install: credits.sql alone = old credits.sql + billing-v2.sql (+ tax-compliance.sql,
+        whose block credits.sql also carries; scripts/test-tax-compliance-db.mjs tests that file and
+        turn_revoke_charge_once's refund_fraction), the shared block is byte-identical, v2 after it
+        changes nothing
      L  README documents the files, the order and every contract function
      P  CLAUDE.md's billing rules (L and P read the numbers they pin from image-proxy's billing-pricing.mjs /
         video-snapshots.mjs and app/newstory.jsx, so the words can't drift from the code)
@@ -76,6 +78,7 @@ const UNDO = read("supabase/billing-switch-undo.sql");
 const CRON = read("supabase/billing-housekeeping-cron.sql");
 const CREDITS = read("supabase/credits.sql");
 const STUDIO = read("supabase/studio-credit-settlement-migration.sql");
+const TAX = read("supabase/tax-compliance.sql");
 const README = read("supabase/README.md");
 const NOTES = read("CLAUDE.md");
 let OLD = null;
@@ -353,7 +356,7 @@ if (part("C", "C. privileges")) {
     "turn_hold_credits(uuid, integer, text, text)", "turn_settle_hold(text, integer)", "turn_release_hold(text)",
     "turn_set_plan_once(text, uuid, text, integer, text, text, timestamp with time zone)",
     "turn_adjust_plan_once(text, uuid, text, integer, text)", "turn_add_pack_once(text, uuid, integer, text, boolean)",
-    "turn_revoke_charge_once(text, text)", "turn_set_payment_status(uuid, text)", "turn_set_frozen(uuid, boolean, text)",
+    "turn_revoke_charge_once(text, text, numeric)", "turn_set_payment_status(uuid, text)", "turn_set_frozen(uuid, boolean, text)",
     "turn_end_plan_for_sub(uuid, text)", "turn_hold_attach(text, text)", "turn_hold_lookup(text)",
     "turn_open_provider_holds(integer, integer, text)", "turn_claim_housekeeping(text, integer)",
   ];
@@ -372,7 +375,7 @@ if (part("C", "C. privileges")) {
     by["turn_set_plan_once(text, uuid, text, integer, text, text, timestamp with time zone)"]?.result === "integer" &&
     by["turn_adjust_plan_once(text, uuid, text, integer, text)"]?.result === "integer" &&
     by["turn_add_pack_once(text, uuid, integer, text, boolean)"]?.result === "integer" &&
-    by["turn_revoke_charge_once(text, text)"]?.result === "integer" &&
+    by["turn_revoke_charge_once(text, text, numeric)"]?.result === "integer" &&
     by["turn_hold_attach(text, text)"]?.result === "jsonb" && by["turn_hold_lookup(text)"]?.result === "jsonb" &&
     by["turn_open_provider_holds(integer, integer, text)"]?.result === "TABLE(ref text, owner uuid, provider_ref text, held integer, reason text, created_at timestamp with time zone)" &&
     by["turn_claim_housekeeping(text, integer)"]?.result === "boolean" &&
@@ -1134,14 +1137,16 @@ if (part("K", "K. fresh install = upgrade path")) {
   });
   const fresh = await freshDb();
   if (OLD) {
+    // (credits.sql also carries tax-compliance.sql's block: the upgrade path runs both files)
     const upg = await productionDb();
     await runFile(upg, V2);
+    await runFile(upg, TAX);
     const [fa, fb] = [JSON.parse(await fingerprint(fresh)), JSON.parse(await fingerprint(upg))];
     const diff = Object.keys(fa).filter((k) => safe(fa[k]) !== safe(fb[k]));
     const detail = diff.map((k) => ({ k, fresh: fa[k].filter((x) => !fb[k].some((y) => safe(y) === safe(x))), upgrade: fb[k].filter((y) => !fa[k].some((x) => safe(x) === safe(y))) }));
     // the upgrade database also holds turn_studio_settle_credit (its own migration), nothing else differs
     const onlyStudio = detail.every((dd) => dd.k === "fns" && dd.fresh.length === 0 && dd.upgrade.every((f) => /turn_studio_settle_credit/.test(f.sig)));
-    ok("K2 credits.sql alone ends in the same schema, functions and privileges as the upgrade path", diff.length === 0 || onlyStudio, detail);
+    ok("K2 credits.sql alone ends in the same schema, functions and privileges as the upgrade path (billing-v2.sql, then tax-compliance.sql)", diff.length === 0 || onlyStudio, detail);
   }
   const v2 = await runFile(fresh, V2);
   ok("K3 billing-v2.sql after a fresh credits.sql: RESULT ok", v2.ok && allOk(v2.rows), v2.error || bad(v2.rows));

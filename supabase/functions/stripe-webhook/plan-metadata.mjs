@@ -15,7 +15,9 @@
    Billing fixes 2026-09-30 add the pure rules the webhook's new events need: plan ranks and
    allowances (upgrade = allowance difference now, downgrade = at the next renewal), the
    idempotency keys, refund / dispute outcomes, the Stripe key's mode, and period dates that
-   read both the old and the basil/dahlia subscription shape. */
+   read both the old and the basil/dahlia subscription shape. 2026-10-01 (D4): a closed dispute
+   lifts only the hold it placed (disputeHoldReason / disputeHoldAfterClose). The sales ledger's
+   and the partial refunds' pure rules are in sales-ledger.mjs. */
 export const OUR_APPS = Object.freeze(["kinolot", "cinema-machine"]);
 const norm = (v) => (typeof v === "string" ? v.trim().toLowerCase() : "");
 
@@ -165,12 +167,52 @@ export function refundState(charge) {
 }
 
 /** What a closed dispute means for the account: won / inquiry closed -> unfreeze; lost -> the
-    purchase's unspent credits are taken back and the account stays frozen for the owner. */
+    purchase's unspent credits are taken back, then the hold is lifted too (owner decision
+    2026-10-01, D4: a closed dispute, won or lost, lifts the hold it placed). */
 export function disputeOutcome(status) {
   const s = norm(status);
   if (s === "won" || s === "warning_closed") return "unfreeze";
   if (s === "lost") return "lost";
   return "none";
+}
+
+/* ── D4 (2026-10-01): one hold per open dispute ─────────────────────────────────────────────
+   turn_set_frozen keeps ONE reason per account. A customer often disputes several payments at
+   once (a stolen card used for a plan and packs), and the first dispute to close must not lift
+   the hold while another is still open — nor a hold that was there before any dispute. So the
+   reason lists every hold, " | " between them ("dispute dp_1 (fraudulent) on charge ch_1 |
+   dispute dp_2 (general) on charge ch_2"); a closing dispute removes its own part and the hold
+   is lifted only when nothing is left. */
+export const HOLD_SEPARATOR = " | ";
+const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function namesDispute(text, disputeId) {
+  return !!disputeId && new RegExp(`\\bdispute ${escapeRe(disputeId)}(?![A-Za-z0-9_])`).test(String(text || ""));
+}
+
+/** The reason to freeze with when dispute `disputeId` opens: its own part alone on an account that
+    isn't held; added to the reasons already there on a held one (once — a resend changes nothing);
+    a held account with no reason keeps a marker for that earlier hold. */
+export function disputeHoldReason(acct, part, disputeId) {
+  const held = !!(acct && acct.frozen);
+  const existing = held && typeof acct.frozen_reason === "string" ? acct.frozen_reason.trim() : "";
+  if (!held) return part;
+  if (namesDispute(existing, disputeId)) return existing;
+  return (existing || "earlier hold (no reason given)") + HOLD_SEPARATOR + part;
+}
+
+/** What closing dispute `disputeId` does to the hold:
+      { action: "lift" }                       nothing else holds the account (or it isn't held)
+      { action: "keep", remaining: "<rest>" }  other holds remain: freeze with just those
+      { action: "review", remaining: "<all>" } the account is held but not by this dispute — left
+                                               alone and recorded for the owner */
+export function disputeHoldAfterClose(acct, disputeId) {
+  if (!acct || !acct.frozen) return { action: "lift" };
+  const reason = typeof acct.frozen_reason === "string" ? acct.frozen_reason.trim() : "";
+  const parts = reason ? reason.split(HOLD_SEPARATOR).map((p) => p.trim()).filter(Boolean) : [];
+  const rest = parts.filter((p) => !namesDispute(p, disputeId));
+  if (!rest.length && parts.length) return { action: "lift" };
+  if (rest.length === parts.length) return { action: "review", remaining: reason || null };
+  return { action: "keep", remaining: rest.join(HOLD_SEPARATOR) };
 }
 
 /* ── round 2 (2026-09-30): packs sold in the OLD unit ────────────────────────────────────────

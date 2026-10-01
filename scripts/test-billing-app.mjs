@@ -83,7 +83,7 @@ function makeReact(){
 const mkStore = () => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k), _m: m }; };
 function box(extra){
   const React = makeReact();
-  const b = { console, React, Icon: new Proxy({}, { get: () => () => null }), ReactDOM: { createRoot: () => ({ render: noop, unmount: noop }) },
+  const b = { console, React, Icon: new Proxy({}, { get: () => () => null }), ReactDOM: { createRoot: () => ({ render: (x) => { b.rendered.push(x); }, unmount: noop }) }, rendered: [],
     document: { addEventListener: noop, removeEventListener: noop, createElement: () => ({ style: {} }), body: { appendChild: noop, removeChild: noop }, getElementById: () => null },
     localStorage: mkStore(), sessionStorage: mkStore(), events: [], toasts: [], opened: [], assigned: [],
     CustomEvent: class { constructor(t, o){ this.type = t; this.detail = o && o.detail; } },
@@ -96,6 +96,22 @@ function box(extra){
   b.window = b; b.globalThis = b; vm.createContext(b); return b;
 }
 const run = (b, f) => vm.runInContext(transform(read(f), f), b, { filename: f });
+/* the confirm step before every checkout (D2, 2026-10-01): a checkout click mounts it on its own
+   root; this ticks the required box and presses Continue, like a buyer would */
+async function confirmCheckout(B){
+  const el = B.rendered.filter((x) => x && x.type === B.CheckoutConsentDialog).pop();
+  assert.ok(el, "a checkout click opens the confirm step first");
+  const R = B.React, saved = R.state;
+  R.reset();
+  const box1 = findAll(el.type(el.props), (n) => n.type === "input" && n.props.type === "checkbox")[0];
+  box1.props.onChange({ target: { checked: true } });
+  R.calls = 0; R.effects = [];
+  const go = findAll(el.type(el.props), (n) => n.type === "button").find((n) => textOf(n) === "Continue to payment");
+  assert.equal(go.props.disabled, false, "Continue works once the box is ticked");
+  go.props.onClick();
+  await settle();
+  R.state = saved; B.rendered.length = 0;
+}
 
 /* ════════ A–H: app/plans.jsx ════════ */
 const P = box({ CREDIT_SCALE: 10 });
@@ -166,7 +182,7 @@ await test("B empty slots render a disabled 'Coming soon' and clicking never ope
   assert.ok(!/active subscription/i.test(JSON.stringify(m)), "the old 'active subscriptions only' rule is gone");
   } finally { P.CINEMA_CREDIT_PACKS.forEach((p, i) => { p.test = savedLinks[i][0]; p.live = savedLinks[i][1]; }); }
 });
-await test("B once a link is pasted, ANY signed-in account (no plan) can buy: the checkout carries the user id", () => {
+await test("B once a link is pasted, ANY signed-in account (no plan) can buy: the checkout carries the user id", async () => {
   const pack = P.CINEMA_CREDIT_PACKS[0];
   const savedTest = pack.test;
   pack.test = "https://buy.stripe.com/test_pack250";
@@ -177,6 +193,8 @@ await test("B once a link is pasted, ANY signed-in account (no plan) can buy: th
     assert.equal(textOf(btn), "Buy 250");
     assert.equal(btn.props.disabled, false);
     btn.props.onClick();
+    assert.equal(P.opened.length, 0, "D2: the confirm step comes first");
+    await confirmCheckout(P);
     assert.equal(P.opened.length, 1);
     assert.match(P.opened[0], /^https:\/\/buy\.stripe\.com\/test_pack250\?client_reference_id=u-1/);
     assert.equal(P.toasts.filter((t) => /Choose a monthly plan first/.test(t.m)).length, 0);
@@ -1509,6 +1527,9 @@ await test("M the landing: the free-trial + packs line under the plan cards", ()
   L.React.reset();
   const page = L.Landing({ onStart: noop, onSignIn: noop });
   assert.equal(findAll(page, hasClass("lp-tier-note")).length, 1);
+  // landing copy 2026-10-01: the price terms follow the line, in both regimes
+  assert.equal(textOf(findAll(page, hasClass("lp-tier-note"))[0]), L.lpPricingNote()+"Prices in US dollars, including any VAT or sales tax.");
+  assert.deepEqual(plain(findAll(page, hasClass("lp-room-status")).map(textOf)), ["Every plan", "Director and Producer plans", "Producer plan"]);
 });
 await test("M app.jsx: trial isn't a paid plan; notices mounted; welcome waits for the bought plan; the intent effect reads the account and runs after the ledger exists", () => {
   const src = read("app/app.jsx");
@@ -1601,7 +1622,18 @@ await test("M brand: the new copy names no retired name (TURN, MUSE, Cinema Mach
     assert.ok(N.events.some((e) => e.type === "turn-pricing-changed") && N.events.some((e) => e.type === "turn-credit-regime-changed"), "derived copies refresh");
     assert.deepEqual(cards(), [["writer", 800, "800 credits / month"], ["director", 2400, "2,400 credits / month"], ["studio", 9000, "9,000 credits / month"]]);
     assert.equal(N.turnTrialCopy(), "", "no trial before the switch (the database grants none)");
-    assert.equal(N.lpPricingNote(), "", "the landing line hides");
+    assert.equal(N.lpPricingNote(), "", "the landing line hides (a preview host has no old-pack checkout links)");
+    // on the live host the old packs ARE on sale before the switch, so the landing says so (landing copy 2026-10-01)
+    N.location.hostname = "kinolot.infinitestudioai.com";
+    try {
+      assert.equal(N.lpPricingNote(), "Credit packs from $9 for any account — pack credits last 12 months.");
+      N.usePlansVersion = () => 0; N.React.reset();
+      const note = findAll(N.Landing({ onStart: noop, onSignIn: noop }), hasClass("lp-tier-note"));
+      assert.equal(note.length, 1);
+      assert.equal(textOf(note[0]), "Credit packs from $9 for any account — pack credits last 12 months.Prices in US dollars, including any VAT or sales tax.");
+    } finally { N.location.hostname = "localhost"; }
+    N.usePlansVersion = () => 0; N.React.reset();
+    assert.equal(textOf(findAll(N.Landing({ onStart: noop, onSignIn: noop }), hasClass("lp-tier-note"))[0]), "Prices in US dollars, including any VAT or sales tax.", "with no offer to name, only the price terms show");
     assert.equal(JSON.parse(N.localStorage.getItem("turn-credit-regime-v1")).switched, false, "remembered for the next first paint");
     // a pack link pasted in early still can't open a checkout before the switch
     savedPack0Test = N.CINEMA_CREDIT_PACKS[0].test;
@@ -1619,7 +1651,7 @@ await test("M brand: the new copy names no retired name (TURN, MUSE, Cinema Mach
     assert.equal(M.turnCreditRegime().source, "saved"); assert.equal(M.turnCreditCost(3.034), 102);
     assert.deepEqual(plain(M.CINEMA_PLANS.map((p) => p.credits)), [800, 2400, 9000]);
   });
-  await test("N (F21) before the switch the Plans window sells the three OLD packs (their links and amounts as at HEAD); the new ones are not shown", () => {
+  await test("N (F21) before the switch the Plans window sells the three OLD packs (their links and amounts as at HEAD); the new ones are not shown", async () => {
     const old = plain(N.TURN_LEGACY_CREDIT_PACKS.map((p) => [p.sku, p.credits, p.price, p.live]));
     assert.deepEqual(old, [
       ["credits-300", 300, "$9", "https://buy.stripe.com/8x200l63a2zVfpO9Dlc7u03"],
@@ -1641,6 +1673,7 @@ await test("M brand: the new copy names no retired name (TURN, MUSE, Cinema Mach
       const btns = packs.map((c) => findAll(c, (n) => n.type === "button")[0]);
       assert.deepEqual(btns.map(textOf), ["Buy 300", "Buy 1,200", "Buy 4,000"]);
       btns[1].props.onClick();
+      await confirmCheckout(N);
       assert.equal(N.opened.length, 1);
       assert.ok(N.opened[0].startsWith("https://buy.stripe.com/9B6cN73V28YjfpO02Lc7u04?client_reference_id=u-1"), N.opened[0]);
       assert.equal(N.turnPackOnSale(N.CINEMA_CREDIT_PACKS[0]), false, "a new pack is never on sale before the switch");
@@ -1657,7 +1690,7 @@ await test("M brand: the new copy names no retired name (TURN, MUSE, Cinema Mach
     try { assert.ok(N.turnActiveCreditPacks().some((p) => N.turnPackOnSale(p)), "an old pack can be bought"); }
     finally { N.location.hostname = "localhost"; }
   });
-  await test("N the switch day (usd_per_credit 0.01, trial 50): back to Option A everywhere; the pasted pack link opens checkout", () => {
+  await test("N the switch day (usd_per_credit 0.01, trial 50): back to Option A everywhere; the pasted pack link opens checkout", async () => {
     N.turnApplyCreditRegime({ switched: true, switched_at: "2026-10-30T09:00:00Z", usd_per_credit: 0.01, trial_credits: 50, legacy_until: "2026-11-29T09:00:00Z" }, "server");
     assert.equal(N.turnCreditCost(3.034), 304);
     assert.equal(N.turnActiveCreditPacks(), N.CINEMA_CREDIT_PACKS, "F21: the new packs from the switch day");
@@ -1672,6 +1705,7 @@ await test("M brand: the new copy names no retired name (TURN, MUSE, Cinema Mach
     const tree = N.PlansModal({ onClose: noop, currentPlan: "writer" });
     const btn = findAll(findAll(tree, hasClass("credit-pack"))[0], (n) => n.type === "button")[0];
     assert.equal(btn.props.disabled, false); btn.props.onClick();
+    await confirmCheckout(N);
     assert.equal(N.opened.length, 1); assert.ok(N.opened[0].startsWith("https://buy.stripe.com/test_pack250?client_reference_id=u-1"));
     N.CINEMA_CREDIT_PACKS[0].test = savedPack0Test;
     // grandfathering is told in the Plans window while legacy_until is ahead
@@ -1723,7 +1757,7 @@ await test("M brand: the new copy names no retired name (TURN, MUSE, Cinema Mach
     X.turnApplyCreditRegime({ switched: true, usd_per_credit: 0.01, trial_credits: 0, legacy_until: null }, "server");
     assert.equal(X.turnTrialOffered(), false);
     assert.equal(X.turnTrialCopy(), "");
-    assert.equal(X.lpPricingNote(), "");
+    assert.equal(X.lpPricingNote(), "Credit packs from $10 for any account — pack credits last 12 months.", "no trial sentence; the packs on sale are still named (landing copy 2026-10-01)");
     X.turnUserId = null; X.turnIsPaidPlan = paidFn; X.usePlansVersion = () => 0; X.React.reset();
     assert.equal(findAll(X.PlansModal({ onClose: noop, currentPlan: null }), hasClass("plans-trial")).length, 0);
   });

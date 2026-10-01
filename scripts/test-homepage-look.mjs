@@ -61,7 +61,7 @@ check("A the hero spine wears the app's grade (amber rises, teal falls) with rea
     && s.includes('fill:"rgba(255,255,255,.55)",\n        fontSize:11') && s.includes('textAnchor:edge,fill:"rgba(255,255,255,.62)"');
 });
 check("A amber text on paper uses the AA shades (hero word, chips, checks)", ()=>
-  /color:var\(--lpw-amber-display\)/.test(rule(".lp-rotate") || "") && /color:var\(--lpw-amber-ink\)/.test(rule(".lp-room-status") || "")
+  /color:var\(--lpw-amber\)/.test(rule(".lp-rotate") || "") && /color:var\(--lpw-amber-ink\)/.test(rule(".lp-room-status") || "")
   && rule(".lp-tier-feats li svg").includes("color:var(--lpw-amber-ink)") && /color:var\(--lpw-amber-display\)/.test(rule(".hd-accent-text") || ""));
 
 /* ── B. the app's buttons ───────────────────────────────────────────────────────── */

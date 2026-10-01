@@ -35,7 +35,7 @@ const TEASER_QA = [
   { k:["what can i make","what can i build","what can i do","make here","build here","capabilities","features","what's included","whats included","get out of"],
     a:"A complete film: the value-charge spine, scene beats, a generated screenplay, a full Art Room for characters, props, locations, style and shots — and the Stage, where it all becomes footage. Sign up to start your first story." },
   { k:["why sign up","is it free","it free","for free","sign up","signup","create account","cost","costs","price","prices","pricing","how much","plans","subscription","worth it","why should i"],
-    a:"I can help with the story and explain how the studio works, but pricing and credits aren’t something I handle here. Open the account or plans window for the current options, then bring me back to the film you want to make." },
+    a:"Pricing and credits aren’t something I handle here — the Plans section on this page has the current options. Then bring me the film you want to make." },
   { k:["who are you","what are you","your name","are you frances","are you muse","hello","hi","hey"],
     a:"I’m Frances, your guide inside Kinolot. Once you’re signed in I read your story and answer your questions — which scenes don’t turn, how each department works, what to try next. Sign up and bring me your film." },
 ];
@@ -173,7 +173,7 @@ function MuseDock({ scenes, selScene, project, aiOn, signedIn, onSignIn }){
             React.createElement(Icon.sparkles,{s:14}),"Sign up free"))
       : React.createElement("div",{className:"muse-visitor-foot"},
           askBar,
-          React.createElement("button",{className:"muse-signup",onClick:onSignIn},"Sign up free — unlock the full studio"));
+          React.createElement("button",{className:"muse-signup",onClick:onSignIn},"Sign up free"));
 
   const panel = open && React.createElement("div",{className:"muse-dock"},
     React.createElement("div",{className:"muse-dock-head"},

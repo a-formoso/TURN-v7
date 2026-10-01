@@ -2,7 +2,7 @@
 
 Written 2026-09-30 for the owner, revised 2026-10-01 after five review rounds.
 
-**Status (2026-10-01): day 0 is done.** Steps 1 to 5 ran on 2026-10-01 (SQL, housekeeping schedule, Stripe, deploys, Replit publish of `cbccd80`). Two fixes on the way: the Supabase `STRIPE_SECRET_KEY` was a test key (replaced with the live key), and the owner's own Director subscription was linked to its account by hand. **Step 7 (the notice) is not needed:** the only Stripe subscriber is the owner's own test subscription. **Next:** the switch (step 6), as soon as the updated Terms and Privacy pages are approved (they go live the same day) and a non-admin account has made one paid request (the switch's safety check needs it). Until the switch, the site correctly shows 800 / 2,400 / 9,000 credits and the current packs (300 / 1,200 / 4,000).
+**Status (2026-10-01): day 0 is done.** Steps 1 to 5 ran on 2026-10-01 (SQL, housekeeping schedule, Stripe, deploys, Replit publish of `cbccd80`). Two fixes on the way: the Supabase `STRIPE_SECRET_KEY` was a test key (replaced with the live key), and the owner's own Director subscription was linked to its account by hand. **Step 7 (the notice) is not needed:** the only Stripe subscriber is the owner's own test subscription. **Next:** the switch (step 6), as soon as the updated Terms and Privacy pages are approved (they go live the same day) and a non-admin account has made one paid request (the switch's safety check needs it). Until the switch, the site correctly shows 800 / 2,400 / 9,000 credits and the current packs (300 / 1,200 / 4,000). **Before the first real sale:** the tax and compliance steps in section 9 (owner decisions 2026-10-01).
 
 Each step says which machine it runs on. Do the steps in this order. Steps 1 to 5 and the notice (step 7) happen on **day 0**. Step 6 is the **switch day**, at least 30 days after the notice.
 
@@ -121,7 +121,7 @@ Run `git pull` first. Deploying a function from one machine overwrites edits mad
 ```
 cd ~/Desktop/TURN-v6
 git pull
-npx -y supabase@latest functions deploy stripe-webhook --project-ref vubenblfdzginlqiglzw --use-api --no-verify-jwt
+npx -y supabase@2.117.0 functions deploy stripe-webhook --project-ref vubenblfdzginlqiglzw --use-api --no-verify-jwt
 ```
 
 **b. Then add the new webhook events (Stripe dashboard, browser).** Go to Developers → Webhooks → the Kinolot endpoint (live mode) → Select events.
@@ -155,9 +155,9 @@ Why: for 48 hours after the marker's time, the new `image-proxy` still collects 
 **d. Then deploy the rest, straight away.** Deploy `image-proxy` and `blender-bridge` together, one right after the other, from the same `git pull`:
 
 ```
-npx -y supabase@latest functions deploy image-proxy --project-ref vubenblfdzginlqiglzw --use-api --no-verify-jwt
-npx -y supabase@latest functions deploy blender-bridge --project-ref vubenblfdzginlqiglzw --use-api --no-verify-jwt
-npx -y supabase@latest functions deploy billing-portal --project-ref vubenblfdzginlqiglzw --use-api   # only if Manage plan isn't deployed yet (JWT verification stays ON)
+npx -y supabase@2.117.0 functions deploy image-proxy --project-ref vubenblfdzginlqiglzw --use-api --no-verify-jwt
+npx -y supabase@2.117.0 functions deploy blender-bridge --project-ref vubenblfdzginlqiglzw --use-api --no-verify-jwt
+npx -y supabase@2.117.0 functions deploy billing-portal --project-ref vubenblfdzginlqiglzw --use-api   # only if Manage plan isn't deployed yet (JWT verification stays ON)
 ```
 
 **If every paid call is refused with "Credits can't be checked right now":** `billing-v2.sql` hasn't run on this database. Go back to step 1.
@@ -206,7 +206,7 @@ The new cache keys (`20260930-billing1`) make every browser load the new files.
 
 ## (6) Switch day
 
-**Before you start:** the updated `terms.html` / `privacy.html` (branch `switch-day-terms`, see step 8) are approved, dated and merged into `main` (they go live in item 5 below, the same day), and at least one non-admin account has made a paid request since the day-0 deploy (admins take no holds; the switch refuses without one).
+**Before you start:** the updated `terms.html` / `privacy.html` (branch `switch-day-terms`, see step 8) are approved, dated, have `<legal name>` and `<business address>` filled in, and `<EU representative>` filled in or its sentence deleted (section 9, step 9), and are merged into `main` (they go live in item 5 below, the same day), and at least one non-admin account has made a paid request since the day-0 deploy (admins take no holds; the switch refuses without one).
 
 1. **Stripe, a few minutes before the switch:**
    - **deactivate the three old pack links** (300 / 1,200 / 4,000; ids `8x200l63a2zVfpO9Dlc7u03`, `9B6cN73V28YjfpO02Lc7u04`, `8x200l77e1vR4La7vdc7u05`);
@@ -282,11 +282,83 @@ Suggested text (email, and optionally an in-app note):
 
 **Drafted 2026-10-01 on the branch `switch-day-terms`** (not on `main`: Replit publishes `main` as it is, and these pages describe the rules from the switch day). They were built from `docs/Billing Terms Proposal.md` and checked against the code. They describe the plans (600 / 1,600 / 5,000), the packs and their 12-month balance, the trial, holds and settles, failed payments, refunds, disputes and Frances's limits; Privacy adds the trial's email fingerprint and the billing records kept.
 
-**On the switch day (Mac):** set "Last updated" on both pages to the switch date, written like `14 November 2026`, merge the branch into `main` and push; then Replit Pull + Publish (step 6, item 5). Check with `LEGAL_SWITCH_DAY=1 node scripts/test-rebrand-shell.mjs` (the placeholder fails there).
+**On the switch day (Mac):** set "Last updated" on both pages to the switch date, written like `14 November 2026`, merge the branch into `main` and push; then Replit Pull + Publish (step 6, item 5). Fill in `<legal name>` and `<business address>` on both pages first, and `<EU representative>` in `privacy.html` or delete that sentence (section 9, step 9). Then turn on the "We've updated our Terms and Privacy Policy" banner: in `app/plans.jsx` set `const TERMS_UPDATED_AT = "2026-11-14";` to the switch date written as YYYY-MM-DD (not "14 November 2026"), change `app/plans.jsx`'s `?v=` key in `TURN.html`, and Replit Pull + Publish. Check with `LEGAL_SWITCH_DAY=1 node scripts/test-rebrand-shell.mjs` (every placeholder still left, the date included, fails there).
 
-**Your decisions in the draft:** unused pack credits are refunded when we close an account for a reason other than a breach; a plan change you make by hand in Stripe uses proration charged at once ("always invoice"), as the upgrade bullet promises.
+**Your decisions (2026-10-01), now in the draft:**
+- **Closing an account** for a reason other than a breach of the terms refunds unused paid time only, **not** unused pack credits (your answer: no).
+- **A plan change you make by hand in Stripe** charges the proration at once ("always invoice"), as the upgrade wording promises (decided for you: it matches the extra credits the webhook adds when the upgrade is paid). How: section 9, step 5.
+- **Prices stay in US dollars** and "include any VAT or sales tax we have to charge where you live". When you register for a tax, Stripe Tax carves it out of the same price (section 9, step 7).
+- **14-day right to cancel**, for every buyer (the law requires it for UK and EU consumers; the Terms give it to everyone): within 14 days of buying a plan or a pack, the customer can cancel and get back the unused part of that purchase, in proportion. Before every checkout the app asks for a "Start now" consent (a required checkbox), and the payment link asks again with its terms box (section 9, step 4). Its wording also says the right is lost for credits used: the UK rule for digital content needs that acknowledgement, or a buyer who cancels could owe nothing for what they used. The customer can cancel in any clear way (the email, or the cancellation form in the Terms). A renewal is not a new purchase.
+- **Who we are:** both pages name the business, with the placeholders `<legal name>` and `<business address>` for you to fill before the switch (section 9, step 9). Privacy also names your EU representative for data protection (`<EU representative>`) and has a short "International transfers" paragraph.
+- **Changes to these terms:** at least 30 days' notice in the app or by email before a change to a paid plan's price or allowance; other changes are shown in the app when they apply (the "We've updated our Terms and Privacy Policy" banner, 30 days from the app's `TERMS_UPDATED_AT`, set on the switch day).
+- **Privacy:** a short "Why we use your data" (contract; legitimate interests, including stopping repeat free trials with the email fingerprint, and security; legal obligation, including tax records kept as long as tax law requires, in the UK generally six years and for EU VAT records ten years; consent where we ask for it).
 
-**For a lawyer, before real customers** (none of this blocks the switch while the only subscriber is yours): the 14-day cancellation right and the consent to start the service at once (there is no consent step at checkout); VAT / sales tax (prices are in USD with no tax setting in Stripe); the trader's legal name and address on the pages; the UK subscription rules (DMCC); credit expiry (12-month packs, plan credits ending with the plan); the 10% + 2-credit video tolerance; keeping a render's credits when its outcome is never confirmed in 30 days; the account hold after a dispute; the "Changes to these terms" promise of notice before a change, for the free accounts that exist; and a lawful basis and retention note for the trial's email fingerprint.
+**Still worth a lawyer's look before you sell widely** (none of this blocks the switch):
+- the UK subscription-contract rules of the DMCC Act (check whether they are in force when you sell; they add reminder notices before renewals, an easy way to leave and a cooling-off period on renewals, and Manage plan already cancels online);
+- **closing an account for no breach without refunding unused pack credits** (your "no"): this kind of term is on the Consumer Rights Act 2015 "grey list" (Schedule 2, Part 1, paragraph 7: the trader keeping sums paid for services not yet supplied when the trader ends the contract), and the EU Unfair Terms Directive has the same item, so a court could find it unfair and refuse to enforce it against a consumer. The alternative you declined is to refund unused pack credits on a no-fault closure;
+- whether Kinolot's output is a **service or digital content** for the 14-day right (the consent wording covers both) and the **confirmation on a durable medium** (CCR 2013 reg 16): Stripe's receipt carries neither the cancellation information nor the "Start now" consent;
+- **the EU "withdrawal button"** (Directive (EU) 2023/2673, new Article 11a of the Consumer Rights Directive, applying since 19 June 2026): EU consumers buying through a website must get a clearly labelled "cancel the contract here" function, in two steps, available for the whole 14 days, with an acknowledgement sent to them. Kinolot offers email and the cancellation form only: have the in-app function built **before the first EU sale** (the admin checklist has it);
+- **EU GDPR representative** (GDPR Article 27): a UK business offering its service to people in the EU must appoint one in the EU and name it in the Privacy Policy (the `<EU representative>` placeholder), and the "International transfers" wording;
+- whether a **business address service** is acceptable as the "geographical address at which the trader is established" (CCR 2013 Sch 2; Electronic Commerce Regulations 2002 reg 6) — a PO box is not;
+- what your **other products on the same Stripe account** are: if any is a live or human-delivered service or goods, its sales abroad can count toward the UK VAT threshold (the panel assumes digital services);
+- credit expiry (12-month packs, plan credits ending with the plan: kept, and said before every purchase); the 10% + 2-credit video tolerance; keeping a render's credits when its outcome is never confirmed in 30 days; the account hold during a dispute (lifted automatically when that dispute closes, won or lost, unless another dispute or an earlier hold is still open).
+
+## (9) Tax and compliance, before the first real sale
+
+Owner decisions 2026-10-01: keep the prices in dollars; warn me in the Admin panel when I have to register for VAT; I live and work in the UK and advertise to UK, EU and US users; decide the rest. None of this blocks the switch while you are the only subscriber, but do steps 1 to 9 before the first sale to anyone else. The tax rules below are the usual ones, checked on 2026-10-01; they are not tax advice, so check with an accountant before you register anywhere.
+
+**1. SQL Editor (browser):**
+- paste and run `supabase/billing-v2.sql` again. It is safe to run again (the carry-over never happens twice) and adds partial refunds (`refund_fraction`). All RESULT rows `ok`;
+- then paste and run `supabase/tax-compliance.sql`. All 10 RESULT rows must read `ok`. Row 80 says FAIL if the billing-v2.sql re-run is missing: run `billing-v2.sql` again first, then this file again.
+
+It creates the sales ledger (every payment and refund on the Stripe account, Kinolot and your other products alike, with the customer's country), the "Start now" consent records, the figures for the Admin panel and the one-step dispute hold the webhook uses (`turn_dispute_hold`).
+
+**2. Mac (`git pull` first, with your go-ahead):** deploy the webhook:
+
+```
+npx -y supabase@2.117.0 functions deploy stripe-webhook --project-ref vubenblfdzginlqiglzw --use-api --no-verify-jwt
+```
+
+From then on it records every payment and refund in the ledger, removes the same share of credits on a partial refund, and lifts the account hold a dispute placed when that dispute closes (won or lost; a lost one still removes that payment's unused credits; another open dispute keeps the account on hold).
+
+**Then, Stripe dashboard (browser):** Developers → Webhooks → the Kinolot endpoint (live mode) → Select events → add **`charge.refund.updated`** (ten events in all). A refund that is still pending (bank transfers, some wallets) removes nothing and isn't in the ledger until this event says it succeeded; a refund that fails is recorded for you (`refund_failed_review` in `turn_grant_failures`).
+
+**3. Replit: Pull, then Publish.** The app then asks for the "Start now" consent before every checkout and shows the Admin panel's **Tax & compliance** panel. Until the switch day the live Terms don't have the "Your right to cancel" section yet, so the step itself says how to cancel ("To cancel within 14 days, email kinolot-billing@infinitestudioai.com") and links to `/terms.html#cancel`, which lands on that section once the new Terms are live.
+
+**4. Stripe: every Kinolot payment link** (the three plans and every pack, live and test). Settings → Business → Public details must have the Terms URL (`https://kinolot.infinitestudioai.com/terms.html`) first. Then, on each link (Payment Links → the link → Edit):
+- **Collect customers' addresses → Billing addresses only (required).** Stripe then always has the customer's country: the Admin panel needs it, and so does Stripe Tax later. Payments with no country show up in the panel's "No country" box.
+- **Require customers to accept your terms of service**, with this custom text for the terms box:
+
+  > I agree to the [Terms](https://kinolot.infinitestudioai.com/terms.html). Start now: I want to use my credits straight away. I understand I lose my right to cancel for credits I use, and if I cancel within 14 days I only get back the part I haven't used.
+
+- If a setting can't be changed on an existing link, make a new link with the same price and metadata, and paste it into `app/plans.jsx` (or send it to Claude), then deactivate the old one.
+
+**5. Stripe: a plan change you make by hand uses "always invoice".** Customers → the customer → the subscription → **Update subscription** → change the price. In the proration options keep prorations on and choose to **charge (invoice) the proration now**, not "on the next invoice" and not "no proration". The customer pays the difference at once, and the webhook adds the extra monthly credits for the part of the month still to run when that payment arrives, as the upgrade wording says. (Manage plan's own plan switching, when it is turned on later, uses the same setting: `proration_behavior: always_invoice`.)
+
+**6. A 14-day cancellation** (any clear message within 14 days of buying a plan or a pack: usually an email to kinolot-billing@infinitestudioai.com, or the Terms' cancellation form; it doesn't have to come from the account's address — match it to the purchase by the details given; a renewal is not a new purchase):
+1. Find the unused part. A pack: `select amount, remaining from public.turn_credit_lots where charge_ref = '<the charge id, ch_…>';`. A plan: the account's `plan_remaining` against the month's allowance (`select plan_remaining, plan_allowance from public.turn_credits where owner = '<user id>';`).
+2. Refund that share of the payment in Stripe (payment → Refund → partial): the price × unused ÷ granted, rounded down to the cent. **Do it within 14 days of the customer's message**; a Stripe refund goes back to the same card or payment method, as the law asks. The webhook removes the same share of that purchase's credits (rounded up, never more than is unused).
+3. For a plan, then cancel the subscription immediately with **no further refund** (the refund is already done). Its remaining plan credits end with it.
+
+**7. Tax: when to register, and how.**
+- **EU (now, before the first EU sale):** a UK business selling digital services to consumers in the EU owes EU VAT from the first sale, with no threshold. Register for the **non-Union OSS** scheme in one EU country of your choice (one registration and one quarterly return cover all 27), before the first EU consumer pays. The panel's EU box turns red, with the count and the amount, as soon as an EU sale exists. (The alternative is to stop selling to the EU until you register.) Once registered: keep the EU sales records for **ten years** from the end of the year of each sale, available electronically, with **two pieces of evidence that agree** on each customer's country (for example the billing address and the card's country, or the IP address); Stripe Tax collects them. Before the first EU sale also: the online withdrawal function and an EU GDPR representative (section 8).
+- **UK:** register for VAT when your UK taxable turnover goes over **£90,000** in any rolling 12 months (register within 30 days of the end of the month it went over), or as soon as you expect it to go over £90,000 in the next 30 days alone. Sales of digital services to consumers outside the UK generally don't count toward it. This assumes every product is a digital service delivered automatically: sales abroad of live or human-delivered services (calls, coaching, events) or of goods can still count, so check with an accountant what your other products are. Your other products on the same Stripe account count, and so does income from outside Stripe (add it to the ledger by hand: README, "Tax & compliance records"). The panel warns at 75% and 90% and goes red at 100%.
+- **US:** sales tax is per state. Many states use $100,000 of sales or 200 transactions a year as their "economic nexus" test; some are higher, some count sales only, and some don't tax digital services at all. The panel shows each state against $100,000 / 200 and warns at 80%: check that state's own rule then.
+- **When you register anywhere:** turn on **Stripe Tax** (Settings → Tax), add the registration, set each Kinolot price's tax behaviour to **inclusive** (the dollar price stays what it is; the tax is carved out of it) and the product tax code for digital services, and turn on automatic tax on the payment links. Billing addresses are already required (step 4). Keep the sales records for as long as tax law requires (in the UK generally six years; EU sales under OSS ten years from the end of the year of the sale); the ledger keeps them even when an account is deleted.
+
+**8. The Admin panel's Tax & compliance panel** (signed in as admin@infinitestudioai.com, next to Admin Storage):
+- **UK:** your UK sales of the last 12 months in pounds, against £90,000. Dollars are converted at the rate in the panel (default 0.80 £ per $, set high on purpose so the warning comes early; change it if the pound moves a lot). Also the last 30 days (for the forward look) and the sales with no country, which might be UK.
+- **EU:** the action item until the first EU sale, then red with the count and amount per country.
+- **US:** each state's 12-month sales and number of payments, against $100,000 / 200.
+- **No country:** payments Stripe had no country for (a link without billing-address collection).
+- The panel counts from the day the webhook started recording (step 2). If your other products sold anything in the last 12 months before that, add those sales by hand (README, "Tax & compliance records"). The thresholds have one home, in the database (`turn__tax_thresholds()` in `supabase/tax-compliance.sql`), with the warning levels and the date they were last checked; the panel's wording and meter follow them.
+
+**9. Before the switch: fill in who you are** on the `switch-day-terms` branch, in both `terms.html` ("Who we are", and the cancellation form) and `privacy.html` (who is responsible for your data), inside the `data-fill` spans, the same on both pages:
+- `<legal name>`: your full name if you are a sole trader (just the name: the page already says "Infinite Studio AI is the trading name of …"), or the company's registered name and number if it is a limited company (for example "Example Ltd (registered in England and Wales, company number 01234567)");
+- `<business address>`: the geographical address where the business is established (for a company, its registered office). Ask the lawyer whether a business address service is acceptable; a PO box is not;
+- `<EU representative>` (`privacy.html` only): the name and address of your EU representative for data protection. If you won't offer the service in the EU yet, delete that sentence instead, and appoint one before you advertise there.
+
+`LEGAL_SWITCH_DAY=1 node scripts/test-rebrand-shell.mjs` fails while any placeholder is left. Once VAT-registered, add your VAT number to "Who we are". On the switch day, also turn on the Terms banner: in `app/plans.jsx` set `const TERMS_UPDATED_AT = "2026-11-14";` (the switch date as YYYY-MM-DD), change `app/plans.jsx`'s `?v=` key in `TURN.html`, then Replit Pull + Publish; signed-in users see "We've updated our Terms and Privacy Policy" for 30 days.
 
 ## Rollback
 
@@ -299,8 +371,8 @@ Suggested text (email, and optionally an in-app note):
 2. **Mac, straight after (`git pull` first):**
 
    ```
-   npx -y supabase@latest functions deploy image-proxy --project-ref vubenblfdzginlqiglzw --use-api --no-verify-jwt
-   npx -y supabase@latest functions deploy blender-bridge --project-ref vubenblfdzginlqiglzw --use-api --no-verify-jwt
+   npx -y supabase@2.117.0 functions deploy image-proxy --project-ref vubenblfdzginlqiglzw --use-api --no-verify-jwt
+   npx -y supabase@2.117.0 functions deploy blender-bridge --project-ref vubenblfdzginlqiglzw --use-api --no-verify-jwt
    ```
 
    A running instance keeps the credit value it read for its whole life. Without the redeploy it would go on pricing at $0.01 against balances that are no longer tripled.

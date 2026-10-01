@@ -38,13 +38,13 @@ const PLANS = [
   { tier:"writer",   name:"Writer",   price:"$19", credits:600,
     blurb:"Start with the story engine.",
     entitlements:{ writers_room:true, art_room:false, stage:false },
-    features:["600 credits / month","Writers' Room","Story spine, beats and screenplay"],
+    features:["600 credits / month","Writers' Room","Story spine, beats and screenplay, with the Story Editors","Every writing engine and every image engine up to 2K"],
     test:"https://buy.stripe.com/test_8x24gB63afmHgtS3eXc7u00",
     live:"https://buy.stripe.com/8x24gB63afmHgtS3eXc7u00" },
   { tier:"director", name:"Director", price:"$49", credits:1600, popular:true,
     blurb:"Write the film, then design it.",
     entitlements:{ writers_room:true, art_room:true, stage:false },
-    features:["1,600 credits / month","Writers' Room + Art Room","Characters, props, locations, shots and storyboards"],
+    features:["1,600 credits / month","Writers' Room + Art Room","Lookbook, characters, props, locations, color, shots and storyboards","4K images, character voices and Blender Studio (3D)"],
     test:"https://buy.stripe.com/test_00waEZ77eeiD6Ti4j1c7u01",
     live:"https://buy.stripe.com/00waEZ77eeiD6Ti4j1c7u01" },
   // the "studio" tier is SHOWN as "Producer" (owner decision 2026-09-28) — display only: the tier
@@ -53,7 +53,7 @@ const PLANS = [
   { tier:"studio",   name:"Producer", price:"$149", credits:5000,
     blurb:"Move from script to production.",
     entitlements:{ writers_room:true, art_room:true, stage:true },
-    features:["5,000 credits / month","Writers' Room + Art Room + Stage","Video, voice, timeline and production assets"],
+    features:["5,000 credits / month","Writers' Room + Art Room + Stage","Video up to 4K, up to 4 takes at once","Voiced lines, timeline and film export"],
     test:"https://buy.stripe.com/test_bJe9AVbnu6QbdhG2aTc7u02",
     live:"https://buy.stripe.com/bJe9AVbnu6QbdhG2aTc7u02" },
 ];
@@ -647,31 +647,201 @@ function lowBalanceDismiss(state, level){
 }
 window.turnLowBalanceDismiss = lowBalanceDismiss;
 
-/* open a plan's checkout tagged with the user's id (+ prefilled email). Needs a
-   signed-in user — without a uid the webhook can't know whose balance to credit.
-   opts.sameTab: navigate THIS tab to Stripe instead of window.open — required when
-   checkout is triggered programmatically (post-signup auto-open): window.open
-   outside a user gesture gets popup-blocked, silently stranding the buyer. Stripe's
-   after-payment redirect brings them back to the app. */
-function startCheckout(plan, opts){
-  const uid = window.turnUserId || null;
-  const email = window.turnUserEmail || "";
-  if(!uid){
-    if(window.appToast) window.appToast("Sign in first — purchases are tied to your account.","info");
-    try{ window.dispatchEvent(new CustomEvent("turn-need-signin")); }catch(e){}
-    return;
+/* ---- BEFORE EVERY CHECKOUT: the 14-day right to cancel (owner decision 2026-10-01, D2) ----
+   Every buyer gets it (the law requires it for UK and EU consumers; the Terms give it to
+   everyone). The law: a consumer who asks a SERVICE to start within the 14 days pays for what was
+   supplied if they cancel; for DIGITAL CONTENT they must also acknowledge that they lose the right
+   to cancel, or they bear no cost for what they used (CCR 2013 regs 36-37) — the wording below
+   covers both (review 2026-10-01; v2). Kinolot's policy (Terms, "Your right to cancel"): within 14
+   days of buying a plan or a pack, the customer can cancel and gets back the UNUSED part (the
+   credits from that purchase not yet used, in proportion; the webhook removes that share when the
+   owner refunds it). So every checkout — a
+   plan, a pack, and the plan picked before sign-up that opens by itself (app.jsx) — first shows
+   this step: a REQUIRED checkbox with the exact text below; Continue stays disabled until it is
+   ticked; Cancel closes it and opens nothing. Accepting records the consent on the server
+   (turn_record_checkout_consent, supabase/tax-compliance.sql: who, which sku, which wording
+   version, when). A database without that function (the SQL not run yet), a network failure or a
+   slow answer never blocks the purchase: the payment page's own terms acceptance is the second
+   record. Change the wording → change the version, and the Terms page with it. */
+const CHECKOUT_CONSENT_TEXT = "Start now: I want to use my credits straight away. I understand I lose my right to cancel for credits I use, and if I cancel within 14 days I only get back the part I haven't used.";
+const CHECKOUT_CONSENT_VERSION = "v2-2026-10-01";
+const CONSENT_RECORD_WAIT_MS = 2500;   // the same-tab path waits this long for the record, then goes anyway
+window.TURN_CHECKOUT_CONSENT_TEXT = CHECKOUT_CONSENT_TEXT;
+window.TURN_CHECKOUT_CONSENT_VERSION = CHECKOUT_CONSENT_VERSION;
+/* the sku a consent is recorded under: a pack's own sku ("pack-250", "credits-300"), a plan's
+   "plan-<tier id>" ("plan-studio" for Producer: ids are never renamed) */
+function checkoutSku(item){
+  if(item && item.sku) return String(item.sku);
+  if(item && item.tier) return "plan-"+String(item.tier).toLowerCase();
+  return "unknown";
+}
+window.turnCheckoutSku = checkoutSku;
+/* what the step says is being bought — a plan names its renewal (UK subscription rules: the price,
+   how often, and how to stop it, before the contract) */
+function checkoutConsentCopy(item){
+  const isPlan = !!(item && item.tier && !item.sku);
+  if(isPlan){
+    const name = planDisplayName(item.tier);
+    return { title:"Before you pay", item:name+" plan · "+String(item.price||"")+" a month",
+      renew:"Renews every month at "+String(item.price||"")+" until you cancel. Cancel anytime from Manage plan; it ends at the end of the month you’ve paid for." };
   }
-  const base = checkoutLink(plan);
-  if(!base){
-    if(window.appToast) window.appToast("Checkout isn't available yet — please try again shortly.","info");
-    return;
-  }
-  const url = base
+  return { title:"Before you pay", item:String((item && item.name)||"Credits")+" · "+String((item && item.price)||"")+", one-off", renew:"" };
+}
+window.turnCheckoutConsentCopy = checkoutConsentCopy;
+/* record the consent; resolves { ok } | { ok:false, reason:"missing"|"no-cloud"|"error" } and never rejects */
+async function recordCheckoutConsent(sku, version){
+  const sb = (typeof window.sbClient==="function") ? window.sbClient() : null;
+  if(!sb || typeof sb.rpc!=="function") return { ok:false, reason:"no-cloud" };
+  try{
+    const { error } = await sb.rpc("turn_record_checkout_consent", { sku:String(sku), consent_version:String(version) });
+    if(!error) return { ok:true };
+    const code = String(error.code||""), msg = String(error.message||"");
+    const missing = code==="PGRST202" || code==="42883" || /could not find the function|does not exist/i.test(msg);
+    return { ok:false, reason: missing ? "missing" : "error", code };
+  }catch(e){ return { ok:false, reason:"error" }; }
+}
+window.turnRecordCheckoutConsent = recordCheckoutConsent;
+function _withTimeout(p, ms){
+  return new Promise((resolve)=>{
+    let done = false;
+    const t = setTimeout(()=>{ if(!done){ done = true; resolve({ ok:false, reason:"timeout" }); } }, ms);
+    Promise.resolve(p).then((v)=>{ if(!done){ done = true; clearTimeout(t); resolve(v); } },
+      ()=>{ if(!done){ done = true; clearTimeout(t); resolve({ ok:false, reason:"error" }); } });
+  });
+}
+/* the payment link for this account, or "" (no link here yet) */
+function checkoutUrl(item, uid, email){
+  const base = checkoutLink(item);
+  if(!base) return "";
+  return base
     + (base.indexOf("?")>=0 ? "&" : "?")
     + "client_reference_id=" + encodeURIComponent(uid)
     + (email ? ("&prefilled_email=" + encodeURIComponent(email)) : "");
-  if(opts && opts.sameTab){ try{ window.location.assign(url); return; }catch(e){} }
+}
+function _needSignIn(){
+  if(window.appToast) window.appToast("Sign in first — purchases are tied to your account.","info");
+  try{ window.dispatchEvent(new CustomEvent("turn-need-signin")); }catch(e){}
+}
+function _noCheckoutYet(){
+  if(window.appToast) window.appToast("Checkout isn't available yet — please try again shortly.","info");
+}
+/* AFTER the box is ticked: record the consent and open the payment page. Called straight from the
+   Continue click, so the new tab opens inside the user's gesture (a popup blocker lets it through);
+   the record goes out alongside it. The same-tab path (the sign-up auto-checkout) waits briefly for
+   the record first, because leaving the page would cancel it. Resolves true when a page opened. */
+function proceedToCheckout(item, opts){
+  const uid = window.turnUserId || null;
+  const email = window.turnUserEmail || "";
+  if(!uid){ _needSignIn(); return Promise.resolve(false); }
+  const url = checkoutUrl(item, uid, email);
+  if(!url){ _noCheckoutYet(); return Promise.resolve(false); }
+  const rec = recordCheckoutConsent(checkoutSku(item), CHECKOUT_CONSENT_VERSION);
+  if(opts && opts.sameTab){
+    return _withTimeout(rec, CONSENT_RECORD_WAIT_MS).then(()=>{
+      try{ window.location.assign(url); return true; }catch(e){}
+      window.open(url, "_blank", "noopener");
+      return true;
+    });
+  }
   window.open(url, "_blank", "noopener");
+  return Promise.resolve(true);   // the record finishes in the background (this page stays open)
+}
+window.turnProceedToCheckout = proceedToCheckout;
+
+/* the confirm step itself (mounted on its own root by openCheckoutConsent, above the Plans window) */
+/* keyboard users stay inside the step: Tab / Shift+Tab wrap around its own controls */
+const CONSENT_FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),[tabindex]:not([tabindex="-1"])';
+function trapConsentTab(e, root){
+  if(!e || e.key!=="Tab" || !root || typeof root.querySelectorAll!=="function") return false;
+  const list = Array.prototype.slice.call(root.querySelectorAll(CONSENT_FOCUSABLE) || []);
+  if(!list.length){ if(e.preventDefault) e.preventDefault(); return true; }
+  const first = list[0], last = list[list.length-1];
+  const active = typeof document!=="undefined" ? document.activeElement : null;
+  const inside = !!(active && (active===root || (typeof root.contains==="function" && root.contains(active))));
+  if(e.shiftKey && (active===first || !inside)){ if(e.preventDefault) e.preventDefault(); try{ last.focus(); }catch(_){} return true; }
+  if(!e.shiftKey && (active===last || !inside)){ if(e.preventDefault) e.preventDefault(); try{ first.focus(); }catch(_){} return true; }
+  return false;
+}
+window.turnTrapConsentTab = trapConsentTab;
+function CheckoutConsentDialog({ item, opts, onClose }){
+  const [checked, setChecked] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const boxRef = React.useRef(null);
+  const dialogRef = React.useRef(null);
+  const copy = checkoutConsentCopy(item);
+  const cancel = ()=>{ if(!busy) onClose(); };
+  // the step takes the keyboard focus when it opens (its checkbox), so keyboard and screen-reader
+  // users land on it; focus goes back to what opened it when it closes (closeCheckoutConsent)
+  React.useEffect(()=>{ try{ if(boxRef.current && boxRef.current.focus) boxRef.current.focus(); }catch(e){} }, []);
+  React.useEffect(()=>{
+    if(typeof document==="undefined" || !document.addEventListener) return undefined;
+    const onKey = (e)=>{ if(e.key==="Escape") cancel(); else if(e.key==="Tab") trapConsentTab(e, dialogRef.current); };
+    document.addEventListener("keydown", onKey);
+    return ()=> document.removeEventListener("keydown", onKey);
+  });
+  const go = ()=>{
+    if(!checked || busy) return;
+    setBusy(true);
+    proceedToCheckout(item, opts).then(()=>onClose(), ()=>onClose());
+  };
+  return React.createElement("div",{className:"ns-overlay checkout-consent-overlay",onMouseDown:e=>{ if(e.target===e.currentTarget) cancel(); }},
+    React.createElement("div",{className:"checkout-consent",role:"dialog","aria-modal":"true","aria-labelledby":"checkout-consent-title",ref:dialogRef},
+      React.createElement("div",{className:"checkout-consent-title",id:"checkout-consent-title"}, copy.title),
+      React.createElement("div",{className:"checkout-consent-item"}, copy.item),
+      copy.renew && React.createElement("div",{className:"checkout-consent-renew"}, copy.renew),
+      React.createElement("label",{className:"checkout-consent-check"},
+        React.createElement("input",{type:"checkbox",checked:checked,disabled:busy,required:true,ref:boxRef,
+          onChange:e=>setChecked(!!(e && e.target ? e.target.checked : !checked))}),
+        React.createElement("span",null, CHECKOUT_CONSENT_TEXT)),
+      React.createElement("div",{className:"checkout-consent-note"},
+        "You’ll pay on a secure checkout page next. To cancel within 14 days, email kinolot-billing@infinitestudioai.com. More in our ",
+        React.createElement("a",{href:"/terms.html#cancel",target:"_blank",rel:"noopener"},"Terms"),
+        "."),
+      React.createElement("div",{className:"checkout-consent-acts"},
+        React.createElement("button",{type:"button",className:"plan-cta",disabled:busy,onClick:cancel},"Cancel"),
+        React.createElement("button",{type:"button",className:"plan-cta primary",disabled:!checked || busy,
+          title: checked ? "" : "Tick the box to continue", onClick:go},
+          busy ? "Opening checkout…" : "Continue to payment"))));
+}
+window.CheckoutConsentDialog = CheckoutConsentDialog;
+let _consentRoot = null, _consentEl = null, _consentOpener = null;
+function closeCheckoutConsent(){
+  try{ _consentRoot && _consentRoot.unmount(); }catch(e){}
+  if(_consentEl && _consentEl.parentNode) _consentEl.parentNode.removeChild(_consentEl);
+  const opener = _consentOpener;
+  _consentRoot = null; _consentEl = null; _consentOpener = null;
+  // give the focus back to what opened the step (the plan / pack button), when it's still there
+  try{
+    const there = !(typeof document!=="undefined" && document.body && typeof document.body.contains==="function") || document.body.contains(opener);
+    if(opener && typeof opener.focus==="function" && there) opener.focus();
+  }catch(e){}
+}
+window.turnCloseCheckoutConsent = closeCheckoutConsent;
+/* SELF-MOUNTING (the openPlans pattern): one step at a time */
+function openCheckoutConsent(item, opts){
+  if(_consentEl) return false;
+  if(typeof document==="undefined" || !window.ReactDOM) return false;
+  _consentOpener = document.activeElement || null;
+  _consentEl = document.createElement("div");
+  _consentEl.className = "checkout-consent-root";
+  document.body.appendChild(_consentEl);
+  _consentRoot = ReactDOM.createRoot(_consentEl);
+  _consentRoot.render(React.createElement(CheckoutConsentDialog,{ item, opts: opts || null, onClose: closeCheckoutConsent }));
+  return true;
+}
+window.turnOpenCheckoutConsent = openCheckoutConsent;
+
+/* open a plan's or pack's checkout tagged with the user's id (+ prefilled email). Needs a
+   signed-in user — without a uid the webhook can't know whose balance to credit. It always
+   goes through the confirm step above first (D2); the payment page opens from its Continue.
+   opts.sameTab: navigate THIS tab to Stripe instead of window.open — used by the post-signup
+   auto-open (app.jsx), so the buyer stays in one tab; Stripe's after-payment redirect brings
+   them back to the app. */
+function startCheckout(plan, opts){
+  const uid = window.turnUserId || null;
+  if(!uid){ _needSignIn(); return; }
+  if(!checkoutLink(plan)){ _noCheckoutYet(); return; }
+  openCheckoutConsent(plan, opts);
 }
 window.turnStartCheckout = startCheckout;
 
@@ -927,12 +1097,54 @@ function closeNotice(id){
   Array.from(_closedListeners).forEach(f=>{ try{ f(); }catch(e){} });
 }
 window.turnBillingNoticeClosed = noticeClosed;
+/* ---- "WE'VE UPDATED OUR TERMS" (owner decision 2026-10-01, D5) ----
+   A dismissible banner for signed-in users, shown for 30 days from TERMS_UPDATED_AT — the ONE
+   place that says when the Terms / Privacy Policy last changed. "" hides it (today); the owner
+   sets it to the day the new pages go live (the credit switch day, owner runbook), e.g.
+   "2026-10-31". Closing it hides it for that account in this browser until the next update (the
+   dismissal is stored against the date, so a later update shows again). It rides the billing
+   banners' two mounts (studio and Home), so a close in one closes the other. */
+const TERMS_UPDATED_AT = "";
+const TERMS_NOTICE_DAYS = 30;
+window.TURN_TERMS_UPDATED_AT = TERMS_UPDATED_AT;
+window.TURN_TERMS_NOTICE_TEXT = "We've updated our Terms and Privacy Policy";
+function termsNoticeDue(updatedAt, now, dismissed){
+  const s = String(updatedAt==null ? "" : updatedAt).trim();
+  if(!s) return false;
+  const t = Date.parse(s);
+  if(!Number.isFinite(t)) return false;
+  const n = Number(now) || Date.now();
+  if(n < t || n >= t + TERMS_NOTICE_DAYS*86400000) return false;
+  return String(dismissed||"") !== s;
+}
+window.turnTermsNoticeDue = termsNoticeDue;
+function _termsKey(){ return "turn-terms-notice:"+String(window.turnUserId||window.turnUserEmail||"local"); }
+function _termsDismissed(){ try{ return localStorage.getItem(_termsKey()) || ""; }catch(e){ return ""; } }
+function _termsDismiss(at){
+  try{ localStorage.setItem(_termsKey(), String(at)); }catch(e){}
+  Array.from(_closedListeners).forEach(f=>{ try{ f(); }catch(e){} });
+}
+function TermsNotice({ at, onDismiss }){
+  return React.createElement("div",{className:"billing-banner info terms-banner",role:"status"},
+    React.createElement("span",{className:"billing-banner-text"},
+      React.createElement("b",null, window.TURN_TERMS_NOTICE_TEXT+". "),
+      "Read the ",
+      React.createElement("a",{href:"/terms.html",target:"_blank",rel:"noopener"},"Terms"),
+      " and the ",
+      React.createElement("a",{href:"/privacy.html",target:"_blank",rel:"noopener"},"Privacy Policy"),
+      "."),
+    React.createElement("button",{type:"button",className:"billing-banner-x","aria-label":"Dismiss",title:"Dismiss",onClick:()=>onDismiss(at)},"×"));
+}
+
 /* Mounted twice (repair 2026-09-30): at the top of the studio (app.jsx, inside .app) and at the top of
    the Home dashboard (home-dashboard.jsx noticesSlot), which covers the studio as a fixed overlay —
    a past-due, frozen or low account saw no banner while on Home. Both copies read and write the
-   same per-account state, so a dismissal holds in both. `now` / `session` exist for tests only. */
-function BillingNotices({ balance, now, session }){
+   same per-account state, so a dismissal holds in both. `now` / `session` / `termsAt` exist for
+   tests only. */
+function BillingNotices({ balance, now, session, termsAt }){
   const [, force] = React.useState(0);
+  const tAt = termsAt!==undefined ? termsAt : TERMS_UPDATED_AT;
+  const showTerms = !!window.turnUserId && termsNoticeDue(tAt, now, _termsDismissed());
   const step = lowBalanceStep(_noticeLoad(), balance, { now, session });
   React.useEffect(()=>{ _noticeSave(step.state); });
   // a bad-news banner closed in the other mount (Home ↔ studio) closes here too (see closeNotice)
@@ -948,13 +1160,14 @@ function BillingNotices({ balance, now, session }){
     return ()=>clearTimeout(t);
   }, [step.recheckInMs>0 ? Math.round(step.state.settleUntil||0) : 0]);
   const notices = billingNoticeList(balance, step.level, step.allowance).filter(n=>n.dismissible || !noticeClosed(n.id));
-  if(!notices.length) return null;
+  if(!notices.length && !showTerms) return null;
   const act = (n)=>{ if(n.act==="manage") openManagePlan(); else if(typeof window.turnOpenPlans==="function") window.turnOpenPlans(); };
   const dismiss = (n)=>{
     if(n.dismissible){ _noticeSave(lowBalanceDismiss(step.state, n.level)); force(v=>v+1); }
     else closeNotice(n.id);
   };
   return React.createElement("div",{className:"billing-notices"},
+    showTerms && React.createElement(TermsNotice,{ key:"terms", at:String(tAt).trim(), onDismiss:(at)=>{ _termsDismiss(at); force(v=>v+1); } }),
     notices.map(n=>React.createElement("div",{key:n.id,className:"billing-banner "+n.tone,role:n.tone==="bad"?"alert":"status"},
       React.createElement("span",{className:"billing-banner-text"},
         React.createElement("b",null,n.title+" "), n.body),

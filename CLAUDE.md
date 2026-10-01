@@ -99,6 +99,12 @@ charges, scenes that turn, beats → script → Art Room → Stage). Served at *
   `supabase/functions/stripe-webhook` (grants once per invoice key, refunds, disputes, failed payments); owner order in
   `supabase/README.md` "Billing v2". Tests: `test-billing-db`, `test-stripe-webhook`, `test-server-charging`,
   `test-billing-app`, `test-storage-billing-snapshots`. Billing facts go in `APP_FEATURES` too (Frances never repeats them: MUSE Protocol §3).
+- **Tax & compliance (owner 2026-10-01):** `supabase/tax-compliance.sql` (sales ledger `turn_sales_ledger` filled by the
+  webhook for EVERY payment on the Stripe account, checkout consents, `turn_admin_tax_summary`, `turn_dispute_hold`);
+  the Admin panel's Tax & compliance view (`app/admin-tax.jsx`: UK VAT £90k, EU non-Union OSS from the first sale, US
+  per-state nexus); the consent step before every checkout (14-day right: refund of the unused part); partial refunds
+  remove the same share of credits (`refund_fraction`). Prices stay in USD. Tests: `test-tax-compliance-db`,
+  `test-tax-compliance-app`. The switch-day Terms / Privacy live on branch `switch-day-terms` until the switch.
 
 ## 📐 Story-building process — follow the skill
 When building a story (New Story → spine, Adaptation, or any seed→script flow), follow the canonical
@@ -115,6 +121,9 @@ How Frances is allowed to answer users (scope, identity, confidentiality, tone, 
 
 ## 🔀 Two working copies — never reason about Replit from branch names
 Work happens in **two places**: this local repo and the **Replit workspace**. Either can be ahead.
+**Since 2026-10-01 (owner): development happens mainly on the Mac.** Code is committed and pushed from here; Replit pulls,
+publishes, and runs tests that need its tools (real Postgres, Blender) — give its agent run-only instructions. Its
+"Published your App" commits are empty: `git pull --rebase` before pushing.
 
 **Home since 2026-09-27: `github.com/a-formoso/TURN-v6`** (the Mac's `origin`; the old TURN-v5 repo is kept
 read-only as the `v5-archive` remote) and the **Replit project TURN-v6**, connected to it. The old Replit project

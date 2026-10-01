@@ -1,7 +1,7 @@
 -- ============================================================================
 -- Kinolot — billing v2 (supabase/billing-v2.sql)
 -- Owner decisions 2026-09-30 ("build the billing fixes"). Written 2026-09-30.
--- NOT run on production yet.
+-- Run on production on 2026-10-01 (day 0); re-run once for partial refunds (below).
 --
 -- WHAT CHANGES FOR PEOPLE
 --   * Credit packs get their OWN balance. Each pack is a "lot" that lasts 12
@@ -13,8 +13,10 @@
 --     to run (Stripe charges them pro rata too); with no period known, the next
 --     renewal gives the new allowance (turn_adjust_plan_once).
 --   * A refund takes back the unspent credits of that purchase (plan credits held
---     by a running job included); an open dispute freezes spending; a failed
---     payment marks the account past_due.
+--     by a running job included); a PARTIAL refund (refund_fraction, added
+--     2026-10-01 for the 14-day right to cancel) takes back the same share of that
+--     purchase's credits, rounded up, never more than is still unused; an open
+--     dispute freezes spending; a failed payment marks the account past_due.
 --   * A paid checkout never takes over an account that already has a DIFFERENT,
 --     still-active subscription on another Stripe customer: nothing is granted and
 --     it is recorded for the owner (turn_grant_failures 'subscription_conflict').
@@ -89,6 +91,12 @@
 --   back holds a killed worker left open and schedules the reconciliation of
 --   provider jobs nobody polled). Then, and only on the switch day, run
 --   supabase/billing-switch.sql.
+--
+-- RE-RUN ON 2026-10-01 (partial refunds): production ran this file on day 0; run
+--   it once more before supabase/tax-compliance.sql, so turn_revoke_charge_once
+--   gains its optional refund_fraction (the two-argument call keeps working; the
+--   carry-over does not happen again). tax-compliance.sql's RESULT says FAIL until
+--   this re-run is done.
 --
 -- NEVER re-run a copy of credits.sql from before 2026-09-30 afterwards: it puts
 --   back the old functions (renewal would wipe packs again). Today's credits.sql
@@ -706,7 +714,10 @@ begin
   return public.turn__total(p_uid);
 end $$;
 
--- settle (p_keep = credits to keep) or release (p_keep null) one hold
+-- settle (p_keep = credits to keep) or release (p_keep null) one hold. A refund that took
+-- credits from this hold while it ran lowered its sources, not held: the gap (held -
+-- from_plan - every from_lots n) is already refunded, so it absorbs the give-back first —
+-- only what the job didn't use beyond it comes back (a settle still keeps the real cost).
 create or replace function public.turn__finish_hold(p_ref text, p_keep integer)
 returns jsonb
 language plpgsql
@@ -718,6 +729,7 @@ declare
   v_keep  integer;
   v_give  integer;
   v_back  integer;
+  v_gone  integer;
   v_state text := case when p_keep is null then 'released' else 'settled' end;
 begin
   select h.owner into v_owner from public.turn_credit_holds h where h.ref = p_ref;
@@ -741,13 +753,19 @@ begin
   end if;
   v_keep := case when p_keep is null then 0 else least(greatest(p_keep, 0), v_hold.held) end;
   v_give := v_hold.held - v_keep;
-  v_back := public.turn__give_back(v_owner, v_hold.from_plan, v_hold.from_lots, v_hold.plan_period_start, v_give);
+  -- the part refunds took from this hold (0 when none did)
+  v_gone := greatest(0, v_hold.held - greatest(0, coalesce(v_hold.from_plan, 0))
+            - coalesce((select sum(greatest(0, coalesce((e ->> 'n')::integer, 0)))
+                          from jsonb_array_elements(coalesce(v_hold.from_lots, '[]'::jsonb)) e), 0)::integer);
+  v_back := public.turn__give_back(v_owner, v_hold.from_plan, v_hold.from_lots, v_hold.plan_period_start,
+                                   greatest(0, v_give - v_gone));
   update public.turn_credit_holds h
      set status = v_state, kept = v_keep, released = v_give, finished_at = pg_catalog.now()
    where h.ref = p_ref;
   insert into public.turn_usage_events(owner, kind, task, credits, status, request_id, metadata)
     values (v_owner, 'hold', v_hold.reason, v_keep, case when p_keep is null then 'released' else 'succeeded' end, p_ref,
-            jsonb_build_object('held', v_hold.held, 'kept', v_keep, 'released', v_give, 'given_back', v_back));
+            jsonb_build_object('held', v_hold.held, 'kept', v_keep, 'released', v_give, 'given_back', v_back)
+            || case when v_gone > 0 then jsonb_build_object('refunded_from_hold', v_gone) else '{}'::jsonb end);
   return jsonb_build_object('ok', true, 'status', v_state, 'held', v_hold.held, 'kept', v_keep,
                             'released', v_give, 'given_back', v_back, 'remaining', public.turn__total(v_owner));
 end $$;
@@ -1408,10 +1426,24 @@ end $$;
 -- the webhook may pass the charge id (packs) or the grant's key ('invoice:in_...'
 -- for a plan payment). A plan grant gives back at most its amount, and only while its
 -- period is the current one: first from the plan credits left, then from the plan
--- part of holds still open in that period (a running job's plan credits no longer
--- come back when it is released: their from_plan is lowered). Returns the credits
--- removed.
-create or replace function public.turn_revoke_charge_once(event_id text, charge_id text)
+-- part of holds still open in that period. Credits taken from a running job's hold
+-- come out of its sources (its from_plan / from_lots entry is lowered; held stays what
+-- the job set aside): held - (from_plan + every from_lots n) is then the part refunds
+-- took, and turn__finish_hold gives back only what the job didn't use BEYOND that part,
+-- so neither a release nor a settle returns refunded credits, while a settle still
+-- keeps the job's real cost. Returns the credits removed.
+-- refund_fraction (optional; 0 < f <= 1, default 1): the share of the payment this
+-- refund gives back. 1 = a full refund, exactly as before: everything still unused is
+-- removed and the lot / grant is closed (revoked_at). Below 1 = a PARTIAL refund (a
+-- 14-day cancellation's unused part, say): each lot / grant loses ceil(f x its amount)
+-- credits (f x amount is first rounded to 6 decimals, so a fraction like 5/9 sent as
+-- 0.5555555555555556 never rounds up a whole extra credit), never more than it still
+-- has unused (a lot: its remaining, then its part of holds still open, taken out of
+-- the hold's sources as above; a grant: as above) and never more than its amount in all;
+-- it stays open for the next partial refund. A null or out-of-range fraction is
+-- refused before the event is claimed (a corrected retry still applies).
+drop function if exists public.turn_revoke_charge_once(text, text);   -- no ambiguous overload
+create or replace function public.turn_revoke_charge_once(event_id text, charge_id text, refund_fraction numeric default 1)
 returns integer
 language plpgsql
 security definer
@@ -1421,11 +1453,14 @@ as $$
 declare
   v_event  text := nullif(trim(coalesce(turn_revoke_charge_once.event_id, '')), '');
   v_charge text := nullif(trim(coalesce(turn_revoke_charge_once.charge_id, '')), '');
+  v_frac   numeric := turn_revoke_charge_once.refund_fraction;
+  v_full   boolean;
   v_total  integer := 0;
   v_lots   integer := 0;
   v_grants integer := 0;
   v_owner  uuid;
   v_lot    record;
+  v_lrow   record;
   v_grant  record;
   v_hold   record;
   v_row    public.turn_credits;
@@ -1433,12 +1468,20 @@ declare
   v_left   integer;
   v_part   integer;
   v_held   integer;
+  v_target integer;
+  v_i      integer;
+  v_e      jsonb;
+  v_new    jsonb;
   v_from_holds integer := 0;
 begin
   perform public.turn__service_only('turn_revoke_charge_once');
   if v_event is null or v_charge is null then
     raise exception using errcode = '22023', message = 'KINOLOT_BILLING: turn_revoke_charge_once needs event_id and charge_id';
   end if;
+  if v_frac is null or v_frac = 'NaN'::numeric or v_frac <= 0 or v_frac > 1 then
+    raise exception using errcode = '22023', message = 'KINOLOT_BILLING: refund_fraction must be above 0 and at most 1';
+  end if;
+  v_full := v_frac = 1;
   if not public.turn__claim_event(v_event, 'turn_revoke_charge_once', null) then
     return 0;
   end if;
@@ -1448,29 +1491,76 @@ begin
      order by l.owner, l.created_at
   loop
     perform public.turn__lock(v_lot.owner);
-    update public.turn_credit_lots l
-       set revoked_amount = l.remaining, remaining = 0, revoked_at = pg_catalog.now()
-     where l.id = v_lot.id and l.revoked_at is null
-    returning l.revoked_amount into v_n;
-    v_total := v_total + coalesce(v_n, 0);
-    v_lots := v_lots + 1;
-    v_owner := v_lot.owner;
-    perform public.turn__sync(v_lot.owner);
+    select l.amount, l.remaining, l.revoked_amount into v_lrow
+      from public.turn_credit_lots l where l.id = v_lot.id and l.revoked_at is null for update;
+    if found then
+      v_held := 0;
+      if v_full then
+        -- everything left; a revoked lot takes nothing back from a hold's release
+        v_n := v_lrow.remaining;
+        update public.turn_credit_lots l
+           set revoked_amount = l.revoked_amount + l.remaining, remaining = 0, revoked_at = pg_catalog.now()
+         where l.id = v_lot.id;
+      else
+        v_target := least(pg_catalog.ceil(pg_catalog.round(v_frac * v_lrow.amount, 6))::integer,
+                          greatest(0, v_lrow.amount - v_lrow.revoked_amount));
+        v_n := least(v_lrow.remaining, v_target);
+        -- the rest of the share may sit in holds of running jobs: their part of this
+        -- lot is lowered (held stays), so neither a release nor a settle gives it back
+        v_left := v_target - v_n;
+        for v_hold in
+          select h.ref, h.from_lots from public.turn_credit_holds h
+           where h.owner = v_lot.owner and h.status = 'held'
+             and h.from_lots @> jsonb_build_array(jsonb_build_object('lot', v_lot.id))
+           order by h.created_at desc, h.ref
+           for update
+        loop
+          exit when v_left <= 0;
+          v_new := '[]'::jsonb;
+          for v_i in 0 .. coalesce(jsonb_array_length(v_hold.from_lots), 0) - 1 loop
+            v_e := v_hold.from_lots -> v_i;
+            if v_left > 0 and (v_e ->> 'lot') = v_lot.id::text then
+              v_part := least(v_left, greatest(0, coalesce((v_e ->> 'n')::integer, 0)));
+              v_e := jsonb_set(v_e, '{n}', to_jsonb(greatest(0, coalesce((v_e ->> 'n')::integer, 0)) - v_part));
+              v_held := v_held + v_part;
+              v_left := v_left - v_part;
+            end if;
+            v_new := v_new || jsonb_build_array(v_e);
+          end loop;
+          update public.turn_credit_holds h set from_lots = v_new where h.ref = v_hold.ref;
+        end loop;
+        update public.turn_credit_lots l
+           set remaining = l.remaining - v_n, revoked_amount = l.revoked_amount + v_n + v_held
+         where l.id = v_lot.id;
+      end if;
+      v_total := v_total + v_n + v_held;
+      v_from_holds := v_from_holds + v_held;
+      v_lots := v_lots + 1;
+      v_owner := v_lot.owner;
+      perform public.turn__sync(v_lot.owner);
+    end if;
   end loop;
   for v_grant in
-    select g.id, g.owner, g.amount, g.period_start, g.kind from public.turn_plan_grants g
+    select g.id, g.owner, g.amount, g.revoked_amount, g.period_start, g.kind from public.turn_plan_grants g
      where (g.charge_ref = v_charge or g.event_id = v_charge) and g.revoked_at is null and g.kind <> 'trial'
      order by g.owner, g.created_at
   loop
     v_row := public.turn__lock(v_grant.owner);
     v_n := 0;
     v_held := 0;
+    -- what this refund may take from the grant: all that is left of it (full), or its
+    -- share (partial); never more than the grant less what earlier refunds took
+    v_target := greatest(0, greatest(0, v_grant.amount) - coalesce(v_grant.revoked_amount, 0));
+    if not v_full then
+      v_target := least(v_target, pg_catalog.ceil(pg_catalog.round(v_frac * greatest(0, v_grant.amount), 6))::integer);
+    end if;
     if v_row.plan_period_start is not distinct from v_grant.period_start then
-      v_n := least(v_row.plan_remaining, greatest(0, v_grant.amount));
+      v_n := least(v_row.plan_remaining, v_target);
       -- the rest of the grant may sit in holds of running jobs: those plan credits
-      -- must not come back when the job is released (turn__give_back returns plan
-      -- credits of the same period up to the hold's from_plan)
-      v_left := greatest(0, v_grant.amount) - v_n;
+      -- must not come back when the job is released or settled (turn__give_back
+      -- returns plan credits of the same period up to the hold's from_plan, and
+      -- turn__finish_hold counts held - sources as already refunded)
+      v_left := v_target - v_n;
       for v_hold in
         select h.ref, h.from_plan from public.turn_credit_holds h
          where h.owner = v_grant.owner and h.status = 'held' and h.from_plan > 0
@@ -1487,7 +1577,10 @@ begin
     end if;
     update public.turn_credits c set plan_remaining = c.plan_remaining - v_n, ledger_sync = true
      where c.owner = v_grant.owner;
-    update public.turn_plan_grants g set revoked_at = pg_catalog.now(), revoked_amount = v_n + v_held where g.id = v_grant.id;
+    update public.turn_plan_grants g
+       set revoked_at = case when v_full then pg_catalog.now() else g.revoked_at end,
+           revoked_amount = g.revoked_amount + v_n + v_held
+     where g.id = v_grant.id;
     v_total := v_total + v_n + v_held;
     v_from_holds := v_from_holds + v_held;
     v_grants := v_grants + 1;
@@ -1495,7 +1588,7 @@ begin
   end loop;
   update public.turn_stripe_events e
      set uid = v_owner, result = jsonb_build_object('removed', v_total, 'lots', v_lots, 'plan_grants', v_grants,
-                                                    'from_open_holds', v_from_holds)
+                                                    'from_open_holds', v_from_holds, 'fraction', v_frac)
    where e.id = v_event;
   return v_total;
 end $$;
@@ -1796,7 +1889,7 @@ begin
     'public.turn_set_plan_once(text, uuid, text, integer, text, text, timestamptz)',
     'public.turn_adjust_plan_once(text, uuid, text, integer, text)',
     'public.turn_add_pack_once(text, uuid, integer, text, boolean)',
-    'public.turn_revoke_charge_once(text, text)',
+    'public.turn_revoke_charge_once(text, text, numeric)',
     'public.turn_set_payment_status(uuid, text)',
     'public.turn_set_frozen(uuid, boolean, text)',
     'public.turn_end_plan_for_sub(uuid, text)',
@@ -1864,7 +1957,7 @@ with fns(sig, kind) as (values
     ('public.turn_set_plan_once(text, uuid, text, integer, text, text, timestamptz)', 'service'),
     ('public.turn_adjust_plan_once(text, uuid, text, integer, text)', 'service'),
     ('public.turn_add_pack_once(text, uuid, integer, text, boolean)', 'service'),
-    ('public.turn_revoke_charge_once(text, text)', 'service'),
+    ('public.turn_revoke_charge_once(text, text, numeric)', 'service'),
     ('public.turn_set_payment_status(uuid, text)', 'service'),
     ('public.turn_set_frozen(uuid, boolean, text)', 'service'),
     ('public.turn_end_plan_for_sub(uuid, text)', 'service'),

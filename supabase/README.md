@@ -151,7 +151,8 @@ cross-device access, and multiple projects all work.
 `admin-storage.sql` (see **Admin Storage page** below), and
 `frances-daily-limit.sql` (see **Frances's daily question limit** below; it
 depends on nothing but Supabase Auth, so it can run at any point). Today's `credits.sql`
-already carries billing v2; run `billing-housekeeping-cron.sql` right after it (required),
+already carries billing v2 and the tax records of `tax-compliance.sql` (see **Tax &
+compliance records** below); run `billing-housekeeping-cron.sql` right after it (required),
 and `billing-switch.sql` once, on the credit switch day (see **Billing v2** below). Offline test of the
 readable-folders step: `node scripts/test-storage-readable-folders.mjs` (the SQL), plus
 `test-storage-keys.mjs` (the one key parser, JS = SQL), `test-storage-folders-client.mjs`
@@ -394,7 +395,9 @@ fake Stripe / Supabase adapters, and the account-menu button).
 
 ## Billing v2 (`billing-v2.sql`, `billing-switch.sql`)
 
-**Status (2026-09-30): written and tested offline; NOT run on production.**
+**Status (2026-10-01): run on production on 2026-10-01 (day 0, steps 1–5 below); the
+switch (step 6) has not run.** `billing-v2.sql` is run once more for partial refunds,
+right before `tax-compliance.sql` (see **Tax & compliance records** below).
 The owner's step-by-step rollout (day 0, switch day, the notice email, rollback) is
 `docs/Billing Rollout Runbook.md`; the proposed Terms / privacy wording is
 `docs/Billing Terms Proposal.md`.
@@ -408,10 +411,11 @@ in the new units — 2,400 / 7,200 / 27,000 — for renewals until 30 days after
 
 | File | Run it | What it does |
 |---|---|---|
-| `credits.sql` | fresh installs only | The base tables plus every billing v2 definition. Ends in exactly the state of an existing database after `billing-v2.sql` (the shared block between the `>>> KINOLOT BILLING V2 DEFINITIONS >>>` markers is byte-identical in both files; the test fails if they drift). |
+| `credits.sql` | fresh installs only | The base tables plus every billing v2 definition and the tax records. Ends in exactly the state of an existing database after `billing-v2.sql` and `tax-compliance.sql` (the shared blocks between the `>>> KINOLOT BILLING V2 DEFINITIONS >>>` and `>>> KINOLOT TAX COMPLIANCE DEFINITIONS >>>` markers are byte-identical in the files; the tests fail if they drift). |
 | `billing-v2.sql` | **existing databases (production), once now** | Plan and pack balances, holds, once-only Stripe grants, refunds, disputes, failed payments, cancellations, the trial. Backward compatible: today's app, `image-proxy`, `stripe-webhook` and Blender Studio keep working unchanged. First run only: the **carry-over** — for each subscriber anything above today's allowance (800 / 2,400 / 9,000) moves to a 12-month lot; an account without a plan keeps its whole balance as a 12-month lot; nobody's total changes. One transaction, safe to re-run; its RESULT rows must all read `ok`. |
 | `billing-housekeeping-cron.sql` | **once, on day 0, right after `billing-v2.sql` (required)** | Four pg_cron jobs. Every 10 minutes: `turn_release_stale_holds(30)` gives back the holds of a worker that was killed before its own release ran; and the **reconciliation** — pg_net posts `{"op":"reconcile_holds"}` to `image-proxy` and to `blender-bridge`, which ask the provider about video / 3D jobs nobody polled for an hour (a closed tab): finished → charged as the poll would have, failed or unknown → refunded, still running → asked again next time. A provider-tied hold is settled at the held amount only as a last resort, after 30 days. Daily: `turn_expire_lots()`. Enables `pg_net`; safe to re-run (jobs are unscheduled by name and scheduled again); its RESULT lists pg_net and the four jobs. |
 | `billing-switch.sql` | **once, on the switch day** | Every balance x3 (plan credits, lots, open holds, plan grants), grandfathering for 30 days (`pro` = Director), trial on, `turn_credit_regime()` answers $0.01. Refuses with a FAIL row, changing nothing, until the `server_video_billing` marker (day-0 deploys) exists **and** `image-proxy` has taken at least one credit hold after it (proof the new code is live, not just that the marker line ran); raises (nothing committed) unless every total is exactly x3. A marker row makes any re-run a no-op (its RESULT then says "already switched … changed nothing"). Stops, changing nothing, if `billing-v2.sql` hasn't run. RESULT after the commit. |
+| `tax-compliance.sql` | **existing databases, once, after `billing-v2.sql` is run again** | The sales ledger for the Admin panel's tax figures, the checkout consent, the tax summary. See **Tax & compliance records** below. |
 | `billing-switch-undo.sql` | **only to take back a mistaken switch**, soon after it | The exact inverse of the switch: trials granted since then taken back, every balance / 3 (rounded up when something was spent since), grandfathering cleared, the switch marker deleted. Refuses when the switch has not run. See "Rollback" below. |
 
 After `billing-v2.sql`, never paste a copy of `credits.sql` from before 2026-09-30,
@@ -554,9 +558,20 @@ The full runbook with the notice email is kept by the owner; the order is:
   subscription: cancel the old one or clear `stripe_sub_id`, delete that event id from
   `turn_stripe_events`, then resend the event from Stripe; otherwise refund it).
 - **Refund** (full): the unspent credits of the pack lot / plan grant tied to that
-  payment are removed (plan credits held by a running job included: they no longer come
-  back when it is released). **Dispute** open: `frozen` — spending, usage and holds refuse
-  (`CREDITS_FROZEN` / code `frozen`); credits stay visible. **Failed renewal:**
+  payment are removed (plan credits held by a running job included: they are taken out
+  of the hold's sources, so they come back neither when the job is released nor when it
+  settles).
+  **Partial refund** (a 14-day cancellation's unused part, say): the same share of that
+  payment's credits, rounded up, never more than is still unused (credits held by a running
+  job count as unused: that part is taken out of the hold's sources, so a release or a settle
+  never gives it back, while a settle still keeps the job's real cost) and never more than the
+  payment granted in all; the next partial refund
+  takes its own share, a full refund takes what is left. **Dispute** open: `frozen` —
+  spending, usage and holds refuse (`CREDITS_FROZEN` / code `frozen`); credits stay
+  visible. Dispute closed, won or lost: `stripe-webhook` lifts the hold that dispute placed
+  (`turn_dispute_hold`, `tax-compliance.sql`; the account stays frozen while another dispute
+  or an earlier hold is still listed); a lost dispute also removes that payment's unused
+  credits. **Failed renewal:**
   `payment_status = 'past_due'`; credits stay usable, the next paid invoice sets it back.
 - **Holds:** the server takes the estimated credits before a job (video, voice, long
   writing) and settles (keeps the real cost, never more than held) or releases them;
@@ -646,7 +661,7 @@ The full runbook with the notice email is kept by the owner; the order is:
 | `turn_set_plan_once(event_id, uid, new_tier, monthly_credits, sub_id, customer_id, renews)` | service role | int total — once per event id / key; renewal resets plan credits only; honours grandfathering; sets `payment_status` active. A subscription conflicting with the account's stored, still-active one on another customer grants nothing (`turn_grant_failures` `subscription_conflict`; the event's result says `skipped`). |
 | `turn_adjust_plan_once(event_id, uid, new_tier, add_credits, sub_id)` | service role | int total — immediate upgrade, once; adds the difference for the part of the period still to run (rounded up; none when no renewal date is known); a different stored subscription is refused and recorded in `turn_grant_failures` (`subscription_mismatch`). |
 | `turn_add_pack_once(event_id, uid, amount, charge_id, legacy_unit default false)` | service role | int total — a 12-month pack lot, once. `legacy_unit = true`: the amount is in the old unit (the 300 / 1,200 / 4,000 packs): granted as sold before the switch, x3 from the switch on — decided after the account lock, together with the lot (the event's result records `legacy_unit` and `x3`). The 4-argument call still works and never multiplies. |
-| `turn_revoke_charge_once(event_id, charge_id)` | service role | int credits removed — once per event; matches lots and plan grants whose charge id **or** grant key equals `charge_id` (pass the charge id for packs, the grant key such as `invoice:in_…` for a plan payment); a plan grant is taken from the plan credits left, then from the plan part of holds still open in its period. |
+| `turn_revoke_charge_once(event_id, charge_id, refund_fraction default 1)` | service role | int credits removed — once per event; matches lots and plan grants whose charge id **or** grant key equals `charge_id` (pass the charge id for packs, the grant key such as `invoice:in_…` for a plan payment); a plan grant is taken from the plan credits left, then from the plan part of holds still open in its period. `refund_fraction` (0 < f ≤ 1; the two-argument call = 1 = a full refund, as before, which closes the lot / grant): a partial refund removes `ceil(f × granted)` of each lot / grant (f × granted rounded to 6 decimals first), capped at what it still has unused (a lot's remaining, then its part of open holds) and at the amount less earlier refunds; the lot / grant stays open. A null or out-of-range fraction is refused (22023) before the event is claimed. The event's result records `fraction`. |
 | `turn_set_payment_status(uid, status)` | service role | `'active'` or `'past_due'`. |
 | `turn_set_frozen(uid, frozen, reason)` | service role | freeze / unfreeze (disputes); the reason is kept. |
 | `turn_end_plan_for_sub(uid, sub_id)` | service role | boolean — ends the plan only when `sub_id` is the stored subscription; keeps its plan credits before the switch day, ends them from the switch day on. |
@@ -684,6 +699,112 @@ the housekeeping schedule and the reconcile calls on pg_cron / pg_net stand-ins,
 reconciliation's functions, fresh-install equivalence). To run only some sections, set
 `TEST_SECTIONS` to their letters (listed at the top of the file), e.g.
 `TEST_SECTIONS=J node scripts/test-billing-db.mjs`; unset, everything runs.
+
+## Tax & compliance records (`tax-compliance.sql`)
+
+**Status (2026-10-01): written and tested offline; NOT run on production.**
+Owner decisions 2026-10-01: prices stay in US dollars; the Admin panel warns when a tax
+registration is due (the owner lives and works in the UK and advertises to UK, EU and US
+users); every buyer gets a 14-day right to cancel, the unused part back (the law requires it
+for UK and EU consumers; the Terms give it to everyone), after a "Start now" consent at
+checkout; a partial refund removes the same share of credits; a closed dispute lifts its own
+hold.
+The owner's steps, with the Stripe settings and what to do about tax, are in
+`docs/Billing Rollout Runbook.md`, section (9).
+
+### What it adds
+
+- **`turn_sales_ledger`** — one row per successful payment on the Stripe account and one
+  negative row per refund, written by `stripe-webhook` only (`turn_record_sale_once`, once
+  per source key: `invoice:<id>`, `checkout:<id>`, `refund:<refund id>`). It covers **every
+  product on the account** (the other products sold there belong to the same business, so
+  they count toward the same VAT turnover): `app` is `kinolot` or `other`, `kind` is `plan`,
+  `pack`, `other` or `refund`. `country` is the billing country (ISO-3166 alpha-2), `region`
+  the US state, `country_source` where the webhook found it (the invoice's customer address,
+  the checkout's customer details, the customer, the charge's billing details, the card).
+  No names, emails or card details. No foreign key to the account: tax records outlive a
+  deleted account (UK: generally kept six years).
+- **`turn_checkout_consents`** — the "Start now" consent (the 14-day right to cancel) the
+  app records before every checkout, plan or pack (`turn_record_checkout_consent`). If the
+  call fails (this file not run yet), the checkout still opens: the payment link's terms
+  acceptance is the second record.
+- **`turn_admin_tax_summary(usd_to_gbp default 0.80)`** — the Admin panel's "Tax &
+  compliance" figures, for the admin (`admin@infinitestudioai.com`, the signed-in JWT's
+  email, as `admin-storage` and `image-proxy` decide) or the SQL Editor; everyone else is
+  refused (42501), the anon key cannot call it at all.
+- **Partial refunds** — `turn_revoke_charge_once(event_id, charge_id, refund_fraction
+  default 1)` (in `billing-v2.sql`, see **Billing v2** above): a partial refund removes the
+  same share of that payment's credits (credits held by a running job count as unused: they
+  are taken out of the hold). That is why `billing-v2.sql` runs once more first. Only a
+  SUCCEEDED refund counts: a pending one (bank transfers, some wallets) removes nothing and
+  writes no ledger row until Stripe's `charge.refund.updated` says it succeeded; a refund that
+  fails afterwards is recorded in `turn_grant_failures` (`refund_failed_review`). For a plan
+  invoice paid partly from the customer's Stripe balance, the share is of the invoice total.
+- **`turn_dispute_hold(uid, dispute_id, open, part)`** — the webhook's ONE call that adds or
+  removes a dispute's part of an account hold, under the account lock: two disputes handled at
+  the same moment never lose each other's part, a closing dispute lifts the hold only when
+  nothing else holds the account (an earlier hold or another open dispute keeps it), and a
+  held account that this dispute didn't hold is left alone (`dispute_closed_review`). Without
+  this file the webhook falls back to the old two-step update (`DISPUTE_HOLD_FALLBACK`).
+- **The thresholds live in ONE place:** `turn__tax_thresholds()` in this file (and its copy
+  in `credits.sql`), with the date they were last checked (2026-10-01): UK GBP 90,000 of UK
+  sales in any rolling 12 months (warn at 75 % and 90 %, over at 100 %); EU from the first
+  sale (a UK business selling digital services to EU consumers registers for the non-Union
+  OSS scheme first); US USD 100,000 or 200 sales a year per state (a conservative common
+  test; warn at 80 %). The summary returns them, so the app never hard-codes them. When a
+  rule changes, edit that one function, set `checked`, and re-run the file. These are
+  warnings, not tax advice: check with an accountant.
+
+### Order (owner steps)
+
+1. *(SQL Editor, as postgres)* run **`billing-v2.sql`** again — safe to re-run (functions
+   and grants are put back, the carry-over never happens twice); every RESULT row `ok`. It
+   adds the optional `refund_fraction`; the two-argument call keeps working.
+2. Run **`tax-compliance.sql`**. Its 10 RESULT rows must read `ok`; row 80 ("Partial
+   refunds") says FAIL until step 1 has run. It stops, changing nothing, if `billing-v2.sql`
+   never ran. One transaction, safe to re-run, never touches data.
+3. *(Mac, after `git pull`, with the owner's go-ahead)* deploy `stripe-webhook`
+   (`--no-verify-jwt`). From then on it records every payment and refund; on a database
+   without this file it logs the missing function and carries on (the event never fails).
+   *(Stripe dashboard, right after)* webhook endpoint → add the event
+   **`charge.refund.updated`** (ten in all): it applies a refund that was pending when
+   `charge.refunded` came, once it succeeds.
+4. *(Replit)* Pull, then Publish: the "Start now" step before every checkout and the Admin
+   panel's "Tax & compliance" panel.
+
+Fresh installs: `credits.sql` carries the same definitions (the block between the
+`>>> KINOLOT TAX COMPLIANCE DEFINITIONS >>>` markers is byte-identical in both files).
+
+### The functions (contract) and who may call them
+
+| Function | Caller | Returns / does |
+|---|---|---|
+| `turn_record_sale_once(source_key, app, owner, kind, amount_cents, currency, country, region, country_source, occurred_at, stripe_ids)` | service role | boolean — `true` when this call recorded it, `false` when that source key already was (nothing changes). Currency lower-case, country upper-case (anything that isn't two letters is stored as no country, its raw value kept in `stripe_ids.country_raw`), a refund always negative; a negative amount for anything else, an unknown kind, a missing key / app / currency is refused (22023). No `occurred_at` = now. |
+| `turn_record_checkout_consent(sku, consent_version)` | signed-in user | void — stores the caller's own consent (`owner = auth.uid()`; no user = refused). `sku` names the purchase as the app sends it (`plan-writer`, `plan-director`, `plan-studio`, `pack-250`, `pack-1000`, `pack-3000`; `credits-300` / `credits-1200` / `credits-4000` for the old packs), `consent_version` the wording shown (`v2-2026-10-01` since the review fix: "…I understand I lose my right to cancel for credits I use, and if I cancel within 14 days I only get back the part I haven't used."; `v1-2026-10-01` was never published). More than 200 in a day from one account are not stored (no error). |
+| `turn_dispute_hold(uid, dispute_id, open, part default null)` | service role | jsonb `{action, frozen, frozen_reason}` — under the account lock: `open = true` adds this dispute's part to `frozen_reason` (parts separated by ` \| `; once; an earlier hold is kept, one without a reason as "earlier hold (no reason given)") → `frozen`; `open = false` removes it: nothing left → unfrozen, reason = `part` → `lifted`; other holds left → `kept`; held but not by this dispute → `review` (nothing changes); not held → `lifted`. A non-Stripe dispute id is refused (22023), an unknown account 23503. |
+| `turn_admin_tax_summary(usd_to_gbp default 0.80)` | signed-in user, the admin only inside | jsonb `{as_of, usd_to_gbp, thresholds {uk_gbp, us_usd, us_tx, checked, uk_watch_pct, uk_near_pct, us_near_pct}, window_from, uk {usd_12m, gbp_12m_est, pct, status ok·watch·near·over, sales_12m, gbp_30d_est, unknown_gbp_est, pct_with_unknown}, eu {sales_12m, usd_12m, first_sale_at, status watch·over, by_country [{country, sales, usd}]}, us {sales_12m, usd_12m, by_state [{state, sales, usd, pct_usd, pct_tx, status ok·near·over}]}, rest {sales_12m, usd_12m, by_country}, unknown {sales, usd}, by_app [{app, usd_12m}], other_currencies [{currency, sales, amount_minor}], ledger {rows, first_sale_at, recording_since}}`. The window is the last 12 months up to now; refunds net off the amounts, never the sales count; USD and GBP are converted with `usd_to_gbp` (GBP per USD, a conservative high rate; 0 < rate ≤ 10); other currencies are listed, not converted. UK = GB and the Isle of Man; EU = the 27 states (Greece is `GR`) and Monaco; `first_sale_at` is the first EU sale ever (OSS applies from it). Only totals: no account ids, emails or Stripe ids. |
+
+`turn__tax_thresholds()`, `turn__tax_is_uk(text)`, `turn__tax_is_eu(text)`,
+`turn__tax_is_admin()` and `turn__tax_window(timestamptz, numeric)` are helpers no API role
+can call. Both tables have row-level security on and no grants: nobody reads or writes
+them through the API (not even the admin, who reads the summary).
+
+**Read-only checks (SQL Editor):** `select public.turn_admin_tax_summary();` (or
+`(0.82)` for another rate) · `select app, kind, currency, count(*), sum(amount_cents) from public.turn_sales_ledger group by 1, 2, 3 order by 1, 2, 3;`
+· payments with no country (turn on billing-address collection on that link):
+`select source_key, app, occurred_at from public.turn_sales_ledger where country is null order by occurred_at desc;`
+· consents: `select sku, consent_version, count(*) from public.turn_checkout_consents group by 1, 2;`
+(one buyer's: `… where owner = '<user id>' and sku = 'pack-1000'`)
+
+**Payments from before the ledger** (the other products' sales of the last 12 months, or
+income from outside Stripe, all count toward the UK figure) can be added by hand in the SQL
+Editor, once each:
+`select public.turn_record_sale_once('manual:<unique name>', 'other', null, 'other', <amount in cents or pence>, 'gbp', 'GB', null, 'manual', '<date>', '{}');`
+
+Offline test: `node scripts/test-tax-compliance-db.mjs` (PGlite: production as it is today,
+then the `billing-v2.sql` re-run and this file; privileges, recording, the summary's buckets
+and statuses at their exact thresholds, the consent, the dispute holds, partial refunds of
+packs and plans — released or settled jobs included —, fresh-install equivalence, these docs).
 
 ## Frances's daily question limit (`frances-daily-limit.sql`)
 

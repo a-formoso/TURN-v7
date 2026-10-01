@@ -297,6 +297,13 @@ function AccountChip({ session, cloudActive, connectionState, saveState, shareRo
         React.createElement("button",{className:"acct-upgrade acct-admin",
             onClick:()=>{ setOpen(false); window.turnOpenAdminStorage(); }},
           React.createElement(Icon.box,{s:12}),"Storage \u00b7 admin"),
+      // platform admin only (2026-10-01): Tax & compliance (app/admin-tax.jsx, self-mounting) —
+      // the sales ledger against the UK VAT, EU OSS and US sales-tax thresholds; the database
+      // function refuses everyone but the admin again (turn_admin_tax_summary)
+      window.turnIsAdmin && typeof window.turnOpenAdminTax==="function" &&
+        React.createElement("button",{className:"acct-upgrade acct-admin",
+            onClick:()=>{ setOpen(false); window.turnOpenAdminTax(); }},
+          React.createElement(Icon.globe||Icon.clipboard,{s:12}),"Tax & compliance \u00b7 admin"),
       React.createElement("button",{className:"acct-signout",onClick:()=>{ setOpen(false); onSignOut && onSignOut(); }},
         "Sign out")));
 }

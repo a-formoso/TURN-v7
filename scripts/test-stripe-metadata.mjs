@@ -7,14 +7,21 @@
    G-L (billing fixes, owner decisions 2026-09-30): the pure rules behind the webhook's new
    events — plan ranks and the Option A allowances, upgrade credit differences, idempotency
    keys, refund / dispute outcomes, the key's mode, and period dates in both API shapes. The
-   handler itself is exercised event by event in scripts/test-stripe-webhook.mjs. */
+   handler itself is exercised event by event in scripts/test-stripe-webhook.mjs.
+   P-Q (owner decisions 2026-10-01): sales-ledger.mjs — the sales ledger's keys, countries / US states and
+   where they came from, refunds that count, the partial-refund share (D3) — and the dispute holds (D4). */
 import { readFileSync } from "node:fs";
 import {
   isOurApp, planTier, OUR_APPS, isKnownTier, looksLikeOurs, invoiceSubscriptionId,
   idOf, isUuid, stripeKeyMode, tierRank, planChange, ALLOWANCE_TABLES, upgradeCredits, subscriptionPeriod,
   planGrantKey, packGrantKey, upgradeKey, PLAN_BILLING_REASONS, refundState, disputeOutcome,
   LEGACY_PACK_CREDITS, isLegacyPack, packGrantCredits, regimeSwitched, isMissingFunctionError, legacyPackLotNote,
+  disputeHoldReason, disputeHoldAfterClose, HOLD_SEPARATOR,
 } from "../supabase/functions/stripe-webhook/plan-metadata.mjs";
+import {
+  SALE_KINDS, SALE_APPS, saleApp, COUNTRY_SOURCES, normCountry, normUsState, US_STATE_CODES, saleLocation, saleAmountCents, unixToIso,
+  invoiceSaleKey, checkoutSaleKey, refundSaleKey, countableRefund, pendingRefund, refundBaseCents, refundFraction, invoiceLineProductIds, saleLogFields,
+} from "../supabase/functions/stripe-webhook/sales-ledger.mjs";
 
 let passed = 0, failed = 0;
 const check = (name, ok) => { if (ok) passed++; else { failed++; console.error("FAIL " + name); } };
@@ -157,6 +164,96 @@ check("O …and says 'unknown' when the result can't be read (never a guess)",
 check("O the webhook logs credits_as_sold= and the lot for the database-decided path (and reads the event result back)",
   /amountLabel = "credits_as_sold";/.test(code) && /legacyPackLotNote\(await packEventResult\(key, event\)\)/.test(code)
   && /\$\{amountLabel\}=\$\{credits\}/.test(code) && /from\("turn_stripe_events"\)\.select\("result"\)\.eq\("id", key\)\.maybeSingle\(\)/.test(code));
+
+// P (2026-10-01, D1 / D3): the sales ledger's pure rules (sales-ledger.mjs)
+check("P the ledger's kinds, apps and country sources are the shared contract's (tax-compliance.sql)",
+  SALE_KINDS.join() === "plan,pack,other,refund" && SALE_APPS.join() === "kinolot,other" && saleApp(true) === "kinolot" && saleApp(false) === "other" && saleApp(undefined) === "other"
+  && Object.isFrozen(SALE_KINDS) && Object.isFrozen(COUNTRY_SOURCES)
+  && COUNTRY_SOURCES.join() === "invoice_address,checkout_address,customer_address,billing_address,card_country");
+check("P countries are ISO-3166 alpha-2, upper case; anything else is unknown",
+  normCountry(" gb ") === "GB" && normCountry("US") === "US" && normCountry("GBR") === null && normCountry("") === null && normCountry(null) === null && normCountry("G1") === null);
+check("P US states: codes, full names (any case) and US-XX; DC and the territories; nothing else",
+  normUsState("ca") === "CA" && normUsState("California") === "CA" && normUsState(" new  york ") === "NY" && normUsState("US-TX") === "TX"
+  && normUsState("District of Columbia") === "DC" && normUsState("PR") === "PR" && normUsState("Ontario") === null && normUsState("ZZ") === null
+  && normUsState(undefined) === null && US_STATE_CODES.length === 56 && US_STATE_CODES.includes("WY"));
+const L = saleLocation;
+check("P location: the first valid country wins, with its source; a bad country is skipped",
+  JSON.stringify(L([{ source: "invoice_address", address: { country: "xx1" } }, { source: "customer_address", address: { country: "fr" } }, { source: "card_country", country: "DE" }]))
+    === JSON.stringify({ country: "FR", region: null, country_source: "customer_address", complete: true })
+  && L([{ source: "card_country", country: "ie" }]).country === "IE" && L([{ source: "card_country", country: "ie" }]).region === null);
+check("P location: a US sale takes the state of the first US address that has one — never a state from another country's address or a bare card country",
+  JSON.stringify(L([{ source: "invoice_address", address: { country: "US" } }, { source: "customer_address", address: { country: "US", state: "Texas" } }]))
+    === JSON.stringify({ country: "US", region: "TX", country_source: "invoice_address", complete: true })
+  && L([{ source: "invoice_address", address: { country: "US" } }]).complete === false && L([{ source: "invoice_address", address: { country: "US" } }]).region === null
+  && L([{ source: "invoice_address", address: { country: "US" } }, { source: "customer_address", address: { country: "CA", state: "ON" } }]).region === null
+  && L([{ source: "invoice_address", address: { country: "GB", state: "CA" } }]).region === null);
+check("P location: nothing usable -> unknown (null country, null source, not complete)",
+  JSON.stringify(L([])) === JSON.stringify({ country: null, region: null, country_source: null, complete: false }) && L(null).country === null && L([null, {}, { source: "x" }]).country === null);
+check("P amounts, times and keys",
+  saleAmountCents(4900) === 4900 && saleAmountCents("1000") === 1000 && saleAmountCents(1.5) === null && saleAmountCents(undefined) === null
+  && unixToIso(1790000000) === "2026-09-21T14:13:20.000Z" && unixToIso(0) === null && unixToIso(null) === null
+  && invoiceSaleKey("in_1") === "invoice:in_1" && invoiceSaleKey(null) === null && refundSaleKey("re_1") === "refund:re_1" && refundSaleKey("") === null
+  && checkoutSaleKey({ id: "cs_1" }) === "checkout:cs_1" && checkoutSaleKey({ id: "cs_1", invoice: "in_9" }) === "invoice:in_9"
+  && checkoutSaleKey({ id: "cs_1", invoice: { id: "in_8" } }) === "invoice:in_8" && checkoutSaleKey(null) === null);
+check("P refunds that count: SUCCEEDED (or an old payload without a status) only — a pending one may still fail; never failed, canceled, requires_action or $0",
+  countableRefund({ id: "re", amount: 100, status: "succeeded" }) && !countableRefund({ id: "re", amount: 100, status: "pending" }) && countableRefund({ id: "re", amount: 100 })
+  && !countableRefund({ id: "re", amount: 100, status: "failed" }) && !countableRefund({ id: "re", amount: 100, status: "canceled" })
+  && !countableRefund({ id: "re", amount: 100, status: "requires_action" }) && !countableRefund({ id: "re", amount: 0 }) && !countableRefund({ amount: 100 }) && !countableRefund(null));
+check("P pending refunds wait (pending / requires_action), applied when charge.refund.updated says they succeeded",
+  pendingRefund({ id: "re", amount: 100, status: "pending" }) && pendingRefund({ id: "re", amount: 100, status: "requires_action" })
+  && !pendingRefund({ id: "re", amount: 100, status: "succeeded" }) && !pendingRefund({ id: "re", amount: 100, status: "failed" })
+  && !pendingRefund({ id: "re", amount: 100 }) && !pendingRefund({ id: "re", amount: 0, status: "pending" }) && !pendingRefund(null));
+check("P D3 what a share is measured against: a pack's charge; a plan invoice paid partly from the customer's balance -> the invoice total",
+  refundBaseCents("pack", 3500, 9999) === 3500 && refundBaseCents("plan", 1900, 4900) === 4900 && refundBaseCents("plan", 4900, 4900) === 4900
+  && refundBaseCents("plan", 4900, undefined) === 4900 && refundBaseCents("plan", 4900, 1900) === 4900 && refundBaseCents("plan", null, 4900) === 4900
+  && refundBaseCents("pack", 0, 4900) === null && refundBaseCents("plan", 1900, 19.5) === 1900);
+check("P D3 refund share: refund / charge cut DOWN to 12 decimals (never above the true share), 1 for the whole charge, null when unknowable",
+  refundFraction(1000, 3500) === 0.285714285714 && refundFraction(500, 3500) === 0.142857142857 && refundFraction(2450, 4900) === 0.5
+  && refundFraction(3500, 3500) === 1 && refundFraction(4000, 3500) === 1 && refundFraction(1, 99900) === 0.00001001001
+  && refundFraction(0, 3500) === null && refundFraction(100, 0) === null && refundFraction(1.5, 3500) === null && refundFraction(null, 3500) === null);
+// exhaustive: for every refund of a $35 / $49 / $149 charge and every allowance, ceil(fraction x granted) equals the exact ceil(refund x granted / charge)
+{
+  let bad = null;
+  for (const charge of [3500, 4900, 14900]) for (const granted of [250, 600, 1000, 1600, 3000, 5000, 27000]) {
+    for (let refund = 1; refund < charge && !bad; refund += 7) {
+      const exact = Math.floor((refund * granted + charge - 1) / charge);                  // ceil(refund x granted / charge), integers
+      const k = BigInt(Math.round(refundFraction(refund, charge) * 1e12));                // the decimal the database receives, x 1e12
+      const viaDb = Number((k * BigInt(granted) + 999999999999n) / 1000000000000n);      // numeric's exact ceil(fraction x granted)
+      if (viaDb !== exact) bad = { charge, granted, refund, exact, viaDb };
+    }
+  }
+  check("P D3 share x granted, rounded up, is exact for every refund of the plans' and packs' prices (no float drift either way)", !bad);
+  if (bad) console.error(bad);
+}
+check("P one-off invoice line products in both API shapes (price.product before basil, pricing.price_details.product after), de-duplicated",
+  invoiceLineProductIds({ lines: { data: [{ price: { product: "prod_a" } }, { pricing: { price_details: { product: "prod_b" } } }, { price: { product: { id: "prod_a" } } }, { plan: { product: "prod_c" } }, {}] } }).join() === "prod_a,prod_b,prod_c"
+  && invoiceLineProductIds({}).length === 0 && invoiceLineProductIds(null).length === 0);
+check("P the ledger's log words",
+  saleLogFields({ source_key: "invoice:in_1", app: "kinolot", kind: "plan", amount_cents: 4900, currency: "usd", country: "US", region: "CA", country_source: "customer_address" })
+    === "key=invoice:in_1 app=kinolot kind=plan amount=4900 usd country=US region=CA source=customer_address"
+  && saleLogFields({ source_key: "refund:re_1", app: "other", kind: "refund", amount_cents: -100, currency: "gbp", country: null, region: null, country_source: null })
+    === "key=refund:re_1 app=other kind=refund amount=-100 gbp country=unknown source=none");
+
+// Q (2026-10-01, D4): a closing dispute lifts only the hold it placed
+const D1 = "dispute dp_1 (fraudulent) on charge ch_1", D2 = "dispute dp_2 (general) on charge ch_2", D12 = "dispute dp_12 (general) on charge ch_9";
+check("Q opening: alone on a free account; added once to the holds already there; a reasonless hold keeps a marker",
+  disputeHoldReason({ frozen: false, frozen_reason: "dispute dp_0 won" }, D1, "dp_1") === D1 && disputeHoldReason(null, D1, "dp_1") === D1
+  && disputeHoldReason({ frozen: true, frozen_reason: D1 }, D2, "dp_2") === D1 + HOLD_SEPARATOR + D2
+  && disputeHoldReason({ frozen: true, frozen_reason: D1 + HOLD_SEPARATOR + D2 }, D2, "dp_2") === D1 + HOLD_SEPARATOR + D2
+  && disputeHoldReason({ frozen: true, frozen_reason: null }, D1, "dp_1") === "earlier hold (no reason given)" + HOLD_SEPARATOR + D1
+  && disputeHoldReason({ frozen: true, frozen_reason: D12 }, D1, "dp_1") === D12 + HOLD_SEPARATOR + D1, "dp_1 is not dp_12");
+const after = (acct, id) => JSON.stringify(disputeHoldAfterClose(acct, id));
+check("Q closing: lift when nothing else is listed (or nothing is held); keep the rest; review a hold that isn't this dispute's",
+  after({ frozen: true, frozen_reason: D1 }, "dp_1") === JSON.stringify({ action: "lift" }) && after({ frozen: false, frozen_reason: D1 }, "dp_1") === JSON.stringify({ action: "lift" })
+  && after(null, "dp_1") === JSON.stringify({ action: "lift" })
+  && after({ frozen: true, frozen_reason: D1 + HOLD_SEPARATOR + D2 }, "dp_1") === JSON.stringify({ action: "keep", remaining: D2 })
+  && after({ frozen: true, frozen_reason: D12 + HOLD_SEPARATOR + D1 }, "dp_1") === JSON.stringify({ action: "keep", remaining: D12 })
+  && after({ frozen: true, frozen_reason: "owner hold" }, "dp_1") === JSON.stringify({ action: "review", remaining: "owner hold" })
+  && after({ frozen: true, frozen_reason: null }, "dp_1") === JSON.stringify({ action: "review", remaining: null })
+  && after({ frozen: true, frozen_reason: D12 }, "dp_1") === JSON.stringify({ action: "review", remaining: D12 }));
+check("Q the webhook freezes with disputeHoldReason and closes with disputeHoldAfterClose, for won AND lost",
+  /disputeHoldReason\(await accountByUid\(info\.uid\), part, d\.id\)/.test(code) && /disputeHoldAfterClose\(await accountByUid\(uid\), d\.id\)/.test(code)
+  && (code.match(/await releaseDisputeHold\(event, d, info\.uid\)/g) || []).length === 2);
 
 console.log(failed ? `${passed} passed, ${failed} failed` : `${passed} checks passed`);
 if (failed) process.exit(1);

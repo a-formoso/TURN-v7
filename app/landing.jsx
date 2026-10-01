@@ -23,8 +23,8 @@ const LP_STRUCTURES = [
             {c:1.3},{c:-2.4,m:"Mid-Act Climax"},{c:1.0},{c:-2.8,m:"Crisis"},{c:2.3,m:"Story Climax"}] },
   { word:"a Hero\u2019s Journey",
     bands:["Departure","Initiation","Return"], breaks:[4,6],
-    scenes:[{c:0.5,m:"Ordinary World"},{c:-1.0},{c:1.8,m:"Call to Adventure"},{c:-1.3},{c:1.6,m:"Threshold"},
-            {c:-2.8,m:"The Ordeal"},{c:1.9,m:"Reward"},{c:-2.2,m:"Resurrection"},{c:2.3,m:"Return with the Elixir"}] },
+    scenes:[{c:0.5,m:"Ordinary World"},{c:-1.0},{c:1.8,m:"Call to Adventure"},{c:-1.3},{c:1.6,m:"Crossing the Threshold"},
+            {c:-2.8,m:"The Ordeal"},{c:1.9,m:"The Reward"},{c:-2.2,m:"Resurrection"},{c:2.3,m:"Return with the Elixir"}] },
   { word:"Kish\u014dtenketsu",
     bands:["Ki","Sh\u014d","Ten","Ketsu"], breaks:[1,4,6],
     scenes:[{c:0.5,m:"Planting"},{c:-0.4},{c:0.7},{c:-0.5},{c:1.1,m:"Deepening"},
@@ -102,17 +102,32 @@ function HeroSpine({ structure }){
       React.createElement("circle",{className:"lp-spine-run",r:3.5,fill:"#fff",style:runStyle})));
 }
 
+/* the three rooms — titles as the app's room switcher names them (chrome.jsx) */
 const LP_ROOMS = [
-  { no:"01", icon:"script", title:"Writers' Room", status:"Available now",
-    body:"Turn an idea into a structured screenplay: story spine, beat maps and script drafts that stay editable.",
+  { no:"01", icon:"script", title:"Writers' Room",
+    body:"Turn an idea into a structured screenplay: logline, synopsis, a story spine charting every scene's value, beats and script — with Story Editors to test it. Everything stays editable.",
     cta:"Start with Writers' Room", plan:"writer" },
-  { no:"02", icon:"palette", title:"Art Room", status:"Available now",
-    body:"Design the film from the script: characters, props, locations, style, shots and storyboards prepared for production.",
-    cta:"Start with Art Room", plan:"director" },
-  { no:"03", icon:"clapper", title:"Stage", status:"Available now",
-    body:"Generate video, voice, timeline passes and final production assets once the film is designed and ready to shoot.",
-    cta:"Start with Stage", plan:"studio" },
+  { no:"02", icon:"palette", title:"The Art Room",
+    body:"Design the film from the script: lookbook, characters and their voices, props, locations, color, shots and storyboards — drafted with your Department Heads, ready for production.",
+    cta:"Start with the Art Room", plan:"director" },
+  { no:"03", icon:"clapper", title:"The Stage",
+    body:"Once the film is designed, shoot it as video, beat by beat, with voiced lines — then choose takes, assemble them on the timeline and export the film.",
+    cta:"Start with the Stage", plan:"studio" },
 ];
+/* each room's chip says which plans open it (plans.jsx ROOM_ENTITLEMENTS = the server's
+   billing-policy.mjs): the Writers' Room on every plan, the Art Room from Director, the Stage on
+   Producer only. Names go through turnPlanDisplayName, so an admin rename and the studio →
+   "Producer" display mapping stay right; the literals are the fallback. */
+function lpPlanName(tier, fallback){
+  const n = (typeof window.turnPlanDisplayName==="function") ? window.turnPlanDisplayName(tier) : "";
+  return n || fallback;
+}
+function lpRoomStatus(room){
+  if(room.plan==="director") return lpPlanName("director","Director")+" and "+lpPlanName("studio","Producer")+" plans";
+  if(room.plan==="studio") return lpPlanName("studio","Producer")+" plan";
+  return "Every plan";
+}
+window.lpRoomStatus = lpRoomStatus;
 
 /* the hero's rotating phrase — the THREE narrative structures a film can be told in
    (one idea, three ways). The phrase and the hero diagram turn together: Landing
@@ -125,9 +140,10 @@ function RotatingWord({ word }){
 }
 
 const LP_STEPS = [
-  { n:"1", t:"Bring an idea", d:"A logline, a “what if” — or just talk it through out loud." },
-  { n:"2", t:"Choose how it’s told", d:"Three-Act Turns, Hero’s Journey or Kishōtenketsu — for a feature, a series, a short or a music video." },
-  { n:"3", t:"Build the film", d:"Story, script, cast, places, shots — it all grows in one place." },
+  { n:"1", t:"Bring an idea", d:"A logline, a “what if” — or talk it through out loud with Frances." },
+  // the structures (frameworks.jsx) and the formats in the Shape step's display order (formats.jsx)
+  { n:"2", t:"Choose how it’s told", d:"Kinolot suggests a structure and a format for your idea, and you can keep them or pick your own: Three-Act Turns, Hero’s Journey or Kishōtenketsu, as a Feature Film, TV Series, Short Film, Micro Short, Micro-drama, Music Video, Documentary or Commercial." },
+  { n:"3", t:"Build the film", d:"Research, synopsis, spine and script, then cast, places, shots and video — it all grows in one place, and you can bring your team in." },
 ];
 
 /* Pricing — derived from the SINGLE source of truth (plans.jsx CINEMA_PLANS), so
@@ -140,17 +156,27 @@ function lpTiers(){
   }));
 }
 
-/* the line under the plan cards (billing fixes, 2026-09-30): the free trial and the packs.
-   Reads the same sources as the in-app Plans window (plans.jsx), with a fallback. Both start on
-   the credit switch day (supabase/billing-switch.sql): before it the line is empty and hidden. */
+/* the line under the plan cards (billing fixes 2026-09-30, both regimes 2026-10-01): the free
+   trial and the credit packs ON SALE right now, read from the same sources as the in-app Plans
+   window (plans.jsx). The trial starts on the credit switch day (supabase/billing-switch.sql);
+   the packs are the old ones (from $9) before it and the new ones (from $10) after it, and a pack
+   without a checkout link here isn't on sale. While the live credit unit isn't known yet the line
+   names nothing ("" — hidden), since either offer could be the wrong one. */
 function lpPricingNote(){
-  if(typeof window.turnTrialCopy==="function" && !window.turnTrialCopy()) return "";
-  const trial = (typeof window.turnTrialCopy==="function" && window.turnTrialCopy()) || window.TURN_TRIAL_COPY || "New accounts get 50 free credits after confirming their email — enough to try the Writers' Room on the lighter writing engine (a logline, a synopsis, the spine and its first scenes), plus draft images.";
-  const packs = (window.CINEMA_CREDIT_PACKS || []);
-  const from = packs.length ? packs.map(p=>p.price).sort((a,b)=>parseFloat(String(a).replace(/[^\d.]/g,""))-parseFloat(String(b).replace(/[^\d.]/g,"")))[0] : "$10";
-  return trial+" Need more? Credit packs from "+from+" for any account — pack credits last 12 months.";
+  if(typeof window.turnCreditRegimeKnownForPlans==="function" && !window.turnCreditRegimeKnownForPlans()) return "";
+  const trial = (typeof window.turnTrialCopy==="function") ? window.turnTrialCopy() : "";
+  const packs = (typeof window.turnActiveCreditPacks==="function") ? window.turnActiveCreditPacks() : (window.CINEMA_CREDIT_PACKS || []);
+  const onSale = (typeof window.turnPackOnSale==="function") ? packs.filter(p=>window.turnPackOnSale(p)) : packs;
+  const usd = p=>parseFloat(String(p.price).replace(/[^\d.]/g,""));
+  const from = onSale.length ? onSale.slice().sort((a,b)=>usd(a)-usd(b))[0].price : "";
+  const packLine = from ? "Credit packs from "+from+" for any account — pack credits last 12 months." : "";
+  if(!trial) return packLine;
+  return packLine ? trial+" Need more? "+packLine : trial;
 }
 window.lpPricingNote = lpPricingNote;
+/* shown under the plan cards in both regimes (owner decision 2026-10-01: dollar prices, tax
+   included — the Plans & subscription entry in app/ai.jsx APP_FEATURES says the same) */
+const LP_PRICE_TERMS = "Prices in US dollars, including any VAT or sales tax.";
 
 /* footer brand: "Kinolot by Infinite Studio AI", the company name linking to its site
    (shared with the Home dashboard footer, app/home-dashboard.jsx) */
@@ -186,14 +212,14 @@ function Landing({ onStart, onSignIn }){
           React.createElement("span",{className:"lp-logo"},(typeof BrandMark==="function") && React.createElement(BrandMark,null),"Kinolot")),
         React.createElement("div",{className:"lp-nav-cta"},
           React.createElement("button",{className:"lp-btn ghost",onClick:onSignIn},"Sign in"),
-          React.createElement("button",{className:"lp-btn primary",onClick:()=>onStart("writer")},"Start with a room")),
+          React.createElement("button",{className:"lp-btn primary",onClick:()=>onStart("writer")},"Start with Writers' Room")),
         // mobile-only hamburger (the inline buttons hide below 560px)
         React.createElement("button",{className:"lp-burger"+(menuOpen?" open":""),"aria-label":"Menu",
           "aria-expanded":menuOpen?"true":"false",onClick:()=>setMenuOpen(o=>!o)},
           React.createElement("span",null),React.createElement("span",null),React.createElement("span",null))),
       menuOpen && React.createElement("div",{className:"lp-menu"},
         React.createElement("button",{className:"lp-menu-item",onClick:()=>{ setMenuOpen(false); onSignIn(); }},"Sign in"),
-        React.createElement("button",{className:"lp-menu-item primary",onClick:()=>{ setMenuOpen(false); onStart("writer"); }},"Start with a room"))),
+        React.createElement("button",{className:"lp-menu-item primary",onClick:()=>{ setMenuOpen(false); onStart("writer"); }},"Start with Writers' Room"))),
 
     // hero — UNFRAMED (no hairlines), headline + CTAs left, supporting copy right
     React.createElement("section",{className:"lp-hero"},
@@ -205,7 +231,7 @@ function Landing({ onStart, onSignIn }){
           React.createElement("button",{className:"lp-btn ghost big",onClick:onSignIn},"Sign in"))),
       React.createElement("div",{className:"lp-hero-aside"},
         React.createElement("p",{className:"lp-lede"},
-          "Start with the room you need. Write the screenplay now, design the film when you are ready, and move into Stage for production — one project, one story spine, every department connected."))),
+          "Start with the room you need. Write the screenplay now, design the film when you are ready, then shoot it on the Stage — one project, one story spine, every department connected."))),
 
     // hero media — the 21:9 short-film placeholder, still outside the frame
     React.createElement("section",{className:"lp-hero-media"},
@@ -223,7 +249,7 @@ function Landing({ onStart, onSignIn }){
             React.createElement("div",{className:"lp-card-top"},
               React.createElement("div",{className:"lp-card-ic"}, Icn(f.icon,20)),
               React.createElement("span",{className:"lp-card-no"}, f.no)),
-            React.createElement("div",{className:"lp-room-status"}, f.status),
+            React.createElement("div",{className:"lp-room-status"}, lpRoomStatus(f)),
             React.createElement("div",{className:"lp-card-t"}, f.title),
             React.createElement("div",{className:"lp-card-b"}, f.body),
             React.createElement("button",{className:"lp-btn ghost full lp-room-cta",onClick:()=>onStart(f.plan)}, f.cta))))),
@@ -254,7 +280,10 @@ function Landing({ onStart, onSignIn }){
               t.feats.map((f,j)=>React.createElement("li",{key:j},
                 React.createElement(Icon.check,{s:13}), React.createElement("span",null,f)))),
             React.createElement("button",{className:"lp-btn "+(t.featured?"primary":"ghost")+" full",onClick:()=>onStart(t.id)}, t.cta)))),
-        lpPricingNote() && React.createElement("p",{className:"lp-tier-note"}, lpPricingNote())),
+        // one note under the cards: the trial / packs line when there is one, then the price terms
+        React.createElement("p",{className:"lp-tier-note"},
+          lpPricingNote() && React.createElement(React.Fragment,null, lpPricingNote(), React.createElement("br",null)),
+          LP_PRICE_TERMS)),
 
       // closing band — heading left, actions right (like a product-platform strip)
       React.createElement("section",{className:"lp-final"},
@@ -263,7 +292,7 @@ function Landing({ onStart, onSignIn }){
           React.createElement("h2",{className:"lp-h2"},"Start building your film.")),
         React.createElement("div",{className:"lp-final-cta"},
           React.createElement("button",{className:"lp-btn ghost big",onClick:onSignIn},"Sign in"),
-          React.createElement("button",{className:"lp-btn primary big",onClick:()=>onStart("free")},"Start creating")))),
+          React.createElement("button",{className:"lp-btn primary big",onClick:()=>onStart("free")},"Create a free account")))),
 
     React.createElement("footer",{className:"lp-foot"},
       React.createElement("div",{className:"lp-foot-in"},

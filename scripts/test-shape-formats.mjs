@@ -187,13 +187,20 @@ await test("the Shape step shows the groups and the three structures",()=>{
   assert.ok(ns.includes("window.formatsForPicker()")&&ns.includes('className:"ns-format-grouplab"'));
   assert.ok(ai.includes('f.id+" = "+f.label+((f.blurb||f.desc)'),"the shape recommendation sees each format's size");
 });
-await test("the landing hero turns through the three structures only, and every room is available",()=>{
+await test("the landing hero turns through the three structures only, and every room says which plans open it",()=>{
   const lp=read("app/landing.jsx"), css=read("app/styles.css");
   const words=[...lp.matchAll(/\{ word:"([^"]+)"/g)].map(m=>m[1]);
   assert.deepEqual(words,["Three-Act Turns","a Hero\\u2019s Journey","Kish\\u014dtenketsu"]);
   assert.ok(lp.includes("React.createElement(HeroSpine,{structure:LP_STRUCTURES[structIdx]})")&&lp.includes("React.createElement(RotatingWord,{word:LP_WORDS[structIdx]})"));
   assert.ok(!/story circle/i.test(lp));
-  assert.equal((lp.match(/status:"Available now"/g)||[]).length,3);
-  assert.ok(!css.includes(".lp-room-card:nth-child(3) .lp-room-status"),"Stage wears the same Available badge");
+  // landing copy 2026-10-01: the chips name the plans (every room is live, so "Available now" said nothing)
+  assert.ok(!lp.includes("Available now"));
+  assert.ok(lp.includes('React.createElement("div",{className:"lp-room-status"}, lpRoomStatus(f))'));
+  assert.ok(lp.includes('return "Every plan";')&&lp.includes('lpPlanName("director","Director")+" and "+lpPlanName("studio","Producer")+" plans"')&&lp.includes('lpPlanName("studio","Producer")+" plan"'));
+  assert.ok(!css.includes(".lp-room-card:nth-child(3) .lp-room-status"),"Stage wears the same badge");
+  // step 2 lists every format, in the Shape step's display order (formats.jsx), and the three structures
+  const order=plain(box.formatsForPicker().flatMap(g=>g.formats.map(f=>f.label)));
+  assert.ok(lp.includes("as a "+order.slice(0,-1).join(", ")+" or "+order[order.length-1]+"."),"the landing names "+order.join(", "));
+  assert.ok(lp.includes("Three-Act Turns, Hero’s Journey or Kishōtenketsu"));
 });
 console.log(checks+" checks passed");

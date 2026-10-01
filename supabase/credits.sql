@@ -20,6 +20,11 @@
 -- disputes, failed payments and cancellations. See supabase/README.md "Billing v2"
 -- for every function and who may call it.
 --
+-- TAX RECORDS: the same file also carries supabase/tax-compliance.sql's definitions
+-- (the sales ledger the stripe-webhook fills for the Admin panel's "Tax &
+-- compliance" figures, and the "Start now" checkout consent); existing databases
+-- run tax-compliance.sql instead.
+--
 -- FREE TRIAL: 50 credits once per confirmed account (one per mailbox), from the
 -- credit switch day (supabase/billing-switch.sql) on. Before that, new accounts
 -- start at 0 (turn_credit_starter() stays 0: the row exists before confirmation).
@@ -749,7 +754,10 @@ begin
   return public.turn__total(p_uid);
 end $$;
 
--- settle (p_keep = credits to keep) or release (p_keep null) one hold
+-- settle (p_keep = credits to keep) or release (p_keep null) one hold. A refund that took
+-- credits from this hold while it ran lowered its sources, not held: the gap (held -
+-- from_plan - every from_lots n) is already refunded, so it absorbs the give-back first —
+-- only what the job didn't use beyond it comes back (a settle still keeps the real cost).
 create or replace function public.turn__finish_hold(p_ref text, p_keep integer)
 returns jsonb
 language plpgsql
@@ -761,6 +769,7 @@ declare
   v_keep  integer;
   v_give  integer;
   v_back  integer;
+  v_gone  integer;
   v_state text := case when p_keep is null then 'released' else 'settled' end;
 begin
   select h.owner into v_owner from public.turn_credit_holds h where h.ref = p_ref;
@@ -784,13 +793,19 @@ begin
   end if;
   v_keep := case when p_keep is null then 0 else least(greatest(p_keep, 0), v_hold.held) end;
   v_give := v_hold.held - v_keep;
-  v_back := public.turn__give_back(v_owner, v_hold.from_plan, v_hold.from_lots, v_hold.plan_period_start, v_give);
+  -- the part refunds took from this hold (0 when none did)
+  v_gone := greatest(0, v_hold.held - greatest(0, coalesce(v_hold.from_plan, 0))
+            - coalesce((select sum(greatest(0, coalesce((e ->> 'n')::integer, 0)))
+                          from jsonb_array_elements(coalesce(v_hold.from_lots, '[]'::jsonb)) e), 0)::integer);
+  v_back := public.turn__give_back(v_owner, v_hold.from_plan, v_hold.from_lots, v_hold.plan_period_start,
+                                   greatest(0, v_give - v_gone));
   update public.turn_credit_holds h
      set status = v_state, kept = v_keep, released = v_give, finished_at = pg_catalog.now()
    where h.ref = p_ref;
   insert into public.turn_usage_events(owner, kind, task, credits, status, request_id, metadata)
     values (v_owner, 'hold', v_hold.reason, v_keep, case when p_keep is null then 'released' else 'succeeded' end, p_ref,
-            jsonb_build_object('held', v_hold.held, 'kept', v_keep, 'released', v_give, 'given_back', v_back));
+            jsonb_build_object('held', v_hold.held, 'kept', v_keep, 'released', v_give, 'given_back', v_back)
+            || case when v_gone > 0 then jsonb_build_object('refunded_from_hold', v_gone) else '{}'::jsonb end);
   return jsonb_build_object('ok', true, 'status', v_state, 'held', v_hold.held, 'kept', v_keep,
                             'released', v_give, 'given_back', v_back, 'remaining', public.turn__total(v_owner));
 end $$;
@@ -1451,10 +1466,24 @@ end $$;
 -- the webhook may pass the charge id (packs) or the grant's key ('invoice:in_...'
 -- for a plan payment). A plan grant gives back at most its amount, and only while its
 -- period is the current one: first from the plan credits left, then from the plan
--- part of holds still open in that period (a running job's plan credits no longer
--- come back when it is released: their from_plan is lowered). Returns the credits
--- removed.
-create or replace function public.turn_revoke_charge_once(event_id text, charge_id text)
+-- part of holds still open in that period. Credits taken from a running job's hold
+-- come out of its sources (its from_plan / from_lots entry is lowered; held stays what
+-- the job set aside): held - (from_plan + every from_lots n) is then the part refunds
+-- took, and turn__finish_hold gives back only what the job didn't use BEYOND that part,
+-- so neither a release nor a settle returns refunded credits, while a settle still
+-- keeps the job's real cost. Returns the credits removed.
+-- refund_fraction (optional; 0 < f <= 1, default 1): the share of the payment this
+-- refund gives back. 1 = a full refund, exactly as before: everything still unused is
+-- removed and the lot / grant is closed (revoked_at). Below 1 = a PARTIAL refund (a
+-- 14-day cancellation's unused part, say): each lot / grant loses ceil(f x its amount)
+-- credits (f x amount is first rounded to 6 decimals, so a fraction like 5/9 sent as
+-- 0.5555555555555556 never rounds up a whole extra credit), never more than it still
+-- has unused (a lot: its remaining, then its part of holds still open, taken out of
+-- the hold's sources as above; a grant: as above) and never more than its amount in all;
+-- it stays open for the next partial refund. A null or out-of-range fraction is
+-- refused before the event is claimed (a corrected retry still applies).
+drop function if exists public.turn_revoke_charge_once(text, text);   -- no ambiguous overload
+create or replace function public.turn_revoke_charge_once(event_id text, charge_id text, refund_fraction numeric default 1)
 returns integer
 language plpgsql
 security definer
@@ -1464,11 +1493,14 @@ as $$
 declare
   v_event  text := nullif(trim(coalesce(turn_revoke_charge_once.event_id, '')), '');
   v_charge text := nullif(trim(coalesce(turn_revoke_charge_once.charge_id, '')), '');
+  v_frac   numeric := turn_revoke_charge_once.refund_fraction;
+  v_full   boolean;
   v_total  integer := 0;
   v_lots   integer := 0;
   v_grants integer := 0;
   v_owner  uuid;
   v_lot    record;
+  v_lrow   record;
   v_grant  record;
   v_hold   record;
   v_row    public.turn_credits;
@@ -1476,12 +1508,20 @@ declare
   v_left   integer;
   v_part   integer;
   v_held   integer;
+  v_target integer;
+  v_i      integer;
+  v_e      jsonb;
+  v_new    jsonb;
   v_from_holds integer := 0;
 begin
   perform public.turn__service_only('turn_revoke_charge_once');
   if v_event is null or v_charge is null then
     raise exception using errcode = '22023', message = 'KINOLOT_BILLING: turn_revoke_charge_once needs event_id and charge_id';
   end if;
+  if v_frac is null or v_frac = 'NaN'::numeric or v_frac <= 0 or v_frac > 1 then
+    raise exception using errcode = '22023', message = 'KINOLOT_BILLING: refund_fraction must be above 0 and at most 1';
+  end if;
+  v_full := v_frac = 1;
   if not public.turn__claim_event(v_event, 'turn_revoke_charge_once', null) then
     return 0;
   end if;
@@ -1491,29 +1531,76 @@ begin
      order by l.owner, l.created_at
   loop
     perform public.turn__lock(v_lot.owner);
-    update public.turn_credit_lots l
-       set revoked_amount = l.remaining, remaining = 0, revoked_at = pg_catalog.now()
-     where l.id = v_lot.id and l.revoked_at is null
-    returning l.revoked_amount into v_n;
-    v_total := v_total + coalesce(v_n, 0);
-    v_lots := v_lots + 1;
-    v_owner := v_lot.owner;
-    perform public.turn__sync(v_lot.owner);
+    select l.amount, l.remaining, l.revoked_amount into v_lrow
+      from public.turn_credit_lots l where l.id = v_lot.id and l.revoked_at is null for update;
+    if found then
+      v_held := 0;
+      if v_full then
+        -- everything left; a revoked lot takes nothing back from a hold's release
+        v_n := v_lrow.remaining;
+        update public.turn_credit_lots l
+           set revoked_amount = l.revoked_amount + l.remaining, remaining = 0, revoked_at = pg_catalog.now()
+         where l.id = v_lot.id;
+      else
+        v_target := least(pg_catalog.ceil(pg_catalog.round(v_frac * v_lrow.amount, 6))::integer,
+                          greatest(0, v_lrow.amount - v_lrow.revoked_amount));
+        v_n := least(v_lrow.remaining, v_target);
+        -- the rest of the share may sit in holds of running jobs: their part of this
+        -- lot is lowered (held stays), so neither a release nor a settle gives it back
+        v_left := v_target - v_n;
+        for v_hold in
+          select h.ref, h.from_lots from public.turn_credit_holds h
+           where h.owner = v_lot.owner and h.status = 'held'
+             and h.from_lots @> jsonb_build_array(jsonb_build_object('lot', v_lot.id))
+           order by h.created_at desc, h.ref
+           for update
+        loop
+          exit when v_left <= 0;
+          v_new := '[]'::jsonb;
+          for v_i in 0 .. coalesce(jsonb_array_length(v_hold.from_lots), 0) - 1 loop
+            v_e := v_hold.from_lots -> v_i;
+            if v_left > 0 and (v_e ->> 'lot') = v_lot.id::text then
+              v_part := least(v_left, greatest(0, coalesce((v_e ->> 'n')::integer, 0)));
+              v_e := jsonb_set(v_e, '{n}', to_jsonb(greatest(0, coalesce((v_e ->> 'n')::integer, 0)) - v_part));
+              v_held := v_held + v_part;
+              v_left := v_left - v_part;
+            end if;
+            v_new := v_new || jsonb_build_array(v_e);
+          end loop;
+          update public.turn_credit_holds h set from_lots = v_new where h.ref = v_hold.ref;
+        end loop;
+        update public.turn_credit_lots l
+           set remaining = l.remaining - v_n, revoked_amount = l.revoked_amount + v_n + v_held
+         where l.id = v_lot.id;
+      end if;
+      v_total := v_total + v_n + v_held;
+      v_from_holds := v_from_holds + v_held;
+      v_lots := v_lots + 1;
+      v_owner := v_lot.owner;
+      perform public.turn__sync(v_lot.owner);
+    end if;
   end loop;
   for v_grant in
-    select g.id, g.owner, g.amount, g.period_start, g.kind from public.turn_plan_grants g
+    select g.id, g.owner, g.amount, g.revoked_amount, g.period_start, g.kind from public.turn_plan_grants g
      where (g.charge_ref = v_charge or g.event_id = v_charge) and g.revoked_at is null and g.kind <> 'trial'
      order by g.owner, g.created_at
   loop
     v_row := public.turn__lock(v_grant.owner);
     v_n := 0;
     v_held := 0;
+    -- what this refund may take from the grant: all that is left of it (full), or its
+    -- share (partial); never more than the grant less what earlier refunds took
+    v_target := greatest(0, greatest(0, v_grant.amount) - coalesce(v_grant.revoked_amount, 0));
+    if not v_full then
+      v_target := least(v_target, pg_catalog.ceil(pg_catalog.round(v_frac * greatest(0, v_grant.amount), 6))::integer);
+    end if;
     if v_row.plan_period_start is not distinct from v_grant.period_start then
-      v_n := least(v_row.plan_remaining, greatest(0, v_grant.amount));
+      v_n := least(v_row.plan_remaining, v_target);
       -- the rest of the grant may sit in holds of running jobs: those plan credits
-      -- must not come back when the job is released (turn__give_back returns plan
-      -- credits of the same period up to the hold's from_plan)
-      v_left := greatest(0, v_grant.amount) - v_n;
+      -- must not come back when the job is released or settled (turn__give_back
+      -- returns plan credits of the same period up to the hold's from_plan, and
+      -- turn__finish_hold counts held - sources as already refunded)
+      v_left := v_target - v_n;
       for v_hold in
         select h.ref, h.from_plan from public.turn_credit_holds h
          where h.owner = v_grant.owner and h.status = 'held' and h.from_plan > 0
@@ -1530,7 +1617,10 @@ begin
     end if;
     update public.turn_credits c set plan_remaining = c.plan_remaining - v_n, ledger_sync = true
      where c.owner = v_grant.owner;
-    update public.turn_plan_grants g set revoked_at = pg_catalog.now(), revoked_amount = v_n + v_held where g.id = v_grant.id;
+    update public.turn_plan_grants g
+       set revoked_at = case when v_full then pg_catalog.now() else g.revoked_at end,
+           revoked_amount = g.revoked_amount + v_n + v_held
+     where g.id = v_grant.id;
     v_total := v_total + v_n + v_held;
     v_from_holds := v_from_holds + v_held;
     v_grants := v_grants + 1;
@@ -1538,7 +1628,7 @@ begin
   end loop;
   update public.turn_stripe_events e
      set uid = v_owner, result = jsonb_build_object('removed', v_total, 'lots', v_lots, 'plan_grants', v_grants,
-                                                    'from_open_holds', v_from_holds)
+                                                    'from_open_holds', v_from_holds, 'fraction', v_frac)
    where e.id = v_event;
   return v_total;
 end $$;
@@ -1839,7 +1929,7 @@ begin
     'public.turn_set_plan_once(text, uuid, text, integer, text, text, timestamptz)',
     'public.turn_adjust_plan_once(text, uuid, text, integer, text)',
     'public.turn_add_pack_once(text, uuid, integer, text, boolean)',
-    'public.turn_revoke_charge_once(text, text)',
+    'public.turn_revoke_charge_once(text, text, numeric)',
     'public.turn_set_payment_status(uuid, text)',
     'public.turn_set_frozen(uuid, boolean, text)',
     'public.turn_end_plan_for_sub(uuid, text)',
@@ -1886,6 +1976,504 @@ do $sweep$ begin perform public.turn_expire_lots(); end; $sweep$;
 -- let the Data API see the new functions now
 notify pgrst, 'reload schema';
 -- <<< KINOLOT BILLING V2 DEFINITIONS <<<
+
+-- >>> KINOLOT TAX COMPLIANCE DEFINITIONS >>>
+-- This block is byte-identical in supabase/credits.sql and supabase/tax-compliance.sql
+-- (scripts/test-tax-compliance-db.mjs fails if they drift). Every statement is safe to re-run.
+-- It needs the billing v2 helpers (turn__service_only), defined above it in credits.sql.
+
+-- ── 1. tables ───────────────────────────────────────────────────────────────
+-- no foreign key to auth.users on purpose: sales and consent records outlive a
+-- deleted account (tax and legal records), and the other products' buyers have no
+-- Kinolot account at all
+create table if not exists public.turn_sales_ledger (
+  id             bigserial primary key,
+  source_key     text not null unique check (length(source_key) between 1 and 200),
+  app            text not null check (app ~ '^[a-z0-9][a-z0-9_-]{0,39}$'),
+  owner          uuid,
+  kind           text not null check (kind in ('plan', 'pack', 'other', 'refund')),
+  amount_cents   bigint not null,
+  currency       text not null check (currency ~ '^[a-z]{3}$'),
+  country        text check (country ~ '^[A-Z]{2}$'),
+  region         text check (length(region) between 1 and 64),
+  country_source text check (length(country_source) between 1 and 64),
+  occurred_at    timestamptz not null,
+  stripe_ids     jsonb not null default '{}'::jsonb,
+  recorded_at    timestamptz not null default now(),
+  -- refunds are negative, everything else zero or more
+  constraint turn_sales_ledger_sign_check check (case when kind = 'refund' then amount_cents <= 0 else amount_cents >= 0 end)
+);
+alter table public.turn_sales_ledger enable row level security;
+create index if not exists turn_sales_ledger_occurred_idx on public.turn_sales_ledger(occurred_at);
+create index if not exists turn_sales_ledger_country_idx on public.turn_sales_ledger(country, occurred_at);
+comment on table public.turn_sales_ledger is
+  'Kinolot: every successful payment (and refund, negative) on the Stripe account, all products, for the tax thresholds (turn_admin_tax_summary). Written by stripe-webhook via turn_record_sale_once. Keep for as long as tax law requires (UK: generally six years).';
+
+create table if not exists public.turn_checkout_consents (
+  id              bigserial primary key,
+  owner           uuid not null,
+  sku             text not null check (length(sku) between 1 and 120),
+  consent_version text not null check (length(consent_version) between 1 and 80),
+  created_at      timestamptz not null default now()
+);
+alter table public.turn_checkout_consents enable row level security;
+create index if not exists turn_checkout_consents_owner_idx on public.turn_checkout_consents(owner, created_at desc);
+comment on table public.turn_checkout_consents is
+  'Kinolot: the "Start now" consent before a checkout (14-day right to cancel: the unused part only). Written by turn_record_checkout_consent.';
+
+-- ── 2. helpers (no API role; they run inside the functions below) ───────────
+-- THE thresholds, in one place. Last checked 2026-10-01 (when updating, re-check GOV.UK,
+-- the EU's OSS guidance and each US state's revenue site, then set 'checked'):
+--   UK  VAT registration: GBP 90,000 of UK taxable turnover in any rolling 12 months
+--       (since 1 April 2024), or expected in the next 30 days alone. Digital services
+--       sold to consumers outside the UK are generally outside the scope of UK VAT,
+--       so only UK customers count here (the Isle of Man is in the UK VAT area).
+--   EU  a business established outside the EU owes EU VAT on digital services to EU
+--       consumers from the FIRST sale (no threshold): register for the non-Union OSS
+--       scheme in one EU country before the first EU sale.
+--   US  economic nexus differs by state: commonly USD 100,000 of sales or 200
+--       transactions a year; some states are higher, some count sales only, and some
+--       don't tax digital services at all. The figures below are the conservative
+--       common test.
+-- Warnings: UK at 75 % (watch), 90 % (near), 100 % (over); US at 80 % (near), 100 %.
+create or replace function public.turn__tax_thresholds()
+returns jsonb
+language sql immutable
+set search_path = ''
+as $$
+  select jsonb_build_object(
+    'uk_gbp', 90000, 'uk_watch_pct', 75, 'uk_near_pct', 90,
+    'us_usd', 100000, 'us_tx', 200, 'us_near_pct', 80,
+    'checked', '2026-10-01')
+$$;
+
+-- the 27 EU member states as Stripe writes them (Greece is GR); Monaco is in the
+-- French VAT area
+create or replace function public.turn__tax_is_eu(p_country text)
+returns boolean
+language sql immutable
+set search_path = ''
+as $$
+  select coalesce(p_country, '') in ('AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE',
+                                     'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE', 'MC')
+$$;
+
+-- the UK VAT area: Great Britain and Northern Ireland (GB) and the Isle of Man (IM)
+create or replace function public.turn__tax_is_uk(p_country text)
+returns boolean
+language sql immutable
+set search_path = ''
+as $$ select coalesce(p_country, '') in ('GB', 'IM') $$;
+
+-- the admin: the same account admin-storage, image-proxy and the app treat as admin
+-- (the signed-in JWT's email; Supabase Auth's "Confirm email" and "Secure email
+-- change" must stay on, as for every email-based admin gate). No JWT at all = a
+-- direct database session (the SQL editor), which may read its own database.
+create or replace function public.turn__tax_is_admin()
+returns boolean
+language plpgsql stable
+set search_path = ''
+as $$
+declare
+  v_claims text := nullif(pg_catalog.current_setting('request.jwt.claims', true), '');
+  v_role   text := nullif(pg_catalog.current_setting('request.jwt.claim.role', true), '');
+  v_jwt    jsonb;
+begin
+  if v_claims is null and v_role is null
+     and nullif(pg_catalog.current_setting('request.jwt.claim.email', true), '') is null then
+    return true;
+  end if;
+  v_jwt := auth.jwt();
+  return lower(coalesce(v_jwt ->> 'email', '')) = 'admin@infinitestudioai.com'
+         and coalesce(v_role, v_jwt ->> 'role', '') = 'authenticated';
+end $$;
+
+-- the ledger rows of the window (occurred after p_from), each with its value in USD
+-- and in GBP at p_rate (GBP per USD); other currencies have no USD / GBP value
+-- (null: left out of every sum) and keep their amount in Stripe's smallest unit
+create or replace function public.turn__tax_window(p_from timestamptz, p_rate numeric)
+returns table (country text, region text, app text, currency text, occurred_at timestamptz,
+               is_sale boolean, usd numeric, gbp numeric, minor bigint)
+language sql stable
+set search_path = ''
+as $$
+  select s.country, s.region, s.app, s.currency, s.occurred_at,
+         s.kind <> 'refund' and s.amount_cents > 0,
+         case s.currency when 'usd' then s.amount_cents / 100.0 when 'gbp' then s.amount_cents / 100.0 / p_rate end,
+         case s.currency when 'usd' then s.amount_cents / 100.0 * p_rate when 'gbp' then s.amount_cents / 100.0 end,
+         s.amount_cents
+    from public.turn_sales_ledger s
+   where s.occurred_at > p_from
+$$;
+
+-- ── 3. the server's function: record one payment or refund, once ───────────
+-- turn_record_sale_once(source_key, app, owner, kind, amount_cents, currency,
+--   country, region, country_source, occurred_at, stripe_ids) -> true when this call
+-- recorded it, false when that source key was already recorded (nothing changes).
+-- Normalised: currency lower-case, country upper-case (anything that isn't two
+-- letters is stored as no country, its raw value kept in stripe_ids.country_raw),
+-- region upper-case, a refund's amount always negative; a negative amount for
+-- anything else, an unknown kind or a missing key / app / currency is refused (22023).
+create or replace function public.turn_record_sale_once(source_key text, app text, owner uuid, kind text,
+                                                        amount_cents bigint, currency text, country text,
+                                                        region text, country_source text,
+                                                        occurred_at timestamptz, stripe_ids jsonb)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $$
+#variable_conflict use_column
+declare
+  v_key     text := nullif(trim(coalesce(turn_record_sale_once.source_key, '')), '');
+  v_app     text := lower(trim(coalesce(turn_record_sale_once.app, '')));
+  v_kind    text := lower(trim(coalesce(turn_record_sale_once.kind, '')));
+  v_amount  bigint := turn_record_sale_once.amount_cents;
+  v_cur     text := lower(trim(coalesce(turn_record_sale_once.currency, '')));
+  v_country text := upper(trim(coalesce(turn_record_sale_once.country, '')));
+  v_region  text := nullif(left(upper(trim(coalesce(turn_record_sale_once.region, ''))), 64), '');
+  v_source  text := nullif(left(trim(coalesce(turn_record_sale_once.country_source, '')), 64), '');
+  v_ids     jsonb := turn_record_sale_once.stripe_ids;
+  v_n       integer;
+begin
+  perform public.turn__service_only('turn_record_sale_once');
+  if v_key is null or length(v_key) > 200 then
+    raise exception using errcode = '22023', message = 'KINOLOT_TAX: turn_record_sale_once needs a source_key (1 to 200 characters)';
+  end if;
+  if v_app !~ '^[a-z0-9][a-z0-9_-]{0,39}$' then
+    raise exception using errcode = '22023', message = 'KINOLOT_TAX: app must be a short name such as kinolot or other';
+  end if;
+  if v_kind not in ('plan', 'pack', 'other', 'refund') then
+    raise exception using errcode = '22023', message = 'KINOLOT_TAX: kind must be plan, pack, other or refund';
+  end if;
+  if v_amount is null then
+    raise exception using errcode = '22023', message = 'KINOLOT_TAX: amount_cents is required';
+  end if;
+  if v_kind = 'refund' then
+    v_amount := -abs(v_amount);
+  elsif v_amount < 0 then
+    raise exception using errcode = '22023', message = 'KINOLOT_TAX: only a refund has a negative amount';
+  end if;
+  if v_cur !~ '^[a-z]{3}$' then
+    raise exception using errcode = '22023', message = 'KINOLOT_TAX: currency must be a three-letter code';
+  end if;
+  v_ids := case when v_ids is null or jsonb_typeof(v_ids) = 'null' then '{}'::jsonb
+                when jsonb_typeof(v_ids) = 'object' then v_ids
+                else jsonb_build_object('value', v_ids) end;
+  if v_country = '' then
+    v_country := null;
+  elsif v_country !~ '^[A-Z]{2}$' then
+    v_ids := v_ids || jsonb_build_object('country_raw', left(turn_record_sale_once.country, 64));
+    v_country := null;
+  end if;
+  insert into public.turn_sales_ledger(source_key, app, owner, kind, amount_cents, currency, country, region,
+                                       country_source, occurred_at, stripe_ids)
+    values (v_key, v_app, turn_record_sale_once.owner, v_kind, v_amount, v_cur, v_country, v_region,
+            v_source, coalesce(turn_record_sale_once.occurred_at, pg_catalog.now()), v_ids)
+    on conflict (source_key) do nothing;
+  get diagnostics v_n = row_count;
+  return v_n > 0;
+end $$;
+
+-- ── 4. the app's function: record the "Start now" consent before a checkout ──
+-- turn_record_checkout_consent(sku, consent_version): the signed-in caller only
+-- (owner = auth.uid(); the anon key is refused). sku names what is being bought
+-- (the app sends 'plan-writer', 'plan-director', 'plan-studio', 'pack-250',
+-- 'pack-1000', 'pack-3000'; 'credits-300' / 'credits-1200' / 'credits-4000' for the old
+-- packs), consent_version the exact wording shown. More
+-- than 200 in a day from one account are not stored (nobody checks out that often;
+-- the payment link's terms acceptance still records every real checkout).
+create or replace function public.turn_record_checkout_consent(sku text, consent_version text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+#variable_conflict use_column
+declare
+  v_uid     uuid := auth.uid();
+  v_sku     text := trim(coalesce(turn_record_checkout_consent.sku, ''));
+  v_version text := trim(coalesce(turn_record_checkout_consent.consent_version, ''));
+begin
+  if v_uid is null then
+    raise exception using errcode = '42501', message = 'KINOLOT_CONSENT: sign in first';
+  end if;
+  if length(v_sku) not between 1 and 120 or v_sku ~ '[[:cntrl:]]' then
+    raise exception using errcode = '22023', message = 'KINOLOT_CONSENT: sku must be 1 to 120 printable characters';
+  end if;
+  if length(v_version) not between 1 and 80 or v_version ~ '[[:cntrl:]]' then
+    raise exception using errcode = '22023', message = 'KINOLOT_CONSENT: consent_version must be 1 to 80 printable characters';
+  end if;
+  if (select count(*) from public.turn_checkout_consents c
+       where c.owner = v_uid and c.created_at > pg_catalog.now() - interval '1 day') >= 200 then
+    return;
+  end if;
+  insert into public.turn_checkout_consents(owner, sku, consent_version) values (v_uid, v_sku, v_version);
+end $$;
+
+-- ── 4b. the server's function: one dispute's account hold (D4) ──────────────
+-- turn_dispute_hold(uid, dispute_id, open, part default null) -> jsonb
+-- {action, frozen, frozen_reason}. The account's frozen_reason lists every hold,
+-- separated by ' | ' ; a dispute's part names it ('dispute <id> ...'). The read and
+-- the write happen under the account lock (turn__lock), in ONE call: Stripe delivers
+-- events in parallel, and two disputes handled at the same moment must never lose
+-- one another's part (the hold would then lift while a dispute is still open).
+--   open = true   adds this dispute's part (once: a resend changes nothing) next to
+--                 any hold already there ('earlier hold (no reason given)' for a hold
+--                 without a reason) -> action 'frozen'
+--   open = false  removes this dispute's part: nothing left -> the account is
+--                 unfrozen, frozen_reason = part (e.g. 'dispute dp_1 won') -> 'lifted';
+--                 other holds left -> stays frozen with just those -> 'kept'; held, but
+--                 not by this dispute -> nothing changes -> 'review'; not held ->
+--                 'lifted' (nothing to lift).
+-- A dispute id is Stripe's (letters, digits, underscores); anything else is refused
+-- (22023). An unknown account is refused like every billing write (23503).
+create or replace function public.turn_dispute_hold(uid uuid, dispute_id text, open boolean, part text default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+#variable_conflict use_column
+declare
+  v_uid   uuid := turn_dispute_hold.uid;
+  v_id    text := trim(coalesce(turn_dispute_hold.dispute_id, ''));
+  v_part  text := nullif(left(trim(coalesce(turn_dispute_hold.part, '')), 300), '');
+  v_row   public.turn_credits;
+  v_old   text;
+  v_re    text;
+  v_parts text[];
+  v_rest  text[];
+  v_new   text;
+begin
+  perform public.turn__service_only('turn_dispute_hold');
+  if v_uid is null or turn_dispute_hold.open is null then
+    raise exception using errcode = '22023', message = 'KINOLOT_BILLING: turn_dispute_hold needs uid and open';
+  end if;
+  if v_id !~ '^[A-Za-z0-9_]{1,100}$' then
+    raise exception using errcode = '22023', message = 'KINOLOT_BILLING: turn_dispute_hold needs a Stripe dispute id';
+  end if;
+  -- the separator stays unambiguous inside a part
+  v_part := replace(coalesce(v_part, 'dispute ' || v_id), ' | ', ' / ');
+  v_re := '(^|[^A-Za-z0-9_])dispute ' || v_id || '([^A-Za-z0-9_]|$)';
+  v_row := public.turn__lock(v_uid);
+  v_old := case when v_row.frozen then nullif(trim(coalesce(v_row.frozen_reason, '')), '') end;
+  if turn_dispute_hold.open then
+    if not coalesce(v_row.frozen, false) then
+      v_new := v_part;
+    elsif v_old ~ v_re then
+      v_new := v_old;
+    else
+      v_new := coalesce(v_old, 'earlier hold (no reason given)') || ' | ' || v_part;
+    end if;
+    update public.turn_credits c
+       set frozen = true, frozen_reason = v_new,
+           frozen_at = case when c.frozen then coalesce(c.frozen_at, pg_catalog.now()) else pg_catalog.now() end
+     where c.owner = v_uid;
+    return jsonb_build_object('action', 'frozen', 'frozen', true, 'frozen_reason', v_new);
+  end if;
+  if not coalesce(v_row.frozen, false) then
+    update public.turn_credits c set frozen = false, frozen_reason = v_part, frozen_at = null where c.owner = v_uid;
+    return jsonb_build_object('action', 'lifted', 'frozen', false, 'frozen_reason', v_part);
+  end if;
+  select coalesce(array_agg(p order by o), array[]::text[]) into v_parts
+    from (select trim(x) as p, o from unnest(string_to_array(coalesce(v_old, ''), ' | ')) with ordinality as t(x, o)) s
+   where s.p <> '';
+  select coalesce(array_agg(p order by o), array[]::text[]) into v_rest
+    from unnest(v_parts) with ordinality as t(p, o)
+   where t.p !~ v_re;
+  if cardinality(v_parts) > 0 and cardinality(v_rest) = 0 then
+    update public.turn_credits c set frozen = false, frozen_reason = v_part, frozen_at = null where c.owner = v_uid;
+    return jsonb_build_object('action', 'lifted', 'frozen', false, 'frozen_reason', v_part);
+  end if;
+  if cardinality(v_rest) = cardinality(v_parts) then
+    return jsonb_build_object('action', 'review', 'frozen', true, 'frozen_reason', v_old);
+  end if;
+  v_new := array_to_string(v_rest, ' | ');
+  update public.turn_credits c set frozen_reason = v_new where c.owner = v_uid;
+  return jsonb_build_object('action', 'kept', 'frozen', true, 'frozen_reason', v_new);
+end $$;
+
+-- ── 5. the Admin panel's figures ────────────────────────────────────────────
+-- turn_admin_tax_summary(usd_to_gbp default 0.80): the admin only (or the SQL
+-- editor). usd_to_gbp = GBP per USD, a CONSERVATIVE (high) rate the admin can change
+-- in the panel, so the UK figure errs on the early side. The window is the last 12
+-- months up to now (rolling); refunds net off the amounts; "sales" counts payments
+-- above zero (refunds never add a transaction). Amounts in USD and GBP are converted
+-- with the rate; payments in any other currency are listed under other_currencies
+-- (in Stripe's smallest unit) and left out of the totals. Only totals: no account
+-- ids, names or emails.
+--   {as_of, usd_to_gbp, thresholds, window_from,
+--    uk: {usd_12m, gbp_12m_est, pct, status ok|watch|near|over, sales_12m, gbp_30d_est,
+--         unknown_gbp_est, pct_with_unknown},
+--    eu: {sales_12m, usd_12m, first_sale_at (the first EU sale ever), status watch|over,
+--         by_country: [{country, sales, usd}]},
+--    us: {sales_12m, usd_12m, by_state: [{state, sales, usd, pct_usd, pct_tx, status ok|near|over}]},
+--    rest: {sales_12m, usd_12m, by_country: [{country, sales, usd}]},   (every other country)
+--    unknown: {sales, usd}, by_app: [{app, usd_12m}],
+--    other_currencies: [{currency, sales, amount_minor}],
+--    ledger: {rows, first_sale_at, recording_since}}
+create or replace function public.turn_admin_tax_summary(usd_to_gbp numeric default 0.80)
+returns jsonb
+language plpgsql stable
+security definer
+set search_path = ''
+as $$
+#variable_conflict use_column
+declare
+  v_rate  numeric := coalesce(turn_admin_tax_summary.usd_to_gbp, 0.80);
+  v_t     jsonb := public.turn__tax_thresholds();
+  v_now   timestamptz := pg_catalog.now();
+  v_from  timestamptz := pg_catalog.now() - interval '12 months';
+  v_uk    jsonb;
+  v_eu    jsonb;
+  v_us    jsonb;
+  v_rest  jsonb;
+  v_unk   jsonb;
+  v_apps  jsonb;
+  v_other jsonb;
+  v_led   jsonb;
+  v_ukgbp numeric;
+  v_unkgbp numeric;
+  v_pct   numeric;
+  v_pctu  numeric;
+begin
+  if not public.turn__tax_is_admin() then
+    raise exception using errcode = '42501', message = 'KINOLOT_TAX: the tax summary is for the admin only';
+  end if;
+  if v_rate = 'NaN'::numeric or v_rate <= 0 or v_rate > 10 then
+    raise exception using errcode = '22023', message = 'KINOLOT_TAX: usd_to_gbp must be above 0 and at most 10 (GBP per USD)';
+  end if;
+
+
+  -- UK (GB + IM) against the VAT registration threshold, in GBP
+  select coalesce(sum(w.gbp), 0) into v_ukgbp from public.turn__tax_window(v_from, v_rate) w where public.turn__tax_is_uk(w.country);
+  select coalesce(sum(w.gbp), 0) into v_unkgbp from public.turn__tax_window(v_from, v_rate) w where w.country is null;
+  v_pct := round(v_ukgbp / (v_t ->> 'uk_gbp')::numeric * 100, 1);
+  v_pctu := round((v_ukgbp + greatest(v_unkgbp, 0)) / (v_t ->> 'uk_gbp')::numeric * 100, 1);
+  select jsonb_build_object(
+           'usd_12m', round(coalesce(sum(w.usd), 0), 2),
+           'gbp_12m_est', round(v_ukgbp, 2),
+           'pct', v_pct,
+           'status', case when v_pct >= 100 then 'over'
+                          when v_pct >= (v_t ->> 'uk_near_pct')::numeric then 'near'
+                          when v_pct >= (v_t ->> 'uk_watch_pct')::numeric then 'watch'
+                          else 'ok' end,
+           'sales_12m', count(*) filter (where w.is_sale),
+           'gbp_30d_est', round(coalesce(sum(w.gbp) filter (where w.occurred_at > v_now - interval '30 days'), 0), 2),
+           'unknown_gbp_est', round(v_unkgbp, 2),
+           'pct_with_unknown', v_pctu)
+    into v_uk
+    from public.turn__tax_window(v_from, v_rate) w where public.turn__tax_is_uk(w.country);
+
+  -- EU: VAT from the first sale (non-Union OSS)
+  select jsonb_build_object(
+           'sales_12m', count(*) filter (where w.is_sale),
+           'usd_12m', round(coalesce(sum(w.usd), 0), 2),
+           'first_sale_at', (select min(s.occurred_at) from public.turn_sales_ledger s
+                              where public.turn__tax_is_eu(s.country) and s.kind <> 'refund' and s.amount_cents > 0),
+           'status', case when exists (select 1 from public.turn_sales_ledger s
+                                        where public.turn__tax_is_eu(s.country) and s.kind <> 'refund' and s.amount_cents > 0)
+                          then 'over' else 'watch' end,
+           'by_country', coalesce((select jsonb_agg(jsonb_build_object('country', x.country, 'sales', x.sales, 'usd', x.usd)
+                                                    order by x.usd desc, x.country)
+                                     from (select w2.country, count(*) filter (where w2.is_sale) as sales,
+                                                  round(coalesce(sum(w2.usd), 0), 2) as usd
+                                             from public.turn__tax_window(v_from, v_rate) w2 where public.turn__tax_is_eu(w2.country)
+                                            group by w2.country) x), '[]'::jsonb))
+    into v_eu
+    from public.turn__tax_window(v_from, v_rate) w where public.turn__tax_is_eu(w.country);
+
+  -- US: per state against the conservative economic-nexus test
+  select jsonb_build_object(
+           'sales_12m', count(*) filter (where w.is_sale),
+           'usd_12m', round(coalesce(sum(w.usd), 0), 2),
+           'by_state', coalesce((select jsonb_agg(jsonb_build_object('state', x.state, 'sales', x.sales, 'usd', x.usd,
+                                                                     'pct_usd', x.pct_usd, 'pct_tx', x.pct_tx,
+                                                                     'status', case when greatest(x.pct_usd, x.pct_tx) >= 100 then 'over'
+                                                                                    when greatest(x.pct_usd, x.pct_tx) >= (v_t ->> 'us_near_pct')::numeric then 'near'
+                                                                                    else 'ok' end)
+                                                  order by greatest(x.pct_usd, x.pct_tx) desc, x.state nulls last)
+                                   from (select y.state, y.sales, y.usd,
+                                                round(y.usd / (v_t ->> 'us_usd')::numeric * 100, 1) as pct_usd,
+                                                round(y.sales / (v_t ->> 'us_tx')::numeric * 100, 1) as pct_tx
+                                           from (select w2.region as state, count(*) filter (where w2.is_sale) as sales,
+                                                        round(coalesce(sum(w2.usd), 0), 2) as usd
+                                                   from public.turn__tax_window(v_from, v_rate) w2 where w2.country = 'US'
+                                                  group by w2.region) y) x), '[]'::jsonb))
+    into v_us
+    from public.turn__tax_window(v_from, v_rate) w where w.country = 'US';
+
+  -- every other known country (other countries have their own rules for foreign sellers)
+  select jsonb_build_object(
+           'sales_12m', count(*) filter (where w.is_sale),
+           'usd_12m', round(coalesce(sum(w.usd), 0), 2),
+           'by_country', coalesce((select jsonb_agg(jsonb_build_object('country', x.country, 'sales', x.sales, 'usd', x.usd)
+                                                    order by x.usd desc, x.country)
+                                     from (select w2.country, count(*) filter (where w2.is_sale) as sales,
+                                                  round(coalesce(sum(w2.usd), 0), 2) as usd
+                                             from public.turn__tax_window(v_from, v_rate) w2
+                                            where w2.country is not null and w2.country <> 'US'
+                                              and not public.turn__tax_is_uk(w2.country) and not public.turn__tax_is_eu(w2.country)
+                                            group by w2.country) x), '[]'::jsonb))
+    into v_rest
+    from public.turn__tax_window(v_from, v_rate) w
+   where w.country is not null and w.country <> 'US' and not public.turn__tax_is_uk(w.country) and not public.turn__tax_is_eu(w.country);
+
+  -- no country: turn on billing-address collection
+  select jsonb_build_object('sales', count(*) filter (where w.is_sale), 'usd', round(coalesce(sum(w.usd), 0), 2))
+    into v_unk
+    from public.turn__tax_window(v_from, v_rate) w where w.country is null;
+
+  select coalesce(jsonb_agg(jsonb_build_object('app', x.app, 'usd_12m', x.usd) order by x.app), '[]'::jsonb)
+    into v_apps
+    from (select w.app, round(coalesce(sum(w.usd), 0), 2) as usd from public.turn__tax_window(v_from, v_rate) w group by w.app) x;
+
+  select coalesce(jsonb_agg(jsonb_build_object('currency', x.currency, 'sales', x.sales, 'amount_minor', x.minor)
+                            order by x.currency), '[]'::jsonb)
+    into v_other
+    from (select w.currency, count(*) filter (where w.is_sale) as sales, sum(w.minor) as minor
+            from public.turn__tax_window(v_from, v_rate) w where w.currency not in ('usd', 'gbp') group by w.currency) x;
+
+  select jsonb_build_object('rows', count(*),
+                            'first_sale_at', min(s.occurred_at),
+                            'recording_since', min(s.recorded_at))
+    into v_led
+    from public.turn_sales_ledger s;
+
+  return jsonb_build_object(
+    'as_of', v_now,
+    'usd_to_gbp', v_rate,
+    'thresholds', v_t,
+    'window_from', v_from,
+    'uk', v_uk, 'eu', v_eu, 'us', v_us, 'rest', v_rest, 'unknown', v_unk,
+    'by_app', v_apps, 'other_currencies', v_other, 'ledger', v_led);
+end $$;
+
+-- ── 6. privileges ───────────────────────────────────────────────────────────
+-- Supabase grants every new table, sequence and function to anon and authenticated
+-- DIRECTLY, so each API role is named.
+revoke all on table public.turn_sales_ledger, public.turn_checkout_consents from public, anon, authenticated;
+revoke all on sequence public.turn_sales_ledger_id_seq, public.turn_checkout_consents_id_seq from public, anon, authenticated;
+revoke all on function public.turn_record_sale_once(text, text, uuid, text, bigint, text, text, text, text, timestamptz, jsonb)
+  from public, anon, authenticated;
+grant execute on function public.turn_record_sale_once(text, text, uuid, text, bigint, text, text, text, text, timestamptz, jsonb)
+  to service_role;
+revoke all on function public.turn_dispute_hold(uuid, text, boolean, text) from public, anon, authenticated;
+grant execute on function public.turn_dispute_hold(uuid, text, boolean, text) to service_role;
+revoke all on function public.turn_record_checkout_consent(text, text) from public, anon;
+grant execute on function public.turn_record_checkout_consent(text, text) to authenticated;
+revoke all on function public.turn_admin_tax_summary(numeric) from public, anon;
+grant execute on function public.turn_admin_tax_summary(numeric) to authenticated;
+revoke all on function public.turn__tax_thresholds() from public, anon, authenticated, service_role;
+revoke all on function public.turn__tax_is_eu(text) from public, anon, authenticated, service_role;
+revoke all on function public.turn__tax_is_uk(text) from public, anon, authenticated, service_role;
+revoke all on function public.turn__tax_is_admin() from public, anon, authenticated, service_role;
+revoke all on function public.turn__tax_window(timestamptz, numeric) from public, anon, authenticated, service_role;
+
+-- let the Data API see the new functions now
+notify pgrst, 'reload schema';
+-- <<< KINOLOT TAX COMPLIANCE DEFINITIONS <<<
 
 -- ── LIVE BALANCE: stream row changes to the app ──────────────────────────────
 -- The app subscribes to this table over Supabase realtime (app.jsx), so a grant

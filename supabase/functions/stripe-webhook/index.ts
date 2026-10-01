@@ -39,17 +39,49 @@
 //   customer.subscription.deleted   -> turn_end_plan_for_sub (only the stored subscription;
 //       other brands' subscriptions on the same customer are skipped).
 //   charge.refunded                 full refund -> turn_revoke_charge_once (unspent credits of
-//       that purchase); partial refund -> recorded for the owner, nothing removed.
-//   charge.dispute.created          -> turn_set_frozen true.
-//   charge.dispute.closed           won / inquiry closed -> turn_set_frozen false;
-//       lost -> turn_revoke_charge_once, the account stays frozen, recorded for the owner.
+//       that purchase); partial refund (owner decision 2026-10-01, D3: how a 14-day
+//       cancellation is paid back) -> for EACH refund on the charge, turn_revoke_charge_once
+//       keyed "refund:<refund id>" with refund_fraction = that refund / the charge amount: the
+//       database removes the same share of that payment's credits (rounded up), never more than
+//       its unused credits. The share is measured against the charge, or for a plan invoice paid
+//       partly from the customer's Stripe balance against the invoice total (so even a full refund
+//       of such a charge is a partial refund of the payment). A database without the
+//       refund_fraction argument (PGRST202 / 42883) gets the previous behaviour: nothing removed,
+//       recorded for the owner (partial_refund_review) — never the two-argument call, which would
+//       remove ALL the unused credits. Only SUCCEEDED refunds count: a pending one removes nothing
+//       and writes no ledger row until charge.refund.updated says it succeeded.
+//   charge.refund.updated           a refund that was pending -> succeeded: applied as above (keyed by
+//       the refund, never twice); failed / canceled -> recorded for the owner (refund_failed_review).
+//   charge.dispute.created          -> turn_dispute_hold open (one call under the account lock: the
+//       reason lists every open hold; a database without it: turn_set_frozen true, two steps).
+//   charge.dispute.closed           (D4) won / inquiry closed -> the hold this dispute placed is
+//       lifted (turn_dispute_hold close: unfrozen once no other hold is listed); lost ->
+//       turn_revoke_charge_once (that payment's unused credits), then the hold is lifted the same
+//       way, recorded for the owner (dispute_lost).
+// SALES LEDGER (D1, the Admin panel's tax monitor; rules in sales-ledger.mjs): EVERY successful
+// payment on the Stripe account — Kinolot's and the other apps' (same account, same legal person,
+// so they all count toward VAT turnover; tagged app=kinolot | other) — is recorded once with
+// turn_record_sale_once: invoice.paid -> "invoice:<id>" (kind plan | other); a paid one-off
+// checkout -> "checkout:<id>" (kind pack | other; "invoice:<id>" when the session also made an
+// invoice, so its invoice.paid can't count it twice); charge.refunded -> "refund:<refund id>" per
+// SUCCEEDED refund, negative (charge.refund.updated records one that succeeds later). With the
+// customer's country (and US state) and where it came from. The ledger
+// runs after the credit work and whatever that did (a skipped or failed grant still records the
+// money); a database without the function (PGRST202 / 42883) logs SALES_LEDGER_MISSING and never
+// fails the event; any other ledger error answers 500 (Stripe retries; every write is idempotent).
+// Other apps' events still never touch credits. Money taken outside Checkout and Invoices (a bare
+// PaymentIntent, Terminal) and lost disputes aren't in the ledger.
 // Nothing is ever dropped silently: every skip logs a line, every grant it could not make
 // is logged with the marker GRANT_FAILURE and stored in public.turn_grant_failures, and a
 // database error returns 500 so Stripe retries (every write is idempotent).
 //
 // SETUP — in this order (the new database functions must exist before this deploys, or
 // every grant fails with 500 until they do; Stripe keeps retrying for 3 days):
-//   1. Run the billing SQL in the Supabase SQL Editor (it creates the *_once functions).
+//   1. Run the billing SQL in the Supabase SQL Editor (it creates the *_once functions), then
+//      supabase/tax-compliance.sql (the sales ledger, turn_record_sale_once, turn_dispute_hold).
+//      Both are tolerated missing — no ledger rows (SALES_LEDGER_MISSING), partial refunds left to
+//      the owner (partial_refund_review) and two-step dispute holds (DISPUTE_HOLD_FALLBACK) until
+//      they run — but run them first.
 //   2. supabase functions deploy stripe-webhook --no-verify-jwt
 //        (Stripe calls this unauthenticated — JWT verification MUST be off.)
 //   3. Stripe → Developers → Webhooks → the endpoint
@@ -62,6 +94,7 @@
 //        customer.subscription.updated
 //        customer.subscription.deleted
 //        charge.refunded
+//        charge.refund.updated
 //        charge.dispute.created
 //        charge.dispute.closed
 //      Copy the endpoint's "Signing secret" (whsec_…) if it is a new endpoint.
@@ -75,7 +108,8 @@
 // API VERSIONS: event payloads follow the ENDPOINT's version (live: 2026-03-25.dahlia);
 // objects this code fetches follow the SDK's pinned version (stripe@16 → 2024-06-20). So it
 // reads ids from both shapes (plan-metadata.mjs) and fetches the subscription, invoice or
-// charge from the API when a payload lacks a field (invoice.subscription, charge.invoice).
+// charge from the API when a payload lacks a field (invoice.subscription, charge.invoice,
+// invoice.charge); a charge's refunds are listed from the API (payloads stopped carrying them).
 // Upgrading the SDK past v17 changes the fetched shapes — rerun scripts/test-stripe-webhook.mjs.
 //
 // The customer's Supabase user id rides in as the Checkout `client_reference_id` (the app
@@ -85,10 +119,14 @@
 import Stripe from "npm:stripe@16";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import {
-  disputeOutcome, idOf, invoiceSubscriptionId, isKnownTier, isLegacyPack, isMissingFunctionError, isOurApp, isUuid, looksLikeOurs,
-  legacyPackLotNote, packGrantCredits, packGrantKey, planChange, planGrantKey, planTier, refundState, regimeSwitched, stripeKeyMode,
-  subscriptionPeriod, upgradeCredits, upgradeKey, PLAN_BILLING_REASONS,
+  disputeHoldAfterClose, disputeHoldReason, disputeOutcome, idOf, invoiceSubscriptionId, isKnownTier, isLegacyPack, isMissingFunctionError,
+  isOurApp, isUuid, looksLikeOurs, legacyPackLotNote, packGrantCredits, packGrantKey, planChange, planGrantKey, planTier, refundState,
+  regimeSwitched, stripeKeyMode, subscriptionPeriod, upgradeCredits, upgradeKey, PLAN_BILLING_REASONS,
 } from "./plan-metadata.mjs";
+import {
+  checkoutSaleKey, countableRefund, invoiceLineProductIds, invoiceSaleKey, pendingRefund, refundBaseCents, refundFraction, refundSaleKey,
+  saleAmountCents, saleApp, saleLocation, saleLogFields, unixToIso,
+} from "./sales-ledger.mjs";
 
 // deno-lint-ignore no-explicit-any
 type Obj = Record<string, any>;
@@ -140,6 +178,17 @@ async function rpc(name: string, args: Obj): Promise<unknown> {
     throw error;
   }
   return data;
+}
+
+/** One lookup per event: the credit work and the sales ledger both need a refund's charge, its
+ *  refunds and a checkout's line items. Keyed by the event object, so concurrent requests never
+ *  share answers (and a lookup with side effects, describeCharge, runs once). */
+const EVENT_MEMO = new WeakMap<object, Map<string, Promise<unknown>>>();
+function perEvent<T>(event: Stripe.Event, key: string, fn: () => Promise<T>): Promise<T> {
+  let m = EVENT_MEMO.get(event);
+  if (!m) { m = new Map(); EVENT_MEMO.set(event, m); }
+  if (!m.has(key)) m.set(key, fn());
+  return m.get(key) as Promise<T>;
 }
 
 type PlanRead =
@@ -434,7 +483,7 @@ async function onCheckout(event: Stripe.Event) {
   if (s.mode === "payment") {
     if (!uidRaw || !isUuid(uidRaw)) {
       // Only flag it when the payment actually contains a Kinolot pack.
-      const items = await lineItems(s.id);
+      const items = await perEvent(event, `items:${s.id}`, () => lineItems(s.id));
       if (sessionHasOurProduct(items)) {
         await reportGrantFailure({
           event, reason: uidRaw ? "invalid_client_reference_id" : "missing_client_reference_id",
@@ -461,7 +510,7 @@ async function chargeForSession(s: Obj): Promise<string | null> {
 }
 
 async function grantPack(uid: string, session: Obj, event: Stripe.Event) {
-  const items = await lineItems(session.id);
+  const items = await perEvent(event, `items:${session.id}`, () => lineItems(session.id));
   let credits = 0;
   let legacyCredits = 0;                 // of which: packs sold in the old unit
   let sawKinolotProduct = false;
@@ -596,7 +645,7 @@ async function onInvoicePaid(event: Stripe.Event) {
     });
     return;
   }
-  const sub = await retrieveSub(subId);
+  const sub = await perEvent(event, `sub:${subId}`, () => retrieveSub(subId));   // the sales ledger reads it too
   const plan = readPlan(sub);
   if (!plan.ok && plan.reason === "other_app") {
     console.warn(`SKIP other_app event=${event.id} product=${plan.productId} app=${JSON.stringify(plan.details?.app ?? null)}`);
@@ -732,7 +781,12 @@ async function onSubscriptionDeleted(event: Stripe.Event) {
 }
 
 // ── refunds and disputes ────────────────────────────────────────────────────────────────
-type ChargeInfo = { kind: "plan" | "pack" | "other"; uid: string | null; subId?: string | null; invoiceId?: string | null; sessionId?: string | null; customerId?: string | null };
+type ChargeInfo = {
+  kind: "plan" | "pack" | "other"; uid: string | null; subId?: string | null; invoiceId?: string | null; sessionId?: string | null;
+  customerId?: string | null;
+  // what the sales ledger needs to find a refund's customer the same way as the payment's (2026-10-01)
+  charge?: Obj; invoice?: Obj | null; session?: Obj | null;
+};
 
 /** Whose purchase a charge was, and of what: a Kinolot plan invoice, a Kinolot pack checkout,
  *  or something else on the account (Academy, mentorships) that the app must not touch. */
@@ -745,21 +799,60 @@ async function describeCharge(chargeIn: Obj, event: Stripe.Event): Promise<Charg
   if (invoiceId) {
     const inv = await stripe.invoices.retrieve(invoiceId) as unknown as Obj;
     const subId = invoiceSubscriptionId(inv);
-    if (!subId) return { kind: "other", uid: null, invoiceId, customerId };
+    if (!subId) return { kind: "other", uid: null, invoiceId, customerId, charge: ch, invoice: inv };
     const sub = await retrieveSub(subId);
-    if (!readPlan(sub).ours) return { kind: "other", uid: null, invoiceId, subId, customerId };
+    if (!readPlan(sub).ours) return { kind: "other", uid: null, invoiceId, subId, customerId, charge: ch, invoice: inv };
     const acct = await accountByCustomer(idOf(inv.customer) ?? customerId, event);
-    return { kind: "plan", uid: acct?.owner ?? null, invoiceId, subId, customerId };
+    return { kind: "plan", uid: acct?.owner ?? null, invoiceId, subId, customerId, charge: ch, invoice: inv };
   }
   const piId = idOf(ch.payment_intent);
   if (piId) {
     const list = await stripe.checkout.sessions.list({ payment_intent: piId, limit: 1 });
     const s = (list?.data?.[0] ?? null) as Obj | null;
-    if (s && sessionHasOurProduct(await lineItems(s.id))) {
-      return { kind: "pack", uid: isUuid(s.client_reference_id) ? s.client_reference_id : null, sessionId: s.id, customerId };
+    if (s && sessionHasOurProduct(await perEvent(event, `items:${s.id}`, () => lineItems(s.id)))) {
+      return { kind: "pack", uid: isUuid(s.client_reference_id) ? s.client_reference_id : null, sessionId: s.id, customerId, charge: ch, session: s };
     }
+    return { kind: "other", uid: null, customerId, charge: ch, session: s };
   }
-  return { kind: "other", uid: null, customerId };
+  return { kind: "other", uid: null, customerId, charge: ch };
+}
+
+/** describeCharge once per event: a refund's credit work and its ledger rows share the answer
+ *  (and its one side effect, a customer_on_several_accounts report, happens once). */
+function chargeInfo(ch: Obj, event: Stripe.Event): Promise<ChargeInfo> {
+  return perEvent(event, `charge:${ch.id}`, () => describeCharge(ch, event));
+}
+
+/** Every refund on a charge, oldest first. Payloads before 2022-11-15 carry them inline; later ones
+ *  (the live dahlia endpoint, stripe@16's fetches) don't, so they are listed from the API. */
+function allRefundsOfCharge(ch: Obj, event: Stripe.Event): Promise<Obj[]> {
+  return perEvent(event, `refunds:${ch.id}`, async () => {
+    const inline = ch.refunds;
+    const list: Obj[] = inline && Array.isArray(inline.data) && !inline.has_more
+      ? inline.data
+      : (((await stripe.refunds.list({ charge: ch.id, limit: 100 })) as unknown as Obj)?.data ?? []);
+    return [...list].sort((a, b) => (Number(a.created) || 0) - (Number(b.created) || 0));
+  });
+}
+/** The refunds that GAVE money back (succeeded): only these remove credits and net off in the ledger. */
+async function refundsOfCharge(ch: Obj, event: Stripe.Event): Promise<Obj[]> {
+  return (await allRefundsOfCharge(ch, event)).filter(countableRefund);
+}
+/** Refunds still on their way: applied by charge.refund.updated once they succeed. */
+async function pendingRefundsOf(ch: Obj, event: Stripe.Event): Promise<Obj[]> {
+  return (await allRefundsOfCharge(ch, event)).filter(pendingRefund);
+}
+
+/** The refunded charge an event is about: charge.refunded carries it; charge.refund.updated carries
+ *  the REFUND — only a succeeded one counts, and its charge is fetched. */
+function refundedCharge(event: Stripe.Event): Promise<Obj | null> {
+  return perEvent(event, "refunded-charge", async () => {
+    const o = event.data.object as unknown as Obj;
+    if (event.type === "charge.refunded") return o;
+    if (o.status !== "succeeded") return null;
+    const chId = idOf(o.charge);
+    return chId ? await stripe.charges.retrieve(chId) as unknown as Obj : null;
+  });
 }
 
 /** What turn_revoke_charge_once matches for a charge. A pack lot carries its charge id
@@ -769,19 +862,28 @@ function revokeKey(info: ChargeInfo, chargeId: string): string {
   return info.kind === "plan" && info.invoiceId ? `invoice:${info.invoiceId}` : chargeId;
 }
 
+/** A plan invoice paid partly from the customer's Stripe balance: its credits came from the whole
+ *  invoice, so even a full refund of the charge gives back only part of the payment (D3). */
+function invoiceLargerThanCharge(info: ChargeInfo, ch: Obj): boolean {
+  const base = refundBaseCents(info.kind, saleAmountCents(ch.amount), saleAmountCents(info.invoice?.total));
+  return info.kind === "plan" && base != null && base !== saleAmountCents(ch.amount);
+}
+
 async function onChargeRefunded(event: Stripe.Event) {
-  const ch = event.data.object as unknown as Obj;
+  const ch = await refundedCharge(event);
+  if (!ch) { console.log(`IGNORED ${event.type} event=${event.id} (not a succeeded refund)`); return; }
   const state = refundState(ch);
-  if (state === "none") { console.log(`IGNORED charge.refunded event=${event.id} charge=${ch.id} (nothing refunded)`); return; }
-  const info = await describeCharge(ch, event);
+  if (state === "none") { console.log(`IGNORED ${event.type} event=${event.id} charge=${ch.id} (nothing refunded)`); return; }
+  const info = await chargeInfo(ch, event);
   if (info.kind === "other") { console.warn(`SKIP refund_not_kinolot event=${event.id} charge=${ch.id}`); return; }
-  if (state === "partial") {
-    // a goodwill partial refund must not wipe the whole purchase — the owner decides
-    await reportGrantFailure({
-      event, reason: "partial_refund_review", uid: info.uid, customerId: info.customerId ?? null,
-      subId: info.subId ?? null, sessionId: info.sessionId ?? null,
-      details: { charge_id: ch.id, kind: info.kind, amount: ch.amount ?? null, amount_refunded: ch.amount_refunded ?? null, currency: ch.currency ?? null },
-    });
+  if (state === "partial" || invoiceLargerThanCharge(info, ch)) {
+    await revokePartialRefunds(event, ch, info);
+    return;
+  }
+  const pending = await pendingRefundsOf(ch, event);
+  if (pending.length) {
+    // the money isn't back yet: nothing is removed until the refund succeeds (it may still fail)
+    console.warn(`REFUND_PENDING event=${event.id} charge=${ch.id} refunds=${pending.map((r) => r.id).join(",")} — applied when charge.refund.updated says it succeeded`);
     return;
   }
   const removed = await rpc("turn_revoke_charge_once", { event_id: event.id, charge_id: revokeKey(info, ch.id) });
@@ -793,6 +895,94 @@ async function onChargeRefunded(event: Stripe.Event) {
       details: { charge_id: ch.id, invoice_id: info.invoiceId ?? null, removed },
     });
   }
+}
+
+/** D3 (owner decision 2026-10-01): a partial refund of a plan or pack payment removes the same share
+ *  of that payment's credits, rounded up, never more than its unused credits (the database works the
+ *  credits out: ceil(refund_fraction x granted), capped by what is left). Every refund on the charge is
+ *  applied once, keyed "refund:<refund id>": a resent event, a later refund's event arriving first or
+ *  a lost event never removes a share twice. A 14-day cancellation is paid back this way — the owner
+ *  refunds the unused share in Stripe and this removes that share. */
+async function revokePartialRefunds(event: Stripe.Event, ch: Obj, info: ChargeInfo) {
+  const review = (why: string, extra: Obj = {}) => reportGrantFailure({
+    event, reason: "partial_refund_review", uid: info.uid, customerId: info.customerId ?? null,
+    subId: info.subId ?? null, sessionId: info.sessionId ?? null,
+    details: { charge_id: ch.id, kind: info.kind, amount: ch.amount ?? null, amount_refunded: ch.amount_refunded ?? null, currency: ch.currency ?? null, why, ...extra },
+  });
+  // the share is measured against the charge (a pack) or, for a plan invoice paid partly from the
+  // customer's Stripe balance, the invoice total (refundBaseCents)
+  const chargeCents = refundBaseCents(info.kind, saleAmountCents(ch.amount), saleAmountCents(info.invoice?.total));
+  if (!chargeCents || chargeCents <= 0) { await review("no_charge_amount"); return; }
+  const refunds = await refundsOfCharge(ch, event);
+  if (!refunds.length) {
+    const pending = await pendingRefundsOf(ch, event);
+    if (pending.length) {
+      console.warn(`REFUND_PENDING event=${event.id} charge=${ch.id} refunds=${pending.map((r) => r.id).join(",")} — applied when charge.refund.updated says it succeeded`);
+      return;
+    }
+    await review("no_refund_found");
+    return;
+  }
+  const key = revokeKey(info, ch.id);
+  let removedTotal = 0;
+  const applied: Obj[] = [];
+  for (const r of refunds) {
+    const fraction = refundFraction(saleAmountCents(r.amount), chargeCents);
+    if (fraction == null) { await review("refund_without_amount", { refund_id: r.id }); continue; }
+    const args = { event_id: refundSaleKey(r.id), charge_id: key, refund_fraction: fraction };
+    const { data, error } = await admin.rpc("turn_revoke_charge_once", args);
+    if (error) {
+      if (isMissingFunctionError(error)) {
+        // a database without the argument: the previous behaviour (the owner decides) — never the
+        // two-argument call, which would take back ALL the unused credits for a partial refund
+        console.warn(`REFUND_PARTIAL_FALLBACK event=${event.id} charge=${ch.id} — turn_revoke_charge_once has no refund_fraction argument (${String(error.code || error.message || "").slice(0, 60)}); nothing removed, recorded for the owner`);
+        await review("database_without_refund_fraction", { refund_id: r.id, refund_fraction: fraction });
+        return;
+      }
+      console.error("RPC_ERROR fn=turn_revoke_charge_once", error.message, JSON.stringify(args));
+      throw error;
+    }
+    const removed = Number(data) || 0;
+    removedTotal += removed;
+    applied.push({ refund_id: r.id, refund_fraction: fraction, removed });
+    console.warn(`REFUND_REVOKE_PARTIAL event=${event.id} charge=${ch.id} refund=${r.id} refunded=${r.amount}/${chargeCents} fraction=${fraction} kind=${info.kind} uid=${info.uid} removed=${removed} key=${key}`);
+  }
+  if (info.kind === "plan" && applied.length && !(removedTotal > 0)) {
+    // nothing came back from this plan payment (another period's, or not linked) — check by hand
+    await reportGrantFailure({
+      event, reason: "refund_plan_review", uid: info.uid, customerId: info.customerId ?? null, subId: info.subId ?? null,
+      details: { charge_id: ch.id, invoice_id: info.invoiceId ?? null, removed: removedTotal, partial: true, refunds: applied },
+    });
+  }
+}
+
+/** charge.refund.updated. A refund that was PENDING when charge.refunded arrived
+ *  (bank transfers, some wallets) is applied once it SUCCEEDS, exactly as charge.refunded would have
+ *  (its share of credits, its ledger row — both keyed by the refund, so never twice). A refund that
+ *  FAILED or was CANCELED gave nothing back: a pending one was never applied, but a refund can also
+ *  fail after it had succeeded (a closed card), so a Kinolot one is recorded for the owner to check
+ *  (refund_failed_review: give back any credits it removed by hand). */
+async function onRefundUpdated(event: Stripe.Event) {
+  const r = event.data.object as unknown as Obj;
+  if (r.status === "succeeded") { await onChargeRefunded(event); return; }
+  if (r.status !== "failed" && r.status !== "canceled") {
+    console.log(`IGNORED ${event.type} event=${event.id} refund=${r.id} status=${r.status}`);
+    return;
+  }
+  const chId = idOf(r.charge);
+  if (!chId) { console.log(`IGNORED ${event.type} event=${event.id} refund=${r.id} (no charge)`); return; }
+  const ch = await stripe.charges.retrieve(chId) as unknown as Obj;
+  const info = await chargeInfo(ch, event);
+  if (info.kind === "other") { console.warn(`SKIP refund_not_kinolot event=${event.id} charge=${chId}`); return; }
+  console.warn(`REFUND_FAILED event=${event.id} charge=${chId} refund=${r.id} status=${r.status} uid=${info.uid}`);
+  await reportGrantFailure({
+    event, reason: "refund_failed_review", uid: info.uid, customerId: info.customerId ?? null, subId: info.subId ?? null, sessionId: info.sessionId ?? null,
+    details: {
+      refund_id: r.id, charge_id: chId, kind: info.kind, amount: r.amount ?? null, currency: r.currency ?? null, status: r.status,
+      failure_reason: r.failure_reason ?? null,
+      note: "the refund gave no money back. If it had succeeded first (its credits were removed and the tax ledger has a refund:<id> row), give the credits back by hand and add a matching sale row; a refund that was only pending was never applied",
+    },
+  });
 }
 
 async function disputeContext(event: Stripe.Event): Promise<{ d: Obj; chargeId: string | null; info: ChargeInfo | null }> {
@@ -810,8 +1000,67 @@ async function onDisputeCreated(event: Stripe.Event) {
     await reportGrantFailure({ event, reason: "dispute_unknown_account", customerId: info.customerId ?? null, subId: info.subId ?? null, sessionId: info.sessionId ?? null, details: { dispute_id: d.id, charge_id: chargeId, kind: info.kind } });
     return;
   }
-  await rpc("turn_set_frozen", { uid: info.uid, frozen: true, reason: `dispute ${d.id} (${d.reason ?? "unknown"}) on charge ${chargeId}` });
-  console.warn(`ACCOUNT_FROZEN event=${event.id} uid=${info.uid} dispute=${d.id} charge=${chargeId} kind=${info.kind}`);
+  // D4: an account already held (another open dispute) keeps that hold listed next to this one
+  const part = `dispute ${d.id} (${d.reason ?? "unknown"}) on charge ${chargeId}`;
+  let reason: string;
+  const held = await disputeHoldInDb(event, info.uid, d.id, true, part);
+  if (held) {
+    reason = typeof held.frozen_reason === "string" ? held.frozen_reason : part;
+  } else {
+    reason = disputeHoldReason(await accountByUid(info.uid), part, d.id);
+    await rpc("turn_set_frozen", { uid: info.uid, frozen: true, reason });
+  }
+  console.warn(`ACCOUNT_FROZEN event=${event.id} uid=${info.uid} dispute=${d.id} charge=${chargeId} kind=${info.kind}${reason !== part ? ` holds=${JSON.stringify(reason)}` : ""}`);
+}
+
+/** D4: add or remove one dispute's part of the account hold in ONE database call, under the account
+ *  lock (turn_dispute_hold, supabase/tax-compliance.sql). Stripe delivers events in parallel: reading
+ *  frozen_reason here and writing it back could lose a dispute handled at the same moment, and the
+ *  hold would lift while that dispute is still open. null = the database doesn't have the function
+ *  yet (PGRST202 / 42883): the caller falls back to the two-step update (run tax-compliance.sql). */
+async function disputeHoldInDb(event: Stripe.Event, uid: string, disputeId: string, open: boolean, part: string): Promise<Obj | null> {
+  const args = { uid, dispute_id: disputeId, open, part };
+  const { data, error } = await admin.rpc("turn_dispute_hold", args);
+  if (error) {
+    if (isMissingFunctionError(error)) {
+      console.warn(`DISPUTE_HOLD_FALLBACK event=${event.id} dispute=${disputeId} — turn_dispute_hold isn't in the database yet (run supabase/tax-compliance.sql); two-step update`);
+      return null;
+    }
+    console.error("RPC_ERROR fn=turn_dispute_hold", error.message, JSON.stringify(args));
+    throw error;
+  }
+  return (data && typeof data === "object" ? data : {}) as Obj;
+}
+
+/** D4 (owner decision 2026-10-01): a closed dispute, won or lost, lifts the hold it placed — once no
+ *  other hold is listed on the account (another open dispute keeps it held, with just that reason).
+ *  A held account whose reason doesn't name this dispute is left alone and recorded for the owner. */
+async function releaseDisputeHold(event: Stripe.Event, d: Obj, uid: string): Promise<"lifted" | "kept" | "review"> {
+  const closed = `dispute ${d.id} ${d.status}`;
+  const res = await disputeHoldInDb(event, uid, d.id, false, closed);
+  let after: { action: string; remaining?: string | null };
+  if (res) {
+    const why = typeof res.frozen_reason === "string" ? res.frozen_reason : null;
+    after = res.action === "lifted" ? { action: "lift" } : res.action === "kept" ? { action: "keep", remaining: why } : { action: "review", remaining: why };
+  } else {
+    after = disputeHoldAfterClose(await accountByUid(uid), d.id);
+    if (after.action === "lift") await rpc("turn_set_frozen", { uid, frozen: false, reason: closed });
+    else if (after.action === "keep") await rpc("turn_set_frozen", { uid, frozen: true, reason: after.remaining });
+  }
+  if (after.action === "lift") {
+    console.log(`ACCOUNT_UNFROZEN event=${event.id} uid=${uid} dispute=${d.id} status=${d.status}`);
+    return "lifted";
+  }
+  if (after.action === "keep") {
+    console.warn(`ACCOUNT_STILL_HELD event=${event.id} uid=${uid} dispute=${d.id} status=${d.status} remaining=${JSON.stringify(after.remaining)}`);
+    return "kept";
+  }
+  console.warn(`ACCOUNT_HOLD_NOT_THIS_DISPUTE event=${event.id} uid=${uid} dispute=${d.id} status=${d.status} frozen_reason=${JSON.stringify(after.remaining ?? null)}`);
+  await reportGrantFailure({
+    event, reason: "dispute_closed_review", uid,
+    details: { dispute_id: d.id, status: d.status ?? null, frozen_reason: after.remaining ?? null, note: "the account is held, but not by this dispute: left as it is" },
+  });
+  return "review";
 }
 
 async function onDisputeClosed(event: Stripe.Event) {
@@ -823,19 +1072,244 @@ async function onDisputeClosed(event: Stripe.Event) {
     return;
   }
   if (outcome === "unfreeze") {
-    await rpc("turn_set_frozen", { uid: info.uid, frozen: false, reason: `dispute ${d.id} ${d.status}` });
-    console.log(`ACCOUNT_UNFROZEN event=${event.id} uid=${info.uid} dispute=${d.id} status=${d.status}`);
+    await releaseDisputeHold(event, d, info.uid);
     return;
   }
   if (outcome === "lost") {
+    // that payment's unused credits first, then the hold (so nothing is spent in between)
     const removed = await rpc("turn_revoke_charge_once", { event_id: event.id, charge_id: revokeKey(info, chargeId!) });
+    const hold = await releaseDisputeHold(event, d, info.uid);
     await reportGrantFailure({
       event, reason: "dispute_lost", uid: info.uid, customerId: info.customerId ?? null, subId: info.subId ?? null, sessionId: info.sessionId ?? null,
-      details: { dispute_id: d.id, charge_id: chargeId, kind: info.kind, removed, note: "account stays frozen until the owner unfreezes it" },
+      details: {
+        dispute_id: d.id, charge_id: chargeId, kind: info.kind, removed, hold,
+        note: hold === "lifted" ? "the payment's unused credits were removed and the hold is lifted"
+          : hold === "kept" ? "the payment's unused credits were removed; the account stays held for its other open dispute(s)"
+          : "the payment's unused credits were removed; the account's hold isn't this dispute's (see dispute_closed_review)",
+      },
     });
     return;
   }
   console.log(`IGNORED charge.dispute.closed event=${event.id} dispute=${d.id} status=${d.status}`);
+}
+
+// ── sales ledger (owner decision 2026-10-01, D1: the Admin panel's tax monitor) ──────────
+type SaleKind = "plan" | "pack" | "other" | "refund";
+type SaleRow = {
+  source_key: string; app: string; owner: string | null; kind: SaleKind; amount_cents: number; currency: string;
+  country: string | null; region: string | null; country_source: string | null; occurred_at: string; stripe_ids: Obj;
+};
+type Cand = { source: string; address?: Obj | null; country?: string | null } | null;
+type Provider = () => Cand | Promise<Cand>;
+
+const addressOf = (source: string, address: unknown): Cand =>
+  (address && typeof address === "object" ? { source, address: address as Obj } : null);
+function lazy<T>(fn: () => Promise<T>): () => Promise<T> {
+  let p: Promise<T> | null = null;
+  return () => (p ??= fn());
+}
+const compactIds = (o: Obj): Obj => Object.fromEntries(Object.entries(o).filter(([, v]) => typeof v === "string" && v));
+const saleCurrency = (c: unknown) => (typeof c === "string" && /^[a-z]{3}$/i.test(c.trim()) ? c.trim().toLowerCase() : "xxx");
+const eventTime = (event: Stripe.Event) => unixToIso((event as unknown as Obj).created) ?? new Date().toISOString();
+
+/** The customer's country (and US state), asking the providers in order and lazily: a Stripe lookup
+ *  runs only while the answer isn't complete. A lookup that fails is logged and skipped — the country
+ *  is best effort and never fails the event. */
+async function locateSale(event: Stripe.Event, providers: Provider[]) {
+  const got: Cand[] = [];
+  for (const p of providers) {
+    if (saleLocation(got).complete) break;
+    try { const c = await p(); if (c) got.push(c); }
+    catch (err) { console.warn(`SALE_COUNTRY_LOOKUP_FAILED event=${event.id}: ${String((err as Error)?.message || err).slice(0, 160)}`); }
+  }
+  return saleLocation(got);
+}
+
+/** The Stripe customer's own address (customer_address). */
+function customerProvider(event: Stripe.Event, customerId: string | null): Provider {
+  return async () => {
+    if (!customerId) return null;
+    const c = await perEvent(event, `customer:${customerId}`, async () => await stripe.customers.retrieve(customerId) as unknown as Obj);
+    return c && !c.deleted ? addressOf("customer_address", c.address) : null;
+  };
+}
+
+/** The charge's billing address, then its card's issuing country. */
+function chargeProviders(getCharge: () => Promise<Obj | null>): Provider[] {
+  return [
+    async () => addressOf("billing_address", (await getCharge())?.billing_details?.address),
+    async () => {
+      const cc = (await getCharge())?.payment_method_details?.card?.country;
+      return typeof cc === "string" && cc ? { source: "card_country", country: cc } : null;
+    },
+  ];
+}
+
+/** The charge that paid an invoice: in the payload before basil; from the API (the SDK's pinned
+ *  version still names it) when the payload has no `charge` field at all. */
+async function chargeOfInvoice(inv: Obj): Promise<Obj | null> {
+  if (inv.charge && typeof inv.charge === "object" && inv.charge.billing_details) return inv.charge as Obj;
+  let chId = idOf(inv.charge);
+  if (!chId && inv.charge === undefined && inv.id) chId = idOf((await stripe.invoices.retrieve(inv.id) as unknown as Obj)?.charge);
+  return chId ? await stripe.charges.retrieve(chId) as unknown as Obj : null;
+}
+
+/** The app account behind a Stripe customer, quietly (no failure rows: the credit work reports those). */
+async function ownerByCustomer(customerId: string | null): Promise<string | null> {
+  if (!customerId) return null;
+  const { data, error } = await admin.from("turn_credits").select("owner").eq("stripe_customer_id", customerId).limit(2);
+  if (error) { console.warn(`SALE_OWNER_UNREADABLE customer=${customerId}: ${error.message}`); return null; }
+  const rows = (data ?? []) as Obj[];
+  return rows.length === 1 && isUuid(rows[0].owner) ? rows[0].owner : null;
+}
+
+/** One ledger row, once (turn_record_sale_once is keyed by source_key). A missing function logs
+ *  SALES_LEDGER_MISSING and is not an error; an owner the database doesn't know (a deleted account)
+ *  is recorded without one; any other error throws (500, Stripe retries). */
+async function recordSale(event: Stripe.Event, row: SaleRow): Promise<"recorded" | "already" | "missing"> {
+  let args: Obj = { ...row };
+  let { data, error } = await admin.rpc("turn_record_sale_once", args);
+  if (error && String(error.code ?? "") === "23503" && args.owner) {
+    console.warn(`SALE_OWNER_UNKNOWN event=${event.id} key=${row.source_key} owner=${args.owner} — recorded without an owner`);
+    args = { ...args, owner: null };
+    ({ data, error } = await admin.rpc("turn_record_sale_once", args));
+  }
+  if (error) {
+    if (isMissingFunctionError(error)) {
+      console.warn(`SALES_LEDGER_MISSING event=${event.id} ${saleLogFields(row)} — turn_record_sale_once isn't in the database yet (run supabase/tax-compliance.sql); this payment is not in the tax monitor`);
+      return "missing";
+    }
+    console.error(`SALES_LEDGER_ERROR event=${event.id} ${saleLogFields(row)}: ${error.message}`);
+    throw new Error(`SALES_LEDGER: turn_record_sale_once failed: ${error.message}`);
+  }
+  const inserted = data !== false;
+  console.log(`${inserted ? "SALE_RECORDED" : "SALE_ALREADY_RECORDED"} event=${event.id} ${saleLogFields(row)}`);
+  return inserted ? "recorded" : "already";
+}
+
+/** invoice.paid, ANY billing reason and any app: "invoice:<id>". A Kinolot subscription's invoice is
+ *  kind plan; anything else is the other apps' (kind other) — a one-off invoice is Kinolot's only
+ *  when one of its products says so. */
+async function recordInvoiceSale(event: Stripe.Event) {
+  const inv = event.data.object as unknown as Obj;
+  const key = invoiceSaleKey(inv.id);
+  const cents = saleAmountCents(inv.amount_paid);
+  if (!key || !cents || cents <= 0) {
+    console.log(`SALE_SKIPPED event=${event.id} invoice=${inv.id ?? "?"} amount_paid=${inv.amount_paid ?? "?"} (nothing paid)`);
+    return;
+  }
+  let ours = false;            // a Kinolot payment (else the other apps': app=other, no owner)
+  let kind: SaleKind = "other";
+  let subId: string | null = invoiceSubscriptionId(inv);
+  try {
+    if (!subId && String(inv.billing_reason || "").startsWith("subscription")) subId = await subscriptionOfInvoice(inv);
+    if (subId) {
+      const sub = await perEvent(event, `sub:${subId}`, () => retrieveSub(subId!));
+      if (readPlan(sub).ours) { ours = true; kind = "plan"; }
+    } else {
+      for (const pid of invoiceLineProductIds(inv).slice(0, 10)) {
+        const md: Obj = ((await stripe.products.retrieve(pid)) as unknown as Obj)?.metadata || {};
+        if (isOurApp(md.app)) { ours = true; kind = md.kind === "credit_pack" ? "pack" : "other"; break; }
+      }
+    }
+  } catch (err) {
+    console.warn(`SALE_APP_UNKNOWN event=${event.id} invoice=${inv.id}: ${String((err as Error)?.message || err).slice(0, 160)} — recorded as app=other`);
+  }
+  const customerId = idOf(inv.customer);
+  const loc = await locateSale(event, [
+    () => addressOf("invoice_address", inv.customer_address),
+    customerProvider(event, customerId),
+    ...chargeProviders(lazy(() => chargeOfInvoice(inv))),
+  ]);
+  await recordSale(event, {
+    source_key: key, app: saleApp(ours), owner: ours ? await ownerByCustomer(customerId) : null, kind,
+    amount_cents: cents, currency: saleCurrency(inv.currency),
+    country: loc.country, region: loc.region, country_source: loc.country_source,
+    occurred_at: unixToIso(inv.status_transitions?.paid_at) ?? eventTime(event),
+    stripe_ids: compactIds({ event: event.id, invoice: inv.id, subscription: subId, customer: customerId, charge: idOf(inv.charge) }),
+  });
+}
+
+/** A PAID one-off Checkout Session (payment mode), any app: "checkout:<id>" ("invoice:<id>" when the
+ *  session also made an invoice — the invoice.paid for it is the same money). Kind pack when a
+ *  Kinolot product is in it. Subscription checkouts are recorded by their first invoice.paid; an
+ *  unpaid session by its checkout.session.async_payment_succeeded. */
+async function recordCheckoutSale(event: Stripe.Event) {
+  const s = event.data.object as unknown as Obj;
+  if (s.mode !== "payment") return;
+  if (s.payment_status !== "paid") {
+    console.log(`SALE_SKIPPED event=${event.id} session=${s.id} payment_status=${s.payment_status} (recorded once it is paid)`);
+    return;
+  }
+  const key = checkoutSaleKey(s);
+  const cents = saleAmountCents(s.amount_total);
+  if (!key || !cents || cents <= 0) {
+    console.log(`SALE_SKIPPED event=${event.id} session=${s.id} amount_total=${s.amount_total ?? "?"} (nothing paid)`);
+    return;
+  }
+  let ours = false;
+  try { ours = sessionHasOurProduct(await perEvent(event, `items:${s.id}`, () => lineItems(s.id))); }
+  catch (err) { console.warn(`SALE_APP_UNKNOWN event=${event.id} session=${s.id}: ${String((err as Error)?.message || err).slice(0, 160)} — recorded as app=other`); }
+  const customerId = idOf(s.customer);
+  const loc = await locateSale(event, [
+    () => addressOf("checkout_address", s.customer_details?.address),
+    customerProvider(event, customerId),
+    ...chargeProviders(lazy(async () => {
+      const chId = await chargeForSession(s);
+      return chId ? await stripe.charges.retrieve(chId) as unknown as Obj : null;
+    })),
+  ]);
+  await recordSale(event, {
+    source_key: key, app: saleApp(ours), owner: ours && isUuid(s.client_reference_id) ? s.client_reference_id : null,
+    kind: ours ? "pack" : "other", amount_cents: cents, currency: saleCurrency(s.currency),
+    country: loc.country, region: loc.region, country_source: loc.country_source, occurred_at: eventTime(event),
+    stripe_ids: compactIds({ event: event.id, session: s.id, invoice: idOf(s.invoice), payment_intent: idOf(s.payment_intent), customer: customerId }),
+  });
+}
+
+/** charge.refunded, any app: one NEGATIVE row per refund on the charge ("refund:<refund id>"), the
+ *  customer looked up the same way as the payment's, so it nets off in the same country. */
+async function recordRefundSales(event: Stripe.Event) {
+  const ch = await refundedCharge(event);
+  if (!ch || refundState(ch) === "none") return;
+  const info = await chargeInfo(ch, event);
+  const refunds = await refundsOfCharge(ch, event);
+  if (!refunds.length) { console.log(`SALE_SKIPPED event=${event.id} charge=${ch.id} (no refund found)`); return; }
+  const ours = info.kind !== "other";
+  const full = info.charge ?? ch;
+  const getCharge = async () => full;
+  const inv = info.invoice ?? null, ses = info.session ?? null;
+  const customerId = idOf(inv?.customer) ?? idOf(ses?.customer) ?? info.customerId ?? null;
+  const loc = await locateSale(event, [
+    ...(inv ? [() => addressOf("invoice_address", inv.customer_address)] : []),
+    ...(ses ? [() => addressOf("checkout_address", ses.customer_details?.address)] : []),
+    customerProvider(event, customerId),
+    ...chargeProviders(getCharge),
+  ]);
+  for (const r of refunds) {
+    const status = await recordSale(event, {
+      source_key: refundSaleKey(r.id)!, app: saleApp(ours), owner: ours && isUuid(info.uid) ? info.uid : null, kind: "refund",
+      amount_cents: -Math.abs(saleAmountCents(r.amount) ?? 0), currency: saleCurrency(r.currency ?? ch.currency),
+      country: loc.country, region: loc.region, country_source: loc.country_source,
+      occurred_at: unixToIso(r.created) ?? eventTime(event),
+      stripe_ids: compactIds({ event: event.id, refund: r.id, charge: ch.id, invoice: info.invoiceId ?? null, session: info.sessionId ?? ses?.id ?? null, customer: customerId }),
+    });
+    if (status === "missing") break;
+  }
+}
+
+/** The ledger's part of an event (runs after the credit work, whatever that did). */
+async function recordSales(event: Stripe.Event) {
+  switch (event.type) {
+    case "invoice.paid":
+      await recordInvoiceSale(event); break;
+    case "checkout.session.completed":
+    case "checkout.session.async_payment_succeeded":
+      await recordCheckoutSale(event); break;
+    case "charge.refunded":
+    case "charge.refund.updated":
+      await recordRefundSales(event); break;
+  }
 }
 
 // ── entry ───────────────────────────────────────────────────────────────────────────────
@@ -856,6 +1330,7 @@ Deno.serve(async (req) => {
     return new Response("mode mismatch", { status: 500 });   // retried once the secret is fixed
   }
 
+  let failure: unknown = null;
   try {
     switch (event.type) {
       case "checkout.session.completed":
@@ -871,6 +1346,8 @@ Deno.serve(async (req) => {
         await onSubscriptionDeleted(event); break;
       case "charge.refunded":
         await onChargeRefunded(event); break;
+      case "charge.refund.updated":
+        await onRefundUpdated(event); break;
       case "charge.dispute.created":
         await onDisputeCreated(event); break;
       case "charge.dispute.closed":
@@ -879,14 +1356,36 @@ Deno.serve(async (req) => {
         console.log(`IGNORED type=${event.type} event=${event.id}`);
     }
   } catch (err) {
-    const e = err as Obj;
+    failure = err;
+  }
+  // D1: the money is recorded whatever the credit work did — skipped, refused or failed (a failed
+  // grant is retried by Stripe, and the ledger row is written once whichever attempt gets there).
+  // A ledger failure is kept apart from the credit work's: it alone decides a retry when the credit
+  // work can never succeed (an unknown account).
+  let ledgerFailure: unknown = null;
+  try {
+    await recordSales(event);
+  } catch (err) {
+    console.error(`SALES_LEDGER_FAILED event=${event.id} type=${event.type}:`, (err as Error)?.message);
+    ledgerFailure = err;
+  }
+  if (failure) {
+    const e = failure as Obj;
     if (e?.code === "23503" || /KINOLOT_BILLING: no account/.test(String(e?.message ?? ""))) {
       // a foreign-key violation: the client_reference_id is a well-formed uuid of no account (a
-      // deleted user, a hand-edited link). A retry can never succeed — record it and answer 200.
+      // deleted user, a hand-edited link). A retry can never grant it — record it and answer 200,
+      // unless the LEDGER write failed too: then 500, so Stripe retries and the payment still
+      // reaches the tax ledger (both writes are idempotent; the failure row is only written again).
       await reportGrantFailure({ event, reason: "unknown_user", details: { message: e.message ?? null, details: e.details ?? null } });
-      return new Response("ok (recorded)", { status: 200 });
+      if (!ledgerFailure) return new Response("ok (recorded)", { status: 200 });
+      console.error(`handler error event=${event.id} type=${event.type}: the sales ledger failed (${(ledgerFailure as Error)?.message}); retry`);
+      return new Response("handler error", { status: 500 });
     }
     console.error(`handler error event=${event.id} type=${event.type}:`, e?.message);
+    return new Response("handler error", { status: 500 });   // Stripe will retry
+  }
+  if (ledgerFailure) {
+    console.error(`handler error event=${event.id} type=${event.type}:`, (ledgerFailure as Error)?.message);
     return new Response("handler error", { status: 500 });   // Stripe will retry
   }
 
