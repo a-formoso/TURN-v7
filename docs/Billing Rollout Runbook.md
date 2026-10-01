@@ -206,7 +206,7 @@ The new cache keys (`20260930-billing1`) make every browser load the new files.
 
 ## (6) Switch day
 
-**Before you start:** the updated `terms.html` / `privacy.html` are approved and committed (they go live in item 5 below, the same day), the "Last updated" date on both pages is set to the switch date, and at least one non-admin account has made a paid request since the day-0 deploy (admins take no holds; the switch refuses without one).
+**Before you start:** the updated `terms.html` / `privacy.html` (branch `switch-day-terms`, see step 8) are approved, dated and merged into `main` (they go live in item 5 below, the same day), and at least one non-admin account has made a paid request since the day-0 deploy (admins take no holds; the switch refuses without one).
 
 1. **Stripe, a few minutes before the switch:**
    - **deactivate the three old pack links** (300 / 1,200 / 4,000; ids `8x200l63a2zVfpO9Dlc7u03`, `9B6cN73V28YjfpO02Lc7u04`, `8x200l77e1vR4La7vdc7u05`);
@@ -280,15 +280,13 @@ Suggested text (email, and optionally an in-app note):
 
 ## (8) Terms and privacy wording (for you and a lawyer)
 
-The proposed wording is in `docs/Billing Terms Proposal.md`, items 1 to 33 (items 26 to 33 replace or refine earlier ones after the reviews: 32 is the trial wording the app now shows, 33 the rule that a render is charged only if it finishes).
+**Drafted 2026-10-01 on the branch `switch-day-terms`** (not on `main`: Replit publishes `main` as it is, and these pages describe the rules from the switch day). They were built from `docs/Billing Terms Proposal.md` and checked against the code. They describe the plans (600 / 1,600 / 5,000), the packs and their 12-month balance, the trial, holds and settles, failed payments, refunds, disputes and Frances's limits; Privacy adds the trial's email fingerprint and the billing records kept.
 
-`terms.html` and `privacy.html` were **not** edited: a fingerprint test locks them. Items 11, 15 and 26 also change `privacy.html`: the cancelling line, and the email fingerprint used for the one-per-person trial.
+**On the switch day (Mac):** set "Last updated" on both pages to the switch date, written like `14 November 2026`, merge the branch into `main` and push; then Replit Pull + Publish (step 6, item 5). Check with `LEGAL_SWITCH_DAY=1 node scripts/test-rebrand-shell.mjs` (the placeholder fails there).
 
-The current Terms already match day 0 on cancelling: credits stay usable until the switch day (item 26). The cancelling change, the new allowances and the trial need the new wording live **before the switch day**; the notice (step 7) announces them.
+**Your decisions in the draft:** unused pack credits are refunded when we close an account for a reason other than a breach; a plan change you make by hand in Stripe uses proration charged at once ("always invoice"), as the upgrade bullet promises.
 
-A lawyer should check them with:
-- the UK 14-day cancellation right;
-- the renewal cooling-off period (the DMCC rules expected from January 2027).
+**For a lawyer, before real customers** (none of this blocks the switch while the only subscriber is yours): the 14-day cancellation right and the consent to start the service at once (there is no consent step at checkout); VAT / sales tax (prices are in USD with no tax setting in Stripe); the trader's legal name and address on the pages; the UK subscription rules (DMCC); credit expiry (12-month packs, plan credits ending with the plan); the 10% + 2-credit video tolerance; keeping a render's credits when its outcome is never confirmed in 30 days; the account hold after a dispute; the "Changes to these terms" promise of notice before a change, for the free accounts that exist; and a lawful basis and retention note for the trial's email fingerprint.
 
 ## Rollback
 
