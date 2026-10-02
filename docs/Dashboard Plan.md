@@ -120,6 +120,16 @@ someone else's film; their own films, plan and collaborators stay separate.
 - The collaborator sees what's left; at 80% the owner and the collaborator are told; at 100% that person's
   generations stop until the owner raises it or the month turns.
 - The People page shows each collaborator's spend this month, per film.
+- **Topping up (owner, 2 October 2026):** the owner can buy any of our credit packs (250 / 1,000 / 3,000) in
+  **any quantity** — e.g. 2 × 250 — to fund their collaborators' work. Pack credits go to the owner's own
+  balance (12 months, never reset, spent after plan credits, as today); a budget is a cap on what each
+  collaborator may spend from that balance, not a transfer, so unspent credits stay the owner's. From the
+  People page, "Add credits" opens the same pack checkout as the Plans window.
+  - *Built already:* the Stripe webhook grants credits × quantity (`stripe-webhook/index.ts:586`).
+  - *To do (owner, in Stripe):* turn on "Let customers adjust quantity" on the three pack payment links (a
+    sensible maximum, e.g. 20), so the buyer picks the number on Stripe's page.
+  - *To check before it's on:* a partial refund of a multi-pack purchase removes the right share
+    (`refund_fraction`), and the tax ledger records the quantity.
 
 **How it works on the server** (the important part — the browser never decides who pays):
 - Every paid call already carries the film (`context.projectId`, Art Room fix 10). Today that's attribution
@@ -157,11 +167,14 @@ someone else's film; their own films, plan and collaborators stay separate.
    tests and a live check with two real accounts before it's on.
 6. **People page** — M: 2–3 days, on top of 4 and 5.
 
-## 9) Open questions for you
+## 9) The open questions — answered (owner, 2 October 2026: "yes to all five")
 
-1. The plan numbers in section 5 (5 / 10 collaborators, 3 Co-writers, 20 invites a day)?
-2. The new **Stage editor** role, or should the Art director get the Stage on Producer films?
-3. Budget defaults (200 / 500 credits a month per collaborator) — or should new collaborators start at 0
-   until the owner sets one?
-4. Sample films: shall I draft 3 original ones (a short drama, a commercial, a music video) for you to approve?
-5. The Terms need a "Shared films" clause and the Privacy page a fix before sharing relaunches — legal review?
+1. **(owner)** The section 5 numbers stand: 5 collaborators per film on Director, 10 on Producer, 3 Co-writers
+   per film, 20 new invites per owner per day.
+2. **(owner)** A new **Stage editor** role edits the Stage on Producer films; the Art director doesn't get it.
+3. **(owner)** Budget defaults: 200 credits a month per collaborator on Director, 500 on Producer, changeable
+   by the owner per person.
+4. **(owner)** Three original sample films, drafted for approval in `docs/Sample Films (draft).md`: a short
+   drama, a commercial and a music video.
+5. **(owner)** The Terms get a "Shared films" clause and the Privacy page its fix, with legal review, before
+   sharing relaunches.
