@@ -18,7 +18,8 @@
       the text with the product name, domain, "Last updated" date and the owner's legal name and
       address neutralised), the billing numbers the Terms state read back from the code that charges
       them, and the 2026-10-01 compliance wording (who we are, prices in USD with tax included, the
-      14-day right to cancel = the checkout consent, partial refunds, disputes, closing an account,
+      14-day right to cancel = the note behind the ⓘ next to every plan's and pack's name (2026-10-02:
+      no checkout checkbox — choosing a plan or pack is the request to start), partial refunds, disputes, closing an account,
       30 days' notice, why we use data). LEGAL_SWITCH_DAY=1 fails while any "<…>" placeholder remains.
    C. Executed in a sandbox: the one-colour Spectral wordmark "Kinolot" (logo direction B, 2026-09-29;
       it replaced the two-tone "Kino" + accent "lot"); straight
@@ -151,8 +152,20 @@ const visible = (s)=> s.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, " ").replac
    cancel" (id "cancel"): any clear statement, e.g. the email, or the cancellation form on the page
    (with the business address), the refund within 14 days to the same payment method; a closed
    dispute lifts ITS hold (another open dispute keeps the account on hold). Privacy: the EU
-   representative line (<EU representative>), EU VAT records ten years, "International transfers". */
-const LEGAL_FINGERPRINT = { "privacy.html":"afaf3953592961ba", "terms.html":"8b85ccfa7ad9314a" };
+   representative line (<EU representative>), EU VAT records ten years, "International transfers".
+   2026-10-02 owner decisions (on checkout: "I don't want to make terms of service a requirement on
+   checkout — we don't need to create friction"; on the in-app step: "decide for me" → no extra step):
+   Terms, "Your right to cancel": the tick-box bullet became "By choosing a plan or a credit pack, you
+   ask us to start straight away…", quoting the note shown next to every purchase button (CHECKOUT_NOTE
+   below) and keeping the rule that credits used from a purchase can't be cancelled. Privacy: its "a
+   record that you chose to start straight away" is the click record (unchanged); "Billing information"
+   now says we give Stripe your account email (owner decision E2 the same day: the app prefills it on
+   the payment page and the webhook puts it on the Stripe customer when a wallet passed on another).
+   2026-10-02 owner request (R2: "Turn this text … into a [tooltip], and place it to the right of every
+   plan's name/title"): the note left the space under the purchase buttons for an ⓘ button next to each
+   plan's and pack's name, so the Terms' "Next to the button you see this note:" became "Next to each
+   plan's and pack's name, the ⓘ button shows this note:" — the note itself is quoted unchanged. */
+const LEGAL_FINGERPRINT = { "privacy.html":"d50dc838760bd31f", "terms.html":"b31bef0588271b80" };
 /* The "Last updated" line holds the placeholder until the switch day; the owner then writes the date
    on BOTH pages in the form "14 November 2026" (docs/Billing Rollout Runbook.md). The fingerprint
    reads either as {DATE}, so filling in the date needs no test change — any other change to the
@@ -272,11 +285,16 @@ check("B the owner-approved storage-folder sentence and 'no ownership' stay word
   && visible(read("terms.html")).includes("We claim no ownership over your films.")
   && visible(read("terms.html")).includes('These terms are an agreement between you and Infinite Studio AI ("we", "us")'));
 
-/* the 2026-10-01 compliance wording (owner decisions; see the fingerprint note above). The checkout
-   consent (decision D2) is quoted in the Terms word for word, and the app's checkout step must show
-   the same sentence: until the app carries it this is a NOTE, and on the switch day (LEGAL_SWITCH_DAY=1)
-   a FAIL — the Terms must not describe a checkbox the checkout doesn't have. */
-const CHECKOUT_CONSENT = "Start now: I want to use my credits straight away. I understand I lose my right to cancel for credits I use, and if I cancel within 14 days I only get back the part I haven't used.";
+/* the 2026-10-01 compliance wording (owner decisions; see the fingerprint note above). Since
+   2026-10-02 there is no checkout checkbox: a short note sits behind an ⓘ button next to every plan's
+   and pack's name (app/plans.jsx, app/landing.jsx; the R2 tooltip, which replaced the note under the
+   purchase buttons the same day), and choosing the plan or pack is the request to start straight away. The
+   Terms quote that note word for word, and the app must show the same sentence: until the app carries
+   it this is a NOTE, and on the switch day (LEGAL_SWITCH_DAY=1) a FAIL — the Terms must not describe a
+   note the app doesn't show. The retired "Start now" checkbox sentence must not come back, in the
+   Terms or the app. */
+const CHECKOUT_NOTE = "Starts straight away. Cancel within 14 days and you get back the part you haven't used.";
+const OLD_CHECKOUT_CONSENT = "Start now: I want to use my credits straight away.";
 /* one <h2> section of a legal page as a reader sees it (up to the next <h2>), with the fills neutralised */
 const legalSection = (f, h2)=>{ const m = legalMain(f), hit = new RegExp("<h2(?: [^>]*)?>"+h2.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")+"</h2>").exec(m);
   if(!hit) return ""; const body = m.slice(hit.index+hit[0].length), j = body.search(/<h2[ >]/);
@@ -289,15 +307,19 @@ check("B terms.html: prices are in US dollars and include any VAT or sales tax (
   return pay.startsWith("Prices are in US dollars and include any VAT or sales tax we have to charge where you live. If your card is in another currency, your bank converts the amount and may add a fee.")
     && !/plus (?:VAT|tax)|excluding (?:VAT|tax)|\bGBP\b|\bEUR\b|£|€/.test(visible(read("terms.html")));
 });
-check("B terms.html 'Your right to cancel' says what the checkout consent says (14 days, the unused part back, renewals aren't new purchases)", ()=>{
+check("B terms.html 'Your right to cancel' says what the ⓘ note next to each plan's and pack's name says (choosing is the request to start, 14 days, the unused part back, renewals aren't new purchases)", ()=>{
   const c = legalSection("terms.html", "Your right to cancel");
   return c.includes("You can cancel a plan or a credit pack within 14 days of buying it. To cancel, tell us within those 14 days in any clear way: for example, email kinolot-billing@infinitestudioai.com (writing from your account email helps us find your purchase), or send us the cancellation form below.")
     && !c.includes("from your account email within those 14 days")
-    && c.includes("Before you pay, you ask us to start straight away, so you can use your credits at once. At checkout you tick a box that says: \""+CHECKOUT_CONSENT+"\"")
+    // 2026-10-02: no checkbox — choosing the plan or pack is the request; the note (behind the ⓘ by each plan's and
+    // pack's name since the R2 tooltip) is quoted; used credits can't be cancelled; the retired "next to the button" is gone
+    && c.includes("By choosing a plan or a credit pack, you ask us to start straight away, so you can use your credits at once. Next to each plan's and pack's name, the ⓘ button shows this note: \""+CHECKOUT_NOTE+"\" Once you use credits from a purchase, you can't cancel that part of it.")
+    && !c.includes("Next to the button you see this note")
+    && !/\btick(?:ed|s)?\b|check ?box|Before you pay/i.test(visible(read("terms.html"))) && !visible(read("terms.html")).includes(OLD_CHECKOUT_CONSENT)
     && c.includes("We refund you within 14 days of the day you tell us, to the card or other payment method you paid with.")
     // the model cancellation form (CCR 2013 Sch 3 Part B), to the business address
     && c.includes("Cancellation form (fill it in and send it only if you want to cancel a purchase): To: Infinite Studio AI, {BUSINESS_ADDRESS}, kinolot-billing@infinitestudioai.com I cancel my contract for the following: [the plan or credit pack] Bought on: [date] Name: [your name] Account email: [your email address] Date: [today's date]")
-    // the app's checkout step links here
+    // the ⓘ note by each plan's and pack's name links here
     && /<h2 id="cancel">Your right to cancel<\/h2>/.test(read("terms.html"))
     && c.includes("So when you cancel, you get back the part you haven't used, in proportion to the credits from that purchase you haven't spent: for example, with 300 of a pack's 1,000 credits left, you get back 30% of its price. Those unused credits are then removed from your account, and for a plan, the subscription ends.")
     && c.includes("A plan renewing each month isn't a new purchase, so it doesn't start a new 14 days.")
@@ -306,17 +328,28 @@ check("B terms.html 'Your right to cancel' says what the checkout consent says (
     && /\{ sku:"pack-\d+", name:"[^"]+", price:"\$\d+", credits:1000,[^}\n]*\bunit:"switched"/.test(read("app/plans.jsx"));
 });
 {
-  /* the app side of the consent: any app file that shows the "Start now" box must use the exact sentence */
+  /* the app side: any app file that carries the note ("Starts straight away. …") — the ⓘ tooltips
+     by the plan and pack names, and what Frances is told about them (app/ai.jsx APP_FEATURES) — must use the Terms'
+     sentence word for word (a curly or escaped apostrophe reads as the straight one), and a file that
+     shows it must link it to /terms.html#cancel; no app file may still show the retired "Start now"
+     checkbox sentence */
   const appFiles = readdirSync(join(ROOT, "app")).filter(n=>/\.(?:jsx?|mjs)$/.test(n)).map(n=>"app/"+n);
-  const norm = (src)=>src.replace(/\\'/g, "'").replace(/\\u2019/g, "’");
-  const showing = appFiles.filter(f=>norm(read(f)).includes("Start now: I want to use my credits straight away."));
-  const exact = showing.filter(f=>norm(read(f)).includes(CHECKOUT_CONSENT));
-  check("B the app's checkout consent, where present, is the Terms' sentence word for word", ()=>{
-    if(showing.length!==exact.length) console.log("  drifted consent text in "+showing.filter(f=>!exact.includes(f)).join(", "));
-    return showing.length===exact.length;
+  const norm = (src)=>src.replace(/\\'/g, "'").replace(/\\u2019/g, "'").replace(/’/g, "'");
+  const showing = appFiles.filter(f=>norm(read(f)).includes("Starts straight away."));
+  const exact = showing.filter(f=>norm(read(f)).includes(CHECKOUT_NOTE));
+  const linked = exact.filter(f=>read(f).includes("/terms.html#cancel"));
+  check("B the app's ⓘ note by the plan and pack names, where present, is the Terms' sentence word for word and links to /terms.html#cancel", ()=>{
+    if(showing.length!==exact.length) console.log("  drifted note text in "+showing.filter(f=>!exact.includes(f)).join(", "));
+    if(exact.length && !linked.length) console.log("  the note is shown without a link to /terms.html#cancel ("+exact.join(", ")+")");
+    return showing.length===exact.length && (!exact.length || linked.length>0);
   });
-  if(SWITCH_DAY) check("B the app shows the checkout consent the Terms quote (LEGAL_SWITCH_DAY=1)", ()=>exact.length>0);
-  else if(!exact.length) console.log("NOTE the app doesn't show the checkout consent yet (\""+CHECKOUT_CONSENT.slice(0, 49)+"…\") — the Terms quote it; it must be live before the pages are");
+  check("B no app file shows the retired \"Start now\" checkbox sentence (the Terms no longer describe a checkbox)", ()=>{
+    const old = appFiles.filter(f=>norm(read(f)).includes(OLD_CHECKOUT_CONSENT));
+    if(old.length) console.log("  still shows the checkbox sentence: "+old.join(", "));
+    return old.length===0;
+  });
+  if(SWITCH_DAY) check("B the app shows the note the Terms quote, linked to /terms.html#cancel (LEGAL_SWITCH_DAY=1)", ()=>exact.length>0 && linked.length>0);
+  else if(!exact.length) console.log("NOTE the app doesn't show the ⓘ note by the plan and pack names yet (\""+CHECKOUT_NOTE+"\") — the Terms quote it; it must be live before the pages are");
 }
 check("B terms.html: partial refunds remove the same share; a closed dispute lifts the hold", ()=>{
   const pay = legalSection("terms.html", "Payments, plan changes and refunds");
@@ -343,6 +376,8 @@ check("B privacy.html: the controller line, why we use data (lawful bases), the 
     && legalSection("privacy.html", "International transfers")==="Some of the providers that run the service (hosting, payments and AI generation) are in the United States or other countries outside the UK and the European Union. When your information goes to them, it is protected by the safeguards the law requires, such as adequacy regulations (including the UK-US data bridge), the UK International Data Transfer Agreement or the UK Addendum to the EU Standard Contractual Clauses."
     && why==="To give you the service (our contract with you): your account, your films, generations, payments and support. Our legitimate interests: keeping the service secure and working, and preventing abuse of the free trial — that's what the email fingerprint is for. Legal obligations: keeping tax and accounting records, such as invoices and payment records, for as long as tax law requires (in the UK, generally six years; for EU VAT records, ten years). Your consent, where we ask for it. You can withdraw it at any time."
     && t.includes("For tax, we also keep the country of each payment (and, in the US, the state), taken from your billing address or card. When you buy, we keep a record that you chose to start straight away.")
+    // 2026-10-02 (owner decision E2, the billing email): the account email goes to Stripe, prefilled and set on the customer
+    && t.includes("We never see or store your card number. We give Stripe your account email, so the payment page starts with it and your receipts and invoices go to it, even if you pay with a digital wallet that passes on a different email.")
     && t.includes("(such as invoices and records of payments, refunds and disputes), which we keep for as long as tax law requires.")
     && t.includes("you can complain to the UK Information Commissioner's Office (ico.org.uk) or the data protection authority where you live.");
 });
