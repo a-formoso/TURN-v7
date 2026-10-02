@@ -114,20 +114,8 @@ const LP_ROOMS = [
     body:"Once the film is designed, shoot it as video, beat by beat, with voiced lines — then choose takes, assemble them on the timeline and export the film.",
     cta:"Start with the Stage", plan:"studio" },
 ];
-/* each room's chip says which plans open it (plans.jsx ROOM_ENTITLEMENTS = the server's
-   billing-policy.mjs): the Writers' Room on every plan, the Art Room from Director, the Stage on
-   Producer only. Names go through turnPlanDisplayName, so an admin rename and the studio →
-   "Producer" display mapping stay right; the literals are the fallback. */
-function lpPlanName(tier, fallback){
-  const n = (typeof window.turnPlanDisplayName==="function") ? window.turnPlanDisplayName(tier) : "";
-  return n || fallback;
-}
-function lpRoomStatus(room){
-  if(room.plan==="director") return lpPlanName("director","Director")+" and "+lpPlanName("studio","Producer")+" plans";
-  if(room.plan==="studio") return lpPlanName("studio","Producer")+" plan";
-  return "Every plan";
-}
-window.lpRoomStatus = lpRoomStatus;
+/* (the room cards' plan chips — "Every plan", "Director and Producer plans", "Producer plan" — were
+   removed 2026-10-03, owner request; the plan cards in Act III say which plan opens which room) */
 
 /* the hero's rotating phrase — the THREE narrative structures a film can be told in
    (one idea, three ways). The phrase and the hero diagram turn together: Landing
@@ -271,7 +259,6 @@ function Landing({ onStart, onSignIn }){
             React.createElement("div",{className:"lp-card-top"},
               React.createElement("div",{className:"lp-card-ic"}, Icn(f.icon,20)),
               React.createElement("span",{className:"lp-card-no"}, f.no)),
-            React.createElement("div",{className:"lp-room-status"}, lpRoomStatus(f)),
             React.createElement("div",{className:"lp-card-t"}, f.title),
             React.createElement("div",{className:"lp-card-b"}, f.body),
             React.createElement("button",{className:"lp-btn ghost full lp-room-cta",onClick:()=>onStart(f.plan)}, f.cta))))),

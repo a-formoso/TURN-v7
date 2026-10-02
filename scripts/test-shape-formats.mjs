@@ -193,11 +193,9 @@ await test("the landing hero turns through the three structures only, and every 
   assert.deepEqual(words,["Three-Act Turns","a Hero\\u2019s Journey","Kish\\u014dtenketsu"]);
   assert.ok(lp.includes("React.createElement(HeroSpine,{structure:LP_STRUCTURES[structIdx]})")&&lp.includes("React.createElement(RotatingWord,{word:LP_WORDS[structIdx]})"));
   assert.ok(!/story circle/i.test(lp));
-  // landing copy 2026-10-01: the chips name the plans (every room is live, so "Available now" said nothing)
+  // the room cards carry no plan chips (owner 2026-10-03: removed; the plan cards say which plan opens which room)
   assert.ok(!lp.includes("Available now"));
-  assert.ok(lp.includes('React.createElement("div",{className:"lp-room-status"}, lpRoomStatus(f))'));
-  assert.ok(lp.includes('return "Every plan";')&&lp.includes('lpPlanName("director","Director")+" and "+lpPlanName("studio","Producer")+" plans"')&&lp.includes('lpPlanName("studio","Producer")+" plan"'));
-  assert.ok(!css.includes(".lp-room-card:nth-child(3) .lp-room-status"),"Stage wears the same badge");
+  assert.ok(!lp.includes('className:"lp-room-status"') && !lp.includes("function lpRoomStatus") && !css.includes(".lp-room-status{"));
   // step 2 lists every format, in the Shape step's display order (formats.jsx), and the three structures
   const order=plain(box.formatsForPicker().flatMap(g=>g.formats.map(f=>f.label)));
   assert.ok(lp.includes("as a "+order.slice(0,-1).join(", ")+" or "+order[order.length-1]+"."),"the landing names "+order.join(", "));

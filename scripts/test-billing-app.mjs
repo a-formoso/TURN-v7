@@ -1532,7 +1532,7 @@ await test("M the landing: the free-trial + packs line under the plan cards (R1:
   assert.equal(findAll(note, (n) => n && n.type === "br").length, 1, "the packs sentence starts a new line");
   assert.ok(!JSON.stringify(page).includes("Prices in US dollars"), "the price-terms line is gone from the landing");
   assert.deepEqual(plain(L.lpPricingLines()), [LP_TRIAL, "Need more? Credit packs from $10 for any account — pack credits last 12 months."]);
-  assert.deepEqual(plain(findAll(page, hasClass("lp-room-status")).map(textOf)), ["Every plan", "Director and Producer plans", "Producer plan"]);
+  assert.equal(findAll(page, hasClass("lp-room-status")).length, 0, "no plan chips on the room cards (owner 2026-10-03)");
 });
 await test("M app.jsx: trial isn't a paid plan; notices mounted; welcome waits for the bought plan; the intent effect reads the account and runs after the ledger exists", () => {
   const src = read("app/app.jsx");

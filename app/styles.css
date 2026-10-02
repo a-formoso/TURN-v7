@@ -5036,6 +5036,9 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
   border-radius:var(--r-m);border:1px solid var(--lpw-line-2);background:var(--lpw-surface);color:var(--lpw-ink);
   transition:background-color .14s,border-color .14s,color .14s;white-space:nowrap}
 .lp-btn.ghost:hover{background:var(--lpw-card-2);border-color:var(--lpw-line-3)}
+/* on a card (bone) the hover stays the white button with a firmer edge — the pressed bone would
+   blend into the card (owner 2026-10-03: the room cards' "Start with…" buttons) */
+.lp-card .lp-btn.ghost:hover{background:var(--lpw-surface);border-color:var(--lpw-sub)}
 .lp-btn.primary{background:var(--lpw-amber);border-color:var(--lpw-amber);color:var(--lpw-on-amber)}
 .lp-btn.primary:hover{background:var(--lpw-amber-hover);border-color:var(--lpw-amber-hover)}
 .lp-btn:focus-visible,.lp-burger:focus-visible,.lp-menu-item:focus-visible,.lp-foot-link:focus-visible{outline:2px solid var(--lpw-ink);outline-offset:2px}
@@ -5115,10 +5118,7 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
 .lp-card-t{font-family:var(--f-display);font-weight:600;font-size:17px;color:var(--lpw-ink)}
 .lp-card-b{font-size:14.5px;line-height:1.6;color:var(--lpw-sub)}
 .lp-room-card{gap:12px}
-/* "Available now" — an amber status chip (it was the landing's own green) */
-.lp-room-status{align-self:flex-start;margin-top:-8px;margin-bottom:1px;padding:4px 9px;border-radius:999px;
-  font-family:var(--f-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--lpw-amber-ink);
-  background:var(--lpw-amber-soft);border:1px solid var(--lpw-amber-line)}
+
 .lp-room-cta{margin-top:auto}
 
 .lp-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:0}

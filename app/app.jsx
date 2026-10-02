@@ -760,7 +760,8 @@ function App(){
   // restarts its clock — a fresh choice, read by cloudSignUp and the checkout after sign-up
   const changeIntendedPlan = (plan)=>{
     const p = String(plan||"").toLowerCase();
-    if(!(window.CINEMA_PLANS||[]).some(x=>String(x.tier).toLowerCase()===p)) return;
+    // "free" = No plan yet (no checkout after sign-up) — the same value the generic Get started uses
+    if(p!=="free" && !(window.CINEMA_PLANS||[]).some(x=>String(x.tier).toLowerCase()===p)) return;
     try{ localStorage.setItem("turn-intended-plan", p); localStorage.setItem("turn-intended-plan-at", String(Date.now())); }catch(e){}
     setIntendedPlan(p);
   };

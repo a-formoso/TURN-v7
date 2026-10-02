@@ -413,7 +413,7 @@ await test("C12 the homepage's plan cards carry the ⓘ right after the plan's n
     // the dropdown: the three plans, the current one selected, a pick goes to onPlanChange
     const sel = findAll(m, hasClass("auth-plan-sel"))[0];
     assert.equal(sel.props.value, "director");
-    assert.deepEqual(sel.children.flat().filter((o) => o && o.type === "option").map((o) => o.props.value), ["writer", "director", "studio"]);
+    assert.deepEqual(sel.children.flat().filter((o) => o && o.type === "option").map((o) => o.props.value), ["free", "writer", "director", "studio"], "No plan yet, then the three plans");
     sel.props.onChange({ target: { value: "studio" } });
     assert.deepEqual(picked, ["studio"]);
     assert.equal(textOf(findAll(m, hasClass("auth-plan-cur"))[0]), "Director plan · $49/mo");
@@ -448,6 +448,23 @@ await test("C12 the homepage's plan cards carry the ⓘ right after the plan's n
     A.React.reset();
     m = A.AuthModal({ onClose: noop, onAuthed: noop, initialMode: "signup", plan: null, light });
     assert.equal(findAll(m, isTip).length + findAll(m, isNote).length, 0, "no plan picked: no note");
+    // "Sign in → Create one" (owner 2026-10-03): Create account always offers the choice — No plan yet
+    // (no checkout, so no ⓘ) or a plan
+    A.React.reset();
+    const picks = [];
+    m = A.AuthModal({ onClose: noop, onAuthed: noop, initialMode: "signup", plan: null, light, onPlanChange: (x) => picks.push(x) });
+    const free = findAll(m, hasClass("auth-plan-sel"))[0];
+    assert.equal(free.props.value, "free");
+    assert.match(textOf(findAll(m, hasClass("auth-plan-cur"))[0]), /^No plan yet/);
+    assert.equal(textOf(findAll(m, hasClass("auth-plan-note"))[0]), "choose a plan any time");
+    assert.equal(findAll(m, isTip).length, 0, "no plan, no purchase: no ⓘ");
+    assert.equal(findAll(m, hasClass("auth-submit"))[0].props["aria-describedby"], undefined);
+    free.props.onChange({ target: { value: "director" } });
+    assert.deepEqual(picks, ["director"]);
+    // Sign in with nothing waiting still shows no picker
+    A.React.reset();
+    m = A.AuthModal({ onClose: noop, onAuthed: noop, initialMode: "signin", plan: null, light, onPlanChange: noop });
+    assert.equal(findAll(m, hasClass("auth-plan")).length, 0);
   }
 });
 
@@ -977,10 +994,10 @@ await test("H1 TURN.html: admin-tax.jsx loads after admin-storage.jsx; the files
   assert.ok(adm > 0 && tax > adm);
   assert.ok(tax < html.indexOf('src="app/app.jsx?v='));
   // Team "Coming soon" (2026-10-02) re-keyed ai.jsx, script.jsx, landing.jsx and styles.css again: 20261002-team1 counts too
-  for (const f of ["app/ai.jsx", "app/script.jsx", "app/landing.jsx"]) assert.ok(html.includes('src="' + f + '?v=20261002-trialwelcome1"') || html.includes('src="' + f + '?v=20261002-tip1"') || html.includes('src="' + f + '?v=20261002-team1"') || html.includes('src="' + f + '?v=20261002-scene1"') || html.includes('src="' + f + '?v=20261002-research1"') || html.includes('src="' + f + '?v=20261002-research2"') || html.includes('src="' + f + '?v=20261002-artlive1"') || html.includes('src="' + f + '?v=20261002-artundo1"') || html.includes('src="' + f + '?v=20261002-stagefilm1"') || html.includes('src="' + f + '?v=20261002-planpick2"'), f);
+  for (const f of ["app/ai.jsx", "app/script.jsx", "app/landing.jsx"]) assert.ok(html.includes('src="' + f + '?v=20261002-trialwelcome1"') || html.includes('src="' + f + '?v=20261003-room1"') || html.includes('src="' + f + '?v=20261002-tip1"') || html.includes('src="' + f + '?v=20261002-team1"') || html.includes('src="' + f + '?v=20261002-scene1"') || html.includes('src="' + f + '?v=20261002-research1"') || html.includes('src="' + f + '?v=20261002-research2"') || html.includes('src="' + f + '?v=20261002-artlive1"') || html.includes('src="' + f + '?v=20261002-artundo1"') || html.includes('src="' + f + '?v=20261002-stagefilm1"') || html.includes('src="' + f + '?v=20261002-planpick2"'), f);
   assert.ok(html.includes('src="app/plans.jsx?v=20261002-terms1"') || html.includes('src="app/plans.jsx?v=20261002-plans1"') || html.includes('src="app/plans.jsx?v=20261002-trialwelcome1"'), "plans.jsx re-keyed again when the switch day set TERMS_UPDATED_AT (or later for the grandfathered card line: 20261002-plans1)");
-  assert.ok(html.includes('src="app/auth-ui.jsx?v=20261002-consent1"') || html.includes('src="app/auth-ui.jsx?v=20261002-team1"') || html.includes('src="app/auth-ui.jsx?v=20261002-planpick2"') || html.includes('src="app/auth-ui.jsx?v=20261002-planpick3"'), "auth-ui.jsx is unchanged here (or re-keyed later for the sign-up plan dropdown: 20261002-planpick2/3) (Team \"Coming soon\" 2026-10-02 re-keyed it later: 20261002-team1)");
-  assert.ok(html.includes('href="app/styles.css?v=20261002-btn1"') || html.includes('href="app/styles.css?v=20261002-team1"') || html.includes('href="app/styles.css?v=20261002-research1"') || html.includes('href="app/styles.css?v=20261002-research2"') || html.includes('href="app/styles.css?v=20261002-planpick2"') || html.includes('href="app/styles.css?v=20261002-planpick3"'), "styles.css re-keyed again for the plan-copy editor's buttons (2026-10-02), or later for Team \"Coming soon\"");
+  assert.ok(html.includes('src="app/auth-ui.jsx?v=20261002-consent1"') || html.includes('src="app/auth-ui.jsx?v=20261002-team1"') || html.includes('src="app/auth-ui.jsx?v=20261002-planpick2"') || html.includes('src="app/auth-ui.jsx?v=20261002-planpick3"') || html.includes('src="app/auth-ui.jsx?v=20261003-room1"'), "auth-ui.jsx is unchanged here (or re-keyed later for the sign-up plan dropdown: 20261002-planpick2/3) (Team \"Coming soon\" 2026-10-02 re-keyed it later: 20261002-team1)");
+  assert.ok(html.includes('href="app/styles.css?v=20261002-btn1"') || html.includes('href="app/styles.css?v=20261002-team1"') || html.includes('href="app/styles.css?v=20261002-research1"') || html.includes('href="app/styles.css?v=20261002-research2"') || html.includes('href="app/styles.css?v=20261002-planpick2"') || html.includes('href="app/styles.css?v=20261002-planpick3"') || html.includes('href="app/styles.css?v=20261003-room1"'), "styles.css re-keyed again for the plan-copy editor's buttons (2026-10-02), or later for Team \"Coming soon\"");
 });
 await test("H2 CSS: the ⓘ's rules (the Plans window on the app tokens; the homepage's paper and dark featured card in the landing block), the sign-up window's line; the under-button rules and the dialog's are gone; the info banner and the tax page keep theirs", () => {
   const css = read("app/styles.css");

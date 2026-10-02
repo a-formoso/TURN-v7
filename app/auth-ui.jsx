@@ -16,6 +16,12 @@ function AuthModal({ onClose, onAuthed, initialMode, plan, light, onPlanChange }
   // plans — the pick replaces the one saved in this browser (app.jsx onPlanChange), which the
   // sign-up and the checkout that follows both read. Without onPlanChange it stays plain text.
   const pickable = typeof onPlanChange==="function" ? (window.CINEMA_PLANS||[]).filter(p=>p && p.tier) : [];
+  /* "Create account" always offers the choice (owner 2026-10-03: from "Sign in → Create one" there was
+     no plan picker) — "No plan yet" (with the trial's credits while it's offered, the homepage's own
+     rule: landing.jsx lpTrialLine) or a plan; only a plan brings the checkout and its ⓘ */
+  const freeLabel = (()=>{ const t = (typeof window.lpTrialLine==="function") ? String(window.lpTrialLine()||"") : "";
+    const m = t.match(/(\d[\d,]*) free credits/); return m ? "No plan yet \u00b7 "+m[1]+" free credits" : "No plan yet"; })();
+  const choosing = mode==="signup" && pickable.length>1;
   const [email, setEmail] = React.useState("");
   const [pw, setPw] = React.useState("");
   const [showPw, setShowPw] = React.useState(false);
@@ -26,8 +32,8 @@ function AuthModal({ onClose, onAuthed, initialMode, plan, light, onPlanChange }
      plan picked before sign-up is still waiting in this browser (plans.jsx intendedPlanWaiting) — after
      "Check your email to confirm, then sign in" or a switch to "Sign in" its checkout still opens by
      itself, so the note must be on screen there as well (review 2026-10-02) */
-  const showPlan = !!planName && (mode==="signup"
-    || (typeof window.turnIntendedPlanWaiting==="function" && window.turnIntendedPlanWaiting()));
+  const showPlan = (!!planName && (mode==="signup"
+    || (typeof window.turnIntendedPlanWaiting==="function" && window.turnIntendedPlanWaiting()))) || choosing;
 
   const forgot = async ()=>{
     const e = email.trim();
@@ -77,22 +83,24 @@ function AuthModal({ onClose, onAuthed, initialMode, plan, light, onPlanChange }
         // E1/R2, plans.jsx checkoutTip)
         // (owner 2026-10-02, second pass: the ⓘ takes the sparkle's place, at the start of the chip)
         showPlan && React.createElement("div",{className:"auth-plan-row checkout-tip-row"},
-          React.createElement("div",{className:"auth-plan"},
-            (typeof window.turnCheckoutTip==="function") && window.turnCheckoutTip("auth-checkout-note", "auth-checkout-tip"),
+          React.createElement("div",{className:"auth-plan"+(planObj ? "" : " no-plan")},
+            planObj && (typeof window.turnCheckoutTip==="function") && window.turnCheckoutTip("auth-checkout-note", "auth-checkout-tip"),
             // the "·" is its own span so a phone can drop it when the note takes its own line (no orphaned dot)
             pickable.length>1
               // the chosen plan as text, with the native dropdown laid invisibly over it — so the chip is
               // as wide as the plan it shows, not as its longest option
               ? React.createElement("span",{className:"auth-plan-pick"},
-                  React.createElement("span",{className:"auth-plan-cur","aria-hidden":"true"}, planName),
+                  React.createElement("span",{className:"auth-plan-cur","aria-hidden":"true"}, planName || freeLabel),
                   React.createElement(Icon.chevD,{s:11}),
-                  React.createElement("select",{className:"auth-plan-sel",value:planObj.tier,disabled:busy,
-                    "aria-label":"Plan \u2014 change it here", title:"Change the plan you'll check out with",
+                  React.createElement("select",{className:"auth-plan-sel",value:planObj ? planObj.tier : "free",disabled:busy,
+                    "aria-label":"Plan \u2014 change it here", title:"Choose a plan now, or start without one",
                     onChange:(e)=>onPlanChange(e.target.value)},
+                    mode==="signup" && React.createElement("option",{key:"free",value:"free"},freeLabel),
                     pickable.map(p=>React.createElement("option",{key:p.tier,value:p.tier},planLabel(p)))))
               : planName,
             React.createElement("span",{className:"auth-plan-sep","aria-hidden":"true"},"·"),
-            React.createElement("span",{className:"auth-plan-note"}, mode==="signup" ? "checkout opens after signup" : "checkout opens after sign-in")))),
+            React.createElement("span",{className:"auth-plan-note"}, !planObj ? "choose a plan any time"
+              : mode==="signup" ? "checkout opens after signup" : "checkout opens after sign-in")))),
       React.createElement("div",{className:"auth-body"},
         notice && React.createElement("div",{className:"auth-notice"}, notice),
         React.createElement("label",{className:"auth-field"},
@@ -113,7 +121,7 @@ function AuthModal({ onClose, onAuthed, initialMode, plan, light, onPlanChange }
               "aria-label":showPw?"Hide password":"Show password",title:showPw?"Hide password":"Show password",
               onClick:()=>setShowPw(s=>!s)}, React.createElement(showPw?Icon.eyeOff:Icon.eye,{s:16})))),
         err && React.createElement("div",{className:"auth-err"}, err),
-        React.createElement("button",{className:"auth-submit",disabled:busy,onClick:submit,"aria-describedby":showPlan ? "auth-checkout-note" : undefined},
+        React.createElement("button",{className:"auth-submit",disabled:busy,onClick:submit,"aria-describedby":(showPlan && planObj) ? "auth-checkout-note" : undefined},
           busy ? React.createElement(React.Fragment,null,React.createElement("span",{className:"ns-spin dark"}),
               mode==="signup"?"Creating\u2026":"Signing in\u2026")
             : (mode==="signup"?"Create account":"Sign in")),

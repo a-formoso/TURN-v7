@@ -155,6 +155,29 @@ someone else's film; their own films, plan and collaborators stay separate.
 - **Visibility:** the owner sees every generation on their film, who made it and what it cost; removing
   someone ends their access at once (running jobs finish and are billed to the owner as today).
 
+## 7b) The Library — sharing finished work with the community (proposed, a later phase)
+
+Owner question (2 October 2026): should users publish their films like the admin's samples, so others can learn
+from them — and could Kinolot learn from them too? **Yes, opt-in**, on the same mechanism as the samples (a frozen,
+read-only copy of a film and its images).
+
+- **Opt-in per film, by the owner only.** "Publish to the Library" with **View only** or **Allow copies** ("Make a
+  copy" puts it in the viewer's account). The owner can unpublish at any time; collaborators are credited but can't
+  publish someone else's film.
+- **Reviewed before it's listed** (an admin queue at first), a **Report** button, and a content policy: no real
+  people's likenesses, no copyrighted material, nothing harmful.
+- **Terms:** a licence clause for what others may do with a published film (view, copy, credit the author) — legal
+  review, like the "Shared films" clause.
+- **Cost:** copying reuses the stored images — no credits; only storage grows.
+- **Kinolot learning from it, the right way:**
+  - Published films whose author also ticks **"Help improve Kinolot"** may be studied to improve the method and the
+    Story Editors.
+  - Everything else stays private, as the Privacy page promises — nobody reads users' private films.
+  - Aggregate, anonymous usage (which steps are skipped, where people stop, what they regenerate, which Story Doctor
+    flags come up most) can guide the product without reading any story — with a Privacy update and consent.
+  - No training of AI models on users' work.
+- **When:** after sample publishing exists (§4, Home), since it reuses that step.
+
 ## 8) Order of work and rough size
 
 1. **One look** (section 2) — S/M: 2–3 days.
