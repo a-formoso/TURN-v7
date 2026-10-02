@@ -103,7 +103,7 @@ await test("the classic 16 keeps its exact act language; a feature splits 10 · 
     box.turnProject={framework:"threeact"};
   });
   await test("the synopsis prompt knows the format too",async()=>{
-    loadAi(["aiResearchSynopsis"]);
+    loadAi(["aiResearchSynopsis","aiResearch","aiSynopsisFromResearch","normaliseResearch","researchBriefText"]);
     const prompts=[];
     Object.assign(box,{aiAvailable:()=>true,scrubBrand:s=>String(s),
       claude:{complete:async o=>{ const c=o.messages[0].content; prompts.push(c);

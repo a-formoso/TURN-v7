@@ -7058,6 +7058,21 @@ span.ag-runner-model{font-family:var(--f-mono);font-size:10px;letter-spacing:.06
   font-size:12px;color:var(--txt-1);line-height:1.4}
 .ns-autoshape b{color:var(--txt-0);font-weight:600}
 .ns-autoshape .ns-btn.link{margin-left:auto;flex:0 0 auto}
+/* the logline check + "research changed" notes (2026-10-02): advice, never a block */
+.ns-loglinecheck{display:flex;align-items:flex-start;gap:8px;margin:10px 0 2px;padding:8px 12px;border-radius:9px;
+  background:var(--bg-2);border:1px dashed var(--line-2);font-size:12px;color:var(--txt-1);line-height:1.45}
+.ns-loglinecheck svg{flex:0 0 auto;margin-top:2px}
+/* the Research step (2026-10-02): every field editable, one card per principal */
+.res-edit .res-field{display:flex;flex-direction:column;gap:4px}
+.res-input{font-size:12.5px;line-height:1.5;resize:vertical;min-height:0}
+.res-role{display:flex;flex-direction:column;gap:7px;padding:10px;border:1px solid var(--line);border-radius:var(--r-m);background:var(--bg-1);margin-top:6px}
+.res-who{font-weight:600;font-size:12.5px}
+.res-role .syn-lens{padding:7px 8px}
+.res-role-read{margin-top:6px}
+.res-steer-row{display:flex;gap:8px;align-items:center}
+.res-steer-row .ns-input{flex:1 1 auto;min-width:0}
+.res-steer-row .ns-btn{flex:0 0 auto}
+@media (max-width:560px){ .res-steer-row{flex-direction:column;align-items:stretch} .res-role .syn-lens-grid{grid-template-columns:1fr} }
 .ns-cand-mine{flex:0 0 auto;margin-left:8px;font-family:var(--f-mono);font-size:9px;text-transform:uppercase;
   letter-spacing:.05em;color:var(--pos-ink);border:1px solid var(--pos-line, var(--pos));border-radius:5px;padding:1.5px 6px}
 

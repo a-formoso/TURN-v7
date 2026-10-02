@@ -85,7 +85,7 @@ await test("B3 the reply says whether the engine could search and which pages it
 const ai = read("app/ai.jsx"), ast = parseSync(ai, { sourceType: "script" });
 const box = { console, URL }; box.window = box; vm.createContext(box);
 vm.runInContext("function clipAtBoundary(s,n){ s=String(s||''); return s.length>n ? s.slice(0,n) : s; } function scrubBrand(s){ return String(s); }", box);
-for (const n of ["researchSources", "researchReservoir", "researchToKeep"]) {
+for (const n of ["normaliseResearch", "researchSources", "researchReservoir", "researchToKeep"]) {
   const node = ast.program.body.find((x) => x.type === "FunctionDeclaration" && x.id.name === n);
   assert.ok(node, "missing " + n); vm.runInContext(ai.slice(node.start, node.end), box);
 }
@@ -134,6 +134,104 @@ await test("C5 the review shows the sources, or says the Fact pillar was not che
   assert.ok(ns.includes('"Checked against the web \\u00b7 sources"'));
   assert.ok(ns.includes('"From general knowledge \\u2014 not checked against the web. Verify real people, places and events before you rely on them."'));
   assert.ok(ns.includes('rel:"noopener noreferrer"'));
+});
+
+/* ---- D. items 2, 3 and 5 (owner 2026-10-02): every principal, two moments, the logline check ---- */
+const D = { console, URL, JSON }; D.window = D; vm.createContext(D);
+for (const n of ["extractJSON", "clipWords", "clipAtBoundary", "normaliseResearch", "researchBriefText", "researchSources",
+  "researchReservoir", "researchToKeep", "aiResearch", "aiSynopsisFromResearch", "aiResearchSynopsis", "aiSeedToLoglines"]) {
+  const node = ast.program.body.find((x) => x.type === "FunctionDeclaration" && x.id.name === n);
+  assert.ok(node, "missing " + n); vm.runInContext(ai.slice(node.start, node.end), D);
+}
+vm.runInContext("function scrubBrand(s){ return String(s); } function aiAvailable(){ return true; } function formatPlanLine(){ return ''; }", D);
+D.FORMATS = [{ id: "film", label: "Short Film" }]; D.FRAMEWORKS = [{ id: "threeact", label: "Three-Act Turns" }];
+const sent = [];
+const reply = (fn) => { D.claude = { complete: async (o) => { sent.push(o); return fn(o.messages[0].content, o); } }; };
+
+await test("D1 every principal gets the Fact lenses; the protagonist's are mirrored for older readers", () => {
+  const n = JSON.parse(JSON.stringify(D.normaliseResearch({ memory: "m", fact: { world: "w", roles: [
+    { who: "Neil Harkness", role: "prosecutor", frustrating: "witnesses withdraw" },
+    { who: "Niamh Doherty", role: "constable", lovely: "the night her street is quiet" },
+    { who: "", role: "" }, { who: "a", role: "b" }, { who: "c", role: "d" }, { who: "e", role: "f" }] } })));
+  assert.equal(n.fact.roles.length, 4, "empty roles dropped, at most four");
+  assert.equal(n.fact.role, "prosecutor"); assert.equal(n.fact.frustrating, "witnesses withdraw");
+  const old = JSON.parse(JSON.stringify(D.normaliseResearch({ fact: { world: "w", role: "nurse", lovely: "x" } })));
+  assert.deepEqual(old.fact.roles.map((r) => r.role), ["nurse"], "a one-role reply becomes roles[0]");
+  const brief = D.researchBriefText(n);
+  assert.ok(brief.includes("FACT \u2014 Neil Harkness: role: prosecutor") && brief.includes("FACT \u2014 Niamh Doherty: role: constable"), brief);
+  const cast = D.researchReservoir(n, "cast");
+  assert.ok(cast.includes("Niamh Doherty \u2014 role: constable") && cast.includes("the night her street is quiet"), cast);
+  assert.ok(D.researchReservoir({ ...n, grounded: true, edited: true }, "world").includes("(checked against the web, then edited by the writer)"));
+  assert.equal(JSON.parse(JSON.stringify(D.researchToKeep({ ...n, edited: true }))).edited, true);
+});
+
+await test("D2 research is its own call: it asks for every principal, carries the writer's steer, and searches", async () => {
+  reply(() => JSON.stringify({ title: "Locals Only", research: { memory: "m", imagination: "i", fact: { world: "Belfast", roles: [{ who: "Neil", role: "prosecutor" }, { who: "Niamh", role: "constable" }] } } }));
+  sent.length = 0;
+  const r = await D.aiResearch("A prosecutor and a constable in riot summer.", "", "threeact", "film", "go deeper on the officer");
+  const p = sent[0].messages[0].content;
+  assert.ok(p.includes("for EACH PRINCIPAL character") && p.includes("THE WRITER'S STEER FOR THIS RESEARCH (follow it):\ngo deeper on the officer"), p.slice(0, 400));
+  assert.equal(sent[0].webSearch, true);
+  assert.equal(r.title, "Locals Only");
+  assert.deepEqual(JSON.parse(JSON.stringify(r.research.fact.roles.map((x) => x.who))), ["Neil", "Niamh"]);
+  assert.equal(sent.length, 1, "no synopsis call yet");
+  reply(() => "not json"); assert.equal(await D.aiResearch("x", "", "threeact", "film"), null);
+  reply(() => { throw new Error("billing: add credits"); });
+  await assert.rejects(D.aiResearch("x", "", "threeact", "film"), /add credits/, "a provider error reaches the screen");
+});
+
+await test("D3 the synopsis is written from the research as the writer edited it", async () => {
+  reply((c) => /write the SYNOPSIS/.test(c) ? JSON.stringify({ synopsis: { setup: "a", confrontation: "b", resolution: "c" } }) : "{}");
+  sent.length = 0;
+  const edited = D.normaliseResearch({ memory: "EDITED MEMORY", fact: { world: "Derry, 1969", roles: [{ who: "Niamh", role: "constable" }] } });
+  const s = await D.aiSynopsisFromResearch("A constable in riot summer.", "", "threeact", "film", edited);
+  const p = sent[0].messages[0].content;
+  assert.ok(p.includes("EDITED MEMORY") && p.includes("Derry, 1969") && p.includes("FACT \u2014 Niamh: role: constable"));
+  assert.deepEqual(JSON.parse(JSON.stringify(s.paras.map((x) => x.text))), ["a", "b", "c"]);
+  assert.equal(sent.length, 1, "no research call");
+  assert.equal(s.setup, "a", "legacy keys ride along");
+});
+
+await test("D4 the logline check rides in the logline call, for the writer's own logline only", async () => {
+  reply(() => JSON.stringify({ loglines: ["One", "Two", "Three"].map((x) => x + " sharpened logline about a constable in Belfast."),
+    check: { protagonist: false, want: false, obstacle: true } }));
+  sent.length = 0;
+  const outs = await D.aiSeedToLoglines("logline", "Tension rises and people hate each other.");
+  assert.ok(sent[0].messages[0].content.includes("ALSO check the WRITER'S OWN logline exactly as written"));
+  assert.deepEqual(JSON.parse(JSON.stringify(outs.check)), { missing: ["protagonist", "want"] });
+  reply(() => JSON.stringify({ loglines: ["A long enough logline about a nurse and a secret."], check: { protagonist: true, want: true, obstacle: true } }));
+  assert.equal((await D.aiSeedToLoglines("logline", "A nurse hides a secret.")).check, undefined, "a complete logline: no note");
+  sent.length = 0;
+  reply(() => JSON.stringify({ loglines: ["A long enough logline about a nurse and a secret."], check: { protagonist: false } }));
+  const w = await D.aiSeedToLoglines("whatif", "What if nurses could read minds?");
+  assert.ok(!sent[0].messages[0].content.includes("ALSO check"), "other seeds aren't the writer's logline");
+  assert.equal(w.check, undefined);
+});
+
+const ns = read("app/newstory.jsx"), nsAst = parseSync(ns, { sourceType: "script", presets: ["@babel/preset-react"] });
+await test("D5 the logline note names what's missing, points to the sharpened versions, and never blocks", () => {
+  const N = {}; vm.createContext(N);
+  for (const n of ["NS_CHECK_PARTS", "nsLoglineCheckText"]) {
+    const node = nsAst.program.body.find((x) => (x.type === "FunctionDeclaration" && x.id.name === n) || (x.type === "VariableDeclaration" && x.declarations[0].id.name === n));
+    vm.runInContext(ns.slice(node.start, node.end).replace(/^const /, "var "), N);
+  }
+  assert.equal(N.nsLoglineCheckText(["protagonist", "want"]),
+    "Your logline doesn\u2019t yet name one protagonist the story follows or what they want. The spine builds best from one protagonist with a clear want and something in their way \u2014 the sharpened versions below each have all three. You can still build from yours.");
+  assert.ok(N.nsLoglineCheckText(["protagonist", "want", "obstacle"]).includes("one protagonist the story follows, what they want or what stands in their way"));
+  assert.equal(N.nsLoglineCheckText([]), "");
+  // shown only while the chosen logline is still the writer's own words
+  assert.ok(ns.includes("loglineCheck && nsNorm(chosen)===nsNorm(loglineCheck.text) && React.createElement(\"div\",{className:\"ns-loglinecheck\",role:\"note\"}"));
+});
+
+await test("D6 the flow: Logline \u2192 Research (edit, steer) \u2192 Synopsis (written from it, rewritable)", () => {
+  assert.ok(/\{ id:"loglines", label:"Logline" \},\s*\{ id:"research", label:"Research" \},[^\n]*\n\s*\{ id:"synopsis", label:"Synopsis" \},/.test(ns));
+  assert.ok(ns.includes('await aiResearch(l, text, frameworkRef.current, formatRef.current, again ? steer : "")'));
+  assert.ok(ns.includes("await aiSynopsisFromResearch(l, text, frameworkRef.current, formatRef.current, research)"));
+  assert.ok(ns.includes('"Rewrite synopsis from research"') && ns.includes('"Research again"') && ns.includes('"Write synopsis"'));
+  assert.ok(ns.includes("The research has changed since this synopsis was written"));
+  // the edited research is what the film keeps
+  assert.ok(ns.includes("...(researchEdited ? { edited:true } : {})") && ns.includes("...(kept ? { research:kept } : {})"));
+  assert.ok(!/aiResearchSynopsis\(/.test(ns), "the intake no longer runs both at once");
 });
 
 console.log(`${checks} passed, ${failed} failed`);

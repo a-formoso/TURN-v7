@@ -29,6 +29,10 @@ The user provides a seed: a logline, a premise, or a rough idea. Nothing is assu
   on the logline step remains as the receipt, with a Change link back to Shape.
 - *(approved 2026-07-04)* A **logline seed is always offered verbatim** as the first, pre-selected
   candidate ("yours — untouched"); the sharpened variants are optional, never the default.
+- *(approved 2026-10-02 by owner)* **Logline check** — the same call checks the writer's own logline for
+  one protagonist, a want and an obstacle. When one is missing, a gentle note under the candidates names
+  what's missing and points to the sharpened versions. It only advises and never blocks: the writer can
+  still build from their own words.
 
 ### 1. Shape — Format & Framework  *(was Step 0; reordered after Seed 2026-07-11 by owner approval. Format added 2026-06-11; framework added 2026-06-11 by owner-delegated decision; Hero's Journey + Story Circle added 2026-06-12 by owner approval; Story Circle retired 2026-09-25 by owner)*
 Now a **confirmation step**: the seed's recommendation arrives pre-selected with its rationale,
@@ -53,7 +57,7 @@ criteria**. Both change the *size and telling* of what's built — never the ste
 ### 2. Research → Synopsis  *(the new, defining step; amended 2026-06-12 by owner approval: framework-shaped synopsis, seed pass-through, format-aware research)*
 Before any structure is built, expand the seed into a synopsis using the
 **Three Pillars of Research** (the Infinite Studio AI research method). The assistant may **search the
-web** to gather real, grounding material for the Fact pillar. Three owner-approved rules:
+web** to gather real, grounding material for the Fact pillar. Owner-approved rules:
 - **The writer's original seed rides along** into research and synopsis as canon — its names,
   details and questions survive even when the chosen logline compressed them away.
 - **The research lenses are format-aware** (registry `researchBrief`): a commercial researches the
@@ -62,6 +66,14 @@ web** to gather real, grounding material for the Fact pillar. Three owner-approv
 - **The synopsis takes the FRAMEWORK's shape** (registry `synopsis.paras`): three-act keeps the
   classic three paragraphs below verbatim; Kishōtenketsu writes Ki / Shō / Ten / Ketsu;
   Hero's Journey writes Departure / Initiation / Return.
+- *(approved 2026-10-02 by owner)* **Every principal is researched**: the Fact lenses (role · what
+  happens · how it feels · frustrating · lovely) run for each main character the logline or seed names
+  (up to four, the protagonist first), not just the protagonist.
+- *(approved 2026-10-02 by owner)* **Research and synopsis are two moments**: the research is shown
+  first, on its own **Research** step, where the writer can edit any field or **steer** it ("go deeper
+  on the officer") and research again. The synopsis is then written **from that edited research**; the
+  synopsis step has **Rewrite synopsis from research**, and says when the research has changed since
+  the synopsis was written.
 
 - **Memory** — inward: honest, universal emotional truths the seed touches (family, betrayal, joy).
 - **Imagination** — living the characters' hours and days in the mind until scenes feel like déjà vu;
@@ -539,7 +551,9 @@ lines longer than one clip are split at a sentence/beat boundary. Built audio-fi
   search) and shows the pages it used; on other engines it is labelled "From general knowledge — not checked against
   the web" *(2026-10-02, owner-approved)*. The whole research is **saved with the film** (`project.research`) and
   read by the story-world build and the cast's inner-life pass before the script (`researchReservoir`)
-  *(2026-10-02, owner-approved)*.
+  *(2026-10-02, owner-approved)*. Research and synopsis are separate calls — `aiResearch` (every principal's
+  lenses in `fact.roles`, an optional steer) and `aiSynopsisFromResearch` — on their own **Research** and
+  **Synopsis** steps; the logline check rides in `aiSeedToLoglines` *(2026-10-02, owner-approved)*.
 - `APP_FEATURES` in `app/ai.jsx` has been updated so Frances can describe the stage.
 - Step **10 (The Stage)**: the **audio-first assembly shell** is built (`app/stage.jsx`, room unlocked) —
   it lays the clip partition + shot frames + dialogue on the cut timeline, timed by ESTIMATED line

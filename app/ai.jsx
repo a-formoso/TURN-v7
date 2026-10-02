@@ -2350,7 +2350,7 @@ const APP_FEATURES = [
   { name:"Board view", what:"all scenes laid out as cards, one column per act of the film's framework (three for Three-Act Turns, four for Kish\u014dtenketsu), each column foldable. A Columns / Table switch in the Board header (remembered between sessions) flips to the TABLE layout: one read-only row per scene with its charge, value shift and turn verdict, under the framework's own audit line. The Table layout replaced the former separate Audit tab. The header subtitle counts the film's real scenes and acts." },
   { name:"Editing", what:"scenes and beats are editable; add, delete, drag-reorder scenes, and re-charge values, and every view updates live. Deleting a scene asks for confirmation first (it removes the scene card and, when present, its beat map, screenplay draft and version history, plus its shots in the Art Room, its Color preset and its place in props' and locations' scene lists; a Co-writer's delete leaves the Art Room as it is); right after, a 'Scene N deleted \u00b7 Undo' notice restores it in place with everything that went with it. The film's genre is editable on the Premise card in the left rail (the story build drafts it); every writing prompt reads it." },
   { name:"Export (screenplay / story)", what:"the Export icon in the top bar is a Writers' Room action: it exports the screenplay and story, so it only appears there, not in the Art Room; the Art Room has its own per-tab exports like the shot list and storyboard. Four formats: Screenplay (PDF) — opens an in-app preview first, then Print / Save as PDF or Download .html; Screenplay (.fountain) — opens in Final Draft, Highland and other screenwriting apps; Story outline (.txt) — premise, controlling idea & spine; Spine data (.csv) — scenes, charges and turns. WHO IS CREDITED: the screenplay's title page (PDF / .html) and the .fountain file's Author line credit the writer, never Kinolot or Infinite Studio AI. On your own film that is you: your account's display name, else your sign-in handle (the part of your email before the @, with any +tag dropped, e.g. 'jane.doe+films' reads 'Jane Doe'). On a film someone shared with you, the credit is the film's owner (their handle), never the collaborator who exports it; if the owner's name isn't known the credit line is left off. When no name is available at all the credit line is simply left off. The credit name can't be edited inside Kinolot yet. There is no share-to-WhatsApp/email — exporting produces files. The top bar keeps this as an icon-only control; the export menu itself names each file format." },
-  { name:"New Story (format \u2192 seed \u2192 research \u2192 synopsis \u2192 spine)", what:"the New Story button opens the story intake — and it's LAZY: no film is created until the story actually launches (logline chosen, synopsis reviewed, build started), so closing or abandoning the intake never leaves an untitled film on the wall. At launch, a fresh blank film is created only when the current film already holds a story; an empty canvas is reused instead of duplicated. STEP 0 \u2014 FORMAT: first pick what you're making, in three groups \u2014 LONG FORM: Feature Film (about 100 minutes, a 40-scene spine with room for a B-story) and TV Series (episodes of one show, about 30 minutes and ~24 scenes each); SHORT FORM: Short Film (10\u201320 minutes, the classic 16-scene method \u2014 the default), Micro Short (under 5 minutes, ~8 scenes), Micro-drama (vertical 9:16 episodes of 1\u20133 minutes) and Music Video (about 4 minutes, scenes follow the song's sections and keep performance apart from narrative); NON-FICTION & BRAND: Documentary (about 10 minutes) and Commercial (30 seconds). EVERY format works with every narrative structure (Three-Act Turns, Kish\u014dtenketsu, Hero's Journey), and a three-act spine of any length keeps the quarter / half / quarter act split (a feature's 40 scenes build as 10 \u00b7 20 \u00b7 10); the format sets the spine's target scene count and runtime and the downstream room defaults (it changes the size of what's built, never the method), and it shows as a badge on the project chip. AUTO-SHAPE: if you sail past Step 0 on the defaults, developing your seed also RECOMMENDS the ideal format + framework for that story and applies them automatically — a note on the logline step says what was picked and why ('Shaped for this story: Short · Hero\u2019s Journey — …') with a Change button back to Step 0; any format or framework you actively clicked at Step 0 is NEVER overridden. And when your seed IS a logline, your own line appears as the FIRST candidate, verbatim and pre-selected (badged 'yours — untouched') — the sharpened variants are optional, never the default. Step 0 has a second row \u2014 'How should it be told?' \u2014 choosing the NARRATIVE FRAMEWORK (Three-Act Turns or Kish\u014dtenketsu; see the 'Narrative frameworks' feature). The format also RECOLORS THE ROOMS: a documentary's Characters tab becomes 'Subjects' and its Props 'Artifacts & Archive'; a commercial's Props becomes 'Product & Props' and Characters 'Talent'; the scene drafter writes to the format (a commercial drafts VO lines and on-screen SUPERs; a documentary drafts interview beats and narration — never invented dialogue in subjects' mouths); shot coverage is drafted to the format too (vertical phone framing for micro-drama, product-hero shots for commercials); and the Stage budget follows it — micro-drama generates VERTICAL 9:16 frames, boards vertical storyboard panels, and packs clips against the format's per-clip budget. SHOWS (series): in the project switcher, 'Turn this project into a show' makes the current project Episode 1 and lifts its cast, locations, props and lookbook into the show's shared BIBLE; every episode then reads and writes that same world (bible edits are show-wide), while each episode keeps its own scenes, beats, script, shots and storyboards. Episodes nest under their show in the switcher with a 'New episode' button (a fresh episode starts with the shared world and an empty story — use New Story inside it). Reference sheets generated for bible entities are SHARED: generate a character's sheet once and every episode uses the exact same sheet. Then bring the idea, three ways \u2014 a LOGLINE (a one-line pitch), a 'WHAT IF\u2026' premise, or 'TALK IT THROUGH': a hands-free VOICE conversation where the studio asks a few friendly questions OUT LOUD \u2014 spoken in a natural ElevenLabs voice when you're signed in (else the browser's built-in voice) \u2014 and you answer by SPEAKING; your reply is recorded and transcribed by ElevenLabs through the same server proxy as the rest of voice, so spoken answers work across browsers (not just Chrome/Edge). Tap the mic to start and tap again to stop (or type instead), then it shapes candidate loglines from what you said \u2014 a voice toggle mutes the spoken questions, and it falls back to the browser's own speech recognition / typing automatically if the proxy isn't reachable, the mic is blocked, or it's unsupported. (The earlier character / theme / title / image-vibe and 'surprise me' seeds were retired in favour of these three.) However the idea arrives, it develops into candidate loglines you pick from, then runs a Research \u2192 Synopsis stage: it researches the idea through the Three Pillars of Research (Memory \u2014 inward emotional truth; Imagination \u2014 living the characters' hours; Fact \u2014 the real time, place and the protagonist's role examined through four lenses: what happens, how it feels, what's frustrating, what's lovely) and writes the synopsis IN YOUR CHOSEN FRAMEWORK'S SHAPE \u2014 three-act gets the classic Setup / Confrontation / Resolution paragraphs, Kish\u014dtenketsu gets Ki / Sh\u014d / Ten / Ketsu, Hero's Journey gets Departure / Initiation / Return. Your ORIGINAL seed text rides along as canon (names and details you typed survive even if the logline compressed them away), and the research lenses adapt to the FORMAT (a commercial researches the product, audience and category codes; a documentary researches the real subject, access and verifiability; a micro-drama researches the scroll-stopping hook). On writing engines that can search the web, the Fact pillar is checked against the web: the review shows the pages it used under Fact ('Checked against the web · sources'), and states as fact only what those pages support; on other engines it says 'From general knowledge — not checked against the web', so verify real people, places and events yourself. Each web search costs $0.01 of provider cost, plus the pages it reads, charged with the research call. The research is SAVED WITH THE FILM: the story-world build draws the setting's trades, objects, rules and the cast's shared vocabulary from it, and the cast's inner life (want, need, arc) is designed from the Memory, Imagination and role lenses before the script is written. You read the research (it isn't editable) and edit the synopsis — including the WORKING TITLE, which is editable right there before building (the whole story inherits it) — then it builds the whole spine, world and cast from THAT synopsis \u2014 so every story grows its own characters and names instead of reusing samples. This runs through the Adaptation agent. The generated LOGLINE + SYNOPSIS (the composed brief the spine, beats and cast were built from) are SAVED on the project and viewable anytime via the 'Brief' button in the Writers' Room top bar — so you can review exactly what was generated and spot where anything deviated. (Stories built before this feature show just their saved logline.)" },
+  { name:"New Story (format \u2192 seed \u2192 research \u2192 synopsis \u2192 spine)", what:"the New Story button opens the story intake — and it's LAZY: no film is created until the story actually launches (logline chosen, synopsis reviewed, build started), so closing or abandoning the intake never leaves an untitled film on the wall. At launch, a fresh blank film is created only when the current film already holds a story; an empty canvas is reused instead of duplicated. STEP 0 \u2014 FORMAT: first pick what you're making, in three groups \u2014 LONG FORM: Feature Film (about 100 minutes, a 40-scene spine with room for a B-story) and TV Series (episodes of one show, about 30 minutes and ~24 scenes each); SHORT FORM: Short Film (10\u201320 minutes, the classic 16-scene method \u2014 the default), Micro Short (under 5 minutes, ~8 scenes), Micro-drama (vertical 9:16 episodes of 1\u20133 minutes) and Music Video (about 4 minutes, scenes follow the song's sections and keep performance apart from narrative); NON-FICTION & BRAND: Documentary (about 10 minutes) and Commercial (30 seconds). EVERY format works with every narrative structure (Three-Act Turns, Kish\u014dtenketsu, Hero's Journey), and a three-act spine of any length keeps the quarter / half / quarter act split (a feature's 40 scenes build as 10 \u00b7 20 \u00b7 10); the format sets the spine's target scene count and runtime and the downstream room defaults (it changes the size of what's built, never the method), and it shows as a badge on the project chip. AUTO-SHAPE: if you sail past Step 0 on the defaults, developing your seed also RECOMMENDS the ideal format + framework for that story and applies them automatically — a note on the logline step says what was picked and why ('Shaped for this story: Short · Hero\u2019s Journey — …') with a Change button back to Step 0; any format or framework you actively clicked at Step 0 is NEVER overridden. And when your seed IS a logline, your own line appears as the FIRST candidate, verbatim and pre-selected (badged 'yours — untouched') — the sharpened variants are optional, never the default. Step 0 has a second row \u2014 'How should it be told?' \u2014 choosing the NARRATIVE FRAMEWORK (Three-Act Turns or Kish\u014dtenketsu; see the 'Narrative frameworks' feature). The format also RECOLORS THE ROOMS: a documentary's Characters tab becomes 'Subjects' and its Props 'Artifacts & Archive'; a commercial's Props becomes 'Product & Props' and Characters 'Talent'; the scene drafter writes to the format (a commercial drafts VO lines and on-screen SUPERs; a documentary drafts interview beats and narration — never invented dialogue in subjects' mouths); shot coverage is drafted to the format too (vertical phone framing for micro-drama, product-hero shots for commercials); and the Stage budget follows it — micro-drama generates VERTICAL 9:16 frames, boards vertical storyboard panels, and packs clips against the format's per-clip budget. SHOWS (series): in the project switcher, 'Turn this project into a show' makes the current project Episode 1 and lifts its cast, locations, props and lookbook into the show's shared BIBLE; every episode then reads and writes that same world (bible edits are show-wide), while each episode keeps its own scenes, beats, script, shots and storyboards. Episodes nest under their show in the switcher with a 'New episode' button (a fresh episode starts with the shared world and an empty story — use New Story inside it). Reference sheets generated for bible entities are SHARED: generate a character's sheet once and every episode uses the exact same sheet. Then bring the idea, three ways \u2014 a LOGLINE (a one-line pitch), a 'WHAT IF\u2026' premise, or 'TALK IT THROUGH': a hands-free VOICE conversation where the studio asks a few friendly questions OUT LOUD \u2014 spoken in a natural ElevenLabs voice when you're signed in (else the browser's built-in voice) \u2014 and you answer by SPEAKING; your reply is recorded and transcribed by ElevenLabs through the same server proxy as the rest of voice, so spoken answers work across browsers (not just Chrome/Edge). Tap the mic to start and tap again to stop (or type instead), then it shapes candidate loglines from what you said \u2014 a voice toggle mutes the spoken questions, and it falls back to the browser's own speech recognition / typing automatically if the proxy isn't reachable, the mic is blocked, or it's unsupported. (The earlier character / theme / title / image-vibe and 'surprise me' seeds were retired in favour of these three.) However the idea arrives, it develops into candidate loglines you pick from, then runs a Research \u2192 Synopsis stage: it researches the idea through the Three Pillars of Research (Memory \u2014 inward emotional truth; Imagination \u2014 living the characters' hours; Fact \u2014 the real time and place, and the role of EACH principal character the logline or seed names (up to four, the protagonist first), each examined through four lenses: what happens, how it feels, what's frustrating, what's lovely) and writes the synopsis IN YOUR CHOSEN FRAMEWORK'S SHAPE \u2014 three-act gets the classic Setup / Confrontation / Resolution paragraphs, Kish\u014dtenketsu gets Ki / Sh\u014d / Ten / Ketsu, Hero's Journey gets Departure / Initiation / Return. Your ORIGINAL seed text rides along as canon (names and details you typed survive even if the logline compressed them away), and the research lenses adapt to the FORMAT (a commercial researches the product, audience and category codes; a documentary researches the real subject, access and verifiability; a micro-drama researches the scroll-stopping hook). On writing engines that can search the web, the Fact pillar is checked against the web: the review shows the pages it used under Fact ('Checked against the web · sources'), and states as fact only what those pages support; on other engines it says 'From general knowledge — not checked against the web', so verify real people, places and events yourself. Each web search costs $0.01 of provider cost, plus the pages it reads, charged with the research call. The research is SAVED WITH THE FILM: the story-world build draws the setting's trades, objects, rules and the cast's shared vocabulary from it, and the cast's inner life (want, need, arc) is designed from the Memory, Imagination and role lenses before the script is written. The research is its own step (Seed \u00b7 Shape \u00b7 Logline \u00b7 Research \u00b7 Synopsis): you can edit any field of it, or type a steer ('go deeper on the officer') and press Research again; then Write synopsis writes the synopsis FROM your edited research. On the Synopsis step, Rewrite synopsis from research writes it again (it asks first, since it replaces your paragraph edits), and a note says when the research has changed since the synopsis was written. On the Logline step, if YOUR OWN logline doesn't name one protagonist, what they want or what stands in their way, a gentle note says which is missing and points to the sharpened versions \u2014 it only advises; you can still build from yours. You edit the synopsis \u2014 including the WORKING TITLE, which is editable right there before building (the whole story inherits it) — then it builds the whole spine, world and cast from THAT synopsis \u2014 so every story grows its own characters and names instead of reusing samples. This runs through the Adaptation agent. The generated LOGLINE + SYNOPSIS (the composed brief the spine, beats and cast were built from) are SAVED on the project and viewable anytime via the 'Brief' button in the Writers' Room top bar — so you can review exactly what was generated and spot where anything deviated. (Stories built before this feature show just their saved logline.)" },
   { name:"Narrative frameworks (Three-Act / Kish\u014dtenketsu / Hero's Journey)", what:"orthogonal to format, New Story's SHAPE step (step 2 \u2014 the intake order is Seed \u2192 Shape \u2192 Logline \u2192 Synopsis: you bring the idea FIRST, then the studio RECOMMENDS the format and framework for it, pre-selected with a one-line why on the Shape step; pick anything there to override \u2014 an explicit pick always wins) also asks HOW the story should be told \u2014 'How should it be told?' offers three narrative frameworks. HERO'S JOURNEY: the twelve-stage mythic round over three phases \u2014 Departure (Ordinary World, Call to Adventure, Refusal, Meeting the Mentor, Crossing the Threshold), Initiation (Tests/Allies/Enemies, Approach, the Ordeal, the Reward, the Road Back) and Return (Resurrection, Return with the Elixir); it keeps the classic every-scene-turns rule (the elixir scene is exempt) and the builder makes every trial cost something. ANY FORMAT WITH ANY STRUCTURE: the synopsis and the spine are always told what's being made (a documentary's real subjects \u2014 never invented events or words for real people \u2014 a commercial's product promise, a music video's song sections, a feature's B-story, a series episode's closing turn), whichever structure shapes them; the structure decides the order and shape of the turns, the format what each scene can hold. A Hero's Journey of 4 scenes or fewer (a commercial) builds the MINIMUM journey: Ordinary World \u2192 Crossing the Threshold \u2192 The Ordeal \u2192 Return with the Elixir (3 scenes: Threshold \u2192 Ordeal \u2192 Elixir), so even a 30-second spot leaves, is tested and comes home changed. ONE CAST, REAL STAGES: the spine is planned in two halves, and the second half is written AFTER the first and handed it \u2014 every person keeps the same name and role (an unnamed protagonist can no longer become two different people), and no scene title repeats. Hero's Journey and Kish\u014dtenketsu scenes are labelled with the stage the story actually gives them: the spine declares each scene's stage, the app keeps the longest in-order run of those (dropping a stray out-of-order tag) and falls back to position only when the key stages (the Threshold and the Ordeal; the Ten) are missing. STORY CIRCLE has been RETIRED: it is no longer offered for new stories (the picker and the automatic shape recommendation leave it out). A film already built on it still opens with its four act bands and step labels, and 'Rebuild as a new film' builds such a film as Three-Act Turns. THREE-ACT TURNS (the default): conflict-driven, Setup/Complication/Resolution, every scene must TURN a value (flip its charge or move it 2+) and the milestone kinds are Inciting Incident, Act Climax, Mid-Act Climax, Crisis, Story Climax, Resolution. KISH\u014cTENKETSU (the Eastern four-movement form): Ki (introduction) plants, Sh\u014d (development) deepens, Ten (the twist) RECONTEXTUALIZES \u2014 one revelation that makes the audience re-read everything before it, no clash required \u2014 and Ketsu reconciles; milestone kinds are Planting, Deepening, The Twist, Recontextualization, Reconciliation. The framework changes the whole grammar downstream: the spine builder architects in that form (a kish\u014dtenketsu spine spans four acts and forbids conflict-escalation in the ten), the act ruler/board show its movements, the Inspector's kind dropdown and scene verdict speak its language (a quiet ki scene isn't told to 'cut it' \u2014 only an INERT scene is flagged), the Board's Table layout reads Moves/Inert instead of Turns/No turn in its verdict column, and the Story Doctor audits differently: it never forces ki/sh\u014d scenes to turn, demands the ten land hard, and puts the RE-READ QUESTION to the model \u2014 're-reading the earlier scenes with the ten in mind, what recontextualizes and what doesn't?' \u2014 reporting prose findings instead of re-charges. A non-default framework shows as a badge on the project chip next to the format badge. All the frameworks keep the same primitives (value charges, beats, the controlling idea's argument) \u2014 they're interchangeable lenses inside the Infinite Studio AI method, and any format can use any framework." },
   { name:"Story Editors (Writers' Room agents)", what:"the 'Story Editors' button (next to the centered tabs in the Writers' Room view bar) opens a panel of AI agents that REFINE an existing story. It needs a story to work on — pressed before any scenes exist, it explains that and offers to start New Story instead. The agents: Story Doctor (finds the weakest structural link — scenes that don't turn, soft peaks, flat runs, AND one-sided stretches of the controlling idea's argument (4+ consecutive scenes arguing the same side) — and proposes a fix, re-auditing until the spine holds), Script Supervisor (the FREE rule-based STORY audit — no model calls: the script and beats are canon, and it checks every drafted scene's story layer — a CAST-NAME SPELLING check (a capitalized word in the script or beats that near-matches a cast name but exactly matches nothing — e.g. ‘Winson’ for WINSTON — is proposed as a one-click fix-all across that scene's script AND beats; hand-editing typos silently break roster detection and identity references), script blocks whose BEAT TAGS drifted from the beat map (the drafting model sometimes tags blocks by position instead of content — the one-click fix re-maps each block to the beat its content actually dramatizes, leaving the script text untouched; freshly drafted scenes get the same content-based alignment automatically), a TIME-OF-DAY continuity lint (consecutive scenes whose sluglines hard-flip DAY↔NIGHT with no time-passage cue in either scene are flagged — signal the jump with “LATER”/“the next morning” or align the clocks), a DEVELOPMENT-METADATA LEAK check (charge notation like ‘(+2)’, beat numbers, ‘turning point’/‘controlling idea’/‘value charge’ appearing in the screenplay text — the page must read clean to someone who never saw the app) and the cast's ARGUMENT MAP; unambiguous repairs come back as one-click approval cards, judgement calls are flagged. The production checks it used to run — props, locations, render styles, wardrobe, shots, they/them lines and unslugged spaces — are now the Art Room's PRODUCTION CHECK), Setups & Payoffs (plants missing setups and pays off dangling threads, re-checking each time; each planted line goes into the scene card, which marks that scene 'needs redraft' in the Script view so the line reaches the screenplay with one click), and Final Read (whole-script pacing/tone/voice critique, plus a per-character VOICE CHECK: it fingerprints every speaking character's voice in one line each and flags SWAPPABLE lines — dialogue that could be handed to another character without anyone noticing — quoting the line, naming who else could say it, and suggesting in one clause what would make it unmistakably the speaker's; verbatim lines repeated by two different speakers are always flagged; click any flag to jump to its scene). Each shows its reasoning and asks approval before changing anything. EVERY agent panel — Writers' Room and Art Room alike — NAMES the writing model it will run on in its header (a read-only label, marked '· recommended' when it is the app's recommended engine for that kind of work: story prose vs structured specs). The one place to change it is the WRITING dock on the right edge; the header label follows a change made there, and each run is pinned to the model its header showed when Run was pressed. AGENT RUNS NEVER START ON THEIR OWN: launching an agent from any tab button (e.g. 'Research the look', 'Design the cast', 'Production check') opens its panel READY — blurb, model label, Run button — so there is always a chance to switch engines in the Writing dock first. Two launches start straight away because the screen before them already showed the engine and a Run button: RUN PRE-PRODUCTION, whose cost preview names the writing model the run will use (it follows the Writing dock — switch there before pressing Run) and whose Run button starts the Art Coordinator at once, with no second Run press; and the New Story / 'Rebuild as a new film' build: the New Story window and the Story brief each carry a writing-model picker (the same one setting as the Writing dock). The NEW STORY window has the same picker in ITS header, so story development (loglines, research, synopsis, spine build) runs on whichever engine you choose. ERRORS SHOW ON THE OPEN PANEL: while an agent panel (or the New Story window) is open, any AI/provider error appears at the BOTTOM OF THAT PANEL — not as a detached corner toast — and any web link in the message is clickable (opens in a new tab); with no panel open, the corner toast is used and its links are clickable too. (Frances is NOT in this panel — Frances is the separate floating help assistant in the bottom-right corner; the Story Editors CHANGE your story, Frances just answers questions.) Creating a story from scratch is NOT here — that's the 'New Story' button, which develops your idea into a logline and architects the full spine (it uses the same builder under the hood, so there's exactly ONE way to start a story). The 'Story Editors' panel is distinct from the 'Writers' Room', which is the story-development ROOM (spine/script) in the room switcher. There are ALSO agents in the Art Room — the Department Heads — launched from their own tab (not this top-bar panel): the Visual Researcher ('Research the look' on the Lookbook tab) which writes the film's visual statement and gathers/dedupes reference touchstones — RE-RUNS NEVER DUPLICATE: when the research is already complete (statement written, every category holding a noted touchstone) the agent SKIPS re-research entirely and says so — no duplicate cards, no re-proposed render style, no wasted writing call; this holds when 'Run pre-production' re-runs the pipeline too. A partial lookbook only FILLS GAPS (missing categories), never re-proposes what's on the wall, and the statement is never rewritten once set. To research from scratch, clear the look statement in the Lookbook and run again. Touchstones cover (palette, lighting, lens, texture); mood frames are rendered separately with 'Generate all frames' — and the Styles (colour) tab reads those references when it designs the palette, so the look propagates downstream, the Storyboard Artist (the Storyboards tab), which composes each scene's boards from the rendered shot frames at no generation cost (there is no separate storyboard-generating agent), the Colorist ('Light the film' on the Color tab) which designs the colour system and color-scripts every scene, proposing it for approval with a rationale, the Shot Designer (run via the Art Coordinator, not a tab button) which audits coverage scene by scene and proposes the shots to land each turn for approval \u2014 it can work through every scene of a film in one run (at most one redesign per scene), reports any scenes that still have coverage notes, and applies a redesign the same safe way as the Shots tab's Re-draft: each beat's current shot keeps its ID, frames and take history, and extra shots move to Shots Trash where they can be restored, the Casting Director ('Design the cast' on the Characters tab) which autonomously drafts each character's look, finds their appearance changes, and generates the master sheet + every state variant, the Props Master (run via the Art Coordinator, not a tab button) which adds the worn and carried items named in the cast's character briefs as proposals, drafts every prop's specification and generates the reference sheets for the props that need their own image (screenplay props come only from the reviewed 'Extract screenplay props' flow \u2014 it never adds or merges them silently), each owned prop REFERENCING its owner's character sheet so the prop matches that character's look (the cast is designed first, then the props), and the Location Scout / Production Designer (run via the Art Coordinator, not a tab button) which autonomously pulls every place from the sluglines, drafts each spec (plus a depth-grid staging for locations the film revisits in 2+ scenes), generates the coverage plate and the time-of-day variants the script needs, and flags any scene whose slugline location has no card yet, the PRODUCTION CHECK (the 'Production check' button on the Art Room's view bar — the 1st-AD pass that holds the cast, props, locations, styles, wardrobe and shots to the script; see its own entry), and — above all of them — the Art Coordinator ('Run pre-production', the button on the right of the Art Room's view bar) which is a META-AGENT: it runs the whole pre-production pipeline in dependency order once you press Run — the lookbook first (it steers the look), then the cast, then the props (each owned prop references its owner's sheet so it matches that character), then it DRESSES the cast — re-generating each character's master so it wears its finalized worn-prop sheets exactly (refreshing any appearance variant) — then locations, then the colour system, then shot coverage — chaining the per-tab agents so you don't have to launch each yourself. It does NOT render shot frames or compose storyboards: afterwards you render the frames from the Shots tab ('Generate all shots' or 'Render Scene X in order') and compose the boards in Storyboards. It runs end to end WITHOUT stopping — the colour (the Color tab) and shot-coverage (Shots) steps, which are approval-gated when you run them individually, are applied AUTOMATICALLY here rather than waiting for your yes — except that scenes whose shots you approved or locked are never re-planned by this run. Before it starts, a preview estimates only the images it will really render: missing cast sheets and appearance variants, prop sheets (text-only objects get none), wardrobe updates (sheets re-rendered to wear new props) and location plates, plus any missing time-of-day variants. You can still review or tweak anything in its tab afterwards. Press Stop anytime. ONE GRAMMAR EVERYWHERE: every busy state names the department doing the work — the centered progress pop-ups show a small role eyebrow above the action title (Screenwriter drafts and redrafts scenes; Casting Director designs character specs; Props Master designs prop specs and maps props to scenes; Location Scout scouts locations and drafts staging; Colorist assigns scene styles; Shot Designer designs shot coverage, per-scene shots and beat refinements), and the agent runner panel header names the team and the job the same way ('Story Editors · Story Doctor' in the Writers' Room, 'Department Heads · Colorist' in the Art Room), so you always know which department is at work. The Art Room tab page headers carry the same department titles, without parentheses: Visual Researcher (Lookbook), Casting Director (Characters), Props Master (Props), Location Scout (Locations), Colorist (Color), Shot Designer (Shots) and Storyboard Artist (Storyboards)." },
   { name:"QA check (per-card image QC, Art Room)", what:"every character, prop and location card has a 'QA check' button right next to 'Draft details' (shot cards carry it in their head row beside Approve); it appears once the card has a generated image — except on the LOOKBOOK, whose grid mixes rendered and unrendered cards: there a frameless card shows the button DISABLED with a tooltip explaining it unlocks once the mood frame is generated (so it never looks randomly missing). One click = ONE vision read of JUST that card's current image against the EXACT generation prompt stored on that version, opening a report modal with: a verdict badge (Faithful / Minor drift / Major drift), the DEVIATION list — each finding with a severity dot and the offending panels of a multi-view sheet as chips (render-style drift is checked first, e.g. a painterly image where the prompt demanded anime; then per-view camera angles, missing or wrong fixtures/wardrobe/palette/lighting, and rule violations like text or creatures where forbidden) — INVENTED content the prompt never asked for, a spelled-out RECOMMENDATION strip (Keep / Edit / Regenerate), a SUGGESTED EDIT and PROMPT ADVICE, plus ONE-CLICK actions: 'Run suggested edit' applies the recommended instruction to the image immediately (one generation, the old version stays in history), 'APPLY TO SPEC & REGENERATE' under the prompt advice folds that advice into the card's own drafted fields (one writing-model call; a confirm previews exactly which fields change) and then REGENERATES the sheet immediately from the new spec — so the current sheet always matches its spec; the previous image stays in version history (Edit fixes the IMAGE, Apply-to-spec fixes the CANON). RELATED RULE: the card's Master-reference-prompt fold's FINAL box always holds the prompt that generated the CURRENT sheet (stored per version — restoring an older version restores its own prompt there too); if the spec has drifted since that sheet was made, an amber note under it says to Regenerate. ('Regenerate now' was removed — it re-rolled the same faulted spec and duplicated the card's own Regenerate button); Close acts on nothing. Related: character sheets DERIVE the wardrobe 'hands' field — a spec that describes a cane/walking stick/crutch/staff renders it IN HAND in every full-body view instead of the empty-hands default, so mobility aids can't be contradicted out of the sheet. The button is on EVERY generated-image card: characters (master sheet, each appearance-state variant, and the scale/height sheet), props, locations (plate AND each time-of-day variant), shot frames, Lookbook mood frames, and storyboard sheets. Cards with a written spec also get Apply-to-spec-&-regenerate on the advice; report-only surfaces (scale sheet, time-of-day plates, storyboard sheets) offer the report plus Run-suggested-edit/Regenerate. Judges against the version's stored generation prompt; an UPLOADED/imported image (which has no generation prompt) is judged against the card's CURRENT drafted spec instead — the report's subtitle says so — and a card with neither a prompt nor a drafted spec gets a toast asking to Draft details first and the server proxy's vision support (sign in; a text-only deploy explains itself instead of judging blind). Each check costs writing-model credits (a vision read), never image credits. There is NO batch QA button — QA runs per card, on demand. The report's actions: 'Apply to spec & regenerate' folds the prompt advice into the card's drafted spec then regenerates so the sheet always matches its spec, and EVERY report with findings also offers 'Edit current image' — a targeted one-generation edit of the existing image that fixes the listed deviations while keeping the exact framing (when the verdict itself recommends an edit, that button is the primary 'Run suggested edit'). The current version always stays in history." },
@@ -4395,7 +4395,13 @@ async function aiSeedToLoglines(seedType, text){
     "(a twist-recontextualizes story wants kishotenketsu; "+
     "a mythic transformation wants herosjourney; conflict-driven turns want threeact), "+
     "with why = ONE short sentence grounded in the story.\n"+
-    'Return ONLY compact JSON: {"loglines":["...","...","..."],"shape":{"format":"...","framework":"...","why":"..."}}.';
+    // LOGLINE CHECK (2026-10-02, owner-approved): the writer's own logline is offered verbatim, so
+    // say — in the same call — whether it names one protagonist, a want and an obstacle
+    (seedType==="logline" && t
+      ? "ALSO check the WRITER'S OWN logline exactly as written (not your variants): does it name ONE protagonist (a specific person the story follows), what they WANT, and what stands in their WAY? "+
+        "check = {protagonist:true|false, want:true|false, obstacle:true|false}.\n"+
+        'Return ONLY compact JSON: {"loglines":["...","...","..."],"shape":{"format":"...","framework":"...","why":"..."},"check":{"protagonist":true,"want":true,"obstacle":true}}.'
+      : 'Return ONLY compact JSON: {"loglines":["...","...","..."],"shape":{"format":"...","framework":"...","why":"..."}}.');
   // the model call THROWS on transport/provider errors (billing, missing key,
   // bad model id) so the UI can show the real reason instead of blaming the
   // writer's input; only a parse failure below returns null ("couldn't shape it")
@@ -4419,6 +4425,12 @@ async function aiSeedToLoglines(seedType, text){
         framework: fwOk ? sh.framework : "",
         why: clipWords(scrubBrand(String(sh.why||"").trim()), 220),
       };
+    }
+    // the logline check rides on the array too: only an explicit false counts as missing
+    const ck = j && j.check;
+    if(seedType==="logline" && ck && typeof ck==="object"){
+      const missing = ["protagonist","want","obstacle"].filter(k=>ck[k]===false);
+      if(missing.length) arr.check = { missing };
     }
     return arr;
   }catch(e){ return null; }
@@ -4482,91 +4494,129 @@ window.aiSeedInterview = aiSeedInterview;
    characters' hours), Fact (outward real-world grounding — the time & space, and
    the protagonist's role/purpose in that world, examined through four lenses:
    what happens / how it feels / what's frustrating / what's lovely).
-   Returns { title, research:{memory,imagination,fact{...}}, synopsis:{setup,confrontation,resolution} }.
-   The model has no live web; it draws on its own world knowledge for the Fact pillar. */
-async function aiResearchSynopsis(logline, seedText, frameworkId, formatId){
+   TWO MOMENTS (2026-10-02, owner-approved): aiResearch gathers the research, the writer reads,
+   edits or steers it, and aiSynopsisFromResearch writes the synopsis from THAT version (the review
+   step's "Rewrite synopsis from research" calls it again). aiResearchSynopsis runs both in a row.
+   EVERY PRINCIPAL (2026-10-02, owner-approved): the Fact lenses run for each main character the
+   logline or seed names (fact.roles, up to 4, the protagonist first); fact.role / whatHappens /
+   howItFeels / frustrating / lovely mirror the protagonist's, for everything that reads them.
+   The Fact pillar searches the web on an engine that can (research.sources / grounded). */
+/* one research object in the shape every reader expects: fact.roles plus the protagonist's
+   lenses mirrored onto fact (an old one-role reply becomes roles[0]) */
+function normaliseResearch(r, clip){
+  const cl = clip || ((v,n)=> clipAtBoundary(String(v||"").trim(), n));
+  const src = (r && typeof r==="object") ? r : {};
+  const f = src.fact || {};
+  const lens = (x)=>({ who:cl(x && x.who, 80), role:cl(x && x.role, 400), whatHappens:cl(x && x.whatHappens, 500),
+    howItFeels:cl(x && x.howItFeels, 500), frustrating:cl(x && x.frustrating, 500), lovely:cl(x && x.lovely, 500) });
+  let roles = (Array.isArray(f.roles) ? f.roles : []).map(lens)
+    .filter(x=>x.role||x.whatHappens||x.howItFeels||x.frustrating||x.lovely).slice(0, 4);   // up to four principals, the protagonist first
+  if(!roles.length){ const one = lens(f); if(one.role||one.whatHappens||one.howItFeels||one.frustrating||one.lovely) roles = [one]; }
+  const lead = roles[0] || lens({});
+  return {
+    memory: cl(src.memory, 600), imagination: cl(src.imagination, 600),
+    fact:{ world: cl(f.world, 500), roles,
+      role: lead.role, whatHappens: lead.whatHappens, howItFeels: lead.howItFeels, frustrating: lead.frustrating, lovely: lead.lovely },
+  };
+}
+window.normaliseResearch = normaliseResearch;
+/* the research as the synopsis prompt reads it */
+function researchBriefText(research){
+  const r = research || {}; const f = r.fact || {};
+  let b = "";
+  if(r.memory) b += "MEMORY: "+r.memory+"\n";
+  if(r.imagination) b += "IMAGINATION: "+r.imagination+"\n";
+  if(f.world) b += "FACT \u2014 world: "+f.world+"\n";
+  const roles = Array.isArray(f.roles) && f.roles.length ? f.roles : (f.role ? [f] : []);
+  roles.forEach((x,i)=>{
+    b += "FACT \u2014 "+(x.who ? x.who : (i ? "another principal" : "the protagonist"))+": role: "+(x.role||"")+
+      " | what happens: "+(x.whatHappens||"")+" | how it feels: "+(x.howItFeels||"")+
+      " | frustrating: "+(x.frustrating||"")+" | lovely: "+(x.lovely||"")+"\n";
+  });
+  return b;
+}
+window.researchBriefText = researchBriefText;
+
+async function aiResearch(logline, seedText, frameworkId, formatId, steer){
   if(!aiAvailable()) return null;
   const L = String(logline||"").slice(0,1200).trim();
   if(!L) return null;
   const cl = (v,n)=> clipAtBoundary(scrubBrand(String(v||"").trim()), n);
   // the writer's ORIGINAL seed: names, details and questions the one-line logline
-  // compressed away — they are canon and must survive into the synopsis
+  // compressed away \u2014 they are canon and must survive into the research and synopsis
   const seed = String(seedText||"").slice(0,1600).trim();
   const seedBlock = (seed && seed!==L)
-    ? "\nTHE WRITER'S ORIGINAL SEED (its names, details and questions are CANON — keep them; the logline compressed them away):\n"+seed+"\n"
+    ? "\nTHE WRITER'S ORIGINAL SEED (its names, details and questions are CANON \u2014 keep them; the logline compressed them away):\n"+seed+"\n"
     : "";
-  // format-routed research clause (formats.jsx) — a commercial researches the product
+  // format-routed research clause (formats.jsx) \u2014 a commercial researches the product
   // and audience, a documentary the real subject; films keep the classic lenses
   const fmtEntry = (window.FORMATS||[]).find(f=>f.id===formatId) || null;
   const fmtClause = (fmtEntry && fmtEntry.researchBrief) ? ("\n"+fmtEntry.researchBrief+"\n") : "";
-
-  // ---- CALL A: the Three Pillars of Research (its own complete() so the JSON
-  // stays well under the 1024-token output cap). ----
+  // the writer's steer for a re-research ("focus on the officer"), never longer than a note
+  const steerText = clipAtBoundary(String(steer||"").trim(), 600);
+  const steerBlock = steerText ? ("\nTHE WRITER'S STEER FOR THIS RESEARCH (follow it):\n"+steerText+"\n") : "";
   const researchPrompt =
     "You are a story architect working in the Infinite Studio AI method. Research the LOGLINE below "+
     "using the Three Pillars, BEFORE any synopsis is written. Be concrete and specific \u2014 this grounding "+
     "must make the story feel true and cliche-proof:\n\n"+
-    "LOGLINE:\n"+L+"\n"+seedBlock+fmtClause+"\n"+
+    "LOGLINE:\n"+L+"\n"+seedBlock+fmtClause+steerBlock+"\n"+
     "1) MEMORY (look inward): the honest, universal emotional truths this story touches \u2014 the felt human "+
     "experiences (e.g. grief, betrayal, first love, shame) any audience would recognise. 2-3 sentences.\n"+
     "2) IMAGINATION (live it): step into the characters' ordinary hours and days \u2014 textures, routines, small "+
     "telling moments and hidden connections you discover by imagining their lives in detail. 2-3 sentences.\n"+
-    "3) FACT (look outward): research the TIME and SPACE the story captures, and the "+
-    "PROTAGONIST'S ROLE / PURPOSE in that world (their job, craft, or place in the social order). Then answer four "+
-    "lenses about that role, honestly and specifically, as if interviewing someone who truly lives it:\n"+
-    "   \u2022 world: the period, place and milieu \u2014 concrete real detail (tools, language, conditions, era markers).\n"+
+    "3) FACT (look outward): research the TIME and SPACE the story captures (world: the period, place and milieu \u2014 "+
+    "concrete real detail: tools, language, conditions, era markers). Then, for EACH PRINCIPAL character the logline or "+
+    "seed names or clearly implies (the protagonist first; at most 4; just one when the story follows one "+
+    "person), research their ROLE / PURPOSE in that world (their job, craft, or place in the social order) and answer four "+
+    "lenses about it, honestly and specifically, as if interviewing someone who truly lives it:\n"+
+    "   \u2022 who: the character as the logline/seed names them (a name, or a short description if unnamed).\n"+
     "   \u2022 role: what this person's role/purpose actually is in this world.\n"+
     "   \u2022 whatHappens: what literally happens in a typical stretch of that life/work.\n"+
     "   \u2022 howItFeels: what it feels like from the inside.\n"+
     "   \u2022 frustrating: what is genuinely frustrating, tedious or hard about it.\n"+
     "   \u2022 lovely: what is genuinely nice, beautiful or rewarding about it.\n"+
     "GROUND THE FACT PILLAR: if you can search the web, run a few focused searches (the period and place, the "+
-    "protagonist's real role and its daily work) before writing it, and state as fact only what the pages you read "+
+    "principals' real roles and their daily work) before writing it, and state as fact only what the pages you read "+
     "support \u2014 leave out a detail you could not confirm rather than guessing. Real people and real events get "+
     "only what the record shows. Without search, keep to what is widely known.\n"+
     "Also invent a short evocative TITLE for the film. Keep every field tight \u2014 no padding.\n\n"+
     'Return ONLY JSON: {"title":"...","research":{"memory":"...","imagination":"...",'+
-    '"fact":{"world":"...","role":"...","whatHappens":"...","howItFeels":"...","frustrating":"...","lovely":"..."}}}';
+    '"fact":{"world":"...","roles":[{"who":"...","role":"...","whatHappens":"...","howItFeels":"...","frustrating":"...","lovely":"..."}]}}}';
 
   let title = "UNTITLED";
-  let research = { memory:"", imagination:"", fact:{ world:"", role:"", whatHappens:"", howItFeels:"", frustrating:"", lovely:"" } };
   // WEB-GROUNDED FACT (2026-10-02): the research call may search the web on an engine that can;
   // the pages it used ride along as research.sources, and research.grounded says whether the
   // Fact pillar was checked against the web at all (the review step labels it either way)
   let searchMeta = null;
-  try{
-    const resA = await window.claude.complete({ messages:[{ role:"user", content:researchPrompt }],
-      webSearch:true, onMeta:(m)=>{ searchMeta = m; } });
-    const a = extractJSON(resA);
-    if(a){
-      const f = a.fact || (a.research && a.research.fact) || {};
-      const r = a.research || a;
-      title = cl(a.title, 48) || title;
-      research = {
-        memory: cl(r.memory, 600),
-        imagination: cl(r.imagination, 600),
-        fact:{
-          world: cl(f.world,500), role: cl(f.role,400),
-          whatHappens: cl(f.whatHappens,500), howItFeels: cl(f.howItFeels,500),
-          frustrating: cl(f.frustrating,500), lovely: cl(f.lovely,500),
-        },
-      };
-    }
-  }catch(e){ /* research is supporting material \u2014 fall through and still write the synopsis */ }
+  // the call THROWS on transport/provider errors so the UI shows the real reason
+  const resA = await window.claude.complete({ messages:[{ role:"user", content:researchPrompt }],
+    webSearch:true, onMeta:(m)=>{ searchMeta = m; } });
+  let a = null; try{ a = extractJSON(resA); }catch(e){ a = null; }
+  if(!a) return null;
+  const r = a.research || a;
+  if(!r.fact && a.fact) r.fact = a.fact;
+  title = cl(a.title, 48) || title;
+  const research = normaliseResearch(r, cl);
+  if(!research.memory && !research.imagination && !research.fact.world && !research.fact.roles.length) return null;
   research.sources = (typeof researchSources==="function") ? researchSources(searchMeta) : [];
   research.grounded = !!(searchMeta && searchMeta.webSearch && Number(searchMeta.webSearch.searches)>0 && research.sources.length);
+  return { title, research };
+}
+window.aiResearch = aiResearch;
 
-  // ---- CALL B: the three-paragraph synopsis, grounded in the research above
-  // (also its own complete()). This is the part the pipeline truly needs. ----
-  let researchBrief = "";
-  if(research.memory) researchBrief += "MEMORY: "+research.memory+"\n";
-  if(research.imagination) researchBrief += "IMAGINATION: "+research.imagination+"\n";
-  const rf = research.fact;
-  if(rf && (rf.world||rf.role)){
-    researchBrief += "FACT \u2014 world: "+rf.world+" | role: "+rf.role+
-      " | what happens: "+rf.whatHappens+" | how it feels: "+rf.howItFeels+
-      " | frustrating: "+rf.frustrating+" | lovely: "+rf.lovely+"\n";
-  }
+/* the synopsis, written from the research the writer reviewed (and maybe edited) \u2014
+   returns { paras:[{key,label,text}] } in the framework's shape, or null */
+async function aiSynopsisFromResearch(logline, seedText, frameworkId, formatId, research){
+  if(!aiAvailable()) return null;
+  const L = String(logline||"").slice(0,1200).trim();
+  if(!L) return null;
+  const cl = (v,n)=> clipAtBoundary(scrubBrand(String(v||"").trim()), n);
+  const seed = String(seedText||"").slice(0,1600).trim();
+  const seedBlock = (seed && seed!==L)
+    ? "\nTHE WRITER'S ORIGINAL SEED (its names, details and questions are CANON \u2014 keep them; the logline compressed them away):\n"+seed+"\n"
+    : "";
+  const fmtEntry = (window.FORMATS||[]).find(f=>f.id===formatId) || null;
+  const researchBrief = researchBriefText(research);
   // the synopsis takes the FRAMEWORK's shape (frameworks.jsx synopsis.paras):
   // three-act keeps today's three paragraphs verbatim; kishōtenketsu writes
   // ki/shō/ten/ketsu; the journey and the circle write their own movements.
@@ -4581,7 +4631,7 @@ async function aiResearchSynopsis(logline, seedText, frameworkId, formatId){
     "RESEARCH below, write the SYNOPSIS as exactly "+nWords+" paragraphs in "+shape.shapeName+".\n\n"+
     "LOGLINE:\n"+L+"\n"+seedBlock+"\n"+
     (formatPlanLine(fmtEntry) ? formatPlanLine(fmtEntry)+"\n\n" : "")+
-    (researchBrief ? ("RESEARCH (let it surface in the prose \u2014 specific, sensory, never generic):\n"+researchBrief+"\n") : "")+
+    (researchBrief ? ("RESEARCH (the writer reviewed it \u2014 let it surface in the prose, specific, sensory, never generic):\n"+researchBrief+"\n") : "")+
     shape.paras.map(pg=>"   \u2022 "+pg.key+": "+pg.guide).join("\n")+"\n"+
     "Each paragraph 3-5 sentences, vivid and concrete.\n\n"+
     'Return ONLY JSON: {"synopsis":{'+shape.paras.map(pg=>'"'+pg.key+'":"..."').join(",")+'}}';
@@ -4612,10 +4662,25 @@ async function aiResearchSynopsis(logline, seedText, frameworkId, formatId){
     paras = paras.map(pg=> pg.text ? pg : ({ ...pg, text: cl(more[pg.key],900) }));
   }
   if(!paras.some(pg=>pg.text)) return null;
-  const out = { title, logline: L, research, synopsis:{ paras } };
+  const out = { paras };
   // legacy keys ride along so anything reading setup/confrontation/resolution keeps working
-  paras.forEach(pg=>{ out.synopsis[pg.key] = pg.text; });
+  paras.forEach(pg=>{ out[pg.key] = pg.text; });
   return out;
+}
+window.aiSynopsisFromResearch = aiSynopsisFromResearch;
+
+/* both moments in a row (kept for callers that want research + synopsis at once).
+   Returns { title, logline, research, synopsis:{ paras, ...legacy keys } } or null. */
+async function aiResearchSynopsis(logline, seedText, frameworkId, formatId){
+  const L = String(logline||"").slice(0,1200).trim();
+  if(!aiAvailable() || !L) return null;
+  let found = null;
+  try{ found = await aiResearch(L, seedText, frameworkId, formatId); }
+  catch(e){ /* research is supporting material \u2014 still write the synopsis */ }
+  const research = (found && found.research) || normaliseResearch({});
+  const synopsis = await aiSynopsisFromResearch(L, seedText, frameworkId, formatId, research);
+  if(!synopsis) return null;
+  return { title:(found && found.title) || "UNTITLED", logline:L, research, synopsis };
 }
 window.aiResearchSynopsis = aiResearchSynopsis;
 
@@ -4647,16 +4712,22 @@ function researchReservoir(research, use){
   if(!r) return "";
   const f = r.fact || {};
   const line = (k,v)=> v ? (k+": "+clipAtBoundary(String(v).replace(/\s+/g," ").trim(), 520)+"\n") : "";
-  const facts = line("World", f.world) + line("Protagonist's role", f.role)
-    + line("What happens in that role", f.whatHappens) + line("What is frustrating about it", f.frustrating);
-  const grounded = r.grounded ? " (checked against the web)" : "";
+  // every principal researched (fact.roles; an older film's single role is the protagonist's)
+  const roles = Array.isArray(f.roles) && f.roles.length ? f.roles : ((f.role||f.whatHappens) ? [f] : []);
+  const whose = (x,i)=> x.who ? x.who : (i ? "Another principal" : "The protagonist");
+  const roleFacts = (x,i)=> line(whose(x,i)+" \u2014 role", x.role) + line("  What happens in that role", x.whatHappens)
+    + line("  What is frustrating about it", x.frustrating);
+  const facts = line("World", f.world) + roles.map(roleFacts).join("");
+  const grounded = r.grounded ? " (checked against the web"+(r.edited ? ", then edited by the writer" : "")+")" : "";
   if(use==="world"){
     return facts ? ("RESEARCH \u2014 THE WORLD AS IT REALLY WORKS"+grounded+": build the setting's trades, objects, rules and "+
       "the cast's shared lexicon from it; never contradict it.\n"+facts) : "";
   }
   const inner = line("Memory (the emotional truth this story touches)", r.memory)
     + line("Imagination (the characters' lived hours)", r.imagination)
-    + facts + line("How the role feels from the inside", f.howItFeels) + line("What is lovely about it (what they stand to lose)", f.lovely);
+    + line("World", f.world)
+    + roles.map((x,i)=> roleFacts(x,i) + line("  How the role feels from the inside", x.howItFeels)
+      + line("  What is lovely about it (what they stand to lose)", x.lovely)).join("");
   return inner ? ("RESEARCH RESERVOIR"+grounded+" \u2014 write each character from WITHIN these circumstances: let the want grow "+
     "from what they stand to lose, the need from the emotional truth, and the pressure from the role's real friction.\n"+inner) : "";
 }
@@ -4666,14 +4737,11 @@ window.researchReservoir = researchReservoir;
 function researchToKeep(research){
   const r = research && typeof research==="object" ? research : null;
   if(!r) return undefined;
-  const t = (v,n)=> clipAtBoundary(String(v||"").trim(), n);
-  const f = r.fact || {};
-  const fact = { world:t(f.world,500), role:t(f.role,400), whatHappens:t(f.whatHappens,500),
-    howItFeels:t(f.howItFeels,500), frustrating:t(f.frustrating,500), lovely:t(f.lovely,500) };
-  const out = { memory:t(r.memory,600), imagination:t(r.imagination,600), fact,
-    sources: researchSources({ sources:r.sources }), grounded: !!r.grounded };
+  const n = normaliseResearch(r);
+  const out = { ...n, sources: researchSources({ sources:r.sources }), grounded: !!r.grounded,
+    ...(r.edited ? { edited:true } : {}) };
   if(!out.grounded) out.sources = [];
-  const any = out.memory || out.imagination || Object.values(fact).some(Boolean);
+  const any = out.memory || out.imagination || out.fact.world || out.fact.roles.length;
   return any ? out : undefined;
 }
 window.researchToKeep = researchToKeep;

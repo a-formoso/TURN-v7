@@ -19,8 +19,20 @@ const NS_STEPS = [
   { id:"seed",     label:"Seed" },
   { id:"format",   label:"Shape" },
   { id:"loglines", label:"Logline" },
+  { id:"research", label:"Research" },   // its own moment (2026-10-02, owner-approved): read, edit, steer
   { id:"synopsis", label:"Synopsis" },
 ];
+/* the LOGLINE CHECK's words (2026-10-02, owner-approved): what the writer's own logline doesn't
+   name yet — it only advises, never blocks */
+const NS_CHECK_PARTS = { protagonist:"one protagonist the story follows", want:"what they want", obstacle:"what stands in their way" };
+function nsLoglineCheckText(missing){
+  const parts = (missing||[]).map(k=>NS_CHECK_PARTS[k]).filter(Boolean);
+  if(!parts.length) return "";
+  const list = parts.length===1 ? parts[0] : parts.slice(0,-1).join(", ")+" or "+parts[parts.length-1];
+  return "Your logline doesn\u2019t yet name "+list+". The spine builds best from one protagonist with a clear want and something in their way \u2014 the sharpened versions below each have all three. You can still build from yours.";
+}
+window.nsLoglineCheckText = nsLoglineCheckText;
+const nsNorm = (s)=>String(s||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
 
 // ⌘/Ctrl+Enter (and plain Enter on single-line inputs) advances the flow
 const onCmdEnter = (fn, plainToo)=> (e)=>{
@@ -472,7 +484,7 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
   const [autoShape, setAutoShape] = React.useState(null);   // {formatLabel?, frameworkLabel?, why} — shown on the logline step
   const [seed, setSeed] = React.useState("logline");
   const [text, setText] = React.useState("");
-  const [step, setStep] = React.useState("seed");  // seed | interview | format(=shape) | loglines | synopsis
+  const [step, setStep] = React.useState("seed");  // seed | interview | format(=shape) | loglines | research | synopsis
   const [loading, setLoading] = React.useState(false);
   const [candidates, setCandidates] = React.useState([]);
   const [chosen, setChosen] = React.useState("");
@@ -491,7 +503,16 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
   // the synopsis paragraphs take the FRAMEWORK's shape (3 for three-act/journey,
   // 4 for kishōtenketsu/circle) — editable [{key,label,text}]
   const [paras, setParas] = React.useState([]);
-  const [showResearch, setShowResearch] = React.useState(true);
+  const [showResearch, setShowResearch] = React.useState(false);
+  // RESEARCH, ITS OWN MOMENT (2026-10-02, owner-approved): gathered for one logline, read and
+  // edited (or re-researched with a steer) before the synopsis is written FROM it
+  const [research, setResearch] = React.useState(null);   // { memory, imagination, fact:{ world, roles[] }, sources, grounded }
+  const [researchFor, setResearchFor] = React.useState(""); // the logline it was gathered for
+  const [researchLoading, setResearchLoading] = React.useState(false);
+  const [researchEdited, setResearchEdited] = React.useState(false);
+  const [steer, setSteer] = React.useState("");
+  const [synFrom, setSynFrom] = React.useState("");       // the research the synopsis was written from
+  const [loglineCheck, setLoglineCheck] = React.useState(null);   // { missing:[...] } for the writer's own logline
   // The auto-shape's setFramework/setFormat land a render AFTER develop() runs; mirror
   // them into refs so researchSynopsis always reads the APPLIED shape (never a stale
   // closure that would silently fall back to the default three-act synopsis).
@@ -528,6 +549,7 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
         const norm = (s)=>String(s||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
         const cands = mine ? [mine, ...outs.filter(o=>norm(o)!==norm(mine))] : outs.slice();
         setCandidates(cands); setChosen(cands[0]);
+        setLoglineCheck(mine && outs.check && Array.isArray(outs.check.missing) && outs.check.missing.length ? { text:mine, missing:outs.check.missing } : null);
         // AUTO-SHAPE: apply the recommended format/framework to any knob the writer
         // didn't actively pick \u2014 an explicit Step-1 choice always wins
         applyRecommendedShape(outs);
@@ -538,23 +560,49 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
     setLoading(false);
   };
 
-  const researchSynopsis = async ()=>{
-    if(synLoading) return;
+  const askFirst = async (title, body, confirmLabel)=>{
+    if(typeof window.appConfirm!=="function") return true;
+    return !!(await window.appConfirm({ title, body, confirmLabel }));
+  };
+  // gather the research for the chosen logline; the same logline goes straight back to it,
+  // a changed one researches again (and its old synopsis goes with the old research)
+  const runResearch = async (again)=>{
+    if(researchLoading || synLoading) return;
     const l=(chosen||"").trim();
     if(!l){ setErr("Choose a logline first."); return; }
+    if(!again && research && researchFor===l){ setErr(""); setStep("research"); return; }
+    if(again && researchEdited && !(await askFirst("Research again?",
+      "A new research replaces your edits to this one.", "Research again"))) return;
+    setErr(""); setResearchLoading(true);
+    try{
+      const r = (typeof aiResearch==="function") ? await aiResearch(l, text, frameworkRef.current, formatRef.current, again ? steer : "") : null;
+      if(r && r.research){
+        const fresh = researchFor!==l;
+        setResearch(r.research); setResearchFor(l); setResearchEdited(false);
+        if(fresh){ setSyn(null); setParas([]); setSynFrom(""); setTitle(r.title||""); }
+        else if(!title) setTitle(r.title||"");
+        setStep("research");
+      } else setErr("Couldn\u2019t research that logline \u2014 try again, or tweak the logline.");
+    }catch(e){ setErr(String((e&&e.message)||"Something went wrong. Try again.")); }
+    setResearchLoading(false);
+  };
+  const editResearch = (fn)=>{ setResearch(r=>{ const n = JSON.parse(JSON.stringify(r||{})); fn(n); return n; }); setResearchEdited(true); };
+  const researchKey = JSON.stringify(research||null);
+  // write (or rewrite) the synopsis FROM the research as it stands now
+  const writeSynopsis = async ()=>{
+    if(synLoading || researchLoading) return;
+    const l=(chosen||"").trim();
+    if(!l || !research){ setErr("Research the logline first."); return; }
+    if(paras.length && !(await askFirst("Rewrite the synopsis from the research?",
+      "It replaces the paragraphs below, including your edits to them.", "Rewrite synopsis"))) return;
     setErr(""); setSynLoading(true);
     try{
-      const s = (typeof aiResearchSynopsis==="function") ? await aiResearchSynopsis(l, text, frameworkRef.current, formatRef.current) : null;
-      if(s && s.synopsis){
-        setSyn(s);
-        setTitle(s.title||"");
-        setParas(Array.isArray(s.synopsis.paras) && s.synopsis.paras.length
-          ? s.synopsis.paras.map(pg=>({ ...pg, text: pg.text||"" }))
-          : [{key:"setup",label:"The Setup",text:s.synopsis.setup||""},
-             {key:"confrontation",label:"The Confrontation / Complication",text:s.synopsis.confrontation||""},
-             {key:"resolution",label:"The Resolution",text:s.synopsis.resolution||""}]);
-        setShowResearch(true); setStep("synopsis");
-      } else setErr("Couldn\u2019t research that into a synopsis \u2014 try again, or tweak the logline and regenerate.");
+      const s = (typeof aiSynopsisFromResearch==="function") ? await aiSynopsisFromResearch(l, text, frameworkRef.current, formatRef.current, research) : null;
+      if(s && Array.isArray(s.paras) && s.paras.length){
+        setParas(s.paras.map(pg=>({ ...pg, text: pg.text||"" })));
+        setSyn({ title: title || "" }); setSynFrom(researchKey);
+        setStep("synopsis");
+      } else setErr("Couldn\u2019t write a synopsis from that research \u2014 try again.");
     }catch(e){ setErr(String((e&&e.message)||"Something went wrong. Try again.")); }
     setSynLoading(false);
   };
@@ -566,7 +614,9 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
     const edited = paras.map(pg=>({ ...pg, text:(pg.text||"").trim() }));
     const synopsis = { paras: edited };
     edited.forEach(pg=>{ synopsis[pg.key] = pg.text; });
-    const synOut = { ...syn, title:(title||"").trim()||syn.title, synopsis };
+    const kept = research ? { ...((typeof normaliseResearch==="function") ? normaliseResearch(research) : research),
+      sources: research.sources || [], grounded: !!research.grounded, ...(researchEdited ? { edited:true } : {}) } : null;
+    const synOut = { title:(title||"").trim()||(syn&&syn.title)||"", synopsis, ...(kept ? { research:kept } : {}) };
     onLaunch(l, synOut, formatLocked ? _initialFormat : format, framework);
   };
 
@@ -574,10 +624,22 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
     React.createElement("div",{className:"syn-pillar-lab"},label),
     React.createElement("div",{className:"syn-pillar-tx"},body)) : null;
 
-  const fact = (syn && syn.research && syn.research.fact) || {};
-  const factSources = (syn && syn.research && syn.research.grounded && Array.isArray(syn.research.sources)) ? syn.research.sources : [];
-  const lenses = [["What happens",fact.whatHappens],["How it feels",fact.howItFeels],
-    ["Frustrating",fact.frustrating],["Lovely",fact.lovely]].filter(x=>x[1]);
+  const fact = (research && research.fact) || {};
+  const roles = Array.isArray(fact.roles) && fact.roles.length ? fact.roles : ((fact.role||fact.whatHappens) ? [fact] : []);
+  const factSources = (research && research.grounded && Array.isArray(research.sources)) ? research.sources : [];
+  const LENS_KEYS = [["whatHappens","What happens"],["howItFeels","How it feels"],["frustrating","Frustrating"],["lovely","Lovely"]];
+  const synStale = !!(paras.length && synFrom && synFrom!==researchKey);
+  // where the facts come from: the pages a web-grounded Fact pillar used, or a plain note
+  const sourcesBlock = ()=> factSources.length
+    ? React.createElement("div",{className:"syn-sources"},
+        React.createElement("div",{className:"syn-sources-k"},"Checked against the web \u00b7 sources"+(researchEdited?" \u00b7 edited by you since":"")),
+        factSources.map((x,i)=>React.createElement("a",{key:i,className:"syn-source",href:x.url,target:"_blank",rel:"noopener noreferrer",title:x.url},
+          React.createElement("span",{className:"syn-source-host"},x.host), x.title ? " \u2014 "+x.title : "")))
+    : React.createElement("div",{className:"syn-sources-note"},
+        "From general knowledge \u2014 not checked against the web. Verify real people, places and events before you rely on them.");
+  const resField = (label, value, onChange, rows)=> React.createElement("label",{className:"res-field"},
+    React.createElement("span",{className:"syn-pillar-lab"},label),
+    React.createElement("textarea",{className:"ns-input res-input",value:value||"",rows:rows||2,onChange:e=>onChange(e.target.value)}));
 
   return React.createElement("div",{className:"ns-overlay",onMouseDown:(e)=>{ if(e.target===e.currentTarget) onClose(); }},
     React.createElement("div",{className:"ns-panel"},
@@ -591,7 +653,8 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
               :step==="seed"?"Bring your idea in whatever shape it\u2019s in"
               :step==="interview"?"Talk it through \u00b7 I\u2019ll listen and shape loglines"
               :step==="loglines"?"Pick the logline to build from"
-              :"Research \u2192 synopsis \u00b7 review before the spine builds"))),
+              :step==="research"?"Research \u00b7 read it, edit it or steer it before the synopsis"
+              :"Synopsis \u00b7 written from your research \u00b7 review before the spine builds"))),
         React.createElement("label",{className:"ns-model-badge",title:"The model that develops this story — loglines, research, synopsis and the spine build"},
           React.createElement(Icon.sparkles,{s:12}),
           React.createElement("select",{className:"ns-model-sel",value:mid,disabled:loading,
@@ -718,6 +781,9 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
                   React.createElement("span",{className:"ns-cand-tx"},c),
                   (i===0 && seed==="logline" && c===text.trim()) &&
                     React.createElement("span",{className:"ns-cand-mine"},"yours \u2014 untouched")))),
+            loglineCheck && nsNorm(chosen)===nsNorm(loglineCheck.text) && React.createElement("div",{className:"ns-loglinecheck",role:"note"},
+              React.createElement(Icon.sparkles,{s:12}),
+              React.createElement("span",null,nsLoglineCheckText(loglineCheck.missing))),
             React.createElement("div",{className:"ns-field"},
               React.createElement("div",{className:"ns-input-lab"},"Final logline"),
               React.createElement("textarea",{className:"ns-input",value:chosen,
@@ -727,11 +793,47 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
               React.createElement("button",{className:"ns-btn ghost",onClick:()=>setStep("format")},"\u2190 Back"),
               React.createElement("button",{className:"ns-btn link",onClick:()=>develop("loglines"),disabled:loading||synLoading},
                 loading?"Re-developing\u2026":"Regenerate"),
-              React.createElement("button",{className:"ns-btn primary",onClick:researchSynopsis,disabled:synLoading||loading||!chosen.trim()||!aiOn},
-                synLoading?React.createElement(React.Fragment,null,
+              React.createElement("button",{className:"ns-btn primary",onClick:()=>runResearch(false),disabled:researchLoading||synLoading||loading||!chosen.trim()||!aiOn},
+                researchLoading?React.createElement(React.Fragment,null,
                   React.createElement("span",{className:"ns-spin"}),"Researching\u2026")
                   :React.createElement(React.Fragment,null,
-                  React.createElement(Icon.search||Icon.sparkles,{s:16}),"Research \u2192 synopsis"))))
+                  React.createElement(Icon.search||Icon.sparkles,{s:16}),
+                  (research && researchFor===chosen.trim()) ? "Research \u2192" : "Research"))))
+
+        : step==="research"
+        ? React.createElement("div",{className:"ns-body"},
+            React.createElement("div",{className:"syn-research res-edit"},
+              React.createElement("div",{className:"syn-research-head"},"Three Pillars of Research \u2014 edit anything before the synopsis"),
+              resField("Memory", research&&research.memory, v=>editResearch(r=>{ r.memory=v; }), 3),
+              resField("Imagination", research&&research.imagination, v=>editResearch(r=>{ r.imagination=v; }), 3),
+              React.createElement("div",{className:"syn-pillar"},
+                React.createElement("div",{className:"syn-pillar-lab"},"Fact"),
+                resField("World", fact.world, v=>editResearch(r=>{ r.fact=r.fact||{}; r.fact.world=v; }), 3),
+                roles.map((x,i)=>React.createElement("div",{key:i,className:"res-role"},
+                  React.createElement("input",{className:"ns-input res-who",value:x.who||"",placeholder:i?"Another principal":"The protagonist",
+                    "aria-label":"Who this role is",
+                    onChange:e=>{ const v=e.target.value; editResearch(r=>{ r.fact.roles=r.fact.roles&&r.fact.roles.length?r.fact.roles:[{...r.fact}]; r.fact.roles[i].who=v; }); }}),
+                  resField("Role", x.role, v=>editResearch(r=>{ r.fact.roles=r.fact.roles&&r.fact.roles.length?r.fact.roles:[{...r.fact}]; r.fact.roles[i].role=v; }), 2),
+                  React.createElement("div",{className:"syn-lens-grid"},
+                    LENS_KEYS.map(([k,lab])=>React.createElement("div",{key:k,className:"syn-lens"},
+                      resField(lab, x[k], v=>editResearch(r=>{ r.fact.roles=r.fact.roles&&r.fact.roles.length?r.fact.roles:[{...r.fact}]; r.fact.roles[i][k]=v; }), 4)))))),
+                sourcesBlock())),
+            React.createElement("div",{className:"ns-field res-steer"},
+              React.createElement("div",{className:"ns-input-lab"},"Steer the research \u2014 optional"),
+              React.createElement("div",{className:"res-steer-row"},
+                React.createElement("input",{className:"ns-input",value:steer,placeholder:"e.g. go deeper on the police officer, or set it in Derry instead",
+                  onChange:e=>setSteer(e.target.value), onKeyDown:onCmdEnter(()=>{ if(steer.trim()) runResearch(true); }, true)}),
+                React.createElement("button",{className:"ns-btn",onClick:()=>runResearch(true),disabled:researchLoading||synLoading||!aiOn},
+                  researchLoading?"Researching\u2026":"Research again"))),
+            err && React.createElement("div",{className:"ns-err"},(window.turnLinkifyReact?window.turnLinkifyReact(err):err)),
+            React.createElement("div",{className:"ns-foot"},
+              React.createElement("button",{className:"ns-btn ghost",onClick:()=>setStep("loglines")},"\u2190 Back"),
+              React.createElement("button",{className:"ns-btn primary",
+                onClick:()=>{ if(paras.length){ setErr(""); setStep("synopsis"); } else writeSynopsis(); },
+                disabled:synLoading||researchLoading||!research||!aiOn},
+                synLoading?React.createElement(React.Fragment,null,React.createElement("span",{className:"ns-spin"}),"Writing\u2026")
+                  :React.createElement(React.Fragment,null,React.createElement(Icon.sparkles,{s:16}),
+                    paras.length ? "Synopsis \u2192" : "Write synopsis"))))
 
         : React.createElement("div",{className:"ns-body"},
             React.createElement("div",{className:"syn-titlerow"},
@@ -745,27 +847,23 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
 
             showResearch && React.createElement("div",{className:"syn-research"},
               React.createElement("div",{className:"syn-research-head"},"Three Pillars of Research"),
-              pillar("Memory", syn&&syn.research&&syn.research.memory),
-              pillar("Imagination", syn&&syn.research&&syn.research.imagination),
-              (fact.world||fact.role||lenses.length) && React.createElement("div",{className:"syn-pillar"},
+              pillar("Memory", research&&research.memory),
+              pillar("Imagination", research&&research.imagination),
+              (fact.world||roles.length>0) && React.createElement("div",{className:"syn-pillar"},
                 React.createElement("div",{className:"syn-pillar-lab"},"Fact"),
                 fact.world && React.createElement("div",{className:"syn-fact-line"},
                   React.createElement("span",{className:"syn-fact-k"},"World"), fact.world),
-                fact.role && React.createElement("div",{className:"syn-fact-line"},
-                  React.createElement("span",{className:"syn-fact-k"},"Role"), fact.role),
-                lenses.length>0 && React.createElement("div",{className:"syn-lens-grid"},
-                  lenses.map(([k,v],i)=>React.createElement("div",{key:i,className:"syn-lens"},
-                    React.createElement("div",{className:"syn-lens-k"},k),
-                    React.createElement("div",{className:"syn-lens-v"},v)))),
-                // WHERE THE FACTS COME FROM (2026-10-02): the pages a web-grounded Fact pillar used,
-                // or a plain note that it was not checked against the web
-                factSources.length
-                  ? React.createElement("div",{className:"syn-sources"},
-                      React.createElement("div",{className:"syn-sources-k"},"Checked against the web \u00b7 sources"),
-                      factSources.map((x,i)=>React.createElement("a",{key:i,className:"syn-source",href:x.url,target:"_blank",rel:"noopener noreferrer",title:x.url},
-                        React.createElement("span",{className:"syn-source-host"},x.host), x.title ? " \u2014 "+x.title : "")))
-                  : React.createElement("div",{className:"syn-sources-note"},
-                      "From general knowledge \u2014 not checked against the web. Verify real people, places and events before you rely on them."))),
+                roles.map((x,i)=>React.createElement("div",{key:i,className:"res-role-read"},
+                  x.role && React.createElement("div",{className:"syn-fact-line"},
+                    React.createElement("span",{className:"syn-fact-k"},x.who||"Role"), x.role),
+                  React.createElement("div",{className:"syn-lens-grid"},
+                    LENS_KEYS.filter(([k])=>x[k]).map(([k,lab])=>React.createElement("div",{key:k,className:"syn-lens"},
+                      React.createElement("div",{className:"syn-lens-k"},lab),
+                      React.createElement("div",{className:"syn-lens-v"},x[k])))))),
+                sourcesBlock())),
+            synStale && React.createElement("div",{className:"ns-loglinecheck",role:"status"},
+              React.createElement(Icon.alert,{s:12}),
+              React.createElement("span",null,"The research has changed since this synopsis was written \u2014 rewrite it from the research, or keep it as it is.")),
 
             React.createElement("div",{className:"syn-seclab"},"Synopsis \u2014 edit any paragraph before building"),
             paras.map((pg,i)=>React.createElement("div",{key:pg.key,className:"syn-para"},
@@ -774,9 +872,9 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
                 onChange:e=>{ const v=e.target.value; setParas(ps=>ps.map((x,j)=>j===i?{...x,text:v}:x)); }}))),
             err && React.createElement("div",{className:"ns-err"},(window.turnLinkifyReact?window.turnLinkifyReact(err):err)),
             React.createElement("div",{className:"ns-foot"},
-              React.createElement("button",{className:"ns-btn ghost",onClick:()=>setStep("loglines")},"\u2190 Back"),
-              React.createElement("button",{className:"ns-btn link",onClick:researchSynopsis,disabled:synLoading},
-                synLoading?"Re-researching\u2026":"Regenerate"),
+              React.createElement("button",{className:"ns-btn ghost",onClick:()=>setStep("research")},"\u2190 Research"),
+              React.createElement("button",{className:"ns-btn link",onClick:writeSynopsis,disabled:synLoading||!research},
+                synLoading?"Rewriting\u2026":"Rewrite synopsis from research"),
               React.createElement("button",{className:"ns-btn primary",onClick:()=>build(),disabled:synLoading||!chosen.trim()},
                 React.createElement(Icon.film,{s:16}),"Build this story")))));
 }
