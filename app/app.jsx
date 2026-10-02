@@ -6029,7 +6029,29 @@ function App(){
       } };
   };
 
-  const artAgentCtxFactory = ({ input, emit, propose, cancelled, agentName, force })=>{
+  const artAgentCtxFactory = ({ input, emit, propose, cancelled, agentName, force, owner })=>{
+    // WRONG-FILM GUARD (2026-10-02): the film this run belongs to — captured when it starts (a
+    // refreshed context keeps its run's film). An Art Room run takes minutes and the film switcher
+    // stays live: after a switch, the run stops (cancelled), and every state write still in
+    // flight is refused — it would land in whichever film is open now. Images were already
+    // guarded by their asset scope (nbEpoch).
+    const ownerProjectId = owner!==undefined ? owner : currentProjectId;
+    const switchedFilms = ()=> String(ownerProjectId||"") !== String(projIdRef.current||"");
+    let _switchFlagged = false;
+    const inFilm = (fn)=> (...args)=>{
+      if(switchedFilms()){
+        if(!_switchFlagged){ _switchFlagged = true;
+          try{ emit && emit({k:"flag", t:"You switched films while this ran, so it stopped \u2014 nothing more was written to either film. Reopen the film it started in and run it again."}); }catch(e){} }
+        return undefined;
+      }
+      return fn(...args);
+    };
+    const _w = {
+      setProps:inFilm(setProps), setPropsSeeded:inFilm(setPropsSeeded), setLocations:inFilm(setLocations),
+      setLocsSeeded:inFilm(setLocsSeeded), setLookbook:inFilm(setLookbook), setLookbookNote:inFilm(setLookbookNote),
+      setCharacters:inFilm(setCharacters), updateCharacter:inFilm(updateCharacter), commitBeatKeyframes:inFilm(commitBeatKeyframes),
+      applyStyleResult:inFilm(applyStyleResult), markApplied:inFilm(markApplied),
+    };
     const ordered = scenesInStoryOrder(scenes);
     const charById = {}; characters.forEach(c=>{ charById[c.id]=c; });
     const propById = {}; props.forEach(p=>{ propById[p.id]=p; });
@@ -6069,7 +6091,7 @@ function App(){
         // the scene's shots outright — hand-made shots and alternatives vanished with no
         // Trash entry and rendered frames lost their link.
         if(typeof window.mergeBeatKeyframes==="function"){
-          const merged = commitBeatKeyframes(fresh, ()=>{});
+          const merged = _w.commitBeatKeyframes(fresh, ()=>{});
           _workShots = window.mergeBeatKeyframes(_workShots, fresh).shots;
           return merged;
         }
@@ -6123,7 +6145,7 @@ function App(){
       imageOf: async (id)=> _grabImg(id),
       draftSpec: async (c)=>{ if(typeof aiCharacterVisuals!=="function") return null;
         const patch = await aiCharacterVisuals(c, scenes.filter(s=>s.driver===c.id), lbProject("characters"), { scenes, drafts });
-        if(patch){ updateCharacter(c.id, patch); markApplied("characters"); } return patch; },
+        if(patch){ _w.updateCharacter(c.id, patch); _w.markApplied("characters"); } return patch; },
       suggestStates: async (c)=>{ if(typeof aiSuggestStates!=="function") return null;
         const raw = await aiSuggestStates(c, scenes.filter(s=>s.driver===c.id), project);
         if(!raw || !raw.length) return null;
@@ -6131,7 +6153,7 @@ function App(){
         const adds = raw.filter(s=>!have.has((s.label||"").trim().toLowerCase()))
           .map((s,i)=> s.id ? s : {...s, id:"st-"+Date.now().toString(36)+"-"+i});
         const merged = adds.length ? [...existing, ...adds] : existing;
-        if(adds.length) updateCharacter(c.id, { states: merged });
+        if(adds.length) _w.updateCharacter(c.id, { states: merged });
         return merged; },
       generateMaster: async (c, generateOpts)=>{
         generateOpts = generateOpts||{};
@@ -6208,7 +6230,7 @@ function App(){
       deriveCast: ()=>{
         if(typeof propsFromCast!=="function") return 0;
         const add = propsFromCast(characters, _propWork, scenes, drafts);
-        if(add.length){ _propWork = [..._propWork, ...add]; setProps(ps=>[...ps, ...add]); setPropsSeeded(true); }
+        if(add.length){ _propWork = [..._propWork, ...add]; _w.setProps(ps=>[...ps, ...add]); _w.setPropsSeeded(true); }
         return add.length;
       },
       // draft form/material/detail/renderStyle for every undrafted prop
@@ -6219,7 +6241,7 @@ function App(){
         const map = await aiDesignPropBible(todo, characters, lbProject("props"));
         if(!map) return 0;
         const patch = (ps)=> ps.map(p=> map[p.id] ? {...p, ...map[p.id]} : p);
-        _propWork = patch(_propWork); setProps(patch);
+        _propWork = patch(_propWork); _w.setProps(patch);
         return Object.keys(map).length;
       },
       // drafted props that still need a sheet (text-only objects are described in shots instead)
@@ -6257,7 +6279,7 @@ function App(){
             times:[...new Set([...(l.times||[]),...(m.times||[])])],
             areas:[...new Set([...(l.areas||[]),...(m.areas||[])])]}) : l; });
         if(derived.length) next = [...next, ...derived.map(l=>withEpisodeLocationMeta(l,l))];
-        _locWork = next; setLocations(next); setLocsSeeded(true);
+        _locWork = next; _w.setLocations(next); _w.setLocsSeeded(true);
         return derived.length;
       },
       coverage: ()=> (typeof locationCoverage==="function") ? locationCoverage(scenes, _locWork) : [],
@@ -6268,7 +6290,7 @@ function App(){
         const map = await aiDesignLocationBible(todo, scenes, lbProject("locations"));
         if(!map) return 0;
         const patch = (ls)=> ls.map(l=> map[l.id] ? {...l, ...map[l.id]} : l);
-        _locWork = patch(_locWork); setLocations(patch);
+        _locWork = patch(_locWork); _w.setLocations(patch);
         return Object.keys(map).length;
       },
       draftStaging: async ()=>{
@@ -6283,7 +6305,7 @@ function App(){
         const sMap={}; res.forEach(x=>{ if(x.staging) sMap[x.id]=x.staging; });
         if(!Object.keys(sMap).length) return 0;
         const patch = (ls)=> ls.map(l=> sMap[l.id] ? {...l, staging:sMap[l.id]} : l);
-        _locWork = patch(_locWork); setLocations(patch);
+        _locWork = patch(_locWork); _w.setLocations(patch);
         return Object.keys(sMap).length;
       },
       // add a variant for each extra time-of-day a place appears at (times[0] is the base plate)
@@ -6300,7 +6322,7 @@ function App(){
           added += adds.length;
           return {...l, variants:[...(l.variants||[]), ...adds]};
         });
-        const next = patch(_locWork); _locWork = next; if(added) setLocations(next);
+        const next = patch(_locWork); _locWork = next; if(added) _w.setLocations(next);
         return added;
       },
       toGeneratePlates: async (force)=>{
@@ -6350,7 +6372,7 @@ function App(){
         const r = await window.aiResearchLookbook(scenes, project, _lbWork);
         if(!r) return { statement:"", added:0 };
         // keep an existing statement — a gap-filling re-run shouldn't rewrite the north star
-        if(r.statement && !(lookbookNote||"").trim()) setLookbookNote(r.statement);
+        if(r.statement && !(lookbookNote||"").trim()) _w.setLookbookNote(r.statement);
         const slug = (s)=> String(s||"").toLowerCase().replace(/\([^)]*\)/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"");
         const keyOf = (e)=> (typeof lookbookSourceKey==="function") ? lookbookSourceKey(e) : slug(e&&e.source);
         const seen = new Set(_lbWork.map(c=>keyOf(c)));
@@ -6372,9 +6394,9 @@ function App(){
         }
         if(cards.length){
           _lbWork = (typeof dedupeLookbookCards==="function") ? dedupeLookbookCards([..._lbWork, ...cards]) : [..._lbWork, ...cards];
-          setLookbook(ls=> (typeof dedupeLookbookCards==="function") ? dedupeLookbookCards([...ls, ...cards]) : [...ls, ...cards]);
+          _w.setLookbook(ls=> (typeof dedupeLookbookCards==="function") ? dedupeLookbookCards([...ls, ...cards]) : [...ls, ...cards]);
         } else if(typeof dedupeLookbookCards==="function" && _lbWork.length !== (lookbook||[]).length){
-          setLookbook(_lbWork);
+          _w.setLookbook(_lbWork);
         }
         // No write-through: the Colorist reads the lookbook LIVE (see art.designStyles), so the
         // references propagate downstream without mutating the Color tab's persisted data.
@@ -6396,9 +6418,9 @@ function App(){
       applyRenderStyle: (key)=>{
         const locText = (typeof window.renderStyleText==="function") ? window.renderStyleText("loc", key) : "";
         const propText = (typeof window.renderStyleText==="function") ? window.renderStyleText("prop", key) : "";
-        setCharacters(cs=>cs.map(c=>({ ...c, renderStyleKey:key })));
-        setProps(ps=>ps.map(p=>({ ...p, renderStyleKey:key, ...(propText?{renderStyle:propText}:{}) })));
-        setLocations(ls=>ls.map(l=>({ ...l, renderStyleKey:key, ...(locText?{renderStyle:locText}:{}) })));
+        _w.setCharacters(cs=>cs.map(c=>({ ...c, renderStyleKey:key })));
+        _w.setProps(ps=>ps.map(p=>({ ...p, renderStyleKey:key, ...(propText?{renderStyle:propText}:{}) })));
+        _w.setLocations(ls=>ls.map(l=>({ ...l, renderStyleKey:key, ...(locText?{renderStyle:locText}:{}) })));
         return { characters:(characters||[]).length, props:(props||[]).length, locations:(locations||[]).length };
       },
       toGenerate: async ()=>{
@@ -6429,7 +6451,7 @@ function App(){
         const dropIds = new Set(((plan&&plan.drop)||[]).map(c=>c.id));
         if(!dropIds.size) return 0;
         _lbWork = _lbWork.filter(c=>!dropIds.has(c.id));
-        setLookbook(ls=> ls.filter(c=>!dropIds.has(c.id)));
+        _w.setLookbook(ls=> ls.filter(c=>!dropIds.has(c.id)));
         (plan.drop||[]).forEach(c=>{ try{ if(typeof nbClearAsset==="function") nbClearAsset(c.id); }catch(e){} });
         return dropIds.size;
       },
@@ -6438,7 +6460,20 @@ function App(){
 
     const draftOnly = force==="draft";
     const forceImages = force===true;
-    return { input, emit, propose, cancelled, project, force: forceImages,
+    const ctxArgs = { input, emit, propose, cancelled, agentName, force, owner:ownerProjectId };
+    return { input, emit, propose, project, force: forceImages,
+      cancelled: ()=> cancelled() || switchedFilms(),
+      switchedFilms,
+      // A FRESH CONTEXT for the next step of a multi-step run (2026-10-02): this context's reads
+      // (the Lookbook brief, the cast list, the props, the Colorist's references) are the film as
+      // it was when it was built. The Art Coordinator asks for a new one before each step, once
+      // the previous step's writes are committed, so every step works from the film as it is now.
+      refresh: async ()=>{
+        if(switchedFilms()) return null;
+        await artNextCommit();
+        const mk = artAgentCtxFactoryRef.current || artAgentCtxFactory;
+        return switchedFilms() ? null : mk(ctxArgs);
+      },
       // "Re-draft only": re-draft every spec from the Lookbook but leave generated images alone
       draftOnly,
       ai:{ available: (typeof aiAvailable==="function" && aiAvailable()) },
@@ -6448,7 +6483,7 @@ function App(){
         propmaster,
         locscout,
         lookbook: lookbookSurface,
-        markApplied: (dept)=> markApplied(dept),
+        markApplied: (dept)=> _w.markApplied(dept),
         // ---- Cinematographer / Colorist tools (Style Bible agent) ----
         scenesLite: ordered.map(s=>({ id:s.id, no:s.no, title:s.title })),
         // the Colorist's references = the Presets refs field, which the write-through effect
@@ -6459,7 +6494,7 @@ function App(){
         designStyles: async ()=>{ const sb=(typeof styleBibleOf==="function")?styleBibleOf(project):{};
           const seed=(sb.presets&&sb.presets.length)?sb.presets:(window.STYLE_PRESETS_DEFAULT||[]);
           return window.aiAssignSceneStyles(scenes, seed, drafts, project); },
-        applyStyles: (res)=> applyStyleResult(res),
+        applyStyles: (res)=> _w.applyStyleResult(res),
       } };
   };
   // LATEST-RENDER handle for long-lived async work (the wardrobe bootstrap): an event
@@ -6469,6 +6504,16 @@ function App(){
   // wardrobe it just generated. The ref always points at the current render's factory.
   const artAgentCtxFactoryRef = React.useRef(null);
   artAgentCtxFactoryRef.current = artAgentCtxFactory;
+  // NEXT COMMIT (2026-10-02) — what an Art context's refresh() waits for: resolves once React has
+  // committed the updates queued so far (a forced render guarantees one); the 1 s fallback keeps
+  // a run moving if the window is hidden and rendering is paused
+  const artCommitWaitersRef = React.useRef([]);
+  const [, setArtCommitTick] = React.useState(0);
+  React.useEffect(()=>{ const w = artCommitWaitersRef.current.splice(0); w.forEach(f=>{ try{ f(); }catch(e){} }); });
+  const artNextCommit = ()=> new Promise(res=>{
+    let done=false; const fin=()=>{ if(!done){ done=true; res(); } };
+    artCommitWaitersRef.current.push(fin); setArtCommitTick(t=>t+1); setTimeout(fin, 1000);
+  });
 
   // ---- WARDROBE-ATTENTION DOT (Characters tab) ----
   // A yellow dot on the Characters tab when something in there is waiting on the user:

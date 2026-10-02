@@ -2123,17 +2123,28 @@ async function agentDepartmentCoordinator(ctx){
   // each sub-agent emits its own k:"done" when its stage finishes — relabel those to k:"ok"
   // so each stage reads as one completed step and only THIS coordinator emits the final done.
   // propose() is auto-approved so the two gated steps (Colour, Shots) apply without pausing.
-  const subCtx = Object.assign({}, ctx, {
+  const subOf = (base)=> Object.assign({}, base, {
     emit:(e)=> ctx.emit((e && e.k==="done") ? Object.assign({}, e, {k:"ok"}) : e),
     propose:()=> Promise.resolve(true),
+    cancelled:()=> ctx.cancelled() || (typeof base.cancelled==="function" && base.cancelled()),
     autoApprove:true,   // steps that would change your approved work hold back (Shot Designer)
   });
   let n=0;
   for(const step of steps){
     if(ctx.cancelled()){ ctx.emit({k:"flag", t:"Stopped — completed "+n+" of "+steps.length+" steps."}); return; }
+    // EACH STEP WORKS FROM THE FILM AS IT IS NOW (2026-10-02): the run's context was the film when
+    // the run started, so the cast, props and locations drafted after the Lookbook step ignored
+    // its fresh research, Wear props dressed masters from the pre-draft specs and missed the props
+    // just added, and the Colorist read the old references. A fresh context, built after the
+    // previous step's writes are committed, fixes all of them (null = the film was switched).
+    let live = ctx;
+    if(n>0 && typeof ctx.refresh==="function"){
+      live = await ctx.refresh();
+      if(!live){ ctx.emit({k:"flag", t:"Stopped — completed "+n+" of "+steps.length+" steps (the film was switched)."}); return; }
+    }
     n++;
     ctx.emit({k:"act", t:"▸ Step "+n+"/"+steps.length+" — "+step[0]+"…"});
-    try{ await step[1](subCtx); }
+    try{ await step[1](subOf(live)); }
     catch(e){ ctx.emit({k:"flag", t:step[0]+" step hit an error: "+((e&&e.message)||e)+". Continuing with the next."}); }
   }
   if(ctx.cancelled()){ ctx.emit({k:"flag", t:"Stopped — completed "+n+" of "+steps.length+" steps."}); return; }
