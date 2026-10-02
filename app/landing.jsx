@@ -156,10 +156,25 @@ function lpTiers(){
   }));
 }
 
-/* the 14-day note under each plan card's button (plans.jsx checkoutNote), or null without plans.jsx */
-function lpNoteFn(){
-  return (typeof window.turnCheckoutNote==="function") ? window.turnCheckoutNote : null;
+/* the 14-day note behind the ⓘ right after each plan card's name (plans.jsx checkoutTip; owner request
+   2026-10-02, R2), or null without plans.jsx */
+function lpTipFn(){
+  return (typeof window.turnCheckoutTip==="function") ? window.turnCheckoutTip : null;
 }
+/* the trial sentence of the line under the plan cards (owner request 2026-10-02, R1: "New accounts get
+   50 free credits after confirming their email."). Shown only while the trial is offered (the same gate
+   as the Plans window's trial line: plans.jsx turnTrialCopy); the number is the live regime's trial
+   credits (app/pricing.jsx turnCreditRegime), else the trial's 50. The Plans window and the Terms keep
+   the longer TRIAL_COPY. */
+function lpTrialLine(){
+  const offered = (typeof window.turnTrialCopy==="function") ? !!window.turnTrialCopy() : false;
+  if(!offered) return "";
+  const r = (typeof window.turnCreditRegime==="function") ? window.turnCreditRegime() : null;
+  const live = Number(r && r.trialCredits);
+  const n = (Number.isFinite(live) && live > 0) ? live : (Number(window.TURN_TRIAL_CREDITS) || 50);
+  return "New accounts get "+n.toLocaleString("en-US")+" free credits after confirming their email.";
+}
+window.lpTrialLine = lpTrialLine;
 
 /* the line under the plan cards (billing fixes 2026-09-30, both regimes 2026-10-01): the free
    trial and the credit packs ON SALE right now, read from the same sources as the in-app Plans
@@ -167,21 +182,23 @@ function lpNoteFn(){
    the packs are the old ones (from $9) before it and the new ones (from $10) after it, and a pack
    without a checkout link here isn't on sale. While the live credit unit isn't known yet the line
    names nothing ("" — hidden), since either offer could be the wrong one. */
-function lpPricingNote(){
-  if(typeof window.turnCreditRegimeKnownForPlans==="function" && !window.turnCreditRegimeKnownForPlans()) return "";
-  const trial = (typeof window.turnTrialCopy==="function") ? window.turnTrialCopy() : "";
+/* the line's sentences, each on its own line under the cards (owner 2026-10-02: the packs sentence
+   on a new line; the price-terms line removed — the Terms still say prices are in US dollars and
+   include any VAT or sales tax) */
+function lpPricingLines(){
+  if(typeof window.turnCreditRegimeKnownForPlans==="function" && !window.turnCreditRegimeKnownForPlans()) return [];
+  const trial = lpTrialLine();
   const packs = (typeof window.turnActiveCreditPacks==="function") ? window.turnActiveCreditPacks() : (window.CINEMA_CREDIT_PACKS || []);
   const onSale = (typeof window.turnPackOnSale==="function") ? packs.filter(p=>window.turnPackOnSale(p)) : packs;
   const usd = p=>parseFloat(String(p.price).replace(/[^\d.]/g,""));
   const from = onSale.length ? onSale.slice().sort((a,b)=>usd(a)-usd(b))[0].price : "";
   const packLine = from ? "Credit packs from "+from+" for any account — pack credits last 12 months." : "";
-  if(!trial) return packLine;
-  return packLine ? trial+" Need more? "+packLine : trial;
+  if(!trial) return packLine ? [packLine] : [];
+  return packLine ? [trial, "Need more? "+packLine] : [trial];
 }
+window.lpPricingLines = lpPricingLines;
+function lpPricingNote(){ return lpPricingLines().join(" "); }
 window.lpPricingNote = lpPricingNote;
-/* shown under the plan cards in both regimes (owner decision 2026-10-01: dollar prices, tax
-   included — the Plans & subscription entry in app/ai.jsx APP_FEATURES says the same) */
-const LP_PRICE_TERMS = "Prices in US dollars, including any VAT or sales tax.";
 
 /* footer brand: "Kinolot by Infinite Studio AI", the company name linking to its site
    (shared with the Home dashboard footer, app/home-dashboard.jsx) */
@@ -276,7 +293,12 @@ function Landing({ onStart, onSignIn }){
         React.createElement("div",{className:"lp-tiers"},
           lpTiers().map((t,i)=>React.createElement("div",{key:i,className:"lp-tier"+(t.featured?" featured":"")},
             t.tag && React.createElement("div",{className:"lp-tier-tag"}, t.tag),
-            React.createElement("div",{className:"lp-tier-name"}, t.name),
+            // the plan's name, then the ⓘ with the 14-day note (owner request 2026-10-02, R2): this
+            // card's button leads to the plan's checkout (it opens by itself after sign-up), so it goes
+            // with the same note as the Plans window's buttons (plans.jsx checkoutTip)
+            React.createElement("div",{className:"lp-tier-name-row checkout-tip-row"},
+              React.createElement("div",{className:"lp-tier-name"}, t.name),
+              lpTipFn() && lpTipFn()("lp-checkout-note-"+t.id, "lp-checkout-tip")),
             React.createElement("div",{className:"lp-tier-price"},
               React.createElement("span",{className:"lp-tier-amt"}, t.price),
               React.createElement("span",{className:"lp-tier-per"}, t.per)),
@@ -285,15 +307,11 @@ function Landing({ onStart, onSignIn }){
               t.feats.map((f,j)=>React.createElement("li",{key:j},
                 React.createElement(Icon.check,{s:13}), React.createElement("span",null,f)))),
             React.createElement("button",{className:"lp-btn "+(t.featured?"primary":"ghost")+" full",onClick:()=>onStart(t.id),
-              "aria-describedby": lpNoteFn() ? "lp-checkout-note-"+t.id : undefined}, t.cta),
-            // the 14-day note under the button (owner decision 2026-10-02, E1): this click leads to the
-            // plan's checkout (it opens by itself after sign-up), so it carries the same line as the
-            // Plans window's buttons (plans.jsx checkoutNote)
-            lpNoteFn() && lpNoteFn()("lp-checkout-note-"+t.id, "lp-checkout-note")))),
-        // one note under the cards: the trial / packs line when there is one, then the price terms
-        React.createElement("p",{className:"lp-tier-note"},
-          lpPricingNote() && React.createElement(React.Fragment,null, lpPricingNote(), React.createElement("br",null)),
-          LP_PRICE_TERMS)),
+              "aria-describedby": lpTipFn() ? "lp-checkout-note-"+t.id : undefined}, t.cta)))),
+        // one note under the cards: the trial sentence, then the packs on a line of their own (owner
+        // 2026-10-02); nothing to name, no note
+        lpPricingLines().length ? React.createElement("p",{className:"lp-tier-note"},
+          ...lpPricingLines().flatMap((line,i)=> i ? [React.createElement("br",{key:"br"+i}), line] : [line])) : null),
 
       // closing band — heading left, actions right (like a product-platform strip)
       React.createElement("section",{className:"lp-final"},

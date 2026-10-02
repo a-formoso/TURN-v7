@@ -707,9 +707,9 @@ Owner decisions 2026-10-01: prices stay in US dollars; the Admin panel warns whe
 registration is due (the owner lives and works in the UK and advertises to UK, EU and US
 users); every buyer gets a 14-day right to cancel, the unused part back (the law requires it
 for UK and EU consumers; the Terms give it to everyone); since 2026-10-02 there is no consent
-step: a note sits next to every purchase button and the click is the request to start straight
-away; a partial refund removes the same share of credits; a closed dispute lifts its own
-hold.
+step: a note sits behind an ⓘ next to every plan's and pack's name (and under the chosen plan in
+the sign-up window) and the click is the request to start straight away; a partial refund
+removes the same share of credits; a closed dispute lifts its own hold.
 The owner's steps, with the Stripe settings and what to do about tax, are in
 `docs/Billing Rollout Runbook.md`, section (9).
 
@@ -728,7 +728,9 @@ The owner's steps, with the Stripe settings and what to do about tax, are in
 - **`turn_checkout_consents`** — the request to start straight away (the 14-day right to
   cancel) the app records when a plan or pack purchase button is clicked, right before the
   payment page opens (`turn_record_checkout_consent`; the note "Starts straight away. Cancel
-  within 14 days and you get back the part you haven't used." sits next to every such button),
+  within 14 days and you get back the part you haven't used." sits behind an ⓘ next to each
+  plan's and pack's name, which the button points at with `aria-describedby`, and under the
+  chosen plan in the sign-up window),
   as `v3-2026-10-02-click`; the post-sign-up auto-checkout (no click) as `v3-2026-10-02-auto`.
   If the call fails (this file not run yet), the checkout still opens; the payment link asks
   for nothing extra (owner decision 2026-10-02), so this is the only record.
@@ -773,8 +775,8 @@ The owner's steps, with the Stripe settings and what to do about tax, are in
    *(Stripe dashboard, right after)* webhook endpoint → add the event
    **`charge.refund.updated`** (ten in all): it applies a refund that was pending when
    `charge.refunded` came, once it succeeds.
-4. *(Replit)* Pull, then Publish: the 14-day note next to every purchase button (the click is
-   recorded) and the Admin panel's "Tax & compliance" panel.
+4. *(Replit)* Pull, then Publish: the 14-day note behind the ⓘ next to every plan's and pack's
+   name (the click on a purchase button is recorded) and the Admin panel's "Tax & compliance" panel.
 
 Fresh installs: `credits.sql` carries the same definitions (the block between the
 `>>> KINOLOT TAX COMPLIANCE DEFINITIONS >>>` markers is byte-identical in both files).

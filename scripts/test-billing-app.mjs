@@ -1511,15 +1511,23 @@ await test("M the welcome card copy (plan live / activating) and the pack card c
   assert.equal(P.turnWelcomePackCopy(300, false, null).sub, "Pack credits last 12 months and are never reset when a plan renews. Your balance is now 300 credits.");
   assert.equal(P.turnWelcomePackCopy(0, true).title, "Adding your extra credits…");
 });
-await test("M the landing: the free-trial + packs line under the plan cards", () => {
+const LP_TRIAL = "New accounts get 50 free credits after confirming their email.";   // owner request 2026-10-02 (R1)
+await test("M the landing: the free-trial + packs line under the plan cards (R1: the short trial sentence; the Plans window keeps TRIAL_COPY)", () => {
   const L = box({ usePlansVersion: () => 0 });
   run(L, "app/plans.jsx"); run(L, "app/landing.jsx");
-  assert.equal(L.lpPricingNote(), L.TURN_TRIAL_COPY+" Need more? Credit packs from $10 for any account — pack credits last 12 months.");
+  assert.equal(L.lpTrialLine(), LP_TRIAL);
+  assert.equal(L.lpPricingNote(), LP_TRIAL+" Need more? Credit packs from $10 for any account — pack credits last 12 months.");
+  assert.ok(!L.lpPricingNote().includes(L.TURN_TRIAL_COPY), "the landing no longer shows the long trial copy");
+  assert.equal(L.turnTrialCopy(), L.TURN_TRIAL_COPY, "TRIAL_COPY stays for the Plans window (and the Terms)");
   L.React.reset();
   const page = L.Landing({ onStart: noop, onSignIn: noop });
   assert.equal(findAll(page, hasClass("lp-tier-note")).length, 1);
-  // landing copy 2026-10-01: the price terms follow the line, in both regimes
-  assert.equal(textOf(findAll(page, hasClass("lp-tier-note"))[0]), L.lpPricingNote()+"Prices in US dollars, including any VAT or sales tax.");
+  // owner 2026-10-02: the packs sentence on its own line; no price-terms line on the landing
+  const note = findAll(page, hasClass("lp-tier-note"))[0];
+  assert.equal(textOf(note), LP_TRIAL+"Need more? Credit packs from $10 for any account — pack credits last 12 months.");
+  assert.equal(findAll(note, (n) => n && n.type === "br").length, 1, "the packs sentence starts a new line");
+  assert.ok(!JSON.stringify(page).includes("Prices in US dollars"), "the price-terms line is gone from the landing");
+  assert.deepEqual(plain(L.lpPricingLines()), [LP_TRIAL, "Need more? Credit packs from $10 for any account — pack credits last 12 months."]);
   assert.deepEqual(plain(findAll(page, hasClass("lp-room-status")).map(textOf)), ["Every plan", "Director and Producer plans", "Producer plan"]);
 });
 await test("M app.jsx: trial isn't a paid plan; notices mounted; welcome waits for the bought plan; the intent effect reads the account and runs after the ledger exists", () => {
@@ -1621,10 +1629,10 @@ await test("M brand: the new copy names no retired name (TURN, MUSE, Cinema Mach
       N.usePlansVersion = () => 0; N.React.reset();
       const note = findAll(N.Landing({ onStart: noop, onSignIn: noop }), hasClass("lp-tier-note"));
       assert.equal(note.length, 1);
-      assert.equal(textOf(note[0]), "Credit packs from $9 for any account — pack credits last 12 months.Prices in US dollars, including any VAT or sales tax.");
+      assert.equal(textOf(note[0]), "Credit packs from $9 for any account — pack credits last 12 months.");
     } finally { N.location.hostname = "localhost"; }
     N.usePlansVersion = () => 0; N.React.reset();
-    assert.equal(textOf(findAll(N.Landing({ onStart: noop, onSignIn: noop }), hasClass("lp-tier-note"))[0]), "Prices in US dollars, including any VAT or sales tax.", "with no offer to name, only the price terms show");
+    assert.equal(findAll(N.Landing({ onStart: noop, onSignIn: noop }), hasClass("lp-tier-note")).length, 0, "with no offer to name, no note shows (owner 2026-10-02: no price-terms line)");
     assert.equal(JSON.parse(N.localStorage.getItem("turn-credit-regime-v1")).switched, false, "remembered for the next first paint");
     // a pack link pasted in early still can't open a checkout before the switch
     savedPack0Test = N.CINEMA_CREDIT_PACKS[0].test;
@@ -1692,7 +1700,7 @@ await test("M brand: the new copy names no retired name (TURN, MUSE, Cinema Mach
     assert.equal(N.TURN_PRICING.text.creditRates["claude-fable-5-1"], 0.33);
     assert.deepEqual(cards(), [["writer", 600, "600 credits / month"], ["director", 1600, "1,600 credits / month"], ["studio", 5000, "5,000 credits / month"]]);
     assert.equal(N.turnTrialCopy(), N.TURN_TRIAL_COPY);
-    assert.ok(N.lpPricingNote().startsWith(N.TURN_TRIAL_COPY) && N.lpPricingNote().includes("Credit packs from $10"));
+    assert.equal(N.lpPricingNote(), LP_TRIAL+" Need more? Credit packs from $10 for any account — pack credits last 12 months.");
     N.React.reset();
     const tree = N.PlansModal({ onClose: noop, currentPlan: "writer" });
     const btn = findAll(findAll(tree, hasClass("credit-pack"))[0], (n) => n.type === "button")[0];
@@ -1742,7 +1750,13 @@ await test("M brand: the new copy names no retired name (TURN, MUSE, Cinema Mach
     assert.ok(!X.events.some((e) => e.type === "turn-pricing-changed"), "costs didn't move");
     assert.deepEqual(plain(X.CINEMA_PLANS.map((p) => p.features[0])), ["600 credits / month", "1,600 credits / month", "5,000 credits / month"]);
     assert.equal(X.turnTrialCopy(), X.TURN_TRIAL_COPY);
-    assert.ok(X.lpPricingNote().startsWith(X.TURN_TRIAL_COPY));
+    assert.ok(X.lpPricingNote().startsWith(LP_TRIAL+" Need more? "));
+  });
+  await test("O (R1) the landing's trial sentence takes its number from the live regime's trial credits", () => {
+    const X = mk();
+    X.turnApplyCreditRegime({ switched: true, usd_per_credit: 0.01, trial_credits: 1200, legacy_until: null }, "server");
+    assert.equal(X.lpTrialLine(), "New accounts get 1,200 free credits after confirming their email.");
+    assert.ok(X.lpPricingNote().startsWith("New accounts get 1,200 free credits after confirming their email. Need more? Credit packs from $10"));
   });
   await test("O (A12) a switched regime that reports trial_credits 0 offers no trial anywhere", () => {
     const X = mk();
@@ -1750,6 +1764,7 @@ await test("M brand: the new copy names no retired name (TURN, MUSE, Cinema Mach
     assert.equal(X.turnTrialOffered(), false);
     assert.equal(X.turnTrialCopy(), "");
     assert.equal(X.lpPricingNote(), "Credit packs from $10 for any account — pack credits last 12 months.", "no trial sentence; the packs on sale are still named (landing copy 2026-10-01)");
+    assert.equal(X.lpTrialLine(), "");
     X.turnUserId = null; X.turnIsPaidPlan = paidFn; X.usePlansVersion = () => 0; X.React.reset();
     assert.equal(findAll(X.PlansModal({ onClose: noop, currentPlan: null }), hasClass("plans-trial")).length, 0);
   });

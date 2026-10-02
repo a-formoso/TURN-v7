@@ -668,9 +668,11 @@ window.turnLowBalanceDismiss = lowBalanceDismiss;
    used, in proportion; the webhook removes that share when the owner refunds it).
    NO EXTRA STEP (owner, 2026-10-02: "we don't need to create friction with potential customers"):
    the "Before you pay" dialog and its checkbox (v2-2026-10-01) are gone. Instead one short line
-   sits right under every plan and pack purchase button — the Plans window's plan cards and pack
-   cards, the homepage's plan cards (they lead to checkout after sign-up: landing.jsx), the chosen
-   plan in the sign-up window (auth-ui.jsx) — with a link to the Terms' cancel section. Clicking the
+   with a link to the Terms' cancel section goes with every plan and pack purchase: behind a small
+   info (ⓘ) button right after each plan's and pack's NAME (owner request 2026-10-02, R2: CheckoutTip
+   below) on the Plans window's plan cards and pack cards and the homepage's plan cards (they lead to
+   checkout after sign-up: landing.jsx) — each purchase button's aria-describedby points at it — and
+   right under the chosen plan in the sign-up window (auth-ui.jsx, checkoutNote). Clicking the
    button IS the request to start straight away: startCheckout records it on the server
    (turn_record_checkout_consent(sku, CHECKOUT_CONSENT_VERSION), supabase/tax-compliance.sql: who,
    which sku, which wording, when) right before the payment page opens. A database without that
@@ -700,17 +702,143 @@ function cancelSectionLive(){
   return !!s && Number.isFinite(Date.parse(s));
 }
 window.turnCancelSectionLive = cancelSectionLive;
-/* the line itself, under a purchase button. `id` lets the button point at it (aria-describedby), so
-   a screen reader reads it with the button; `extra` adds a surface's own class (landing, sign-up). */
-function checkoutNote(id, extra){
+/* the note's content: the line, the Terms link and — until the cancel section is live — the way to cancel */
+function checkoutNoteParts(){
   const howToCancel = cancelSectionLive() ? [] : [" · To cancel, email ",
-    React.createElement("a",{className:"checkout-note-mail",href:"mailto:"+BILLING_EMAIL},BILLING_EMAIL)];
+    React.createElement("a",{key:"mail",className:"checkout-note-mail",href:"mailto:"+BILLING_EMAIL},BILLING_EMAIL)];
+  return [CHECKOUT_NOTE_TEXT+" ",
+    React.createElement("a",{key:"terms",href:CHECKOUT_TERMS_HREF,target:"_blank",rel:"noopener"},"Terms"),
+    ...howToCancel];
+}
+/* the line itself, as a visible line: under the chosen plan in the sign-up window (auth-ui.jsx). `id`
+   lets a button point at it (aria-describedby); `extra` adds a surface's own class. */
+function checkoutNote(id, extra){
   return React.createElement("p",{className:"checkout-note"+(extra ? " "+extra : ""), id: id || undefined},
-    CHECKOUT_NOTE_TEXT+" ",
-    React.createElement("a",{href:CHECKOUT_TERMS_HREF,target:"_blank",rel:"noopener"},"Terms"),
-    ...howToCancel);
+    ...checkoutNoteParts());
 }
 window.turnCheckoutNote = checkoutNote;
+/* THE NOTE BEHIND AN INFO (ⓘ) BUTTON, right after a plan's or pack's name (owner request 2026-10-02,
+   R2: "Turn this text … into a tooltip, and place it to the right of every plan's name"): the Plans
+   window's plan cards and pack cards and the homepage's plan cards. The popup shows exactly the note
+   (checkoutNoteParts). It stays in the page while closed (hidden), carrying `id`, so a purchase button's
+   aria-describedby can point at it: directly referenced hidden content is still read with the button.
+   Opens on hover (a mouse) and on keyboard focus (:focus-visible — not the focus a click or a tap
+   gives); a click or tap toggles it (it stays open until the next one); closes on Escape (focus goes
+   back to the ⓘ when it was on the link), when focus leaves it and on a click or tap outside; focus
+   inside (the Terms link) keeps it open. It opens under the ⓘ, shifted sideways to stay inside the
+   window and every card or scroll box around it, and above the ⓘ when there is no room below — checked
+   again as the page scrolls or the window resizes (watchCheckoutTip). */
+const CHECKOUT_TIP_LABEL = "About starting straight away and cancelling";
+window.TURN_CHECKOUT_TIP_LABEL = CHECKOUT_TIP_LABEL;
+const CHECKOUT_TIP_MARGIN = 8;   // px kept free between the popup and the edge of what would clip it
+let _checkoutTipSeq = 0;
+/* the visible box the popup must stay inside: the window, cut down by every ancestor that clips or scrolls */
+function checkoutTipBounds(node){
+  const M = CHECKOUT_TIP_MARGIN;
+  const b = { left:M, top:M, right:(window.innerWidth||0)-M, bottom:(window.innerHeight||0)-M };
+  for(let p = node && node.parentElement; p && p!==document.body && p!==document.documentElement; p = p.parentElement){
+    const cs = window.getComputedStyle(p);
+    if(!/(auto|scroll|hidden|clip)/.test(cs.overflowX+" "+cs.overflowY)) continue;
+    const r = p.getBoundingClientRect();
+    b.left = Math.max(b.left, r.left+M); b.top = Math.max(b.top, r.top+M);
+    b.right = Math.min(b.right, r.right-M); b.bottom = Math.min(b.bottom, r.bottom-M);
+  }
+  return b;
+}
+/* centred under the ⓘ, then nudged sideways (--tip-dx; the caret stays on the ⓘ) and flipped up if needed */
+function placeCheckoutTip(wrap, pop){
+  if(!wrap || !pop || typeof pop.getBoundingClientRect!=="function") return;
+  pop.style.setProperty("--tip-dx","0px"); pop.removeAttribute("data-place");
+  const b = checkoutTipBounds(wrap), r = pop.getBoundingClientRect();
+  let dx = 0;
+  if(r.left < b.left || r.width > b.right-b.left) dx = b.left - r.left;
+  else if(r.right > b.right) dx = b.right - r.right;
+  if(dx) pop.style.setProperty("--tip-dx", Math.round(dx)+"px");
+  const w = wrap.getBoundingClientRect();
+  if(r.bottom > b.bottom && w.top - CHECKOUT_TIP_MARGIN - r.height >= b.top) pop.setAttribute("data-place","up");
+}
+window.turnPlaceCheckoutTip = placeCheckoutTip;
+/* while the popup is open: place it again when the window resizes and whenever anything scrolls (once a
+   frame; a capture listener sees every scroll box). Keyboard focus opens it while the homepage is still
+   smooth-scrolling the ⓘ into view, so the first up/down choice is made with the ⓘ off-screen (review
+   2026-10-02): it must follow the ⓘ to where the scroll ends. Returns the clean-up. */
+function watchCheckoutTip(place){
+  let frame = 0;
+  const onScroll = ()=>{
+    if(frame) return;
+    if(typeof window.requestAnimationFrame!=="function"){ place(); return; }
+    frame = window.requestAnimationFrame(()=>{ frame = 0; place(); });
+  };
+  window.addEventListener("resize", place);
+  window.addEventListener("scroll", onScroll, true);
+  return ()=>{
+    window.removeEventListener("resize", place);
+    window.removeEventListener("scroll", onScroll, true);
+    if(frame && typeof window.cancelAnimationFrame==="function") window.cancelAnimationFrame(frame);
+    frame = 0;
+  };
+}
+window.turnWatchCheckoutTip = watchCheckoutTip;
+function CheckoutTip({ id, extra }){
+  const [hover, setHover] = React.useState(false);     // a mouse over the ⓘ or the popup
+  const [focusIn, setFocusIn] = React.useState(false); // keyboard focus on the ⓘ or the link
+  const [pinned, setPinned] = React.useState(false);   // opened by a click or a tap
+  const wrapRef = React.useRef(null), btnRef = React.useRef(null), popRef = React.useRef(null);
+  const quietFocus = React.useRef(false);   // focus handed back to the ⓘ by Escape doesn't reopen it
+  const autoId = React.useRef(null);
+  if(!autoId.current) autoId.current = "checkout-tip-"+(++_checkoutTipSeq);
+  const popId = id || autoId.current;
+  const show = pinned || hover || focusIn;
+  const close = ()=>{ setPinned(false); setHover(false); setFocusIn(false); };
+  React.useLayoutEffect(()=>{
+    if(!show) return;
+    const place = ()=> placeCheckoutTip(wrapRef.current, popRef.current);
+    place();
+    return watchCheckoutTip(place);
+  },[show]);
+  React.useEffect(()=>{
+    if(!show) return;
+    const down = (e)=>{ const w = wrapRef.current; if(w && !w.contains(e.target)) close(); };
+    const key = (e)=>{ if(e.key==="Escape") close(); };   // hover-opened: Escape closes it without moving the pointer
+    document.addEventListener("pointerdown", down, true);
+    document.addEventListener("keydown", key);
+    return ()=>{ document.removeEventListener("pointerdown", down, true); document.removeEventListener("keydown", key); };
+  },[show]);
+  const onFocus = (e)=>{
+    if(quietFocus.current){ quietFocus.current = false; return; }
+    let keyboard = true;
+    try{ keyboard = !!(e.target && e.target.matches && e.target.matches(":focus-visible")); }catch(_){ keyboard = true; }
+    if(keyboard) setFocusIn(true);
+  };
+  const onBlur = (e)=>{
+    const w = wrapRef.current, to = e.relatedTarget;
+    if(w && to && w.contains(to)) return;   // still inside (the ⓘ ↔ the Terms link)
+    setFocusIn(false); setPinned(false);
+  };
+  const onKeyDown = (e)=>{
+    if(e.key!=="Escape" || !show) return;
+    e.stopPropagation();   // only the popup closes, not a window around it
+    const pop = popRef.current, btn = btnRef.current;
+    if(pop && btn && pop.contains(document.activeElement)){ quietFocus.current = true; btn.focus(); }
+    close();
+  };
+  const onClick = ()=>{ if(pinned || (focusIn && !hover)) close(); else setPinned(true); };
+  return React.createElement("span",{className:"checkout-tip"+(extra ? " "+extra : "")+(show ? " open" : ""), ref:wrapRef,
+    onPointerEnter:(e)=>{ if(e.pointerType==="mouse") setHover(true); },
+    onPointerLeave:(e)=>{ if(e.pointerType==="mouse") setHover(false); },
+    onFocus, onBlur, onKeyDown},
+    React.createElement("button",{type:"button", className:"checkout-tip-btn", ref:btnRef,
+      "aria-label":CHECKOUT_TIP_LABEL, "aria-expanded":show ? "true" : "false", "aria-controls":popId, onClick},
+      (typeof Icon!=="undefined" && Icon && Icon.info) ? React.createElement(Icon.info,{s:15}) : "i"),
+    React.createElement("span",{className:"checkout-tip-pop", id:popId, ref:popRef, hidden:!show},
+      ...checkoutNoteParts()));
+}
+window.CheckoutTip = CheckoutTip;
+/* the ⓘ for one purchase: `id` is what the purchase button's aria-describedby names; `extra` a surface's class */
+function checkoutTip(id, extra){
+  return React.createElement(CheckoutTip,{ id, extra });
+}
+window.turnCheckoutTip = checkoutTip;
 /* the sku a consent is recorded under: a pack's own sku ("pack-250", "credits-300"), a plan's
    "plan-<tier id>" ("plan-studio" for Producer: ids are never renamed) */
 function checkoutSku(item){
@@ -963,13 +1091,16 @@ function PlansModal({ onClose, currentPlan }){
           React.createElement("div",{className:"plans-grid"},
             PLANS.map(p=>{
               const active = currentPlan && String(currentPlan).toLowerCase()===p.tier;
-              // a purchase button (not "Current plan", not a subscriber's "Switch to …") carries the
-              // 14-day note right under it (E1, 2026-10-02): clicking it is the request to start now
+              // a purchase button (not "Current plan", not a subscriber's "Switch to …") goes with the
+              // 14-day note (E1, 2026-10-02) — behind the ⓘ right after the plan's name (R2, 2026-10-02):
+              // clicking the button is the request to start now
               const buys = !active && !hasPlan;
               const noteId = "checkout-note-plan-"+p.tier;
               return React.createElement("div",{key:p.tier,className:"plan-card"+(p.popular?" popular":"")+(active?" active":"")},
                 p.popular && React.createElement("div",{className:"plan-flag"},"Most popular"),
-                React.createElement("div",{className:"plan-name"},p.name),
+                React.createElement("div",{className:"plan-name-row checkout-tip-row"},
+                  React.createElement("div",{className:"plan-name"},p.name),
+                  buys && checkoutTip(noteId)),
                 React.createElement("div",{className:"plan-price"},p.price,React.createElement("span",{className:"plan-per"},"/mo")),
                 React.createElement("div",{className:"plan-blurb"},p.blurb),
                 React.createElement("ul",{className:"plan-feats"},
@@ -978,8 +1109,7 @@ function PlansModal({ onClose, currentPlan }){
                 React.createElement("button",{className:"plan-cta"+(p.popular?" primary":"")+(active?" is-active":""),
                   disabled:active, "aria-describedby": buys ? noteId : undefined,
                   onClick:()=>{ if(active) return; if(hasPlan) switchPlan(); else startCheckout(p); }},
-                  active ? "Current plan" : ((hasPlan ? "Switch to " : "Choose ")+p.name)),
-                buys && checkoutNote(noteId));
+                  active ? "Current plan" : ((hasPlan ? "Switch to " : "Choose ")+p.name)));
             })),
           hasPlan && switchNote && React.createElement("div",{className:"plans-switch-note",role:"status"},
             "To switch plans, write to ",
@@ -997,16 +1127,18 @@ function PlansModal({ onClose, currentPlan }){
                 const noteId = "checkout-note-"+p.sku;
                 return React.createElement("div",{key:p.sku,className:"credit-pack"+(p.popular?" popular":"")},
                   p.popular && React.createElement("div",{className:"credit-pack-flag"},"Best value"),
-                  React.createElement("div",{className:"credit-pack-name"},p.name),
+                  // the 14-day note behind the ⓘ after the name of every pack that can be bought (E1, R2);
+                  // "Coming soon" sells nothing
+                  React.createElement("div",{className:"credit-pack-name-row checkout-tip-row"},
+                    React.createElement("div",{className:"credit-pack-name"},p.name),
+                    !unavailable && checkoutTip(noteId)),
                   React.createElement("div",{className:"credit-pack-price"},p.price),
                   React.createElement("div",{className:"credit-pack-blurb"},p.blurb),
                   React.createElement("button",{className:"plan-cta"+(p.popular?" primary":""),disabled:unavailable,
                     title:unavailable ? "This pack goes on sale soon" : "Buy extra credits — they last 12 months",
                     "aria-describedby": unavailable ? undefined : noteId,
                     onClick:()=>buyPack(p)},
-                    unavailable ? PLANS_COPY.soon : ("Buy "+p.credits.toLocaleString("en-US"))),
-                  // the 14-day note under every pack that can be bought (E1); "Coming soon" sells nothing
-                  !unavailable && checkoutNote(noteId));
+                    unavailable ? PLANS_COPY.soon : ("Buy "+p.credits.toLocaleString("en-US"))));
               })))),
       React.createElement("div",{className:"plans-foot"},
         "Secure checkout by Stripe · Kinolot by Infinite Studio AI · Billing questions: kinolot-billing@infinitestudioai.com")));

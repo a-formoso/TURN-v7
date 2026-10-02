@@ -5233,11 +5233,20 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
 @media (max-width:880px){ .lp-tiers{grid-template-columns:1fr;max-width:420px} }
 /* the free-trial + packs line under the plan cards (billing fixes, 2026-09-30) */
 .lp-tier-note{max-width:720px;margin:22px auto 0;text-align:center;font-size:14px;line-height:1.55;color:var(--lpw-sub)}
-/* the 14-day note under each plan's button (owner decision 2026-10-02: plans.jsx checkoutNote) */
-.lp-tier .lp-checkout-note{margin:-6px 0 0;font-size:12.5px;line-height:1.5;color:var(--lpw-sub);text-align:center}
-.lp-tier .lp-checkout-note a{color:var(--lpw-ink);text-decoration:underline;text-underline-offset:2px}
-.lp-tier.featured .lp-checkout-note{color:rgba(255,255,255,.62)}
-.lp-tier.featured .lp-checkout-note a{color:#fff}
+/* the 14-day note behind the ⓘ right after each plan's name (owner request 2026-10-02, R2: plans.jsx
+   CheckoutTip; its layout is in the Consumer rights block at the end): the website palette — a white
+   popup with ink text on paper, and the same popup over the featured (Carbon) card, whose ⓘ is light */
+.lp-checkout-tip .checkout-tip-btn{color:var(--lpw-sub)}
+/* hover / open: .lp-tier in front so it outranks the app's .checkout-tip.open .checkout-tip-btn (0,3,0, later in
+   the file), which would paint the app theme's disc (white, or dark in a dark theme) on the paper card */
+.lp-tier .lp-checkout-tip .checkout-tip-btn:hover,.lp-tier .lp-checkout-tip.open .checkout-tip-btn{color:var(--lpw-ink);background:var(--lpw-card-2)}
+.lp-checkout-tip .checkout-tip-btn:focus-visible{outline-color:var(--lpw-ink)}
+.lp-tier.featured .lp-checkout-tip .checkout-tip-btn{color:rgba(255,255,255,.62)}
+.lp-tier.featured .lp-checkout-tip .checkout-tip-btn:hover,.lp-tier.featured .lp-checkout-tip.open .checkout-tip-btn{color:#fff;background:rgba(255,255,255,.12)}
+.lp-tier.featured .lp-checkout-tip .checkout-tip-btn:focus-visible{outline-color:var(--lpw-amber)}
+.lp-checkout-tip .checkout-tip-pop{background:var(--lpw-surface);border-color:var(--lpw-line-3);color:var(--lpw-ink-2);
+  box-shadow:0 14px 34px rgba(15,16,18,.16);font-size:13px}
+.lp-checkout-tip .checkout-tip-pop a{color:var(--lpw-ink)}
 
 /* auth modal — chosen-plan badge (from landing pricing CTA). nowrap + wrap: on a phone the note
    drops to its own line instead of the plan name breaking inside the chip */
@@ -8813,15 +8822,46 @@ body.adm-open .pricing-watch-card{display:none}
 }
 
 /* ===================== Consumer rights + tax (2026-10-01) =====================
-   · the 14-day note under every plan and pack purchase button (app/plans.jsx checkoutNote; owner
-     decision 2026-10-02: no confirm step, the click is the request to start straight away)
+   · the 14-day note with every plan and pack purchase (owner decision 2026-10-02: no confirm step, the
+     click is the request to start straight away): behind an ⓘ right after each plan's and pack's name
+     (app/plans.jsx CheckoutTip, owner request 2026-10-02 R2; the landing's colours are in its block)
+     and as a line under the chosen plan in the sign-up window (checkoutNote)
    · the "We've updated our Terms and Privacy Policy" banner (a calm info tone among the billing banners)
    · the admin's Tax & compliance page (app/admin-tax.jsx), built on the Storage page's .adm-* parts */
 .checkout-note{margin:7px 0 0;font-size:11px;line-height:1.45;color:var(--txt-2);text-align:center}
 .checkout-note a{color:var(--accent-ink);text-decoration:underline;text-underline-offset:2px}
-.credit-pack .checkout-note{margin-top:0}
 /* the billing address the note gives until the Terms' cancel section is live (plans.jsx): may break anywhere on a narrow card */
 .checkout-note .checkout-note-mail{overflow-wrap:anywhere}
+/* the ⓘ right after the name: a 24px target that doesn't make the name's line taller */
+.checkout-tip-row{display:flex;align-items:center;gap:4px;min-width:0}
+.checkout-tip{position:relative;display:inline-flex;flex:none;vertical-align:middle}
+.checkout-tip-btn{display:grid;place-items:center;width:24px;height:24px;margin:-4px 0;padding:0;border:0;border-radius:50%;
+  background:transparent;color:var(--txt-2);cursor:pointer;transition:color .12s,background-color .12s}
+.checkout-tip-btn:hover,.checkout-tip.open .checkout-tip-btn{color:var(--txt-0);background:var(--bg-4)}
+.checkout-tip-btn:focus-visible{outline:2px solid var(--accent);outline-offset:0}
+/* the popup: under the ⓘ, centred on it and nudged sideways by plans.jsx (--tip-dx) so the card, the
+   window or a scroll box never cuts it; flipped above (data-place="up") when there is no room below */
+.checkout-tip-pop{position:absolute;top:calc(100% + 9px);left:50%;z-index:30;display:block;box-sizing:border-box;
+  width:272px;max-width:calc(100vw - 32px);transform:translateX(calc(-50% + var(--tip-dx, 0px)));
+  padding:10px 12px;border:1px solid var(--line-3);border-radius:var(--r-m);background:var(--bg-3);box-shadow:var(--shadow-pop);
+  font-family:var(--f-ui);font-size:12px;font-weight:400;line-height:1.5;letter-spacing:0;text-transform:none;
+  text-align:left;white-space:normal;color:var(--txt-1);animation:checkout-tip-in .12s ease}
+.checkout-tip-pop[hidden]{display:none}
+.checkout-tip-pop[data-place="up"]{top:auto;bottom:calc(100% + 9px)}
+/* a bridge over the gap, so the pointer can move onto the popup (and its link) without closing it */
+.checkout-tip-pop::before{content:"";position:absolute;left:0;right:0;top:-11px;height:11px}
+.checkout-tip-pop[data-place="up"]::before{top:auto;bottom:-11px}
+/* the caret stays on the ⓘ when the popup is nudged */
+.checkout-tip-pop::after{content:"";position:absolute;top:-6px;left:calc(50% - var(--tip-dx, 0px) - 5px);width:10px;height:10px;
+  box-sizing:border-box;background:inherit;border:inherit;border-right:0;border-bottom:0;border-radius:2px 0 0 0;transform:rotate(45deg)}
+.checkout-tip-pop[data-place="up"]::after{top:auto;bottom:-6px;transform:rotate(225deg)}
+.checkout-tip-pop a{color:var(--accent-ink);text-decoration:underline;text-underline-offset:2px}
+.checkout-tip-pop .checkout-note-mail{overflow-wrap:anywhere}
+@keyframes checkout-tip-in{from{opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion: reduce){
+  .checkout-tip-pop{animation:none}
+  .checkout-tip-btn{transition:none}
+}
 .billing-banner.info{background:var(--bg-2);border-bottom-color:var(--line-2)}
 .billing-banner.info a{color:var(--accent-ink)}
 .adm-tax-intro{line-height:1.5}
