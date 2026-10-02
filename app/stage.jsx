@@ -1531,6 +1531,9 @@ function storyboardClipIds(clip){
     .sort((a,b)=>(a.order||0)-(b.order||0) || (a.beatN||0)-(b.beatN||0));
   const ranges = stagePageRanges(sceneShots);
   const pages=[], halves=[];
+  // the shots each page / half holds NOW, so a sheet drawn from other shots is never used
+  // (storyboard.jsx sbSheetStale); only known when the live geometry is
+  const expect = {};
   for(let n=start; n<start+count; n++){
     let pageNo = Math.floor(n/4), cell = n%4;   // legacy fallback
     if(ranges){ let acc=0;
@@ -1542,10 +1545,14 @@ function storyboardClipIds(clip){
     if(pages.indexOf(pageId)<0) pages.push(pageId);
     const halfId = pageId+":half-"+half;
     if(halves.indexOf(halfId)<0) halves.push(halfId);
+    if(ranges && !expect[pageId]){
+      let acc=0; for(let i=0;i<pageNo;i++) acc+=ranges[i].count;
+      expect[pageId] = sceneShots.slice(acc, acc+ranges[pageNo].count).map(s=>s.id);
+    }
   }
   const page = pages[0] || ("sbsheet-sbpage-"+clip.scene.id+"-2x2-"+Math.floor(start/4));
   return {
-    sheet:page, pages, halves, top:halves[0]||"", bottom:halves[1]||"",
+    sheet:page, pages, halves, top:halves[0]||"", bottom:halves[1]||"", expect,
     legacySheet:legacy, legacyTop:legacy+":half-top", legacyBottom:legacy+":half-bottom",
     all:Array.from(new Set([].concat(pages, halves, [legacy, legacy+":half-top", legacy+":half-bottom"])))
   };
@@ -1553,15 +1560,33 @@ function storyboardClipIds(clip){
 window.storyboardClipIds = storyboardClipIds;   // exported for the headless geometry tests
 function storyboardClipAssets(clip, imgs){
   const ids = storyboardClipIds(clip);
-  const halves = (ids.halves||[]).map(id=>({ id, url:imgs[id]||"" })).filter(h=>h.url);
-  const pages = (ids.pages||[]).map(id=>({ id, url:imgs[id]||"" })).filter(p=>p.url);
+  // OUT-OF-DATE SHEETS STAY OUT (2026-10-02): a page or half whose recorded shots aren't the
+  // shots it holds now shows other panels — it is left out (the clip falls back to its frames)
+  // and listed in `stale`, so the Stage says why instead of sending the wrong board
+  const metaOf = (id)=> (typeof nbGetMeta==="function") ? nbGetMeta(id) : null;
+  const stale = [];
+  const pageOf = (id)=> String(id).replace(/:half-(top|bottom)$/,"");
+  const isStale = (id)=>{
+    const exp = ids.expect && ids.expect[pageOf(id)];
+    if(!exp || !imgs[id]) return false;
+    const m = /:half-(top|bottom)$/.exec(String(id));
+    const bad = m
+      ? (typeof window.sbHalfStale==="function" && window.sbHalfStale(metaOf(id), exp, m[1], metaOf(pageOf(id))))
+      : (typeof window.sbSheetStale==="function" && window.sbSheetStale(metaOf(id), exp));
+    if(bad && stale.indexOf(id)<0) stale.push(id);
+    return !!bad;
+  };
+  const urlOf = (id)=> (id && !isStale(id)) ? (imgs[id]||"") : "";
+  const halves = (ids.halves||[]).map(id=>({ id, url:urlOf(id) })).filter(h=>h.url);
+  const pages = (ids.pages||[]).map(id=>({ id, url:urlOf(id) })).filter(p=>p.url);
   return {
     ids,
-    sheet:imgs[ids.sheet]||imgs[ids.legacySheet]||"",
+    sheet:urlOf(ids.sheet)||imgs[ids.legacySheet]||"",
     pages,
     halves,
-    top:imgs[ids.top]||imgs[ids.legacyTop]||"",
-    bottom:imgs[ids.bottom]||imgs[ids.legacyBottom]||""
+    top:urlOf(ids.top)||imgs[ids.legacyTop]||"",
+    bottom:urlOf(ids.bottom)||imgs[ids.legacyBottom]||"",
+    stale
   };
 }
 function clipPrimaryFrame(clip, imgs, visualSource){
@@ -7035,6 +7060,7 @@ function clipFrameState(clip, imgs, visualSource){
     const story = storyboardClipAssets(clip, imgs);
     if((story.halves||[]).length || story.top || story.bottom) return { key:"ready", label:"halves ✓" };
     if(story.sheet) return { key:"partial", label:"sheet ✓" };
+    if((story.stale||[]).length) return { key:"missing", label:"board out of date \u2014 recompose" };
     return { key:"missing", label:"needs halves" };
   }
   const id = clip && clip.data && clip.data.first && clip.data.first.id;

@@ -6029,7 +6029,7 @@ function App(){
       } };
   };
 
-  const artAgentCtxFactory = ({ input, emit, propose, cancelled, agentName, force, owner })=>{
+  const artAgentCtxFactory = ({ input, emit, propose, cancelled, agentName, force, owner, run:runIn })=>{
     // WRONG-FILM GUARD (2026-10-02): the film this run belongs to — captured when it starts (a
     // refreshed context keeps its run's film). An Art Room run takes minutes and the film switcher
     // stays live: after a switch, the run stops (cancelled), and every state write still in
@@ -6038,12 +6038,31 @@ function App(){
     const ownerProjectId = owner!==undefined ? owner : currentProjectId;
     const switchedFilms = ()=> String(ownerProjectId||"") !== String(projIdRef.current||"");
     let _switchFlagged = false;
+    // UNDO FOR ART ROOM AGENTS (2026-10-02): one run = one undo step (a refreshed Coordinator
+    // context shares its run), snapshotted just before the run's FIRST write. Only runs started
+    // from an agent panel (they bring a propose function) — background work (the wardrobe
+    // bootstrap, the badge count) records none.
+    const run = runIn || { snap:null };
+    const takeArtSnap = ()=>{
+      if(run.snap || typeof propose!=="function") return;
+      const L = artUndoLiveRef.current; if(!L) return;
+      const items = (a)=> (Array.isArray(a) ? a : []).map(x=> (x && typeof x==="object") ? { ...x } : x);
+      const sb = L.project && L.project.styleBible;
+      run.snap = { filmKey: agentFilmKey(), label: agentName || "An Art Room agent", at: Date.now(),
+        characters: items(L.characters), props: items(L.props), locations: items(L.locations),
+        lookbook: items(L.lookbook), lookbookNote: L.lookbookNote || "", lookbookApplied: { ...(L.lookbookApplied||{}) },
+        shots: items(L.shots), propsSeeded: L.propsSeeded, locsSeeded: L.locsSeeded,
+        styleBible: sb ? JSON.parse(JSON.stringify(sb)) : undefined, hadStyleBible: !!sb };
+      const snap = run.snap;
+      setArtUndo(st=> [...st, snap].slice(-8));
+    };
     const inFilm = (fn)=> (...args)=>{
       if(switchedFilms()){
         if(!_switchFlagged){ _switchFlagged = true;
           try{ emit && emit({k:"flag", t:"You switched films while this ran, so it stopped \u2014 nothing more was written to either film. Reopen the film it started in and run it again."}); }catch(e){} }
         return undefined;
       }
+      takeArtSnap();
       return fn(...args);
     };
     const _w = {
@@ -6460,7 +6479,7 @@ function App(){
 
     const draftOnly = force==="draft";
     const forceImages = force===true;
-    const ctxArgs = { input, emit, propose, cancelled, agentName, force, owner:ownerProjectId };
+    const ctxArgs = { input, emit, propose, cancelled, agentName, force, owner:ownerProjectId, run };
     return { input, emit, propose, project, force: forceImages,
       cancelled: ()=> cancelled() || switchedFilms(),
       switchedFilms,
@@ -6514,6 +6533,52 @@ function App(){
     let done=false; const fin=()=>{ if(!done){ done=true; res(); } };
     artCommitWaitersRef.current.push(fin); setArtCommitTick(t=>t+1); setTimeout(fin, 1000);
   });
+  // ART UNDO (2026-10-02): the Art Room's own undo stack — what an agent run changed in the
+  // Art Room's specs (the cast, props, locations, Lookbook, colour system and shot list), one
+  // step per run. Sheets and frames a run rendered aren't part of it: each keeps its earlier
+  // versions in its own history. Like the Writers' stack, a film switch drops other films' steps.
+  const artUndoLiveRef = React.useRef(null);
+  artUndoLiveRef.current = { characters, props, locations, lookbook, lookbookNote, lookbookApplied, shots, project, propsSeeded, locsSeeded };
+  const [artUndo, setArtUndo] = React.useState([]);
+  const artUndoRef = React.useRef(artUndo); artUndoRef.current = artUndo;
+  React.useEffect(()=>{
+    const k = agentFilmKey();
+    setArtUndo(st=> st.some(x=>!x || x.filmKey!==k) ? st.filter(x=>x && x.filmKey===k) : st);
+  },[currentProjectId]);
+  const artUndoHere = artUndo.filter(x=>x && x.filmKey===agentFilmKey());
+  const artUndoAskingRef = React.useRef(false);
+  const undoLastArtAgent = async ()=>{
+    if(artUndoAskingRef.current || artRoomReadOnlyRef.current) return;
+    const k = agentFilmKey();
+    const top = ()=>{ const st = (artUndoRef.current||[]).filter(x=>x && x.filmKey===k); return st[st.length-1] || null; };
+    const snap = top(); if(!snap) return;
+    const who = (typeof window.turnDisplayNames==="function") ? window.turnDisplayNames(snap.label) : snap.label;
+    if(typeof window.appConfirm==="function"){
+      artUndoAskingRef.current = true;
+      let ok = false;
+      try{ ok = await window.appConfirm({ title:"Undo "+who+"\u2019s changes?",
+        body:"This puts the Art Room back the way it was just before "+who+" ran: the characters, props, locations, Lookbook, colour system and shot list. Anything changed in those since then goes too. Sheets and frames it rendered stay \u2014 each keeps its earlier versions in its history.",
+        confirmLabel:"Undo changes", cancelLabel:"Keep everything", danger:true, safeDefault:true }); }
+      finally{ artUndoAskingRef.current = false; }
+      // the film, the stack or the role may have moved while the question was open
+      if(!ok || top()!==snap || agentFilmKey()!==k || artRoomReadOnlyRef.current) return;
+    }
+    setCharacters(snap.characters.map(c=>({ ...c })));
+    setProps(snap.props.map(x=>({ ...x })));
+    setLocations(snap.locations.map(x=>({ ...x })));
+    setLookbook(snap.lookbook.map(x=>({ ...x })));
+    setLookbookNote(snap.lookbookNote);
+    setLookbookApplied({ ...snap.lookbookApplied });
+    setShots(snap.shots.map(x=>({ ...x })));
+    if(snap.propsSeeded!==undefined) setPropsSeeded(snap.propsSeeded);
+    if(snap.locsSeeded!==undefined) setLocsSeeded(snap.locsSeeded);
+    setProject(p=>{ const n = { ...p };
+      if(snap.hadStyleBible) n.styleBible = JSON.parse(JSON.stringify(snap.styleBible)); else delete n.styleBible;
+      return n; });
+    setArtUndo(st=> st.filter(x=>x!==snap));
+  };
+  const artUndoProps = { undoCount:artUndoHere.length,
+    undoLabel:artUndoHere.length ? artUndoHere[artUndoHere.length-1].label : null, onUndo:undoLastArtAgent };
 
   // ---- WARDROBE-ATTENTION DOT (Characters tab) ----
   // A yellow dot on the Characters tab when something in there is waiting on the user:
@@ -7222,7 +7287,7 @@ function App(){
       ctxFactory:artAgentCtxFactory,
       onClose:()=>setColoristOpen(false),
       onView:()=>{ setArtView("stylebible"); setColoristOpen(false); },
-      issues:{}, undoCount:0,
+      issues:{}, ...artUndoProps,
       aiOn: (typeof aiAvailable==="function" && aiAvailable()),
       introExtra: (()=>{ const sb=(typeof styleBibleOf==="function")?styleBibleOf(project):{};
         const refs=(sb.refs||"").trim(); const imgs=sb.refImages||[];
@@ -7243,7 +7308,7 @@ function App(){
       ctxFactory:artAgentCtxFactory,
       onClose:()=>setShotDesignerOpen(false),
       onView:()=>{ setArtView("shots"); setShotDesignerOpen(false); },
-      issues:{}, undoCount:0,
+      issues:{}, ...artUndoProps,
       aiOn: (typeof aiAvailable==="function" && aiAvailable())}),
 
     // Production check — the 1st-AD pass (script read → cast sheets, then every Art Room
@@ -7262,7 +7327,7 @@ function App(){
       ctxFactory:artAgentCtxFactory,
       onClose:()=>{ setCastingOpen(false); setCastingForce(false); },
       onView:()=>{ setArtView("characters"); setCastingOpen(false); setCastingForce(false); },
-      issues:{}, undoCount:0,
+      issues:{}, ...artUndoProps,
       aiOn: (typeof aiAvailable==="function" && aiAvailable())}),
 
 
@@ -7274,7 +7339,7 @@ function App(){
       ctxFactory:artAgentCtxFactory,
       onClose:()=>{ setPropsMasterOpen(false); setPropsMasterForce(false); },
       onView:()=>{ setArtView("props"); setPropsMasterOpen(false); setPropsMasterForce(false); },
-      issues:{}, undoCount:0,
+      issues:{}, ...artUndoProps,
       aiOn: (typeof aiAvailable==="function" && aiAvailable())}),
 
     // Production Designer / Location Scout — autonomous locations agent (pull → spec → staging
@@ -7284,7 +7349,7 @@ function App(){
       ctxFactory:artAgentCtxFactory,
       onClose:()=>{ setLocScoutOpen(false); setLocScoutForce(false); },
       onView:()=>{ setArtView("locations"); setLocScoutOpen(false); setLocScoutForce(false); },
-      issues:{}, undoCount:0,
+      issues:{}, ...artUndoProps,
       aiOn: (typeof aiAvailable==="function" && aiAvailable())}),
 
     // Visual Researcher — autonomous lookbook agent (research the look + render mood frames),
@@ -7294,7 +7359,7 @@ function App(){
       ctxFactory:artAgentCtxFactory,
       onClose:()=>setResearchOpen(false),
       onView:()=>{ setArtView("lookbook"); setResearchOpen(false); },
-      issues:{}, undoCount:0,
+      issues:{}, ...artUndoProps,
       aiOn: (typeof aiAvailable==="function" && aiAvailable())}),
 
     // Art Coordinator (id "coordinator") — the meta-agent that runs the pre-production pipeline in
@@ -7314,7 +7379,7 @@ function App(){
       ctxFactory:artAgentCtxFactory,
       onClose:()=>setCoordOpen(false),
       onView:()=>{ setArtView("shots"); setCoordOpen(false); },
-      issues:{}, undoCount:0,
+      issues:{}, ...artUndoProps,
       aiOn: (typeof aiAvailable==="function" && aiAvailable())}),
 
 
@@ -7433,6 +7498,18 @@ function App(){
       React.createElement("button",{className:"au-btn",onClick:undoLastAgent},
         React.createElement(Icon.undo,{s:14}),"Undo"),
       React.createElement("button",{className:"au-x",title:"Keep changes","aria-label":"Keep changes",onClick:()=>setAgentUndo([])},
+        React.createElement(Icon.x,{s:14}))),
+
+    // ART UNDO chip (2026-10-02): in the Art Room, after an Art Room agent changed its specs
+    room==="art" && !artRoomReadOnly && artUndoHere.length>0 && React.createElement("div",{className:"agent-undo art-undo"+((!writersRoomBlocked && agentUndoHere.length>0 && agentUndoHere[agentUndoHere.length-1].label!=="Adaptation")?" stacked":"")},
+      React.createElement("span",{className:"au-ic"},React.createElement(Icon.undo,{s:16})),
+      React.createElement("div",{className:"au-text"},
+        React.createElement("div",{className:"au-t"},agentLabel(artUndoHere[artUndoHere.length-1].label)+" changed the Art Room"),
+        React.createElement("div",{className:"au-s"},
+          artUndoHere.length>1 ? (artUndoHere.length+" runs can be undone") : "One click to revert it")),
+      React.createElement("button",{className:"au-btn",onClick:undoLastArtAgent},
+        React.createElement(Icon.undo,{s:14}),"Undo"),
+      React.createElement("button",{className:"au-x",title:"Keep changes","aria-label":"Keep changes",onClick:()=>setArtUndo(st=>st.filter(x=>!(x && x.filmKey===agentFilmKey())))},
         React.createElement(Icon.x,{s:14}))),
 
     // Tweaks panel

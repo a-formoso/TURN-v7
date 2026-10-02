@@ -77,14 +77,14 @@ await test("3d a context without refresh (an older caller) runs every step on it
 
 /* ---- 4. the context factory ---- */
 const app = read("app/app.jsx");
-const fa = app.indexOf("  const artAgentCtxFactory = ({ input, emit, propose, cancelled, agentName, force, owner })=>{");
+const fa = app.indexOf("  const artAgentCtxFactory = ({ input, emit, propose, cancelled, agentName, force, owner, run:runIn })=>{");
 const fb = app.indexOf("  const artAgentCtxFactoryRef = React.useRef(null);");
 const factory = app.slice(fa, fb);
 await test("4a the run keeps the film it started in, and a refreshed context keeps it too", () => {
   assert.ok(fa > 0 && fb > fa);
   assert.ok(factory.includes("const ownerProjectId = owner!==undefined ? owner : currentProjectId;"));
   assert.ok(factory.includes('const switchedFilms = ()=> String(ownerProjectId||"") !== String(projIdRef.current||"");'));
-  assert.ok(factory.includes("const ctxArgs = { input, emit, propose, cancelled, agentName, force, owner:ownerProjectId };"));
+  assert.ok(factory.includes("const ctxArgs = { input, emit, propose, cancelled, agentName, force, owner:ownerProjectId, run };"));
   assert.ok(factory.includes("cancelled: ()=> cancelled() || switchedFilms(),"));
   assert.match(factory, /refresh: async \(\)=>\{\s*if\(switchedFilms\(\)\) return null;\s*await artNextCommit\(\);\s*const mk = artAgentCtxFactoryRef\.current \|\| artAgentCtxFactory;\s*return switchedFilms\(\) \? null : mk\(ctxArgs\);/);
 });
@@ -95,9 +95,10 @@ await test("4b after a switch every write is refused, and said once", () => {
   const g = factory.slice(factory.indexOf("let _switchFlagged"), factory.indexOf("const _w = {"));
   const flags = [], calls = [];
   const proj = { current: "film-a" };
-  const make = new Function("emit", "projIdRef", "ownerProjectId",
+  // (no propose function: a background-style context, so the Art undo snapshot stays out of it)
+  const make = new Function("emit", "projIdRef", "ownerProjectId", "runIn", "propose", "artUndoLiveRef", "agentFilmKey", "agentName", "setArtUndo",
     "const switchedFilms = ()=> String(ownerProjectId||\"\") !== String(projIdRef.current||\"\");\n" + g + "\nreturn inFilm;");
-  const inFilm = make((e) => flags.push(e), proj, "film-a");
+  const inFilm = make((e) => flags.push(e), proj, "film-a", undefined, undefined, { current: null }, () => "film-a", "Test", () => {});
   const setProps = inFilm((v) => calls.push(v));
   setProps(1);
   proj.current = "film-b";

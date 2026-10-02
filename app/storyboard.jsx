@@ -142,6 +142,34 @@ function sbPageRanges(shots, pageSize){
 }
 window.sbPageRanges = sbPageRanges;
 
+/* WHICH SHOTS A SHEET WAS DRAWN FROM (2026-10-02): page ids are positional (frozen, above), so
+   adding or removing a shot earlier in a scene moves shots onto another page's id while that id's
+   sheet still shows the old panels. A composed sheet now records the shot ids it drew (meta.shotIds)
+   and each saved half the ids in its row; a sheet or half whose page now holds different shots is
+   OUT OF DATE — the tab says so (Recompose is a free redraw) and the Stage won't use it. An older
+   composed sheet without ids is checked by its panel count; a half without ids follows its sheet;
+   an uploaded board (no composed meta) can't be checked and is trusted as before. */
+function sbIdsEqual(a, b){
+  if(!Array.isArray(a) || !Array.isArray(b) || a.length!==b.length) return false;
+  for(let i=0;i<a.length;i++) if(String(a[i])!==String(b[i])) return false;
+  return true;
+}
+function sbHalfShotIds(shotIds, half){ return half==="top" ? (shotIds||[]).slice(0,2) : (shotIds||[]).slice(2); }
+function sbSheetStale(meta, shotIds){
+  if(!meta) return false;
+  if(Array.isArray(meta.shotIds)) return !sbIdsEqual(meta.shotIds, shotIds||[]);
+  if(meta.composed && Number(meta.panels)>0) return Number(meta.panels)!==(shotIds||[]).length;
+  return false;
+}
+function sbHalfStale(meta, shotIds, half, sheetMeta){
+  if(!meta) return false;
+  if(Array.isArray(meta.shotIds)) return !sbIdsEqual(meta.shotIds, sbHalfShotIds(shotIds, half));
+  return sbSheetStale(sheetMeta, shotIds);
+}
+window.sbSheetStale = sbSheetStale;
+window.sbHalfStale = sbHalfStale;
+window.sbHalfShotIds = sbHalfShotIds;
+
 /* Truthful board readiness: a composed sheet that still contains placeholder panels
    is partial, not ready. Uploaded boards have no composed metadata and count complete. */
 function sbStoryboardReadiness(pagesByScene, frames, metaOf){
@@ -208,7 +236,7 @@ function sbComposeSheet(scene, page, ctx, beatsMap, extraMeta, _drawFn){
         }
         if(run.again || sbSheetSnapshot(page)!==snap) continue;   // outdated payload: redraw, don't commit
         const meta = { model:"Composited from shot frames", composed:true,
-          panels:(page.shots||[]).length, ...(extraMeta||{}), ts:Date.now() };
+          panels:(page.shots||[]).length, shotIds:(page.shots||[]).map(x=>x.id), ...(extraMeta||{}), ts:Date.now() };
         const r = (typeof nbCommit==="function") ? await nbCommit(sid, dataUrl, meta, [], undefined, _ep) : null;
         if(r && r.tier==="stale") return { status:"stale" };   // film switched: quiet discard
         if(!r || r.tier==="error") return { status:"failed", error:"the composed sheet couldn't be saved. Check your connection and try again." };
@@ -468,7 +496,11 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
   // the sheet version the halves must match to count as "already saved"
   const sheetVersion = ()=>{ const m = gen.genMeta || ((typeof nbGetMeta==="function") ? nbGetMeta(sid) : null) || {};
     return String(m.iso||m.ts||m.version||""); };
-  const halvesCurrent = !!(halves.top && halves.bottom && (()=>{ const v = sheetVersion();
+  // the page's shots changed since this sheet / these halves were made (see sbSheetStale)
+  const sheetMetaNow = () => gen.genMeta || ((typeof nbGetMeta==="function") ? nbGetMeta(sid) : null);
+  const halvesStale = !!((halves.top && sbHalfStale((halves.top||{}).meta, shotIds, "top", sheetMetaNow()))
+    || (halves.bottom && sbHalfStale((halves.bottom||{}).meta, shotIds, "bottom", sheetMetaNow())));
+  const halvesCurrent = !halvesStale && !!(halves.top && halves.bottom && (()=>{ const v = sheetVersion();
     const tv = String(((halves.top||{}).meta||{}).sourceVersion||""), bv = String(((halves.bottom||{}).meta||{}).sourceVersion||"");
     return v ? (tv===v && bv===v) : true; })());
   const saveHalves = async ()=>{
@@ -526,6 +558,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
   const [panelBusy, setPanelBusy] = React.useState(false);
   // refs so the nb-gen-done listener (registered once per page) always sees fresh state
   const isComposedRef = React.useRef(isComposed); isComposedRef.current = isComposed;
+  const sheetOutOfDate = !!(gen.genUrl && isComposed && sbSheetStale(sheetMetaNow(), shotIds));
   const panelBusyRef = React.useRef(panelBusy);   panelBusyRef.current = panelBusy;
   const composingRef = React.useRef(composing);   composingRef.current = composing;
   const readyRef     = React.useRef(ready);       readyRef.current = ready;
@@ -812,6 +845,13 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
         _sbEl("span",{className:"sb-spin-lab"},
           panelBusy ? "Editing panel — regenerating that shot's frame…"
           : "Composing sheet from shot frames…")),
+      /* the page's shots changed since this sheet was composed: it shows other panels, and
+         the Stage won't use it (or its halves) until it is recomposed — a free redraw */
+      sheetOutOfDate && !composing && !composeErr && _sbEl("div",{className:"sb-sheet-err sb-sheet-stale"},
+        _sbEl(Icon.alert,{s:14}),
+        _sbEl("span",{className:"sb-sheet-err-msg"},"The shots on this page changed since this sheet was composed, so it shows the wrong panels. The Stage won\u2019t use it until you recompose it."),
+        _sbEl("div",{className:"sb-sheet-err-acts"},
+          _sbEl("button",{className:"sb-sheet-err-btn primary",onClick:()=>doCompose(),disabled:!ready.n},"Recompose"))),
       /* compose/halves failed: show the REAL error on the sheet (not a hover-only
          icon) plus the way out — retry the failed action */
       (composeErr || (halvesErr && !(halves.top||halves.bottom))) && !composing && !halvesBusy && _sbEl("div",{className:"sb-sheet-err"},
@@ -1225,6 +1265,7 @@ async function sbSaveHalves(url, sid, page, sourceVersion){
     // sourceVersion = the sheet version these halves were cut from — the duplicate guard:
     // while it matches the sheet's current version, re-saving is blocked as a no-op
     const meta = { kind:"sheet-half", half, source:sid, sourceVersion:String(sourceVersion||""),
+      shotIds: sbHalfShotIds(((page&&page.shots)||[]).map(x=>x.id), half),
       grid:(page&&page.grid)||"", model:"Cropped from the storyboard sheet",
       date:now.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}),
       time:now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}), iso:now.toISOString() };
