@@ -5,12 +5,17 @@
 /* `light` — the paper variant used over the landing page (the website palette + the Kinolot
    amber); without it the modal follows the app's theme. Both show the Kinolot lockup with the
    company endorsement, "by Infinite Studio AI". */
-function AuthModal({ onClose, onAuthed, initialMode, plan, light }){
+function AuthModal({ onClose, onAuthed, initialMode, plan, light, onPlanChange }){
   const [mode, setMode] = React.useState(initialMode==="signup"?"signup":"signin");   // signin | signup
   // the tier carried from the landing pricing (writer/director/studio) — shown as a
   // chip so the visitor sees their choice followed them into signup
   const planObj = (window.CINEMA_PLANS||[]).find(p=>String(p.tier).toLowerCase()===String(plan||"").toLowerCase());
-  const planName = planObj ? (((typeof window.turnPlanDisplayName==="function") ? window.turnPlanDisplayName(planObj.tier) : planObj.name)+" plan · "+planObj.price+"/mo") : null;
+  const planLabel = (p)=> ((typeof window.turnPlanDisplayName==="function") ? window.turnPlanDisplayName(p.tier) : p.name)+" plan · "+p.price+"/mo";
+  const planName = planObj ? planLabel(planObj) : null;
+  // CHANGE THE PLAN IN PLACE (owner request 2026-10-02): the plan name is a dropdown of the three
+  // plans — the pick replaces the one saved in this browser (app.jsx onPlanChange), which the
+  // sign-up and the checkout that follows both read. Without onPlanChange it stays plain text.
+  const pickable = typeof onPlanChange==="function" ? (window.CINEMA_PLANS||[]).filter(p=>p && p.tier) : [];
   const [email, setEmail] = React.useState("");
   const [pw, setPw] = React.useState("");
   const [showPw, setShowPw] = React.useState(false);
@@ -67,13 +72,27 @@ function AuthModal({ onClose, onAuthed, initialMode, plan, light }){
           React.createElement("div",{className:"auth-mark"},(typeof BrandMark==="function") && React.createElement(BrandMark,null),"Kinolot")),
         light && React.createElement("div",{className:"auth-act"}, mode==="signup"?"Prologue":"Welcome back"),
         React.createElement("div",{className:"auth-title"}, mode==="signup"?"Create your account":"Sign in"),
-        showPlan && React.createElement("div",{className:"auth-plan"},
-          // the "·" is its own span so a phone can drop it when the note takes its own line (no orphaned dot)
-          React.createElement(Icon.sparkles,{s:11}), planName, React.createElement("span",{className:"auth-plan-sep","aria-hidden":"true"},"·"),
-          React.createElement("span",{className:"auth-plan-note"}, mode==="signup" ? "checkout opens after signup" : "checkout opens after sign-in")),
-        // the plan's checkout opens by itself after sign-up, so the 14-day note shows under its chip
-        // too (owner decision 2026-10-02, E1: the same line as every purchase button, plans.jsx)
-        (showPlan && typeof window.turnCheckoutNote==="function") && window.turnCheckoutNote("auth-checkout-note", "auth-checkout-note")),
+        // the plan's checkout opens by itself after sign-up, so its 14-day note goes with the chip —
+        // behind the same ⓘ as every plan's name (owner request 2026-10-02: "turn it into a tooltip";
+        // E1/R2, plans.jsx checkoutTip)
+        // (owner 2026-10-02, second pass: the ⓘ takes the sparkle's place, at the start of the chip)
+        showPlan && React.createElement("div",{className:"auth-plan-row checkout-tip-row"},
+          React.createElement("div",{className:"auth-plan"},
+            (typeof window.turnCheckoutTip==="function") && window.turnCheckoutTip("auth-checkout-note", "auth-checkout-tip"),
+            // the "·" is its own span so a phone can drop it when the note takes its own line (no orphaned dot)
+            pickable.length>1
+              // the chosen plan as text, with the native dropdown laid invisibly over it — so the chip is
+              // as wide as the plan it shows, not as its longest option
+              ? React.createElement("span",{className:"auth-plan-pick"},
+                  React.createElement("span",{className:"auth-plan-cur","aria-hidden":"true"}, planName),
+                  React.createElement(Icon.chevD,{s:11}),
+                  React.createElement("select",{className:"auth-plan-sel",value:planObj.tier,disabled:busy,
+                    "aria-label":"Plan \u2014 change it here", title:"Change the plan you'll check out with",
+                    onChange:(e)=>onPlanChange(e.target.value)},
+                    pickable.map(p=>React.createElement("option",{key:p.tier,value:p.tier},planLabel(p)))))
+              : planName,
+            React.createElement("span",{className:"auth-plan-sep","aria-hidden":"true"},"·"),
+            React.createElement("span",{className:"auth-plan-note"}, mode==="signup" ? "checkout opens after signup" : "checkout opens after sign-in")))),
       React.createElement("div",{className:"auth-body"},
         notice && React.createElement("div",{className:"auth-notice"}, notice),
         React.createElement("label",{className:"auth-field"},
@@ -94,7 +113,7 @@ function AuthModal({ onClose, onAuthed, initialMode, plan, light }){
               "aria-label":showPw?"Hide password":"Show password",title:showPw?"Hide password":"Show password",
               onClick:()=>setShowPw(s=>!s)}, React.createElement(showPw?Icon.eyeOff:Icon.eye,{s:16})))),
         err && React.createElement("div",{className:"auth-err"}, err),
-        React.createElement("button",{className:"auth-submit",disabled:busy,onClick:submit},
+        React.createElement("button",{className:"auth-submit",disabled:busy,onClick:submit,"aria-describedby":showPlan ? "auth-checkout-note" : undefined},
           busy ? React.createElement(React.Fragment,null,React.createElement("span",{className:"ns-spin dark"}),
               mode==="signup"?"Creating\u2026":"Signing in\u2026")
             : (mode==="signup"?"Create account":"Sign in")),

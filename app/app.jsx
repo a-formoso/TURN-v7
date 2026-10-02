@@ -756,6 +756,14 @@ function App(){
     try{ localStorage.setItem("turn-intended-plan", p); localStorage.setItem("turn-intended-plan-at", String(Date.now())); }catch(e){}
     setIntendedPlan(p); openAuth("signup", { keepPlanIntent:true });
   };
+  // the sign-up window's plan dropdown (auth-ui.jsx): the new pick replaces the saved one and
+  // restarts its clock — a fresh choice, read by cloudSignUp and the checkout after sign-up
+  const changeIntendedPlan = (plan)=>{
+    const p = String(plan||"").toLowerCase();
+    if(!(window.CINEMA_PLANS||[]).some(x=>String(x.tier).toLowerCase()===p)) return;
+    try{ localStorage.setItem("turn-intended-plan", p); localStorage.setItem("turn-intended-plan-at", String(Date.now())); }catch(e){}
+    setIntendedPlan(p);
+  };
   React.useEffect(()=>{
     window.turnIntendedPlan = ()=>{ try{ return localStorage.getItem("turn-intended-plan")||null; }catch(e){ return null; } };
     window.turnClearIntendedPlan = ()=>{ try{ localStorage.removeItem("turn-intended-plan"); localStorage.removeItem("turn-intended-plan-at"); }catch(e){} setIntendedPlan(null); };
@@ -6819,7 +6827,7 @@ function App(){
     return React.createElement(React.Fragment,null,
       window.ConfirmHost && React.createElement(window.ConfirmHost,null),
         React.createElement(Landing,{ onStart:startWithPlan, onSignIn:()=>openAuth("signin") }),
-      authOpen && React.createElement(AuthModal,{ initialMode:authMode, plan:intendedPlan, light:true,
+      authOpen && React.createElement(AuthModal,{ initialMode:authMode, plan:intendedPlan, light:true, onPlanChange:changeIntendedPlan,
         onClose:()=>setAuthOpen(false), onAuthed:(s)=>{ if(s) setSession(s); } }),
       (typeof MuseDock!=="undefined") && React.createElement(MuseDock,{
       scenes:[], selScene:null, project:null, signedIn:false, aiOn:false, onSignIn:()=>openAuth("signup") }));
@@ -7106,7 +7114,7 @@ function App(){
       productionReadOnly:productionCheckBlocked,
       onAgents:async ()=>{ if(!canMutateWritersRoom()) return; if(await requireStory("Story Editors")) setAgentsOpen(true); }}),
 
-    authOpen && React.createElement(AuthModal,{ initialMode:authMode, plan:intendedPlan,
+    authOpen && React.createElement(AuthModal,{ initialMode:authMode, plan:intendedPlan, onPlanChange:changeIntendedPlan,
       onClose:()=>setAuthOpen(false),
       onAuthed:(s)=>{ if(s) setSession(s); }}),
 

@@ -394,42 +394,60 @@ await test("C12 the homepage's plan cards carry the ⓘ right after the plan's n
   assert.equal(findAll(rendered, hasClass("lp-checkout-note")).length, 0);
   const A = box({ CREDIT_SCALE: 10, cloudConfigured: () => true });
   run(A, "app/plans.jsx"); run(A, "app/auth-ui.jsx");
+  // the sign-up window (owner requests 2026-10-02): the 14-day note is the ⓘ at the START of the plan
+  // chip (where the sparkle was), not a visible line; the plan name is a dropdown of the three plans
+  const authTip = (m) => { const chip = findAll(m, hasClass("auth-plan"))[0];
+    const kids = chip ? chip.children.filter((k) => k && typeof k === "object") : [];
+    return { chip: chip ? 0 : -1, tip: kids.find(isTip), kids }; };
   for (const light of [true, false]) {
     A.React.reset();
-    let m = A.AuthModal({ onClose: noop, onAuthed: noop, initialMode: "signup", plan: "director", light });
-    const head = findAll(m, hasClass("auth-head"))[0];
-    const kids = head.children.filter((k) => k && typeof k === "object");
-    const chip = kids.findIndex(hasClass("auth-plan"));
-    assert.ok(chip >= 0); assertNote(kids[chip + 1], "auth-checkout-note", A.turnCancelSectionLive());
-    assert.ok(hasClass("auth-checkout-note")(kids[chip + 1]));
+    const picked = [];
+    let m = A.AuthModal({ onClose: noop, onAuthed: noop, initialMode: "signup", plan: "director", light, onPlanChange: (t) => picked.push(t) });
+    let t = authTip(m);
+    assert.ok(t.chip === 0 && t.kids[0] === t.tip, "the ⓘ is the chip's first item");
+    assert.equal(findAll(m, (n) => n && typeof n.type === "function" && n.type.name === "sparkles").length, 0, "no sparkle");
+    assertTip(A, t.tip, "auth-checkout-note", A.turnCancelSectionLive(), "auth-checkout-tip");
+    assert.equal(findAll(m, isNote).length, 0, "no visible note line");
+    assert.equal(findAll(m, hasClass("auth-submit"))[0].props["aria-describedby"], "auth-checkout-note");
     assert.equal(textOf(findAll(m, hasClass("auth-plan-note"))[0]), "checkout opens after signup");
+    // the dropdown: the three plans, the current one selected, a pick goes to onPlanChange
+    const sel = findAll(m, hasClass("auth-plan-sel"))[0];
+    assert.equal(sel.props.value, "director");
+    assert.deepEqual(sel.children.flat().filter((o) => o && o.type === "option").map((o) => o.props.value), ["writer", "director", "studio"]);
+    sel.props.onChange({ target: { value: "studio" } });
+    assert.deepEqual(picked, ["studio"]);
+    assert.equal(textOf(findAll(m, hasClass("auth-plan-cur"))[0]), "Director plan · $49/mo");
+    // without onPlanChange the plan stays plain text
+    A.React.reset();
+    m = A.AuthModal({ onClose: noop, onAuthed: noop, initialMode: "signup", plan: "director", light });
+    assert.equal(findAll(m, hasClass("auth-plan-sel")).length, 0);
     // "Sign in" (after "Check your email to confirm, then sign in", or a switch): while the plan picked
     // before sign-up still waits in this browser, its checkout opens by itself after signing in — so the
-    // chip and the note stay (review 2026-10-02)
+    // chip and its ⓘ stay (review 2026-10-02)
     A.localStorage.setItem("turn-intended-plan", "director"); A.localStorage.setItem("turn-intended-plan-at", String(Date.now() - 5 * 60000));
     A.React.reset();
     m = A.AuthModal({ onClose: noop, onAuthed: noop, initialMode: "signin", plan: "director", light });
-    const sk = findAll(m, hasClass("auth-head"))[0].children.filter((k) => k && typeof k === "object");
-    const sChip = sk.findIndex(hasClass("auth-plan"));
-    assert.ok(sChip >= 0, "sign-in with a waiting plan: the chip shows"); assertNote(sk[sChip + 1], "auth-checkout-note", A.turnCancelSectionLive());
+    t = authTip(m);
+    assert.ok(t.chip >= 0, "sign-in with a waiting plan: the chip shows");
+    assertTip(A, t.tip, "auth-checkout-note", A.turnCancelSectionLive(), "auth-checkout-tip");
     assert.equal(textOf(findAll(m, hasClass("auth-plan-note"))[0]), "checkout opens after sign-in");
     // the mode switched inside the window (signup -> signin) keeps them too
     A.React.reset({ 0: "signin" });
     m = A.AuthModal({ onClose: noop, onAuthed: noop, initialMode: "signup", plan: "director", light });
     assert.equal(findAll(m, hasClass("auth-title"))[0].children[0], "Sign in");
-    assert.equal(findAll(m, isNote).length, 1, "switched to Sign in: the note stays");
+    assert.equal(findAll(m, isTip).length, 1, "switched to Sign in: the ⓘ stays");
     // a stale copy from an earlier visit (over 20 minutes) promises nothing in "Sign in"
     A.localStorage.setItem("turn-intended-plan-at", String(Date.now() - 21 * 60000));
     A.React.reset();
     m = A.AuthModal({ onClose: noop, onAuthed: noop, initialMode: "signin", plan: "director", light });
-    assert.equal(findAll(m, isNote).length + findAll(m, hasClass("auth-plan")).length, 0, "sign-in, stale plan: no chip, no note");
+    assert.equal(findAll(m, isTip).length + findAll(m, hasClass("auth-plan")).length, 0, "sign-in, stale plan: no chip, no note");
     A.localStorage.removeItem("turn-intended-plan"); A.localStorage.removeItem("turn-intended-plan-at");
     A.React.reset();
     m = A.AuthModal({ onClose: noop, onAuthed: noop, initialMode: "signin", plan: "director", light });
-    assert.equal(findAll(m, isNote).length, 0, "sign-in, nothing waiting: no chip, no note");
+    assert.equal(findAll(m, isTip).length, 0, "sign-in, nothing waiting: no chip, no note");
     A.React.reset();
     m = A.AuthModal({ onClose: noop, onAuthed: noop, initialMode: "signup", plan: null, light });
-    assert.equal(findAll(m, isNote).length, 0, "no plan picked: no note");
+    assert.equal(findAll(m, isTip).length + findAll(m, isNote).length, 0, "no plan picked: no note");
   }
 });
 
@@ -929,9 +947,9 @@ await test("F1 APP_FEATURES states the note behind the ⓘ by every plan's and p
     "until the updated Terms are published, the line also says 'To cancel, email kinolot-billing@infinitestudioai.com'.",
     "In the plans window (every plan and pack that can be bought) and on the homepage's plan cards it sits behind a small info button (ⓘ) right after the plan's or pack's name:",
     "it opens when the pointer rests on the ⓘ or the ⓘ is reached with the keyboard (Tab then reaches the 'Terms' link), a click or tap opens or closes it, and Escape, a click or tap elsewhere or moving on with the keyboard closes it",
-    "screen readers also read the line with the plan's or pack's button. In the sign-up window it shows right under the chosen plan.",
+    "screen readers also read the line with the plan's or pack's button. In the sign-up window it is behind the ⓘ just to the right of the chosen plan.",
     "don't open a payment page, so they carry no such line (and no ⓘ).",
-    "The sign-in window keeps showing the chosen plan and that line when it is switched to 'Sign in' (for example after 'Check your email to confirm, then sign in') while the plan is still waiting; the chip then reads 'checkout opens after sign-in'.",
+    "The sign-in window keeps showing the chosen plan and its ⓘ when it is switched to 'Sign in' (for example after 'Check your email to confirm, then sign in') while the plan is still waiting; the chip then reads 'checkout opens after sign-in'.",
     "Choosing a plan or a pack is the request to start straight away, and the secure payment page opens at once.",
     "The plan picked before signing up opens its payment page by itself once the account is ready, after a notice of about four and a half seconds that says the same: 'Opening the checkout for your <plan> plan. " + NOTE + "'",
     "the payment page opens with the account's email already filled in.",
@@ -959,10 +977,10 @@ await test("H1 TURN.html: admin-tax.jsx loads after admin-storage.jsx; the files
   assert.ok(adm > 0 && tax > adm);
   assert.ok(tax < html.indexOf('src="app/app.jsx?v='));
   // Team "Coming soon" (2026-10-02) re-keyed ai.jsx, script.jsx, landing.jsx and styles.css again: 20261002-team1 counts too
-  for (const f of ["app/ai.jsx", "app/script.jsx", "app/landing.jsx"]) assert.ok(html.includes('src="' + f + '?v=20261002-tip1"') || html.includes('src="' + f + '?v=20261002-team1"') || html.includes('src="' + f + '?v=20261002-scene1"') || html.includes('src="' + f + '?v=20261002-research1"') || html.includes('src="' + f + '?v=20261002-research2"') || html.includes('src="' + f + '?v=20261002-artlive1"') || html.includes('src="' + f + '?v=20261002-artundo1"') || html.includes('src="' + f + '?v=20261002-stagefilm1"'), f);
+  for (const f of ["app/ai.jsx", "app/script.jsx", "app/landing.jsx"]) assert.ok(html.includes('src="' + f + '?v=20261002-tip1"') || html.includes('src="' + f + '?v=20261002-team1"') || html.includes('src="' + f + '?v=20261002-scene1"') || html.includes('src="' + f + '?v=20261002-research1"') || html.includes('src="' + f + '?v=20261002-research2"') || html.includes('src="' + f + '?v=20261002-artlive1"') || html.includes('src="' + f + '?v=20261002-artundo1"') || html.includes('src="' + f + '?v=20261002-stagefilm1"') || html.includes('src="' + f + '?v=20261002-planpick2"'), f);
   assert.ok(html.includes('src="app/plans.jsx?v=20261002-terms1"') || html.includes('src="app/plans.jsx?v=20261002-plans1"'), "plans.jsx re-keyed again when the switch day set TERMS_UPDATED_AT (or later for the grandfathered card line: 20261002-plans1)");
-  assert.ok(html.includes('src="app/auth-ui.jsx?v=20261002-consent1"') || html.includes('src="app/auth-ui.jsx?v=20261002-team1"'), "auth-ui.jsx is unchanged here (Team \"Coming soon\" 2026-10-02 re-keyed it later: 20261002-team1)");
-  assert.ok(html.includes('href="app/styles.css?v=20261002-btn1"') || html.includes('href="app/styles.css?v=20261002-team1"') || html.includes('href="app/styles.css?v=20261002-research1"') || html.includes('href="app/styles.css?v=20261002-research2"'), "styles.css re-keyed again for the plan-copy editor's buttons (2026-10-02), or later for Team \"Coming soon\"");
+  assert.ok(html.includes('src="app/auth-ui.jsx?v=20261002-consent1"') || html.includes('src="app/auth-ui.jsx?v=20261002-team1"') || html.includes('src="app/auth-ui.jsx?v=20261002-planpick2"') || html.includes('src="app/auth-ui.jsx?v=20261002-planpick3"'), "auth-ui.jsx is unchanged here (or re-keyed later for the sign-up plan dropdown: 20261002-planpick2/3) (Team \"Coming soon\" 2026-10-02 re-keyed it later: 20261002-team1)");
+  assert.ok(html.includes('href="app/styles.css?v=20261002-btn1"') || html.includes('href="app/styles.css?v=20261002-team1"') || html.includes('href="app/styles.css?v=20261002-research1"') || html.includes('href="app/styles.css?v=20261002-research2"') || html.includes('href="app/styles.css?v=20261002-planpick2"') || html.includes('href="app/styles.css?v=20261002-planpick3"'), "styles.css re-keyed again for the plan-copy editor's buttons (2026-10-02), or later for Team \"Coming soon\"");
 });
 await test("H2 CSS: the ⓘ's rules (the Plans window on the app tokens; the homepage's paper and dark featured card in the landing block), the sign-up window's line; the under-button rules and the dialog's are gone; the info banner and the tax page keep theirs", () => {
   const css = read("app/styles.css");

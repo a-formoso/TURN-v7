@@ -5260,6 +5260,22 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
   font-family:var(--f-ui);font-size:11.5px;font-weight:600;color:var(--pos-ink);white-space:nowrap;
   background:color-mix(in srgb,var(--pos) 12%,transparent);border:1px solid var(--pos-line)}
 .auth-plan-note,.auth-plan-sep{font-weight:400;color:var(--txt-2);font-size:11px}
+/* the plan chip + its ⓘ on one row; the plan name is a dropdown (2026-10-02). The row never
+   wraps: on a narrow panel the chip's own note wraps inside the chip instead, so the ⓘ stays to
+   the right of the plan */
+.auth-plan-row{margin:8px 0 2px;gap:6px;flex-wrap:nowrap}
+.auth-plan-row .auth-plan{margin:0;flex:0 1 auto;min-width:0}
+.auth-plan-pick{position:relative;display:inline-flex;align-items:center;gap:3px;border-radius:4px;cursor:pointer}
+.auth-plan-pick svg{flex:none;opacity:.8}
+.auth-plan-sel{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:0;border:0;opacity:0;cursor:pointer;font:inherit;
+  appearance:none;-webkit-appearance:none}
+.auth-plan-pick:has(.auth-plan-sel:focus-visible){outline:2px solid currentColor;outline-offset:2px}
+.auth-plan-pick:hover .auth-plan-cur{text-decoration:underline;text-underline-offset:2px}
+.auth-plan-sel option{color:#1d1f23;background:#fff}
+/* the ⓘ at the start of the chip, in the chip's colour */
+.auth-plan .checkout-tip-btn{width:20px;height:20px;margin:-3px -2px -3px -5px;color:inherit}
+.auth-plan .checkout-tip-btn:hover,.auth-plan .checkout-tip.open .checkout-tip-btn{color:inherit;background:color-mix(in srgb,currentColor 14%,transparent)}
+.auth-plan .checkout-tip-pop{font-weight:400;white-space:normal}
 .auth-plan-sep{margin-right:-3px}
 /* the 14-day note under the chosen plan (its checkout opens by itself after sign-up) */
 .auth-head .auth-checkout-note{margin:6px 0 0;text-align:left}
