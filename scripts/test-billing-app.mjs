@@ -1719,6 +1719,12 @@ await test("M brand: the new copy names no retired name (TURN, MUSE, Cinema Mach
     assert.equal(N.turnLegacyAllowanceNote({ remaining: 1000, plan: "director", plan_remaining: 1000, pack_remaining: 0, plan_allowance: 1600 }, now), "", "a new subscriber: no note");
     assert.equal(N.turnLegacyAllowanceNote({ remaining: 7000, plan: "director", plan_remaining: 7000, pack_remaining: 0, plan_allowance: 7200 }, Date.parse("2026-12-01T00:00:00Z")), "", "after the window");
     assert.equal(N.turnLegacyAllowanceNote({ remaining: 50, plan: "none", trial: true, plan_remaining: 50, pack_remaining: 0, plan_allowance: 50 }, now), "", "not a subscriber");
+    // …and the subscriber's own card says the same, so it never reads 1,600 next to a 7,200 note
+    const gf = { remaining: 7000, plan: "director", plan_remaining: 7000, pack_remaining: 0, plan_allowance: 7200 };
+    assert.equal(N.turnLegacyCardCreditLine(gf, "director", now), "7,200 credits / month until 29 Nov 2026, then 1,600");
+    assert.equal(N.turnLegacyCardCreditLine(gf, "writer", now), "", "another plan's card keeps its own line");
+    assert.equal(N.turnLegacyCardCreditLine({ ...gf, plan_allowance: 1600 }, "director", now), "", "a new subscriber: the plain line");
+    assert.equal(N.turnLegacyCardCreditLine(gf, "director", Date.parse("2026-12-01T00:00:00Z")), "", "after the window");
     assert.equal(N.turnApplyCreditRegime({ switched: true, usd_per_credit: 0.01, trial_credits: 50, legacy_until: "2026-11-29T09:00:00Z" }, "server"), false, "no change, no event storm");
     assert.equal(N.turnApplyCreditRegime({ nonsense: 1 }), false, "a bad read changes nothing");
   });

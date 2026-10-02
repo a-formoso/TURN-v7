@@ -438,19 +438,33 @@ window.turnCreditSplitText = creditSplitText;
    already paying keeps the old allowance in the new units (LEGACY_ALLOWANCES) — the Plans window
    says until when. Shown only while turn_credit_regime().legacy_until is ahead and this period's
    allowance (turn_credit_balance plan_allowance) is the old one; "" otherwise. */
-function legacyAllowanceNote(balance, nowMs){
+function legacyAllowanceInfo(balance, nowMs){
   const p = balanceParts(balance);
-  if(!p || !p.paid) return "";
+  if(!p || !p.paid) return null;
   const r = (typeof window.turnCreditRegime==="function") ? window.turnCreditRegime() : null;
-  if(!r || !r.switched || !r.legacyUntil) return "";
+  if(!r || !r.switched || !r.legacyUntil) return null;
   const until = new Date(r.legacyUntil);
-  if(isNaN(until.getTime()) || until.getTime() <= (Number(nowMs) || Date.now())) return "";
+  if(isNaN(until.getTime()) || until.getTime() <= (Number(nowMs) || Date.now())) return null;
   const tier = p.tier==="pro" ? "director" : p.tier;
   const legacy = LEGACY_ALLOWANCES[tier], next = PLAN_ALLOWANCES.switched[tier];
-  if(!legacy || !next || !(p.allowance >= legacy)) return "";
-  return "Your monthly allowance stays "+fmtCredits(legacy)+" credits until "+fmtDate(until)+"; renewals after that give "+fmtCredits(next)+".";
+  if(!legacy || !next || !(p.allowance >= legacy)) return null;
+  return { tier, legacy, next, until };
+}
+function legacyAllowanceNote(balance, nowMs){
+  const g = legacyAllowanceInfo(balance, nowMs);
+  if(!g) return "";
+  return "Your monthly allowance stays "+fmtCredits(g.legacy)+" credits until "+fmtDate(g.until)+"; renewals after that give "+fmtCredits(g.next)+".";
 }
 window.turnLegacyAllowanceNote = legacyAllowanceNote;
+/* the subscriber's OWN card says the same while grandfathered — "2,400 credits / month until
+   31 Oct 2026, then 600" — so it never reads 600 next to a 2,400 note; "" for every other card */
+function legacyCardCreditLine(balance, cardTier, nowMs){
+  const g = legacyAllowanceInfo(balance, nowMs);
+  const tier = cardTier==="pro" ? "director" : cardTier;
+  if(!g || g.tier!==tier) return "";
+  return fmtCredits(g.legacy)+" credits / month until "+fmtDate(g.until)+", then "+fmtCredits(g.next);
+}
+window.turnLegacyCardCreditLine = legacyCardCreditLine;
 
 /* ---- DRAFT IMAGES for trial / no-plan accounts. Admin and an unloaded ledger (local/dev)
    are never limited — the server stays the real gate. */
@@ -1096,6 +1110,8 @@ function PlansModal({ onClose, currentPlan }){
               // clicking the button is the request to start now
               const buys = !active && !hasPlan;
               const noteId = "checkout-note-plan-"+p.tier;
+              const legacyLine = (active && signedIn) ? legacyCardCreditLine(bal, p.tier) : "";
+              const feats = legacyLine ? p.features.map(f=> isPlanCreditLine(f) ? legacyLine : f) : p.features;
               return React.createElement("div",{key:p.tier,className:"plan-card"+(p.popular?" popular":"")+(active?" active":"")},
                 p.popular && React.createElement("div",{className:"plan-flag"},"Most popular"),
                 React.createElement("div",{className:"plan-name-row checkout-tip-row"},
@@ -1104,7 +1120,7 @@ function PlansModal({ onClose, currentPlan }){
                 React.createElement("div",{className:"plan-price"},p.price,React.createElement("span",{className:"plan-per"},"/mo")),
                 React.createElement("div",{className:"plan-blurb"},p.blurb),
                 React.createElement("ul",{className:"plan-feats"},
-                  p.features.map((f,i)=>React.createElement("li",{key:i},
+                  feats.map((f,i)=>React.createElement("li",{key:i},
                     React.createElement(Icon.check,{s:12}),f))),
                 React.createElement("button",{className:"plan-cta"+(p.popular?" primary":"")+(active?" is-active":""),
                   disabled:active, "aria-describedby": buys ? noteId : undefined,
