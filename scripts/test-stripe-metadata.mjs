@@ -9,7 +9,10 @@
    keys, refund / dispute outcomes, the key's mode, and period dates in both API shapes. The
    handler itself is exercised event by event in scripts/test-stripe-webhook.mjs.
    P-Q (owner decisions 2026-10-01): sales-ledger.mjs — the sales ledger's keys, countries / US states and
-   where they came from, refunds that count, the partial-refund share (D3) — and the dispute holds (D4). */
+   where they came from, refunds that count, the partial-refund share (D3) — and the dispute holds (D4).
+   R (owner decision 2026-10-02, E2): customer-email.mjs — which account email may go on the Stripe customer
+   (confirmed only), when the customer needs it (differs, case ignored), and the masking that keeps whole
+   addresses out of the logs. */
 import { readFileSync } from "node:fs";
 import {
   isOurApp, planTier, OUR_APPS, isKnownTier, looksLikeOurs, invoiceSubscriptionId,
@@ -22,6 +25,9 @@ import {
   SALE_KINDS, SALE_APPS, saleApp, COUNTRY_SOURCES, normCountry, normUsState, US_STATE_CODES, saleLocation, saleAmountCents, unixToIso,
   invoiceSaleKey, checkoutSaleKey, refundSaleKey, countableRefund, pendingRefund, refundBaseCents, refundFraction, invoiceLineProductIds, saleLogFields,
 } from "../supabase/functions/stripe-webhook/sales-ledger.mjs";
+import {
+  STRIPE_EMAIL_MAX, normEmail, isUsableEmail, maskEmail, scrubEmails, accountSyncEmail, customerEmailAction,
+} from "../supabase/functions/stripe-webhook/customer-email.mjs";
 
 let passed = 0, failed = 0;
 const check = (name, ok) => { if (ok) passed++; else { failed++; console.error("FAIL " + name); } };
@@ -254,6 +260,45 @@ check("Q closing: lift when nothing else is listed (or nothing is held); keep th
 check("Q the webhook freezes with disputeHoldReason and closes with disputeHoldAfterClose, for won AND lost",
   /disputeHoldReason\(await accountByUid\(info\.uid\), part, d\.id\)/.test(code) && /disputeHoldAfterClose\(await accountByUid\(uid\), d\.id\)/.test(code)
   && (code.match(/await releaseDisputeHold\(event, d, info\.uid\)/g) || []).length === 2);
+
+// R (2026-10-02, E2): the Stripe customer's email follows the account's confirmed email
+const AE = "ana.writer@example.com";
+check("R masking: the first letter of each side and the last domain label, never the whole address",
+  maskEmail(AE) === "a***@e***.com" && maskEmail("wallet.owner@relay.example.net") === "w***@r***.net"
+  && maskEmail(" Ana.Writer@Example.COM ") === "A***@E***.COM" && maskEmail("x@localhost") === "x***@l***"
+  && maskEmail("") === "-" && maskEmail(null) === "-" && maskEmail(42) === "-" && maskEmail("no-at-sign") === "***" && maskEmail("@example.com") === "***" && maskEmail("ana@") === "***");
+check("R error text: every address in it is masked, the rest kept",
+  scrubEmails(`Invalid email address: ${AE}`) === "Invalid email address: a***@e***.com"
+  && scrubEmails(`"${AE}" and <b.c@d.org>, then (e@f.io)`) === '"a***@e***.com" and <b***@d***.org>, then (e***@f***.io)'
+  && scrubEmails("Request rate limit exceeded") === "Request rate limit exceeded" && scrubEmails(undefined) === "" && !scrubEmails(`x ${AE} y ${AE}`).includes(AE));
+check("R usable addresses (what Stripe takes): one @, a dotted domain, no spaces, at most 512 characters",
+  isUsableEmail(AE) && isUsableEmail(" " + AE + " ") && !isUsableEmail("ana writer@example.com") && !isUsableEmail("ana@example")
+  && !isUsableEmail("ana@@example.com") && !isUsableEmail("ana@example.") && !isUsableEmail("") && !isUsableEmail(null) && !isUsableEmail("a\n@example.com")
+  && STRIPE_EMAIL_MAX === 512 && isUsableEmail("a".repeat(500) + "@example.com") && !isUsableEmail("a".repeat(501) + "@example.com"));
+check("R compare ignoring case and spaces", normEmail(" Ana.Writer@Example.COM ") === AE && normEmail(undefined) === "");
+const acc = (u) => JSON.stringify(accountSyncEmail(u));
+const CONF = "2026-10-01T10:00:00Z";
+check("R the account's email goes on the customer only when it is CONFIRMED (email_confirmed_at — a confirmed phone is not enough)",
+  acc({ email: AE, email_confirmed_at: CONF }) === JSON.stringify({ ok: true, email: AE })
+  && acc({ email: " " + AE + " ", email_confirmed_at: CONF }) === JSON.stringify({ ok: true, email: AE })
+  && acc({ email: AE, email_confirmed_at: null, confirmed_at: CONF, phone_confirmed_at: CONF }) === JSON.stringify({ ok: false, reason: "unconfirmed" })
+  && acc({ email: AE }) === JSON.stringify({ ok: false, reason: "unconfirmed" })
+  && acc({ email: "", email_confirmed_at: CONF }) === JSON.stringify({ ok: false, reason: "no_account_email" })
+  && acc({ phone: "+447700900000", email_confirmed_at: CONF }) === JSON.stringify({ ok: false, reason: "no_account_email" })
+  && acc({ email: "not an email", email_confirmed_at: CONF }) === JSON.stringify({ ok: false, reason: "bad_account_email" })
+  && acc({ email: AE, email_confirmed_at: CONF, is_anonymous: true }) === JSON.stringify({ ok: false, reason: "anonymous" })
+  && acc(null) === JSON.stringify({ ok: false, reason: "no_account" }) && acc("u") === JSON.stringify({ ok: false, reason: "no_account" }));
+const act = (c, e = AE) => JSON.stringify(customerEmailAction(c, e));
+check("R the customer is updated only when its email differs (case and spaces ignored) or it has none; a deleted or missing customer never",
+  act({ id: "cus_1", email: "wallet.owner@relay.example.net" }) === JSON.stringify({ action: "update" })
+  && act({ id: "cus_1", email: null }) === JSON.stringify({ action: "update" }) && act({ id: "cus_1" }) === JSON.stringify({ action: "update" })
+  && act({ id: "cus_1", email: "ANA.writer@EXAMPLE.com " }) === JSON.stringify({ action: "skip", reason: "same_email" })
+  && act({ id: "cus_1", email: AE }) === JSON.stringify({ action: "skip", reason: "same_email" })
+  && act({ id: "cus_1", deleted: true }) === JSON.stringify({ action: "skip", reason: "customer_deleted" })
+  && act(null) === JSON.stringify({ action: "skip", reason: "no_customer" }));
+const emailImports = (src.match(/import \{([^}]*)\} from "\.\/customer-email\.mjs";/) || [, ""])[1].split(",").map((x) => x.trim()).filter(Boolean);
+check("R index.ts uses these rules (no email logic of its own)", ["accountSyncEmail", "customerEmailAction", "maskEmail", "scrubEmails"].every((n) => emailImports.includes(n))
+  && /accountSyncEmail\(data\.user\)/.test(code) && /customerEmailAction\(customer, account\.email\)/.test(code) && !/toLowerCase\(\)/.test(code.slice(code.indexOf("async function syncCustomerEmail("), code.indexOf("async function chargeForSession("))));
 
 console.log(failed ? `${passed} passed, ${failed} failed` : `${passed} checks passed`);
 if (failed) process.exit(1);

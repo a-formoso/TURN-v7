@@ -2891,6 +2891,8 @@ html[data-theme="dark"] .dt-viewing svg{color:oklch(0.82 0.09 296)}
 .auth-panel.light :is(.auth-submit,.auth-link,.auth-forgot,.auth-pw-toggle,.auth-close):focus-visible{outline-color:var(--lpw-ink)}
 .auth-panel.light .auth-plan{color:var(--lpw-amber-ink);background:var(--lpw-amber-soft);border-color:var(--lpw-amber-line)}
 .auth-panel.light :is(.auth-plan-note,.auth-plan-sep){color:var(--lpw-sub)}
+.auth-panel.light .auth-checkout-note{color:var(--lpw-sub)}
+.auth-panel.light .auth-checkout-note a{color:var(--lpw-ink)}
 
 .acct-signin{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:var(--r-m);
   background:var(--bg-4);border:1px solid var(--line-2);color:var(--txt-1);font:600 12px var(--f-ui);cursor:pointer}
@@ -5231,6 +5233,11 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
 @media (max-width:880px){ .lp-tiers{grid-template-columns:1fr;max-width:420px} }
 /* the free-trial + packs line under the plan cards (billing fixes, 2026-09-30) */
 .lp-tier-note{max-width:720px;margin:22px auto 0;text-align:center;font-size:14px;line-height:1.55;color:var(--lpw-sub)}
+/* the 14-day note under each plan's button (owner decision 2026-10-02: plans.jsx checkoutNote) */
+.lp-tier .lp-checkout-note{margin:-6px 0 0;font-size:12.5px;line-height:1.5;color:var(--lpw-sub);text-align:center}
+.lp-tier .lp-checkout-note a{color:var(--lpw-ink);text-decoration:underline;text-underline-offset:2px}
+.lp-tier.featured .lp-checkout-note{color:rgba(255,255,255,.62)}
+.lp-tier.featured .lp-checkout-note a{color:#fff}
 
 /* auth modal — chosen-plan badge (from landing pricing CTA). nowrap + wrap: on a phone the note
    drops to its own line instead of the plan name breaking inside the chip */
@@ -5239,6 +5246,8 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
   background:color-mix(in srgb,var(--pos) 12%,transparent);border:1px solid var(--pos-line)}
 .auth-plan-note,.auth-plan-sep{font-weight:400;color:var(--txt-2);font-size:11px}
 .auth-plan-sep{margin-right:-3px}
+/* the 14-day note under the chosen plan (its checkout opens by itself after sign-up) */
+.auth-head .auth-checkout-note{margin:6px 0 0;text-align:left}
 /* on a phone the note always takes its own line, lined up under the plan name, and the separator
    dot goes (it used to start the second line, outside the indent — review 2026-09-29) */
 @media (max-width:440px){
@@ -8804,30 +8813,15 @@ body.adm-open .pricing-watch-card{display:none}
 }
 
 /* ===================== Consumer rights + tax (2026-10-01) =====================
-   · the confirm step before every checkout (app/plans.jsx CheckoutConsentDialog): a required
-     "Start now…" checkbox; it sits above the Plans window (.ns-overlay is 142)
+   · the 14-day note under every plan and pack purchase button (app/plans.jsx checkoutNote; owner
+     decision 2026-10-02: no confirm step, the click is the request to start straight away)
    · the "We've updated our Terms and Privacy Policy" banner (a calm info tone among the billing banners)
    · the admin's Tax & compliance page (app/admin-tax.jsx), built on the Storage page's .adm-* parts */
-.ns-overlay.checkout-consent-overlay{z-index:150}
-.checkout-consent{width:min(460px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;background:var(--bg-1);
-  border:1px solid var(--line-2);border-radius:var(--r-l);padding:24px 22px 18px;display:flex;flex-direction:column;gap:10px;
-  box-shadow:0 24px 70px rgba(0,0,0,.4)}
-.checkout-consent-title{font-family:var(--f-display);font-size:19px;font-weight:650;color:var(--txt-0)}
-.checkout-consent-item{font:650 13px var(--f-ui);color:var(--txt-0)}
-.checkout-consent-renew{font-size:12px;line-height:1.5;color:var(--txt-2)}
-.checkout-consent-check{display:flex;align-items:flex-start;gap:10px;padding:11px 12px;border:1px solid var(--line-2);
-  border-radius:var(--r-m);background:var(--bg-2);font-size:13px;line-height:1.5;color:var(--txt-0);cursor:pointer}
-.checkout-consent-check:focus-within{border-color:var(--line-3)}
-.checkout-consent-check input{flex:none;width:18px;height:18px;margin:2px 0 0;accent-color:var(--accent);cursor:pointer}
-.checkout-consent-note{font-size:11.5px;line-height:1.5;color:var(--txt-2)}
-.checkout-consent-note a{color:var(--accent-ink)}
-.checkout-consent-acts{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
-.checkout-consent-acts .plan-cta{padding:0 16px;min-width:96px}
-@media (max-width:640px){
-  .checkout-consent-acts{flex-direction:column-reverse}
-  .checkout-consent-acts .plan-cta{width:100%;min-height:44px}
-  .checkout-consent-check input{width:22px;height:22px}
-}
+.checkout-note{margin:7px 0 0;font-size:11px;line-height:1.45;color:var(--txt-2);text-align:center}
+.checkout-note a{color:var(--accent-ink);text-decoration:underline;text-underline-offset:2px}
+.credit-pack .checkout-note{margin-top:0}
+/* the billing address the note gives until the Terms' cancel section is live (plans.jsx): may break anywhere on a narrow card */
+.checkout-note .checkout-note-mail{overflow-wrap:anywhere}
 .billing-banner.info{background:var(--bg-2);border-bottom-color:var(--line-2)}
 .billing-banner.info a{color:var(--accent-ink)}
 .adm-tax-intro{line-height:1.5}

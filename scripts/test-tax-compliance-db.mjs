@@ -756,9 +756,10 @@ section("H. README and the runbook");
     /\| `turn_revoke_charge_once\(event_id, charge_id, refund_fraction default 1\)` \| service role \|/.test(README));
   const rb = flat(RUNBOOK);
   ok("H5 runbook: run tax-compliance.sql (after the billing-v2.sql re-run)", /tax-compliance\.sql/.test(rb) && /billing-v2\.sql` again/.test(rb));
-  ok("H6 runbook: every Kinolot payment link collects the billing address (required) and requires the terms with the D2 custom text",
-    /billing address/i.test(rb) && /[Rr]equire customers to accept your terms of service/.test(rb) &&
-    rb.includes("Start now: I want to use my credits straight away. I understand I lose my right to cancel for credits I use, and if I cancel within 14 days I only get back the part I haven't used.") && !rb.includes("Start now: I want to use my credits straight away. I understand that if I cancel within 14 days, I only get back the part I haven't used."));
+  ok("H6 runbook: every Kinolot payment link collects the billing address (required); no terms box (owner 2026-10-02: no extra step at checkout), the note next to every purchase button instead, the old 'Start now' wording gone",
+    /billing address/i.test(rb) && rb.includes('**Don\'t turn on "Require customers to accept your terms of service"** (your decision, 2026-10-02: no extra step at checkout)') &&
+    rb.includes("Starts straight away. Cancel within 14 days and you get back the part you haven't used.") && rb.includes("`v3-2026-10-02-click`") &&
+    !rb.includes("Start now: I want to use my credits") && !/a required checkbox/.test(rb));
   ok("H7 runbook: hand-made plan changes in Stripe charge prorations at once (always invoice), with how", /always invoice/i.test(rb) && /prorat/i.test(rb));
   ok("H8 runbook: non-Union OSS before the first EU sale, UK VAT at £90,000, US per state, Stripe Tax with tax-inclusive prices",
     /non-Union OSS/.test(rb) && /£90,000/.test(rb) && /per state/i.test(rb) && /Stripe Tax/.test(rb) && /inclusive/i.test(rb));
@@ -783,6 +784,20 @@ section("H. README and the runbook");
   ok("H16 README: turn_dispute_hold in the contract, the hyphenated consent skus",
     /\| `turn_dispute_hold\(uid, dispute_id, open, part default null\)` \| service role \|/.test(README) && README.includes("`plan-writer`, `plan-director`, `plan-studio`, `pack-250`")
     && !/e\.g\. `plan:writer`, `pack:1000`/.test(README) && !/'plan:writer', 'pack:1000'/.test(TAX));
+  ok("H17 README: the consent version is the click (v3-2026-10-02-click), recorded when a purchase button is clicked; no 'Start now' step or terms acceptance as a second record",
+    README.includes("`v3-2026-10-02-click` since 2026-10-02") && /records when a plan or pack purchase button is clicked/.test(flat(README))
+    && !/the \"Start now\" step before every checkout/.test(README) && !/terms acceptance is the second record/.test(flat(README)));
+  ok("H18 runbook: the billing email — every payment link carries the account's email (prefilled_email), the webhook sets a wallet's email back (EMAIL_SYNC), credits go by the account id",
+    /carries the account's id and the account's email \(`prefilled_email`\)/.test(rb) && /`EMAIL_SYNC`/.test(rb) && /they go to the account by its id/.test(rb));
+  // review fixes (2026-10-02)
+  ok("H19 runbook, webhook deploy: a restricted Stripe key needs Customers: Write; the customer who already paid is fixed by hand or by resending its checkout event",
+    /restricted key \(starts `rk_`\), give it \*\*Customers: Write\*\*/.test(rb) && /result=failed step=update/.test(rb)
+    && /resend that checkout's `checkout\.session\.completed` event/.test(rb) && /adds no credits a second time/.test(rb)
+    && /until you change it there by hand or resend that checkout's event/.test(rb));
+  ok("H20 the auto-checkout's consent version (v3-2026-10-02-auto) in the README and the runbook; until the Terms' cancel section is live the note gives the billing address, dropped by TERMS_UPDATED_AT",
+    README.includes("`v3-2026-10-02-auto` when the plan picked before sign-up opens its payment page by itself") && rb.includes("recorded as `v3-2026-10-02-auto`")
+    && rb.includes('so the note also reads "To cancel, email kinolot-billing@infinitestudioai.com"')
+    && rb.includes('The same setting drops "To cancel, email …" from the note by every purchase button'));
 }
 
 console.log(`\n${passes} passed, ${failures} failed`);

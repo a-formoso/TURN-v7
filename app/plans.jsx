@@ -1,7 +1,8 @@
 /* plans.jsx — Kinolot subscription plans + paywall modal.
    The three tiers and one-off credit packs open their Stripe Payment Link, tagged
    with the user's Supabase id (client_reference_id) so the webhook credits the
-   right account. Credits are granted server-side by supabase/functions/stripe-webhook.
+   right account, and the account's email (prefilled_email) so the payment page starts
+   with it. Credits are granted server-side by supabase/functions/stripe-webhook.
 
    TEST vs LIVE links auto-switch by hostname (see LIVE_HOSTS / planLink below):
    production domains use `live`, everything else (localhost, *.replit.dev preview)
@@ -499,6 +500,20 @@ function pickIntendedPlan(o){
   return { action:"checkout", plan: localOk ? local : String(acct.plan) };
 }
 window.turnPickIntendedPlan = pickIntendedPlan;
+/* is a plan picked before sign-up still waiting in THIS browser (app.jsx's local copy, valid
+   INTENT_LOCAL_MS)? The sign-in window then shows the chosen plan and the 14-day note in BOTH of its
+   modes (auth-ui.jsx): after "Check your email to confirm, then sign in", or a switch to "Sign in",
+   the checkout still opens by itself — while a stale copy left from an earlier visit doesn't promise one
+   (review 2026-10-02). */
+function intendedPlanWaiting(now){
+  try{
+    const p = String(localStorage.getItem("turn-intended-plan")||"").toLowerCase().trim();
+    const at = Number(localStorage.getItem("turn-intended-plan-at")||0);
+    const n = Number(now) || Date.now();
+    return PLANS.some(x=>x.tier===p) && at>0 && (n-at) < INTENT_LOCAL_MS;
+  }catch(e){ return false; }
+}
+window.turnIntendedPlanWaiting = intendedPlanWaiting;
 
 /* ---- MANAGE PLAN — the billing portal when the account menu's workflow provides it
    (window.turnOpenBillingPortal), else the Plans window. */
@@ -647,27 +662,55 @@ function lowBalanceDismiss(state, level){
 }
 window.turnLowBalanceDismiss = lowBalanceDismiss;
 
-/* ---- BEFORE EVERY CHECKOUT: the 14-day right to cancel (owner decision 2026-10-01, D2) ----
-   Every buyer gets it (the law requires it for UK and EU consumers; the Terms give it to
-   everyone). The law: a consumer who asks a SERVICE to start within the 14 days pays for what was
-   supplied if they cancel; for DIGITAL CONTENT they must also acknowledge that they lose the right
-   to cancel, or they bear no cost for what they used (CCR 2013 regs 36-37) — the wording below
-   covers both (review 2026-10-01; v2). Kinolot's policy (Terms, "Your right to cancel"): within 14
-   days of buying a plan or a pack, the customer can cancel and gets back the UNUSED part (the
-   credits from that purchase not yet used, in proportion; the webhook removes that share when the
-   owner refunds it). So every checkout — a
-   plan, a pack, and the plan picked before sign-up that opens by itself (app.jsx) — first shows
-   this step: a REQUIRED checkbox with the exact text below; Continue stays disabled until it is
-   ticked; Cancel closes it and opens nothing. Accepting records the consent on the server
-   (turn_record_checkout_consent, supabase/tax-compliance.sql: who, which sku, which wording
-   version, when). A database without that function (the SQL not run yet), a network failure or a
-   slow answer never blocks the purchase: the payment page's own terms acceptance is the second
-   record. Change the wording → change the version, and the Terms page with it. */
-const CHECKOUT_CONSENT_TEXT = "Start now: I want to use my credits straight away. I understand I lose my right to cancel for credits I use, and if I cancel within 14 days I only get back the part I haven't used.";
-const CHECKOUT_CONSENT_VERSION = "v2-2026-10-01";
+/* ---- THE 14-DAY RIGHT TO CANCEL, NEXT TO EVERY PURCHASE BUTTON (owner decision 2026-10-02, E1) ----
+   Every buyer gets it (the Terms, "Your right to cancel": within 14 days of buying a plan or a pack
+   the customer can cancel and gets back the UNUSED part — the credits from that purchase not yet
+   used, in proportion; the webhook removes that share when the owner refunds it).
+   NO EXTRA STEP (owner, 2026-10-02: "we don't need to create friction with potential customers"):
+   the "Before you pay" dialog and its checkbox (v2-2026-10-01) are gone. Instead one short line
+   sits right under every plan and pack purchase button — the Plans window's plan cards and pack
+   cards, the homepage's plan cards (they lead to checkout after sign-up: landing.jsx), the chosen
+   plan in the sign-up window (auth-ui.jsx) — with a link to the Terms' cancel section. Clicking the
+   button IS the request to start straight away: startCheckout records it on the server
+   (turn_record_checkout_consent(sku, CHECKOUT_CONSENT_VERSION), supabase/tax-compliance.sql: who,
+   which sku, which wording, when) right before the payment page opens. A database without that
+   function (the SQL not run yet), an error, no cloud or a slow answer never blocks the purchase.
+   The plan picked before sign-up opens by itself (app.jsx, no click in this page): it shows the
+   same line in a notice first and keeps it on screen long enough to read (CHECKOUT_NOTICE_MIN_MS,
+   inside the info notice's 5 s life in app/ai.jsx) before this tab moves, and records it as
+   CHECKOUT_CONSENT_VERSION_AUTO — no button was clicked at that moment; the buyer saw the line
+   under the chosen plan in the sign-in window (auth-ui.jsx) and in the notice (review 2026-10-02).
+   Change the wording → change the versions, and the Terms page with them. */
+const CHECKOUT_NOTE_TEXT = "Starts straight away. Cancel within 14 days and you get back the part you haven't used.";
+const CHECKOUT_TERMS_HREF = "/terms.html#cancel";
+const CHECKOUT_CONSENT_VERSION = "v3-2026-10-02-click";
+const CHECKOUT_CONSENT_VERSION_AUTO = "v3-2026-10-02-auto";   // the post-sign-up auto-checkout (no click)
 const CONSENT_RECORD_WAIT_MS = 2500;   // the same-tab path waits this long for the record, then goes anyway
-window.TURN_CHECKOUT_CONSENT_TEXT = CHECKOUT_CONSENT_TEXT;
+const CHECKOUT_NOTICE_MIN_MS = 4500;   // …and keeps its notice (about 20 words) on screen at least this long first
+window.TURN_CHECKOUT_NOTE_TEXT = CHECKOUT_NOTE_TEXT;
 window.TURN_CHECKOUT_CONSENT_VERSION = CHECKOUT_CONSENT_VERSION;
+window.TURN_CHECKOUT_CONSENT_VERSION_AUTO = CHECKOUT_CONSENT_VERSION_AUTO;
+window.TURN_CHECKOUT_NOTICE_MIN_MS = CHECKOUT_NOTICE_MIN_MS;
+/* Are the Terms with the "Your right to cancel" section (id "cancel") live? They go live on the switch
+   day, the same day TERMS_UPDATED_AT (below) is set. Until then the note's Terms link lands on the
+   current Terms, which say nothing about cancelling — so the note also gives the way to cancel, the
+   billing address (review 2026-10-02; the removed dialog was the only place that said it). */
+function cancelSectionLive(){
+  const s = String(TERMS_UPDATED_AT==null ? "" : TERMS_UPDATED_AT).trim();
+  return !!s && Number.isFinite(Date.parse(s));
+}
+window.turnCancelSectionLive = cancelSectionLive;
+/* the line itself, under a purchase button. `id` lets the button point at it (aria-describedby), so
+   a screen reader reads it with the button; `extra` adds a surface's own class (landing, sign-up). */
+function checkoutNote(id, extra){
+  const howToCancel = cancelSectionLive() ? [] : [" · To cancel, email ",
+    React.createElement("a",{className:"checkout-note-mail",href:"mailto:"+BILLING_EMAIL},BILLING_EMAIL)];
+  return React.createElement("p",{className:"checkout-note"+(extra ? " "+extra : ""), id: id || undefined},
+    CHECKOUT_NOTE_TEXT+" ",
+    React.createElement("a",{href:CHECKOUT_TERMS_HREF,target:"_blank",rel:"noopener"},"Terms"),
+    ...howToCancel);
+}
+window.turnCheckoutNote = checkoutNote;
 /* the sku a consent is recorded under: a pack's own sku ("pack-250", "credits-300"), a plan's
    "plan-<tier id>" ("plan-studio" for Producer: ids are never renamed) */
 function checkoutSku(item){
@@ -676,18 +719,13 @@ function checkoutSku(item){
   return "unknown";
 }
 window.turnCheckoutSku = checkoutSku;
-/* what the step says is being bought — a plan names its renewal (UK subscription rules: the price,
-   how often, and how to stop it, before the contract) */
-function checkoutConsentCopy(item){
+/* the notice the plan picked before sign-up shows before its payment page opens by itself */
+function autoCheckoutNotice(item){
   const isPlan = !!(item && item.tier && !item.sku);
-  if(isPlan){
-    const name = planDisplayName(item.tier);
-    return { title:"Before you pay", item:name+" plan · "+String(item.price||"")+" a month",
-      renew:"Renews every month at "+String(item.price||"")+" until you cancel. Cancel anytime from Manage plan; it ends at the end of the month you’ve paid for." };
-  }
-  return { title:"Before you pay", item:String((item && item.name)||"Credits")+" · "+String((item && item.price)||"")+", one-off", renew:"" };
+  const what = isPlan ? ("your "+planDisplayName(item.tier)+" plan") : String((item && item.name) || "your credits");
+  return "Opening the checkout for "+what+". "+CHECKOUT_NOTE_TEXT;
 }
-window.turnCheckoutConsentCopy = checkoutConsentCopy;
+window.turnAutoCheckoutNotice = autoCheckoutNotice;
 /* record the consent; resolves { ok } | { ok:false, reason:"missing"|"no-cloud"|"error" } and never rejects */
 async function recordCheckoutConsent(sku, version){
   const sb = (typeof window.sbClient==="function") ? window.sbClient() : null;
@@ -709,7 +747,12 @@ function _withTimeout(p, ms){
       ()=>{ if(!done){ done = true; clearTimeout(t); resolve({ ok:false, reason:"error" }); } });
   });
 }
-/* the payment link for this account, or "" (no link here yet) */
+const _wait = (ms)=> new Promise((resolve)=>setTimeout(resolve, ms));
+/* the payment link for this account, or "" (no link here yet). It carries the account's id
+   (client_reference_id: the webhook credits that account) and the account's email
+   (prefilled_email: the payment page starts with it filled in; owner decision 2026-10-02, E2 —
+   a wallet such as Apple Pay can still hand Stripe another email, which the webhook then sets
+   back to the account's). Both are URL-encoded ("a+b@x.com" stays a plus, not a space). */
 function checkoutUrl(item, uid, email){
   const base = checkoutLink(item);
   if(!base) return "";
@@ -718,6 +761,7 @@ function checkoutUrl(item, uid, email){
     + "client_reference_id=" + encodeURIComponent(uid)
     + (email ? ("&prefilled_email=" + encodeURIComponent(email)) : "");
 }
+window.turnCheckoutUrl = checkoutUrl;
 function _needSignIn(){
   if(window.appToast) window.appToast("Sign in first — purchases are tied to your account.","info");
   try{ window.dispatchEvent(new CustomEvent("turn-need-signin")); }catch(e){}
@@ -725,19 +769,27 @@ function _needSignIn(){
 function _noCheckoutYet(){
   if(window.appToast) window.appToast("Checkout isn't available yet — please try again shortly.","info");
 }
-/* AFTER the box is ticked: record the consent and open the payment page. Called straight from the
-   Continue click, so the new tab opens inside the user's gesture (a popup blocker lets it through);
-   the record goes out alongside it. The same-tab path (the sign-up auto-checkout) waits briefly for
-   the record first, because leaving the page would cancel it. Resolves true when a page opened. */
-function proceedToCheckout(item, opts){
+
+/* open a plan's or pack's checkout tagged with the user's id + email. Needs a signed-in user —
+   without a uid the webhook can't know whose balance to credit. Called straight from the purchase
+   button's click, so the new tab opens inside the user's gesture (a popup blocker lets it
+   through); the consent record goes out just before it and finishes in the background.
+   opts.sameTab: navigate THIS tab to Stripe instead of window.open — used by the post-signup
+   auto-open (app.jsx), so the buyer stays in one tab; Stripe's after-payment redirect brings
+   them back to the app. That path has no click here, so it shows the note in a notice first and
+   waits for the record (leaving the page would cancel it) and for the notice's time on screen,
+   and records CHECKOUT_CONSENT_VERSION_AUTO instead of the click's version.
+   Resolves true when a payment page opened. */
+function startCheckout(plan, opts){
   const uid = window.turnUserId || null;
-  const email = window.turnUserEmail || "";
   if(!uid){ _needSignIn(); return Promise.resolve(false); }
-  const url = checkoutUrl(item, uid, email);
+  const url = checkoutUrl(plan, uid, window.turnUserEmail || "");
   if(!url){ _noCheckoutYet(); return Promise.resolve(false); }
-  const rec = recordCheckoutConsent(checkoutSku(item), CHECKOUT_CONSENT_VERSION);
-  if(opts && opts.sameTab){
-    return _withTimeout(rec, CONSENT_RECORD_WAIT_MS).then(()=>{
+  const auto = !!(opts && opts.sameTab);   // sameTab is the post-sign-up auto-checkout alone (app.jsx)
+  const rec = recordCheckoutConsent(checkoutSku(plan), auto ? CHECKOUT_CONSENT_VERSION_AUTO : CHECKOUT_CONSENT_VERSION);
+  if(auto){
+    if(window.appToast) window.appToast(autoCheckoutNotice(plan), "info", { force:true });
+    return Promise.all([_withTimeout(rec, CONSENT_RECORD_WAIT_MS), _wait(CHECKOUT_NOTICE_MIN_MS)]).then(()=>{
       try{ window.location.assign(url); return true; }catch(e){}
       window.open(url, "_blank", "noopener");
       return true;
@@ -745,103 +797,6 @@ function proceedToCheckout(item, opts){
   }
   window.open(url, "_blank", "noopener");
   return Promise.resolve(true);   // the record finishes in the background (this page stays open)
-}
-window.turnProceedToCheckout = proceedToCheckout;
-
-/* the confirm step itself (mounted on its own root by openCheckoutConsent, above the Plans window) */
-/* keyboard users stay inside the step: Tab / Shift+Tab wrap around its own controls */
-const CONSENT_FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),[tabindex]:not([tabindex="-1"])';
-function trapConsentTab(e, root){
-  if(!e || e.key!=="Tab" || !root || typeof root.querySelectorAll!=="function") return false;
-  const list = Array.prototype.slice.call(root.querySelectorAll(CONSENT_FOCUSABLE) || []);
-  if(!list.length){ if(e.preventDefault) e.preventDefault(); return true; }
-  const first = list[0], last = list[list.length-1];
-  const active = typeof document!=="undefined" ? document.activeElement : null;
-  const inside = !!(active && (active===root || (typeof root.contains==="function" && root.contains(active))));
-  if(e.shiftKey && (active===first || !inside)){ if(e.preventDefault) e.preventDefault(); try{ last.focus(); }catch(_){} return true; }
-  if(!e.shiftKey && (active===last || !inside)){ if(e.preventDefault) e.preventDefault(); try{ first.focus(); }catch(_){} return true; }
-  return false;
-}
-window.turnTrapConsentTab = trapConsentTab;
-function CheckoutConsentDialog({ item, opts, onClose }){
-  const [checked, setChecked] = React.useState(false);
-  const [busy, setBusy] = React.useState(false);
-  const boxRef = React.useRef(null);
-  const dialogRef = React.useRef(null);
-  const copy = checkoutConsentCopy(item);
-  const cancel = ()=>{ if(!busy) onClose(); };
-  // the step takes the keyboard focus when it opens (its checkbox), so keyboard and screen-reader
-  // users land on it; focus goes back to what opened it when it closes (closeCheckoutConsent)
-  React.useEffect(()=>{ try{ if(boxRef.current && boxRef.current.focus) boxRef.current.focus(); }catch(e){} }, []);
-  React.useEffect(()=>{
-    if(typeof document==="undefined" || !document.addEventListener) return undefined;
-    const onKey = (e)=>{ if(e.key==="Escape") cancel(); else if(e.key==="Tab") trapConsentTab(e, dialogRef.current); };
-    document.addEventListener("keydown", onKey);
-    return ()=> document.removeEventListener("keydown", onKey);
-  });
-  const go = ()=>{
-    if(!checked || busy) return;
-    setBusy(true);
-    proceedToCheckout(item, opts).then(()=>onClose(), ()=>onClose());
-  };
-  return React.createElement("div",{className:"ns-overlay checkout-consent-overlay",onMouseDown:e=>{ if(e.target===e.currentTarget) cancel(); }},
-    React.createElement("div",{className:"checkout-consent",role:"dialog","aria-modal":"true","aria-labelledby":"checkout-consent-title",ref:dialogRef},
-      React.createElement("div",{className:"checkout-consent-title",id:"checkout-consent-title"}, copy.title),
-      React.createElement("div",{className:"checkout-consent-item"}, copy.item),
-      copy.renew && React.createElement("div",{className:"checkout-consent-renew"}, copy.renew),
-      React.createElement("label",{className:"checkout-consent-check"},
-        React.createElement("input",{type:"checkbox",checked:checked,disabled:busy,required:true,ref:boxRef,
-          onChange:e=>setChecked(!!(e && e.target ? e.target.checked : !checked))}),
-        React.createElement("span",null, CHECKOUT_CONSENT_TEXT)),
-      React.createElement("div",{className:"checkout-consent-note"},
-        "You’ll pay on a secure checkout page next. To cancel within 14 days, email kinolot-billing@infinitestudioai.com. More in our ",
-        React.createElement("a",{href:"/terms.html#cancel",target:"_blank",rel:"noopener"},"Terms"),
-        "."),
-      React.createElement("div",{className:"checkout-consent-acts"},
-        React.createElement("button",{type:"button",className:"plan-cta",disabled:busy,onClick:cancel},"Cancel"),
-        React.createElement("button",{type:"button",className:"plan-cta primary",disabled:!checked || busy,
-          title: checked ? "" : "Tick the box to continue", onClick:go},
-          busy ? "Opening checkout…" : "Continue to payment"))));
-}
-window.CheckoutConsentDialog = CheckoutConsentDialog;
-let _consentRoot = null, _consentEl = null, _consentOpener = null;
-function closeCheckoutConsent(){
-  try{ _consentRoot && _consentRoot.unmount(); }catch(e){}
-  if(_consentEl && _consentEl.parentNode) _consentEl.parentNode.removeChild(_consentEl);
-  const opener = _consentOpener;
-  _consentRoot = null; _consentEl = null; _consentOpener = null;
-  // give the focus back to what opened the step (the plan / pack button), when it's still there
-  try{
-    const there = !(typeof document!=="undefined" && document.body && typeof document.body.contains==="function") || document.body.contains(opener);
-    if(opener && typeof opener.focus==="function" && there) opener.focus();
-  }catch(e){}
-}
-window.turnCloseCheckoutConsent = closeCheckoutConsent;
-/* SELF-MOUNTING (the openPlans pattern): one step at a time */
-function openCheckoutConsent(item, opts){
-  if(_consentEl) return false;
-  if(typeof document==="undefined" || !window.ReactDOM) return false;
-  _consentOpener = document.activeElement || null;
-  _consentEl = document.createElement("div");
-  _consentEl.className = "checkout-consent-root";
-  document.body.appendChild(_consentEl);
-  _consentRoot = ReactDOM.createRoot(_consentEl);
-  _consentRoot.render(React.createElement(CheckoutConsentDialog,{ item, opts: opts || null, onClose: closeCheckoutConsent }));
-  return true;
-}
-window.turnOpenCheckoutConsent = openCheckoutConsent;
-
-/* open a plan's or pack's checkout tagged with the user's id (+ prefilled email). Needs a
-   signed-in user — without a uid the webhook can't know whose balance to credit. It always
-   goes through the confirm step above first (D2); the payment page opens from its Continue.
-   opts.sameTab: navigate THIS tab to Stripe instead of window.open — used by the post-signup
-   auto-open (app.jsx), so the buyer stays in one tab; Stripe's after-payment redirect brings
-   them back to the app. */
-function startCheckout(plan, opts){
-  const uid = window.turnUserId || null;
-  if(!uid){ _needSignIn(); return; }
-  if(!checkoutLink(plan)){ _noCheckoutYet(); return; }
-  openCheckoutConsent(plan, opts);
 }
 window.turnStartCheckout = startCheckout;
 
@@ -1008,6 +963,10 @@ function PlansModal({ onClose, currentPlan }){
           React.createElement("div",{className:"plans-grid"},
             PLANS.map(p=>{
               const active = currentPlan && String(currentPlan).toLowerCase()===p.tier;
+              // a purchase button (not "Current plan", not a subscriber's "Switch to …") carries the
+              // 14-day note right under it (E1, 2026-10-02): clicking it is the request to start now
+              const buys = !active && !hasPlan;
+              const noteId = "checkout-note-plan-"+p.tier;
               return React.createElement("div",{key:p.tier,className:"plan-card"+(p.popular?" popular":"")+(active?" active":"")},
                 p.popular && React.createElement("div",{className:"plan-flag"},"Most popular"),
                 React.createElement("div",{className:"plan-name"},p.name),
@@ -1017,9 +976,10 @@ function PlansModal({ onClose, currentPlan }){
                   p.features.map((f,i)=>React.createElement("li",{key:i},
                     React.createElement(Icon.check,{s:12}),f))),
                 React.createElement("button",{className:"plan-cta"+(p.popular?" primary":"")+(active?" is-active":""),
-                  disabled:active,
+                  disabled:active, "aria-describedby": buys ? noteId : undefined,
                   onClick:()=>{ if(active) return; if(hasPlan) switchPlan(); else startCheckout(p); }},
-                  active ? "Current plan" : ((hasPlan ? "Switch to " : "Choose ")+p.name)));
+                  active ? "Current plan" : ((hasPlan ? "Switch to " : "Choose ")+p.name)),
+                buys && checkoutNote(noteId));
             })),
           hasPlan && switchNote && React.createElement("div",{className:"plans-switch-note",role:"status"},
             "To switch plans, write to ",
@@ -1034,6 +994,7 @@ function PlansModal({ onClose, currentPlan }){
             React.createElement("div",{className:"credit-packs-grid"},
               packs.map(p=>{
                 const unavailable = !packOnSale(p);
+                const noteId = "checkout-note-"+p.sku;
                 return React.createElement("div",{key:p.sku,className:"credit-pack"+(p.popular?" popular":"")},
                   p.popular && React.createElement("div",{className:"credit-pack-flag"},"Best value"),
                   React.createElement("div",{className:"credit-pack-name"},p.name),
@@ -1041,8 +1002,11 @@ function PlansModal({ onClose, currentPlan }){
                   React.createElement("div",{className:"credit-pack-blurb"},p.blurb),
                   React.createElement("button",{className:"plan-cta"+(p.popular?" primary":""),disabled:unavailable,
                     title:unavailable ? "This pack goes on sale soon" : "Buy extra credits — they last 12 months",
+                    "aria-describedby": unavailable ? undefined : noteId,
                     onClick:()=>buyPack(p)},
-                    unavailable ? PLANS_COPY.soon : ("Buy "+p.credits.toLocaleString("en-US"))));
+                    unavailable ? PLANS_COPY.soon : ("Buy "+p.credits.toLocaleString("en-US"))),
+                  // the 14-day note under every pack that can be bought (E1); "Coming soon" sells nothing
+                  !unavailable && checkoutNote(noteId));
               })))),
       React.createElement("div",{className:"plans-foot"},
         "Secure checkout by Stripe · Kinolot by Infinite Studio AI · Billing questions: kinolot-billing@infinitestudioai.com")));

@@ -3,16 +3,23 @@
    2026-10-01). Offline: no network, no Stripe, no Supabase, no browser. The real sources are
    transpiled (like the production build) and run in node:vm sandboxes with small fakes.
 
-     C  D2 the confirm step before EVERY checkout (plans, packs, the sign-up auto-checkout): the
-        exact "Start now…" checkbox text, Continue disabled until it's ticked, Cancel opens nothing,
-        the consent is recorded (turn_record_checkout_consent(sku, 'v2-2026-10-01')) and a missing
-        function, an error or a slow answer never blocks the payment page (app/plans.jsx)
+     C  E1 (owner, 2026-10-02) NO confirm step: the "Before you pay" dialog and its checkbox are
+        gone; the 14-day note ("Starts straight away. Cancel within 14 days…" + Terms) sits right
+        under every plan and pack purchase button (the Plans window, the homepage's plan cards, the
+        chosen plan in the sign-up window); the click records turn_record_checkout_consent(sku,
+        'v3-2026-10-02-click') right before the payment page opens with client_reference_id and the
+        encoded prefilled_email (E2a); a missing function, an error or a slow answer never blocks it;
+        the sign-up auto-checkout shows the note in a notice first (>= 4 s) and records
+        'v3-2026-10-02-auto'; the sign-in window keeps the chip and note in "Sign in" while the plan
+        waits; until the Terms' cancel section is live the note gives the billing address; signed-out flows are unchanged
+        (app/plans.jsx, app/landing.jsx, app/auth-ui.jsx)
      T  D5 the "We've updated our Terms and Privacy Policy" banner: hidden while TERMS_UPDATED_AT is
         "", 30 days from the date, per-user dismissal, links to both pages (app/plans.jsx)
      A  D1 the admin's Tax & compliance page: the menu item next to Storage (admin only), the rate
         (default 0.80, remembered), UK / EU / US / unknown / by-product guidance with the hedges, the
         checklist, the friendly message when the SQL hasn't been run (app/admin-tax.jsx, app/auth-ui.jsx)
-     F  APP_FEATURES: the consent step, the 14-day right and the banner; nothing about the admin page
+     F  APP_FEATURES: the note next to purchase buttons (no step), the pre-filled account email, the
+        14-day right and the banner; nothing about the admin page
      H  TURN.html cache keys, the CSS, brand
 
    node scripts/test-tax-compliance-app.mjs */
@@ -78,229 +85,306 @@ function box(extra){
 }
 const run = (b, f, src) => vm.runInContext(transform(src || read(f), f), b, { filename: f });
 
-const CONSENT = "Start now: I want to use my credits straight away. I understand I lose my right to cancel for credits I use, and if I cancel within 14 days I only get back the part I haven't used.";
+const NOTE = "Starts straight away. Cancel within 14 days and you get back the part you haven't used.";
+const OLD_CONSENT = "Start now: I want to use my credits straight away. I understand I lose my right to cancel for credits I use, and if I cancel within 14 days I only get back the part I haven't used.";
 const paidFn = (plan) => { const p = String(plan || "").toLowerCase().trim(); return !!p && p !== "none" && p !== "free" && p !== "trial"; };
 
-/* ════════ C: the confirm step before every checkout (app/plans.jsx) ════════ */
+/* ════════ C: the 14-day note next to every purchase button; the click is the consent (app/plans.jsx) ════════ */
 const P = box({ CREDIT_SCALE: 10 });
 run(P, "app/plans.jsx");
 let rpcCalls = [];
+let seq = [];   // the order of the consent record and the page opening
 let rpcAnswer = async () => ({ data: null, error: null });
-P.sbClient = () => ({ rpc: (name, args) => { rpcCalls.push([name, JSON.parse(JSON.stringify(args))]); return rpcAnswer(name, args); } });
-const renderPlans = (balance) => {
-  P.turnUserId = "u-1"; P.turnUserEmail = "ana@example.com";
+P.sbClient = () => ({ rpc: (name, args) => { seq.push("rpc"); rpcCalls.push([name, JSON.parse(JSON.stringify(args))]); return rpcAnswer(name, args); } });
+{ const open = P.open; P.open = (u, t, f) => { seq.push("open"); open(u, t, f); }; }
+const renderPlans = (balance, who) => {
+  P.turnUserId = who === undefined ? "u-1" : who; P.turnUserEmail = "ana@example.com";
   P.turnCreditBalance = balance || null; P.turnIsPaidPlan = paidFn; P.turnIsAdmin = false; P.usePlansVersion = () => 0;
   P.React.reset();
   return P.PlansModal({ onClose: noop, currentPlan: balance ? balance.plan : null });
 };
-const lastDialog = (B) => B.rendered.filter((x) => x && x.type === B.CheckoutConsentDialog).pop();
-/* render the open dialog with its own hook state (index 0 = ticked, 1 = busy) */
-const dialogTree = (B, state) => { const d = lastDialog(B); B.React.reset(state); return d.type(d.props); };
-const reset = (B) => { B.opened.length = 0; B.assigned.length = 0; B.rendered.length = 0; B.toasts.length = 0; rpcCalls = []; rpcAnswer = async () => ({ data: null, error: null }); if (B.turnCloseCheckoutConsent) B.turnCloseCheckoutConsent(); };
+const reset = (B) => { B.opened.length = 0; B.assigned.length = 0; B.rendered.length = 0; B.toasts.length = 0; rpcCalls = []; seq = []; rpcAnswer = async () => ({ data: null, error: null }); };
+/* a card's button and the note right under it (the next sibling) */
+const btnAndNote = (card) => {
+  const kids = card.children.filter((k) => k && typeof k === "object");
+  const i = kids.findIndex((k) => k.type === "button");
+  return [kids[i], kids[i + 1] || null];
+};
+const isNote = (n) => !!n && n.type === "p" && hasClass("checkout-note")(n);
+/* until the Terms' cancel section is live (TERMS_UPDATED_AT is "", today) the note also gives the way to cancel */
+const HOW_TO_CANCEL = " · To cancel, email kinolot-billing@infinitestudioai.com";
+const assertNote = (n, id, cancelLive) => {
+  assert.ok(isNote(n), "the note sits right under the button");
+  assert.equal(textOf(n), NOTE + " Terms" + (cancelLive ? "" : HOW_TO_CANCEL));
+  const links = findAll(n, (x) => x.type === "a"), a = links[0];
+  assert.equal(a.props.href, "/terms.html#cancel"); assert.equal(a.props.target, "_blank"); assert.equal(a.props.rel, "noopener");
+  assert.equal(textOf(a), "Terms");
+  if (cancelLive) assert.equal(links.length, 1, "the Terms' cancel section says how: no address in the note");
+  else {
+    assert.equal(links.length, 2);
+    assert.equal(links[1].props.href, "mailto:kinolot-billing@infinitestudioai.com"); assert.equal(textOf(links[1]), "kinolot-billing@infinitestudioai.com");
+    assert.ok(hasClass("checkout-note-mail")(links[1]));
+  }
+  if (id) assert.equal(n.props.id, id);
+};
+/* the switch-day packs are what the Plans window sells in a bare harness (no pricing.jsx); give them links */
+const withPackLinks = (fn) => {
+  const saved = P.CINEMA_CREDIT_PACKS.map((p) => p.test);
+  P.CINEMA_CREDIT_PACKS.forEach((p, i) => { p.test = "https://buy.stripe.com/test_pack" + i; });
+  try { return fn(); } finally { P.CINEMA_CREDIT_PACKS.forEach((p, i) => { p.test = saved[i]; }); }
+};
 
-await test("C1 the exact consent wording and its version", () => {
-  assert.equal(P.TURN_CHECKOUT_CONSENT_TEXT, CONSENT);
-  assert.equal(P.TURN_CHECKOUT_CONSENT_VERSION, "v2-2026-10-01", "v2: the acknowledgement that the right is lost for credits used (CCR reg 37)");
+await test("C1 the exact note, its click-consent version and the skus", () => {
+  assert.equal(P.TURN_CHECKOUT_NOTE_TEXT, NOTE);
+  assert.equal(P.TURN_CHECKOUT_CONSENT_VERSION, "v3-2026-10-02-click");
+  assert.equal(P.TURN_CHECKOUT_CONSENT_VERSION_AUTO, "v3-2026-10-02-auto", "the post-sign-up auto-checkout is recorded as what it is: no click");
+  assert.ok(P.TURN_CHECKOUT_CONSENT_VERSION_AUTO.length <= 80, "the SQL takes 1 to 80 characters");
   assert.equal(P.turnCheckoutSku(P.CINEMA_PLANS[2]), "plan-studio", "plan ids are never renamed");
   assert.equal(P.turnCheckoutSku(P.CINEMA_CREDIT_PACKS[0]), "pack-250");
   assert.equal(P.turnCheckoutSku(P.TURN_LEGACY_CREDIT_PACKS[0]), "credits-300");
 });
-await test("C2 'Choose Writer' opens the confirm step, NOT the payment page: required checkbox (unticked), Continue disabled, renewal named", () => {
+await test("C2 the 'Before you pay' dialog and its checkbox are gone: nothing mounts, no checkbox, no leftover code or CSS", () => {
+  reset(P);
+  for (const g of ["CheckoutConsentDialog", "turnOpenCheckoutConsent", "turnCloseCheckoutConsent", "turnCheckoutConsentCopy", "turnTrapConsentTab", "turnProceedToCheckout", "TURN_CHECKOUT_CONSENT_TEXT"])
+    assert.equal(P[g], undefined, g + " is gone");
+  const src = read("app/plans.jsx").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");   // code, not the history in comments
+  for (const s of ["Before you pay", "Continue to payment", "Start now: I want", "type:\"checkbox\"", "checkout-consent"]) assert.ok(!src.includes(s), s);
+  assert.ok(!read("app/styles.css").includes(".checkout-consent"), "the dialog's CSS is gone");
+  const tree = renderPlans({ remaining: 0, plan: "none" });
+  assert.equal(findAll(tree, (n) => n.type === "input").length, 0, "no checkbox in the Plans window");
+  findAll(tree, hasClass("plan-cta"))[0].props.onClick();
+  assert.equal(P.rendered.length, 0, "a purchase click mounts no step");
+  assert.equal(P.opened.length, 1, "it opens the payment page itself");
+});
+await test("C3 the note sits right under every plan and pack purchase button (aria-describedby points at it); not under 'Coming soon', 'Current plan' or a subscriber's 'Switch to'", () => {
+  reset(P);
+  withPackLinks(() => {
+    // no plan: three plan buttons and three packs, each with its note
+    let tree = renderPlans({ remaining: 0, plan: "none" });
+    const plans = findAll(tree, hasClass("plan-card"));
+    assert.equal(plans.length, 3);
+    plans.forEach((card, i) => {
+      const [btn, note] = btnAndNote(card);
+      assert.equal(textOf(btn), "Choose " + P.CINEMA_PLANS[i].name);
+      assertNote(note, "checkout-note-plan-" + P.CINEMA_PLANS[i].tier);
+      assert.equal(btn.props["aria-describedby"], note.props.id);
+    });
+    const packs = findAll(tree, hasClass("credit-pack"));
+    assert.equal(packs.length, 3);
+    packs.forEach((card, i) => {
+      const [btn, note] = btnAndNote(card);
+      assert.match(textOf(btn), /^Buy /);
+      assertNote(note, "checkout-note-" + P.CINEMA_CREDIT_PACKS[i].sku);
+      assert.equal(btn.props["aria-describedby"], note.props.id);
+    });
+    assert.equal(findAll(tree, isNote).length, 6, "one note per purchase button");
+    // a subscriber: 'Current plan' and 'Switch to …' buy nothing here, the packs still do
+    tree = renderPlans({ remaining: 300, plan: "director" });
+    findAll(tree, hasClass("plan-card")).forEach((card) => {
+      const [btn, note] = btnAndNote(card);
+      assert.ok(/^(Current plan|Switch to )/.test(textOf(btn)), textOf(btn));
+      assert.equal(note, null); assert.equal(btn.props["aria-describedby"], undefined);
+    });
+    assert.equal(findAll(tree, isNote).length, 3, "the three packs keep theirs");
+    // signed out: the same buttons and notes (the click asks to sign in)
+    tree = renderPlans({ remaining: 0, plan: "none" }, null);
+    assert.equal(findAll(tree, isNote).length, 6);
+  });
+  // a pack without a link here reads 'Coming soon' and carries no note
+  const pack = P.CINEMA_CREDIT_PACKS[1], saved = pack.test; pack.test = "";
+  try {
+    const tree = renderPlans({ remaining: 0, plan: "none" });
+    const rows = findAll(tree, hasClass("credit-pack")).map(btnAndNote);
+    assert.equal(textOf(rows[1][0]), "Coming soon");
+    assert.equal(rows[1][1], null); assert.equal(rows[1][0].props["aria-describedby"], undefined);
+    assert.ok(isNote(rows[0][1]) && isNote(rows[2][1]), "the packs on sale keep theirs");
+  } finally { pack.test = saved; }
+});
+await test("C4 a click on 'Choose Director' records consent v3 just before the payment page opens in a new tab (inside the click), with the user id and the encoded account email", async () => {
   reset(P);
   const tree = renderPlans({ remaining: 0, plan: "none" });
-  const writer = findAll(tree, hasClass("plan-cta"))[0];
-  assert.equal(textOf(writer), "Choose Writer");
-  writer.props.onClick();
-  assert.equal(P.opened.length + P.assigned.length, 0, "nothing opens before the box is ticked");
-  assert.ok(lastDialog(P), "the confirm step is mounted");
-  const t = dialogTree(P);
-  assert.equal(textOf(findAll(t, hasClass("checkout-consent-title"))[0]), "Before you pay");
-  assert.equal(textOf(findAll(t, hasClass("checkout-consent-item"))[0]), "Writer plan · $19 a month");
-  assert.match(textOf(findAll(t, hasClass("checkout-consent-renew"))[0]), /^Renews every month at \$19 until you cancel\. Cancel anytime from Manage plan/);
-  const cb = findAll(t, (n) => n.type === "input")[0];
-  assert.equal(cb.props.type, "checkbox"); assert.equal(cb.props.checked, false); assert.equal(cb.props.required, true);
-  assert.equal(textOf(findAll(t, hasClass("checkout-consent-check"))[0]), CONSENT);
-  const go = findAll(t, (n) => n.type === "button").find((n) => textOf(n) === "Continue to payment");
-  assert.equal(go.props.disabled, true, "Continue is disabled until the box is ticked");
-  go.props.onClick();
-  assert.equal(P.opened.length + P.assigned.length, 0, "an unticked Continue does nothing");
-  assert.equal(rpcCalls.length, 0);
-  assert.equal(findAll(t, (n) => n.type === "a")[0].props.href, "/terms.html#cancel");
-  assert.equal(textOf(findAll(t, hasClass("checkout-consent-note"))[0]),
-    "You’ll pay on a secure checkout page next. To cancel within 14 days, email kinolot-billing@infinitestudioai.com. More in our Terms.",
-    "how to cancel is said in the step itself (the live Terms describe it only from the switch day)");
-});
-await test("C3 Cancel (and the backdrop, and Escape) close the step and open nothing; the next click can open it again", () => {
-  reset(P);
-  P.turnStartCheckout(P.CINEMA_PLANS[1]);
-  const before = P.unmounted;
-  let t = dialogTree(P);
-  findAll(t, (n) => n.type === "button").find((n) => textOf(n) === "Cancel").props.onClick();
-  assert.equal(P.unmounted, before + 1, "Cancel unmounts the step");
-  assert.equal(P.opened.length + P.assigned.length + rpcCalls.length, 0);
-  P.rendered.length = 0;
-  P.turnStartCheckout(P.CINEMA_PLANS[1]);
-  assert.ok(lastDialog(P), "it can open again after Cancel");
-  t = dialogTree(P);
-  t.props.onMouseDown({ target: t, currentTarget: t });
-  assert.equal(P.unmounted, before + 2, "the backdrop closes it");
-  P.rendered.length = 0;
-  P.turnStartCheckout(P.CINEMA_PLANS[1]);
-  dialogTree(P); P.React.effects.forEach((f) => f());
-  P.keyListeners.slice().forEach((f) => f({ key: "Escape" }));
-  assert.equal(P.unmounted, before + 3, "Escape closes it");
-  assert.equal(P.opened.length + P.assigned.length + rpcCalls.length, 0);
-});
-await test("C4 ticking the box enables Continue, which opens the payment page (user id + email) in a new tab and records the consent", async () => {
-  reset(P);
-  P.turnUserId = "u-1"; P.turnUserEmail = "ana@example.com";
-  P.turnStartCheckout(P.CINEMA_PLANS[1]);
-  let t = dialogTree(P);
-  findAll(t, (n) => n.type === "input")[0].props.onChange({ target: { checked: true } });
-  const ticked = P.React.state;
-  t = dialogTree(P, ticked);
-  const go = findAll(t, (n) => n.type === "button").find((n) => textOf(n) === "Continue to payment");
-  assert.equal(go.props.disabled, false);
-  const before = P.unmounted;
-  go.props.onClick();
-  assert.equal(P.opened.length, 1, "opened inside the click (no popup block)");
-  assert.equal(P.opened[0], "https://buy.stripe.com/test_00waEZ77eeiD6Ti4j1c7u01?client_reference_id=u-1&prefilled_email=ana%40example.com");
+  P.turnUserEmail = "ana+kino@example.com";
+  findAll(tree, hasClass("plan-cta"))[1].props.onClick();
+  assert.equal(P.opened.length, 1, "opened synchronously inside the click (no popup block)");
+  assert.equal(P.opened[0], "https://buy.stripe.com/test_00waEZ77eeiD6Ti4j1c7u01?client_reference_id=u-1&prefilled_email=ana%2Bkino%40example.com",
+    "the email is URL-encoded: a '+' stays a plus, '@' is %40");
   assert.deepEqual(P.openArgs, ["_blank", "noopener"]);
-  assert.deepEqual(rpcCalls, [["turn_record_checkout_consent", { sku: "plan-director", consent_version: "v2-2026-10-01" }]]);
+  assert.deepEqual(rpcCalls, [["turn_record_checkout_consent", { sku: "plan-director", consent_version: "v3-2026-10-02-click" }]]);
+  assert.deepEqual(seq, ["rpc", "open"], "the consent is recorded right before the checkout opens");
+  assert.equal(P.assigned.length, 0, "this page stays where it is");
   await settle();
-  assert.equal(P.unmounted, before + 1, "the step closes");
 });
-await test("C5 a pack goes through the same step and records its own sku", async () => {
+await test("C5 a pack click records its own sku and opens its link with the user id and email", async () => {
   reset(P);
-  const pack = P.CINEMA_CREDIT_PACKS[0];
-  P.turnStartCheckout(pack);
-  assert.equal(P.opened.length, 0);
-  let t = dialogTree(P);
-  assert.equal(textOf(findAll(t, hasClass("checkout-consent-item"))[0]), "250 credits · $10, one-off");
-  assert.equal(findAll(t, hasClass("checkout-consent-renew")).length, 0, "a pack doesn't renew");
-  findAll(t, (n) => n.type === "input")[0].props.onChange({ target: { checked: true } });
-  t = dialogTree(P, P.React.state);
-  findAll(t, (n) => n.type === "button").find((n) => textOf(n) === "Continue to payment").props.onClick();
-  assert.equal(P.opened.length, 1); assert.ok(P.opened[0].startsWith(pack.test + "?client_reference_id=u-1"));
-  assert.deepEqual(rpcCalls, [["turn_record_checkout_consent", { sku: "pack-250", consent_version: "v2-2026-10-01" }]]);
-  await settle();
+  await withPackLinks(async () => {
+    const tree = renderPlans({ remaining: 0, plan: "none" });
+    const [btn] = btnAndNote(findAll(tree, hasClass("credit-pack"))[0]);
+    btn.props.onClick();
+    assert.equal(P.opened.length, 1);
+    assert.equal(P.opened[0], "https://buy.stripe.com/test_pack0?client_reference_id=u-1&prefilled_email=ana%40example.com");
+    assert.deepEqual(rpcCalls, [["turn_record_checkout_consent", { sku: "pack-250", consent_version: "v3-2026-10-02-click" }]]);
+    await settle();
+  });
 });
-const tickAndGo = async (B) => {
-  let t = dialogTree(B);
-  findAll(t, (n) => n.type === "input")[0].props.onChange({ target: { checked: true } });
-  t = dialogTree(B, B.React.state);
-  findAll(t, (n) => n.type === "button").find((n) => textOf(n) === "Continue to payment").props.onClick();
-};
-await test("C6 the SQL not run yet (PGRST202), a database error, a thrown call or no cloud at all never block the payment page", async () => {
+await test("C6 the SQL not run yet (PGRST202 / 42883), a database error, a thrown call or no cloud at all never block the payment page", async () => {
   for (const answer of [async () => ({ data: null, error: { code: "PGRST202", message: "Could not find the function public.turn_record_checkout_consent" } }),
     async () => ({ data: null, error: { code: "42883", message: "function turn_record_checkout_consent(text, text) does not exist" } }),
     async () => ({ data: null, error: { code: "XX000", message: "boom" } }),
-    async () => { throw new Error("network down"); }]) {
+    async () => { throw new Error("network down"); },
+    () => { throw new Error("sync throw"); }]) {
     reset(P); rpcAnswer = answer;
-    P.turnStartCheckout(P.CINEMA_PLANS[0]);
-    await tickAndGo(P);
-    assert.equal(P.opened.length, 1);
+    P.turnUserId = "u-1"; P.turnUserEmail = "ana@example.com";
+    const r = P.turnStartCheckout(P.CINEMA_PLANS[0]);
+    assert.equal(P.opened.length, 1, "opened despite a failing record");
+    assert.equal(await r, true);
     await settle();
   }
-  const r = await P.turnRecordCheckoutConsent("pack-250", "v1-2026-10-01");
-  assert.deepEqual(JSON.parse(JSON.stringify(r)), { ok: false, reason: "error" });
+  rpcAnswer = async () => { throw new Error("x"); };
+  assert.deepEqual(JSON.parse(JSON.stringify(await P.turnRecordCheckoutConsent("pack-250", "v3-2026-10-02-click"))), { ok: false, reason: "error" });
   rpcAnswer = async () => ({ data: null, error: { code: "PGRST202", message: "x" } });
-  assert.equal((await P.turnRecordCheckoutConsent("pack-250", "v1")).reason, "missing");
+  assert.equal((await P.turnRecordCheckoutConsent("pack-250", "v3")).reason, "missing");
   const saved = P.sbClient; P.sbClient = undefined;
-  try {
-    reset(P); P.turnStartCheckout(P.CINEMA_PLANS[0]); await tickAndGo(P);
-    assert.equal(P.opened.length, 1, "no cloud: still opens");
-  } finally { P.sbClient = saved; }
+  try { reset(P); P.turnStartCheckout(P.CINEMA_PLANS[0]); assert.equal(P.opened.length, 1, "no cloud: still opens"); }
+  finally { P.sbClient = saved; }
 });
-await test("C7 the sign-up auto-checkout (sameTab) shows the step too, waits for the record, then moves THIS tab — even when the record never answers", async () => {
+await test("C7 the sign-up auto-checkout (sameTab) shows the note in a notice first, records the AUTO version, keeps the notice up long enough to read (>= 4 s, within the notice's 5 s life), then moves THIS tab — even when the record never answers", async () => {
+  assert.ok(P.TURN_CHECKOUT_NOTICE_MIN_MS >= 4000, "about 20 words need 4-5 s, not 1.5 s");
+  const toastLife = /setTimeout\(close, type==="error" \? 9000 : (\d+)\)/.exec(read("app/ai.jsx"));
+  assert.ok(toastLife && P.TURN_CHECKOUT_NOTICE_MIN_MS <= Number(toastLife[1]), "the info notice is still on screen when the tab moves");
   reset(P);
+  P.turnUserId = "u-1"; P.turnUserEmail = "ana@example.com";
   let resolveRpc; rpcAnswer = () => new Promise((r) => { resolveRpc = r; });
-  P.turnStartCheckout(P.CINEMA_PLANS[1], { sameTab: true });
-  assert.equal(P.assigned.length + P.opened.length, 0, "the step first");
-  await tickAndGo(P);
-  await settle();
-  assert.equal(P.assigned.length, 0, "waits for the record (leaving the page would cancel it)");
+  const t0 = Date.now();
+  const done = P.turnStartCheckout(P.CINEMA_PLANS[1], { sameTab: true });
+  assert.equal(P.toasts.length, 1, "the notice shows before the page moves");
+  assert.equal(P.toasts[0].m, "Opening the checkout for your Director plan. " + NOTE);
+  assert.equal(P.turnAutoCheckoutNotice(P.CINEMA_PLANS[2]), "Opening the checkout for your Producer plan. " + NOTE, "Producer by name (id 'studio')");
+  assert.deepEqual(rpcCalls, [["turn_record_checkout_consent", { sku: "plan-director", consent_version: "v3-2026-10-02-auto" }]]);
   resolveRpc({ data: null, error: null });
   await settle();
+  assert.equal(P.assigned.length + P.opened.length, 0, "a quick record still leaves the notice on screen for a moment");
+  assert.equal(await done, true);
+  assert.ok(Date.now() - t0 >= P.TURN_CHECKOUT_NOTICE_MIN_MS - 100, "the notice had its time on screen");
   assert.equal(P.assigned.length, 1); assert.equal(P.opened.length, 0);
-  assert.ok(P.assigned[0].startsWith("https://buy.stripe.com/test_00waEZ77eeiD6Ti4j1c7u01?client_reference_id=u-1"));
+  assert.equal(P.assigned[0], "https://buy.stripe.com/test_00waEZ77eeiD6Ti4j1c7u01?client_reference_id=u-1&prefilled_email=ana%40example.com");
   // a record that hangs: the page still opens after the short wait
   reset(P); rpcAnswer = () => new Promise(() => {});
-  P.turnStartCheckout(P.CINEMA_PLANS[1], { sameTab: true });
-  await tickAndGo(P);
-  const t0 = Date.now();
-  while (!P.assigned.length && Date.now() - t0 < 4000) await new Promise((r) => setTimeout(r, 20));
+  const t1 = Date.now();
+  await P.turnStartCheckout(P.CINEMA_PLANS[1], { sameTab: true });
   assert.equal(P.assigned.length, 1, "opened after the wait");
-  assert.ok(Date.now() - t0 >= 2000, "it waited for the record first");
+  assert.ok(Date.now() - t1 >= 2000, "it waited for the record first");
+  // a failing record: opens too
+  reset(P); rpcAnswer = async () => ({ data: null, error: { code: "PGRST202", message: "missing" } });
+  await P.turnStartCheckout(P.CINEMA_PLANS[0], { sameTab: true });
+  assert.equal(P.assigned.length, 1);
 });
-await test("C8 signed out, or no payment link here: no step, the old sentences", () => {
+await test("C8 signed out: no record, nothing opens, the old sentence and the sign-in event; no payment link here: the old sentence", () => {
   reset(P);
-  P.turnUserId = null;
-  P.turnStartCheckout(P.CINEMA_PLANS[0]);
-  assert.ok(!lastDialog(P)); assert.equal(P.toasts[0].m, "Sign in first — purchases are tied to your account.");
-  assert.equal(P.events.filter((e) => e.type === "turn-need-signin").length >= 1, true);
+  const tree = renderPlans({ remaining: 0, plan: "none" }, null);
+  findAll(tree, hasClass("plan-cta"))[0].props.onClick();
+  P.turnStartCheckout(P.CINEMA_PLANS[1], { sameTab: true });
+  assert.equal(P.opened.length + P.assigned.length + rpcCalls.length, 0);
+  assert.equal(P.toasts.length, 2);
+  assert.ok(P.toasts.every((t) => t.m === "Sign in first — purchases are tied to your account."));
+  assert.ok(P.events.filter((e) => e.type === "turn-need-signin").length >= 2);
   reset(P); P.turnUserId = "u-1";
   const pack = P.CINEMA_CREDIT_PACKS[1], saved = pack.test; pack.test = "";
   try { P.turnStartCheckout(pack); } finally { pack.test = saved; }
-  assert.ok(!lastDialog(P)); assert.equal(P.toasts[0].m, "Checkout isn't available yet — please try again shortly.");
+  assert.equal(P.opened.length + rpcCalls.length, 0); assert.equal(P.toasts[0].m, "Checkout isn't available yet — please try again shortly.");
 });
-await test("C9 one step at a time: a second checkout click while it's open doesn't stack another", () => {
+await test("C9 no account email (an old session): the link carries the user id alone", () => {
   reset(P);
+  P.turnUserId = "u-1"; P.turnUserEmail = "";
   P.turnStartCheckout(P.CINEMA_PLANS[0]);
-  P.turnStartCheckout(P.CINEMA_PLANS[1]);
-  assert.equal(P.rendered.filter((x) => x && x.type === P.CheckoutConsentDialog).length, 1);
-  reset(P);
+  assert.equal(P.opened[0], "https://buy.stripe.com/test_8x24gB63afmHgtS3eXc7u00?client_reference_id=u-1");
+  assert.equal(P.turnCheckoutUrl({ test: "https://buy.stripe.com/test_x?locale=en" }, "u 1", "A@B.com"),
+    "https://buy.stripe.com/test_x?locale=en&client_reference_id=u%201&prefilled_email=A%40B.com", "an existing query string gets '&'");
+  P.turnUserEmail = "ana@example.com";
 });
-await test("C10 every path to a payment page goes through the step: startCheckout only mounts it; window.open / location.assign live in proceedToCheckout alone; app.jsx's sign-up path calls turnStartCheckout", () => {
+await test("C10 every path to a payment page goes through startCheckout (window.open / location.assign live there alone); app.jsx's sign-up path calls it with sameTab", () => {
   const src = read("app/plans.jsx");
   const body = (name) => { const a = src.indexOf("function " + name + "("); const b = src.indexOf("\nwindow.", a); return src.slice(a, b); };
-  const sc = body("startCheckout");
-  assert.ok(sc.includes("openCheckoutConsent(plan, opts)"));
-  assert.ok(!/window\.open|location\.assign|checkoutUrl\(/.test(sc), "startCheckout never opens a payment page itself");
   const opens = [...src.matchAll(/window\.open\(url|location\.assign\(url/g)].length;
-  const inProceed = [...body("proceedToCheckout").matchAll(/window\.open\(url|location\.assign\(url/g)].length;
-  assert.equal(opens, inProceed, "no other opener in plans.jsx");
+  const inStart = [...body("startCheckout").matchAll(/window\.open\(url|location\.assign\(url/g)].length;
+  assert.ok(opens >= 2); assert.equal(opens, inStart, "no other opener in plans.jsx");
+  assert.ok(body("startCheckout").includes("recordCheckoutConsent(checkoutSku(plan), auto ? CHECKOUT_CONSENT_VERSION_AUTO : CHECKOUT_CONSENT_VERSION)"));
+  assert.ok(body("startCheckout").includes("const auto = !!(opts && opts.sameTab);"));
   const app = read("app/app.jsx");
-  assert.ok(app.includes("window.turnStartCheckout(planObj, { sameTab:true })"), "the welcome/intent auto-checkout goes through startCheckout → the step");
+  assert.ok(app.includes("window.turnStartCheckout(planObj, { sameTab:true })"));
   assert.ok(!/buy\.stripe\.com/.test(app));
 });
-await test("C11 the step's copy names no vendor and no retired name", () => {
+await test("C11 the note's and the notice's copy name no vendor and no retired name", () => {
   const src = read("app/plans.jsx");
-  const a = src.indexOf("function checkoutConsentCopy("), b = src.indexOf("window.turnOpenCheckoutConsent");
+  const a = src.indexOf("const CHECKOUT_NOTE_TEXT"), b = src.indexOf("window.turnStartCheckout");
   const lits = [...src.slice(a, b).matchAll(/"((?:[^"\\\n]|\\.)*)"/g)].map((m) => m[1]).join("\n");
-  assert.ok(!/stripe|claude|anthropic|mckee|cinema machine/i.test(lits) && !/\bTURN\b/.test(lits), lits);
+  assert.ok(lits.includes(NOTE));
+  assert.ok(!/claude|anthropic|mckee|cinema machine/i.test(lits) && !/\bTURN\b/.test(lits) && !/stripe/i.test(lits.replace(/turn_record_checkout_consent/g, "")), lits);
+});
+await test("C12 the homepage's plan cards carry the note right under their button (they lead to checkout after sign-up); the sign-in window shows it under the chosen plan — creating the account, and in 'Sign in' while that plan is still waiting", () => {
+  const L = box({ CREDIT_SCALE: 10, matchMedia: () => ({ matches: false, addEventListener: noop, removeEventListener: noop }), requestAnimationFrame: () => 0, cancelAnimationFrame: noop });
+  run(L, "app/plans.jsx"); run(L, "app/landing.jsx");
+  L.usePlansVersion = () => 0; L.React.reset();
+  const page = deep(L.Landing({ onStart: noop, onSignIn: noop }));
+  const tiers = findAll(page, hasClass("lp-tier"));
+  assert.equal(tiers.length, 3);
+  tiers.forEach((card, i) => {
+    const [btn, note] = btnAndNote(card);
+    assert.equal(textOf(btn), "Choose " + L.CINEMA_PLANS[i].name);
+    assertNote(note, "lp-checkout-note-" + L.CINEMA_PLANS[i].tier);
+    assert.ok(hasClass("lp-checkout-note")(note));
+    assert.equal(btn.props["aria-describedby"], note.props.id);
+  });
+  // the closing "Create a free account" buys nothing: no note there
+  assert.equal(findAll(page, isNote).length, 3);
+  const A = box({ CREDIT_SCALE: 10, cloudConfigured: () => true });
+  run(A, "app/plans.jsx"); run(A, "app/auth-ui.jsx");
+  for (const light of [true, false]) {
+    A.React.reset();
+    let m = A.AuthModal({ onClose: noop, onAuthed: noop, initialMode: "signup", plan: "director", light });
+    const head = findAll(m, hasClass("auth-head"))[0];
+    const kids = head.children.filter((k) => k && typeof k === "object");
+    const chip = kids.findIndex(hasClass("auth-plan"));
+    assert.ok(chip >= 0); assertNote(kids[chip + 1], "auth-checkout-note");
+    assert.ok(hasClass("auth-checkout-note")(kids[chip + 1]));
+    assert.equal(textOf(findAll(m, hasClass("auth-plan-note"))[0]), "checkout opens after signup");
+    // "Sign in" (after "Check your email to confirm, then sign in", or a switch): while the plan picked
+    // before sign-up still waits in this browser, its checkout opens by itself after signing in — so the
+    // chip and the note stay (review 2026-10-02)
+    A.localStorage.setItem("turn-intended-plan", "director"); A.localStorage.setItem("turn-intended-plan-at", String(Date.now() - 5 * 60000));
+    A.React.reset();
+    m = A.AuthModal({ onClose: noop, onAuthed: noop, initialMode: "signin", plan: "director", light });
+    const sk = findAll(m, hasClass("auth-head"))[0].children.filter((k) => k && typeof k === "object");
+    const sChip = sk.findIndex(hasClass("auth-plan"));
+    assert.ok(sChip >= 0, "sign-in with a waiting plan: the chip shows"); assertNote(sk[sChip + 1], "auth-checkout-note");
+    assert.equal(textOf(findAll(m, hasClass("auth-plan-note"))[0]), "checkout opens after sign-in");
+    // the mode switched inside the window (signup -> signin) keeps them too
+    A.React.reset({ 0: "signin" });
+    m = A.AuthModal({ onClose: noop, onAuthed: noop, initialMode: "signup", plan: "director", light });
+    assert.equal(findAll(m, hasClass("auth-title"))[0].children[0], "Sign in");
+    assert.equal(findAll(m, isNote).length, 1, "switched to Sign in: the note stays");
+    // a stale copy from an earlier visit (over 20 minutes) promises nothing in "Sign in"
+    A.localStorage.setItem("turn-intended-plan-at", String(Date.now() - 21 * 60000));
+    A.React.reset();
+    m = A.AuthModal({ onClose: noop, onAuthed: noop, initialMode: "signin", plan: "director", light });
+    assert.equal(findAll(m, isNote).length + findAll(m, hasClass("auth-plan")).length, 0, "sign-in, stale plan: no chip, no note");
+    A.localStorage.removeItem("turn-intended-plan"); A.localStorage.removeItem("turn-intended-plan-at");
+    A.React.reset();
+    m = A.AuthModal({ onClose: noop, onAuthed: noop, initialMode: "signin", plan: "director", light });
+    assert.equal(findAll(m, isNote).length, 0, "sign-in, nothing waiting: no chip, no note");
+    A.React.reset();
+    m = A.AuthModal({ onClose: noop, onAuthed: noop, initialMode: "signup", plan: null, light });
+    assert.equal(findAll(m, isNote).length, 0, "no plan picked: no note");
+  }
 });
 
-await test("C12 keyboard: the step takes the focus (its checkbox) when it opens, Tab / Shift+Tab stay inside it, and the focus goes back to the button that opened it", () => {
-  reset(P);
-  let openerFocused = 0;
-  P.document.activeElement = { focus(){ openerFocused++; } };
-  P.turnStartCheckout(P.CINEMA_PLANS[0]);
-  const t = dialogTree(P);
-  const cb = findAll(t, (n) => n.type === "input")[0];
-  const dlg = findAll(t, (n) => n.props && n.props.role === "dialog")[0];
-  assert.ok(cb.props.ref && "current" in cb.props.ref, "the checkbox has a ref");
-  assert.ok(dlg.props.ref && "current" in dlg.props.ref, "the dialog has a ref");
-  let boxFocused = 0;
-  cb.props.ref.current = { focus(){ boxFocused++; } };
-  // three focusable controls: the checkbox, the Terms link, Cancel (Continue is disabled until ticked)
-  const mk = (name) => ({ name, focused: 0, focus(){ this.focused++; P.document.activeElement = this; } });
-  const ctrls = [mk("box"), mk("link"), mk("cancel")];
-  dlg.props.ref.current = { querySelectorAll: () => ctrls, contains: (x) => ctrls.includes(x) };
-  P.React.effects.forEach((f) => f());
-  assert.equal(boxFocused, 1, "the checkbox is focused when the step opens");
-  const key = (shiftKey) => { let prevented = 0; P.keyListeners.slice().forEach((f) => f({ key: "Tab", shiftKey, preventDefault(){ prevented++; } })); return prevented; };
-  P.document.activeElement = ctrls[2];
-  assert.equal(key(false), 1); assert.equal(ctrls[0].focused, 1, "Tab on the last control wraps to the first");
-  P.document.activeElement = ctrls[0];
-  assert.equal(key(true), 1); assert.equal(ctrls[2].focused, 1, "Shift+Tab on the first wraps to the last");
-  P.document.activeElement = ctrls[1];
-  assert.equal(key(false), 0, "in between, Tab moves normally");
-  P.document.activeElement = { outside: true };
-  assert.equal(key(false), 1); assert.equal(ctrls[0].focused, 2, "focus outside the step is pulled back in");
-  P.turnCloseCheckoutConsent();
-  assert.equal(openerFocused, 1, "closing gives the focus back to the opener");
-  P.document.activeElement = null;
+await test("C13 the note gives the billing address until the Terms' cancel section is live (TERMS_UPDATED_AT set on the switch day); a bad date keeps it", () => {
+  assert.equal(P.turnCancelSectionLive(), false, "today: the current Terms have no cancel section");
+  for (const [at, live] of [["2026-11-14", true], ["", false], ["not a date", false], ["  ", false]]) {
+    const B = box({ CREDIT_SCALE: 10 });
+    run(B, "app/plans.jsx", read("app/plans.jsx").replace('const TERMS_UPDATED_AT = "";', "const TERMS_UPDATED_AT = " + JSON.stringify(at) + ";"));
+    assert.equal(B.turnCancelSectionLive(), live, JSON.stringify(at));
+    assertNote(B.turnCheckoutNote("x"), "x", live);
+  }
 });
 
 /* ════════ T: the Terms-updated banner (app/plans.jsx) ════════ */
@@ -611,43 +695,50 @@ await test("A11 not listed for users: APP_FEATURES and Frances never mention the
 });
 
 /* ════════ F: APP_FEATURES ════════ */
-await test("F1 APP_FEATURES states the confirm step, the 14-day right, partial refunds and the dispute hold lifting, and the Terms banner", () => {
+await test("F1 APP_FEATURES states the note next to every purchase button (no step), the pre-filled account email, the 14-day right, partial refunds, the dispute hold lifting and the Terms banner", () => {
   const B = box({ Date, Math, JSON, Promise });
   vm.runInContext(read("app/ai.jsx"), B, { filename: "app/ai.jsx" });
   const feats = vm.runInContext("APP_FEATURES", B);
   const plans = feats.find((f) => f.name === "Plans & subscription (Writer / Director / Producer)");
-  for (const s of ["every checkout — a plan or a credit pack, and the plan picked before signing up that opens by itself afterwards — first shows a short 'Before you pay' step",
-    "'" + CONSENT + "'", "Cancel closes the step without opening a checkout.",
+  for (const s of ["BEFORE PAYING (owner decision 2026-10-02): there is no extra step and nothing to tick before paying.",
+    "A short line sits right under every plan and pack button — in the plans window, on the homepage's plan cards and under the chosen plan in the sign-up window: '" + NOTE + "', followed by a 'Terms' link",
+    "until the updated Terms are published, the line also says 'To cancel, email kinolot-billing@infinitestudioai.com'.",
+    "The sign-in window keeps showing the chosen plan and that line when it is switched to 'Sign in' (for example after 'Check your email to confirm, then sign in') while the plan is still waiting; the chip then reads 'checkout opens after sign-in'.",
+    "Choosing a plan or a pack is the request to start straight away, and the secure payment page opens at once.",
+    "The plan picked before signing up opens its payment page by itself once the account is ready, after a notice of about four and a half seconds that says the same: 'Opening the checkout for your <plan> plan. " + NOTE + "'",
+    "the payment page opens with the account's email already filled in.",
+    "the billing email on file is changed to the account's email once the payment goes through, as long as the account's email is confirmed",
+    "credits always go to the account the checkout was opened from, whatever email the payment page shows.",
     "within 14 days of buying a plan or a pack, a customer can cancel by telling Kinolot — for example by writing to kinolot-billing@infinitestudioai.com (writing from the account email helps find the purchase) or with the cancellation form in the Terms — and gets back the unused part",
-    "Under the box the step says how to cancel within 14 days (email kinolot-billing@infinitestudioai.com)",
     "a renewal isn't a new purchase", "Prices are in US dollars and include any VAT or sales tax",
     "a partial refund removes the same share of that purchase's credits (rounded up), never more than its unspent credits",
     "when the dispute closes, won or lost, its hold lifts by itself (if another payment is still disputed, the account stays on hold until that one closes too)"]) assert.ok(plans.what.includes(s), s);
-  assert.ok(!plans.what.includes("I understand that if I cancel within 14 days"), "the old (v1) wording is gone");
+  for (const gone of ["Before you pay", "Continue to payment", OLD_CONSENT, "checkbox", "Cancel closes the step", "I understand that if I cancel within 14 days"])
+    assert.ok(!plans.what.includes(gone), "the old step is gone from the facts: " + gone);
   const terms = feats.find((f) => f.name === "Terms updates (in-app notice)");
   assert.ok(terms && terms.what.includes("'We've updated our Terms and Privacy Policy. Read the Terms and the Privacy Policy.'") && terms.what.includes("30 days"));
   // Frances learns the banner (not billing) but none of the billing detail
   const facts = vm.runInContext("museFacts()", B).map((f) => f.name + ": " + f.what).join("\n");
   assert.ok(facts.includes("We've updated our Terms and Privacy Policy"));
-  assert.ok(!facts.includes("Start now: I want to use my credits"), "billing how-to stays out of Frances's facts");
+  assert.ok(!facts.includes("Starts straight away") && !facts.includes("prefilled") && !facts.includes("billing email on file"), "billing how-to stays out of Frances's facts");
   assert.ok(!/stripe/i.test(terms.what));
 });
 
 /* ════════ H: wiring ════════ */
-await test("H1 TURN.html: admin-tax.jsx loads after admin-storage.jsx; every changed file is re-keyed 20261001-tax1", () => {
+await test("H1 TURN.html: admin-tax.jsx loads after admin-storage.jsx; the files this change touched are re-keyed 20261002-consent1 (script.jsx shares ai.jsx's key)", () => {
   const html = read("TURN.html");
   const adm = html.indexOf('src="app/admin-storage.jsx?v='), tax = html.indexOf('<script type="text/babel" src="app/admin-tax.jsx?v=20261001-tax1"></script>');
   assert.ok(adm > 0 && tax > adm);
   assert.ok(tax < html.indexOf('src="app/app.jsx?v='));
-  for (const f of ["app/plans.jsx", "app/auth-ui.jsx", "app/ai.jsx"]) assert.ok(html.includes('src="' + f + '?v=20261001-tax1"'), f);
-  assert.ok(html.includes('href="app/styles.css?v=20261001-tax1"'));
+  for (const f of ["app/plans.jsx", "app/auth-ui.jsx", "app/ai.jsx", "app/script.jsx", "app/landing.jsx"]) assert.ok(html.includes('src="' + f + '?v=20261002-consent1"'), f);
+  assert.ok(html.includes('href="app/styles.css?v=20261002-consent1"'));
 });
-await test("H2 CSS: the step sits above the Plans window; the info banner and the tax page have their rules", () => {
+await test("H2 CSS: the note's rules (Plans window, homepage cards incl. the dark featured card, sign-up window); the dialog's rules are gone; the info banner and the tax page keep theirs", () => {
   const css = read("app/styles.css");
-  const z = (sel) => Number((css.match(new RegExp(sel.replace(/\./g, "\\.") + "\\{[^}]*z-index:(\\d+)")) || [])[1]);
-  assert.ok(z(".ns-overlay.checkout-consent-overlay") > z(".ns-overlay"));
-  for (const c of [".checkout-consent{", ".checkout-consent-check{", ".checkout-consent-acts{", ".billing-banner.info{", ".adm-tax-sec{", ".adm-tax-table{", ".adm-tax-meter{", ".adm-tax-checks{"])
+  for (const c of [".checkout-note{", ".checkout-note a{", ".lp-tier .lp-checkout-note{", ".lp-tier.featured .lp-checkout-note{", ".lp-tier.featured .lp-checkout-note a{color:#fff}",
+    ".auth-head .auth-checkout-note{", ".auth-panel.light .auth-checkout-note{", ".checkout-note .checkout-note-mail{overflow-wrap:anywhere}", ".billing-banner.info{", ".adm-tax-sec{", ".adm-tax-table{", ".adm-tax-meter{", ".adm-tax-checks{"])
     assert.ok(css.includes(c), c);
+  assert.ok(!/checkout-consent/.test(css), "no dialog CSS left");
 });
 await test("H3 brand: the new page's copy says no retired name and names no AI vendor", () => {
   const src = read("app/admin-tax.jsx").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");

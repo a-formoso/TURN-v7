@@ -36,6 +36,11 @@
         waits for charge.refund.updated, a failed one is recorded for the owner); a plan invoice paid
         partly from the customer's balance measures a refund's share against the invoice total; an
         unknown account whose ledger write also failed answers 500
+     L  owner decision 2026-10-02 (E2): after a paid Kinolot checkout (plan or pack) was CREDITED to the
+        account named by client_reference_id, the Stripe customer gets the account's CONFIRMED email when
+        its own differs, ignoring case (Apple Pay stores the wallet's) — once (a resend changes nothing);
+        never for an unconfirmed email, no / a bad uid, another app, an unpaid or refused checkout; a
+        failure there never fails the event; no whole address in any log line
 
    node scripts/test-stripe-webhook.mjs          (VERBOSE=1 prints the webhook's log lines;
                                                   STRIPE_WEBHOOK_INDEX=<file> tests a modified copy) */
@@ -92,7 +97,9 @@ function resetDb(opts = {}) {
     // without the refund_fraction argument (true = PGRST202, or an error object); planGrants = turn_set_plan_once's grants by key
     sales: new Map(), salesMissing: false, salesError: null, revokeNoFraction: false, revokeError: null, planGrants: new Map(),
     // disputeFnMissing = a database without turn_dispute_hold (the webhook falls back to the two-step update)
-    disputeFnMissing: false };
+    disputeFnMissing: false,
+    // 2026-10-02 (E2): auth users (auth.admin.getUserById, service role) by id; authError = any lookup fails
+    users: new Map(), userLookups: [], authError: null, authThrow: null };
 }
 function acctRow(uid) {
   if (!DB.accounts.has(uid)) DB.accounts.set(uid, { owner: uid, plan: "none", plan_remaining: 0, packs: [], stripe_customer_id: null, stripe_sub_id: null, renews_at: null, payment_status: "active", frozen: false, pending_tier: null });
@@ -203,6 +210,14 @@ function publicRow(r) {
 }
 function fakeSupabase() {
   return {
+    // E2: the service role's admin API — the Supabase answer shapes ({ data: { user }, error })
+    auth: { admin: { async getUserById(id) {
+      DB.userLookups.push(id);
+      if (DB.authThrow) throw DB.authThrow;
+      if (DB.authError) return { data: { user: null }, error: DB.authError };
+      const u = DB.users.get(id);
+      return u ? { data: { user: structuredClone(u) }, error: null } : { data: { user: null }, error: { status: 404, code: "user_not_found", message: "User not found" } };
+    } } },
     async rpc(name, args) {
       DB.rpcs.push([name, args]);
       if (!CONTRACT[name]) throw new Error(`webhook called a function outside the contract: ${name}`);
@@ -270,7 +285,10 @@ class FakeStripe {
     this.invoices = { retrieve: async (id) => { W.calls.push(["invoices.retrieve", id]); if (!W.invoices[id]) throw miss("invoice", id); return structuredClone(W.invoices[id]); } };
     this.charges = { retrieve: async (id) => { W.calls.push(["charges.retrieve", id]); if (!W.charges[id]) throw miss("charge", id); return structuredClone(W.charges[id]); } };
     this.paymentIntents = { retrieve: async (id) => { W.calls.push(["paymentIntents.retrieve", id]); if (W.onPaymentIntent) W.onPaymentIntent(); if (!W.pis[id]) throw miss("payment_intent", id); return structuredClone(W.pis[id]); } };
-    this.customers = { retrieve: async (id) => { W.calls.push(["customers.retrieve", id]); if (!W.customers[id]) throw miss("customer", id); return structuredClone(W.customers[id]); } };
+    this.customers = { retrieve: async (id) => { W.calls.push(["customers.retrieve", id]); if (W.failCustomerRetrieve) throw W.failCustomerRetrieve; if (!W.customers[id]) throw miss("customer", id); return structuredClone(W.customers[id]); },
+      // E2: the email follows the account's — the stored customer changes, so a resend sees it
+      update: async (id, params) => { W.calls.push(["customers.update", id, structuredClone(params)]); if (W.failCustomerUpdate) throw W.failCustomerUpdate;
+        if (!W.customers[id]) throw miss("customer", id); Object.assign(W.customers[id], params); return structuredClone(W.customers[id]); } };
     this.refunds = { list: async (p) => { W.calls.push(["refunds.list", p]); return { object: "list", has_more: false, data: (W.refunds[p.charge] || []).map((r) => structuredClone(r)) }; } };
     this.products = { retrieve: async (id) => { W.calls.push(["products.retrieve", id]); if (!W.products[id]) throw miss("product", id); return structuredClone(W.products[id]); } };
     this.checkout = { sessions: {
@@ -289,8 +307,10 @@ let handler = null;
     .replace('import Stripe from "npm:stripe@16";', "const Stripe = globalThis.__FakeStripe;")
     .replace('import { createClient } from "npm:@supabase/supabase-js@2";', "const createClient = globalThis.__fakeCreateClient;")
     .replace('from "./plan-metadata.mjs"', `from ${JSON.stringify(new URL("plan-metadata.mjs", FN_DIR).href)}`)
-    .replace('from "./sales-ledger.mjs"', `from ${JSON.stringify(new URL("sales-ledger.mjs", FN_DIR).href)}`);
+    .replace('from "./sales-ledger.mjs"', `from ${JSON.stringify(new URL("sales-ledger.mjs", FN_DIR).href)}`)
+    .replace('from "./customer-email.mjs"', `from ${JSON.stringify(new URL("customer-email.mjs", FN_DIR).href)}`);
   assert.ok(src.includes("globalThis.__FakeStripe") && src.includes("globalThis.__fakeCreateClient"), "imports replaced");
+  assert.ok(!/from "\.\//.test(src), "every local import points at the function's folder");
   const emitWarning = process.emitWarning;   // Node flags stripTypeScriptTypes as experimental
   process.emitWarning = (w, ...rest) => (/stripTypeScriptTypes/.test(String(w)) ? undefined : emitWarning.call(process, w, ...rest));
   const js = stripTypeScriptTypes(src, { mode: "strip" });
@@ -1382,6 +1402,164 @@ await test("K10 source: the ledger runs after the credit work; the partial path 
   const header = SRC.slice(0, SRC.indexOf("import Stripe"));
   assert.match(header, /SALES LEDGER/); assert.match(header, /refund_fraction/); assert.match(header, /never the two-argument call/);
   assert.doesNotMatch(header, /the account stays frozen/); assert.doesNotMatch(header, /partial refund -> recorded for the owner, nothing removed/);
+});
+
+/* ════ L. owner decision 2026-10-02 (E2): the Stripe customer's email follows the account's ═════════ */
+const ACCOUNT_EMAIL = "ana.writer@example.com", WALLET_EMAIL = "wallet.owner@relay.example.net";
+const RAW_EMAILS = [ACCOUNT_EMAIL, WALLET_EMAIL, "someone.else@example.org"];
+/** an auth user as auth.admin.getUserById returns it (email confirmed unless o.unconfirmed) */
+const authUser = (id, email = ACCOUNT_EMAIL, o = {}) => {
+  DB.users.set(id, { id, aud: "authenticated", role: "authenticated", email, email_confirmed_at: o.unconfirmed ? null : "2026-10-01T10:00:00Z", is_anonymous: false, ...(o.extra || {}) });
+};
+/** the customer Checkout created with the wallet's email */
+const walletCustomer = (id, email = WALLET_EMAIL, o = {}) => { W.customers[id] = { id, object: "customer", email, address: o.address ?? null }; };
+const custUpdates = () => W.calls.filter(([n]) => n === "customers.update").map(([, id, p]) => [id, p]);
+const emailLines = () => LOG.filter((l) => /EMAIL_SYNC/.test(l)).join("\n");
+const M_ACCOUNT = "a\\*\\*\\*@e\\*\\*\\*\\.com", M_WALLET = "w\\*\\*\\*@r\\*\\*\\*\\.net";   // the masked forms, as regex
+function noWholeAddressLogged() {
+  const leaks = LOG.filter((l) => RAW_EMAILS.some((e) => l.toLowerCase().includes(e.toLowerCase())));
+  assert.deepEqual(leaks, [], "no whole address in any log line");
+}
+for (const shape of ["old", "dahlia"]) {
+  await test(`L1 [${shape}] a paid PLAN checkout paid with a wallet email: the Stripe customer gets the account's confirmed email ONCE (the resend, async_payment_succeeded and the first invoice change nothing more); credits as before`, async () => {
+    world(); stripeSub("sub_new", "prod_writer", { customer: "cus_new" }); walletCustomer("cus_new"); authUser(U1);
+    W.sessions.push(sessionObj({ subscription: "sub_new", invoice: "in_first", customer: "cus_new" }));
+    const e = evt("evt_co", "checkout.session.completed", sessionObj({ subscription: "sub_new", invoice: "in_first", customer: "cus_new" }), shape);
+    assert.equal((await send(e)).status, 200);
+    assert.equal(DB.accounts.get(U1).plan, "writer"); assert.equal(DB.accounts.get(U1).grants, 1, "credited by the uid, as before");
+    assert.deepEqual(custUpdates(), [["cus_new", { email: ACCOUNT_EMAIL }]], "only the email is changed");
+    assert.equal(W.customers.cus_new.email, ACCOUNT_EMAIL);
+    assert.deepEqual(DB.userLookups, [U1], "the account is read by its id (service role)");
+    assert.ok(logHas(new RegExp(`EMAIL_SYNC event=evt_co session=cs_1 uid=${U1} customer=cus_new result=updated from=${M_WALLET} to=${M_ACCOUNT}`)), emailLines());
+    await send(e);   // Stripe resending the same event
+    await send(evt("evt_async", "checkout.session.async_payment_succeeded", sessionObj({ subscription: "sub_new", invoice: "in_first", customer: "cus_new" }), shape));
+    await send(evt("evt_inv", "invoice.paid", invoiceObj(shape, { id: "in_first", reason: "subscription_create", sub: "sub_new", customer: "cus_new" }), shape));
+    assert.equal(custUpdates().length, 1, "idempotent: the emails are equal now");
+    assert.ok(logHas(new RegExp(`EMAIL_SYNC event=evt_co .*result=skipped reason=same_email email=${M_ACCOUNT}`)), emailLines());
+    assert.ok(logHas(/EMAIL_SYNC event=evt_async .*result=skipped reason=same_email/));
+    assert.ok(!logHas(/EMAIL_SYNC event=evt_inv/), "invoices (first or renewal) never touch the email");
+    assert.equal(DB.accounts.get(U1).grants, 1);
+    noWholeAddressLogged();
+  });
+}
+await test("L2 a paid PACK checkout does the same (payment mode, the customer lookup shared with the sales ledger); a guest checkout without a Stripe customer has nothing to fix", async () => {
+  world(); W.pis.pi_1 = { id: "pi_1", latest_charge: "ch_1" }; W.lineItems.cs_p = [{ product: "prod_pack1000", quantity: 1 }];
+  walletCustomer("cus_p", WALLET_EMAIL, { address: { country: "GB" } }); authUser(U2);
+  const e = evt("evt_p", "checkout.session.completed", sessionObj({ id: "cs_p", mode: "payment", uid: U2, customer: "cus_p", payment_intent: "pi_1", amount: 3500 }));
+  assert.equal((await send(e)).status, 200); await send(e);
+  assert.deepEqual(packsOf(U2), [1000]);
+  assert.deepEqual(custUpdates(), [["cus_p", { email: ACCOUNT_EMAIL }]], "once");
+  assert.deepEqual([sale("checkout:cs_p").country, sale("checkout:cs_p").country_source], ["GB", "customer_address"], "the sales ledger as before");
+  assert.equal(W.calls.filter(([n]) => n === "customers.retrieve").length, 2, "one customer lookup per event (the email sync and the ledger share it)");
+  assert.ok(logHas(new RegExp(`EMAIL_SYNC event=evt_p session=cs_p uid=${U2} customer=cus_p result=updated from=${M_WALLET} to=${M_ACCOUNT}`)), emailLines());
+  // a guest checkout (a one-off Payment Link need not make a customer): no customer to update, no account read
+  world(); W.pis.pi_g = { id: "pi_g", latest_charge: "ch_g" }; W.lineItems.cs_g = [{ product: "prod_pack250", quantity: 1 }]; authUser(U2);
+  assert.equal((await send(evt("evt_g", "checkout.session.completed", sessionObj({ id: "cs_g", mode: "payment", uid: U2, customer: null, payment_intent: "pi_g" })))).status, 200);
+  assert.deepEqual(packsOf(U2), [250]); assert.deepEqual(custUpdates(), []); assert.deepEqual(DB.userLookups, []);
+  assert.ok(logHas(/EMAIL_SYNC event=evt_g session=cs_g uid=\S+ customer=- result=skipped reason=no_customer/), emailLines());
+  noWholeAddressLogged();
+});
+await test("L3 no update when the emails already match (case ignored), the account's email isn't confirmed, there is no / a bad uid, it's another app's checkout, it's unpaid, the database refused the plan, or the account / customer is gone", async () => {
+  // the same address in other capitals
+  world(); stripeSub("sub_a", "prod_writer", { customer: "cus_a" }); walletCustomer("cus_a", "Ana.Writer@Example.COM"); authUser(U1);
+  await send(evt("e1", "checkout.session.completed", sessionObj({ subscription: "sub_a", invoice: "in_a", customer: "cus_a" })));
+  assert.equal(DB.accounts.get(U1).grants, 1); assert.deepEqual(custUpdates(), []);
+  assert.ok(logHas(/EMAIL_SYNC event=e1 .*result=skipped reason=same_email/), emailLines());
+  // an unconfirmed email (a phone-confirmed account too — only email_confirmed_at counts): not even a Stripe lookup
+  world(); stripeSub("sub_a", "prod_writer", { customer: "cus_a" }); walletCustomer("cus_a");
+  authUser(U1, ACCOUNT_EMAIL, { unconfirmed: true, extra: { confirmed_at: "2026-10-01T10:00:00Z", phone_confirmed_at: "2026-10-01T10:00:00Z" } });
+  await send(evt("e2", "checkout.session.completed", sessionObj({ subscription: "sub_a", invoice: "in_a", customer: "cus_a" })));
+  assert.equal(DB.accounts.get(U1).grants, 1); assert.deepEqual(custUpdates(), []);
+  assert.ok(!W.calls.some(([n]) => n === "customers.retrieve")); assert.equal(W.customers.cus_a.email, WALLET_EMAIL);
+  assert.ok(logHas(/EMAIL_SYNC event=e2 .*result=skipped reason=unconfirmed/), emailLines());
+  // no uid / a malformed one: nobody to read (the checkout is recorded for the owner, as before)
+  world(); stripeSub("sub_k", "prod_director"); walletCustomer("cus_1"); authUser(U1);
+  W.pis.pi_n = { id: "pi_n", latest_charge: "ch_n" }; W.lineItems.cs_n = [{ product: "prod_pack250", quantity: 1 }];
+  await send(evt("e3", "checkout.session.completed", sessionObj({ uid: null, subscription: "sub_k" })));
+  await send(evt("e4", "checkout.session.completed", sessionObj({ uid: "not-a-uuid", subscription: "sub_k" })));
+  await send(evt("e5", "checkout.session.completed", sessionObj({ id: "cs_n", mode: "payment", uid: null, payment_intent: "pi_n" })));
+  assert.deepEqual(DB.userLookups, []); assert.deepEqual(custUpdates(), []);
+  assert.equal(failures("missing_client_reference_id").length, 2); assert.equal(failures("invalid_client_reference_id").length, 1);
+  // another app's checkouts, even with a valid uid and a customer whose email differs: never touched, not even logged
+  world(); stripeSub("sub_x", "prod_academy", { customer: "cus_1" }); walletCustomer("cus_1"); authUser(U1);
+  W.pis.pi_c = { id: "pi_c", latest_charge: "ch_c" }; W.lineItems.cs_c = [{ product: "prod_course", quantity: 1 }];
+  assert.equal((await send(evt("e6", "checkout.session.completed", sessionObj({ subscription: "sub_x" })))).status, 200);
+  assert.equal((await send(evt("e7", "checkout.session.completed", sessionObj({ id: "cs_c", mode: "payment", payment_intent: "pi_c", amount: 29900, address: { country: "IT" } })))).status, 200);
+  assert.deepEqual(DB.userLookups, []); assert.deepEqual(custUpdates(), []); assert.equal(W.customers.cus_1.email, WALLET_EMAIL);
+  assert.ok(!logHas(/EMAIL_SYNC/), emailLines());
+  // an unpaid checkout: nothing until it is paid (then once)
+  world(); stripeSub("sub_u", "prod_writer", { customer: "cus_u" }); walletCustomer("cus_u"); authUser(U1);
+  await send(evt("e8", "checkout.session.completed", sessionObj({ subscription: "sub_u", invoice: "in_u", customer: "cus_u", payment_status: "unpaid" })));
+  assert.deepEqual(DB.userLookups, []); assert.deepEqual(custUpdates(), []);
+  await send(evt("e9", "checkout.session.async_payment_succeeded", sessionObj({ subscription: "sub_u", invoice: "in_u", customer: "cus_u" })));
+  assert.deepEqual(custUpdates(), [["cus_u", { email: ACCOUNT_EMAIL }]]);
+  // a plan grant the database REFUSED (another customer paying with this account's id): its email never goes on that customer
+  world(); subscribed(U1, "prod_producer", { customer: "cus_V" }); DB.conflictUids.add(U1); authUser(U1);
+  stripeSub("sub_X", "prod_writer", { customer: "cus_X" }); walletCustomer("cus_X", "someone.else@example.org");
+  await send(evt("e10", "checkout.session.completed", sessionObj({ id: "cs_x", subscription: "sub_X", customer: "cus_X", invoice: "in_x" })));
+  assert.ok(logHas(/PLAN_GRANT_REFUSED/)); assert.deepEqual(DB.userLookups, []); assert.deepEqual(custUpdates(), []);
+  assert.equal(W.customers.cus_X.email, "someone.else@example.org");
+  assert.ok(logHas(/EMAIL_SYNC event=e10 session=cs_x uid=\S+ customer=cus_X result=skipped reason=not_credited/), emailLines());
+  // the account is gone (no such user) / the customer was deleted: nothing, still 200
+  world(); stripeSub("sub_g", "prod_writer", { customer: "cus_g" }); walletCustomer("cus_g");
+  assert.equal((await send(evt("e11", "checkout.session.completed", sessionObj({ subscription: "sub_g", invoice: "in_g", customer: "cus_g" })))).status, 200);
+  assert.deepEqual(custUpdates(), []); assert.ok(logHas(/EMAIL_SYNC event=e11 .*result=skipped reason=no_account error="User not found"/), emailLines());
+  world(); stripeSub("sub_d", "prod_writer", { customer: "cus_d" }); W.customers.cus_d = { id: "cus_d", object: "customer", deleted: true }; authUser(U1);
+  assert.equal((await send(evt("e12", "checkout.session.completed", sessionObj({ subscription: "sub_d", invoice: "in_d", customer: "cus_d" })))).status, 200);
+  assert.deepEqual(custUpdates(), []); assert.ok(logHas(/EMAIL_SYNC event=e12 .*result=skipped reason=customer_deleted/), emailLines());
+  noWholeAddressLogged();
+});
+await test("L4 a failed update or lookup never fails the event: logged (result=failed, an address in the error masked), credits and the sale recorded, 200; a resend then updates once", async () => {
+  world(); W.pis.pi_1 = { id: "pi_1", latest_charge: "ch_1" }; W.lineItems.cs_p = [{ product: "prod_pack250", quantity: 1 }];
+  walletCustomer("cus_p"); authUser(U2);
+  W.failCustomerUpdate = Object.assign(new Error(`Invalid email address: ${ACCOUNT_EMAIL}`), { type: "StripeInvalidRequestError" });
+  const e = evt("evt_f", "checkout.session.completed", sessionObj({ id: "cs_p", mode: "payment", uid: U2, customer: "cus_p", payment_intent: "pi_1", amount: 1000, address: { country: "GB" } }));
+  const r = await send(e);
+  assert.equal(r.status, 200); assert.equal(r.text, "ok");
+  assert.deepEqual(packsOf(U2), [250]); assert.equal(sale("checkout:cs_p").amount_cents, 1000);
+  assert.equal(custUpdates().length, 1); assert.equal(W.customers.cus_p.email, WALLET_EMAIL);
+  assert.ok(logHas(new RegExp(`EMAIL_SYNC event=evt_f .*result=failed step=update error="Invalid email address: ${M_ACCOUNT}"`)), emailLines());
+  assert.equal(DB.failures.length, 0, "not a grant failure");
+  noWholeAddressLogged();
+  // the resend (Stripe's or the owner's) once Stripe takes it: updated once, the pack still granted once
+  W.failCustomerUpdate = null;
+  assert.equal((await send(e)).status, 200);
+  assert.deepEqual(custUpdates().map(([id, p]) => [id, p.email]), [["cus_p", ACCOUNT_EMAIL], ["cus_p", ACCOUNT_EMAIL]]);
+  assert.equal(W.customers.cus_p.email, ACCOUNT_EMAIL); assert.deepEqual(packsOf(U2), [250]);
+  await send(e); assert.equal(custUpdates().length, 2, "then never again");
+  // the customer lookup failing: logged, 200
+  world(); stripeSub("sub_a", "prod_writer", { customer: "cus_a" }); walletCustomer("cus_a"); authUser(U1);
+  W.failCustomerRetrieve = Object.assign(new Error("Request rate limit exceeded"), { type: "StripeRateLimitError" });
+  assert.equal((await send(evt("e2", "checkout.session.completed", sessionObj({ subscription: "sub_a", invoice: "in_a", customer: "cus_a" })))).status, 200);
+  assert.equal(DB.accounts.get(U1).grants, 1); assert.deepEqual(custUpdates(), []);
+  assert.ok(logHas(/EMAIL_SYNC event=e2 .*result=failed step=customer error="Request rate limit exceeded"/), emailLines());
+  // the account lookup answering an error (its text scrubbed), or throwing: logged, 200
+  world(); stripeSub("sub_a", "prod_writer", { customer: "cus_a" }); walletCustomer("cus_a"); authUser(U1);
+  DB.authError = { status: 500, message: `database error reading ${ACCOUNT_EMAIL}` };
+  assert.equal((await send(evt("e3", "checkout.session.completed", sessionObj({ subscription: "sub_a", invoice: "in_a", customer: "cus_a" })))).status, 200);
+  assert.equal(DB.accounts.get(U1).grants, 1); assert.deepEqual(custUpdates(), []);
+  assert.ok(logHas(new RegExp(`EMAIL_SYNC event=e3 .*result=failed step=account error="database error reading ${M_ACCOUNT}"`)), emailLines());
+  DB.authError = null; DB.authThrow = new Error("fetch failed");
+  assert.equal((await send(evt("e4", "checkout.session.completed", sessionObj({ subscription: "sub_a", invoice: "in_a", customer: "cus_a" })))).status, 200);
+  assert.ok(logHas(/EMAIL_SYNC event=e4 .*result=failed step=account error="fetch failed"/), emailLines());
+  noWholeAddressLogged();
+});
+await test("L5 source: the email sync runs only in the checkout handler, after a credited grant, through the service role's admin API and customers.update; it can't throw; logs mask the emails; the header documents it", async () => {
+  assert.match(SRC, /import \{[^}]*accountSyncEmail[^}]*\} from "\.\/customer-email\.mjs";/);
+  assert.equal((CODE.match(/stripe\.customers\.update\(/g) || []).length, 1, "one place updates a customer");
+  assert.equal((CODE.match(/admin\.auth\.admin\.getUserById\(/g) || []).length, 1);
+  assert.equal((CODE.match(/await syncCustomerEmail\(/g) || []).length, 2, "plan and pack checkouts only");
+  assert.match(CODE, /const granted = await grantPlan\(\{[\s\S]{0,200}?\}\);\s+if \(granted\) await syncCustomerEmail\(event, uidRaw, /);
+  assert.match(CODE, /if \(await grantPack\(uidRaw, s, event\)\) await syncCustomerEmail\(event, uidRaw, customerId, s\.id\);/);
+  const fn = CODE.slice(CODE.indexOf("async function syncCustomerEmail("), CODE.indexOf("async function chargeForSession("));
+  assert.match(fn, /^async function syncCustomerEmail\([^)]*\) \{\n[^\n]*\n\s+let step = "account";\n\s+try \{/, "the whole body runs inside try");
+  assert.doesNotMatch(fn, /\bthrow\b/);
+  const rest = fn.replace(/maskEmail\([^)]*\)/g, "").replace("customerEmailAction(customer, account.email)", "").replace("{ email: account.email }", "");
+  assert.doesNotMatch(rest, /\.email\b/, "every email in a log line goes through maskEmail");
+  assert.equal((fn.match(/error=\$\{JSON\.stringify\(scrubEmails\(/g) || []).length, 2, "error text is scrubbed before it is logged");
+  const header = SRC.slice(0, SRC.indexOf("import Stripe"));
+  assert.match(header, /CUSTOMER EMAIL \(owner decision 2026-10-02, E2/); assert.match(header, /EMAIL_SYNC/); assert.match(header, /never fails the event/);
+  assert.match(header, /CONFIRMED/); assert.match(header, /prefilled_email/); assert.match(header, /Accounts are never matched by email/);
 });
 
 console.log(failed ? `\n${checks} passed, ${failed} failed` : `\n${checks} checks passed`);

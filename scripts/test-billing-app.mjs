@@ -96,21 +96,12 @@ function box(extra){
   b.window = b; b.globalThis = b; vm.createContext(b); return b;
 }
 const run = (b, f) => vm.runInContext(transform(read(f), f), b, { filename: f });
-/* the confirm step before every checkout (D2, 2026-10-01): a checkout click mounts it on its own
-   root; this ticks the required box and presses Continue, like a buyer would */
-async function confirmCheckout(B){
-  const el = B.rendered.filter((x) => x && x.type === B.CheckoutConsentDialog).pop();
-  assert.ok(el, "a checkout click opens the confirm step first");
-  const R = B.React, saved = R.state;
-  R.reset();
-  const box1 = findAll(el.type(el.props), (n) => n.type === "input" && n.props.type === "checkbox")[0];
-  box1.props.onChange({ target: { checked: true } });
-  R.calls = 0; R.effects = [];
-  const go = findAll(el.type(el.props), (n) => n.type === "button").find((n) => textOf(n) === "Continue to payment");
-  assert.equal(go.props.disabled, false, "Continue works once the box is ticked");
-  go.props.onClick();
+/* no confirm step before a checkout (owner decision 2026-10-02, E1 — the "Before you pay" dialog of
+   2026-10-01 is gone): a purchase click opens the payment page itself; nothing is mounted first */
+async function noStepMounted(B){
+  assert.equal(B.rendered.length, 0, "a purchase click mounts no confirm step");
+  assert.equal(B.CheckoutConsentDialog, undefined, "the dialog is gone");
   await settle();
-  R.state = saved; B.rendered.length = 0;
 }
 
 /* ════════ A–H: app/plans.jsx ════════ */
@@ -192,10 +183,10 @@ await test("B once a link is pasted, ANY signed-in account (no plan) can buy: th
     const btn = findAll(findAll(m, hasClass("credit-pack"))[0], hasClass("plan-cta"))[0];
     assert.equal(textOf(btn), "Buy 250");
     assert.equal(btn.props.disabled, false);
+    P.rendered.length = 0;
     btn.props.onClick();
-    assert.equal(P.opened.length, 0, "D2: the confirm step comes first");
-    await confirmCheckout(P);
-    assert.equal(P.opened.length, 1);
+    assert.equal(P.opened.length, 1, "E1 (2026-10-02): the click opens the payment page, no step first");
+    await noStepMounted(P);
     assert.match(P.opened[0], /^https:\/\/buy\.stripe\.com\/test_pack250\?client_reference_id=u-1/);
     assert.equal(P.toasts.filter((t) => /Choose a monthly plan first/.test(t.m)).length, 0);
   } finally { pack.test = savedTest; }
@@ -1672,10 +1663,11 @@ await test("M brand: the new copy names no retired name (TURN, MUSE, Cinema Mach
       assert.deepEqual(packs.map((c) => textOf(findAll(c, hasClass("credit-pack-price"))[0])), ["$9", "$29", "$79"]);
       const btns = packs.map((c) => findAll(c, (n) => n.type === "button")[0]);
       assert.deepEqual(btns.map(textOf), ["Buy 300", "Buy 1,200", "Buy 4,000"]);
+      N.rendered.length = 0;
       btns[1].props.onClick();
-      await confirmCheckout(N);
+      await noStepMounted(N);
       assert.equal(N.opened.length, 1);
-      assert.ok(N.opened[0].startsWith("https://buy.stripe.com/9B6cN73V28YjfpO02Lc7u04?client_reference_id=u-1"), N.opened[0]);
+      assert.equal(N.opened[0], "https://buy.stripe.com/9B6cN73V28YjfpO02Lc7u04?client_reference_id=u-1&prefilled_email=a%40b.test", "the user id and the account email (E2a)");
       assert.equal(N.turnPackOnSale(N.CINEMA_CREDIT_PACKS[0]), false, "a new pack is never on sale before the switch");
       // a test host never opens the old live links (their test slots are empty)
       N.location.hostname = "localhost"; N.React.reset();
@@ -1704,8 +1696,8 @@ await test("M brand: the new copy names no retired name (TURN, MUSE, Cinema Mach
     N.React.reset();
     const tree = N.PlansModal({ onClose: noop, currentPlan: "writer" });
     const btn = findAll(findAll(tree, hasClass("credit-pack"))[0], (n) => n.type === "button")[0];
-    assert.equal(btn.props.disabled, false); btn.props.onClick();
-    await confirmCheckout(N);
+    assert.equal(btn.props.disabled, false); N.rendered.length = 0; btn.props.onClick();
+    await noStepMounted(N);
     assert.equal(N.opened.length, 1); assert.ok(N.opened[0].startsWith("https://buy.stripe.com/test_pack250?client_reference_id=u-1"));
     N.CINEMA_CREDIT_PACKS[0].test = savedPack0Test;
     // grandfathering is told in the Plans window while legacy_until is ahead

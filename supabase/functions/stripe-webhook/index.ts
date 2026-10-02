@@ -71,6 +71,19 @@
 // fails the event; any other ledger error answers 500 (Stripe retries; every write is idempotent).
 // Other apps' events still never touch credits. Money taken outside Checkout and Invoices (a bare
 // PaymentIntent, Terminal) and lost disputes aren't in the ledger.
+// CUSTOMER EMAIL (owner decision 2026-10-02, E2; rules in customer-email.mjs): Apple Pay hands Checkout
+// the WALLET's email, which Stripe stores on the customer it creates, so receipts and renewal invoices
+// went to an address the user never gave the app (the credits were right: they follow the uid). After a
+// PAID checkout (completed or async_payment_succeeded, subscription or payment mode) has been CREDITED
+// to the account named by client_reference_id — a plan grant the database applied, or a pack — the
+// account's email (service role: auth.admin.getUserById) is put on the Stripe customer with
+// stripe.customers.update when it is CONFIRMED and differs, ignoring case. Nothing for an unconfirmed or
+// missing email, a checkout without a customer, a plan grant the database refused, a checkout without
+// a valid uid, or another app's checkout (never credited here). One EMAIL_SYNC line per checkout with
+// both emails masked (a***@e***.com; error text scrubbed too). It never fails the event — the credits
+// are already granted: a lookup or update that fails is logged (result=failed) and the event answers
+// as before. Idempotent: a resend finds the emails equal and changes nothing. The app also prefills
+// Checkout's email (prefilled_email). A restricted Stripe key needs Customers: write.
 // Nothing is ever dropped silently: every skip logs a line, every grant it could not make
 // is logged with the marker GRANT_FAILURE and stored in public.turn_grant_failures, and a
 // database error returns 500 so Stripe retries (every write is idempotent).
@@ -113,8 +126,9 @@
 // Upgrading the SDK past v17 changes the fetched shapes — rerun scripts/test-stripe-webhook.mjs.
 //
 // The customer's Supabase user id rides in as the Checkout `client_reference_id` (the app
-// appends ?client_reference_id=<uid> to the payment link). Later events carry the Stripe
-// customer, which the first plan grant stores (turn_credits.stripe_customer_id).
+// appends ?client_reference_id=<uid> to the payment link, and prefilled_email=<the account's
+// email>). Later events carry the Stripe customer, which the first plan grant stores
+// (turn_credits.stripe_customer_id). Accounts are never matched by email.
 // ============================================================================
 import Stripe from "npm:stripe@16";
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -127,6 +141,7 @@ import {
   checkoutSaleKey, countableRefund, invoiceLineProductIds, invoiceSaleKey, pendingRefund, refundBaseCents, refundFraction, refundSaleKey,
   saleAmountCents, saleApp, saleLocation, saleLogFields, unixToIso,
 } from "./sales-ledger.mjs";
+import { accountSyncEmail, customerEmailAction, maskEmail, scrubEmails } from "./customer-email.mjs";
 
 // deno-lint-ignore no-explicit-any
 type Obj = Record<string, any>;
@@ -333,7 +348,9 @@ async function reportIfDuplicate(o: { event: Stripe.Event; acct: Obj | null; sub
   });
 }
 
-/** Grant (or refill) a plan: once per key (the invoice). Renewal resets plan credits only. */
+/** Grant (or refill) a plan: once per key (the invoice). Renewal resets plan credits only. true when
+ *  the database applied it (now or under the same key before); false when it was not this account's
+ *  to apply (a product that isn't a valid Kinolot plan, or a grant the database refused). */
 async function grantPlan(o: {
   event: Stripe.Event; uid: string; sub: Obj; customerId: string | null; key: string;
   source: "checkout" | "first_invoice" | "renewal"; sessionId?: string | null; acct?: Obj | null;
@@ -473,10 +490,13 @@ async function onCheckout(event: Stripe.Event) {
       await reportIfDuplicate({ event, acct: await accountByUid(uidRaw), subId: sub.id, uid: uidRaw, customerId, productId: plan.productId, details: { session: s.id } });
     }
     const invoiceId = idOf(s.invoice) || idOf(sub.latest_invoice);
-    await grantPlan({
+    const granted = await grantPlan({
       event, uid: uidRaw, sub, customerId, key: planGrantKey(invoiceId, event.id),
       source: "checkout", sessionId: s.id,
     });
+    // E2: only once the plan is this account's (a refused grant is someone else's customer)
+    if (granted) await syncCustomerEmail(event, uidRaw, customerId ?? idOf(sub.customer), s.id);
+    else if (plan.ours) console.log(`EMAIL_SYNC event=${event.id} session=${s.id} uid=${uidRaw} customer=${customerId ?? "-"} result=skipped reason=not_credited`);
     return;
   }
 
@@ -496,7 +516,39 @@ async function onCheckout(event: Stripe.Event) {
       console.log(`CHECKOUT_UNPAID event=${event.id} session=${s.id} status=${s.payment_status} — the pack is added on checkout.session.async_payment_succeeded`);
       return;
     }
-    await grantPack(uidRaw, s, event);
+    // E2: only a checkout that added a Kinolot pack (another app's never does)
+    if (await grantPack(uidRaw, s, event)) await syncCustomerEmail(event, uidRaw, customerId, s.id);
+  }
+}
+
+/** E2 (owner decision 2026-10-02): the Stripe customer of a paid checkout that was just credited to
+ *  `uid` gets the account's confirmed email when its own differs (Apple Pay stores the wallet's).
+ *  NEVER throws and never fails the event — the credits are already granted; every outcome is one
+ *  EMAIL_SYNC line with the emails masked. Idempotent: a resend finds the emails equal. */
+async function syncCustomerEmail(event: Stripe.Event, uid: string, customerId: string | null, sessionId: string) {
+  const line = (result: string, rest: string) => `EMAIL_SYNC event=${event.id} session=${sessionId} uid=${uid} customer=${customerId ?? "-"} result=${result} ${rest}`;
+  let step = "account";
+  try {
+    if (!customerId) { console.log(line("skipped", "reason=no_customer")); return; }   // a guest checkout: no customer to fix
+    const { data, error } = await admin.auth.admin.getUserById(uid);
+    if (error || !data?.user) {
+      // no such user (404) is a skip; any other answer is a lookup that failed
+      const gone = !error || (error as Obj).status === 404 || (error as Obj).code === "user_not_found";
+      console.warn(line(gone ? "skipped" : "failed", `${gone ? "reason=no_account" : "step=account"}${error ? ` error=${JSON.stringify(scrubEmails(error.message ?? error).slice(0, 160))}` : ""}`));
+      return;
+    }
+    const account = accountSyncEmail(data.user);
+    if (!account.ok) { console.log(line("skipped", `reason=${account.reason}`)); return; }
+    step = "customer";
+    // the same lookup the sales ledger makes for the customer's address (once per event)
+    const customer = await perEvent(event, `customer:${customerId}`, async () => await stripe.customers.retrieve(customerId) as unknown as Obj);
+    const action = customerEmailAction(customer, account.email);
+    if (action.action !== "update") { console.log(line("skipped", `reason=${action.reason} email=${maskEmail(account.email)}`)); return; }
+    step = "update";
+    await stripe.customers.update(customerId, { email: account.email });
+    console.log(line("updated", `from=${maskEmail(customer?.email)} to=${maskEmail(account.email)}`));
+  } catch (err) {
+    console.warn(line("failed", `step=${step} error=${JSON.stringify(scrubEmails((err as Error)?.message ?? err).slice(0, 200))} — the event goes on (credits granted)`));
   }
 }
 
@@ -509,7 +561,9 @@ async function chargeForSession(s: Obj): Promise<string | null> {
   return idOf(pi?.latest_charge);
 }
 
-async function grantPack(uid: string, session: Obj, event: Stripe.Event) {
+/** Add the pack(s) of a paid one-off checkout. true once the lot is added (or already was, under this
+ *  checkout's key); false when the session holds no Kinolot pack to grant (reported or skipped). */
+async function grantPack(uid: string, session: Obj, event: Stripe.Event): Promise<boolean> {
   const items = await perEvent(event, `items:${session.id}`, () => lineItems(session.id));
   let credits = 0;
   let legacyCredits = 0;                 // of which: packs sold in the old unit
@@ -545,7 +599,7 @@ async function grantPack(uid: string, session: Obj, event: Stripe.Event) {
         productId: (badProducts[0]?.product_id as string) ?? null,
         details: { bad_products: badProducts, line_items: items.length },
       });
-      return;
+      return false;
     }
     if (sawKinolotProduct || items.length === 0) {
       // A Kinolot payment produced ZERO credits — never swallow this.
@@ -556,7 +610,7 @@ async function grantPack(uid: string, session: Obj, event: Stripe.Event) {
         details: { bad_products: badProducts, line_items: items.length },
       });
     }
-    return;
+    return false;
   }
   const chargeId = await chargeForSession(session);
   const key = packGrantKey(session.id, event.id);
@@ -592,6 +646,7 @@ async function grantPack(uid: string, session: Obj, event: Stripe.Event) {
     result = await rpc("turn_add_pack_once", { event_id: key, uid, amount: credits, charge_id: chargeId });
   }
   console.log(`PACK_GRANT event=${event.id} key=${key} uid=${uid} ${amountLabel}=${credits}${note} charge=${chargeId} result=${JSON.stringify(result)}`);
+  return true;
 }
 
 /** The pack event's turn_stripe_events.result (round 4, S6): {lot_credits, legacy_unit, x3}, or null

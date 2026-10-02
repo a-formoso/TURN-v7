@@ -17,6 +17,12 @@ function AuthModal({ onClose, onAuthed, initialMode, plan, light }){
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState("");
   const [notice, setNotice] = React.useState("");
+  /* the chosen plan and its 14-day note: always when creating the account; in "Sign in" too while the
+     plan picked before sign-up is still waiting in this browser (plans.jsx intendedPlanWaiting) — after
+     "Check your email to confirm, then sign in" or a switch to "Sign in" its checkout still opens by
+     itself, so the note must be on screen there as well (review 2026-10-02) */
+  const showPlan = !!planName && (mode==="signup"
+    || (typeof window.turnIntendedPlanWaiting==="function" && window.turnIntendedPlanWaiting()));
 
   const forgot = async ()=>{
     const e = email.trim();
@@ -61,10 +67,13 @@ function AuthModal({ onClose, onAuthed, initialMode, plan, light }){
           React.createElement("div",{className:"auth-mark"},(typeof BrandMark==="function") && React.createElement(BrandMark,null),"Kinolot")),
         light && React.createElement("div",{className:"auth-act"}, mode==="signup"?"Prologue":"Welcome back"),
         React.createElement("div",{className:"auth-title"}, mode==="signup"?"Create your account":"Sign in"),
-        (mode==="signup" && planName) && React.createElement("div",{className:"auth-plan"},
+        showPlan && React.createElement("div",{className:"auth-plan"},
           // the "·" is its own span so a phone can drop it when the note takes its own line (no orphaned dot)
           React.createElement(Icon.sparkles,{s:11}), planName, React.createElement("span",{className:"auth-plan-sep","aria-hidden":"true"},"·"),
-          React.createElement("span",{className:"auth-plan-note"},"checkout opens after signup"))),
+          React.createElement("span",{className:"auth-plan-note"}, mode==="signup" ? "checkout opens after signup" : "checkout opens after sign-in")),
+        // the plan's checkout opens by itself after sign-up, so the 14-day note shows under its chip
+        // too (owner decision 2026-10-02, E1: the same line as every purchase button, plans.jsx)
+        (showPlan && typeof window.turnCheckoutNote==="function") && window.turnCheckoutNote("auth-checkout-note", "auth-checkout-note")),
       React.createElement("div",{className:"auth-body"},
         notice && React.createElement("div",{className:"auth-notice"}, notice),
         React.createElement("label",{className:"auth-field"},

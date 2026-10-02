@@ -58,7 +58,7 @@ const REF = {
 };
 const HOST = "https://kinolot.infinitestudioai.com/";
 const KEY = "20260929-look1";
-const LATER = ["20260929-look2", "20260929-look3", "20260929-look4", "20260930-portal1", "20260930-billing1", "20261001-tax1"];   // a later change that re-keys one of these files adds its key here (Manage plan 2026-09-30: styles.css, auth-ui.jsx) (billing fixes 2026-09-30: styles.css, auth-ui.jsx, app.jsx and more) (consumer rights + tax 2026-10-01: styles.css, auth-ui.jsx)
+const LATER = ["20260929-look2", "20260929-look3", "20260929-look4", "20260930-portal1", "20260930-billing1", "20261001-tax1", "20261002-consent1"];   // a later change that re-keys one of these files adds its key here (Manage plan 2026-09-30: styles.css, auth-ui.jsx) (billing fixes 2026-09-30: styles.css, auth-ui.jsx, app.jsx and more) (consumer rights + tax 2026-10-01: styles.css, auth-ui.jsx) (the 14-day note by the purchase buttons 2026-10-02: styles.css, auth-ui.jsx, landing.jsx)
 
 /* ── a tiny React stand-in that renders function components (so nested marks are visible) ── */
 const el = (type, props, ...children)=>({ type, props:props||{}, children:children.flat(Infinity) });
@@ -336,7 +336,7 @@ check("G phone: the room menu is pinned to the viewport at the desktop width (ro
   mediaBlocks("(max-width:700px)").some(b=>/\.context-group \.room-menu\{position:fixed;top:54px;left:8px;right:auto;\s*min-width:0;width:min\(304px,calc\(100vw - 16px\)\)/.test(b)));
 check("G phone: the sign-up plan chip's note takes its own line without an orphaned '·'", ()=>{
   const s = read("app/auth-ui.jsx");
-  return s.includes('React.createElement("span",{className:"auth-plan-sep","aria-hidden":"true"},"·")') && s.includes('React.createElement("span",{className:"auth-plan-note"},"checkout opens after signup")')
+  return s.includes('React.createElement("span",{className:"auth-plan-sep","aria-hidden":"true"},"·")') && s.includes('React.createElement("span",{className:"auth-plan-note"}, mode==="signup" ? "checkout opens after signup" : "checkout opens after sign-in")')
     && mediaBlocks("(max-width:440px)").some(b=>/\.auth-plan-sep\{display:none\}/.test(b) && /\.auth-plan-note\{flex-basis:100%;padding-left:17px\}/.test(b));
 });
 for(const f of ["privacy.html", "terms.html"]) check("G "+f+": at ≤400px the header lockup steps down (as Home's) and the back link never wraps", ()=>{

@@ -706,8 +706,9 @@ reconciliation's functions, fresh-install equivalence). To run only some section
 Owner decisions 2026-10-01: prices stay in US dollars; the Admin panel warns when a tax
 registration is due (the owner lives and works in the UK and advertises to UK, EU and US
 users); every buyer gets a 14-day right to cancel, the unused part back (the law requires it
-for UK and EU consumers; the Terms give it to everyone), after a "Start now" consent at
-checkout; a partial refund removes the same share of credits; a closed dispute lifts its own
+for UK and EU consumers; the Terms give it to everyone); since 2026-10-02 there is no consent
+step: a note sits next to every purchase button and the click is the request to start straight
+away; a partial refund removes the same share of credits; a closed dispute lifts its own
 hold.
 The owner's steps, with the Stripe settings and what to do about tax, are in
 `docs/Billing Rollout Runbook.md`, section (9).
@@ -724,10 +725,13 @@ The owner's steps, with the Stripe settings and what to do about tax, are in
   the checkout's customer details, the customer, the charge's billing details, the card).
   No names, emails or card details. No foreign key to the account: tax records outlive a
   deleted account (UK: generally kept six years).
-- **`turn_checkout_consents`** — the "Start now" consent (the 14-day right to cancel) the
-  app records before every checkout, plan or pack (`turn_record_checkout_consent`). If the
-  call fails (this file not run yet), the checkout still opens: the payment link's terms
-  acceptance is the second record.
+- **`turn_checkout_consents`** — the request to start straight away (the 14-day right to
+  cancel) the app records when a plan or pack purchase button is clicked, right before the
+  payment page opens (`turn_record_checkout_consent`; the note "Starts straight away. Cancel
+  within 14 days and you get back the part you haven't used." sits next to every such button),
+  as `v3-2026-10-02-click`; the post-sign-up auto-checkout (no click) as `v3-2026-10-02-auto`.
+  If the call fails (this file not run yet), the checkout still opens; the payment link asks
+  for nothing extra (owner decision 2026-10-02), so this is the only record.
 - **`turn_admin_tax_summary(usd_to_gbp default 0.80)`** — the Admin panel's "Tax &
   compliance" figures, for the admin (`admin@infinitestudioai.com`, the signed-in JWT's
   email, as `admin-storage` and `image-proxy` decide) or the SQL Editor; everyone else is
@@ -769,8 +773,8 @@ The owner's steps, with the Stripe settings and what to do about tax, are in
    *(Stripe dashboard, right after)* webhook endpoint → add the event
    **`charge.refund.updated`** (ten in all): it applies a refund that was pending when
    `charge.refunded` came, once it succeeds.
-4. *(Replit)* Pull, then Publish: the "Start now" step before every checkout and the Admin
-   panel's "Tax & compliance" panel.
+4. *(Replit)* Pull, then Publish: the 14-day note next to every purchase button (the click is
+   recorded) and the Admin panel's "Tax & compliance" panel.
 
 Fresh installs: `credits.sql` carries the same definitions (the block between the
 `>>> KINOLOT TAX COMPLIANCE DEFINITIONS >>>` markers is byte-identical in both files).
@@ -780,7 +784,7 @@ Fresh installs: `credits.sql` carries the same definitions (the block between th
 | Function | Caller | Returns / does |
 |---|---|---|
 | `turn_record_sale_once(source_key, app, owner, kind, amount_cents, currency, country, region, country_source, occurred_at, stripe_ids)` | service role | boolean — `true` when this call recorded it, `false` when that source key already was (nothing changes). Currency lower-case, country upper-case (anything that isn't two letters is stored as no country, its raw value kept in `stripe_ids.country_raw`), a refund always negative; a negative amount for anything else, an unknown kind, a missing key / app / currency is refused (22023). No `occurred_at` = now. |
-| `turn_record_checkout_consent(sku, consent_version)` | signed-in user | void — stores the caller's own consent (`owner = auth.uid()`; no user = refused). `sku` names the purchase as the app sends it (`plan-writer`, `plan-director`, `plan-studio`, `pack-250`, `pack-1000`, `pack-3000`; `credits-300` / `credits-1200` / `credits-4000` for the old packs), `consent_version` the wording shown (`v2-2026-10-01` since the review fix: "…I understand I lose my right to cancel for credits I use, and if I cancel within 14 days I only get back the part I haven't used."; `v1-2026-10-01` was never published). More than 200 in a day from one account are not stored (no error). |
+| `turn_record_checkout_consent(sku, consent_version)` | signed-in user | void — stores the caller's own consent (`owner = auth.uid()`; no user = refused). `sku` names the purchase as the app sends it (`plan-writer`, `plan-director`, `plan-studio`, `pack-250`, `pack-1000`, `pack-3000`; `credits-300` / `credits-1200` / `credits-4000` for the old packs), `consent_version` the wording shown (`v3-2026-10-02-click` since 2026-10-02: no step, the click on a purchase button next to the note "Starts straight away. Cancel within 14 days and you get back the part you haven't used."; `v3-2026-10-02-auto` when the plan picked before sign-up opens its payment page by itself once the account is ready — no click at that moment: the same note sat under the chosen plan in the sign-in window and is shown in a notice for about 4.5 s before the page moves; before it `v2-2026-10-01`, the "Before you pay" checkbox "…I understand I lose my right to cancel for credits I use, and if I cancel within 14 days I only get back the part I haven't used."; `v1-2026-10-01` was never published). More than 200 in a day from one account are not stored (no error). |
 | `turn_dispute_hold(uid, dispute_id, open, part default null)` | service role | jsonb `{action, frozen, frozen_reason}` — under the account lock: `open = true` adds this dispute's part to `frozen_reason` (parts separated by ` \| `; once; an earlier hold is kept, one without a reason as "earlier hold (no reason given)") → `frozen`; `open = false` removes it: nothing left → unfrozen, reason = `part` → `lifted`; other holds left → `kept`; held but not by this dispute → `review` (nothing changes); not held → `lifted`. A non-Stripe dispute id is refused (22023), an unknown account 23503. |
 | `turn_admin_tax_summary(usd_to_gbp default 0.80)` | signed-in user, the admin only inside | jsonb `{as_of, usd_to_gbp, thresholds {uk_gbp, us_usd, us_tx, checked, uk_watch_pct, uk_near_pct, us_near_pct}, window_from, uk {usd_12m, gbp_12m_est, pct, status ok·watch·near·over, sales_12m, gbp_30d_est, unknown_gbp_est, pct_with_unknown}, eu {sales_12m, usd_12m, first_sale_at, status watch·over, by_country [{country, sales, usd}]}, us {sales_12m, usd_12m, by_state [{state, sales, usd, pct_usd, pct_tx, status ok·near·over}]}, rest {sales_12m, usd_12m, by_country}, unknown {sales, usd}, by_app [{app, usd_12m}], other_currencies [{currency, sales, amount_minor}], ledger {rows, first_sale_at, recording_since}}`. The window is the last 12 months up to now; refunds net off the amounts, never the sales count; USD and GBP are converted with `usd_to_gbp` (GBP per USD, a conservative high rate; 0 < rate ≤ 10); other currencies are listed, not converted. UK = GB and the Isle of Man; EU = the 27 states (Greece is `GR`) and Monaco; `first_sale_at` is the first EU sale ever (OSS applies from it). Only totals: no account ids, emails or Stripe ids. |
 

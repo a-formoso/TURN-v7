@@ -156,6 +156,11 @@ function lpTiers(){
   }));
 }
 
+/* the 14-day note under each plan card's button (plans.jsx checkoutNote), or null without plans.jsx */
+function lpNoteFn(){
+  return (typeof window.turnCheckoutNote==="function") ? window.turnCheckoutNote : null;
+}
+
 /* the line under the plan cards (billing fixes 2026-09-30, both regimes 2026-10-01): the free
    trial and the credit packs ON SALE right now, read from the same sources as the in-app Plans
    window (plans.jsx). The trial starts on the credit switch day (supabase/billing-switch.sql);
@@ -279,7 +284,12 @@ function Landing({ onStart, onSignIn }){
             React.createElement("ul",{className:"lp-tier-feats"},
               t.feats.map((f,j)=>React.createElement("li",{key:j},
                 React.createElement(Icon.check,{s:13}), React.createElement("span",null,f)))),
-            React.createElement("button",{className:"lp-btn "+(t.featured?"primary":"ghost")+" full",onClick:()=>onStart(t.id)}, t.cta)))),
+            React.createElement("button",{className:"lp-btn "+(t.featured?"primary":"ghost")+" full",onClick:()=>onStart(t.id),
+              "aria-describedby": lpNoteFn() ? "lp-checkout-note-"+t.id : undefined}, t.cta),
+            // the 14-day note under the button (owner decision 2026-10-02, E1): this click leads to the
+            // plan's checkout (it opens by itself after sign-up), so it carries the same line as the
+            // Plans window's buttons (plans.jsx checkoutNote)
+            lpNoteFn() && lpNoteFn()("lp-checkout-note-"+t.id, "lp-checkout-note")))),
         // one note under the cards: the trial / packs line when there is one, then the price terms
         React.createElement("p",{className:"lp-tier-note"},
           lpPricingNote() && React.createElement(React.Fragment,null, lpPricingNote(), React.createElement("br",null)),
