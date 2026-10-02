@@ -42,7 +42,15 @@ function _stageAspectCss(aspect){
   const m = raw.match(/^(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)$/);
   return { "--stage-aspect": m ? (m[1]+" / "+m[2]) : "16 / 9" };
 }
-function _stageSavedSource(){
+/* THE STAGE'S SETTINGS BELONG TO THE FILM (2026-10-02): the visual source, the video model and
+   the clip scope are saved with the film (project.stage) — they decide how its shots pack into
+   clips and which saved takes attach, so a film must read the same on every device and for
+   every collaborator. A film with no saved choice starts from this device's last one (the old
+   device-wide setting, kept as that default); a read-only viewer's pick lasts for the visit. */
+function _stageFilm(project, key){ const st = project && project.stage; return st && typeof st==="object" ? st[key] : undefined; }
+function _stageSavedSource(project){
+  const f = _stageFilm(project, "visualSource");
+  if(f==="halves" || f==="shots") return f;
   try{ const v=localStorage.getItem("turn_stage_visual_source"); return v==="halves" ? "halves" : "shots"; }catch(e){ return "shots"; }
 }
 /* Full-screen for any rendered-video player: native fullscreen on the <video>,
@@ -3696,7 +3704,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   React.useEffect(()=>{
     if(planAllowsModel(modelId)) return;
     const ok = SEEDANCE_MODELS.find(m=>m.status==="active" && planAllowsModel(m.id));
-    if(ok){ setModelId(ok.id); const t0=seedanceTierOf(ok, tier); if(t0) setTier(t0.id); }
+    if(ok){ setModelId(ok.id, { local:true }); const t0=seedanceTierOf(ok, tier); if(t0) setTier(t0.id); }
   }, [modelId, planGate && planGate.tier]);
   // MODEL DEFAULT — Seedance 2.0 for a fresh user comes from the panel's state init
   // (first active registry entry). A stored model can ONLY exist through a hand pick,
@@ -7210,13 +7218,18 @@ function StageBoard({ scenesWithShots, allClips, imgs, auds, vids, beatsMap, dra
     }));
 }
 
-function StageView({ project, scenes, shots, characters, locations, props, beatsMap, drafts, creditBalance, readOnly=false, onVoiceAll, voicingLines, onCancelVoiceAll, onVoiceLine, onUpdateShot, onStageNav }){
-  const [visualSource, _setVisualSource] = React.useState(_stageSavedSource);
+function StageView({ project, scenes, shots, characters, locations, props, beatsMap, drafts, creditBalance, readOnly=false, onVoiceAll, voicingLines, onCancelVoiceAll, onVoiceLine, onUpdateShot, onStageNav, onStageSettings }){
+  // a pick is saved with the film (and remembered as this device's default for new films)
+  const saveFilmStage = React.useCallback((patch)=>{
+    if(!readOnly && typeof onStageSettings==="function") onStageSettings(patch);
+  },[readOnly, onStageSettings]);
+  const [visualSource, _setVisualSource] = React.useState(()=>_stageSavedSource(project));
   const setVisualSource = React.useCallback((v)=>{
     const next = v==="halves" ? "halves" : "shots";
     _setVisualSource(next);
     try{ localStorage.setItem("turn_stage_visual_source", next); }catch(e){}
-  },[]);
+    saveFilmStage({ visualSource:next });
+  },[saveFilmStage]);
   const ordered = React.useMemo(()=> scenesInStoryOrder(scenes), [scenes]);
   const charById = React.useMemo(()=>{ const m={}; (characters||[]).forEach(c=>{ m[c.id]=c; }); return m; }, [characters]);
   const propById = React.useMemo(()=>{ const m={}; (props||[]).forEach(p=>{ m[p.id]=p; }); return m; }, [props]);
@@ -7232,6 +7245,9 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   // clip PACKER: Seedance 2.0 caps clips at 3 shots so per-shot frames + identity refs
   // fit its 9-image budget; 2.5 lifts the shot-count cap but remains beat-first.
   const [modelId, _setModelId] = React.useState(()=>{
+    const f = _stageFilm(project, "modelId");
+    const fm = f && SEEDANCE_MODELS.find(m=>m.id===f && m.status==="active");
+    if(fm) return fm.id;
     try{ const v = localStorage.getItem("turn_stage_model");
       // Stored values are explicit historical choices. Only an actually new Stage
       // starts on 2.5; never migrate a hand-picked 2.0 model or its takes.
@@ -7240,7 +7256,12 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
         || SEEDANCE_MODELS.find(m=>m.status==="active") || SEEDANCE_MODELS[0]).id;
     }catch(e){ return "seedance-2.5"; }
   });
-  const setModelId = React.useCallback((id)=>{ _setModelId(id); try{ localStorage.setItem("turn_stage_model", id); }catch(e){} },[]);
+  // opts.local: an automatic switch (the viewer's plan doesn't allow the film's model) — this
+  // visit only; it never changes the film's saved choice or this device's default
+  const setModelId = React.useCallback((id, opts)=>{ _setModelId(id);
+    if(opts && opts.local) return;
+    try{ localStorage.setItem("turn_stage_model", id); }catch(e){}
+    saveFilmStage({ modelId:id }); },[saveFilmStage]);
   const stageModel = seedanceModelOf(modelId);
   // CLIP SCOPE — user choice (2026-09-02): how shots pack into render clips.
   // "auto": Seedance 2.5 packs ONE BEAT per clip (the whole beat renders as one
@@ -7249,6 +7270,9 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   // its 15s/3-shot budget. "shot": one clip per SHOT on either model — maximum
   // per-render control. Persisted like the model choice.
   const [clipScope, _setClipScope] = React.useState(()=>{
+    const f = _stageFilm(project, "clipScope");
+    if(f==="shot" || f==="beat") return f;
+    if(f==="auto") return "legacy";
     try{ const v=localStorage.getItem("turn_stage_clip_scope");
       // "auto" is the old packer and remains viewable so historical take keys stay
       // attached. No stored value means a new user: use approved beat-first packing.
@@ -7256,7 +7280,13 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
     }catch(e){ return "beat"; }
   });
   const setClipScope = React.useCallback((v)=>{ const next=v==="shot"?"shot":v==="legacy"?"legacy":"beat";
-    _setClipScope(next); try{ localStorage.setItem("turn_stage_clip_scope",next==="legacy"?"auto":next); }catch(e){} },[]);
+    _setClipScope(next); try{ localStorage.setItem("turn_stage_clip_scope",next==="legacy"?"auto":next); }catch(e){}
+    saveFilmStage({ clipScope: next==="legacy"?"auto":next }); },[saveFilmStage]);
+  // the film's saved choice changed elsewhere (a collaborator, an undo, a reload): follow it
+  const _fSrc = _stageFilm(project, "visualSource"), _fModel = _stageFilm(project, "modelId"), _fScope = _stageFilm(project, "clipScope");
+  React.useEffect(()=>{ if(_fSrc==="halves" || _fSrc==="shots") _setVisualSource(_fSrc); },[_fSrc]);
+  React.useEffect(()=>{ if(_fModel && SEEDANCE_MODELS.some(m=>m.id===_fModel && m.status==="active")) _setModelId(_fModel); },[_fModel]);
+  React.useEffect(()=>{ if(_fScope==="shot" || _fScope==="beat") _setClipScope(_fScope); else if(_fScope==="auto") _setClipScope("legacy"); },[_fScope]);
   // CLIP PACKING follows the scope above; the left rail lists the packed clips.
   // (The old Per clip / Whole scene switcher was removed 2026-08-02 by user ruling —
   // sceneSequences' wholeScene branch stays dormant.)

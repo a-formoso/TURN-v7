@@ -3236,6 +3236,18 @@ function App(){
     return ()=>window.removeEventListener("beforeunload", h);
   },[saveState, readOnlyShare]);
 
+  /* THE COLORIST'S REFERENCES, ONE RULE (2026-10-02): the field's text while the user hasn't
+     taken it over is the Lookbook's colorist brief; once they edit it, their text. The
+     write-through below fills the field with it, and the Colorist reads it through the SAME
+     helper (art.references / art.designStyles) — so a Colorist step that runs right after a
+     Lookbook change (the Art Coordinator) reads the new brief even before the write-through's
+     render lands, and never anything the field won't show. */
+  const colorRefsFor = (sb, lb, note)=>{
+    const brief = (typeof lookbookBriefFor==="function") ? lookbookBriefFor("colorist", lb, note).replace(/^Overall look: /,"") : "";
+    const manual = (typeof mergeLookbookIntoRefs==="function") ? mergeLookbookIntoRefs((sb&&sb.refs)||"", "") : ((sb&&sb.refs)||"");
+    const owned = !!manual.trim() && manual !== ((sb&&sb.lookbookSynced)||"");
+    return { refs: owned ? manual : brief, brief, owned };
+  };
   /* Write-through: the Presets (Colorist) "Visual references" field auto-fills from the
      Lookbook — the colorist brief goes INTO the editable field itself (no labels/markers),
      re-syncing on every lookbook change (research, card edits, statement edits, clear),
@@ -3248,12 +3260,9 @@ function App(){
   React.useEffect(()=>{
     if(hydratingRef.current) return;
     if(typeof lookbookBriefFor!=="function") return;
-    const brief = lookbookBriefFor("colorist", lookbook, lookbookNote).replace(/^Overall look: /,"");
     setProject(p=>{
       const sb = (p.styleBible)||{};
-      const manual = (typeof mergeLookbookIntoRefs==="function") ? mergeLookbookIntoRefs(sb.refs||"", "") : (sb.refs||"");
-      const owned = !!manual.trim() && manual !== (sb.lookbookSynced||"");
-      const next = owned ? manual : brief;
+      const { refs:next, brief } = colorRefsFor(sb, lookbook, lookbookNote);
       if((sb.refs||"")===next && (sb.lookbookSynced||"")===brief && sb.lookbookRefs===undefined) return p;
       const out = { ...sb, refs:next, lookbookSynced:brief };
       delete out.lookbookRefs;   // interim field from the previous sync design
@@ -6417,8 +6426,9 @@ function App(){
         } else if(typeof dedupeLookbookCards==="function" && _lbWork.length !== (lookbook||[]).length){
           _w.setLookbook(_lbWork);
         }
-        // No write-through: the Colorist reads the lookbook LIVE (see art.designStyles), so the
-        // references propagate downstream without mutating the Color tab's persisted data.
+        // the Colorist's references follow from here: the write-through fills the Color tab's
+        // field from the Lookbook, and art.references / designStyles read the same rule
+        // (colorRefsFor) — so the next step sees this research even before that render lands
         return { statement:r.statement||"", added:cards.length, renderStyle:r.renderStyle||null };
       },
       // the current dominant style label (for the proposal card's "before" line)
@@ -6505,14 +6515,15 @@ function App(){
         markApplied: (dept)=> _w.markApplied(dept),
         // ---- Cinematographer / Colorist tools (Style Bible agent) ----
         scenesLite: ordered.map(s=>({ id:s.id, no:s.no, title:s.title })),
-        // the Colorist's references = the Presets refs field, which the write-through effect
-        // keeps auto-filled from the Lookbook until the user takes it over — WYSIWYG: the
-        // field is exactly what the Colorist reads.
+        // the Colorist's references = the Presets refs field, worked out by the same rule the
+        // write-through fills it with (colorRefsFor) — WYSIWYG, and current even before the
+        // write-through's render lands
         references: ()=>{ const sb=(typeof styleBibleOf==="function")?styleBibleOf(project):{};
-          return { refs:(sb.refs||"").trim(), refImages:sb.refImages||[] }; },
+          return { refs:String(colorRefsFor(sb, lookbook, lookbookNote).refs||"").trim(), refImages:sb.refImages||[] }; },
         designStyles: async ()=>{ const sb=(typeof styleBibleOf==="function")?styleBibleOf(project):{};
           const seed=(sb.presets&&sb.presets.length)?sb.presets:(window.STYLE_PRESETS_DEFAULT||[]);
-          return window.aiAssignSceneStyles(scenes, seed, drafts, project); },
+          const refs=colorRefsFor(sb, lookbook, lookbookNote).refs;
+          return window.aiAssignSceneStyles(scenes, seed, drafts, { ...project, styleBible:{ ...((project&&project.styleBible)||{}), refs } }); },
         applyStyles: (res)=> _w.applyStyleResult(res),
       } };
   };
@@ -7110,6 +7121,9 @@ function App(){
                 onVoiceAll:voiceAllLines,voicingLines,onCancelVoiceAll:cancelVoiceAll,
                 onVoiceLine:voiceLine,
                 onUpdateShot:updateShot,
+                // the Stage's model, clip scope and visual source belong to the FILM (2026-10-02)
+                onStageSettings:(patch)=>{ if(!canMutateSharedFilm()) return;
+                  setProject(p=>({ ...p, stage:{ ...((p&&p.stage)||{}), ...patch } })); },
                 onStageNav:(tab)=>{
                   if(tab==="timeline"){ setRoom("writers"); setView("script"); return; }
                   if(tab==="shots"){ setArtView("shots"); guardedSetRoom("art"); return; }
