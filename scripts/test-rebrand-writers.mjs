@@ -301,7 +301,11 @@ await test("E no user-visible TURN, MUSE or Cinema Machine; always 'Infinite Stu
 });
 await test("E the collaborator role reads Co-writer (the key stays 'writer')", ()=>{
   const app = read("app/app.jsx"), ag = read("app/agents.jsx"), cl = read("app/cloud.jsx");
-  assert.ok(app.includes("Ask the owner for Co-writer access") && app.includes("View-only, Co-writer or Art director access") && app.includes("Your Co-writer role"));
+  // Team sharing is paused (owner 2026-10-02): the read-only banners no longer send anyone to
+  // "ask the owner" for a role (owners can't change roles in the app); they say it's coming soon.
+  assert.ok(app.includes("Editing and AI-write actions are disabled. Role changes are part of Team sharing, which is coming soon.")
+    && !app.includes("Ask the owner for Co-writer access") && !app.includes("Ask the owner to reassign")
+    && app.includes("Your Co-writer role"));
   assert.ok(ag.includes("A Co-writer or the film's owner can apply it."));
   assert.ok(cl.includes('["view_only","writer","art_director"]'), "role keys unchanged");
   for(const f of MINE) for(const { v, line } of literals(f))

@@ -156,9 +156,11 @@ await test("1 the ⋯ menu renders for EVERY user in the Writers' Room (the styl
     "the call test-art-tab-locks pins is unchanged");
 });
 
-await test("1 a non-admin's phone menu in the Writers' Room: New Story · Story brief · Team · the four exports — no Reset", ()=>{
-  let teamOpened = 0;
-  cb.turnTeamMenu = { open:()=>{ teamOpened++; }, hint:"Team collaboration" };
+const TEAM_SOON = "Team sharing is coming soon: invite co-writers and art directors to work on your film.";
+await test("1 a non-admin's phone menu in the Writers' Room: New Story · Story brief · Team (Soon) · the four exports — no Reset", ()=>{
+  // Team is coming soon (owner decision 2026-10-02): a non-admin's entry (team.jsx) is { soon, hint, notify }
+  let notified = 0;
+  cb.turnTeamMenu = { soon:true, hint:TEAM_SOON, notify:()=>{ notified++; } };
   const tree = openMenu({ project:{ sourceBrief:"The brief", logline:"L" }, scenes:scenes2 });
   const items = menuItems(tree);
   assert.deepEqual(items.map(itemTitle), ["New Story","Story brief","Team","Screenplay (PDF)","Screenplay (.fountain)","Story outline (.txt)","Spine data (.csv)"]);
@@ -166,13 +168,31 @@ await test("1 a non-admin's phone menu in the Writers' Room: New Story · Story 
   const brief = items[1], team = items[2];
   assert.ok(hasClass("ovf-phone")(brief) && hasClass("ovf-phone")(team), "both are phone-only entries");
   assert.equal(textOf(findAll(brief, hasClass("s"))[0]), "What this story was built from · rebuild as a new film");
-  assert.equal(textOf(findAll(team, hasClass("s"))[0]), "Team collaboration");
+  assert.equal(textOf(findAll(team, hasClass("s"))[0]), TEAM_SOON, "the entry says Team is coming soon");
+  assert.ok(hasClass("is-soon")(team) && team.props["aria-disabled"]==="true" && team.props.title===TEAM_SOON, "disabled-looking, with the tooltip");
+  assert.equal(textOf(findAll(team, hasClass("soon-chip"))[0]), "Soon", "the small Soon chip");
   brief.props.onClick();
   assert.deepEqual(cb.__dispatched, ["turn-open-brief"], "Story brief asks the top bar to open the brief window");
   assert.ok(cb.React.sets.some(s=>s.x===false), "and closes the menu");
+  cb.React.sets.length = 0;
+  team.props.onClick();
+  assert.equal(notified, 1, "a tap only shows the coming-soon notice");
+  assert.ok(cb.React.sets.some(s=>s.x===false), "and closes the menu");
+  assert.deepEqual(cb.__dispatched, ["turn-open-brief"], "nothing else is opened");
+  cb.__dispatched.length = 0;
+});
+
+await test("1 the admin's phone menu keeps the working Team entry (for testing)", ()=>{
+  let teamOpened = 0;
+  cb.turnTeamMenu = { open:()=>{ teamOpened++; }, hint:"Team collaboration" };
+  const items = menuItems(openMenu({ project:{ sourceBrief:"The brief" }, scenes:scenes2, onReset:noop }));
+  const team = items.find(n=>itemTitle(n)==="Team");
+  assert.ok(team && hasClass("ovf-phone")(team) && !hasClass("is-soon")(team) && team.props["aria-disabled"]===undefined);
+  assert.equal(textOf(findAll(team, hasClass("s"))[0]), "Team collaboration");
+  assert.equal(findAll(team, hasClass("soon-chip")).length, 0, "no Soon chip for the admin");
   team.props.onClick();
   assert.equal(teamOpened, 1, "Team opens the Team window");
-  cb.__dispatched.length = 0;
+  cb.turnTeamMenu = null;
 });
 
 await test("1 each ⋯ entry shows only when its button would", ()=>{
@@ -186,6 +206,11 @@ await test("1 each ⋯ entry shows only when its button would", ()=>{
   const art = menuItems(openMenu({ room:"art", project:{ sourceBrief:"B" }, scenes:scenes2, setArtView:noop }));
   assert.ok(!art.map(itemTitle).includes("Story brief"), "the brief is a Writers' Room button");
   assert.ok(art.some(n=>itemTitle(n)==="Team" && hasClass("ovf-phone")(n)), "Team is offered in the Art Room's menu too, phone-only");
+  cb.turnTeamMenu = { soon:true, hint:TEAM_SOON, notify:noop };
+  const artSoon = menuItems(openMenu({ room:"art", project:{}, scenes:scenes2, setArtView:noop }));
+  assert.ok(artSoon.some(n=>itemTitle(n)==="Team" && hasClass("ovf-phone")(n) && hasClass("is-soon")(n)), "…and as Coming soon for a non-admin");
+  cb.turnTeamMenu = { hint:"an entry with neither open nor soon" };
+  assert.ok(!menuItems(openMenu({ project:{}, scenes:scenes2 })).some(n=>itemTitle(n)==="Team"), "an entry that can do nothing isn't shown");
   const admin = openMenu({ project:{ sourceBrief:"B" }, scenes:scenes2, onReset:noop });
   assert.equal(findAll(admin, hasClass("export-foot")).length, 1, "admin Reset unchanged");
   cb.turnTeamMenu = null;
@@ -206,9 +231,10 @@ await test("1 the top bar opens the brief window when the ⋯ entry asks", ()=>{
   Object.keys(cb.__listeners).forEach(k=>{ cb.__listeners[k] = []; });
 });
 
-await test("1 the Team button registers itself for the ⋯ menu while it is up for a film", ()=>{
+await test("1 the Team button registers itself for the ⋯ menu while it is up for a film (the admin's, which still opens)", ()=>{
   const R = cb.React; R.runEffects = true; R.effects.length = 0; R.reset();
   cb.teamRoleLabel = cb.teamRoleLabel || ((r)=>r);
+  cb.turnIsAdmin = true;   // Team is coming soon (2026-10-02): only the admin's button opens the window
   const tree = cb.TeamButton({ projectId:"p1", projectTitle:"Film", projectMeta:null, series:false, onChanged:noop });
   assert.ok(tree, "renders its button");
   assert.equal(findAll(tree, n=>n.type==="button" && hasClass("tb-btn")(n))[0].props.title, "Team collaboration", "the button's tooltip is unchanged");
@@ -224,6 +250,26 @@ await test("1 the Team button registers itself for the ⋯ menu while it is up f
   cb.TeamButton({ projectId:"show1", projectMeta:{ isShared:true, shareRole:"writer" }, series:true });
   assert.equal(cb.turnTeamMenu.hint, "Show shared with you · "+cb.teamRoleLabel("writer"));
   R.effects.splice(0).forEach(c=>c()); R.runEffects = false; R.reset();
+  cb.turnIsAdmin = false;
+});
+
+await test("1 everyone else's Team button is 'Soon': registers a Coming-soon ⋯ entry and opens nothing", ()=>{
+  const R = cb.React; R.runEffects = true; R.effects.length = 0; R.reset();
+  cb.turnIsAdmin = false;
+  const toasts = []; cb.appToast = (m, k)=>toasts.push([m, k]);
+  const tree = cb.TeamButton({ projectId:"p1", projectTitle:"Film", projectMeta:{ isOwner:true }, series:false, onChanged:noop });
+  const btn = findAll(tree, n=>n.type==="button" && hasClass("tb-btn")(n))[0];
+  assert.ok(btn && hasClass("team-soon")(btn) && btn.props["aria-disabled"]==="true" && !btn.props.disabled, "aria-disabled, still focusable");
+  assert.equal(textOf(findAll(btn, hasClass("soon-chip"))[0]), "Soon");
+  assert.equal(textOf(findAll(btn, hasClass("team-soon-tip"))[0]), TEAM_SOON, "the tooltip");
+  assert.ok(cb.turnTeamMenu && cb.turnTeamMenu.soon===true && cb.turnTeamMenu.hint===TEAM_SOON && cb.turnTeamMenu.open===undefined, "a Coming-soon ⋯ entry with no open");
+  R.sets.length = 0; btn.props.onClick();
+  assert.deepEqual(R.sets, [], "nothing opens");
+  assert.deepEqual(toasts, [[TEAM_SOON, "info"]], "a short notice repeats the sentence");
+  assert.equal(findAll(tree, n=>n.type===cb.TeamModal).length, 0, "no Team window");
+  R.effects.splice(0).forEach(c=>c());
+  assert.equal(cb.turnTeamMenu, null, "unregisters when it goes");
+  R.runEffects = false; R.reset(); delete cb.appToast;
 });
 
 await test("1 CSS: a phone hides the plain top-bar buttons and shows the ⋯ with its phone-only entries; desktop keeps them out", ()=>{

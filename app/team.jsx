@@ -1,7 +1,12 @@
 /* team.jsx — project collaboration UI.
    First collaboration layer: project owners can invite collaborators by email and
    assign a role. Shared projects appear in the collaborator's project switcher
-   once supabase/team-collaboration.sql has been run. */
+   once supabase/team-collaboration.sql has been run.
+   PAUSED — "Coming soon" (owner decision 2026-10-02, Option C of docs/Team Decision Memo.md):
+   the Team button and the phone ⋯ entry stay visible with a "Soon" chip but open nothing;
+   only the admin still opens the Team window, for testing (TEAM_SOON_TEXT, teamWindowAllowed
+   below). Films already shared keep opening with their role. Don't remove or rebuild this —
+   the relaunch plan is the memo's Option B list. */
 
 /* Exactly THREE collaborator roles (the old "Producer/admin" was removed by user
    decision — it promised team management it never had, and was unrestricted while
@@ -23,7 +28,7 @@ function teamRoleBlurb(id){
   const r = TEAM_ROLES.find(x=>x.id===id);
   return r ? r.blurb : (id
     ? "This role no longer exists \u2014 pick one of the three roles to restore this collaborator's access."
-    : "The current collaborator role couldn't be verified. Access is read-only until the owner assigns View-only, Co-writer or Art director.");
+    : "The current collaborator role couldn't be verified, so access is read-only. Role changes are part of Team sharing, which is coming soon.");
 }
 function teamScopedRoleBlurb(id, series){
   if(!series) return teamRoleBlurb(id);
@@ -75,7 +80,7 @@ function teamRoleScopeNote(role){
   if(role==="writer") return "Your Co-writer role covers the story, script and beats — Art Room changes (cast, props, locations, lookbook, shots) aren't saved.";
   if(role==="art_director") return "Your Art director role covers the Art Room — story and script changes aren't saved.";
   if(role==="" || (role && role!=="view_only" && !TEAM_ROLES.find(r=>r.id===role)))
-    return "Your role on this film is missing or from an older version of the app, so changes aren't saved. Ask the owner to reassign you a current role (View-only, Co-writer or Art director).";
+    return "Your role on this film is missing or from an older version of the app, so changes aren't saved. Role changes are part of Team sharing, which is coming soon.";
   return "";
 }
 window.TEAM_ROLE_SECTIONS = TEAM_ROLE_SECTIONS;
@@ -84,10 +89,41 @@ window.teamCanWriteRoom = teamCanWriteRoom;
 window.teamRoleScopeNote = teamRoleScopeNote;
 
 function teamCanManage(projectMeta){
+  // Team is paused (2026-10-02): only the admin manages a team, for testing. Owners get it
+  // back when Team relaunches (docs/Team Decision Memo.md) — then drop this first line.
+  if(!window.turnIsAdmin) return false;
   return !!(projectMeta && (projectMeta.isOwner || window.turnIsAdmin));
 }
 
-function TeamModal({ projectId, projectTitle, projectMeta, series, onClose, onChanged }){
+/* TEAM SHARING IS PAUSED — shown as an upcoming feature (owner decision 2026-10-02:
+   "go with option C. Don't let users interract with it in the frontend. Maybe allow them to
+   see it like an upcoming feature"). Everyone but the admin (admin@infinitestudioai.com) sees
+   the Team button and the phone ⋯ entry with a "Soon" chip, disabled-looking (aria-disabled,
+   still focusable so the tooltip can be read), and a click only shows TEAM_SOON_TEXT. The Team
+   window, the invite form, role changes and removals are admin-only (TeamModal and
+   teamCanManage refuse everyone else; cloud.jsx's member writes refuse too). Nothing in the
+   database changed: a film already shared with someone keeps opening with their role — that
+   is access to a film, not the Team feature. Frances is told the same (ai.jsx "Team
+   collaboration"). */
+const TEAM_SOON_TEXT = "Team sharing is coming soon: invite co-writers and art directors to work on your film.";
+// isAdmin: app.jsx passes the signed-in account's admin flag; without it, window.turnIsAdmin
+function teamWindowAllowed(isAdmin){
+  return (isAdmin===undefined || isAdmin===null) ? !!window.turnIsAdmin : !!isAdmin;
+}
+function teamSoonNotice(){
+  if(typeof window.appToast==="function") window.appToast(TEAM_SOON_TEXT, "info");
+}
+window.TEAM_SOON_TEXT = TEAM_SOON_TEXT;
+window.teamWindowAllowed = teamWindowAllowed;
+
+/* the Team window itself: admin only while Team is paused — anyone else gets nothing (no
+   window, no member list read) */
+function TeamModal(props){
+  if(!teamWindowAllowed(props && props.isAdmin)) return null;
+  return React.createElement(TeamWindow, props);
+}
+
+function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onChanged }){
   const [members, setMembers] = React.useState([]);
   const [email, setEmail] = React.useState("");
   const [role, setRole] = React.useState("writer");
@@ -165,9 +201,11 @@ function TeamModal({ projectId, projectTitle, projectMeta, series, onClose, onCh
           schemaMissing
             ? "Team collaboration is ready in the app, but the Supabase migration has not been run yet. Run supabase/team-collaboration.sql, then reopen this panel."
             : canManage
-            ? (series
-              ? "One team applies to Show \u201c"+showTitle+"\u201d. Each collaborator's access covers its shared Bible and all existing and future episodes. Add them by email and choose what each may do \u2014 the invitation link opens this Show by name."
-              : "Your subscription includes your seat. Add collaborators by email and choose what each may do \u2014 they get an invitation email with a link that signs them in and opens this film.")
+            // (2026-10-02) only the admin reaches this window while Team is coming soon; no
+            // "seat" (there are none) and no promise of an email (none is sent yet)
+            ? "Team sharing is coming soon for everyone else \u2014 only the admin can open this window, for testing. "+(series
+              ? "One team applies to Show \u201c"+showTitle+"\u201d. Each collaborator's access covers its shared Bible and all existing and future episodes. Add them by email and choose what each may do; invitation emails aren't sent yet."
+              : "Add collaborators by email and choose what each may do. Invitation emails aren't sent yet: a collaborator finds the film when they sign in with that address.")
             : (series
               ? "This Show was shared with you. One access grant covers its shared Bible and all existing and future episodes. You can work here according to the role the owner assigned"+
                 (projectMeta && projectMeta.shareRole ? (": "+teamRoleLabel(projectMeta.shareRole)+" \u2014 "+(scopedRoleBlurb(projectMeta.shareRole)||"")) : ".")
@@ -281,7 +319,7 @@ function InviteWelcome({ film, invitedBy, sessionEmail, canSetPassword, onOpen, 
           : React.createElement(React.Fragment,null,
               React.createElement("div",{className:"team-note"},
                 "This invitation is no longer active for this account. Either it was withdrawn, or you're signed in as "+
-                (sessionEmail||"a different address")+" while the invitation was sent to another email \u2014 sign in with the invited address, or ask the person who invited you to re-send it."),
+                (sessionEmail||"a different address")+" while the invitation was sent to another email \u2014 sign in with the invited address."),
               React.createElement("div",{className:"invite-actions"},
                 React.createElement("button",{className:"team-add",onClick:onClose},"OK"))))));
 }
@@ -302,26 +340,38 @@ function teamInviteInviter(claim, userMeta, film){
 }
 window.teamInviteInviter = teamInviteInviter;
 
-function TeamButton({ projectId, projectTitle, projectMeta, series, onChanged }){
+function TeamButton({ projectId, projectTitle, projectMeta, series, onChanged, isAdmin }){
   const [open, setOpen] = React.useState(false);
+  // Team is coming soon (2026-10-02): everyone but the admin gets the "Soon" button below
+  const live = teamWindowAllowed(isAdmin);
   const shared = projectMeta && projectMeta.isShared;
-  const hint = shared
+  const hint = !live ? TEAM_SOON_TEXT
+    : shared
     ? ((series?"Show shared with you":"Shared with you")+" · "+teamRoleLabel(projectMeta.shareRole))
     : (series?"Show team · shared Bible and all episodes":"Team collaboration");
   // 2026-09-28 (Round 1): a phone (≤700px) hides this button with the other plain top-bar
   // buttons, so while it is up for a film it registers itself for the top bar's ⋯ menu
   // (chrome.jsx OverflowMenu), which then offers "Team" and opens this same window.
+  // While Team is coming soon a non-admin's entry is { soon:true, notify } — no `open`: the
+  // ⋯ menu shows it with the same "Soon" chip, and a tap only shows the notice.
   React.useEffect(()=>{
     if(!projectId) return;
-    const entry = { open:()=>setOpen(true), hint };
+    const entry = live ? { open:()=>setOpen(true), hint } : { soon:true, hint, notify:teamSoonNotice };
     window.turnTeamMenu = entry;
     return ()=>{ if(window.turnTeamMenu===entry) window.turnTeamMenu = null; };
-  },[projectId, hint]);
+  },[projectId, hint, live]);
   if(!projectId) return null;
+  if(!live) return React.createElement("button",{type:"button",className:"tb-btn team-soon",
+      "aria-disabled":"true","aria-label":"Team (coming soon)","aria-describedby":"team-soon-tip",
+      onClick:teamSoonNotice},
+    React.createElement(Icon.user,{s:14}),"Team",
+    React.createElement("span",{className:"soon-chip","aria-hidden":"true"},"Soon"),
+    // the tooltip: CSS shows it on hover and on keyboard focus (styles.css .team-soon-tip)
+    React.createElement("span",{className:"team-soon-tip",id:"team-soon-tip",role:"tooltip"},TEAM_SOON_TEXT));
   return React.createElement(React.Fragment,null,
     React.createElement("button",{className:"tb-btn",onClick:()=>setOpen(true),title:hint},
       React.createElement(Icon.user,{s:14}),"Team"),
-    open && React.createElement(TeamModal,{projectId,projectTitle,projectMeta,series,onChanged,onClose:()=>setOpen(false)}));
+    open && React.createElement(TeamModal,{projectId,projectTitle,projectMeta,series,onChanged,isAdmin:live,onClose:()=>setOpen(false)}));
 }
 
 /* PRESENCE DOTS — who else has this film open right now, shown beside the Team button.

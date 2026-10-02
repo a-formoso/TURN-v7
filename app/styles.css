@@ -8899,3 +8899,35 @@ body.adm-open .pricing-watch-card{display:none}
 @media (max-width:640px){
   .adm-tax-rate input{font-size:16px;height:36px}
 }
+
+/* TEAM IS COMING SOON (owner decision 2026-10-02, docs/Team Decision Memo.md Option C): the top-bar
+   Team button and the phone ⋯ entry stay visible as an upcoming feature — muted, a dashed edge, a
+   small "Soon" chip, no hover lift — and open nothing for everyone but the admin (team.jsx
+   TeamButton, chrome.jsx OverflowMenu). The button stays focusable (aria-disabled, not disabled), so
+   its tooltip shows on hover AND on keyboard focus; the ⋯ entry carries the sentence as its sub-line. */
+.soon-chip{display:inline-flex;align-items:center;flex:0 0 auto;padding:2px 6px;border:1px solid var(--line-2);border-radius:20px;
+  font-family:var(--f-mono);font-size:9px;font-weight:500;line-height:1;letter-spacing:.08em;text-transform:uppercase;color:var(--txt-3)}
+.tb-btn.team-soon{position:relative;cursor:default;background:transparent;border-style:dashed;color:var(--txt-3)}
+.tb-btn.team-soon:hover{background:transparent;border-color:var(--line-2);color:var(--txt-2)}
+.app.premium .tb-btn.team-soon:hover{transform:none}
+.team-soon-tip{position:absolute;top:calc(100% + 8px);right:0;z-index:70;width:max-content;max-width:min(280px, 70vw);
+  padding:9px 11px;border-radius:var(--r-m);background:var(--bg-2);border:1px solid var(--line-3);box-shadow:var(--shadow-pop);
+  font-family:var(--f-ui);font-size:12px;font-weight:400;line-height:1.5;letter-spacing:0;text-transform:none;text-align:left;
+  white-space:normal;color:var(--txt-1);pointer-events:none;opacity:0;visibility:hidden;transition:opacity .12s ease}
+.tb-btn.team-soon:hover .team-soon-tip,.tb-btn.team-soon:focus-visible .team-soon-tip{opacity:1;visibility:visible}
+@media (max-width:1360px){
+  .tb-btn.team-soon .soon-chip{margin-left:6px}   /* the label is hidden here (icon + chip) and the gap is 0 */
+}
+/* the compact bar (<=1100px): the "Soon" chip shrinks to a small dot on the icon's corner, so the
+   button is back to icon width and the film-title pill keeps its room (at 720px the full chip cut
+   the title to "The…"). The dashed muted edge, the tooltip, the notice and the aria-label "Team
+   (coming soon)" still say it (review 2026-10-02). */
+@media (max-width:1100px){
+  .tb-btn.team-soon .soon-chip{position:absolute;top:5px;right:5px;width:6px;height:6px;margin:0;padding:0;border:0;
+    border-radius:50%;font-size:0;line-height:0;background:var(--txt-3)}
+}
+.export-item.is-soon{cursor:default}
+.export-item.is-soon:hover{background:transparent}
+.export-item.is-soon .t{color:var(--txt-2)}
+.export-item.is-soon .export-item-ic{color:var(--txt-3)}
+.export-item.is-soon .soon-chip{margin-left:auto;align-self:flex-start;margin-top:2px}

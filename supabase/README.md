@@ -15,6 +15,10 @@ cross-device access, and multiple projects all work.
 3. **SQL Editor → run `team-collaboration.sql`** — creates project membership
    rows and upgrades project / generation / storage RLS from owner-only to
    owner-or-collaborator access.
+   > **Team sharing paused (owner 2026-10-02): UI shows Coming soon; backend kept; relaunch plan in docs/Team Decision Memo.md.** Only the admin opens the Team window; everyone else sees the
+   > Team button with a "Soon" chip that opens nothing, and the app refuses member writes for
+   > non-admins (`app/team.jsx`, `app/cloud.jsx`). Nothing below was rolled back: the tables,
+   > access rules and SQL stay, and films already shared keep opening with their role.
    Then run `invitations.sql` — adds `turn_claim_memberships()`, which links
    invitations to the invitee's account on their first sign-in.
    Then run `shared-owners.sql` — lets the home wall's "Shared with me" cards
@@ -259,6 +263,11 @@ fetches short-lived **signed URLs**. If you'd rather trade privacy for simplicit
 (public bucket, permanent URLs), that's a one-line change.
 
 ## Real invitations (`invite-collaborator` Edge Function)
+
+> **Team sharing paused (owner 2026-10-02): UI shows Coming soon; backend kept; relaunch plan in docs/Team Decision Memo.md.** The function is **not deployed** and should stay parked
+> until the relaunch: the memo's Option B lists what must be fixed first (a fixed host list for the
+> link, sending caps, the same answer whether or not an address has an account). The source is kept
+> unchanged.
 
 Adding a collaborator in the Team panel writes the membership row AND sends the
 actual invitation email through Supabase's **built-in auth mailer** (no

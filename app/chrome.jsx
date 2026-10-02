@@ -123,8 +123,12 @@ function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room, artV
   // button; Team while the top bar's Team button is up for a saved film (team.jsx registers
   // window.turnTeamMenu then). Both are phone-only entries (.ovf-phone), because the Art
   // Room shows this menu at every width, beside the visible buttons.
+  // TEAM IS COMING SOON (owner decision 2026-10-02): for everyone but the admin the entry
+  // team.jsx registers is { soon:true, hint, notify } — shown with a "Soon" chip, disabled-
+  // looking (aria-disabled), and a tap only closes the menu and shows the coming-soon notice.
   const briefShown = storyBriefShown(room, project);
-  const team = window.turnTeamMenu && typeof window.turnTeamMenu.open==="function" ? window.turnTeamMenu : null;
+  const teamEntry = window.turnTeamMenu || null;
+  const team = teamEntry && (typeof teamEntry.open==="function" || teamEntry.soon) ? teamEntry : null;
   const openBrief = ()=>{ setOpen(false); window.dispatchEvent(new CustomEvent("turn-open-brief")); };
   // the ⋮ is a phone-only control in the other rooms, but in the ART ROOM it carries the
   // exports (shot list, stripboard, art department bible), so it shows at every width there
@@ -145,7 +149,15 @@ function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room, artV
           React.createElement("span",{className:"s"},project.sourceBrief
             ? "What this story was built from · rebuild as a new film"
             : "The logline this story was built from"))),
-      team && React.createElement("button",{type:"button",className:"export-item ovf-phone",onClick:()=>{ setOpen(false); team.open(); }},
+      team && team.soon && React.createElement("button",{type:"button",className:"export-item ovf-phone is-soon",
+          "aria-disabled":"true",title:team.hint,
+          onClick:()=>{ setOpen(false); if(typeof team.notify==="function") team.notify(); }},
+        React.createElement("span",{className:"export-item-ic"},React.createElement(Icon.user,{s:16})),
+        React.createElement("span",{className:"export-item-t"},
+          React.createElement("span",{className:"t"},"Team"),
+          team.hint && React.createElement("span",{className:"s"},team.hint)),
+        React.createElement("span",{className:"soon-chip","aria-hidden":"true"},"Soon")),
+      team && !team.soon && React.createElement("button",{type:"button",className:"export-item ovf-phone",onClick:()=>{ setOpen(false); team.open(); }},
         React.createElement("span",{className:"export-item-ic"},React.createElement(Icon.user,{s:16})),
         React.createElement("span",{className:"export-item-t"},
           React.createElement("span",{className:"t"},"Team"),

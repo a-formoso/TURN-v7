@@ -161,3 +161,7 @@ deploy`, or you overwrite fixes made elsewhere.
 - `app/inspector.jsx` — editable scene/beats/analysis panel.
 - `app/script.jsx` — Script view, continuity checker, version history.
 - `app/chrome.jsx` — top bar + left rail. `app/app.jsx` — state + composition (scenes, beatsMap, drafts, continuityMap, agent ctx factory).
+- **Team (paused)** — owner 2026-10-02 (Option C): the Team button and the phone ⋯ entry show "Team" + a "Soon" chip and open
+  nothing; only the admin opens the Team window (`app/team.jsx` `TEAM_SOON_TEXT` / `teamWindowAllowed`; `app/cloud.jsx` refuses member
+  writes for non-admins). Backend, SQL and the invite-collaborator source are kept; films already shared still open with their role.
+  Don't remove it or rebuild it — the relaunch plan is in `docs/Team Decision Memo.md` (`scripts/test-team-paused.mjs`).

@@ -143,7 +143,7 @@ const LP_STEPS = [
   { n:"1", t:"Bring an idea", d:"A logline, a “what if” — or talk it through out loud with Frances." },
   // the structures (frameworks.jsx) and the formats in the Shape step's display order (formats.jsx)
   { n:"2", t:"Choose how it’s told", d:"Kinolot suggests a structure and a format for your idea, and you can keep them or pick your own: Three-Act Turns, Hero’s Journey or Kishōtenketsu, as a Feature Film, TV Series, Short Film, Micro Short, Micro-drama, Music Video, Documentary or Commercial." },
-  { n:"3", t:"Build the film", d:"Research, synopsis, spine and script, then cast, places, shots and video — it all grows in one place, and you can bring your team in." },
+  { n:"3", t:"Build the film", d:"Research, synopsis, spine and script, then cast, places, shots and video — it all grows in one place." },
 ];
 
 /* Pricing — derived from the SINGLE source of truth (plans.jsx CINEMA_PLANS), so

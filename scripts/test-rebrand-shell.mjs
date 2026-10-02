@@ -483,8 +483,10 @@ check("C the 'writer' ROLE is SHOWN as Co-writer; its id, section map and write 
     && JSON.stringify(cb.TEAM_ROLE_SECTIONS.writer)===JSON.stringify(["scenes","beatsMap","drafts","history","continuityMap","project"])
     && cb.teamCanWriteSection("writer", "scenes") && !cb.teamCanWriteSection("writer", "characters")
     && /^Your Co-writer role covers the story/.test(cb.teamRoleScopeNote("writer"))
-    && cb.teamRoleBlurb(null)==="The current collaborator role couldn't be verified. Access is read-only until the owner assigns View-only, Co-writer or Art director."
-    && /\(View-only, Co-writer or Art director\)/.test(cb.teamRoleScopeNote(""));
+    // Team sharing is paused (owner 2026-10-02): no "the owner assigns / reassigns" promise
+    && cb.teamRoleBlurb(null)==="The current collaborator role couldn't be verified, so access is read-only. Role changes are part of Team sharing, which is coming soon."
+    && /Role changes are part of Team sharing, which is coming soon\.$/.test(cb.teamRoleScopeNote(""))
+    && !/owner/i.test(cb.teamRoleScopeNote("")) && !/\bWriter\b/.test(cb.teamRoleScopeNote(""));
 });
 
 // auth-ui.jsx: sign-in mark, plan chip, account chip

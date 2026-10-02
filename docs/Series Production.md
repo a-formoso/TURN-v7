@@ -4,6 +4,9 @@ TURN models a series as one continuity-bearing **Show** plus independently saved
 **Episodes**. This document is the operational contract for that model; it does
 not change the story-building steps in `Story Pipeline.md`.
 
+> Team sharing paused (owner 2026-10-02): UI shows Coming soon; backend kept; relaunch plan in docs/Team Decision Memo.md. Sharing a Show is part of Team, so the
+> Show-scope team rules below are kept as built but no one except the admin can start or change a share.
+
 ## Data ownership
 
 - A Show is a `turn_projects` row with `project_kind = 'show'`. It owns the title,

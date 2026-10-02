@@ -1,5 +1,15 @@
 # Team: remove it, finish it, or pause it? (decision memo, 2 October 2026)
 
+> **Decision (2 October 2026): Option C, shown as an upcoming feature.** Team sharing paused (owner 2026-10-02): UI shows Coming soon; backend kept; relaunch plan in docs/Team Decision Memo.md.
+> The owner's words: "go with option C. Don't let users interract with it in the frontend. Maybe allow them
+> to see it like an upcoming feature". So, unlike section 4 below, nobody but the admin can open the Team
+> window, not even a collaborator on a film shared with them: everyone else sees the Team button and the
+> phone ⋯ entry as "Team" with a "Soon" chip and the tooltip "Team sharing is coming soon: invite co-writers
+> and art directors to work on your film.", and a click opens nothing. Films already shared still open with
+> their role ("Shared with me", the read-only rules). Frances's Team entry, the Co-writer line, the landing
+> line and the "email not sent" wording were fixed; the Privacy page and the Terms were not touched. Nothing
+> in the database or the invite-collaborator source changed. Tests: `scripts/test-team-paused.mjs`.
+
 ## 1) What Team is today
 
 Every signed-in user sees a **Team** button on every film. On phones it is in the ⋯ menu. An owner can add someone by email and pick a role: View-only, Co-writer or Art director. Access is granted on the spot. But no invite email is ever sent, because the invite email function was never deployed. Instead the owner gets a red error message that mentions an internal file: "the invite email function isn't deployed yet (see supabase/README.md)" (app/cloud.jsx:517). The invited person is told nothing. They only find the film if they happen to sign up with that exact address.

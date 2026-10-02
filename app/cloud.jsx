@@ -453,6 +453,16 @@ function _teamSchemaMissing(err){
 function _teamSetupMessage(){
   return "Team collaboration needs the Supabase team-collaboration.sql migration before invites can be added.";
 }
+/* TEAM IS COMING SOON (owner decision 2026-10-02, docs/Team Decision Memo.md Option C): only
+   the admin may start or alter a share from the app — adding, re-roling or removing a member
+   is refused here for everyone else, before any request (team.jsx keeps the Team window
+   admin-only too). The database and its access rules are unchanged, so films already shared
+   keep opening with their role. */
+function _teamPausedRefusal(){
+  if(window.turnIsAdmin) return null;
+  return { ok:false, paused:true,
+    message:(window.TEAM_SOON_TEXT || "Team sharing is coming soon: invite co-writers and art directors to work on your film.") };
+}
 async function cloudListProjectMembers(projectId){
   const sb = sbClient(); if(!sb || !projectId) return [];
   try{
@@ -472,6 +482,7 @@ async function cloudListProjectMembers(projectId){
   }catch(e){ window.turnTeamSchemaMissing = _teamSchemaMissing(e); return []; }
 }
 async function cloudInviteProjectMember(projectId, email, role){
+  const paused = _teamPausedRefusal(); if(paused) return paused;
   const sb = sbClient(); if(!sb || !projectId) return { ok:false };
   const e = _teamEmail(email);
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return { ok:false, message:"Enter a valid email address." };
@@ -513,8 +524,9 @@ async function _sendInviteEmail(sb, projectId, email){
       try{ const j = error.context && await error.context.json(); msg = (j && j.message) || ""; }catch(e){}
       if(!msg) msg = String(error.message||"");
     }
+    // (2026-10-02) plain words, no file names: invitation emails aren't switched on yet
     if(/not\s*found|404|Failed to send a request/i.test(msg))
-      msg = "the invite email function isn't deployed yet (see supabase/README.md).";
+      msg = "invitation emails aren't switched on yet.";
     return { sent:false, note: msg || "the invitation email could not be sent." };
   }catch(err){
     return { sent:false, note: (err && err.message) || "the invitation email could not be sent." };
@@ -545,6 +557,7 @@ async function cloudSetPassword(password){
   }catch(err){ return { ok:false, message:(err&&err.message)||"Could not set the password." }; }
 }
 async function cloudUpdateProjectMember(memberId, patch, projectId){
+  const paused = _teamPausedRefusal(); if(paused) return paused;
   const sb = sbClient(); if(!sb || !memberId) return { ok:false };
   const role = patch && patch.role;
   // fail CLOSED on an unknown role: passing it through would either hit the DB CHECK
@@ -560,6 +573,7 @@ async function cloudUpdateProjectMember(memberId, patch, projectId){
   }catch(err){ return { ok:false, message:(err&&err.message)||"Update failed." }; }
 }
 async function cloudRemoveProjectMember(memberId, projectId){
+  const paused = _teamPausedRefusal(); if(paused) return paused;
   const sb = sbClient(); if(!sb || !memberId) return { ok:false };
   try{
     // status flip, NOT delete: the row stays as an audit trail of who had access

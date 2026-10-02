@@ -788,7 +788,10 @@ function App(){
   /* INVITE ACCEPTANCE LANDING — /?invite=<projectId> is where every invitation
      email lands (set as the redirect by the invite-collaborator function). The
      id is captured once, stripped from the URL, and drives the welcome surface
-     after sign-in. */
+     after sign-in. Team is paused (owner decision 2026-10-02): no invitation emails go
+     out, so this is unreachable in practice; kept for the relaunch. It only names a film
+     already shared with this account and opens it — it never adds, changes or removes a
+     member (team.jsx InviteWelcome; test-team-paused.mjs). */
   const [inviteLanding, setInviteLanding] = React.useState(()=>{
     try{ return new URLSearchParams(window.location.search).get("invite") || null; }catch(e){ return null; }
   });
@@ -805,7 +808,7 @@ function App(){
       const h = new URLSearchParams(String(window.location.hash||"").replace(/^#/,""));
       const desc = h.get("error_description");
       if(desc && typeof window.appToast==="function")
-        window.appToast("That sign-in link didn't work: "+desc.replace(/\+/g," ")+". Ask for a fresh invitation, or sign in with your password.","error");
+        window.appToast("That sign-in link didn't work: "+desc.replace(/\+/g," ")+". Please sign in with your email and password.","error");
       if(desc){ window.history.replaceState({}, "", window.location.pathname + window.location.search); }
     }catch(e){}
   },[]);
@@ -1061,7 +1064,7 @@ function App(){
       try{
         if(typeof window.appConfirm==="function")
           await window.appConfirm({ title:"Access ended",
-            body:"\""+title+"\" is no longer shared with you \u2014 the owner removed your access or deleted the film. You'll go back to your own films.",
+            body:"\""+title+"\" is no longer shared with you \u2014 your access was removed or the film was deleted. You'll go back to your own films.",
             confirmLabel:"Back to my films", cancelLabel:"OK" });
         else if(typeof window.appToast==="function")
           window.appToast("Your access to \""+title+"\" has ended.","error");
@@ -5850,7 +5853,7 @@ function App(){
       const artOnly = production && writersRoomReadOnlyRef.current && !artRoomReadOnlyRef.current;
       if(writersRoomReadOnlyRef.current){
         if(!artOnly){
-          try{ emit && emit({k:"flag", t:"Your role cannot change the Writers' Room, so these proposed changes were NOT applied. Ask the owner for Co-writer access."}); }catch(e){}
+          try{ emit && emit({k:"flag", t:"Your role cannot change the Writers' Room, so these proposed changes were NOT applied."}); }catch(e){}
           return;
         }
       }
@@ -6697,12 +6700,12 @@ function App(){
       React.createElement(Icon.eye||Icon.warn,{s:14}),
       React.createElement("span",null,
         React.createElement("b",null,"View-only access — "),
-        "you can navigate, inspect, export and play this film. Editing and AI-write actions are disabled. Ask the owner for Co-writer access to edit it.")),
+        "you can navigate, inspect, export and play this film. Editing and AI-write actions are disabled. Role changes are part of Team sharing, which is coming soon.")),
     unknownSharedRole && React.createElement("div",{className:"readonly-banner",role:"status"},
       React.createElement(Icon.warn||Icon.eye,{s:14}),
       React.createElement("span",null,
         React.createElement("b",null,"Role unavailable — "),
-        "We couldn\u2019t verify a current collaborator role for this shared project. It is read-only and changes or AI actions will not save. Ask the owner to reassign View-only, Co-writer or Art director access.")),
+        "We couldn\u2019t verify a current collaborator role for this shared project. It is read-only and changes or AI actions will not save. Role changes are part of Team sharing, which is coming soon.")),
     !readOnlyShare && !unknownSharedRole && room==="writers" && shareRole==="art_director" && writersRoomReadOnly && React.createElement("div",{className:"readonly-banner",role:"status"},
       React.createElement(Icon.eye||Icon.warn,{s:14}),
       React.createElement("span",null,
@@ -6902,6 +6905,9 @@ function App(){
       teamSlot: cloudMode && window.TeamButton ? React.createElement(window.TeamButton,{
         // A series is shared once at Show scope. The database migration makes
         // that role apply to every existing and future episode.
+        // TEAM IS COMING SOON (owner decision 2026-10-02): only the admin's button opens the
+        // Team window; everyone else sees it with a "Soon" chip that opens nothing (team.jsx).
+        isAdmin,
         projectId:currentShowId||currentProjectId,
         projectTitle:((projects||[]).find(p=>p.id===(currentShowId||currentProjectId))||{}).title || project.title,
         projectMeta:(projects||[]).find(p=>p.id===(currentShowId||currentProjectId)) || null,
