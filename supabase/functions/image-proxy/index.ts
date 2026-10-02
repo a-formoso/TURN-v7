@@ -105,6 +105,7 @@ import {
 // Round 5 (S1): a recording's real length, read from its container (WebM / Ogg / MP4 / WAV) before
 // speech-to-text is held.
 import { AUDIO_CONTAINERS, audioDurationFromBytes } from "./audio-length.mjs";
+import { requestContext } from "./request-context.mjs";
 /* The pages a searching Claude reply relied on: every page a text block CITES first (the claims
    rest on those), then the other results the searches returned; one entry per URL, at most 12,
    http(s) only. */
@@ -2231,7 +2232,9 @@ Deno.serve(async (req) => {
       taskName: "image",
       credits: charged,
       providerCostUsd: imageUsage.providerCostUsd,
-      metadata: { aspect, quality, imageSize, referenceImages: images.length },
+      // the film and item it was for, with the hold's ref (request-context.mjs: attribution only)
+      metadata: { aspect, quality, imageSize, referenceImages: images.length, ...requestContext(body.context),
+        ...(imageHold && imageHold.ref ? { holdRef: imageHold.ref } : {}) },
     });
     return json({ ...payload, usage: { ...usage, ...imageUsage, credits: charged } });
   };

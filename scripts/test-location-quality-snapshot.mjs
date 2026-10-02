@@ -52,7 +52,7 @@ vm.runInContext(source.slice(start, end), box, {
 });
 
 await box.window.generateLocationPlate({ id: "location-1", name: "Kitchen" }, {});
-assert.deepEqual(generatedOpts, { model: "gpt-image-2.5-flare", quality: "default" });
+assert.deepEqual(generatedOpts, { model: "gpt-image-2.5-flare", quality: "default", assetId: "location-1" });   // the plate names its item (Art Room fix 10)
 assert.equal(committedMeta.quality, "default", "metadata keeps the original default intent");
 assert.deepEqual(order.map(x => x[0]), ["require", "generate", "commit"]);
 

@@ -1831,7 +1831,16 @@ async function proxyGenerate(prompt, opts, provider){
     throw new Error(nbProviderLabel(provider)+" runs through your server proxy, which isn't available. Make sure you're signed in and Supabase is configured.");
   }
   const fnName = (window.TURN_SUPABASE && window.TURN_SUPABASE.imageProxyFn) || "image-proxy";
+  // WHICH FILM AND ITEM (2026-10-02): recorded with the call's credit hold for attribution —
+  // the open film unless the caller names another (a Home poster), and the item it will be
+  // saved as when the caller knows it (image-proxy request-context.mjs)
+  const reqContext = {};
+  const _pid = opts.projectId || window.__turnCurrentProjectId;
+  if(_pid) reqContext.projectId = String(_pid);
+  if(opts.assetId) reqContext.assetId = String(opts.assetId);
+  if(opts.assetPurpose) reqContext.purpose = String(opts.assetPurpose);
   const body = { provider, model, prompt, aspect, quality, imageSize, images,
+                 ...(Object.keys(reqContext).length ? { context:reqContext } : {}),
                  userApiKeys: window.turnApiKeysForProxy ? window.turnApiKeysForProxy([provider]) : undefined,
                  groundSearch: !!opts.groundSearch, groundImageSearch: !!opts.groundImageSearch,
                  // least-restrictive SUPPORTED moderation for gpt-image (fewer false positives on

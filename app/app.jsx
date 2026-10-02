@@ -2195,7 +2195,7 @@ function App(){
       }
       if((window.NB_MODELS||[]).some(m=>m.id==="gpt-image-2")) genOpts.model = "gpt-image-2";
       if(refs.length) genOpts.extraImages = refs;
-      let url = await window.nbGenerate(prompt, genOpts);
+      let url = await window.nbGenerate(prompt, { ...genOpts, projectId:proj.id, assetId:"cover", assetPurpose:"poster" });
       if(!url) throw new Error("The poster came back empty — try again.");
       // keep enough pixels for the full-screen viewer (1080-wide, ~2x the card)
       if(typeof window.downscaleRef==="function"){ try{ url = await window.downscaleRef(url, 1080, 0.85); }catch(e){} }
@@ -3555,8 +3555,8 @@ function App(){
     // ignored the user's model switch (and kept billing against the old provider)
     const model = ((typeof nbGetModel==="function")&&nbGetModel()) || (m0&&m0.modelId) || (gpt2&&gpt2.id) || undefined;
     const gopts = { ...identityOptions, aspectRatio:"16:9", ...(model?{model}:{}), ...(extra.length?{extraImages:extra}:{}) };
-    let url; try{ url=await window.nbGenerate(prompt, gopts); }
-    catch(e){ if(/no image/i.test(String((e&&e.message)||e))) url=await window.nbGenerate(prompt, gopts); else throw e; }
+    let url; try{ url=await window.nbGenerate(prompt, { ...gopts, assetId:c.id }); }
+    catch(e){ if(/no image/i.test(String((e&&e.message)||e))) url=await window.nbGenerate(prompt, { ...gopts, assetId:c.id }); else throw e; }
     if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(gopts,"owner-sheet-commit");
     const meta = { modelId:model, aspect:"16:9", iso:new Date().toISOString(), prompt, agent:"Prop owner pre-gen",
       identitySnapshot:typeof window.nbIdentitySnapshot==="function"?window.nbIdentitySnapshot(c):null,
@@ -6148,8 +6148,8 @@ function App(){
       // lands after the user opened ANOTHER film must be dropped, not written there
       const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;
       let url;
-      try{ url = await window.nbGenerate(prompt, gopts); }
-      catch(e){ if(/no image/i.test(String((e&&e.message)||e))){ url = await window.nbGenerate(prompt, gopts); } else throw e; }
+      try{ url = await window.nbGenerate(prompt, { ...gopts, assetId:slotId }); }
+      catch(e){ if(/no image/i.test(String((e&&e.message)||e))){ url = await window.nbGenerate(prompt, { ...gopts, assetId:slotId }); } else throw e; }
       let priorVersion = 0;
       if(typeof nbLoadDetailsAsset==="function"){
         try{ const d=await nbLoadDetailsAsset(slotId); priorVersion=Number(d&&d.meta&&d.meta.version)||0; }catch(e){}

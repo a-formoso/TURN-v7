@@ -2457,12 +2457,12 @@ async function generateLocationPlate(l, project){
     if(_nbLocStale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
     let url;
     try{
-      url = await nbGenerate(prompt, gopts);
+      url = await nbGenerate(prompt, { ...gopts, assetId:l.id });
       if(_nbLocStale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
     }catch(e){
       if(_nbLocStale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
       if(/no image/i.test((e&&e.message)||"") && typeof buildSimpleLocationPrompt==="function"){
-        try{ prompt=buildSimpleLocationPrompt(l)+referenceText;url = await nbGenerate(prompt, gopts); }
+        try{ prompt=buildSimpleLocationPrompt(l)+referenceText;url = await nbGenerate(prompt, { ...gopts, assetId:l.id }); }
         catch(fallbackError){
           if(_nbLocStale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
           throw fallbackError;
@@ -2521,12 +2521,12 @@ async function generateLocationVariant(l, v, project){
     if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
     let url;
     try{
-      url = await nbGenerate(prompt, gopts);
+      url = await nbGenerate(prompt, { ...gopts, assetId:id });
       if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
     }catch(e){
       if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
       if(/no image/i.test((e&&e.message)||"") && typeof buildSimpleLocationPrompt==="function"){
-        try{ prompt=buildSimpleLocationPrompt(l)+referenceText;url = await nbGenerate(prompt, gopts); }
+        try{ prompt=buildSimpleLocationPrompt(l)+referenceText;url = await nbGenerate(prompt, { ...gopts, assetId:id }); }
         catch(fallbackError){
           if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
           throw fallbackError;

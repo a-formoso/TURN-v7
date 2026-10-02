@@ -1633,6 +1633,7 @@ async function nbRunSheetGeneration(env, gopts){
     const groundEnabled = typeof nbGetGroundSearch==="function" && nbGetGroundSearch();
     const isFlash = usedModel === "gemini-3.1-flash-image";
     if(abortCtl) genOpts.signal = abortCtl.signal;
+    genOpts.assetId = slotId || id;   // the item this sheet is saved as (recorded with its credit hold)
      /* Pin the provider request to the model selected when this run started.
         Without this, a model switch during reference assembly would make
         metadata and the paid request disagree. */

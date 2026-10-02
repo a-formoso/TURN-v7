@@ -724,7 +724,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
         window.nbAssertMediaIdentity(submitIdentity,"storyboard-panel-edit-before-submit");
       const url = await nbGenerate(promptWithIdentity + (extra.length?" Additional reference images are attached (character sheets / location plate) — match those identities and that exact set faithfully.":""),
         { referenceImage:frame, aspectRatio:sheetAsp, model:requestedModel, quality:requestedQuality,
-          ...submitIdentity, ...(extra.length?{extraImages:extra}:{}) });
+          ...submitIdentity, ...(extra.length?{extraImages:extra}:{}), assetId:sh.id });
       const afterProviderIdentity = panelIdentityOpts();
       if(typeof window.nbAssertMediaIdentity==="function")
         window.nbAssertMediaIdentity(afterProviderIdentity,"storyboard-panel-edit-after-provider");

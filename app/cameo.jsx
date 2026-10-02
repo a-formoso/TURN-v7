@@ -83,7 +83,7 @@ function useCameoGuides(gender){
     (async()=>{
       for(const k of missing){
         try{
-          const raw = await nbGenerate(cameoGuidePrompt(gender,k), { aspectRatio:"1:1", imageSize:"1K" });
+          const raw = await nbGenerate(cameoGuidePrompt(gender,k), { aspectRatio:"1:1", imageSize:"1K", assetPurpose:"cameo-guide" });
           const small = await cameoDownscale(raw, 360);
           try{ localStorage.setItem(cameoGuideKey(gender,k), small); }catch(e){}
           if(alive) setGuides(g=>({...g,[k]:small}));

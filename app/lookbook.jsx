@@ -254,8 +254,8 @@ async function generateLookbookFrame(c, project){
   window.__nbGenInflight[c.id] = true;
   try{
     let url;
-    try{ url = await nbGenerate(prompt, {}); }
-    catch(e){ if(/no image/i.test((e&&e.message)||"") && typeof buildSimpleLookbookPrompt==="function"){ url = await nbGenerate(buildSimpleLookbookPrompt(c), {}); } else throw e; }
+    try{ url = await nbGenerate(prompt, { assetId:c.id }); }
+    catch(e){ if(/no image/i.test((e&&e.message)||"") && typeof buildSimpleLookbookPrompt==="function"){ url = await nbGenerate(buildSimpleLookbookPrompt(c), { assetId:c.id }); } else throw e; }
     const model = (typeof nbGetModel==="function") ? nbGetModel() : "";
     const now = new Date();
     const mEntry = (window.NB_MODELS||[]).find(m=>m.id===model) || {};

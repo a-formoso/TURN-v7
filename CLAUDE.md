@@ -80,7 +80,10 @@ charges, scenes that turn, beats → script → Art Room → Stage). Served at *
   writing call** (`webSearch: true`; New Story's research, owner 2026-10-02) runs only on Claude Opus 5 / 5.5 and Sonnet
   5 / 5.5 (`web_search_20260209`, max 5 searches) and never on Frances's free path; held at $0.01 a search plus 15,000
   input tokens a search for the pages read, settled on `usage.server_tool_use.web_search_requests`
-  (`billing-pricing.mjs` `textWebSearchTool`). **Image prompts** above 40,000 characters
+  (`billing-pricing.mjs` `textWebSearchTool`). **Attribution:** an image call names its film and item
+  (`context: {projectId, assetId, purpose}`, from `imagegen.jsx` `proxyGenerate`); the proxy records them with the
+  hold's `holdRef` on the usage row (`request-context.mjs`) — browser-supplied, so attribution only, never billing.
+  **Image prompts** above 40,000 characters
   (`IMAGE_PROMPT_MAX_CHARS`) get a 400 on every image route before the hold.
 - **Reconciliation:** every 10 minutes `supabase/billing-housekeeping-cron.sql` (pg_cron + pg_net) POSTs
   `{"op":"reconcile_holds"}` (no auth, idempotent, throttled by `turn_claim_housekeeping`) to `image-proxy` (video) and
