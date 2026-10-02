@@ -1159,6 +1159,34 @@ function App(){
     window.turnUserDisplayName = (typeof cloudUserDisplayName==="function") ? cloudUserDisplayName(session) : "";
     if(typeof window.turnRefreshLockedStyles==="function") window.turnRefreshLockedStyles(); },[userEmail, session]);
   const [creditBalance, setCreditBalance] = React.useState(null);
+  /* TRIAL WELCOME (owner request 2026-10-02): once per account, when its signed-in balance first
+     shows the free trial — the credits arrive with the first balance read after the email is
+     confirmed. Not while a plan's checkout is about to open (that person is buying a plan), and
+     never over the plan / pack welcome or an invite landing. Seen = the account's metadata, plus
+     this browser's copy so a failed metadata write doesn't bring it back here. */
+  const [trialWelcomeOpen, setTrialWelcomeOpen] = React.useState(false);
+  const trialWelcomeKey = (s)=> "turn-trial-welcome-"+String((s && s.user && s.user.id) || "");
+  const trialWelcomeSeen = (s)=>{
+    if(typeof window.cloudTrialWelcomeSeen==="function" && window.cloudTrialWelcomeSeen(s)) return true;
+    try{ return localStorage.getItem(trialWelcomeKey(s))==="1"; }catch(e){ return false; }
+  };
+  const closeTrialWelcome = ()=>{
+    setTrialWelcomeOpen(false);
+    try{ localStorage.setItem(trialWelcomeKey(session), "1"); }catch(e){}
+    if(typeof window.cloudMarkTrialWelcomeSeen==="function") window.cloudMarkTrialWelcomeSeen();
+  };
+  React.useEffect(()=>{
+    if(trialWelcomeOpen || !session || !creditBalance || !creditBalance.trial || window.turnIsAdmin) return;
+    if(!(Number(creditBalance.remaining)>0)) return;
+    if(welcomeOpen || creditPackOpen || inviteLanding) return;
+    // a plan picked before sign-up still opens its checkout (this browser's copy: 20 minutes; the
+    // account's: 48 hours — the same windows as plans.jsx pickIntendedPlan)
+    const acct = (typeof window.cloudAccountIntendedPlan==="function") ? window.cloudAccountIntendedPlan(session) : null;
+    const waiting = (typeof window.turnIntendedPlanWaiting==="function" && window.turnIntendedPlanWaiting())
+      || !!(acct && acct.at>0 && (Date.now()-acct.at) < 48*3600*1000);
+    if(waiting || trialWelcomeSeen(session)) return;
+    setTrialWelcomeOpen(true);
+  },[session, creditBalance, welcomeOpen, creditPackOpen, inviteLanding]);
   const refreshCreditBalance = React.useCallback(async ()=>{
     if(typeof cloudGetCreditBalance!=="function"){ setCreditBalance(null); return null; }
     try{
@@ -6900,6 +6928,10 @@ function App(){
     // grant streams into the balance; its CTA goes straight to New Story. When the
     // payment link's after-payment URL names the plan (/?welcome=1&plan=director) it
     // stays "activating" until THAT plan lands — an upgrade no longer flashes the old one.
+    trialWelcomeOpen && session && !welcomeOpen && window.WelcomeTrialCard && React.createElement(window.WelcomeTrialCard,{
+      credits: creditBalance && creditBalance.remaining,
+      onNewStory: ()=>{ closeTrialWelcome(); startNewStory(); },
+      onClose: closeTrialWelcome }),
     welcomeOpen && session && window.WelcomePlanCard && React.createElement(window.WelcomePlanCard,{
       plan: (creditBalance && creditBalance.plan) || welcomePlan,
       credits: creditBalance && (creditBalance.planRemaining!=null ? creditBalance.planRemaining : creditBalance.remaining),

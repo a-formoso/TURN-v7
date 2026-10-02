@@ -162,6 +162,19 @@ function cloudUserDisplayName(session){
 }
 
 window.cloudSignUp = cloudSignUp;
+/* the trial welcome (app.jsx) is shown once per ACCOUNT: remembered in its user metadata, so it
+   doesn't come back on another device; best effort (a failed write only means it may show again) */
+function cloudTrialWelcomeSeen(session){
+  const m = (session && session.user && session.user.user_metadata) || {};
+  return m.turn_trial_welcome_seen === true;
+}
+async function cloudMarkTrialWelcomeSeen(){
+  const sb = sbClient(); if(!sb) return false;
+  try{ const { error } = await sb.auth.updateUser({ data:{ turn_trial_welcome_seen:true } }); return !error; }
+  catch(e){ return false; }
+}
+window.cloudTrialWelcomeSeen = cloudTrialWelcomeSeen;
+window.cloudMarkTrialWelcomeSeen = cloudMarkTrialWelcomeSeen;
 window.cloudSignIn = cloudSignIn;
 window.cloudSignOut = cloudSignOut;
 window.cloudResetPassword = cloudResetPassword;

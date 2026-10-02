@@ -1005,6 +1005,34 @@ function WelcomeCreditPackCard({ credits, activating, balance, onClose }){
 }
 window.WelcomeCreditPackCard = WelcomeCreditPackCard;
 
+/* TRIAL WELCOME (owner request 2026-10-02) — shown once, when an account's first signed-in balance
+   shows its free trial (the credits arrive with the first balance read after the email is
+   confirmed). Same card as the plan welcome; the promise is the approved trial copy, no more. */
+function welcomeTrialCopy(credits){
+  const n = Number(credits)>0 ? Number(credits) : TRIAL_CREDITS;
+  return {
+    title:"Your "+fmtCredits(n)+" free credits are here",
+    sub:"Your email is confirmed. "+fmtCredits(n)+" free credits are in your account \u2014 enough to try the Writers' Room on the lighter writing engine (a logline, a synopsis, the spine and its first scenes), plus draft images.",
+    note:"Want more? Choose a plan any time from the account menu, or add a credit pack from $10.",
+  };
+}
+window.turnWelcomeTrialCopy = welcomeTrialCopy;
+function WelcomeTrialCard({ credits, onNewStory, onClose }){
+  const copy = welcomeTrialCopy(credits);
+  return React.createElement("div",{className:"ns-overlay"},
+    React.createElement("div",{className:"welcome-card",role:"dialog","aria-modal":"true","aria-labelledby":"welcome-trial-title"},
+      React.createElement("div",{className:"welcome-eyebrow welcome-brand"},
+        typeof BrandMark==="function" && React.createElement(BrandMark),
+        React.createElement("span",{className:"brand-name"},"Kinolot")),
+      React.createElement("div",{className:"welcome-title",id:"welcome-trial-title"}, copy.title),
+      React.createElement("div",{className:"welcome-sub"}, copy.sub),
+      React.createElement("div",{className:"welcome-note"}, copy.note),
+      React.createElement("button",{className:"welcome-cta",onClick:onNewStory},
+        typeof Icon!=="undefined" && Icon.plus && React.createElement(Icon.plus,{s:14}),"Start a story"),
+      React.createElement("button",{className:"welcome-later",onClick:onClose},"I\u2019ll look around first")));
+}
+window.WelcomeTrialCard = WelcomeTrialCard;
+
 /* ADMIN copy editor — edits only the marketing text (name/blurb/features/popular),
    persisted globally via cloudSaveAppConfig. Price & credits stay Stripe-owned. */
 function PlanCopyEditor({ onDone }){

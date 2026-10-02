@@ -15,8 +15,8 @@ and set the subject line:
 
 The last five went live on 2026-10-02 (owner request), uploaded with the Management API (`PATCH /v1/projects/<ref>/config/auth`,
 the `mailer_templates_*_content` / `mailer_subjects_*` / `mailer_notifications_*_enabled` fields) with each file's leading
-comment stripped — it names the email vendor, and the comment travels in the email's source. The live subjects of the
-first two are Supabase's defaults ("Confirm your email address", "Reset your password"), not the ones in this table.
+comment stripped — it names the email vendor, and the comment travels in the email's source. The subjects of the first two
+were aligned to this table the same day.
 
 Where each one is sent from: **Invite user** — `invite-collaborator` for an address with no account (it passes
 `invited_project` and `invited_by`, read as `{{ .Data.invited_project }}` / `{{ .Data.invited_by }}`, both optional);

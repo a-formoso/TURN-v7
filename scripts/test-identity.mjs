@@ -58,7 +58,7 @@ const REF = {
 };
 const HOST = "https://kinolot.infinitestudioai.com/";
 const KEY = "20260929-look1";
-const LATER = ["20260929-look2", "20260929-look3", "20260929-look4", "20260930-portal1", "20260930-billing1", "20261001-tax1", "20261002-consent1", "20261002-tip1", "20261002-btn1", "20261002-team1", "20261002-scene1", "20261002-research1", "20261002-research2", "20261002-artlive1", "20261002-artundo1", "20261002-stagefilm1", "20261002-attrib1", "20261002-planpick2", "20261002-planpick3"];   // a later change that re-keys one of these files adds its key here (Manage plan 2026-09-30: styles.css, auth-ui.jsx) (billing fixes 2026-09-30: styles.css, auth-ui.jsx, app.jsx and more) (consumer rights + tax 2026-10-01: styles.css, auth-ui.jsx) (the 14-day note by the purchase buttons 2026-10-02: styles.css, auth-ui.jsx, landing.jsx) (the note behind an ⓘ 2026-10-02: styles.css, landing.jsx) (Team "Coming soon" 2026-10-02: styles.css, team.jsx, chrome.jsx, landing.jsx, app.jsx and more: 20261002-team1)
+const LATER = ["20260929-look2", "20260929-look3", "20260929-look4", "20260930-portal1", "20260930-billing1", "20261001-tax1", "20261002-consent1", "20261002-tip1", "20261002-btn1", "20261002-team1", "20261002-scene1", "20261002-research1", "20261002-research2", "20261002-artlive1", "20261002-artundo1", "20261002-stagefilm1", "20261002-attrib1", "20261002-planpick2", "20261002-planpick3", "20261002-trialwelcome1"];   // a later change that re-keys one of these files adds its key here (Manage plan 2026-09-30: styles.css, auth-ui.jsx) (billing fixes 2026-09-30: styles.css, auth-ui.jsx, app.jsx and more) (consumer rights + tax 2026-10-01: styles.css, auth-ui.jsx) (the 14-day note by the purchase buttons 2026-10-02: styles.css, auth-ui.jsx, landing.jsx) (the note behind an ⓘ 2026-10-02: styles.css, landing.jsx) (Team "Coming soon" 2026-10-02: styles.css, team.jsx, chrome.jsx, landing.jsx, app.jsx and more: 20261002-team1)
 
 /* ── a tiny React stand-in that renders function components (so nested marks are visible) ── */
 const el = (type, props, ...children)=>({ type, props:props||{}, children:children.flat(Infinity) });
@@ -323,9 +323,9 @@ check("G ≤900px: the top bar shows the mark alone; the rule is scoped to the t
 check("G 701–900px: the right-hand buttons keep their size and the film chip can shrink (its title ellipsizes)", ()=>
   mediaBlocks("(min-width:701px) and (max-width:900px)").some(b=>/\.tb-right\{flex:0 0 auto\}/.test(b) && /\.tb-left \.proj-wrap\{display:flex;min-width:0\}/.test(b))
   && /\.proj-btn \.proj-name\{[^}]*min-width:0;[^}]*overflow:hidden;text-overflow:ellipsis\}/.test(css));
-check("G the post-checkout cards keep the whole lockup on a phone (the mark + 'Kinolot')", ()=>{
+check("G the welcome cards (after checkout, and the trial welcome) keep the whole lockup on a phone (the mark + 'Kinolot')", ()=>{
   const s = read("app/plans.jsx");
-  return (s.match(/React\.createElement\("span",\{className:"brand-name"\},"Kinolot"\)/g) || []).length===2
+  return (s.match(/React\.createElement\("span",\{className:"brand-name"\},"Kinolot"\)/g) || []).length===3
     && /\n\.welcome-brand \.brand-name\{/.test(css);
 });
 /* the same review's other narrow-width fixes (measured in the harness; pinned from the source) */
