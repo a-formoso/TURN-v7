@@ -1,6 +1,7 @@
 # Sample films — draft for approval (2 October 2026)
 
-> **Status: approved by the owner (2 October 2026) — all three, as written.** Next: beats and screenplay.
+> **Status: approved by the owner (2 October 2026) — all three, as written.** Beats and screenplay: written
+> (`docs/samples/Glass Hours.md`, `docs/samples/Kelpfold - What the Sea Gave Back.md`, `docs/samples/Third Mainland.md`).
 >
 > **Originally drafted for the owner's approval.** Three original films to show on the Home dashboard until a new
 > user has 3 films of their own (`docs/Dashboard Plan.md` §4), replacing the built-in *The Matrix* sample as the
