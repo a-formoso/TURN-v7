@@ -1,0 +1,31 @@
+<!-- Kinolot auth email · paste into Supabase → Authentication → Emails → Templates. Uses Supabase's {{ .ConfirmationURL }} / {{ .Email }} / {{ .NewEmail }}. -->
+<div style="margin:0;padding:0;background:#F1F1EE">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0">Confirm the new email address for your Kinolot account.</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F1F1EE">
+    <tr><td align="center" style="padding:32px 16px">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#FFFFFF;border:1px solid #E1E1DC;border-radius:14px">
+        <tr><td style="padding:32px 36px 8px 36px">
+          <div style="font-family:Spectral,Georgia,'Times New Roman',serif;font-size:28px;font-weight:600;letter-spacing:-0.01em;color:#141413">Kinolot</div>
+          <div style="font-family:'Space Mono',Menlo,Consolas,monospace;font-size:11px;letter-spacing:0.08em;color:#6B6862;padding-top:2px">by Infinite Studio AI</div>
+        </td></tr>
+        <tr><td style="padding:20px 36px 0 36px;font-family:'Hanken Grotesk',Helvetica,Arial,sans-serif;color:#1B1C1F">
+          <h1 style="margin:0 0 12px 0;font-size:22px;line-height:1.3;font-weight:600;color:#141413">Confirm your new email address</h1>
+          <p style="margin:0 0 16px 0;font-size:16px;line-height:1.55">You asked to change the email address on your Kinolot account from {{ .Email }} to {{ .NewEmail }}. Confirm it below and Kinolot will use {{ .NewEmail }} from then on.</p>
+        </td></tr>
+        <tr><td style="padding:8px 36px 8px 36px">
+          <a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#F29A43;color:#2C2722;font-family:'Hanken Grotesk',Helvetica,Arial,sans-serif;font-size:16px;font-weight:700;text-decoration:none;padding:13px 22px;border-radius:10px">Confirm my new email</a>
+        </td></tr>
+        <tr><td style="padding:16px 36px 28px 36px;font-family:'Hanken Grotesk',Helvetica,Arial,sans-serif;font-size:14px;line-height:1.55;color:#4A4843">
+          <p style="margin:0">For your security, this link works once and expires soon. Didn't ask for this? You can safely ignore this email; your address stays the same.</p>
+          <p style="margin:14px 0 0 0">If the button doesn't work, copy this link into your browser:<br>
+          <a href="{{ .ConfirmationURL }}" style="color:#8F4E12;word-break:break-all">{{ .ConfirmationURL }}</a></p>
+        </td></tr>
+        <tr><td style="padding:18px 36px 26px 36px;border-top:1px solid #ECECE8;font-family:'Hanken Grotesk',Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5;color:#6B6862">
+          Kinolot by Infinite Studio AI<br>
+          This address can't receive replies. Questions? Write to
+          <a href="mailto:kinolot-support@infinitestudioai.com" style="color:#8F4E12">kinolot-support@infinitestudioai.com</a>.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</div>
