@@ -208,7 +208,7 @@ await test("C3 R2: the note sits behind an ⓘ right after every plan's and pack
       assert.equal(after, null, "nothing under the purchase button any more");
       const [row, name, tip] = nameRow(card, "plan-name");
       assert.ok(hasClass("plan-name-row")(row)); assert.equal(textOf(name), P.CINEMA_PLANS[i].name);
-      assertTip(P, tip, "checkout-note-plan-" + P.CINEMA_PLANS[i].tier, false);
+      assertTip(P, tip, "checkout-note-plan-" + P.CINEMA_PLANS[i].tier, P.turnCancelSectionLive());
       assert.equal(btn.props["aria-describedby"], tip.props.id);
     });
     const packs = findAll(tree, hasClass("credit-pack"));
@@ -219,7 +219,7 @@ await test("C3 R2: the note sits behind an ⓘ right after every plan's and pack
       assert.equal(after, null, "nothing under the pack button any more");
       const [row, name, tip] = nameRow(card, "credit-pack-name");
       assert.ok(hasClass("credit-pack-name-row")(row)); assert.equal(textOf(name), P.CINEMA_CREDIT_PACKS[i].name);
-      assertTip(P, tip, "checkout-note-" + P.CINEMA_CREDIT_PACKS[i].sku, false);
+      assertTip(P, tip, "checkout-note-" + P.CINEMA_CREDIT_PACKS[i].sku, P.turnCancelSectionLive());
       assert.equal(btn.props["aria-describedby"], tip.props.id);
     });
     assert.equal(findAll(tree, isTip).length, 6, "one ⓘ per purchase button");
@@ -383,7 +383,7 @@ await test("C12 the homepage's plan cards carry the ⓘ right after the plan's n
     assert.equal(after, null, "nothing under the button any more");
     const [row, name, tip] = nameRow(card, "lp-tier-name");
     assert.ok(hasClass("lp-tier-name-row")(row)); assert.equal(textOf(name), L.CINEMA_PLANS[i].name);
-    assertTip(L, tip, "lp-checkout-note-" + L.CINEMA_PLANS[i].tier, false, "lp-checkout-tip");
+    assertTip(L, tip, "lp-checkout-note-" + L.CINEMA_PLANS[i].tier, L.turnCancelSectionLive(), "lp-checkout-tip");
     assert.equal(btn.props["aria-describedby"], tip.props.id);
   });
   // the closing "Create a free account" buys nothing: no ⓘ there; no visible note left on the page
@@ -400,7 +400,7 @@ await test("C12 the homepage's plan cards carry the ⓘ right after the plan's n
     const head = findAll(m, hasClass("auth-head"))[0];
     const kids = head.children.filter((k) => k && typeof k === "object");
     const chip = kids.findIndex(hasClass("auth-plan"));
-    assert.ok(chip >= 0); assertNote(kids[chip + 1], "auth-checkout-note");
+    assert.ok(chip >= 0); assertNote(kids[chip + 1], "auth-checkout-note", A.turnCancelSectionLive());
     assert.ok(hasClass("auth-checkout-note")(kids[chip + 1]));
     assert.equal(textOf(findAll(m, hasClass("auth-plan-note"))[0]), "checkout opens after signup");
     // "Sign in" (after "Check your email to confirm, then sign in", or a switch): while the plan picked
@@ -411,7 +411,7 @@ await test("C12 the homepage's plan cards carry the ⓘ right after the plan's n
     m = A.AuthModal({ onClose: noop, onAuthed: noop, initialMode: "signin", plan: "director", light });
     const sk = findAll(m, hasClass("auth-head"))[0].children.filter((k) => k && typeof k === "object");
     const sChip = sk.findIndex(hasClass("auth-plan"));
-    assert.ok(sChip >= 0, "sign-in with a waiting plan: the chip shows"); assertNote(sk[sChip + 1], "auth-checkout-note");
+    assert.ok(sChip >= 0, "sign-in with a waiting plan: the chip shows"); assertNote(sk[sChip + 1], "auth-checkout-note", A.turnCancelSectionLive());
     assert.equal(textOf(findAll(m, hasClass("auth-plan-note"))[0]), "checkout opens after sign-in");
     // the mode switched inside the window (signup -> signin) keeps them too
     A.React.reset({ 0: "signin" });
@@ -434,10 +434,10 @@ await test("C12 the homepage's plan cards carry the ⓘ right after the plan's n
 });
 
 await test("C13 the note gives the billing address until the Terms' cancel section is live (TERMS_UPDATED_AT set on the switch day); a bad date keeps it", () => {
-  assert.equal(P.turnCancelSectionLive(), false, "today: the current Terms have no cancel section");
+  assert.equal(P.turnCancelSectionLive(), true, "since the switch (2026-10-02) the Terms' cancel section is live");
   for (const [at, live] of [["2026-11-14", true], ["", false], ["not a date", false], ["  ", false]]) {
     const B = box({ CREDIT_SCALE: 10 });
-    run(B, "app/plans.jsx", read("app/plans.jsx").replace('const TERMS_UPDATED_AT = "";', "const TERMS_UPDATED_AT = " + JSON.stringify(at) + ";"));
+    run(B, "app/plans.jsx", read("app/plans.jsx").replace(/const TERMS_UPDATED_AT = "[^"]*";/, "const TERMS_UPDATED_AT = " + JSON.stringify(at) + ";"));
     assert.equal(B.turnCancelSectionLive(), live, JSON.stringify(at));
     assertNote(B.turnCheckoutNote("x"), "x", live);
   }
@@ -609,14 +609,17 @@ await test("C15 the popup stays inside the window and whatever clips it (centred
 });
 
 /* ════════ T: the Terms-updated banner (app/plans.jsx) ════════ */
-await test("T1 TERMS_UPDATED_AT is the ONE constant and ships empty (hidden)", () => {
+await test("T1 TERMS_UPDATED_AT is the ONE constant; set on the switch day (2026-10-02) to the Terms' date; empty would hide the banner", () => {
   const src = read("app/plans.jsx");
   assert.equal((src.match(/const TERMS_UPDATED_AT = /g) || []).length, 1);
-  assert.ok(src.includes('const TERMS_UPDATED_AT = "";'));
-  assert.equal(P.TURN_TERMS_UPDATED_AT, "");
+  assert.ok(src.includes('const TERMS_UPDATED_AT = "2026-10-02";'), "the switch day's date");
+  assert.equal(P.TURN_TERMS_UPDATED_AT, "2026-10-02");
+  assert.ok(read("terms.html").includes("Last updated: 2 October 2026") && read("privacy.html").includes("Last updated: 2 October 2026"), "the same date as the pages");
+  const E = box({ CREDIT_SCALE: 10 });
+  run(E, "app/plans.jsx", src.replace(/const TERMS_UPDATED_AT = "[^"]*";/, 'const TERMS_UPDATED_AT = "";'));
+  E.turnUserId = "u-1"; E.turnIsAdmin = false; E.React.reset();
+  assert.equal(E.BillingNotices({ balance: { remaining: 1500, plan: "director", planRemaining: 1500, packRemaining: 0 } }), null, "nothing shows while it's empty");
   for (const f of ["app/app.jsx", "app/home-dashboard.jsx", "app/auth-ui.jsx", "app/ai.jsx"]) assert.ok(!read(f).includes("TERMS_UPDATED_AT ="), f + " doesn't define its own");
-  P.turnUserId = "u-1"; P.turnIsAdmin = false; P.React.reset();
-  assert.equal(P.BillingNotices({ balance: { remaining: 1500, plan: "director", planRemaining: 1500, packRemaining: 0 } }), null, "nothing shows while it's empty");
 });
 await test("T2 shown for 30 days from the date, not before, not after; a dismissal holds for that date only; a bad date hides it", () => {
   const d = "2026-10-31", t = Date.parse(d), day = 86400000;
@@ -632,7 +635,7 @@ await test("T2 shown for 30 days from the date, not before, not after; a dismiss
 await test("T3 the banner: exact title, links to /terms.html and /privacy.html in a new tab, × dismisses per user (both mounts), signed out never", () => {
   const B = box({ CREDIT_SCALE: 10 });
   // the real file with the owner's switch-day edit applied
-  run(B, "app/plans.jsx", read("app/plans.jsx").replace('const TERMS_UPDATED_AT = "";', 'const TERMS_UPDATED_AT = "2026-10-31";'));
+  run(B, "app/plans.jsx", read("app/plans.jsx").replace(/const TERMS_UPDATED_AT = "[^"]*";/, 'const TERMS_UPDATED_AT = "2026-10-31";'));
   B.turnUserId = "u-1"; B.turnIsAdmin = false;
   const now = Date.parse("2026-11-05T12:00:00Z");
   const bal = { remaining: 1500, plan: "director", planRemaining: 1500, packRemaining: 0 };
@@ -955,7 +958,8 @@ await test("H1 TURN.html: admin-tax.jsx loads after admin-storage.jsx; the files
   const adm = html.indexOf('src="app/admin-storage.jsx?v='), tax = html.indexOf('<script type="text/babel" src="app/admin-tax.jsx?v=20261001-tax1"></script>');
   assert.ok(adm > 0 && tax > adm);
   assert.ok(tax < html.indexOf('src="app/app.jsx?v='));
-  for (const f of ["app/plans.jsx", "app/ai.jsx", "app/script.jsx", "app/landing.jsx"]) assert.ok(html.includes('src="' + f + '?v=20261002-tip1"'), f);
+  for (const f of ["app/ai.jsx", "app/script.jsx", "app/landing.jsx"]) assert.ok(html.includes('src="' + f + '?v=20261002-tip1"'), f);
+  assert.ok(html.includes('src="app/plans.jsx?v=20261002-terms1"'), "plans.jsx re-keyed again when the switch day set TERMS_UPDATED_AT");
   assert.ok(html.includes('src="app/auth-ui.jsx?v=20261002-consent1"'), "auth-ui.jsx is unchanged");
   assert.ok(html.includes('href="app/styles.css?v=20261002-tip1"'));
 });

@@ -1200,7 +1200,7 @@ window.turnBillingNoticeClosed = noticeClosed;
    "2026-10-31". Closing it hides it for that account in this browser until the next update (the
    dismissal is stored against the date, so a later update shows again). It rides the billing
    banners' two mounts (studio and Home), so a close in one closes the other. */
-const TERMS_UPDATED_AT = "";
+const TERMS_UPDATED_AT = "2026-10-02";
 const TERMS_NOTICE_DAYS = 30;
 window.TURN_TERMS_UPDATED_AT = TERMS_UPDATED_AT;
 window.TURN_TERMS_NOTICE_TEXT = "We've updated our Terms and Privacy Policy";

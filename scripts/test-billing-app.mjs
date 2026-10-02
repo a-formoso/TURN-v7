@@ -309,6 +309,8 @@ await test("E the notice copy: paid 20% / 5%, trial 20% / 5%", () => {
 });
 await test("E BillingNotices renders the notice, and Dismiss persists it per account (it stays gone on the next render)", () => {
   P.localStorage = mkStore(); P.turnUserId = "u-lb"; P.turnIsAdmin = false;
+  // the Terms banner (live since the switch day, TERMS_UPDATED_AT) has its own tests; this account has read it
+  P.localStorage.setItem("turn-terms-notice:u-lb", P.TURN_TERMS_UPDATED_AT);
   P.React.reset();
   P.BillingNotices({ balance: bal("director", 1600), session: "r1" });
   P.React.effects.forEach((f) => f());
@@ -354,6 +356,8 @@ await test("F past_due → 'Payment failed — update your card.'; frozen → 'A
 
 await test("F (A3) closing 'Payment failed' or 'Account on hold' closes it in BOTH mounts (studio and Home) for the page session; the other mount re-renders; another account still sees its own; a reload shows it again", () => {
   P.turnIsAdmin = false; P.localStorage = mkStore(); P.turnUserId = "u-a3";
+  // the Terms banner (live since the switch day) has its own tests; these accounts have read it
+  for (const u of ["u-a3", "u-a3b", "u-other"]) P.localStorage.setItem("turn-terms-notice:" + u, P.TURN_TERMS_UPDATED_AT);
   for (const [extra, title] of [[{ paymentStatus: "past_due" }, "Payment failed — update your card."], [{ frozen: true }, "Account on hold."]]) {
     const b = bal("writer", 500, 0, extra);
     const titles = (tree) => findAll(tree, hasClass("billing-banner")).map((n) => textOf(findAll(n, (x) => x.type === "b")[0]).trim());
