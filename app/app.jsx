@@ -4530,7 +4530,7 @@ function App(){
     if(saved.length>1) throw new Error("This shot owns more than one spoken line. Assign one screenplay line per shot before voicing.");
     if(saved.length===1){
       const c=exactCharacter(saved[0].speakerId,saved[0].speaker);
-      if(c)return {character:c,line:saved[0]};
+      if(c)return {character:c,line:saved[0],text:String(saved[0].text||"").trim()};
       throw new Error("The assigned screenplay speaker no longer matches a character. Reassign this line before voicing.");
     }
     const lines=(typeof stageBeatDialogueLines==="function")
@@ -4544,14 +4544,20 @@ function App(){
     }
     if(row){
       const c=exactCharacter(row.speakerId,row.speaker);
-      if(c)return {character:c,line:row};
+      if(c)return {character:c,line:row,text:String(row.text||"").replace(/\s+/g," ").trim()};
     }
     throw new Error("We can\u2019t verify who speaks this line. Assign it from the screenplay before voicing; visual cast is never used to guess a voice.");
   };
   const voiceOneLine = async (shot)=>{
-    const text = String(shot.dialogue||"").trim();
-    if(!text) return { skipped:true };
+    if(!String(shot.dialogue||"").trim()) return { skipped:true };
     const resolved = resolveLineSpeaker(shot);
+    // VOICE THE LINE THE SPEAKER CAME FROM (2026-10-02): a shot tied to a screenplay occurrence
+    // by index used to take the speaker from the CURRENT line but speak its OLD saved words —
+    // after a script edit, someone else's words in this voice, paid for and instantly stale on
+    // the Stage (which checks the audio against the live line). The words are the resolved
+    // line's own, and the shot's saved line follows them so Shots, Stage and Mix agree.
+    const text = String((resolved&&resolved.text)||shot.dialogue||"").trim();
+    if(!text) return { skipped:true };
     const spk = resolved&&resolved.character;
     const performance = resolved&&resolved.line||{};
     if(!spk || !spk.voiceLock || !spk.voiceLock.voiceId)
@@ -4564,7 +4570,7 @@ function App(){
       assetRole:"dialogue_line",characterId:spk.id,characterName:spk.name||"Character",
       modelId:(typeof window.vgDeliveryModelOf==="function") ? window.vgDeliveryModelOf(spk.voiceLock) : (spk.voiceLock.modelId||window.VG_TTS_MODEL) });
     const durSec = Math.max(0.6, Math.round(((r.durationMs||0)/1000 + 0.4)*10)/10);   // measured + lead/tail pad
-    updateShot(shot.id, { dur:durSec, lineAudio:{ durationMs:r.durationMs||0, voiceId:spk.voiceLock.voiceId,
+    updateShot(shot.id, { dur:durSec, ...(text!==String(shot.dialogue||"").trim() ? { dialogue:text } : {}), lineAudio:{ durationMs:r.durationMs||0, voiceId:spk.voiceLock.voiceId,
       voiceName:spk.voiceLock.voiceName||"",voiceRevision:spk.voiceLock.revision||"",
       voiceSignature:r.voiceSignature||spk.voiceLock.fingerprint||"",
       speakerId:spk.id, speaker:spk.name, text,parenthetical:performance.parenthetical||"",
@@ -5678,15 +5684,30 @@ function App(){
     if(i<0 || !remaining.length) return;
     const gone = scenes[i];
     const hasWork = !!(drafts[id] || (beatsMap[id] && (beatsMap[id].rows||[]).length));
+    const shotCount = artRoomReadOnlyRef.current ? 0 : (shots||[]).filter(sh=>sh && sh.sceneId===id).length;
     if(typeof window.appConfirm==="function"){
       const ok = await window.appConfirm({
         title:"Delete Scene "+gone.no+(gone.title?(" \u201c"+gone.title+"\u201d"):"")+"?",
-        body:"This removes the scene card"+(hasWork?", its beat map, screenplay draft and version history":"")+". You can undo it right after.",
+        body:"This removes the scene card"+(hasWork?", its beat map, screenplay draft and version history":"")
+          +(shotCount?(hasWork?", and its ":" and its ")+shotCount+" shot"+(shotCount===1?"":"s")+" in the Art Room":"")+". You can undo it right after.",
         confirmLabel:"Delete scene", danger:true });
       if(!ok || !canMutateWritersRoom()) return;
     }
+    // THE ART ROOM FOLLOWS THE SCENE (2026-10-02): its shots, its Color preset and the scene's
+    // place in props' and locations' scene lists used to stay behind — orphan shots kept the
+    // Shots tab "stale" and in the saved film, and the Stage silently skipped them. Only when
+    // this account may write the Art Room: a Co-writer's save of art sections is refused by
+    // the server's role scopes (enforce-role-scopes.sql), so theirs keeps them as before.
+    const artWritable = !artRoomReadOnlyRef.current;
+    const goneShots = artWritable ? (shots||[]).filter(sh=>sh && sh.sceneId===id) : [];
+    const sb = (project && project.styleBible) || {};
+    const goneStyle = sb.sceneStyles && Object.prototype.hasOwnProperty.call(sb.sceneStyles, id) ? sb.sceneStyles[id] : undefined;
+    const inScenes = x=> x && Array.isArray(x.scenes) && x.scenes.indexOf(id)>=0;
+    const propRefs = artWritable ? (props||[]).filter(inScenes).map(p=>({ id:p.id, at:p.scenes.indexOf(id) })) : [];
+    const locRefs = artWritable ? (locations||[]).filter(inScenes).map(l=>({ id:l.id, at:l.scenes.indexOf(id) })) : [];
     setDeletedScene({ owner:currentProjectId, index:i, scene:gone, beats:beatsMap[id], draft:drafts[id],
-      history:history[id], continuity:continuityMap && continuityMap[id] });
+      history:history[id], continuity:continuityMap && continuityMap[id],
+      shots:goneShots, style:goneStyle, propRefs, locRefs });
     const nxt = remaining[Math.min(i, remaining.length-1)];
     setScenes(renum(remaining));
     setBeatsMap(m=>{ const n={...m}; delete n[id]; return n; });
@@ -5696,6 +5717,15 @@ function App(){
     // scene's undo stack (pressing Undo on a new blank scene restored someone else's text)
     setHistory(h=>{ if(!h[id]) return h; const n={...h}; delete n[id]; return n; });
     setContinuityMap(c=>{ if(!c || !c[id]) return c; const n={...c}; delete n[id]; return n; });
+    if(goneShots.length) setShots(ss=>ss.filter(sh=>!(sh && sh.sceneId===id)));
+    if(goneStyle!==undefined) setProject(p=>{
+      const b=(p&&p.styleBible)||{}; if(!b.sceneStyles || !(id in b.sceneStyles)) return p;
+      const sceneStyles={...b.sceneStyles}; delete sceneStyles[id];
+      return {...p, styleBible:{...b, sceneStyles}};
+    });
+    const dropScene = list=>list.map(x=> inScenes(x) ? {...x, scenes:x.scenes.filter(v=>v!==id)} : x);
+    if(propRefs.length) setProps(dropScene);
+    if(locRefs.length) setLocations(dropScene);
     setSelId(nxt ? nxt.id : null);
   };
   const undoDeleteScene = ()=>{
@@ -5711,6 +5741,22 @@ function App(){
     if(d.draft) setDrafts(x=> x[id] ? x : {...x,[id]:d.draft});
     if(d.history) setHistory(h=> h[id] ? h : {...h,[id]:d.history});
     if(d.continuity) setContinuityMap(c=> (c && c[id]) ? c : {...(c||{}),[id]:d.continuity});
+    if(d.shots && d.shots.length) setShots(ss=>{
+      const have=new Set(ss.map(sh=>sh&&sh.id));
+      const back=d.shots.filter(sh=>!have.has(sh.id));
+      return back.length ? ss.concat(back) : ss;
+    });
+    if(d.style!==undefined) setProject(p=>{
+      const b=(p&&p.styleBible)||{}; if(b.sceneStyles && id in b.sceneStyles) return p;
+      return {...p, styleBible:{...b, sceneStyles:{...(b.sceneStyles||{}), [id]:d.style}}};
+    });
+    const putBack = refs=>list=>list.map(x=>{
+      const r=refs.find(v=>v.id===x.id);
+      if(!r || !Array.isArray(x.scenes) || x.scenes.indexOf(id)>=0) return x;
+      const sc=x.scenes.slice(); sc.splice(Math.min(r.at, sc.length), 0, id); return {...x, scenes:sc};
+    });
+    if(d.propRefs && d.propRefs.length) setProps(putBack(d.propRefs));
+    if(d.locRefs && d.locRefs.length) setLocations(putBack(d.locRefs));
     setSelId(id);
   };
   const reorderScenes = (fromIdx,toIdx)=>{
@@ -5975,7 +6021,9 @@ function App(){
         tableRead:(sc,dr)=>window.aiTableRead(sc,dr,model.project),
         voiceCheck:(sc,dr)=>window.aiVoiceCheck(sc,dr),
         buildSpine:(b)=>window.aiBuildSpine(b, (project&&project.format)||"film", (project&&project.framework)||"threeact"),
-        buildStoryWorld:(b,sp)=>window.aiBuildStoryWorld(b,sp,(project&&project.format)||"film"),
+        // the research reservoir belongs to the brief it was gathered for (a typed brief has none)
+        buildStoryWorld:(b,sp)=>window.aiBuildStoryWorld(b,sp,(project&&project.format)||"film",
+          (project && project.research && String(project.sourceBrief||"").trim()===String(b||"").trim()) ? project.research : null),
         authorScene:(s,p)=>window.aiAuthorScene(s,p,model.characters,model.project,{scenes:model.scenes}),
         draftScene:(s,b,p,o)=>window.aiDraftScene(s,b,p,model.project,model.characters,model.scenes,o),
       } };
@@ -7297,6 +7345,10 @@ function App(){
           ...((synopsis && synopsis.synopsis && Array.isArray(synopsis.synopsis.paras))
             ? { synopsis:{ paras:synopsis.synopsis.paras.filter(pg=>pg && String(pg.text||"").trim())
                 .map(pg=>({ key:pg.key||"", label:pg.label||"", text:String(pg.text).trim() })) } } : {}),
+          // THE RESEARCH RESERVOIR (2026-10-02): the Three Pillars are kept with the film — the world
+          // build and the cast's inner life read them (ai.jsx researchReservoir) — with the pages a
+          // web-grounded Fact pillar used. A build without research clears the last story's.
+          research: (typeof researchToKeep==="function") ? researchToKeep(synopsis && synopsis.research) : undefined,
           sourceBrief: brief, sourceBriefAt: new Date().toISOString() }));
         setAgentLaunch({id:"adapt", input:brief}); setAgentsOpen(true); }}),
 

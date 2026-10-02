@@ -575,6 +575,7 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
     React.createElement("div",{className:"syn-pillar-tx"},body)) : null;
 
   const fact = (syn && syn.research && syn.research.fact) || {};
+  const factSources = (syn && syn.research && syn.research.grounded && Array.isArray(syn.research.sources)) ? syn.research.sources : [];
   const lenses = [["What happens",fact.whatHappens],["How it feels",fact.howItFeels],
     ["Frustrating",fact.frustrating],["Lovely",fact.lovely]].filter(x=>x[1]);
 
@@ -755,7 +756,16 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
                 lenses.length>0 && React.createElement("div",{className:"syn-lens-grid"},
                   lenses.map(([k,v],i)=>React.createElement("div",{key:i,className:"syn-lens"},
                     React.createElement("div",{className:"syn-lens-k"},k),
-                    React.createElement("div",{className:"syn-lens-v"},v)))))),
+                    React.createElement("div",{className:"syn-lens-v"},v)))),
+                // WHERE THE FACTS COME FROM (2026-10-02): the pages a web-grounded Fact pillar used,
+                // or a plain note that it was not checked against the web
+                factSources.length
+                  ? React.createElement("div",{className:"syn-sources"},
+                      React.createElement("div",{className:"syn-sources-k"},"Checked against the web \u00b7 sources"),
+                      factSources.map((x,i)=>React.createElement("a",{key:i,className:"syn-source",href:x.url,target:"_blank",rel:"noopener noreferrer",title:x.url},
+                        React.createElement("span",{className:"syn-source-host"},x.host), x.title ? " \u2014 "+x.title : "")))
+                  : React.createElement("div",{className:"syn-sources-note"},
+                      "From general knowledge \u2014 not checked against the web. Verify real people, places and events before you rely on them."))),
 
             React.createElement("div",{className:"syn-seclab"},"Synopsis \u2014 edit any paragraph before building"),
             paras.map((pg,i)=>React.createElement("div",{key:pg.key,className:"syn-para"},

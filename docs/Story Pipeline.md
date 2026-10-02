@@ -533,9 +533,13 @@ lines longer than one clip are split at a sentence/beat boundary. Built audio-fi
 - Steps **3–8** exist in code today (Adaptation agent, Spine, beats→script, drafting controls, Writers' Room, Frances).
 - Step **2 (Research → Synopsis)** is **now built** (`aiResearchSynopsis` in `app/ai.jsx`, the synopsis-review
   step in `app/newstory.jsx`, threaded into the spine build via `composeStoryBrief`). The New Story flow is
-  now: seed → loglines → **research → synopsis (review/edit)** → spine. The model has no live web, so the Fact
-  pillar draws on the model's own world knowledge (period, place, the protagonist's role through four lenses:
-  what happens / how it feels / frustrating / lovely).
+  now: seed → loglines → **research → synopsis (review/edit)** → spine. The Fact pillar (period, place, the
+  protagonist's role through four lenses: what happens / how it feels / frustrating / lovely) **searches the web**
+  on writing engines that can (Claude Opus 5 / 5.5, Sonnet 5 / 5.5 — `image-proxy` `webSearch`, held and billed per
+  search) and shows the pages it used; on other engines it is labelled "From general knowledge — not checked against
+  the web" *(2026-10-02, owner-approved)*. The whole research is **saved with the film** (`project.research`) and
+  read by the story-world build and the cast's inner-life pass before the script (`researchReservoir`)
+  *(2026-10-02, owner-approved)*.
 - `APP_FEATURES` in `app/ai.jsx` has been updated so Frances can describe the stage.
 - Step **10 (The Stage)**: the **audio-first assembly shell** is built (`app/stage.jsx`, room unlocked) —
   it lays the clip partition + shot frames + dialogue on the cut timeline, timed by ESTIMATED line

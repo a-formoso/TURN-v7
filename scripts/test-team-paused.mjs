@@ -444,7 +444,7 @@ await test("D4 docs: CLAUDE.md, supabase/README.md and the memo record the pause
 await test("D5 TURN.html: every file this change touched loads under 20261002-team1 (or a later key); script.jsx keeps ai.jsx's key", ()=>{
   const html = read("TURN.html");
   const key = (f)=>(html.match(new RegExp(f.replace(/\./g, "\\.")+"\\?v=([^\"']+)")) || [])[1] || "";
-  const LATER = [];   // a later change that re-keys one of these files adds its key here
+  const LATER = ["20261002-scene1", "20261002-research1"];   // a later change that re-keys one of these files adds its key here
   for(const f of ["app/team.jsx", "app/chrome.jsx", "app/app.jsx", "app/ai.jsx", "app/script.jsx", "app/landing.jsx", "app/cloud.jsx", "app/auth-ui.jsx", "app/styles.css"])
     assert.ok(key(f)==="20261002-team1" || LATER.includes(key(f)), f+": "+key(f));
   assert.equal(key("app/script.jsx"), key("app/ai.jsx"));

@@ -328,7 +328,7 @@ await test("A4 Gemini thinking tokens are billed as output; Anthropic cache toke
   const g = P.normaliseTextUsage("google", { usageMetadata: { promptTokenCount: 1000, candidatesTokenCount: 100, thoughtsTokenCount: 900 } });
   assert.deepEqual(g, { inputTokens: 1000, outputTokens: 1000, cacheWriteTokens: 0, cacheReadTokens: 0 });
   const a = P.normaliseTextUsage("anthropic", { usage: { input_tokens: 50, output_tokens: 200, cache_creation_input_tokens: 10000, cache_read_input_tokens: 30000 } });
-  assert.deepEqual(a, { inputTokens: 50, outputTokens: 200, cacheWriteTokens: 10000, cacheReadTokens: 30000 });
+  assert.deepEqual(a, { inputTokens: 50, outputTokens: 200, cacheWriteTokens: 10000, cacheReadTokens: 30000, webSearches: 0 });
   const cost = P.textActualCost("claude-opus-5-5", a).providerCostUsd;
   assert.ok(near(cost, (50 * 4 + 10000 * 5 + 30000 * 0.2 + 200 * 20) / 1e6), String(cost));
   const o = P.normaliseTextUsage("openai", { usage: { prompt_tokens: 7, completion_tokens: 9 } });

@@ -1598,6 +1598,12 @@ textarea.edit-in{line-height:1.5;min-height:36px;font-family:var(--f-ui);box-siz
 .syn-pillar{display:flex;flex-direction:column;gap:5px}
 .syn-pillar-lab{font-family:var(--f-mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt-2)}
 .syn-pillar-tx{font-size:12.5px;line-height:1.55;color:var(--txt-1)}
+.syn-sources{display:flex;flex-direction:column;gap:3px;margin-top:8px}
+.syn-sources-k{font-family:var(--f-mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--txt-2);margin-bottom:2px}
+.syn-source{font-size:11.5px;line-height:1.45;color:var(--txt-1);text-decoration:none;overflow-wrap:anywhere}
+.syn-source:hover,.syn-source:focus-visible{text-decoration:underline}
+.syn-source-host{font-family:var(--f-mono);font-size:10.5px;color:var(--txt-2)}
+.syn-sources-note{margin-top:8px;font-size:11.5px;line-height:1.45;color:var(--txt-2);font-style:italic}
 .syn-fact-line{font-size:12.5px;line-height:1.5;color:var(--txt-1);margin-bottom:3px}
 .syn-fact-k{display:inline-block;font-family:var(--f-mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;
   color:var(--txt-3);margin-right:7px}

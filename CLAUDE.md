@@ -76,7 +76,11 @@ charges, scenes that turn, beats → script → Art Room → Stage). Served at *
   MP4/MOV, WAV), never word timestamps; a longer provider-reported duration is only logged (`stt_length_mismatch`), never
   charged above the hold; an empty transcript still settles. An unreadable
   container, a recording above 6 min (`STT_MAX_SECONDS`; the app stops at 5, `NS_MAX_ANSWER_SECONDS`) or an unknown
-  `modelId` gets a 400 before any hold, and the app then switches to the browser's speech recognition. **Image prompts** above 40,000 characters
+  `modelId` gets a 400 before any hold, and the app then switches to the browser's speech recognition. **Web search on a
+  writing call** (`webSearch: true`; New Story's research, owner 2026-10-02) runs only on Claude Opus 5 / 5.5 and Sonnet
+  5 / 5.5 (`web_search_20260209`, max 5 searches) and never on Frances's free path; held at $0.01 a search plus 15,000
+  input tokens a search for the pages read, settled on `usage.server_tool_use.web_search_requests`
+  (`billing-pricing.mjs` `textWebSearchTool`). **Image prompts** above 40,000 characters
   (`IMAGE_PROMPT_MAX_CHARS`) get a 400 on every image route before the hold.
 - **Reconciliation:** every 10 minutes `supabase/billing-housekeeping-cron.sql` (pg_cron + pg_net) POSTs
   `{"op":"reconcile_holds"}` (no auth, idempotent, throttled by `turn_claim_housekeeping`) to `image-proxy` (video) and

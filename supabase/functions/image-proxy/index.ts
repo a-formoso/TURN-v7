@@ -99,12 +99,27 @@ import { FRANCES_LIMIT_RPC, createFrancesLimiter, francesDailyLimit } from "./fr
 import {
   GOOGLE_IMAGE_USD, IMAGE_PROVIDER_USD, OPENAI_DIRECT_IMAGE_MODELS, PROVIDER_USD_PER_CREDIT, VIDEO_PROVIDER_USD_PER_SECOND, affordableOutputCap,
   cheapestTextHold, creditUnitFromRegime, flatVoiceCost, imageCost, lengthBilledFacts, lengthBilledVideoHold, mergeVideoPricingOverrides,
-  IMAGE_PROMPT_MAX_CHARS, STT_MAX_SECONDS, messageText, normaliseTextUsage, sttHoldCost, sttModel, sttReportedSeconds, sttSettleCost, textActualCost,
+  IMAGE_PROMPT_MAX_CHARS, STT_MAX_SECONDS, TEXT_WEB_SEARCH_MAX_USES, textWebSearchTool, messageText, normaliseTextUsage, sttHoldCost, sttModel, sttReportedSeconds, sttSettleCost, textActualCost,
   textHoldEstimate, textPriceKey, ttsCost, videoAppModel, videoCost, visionImagesProblem,
 } from "./billing-pricing.mjs";
 // Round 5 (S1): a recording's real length, read from its container (WebM / Ogg / MP4 / WAV) before
 // speech-to-text is held.
 import { AUDIO_CONTAINERS, audioDurationFromBytes } from "./audio-length.mjs";
+/* The pages a searching Claude reply relied on: every page a text block CITES first (the claims
+   rest on those), then the other results the searches returned; one entry per URL, at most 12,
+   http(s) only. */
+function webSearchSources(blocks: any[]): { url: string; title: string; cited: boolean }[] {
+  const out: { url: string; title: string; cited: boolean }[] = [];
+  const seen = new Set<string>();
+  const add = (url: any, title: any, cited: boolean) => {
+    const u = String(url || "").trim();
+    if (!/^https?:\/\//i.test(u) || seen.has(u) || out.length >= 12) return;
+    seen.add(u); out.push({ url: u, title: String(title || "").trim().slice(0, 200), cited });
+  };
+  for (const b of blocks || []) for (const c of (b && b.type === "text" && Array.isArray(b.citations)) ? b.citations : []) add(c.url, c.title, true);
+  for (const b of blocks || []) if (b && b.type === "web_search_tool_result" && Array.isArray(b.content)) for (const x of b.content) add(x && x.url, x && x.title, false);
+  return out;
+}
 import {
   DEFAULT_TEXT_MODELS, accountFrom, billingUnavailable, checkImage, checkText, checkVideo, checkVoice, formatCredits, francesPlanLimit,
   frozenRefusal, modelNotAllowed, refusal, shortOfCredits, writingShortfall,
@@ -776,6 +791,13 @@ Deno.serve(async (req) => {
     }
     const vision = textKind === "vision";
     const priceKey = textPriceKey(model);
+    // WEB SEARCH (2026-10-02): `webSearch: true` lets a metered Claude call search the web
+    // (New Story's research grounds its Fact pillar). Only engines with a search tool here
+    // (billing-pricing.mjs textWebSearchTool); every other engine answers from what it knows,
+    // and the reply says so (webSearch.available false). Held for TEXT_WEB_SEARCH_MAX_USES
+    // searches; settled on the searches the provider reports.
+    const searchTool = body.webSearch === true && provider === "anthropic" && textKind !== "muse" ? textWebSearchTool(model) : "";
+    const webSearches = searchTool ? TEXT_WEB_SEARCH_MAX_USES : 0;
     let unit = PROVIDER_USD_PER_CREDIT;
     if (textKind !== "muse") {
       const block = ensureCanSpend(1);
@@ -814,7 +836,7 @@ Deno.serve(async (req) => {
     let outputCap = wantedCap;
     let textHold: any = null;
     if (textKind !== "muse" && !isAdmin) {
-      const est = { model: priceKey, messages, imageCount: images.length, vision, promptCache, unit };
+      const est = { model: priceKey, messages, imageCount: images.length, vision, promptCache, webSearches, unit };
       const minCap = provider === "anthropic" ? 16000 : 1024;
       outputCap = affordableOutputCap({ ...est, wantedCap, minCap, availableCredits: accountRemaining });
       // too little for even one answer on this engine: say how short, and that a lighter engine runs
@@ -834,7 +856,7 @@ Deno.serve(async (req) => {
     // keeps its real provider USD for the owner's reports); metered calls price on the model's key
     const textUsageEstimate = (providerName: string, modelName: string, tokens: any, kind: string) =>
       textActualCost(kind === "muse" ? modelName : priceKey, tokens, { vision: kind === "vision", free: kind === "muse", unit });
-    const finishText = async (providerName: string, modelName: string, providerData: any, text: string, vision: boolean) => {
+    const finishText = async (providerName: string, modelName: string, providerData: any, text: string, vision: boolean, extra: Record<string, unknown> = {}) => {
       const tokens = normaliseTextUsage(providerName, providerData);
       const estimate = textUsageEstimate(providerName, modelName, tokens, textKind);
       const charged = textHold ? await settleHold(textHold, estimate.credits) : 0;
@@ -848,6 +870,7 @@ Deno.serve(async (req) => {
         outputTokens: tokens.outputTokens,
         providerCostUsd: estimate.providerCostUsd,
         metadata: { usageKind: textKind, ...(textKind !== usageKind ? { requestedUsageKind: usageKind } : {}), vision, totalTokens: tokens.inputTokens + tokens.outputTokens,
+          ...(tokens.webSearches ? { webSearches: tokens.webSearches } : {}),
           ...(tokens.cacheReadTokens || tokens.cacheWriteTokens ? { cacheReadTokens: tokens.cacheReadTokens, cacheWriteTokens: tokens.cacheWriteTokens } : {}),
           ...(textHold ? { credits_held: textHold.held, outputCap } : {}) },
       });
@@ -857,7 +880,8 @@ Deno.serve(async (req) => {
       const truncated = (providerName === "anthropic" && providerData?.stop_reason === "max_tokens")
         || ((providerName === "openai" || providerName === "moonshot") && ((((providerData?.choices || [])[0] || {}).finish_reason) === "length"))
         || (providerName === "google" && ((((providerData?.candidates || [])[0] || {}).finishReason) === "MAX_TOKENS"));
-      return json({ text, vision, truncated: truncated || undefined, usage: { ...usage, providerCostUsd: estimate.providerCostUsd, credits: charged, ...tokens, totalTokens: tokens.inputTokens + tokens.outputTokens } });
+      if (body.webSearch === true && !("webSearch" in extra)) extra = { ...extra, webSearch: { available: false, searches: 0 } };
+      return json({ text, vision, truncated: truncated || undefined, ...extra, usage: { ...usage, providerCostUsd: estimate.providerCostUsd, credits: charged, ...tokens, totalTokens: tokens.inputTokens + tokens.outputTokens } });
     };
     // a provider's refusal: the hold is released (finally below); the caller sees a safe message
     const textRefused = (detail: string, status: number) =>
@@ -986,19 +1010,41 @@ Deno.serve(async (req) => {
       // carried (repair F18: an older app build still sends claude-opus-5); metered calls run
       // exactly the engine they asked for.
       const runModel = museRunModel(textKind, model);
-      try {
-        const r = await fetch("https://api.anthropic.com/v1/messages", {
+      const sendTurns: any[] = turns.length ? turns : [{ role: "user", content: "" }];
+      const callClaude = (msgs: any[]) => fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           signal: AbortSignal.timeout(TEXT_PROVIDER_TIMEOUT_MS),
           headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
           // a metered call's cap is the held one (never below the 16k thinking room: the hold covers it)
           body: JSON.stringify({ model: runModel, max_tokens: textKind === "muse" ? MUSE_LIMITS.maxOutputTokens : Math.max(reqMaxTokens || 0, 16000),
             ...(textKind !== "muse" && claudeEffort && /^claude-(fable|mythos|opus-5|sonnet-5)/.test(runModel) ? { output_config: { effort: claudeEffort } } : {}),
-            ...(system ? { system } : {}), messages: turns.length ? turns : [{ role: "user", content: "" }] }),
+            ...(searchTool ? { tools: [{ type: searchTool, name: "web_search", max_uses: TEXT_WEB_SEARCH_MAX_USES }] } : {}),
+            ...(system ? { system } : {}), messages: msgs }),
         });
+      try {
+        const r = await callClaude(sendTurns);
         if (!r.ok) { let d = ""; try { d = (await r.json())?.error?.message || ""; } catch (_e) { /* noop */ } return textRefused(d, r.status); }
-        const data = await r.json();
-        return await finishText("anthropic", runModel, data, (data.content || []).map((p: any) => p.text || "").join(""), aAttached > 0);
+        let data = await r.json();
+        if (!searchTool) return await finishText("anthropic", runModel, data, (data.content || []).map((p: any) => p.text || "").join(""), aAttached > 0);
+        // a searching turn can pause (the server's tool loop hit its limit): resume it ONCE with the
+        // paused turn appended — never a "continue" message — and add the two calls' usage together
+        const blocks: any[] = [...(data.content || [])];
+        const usage: any = { ...(data.usage || {}) };
+        if (data.stop_reason === "pause_turn") {
+          const r2 = await callClaude([...sendTurns, { role: "assistant", content: data.content || [] }]);
+          if (r2.ok) {
+            const more = await r2.json();
+            blocks.push(...(more.content || []));
+            const u2 = more.usage || {};
+            for (const k of ["input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"]) usage[k] = (Number(usage[k]) || 0) + (Number(u2[k]) || 0);
+            usage.server_tool_use = { web_search_requests: (Number(usage.server_tool_use?.web_search_requests) || 0) + (Number(u2.server_tool_use?.web_search_requests) || 0) };
+            data = { ...more, content: blocks, usage };
+          }
+        }
+        const sources = webSearchSources(blocks);
+        const searches = Number(usage.server_tool_use?.web_search_requests) || 0;
+        return await finishText("anthropic", runModel, { ...data, usage }, blocks.filter((b: any) => b && b.type === "text").map((b: any) => b.text || "").join(""), aAttached > 0,
+          { webSearch: { available: true, searches }, sources });
       } catch (e) { return textUnreachable(e); }
     }
     return json({ error: `That writing engine isn't available on this server.` }, 400);

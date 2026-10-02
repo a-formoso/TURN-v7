@@ -306,6 +306,19 @@ export function estimateInputTokens(messages, imageCount = 0) {
   return Math.ceil(tokens) + count * 8 + 16 + Math.max(0, Number(imageCount) || 0) * IMAGE_INPUT_TOKENS;
 }
 
+/* WEB SEARCH ON A WRITING CALL (2026-10-02): New Story's research grounds its Fact pillar with the
+   writing engine's own web search — Claude Opus 5 / 5.5 and Sonnet 5 / 5.5, whose current search
+   tool is web_search_20260209. Each search is $0.01 ($10 per 1,000), and the pages it reads come
+   back as input tokens, so the HOLD allows TEXT_WEB_SEARCH_INPUT_TOKENS per search on top of the
+   messages and the settle bills the searches the provider reports (usage.server_tool_use). */
+export const TEXT_WEB_SEARCH_USD = 0.01;
+export const TEXT_WEB_SEARCH_MAX_USES = 5;
+export const TEXT_WEB_SEARCH_INPUT_TOKENS = 15000;
+/** The search tool type a writing model runs, or "" when it has no web search here. */
+export function textWebSearchTool(model) {
+  return /^claude-(opus-5|sonnet-5)(?:$|-)/.test(String(model || "")) ? "web_search_20260209" : "";
+}
+
 /** Provider USD for a text call from its token counts. */
 export function textCostUsd(rates, { inputTokens = 0, outputTokens = 0, cacheWriteTokens = 0, cacheReadTokens = 0 } = {}, { vision = false } = {}) {
   if (!rates) return 0;
@@ -320,15 +333,20 @@ export function textCostUsd(rates, { inputTokens = 0, outputTokens = 0, cacheWri
  *   { inputTokens, outputCap, providerCostUsd, credits }
  * `promptCache` prices every input token as a cache write (the worst case).
  */
-export function textHoldEstimate({ model, messages, imageCount = 0, outputCap, vision = false, promptCache = false, nowMs = Date.now(), unit = PROVIDER_USD_PER_CREDIT }) {
+export function textHoldEstimate({ model, messages, imageCount = 0, outputCap, vision = false, promptCache = false, webSearches = 0, nowMs = Date.now(), unit = PROVIDER_USD_PER_CREDIT }) {
   const inputTokens = estimateInputTokens(messages, imageCount);
   const rates = textRates(model, { nowMs, inputTokens });
   if (!rates) return null;
   const cap = Math.max(0, Math.floor(Number(outputCap) || 0));
   const providerCostUsd = textCostUsd(rates, promptCache
     ? { cacheWriteTokens: inputTokens, outputTokens: cap }
-    : { inputTokens, outputTokens: cap }, { vision });
+    : { inputTokens, outputTokens: cap }, { vision }) + webSearchHoldUsd(rates, webSearches);
   return { inputTokens, outputCap: cap, providerCostUsd, credits: creditsFromUsd(providerCostUsd, unit) };
+}
+/* the most `webSearches` searches can add: their fee and the pages they read, as input */
+function webSearchHoldUsd(rates, webSearches) {
+  const n = Math.max(0, Math.floor(Number(webSearches) || 0));
+  return n ? n * TEXT_WEB_SEARCH_USD + (n * TEXT_WEB_SEARCH_INPUT_TOKENS * rates.input) / 1e6 : 0;
 }
 
 /* The smallest output cap a writing call runs with (index.ts minCap): a Claude call keeps its 16k
@@ -358,9 +376,9 @@ export function cheapestTextHold({ models, messages, imageCount = 0, vision = fa
  * `minCap` fits. Used so an account with a small balance still gets a (shorter) answer instead of
  * a refusal, and never more output than it can pay for.
  */
-export function affordableOutputCap({ model, messages, imageCount = 0, wantedCap, minCap = 1024, availableCredits, vision = false, promptCache = false, nowMs = Date.now(), unit = PROVIDER_USD_PER_CREDIT }) {
+export function affordableOutputCap({ model, messages, imageCount = 0, wantedCap, minCap = 1024, availableCredits, vision = false, promptCache = false, webSearches = 0, nowMs = Date.now(), unit = PROVIDER_USD_PER_CREDIT }) {
   const want = Math.max(0, Math.floor(Number(wantedCap) || 0));
-  const full = textHoldEstimate({ model, messages, imageCount, outputCap: want, vision, promptCache, nowMs, unit });
+  const full = textHoldEstimate({ model, messages, imageCount, outputCap: want, vision, promptCache, webSearches, nowMs, unit });
   if (!full) return 0;
   const avail = Math.max(0, Math.floor(Number(availableCredits) || 0));
   if (full.credits <= avail) return want;
@@ -368,10 +386,10 @@ export function affordableOutputCap({ model, messages, imageCount = 0, wantedCap
   const rates = textRates(model, { nowMs, inputTokens: full.inputTokens });
   const mult = vision ? VISION_MULTIPLIER : 1;
   const inputUsd = (full.inputTokens * (promptCache ? rates.cacheWrite : rates.input)) / 1e6;
-  const budgetUsd = (avail * creditUnit(unit)) / mult - inputUsd;
+  const budgetUsd = (avail * creditUnit(unit) - webSearchHoldUsd(rates, webSearches)) / mult - inputUsd;
   let cap = Math.min(want, Math.floor((budgetUsd * 1e6) / rates.output));
   // step down past any rounding edge until the hold really fits
-  while (cap >= floor && cap > 0 && textHoldEstimate({ model, messages, imageCount, outputCap: cap, vision, promptCache, nowMs, unit }).credits > avail) cap -= 16;
+  while (cap >= floor && cap > 0 && textHoldEstimate({ model, messages, imageCount, outputCap: cap, vision, promptCache, webSearches, nowMs, unit }).credits > avail) cap -= 16;
   return cap >= floor && cap > 0 ? cap : 0;
 }
 
@@ -385,6 +403,7 @@ export function normaliseTextUsage(provider, data) {
       outputTokens: num(u.output_tokens),
       cacheWriteTokens: num(u.cache_creation_input_tokens),
       cacheReadTokens: num(u.cache_read_input_tokens),
+      webSearches: num(u.server_tool_use && u.server_tool_use.web_search_requests),
     };
   }
   if (provider === "google") {
@@ -402,7 +421,8 @@ export function normaliseTextUsage(provider, data) {
 export function textActualCost(model, tokens, { vision = false, free = false, nowMs = Date.now(), unit = PROVIDER_USD_PER_CREDIT } = {}) {
   const inputTokens = (Number(tokens?.inputTokens) || 0) + (Number(tokens?.cacheWriteTokens) || 0) + (Number(tokens?.cacheReadTokens) || 0);
   const rates = textRates(model, { nowMs, inputTokens });
-  const providerCostUsd = rates ? textCostUsd(rates, tokens, { vision }) : 0;
+  const searchUsd = Math.max(0, Number(tokens?.webSearches) || 0) * TEXT_WEB_SEARCH_USD;
+  const providerCostUsd = (rates ? textCostUsd(rates, tokens, { vision }) : 0) + searchUsd;
   return { providerCostUsd, credits: free ? 0 : creditsFromUsd(providerCostUsd, unit) };
 }
 

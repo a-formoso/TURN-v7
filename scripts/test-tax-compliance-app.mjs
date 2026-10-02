@@ -959,10 +959,10 @@ await test("H1 TURN.html: admin-tax.jsx loads after admin-storage.jsx; the files
   assert.ok(adm > 0 && tax > adm);
   assert.ok(tax < html.indexOf('src="app/app.jsx?v='));
   // Team "Coming soon" (2026-10-02) re-keyed ai.jsx, script.jsx, landing.jsx and styles.css again: 20261002-team1 counts too
-  for (const f of ["app/ai.jsx", "app/script.jsx", "app/landing.jsx"]) assert.ok(html.includes('src="' + f + '?v=20261002-tip1"') || html.includes('src="' + f + '?v=20261002-team1"'), f);
+  for (const f of ["app/ai.jsx", "app/script.jsx", "app/landing.jsx"]) assert.ok(html.includes('src="' + f + '?v=20261002-tip1"') || html.includes('src="' + f + '?v=20261002-team1"') || html.includes('src="' + f + '?v=20261002-scene1"') || html.includes('src="' + f + '?v=20261002-research1"'), f);
   assert.ok(html.includes('src="app/plans.jsx?v=20261002-terms1"') || html.includes('src="app/plans.jsx?v=20261002-plans1"'), "plans.jsx re-keyed again when the switch day set TERMS_UPDATED_AT (or later for the grandfathered card line: 20261002-plans1)");
   assert.ok(html.includes('src="app/auth-ui.jsx?v=20261002-consent1"') || html.includes('src="app/auth-ui.jsx?v=20261002-team1"'), "auth-ui.jsx is unchanged here (Team \"Coming soon\" 2026-10-02 re-keyed it later: 20261002-team1)");
-  assert.ok(html.includes('href="app/styles.css?v=20261002-btn1"') || html.includes('href="app/styles.css?v=20261002-team1"'), "styles.css re-keyed again for the plan-copy editor's buttons (2026-10-02), or later for Team \"Coming soon\"");
+  assert.ok(html.includes('href="app/styles.css?v=20261002-btn1"') || html.includes('href="app/styles.css?v=20261002-team1"') || html.includes('href="app/styles.css?v=20261002-research1"'), "styles.css re-keyed again for the plan-copy editor's buttons (2026-10-02), or later for Team \"Coming soon\"");
 });
 await test("H2 CSS: the ⓘ's rules (the Plans window on the app tokens; the homepage's paper and dark featured card in the landing block), the sign-up window's line; the under-button rules and the dialog's are gone; the info banner and the tax page keep theirs", () => {
   const css = read("app/styles.css");

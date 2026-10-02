@@ -1017,6 +1017,8 @@ async function agentAdaptation(ctx){
     // the synopsis paragraphs belong to the brief they were written for: a run from a
     // different (typed) brief must not inherit another story's synopsis
     synopsis: (base.synopsis && String(base.sourceBrief||"").trim()===brief) ? base.synopsis : undefined,
+    // the research reservoir follows the same rule: it belongs to the brief it was gathered for
+    research: (base.research && String(base.sourceBrief||"").trim()===brief) ? base.research : undefined,
     // the saved brief is the one THIS build ran from (a typed-brief run used to keep the
     // previous story's, which the synopsis fallback would then read)
     ...(String(base.sourceBrief||"").trim()===brief ? {} : { sourceBrief:brief, sourceBriefAt:new Date().toISOString() }),
