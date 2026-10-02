@@ -7745,6 +7745,8 @@ span.ag-runner-model{font-family:var(--f-mono);font-size:10px;letter-spacing:.06
   border-radius:var(--r-m);background:transparent;color:var(--txt-2);cursor:pointer}
 .plan-edit-featadd:hover{color:var(--txt-0);border-color:var(--txt-3)}
 .plan-edit-bar{grid-column:1/-1;display:flex;justify-content:flex-end;gap:10px;margin-top:6px}
+/* its buttons size to their label: .plan-cta has no side padding (it fills a card), so here it needs its own (2026-10-02) */
+.plan-edit-bar .plan-cta{flex:0 0 auto;padding:0 18px;white-space:nowrap}
 
 /* ---- Post-checkout welcome card (/?welcome=1) ------------------------------- */
 .welcome-card{width:min(430px,calc(100vw - 40px));background:var(--bg-1);border:1px solid var(--line-2);

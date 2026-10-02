@@ -961,7 +961,7 @@ await test("H1 TURN.html: admin-tax.jsx loads after admin-storage.jsx; the files
   for (const f of ["app/ai.jsx", "app/script.jsx", "app/landing.jsx"]) assert.ok(html.includes('src="' + f + '?v=20261002-tip1"'), f);
   assert.ok(html.includes('src="app/plans.jsx?v=20261002-terms1"'), "plans.jsx re-keyed again when the switch day set TERMS_UPDATED_AT");
   assert.ok(html.includes('src="app/auth-ui.jsx?v=20261002-consent1"'), "auth-ui.jsx is unchanged");
-  assert.ok(html.includes('href="app/styles.css?v=20261002-tip1"'));
+  assert.ok(html.includes('href="app/styles.css?v=20261002-btn1"'), "styles.css re-keyed again for the plan-copy editor's buttons (2026-10-02)");
 });
 await test("H2 CSS: the ⓘ's rules (the Plans window on the app tokens; the homepage's paper and dark featured card in the landing block), the sign-up window's line; the under-button rules and the dialog's are gone; the info banner and the tax page keep theirs", () => {
   const css = read("app/styles.css");
