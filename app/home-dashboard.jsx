@@ -73,7 +73,7 @@
   function HomeDashboard(props){
     const { projects, currentId, room,
             onOpen, onCreate, onGeneratePoster, onRegenPoster, onRestorePoster,
-            onGoRoom, onClose, accountSlot, noticesSlot } = props;
+            onGoRoom, onClose, accountSlot, noticesSlot, notifySlot } = props;
 
     // real films only (shows are containers), newest-updated first (list already sorted)
     const films = (projects||[]).filter(p=>!(window.turnSeries&&typeof window.turnSeries.isShowDoc==="function"
@@ -174,6 +174,7 @@
             (typeof BrandMark!=="undefined") && h(BrandMark,null),
             h("span",{className:"hd-brand-name"},"Kinolot"))),
         h("div",{className:"hd-top-actions"},
+          notifySlot || null,
           h("button",{className:"hd-tbtn hd-accent", onClick:onCreate}, Ic("plus",15), "New Project"),
           accountSlot ? h("div",{className:"hd-acct"}, accountSlot) : null)));
 

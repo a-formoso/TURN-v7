@@ -970,9 +970,11 @@ function App(){
   const _sharedFilmId = _projRow && _projRow.isShared ? currentProjectId : null;
   React.useEffect(()=>{
     let live = true;
-    setFilmOwnerTier(null); window.turnFilmOwnerTier = null;
+    // the writing default ("Auto") and every free-tier lock follow the owner's plan on a shared film
+    const noteTier = ()=>{ if(typeof window.turnNoteWritingDefault==="function"){ try{ window.turnNoteWritingDefault(); }catch(e){} } };
+    setFilmOwnerTier(null); window.turnFilmOwnerTier = null; noteTier();
     if(!_sharedFilmId || typeof window.cloudFilmOwnerTier!=="function") return;
-    window.cloudFilmOwnerTier(_sharedFilmId).then(t=>{ if(!live) return; setFilmOwnerTier(t); window.turnFilmOwnerTier = t || null; });
+    window.cloudFilmOwnerTier(_sharedFilmId).then(t=>{ if(!live) return; setFilmOwnerTier(t); window.turnFilmOwnerTier = t || null; noteTier(); });
     return ()=>{ live = false; };
   },[_sharedFilmId]);
   const ownerPlanLapsed = !!_sharedFilmId && filmOwnerTier==="none";
@@ -1162,6 +1164,11 @@ function App(){
   // ADMIN — demo upkeep account. The Matrix sample story (and "Reset to sample story")
   // is admin-only: every other user (and signed-out local mode) never sees Matrix data.
   const isAdmin = (((typeof cloudUserEmail==="function" && cloudUserEmail(session))||"").toLowerCase()==="admin@infinitestudioai.com");
+  /* THE OWNER'S BELL (team.jsx TeamNotifications): who joined your films; a click opens the film */
+  const teamNotifySlot = (variant)=> (cloudMode && session && (teamSharing || isAdmin) && window.TeamNotifications)
+    ? React.createElement(window.TeamNotifications,{ key:"notify-"+variant, variant, enabled:true,
+        onOpenFilm: async (id)=>{ setHomeOpen(false); if(id!==currentProjectId) await switchProject(id); } })
+    : null;
   /* TEAM'S SWITCH (turn_app_config "team_sharing", owner 2026-10-03): read at boot and when the
      tab comes back to the front; off → the Team button shows "Soon" (team.jsx) */
   const [teamSharing, setTeamSharing] = React.useState(!!window.turnTeamSharing);
@@ -7073,7 +7080,8 @@ function App(){
           accountSlot: React.createElement(AccountChip,{ session, cloudActive:cloudMode, connectionState:cloudConnectionState, saveState, shareRole,roleUnavailable:unknownSharedRole,
             onSignIn:()=>setAuthOpen(true), onSignOut:signOut }),
           // the billing banners, on Home too (Home is a fixed overlay above the studio's own copy)
-          noticesSlot: (session && !isAdmin && creditBalance && window.BillingNotices) ? React.createElement(window.BillingNotices,{ balance:creditBalance }) : null }),
+          noticesSlot: (session && !isAdmin && creditBalance && window.BillingNotices) ? React.createElement(window.BillingNotices,{ balance:creditBalance }) : null,
+          notifySlot: teamNotifySlot("home") }),
     t.grain && React.createElement("div",{style:{position:"fixed",inset:0,pointerEvents:"none",zIndex:50,
       opacity:.025,mixBlendMode:"overlay",
       backgroundImage:"url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")"}}),
@@ -7187,6 +7195,7 @@ function App(){
         onNewStory:()=>{ setRoom("writers"); setView("spine"); startNewStory(); },
         onNewEpisode:createEpisode, onMakeShow:makeShow, onDeleteShow:deleteShow, seriesBusy,
         canMakeShow: !currentShowId && scenes.length>0 && !(((projects||[]).find(p=>p.id===currentProjectId)||{}).isShared) }) : null,
+      notifySlot: teamNotifySlot("studio"),
       presenceSlot: (cloudMode && window.PresenceDots)
         ? React.createElement(window.PresenceDots,{ people:presence }) : null,
       teamSlot: cloudMode && window.TeamButton ? React.createElement(window.TeamButton,{

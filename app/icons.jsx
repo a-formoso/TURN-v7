@@ -68,6 +68,9 @@ const Icon = {
   layers:(p)=>I({...p,d:"M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5M3 17l9 5 9-5"}),
   bolt:(p)=>I({...p,fill:true,d:"M13 2L4 14h6l-1 8 9-12h-6l1-8z"}),
   send:(p)=>I({...p,d:"M4 12l16-7-7 16-2-7-7-2z"}),
+  bell:(p)=>I({...p,children:[
+    React.createElement("path",{key:1,d:"M6 9a6 6 0 0 1 12 0c0 6 2.5 7.5 2.5 7.5h-17S6 15 6 9z"}),
+    React.createElement("path",{key:2,d:"M10 20a2 2 0 0 0 4 0"})]}),
   mail:(p)=>I({...p,children:[
     React.createElement("rect",{key:1,x:3,y:5,width:18,height:14,rx:2}),
     React.createElement("path",{key:2,d:"M3 7l9 6 9-6"})]}),

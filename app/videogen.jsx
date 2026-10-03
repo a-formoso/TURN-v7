@@ -708,7 +708,7 @@ async function vidProxy(op, payload){
   let data, error;
   for(let a=0;; a++){
     data=undefined; error=undefined;
-    try{ ({ data, error } = await sb.functions.invoke(fnName, { body:{ task:"video", op, ...(payload||{}),
+    try{ ({ data, error } = await sb.functions.invoke(fnName, { body:{ ...(typeof window.turnFilmContext==="function" && window.turnFilmContext() ? { context:window.turnFilmContext() } : {}), task:"video", op, ...(payload||{}),
       userApiKeys: window.turnApiKeysForProxy ? window.turnApiKeysForProxy(["fal"]) : undefined } })); }
     catch(e){ error=e; }
     const netFail = !!error && !((error&&error.context&&error.context.status)||error.status||0);

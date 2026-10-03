@@ -488,11 +488,21 @@ window.turnLegacyCardCreditLine = legacyCardCreditLine;
 const IMG_RES_RANK = { "1K":0, "2K":1, "4K":2 };
 function draftImagesOnly(balance){
   if(window.turnIsAdmin) return false;
+  // on someone else's film the OWNER's plan decides what can run (Team, 2026-10-03: a collaborator
+  // needs no plan of their own; app.jsx sets turnFilmOwnerTier, the server applies the same rule)
+  if(balance===undefined && (window.turnFilmOwnerTier==="director" || window.turnFilmOwnerTier==="studio")) return false;
   const b = balance!==undefined ? balance : window.turnCreditBalance;
   if(!b) return false;
   return !_isPaidTier(b.plan);
 }
 window.turnDraftImagesOnly = draftImagesOnly;
+/* WHICH FILM a paid call is for — every writing, image, voice and video request names the open
+   film, so on a shared film the server bills its owner (image-proxy/film-payer.mjs). The server
+   verifies it; on your own film it changes nothing. */
+window.turnFilmContext = function(){
+  const pid = window.__turnCurrentProjectId;
+  return pid ? { projectId:String(pid) } : null;
+};
 /* the same test under a general name, for any surface that offers something a free-tier
    account can't use (voice, video, 3D, premium writing engines): true = hide or lock it */
 window.turnOnFreeTier = draftImagesOnly;

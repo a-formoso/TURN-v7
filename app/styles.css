@@ -8248,6 +8248,22 @@ html[data-theme="dark"] .hd-card-new-art{ box-shadow:none; }
 .team-cap{font:500 10.5px var(--f-mono);letter-spacing:.03em;color:var(--txt-3);padding:0 2px}
 .team-member-budget{font-size:11px;color:var(--txt-2);margin-top:2px}
 .team-seat.expired .team-member-role{color:var(--alert)}
+/* the owner's bell (team.jsx TeamNotifications) */
+.notify-wrap{position:relative;display:inline-flex}
+.notify-btn{position:relative}
+.notify-badge{position:absolute;top:2px;right:2px;min-width:15px;height:15px;padding:0 4px;border-radius:8px;background:var(--brand,#d67e00);
+  color:#fff;font:700 9.5px/15px var(--f-ui);text-align:center}
+.notify-pop{position:absolute;top:calc(100% + 8px);right:0;z-index:80;width:min(340px,86vw);max-height:420px;overflow:auto;
+  background:var(--bg-2);border:1px solid var(--line-2);border-radius:var(--r-l);box-shadow:0 14px 40px rgba(0,0,0,.18);padding:6px}
+.notify-h{font:500 10.5px var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--txt-3);padding:8px 10px 6px}
+.notify-item{display:flex;gap:10px;width:100%;text-align:left;border:0;background:transparent;border-radius:var(--r-m);padding:9px 10px;cursor:pointer;color:var(--txt-1)}
+.notify-item:hover{background:var(--bg-3)}
+.notify-item.new{background:color-mix(in srgb,var(--brand,#d67e00) 9%,transparent)}
+.notify-ic{width:26px;height:26px;flex:0 0 26px;border-radius:50%;display:grid;place-items:center;background:var(--bg-4);color:var(--txt-2)}
+.notify-t{display:flex;flex-direction:column;gap:2px;min-width:0}
+.notify-line{font-size:12.5px;line-height:1.4;overflow-wrap:anywhere}
+.notify-when{font-size:11px;color:var(--txt-3)}
+.notify-empty{font-size:12px;color:var(--txt-2);padding:10px 10px 12px;line-height:1.45}
 .team-funds{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px;color:var(--txt-2);padding:0 2px}
 .team-budget{width:158px;height:30px;border:1px solid var(--line-2);border-radius:var(--r-m);background:var(--bg-2);
   color:var(--txt-0);font:500 11.5px var(--f-ui);padding:0 8px}

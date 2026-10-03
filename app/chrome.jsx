@@ -624,7 +624,7 @@ function turnWatchTopbarLayer(bar){
 }
 window.turnWatchTopbarLayer = turnWatchTopbarLayer;
 
-function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, onAgents, onViewBible, onManageStyles, onRebuildFromBrief, hasFilmStyle, theme, onTheme, authSlot, projectSlot, teamSlot, presenceSlot, roomEntitlements, onHome, artView, setArtView, artTabLocks, hiddenArtTabs }){
+function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, onAgents, onViewBible, onManageStyles, onRebuildFromBrief, hasFilmStyle, theme, onTheme, authSlot, projectSlot, teamSlot, presenceSlot, notifySlot, roomEntitlements, onHome, artView, setArtView, artTabLocks, hiddenArtTabs }){
   const [bibleOpen, setBibleOpen] = React.useState(false);
   const [briefOpen, setBriefOpen] = React.useState(false);
   const [stylesOpen, setStylesOpen] = React.useState(false);
@@ -658,6 +658,7 @@ function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, o
     React.createElement("div",{className:"tb-right"},
       React.createElement(ThemeToggle,{theme,onTheme}),
       presenceSlot || null,      // who else has this film open right now
+      notifySlot || null,        // the owner's bell: who joined your films (team.jsx TeamNotifications)
       teamSlot || null,
       // Writers' Room: review the logline + synopsis the story was built from
       storyBriefShown(room, project) && React.createElement("button",{className:"tb-btn",onClick:()=>setBriefOpen(true),

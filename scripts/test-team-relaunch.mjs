@@ -332,6 +332,56 @@ await test("E4 the new Team window styles exist", ()=>{
   for(const c of [".team-cap{", ".team-funds{", ".team-member-budget{", ".team-budget{", ".team-again,.team-leave{", ".team-mine{", ".team-plans{"]) assert.ok(css.includes(c), c);
 });
 
+await test("E5 the owner's bell: unseen joins badged, the list says who joined what as which role, opening marks them seen, a click opens the film", ()=>{
+  R.reset(); R.runEffects = false;
+  const TN = cb.TeamNotifications;
+  const items = [{ id:"m1", projectId:"p1", title:"Glass Hours", email:"lanz@example.com", role:"art_director", at:new Date(Date.now()-2*3600000).toISOString(), seen:false },
+    { id:"m2", projectId:"p2", title:"Neon Harbor", email:"cara@example.com", role:"writer", at:new Date(Date.now()-3*86400000).toISOString(), seen:true }];
+  assert.equal(TN({ enabled:false }), null, "off: nothing");
+  R.reset({ 0:items, 1:false });
+  let tree = TN({ enabled:true, onOpenFilm:noop });
+  const btn = findAll(tree, hasClass("notify-btn"))[0];
+  assert.equal(btn.props["aria-label"], "Notifications, 1 new"); assert.equal(textOf(findAll(btn, hasClass("notify-badge"))[0]), "1");
+  let seenCalls = 0; cb.cloudTeamNotificationsSeen = ()=>{ seenCalls++; return Promise.resolve(true); };
+  R.sets.length = 0; btn.props.onClick();
+  assert.equal(seenCalls, 1, "opening marks them seen on the server"); assert.deepEqual(J(R.sets[0]), { i:1, x:true });
+  let opened = null;
+  R.reset({ 0:items.map(n=>({ ...n, seen:true, wasNew:n.id==="m1" })), 1:true });
+  tree = TN({ enabled:true, onOpenFilm:(id)=>{ opened = id; } });
+  const rows = findAll(tree, hasClass("notify-item"));
+  assert.equal(textOf(rows[0]), "lanz@example.com joined “Glass Hours” as Art director.2 hours ago"); assert.ok(hasClass("new")(rows[0]));
+  assert.match(textOf(rows[1]), /cara@example.com joined “Neon Harbor” as Co-writer\.3 days ago/);
+  assert.equal(findAll(tree, hasClass("notify-badge")).length, 0, "no badge once seen");
+  rows[0].props.onClick(); assert.equal(opened, "p1");
+  R.reset({ 0:[], 1:true });
+  assert.match(textOf(TN({ enabled:true })), /When someone accepts an invite to one of your films, you'll see it here\./);
+  assert.ok(appSrc.includes('notifySlot: teamNotifySlot("studio"),') && appSrc.includes('notifySlot: teamNotifySlot("home") }),'), "studio and Home");
+  assert.ok(chromeSrc.includes("notifySlot || null,") && read("app/home-dashboard.jsx").includes("notifySlot || null,"));
+  R.reset();
+});
+await test("E6 every paid call names the open film (the server bills its owner on a shared film); the free-tier locks follow the owner's plan", ()=>{
+  const ctx = 'typeof window.turnFilmContext==="function" && window.turnFilmContext() ? { context:window.turnFilmContext() } : {}';
+  assert.ok(aiSrc.includes('{ body:{ ...('+ctx+'), task:"text", usageKind:"writing"'), "writing");
+  assert.ok(aiSrc.includes('{ body:{ ...('+ctx+'), task:"text", usageKind:"vision"'), "vision");
+  assert.ok(!aiSrc.includes('...('+ctx+'), task:"text", usageKind:"muse"'), "Frances stays the caller's own");
+  assert.ok(read("app/videogen.jsx").includes('{ body:{ ...('+ctx+'), task:"video", op'), "video");
+  assert.ok(read("app/voicegen.jsx").includes('{ body:{ ...('+ctx+'), task:"voice", op'), "voice");
+  assert.ok(read("app/imagegen.jsx").includes("const _pid = opts.projectId || window.__turnCurrentProjectId;"), "images already did");
+  const pb = { console, window:null, React, Icon:iconProxy, addEventListener:noop, dispatchEvent:()=>true, CustomEvent:class {},
+    localStorage:{ getItem:()=>null, setItem:noop }, document:{ addEventListener:noop } };
+  pb.window = pb; vm.createContext(pb); vm.runInContext(transform(plansSrc, "plans.jsx"), pb);
+  pb.turnCreditBalance = { plan:"none", remaining:0 };
+  assert.equal(pb.turnOnFreeTier(), true, "a no-plan account on its own film");
+  pb.turnFilmOwnerTier = "director";
+  assert.equal(pb.turnOnFreeTier(), false, "on a Director owner's film: every writing engine, images beyond drafts");
+  assert.equal(pb.turnTextModelAllowed("claude-fable-5"), true);
+  pb.turnFilmOwnerTier = "none";
+  assert.equal(pb.turnOnFreeTier(), true, "a lapsed owner gives nothing extra");
+  pb.__turnCurrentProjectId = "f1"; assert.deepEqual(J(pb.turnFilmContext()), { projectId:"f1" });
+  pb.__turnCurrentProjectId = null; assert.equal(pb.turnFilmContext(), null);
+  assert.ok(appSrc.includes("noteTier();"), "Auto re-picks its engine when the owner's tier is known");
+});
+
 /* ═══ F. Frances ═════════════════════════════════════════════════════════ */
 await test("F1 APP_FEATURES: Team is live — four roles, rooms by the owner's plan, the caps, Leave film; nothing says it's coming soon", ()=>{
   const fb = { console, window:null }; fb.window = fb; vm.createContext(fb);
@@ -340,7 +390,7 @@ await test("F1 APP_FEATURES: Team is live — four roles, rooms by the owner's p
   const team = (aiSrc.match(/APP_FEATURES\.push\(\{ name:"Team collaboration", what:"([^\n]*)" \}\);/) || [])[1] || "";
   assert.ok(team.startsWith("TEAM SHARING: the owner of a film (or a Show) invites people by email"), team.slice(0, 80));
   for(const s of ["exactly FOUR", "Stage editor (Producer films only)", "up to 5 people on a film on Director and up to 10 on Producer", "at most 3 Co-writers",
-    "expires after 14 days", "ROOMS FOLLOW THE OWNER'S PLAN", "does NOT need a plan of their own", "Leave film", "'Not on this film's plan'"])
+    "expires after 14 days", "ROOMS FOLLOW THE OWNER'S PLAN", "KNOWING WHO JOINED: a bell in the top bar", "does NOT need a plan of their own", "Leave film", "'Not on this film's plan'"])
     assert.ok(team.includes(s), s);
   assert.ok(!/coming soon/i.test(team.slice(0, team.indexOf("IF SHARING IS SWITCHED OFF"))), "only the switched-off case mentions Soon");
   assert.ok(!aiSrc.includes("Sharing a film is part of Team sharing, which is coming soon"));
@@ -359,6 +409,10 @@ await test("G1 docs record the relaunch; the paused test is gone; TURN.html keys
   for(const f of ["team.jsx", "cloud.jsx", "app.jsx", "chrome.jsx", "plans.jsx", "landing.jsx", "ai.jsx", "auth-ui.jsx", "styles.css", "script.jsx"]){
     const m = new RegExp("app/" + f.replace(".", "\\.") + "\\?v=([0-9a-z-]+)").exec(html);
     assert.ok(m && m[1] >= "20261003-team2", f + " " + (m && m[1]));
+  }
+  for(const f of ["home-dashboard.jsx", "icons.jsx", "videogen.jsx", "voicegen.jsx"]){
+    const m = new RegExp("app/" + f.replace(".", "\\.") + "\\?v=([0-9a-z-]+)").exec(html);
+    assert.ok(m && m[1] >= "20261003-team4", f + " " + (m && m[1]));
   }
 });
 

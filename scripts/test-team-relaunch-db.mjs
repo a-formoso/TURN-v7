@@ -243,6 +243,18 @@ await q("update public.turn_app_config set value = '{\"on\": false}' where key =
 ok("H15 switch off: a collaborator is billed as before", (await payer(U.cara, F.dora1, "text")).code === "off");
 await q("update public.turn_app_config set value = '{\"on\": true}' where key = 'team_sharing'");
 
+/* ── N. the owner's notifications ────────────────────────────────────────── */
+r = await as(U.dora, "select * from public.turn_team_notifications()");
+const caraNote = r.rows?.find((x) => x.member_email === "cara@example.com");
+ok("N1 the owner sees who joined which film, with the role, unseen", r.ok && caraNote && caraNote.title === "Dora One" && caraNote.role === "writer" && caraNote.seen === false && caraNote.joined_at, r.rows);
+ok("N2 only joins: an unanswered invite isn't one", !r.rows.some((x) => x.member_email === "uma@example.com"));
+r = await as(U.cara, "select * from public.turn_team_notifications()");
+ok("N3 a collaborator sees nobody's joins on films they don't own", r.ok && r.rows.length === 0, r.rows);
+r = await as(U.dora, "select public.turn_team_notifications_seen() n");
+ok("N4 opening the bell marks them seen", r.ok && r.row.n >= 1 && (await as(U.dora, "select bool_and(seen) s from public.turn_team_notifications()")).row.s === true, r);
+r = await as(U.dora, "update public.turn_project_members set joined_at = now() - interval '99 days', owner_seen_at = null where id = $1 returning joined_at, owner_seen_at", [caraRow]);
+ok("N5 the browser can't rewrite the join time or the seen mark", r.ok && Date.now() - new Date(r.row.joined_at) < 86400000 && r.row.owner_seen_at !== null, r.row || r.error);
+
 /* ── P. privileges ───────────────────────────────────────────────────────── */
 r = await as(U.cara, "select public.turn_film_payer($1,$2,'text')", [U.cara.id, F.dora1]);
 ok("P1 a signed-in user can't call the payer check", !r.ok, r);

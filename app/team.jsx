@@ -544,6 +544,83 @@ function PresenceDots({ people }){
 }
 window.PresenceDots = PresenceDots;
 
+/* THE OWNER'S BELL (owner 2026-10-03: "show project owner when invited user has accepted
+   invitation … add the notification bell icon at the top"). In the studio's top bar and on Home:
+   a badge counts joins the owner hasn't seen; the list says who joined which film as what, and
+   when; a click opens that film. Opening the list marks everything seen (on the server, so every
+   device agrees). A join that lands while the app is open also gets a one-line notice. */
+function teamAgo(at, now){
+  const s = Math.max(0, Math.round(((now||Date.now()) - Date.parse(at||0))/1000));
+  if(s < 60) return "just now";
+  const m = Math.round(s/60); if(m < 60) return m+" min ago";
+  const h = Math.round(m/60); if(h < 24) return h+" hour"+(h===1?"":"s")+" ago";
+  const d = Math.round(h/24); return d+" day"+(d===1?"":"s")+" ago";
+}
+function TeamNotifications({ enabled, onOpenFilm, variant }){
+  const [items, setItems] = React.useState([]);
+  const [open, setOpen] = React.useState(false);
+  const known = React.useRef(null);
+  const ref = React.useRef(null);
+  const load = React.useCallback(async ()=>{
+    if(!enabled || typeof window.cloudTeamNotifications!=="function") return;
+    const list = await window.cloudTeamNotifications();
+    // a join that arrived while the app is open: say it once
+    if(known.current){
+      const fresh = list.filter(n=>!n.seen && !known.current.has(n.id));
+      if(fresh.length && typeof window.appToast==="function")
+        window.appToast(fresh.length===1
+          ? fresh[0].email+" joined \u201c"+(fresh[0].title||"your film")+"\u201d as "+teamRoleLabel(fresh[0].role)+"."
+          : fresh.length+" people joined your films.", "success");
+    }
+    known.current = new Set(list.map(n=>n.id));
+    setItems(list);
+  },[enabled]);
+  React.useEffect(()=>{
+    if(!enabled) return;
+    load();
+    const tick = setInterval(()=>{ try{ if(document.visibilityState!=="hidden") load(); }catch(e){} }, 120000);
+    const onFocus = ()=>load();
+    window.addEventListener("focus", onFocus);
+    return ()=>{ clearInterval(tick); window.removeEventListener("focus", onFocus); };
+  },[enabled, load]);
+  React.useEffect(()=>{
+    if(!open) return;
+    const h = (e)=>{ if(ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const k = (e)=>{ if(e.key==="Escape") setOpen(false); };
+    document.addEventListener("mousedown", h); document.addEventListener("keydown", k);
+    return ()=>{ document.removeEventListener("mousedown", h); document.removeEventListener("keydown", k); };
+  },[open]);
+  if(!enabled) return null;
+  const unseen = items.filter(n=>!n.seen).length;
+  const toggle = ()=>{
+    const next = !open; setOpen(next);
+    if(next && unseen && typeof window.cloudTeamNotificationsSeen==="function"){
+      window.cloudTeamNotificationsSeen();
+      setItems(list=>list.map(n=>({ ...n, seen:true, wasNew:!n.seen })));
+    }
+  };
+  const now = Date.now();
+  return React.createElement("div",{className:"notify-wrap",ref},
+    React.createElement("button",{type:"button",className:(variant==="home"?"hd-tbtn":"tb-btn")+" notify-btn"+(unseen?" has-new":""),
+      onClick:toggle,"aria-haspopup":"dialog","aria-expanded":open?"true":"false",
+      "aria-label":"Notifications"+(unseen?", "+unseen+" new":""),title:"Notifications"},
+      React.createElement(Icon.bell,{s:15}),
+      unseen>0 && React.createElement("span",{className:"notify-badge","aria-hidden":"true"}, unseen>9?"9+":String(unseen))),
+    open && React.createElement("div",{className:"notify-pop",role:"dialog","aria-label":"Notifications"},
+      React.createElement("div",{className:"notify-h"},"Notifications"),
+      items.length
+        ? items.map(n=>React.createElement("button",{key:n.id,type:"button",className:"notify-item"+(n.wasNew||!n.seen?" new":""),
+            onClick:()=>{ setOpen(false); if(onOpenFilm && n.projectId) onOpenFilm(n.projectId); }},
+            React.createElement("span",{className:"notify-ic"},React.createElement(Icon.user,{s:13})),
+            React.createElement("span",{className:"notify-t"},
+              React.createElement("span",{className:"notify-line"},
+                React.createElement("b",null,n.email)," joined \u201c"+(n.title||"Untitled film")+"\u201d as "+teamRoleLabel(n.role)+"."),
+              React.createElement("span",{className:"notify-when"},teamAgo(n.at, now)))))
+        : React.createElement("div",{className:"notify-empty"},"When someone accepts an invite to one of your films, you'll see it here.")));
+}
+window.TeamNotifications = TeamNotifications;
+window.teamAgo = teamAgo;
+
 window.TEAM_ROLES = TEAM_ROLES;
 window.teamRoleLabel = teamRoleLabel;
 window.teamRoleBlurb = teamRoleBlurb;

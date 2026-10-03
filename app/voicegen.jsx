@@ -250,7 +250,7 @@ async function vgProxy(op, payload, opts){
   const fnName = (window.TURN_SUPABASE && window.TURN_SUPABASE.imageProxyFn) || "image-proxy";
   let data, error;
   vgAssertIdentity(payload, "voice-provider-submit");
-  try{ ({ data, error } = await sb.functions.invoke(fnName, { body:{ task:"voice", op, ...(payload||{}),
+  try{ ({ data, error } = await sb.functions.invoke(fnName, { body:{ ...(typeof window.turnFilmContext==="function" && window.turnFilmContext() ? { context:window.turnFilmContext() } : {}), task:"voice", op, ...(payload||{}),
     userApiKeys: window.turnApiKeysForProxy ? window.turnApiKeysForProxy(["elevenlabs"]) : undefined } })); }
   catch(e){ error=e; }
   if(error){

@@ -716,6 +716,22 @@ async function cloudFilmOwnerTier(projectId){
     return ["studio","director","none"].includes(t) ? t : "";
   }catch(e){ return ""; }
 }
+/* the owner's notifications: who joined which of your films (last 30 days; the top bar's bell) */
+async function cloudTeamNotifications(){
+  const sb = sbClient(); if(!sb) return [];
+  try{
+    const { data, error } = await sb.rpc("turn_team_notifications");
+    if(error) return [];
+    return (Array.isArray(data) ? data : []).map(r=>({ id:r.member_id, projectId:r.project_id, title:r.title||"", email:r.member_email||"",
+      role:r.role||"", at:r.joined_at, seen:r.seen===true }));
+  }catch(e){ return []; }
+}
+async function cloudTeamNotificationsSeen(){
+  const sb = sbClient(); if(!sb) return false;
+  try{ const { error } = await sb.rpc("turn_team_notifications_seen"); return !error; }catch(e){ return false; }
+}
+window.cloudTeamNotifications = cloudTeamNotifications;
+window.cloudTeamNotificationsSeen = cloudTeamNotificationsSeen;
 window.cloudLoadTeamSharing = cloudLoadTeamSharing;
 window.cloudRenewInvite = cloudRenewInvite;
 window.cloudSetMemberBudget = cloudSetMemberBudget;

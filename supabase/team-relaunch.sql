@@ -73,6 +73,11 @@ alter table public.turn_project_members add column if not exists invited_at     
 alter table public.turn_project_members add column if not exists expires_at     timestamptz;
 alter table public.turn_project_members add column if not exists budget_credits integer;
 alter table public.turn_project_members add column if not exists email_sent_at  timestamptz;   -- invite-collaborator
+-- the owner's notifications (2026-10-03): when the invitee joined, and when the owner saw it
+alter table public.turn_project_members add column if not exists joined_at      timestamptz;
+alter table public.turn_project_members add column if not exists owner_seen_at  timestamptz;
+-- rows linked before joined_at existed: their link time is their last change
+update public.turn_project_members set joined_at = updated_at where member_user is not null and joined_at is null;
 update public.turn_project_members set invited_at = created_at where invited_at is null;
 alter table public.turn_project_members alter column invited_at set default now();
 
@@ -372,7 +377,7 @@ begin
   return query
   with claimed as (
     update public.turn_project_members m
-       set member_user = auth.uid(), expires_at = null
+       set member_user = auth.uid(), expires_at = null, joined_at = now(), owner_seen_at = null
      where m.member_user is null
        and m.status = 'active'
        and (m.expires_at is null or m.expires_at > now())
@@ -436,6 +441,8 @@ begin
     new.invited_at   := old.invited_at;
     new.expires_at   := old.expires_at;
     new.email_sent_at := old.email_sent_at;
+    new.joined_at     := old.joined_at;
+    new.owner_seen_at := old.owner_seen_at;
     -- a removal, or a budget change, needs no plan: the owner can always tidy up
     if new.status = 'removed'
        or (new.role = old.role and new.status = old.status) then
@@ -725,6 +732,46 @@ as $$
           or m.member_user = auth.uid());
 $$;
 
+-- ── 7b. the owner's notifications: who joined which of your films ──────────
+-- The last 30 days of joins on films you own, newest first (the bell in the top bar).
+create or replace function public.turn_team_notifications()
+returns table(member_id uuid, project_id uuid, title text, member_email text, role text, joined_at timestamptz, seen boolean)
+language sql
+security definer
+set search_path = public, pg_temp
+stable
+as $$
+  select m.id, m.project_id, p.title, m.member_email, m.role, m.joined_at, m.owner_seen_at is not null
+    from public.turn_project_members m
+    join public.turn_projects p on p.id = m.project_id
+   where p.owner = auth.uid()
+     and m.member_user is not null
+     and m.joined_at is not null
+     and m.joined_at > now() - interval '30 days'
+   order by m.joined_at desc
+   limit 30;
+$$;
+-- The owner opened the bell: everything listed is seen.
+create or replace function public.turn_team_notifications_seen()
+returns integer
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare n integer;
+begin
+  if auth.uid() is null then return 0; end if;
+  perform set_config('turn.team_trusted', 'on', true);
+  update public.turn_project_members m set owner_seen_at = now()
+    from public.turn_projects p
+   where p.id = m.project_id and p.owner = auth.uid()
+     and m.joined_at is not null and m.owner_seen_at is null;
+  get diagnostics n = row_count;
+  perform set_config('turn.team_trusted', 'off', true);
+  return n;
+end;
+$$;
+
 -- ── 8. privileges ───────────────────────────────────────────────────────────
 revoke all on function public.turn_effective_project_roles_for(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.turn_effective_project_roles(uuid) from public, anon, authenticated;
@@ -750,6 +797,10 @@ revoke all on function public.turn_renew_invite(uuid) from public, anon;
 grant execute on function public.turn_renew_invite(uuid) to authenticated;
 revoke all on function public.turn_leave_film(uuid) from public, anon;
 grant execute on function public.turn_leave_film(uuid) to authenticated;
+revoke all on function public.turn_team_notifications() from public, anon;
+grant execute on function public.turn_team_notifications() to authenticated;
+revoke all on function public.turn_team_notifications_seen() from public, anon;
+grant execute on function public.turn_team_notifications_seen() to authenticated;
 revoke all on function public.turn_team_spend(uuid) from public, anon;
 grant execute on function public.turn_team_spend(uuid) to authenticated;
 
