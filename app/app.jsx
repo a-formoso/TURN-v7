@@ -6847,10 +6847,29 @@ function App(){
   const authGate = (typeof cloudConfigured==="function" && cloudConfigured());
   // While the initial session check is in flight, show a minimal splash — never flash the
   // landing at a user who turns out to be signed in.
+  /* (hooks: above every early return below) the opening screen's quiet way out (owner 2026-10-03: no Retry button or connection chip on it):
+     only when opening takes longer than 20 s does "Try again · Sign out" appear */
+  const splashOpen = !!(authGate && session && !currentProjectId);
+  const [splashSlow, setSplashSlow] = React.useState(false);
+  React.useEffect(()=>{
+    if(!splashOpen){ setSplashSlow(false); return; }
+    const t = setTimeout(()=>setSplashSlow(true), 20000);
+    return ()=>clearTimeout(t);
+  },[splashOpen]);
+  // the opening spine (owner 2026-10-03): a value wave drawing itself in the hero's two charge
+  // colours (amber rising, teal falling) — on both opening screens
+  const splashSpine = ()=> React.createElement("svg",{className:"lp-splash-spine",viewBox:"0 0 120 28",width:120,height:28,"aria-hidden":"true"},
+    React.createElement("defs",null,
+      React.createElement("linearGradient",{id:"lpSplashG",x1:"0",y1:"0",x2:"1",y2:"0"},
+        React.createElement("stop",{offset:"0",stopColor:"#F29A43"}),
+        React.createElement("stop",{offset:"0.5",stopColor:"#5DB0D8"}),
+        React.createElement("stop",{offset:"1",stopColor:"#F29A43"}))),
+    React.createElement("path",{className:"lp-splash-track",d:"M2 14 C14 2 26 2 38 14 S62 26 74 14 S98 2 118 14"}),
+    React.createElement("path",{className:"lp-splash-wave",d:"M2 14 C14 2 26 2 38 14 S62 26 74 14 S98 2 118 14",stroke:"url(#lpSplashG)"}));
   if(authGate && !authReady){
-    return React.createElement("div",{className:"lp-splash"},
+    return React.createElement("div",{className:"lp-splash",role:"status","aria-live":"polite"},
       React.createElement("span",{className:"lp-logo"},(typeof BrandMark==="function") && React.createElement(BrandMark,null),"Kinolot"),
-      React.createElement("span",{className:"lp-splash-dot"}));
+      splashSpine());
   }
   if(authGate && !session && typeof Landing!=="undefined"){
     return React.createElement(React.Fragment,null,
@@ -6868,18 +6887,21 @@ function App(){
   // project lands; the in-memory/local safety copy remains untouched.
   if(authGate && session && !currentProjectId){
     const reconnecting=cloudConnectionState==="retrying";
-    return React.createElement("div",{className:"lp-splash"},
+    const retry=()=>{ bootRef.current=false; bootRetryDelayRef.current=1500;
+      setCloudConnectionState("retrying"); setBootRetryTick(t=>t+1); setSplashSlow(false); };
+    // OPENING (owner 2026-10-03): the mark, a story spine drawing itself in the hero's two charge
+    // colours (amber rising, teal falling), and one line of status — nothing else unless it's slow
+    return React.createElement("div",{className:"lp-splash",role:"status","aria-live":"polite"},
       React.createElement("span",{className:"lp-logo"},(typeof BrandMark==="function") && React.createElement(BrandMark,null),"Kinolot"),
-      React.createElement("span",{className:"lp-splash-dot"}),
+      splashSpine(),
       React.createElement("div",{className:"acct-status"},reconnecting
         ? "Reconnecting to your films…"
         : "Opening your films…"),
-      React.createElement("button",{type:"button",className:"acct-signin",onClick:()=>{
-        bootRef.current=false; bootRetryDelayRef.current=1500;
-        setCloudConnectionState("retrying"); setBootRetryTick(t=>t+1);
-      }},"Retry now"),
-      React.createElement(AccountChip,{session,cloudActive:false,connectionState:cloudConnectionState,
-        saveState,shareRole:"",roleUnavailable:false,onSignOut:signOut}));
+      splashSlow && React.createElement("div",{className:"lp-splash-slow"},
+        "Taking longer than usual \u00b7 ",
+        React.createElement("button",{type:"button",className:"lp-splash-link",onClick:retry},"Try again"),
+        " \u00b7 ",
+        React.createElement("button",{type:"button",className:"lp-splash-link",onClick:signOut},"Sign out")));
   }
 
   /* New Story has two distinct launch targets while a Show episode is open:

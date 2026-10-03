@@ -5120,6 +5120,8 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
 .lp-room-card{gap:12px}
 
 .lp-room-cta{margin-top:auto}
+/* every card's button on one line (owner 2026-10-03): .lp-btn.full's margin-top:4px outranked the rule above */
+.lp-card .lp-btn.lp-room-cta{margin-top:auto}
 
 .lp-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:0}
 .lp-step{padding:6px 28px 6px;border-left:1px solid var(--lpw-line)}
@@ -5213,6 +5215,22 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
 .lp-splash .lp-logo{font-size:30px;gap:12px;opacity:.9;color:#0f1012}
 .lp-splash .lp-logo .brand-mark{width:40px;height:22px}
 .lp-splash-dot{width:8px;height:8px;border-radius:50%;background:#F29A43;animation:muse-orbpulse 1s ease-in-out infinite}   /* the mark's amber (was the landing's green) */
+/* the opening spine (2026-10-03): a value wave that draws, holds and redraws — the hero's charge colours */
+.lp-splash-spine{display:block;overflow:visible}
+.lp-splash-track{fill:none;stroke:rgba(15,16,18,.08);stroke-width:2.2;stroke-linecap:round}
+.lp-splash-wave{fill:none;stroke-width:2.6;stroke-linecap:round;stroke-dasharray:150;stroke-dashoffset:150;
+  animation:lp-splash-draw 1.8s cubic-bezier(.65,0,.35,1) infinite}
+@keyframes lp-splash-draw{0%{stroke-dashoffset:150}55%{stroke-dashoffset:0}75%{stroke-dashoffset:0;opacity:1}100%{stroke-dashoffset:-150;opacity:.2}}
+@media (prefers-reduced-motion:reduce){ .lp-splash-wave{animation:none;stroke-dashoffset:0;opacity:.85} }
+.lp-splash-slow{font-family:var(--f-ui);font-size:12.5px;color:#5D6066}
+.lp-splash-link{border:0;background:none;padding:0;font:inherit;color:#0F1012;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.lp-splash-link:focus-visible{outline:2px solid #F29A43;outline-offset:2px;border-radius:3px}
+/* Remember me (sign in) */
+.auth-remember{display:flex;align-items:center;gap:8px;margin:2px 0 4px;font-family:var(--f-ui);font-size:13px;color:var(--txt-1);cursor:pointer}
+.auth-remember input{width:15px;height:15px;margin:0;accent-color:#F29A43;cursor:pointer}
+.auth-remember-note{color:var(--txt-2);font-size:12px}
+.auth-panel.light .auth-remember{color:var(--lpw-ink)}
+.auth-panel.light .auth-remember-note{color:var(--lpw-sub)}
 
 /* Landing — pricing tiers (white hairline cards; the featured plan inverts to Carbon, the app's dark).
    Its CTA and "Most popular" tag are the in-app Plans window's: amber fill, dark ink. */

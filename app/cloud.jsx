@@ -43,10 +43,35 @@ function _cloudQuery(builder,label,kind){
   });
   return Promise.race([Promise.resolve(request),timeout]).finally(()=>{ if(timer) clearTimeout(timer); });
 }
+/* REMEMBER ME (owner request 2026-10-03). Ticked (the default): the session is kept, as before.
+   Unticked: it lasts until the browser closes — a session cookie (no expiry, shared by every tab)
+   marks it alive, and when a new browser session starts without that cookie the saved session is
+   dropped from this browser BEFORE the client reads it. Only this browser; other devices are untouched. */
+const REMEMBER_FLAG = "turn-forget-session", ALIVE_COOKIE = "turn_session_alive";
+function _sessionCookieAlive(){ try{ return document.cookie.split(/;\s*/).some(c=>c===ALIVE_COOKIE+"=1"); }catch(e){ return true; } }
+function _markSessionCookie(){
+  try{ document.cookie = ALIVE_COOKIE+"=1; path=/; SameSite=Lax"+(location.protocol==="https:" ? "; Secure" : ""); }catch(e){}
+}
+function _forgetEndedSession(){
+  try{
+    if(localStorage.getItem(REMEMBER_FLAG)==="1" && !_sessionCookieAlive()){
+      localStorage.removeItem("turn-auth");
+      localStorage.removeItem(REMEMBER_FLAG);
+    }
+  }catch(e){}
+}
+function cloudSetRememberMe(remember){
+  try{
+    if(remember){ localStorage.removeItem(REMEMBER_FLAG); }
+    else { localStorage.setItem(REMEMBER_FLAG, "1"); _markSessionCookie(); }
+  }catch(e){}
+}
+window.cloudSetRememberMe = cloudSetRememberMe;
 function sbClient(){
   if(window._sbClient) return window._sbClient;
   const cfg = window.TURN_SUPABASE;
   if(!cfg || !cfg.url || !cfg.anonKey || !window.supabase || !window.supabase.createClient) return null;
+  _forgetEndedSession();
   try{
     window._sbClient = window.supabase.createClient(cfg.url, cfg.anonKey, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: "turn-auth" },

@@ -25,6 +25,7 @@ function AuthModal({ onClose, onAuthed, initialMode, plan, light, onPlanChange }
   const [email, setEmail] = React.useState("");
   const [pw, setPw] = React.useState("");
   const [showPw, setShowPw] = React.useState(false);
+  const [remember, setRemember] = React.useState(true);   // Remember me (sign in), on by default
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState("");
   const [notice, setNotice] = React.useState("");
@@ -64,6 +65,7 @@ function AuthModal({ onClose, onAuthed, initialMode, plan, light, onPlanChange }
         setMode("signin"); setBusy(false); return;
       }
       setBusy(false);
+      if(mode==="signin" && typeof window.cloudSetRememberMe==="function") window.cloudSetRememberMe(remember);
       onAuthed && onAuthed(data && data.session);
       onClose && onClose();
     }catch(ex){ setErr((ex && ex.message) || "Network error."); setBusy(false); }
@@ -120,6 +122,10 @@ function AuthModal({ onClose, onAuthed, initialMode, plan, light, onPlanChange }
             React.createElement("button",{type:"button",className:"auth-pw-toggle",
               "aria-label":showPw?"Hide password":"Show password",title:showPw?"Hide password":"Show password",
               onClick:()=>setShowPw(s=>!s)}, React.createElement(showPw?Icon.eyeOff:Icon.eye,{s:16})))),
+        mode==="signin" && React.createElement("label",{className:"auth-remember"},
+          React.createElement("input",{type:"checkbox",checked:remember,onChange:e=>setRemember(e.target.checked)}),
+          React.createElement("span",null,"Remember me"),
+          React.createElement("span",{className:"auth-remember-note"},remember ? "" : "\u00b7 you'll be signed out when you close the browser")),
         err && React.createElement("div",{className:"auth-err"}, err),
         React.createElement("button",{className:"auth-submit",disabled:busy,onClick:submit,"aria-describedby":(showPlan && planObj) ? "auth-checkout-note" : undefined},
           busy ? React.createElement(React.Fragment,null,React.createElement("span",{className:"ns-spin dark"}),

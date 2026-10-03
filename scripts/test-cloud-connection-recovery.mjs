@@ -60,7 +60,10 @@ ok("bootstrap releases its latch before retry",app.includes("bootRef.current=fal
 ok("browser online event triggers immediate recovery",app.includes('window.addEventListener("online",reconnect)'));
 const recoveryGate=app.indexOf("if(authGate && session && !currentProjectId)");
 ok("heavy workspace stays unmounted during reconnect",recoveryGate>0&&recoveryGate<app.indexOf("const newStoryBuildsCurrentEpisode"));
-ok("reconnect screen offers an immediate retry",app.includes('},"Retry now")'));
+// the opening screen (owner 2026-10-03): no Retry button or connection chip up front — after 20 s a
+// quiet "Try again · Sign out" appears, so a stuck opening still has a way out
+ok("reconnect screen offers a retry once it's slow",app.includes('React.createElement("button",{type:"button",className:"lp-splash-link",onClick:retry},"Try again")')
+  &&app.includes("const t = setTimeout(()=>setSplashSlow(true), 20000);")&&!app.includes('},"Retry now")'));
 const account=readFileSync("app/auth-ui.jsx","utf8");
 ok("account chip exposes automatic recovery",account.includes('"Reconnecting"')&&account.includes("reconnecting automatically"));
 
