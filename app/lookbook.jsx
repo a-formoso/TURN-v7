@@ -17,11 +17,38 @@ function lookbookSourceKey(c){
 }
 window.lookbookSourceKey = lookbookSourceKey;
 
+/* RECENTLY DELETED (owner 2026-10-03): a deleted reference stays IN the lookbook list, marked
+   `deletedAt`, with its mood frame — the Show Bible keeps `lookbook` as a plain list, and an
+   episode's `trash` may hold only shots, so the bin can't live in `trash`. Every reader goes
+   through lookbookLive() (dedupeLookbookCards does it first); every write-back keeps the bin
+   with lookbookKeepDeleted(). */
+function lookbookLive(cards){ return (Array.isArray(cards)?cards:[]).filter(c=>c && typeof c==="object" && !c.deletedAt); }
+function lookbookDeleted(cards){ return (Array.isArray(cards)?cards:[]).filter(c=>c && typeof c==="object" && c.deletedAt); }
+/* `live` becomes the lookbook's live cards; the deleted ones of `all` stay (unless live again) */
+function lookbookKeepDeleted(all, live){
+  const liveIds = new Set((live||[]).map(c=>c && c.id));
+  return [...(live||[]), ...lookbookDeleted(all).filter(c=>!liveIds.has(c.id))];
+}
+window.lookbookLive = lookbookLive;
+window.lookbookDeleted = lookbookDeleted;
+window.lookbookKeepDeleted = lookbookKeepDeleted;
+/* WHEN TWO CARDS ARE THE SAME (2026-10-03): the same touchstone for the same category — so one
+   source can feed two categories (Deakins for Lighting AND for Lens), and a card you added by hand
+   is always its own (two "+" cards used to share the auto name "Palette study" and the second
+   vanished from the grid). */
+function lookbookCardKey(c){
+  if(!c) return "";
+  if(c.manual || c.autoNamed) return "id:"+String(c.id||"");
+  const src = lookbookSourceKey(c);
+  return src ? src+"|"+String(c.category||"Palette") : "id:"+String(c.id||"");
+}
+window.lookbookCardKey = lookbookCardKey;
 function dedupeLookbookCards(cards){
   const out=[], pos=new Map();
   const hasImg = (c)=>{ try{ return !!(c && typeof nbGetImage==="function" && nbGetImage(c.id)); }catch(e){ return false; } };
-  (cards||[]).forEach(c=>{
-    const key = lookbookSourceKey(c) || String(c&&c.id||"");
+  (Array.isArray(cards)?cards:[]).forEach(c=>{
+    if(!c || typeof c!=="object" || c.deletedAt) return;      // Recently deleted (lookbookLive)
+    const key = (typeof lookbookCardKey==="function") ? lookbookCardKey(c) : (lookbookSourceKey(c) || String(c.id||""));
     if(!key) return;
     if(pos.has(key)){
       const idx = pos.get(key), old = out[idx] || {};
@@ -68,7 +95,8 @@ function lookbookCardHasContent(c){
 window.lookbookCardHasContent = lookbookCardHasContent;
 function lookbookHasLook(lookbook, statement){
   if(String(statement||"").trim()) return true;
-  return Array.isArray(lookbook) && lookbook.some(lookbookCardHasContent);
+  // self-contained (tests lift this function out on its own): deleted cards (deletedAt) don't count
+  return Array.isArray(lookbook) && lookbook.some(c=>c && !c.deletedAt && lookbookCardHasContent(c));
 }
 window.lookbookHasLook = lookbookHasLook;
 
@@ -84,6 +112,14 @@ window.lookbookDefaultName = lookbookDefaultName;
 /* Mood-frame prompt: an ORIGINAL frame that captures the reference's visual LANGUAGE only
    (palette / lighting / lens / texture) — deliberately NOT a depiction of any named film,
    scene, character or logo, so it stays copyright-clean (same principle as the Colorist). */
+/* the film's MEDIUM (2026-10-03): the dominant render style picked across its cast, props and
+   locations (app.jsx sets window.turnFilmRenderStyle) — an animated film gets animated mood frames,
+   not live-action ones. null = photoreal. */
+function lookbookFilmMedium(){
+  const st = (typeof window!=="undefined") ? window.turnFilmRenderStyle : null;
+  return st && st.medium ? st : null;
+}
+window.lookbookFilmMedium = lookbookFilmMedium;
 function buildLookbookPrompt(c, project){
   const P = project || (window.TURN_DATA||{}).PROJECT || {};
   const note = (c.note||"").replace(/\.$/,"").trim();
@@ -97,7 +133,10 @@ function buildLookbookPrompt(c, project){
   s += "Create an ORIGINAL frame that expresses the selected category and visual quality above. ";
   s += "Translate the reference language only — palette, lighting, lens, texture and atmosphere — never its story content.\n";
   s += "Do NOT depict any specific recognizable film, scene, character, real person, logo or on-screen text; no words in the image.\n";
-  s += "Photoreal, evocative, filmic, shallow depth of field. --ar 16:9";
+  const medium = lookbookFilmMedium();
+  s += medium
+    ? "RENDER IN THE FILM'S MEDIUM — "+medium.label+": "+medium.medium+". Evocative, filmic."
+    : "Photoreal, evocative, filmic, shallow depth of field.";
   return s;
 }
 window.buildLookbookPrompt = buildLookbookPrompt;
@@ -111,8 +150,9 @@ window.combinedLookbookPrompt = combinedLookbookPrompt;
 
 function buildSimpleLookbookPrompt(c){
   const note = (c.note||"").replace(/\.$/,"").trim();
+  const medium = lookbookFilmMedium();
   return ["Cinematic reference frame", (c.category||"").toLowerCase(), note||"",
-    "original, no text, no recognizable film, photoreal, atmospheric"].filter(Boolean).join(". ")+".";
+    "original, no text, no recognizable film, "+(medium ? medium.label : "photoreal")+", atmospheric"].filter(Boolean).join(". ")+".";
 }
 window.buildSimpleLookbookPrompt = buildSimpleLookbookPrompt;
 
@@ -274,9 +314,10 @@ async function generateLookbookFrame(c, project){
 window.generateLookbookFrame = generateLookbookFrame;
 
 /* ---- one reference card ---- */
-function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, onBatchDone }){
+function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, onBatchDone, onSuggestNote, suggesting }){
   const finalPrompt = combinedLookbookPrompt(c, project);
   const drafted = lookbookCardDrafted(c);
+  const [showPrompt, setShowPrompt] = React.useState(false);
   const initials = (c.source||"Ref").replace(/^the\s+/i,"").split(/\s+/).map(w=>w[0]).slice(0,2).join("").toUpperCase();
   const gen = useImageGen({
     id: c.id, slotId: "lookref-"+c.id,
@@ -285,9 +326,18 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
     buildSimple: ()=> buildSimpleLookbookPrompt(c),
     buildEdit: (instr)=>
       "Edit this reference frame. Apply ONLY this change: "+instr+". "
-      +"Keep the same visual language — palette, lighting, lens, texture — in the same single 16:9 frame. "
+      +"Keep the same visual language — palette, lighting, lens, texture — in the same single frame. "
       +"No text, no recognizable film or person.",
   });
+  // (a card you added by hand keeps a name that follows its category and note — app.jsx updateLookbookCard)
+  const update = (patch)=>onUpdate(c.id, patch);
+  const askDelete = async ()=>{
+    const ok = !window.appConfirm || await window.appConfirm({
+      title:"Delete “"+(c.source||"this reference")+"”?",
+      body:"It moves to Recently deleted, with its mood frame, at the bottom of the Lookbook. You can restore it from there.",
+      confirmLabel:"Delete reference", cancelLabel:"Cancel", danger:true });
+    if(ok) onDelete(c.id);
+  };
 
   // REMOUNT-SAFE (see CharacterSheet): seed batchStarted from the in-flight registry
   // (keyed by the GEN id, c.id) so a card remounting mid-generation doesn't fire a
@@ -309,7 +359,10 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
       slotPlaceholder:"Drop a reference image", noun:"reference frame",
       hideUploadButton:true,
       specGate:{ ready:drafted, hint:"Add a ‘what to borrow’ note first — it's what the frame is built from." },
-      onDelete:()=>onDelete(c.id), deleteLabel:"Delete reference" }),
+      // the frame's prompt is a power-user tool: behind the card's ⋯ menu (2026-10-03)
+      menuExtra:[{ label:showPrompt ? "Hide the frame prompt" : "Show the frame prompt", icon:Icon.eye,
+        onClick:()=>setShowPrompt(v=>!v) }],
+      onDelete:askDelete, deleteLabel:"Delete reference" }),
     React.createElement("div",{className:"sheet-body"},
       React.createElement("div",{className:"sheet-head"},
         React.createElement("div",{style:{flex:1,minWidth:0}},
@@ -321,30 +374,62 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
 
       !drafted && !gen.genUrl && React.createElement("div",{className:"sheet-undrafted"},
         React.createElement(Icon.alert,{s:14}),
-        React.createElement("span",null,"No ‘what to borrow’ note yet — add one below, then generate its mood frame.")),
+        React.createElement("span",null,"No ‘what to borrow’ note yet — add one below, or let Suggest a note write it, then generate its mood frame.")),
 
       React.createElement(CardFold,{label:"Reference",defaultOpen:true},
         React.createElement("div",{className:"sheet-field"},
           React.createElement("div",{className:"obj-lab"},"Category"),
           React.createElement("select",{className:"prop-select",value:c.category||"Palette",
-            onChange:e=>onUpdate(c.id,{category:e.target.value})},
+            onChange:e=>update({category:e.target.value})},
             (window.LOOKBOOK_CATEGORIES||[]).map(cat=>React.createElement("option",{key:cat,value:cat},cat)))),
         React.createElement(SheetField,{label:"What to borrow — the visual quality",value:c.note,multiline:true,
           placeholder:"The palette / lighting / lens / texture to draw from — abstract qualities, not the source's scenes…",
-          onCommit:val=>onUpdate(c.id,{note:val})})),
+          onCommit:val=>update({note:val})}),
+        // one writing call (about a credit): drafts this card's note — and its touchstone when you
+        // added the card by hand and haven't named one
+        onSuggestNote && React.createElement("button",{type:"button",className:"lb-suggest",disabled:!!suggesting,
+          title:"Write this reference's ‘what to borrow’ note from the story"+(c.autoNamed?" (and suggest a touchstone)":"")+" — one writing call",
+          onClick:()=>onSuggestNote(c.id)},
+          React.createElement(Icon.sparkles,{s:12}), suggesting ? "Suggesting…" : ((c.note||"").trim() ? "Suggest another note" : "Suggest a note"))),
 
-      React.createElement(CardFold,{label:"Reference prompt",defaultOpen:false},
+      showPrompt && React.createElement(CardFold,{label:"Frame prompt",defaultOpen:true},
         React.createElement(CopyBox,{label:"Mood frame — feed to your image tool",text:finalPrompt}),
         React.createElement(SheetField,{label:"Negative prompt — exclude",value:c.negativePrompt||"",
           onCommit:val=>onUpdate(c.id,{negativePrompt:val})}))));
 }
 
 /* ---- the Lookbook tab ---- */
-function LookbookView({ project, lookbook, note, onUpdate, onAdd, onDelete, onSetNote, onResearch }){
+/* which references already have a mood frame — read from the image store (async in the cloud),
+   refreshed whenever a frame lands */
+function useLookbookFramed(ids){
+  const [framed, setFramed] = React.useState({});
+  const key = ids.join("|");
+  React.useEffect(()=>{
+    let live = true;
+    const check = async ()=>{
+      const next = {};
+      for(const id of ids){
+        let u = "";
+        try{ u = (typeof nbGetImage==="function") ? nbGetImage(id) : ""; }catch(e){}
+        if(!u && typeof nbLoadImage==="function"){ try{ u = await nbLoadImage(id); }catch(e){} }
+        next[id] = !!u;
+      }
+      if(live) setFramed(next);
+    };
+    check();
+    const onDone = ()=>check();
+    window.addEventListener("nb-gen-done", onDone);
+    return ()=>{ live = false; window.removeEventListener("nb-gen-done", onDone); };
+  },[key]);
+  return framed;
+}
+function LookbookView({ project, lookbook, note, onUpdate, onAdd, onDelete, onSetNote, onResearch, onResearchFresh, onRestore, onPurge, onSuggestNote, suggestingId }){
   const [view, setView] = React.useState(null);
+  const [researchMenu, setResearchMenu] = React.useState(false);
   const batch = useBatchGen();
   const batchActiveId = batch.activeId;
   const list = dedupeLookbookCards(lookbook || []);
+  const deleted = lookbookDeleted(lookbook || []).map(c=>({ ...c, name:c.source||"Reference", _deletedAt:c.deletedAt }));
   const pendingAddedId = React.useRef("");
   const addReference = ()=>{
     const id = onAdd && onAdd();
@@ -359,14 +444,26 @@ function LookbookView({ project, lookbook, note, onUpdate, onAdd, onDelete, onSe
       if(card) card.scrollIntoView({behavior:"smooth",block:"center"});
     });
   },[list.map(c=>c.id).join("|")]);
-  const draftedIds = (subset)=> subset.filter(c=>lookbookCardDrafted(c)).map(c=>c.id);
-  const eligibleAll = list.filter(c=>lookbookCardDrafted(c)).length;
-  const startAllBatch = ()=>{
+  React.useEffect(()=>{
+    if(!researchMenu) return;
+    const close = (e)=>{ if(e.type==="keydown" && e.key!=="Escape") return; if(e.type==="pointerdown" && e.target.closest && e.target.closest(".lb-research")) return; setResearchMenu(false); };
+    document.addEventListener("pointerdown", close); document.addEventListener("keydown", close);
+    return ()=>{ document.removeEventListener("pointerdown", close); document.removeEventListener("keydown", close); };
+  },[researchMenu]);
+  // GENERATE MISSING FRAMES (2026-10-03): only the references with a note and no frame yet — a
+  // frame you already have is re-rendered from its own card, never by the batch — and the
+  // button's price is for all of them
+  const drafted = list.filter(c=>lookbookCardDrafted(c));
+  const framed = useLookbookFramed(drafted.map(c=>c.id));
+  const missing = drafted.filter(c=>!framed[c.id]);
+  const startMissingBatch = ()=>{
     if(batchActiveId) return;
-    const eligible = draftedIds(list);
-    if(!eligible.length){ batch.setMsg("Add a ‘what to borrow’ note to a reference first — nothing is ready to render yet."); return; }
-    batch.begin(eligible, list.length - eligible.length);
+    if(!drafted.length){ batch.setMsg("Add a ‘what to borrow’ note to a reference first — nothing is ready to render yet."); return; }
+    if(!missing.length){ batch.setMsg("Every reference with a note already has its mood frame — re-render one from its card."); return; }
+    batch.begin(missing.map(c=>c.id), list.length - missing.length);
   };
+  // the look is there already: "Research again" offers to fill the gaps or start fresh
+  const hasResearch = !!String(note||"").trim() || list.some(c=>!c.manual && !c.autoNamed);
 
   return React.createElement("div",{className:"art-scroll"},
     view && React.createElement(ImageLightbox,{url:view.url,character:view.character,onClose:()=>setView(null)}),
@@ -377,18 +474,31 @@ function LookbookView({ project, lookbook, note, onUpdate, onAdd, onDelete, onSe
         React.createElement("div",{style:{flex:1}},
           React.createElement("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Visual Researcher",
             React.createElement(window.InfoTip,{label:"About the Lookbook",
-              text:"The film's visual north star, built first so it can steer everything downstream. A short visual statement plus reference touchstones — palette, lighting, lens, texture — each can have a mood frame in that visual language (original frames, never copies of the named films). 'Research the look' writes the statement and gathers/dedupes the references. 'Generate all frames' renders the mood frames afterwards."}))),
+              text:"The film's visual north star, built first so it can steer everything downstream. A short visual statement plus reference touchstones — palette, lighting, lens, texture — each can have a mood frame in that visual language (original frames, never copies of the named films), rendered in the film's own medium. 'Research the look' writes the statement and gathers the references. 'Generate missing frames' renders the frames you don't have yet."}))),
         React.createElement("div",{className:"art-intro-actions"},
-          React.createElement("button",{className:"art-draftall ghost",onClick:addReference,title:"Add a reference by hand"},
+          React.createElement("button",{className:"art-draftall ghost",onClick:addReference,title:"Add a reference by hand","aria-label":"Add a reference by hand"},
             React.createElement(Icon.plus,{s:14})),
-          onResearch && React.createElement("button",{className:"art-draftall ghost",onClick:onResearch,
-            title:"Visual Researcher — writes the look statement and gathers reference touchstones. Use Generate all frames when you want to render the mood frames."},
-            React.createElement(Icon.robot,{s:14}),"Research the look"),
-          React.createElement("button",{className:"art-draftall",disabled:!!batchActiveId||!eligibleAll,onClick:startAllBatch,
-            title:"Render (or re-render) the mood frame for every reference that has a note"},
-            React.createElement(Icon.sparkles,{s:14}), batchActiveId?"Rendering…":"Generate all frames", typeof window.nbCostChip==="function" && window.nbCostChip(1)),
-          // (Clear-all removed — user ruling 2026-07-19; delete references per card)
-          null))),
+          onResearch && (hasResearch && onResearchFresh
+            ? React.createElement("div",{className:"lb-research"},
+                React.createElement("button",{className:"art-draftall ghost",onClick:()=>setResearchMenu(v=>!v),"aria-haspopup":"menu","aria-expanded":researchMenu?"true":"false",
+                  title:"Run the Visual Researcher again"},
+                  React.createElement(Icon.robot,{s:14}),"Research again",React.createElement(Icon.chevD,{s:12})),
+                researchMenu && React.createElement("div",{className:"lb-research-menu",role:"menu"},
+                  React.createElement("button",{type:"button",role:"menuitem",onClick:()=>{ setResearchMenu(false); onResearch(); }},
+                    React.createElement("b",null,"Fill the missing categories"),
+                    React.createElement("span",null,"Keeps the statement and every card; adds one reference for each category that has none.")),
+                  React.createElement("button",{type:"button",role:"menuitem",onClick:()=>{ setResearchMenu(false); onResearchFresh(); }},
+                    React.createElement("b",null,"Research from scratch"),
+                    React.createElement("span",null,"Writes a new statement and new references. Your hand-added cards stay; the researched ones move to Recently deleted."))))
+            : React.createElement("button",{className:"art-draftall ghost",onClick:onResearch,
+                title:"Visual Researcher — writes the look statement and gathers reference touchstones. Use Generate missing frames when you want to render the mood frames."},
+                React.createElement(Icon.robot,{s:14}),"Research the look")),
+          React.createElement("button",{className:"art-draftall",disabled:!!batchActiveId||!missing.length,onClick:startMissingBatch,
+            title: missing.length ? "Render the mood frame for every reference that has a note and no frame yet ("+missing.length+")"
+              : (drafted.length ? "Every reference with a note has its mood frame — re-render one from its card" : "Add a ‘what to borrow’ note to a reference first")},
+            React.createElement(Icon.sparkles,{s:14}),
+            batchActiveId ? "Rendering…" : (missing.length ? "Generate missing frames" : "All frames rendered"),
+            missing.length>0 && typeof window.nbCostChip==="function" && window.nbCostChip(missing.length))))),
 
     // the north-star visual statement
     React.createElement("div",{className:"lb-statement"},
@@ -401,15 +511,19 @@ function LookbookView({ project, lookbook, note, onUpdate, onAdd, onDelete, onSe
     list.length
       ? React.createElement("div",{className:"sheet-grid"},
           list.map(c=>React.createElement(LookbookCard,{key:c.id,c,project,onUpdate,onDelete,
-            onView:(url,ent)=>setView({url,character:ent}),batchActiveId,onBatchDone:batch.advance})))
+            onView:(url,ent)=>setView({url,character:ent}),batchActiveId,onBatchDone:batch.advance,
+            onSuggestNote, suggesting:suggestingId===c.id})))
       : React.createElement("div",{className:"prop-empty"},
           React.createElement("div",{className:"art-soon-ic"},React.createElement(Icon.image,{s:30})),
           React.createElement("div",{className:"art-soon-t"},"No references yet"),
-          React.createElement("div",{className:"art-soon-d"},"Build the film's visual brief first — ‘Research the look’ writes the statement and gathers reference touchstones (palette, lighting, lens, texture). Then use ‘Generate all frames’ when you want mood frames. Or add one by hand."),
+          React.createElement("div",{className:"art-soon-d"},"Build the film's visual brief first — ‘Research the look’ writes the statement and gathers reference touchstones (palette, lighting, lens, texture). Then use ‘Generate missing frames’ when you want mood frames. Or add one by hand."),
           React.createElement("div",{style:{display:"flex",gap:8,marginTop:16}},
             onResearch && React.createElement("button",{className:"art-draftall",onClick:onResearch},
               React.createElement(Icon.robot,{s:14}),"Research the look"),
             React.createElement("button",{className:"art-draftall ghost",onClick:addReference},
-              React.createElement(Icon.plus,{s:14}),"Add by hand"))));
+              React.createElement(Icon.plus,{s:14}),"Add by hand"))),
+    // the restore bin (Restore / Delete forever), like Characters, Props and Locations
+    deleted.length>0 && window.RecentlyDeleted && React.createElement(window.RecentlyDeleted,{
+      items:deleted, kind:"reference", onRestore, onPurge }));
 }
 window.LookbookView = LookbookView;

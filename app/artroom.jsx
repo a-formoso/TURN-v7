@@ -4092,7 +4092,8 @@ function RecentlyDeleted({ items, kind, onRestore, onPurge, compact }){
     };
   },[compact,open,itemCount]);
   if(!itemCount) return null;
-  const noun = kind==="character" ? "character" : kind==="location" ? "location" : kind==="shot" ? "shot" : "prop";
+  const noun = kind==="character" ? "character" : kind==="location" ? "location" : kind==="shot" ? "shot"
+    : kind==="reference" ? "reference" : "prop";
   const labelFor = (it)=>{
     if(!it) return "Untitled "+noun;
     if(it.name || it.title) return it.name || it.title;
@@ -4112,7 +4113,7 @@ function RecentlyDeleted({ items, kind, onRestore, onPurge, compact }){
       React.createElement("span",{className:"rd-name",title:labelFor(it)}, labelFor(it)),
       it._deletedAt && React.createElement("span",{className:"rd-when"}, rel(it._deletedAt)),
       React.createElement("button",{className:"rd-restore",onClick:()=>onRestore&&onRestore(it.id),
-        title:"Restore this "+noun+" with its scenes & spec"},
+        title: kind==="reference" ? "Restore this reference with its mood frame" : "Restore this "+noun+" with its scenes & spec"},
         React.createElement(Icon.undo,{s:12}),"Restore"),
       React.createElement("button",{className:"rd-purge",title:"Delete forever",
         onClick:async ()=>{ const ok=await window.appConfirm({ title:"Delete “"+labelFor(it)+"” forever?",
@@ -5878,6 +5879,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
   locations, onUpdateLocation, onDraftLocation, onDraftAllLocs, onDeleteLocation, draftingLocIds, draftingAllLocs, scriptHasLocs, onSetStyleRefs, onSetScenePreset, onAddStyleRefImages, onRemoveStyleRefImage, onDraftStaging, draftingStageId, sluglineUnits, onUpdateUnit, onRemoveUnit,
   shots, beatsMap, onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onRemoveMicroBeatShots, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onColorist, onCast,
   lookbook, lookbookNote, onUpdateLookbook, onAddLookbook, onDeleteLookbook, onSetLookbookNote, onResearch,
+  onResearchFresh, onRestoreLookbook, onPurgeLookbook, onSuggestLookbookNote, suggestingLookbookId,
   staleTabs, onApplyLookbook, onSourceClick, canReview=false, onReviewLookbook, readOnly=false }){
   const _stale = staleTabs || {};
   const PropSheets = window.PropSheets;
@@ -5946,7 +5948,8 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
       ? React.createElement(ArtTabLock,{tab:artView,locks:tabLocks,onGo:setArtView})
     : artView==="lookbook" && LookbookView
       ? React.createElement(LookbookView,{project,lookbook,note:lookbookNote,
-          onUpdate:onUpdateLookbook,onAdd:onAddLookbook,onDelete:onDeleteLookbook,onSetNote:onSetLookbookNote,onResearch})
+          onUpdate:onUpdateLookbook,onAdd:onAddLookbook,onDelete:onDeleteLookbook,onSetNote:onSetLookbookNote,onResearch,
+          onResearchFresh,onRestore:onRestoreLookbook,onPurge:onPurgeLookbook,onSuggestNote:onSuggestLookbookNote,suggestingId:suggestingLookbookId})
     : artView==="characters"
       ? React.createElement(CharacterSheets,{project,characters,scenes,props,drafts,shots,beatsMap,onUpdate:onUpdateChar,
           onDraftProp,onCreateOwnedProp,

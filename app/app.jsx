@@ -388,7 +388,7 @@ function buildFilmBible(doc){
       film_stock: undef(sb.filmStock && sb.filmStock!=="none" ? sb.filmStock : ""),
       references: undef((sb.refs||"")),
       palette_presets: (sb.presets||[]).map(p=>({ id:p.id, name:p.name, palette:p.palette })),
-      lookbook: lookbook.filter(c=>(c.note||"").trim()).map(c=>({ source:c.source, category:c.category, note:c.note })),
+      lookbook: (typeof lookbookLive==="function" ? lookbookLive(lookbook) : lookbook).filter(c=>(c.note||"").trim()).map(c=>({ source:c.source, category:c.category, note:c.note })),
     },
     characters: characters.map(c=>({
       id: c.id, name: c.name, role: undef(c.role),
@@ -960,6 +960,20 @@ function App(){
      separate: an Art director may inspect the Writers' Room, but only Writer/owner
      roles may change its story sections. The section helper is also the autosave
      allow-list, keeping visible controls and durable writes on one permission model. */
+  /* THE FILM'S MEDIUM (2026-10-03): the dominant render style picked across its cast, props and
+     locations — the Lookbook's mood frames are rendered in it (lookbook.jsx lookbookFilmMedium) */
+  const filmRenderStyle = React.useMemo(()=>{
+    const tally = {};
+    [...(characters||[]), ...(props||[]), ...(locations||[])].forEach(e=>{ const k = e && e.renderStyleKey; if(k) tally[k]=(tally[k]||0)+1; });
+    const top = Object.keys(tally).sort((a,b)=>tally[b]-tally[a])[0] || null;
+    if(!top || top==="photoreal" || top==="surprise") return null;
+    const block = (window.CHAR_RENDER_STYLES||{})[top];
+    const medium = block && block.rendering;
+    if(!medium) return null;
+    const label = String(((typeof window.renderStylePromptName==="function") && window.renderStylePromptName(top)) || (window.RENDER_STYLE_LABELS||{})[top] || top).replace(/^[🔒🌐]\s*/,"");
+    return { key:top, label, medium };
+  },[characters, props, locations]);
+  window.turnFilmRenderStyle = filmRenderStyle;
   const _projRow = (projects||[]).find(p=>p.id===currentProjectId) || null;
   const shareRole = (_projRow && _projRow.shareRole) || (_projRow && _projRow.isOwner ? "owner" : "");
   /* TEAM (owner 2026-10-03): a shared film's rooms follow its OWNER's plan — turn_film_owner_tier:
@@ -3802,9 +3816,48 @@ function App(){
     setLookbook(ls=>[...ls, { id, source:"Palette study", category:"Palette", note:"", negativePrompt:"", manual:true, autoNamed:true }]);
     return id;
   };
+  /* RECENTLY DELETED (2026-10-03): a deleted reference keeps its card and mood frame, marked
+     deletedAt (lookbook.jsx lookbookLive), until you restore it or delete it forever */
   const deleteLookbookCard = (id)=>{
+    setLookbook(ls=>ls.map(c=>c.id===id ? { ...c, deletedAt:new Date().toISOString() } : c));
+  };
+  const restoreLookbookCard = (id)=>{
+    setLookbook(ls=>ls.map(c=>{ if(c.id!==id) return c; const { deletedAt, ...live } = c; return live; }));
+  };
+  /* RESEARCH FROM SCRATCH (2026-10-03): a new statement and new references — the hand-added cards
+     stay; the researched ones move to Recently deleted (with their frames) before the run */
+  const researchLookbookFresh = async ()=>{
+    if(!canMutateSharedFilm()) return;
+    const ok = !window.appConfirm || await window.appConfirm({
+      title:"Research the look from scratch?",
+      body:"The Visual Researcher writes a new visual statement and new references (one writing call). Your hand-added cards stay; the researched ones move to Recently deleted with their mood frames, so you can restore any of them.",
+      confirmLabel:"Research from scratch", cancelLabel:"Cancel" });
+    if(!ok) return;
+    const at = new Date().toISOString();
+    setLookbook(ls=>ls.map(c=> (c && !c.deletedAt && !c.manual && !c.autoNamed) ? { ...c, deletedAt:at } : c));
+    setLookbookNote("");
+    // opened on the next tick, so the agent starts from the cleared Lookbook
+    setTimeout(()=>setResearchOpen(true), 0);
+  };
+  const purgeLookbookCard = async (id)=>{
+    try{ if(typeof nbClearAsset==="function") await nbClearAsset(id); }catch(e){}
     setLookbook(ls=>ls.filter(c=>c.id!==id));
-    try{ if(typeof nbClearAsset==="function") nbClearAsset(id); }catch(e){}
+  };
+  /* SUGGEST A NOTE (2026-10-03): one writing call drafts a card's "what to borrow" note from the
+     story — and its touchstone when you added the card by hand and haven't named one */
+  const [suggestingLookbookId, setSuggestingLookbookId] = React.useState(null);
+  const suggestLookbookNote = async (id)=>{
+    if(!canMutateSharedFilm()) return;
+    const card = (lookbook||[]).find(c=>c.id===id);
+    if(!card || typeof window.aiSuggestLookbookNote!=="function") return;
+    setSuggestingLookbookId(id);
+    try{
+      const r = await window.aiSuggestLookbookNote(card, scenes, project, lookbookNote, (typeof lookbookLive==="function" ? lookbookLive(lookbook) : lookbook));
+      if(!r || !r.note){ if(typeof window.appToast==="function") window.appToast("Couldn't suggest a note just now — try again in a moment.","error"); return; }
+      const patch = { note:r.note, ...(r.writingProvenance ? { writingProvenance:r.writingProvenance } : {}) };
+      if(card.autoNamed && r.source) Object.assign(patch, { source:r.source, autoNamed:false });
+      setLookbook(ls=>ls.map(c=>c.id===id ? { ...c, ...patch } : c));
+    } finally { setSuggestingLookbookId(null); }
   };
   // Remove the whole Lookbook (references + statement + their mood frames). Art Room state only —
   // never touches the story or any other tab; lookbookApplied is left intact so the tabs that
@@ -6531,7 +6584,8 @@ function App(){
         // keep an existing statement — a gap-filling re-run shouldn't rewrite the north star
         if(r.statement && !(lookbookNote||"").trim()) _w.setLookbookNote(r.statement);
         const slug = (s)=> String(s||"").toLowerCase().replace(/\([^)]*\)/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"");
-        const keyOf = (e)=> (typeof lookbookSourceKey==="function") ? lookbookSourceKey(e) : slug(e&&e.source);
+        // the same touchstone for the same category is the same card (lookbook.jsx lookbookCardKey)
+        const keyOf = (e)=> (typeof lookbookSourceKey==="function") ? (lookbookSourceKey(e)+"|"+String((e&&e.category)||"Palette")) : slug(e&&e.source);
         const seen = new Set(_lbWork.map(c=>keyOf(c)));
         let cards = [];
         (r.refs||[]).forEach((e,i)=>{
@@ -6549,11 +6603,13 @@ function App(){
           const covered = new Set(_noted.map(c=>c.category));
           cards = cards.filter(c=>{ if(covered.has(c.category)) return false; covered.add(c.category); return true; });
         }
+        // every write keeps the Recently deleted cards (lookbook.jsx lookbookKeepDeleted)
+        const keepBin = (all, live)=> (typeof lookbookKeepDeleted==="function") ? lookbookKeepDeleted(all, live) : live;
         if(cards.length){
           _lbWork = (typeof dedupeLookbookCards==="function") ? dedupeLookbookCards([..._lbWork, ...cards]) : [..._lbWork, ...cards];
-          _w.setLookbook(ls=> (typeof dedupeLookbookCards==="function") ? dedupeLookbookCards([...ls, ...cards]) : [...ls, ...cards]);
-        } else if(typeof dedupeLookbookCards==="function" && _lbWork.length !== (lookbook||[]).length){
-          _w.setLookbook(_lbWork);
+          _w.setLookbook(ls=> keepBin(ls, (typeof dedupeLookbookCards==="function") ? dedupeLookbookCards([...ls, ...cards]) : [...ls, ...cards]));
+        } else if(typeof dedupeLookbookCards==="function" && _lbWork.length !== ((typeof lookbookLive==="function" ? lookbookLive(lookbook) : lookbook)||[]).length){
+          _w.setLookbook(ls=> keepBin(ls, _lbWork));
         }
         // the Colorist's references follow from here: the write-through fills the Color tab's
         // field from the Lookbook, and art.references / designStyles read the same rule
@@ -6609,7 +6665,7 @@ function App(){
         const dropIds = new Set(((plan&&plan.drop)||[]).map(c=>c.id));
         if(!dropIds.size) return 0;
         _lbWork = _lbWork.filter(c=>!dropIds.has(c.id));
-        _w.setLookbook(ls=> ls.filter(c=>!dropIds.has(c.id)));
+        _w.setLookbook(ls=> ls.filter(c=>!dropIds.has(c.id) || c.deletedAt));
         (plan.drop||[]).forEach(c=>{ try{ if(typeof nbClearAsset==="function") nbClearAsset(c.id); }catch(e){} });
         return dropIds.size;
       },
@@ -7312,8 +7368,11 @@ function App(){
             onColorist:(refs)=>{ if(typeof refs==="string") setStyleRefs(refs.trim()); setColoristOpen(true); },
             onCast:()=>{ if(!turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Design the cast")) setCastingOpen(true); },
             onResearch:()=>setResearchOpen(true),
+            onResearchFresh:roomReadOnly ? null : researchLookbookFresh,
             lookbook,lookbookNote,onUpdateLookbook:updateLookbookCard,onAddLookbook:addLookbookCard,
             onDeleteLookbook:deleteLookbookCard,onSetLookbookNote:setLookbookNote,
+            onRestoreLookbook:restoreLookbookCard,onPurgeLookbook:purgeLookbookCard,
+            onSuggestLookbookNote:roomReadOnly ? null : suggestLookbookNote,suggestingLookbookId,
             staleTabs,onApplyLookbook:applyLookbook,onReviewLookbook:(dept)=>applyLookbook(dept,"review"),
             onUpdateChar:updateCharacter,onDraftVisuals:draftCharacterVisuals,onDraftAllVisuals:draftAllVisuals,
             draftingVisualId,draftingAllVisuals,draftingVisualIds,onDeleteCharacter:deleteCharacter,

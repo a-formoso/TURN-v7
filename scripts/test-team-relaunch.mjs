@@ -484,13 +484,18 @@ await test("G1 docs record the relaunch; the paused test is gone; TURN.html keys
   assert.ok(notes.includes("**Team (relaunched 2026-10-03)**"), "CLAUDE.md");
   assert.ok(!existsSync(new URL("scripts/test-team-paused.mjs", ROOT)), "replaced by this test");
   const html = read("TURN.html");
+  // a key from after the change: a later day, or a 3 October key other than the ones before it
+  // (alphabetical order doesn't work across names: "20261003-lookbook1" came after "-team2")
+  const later = (k, before)=> !!k && (k.slice(0,8) > "20261003" || (k.slice(0,8)==="20261003" && !before.includes(k)));
+  const BEFORE_TEAM2 = ["20261003-room1", "20261003-login1", "20261003-login2"];
+  const BEFORE_TEAM4 = [...BEFORE_TEAM2, "20261003-team2", "20261003-team3"];
   for(const f of ["team.jsx", "cloud.jsx", "app.jsx", "chrome.jsx", "plans.jsx", "landing.jsx", "ai.jsx", "auth-ui.jsx", "styles.css", "script.jsx"]){
     const m = new RegExp("app/" + f.replace(".", "\\.") + "\\?v=([0-9a-z-]+)").exec(html);
-    assert.ok(m && m[1] >= "20261003-team2", f + " " + (m && m[1]));
+    assert.ok(m && later(m[1], BEFORE_TEAM2), f + " " + (m && m[1]));
   }
   for(const f of ["home-dashboard.jsx", "icons.jsx", "videogen.jsx", "voicegen.jsx"]){
     const m = new RegExp("app/" + f.replace(".", "\\.") + "\\?v=([0-9a-z-]+)").exec(html);
-    assert.ok(m && m[1] >= "20261003-team4", f + " " + (m && m[1]));
+    assert.ok(m && later(m[1], BEFORE_TEAM4), f + " " + (m && m[1]));
   }
 });
 

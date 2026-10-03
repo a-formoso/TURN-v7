@@ -328,6 +328,19 @@ button,input,select,textarea{font-family:inherit}
 .viewnav .seg .seg-lab{display:inline}
 /* Lookbook — the north-star visual statement block above the reference grid */
 .lb-statement{margin:0 0 18px;padding:14px 16px;background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r-l)}
+/* Lookbook review (2026-10-03): Suggest a note, the Research again menu */
+.lb-suggest{display:inline-flex;align-items:center;gap:6px;margin-top:8px;height:28px;padding:0 10px;border:1px solid var(--line-2);
+  border-radius:var(--r-m);background:var(--bg-2);color:var(--txt-1);font:600 11.5px var(--f-ui);cursor:pointer}
+.lb-suggest:hover:not(:disabled){border-color:var(--pos);color:var(--txt-0)}
+.lb-suggest:disabled{opacity:.55;cursor:progress}
+.lb-research{position:relative;display:inline-flex}
+.lb-research-menu{position:absolute;top:calc(100% + 6px);right:0;z-index:60;width:min(320px,86vw);padding:6px;
+  background:var(--bg-2);border:1px solid var(--line-2);border-radius:var(--r-l);box-shadow:0 14px 40px rgba(0,0,0,.18)}
+.lb-research-menu button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;text-align:left;border:0;background:transparent;
+  border-radius:var(--r-m);padding:9px 10px;cursor:pointer;color:var(--txt-0)}
+.lb-research-menu button:hover{background:var(--bg-3)}
+.lb-research-menu b{font:650 12.5px var(--f-ui)}
+.lb-research-menu span{font-size:11.5px;line-height:1.4;color:var(--txt-2)}
 
 /* three balanced zones: equal-width flex sides keep the CENTER group (tab strip +
    the room's agent CTA) horizontally centered. The side panel-toggles only render
