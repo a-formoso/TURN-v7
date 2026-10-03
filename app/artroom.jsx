@@ -1215,7 +1215,15 @@ function buildRefFromPhotoPrompt(c, project){
   const mask = ((c.wardrobeMask||c.wardrobe)||"").replace(/\.$/,"").trim();
   const acc = (c.accessories && !/^none$/i.test(c.accessories.trim()))
     ? (", accessories: "+c.accessories.replace(/\.$/,"")) : "";
-  const style = c.renderStyle || "photoreal cinematic, 35mm, natural film grain, shallow depth of field";
+  // ONE render-style control (2026-10-03): the card's picker drives this sheet too (it used to read
+  // the old free-text Look dev field, so a Ghibli character still rendered photoreal from a photo).
+  // A free-text style saved on older cards is kept as extra notes.
+  const _rb = (typeof charRenderBlock==="function") ? (charRenderBlock(c)||{}) : {};
+  const _rbName = ((c.renderStyleKey==="surprise" && c.surpriseRender && c.surpriseRender.label) ? c.surpriseRender.label
+    : renderStylePromptName(typeof inferCharacterRenderStyleKey==="function" ? inferCharacterRenderStyleKey(c) : (c.renderStyleKey||"photoreal")));
+  const _rbText = [_rbName, _rb.rendering, _rb.lighting, _rb.color_grade].map(x=>String(x||"").replace(/\.$/,"").trim()).filter(Boolean).join("; ");
+  const _legacy = String(c.renderStyle||"").replace(/\.$/,"").trim();
+  const style = [_rbText || "photoreal cinematic, 35mm, natural film grain, shallow depth of field", _legacy].filter(Boolean).join("; ");
   const period = P.setting && P.setting.period ? P.setting.period.split(/[\u2014,]/)[0].trim() : "";
   const tone = [P.genre, period].filter(Boolean).join(", ");
   let s = "Master character design reference sheet \u2014 "+(c.name||"Character")+". ";
@@ -3680,6 +3688,14 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
                 });
                 if(!ok) return;
               }
+              else if(/character/i.test(deleteLabel||"")){
+                const ok = !window.appConfirm || await window.appConfirm({
+                  title:"Delete "+(name||"this character")+"?",
+                  body:"This removes the character card and moves it to Recently Deleted. Its sheet and appearance variants can be restored from there until you delete it forever.",
+                  confirmLabel:"Delete character", cancelLabel:"Cancel", danger:true
+                });
+                if(!ok) return;
+              }
               onDelete();
             }},
             React.createElement(Icon.trash,{s:14}),deleteLabel||"Delete"))))),
@@ -4330,8 +4346,6 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
   // inline per-row prop generation (user ruling 2026-07-18: generate a linked prop's
   // sheet right from the character card — no Props-tab hop). kind: "draft"|"gen".
   const [propBusy, setPropBusy] = React.useState(null);   // {id, kind}
-  const [prepProps, setPrepProps] = React.useState(null);   // {done,total,name} while generating props inline
-  const preparingRef = React.useRef(false);
   React.useEffect(()=>{
     let alive=true;
     (async()=>{
@@ -4345,13 +4359,6 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
     })();
     return ()=>{alive=false;};
   },[ownedProps.map(p=>p.id).join(","), ownedProps.length, sheetTick]);
-  /* legit linked props (excluding orphan cards) that have NO generated sheet yet —
-     used to warn before generating a character that would miss those references. */
-  const orphanIds = React.useMemo(()=> new Set(orphanProps.map(p=>p.id)), [orphanProps]);
-  // A worn item can remain text-only while its prop design is still unresolved. Once a
-  // prop sheet exists it becomes an optional visual lock; generation never blocks on a
-  // missing sheet and never pulls carried props into the neutral character master.
-  const missingPropSheets = [];
   /* refresh prop-readiness when one of THIS character's props finishes generating
      (e.g. the inline "generate props first" flow completing after a tab switch). */
   React.useEffect(()=>{
@@ -4365,6 +4372,7 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
   const states = c.states || [];
   const updateStates = (next)=> onUpdate(c.id, { states: next });
 
+  const [showPrompt, setShowPrompt] = React.useState(false);   // the ⋯ menu's "Show the sheet prompt"
   /* cameo (locked likeness) — Increment A */
   const [cameoOpen, setCameoOpen] = React.useState(false);
   const [cameoMeta, setCameoMeta] = React.useState(()=> (typeof nbCameoMeta==="function") ? nbCameoMeta(c.id) : null);
@@ -4468,58 +4476,6 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
         wornRefSummary:{ total:wornReferences.length, visual, text:wornReferences.length-visual },
       };
     },
-    /* warn-and-confirm: if any linked prop has no sheet, it'll be drawn from text
-       only (not a locked reference). Three choices: generate the missing prop sheets
-       inline first (no tab switch), continue without, or cancel. */
-    beforeGenerate: async ()=>{
-      if(preparingRef.current) return false;          // re-entry guard while prepping
-      if(!missingPropSheets.length) return true;
-      const list = missingPropSheets.slice();          // freeze the set for this run
-      const n = list.length;
-      const choice = await window.appConfirm({
-        title: n+" linked prop"+(n>1?"s have":" has")+" no reference sheet yet",
-        body: "Generating "+(c.name||"this character")+" now would render "+(n>1?"these items":"this item")
-          +" from the text description only — not a locked prop sheet — so "+(n>1?"they":"it")
-          +" may not match "+(n>1?"their":"its")+" final design.",
-        items: list.map(p=>p.name||"Prop"),
-        note: "Generate the missing sheet"+(n>1?"s":"")+" now (no tab switch), or continue without.",
-        confirmLabel: "Generate "+n+" prop"+(n>1?"s":"")+" first",
-        altLabel: "Generate without",
-        cancelLabel: "Cancel",
-      });
-      if(choice===false) return false;                 // Cancel → abort
-      if(choice==="alt") return true;                  // continue without prop sheets
-      // primary: generate the missing prop sheets inline, then continue (the fresh
-      // sheets are picked up by collectAttachments at character-generate time).
-      if(typeof window.generatePropSheet==="function"){
-        preparingRef.current = true;
-        // truthful prerequisite outcomes: the director chose "Generate first" — a prop
-        // sheet that failed must not be silently skipped (the character would render
-        // that item from text only, exactly what they asked to avoid)
-        const failedProps = [];
-        for(let i=0;i<list.length;i++){
-          setPrepProps({ done:i, total:n, name:list[i].name||"prop" });
-          let ok = false;
-          try{ ok = (await window.generatePropSheet(list[i], project))===true; }catch(e){ ok = false; }
-          if(!ok) failedProps.push(list[i].name||"Prop");
-        }
-        setPrepProps(null);
-        preparingRef.current = false;
-        setSheetTick(t=>t+1);                          // refresh the "has sheet" indicators
-        if(failedProps.length){
-          const go = await window.appConfirm({
-            title: failedProps.length+" of "+n+" prop sheet"+(n>1?"s":"")+" couldn't be generated",
-            body: "Continuing would render "+(failedProps.length>1?"these items":"this item")
-              +" from the text description only — not a locked design.",
-            items: failedProps,
-            confirmLabel: "Continue without "+(failedProps.length>1?"them":"it"),
-            cancelLabel: "Cancel",
-          });
-          if(go!==true && go!=="alt") return false;    // fail closed — never render silently
-        }
-      }
-      return true;
-    },
     buildEdit: (instr)=>
       "Edit this character design sheet for "+(c.name||"the character")+". "
       +"Apply ONLY this change: "+instr+". "
@@ -4581,6 +4537,8 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
       editPropRefs: ownedProps.filter(p=>ownedSheetMap[p.id]).map(p=>({id:p.id, name:p.name, kind:p.kind})),
       referenceControls: React.createElement(SheetReferenceStrip,{ gen, loadRefs:collectAttachments, onView,
         refreshKey:[c.id,wornProps.map(p=>p.id).join(","),wornExclusionKey,sheetTick].join("|") }),
+      menuExtra:[{ label:showPrompt ? "Hide the sheet prompt" : "Show the sheet prompt", icon:Icon.eye,
+        onClick:()=>setShowPrompt(v=>!v) }],
       onDelete:onDelete?(()=>onDelete(c.id)):null, deleteLabel:"Delete character" }),
     React.createElement("div",{className:"sheet-body"},
       React.createElement("div",{className:"sheet-head"},
@@ -4589,8 +4547,8 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
           React.createElement("div",{className:"sheet-head-acts"},
             React.createElement("button",{className:"char-cameo-btn"+(cameoMeta?" on":""),disabled:drafting,
               onClick:()=>setCameoOpen(true),
-              title:cameoMeta?"Likeness locked \u2014 recapture or manage cameo":"Cast a real face \u2014 lock this character's likeness"},
-              React.createElement(Icon.userScan,{s:12}), cameoMeta?"Cameo":"Cast"),
+              title:cameoMeta?"Likeness locked \u2014 recapture or manage it":"Lock a real face as this character's likeness (webcam or photos)"},
+              React.createElement(Icon.userScan,{s:12}), "Likeness"),
             React.createElement("button",{className:"char-voice-btn"+(voiceLocked?" on":"")+(voiceOpen?" open":""),type:"button",
               onClick:()=>onOpenVoice&&onOpenVoice(c.id),
               "aria-expanded":voiceOpen?"true":"false","aria-controls":"voice-popup-"+String(c.id||"character").replace(/[^A-Za-z0-9_-]/g,"-"),
@@ -4661,10 +4619,10 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
             React.createElement("select",{className:"char-pronoun-sel",
               value:(typeof window.turnIdentityReport==="function"
                 ? (window.turnIdentityReport(c,{scenes,drafts,cast:cast||[c]}).pronouns||"")
-                : ((c.pronouns==="he/him"||c.pronouns==="she/her") ? c.pronouns : "")),
+                : ((c.pronouns==="he/him"||c.pronouns==="she/her"||c.pronouns==="they/them") ? c.pronouns : "")),
               onChange:e=>onUpdate(c.id,{pronouns:e.target.value,pronounProvenance:"user",
                 identityProvenance:{ ...(c.identityProvenance||{}), pronouns:"user" }})},
-              [["","set pronouns\u2026"],["he/him","he/him"],["she/her","she/her"]].map(function(o){return React.createElement("option",{key:o[0]||"unset",value:o[0],disabled:!o[0]},o[1]);})))),
+              [["","set pronouns\u2026"],["he/him","he/him"],["she/her","she/her"],["they/them","they/them"]].map(function(o){return React.createElement("option",{key:o[0]||"unset",value:o[0],disabled:!o[0]},o[1]);})))),
           typeof window.CharacterIdentityNotice==="function" && React.createElement(window.CharacterIdentityNotice,{
              character:c, scenes, drafts, cast:cast||[c], readOnly:false,
             onUpdate:(id,patch)=>onUpdate(id, { ...(patch||{}), pronounProvenance:"user",
@@ -4766,7 +4724,7 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
                   title: "Remove "+orphanProps.length+" orphaned prop"+(orphanProps.length>1?"s":"")+"?",
                   body: "These aren't listed in this character's worn/carried items \u2014 likely leftovers from an old text split.",
                   items: orphanProps.map(p=>p.name),
-                  note: "This deletes their prop cards and reference sheets. This can't be undone.",
+                  note: "Their prop cards move to the Props tab's Recently Deleted (with their reference sheets), where they can be restored.",
                   confirmLabel: "Remove", danger: true,
                 });
                 if(ok) orphanProps.forEach(p=>onRemoveOwnedItem(c.id, p.name));
@@ -4901,8 +4859,6 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
               "Use \u201cSuggest from script\u201d to find where the look changes, or add one by hand.")),
 
       React.createElement(CardFold,{label:"Look dev",defaultOpen:false},
-        React.createElement(SheetField,{label:"Render style",value:c.renderStyle,multiline:true,
-          placeholder:"photoreal cinematic, 35mm, film grain, shallow depth of field\u2026",onCommit:val=>onUpdate(c.id,{renderStyle:val})}),
         React.createElement("div",{className:"sheet-field"},
           React.createElement("div",{className:"obj-lab"},"Colour palette \u00b7 base \u2192 climax"),
           React.createElement(PaletteRow,{palette}))),
@@ -4917,7 +4873,8 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
         scaleGenWrapped.genUrl && React.createElement("div",{className:"card-qa-row"},
           React.createElement(QaCheckButton,{ gen:scaleGenWrapped, name:(c.name||"")+" \u00b7 scale", noun:"scale sheet" }))),
 
-      React.createElement(CardFold,{label:"Master reference prompt",defaultOpen:false},
+      // the sheet's prompt is a power-user tool: behind the card's ⋯ menu (2026-10-03)
+      showPrompt && React.createElement(CardFold,{label:"Master reference prompt",defaultOpen:true},
         React.createElement(CopyBox,{label:"Reference-Guided Textual Character Sheet",text:promptText}),
         React.createElement(SheetField,{label:"Negative prompt \u2014 exclude",value:c.negativePrompt||v.negativePrompt,multiline:true,
           onCommit:val=>onUpdate(c.id,{negativePrompt:val})}),
@@ -5447,10 +5404,11 @@ function ImageLightbox({ url, character, onClose, siblings, startIndex }){
               :React.createElement(React.Fragment,null,React.createElement(Icon.download,{s:14}),"Download "+res)))));
 }
 
-/* LOOKBOOK FIRST (2026-09-27, owner-approved — docs/Story Pipeline.md step 9): the cast drafts itself
-   silently only once the Lookbook has a look, so while the Lookbook is EMPTY and some character still
-   has no spec the Characters tab says so quietly — with Draft all still one tap away. Hidden while a
-   Draft all is already running (each card shows its own "Drafting from script…"). */
+/* LOOKBOOK FIRST (2026-09-27, owner-approved — docs/Story Pipeline.md step 9): drafting the cast after
+   the Lookbook has a look gives every character the film's look, so while the Lookbook is EMPTY and
+   some character still has no spec the Characters tab says so quietly — with Draft all still one tap
+   away. (Since 2026-10-03 nothing drafts silently; the user drafts when ready.) Hidden while a Draft
+   all is already running (each card shows its own "Drafting from script…"). */
 function charLookbookFirstHint(lookbook, lookbookNote, characters, draftingAll){
   if(draftingAll) return false;
   if(typeof window.lookbookHasLook!=="function" || window.lookbookHasLook(lookbook, lookbookNote)) return false;
@@ -5518,7 +5476,9 @@ function CharacterSheets({ project, characters, scenes, props, drafts, shots, be
   const matchesQuery = (c)=> (typeof searchWordMatch==="function") ? searchWordMatch((c.name||"")+" "+(c.role||""), q) : (!q || (c.name||"").toLowerCase().indexOf(q)>=0);
   const sceneList = scenesInStoryOrder(scenes);
   // which characters appear in each scene — DERIVED (characters have no `scenes` field):
-  // the scene's driver + everyone in its shots' subjects + the beats' reactor (by name).
+  // the scene's driver + everyone in its shots' subjects + the beats' reactor (by name) + every
+  // scene whose script / summary names them (the card's own "Appears in" rule, 2026-10-03 — a
+  // scene with no shots yet used to list only its driver).
   const charsInSceneMap = React.useMemo(()=>{
     const shotsBy = {}; (shots||[]).forEach(s=>{ (shotsBy[s.sceneId]=shotsBy[s.sceneId]||[]).push(s); });
     const m = {};
@@ -5531,44 +5491,66 @@ function CharacterSheets({ project, characters, scenes, props, drafts, shots, be
         const mm = list.find(c=> (c.name||"").toLowerCase()===rl || rl.includes((c.name||"").toLowerCase())); if(mm) ids.add(mm.id); }
       m[s.id] = ids;
     });
+    if(typeof scenesWhereCharacterAppears==="function") list.forEach(c=>{
+      let sids = [];
+      try{ sids = scenesWhereCharacterAppears(c.id, c.name, scenes, drafts) || []; }catch(e){}
+      sids.forEach(sid=>{ if(m[sid]) m[sid].add(c.id); });
+    });
     return m;
-  }, [scenes, shots, beatsMap, list]);
+  }, [scenes, shots, beatsMap, list, drafts]);
   const inScene = (c, sid)=> !!(charsInSceneMap[sid] && charsInSceneMap[sid].has(c.id));
   const shown = (sceneFilter ? list.filter(c=>inScene(c, sceneFilter)) : list).filter(matchesQuery);
+  const sceneCast = sceneFilter ? list.filter(c=>inScene(c, sceneFilter)) : [];   // the scene's cast, search ignored
   // 9-up pagination; suspended while a batch runs so the queue can reach every card
   const charPager = usePager(shown.length, !!batchActiveId);
   const sceneNoOf = (sid)=>{ const s=(scenes||[]).find(x=>x.id===sid); return s?s.no:sid; };
   const draftedIds = (subset)=> subset.filter(c=>charVisualsDrafted(c)).map(c=>c.id);
   // eligible = drafted characters only (so a card with no look/wardrobe never makes a generic sheet)
   const eligibleAll = list.filter(c=>charVisualsDrafted(c)).length;
-  // some cast still has no spec (e.g. an auto-draft didn't finish, or the Lookbook is still
-  // empty) — only THEN do we surface the manual "Draft" button; otherwise it's noise. The cast
-  // is auto-drafted once, after the Lookbook has a look (see charLookbookFirstHint).
+  // some cast still has no spec — only THEN does the "Draft" button show (the stage's primary);
+  // otherwise it's noise. Nothing drafts on its own any more (2026-10-03, owner: no silent
+  // spending) — the user drafts when ready, after the Lookbook (see charLookbookFirstHint).
   const someUndrafted = eligibleAll < list.length;
   const lookbookFirst = charLookbookFirstHint(lookbook, lookbookNote, list, draftingAll);
   // STAGED HEADER (design-clarity ruling 2026-07-14): exactly ONE primary action
   // per pipeline stage — draft (specs missing) → generate (specs done, sheets
   // missing) → done. The other actions stay reachable but demoted to ghosts,
   // and nothing renders as disabled orange noise.
-  const sheetedAll = (typeof nbGetImage==="function") ? list.filter(c=> !!nbGetImage(c.id)).length : 0;
+  // the header counts follow each finished generation (a sheet lands → "N missing" drops)
+  const [, setSheetTick] = React.useState(0);
+  React.useEffect(()=>{
+    const h = ()=> setSheetTick(t=>t+1);
+    window.addEventListener("nb-gen-done", h);
+    return ()=> window.removeEventListener("nb-gen-done", h);
+  },[]);
+  const hasSheet = (id)=> (typeof nbGetImage==="function") ? !!nbGetImage(id) : false;
+  const sheetedAll = list.filter(c=> hasSheet(c.id)).length;
   const castStage = someUndrafted ? "draft" : (sheetedAll < list.length ? "generate" : "done");
-  const startAllBatch = ()=>{
+  // MISSING SHEETS FIRST (2026-10-03): the header button renders only the drafted characters
+  // with no sheet yet, and its chip prices exactly those. Redoing existing sheets is the ghost
+  // "Regenerate…" once nothing is missing (the batch still asks before it redoes any).
+  const missingIds = (subset)=> draftedIds(subset).filter(id=> !hasSheet(id));
+  const missingAll = missingIds(list);
+  const sceneMissing = missingIds(sceneCast);
+  const sceneDrafted = draftedIds(sceneCast).length;
+  const startAllBatch = (onlyMissing)=>{
     if(batchActiveId) return;
-    const eligible = draftedIds(list);
-    if(!eligible.length){ batch.setMsg("Draft the characters first \u2014 nothing is ready to generate yet."); return; }
+    const eligible = onlyMissing ? missingAll : draftedIds(list);
+    if(!eligible.length){ batch.setMsg(onlyMissing ? "Every drafted character already has a sheet." : "Draft the characters first \u2014 nothing is ready to generate yet."); return; }
     // clear the SEARCH too, not just the scene/kind filters: the queue advances only
     // when the target CARD is mounted, so a batch whose first target was filtered out
     // by a search box never generated anything and hung until Cancel
     if(sceneFilter) setSceneFilter("");
     if(query) setQuery("");
-    batch.begin(eligible, list.length - eligible.length);
+    batch.begin(eligible, onlyMissing ? 0 : list.length - eligible.length);
   };
   // generate just the cast in the focused scene (mirrors Props / Locations)
-  const startSceneBatch = ()=>{
+  const startSceneBatch = (onlyMissing)=>{
     if(!sceneFilter || batchActiveId) return;
-    const eligible = draftedIds(shown);
-    if(!eligible.length){ batch.setMsg("Draft the characters in this scene first \u2014 nothing here is ready to generate."); return; }
-    batch.begin(eligible, shown.length - eligible.length);
+    const eligible = onlyMissing ? sceneMissing : draftedIds(sceneCast);
+    if(!eligible.length){ batch.setMsg(onlyMissing ? "Everyone drafted in this scene already has a sheet." : "Draft the characters in this scene first \u2014 nothing here is ready to generate."); return; }
+    if(query) setQuery("");   // the queue advances on mounted cards — a search must not hide one
+    batch.begin(eligible, onlyMissing ? 0 : sceneCast.length - eligible.length);
   };
   // when a character is added BY HAND, smooth-scroll it into view (parity with Props)
   const prevIdsRef = React.useRef(null);
@@ -5611,7 +5593,7 @@ function CharacterSheets({ project, characters, scenes, props, drafts, shots, be
             ((typeof roomCopy==="function" && roomCopy(project,"characters").title) || "Casting Director"),
             React.createElement(window.InfoTip,{label:"About Character Sheets",
               text:((typeof roomCopy==="function" && roomCopy(project,"characters").tip) ||
-                "A canonical visual reference for every character \u2014 the consistency anchor you feed into each shot so they look identical in every frame. 'Design the cast' runs the Casting Director agent: on its own it drafts each character's look, finds their appearance changes (wounds, dirt, costume shifts), then generates the master sheet (pulling in their prop sheets + any cameo) and every appearance-state variant. 'Draft all' + 'Generate all characters' stay as the manual paths.\n\nTHE CAST DERIVES FROM THE STORY \u2014 characters enter through story creation and screenplay development, then appear here ready to design. Neither room offers manual character creation.")}))),
+                "A canonical visual reference for every character \u2014 the consistency anchor you feed into each shot so they look identical in every frame. 'Design the cast' runs the Casting Director agent: it shows what it will make and the price first (the characters without a sheet, every character, or one scene's cast), then drafts each look, finds their appearance changes (wounds, dirt, costume shifts), generates the master sheet (pulling in their prop sheets + any likeness) and the appearance variants. 'Draft all' + 'Generate missing sheets' stay as the manual paths. Nothing is drafted or generated until you press a button.\n\nTHE CAST DERIVES FROM THE STORY \u2014 characters enter through story creation and screenplay development, then appear here ready to design. Neither room offers manual character creation.")}))),
         React.createElement("div",{className:"art-intro-actions"},
           window.RecentlyDeleted && React.createElement(window.RecentlyDeleted,{
             items:trashItems,kind:"character",onRestore,onPurge,compact:true}),
@@ -5622,15 +5604,20 @@ function CharacterSheets({ project, characters, scenes, props, drafts, shots, be
           // development; the Art Room designs only what the story establishes.
           // ONE primary per stage: "Design the cast" leads while specs are missing,
           // "Generate all" leads once everything is drafted; the rest are ghosts.
-          onCast && React.createElement("button",{className:"art-draftall ghost",disabled:!characters.length,onClick:onCast,
+          onCast && React.createElement("button",{className:"art-draftall ghost",disabled:!characters.length,onClick:()=>onCast({}),
             title:"Casting Director — drafts each character's look, finds their appearance changes, and generates the master sheet + every state variant, on its own"},
             React.createElement(Icon.robot,{s:14}),"Design the cast"),
-          someUndrafted && React.createElement("button",{className:"art-draftall ghost",disabled:draftingAll,onClick:onDraftAll,
+          someUndrafted && React.createElement("button",{className:"art-draftall",disabled:draftingAll,onClick:onDraftAll,
             title:"Draft the spec for any character that doesn't have one yet \u2014 identity, wardrobe, props & accessories, continuity and look dev (the master reference prompt builds from these). Specs only \u2014 no images; the manual alternative to Design the cast."},
             React.createElement(Icon.sparkles,{s:14}), draftingAll?"Designing\u2026":(eligibleAll>0?"Draft remaining":"Draft all (specs only)")),
-          castStage!=="draft" && React.createElement("button",{className:"art-draftall",disabled:!!batchActiveId||!eligibleAll,onClick:startAllBatch,
-            title:"Generate (or regenerate) the reference sheet for every drafted character \u2014 you choose whether to redo ones that already have a sheet"},
-            React.createElement(Icon.sparkles,{s:14}), batchActiveId?"Generating\u2026":"Generate all characters", typeof window.nbCostChip==="function" && window.nbCostChip(1)))),
+          missingAll.length>0 && React.createElement("button",{className:"art-draftall"+(castStage==="draft"?" ghost":""),disabled:!!batchActiveId,onClick:()=>startAllBatch(true),
+            title:"Generate the reference sheet for every drafted character that doesn't have one yet \u2014 existing sheets are left as they are"},
+            React.createElement(Icon.sparkles,{s:14}),
+            batchActiveId?"Generating\u2026":("Generate "+missingAll.length+" missing sheet"+(missingAll.length!==1?"s":"")),
+            typeof window.nbCostChip==="function" && window.nbCostChip(missingAll.length)),
+          (castStage!=="draft" && !missingAll.length && eligibleAll>0) && React.createElement("button",{className:"art-draftall ghost",disabled:!!batchActiveId,onClick:()=>startAllBatch(false),
+            title:"Regenerate the reference sheets of the drafted cast \u2014 you'll be asked before anything is redone, with the price"},
+            React.createElement(Icon.sparkles,{s:14}), batchActiveId?"Generating\u2026":"Regenerate sheets\u2026"))),
       lookbookFirst && React.createElement("div",{className:"char-lookbook-hint",role:"note"},
         React.createElement(Icon.image,{s:12}),
         React.createElement("span",null,
@@ -5638,7 +5625,7 @@ function CharacterSheets({ project, characters, scenes, props, drafts, shots, be
             ? React.createElement("button",{type:"button",className:"char-lookbook-hint-link",onClick:onOpenLookbook,
                 title:"Open the Lookbook tab"},"Build the Lookbook first")
             : "Build the Lookbook first",
-          " \u2014 the cast drafts itself from it once it has a look. Or ",
+          " \u2014 drafting the cast after it gives every character the film's look. Or ",
           React.createElement("button",{type:"button",className:"char-lookbook-hint-link",onClick:onDraftAll,
             title:"Draft the spec for every character that doesn't have one yet (specs only, no images)"},"draft now"),
           "."))),
@@ -5670,11 +5657,19 @@ function CharacterSheets({ project, characters, scenes, props, drafts, shots, be
         // staged like the header: sheets render FROM drafted specs, so the scene
         // batch button only appears once someone in the scene is drafted — before
         // that it was a full-orange no-op (the hint line explains what to do first)
-        sceneFilter && (charsInSceneMap[sceneFilter] ? list.some(c=> charsInSceneMap[sceneFilter].has(c.id) && charVisualsDrafted(c)) : false)
-          && React.createElement("button",{className:"art-draftall",disabled:!!batchActiveId,onClick:startSceneBatch,
-          title:"Generate the reference sheets for the characters in this scene — you choose whether to redo ones that already have a sheet"},
+        (sceneFilter && sceneMissing.length>0) && React.createElement("button",{className:"art-draftall",disabled:!!batchActiveId,onClick:()=>startSceneBatch(true),
+          title:"Generate the reference sheets of the drafted characters in this scene that don't have one yet"},
           React.createElement(Icon.sparkles,{s:14}),
-          batchActiveId?"Generating…":("Generate all in Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")), typeof window.nbCostChip==="function" && window.nbCostChip(1)))),
+          batchActiveId?"Generating…":("Generate "+sceneMissing.length+" missing in Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")),
+          typeof window.nbCostChip==="function" && window.nbCostChip(sceneMissing.length)),
+        (sceneFilter && !sceneMissing.length && sceneDrafted>0) && React.createElement("button",{className:"art-draftall ghost",disabled:!!batchActiveId,onClick:()=>startSceneBatch(false),
+          title:"Regenerate the reference sheets of the characters in this scene \u2014 you'll be asked before anything is redone, with the price"},
+          React.createElement(Icon.sparkles,{s:14}),
+          batchActiveId?"Generating…":("Regenerate Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")+"\u2026")),
+        (sceneFilter && onCast && !batchActiveId) && React.createElement("button",{className:"art-draftall ghost",
+          onClick:()=>onCast({ sceneId:sceneFilter, sceneNo:sceneNoOf(sceneFilter), sceneIds:sceneCast.map(c=>c.id) }),
+          title:"Casting Director for this scene only \u2014 drafts, generates and adds appearance variants for the characters in it. Shows what it will make and the price before it starts."},
+          React.createElement(Icon.robot,{s:14}),"Design this scene's cast"))),
     BatchBar && React.createElement(BatchBar,{batch,noun:"character"}),
     React.createElement("div",{className:"sheet-grid"},
       charPager.slice(shown).map(c=>React.createElement(CharacterSheet,{key:c.id,c,project,scenes,props,drafts,cast:characters,speaks:speakingSet.has(c.id),onUpdate,onDraft,
@@ -5815,6 +5810,82 @@ function CoordConfirm({ project, characters, props, locations, shots, scenes, dr
           React.createElement(Icon.robot,{s:16}), "Run pre-production"))));
 }
 window.CoordConfirm = CoordConfirm;
+
+/* DESIGN THE CAST — what the Casting Director will make, and its price, BEFORE it runs
+   (2026-10-03, owner). It used to start the moment the button was pressed and work through the
+   whole cast. Scope: the characters with no sheet yet (default), every character, or one scene's
+   cast (from "Design this scene's cast"); appearance variants can be left out. It only fills
+   what's missing either way — nothing that exists is regenerated. */
+function castDesignPlan(characters, scope, sceneIds, withVariants){
+  const img = (id)=> (typeof nbGetImage==="function") ? !!nbGetImage(id) : false;
+  const drafted = (typeof charVisualsDrafted==="function") ? charVisualsDrafted : (()=>true);
+  const C = (characters||[]).filter(Boolean);
+  const inScene = new Set(sceneIds||[]);
+  const list = scope==="scene" ? C.filter(c=>inScene.has(c.id))
+    : scope==="missing" ? C.filter(c=>!img(c.id)) : C;
+  const specs = list.filter(c=>!drafted(c)).length;
+  const sheets = list.filter(c=>!img(c.id)).length;
+  const variants = withVariants ? list.reduce((a,c)=> a + ((c.states)||[]).filter(st=>st && !img(c.id+":"+st.id)).length, 0) : 0;
+  const noStates = withVariants ? list.filter(c=>!((c.states)||[]).length).length : 0;
+  return { ids:list.map(c=>c.id), n:list.length, specs, sheets, variants, noStates, images:sheets+variants };
+}
+window.castDesignPlan = castDesignPlan;
+function CastConfirm({ characters, sceneId, sceneNo, sceneIds, onCancel, onConfirm }){
+  const C = characters||[];
+  const [scope, setScope] = React.useState(sceneId ? "scene" : "missing");
+  const [withVariants, setWithVariants] = React.useState(true);
+  const plan = castDesignPlan(C, scope, sceneIds, withVariants);
+  const count = (sc)=> castDesignPlan(C, sc, sceneIds, false).n;
+  const scNo = String(sceneNo!=null ? sceneNo : "").padStart(2,"0");
+  const scopes = [
+    sceneId ? { id:"scene", label:"Scene "+scNo+"'s cast", n:count("scene") } : null,
+    { id:"missing", label:"Characters without a sheet", n:count("missing") },
+    { id:"all", label:"Every character", n:count("all"), hint:"also adds missing appearance variants to finished characters" },
+  ].filter(Boolean);
+  const note = (icon, text, cls)=> React.createElement("div",{className:"cc-note"+(cls?" "+cls:"")},
+    React.createElement(Icon[icon]||Icon.alert,{s:12}), React.createElement("span",null,text));
+  const lines = [
+    { id:"specs", label:"Looks to draft", unit:"spec", n:plan.specs, writing:true },
+    { id:"sheets", label:"Master sheets", unit:"sheet", n:plan.sheets },
+    { id:"variants", label:"Appearance variants", unit:"variant", n:plan.variants },
+  ].filter(l=>l.n>0);
+  const nothing = !plan.n || (!plan.specs && !plan.images && !plan.noStates);
+  return React.createElement("div",{className:"ns-overlay",onMouseDown:e=>{ if(e.target===e.currentTarget) onCancel(); }},
+    React.createElement("div",{className:"cc-modal","data-testid":"cast-confirm"},
+      React.createElement("div",{className:"cc-head"},
+        React.createElement("span",{className:"cc-orb"}, React.createElement(Icon.robot,{s:18})),
+        React.createElement("div",null,
+          React.createElement("div",{className:"cc-title"},"Design the cast"),
+          React.createElement("div",{className:"cc-sub"},"The Casting Director drafts each look, finds appearance changes, then makes the master sheet and its variants. It only fills what's missing \u2014 nothing that exists is redone."))),
+      React.createElement("div",{className:"cc-scope",role:"radiogroup","aria-label":"Which characters"},
+        scopes.map(o=>React.createElement("label",{key:o.id,className:"cc-scope-opt"+(scope===o.id?" on":"")},
+          React.createElement("input",{type:"radio",name:"cast-scope",checked:scope===o.id,onChange:()=>setScope(o.id)}),
+          React.createElement("span",{className:"cc-scope-lab"}, o.label,
+            o.hint && React.createElement("span",{className:"cc-scope-hint"}, o.hint)),
+          React.createElement("span",{className:"cc-list-n"}, o.n+" character"+(o.n!==1?"s":""))))),
+      React.createElement("label",{className:"cc-check"},
+        React.createElement("input",{type:"checkbox",checked:withVariants,onChange:e=>setWithVariants(e.target.checked)}),
+        React.createElement("span",null,"Also make appearance variants (wounds, dirt, costume changes)")),
+      nothing
+        ? note("check", plan.n ? "Everything in this choice already exists \u2014 there's nothing to make." : "No characters in this choice.", "ok")
+        : React.createElement(React.Fragment,null,
+            React.createElement("div",{className:"cc-est"},
+              React.createElement("span",{className:"cc-est-n"}, String(plan.images)),
+              React.createElement("span",{className:"cc-est-l"}, "image"+(plan.images===1?"":"s")+" to generate"),
+              plan.images>0 && typeof window.nbCostChip==="function" && window.nbCostChip(plan.images)),
+            lines.length>0 && React.createElement("ul",{className:"cc-list"},
+              lines.map(l=>React.createElement("li",{key:l.id},
+                React.createElement("span",{className:"cc-list-lab"}, l.label),
+                React.createElement("span",{className:"cc-list-n"}, l.n+" "+l.unit+(l.n===1?"":"s")+(l.writing?" \u00b7 writing credits":""))))),
+            plan.noStates>0 && note("alert", plan.noStates+" character"+(plan.noStates!==1?"s have":" has")+" no appearance changes listed yet \u2014 each one it finds adds one image."),
+            note("info","Each image uses credits at the engine and resolution set at the top of this tab.","info")),
+      React.createElement("div",{className:"cc-foot"},
+        React.createElement("button",{className:"ns-btn ghost",onClick:onCancel},"Cancel"),
+        React.createElement("button",{className:"ns-btn primary",disabled:nothing,
+          onClick:()=>onConfirm({ only: scope==="all" ? null : plan.ids, variants:withVariants })},
+          React.createElement(Icon.robot,{s:16}), "Design "+plan.n+" character"+(plan.n!==1?"s":"")))));
+}
+window.CastConfirm = CastConfirm;
 
 /* shown only when a tab's component hasn't loaded (every tab is built — this used to
    promise a coming-soon increment for tabs that already exist) */

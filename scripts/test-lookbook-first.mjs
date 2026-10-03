@@ -78,6 +78,9 @@ const box = {
   appToast: (msg, kind) => { toasts.push({ msg, kind }); },
 };
 box.window = box;
+// The silent cast draft is OFF by default since 2026-10-03 (owner: no silent spending); the
+// A-section tests below pin its rules with the switch ON, and A0b checks the default.
+box.TURN_CAST_AUTO_DRAFT = true;
 vm.createContext(box);
 vm.runInContext(between(look, "function lookbookCardDrafted(c)", "window.lookbookHasLook = lookbookHasLook;") + "window.lookbookHasLook = lookbookHasLook;", box, { filename: "app/lookbook.jsx" });
 vm.runInContext(art.split("\n").find(l => l.startsWith("function vfield(")), box, { filename: "app/artroom.jsx" });
@@ -208,6 +211,22 @@ function autoDraft(extra, body = effectSrc) {
   // addLookbookCard still creates exactly the placeholder shape tested above
   ok("A0 addLookbookCard's placeholder shape is the one tested",
     app.includes('setLookbook(ls=>[...ls, { id, source:"Palette study", category:"Palette", note:"", negativePrompt:"", manual:true, autoNamed:true }]);'));
+}
+// A0b — DEFAULT (2026-10-03): with the switch off, a Lookbook look + every tab never drafts the
+// cast, burns no guard, and a fully drafted cast still latches visualsSeeded
+{
+  box.TURN_CAST_AUTO_DRAFT = undefined;
+  const { h, calls } = autoDraft({ ...WITH_NOTE });
+  for (const t of TABS) h.update({ room: "art", artView: t });
+  ok("A0b switch off: a look + every tab drafts nothing", calls.length === 0, calls.length);
+  ok("A0b switch off: no once-guard burned", Object.keys(h.out.tried).length === 0);
+  const d = autoDraft({ ...WITH_NOTE, characters: [drafted("c1", "Mara")] });
+  d.h.update({ room: "art", artView: "characters" });
+  ok("A0b switch off: a fully drafted cast still latches", d.h.out.visualsSeeded === true && d.calls.length === 0);
+  ok("A0b the step: autoDraft false → wait", box.turnCastAutoDraftStep({ canWrite: true, room: "art", characters: [undrafted("c1", "M")],
+    lookbookNote: "x", lookbook: [], artView: "props", autoDraft: false, drafted: box.charVisualsDrafted }) === "wait");
+  ok("A0b the effect reads the switch", app.includes("autoDraft:window.TURN_CAST_AUTO_DRAFT===true"));
+  box.TURN_CAST_AUTO_DRAFT = true;
 }
 // A1 — no Lookbook: nothing on any tab, and the once-guard is untouched
 {
@@ -534,7 +553,9 @@ function autoDraft(extra, body = effectSrc) {
     /onCoordinate:async \(\)=>\{\s*if\(turnCastDraftingBlocksAgent\(draftingAllVisualsRef\.current, "Run pre-production"\)\) return;\s*if\(await requireStory\("Art Coordinator"\)\) setCoordConfirm\(true\); \}/.test(app)
     && /onConfirm:\(\)=>\{ setCoordConfirm\(false\);\s*if\(turnCastDraftingBlocksAgent\(draftingAllVisualsRef\.current, "Run pre-production"\)\) return;\s*setCoordOpen\(true\); \}/.test(app));
   ok("A14 Design the cast checks before opening the Casting Director",
-    app.includes('onCast:()=>{ if(!turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Design the cast")) setCastingOpen(true); },'));
+    app.includes('onCast:(opts)=>{ if(!turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Design the cast")) setCastConfirm(opts||{}); },')
+    // …and again when its preview's button starts the run (2026-10-03)
+    && /onConfirm:\(scope\)=>\{ setCastConfirm\(null\);\s*if\(turnCastDraftingBlocksAgent\(draftingAllVisualsRef\.current, "Design the cast"\)\) return;/.test(app));
   const apply = between(app, "  const applyLookbook = async (dept, mode)=>{", "  const [researchOpen, setResearchOpen]");
   ok("A14 a Characters re-draft from the Lookbook checks before and after its confirm",
     (apply.match(/if\(dept==="characters" && turnCastDraftingBlocksAgent\(draftingAllVisualsRef\.current, "Re-drafting Characters"\)\) return;/g) || []).length === 2
@@ -718,9 +739,10 @@ const bootNav = () => JSON.parse(store.get("turn-nav-v1") || "null") || {};
   ok("C CharacterSheets renders the hint from the shared predicate with the owner's copy",
     sheets.includes("const lookbookFirst = charLookbookFirstHint(lookbook, lookbookNote, list, draftingAll);")
     && sheets.includes('lookbookFirst && React.createElement("div",{className:"char-lookbook-hint",role:"note"}')
-    && sheets.includes('"Build the Lookbook first"') && sheets.includes('" \\u2014 the cast drafts itself from it once it has a look. Or "')
+    && sheets.includes('"Build the Lookbook first"') && sheets.includes('" \\u2014 drafting the cast after it gives every character the film\'s look. Or "')
     && sheets.includes('onClick:onDraftAll') && sheets.includes('"draft now"'));
-  ok("C the Draft all button still shows whenever someone is undrafted", sheets.includes("someUndrafted && React.createElement(\"button\",{className:\"art-draftall ghost\",disabled:draftingAll,onClick:onDraftAll,"));
+  // since 2026-10-03 nothing drafts on its own, so Draft all is the draft stage's PRIMARY (not a ghost)
+  ok("C the Draft all button still shows whenever someone is undrafted (the stage's primary)", sheets.includes("someUndrafted && React.createElement(\"button\",{className:\"art-draftall\",disabled:draftingAll,onClick:onDraftAll,"));
   ok("C ArtRoom hands the Lookbook + a way to open it to the Characters tab",
     art.includes('lookbook,lookbookNote,onOpenLookbook:setArtView?()=>setArtView("lookbook"):null})'));
   const rule = (css.match(/\.char-lookbook-hint\{[^}]*\}/) || [""])[0];
@@ -772,10 +794,10 @@ const bootNav = () => JSON.parse(store.get("turn-nav-v1") || "null") || {};
   const all = F.map(f => f.what).join("\n");
   ok("E MUSE: no 'first Art Room open' / 'any tab' / 'per device' / FIRST VISIT claims remain",
     !/first Art Room open|first time the Art Room is opened|\(any tab\)|remembered per device|FIRST VISIT/.test(all));
-  ok("E MUSE Art Room: Lookbook-first silent draft rules",
-    /ONCE THE LOOKBOOK HAS SOMETHING IN IT \(a visual statement or at least one reference card/.test(arr)
-    && /OTHER than the Lookbook/.test(arr) && /never runs while an agent is working/.test(arr)
-    && /With an EMPTY Lookbook nothing is drafted silently/.test(arr) && /Build the Lookbook first/.test(arr) && /'Draft all' button drafts the cast on demand/.test(arr));
+  ok("E MUSE Art Room: Lookbook first, and NOTHING drafts silently (2026-10-03)",
+    /draft the cast once THE LOOKBOOK HAS SOMETHING IN IT \(a visual statement or at least one reference card/.test(arr)
+    && /NOTHING IS DRAFTED SILENTLY/.test(arr) && !/AUTO-DRAFTED silently/.test(arr)
+    && /Build the Lookbook first/.test(arr) && /'Draft all' button drafts the cast on demand/.test(arr));
   ok("E MUSE Art Room: a blank 'Add reference' card counts only once it has content",
     /a blank card just added with 'Add reference' starts counting once it has a note, a named touchstone or an image/.test(arr));
   ok("E MUSE Art Room: only roles that save the Art Room; agents wait for a running Draft all",
@@ -784,18 +806,19 @@ const bootNav = () => JSON.parse(store.get("turn-nav-v1") || "null") || {};
   // 2026-09-27 (owner-approved): the story build no longer drafts the cast's look, so a New Story
   // film's cast is designed by this same silent draft once the Lookbook has a look (and only
   // pre-change films, which carry a build-drafted spec, get the 'Lookbook changed' banner)
-  ok("E MUSE Art Room: New Story films arrive with NO cast look — the silent draft designs it from the Lookbook (truthful about the build)",
+  ok("E MUSE Art Room: New Story films arrive with NO cast look — the user drafts it from the Lookbook (truthful about the build)",
     /A film built with New Story arrives the same way: the STORY BUILD NO LONGER DRAFTS THE CAST'S LOOK/.test(arr)
-    && /the silent draft designs the whole cast from the Lookbook once/.test(arr)
+    && /open Characters and press Draft all \(or Design the cast\)/.test(arr) && !/the silent draft designs/.test(arr)
     && !/the build itself already drafts every character's spec/.test(arr)
     && /Films built before this change already carry a build-drafted spec/.test(arr) && /'Lookbook changed' banner/.test(arr));
   ok("E MUSE Art Room: tab remembered per film, new films/Episodes on the Lookbook",
     /remembered PER FILM/.test(arr) && /never opened in the Art Room opens on the LOOKBOOK/.test(arr) && /every new Episode of a series start on the Lookbook/.test(arr));
   ok("E MUSE Art Room: recommended order starts with the Lookbook", /The recommended order of work is: Lookbook → Characters/.test(arr));
-  ok("E MUSE Character Sheets: both auto-draft sentences follow the new rule (replace chain intact)",
-    /The cast is auto-drafted once the Lookbook has a look \(a visual statement or a reference card\), the first time you open an Art Room tab other than the Lookbook — never while an agent is running/.test(cs)
+  ok("E MUSE Character Sheets: both draft sentences say nothing drafts on its own (replace chain intact)",
+    /NOTHING IS DRAFTED OR GENERATED ON ITS OWN \(owner 2026-10-03\)/.test(cs)
     && /Character cards have no standalone Draft details button/.test(cs)
-    && /The cast AUTO-DRAFTS once the Lookbook has a look/.test(cs) && /tries again the next time the app is opened or reloaded/.test(cs));
+    && /Nothing drafts silently: you draft the cast when you're ready/.test(cs)
+    && !/AUTO-DRAFTS|auto-drafted once/.test(cs));
 }
 
 /* ── F. parse + cache keys ───────────────────────────────────────────────── */

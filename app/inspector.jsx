@@ -107,8 +107,7 @@ function EditableItemList({ value, placeholder, onCommit, onItemRemoved, onItemR
     if(onItemRemoved && itemText){
       const ok = await window.appConfirm({
         title: "Remove \u201c"+itemText+"\u201d"+(ownerName?(" from "+ownerName):"")+"?",
-        body: "This also deletes its prop card and any generated reference sheet from the Props tab.",
-        note: "This can't be undone.",
+        body: "This also moves its prop card (with any generated reference sheet) to the Props tab's Recently Deleted, where it can be restored.",
         confirmLabel: "Remove", danger: true,
       });
       if(!ok) return;

@@ -1771,12 +1771,18 @@ async function agentCastingDirector(ctx){
     ctx.emit({k:"flag", t:"No cast yet — build the spine first, then run the Casting Director."});
     ctx.emit({k:"done", t:"Nothing to cast."}); return;
   }
-  const N = cast.list.length;
+  // the scope chosen in Design the cast's preview (ctx.castOnly: ids, null = everyone) and whether
+  // to make appearance variants (ctx.castVariants, default yes)
+  const only = Array.isArray(ctx.castOnly) ? new Set(ctx.castOnly) : null;
+  const castList = only ? cast.list.filter(c=>c && only.has(c.id)) : cast.list;
+  const withVariants = ctx.castVariants!==false;
+  if(!castList.length){ ctx.emit({k:"done", t:"Nothing to cast in this selection."}); return; }
+  const N = castList.length;
   ctx.emit({k:"plan", t: ctx.draftOnly
     ? "Re-drafting the cast from the updated Lookbook — for each of the "+N+" character"+(N!==1?"s":"")+": re-draft the look and appearance states. Specs only — every master sheet and variant stays untouched."
-    : "Designing the cast — for each of the "+N+" character"+(N!==1?"s":"")+": draft the look, find their appearance changes, generate the master sheet (with prop + cameo references), then each state variant."});
+    : "Designing the cast — for each of the "+N+" character"+(N!==1?"s":"")+": draft the look"+(withVariants?", find their appearance changes":"")+", generate the master sheet (with prop + likeness references)"+(withVariants?", then each state variant":"")+". Only what's missing is made."});
   let specs=0, sheets=0, variants=0;
-  for(const ch of cast.list){
+  for(const ch of castList){
     if(ctx.cancelled()){ ctx.emit({k:"flag", t:"Stopped — "+sheets+" sheet"+(sheets!==1?"s":"")+" generated."}); return; }
     let c = ch;
     ctx.emit({k:"act", t:"Casting "+(c.name||"a character")+"…"});
@@ -1791,7 +1797,7 @@ async function agentCastingDirector(ctx){
     if(!cast.isDrafted(c)){ ctx.emit({k:"flag", t:(c.name||"This character")+" has no spec yet (add a look in the Characters tab) — skipping."}); continue; }
 
     // 2) suggest appearance states if none
-    if(!(c.states && c.states.length) && ctx.ai && ctx.ai.available){
+    if(withVariants && !(c.states && c.states.length) && ctx.ai && ctx.ai.available){
       ctx.emit({k:"act", t:"Finding "+(c.name||"the character")+"'s appearance changes…"});
       try{ const sts = await cast.suggestStates(c); if(sts && sts.length){ c = {...c, states:sts}; } }catch(e){}
     }
@@ -1812,7 +1818,7 @@ async function agentCastingDirector(ctx){
     if(ctx.cancelled()) return;
 
     // 4) generate each appearance-state variant (identity-locked off the master)
-    for(const st of (c.states||[])){
+    for(const st of (withVariants ? (c.states||[]) : [])){
       if(ctx.cancelled()){ ctx.emit({k:"flag", t:"Stopped — "+sheets+" sheets, "+variants+" variants."}); return; }
       const sid = c.id+":"+st.id;
       const have = ctx.force ? "" : await cast.imageOf(sid);

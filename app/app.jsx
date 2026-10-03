@@ -131,6 +131,9 @@ function turnCastAutoDraftStep(s){
   if(s.draftingAll) return "wait";                                  // a Draft all is already running
   const drafted = (typeof s.drafted==="function") ? s.drafted : (()=>true);
   if(!cast.some(c=>!drafted(c))) return s.latched ? "wait" : "latch";
+  // NO SILENT SPENDING (2026-10-03, owner): the cast is drafted only when the user asks (Draft
+  // all / Design the cast). The old silent pass is kept behind window.TURN_CAST_AUTO_DRAFT===true.
+  if(s.autoDraft===false) return "wait";
   if(s.tried) return "wait";                                        // once per film per session
   return "start";
 }
@@ -610,7 +613,8 @@ function App(){
   const [propsMasterOpen, setPropsMasterOpen] = React.useState(false);   // Props Master (Art Room)
   const [locScoutOpen, setLocScoutOpen] = React.useState(false);   // Location Scout (Art Room)
   // when an agent is opened via the Lookbook "Re-draft & regenerate" action, run it in force mode
-  const [castingForce, setCastingForce] = React.useState(false);
+  const [castingForce, setCastingForce] = React.useState(false);   // false | true | "draft" | {only:[ids]|null, variants}
+  const [castConfirm, setCastConfirm] = React.useState(null);      // Design the cast's preview: {sceneId, sceneNo, sceneIds} | null
   const [propsMasterForce, setPropsMasterForce] = React.useState(false);
   const [locScoutForce, setLocScoutForce] = React.useState(false);
   // ---- Lookbook staleness: which Art Room tabs are out of date vs the current Lookbook ----
@@ -3953,11 +3957,13 @@ function App(){
     const norm = s=> String(s||"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,40);
     const target = norm(itemText);
     if(!charId || !target) return;
-    setProps(ps=>{
-      const victims = ps.filter(p=> p.ownerId===charId && norm(p.name)===target);
-      victims.forEach(p=>{ try{ if(typeof nbClearAsset==="function") nbClearAsset(p.id); }catch(e){} });
-      return victims.length ? ps.filter(p=>!victims.includes(p)) : ps;
-    });
+    // SOFT (2026-10-03): the prop cards go to the Props tab's Recently Deleted with their sheets
+    // (restorable; "Delete forever" there clears the images) — it used to clear them for good.
+    const victims = (props||[]).filter(p=> p.ownerId===charId && norm(p.name)===target);
+    if(!victims.length) return;
+    const ids = new Set(victims.map(p=>p.id));
+    setProps(ps=> ps.filter(p=>!ids.has(p.id)));
+    setTrash(t=>({ ...t, props:[ ...victims.map(_trashStamp), ...(t.props||[]).filter(x=>!ids.has(x.id)) ] }));
   };
   const _normPropName = s=> String(s||"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,40);
   // SELF-HEAL worn↔carried (user ruling 2026-07-14: users never fix this by hand):
@@ -4243,6 +4249,9 @@ function App(){
       window.removeEventListener("nb-prop-drafted",onPropDrafted); };
   },[characters, props, scenes, drafts, project, lookbook, lookbookNote]);
 
+  // SWITCHED OFF 2026-10-03 (owner: no silent spending — a user who wants one scene shouldn't pay to
+  // draft the whole cast): this runs only with window.TURN_CAST_AUTO_DRAFT===true; otherwise it just
+  // latches visualsSeeded once everyone has a spec. The rules below are kept for that switch.
   // auto-draft the cast once per story — LOOKBOOK FIRST (2026-09-27, owner-approved; docs/Story
   // Pipeline.md step 9). The Lookbook steers the wardrobe, so the silent draft waits until the
   // Lookbook has a look (a visual statement or at least one reference card) and then fires the first
@@ -4269,7 +4278,7 @@ function App(){
     const step = turnCastAutoDraftStep({ canWrite:castAutoDraftWritable, room, artView, visualsSeeded,
       hydrating:hydratingRef.current, characters, lookbook, lookbookNote, agentRuns:window.__turnAgentRunCount,
       draftingAll:draftingAllVisuals, tried:!!_autoDraftTried.current[key], latched:!!_autoDraftLatched.current[key],
-      drafted:window.charVisualsDrafted });
+      drafted:window.charVisualsDrafted, autoDraft:window.TURN_CAST_AUTO_DRAFT===true });
     if(step==="latch"){ _autoDraftLatched.current[key] = true; setVisualsSeeded(true); return; }   // everyone already has a spec
     if(step!=="start") return;
     _autoDraftTried.current[key] = true;
@@ -6674,6 +6683,8 @@ function App(){
 
     const draftOnly = force==="draft";
     const forceImages = force===true;
+    // Design the cast's preview scope (CastConfirm): only these characters / no variants
+    const castScope = (force && typeof force==="object") ? force : null;
     const ctxArgs = { input, emit, propose, cancelled, agentName, force, owner:ownerProjectId, run };
     return { input, emit, propose, project, force: forceImages,
       cancelled: ()=> cancelled() || switchedFilms(),
@@ -6690,6 +6701,8 @@ function App(){
       },
       // "Re-draft only": re-draft every spec from the Lookbook but leave generated images alone
       draftOnly,
+      castOnly: castScope && Array.isArray(castScope.only) ? castScope.only.slice() : null,
+      castVariants: !(castScope && castScope.variants===false),
       ai:{ available: (typeof aiAvailable==="function" && aiAvailable()) },
       art:{
         coverage,
@@ -7366,7 +7379,8 @@ function App(){
             onRestoreChar:restoreCharacter,onPurgeChar:purgeCharacter,onRestoreProp:restoreProp,onPurgeProp:purgeProp,
             onRestoreLoc:restoreLocation,onPurgeLoc:purgeLocation,onRestoreShot:restoreShot,onPurgeShot:purgeShot,onEnsureOwner:ensureOwnerSheet,
             onColorist:(refs)=>{ if(typeof refs==="string") setStyleRefs(refs.trim()); setColoristOpen(true); },
-            onCast:()=>{ if(!turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Design the cast")) setCastingOpen(true); },
+            // "Design the cast" opens its preview first (what it makes + the price, 2026-10-03)
+            onCast:(opts)=>{ if(!turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Design the cast")) setCastConfirm(opts||{}); },
             onResearch:()=>setResearchOpen(true),
             onResearchFresh:roomReadOnly ? null : researchLookbookFresh,
             lookbook,lookbookNote,onUpdateLookbook:updateLookbookCard,onAddLookbook:addLookbookCard,
@@ -7564,6 +7578,8 @@ function App(){
     // Casting Director — autonomous cast-design agent, launched from the Characters header.
     castingOpen && React.createElement(AgentsPanel,{
       initialAgentId:"casting", autoStart:true, single:true, viewLabel:"View Characters", force:castingForce,
+      // from Design the cast's preview the run starts at once (its button was the go-ahead)
+      runOnOpen: !!(castingForce && typeof castingForce==="object"),
       ctxFactory:artAgentCtxFactory,
       onClose:()=>{ setCastingOpen(false); setCastingForce(false); },
       onView:()=>{ setArtView("characters"); setCastingOpen(false); setCastingForce(false); },
@@ -7608,6 +7624,13 @@ function App(){
     // It renders no shot frames and composes no storyboard — those stay in their tabs.
     // #2 — cost/scope preview before the Coordinator spends. It names the writing model, and
     // its Run button starts the run (the panel opens running — no second Run press).
+    castConfirm && window.CastConfirm && React.createElement(window.CastConfirm,{
+      characters, sceneId:castConfirm.sceneId, sceneNo:castConfirm.sceneNo, sceneIds:castConfirm.sceneIds,
+      onCancel:()=>setCastConfirm(null),
+      onConfirm:(scope)=>{ setCastConfirm(null);
+        if(turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Design the cast")) return;
+        setCastingForce({ only:(scope&&scope.only)||null, variants:!(scope && scope.variants===false) });
+        setCastingOpen(true); }}),
     coordConfirm && window.CoordConfirm && React.createElement(window.CoordConfirm,{
       project, characters, props, locations, shots, scenes, drafts, wardrobeCount,
       onCancel:()=>setCoordConfirm(false),

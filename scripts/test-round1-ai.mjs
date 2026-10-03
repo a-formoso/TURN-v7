@@ -139,7 +139,14 @@ await test("A2 fictional formats: every beat prompt is byte-identical to before 
   assert.ok(old, "git "+BEFORE+":app/ai.jsx is readable");
   for(const format of ["feature","film","commercial","musicvideo","microdrama"]){
     const P = { title:"T", format, framework:"threeact", logline:"A welder retraces a convoy route." };
-    const now = await beatPrompts(box, P), was = await beatPrompts(old, P);
+    // deliberate later edits to the shared prompt text are applied to the baseline first, so this
+    // still proves Round 1 itself left fiction alone (2026-10-03: a they/them character keeps their pronouns)
+    const later = (x)=> String(x)
+      .replace("NEVER singular \u201cthey/them\u201d for an individual (ambiguous on the page and for image/video models); plural",
+        "NEVER singular \u201cthey/them\u201d for an individual (ambiguous on the page and for image/video models) unless the cast list gives that person they/them; plural")
+      .replace("never singular they/them for an individual. ", "never singular they/them for an individual unless the cast list gives that person they/them. ")
+      .replace("NEVER singular they/them for an individual; plural they only for true groups.", "NEVER singular they/them for an individual unless this list gives that person they/them; plural they only for true groups.");
+    const now = await beatPrompts(box, P), was = (await beatPrompts(old, P)).map(later);
     assert.equal(now.length, was.length);
     now.forEach((x,i)=>assert.equal(x, was[i], format+" prompt "+i+" changed"));
     assert.ok(now.every(x=>!/REAL SUBJECTS|BEATS FROM THE RECORD/.test(x)), format+" never sees the documentary rule");

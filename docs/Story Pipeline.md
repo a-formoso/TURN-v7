@@ -461,7 +461,10 @@ Each entity gets a canonical, reusable reference so every generated image stays 
     **Generate all images** then skips objects marked **Text only** (seen once and never handled), which
     shots describe in words instead of attaching an image.
   - **Draft all characters** → Identity, Wardrobe, Props & accessories, Continuity (appearance states,
-    where the script shows the look change), Look dev. **The cast is auto-drafted once, silently, once
+    where the script shows the look change), Look dev. *Switched off 2026-10-03 (owner, Characters review:
+    nothing is drafted or generated on its own — the user presses **Draft all**, the draft stage's main
+    button, or **Design the cast**, whose preview shows the scope and price first; the silent pass below is
+    kept behind `window.TURN_CAST_AUTO_DRAFT` and runs only if that is turned on) —* **The cast is auto-drafted once, silently, once
     the Lookbook has something in it** (a visual statement or at least one reference) — the first time any
     Art Room tab other than the Lookbook is opened after that *(2026-09-27, owner-approved: it used to run on
     the first Art Room visit even with no Lookbook, so the wardrobe was drafted twice)*. It never runs while
