@@ -8248,7 +8248,8 @@ html[data-theme="dark"] .hd-card-new-art{ box-shadow:none; }
 .team-cap{font:500 10.5px var(--f-mono);letter-spacing:.03em;color:var(--txt-3);padding:0 2px}
 .team-member-budget{font-size:11px;color:var(--txt-2);margin-top:2px}
 .team-seat.expired .team-member-role{color:var(--alert)}
-.team-budget{width:84px;height:30px;border:1px solid var(--line-2);border-radius:var(--r-m);background:var(--bg-2);
+.team-funds{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px;color:var(--txt-2);padding:0 2px}
+.team-budget{width:158px;height:30px;border:1px solid var(--line-2);border-radius:var(--r-m);background:var(--bg-2);
   color:var(--txt-0);font:500 11.5px var(--f-ui);padding:0 8px}
 .team-budget:focus{outline:none;border-color:var(--pos)}
 .team-budget::placeholder{color:var(--txt-3)}

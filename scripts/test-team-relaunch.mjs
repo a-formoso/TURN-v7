@@ -125,7 +125,7 @@ const MEMBERS = [
 const SPEND = { m1:{ member_id:"m1", spent:120, budget:200 } };
 const windowFor = (meta, plan, state = {})=>{
   cb.turnTeamSharing = true; cb.turnIsAdmin = false;
-  cb.turnCreditBalance = plan ? { plan, paymentStatus:"active", frozen:false } : null;
+  cb.turnCreditBalance = plan ? { plan, paymentStatus:"active", frozen:false, remaining:1234 } : null;
   R.reset({ 0:MEMBERS, 1:SPEND, ...state });
   return TeamWindow({ projectId:"p1", projectTitle:"Neon Harbor", projectMeta:meta, series:false, onClose:noop, onChanged:noop });
 };
@@ -145,17 +145,28 @@ await test("B1 a Director owner: invite form without Stage editor, '2 of 5 peopl
   assert.equal(textOf(findAll(seats[1], hasClass("team-member-budget"))[0]), "0 credits this month · no limit");
   assert.equal(findAll(seats[0], hasClass("team-again")).length, 0, "no Invite again once joined");
   assert.equal(findAll(seats[1], hasClass("team-again")).length, 1); assert.equal(findAll(seats[2], hasClass("team-again")).length, 1);
+  // the budget is picked from No limit, the plan's default and the credit pack sizes (owner 2026-10-03)
   const budget = findAll(seats[0], hasClass("team-budget"))[0];
-  assert.equal(budget.props.value, "200"); assert.equal(budget.props.placeholder, "No limit");
+  assert.equal(budget.type, "select"); assert.equal(budget.props.value, "200");
+  assert.deepEqual(findAll(budget, n=>n.type==="option").map(o=>[o.props.value, textOf(o)]),
+    [["", "No limit"], ["200", "200 a month (default)"], ["250", "250 a month"], ["1000", "1,000 a month"], ["3000", "3,000 a month"]]);
+  assert.equal(findAll(seats[1], hasClass("team-budget"))[0].props.value, "", "no limit");
+  // the owner's balance and the way to top it up
+  const funds = findAll(w, hasClass("team-funds"))[0];
+  assert.match(textOf(funds), /^Your balance: 1,234 credits — your team's work on this film comes out of it\.Add credits$/);
+  let opened = 0; cb.turnOpenCreditPacks = ()=>{ opened++; };
+  findAll(funds, n=>n.type==="button")[0].props.onClick(); assert.equal(opened, 1, "Add credits opens the credit packs");
   const note = textOf(findAll(w, hasClass("team-note"))[0]);
   assert.match(note, /paid from your credits, within a monthly budget per person \(200 credits by default\)/);
   assert.ok(!/seat|subscription|supabase|\.sql|migration/i.test(textOf(w)), "no seat or developer wording");
   assert.equal(findAll(w, hasClass("team-leave")).length, 0, "the owner doesn't 'leave'");
 });
 await test("B2 a Producer owner: the Stage editor role, 'of 10'", ()=>{
-  const w = windowFor({ isOwner:true }, "studio");
+  const w = windowFor({ isOwner:true }, "studio", { 0:[{ ...MEMBERS[0], budget_credits:750 }] });
   assert.ok(findAll(findAll(w, hasClass("team-invite"))[0], n=>n.type==="option").some(o=>o.props.value==="stage_editor"));
-  assert.match(textOf(findAll(w, hasClass("team-cap"))[0]), /^2 of 10 people/);
+  assert.deepEqual(findAll(findAll(w, hasClass("team-budget"))[0], n=>n.type==="option").map(o=>o.props.value),
+    ["", "250", "500", "750", "1000", "3000"], "Producer's default 500, and a value set earlier keeps its place");
+  assert.match(textOf(findAll(w, hasClass("team-cap"))[0]), /^1 of 10 people/);
   assert.match(textOf(findAll(w, hasClass("team-note"))[0]), /500 credits by default/);
 });
 await test("B3 a Writer-plan owner: no invite form, 'See plans', people can still be removed", ()=>{
@@ -318,7 +329,7 @@ await test("E3 plans.jsx: the owner's Stage gates on a shared film; the cards' t
   assert.ok(read("app/landing.jsx").includes("window.turnPlanCardFeatures(p)"), "the homepage cards too");
 });
 await test("E4 the new Team window styles exist", ()=>{
-  for(const c of [".team-cap{", ".team-member-budget{", ".team-budget{", ".team-again,.team-leave{", ".team-mine{", ".team-plans{"]) assert.ok(css.includes(c), c);
+  for(const c of [".team-cap{", ".team-funds{", ".team-member-budget{", ".team-budget{", ".team-again,.team-leave{", ".team-mine{", ".team-plans{"]) assert.ok(css.includes(c), c);
 });
 
 /* ═══ F. Frances ═════════════════════════════════════════════════════════ */

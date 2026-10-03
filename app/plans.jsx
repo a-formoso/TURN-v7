@@ -1106,8 +1106,14 @@ const PLANS_COPY = {
 };
 window.TURN_PLANS_COPY = PLANS_COPY;
 
-function PlansModal({ onClose, currentPlan }){
+function PlansModal({ onClose, currentPlan, focus }){
   if(typeof window.usePlansVersion==="function") window.usePlansVersion();   // re-render on copy edits
+  // opened for the credit packs (the Team window's "Add credits"): bring them into view
+  React.useEffect(()=>{
+    if(focus!=="packs") return;
+    const t = setTimeout(()=>{ try{ const el = document.getElementById("plans-credit-packs"); if(el) el.scrollIntoView({ block:"start", behavior:"smooth" }); }catch(e){} }, 60);
+    return ()=>clearTimeout(t);
+  },[focus]);
   const [editing, setEditing] = React.useState(false);
   const [switchNote, setSwitchNote] = React.useState(false);
   const isAdmin = !!window.turnIsAdmin;
@@ -1176,7 +1182,7 @@ function PlansModal({ onClose, currentPlan }){
             "To switch plans, write to ",
             React.createElement("a",{href:"mailto:"+BILLING_EMAIL+"?subject="+encodeURIComponent("Switch my Kinolot plan")},BILLING_EMAIL),
             " from your account email and we’ll move you over — you won’t be charged twice."),
-          React.createElement("div",{className:"credit-packs"},
+          React.createElement("div",{className:"credit-packs",id:"plans-credit-packs"},
             React.createElement("div",{className:"credit-packs-head"},
               React.createElement("div",null,
                 React.createElement("div",{className:"credit-packs-title"},"Extra credits"),
@@ -1338,7 +1344,7 @@ window.BillingNotices = BillingNotices;
    demand and tears it down on close, so it never depends on a host component being
    mounted in the app tree (robust even mid-auth-refresh). */
 let _plansRoot = null, _plansEl = null;
-function openPlans(){
+function openPlans(opts){
   if(_plansEl) return;                                   // already open
   _plansEl = document.createElement("div");
   _plansEl.className = "plans-root";
@@ -1350,6 +1356,8 @@ function openPlans(){
     _plansRoot = null; _plansEl = null;
   };
   const plan = (window.turnCreditBalance && window.turnCreditBalance.plan) || null;
-  _plansRoot.render(React.createElement(PlansModal,{ currentPlan:plan, onClose:close }));
+  _plansRoot.render(React.createElement(PlansModal,{ currentPlan:plan, onClose:close, focus:(opts && opts.focus) || null }));
 }
-window.turnOpenPlans = openPlans;
+window.turnOpenPlans = ()=>openPlans();
+/* the Plans window scrolled to the credit packs (Team window "Add credits", 2026-10-03) */
+window.turnOpenCreditPacks = ()=>openPlans({ focus:"packs" });

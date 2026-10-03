@@ -156,6 +156,18 @@ function TeamModal(props){
 }
 
 const fmtCredits = (n)=> Math.max(0, Math.floor(Number(n)||0)).toLocaleString("en-US");
+/* the monthly budget picker (owner 2026-10-03: "should be pulling from the credit pack options"):
+   No limit, the plan's default (200 Director / 500 Producer), the three pack sizes, and a value
+   set earlier that is none of these. A budget is a cap on what that person may use from the
+   owner's balance, not a transfer — "Add credits" is what tops the balance up. */
+function teamBudgetChoices(tier, current){
+  const packs = ((window.CINEMA_CREDIT_PACKS||[]).map(p=>Number(p.credits)).filter(n=>n>0));
+  const def = TEAM_LIMITS.budget[tier] || TEAM_LIMITS.budget.director;
+  const nums = Array.from(new Set([def, ...(packs.length ? packs : [250,1000,3000]),
+    ...(current!=null && Number.isFinite(Number(current)) ? [Number(current)] : [])])).sort((a,b)=>a-b);
+  return [{ value:"", label:"No limit" }].concat(nums.map(n=>({ value:String(n),
+    label:fmtCredits(n)+" a month"+(n===def?" (default)":"") })));
+}
 function teamInviteState(m, now){
   if(m.member_user) return { joined:true, text:"Joined" };
   const exp = m.expires_at ? Date.parse(m.expires_at) : NaN;
@@ -174,7 +186,6 @@ function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onC
   const [role, setRole] = React.useState("writer");
   const [busy, setBusy] = React.useState("");
   const [schemaMissing, setSchemaMissing] = React.useState(!!window.turnTeamSchemaMissing);
-  const [budgetDraft, setBudgetDraft] = React.useState({});
   const canManage = teamCanManage(projectMeta);
   const tier = teamAccountTier();
   const canInvite = canManage && (tier==="director" || tier==="studio");
@@ -234,16 +245,14 @@ function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onC
     if(res && res.ok){ await load(); if(onChanged) onChanged(); }
     else toast((res&&res.message)||"Couldn't change the role.","error");
   };
-  const saveBudget = async (m)=>{
+  const saveBudget = async (m, raw)=>{
     if(!canManage || typeof window.cloudSetMemberBudget!=="function") return;
-    const raw = String(budgetDraft[m.id]==null ? "" : budgetDraft[m.id]).trim();
     const next = raw==="" ? null : Math.max(0, Math.floor(Number(raw)));
     if(raw!=="" && !Number.isFinite(next)) return;
-    if(next===(m.budget_credits==null?null:Number(m.budget_credits))){ setBudgetDraft(d=>{ const x={...d}; delete x[m.id]; return x; }); return; }
+    if(next===(m.budget_credits==null?null:Number(m.budget_credits))) return;
     setBusy("budget:"+m.id);
     const res = await window.cloudSetMemberBudget(m.id, next);
     setBusy("");
-    setBudgetDraft(d=>{ const x={...d}; delete x[m.id]; return x; });
     if(res && res.ok){ await load(); toast(next==null ? "No monthly limit for "+m.member_email+"." : "Monthly budget for "+m.member_email+": "+fmtCredits(next)+" credits.","success"); }
     else toast((res&&res.message)||"Couldn't change the budget.","error");
   };
@@ -323,6 +332,14 @@ function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onC
         // what the selected role allows, in plain language, right where it's being chosen
         canInvite && !schemaMissing && React.createElement("div",{className:"team-role-blurb"},
           teamRoleLabel(role)+" — "+scopedRoleBlurb(role)),
+        // collaborators' work comes out of the owner's own balance: show it, and the way to add to it
+        // (the credit packs — 250 / 1,000 / 3,000 — in the Plans window, plans.jsx turnOpenCreditPacks)
+        canInvite && React.createElement("div",{className:"team-funds"},
+          React.createElement("span",null, (window.turnCreditBalance && window.turnCreditBalance.remaining!=null)
+            ? "Your balance: "+fmtCredits(window.turnCreditBalance.remaining)+" credits \u2014 your team's work on this film comes out of it."
+            : "Your team's work on this film comes out of your credits."),
+          React.createElement("button",{type:"button",className:"team-again team-add-credits",
+            onClick:()=>{ if(typeof window.turnOpenCreditPacks==="function") window.turnOpenCreditPacks(); else if(typeof window.turnOpenPlans==="function") window.turnOpenPlans(); }},"Add credits")),
         canInvite && React.createElement("div",{className:"team-cap"},
           counted+" of "+cap+" people on this "+(series?"Show":"film")+" (invites count until they expire) · up to "+TEAM_LIMITS.cowriters+" Co-writers"
           +(tier!=="studio" ? " · the Stage editor role comes with the Producer plan" : "")),
@@ -354,12 +371,11 @@ function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onC
                   ? React.createElement("div",{className:"team-member-actions"},
                       (st.pending||st.expired) && canInvite && React.createElement("button",{className:"team-again",disabled:!!busy,
                         title:"Send the invitation again (a fresh 14 days)",onClick:()=>inviteAgain(m)},busy==="renew:"+m.id?"Sending...":"Invite again"),
-                      React.createElement("input",{className:"team-budget",type:"number",min:0,step:50,inputMode:"numeric",
-                        "aria-label":"Monthly credit budget for "+m.member_email,placeholder:"No limit",title:"Monthly credit budget (empty = no limit)",
-                        value: budgetDraft[m.id]!=null ? budgetDraft[m.id] : (m.budget_credits==null ? "" : String(m.budget_credits)),
-                        disabled:!!busy, onChange:e=>{ const v=e.target.value; setBudgetDraft(d=>({...d,[m.id]:v})); },
-                        onBlur:()=>{ if(budgetDraft[m.id]!=null) saveBudget(m); },
-                        onKeyDown:e=>{ if(e.key==="Enter") e.target.blur(); }}),
+                      React.createElement("select",{className:"team-budget",
+                        "aria-label":"Monthly credit budget for "+m.member_email,title:"How many of your credits this person may use a month",
+                        value: m.budget_credits==null ? "" : String(m.budget_credits),
+                        disabled:!!busy, onChange:e=>saveBudget(m, e.target.value)},
+                        teamBudgetChoices(tier, m.budget_credits).map(o=>React.createElement("option",{key:o.value,value:o.value},o.label))),
                       React.createElement("select",{className:"team-role compact",value:m.role||"writer",disabled:!!busy||!canInvite,
                         title:scopedRoleBlurb(m.role),"aria-label":"Role for "+m.member_email,
                         onChange:e=>updateRole(m,e.target.value)},
