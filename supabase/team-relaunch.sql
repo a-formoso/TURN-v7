@@ -72,6 +72,7 @@ $$;
 alter table public.turn_project_members add column if not exists invited_at     timestamptz;
 alter table public.turn_project_members add column if not exists expires_at     timestamptz;
 alter table public.turn_project_members add column if not exists budget_credits integer;
+alter table public.turn_project_members add column if not exists email_sent_at  timestamptz;   -- invite-collaborator
 update public.turn_project_members set invited_at = created_at where invited_at is null;
 alter table public.turn_project_members alter column invited_at set default now();
 
@@ -390,12 +391,15 @@ revoke all on function public.turn_claim_memberships() from public, anon;
 grant execute on function public.turn_claim_memberships() to authenticated;
 
 -- ── 5. the member guard: switch, plan, caps, daily limit ───────────────────
+-- every new invite (kind 'invite': the 20-a-day rule) and every invitation email the
+-- invite-collaborator function sent (kind 'email': its own daily cap)
 create table if not exists public.turn_team_invite_log (
   id         bigint generated always as identity primary key,
   owner      uuid not null references auth.users(id) on delete cascade,
   project_id uuid not null,
   at         timestamptz not null default now()
 );
+alter table public.turn_team_invite_log add column if not exists kind text not null default 'invite';
 create index if not exists turn_team_invite_log_owner_idx on public.turn_team_invite_log(owner, at desc);
 alter table public.turn_team_invite_log enable row level security;
 revoke all on public.turn_team_invite_log from anon, authenticated;
@@ -431,6 +435,7 @@ begin
     new.member_user  := old.member_user;
     new.invited_at   := old.invited_at;
     new.expires_at   := old.expires_at;
+    new.email_sent_at := old.email_sent_at;
     -- a removal, or a budget change, needs no plan: the owner can always tidy up
     if new.status = 'removed'
        or (new.role = old.role and new.status = old.status) then
@@ -478,7 +483,7 @@ begin
 
   if opening then
     select count(*) into n from public.turn_team_invite_log l
-     where l.owner = v_owner and l.at > now() - interval '1 day';
+     where l.owner = v_owner and l.kind = 'invite' and l.at > now() - interval '1 day';
     if n >= 20 then
       raise exception 'TURN_TEAM:daily_cap: you can send up to 20 new invites a day';
     end if;
@@ -527,14 +532,14 @@ begin
     raise exception 'TURN_TEAM:plan_required: sharing a film needs the Director or Producer plan';
   end if;
   select count(*) into n from public.turn_team_invite_log l
-   where l.owner = m.owner and l.at > now() - interval '1 day';
+   where l.owner = m.owner and l.kind = 'invite' and l.at > now() - interval '1 day';
   if n >= 20 then
     raise exception 'TURN_TEAM:daily_cap: you can send up to 20 new invites a day';
   end if;
   insert into public.turn_team_invite_log(owner, project_id) values (m.owner, m.project_id);
   -- the guard keeps expiry server-owned on browser updates; this definer path sets it
   perform set_config('turn.team_trusted', 'on', true);
-  update public.turn_project_members set invited_at = now(), expires_at = now() + interval '14 days'
+  update public.turn_project_members set invited_at = now(), expires_at = now() + interval '14 days', email_sent_at = null
    where id = p_member;
   perform set_config('turn.team_trusted', 'off', true);
   return jsonb_build_object('ok', true, 'expires_at', now() + interval '14 days');
@@ -724,6 +729,7 @@ $$;
 revoke all on function public.turn_effective_project_roles_for(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.turn_effective_project_roles(uuid) from public, anon, authenticated;
 revoke all on function public.turn_team_owner_tier(uuid) from public, anon, authenticated;
+grant execute on function public.turn_team_owner_tier(uuid) to service_role;
 revoke all on function public.turn_guard_team_member() from public, anon, authenticated;
 revoke all on function public.turn_enforce_role_sections() from public, anon, authenticated;
 revoke all on function public.turn__member_spent(uuid) from public, anon, authenticated;

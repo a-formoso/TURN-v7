@@ -282,39 +282,31 @@ fetches short-lived **signed URLs**. If you'd rather trade privacy for simplicit
 
 ## Real invitations (`invite-collaborator` Edge Function)
 
-> **Team sharing paused (owner 2026-10-02): UI shows Coming soon; backend kept; relaunch plan in docs/Team Decision Memo.md.** The function is **not deployed** and should stay parked
-> until the relaunch: the memo's Option B lists what must be fixed first (a fixed host list for the
-> link, sending caps, the same answer whether or not an address has an account). The source is kept
-> unchanged.
+> **Team relaunch (owner 2026-10-03).** Hardened before its first deploy (the memo's Option B
+> list): the link always points at `https://kinolot.infinitestudioai.com/?invite=<film id>` (never
+> a host from the browser); the answer is the same whether or not the address has an account; the
+> switch and the owner's plan are checked again; one email per invite per 10 minutes and 40 a day
+> per owner. The logic is `core.mjs` (tested by `scripts/test-invite-collaborator.mjs`).
 
-Adding a collaborator in the Team panel writes the membership row AND sends the
-actual invitation email through Supabase's **built-in auth mailer** (no
-third-party mail provider): new addresses get the "Invite user" email (their
-account is pre-created), existing accounts get a magic-link sign-in email.
-Either link lands on `/?invite=<projectId>` — the app's acceptance surface.
+Adding a collaborator in the Team window writes the membership row (the database's guard in
+`team-relaunch.sql` checks the plan, the caps and the 20-a-day rule) and then asks this function
+to SEND the email through the auth mailer (ZeptoMail SMTP on production): a new address gets the
+"Invite user" email (its account is pre-created, but not linked to the film — the invitee's own
+confirmed sign-in claims it), an existing account gets the magic-link sign-in email. Either link
+lands on `/?invite=<projectId>`, the app's welcome page.
 
-**Set it up (once):**
+**Set it up (once, from the Mac, after `git pull`):**
 
-1. SQL Editor → run `invitations.sql` (account linking on first sign-in).
-2. `npx supabase functions deploy invite-collaborator --no-verify-jwt`
-   (same convention as `image-proxy`: the function does its **own** sign-in +
-   owner check and answers the CORS preflight itself.)
-3. **Authentication → URL Configuration → Redirect URLs** — add every origin
-   the app runs on (production domain, and the dev URL while testing). Invite
-   links redirect to `<origin>/?invite=...`; unlisted origins silently fall
-   back to the Site URL and the landing context is lost.
-4. *(Recommended)* **Authentication → Email Templates → "Invite user"** — the
-   function passes the film and inviter as template data, so you can write:
-   `{{ .Data.invited_by }} invited you to work on “{{ .Data.invited_project }}”`.
-   The magic-link template (existing accounts) has no per-invite data; keep its
-   copy generic — the in-app landing names the film and inviter.
-5. **Heads-up on volume:** Supabase's built-in mailer is rate-limited to a few
-   auth emails per hour. Fine for trying the flow; configure custom SMTP
-   (Project Settings → Auth → SMTP) before inviting a real team.
+1. `team-relaunch.sql` has run (it replaces `invitations.sql`).
+2. `npx -y supabase@2.117.0 functions deploy invite-collaborator --project-ref vubenblfdzginlqiglzw --use-api --no-verify-jwt`
+   (the function does its own sign-in + owner check and answers the CORS preflight itself).
+3. **Authentication → URL Configuration → Redirect URLs** must hold
+   `https://kinolot.infinitestudioai.com/**` (it does). No other host is ever used.
+4. The "Invite user" and "Magic link" templates are Kinolot-branded (set 2026-10-02); the
+   invite template can use `{{ .Data.invited_by }}` and `{{ .Data.invited_project }}`.
 
-If the function isn't deployed yet, the Team panel still adds the collaborator
-and says plainly that the email wasn't sent (they can still sign in with that
-address and find the film shared).
+If the function isn't deployed, the Team window still adds the person and says plainly that the
+email wasn't sent; they find the film when they sign in with that address.
 
 ## Admin Storage page (`admin-storage` Edge Function)
 
