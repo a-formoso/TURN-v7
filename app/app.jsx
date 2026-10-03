@@ -978,6 +978,20 @@ function App(){
     return ()=>{ live = false; };
   },[_sharedFilmId]);
   const ownerPlanLapsed = !!_sharedFilmId && filmOwnerTier==="none";
+  /* YOUR ROLE CHANGED while the film is open (the owner changed it in the Team window): say so, with
+     what the new role covers, so the rooms switching to read-only (or back) is never a surprise */
+  const roleSeenRef = React.useRef({ pid:null, role:null });
+  React.useEffect(()=>{
+    const prev = roleSeenRef.current;
+    const shared = !!(_projRow && _projRow.isShared);
+    roleSeenRef.current = { pid:currentProjectId, role:shared ? shareRole : null };
+    if(!shared || prev.pid!==currentProjectId || !prev.role || !shareRole || prev.role===shareRole) return;
+    if(typeof window.appToast!=="function") return;
+    const label = typeof window.teamRoleLabel==="function" ? window.teamRoleLabel(shareRole) : shareRole;
+    const what = shareRole==="view_only" ? "You can read the film; changes aren't saved."
+      : (typeof window.teamRoleScopeNote==="function" ? window.teamRoleScopeNote(shareRole) : "");
+    window.appToast("Your role on \u201c"+((_projRow && _projRow.title) || "this film")+"\u201d is now "+label+". "+what, "info");
+  },[currentProjectId, shareRole, _projRow && _projRow.isShared]);
   // what a collaborator may WRITE: their role — or nothing while the owner's plan has lapsed
   const writeRole = ownerPlanLapsed ? "view_only" : shareRole;
   const readOnlyShare = writeRole === "view_only";
@@ -1125,8 +1139,23 @@ function App(){
       }catch(e){}
       busy = false;
     };
+    /* THE ROLE ON A SHARED FILM (2026-10-03): the owner's role change is announced over the film's
+       realtime channel, but a missed broadcast left the old role in force here (an Art director
+       turned Co-writer kept an editable Art Room until a reload). So the role is also re-read about
+       once a minute and whenever the tab comes back to the front. */
+    let roleAt = 0;
+    const refreshRole = async (minGapMs)=>{
+      if(!alive || ended || !(_projRow && _projRow.isShared) || typeof window.cloudListProjects!=="function") return;
+      if(Date.now() - roleAt < minGapMs) return;
+      roleAt = Date.now();
+      try{ const list = await window.cloudListProjects(); if(alive && list) setProjects(list); }catch(e){}
+    };
+    const onRoleFocus = ()=>{ try{ if(document.visibilityState!=="hidden") refreshRole(15000); }catch(e){} };
+    window.addEventListener("focus", onRoleFocus);
+    document.addEventListener("visibilitychange", onRoleFocus);
     const tick = ()=>{
       ticks++;
+      if((ticks % 5) === 0) refreshRole(50000);
       // push healthy → broadcasts wake us instantly; keep only the slow safety probe
       if(window.turnPushHealthy && (ticks % 5) !== 0) return;
       checkRemote();
@@ -1158,6 +1187,8 @@ function App(){
     window.addEventListener("turn-member-removed", onMemberRemoved);
     const iv = setInterval(tick, 12000);
     return ()=>{ alive = false; clearInterval(iv); clearTimeout(pushTimer);
+      window.removeEventListener("focus", onRoleFocus);
+      document.removeEventListener("visibilitychange", onRoleFocus);
       window.removeEventListener("turn-doc-push", onPush);
       window.removeEventListener("turn-member-removed", onMemberRemoved); };
   },[cloudMode, currentProjectId, presence.length, _projRow && _projRow.isShared]);
@@ -2721,6 +2752,10 @@ function App(){
       window.appToast((r&&r.localDenied ? "This local change is outside your role \u2014 " : "The server declined this save \u2014 ")
         + ((r && r.message) || "your role does not cover those sections.")
         + " Your access may have changed; reloading the film.","error");
+    // the refusal usually means the ROLE changed (2026-10-03): re-read it too, or every later edit
+    // is refused again under the old one
+    if(typeof window.cloudListProjects==="function")
+      Promise.resolve(window.cloudListProjects()).then(list=>{ if(list) setProjects(list); }).catch(()=>{});
     Promise.resolve(loadProjectIntoState(currentProjectId)).then((loaded)=>{
       saveFailsRef.current = 0;   // permanent rejection — never feed the retry loop
       if(loaded){ dirtyRef.current = false; setSaveState("saved"); }   // now genuinely in sync

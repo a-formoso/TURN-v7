@@ -382,6 +382,23 @@ await test("E6 every paid call names the open film (the server bills its owner o
   assert.ok(appSrc.includes("noteTier();"), "Auto re-picks its engine when the owner's tier is known");
 });
 
+await test("E7 a role change reaches an open film: re-read about once a minute and on focus, after any refused save, and announced", ()=>{
+  assert.ok(appSrc.includes("if((ticks % 5) === 0) refreshRole(50000);"), "about once a minute (5 ticks of 12 s)");
+  assert.ok(appSrc.includes('window.addEventListener("focus", onRoleFocus);') && appSrc.includes('document.addEventListener("visibilitychange", onRoleFocus);'));
+  assert.ok(appSrc.includes('window.removeEventListener("focus", onRoleFocus);'), "cleaned up");
+  const scope = appSrc.slice(appSrc.indexOf("const _docRoleScope = (r)=>{"), appSrc.indexOf("const _docConflictCheck = (r)=>{"));
+  assert.ok(scope.includes("window.cloudListProjects()") && scope.includes("setProjects(list)"), "a refused save re-reads the role");
+  assert.ok(appSrc.includes('"Your role on \\u201c"+((_projRow && _projRow.title) || "this film")+"\\u201d is now "+label+". "+what'), "the change is announced");
+  const hook = appSrc.indexOf("const roleSeenRef = React.useRef("), firstReturn = appSrc.indexOf("if(authGate && !authReady){");
+  assert.ok(hook > 0 && hook < firstReturn, "above every early return");
+  // the room boundary itself: a role's read-only Art Room is inert (no control can act)
+  const art = read("app/artroom.jsx");
+  assert.ok(art.includes('inert:(readOnly && !lockedView)?"":undefined'));
+  assert.ok(appSrc.includes("readOnly:roomReadOnly,canReview:!roomReadOnly,onSourceClick:openArtSource"), "the Art Room gets the room's read-only flag");
+  assert.equal(cb.teamCanWriteRoom("writer", "art"), false); assert.equal(cb.teamCanWriteRoom("writer", "writers"), true);
+  assert.equal(cb.teamCanWriteRoom("art_director", "writers"), false); assert.equal(cb.teamCanWriteRoom("art_director", "art"), true);
+});
+
 /* ═══ F. Frances ═════════════════════════════════════════════════════════ */
 await test("F1 APP_FEATURES: Team is live — four roles, rooms by the owner's plan, the caps, Leave film; nothing says it's coming soon", ()=>{
   const fb = { console, window:null }; fb.window = fb; vm.createContext(fb);
