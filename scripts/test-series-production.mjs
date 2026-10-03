@@ -686,7 +686,7 @@ ok("a Series Show write is gated only by the Bible departments in its patch",
   /const\s+_writeBible\s*=\s*_bibleKeys\.length>0[\s\S]{0,140}?stableJson\(_biblePatch\)!==stableJson\(_bibleBaselinePatch\)/.test(saveBlock)
   && !/const\s+_writeBible\s*=\s*_bibleKeys\.length>0\s*&&\s*stableJson\(_bibleStored\)/.test(saveBlock));
 ok("room mutability derives from the shared role helper",
-  /teamCanWriteRoom\s*===\s*["']function["'][\s\S]{0,120}?teamCanWriteRoom\(shareRole,id\)/.test(app));
+  /teamCanWriteRoom\s*===\s*["']function["'][\s\S]{0,120}?teamCanWriteRoom\(writeRole,id\)/.test(app));
 ok("Art directors get a read-only Writers' Room without losing Art Room editability",
   /const\s+writersRoomReadOnly\s*=\s*!_sharedCanWriteRoom\(["']writers["']\)/.test(app)
   && /const\s+artRoomReadOnly\s*=\s*!_sharedCanWriteRoom\(["']art["']\)/.test(app)

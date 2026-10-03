@@ -1,5 +1,8 @@
 # Team: remove it, finish it, or pause it? (decision memo, 2 October 2026)
 
+> **Superseded 2026-10-03:** the owner relaunched Team ("Let's ship Collaboration (Teams)") with the rules in
+> `docs/Dashboard Plan.md` §5-§7 — Option B's list, plus owner pays. This memo stays as the history.
+
 > **Decision (2 October 2026): Option C, shown as an upcoming feature.** Team sharing paused (owner 2026-10-02): UI shows Coming soon; backend kept; relaunch plan in docs/Team Decision Memo.md.
 > The owner's words: "go with option C. Don't let users interract with it in the frontend. Maybe allow them
 > to see it like an upcoming feature". So, unlike section 4 below, nobody but the admin can open the Team

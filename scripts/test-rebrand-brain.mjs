@@ -112,7 +112,7 @@ await test("A3 Story Editors' job titles, the umbrellas, the display-only role a
   assert.ok(allFacts().includes("'← All Story Editors' ask"), "…and the fact reaches Frances");
   assert.ok(F("Writing model (drafting & agents)").what.includes("the Story Editors, spine building and the Final Read."), "the 'Agents … table-reads' drift is fixed");
   const team = F("Team collaboration").what;
-  assert.ok(team.includes("(Owner / Co-writer / Art director / View-only;") && team.includes("; Co-writer saves story work"));
+  assert.ok(team.includes("(Owner / Co-writer / Art director / Stage editor / View-only;") && team.includes("; Co-writer saves story work"));
   assert.ok(!/\/ Writer \/|\bWriter saves\b/.test(team), "the collaborator role reads Co-writer");
   const plans = box.APP_FEATURES.find(f=>/^Plans & subscription/.test(f.name));
   assert.equal(plans.name, "Plans & subscription (Writer / Director / Producer)");

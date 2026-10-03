@@ -164,8 +164,14 @@ const visible = (s)=> s.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, " ").replac
    2026-10-02 owner request (R2: "Turn this text … into a [tooltip], and place it to the right of every
    plan's name/title"): the note left the space under the purchase buttons for an ⓘ button next to each
    plan's and pack's name, so the Terms' "Next to the button you see this note:" became "Next to each
-   plan's and pack's name, the ⓘ button shows this note:" — the note itself is quoted unchanged. */
-const LEGAL_FINGERPRINT = { "privacy.html":"d50dc838760bd31f", "terms.html":"b31bef0588271b80" };
+   plan's and pack's name, the ⓘ button shows this note:" — the note itself is quoted unchanged.
+   2026-10-03 owner decision (Team relaunch: "Live as soon as built", asked whether the Terms clause and
+   the Privacy fix should go out at once without a separate legal review): the Terms gained "Shared films"
+   (who may share, the owner pays within budgets, a lapsed plan makes the film read-only, the film stays
+   the owner's, the owner answers for their team, invitation emails) and Privacy says shared films are
+   readable by the people the owner invites, adds a "Shared films" section and where a collaborator's
+   files are kept; both dated 3 October 2026. */
+const LEGAL_FINGERPRINT = { "privacy.html":"2ea25e2a0033ebec", "terms.html":"e5402bc8ad07cbfb" };
 /* The "Last updated" line holds the placeholder until the switch day; the owner then writes the date
    on BOTH pages in the form "14 November 2026" (docs/Billing Rollout Runbook.md). The fingerprint
    reads either as {DATE}, so filling in the date needs no test change — any other change to the
@@ -478,15 +484,15 @@ check("C the checkout footer and the welcome cards say Kinolot by Infinite Studi
 // team.jsx roles (in the chrome box)
 check("C the 'writer' ROLE is SHOWN as Co-writer; its id, section map and write rules are unchanged", ()=>{
   const roles = cb.TEAM_ROLES.map(r=>[r.id, r.label]);
-  return JSON.stringify(roles)===JSON.stringify([["view_only","View-only"],["writer","Co-writer"],["art_director","Art director"]])
+  return JSON.stringify(roles)===JSON.stringify([["view_only","View-only"],["writer","Co-writer"],["art_director","Art director"],["stage_editor","Stage editor"]])
     && cb.teamRoleLabel("writer")==="Co-writer" && cb.teamRoleLabel("producer_admin")==="Legacy role"
     && JSON.stringify(cb.TEAM_ROLE_SECTIONS.writer)===JSON.stringify(["scenes","beatsMap","drafts","history","continuityMap","project"])
     && cb.teamCanWriteSection("writer", "scenes") && !cb.teamCanWriteSection("writer", "characters")
     && /^Your Co-writer role covers the story/.test(cb.teamRoleScopeNote("writer"))
-    // Team sharing is paused (owner 2026-10-02): no "the owner assigns / reassigns" promise
-    && cb.teamRoleBlurb(null)==="The current collaborator role couldn't be verified, so access is read-only. Role changes are part of Team sharing, which is coming soon."
-    && /Role changes are part of Team sharing, which is coming soon\.$/.test(cb.teamRoleScopeNote(""))
-    && !/owner/i.test(cb.teamRoleScopeNote("")) && !/\bWriter\b/.test(cb.teamRoleScopeNote(""));
+    // Team relaunched (owner 2026-10-03): the owner fixes a role in the Team window again
+    && cb.teamRoleBlurb(null)==="The current collaborator role couldn't be verified, so access is read-only. Ask the film's owner to check your role in the Team window."
+    && /Ask the film's owner to check your role in the Team window\.$/.test(cb.teamRoleScopeNote(""))
+    && !/coming soon/i.test(cb.teamRoleScopeNote("")) && !/\bWriter\b/.test(cb.teamRoleScopeNote(""));
 });
 
 // auth-ui.jsx: sign-in mark, plan chip, account chip

@@ -434,7 +434,7 @@ async function cloudListProjects(){
     try{
       const { data:ms } = await _cloudQuery(sb.from("turn_project_members")
         .select("project_id,role,member_email,status")
-        .or("member_user.eq."+uid+",member_email.eq."+email),"Project memberships");
+        .or("member_user.eq."+uid+",member_email.eq."+_pgrstQuote(email)),"Project memberships");
       memberships = (ms||[]).filter(m=>String(m.status||"active")==="active");
     }catch(e){}
     const byProject = {};
@@ -491,23 +491,51 @@ function _teamSchemaMissing(err){
 function _teamSetupMessage(){
   return "Team collaboration needs the Supabase team-collaboration.sql migration before invites can be added.";
 }
-/* TEAM IS COMING SOON (owner decision 2026-10-02, docs/Team Decision Memo.md Option C): only
-   the admin may start or alter a share from the app — adding, re-roling or removing a member
-   is refused here for everyone else, before any request (team.jsx keeps the Team window
-   admin-only too). The database and its access rules are unchanged, so films already shared
-   keep opening with their role. */
-function _teamPausedRefusal(){
-  if(window.turnIsAdmin) return null;
-  return { ok:false, paused:true,
-    message:(window.TEAM_SOON_TEXT || "Team sharing is coming soon: invite co-writers and art directors to work on your film.") };
+/* a value inside a PostgREST or=(...) filter, quoted so a comma, bracket or quote in an
+   address can't change the filter */
+function _pgrstQuote(v){ return '"'+String(v==null?"":v).replace(/["\\]/g, c=>"\\"+c)+'"'; }
+/* THE DATABASE'S TEAM REFUSALS (supabase/team-relaunch.sql: "TURN_TEAM:<code>") in plain words;
+   null for anything else */
+const TEAM_REFUSALS = {
+  paused:"Team sharing is switched off right now.",
+  plan_required:"Sharing a film is part of the Director and Producer plans.",
+  stage_editor_producer:"The Stage editor role comes with the Producer plan.",
+  self:"That's your own address.",
+  cowriter_cap:"A film can have up to 3 Co-writers.",
+  daily_cap:"You can send up to 20 new invites a day. Please try again tomorrow.",
+  owner_only:"Only the film's owner manages its team.",
+};
+function _teamRefusal(err){
+  const msg = String((err && err.message) || err || "");
+  const m = /TURN_TEAM:([a-z_]+)(?::(\d+))?/.exec(msg);
+  if(m){
+    if(m[1]==="cap") return "This film already has its "+(m[2]?m[2]+" ":"")+"people. Remove someone, or wait for an invite to expire.";
+    return TEAM_REFUSALS[m[1]] || "That change wasn't allowed.";
+  }
+  if(/row-level security|permission denied/i.test(msg)) return TEAM_REFUSALS.owner_only;
+  return null;
+}
+const _TEAM_ROLE_IDS = ["view_only","writer","art_director","stage_editor"];
+/* THE SWITCH (owner 2026-10-03): turn_app_config "team_sharing" ({"on": true}) — off turns the
+   Team button back into "Soon" for everyone but the admin. Read once at boot (app.jsx). */
+async function cloudLoadTeamSharing(){
+  const v = await cloudGetAppConfig("team_sharing");
+  window.turnTeamSharing = !!(v && (v.on===true || v.on==="true"));
+  try{ window.dispatchEvent(new CustomEvent("turn-team-sharing", { detail:{ on:window.turnTeamSharing } })); }catch(e){}
+  return window.turnTeamSharing;
+}
+function _teamOffRefusal(){
+  if(window.turnIsAdmin || window.turnTeamSharing) return null;
+  return { ok:false, paused:true, message:TEAM_REFUSALS.paused };
 }
 async function cloudListProjectMembers(projectId){
   const sb = sbClient(); if(!sb || !projectId) return [];
   try{
     // removed members stay in the table as an audit trail, but every list the
-    // app shows is ACTIVE members only — a removed row must never look like access
+    // app shows is ACTIVE members only — a removed row must never look like access.
+    // (The database shows the owner every row; a collaborator only their own.)
     const { data, error } = await sb.from("turn_project_members")
-      .select("id,project_id,member_email,member_user,role,status,created_at")
+      .select("id,project_id,member_email,member_user,role,status,created_at,invited_at,expires_at,budget_credits,email_sent_at")
       .eq("project_id", projectId)
       .eq("status", "active")
       .order("created_at", { ascending:true });
@@ -520,54 +548,74 @@ async function cloudListProjectMembers(projectId){
   }catch(e){ window.turnTeamSchemaMissing = _teamSchemaMissing(e); return []; }
 }
 async function cloudInviteProjectMember(projectId, email, role){
-  const paused = _teamPausedRefusal(); if(paused) return paused;
+  const off = _teamOffRefusal(); if(off) return off;
   const sb = sbClient(); if(!sb || !projectId) return { ok:false };
   const e = _teamEmail(email);
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return { ok:false, message:"Enter a valid email address." };
-  // exactly three roles exist (producer/admin was retired); an unrecognized role —
-  // including "" / false / 0 — is rejected outright, never silently coerced into a
-  // grant. Only an ABSENT role (null/undefined) defaults to writer.
-  if(role!=null && ["view_only","writer","art_director"].indexOf(role)<0) return { ok:false, message:"Unknown role." };
+  // exactly four roles exist (producer/admin was retired); an unrecognized role — including
+  // "" / false / 0 — is rejected outright, never silently coerced into a grant. Only an ABSENT
+  // role (null/undefined) defaults to Co-writer.
+  if(role!=null && _TEAM_ROLE_IDS.indexOf(role)<0) return { ok:false, message:"Unknown role." };
   const r = role==null ? "writer" : role;
   try{
-    // UPSERT, not insert: re-inviting an existing address is a normal action
-    // (re-send the email, possibly with a new role) and it revives a
-    // previously-removed row instead of failing on the unique constraint.
-    const { error } = await sb.from("turn_project_members")
-      .upsert({ project_id:projectId, member_email:e, role:r, status:"active" },
-              { onConflict:"project_id,member_email" });
+    // An address already on the film is changed in place (the database's guard counts a NEW
+    // invite only once): a removed row is revived, a live one gets its new role, an
+    // unanswered or expired one is renewed — then the email goes out.
+    const { data:existing, error:readErr } = await sb.from("turn_project_members")
+      .select("id,role,status,member_user,expires_at").eq("project_id", projectId).eq("member_email", e).maybeSingle();
+    if(readErr && _teamSchemaMissing(readErr)){ window.turnTeamSchemaMissing = true; return { ok:false, setup:true, message:_teamSetupMessage() }; }
+    let error = null;
+    if(!existing){
+      ({ error } = await sb.from("turn_project_members").insert({ project_id:projectId, member_email:e, role:r }));
+    } else if(existing.status!=="active" || existing.role!==r){
+      ({ error } = await sb.from("turn_project_members").update({ role:r, status:"active" }).eq("id", existing.id));
+      if(!error && existing.status==="active") _pushMemberRemoved(projectId);   // a role change: open tabs re-check
+    } else if(!existing.member_user && existing.expires_at && Date.parse(existing.expires_at) <= Date.now()){
+      ({ error } = await sb.rpc("turn_renew_invite", { p_member:existing.id }));
+    }
     if(error){
       if(_teamSchemaMissing(error)){ window.turnTeamSchemaMissing = true; return { ok:false, setup:true, message:_teamSetupMessage() }; }
-      return { ok:false, message:error.message };
+      return { ok:false, message:_teamRefusal(error) || "Couldn't add this person. Please try again." };
     }
     window.turnTeamSchemaMissing = false;
-    // The row grants access; the EMAIL makes it real. Send it via the
-    // invite-collaborator Edge Function — and if that fails, say so explicitly
+    if(existing && existing.member_user && existing.status==="active") return { ok:true, emailSent:false, emailNote:"they've already joined, so no email was needed." };
+    // The row grants access; the EMAIL makes it real — and if that fails, say so explicitly
     // (the grant still stands; silent "sent" claims are how invites die).
     const mail = await _sendInviteEmail(sb, projectId, e);
     return { ok:true, emailSent:mail.sent, emailNote:mail.note };
   }catch(err){
     if(_teamSchemaMissing(err)){ window.turnTeamSchemaMissing = true; return { ok:false, setup:true, message:_teamSetupMessage() }; }
-    return { ok:false, message:(err&&err.message)||"Invite failed." };
+    return { ok:false, message:_teamRefusal(err) || "Couldn't add this person. Please try again." };
   }
+}
+/* "Invite again": a fresh 14 days (it counts as a new invite), then the email */
+async function cloudRenewInvite(member, projectId){
+  const off = _teamOffRefusal(); if(off) return off;
+  const sb = sbClient(); if(!sb || !member || !member.id) return { ok:false };
+  try{
+    const { error } = await sb.rpc("turn_renew_invite", { p_member:member.id });
+    if(error) return { ok:false, message:_teamRefusal(error) || "Couldn't send the invite again." };
+    const mail = await _sendInviteEmail(sb, projectId, _teamEmail(member.member_email));
+    return { ok:true, emailSent:mail.sent, emailNote:mail.note };
+  }catch(err){ return { ok:false, message:_teamRefusal(err) || "Couldn't send the invite again." }; }
 }
 async function _sendInviteEmail(sb, projectId, email){
   try{
-    const { data, error } = await sb.functions.invoke("invite-collaborator",
-      { body:{ projectId, email, origin: window.location.origin } });
+    // the link's host is fixed on the server (invite-collaborator/core.mjs) — nothing to send
+    const { data, error } = await sb.functions.invoke("invite-collaborator", { body:{ projectId, email } });
     if(!error && data && data.ok) return { sent:true, note:"" };
-    let msg = (data && data.message) || "";
+    let msg = (data && data.message) || "", code = (data && data.code) || "";
     if(!msg && error){
       // FunctionsHttpError carries the response; the useful message is in its body
-      try{ const j = error.context && await error.context.json(); msg = (j && j.message) || ""; }catch(e){}
+      try{ const j = error.context && await error.context.json(); msg = (j && j.message) || ""; code = (j && j.code) || code; }catch(e){}
       if(!msg) msg = String(error.message||"");
     }
-    // (2026-10-02) plain words, no file names: invitation emails aren't switched on yet
-    if(/not\s*found|404|Failed to send a request/i.test(msg))
-      msg = "invitation emails aren't switched on yet.";
-    return { sent:false, note: msg || "the invitation email could not be sent." };
+    // plain words, no file names; the note continues a sentence ("Added, but <note>")
+    if(!code && /not\s*found|404|Failed to send a request/i.test(msg)) return { sent:false, note:"invitation emails aren't switched on yet." };
+    const lower = (t)=> t ? t.charAt(0).toLowerCase()+t.slice(1) : t;
+    return { sent:false, note: (code && lower(msg)) || "the invitation email couldn't be sent." };
   }catch(err){
-    return { sent:false, note: (err && err.message) || "the invitation email could not be sent." };
+    return { sent:false, note:"the invitation email couldn't be sent." };
   }
 }
 /* Link my membership rows to my account id (invitations addressed to my verified
@@ -595,15 +643,15 @@ async function cloudSetPassword(password){
   }catch(err){ return { ok:false, message:(err&&err.message)||"Could not set the password." }; }
 }
 async function cloudUpdateProjectMember(memberId, patch, projectId){
-  const paused = _teamPausedRefusal(); if(paused) return paused;
+  const off = _teamOffRefusal(); if(off) return off;
   const sb = sbClient(); if(!sb || !memberId) return { ok:false };
   const role = patch && patch.role;
   // fail CLOSED on an unknown role: passing it through would either hit the DB CHECK
   // with a cryptic error or, worse, store a grant this build can't scope
-  if(role!=null && ["view_only","writer","art_director"].indexOf(role)<0) return { ok:false, message:"Unknown role." };
+  if(role!=null && _TEAM_ROLE_IDS.indexOf(role)<0) return { ok:false, message:"Unknown role." };
   try{
     const { error } = await sb.from("turn_project_members").update(role?{role}:patch).eq("id", memberId);
-    if(error) return { ok:false, message:error.message };
+    if(error) return { ok:false, message:_teamRefusal(error) || "Couldn't change the role. Please try again." };
     // A role change is an access-boundary change just as removal is. Wake open
     // collaborators so they refresh the server-derived role before their next edit.
     if(projectId) _pushMemberRemoved(projectId);
@@ -611,7 +659,7 @@ async function cloudUpdateProjectMember(memberId, patch, projectId){
   }catch(err){ return { ok:false, message:(err&&err.message)||"Update failed." }; }
 }
 async function cloudRemoveProjectMember(memberId, projectId){
-  const paused = _teamPausedRefusal(); if(paused) return paused;
+  // removing someone always works, sharing on or off and whatever the owner's plan (team-relaunch.sql)
   const sb = sbClient(); if(!sb || !memberId) return { ok:false };
   try{
     // status flip, NOT delete: the row stays as an audit trail of who had access
@@ -619,13 +667,61 @@ async function cloudRemoveProjectMember(memberId, projectId){
     // Re-inviting the same address later revives this row via the upsert.
     const { error } = await sb.from("turn_project_members")
       .update({ status:"removed" }).eq("id", memberId);   // updated_at set by DB trigger
-    if(error) return { ok:false, message:error.message };
+    if(error) return { ok:false, message:_teamRefusal(error) || "Couldn't remove this person. Please try again." };
     // tell everyone in the film's channel — the removed person's open tab hears
     // this, re-checks with the server, and gets the access-ended message at once
     if(projectId) _pushMemberRemoved(projectId);
     return { ok:true };
   }catch(err){ return { ok:false, message:(err&&err.message)||"Remove failed." }; }
 }
+/* a person's monthly credit budget on the film (null = no limit); the owner only (the database's rule) */
+async function cloudSetMemberBudget(memberId, budget){
+  const sb = sbClient(); if(!sb || !memberId) return { ok:false };
+  const v = budget==null ? null : Math.max(0, Math.floor(Number(budget)));
+  if(v!=null && !Number.isFinite(v)) return { ok:false, message:"Enter a number of credits, or leave it empty for no limit." };
+  try{
+    const { error } = await sb.from("turn_project_members").update({ budget_credits:v }).eq("id", memberId);
+    if(error) return { ok:false, message:_teamRefusal(error) || "Couldn't change the budget. Please try again." };
+    return { ok:true };
+  }catch(err){ return { ok:false, message:_teamRefusal(err) || "Couldn't change the budget. Please try again." }; }
+}
+/* this month's use per person on a film: every row for the owner, your own for a collaborator */
+async function cloudTeamSpend(projectId){
+  const sb = sbClient(); if(!sb || !projectId) return [];
+  try{
+    const { data, error } = await sb.rpc("turn_team_spend", { pid:projectId });
+    if(error) return [];
+    return (Array.isArray(data) ? data : []).map(r=>({ member_id:r.member_id, spent:Number(r.spent)||0, budget:r.budget==null?null:Number(r.budget) }));
+  }catch(e){ return []; }
+}
+/* a collaborator leaves a film (or a Show) — access ends at once */
+async function cloudLeaveFilm(projectId){
+  const sb = sbClient(); if(!sb || !projectId) return { ok:false };
+  try{
+    const { data, error } = await sb.rpc("turn_leave_film", { pid:projectId });
+    if(error) return { ok:false, message:"Couldn't leave the film. Please try again." };
+    _pushMemberRemoved(projectId);
+    return { ok:Number(data)>0, message:Number(data)>0 ? "" : "You're not on this film's team." };
+  }catch(err){ return { ok:false, message:"Couldn't leave the film. Please try again." }; }
+}
+/* the OWNER's sharing tier for a shared film — its rooms follow it: "studio" | "director" |
+   "none" (the owner's plan lapsed: read-only), or "" when the server can't say (before
+   team-relaunch.sql: the older role-only rooms) */
+async function cloudFilmOwnerTier(projectId){
+  const sb = sbClient(); if(!sb || !projectId) return "";
+  try{
+    const { data, error } = await sb.rpc("turn_film_owner_tier", { pid:projectId });
+    if(error) return "";
+    const t = String(data==null ? "" : data);
+    return ["studio","director","none"].includes(t) ? t : "";
+  }catch(e){ return ""; }
+}
+window.cloudLoadTeamSharing = cloudLoadTeamSharing;
+window.cloudRenewInvite = cloudRenewInvite;
+window.cloudSetMemberBudget = cloudSetMemberBudget;
+window.cloudTeamSpend = cloudTeamSpend;
+window.cloudLeaveFilm = cloudLeaveFilm;
+window.cloudFilmOwnerTier = cloudFilmOwnerTier;
 window.cloudListProjectMembers = cloudListProjectMembers;
 window.cloudInviteProjectMember = cloudInviteProjectMember;
 window.cloudUpdateProjectMember = cloudUpdateProjectMember;
@@ -2062,7 +2158,8 @@ function cloudJoinPresence(projectId, meta, onChange){
       if(status==="SUBSCRIBED"){
         _presenceCh = ch; _presenceChProject = projectId; _presenceReady = true;
         window.turnPushHealthy = true;
-        try{ await ch.track(meta||{}); }catch(e){}
+        // never an email in presence (anyone who can join the channel sees it): name, role, account id
+        try{ const safe = { ...(meta||{}) }; delete safe.email; await ch.track(safe); }catch(e){}
       }
       // CHANNEL_ERROR / TIMED_OUT (Realtime off for this project): stay silent —
       // and tell the poller push is NOT covering us, so it keeps full cadence

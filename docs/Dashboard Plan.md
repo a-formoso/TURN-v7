@@ -1,6 +1,9 @@
 # The signed-in app: Dashboard, pages and team sharing (plan, 2 October 2026)
 
-> **Status: plan only — nothing here is built yet.** Owner decisions are marked **(owner)**; my calls are
+> **Status (2026-10-03):** the Team sections (§5-§7, steps 4 and 5 of §8) are BUILT — `supabase/team-relaunch.sql`,
+> `image-proxy/film-payer.mjs`, `invite-collaborator/core.mjs`, the Team window (`app/team.jsx`); the People page (§4,
+> step 6) is not: people, roles, budgets and spend live in the Team window for now. Everything else here is still a plan.
+> Previously: **plan only — nothing here is built yet.** Owner decisions are marked **(owner)**; my calls are
 > marked **(proposed)** and can be overruled. The Team section replaces the "relaunch later" part of
 > `docs/Team Decision Memo.md` (its Option B list is folded in below, so that memo stays the history).
 

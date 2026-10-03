@@ -301,13 +301,14 @@ await test("E no user-visible TURN, MUSE or Cinema Machine; always 'Infinite Stu
 });
 await test("E the collaborator role reads Co-writer (the key stays 'writer')", ()=>{
   const app = read("app/app.jsx"), ag = read("app/agents.jsx"), cl = read("app/cloud.jsx");
-  // Team sharing is paused (owner 2026-10-02): the read-only banners no longer send anyone to
-  // "ask the owner" for a role (owners can't change roles in the app); they say it's coming soon.
-  assert.ok(app.includes("Editing and AI-write actions are disabled. Role changes are part of Team sharing, which is coming soon.")
+  // Team relaunched (owner 2026-10-03): the owner changes roles in the Team window again, so the
+  // view-only banner says who can (it no longer says Team is coming soon)
+  assert.ok(app.includes("Editing and AI-write actions are disabled. Only the film's owner can change your role.")
+    && !app.includes("Role changes are part of Team sharing, which is coming soon.")
     && !app.includes("Ask the owner for Co-writer access") && !app.includes("Ask the owner to reassign")
     && app.includes("Your Co-writer role"));
   assert.ok(ag.includes("A Co-writer or the film's owner can apply it."));
-  assert.ok(cl.includes('["view_only","writer","art_director"]'), "role keys unchanged");
+  assert.ok(cl.includes('const _TEAM_ROLE_IDS = ["view_only","writer","art_director","stage_editor"];'), "role keys unchanged (plus the Stage editor, 2026-10-03)");
   for(const f of MINE) for(const { v, line } of literals(f))
     assert.ok(!/\b(a|for|reassign View-only,|Your) Writer\b/.test(v||""), f+":"+line+" "+v);
 });

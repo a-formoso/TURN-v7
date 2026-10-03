@@ -168,7 +168,13 @@ deploy`, or you overwrite fixes made elsewhere.
 - `app/inspector.jsx` — editable scene/beats/analysis panel.
 - `app/script.jsx` — Script view, continuity checker, version history.
 - `app/chrome.jsx` — top bar + left rail. `app/app.jsx` — state + composition (scenes, beatsMap, drafts, continuityMap, agent ctx factory).
-- **Team (paused)** — owner 2026-10-02 (Option C): the Team button and the phone ⋯ entry show "Team" + a "Soon" chip and open
-  nothing; only the admin opens the Team window (`app/team.jsx` `TEAM_SOON_TEXT` / `teamWindowAllowed`; `app/cloud.jsx` refuses member
-  writes for non-admins). Backend, SQL and the invite-collaborator source are kept; films already shared still open with their role.
-  Don't remove it or rebuild it — the relaunch plan is in `docs/Team Decision Memo.md` (`scripts/test-team-paused.mjs`).
+- **Team (relaunched 2026-10-03)** — owner: "Let's ship Collaboration (Teams)", live as soon as built; the rules are
+  `docs/Dashboard Plan.md` §5-§7, §9. Director and up shares (5 people a film / 10 on Producer, pending invites count;
+  3 Co-writers; 20 invites a day; 14-day invites, confirmed email); roles View-only / Co-writer / Art director /
+  Stage editor (Producer films); a shared film's rooms follow the OWNER's plan (lapsed → read-only); **the owner pays**
+  within each person's monthly budget (200 Director / 500 Producer). The database enforces it
+  (`supabase/team-relaunch.sql`, runs LAST, re-run after series-production.sql), the server decides who pays
+  (`image-proxy/film-payer.mjs`, blender-bridge), the invite email is `invite-collaborator/core.mjs` (fixed host, one
+  answer, caps). Switch: `turn_app_config` key `team_sharing` (`{"on": true}`) — off = the old "Soon" button
+  (`app/team.jsx` `TEAM_SOON_TEXT`). Tests: `test-team-relaunch`, `test-team-relaunch-db`, `test-film-payer`,
+  `test-invite-collaborator`.

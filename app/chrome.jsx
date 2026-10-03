@@ -302,6 +302,8 @@ function RoomSwitcher({ room, setRoom, hasStory, roomEntitlements }){
   const storyLocked = (r)=> r.live && r.id!=="writers" && !hasStory;
   const locked = (r)=> planLocked(r) || storyLocked(r);
   const lockLabel = (r)=>{
+    // on a shared film the rooms follow the OWNER's plan (Team, 2026-10-03): not the viewer's to upgrade
+    if(planLocked(r) && roomEntitlements && roomEntitlements.shared) return "Not on this film's plan";
     if(planLocked(r)) return (typeof window.turnRoomRequiredPlan==="function" ? window.turnRoomRequiredPlan(r.id) : "Upgrade")+" plan";
     if(storyLocked(r)) return "Needs a story";
     return "";
@@ -322,7 +324,8 @@ function RoomSwitcher({ room, setRoom, hasStory, roomEntitlements }){
            "aria-current":room===r.id?"page":undefined,
            "aria-disabled":(!r.live||locked(r))?"true":undefined,
            "aria-label":`${r.label}, ${r.phase}${!r.live?", coming soon":locked(r)?", "+lockLabel(r):""}`,
-          title: planLocked(r) ? `${r.label} requires the ${typeof window.turnRoomRequiredPlan==="function" ? window.turnRoomRequiredPlan(r.id) : "right"} plan` :
+          title: planLocked(r) && roomEntitlements && roomEntitlements.shared ? `${r.label} isn't on this film's plan` :
+            planLocked(r) ? `${r.label} requires the ${typeof window.turnRoomRequiredPlan==="function" ? window.turnRoomRequiredPlan(r.id) : "right"} plan` :
             storyLocked(r) ? "Create a story first — this room works on your story" : undefined,
            onClick:()=>{ if(r.live&&!locked(r)){ setRoom(r.id); setOpen(false); } }},
           React.createElement("span",{className:"room-item-no"},i+1),

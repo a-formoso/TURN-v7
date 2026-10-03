@@ -962,9 +962,25 @@ function App(){
      allow-list, keeping visible controls and durable writes on one permission model. */
   const _projRow = (projects||[]).find(p=>p.id===currentProjectId) || null;
   const shareRole = (_projRow && _projRow.shareRole) || (_projRow && _projRow.isOwner ? "owner" : "");
-  const readOnlyShare = shareRole === "view_only";
+  /* TEAM (owner 2026-10-03): a shared film's rooms follow its OWNER's plan — turn_film_owner_tier:
+     "studio" (Producer: every room) | "director" (Writers' Room + Art Room) | "none" (the owner's
+     plan lapsed or a payment failed: the film is read-only, nothing is deleted) | "" (the server
+     can't say: the older role-only rooms) | null (not read yet). */
+  const [filmOwnerTier, setFilmOwnerTier] = React.useState(null);
+  const _sharedFilmId = _projRow && _projRow.isShared ? currentProjectId : null;
+  React.useEffect(()=>{
+    let live = true;
+    setFilmOwnerTier(null); window.turnFilmOwnerTier = null;
+    if(!_sharedFilmId || typeof window.cloudFilmOwnerTier!=="function") return;
+    window.cloudFilmOwnerTier(_sharedFilmId).then(t=>{ if(!live) return; setFilmOwnerTier(t); window.turnFilmOwnerTier = t || null; });
+    return ()=>{ live = false; };
+  },[_sharedFilmId]);
+  const ownerPlanLapsed = !!_sharedFilmId && filmOwnerTier==="none";
+  // what a collaborator may WRITE: their role — or nothing while the owner's plan has lapsed
+  const writeRole = ownerPlanLapsed ? "view_only" : shareRole;
+  const readOnlyShare = writeRole === "view_only";
   const unknownSharedRole = !!(_projRow && _projRow.isShared
-    && !["view_only","writer","art_director"].includes(shareRole));
+    && !["view_only","writer","art_director","stage_editor"].includes(shareRole));
   // THE SCREENPLAY CREDIT on a shared film (owner, 2026-09-28: authorship is the writer's): the
   // film's OWNER, by their handle — never the collaborator who presses Export; no owner name known,
   // no credit line. export.jsx screenplayWriter() reads it; null on the user's own film.
@@ -972,7 +988,7 @@ function App(){
     ? { shared:true, owner:(typeof cloudHandleName==="function" ? cloudHandleName(_projRow.ownerEmail) : "") }
     : null;
   const _sharedCanWriteRoom = id=>!(_projRow&&_projRow.isShared)
-    || (typeof window.teamCanWriteRoom==="function" && window.teamCanWriteRoom(shareRole,id));
+    || (typeof window.teamCanWriteRoom==="function" && window.teamCanWriteRoom(writeRole,id));
   const writersRoomReadOnly = !_sharedCanWriteRoom("writers");
   // the open film is a blank canvas (see turnFilmIsBlank in auth-ui.jsx): no badges on its chip
   const currentFilmBlank = !!_projRow && typeof window.turnFilmIsBlank==="function" && window.turnFilmIsBlank(_projRow)
@@ -981,8 +997,9 @@ function App(){
   const writersRoomBlocked = projectLoading || writersRoomReadOnly;
   // the Production check edits the script AND the Art Room: open to anyone who can save either
   const productionCheckBlocked = projectLoading || (writersRoomReadOnly && artRoomReadOnly);
+  const stageReadOnly = !!(_projRow && _projRow.isShared) && !_sharedCanWriteRoom("stage");
   const roomReadOnly = projectLoading || (room==="writers" ? writersRoomReadOnly
-    : room==="art" ? artRoomReadOnly : readOnlyShare);
+    : room==="art" ? artRoomReadOnly : room==="stage" ? stageReadOnly : readOnlyShare);
   /* LIVE refs fence async results whose collaborator role changes while model work
      is in flight. A role change may happen without remounting the running agent. */
   const readOnlyShareRef = React.useRef(false);
@@ -996,11 +1013,11 @@ function App(){
   const characterBibleWritableRef = React.useRef(true);
   characterBibleWritableRef.current = !(_projRow&&_projRow.isShared)
     || (typeof window.teamCanWriteSection==="function"
-      && window.teamCanWriteSection(shareRole,"characters"));
+      && window.teamCanWriteSection(writeRole,"characters"));
   // the silent cast auto-draft writes `characters` + `visualsSeeded` — only for a role whose saves keep
   // BOTH (the same allow-list autosave enforces), and never while the film is still loading
   const _sharedCanWriteSection = k=>!(_projRow&&_projRow.isShared)
-    || (typeof window.teamCanWriteSection==="function" && window.teamCanWriteSection(shareRole,k));
+    || (typeof window.teamCanWriteSection==="function" && window.teamCanWriteSection(writeRole,k));
   const castAutoDraftWritable = !projectLoading && !artRoomReadOnly
     && _sharedCanWriteSection("characters") && _sharedCanWriteSection("visualsSeeded");
   const readOnlyNoticeRef = React.useRef(0);
@@ -1009,7 +1026,7 @@ function App(){
     if(now-(readOnlyNoticeRef.current||0)>2500){
       readOnlyNoticeRef.current = now;
       if(typeof window.appToast==="function"){
-        const note=(typeof window.teamRoleScopeNote==="function")?window.teamRoleScopeNote(shareRole):"";
+        const note=ownerPlanLapsed ? "This film is read-only for now: its owner's plan doesn't include shared work, so changes aren't saved." : (typeof window.teamRoleScopeNote==="function")?window.teamRoleScopeNote(shareRole):"";
         window.appToast(note || (roomId==="writers"
           ? "This role can read the Writers' Room but cannot change story or script."
           : "This role cannot change the Art Room."),"error");
@@ -1042,8 +1059,10 @@ function App(){
     setPresence([]);
     if(!cloudMode || !currentProjectId || typeof window.cloudJoinPresence!=="function") return;
     const email = (typeof cloudUserEmail==="function") ? cloudUserEmail(session) : "";
+    // a display name and the account id (to spot your own other window) — never the email (2026-10-03)
+    const name = (typeof cloudHandleName==="function" ? cloudHandleName(email) : "") || (email||"").split("@")[0].split("+")[0];
     const off = window.cloudJoinPresence(currentProjectId,
-      { email, name:(email||"").split("@")[0], role:unknownSharedRole?"role_unavailable":(shareRole||"owner"), at:Date.now() },
+      { uid:(session && session.user && session.user.id) || "", name, role:unknownSharedRole?"role_unavailable":(shareRole||"owner"), at:Date.now() },
       (people)=> setPresence(people||[]));
     return ()=>{ try{ off && off(); }catch(e){} };
   },[cloudMode, currentProjectId, session && session.user && session.user.id, shareRole]);
@@ -1143,6 +1162,19 @@ function App(){
   // ADMIN — demo upkeep account. The Matrix sample story (and "Reset to sample story")
   // is admin-only: every other user (and signed-out local mode) never sees Matrix data.
   const isAdmin = (((typeof cloudUserEmail==="function" && cloudUserEmail(session))||"").toLowerCase()==="admin@infinitestudioai.com");
+  /* TEAM'S SWITCH (turn_app_config "team_sharing", owner 2026-10-03): read at boot and when the
+     tab comes back to the front; off → the Team button shows "Soon" (team.jsx) */
+  const [teamSharing, setTeamSharing] = React.useState(!!window.turnTeamSharing);
+  React.useEffect(()=>{
+    if(typeof window.cloudLoadTeamSharing!=="function") return;
+    let at = 0;
+    const load = ()=>{ if(Date.now()-at < 60*1000) return; at = Date.now();
+      window.cloudLoadTeamSharing().then(on=>setTeamSharing(!!on)).catch(()=>{}); };
+    load();
+    const onFocus = ()=>{ try{ if(document.visibilityState!=="hidden") load(); }catch(e){} };
+    window.addEventListener("focus", onFocus);
+    return ()=>window.removeEventListener("focus", onFocus);
+  },[session && session.user && session.user.id]);
   // expose for leaf components that have no session prop (e.g. the Art Room key bar)
   React.useEffect(()=>{ window.turnIsAdmin = isAdmin;
     // admin-only fal price-drift check (throttled inside; shows a card on drift)
@@ -3055,7 +3087,7 @@ function App(){
          reconciled the accepted baseline. */
       let _deniedLocal=false;
       if(typeof window.teamCanWriteSection==="function" && _projRow && _projRow.isShared && shareRole!=="owner"){
-        const denied=Object.keys(_changed).filter(k=>!window.teamCanWriteSection(shareRole,k));
+        const denied=Object.keys(_changed).filter(k=>!window.teamCanWriteSection(writeRole,k));
         if(denied.length){
           const setters={scenes:setScenes,characters:setCharacters,props:setProps,locations:setLocations,
             sluglineUnits:setSlugUnitsOv,lookbook:setLookbook,lookbookNote:setLookbookNote,
@@ -3079,7 +3111,7 @@ function App(){
           const now=Date.now();
           if(_saveScopeActive(ctx) && now-(roleNoticeRef.current||0)>60000){
             roleNoticeRef.current=now;
-            const note=(typeof window.teamRoleScopeNote==="function")?window.teamRoleScopeNote(shareRole):"";
+            const note=ownerPlanLapsed ? "This film is read-only for now: its owner's plan doesn't include shared work, so changes aren't saved." : (typeof window.teamRoleScopeNote==="function")?window.teamRoleScopeNote(shareRole):"";
             if(typeof window.appToast==="function"&&note) window.appToast(note,"error");
           }
         }
@@ -3337,9 +3369,16 @@ function App(){
   const currentRoomEntitlements = ()=>{
     if(window.turnIsAdmin) return { writers_room:true, art_room:true, stage:true };
     if(_projRow && _projRow.isShared){
-      if(shareRole==="view_only") return { writers_room:true, art_room:true, stage:true };
-      if(shareRole==="art_director") return { writers_room:true, art_room:true, stage:false };
-      return { writers_room:true, art_room:false, stage:false };
+      // the OWNER's plan decides which rooms the film has; every role may look into them, and
+      // writes follow the role (roomReadOnly). Not read yet → wait (roomGateReady).
+      if(filmOwnerTier===null) return null;
+      if(filmOwnerTier==="studio") return { writers_room:true, art_room:true, stage:true, shared:true };
+      if(filmOwnerTier==="director") return { writers_room:true, art_room:true, stage:false, shared:true };
+      if(filmOwnerTier==="none") return { writers_room:true, art_room:false, stage:false, shared:true };
+      // the server can't say (before team-relaunch.sql): the older role-only rooms
+      if(shareRole==="view_only") return { writers_room:true, art_room:true, stage:true, shared:true };
+      if(shareRole==="art_director") return { writers_room:true, art_room:true, stage:false, shared:true };
+      return { writers_room:true, art_room:false, stage:false, shared:true };
     }
     const b = window.turnCreditBalance;
     if(!b && session && session.user) return null;
@@ -3348,7 +3387,7 @@ function App(){
   };
   const roomGateReady = ()=>{
     if(window.turnIsAdmin) return true;
-    if(_projRow && _projRow.isShared) return true;
+    if(_projRow && _projRow.isShared) return filmOwnerTier!==null;
     if(!(session && session.user)) return true;
     return !!window.turnCreditBalance;
   };
@@ -3368,8 +3407,10 @@ function App(){
   const requireRoomEntitlement = (id)=>{
     if(_projRow && _projRow.isShared){
       if(typeof window.appToast==="function"){
-        const role = typeof window.teamRoleLabel==="function" ? window.teamRoleLabel(shareRole) : "collaborator";
-        window.appToast(`${role} access does not include ${id==="art"?"the Art Room":"the Stage"}.`, "info");
+        const what = id==="art" ? "the Art Room" : "the Stage";
+        window.appToast(ownerPlanLapsed
+          ? `This film is read-only right now: its owner's plan doesn't include shared work, so ${what} is closed.`
+          : `This film's plan doesn't include ${what}.`, "info");
       }
       return;
     }
@@ -3393,9 +3434,11 @@ function App(){
     const plan = (typeof window.turnRoomRequiredPlan==="function") ? window.turnRoomRequiredPlan(room) : "the right";
     setRoom("writers"); setView("spine");
     if(typeof window.appToast==="function"){
-      window.appToast(`${room==="art"?"The Art Room":"The Stage"} requires the ${plan} plan.`, "info");
+      window.appToast(_projRow && _projRow.isShared
+        ? `This film's plan doesn't include ${room==="art"?"the Art Room":"the Stage"}.`
+        : `${room==="art"?"The Art Room":"The Stage"} requires the ${plan} plan.`, "info");
     }
-  },[room, creditBalance, session, isAdmin, shareRole, currentProjectId, projectLoading]);
+  },[room, creditBalance, session, isAdmin, shareRole, currentProjectId, projectLoading, filmOwnerTier]);
 
   const resetStory = ()=>{
     if(!isAdmin) return;   // the Matrix sample is admin-only — belt & braces behind the hidden menu item
@@ -6057,8 +6100,8 @@ function App(){
         props: props.map(p=>({...p})),
         locations: locations.map(l=>({...l})),
         shots: (shots||[]).map(s=>({...s})),
-        patchProp:(id,patch)=>{ if(!(_projRow&&_projRow.isShared) || (typeof window.teamCanWriteSection==="function"&&window.teamCanWriteSection(shareRole,"props"))) setProps(ps=>ps.map(p=>p.id===id?{...p,...patch}:p)); },
-        patchLocation:(id,patch)=>{ if(!(_projRow&&_projRow.isShared) || (typeof window.teamCanWriteSection==="function"&&window.teamCanWriteSection(shareRole,"locations"))) setLocations(ls=>ls.map(l=>l.id===id?{...l,...patch}:l)); },
+        patchProp:(id,patch)=>{ if(!(_projRow&&_projRow.isShared) || (typeof window.teamCanWriteSection==="function"&&window.teamCanWriteSection(writeRole,"props"))) setProps(ps=>ps.map(p=>p.id===id?{...p,...patch}:p)); },
+        patchLocation:(id,patch)=>{ if(!(_projRow&&_projRow.isShared) || (typeof window.teamCanWriteSection==="function"&&window.teamCanWriteSection(writeRole,"locations"))) setLocations(ls=>ls.map(l=>l.id===id?{...l,...patch}:l)); },
       },
       ai:{ available: (typeof aiAvailable==="function" && aiAvailable()),
         suggestTurn:(s,p)=>window.aiSuggestTurn(s,p,model.project),
@@ -6927,22 +6970,34 @@ function App(){
     readOnlyShare && React.createElement("div",{className:"readonly-banner",role:"status"},
       React.createElement(Icon.eye||Icon.warn,{s:14}),
       React.createElement("span",null,
-        React.createElement("b",null,"View-only access — "),
-        "you can navigate, inspect, export and play this film. Editing and AI-write actions are disabled. Role changes are part of Team sharing, which is coming soon.")),
+        React.createElement("b",null,ownerPlanLapsed ? "Read-only for now — " : "View-only access — "),
+        ownerPlanLapsed
+          ? "this film's owner's plan doesn't include shared work right now, so editing and generating are paused. Nothing is lost: it all comes back when their plan does."
+          : "you can navigate, inspect, export and play this film. Editing and AI-write actions are disabled. Only the film's owner can change your role.")),
     unknownSharedRole && React.createElement("div",{className:"readonly-banner",role:"status"},
       React.createElement(Icon.warn||Icon.eye,{s:14}),
       React.createElement("span",null,
         React.createElement("b",null,"Role unavailable — "),
-        "We couldn\u2019t verify a current collaborator role for this shared project. It is read-only and changes or AI actions will not save. Role changes are part of Team sharing, which is coming soon.")),
+        "We couldn\u2019t verify a current collaborator role for this shared project. It is read-only and changes or AI actions will not save. Ask the film's owner to check your role in the Team window.")),
     !readOnlyShare && !unknownSharedRole && room==="writers" && shareRole==="art_director" && writersRoomReadOnly && React.createElement("div",{className:"readonly-banner",role:"status"},
       React.createElement(Icon.eye||Icon.warn,{s:14}),
       React.createElement("span",null,
         React.createElement("b",null,"Writers' Room is read-only for Art directors — "),
         "you can inspect the story and script here, then return to the Art Room to change the Show Bible and pre-production work.")),
-    !readOnlyShare && !unknownSharedRole && room==="art" && shareRole==="writer" && artRoomReadOnly && React.createElement("div",{className:"readonly-banner",role:"status"},
+    !readOnlyShare && !unknownSharedRole && room==="stage" && shareRole!=="stage_editor" && stageReadOnly && React.createElement("div",{className:"readonly-banner",role:"status"},
       React.createElement(Icon.eye||Icon.warn,{s:14}),
       React.createElement("span",null,
-        React.createElement("b",null,"Art Room is read-only for Writers — "),
+        React.createElement("b",null,"The Stage is read-only for your role — "),
+        "you can watch the takes and the timeline here; the film's Stage editor or owner makes changes.")),
+    !readOnlyShare && !unknownSharedRole && room==="writers" && shareRole==="stage_editor" && writersRoomReadOnly && React.createElement("div",{className:"readonly-banner",role:"status"},
+      React.createElement(Icon.eye||Icon.warn,{s:14}),
+      React.createElement("span",null,
+        React.createElement("b",null,"Writers' Room is read-only for Stage editors — "),
+        "you can read the story and script here, then return to the Stage.")),
+    !readOnlyShare && !unknownSharedRole && room==="art" && (shareRole==="writer"||shareRole==="stage_editor") && artRoomReadOnly && React.createElement("div",{className:"readonly-banner",role:"status"},
+      React.createElement(Icon.eye||Icon.warn,{s:14}),
+      React.createElement("span",null,
+        React.createElement("b",null,shareRole==="stage_editor" ? "Art Room is read-only for Stage editors — " : "Art Room is read-only for Co-writers — "),
         "you can inspect the shared Bible and pre-production work here, then return to the Writers' Room to change story, beats and script.")),
     // BILLING NOTICES (2026-09-30): "Payment failed — update your card" while past_due,
     // "Account on hold" while frozen, and the 20% / 5% low-balance notices (app/plans.jsx)
@@ -7137,14 +7192,16 @@ function App(){
       teamSlot: cloudMode && window.TeamButton ? React.createElement(window.TeamButton,{
         // A series is shared once at Show scope. The database migration makes
         // that role apply to every existing and future episode.
-        // TEAM IS COMING SOON (owner decision 2026-10-02): only the admin's button opens the
-        // Team window; everyone else sees it with a "Soon" chip that opens nothing (team.jsx).
-        isAdmin,
+        // TEAM (relaunched 2026-10-03): open for everyone while the switch is on; switched off,
+        // the button shows a "Soon" chip that opens nothing (team.jsx) — except for the admin.
+        isAdmin, sharing:teamSharing,
         projectId:currentShowId||currentProjectId,
         projectTitle:((projects||[]).find(p=>p.id===(currentShowId||currentProjectId))||{}).title || project.title,
         projectMeta:(projects||[]).find(p=>p.id===(currentShowId||currentProjectId)) || null,
         series:!!currentShowId,
-        onChanged:async ()=>{
+        onChanged:async (what)=>{
+          // you left the film: a clean reboot lands on your own films (as "Access ended" does)
+          if(what && what.left){ setTimeout(()=>{ try{ window.location.reload(); }catch(e){} }, 900); return; }
           if(typeof cloudListProjects==="function"){
             const list = await cloudListProjects();
             if(list) setProjects(list);

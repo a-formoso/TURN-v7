@@ -274,10 +274,10 @@ function AccountChip({ session, cloudActive, connectionState, saveState, shareRo
             : saveState==="saving"
             ? React.createElement("span",{className:"acct-cloud",title:"Saving your latest changes."+roleTitle},React.createElement(Icon.cloud||Icon.check,{s:11}),"Saving\u2026")
             : roleUnavailable
-            ? React.createElement("span",{className:"acct-cloud bad",title:"Your role on this shared project couldn't be verified, so it is read-only: changes and AI actions will not save. Role changes are part of Team sharing, which is coming soon."},
+            ? React.createElement("span",{className:"acct-cloud bad",title:"Your role on this shared project couldn't be verified, so it is read-only: changes and AI actions will not save. Only the film's owner can change your role."},
                 React.createElement(Icon.warn,{s:11}),"Role unavailable")
             : shareRole==="view_only"
-            ? React.createElement("span",{className:"acct-cloud warn",title:"You have VIEW-ONLY access to this film. You can read and explore it, but changes you make here are not saved. Role changes are part of Team sharing, which is coming soon."},
+            ? React.createElement("span",{className:"acct-cloud warn",title:"You have VIEW-ONLY access to this film. You can read and explore it, but changes you make here are not saved. Only the film's owner can change your role."},
                 React.createElement(Icon.eye||Icon.warn,{s:11}),"View only")
             : scopedRole
             ? React.createElement("span",{className:"acct-cloud",

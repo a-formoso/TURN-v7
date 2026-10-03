@@ -139,7 +139,7 @@ const LP_STEPS = [
 function lpTiers(){
   return (window.CINEMA_PLANS || []).map(p=>({
     id:p.tier, name:p.name, price:p.price, per:"/ month", blurb:p.blurb,
-    feats:p.features, featured:!!p.popular, tag:p.popular?"Most popular":null,
+    feats:(typeof window.turnPlanCardFeatures==="function" ? window.turnPlanCardFeatures(p) : p.features), featured:!!p.popular, tag:p.popular?"Most popular":null,
     cta:"Choose "+p.name,
   }));
 }

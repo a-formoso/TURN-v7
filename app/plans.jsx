@@ -280,6 +280,17 @@ window.turnApplyPlanCopy = function(ov){
   if(popularTier!=null) PLANS.forEach(p=>{ p.popular = (p.tier===popularTier); });  // exactly one "most popular"
   _bumpPlans();
 };
+/* THE TEAM LINE (owner 2026-10-03): while Team sharing is on, the Director and Producer cards say
+   how many people a film can be shared with — added where the cards are drawn (here and the
+   homepage), after the saved copy, so it shows only while sharing really is on (team.jsx
+   TEAM_LIMITS: 5 / 10, the database's caps) and never needs the stored "plans-copy" edited */
+const PLAN_TEAM_LINES = { director:"Share films with up to 5 collaborators", studio:"Share films with up to 10 collaborators" };
+window.turnPlanCardFeatures = function(p, feats){
+  const list = (feats || (p && p.features) || []).slice();
+  const line = p && PLAN_TEAM_LINES[p.tier];
+  if(line && window.turnTeamSharing && !list.some(f=>/share films with/i.test(String(f)))) list.push(line);
+  return list;
+};
 /* snapshot the current editable copy (for the editor's working state) */
 window.turnPlanCopy = function(){ const o={}; PLANS.forEach(p=>{ o[p.tier]={ name:p.name, blurb:p.blurb, features:(p.features||[]).slice(), popular:!!p.popular }; }); return o; };
 
@@ -351,6 +362,12 @@ window.turnRoomRequiredPlan = function(room){
 };
 window.turnTierGates = function(balance){
   if(window.turnIsAdmin) return OPEN_GATE;
+  // on a shared film the OWNER's plan gates the Stage (Team, 2026-10-03; app.jsx turnFilmOwnerTier);
+  // the server applies the same rule (image-proxy/film-payer.mjs)
+  if(window.turnFilmOwnerTier){
+    const g = TIER_GATES[window.turnFilmOwnerTier] || TIER_GATES.none;
+    return { tier:window.turnFilmOwnerTier, models:g.models, maxRes:g.maxRes, maxBatch:g.maxBatch };
+  }
   const bal = (balance!==undefined) ? balance : window.turnCreditBalance;
   if(!bal) return OPEN_GATE;
   const plan = String(bal.plan||"none").toLowerCase();
@@ -1139,7 +1156,7 @@ function PlansModal({ onClose, currentPlan }){
               const buys = !active && !hasPlan;
               const noteId = "checkout-note-plan-"+p.tier;
               const legacyLine = (active && signedIn) ? legacyCardCreditLine(bal, p.tier) : "";
-              const feats = legacyLine ? p.features.map(f=> isPlanCreditLine(f) ? legacyLine : f) : p.features;
+              const feats = window.turnPlanCardFeatures(p, legacyLine ? p.features.map(f=> isPlanCreditLine(f) ? legacyLine : f) : p.features);
               return React.createElement("div",{key:p.tier,className:"plan-card"+(p.popular?" popular":"")+(active?" active":"")},
                 p.popular && React.createElement("div",{className:"plan-flag"},"Most popular"),
                 React.createElement("div",{className:"plan-name-row checkout-tip-row"},
@@ -1244,7 +1261,7 @@ window.turnBillingNoticeClosed = noticeClosed;
    "2026-10-31". Closing it hides it for that account in this browser until the next update (the
    dismissal is stored against the date, so a later update shows again). It rides the billing
    banners' two mounts (studio and Home), so a close in one closes the other. */
-const TERMS_UPDATED_AT = "2026-10-02";
+const TERMS_UPDATED_AT = "2026-10-03";
 const TERMS_NOTICE_DAYS = 30;
 window.TURN_TERMS_UPDATED_AT = TERMS_UPDATED_AT;
 window.TURN_TERMS_NOTICE_TEXT = "We've updated our Terms and Privacy Policy";

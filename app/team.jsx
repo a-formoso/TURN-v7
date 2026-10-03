@@ -2,15 +2,19 @@
    First collaboration layer: project owners can invite collaborators by email and
    assign a role. Shared projects appear in the collaborator's project switcher
    once supabase/team-collaboration.sql has been run.
-   PAUSED — "Coming soon" (owner decision 2026-10-02, Option C of docs/Team Decision Memo.md):
-   the Team button and the phone ⋯ entry stay visible with a "Soon" chip but open nothing;
-   only the admin still opens the Team window, for testing (TEAM_SOON_TEXT, teamWindowAllowed
-   below). Films already shared keep opening with their role. Don't remove or rebuild this —
-   the relaunch plan is the memo's Option B list. */
+   RELAUNCHED (owner 2026-10-03: "Let's ship Collaboration (Teams)"; the rules are
+   docs/Dashboard Plan.md §5-§7): Director and up shares; 5 people a film on Director, 10 on
+   Producer (pending invites count), at most 3 Co-writers, 20 new invites a day; invites expire
+   after 14 days; the Stage editor role on Producer films; a shared film's rooms follow the
+   OWNER's plan; the owner pays for work on the film within each person's monthly budget
+   (200 credits on Director, 500 on Producer). The database enforces all of it
+   (supabase/team-relaunch.sql) and the server decides who pays (image-proxy/film-payer.mjs);
+   this file is the UI. The switch `team_sharing` (turn_app_config) can turn new sharing off in
+   one place: then the Team button shows "Soon" again, as during the pause (TEAM_SOON_TEXT). */
 
-/* Exactly THREE collaborator roles (the old "Producer/admin" was removed by user
-   decision — it promised team management it never had, and was unrestricted while
-   the others were scoped). Each role carries its plain-language permission blurb;
+/* FOUR collaborator roles (the old "Producer/admin" was removed by user decision — it
+   promised team management it never had; the Stage editor came with the relaunch,
+   owner 2026-10-02 §9.2: it edits the Stage on Producer films). Each role carries its plain-language permission blurb;
    the panel shows these wherever a role is chosen so nobody has to guess.
    DISPLAY vs ID (owner decision 2026-09-28): the "writer" role is SHOWN as "Co-writer" so it
    no longer reads like the Writer plan. The id "writer", the stored role values and the
@@ -19,6 +23,7 @@ const TEAM_ROLES = [
   { id:"view_only", label:"View-only", blurb:"Opens and reads the film. Cannot save any change." },
   { id:"writer", label:"Co-writer", blurb:"Saves story work \u2014 spine, scenes, beats, script and continuity. Art Room changes aren't saved." },
   { id:"art_director", label:"Art director", blurb:"Saves Art Room work \u2014 cast, props, locations, lookbook and shots. Story and script aren't saved." },
+  { id:"stage_editor", label:"Stage editor", producerOnly:true, blurb:"Saves Stage work \u2014 shots' takes, voices and the Stage's settings (Producer films). Story and the rest of the Art Room aren't saved." },
 ];
 function teamRoleLabel(id){
   const r = TEAM_ROLES.find(x=>x.id===id);
@@ -27,14 +32,15 @@ function teamRoleLabel(id){
 function teamRoleBlurb(id){
   const r = TEAM_ROLES.find(x=>x.id===id);
   return r ? r.blurb : (id
-    ? "This role no longer exists \u2014 pick one of the three roles to restore this collaborator's access."
-    : "The current collaborator role couldn't be verified, so access is read-only. Role changes are part of Team sharing, which is coming soon.");
+    ? "This role no longer exists \u2014 pick one of the four roles to restore this collaborator's access."
+    : "The current collaborator role couldn't be verified, so access is read-only. Ask the film's owner to check your role in the Team window.");
 }
 function teamScopedRoleBlurb(id, series){
   if(!series) return teamRoleBlurb(id);
   if(id==="view_only") return "Opens and reads the Show's shared Bible and all existing and future episodes. Cannot save any change.";
   if(id==="writer") return "Saves story work across the Show's existing and future episodes \u2014 spine, scenes, beats, script and continuity. The shared Bible is readable; Art Room changes aren't saved.";
   if(id==="art_director") return "Saves the Show's shared Bible and Art Room work across all existing and future episodes \u2014 cast, props, locations, lookbook and shots. Story and script changes aren't saved.";
+  if(id==="stage_editor") return "Saves Stage work across the Show's existing and future episodes \u2014 shots' takes, voices and the Stage's settings. Story and the rest of the Art Room aren't saved.";
   return teamRoleBlurb(id);
 }
 /* WHAT EACH ROLE MAY WRITE, by doc SECTION — the same granularity the per-section save
@@ -47,6 +53,7 @@ const TEAM_ROLE_SECTIONS = {
   writer:         ["scenes","beatsMap","drafts","history","continuityMap","project"],
   art_director:   ["characters","props","locations","lookbook","lookbookNote","lookbookApplied",
                    "shots","trash","project","propsSeeded","locsSeeded","visualsSeeded"],
+  stage_editor:   ["shots","project"],
   view_only:      [],
 };
 /* NO role at all (a film that is simply yours, or a project list that hasn't loaded yet)
@@ -73,14 +80,16 @@ function teamCanWriteRoom(role, room){
     && teamCanWriteSection(role,"beatsMap") && teamCanWriteSection(role,"drafts");
   if(room==="art") return teamCanWriteSection(role,"characters")
     && teamCanWriteSection(role,"props") && teamCanWriteSection(role,"shots");
+  if(room==="stage") return role==="stage_editor";
   return false;
 }
 /* plain-language name for what a role may NOT touch, for the "that wasn't saved" notice */
 function teamRoleScopeNote(role){
   if(role==="writer") return "Your Co-writer role covers the story, script and beats — Art Room changes (cast, props, locations, lookbook, shots) aren't saved.";
   if(role==="art_director") return "Your Art director role covers the Art Room — story and script changes aren't saved.";
+  if(role==="stage_editor") return "Your Stage editor role covers the Stage — story and the rest of the Art Room aren't saved.";
   if(role==="" || (role && role!=="view_only" && !TEAM_ROLES.find(r=>r.id===role)))
-    return "Your role on this film is missing or from an older version of the app, so changes aren't saved. Role changes are part of Team sharing, which is coming soon.";
+    return "Your role on this film is missing or from an older version of the app, so changes aren't saved. Ask the film's owner to check your role in the Team window.";
   return "";
 }
 window.TEAM_ROLE_SECTIONS = TEAM_ROLE_SECTIONS;
@@ -88,27 +97,51 @@ window.teamCanWriteSection = teamCanWriteSection;
 window.teamCanWriteRoom = teamCanWriteRoom;
 window.teamRoleScopeNote = teamRoleScopeNote;
 
+/* THE RULES, as the database enforces them (supabase/team-relaunch.sql) — shown, never trusted */
+const TEAM_LIMITS = Object.freeze({
+  people:{ director:5, studio:10 }, cowriters:3, invitesPerDay:20, inviteDays:14,
+  budget:{ director:200, studio:500 },
+});
+/* sharing is on (turn_app_config "team_sharing", cloud.jsx cloudLoadTeamSharing), or the admin */
+function teamSharingOn(){ return !!window.turnTeamSharing || !!window.turnIsAdmin; }
+/* what the SIGNED-IN account's plan allows for sharing: "studio" | "director" | "none", or null
+   while the ledger hasn't loaded. A frozen or past-due account can't share (Dashboard Plan §5). */
+function teamAccountTier(){
+  if(window.turnIsAdmin) return "studio";
+  const b = window.turnCreditBalance;
+  if(!b) return null;
+  if(b.frozen || b.paymentStatus==="past_due") return "none";
+  const p = String(b.plan||"").toLowerCase();
+  if(p==="studio" || p==="producer") return "studio";
+  if(p==="director" || p==="pro") return "director";
+  return "none";
+}
+/* people on a film who count toward its cap: joined, or invited and not expired */
+function teamCountsTowardCap(m, now){
+  if(!m || m.status!=="active") return false;
+  if(m.member_user) return true;
+  return !m.expires_at || Date.parse(m.expires_at) > (now||Date.now());
+}
 function teamCanManage(projectMeta){
-  // Team is paused (2026-10-02): only the admin manages a team, for testing. Owners get it
-  // back when Team relaunches (docs/Team Decision Memo.md) — then drop this first line.
-  if(!window.turnIsAdmin) return false;
+  if(!teamSharingOn()) return false;
   return !!(projectMeta && (projectMeta.isOwner || window.turnIsAdmin));
 }
+window.TEAM_LIMITS = TEAM_LIMITS;
+window.teamSharingOn = teamSharingOn;
+window.teamAccountTier = teamAccountTier;
 
-/* TEAM SHARING IS PAUSED — shown as an upcoming feature (owner decision 2026-10-02:
-   "go with option C. Don't let users interract with it in the frontend. Maybe allow them to
-   see it like an upcoming feature"). Everyone but the admin (admin@infinitestudioai.com) sees
-   the Team button and the phone ⋯ entry with a "Soon" chip, disabled-looking (aria-disabled,
-   still focusable so the tooltip can be read), and a click only shows TEAM_SOON_TEXT. The Team
-   window, the invite form, role changes and removals are admin-only (TeamModal and
-   teamCanManage refuse everyone else; cloud.jsx's member writes refuse too). Nothing in the
-   database changed: a film already shared with someone keeps opening with their role — that
-   is access to a film, not the Team feature. Frances is told the same (ai.jsx "Team
-   collaboration"). */
+/* THE SWITCH — while team_sharing is off (and before it loads), Team looks the way it did during
+   the pause (owner decision 2026-10-02, Option C): everyone but the admin sees the Team button and
+   the phone ⋯ entry with a "Soon" chip, disabled-looking (aria-disabled, still focusable so the
+   tooltip can be read), and a click only shows TEAM_SOON_TEXT. Films already shared keep opening
+   with their role either way — that is access to a film, not the Team feature. */
 const TEAM_SOON_TEXT = "Team sharing is coming soon: invite co-writers and art directors to work on your film.";
-// isAdmin: app.jsx passes the signed-in account's admin flag; without it, window.turnIsAdmin
-function teamWindowAllowed(isAdmin){
-  return (isAdmin===undefined || isAdmin===null) ? !!window.turnIsAdmin : !!isAdmin;
+// isAdmin: app.jsx passes the signed-in account's admin flag; without it, window.turnIsAdmin.
+// sharing: app.jsx passes the switch it loaded; without it, window.turnTeamSharing.
+function teamWindowAllowed(isAdmin, sharing){
+  const admin = (isAdmin===undefined || isAdmin===null) ? !!window.turnIsAdmin : !!isAdmin;
+  const on = (sharing===undefined || sharing===null) ? !!window.turnTeamSharing : !!sharing;
+  return admin || on;
 }
 function teamSoonNotice(){
   if(typeof window.appToast==="function") window.appToast(TEAM_SOON_TEXT, "info");
@@ -116,31 +149,56 @@ function teamSoonNotice(){
 window.TEAM_SOON_TEXT = TEAM_SOON_TEXT;
 window.teamWindowAllowed = teamWindowAllowed;
 
-/* the Team window itself: admin only while Team is paused — anyone else gets nothing (no
-   window, no member list read) */
+/* the Team window: when sharing is on (or for the admin) — otherwise nothing (no window, no read) */
 function TeamModal(props){
-  if(!teamWindowAllowed(props && props.isAdmin)) return null;
+  if(!teamWindowAllowed(props && props.isAdmin, props && props.sharing)) return null;
   return React.createElement(TeamWindow, props);
+}
+
+const fmtCredits = (n)=> Math.max(0, Math.floor(Number(n)||0)).toLocaleString("en-US");
+function teamInviteState(m, now){
+  if(m.member_user) return { joined:true, text:"Joined" };
+  const exp = m.expires_at ? Date.parse(m.expires_at) : NaN;
+  if(Number.isFinite(exp) && exp <= now) return { expired:true, text:"Invite expired" };
+  if(Number.isFinite(exp)){
+    const days = Math.max(1, Math.ceil((exp-now)/86400000));
+    return { pending:true, text:"Invited · expires in "+days+" day"+(days===1?"":"s") };
+  }
+  return { pending:true, text:"Invited" };
 }
 
 function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onChanged }){
   const [members, setMembers] = React.useState([]);
+  const [spend, setSpend] = React.useState({});
   const [email, setEmail] = React.useState("");
   const [role, setRole] = React.useState("writer");
   const [busy, setBusy] = React.useState("");
   const [schemaMissing, setSchemaMissing] = React.useState(!!window.turnTeamSchemaMissing);
+  const [budgetDraft, setBudgetDraft] = React.useState({});
   const canManage = teamCanManage(projectMeta);
+  const tier = teamAccountTier();
+  const canInvite = canManage && (tier==="director" || tier==="studio");
+  const cap = TEAM_LIMITS.people[tier] || 0;
+  const now = Date.now();
   const showTitle = projectTitle || "Untitled Show";
   const scopedRoleBlurb = id=>teamScopedRoleBlurb(id,!!series);
+  const roleChoices = TEAM_ROLES.filter(r=>!r.producerOnly || tier==="studio");
   const load = React.useCallback(async ()=>{
     if(!projectId || typeof window.cloudListProjectMembers!=="function"){ setMembers([]); return; }
-    setMembers(await window.cloudListProjectMembers(projectId));
+    const [rows, used] = await Promise.all([
+      window.cloudListProjectMembers(projectId),
+      typeof window.cloudTeamSpend==="function" ? window.cloudTeamSpend(projectId) : Promise.resolve([]),
+    ]);
+    setMembers(rows||[]);
+    const map = {}; (used||[]).forEach(u=>{ map[u.member_id] = u; }); setSpend(map);
     setSchemaMissing(!!window.turnTeamSchemaMissing);
   },[projectId]);
   React.useEffect(()=>{ load(); },[load]);
   React.useEffect(()=>{ const h=(e)=>{ if(e.key==="Escape") onClose(); }; document.addEventListener("keydown",h); return ()=>document.removeEventListener("keydown",h); },[]);
+  const counted = members.filter(m=>teamCountsTowardCap(m, now)).length;
+  const toast = (msg, kind)=>{ if(window.appToast && msg) window.appToast(msg, kind); };
   const invite = async ()=>{
-    if(!canManage || schemaMissing) return;
+    if(!canInvite || schemaMissing) return;
     setBusy("invite");
     const addr = email.trim().toLowerCase();
     const res = await window.cloudInviteProjectMember(projectId, email, role);
@@ -149,20 +207,24 @@ function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onC
       setEmail("");
       await load();
       if(onChanged) onChanged();
-      // the grant and the email are separate outcomes — never claim "sent" when
-      // only the row was written
-      if(window.appToast){
-        if(res.emailSent) window.appToast(series
-          ? "Invitation to Show \u201c"+showTitle+"\u201d emailed to "+addr+"."
-          : "Invitation emailed to "+addr+".","success");
-        else window.appToast(series
-          ? "Collaborator added to Show \u201c"+showTitle+"\u201d, but "+(res.emailNote||"the invitation email could not be sent.")+" They'll still have access to its shared Bible and all existing and future episodes when they sign in with this address."
-          : "Collaborator added, but "+(res.emailNote||"the invitation email could not be sent.")+" They'll still see the film when they sign in with this address.","error");
-      }
+      // the grant and the email are separate outcomes — never claim "sent" when only the row was written
+      if(res.emailSent) toast(series ? "Invitation to Show “"+showTitle+"” emailed to "+addr+"." : "Invitation emailed to "+addr+".","success");
+      else toast(series
+        ? "Added to Show “"+showTitle+"”, but "+(res.emailNote||"the invitation email couldn't be sent.")+" They'll have access to its shared Bible and all episodes when they sign in with this address."
+        : "Added, but "+(res.emailNote||"the invitation email couldn't be sent.")+" They'll see the film when they sign in with this address.","error");
     } else {
       if(res && res.setup) setSchemaMissing(true);
-      if(window.appToast) window.appToast((res&&res.message)||"Could not add collaborator.","error");
+      toast((res&&res.message)||"Couldn't add this person.","error");
     }
+  };
+  const inviteAgain = async (m)=>{
+    if(!canInvite || typeof window.cloudRenewInvite!=="function") return;
+    setBusy("renew:"+m.id);
+    const res = await window.cloudRenewInvite(m, projectId);
+    setBusy("");
+    await load();
+    if(res && res.ok) toast(res.emailSent ? "Invitation sent again to "+m.member_email+"." : "Invite renewed for 14 days, but "+(res.emailNote||"the email couldn't be sent.")+"", res.emailSent?"success":"error");
+    else toast((res&&res.message)||"Couldn't send the invite again.","error");
   };
   const updateRole = async (m, nextRole)=>{
     if(!canManage) return;
@@ -170,15 +232,28 @@ function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onC
     const res = await window.cloudUpdateProjectMember(m.id, { role:nextRole }, projectId);
     setBusy("");
     if(res && res.ok){ await load(); if(onChanged) onChanged(); }
-    else if(window.appToast) window.appToast((res&&res.message)||"Could not update role.","error");
+    else toast((res&&res.message)||"Couldn't change the role.","error");
+  };
+  const saveBudget = async (m)=>{
+    if(!canManage || typeof window.cloudSetMemberBudget!=="function") return;
+    const raw = String(budgetDraft[m.id]==null ? "" : budgetDraft[m.id]).trim();
+    const next = raw==="" ? null : Math.max(0, Math.floor(Number(raw)));
+    if(raw!=="" && !Number.isFinite(next)) return;
+    if(next===(m.budget_credits==null?null:Number(m.budget_credits))){ setBudgetDraft(d=>{ const x={...d}; delete x[m.id]; return x; }); return; }
+    setBusy("budget:"+m.id);
+    const res = await window.cloudSetMemberBudget(m.id, next);
+    setBusy("");
+    setBudgetDraft(d=>{ const x={...d}; delete x[m.id]; return x; });
+    if(res && res.ok){ await load(); toast(next==null ? "No monthly limit for "+m.member_email+"." : "Monthly budget for "+m.member_email+": "+fmtCredits(next)+" credits.","success"); }
+    else toast((res&&res.message)||"Couldn't change the budget.","error");
   };
   const remove = async (m)=>{
     if(!canManage) return;
     const ok = !window.appConfirm || await window.appConfirm({
-      title:series ? "Remove collaborator from this Show?" : "Remove collaborator?",
+      title:series ? "Remove this person from the Show?" : "Remove this person?",
       body:series
-        ? "This ends "+m.member_email+"'s access to Show \u201c"+showTitle+"\u201d, its shared Bible and all existing and future episodes immediately \u2014 if they have one open they'll be told their access ended. You can re-invite them later."
-        : "This ends "+m.member_email+"'s access to \""+(projectTitle||"this project")+"\" immediately \u2014 if they have it open they'll be told their access ended. You can re-invite them later.",
+        ? "This ends "+m.member_email+"'s access to Show “"+showTitle+"”, its shared Bible and all existing and future episodes immediately — if they have one open they'll be told their access ended. You can invite them again later."
+        : "This ends "+m.member_email+"'s access to “"+(projectTitle||"this film")+"” immediately — if they have it open they'll be told their access ended. You can invite them again later.",
       confirmLabel:series ? "Remove Show access" : "Remove",
       danger:true
     });
@@ -187,79 +262,124 @@ function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onC
     const res = await window.cloudRemoveProjectMember(m.id, m.project_id);
     setBusy("");
     if(res && res.ok){ await load(); if(onChanged) onChanged(); }
-    else if(window.appToast) window.appToast((res&&res.message)||"Could not remove collaborator.","error");
+    else toast((res&&res.message)||"Couldn't remove this person.","error");
   };
+  const leave = async ()=>{
+    if(typeof window.cloudLeaveFilm!=="function") return;
+    const ok = !window.appConfirm || await window.appConfirm({
+      title:series ? "Leave this Show?" : "Leave this film?",
+      body:"You'll lose access to “"+(series?showTitle:(projectTitle||"this film"))+"” at once. The owner can invite you again.",
+      confirmLabel:"Leave", danger:true });
+    if(!ok) return;
+    setBusy("leave");
+    const res = await window.cloudLeaveFilm(projectId);
+    setBusy("");
+    if(res && res.ok){ toast("You left “"+(series?showTitle:(projectTitle||"the film"))+"”.","success"); onClose(); if(onChanged) onChanged({ left:true }); }
+    else toast((res&&res.message)||"Couldn't leave the film.","error");
+  };
+  const mine = !canManage ? members[0] : null;           // a collaborator reads only their own row
+  const mySpend = mine ? spend[mine.id] : null;
+  const budgetLine = (m, used)=>{
+    const spent = used ? used.spent : 0;
+    return m.budget_credits==null
+      ? fmtCredits(spent)+" credits this month · no limit"
+      : fmtCredits(spent)+" of "+fmtCredits(m.budget_credits)+" credits this month";
+  };
+  const shareNote = schemaMissing
+    ? "Team sharing isn't set up on the server yet. Please try again later."
+    : canManage && tier===null
+    ? "Checking your plan\u2026"
+    : canManage
+    ? (canInvite
+      ? (series
+        ? "One team applies to Show “"+showTitle+"”: each person's access covers its shared Bible and all existing and future episodes. "
+        : "Invite people by email and choose what each may do. ")
+        +"Work they do here is paid from your credits, within a monthly budget per person ("+fmtCredits(TEAM_LIMITS.budget[tier]||0)+" credits by default) that you can change."
+      : "Sharing a film is part of the Director and Producer plans. You can still remove anyone already here.")
+    : (series
+      ? "This Show was shared with you. One access grant covers its shared Bible and all existing and future episodes. You work here with the role the owner gave you"
+      : "This film was shared with you. You work here with the role the owner gave you")
+      +(projectMeta && projectMeta.shareRole ? (": "+teamRoleLabel(projectMeta.shareRole)+" — "+(scopedRoleBlurb(projectMeta.shareRole)||"")) : ".")
+      +" Work you do here is paid by the film's owner, within your monthly budget.";
   return React.createElement("div",{className:"bible-overlay",onMouseDown:e=>{ if(e.target===e.currentTarget) onClose(); }},
     React.createElement("div",{className:"bible-modal team-modal"},
       React.createElement("div",{className:"bible-head"},
         React.createElement("div",{className:"bible-title"},
           React.createElement(Icon.user,{s:16}),"Team",
-          React.createElement("span",{className:"bible-sub"},series ? ("Show \u00b7 "+showTitle) : (projectTitle||"Current project"))),
+          React.createElement("span",{className:"bible-sub"},series ? ("Show · "+showTitle) : (projectTitle||"Current film"))),
         React.createElement("button",{className:"bible-x",onClick:onClose,title:"Close"},React.createElement(Icon.x,{s:16}))),
       React.createElement("div",{className:"team-body"},
-        React.createElement("div",{className:"team-note"},
-          schemaMissing
-            ? "Team collaboration is ready in the app, but the Supabase migration has not been run yet. Run supabase/team-collaboration.sql, then reopen this panel."
-            : canManage
-            // (2026-10-02) only the admin reaches this window while Team is coming soon; no
-            // "seat" (there are none) and no promise of an email (none is sent yet)
-            ? "Team sharing is coming soon for everyone else \u2014 only the admin can open this window, for testing. "+(series
-              ? "One team applies to Show \u201c"+showTitle+"\u201d. Each collaborator's access covers its shared Bible and all existing and future episodes. Add them by email and choose what each may do; invitation emails aren't sent yet."
-              : "Add collaborators by email and choose what each may do. Invitation emails aren't sent yet: a collaborator finds the film when they sign in with that address.")
-            : (series
-              ? "This Show was shared with you. One access grant covers its shared Bible and all existing and future episodes. You can work here according to the role the owner assigned"+
-                (projectMeta && projectMeta.shareRole ? (": "+teamRoleLabel(projectMeta.shareRole)+" \u2014 "+(scopedRoleBlurb(projectMeta.shareRole)||"")) : ".")
-              : "This project was shared with you. You can work here according to the role the owner assigned"+
-                (projectMeta && projectMeta.shareRole ? (": "+teamRoleLabel(projectMeta.shareRole)+" \u2014 "+(teamRoleBlurb(projectMeta.shareRole)||"")) : "."))),
-        canManage && React.createElement("div",{className:"team-invite"},
+        React.createElement("div",{className:"team-note"}, shareNote),
+        canManage && !canInvite && tier==="none" && React.createElement("button",{className:"team-add team-plans",
+          onClick:()=>{ if(typeof window.turnOpenPlans==="function") window.turnOpenPlans(); }},"See plans"),
+        canInvite && React.createElement("div",{className:"team-invite"},
           React.createElement("input",{className:"team-email",type:"email",value:email,placeholder:"teammate@example.com",
-            disabled:schemaMissing,onChange:e=>setEmail(e.target.value),onKeyDown:e=>{ if(e.key==="Enter" && email.trim()) invite(); }}),
-          React.createElement("select",{className:"team-role",value:role,disabled:schemaMissing,onChange:e=>setRole(e.target.value)},
-            TEAM_ROLES.map(r=>React.createElement("option",{key:r.id,value:r.id,title:scopedRoleBlurb(r.id)},r.label))),
-          React.createElement("button",{className:"team-add",disabled:schemaMissing||busy==="invite"||!email.trim(),onClick:invite},
-            React.createElement(Icon.plus,{s:14}),busy==="invite"?"Adding...":"Add")),
+            "aria-label":"Email address to invite",
+            disabled:schemaMissing||counted>=cap,onChange:e=>setEmail(e.target.value),onKeyDown:e=>{ if(e.key==="Enter" && email.trim()) invite(); }}),
+          React.createElement("select",{className:"team-role",value:role,disabled:schemaMissing,onChange:e=>setRole(e.target.value),"aria-label":"Role"},
+            roleChoices.map(r=>React.createElement("option",{key:r.id,value:r.id,title:scopedRoleBlurb(r.id)},r.label))),
+          React.createElement("button",{className:"team-add",disabled:schemaMissing||busy==="invite"||!email.trim()||counted>=cap,onClick:invite},
+            React.createElement(Icon.plus,{s:14}),busy==="invite"?"Inviting...":"Invite")),
         // what the selected role allows, in plain language, right where it's being chosen
-        canManage && !schemaMissing && React.createElement("div",{className:"team-role-blurb"},
-          teamRoleLabel(role)+" \u2014 "+scopedRoleBlurb(role)),
+        canInvite && !schemaMissing && React.createElement("div",{className:"team-role-blurb"},
+          teamRoleLabel(role)+" — "+scopedRoleBlurb(role)),
+        canInvite && React.createElement("div",{className:"team-cap"},
+          counted+" of "+cap+" people on this "+(series?"Show":"film")+" (invites count until they expire) · up to "+TEAM_LIMITS.cowriters+" Co-writers"
+          +(tier!=="studio" ? " · the Stage editor role comes with the Producer plan" : "")),
         React.createElement("div",{className:"team-seats"},
           React.createElement("div",{className:"team-seat owner"},
             React.createElement("div",{className:"team-avatar"},React.createElement(Icon.user,{s:14})),
             React.createElement("div",{className:"team-member-main"},
-              React.createElement("div",{className:"team-member-email"},series ? "Show owner" : "Project owner"),
+              React.createElement("div",{className:"team-member-email"},
+                canManage ? (series ? "You · Show owner" : "You · owner")
+                  : ((projectMeta && projectMeta.ownerEmail && typeof cloudHandleName==="function") ? cloudHandleName(projectMeta.ownerEmail)+" · owner" : (series ? "Show owner" : "Owner"))),
               React.createElement("div",{className:"team-member-role",
                 title:series
-                  ? "Edits the shared Bible and every episode, invites and removes collaborators, changes roles, and renames or deletes the Show."
-                  : "Edits everything, invites and removes collaborators, changes roles, renames or deletes the film."},
-                series ? "Owner \u2014 edits everything; only seat that manages the Show team" : "Owner \u2014 edits everything; only seat that manages the team"))),
+                  ? "Edits the shared Bible and every episode, invites and removes people, changes roles, and renames or deletes the Show."
+                  : "Edits everything, invites and removes people, changes roles, renames or deletes the film."},
+                "Edits everything; the only one who manages the team"))),
           members.length
             ? members.map(m=>{
                 const legacy = !!(m.role && !TEAM_ROLES.find(r=>r.id===m.role));
-                return React.createElement("div",{className:"team-seat",key:m.id},
+                const st = teamInviteState(m, now);
+                const used = spend[m.id];
+                return React.createElement("div",{className:"team-seat"+(st.expired?" expired":""),key:m.id},
                 React.createElement("div",{className:"team-avatar"},React.createElement(Icon.mail,{s:14})),
                 React.createElement("div",{className:"team-member-main"},
                   React.createElement("div",{className:"team-member-email"},m.member_email),
                   React.createElement("div",{className:"team-member-role",title:scopedRoleBlurb(m.role)},
-                    teamRoleLabel(m.role)+(legacy?" \u2014 pick a current role to restore access":""))),
+                    teamRoleLabel(m.role)+(legacy?" — pick a current role to restore access":"")+" · "+st.text),
+                  React.createElement("div",{className:"team-member-budget"}, budgetLine(m, used))),
                 canManage
                   ? React.createElement("div",{className:"team-member-actions"},
-                      React.createElement("select",{className:"team-role compact",value:m.role||"writer",disabled:!!busy,
-                        title:scopedRoleBlurb(m.role),
+                      (st.pending||st.expired) && canInvite && React.createElement("button",{className:"team-again",disabled:!!busy,
+                        title:"Send the invitation again (a fresh 14 days)",onClick:()=>inviteAgain(m)},busy==="renew:"+m.id?"Sending...":"Invite again"),
+                      React.createElement("input",{className:"team-budget",type:"number",min:0,step:50,inputMode:"numeric",
+                        "aria-label":"Monthly credit budget for "+m.member_email,placeholder:"No limit",title:"Monthly credit budget (empty = no limit)",
+                        value: budgetDraft[m.id]!=null ? budgetDraft[m.id] : (m.budget_credits==null ? "" : String(m.budget_credits)),
+                        disabled:!!busy, onChange:e=>{ const v=e.target.value; setBudgetDraft(d=>({...d,[m.id]:v})); },
+                        onBlur:()=>{ if(budgetDraft[m.id]!=null) saveBudget(m); },
+                        onKeyDown:e=>{ if(e.key==="Enter") e.target.blur(); }}),
+                      React.createElement("select",{className:"team-role compact",value:m.role||"writer",disabled:!!busy||!canInvite,
+                        title:scopedRoleBlurb(m.role),"aria-label":"Role for "+m.member_email,
                         onChange:e=>updateRole(m,e.target.value)},
                         // a legacy value (e.g. the retired producer/admin) still renders,
                         // clearly marked, so the owner can move the member off it
                         legacy && React.createElement("option",{value:m.role,disabled:true},"Legacy role"),
-                        TEAM_ROLES.map(r=>React.createElement("option",{key:r.id,value:r.id,title:scopedRoleBlurb(r.id)},r.label))),
-                      React.createElement("button",{className:"team-remove",disabled:!!busy,title:"Remove collaborator",onClick:()=>remove(m)},
+                        TEAM_ROLES.map(r=>React.createElement("option",{key:r.id,value:r.id,title:scopedRoleBlurb(r.id),
+                          disabled:!!(r.producerOnly && tier!=="studio")},r.label))),
+                      React.createElement("button",{className:"team-remove",disabled:!!busy,title:"Remove",onClick:()=>remove(m)},
                         React.createElement(Icon.trash,{s:14})))
                   : React.createElement("span",{className:"team-badge",title:scopedRoleBlurb(m.role)},teamRoleLabel(m.role)));
               })
-            : React.createElement("div",{className:"team-empty"},"No collaborators yet.")),
+            : (canManage ? React.createElement("div",{className:"team-empty"},"Nobody invited yet.") : null)),
+        !canManage && mine && React.createElement("div",{className:"team-mine"},
+          "Your budget on this "+(series?"Show":"film")+": "+budgetLine(mine, mySpend)+".",
+          React.createElement("button",{className:"team-leave",disabled:busy==="leave",onClick:leave},busy==="leave"?"Leaving...":(series?"Leave Show":"Leave film"))),
         React.createElement("div",{className:"team-foot"},
-          schemaMissing
-            ? "Setup needed: run the team collaboration SQL once in Supabase so the table and access policies exist."
-            : (series
-              ? "Only the Show owner can invite or remove collaborators, change roles, rename the Show or delete it. One team grant applies to the shared Bible and all existing and future episodes. A collaborator who edits outside their role sees a notice that those changes weren't saved."
-              : "Only the owner can invite or remove collaborators, change roles, rename the film or delete it. A collaborator who edits outside their role sees a notice that those changes weren't saved.")))));
+          series
+            ? "Only the Show owner invites or removes people, changes roles and budgets, renames the Show or deletes it. A collaborator who edits outside their role sees a notice that those changes weren't saved."
+            : "Only the owner invites or removes people, changes roles and budgets, renames the film or deletes it. A collaborator who edits outside their role sees a notice that those changes weren't saved."))));
 }
 
 /* INVITE ACCEPTANCE LANDING — shown when the app is opened via ?invite=<projectId>
@@ -305,6 +425,8 @@ function InviteWelcome({ film, invitedBy, sessionEmail, canSetPassword, onOpen, 
                     : (invitedBy ? invitedBy+" shared this film with you." : "This film was shared with you."))),
               role && React.createElement("div",{className:"team-role-blurb"},
                 "Your role: "+teamRoleLabel(role)+" \u2014 "+teamScopedRoleBlurb(role,isShow)),
+              React.createElement("div",{className:"team-note invite-pays"},
+                "Work you do on it is paid by its owner, within a monthly budget \u2014 you don't need a plan of your own."),
               canSetPassword && !pwDone && React.createElement("div",{className:"invite-pw"},
                 React.createElement("div",{className:"invite-pw-note"},
                   "You signed in through the email link. Set a password so you can sign in directly next time (email: "+(sessionEmail||"this address")+")."),
@@ -325,12 +447,11 @@ function InviteWelcome({ film, invitedBy, sessionEmail, canSetPassword, onOpen, 
 }
 window.InviteWelcome = InviteWelcome;
 
-/* Who invited me, for the landing surface. Prefer the fresh claim row (existing-
-   account path). Invite-CREATED accounts were linked to the member row by the Edge
-   Function before their first sign-in, so the claim returns nothing for them — fall
-   back to the inviter the invitation stamped onto the account's metadata, but only
-   when it plausibly refers to THIS film (title match); otherwise stay generic
-   rather than naming the wrong person. */
+/* Who invited me, for the landing surface. Prefer the fresh claim row (since the relaunch
+   every invite is linked by the invitee's own confirmed sign-in, so the claim names it). An
+   invite linked earlier returns nothing from the claim — fall back to the inviter the
+   invitation stamped onto the account's metadata, but only when it plausibly refers to THIS
+   film (title match); otherwise stay generic rather than naming the wrong person. */
 function teamInviteInviter(claim, userMeta, film){
   if(claim && claim.invited_by) return claim.invited_by;
   const um = userMeta || {};
@@ -340,10 +461,10 @@ function teamInviteInviter(claim, userMeta, film){
 }
 window.teamInviteInviter = teamInviteInviter;
 
-function TeamButton({ projectId, projectTitle, projectMeta, series, onChanged, isAdmin }){
+function TeamButton({ projectId, projectTitle, projectMeta, series, onChanged, isAdmin, sharing }){
   const [open, setOpen] = React.useState(false);
-  // Team is coming soon (2026-10-02): everyone but the admin gets the "Soon" button below
-  const live = teamWindowAllowed(isAdmin);
+  // sharing switched off (or not loaded yet): everyone but the admin gets the "Soon" button below
+  const live = teamWindowAllowed(isAdmin, sharing);
   const shared = projectMeta && projectMeta.isShared;
   const hint = !live ? TEAM_SOON_TEXT
     : shared
@@ -352,7 +473,7 @@ function TeamButton({ projectId, projectTitle, projectMeta, series, onChanged, i
   // 2026-09-28 (Round 1): a phone (≤700px) hides this button with the other plain top-bar
   // buttons, so while it is up for a film it registers itself for the top bar's ⋯ menu
   // (chrome.jsx OverflowMenu), which then offers "Team" and opens this same window.
-  // While Team is coming soon a non-admin's entry is { soon:true, notify } — no `open`: the
+  // While sharing is switched off a non-admin's entry is { soon:true, notify } — no `open`: the
   // ⋯ menu shows it with the same "Soon" chip, and a tap only shows the notice.
   React.useEffect(()=>{
     if(!projectId) return;
@@ -371,7 +492,7 @@ function TeamButton({ projectId, projectTitle, projectMeta, series, onChanged, i
   return React.createElement(React.Fragment,null,
     React.createElement("button",{className:"tb-btn",onClick:()=>setOpen(true),title:hint},
       React.createElement(Icon.user,{s:14}),"Team"),
-    open && React.createElement(TeamModal,{projectId,projectTitle,projectMeta,series,onChanged,isAdmin:live,onClose:()=>setOpen(false)}));
+    open && React.createElement(TeamModal,{projectId,projectTitle,projectMeta,series,onChanged,isAdmin,sharing:live,onClose:()=>setOpen(false)}));
 }
 
 /* PRESENCE DOTS — who else has this film open right now, shown beside the Team button.
@@ -382,23 +503,24 @@ function TeamButton({ projectId, projectTitle, projectMeta, series, onChanged, i
 function PresenceDots({ people }){
   const others = (people||[]).filter(p=>!p.isSelf);
   if(!others.length) return null;
-  const label = (p)=> String(p.name || p.email || "Collaborator");
+  const label = (p)=> String(p.name || "Collaborator");
   const initial = (p)=> (label(p).trim()[0] || "?").toUpperCase();
   // who someone is includes what they may DO here — show the role with the name
   const roleBit = (p)=> p.role==="owner" ? "Owner" : (p.role ? teamRoleLabel(p.role) : "");
   const me = (people||[]).find(p=>p.isSelf) || {};
-  const myEmail = String(me.email || "").toLowerCase();
+  // the same person in another window: presence carries the account id, never an email (2026-10-03)
+  const myEmail = String(me.uid || me.email || "").toLowerCase();
   const shown = others.slice(0,4);
   const extra = others.length - shown.length;
   const describe = (p)=>{
-    const same = String(p.email||"").toLowerCase()===myEmail && myEmail;
+    const same = String(p.uid||p.email||"").toLowerCase()===myEmail && myEmail;
     const r = roleBit(p);
     return label(p) + (r ? " \u00b7 "+r : "") + (same ? " (your other window)" : "");
   };
   const title = "In this film now: " + others.map(describe).join(", ");
   return React.createElement("div",{className:"presence-dots",title},
     shown.map((p,i)=>{
-      const same = String(p.email||"").toLowerCase()===myEmail && myEmail;
+      const same = String(p.uid||p.email||"").toLowerCase()===myEmail && myEmail;
       return React.createElement("span",{key:p.key||i,title:describe(p),
         className:"presence-dot"+(same?" self-other":""),},initial(p));
     }),
