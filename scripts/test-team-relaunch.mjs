@@ -449,6 +449,17 @@ await test("E7 a role change reaches an open film: re-read about once a minute a
   assert.equal(cb.teamCanWriteRoom("art_director", "writers"), false); assert.equal(cb.teamCanWriteRoom("art_director", "art"), true);
 });
 
+await test("E8 a collaborator's save never carries the owner's film card (poster, Home order); slugline units are the Art director's", ()=>{
+  const save = appSrc.slice(appSrc.indexOf("const meta=(projectsRef.current||[]).find(p=>String(p.id)===String(ctx.projectId))||{};"), appSrc.indexOf("const _sectionsNow={...doc,...keep};"));
+  assert.ok(/if\(!meta\.isShared\)\{\s*if\(meta\.cover\) keep\.cover=meta\.cover;\s*if\(meta\.coverPrev\) keep\.coverPrev=meta\.coverPrev;\s*if\(meta\.ord!=null\) keep\.homeOrder=Number\(meta\.ord\);\s*\}/.test(save), save);
+  // every section the studio saves is covered by Co-writer + Art director together (nothing a full team can't save)
+  const docKeys = (appSrc.match(/const doc = \{ ([^}]+) \};/) || [])[1].split(",").map(x=>x.trim().split(":")[0]).filter(k=>!["selId","room","view","artView"].includes(k));
+  const both = docKeys.filter(k=>!cb.teamCanWriteSection("writer+art_director", k));
+  assert.deepEqual(both, [], "uncovered sections: "+both.join(", "));
+  assert.equal(cb.teamCanWriteSection("art_director", "sluglineUnits"), true);
+  assert.equal(cb.teamCanWriteSection("writer", "sluglineUnits"), false);
+});
+
 /* ═══ F. Frances ═════════════════════════════════════════════════════════ */
 await test("F1 APP_FEATURES: Team is live — four roles, rooms by the owner's plan, the caps, Leave film; nothing says it's coming soon", ()=>{
   const fb = { console, window:null }; fb.window = fb; vm.createContext(fb);

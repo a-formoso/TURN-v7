@@ -148,7 +148,7 @@ as $$
     when 'writer' then
       array['scenes','beatsMap','drafts','history','continuityMap','project']
     when 'art_director' then
-      array['characters','props','locations','lookbook','lookbookNote','lookbookApplied',
+      array['characters','props','locations','sluglineUnits','lookbook','lookbookNote','lookbookApplied',
             'shots','trash','project','propsSeeded','locsSeeded','visualsSeeded','bible']
     when 'stage_editor' then
       array['shots','project']

@@ -3115,9 +3115,14 @@ function App(){
       // not represented in story state. Carry it into this scoped snapshot.
       const meta=(projectsRef.current||[]).find(p=>String(p.id)===String(ctx.projectId))||{};
       const keep={};
-      if(meta.cover) keep.cover=meta.cover;
-      if(meta.coverPrev) keep.coverPrev=meta.coverPrev;
-      if(meta.ord!=null) keep.homeOrder=Number(meta.ord);
+      /* the poster and the Home order are the OWNER's film card (2026-10-03): a collaborator's save
+         never carries them — no role covers them, and they aren't in the loaded baseline, so on any
+         film with a poster every collaborator save read as "outside your role" and reloaded */
+      if(!meta.isShared){
+        if(meta.cover) keep.cover=meta.cover;
+        if(meta.coverPrev) keep.coverPrev=meta.coverPrev;
+        if(meta.ord!=null) keep.homeOrder=Number(meta.ord);
+      }
       const _sectionsNow={...doc,...keep};
       const _changed={};
       Object.keys(_sectionsNow).forEach(k=>{

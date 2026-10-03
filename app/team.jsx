@@ -98,7 +98,7 @@ window.teamRoleKnown = teamRoleKnown;
 const TEAM_ROLE_SECTIONS = {
   owner:          "*",
   writer:         ["scenes","beatsMap","drafts","history","continuityMap","project"],
-  art_director:   ["characters","props","locations","lookbook","lookbookNote","lookbookApplied",
+  art_director:   ["characters","props","locations","sluglineUnits","lookbook","lookbookNote","lookbookApplied",
                    "shots","trash","project","propsSeeded","locsSeeded","visualsSeeded"],
   stage_editor:   ["shots","project"],
   view_only:      [],
