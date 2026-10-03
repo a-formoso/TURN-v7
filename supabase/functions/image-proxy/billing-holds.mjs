@@ -73,7 +73,12 @@ const int = (x) => (Number.isFinite(Number(x)) ? Math.floor(Number(x)) : null);
  *   log(message)                                  server-side log (never shown to users)
  *   newId()                                       unique id source (crypto.randomUUID)
  */
-export function createHoldClient({ rpc, uid, log = () => {}, newId = () => crypto.randomUUID() } = {}) {
+/*   film   (Team, 2026-10-03) a call on someone else's film that its OWNER pays (film-payer.mjs):
+            { actor, memberId, projectId } — `uid` is then the owner, and the hold goes through
+            turn_hold_credits_for_film (the collaborator's monthly budget, checked under the
+            owner's account lock). A refusal for the budget reads code "budget_reached". */
+export const FILM_HOLD_RPC = "turn_hold_credits_for_film";
+export function createHoldClient({ rpc, uid, film = null, log = () => {}, newId = () => crypto.randomUUID() } = {}) {
   const call = async (name, args) => {
     try {
       const res = await rpc(name, args);
@@ -132,7 +137,11 @@ export function createHoldClient({ rpc, uid, log = () => {}, newId = () => crypt
     async take({ amount, kind = "gen", reason = "", ref: givenRef } = {}) {
       const want = Math.max(1, Math.ceil(Number(amount) || 0));
       const ref = givenRef || `${kind}:${newId()}`;
-      const r = await call(HOLD_RPC, { uid, amount: want, ref, reason: String(reason || kind).slice(0, 200) });
+      const why = String(reason || kind).slice(0, 200);
+      const r = film
+        ? await call(FILM_HOLD_RPC, { p_owner: uid, p_actor: film.actor, p_member: film.memberId, p_project: film.projectId,
+            amount: want, ref, reason: why })
+        : await call(HOLD_RPC, { uid, amount: want, ref, reason: why });
       if (r.error || !r.data) {
         safeLog(`[billing] hold failed (${String((r.error && (r.error.message || r.error)) || "no answer").slice(0, 200)}).`
           + (/does not exist|could not find the function|PGRST202|42883/i.test(String((r.error && (r.error.message || r.error.code)) || "")) ? " Run supabase billing-v2.sql before deploying this proxy." : ""));
@@ -141,6 +150,7 @@ export function createHoldClient({ rpc, uid, log = () => {}, newId = () => crypt
       const d = r.data;
       if (d.ok === false || d.ok === "false") {
         const code = String(d.code || "insufficient").toLowerCase();
+        if (code === "budget_reached") return { ok: false, code, budget: int(d.budget), spent: int(d.spent), remaining: int(d.remaining) };
         return { ok: false, code: code === "frozen" ? "frozen" : code === "insufficient" ? "insufficient" : "unavailable", remaining: int(d.remaining) };
       }
       const held = int(d.held) ?? want;

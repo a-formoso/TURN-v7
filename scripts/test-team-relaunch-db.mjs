@@ -208,11 +208,11 @@ ok("G3 Leave film: Vic's access ends at once", r.ok && r.row.n === 1 && !(await 
 /* ── H. the owner pays, within the budget ────────────────────────────────── */
 const bal = async (who) => (await q("select remaining from public.turn_credits where owner=$1", [who.id]))[0]?.remaining ?? null;
 const payer = async (who, film, room) => (await svc("select public.turn_film_payer($1,$2,$3) j", [who.id, film, room])).j;
-let p = await payer(U.cara, F.dora1, "writers");
+let p = await payer(U.cara, F.dora1, "text");
 ok("H1 Cara writing on Dora's film: Dora pays, budget 200", p.ok && p.payer === U.dora.id && p.budget === 200 && p.spent === 0, p);
-ok("H2 the owner on her own film: her own", (await payer(U.dora, F.dora1, "writers")).own === true);
-ok("H3 an outsider: billed as before (not a member)", (await payer(U.eve, F.dora1, "writers")).code === "not_member");
-ok("H4 a Co-writer making Art Room images: billed as before (role)", (await payer(U.cara, F.dora1, "art")).code === "role");
+ok("H2 the owner on her own film: her own", (await payer(U.dora, F.dora1, "text")).own === true);
+ok("H3 an outsider: billed as before (not a member)", (await payer(U.eve, F.dora1, "text")).code === "not_member");
+ok("H4 a Co-writer making Art Room images: billed as before (role)", (await payer(U.cara, F.dora1, "image")).code === "role");
 const dora0 = await bal(U.dora), cara0 = await bal(U.cara);
 let h = (await svc("select public.turn_hold_credits_for_film($1,$2,$3,$4,150,'text:t1','text') j", [U.dora.id, U.cara.id, p.member_id, F.dora1])).j;
 ok("H5 a 150-credit hold comes from Dora's balance", h.ok && (await bal(U.dora)) === dora0 - 150 && (await bal(U.cara)) === cara0, { h, dora: await bal(U.dora) });
@@ -222,26 +222,29 @@ h = (await svc("select public.turn_hold_credits_for_film($1,$2,$3,$4,150,'text:t
 ok("H7 a repeat of the same hold is the first answer", h.ok && h.duplicate === true && (await bal(U.dora)) === dora0 - 150, h);
 await svc("select public.turn_settle_hold('text:t1', 120)");
 ok("H8 settled at 120: 30 back to Dora", (await bal(U.dora)) === dora0 - 120);
+ok("H8b the hold records who started it", (await svc("select public.turn_hold_actor('text:t1') a")).a === U.cara.id);
 r = await as(U.dora, "select * from public.turn_team_spend($1)", [F.dora1]);
 const caraSpend = r.rows?.find((x) => x.member_id === p.member_id);
 ok("H9 the owner sees Cara's use this month", caraSpend && caraSpend.spent === 120 && caraSpend.budget === 200, r.rows);
 r = await as(U.cara, "select * from public.turn_team_spend($1)", [F.dora1]);
 ok("H10 Cara sees her own use only", r.ok && r.rows.length === 1 && r.rows[0].spent === 120, r.rows);
 await as(U.dora, "update public.turn_project_members set budget_credits = 120 where id = $1", [p.member_id]);
-ok("H11 budget reached: the payer check refuses", (await payer(U.cara, F.dora1, "writers")).code === "budget_reached");
+ok("H11 budget reached: the payer check refuses", (await payer(U.cara, F.dora1, "text")).code === "budget_reached");
 await as(U.dora, "update public.turn_project_members set budget_credits = null where id = $1", [p.member_id]);
-ok("H12 no limit: allowed again", (await payer(U.cara, F.dora1, "writers")).ok === true);
-p = await payer(U.sam, F.pat1, "stage");
+ok("H12 no limit: allowed again", (await payer(U.cara, F.dora1, "text")).ok === true);
+p = await payer(U.sam, F.pat1, "video");
 ok("H13 the Stage editor on Pat's film: Pat pays", p.ok && p.payer === U.pat.id && p.budget === 50, p);
+ok("H13b the Stage editor's writing call on the film: Pat pays too", (await payer(U.sam, F.pat1, "text")).payer === U.pat.id);
+ok("H13c but not 3D (Art director's)", (await payer(U.sam, F.pat1, "3d")).code === "role");
 await q("update public.turn_credits set plan = 'writer' where owner = $1", [U.pat.id]);
-ok("H14 Pat drops to Writer: generations on the film stop (owner_plan)", (await payer(U.sam, F.pat1, "stage")).code === "owner_plan");
+ok("H14 Pat drops to Writer: generations on the film stop (owner_plan)", (await payer(U.sam, F.pat1, "video")).code === "owner_plan");
 await q("update public.turn_credits set plan = 'studio' where owner = $1", [U.pat.id]);
 await q("update public.turn_app_config set value = '{\"on\": false}' where key = 'team_sharing'");
-ok("H15 switch off: a collaborator is billed as before", (await payer(U.cara, F.dora1, "writers")).code === "off");
+ok("H15 switch off: a collaborator is billed as before", (await payer(U.cara, F.dora1, "text")).code === "off");
 await q("update public.turn_app_config set value = '{\"on\": true}' where key = 'team_sharing'");
 
 /* ── P. privileges ───────────────────────────────────────────────────────── */
-r = await as(U.cara, "select public.turn_film_payer($1,$2,'writers')", [U.cara.id, F.dora1]);
+r = await as(U.cara, "select public.turn_film_payer($1,$2,'text')", [U.cara.id, F.dora1]);
 ok("P1 a signed-in user can't call the payer check", !r.ok, r);
 r = await as(U.cara, "select public.turn_hold_credits_for_film($1,$2,$3,$4,1,'x','text')", [U.dora.id, U.cara.id, caraRow, F.dora1]);
 ok("P2 nor take a hold on someone's balance", !r.ok, r);

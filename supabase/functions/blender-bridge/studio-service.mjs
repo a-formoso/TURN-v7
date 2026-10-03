@@ -219,7 +219,9 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
         "Studio generation is unavailable until atomic credit settlement is configured.");
     }
     if (typeof adapter?.authorizeCredit !== "function") throw error(503, "billing_unavailable", "Studio billing is unavailable.");
-    const result = await adapter.authorizeCredit({ token, uid: ctx.actor.id, cost, eventId });
+    // projectId + ownerId: on someone else's film the owner pays (Team, 2026-10-03; supabase-adapter.mjs)
+    const result = await adapter.authorizeCredit({ token, uid: ctx.actor.id, cost, eventId,
+      projectId: ctx.projectId || null, ownerId: (ctx.access && ctx.access.ownerId) || null });
     if (!result?.ok) {
       const code = result?.code || "insufficient_credits";
       const status = code === "tier_required" || code === "account_frozen" ? 403 : code === "billing_unavailable" ? 503 : 402;

@@ -50,6 +50,25 @@ export function createSupabaseAdapter({
         exists: true, ownerId: projectQuery.data.owner, actorId: actor.id, canRead: true, canWrite: true,
       };
     }
+    // Team (2026-10-03): the database decides — supabase/team-relaunch.sql turn_film_payer() reads
+    // the membership by ACCOUNT (an unlinked invite only by a confirmed, unexpired address) and
+    // knows whether the owner's plan carries 3D for this role. Edit access = it would bill the
+    // owner (or only the budget is used up); a member with another role reads.
+    let film = null;
+    try {
+      const r = await admin.rpc("turn_film_payer", { p_actor: actor.id, p_project: projectId, p_kind: "3d" });
+      film = r && !r.error ? rpcObject(r.data, "turn_film_payer") : null;
+    } catch (_) { film = null; }
+    if (film && String(film.code || "") !== "off") {
+      const code = String(film.code || "");
+      const ok = film.ok === true || film.ok === "true";
+      return {
+        exists: true, ownerId: projectQuery.data.owner, actorId: actor.id,
+        canRead: ok || ["role", "owner_plan", "budget_reached"].includes(code),
+        canWrite: ok || code === "budget_reached",
+      };
+    }
+    // before team-relaunch.sql (or with sharing switched off): the older rule
     const members = await admin.from("turn_project_members")
       .select("member_user,member_email,role,status")
       .eq("project_id", projectId).eq("status", "active");
@@ -266,7 +285,23 @@ export function createSupabaseAdapter({
     return r && typeof r === "object" ? r : null;
   }
   const missingFunction = (e) => /PGRST202|42883|could not find the function|does not exist/i.test(String((e && (e.code || "")) + " " + (e && e.message || "")));
-  async function authorizeCredit({ token, cost, eventId }) {
+  // On someone else's film the OWNER pays (Team, 2026-10-03; image-proxy/film-payer.mjs): the
+  // owner's plan gates 3D and the hold comes from the owner's balance within the collaborator's
+  // monthly budget (turn_hold_credits_for_film). Anything unconfirmed bills the caller, as before.
+  const FILM_REFUSALS = {
+    owner_plan: "The film's owner's plan doesn't include shared work right now, so generating on this film is paused.",
+    owner_insufficient: "The film's owner doesn't have enough credits for this right now.",
+  };
+  const budgetMessage = (budget, spent) =>
+    `You've used this month's credit budget on this film (${formatCredits(spent)} of ${formatCredits(budget)}). The film's owner can raise it.`;
+  async function filmPayer(actorId, projectId, ownerId) {
+    if (!projectId || !ownerId || ownerId === actorId) return null;
+    try {
+      const r = await admin.rpc("turn_film_payer", { p_actor: actorId, p_project: projectId, p_kind: "3d" });
+      return r && !r.error ? rpcObject(r.data, "turn_film_payer") : null;
+    } catch (_) { return null; }
+  }
+  async function authorizeCredit({ token, cost, eventId, projectId = null, ownerId = null }) {
     if (!token) return { ok: false, message: "Generation authorization expired." };
     const client = createClient(url, anonKey, {
       global: { headers: { Authorization: `Bearer ${token}` } },
@@ -275,6 +310,34 @@ export function createSupabaseAdapter({
     if (authError || !authData?.user) return { ok: false, message: "Generation authorization expired." };
     const user = authData.user;
     const required = Math.max(1, Math.ceil(Number(cost) || 1));
+    const fp = await filmPayer(user.id, projectId, ownerId);
+    if (fp && (fp.ok === false || fp.ok === "false")) {
+      if (fp.code === "owner_plan") return { ok: false, code: "owner_plan", message: FILM_REFUSALS.owner_plan };
+      if (fp.code === "budget_reached") return { ok: false, code: "budget_reached", message: budgetMessage(fp.budget, fp.spent) };
+    }
+    if (fp && (fp.ok === true || fp.ok === "true") && fp.payer && fp.member_id && !fp.own) {
+      const owned = await admin.from("turn_credits").select("plan,remaining,frozen,payment_status").eq("owner", fp.payer).limit(1);
+      const orow = Array.isArray(owned.data) ? owned.data[0] : owned.data;
+      if (owned.error || !orow) return { ok: false, code: "billing_unavailable", message: "Credits can't be checked right now. Please try again in a minute." };
+      if (orow.frozen === true || !STUDIO_PLANS.has(String(orow.plan || "").toLowerCase().trim()))
+        return { ok: false, code: "owner_plan", message: FILM_REFUSALS.owner_plan };
+      if ((Number(orow.remaining) || 0) < required) return { ok: false, code: "owner_insufficient", message: FILM_REFUSALS.owner_insufficient };
+      if (!eventId) return { ok: true, remaining: null };
+      const ref = `studio:${eventId}`;
+      let held;
+      try { held = await admin.rpc("turn_hold_credits_for_film", { p_owner: fp.payer, p_actor: user.id, p_member: fp.member_id,
+        p_project: projectId, amount: required, ref, reason: "blender-studio" }); }
+      catch (e) { held = { error: e }; }
+      const h = held && !held.error ? rpcObject(held.data, "turn_hold_credits_for_film") : null;
+      if (!h) return { ok: false, code: "billing_unavailable", message: "Credits can't be checked right now. Please try again in a minute." };
+      if (h.ok === false || h.ok === "false") {
+        const code = String(h.code || "insufficient").toLowerCase();
+        if (code === "budget_reached") return { ok: false, code, message: budgetMessage(h.budget, h.spent) };
+        if (code === "frozen") return { ok: false, code: "owner_plan", message: FILM_REFUSALS.owner_plan };
+        return { ok: false, code: "owner_insufficient", message: FILM_REFUSALS.owner_insufficient };
+      }
+      return { ok: true, remaining: null, holdRef: ref };   // the owner's balance is never shown to a collaborator
+    }
     // turn_credit_balance() (billing-v2.sql) carries frozen / trial; the older row is the fallback.
     // A failed read is a failed authorization, never a free desktop generation.
     let row = null;

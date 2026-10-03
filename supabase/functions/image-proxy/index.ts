@@ -106,6 +106,7 @@ import {
 // speech-to-text is held.
 import { AUDIO_CONTAINERS, audioDurationFromBytes } from "./audio-length.mjs";
 import { requestContext } from "./request-context.mjs";
+import { HOLD_ACTOR_RPC, budgetReached, filmCallKind, filmPaidMetadata, loadOwnerAccountRow, ownerShortOfCredits, resolveFilmPayer } from "./film-payer.mjs";
 /* The pages a searching Claude reply relied on: every page a text block CITES first (the claims
    rest on those), then the other results the searches returned; one entry per URL, at most 12,
    http(s) only. */
@@ -373,10 +374,11 @@ Deno.serve(async (req) => {
   const ADMIN_EMAILS = ["admin@infinitestudioai.com"];
   const isAdmin = ADMIN_EMAILS.includes(String(authUser.email || "").toLowerCase());
   const accountRead = isAdmin ? { row: null, ok: true } : await loadAccountRow(sbAuth, authUser.id);
-  const account = accountFrom(accountRead.row, { isAdmin });
+  // `let`: on a collaborator's call on someone else's film it becomes the OWNER's account (below)
+  let account = accountFrom(accountRead.row, { isAdmin });
   // false only when the balance could not be read at all: paid routes refuse (503) instead of
   // mistaking a paying customer for a no-plan account; Frances then gets the ceiling, not a plan cap
-  const accountKnown = isAdmin || accountRead.ok;
+  let accountKnown = isAdmin || accountRead.ok;
   let accountPlan = account.rawPlan;
   let accountRemaining = account.remaining;
   const refuse = (r: { status: number; body: Record<string, unknown> }) => json(r.body, r.status);
@@ -404,6 +406,38 @@ Deno.serve(async (req) => {
   const images: string[] = Array.isArray(body.images) ? body.images : [];
   const task = body.task || "image";
   const usageKind = String(body.usageKind || (images.length && task === "text" ? "vision" : task)).toLowerCase();
+
+  // ── WHO PAYS: on someone else's film, its OWNER (Team, owner 2026-10-03) ──────
+  //   film-payer.mjs: the database confirms the caller is a linked member whose role fits this
+  //   call, that the owner's plan carries it and that the budget isn't used up. The OWNER's plan
+  //   then gates the call (engines, resolution, video, takes) and the hold comes from the owner's
+  //   balance (turn_hold_credits_for_film). Anything it can't confirm bills the caller, as before.
+  //   Frances's caps stay the caller's (francesCap, above).
+  const filmKind = isAdmin ? "" : filmCallKind(task, body);
+  const film: any = filmKind
+    ? await resolveFilmPayer({
+        rpc: (n: string, a: Record<string, unknown>) => createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!).rpc(n, a),
+        actor: authUser.id, context: requestContext(body.context), kind: filmKind,
+        log: (m: string) => console.warn("[image-proxy] " + m),
+      })
+    : { mode: "caller" };
+  if (film.mode === "refuse") return refuse(film.refusal);
+  const ownerPays = film.mode === "owner";
+  if (ownerPays) {
+    const sbOwner = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const ownerRead = await loadOwnerAccountRow((t: string) => sbOwner.from(t), film.payer);
+    if (!ownerRead.ok || !ownerRead.row) return refuse(billingUnavailable());
+    account = accountFrom(ownerRead.row);
+    accountKnown = true;
+    accountPlan = account.rawPlan;
+    accountRemaining = account.remaining;
+  }
+  // what's left of the collaborator's monthly budget on this film (Infinity: no limit, or not a shared call)
+  const filmBudgetLeft = ownerPays && film.budget != null ? Math.max(0, film.budget - (film.spent || 0)) : Infinity;
+  // short of credits: the caller's own message, or — on a shared film — the budget's, or one about
+  // the owner's balance that names no figures
+  const shortOf = (need: number, have: number) => (!ownerPays ? shortOfCredits(account, need, have)
+    : need > filmBudgetLeft ? budgetReached(film.budget, film.spent || 0) : ownerShortOfCredits());
   /*
    * Resolve quality before any spend check, provider-key lookup, fal staging,
    * or asset upload. A missing quality is not the literal string "default":
@@ -577,15 +611,16 @@ Deno.serve(async (req) => {
     if (isAdmin) return null;
     if (!accountKnown) return refuse(billingUnavailable());
     if (account.frozen) return refuse(frozenRefusal());
-    if (need <= 0 || accountRemaining >= need) return null;
-    return refuse(shortOfCredits(account, need, accountRemaining));
+    if (need <= 0 || Math.min(accountRemaining, filmBudgetLeft) >= need) return null;
+    return refuse(shortOf(need, accountRemaining));
   };
   // HOLDS go through the service-role client (the hold / settle / release functions are locked to
   // the service role). One client per request, created on first use.
   let holdClientOnce: any = null;
   const holdClient = () => holdClientOnce || (holdClientOnce = createHoldClient({
     rpc: (name: string, args: Record<string, unknown>) => createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!).rpc(name, args),
-    uid: authUser.id,
+    uid: ownerPays ? film.payer : authUser.id,
+    film: ownerPays ? { actor: authUser.id, memberId: film.memberId, projectId: film.projectId } : null,
     log: (m: string) => console.warn("[image-proxy] " + m),
   }));
   /* Hold `credits` before a paid provider call. { hold } (null for admins, who are never charged)
@@ -599,7 +634,8 @@ Deno.serve(async (req) => {
       if (h.remaining != null) accountRemaining = h.remaining;
       return { hold: h, block: null };
     }
-    if (h.code === "insufficient") return { hold: null, block: refuse(shortOfCredits(account, need, h.remaining ?? accountRemaining)) };
+    if (h.code === "insufficient") return { hold: null, block: refuse(shortOf(need, h.remaining ?? accountRemaining)) };
+    if (h.code === "budget_reached") return { hold: null, block: refuse(budgetReached(h.budget ?? 0, h.spent ?? 0)) };
     if (h.code === "frozen") return { hold: null, block: refuse(frozenRefusal()) };
     return { hold: null, block: refuse(billingUnavailable()) };
   };
@@ -633,11 +669,11 @@ Deno.serve(async (req) => {
         input_token_count: payload.inputTokens ?? null,
         output_token_count: payload.outputTokens ?? null,
         provider_cost: payload.providerCostUsd ?? null,
-        usage_metadata: { ...(payload.metadata || {}), credits_charged: credits },
+        usage_metadata: { ...(payload.metadata || {}), ...filmPaidMetadata(film), credits_charged: credits },
       });
       if (error) console.warn("[image-proxy] usage record failed: " + String(error.message || error).slice(0, 200));
       const row = Array.isArray(data) ? data[0] : data;
-      if (row && row.plan) accountPlan = String(row.plan);
+      if (row && row.plan && !ownerPays) accountPlan = String(row.plan);
     } catch (e) {
       console.warn("[image-proxy] usage record failed: " + String((e as any)?.message || e).slice(0, 200));
     }
@@ -839,13 +875,15 @@ Deno.serve(async (req) => {
     if (textKind !== "muse" && !isAdmin) {
       const est = { model: priceKey, messages, imageCount: images.length, vision, promptCache, webSearches, unit };
       const minCap = provider === "anthropic" ? 16000 : 1024;
-      outputCap = affordableOutputCap({ ...est, wantedCap, minCap, availableCredits: accountRemaining });
+      outputCap = affordableOutputCap({ ...est, wantedCap, minCap, availableCredits: Math.min(accountRemaining, filmBudgetLeft) });
       // too little for even one answer on this engine: say how short, and that a lighter engine runs
       // (repair F20) — unless the balance can't pay for one answer on even the cheapest default
       // engine (0, or nearly): then the plain "add credits" refusal (round 3, S5)
       if (!outputCap) {
         const cheapest = cheapestTextHold({ models: DEFAULT_TEXT_MODELS, messages, imageCount: images.length, vision, promptCache, unit });
-        return refuse(writingShortfall(account, textHoldEstimate({ ...est, outputCap: Math.min(minCap, wantedCap) })!.credits, accountRemaining, { cheapest }));
+        const needOne = textHoldEstimate({ ...est, outputCap: Math.min(minCap, wantedCap) })!.credits;
+        if (ownerPays) return refuse(shortOf(needOne, accountRemaining));
+        return refuse(writingShortfall(account, needOne, accountRemaining, { cheapest }));
       }
       const holdEst = textHoldEstimate({ ...est, outputCap })!;
       const { hold, block } = await takeHold(holdEst.credits, "text", `text:${priceKey}`);
@@ -2017,7 +2055,12 @@ Deno.serve(async (req) => {
           const lk: any = await holdClient().lookup(job.rid);
           if (!lk.ok) return retryLater("Couldn't check this render's credits right now. Please try again in a moment.");
           if (lk.found) {
-            if (lk.owner !== authUser.id) return notFound();
+            // the caller's own hold — or, on a shared film, a hold its owner pays for a job this caller started
+            if (lk.owner !== authUser.id) {
+              const actor = await createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!)
+                .rpc(HOLD_ACTOR_RPC, { ref: String(lk.ref || "") }).then((r: any) => (r && !r.error ? r.data : null), () => null);
+              if (String(actor || "") !== authUser.id) return notFound();
+            }
             if (!String(lk.ref || "").startsWith("video:")) return json({ error: "Bad poll URLs." }, 400);
             found = lk;
           } else {

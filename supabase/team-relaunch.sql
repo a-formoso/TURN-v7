@@ -593,12 +593,15 @@ as $$
      and h.created_at >= date_trunc('month', now() at time zone 'utc') at time zone 'utc';
 $$;
 
--- Who pays for a call on a film (service role). p_room: 'writers' | 'art' | 'stage'.
+-- Who pays for a call on a film (service role). p_kind is the call: 'text' (any writing
+-- role: every room drafts), 'image' and 'voice' (Art director, Stage editor), 'video'
+-- (Stage editor), '3d' (Art director).
 --   {ok:true, payer, own:true}                      the caller owns the film
 --   {ok:true, payer:owner, actor, member_id, budget, spent, tier}   a collaborator
 --   {ok:false, code:'owner_plan' | 'budget_reached'}  refuse the call
 --   {ok:false, code:'not_member' | 'role' | 'no_film' | 'off'}   bill the caller, as before
-create or replace function public.turn_film_payer(p_actor uuid, p_project uuid, p_room text)
+drop function if exists public.turn_film_payer(uuid, uuid, text);
+create or replace function public.turn_film_payer(p_actor uuid, p_project uuid, p_kind text)
 returns jsonb
 language plpgsql
 security definer
@@ -608,7 +611,7 @@ as $$
 declare
   v_owner uuid;
   tier    text;
-  need    text;
+  need    text[];
   pick    record;
   spent   integer;
 begin
@@ -620,16 +623,24 @@ begin
   if v_owner is null then return jsonb_build_object('ok', false, 'code', 'no_film'); end if;
   if v_owner = p_actor then return jsonb_build_object('ok', true, 'payer', p_actor, 'own', true); end if;
   if not public.turn_team_sharing_on() then return jsonb_build_object('ok', false, 'code', 'off'); end if;
-  need := case p_room when 'art' then 'art_director' when 'stage' then 'stage_editor' else 'writer' end;
+  need := case p_kind
+    when 'text'  then array['writer', 'art_director', 'stage_editor']
+    when 'image' then array['art_director', 'stage_editor']
+    when 'voice' then array['art_director', 'stage_editor']
+    when 'video' then array['stage_editor']
+    when '3d'    then array['art_director']
+    else array[]::text[] end;
+  tier := public.turn_team_owner_tier(v_owner);
+  -- the best grant: one that fits this call and the owner's plan, the film's own row first
   select r.role, r.member_id, m.budget_credits into pick
     from public.turn_effective_project_roles_for(p_actor, p_project) r
     join public.turn_project_members m on m.id = r.member_id
    where m.member_user = p_actor
-   order by (r.role = need) desc, (m.project_id = p_project) desc
+   order by (r.role = any(need) and public.turn_team_role_writes(r.role, tier)) desc,
+            (r.role = any(need)) desc, (m.project_id = p_project) desc
    limit 1;
   if not found then return jsonb_build_object('ok', false, 'code', 'not_member'); end if;
-  if pick.role <> need then return jsonb_build_object('ok', false, 'code', 'role', 'role', pick.role); end if;
-  tier := public.turn_team_owner_tier(v_owner);
+  if not (pick.role = any(need)) then return jsonb_build_object('ok', false, 'code', 'role', 'role', pick.role); end if;
   if not public.turn_team_role_writes(pick.role, tier) then
     return jsonb_build_object('ok', false, 'code', 'owner_plan', 'tier', tier);
   end if;
@@ -679,6 +690,20 @@ begin
     v_spent + case when coalesce((v_res ->> 'ok')::boolean, false) then coalesce(amount, 0) else 0 end);
 end $$;
 
+-- Who started the job a hold pays for (a video poll by the collaborator who submitted it,
+-- on a hold the film's owner pays). Service role.
+create or replace function public.turn_hold_actor(ref text)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, pg_temp
+stable
+as $$
+begin
+  perform public.turn__service_only('turn_hold_actor');
+  return (select h.actor from public.turn_credit_holds h where h.ref = turn_hold_actor.ref);
+end $$;
+
 -- This month's use per collaborator, for the film's owner (the Team window) or,
 -- for their own row, the collaborator.
 create or replace function public.turn_team_spend(pid uuid)
@@ -705,6 +730,8 @@ revoke all on function public.turn__member_spent(uuid) from public, anon, authen
 revoke all on function public.turn_film_payer(uuid, uuid, text) from public, anon, authenticated;
 revoke all on function public.turn_hold_credits_for_film(uuid, uuid, uuid, uuid, integer, text, text) from public, anon, authenticated;
 grant execute on function public.turn_film_payer(uuid, uuid, text) to service_role;
+revoke all on function public.turn_hold_actor(text) from public, anon, authenticated;
+grant execute on function public.turn_hold_actor(text) to service_role;
 grant execute on function public.turn_hold_credits_for_film(uuid, uuid, uuid, uuid, integer, text, text) to service_role;
 revoke all on function public.turn__team_trusted() from public, anon, authenticated;
 revoke all on function public.turn_confirmed_email() from public, anon;
