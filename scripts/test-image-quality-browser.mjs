@@ -6,8 +6,42 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { transformSync } from "@babel/core";
+
+/*
+ * Node 20 keeps the native WebSocket client behind --experimental-websocket.
+ * Re-enter this same script with that flag so `node scripts/test-stage-browser.mjs`
+ * is independently runnable; the child inherits the caller's stdio and status.
+ * Do this before opening any fixture/server resources so a retry cannot leave a
+ * partially prepared browser run behind.
+ */
+if (typeof globalThis.WebSocket === "undefined") {
+  const websocketFlag="--experimental-websocket";
+  const retried=process.execArgv.includes(websocketFlag);
+  if (retried) {
+    console.error("Image quality browser fixture requires Node's native WebSocket, but --experimental-websocket did not expose global WebSocket.");
+    process.exit(1);
+  }
+  const major=Number(String(process.versions.node||"0").split(".")[0]);
+  if (!Number.isFinite(major) || major<20) {
+    console.error(`Image quality browser fixture requires Node 20+ with native WebSocket support (found ${process.versions.node||"unknown"}).`);
+    process.exit(1);
+  }
+  const child=spawnSync(process.execPath,[websocketFlag,...process.argv.slice(1)],{
+    stdio:"inherit",
+    env:process.env
+  });
+  if (child.error) {
+    console.error(`Could not relaunch Image quality browser fixture with ${websocketFlag}: ${child.error.message}`);
+    process.exit(1);
+  }
+  if (child.status===9) {
+    console.error(`This Node binary does not support ${websocketFlag}; use Node 20+ with the native WebSocket runtime.`);
+    process.exit(1);
+  }
+  process.exit(child.status==null ? 1 : child.status);
+}
 
 const ROOT = new URL("../", import.meta.url);
 const FIXTURE = `/tmp/quality-controls-${process.pid}`;
