@@ -97,7 +97,7 @@ const doc = read("docs/Story Pipeline.md");
 /* ── one vm context holding the real predicates + the pure decision ─────── */
 const box = { console, Promise, Object, Array, String, Number, Math, JSON, Set, Map };
 box.window = box;
-vm.createContext(box);
+vm.createContext(box); box.TURN_ART_TAB_LOCKS = true;
 vm.runInContext(formats, box, { filename: "app/formats.jsx" });
 vm.runInContext(between(look, "function lookbookCardDrafted(c)", "window.lookbookHasLook = lookbookHasLook;") + "window.lookbookHasLook = lookbookHasLook;", box, { filename: "app/lookbook.jsx" });
 vm.runInContext(lineOf(art, "function vfield("), box, { filename: "app/artroom.jsx" });
@@ -134,7 +134,7 @@ const film = (extra = {}) => ({ project: { title: "Pine Soot", format: "film" },
   const r = L(film());
   ok("A every Art Room tab gets an entry", ORDER.every(id => r[id] && typeof r[id].locked === "boolean"), Object.keys(r));
   ok("A the entries cover exactly ART_TABS", plain(ORDER).join() === (() => {
-    const b = { window: null }; b.window = b; vm.createContext(b);
+    const b = { window: null }; b.window = b; vm.createContext(b); b.TURN_ART_TAB_LOCKS = true;
     vm.runInContext(between(art, "const ART_TABS = [", "window.ART_TABS = ART_TABS;") + "window.ART_TABS = ART_TABS;", b);
     return b.ART_TABS.map(t => t.id).join();
   })());
@@ -314,7 +314,7 @@ const film = (extra = {}) => ({ project: { title: "Pine Soot", format: "film" },
 }
 // A9 — fail open: a missing or throwing predicate never locks anyone out
 {
-  const b = { console }; b.window = b; vm.createContext(b);
+  const b = { console }; b.window = b; vm.createContext(b); b.TURN_ART_TAB_LOCKS = true;
   vm.runInContext(locksSrc, b);
   const r = b.turnArtTabLocks(film({ characters: [charU("mara")], props: [propU("p1")] }));
   ok("A9 with no predicates loaded, only pure-data rules can lock (Locations has props, Shots/Storyboards have no data)",
@@ -626,7 +626,7 @@ const fire = t => [...(listeners[t] || [])].forEach(f => f({ type: t, detail: {}
 }
 // D2 — the silent cast draft keeps working with the locks
 {
-  const nb = { console, Object, Array, String, Number, JSON, Math }; nb.window = nb; vm.createContext(nb);
+  const nb = { console, Object, Array, String, Number, JSON, Math }; nb.window = nb; vm.createContext(nb); nb.TURN_ART_TAB_LOCKS = true;
   vm.runInContext(between(look, "function lookbookCardDrafted(c)", "window.lookbookHasLook = lookbookHasLook;") + "window.lookbookHasLook = lookbookHasLook;", nb);
   vm.runInContext(between(app, "function turnAgentRunsActive(runs){", "/* The reverse gate:"), nb);
   const drafted = c => !!(c.coreBody && c.wardrobeMask);
@@ -648,7 +648,7 @@ const fire = t => [...(listeners[t] || [])].forEach(f => f({ type: t, detail: {}
   let project = { title: "Pine Soot", logline: "A sweep finds a letter." };
   let can = true;
   const nb = { console };
-  nb.window = nb; vm.createContext(nb);
+  nb.window = nb; vm.createContext(nb); nb.TURN_ART_TAB_LOCKS = true;
   nb.setProject = f => { const nx = typeof f === "function" ? f(project) : f; calls.push(nx === project ? "same" : "new"); project = nx; };
   nb.canMutateSharedFilm = () => can;
   vm.runInContext("(function(){" + noPropsSrc + " window.setNoPropsConfirmed = setNoPropsConfirmed; })()", nb);
@@ -670,7 +670,7 @@ const fire = t => [...(listeners[t] || [])].forEach(f => f({ type: t, detail: {}
   const saved = JSON.parse(JSON.stringify({ project: { title: "Pine Soot", noPropsConfirmed: true }, props: [], characters: [charD("mara")] }));
   ok("D3 a saved-and-reloaded film still has Locations unlocked", !L(film({ ...LOOK, ...saved })).locations.locked);
   // the cloud's key-wise project merge: an Art director's mark and a Writer's logline edit both survive
-  const mb = { console }; mb.window = mb; vm.createContext(mb);
+  const mb = { console }; mb.window = mb; vm.createContext(mb); mb.TURN_ART_TAB_LOCKS = true;
   vm.runInContext(between(cloud, "function _seriesJsonSame(a,b){", "function _seriesOwnSceneSlice") + between(cloud, "function _seriesMergeProjectObject(latest,incoming,baseline){", "/* COLLABORATIVE SECTION SAVE"), mb, { filename: "app/cloud.jsx" });
   const baseline = { title: "Pine Soot", logline: "old" };
   const writerSaved = { title: "Pine Soot", logline: "A sweep finds a letter." };
@@ -679,7 +679,7 @@ const fire = t => [...(listeners[t] || [])].forEach(f => f({ type: t, detail: {}
   const m2 = mb._seriesMergeProjectObject(m1.value, { ...m1.value, noPropsConfirmed: false }, m1.value);
   ok("D3 cloud merge: Undo (false) is applied like any other change", m2.ok && m2.value.noPropsConfirmed === false, m2);
   // role scope: `project` is an Art-director section on BOTH sides (client + server) — no new section to reject
-  const tb = { console }; tb.window = tb; vm.createContext(tb);
+  const tb = { console }; tb.window = tb; vm.createContext(tb); tb.TURN_ART_TAB_LOCKS = true;
   vm.runInContext(between(team, "const TEAM_ROLE_SECTIONS = {", "/* plain-language name for what a role may NOT touch")
     + "window.teamCanWriteSection = teamCanWriteSection; window.teamCanWriteRoom = teamCanWriteRoom;", tb, { filename: "app/team.jsx" });
   ok("D3 client role scope: owner + Art director save `project`; View-only does not",
@@ -701,7 +701,7 @@ const iconProxy = new Proxy({}, { get: (_, k) => { const f = () => null; f.iconN
   const cb = { console, React: { Fragment: "fragment", createElement: el, useState: i => [typeof i === "function" ? i() : i, noop], useEffect: noop, useRef: () => ({ current: null }) },
     Icon: iconProxy, document: { addEventListener: noop, removeEventListener: noop }, localStorage: { getItem: () => null, setItem: noop },
     sessionStorage: { getItem: () => null, setItem: noop }, turnInfo: () => ({ flagged: false }) };
-  cb.window = cb; vm.createContext(cb);
+  cb.window = cb; vm.createContext(cb); cb.TURN_ART_TAB_LOCKS = true;
   vm.runInContext(chrome, cb, { filename: "app/chrome.jsx" });
   vm.runInContext(between(art, "const ART_TABS = [", "window.ART_TABS = ART_TABS;") + "window.ART_TABS = ART_TABS;", cb);
   const locks = L(film({ project: { title: "x", format: "documentary" }, characters: [charU("a")], lookbookNote: NOTE }));
@@ -760,7 +760,7 @@ const iconProxy = new Proxy({}, { get: (_, k) => { const f = () => null; f.iconN
   const ab = { console, React: { Fragment: "fragment", createElement: el, useState: i => [typeof i === "function" ? i() : i, noop], useEffect: noop, useRef: () => ({ current: null }), createContext: () => ({ Provider: "Provider" }) },
     Icon: iconProxy, ArtReviewContext: { Provider: "ArtReviewProvider" }, NbDock: function NbDock() { return null; },
     CharacterSheets: function CharacterSheets() { return null; }, ArtComingSoon: function ArtComingSoon() { return null; } };
-  ab.window = ab; vm.createContext(ab);
+  ab.window = ab; vm.createContext(ab); ab.TURN_ART_TAB_LOCKS = true;
   vm.runInContext(between(art, "const ART_TABS = [", "window.ART_TABS = ART_TABS;") + "window.ART_TABS = ART_TABS;", ab);
   vm.runInContext(locksSrc, ab);   // TURN_ART_TAB_ORDER for the card's build-order list
   vm.runInContext(between(art, "function ArtTabLock({", "function ArtRoom("), ab, { filename: "app/artroom.jsx" });
@@ -839,7 +839,7 @@ const iconProxy = new Proxy({}, { get: (_, k) => { const f = () => null; f.iconN
   ok("F ArtRoom view-only + open tab: the whole room stays inert exactly as before", roOpenDiv.props.inert === "" && roOpenDiv.props["aria-disabled"] === "true"
     && findAll(roOpen, hasClass("artroom-tools"))[0].props.inert === undefined && findAll(roOpen, n => n.type === ab.PropSheets).length === 1);
   // a remembered per-film tab (artViewByProject) that is locked reopens on its lock card
-  const nav = { console, localStorage: { getItem: () => null, setItem: noop, removeItem: noop } }; nav.window = nav; vm.createContext(nav);
+  const nav = { console, localStorage: { getItem: () => null, setItem: noop, removeItem: noop } }; nav.window = nav; vm.createContext(nav); nav.TURN_ART_TAB_LOCKS = true;
   vm.runInContext(between(app, "const NAV_KEY = ", "function turnFirstStoryScene("), nav, { filename: "app/app.jsx" });
   const remembered = nav.turnNavArtViewFor(nav.turnNavArtViewMap({ f1: { v: "props", n: 3 }, f2: { v: "shots", n: 2 } }), "f1");
   const back = ab.ArtRoom({ ...baseProps, artView: remembered, tabLocks: lockedLocks });
@@ -856,7 +856,7 @@ const iconProxy = new Proxy({}, { get: (_, k) => { const f = () => null; f.iconN
 {
   const pb = { console, Object, Array, String, Number, JSON, Math, Set, Map, React: null, Icon: iconProxy, document: { querySelector: () => null },
     requestAnimationFrame: noop, setTimeout: noop, performance: { now: () => 0 } };
-  pb.window = pb; vm.createContext(pb);
+  pb.window = pb; vm.createContext(pb); pb.TURN_ART_TAB_LOCKS = true;
   pb.React = { Fragment: "fragment", createElement: el, useState: i => [typeof i === "function" ? i() : i, noop], useEffect: noop, useRef: i => ({ current: i === undefined ? null : i }), useMemo: f => f(), useCallback: f => f };
   vm.runInContext(formats, pb);
   vm.runInContext(locksSrc, pb);
@@ -911,7 +911,7 @@ const iconProxy = new Proxy({}, { get: (_, k) => { const f = () => null; f.iconN
   const runBuild = async (source, opts = {}) => {
     const trace = [], visual = [];
     const b = { console, Promise, Object, Array, String, Number, Math, JSON, Set, Map, Date, setTimeout, clearTimeout };
-    b.window = b; vm.createContext(b);
+    b.window = b; vm.createContext(b); b.TURN_ART_TAB_LOCKS = true;
     b.chargeStr = v => String(v);
     b.aiCastPsychology = async (cast, scenes, P, o) => Object.fromEntries(cast.map(c => [c.id, o && o.mode === "reconcile" ? { arc: "revised" } : { conscious: "want", unconscious: "need" }]));
     b.aiCastVisualBible = async cast => { visual.push(cast.map(c => c.id)); return Object.fromEntries(cast.map(c => [c.id, { coreBody: "drafted body", wardrobeMask: "drafted wardrobe", palette: ["a", "b", "c"] }])); };
@@ -982,46 +982,33 @@ const iconProxy = new Proxy({}, { get: (_, k) => { const f = () => null; f.iconN
     && /then the CAST, then the PROPS/.test(agents));
 }
 
+/* ── I2. switched off (owner 2026-10-03): without the switch every tab is open, on any film ── */
+{
+  const ob = { console }; ob.window = ob; vm.createContext(ob);
+  vm.runInContext(locksSrc, ob, { filename: "app/art-tab-locks.js" });
+  const fresh = ob.turnArtTabLocks({ scenes: [{ id: "s1" }], characters: [{ id: "c1", name: "Mara" }], props: [], locations: [], shots: [], lookbook: [], project: {} });
+  ok("I2 locks off by default: a fresh film opens on every tab", ORDER.every(id => fresh[id] && fresh[id].locked === false), fresh);
+  ok("I2 …and the kept rules still work when switched on (and s.locks:false wins over the switch)",
+    L(film({ characters: [charU("m")] })).props.locked === true && L({ ...film({ characters: [charU("m")] }), locks: false }).props.locked === false);
+  ok("I2 the switch is documented in the module", locksSrc.includes("SWITCHED OFF (owner 2026-10-03") && locksSrc.includes("window.TURN_ART_TAB_LOCKS===true"));
+}
+
 /* ── J. MUSE product knowledge (APP_FEATURES after its replace chain) ───── */
 {
   const src = between(ai, "const APP_FEATURES = [", "function appBrief(){");
-  const fbox = { console }; fbox.window = fbox; vm.createContext(fbox);
+  const fbox = { console }; fbox.window = fbox; vm.createContext(fbox); fbox.TURN_ART_TAB_LOCKS = true;
   vm.runInContext(src + "\n;this.__F = APP_FEATURES;", fbox, { filename: "app/ai.jsx" });
   const F = fbox.__F;
-  const locks = (F.find(f => /Art Room tab locks/.test(f.name)) || {}).what || "";
+  // the tab locks are switched off (owner 2026-10-03): Frances says every tab is open and that the
+  // order is a suggestion; the old rules aren't described as if they applied
+  const tabs = (F.find(f => /Art Room tabs \(all open/.test(f.name)) || {}).what || "";
   const arr = (F.find(f => f.name === "Art Room") || {}).what || "";
   const cs = (F.find(f => f.name === "Character Sheets (Art Room)") || {}).what || "";
   const all = F.map(f => f.what).join("\n");
-  ok("J MUSE has a tab-locks entry", locks.length > 500);
-  ok("J MUSE: 'why is Props locked?' — every character needs a written spec, sheets not required, the card counts and links to Characters",
-    /PROPS \u2014 once EVERY character has a written spec/.test(locks) && /generated sheets are NOT required/.test(locks) && /'why is Props locked\?'/.test(locks) && /'Go to Characters'/.test(locks));
-  ok("J MUSE: every rule is described", /LOOKBOOK \u2014 always open/.test(locks) && /CHARACTERS \u2014 once the Lookbook has a look/.test(locks)
-    && /LOCATIONS \u2014 once every prop has a written spec, or, when the story has NO props at all, once you press 'No props in this story'/.test(locks)
-    && /COLOR \u2014 once every location has a written spec/.test(locks) && /SHOTS \u2014 once the Color tab has a look/.test(locks)
-    && /STORYBOARDS \u2014 once shot coverage exists/.test(locks) && /BREAKDOWN, PRODUCTION CHECK and BLENDER STUDIO are always open/.test(locks));
-  ok("J MUSE: nothing-to-do steps (once reached), already-built content, format names, series, Run pre-production, the phone ⋮",
-    /no characters at all \u2192 Props opens as soon as the Lookbook has a look/.test(locks) && /a tab that already has content is NEVER locked/.test(locks)
-    && /'Characters \(Subjects\)'/.test(locks) && /'Props \(Artifacts & Archive\)'/.test(locks) && /'Characters \(Talent\)'/.test(locks) && /'Props \(Product & Props\)'/.test(locks)
-    && /TV SERIES EPISODE unlocks from the Show's shared Bible/.test(locks) && /RUN PRE-PRODUCTION is unchanged/.test(locks) && /\u22ee menu lists the Art Room tabs/.test(locks));
-  ok("J MUSE: the chain — a locked step before it, and the button goes to the FIRST OPEN step",
-    /THE STEPS ARE A CHAIN/.test(locks) && /FIRST OPEN step you can act on/.test(locks) && /on a fresh film every locked tab points to the Lookbook/.test(locks));
-  ok("J MUSE: 'Recently deleted' bins and the 'No props' mark keep their tab open",
-    /anything in that tab's 'Recently deleted' bin/.test(locks) && /the 'No props in this story' mark keeps Props open \(so its Undo is always reachable\)/.test(locks));
-  ok("J MUSE: why Props can open early — the worn-prop bootstrap is named as the one exception (no false 'nothing is auto-created' claim)",
-    /ONE EXCEPTION, on purpose: when a character's FIRST sheet is generated, that character's worn props are built in the background/.test(locks)
-    && /that is why Props can open early/.test(locks) && !/Nothing is auto-created behind a locked tab/.test(all));
-  ok("J MUSE: the per-episode 'No props' mark is stated plainly", /'No props in this story' is saved with each EPISODE \(not the Show\)/.test(locks));
-  ok("J MUSE: the build no longer drafts the cast's look (tab-locks entry + Art Room entry)",
-    /THE STORY BUILD NO LONGER DRAFTS THE CAST'S LOOK/.test(locks) && /STORY BUILD NO LONGER DRAFTS THE CAST'S LOOK/.test(arr)
-    && /stops after the psychology check and the continuity ledger/.test(arr));
-  ok("J MUSE: the old claim that the build drafts every character's spec is gone",
-    !/the build itself already drafts every character's spec/.test(all) && !/Character sheets are ready in The Art Room/.test(all));
-  ok("J MUSE Art Room: the tabs unlock in order and the empty-Lookbook Characters tab is locked",
-    /The tabs UNLOCK IN THAT ORDER/.test(arr) && /the Characters tab is LOCKED until the Lookbook has a look/.test(arr));
-  ok("J MUSE Character Sheets: the empty-Lookbook sentence follows the lock (replace chain intact)",
-    /the Characters tab stays locked until the Lookbook has a look/.test(cs) && /The story build does not draft the cast's look/.test(cs)
-    && /The cast is auto-drafted once the Lookbook has a look \(a visual statement or a reference card\), the first time you open an Art Room tab other than the Lookbook — never while an agent is running/.test(cs));
-  ok("J MUSE never names the method's source or the model maker in the new text", !/McKee|Claude|Anthropic/.test(locks));
+  ok("J MUSE: every Art Room tab is open, the order is the suggested one, opening a tab spends nothing",
+    /EVERY ART ROOM TAB IS OPEN/.test(tabs) && /THE SUGGESTED ORDER is still left to right/.test(tabs)
+    && /Nothing is generated just by opening a tab/.test(tabs) && /'Lookbook changed \u2014 re-draft'/.test(tabs));
+  ok("J MUSE: no entry still says a tab is locked behind another", !/UNLOCK IN PIPELINE ORDER/.test(all) && !F.some(f => /Art Room tab locks/.test(f.name)));
 }
 
 /* ── L. image-slot.js: a Lookbook drop is readable from any tab ─────────── */
@@ -1031,7 +1018,7 @@ const iconProxy = new Proxy({}, { get: (_, k) => { const f = () => null; f.iconN
     fetch: () => Promise.resolve({ ok: false }),
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init && init.detail; } } };
   sb.window = sb; sb.dispatchEvent = e => events.push(e);
-  vm.createContext(sb);
+  vm.createContext(sb); sb.TURN_ART_TAB_LOCKS = true;
   const store = "(function(){ const STATE_FILE = '.image-slots.state.json';\n" + between(slotSrc, "  const subs = new Set();", "  // ── Image downscale")
     + "\n window.__setSlot = setSlot; window.__load = load; })()";
   vm.runInContext(store, sb, { filename: "app/image-slot.js" });
@@ -1056,7 +1043,8 @@ const iconProxy = new Proxy({}, { get: (_, k) => { const f = () => null; f.iconN
 
 /* ── K. the pipeline doc this implements, parse + cache keys ─────────────── */
 {
-  ok("K the owner-approved doc blocks are the ones implemented", doc.includes("**The tabs unlock in that order** *(2026-09-27, owner-approved)*")
+  ok("K the owner-approved doc blocks are the ones implemented", doc.includes("> **Every tab is open** *(2026-10-03, owner:")
+    && doc.includes("*Switched off 2026-10-03 —* **The tabs unlock in that order** *(2026-09-27, owner-approved)*")
     && doc.includes("The build\nstops there *(2026-09-27, owner-approved)*: it does **not** draft the cast's visual look"));
   const babel = await import("@babel/core");
   const presetReact = (await import("@babel/preset-react")).default;
@@ -1080,7 +1068,7 @@ const iconProxy = new Proxy({}, { get: (_, k) => { const f = () => null; f.iconN
   // with script.jsx on ai.jsx's key; the review fixes to those four re-keyed app.jsx, ai.jsx and
   // agents.jsx, with script.jsx on ai.jsx's key; the Writers' Room Round 1 fixes of 2026-09-28
   // re-keyed styles.css, app.jsx, chrome.jsx, ai.jsx and agents.jsx, among others)
-  const LATER = ["20260927-merge1", "20260927-dock1", "20260927-spcheck1", "20260927-spcheck2", "20260927-epbuild1", "20260927-standin1", "20260927-screentime1", "20260927-pageforms1", "20260927-review1", "20260928-dock2", "20260928-round1", "20260928-brand1", "20260928-brand2", "20260929-look1", "20260929-look2", "20260929-look3", "20260929-look4", "20260930-portal1", "20260930-billing1", "20261001-tax1", "20261002-consent1", "20261002-tip1", "20261002-btn1", "20261002-team1", "20261002-scene1", "20261002-research1", "20261002-research2", "20261002-artlive1", "20261002-artundo1", "20261002-stagefilm1", "20261002-attrib1", "20261002-planpick2", "20261002-planpick3", "20261002-trialwelcome1", "20261003-room1", "20261003-login1", "20261003-login2", "20261003-team2", "20261003-team3", "20261003-team4", "20261003-team5", "20261003-team6", "20261003-team7"];   // …and Manage plan (2026-09-30) re-keyed styles.css and ai.jsx — and the billing fixes (2026-09-30) re-keyed styles.css, app.jsx and ai.jsx — and the consumer-rights / tax change (2026-10-01) re-keyed styles.css and ai.jsx — and the 14-day note by the purchase buttons (2026-10-02) re-keyed styles.css and ai.jsx — and the note behind an ⓘ (2026-10-02) re-keyed styles.css and ai.jsx — and Team "Coming soon" (2026-10-02) re-keyed styles.css, app.jsx, chrome.jsx and ai.jsx: 20261002-team1
+  const LATER = ["20260927-merge1", "20260927-dock1", "20260927-spcheck1", "20260927-spcheck2", "20260927-epbuild1", "20260927-standin1", "20260927-screentime1", "20260927-pageforms1", "20260927-review1", "20260928-dock2", "20260928-round1", "20260928-brand1", "20260928-brand2", "20260929-look1", "20260929-look2", "20260929-look3", "20260929-look4", "20260930-portal1", "20260930-billing1", "20261001-tax1", "20261002-consent1", "20261002-tip1", "20261002-btn1", "20261002-team1", "20261002-scene1", "20261002-research1", "20261002-research2", "20261002-artlive1", "20261002-artundo1", "20261002-stagefilm1", "20261002-attrib1", "20261002-planpick2", "20261002-planpick3", "20261002-trialwelcome1", "20261003-room1", "20261003-login1", "20261003-login2", "20261003-team2", "20261003-team3", "20261003-team4", "20261003-team5", "20261003-team6", "20261003-team7", "20261003-team8"];   // …and Manage plan (2026-09-30) re-keyed styles.css and ai.jsx — and the billing fixes (2026-09-30) re-keyed styles.css, app.jsx and ai.jsx — and the consumer-rights / tax change (2026-10-01) re-keyed styles.css and ai.jsx — and the 14-day note by the purchase buttons (2026-10-02) re-keyed styles.css and ai.jsx — and the note behind an ⓘ (2026-10-02) re-keyed styles.css and ai.jsx — and Team "Coming soon" (2026-10-02) re-keyed styles.css, app.jsx, chrome.jsx and ai.jsx: 20261002-team1
   for (const f of ["app/icons.jsx", "app/styles.css"])
     ok("K cache key bumped: " + f, key(f) === "20260927-tablocks1" || LATER.includes(key(f)), key(f));
   for (const f of ["app/app.jsx", "app/artroom.jsx", "app/chrome.jsx", "app/props.jsx", "app/ai.jsx", "app/agents.jsx", "app/art-tab-locks.js", "app/lookbook.jsx", "app/image-slot.js"])

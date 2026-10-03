@@ -1,6 +1,13 @@
 /* art-tab-locks.js — THE ART ROOM TABS UNLOCK IN ORDER (2026-09-27, owner-approved —
    docs/Story Pipeline.md step 9, "The tabs unlock in that order").
 
+   SWITCHED OFF (owner 2026-10-03: "unlock the tabs, I don't want users to feel obligated to waste
+   credit generating props and characters that they don't want to generate yet (e.g. when a user
+   just wants to generate one scene)"). Every tab is open; the order below stays the recommended
+   one (the Lookbook still steers every department, and a department drafted before it is still
+   flagged "Lookbook changed — re-draft"). The rules are kept and tested: they apply only when
+   window.TURN_ART_TAB_LOCKS === true (or s.locks === true).
+
    Every tab stays visible; a locked tab shows what it is waiting for and a button to the step
    that unlocks it:
      Lookbook      always open
@@ -198,12 +205,14 @@
         progress:null },
     };
 
-    // walk the chain: a step is READY when the step before it is open and its work is done
+    // walk the chain: a step is READY when the step before it is open and its work is done.
+    // With the locks switched off (the default since 2026-10-03) every step is OPEN either way.
+    var enforce = s.locks===true || (s.locks!==false && typeof window!=="undefined" && window.TURN_ART_TAB_LOCKS===true);
     var open = { lookbook:true }, ready = { lookbook:true };
     for(var i=1;i<ORDER.length;i++){
       var id = ORDER[i], st = STEP[id];
       ready[id] = !!(open[ORDER[i-1]] && st.gate);
-      open[id] = ready[id] || !!st.content;
+      open[id] = !enforce || ready[id] || !!st.content;
     }
 
     var out = {};
