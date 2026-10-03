@@ -8202,7 +8202,7 @@ html[data-theme="dark"] .hd-card-new-art{ box-shadow:none; }
 .team-body{display:flex;flex-direction:column;gap:12px;padding:16px 18px 18px;overflow:auto}
 .team-note{font-size:12.5px;line-height:1.45;color:var(--txt-2);background:var(--bg-3);
   border:1px solid var(--line);border-radius:9px;padding:10px 12px}
-.team-invite{display:grid;grid-template-columns:minmax(0,1fr) 150px auto;gap:8px;align-items:center}
+.team-invite{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center}
 .team-email,.team-role{height:36px;border:1px solid var(--line-2);border-radius:var(--r-m);background:var(--bg-2);
   color:var(--txt-0);font:500 12px var(--f-ui);padding:0 10px;outline:none}
 .team-email:focus,.team-role:focus{border-color:var(--pos)}
@@ -8248,6 +8248,15 @@ html[data-theme="dark"] .hd-card-new-art{ box-shadow:none; }
 .team-cap{font:500 10.5px var(--f-mono);letter-spacing:.03em;color:var(--txt-3);padding:0 2px}
 .team-member-budget{font-size:11px;color:var(--txt-2);margin-top:2px}
 .team-seat.expired .team-member-role{color:var(--alert)}
+/* roles as toggle buttons — one or several (team.jsx TeamRolePicker, 2026-10-03) */
+.team-roles{display:flex;flex-wrap:wrap;gap:6px}
+.team-roles.compact{margin-top:6px;gap:4px}
+.team-role-chip{height:28px;padding:0 11px;border:1px solid var(--line-2);border-radius:var(--r-m);background:var(--bg-2);
+  color:var(--txt-2);font:600 11.5px var(--f-ui);cursor:pointer}
+.team-roles.compact .team-role-chip{height:24px;padding:0 8px;font-size:11px}
+.team-role-chip:hover:not(:disabled){border-color:var(--pos);color:var(--txt-0)}
+.team-role-chip.on{background:color-mix(in srgb,var(--brand,#d67e00) 14%,var(--bg-2));border-color:color-mix(in srgb,var(--brand,#d67e00) 55%,var(--line-2));color:var(--txt-0)}
+.team-role-chip:disabled{opacity:.45;cursor:not-allowed}
 /* the owner's bell (team.jsx TeamNotifications) */
 .notify-wrap{position:relative;display:inline-flex}
 .notify-btn{position:relative}

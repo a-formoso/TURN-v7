@@ -238,9 +238,14 @@ function AccountChip({ session, cloudActive, connectionState, saveState, shareRo
   const email = (window.cloudUserEmail && window.cloudUserEmail(session)) || "Account";
   const initial = (email[0]||"?").toUpperCase();
   // the "writer" ROLE is shown as "Co-writer" (the Writer PLAN keeps its name) — display only
-  const scopedRole = shareRole==="writer" ? "Co-writer"
-    : shareRole==="art_director" ? "Art director"
-    : shareRole==="view_only" ? "View only" : "";
+  // one role or several ("Co-writer + Art director", 2026-10-03); team.jsx names them
+  const scopedRole = (!shareRole || shareRole==="owner") ? ""
+    : shareRole==="view_only" ? "View only"
+    : (typeof window.teamRoleKnown==="function" && window.teamRoleKnown(shareRole) && typeof window.teamRoleLabel==="function")
+      ? window.teamRoleLabel(shareRole) : "";
+  const roleParts = String(shareRole||"").split("+").filter(Boolean);
+  const chipRole = roleParts.length>1 ? roleParts.length+" roles"
+    : ({ writer:"Co-writer", art_director:"Art dir", stage_editor:"Stage ed." })[shareRole] || scopedRole;
   const roleTitle = roleUnavailable ? " Project role unavailable; this shared project is read-only."
     : (scopedRole ? " Role: "+scopedRole+"." : "");
   const managePlan = async ()=>{
@@ -283,7 +288,7 @@ function AccountChip({ session, cloudActive, connectionState, saveState, shareRo
             ? React.createElement("span",{className:"acct-cloud",
                 title:(window.teamRoleScopeNote ? window.teamRoleScopeNote(shareRole) : "")+" Changes inside your remit save normally."},
                 React.createElement(Icon.check,{s:11}),
-                shareRole==="writer" ? "Co-writer" : "Art dir")
+                chipRole)
             // healthy state is quiet — "Synced" is reassurance, not news, so it only
             // slides out on hover (desktop) or tap/open (mobile); problem states stay visible
             : React.createElement("span",{className:"acct-cloud quiet"},React.createElement(Icon.check,{s:11}),"Synced"))

@@ -25,24 +25,71 @@ const TEAM_ROLES = [
   { id:"art_director", label:"Art director", blurb:"Saves Art Room work \u2014 cast, props, locations, lookbook and shots. Story and script aren't saved." },
   { id:"stage_editor", label:"Stage editor", producerOnly:true, blurb:"Saves Stage work \u2014 shots' takes, voices and the Stage's settings (Producer films). Story and the rest of the Art Room aren't saved." },
 ];
+/* SEVERAL ROLES PER PERSON (owner 2026-10-03: "allow more than one role per person"). A person's
+   roles travel as ONE string joined by "+" in the canonical order — "writer+art_director" — so
+   every place that already passes a role keeps working (supabase/team-relaunch.sql stores the set
+   in `roles`; turn_team_roles_text() writes the same string). View-only is never combined. */
+const TEAM_ROLE_ORDER = ["writer","art_director","stage_editor"];
+function teamRoleParts(role){
+  if(role==null) return [];
+  const parts = Array.isArray(role) ? role.map(String) : String(role).split("+");
+  return parts.map(x=>x.trim()).filter(Boolean);
+}
+/* the canonical string for a set of roles, "" when empty; unknown parts are kept (they fail closed) */
+function teamRoleKey(role){
+  const parts = Array.from(new Set(teamRoleParts(role)));
+  const editing = parts.filter(x=>x!=="view_only");
+  if(!editing.length) return parts.includes("view_only") ? "view_only" : "";
+  const known = TEAM_ROLE_ORDER.filter(x=>editing.includes(x));
+  const other = editing.filter(x=>!TEAM_ROLE_ORDER.includes(x));
+  return known.concat(other).join("+");
+}
+/* every part is one of the four roles (and View-only stands alone) */
+function teamRoleKnown(role){
+  const parts = teamRoleParts(role);
+  if(!parts.length) return false;
+  if(parts.includes("view_only")) return parts.length===1;
+  return parts.every(x=>TEAM_ROLE_ORDER.includes(x));
+}
+// self-contained (tests lift these functions out on their own): the "+" split is inline
 function teamRoleLabel(id){
+  const parts = String(id==null ? "" : id).split("+").map(x=>x.trim()).filter(Boolean);
+  if(parts.length>1) return parts.map(x=>{ const r = TEAM_ROLES.find(y=>y.id===x); return r ? r.label : "Legacy role"; }).join(" + ");
   const r = TEAM_ROLES.find(x=>x.id===id);
   return r ? r.label : (id ? "Legacy role" : "Role unavailable");
 }
+const TEAM_ROLE_SHORT = {
+  writer:"story work (spine, scenes, beats, script and continuity)",
+  art_director:"Art Room work (cast, props, locations, lookbook and shots)",
+  stage_editor:"Stage work (shots' takes, voices and the Stage's settings)",
+};
+function teamCombinedBlurb(parts, series){
+  const list = parts.map(x=>TEAM_ROLE_SHORT[x]).filter(Boolean);
+  const said = list.length===2 ? list.join(" and ") : list.slice(0,-1).join(", ")+" and "+list[list.length-1];
+  return "Saves "+said+(series ? ", across the Show's existing and future episodes" : "")+"."
+    +(parts.length<3 ? " Everything else stays read-only." : "");
+}
 function teamRoleBlurb(id){
+  const parts = teamRoleParts(id);
+  if(parts.length>1 && teamRoleKnown(id)) return teamCombinedBlurb(parts, false);
   const r = TEAM_ROLES.find(x=>x.id===id);
   return r ? r.blurb : (id
-    ? "This role no longer exists \u2014 pick one of the four roles to restore this collaborator's access."
+    ? "This role no longer exists — pick one of the four roles to restore this collaborator's access."
     : "The current collaborator role couldn't be verified, so access is read-only. Ask the film's owner to check your role in the Team window.");
 }
 function teamScopedRoleBlurb(id, series){
   if(!series) return teamRoleBlurb(id);
+  const parts = teamRoleParts(id);
+  if(parts.length>1 && teamRoleKnown(id)) return teamCombinedBlurb(parts, true);
   if(id==="view_only") return "Opens and reads the Show's shared Bible and all existing and future episodes. Cannot save any change.";
-  if(id==="writer") return "Saves story work across the Show's existing and future episodes \u2014 spine, scenes, beats, script and continuity. The shared Bible is readable; Art Room changes aren't saved.";
-  if(id==="art_director") return "Saves the Show's shared Bible and Art Room work across all existing and future episodes \u2014 cast, props, locations, lookbook and shots. Story and script changes aren't saved.";
-  if(id==="stage_editor") return "Saves Stage work across the Show's existing and future episodes \u2014 shots' takes, voices and the Stage's settings. Story and the rest of the Art Room aren't saved.";
+  if(id==="writer") return "Saves story work across the Show's existing and future episodes — spine, scenes, beats, script and continuity. The shared Bible is readable; Art Room changes aren't saved.";
+  if(id==="art_director") return "Saves the Show's shared Bible and Art Room work across all existing and future episodes — cast, props, locations, lookbook and shots. Story and script changes aren't saved.";
+  if(id==="stage_editor") return "Saves Stage work across the Show's existing and future episodes — shots' takes, voices and the Stage's settings. Story and the rest of the Art Room aren't saved.";
   return teamRoleBlurb(id);
 }
+window.teamRoleParts = teamRoleParts;
+window.teamRoleKey = teamRoleKey;
+window.teamRoleKnown = teamRoleKnown;
 /* WHAT EACH ROLE MAY WRITE, by doc SECTION — the same granularity the per-section save
    already uses, so scoping is enforced at the exact layer that writes.
    `project` is deliberately writable by BOTH writer and art director: it holds the story
@@ -66,6 +113,13 @@ function teamCanWriteSection(role, section){
   // unrestricted; any PRESENT value that isn't a known grant — including the empty
   // string — is an unknown grant and fails closed.
   if(role==null || role==="owner") return true;
+  // several roles ("writer+art_director"): a section is writable when ANY of them covers it —
+  // but an unknown part (or View-only in a set) makes the whole grant fail closed
+  const parts = String(role).split("+").map(x=>x.trim()).filter(Boolean);
+  if(parts.length>1){
+    if(!parts.every(x=>x==="writer" || x==="art_director" || x==="stage_editor")) return false;
+    return parts.some(x=>teamCanWriteSection(x, section));
+  }
   const allow = TEAM_ROLE_SECTIONS[role];
   if(allow === "*") return true;
   if(!allow) return false;                      // unknown/legacy/empty role → fail closed
@@ -80,11 +134,19 @@ function teamCanWriteRoom(role, room){
     && teamCanWriteSection(role,"beatsMap") && teamCanWriteSection(role,"drafts");
   if(room==="art") return teamCanWriteSection(role,"characters")
     && teamCanWriteSection(role,"props") && teamCanWriteSection(role,"shots");
-  if(room==="stage") return role==="stage_editor";
+  if(room==="stage"){
+    const parts = String(role).split("+").map(x=>x.trim()).filter(Boolean);
+    return parts.indexOf("stage_editor")>=0
+      && (parts.length===1 || parts.every(x=>x==="writer" || x==="art_director" || x==="stage_editor"));
+  }
   return false;
 }
 /* plain-language name for what a role may NOT touch, for the "that wasn't saved" notice */
 function teamRoleScopeNote(role){
+  const parts = String(role==null ? "" : role).split("+").map(x=>x.trim()).filter(Boolean);
+  const NAMES = { writer:"Co-writer", art_director:"Art director", stage_editor:"Stage editor" };
+  if(parts.length>1 && parts.every(x=>NAMES[x]))
+    return "Your roles on this film ("+parts.map(x=>NAMES[x]).join(" + ")+") don't cover that change, so it wasn't saved.";
   if(role==="writer") return "Your Co-writer role covers the story, script and beats — Art Room changes (cast, props, locations, lookbook, shots) aren't saved.";
   if(role==="art_director") return "Your Art director role covers the Art Room — story and script changes aren't saved.";
   if(role==="stage_editor") return "Your Stage editor role covers the Stage — story and the rest of the Art Room aren't saved.";
@@ -179,11 +241,35 @@ function teamInviteState(m, now){
   return { pending:true, text:"Invited" };
 }
 
+/* ROLES as toggle buttons: View-only, or any of Co-writer / Art director / Stage editor together.
+   Choosing View-only clears the others; turning the last editing role off falls back to View-only.
+   The Stage editor needs a Producer film (the database refuses it otherwise). */
+function TeamRolePicker({ value, onChange, tier, disabled, compact, label }){
+  const parts = teamRoleParts(teamRoleKey(value));
+  const pick = (id)=>{
+    if(disabled) return;
+    if(id==="view_only"){ onChange("view_only"); return; }
+    const editing = parts.filter(x=>x!=="view_only");
+    const next = editing.includes(id) ? editing.filter(x=>x!==id) : editing.concat([id]);
+    onChange(next.length ? teamRoleKey(next) : "view_only");
+  };
+  return React.createElement("div",{className:"team-roles"+(compact?" compact":""),role:"group","aria-label":label||"Roles"},
+    TEAM_ROLES.map(r=>{
+      const on = parts.includes(r.id);
+      const locked = !!(r.producerOnly && tier!=="studio");
+      return React.createElement("button",{key:r.id,type:"button",className:"team-role-chip"+(on?" on":""),
+        "aria-pressed":on?"true":"false", disabled:!!disabled || (locked && !on),
+        title: locked ? r.label+" comes with the Producer plan." : r.blurb,
+        onClick:()=>pick(r.id)}, r.label);
+    }));
+}
+window.TeamRolePicker = TeamRolePicker;
+
 function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onChanged }){
   const [members, setMembers] = React.useState([]);
   const [spend, setSpend] = React.useState({});
   const [email, setEmail] = React.useState("");
-  const [role, setRole] = React.useState("writer");
+  const [role, setRole] = React.useState("writer");      // a role key: "writer", "writer+art_director", "view_only"…
   const [busy, setBusy] = React.useState("");
   const [schemaMissing, setSchemaMissing] = React.useState(!!window.turnTeamSchemaMissing);
   const canManage = teamCanManage(projectMeta);
@@ -193,7 +279,6 @@ function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onC
   const now = Date.now();
   const showTitle = projectTitle || "Untitled Show";
   const scopedRoleBlurb = id=>teamScopedRoleBlurb(id,!!series);
-  const roleChoices = TEAM_ROLES.filter(r=>!r.producerOnly || tier==="studio");
   const load = React.useCallback(async ()=>{
     if(!projectId || typeof window.cloudListProjectMembers!=="function"){ setMembers([]); return; }
     const [rows, used] = await Promise.all([
@@ -239,8 +324,9 @@ function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onC
   };
   const updateRole = async (m, nextRole)=>{
     if(!canManage) return;
+    if(teamRoleKey(nextRole)===teamRoleKey(m.roleKey||m.role)) return;
     setBusy("role:"+m.id);
-    const res = await window.cloudUpdateProjectMember(m.id, { role:nextRole }, projectId);
+    const res = await window.cloudUpdateProjectMember(m.id, { roles:teamRoleParts(teamRoleKey(nextRole)) }, projectId);
     setBusy("");
     if(res && res.ok){ await load(); if(onChanged) onChanged(); }
     else toast((res&&res.message)||"Couldn't change the role.","error");
@@ -325,11 +411,10 @@ function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onC
           React.createElement("input",{className:"team-email",type:"email",value:email,placeholder:"teammate@example.com",
             "aria-label":"Email address to invite",
             disabled:schemaMissing||counted>=cap,onChange:e=>setEmail(e.target.value),onKeyDown:e=>{ if(e.key==="Enter" && email.trim()) invite(); }}),
-          React.createElement("select",{className:"team-role",value:role,disabled:schemaMissing,onChange:e=>setRole(e.target.value),"aria-label":"Role"},
-            roleChoices.map(r=>React.createElement("option",{key:r.id,value:r.id,title:scopedRoleBlurb(r.id)},r.label))),
           React.createElement("button",{className:"team-add",disabled:schemaMissing||busy==="invite"||!email.trim()||counted>=cap,onClick:invite},
             React.createElement(Icon.plus,{s:14}),busy==="invite"?"Inviting...":"Invite")),
-        // what the selected role allows, in plain language, right where it's being chosen
+        // the roles to invite with — one or several — and what they allow, in plain language
+        canInvite && React.createElement(TeamRolePicker,{value:role, onChange:setRole, tier, disabled:schemaMissing, label:"Roles to invite with"}),
         canInvite && !schemaMissing && React.createElement("div",{className:"team-role-blurb"},
           teamRoleLabel(role)+" — "+scopedRoleBlurb(role)),
         // collaborators' work comes out of the owner's own balance: show it, and the way to add to it
@@ -357,16 +442,19 @@ function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onC
                 "Edits everything; the only one who manages the team"))),
           members.length
             ? members.map(m=>{
-                const legacy = !!(m.role && !TEAM_ROLES.find(r=>r.id===m.role));
+                const mKey = m.roleKey || m.role;
+                const legacy = !!(mKey && !teamRoleKnown(mKey));
                 const st = teamInviteState(m, now);
                 const used = spend[m.id];
                 return React.createElement("div",{className:"team-seat"+(st.expired?" expired":""),key:m.id},
                 React.createElement("div",{className:"team-avatar"},React.createElement(Icon.mail,{s:14})),
                 React.createElement("div",{className:"team-member-main"},
                   React.createElement("div",{className:"team-member-email"},m.member_email),
-                  React.createElement("div",{className:"team-member-role",title:scopedRoleBlurb(m.role)},
-                    teamRoleLabel(m.role)+(legacy?" — pick a current role to restore access":"")+" · "+st.text),
-                  React.createElement("div",{className:"team-member-budget"}, budgetLine(m, used))),
+                  React.createElement("div",{className:"team-member-role",title:scopedRoleBlurb(mKey)},
+                    teamRoleLabel(mKey)+(legacy?" — pick a current role to restore access":"")+" · "+st.text),
+                  React.createElement("div",{className:"team-member-budget"}, budgetLine(m, used)),
+                  canManage && React.createElement(TeamRolePicker,{value:legacy?"":mKey, onChange:(next)=>updateRole(m, next), tier,
+                    disabled:!!busy || !canInvite, compact:true, label:"Roles for "+m.member_email})),
                 canManage
                   ? React.createElement("div",{className:"team-member-actions"},
                       (st.pending||st.expired) && canInvite && React.createElement("button",{className:"team-again",disabled:!!busy,
@@ -376,17 +464,9 @@ function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onC
                         value: m.budget_credits==null ? "" : String(m.budget_credits),
                         disabled:!!busy, onChange:e=>saveBudget(m, e.target.value)},
                         teamBudgetChoices(tier, m.budget_credits).map(o=>React.createElement("option",{key:o.value,value:o.value},o.label))),
-                      React.createElement("select",{className:"team-role compact",value:m.role||"writer",disabled:!!busy||!canInvite,
-                        title:scopedRoleBlurb(m.role),"aria-label":"Role for "+m.member_email,
-                        onChange:e=>updateRole(m,e.target.value)},
-                        // a legacy value (e.g. the retired producer/admin) still renders,
-                        // clearly marked, so the owner can move the member off it
-                        legacy && React.createElement("option",{value:m.role,disabled:true},"Legacy role"),
-                        TEAM_ROLES.map(r=>React.createElement("option",{key:r.id,value:r.id,title:scopedRoleBlurb(r.id),
-                          disabled:!!(r.producerOnly && tier!=="studio")},r.label))),
                       React.createElement("button",{className:"team-remove",disabled:!!busy,title:"Remove",onClick:()=>remove(m)},
                         React.createElement(Icon.trash,{s:14})))
-                  : React.createElement("span",{className:"team-badge",title:scopedRoleBlurb(m.role)},teamRoleLabel(m.role)));
+                  : React.createElement("span",{className:"team-badge",title:scopedRoleBlurb(mKey)},teamRoleLabel(mKey)));
               })
             : (canManage ? React.createElement("div",{className:"team-empty"},"Nobody invited yet.") : null)),
         !canManage && mine && React.createElement("div",{className:"team-mine"},

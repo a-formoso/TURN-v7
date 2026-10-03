@@ -432,10 +432,12 @@ async function cloudListProjects(){
     if(error) return null;
     let memberships = [];
     try{
-      const { data:ms } = await _cloudQuery(sb.from("turn_project_members")
-        .select("project_id,role,member_email,status")
+      // `roles` (several roles per person, 2026-10-03); a database without it yet answers the old shape
+      const mine = (cols)=> _cloudQuery(sb.from("turn_project_members").select(cols)
         .or("member_user.eq."+uid+",member_email.eq."+_pgrstQuote(email)),"Project memberships");
-      memberships = (ms||[]).filter(m=>String(m.status||"active")==="active");
+      let res = await mine("project_id,role,roles,member_email,status");
+      if(res && res.error) res = await mine("project_id,role,member_email,status");
+      memberships = ((res && res.data)||[]).filter(m=>String(m.status||"active")==="active");
     }catch(e){}
     const byProject = {};
     memberships.forEach(m=>{ if(m && m.project_id) byProject[m.project_id]=m; });
@@ -478,7 +480,7 @@ async function cloudListProjects(){
       // role + attribution; if it failed, the row must still classify as shared
       // (role "" = write-blocked everywhere) rather than slip into the owned
       // pipeline and, e.g., auto-spend credits painting someone else's poster.
-      return { ...p, isOwner, isShared:!isOwner, shareRole: isOwner ? "owner" : ((m && m.role) || ""),
+      return { ...p, isOwner, isShared:!isOwner, shareRole: isOwner ? "owner" : ((m && _teamRoleKeyOf(m)) || ""),
         ownerEmail: !isOwner ? (ownersBy[p.id]||"") : "" };
     });
   }catch(e){ return null; }
@@ -504,6 +506,7 @@ const TEAM_REFUSALS = {
   cowriter_cap:"A film can have up to 3 Co-writers.",
   daily_cap:"You can send up to 20 new invites a day. Please try again tomorrow.",
   owner_only:"Only the film's owner manages its team.",
+  no_role:"Choose at least one role.",
 };
 function _teamRefusal(err){
   const msg = String((err && err.message) || err || "");
@@ -516,6 +519,22 @@ function _teamRefusal(err){
   return null;
 }
 const _TEAM_ROLE_IDS = ["view_only","writer","art_director","stage_editor"];
+/* SEVERAL ROLES PER PERSON (2026-10-03): a role arrives as one id, a "+"-joined key
+   ("writer+art_director") or an array; this is the canonical array the database stores in `roles`
+   (View-only alone; the order writer, art_director, stage_editor), or null when anything is unknown */
+function _teamRolesFrom(input){
+  const raw = Array.isArray(input) ? input : String(input==null ? "" : input).split("+");
+  const parts = Array.from(new Set(raw.map(x=>String(x).trim()).filter(Boolean)));
+  if(!parts.length || parts.some(x=>_TEAM_ROLE_IDS.indexOf(x)<0)) return null;
+  const editing = ["writer","art_director","stage_editor"].filter(x=>parts.includes(x));
+  return editing.length ? editing : ["view_only"];
+}
+/* a membership row's roles as the app passes them around: "writer+art_director" */
+function _teamRoleKeyOf(m){
+  if(!m) return "";
+  const r = Array.isArray(m.roles) && m.roles.length ? m.roles : (m.role ? [m.role] : []);
+  return r.join("+");
+}
 /* THE SWITCH (owner 2026-10-03): turn_app_config "team_sharing" ({"on": true}) — off turns the
    Team button back into "Soon" for everyone but the admin. Read once at boot (app.jsx). */
 async function cloudLoadTeamSharing(){
@@ -535,7 +554,7 @@ async function cloudListProjectMembers(projectId){
     // app shows is ACTIVE members only — a removed row must never look like access.
     // (The database shows the owner every row; a collaborator only their own.)
     const { data, error } = await sb.from("turn_project_members")
-      .select("id,project_id,member_email,member_user,role,status,created_at,invited_at,expires_at,budget_credits,email_sent_at")
+      .select("id,project_id,member_email,member_user,role,roles,status,created_at,invited_at,expires_at,budget_credits,email_sent_at")
       .eq("project_id", projectId)
       .eq("status", "active")
       .order("created_at", { ascending:true });
@@ -544,7 +563,7 @@ async function cloudListProjectMembers(projectId){
       return [];
     }
     window.turnTeamSchemaMissing = false;
-    return data || [];
+    return (data || []).map(m=>({ ...m, roleKey:_teamRoleKeyOf(m) }));
   }catch(e){ window.turnTeamSchemaMissing = _teamSchemaMissing(e); return []; }
 }
 async function cloudInviteProjectMember(projectId, email, role){
@@ -552,23 +571,24 @@ async function cloudInviteProjectMember(projectId, email, role){
   const sb = sbClient(); if(!sb || !projectId) return { ok:false };
   const e = _teamEmail(email);
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return { ok:false, message:"Enter a valid email address." };
-  // exactly four roles exist (producer/admin was retired); an unrecognized role — including
-  // "" / false / 0 — is rejected outright, never silently coerced into a grant. Only an ABSENT
-  // role (null/undefined) defaults to Co-writer.
-  if(role!=null && _TEAM_ROLE_IDS.indexOf(role)<0) return { ok:false, message:"Unknown role." };
-  const r = role==null ? "writer" : role;
+  // four roles exist (producer/admin was retired), alone or combined; an unrecognized role —
+  // including "" / false / 0 — is rejected outright, never silently coerced into a grant. Only an
+  // ABSENT role (null/undefined) defaults to Co-writer.
+  const roles = role==null ? ["writer"] : _teamRolesFrom(role);
+  if(!roles) return { ok:false, message:"Unknown role." };
+  const r = roles[0];
   try{
     // An address already on the film is changed in place (the database's guard counts a NEW
     // invite only once): a removed row is revived, a live one gets its new role, an
     // unanswered or expired one is renewed — then the email goes out.
     const { data:existing, error:readErr } = await sb.from("turn_project_members")
-      .select("id,role,status,member_user,expires_at").eq("project_id", projectId).eq("member_email", e).maybeSingle();
+      .select("id,role,roles,status,member_user,expires_at").eq("project_id", projectId).eq("member_email", e).maybeSingle();
     if(readErr && _teamSchemaMissing(readErr)){ window.turnTeamSchemaMissing = true; return { ok:false, setup:true, message:_teamSetupMessage() }; }
     let error = null;
     if(!existing){
-      ({ error } = await sb.from("turn_project_members").insert({ project_id:projectId, member_email:e, role:r }));
-    } else if(existing.status!=="active" || existing.role!==r){
-      ({ error } = await sb.from("turn_project_members").update({ role:r, status:"active" }).eq("id", existing.id));
+      ({ error } = await sb.from("turn_project_members").insert({ project_id:projectId, member_email:e, role:r, roles }));
+    } else if(existing.status!=="active" || _teamRoleKeyOf(existing)!==roles.join("+")){
+      ({ error } = await sb.from("turn_project_members").update({ role:r, roles, status:"active" }).eq("id", existing.id));
       if(!error && existing.status==="active") _pushMemberRemoved(projectId);   // a role change: open tabs re-check
     } else if(!existing.member_user && existing.expires_at && Date.parse(existing.expires_at) <= Date.now()){
       ({ error } = await sb.rpc("turn_renew_invite", { p_member:existing.id }));
@@ -645,12 +665,13 @@ async function cloudSetPassword(password){
 async function cloudUpdateProjectMember(memberId, patch, projectId){
   const off = _teamOffRefusal(); if(off) return off;
   const sb = sbClient(); if(!sb || !memberId) return { ok:false };
-  const role = patch && patch.role;
+  const asked = patch && (patch.roles!=null ? patch.roles : patch.role);
   // fail CLOSED on an unknown role: passing it through would either hit the DB CHECK
   // with a cryptic error or, worse, store a grant this build can't scope
-  if(role!=null && _TEAM_ROLE_IDS.indexOf(role)<0) return { ok:false, message:"Unknown role." };
+  const roles = asked!=null ? _teamRolesFrom(asked) : null;
+  if(asked!=null && !roles) return { ok:false, message:"Unknown role." };
   try{
-    const { error } = await sb.from("turn_project_members").update(role?{role}:patch).eq("id", memberId);
+    const { error } = await sb.from("turn_project_members").update(roles ? { role:roles[0], roles } : patch).eq("id", memberId);
     if(error) return { ok:false, message:_teamRefusal(error) || "Couldn't change the role. Please try again." };
     // A role change is an access-boundary change just as removal is. Wake open
     // collaborators so they refresh the server-derived role before their next edit.

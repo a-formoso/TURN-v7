@@ -100,6 +100,44 @@ begin
 end;
 $$;
 
+-- SEVERAL ROLES PER PERSON (owner 2026-10-03: "allow more than one role per person"): `roles` is
+-- the set a membership holds — any of writer / art_director / stage_editor together, or
+-- view_only alone. `role` stays, kept equal to the set's first role (the order below), for
+-- everything that reads one role (older app builds, the probe, the invite email).
+alter table public.turn_project_members add column if not exists roles text[];
+update public.turn_project_members set roles = array[role] where roles is null;
+create or replace function public.turn_team_canonical_roles(p_roles text[])
+returns text[]
+language sql
+immutable
+as $$
+  with given as (select distinct x from unnest(coalesce(p_roles, array[]::text[])) x where x is not null),
+  editing as (select x from given where x <> 'view_only')
+  select case
+    when exists (select 1 from editing) then
+      (select array_agg(x order by case x when 'writer' then 1 when 'art_director' then 2 when 'stage_editor' then 3 else 4 end) from editing)
+    when exists (select 1 from given) then array['view_only']
+    else null end;
+$$;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conrelid = 'public.turn_project_members'::regclass
+                   and conname = 'turn_project_members_roles_check') then
+    alter table public.turn_project_members add constraint turn_project_members_roles_check
+      check (roles is not null and cardinality(roles) between 1 and 3
+             and roles <@ array['view_only', 'writer', 'art_director', 'stage_editor']
+             and (cardinality(roles) = 1 or not ('view_only' = any(roles)))
+             and role = roles[1]) not valid;
+  end if;
+end;
+$$;
+alter table public.turn_project_members validate constraint turn_project_members_roles_check;
+-- a role string as the app shows it: 'writer+art_director'
+create or replace function public.turn_team_roles_text(p_roles text[], p_role text)
+returns text language sql immutable as $$
+  select array_to_string(coalesce(p_roles, array[p_role]), '+');
+$$;
+
 -- what each role may write, by doc section (app/team.jsx TEAM_ROLE_SECTIONS mirrors it)
 create or replace function public.turn_role_allowed_sections(r text)
 returns text[]
@@ -198,10 +236,11 @@ security definer
 set search_path = public, pg_temp
 stable
 as $$
-  select m.role, m.id
+  select r.role, m.id
     from public.turn_project_members m
     join public.turn_series_membership_scope(p_project_id) scope
       on scope.project_id = m.project_id
+    cross join lateral unnest(coalesce(m.roles, array[m.role])) as r(role)
    where m.status = 'active'
      and p_uid is not null
      and (
@@ -382,7 +421,7 @@ begin
        and m.status = 'active'
        and (m.expires_at is null or m.expires_at > now())
        and m.member_email = v_email
-    returning m.project_id, m.role
+    returning m.project_id, public.turn_team_roles_text(m.roles, m.role) as role
   )
   select c.project_id, p.title, o.email::text, c.role
     from claimed c
@@ -424,6 +463,20 @@ declare
   opening  boolean;   -- a new invite: an insert, or a removed row made active again
   n        integer;
 begin
+  -- roles ⇄ role, on every path: the set is canonical, `role` is its first entry; an older
+  -- client that changed only `role` gets that one role
+  if tg_op = 'INSERT' then
+    new.roles := public.turn_team_canonical_roles(coalesce(new.roles, array[new.role]));
+  elsif new.roles is distinct from old.roles then
+    new.roles := public.turn_team_canonical_roles(new.roles);
+  elsif new.role is distinct from old.role then
+    new.roles := array[new.role];
+  end if;
+  if new.roles is null then
+    raise exception 'TURN_TEAM:no_role: choose at least one role';
+  end if;
+  new.role := new.roles[1];
+
   -- Service-role paths (the invite function linking an account, migrations) and the
   -- server-owned changes above keep their authority.
   if caller is null or public.turn__team_trusted() then return new; end if;
@@ -445,7 +498,7 @@ begin
     new.owner_seen_at := old.owner_seen_at;
     -- a removal, or a budget change, needs no plan: the owner can always tidy up
     if new.status = 'removed'
-       or (new.role = old.role and new.status = old.status) then
+       or (new.roles = old.roles and new.status = old.status) then
       return new;
     end if;
   else
@@ -465,7 +518,7 @@ begin
   if tier = 'none' then
     raise exception 'TURN_TEAM:plan_required: sharing a film needs the Director or Producer plan';
   end if;
-  if new.role = 'stage_editor' and tier <> 'studio' then
+  if 'stage_editor' = any(new.roles) and tier <> 'studio' then
     raise exception 'TURN_TEAM:stage_editor_producer: the Stage editor role needs the Producer plan';
   end if;
   if new.member_email = v_email then
@@ -479,9 +532,9 @@ begin
   if n + 1 > public.turn_team_cap(tier) then
     raise exception 'TURN_TEAM:cap:%: this film already has its % collaborators', public.turn_team_cap(tier), public.turn_team_cap(tier);
   end if;
-  if new.role = 'writer' then
+  if 'writer' = any(new.roles) and (tg_op = 'INSERT' or not ('writer' = any(coalesce(old.roles, array[old.role]))) or old.status <> 'active') then
     select count(*) into n from public.turn_project_members m
-     where m.project_id = new.project_id and m.status = 'active' and m.id <> new.id and m.role = 'writer'
+     where m.project_id = new.project_id and m.status = 'active' and m.id <> new.id and 'writer' = any(coalesce(m.roles, array[m.role]))
        and (m.member_user is not null or m.expires_at is null or m.expires_at > now());
     if n + 1 > 3 then
       raise exception 'TURN_TEAM:cowriter_cap: a film can have up to 3 Co-writers';
@@ -741,7 +794,7 @@ security definer
 set search_path = public, pg_temp
 stable
 as $$
-  select m.id, m.project_id, p.title, m.member_email, m.role, m.joined_at, m.owner_seen_at is not null
+  select m.id, m.project_id, p.title, m.member_email, public.turn_team_roles_text(m.roles, m.role), m.joined_at, m.owner_seen_at is not null
     from public.turn_project_members m
     join public.turn_projects p on p.id = m.project_id
    where p.owner = auth.uid()

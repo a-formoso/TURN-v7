@@ -243,6 +243,42 @@ await q("update public.turn_app_config set value = '{\"on\": false}' where key =
 ok("H15 switch off: a collaborator is billed as before", (await payer(U.cara, F.dora1, "text")).code === "off");
 await q("update public.turn_app_config set value = '{\"on\": true}' where key = 'team_sharing'");
 
+/* ── M. several roles per person (owner 2026-10-03) ─────────────────────── */
+r = await invite(U.admin, F.admin1, "multi@example.com", "writer");
+const multiRow = r.row?.id;
+r = await as(U.admin, "update public.turn_project_members set roles = array['art_director','writer','writer'] where id = $1 returning role, roles", [multiRow]);
+ok("M1 a person can hold Co-writer AND Art director; the set is canonical and `role` its first entry",
+  r.ok && JSON.stringify(r.row.roles) === JSON.stringify(["writer", "art_director"]) && r.row.role === "writer", r.row || r.error);
+await q("insert into auth.users(id, email, email_confirmed_at) values ('d0000000-0000-4000-8000-0000000000bb', 'multi@example.com', now())");
+const MU = { id: "d0000000-0000-4000-8000-0000000000bb", email: "multi@example.com" };
+await as(MU, "select * from public.turn_claim_memberships()");
+r = await saveSection(MU, F.admin1, "scenes", [{ id: "m" }]);
+const rs = await saveSection(MU, F.admin1, "characters", [{ id: "m" }]);
+ok("M2 both roles' sections save (story and Art Room)", r.ok && r.rows.length === 1 && rs.ok && rs.rows.length === 1, { r, rs });
+r = await saveSection(MU, F.admin1, "zz_unknown", 1);
+ok("M3 but nothing outside the roles' sections", !r.ok && /TURN_ROLE_SCOPE/.test(r.error), r.error);
+r = await as(MU, "select public.turn_can_write_assets($1) w", [F.admin1]);
+ok("M4 the Art director part writes files", r.ok && r.row.w === true);
+let pp = (await svc("select public.turn_film_payer($1,$2,'image') j", [MU.id, F.admin1])).j;
+ok("M5 an image call fits the Art director part: the owner pays", pp.ok && pp.payer === U.admin.id, pp);
+r = await as(U.admin, "update public.turn_project_members set roles = array['view_only','writer'] where id = $1 returning roles", [multiRow]);
+ok("M6 View-only can't be combined: the editing role wins", r.ok && JSON.stringify(r.row.roles) === JSON.stringify(["writer"]), r.row || r.error);
+r = await as(U.admin, "update public.turn_project_members set roles = array['view_only'] where id = $1 returning roles, role", [multiRow]);
+ok("M7 View-only alone", r.ok && r.row.role === "view_only", r.row || r.error);
+r = await as(U.admin, "update public.turn_project_members set roles = array[]::text[] where id = $1", [multiRow]);
+ok("M8 no role at all is refused", !r.ok && code(r) === "no_role", r.error);
+r = await as(U.admin, "update public.turn_project_members set role = 'art_director' where id = $1 returning roles", [multiRow]);
+ok("M9 an older app that changes only `role` sets that one role", r.ok && JSON.stringify(r.row.roles) === JSON.stringify(["art_director"]), r.row || r.error);
+r = await as(U.dora, "update public.turn_project_members set roles = array['art_director','stage_editor'] where member_email = 'cara@example.com' and project_id = $1", [F.dora1]);
+ok("M10 a combination with Stage editor still needs a Producer film", !r.ok && code(r) === "stage_editor_producer", r.error);
+// Pat One already holds 3 Co-writers (w1-w3): adding Co-writer to Sam (Stage editor) is refused
+r = await as(U.pat, "update public.turn_project_members set roles = array['writer','stage_editor'] where member_email = 'sam@example.com' and project_id = $1", [F.pat1]);
+ok("M11 the 3-Co-writer cap counts everyone who holds Co-writer", !r.ok && code(r) === "cowriter_cap", r.error);
+r = await as(MU, "select * from public.turn_claim_memberships()");
+await as(U.admin, "update public.turn_project_members set roles = array['writer','art_director'] where id = $1", [multiRow]);
+r = await as(U.admin, "select role from public.turn_team_notifications() where member_id = $1", [multiRow]);
+ok("M12 the owner's notifications name every role ('writer+art_director')", r.ok && r.row && r.row.role === "writer+art_director", r.rows);
+
 /* ── N. the owner's notifications ────────────────────────────────────────── */
 r = await as(U.dora, "select * from public.turn_team_notifications()");
 const caraNote = r.rows?.find((x) => x.member_email === "cara@example.com");

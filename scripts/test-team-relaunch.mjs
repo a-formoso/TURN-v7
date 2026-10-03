@@ -133,8 +133,13 @@ await test("B1 a Director owner: invite form without Stage editor, '2 of 5 peopl
   const w = windowFor({ isOwner:true }, "director");
   const form = findAll(w, hasClass("team-invite"))[0];
   assert.ok(form, "invite form");
-  const roles = findAll(form, n=>n.type==="option").map(o=>o.props.value);
-  assert.deepEqual(roles, ["view_only", "writer", "art_director"], "no Stage editor on Director");
+  // roles are toggle buttons (one or several); on Director the Stage editor is locked
+  const pickers = findAll(w, n=>n.type===cb.TeamRolePicker);
+  assert.equal(pickers.length, 4, "the invite's picker and one per person");
+  assert.equal(pickers[0].props.value, "writer");
+  const chips = findAll(cb.TeamRolePicker(pickers[0].props), hasClass("team-role-chip"));
+  assert.deepEqual(chips.map(c=>[textOf(c), c.props["aria-pressed"], !!c.props.disabled]),
+    [["View-only","false",false],["Co-writer","true",false],["Art director","false",false],["Stage editor","false",true]], "no Stage editor on Director");
   assert.match(textOf(findAll(w, hasClass("team-cap"))[0]), /^2 of 5 people on this film .* up to 3 Co-writers .* Stage editor role comes with the Producer plan/);
   const seats = findAll(w, n=>hasClass("team-seat")(n) && !hasClass("owner")(n));
   assert.equal(seats.length, 3);
@@ -163,7 +168,8 @@ await test("B1 a Director owner: invite form without Stage editor, '2 of 5 peopl
 });
 await test("B2 a Producer owner: the Stage editor role, 'of 10'", ()=>{
   const w = windowFor({ isOwner:true }, "studio", { 0:[{ ...MEMBERS[0], budget_credits:750 }] });
-  assert.ok(findAll(findAll(w, hasClass("team-invite"))[0], n=>n.type==="option").some(o=>o.props.value==="stage_editor"));
+  const p0 = findAll(w, n=>n.type===cb.TeamRolePicker)[0];
+  assert.equal(findAll(cb.TeamRolePicker(p0.props), n=>hasClass("team-role-chip")(n) && textOf(n)==="Stage editor")[0].props.disabled, false, "the Stage editor on Producer");
   assert.deepEqual(findAll(findAll(w, hasClass("team-budget"))[0], n=>n.type==="option").map(o=>o.props.value),
     ["", "250", "500", "750", "1000", "3000"], "Producer's default 500, and a value set earlier keeps its place");
   assert.match(textOf(findAll(w, hasClass("team-cap"))[0]), /^1 of 10 people/);
@@ -198,6 +204,38 @@ await test("B5 the invite welcome says who pays and still manages nothing", ()=>
 });
 
 /* ═══ C. roles ═══════════════════════════════════════════════════════════ */
+await test("C0 several roles per person: one '+' key, labels and blurbs for the set, sections from any of them, View-only alone, unknown parts fail closed", ()=>{
+  assert.equal(cb.teamRoleKey(["art_director","writer","writer"]), "writer+art_director");
+  assert.equal(cb.teamRoleKey("view_only+writer"), "writer", "an editing role wins over View-only");
+  assert.equal(cb.teamRoleKey([]), "");
+  assert.equal(cb.teamRoleKnown("writer+art_director"), true); assert.equal(cb.teamRoleKnown("writer+producer_admin"), false);
+  assert.equal(cb.teamRoleKnown("view_only+writer"), false, "View-only can't be combined");
+  assert.equal(cb.teamRoleLabel("writer+art_director"), "Co-writer + Art director");
+  assert.match(cb.teamRoleBlurb("writer+art_director"), /^Saves story work .* and Art Room work .*\. Everything else stays read-only\.$/);
+  assert.match(cb.teamScopedRoleBlurb("writer+stage_editor", true), /across the Show's existing and future episodes/);
+  assert.equal(cb.teamCanWriteSection("writer+art_director", "scenes"), true);
+  assert.equal(cb.teamCanWriteSection("writer+art_director", "characters"), true);
+  assert.equal(cb.teamCanWriteSection("writer+art_director", "zz"), false);
+  assert.equal(cb.teamCanWriteSection("writer+producer_admin", "scenes"), false, "an unknown part: the whole grant fails closed");
+  assert.equal(cb.teamCanWriteRoom("writer+art_director", "writers"), true); assert.equal(cb.teamCanWriteRoom("writer+art_director", "art"), true);
+  assert.equal(cb.teamCanWriteRoom("writer+art_director", "stage"), false); assert.equal(cb.teamCanWriteRoom("art_director+stage_editor", "stage"), true);
+  assert.match(cb.teamRoleScopeNote("writer+art_director"), /Your roles on this film \(Co-writer \+ Art director\) don't cover that change/);
+});
+await test("C0b the picker: toggling adds and removes roles; View-only clears them; the last role off falls back to View-only", ()=>{
+  const seen = [];
+  const press = (value, label, tier = "studio")=>{
+    const chip = findAll(cb.TeamRolePicker({ value, tier, onChange:(v)=>seen.push(v) }), n=>hasClass("team-role-chip")(n) && textOf(n)===label)[0];
+    chip.props.onClick(); return seen.at(-1);
+  };
+  assert.equal(press("writer", "Art director"), "writer+art_director");
+  assert.equal(press("writer+art_director", "Co-writer"), "art_director");
+  assert.equal(press("art_director", "Art director"), "view_only");
+  assert.equal(press("writer+art_director", "View-only"), "view_only");
+  assert.equal(press("view_only", "Stage editor"), "stage_editor");
+  const tree = cb.TeamRolePicker({ value:"writer+art_director", tier:"director", onChange:noop });
+  assert.deepEqual(findAll(tree, hasClass("team-role-chip")).filter(c=>c.props["aria-pressed"]==="true").map(textOf), ["Co-writer", "Art director"]);
+  assert.equal(tree.props.role, "group");
+});
 await test("C1 four roles, the section map identical to supabase/team-relaunch.sql, the Stage room is the Stage editor's", ()=>{
   assert.deepEqual(J(cb.TEAM_ROLES.map(r=>r.id)), ["view_only", "writer", "art_director", "stage_editor"]);
   const body = sql.slice(sql.indexOf("create or replace function public.turn_role_allowed_sections"), sql.indexOf("-- ── 2."));
@@ -242,7 +280,7 @@ await test("D2 a new address is INSERTED (never upserted), then the email — wh
   const c = cloudBox(); c.turnTeamSharing = true;
   const r = await c.cloudInviteProjectMember("p1", " Cara@Example.com ", "stage_editor");
   assert.deepEqual(J(r), { ok:true, emailSent:true, emailNote:"" });
-  assert.deepEqual(J(c.__log.filter(x=>x[0]==="insert")), [["insert", "turn_project_members", { project_id:"p1", member_email:"cara@example.com", role:"stage_editor" }]]);
+  assert.deepEqual(J(c.__log.filter(x=>x[0]==="insert")), [["insert", "turn_project_members", { project_id:"p1", member_email:"cara@example.com", role:"stage_editor", roles:["stage_editor"] }]]);
   assert.ok(!c.__log.some(x=>x[0]==="upsert"));
   assert.deepEqual(J(c.__log.find(x=>x[0]==="invoke")), ["invoke", "invite-collaborator", { projectId:"p1", email:"cara@example.com" }]);
   assert.ok(!/upsert\(/.test(cloudBlock), "no upsert anywhere in the member code");
@@ -250,13 +288,25 @@ await test("D2 a new address is INSERTED (never upserted), then the email — wh
 await test("D3 an existing address: a removed row revived / a role changed in place; an expired invite renewed; a joined person gets no email", async ()=>{
   let c = cloudBox({ existing:{ id:"m9", role:"view_only", status:"removed", member_user:null, expires_at:null } }); c.turnTeamSharing = true;
   await c.cloudInviteProjectMember("p1", "a@b.co", "writer");
-  assert.deepEqual(J(c.__log.filter(x=>x[0]==="update")), [["update", "turn_project_members", { role:"writer", status:"active" }]]);
+  assert.deepEqual(J(c.__log.filter(x=>x[0]==="update")), [["update", "turn_project_members", { role:"writer", roles:["writer"], status:"active" }]]);
   c = cloudBox({ existing:{ id:"m9", role:"writer", status:"active", member_user:null, expires_at:new Date(Date.now()-DAY).toISOString() } }); c.turnTeamSharing = true;
   await c.cloudInviteProjectMember("p1", "a@b.co", "writer");
   assert.deepEqual(J(c.__log.find(x=>x[0]==="rpc")), ["rpc", "turn_renew_invite", { p_member:"m9" }]);
   c = cloudBox({ existing:{ id:"m9", role:"writer", status:"active", member_user:"u1", expires_at:null } }); c.turnTeamSharing = true;
   const r = await c.cloudInviteProjectMember("p1", "a@b.co", "writer");
   assert.equal(r.emailSent, false); assert.ok(!c.__log.some(x=>x[0]==="invoke"), "already joined: no email");
+});
+await test("D3b several roles: the set is written with `role` as its first entry; a role change sends the set", async ()=>{
+  let c = cloudBox(); c.turnTeamSharing = true;
+  await c.cloudInviteProjectMember("p1", "a@b.co", "art_director+writer");
+  assert.deepEqual(J(c.__log.find(x=>x[0]==="insert")[2]), { project_id:"p1", member_email:"a@b.co", role:"writer", roles:["writer", "art_director"] });
+  c = cloudBox(); c.turnTeamSharing = true;
+  await c.cloudUpdateProjectMember("m1", { roles:["stage_editor", "writer"] }, "p1");
+  assert.deepEqual(J(c.__log.find(x=>x[0]==="update")[2]), { role:"writer", roles:["writer", "stage_editor"] });
+  assert.equal((await c.cloudUpdateProjectMember("m1", { roles:["writer", "nope"] }, "p1")).message, "Unknown role.");
+  assert.deepEqual(J(vm.runInContext("_teamRolesFrom", c)(["view_only", "writer"])), ["writer"]);
+  assert.equal(vm.runInContext("_teamRoleKeyOf", c)({ role:"writer", roles:["writer", "art_director"] }), "writer+art_director");
+  assert.equal(vm.runInContext("_teamRoleKeyOf", c)({ role:"art_director" }), "art_director", "a database without `roles`");
 });
 await test("D4 the database's TURN_TEAM refusals in plain words; unknown roles refused", async ()=>{
   const words = (m)=>vm.runInContext("_teamRefusal", cloudBox())({ message:m });
@@ -406,7 +456,7 @@ await test("F1 APP_FEATURES: Team is live — four roles, rooms by the owner's p
   assert.ok(start > 0 && endA > start);
   const team = (aiSrc.match(/APP_FEATURES\.push\(\{ name:"Team collaboration", what:"([^\n]*)" \}\);/) || [])[1] || "";
   assert.ok(team.startsWith("TEAM SHARING: the owner of a film (or a Show) invites people by email"), team.slice(0, 80));
-  for(const s of ["exactly FOUR", "Stage editor (Producer films only)", "up to 5 people on a film on Director and up to 10 on Producer", "at most 3 Co-writers",
+  for(const s of ["there are FOUR, and one person can hold SEVERAL", "Stage editor (Producer films only)", "up to 5 people on a film on Director and up to 10 on Producer", "at most 3 Co-writers",
     "expires after 14 days", "ROOMS FOLLOW THE OWNER'S PLAN", "KNOWING WHO JOINED: a bell in the top bar", "does NOT need a plan of their own", "Leave film", "'Not on this film's plan'"])
     assert.ok(team.includes(s), s);
   assert.ok(!/coming soon/i.test(team.slice(0, team.indexOf("IF SHARING IS SWITCHED OFF"))), "only the switched-off case mentions Soon");

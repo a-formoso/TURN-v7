@@ -995,8 +995,10 @@ function App(){
   // what a collaborator may WRITE: their role — or nothing while the owner's plan has lapsed
   const writeRole = ownerPlanLapsed ? "view_only" : shareRole;
   const readOnlyShare = writeRole === "view_only";
+  // the four roles, alone or combined ("writer+art_director", 2026-10-03); anything else fails closed
   const unknownSharedRole = !!(_projRow && _projRow.isShared
-    && !["view_only","writer","art_director","stage_editor"].includes(shareRole));
+    && !(typeof window.teamRoleKnown==="function" ? window.teamRoleKnown(shareRole)
+      : ["view_only","writer","art_director","stage_editor"].includes(shareRole)));
   // THE SCREENPLAY CREDIT on a shared film (owner, 2026-09-28: authorship is the writer's): the
   // film's OWNER, by their handle — never the collaborator who presses Export; no owner name known,
   // no credit line. export.jsx screenplayWriter() reads it; null on the user's own film.
@@ -3419,7 +3421,7 @@ function App(){
       if(filmOwnerTier==="none") return { writers_room:true, art_room:false, stage:false, shared:true };
       // the server can't say (before team-relaunch.sql): the older role-only rooms
       if(shareRole==="view_only") return { writers_room:true, art_room:true, stage:true, shared:true };
-      if(shareRole==="art_director") return { writers_room:true, art_room:true, stage:false, shared:true };
+      if(String(shareRole).split("+").includes("art_director")) return { writers_room:true, art_room:true, stage:false, shared:true };
       return { writers_room:true, art_room:false, stage:false, shared:true };
     }
     const b = window.turnCreditBalance;
@@ -7021,26 +7023,22 @@ function App(){
       React.createElement("span",null,
         React.createElement("b",null,"Role unavailable — "),
         "We couldn\u2019t verify a current collaborator role for this shared project. It is read-only and changes or AI actions will not save. Ask the film's owner to check your role in the Team window.")),
-    !readOnlyShare && !unknownSharedRole && room==="writers" && shareRole==="art_director" && writersRoomReadOnly && React.createElement("div",{className:"readonly-banner",role:"status"},
+    // the room your role doesn't cover is read-only — named by your role(s), one or several (2026-10-03)
+    !readOnlyShare && !unknownSharedRole && _projRow && _projRow.isShared && room==="writers" && writersRoomReadOnly && React.createElement("div",{className:"readonly-banner",role:"status"},
       React.createElement(Icon.eye||Icon.warn,{s:14}),
       React.createElement("span",null,
-        React.createElement("b",null,"Writers' Room is read-only for Art directors — "),
-        "you can inspect the story and script here, then return to the Art Room to change the Show Bible and pre-production work.")),
-    !readOnlyShare && !unknownSharedRole && room==="stage" && shareRole!=="stage_editor" && stageReadOnly && React.createElement("div",{className:"readonly-banner",role:"status"},
+        React.createElement("b",null,"Writers' Room is read-only for your role ("+(typeof window.teamRoleLabel==="function" ? window.teamRoleLabel(shareRole) : shareRole)+") — "),
+        "you can read the story and script here; the film's owner or a Co-writer changes them.")),
+    !readOnlyShare && !unknownSharedRole && _projRow && _projRow.isShared && room==="art" && artRoomReadOnly && React.createElement("div",{className:"readonly-banner",role:"status"},
       React.createElement(Icon.eye||Icon.warn,{s:14}),
       React.createElement("span",null,
-        React.createElement("b",null,"The Stage is read-only for your role — "),
+        React.createElement("b",null,"Art Room is read-only for your role ("+(typeof window.teamRoleLabel==="function" ? window.teamRoleLabel(shareRole) : shareRole)+") — "),
+        "you can look through the shared Bible and pre-production work here; the film's owner or an Art director changes them.")),
+    !readOnlyShare && !unknownSharedRole && _projRow && _projRow.isShared && room==="stage" && stageReadOnly && React.createElement("div",{className:"readonly-banner",role:"status"},
+      React.createElement(Icon.eye||Icon.warn,{s:14}),
+      React.createElement("span",null,
+        React.createElement("b",null,"The Stage is read-only for your role ("+(typeof window.teamRoleLabel==="function" ? window.teamRoleLabel(shareRole) : shareRole)+") — "),
         "you can watch the takes and the timeline here; the film's Stage editor or owner makes changes.")),
-    !readOnlyShare && !unknownSharedRole && room==="writers" && shareRole==="stage_editor" && writersRoomReadOnly && React.createElement("div",{className:"readonly-banner",role:"status"},
-      React.createElement(Icon.eye||Icon.warn,{s:14}),
-      React.createElement("span",null,
-        React.createElement("b",null,"Writers' Room is read-only for Stage editors — "),
-        "you can read the story and script here, then return to the Stage.")),
-    !readOnlyShare && !unknownSharedRole && room==="art" && (shareRole==="writer"||shareRole==="stage_editor") && artRoomReadOnly && React.createElement("div",{className:"readonly-banner",role:"status"},
-      React.createElement(Icon.eye||Icon.warn,{s:14}),
-      React.createElement("span",null,
-        React.createElement("b",null,shareRole==="stage_editor" ? "Art Room is read-only for Stage editors — " : "Art Room is read-only for Co-writers — "),
-        "you can inspect the shared Bible and pre-production work here, then return to the Writers' Room to change story, beats and script.")),
     // BILLING NOTICES (2026-09-30): "Payment failed — update your card" while past_due,
     // "Account on hold" while frozen, and the 20% / 5% low-balance notices (app/plans.jsx)
     session && !isAdmin && creditBalance && window.BillingNotices && React.createElement(window.BillingNotices,{ balance:creditBalance }),
