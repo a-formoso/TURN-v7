@@ -22,7 +22,9 @@ function AuthModal({ onClose, onAuthed, initialMode, plan, light, onPlanChange }
   const freeLabel = (()=>{ const t = (typeof window.lpTrialLine==="function") ? String(window.lpTrialLine()||"") : "";
     const m = t.match(/(\d[\d,]*) free credits/); return m ? "No plan yet \u00b7 "+m[1]+" free credits" : "No plan yet"; })();
   const choosing = mode==="signup" && pickable.length>1;
-  const [email, setEmail] = React.useState("");
+  // Remember me also remembers the EMAIL (owner 2026-10-03: "logged in, logged out — it didn't
+  // remember me"): signing out ends the session by design, so the address is what shows it
+  const [email, setEmail] = React.useState(()=>{ try{ return localStorage.getItem("turn-remember-email")||""; }catch(e){ return ""; } });
   const [pw, setPw] = React.useState("");
   const [showPw, setShowPw] = React.useState(false);
   const [remember, setRemember] = React.useState(true);   // Remember me (sign in), on by default
@@ -66,6 +68,7 @@ function AuthModal({ onClose, onAuthed, initialMode, plan, light, onPlanChange }
       }
       setBusy(false);
       if(mode==="signin" && typeof window.cloudSetRememberMe==="function") window.cloudSetRememberMe(remember);
+      if(mode==="signin"){ try{ if(remember) localStorage.setItem("turn-remember-email", e); else localStorage.removeItem("turn-remember-email"); }catch(_e){} }
       onAuthed && onAuthed(data && data.session);
       onClose && onClose();
     }catch(ex){ setErr((ex && ex.message) || "Network error."); setBusy(false); }

@@ -61,6 +61,9 @@ await test("A3 ticked (the default): nothing is forgotten, and an earlier untick
   assert.ok(ui.includes("const [remember, setRemember] = React.useState(true);"));
   assert.ok(ui.includes('if(mode==="signin" && typeof window.cloudSetRememberMe==="function") window.cloudSetRememberMe(remember);'));
   assert.ok(ui.includes('mode==="signin" && React.createElement("label",{className:"auth-remember"},'));
+  // it also remembers the email (owner 2026-10-03), filled in next time — even after signing out
+  assert.ok(ui.includes('return localStorage.getItem("turn-remember-email")||"";'));
+  assert.ok(ui.includes('if(remember) localStorage.setItem("turn-remember-email", e); else localStorage.removeItem("turn-remember-email");'));
 });
 
 const app = read("app/app.jsx");

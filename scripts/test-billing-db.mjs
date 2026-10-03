@@ -888,6 +888,13 @@ if (part("H", "H. the free trial")) {
   await db.exec(`update auth.users set email_confirmed_at = now() where id = '${U.X.id}'`);
   b = await balanceOf(db, U.X);
   ok("H9 …and 50 once confirmed", b.row.remaining === 50 && b.row.trial === true, b.row);
+  // (owner 2026-10-03) an account created before email confirmation was switched on (2026-10-02
+  // ~17:45 UTC) gets no trial: back then every address counted as confirmed the moment it signed up
+  const OLD = { id: "10000000-0000-0000-0000-0000000000f1", email: "early-bird@example.com" };
+  await db.query("insert into auth.users(id, email, email_confirmed_at, created_at) values ($1, $2, $3, $3)",
+    [OLD.id, OLD.email, new Date("2026-09-15T10:00:00Z")]);
+  b = await balanceOf(db, OLD);
+  ok("H9b an account created before confirmation was switched on gets no trial, though 'confirmed'", b.row.remaining === 0 && b.row.trial === false, b.row);
   b = await balanceOf(db, U.P);
   ok("H10 a subscriber gets no trial (5,000 before the switch = 15,000 after)", b.row.remaining === 15000 && b.row.trial === false, b.row);
   b = await balanceOf(db, U.C);

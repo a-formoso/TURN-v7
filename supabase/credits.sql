@@ -525,6 +525,7 @@ declare
   v_row       public.turn_credits;
   v_email     text;
   v_confirmed timestamptz;
+  v_created   timestamptz;
   v_key       text;
 begin
   if v_amount <= 0 then return false; end if;
@@ -533,8 +534,12 @@ begin
      or v_row.stripe_customer_id is not null or public.turn__paid_tier(v_row.plan) then
     return false;
   end if;
-  select u.email, u.email_confirmed_at into v_email, v_confirmed from auth.users u where u.id = p_uid;
+  select u.email, u.email_confirmed_at, u.created_at into v_email, v_confirmed, v_created from auth.users u where u.id = p_uid;
   if v_confirmed is null then return false; end if;
+  -- (owner 2026-10-03) only accounts created after email confirmation was switched on
+  -- (2026-10-02, about 17:45 UTC): before it every address counted as confirmed the moment it
+  -- signed up, so an older account's "confirmed" proves nothing
+  if v_created < timestamptz '2026-10-02 18:00:00+00' then return false; end if;
   v_key := public.turn__email_key(v_email);
   if v_key is not null and exists (select 1 from public.turn_credits c
                                     where c.trial_email_key = v_key and c.owner <> p_uid) then
