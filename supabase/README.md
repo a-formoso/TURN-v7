@@ -15,12 +15,14 @@ cross-device access, and multiple projects all work.
 3. **SQL Editor → run `team-collaboration.sql`** — creates project membership
    rows and upgrades project / generation / storage RLS from owner-only to
    owner-or-collaborator access.
-   > **Team sharing paused (owner 2026-10-02): UI shows Coming soon; backend kept; relaunch plan in docs/Team Decision Memo.md.** Only the admin opens the Team window; everyone else sees the
-   > Team button with a "Soon" chip that opens nothing, and the app refuses member writes for
-   > non-admins (`app/team.jsx`, `app/cloud.jsx`). Nothing below was rolled back: the tables,
-   > access rules and SQL stay, and films already shared keep opening with their role.
+   > **Team sharing relaunched (owner 2026-10-03).** The rules (Director and up, 5 / 10 people a
+   > film, 3 Co-writers, 20 invites a day, 14-day invites, the Stage editor, the owner pays within
+   > each person's budget) live in **`team-relaunch.sql`**, which runs LAST (below). Its switch,
+   > `turn_app_config` key `team_sharing` (`{"on": true}`), turns new invites off in one place.
    Then run `invitations.sql` — adds `turn_claim_memberships()`, which links
-   invitations to the invitee's account on their first sign-in.
+   invitations to the invitee's account on their first sign-in. (`team-relaunch.sql`
+   replaces it with the confirmed-email, 14-day version; a database that never ran
+   `invitations.sql` — production — doesn't need it.)
    Then run `shared-owners.sql` — lets the home wall's "Shared with me" cards
    say who shared each film (without it, cards just say "Shared with you").
    Then run `enforce-role-scopes.sql` — makes the DATABASE enforce the
@@ -135,6 +137,21 @@ cross-device access, and multiple projects all work.
    `turn_storage_folders_for`, or `readableStorageKeys: false` in
    `app/supabase-config.js`). Read **Readable storage folders: rollout,
    rollback and checks** below before deploying the functions or the app.
+
+   Finally run **`team-relaunch.sql`** (needs `credits.sql` and `app-config.sql`
+   too) — Team sharing's rules: access by account (a linked invite follows the
+   account; an unlinked one only the confirmed address, for 14 days), the Stage
+   editor role, the member guard (the switch, the owner's plan, the caps, the
+   daily limit; refusals read `TURN_TEAM:<code>`), collaborators read-only when
+   the owner's plan lapses, a private member list, Leave film, and the owner-pays
+   budget functions `image-proxy` and `blender-bridge` call. One transaction, safe
+   to re-run; it stops with `TURN_TEAM_PREREQUISITE` (changing nothing) if an
+   earlier file is missing. **It must run again after any re-run of
+   `series-production.sql`** or of the files that file must follow (the list
+   above), and after `invitations.sql` — each puts back an older access helper
+   (`turn_effective_project_roles`, `turn_can_access_project`,
+   `turn_can_write_assets`, the role trigger, `turn_shared_film_owners`,
+   `turn_claim_memberships`). Tested offline by `scripts/test-team-relaunch-db.mjs`.
 4. **SQL Editor → run `cameos.sql`** — creates the `turn_cameos` table (RLS).
    If you enable Cameos, re-run `series-production.sql` once afterward so its
    project-scoped Cameo add/edit rules are installed too (deleting a Cameo
@@ -151,7 +168,8 @@ cross-device access, and multiple projects all work.
 **Fresh install, in order:** `schema.sql`, `storage.sql`, `team-collaboration.sql`,
 `invitations.sql`, `shared-owners.sql`, `enforce-role-scopes.sql`, `cameos.sql`,
 `series-production.sql`, `storage-readable-folders.sql`, then `credits.sql` /
-`app-config.sql` / `styles.sql` as used, `admin-inventory.sql`,
+`app-config.sql` / `styles.sql` as used, `team-relaunch.sql` (after `credits.sql` and
+`app-config.sql`), `admin-inventory.sql`,
 `admin-storage.sql` (see **Admin Storage page** below), and
 `frances-daily-limit.sql` (see **Frances's daily question limit** below; it
 depends on nothing but Supabase Auth, so it can run at any point). Today's `credits.sql`

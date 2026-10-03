@@ -368,9 +368,9 @@ dyn(key, ok, sql) as (
       (select count(*) from m where member_email is distinct from lower(btrim(member_email))) as noncanon,
       (select count(*) from m where role = 'producer_admin')                     as retired,
       (select count(*) from m where status = 'active'
-          and role not in ('view_only', 'writer', 'art_director', 'producer_admin')) as oddroles,
+          and role not in ('view_only', 'writer', 'art_director', 'stage_editor', 'producer_admin')) as oddroles,
       (select string_agg(distinct role, ' ') from m where status = 'active'
-          and role not in ('view_only', 'writer', 'art_director', 'producer_admin')) as oddrolenames,
+          and role not in ('view_only', 'writer', 'art_director', 'stage_editor', 'producer_admin')) as oddrolenames,
       (select count(*) from m where status = 'active'
           and (project_id in (select id from s) or project_id in (select id from p where raw_show is not null))) as onseries,
       (select count(*) from promoted)                                             as promote,
