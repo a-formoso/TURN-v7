@@ -3688,6 +3688,14 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
                 });
                 if(!ok) return;
               }
+              else if(/prop/i.test(deleteLabel||"")){
+                const ok = !window.appConfirm || await window.appConfirm({
+                  title:"Delete "+(name||"this prop")+"?",
+                  body:"This removes the prop card and moves it to Recently Deleted. Its image can be restored from there until you delete it forever.",
+                  confirmLabel:"Delete prop", cancelLabel:"Cancel", danger:true
+                });
+                if(!ok) return;
+              }
               else if(/character/i.test(deleteLabel||"")){
                 const ok = !window.appConfirm || await window.appConfirm({
                   title:"Delete "+(name||"this character")+"?",
@@ -4223,7 +4231,7 @@ function StateRow({ c, st, index, project, scenes, props, drafts, baseGenUrl, on
         scenes.map(s=>React.createElement("option",{key:s.id,value:s.id},"Sc "+s.no+" \u00b7 "+s.title)))));
 }
 
-function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voiceOpen, onOpenVoice, onCloseVoice, onUpdate, onDraft, drafting, onView, onSuggestStates, suggestingStates, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, batchActiveId, onBatchDone, onDelete }){
+function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voiceOpen, onOpenVoice, onCloseVoice, onUpdate, onDraft, drafting, onView, onSuggestStates, suggestingStates, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, batchActiveId, onBatchDone, onDelete }){
   const drivenScenes = scenes.filter(s=>s.driver===c.id);
   const driven = drivenScenes.length;
   // ALL scenes this character appears in (drives OR is named in the script/summary), not
@@ -4342,6 +4350,10 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
   };
   /* which owned props currently have a generated sheet (for the linked-props indicator) */
   const [ownedSheetMap, setOwnedSheetMap] = React.useState({});
+  // worn items with no sheet of their own yet (no card, or a card without a sheet)
+  const missingWorn = linkedRows.filter(r=> !r.orphan && r.src==="worn" && !(r.prop && ownedSheetMap[r.prop.id])).length;
+  const wornBuilding = !!(c.wornPropBootstrap && c.wornPropBootstrap.status==="running"
+    && c.wornPropBootstrap.startedAt && Date.now()-new Date(c.wornPropBootstrap.startedAt).getTime()<30*60*1000);
   const [sheetTick, setSheetTick] = React.useState(0);   // bump to re-check sheet presence
   // inline per-row prop generation (user ruling 2026-07-18: generate a linked prop's
   // sheet right from the character card — no Props-tab hop). kind: "draft"|"gen".
@@ -4717,6 +4729,14 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
           React.createElement("div",{className:"linked-props-head"},
             React.createElement("div",{className:"obj-lab",style:{margin:0}},
               "Linked prop sheets \u2014 worn items attach to this sheet; carried attach at the shot"),
+            // ON DEMAND (2026-10-03, owner): worn-item sheets are made only from here — they used to
+            // build on their own (with a master re-bake) the moment this sheet first landed
+            (onBuildWornProps && missingWorn>0 && gen.genUrl) && React.createElement("button",{className:"linked-props-make",
+              disabled:wornBuilding||gen.gening,onClick:()=>onBuildWornProps(c),
+              title:"Make the reference sheet for each worn item that doesn't have one (drafting its design first if needed), using this character's sheet as the reference. Then use \u201cUpdate sheet with new wardrobe\u201d if you want "+(c.name||"them")+" to wear them."},
+              React.createElement(Icon.sparkles,{s:12}),
+              wornBuilding ? "Making worn-item sheets\u2026" : ("Make "+missingWorn+" worn-item sheet"+(missingWorn!==1?"s":"")),
+              (!wornBuilding && typeof window.nbCostChip==="function") && window.nbCostChip(missingWorn)),
             orphanProps.length>0 && onRemoveOwnedItem && React.createElement("button",{className:"linked-props-clean",
               title:"Remove the prop cards below that aren't in the worn/carried lists above",
               onClick:async ()=>{
@@ -5417,7 +5437,7 @@ function charLookbookFirstHint(lookbook, lookbookNote, characters, draftingAll){
 }
 window.charLookbookFirstHint = charLookbookFirstHint;
 
-function CharacterSheets({ project, characters, scenes, props, drafts, shots, beatsMap, onUpdate, onDraft, onDraftAll, draftingId, draftingAll, draftingIds, onSuggestStates, suggestingStatesId, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, onDelete, onCast, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, lookbook, lookbookNote, onOpenLookbook }){
+function CharacterSheets({ project, characters, scenes, props, drafts, shots, beatsMap, onUpdate, onDraft, onDraftAll, draftingId, draftingAll, draftingIds, onSuggestStates, suggestingStatesId, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, onDelete, onCast, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, lookbook, lookbookNote, onOpenLookbook }){
   const [view, setView] = React.useState(null);   // {url, character}
   // Keep one open flag per character so several card-contained Voice cards can
   // remain open independently without sharing UI state.
@@ -5676,7 +5696,7 @@ function CharacterSheets({ project, characters, scenes, props, drafts, shots, be
         voiceOpen:openVoiceIds.indexOf(c.id)>=0,onOpenVoice:openVoice,onCloseVoice:closeVoice,
         drafting:draftingId===c.id||(draftingIds||[]).indexOf(c.id)>=0,onView:(url,ch)=>setView({url,character:ch}),
         batchActiveId,onBatchDone:batch.advance,onDelete:onDelete,
-        onSuggestStates,suggestingStates:suggestingStatesId===c.id,onRemoveOwnedItem,onRenameOwnedItem,onDraftProp,onCreateOwnedProp}))),
+        onSuggestStates,suggestingStates:suggestingStatesId===c.id,onBuildWornProps,onRemoveOwnedItem,onRenameOwnedItem,onDraftProp,onCreateOwnedProp}))),
     React.createElement(PagerBar,{pager:charPager,noun:"character"}));
 }
 
@@ -5945,7 +5965,7 @@ function ArtTabLock({ tab, locks, onGo }){
 window.ArtTabLock = ArtTabLock;
 
 function ArtRoom({ artView, setArtView, project, characters, scenes, props, drafts, trash, tabLocks, noPropsConfirmed, onSetNoProps, onRestoreChar, onPurgeChar, onRestoreProp, onPurgeProp, onRestoreLoc, onPurgeLoc, onRestoreShot, onPurgeShot, onEnsureOwner, onUpdateChar, onDraftVisuals, onDraftAllVisuals, draftingVisualId, draftingAllVisuals, draftingVisualIds, onCreateOwnedProp,
-  onSuggestStates, suggestingStatesId, onRemoveOwnedItem, onRenameOwnedItem, onDeleteCharacter,
+  onSuggestStates, suggestingStatesId, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDeleteCharacter,
   onUpdateProp, onDraftProp, onDraftAllProps, onAddProp, onImportProps, onDeleteProp, draftingPropIds, draftingPropId, draftingAllProps, onMergeProps, castHasProps,
   locations, onUpdateLocation, onDraftLocation, onDraftAllLocs, onDeleteLocation, draftingLocIds, draftingAllLocs, scriptHasLocs, onSetStyleRefs, onSetScenePreset, onAddStyleRefImages, onRemoveStyleRefImage, onDraftStaging, draftingStageId, sluglineUnits, onUpdateUnit, onRemoveUnit,
   shots, beatsMap, onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onRemoveMicroBeatShots, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onColorist, onCast,
@@ -6026,7 +6046,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
           onDraftProp,onCreateOwnedProp,
           onDraft:onDraftVisuals,onDraftAll:onDraftAllVisuals,draftingId:draftingVisualId,draftingAll:draftingAllVisuals,draftingIds:draftingVisualIds,
           trashItems:(trash&&trash.characters)||[],onRestore:onRestoreChar,onPurge:onPurgeChar,
-          onSuggestStates,suggestingStatesId,onRemoveOwnedItem,onRenameOwnedItem,onDelete:onDeleteCharacter,onCast,
+          onSuggestStates,suggestingStatesId,onBuildWornProps,onRemoveOwnedItem,onRenameOwnedItem,onDelete:onDeleteCharacter,onCast,
           lookbookStale:!!_stale.characters,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("characters"),
           onApplyLookbookDraftOnly:()=>onApplyLookbook&&onApplyLookbook("characters","draft"),
           lookbook,lookbookNote,onOpenLookbook:setArtView?()=>setArtView("lookbook"):null})

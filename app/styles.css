@@ -2641,6 +2641,13 @@ html[data-theme="light"] .char-cameo-btn.on{background:oklch(0.6 0.18 295 / .16)
   color:oklch(0.7 0.17 25);background:oklch(0.7 0.17 25 / .1);border:1px solid oklch(0.7 0.17 25 / .32)}
 .linked-props-clean:hover{background:oklch(0.7 0.17 25 / .18)}
 .linked-props-clean svg{flex:0 0 auto}
+/* "Make N worn-item sheets" on the character card (2026-10-03): on demand, priced */
+.linked-props-make{flex:0 0 auto;display:inline-flex;align-items:center;gap:5px;cursor:pointer;
+  padding:3px 8px;border-radius:var(--r-s);font-size:10px;font-weight:600;letter-spacing:.02em;
+  color:var(--pos-ink);background:var(--pos-soft);border:1px solid var(--pos-line)}
+.linked-props-make:hover:not(:disabled){filter:brightness(1.08)}
+.linked-props-make:disabled{opacity:.6;cursor:default}
+.linked-props-make svg{flex:0 0 auto}
 .linked-prop-list{display:flex;flex-direction:column;gap:3px}
 .linked-prop{display:flex;flex-direction:column;align-items:stretch;gap:2px;padding:4px 6px;border-radius:var(--r-s);
   background:var(--bg-3);border:1px solid var(--line-2);font-size:10px;color:var(--txt-2)}
@@ -4293,6 +4300,10 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
 .prop-review-item-head>input{width:100%;min-width:0;border:0;border-bottom:1px solid var(--line-2);padding:8px 0;background:transparent;color:var(--txt-0);font:600 14px var(--f-ui)}
 .prop-review-item-head select{width:100%;max-width:100%}
 .prop-review-item summary,.prop-content-fields summary{cursor:pointer;padding:8px 0;font-size:12px;color:var(--txt-1)}
+/* "More detail" inside a prop card's Object fold (2026-10-03) */
+.prop-more-fields{margin-top:6px;border-top:1px solid var(--line);padding-top:2px}
+.prop-more-fields > summary{cursor:pointer;padding:8px 0;font-size:12px;color:var(--txt-2)}
+.prop-more-fields[open] > summary{color:var(--txt-1)}
 .prop-review-item blockquote,.prop-evidence blockquote{margin:8px 0;padding:8px 10px;border-left:2px solid var(--pos-line);font-size:12px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
 .prop-review-item label{display:grid;gap:6px;font-size:11px}
 .prop-review-item .prop-review-event-toggle{display:flex;align-items:center;gap:8px}
@@ -8402,10 +8413,11 @@ html[data-theme="dark"] .hd-card-new-art{ box-shadow:none; }
 .prop-event-list{display:flex;flex-direction:column;gap:7px;margin-top:8px}
 .prop-event-row{display:flex;flex-direction:column;align-items:stretch;gap:6px;padding:8px;border:1px solid var(--line,#dedbd5);border-radius:var(--r-s);background:rgba(255,255,255,.52)}
 .prop-event-moment{align-items:end}
-.prop-event-inline{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}
+.prop-event-inline{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:5px}
+.prop-event-pick{min-width:0;width:100%;font-size:11px}
 .prop-event-input{min-width:0;width:100%;height:30px;padding:0 7px;border:1px solid var(--line,#dedbd5);border-radius:5px;background:#fff;color:inherit;font:inherit;font-size:11px}
 .prop-event-row .prop-select{min-width:0;width:100%}
-@media(max-width:700px){.prop-event-moment{grid-template-columns:1fr}.prop-event-inline{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:700px){.prop-event-moment{grid-template-columns:1fr}}
 
 /* ---- Story Contract (left rail) — a card like the Premise card: one question per
    group (readable title + one-line hint), the picks, then the facts they set ---- */

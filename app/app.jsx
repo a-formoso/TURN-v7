@@ -4044,8 +4044,20 @@ function App(){
   //   3) MAP every card to the scenes it appears in (reviewed sources, worn -> owner
   //      presence, anything the screenplay hasn't established -> scenes whose text
   //      names it; deterministic, no model call)
-  const draftAllProps = async ()=>{
+  // ONLY WHAT'S MISSING (2026-10-03, owner — Props review): Draft all specifications drafts the cards
+  // with no spec yet — it used to rewrite EVERY card, hand edits included, and pay again for each.
+  // "Redraft all…" (mode "redraft") asks first, then redrafts every card. A failure is said out loud.
+  const draftAllProps = async (mode)=>{
     if(draftingAllProps) return;
+    const redraft = mode==="redraft";
+    if(redraft){
+      const n = (props||[]).length;
+      const ok = typeof window.appConfirm!=="function" || await window.appConfirm({
+        title:"Redraft all "+n+" prop specification"+(n!==1?"s":"")+"?",
+        body:"Every prop's design is written again from the script and the cast \u2014 replacing the current specs, including your edits. Images are left as they are. This uses writing credits for every card.",
+        confirmLabel:"Redraft all", danger:true });
+      if(!ok) return;
+    }
     setDraftingAllProps(true);
     try{
       // 1) sync from cast
@@ -4055,8 +4067,11 @@ function App(){
         if(derived.length){ working = [...props, ...derived]; setProps(working); setPropsSeeded(true); }
       }
       // 2) draft specs
-      if(typeof aiDesignPropBible==="function" && working.length){
-        const map = await aiDesignPropBible(working, characters, lbProject("props"));
+      const toDraft = redraft ? working
+        : working.filter(p=> !(typeof propVisualsDrafted==="function" ? propVisualsDrafted(p) : (String(p.form||"").trim() && String(p.material||"").trim())));
+      if(typeof aiDesignPropBible==="function" && toDraft.length){
+        const map = await aiDesignPropBible(toDraft, characters, lbProject("props"));
+        if(!map) throw new Error("no specs came back");
         if(map){ working = working.map(p=> map[p.id] ? {...p, ...keepPickedStyle(p, map[p.id])} : p);
           setProps(ps=>ps.map(p=> map[p.id] ? {...p, ...keepPickedStyle(p, map[p.id])} : p)); }
       }
@@ -4068,7 +4083,9 @@ function App(){
           ? withEpisodeSceneRefs(lexical(p) ? {...p, sceneMapBasis:"lexical"} : p, smap[p.id], scenes) : p));
       }
       if(working.length) markApplied("props");
-    }catch(e){}
+    }catch(e){
+      if(typeof window.appToast==="function") window.appToast("Couldn't draft the prop specifications ("+((e&&e.message)||"error")+"). Nothing was overwritten \u2014 try again.","error");
+    }
     setDraftingAllProps(false);
   };
   // Pull standalone prop cards out of the cast's existing "Props & accessories"
@@ -4092,6 +4109,7 @@ function App(){
     if(typeof castHasProps==="function" && castHasProps(characters)) seedPropsFromCast();
   },[room, artView, propsSeeded, props.length, characters, seedPropsFromCast, hydrationTick, artTabLocks]);
 
+  const wornBuildRef = React.useRef(null);   // the card's "Make N worn-item sheets" (the build below, on demand)
   /* INITIAL CHARACTER -> WORN PROP BOOTSTRAP
      The first committed identity sheet is the best visual seed for accessories that
      belong on that character. Build those prop sheets in the background immediately,
@@ -4102,9 +4120,14 @@ function App(){
      owner's committed sheet is exactly the reference these worn props need. Its cards are Props
      content, so Props then opens (a tab with content is never locked — docs/Story Pipeline.md
      step 9); APP_FEATURES says so, so MUSE can explain an early-open Props tab. */
+  // NO SILENT SPENDING (2026-10-03, owner — Props review): the background build is OFF unless
+  // window.TURN_WORN_PROP_AUTO===true. The character card's "Make N worn-item sheets" button runs the
+  // same build on demand (wornBuildRef), with no automatic master re-bake — the card's "Update sheet
+  // with new wardrobe" stays the user's choice.
   React.useEffect(()=>{
     window.__turnWornPropBootstrap = window.__turnWornPropBootstrap || {};
-    const onCharacterSheetDone = async (e)=>{
+    const onCharacterSheetDone = async (e, manual)=>{
+      if(!manual && window.TURN_WORN_PROP_AUTO!==true) return;
       const charId = e && e.detail && e.detail.id;
       const character = (characters||[]).find(c=>c && c.id===charId);
       if(!character || !canMutateSharedFilm()) return;
@@ -4113,7 +4136,7 @@ function App(){
       const identityUrl = (e && e.detail && e.detail.url) || await _imgOf(charId);
       if(!identityUrl) return;
       const prior = character.wornPropBootstrap || {};
-      if(prior.status==="complete" || window.__turnWornPropBootstrap[charId]) return;
+      if((!manual && prior.status==="complete") || window.__turnWornPropBootstrap[charId]) return;
       // A persisted running flag from an interrupted browser session may retry later.
       if(prior.status==="running" && prior.startedAt
         && Date.now()-new Date(prior.startedAt).getTime()<30*60*1000) return;
@@ -4192,7 +4215,7 @@ function App(){
         epochStart:epoch0, epochNow:(typeof nbEpoch==="function")?nbEpoch():null,
         canMutate: canMutateSharedFilm(),
       }) : { ok:false, reason:"no-gate" };
-      if(gate.ok){
+      if(gate.ok && !manual){
         if(typeof window.appToast==="function") window.appToast(
           "Worn prop references are ready for "+(character.name||"this character")+" \u2014 updating the master sheet to wear them now.","info");
         /* LOOP PREVENTION: hold the in-memory bootstrap flag through the re-bake so its
@@ -4243,6 +4266,7 @@ function App(){
       setProps(ps=>ps.map(p=>p.id===d.id ? { ...p, ...keepPickedStyle(p, d.patch) } : p));
       markApplied("props");
     };
+    wornBuildRef.current = (charId)=> onCharacterSheetDone({ detail:{ id:charId } }, true);
     window.addEventListener("nb-gen-done",onCharacterSheetDone);
     window.addEventListener("nb-prop-drafted",onPropDrafted);
     return ()=>{ window.removeEventListener("nb-gen-done",onCharacterSheetDone);
@@ -7390,7 +7414,8 @@ function App(){
             staleTabs,onApplyLookbook:applyLookbook,onReviewLookbook:(dept)=>applyLookbook(dept,"review"),
             onUpdateChar:updateCharacter,onDraftVisuals:draftCharacterVisuals,onDraftAllVisuals:draftAllVisuals,
             draftingVisualId,draftingAllVisuals,draftingVisualIds,onDeleteCharacter:deleteCharacter,
-            onSuggestStates:suggestCharacterStates,suggestingStatesId,onRemoveOwnedItem:removeOwnedProp,onRenameOwnedItem:renameOwnedProp,
+            onSuggestStates:suggestCharacterStates,suggestingStatesId,onRemoveOwnedItem:removeOwnedProp,
+            onBuildWornProps:(c)=>{ if(c && wornBuildRef.current) wornBuildRef.current(c.id); },onRenameOwnedItem:renameOwnedProp,
             onUpdateProp:updateProp,onDraftProp:draftPropVisuals,onDraftAllProps:draftAllProps,onCreateOwnedProp:createOwnedProp,
             onAddProp:addProp,onImportProps:importScreenplayProps,onDeleteProp:deleteProp,draftingPropId,draftingPropIds,draftingAllProps,onMergeProps:mergeProps,
             castHasProps:(typeof castHasProps==="function" && castHasProps(characters)),

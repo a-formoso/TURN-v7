@@ -972,7 +972,15 @@ function PropFittingModal({ p, propUrl, onClose }){
     document.body);
 }
 
-function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete, onDraft, onEnsureOwner, drafting, onView, batchActiveId, onBatchDone, onChipClick, onSourceClick, dupIds, dupProps, onMerge, derivedScenes }){
+/* does this prop's owner have a character sheet yet? (sync cache first, then storage) */
+async function propOwnerHasSheet(p){
+  if(!p || !p.ownerId) return true;
+  let u = (typeof nbGetImage==="function") ? nbGetImage(p.ownerId) : "";
+  if(!u && typeof nbLoadImage==="function"){ try{ u = await nbLoadImage(p.ownerId); }catch(e){} }
+  return !!u;
+}
+window.propOwnerHasSheet = propOwnerHasSheet;
+function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete, onDraft, onEnsureOwner, batchOwnerChoice, drafting, onView, batchActiveId, onBatchDone, onChipClick, onSourceClick, dupIds, dupProps, onMerge, derivedScenes }){
   const d = propDefaults(p);
   const finalPrompt = combinedPropPrompt(p, project);
   const drafted = propVisualsDrafted(p);
@@ -1070,10 +1078,28 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
           confirmLabel:"Generate anyway", cancelLabel:"Cancel" });
         if(!ok) return false;
       }
-      if(onEnsureOwner){ try{ await onEnsureOwner(p); }catch(e){} }
+      // THE OWNER'S SHEET FIRST — ASKED, NEVER SILENT (2026-10-03, owner): it used to be made
+      // (and the owner's look drafted) behind the prop's one-image price. A batch asks once, up
+      // front (batchOwnerChoice: "owner" | "skip"); a single generate asks here.
+      if(onEnsureOwner && p.ownerId && !(await propOwnerHasSheet(p))){
+        const isBatch = !!(a[0] && a[0].batch);
+        let choice = isBatch ? (batchOwnerChoice==="owner") : true;
+        if(!isBatch && typeof window.appConfirm==="function"){
+          const who = p.ownerName||"The owner";
+          const price = (typeof window.nbImageCostText==="function") ? window.nbImageCostText(1) : "";
+          const res = await window.appConfirm({
+            title:who+" has no character sheet yet",
+            body:(p.name||"This prop")+" matches its owner best when it's made with "+who+"'s sheet as a reference. Make "+who+"'s sheet first"
+              +(price?" (about "+price+" credit"+(price==="1"?"":"s")+" more":" (one more image")+", plus drafting their look if it isn't written yet), then the prop \u2014 or make the prop on its own now.",
+            confirmLabel:"Make "+who+"'s sheet first", altLabel:"Make the prop only", cancelLabel:"Cancel" });
+          if(res===false || res==null) return false;
+          choice = res===true;
+        }
+        if(choice){ try{ await onEnsureOwner(p); }catch(e){} }
+      }
       return await gen.generate(...a);
     }finally{ delete window.__nbOwnerPhase[p.id]; }
-  },[gen, onEnsureOwner, p]);
+  },[gen, onEnsureOwner, p, batchOwnerChoice]);
   const genForFrame = onEnsureOwner ? { ...gen, generate: genWithOwner } : gen;
 
   /* ---- batch generation: when the parent activates this card (its id == the
@@ -1095,7 +1121,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
     if(!mine){ batchStarted.current=inflight; wasGening.current=gen.gening; return; }
     if(!batchStarted.current && !gen.gening && !inflight){
       batchStarted.current = true; wasGening.current = false;
-      genWithOwner();                       // owner sheet first, then this prop's master
+      genWithOwner({ batch:true });         // the owner sheet first only if the batch said so
       return;
     }
     if(batchStarted.current && wasGening.current && !gen.gening){
@@ -1105,6 +1131,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
     wasGening.current = gen.gening;
   },[batchActiveId, gen.gening, p.id]);
 
+  const [showPrompt, setShowPrompt] = React.useState(false);   // the ⋯ menu's "Show the generation prompt"
   const [fitOpen, setFitOpen] = React.useState(false);   // the fitting view (owner sheet · prop sheet side by side)
   const [bindingOpen, setBindingOpen] = React.useState(false);
 
@@ -1163,9 +1190,28 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
       React.createElement("div",{className:"sheet-field"},React.createElement("div",{className:"obj-lab"},"From scene"),
         React.createElement("select",{className:"prop-select",value:e.sceneId||"",onChange:ev=>updateContinuityEvent(e.id,{sceneId:ev.target.value})},
           React.createElement("option",{value:""},"Choose scene..."),(scenes||[]).map(s=>React.createElement("option",{key:s.id,value:s.id},"Sc "+s.no+" - "+s.title)))),
-      React.createElement("div",{className:"sheet-field"},React.createElement("div",{className:"obj-lab"},"Beat / micro / shot"),
-        React.createElement("div",{className:"prop-event-inline"},
-          ["beatId","microBeatId","shotId"].map((k,n)=>React.createElement("input",{key:k,className:"prop-event-input",value:e[k]||"",placeholder:["Beat","Micro","Shot"][n],onChange:ev=>updateContinuityEvent(e.id,{[k]:ev.target.value})}))))),
+      React.createElement("div",{className:"sheet-field"},React.createElement("div",{className:"obj-lab"},"Beat / shot (optional)"),
+        // PICKED, NOT TYPED (2026-10-03, owner — Props review): the beat and shot come from the chosen
+        // scene (they used to be free-text id boxes nobody could fill); a saved value not in the
+        // lists still shows, so nothing already recorded is lost
+        (()=>{
+          const C = window.turnContinuity || {};
+          const rows = (e.sceneId && C.beatsMap && C.beatsMap[e.sceneId] && C.beatsMap[e.sceneId].rows) || [];
+          const sceneShots = (C.shots||[]).filter(sh=>sh && sh.sceneId===e.sceneId).slice()
+            .sort((a,b)=>(_propNum(a.order,0)-_propNum(b.order,0))||(_propNum(a.beatN,0)-_propNum(b.beatN,0)));
+          const beatOpts = rows.map((r,n)=>({ v:String((r&&r.id)||(r&&r.n)||(n+1)),
+            l:"Beat "+((r&&r.n)||(n+1))+(r&&r.drive&&r.drive.d ? " \u2014 "+String(r.drive.d).slice(0,40) : "") }));
+          const shotOpts = sceneShots.map((sh,n)=>({ v:sh.id, l:"Shot "+(n+1)+(sh.size?" \u00b7 "+sh.size:"")+(sh.beatN?" (beat "+sh.beatN+")":"") }));
+          const keep = (opts, v)=> (v && !opts.some(o=>o.v===String(v))) ? [{ v:String(v), l:String(v)+" (saved)" }, ...opts] : opts;
+          const sel = (k, label, opts, none)=> React.createElement("select",{key:k,className:"prop-select prop-event-pick","aria-label":label,
+              value:e[k]||"", disabled:!e.sceneId, onChange:ev=>updateContinuityEvent(e.id,{[k]:ev.target.value})},
+            React.createElement("option",{value:""},none),
+            keep(opts, e[k]).map(o=>React.createElement("option",{key:o.v,value:o.v},o.l)));
+          return React.createElement("div",{className:"prop-event-inline"},
+            sel("beatId","Beat",beatOpts,e.sceneId?"Whole scene":"Choose a scene first"),
+            e.beatId ? sel("microBeatId","Micro-beat",[1,2,3,4,5,6,7,8].map(n=>({ v:String(n), l:"Micro "+n })),"Any micro-beat") : null,
+            sel("shotId","Shot",shotOpts,shotOpts.length?"Any shot":"No shots yet"));
+        })())),
     (["acquired","handed_over","recovered"].includes(e.type||"handed_over")) && React.createElement("div",{className:"sheet-field"},
       React.createElement("div",{className:"obj-lab"},"Holder / user after event"),
       React.createElement("select",{className:"prop-select",value:e.holderId||e.toCharacterId||"",onChange:ev=>{const ch=(characters||[]).find(x=>x.id===ev.target.value);updateContinuityEvent(e.id,{holderId:ev.target.value,holderName:ch?ch.name:""});}},
@@ -1201,6 +1247,8 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
       // against the OWNER's sheet (so the designs agree); it attaches to shots only
       // at CU/MCU/ECU/INSERT sizes where the item reads large. Batch generation
       // still skips worn items.
+      menuExtra:[{ label:showPrompt ? "Hide the generation prompt" : "Show the generation prompt", icon:Icon.eye,
+        onClick:()=>setShowPrompt(v=>!v) }],
       onDelete:()=>onDelete(p.id), deleteLabel:"Delete prop" }),
     React.createElement("div",{className:"sheet-body"},
       React.createElement("div",{className:"sheet-head"},
@@ -1337,18 +1385,6 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
 
       React.createElement(CardFold,{label:"Object",defaultOpen:(!drafted && !!p.manual)},
         window.PropScreenplay.nameIssue(p.name)&&React.createElement("p",{className:"prop-review-warning"},window.PropScreenplay.nameIssue(p.name)),
-        React.createElement("label",{className:"sheet-field"},React.createElement("span",{className:"obj-lab"},"Inventory group"),
-          React.createElement("select",{className:"prop-select",value:window.PropScreenplay.group(p),onChange:e=>onUpdate(p.id,{inventoryGroup:e.target.value})},
-            React.createElement("option",{value:"story"},"Story props"),React.createElement("option",{value:"accessories"},"Wardrobe & accessories"))),
-        p.kind!=="worn" && React.createElement("label",{className:"sheet-field"},React.createElement("span",{className:"obj-lab"},"Reference image"),
-          React.createElement("select",{className:"prop-select",value:(p.sheetTier==="own"||p.sheetTier==="text")?p.sheetTier:"",
-            title:"Whether this object gets its own reference image. Text-only objects are described in shot prompts from this card's specification; batch generation and shot renders don't spend image credits on them.",
-            onChange:e=>onUpdate(p.id,{sheetTier:e.target.value})},
-            React.createElement("option",{value:""},"Auto — "+(()=>{const a=window.PropScreenplay.sheetTier({...p,sheetTier:""},drafts);return (a.tier==="text"?"text only":"own image")+" ("+a.reason.toLowerCase()+")";})()),
-            React.createElement("option",{value:"own"},"Own image"),
-            React.createElement("option",{value:"text"},"Text only — described in shot prompts"))),
-        React.createElement(SheetField,{label:"Other names for this same object",value:(p.aliases||[]).join("; "),placeholder:"Medication notebook; dose log",onCommit:val=>onUpdate(p.id,{aliases:val.split(";").map(s=>s.trim()).filter(Boolean)})}),
-        React.createElement(SheetField,{label:"Identity — distinguish from similar objects",value:p.identityNote,multiline:true,placeholder:"Marcus's phone, not Daniel's. The same phone travels between locations.",onCommit:val=>onUpdate(p.id,{identityNote:val})}),
         React.createElement("div",{className:"sheet-2col"},
           React.createElement("div",{className:"sheet-field"},
             React.createElement("div",{className:"obj-lab"},"Owner"),
@@ -1367,22 +1403,13 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
         React.createElement("div",{className:"sheet-props-note"},
           React.createElement(Icon.layers,{s:12}),
           "Type is the default binding only. Story events can move this canonical prop between a body, a hand and a set without duplicating it."),
-        React.createElement("div",{className:"sheet-2col"},
-          React.createElement("div",{className:"sheet-field"},
-            React.createElement("div",{className:"obj-lab"},"Custodian"),
-            React.createElement("select",{className:"prop-select",value:p.custodianId||p.ownerId||"",
-              onChange:e=>{const ch=(characters||[]).find(c=>c.id===e.target.value);onUpdate(p.id,{custodianId:e.target.value,custodianName:ch?ch.name:""});}},
-              React.createElement("option",{value:""},"Unassigned"),
-              (characters||[]).map(c=>React.createElement("option",{key:c.id,value:c.id},c.name)))),
-          React.createElement("div",{className:"sheet-field"},
-            React.createElement("div",{className:"obj-lab"},"Design association"),
-            React.createElement("select",{className:"prop-select",value:(p.associationType||"")+":"+(p.associationId||p.ownerId||p.locationId||""),
-              onChange:e=>{const parts=e.target.value.split(":");const type=parts[0],id=parts[1]||"";const item=type==="character"?(characters||[]).find(x=>x.id===id):continuityLocations.find(x=>x.id===id);onUpdate(p.id,{associationType:type,associationId:id,associationName:item?item.name:""});}},
-              React.createElement("option",{value:":"},"Project world"),
-              React.createElement("optgroup",{label:"Characters"},(characters||[]).map(c=>React.createElement("option",{key:"c"+c.id,value:"character:"+c.id},c.name))),
-              React.createElement("optgroup",{label:"Locations"},continuityLocations.map(l=>React.createElement("option",{key:"l"+l.id,value:"location:"+l.id},l.name)))))),
-        React.createElement(SheetField,{label:"Owner / origin — canonical provenance",value:p.provenance||(typeof p.origin==="string"?p.origin:"")||p.ownerName||"",
-          placeholder:"Originally Yusuf's · stolen police issue · found in the Minicab…",onCommit:val=>onUpdate(p.id,{provenance:val})}),
+        p.kind!=="worn" && React.createElement("label",{className:"sheet-field"},React.createElement("span",{className:"obj-lab"},"Reference image"),
+          React.createElement("select",{className:"prop-select",value:(p.sheetTier==="own"||p.sheetTier==="text")?p.sheetTier:"",
+            title:"Whether this object gets its own reference image. Text-only objects are described in shot prompts from this card's specification; batch generation and shot renders don't spend image credits on them.",
+            onChange:e=>onUpdate(p.id,{sheetTier:e.target.value})},
+            React.createElement("option",{value:""},"Auto — "+(()=>{const a=window.PropScreenplay.sheetTier({...p,sheetTier:""},drafts);return (a.tier==="text"?"text only":"own image")+" ("+a.reason.toLowerCase()+")";})()),
+            React.createElement("option",{value:"own"},"Own image"),
+            React.createElement("option",{value:"text"},"Text only — described in shot prompts"))),
         // RELATIONSHIP — one line on how the owner relates to this object; feeds the
         // sheet prompt (condition/wear/repairs express it) and bakes into the owner's
         // character sheet for worn items. Belonging = character truth, not just style.
@@ -1405,14 +1432,6 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
         React.createElement(SheetField,{label:"Material & finish",value:p.material,multiline:true,
           placeholder:"What it's made of \u2014 metal, plastic, fabric; sheen, wear, texture\u2026",onCommit:val=>onUpdate(p.id,{material:val})}),
         React.createElement(SheetField,{label:"Identifying physical details",value:p.signatureFeature,multiline:true,placeholder:"Crushed spiral binding, chipped enamel, distinctive repair…",onCommit:val=>onUpdate(p.id,{signatureFeature:val})}),
-        React.createElement("details",{className:"prop-content-fields"},React.createElement("summary",null,"Document, label or screen content"),
-          React.createElement(SheetField,{label:"Established wording / visible content",value:p.contentNotes,multiline:true,placeholder:"Exact letter wording, call-log entries or label text. Leave unknown content unspecified.",onCommit:val=>onUpdate(p.id,{contentNotes:val})}),
-          React.createElement(SheetField,{label:"Base content version",value:p.contentVersion,placeholder:"Original / clean copy / sealed",onCommit:val=>onUpdate(p.id,{contentVersion:val})}),
-          React.createElement("p",{className:"sheet-props-note"},"Later edits belong in Continuity → Updated events. Check important wording in the generated image; a prompt cannot guarantee legibility.")),
-        // real-world measurement \u2014 the scale system sizes the object against the cast
-        // in every shot from this ('Draft specification' drafts it; edit to correct)
-        React.createElement("label",{className:"sheet-field"},React.createElement("span",{className:"obj-lab"},"Dimension source"),React.createElement("select",{className:"prop-select",value:p.sizeBasis||"estimated",onChange:e=>onUpdate(p.id,{sizeBasis:e.target.value})},
-          React.createElement("option",{value:"estimated"},"Design estimate — verify for 3D"),React.createElement("option",{value:"screenplay"},"Explicit screenplay dimensions"),React.createElement("option",{value:"measured"},"Measured / verified by user"))),
         React.createElement(SheetField,{label:"Physical dimensions",value:p.size,
           placeholder:"~1.2 m tall \u00d7 ~60 cm wide \u00d7 ~45 cm deep \u00b7 or ~18 cm long \u00d7 ~7 cm diameter\u2026",onCommit:val=>onUpdate(p.id,{size:val})}),
         // SCALE AGAINST THE OWNER — proportions relative to the body ("hangs to mid-
@@ -1420,7 +1439,38 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
         p.ownerId && React.createElement(SheetField,{label:"Scale against "+(p.ownerName||"the owner"),value:p.scale,
           placeholder:"hangs from her shoulder to mid-thigh \u00b7 the size of his forearm \u00b7 fills both hands\u2026",
           title:"Proportions relative to the owner\u2019s body \u2014 shot prompts carry this so the object keeps its size next to them.",
-          onCommit:val=>onUpdate(p.id,{scale:val})})),
+          onCommit:val=>onUpdate(p.id,{scale:val})}),
+        // MORE DETAIL (2026-10-03, owner — Props review): the fields most people never need
+        React.createElement("details",{className:"prop-more-fields"},React.createElement("summary",null,"More detail \u2014 other names, identity, custodian, origin, dimension source, content"),
+        React.createElement("label",{className:"sheet-field"},React.createElement("span",{className:"obj-lab"},"Inventory group"),
+          React.createElement("select",{className:"prop-select",value:window.PropScreenplay.group(p),onChange:e=>onUpdate(p.id,{inventoryGroup:e.target.value})},
+            React.createElement("option",{value:"story"},"Story props"),React.createElement("option",{value:"accessories"},"Wardrobe & accessories"))),
+        React.createElement(SheetField,{label:"Other names for this same object",value:(p.aliases||[]).join("; "),placeholder:"Medication notebook; dose log",onCommit:val=>onUpdate(p.id,{aliases:val.split(";").map(s=>s.trim()).filter(Boolean)})}),
+        React.createElement(SheetField,{label:"Identity — distinguish from similar objects",value:p.identityNote,multiline:true,placeholder:"Marcus's phone, not Daniel's. The same phone travels between locations.",onCommit:val=>onUpdate(p.id,{identityNote:val})}),
+        React.createElement("div",{className:"sheet-2col"},
+          React.createElement("div",{className:"sheet-field"},
+            React.createElement("div",{className:"obj-lab"},"Custodian"),
+            React.createElement("select",{className:"prop-select",value:p.custodianId||p.ownerId||"",
+              onChange:e=>{const ch=(characters||[]).find(c=>c.id===e.target.value);onUpdate(p.id,{custodianId:e.target.value,custodianName:ch?ch.name:""});}},
+              React.createElement("option",{value:""},"Unassigned"),
+              (characters||[]).map(c=>React.createElement("option",{key:c.id,value:c.id},c.name)))),
+          React.createElement("div",{className:"sheet-field"},
+            React.createElement("div",{className:"obj-lab"},"Design association"),
+            React.createElement("select",{className:"prop-select",value:(p.associationType||"")+":"+(p.associationId||p.ownerId||p.locationId||""),
+              onChange:e=>{const parts=e.target.value.split(":");const type=parts[0],id=parts[1]||"";const item=type==="character"?(characters||[]).find(x=>x.id===id):continuityLocations.find(x=>x.id===id);onUpdate(p.id,{associationType:type,associationId:id,associationName:item?item.name:""});}},
+              React.createElement("option",{value:":"},"Project world"),
+              React.createElement("optgroup",{label:"Characters"},(characters||[]).map(c=>React.createElement("option",{key:"c"+c.id,value:"character:"+c.id},c.name))),
+              React.createElement("optgroup",{label:"Locations"},continuityLocations.map(l=>React.createElement("option",{key:"l"+l.id,value:"location:"+l.id},l.name)))))),
+        React.createElement(SheetField,{label:"Owner / origin — canonical provenance",value:p.provenance||(typeof p.origin==="string"?p.origin:"")||p.ownerName||"",
+          placeholder:"Originally Yusuf's · stolen police issue · found in the Minicab…",onCommit:val=>onUpdate(p.id,{provenance:val})}),
+        // real-world measurement \u2014 the scale system sizes the object against the cast
+        // in every shot from this ('Draft specification' drafts it; edit to correct)
+        React.createElement("label",{className:"sheet-field"},React.createElement("span",{className:"obj-lab"},"Dimension source"),React.createElement("select",{className:"prop-select",value:p.sizeBasis||"estimated",onChange:e=>onUpdate(p.id,{sizeBasis:e.target.value})},
+          React.createElement("option",{value:"estimated"},"Design estimate — verify for 3D"),React.createElement("option",{value:"screenplay"},"Explicit screenplay dimensions"),React.createElement("option",{value:"measured"},"Measured / verified by user"))),
+        React.createElement("details",{className:"prop-content-fields"},React.createElement("summary",null,"Document, label or screen content"),
+          React.createElement(SheetField,{label:"Established wording / visible content",value:p.contentNotes,multiline:true,placeholder:"Exact letter wording, call-log entries or label text. Leave unknown content unspecified.",onCommit:val=>onUpdate(p.id,{contentNotes:val})}),
+          React.createElement(SheetField,{label:"Base content version",value:p.contentVersion,placeholder:"Original / clean copy / sealed",onCommit:val=>onUpdate(p.id,{contentVersion:val})}),
+          React.createElement("p",{className:"sheet-props-note"},"Later edits belong in Continuity → Updated events. Check important wording in the generated image; a prompt cannot guarantee legibility.")))),
 
       React.createElement(CardFold,{label:"Narrative significance",defaultOpen:false},
         React.createElement(SheetField,{label:"What it means in the story",value:p.detail,multiline:true,
@@ -1436,7 +1486,8 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
           ? React.createElement("div",{className:"state-list prop-event-list"},continuityEvents.map(renderContinuityEvent))
           : React.createElement("div",{className:"state-empty"},"No changes recorded. The default binding persists wherever the screenplay maps this prop.")),
 
-      React.createElement(CardFold,{label:"Generation prompt",defaultOpen:false},
+      // the prompt is a power-user tool: behind the card's ⋯ menu (2026-10-03)
+      showPrompt && React.createElement(CardFold,{label:"Generation prompt",defaultOpen:true},
         React.createElement(SheetField,{label:"Render style \u2014 edit freely",value:p.renderStyle||d.renderStyle,multiline:true,
           placeholder:"photoreal product reference, 85mm, soft studio lighting\u2026",onCommit:val=>onUpdate(p.id,{renderStyle:val})}),
         p.contentNotes&&/\b(text|typography|label|branding)\b/i.test(p.negativePrompt||"")&&React.createElement("p",{className:"prop-review-warning"},"Your saved exclusions mention text or labels. Review them so they do not suppress required wording on this object."),
@@ -1489,7 +1540,9 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
   if(window.useRenderStyleVersion) window.useRenderStyleVersion();   // re-render dropdowns when a style is locked/unlocked
   const [sceneFilter, setSceneFilter] = React.useState("");   // "" = all
   const [query, setQuery] = React.useState("");               // free-text name/owner search
-  const [inventoryGroup,setInventoryGroup]=React.useState("story");
+  const [inventoryGroup,setInventoryGroupRaw]=React.useState("story");
+  const groupPicked = React.useRef(false);   // the user (or a batch) chose a view — never switch it for them
+  const setInventoryGroup = (g)=>{ groupPicked.current = true; setInventoryGroupRaw(g); };
   const [extraction,setExtraction]=React.useState(null), [review,setReview]=React.useState(null), [extractionError,setExtractionError]=React.useState("");
   const extractionRun=React.useRef(0);
   const scopeKey=JSON.stringify([project&&project.id,project&&project.title,(scenes||[]).map(s=>s.id)]);
@@ -1608,6 +1661,12 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
   const inView = (p)=> inventoryGroup==="all" || (inventoryGroup==="unverified"
     ? window.PropScreenplay.notInScreenplay(p) : window.PropScreenplay.group(p)===inventoryGroup);
   const shown = kindCountBase.filter(inView);
+  // NEVER AN EMPTY FIRST VIEW (2026-10-03): with no story props but other objects (all wardrobe,
+  // say), open on All objects instead of "No objects in this view"
+  const storyN = list.filter(p=>window.PropScreenplay.group(p)==="story").length;
+  React.useEffect(()=>{
+    if(!groupPicked.current && inventoryGroup==="story" && list.length>0 && storyN===0) setInventoryGroupRaw("all");
+  },[list.length, storyN, inventoryGroup]);
   // 9-up pagination; suspended while a batch runs so the queue can reach every card
   const pager = usePager(shown.length, !!batchActiveId);
   // duplicate detection: map each prop id -> the set of ids it duplicates (same owner + object)
@@ -1675,49 +1734,91 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
   // TEXT-ONLY objects (PropScreenplay.sheetTier) ride as text in shots, so batches skip
   // them too; generating one on its own card is still allowed.
   const ownImage = (p)=> window.PropScreenplay.sheetTier(p, drafts).tier!=="text";
-  const draftedIds = (subset)=> subset.filter(p=>propVisualsDrafted(p) && p.kind!=="worn" && ownImage(p) && !window.PropScreenplay.nameIssue(p.name)).map(p=>p.id);
+  // BATCHES (2026-10-03, owner — Props review): only drafted objects that need their own image,
+  // and — once the screenplay has been extracted — never one it didn't establish ("Not in
+  // screenplay", proposed from a character brief); those can still be made on their own card.
+  // Before any extraction every card is "not in screenplay", so the flag says nothing yet.
+  const extracted = list.some(p=> (p.screenplaySources||[]).length);
+  const unverifiedSkip = (p)=> extracted && window.PropScreenplay.notInScreenplay(p);
+  const draftedIds = (subset)=> subset.filter(p=>propVisualsDrafted(p) && p.kind!=="worn" && ownImage(p)
+    && !window.PropScreenplay.nameIssue(p.name) && !unverifiedSkip(p)).map(p=>p.id);
   // batch never makes a WORLD-GENERIC carried prop: an owned object needs its owner's
   // sheet as the style anchor, so ownerless carried props are skipped (assign first)
   const anchorReady = (p)=> !!(p && !((p.kind||"carried")==="carried" && !p.ownerId));
-  const startSceneBatch = ()=>{
+  // the header counts follow each finished generation
+  const [, setSheetTick] = React.useState(0);
+  React.useEffect(()=>{
+    const h = ()=> setSheetTick(t=>t+1);
+    window.addEventListener("nb-gen-done", h);
+    return ()=> window.removeEventListener("nb-gen-done", h);
+  },[]);
+  const hasImg = (id)=> (typeof nbGetImage==="function") ? !!nbGetImage(id) : false;
+  const readyIds = (subset)=> draftedIds(subset).filter(id=> anchorReady(byId[id]));
+  const missingIds = (subset)=> readyIds(subset).filter(id=> !hasImg(id));
+  const sceneAll = sceneFilter ? list.filter(p=>inScene(p, sceneFilter)) : [];
+  const missingAll = missingIds(list), missingScene = missingIds(sceneAll);
+  // owners of these props with no character sheet yet — asked ONCE before a batch
+  const [batchOwnerChoice, setBatchOwnerChoice] = React.useState("skip");
+  const ownersWithoutSheet = (ids)=> Array.from(new Set(ids.map(id=>byId[id]).filter(p=>p && p.ownerId && !hasImg(p.ownerId)).map(p=>p.ownerId)));
+  const askOwners = async (ids)=>{
+    const owners = ownersWithoutSheet(ids);
+    if(!owners.length || typeof window.appConfirm!=="function") return "skip";
+    const names = owners.map(id=>((characters||[]).find(c=>c.id===id)||{}).name||"A character");
+    const price = (typeof window.nbImageCostText==="function") ? window.nbImageCostText(owners.length) : "";
+    const res = await window.appConfirm({
+      title:owners.length+" owner"+(owners.length!==1?"s have":" has")+" no character sheet yet",
+      body:"Props match their owner best when they're made with the owner's sheet as a reference. Make "+(owners.length!==1?"these sheets":"this sheet")+" first"
+        +(price?" (about "+price+" credit"+(price==="1"?"":"s")+" more":"")+(price?", plus":" (plus")+" drafting any look that isn't written yet), or make the props on their own.",
+      items:names, confirmLabel:"Make "+owners.length+" owner sheet"+(owners.length!==1?"s":"")+" first", altLabel:"Props only", cancelLabel:"Cancel" });
+    return res===true ? "owner" : res==="alt" ? "skip" : null;
+  };
+  const startSceneBatch = async (onlyMissing)=>{
     if(!sceneFilter || batchActiveId) return;
     if(query) setQuery("");             // ...and every prop in it, not just search matches
     setInventoryGroup("all");
-    const inSceneAll = list.filter(p=>inScene(p, sceneFilter));   // scene only — search cleared above
-    const draftedScene = draftedIds(inSceneAll);
-    const eligible = draftedScene.filter(id=> anchorReady(byId[id]));
+    const draftedScene = draftedIds(sceneAll);
+    const eligible = onlyMissing ? missingScene : readyIds(sceneAll);
     if(!eligible.length){
-      const nonWorn = inSceneAll.filter(p=>p.kind!=="worn");
-      batch.setMsg(draftedScene.length
+      const nonWorn = sceneAll.filter(p=>p.kind!=="worn");
+      batch.setMsg(onlyMissing && readyIds(sceneAll).length
+        ? "Every prop in this scene that needs its own image already has one."
+        : draftedScene.length
         ? "The drafted carried props in this scene have no owner \u2014 assign one on each card first (batch generation won't make world-generic sheets)."
         : (!nonWorn.length
           ? "Every prop mapped to this scene is WORN \u2014 worn items render on their owner\u2019s character sheet (Characters tab), not here. Nothing separate to generate."
           : (!nonWorn.some(ownImage)
             ? "Every other prop in this scene is TEXT ONLY \u2014 shots describe them from their specifications. Change Object \u2192 Reference image on a card to give it its own image."
-            : "Draft these props first (\u201cDraft specification\u201d on each card) \u2014 nothing in this scene is ready to generate yet.")));
+            : "Draft these props first (\u201cDraft specification\u201d on each card) \u2014 objects marked Not in screenplay are made from their own card.")));
       return;
     }
-    batch.begin(eligible, inSceneAll.length - eligible.length);
+    const plan = await askOwners(eligible); if(!plan) return;
+    setBatchOwnerChoice(plan);
+    batch.begin(eligible, onlyMissing ? 0 : sceneAll.length - eligible.length);
   };
-  const startAllBatch = ()=>{
+  const startAllBatch = async (onlyMissing)=>{
     if(batchActiveId) return;
     const draftedAll = draftedIds(list);
-    const eligible = draftedAll.filter(id=> anchorReady(byId[id]));
+    const eligible = onlyMissing ? missingAll : readyIds(list);
     if(!eligible.length){
-      batch.setMsg(draftedAll.length
+      batch.setMsg(onlyMissing && readyIds(list).length
+        ? "Every prop that needs its own image already has one."
+        : draftedAll.length
         ? "Every drafted carried prop has no owner \u2014 assign one on each card first (batch generation won't make world-generic sheets)."
         : "Draft the prop specifications first \u2014 nothing is ready to generate yet.");
       return;
     }
+    const plan = await askOwners(eligible); if(!plan) return;
+    setBatchOwnerChoice(plan);
     // Clear filters before the batch: the queue advances only
     // when the target CARD is mounted, so a batch whose first target was filtered out
     // by a search box never generated anything and hung until Cancel
     if(sceneFilter) setSceneFilter("");
     if(query) setQuery("");
     setInventoryGroup("all");
-    batch.begin(eligible, list.length - eligible.length);
+    batch.begin(eligible, onlyMissing ? 0 : list.length - eligible.length);
   };
-  const eligibleAll = list.filter(p=>propVisualsDrafted(p) && p.kind!=="worn" && ownImage(p)).length;
+  const eligibleAll = readyIds(list).length;
+  const undraftedN = list.filter(p=>!propVisualsDrafted(p) && !window.PropScreenplay.nameIssue(p.name)).length;
   const sceneNoOf = (sid)=>{ const s=(scenes||[]).find(x=>x.id===sid); return s?s.no:sid; };
 
   return React.createElement("div",{className:"art-scroll"},
@@ -1737,12 +1838,20 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
           window.RecentlyDeleted && React.createElement(window.RecentlyDeleted,{items:trashItems,kind:"prop",onRestore,onPurge,compact:true}),
           React.createElement("button",{className:"art-draftall ghost",disabled:!!extraction||draftingAll||!scenes.length,onClick:extractProps,
             title:"Read every scene with the writing model and propose the story's objects for your review (writing credits, no images)"},React.createElement(Icon.layers,{s:14}),extraction?"Reading screenplay…":"Extract screenplay props"),
-          React.createElement("button",{className:"art-draftall ghost",disabled:draftingAll||(!list.length&&!castHasProps),onClick:onDraftAll,
-            title:"Draft every prop specification and map each prop to its scene appearances"},
-            React.createElement(Icon.sparkles,{s:14}), draftingAll?"Drafting\u2026":"Draft all specifications"),
-          React.createElement("button",{className:"art-draftall",disabled:!!batchActiveId||!eligibleAll,onClick:startAllBatch,
-            title:"Generate (or regenerate) the reference sheet for every drafted prop \u2014 you choose whether to redo ones that already have a sheet"},
-            React.createElement(Icon.sparkles,{s:14}), batchActiveId?"Generating\u2026":"Generate all images", typeof window.nbCostChip==="function" && window.nbCostChip(1))))),
+          (undraftedN>0 || (!list.length && castHasProps)) && React.createElement("button",{className:"art-draftall ghost",disabled:draftingAll,onClick:()=>onDraftAll(),
+            title:"Draft the specification of every prop that doesn't have one yet (finished and edited cards are left alone) and map each prop to its scene appearances \u2014 writing credits, no images"},
+            React.createElement(Icon.sparkles,{s:14}), draftingAll?"Drafting\u2026":(list.length ? "Draft "+undraftedN+" specification"+(undraftedN!==1?"s":"") : "Draft all specifications")),
+          (list.length>0 && !undraftedN) && React.createElement("button",{className:"art-draftall ghost",disabled:draftingAll,onClick:()=>onDraftAll("redraft"),
+            title:"Write every prop's design again from the script \u2014 asks first; replaces the current specs, including your edits"},
+            React.createElement(Icon.sparkles,{s:14}), draftingAll?"Drafting\u2026":"Redraft all\u2026"),
+          missingAll.length>0 && React.createElement("button",{className:"art-draftall",disabled:!!batchActiveId,onClick:()=>startAllBatch(true),
+            title:"Generate the image of every drafted prop that needs one and doesn't have it yet \u2014 existing images are left as they are; objects marked Not in screenplay are made from their own card"},
+            React.createElement(Icon.sparkles,{s:14}),
+            batchActiveId?"Generating\u2026":("Generate "+missingAll.length+" missing image"+(missingAll.length!==1?"s":"")),
+            typeof window.nbCostChip==="function" && window.nbCostChip(missingAll.length)),
+          (!missingAll.length && eligibleAll>0) && React.createElement("button",{className:"art-draftall ghost",disabled:!!batchActiveId,onClick:()=>startAllBatch(false),
+            title:"Regenerate the images of the drafted props \u2014 you'll be asked before anything is redone, with the price"},
+            React.createElement(Icon.sparkles,{s:14}), batchActiveId?"Generating\u2026":"Regenerate images\u2026")))),
     extraction&&React.createElement("div",{className:"prop-review-actions",role:"status"},
       React.createElement("span",null,"Reading screenplay "+extraction.done+" / "+extraction.total+(extraction.sceneNo?" · Scene "+extraction.sceneNo:"")),
       React.createElement("button",{className:"char-draft-btn ghost",onClick:()=>{extractionRun.current++;setExtraction(null);}},"Cancel")),
@@ -1791,15 +1900,21 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
           return React.createElement("option",{key:s.id,value:s.id},
             "Scene "+String(s.no).padStart(2,"0")+" \u00b7 "+(s.title||"")+"  ("+n+" prop"+(n!==1?"s":"")+")");
         })),
-      sceneFilter && React.createElement("button",{className:"art-draftall",disabled:!!batchActiveId,onClick:startSceneBatch,
-        title:"Generate images for the drafted props in this scene \u2014 you choose whether to redo existing images"},
+      // ONE SCENE (2026-10-03, owner): make just this scene's props, priced
+      (sceneFilter && missingScene.length>0) && React.createElement("button",{className:"art-draftall",disabled:!!batchActiveId,onClick:()=>startSceneBatch(true),
+        title:"Generate the images this scene's drafted props still need \u2014 if an owner has no character sheet yet you'll be asked first, with the price"},
         React.createElement(Icon.sparkles,{s:14}),
-        batchActiveId?"Generating\u2026":("Generate images in Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")), typeof window.nbCostChip==="function" && window.nbCostChip(1)))),
+        batchActiveId?"Generating\u2026":("Generate "+missingScene.length+" missing in Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")),
+        typeof window.nbCostChip==="function" && window.nbCostChip(missingScene.length)),
+      (sceneFilter && !missingScene.length && readyIds(sceneAll).length>0) && React.createElement("button",{className:"art-draftall ghost",disabled:!!batchActiveId,onClick:()=>startSceneBatch(false),
+        title:"Regenerate this scene's prop images \u2014 you'll be asked before anything is redone, with the price"},
+        React.createElement(Icon.sparkles,{s:14}),
+        batchActiveId?"Generating\u2026":("Regenerate Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")+"\u2026")))),
     list.length
       ? (shown.length
           ? React.createElement(React.Fragment,null,
               React.createElement("div",{className:"sheet-grid"},
-                pager.slice(shown).map(p=>React.createElement(PropSheet,{key:p.id,p,project,characters,scenes,drafts,onUpdate,onDelete,onDraft,onEnsureOwner,
+                pager.slice(shown).map(p=>React.createElement(PropSheet,{key:p.id,p,project,characters,scenes,drafts,onUpdate,onDelete,onDraft,onEnsureOwner,batchOwnerChoice,
                   drafting:draftingId===p.id||(draftingIds||[]).indexOf(p.id)>=0||draftingAll,onView:(url,pr)=>setView({url,character:pr}),
                    batchActiveId,onBatchDone:batch.advance,onChipClick:(sid)=>setSceneFilter(sid),onSourceClick,
                   derivedScenes:effMap[p.id],
@@ -1826,18 +1941,19 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
             ? "Your cast already lists worn & carried items on their character sheets \u2014 \u201cDraft all specifications\u201d pulls them in as department proposals, drafts each spec, and maps their scenes in one pass. Or add one by hand."
             : "Add a prop to start building its reference sheet \u2014 a weapon, a phone, a talisman, anything that recurs across scenes."),
           React.createElement("div",{className:"prop-empty-actions"},
-            castHasProps && React.createElement("button",{className:"art-draftall",disabled:draftingAll,onClick:onDraftAll},
+            castHasProps && React.createElement("button",{className:"art-draftall",disabled:draftingAll,onClick:()=>onDraftAll()},
               React.createElement(Icon.sparkles,{s:14}), draftingAll?"Drafting\u2026":"Draft all specifications"),
             React.createElement("button",{className:castHasProps?"art-draftall ghost":"art-draftall",onClick:onAdd},
               React.createElement(Icon.plus,{s:14}),castHasProps?"Add by hand":"Add your first prop"),
             // TAB LOCKS (docs/Story Pipeline.md step 9): a story with no props says so explicitly —
             // the mark unlocks Locations (app/art-tab-locks.js). Only an Art Room-writing role gets
             // the button (App passes onSetNoProps=null to everyone else).
-            (onSetNoProps && !noPropsConfirmed) && React.createElement("button",{type:"button",className:"art-draftall ghost",
+            // with the tab locks off (2026-10-03) the mark unlocks nothing, so it only shows when they're on
+            (onSetNoProps && !noPropsConfirmed && window.TURN_ART_TAB_LOCKS===true) && React.createElement("button",{type:"button",className:"art-draftall ghost",
                 onClick:()=>onSetNoProps(true),
                 title:"Confirm this story has no props \u2014 the "+noPropsNames.locations+" tab unlocks without a prop step. You can undo it."},
               React.createElement(Icon.check,{s:14}),"No props in this story")),
-          noPropsConfirmed && React.createElement("div",{className:"prop-noprops",role:"status"},
+          (noPropsConfirmed && window.TURN_ART_TAB_LOCKS===true) && React.createElement("div",{className:"prop-noprops",role:"status"},
             React.createElement(Icon.check,{s:14}),
             React.createElement("span",null,"Marked \u201cNo props in this story\u201d \u2014 "+noPropsNames.locations+" is unlocked."),
             onSetNoProps && React.createElement("button",{type:"button",className:"prop-noprops-undo",onClick:()=>onSetNoProps(false),
