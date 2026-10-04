@@ -1631,15 +1631,18 @@ async function agentColorist(ctx){
     ctx.emit({k:"flag", t:"The model didn't return a usable palette. Try again."});
     ctx.emit({k:"done", t:"Aborted."}); return;
   }
-  const nP = res.presets.length, nS = Object.keys(res.sceneStyles||{}).length;
+  // scenes the user set by hand keep their look (unless this run redoes them) — say so, and show it
+  const keptManual = (typeof art.manualScenes==="function") ? (art.manualScenes()||[]) : [];
+  const nP = res.presets.length, nS = Object.keys(res.sceneStyles||{}).filter(sid=>keptManual.indexOf(sid)<0).length;
   const stock = (window.FILM_STOCKS||[]).find(f=>f.id===res.filmStock);
   ctx.emit({k:"observe", t:nP+" bespoke look"+(nP!==1?"s":"")+(stock&&stock.id!=="none"?(" · "+stock.name):"")+" · "+nS+" scene"+(nS!==1?"s":"")+" color-scripted"+((res.rationale&&res.rationale.palette)?(" — "+res.rationale.palette):"")});
 
   const ok = await ctx.propose({
     title:"Apply this colour system",
-    reason:"Replaces the current looks with a bespoke palette and color-scripts every scene.",
+    reason:"Replaces the current looks with a bespoke palette and color-scripts every scene"
+      +(keptManual.length ? (" \u2014 except the "+keptManual.length+" scene"+(keptManual.length!==1?"s":"")+" you set by hand, which keep their look.") : "."),
     rationale: (res.rationale && res.rationale.palette) || "",
-    colorProposal:{ presets:res.presets, sceneStyles:res.sceneStyles, filmStock:res.filmStock, rationale:res.rationale, scenes:art.scenesLite },
+    colorProposal:{ presets:res.presets, sceneStyles:res.sceneStyles, filmStock:res.filmStock, rationale:res.rationale, scenes:art.scenesLite, keptManual },
   });
   if(ctx.cancelled()) return;
   if(ok){

@@ -607,6 +607,7 @@ function App(){
   const [continuityMap, setContinuityMap] = React.useState(()=> (saved && saved.continuityMap) || {});
   const [agentsOpen, setAgentsOpen] = React.useState(false);
   const [coloristOpen, setColoristOpen] = React.useState(false);   // Cinematographer / Colorist (Art Room)
+  const coloristRedoManualRef = React.useRef(false);   // "Also redo the scenes I picked by hand" for this run
   const [shotDesignerOpen, setShotDesignerOpen] = React.useState(false);   // Shot Designer (Art Room)
   const [productionOpen, setProductionOpen] = React.useState(false);   // Production check (Art Room)
   const [castingOpen, setCastingOpen] = React.useState(false);   // Casting Director (Art Room)
@@ -727,7 +728,7 @@ function App(){
     if(dept==="characters"){ setCastingForce(f); setCastingOpen(true); }
     else if(dept==="props"){ setPropsMasterForce(f); setPropsMasterOpen(true); }
     else if(dept==="locations"){ setLocScoutForce(f); setLocScoutOpen(true); }
-    else if(dept==="colorist"){ setColoristOpen(true); }
+    else if(dept==="colorist"){ coloristRedoManualRef.current = false; setColoristOpen(true); }
   };
   const [researchOpen, setResearchOpen] = React.useState(false);   // Visual Researcher (Lookbook)
   const [coordOpen, setCoordOpen] = React.useState(false);   // Art Coordinator (meta-agent)
@@ -4673,10 +4674,18 @@ function App(){
   // along the value-charge spine (see aiAssignSceneStyles).
   // merge an aiAssignSceneStyles result into project.styleBible — the Colorist agent's
   // apply step (on approval).
+  // HAND-PICKED SCENES ARE KEPT (2026-10-03, owner — Color review): a scene whose look the user
+  // chose in the film-strip (styleBible.sceneStylesManual) keeps it — and its look stays in the
+  // set — unless the user ticked "Also redo the scenes I picked by hand" (coloristRedoManualRef).
+  // The Colorist's per-scene reasons are stored (styleBible.sceneWhy) so the strip can show them.
   const applyStyleResult = (res, seed)=>{
     if(!res) return;
+    const redoManual = !!coloristRedoManualRef.current;
     setProject(p=>{
       const sb = (p.styleBible)||{};
+      const before = (typeof styleBibleOf==="function") ? styleBibleOf(p) : { presets:sb.presets||[], sceneStyles:sb.sceneStyles||{} };
+      const manualMap = redoManual ? {} : (sb.sceneStylesManual||{});
+      const manualScenes = Object.keys(manualMap).filter(sid=> manualMap[sid] && (sb.sceneStyles||{})[sid]);
       // A bespoke per-film palette REPLACES the generic starter set (deduped by id)
       // so each film looks unique; fall back to the existing/seed presets if none.
       const bespoke = (res.presets&&res.presets.length) ? res.presets : null;
@@ -4692,9 +4701,22 @@ function App(){
         presets = (sb.presets&&sb.presets.length) ? sb.presets : (seed||sb.presets||[]);
         sceneStyles = {...(sb.sceneStyles||{}), ...(res.sceneStyles||{})};
       }
+      // keep each hand-picked scene's look, and that look itself if the new set dropped it
+      const keepIds = new Set(manualScenes.map(sid=>sb.sceneStyles[sid]));
+      const have = new Set(presets.map(x=>x.id));
+      (before.presets||[]).forEach(x=>{ if(keepIds.has(x.id) && !have.has(x.id)){ presets = [...presets, x]; have.add(x.id); } });
+      const sceneStylesManual = {};
+      manualScenes.forEach(sid=>{ sceneStyles[sid] = sb.sceneStyles[sid]; sceneStylesManual[sid] = true; });
+      const why = (res.rationale && res.rationale.scenes) || {};
+      const sceneWhy = {};
+      Object.entries(sceneStyles).forEach(([sid])=>{
+        if(manualScenes.indexOf(sid)>=0) return;   // a hand-picked scene has no Colorist reason
+        if(why[sid]) sceneWhy[sid] = String(why[sid]).slice(0,400);
+      });
       // the model also picks the film stock; preserve other styleBible fields (refs etc.).
       const filmStock = res.filmStock || sb.filmStock || "none";
-      return {...p, styleBible:{ ...sb, presets, sceneStyles, filmStock,
+      return {...p, styleBible:{ ...sb, presets, sceneStyles, filmStock, sceneStylesManual, sceneWhy,
+        paletteWhy: (res.rationale && res.rationale.palette) ? String(res.rationale.palette).slice(0,600) : (sb.paletteWhy||""),
         ...(res.writingProvenance?{writingProvenance:{...res.writingProvenance}}:{}) }};
     });
   };
@@ -4710,8 +4732,29 @@ function App(){
   const setScenePreset = (sceneId, presetId)=> setProject(p=>{
     const sb = (p.styleBible)||{};
     const sceneStyles = {...(sb.sceneStyles||{})};
-    if(presetId) sceneStyles[sceneId] = presetId; else delete sceneStyles[sceneId];
-    return {...p, styleBible:{ ...sb, sceneStyles }};
+    const sceneStylesManual = {...(sb.sceneStylesManual||{})};
+    const sceneWhy = {...(sb.sceneWhy||{})};
+    delete sceneWhy[sceneId];   // the Colorist's reason no longer applies
+    if(presetId){ sceneStyles[sceneId] = presetId; sceneStylesManual[sceneId] = true; }
+    else { delete sceneStyles[sceneId]; delete sceneStylesManual[sceneId]; }
+    return {...p, styleBible:{ ...sb, sceneStyles, sceneStylesManual, sceneWhy }};
+  });
+  // the film stock (FILM_STOCKS id; "none" = clean digital) — added to every shot prompt
+  const setFilmStock = (id)=> setProject(p=>({ ...p, styleBible:{ ...((p.styleBible)||{}), filmStock:String(id||"none") } }));
+  // EDITABLE LOOKS: the shown set (the starter examples until the film is lit) becomes the film's own
+  // on the first edit; deleting a look unassigns the scenes that used it
+  const updateStylePreset = (id, patch)=> setProject(p=>{
+    const sb = (p.styleBible)||{};
+    const cur = (typeof styleBibleOf==="function") ? styleBibleOf(p).presets : (sb.presets||[]);
+    return { ...p, styleBible:{ ...sb, presets:cur.map(x=> x.id===id ? { ...x, ...patch } : x) } };
+  });
+  const deleteStylePreset = (id)=> setProject(p=>{
+    const sb = (p.styleBible)||{};
+    const cur = (typeof styleBibleOf==="function") ? styleBibleOf(p).presets : (sb.presets||[]);
+    const sceneStyles = {}, sceneStylesManual = {...(sb.sceneStylesManual||{})}, sceneWhy = {...(sb.sceneWhy||{})};
+    Object.entries(sb.sceneStyles||{}).forEach(([sid,pid])=>{
+      if(pid===id){ delete sceneStylesManual[sid]; delete sceneWhy[sid]; } else sceneStyles[sid]=pid; });
+    return { ...p, styleBible:{ ...sb, presets:cur.filter(x=>x.id!==id), sceneStyles, sceneStylesManual, sceneWhy } };
   });
 
   // ---- Art Room: SHOT LIST ----
@@ -6766,6 +6809,9 @@ function App(){
           const refs=colorRefsFor(sb, lookbook, lookbookNote).refs;
           return window.aiAssignSceneStyles(scenes, seed, drafts, { ...project, styleBible:{ ...((project&&project.styleBible)||{}), refs } }); },
         applyStyles: (res)=> _w.applyStyleResult(res),
+        // scene ids the user picked by hand — kept by applyStyles unless the run redoes them
+        manualScenes: ()=>{ const sb=(project&&project.styleBible)||{}; if(coloristRedoManualRef.current) return [];
+          const m=sb.sceneStylesManual||{}; return Object.keys(m).filter(sid=>m[sid] && (sb.sceneStyles||{})[sid]); },
       } };
   };
   // LATEST-RENDER handle for long-lived async work (the wardrobe bootstrap): an event
@@ -7421,7 +7467,8 @@ function App(){
             noPropsConfirmed:!!(project && project.noPropsConfirmed),onSetNoProps:roomReadOnly?null:setNoPropsConfirmed,
             onRestoreChar:restoreCharacter,onPurgeChar:purgeCharacter,onRestoreProp:restoreProp,onPurgeProp:purgeProp,
             onRestoreLoc:restoreLocation,onPurgeLoc:purgeLocation,onRestoreShot:restoreShot,onPurgeShot:purgeShot,onEnsureOwner:ensureOwnerSheet,
-            onColorist:(refs)=>{ if(typeof refs==="string") setStyleRefs(refs.trim()); setColoristOpen(true); },
+            onColorist:(refs, opts)=>{ if(typeof refs==="string") setStyleRefs(refs.trim());
+              coloristRedoManualRef.current = !!(opts && opts.redoManual); setColoristOpen(true); },
             // "Design the cast" opens its preview first (what it makes + the price, 2026-10-03)
             onCast:(opts)=>{ if(!turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Design the cast")) setCastConfirm(opts||{}); },
             onResearch:()=>setResearchOpen(true),
@@ -7442,7 +7489,8 @@ function App(){
             onDeleteLocation:deleteLocation,draftingLocIds,draftingAllLocs,
             scriptHasLocs:(typeof scriptHasLocations==="function" && scriptHasLocations(scenes)),
             sluglineUnits,onUpdateUnit:updateSlugUnitOverlay,onRemoveUnit:removeSlugUnitOverlay,
-            onSetStyleRefs:setStyleRefs,onSetScenePreset:setScenePreset,
+            onSetStyleRefs:setStyleRefs,onSetScenePreset:setScenePreset,onSetFilmStock:setFilmStock,
+            onUpdatePreset:updateStylePreset,onDeletePreset:deleteStylePreset,
             onAddStyleRefImages:addStyleRefImages,onRemoveStyleRefImage:removeStyleRefImage,
             onDraftStaging:draftLocationStaging,draftingStageId,
             shots,beatsMap,onUpdateShot:updateShot,onAddShot:addShot,onDeleteShot:deleteShot,onSplitBeat:splitBeatCoverage,splittingBeat,
@@ -7583,8 +7631,9 @@ function App(){
     coloristOpen && React.createElement(AgentsPanel,{
       initialAgentId:"colorist", single:true, viewLabel:"View Styles",
       ctxFactory:artAgentCtxFactory,
-      onClose:()=>setColoristOpen(false),
-      onView:()=>{ setArtView("stylebible"); setColoristOpen(false); },
+      // the "redo hand-picked scenes" choice belongs to this one run (Run pre-production keeps them)
+      onClose:()=>{ coloristRedoManualRef.current = false; setColoristOpen(false); },
+      onView:()=>{ coloristRedoManualRef.current = false; setArtView("stylebible"); setColoristOpen(false); },
       issues:{}, ...artUndoProps,
       aiOn: (typeof aiAvailable==="function" && aiAvailable()),
       introExtra: (()=>{ const sb=(typeof styleBibleOf==="function")?styleBibleOf(project):{};

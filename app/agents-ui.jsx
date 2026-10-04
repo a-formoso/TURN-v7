@@ -95,14 +95,17 @@ function ColoristProposal({ proposal }){
         React.createElement("div",{className:"ag-color-bar"},
           (pr.palette||[]).slice(0,3).map((c,i)=>React.createElement("span",{key:i,style:{flex:[60,30,10][i]||10,background:c},title:c}))),
         pr.grade && React.createElement("div",{className:"ag-color-grade"}, pr.grade)))),
+    (p.keptManual||[]).length>0 && React.createElement("div",{className:"ag-color-stock"},
+      React.createElement("b",null,"Kept \u2014 "), (p.keptManual.length)+" scene"+(p.keptManual.length!==1?"s":"")+" you set by hand (\u270b) keep their look."),
     stock && stock.id!=="none" && React.createElement("div",{className:"ag-color-stock"},
       React.createElement("b",null,"Film stock — "), stock.name),
     scenes.length>0 && React.createElement("div",{className:"ag-color-strip"},
-      scenes.map(s=>{ const pr=byId[ss[s.id]];
-        return React.createElement("span",{key:s.id,className:"ag-color-cell"+(pr?"":" none"),style:pr?{background:grad(pr)}:undefined,
-          title:"Sc "+pad(s.no)+" · "+(s.title||"")+(pr?(" — "+pr.name):" — unassigned")+(why[s.id]?("\n"+why[s.id]):"")}, pad(s.no)); })),
+      scenes.map(s=>{ const pr=byId[ss[s.id]]; const kept=(p.keptManual||[]).indexOf(s.id)>=0;
+        // a scene set by hand keeps its look (2026-10-03) — shown as kept, not as the proposal's pick
+        return React.createElement("span",{key:s.id,className:"ag-color-cell"+(pr&&!kept?"":" none")+(kept?" kept":""),style:pr&&!kept?{background:grad(pr)}:undefined,
+          title:"Sc "+pad(s.no)+" · "+(s.title||"")+(kept?" — keeps the look you set by hand":(pr?(" — "+pr.name):" — unassigned"))+(!kept&&why[s.id]?("\n"+why[s.id]):"")}, kept?"\u270b":pad(s.no)); })),
     Object.keys(why).length>0 && React.createElement("div",{className:"ag-color-whys"},
-      scenes.filter(s=>why[s.id]).map(s=>{ const pr=byId[ss[s.id]];
+      scenes.filter(s=>why[s.id] && (p.keptManual||[]).indexOf(s.id)<0).map(s=>{ const pr=byId[ss[s.id]];
         return React.createElement("div",{key:s.id,className:"ag-color-why"},
           React.createElement("span",{className:"ag-color-why-sw",style:{background:grad(pr)}}),
           React.createElement("span",{className:"ag-color-why-no"}, pad(s.no)),

@@ -77,6 +77,11 @@ function styleBibleOf(project){
     refImages: sb.refImages || [],
     // project-wide film-stock / capture look (id into FILM_STOCKS); "none" = clean digital.
     filmStock: sb.filmStock || "none",
+    // scenes whose look the user chose in the film-strip — Light the film keeps them (2026-10-03)
+    sceneStylesManual: sb.sceneStylesManual || {},
+    // the Colorist's reason for each scene's look, and for the palette as a whole
+    sceneWhy: sb.sceneWhy || {},
+    paletteWhy: sb.paletteWhy || "",
   };
 }
 window.styleBibleOf = styleBibleOf;
