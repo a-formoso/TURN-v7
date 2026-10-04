@@ -3475,7 +3475,7 @@ function sheetReviewKey(spec, references, reasons){
   return (hash>>>0).toString(16);
 }
 window.sheetReviewKey=sheetReviewKey;
-function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, drafting, onDraft, entity, onView, slotPlaceholder, noun, onDelete, deleteLabel, specGate, extraMeta, menuExtra, dropToImport, hideUploadButton, onStop, generateDisabled, generateDisabledLabel, generateDisabledTitle, onResolveGenerationBlock, referenceControls, editPropRefs, editSuggestions }){
+function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, drafting, onDraft, entity, onView, slotPlaceholder, noun, onDelete, deleteLabel, specGate, extraMeta, menuExtra, dropToImport, hideUploadButton, onStop, generateDisabled, generateDisabledLabel, generateDisabledTitle, generateTitle, onResolveGenerationBlock, referenceControls, editPropRefs, editSuggestions }){
   const { genUrl, genMeta, genTier, gening, genErr, retrying, slotHasRef,
     editMode, setEditMode, editText, setEditText, generate, cancelGen, clearGen, importSheet, relatedClearCount, revertPrevious, layers, allModels } = gen;
   // Resolution ALWAYS shows on the caption. Prefer the stored size; if it's missing
@@ -3806,7 +3806,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
         ? (generateDisabledTitle||"Wait for the current generation to finish first.")
         : (!drafted && !genUrl && !slotHasRef)
         ? "Fills the text spec from the script first, then generates the sheet in one step"
-        : (genUrl ? "Generate a fresh sheet from the current spec" : "Generate the sheet from the current spec")},
+        : (generateTitle || (genUrl ? "Generate a fresh sheet from the current spec" : "Generate the sheet from the current spec"))},
       generateDisabled && !gening
         ? React.createElement(React.Fragment,null,React.createElement(onResolveGenerationBlock?Icon.chevR:Icon.clock,{s:14}),
             generateDisabledLabel||"Wait for current generation")

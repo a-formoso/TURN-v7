@@ -2552,6 +2552,63 @@ async function generateLocationVariant(l, v, project){
 }
 window.generateLocationVariant = generateLocationVariant;
 
+/* A ROOM / TIME PLATE (Slugline Unit) made without its card being on screen — for "Generate N
+   missing in Scene NN" (2026-10-03, owner — Locations review). The same references and prompt as
+   the card's own Generate: the owning location's plate (required), its parent's plate when it is a
+   room, the scene's screenplay pages, and the reviewed spatial references. */
+async function generateSluglineUnitPlate(l, u, project){
+  const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;
+  if(typeof nbGenerate!=="function" || typeof nbCommit!=="function" || typeof sluglineUnitImageId!=="function") return false;
+  if(!l || !u || !u.key || u.orphan) return false;
+  const id = sluglineUnitImageId(u.key);
+  const runSnapshot = _nbLocRunSnapshot(l);
+  const C = window.turnContinuity || {};
+  let prompt = (typeof buildSluglineUnitPrompt==="function") ? buildSluglineUnitPrompt(l, u, project) : (u.name||l.name||"location");
+  const gopts = {};
+  if(runSnapshot.model) gopts.model = runSnapshot.model;
+  if(runSnapshot.quality!=null) gopts.quality = runSnapshot.quality;
+  const grab = async (rid)=>{ let x=(typeof nbGetImage==="function")?nbGetImage(rid):"";
+    if(!x && typeof nbLoadImage==="function"){ try{ x=await nbLoadImage(rid); }catch(e){} } return x||""; };
+  const _runToken = _nbLocRunStart(id);
+  if(!_runToken) return false;
+  try{
+    requireLocationSpatialPlan(l);
+    const own = await grab(l.id);
+    if(!own) throw new Error("Generate "+(l.name||"the location")+"'s plate first — this room needs it as a reference.");
+    const role = String(u.intExt||"INT").toUpperCase();
+    const pseudo = { id, name:u.name, role, sceneNos:(u.sceneNos||[]).filter(n=>n!=null),
+      scriptExcerpt:String(u.scriptText||"").slice(0,720), summary:"Slugline Unit: "+(u.sluglines||[]).join(" · ") };
+    const scriptImgs = (typeof locationScreenplayReferenceImages==="function")
+      ? locationScreenplayReferenceImages(l, pseudo, C.scenes||[], C.drafts||{}) : [];
+    const base = scriptImgs.map((url,i)=>({ url, kind:"script", refId:"script-"+id+"-"+i,
+      note:"screenplay page "+(i+1)+" for "+(u.name||"this Slugline Unit")+" — use it to infer what the script implies, but do not render any text from it" }));
+    base.push({ url:own, kind:"location", refId:l.id,
+      note:(l.name||"parent location")+" child/master plate — preserve this exact subspace geometry, materials and scale" });
+    if(l.parentLocation){ const root = locationParentReference(l, await grab(l.parentLocation.id)); if(root && root.url) base.push(root); }
+    if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
+    const refs = mergeLocationReferences(base, await locationSpatialReferences(l));
+    const lineage = locationAssetDependencySnapshot(l.id,[],"slugline-unit");
+    const referenceText = locationReferenceInstructions(refs)
+      +" The screenplay page snapshots are context only: never copy their typography, page border, text, captions or layout.";
+    prompt += referenceText;
+    gopts.extraImages = refs.map(r=>r.url);
+    if(runSnapshot.quality && typeof window.nbRequireImageQuality==="function"){
+      try{ await window.nbRequireImageQuality(runSnapshot.model, runSnapshot.quality); }
+      catch(e){ if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; } throw e; }
+    }
+    if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
+    const url = await nbGenerate(prompt, { ...gopts, assetId:id });
+    if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
+    const saved = await nbCommit(id, url, Object.assign(_nbLocMeta(prompt,{...l,appearanceState:u},runSnapshot),lineage), refs, "location", _ep,
+      ()=>_nbLocStale(id,_runToken,_ep));
+    if(_nbLocStale(id,_runToken,_ep) || (saved&&/^(cancelled|stale)$/.test(saved.tier||""))){ _nbLocCancelEvent(id,_runToken); return false; }
+    if(!saved || saved.tier==="error") return false;
+    try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id, url } })); }catch(e){}
+    return true;
+  } finally { _nbLocCleanup(id,_runToken); }
+}
+window.generateSluglineUnitPlate = generateSluglineUnitPlate;
+
 /* coverage audit — scenes whose heading names a place that isn't linked to any Location
    card yet (e.g. an unparseable or brand-new heading). After a pull every parseable scene
    heading is covered, so this surfaces the genuine gaps. */

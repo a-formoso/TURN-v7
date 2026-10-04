@@ -113,7 +113,9 @@ assert.equal(JSON.parse(tiny).productionPlan.sharedSetLayout.status,"unavailable
 // All UI attachment paths enforce the same guard, even when beforeGenerate is
 // skipped for edits/batches/simple retries. Existing composition stays intact.
 const ui=readFileSync("app/locations-ui.jsx","utf8");
-assert.equal((ui.match(/requireLocationSpatialPlan\(l\);/g)||[]).length,5);
+// 5 generation paths + the header's layoutReady() check that keeps waiting plates out of the counts
+// and prices (2026-10-03, Locations review)
+assert.equal((ui.match(/requireLocationSpatialPlan\(l\);/g)||[]).length,6);
 assert.equal((ui.match(/await locationSpatialReferences\(l\)/g)||[]).length,4);
 assert.match(ui,/function LocationSpatialPlanEditor/);
 assert.match(ui,/fieldset",\{disabled:readOnly\|\|busy/);

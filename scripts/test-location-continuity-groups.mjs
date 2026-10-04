@@ -219,12 +219,13 @@ ok("unit cards live on their matching subspace workspace",
   ui.includes("String(u.subspaceKey||u.locationKey||\"\")===String(l.key||\"\")"));
 ok("place identity fields stay separate from unit environment notes",
   ui.includes('label:"Permanent lighting & daylight interfaces"')&&
-  ui.includes('label:"Environment notes"')&&ui.includes('"Continuity anchors"'));
+  ui.includes('label:"Environment notes"')&&ui.includes('"Fixed landmarks"'));
 ok("location folds use the approved filmmaker-facing names",
-  ["The Space","Narrative Significance","Screenplay Evidence","Slugline Units","Spatial Layout & Staging","Generation Prompt"]
+  // plainer names (owner 2026-10-03): Slugline Units → Rooms & times
+  ["The Space","Narrative Significance","Screenplay Evidence","Rooms & times","Spatial Layout & Staging","Generation Prompt"]
     .every(label=>ui.includes('label:"'+label+'"')));
 ok("location folds follow identity to screenplay to view to generation order",
-  ["label:\"The Space\"","label:\"Narrative Significance\"","label:\"Screenplay Evidence\"","label:\"Slugline Units\"",
+  ["label:\"The Space\"","label:\"Narrative Significance\"","label:\"Screenplay Evidence\"","label:\"Rooms & times\"",
     "label:\"Spatial Layout & Staging\"","label:\"Generation Prompt\""]
     .map(token=>ui.indexOf(token)).every((at,i,all)=>at>=0&&(i===0||at>all[i-1])));
 ok("location style fine-tuning is retained under Generation Prompt without a separate Look dev fold",
@@ -232,14 +233,14 @@ ok("location style fine-tuning is retained under Generation Prompt without a sep
   ui.indexOf('"Render style details"')>ui.indexOf('label:"Generation Prompt"')&&
   ui.includes('label:"Render style instructions"'));
 ok("topology and anchors stay nested inside The Space",
-  ui.indexOf('field:"topology",label:"Spatial topology"')>ui.indexOf('label:"The Space"')&&
-  ui.indexOf('"Continuity anchors"')>ui.indexOf('field:"topology",label:"Spatial topology"')&&
-  ui.indexOf('"Continuity anchors"')<ui.indexOf('label:"Narrative Significance"'));
+  ui.indexOf('field:"topology",label:"How the rooms connect"')>ui.indexOf('label:"The Space"')&&
+  ui.indexOf('"Fixed landmarks"')>ui.indexOf('field:"topology",label:"How the rooms connect"')&&
+  ui.indexOf('"Fixed landmarks"')<ui.indexOf('label:"Narrative Significance"'));
 ok("location folds provide concise definitions without expanding the headings",
   ui.includes("function LocationSectionHelp")&&
   ui.includes('label:"About The Space"')&&ui.includes("persistent physical location")&&
   ui.includes('label:"About Narrative Significance"')&&ui.includes("means dramatically")&&
-  ui.includes("Slugline Units identify the rooms, times and scenes")&&ui.includes("Lighting & environment"));
+  ui.includes("Rooms & times (the screenplay's sluglines) identify the rooms, times and scenes")&&ui.includes("Lighting & environment"));
 ok("script evidence and reusable staging have separate roles",
   ui.includes("Spatial Layout & Staging holds reusable camera views")&&
   ui.includes("function LocationScreenplayEvidence")&&
@@ -254,17 +255,17 @@ ok("linked states have one unit editor, while independent states retain their as
   ui.includes("locationAppearanceStateAssetId(l,v,units||[])")&&
   ui.includes("environment.units.map")&&ui.includes("environment.additional.map")&&
   !ui.includes('label:"Time-of-Day Variants"')&&
-  ui.includes('"Additional space plates"')&&ui.includes("!l.parentLocation&&coverageSheets.length>0"));
+  ui.includes('"Extra spaces"')&&ui.includes("!l.parentLocation&&coverageSheets.length>0"));
 ok("coverage views and scene setups have distinct editors",
   ui.includes("function CoverageViewsEditor")&&ui.includes("function SceneSetupCard")&&
   ui.includes('label:"Blocking & action path"')&&ui.includes('label:"Object states at the start"')&&
   ui.includes("setup.storageId||setup.id")&&ui.includes('"Saved setup \\u00b7 source removed"')&&
   ui.includes('"Occurrence ",setup.occurrenceOrdinal," of ",setup.occurrenceCount'));
 ok("visible location-reference copy uses the approved production-layer names",
-  ui.includes('noun:"Slugline Unit plate"')&&
-  ui.includes('label:"Slugline Unit · "')&&
+  ui.includes('noun:"room & time plate"')&&
+  ui.includes('label:"Room & time · "')&&
   ui.includes('label:"Time-of-Day Variant · "')&&
-  ui.includes('title:"Generate canonical location plates for the locations in this scene"')&&
+  ui.includes('"Make every plate this scene needs that doesn\'t exist yet: "')&&
   shots.includes('" — Required Space Plate · "')&&
   !shots.includes('" slugline/subspace unit"')&&!shots.includes('" coverage sheet (one full-frame view)"'));
 ok("Location Scout generates screenplay-derived shared variants, not only legacy variants",

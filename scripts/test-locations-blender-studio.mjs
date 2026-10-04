@@ -94,7 +94,10 @@ walk(locationSheet.body);
 const sheetBody=astCalls.find(n=>stringValue(n.arguments[0])==="div"&&
   String(propValue(n.arguments[1],"className")||"")==="sheet-body");
 assert.ok(sheetBody,"LocationSheet has a sheet-body producer");
-const bodyChildren=sheetBody.arguments.slice(2);
+// a fold shown on demand ("showPrompt && CardFold(…)", the ⋯ menu's "Show the generation prompt",
+// 2026-10-03) still counts as that fold, in place
+const unwrapShown=n=>n&&n.type==="LogicalExpression"&&n.operator==="&&"?unwrapShown(n.right):n;
+const bodyChildren=sheetBody.arguments.slice(2).map(unwrapShown);
 const directStudio=astCalls.find(n=>firstName(n)==="LocationBlenderStudioSection");
 assert.ok(directStudio,"LocationSheet produces the contextual launcher");
 assert.ok(!bodyChildren.includes(directStudio),"Studio is not a separate top-level section");
@@ -115,10 +118,10 @@ assert.ok(spatialFold.start<directStudio.start&&spatialFold.end>directStudio.end
 assert.ok(!astCalls.some(n=>firstName(n)==="LocationSectionHelp"&&
   n.start>spatialFold.start&&n.end<spatialFold.end),
   "Spatial Layout & Staging has no standalone help icon or empty help row");
-const unitsFold=directFold("Slugline Units");
+const unitsFold=directFold("Rooms & times");   // plainer name, owner 2026-10-03
 assert.ok(!astCalls.some(n=>firstName(n)==="LocationSectionHelp"&&
   n.start>unitsFold.start&&n.end<unitsFold.end),
-  "Slugline Units has no standalone help icon or empty help row");
+  "Rooms & times has no standalone help icon or empty help row");
 assert.ok(viewsIndex<promptIndex,"set preparation still precedes Generation Prompt");
 assert.equal(directFold("Look dev"),undefined,"locations no longer have a standalone Look dev fold");
 const promptFold=directFold("Generation Prompt");
@@ -153,7 +156,7 @@ for(const token of [
 ]) assert.ok(producer.includes(token),"LocationSheet producer keeps "+token);
 assert.ok(producer.includes("locationProductionPlan(l,units)"),
   "LocationSheet sends the versioned location production package");
-assert.ok(producer.includes("Required Space Plate")&&producer.includes("Time-of-Day Variant"),
+assert.ok(producer.includes("Extra space")&&producer.includes("Time-of-Day Variant"),   // plainer name, owner 2026-10-03
   "approved production-layer references are offered to Studio");
 assert.equal((source.match(/React\.createElement\(window\.BlenderStudioEntry/g)||[]).length,0,
   "location cards no longer mount the full Studio workflow");

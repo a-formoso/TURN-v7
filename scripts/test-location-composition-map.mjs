@@ -81,10 +81,10 @@ assert.equal(maps[0].props.onDraftStaging,noop);assert.equal(maps[1].props.onDra
 maps[1].props.onChange({...staging,lens:"50mm"});
 assert.equal(patch.id,"v2","edits stay scoped to the selected coverage view");assert.equal(patch.value.lens,"50mm");
 const detailFields=flatten(maps[0].props.viewDetails).filter(n=>n.type===box.SheetField);
-assert.deepEqual(detailFields.map(n=>n.props.label),["Purpose / framing","Camera position","Target","Visible continuity anchors"]);
+assert.deepEqual(detailFields.map(n=>n.props.label),["Purpose / framing","Camera position","Target","Visible fixed landmarks"]);
 detailFields[2].props.onCommit("Archway");assert.equal(patch.id,"v1");assert.equal(patch.value.target,"Archway");
-flatten(viewTree).find(n=>n.type==="button"&&text(n)==="Add coverage view").props.onClick();assert.equal(added,1);
-flatten(viewTree).filter(n=>n.props.title==="Remove coverage view")[1].props.onClick();assert.equal(removed,"v2");
+flatten(viewTree).find(n=>n.type==="button"&&text(n)==="Add camera view").props.onClick();assert.equal(added,1);
+flatten(viewTree).filter(n=>n.props.title==="Remove camera view")[1].props.onClick();assert.equal(removed,"v2");
 
 selection=undefined;
 const emptyTree=box.StagingGrid({l:{id:"empty",name:"Empty"},onUpdate:(id,value)=>patch={id,value}});

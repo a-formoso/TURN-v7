@@ -81,7 +81,7 @@ function LocationScreenplayEvidence({units,onScene}){
   }));
   return React.createElement("div",{className:"loc-evidence"},
     React.createElement("p",{className:"loc-layer-note"},
-      "Screenplay passages establish the space and its uses. Slugline Units identify where and when each passage occurs."),
+      "Screenplay passages establish the space and its uses. Rooms & times identify where and when each passage occurs."),
     rows.length?rows.map(({u,o,i,visit})=>React.createElement("details",{className:"loc-evidence-source",key:u.key+"-"+i},
       React.createElement("summary",null,
         React.createElement("span",null,(u.intExt||"INT")+". "+(u.name||"Location")+(u.time?" — "+u.time:"")),
@@ -288,6 +288,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   const finalPrompt = combinedLocationPrompt(l, project, {});
   const spatialState=locationSpatialPlanState(l);
   const [layoutReviewRequest,setLayoutReviewRequest]=React.useState(0);
+  const [showPrompt,setShowPrompt]=React.useState(false);   // the ⋯ menu's "Show the generation prompt"
   const sheetRef=React.useRef(null);
   const layoutFoldId="loc-layout-"+l.id;
   const reviewLayout=()=>{
@@ -597,7 +598,20 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
     onUpdate(l.id,{ variants:[...(l.variants||[]), { id:"v"+Date.now().toString(36), time:suggest, state:"", manualState:true }] });
   };
   const updateVariant = (vid,patch)=> onUpdate(l.id,{ variants:(l.variants||[]).map(v=>v.id===vid?{...v,...patch}:v) });
-  const removeVariant = (vid)=> onUpdate(l.id,{ variants:(l.variants||[]).filter(v=>v.id!==vid) });
+  // asked first, and its plate goes with it (2026-10-03, owner — it used to vanish on one click and
+  // leave its image behind in storage)
+  const removeVariant = async (vid)=>{
+    const v = (l.variants||[]).find(x=>x.id===vid); if(!v) return;
+    const assetId = (typeof locationAppearanceStateAssetId==="function") ? locationAppearanceStateAssetId(l,v,sluglineUnits||[]) : l.id+"-"+v.id;
+    const has = (typeof nbGetImage==="function") && !!nbGetImage(assetId);
+    const ok = !window.appConfirm || await window.appConfirm({
+      title:"Remove this environment state?",
+      body:has ? "Its plate is deleted with it \u2014 this can't be undone." : "It has no plate yet, so only its notes go.",
+      confirmLabel:"Remove", cancelLabel:"Cancel", danger:has });
+    if(!ok) return;
+    if(has && typeof nbClearAsset==="function"){ try{ await nbClearAsset(assetId); }catch(e){} }
+    onUpdate(l.id,{ variants:(l.variants||[]).filter(x=>x.id!==vid) });
+  };
   const saveCoverageViews = (next)=>{
     const list=(next||[]).map(v=>({...v,legacy:undefined}));
     onUpdate(l.id,{coverageViews:list,staging:list[0]&&list[0].staging||l.staging||{}});
@@ -605,7 +619,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   const updateCoverageView = (vid,patch)=> saveCoverageViews(coverageViews.map(v=>v.id===vid?{...v,...patch}:v));
   const addCoverageView = ()=>{
     const id="view-"+Date.now().toString(36), base=(typeof emptyStaging==="function"?emptyStaging():{});
-    const name="Coverage view "+(coverageViews.length+1);
+    const name="Camera view "+(coverageViews.length+1);
     saveCoverageViews(coverageViews.concat([{id,name,purpose:"",cameraPosition:"",target:"",visibleAnchors:"",
       lens:"",staging:{...base,viewLabel:name}}]));
   };
@@ -651,14 +665,21 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       ],
       specGate:{ ready:(drafted || !l.manual), hint:"Draft the specification first \u2014 architecture, materials & light are what the plate is built from." },
       // edit ONE view of the plate (works on generated or uploaded plates)
-      menuExtra: gen.genUrl ? [{ label: panelEdit?"Close panel edit":"Edit a panel\u2026", placement:"beforeEdit",
-        title:"Change just ONE view of the multi-angle plate, leaving the others untouched",
-        onClick:()=> setPanelEdit(pe=> pe ? null : { idx:null, text:"" }) }] : null,
+      menuExtra:[
+        ...(gen.genUrl ? [{ label: panelEdit?"Close panel edit":"Edit a panel\u2026", placement:"beforeEdit",
+          title:"Change just ONE view of the multi-angle plate, leaving the others untouched",
+          onClick:()=> setPanelEdit(pe=> pe ? null : { idx:null, text:"" }) }] : []),
+        // the prompt is a power-user tool: behind the card's ⋯ menu (2026-10-03)
+        { label:showPrompt ? "Hide the generation prompt" : "Show the generation prompt", icon:Icon.eye,
+          onClick:()=>setShowPrompt(v=>!v) }],
       referenceControls: masterRefs.length>0 && React.createElement(CoverageReferenceStrip,{ refs:masterRefs, excludedIds:masterRefOff, onToggle:toggleMasterRef, onView }),
       generateDisabled:!spatialState.ready||!!l.parentLocation&&(!parentRefUrl||masterRefs.some(r=>r.required&&!r.ready)),
       generateDisabledLabel:!spatialState.ready?"Review shared layout":"Generate parent plate first",
       onResolveGenerationBlock:!spatialState.ready?reviewLayout:undefined,
       generateDisabledTitle:!spatialState.ready?"Open the shared layout to review and confirm it. No image will be generated.":"Generate or restore the whole location's plate first so this room can match its visual design.",
+      // say it when Generate also writes the layout first (a small writing charge on top of the plate)
+      generateTitle:(!locStaged && !gen.slotHasRef && typeof aiAvailable==="function" && aiAvailable())
+        ? "Writes this place's layout (depth grid) first \u2014 a small writing charge \u2014 then generates the plate from it" : undefined,
       onDelete:()=>onDelete(l.id), deleteLabel:"Delete location" }),
     panelEdit && gen.genUrl && React.createElement("div",{className:"sheet-edit-panel loc-panel-edit"},
       React.createElement("div",{className:"loc-panel-pick"},
@@ -744,16 +765,16 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         React.createElement(LocationIdentityField,{l,field:"materials",label:"Materials & palette",value:l.materials,
           placeholder:"Permanent surfaces, colours, textures and wear\u2026",onUpdate}),
         React.createElement(LocationIdentityField,{l,field:"lighting",label:"Permanent lighting & daylight interfaces",value:l.lighting,
-          placeholder:"Fixtures, windows and orientation only \u2014 changing conditions belong to the Slugline Unit's Lighting & environment\u2026",onUpdate}),
+          placeholder:"Fixtures, windows and orientation only \u2014 changing conditions belong to each room & time's Lighting & environment\u2026",onUpdate}),
         React.createElement(LocationIdentityField,{l,field:"permanentDressing",label:"Permanent / baseline dressing",value:l.permanentDressing||"",
           placeholder:"Furniture and fixtures that remain part of the place\u2026",onUpdate}),
-        React.createElement(LocationIdentityField,{l,field:"topology",label:"Spatial topology",value:l.topology||"",
+        React.createElement(LocationIdentityField,{l,field:"topology",label:"How the rooms connect",value:l.topology||"",
           placeholder:"Living Room \u2194 Kitchen: cased archway; Kitchen \u2192 Rear Yard: window over sink\u2026",onUpdate}),
         React.createElement("div",{className:"loc-anchor-field"},
           React.createElement("div",{className:"loc-anchor-head"},
             React.createElement("span",{className:"loc-field-label"},
-              React.createElement("span",null,"Continuity anchors"),
-              React.createElement(LocationProvenanceSelect,{l,field:"continuityAnchors",label:"Continuity anchors",onUpdate})),
+              React.createElement("span",null,"Fixed landmarks"),
+              React.createElement(LocationProvenanceSelect,{l,field:"continuityAnchors",label:"Fixed landmarks",onUpdate})),
             React.createElement("button",{className:"loc-anchor-lock"+(l.anchorsLocked===false?"":" locked"),
               title:l.anchorsLocked===false?"Make these anchors binding for generation":"Binding: these facts cannot drift across representations",
               onClick:()=>onUpdate(l.id,{anchorsLocked:l.anchorsLocked===false})},l.anchorsLocked===false?"\ud83d\udd13 Editable":"\ud83d\udd12 Binding")),
@@ -771,7 +792,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       React.createElement(CardFold,{label:"Screenplay Evidence",defaultOpen:false},
         React.createElement(LocationScreenplayEvidence,{units:evidenceUnits,onScene:onChipClick})),
 
-      React.createElement(CardFold,{label:"Slugline Units",defaultOpen:initialSection==="units"||initialSection==="environments"},
+      React.createElement(CardFold,{label:"Rooms & times",defaultOpen:initialSection==="units"||initialSection==="environments"},
         React.createElement("div",{className:"loc-variants"},
           units.length
             ? environment.units.map(u=>React.createElement(SluglineUnitCard,{key:u.key, l, u, project, scenes, drafts,
@@ -781,7 +802,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
           React.createElement(LocationRoomLinks,{entries:roomUnits,onSelectLocation,section:"units"}),
           React.createElement("details",{className:"loc-nested-section",open:initialSection==="environments"?true:undefined},
             React.createElement("summary",null,"Additional environment states"),
-            React.createElement("p",{className:"loc-layer-note"},"Only for another look not already represented by a Slugline Unit, such as a storm or power outage. Scripted Night / Dawn changes are edited in each unit's Lighting & environment."),
+            React.createElement("p",{className:"loc-layer-note"},"Only for another look not already represented by a room & time, such as a storm or power outage. Scripted Night / Dawn changes are edited in each room & time's Lighting & environment."),
             environment.additional.map(v=>React.createElement(LocationVariant,{key:v.id,l,v,project,scenes,drafts,units,
               parentGenUrl:gen.genUrl,onTime:time=>updateVariant(v.id,{time}),
               onState:state=>updateVariant(v.id,{state}),onRemove:()=>removeVariant(v.id),onView})),
@@ -789,7 +810,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
             React.createElement("button",{className:"art-draftall ghost loc-variant-add",onClick:addVariant},
               React.createElement(Icon.plus,{s:14}),"Add environment state")),
           !l.parentLocation&&coverageSheets.length>0&&React.createElement("details",{className:"loc-nested-section"},
-            React.createElement("summary",null,"Additional space plates"),
+            React.createElement("summary",null,"Extra spaces"),
             React.createElement("p",{className:"loc-layer-note"},"Extra empty-set references required by the screenplay, such as an exterior, threshold or connecting space."),
             coverageSheets.map((v,i)=>React.createElement(LocationCoverageSheet,{key:v.id,l,v,project,scenes,drafts,
               previousSheets:coverageSheets.slice(0,i),parentGenUrl:gen.genUrl,onView}))))),
@@ -816,14 +837,14 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         references:[
           ...(spatialState.owner.id!==l.id?[{entityId:spatialState.owner.id,label:"Parent set · "+spatialState.owner.name,kind:"location"}]:[]),
           ...units.map(u=>({entityId:(typeof sluglineUnitImageId==="function"?sluglineUnitImageId(u.key):u.key),
-            label:"Slugline Unit · "+(u.name||l.name||"Location")+(u.time?(" · "+u.time):""),kind:"location"})),
-          ...coverageSheets.map(v=>({entityId:l.id+"-"+v.id,label:"Required Space Plate · "+(v.name||l.name||"Location"),kind:"location"})),
+            label:"Room & time · "+(u.name||l.name||"Location")+(u.time?(" · "+u.time):""),kind:"location"})),
+          ...coverageSheets.map(v=>({entityId:l.id+"-"+v.id,label:"Extra space · "+(v.name||l.name||"Location"),kind:"location"})),
           ...appearanceStates.map(v=>({entityId:(typeof locationAppearanceStateAssetId==="function"
               ? locationAppearanceStateAssetId(l,v,units):l.id+"-"+v.id),
             label:"Time-of-Day Variant · "+(v.time||v.id||"Variant"),kind:"location"}))],
         readOnly})),
 
-      React.createElement(CardFold,{label:"Generation Prompt",defaultOpen:false},
+      showPrompt && React.createElement(CardFold,{label:"Generation Prompt",defaultOpen:true},
         React.createElement(CopyBox,{label:"Current specification \u2014 next generation",text:finalPrompt}),
         React.createElement("p",{className:"loc-layer-note"},"Built from this space's current specification. Selected reference instructions are added when you generate."),
         React.createElement("details",{className:"loc-nested-section loc-render-style-details"},
@@ -861,9 +882,9 @@ function CoverageViewsEditor({l,views,onUpdateView,onAdd,onRemove,onDraftStaging
       React.createElement("div",{className:"loc-variant-head"},
         React.createElement("div",{className:"loc-camera-view-title"},
           index===0&&React.createElement("span",{className:"loc-primary-badge"},"Primary"),
-          React.createElement(EditText,{value:v.name||"",placeholder:"Named coverage view",
+          React.createElement(EditText,{value:v.name||"",placeholder:"Named camera view",
             onCommit:name=>onUpdateView(v.id,{name,staging:{...(v.staging||{}),viewLabel:name}})})),
-        list.length>1&&React.createElement("button",{className:"loc-variant-x",title:"Remove coverage view",
+        list.length>1&&React.createElement("button",{className:"loc-variant-x",title:"Remove camera view",
           onClick:()=>onRemove(v.id)},React.createElement(Icon.x,{s:12}))),
       React.createElement(StagingGrid,{l,value:v.staging,cameraPosition:v.cameraPosition,target:v.target,
         onChange:staging=>onUpdateView(v.id,{staging,lens:staging.lens||""}),
@@ -876,11 +897,11 @@ function CoverageViewsEditor({l,views,onUpdateView,onAdd,onRemove,onDraftStaging
           placeholder:"Hallway threshold, eye height\u2026",onCommit:cameraPosition=>onUpdateView(v.id,{cameraPosition})}),
         React.createElement(SheetField,{label:"Target",value:v.target||"",multiline:false,
           placeholder:"Kitchen table / north wall\u2026",onCommit:target=>onUpdateView(v.id,{target})}),
-        React.createElement(SheetField,{label:"Visible continuity anchors",value:v.visibleAnchors||"",multiline:true,
+        React.createElement(SheetField,{label:"Visible fixed landmarks",value:v.visibleAnchors||"",multiline:true,
           placeholder:"Cased archway, sink window, three-pane front door\u2026",
           onCommit:visibleAnchors=>onUpdateView(v.id,{visibleAnchors})}))}))),
     React.createElement("button",{className:"art-draftall ghost loc-variant-add",onClick:onAdd},
-      React.createElement(Icon.plus,{s:14}),"Add coverage view"));
+      React.createElement(Icon.plus,{s:14}),"Add camera view"));
 }
 function StagingGrid({ l, onUpdate, onDraftStaging, draftingStage, value, onChange, lockViewLabel=false, cameraPosition="",target="",viewDetails }){
   const source=value?{...l,staging:value}:l;
@@ -949,7 +970,7 @@ function StagingGrid({ l, onUpdate, onDraftStaging, draftingStage, value, onChan
       viewDetails,
       React.createElement("div",{className:"stage-meta-fields"},
         !lockViewLabel&&React.createElement("label",{className:"stage-meta-field"},
-          React.createElement("span",{className:"stage-meta-lab"},"Coverage view / representation"),
+          React.createElement("span",{className:"stage-meta-lab"},"Camera view / representation"),
           React.createElement(EditText,{value:s.viewLabel||"",placeholder:(l.name||"Location")+" principal view\u2026",onCommit:val=>set({key:"viewLabel",val})})),
         React.createElement("label",{className:"stage-meta-field"},
           React.createElement("span",{className:"stage-meta-lab"},"Scale class"),
@@ -1044,8 +1065,8 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
       if(!ok && typeof window.appToast==="function"){
         const prev = missing.some(r=>String(r.refId||"").indexOf(l.id+"-")===0);
         window.appToast(prev
-          ? "Generate the earlier Required Space Plate first — this one depends on it."
-          : "Generate the parent location plate first — this Required Space Plate needs it as a reference.");
+          ? "Generate the earlier extra-space plate first — this one depends on it."
+          : "Generate the parent location plate first — this extra space needs it as a reference.");
       }
       return ok;
     },
@@ -1070,12 +1091,12 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
     React.createElement("div",{className:"loc-variant-head"},
       React.createElement("div",{className:"loc-coverage-title"},
         React.createElement("span",{className:"loc-intext-badge "+(/EXT/.test(v.role||"")?"ext":"int")},v.role||"INT"),
-        React.createElement("b",null,v.name||"Required Space Plate")),
+        React.createElement("b",null,v.name||"Extra space")),
       React.createElement("span",{className:"loc-coverage-source",title:v.summary||""},sourceLabel)),
     v.summary && React.createElement("div",{className:"loc-variants-empty loc-coverage-summary"},v.summary),
     React.createElement(SheetFrame,{ gen, slotId:"loccov-"+id, name:(v.name||l.name||"Location")+" \u00b7 "+(v.role||"INT"),
       avatarColor:locSwatch(v.role), initials:(v.role||"?").slice(0,2).toUpperCase(), drafted:true, drafting:false,
-      entity:viewerEntity, onView, slotPlaceholder:"Drop a finished side plate", noun:"Required Space Plate", compact:true,
+      entity:viewerEntity, onView, slotPlaceholder:"Drop a finished side plate", noun:"extra-space plate", compact:true,
       // match the unit-plate card: the empty slot itself imports on drop/click, which also
       // drops the redundant "Upload a finished Required Space Plate" button below the generate CTA
       dropToImport:true,
@@ -1083,8 +1104,8 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
       generateDisabled:!canGenerateCoverage,
       generateDisabledLabel: missingPrev ? "Generate earlier plate first" : "Generate parent plate first",
       generateDisabledTitle: missingPrev
-        ? "This Required Space Plate depends on an earlier plate. Generate that plate first so the geometry and sightlines can carry forward."
-        : "This Required Space Plate needs the parent location plate as a visual reference before it can generate." }));
+        ? "This extra space depends on an earlier plate. Generate that plate first so the geometry and sightlines can carry forward."
+        : "This extra space needs the parent location plate as a visual reference before it can generate." }));
 }
 
 function CoverageReferenceStrip({ refs, excludedIds, onToggle, onView }){
@@ -1234,7 +1255,7 @@ function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, o
       placeholder:"Weather, practicals on/off, damage, wear or another persistent environment change\u2026",onCommit:onState}),
     stateUnit&&React.createElement("div",{className:"loc-shared-state-note"},
       "Applies to "+((stateUnit.sceneNos||[]).length>1?"Scenes ":"Scene ")+(stateUnit.sceneNos||[]).join(", ")+
-      " \u00b7 uses the exact Slugline Unit plate and version history"),
+      " \u00b7 uses the exact room & time plate and version history"),
     React.createElement(SheetFrame,{ gen, slotId, name:(stateUnit&&stateUnit.name||l.name||"")+" \u00b7 "+v.time,
       avatarColor:locSwatch(stateUnit&&stateUnit.intExt||l.intExt), initials:(v.time||"?").slice(0,2).toUpperCase(), drafted:true, drafting:false,
       entity:viewerEntity, onView, slotPlaceholder:"Drop a photo", noun:"time-of-day variant plate", compact:true,
@@ -1329,7 +1350,7 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
       const missing = refs.filter(r=>r.required && !r.ready);
       const ok = missing.length===0;
       if(!ok && typeof window.appToast==="function")
-        window.appToast("Generate the parent location plate first \u2014 this Slugline Unit needs it as a reference.");
+        window.appToast("Generate the parent location plate first \u2014 this room & time plate needs it as a reference.");
       return ok;
     },
     attachmentsRequired:true,
@@ -1364,8 +1385,15 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
       React.createElement(Icon.alert,{s:12}),
       React.createElement("span",null,"No longer in the script \u2014 kept so its plate and notes aren't lost."),
       onRemoveUnit && React.createElement("button",{className:"loc-unit-remove",
-        title:"Delete this Slugline Unit's stored data and generated plate",
-        onClick:async ()=>{ if(typeof nbClearAsset==="function"){ try{ await nbClearAsset(imgId); }catch(e){} } onRemoveUnit(u.key); }},"Remove")),
+        title:"Delete this room & time's stored data and generated plate",
+        onClick:async ()=>{
+          // a PERMANENT delete — asked first (2026-10-03, owner — Locations review)
+          const ok = !window.appConfirm || await window.appConfirm({
+            title:"Remove "+(u.name||"this room")+(u.time?" \u00b7 "+u.time:"")+" for good?",
+            body:"It's no longer in the screenplay. Removing it deletes its notes and its plate permanently \u2014 this can't be undone.",
+            confirmLabel:"Remove for good", cancelLabel:"Keep it", danger:true });
+          if(!ok) return;
+          if(typeof nbClearAsset==="function"){ try{ await nbClearAsset(imgId); }catch(e){} } onRemoveUnit(u.key); }},"Remove")),
     React.createElement("details",{className:"loc-nested-section loc-unit-environment"},
       React.createElement("summary",null,"Lighting & environment"),
       React.createElement(SheetField,{label:"Environment notes",value:u.appearance||"",multiline:true,
@@ -1373,14 +1401,14 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
         onCommit:onEnvironmentChange})),
     React.createElement(SheetFrame,{ gen, slotId, name:(u.name||l.name||"Location")+" \u00b7 "+role+(u.time?(" \u00b7 "+u.time):""),
       avatarColor:locSwatch(role), initials:role.slice(0,2), drafted:true, drafting:false,
-      entity:viewerEntity, onView, slotPlaceholder:"Drop a finished Slugline Unit plate", noun:"Slugline Unit plate", compact:true,
+      entity:viewerEntity, onView, slotPlaceholder:"Drop a finished room & time plate", noun:"room & time plate", compact:true,
       dropToImport:true,
       referenceControls: React.createElement(CoverageReferenceStrip,{ refs:refPreview, excludedIds:refOff, onToggle:toggleRef, onView }),
       generateDisabled:!canGenerate,
       generateDisabledLabel: u.orphan ? "No longer in script" : "Generate parent plate first",
       generateDisabledTitle: u.orphan
-        ? "This Slugline Unit is no longer in the screenplay, so it can't generate new plates. Its existing plate and notes are kept until you Remove it."
-        : "This Slugline Unit needs the parent location plate as a visual reference before it can generate." }));
+        ? "This room & time is no longer in the screenplay, so it can't generate new plates. Its existing plate and notes are kept until you Remove it."
+        : "This room & time plate needs the parent location plate as a visual reference before it can generate." }));
 }
 
 function SceneSetupCard({setup,unit,onUpdate}){
@@ -1536,24 +1564,82 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
   // ---- batch generation ---- (eligible = drafted locations only; the spec is what
   // the plate is built from, so an undrafted/hand-added card never makes a generic plate)
   const draftedIds = (subset)=> locationGenerationOrder(subset).filter(l=> (typeof locVisualsDrafted==="function") ? locVisualsDrafted(l) : true).map(l=>l.id);
-  const startSceneBatch = ()=>{
-    if(!sceneFilter || batchActiveId) return;
-    const eligible = draftedIds(shown);
-    if(!eligible.length){ batch.setMsg("Draft these location specifications first \u2014 nothing in this scene is ready to generate."); return; }
-    batch.begin(eligible, shown.length - eligible.length);
-  };
-  const startAllBatch = ()=>{
-    if(batchActiveId) return;
-    const eligible = draftedIds(list);
-    if(!eligible.length){ batch.setMsg("Draft the location specifications first \u2014 nothing is ready to generate yet."); return; }
+  const byLocId = {}; list.forEach(l=>{ byLocId[l.id]=l; });
+  // MISSING PLATES FIRST (2026-10-03, owner — Locations review): the buttons price exactly the
+  // plates they will make; redoing existing ones is the quiet "Regenerate…" (which asks first)
+  const [, setPlateTick] = React.useState(0);
+  React.useEffect(()=>{
+    const h = ()=> setPlateTick(t=>t+1);
+    window.addEventListener("nb-gen-done", h);
+    return ()=> window.removeEventListener("nb-gen-done", h);
+  },[]);
+  const hasImg = (id)=> (typeof nbGetImage==="function") ? !!nbGetImage(id) : false;
+  // a plate renders only once its shared layout is reviewed (the card's own gate) — those waiting
+  // are left out of the counts and prices, and named instead
+  const layoutReady = (l)=>{ try{ if(typeof requireLocationSpatialPlan==="function") requireLocationSpatialPlan(l); return true; }catch(e){ return false; } };
+  const missingDrafted = draftedIds(list).filter(id=>!hasImg(id));
+  const missingAll = missingDrafted.filter(id=>layoutReady(byLocId[id]));
+  const waitingLayout = missingDrafted.length - missingAll.length;
+  const [sceneRun, setSceneRun] = React.useState(null);   // {i,total,label} while a scene run works
+  const sceneStop = React.useRef(false);
+  const startAllBatch = (onlyMissing)=>{
+    if(batchActiveId || sceneRun) return;
+    const eligible = onlyMissing ? missingAll : draftedIds(list);
+    if(!eligible.length){ batch.setMsg(onlyMissing ? "Every drafted location already has its plate." : "Draft the location specifications first \u2014 nothing is ready to generate yet."); return; }
     // clear the SEARCH too, not just the scene/kind filters: the queue advances only
     // when the target CARD is mounted, so a batch whose first target was filtered out
     // by a search box never generated anything and hung until Cancel
     if(sceneFilter) setSceneFilter("");
     if(query) setQuery("");
-    batch.begin(eligible, list.length - eligible.length);
+    batch.begin(eligible, onlyMissing ? 0 : list.length - eligible.length);
   };
   const eligibleAll = list.filter(l=> (typeof locVisualsDrafted==="function") ? locVisualsDrafted(l) : true).length;
+  const undraftedN = list.filter(l=> (typeof locVisualsDrafted==="function") ? !locVisualsDrafted(l) : false).length;
+  // ONE SCENE: everything the focused scene needs, in order — the location plates (a room's parent
+  // first), then the scene's own room/time plates (Slugline Units, which have no other batch).
+  const scenePlan = (sid)=>{
+    if(!sid) return { masters:[], units:[], waiting:0 };
+    const need = new Set();
+    const addWithParent = (l)=>{ need.add(l.id); if(l.parentLocation && byLocId[l.parentLocation.id]) need.add(l.parentLocation.id); };
+    list.filter(l=>inScene(l, sid)).forEach(addWithParent);
+    const units = (sluglineUnits||[]).filter(u=> u && !u.orphan && (u.scenes||[]).indexOf(sid)>=0)
+      .map(u=>({ u, owner:list.find(l=> String(l.key||"")===String(u.subspaceKey||u.locationKey||"")) }))
+      .filter(x=> x.owner);
+    units.forEach(x=> addWithParent(x.owner));
+    const mastersAll = draftedIds(list.filter(l=>need.has(l.id))).filter(id=>!hasImg(id)).map(id=>byLocId[id]);
+    const masters = mastersAll.filter(layoutReady);
+    const unitsAll = (typeof sluglineUnitImageId==="function") ? units.filter(x=>!hasImg(sluglineUnitImageId(x.u.key))) : [];
+    // a room plate needs its location's plate: one that exists, or one this run will make
+    const willHave = (l)=> hasImg(l.id) || masters.some(m=>m.id===l.id);
+    const missingUnits = unitsAll.filter(x=> layoutReady(x.owner) && willHave(x.owner));
+    return { masters, units:missingUnits, waiting:(mastersAll.length-masters.length)+(unitsAll.length-missingUnits.length) };
+  };
+  const plan = scenePlan(sceneFilter);
+  const sceneMissingN = plan.masters.length + plan.units.length;
+  const startSceneRun = async ()=>{
+    if(!sceneFilter || batchActiveId || sceneRun) return;
+    const p = scenePlan(sceneFilter);
+    const steps = [...p.masters.map(l=>({ label:l.name||"Location", run:()=>window.generateLocationPlate(l, project) })),
+      ...p.units.map(x=>({ label:(x.u.name||x.owner.name||"Room")+(x.u.time?" \u00b7 "+x.u.time:""), run:()=>window.generateSluglineUnitPlate(x.owner, x.u, project) }))];
+    if(!steps.length){ batch.setMsg("This scene already has every plate it needs."); return; }
+    sceneStop.current = false;
+    const failed = [];
+    for(let i=0;i<steps.length;i++){
+      if(sceneStop.current) break;
+      setSceneRun({ i:i+1, total:steps.length, label:steps[i].label });
+      try{ const ok = await steps[i].run(); if(!ok) failed.push(steps[i].label); }
+      catch(e){ failed.push(steps[i].label+" \u2014 "+((e&&e.message)||"error")); }
+    }
+    setSceneRun(null);
+    if(failed.length && typeof window.appToast==="function")
+      window.appToast(failed.length+" plate"+(failed.length!==1?"s":"")+" couldn't be made: "+failed.join("; "),"error");
+  };
+  const startSceneRegenerate = ()=>{
+    if(!sceneFilter || batchActiveId || sceneRun) return;
+    const eligible = draftedIds(shown);
+    if(!eligible.length){ batch.setMsg("Draft these location specifications first \u2014 nothing in this scene is ready to generate."); return; }
+    batch.begin(eligible, shown.length - eligible.length);
+  };
 
   return React.createElement("div",{className:"art-scroll"},
     view && React.createElement(ImageLightbox,{url:view.url,character:view.character,
@@ -1566,24 +1652,32 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
         React.createElement("div",{style:{flex:1}},
           React.createElement("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Location Scout",
             React.createElement(window.InfoTip,{label:"About Locations",
-              text:"Locations prepares reusable sets for the art department. The Space and Narrative Significance define the place. Screenplay Evidence shows the source passages; Slugline Units identify the rooms, times and scenes. Each unit has one plate and Lighting & environment notes, so scripted Night / Dawn states are not repeated in a separate section. Additional environment states and additional space plates are nested there. Spatial Layout & Staging holds reusable camera views, depth grids and scene dressing/blocking notes. The header's Render style picker sets the visual treatment; saved style instructions can be fine-tuned under Generation Prompt → Render style details. Blender Studio builds the selected set, and Generation Prompt shows the current specification sent to the image model.\n\nEach established parent place has one card with a room selector. Choose Whole location for the shared canon and all room-unit links, or a room to edit its own plate and layout. Search and scene focus include rooms. A Kitchen with no evidenced parent remains a standalone place. Shot timing, cuts and performance are directed in Shots / Blender previz."}))),
+              text:"Locations prepares reusable sets for the art department. The Space and Narrative Significance define the place. Screenplay Evidence shows the source passages; Rooms & times (the screenplay's sluglines) identify the rooms, times and scenes. Each one has one plate and Lighting & environment notes, so scripted Night / Dawn states are not repeated in a separate section. Additional environment states and extra spaces are nested there. Spatial Layout & Staging holds reusable camera views, depth grids and scene dressing/blocking notes. The header's Render style picker sets the visual treatment; saved style instructions can be fine-tuned in the generation prompt (the card's ⋯ menu ▸ Show the generation prompt → Render style details), which also shows the current specification sent to the image model. Blender Studio builds the selected set.\n\nEach established parent place has one card with a room selector. Choose Whole location for the shared canon and all room-unit links, or a room to edit its own plate and layout. Search and scene focus include rooms. A Kitchen with no evidenced parent remains a standalone place. Shot timing, cuts and performance are directed in Shots / Blender previz."}))),
         React.createElement("div",{className:"art-intro-actions"},
           window.RecentlyDeleted && React.createElement(window.RecentlyDeleted,{
             items:trashItems,kind:"location",onRestore,onPurge,compact:true}),
           // NO arbitrary hand-adding: continuity places anchor master cards, room
           // headings become Slugline Units; implied side spaces become Required Space Plates
           // sheets from screenplay body text + page snapshots.
-          React.createElement("label",{className:"char-style-all",
-            title:"Read only. Each location's plate scale is derived automatically from the characters who drive its scenes."},
-            React.createElement("span",{className:"char-style-all-lab"},"World scale"),
-            React.createElement("select",{className:"char-style-select",value:"",disabled:true,"aria-label":"World scale (read only)"},
-              React.createElement("option",{value:""},"\u2728 Auto (by occupant)"))),
-          React.createElement("button",{className:"art-draftall ghost",disabled:draftingAll||(!list.length&&!scriptHasLocs),onClick:onDraftAll,
-            title:"Build every location from the screenplay in one pass \u2014 pull missing canonical places, derive Slugline Units and required spatial plates, draft each spec, and prepare the primary Coverage View"},
-            React.createElement(Icon.sparkles,{s:14}), draftingAll?"Designing\u2026":"Design all locations"),
-          React.createElement("button",{className:"art-draftall",disabled:!!batchActiveId||!eligibleAll,onClick:startAllBatch,
-            title:"Generate (or regenerate) the canonical location plate for every drafted location \u2014 you choose whether to redo ones that already have a plate"},
-            React.createElement(Icon.sparkles,{s:14}), batchActiveId?"Generating\u2026":"Generate all locations", typeof window.nbCostChip==="function" && window.nbCostChip(1)))),),
+          // (the read-only "World scale" control is gone, 2026-10-03: each plate's scale still comes
+          // automatically from the characters who drive its scenes)
+          (undraftedN>0 || (!list.length && scriptHasLocs)) && React.createElement("button",{className:"art-draftall ghost",disabled:draftingAll,onClick:()=>onDraftAll(),
+            title:"Build what's missing from the screenplay \u2014 pull new places, derive rooms & times and extra spaces, and draft the spec (and the layout of places used in 2+ scenes) of every location that doesn't have one yet; finished and edited locations are left alone. Writing credits, no images."},
+            React.createElement(Icon.sparkles,{s:14}), draftingAll?"Designing\u2026":(list.length ? "Design "+undraftedN+" location"+(undraftedN!==1?"s":"") : "Design all locations")),
+          (list.length>0 && !undraftedN) && React.createElement("button",{className:"art-draftall ghost",disabled:draftingAll,onClick:()=>onDraftAll("redraft"),
+            title:"Design every location again from the screenplay \u2014 asks first; replaces the current specs and layouts, including your edits"},
+            React.createElement(Icon.sparkles,{s:14}), draftingAll?"Designing\u2026":"Redesign all\u2026"),
+          missingAll.length>0 && React.createElement("button",{className:"art-draftall",disabled:!!batchActiveId||!!sceneRun,onClick:()=>startAllBatch(true),
+            title:"Generate the plate of every drafted location that doesn't have one yet (a room's parent first) \u2014 existing plates are left as they are"
+              +(waitingLayout ? ". "+waitingLayout+" more wait for their shared layout to be reviewed (Spatial Layout & Staging)" : "")},
+            React.createElement(Icon.sparkles,{s:14}), batchActiveId?"Generating\u2026":("Generate "+missingAll.length+" missing plate"+(missingAll.length!==1?"s":"")),
+            typeof window.nbCostChip==="function" && window.nbCostChip(missingAll.length)),
+          (!missingAll.length && eligibleAll>0) && React.createElement("button",{className:"art-draftall ghost",disabled:!!batchActiveId||!!sceneRun,onClick:()=>startAllBatch(false),
+            title:"Regenerate the location plates \u2014 you'll be asked before anything is redone, with the price"},
+            React.createElement(Icon.sparkles,{s:14}), batchActiveId?"Generating\u2026":"Regenerate plates\u2026")))),
+    sceneRun && React.createElement("div",{className:"prop-review-actions",role:"status"},
+      React.createElement("span",null,"Making Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")+"'s plates \u2014 "+sceneRun.i+" of "+sceneRun.total+" \u00b7 "+sceneRun.label),
+      React.createElement("button",{className:"char-draft-btn ghost",onClick:()=>{ sceneStop.current = true; }},"Stop after this one")),
     BatchBar && React.createElement(BatchBar,{batch,noun:"location"}),
     list.length>0 && React.createElement("div",{className:"prop-toolbar"},
       React.createElement("div",{className:"prop-searchbar collapsible"+((searchOpen||q)?" open":""),
@@ -1614,10 +1708,16 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
             return React.createElement("option",{key:s.id,value:s.id},
               "Scene "+String(s.no).padStart(2,"0")+" \u00b7 "+(s.title||"")+"  ("+n+" location"+(n!==1?"s":"")+")");
           })),
-        sceneFilter && React.createElement("button",{className:"art-draftall",disabled:!!batchActiveId,onClick:startSceneBatch,
-          title:"Generate canonical location plates for the locations in this scene"},
+        (sceneFilter && sceneMissingN>0) && React.createElement("button",{className:"art-draftall",disabled:!!batchActiveId||!!sceneRun,onClick:startSceneRun,
+          title:"Make every plate this scene needs that doesn't exist yet: "+plan.masters.length+" location plate"+(plan.masters.length!==1?"s":"")+" (a room's parent first), then "+plan.units.length+" room & time plate"+(plan.units.length!==1?"s":"")
+            +(plan.waiting ? ". "+plan.waiting+" more wait for a shared layout to be reviewed (Spatial Layout & Staging)" : "")},
           React.createElement(Icon.sparkles,{s:14}),
-          batchActiveId?"Generating\u2026":("Generate all in Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")), typeof window.nbCostChip==="function" && window.nbCostChip(1)))),
+          sceneRun?"Generating\u2026":("Generate "+sceneMissingN+" missing in Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")),
+          typeof window.nbCostChip==="function" && window.nbCostChip(sceneMissingN)),
+        (sceneFilter && !sceneMissingN && draftedIds(shown).length>0) && React.createElement("button",{className:"art-draftall ghost",disabled:!!batchActiveId||!!sceneRun,onClick:startSceneRegenerate,
+          title:"Regenerate this scene's location plates \u2014 you'll be asked before anything is redone, with the price"},
+          React.createElement(Icon.sparkles,{s:14}),
+          batchActiveId?"Generating\u2026":("Regenerate Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")+"\u2026")))),
     list.length
       ? (shownGroups.length
           ? React.createElement(React.Fragment,null,
@@ -1664,11 +1764,11 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
           React.createElement("div",{className:"art-soon-ic"},React.createElement(Icon.layers,{s:30})),
           React.createElement("div",{className:"art-soon-t"},"No locations yet"),
           React.createElement("div",{className:"art-soon-d"}, scriptHasLocs
-            ? "Your screenplay names continuity-bearing places and screenplay-addressable spaces. \u201cDesign all locations\u201d builds the location hierarchy, then derives Slugline Units and any Required Space Plates."
+            ? "Your screenplay names continuity-bearing places and screenplay-addressable spaces. \u201cDesign all locations\u201d builds the location hierarchy, then derives its rooms & times and any extra spaces."
             : "Write the scene's staged place in the Writers' Room first. Room-level sluglines can group under an evidenced parent place; extra implied spaces can live in the scene action."),
           scriptHasLocs
             ? React.createElement("div",{style:{display:"flex",gap:8,marginTop:16}},
-                React.createElement("button",{className:"art-draftall",disabled:draftingAll,onClick:onDraftAll},
+                React.createElement("button",{className:"art-draftall",disabled:draftingAll,onClick:()=>onDraftAll()},
                   React.createElement(Icon.sparkles,{s:14}), draftingAll?"Designing\u2026":"Design all locations"))
             : React.createElement("div",{className:"art-soon-d",style:{marginTop:12}},"No screenplay-staged location anchor yet.")));
 }

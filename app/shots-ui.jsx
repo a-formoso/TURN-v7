@@ -766,7 +766,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
     onUpdate(sh.id,{referenceLocationsSet:true,referenceLocationIds:next,
       ...(nextOff.length!==curOff.length?{refOff:nextOff}:{})});
   };
-  const categoryMeta={place:"Continuity-bearing place",unit:"Slugline Units",coverage:"Required Space Plates",state:"Time-of-Day Variants",outside:"Saved / outside this scene",unavailable:"Saved / unavailable"};
+  const categoryMeta={place:"Continuity-bearing place",unit:"Rooms & times",coverage:"Extra spaces",state:"Time-of-Day Variants",outside:"Saved / outside this scene",unavailable:"Saved / unavailable"};
   const categoryOrder=["place","unit","coverage","state","outside","unavailable"];
   const categoryLabel=(choice)=>{
     const known=(choice.categories||[]).filter(x=>categoryMeta[x]&&x!=="unavailable");
@@ -803,8 +803,8 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
               selected&&_el("i",null,"Selected"));
           }) : _el("p",{className:"shot-location-picker-empty"},
             category==="place"?"No continuity-bearing place reference is available.":
-            category==="unit"?"No Slugline Unit is linked to this scene.":
-            category==="coverage"?"No Required Space Plate is available.":
+            category==="unit"?"No room & time is linked to this scene.":
+            category==="coverage"?"No extra-space plate is available.":
             category==="state"?"No time-of-day variant reference is available.":"No saved unavailable references."));
       }),
       sh.referenceLocationsSet&&includedLocationRefs.length===0&&_el("p",{className:"shot-location-picker-note"},"No location images included. Check a reference to include it."),
@@ -1030,7 +1030,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
           (continuityNeedsRefresh?" · ":"")+"Director override — rendered from an unapproved continuity frame.")),
       refsLoaded && loc && !sh.referenceLocationsSet && !refImgs.some(r=>r.kind==="location") &&
         _el("div",{className:"shot-ref-quality-note"},
-          "No full-frame Slugline Unit or Required Space Plate is ready for this beat. Generate one in Locations — a cropped master plate won't be used in its place."),
+          "No full-frame room & time or extra-space plate is ready for this beat. Generate one in Locations — a cropped master plate won't be used in its place."),
       _el("div",{className:"shot-head"},
         // Keep the compact header for status and review controls. Frame approval lives
         // in the image's existing Options menu, where its effect can be explained.
@@ -1500,7 +1500,7 @@ function AddShotReferenceDialog({ scene, beatN, beatText, plan, ctx, characters,
       ? String(item.note||"Location reference").replace(/\s+\([^)]*\)$/g,"")
       : item.name;
     const source=kind==="location"
-       ? (item.categories||[]).map(x=>({place:"Continuity-bearing place",unit:"Slugline Unit",coverage:"Required Space Plate",state:"Time-of-Day Variant"})[x]).filter(Boolean).join(" · ")
+       ? (item.categories||[]).map(x=>({place:"Continuity-bearing place",unit:"Room & time",coverage:"Extra space",state:"Time-of-Day Variant"})[x]).filter(Boolean).join(" · ")
       : "Character featured in this beat";
     return _el("button",{key:item.id,type:"button",disabled:!ready,
       className:"shot-ref-choice"+(on?" on":"")+(!ready?" unavailable":""),
@@ -1522,14 +1522,14 @@ function AddShotReferenceDialog({ scene, beatN, beatText, plan, ctx, characters,
       _el("div",{className:"shot-ref-dialog-body"},
           _el("section",null,_el("div",{className:"shot-ref-dialog-label"},"Continuity-bearing place"),
            placeChoices.length?_el("div",{className:"shot-ref-choice-list"},placeChoices.map(x=>choice(x,"location",selectedLocations,setSelectedLocations))):_el("div",{className:"shot-ref-dialog-empty"},"No continuity-bearing place reference is available.")),
-          _el("section",null,_el("div",{className:"shot-ref-dialog-label"},"Slugline Units"),
+          _el("section",null,_el("div",{className:"shot-ref-dialog-label"},"Rooms & times"),
            autoLocationReady && _el("button",{type:"button",className:"shot-ref-choice-auto"+(locationMode==="auto"?" on":""),onClick:()=>{setLocationMode("auto");setSelectedLocations([])}},
              "Auto · "+(autoLocationChoices[0].note||autoLocationChoices[0].name||"matched location")),
           sluglineChoices.length
             ? _el("div",{className:"shot-ref-choice-list"},sluglineChoices.map(x=>choice(x,"location",selectedLocations,setSelectedLocations)))
-            : _el("div",{className:"shot-ref-dialog-empty"},"No generated full-frame Slugline Unit applies to this scene.")),
+            : _el("div",{className:"shot-ref-dialog-empty"},"No generated full-frame room & time plate applies to this scene.")),
         coverageChoices.length>0 && _el("section",null,
-          _el("div",{className:"shot-ref-dialog-label"},"Required Space Plates"),
+          _el("div",{className:"shot-ref-dialog-label"},"Extra spaces"),
           _el("div",{className:"shot-ref-choice-list"},coverageChoices.map(x=>choice(x,"location",selectedLocations,setSelectedLocations)))),
          _el("section",null,_el("div",{className:"shot-ref-dialog-label"},"Time-of-Day Variants"),
            stateChoices.length?_el("div",{className:"shot-ref-choice-list"},stateChoices.map(x=>choice(x,"location",selectedLocations,setSelectedLocations))):_el("div",{className:"shot-ref-dialog-empty"},"No time-of-day variant reference is available.")),

@@ -4416,8 +4416,21 @@ function App(){
   //   2) DRAFT every card's spec (The space + Significance + Look dev) from the script
   //   3) STAGE each location's depth grid off the freshly-designed space
   // Replaces the old separate "Pull from script" button.
-  const draftAllLocations = async ()=>{
+  // ONLY WHAT'S MISSING (2026-10-03, owner — Locations review): "Design N locations" drafts the
+  // specs that don't exist yet and the layouts (depth grids) of revisited places that have none — it
+  // used to rewrite every spec and grid, hand edits included, and pay again for each. "Redesign all…"
+  // (mode "redraft") asks first, then redoes everything. A failure is said out loud.
+  const draftAllLocations = async (mode)=>{
     if(draftingAllLocs || !(typeof aiDesignLocationBible==="function")) return;
+    const redraft = mode==="redraft";
+    if(redraft){
+      const n = (locations||[]).length;
+      const ok = typeof window.appConfirm!=="function" || await window.appConfirm({
+        title:"Redesign all "+n+" location"+(n!==1?"s":"")+"?",
+        body:"Every location's spec, and the layout of every place used in two or more scenes, is written again from the screenplay \u2014 replacing the current ones, including your edits. Plates are left as they are. This uses writing credits for every location.",
+        confirmLabel:"Redesign all", danger:true });
+      if(!ok) return;
+    }
     setDraftingAllLocs(true);
     try{
       // 1) pull missing + refresh scene lists on existing
@@ -4434,15 +4447,19 @@ function App(){
         if(derived.length || working.length) setLocations(working);
       }
       if(!working.length){ setDraftingAllLocs(false); return; }
-      // 2) draft specs
-      const map = await aiDesignLocationBible(working, scenes, lbProject("locations"));
+      // 2) draft specs — only the locations with none yet, unless redesigning
+      const isDrafted = (l)=> (typeof locVisualsDrafted==="function") ? locVisualsDrafted(l) : false;
+      const specTargets = redraft ? working : working.filter(l=>!isDrafted(l));
+      const map = specTargets.length ? await aiDesignLocationBible(specTargets, scenes, lbProject("locations")) : {};
+      if(specTargets.length && !map) throw new Error("no specs came back");
       const merged = working.map(l=> (map && map[l.id]) ? {...l, ...keepPickedStyle(l, map[l.id])} : l);
       if(map) setLocations(ls=>ls.map(l=> map[l.id] ? {...l, ...keepPickedStyle(l, map[l.id])} : l));
       // 3) depth-grid staging — only for places the film revisits (2+ scenes), where
       // cross-scene geometric continuity pays off; single-scene locations skip it and
       // render fine from prose (a card's "Draft staging" button stages one on demand).
       if(typeof aiDraftStaging==="function"){
-        const stageTargets = merged.filter(l=>(l.scenes||[]).length>=2);
+        const staged = (l)=> (typeof stagingHasContent==="function") ? stagingHasContent(l) : !!l.staging;
+        const stageTargets = merged.filter(l=>(l.scenes||[]).length>=2 && (redraft || !staged(l)));
         const stages = await Promise.all(stageTargets.map(async l=>{
           try{ return { id:l.id, staging: await aiDraftStaging(l, scenes, project) }; }
           catch(e){ return { id:l.id, staging:null }; }
@@ -4451,7 +4468,9 @@ function App(){
         if(Object.keys(sMap).length) setLocations(ls=>ls.map(l=> sMap[l.id] ? {...l, staging:sMap[l.id]} : l));
       }
       if(working.length) markApplied("locations");
-    }catch(e){}
+    }catch(e){
+      if(typeof window.appToast==="function") window.appToast("Couldn't design the locations ("+((e&&e.message)||"error")+"). Nothing was overwritten \u2014 try again.","error");
+    }
     setDraftingAllLocs(false);
   };
   // draft a location's depth-grid staging from the script
