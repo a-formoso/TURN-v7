@@ -107,8 +107,11 @@ await test("E1 the fold state is per film", ()=>{
 
 /* ═══ F ═══ */
 await test("F1 the scene lists what its frames need, from the render plan; only makeable items are priced", ()=>{
-  assert.ok(group.includes("(plan.activeLocSpec||[]).forEach(x=>add(x,\"location\"));") && group.includes("(plan.castSpec||[]).forEach(x=>add(x,\"character\"));"));
-  assert.ok(group.includes("(plan.propSpec||[]).forEach(x=>add(x,\"prop\"));") && group.includes("(plan.carrySpec||[]).forEach(x=>add(x,\"prop\"));"));
+  // ONE definition, shared with the Breakdown (shots.jsx sceneReferenceNeeds)
+  const needsFn = between(shots, "function sceneReferenceNeeds(sceneShots, ctx, has){", "window.sceneReferenceNeeds");
+  assert.ok(needsFn.includes("(plan.activeLocSpec||[]).forEach(x=>add(x,\"location\"));") && needsFn.includes("(plan.castSpec||[]).forEach(x=>add(x,\"character\"));"));
+  assert.ok(needsFn.includes("(plan.propSpec||[]).forEach(x=>add(x,\"prop\"));") && needsFn.includes("(plan.carrySpec||[]).forEach(x=>add(x,\"prop\"));"));
+  assert.ok(group.includes('const sceneNeeds = (typeof sceneReferenceNeeds==="function") ? sceneReferenceNeeds(shots||[], ctx) : [];'));
   assert.ok(group.includes("window.nbCostChip(makeableNeeds.length)") && group.includes('"Make what this scene needs"'));
   assert.ok(group.includes('(make it in "+(n.kind==="location"?"Locations":n.kind==="prop"?"Props":"Characters")+")"'));
 });

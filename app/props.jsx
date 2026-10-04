@@ -1538,7 +1538,8 @@ function PropExtractionReview({review,onChange,onApply,onClose,props,characters,
 function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDraft, onDraftAll, onAdd, onImportProps, onDelete, draftingId, draftingIds, draftingAll, castHasProps, onMergeProps, trashItems, onRestore, onPurge, onEnsureOwner, onSourceClick, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, noPropsConfirmed, onSetNoProps }){
   const [view, setView] = React.useState(null);   // {url, character/prop}
   if(window.useRenderStyleVersion) window.useRenderStyleVersion();   // re-render dropdowns when a style is locked/unlocked
-  const [sceneFilter, setSceneFilter] = React.useState("");   // "" = all
+  const [sceneFilter, setSceneFilter] = React.useState(()=>{ const f = window.turnPeekArtFocus && window.turnPeekArtFocus("props"); return (f && f.sceneId) || ""; });   // "" = all (a Breakdown hand-off opens on its scene)
+  React.useEffect(()=>{ if(window.turnClearArtFocus) window.turnClearArtFocus("props"); },[]);
   const [query, setQuery] = React.useState("");               // free-text name/owner search
   const [inventoryGroup,setInventoryGroupRaw]=React.useState("story");
   const groupPicked = React.useRef(false);   // the user (or a batch) chose a view — never switch it for them

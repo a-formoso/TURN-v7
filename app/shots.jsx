@@ -2444,6 +2444,60 @@ async function shotRunPropsNeeding(entries){
 }
 window.shotRunPropsNeeding = shotRunPropsNeeding;
 
+/* WHAT A SCENE'S FRAMES NEED (2026-10-03, owner — Shots / Breakdown reviews): the reference images
+   its shots attach that don't exist yet — character sheets (or the scene's appearance variant),
+   location / room & time plates, prop sheets — read from the same render plan the frames use. ONE
+   definition, shared by the Shots scene card ("Needs: …") and the Breakdown strip, so they agree.
+   `has(id)` says whether an image exists (the caller's cache: Breakdown also checks local storage). */
+function sceneReferenceNeeds(sceneShots, ctx, has){
+  const out = [], seen = {};
+  const exists = typeof has==="function" ? has : ((id)=> (typeof nbGetImage==="function") ? !!nbGetImage(id) : true);
+  const sorted = (typeof sceneShotsOrdered==="function") ? sceneShotsOrdered(sceneShots||[]) : (sceneShots||[]);
+  const locIds = new Set(((ctx && ctx.locations)||[]).map(l=>l && l.id));
+  sorted.forEach(sh=>{
+    let plan = null;
+    try{ plan = (typeof shotRenderPlan==="function") ? shotRenderPlan(sh, sorted, ctx||{}) : null; }catch(e){}
+    if(!plan) return;
+    const add = (spec, kind)=>{
+      if(!spec || !spec.id || seen[spec.id] || exists(spec.id)) return;
+      seen[spec.id] = true;
+      const makeable = kind==="character" ? true
+        : kind==="prop" ? (!spec.baseId || spec.baseId===spec.id)
+        : (locIds.has(spec.id) || /^locunit-/.test(String(spec.id)));
+      out.push({ id:spec.id, baseId:spec.baseId||spec.id, kind, makeable,
+        label:String(spec.label||spec.name||spec.note||spec.id).replace(/\s*\(identity only[\s\S]*$/,"").slice(0,60) });
+    };
+    (plan.activeLocSpec||[]).forEach(x=>add(x,"location"));
+    (plan.castSpec||[]).forEach(x=>add(x,"character"));
+    (plan.propSpec||[]).forEach(x=>add(x,"prop"));
+    (plan.carrySpec||[]).forEach(x=>add(x,"prop"));
+  });
+  return out;
+}
+window.sceneReferenceNeeds = sceneReferenceNeeds;
+
+/* A shot frame's state, by the rules the Shots tab's ordered runs use: DONE = rendered, approved,
+   and current (its shot spec / screenplay source unchanged, or overridden on purpose, and its seed
+   chain intact). oldLook = made before the scene's colour look or the film stock changed. */
+function shotFrameState(sh, sceneShots, drafts, project, has){
+  const exists = typeof has==="function" ? has : ((id)=> (typeof nbGetImage==="function") ? !!nbGetImage(id) : false);
+  const rendered = !!(sh && exists(sh.id));
+  const meta = (id)=> (typeof nbGetMeta==="function") ? nbGetMeta(id) : null;
+  const approved = !!(sh && (sh.locked || sh.approved));
+  let current = rendered;
+  if(rendered){
+    const st = (typeof shotAssetProvenanceStatus==="function") ? shotAssetProvenanceStatus(sh, (drafts||{})[sh.sceneId], meta(sh.id)) : "current";
+    const ov = (typeof shotSourceOverrideCurrent==="function") && shotSourceOverrideCurrent(sh, (drafts||{})[sh.sceneId]);
+    const chainStale = (typeof shotChainStatus==="function") && shotChainStatus(sh, sceneShots||[], meta)==="stale";
+    current = (st==="current" || !!ov) && !chainStale;
+  }
+  const m = rendered ? meta(sh.id) : null;
+  const lookNow = (typeof shotLookSig==="function" && project && sh) ? shotLookSig(project, sh.sceneId) : "";
+  const oldLook = !!(m && m.lookSig && lookNow && m.lookSig!==lookNow);
+  return { rendered, approved, current, oldLook, done: rendered && approved && current };
+}
+window.shotFrameState = shotFrameState;
+
 /* ============================================================
    ONE RENDER PLAN (architect review 2026-09-01): shotRenderPlan is the single
    source of truth for WHAT a shot renders from — seed shot, in-frame cast/props,

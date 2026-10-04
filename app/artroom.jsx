@@ -5437,6 +5437,12 @@ function charLookbookFirstHint(lookbook, lookbookNote, characters, draftingAll){
 }
 window.charLookbookFirstHint = charLookbookFirstHint;
 
+/* OPEN A TAB ON A SCENE (2026-10-03, owner — Breakdown review): the Breakdown's missing items and
+   one-scene actions hand the next tab a scene to focus (and, for Shots, an optional action). Read at
+   mount (peek), cleared once used; a hand-off older than 15 s is ignored. */
+window.turnFocusArtScene = (tab, sceneId, action)=>{ window.turnArtFocus = { tab, sceneId, action:action||"", at:Date.now() }; };
+window.turnPeekArtFocus = (tab)=>{ const f = window.turnArtFocus; return (f && f.tab===tab && Date.now()-f.at<15000) ? f : null; };
+window.turnClearArtFocus = (tab)=>{ const f = window.turnArtFocus; if(f && f.tab===tab) window.turnArtFocus = null; };
 function CharacterSheets({ project, characters, scenes, props, drafts, shots, beatsMap, onUpdate, onDraft, onDraftAll, draftingId, draftingAll, draftingIds, onSuggestStates, suggestingStatesId, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, onDelete, onCast, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, lookbook, lookbookNote, onOpenLookbook }){
   const [view, setView] = React.useState(null);   // {url, character}
   // Keep one open flag per character so several card-contained Voice cards can
@@ -5459,7 +5465,8 @@ function CharacterSheets({ project, characters, scenes, props, drafts, shots, be
   // which characters actually speak (have dialogue) — used to flag the per-card Voice control
   const speakingSet = React.useMemo(()=> (typeof speakingCharIds==="function") ? speakingCharIds(characters, scenes, shots) : new Set(), [characters, scenes, shots]);
   const [mgrOpen, setMgrOpen] = React.useState(false);
-  const [sceneFilter, setSceneFilter] = React.useState("");   // "" = all scenes
+  const [sceneFilter, setSceneFilter] = React.useState(()=>{ const f = window.turnPeekArtFocus && window.turnPeekArtFocus("characters"); return (f && f.sceneId) || ""; });   // "" = all scenes
+  React.useEffect(()=>{ if(window.turnClearArtFocus) window.turnClearArtFocus("characters"); },[]);
   const [query, setQuery] = React.useState("");               // free-text name search
   const [searchOpen, setSearchOpen] = React.useState(false);  // collapsible search: icon-only until clicked
   const searchRef = React.useRef(null);
@@ -6081,7 +6088,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
       ? React.createElement(window.StoryboardView,{project,scenes,shots,characters,props,locations,beatsMap,setArtView,onUpdateShot,
           stale:!!_stale.storyboard,onReviewLookbook:canReview?()=>onReviewLookbook&&onReviewLookbook("storyboard"):null})
       : artView==="breakdown" && window.BreakdownView
-      ? React.createElement(window.BreakdownView,{project,scenes,characters,props,locations,shots,drafts,setArtView})
+      ? React.createElement(window.BreakdownView,{project,scenes,characters,props,locations,shots,drafts,setArtView,onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds})
       : React.createElement(ArtComingSoon,{tab:artView})));
 }
 window.ArtRoom = ArtRoom;

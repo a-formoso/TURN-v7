@@ -1481,7 +1481,8 @@ function UnitDressing({ u, onUpdateUnit, items, suggestions, onChange, label="Te
 function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft, onDraftAll, onDelete, draftingId, draftingIds, draftingAll, scriptHasLocs, onDraftStaging, draftingStageId, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, sluglineUnits, onUpdateUnit, onRemoveUnit, readOnly=false }){
   const [view, setView] = React.useState(null);
   if(window.useRenderStyleVersion) window.useRenderStyleVersion();   // re-render dropdowns when a style is locked/unlocked
-  const [sceneFilter, setSceneFilter] = React.useState("");
+  const [sceneFilter, setSceneFilter] = React.useState(()=>{ const f = window.turnPeekArtFocus && window.turnPeekArtFocus("locations"); return (f && f.sceneId) || ""; });   // a Breakdown hand-off opens on its scene
+  React.useEffect(()=>{ if(window.turnClearArtFocus) window.turnClearArtFocus("locations"); },[]);
   const [query, setQuery] = React.useState("");               // free-text name search
   const [searchOpen, setSearchOpen] = React.useState(false);  // collapsible search: icon-only until clicked
   const searchRef = React.useRef(null);

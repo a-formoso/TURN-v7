@@ -1789,31 +1789,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
     window.addEventListener("nb-gen-done", h);
     return ()=> window.removeEventListener("nb-gen-done", h);
   },[]);
-  const sceneNeeds = (()=>{
-    const out = [], seen = {};
-    const has = (id)=> (typeof nbGetImage==="function") ? !!nbGetImage(id) : true;
-    const sorted = (typeof sceneShotsOrdered==="function") ? sceneShotsOrdered(shots||[]) : (shots||[]);
-    const locIds = new Set(((ctx.locations)||[]).map(l=>l && l.id));
-    sorted.forEach(sh=>{
-      let plan = null;
-      try{ plan = (typeof shotRenderPlan==="function") ? shotRenderPlan(sh, sorted, ctx) : null; }catch(e){}
-      if(!plan) return;
-      const add = (spec, kind)=>{
-        if(!spec || !spec.id || seen[spec.id] || has(spec.id)) return;
-        seen[spec.id] = true;
-        const makeable = kind==="character" ? true
-          : kind==="prop" ? (!spec.baseId || spec.baseId===spec.id)
-          : (locIds.has(spec.id) || /^locunit-/.test(String(spec.id)));
-        out.push({ id:spec.id, baseId:spec.baseId||spec.id, kind, makeable,
-          label:String(spec.label||spec.name||spec.note||spec.id).replace(/\s*\(identity only[\s\S]*$/,"").slice(0,60) });
-      };
-      (plan.activeLocSpec||[]).forEach(x=>add(x,"location"));
-      (plan.castSpec||[]).forEach(x=>add(x,"character"));
-      (plan.propSpec||[]).forEach(x=>add(x,"prop"));
-      (plan.carrySpec||[]).forEach(x=>add(x,"prop"));
-    });
-    return out;
-  })();
+  const sceneNeeds = (typeof sceneReferenceNeeds==="function") ? sceneReferenceNeeds(shots||[], ctx) : [];
   void needsTick;
   const makeableNeeds = sceneNeeds.filter(n=>n.makeable);
   const makeNeeds = async ()=>{
@@ -2284,6 +2260,21 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
       el.scrollIntoView({ block:"center", behavior:"smooth" });
   },[activeShotId, queueMode]);
   const runnerScene = activeSceneIdx>=0 && activeSceneIdx!==visibleIdx ? scenesWithShots[activeSceneIdx] : null;
+  // A BREAKDOWN HAND-OFF (2026-10-03): open on that scene, and — for "Render Scene NN" — start its
+  // run (which still asks first with the price). Once, at mount.
+  const focusDone = React.useRef(false);
+  React.useEffect(()=>{
+    if(focusDone.current || !scenesWithShots.length) return;
+    focusDone.current = true;
+    const f = window.turnPeekArtFocus && window.turnPeekArtFocus("shots");
+    if(window.turnClearArtFocus) window.turnClearArtFocus("shots");
+    if(!f) return;
+    const i = scenesWithShots.findIndex(x=>x.id===f.sceneId);
+    if(i<0) return;
+    setPIdx(i);
+    setCollapsed(c=>({ ...c, [f.sceneId]:false }));
+    if(f.action==="render") setTimeout(()=>{ startSceneRef.current && startSceneRef.current(scenesWithShots[i]); }, 400);
+  },[scenesWithShots.length]);
   const sceneNoOf = (sid)=>{ const s=(scenes||[]).find(x=>x.id===sid); return s ? s.no : sid; };
 
   // ---- the rolling-keyframe CHAIN runner ----------------------------------------
@@ -2454,6 +2445,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
     setCollapsed({});   // expand all so each card is mounted as the chain reaches it
     stepChain(ids, 0, false); };
   const filmPlan = runPlanFor(scenesWithShots.flatMap(s=>chainOrderIds(shotsByScene[s.id])));
+  const startSceneRef = React.useRef(null); startSceneRef.current = startScene;
   // re-run a scene's chain from the shot AFTER `sh` \u2014 used after re-rolling a frame so the
   // propagated state stays current. Unlocks the downstream shots so they actually re-render.
   const onRegenDownstream = (sh)=>{ if(!sh) return; if(batchActiveId||chain){ chainBusyNotice(); return; } if(!chainKeyOk()){ batch.setMsg("Set your image-model API key first (top of this tab)."); return; }

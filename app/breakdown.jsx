@@ -31,7 +31,7 @@ function bdSlug(loc){
 
 /* one row per scene, in story order. `img(id)` says whether an image exists for an asset
    id; `tierOf(prop)` is the prop's reference-image tier ("text" = described, not drawn). */
-function breakdownRows({ scenes, characters, props, locations, shots, drafts, img, tierOf }){
+function breakdownRows({ scenes, characters, props, locations, shots, drafts, img, tierOf, project }){
   const ordered = (typeof scenesInStoryOrder==="function") ? scenesInStoryOrder(scenes||[]) : (scenes||[]).slice();
   const C = characters||[];
   let prevKind = "";
@@ -61,14 +61,40 @@ function breakdownRows({ scenes, characters, props, locations, shots, drafts, im
     const rendered = sceneShots.filter(s=> img(s.id)).length;
     const approved = sceneShots.filter(s=> s.approved || s.locked).length;
     const missing = [];
-    cast.filter(c=>!c.ready).forEach(c=> missing.push({ tab:"characters", text: c.state ? (c.name+" · "+c.state+" variant") : (c.name+"'s sheet") }));
-    if(!location) missing.push({ tab:"locations", text:"a location card" });
-    else if(!location.ready) missing.push({ tab:"locations", text:location.name+" plate" });
-    wardrobe.concat(sceneProps).filter(p=>!p.ready).forEach(p=> missing.push({ tab:"props", text:p.name+" sheet" }));
+    // THE SAME RULES AS SHOTS (2026-10-03, owner — Breakdown review): with shots, what's missing is
+    // exactly what the scene's frames attach and don't have yet (sceneReferenceNeeds — so the room &
+    // time plate a scene shoots in counts, not just the main plate), and a frame is done only when
+    // it is rendered, APPROVED and CURRENT (shotFrameState). Without the shared helpers (or shots),
+    // the older sheet / plate / rendered-frame checks stand.
+    const sceneCtx = { scene, scenes:ordered, location:loc, locations:locations||[], project:project||{},
+      charById:Object.fromEntries(C.map(c=>[c.id,c])), propById:Object.fromEntries((props||[]).filter(Boolean).map(p=>[p.id,p])) };
+    let needs = null;
+    if(sceneShots.length && typeof sceneReferenceNeeds==="function"){
+      try{ needs = sceneReferenceNeeds(sceneShots, sceneCtx, img); }catch(e){ needs = null; }
+    }
+    if(needs){
+      const TAB = { character:"characters", location:"locations", prop:"props" };
+      if(!location) missing.push({ tab:"locations", text:"a location card" });
+      needs.forEach(n=> missing.push({ tab:TAB[n.kind]||"shots", text:n.label+(n.kind==="prop"?" sheet":n.kind==="location"?" plate":""), need:n }));
+    } else {
+      cast.filter(c=>!c.ready).forEach(c=> missing.push({ tab:"characters", text: c.state ? (c.name+" · "+c.state+" variant") : (c.name+"'s sheet") }));
+      if(!location) missing.push({ tab:"locations", text:"a location card" });
+      else if(!location.ready) missing.push({ tab:"locations", text:location.name+" plate" });
+      wardrobe.concat(sceneProps).filter(p=>!p.ready).forEach(p=> missing.push({ tab:"props", text:p.name+" sheet" }));
+    }
+    let toRender = 0, oldLook = 0;
     if(!sceneShots.length) missing.push({ tab:"shots", text:"shots" });
-    else if(rendered<sceneShots.length){ const n=sceneShots.length-rendered; missing.push({ tab:"shots", text:n+" frame"+(n===1?"":"s") }); }
+    else if(typeof shotFrameState==="function"){
+      sceneShots.forEach(sh=>{ const st = shotFrameState(sh, sceneShots, drafts, project, img); if(!st.done) toRender++; else if(st.oldLook) oldLook++; });
+      const unrendered = sceneShots.length-rendered, notDone = toRender-unrendered;
+      if(unrendered>0) missing.push({ tab:"shots", text:unrendered+" frame"+(unrendered===1?"":"s") });
+      if(notDone>0) missing.push({ tab:"shots", text:notDone+" frame"+(notDone===1?"":"s")+" to approve or refresh" });
+      if(oldLook>0) missing.push({ tab:"shots", text:oldLook+" frame"+(oldLook===1?"":"s")+" with an earlier look" });
+    }
+    else if(rendered<sceneShots.length){ const n=sceneShots.length-rendered; toRender=n; missing.push({ tab:"shots", text:n+" frame"+(n===1?"":"s") }); }
     return { scene, slug:{ ...slug, todKind }, cast, location, wardrobe, props:sceneProps,
-      shots:{ total:sceneShots.length, rendered, approved }, missing, ready:!missing.length };
+      shots:{ total:sceneShots.length, rendered, approved, toRender }, missing, ready:!missing.length,
+      needs: needs||[] };
   });
 }
 
@@ -77,13 +103,21 @@ function breakdownSummary(rows){
   const castSheets = new Set(), plates = new Set(), propSheets = new Set();
   let frames = 0, noShots = 0, noLoc = 0;
   (rows||[]).forEach(r=>{
-    r.cast.forEach(c=>{ if(!c.ready) castSheets.add(c.sheetId); });
-    if(!r.location) noLoc++; else if(!r.location.ready) plates.add(r.location.id);
-    r.wardrobe.concat(r.props).forEach(p=>{ if(!p.ready) propSheets.add(p.id); });
-    if(!r.shots.total) noShots++; else frames += r.shots.total - r.shots.rendered;
+    if(r.needs && r.needs.length){
+      // the render-plan needs (deduped across scenes by asset id)
+      r.needs.forEach(n=>{ (n.kind==="character" ? castSheets : n.kind==="location" ? plates : propSheets).add(n.id); });
+      if(!r.location) noLoc++;
+    } else {
+      r.cast.forEach(c=>{ if(!c.ready) castSheets.add(c.sheetId); });
+      if(!r.location) noLoc++; else if(!r.location.ready) plates.add(r.location.id);
+      r.wardrobe.concat(r.props).forEach(p=>{ if(!p.ready) propSheets.add(p.id); });
+    }
+    if(!r.shots.total) noShots++; else frames += (r.shots.toRender!=null ? r.shots.toRender : r.shots.total - r.shots.rendered);
   });
+  // the images still to make, for the "≈ N credits to finish" estimate
+  const images = castSheets.size + plates.size + propSheets.size + frames;
   return { total:(rows||[]).length, ready:(rows||[]).filter(r=>r.ready).length,
-    castSheets:castSheets.size, plates:plates.size, propSheets:propSheets.size, frames, noShots, noLoc };
+    castSheets:castSheets.size, plates:plates.size, propSheets:propSheets.size, frames, noShots, noLoc, images };
 }
 
 const BD_STRIP_LABEL = { "int-day":"INT · Day", "ext-day":"EXT · Day", "int-night":"INT · Night", "ext-night":"EXT · Night", "dusk":"Dawn / Dusk" };
@@ -103,10 +137,13 @@ function bdSummaryLine(sum){
   if(sum.frames) todo.push(sum.frames+" frame"+(sum.frames===1?"":"s"));
   if(sum.noShots) todo.push(sum.noShots+" scene"+(sum.noShots===1?"":"s")+" without shots");
   if(sum.noLoc) todo.push(sum.noLoc+" without a location card");
-  return sum.ready+" of "+sum.total+" scene"+(sum.total===1?"":"s")+" ready to shoot"+(todo.length ? " · to go: "+todo.join(", ") : "");
+  // what's left to spend, from the current engine's price for one image
+  const cost = (sum.images && typeof window.nbImageCostText==="function") ? window.nbImageCostText(sum.images) : "";
+  return sum.ready+" of "+sum.total+" scene"+(sum.total===1?"":"s")+" ready to shoot"+(todo.length ? " · to go: "+todo.join(", ") : "")
+    +(cost ? " \u00b7 \u2248 "+cost+" credit"+(cost==="1"?"":"s")+" to finish (image credits; drafting adds a little writing)" : "");
 }
 
-function BreakdownView({ project, scenes, characters, props, locations, shots, drafts, setArtView }){
+function BreakdownView({ project, scenes, characters, props, locations, shots, drafts, setArtView, onMakeSceneNeeds }){
   const [tick, setTick] = React.useState(0);
   const [filter, setFilter] = React.useState("all");   // all | todo | ready
   const [found, setFound] = React.useState(()=>new Set());   // ids found in local storage after mount
@@ -120,8 +157,8 @@ function BreakdownView({ project, scenes, characters, props, locations, shots, d
   },[]);
   const img = (id)=> found.has(id) || ((typeof nbGetImage==="function") ? !!nbGetImage(id) : false);
   const tierOf = (p)=>{ try{ return (window.PropScreenplay && window.PropScreenplay.sheetTier) ? window.PropScreenplay.sheetTier(p, drafts||{}).tier : "own"; }catch(e){ return "own"; } };
-  const rows = React.useMemo(()=> breakdownRows({ scenes, characters, props, locations, shots, drafts, img, tierOf }),
-    [scenes, characters, props, locations, shots, drafts, tick, found]);
+  const rows = React.useMemo(()=> breakdownRows({ scenes, characters, props, locations, shots, drafts, img, tierOf, project }),
+    [scenes, characters, props, locations, shots, drafts, tick, found, project]);
   const sum = breakdownSummary(rows);
   // a cloud film: ONE batched prefetch (shared with the Art Room's own) warms every asset url
   React.useEffect(()=>{
@@ -157,7 +194,14 @@ function BreakdownView({ project, scenes, characters, props, locations, shots, d
   React.useEffect(()=>{ window.turnExportBreakdown = ()=> exportStripboard(rows, project);
     return ()=>{ if(window.turnExportBreakdown) delete window.turnExportBreakdown; }; });
 
-  const go = (tab)=>{ if(tab && setArtView) setArtView(tab); };
+  // OPEN ON THE SCENE (2026-10-03): the tab opens focused on this strip's scene ("render" also
+  // starts Shots' Render Scene NN, which asks first with its price)
+  const go = (tab, sceneId, action)=>{
+    if(!tab || !setArtView) return;
+    if(sceneId && typeof window.turnFocusArtScene==="function") window.turnFocusArtScene(tab, sceneId, action);
+    setArtView(tab);
+  };
+  const exportBible = ()=> exportArtBible({ project, characters, props, locations, scenes, drafts, shots });
   const shown = rows.filter(r=> filter==="all" || (filter==="ready" ? r.ready : !r.ready));
   const header = _bdEl("div",{className:"art-intro"},
     _bdEl("div",{className:"art-intro-row"},
@@ -167,6 +211,13 @@ function BreakdownView({ project, scenes, characters, props, locations, shots, d
             text:"The Breakdown is your stripboard: one strip per scene, in story order, coloured the way film crews colour them — white for INT day, yellow for EXT day, blue for INT night, green for EXT night, pink for dawn and dusk. Each strip lists who is in the scene (in the look they wear there), its location, the props it needs and its shots, and says what is still missing before the scene can be shot: a cast sheet or appearance variant, a location plate, a prop sheet, or shot frames. Click a missing item to open its tab. Nothing here generates or spends credits. Export the stripboard, or the whole art department bible, from the ⋮ menu."})),
         _bdEl("div",{className:"bd-sum"}, !rows.length ? "No scenes yet" : checking ? "Checking which sheets and frames exist\u2026" : bdSummaryLine(sum))),
       rows.length>0 && !checking && _bdEl("div",{className:"art-intro-actions"},
+        // the two exports, here too (they also stay in the top bar's ⋮ menu)
+        _bdEl("button",{type:"button",className:"art-draftall ghost",onClick:()=>exportStripboard(rows, project),
+          title:"Preview the stripboard as a printable document, then print / save as PDF or download it"},
+          _bdEl(Icon.download,{s:14}),"Export stripboard"),
+        _bdEl("button",{type:"button",className:"art-draftall ghost",onClick:exportBible,
+          title:"The cast, props and locations as one printable document, with their current sheets embedded"},
+          _bdEl(Icon.download,{s:14}),"Art department bible"),
         _bdEl("div",{className:"bd-filter",role:"group","aria-label":"Show scenes"},
           [["all","All"],["todo","Needs work"],["ready","Ready"]].map(([id,lab])=>
             _bdEl("button",{key:id,type:"button",className:"bd-filter-btn"+(filter===id?" on":""),"aria-pressed":filter===id?"true":"false",
@@ -188,14 +239,34 @@ function BreakdownView({ project, scenes, characters, props, locations, shots, d
     _bdEl("div",{className:"bd-legend","aria-label":"Strip colours"},
       Object.keys(BD_STRIP_LABEL).map(k=> _bdEl("span",{key:k,className:"bd-legend-i"}, _bdEl("span",{className:"bd-sw bd-k-"+k}), BD_STRIP_LABEL[k]))),
     _bdEl("div",{className:"bd-board"},
-      shown.length ? shown.map(r=> _bdEl(BreakdownStrip,{key:r.scene.id, row:r, go}))
+      shown.length ? shown.map(r=> _bdEl(BreakdownStrip,{key:r.scene.id, row:r, go, onMakeSceneNeeds}))
         : _bdEl("div",{className:"bd-none"}, filter==="ready" ? "No scene is ready to shoot yet." : "Every scene is ready to shoot.")));
 }
 window.BreakdownView = BreakdownView;
 
 const BD_PROPS_SHOWN = 6;
-function BreakdownStrip({ row, go }){
+function BreakdownStrip({ row, go:goTab, onMakeSceneNeeds }){
   const { scene, slug, cast, location, wardrobe, props, shots, missing, ready } = row;
+  const go = (tab, action)=> goTab(tab, scene.id, action);   // every link opens on THIS scene
+  const [needsRun, setNeedsRun] = React.useState(null);
+  const makeable = (row.needs||[]).filter(n=>n.makeable);
+  const makeNeeds = async ()=>{
+    if(!onMakeSceneNeeds || needsRun || !makeable.length) return;
+    setNeedsRun({ i:0, total:makeable.length });
+    try{ await onMakeSceneNeeds(scene, makeable, (i,total)=>setNeedsRun({ i, total })); }
+    finally{ setNeedsRun(null); }
+  };
+  // ONE SCENE, FROM HERE: make what it needs, then render it (both priced)
+  const canRender = shots.total>0 && !(row.needs||[]).length && (shots.toRender||0)>0;
+  const sceneActs = (onMakeSceneNeeds && makeable.length>0) || canRender ? _bdEl("div",{className:"bd-strip-acts"},
+    (onMakeSceneNeeds && makeable.length>0) && _bdEl("button",{type:"button",className:"bd-act",disabled:!!needsRun,onClick:makeNeeds,
+        title:"Make the "+makeable.length+" missing reference image"+(makeable.length!==1?"s":"")+" this scene's frames use (location plates, rooms & times, character sheets, prop sheets — in that order)"},
+      needsRun ? ("Making "+needsRun.i+" of "+needsRun.total+"\u2026") : "Make what this scene needs",
+      !needsRun && typeof window.nbCostChip==="function" && window.nbCostChip(makeable.length)),
+    canRender && _bdEl("button",{type:"button",className:"bd-act",onClick:()=>go("shots","render"),
+        title:"Open Shots on this scene and render its "+shots.toRender+" frame"+(shots.toRender!==1?"s":"")+" that aren't approved and current \u2014 it asks first with the price"},
+      "Render Scene "+String(scene.no!=null?scene.no:"").padStart(2,"0"),
+      typeof window.nbCostChip==="function" && window.nbCostChip(shots.toRender))) : null;
   const [allProps, setAllProps] = React.useState(false);
   const [allWorn, setAllWorn] = React.useState(false);
   const kind = bdStripKind(slug);
@@ -236,7 +307,8 @@ function BreakdownStrip({ row, go }){
           _bdEl("div",{className:"bd-chips"}, shots.total
             ? _bdEl("button",{type:"button",className:"bd-chip"+(shots.rendered===shots.total?" ok":""),onClick:()=>go("shots"),title:"Open the Shots tab"},
                 dot(shots.rendered===shots.total), shots.total+" shot"+(shots.total===1?"":"s")+" · "+shots.rendered+" rendered"+(shots.approved?" · "+shots.approved+" approved":""))
-            : _bdEl("button",{type:"button",className:"bd-chip",onClick:()=>go("shots"),title:"Design this scene's coverage in the Shots tab"}, dot(false), "No shots yet"))))),
+            : _bdEl("button",{type:"button",className:"bd-chip",onClick:()=>go("shots"),title:"Design this scene's coverage in the Shots tab"}, dot(false), "No shots yet")))),
+      sceneActs),
     _bdEl("div",{className:"bd-strip-status"+(ready?" ok":"")},
       ready ? _bdEl(React.Fragment,null, _bdEl(Icon.check,{s:14}), "Ready")
         : _bdEl(React.Fragment,null, _bdEl("span",{className:"bd-need-n"}, missing.length), _bdEl("span",null,"to go"),
@@ -297,10 +369,25 @@ window.exportStripboard = exportStripboard;
 /* ART DEPARTMENT BIBLE — the cast, props and locations as one printable document: every
    written spec field, the scenes each appears in, and the current sheet image where one
    exists. Reads the cards as they are; generates nothing. */
-function exportArtBible({ project, characters, props, locations, scenes, drafts, shots }){
+/* EMBEDDED (2026-10-03, owner — Breakdown review): stored sheets are served on links that expire
+   within the hour, so a saved bible soon showed empty boxes. Every sheet image is inlined as a data
+   URL first (like the storyboard export); one that can't be fetched keeps its link. */
+async function _bdInline(url){
+  if(!url || /^data:/.test(url)) return url;
+  try{
+    if(typeof window.sbToDataUrl==="function") return (await window.sbToDataUrl(url)) || url;
+    const blob = await (await fetch(url)).blob();
+    return await new Promise((res)=>{ const fr = new FileReader(); fr.onload = ()=>res(String(fr.result||url)); fr.onerror = ()=>res(url); fr.readAsDataURL(blob); });
+  }catch(e){ return url; }
+}
+async function exportArtBible({ project, characters, props, locations, scenes, drafts, shots }){
   const title = (project && project.title) || "Art department bible";
   const ordered = (typeof scenesInStoryOrder==="function") ? scenesInStoryOrder(scenes||[]) : (scenes||[]);
-  const imgUrl = (id)=>{ try{ return (typeof nbGetImage==="function" && nbGetImage(id)) || ""; }catch(e){ return ""; } };
+  const _raw = (id)=>{ try{ return (typeof nbGetImage==="function" && nbGetImage(id)) || ""; }catch(e){ return ""; } };
+  const _inlined = {};
+  for(const x of [...(characters||[]), ...(props||[]), ...(locations||[])]){
+    const u = x && x.id ? _raw(x.id) : ""; if(u && !(x.id in _inlined)) _inlined[x.id] = await _bdInline(u); }
+  const imgUrl = (id)=> _inlined[id] || _raw(id);
   const scNos = (ids)=> ordered.filter(s=> ids.indexOf(s.id)>=0).map(s=> s.no);
   const scLine = (nos)=> nos.length ? "Sc "+nos.join(", ") : "";
   const field = (lab, v)=>{ const t = (v==null ? "" : Array.isArray(v) ? v.filter(Boolean).join(", ") : String(v)).trim();
@@ -351,7 +438,7 @@ function exportArtBible({ project, characters, props, locations, scenes, drafts,
       +'<h3>'+_bdEsc(l.name||"Location")+'</h3>'
       +'<div class="m">'+_bdEsc([l.intExt, l.parentLocation && l.parentLocation.name ? "within "+l.parentLocation.name : ""].filter(Boolean).join(" · "))+'</div>'
       +field("Architecture", l.architecture)+field("Materials", l.materials)+field("Permanent lighting", l.lighting)
-      +field("Permanent dressing", l.permanentDressing)+field("Topology", l.topology)+field("Continuity anchors", l.continuityAnchors)
+      +field("Permanent dressing", l.permanentDressing)+field("How the rooms connect", l.topology)+field("Fixed landmarks", l.continuityAnchors)
       +field("Significance", l.significance)+field("Scenes", scLine(locScenes))
       +'</div></section>';
   }).join("");
@@ -377,7 +464,7 @@ function exportArtBible({ project, characters, props, locations, scenes, drafts,
     +'<h2>Locations</h2>'+(locsHtml||'<div class="empty">No locations yet.</div>')
     +'</body></html>';
   _bdPreview("Art department bible", title, _bdFileBase(project)+"_ART_BIBLE.html", html,
-    "Sheet images link to your stored sheets and those links can expire — save as PDF to keep them.");
+    "Sheet images are embedded, so the saved file keeps them. Print / save as PDF, or download the HTML.");
 }
 window.exportArtBible = exportArtBible;
 window.breakdownRows = breakdownRows;

@@ -46,7 +46,7 @@ await test("each strip lists the cast in their look, the location, props and sho
   assert.deepEqual(rows.map(r=>r.scene.no),[1,2],"story order");
   const [a,b]=rows;
   assert.ok(a.ready && !a.missing.length,"scene 1 has everything: "+JSON.stringify(plain(a.missing)));
-  assert.deepEqual(plain(a.shots),{total:2,rendered:2,approved:1});
+  assert.deepEqual(plain(a.shots),{total:2,rendered:2,approved:1,toRender:0});
   assert.equal(b.slug.todKind,"night","CONTINUOUS keeps the previous scene's clock");
   const m=b.cast.find(c=>c.id==="marcus");
   assert.ok(m.state==="Wet suit" && m.sheetId==="marcus:wet" && !m.ready,"the variant this scene calls for");
@@ -80,7 +80,7 @@ await test("strips are coloured the crew way",()=>{
   for(const c of ["int-day","ext-day","int-night","ext-night","dusk"]) assert.ok(css.includes(".bd-k-"+c+"{--bd-c:"),c);
 });
 
-await test("the stripboard and the art department bible print through the document preview",()=>{
+await test("the stripboard and the art department bible print through the document preview",async ()=>{
   previews.length=0;
   box.exportStripboard(rowsOf(film()),{title:"The Last Word"});
   const sp=previews.pop();
@@ -90,7 +90,7 @@ await test("the stripboard and the art department bible print through the docume
   const f=film(); f.characters[0].pronouns="he/him"; f.characters[0].voice={accent:"soft Glaswegian"};
   box.nbGetImage=id=> id==="marcus" ? "https://example.test/marcus.png" : "";
   box.PropScreenplay={ sheetTier:(p)=>({ tier: p.id==="p-rain" ? "text" : "own" }) };
-  box.exportArtBible({project:{title:"The Last Word"},...f});
+  await box.exportArtBible({project:{title:"The Last Word"},...f});
   const bb=previews.pop();
   assert.equal(bb.fileName,"THE_LAST_WORD_ART_BIBLE.html");
   assert.ok(bb.html.includes('<img src="https://example.test/marcus.png" alt="Marcus">'),"current sheet image");
@@ -99,14 +99,14 @@ await test("the stripboard and the art department bible print through the docume
   assert.ok(/<h2>Cast<\/h2>[\s\S]*<h2>Props<\/h2>[\s\S]*<h2>Locations<\/h2>/.test(bb.html));
   // the physique prints once when Body already carries it
   const h=film(); h.characters[0].coreBody="Apparent age: mid 40s. Build: stooped and thick."; h.characters[0].physique={age:"mid 40s",build:"stooped and thick"};
-  box.exportArtBible({project:{title:"T"},...h});
+  await box.exportArtBible({project:{title:"T"},...h});
   const once=previews.pop().html;
   assert.ok(once.includes("Apparent age: mid 40s")&&!/<span class="l">Age<\/span>/.test(once));
-  h.characters[0].coreBody="Weathered hands."; box.exportArtBible({project:{title:"T"},...h});
+  h.characters[0].coreBody="Weathered hands."; await box.exportArtBible({project:{title:"T"},...h});
   assert.ok(/<span class="l">Age<\/span>mid 40s/.test(previews.pop().html),"shown when Body doesn't carry it");
   // no HTML injection from card text
   const g=film(); g.characters[1].name='<script>x</script>';
-  box.exportArtBible({project:{title:"T"},...g});
+  await box.exportArtBible({project:{title:"T"},...g});
   assert.ok(!previews.pop().html.includes("<script>x</script>"));
 });
 
