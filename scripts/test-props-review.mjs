@@ -238,7 +238,7 @@ await test("G1 Frances: no background builds, owners asked first, missing-only d
   assert.ok(/Kinolot ASKS FIRST/.test(all) && /A batch asks once for all the owners it would need/.test(all));
   assert.ok(/'Draft N specifications' \(only the cards with no spec yet/.test(all) && /'Redraft all\\u2026'|Redraft all…/.test(all));
   assert.ok(/'Generate N missing images'/.test(all) && /batches leave out objects marked Not in screenplay/.test(all));
-  const tab = (F.find(f=>f.name==="Props tab — 2026-10-03")||{}).what || "";
+  const tab = (F.find(f=>f.name==="Props (Art Room)")||{}).what || "";
   assert.ok(/ONE SCENE/.test(tab) && /DELETING A PROP asks first/.test(tab) && /'More detail'/.test(tab) && /STORY EVENTS/.test(tab) && /'Show the generation prompt'/.test(tab));
   assert.ok(!/TURN|McKee|Claude|Anthropic/.test(tab));
 });

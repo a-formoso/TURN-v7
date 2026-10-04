@@ -5968,7 +5968,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
   onSuggestStates, suggestingStatesId, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDeleteCharacter,
   onUpdateProp, onDraftProp, onDraftAllProps, onAddProp, onImportProps, onDeleteProp, draftingPropIds, draftingPropId, draftingAllProps, onMergeProps, castHasProps,
   locations, onUpdateLocation, onDraftLocation, onDraftAllLocs, onDeleteLocation, draftingLocIds, draftingAllLocs, scriptHasLocs, onSetFilmStock, onUpdatePreset, onDeletePreset, onSetStyleRefs, onSetScenePreset, onAddStyleRefImages, onRemoveStyleRefImage, onDraftStaging, draftingStageId, sluglineUnits, onUpdateUnit, onRemoveUnit,
-  shots, beatsMap, onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onRemoveMicroBeatShots, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onColorist, onCast,
+  shots, beatsMap, onMakeSceneNeeds, onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onRemoveMicroBeatShots, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onColorist, onCast,
   lookbook, lookbookNote, onUpdateLookbook, onAddLookbook, onDeleteLookbook, onSetLookbookNote, onResearch,
   onResearchFresh, onRestoreLookbook, onPurgeLookbook, onSuggestLookbookNote, suggestingLookbookId,
   staleTabs, onApplyLookbook, onSourceClick, canReview=false, onReviewLookbook, readOnly=false }){
@@ -6071,7 +6071,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
     : artView==="shots" && window.ShotList
        ? React.createElement(window.ShotList,{project,scenes,characters,props,locations,shots,beatsMap,
            onUpdateShot,onAddShot,onDeleteShot,onDeleteShotReference:readOnly?null:onDeleteShotReference,onSplitBeat,splittingBeat,onRefineBeat,refiningBeat,
-          onRemoveMicroBeatShots:readOnly?null:onRemoveMicroBeatShots,readOnly,
+          onRemoveMicroBeatShots:readOnly?null:onRemoveMicroBeatShots,onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds,readOnly,
           onDraftSceneShots,draftingSceneShots,onDraftAllShots,draftingAllShots,
           trashItems:(trash&&trash.shots)||[],onRestore:onRestoreShot,onPurge:onPurgeShot,
           lookbookStale:!!_stale.shots,

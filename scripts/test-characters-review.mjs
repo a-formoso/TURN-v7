@@ -278,7 +278,7 @@ await test("F1 Frances: no silent drafting, the preview and its scopes, missing 
   assert.ok(/'Generate N missing sheets' renders only the drafted characters that have no sheet yet/.test(cs));
   assert.ok(/he\/him, she\/her or they\/them/.test(cs));
   assert.ok(/moves that item's matching prop card \(with any generated reference sheet\) to the Props tab's Recently Deleted/.test(cs));
-  const cards = (F.find(f=>f.name==="Character cards (Art Room) — 2026-10-03")||{}).what || "";
+  const cards = (F.find(f=>f.name==="Character Sheets (Art Room)")||{}).what || "";
   assert.ok(/ONE RENDER-STYLE CONTROL/.test(cards) && /'Show the sheet prompt'/.test(cards) && /'LIKENESS' \(was 'Cast'\)/.test(cards) && /DELETING A CHARACTER asks first/.test(cards));
   assert.ok(/click ‘Likeness’ to capture real faces/.test(all));
   assert.ok(!/TURN|McKee|Claude|Anthropic/.test(cards));

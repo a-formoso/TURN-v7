@@ -203,7 +203,7 @@ await test("F2 Frances: the new names, one-scene plates, missing-only, confirms,
   const F = fb.__F, all = F.map(f=>f.what).join("\n");
   assert.ok(!/Generate all locations|Generate all in Scene X|World scale sits beside/.test(all));
   assert.ok(/'Design N locations'/.test(all) && /Redesign all/.test(all) && /'Generate N missing plates'/.test(all));
-  const tab = (F.find(f=>f.name==="Locations tab — 2026-10-03")||{}).what || "";
+  const tab = (F.find(f=>f.name==="Locations (Art Room)")||{}).what || "";
   assert.ok(/'Slugline Units' are now shown as 'Rooms & times'/.test(tab) && /'Fixed landmarks'/.test(tab));
   assert.ok(/ONE SCENE/.test(tab) && /'Stop after this one'/.test(tab) && /REMOVING a room & time/.test(tab) && /'Show the generation prompt'/.test(tab));
   assert.ok(!/TURN|McKee|Claude|Anthropic/.test(tab));

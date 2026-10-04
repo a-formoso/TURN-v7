@@ -2242,6 +2242,21 @@ html[data-theme="light"] .ag-errbar{background:oklch(0.62 0.16 30 / .1);border-c
 .cc-note.ok svg{color:var(--pos-ink)}
 .cc-note.info svg{color:var(--txt-3)}
 .cc-foot{display:flex;gap:9px;justify-content:flex-end;align-items:center;margin-top:2px}
+/* Shots review (2026-10-03): "Check each frame", the paused-run bar, "Needs:" per scene */
+.shot-check-each{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--txt-1);cursor:pointer;white-space:nowrap}
+.shot-check-each input{margin:0;accent-color:var(--pos-ink)}
+.shot-all-done{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--pos-ink);white-space:nowrap}
+.shot-check-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 14px;padding:10px 12px;border-radius:var(--r-l);
+  border:1px solid var(--pos-line);background:var(--pos-soft)}
+.shot-check-thumb{width:96px;height:54px;object-fit:cover;border-radius:var(--r-s);cursor:zoom-in;flex:0 0 auto;border:1px solid var(--line-2)}
+.shot-check-txt{flex:1 1 220px;min-width:0;display:flex;flex-direction:column;gap:2px;font-size:12px;line-height:1.45;color:var(--txt-1)}
+.shot-check-txt b{color:var(--txt-0);font-size:13px}
+.shot-check-acts{display:flex;gap:8px;flex-wrap:wrap}
+.shot-needs{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0;padding:8px 11px;border-radius:var(--r-m);
+  border:1px dashed var(--line-2);background:var(--bg-1);font-size:12px;line-height:1.45;color:var(--txt-1)}
+.shot-needs > svg{flex:0 0 auto;color:oklch(0.74 0.15 60)}
+.shot-needs-txt{flex:1 1 240px;min-width:0}
+.shot-needs-run{color:var(--txt-2)}
 /* Design the cast preview (2026-10-03): the scope choice + the variants switch */
 .cc-scope{display:flex;flex-direction:column;gap:6px}
 .cc-scope-opt{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:var(--r-m);border:1px solid var(--line);

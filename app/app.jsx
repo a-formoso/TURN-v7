@@ -4110,6 +4110,66 @@ function App(){
     if(typeof castHasProps==="function" && castHasProps(characters)) seedPropsFromCast();
   },[room, artView, propsSeeded, props.length, characters, seedPropsFromCast, hydrationTick, artTabLocks]);
 
+  /* MAKE WHAT THIS SCENE NEEDS (2026-10-03, owner — Shots review): the missing reference images a
+     scene's frames attach, made in dependency order — location plates (a parent first), then room &
+     time plates, then character sheets (a look that isn't written yet is drafted first; a variant
+     after its master), then prop sheets (they reference their owner). The Shots scene strip lists
+     them and shows the price; anything that can't be made here is named and left to its tab. */
+  const makeSceneNeeds = async (scene, needs, onProgress)=>{
+    if(!canMutateSharedFilm() || !Array.isArray(needs) || !needs.length) return;
+    const epoch0 = (typeof nbEpoch==="function") ? nbEpoch() : null;
+    const stale = ()=> (typeof nbEpoch==="function" ? nbEpoch() : null)!==epoch0;
+    const mk = (artAgentCtxFactoryRef && artAgentCtxFactoryRef.current) || artAgentCtxFactory;
+    const ctx0 = mk({ input:"", emit:()=>{}, propose:null, agentName:"Scene needs", force:false, cancelled:stale });
+    const cast = ctx0 && ctx0.art && ctx0.art.cast;
+    const C = window.turnContinuity || {};
+    const units = C.sluglineUnits || [];
+    const locList = (ctx0 && ctx0.art && ctx0.art.locscout && Array.isArray(ctx0.art.locscout.list)) ? ctx0.art.locscout.list : (locations||[]);
+    const locById = (id)=> locList.find(l=>l && l.id===id) || (locations||[]).find(l=>l && l.id===id);
+    const steps = [];
+    const masters = needs.filter(n=>n.kind==="location" && locById(n.id)).map(n=>locById(n.id));
+    const ordered = (typeof locationGenerationOrder==="function") ? locationGenerationOrder(masters) : masters;
+    ordered.forEach(l=> steps.push({ label:l.name||"Location", run:()=>window.generateLocationPlate(l, project) }));
+    needs.filter(n=>n.kind==="location" && /^locunit-/.test(String(n.id))).forEach(n=>{
+      const u = units.find(x=> typeof sluglineUnitImageId==="function" && sluglineUnitImageId(x.key)===n.id);
+      const owner = u && (locList.find(l=>String(l.key||"")===String(u.subspaceKey||u.locationKey||"")) || (locations||[]).find(l=>String(l.key||"")===String(u.subspaceKey||u.locationKey||"")));
+      if(u && owner) steps.push({ label:(u.name||owner.name||"Room")+(u.time?" \u00b7 "+u.time:""), run:()=>window.generateSluglineUnitPlate(owner, u, project) });
+    });
+    const charNeeds = needs.filter(n=>n.kind==="character").sort((a,b)=> (String(a.id).indexOf(":")>=0?1:0)-(String(b.id).indexOf(":")>=0?1:0));
+    const madeMaster = {};   // a master made in this run — its variant never makes it again while storage catches up
+    charNeeds.forEach(n=>{
+      const [cid, sid] = String(n.id).split(":");
+      steps.push({ label:n.label, run:async ()=>{
+        if(!cast) throw new Error("character tools unavailable");
+        let c = (characters||[]).find(x=>x.id===cid); if(!c) throw new Error("character not found");
+        if(typeof window.charVisualsDrafted==="function" && !window.charVisualsDrafted(c)){
+          const patch = await cast.draftSpec(c); if(patch) c = { ...c, ...patch }; }
+        let base = madeMaster[c.id] || await _imgOf(c.id);
+        if(!base){ base = await cast.generateMaster(c); if(base) madeMaster[c.id] = base; }
+        if(sid){ const st = (c.states||[]).find(x=>x.id===sid); if(!st) throw new Error("appearance state not found");
+          if(!(await _imgOf(c.id+":"+sid))) await cast.generateState(c, st, base); }
+        return true; } });
+    });
+    needs.filter(n=>n.kind==="prop").forEach(n=>{
+      const p0 = (props||[]).find(x=>x.id===(n.baseId||n.id)); if(!p0) return;
+      steps.push({ label:p0.name||"Prop", run:async ()=>{
+        let p = p0;
+        if(!(String(p.form||"").trim() && String(p.material||"").trim()) && typeof aiPropVisuals==="function"){
+          const patch = await aiPropVisuals(p, characters, lbProject("props"));
+          if(patch){ const kept = keepPickedStyle(p, patch); p = { ...p, ...kept }; setProps(ps=>ps.map(x=>x.id===p.id ? { ...x, ...kept } : x)); } }
+        return window.generatePropSheet(p, lbProject("props")); } });
+    });
+    const failed = [];
+    for(let i=0;i<steps.length;i++){
+      if(stale()) break;
+      if(onProgress) onProgress(i+1, steps.length, steps[i].label);
+      try{ const ok = await steps[i].run(); if(ok===false) failed.push(steps[i].label); }
+      catch(e){ failed.push(steps[i].label+" \u2014 "+((e&&e.message)||"error")); }
+    }
+    if(typeof window.appToast==="function") window.appToast(failed.length
+      ? (failed.length+" of "+steps.length+" couldn't be made: "+failed.join("; "))
+      : ("Scene "+String((scene&&scene.no)||"").padStart(2,"0")+" has what it needs \u2014 "+steps.length+" reference image"+(steps.length!==1?"s":"")+" made."), failed.length?"error":"info");
+  };
   const wornBuildRef = React.useRef(null);   // the card's "Make N worn-item sheets" (the build below, on demand)
   /* INITIAL CHARACTER -> WORN PROP BOOTSTRAP
      The first committed identity sheet is the best visual seed for accessories that
@@ -7494,7 +7554,7 @@ function App(){
             onAddStyleRefImages:addStyleRefImages,onRemoveStyleRefImage:removeStyleRefImage,
             onDraftStaging:draftLocationStaging,draftingStageId,
             shots,beatsMap,onUpdateShot:updateShot,onAddShot:addShot,onDeleteShot:deleteShot,onSplitBeat:splitBeatCoverage,splittingBeat,
-            onRefineBeat:refineBeatFromScreenplay,refiningBeat,onRemoveMicroBeatShots:removeMicroBeatShots,
+            onRefineBeat:refineBeatFromScreenplay,refiningBeat,onRemoveMicroBeatShots:removeMicroBeatShots,onMakeSceneNeeds:makeSceneNeeds,
             onDeleteShotReference:deleteShotReference,
             onDraftSceneShots:draftSceneShots,draftingSceneShots,onDraftAllShots:draftAllShots,draftingAllShots}))
         : React.createElement(React.Fragment,null,

@@ -360,6 +360,8 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
          omissions:(renderPlan.sceneContext.omissions||[]).slice()
        } : null,
       advancedCamera:(typeof shotCameraMetadata==="function") ? shotCameraMetadata(sh) : null,
+      // the scene look + film stock this frame was made with (flagged later if the Color tab changes)
+      lookSig:(typeof shotLookSig==="function" && ctx && ctx.scene) ? shotLookSig(ctx.project, ctx.scene.id) : "",
       writingSources:(typeof shotWritingSources==="function") ? shotWritingSources(sh,ctx) : [],
        promptCompiler:"Kinolot prompt compiler"
        });
@@ -579,10 +581,31 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       window.__nbShotPhase = window.__nbShotPhase || {};
       if(window.__nbShotPhase[sh.id]) return;   // another instance is mid-phase and will render
       window.__nbShotPhase[sh.id] = true;
-      // pass the ledger-carried ids (same as the headless path) so a carried prop's
-      // missing sheet is built BEFORE the render that would attach it
-      try{ await window.ensureCarriedPropSheets(sh, ctx.scene, ctx.charById, ctx.propById, ctx.project,
-        (renderPlan&&renderPlan.carried)||[]); }
+      try{
+        // MISSING PROP SHEETS ARE ASKED ABOUT, NEVER BUILT SILENTLY (2026-10-03, owner — Shots
+        // review). A scene / film run decided once, up front (window.__turnShotRunPropChoice:
+        // "make" | "skip"); a single render asks here. "Render without" lets the prop ride as words.
+        const runChoice = window.__turnShotRunPropChoice;
+        let make = runChoice==="make";
+        if(!runChoice && typeof window.shotRunPropsNeeding==="function"){
+          const need = await window.shotRunPropsNeeding([{ sh, sceneShots:sceneShots||[], ctx }]);
+          if(need.length){
+            const price = (typeof window.nbImageCostText==="function") ? window.nbImageCostText(need.length) : "";
+            const res = typeof window.appConfirm!=="function" ? "alt" : await window.appConfirm({
+              title:need.length+" prop"+(need.length!==1?"s in this shot have":" in this shot has")+" no reference sheet",
+              body:"Make "+(need.length!==1?"their sheets":"its sheet")+" first so "+(need.length!==1?"they look":"it looks")+" the same in every shot"
+                +(price?" (about "+price+" credit"+(price==="1"?"":"s")+" more, plus drafting a design that isn't written yet)":"")
+                +" \u2014 or render now and describe "+(need.length!==1?"them":"it")+" in words.",
+              items:need.map(x=>x.name||"Prop"), confirmLabel:"Make the sheet"+(need.length!==1?"s":"")+" first", altLabel:"Render without", cancelLabel:"Cancel" });
+            if(res===false || res==null) return;
+            make = res===true;
+          }
+        }
+        // pass the ledger-carried ids (same as the headless path) so a carried prop's
+        // missing sheet is built BEFORE the render that would attach it
+        if(make) await window.ensureCarriedPropSheets(sh, ctx.scene, ctx.charById, ctx.propById, ctx.project,
+          (renderPlan&&renderPlan.carried)||[]);
+      }
       catch(e){}
       finally{ delete window.__nbShotPhase[sh.id]; }
     }
@@ -1754,8 +1777,51 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
 
 function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, pager, onUpdate, onDelete, onView,
   onDeleteShotReference, onAddShot, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onDraftScene, draftingScene, draftingBlocked, batchActiveId, onBatchDone, open, onToggle, onGenerateShot, onRegenDownstream,
-  onRenderScene, renderBusy, queueMode, onStopChain, readOnly=false }){
+  onRenderScene, renderBusy, queueMode, onStopChain, scenePlan, onMakeSceneNeeds, readOnly=false }){
   const loc = ctx.location;
+  // WHAT THIS SCENE NEEDS (2026-10-03, owner — Shots review): the reference images its frames
+  // attach (character sheets, location / room & time plates, prop sheets) that don't exist yet,
+  // read from the same render plan the frames use — with one priced "Make what this scene needs".
+  const [needsTick, setNeedsTick] = React.useState(0);
+  const [needsRun, setNeedsRun] = React.useState(null);   // {i,total,label} while making them
+  React.useEffect(()=>{
+    const h = ()=> setNeedsTick(t=>t+1);
+    window.addEventListener("nb-gen-done", h);
+    return ()=> window.removeEventListener("nb-gen-done", h);
+  },[]);
+  const sceneNeeds = (()=>{
+    const out = [], seen = {};
+    const has = (id)=> (typeof nbGetImage==="function") ? !!nbGetImage(id) : true;
+    const sorted = (typeof sceneShotsOrdered==="function") ? sceneShotsOrdered(shots||[]) : (shots||[]);
+    const locIds = new Set(((ctx.locations)||[]).map(l=>l && l.id));
+    sorted.forEach(sh=>{
+      let plan = null;
+      try{ plan = (typeof shotRenderPlan==="function") ? shotRenderPlan(sh, sorted, ctx) : null; }catch(e){}
+      if(!plan) return;
+      const add = (spec, kind)=>{
+        if(!spec || !spec.id || seen[spec.id] || has(spec.id)) return;
+        seen[spec.id] = true;
+        const makeable = kind==="character" ? true
+          : kind==="prop" ? (!spec.baseId || spec.baseId===spec.id)
+          : (locIds.has(spec.id) || /^locunit-/.test(String(spec.id)));
+        out.push({ id:spec.id, baseId:spec.baseId||spec.id, kind, makeable,
+          label:String(spec.label||spec.name||spec.note||spec.id).replace(/\s*\(identity only[\s\S]*$/,"").slice(0,60) });
+      };
+      (plan.activeLocSpec||[]).forEach(x=>add(x,"location"));
+      (plan.castSpec||[]).forEach(x=>add(x,"character"));
+      (plan.propSpec||[]).forEach(x=>add(x,"prop"));
+      (plan.carrySpec||[]).forEach(x=>add(x,"prop"));
+    });
+    return out;
+  })();
+  void needsTick;
+  const makeableNeeds = sceneNeeds.filter(n=>n.makeable);
+  const makeNeeds = async ()=>{
+    if(!onMakeSceneNeeds || needsRun || !makeableNeeds.length) return;
+    setNeedsRun({ i:0, total:makeableNeeds.length, label:"" });
+    try{ await onMakeSceneNeeds(scene, makeableNeeds, (i,total,label)=>setNeedsRun({ i, total, label })); }
+    finally{ setNeedsRun(null); }
+  };
   const driver = scene.driver ? ctx.charById[scene.driver] : null;
   // scene-level context (driver/reactor/antagonism/goal/conflict) — driver+goal+conflict from the
   // Scene inspector, reactor+antagonism from the beat-map, exactly as the Writers' Room shows them.
@@ -1902,11 +1968,14 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
         (()=>{
           const meta=(id)=>(typeof nbGetMeta==="function")?nbGetMeta(id):null;
           const drafts=((window.turnContinuity||{}).drafts||{});
-          let framed=0, approved=0, staleSeed=0, staleSrc=0;
+          let framed=0, approved=0, staleSeed=0, staleSrc=0, oldLook=0;
+          const lookNow=(typeof shotLookSig==="function")?shotLookSig(ctx.project, scene.id):"";
           ordered.forEach(s=>{
             const u=(typeof nbGetImage==="function")?nbGetImage(s.id):"";
             if(!u) return;
             framed++;
+            // made with an earlier colour look / film stock (frames from before this was recorded aren't counted)
+            const m=meta(s.id); if(m && m.lookSig && lookNow && m.lookSig!==lookNow) oldLook++;
             if(s.locked) approved++;
             const st=(typeof shotAssetProvenanceStatus==="function")
               ? shotAssetProvenanceStatus(s, drafts[s.sceneId], meta(s.id)) : "unverified";
@@ -1929,7 +1998,10 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
             staleSrc>0 && _el("span",{className:"ssx-chain-chip warn",
               title:"Frames rendered before their shot specification or screenplay beat changed — regenerate for verified coverage."},
               staleSrc+" frame"+(staleSrc===1?" needs":"s need")+" source refresh"),
-            solid && _el("span",{className:"ssx-chain-chip ok"},"Chain solid"));
+            oldLook>0 && _el("span",{className:"ssx-chain-chip warn",
+              title:"These frames were made before the scene's colour look or the film stock changed in the Color tab. Nothing re-renders on its own \u2014 regenerate them when you want the new look."},
+              oldLook+" frame"+(oldLook===1?"":"s")+" made with an earlier look"),
+            solid && !oldLook && _el("span",{className:"ssx-chain-chip ok"},"Chain solid"));
         })(),
         // shots-per-beat strip: coverage distribution at a glance (widths ∝ shot counts)
         (lanes.length>1) && _el("div",{className:"ssx-beat-strip",
@@ -1939,14 +2011,26 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
             title:"Beat "+L.n+" \u2014 "+L.shots.length+" shot"+(L.shots.length!==1?"s":"")},
             L.shots.length)))),
       _el("div",{className:"shot-scene-acts"},
-        onRenderScene && _el("button",{className:"char-draft-btn primary",disabled:!!renderBusy,onClick:()=>onRenderScene(scene),
-          title:"Render this scene in order, each shot seeded by its beat's coverage reference (a beat's opener chains from the previous beat), auto-approving each. Approved frames are retained as seeds."},
-          _el(Icon.sparkles,{s:12}), renderBusy?"Rendering\u2026":("Render Scene "+String(scene.no).padStart(2,"0")+" in order")),
+        onRenderScene && (!scenePlan || scenePlan.toRender.length>0) && _el("button",{className:"char-draft-btn primary",disabled:!!renderBusy,onClick:()=>onRenderScene(scene),
+          title:"Render this scene's shots that aren't approved and up to date, in order, each seeded by its beat's coverage reference (a beat's opener chains from the previous beat). Asks first if it would redo existing frames; with 'Check each frame' on it pauses after each one."},
+          _el(Icon.sparkles,{s:12}), renderBusy?"Rendering\u2026":("Render Scene "+String(scene.no).padStart(2,"0")+" in order"),
+          (scenePlan && typeof window.nbCostChip==="function") && window.nbCostChip(scenePlan.toRender.length)),
+        (onRenderScene && scenePlan && !scenePlan.toRender.length) && _el("span",{className:"shot-all-done"},_el(Icon.check,{s:12}),"Scene approved"),
         _el("button",{className:"char-draft-btn ghost"+(draftingScene?" busy":""),disabled:!!draftingScene,onClick:()=>onDraftScene(scene),
           title:"Re-draft opening-keyframe specifications from screenplay. The scene draft handler confirms what is archived to Shots Trash; no media is deleted."},
           _el(Icon.layers,{s:12}), draftingScene?"Drafting\u2026":"Re-draft")),
       pager && _el("button",{className:"scene-pager-arrow",disabled:pager.idx>=pager.total-1,onClick:pager.onNext,
         title:"Next scene (\u2192)","aria-label":"Next scene"},_el(Icon.chevR,{s:18}))),
+    sceneNeeds.length>0 && _el("div",{className:"shot-needs",role:"note","data-testid":"shot-scene-needs"},
+      _el(Icon.alert,{s:14}),
+      _el("div",{className:"shot-needs-txt"},
+        _el("b",null,"Needs: "),
+        sceneNeeds.map(n=>n.label+(n.makeable?"":" (make it in "+(n.kind==="location"?"Locations":n.kind==="prop"?"Props":"Characters")+")")).join(" \u00b7 "),
+        needsRun && _el("span",{className:"shot-needs-run"}," \u2014 making "+needsRun.i+" of "+needsRun.total+(needsRun.label?" \u00b7 "+needsRun.label:"")+"\u2026")),
+      (onMakeSceneNeeds && makeableNeeds.length>0) && _el("button",{className:"char-draft-btn",disabled:!!needsRun||!!renderBusy,onClick:makeNeeds,
+          title:"Make the "+makeableNeeds.length+" missing reference image"+(makeableNeeds.length!==1?"s":"")+" this scene's frames use (a location before its rooms, a character's sheet before their variant; a look that isn't written yet is drafted first, writing credits)"},
+        _el(Icon.sparkles,{s:12}), needsRun?"Making\u2026":"Make what this scene needs",
+        typeof window.nbCostChip==="function" && window.nbCostChip(makeableNeeds.length))),
     open && _el("div",{className:"shot-scene-ctx"},
       scene.summary && _el("div",{className:"ssx-desc"},scene.summary),
       _el("div",{className:"ssx-grid"},
@@ -1987,7 +2071,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
 function ShotList({ project, scenes, characters, props, locations, shots, beatsMap,
   onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots,
   trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onReviewLookbook,
-  onRemoveMicroBeatShots, readOnly=false }){
+  onRemoveMicroBeatShots, onMakeSceneNeeds, readOnly=false }){
   const [view, setView] = React.useState(null);
   const deleteShotReferenceHandler = readOnly ? null : onDeleteShotReference;
   const batch = useBatchGen();
@@ -2100,8 +2184,17 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
     " (",legacyMicroCleanupCount,")");
   // per-scene fold state (persisted). DEFAULT: everything folded except the first
   // scene — a long shot list opens scannable, not as one endless scroll.
-  const [collapsed, setCollapsed] = React.useState(()=>{ try{ return JSON.parse(localStorage.getItem("turn_shots_collapsed")||"{}")||{}; }catch(e){ return {}; } });
-  React.useEffect(()=>{ try{ localStorage.setItem("turn_shots_collapsed", JSON.stringify(collapsed)); }catch(e){} },[collapsed]);
+  // PER FILM (2026-10-03): the fold map was one device-wide key, so another film opened with this
+  // one's folds. Keyed by the film now (a film with no id keeps the old shared key).
+  const foldKey = "turn_shots_collapsed"+(project && project.id ? ":"+project.id : "");
+  const [collapsed, setCollapsed] = React.useState(()=>{ try{ return JSON.parse(localStorage.getItem(foldKey)||"{}")||{}; }catch(e){ return {}; } });
+  React.useEffect(()=>{ try{ localStorage.setItem(foldKey, JSON.stringify(collapsed)); }catch(e){} },[collapsed, foldKey]);
+  // CHECK EACH FRAME (2026-10-03, owner — Shots review; on by default): a scene / film run pauses
+  // after each new frame so it can be approved before it seeds the next one. Off = the old
+  // auto-approve-and-continue run. Remembered on this device.
+  const [checkEach, setCheckEachRaw] = React.useState(()=>{ try{ return localStorage.getItem("turn_shots_check_each")!=="0"; }catch(e){ return true; } });
+  const setCheckEach = (v)=>{ setCheckEachRaw(!!v); try{ localStorage.setItem("turn_shots_check_each", v?"1":"0"); }catch(e){} };
+  const checkEachRef = React.useRef(checkEach); checkEachRef.current = checkEach;
   const toggleScene = (id)=> setCollapsed(c=>({ ...c, [id]: !c[id] }));
   // seed the default fold once scenes hydrate (an empty saved map = never touched)
   const foldSeeded = React.useRef(false);
@@ -2257,9 +2350,23 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
         + (more ? ", and the next shot needs it as its anchor. Fix the issue on that frame, then render again." : ". See the frame's error and try again."));
       return;
     }
+    // CHECK EACH FRAME: in a multi-shot run, stop here until the user approves it (it seeds the next)
+    if(checkEachRef.current && c.ids.length>1 && (c.idx+1) < c.ids.length){
+      setChain({ ...c, paused:true });
+      batch.setMsg("");
+      return;
+    }
     onUpdateShot(id, { locked:true });            // it's the approved seed for the next shot
     stepChain(c.ids, c.idx+1, c.force);
   };
+  // the pause bar's three answers
+  const approveAndContinue = ()=>{ const c = chainRef.current; if(!c || !c.paused) return;
+    onUpdateShot(c.ids[c.idx], { locked:true }); stepChain(c.ids, c.idx+1, c.force); };
+  const regeneratePaused = ()=>{ const c = chainRef.current; if(!c || !c.paused) return;
+    const id = c.ids[c.idx];
+    setChain({ ...c, paused:false, preFrame:(typeof nbGetImage==="function") ? (nbGetImage(id)||"") : "" });
+    batch.run([id]); };
+  const stopPaused = ()=>{ setChain(null); batch.setMsg("Stopped \u2014 the frame you were checking is kept, not approved."); };
   // Stop: abort the frame currently rendering (clears its spinner + discards its result),
   // then halt the queue so no further shots start.
   const stopChain = ()=>{
@@ -2274,7 +2381,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
   // that state (chain set, batch idle for a beat) and reconcile exactly like handleBatchDone
   // would have: advance past a shot that DID commit a frame, stop the chain if it didn't.
   React.useEffect(()=>{
-    if(!chain || batchActiveId) return;
+    if(!chain || batchActiveId || chain.paused) return;   // a paused chain is waiting for the user, not stuck
     const t = setTimeout(()=>{
       const c = chainRef.current;
       if(!c) return;
@@ -2283,16 +2390,70 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
     return ()=>clearTimeout(t);
   },[chain, batchActiveId]);
 
+  // a run's reach: the shots it will render (not approved and current) and how many of those
+  // already have a frame (a re-render) — the same rule stepChain skips by
+  const runPlanFor = (ids)=>{
+    const toRender = (ids||[]).filter(id=>{ const s=shotById[id]; return s && !shotIsDone(s); });
+    return { toRender, redo:toRender.filter(id=>shotHasFrame(id)) };
+  };
+  const scenePlanFor = (scene)=> runPlanFor(chainOrderIds(shotsByScene[scene.id]));
+  // NO RUN STARTS UNPRICED (2026-10-03, owner — Shots review): a film run always asks; a scene run
+  // asks when it would redo frames. Then, once, about props that have no sheet yet.
+  const confirmRun = async (ids, what, always)=>{
+    const plan = runPlanFor(ids);
+    if(!plan.toRender.length){ setNotice("Every shot "+what+" is already approved and up to date."); return null; }
+    const fresh = plan.toRender.length - plan.redo.length;
+    const price = (typeof window.nbImageCostText==="function") ? window.nbImageCostText(plan.toRender.length) : "";
+    if((always || plan.redo.length) && typeof window.appConfirm==="function"){
+      const ok = await window.appConfirm({
+        title:"Render "+plan.toRender.length+" frame"+(plan.toRender.length!==1?"s":"")+" "+what+"?",
+        body:(fresh ? fresh+" new frame"+(fresh!==1?"s":"") : "")+(fresh&&plan.redo.length?" and ":"")
+          +(plan.redo.length ? plan.redo.length+" re-render"+(plan.redo.length!==1?"s":"")+" of frames that are out of date or not approved" : "")
+          +(price?" \u2014 about "+price+" credit"+(price==="1"?"":"s")+".":".")
+          +" Approved, up-to-date frames are kept."+(checkEachRef.current ? " The run pauses after each frame so you can check it." : ""),
+        confirmLabel:"Render "+plan.toRender.length, cancelLabel:"Cancel" });
+      if(!ok) return null;
+    }
+    // props with no sheet that these shots would build first — asked once for the whole run
+    let propChoice = "skip";
+    if(typeof window.shotRunPropsNeeding==="function"){
+      const entries = plan.toRender.map(id=>{ const sh=shotById[id]; const sc=(scenes||[]).find(x=>x.id===(sh&&sh.sceneId));
+        return sh && sc ? { sh, sceneShots:shotsByScene[sc.id]||[], ctx:ctxFor(sc) } : null; }).filter(Boolean);
+      const need = await window.shotRunPropsNeeding(entries);
+      if(need.length && typeof window.appConfirm==="function"){
+        const pp = (typeof window.nbImageCostText==="function") ? window.nbImageCostText(need.length) : "";
+        const res = await window.appConfirm({
+          title:need.length+" prop"+(need.length!==1?"s have":" has")+" no reference sheet yet",
+          body:"Make "+(need.length!==1?"their sheets":"its sheet")+" first so "+(need.length!==1?"they look":"it looks")+" the same in every shot"
+            +(pp?" (about "+pp+" credit"+(pp==="1"?"":"s")+" more, plus drafting a design that isn't written yet)":"")
+            +" \u2014 or render without them and describe them in words.",
+          items:need.map(x=>x.name||"Prop"), confirmLabel:"Make "+(need.length!==1?"them":"it")+" first", altLabel:"Render without", cancelLabel:"Cancel" });
+        if(res===false || res==null) return null;
+        propChoice = res===true ? "make" : "skip";
+      }
+    }
+    window.__turnShotRunPropChoice = propChoice;
+    return plan;
+  };
+  // the run's prop answer lasts while it runs; a single render (no run) asks on its card
+  React.useEffect(()=>{ if(!chain) window.__turnShotRunPropChoice = null; },[chain]);
   const chainBusyNotice = ()=> setNotice("A render is already in progress \u2014 wait for it to finish, or press Stop on the running shot first.");
-  const startScene = (scene)=>{ if(batchActiveId||chain){ chainBusyNotice(); return; } if(!chainKeyOk()){ batch.setMsg("Set your image-model API key first (top of this tab)."); return; }
+  const startScene = async (scene)=>{ if(batchActiveId||chain||chainStartingRef.current){ chainBusyNotice(); return; } if(!chainKeyOk()){ batch.setMsg("Set your image-model API key first (top of this tab)."); return; }
     const ids = chainOrderIds(shotsByScene[scene.id]); if(!ids.length) return;
+    chainStartingRef.current = true;
+    try{ if(!(await confirmRun(ids, "in Scene "+String(scene.no).padStart(2,"0"), false))) return; }
+    finally{ chainStartingRef.current = false; }
     setCollapsed(c=>({ ...c, [scene.id]:false }));   // keep the scene's cards mounted through the run
     stepChain(ids, 0, false); };
-  const startAll = ()=>{ if(batchActiveId||chain){ chainBusyNotice(); return; } if(!chainKeyOk()){ batch.setMsg("Set your image-model API key first (top of this tab)."); return; }
+  const startAll = async ()=>{ if(batchActiveId||chain||chainStartingRef.current){ chainBusyNotice(); return; } if(!chainKeyOk()){ batch.setMsg("Set your image-model API key first (top of this tab)."); return; }
     const ids = scenesWithShots.flatMap(s=>chainOrderIds(shotsByScene[s.id]));
     if(!ids.length){ batch.setMsg("Draft the shots first \u2014 nothing to generate yet."); return; }
+    chainStartingRef.current = true;
+    try{ if(!(await confirmRun(ids, "across the film", true))) return; }
+    finally{ chainStartingRef.current = false; }
     setCollapsed({});   // expand all so each card is mounted as the chain reaches it
     stepChain(ids, 0, false); };
+  const filmPlan = runPlanFor(scenesWithShots.flatMap(s=>chainOrderIds(shotsByScene[s.id])));
   // re-run a scene's chain from the shot AFTER `sh` \u2014 used after re-rolling a frame so the
   // propagated state stays current. Unlocks the downstream shots so they actually re-render.
   const onRegenDownstream = (sh)=>{ if(!sh) return; if(batchActiveId||chain){ chainBusyNotice(); return; } if(!chainKeyOk()){ batch.setMsg("Set your image-model API key first (top of this tab)."); return; }
@@ -2395,6 +2556,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
         if(!stillCurrent()) return;
       }
       if(!stillCurrent()) return;
+      window.__turnShotRunPropChoice = null;   // a single render asks on its card
       setCollapsed(c=>({ ...c, [target.sceneId]:false }));
       stepChain([id],0,true);
     } finally {
@@ -2460,9 +2622,30 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
           _el("button",{className:"art-draftall ghost",disabled:draftingAllShots||!ordered.length,onClick:handleDesignAll,
             title:"Break any scene that has no shots yet into full coverage \u2014 size, angle, move and lens per beat"},
             _el(Icon.sparkles,{s:14}), draftingAllShots?"Designing\u2026":"Design all shots"),
-          _el("button",{className:"art-draftall",disabled:!!batchActiveId||!!chain||!shots.length,onClick:startAll,
-            title:"Render every shot in chain order, each seeded by its beat's coverage reference. Locked (approved) frames are kept and used as seeds; the rest render."},
-            _el(Icon.sparkles,{s:14}), (batchActiveId||chain)?"Rendering\u2026":"Generate all shots", typeof window.nbCostChip==="function" && window.nbCostChip(1))))),
+          _el("label",{className:"shot-check-each",title:"Pause a scene or film run after each new frame so you can approve it (or regenerate it) before it becomes the next shot's starting point. Off: every frame is approved automatically and the run continues."},
+            _el("input",{type:"checkbox",checked:checkEach,onChange:e=>setCheckEach(e.target.checked)}),
+            _el("span",null,"Check each frame")),
+          filmPlan.toRender.length>0
+            ? _el("button",{className:"art-draftall",disabled:!!batchActiveId||!!chain,onClick:startAll,
+                title:"Render every shot in the film that isn't approved and up to date, in chain order \u2014 asks first with the total. Approved, current frames are kept and used as seeds."},
+                _el(Icon.sparkles,{s:14}), (batchActiveId||chain)?"Rendering\u2026":("Generate "+filmPlan.toRender.length+" shot"+(filmPlan.toRender.length!==1?"s":"")),
+                typeof window.nbCostChip==="function" && window.nbCostChip(filmPlan.toRender.length))
+            : _el("span",{className:"shot-all-done"},_el(Icon.check,{s:14}),"Every shot approved")))),
+    // CHECK EACH FRAME — the paused run waits here
+    (chain && chain.paused) && (()=>{ const id = chain.ids[chain.idx]; const sh = shotById[id];
+      const u = (typeof nbGetImage==="function") ? nbGetImage(id) : "";
+      const lab = sh ? shotCardReferenceLabel(sh, shotsByScene[sh.sceneId]||[]) : "This frame";
+      return _el("div",{className:"shot-check-bar",role:"status","data-testid":"shot-check-bar"},
+        u && _el("img",{className:"shot-check-thumb",src:u,alt:"",onClick:()=>setView({url:u,character:{ id, name:lab }})}),
+        _el("div",{className:"shot-check-txt"},
+          _el("b",null,lab+" is ready \u2014 check it"),
+          _el("span",null,"Approving makes it the next shot's starting point ("+(chain.idx+1)+" of "+chain.total+" in this run).")),
+        _el("div",{className:"shot-check-acts"},
+          _el("button",{className:"art-draftall",onClick:approveAndContinue},_el(Icon.check,{s:14}),"Approve & continue"),
+          _el("button",{className:"art-draftall ghost",onClick:regeneratePaused},_el(Icon.sparkles,{s:14}),"Regenerate this one",
+            typeof window.nbCostChip==="function" && window.nbCostChip(1)),
+          _el("button",{className:"art-draftall ghost",onClick:stopPaused},"Stop")));
+    })(),
     // A chain already has its own progress + Stop bar below. Hiding the generic
     // batch bar here avoids duplicate Cancel/Stop controls for the same request.
     !chain && BatchBar && _el(BatchBar,{batch,noun:"shot"}),
@@ -2486,7 +2669,8 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
       onAddShot,onSplitBeat,splittingBeat,onRefineBeat,refiningBeat,onDraftScene:onDraftSceneShots,draftingScene:draftingSceneShots===scene.id,
       draftingBlocked:!!readOnly||!!draftingAllShots||!!draftingSceneShots,
       batchActiveId,onBatchDone:handleBatchDone,onGenerateShot:startShot,onRegenDownstream,
-      onRenderScene:startScene,renderBusy,queueMode,onStopChain:stopChain,
+      onRenderScene:startScene,renderBusy,queueMode,onStopChain:stopChain,scenePlan:scenePlanFor(scene),
+      onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds,
        open:true,onToggle:()=>toggleScene(scene.id),readOnly})),
     // Keep only the active runner mounted when the user browses away. display:none
     // preserves its generation/completion effects without showing a second scene.
@@ -2498,7 +2682,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
         onAddShot,onSplitBeat,splittingBeat,onRefineBeat,refiningBeat,onDraftScene:onDraftSceneShots,draftingScene:draftingSceneShots===runnerScene.id,
         draftingBlocked:!!readOnly||!!draftingAllShots||!!draftingSceneShots,
         batchActiveId,onBatchDone:handleBatchDone,onGenerateShot:startShot,onRegenDownstream,
-         onRenderScene:startScene,renderBusy,queueMode,onStopChain:stopChain,open:true,onToggle:()=>{},readOnly})));
+         onRenderScene:startScene,renderBusy,queueMode,onStopChain:stopChain,scenePlan:scenePlanFor(runnerScene),open:true,onToggle:()=>{},readOnly})));
 }
 window.ShotList = ShotList;
 

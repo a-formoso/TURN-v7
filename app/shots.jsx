@@ -2415,6 +2415,35 @@ async function ensureCarriedPropSheets(sh, scene, charById, propById, project, e
 }
 window.ensureCarriedPropSheets = ensureCarriedPropSheets;
 
+/* THE LOOK A FRAME WAS MADE WITH (2026-10-03, owner — Shots review): the scene's colour look and the
+   film stock, as a short signature stored on each new frame, so a later change in the Color tab can
+   be flagged ("made with an earlier look") — never re-rendered on its own. */
+function shotLookSig(project, sceneId){
+  const preset = (typeof scenePreset==="function") ? scenePreset(project, sceneId) : null;
+  const stock = (project && project.styleBible && project.styleBible.filmStock) || "none";
+  const raw = JSON.stringify([preset ? [preset.id, preset.palette, preset.grade, preset.lighting, preset.lens, preset.texture] : null, stock]);
+  let h = 5381; for(let i=0;i<raw.length;i++) h = ((h<<5)+h+raw.charCodeAt(i))|0;
+  return "look-"+(h>>>0).toString(36);
+}
+window.shotLookSig = shotLookSig;
+
+/* Carried props a set of shots would build before rendering, with no sheet yet (authoritative
+   storage check) — so a scene or film run can ask ONCE, up front, instead of building silently. */
+async function shotRunPropsNeeding(entries){
+  const out = [], seen = {};
+  for(const e of (entries||[])){
+    let plan = null;
+    try{ plan = (typeof shotRenderPlan==="function") ? shotRenderPlan(e.sh, e.sceneShots||[], e.ctx||{}) : null; }catch(err){}
+    const need = carriedPropsNeedingSheets(e.sh, e.ctx && e.ctx.scene, e.ctx && e.ctx.charById, e.ctx && e.ctx.propById, (plan&&plan.carried)||[]);
+    for(const p of need){ if(seen[p.id]) continue; seen[p.id] = true;
+      let has = "";
+      try{ if(typeof nbLoadImage==="function") has = await nbLoadImage(p.id); }catch(err){}
+      if(!has) out.push(p); }
+  }
+  return out;
+}
+window.shotRunPropsNeeding = shotRunPropsNeeding;
+
 /* ============================================================
    ONE RENDER PLAN (architect review 2026-09-01): shotRenderPlan is the single
    source of truth for WHAT a shot renders from — seed shot, in-frame cast/props,
