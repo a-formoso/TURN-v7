@@ -636,14 +636,6 @@ function App(){
       locations: (locations||[]).some(l=> l && l.id),
       colorist: !!(project && project.styleBible && project.styleBible.sceneStyles && Object.keys(project.styleBible.sceneStyles).length),
       shots: (shots||[]).length>0,
-      storyboard: (()=>{
-        if(typeof nbGetImage!=="function" || typeof sbPageRanges!=="function") return false;
-        const byScene={}; (shots||[]).forEach(sh=>{ if(sh&&sh.sceneId) (byScene[sh.sceneId]=byScene[sh.sceneId]||[]).push(sh); });
-        return Object.keys(byScene).some(sceneId=>{
-          const ordered=byScene[sceneId].slice().sort((a,b)=>(a.order||0)-(b.order||0)||(a.beatN||0)-(b.beatN||0));
-          return sbPageRanges(ordered).some((_,i)=>{ try{ return !!nbGetImage("sbsheet-sbpage-"+sceneId+"-2x2-"+i); }catch(e){ return false; } });
-        });
-      })(),
     };
     const staleDepts = (typeof lookbookStaleDepts==="function") ? lookbookStaleDepts(lookbook, lookbookNote, lookbookApplied, lbContentFlags) : {};
     const t = {};
@@ -652,7 +644,6 @@ function App(){
     if(staleDepts.locations) t.locations = true;
     if(staleDepts.colorist) t.stylebible = true;
     if(staleDepts.shots) t.shots = true;
-    if(staleDepts.storyboard) t.storyboard = true;
     return t;
   },[lookbook, lookbookNote, lookbookApplied, characters, props, locations, shots, project]);
   // ---- Art Room TAB LOCKS: the tabs unlock in pipeline order (2026-09-27, owner-approved —
@@ -689,7 +680,7 @@ function App(){
   // specs only and leaves every generated image untouched — regenerate later, when ready.
   const applyLookbook = async (dept, mode)=>{
     if(mode==="review"){
-      const label = dept==="storyboard" ? "storyboards" : dept;
+      const label = dept;
       let ok = true;
       if(typeof window.appConfirm==="function") ok = await window.appConfirm({
         title:"Mark "+label+" reviewed?",
@@ -699,16 +690,9 @@ function App(){
       if(ok) markApplied(dept);
       return;
     }
-    if(dept==="shots"){
-      let ok = true;
-      if(typeof window.appConfirm==="function") ok = await window.appConfirm({
-        title:"Review shots with the updated Lookbook?",
-        body:"Opens the Shot Designer to propose updated coverage from the current Lens, Composition and Lighting brief. Existing shot frames remain untouched unless you explicitly approve and render changes.",
-        confirmLabel:"Open Shot Designer"
-      });
-      if(ok) setShotDesignerOpen(true);
-      return;
-    }
+    // (Shots has no apply action: its new and re-drafted shots follow the Lookbook, and the Shot
+    //  Designer only re-plans scenes whose coverage has issues — so its banner offers "Mark reviewed")
+    if(dept==="shots") return;
     const draftOnly = mode==="draft";
     const label = { characters:"Characters", props:"Props", locations:"Locations", colorist:"Color" }[dept] || dept;
     if(dept==="characters" && turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Re-drafting Characters")) return;

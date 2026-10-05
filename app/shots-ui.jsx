@@ -2048,7 +2048,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
 
 function ShotList({ project, scenes, characters, props, locations, shots, beatsMap,
   onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots,
-  trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onReviewLookbook,
+  trashItems, onRestore, onPurge, lookbookStale, onReviewLookbook,
   onRemoveMicroBeatShots, onMakeSceneNeeds, readOnly=false }){
   const [view, setView] = React.useState(null);
   const deleteShotReferenceHandler = readOnly ? null : onDeleteShotReference;
@@ -2563,8 +2563,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
   const lookbookNotice = lookbookStale && _el("div",{className:"lb-stale-notice",role:"status"},
     _el(Icon.alert,{s:14}),
     _el("span",null,_el("b",null,"Lookbook review needed"),
-      " — Lens, Composition or Lighting references changed. Existing shot frames remain untouched; review them against the new brief."),
-    onApplyLookbook && _el("button",{className:"lb-stale-btn ghost",onClick:onApplyLookbook},"Open Shot Designer"),
+      " — its Lens & format, Composition or Lighting notes changed. New and re-drafted shots follow them; the shots you have stay as they are until you re-draft their scene (Re-draft keeps each shot's ID and images)."),
     onReviewLookbook && _el("button",{className:"lb-stale-btn ghost",onClick:onReviewLookbook},"Mark reviewed"));
 
   // ---- empty state ----

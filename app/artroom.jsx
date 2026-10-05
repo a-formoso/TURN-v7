@@ -6106,11 +6106,9 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
           onDraftSceneShots,draftingSceneShots,onDraftAllShots,draftingAllShots,
           trashItems:(trash&&trash.shots)||[],onRestore:onRestoreShot,onPurge:onPurgeShot,
           lookbookStale:!!_stale.shots,
-          onApplyLookbook:canReview?()=>onApplyLookbook&&onApplyLookbook("shots"):null,
           onReviewLookbook:canReview?()=>onReviewLookbook&&onReviewLookbook("shots"):null})
       : artView==="storyboard" && window.StoryboardView
-      ? React.createElement(window.StoryboardView,{project,scenes,shots,characters,props,locations,beatsMap,setArtView,onUpdateShot,
-          stale:!!_stale.storyboard,onReviewLookbook:canReview?()=>onReviewLookbook&&onReviewLookbook("storyboard"):null})
+      ? React.createElement(window.StoryboardView,{project,scenes,shots,characters,props,locations,beatsMap,setArtView,onUpdateShot})
       : artView==="breakdown" && window.BreakdownView
       ? React.createElement(window.BreakdownView,{project,scenes,characters,props,locations,shots,drafts,setArtView,onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds})
       : React.createElement(ArtComingSoon,{tab:artView})));

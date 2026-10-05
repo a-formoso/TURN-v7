@@ -188,7 +188,8 @@ const LOOKBOOK_ROUTING = {
   locations:  ["Production design", "Atmosphere"],
   props:      ["Production design"],
   shots:      ["Lens & format", "Composition", "Lighting"],
-  storyboard: ["Composition", "Atmosphere"],
+  // (no "storyboard": the boards are composed from the shot frames, so nothing there read these —
+  //  it was only ever flagged out of date. Removed 2026-10-05, owner.)
 };
 window.LOOKBOOK_ROUTING = LOOKBOOK_ROUTING;
 
@@ -261,7 +262,6 @@ const LOOKBOOK_DEPT_AFFECT = {
   locations:  "Its Production design and Atmosphere references shape each location's architecture, materials, light and mood.",
   colorist:   "Its Palette, Lighting, Texture & grain and Atmosphere references shape the colour grade and film stock.",
   shots:      "Its Lens & format, Composition and Lighting references shape shot design and framing.",
-  storyboard: "Its Composition and Atmosphere references affect how the existing shot frames read as a board.",
 };
 window.LOOKBOOK_DEPT_AFFECT = LOOKBOOK_DEPT_AFFECT;
 

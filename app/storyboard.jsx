@@ -1048,7 +1048,7 @@ function StoryboardPage({ project, scene, page, pageCount, ctx, beatsMap, onView
       })));
 }
 
-function StoryboardView({ project, scenes, shots, characters, props, locations, beatsMap, setArtView, onUpdateShot, stale, onReviewLookbook }){
+function StoryboardView({ project, scenes, shots, characters, props, locations, beatsMap, setArtView, onUpdateShot }){
   const [view, setView]   = React.useState(null);   // lightbox {url, character}
   const [frames, setFrames] = React.useState({});    // sheetId -> url (for the progress count)
   const [jumpOpen, setJumpOpen] = React.useState(false);
@@ -1191,11 +1191,8 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
   return _sbEl("div",{className:"art-scroll"},
     view && _sbEl(ImageLightbox,{url:view.url,character:view.character,onClose:()=>setView(null)}),
     _sbEl(NbKeyBar,null), _sbEl(NbControls,null),
-    stale && _sbEl("div",{className:"lb-stale-notice",role:"status"},
-      _sbEl(Icon.alert,{s:14}),
-      _sbEl("span",null,_sbEl("b",null,"Lookbook review needed")," — Composition or Atmosphere references changed. Existing boards remain untouched; review them against the new brief."),
-      onReviewLookbook && _sbEl("button",{className:"lb-stale-btn ghost",onClick:onReviewLookbook,
-        title:"Acknowledge that you reviewed the existing boards against the current Lookbook; this does not render or replace anything"},"Mark reviewed")),
+    // (no Lookbook banner: the boards are composed from the shot frames and read no references
+    //  of their own — the look reaches them through Shots, Locations and Color. 2026-10-05, owner)
     _sbEl("div",{className:"art-intro"},
       _sbEl("div",{className:"art-intro-row"},
         _sbEl("div",{style:{flex:1}},
