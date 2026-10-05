@@ -38,14 +38,25 @@ function splitListItems(value){
   let s = String(value==null?"":value);
   const stash = [];
   s = s.replace(/\([^()]*\)/g, m=>{ stash.push(m); return "\u0000"+(stash.length-1)+"\u0000"; });
+  // semicolons / bullets / lines separate items when present — then commas stay inside an item
+  // (the same rule as props.jsx splitPropItems, 2026-10-05)
+  const strong = /[;\u00b7\u2022\n]/.test(s);
   return s
-    .split(/\s*(?:,|;|\u00b7|\u2022|\n)\s*/)
+    .split(strong ? /\s*(?:;|\u00b7|\u2022|\n)\s*/ : /\s*(?:,|;|\u00b7|\u2022|\n)\s*/)
     .map(p=> p.replace(/\u0000(\d+)\u0000/g, (_,i)=> stash[+i]||"") )
     .map(p=>p.replace(/^(?:and|then|&)\s+/i,""))
     .map(p=>p.replace(/\.+$/,"").trim())
     .filter(Boolean)
     .reduce((acc,x)=> (typeof _mergeDanglingFragment==="function") ? _mergeDanglingFragment(acc,x) : (acc.push(x),acc), []);
 }
+
+/* write a list back: "; " when any item has its own comma (so it reads back as ONE item),
+   otherwise the usual ", " */
+function joinListItems(items){
+  const list = (items||[]).map(x=>String(x||"").trim()).filter(Boolean);
+  return list.join(list.some(x=>x.indexOf(",")>=0) ? "; " : ", ");
+}
+window.joinListItems = joinListItems;
 
 /* The character `role` string packs up to three things the model emits together:
    FUNCTION [ \u00b7 ARCHETYPE ] [ \u2014 IDENTITY ]  (e.g. "Antagonist \u00b7 ideology \u2014 a far-right
@@ -83,13 +94,13 @@ function EditableItemList({ value, placeholder, onCommit, onItemRemoved, onItemR
   const [items,setItems] = React.useState(()=>splitListItems(value));
   // only re-sync from the outside when the external value actually changed
   // (e.g. an AI re-draft) — never clobber mid-edit from our own commits
-  const lastStr = React.useRef(splitListItems(value).join(", "));
+  const lastStr = React.useRef(joinListItems(splitListItems(value)));
   React.useEffect(()=>{
     const ext = String(value==null?"":value);
-    if(ext !== lastStr.current){ const next=splitListItems(ext); setItems(next); lastStr.current = next.join(", "); }
+    if(ext !== lastStr.current){ const next=splitListItems(ext); setItems(next); lastStr.current = joinListItems(next); }
   },[value]);
   const commit = (next)=>{
-    const joined = next.map(s=>s.trim()).filter(Boolean).join(", ");
+    const joined = joinListItems(next);
     lastStr.current = joined;
     onCommit(joined);
   };

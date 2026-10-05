@@ -122,14 +122,19 @@ window.buildPropRefPrompt = buildPropRefPrompt;
    re-running never creates duplicates. No AI / no pipeline step — it just
    surfaces data the character sheets already hold. */
 function propSlug(s){ return String(s||"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,40); }
-function splitPropItems(text){
+function splitPropItems(text, opts){
   let s = String(text||"");
   // Protect parenthetical clauses so the delimiters INSIDE them (commas, dashes,
   // "and", etc.) don't shred one item into fragments like "Aud" or "possessive)".
   const stash = [];
   s = s.replace(/\([^()]*\)/g, m=>{ stash.push(m); return "\u0000"+(stash.length-1)+"\u0000"; });
+  // ONE ITEM KEEPS ITS COMMAS (2026-10-05): when the list is separated by semicolons, bullets or
+  // lines, commas belong INSIDE items ("a steel wristwatch with a cracked, heat-fogged crystal") —
+  // splitting on them too made two cards of one watch. Comma-only lists still split on commas.
+  // opts.legacyComma: the old always-comma split (only to repair cards it made).
+  const strong = !(opts && opts.legacyComma) && /[;·•\n]/.test(s);
   return s
-    .split(/\s*(?:,|;|·|•|\n)\s*/)
+    .split(strong ? /\s*(?:;|·|•|\n)\s*/ : /\s*(?:,|;|·|•|\n)\s*/)
     .map(part=> part.replace(/\u0000(\d+)\u0000/g, (_,i)=> stash[+i]||"") )   // restore parens
     .map(x=> x.replace(/\.$/,"").trim())
     .map(x=> x.replace(/^[)\]\u2014\u2013\-\s]+/,"").trim())                  // drop leading stray bracket/dash debris
@@ -137,16 +142,23 @@ function splitPropItems(text){
     .map(x=> /^\([^)]*$/.test(x) ? x+")" : x)                                 // close a dangling "(unfinished"
     .filter(x=> x && x.replace(/[^a-z0-9]/gi,"").length>1                     // need real content, not just punctuation
       && !/^(none|n\/a|nil|various|misc\.?|etc\.?)$/i.test(x))
-    .reduce(_mergeDanglingFragment, []);
+    .reduce((acc, x, i, arr)=> _mergeDanglingFragment(acc, x, i, arr, !!(opts && opts.legacyComma)), []);
 }
 /* "A thin, unpolished silver band" splits into "A thin" + "unpolished silver band" —
    the first fragment is an article + bare descriptor with no object in it, so it
    belongs to the item that follows. Re-join it. */
-function _mergeDanglingFragment(acc, x, i, arr){
+function _mergeDanglingFragment(acc, x, i, arr, legacy){
   const prev = acc[acc.length-1];
   const dangling = (s)=> /^(?:a|an|the)\s+\w+$/i.test(String(s||"").trim())
     && !(typeof propHeadNoun==="function" && propHeadNoun(s));
-  if(prev!==undefined && dangling(prev)){ acc[acc.length-1] = prev+", "+x; return acc; }
+  // …and a fragment that ENDS mid-phrase: "a steel wristwatch with a cracked" + "heat-fogged
+  // crystal" — a trailing "with/of/in… (a) <word>" whose last word is no object, followed by a
+  // piece that doesn't start a new item (no leading a/an/the/his/her…), is one item (2026-10-05)
+  const tail = (s)=>{ const m = String(s||"").trim().match(/\b(?:with|of|in|on|from|under|over)\s+(?:a|an|the|its|his|her|their)?\s*([a-z][a-z-]*)$/i);
+    return !!m && !(typeof propHeadNoun==="function" && propHeadNoun(m[1])); };
+  const startsItem = (s)=> /^(?:a|an|the|his|her|their|its|one|two|three|some)\b/i.test(String(s||"").trim());
+  // legacy: reproduce the OLD split exactly (to find the cards it made) — no tail rule
+  if(prev!==undefined && (dangling(prev) || (!legacy && tail(prev) && !startsItem(x)))){ acc[acc.length-1] = prev+", "+x; return acc; }
   acc.push(x); return acc;
 }
 window._mergeDanglingFragment = _mergeDanglingFragment;

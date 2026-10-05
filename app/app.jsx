@@ -3995,6 +3995,42 @@ function App(){
     if(typeof window.appToast==="function")
       window.appToast(patches.length+" character card"+(patches.length>1?"s":"")+" tidied automatically — carried objects (bags, phones, documents) moved off the worn list; their prop cards are now carried-type.","info");
   },[characters, hydrationTick]);
+  // COMMA-SPLIT REPAIR (2026-10-05, owner): the old splitter cut items at every comma, so "a steel
+  // wristwatch with a cracked, heat-fogged crystal" became two cast-derived prop cards. With the
+  // fixed splitter, a character's item that the OLD split cut into pieces gets ONE card again: the
+  // first piece's card is renamed to the whole item (its id, spec and sheet kept), and a leftover
+  // piece's card goes to Recently Deleted — only if it has no image (one with an image is left for
+  // the user, as an orphan the card offers to remove). Idempotent: once repaired nothing matches.
+  React.useEffect(()=>{
+    // silent gates (never a "read-only" notice from a background repair): loading, or a role that can't save
+    if(hydratingRef.current || projectLoadingRef.current || !castAutoDraftWritable || !characters.length || !(props||[]).length) return;
+    if(typeof splitPropItems!=="function") return;
+    const norm = (x)=> String(x||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+    const renames = {}, gone = [];
+    characters.forEach(c=>{
+      ["accessories","props"].forEach(field=>{
+        const text = c[field]; if(!text || /^none$/i.test(String(text).trim())) return;
+        const now = splitPropItems(text), was = splitPropItems(text, { legacyComma:true });
+        if(now.length>=was.length) return;
+        now.forEach(item=>{
+          const whole = norm(item);
+          const pieces = was.filter(o=> norm(o) && whole.indexOf(norm(o))>=0);
+          if(pieces.length<2) return;
+          const cards = pieces.map(o=> (props||[]).find(pr=> pr && pr.ownerId===c.id && pr.fromCast && norm(pr.name)===norm(o)) || null);
+          const keep = cards.find(Boolean); if(!keep) return;
+          if(norm(keep.name)!==whole) renames[keep.id] = item.replace(/^\w/, m=>m.toUpperCase());
+          cards.forEach(pr=>{ if(pr && pr!==keep && !(typeof nbGetImage==="function" && nbGetImage(pr.id))) gone.push(pr); });
+        });
+      });
+    });
+    const n = Object.keys(renames).length + gone.length;
+    if(!n) return;
+    const goneIds = new Set(gone.map(x=>x.id));
+    setProps(ps=> ps.filter(x=>!goneIds.has(x.id)).map(x=> renames[x.id] ? { ...x, name:renames[x.id] } : x));
+    if(gone.length) setTrash(t=>({ ...t, props:[ ...gone.map(_trashStamp), ...(t.props||[]).filter(x=>!goneIds.has(x.id)) ] }));
+    if(typeof window.appToast==="function") window.appToast("Repaired "+Object.keys(renames).length+" prop card"+(Object.keys(renames).length===1?"":"s")
+      +" that "+(Object.keys(renames).length===1?"was":"were")+" split at a comma"+(gone.length ? " \u2014 "+gone.length+" leftover piece"+(gone.length===1?"":"s")+" moved to Props \u203a Recently Deleted" : "")+".","info");
+  },[characters, props, hydrationTick, castAutoDraftWritable]);
   // RENAME SYNC (character bullet → prop card): editing a worn/carried item on a
   // character card renames the matching prop card (keeping its sheet), the mirror of
   // removeOwnedProp. Match on owner + normalised name, same as seeding/removal.
@@ -4012,7 +4048,7 @@ function App(){
       const items = (typeof splitListItems==="function") ? splitListItems(text) : String(text||"").split(/\s*,\s*/).filter(Boolean);
       let changed=false;
       const next = items.map(it=>{ if(_normPropName(it)===from && it.trim()!==to){ changed=true; return to; } return it; });
-      return changed ? next.join(", ") : null;
+      return changed ? ((typeof joinListItems==="function") ? joinListItems(next) : next.join(", ")) : null;
     };
     setCharacters(cs=>cs.map(c=>{
       if(c.id!==charId) return c;

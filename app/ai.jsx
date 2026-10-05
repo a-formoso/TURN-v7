@@ -3041,6 +3041,7 @@ APP_FEATURES.forEach(f=>{
   ["Locations (Art Room)", "PLAINER NAMES (owner 2026-10-03; only the labels changed, nothing stored): 'Slugline Units' are now shown as 'Rooms & times' (each slugline's room at its time, with one plate and Lighting & environment notes), 'Required Space Plates' as 'Extra spaces', 'Coverage Views' as 'Camera views', 'Spatial topology' as 'How the rooms connect' and 'Continuity anchors' as 'Fixed landmarks' \u2014 use the new names with users; the older help text may still say the old ones. ONE SCENE: focus a scene and 'Generate N missing in Scene NN' makes what it needs \u2014 its location plates, then its room & time plates (which otherwise are made one at a time on their cards) \u2014 with one price; 'Stop after this one' halts it between plates, and anything that couldn't be made is listed. A plate whose location has no layout yet writes that layout first (a small writing charge, said in the Generate button's hover text). REMOVING a room & time that's no longer in the screenplay asks first (it deletes its notes and plate for good), and removing an extra environment state asks first and deletes its plate with it. The generation prompt is behind the card's \u22ef menu \u25b8 'Show the generation prompt' (next to 'Edit a panel\u2026')."],
   ["Shots (Art Room)", "NO RUN STARTS UNPRICED: the header's 'Generate N shots' counts the shots in the film that aren't approved and up to date and shows their price; it always asks first (\"N new frames and M re-renders of frames that are out of date or not approved — about X credits\"); approved, current frames are kept. Each scene's 'Render Scene NN in order' shows its own price and asks first when it would redo existing frames; when everything is approved the buttons read 'Every shot approved' / 'Scene approved'. CHECK EACH FRAME (a switch in the header, on by default, remembered on this device): a scene or film run pauses after each new frame with a bar showing it — 'Approve & continue' (it becomes the next shot's starting point), 'Regenerate this one' or 'Stop' (the frame is kept, not approved); off, every frame is approved automatically and the run continues. MISSING PROP SHEETS: before a frame that would attach a prop with no sheet, a single render asks 'Make the sheet first' or 'Render without'; a run asks once for all of them. EARLIER LOOK: frames remember the scene's colour look and the film stock they were made with; if either changes in the Color tab the scene's status strip shows 'N frames made with an earlier look' — nothing re-renders on its own. WHAT THIS SCENE NEEDS: each scene lists the reference images its frames use that don't exist yet ('Needs: Ana · Kitchen · Night …') and offers 'Make what this scene needs' with the price — it makes the location plates (a parent first), the room & time plates, the character sheets (drafting a look that isn't written yet, a variant after its master) and the prop sheets, in that order; anything it can't make there is named with the tab to make it in. Which scenes are folded is remembered per film."],
   ["Storyboards (Art Room)", "STORYBOARDS REVIEW (owner 2026-10-03): the Stage's halves are now SAVED AUTOMATICALLY \u2014 as soon as a sheet composes with every panel's frame present, its top and bottom halves are saved for the Stage (free); 'Save halves' in the sheet's \u22ef menu stays for a manual re-save, and a partial sheet still waits. 'Apply to panel' (the one paid action in this tab: one image edit of that shot's frame) shows its price. 'Clear' asks first when the sheet was UPLOADED (it can't be rebuilt from frames; a composed sheet just recomposes for free). Each sheet's health strip also says 'N frames made with an earlier look' when the scene's colour look or the film stock changed after those frames were made. A panel's jump to its shot opens that scene in the Shots tab."],
+  ["Props (Art Room)", "ONE ITEM KEEPS ITS COMMAS (2026-10-05): when a character's worn or carried list is separated by semicolons (as the drafter writes it), commas stay inside an item \u2014 'a steel wristwatch with a cracked, heat-fogged crystal' is one prop card, not two; a comma-only list still splits on commas, and a piece that ends mid-phrase ('\u2026with a cracked') rejoins the piece after it. Lists are saved back with semicolons when an item has its own comma. Cards an older split had cut in pieces are repaired automatically: the first piece's card takes the whole name (its spec and sheet kept) and a leftover piece without an image moves to Props \u203a Recently Deleted (a leftover WITH an image stays, shown as an orphan you can remove)."],
 ].forEach(([name, add])=>{
   const f = APP_FEATURES.find(x=>x && x.name===name);
   if(f) f.what = String(f.what||"")+" "+add;
@@ -5257,14 +5258,19 @@ window.turnReclassifyWornCarried = function(accText, propText){
   let propRaw = String(propText||"").trim();
   const out = { acc:accRaw, props:propRaw, moved:[], changed:false };
   if(!accRaw || /^none$/i.test(accRaw)) return out;
-  // split on separators, but never inside a parenthetical description
-  const items = accRaw.split(/\s*[;,\u00b7\u2022]\s*(?![^(]*\))/).map(x=>x.trim()).filter(Boolean);
+  // split on separators, but never inside a parenthetical description — and, with the shared
+  // list rule (inspector.jsx splitListItems, 2026-10-05), never on a comma inside one item when
+  // the list is separated by semicolons
+  const _split = (t)=> (typeof splitListItems==="function") ? splitListItems(t)
+    : String(t||"").split(/\s*[;,\u00b7\u2022]\s*(?![^(]*\))/).map(x=>x.trim()).filter(Boolean);
+  const _join = (xs)=> (typeof joinListItems==="function") ? joinListItems(xs) : xs.join(", ");
+  const items = _split(accRaw);
   const keep = [], move = [];
   items.forEach(it=> (_CARRIED_RX.test(it) ? move : keep).push(it));
   if(!move.length) return out;
   out.changed = true;
   out.moved = move.slice();
-  out.acc = keep.join(", ") || "none";
+  out.acc = _join(keep) || "none";
   const pl = (propRaw && !/^none$/i.test(propRaw)) ? propRaw.toLowerCase() : "";
   const rxG = new RegExp(_CARRIED_RX.source, "gi");
   const plKinds = (pl.match(rxG)||[]).map(k=>k.toLowerCase());
@@ -5272,7 +5278,7 @@ window.turnReclassifyWornCarried = function(accText, propText){
     const mKinds = (m.match(rxG)||[]).map(k=>k.toLowerCase());
     return !mKinds.some(mk=> plKinds.some(pk=> mk.includes(pk) || pk.includes(mk)));
   });
-  if(fresh.length) out.props = (pl ? (propRaw+", ") : "") + fresh.join(", ");
+  if(fresh.length) out.props = _join([...(pl ? _split(propRaw) : []), ...fresh]);
   return out;
 };
 function _wornCarriedSplit(e, character, clean){
