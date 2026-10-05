@@ -1463,7 +1463,7 @@ function buildClipData(scene, g, ctx, maxSec){
 
 function stageRenderScopeInstruction(clipScope,clip,shots,promptShots,panelLines){
   const scopeLabel=clipScope==="shot" ? "Single shot"
-    : clipScope==="legacy" ? "previous-packing clip" : "Fit beat";
+    : clipScope==="legacy" ? "earlier-grouping clip" : "Split to fit";
   const g=clip&&clip.g||{};
   const part=Number(g.part)>0&&Number(g.parts)>1 ? " · Part "+g.part+" of "+g.parts : "";
   const list=(shots||[]).map((sh,i)=>{
@@ -1742,7 +1742,7 @@ const SEEDANCE_MODELS = [
     // bestFor rides the dropdown option, promptFormula the menu footer
     bestFor:"Reference-driven shots — @-mention frames, clips & voices (up to 12); strong lip-sync and character consistency.",
     promptFormula:"subject → action → camera move (dolly, orbit, pan, push-in — it knows the vocabulary) → specific lighting → sound. Camera and subject motion in SEPARATE clauses; @-mention assets instead of re-describing them; timeline blocks pace each beat.",
-    capabilities:["Multimodal video generation","Up to 12 assets combined","Up to 4K output (Standard tier)","Start→end frame transitions","Typical clip length 4–15s","Strong motion stability","Character consistency","Native audio","Director controls"],
+    capabilities:["Video from text, images, video and audio together","Up to 12 assets combined","Up to 4K output (Standard tier)","Start→end frame transitions","Typical clip length 4–15s","Strong motion stability","Character consistency","Native audio","Director controls"],
     tiers:[
       // Rates come from app/pricing.jsx as provider USD/sec converted into base
       // credits/sec. The final visible-denomination cost is computed below.
@@ -2461,7 +2461,7 @@ function seedanceBeatOpeningPrompt(clip, shots, activeShot, audioRefsOn, audioIn
   const src=scripts[sh.beatN]||{};
   const full=String(src.text||"").trim();
   if(!src.hasSource&&(!full||src.missing))
-    return "BLOCKED: canonical screenplay source is unavailable for this beat-opening shot. Load shot-screenplay.js before Stage; stale shot text is not a valid replacement.";
+    return "BLOCKED: this beat's screenplay couldn't be read, so it isn't rendered from older shot text. Reload the app and try again.";
   const cast=(d.cast||[]).map(c=>_stagePromptEntityLabel(refs,"character",c,c.name)).filter(Boolean);
   const setting=_stagePromptEntityLabel(refs,"setting",d.loc||d.setting,d.setting||((clip&&clip.scene&&clip.scene.loc)||""));
   const dialogues=(src.dialogue&&src.dialogue.length?src.dialogue:(d.beatDialogues&&d.beatDialogues[sh.beatN])||[]);
@@ -2696,7 +2696,7 @@ function stageAssetRole(a, refs){
       +"Match its vocal identity — timbre, vocal age and register, tone, accent or dialect, cadence, pacing, emphasis, breath and delivery — and follow its exact recorded words and timing. "
       +"It controls voice and lip timing only, never visuals, blocking, ambience, music or extra dialogue. Do not revoice, paraphrase, double or add another speaker. Lip-sync only when "+speaker+" is visible; otherwise keep the voice offscreen.";
   }
-  if(a.kind==="video") return T+" is the previous approved clip — continue its ending positions, screen direction, lighting, prop state and motion momentum. Do not replay its action or copy its opening composition.";
+  if(a.kind==="video") return T+" is the previous clip — continue its ending positions, screen direction, lighting, prop state and motion momentum. Do not replay its action or copy its opening composition.";
   if(a.referenceKind==="screenplay") return T+" is a screenshot of the scene screenplay, page "+a.page+" of "+a.totalPages
     +". Read it as writing context only; perform only the selected beat/shot/part. Never photograph or animate the page, its text, highlighting or borders, and never use it as composition or a character identity reference.";
   if(a.referenceKind==="character") return T+" is "+(label||"the character")+" — identity, wardrobe, body scale and proportions for its assigned shots only; do not inherit its background, pose or lighting. Shot-specific appearance overrides a supporting master reference.";
@@ -4154,7 +4154,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     if(hasI) return "i2v";
     return "t2v"; })();
   const mode = modeOverride || autoMode;
-  const MODES = [["t2v","Text to Video"],["i2v","Image to Video"],["v2v","Video to Video"],["multimodal","Multimodal"]];
+  const MODES = [["t2v","Text to Video"],["i2v","Image to Video"],["v2v","Video to Video"],["multimodal","All references"]];
 
   // ---- start->end frame transition: a genuinely new Seedance 2.0 capability (the
   // dedicated image-to-video endpoint's end_image_url) this console didn't expose at
@@ -4244,7 +4244,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       return;
     }
      if(!stageServerResolutionAllowed(modelId,resolution,runtimeCaps,capabilityTarget)){
-       if(typeof window.appToast==="function") window.appToast(resolution+" is pending a server update confirmed by the video proxy capability handshake. Choose an advertised resolution such as 720p.","error");
+       if(typeof window.appToast==="function") window.appToast(resolution+" isn't available yet (it's waiting on a server update). Choose a resolution such as 720p.","error");
        return;
      }
      if(referenceBlockingWarnings.length && !referenceFree){
@@ -4278,7 +4278,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     let audioUrls = (!referenceFree&&voiceLocked) ? attemptAudios.map(a=>a.url).filter(Boolean) : [];
     const voiceRefLines = [];
     if(audioUrls.length>directAudioLimit) throw new Error("Every screenplay line must attach before rendering. This request has "
-      +audioUrls.length+" audio references; the active video transport advertises "+directAudioLimit+". Use Fit beat to split at shot boundaries.");
+      +audioUrls.length+" audio references; this model accepts "+directAudioLimit+". Use Split to fit to split at shot boundaries.");
     setPrepPct(55);
     const controls = directorControls();
     const blockingPlanIssues=(renderPlan&&renderPlan.issues||[]).filter(x=>x&&x.blocking);
@@ -4325,7 +4325,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
 	    })).concat(voiceRefLines.map((l,i)=>({
 	      tag:"@Video"+(videoUrls.length-voiceRefLines.length+i+1),
 	      kind:"video",
-	      label:"Voice carrier",
+	      label:"Voice track",
 	      role:l,
 	      assetRole:"final_take",
 	      assetRoleLabel:(typeof nbAssetRoleLabel==="function") ? nbAssetRoleLabel("final_take") : "Final take",
@@ -4517,7 +4517,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const serverHasStaging = (typeof window.vidStagingCapability==="function") ? window.vidStagingCapability(taskCaps) : false;
   const capsPending = modeCaps.tasks==null;   // Seedance task handshake still in flight
   const motionCapsPending = modeCaps.motion==null || modeCaps.motionModel!==motionFalModel;
-  const PENDING_SERVER = "Pending server update — deploy the updated image-proxy Edge Function to enable this.";
+  const PENDING_SERVER = "Not available yet — it's waiting on a server update.";
   // ---- Extend / Edit / Motion Control ------------------------------------------
   // Three paid paths beside the beat render. They share the clip's take list and
   // a device-file picker (staged straight into private storage as a `stage:`
@@ -4991,7 +4991,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         const anyTier = (model.tiers||[]).some(t0=>stageResAllowed(t0, r));
         return { value:r, label:r, selected:r===resolution,
           disabled:locked,
-          note:serverPending ? "Pending server update — awaiting the video proxy capability handshake"
+          note:serverPending ? "Not available yet — waiting on a server update"
             : locked ? (anyTier ? (r+" needs the Standard tier") : (r+" isn't available on "+model.label)) : (planLocked ? planResNote(r)+" — click to upgrade" : undefined),
           tag:planLocked ? (stagePlanForRes(r)||"Plan")+" plan" : undefined,
           meta: r==="4K" ? [{ icon:Icon.sparkles, label:"5× credits" }] : undefined };
@@ -5093,7 +5093,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   });
   if(!stageServerResolutionAllowed(modelId,resolution,runtimeCaps,capabilityTarget)) blockers.push({
     key:"server-resolution",
-    text:resolution+" is pending a server update confirmed by the video proxy capability handshake. Choose an advertised resolution such as 720p before rendering."
+    text:resolution+" isn't available yet (it's waiting on a server update). Choose a resolution such as 720p before rendering."
   });
   // ONE character's missing appearance state across several shots → the banner
   // carries the explicit bulk choice (same persisted per-shot override, one click).
@@ -5113,7 +5113,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     actionLabel:"Confirm reviewed",action:()=>setPromptDriftConfirmed(promptSourceSig)});
   const planIssue=renderPlan&&(renderPlan.issues||[]).find(x=>x&&x.blocking);
   if(planIssue) blockers.push({key:"render-plan",text:planIssue.message,
-    actionLabel:clipScope==="legacy"?"Fit beat":null,
+    actionLabel:clipScope==="legacy"?"Split to fit":null,
     action:clipScope==="legacy"?()=>setClipScope("beat"):null});
   if(needsVoice) blockers.push({ key:"voice",
     text:hasUnassignedClipDialogue
@@ -5126,11 +5126,11 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   if(sourceBlocking) blockers.push({ key:"source",
     text:"No storyboard source is ready yet — save this clip's "+(sourceMode==="sheet"?"sheet":"halves")+" in Storyboards, or switch Visual source back to shot/prompt rendering." });
   if(clip.g&&clip.g.over&&(!renderPlan||renderPlan.over)) blockers.push({ key:"overcap",
-    text:"This part needs "+_fmtSecs(clip.g.dur)+" — over "+(model.label||"this model")+"'s "+_fmtSecs(model.maxClipSec||15)+" maximum. No shot was omitted or compressed. Choose Fit beat to split at shot boundaries; if one shot alone is too long, split that shot/dialogue deliberately in the Art Room.",
-    actionLabel:clipScope==="legacy"?"Fit beat":null,
+    text:"This part needs "+_fmtSecs(clip.g.dur)+" — over "+(model.label||"this model")+"'s "+_fmtSecs(model.maxClipSec||15)+" maximum. No shot was omitted or compressed. Choose Split to fit to split at shot boundaries; if one shot alone is too long, split that shot/dialogue deliberately in the Art Room.",
+    actionLabel:clipScope==="legacy"?"Split to fit":null,
     action:clipScope==="legacy"?()=>setClipScope("beat"):null });
   if(voiceLocked && onAudios.length>directAudioLimit) blockers.push({ key:"voice-cap",
-    text:"This render has "+onAudios.length+" spoken lines; the active video transport advertises "+directAudioLimit+" direct audio slots. Fit the beat into shorter shot-boundary parts so no line is silently dropped." });
+    text:"This render has "+onAudios.length+" spoken lines; this model accepts "+directAudioLimit+" voice lines at once. Split to fit makes shorter parts at shot boundaries so no line is silently dropped." });
   // OVER THE MODEL'S CLIP CEILING — the render would clamp silently and compress
   // the pacing; force the choice instead (the fit / untick / parts fixes sit
   // with the rows). Only reachable via the seconds steppers — ticking is capped.
@@ -5337,7 +5337,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           const disabled = !stageResAllowed(tierObj, r)||serverPending;
           return _stEl("button",{key:r,type:"button",className:(r===resolution?"on ":"")+(planLocked?"plan-locked":""),
             disabled:disabled && !planLocked,
-            title:serverPending ? "Pending server update — awaiting the video proxy capability handshake"
+            title:serverPending ? "Not available yet — waiting on a server update"
               : planLocked ? planResNote(r)+" — click to upgrade" : (disabled ? (r+" isn't available on "+model.label) : r),
             onClick:()=>{ if(planLocked){ openPlansUpsell(); return; } if(disabled) return; setResolution(r); setSdMenu(null); }},
             String(r).toUpperCase(), (r==="1080p"||r==="4K") && Icon.sparkles&&_stEl(Icon.sparkles,{s:10}));
@@ -5413,8 +5413,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
             _stEl("span",null,_stEl("b",null,m.t), _stEl("small",null,m.label)),
             _stEl("em",{className:"sdbar-mention-group"},m.included?"Included":m.group))))
       : _stEl("div",{className:"sdbar-empty"},"No scene references are ready yet."),
-    _stEl("div",{className:"sdbar-addbox"},
-      _stEl("button",{type:"button",onClick:()=>{ if(window.appToast) window.appToast("Upload new references from the Art Room asset tabs."); }},"↑ Upload from device")));
+    // (the old "Upload from device" here only showed a message — new references are made in the
+    //  Art Room; the note says so instead of a button that does nothing, 2026-10-05)
+    _stEl("div",{className:"sdbar-addbox sdbar-addnote"},"New references are made in the Art Room (Characters, Props, Locations)."));
   // ---- composer header: Create Video | Edit Video | Motion Control tabs -------
   const TABS = [["create","Create Video","Create a clip for this beat from references, or extend an existing take (Seedance 2.5)"],
                 ["edit","Edit Video","Rewrite an existing video with a prompt — Seedance 2.5 Edit"],
@@ -5625,7 +5626,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
             +(canFit ? "" : " Voiced lines alone need "+_fmtSecs(Math.round(minTotal*10)/10)+", so one render can't hold this scene.")),
           _stEl("button",{type:"button",className:"stage2-ms-over-act primary",
             title:"Split this beat into shot-boundary parts without rewriting shot timing.",
-            onClick:()=>setClipScope&&setClipScope("beat")},"Fit beat"));
+            onClick:()=>setClipScope&&setClipScope("beat")},"Split to fit"));
       })(),
       _stEl("div",{className:"stage2-ms-hint"},"One row = one shot. Edit the text freely — it shapes the video prompt only; Generate renders these rows as one continuous Seedance clip. (Add or remove shots on the Art Room's Shots tab.)"));
   const promptRowWith = (bar)=>
@@ -5718,7 +5719,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       coverageNotice && _stEl("div",{className:"stage2-hint stage2-coverage-note","data-code":coverageNotice.code}, Icon.info&&_stEl(Icon.info,{s:12}), coverageNotice.message),
       soundCueMissing && _stEl("div",{className:"stage2-hint"}, Icon.mic&&_stEl(Icon.mic,{s:12}), "Native audio is on but the prompt has no sound direction — name the sounds you want (ambience, effects, music) or the soundtrack comes out generic."),
       hasDialogue && !modelAudioRefs && _stEl("div",{className:"stage2-hint"}, Icon.mic&&_stEl(Icon.mic,{s:12}),
-        model.label+" performs the dialogue ITSELF from the prompt (native synced voices) — the locked ElevenLabs voices don't ride along on this model. Switch to Seedance for voice-locked lip-sync."),
+        model.label+" performs the dialogue ITSELF from the prompt (native synced voices) — the locked character voices don't ride along on this model. Switch to Seedance for voice-locked lip-sync."),
       hasDialogue && modelAudioRefs && dialogueAudio==="native" && (hasUnassignedClipDialogue
         ? _stEl("div",{className:"stage2-dialogue-assign-wrap"},
             _stEl("div",{className:"stage2-hint stage2-dialogue-assign-hint"}, Icon.mic&&_stEl(Icon.mic,{s:12}),
@@ -5798,7 +5799,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   };
   const modeErrEl = modeErr && _stEl("div",{className:"stage2-err sd-gen-err stage2-mode-err",role:"alert"}, Icon.alert&&_stEl(Icon.alert,{s:14}), modeErr);
   const pendingNote = (what)=> !capsPending && _stEl("div",{className:"stage2-mode-pending"}, Icon.info&&_stEl(Icon.info,{s:12}),
-    what+" is pending a server update — deploy the updated image-proxy Edge Function. Nothing is submitted until the proxy advertises it.");
+    what+" isn't available yet — it's waiting on a server update. Nothing is sent until it is.");
   const segmented = (label, value, options, onPick)=>_stEl("div",{className:"stage2-seg",role:"tablist","aria-label":label},
     options.map(o=>_stEl("button",{key:o.id,type:"button",role:"tab","aria-selected":value===o.id?"true":"false",
       className:"stage2-seg-btn"+(value===o.id?" on":"")+(o.disabled?" off":""), disabled:!!o.disabled, title:o.title||o.label,
@@ -5827,7 +5828,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     : generateButton(playerUrl ? "Regenerate" : "Generate", totalCost, onSeedanceGenerateClick,
         { blocked:!!blocker, title: blocker ? (blocker.text+" (click to see why)") : renderCostTitle, costTitle:renderCostTitle, testId:"stage-generate" });
   const createBody = _stEl(React.Fragment,null,
-    heroCard("GENERAL", model.label),
+    heroCard("VIDEO MODEL", model.label),
     segmented("Create mode", createTask,
       [ { id:"reference", label:"References", title:"Render this beat from its references" },
         { id:"extension", label:"Extend Video", title:"Continue an existing video (Seedance 2.5 extension task)" } ], pickCreateTask),
@@ -5864,10 +5865,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     : (!capsPending && !serverHasTask("editing")) ? PENDING_SERVER
     : modeHoldBlock(editHoldInfo,"edit");   // Generate is blocked when the balance can't cover the hold
   const editBody = _stEl(React.Fragment,null,
-    heroCard("GENERAL", "Seedance 2.5 Edit", { sub:"Rewrite a video from a prompt — same cast, new direction" }),
-    segmented("Edit input", "prompt",
-      [ { id:"prompt", label:"Prompt" },
-        { id:"draw", label:"Draw", disabled:true, title:"Draw-to-edit isn't offered by fal's Seedance 2.5 editing task" } ], ()=>{}),
+    heroCard("EDIT A VIDEO", "Seedance 2.5 Edit", { sub:"Rewrite a video from a prompt — same cast, new direction" }),
     mediaZone("edit","video",editVideo,{ title:"Add a video to edit (up to 30s)", sub:"One of this clip's takes, or a video from this device — it becomes @Video1" }),
     _stEl("div",{className:"stage2-dz-heading"}, Icon.image&&_stEl(Icon.image,{s:12}), "Add elements or references (up to 29 images or audio)"),
     referenceStrip,
@@ -5949,7 +5947,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
             [ {id:"standard",label:"Kling 3.0 Motion Control — Standard",desc:"720p-class output · the usual choice"},
               {id:"pro",label:"Kling 3.0 Motion Control — Pro",desc:"1080p-class output · higher fidelity"} ]
               .map(o=>sdOption({ ...o, selected:motionTier===o.id, onPick:()=>setMotionTier(o.id) })))),
-        sdPill("motion-quality","inline","Quality follows the model tier — fal exposes no separate resolution setting for Motion Control",
+        sdPill("motion-quality","inline","Quality follows the model tier — Motion Control has no separate resolution setting",
           _stEl(React.Fragment,null, _stEl("span",{className:"sdrow-label"},"Quality"),
             _stEl("span",{className:"sdrow-badge"}, motionTier==="pro" ? "1080p · Pro" : "720p · Standard")),
           _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
@@ -6046,7 +6044,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       _stEl("div",{className:"stage2-director-head"},
         _stEl("div",{className:"stage2-director-title"},
           _stEl("b",null,model.label+" Director"),
-          _stEl("span",{className:"stage2-director-badge"},"PRIMARY PROMPT"))),
+          _stEl("span",{className:"stage2-director-badge"},"MAIN PROMPT"))),
       _stEl(StagePromptArea,{className:"stage2-director-text",value:prompt,setValue:(v)=>{
           promptEditedRef.current=true;setPromptSourceStamp(promptSourceSig);setPromptDriftConfirmed("");setPrompt(v);
           promptDraftsRef.current[promptDraftKey]={text:v,sourceSig:promptSourceSig,shotIds:shownShots.map(s=>s.id)};
@@ -6056,7 +6054,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         promptChips.map(([k,v],i)=>_stEl("button",{key:k+i,type:"button",onClick:()=>onChip({k,v,label:v}),title:"Add "+k+" to prompt"},
           _stEl("b",null,k),_stEl("span",null,v))))),
     _stEl("div",{className:"stage2-assets-lab"},
-      _stEl("span",null,"INPUT ASSETS ("+budgetUsed+"/"+assetLimit+")"),
+      _stEl("span",null,"INPUTS ("+budgetUsed+"/"+assetLimit+")"),
       _stEl("b",null, budgetText)),
     _stEl("div",{className:"stage2-assets-row "+budgetState},
       tagged.map(a=> _stEl("button",{key:a.key,
@@ -6079,13 +6077,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           : _stEl("span",{className:"stage2-asset-icon"}, a.kind==="video" ? (Icon.play&&_stEl(Icon.play,{s:16})) : (Icon.image&&_stEl(Icon.image,{s:16})))),
         _stEl("span",{className:"stage2-asset-name"}, a.label),
         _stEl("small",null,a.tag+(a.locked?" · REQUIRED":on(a)?" · INCLUDED":"")))),
-      _stEl("button",{className:"stage2-asset add",type:"button",
-        title:"Assets are derived from the selected clip's storyboard, frame, cast, location, props and audio"},
-        _stEl("div",{className:"stage2-asset-vis"},Icon.plus&&_stEl(Icon.plus,{s:18})),
-        _stEl("span",{className:"stage2-asset-name"},"Add asset"))),
-    (sourceBlocking || assetOver || genErr || needsVoice || footerCredit.short) && _stEl("div",{className:"stage2-assets-warnings"},
-      needsVoice && _stEl("div",{className:"stage2-warn"}, Icon.alert&&_stEl(Icon.alert,{s:12}), "Voice this clip before rendering so timing and lip-sync stay locked."),
-      sourceBlocking && _stEl("div",{className:"stage2-warn"}, Icon.alert&&_stEl(Icon.alert,{s:12}), "No storyboard source is ready yet."),
+      null),   // (the "Add asset" tile did nothing — inputs come from the clip's frames, cast, location, props and audio)
+    // ONE warning in ONE place (2026-10-05): voice and source live in the composer's notices; this row
+    // keeps what's about the inputs row itself (too many inputs) and the credit line
+    (assetOver || genErr || footerCredit.short) && _stEl("div",{className:"stage2-assets-warnings"},
       assetOver && _stEl("div",{className:"stage2-warn"}, Icon.alert&&_stEl(Icon.alert,{s:12}), "Too many inputs selected. Exclude "+budgetOverBy+" optional asset"+(budgetOverBy!==1?"s":"")+" before rendering."),
       // the credit warning follows the OPEN tab too (footerCredit), never the References render alone
       footerCredit.short && (footerCredit.frozen
@@ -6188,7 +6183,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         const reachable = (model.tiers||[]).some(t0=>stageResAllowed(t0, r));   // any tier of THIS model
         return _stEl("button",{key:r,type:"button",className:"stage2-respill"+(resolution===r?" on":""),
            disabled,"aria-disabled":disabled?"true":undefined,
-           title:serverPending?"Pending server update — awaiting the video proxy capability handshake"
+           title:serverPending?"Not available yet — waiting on a server update"
              :disabled?(reachable?(r+" needs the Standard tier"):(r+" isn't available on "+model.label)):(r==="4K"?"4K — ~5× the 720p credit rate":r),
            onClick:()=>{if(!disabled)setResolution(r);}}, r);
       }))),
@@ -6220,14 +6215,14 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     // access available without exposing this as a routine composer choice.
     _ctrlRow("Clip grouping", _stEl("select",{value:clipScope,
         "aria-label":"Clip grouping","data-testid":"stage-clip-grouping",
-        title:"How shots are grouped into video clips, not where the camera cuts. Previous packing keeps historical takes accessible.",
+        title:"How shots are grouped into video clips, not where the camera cuts. Earlier grouping keeps older takes reachable.",
         onChange:e=>{ if(typeof setClipScope==="function")setClipScope(e.target.value); }},
       _stEl("option",{value:"beat",
-        title:"Fit the beat to the model limit using existing shot boundaries; never omit coverage or shorten dialogue."},"Fit beat"),
+        title:"Fit the beat to the model limit by splitting at existing shot boundaries; never omits coverage or shortens dialogue."},"Split to fit"),
       _stEl("option",{value:"shot",
         title:"One render per saved shot."},"Single shot"),
       _stEl("option",{value:"legacy",
-        title:"Browse the earlier automatic groups and their historical takes."},"Previous packing"))),
+        title:"Browse the earlier automatic groups and their older takes."},"Earlier grouping"))),
     // batch takes — parallel renders with distinct seeds; the Render card's cost
     // multiplies live as this changes (same state as the composer's batch pill)
     _ctrlRow("Batch takes", _stEl("div",{className:"stage2-seedrow stage2-batchrow"},
@@ -6306,7 +6301,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     _stEl("label",{className:"sd-gen-label"},"Timing & sound"),
     _ctrlRow("Audio", (hasDialogue && modelAudioRefs)
       ? _stEl("select",{value:dialogueAudio,
-          title:"Locked voice lip-syncs to your ElevenLabs lines; Native performance lets the model act the lines itself (swap voices in post)",
+          title:"Locked voice lip-syncs to your characters' recorded lines; Native performance lets the model act the lines itself (swap voices in post)",
           onChange:e=>setDialogueAudio(e.target.value==="native"?"native":"locked")},
           _stEl("option",{value:"locked"},"Locked voice — lip-synced to your lines"),
           _stEl("option",{value:"native"},"Native performance — model acts the lines"))
@@ -6323,13 +6318,15 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       seedInput && _stEl("button",{type:"button",className:"stage2-seed-btn",title:"Clear — render with a random seed",onClick:()=>setSeedInput("")},"✕"))
       : _stEl("select",{value:"na",disabled:true,onChange:()=>{}},
           _stEl("option",{value:"na"},"No seed control on this model"))),
+    // READ-ONLY FACTS, not buttons (they did nothing when clicked), and the sound one says what the
+    // render will really carry (it said "ON" even for a silent render) — 2026-10-05
     _stEl("div",{className:"sd-gen-pills"},
-      _stEl("button",{type:"button",title:measuredSec?("Voice + breathing room = "+_fmtSecs(measuredSec)+" minimum — rendering "+_fmtSecs(duration)):"Estimated clip duration"},
+      _stEl("span",{className:"sd-gen-pill",title:measuredSec?("Voice + breathing room = "+_fmtSecs(measuredSec)+" minimum — rendering "+_fmtSecs(duration)):"Estimated clip duration"},
         Icon.clock&&_stEl(Icon.clock,{s:14}), _fmtSecs(duration)),
-      _stEl("button",{type:"button",title:"Aspect ratio"},
+      _stEl("span",{className:"sd-gen-pill",title:"Aspect ratio (set by the film's format)"},
         Icon.monitor&&_stEl(Icon.monitor,{s:14}), effAspect||"16:9"),
-      _stEl("button",{type:"button",title:hasDialogue ? (voiceReady?"Audio is on":"Voice this clip before rendering") : "No dialogue; native/silent audio"},
-        Icon.mic&&_stEl(Icon.mic,{s:14}), hasDialogue ? (voiceReady?"ON":"NEEDS") : "ON")));
+      _stEl("span",{className:"sd-gen-pill",title:hasDialogue ? (voiceReady?"Lip-syncs to the locked voice lines":"Voice this clip before rendering") : (nativeAudio?"The model adds its own sound":"No sound in this render")},
+        Icon.mic&&_stEl(Icon.mic,{s:14}), hasDialogue ? (voiceReady?"Voice":"Needs voice") : (nativeAudio?"Sound":"Silent"))));
   const settings = _stEl("div",{className:"stage2-settings-drawer"},
     _stEl("div",{className:"stage2-settings-head"},
       _stEl("span",{className:"eyebrow"}, Icon.grid&&_stEl(Icon.grid,{s:12}),
@@ -6346,12 +6343,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       panelTab==="model" && tabModel,
       panelTab==="inputs" && tabInputs,
       panelTab==="director" && tabDirector,
-      needsVoice && onVoiceLine && _stEl("button",{className:"sd-gen-voice",type:"button",onClick:onVoiceClip,disabled:voicingClip},
-        Icon.mic&&_stEl(Icon.mic,{s:14}), voicingClip?"Voicing…":"Voice clip first",
-        !voicingClip && voiceClipCredits>0 && _stEl("span",{className:"nb-cost",title:"about "+voiceClipCredits+" credits for "+voiceTodo.length+" line"+(voiceTodo.length!==1?"s":"")}, String(voiceClipCredits))),
+      // (the drawer's own "Voice clip first" / source / asset errors repeated the composer's notices — removed 2026-10-05)
       genErr && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:14}), genErr),
-      sourceBlocking && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:14}), "No storyboard source is ready yet."),
-      assetOver && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:14}), "Asset budget is over by "+budgetOverBy+". Exclude optional assets in the center panel."),
+
       // the right panel's credit error follows the open tab's render too (round 5: on hold, a hold, or a cost)
       footerCredit.short && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:14}), stageCreditPanelText(footerCredit)),
       gening
@@ -6360,18 +6354,14 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
             _stEl("button",{className:"sd-gen-cancel",type:"button",
               title:"Before the render is sent nothing is charged. Once it's sent this only stops waiting: a render that finishes is still charged and appears in Takes.",
               onClick:()=>{ stagingCancelRef.current=true; gen.cancel(); }},"Stop"))
-        : composerTab!=="create" || createTask!=="reference"
-        ? _stEl("div",{className:"stage2-hint sd-gen-hint"}, "Generate from the "+(composerTab==="edit"?"Edit Video":composerTab==="motion"?"Motion Control":"Extend Video")+" composer — its button carries that render's price.")
-        : _stEl("button",{className:"sd-gen-submit"+(blocker?" blocked":""),type:"button",
-            title: blocker ? (blocker.text+" (click to see why)") : renderCostTitle,
-            "aria-disabled": blocker ? "true" : undefined, disabled:gening,
-            onClick:()=>{ if(gening) return; if(blocker){ onBlockedGenerate(); return; } onGenerate(); }},
-            playerUrl?"Regenerate clip":"Generate clip", Icon.sparkles&&_stEl(Icon.sparkles,{s:16})),
+        // ONE Generate (2026-10-05): the composer's button — it carries this render's price; the drawer
+        // used to repeat it for References renders
+        : _stEl("div",{className:"stage2-hint sd-gen-hint"}, "Generate from the "+(composerTab==="edit"?"Edit Video":composerTab==="motion"?"Motion Control":createTask==="reference"?"Create Video":"Extend Video")+" composer \u2014 its button carries this render's price."),
       // (Extend / Edit / Motion Control live on the composer's tabs — each with its own Generate)
       // the footer follows the open composer tab: Edit / Motion Control say what their render HOLDS
       _stEl("div",{className:"stage2-credit sd-gen-credit"+(footerCredit.short?" empty":""),title:footerCredit.title},
         Icon.sparkles&&_stEl(Icon.sparkles,{s:12}),footerCredit.label),
-      lastSeed!=null && _stEl("div",{className:"stage2-credit sd-gen-credit",title:"The seed fal returned for the last render — reuse it from the Seed control for repeatable variations"},
+      lastSeed!=null && _stEl("div",{className:"stage2-credit sd-gen-credit",title:"The seed the last render used — reuse it from the Seed control for repeatable variations"},
         "Seed "+lastSeed)));
 
   const lightbox = maxImg && (maxImg.kind==="video"
@@ -6422,6 +6412,21 @@ function _stagePromptCopy(txt){
 /* the VERSIONS view — a full Stage tab (was a per-clip modal). Loads the selected
    clip's takes itself, mutates them via the window.vid* helpers, and hands "Reuse /
    Branch" back to the Stage tab through onReuse (the composer applies the settings). */
+/* a take's model, as a name — never the provider's endpoint path (2026-10-05, owner — Stage review:
+   Seedance 2.5 and Kling takes showed e.g. "bytedance/seedance-2.5/reference-to-video") */
+function stageTakeModelLabel(raw){
+  const m = String(raw||"");
+  const fast = /\/fast\//.test(m) ? " · Fast" : "";
+  if(/sora-2/.test(m)) return "Sora 2"+(/\/pro/.test(m)?" · Pro":"");
+  if(/seedance-2\.5/.test(m)) return "Seedance 2.5"+fast+(/edit/.test(m)?" · Edit":/extend/.test(m)?" · Extend":"");
+  if(/seedance-2\.0/.test(m)) return "Seedance 2.0"+fast+(/image-to-video/.test(m)?" · transition":"");
+  if(/kling/.test(m)) return "Kling"+(/v3/.test(m)?" 3.0":"")+(/motion-control/.test(m)?" · Motion Control":"")+(/\/pro\//.test(m)?" · Pro":/\/standard\//.test(m)?" · Standard":"");
+  if(!m) return "Seedance 2.0";
+  // an unknown id: its last readable segment, never the vendor/path
+  const last = m.split("/").filter(Boolean).pop() || m;
+  return last.replace(/[-_]+/g," ").replace(/\b\w/g, c=>c.toUpperCase());
+}
+window.stageTakeModelLabel = stageTakeModelLabel;
 function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false }){
   const clipId = clip && clip.id;
   const [takes, setTakes] = React.useState(()=> (clipId && typeof vidGetTakes==="function") ? vidGetTakes(clipId) : []);
@@ -6472,7 +6477,7 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false }
         ?"One or more character appearance, location coverage or prop-state references changed, is missing, or is not currently approved."
         : status==="stale"
         ?"This take was rendered from older shot specifications or screenplay text."
-        :"This legacy take has no source-revision stamp, so its match to current coverage cannot be verified.")
+        :"This older take doesn't record which version of the shots it was made from, so it can't be checked against them.")
         +" "+verb+" records an explicit override tied to the current shot sources. The override expires automatically after another source change.",
       confirmLabel:verb+" with override",danger:true
     });
@@ -6527,17 +6532,13 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false }
     const editorialStatus=versionEditorialStatus(t);
     if(editorialStatus==="override") out.push(_stEl("span",{key:"o",className:"stage2-vbadge override"},"Source override"));
     else if(sourceStatus!=="current") out.push(_stEl("span",{key:"s",className:"stage2-vbadge "+sourceStatus},
-      sourceStatus==="stale"?"Stale source":"Source unverified"));
+      sourceStatus==="stale"?"Shots changed":"Can't be checked"));
     if(propDependenciesStale(t)) out.push(_stEl("span",{key:"p",className:"stage2-vbadge stale"},"Prop reference changed"));
     if(referenceVersionsStale(t)) out.push(_stEl("span",{key:"r",className:"stage2-vbadge stale"},"References need review"));
     return out;
   };
   const detailRows = sel ? [
-    ["Model", (selMeta.model||"").indexOf("sora-2")>=0
-      ? ("Sora 2"+((selMeta.model||"").indexOf("/pro")>=0?" · Pro":""))
-      : (selMeta.model||"").indexOf("seedance-2.0")>=0
-      ? ("Seedance 2.0"+((selMeta.model||"").indexOf("/fast/")>=0?" · Fast":"")+((selMeta.model||"").indexOf("image-to-video")>=0?" · transition":""))
-      : (selMeta.model||"Seedance 2.0")],
+    ["Model", stageTakeModelLabel(selMeta.model)],
     ["Workflow", _stageVSourceLabel(selMeta.source) || "—"],
     ["Duration", selMeta.durationSec ? (selMeta.durationSec+"s") : (selMeta.durationMs ? Math.round(selMeta.durationMs/1000)+"s" : "—")],
     ["Inputs", selMeta.inputs || "—"],
@@ -6562,8 +6563,7 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false }
         _stEl("div",{className:"stage2-versions-title"},
           Icon.layers&&_stEl(Icon.layers,{s:14}), "Takes",
           _stEl("span",{className:"stage2-versions-sub"}, (clip&&clip.label)||"")),
-        _stEl("span",{className:"stage2-versions-count"}, takes.length+(takes.length===1?" take":" takes")),
-        _stEl("button",{className:"stage2-iconbtn",title:"Back to Shoot",onClick:onBack}, Icon.x&&_stEl(Icon.x,{s:16}))),
+        _stEl("span",{className:"stage2-versions-count"}, takes.length+(takes.length===1?" take":" takes"))),   // (one Back to Shoot is enough — 2026-10-05)
       _stEl("div",{className:"stage2-versions-body"},
         // left — version cards
         _stEl("div",{className:"stage2-versions-list"},
@@ -6813,6 +6813,14 @@ window.stageExportFilm = stageExportFilm;
    playing the CURRENT take back-to-back ("Choose for timeline" in Takes decides what
    plays). Read-only on purpose: the story defines the order; the Stage tab renders,
    the Takes tab picks takes, this tab watches the film. ---- */
+/* ONE NAME FOR A CLIP (2026-10-05, owner — Stage review): Shoot speaks in beats ("Beat 4"), the
+   Timeline and Mix in clip codes ("03A") — so the codes now carry their beats: "03A · Beat 4". */
+function stageClipBeatName(c){
+  const ns = Array.from(new Set(((c && c.g && c.g.shots) || []).map(sh=>Number(sh && sh.beatN)).filter(n=>n>0))).sort((a,b)=>a-b);
+  const beats = !ns.length ? "" : ns.length===1 ? "Beat "+ns[0] : "Beats "+ns[0]+"\u2013"+ns[ns.length-1];
+  return (c && c.label || "") + (beats ? " \u00b7 "+beats : "");
+}
+window.stageClipBeatName = stageClipBeatName;
 function StageTimelineView({ allClips, vids, staleVids, imgs, visualSource, selId, onSelectClip, onOpenStage, filmTitle }){
   const ordered = allClips||[];
   const startIdx = Math.max(0, ordered.findIndex(c=>c.id===selId));
@@ -6880,8 +6888,8 @@ function StageTimelineView({ allClips, vids, staleVids, imgs, visualSource, selI
             poster:cur?clipPrimaryFrame(cur, imgs, visualSource)||undefined:undefined})
         : _stEl("div",{className:"stage2-tl-empty"},
             _stEl("div",null,(!cur ? "No clips yet." : (staleVids||{})[cur.id]
-              ? cur.label+"'s take is out of date \u2014 its shots changed since it was rendered, so it's left out of the film."
-              : cur.label+" isn't rendered yet.")),
+              ? stageClipBeatName(cur)+"'s take is out of date \u2014 its shots changed since it was rendered, so it's left out of the film."
+              : stageClipBeatName(cur)+" isn't rendered yet.")),
             cur && _stEl("button",{className:"stage2-vtool",style:{width:"auto"},onClick:()=>onOpenStage&&onOpenStage(cur.id)},
               (staleVids||{})[cur.id] ? "Regenerate it in Shoot" : "Render it in Shoot"))),
     _stEl("div",{className:"stage2-tl-strip"},
@@ -6893,10 +6901,10 @@ function StageTimelineView({ allClips, vids, staleVids, imgs, visualSource, selI
             const thumb = clipPrimaryFrame(c, imgs, visualSource);
             return _stEl("button",{key:c.id,type:"button",
               className:"stage2-tl-clip"+(i===idx?" on":"")+(has?"":" missing"),
-              title:c.label+(has?" — click to play":" — not rendered yet (double-click to open in the Stage)"),
+              title:stageClipBeatName(c)+(has?" — click to play":((staleVids||{})[c.id]?" — out of date (double-click to open it in Shoot)":" — not rendered yet (double-click to open in the Stage)")),
               onClick:()=>jump(i,false), onDoubleClick:()=>onOpenStage&&onOpenStage(c.id)},
               thumb ? _stEl("img",{src:thumb,alt:""}) : _stEl("span",{className:"stage2-tl-clip-blank"}),
-              _stEl("span",{className:"stage2-tl-clip-lab"}, c.label+" · "+_fmtSecs(Number(c.data&&c.data.dur)||0)),
+              _stEl("span",{className:"stage2-tl-clip-lab"}, stageClipBeatName(c)+" · "+_fmtSecs(Number(c.data&&c.data.dur)||0)),
               _stEl("span",{className:"stage2-tl-dot"+(has?" ok":"")})); }))))));
 }
 
@@ -6989,8 +6997,8 @@ function StageAudioView({ allClips, vids, auds, characters, selId, onSelectClip 
       lane("native","Picture (native mix)",
         _stEl("div",{className:"stage2-au-blocks"}, sceneClips.map(c=>_stEl("span",{key:c.id,
           className:"stage2-au-block"+(vids[c.id]?"":" missing")+(cur&&cur.id===c.id?" on":""),
-          title:c.label+(vids[c.id]?"":" — not rendered")}, c.label)))),
-      lane("dialogue","Dialogue (pristine ElevenLabs)",
+          title:stageClipBeatName(c)+(vids[c.id]?"":" — not rendered")}, stageClipBeatName(c))))),
+      lane("dialogue","Dialogue (locked voices)",
         _stEl("div",{className:"stage2-au-blocks"}, sceneClips.flatMap(c=>clipLinePlacements(c, auds, characters).map(pl=>
           _stEl("span",{key:c.id+":"+pl.shotId,className:"stage2-au-block line"+(pl.url?"":" missing"),
             title:pl.speaker+" — \""+pl.text.slice(0,60)+"\" · lands ~"+pl.at+"s into "+c.label
@@ -7010,72 +7018,6 @@ function StageAudioView({ allClips, vids, auds, characters, selId, onSelectClip 
           _stEl("audio",{ref:bedRefs.music,src:(beds.music&&beds.music.url)||undefined})))),
     _stEl("div",{className:"stage2-au-note foot"},
       "Preview mix — the picture plays each clip's current take with its native track at the Picture volume; your pristine line audio drops in exactly where the render placed it. Volume and mute settings are remembered per film on this device; imported beds live for this session only. For a downloadable movie, use Export film in the Timeline tab."));
-}
-
-/* a composer pill that opens a dropdown of options — the inline alternative to the
-   Render-settings panel. The menu renders position:fixed so the controls row's
-   horizontal scroll/overflow can't clip it. */
-function StagePillMenu({ icon:Ic, label, title, heading, on, disabled, options, onPick, foot }){
-  const [open, setOpen] = React.useState(false);
-  const btnRef = React.useRef(null);
-  const menuRef = React.useRef(null);
-  const [pos, setPos] = React.useState(null);
-  const [hi, setHi] = React.useState(-1);   // keyboard highlight — arrows move it, Enter picks
-  React.useEffect(()=>{
-    if(!open) return;
-    const close=(e)=>{
-      if(btnRef.current && btnRef.current.contains(e.target)) return;
-      if(menuRef.current && menuRef.current.contains(e.target)) return;
-      setOpen(false);
-    };
-    const keys=(e)=>{
-      if(e.key==="Escape"){ setOpen(false); return; }
-      const list = options||[];
-      const step = e.key==="ArrowDown" ? 1 : e.key==="ArrowUp" ? -1 : 0;
-      if(step){ e.preventDefault();
-        // cycle to the next ENABLED option, wrapping at the ends
-        setHi(h=>{ let i=h; for(let n=0;n<list.length;n++){ i=(i+step+list.length)%list.length; if(!list[i].disabled) return i; } return h; }); }
-      else if(e.key==="Enter" && hi>=0 && list[hi] && !list[hi].disabled){
-        e.preventDefault(); setOpen(false); onPick&&onPick(list[hi].value); }
-    };
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", keys);
-    return ()=>{ document.removeEventListener("mousedown", close); document.removeEventListener("keydown", keys); };
-  },[open, hi, options, onPick]);
-  const toggle=()=>{
-    if(disabled || !(options&&options.length)) return;
-    if(!open && btnRef.current){
-      const r = btnRef.current.getBoundingClientRect();
-      setPos({ left:Math.round(Math.min(r.left, window.innerWidth-300)), top:Math.round(r.bottom+6) });
-      // opening pre-highlights the selected option so arrows continue from it
-      const sel = options.findIndex(o=>o.selected && !o.disabled);
-      setHi(sel>=0 ? sel : options.findIndex(o=>!o.disabled));
-    }
-    setOpen(o=>!o);
-  };
-  return _stEl(React.Fragment,null,
-    _stEl("button",{ref:btnRef,type:"button",title,
-      className:"stage2-gen-pill"+(on?" on":"")+(open?" open":""),
-      "aria-haspopup":"menu","aria-expanded":open?"true":"false",
-      onClick:toggle},
-      Ic&&_stEl(Ic,{s:14}), _stEl("span",null,label)),
-    open && pos && _stEl("div",{ref:menuRef,className:"stage2-pill-menu",role:"menu",style:{left:pos.left+"px",top:pos.top+"px"}},
-      heading && _stEl("b",{className:"stage2-pill-menu-h"}, heading),
-      options.map((o,i)=>_stEl("button",{key:String(o.value),type:"button",role:"menuitemradio","aria-checked":o.selected?"true":"false",
-        className:"stage2-pill-opt"+(o.selected?" on":"")+(i===hi?" hi":""),
-        disabled:!!o.disabled, title:o.note||undefined,
-        onMouseEnter:()=>setHi(i),
-        onClick:()=>{ if(o.disabled) return; setOpen(false); onPick&&onPick(o.value); }},
-        _stEl("div",{className:"stage2-pill-opt-main"},
-          _stEl("span",null,o.label),
-          o.tag&&_stEl("small",null,o.tag)),
-        // metadata chips (resolution ceiling, duration range…) — spec at a glance
-        (o.meta&&o.meta.length>0) && _stEl("div",{className:"stage2-pill-opt-meta"},
-          o.meta.map((m,i)=>_stEl("span",{key:i},
-            m.icon&&_stEl(m.icon,{s:10}), m.label))),
-        // one-line description (e.g. bitrate trade-off)
-        o.desc && _stEl("div",{className:"stage2-pill-opt-desc"}, o.desc))),
-      foot && _stEl("div",{className:"stage2-pill-menu-foot"}, foot)));
 }
 
 /* ================================ the room shell =============================== */
@@ -7246,97 +7188,6 @@ function stageShotRuntime(sh){
   if(ms) return Math.max(1, Math.round((Number(ms)/1000)*10)/10);
   if(typeof shotDur==="function") return Math.max(1, Number(shotDur(sh))||5);
   return Math.max(1, Number(sh&&sh.dur)||5);
-}
-
-function sceneStoryboardItems(scene, sceneShots, imgs, visualSource){
-  const out = [];
-  const total = stagePageRanges(sceneShots).length;
-  for(let i=0;i<total;i++){
-    const sheetId = "sbsheet-sbpage-"+scene.id+"-2x2-"+i;
-    const sheet = imgs[sheetId] || "";
-    const topId = sheetId+":half-top", bottomId = sheetId+":half-bottom";
-    const top = imgs[topId] || "", bottom = imgs[bottomId] || "";
-    if(visualSource==="halves" && (top || bottom)){
-      out.push({ id:topId, kind:"half", half:"top", page:i+1, label:"Page "+(i+1)+" · top half", url:top, missing:!top });
-      out.push({ id:bottomId, kind:"half", half:"bottom", page:i+1, label:"Page "+(i+1)+" · bottom half", url:bottom, missing:!bottom });
-    } else {
-      out.push({ id:sheetId, kind:"sheet", page:i+1, label:"Page "+(i+1)+" · full sheet", url:sheet, missing:!sheet,
-        note:visualSource==="halves" ? "No saved halves yet" : "" });
-    }
-  }
-  return out;
-}
-
-function StageSceneSheets({ scene, sceneShots, clips, imgs, visualSource, aspect, onOpenClip }){
-  const items = sceneStoryboardItems(scene, sceneShots, imgs, visualSource);
-  const ranges = stagePageRanges(sceneShots);
-  const clipForItem = (it)=>{
-    const pg = ranges[it.page-1] || { start:(it.page-1)*4, count:4 };
-    const cell0 = (it.kind==="half" && it.half==="bottom") ? 2 : 0;
-    const span = Math.max(1, Math.min(it.kind==="half" ? 2 : pg.count, pg.count-cell0));
-    const start = pg.start + cell0;
-    return (clips||[]).find(c=>{
-      const a = Number(c&&c.g&&c.g.start)||0;
-      const b = a + (((c&&c.g&&c.g.shots)||[]).length||1) - 1;
-      return b>=start && a<=start+span-1;
-    }) || (clips||[])[0] || null;
-  };
-  const cards = items.map(it=>{
-    const c = clipForItem(it);
-    const canOpen = !!(c && onOpenClip);
-    return _stEl("button",{key:it.id,type:"button",className:"stage2-sheet-card "+it.kind+(it.missing?" missing":""),
-      disabled:!canOpen, onClick:()=>canOpen&&onOpenClip(c.id),
-      title:canOpen ? ("Open "+c.label+" from "+it.label) : it.label},
-      _stEl("div",{className:"stage2-sheet-thumb",style:it.kind==="half"?{"--stage-aspect":"3 / 1"}:_stageAspectCss(aspect)},
-        it.url ? _stEl("img",{src:it.url,alt:"",loading:"lazy"})
-          : _stEl("div",{className:"stage2-sheet-missing"}, Icon.image&&_stEl(Icon.image,{s:20}), it.note||"Not saved yet")),
-      _stEl("div",{className:"stage2-sheet-meta"},
-        _stEl("span",{className:"stage2-sheet-label"}, it.label),
-        c && _stEl("span",{className:"stage2-sheet-clip"}, c.label)));
-  });
-  return _stEl("div",{className:"stage2-sheets"},
-    _stEl("div",{className:"stage2-sheets-head"},
-      _stEl("div",null,
-        _stEl("div",{className:"stage2-board-scene-k"},"SCENE "+_pad2(scene.no)),
-        _stEl("div",{className:"stage2-sheets-title"}, scene.title||scene.loc)),
-      _stEl("div",{className:"stage2-board-progress"},
-        items.filter(x=>!x.missing).length+" / "+items.length+" "+(visualSource==="halves"?"halves":"sheets"))),
-    _stEl("div",{className:"stage2-sheets-grid"}, cards));
-}
-
-function StageBoard({ scenesWithShots, allClips, imgs, auds, vids, beatsMap, drafts, visualSource, selectedId, onSelect, aspect }){
-  return _stEl("div",{className:"stage2-board-scroll"},
-    scenesWithShots.map(scene=>{
-      const cs = allClips.filter(c=>c.scene.id===scene.id);
-      const done = cs.filter(c=>clipVideoReady(c, vids)).length;
-      return _stEl("section",{key:scene.id,className:"stage2-board-scene"},
-        _stEl("div",{className:"stage2-board-scene-head"},
-          _stEl("div",null,
-            _stEl("div",{className:"stage2-board-scene-k"},"SCENE "+_pad2(scene.no)),
-            _stEl("div",{className:"stage2-board-scene-t"}, scene.title||scene.loc)),
-          _stEl("div",{className:"stage2-board-progress"}, done+" / "+cs.length+" clips")),
-        _stEl("div",{className:"stage2-board-grid"},
-          cs.map(c=>{
-            const frame = clipPrimaryFrame(c, imgs, visualSource);
-            const voice = clipVoiceState(c, auds);
-            const frameState = clipFrameState(c, imgs, visualSource);
-            const rendered = clipVideoReady(c, vids);
-            return _stEl("button",{key:c.id,className:"stage2-card"+(c.id===selectedId?" on":"")+(rendered?" done":""),
-              onClick:()=>onSelect(c.id),title:"Open "+c.label+" — "+clipBeatName(c, beatsMap, drafts)},
-              _stEl("div",{className:"stage2-card-thumb",style:_stageAspectCss(aspect)},
-                frame ? _stEl("img",{src:frame,alt:"",loading:"lazy"}) : _stEl("div",{className:"stage2-card-blank"}, Icon.image&&_stEl(Icon.image,{s:18}),"No frame"),
-                rendered && _stEl("span",{className:"stage2-card-play"}, Icon.play&&_stEl(Icon.play,{s:12}))),
-              _stEl("div",{className:"stage2-card-body"},
-                _stEl("div",{className:"stage2-card-top"},
-                  _stEl("span",{className:"stage2-card-lab"}, c.label),
-                  _stEl("span",{className:"stage2-card-dur"}, _fmtSecs(c.data.dur))),
-                _stEl("div",{className:"stage2-card-beat"}, clipBeatName(c, beatsMap, drafts)),
-                _stEl("div",{className:"stage2-card-chips"},
-                  _stEl("span",{className:"stage2-status "+frameState.key}, frameState.label),
-                  _stEl("span",{className:"stage2-status "+voice.key}, voice.label),
-                  _stEl("span",{className:"stage2-status "+(rendered?"ready":"missing")}, rendered?"video ✓":"pending"))));
-          })));
-    }));
 }
 
 function StageView({ project, scenes, shots, characters, locations, props, beatsMap, drafts, creditBalance, readOnly=false, onMakeSceneNeeds, onVoiceAll, voicingLines, onCancelVoiceAll, onVoiceLine, onUpdateShot, onStageNav, onStageSettings }){

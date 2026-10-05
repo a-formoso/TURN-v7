@@ -81,7 +81,7 @@
     const duration=round(Math.max(explicitShotDur||floor,speech?speech+0.6:0,0.5));
     if(beatOpening(sh)&&source&&source.missing)
       issues.push({code:"missing-screenplay-helper",blocking:true,shotId:sh.id,
-        message:"The canonical screenplay source helper is unavailable for this beat-opening shot. Load shot-screenplay.js before Stage; do not fall back to stale shot text."});
+        message:"This beat's screenplay couldn't be read, so it isn't rendered from older shot text. Reload the app and try again."});
     if(!action&&!dialogue)
       issues.push({code:"empty-shot",blocking:true,shotId:sh.id,message:"This shot has no action or dialogue to render."});
     return {shotId:sh.id,index,beatN:positive(sh.beatN)||null,covers:opening?[]:covers,micro,action,dialogue,
@@ -108,9 +108,9 @@
         : "This coverage needs "+durationSec+" seconds; this model allows "+cap.max+". Split at an existing shot boundary, or deliberately divide and revoice a long spoken shot."});
     }
     if(units.length>cap.shots)
-      issues.push({code:"shot-budget",blocking:true,message:"This clip has more shots than the selected packing budget."});
+      issues.push({code:"shot-budget",blocking:true,message:"This clip has more shots than one render can hold \u2014 use Split to fit."});
     if(units.filter(u=>u.dialogue).length>cap.dialogue)
-      issues.push({code:"dialogue-budget",blocking:true,message:"This clip has more dialogue lines than its direct-audio packing budget."});
+      issues.push({code:"dialogue-budget",blocking:true,message:"This clip has more dialogue lines than one render can carry \u2014 use Split to fit."});
     let clock=0;
     units.forEach((u,i)=>{
       u.start=round(clock);clock+=u.duration;

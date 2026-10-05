@@ -1219,7 +1219,7 @@ await test("K (A2, round 4) the composer's red no-credits outline and the credit
   const cls = /const composer = _stEl\("div",\{className:("stage2-gen-composer"[^,]*),"data-composer-tab"/.exec(src);
   assert.ok(cls, "the composer's className");
   const composerClass = vm.runInContext("(function(gening, footerCredit, creditInfo){ return " + cls[1] + "; })", S);
-  const wa = src.indexOf("    (sourceBlocking || assetOver || genErr || needsVoice || ");
+  const wa = src.indexOf("    (assetOver || genErr || footerCredit.short) && ");
   assert.ok(wa > 0, "the warnings under the composer");
   const wOpen = src.indexOf("_stEl(", wa) + 5;
   const warnExpr = src.slice(wa, matchParen(src, wOpen) + 1);
@@ -1293,12 +1293,12 @@ await test("K (A1–A3, round 5) the Stage's credit surfaces, from the component
   const footerFor = vm.runInContext("(function(composerTab, createTask, editHoldInfo, motionHoldInfo, extendCreditInfo, creditInfo){ " + src.slice(fa, fb) + " return footerCredit; })", S);
   const cls = /const composer = _stEl\("div",\{className:("stage2-gen-composer"[^,]*),"data-composer-tab"/.exec(src);
   const composerClass = vm.runInContext("(function(gening, footerCredit, creditInfo){ return " + cls[1] + "; })", S);
-  const wa = src.indexOf("    (sourceBlocking || assetOver || genErr || needsVoice || ");
+  const wa = src.indexOf("    (assetOver || genErr || footerCredit.short) && ");
   const warnExpr = src.slice(wa, matchParen(src, src.indexOf("_stEl(", wa) + 5) + 1);
   const warnings = vm.runInContext("(function(p){ var _stEl=p.el, Icon=p.Icon, sourceBlocking=false, assetOver=false, genErr='', needsVoice=!!p.needsVoice, budgetOverBy=0,"
     + " footerCredit=p.footerCredit, creditInfo=p.creditInfo, totalCost=p.totalCost; return (\n" + warnExpr + "\n); })", S);
   // the right panel: the line after the asset-budget error that carries the credit error
-  const pa = src.indexOf('assetOver && _stEl("div",{className:"stage2-err sd-gen-err"}');
+  const pa = src.indexOf('genErr && _stEl("div",{className:"stage2-err sd-gen-err"}');
   assert.ok(pa > 0, "the right panel's errors");
   const panelLines = src.slice(src.indexOf("\n", pa) + 1, src.indexOf("      gening\n", pa)).split("\n").filter((l) => l.trim() && !l.trim().startsWith("//"));
   assert.equal(panelLines.length, 1, "one credit error line in the right panel: " + panelLines.join(" | "));
@@ -1327,9 +1327,9 @@ await test("K (A1–A3, round 5) the Stage's credit surfaces, from the component
   assert.ok(!v.footerCls.split(/\s+/).includes("empty"), v.footerCls);
   assert.equal(v.footerLabel, "Holds up to 1,709 credits; charged for the finished video’s length · 1,000 remaining");
   assert.ok(v.footerTitle.includes("(the longest length allowed until the video’s length is known)"), v.footerTitle);
-  // … also when another warning opens the warnings block (the clip still needs its voice): only that warning
+  // … the voice notice lives in the composer's notices now (Stage review 2026-10-05), never in this row
   const withVoice = textOf(warnings({ el, Icon: S.Icon, footerCredit: v.fc, creditInfo: refs(rich), totalCost: 473, needsVoice: true }));
-  assert.equal(withVoice, "Voice this clip before rendering so timing and lip-sync stay locked.", withVoice);
+  assert.equal(withVoice, "", withVoice);
   // … Motion Control too (378 > 300), and while a chosen video is still being measured
   const bal300 = { remaining: 300, plan: "studio" };
   c = credits({ resolution: "720p", creditBalance: bal300 });
