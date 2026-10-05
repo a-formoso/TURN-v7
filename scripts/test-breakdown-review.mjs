@@ -54,8 +54,10 @@ await test("A1 with shots, missing = the frames' needs (the room & time plate co
   box.sceneReferenceNeeds = (shots, ctx)=> ctx.scene.id==="s1" ? [{ id:"locunit-house-night", kind:"location", label:"House · Night", makeable:true }] : [];
   box.shotFrameState = (sh)=>({ a1:{ done:true, oldLook:true }, a2:{ done:false }, b1:{ done:true } })[sh.id];
   const [r1, r2] = rowsOf(film());
-  assert.deepEqual(J(r1.missing.map(m=>m.text)), ["House · Night plate", "1 frame to approve or refresh", "1 frame with an earlier look"]);
-  assert.deepEqual(J(r1.missing.map(m=>m.tab)), ["locations", "shots", "shots"]);
+  assert.deepEqual(J(r1.missing.map(m=>m.text)), ["House · Night plate", "1 frame to approve or refresh"]);
+  assert.deepEqual(J(r1.missing.map(m=>m.tab)), ["locations", "shots"]);
+  // (2026-10-05, second pass) an earlier look is a NOTE, as in Shots and the Stage — never "to go"
+  assert.deepEqual(J(r1.notes.map(m=>m.text)), ["1 frame with an earlier look \u2014 re-render to apply it"]);
   assert.equal(r1.ready, false, "the main plate exists, but not the room & time plate the shots attach");
   assert.equal(r1.shots.toRender, 1);
   assert.equal(r2.ready, true);
@@ -74,7 +76,7 @@ await test("B1 each missing image counts once, frames count what's to render, an
   const sum = box.breakdownSummary(rowsOf(film()));
   assert.equal(sum.castSheets, 1, "Ana once across both scenes"); assert.equal(sum.plates, 1); assert.equal(sum.frames, 2);
   assert.equal(sum.images, 4);
-  assert.match(box.bdSummaryLine(sum), /≈ 48 credits to finish \(image credits; drafting adds a little writing\)/);
+  assert.match(box.bdSummaryLine(sum), /≈ 48 credits to finish \(image credits; drafting adds a little writing; video is priced on the Stage\)/);
 });
 
 /* ═══ C ═══ */
@@ -92,7 +94,7 @@ await test("C2 every tab reads it: Characters / Props / Locations focus the scen
     assert.ok(src.includes('window.turnClearArtFocus("'+tab+'"); },[]);'), tab);
   }
   assert.ok(shotsUi.includes('const f = window.turnPeekArtFocus && window.turnPeekArtFocus("shots");'));
-  assert.ok(shotsUi.includes('if(f.action==="render") setTimeout(()=>{ startSceneRef.current && startSceneRef.current(scenesWithShots[i]); }, 400);'));
+  assert.ok(shotsUi.includes('if(f.action==="render") setTimeout(()=>{ startSceneRef.current && startSceneRef.current(scenesWithShots[i], { always:true }); }, 400);'));
 });
 
 /* ═══ D ═══ */
@@ -115,7 +117,7 @@ await test("D1 the strip: links open on its scene; 'Make what this scene needs' 
   const rs = buttons(tree).find(b=>/Render Scene 02/.test(textOf(b)));
   assert.ok(rs); assert.equal(findAll(rs, n=>n.type==="chip")[0].props.count, 1);
   rs.props.onClick(); assert.deepEqual(went.pop(), ["shots", "s2", "render"]);
-  assert.ok(art.includes("setArtView,onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds})"));
+  assert.ok(art.includes("setArtView,onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds,onOpenStage,readOnly})"));
 });
 
 /* ═══ E ═══ */

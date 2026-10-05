@@ -2314,7 +2314,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
     if(i<0) return;
     setPIdx(i);
     setCollapsed(c=>({ ...c, [f.sceneId]:false }));
-    if(f.action==="render") setTimeout(()=>{ startSceneRef.current && startSceneRef.current(scenesWithShots[i]); }, 400);
+    if(f.action==="render") setTimeout(()=>{ startSceneRef.current && startSceneRef.current(scenesWithShots[i], { always:true }); }, 400);
   },[scenesWithShots.length]);
   const sceneNoOf = (sid)=>{ const s=(scenes||[]).find(x=>x.id===sid); return s ? s.no : sid; };
 
@@ -2473,10 +2473,11 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
   // the run's prop answer lasts while it runs; a single render (no run) asks on its card
   React.useEffect(()=>{ if(!chain) window.__turnShotRunPropChoice = null; },[chain]);
   const chainBusyNotice = ()=> setNotice("A render is already in progress \u2014 wait for it to finish, or press Stop on the running shot first.");
-  const startScene = async (scene)=>{ if(batchActiveId||chain||chainStartingRef.current){ chainBusyNotice(); return; } if(!chainKeyOk()){ batch.setMsg("Set your image-model API key first (top of this tab)."); return; }
+  // opts.always: started from ANOTHER tab (the Breakdown's "Render Scene NN") — always ask first, with the price (2026-10-05)
+  const startScene = async (scene, opts)=>{ if(batchActiveId||chain||chainStartingRef.current){ chainBusyNotice(); return; } if(!chainKeyOk()){ batch.setMsg("Set your image-model API key first (top of this tab)."); return; }
     const ids = chainOrderIds(shotsByScene[scene.id]); if(!ids.length) return;
     chainStartingRef.current = true;
-    try{ if(!(await confirmRun(ids, "in Scene "+String(scene.no).padStart(2,"0"), false))) return; }
+    try{ if(!(await confirmRun(ids, "in Scene "+String(scene.no).padStart(2,"0"), !!(opts && opts.always)))) return; }
     finally{ chainStartingRef.current = false; }
     setCollapsed(c=>({ ...c, [scene.id]:false }));   // keep the scene's cards mounted through the run
     stepChain(ids, 0, false); };

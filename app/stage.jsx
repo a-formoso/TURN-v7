@@ -7612,6 +7612,16 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   (allClips||[]).forEach(c=>{ if(!c || !vids[c.id] || !c.scene) return;
     const m = (typeof vidGetMeta==="function") ? vidGetMeta(c.id) : null;
     if(m && typeof shotLookIsEarlier==="function" && shotLookIsEarlier(m.lookSig, project, c.scene.id)) oldLookVids[c.id] = true; });
+  // EACH SCENE'S CLIPS, FOR THE BREAKDOWN (2026-10-05, owner — Breakdown review): the clip grouping follows
+  // this room's model and settings, so the counts are saved per film on this device on each visit
+  const stageStatusSig = (allClips||[]).map(c=>c.id+":"+(vids[c.id]?1:0)+(staleVids[c.id]?"s":"")+(oldLookVids[c.id]?"l":"")).join(",");
+  React.useEffect(()=>{
+    const out = {};
+    (allClips||[]).forEach(c=>{ if(!c || !c.scene) return; const o = out[c.scene.id] = out[c.scene.id] || { total:0, rendered:0, stale:0, oldLook:0 };
+      o.total++; if(vids[c.id]) o.rendered++; if(staleVids[c.id]) o.stale++; if(oldLookVids[c.id]) o.oldLook++; });
+    out.__at = new Date().toISOString();
+    try{ localStorage.setItem("turn_stage_scene_status:"+((project && project.id)||"local"), JSON.stringify(out)); }catch(e){}
+  },[stageStatusSig, project && project.id]);
   React.useEffect(()=>{ let alive=true;
     (async()=>{ const out={}, stale={};
        for(const id of videoIds){ let u=(typeof vidGetVideo==="function")?vidGetVideo(id):"";

@@ -38,7 +38,7 @@ await test("A2 'Generate N shots' shows the count and price and always asks; not
   assert.ok(list.includes('"Every shot approved"') && !list.includes('"Generate all shots", typeof window.nbCostChip==="function" && window.nbCostChip(1)'));
 });
 await test("A3 a scene run shows its price, and asks only when it would redo frames", ()=>{
-  assert.ok(list.includes('if(!(await confirmRun(ids, "in Scene "+String(scene.no).padStart(2,"0"), false))) return;'));
+  assert.ok(list.includes('if(!(await confirmRun(ids, "in Scene "+String(scene.no).padStart(2,"0"), !!(opts && opts.always)))) return;'));
   assert.ok(list.includes("if((always || plan.redo.length) && typeof window.appConfirm===\"function\"){"));
   assert.ok(group.includes("window.nbCostChip(scenePlan.toRender.length)") && group.includes('"Scene approved"'));
   assert.ok(list.includes("scenePlan:scenePlanFor(scene)") && list.includes("scenePlan:scenePlanFor(runnerScene)"));

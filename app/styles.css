@@ -8662,6 +8662,13 @@ html[data-theme="dark"] .hd-card-new-art{ box-shadow:none; }
 .bd-chip-sub{color:var(--txt-3)}
 .bd-dot{flex:0 0 auto;width:7px;height:7px;border-radius:50%;border:1.5px solid var(--pos);background:transparent}
 .bd-dot.ok{border-color:var(--ok);background:var(--ok)}   /* the status token (its light value is built in) */
+/* in no frame of the scene (not missing, not needed) and the strip's notes (2026-10-05) */
+.bd-dot.unused{border-color:var(--txt-3);border-style:dashed}
+.bd-chip.unused{color:var(--txt-2)}
+.bd-chip:disabled{cursor:default;opacity:.7}
+.bd-notes{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.bd-note{display:inline-flex;align-items:center;gap:6px;border:0;background:transparent;color:var(--txt-2);font:600 11.5px var(--f-ui);padding:0;cursor:pointer}
+.bd-note:hover{color:var(--txt-0)}
 .bd-empty{font-size:11.5px;color:var(--txt-3);padding-top:3px}
 .bd-strip-status{padding:12px;border-left:1px solid var(--line);display:flex;flex-direction:column;align-items:flex-start;gap:4px;font-size:11.5px;color:var(--txt-2);min-width:0}
 .bd-strip-status.ok{flex-direction:row;align-items:center;justify-content:center;gap:6px;color:var(--ok);font-weight:600}
