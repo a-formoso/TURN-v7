@@ -7541,13 +7541,16 @@ function App(){
                 readOnly:roomReadOnly,
                 onVoiceAll:voiceAllLines,voicingLines,onCancelVoiceAll:cancelVoiceAll,
                 onVoiceLine:voiceLine,
+                onMakeSceneNeeds:makeSceneNeeds,
                 onUpdateShot:updateShot,
                 // the Stage's model, clip scope and visual source belong to the FILM (2026-10-02)
                 onStageSettings:(patch)=>{ if(!canMutateSharedFilm()) return;
                   setProject(p=>({ ...p, stage:{ ...((p&&p.stage)||{}), ...patch } })); },
-                onStageNav:(tab)=>{
+                onStageNav:(tab, sceneId)=>{
                   if(tab==="timeline"){ setRoom("writers"); setView("script"); return; }
-                  if(tab==="shots"){ setArtView("shots"); guardedSetRoom("art"); return; }
+                  // a scene hand-off opens Shots on it (the Breakdown's turnFocusArtScene)
+                  if(tab==="shots"){ if(sceneId && typeof window.turnFocusArtScene==="function") window.turnFocusArtScene("shots", sceneId);
+                    setArtView("shots"); guardedSetRoom("art"); return; }
                   if(tab==="assets"){ setArtView("lookbook"); guardedSetRoom("art"); return; }
                   if(tab==="audio"){ guardedSetRoom("stage"); return; }
                   if(tab==="versions"){ guardedSetRoom("stage"); return; }

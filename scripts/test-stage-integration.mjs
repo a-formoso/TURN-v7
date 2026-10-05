@@ -541,7 +541,7 @@ ok("editor application shot writer persists the master choice",guardWrites===1&&
 guardAllowed=false;
 guardBox.writeShot("guard-shot",{stageCharacterReferenceOverrides:{}});
 ok("revoked editor cannot reset via a captured shot callback",guardWrites===1&&guardShots[0].stageCharacterReferenceOverrides.char==="master");
-ok("Stage receives the current room-wide read-only state",appSource.includes("readOnly:roomReadOnly,")&&source.includes("creditBalance, readOnly, onVoiceLine, onUpdateShot"));
+ok("Stage receives the current room-wide read-only state",appSource.includes("readOnly:roomReadOnly,")&&/creditBalance, readOnly, onVoiceLine,[^\n]*onUpdateShot/.test(source));
 
 console.log(pass+" passed, "+fail+" failed");
 process.exit(fail?1:0);

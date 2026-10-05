@@ -155,7 +155,7 @@ function loadFns(f, names, sandbox){
   ok("D the Timeline export downloads under that name",
     st.includes("a.download = stageFilmFileName(filmTitle, new Date().toISOString().slice(0,10));") && !st.includes('"TURN-film-"'));
   ok("D the Stage passes the film's title to the Timeline",
-    /_stEl\(StageTimelineView,\{ key:"tl", allClips, vids, imgs, visualSource, selId, onSelectClip,\s*filmTitle:\(project&&project\.title\)\|\|"",/.test(st)
+    /_stEl\(StageTimelineView,\{ key:"tl", allClips, vids, (?:staleVids, )?imgs, visualSource, selId, onSelectClip,\s*filmTitle:\(project&&project\.title\)\|\|"",/.test(st)
       && /function StageTimelineView\(\{[^}]*\bfilmTitle\b[^}]*\}\)/.test(st));
 }
 
