@@ -1549,7 +1549,9 @@ function storyboardClipIds(clip){
   const pages=[], halves=[];
   // the shots each page / half holds NOW, so a sheet drawn from other shots is never used
   // (storyboard.jsx sbSheetStale); only known when the live geometry is
-  const expect = {};
+  const expect = {}, halfShots = {};
+  // the clip's own shots — a board is used only when every panel on it is one of these (2026-10-05)
+  const clipShotIds = (ranges ? sceneShots.slice(start, start+count) : ((clip&&clip.g&&clip.g.shots)||[])).map(s=>s && s.id).filter(Boolean);
   for(let n=start; n<start+count; n++){
     let pageNo = Math.floor(n/4), cell = n%4;   // legacy fallback
     if(ranges){ let acc=0;
@@ -1564,11 +1566,13 @@ function storyboardClipIds(clip){
     if(ranges && !expect[pageId]){
       let acc=0; for(let i=0;i<pageNo;i++) acc+=ranges[i].count;
       expect[pageId] = sceneShots.slice(acc, acc+ranges[pageNo].count).map(s=>s.id);
+      halfShots[pageId+":half-top"] = expect[pageId].slice(0,2);
+      halfShots[pageId+":half-bottom"] = expect[pageId].slice(2);
     }
   }
   const page = pages[0] || ("sbsheet-sbpage-"+clip.scene.id+"-2x2-"+Math.floor(start/4));
   return {
-    sheet:page, pages, halves, top:halves[0]||"", bottom:halves[1]||"", expect,
+    sheet:page, pages, halves, top:halves[0]||"", bottom:halves[1]||"", expect, halfShots, clipShotIds,
     legacySheet:legacy, legacyTop:legacy+":half-top", legacyBottom:legacy+":half-bottom",
     all:Array.from(new Set([].concat(pages, halves, [legacy, legacy+":half-top", legacy+":half-bottom"])))
   };
@@ -1593,15 +1597,38 @@ function storyboardClipAssets(clip, imgs){
     return !!bad;
   };
   const urlOf = (id)=> (id && !isStale(id)) ? (imgs[id]||"") : "";
-  const halves = (ids.halves||[]).map(id=>({ id, url:urlOf(id) })).filter(h=>h.url);
-  const pages = (ids.pages||[]).map(id=>({ id, url:urlOf(id) })).filter(p=>p.url);
+  /* ONLY THIS CLIP'S PANELS (2026-10-05, owner — Storyboards review): the tab packs pages by beat, the
+     Stage packs clips by length, so a half or a page can hold a neighbouring clip's panels (a 2-shot clip
+     across a page's middle got both halves — 4 panels). A board is used only when every panel on it is
+     one of this clip's shots AND together they cover all of them; otherwise the clip uses its own shot
+     frames. A clip on one whole page uses that page; one across two pages uses no sheet. */
+  const clipSet = new Set(ids.clipShotIds||[]);
+  const known = !!(ids.clipShotIds && ids.clipShotIds.length && Object.keys(ids.expect||{}).length);
+  const onlyClip = (list)=> !!(list && list.length) && list.every(x=>clipSet.has(x));
+  const covers = (lists)=>{ const got = new Set(); lists.forEach(l=>(l||[]).forEach(x=>got.add(x))); return (ids.clipShotIds||[]).every(x=>got.has(x)); };
+  let halves = (ids.halves||[]).map(id=>({ id, url:urlOf(id) })).filter(h=>h.url);
+  let pages = (ids.pages||[]).map(id=>({ id, url:urlOf(id) })).filter(p=>p.url);
+  let sheet = urlOf(ids.sheet), top = urlOf(ids.top), bottom = urlOf(ids.bottom);
+  if(known){
+    const halvesOk = halves.length===(ids.halves||[]).length
+      && halves.every(h=>onlyClip(ids.halfShots[h.id])) && covers(halves.map(h=>ids.halfShots[h.id]));
+    if(!halvesOk){ halves = []; top = ""; bottom = ""; }
+    const pagesOk = pages.length===(ids.pages||[]).length
+      && pages.every(p=>onlyClip(ids.expect[p.id])) && covers(pages.map(p=>ids.expect[p.id]));
+    if(!pagesOk) pages = [];
+    // a single sheet stands for the clip only when that one page is exactly the clip
+    if(!(pagesOk && pages.length===1)) sheet = "";
+  }
+  // an older per-clip board (sbclip ids) counts only when it records exactly this clip's shots
+  const legacyOk = (id)=>{ const m = metaOf(id); return !!(imgs[id] && m && Array.isArray(m.shotIds)
+    && m.shotIds.length===(ids.clipShotIds||[]).length && m.shotIds.every((x,i)=>String(x)===String(ids.clipShotIds[i]))); };
   return {
     ids,
-    sheet:urlOf(ids.sheet)||imgs[ids.legacySheet]||"",
+    sheet:sheet||(legacyOk(ids.legacySheet) ? imgs[ids.legacySheet] : "")||"",
     pages,
     halves,
-    top:urlOf(ids.top)||imgs[ids.legacyTop]||"",
-    bottom:urlOf(ids.bottom)||imgs[ids.legacyBottom]||"",
+    top:top||(legacyOk(ids.legacyTop) ? imgs[ids.legacyTop] : "")||"",
+    bottom:bottom||(legacyOk(ids.legacyBottom) ? imgs[ids.legacyBottom] : "")||"",
     stale
   };
 }

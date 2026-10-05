@@ -85,7 +85,7 @@ await test("C1 the Shots banner: what follows the Lookbook, and only 'Mark revie
 await test("C2 Storyboards: no Lookbook banner and no stale prop", ()=>{
   const view = between(sb, "function StoryboardView({", "\n}\n");
   assert.ok(!/lb-stale-notice|Lookbook review needed|onReviewLookbook/.test(view));
-  assert.ok(art.includes("React.createElement(window.StoryboardView,{project,scenes,shots,characters,props,locations,beatsMap,setArtView,onUpdateShot})"));
+  assert.ok(art.includes("React.createElement(window.StoryboardView,{project,scenes,shots,characters,props,locations,beatsMap,setArtView,onUpdateShot,readOnly})"));
 });
 
 /* ═══ D ═══ */

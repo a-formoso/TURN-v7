@@ -37,7 +37,7 @@ await test("B1 'Apply to panel' carries a one-image price chip", ()=>{
   assert.ok(comp.includes('panelBusy?"Editing panel…":"Apply to panel",') && comp.includes("!panelBusy && typeof window.nbCostChip===\"function\" && window.nbCostChip(1)"));
 });
 await test("C1 Clear asks first only for an uploaded sheet, and holds the auto-compose off after", ()=>{
-  const fx = between(comp, "const clearSheet = async ()=>{", "gen.clearGen(); };");
+  const fx = between(comp, "const clearSheet = async ()=>{", "await loadHalves(); };");
   assert.ok(fx.includes("if(!isComposed && typeof window.appConfirm===\"function\"){"));
   assert.ok(fx.indexOf("if(!ok) return;") < fx.indexOf('sessionStorage.setItem("turn_sb_hold_"+sid,"1")'));
 });
@@ -54,7 +54,7 @@ let have, halves, events;
 const reset = (missing)=>{ have = new Set(["s0","s1","s2"].filter(x=>x!==missing)); halves = []; events = [];
   box.nbGetImage = (id)=> have.has(id) ? "img:"+id : ""; box.nbLoadImage = async (id)=> box.nbGetImage(id);
   box.nbGetMeta = (id)=> id.startsWith("sbsheet-") ? { iso:"2026-10-03T10:00:00Z" } : { iso:"t" }; box.nbEpoch = ()=>7;
-  box.nbCommit = async (id, url)=>({ tier:"cloud", url });
+  box.nbCommit = async (id, url, meta)=>{ box.__committed = meta; return { tier:"cloud", url }; };
   box.dispatchEvent = (e)=>{ events.push(e.type+":"+((e.detail&&e.detail.id)||"")); return true; };
   box.sbSaveHalves = async (url, sid, page, version, ep)=>{ halves.push({ url, sid, ids:page.shots.map(x=>x.id), version, ep }); }; };
 const page = { id:"sbpage-s-2x2-0", shots:[{ id:"s0" }, { id:"s1" }, { id:"s2" }] };
@@ -63,7 +63,10 @@ await test("D1 a complete sheet saves its halves right after composing (with the
   const res = await box.sbComposeSheet({}, page, {}, null, null, async ()=>"data:sheet");
   assert.equal(res.status, "composed");
   await new Promise(r=>setTimeout(r, 0));
-  assert.deepEqual(J(halves), [{ url:"data:sheet", sid:"sbsheet-sbpage-s-2x2-0", ids:["s0","s1","s2"], version:"2026-10-03T10:00:00Z", ep:7 }]);
+  // (2026-10-05) the halves record the version stamped on the sheet itself — never a meta read that may lag
+  assert.match(box.__committed.iso, /^\d{4}-\d\d-\d\dT/);
+  assert.deepEqual(J(halves), [{ url:"data:sheet", sid:"sbsheet-sbpage-s-2x2-0", ids:["s0","s1","s2"], version:box.__committed.iso, ep:7 }]);
+  assert.deepEqual(J(box.__committed.frameVersions), ["s0@t#","s1@t#","s2@t#"], "the sheet records each panel's frame version");
   assert.ok(events.includes("sb-halves-saved:sbsheet-sbpage-s-2x2-0"));
 });
 await test("D2 a partial sheet (a panel without a frame) never saves halves", async ()=>{
