@@ -124,13 +124,15 @@ assert.ok(!astCalls.some(n=>firstName(n)==="LocationSectionHelp"&&
   "Rooms & times has no standalone help icon or empty help row");
 assert.ok(viewsIndex<promptIndex,"set preparation still precedes Generation Prompt");
 assert.equal(directFold("Look dev"),undefined,"locations no longer have a standalone Look dev fold");
-const promptFold=directFold("Generation Prompt");
-const styleDetails=astCalls.find(n=>stringValue(n.arguments[0])==="details"&&
-  propValue(n.arguments[1],"className")==="loc-nested-section loc-render-style-details");
-assert.ok(styleDetails&&styleDetails.start>promptFold.start&&styleDetails.end<promptFold.end,
-  "render style details are nested inside Generation Prompt");
-assert.ok(!styleDetails.arguments[1].properties.some(p=>p.key.name==="open"),
-  "render style details start collapsed");
+// 2026-10-05 (owner): the editable style settings moved ON the card, into "Look & exclusions"
+// (collapsed), just before the read-only Generation Prompt
+const lookFold=directFold("Look & exclusions");
+assert.ok(lookFold&&childIndex(lookFold)<promptIndex,"Look & exclusions sits before Generation Prompt");
+assert.ok(lookFold.arguments[1].properties.some(p=>p.key&&p.key.name==="defaultOpen"&&p.value&&p.value.value===false),"Look & exclusions starts collapsed");
+const styleDetails=astCalls.find(n=>stringValue(n.arguments[0])==="div"&&
+  propValue(n.arguments[1],"className")==="loc-render-style-details");
+assert.ok(styleDetails&&styleDetails.start>lookFold.start&&styleDetails.end<lookFold.end,
+  "render style details are inside Look & exclusions");
 const styleField=astCalls.find(n=>firstName(n)==="SheetField"&&
   propValue(n.arguments[1],"label")==="Render style instructions");
 assert.ok(styleField&&styleField.start>styleDetails.start&&styleField.end<styleDetails.end,

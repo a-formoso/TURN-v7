@@ -289,6 +289,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   const spatialState=locationSpatialPlanState(l);
   const [layoutReviewRequest,setLayoutReviewRequest]=React.useState(0);
   const [showPrompt,setShowPrompt]=React.useState(false);   // the ⋯ menu's "Show the generation prompt"
+  const alwaysPrompts=(typeof window.useArtAlwaysPrompts==="function") ? window.useArtAlwaysPrompts() : false;
   const sheetRef=React.useRef(null);
   const layoutFoldId="loc-layout-"+l.id;
   const reviewLayout=()=>{
@@ -669,9 +670,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         ...(gen.genUrl ? [{ label: panelEdit?"Close panel edit":"Edit a panel\u2026", placement:"beforeEdit",
           title:"Change just ONE view of the multi-angle plate, leaving the others untouched",
           onClick:()=> setPanelEdit(pe=> pe ? null : { idx:null, text:"" }) }] : []),
-        // the prompt is a power-user tool: behind the card's ⋯ menu (2026-10-03)
-        { label:showPrompt ? "Hide the generation prompt" : "Show the generation prompt", icon:Icon.eye,
-          onClick:()=>setShowPrompt(v=>!v) }],
+        // the prompt is a power-user tool: behind the card's ⋯ menu (2026-10-03); "Always show prompts" opens it everywhere
+        ...(alwaysPrompts ? [] : [{ label:showPrompt ? "Hide the generation prompt" : "Show the generation prompt", icon:Icon.eye,
+          onClick:()=>setShowPrompt(v=>!v) }])],
       referenceControls: masterRefs.length>0 && React.createElement(CoverageReferenceStrip,{ refs:masterRefs, excludedIds:masterRefOff, onToggle:toggleMasterRef, onView }),
       generateDisabled:!spatialState.ready||!!l.parentLocation&&(!parentRefUrl||masterRefs.some(r=>r.required&&!r.ready)),
       generateDisabledLabel:!spatialState.ready?"Review shared layout":"Generate parent plate first",
@@ -844,11 +845,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
             label:"Time-of-Day Variant · "+(v.time||v.id||"Variant"),kind:"location"}))],
         readOnly})),
 
-      showPrompt && React.createElement(CardFold,{label:"Generation Prompt",defaultOpen:true},
-        React.createElement(CopyBox,{label:"Current specification \u2014 next generation",text:finalPrompt}),
-        React.createElement("p",{className:"loc-layer-note"},"Built from this space's current specification. Selected reference instructions are added when you generate."),
-        React.createElement("details",{className:"loc-nested-section loc-render-style-details"},
-          React.createElement("summary",null,"Render style details"),
+      // the settings that change the plate live ON the card (2026-10-05); the prompt itself is read-only
+      React.createElement(CardFold,{label:"Look & exclusions",defaultOpen:false},
+        React.createElement("div",{className:"loc-render-style-details"},
           l.parentLocation&&React.createElement("label",{className:"loc-style-inherit",title:"Link to the parent, or turn this off to use this room's saved style settings."},
             React.createElement("input",{type:"checkbox",checked:inheritsStyle,
               onChange:e=>onUpdate(l.id,{renderStyleIndependent:!e.target.checked})}),
@@ -864,11 +863,16 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
           React.createElement(SheetField,{label:"Render style instructions",value:d.renderStyle,multiline:true,
             placeholder:"photoreal architectural cinematography, wide lens, natural light\u2026",
             onCommit:val=>onUpdate(l.id,{renderStyle:val,renderStyleKey:styleKey,renderStyleIndependent:true})})),
+        React.createElement(SheetField,{label:"Leave out \u2014 what the plate must not show (negative prompt)",value:l.negativePrompt||d.negativePrompt,multiline:true,
+          onCommit:val=>onUpdate(l.id,{negativePrompt:val})})),
+
+      // read-only: behind the card's ⋯ menu, or open on every card with "Always show prompts" (2026-10-05)
+      (showPrompt || alwaysPrompts) && React.createElement(CardFold,{label:"Generation Prompt",defaultOpen:true},
+        React.createElement(CopyBox,{label:"Current specification \u2014 next generation",text:finalPrompt}),
+        React.createElement("p",{className:"loc-layer-note"},"Built from this space's current specification. Selected reference instructions are added when you generate."),
         gen.genUrl&&gen.genMeta&&gen.genMeta.prompt&&React.createElement("details",{className:"loc-nested-section"},
           React.createElement("summary",null,"Prompt used for the current plate"),
-          React.createElement(CopyBox,{label:"Saved generation prompt",text:gen.genMeta.prompt})),
-        React.createElement(SheetField,{label:"Negative prompt \u2014 exclude",value:l.negativePrompt||d.negativePrompt,multiline:true,
-          onCommit:val=>onUpdate(l.id,{negativePrompt:val})}))));
+          React.createElement(CopyBox,{label:"Saved generation prompt",text:gen.genMeta.prompt})))));
 }
 
 /* Camera-relative composition, not a measured room plan. The visual editor

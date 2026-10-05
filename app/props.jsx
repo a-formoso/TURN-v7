@@ -1144,6 +1144,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
   },[batchActiveId, gen.gening, p.id]);
 
   const [showPrompt, setShowPrompt] = React.useState(false);   // the ⋯ menu's "Show the generation prompt"
+  const alwaysPrompts = (typeof window.useArtAlwaysPrompts==="function") ? window.useArtAlwaysPrompts() : false;
   const [fitOpen, setFitOpen] = React.useState(false);   // the fitting view (owner sheet · prop sheet side by side)
   const [bindingOpen, setBindingOpen] = React.useState(false);
 
@@ -1259,7 +1260,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
       // against the OWNER's sheet (so the designs agree); it attaches to shots only
       // at CU/MCU/ECU/INSERT sizes where the item reads large. Batch generation
       // still skips worn items.
-      menuExtra:[{ label:showPrompt ? "Hide the generation prompt" : "Show the generation prompt", icon:Icon.eye,
+      menuExtra:alwaysPrompts ? [] : [{ label:showPrompt ? "Hide the generation prompt" : "Show the generation prompt", icon:Icon.eye,
         onClick:()=>setShowPrompt(v=>!v) }],
       onDelete:()=>onDelete(p.id), deleteLabel:"Delete prop" }),
     React.createElement("div",{className:"sheet-body"},
@@ -1498,14 +1499,18 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
           ? React.createElement("div",{className:"state-list prop-event-list"},continuityEvents.map(renderContinuityEvent))
           : React.createElement("div",{className:"state-empty"},"No changes recorded. The default binding persists wherever the screenplay maps this prop.")),
 
-      // the prompt is a power-user tool: behind the card's ⋯ menu (2026-10-03)
-      showPrompt && React.createElement(CardFold,{label:"Generation prompt",defaultOpen:true},
+      // the settings that change the sheet live ON the card (2026-10-05); the prompt itself is read-only
+      React.createElement(CardFold,{label:"Look & exclusions",defaultOpen:false},
         React.createElement(SheetField,{label:"Render style \u2014 edit freely",value:p.renderStyle||d.renderStyle,multiline:true,
           placeholder:"photoreal product reference, 85mm, soft studio lighting\u2026",onCommit:val=>onUpdate(p.id,{renderStyle:val})}),
         p.contentNotes&&/\b(text|typography|label|branding)\b/i.test(p.negativePrompt||"")&&React.createElement("p",{className:"prop-review-warning"},"Your saved exclusions mention text or labels. Review them so they do not suppress required wording on this object."),
+        React.createElement(SheetField,{label:"Leave out \u2014 what the sheet must not show (negative prompt)",value:p.negativePrompt||d.negativePrompt,multiline:true,
+          onCommit:val=>onUpdate(p.id,{negativePrompt:val})})),
+
+      // the prompt is a power-user tool: behind the card's ⋯ menu (2026-10-03), or open on every card
+      // with "Always show prompts" (2026-10-05)
+      (showPrompt || alwaysPrompts) && React.createElement(CardFold,{label:"Generation prompt",defaultOpen:true},
         React.createElement(CopyBox,{label:"4-panel object sheet (hero \u00b7 front \u00b7 side \u00b7 detail) \u2014 feed to your image tool",text:buildPropRefPrompt(p,project)}),
-        React.createElement(SheetField,{label:"Negative prompt \u2014 exclude",value:p.negativePrompt||d.negativePrompt,multiline:true,
-          onCommit:val=>onUpdate(p.id,{negativePrompt:val})}),
         React.createElement(CopyBox,{label:(genForFrame.genUrl && genForFrame.genMeta && genForFrame.genMeta.prompt)
             ? "Final prompt \u2014 generated the CURRENT sheet" : "Final prompt \u2014 master + negative (sent at generation)",
           text:(genForFrame.genUrl && genForFrame.genMeta && genForFrame.genMeta.prompt) || finalPrompt}))));

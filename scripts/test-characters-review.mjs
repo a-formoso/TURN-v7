@@ -244,8 +244,8 @@ await test("E5 the dead 'linked props have no sheet' warning is gone", ()=>{
   assert.ok(!/missingPropSheets|preparingRef|setPrepProps|beforeGenerate/.test(card));
 });
 await test("E6 the sheet prompt is behind the card's ⋯ menu", ()=>{
-  assert.ok(card.includes('menuExtra:[{ label:showPrompt ? "Hide the sheet prompt" : "Show the sheet prompt", icon:Icon.eye,'));
-  assert.ok(card.includes('showPrompt && React.createElement(CardFold,{label:"Master reference prompt",defaultOpen:true},'));
+  assert.ok(card.includes('menuExtra:alwaysPrompts ? [] : [{ label:showPrompt ? "Hide the sheet prompt" : "Show the sheet prompt", icon:Icon.eye,'));
+  assert.ok(card.includes('(showPrompt || alwaysPrompts) && React.createElement(CardFold,{label:"Master reference prompt",defaultOpen:true},'));
 });
 await test("E7 one render-style control: Look dev has no free-text style; the photo-based sheet follows the picker", ()=>{
   assert.ok(!card.includes('label:"Render style",value:c.renderStyle'));

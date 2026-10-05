@@ -180,9 +180,9 @@ await test("E2 removing an extra environment state asks first and deletes its pl
 await test("E3 the prompt is behind the ⋯ menu, beside 'Edit a panel…'; Generate says when it writes the layout first", ()=>{
   const card = between(ui, "function LocationSheet({", "function CoverageViewsEditor(");
   assert.ok(card.includes('label: panelEdit?"Close panel edit":"Edit a panel\\u2026", placement:"beforeEdit",'));
-  assert.ok(card.includes('{ label:showPrompt ? "Hide the generation prompt" : "Show the generation prompt", icon:Icon.eye,'));
+  assert.ok(card.includes('...(alwaysPrompts ? [] : [{ label:showPrompt ? "Hide the generation prompt" : "Show the generation prompt", icon:Icon.eye,'));
   assert.equal((card.match(/menuExtra:/g)||[]).length, 1, "one menu list (a second key would drop Edit a panel)");
-  assert.ok(card.includes('showPrompt && React.createElement(CardFold,{label:"Generation Prompt",defaultOpen:true},'));
+  assert.ok(card.includes('(showPrompt || alwaysPrompts) && React.createElement(CardFold,{label:"Generation Prompt",defaultOpen:true},'));
   assert.ok(card.includes("generateTitle:(!locStaged && !gen.slotHasRef"));
   assert.ok(art.includes("(generateTitle || (genUrl ? \"Generate a fresh sheet from the current spec\""));
 });

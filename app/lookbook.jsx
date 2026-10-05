@@ -318,6 +318,7 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
   const finalPrompt = combinedLookbookPrompt(c, project);
   const drafted = lookbookCardDrafted(c);
   const [showPrompt, setShowPrompt] = React.useState(false);
+  const alwaysPrompts = (typeof window.useArtAlwaysPrompts==="function") ? window.useArtAlwaysPrompts() : false;
   const initials = (c.source||"Ref").replace(/^the\s+/i,"").split(/\s+/).map(w=>w[0]).slice(0,2).join("").toUpperCase();
   const gen = useImageGen({
     id: c.id, slotId: "lookref-"+c.id,
@@ -360,7 +361,7 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
       hideUploadButton:true,
       specGate:{ ready:drafted, hint:"Add a ‘what to borrow’ note first — it's what the frame is built from." },
       // the frame's prompt is a power-user tool: behind the card's ⋯ menu (2026-10-03)
-      menuExtra:[{ label:showPrompt ? "Hide the frame prompt" : "Show the frame prompt", icon:Icon.eye,
+      menuExtra:alwaysPrompts ? [] : [{ label:showPrompt ? "Hide the frame prompt" : "Show the frame prompt", icon:Icon.eye,
         onClick:()=>setShowPrompt(v=>!v) }],
       onDelete:askDelete, deleteLabel:"Delete reference" }),
     React.createElement("div",{className:"sheet-body"},
@@ -390,12 +391,14 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
         onSuggestNote && React.createElement("button",{type:"button",className:"lb-suggest",disabled:!!suggesting,
           title:"Write this reference's ‘what to borrow’ note from the story"+(c.autoNamed?" (and suggest a touchstone)":"")+" — one writing call",
           onClick:()=>onSuggestNote(c.id)},
-          React.createElement(Icon.sparkles,{s:12}), suggesting ? "Suggesting…" : ((c.note||"").trim() ? "Suggest another note" : "Suggest a note"))),
+          React.createElement(Icon.sparkles,{s:12}), suggesting ? "Suggesting…" : ((c.note||"").trim() ? "Suggest another note" : "Suggest a note")),
+        // an editable setting that changes the frame: on the card, not behind the prompt (2026-10-05)
+        React.createElement(SheetField,{label:"Leave out — what the frame must not show (negative prompt)",value:c.negativePrompt||"",
+          onCommit:val=>onUpdate(c.id,{negativePrompt:val})})),
 
-      showPrompt && React.createElement(CardFold,{label:"Frame prompt",defaultOpen:true},
-        React.createElement(CopyBox,{label:"Mood frame — feed to your image tool",text:finalPrompt}),
-        React.createElement(SheetField,{label:"Negative prompt — exclude",value:c.negativePrompt||"",
-          onCommit:val=>onUpdate(c.id,{negativePrompt:val})}))));
+      // read-only: behind the card's ⋯ menu, or open on every card with "Always show prompts"
+      (showPrompt || alwaysPrompts) && React.createElement(CardFold,{label:"Frame prompt",defaultOpen:true},
+        React.createElement(CopyBox,{label:"Mood frame — feed to your image tool",text:finalPrompt}))));
 }
 
 /* ---- the Lookbook tab ---- */

@@ -223,8 +223,8 @@ await test("F2 story events: beat / micro-beat / shot are picked from the chosen
   box.turnContinuity = { scenes:[], locations:[] };
 });
 await test("F3 the generation prompt is behind the card's ⋯ menu", ()=>{
-  assert.ok(card.includes('menuExtra:[{ label:showPrompt ? "Hide the generation prompt" : "Show the generation prompt", icon:Icon.eye,'));
-  assert.ok(card.includes('showPrompt && React.createElement(CardFold,{label:"Generation prompt",defaultOpen:true},'));
+  assert.ok(card.includes('menuExtra:alwaysPrompts ? [] : [{ label:showPrompt ? "Hide the generation prompt" : "Show the generation prompt", icon:Icon.eye,'));
+  assert.ok(card.includes('(showPrompt || alwaysPrompts) && React.createElement(CardFold,{label:"Generation prompt",defaultOpen:true},'));
 });
 
 /* ═══ G ═══ */

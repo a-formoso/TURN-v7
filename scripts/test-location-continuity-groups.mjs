@@ -228,9 +228,12 @@ ok("location folds follow identity to screenplay to view to generation order",
   ["label:\"The Space\"","label:\"Narrative Significance\"","label:\"Screenplay Evidence\"","label:\"Rooms & times\"",
     "label:\"Spatial Layout & Staging\"","label:\"Generation Prompt\""]
     .map(token=>ui.indexOf(token)).every((at,i,all)=>at>=0&&(i===0||at>all[i-1])));
-ok("location style fine-tuning is retained under Generation Prompt without a separate Look dev fold",
+// 2026-10-05 (owner): the settings that change the plate sit ON the card in "Look & exclusions",
+// just before the read-only Generation Prompt
+ok("location style fine-tuning is in Look & exclusions (before Generation Prompt) without a separate Look dev fold",
   !ui.includes('label:"Look dev"')&&
-  ui.indexOf('"Render style details"')>ui.indexOf('label:"Generation Prompt"')&&
+  ui.indexOf('className:"loc-render-style-details"')>ui.indexOf('label:"Look & exclusions"')&&
+  ui.indexOf('label:"Look & exclusions"')<ui.indexOf('label:"Generation Prompt"')&&
   ui.includes('label:"Render style instructions"'));
 ok("topology and anchors stay nested inside The Space",
   ui.indexOf('field:"topology",label:"How the rooms connect"')>ui.indexOf('label:"The Space"')&&
