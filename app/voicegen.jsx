@@ -40,6 +40,16 @@ function vgDeliveryModelOf(lock){
   return (lock && lock.modelId) ? lock.modelId : VG_TTS_MODEL;
 }
 window.VG_DEFAULTS = VG_DEFAULTS; window.VG_TTS_MODEL = VG_TTS_MODEL; window.VG_TTS_MODELS = VG_TTS_MODELS;
+/* A VOICE LINE'S PRICE (2026-10-05, owner — Stage review): the server prices text-to-speech by
+   characters (image-proxy billing-pricing.mjs: ttsPer1kChars $0.10, the fast models $0.05) and
+   holds each line on its own, rounded up to whole credits — so a clip's total is the sum per line. */
+function vgLineCredits(text, modelId){
+  const chars = String(text||"").length;
+  const per1k = /turbo|flash/i.test(String(modelId||"")) ? 0.05 : 0.10;
+  const usd = chars/1000*per1k;
+  return (typeof window.turnCreditCost==="function") ? window.turnCreditCost(usd) : Math.max(1, Math.ceil(usd/0.01 - 1e-9));
+}
+window.vgLineCredits = vgLineCredits;
 window.VG_VOICE_MASTER_TEXT=VG_VOICE_MASTER_TEXT;
 window.vgVoiceMasterAssetId=vgVoiceMasterAssetId;
 window.vgVoiceMasterFileName=vgVoiceMasterFileName;

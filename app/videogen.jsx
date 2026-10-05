@@ -1906,7 +1906,13 @@ async function seedanceGenerate(id, opts){
       return err;
     };
     for(let i=0; i<maxPolls; i++){
-      if(opts.shouldCancel && opts.shouldCancel()) throw new Error("Render cancelled.");
+      // AFTER SUBMIT a cancel only stops this browser waiting — the job keeps going on the server and
+      // its record stays, so say so honestly (2026-10-05, owner — Stage review)
+      if(opts.shouldCancel && opts.shouldCancel()){
+        const e = new Error("Stopped waiting. The render was already sent, so it keeps going on the server: if it finishes it is still charged and appears in this clip\u2019s takes.");
+        e.stillPending = true; e.cancelledAfterSubmit = true;
+        throw e;
+      }
       await new Promise(r=>setTimeout(r, pollMs));
       let st;
       try{ st = await vidProxy("poll", { model, statusUrl:sub.statusUrl, responseUrl:sub.responseUrl }); pollMiss = 0; statusHiccup = false;

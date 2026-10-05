@@ -869,8 +869,8 @@ await test("K stageCreditInfo: a frozen account can't render; the tooltip splits
   S.turnIsAdmin = false;
   const ok = S.stageCreditInfo({ remaining: 1234, plan: "director", planRemaining: 1000, packRemaining: 234, nextPackExpiry: null }, 304);
   assert.equal(ok.empty, false); assert.equal(ok.frozen, false);
-  assert.equal(ok.label, "Uses 304 generation credits · 1,234 remaining → 930 after render", "F28: one number format");
-  assert.equal(ok.title, "Current balance: 1,234 credits · 1,000 plan + 234 pack. This render costs 304. Credits are held when the render starts and refunded if it fails.");
+  assert.equal(ok.label, "Uses about 304 generation credits · 1,234 remaining → 930 after render", "F28: one number format");
+  assert.equal(ok.title, "Current balance: 1,234 credits · 1,000 plan + 234 pack. This render costs about 304 \u2014 the charge follows the provider's actual cost, so it can come out a little higher, never above what is held. Credits are held when the render starts and refunded if it fails.");
   const fz = S.stageCreditInfo({ remaining: 5000, plan: "studio", frozen: true }, 30);
   assert.equal(fz.empty, true); assert.equal(fz.frozen, true);
   assert.equal(fz.label, "Account on hold — spending credits is paused");
@@ -1352,8 +1352,8 @@ await test("K (A1–A3, round 5) the Stage's credit surfaces, from the component
   // A2: the right panel on the Create tab with SOME credits left — never "No generation credits remaining"
   v = view("create", "reference", c, refs(bal300));
   assert.equal(v.panel, "Not enough generation credits for this render.");
-  assert.equal(v.footerLabel, "Uses 473 generation credits · 300 remaining");
-  assert.ok(v.footerTitle.includes("This render costs 473."), v.footerTitle);
+  assert.equal(v.footerLabel, "Uses about 473 generation credits · 300 remaining");
+  assert.ok(v.footerTitle.includes("This render costs about 473 "), v.footerTitle);
   // A2: the footer's title per tab is the open tab's own (Y5), and the right panel follows it (Y4)
   const richC = credits({ resolution: "720p", creditBalance: rich, editVideo: device5, motionVideo: device5 });
   const poor = { remaining: 50, plan: "studio" };   // below the 82 and 369 holds
@@ -1382,7 +1382,7 @@ await test("K (A1–A3, round 5) the Stage's credit surfaces, from the component
   assert.ok(c.extendCost > 0 && c.extendCost !== 473);
   v = view("create", "extension", c, refs(bal300));
   assert.equal(v.fc.cost, c.extendCost, "the extension's cost, not the References render's");
-  assert.equal(v.footerLabel, "Uses " + c.extendCost + " generation credits · 300 remaining" + (300 >= c.extendCost ? " → " + (300 - c.extendCost) + " after render" : ""));
+  assert.equal(v.footerLabel, "Uses about " + c.extendCost + " generation credits · 300 remaining" + (300 >= c.extendCost ? " → " + (300 - c.extendCost) + " after render" : ""));
   assert.ok(!v.warn.includes("473") && !v.footerLabel.includes("473"), v.warn + " | " + v.footerLabel);
   assert.equal(v.outline, c.extendCost > 300);
   const low = { remaining: 50, plan: "studio" };

@@ -274,8 +274,8 @@ function stageCreditInfo(balance, cost, opts){
       : floor
       ? ("Uses at least "+fmt(cost)+" generation credit"+(cost!==1?"s":"")+" · "+(known ? fmt(remaining)+" remaining" : "remaining credits unavailable"))
       : known
-      ? ("Uses "+fmt(cost)+" generation credit"+(cost!==1?"s":"")+" · "+fmt(remaining)+" remaining"+(remaining>=cost ? (" → "+fmt(after)+" after render") : ""))
-      : ("Uses "+fmt(cost)+" generation credit"+(cost!==1?"s":"")+" · remaining credits unavailable"),
+      ? ("Uses about "+fmt(cost)+" generation credit"+(cost!==1?"s":"")+" · "+fmt(remaining)+" remaining"+(remaining>=cost ? (" → "+fmt(after)+" after render") : ""))
+      : ("Uses about "+fmt(cost)+" generation credit"+(cost!==1?"s":"")+" · remaining credits unavailable"),
     title: frozen
       ? "A payment on this account is being disputed, so spending credits is paused until it’s resolved."
       : hold
@@ -289,7 +289,7 @@ function stageCreditInfo(balance, cost, opts){
       ? ((known ? "Current balance: "+(breakdown || (fmt(remaining)+" generation credit"+(remaining===1?"":"s")))+". " : "Your credit balance hasn’t loaded yet. ")
         +"This render costs at least "+fmt(cost)+"; the video’s own length is added once it’s chosen and measured. Credits are held when the render starts and refunded if it fails.")
       : known
-      ? ("Current balance: "+(breakdown || (fmt(remaining)+" generation credit"+(remaining===1?"":"s")))+". This render costs "+fmt(cost)+". Credits are held when the render starts and refunded if it fails.")
+      ? ("Current balance: "+(breakdown || (fmt(remaining)+" generation credit"+(remaining===1?"":"s")))+". This render costs about "+fmt(cost)+" \u2014 the charge follows the provider's actual cost, so it can come out a little higher, never above what is held. Credits are held when the render starts and refunded if it fails.")
       : "Your credit balance hasn’t loaded yet."
   };
 }
@@ -4147,6 +4147,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const consoleOpenRef = React.useRef(true);
   React.useEffect(()=>{ consoleOpenRef.current=true; return ()=>{ consoleOpenRef.current=false; }; }, []);
   const onGenerate = async (attemptOptions)=>{
+    // view-only roles can't render (Edit / Extend / Motion already said so — 2026-10-05)
+    if(readOnly){ if(typeof window.appToast==="function") window.appToast("View-only access \u2014 rendering requires edit access.","info"); return; }
     const referenceFree=!!(attemptOptions&&attemptOptions.referenceFree);
     // the quote this job carries: with references, their seconds are part of it; text only, none
     const quoteCost = referenceFree ? textOnlyCost : renderCost;
@@ -4154,6 +4156,16 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       assertScreenplayCurrent();
       if(promptSourceDrift) throw new Error("Review this edited prompt against the updated scene screenplay before rendering.");
     }catch(e){ if(typeof window.appToast==="function") window.appToast(e.message,"error"); return; }
+    // SEVERAL TAKES ASK FIRST (2026-10-05, owner — Stage review): one click used to start up to four
+    // paid jobs. A single take still starts at once (its price is on the button).
+    if(Math.max(1, batchN)>1 && typeof window.appConfirm==="function"){
+      const n = Math.max(1, batchN), each = Number(quoteCost)||0;
+      const ok = await window.appConfirm({
+        title:"Render "+n+" takes of this clip?",
+        body:n+" separate renders start together, each with its own seed"+(each ? " \u2014 about "+(each*n)+" credits in all ("+each+" each)." : ".")+" Any take that fails is not charged.",
+        confirmLabel:"Render "+n+" takes", cancelLabel:"Cancel" });
+      if(!ok) return;
+    }
     if(typeof window.nbAssertMediaIdentity==="function"){
       try{ window.nbAssertMediaIdentity({identityCharacterIds:identityIds,
         identityCast, identityContext}, "stage-video-start"); }
@@ -4453,7 +4465,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const sd25Tier = sd25Model ? seedanceTierOf(sd25Model,"standard") : null;
   const sd25Rate = (r)=>{ const v=Number(sd25Tier&&sd25Tier.creditRate&&sd25Tier.creditRate[r]); return v>0 ? v : null; };
   const creditScale = Number(window.CREDIT_SCALE)||1;
-  const VIDEO_INPUT_MUL = 0.6;   // fal: token price ×0.6 with video inputs — the input seconds are billed too
+  // the LIVE multiplier (an admin price change reaches Extend too — 2026-10-05), Seedance 2.5's
+  // input seconds rounded up to tenths exactly as the server and the main render do
+  const VIDEO_INPUT_MUL = stageVideoInputMul("seedance-2.5") || 0.6;
   // A media input's length is a billing fact (fal bills input seconds and sizes
   // the output by them), so it is never guessed: device files carry probed facts,
   // takes are measured when picked, and an unmeasured video has NO price.
@@ -4513,7 +4527,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   // is chosen its measured length is part of the price, and an unmeasured input
   // has no price at all (the Generate button says why).
   const extendCost = (()=>{ const rate=sd25Rate(resolution); if(!rate) return null;
-    const inSecs = extendVideo ? mediaSeconds(extendVideo) : 0; if(inSecs==null) return null;
+    const inRaw = extendVideo ? mediaSeconds(extendVideo) : 0; if(inRaw==null) return null;
+    const inSecs = Math.ceil(Math.max(0, Number(inRaw)||0)*10 - 1e-9)/10;
     return Math.max(1, Math.ceil((duration+inSecs)*rate*VIDEO_INPUT_MUL*creditScale - 1e-9)); })();
   // MOTION CONTROL AND EDITING ARE BILLED BY THE FINISHED VIDEO'S LENGTH (billing rounds 3-4): the
   // server HOLDS the chosen video's length plus a margin while the render runs (the longest length
@@ -4608,8 +4623,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     const clipId0 = clip.id;
     const controls = directorControls();
     try{
+      // an EXCLUDED start frame stays out, exactly as in the main render (2026-10-05)
       const frameAsset = onImages.find(a=>a.referenceKind!=="screenplay"&&a.url===startFrame) || null;
-      const freshFrameUrl = await stageServerAssetUrl(frameAsset, startFrame || (frameAsset&&frameAsset.url) || "");
+      const freshFrameUrl = frameAsset ? await stageServerAssetUrl(frameAsset, startFrame || frameAsset.url || "") : "";
       const extendImages=[];
       for(const page of includedScreenplayImages)
         extendImages.push(await stageServerAssetUrl({...page,referenceKind:"screenplay"}));
@@ -4723,13 +4739,26 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       finishMode(res, "stage-video-motion-control", motionCost);
     }catch(e){ modeFail(e); }
   };
+  // PRICED, AND ASKED (2026-10-05, owner — Stage review): each unvoiced line is one paid voice render
+  const voiceTodo = lineShots.filter(sh=>String(sh.dialogue||"").trim() && !_shotAudioReady(sh,auds,ctx.characters||[]));
+  const voiceLineModel = (sh)=>{ const la=(sh&&sh.lineAudio)||{}; const norm=v=>String(v||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+    const c=(ctx.characters||[]).find(x=>x && ((la.speakerId && String(x.id)===String(la.speakerId)) || norm(x.name)===norm(la.speaker)));
+    return (c && c.voiceLock && c.voiceLock.modelId) || la.modelId || window.VG_TTS_MODEL || "eleven_v3"; };
+  const voiceClipCredits = voiceTodo.reduce((n,sh)=> n + ((typeof window.vgLineCredits==="function") ? window.vgLineCredits(sh.dialogue, voiceLineModel(sh)) : 1), 0);
   const onVoiceClip = async ()=>{
     if(!onVoiceLine || voicingClip) return;
-    const todo = lineShots.filter(sh=>String(sh.dialogue||"").trim() && !_shotAudioReady(sh,auds,ctx.characters||[]));
+    const todo = voiceTodo;
     if(!todo.length) return;
+    if(typeof window.appConfirm==="function"){
+      const ok = await window.appConfirm({
+        title:"Voice "+todo.length+" line"+(todo.length!==1?"s":"")+" for this clip?",
+        body:"Each line is rendered in its character's locked voice \u2014 about "+voiceClipCredits+" credit"+(voiceClipCredits===1?"":"s")+" in all. Lines already voiced are kept.",
+        confirmLabel:"Voice "+todo.length+" line"+(todo.length!==1?"s":""), cancelLabel:"Cancel" });
+      if(!ok) return;
+    }
     setVoicingClip(true);
-    for(const sh of todo){ await onVoiceLine(sh); }
-    setVoicingClip(false);
+    try{ for(const sh of todo){ await onVoiceLine(sh); } }
+    finally{ setVoicingClip(false); }
   };
   const onChip = (ch)=>{
     const line = String((ch&&ch.k)||"").trim()+": "+String((ch&&ch.v)||"").trim();
@@ -4995,6 +5024,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   // would re-interrupt on every visit); clicking the blocked Generate button shakes
   // and scrolls to it. Where a one-click fix exists, the banner carries the button. ----
   const blockers = [];
+  if(readOnly) blockers.push({ key:"readonly", text:"View-only access \u2014 rendering requires edit access." });
   if(screenplayIssue) blockers.push({key:"screenplay-source",text:screenplayIssue});
   if(includedScreenplayImages.length && !modelRefs) blockers.push({
     key:"screenplay-model",
@@ -5029,7 +5059,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       ? "This complete beat has ordered screenplay dialogue that is not assigned to a shot. Choose Native performance, or assign every line to a shot before using Locked voice. Lines are never matched to shots or audio by guesswork."
       : ((firstVoiceIssue&&firstVoiceIssue.reason)||"Voice this clip before rendering — duration and lip-sync lock to current line audio."),
     actionLabel:hasUnassignedClipDialogue ? "Choose Native performance"
-      : (onVoiceLine ? (voicingClip ? "Voicing…" : "Voice clip now") : null),
+      : (onVoiceLine ? (voicingClip ? "Voicing…" : ("Voice clip now"+(voiceClipCredits>0?" \u00b7 about "+voiceClipCredits+" credit"+(voiceClipCredits===1?"":"s"):""))) : null),
     action:hasUnassignedClipDialogue ? ()=>setDialogueAudio("native") : onVoiceClip,
     busy:hasUnassignedClipDialogue ? false : voicingClip });
   if(sourceBlocking) blockers.push({ key:"source",
@@ -6243,7 +6273,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       panelTab==="inputs" && tabInputs,
       panelTab==="director" && tabDirector,
       needsVoice && onVoiceLine && _stEl("button",{className:"sd-gen-voice",type:"button",onClick:onVoiceClip,disabled:voicingClip},
-        Icon.mic&&_stEl(Icon.mic,{s:14}), voicingClip?"Voicing…":"Voice clip first"),
+        Icon.mic&&_stEl(Icon.mic,{s:14}), voicingClip?"Voicing…":"Voice clip first",
+        !voicingClip && voiceClipCredits>0 && _stEl("span",{className:"nb-cost",title:"about "+voiceClipCredits+" credits for "+voiceTodo.length+" line"+(voiceTodo.length!==1?"s":"")}, String(voiceClipCredits))),
       genErr && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:14}), genErr),
       sourceBlocking && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:14}), "No storyboard source is ready yet."),
       assetOver && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:14}), "Asset budget is over by "+budgetOverBy+". Exclude optional assets in the center panel."),
@@ -6252,7 +6283,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       gening
         ? _stEl("div",{className:"stage2-gen-busy sd-gen-busy"},
             _stEl("div",{className:"stage2-gen-prog"}, _stEl("div",{className:"orb"}), genBusyLabel),
-            _stEl("button",{className:"sd-gen-cancel",type:"button",onClick:()=>{ stagingCancelRef.current=true; gen.cancel(); }},"Cancel render"))
+            _stEl("button",{className:"sd-gen-cancel",type:"button",
+              title:"Before the render is sent nothing is charged. Once it's sent this only stops waiting: a render that finishes is still charged and appears in Takes.",
+              onClick:()=>{ stagingCancelRef.current=true; gen.cancel(); }},"Stop"))
         : composerTab!=="create" || createTask!=="reference"
         ? _stEl("div",{className:"stage2-hint sd-gen-hint"}, "Generate from the "+(composerTab==="edit"?"Edit Video":composerTab==="motion"?"Motion Control":"Extend Video")+" composer — its button carries that render's price.")
         : _stEl("button",{className:"sd-gen-submit"+(blocker?" blocked":""),type:"button",
@@ -6315,7 +6348,7 @@ function _stagePromptCopy(txt){
 /* the VERSIONS view — a full Stage tab (was a per-clip modal). Loads the selected
    clip's takes itself, mutates them via the window.vid* helpers, and hands "Reuse /
    Branch" back to the Stage tab through onReuse (the composer applies the settings). */
-function StageVersionsView({ clip, stageModel, onBack, onReuse }){
+function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false }){
   const clipId = clip && clip.id;
   const [takes, setTakes] = React.useState(()=> (clipId && typeof vidGetTakes==="function") ? vidGetTakes(clipId) : []);
   React.useEffect(()=>{ let alive=true;
@@ -6387,8 +6420,18 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse }){
           ?"Chosen for the timeline — the scene strip, Mix and export use it now."
           :"Chosen with an explicit source override — the scene strip and assembly may use it until the sources change.","ok");
     },
-    del:(url)=>{ if(!window.vidDeleteTake) return;
-      if(window.confirm("Delete this take? The rendered video link is removed from this clip's versions.")) window.vidDeleteTake(clipId, url); },
+    // the app's own dialog, saying what it means; a failed delete says so (2026-10-05)
+    del:async (url)=>{ if(!window.vidDeleteTake || readOnly) return;
+      const t = (takes||[]).find(x=>x && x.url===url) || {};
+      const ok = typeof window.appConfirm!=="function" ? window.confirm("Delete this take?") : await window.appConfirm({
+        title:"Delete this take?",
+        body:"It's removed from this clip's takes for good \u2014 this can't be undone."
+          +(t.current ? " It's the take chosen for the timeline, so the clip falls back to its previous take (or none)." : "")
+          +((t.meta && t.meta.status==="approved") || t.approved ? " It's your approved take." : ""),
+        confirmLabel:"Delete take", cancelLabel:"Keep it", danger:true });
+      if(!ok) return;
+      try{ await window.vidDeleteTake(clipId, url); }
+      catch(e){ if(typeof window.appToast==="function") window.appToast("Couldn't delete the take ("+((e&&e.message)||"error")+"). Nothing was removed.","error"); } },
     note:(url,text)=>{ if(window.vidUpdateTake) window.vidUpdateTake(clipId, url, { note:String(text||"").slice(0,300) }); },
   };
   const list = takes.filter(t=>{
@@ -6517,12 +6560,12 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse }){
         _stEl("div",{className:"stage2-versions-tools"},
           modelCard,
           _stEl("div",{className:"stage2-versions-dhead"},"Iteration tools"),
-          _stEl("button",{className:"stage2-vtool",disabled:!sel||!!(sel&&sel.current),
+          _stEl("button",{className:"stage2-vtool",disabled:readOnly||!sel||!!(sel&&sel.current),
             title:sel&&sel.current
               ? "This is the chosen take used by the scene strip, Timeline, Mix and export"
               : "Choose this take for the scene strip, Timeline, Mix and export",
              onClick:()=>sel&&act.restore(sel)}, sel&&sel.current ? "Chosen for timeline" : "Choose for timeline"),
-          _stEl("button",{className:"stage2-vtool"+(selApproved?" on":""),disabled:!sel,
+          _stEl("button",{className:"stage2-vtool"+(selApproved?" on":""),disabled:readOnly||!sel,
             title:selApproved?"Remove the approval star":"Star this take as the clip's approved version — it never rolls off the version list",
              onClick:()=>sel&&act.approve(sel, !selApproved)}, selApproved?"★ Approved — unstar":"☆ Approve this take"),
           _stEl("button",{className:"stage2-vtool",disabled:!sel,
@@ -6532,7 +6575,8 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse }){
             title:"Reuse settings AND pin this take's seed — Generate renders a controlled variation",
             onClick:async()=>{ if(sel&&await confirmSourceOverride(sel,"Branch",false)) onReuse(selMeta,true); }}, "Branch from version"),
           sel && _stEl("a",{className:"stage2-vtool link",href:sel.url,target:"_blank",rel:"noreferrer",download:""},"Download / open"),
-          _stEl("button",{className:"stage2-vtool danger",disabled:!sel,
+          _stEl("button",{className:"stage2-vtool danger",disabled:readOnly||!sel,
+            title:readOnly?"View-only access \u2014 deleting a take requires edit access":"Delete this take from the clip",
             onClick:()=>sel&&act.del(sel.url)}, "Delete take"),
           _stEl("div",{className:"stage2-versions-dhead filters"},"Filters"),
           _stEl("label",{className:"stage2-vfilter"},"Status",
@@ -7474,6 +7518,12 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
       if(alive) setVids(out); })();
     return ()=>{ alive=false; }; }, [clipIdsKey, vidTick, draftSig, shotIdsKey]);
 
+  // the Scenes rail collapses to the same vertical strip the Writers' Room panels use. ABOVE the
+  // empty-film return (2026-10-05): a hook after it threw "Rendered more hooks" when a film gained
+  // its first shots (or lost its last) while the Stage was open
+  const [railOpen, _setRailOpen] = React.useState(()=>{ try{ return localStorage.getItem("turn_stage_rail_open")!=="0"; }catch(e){ return true; } });
+  const setRailOpen = (v)=>{ _setRailOpen(v); try{ localStorage.setItem("turn_stage_rail_open", v?"1":"0"); }catch(e){} };
+
   if(!scenesWithShots.length){
     return _stEl("div",{className:"stage2-root"},
       _stEl("div",{className:"prop-empty"},
@@ -7488,7 +7538,11 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   const selectedSceneClips = allClips.filter(c=>c.scene.id===selectedScene.id);
   const selectedShot = (clip.g.shots||[]).find(sh=>sh.id===selShotId) || (clip.g.shots||[])[0] || clip.data.first;
   const clipIdx = allClips.findIndex(c=>c.id===clip.id);
-  const prevBeatVideoId = clipIdx>0 ? allClips[clipIdx-1].id : null;
+  // SAME SCENE ONLY (2026-10-05, owner — Stage review): continuity reaches back to the clip before
+  // this one IN THIS SCENE. It used to cross scene boundaries, so a scene's first clip was told to
+  // continue the previous scene's last shot (and those reference seconds were billed).
+  const prevBeatVideoId = (clipIdx>0 && allClips[clipIdx-1].scene && clip.scene && allClips[clipIdx-1].scene.id===clip.scene.id)
+    ? allClips[clipIdx-1].id : null;
   const onSelectClip = (clipId)=>{
     const c = allClips.find(x=>x.id===clipId);
     setSelId(clipId);
@@ -7550,9 +7604,6 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
           });
         })()));
   };
-  // the Scenes rail collapses to the same vertical strip the Writers' Room panels use
-  const [railOpen, _setRailOpen] = React.useState(()=>{ try{ return localStorage.getItem("turn_stage_rail_open")!=="0"; }catch(e){ return true; } });
-  const setRailOpen = (v)=>{ _setRailOpen(v); try{ localStorage.setItem("turn_stage_rail_open", v?"1":"0"); }catch(e){} };
   const rail = _stEl("div",{className:"stage2-rail"},
     _stEl("div",{className:"stage2-rail-head"},
       Icon.layers&&_stEl(Icon.layers,{s:12}), _stEl("span",null,"Scenes"),
@@ -7591,7 +7642,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
       _stEl("div",{className:"stage2-body"}, railOpen ? rail : railStrip,
         _stEl("div",{className:"stage2-main"},
           stageView==="versions"
-            ? _stEl(StageVersionsView,{ key:"vers-"+clip.id, clip, stageModel,
+            ? _stEl(StageVersionsView,{ key:"vers-"+clip.id, clip, stageModel, readOnly,
                 onBack:()=>setStageView("stage"),
                 onReuse:(meta,pin)=>{ setPendingReuse({ clipId:clip.id, meta, pin }); setStageView("stage"); } })
             : stageView==="timeline"
