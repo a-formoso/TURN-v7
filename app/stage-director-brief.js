@@ -228,7 +228,9 @@
     // fallback is not a measured or screenplay-derived lighting condition.
     const lighting=section("LIGHTING AND PHYSICAL CONTINUITY",[
       text(opts.lightingOverride)||(d.preset&&text(d.preset.lighting)),
-      d.preset?[text(d.preset.name),text(d.preset.grade)].filter(Boolean).join(" — "):"",
+      // the whole look (grade, palette, lens, texture, film stock — 2026-10-05) when the clip carries it
+      typeof d.lookText==="string" ? text(d.lookText)
+        : (d.preset?[text(d.preset.name),text(d.preset.grade)].filter(Boolean).join(" — "):""),
       "Lighting and physical changes follow the authored events. Preserve object design through motion, pickups and handovers; a reference image is not a requirement to keep an object in the same hands.",
       "Bodies, cloth and props obey gravity, contact, mass, inertia, weight transfer and follow-through. No floating feet, rubbery motion or frictionless movement."
     ]);

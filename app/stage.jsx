@@ -27,6 +27,12 @@ function _stagePlayAudio(url){
 function _pad2(n){ return String(n||0).padStart(2,"0"); }
 function _clipLetter(i){ return (i<26) ? String.fromCharCode(65+i) : String(i+1); }
 function _uniq(a){ const o=[], s=new Set(); (a||[]).forEach(x=>{ if(x && !s.has(x)){ s.add(x); o.push(x); } }); return o; }
+/* a clip's look line: the whole look the frames get (grade, palette, lens, texture, film stock —
+   turnVideoLookText, set on the clip as d.lookText); a clip built elsewhere falls back to name — grade */
+function _stageLook(d){
+  if(d && typeof d.lookText==="string") return d.lookText;
+  return (d && d.preset) ? (d.preset.name+" \u2014 "+d.preset.grade) : "";
+}
 function _clipDur(g, maxSec){
   const raw=Math.max(4,Math.round(g&&g.dur||5));
   /* A beat-opening shot is one unsplittable screenplay unit. Preserve its full
@@ -1343,7 +1349,9 @@ function buildClipData(scene, g, ctx, maxSec){
   // for humans, and video models take newlines fine
   const body = actions.join("\n");
   const setting = loc ? (loc.name) : (scene.loc||"");
-  const styleClause = preset ? ("Style: "+preset.name+" — "+preset.grade+".") : "";
+  const lookText = (typeof turnVideoLookText==="function") ? turnVideoLookText(preset, ctx.project)
+    : (preset ? (preset.name+" — "+preset.grade) : "");
+  const styleClause = lookText ? ("Style: "+lookText+".") : "";
   const camClause = "Camera: "+camera.toLowerCase()+".";
   const prompt = [ body, camClause, styleClause ].filter(Boolean).join("\n\n");
   // tag chips
@@ -1457,7 +1465,7 @@ function buildClipData(scene, g, ctx, maxSec){
   });
   const sourceCharacterIds=new Set(Object.values(beatScripts).flatMap(s=>[].concat(s.physicalCharacterIds||[],s.remoteCharacterIds||[])));
   const sourceCharacters=(ctx.characters||[]).filter(c=>sourceCharacterIds.has(c.id)).map(c=>({id:c.id,name:c.name}));
-  return { shots, promptShots, screenplayDirectionIssues, clipDialogueByBeat, clipDialogueLines, first, cast, sourceCharacters, props:clipProps, loc, locSheet, preset, camera, cameraProfile, lighting, lead, prompt, chips, setting, panelLines, protect, beatDialogues, beatScripts, remoteCharacterIds,
+  return { shots, promptShots, screenplayDirectionIssues, clipDialogueByBeat, clipDialogueLines, first, cast, sourceCharacters, props:clipProps, loc, locSheet, preset, lookText, camera, cameraProfile, lighting, lead, prompt, chips, setting, panelLines, protect, beatDialogues, beatScripts, remoteCharacterIds,
     dur:_clipDur(g, maxSec), lineShots };
 }
 
@@ -2015,7 +2023,7 @@ function seedanceMicroBeatDirectorPrompt(clip, shots, activeShot, audioRefsOn, a
   const props = (d.props||[]).map(p=>_stagePromptEntityLabel(refs, "prop", p, p.name)).filter(Boolean);
   const setting = d.setting || (clip&&clip.scene&&clip.scene.loc) || "";
   const settingRef = _stagePromptEntityLabel(refs, "setting", d.loc || setting, setting);
-  const style = d.preset ? (d.preset.name+" — "+d.preset.grade) : "";
+  const style = _stageLook(d);
   const beat = _seedanceBeatMicroText(d, shots, activeShot);
   const beatN = beat.beatN || (activeShot&&activeShot.beatN) || (((shots||[])[0]||{}).beatN);
   const beatDialogue = _seedanceDialogueLinesForBeat(d, beatN);
@@ -2109,7 +2117,7 @@ function seedanceWholeSceneDirectorPrompt(clip, audioRefsOn, audioIncluded, refs
     sections.join("\n\n"),
     clipDialogue&&("CLIP-LEVEL ORDERED DIALOGUE (not assigned to a shot; perform these lines once in this order): "+clipDialogue+"."),
     d.lighting&&("Lighting: "+d.lighting+"."),
-    d.preset&&("Look: "+d.preset.name+" — "+d.preset.grade+"."),
+    _stageLook(d)&&("Look: "+_stageLook(d)+"."),
     "Performance: grounded and subtle; preserve breathing room for looks, pauses and reactions. Keep camera motion motivated and separate from subject motion.",
     "Continuity: references lock identity, wardrobe, location geometry, prop design and blocking. No extra characters, props, story events, subtitles, captions, panel borders or burned-in text."
   ].filter(Boolean).join("\n");
@@ -2176,7 +2184,7 @@ function seedanceBeatSequenceDirectorPrompt(clip, shots, audioRefsOn, audioInclu
     protect&&("Protect the dramatic core: "+protect+"."),
     "Ending: finish the final shot's dramatic result, then HOLD the last composition long enough to read; no new action, cutaway or reset.",
     d.lighting&&("Lighting: "+d.lighting+"."),
-    d.preset&&("Look: "+d.preset.name+" — "+d.preset.grade+"."),
+    _stageLook(d)&&("Look: "+_stageLook(d)+"."),
     "Performance: grounded and subtle; leave breathing room for looks, pauses and reactions. Keep camera motion motivated and separate from subject motion.",
     "Continuity: references lock identity, wardrobe, location geometry, prop design and blocking across every shot. No extra characters, props, story events, subtitles, captions, panel borders or burned-in text."
   ].filter(Boolean).join("\n");
@@ -2210,7 +2218,7 @@ function seedancePrompt(recipe, clip, refs){
   const props = (d.props||[]).map(p=>_stagePromptEntityLabel(refs, "prop", p, p.name));
   const setting = d.setting || "";
   const settingRef = _stagePromptEntityLabel(refs, "setting", d.loc || setting, setting);
-  const style = d.preset ? (d.preset.name+" — "+d.preset.grade) : "";
+  const style = _stageLook(d);
   const lead = d.lead || (cast[0] || "the subject");
   const panelLines = d.panelLines || [];
   const actionLines = _uniq((panelLines.length ? panelLines.map(p=>p.text) : shots.map(s=>String(s.action||"").trim())).filter(Boolean));
@@ -2390,7 +2398,7 @@ function seedanceNarrativeParagraph(clip, sh, refs){
   }).filter(Boolean).join(" ");
   const clipDialogue=_seedanceClipDialogueClause(d,refs);
   const grammar = _seedanceShotGrammar(sh) || d.camera || "";
-  const style = d.preset ? (d.preset.name+" — "+d.preset.grade) : "";
+  const style = _stageLook(d);
   return [
     (cast.length ? cast.join(" and ") : "The subject")
       + (settingRef ? (" — "+settingRef+" —") : "")
@@ -2410,7 +2418,7 @@ function seedanceBeatPrompt(clip, sh, refs){
   const cast = (d.cast||[]).map(c=>_stagePromptEntityLabel(refs, "character", c, c.name)).filter(Boolean);
   const setting = d.setting || (clip&&clip.scene&&clip.scene.loc) || "";
   const settingRef = _stagePromptEntityLabel(refs, "setting", d.loc || setting, setting);
-  const style = d.preset ? (d.preset.name+" — "+d.preset.grade) : "";
+  const style = _stageLook(d);
   const script = String(p.script||stageShotScriptText(clip&&clip.scene, {}, sh, 220)||"").trim();
   const blocking = String(p.sheet||sh&&sh.action||"").trim();
   const micro = Array.isArray(p.micro) ? p.micro.filter(Boolean) : [];
@@ -2486,7 +2494,7 @@ function seedanceBeatOpeningPrompt(clip, shots, activeShot, audioRefsOn, audioIn
     dlg.length&&("Dialogue delivery (exact words; do not paraphrase): "+dlg.join(" ")),
     grammar&&("Camera: "+grammar+". Keep the opening composition and animate the beat temporally; do not cut to a montage."),
     d.lighting&&("Lighting: "+d.lighting+"."),
-    d.preset&&("Look: "+d.preset.name+" — "+d.preset.grade+"."),
+    _stageLook(d)&&("Look: "+_stageLook(d)+"."),
     "Continuity: preserve only the opening physical cast, identity, wardrobe, props and location geometry from the selected references. Remote/offscreen participants remain audio/script only. No captions, subtitles, message UI, panel borders or burned-in text."
   ].filter(Boolean);
   return rows.join("\n");
@@ -2985,8 +2993,11 @@ function StageMentionEditor({ value, mentionables, includeMention, maxLen, place
         m.t===swap.tok && _stEl("span",{className:"stage2-mention-kind"},"Current")))));
 }
 
-function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState={}, auds, beatsMap, drafts, prevClipVideoId, aspect, visualSource, setVisualSource, creditBalance, readOnly=false, onVoiceLine, onMakeSceneNeeds, takeStale=false, onUpdateShot, onSelectClip, onFirstVideo, onStageNav, modelId, setModelId, clipScope, setClipScope, pendingReuse, onReuseConsumed }){
+function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState={}, auds, beatsMap, drafts, prevClipVideoId, aspect, visualSource, setVisualSource, creditBalance, readOnly=false, onVoiceLine, onMakeSceneNeeds, takeStale=false, takeOldLook=false, onUpdateShot, onSelectClip, onFirstVideo, onStageNav, modelId, setModelId, clipScope, setClipScope, pendingReuse, onReuseConsumed }){
   const scene = clip.scene, g = clip.g, d = clip.data;
+  // the scene's look + film stock when this console renders — stamped on each take it makes, so a later
+  // change on the Color tab shows the take as "made with an earlier look" (2026-10-05, owner — Color review)
+  const clipLookSig = (typeof shotLookSig==="function") ? shotLookSig(ctx.project, scene.id) : "";
   // what feeds this clip, honestly (stageClipReadiness) — the notice, the Generate question, the needs button
   const readiness = stageClipReadiness(clip, ctx, imgs, drafts);
   const [needsRun, setNeedsRun] = React.useState(null);   // {i,total} while making what this clip needs
@@ -3955,7 +3966,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const msSig = msAllShots.map(s=>s.id+":"+(s.vidText||"")+":"+msRuntime(s)+":"+(msOff.has(s.id)?0:1)).join("|");
   // every Shots-tab field the brief prints is a recompile dependency for an untouched box
   const promptProductionSig=JSON.stringify([d.setting,
-    d.preset&&[d.preset.name,d.preset.grade,d.preset.lighting],
+    d.preset&&[d.preset.name,d.preset.grade,d.preset.lighting], d.lookText||"",   // palette, lens, texture, film stock too
     promptShots.map(sh=>[sh.id,sh.size,sh.angle,sh.move,sh.lens,sh.composition,
       sh.purpose||"",sh.directives||"",sh.action||"",sh.cameraSettings||null])]);
   const renderPlan = (typeof window.stageBuildTimedPlan==="function")
@@ -4382,7 +4393,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       falModel: tierObj.falModel || undefined,   // non-Seedance engines (Sora 2) name their fal endpoint per tier
       textOnly:referenceFree,
       // facts the Versions view shows per take — stamped into the take's meta at commit
-	      takeMeta:{ source:referenceFree?"text-only":sourceMode, tier:tierObj.id, tierLabel:tierObj.label, resolution, bitrate, recipe:effPromptStyle || recipe,
+	      takeMeta:{ lookSig:clipLookSig, source:referenceFree?"text-only":sourceMode, tier:tierObj.id, tierLabel:tierObj.label, resolution, bitrate, recipe:effPromptStyle || recipe,
 	        assetRole:"final_take", assetRoleLabel:(typeof nbAssetRoleLabel==="function") ? nbAssetRoleLabel("final_take") : "Final take",
 	        cameraProfile:cameraProfile, cameraProfileLabel:(cameraProfile!=="auto" ? ((stageCameraProfiles.find(x=>x.id===cameraProfile)||{}).label||cameraProfile) : ""),
 	        audio: hasDialogue ? ((referenceFree||!voiceLocked||!audioUrls.length) ? "native"
@@ -4708,7 +4719,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         screenplayReference,
         screenplayImages:includedScreenplayImages.length?includedScreenplayImages:undefined,
         screenplayImagesRequired:false, assertScreenplayCurrent,
-        takeMeta:{ screenplayReference, screenplayImages:includedScreenplayImages, source:"extend", tier:sd25Tier.id, tierLabel:sd25Tier.label, resolution, bitrate,
+        takeMeta:{ lookSig:clipLookSig, screenplayReference, screenplayImages:includedScreenplayImages, source:"extend", tier:sd25Tier.id, tierLabel:sd25Tier.label, resolution, bitrate,
           durationSec:duration, inputSeconds:mediaSeconds(extendVideo), references, privateRefs:(extendVideo.kind==="device"?1:0),
           audio: hasDialogue ? "voice" : (nativeAudio ? "native" : "silent"),
           inputs:(1+(freshFrameUrl?1:0)+extendImages.length)+" img · 1 vid · 0 aud" },
@@ -5679,8 +5690,12 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const takeStaleNotice = takeStale && _stEl("div",{key:"take-stale",className:"stage2-warn"},
     Icon.alert&&_stEl(Icon.alert,{s:12}),
     _stEl("span",{className:"stage2-warn-text"}, "The take in the player is out of date \u2014 this clip's shots changed since it was rendered, so the Timeline and the export leave it out until you regenerate."));
+  // a note, not a block (2026-10-05, owner — Color review): the take stays in the film
+  const takeOldLookNotice = !takeStale && takeOldLook && _stEl("div",{key:"take-old-look",className:"stage2-hint"},
+    Icon.info&&_stEl(Icon.info,{s:12}),
+    _stEl("span",null, "The take in the player was made with an earlier look \u2014 this scene's look or the film stock changed on the Color tab since. It stays in the film; regenerate to apply the new look."));
   const composerNotices =
-    (blocker || genErr || soundCueMissing || !modelRefs || coverageNotice || readinessNotice || takeStaleNotice
+    (blocker || genErr || soundCueMissing || !modelRefs || coverageNotice || readinessNotice || takeStaleNotice || takeOldLookNotice
       || (hasDialogue && (!modelAudioRefs || dialogueAudio==="native"))) && _stEl("div",{className:"stage2-gen-notices"},
       // the PRIMARY blocker — prominent, actionable, and the target of a blocked
       // Generate click (key remount restarts the shake animation on every pulse)
@@ -5716,7 +5731,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           className:"stage2-hint stage2-text-only-note"},
         Icon.info&&_stEl(Icon.info,{s:12}), textOnlyRecoveryBlocked.text),
       // the clip's own status follows what stops it or what just failed (a failed render reads first)
-      readinessNotice, takeStaleNotice,
+      readinessNotice, takeStaleNotice, takeOldLookNotice,
       coverageNotice && _stEl("div",{className:"stage2-hint stage2-coverage-note","data-code":coverageNotice.code}, Icon.info&&_stEl(Icon.info,{s:12}), coverageNotice.message),
       soundCueMissing && _stEl("div",{className:"stage2-hint"}, Icon.mic&&_stEl(Icon.mic,{s:12}), "Native audio is on but the prompt has no sound direction — name the sounds you want (ambience, effects, music) or the soundtrack comes out generic."),
       hasDialogue && !modelAudioRefs && _stEl("div",{className:"stage2-hint"}, Icon.mic&&_stEl(Icon.mic,{s:12}),
@@ -6536,6 +6551,9 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false }
       sourceStatus==="stale"?"Shots changed":"Can't be checked"));
     if(propDependenciesStale(t)) out.push(_stEl("span",{key:"p",className:"stage2-vbadge stale"},"Prop reference changed"));
     if(referenceVersionsStale(t)) out.push(_stEl("span",{key:"r",className:"stage2-vbadge stale"},"References need review"));
+    // made before the scene's look or the film stock changed on the Color tab (a note, not a block — 2026-10-05)
+    if(clip && clip.scene && typeof shotLookIsEarlier==="function" && shotLookIsEarlier(m.lookSig, window.turnProject, clip.scene.id))
+      out.push(_stEl("span",{key:"l",className:"stage2-vbadge stale",title:"This scene's look or the film stock changed on the Color tab after this take was rendered"},"Earlier look"));
     return out;
   };
   const detailRows = sel ? [
@@ -6911,7 +6929,7 @@ function stageClipBeatName(c){
   return (c && c.label || "") + (beats ? " \u00b7 "+beats : "");
 }
 window.stageClipBeatName = stageClipBeatName;
-function StageTimelineView({ allClips, vids, staleVids, imgs, visualSource, selId, onSelectClip, onOpenStage, filmTitle, auds, characters }){
+function StageTimelineView({ allClips, vids, staleVids, imgs, visualSource, selId, onSelectClip, onOpenStage, filmTitle, auds, characters, oldLookVids }){
   const ordered = allClips||[];
   const startIdx = Math.max(0, ordered.findIndex(c=>c.id===selId));
   const [idx, setIdx] = React.useState(startIdx);
@@ -6984,7 +7002,8 @@ function StageTimelineView({ allClips, vids, staleVids, imgs, visualSource, selI
       _stEl("div",{className:"stage2-versions-title"}, Icon.grid&&_stEl(Icon.grid,{s:14}), "Timeline",
         _stEl("span",{className:"stage2-versions-sub"},"the film, assembled from each clip's current take")),
       _stEl("span",{className:"stage2-versions-count"},
-        renderedN+" / "+ordered.length+" clips rendered · "+_fmtSecs(doneSec)+" of ~"+_fmtSecs(totalSec)),
+        renderedN+" / "+ordered.length+" clips rendered · "+_fmtSecs(doneSec)+" of ~"+_fmtSecs(totalSec)
+          +(()=>{ const n = ordered.filter(c=>(oldLookVids||{})[c.id]).length; return n ? " · "+n+" with an earlier look" : ""; })()),
       _stEl("button",{className:"stage2-vtool",style:{width:"auto"},disabled:!renderedN,
         title:renderedN?"Play every rendered clip in story order":"Render clips in the Shoot tab first",
         onClick:playFilm}, playAll?"Playing…":"▶ Play film"),
@@ -7012,8 +7031,8 @@ function StageTimelineView({ allClips, vids, staleVids, imgs, visualSource, selI
             const has = !!vids[c.id];
             const thumb = clipPrimaryFrame(c, imgs, visualSource);
             return _stEl("button",{key:c.id,type:"button",
-              className:"stage2-tl-clip"+(i===idx?" on":"")+(has?"":" missing"),
-              title:stageClipBeatName(c)+(has?" — click to play":((staleVids||{})[c.id]?" — out of date (double-click to open it in Shoot)":" — not rendered yet (double-click to open in the Stage)")),
+              className:"stage2-tl-clip"+(i===idx?" on":"")+(has?"":" missing")+(has && (oldLookVids||{})[c.id]?" old-look":""),
+              title:stageClipBeatName(c)+(has?((oldLookVids||{})[c.id]?" — made with an earlier look (still in the film; double-click to regenerate it in Shoot)":" — click to play"):((staleVids||{})[c.id]?" — out of date (double-click to open it in Shoot)":" — not rendered yet (double-click to open in the Stage)")),
               onClick:()=>jump(i,false), onDoubleClick:()=>onOpenStage&&onOpenStage(c.id)},
               thumb ? _stEl("img",{src:thumb,alt:""}) : _stEl("span",{className:"stage2-tl-clip-blank"}),
               _stEl("span",{className:"stage2-tl-clip-lab"}, stageClipBeatName(c)+" · "+_fmtSecs(Number(c.data&&c.data.dur)||0)),
@@ -7556,6 +7575,12 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   const [staleVids, setStaleVids] = React.useState({});
   const [vidTick, setVidTick] = React.useState(0);
   React.useEffect(()=>{ const h=()=>setVidTick(x=>x+1); window.addEventListener("vid-done", h); return ()=>window.removeEventListener("vid-done", h); }, []);
+  // clips whose current take was made with an EARLIER look (the scene's look or the film stock changed
+  // on the Color tab since): still in the film, said in Shoot, Takes and the Timeline (2026-10-05)
+  const oldLookVids = {};
+  (allClips||[]).forEach(c=>{ if(!c || !vids[c.id] || !c.scene) return;
+    const m = (typeof vidGetMeta==="function") ? vidGetMeta(c.id) : null;
+    if(m && typeof shotLookIsEarlier==="function" && shotLookIsEarlier(m.lookSig, project, c.scene.id)) oldLookVids[c.id] = true; });
   React.useEffect(()=>{ let alive=true;
     (async()=>{ const out={}, stale={};
        for(const id of videoIds){ let u=(typeof vidGetVideo==="function")?vidGetVideo(id):"";
@@ -7698,7 +7723,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
                 onReuse:(meta,pin)=>{ setPendingReuse({ clipId:clip.id, meta, pin }); setStageView("stage"); } })
             : stageView==="timeline"
             ? _stEl(StageTimelineView,{ key:"tl", allClips, vids, staleVids, imgs, visualSource, selId, onSelectClip,
-                filmTitle:(project&&project.title)||"", auds, characters,
+                filmTitle:(project&&project.title)||"", auds, characters, oldLookVids,
                 onOpenStage:(id)=>{ onSelectClip(id); setStageView("stage"); } })
             : stageView==="audio"
             ? _stEl(StageAudioView,{ key:"au", allClips, vids, auds, characters, selId, onSelectClip })
@@ -7706,7 +7731,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
             // hash the member shots), and remounting the console wiped the recipe
             // tab + Multi-shot row state mid-edit; the console's own member-overlap
             // effect handles real clip moves within the scene.
-            : _stEl(ClipConsole,{ key:"console-"+selectedScene.id, clip, selectedShot, sceneClips:selectedSceneClips, ctx, imgs, imageLoadState, auds, beatsMap, drafts, prevClipVideoId:prevBeatVideoId, aspect, visualSource, setVisualSource, creditBalance, readOnly, onVoiceLine, onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds, takeStale:!!staleVids[clip.id], onUpdateShot, onStageNav, modelId, setModelId, clipScope, setClipScope,
+            : _stEl(ClipConsole,{ key:"console-"+selectedScene.id, clip, selectedShot, sceneClips:selectedSceneClips, ctx, imgs, imageLoadState, auds, beatsMap, drafts, prevClipVideoId:prevBeatVideoId, aspect, visualSource, setVisualSource, creditBalance, readOnly, onVoiceLine, onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds, takeStale:!!staleVids[clip.id], takeOldLook:!!oldLookVids[clip.id], onUpdateShot, onStageNav, modelId, setModelId, clipScope, setClipScope,
                 onSelectClip,
                 onFirstVideo:()=>setStageView("versions"),
                 pendingReuse, onReuseConsumed:()=>setPendingReuse(null) }))));

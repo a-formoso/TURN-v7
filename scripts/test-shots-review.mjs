@@ -48,7 +48,7 @@ await test("A3 a scene run shows its price, and asks only when it would redo fra
 const box = { console, Object, Array, String, JSON, Math, Set };
 box.window = box; vm.createContext(box);
 vm.runInContext(between(shots, "function carriedPropsNeedingSheets(", "window.carriedPropsNeedingSheets"), box);
-vm.runInContext(between(shots, "function shotLookSig(project, sceneId){", "window.shotLookSig"), box);
+vm.runInContext(between(shots, "function _lookHash(raw){", "window.shotLookSig"), box);
 vm.runInContext(between(shots, "async function shotRunPropsNeeding(entries){", "window.shotRunPropsNeeding"), box);
 await test("B1 a run's props-to-build list: in-frame and carried-over props with no sheet, once each, after a storage check", async ()=>{
   const stored = new Set(["pen-old"]);
@@ -95,7 +95,9 @@ await test("D1 the look signature follows the scene's look and the film stock; f
   assert.notEqual(a, box.shotLookSig({ ...P, styleBible:{ filmStock:"none" } }, "s1"));
   assert.notEqual(a, box.shotLookSig({ ...P, looks:{ s1:{ ...P.looks.s1, grade:"cold" } } }, "s1"));
   assert.ok(ui.includes('lookSig:(typeof shotLookSig==="function" && ctx && ctx.scene) ? shotLookSig(ctx.project, ctx.scene.id) : "",'));
-  assert.ok(group.includes("if(m && m.lookSig && lookNow && m.lookSig!==lookNow) oldLook++;"), "frames without a stored look are never flagged");
+  // (2026-10-05, Color review) the check goes through shotLookIsEarlier: a missing look is never flagged
+  assert.ok(group.includes('if(m && typeof shotLookIsEarlier==="function" && shotLookIsEarlier(m.lookSig, ctx.project, scene.id)) oldLook++;'));
+  assert.equal(box.shotLookIsEarlier("", P, "s1"), false, "frames without a stored look are never flagged");
   assert.ok(group.includes('" made with an earlier look"'));
 });
 

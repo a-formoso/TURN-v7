@@ -82,7 +82,7 @@ await test("D3 a failed halves save never fails the compose; the card reloads it
 
 /* ═══ E ═══ */
 await test("E1 the health strip counts frames made with an earlier look (never ones without a recorded look)", ()=>{
-  assert.ok(comp.includes("if(m && m.lookSig && lookNow && m.lookSig!==lookNow) h.oldLook++;"));
+  assert.ok(comp.includes('if(m && typeof shotLookIsEarlier==="function" && shotLookIsEarlier(m.lookSig, ctx.project, scene.id)) h.oldLook++;'));
   assert.ok(comp.includes('" made with an earlier look"') && comp.includes("!health.oldLook && health.approved===health.total"));
 });
 

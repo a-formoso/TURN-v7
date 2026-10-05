@@ -180,6 +180,12 @@ function StyleFilmStrip({ scenes, project, presets, onSetScenePreset }){
         return React.createElement("div",{key:s.id,
           className:"sb-strip-cell"+(bg?"":" none")+(editable?" editable":"")+(open?" picking":""),
           style:bg?{background:bg}:undefined,
+          // reachable from the keyboard too (2026-10-05): Tab to a scene, Enter or Space opens its picker
+          role: editable ? "button" : undefined, tabIndex: editable ? 0 : undefined,
+          "aria-label": "Scene "+pad(s.no)+(s.title?" \u00b7 "+s.title:"")+" \u2014 "+nameOf(pid)+(editable?" (change the look)":""),
+          "aria-expanded": editable ? (open?"true":"false") : undefined,
+          onKeyDown: editable ? (e)=>{ if(e.target!==e.currentTarget) return;
+            if(e.key==="Enter" || e.key===" "){ e.preventDefault(); setPick(open?null:s.id); } else if(e.key==="Escape" && open){ e.preventDefault(); setPick(null); } } : undefined,
           onClick: editable ? ()=>setPick(open?null:s.id) : undefined,
           title:"Scene "+pad(s.no)+" \u00b7 "+(s.title||"")+"  \u2014  "+nameOf(pid)
             +(manual(s.id)?"  (set by hand \u2014 Light the film keeps it)":"")
@@ -209,9 +215,11 @@ function StyleFilmStrip({ scenes, project, presets, onSetScenePreset }){
 }
 
 
-/* Sample a small palette from an uploaded image, entirely client-side. The model is
-   text-only, so we can't send it the image — instead we feed the sampled COLOURS into
-   the design prompt. Returns { id, thumb (small JPEG dataURL), colors:[hex] }. */
+/* Sample a small palette from an uploaded image, entirely client-side, and keep a 384px copy
+   (`view`) the Colorist LOOKS AT when it lights the film (owner 2026-10-05 — Color review: the
+   sampled colours alone lost the light, contrast and texture). Returns
+   { id, thumb (small JPEG dataURL), view (≤384px JPEG dataURL), colors:[hex] }. Stills added
+   before keep only their colours (re-add one to let the Colorist see it). */
 function extractImageRef(file){
   return new Promise((resolve,reject)=>{
     const fr=new FileReader();
@@ -228,6 +236,11 @@ function extractImageRef(file){
           tc.width=Math.max(1,Math.round(W*ts)); tc.height=Math.max(1,Math.round(H*ts));
           tc.getContext("2d").drawImage(img,0,0,tc.width,tc.height);
           const thumb=tc.toDataURL("image/jpeg",0.6);
+          // the copy the Colorist sees: ≤384px on the long side (about 20–40 KB, kept with the film)
+          const vs=Math.min(1,384/Math.max(W,H)), vc=document.createElement("canvas");
+          vc.width=Math.max(1,Math.round(W*vs)); vc.height=Math.max(1,Math.round(H*vs));
+          vc.getContext("2d").drawImage(img,0,0,vc.width,vc.height);
+          const view=vc.toDataURL("image/jpeg",0.72);
           // palette from a ~40px sample, quantised by frequency
           const ss=Math.min(1,40/Math.max(W,H)), sc=document.createElement("canvas");
           sc.width=Math.max(1,Math.round(W*ss)); sc.height=Math.max(1,Math.round(H*ss));
@@ -237,7 +250,7 @@ function extractImageRef(file){
             const k=q(d[i])+","+q(d[i+1])+","+q(d[i+2]); buckets[k]=(buckets[k]||0)+1; }
           const colors=Object.keys(buckets).sort((a,b)=>buckets[b]-buckets[a]).slice(0,6)
             .map(k=>{ const p=k.split(",").map(Number); return hex(p[0],p[1],p[2]); });
-          resolve({ id:"ri_"+Date.now().toString(36)+Math.floor(Math.random()*1e6).toString(36), thumb, colors });
+          resolve({ id:"ri_"+Date.now().toString(36)+Math.floor(Math.random()*1e6).toString(36), thumb, view, colors });
         }catch(err){ reject(err); }
       };
       img.src=fr.result;
@@ -252,7 +265,9 @@ function StyleRefImages({ refImages, onRemoveRefImage }){
   const imgs = refImages||[];
   if(!imgs.length) return null;
   return React.createElement("div",{className:"sb-refimgs"},
-    imgs.map(ri=>React.createElement("div",{key:ri.id,className:"sb-refimg",title:"Reference still — sampled palette"},
+    imgs.map(ri=>React.createElement("div",{key:ri.id,className:"sb-refimg",
+      title: ri.view ? "Reference still \u2014 the Colorist looks at it and its sampled palette when it lights the film"
+        : "Reference still \u2014 only its sampled colours reach the Colorist (added before it could see stills): remove it and add it again to let it see the image"},
       React.createElement("img",{src:ri.thumb,alt:"reference still"}),
       React.createElement("div",{className:"sb-refimg-sw"},
         (ri.colors||[]).slice(0,5).map((c,i)=>React.createElement("span",{key:i,style:{background:c}}))),
@@ -295,7 +310,7 @@ function StyleRefsField({ value, onCommit, refImages, onAddRefImages, onRemoveRe
         onKeyDown:e=>{ if(e.key==="Enter" && (e.metaKey||e.ctrlKey)){ e.preventDefault(); commit(); e.target.blur(); } }}),
       onAddRefImages && React.createElement("button",{className:"sb-refbar-btn",disabled:imgs.length>=8,
         onClick:()=>fileRef.current&&fileRef.current.click(),
-        title:imgs.length>=8?"Up to 8 reference images":"Add reference image(s) — their palette is sampled to steer the film's grade"},
+        title:imgs.length>=8?"Up to 8 reference images":"Add reference stills \u2014 the Colorist looks at them (light, contrast, texture) and their sampled palette when it lights the film"},
         React.createElement(Icon.image,{s:14}), "Image"),
       // ONE button does both: saves whatever is in the box, then sends the Colorist —
       // the old separate Save + "Light the film above" two-step confused users (and
@@ -305,7 +320,7 @@ function StyleRefsField({ value, onCommit, refImages, onAddRefImages, onRemoveRe
             onClick:()=>{ const refs=commit(); onLight(refs, { redoManual:!!(manualCount && redoManual) }); },
             title: lightDisabled
               ? "Add scenes first — the Colorist designs the palette and color-scripts each scene"
-              : "Saves these references, then the Colorist designs a bespoke palette + film stock from them and color-scripts every scene — proposed for your approval. Writing credits only, no images."},
+              : "Saves these references, then the Colorist designs a bespoke palette + film stock from them and color-scripts every scene — proposed for your approval. Writing credits only, no images (a little more when it looks at your reference stills)."},
             React.createElement(Icon.palette,{s:14}),"Light the film")
         : React.createElement("button",{className:"sb-refbar-btn secondary"+(saved?" on":""),onClick:commit,
             title:"Save these references — they steer the palette when you run 'Light the film'"},
@@ -366,14 +381,15 @@ function StyleBibleView({ project, scenes, onSetRefs, onSetScenePreset, onAddRef
   };
   const stockNow = (window.FILM_STOCKS||[]).find(f=>f.id===filmStock) || { id:"none", name:"None (clean digital)" };
   return React.createElement("div",{className:"art-scroll"},
-    window.LookbookStaleNotice && React.createElement(window.LookbookStaleNotice,{stale:lookbookStale,onApply:onApplyLookbook,label:"this palette",dept:"colorist"}),
+    window.LookbookStaleNotice && React.createElement(window.LookbookStaleNotice,{stale:lookbookStale,onApply:onApplyLookbook,label:"this palette",dept:"colorist",
+      applyLabel:"Light the film again", applyTitle:"The Colorist proposes a new palette from the updated Lookbook \u2014 for your approval; scenes you set by hand (\u270b) keep their look. Writing credits only, no images."}),
     React.createElement("div",{className:"art-intro"},
       React.createElement("div",{className:"art-intro-row"},
         React.createElement("div",{style:{flex:1}},
           React.createElement("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},
             "Colorist",
             React.createElement(InfoTip,{label:"About the Colorist",
-              text:"Your film's own cinematic look system \u2014 each a 60/30/10 colour grade with its own lighting, lens and texture. Click 'Light the film' and the Colorist designs a BESPOKE palette + film stock for this film (from the story and your visual references), color-scripts every scene along the value-charge spine \u2014 so the look tracks the emotional arc \u2014 and PROPOSES it for your approval, showing the swatches and a per-scene 'why' (hover a scene in the film-strip to read it later). Scenes you set by hand (\u270b) keep their look when you light the film again, unless you tick 'Also redo'. Each look can be edited (name, colours, notes) or deleted; the film stock is picked below. Characters, locations and shots read the assigned look so every frame stays on-palette. The previews grade one of the film's own location plates live in the browser (no generation); before any plate exists they use a drawn stand-in. Writing credits only, no images."}))),
+              text:"Your film's own cinematic look system \u2014 each a 60/30/10 colour grade with its own lighting, lens and texture. Click 'Light the film' and the Colorist designs a BESPOKE palette + film stock for this film (from the story and your visual references), color-scripts every scene along the value-charge spine \u2014 so the look tracks the emotional arc \u2014 and PROPOSES it for your approval, showing the swatches and a per-scene 'why' (hover a scene in the film-strip to read it later). Scenes you set by hand (\u270b) keep their look when you light the film again, unless you tick 'Also redo'. Each look can be edited (name, colours, notes) or deleted; the film stock is picked below. Shot frames and the Stage's video renders use each scene's look and the film stock; character sheets and location plates stay neutral on purpose, so the same sheet works in every scene. The previews grade one of the film's own location plates live in the browser (no generation); before any plate exists they use a drawn stand-in. Writing credits only, no images."}))),
         null)),
     !lit && React.createElement("div",{className:"sb-unlit",role:"note"},
       React.createElement(Icon.palette||Icon.sparkles,{s:14}),

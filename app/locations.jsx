@@ -1942,7 +1942,7 @@ window.locationScaleClass = locationScaleClass;
 
 /* deterministic LOCATION coverage plate — full view of the place from several
    angles on one grid, so any shot set here matches geometry, materials & light.
-   `opts.preset` applies a Style Bible look; `opts.time` specialises a variant. */
+   The plate stays grade-neutral (each shot applies its scene's look); `opts.time` specialises a variant. */
 function buildLocationRefPrompt(l, project, opts){
   opts = opts || {};
   const P = project || (window.TURN_DATA||{}).PROJECT || {};

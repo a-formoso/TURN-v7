@@ -624,7 +624,6 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
       const drafts = ((window.turnContinuity||{}).drafts)||{};
       const chain = (ctx.sceneShots && ctx.sceneShots.length) ? ctx.sceneShots : (page.shots||[]);
       const h = { total:(page.shots||[]).length, unrendered:0, approved:0, unapproved:0, staleSeed:0, staleSrc:0, oldLook:0 };
-      const lookNow = (typeof shotLookSig==="function") ? shotLookSig(ctx.project, scene.id) : "";
       for(const sh of (page.shots||[])){
         let u = (typeof nbGetImage==="function") ? nbGetImage(sh.id) : "";
         if(!u && typeof nbLoadImage==="function"){ try{ u = await nbLoadImage(sh.id); }catch(e){} }
@@ -636,7 +635,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot 
         const ov = (typeof shotSourceOverrideCurrent==="function") && shotSourceOverrideCurrent(sh, drafts[sh.sceneId]);
         if(st==="stale" && !ov) h.staleSrc++;
         if(typeof shotChainStatus==="function" && shotChainStatus(sh, chain, (x)=> (typeof nbGetMeta==="function") ? nbGetMeta(x) : null)==="stale") h.staleSeed++;
-        if(m && m.lookSig && lookNow && m.lookSig!==lookNow) h.oldLook++;   // made before the scene's look / film stock changed
+        if(m && typeof shotLookIsEarlier==="function" && shotLookIsEarlier(m.lookSig, ctx.project, scene.id)) h.oldLook++;   // made before the scene's look / film stock changed
       }
       if(alive){ setReady({ n, total:shotIds.length }); setHealth(h); }
     };

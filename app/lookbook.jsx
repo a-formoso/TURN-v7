@@ -269,7 +269,7 @@ window.LOOKBOOK_DEPT_AFFECT = LOOKBOOK_DEPT_AFFECT;
    + [Re-draft only] [Re-draft & regenerate]. onDraftOnly (optional) re-drafts the specs from
    the updated Lookbook but leaves the generated images alone — for when you want the words
    updated now and the renders later. */
-function LookbookStaleNotice({ stale, onApply, onDraftOnly, label, dept }){
+function LookbookStaleNotice({ stale, onApply, onDraftOnly, label, dept, applyLabel, applyTitle }){
   if(!stale) return null;
   const affect = LOOKBOOK_DEPT_AFFECT[dept] || "";
   return React.createElement("div",{className:"lb-stale-notice",role:"status"},
@@ -280,8 +280,9 @@ function LookbookStaleNotice({ stale, onApply, onDraftOnly, label, dept }){
     onDraftOnly && React.createElement("button",{className:"lb-stale-btn ghost",onClick:onDraftOnly,
       title:"Re-draft this tab's specs from the updated Lookbook — images stay as they are; regenerate them when you're ready"},
       React.createElement(Icon.sparkles,{s:12}),"Re-draft only"),
-    React.createElement("button",{className:"lb-stale-btn",onClick:onApply,title:"Re-draft this tab's specs from the updated Lookbook and regenerate its sheets"},
-      React.createElement(Icon.sparkles,{s:12}),"Re-draft & regenerate"));
+    // a tab whose action isn't a re-draft (Color: Light the film) names its own (2026-10-05)
+    React.createElement("button",{className:"lb-stale-btn",onClick:onApply,title:applyTitle||"Re-draft this tab's specs from the updated Lookbook and regenerate its sheets"},
+      React.createElement(Icon.sparkles,{s:12}),applyLabel||"Re-draft & regenerate"));
 }
 window.LookbookStaleNotice = LookbookStaleNotice;
 

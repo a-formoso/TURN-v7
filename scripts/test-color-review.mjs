@@ -205,7 +205,7 @@ await test("F2 Delete asks first and says what happens to its scenes; the app un
 
 /* ═══ G ═══ */
 await test("G1 Light the film says it's writing credits only; Frances knows all of it", ()=>{
-  assert.ok(ui.includes("proposed for your approval. Writing credits only, no images."));
+  assert.ok(ui.includes("proposed for your approval. Writing credits only, no images (a little more when it looks at your reference stills)."));
   const s = between(ai, "const APP_FEATURES = [", "function appBrief(){");
   const fb = { console }; fb.window = fb; vm.createContext(fb);
   vm.runInContext(s + "\n;this.__F = APP_FEATURES;", fb);

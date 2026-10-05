@@ -1947,13 +1947,12 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
           const meta=(id)=>(typeof nbGetMeta==="function")?nbGetMeta(id):null;
           const drafts=((window.turnContinuity||{}).drafts||{});
           let framed=0, approved=0, staleSeed=0, staleSrc=0, oldLook=0;
-          const lookNow=(typeof shotLookSig==="function")?shotLookSig(ctx.project, scene.id):"";
           ordered.forEach(s=>{
             const u=(typeof nbGetImage==="function")?nbGetImage(s.id):"";
             if(!u) return;
             framed++;
             // made with an earlier colour look / film stock (frames from before this was recorded aren't counted)
-            const m=meta(s.id); if(m && m.lookSig && lookNow && m.lookSig!==lookNow) oldLook++;
+            const m=meta(s.id); if(m && typeof shotLookIsEarlier==="function" && shotLookIsEarlier(m.lookSig, ctx.project, scene.id)) oldLook++;
             if(s.locked) approved++;
             const st=(typeof shotAssetProvenanceStatus==="function")
               ? shotAssetProvenanceStatus(s, drafts[s.sceneId], meta(s.id)) : "unverified";

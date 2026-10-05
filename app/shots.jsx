@@ -802,7 +802,10 @@ function sceneVideoPromptText(scene, sceneShots, opts){
     loc ? ("Setting: "+loc.name+".") : "",
     lines.join("\n"),
     "Camera: "+(moves.length ? moves.join(" → ").toLowerCase() : "static")+".",
-    preset ? ("Style: "+preset.name+" — "+String(preset.grade||"").trim()+".") : "",
+    // the whole look, as the frames get it (2026-10-05): grade, palette, lens, texture, film stock
+    (()=>{ const look = (typeof turnVideoLookText==="function") ? turnVideoLookText(preset, opts && opts.project)
+        : (preset ? (preset.name+" — "+String(preset.grade||"").trim()) : "");
+      return look ? ("Style: "+look+".") : ""; })(),
   ].filter(Boolean).join("\n\n");
 }
 window.sceneVideoPromptText = sceneVideoPromptText;
@@ -2418,13 +2421,28 @@ window.ensureCarriedPropSheets = ensureCarriedPropSheets;
 /* THE LOOK A FRAME WAS MADE WITH (2026-10-03, owner — Shots review): the scene's colour look and the
    film stock, as a short signature stored on each new frame, so a later change in the Color tab can
    be flagged ("made with an earlier look") — never re-rendered on its own. */
+function _lookHash(raw){ let h = 5381; for(let i=0;i<raw.length;i++) h = ((h<<5)+h+raw.charCodeAt(i))|0; return (h>>>0).toString(36); }
+/* (2026-10-05, owner — Color review) the look's NAME and its three colour names are printed into
+   the frame prompt too, so they are part of the look now ("look2-"); frames stamped before keep
+   the old "look-" signature and are checked against the old formula (shotLookIsEarlier) — the
+   change never flags every frame at once */
 function shotLookSig(project, sceneId){
   const preset = (typeof scenePreset==="function") ? scenePreset(project, sceneId) : null;
   const stock = (project && project.styleBible && project.styleBible.filmStock) || "none";
-  const raw = JSON.stringify([preset ? [preset.id, preset.palette, preset.grade, preset.lighting, preset.lens, preset.texture] : null, stock]);
-  let h = 5381; for(let i=0;i<raw.length;i++) h = ((h<<5)+h+raw.charCodeAt(i))|0;
-  return "look-"+(h>>>0).toString(36);
+  return "look2-"+_lookHash(JSON.stringify([preset ? [preset.id, preset.name||"", preset.palette, preset.dominantLabel||"", preset.secondaryLabel||"",
+    preset.accentLabel||"", preset.grade, preset.lighting, preset.lens, preset.texture] : null, stock]));
 }
+function shotLookSigLegacy(project, sceneId){
+  const preset = (typeof scenePreset==="function") ? scenePreset(project, sceneId) : null;
+  const stock = (project && project.styleBible && project.styleBible.filmStock) || "none";
+  return "look-"+_lookHash(JSON.stringify([preset ? [preset.id, preset.palette, preset.grade, preset.lighting, preset.lens, preset.texture] : null, stock]));
+}
+/* was a stored look signature made with an EARLIER look? Missing = unknown, never flagged. */
+function shotLookIsEarlier(stored, project, sceneId){
+  const s = String(stored||""); if(!s) return false;
+  return s.indexOf("look2-")===0 ? s!==shotLookSig(project, sceneId) : s!==shotLookSigLegacy(project, sceneId);
+}
+window.shotLookIsEarlier = shotLookIsEarlier;
 window.shotLookSig = shotLookSig;
 
 /* Carried props a set of shots would build before rendering, with no sheet yet (authoritative
@@ -2492,8 +2510,7 @@ function shotFrameState(sh, sceneShots, drafts, project, has){
     current = (st==="current" || !!ov) && !chainStale;
   }
   const m = rendered ? meta(sh.id) : null;
-  const lookNow = (typeof shotLookSig==="function" && project && sh) ? shotLookSig(project, sh.sceneId) : "";
-  const oldLook = !!(m && m.lookSig && lookNow && m.lookSig!==lookNow);
+  const oldLook = !!(m && project && sh && shotLookIsEarlier(m.lookSig, project, sh.sceneId));
   return { rendered, approved, current, oldLook, done: rendered && approved && current };
 }
 window.shotFrameState = shotFrameState;

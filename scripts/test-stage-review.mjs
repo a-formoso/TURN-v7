@@ -185,7 +185,7 @@ await test("E5 without the Mix: each take's sound as rendered, nothing else read
 });
 await test("E6 the Timeline asks first (with the Mix / Picture sound only / the clips left out) and says what was left out after", ()=>{
   const tl = between(st, "function StageTimelineView({", "\n}\n");
-  assert.ok(/function StageTimelineView\(\{[^}]*\bauds, characters \}\)/.test(st));
+  assert.ok(/function StageTimelineView\(\{[^}]*\bauds, characters\b[^}]*\}\)/.test(st));
   assert.ok(tl.includes('confirmLabel: mix ? "Export with the Mix" : "Export", altLabel: mix ? "Picture sound only" : undefined'));
   assert.ok(tl.includes('if(ans==="alt") mix = null;') && tl.includes("mix, report,"));
   assert.ok(tl.includes("const left = stageExportSkippedText(skipped);") && tl.includes("couldn't be read and "));

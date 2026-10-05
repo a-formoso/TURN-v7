@@ -693,6 +693,18 @@ function App(){
     // (Shots has no apply action: its new and re-drafted shots follow the Lookbook, and the Shot
     //  Designer only re-plans scenes whose coverage has issues — so its banner offers "Mark reviewed")
     if(dept==="shots") return;
+    // Color's action is Light the film again: a PROPOSAL (nothing changes until you approve it), and the
+    // scenes you set by hand keep their look — the generic "overwrites… regenerates its sheets" was wrong here
+    if(dept==="colorist"){
+      let ok = true;
+      if(typeof window.appConfirm==="function") ok = await window.appConfirm({
+        title:"Light the film again from the updated Lookbook?",
+        body:"The Colorist designs a new palette and film stock and color-scripts the scenes, then shows it to you to approve. Approving replaces this film's looks, including any you edited; scenes you set by hand (\u270b) keep theirs. Writing credits only, no images.",
+        confirmLabel:"Light the film" });
+      if(!ok) return;
+      coloristRedoManualRef.current = false; setColoristOpen(true);
+      return;
+    }
     const draftOnly = mode==="draft";
     const label = { characters:"Characters", props:"Props", locations:"Locations", colorist:"Color" }[dept] || dept;
     if(dept==="characters" && turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Re-drafting Characters")) return;

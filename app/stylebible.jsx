@@ -59,6 +59,28 @@ function filmStockClause(project){
 }
 window.filmStockClause = filmStockClause;
 
+/* THE LOOK A VIDEO GETS (owner 2026-10-05 — Color review): the same look the shot frames get —
+   the scene's grade, its 60/30/10 palette, lens character and texture, and the film's stock (a
+   black-and-white stock stays black-and-white through the motion). Video prompts used to carry
+   only the look's name and grade. "" when there is no look and no stock. */
+function turnVideoLookText(preset, project){
+  const t = (x)=> String(x||"").replace(/\s+/g," ").trim().replace(/[.;]+$/,"");
+  const parts = [];
+  if(preset){
+    const head = [t(preset.name), t(preset.grade)].filter(Boolean).join(" \u2014 ");
+    if(head) parts.push(head);
+    const pal = Array.isArray(preset.palette) ? preset.palette : [];
+    if(pal.length>=3) parts.push("colour 60/30/10: "+(t(preset.dominantLabel)||"dominant")+" "+pal[0]+", "
+      +(t(preset.secondaryLabel)||"secondary")+" "+pal[1]+", "+(t(preset.accentLabel)||"accent")+" "+pal[2]);
+    if(t(preset.lens)) parts.push("lens character: "+t(preset.lens));
+    if(t(preset.texture)) parts.push("texture: "+t(preset.texture));
+  }
+  const stock = t(filmStockClause(project));
+  if(stock) parts.push(stock);
+  return parts.join("; ");
+}
+window.turnVideoLookText = turnVideoLookText;
+
 function styleBibleOf(project){
   const sb = (project && project.styleBible) || {};
   return {
