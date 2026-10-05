@@ -535,7 +535,7 @@ async function main() {
       assert.equal(control.label,"Clip grouping","Clip grouping select is accessible");
       assert.equal(control.testid,"stage-clip-grouping","Clip grouping select has the requested test id");
       assert.deepEqual(control.options.map(x=>x.value),["beat","shot","legacy"],"Clip grouping exposes only the supported scope values");
-      assert.deepEqual(control.options.map(x=>x.label),["Fit beat","Single shot","Previous packing"],"Clip grouping labels describe the supported scope values");
+      assert.deepEqual(control.options.map(x=>x.label),["Split to fit","Single shot","Earlier grouping"],"Clip grouping labels describe the supported scope values");
       await c.eval(`(()=>{const s=document.querySelector('select[data-testid="stage-clip-grouping"][aria-label="Clip grouping"]');s.value=${JSON.stringify(value)};s.dispatchEvent(new Event("change",{bubbles:true}));return s.value;})()`);
       await waitFor(()=>c.eval(`document.querySelector('select[data-testid="stage-clip-grouping"][aria-label="Clip grouping"]')?.value===${JSON.stringify(value)}`),`${label||"Stage"} Clip grouping selection`);
       const storageValue=value==="legacy"?"auto":value;
@@ -896,7 +896,8 @@ async function main() {
         /cannot accept screenplay-page images|exclude those optional page references/i,
         "single-start-frame model explains how to exclude optional screenplay screenshots");
       const beforeSingleFrameBlock=await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`);
-      await c.eval(`document.querySelector(".sd-gen-submit")?.click()`);
+      assert.ok(await c.eval(`!!document.querySelector('[data-testid="stage-generate"]')`),"the composer's Generate (the drawer's copy was removed, Stage review 2026-10-05)");
+    await c.eval(`document.querySelector('[data-testid="stage-generate"]').click()`);
       await new Promise(r=>setTimeout(r,120));
       assert.equal(await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`),
         beforeSingleFrameBlock,"unsupported single-frame model makes no provider call");
@@ -1045,7 +1046,8 @@ async function main() {
     assert.equal(await c.eval(`document.querySelectorAll('[data-testid="stage-scene-screenplay"],.stage2-screenplay-reference').length`),0,
       "missing draft does not recreate the removed screenplay disclosure");
     assert.ok(await c.eval(`!!document.querySelector(".stage2-assets-row .stage2-asset.image")`),"missing screenplay does not remove unrelated visual assets");
-    await c.eval(`document.querySelector(".sd-gen-submit")?.click()`);
+    assert.ok(await c.eval(`!!document.querySelector('[data-testid="stage-generate"]')`),"the composer's Generate (the drawer's copy was removed, Stage review 2026-10-05)");
+    await c.eval(`document.querySelector('[data-testid="stage-generate"]').click()`);
     await new Promise(r=>setTimeout(r,150));
     assert.equal(await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`),callsBeforeMissingDraft,"missing screenplay invokes no provider");
     await c.eval(`window.__setScene1Beat2Text("Mara carries the letter beneath a red dawn window.")`);
@@ -1059,7 +1061,8 @@ async function main() {
       "read-only Stage has no screenplay disclosure");
     assert.ok(await c.eval(`document.querySelectorAll('.stage2-gen-assets [data-reference-kind="screenplay"][aria-pressed="true"]').length>0`),
       "read-only Stage retains included screenplay page cards");
-    await c.eval(`document.querySelector(".sd-gen-submit")?.click()`);
+    assert.ok(await c.eval(`!!document.querySelector('[data-testid="stage-generate"]')`),"the composer's Generate (the drawer's copy was removed, Stage review 2026-10-05)");
+    await c.eval(`document.querySelector('[data-testid="stage-generate"]').click()`);
     await new Promise(r=>setTimeout(r,120));
     assert.equal(await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate"||x[0]==="batch").length`),readOnlyScreenplayCalls,"read-only view makes no paid calls");
     await c.eval(`window.__setReadOnly(false)`);
@@ -1102,7 +1105,7 @@ async function main() {
 
     /*
      * The compatibility value is also a real persisted choice, not a transient
-     * control state. Reload with Previous packing selected and verify the fixture's
+     * control state. Reload with Earlier grouping selected and verify the fixture's
      * existing adoption boundary is called again from the mounted Stage.
      */
     await chooseClipGrouping("legacy","previous-packing reload setup");
@@ -1317,11 +1320,11 @@ async function main() {
       await c.eval(`document.querySelector(".stage2-gen-composer .stage2-gen-box")?.scrollIntoView({block:"center"})`);
       await new Promise(r=>setTimeout(r,60));
       await writeFile(`${OUT}/stage-composer-bar-edit.png`,Buffer.from((await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false})).data,"base64"));
-      assert.equal(await c.eval(`[...document.querySelectorAll(".stage2-seg-btn")].find(b=>b.textContent.trim()==="Draw")?.disabled`),true,"Draw is disabled — fal's editing task has no draw input");
+      assert.equal(await c.eval(`[...document.querySelectorAll(".stage2-seg-btn")].some(b=>b.textContent.trim()==="Draw")`),false,"no Draw control — the editing task has no draw input (the disabled button was removed, Stage review 2026-10-05)");
       const editGenBefore=await c.eval(`(()=>{const b=document.querySelector('[data-testid="stage-generate-edit"]');return {aria:b.getAttribute("aria-disabled"),title:b.title};})()`);
       assert.equal(editGenBefore.aria,"true","Edit Video cannot generate without a video");
       assert.match(editGenBefore.title,/Add the video to edit/);
-      assert.equal(await c.eval(`document.querySelectorAll(".sd-gen-submit").length`),0,"the drawer's Generate steps aside on the Edit tab");
+      assert.equal(await c.eval(`document.querySelectorAll(".sd-gen-submit").length`),0,"the removed drawer Generate stays gone");
       await c.eval(`document.querySelector('.stage2-dz[data-slot="edit"] .sdbar-pill.dz').click()`);
       await waitFor(()=>c.eval(`[...document.querySelectorAll(".sdbar-option b")].some(x=>x.textContent==="Take 1")`),"edit take picker lists the clip's takes");
       await c.eval(`[...document.querySelectorAll(".sdbar-option b")].find(x=>x.textContent==="Take 1").closest("button").click()`);
@@ -1432,10 +1435,10 @@ async function main() {
     assert.match(await text(),/Rain wardrobe|appearance reference/i,"missing-state guidance identifies the appearance state rather than treating the master as sufficient");
     assert.equal(await c.eval(`window.nbAssetApproval(window.nbGetMeta("char-mara:wardrobe"))`),true,
       "approved metadata alone does not make an absent inventory image ready");
-    const missingGate=await c.eval(`(()=>{const b=document.querySelector(".sd-gen-submit");return {aria:b?.getAttribute("aria-disabled"),disabled:!!b?.disabled,text:b?.textContent||""}})()`);
+    const missingGate=await c.eval(`(()=>{const b=document.querySelector('[data-testid="stage-generate"]');return {aria:b?.getAttribute("aria-disabled"),disabled:!!b?.disabled,text:b?.textContent||""}})()`);
     assert.ok(missingGate.aria==="true"||missingGate.disabled,"missing required character variant blocks Generate");
     const beforeBlocked=await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate").length`);
-    await c.eval(`document.querySelector(".sd-gen-submit").click()`);
+    await c.eval(`document.querySelector('[data-testid="stage-generate"]').click()`);
     await new Promise(r=>setTimeout(r,150));
     assert.equal(await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate").length`),beforeBlocked,"blocked Generate invokes provider zero times");
     const masterFallback=await c.eval(`[...document.querySelectorAll(".stage2-asset")].filter(x=>/Mara(?:\\s*·\\s*Master)? reference/i.test(x.textContent)).map(x=>({text:x.textContent.trim(),included:x.classList.contains("on")||x.getAttribute("aria-pressed")==="true"}))`);
@@ -1444,15 +1447,15 @@ async function main() {
        canonical active-state requirement. */
     await c.eval(`(()=>{const e=document.querySelector(".stage2-gen-prompt[contenteditable]");e.textContent+=" @Image1";e.dispatchEvent(new InputEvent("input",{bubbles:true,inputType:"insertText",data:" @Image1"}));})()`);
     await new Promise(r=>setTimeout(r,100));
-    assert.equal(await c.eval(`document.querySelector(".sd-gen-submit")?.getAttribute("aria-disabled")`),"true","typing an @ reference mention does not clear the missing-state gate");
+    assert.equal(await c.eval(`document.querySelector('[data-testid="stage-generate"]')?.getAttribute("aria-disabled")`),"true","typing an @ reference mention does not clear the missing-state gate");
     const manualMasterFound=await c.eval(`(()=>{const a=[...document.querySelectorAll(".stage2-asset")].find(x=>/Mara\\s*·\\s*Master reference/i.test(x.textContent));if(!a)return false;a.click();return true;})()`);
     assert.ok(manualMasterFound,"master reference remains available for an explicit manual attachment");
     await new Promise(r=>setTimeout(r,100));
-    assert.equal(await c.eval(`document.querySelector(".sd-gen-submit")?.getAttribute("aria-disabled")`),"true","manual master inclusion does not satisfy the missing active-state requirement");
+    assert.equal(await c.eval(`document.querySelector('[data-testid="stage-generate"]')?.getAttribute("aria-disabled")`),"true","manual master inclusion does not satisfy the missing active-state requirement");
     assert.ok(await c.eval(`(()=>{const t=document.querySelector(".stage2-blocker-text")?.textContent.toLowerCase()||"";return t.includes("required appearance")&&t.includes("rain wardrobe")&&t.includes("use master for this shot")})()`),"missing-state guidance remains visible after manual master inclusion");
 
     /*
-     * Previous packing is the compatibility route for old positional take ids. It
+     * Earlier grouping (formerly Previous packing) is the compatibility route for old positional take ids. It
      * persists as the historical "auto" storage value and asks the real adoption
      * boundary to inspect existing takes; this fixture deliberately does not invent
      * or migrate take data.
@@ -1577,8 +1580,8 @@ async function main() {
     /* Once the separate drift review is acknowledged, inspect the real stubbed launch
        payload. Its take metadata must retain one master descriptor with both shot uses. */
     await c.eval(`document.querySelector(".stage2-blocker-act").click()`);
-    await waitFor(()=>c.eval(`document.querySelector(".sd-gen-submit")?.getAttribute("aria-disabled")!=="true"`),"override payload Generate unlock");
-    await c.eval(`document.querySelector(".sd-gen-submit").click()`);
+    await waitFor(()=>c.eval(`document.querySelector('[data-testid="stage-generate"]')?.getAttribute("aria-disabled")!=="true"`),"override payload Generate unlock");
+    await c.eval(`document.querySelector('[data-testid="stage-generate"]').click()`);
     await waitFor(()=>c.eval(`__fixture.calls.filter(x=>x[0]==="generate").length>${overrideBaseline.providerCalls}`),"stubbed override payload");
     const screenplayPayload=await c.eval(`(()=>{
       const row=__fixture.calls.filter(x=>x[0]==="generate").slice(${overrideBaseline.providerCalls})[0];
@@ -1685,7 +1688,7 @@ async function main() {
     await waitFor(()=>c.eval(`document.querySelector(".stage2-blocker-act")?.textContent.trim()==="Confirm reviewed"`),"prompt drift review after state load");
     await c.eval(`document.querySelector(".stage2-blocker-act").click()`);
     try{
-      await waitFor(()=>c.eval(`document.querySelector(".sd-gen-submit")?.getAttribute("aria-disabled")!=="true"`),"Generate unblocks after cache load");
+      await waitFor(()=>c.eval(`document.querySelector('[data-testid="stage-generate"]')?.getAttribute("aria-disabled")!=="true"`),"Generate unblocks after cache load");
     }catch(e){
       const blockerText=await c.eval(`document.querySelector(".stage2-blocker-text")?.textContent||""`);
       throw new Error(e.message+"; active blocker: "+blockerText);
@@ -1699,7 +1702,7 @@ async function main() {
     /* Exercise the old likeness/policy retry trigger. The provider stub refuses once;
        Stage must surface it without a second paid call or a NO_CHAR_REFS package. */
     const beforePolicy=await c.eval(`window.__fixture.policyRefusal=true;window.__fixture.calls.filter(x=>x[0]==="generate").length`);
-    await c.eval(`document.querySelector(".sd-gen-submit").click()`);
+    await c.eval(`document.querySelector('[data-testid="stage-generate"]').click()`);
     await waitFor(()=>c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate").length>${beforePolicy}`),"single policy-refused provider call");
     await new Promise(r=>setTimeout(r,300));
     const policyCalls=await c.eval(`window.__fixture.calls.filter(x=>x[0]==="generate").slice(${beforePolicy}).map(x=>x[2])`);
