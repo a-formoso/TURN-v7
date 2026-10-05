@@ -211,6 +211,37 @@ async function vgClearAudio(id){
 }
 window.elCommit=elCommit; window.vgClearAudio=vgClearAudio;
 
+/* ---- Mix beds (owner 2026-10-05 — Stage review: "persist the Mix") -----------
+   An imported ambience / music file per SCENE, kept with the film on this device
+   (the same per-film IndexedDB store as the voiced lines) so the Mix and the film
+   export find it again after a reload. Never sent anywhere. */
+const VG_MIX_BED_MAX_BYTES = 50*1024*1024;
+function vgMixBedId(sceneId, kind){ return "mix-bed:"+String(sceneId||"scene")+":"+(kind==="music"?"music":"amb"); }
+async function vgSaveMixBed(sceneId, kind, dataUrl, name){
+  const scope=vgProjectScope(), id=vgMixBedId(sceneId, kind);
+  const v={ url:String(dataUrl||""), meta:{ kind:"mix-bed", bed:(kind==="music"?"music":"amb"), sceneId:String(sceneId||""), name:String(name||"").slice(0,120), projectId:scope, iso:new Date().toISOString() } };
+  _vgMem.set(vgMemKey(id,scope), v);
+  await vgIdbSet(vgKey(id,scope), v);
+  return v;
+}
+async function vgLoadMixBed(sceneId, kind){
+  const scope=vgProjectScope(), id=vgMixBedId(sceneId, kind), mem=_vgMem.get(vgMemKey(id,scope));
+  if(mem && mem.url) return mem;
+  try{
+    const v=await vgIdbGet(vgKey(id,scope));
+    if(!v || !v.url) return null;
+    if(v.meta && v.meta.projectId && String(v.meta.projectId)!==scope) return null;
+    _vgMem.set(vgMemKey(id,scope), v); return v;
+  }catch(e){ return null; }
+}
+async function vgClearMixBed(sceneId, kind){
+  const scope=vgProjectScope(), id=vgMixBedId(sceneId, kind);
+  _vgMem.delete(vgMemKey(id,scope));
+  try{ await vgIdbDel(vgKey(id,scope)); }catch(e){}
+}
+window.VG_MIX_BED_MAX_BYTES=VG_MIX_BED_MAX_BYTES; window.vgMixBedId=vgMixBedId;
+window.vgSaveMixBed=vgSaveMixBed; window.vgLoadMixBed=vgLoadMixBed; window.vgClearMixBed=vgClearMixBed;
+
 function vgAssertIdentity(opts, phase){
   opts=opts||{};
   const c=opts.identityCharacter||opts.character;

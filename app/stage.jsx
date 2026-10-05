@@ -5663,7 +5663,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
             _stEl("span",{className:"stage2-mention-kind"},
               m.included?"Included":(m.group|| (m.kind==="image"?"Image":m.kind==="video"?"Video":"Audio"))))))),
       bar));
-      // (cancelling an in-flight render lives in the Render settings panel — "Cancel render";
+      // (stopping the wait on an in-flight render lives in the Render settings panel — "Stop";
       //  the REFERENCES-added-at-render preview lives in the panel's Inputs tab)
   // beat-level coverage is a review notice, never a blocker: the beat renders whole
   const coverageNotice=(d.screenplayDirectionIssues||[]).find(x=>x&&!x.blocking&&x.code==="screenplay-coverage-beat-level");
@@ -6669,7 +6669,7 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false }
 }
 
 /* where each voiced line lands inside its clip — the SAME CLIP_AIR walk the clock and
-   the Timeline recipe use, so the post mixer lays the pristine ElevenLabs lines exactly
+   the Timeline recipe use, so the post mixer lays the voiced lines exactly
    where the render was told to put them. */
 function clipLinePlacements(clip, auds, characters){
   const shots = ((clip&&clip.data&&clip.data.shots)||[]);
@@ -6693,6 +6693,61 @@ function clipLinePlacements(clip, auds, characters){
   return out;
 }
 window.stageClipLinePlacements=clipLinePlacements;
+
+/* ---- THE MIX, shared by the Mix tab and the film export (owner 2026-10-05 — Stage review:
+   "export the film with the Mix"). The Mix's volumes/mutes are kept per film on this device
+   (localStorage), each scene's imported beds in the film's audio store (vgSaveMixBed). ---- */
+const STAGE_MIX_DEFAULTS = { native:0.35, dialogue:1, amb:0.7, music:0.5 };
+function stageMixKey(projectId){
+  if(projectId==null){ const sc = (typeof window.nbCloudScope==="function") ? window.nbCloudScope() : null; projectId = sc && sc.projectId; }
+  return "turn_stage_mix_"+(projectId||"local");
+}
+function stageMixSettings(projectId){
+  let s = null; try{ s = JSON.parse(localStorage.getItem(stageMixKey(projectId))||"null"); }catch(e){}
+  return { gain:{ ...STAGE_MIX_DEFAULTS, ...((s && s.gain && typeof s.gain.native==="number") ? s.gain : {}) },
+    mute:(s && s.mute && typeof s.mute==="object") ? s.mute : {} };
+}
+async function stageLoadMixBeds(clips){
+  const out = {};
+  if(typeof window.vgLoadMixBed!=="function") return out;
+  const ids = Array.from(new Set((clips||[]).map(c=>c && c.scene && c.scene.id).filter(Boolean)));
+  for(const sid of ids){
+    for(const k of ["amb","music"]){
+      const v = await window.vgLoadMixBed(sid, k);
+      if(v && v.url){ out[sid] = out[sid]||{}; out[sid][k] = { url:v.url, name:(v.meta && v.meta.name)||(k==="music"?"Music":"Ambience") }; }
+    }
+  }
+  return out;
+}
+/* the clips a film export leaves out, and why — named the way the Timeline names them */
+function stageExportSkipped(ordered, vids, staleVids){
+  return (ordered||[]).filter(c=>c && !(vids && vids[c.id]))
+    .map(c=>({ id:c.id, name:stageClipBeatName(c), why:(staleVids && staleVids[c.id]) ? "out of date" : "not rendered" }));
+}
+function stageExportSkippedText(skipped){
+  const list = skipped||[]; if(!list.length) return "";
+  const shown = list.slice(0,6).map(x=>x.name+" ("+x.why+")");
+  return "Left out: "+shown.join(", ")+(list.length>6 ? " and "+(list.length-6)+" more" : "");
+}
+/* what the export plays over each take: the Mix's levels (a muted lane is 0), the voiced
+   lines where the render placed them, and each scene's beds (ambience loops, music once) */
+function stageExportMixPlan(ordered, vids, o){
+  o = o||{};
+  const gain = { ...STAGE_MIX_DEFAULTS, ...(o.gain||{}) }, mute = o.mute||{};
+  const lvl = (k)=> mute[k] ? 0 : Math.max(0, Math.min(1, Number(gain[k])||0));
+  const beds = o.beds||{};
+  const items = (ordered||[]).filter(c=>c && vids && vids[c.id]).map(c=>({ id:c.id, sceneId:(c.scene && c.scene.id)||"",
+    lines:clipLinePlacements(c, o.auds, o.characters).filter(pl=>pl.url).map(pl=>({ at:pl.at, url:pl.url })) }));
+  const sceneBeds = {};
+  items.forEach(it=>{ if(sceneBeds[it.sceneId]) return; const b = beds[it.sceneId]||{};
+    sceneBeds[it.sceneId] = { amb:(b.amb && b.amb.url)||"", music:(b.music && b.music.url)||"" }; });
+  const gains = { native:lvl("native"), dialogue:lvl("dialogue"), amb:lvl("amb"), music:lvl("music") };
+  const lineN = gains.dialogue>0 ? items.reduce((t,it)=>t+it.lines.length,0) : 0;
+  const bedN = Object.keys(sceneBeds).reduce((t,k)=>t+(sceneBeds[k].amb && gains.amb>0 ?1:0)+(sceneBeds[k].music && gains.music>0 ?1:0),0);
+  return { gains, items, beds:sceneBeds, lineN, bedN, has:lineN>0 || bedN>0 };
+}
+window.stageMixSettings = stageMixSettings; window.stageExportSkipped = stageExportSkipped;
+window.stageExportSkippedText = stageExportSkippedText; window.stageExportMixPlan = stageExportMixPlan;
 
 /* ---- FILM EXPORT — stitch every rendered clip's current take into ONE movie,
    entirely in the browser: each take plays through a hidden <video> into a canvas
@@ -6735,7 +6790,33 @@ async function stageExportFilm(playlist, opts){
      connects to ac.destination. */
   const srcNode = ac.createMediaElementSource(video);
   const dest = ac.createMediaStreamDestination();
-  srcNode.connect(dest);
+  /* WITH THE MIX (2026-10-05): the take's own sound at the Picture level, the voiced lines and
+     the scene's beds on their own levels — what "Play scene mix" plays. Without it: as rendered. */
+  const mix = (opts.mix && opts.mix.has) ? opts.mix : null;
+  const lane = (v)=>{ const n = ac.createGain(); n.gain.value = v; n.connect(dest); return n; };
+  const nativeGain = lane(mix ? mix.gains.native : 1);
+  const dialogueGain = mix ? lane(mix.gains.dialogue) : null, ambGain = mix ? lane(mix.gains.amb) : null, musicGain = mix ? lane(mix.gains.music) : null;
+  srcNode.connect(nativeGain);
+  const mixById = {}; ((mix && mix.items)||[]).forEach(it=>{ mixById[it.id] = it; });
+  const buffers = {}, sources = []; let audioMissed = 0, bedScene = null, bedSrcs = [];
+  const decode = async (url)=>{
+    if(!url || (url in buffers)) return;
+    try{ const ab = await (await fetch(url)).arrayBuffer();
+      buffers[url] = await new Promise((res,rej)=>{ const pr = ac.decodeAudioData(ab, res, rej); if(pr && pr.then) pr.then(res, rej); }); }
+    catch(e){ buffers[url] = null; audioMissed++; }
+  };
+  const playBuf = (url, node, when, loop)=>{ const buf = buffers[url]; if(!buf || !node) return null;
+    const sn = ac.createBufferSource(); sn.buffer = buf; sn.loop = !!loop; sn.connect(node); sn.start(when); sources.push(sn); return sn; };
+  const startClipAudio = (item)=>{
+    if(!mix || !item) return;
+    const now = ac.currentTime;
+    if(item.sceneId!==bedScene){   // a new scene: its own beds (the last scene's stop)
+      bedSrcs.forEach(sn=>{ try{ sn.stop(); }catch(e){} }); bedSrcs = []; bedScene = item.sceneId;
+      const b = mix.beds[item.sceneId]||{};
+      [playBuf(b.amb, ambGain, now, true), playBuf(b.music, musicGain, now, false)].forEach(sn=>{ if(sn) bedSrcs.push(sn); });
+    }
+    (item.lines||[]).forEach(l=>playBuf(l.url, dialogueGain, now+Math.max(0, Number(l.at)||0), false));
+  };
   const loadClip = (url)=> new Promise((res,rej)=>{
     video.onloadedmetadata = ()=>res();
     video.onerror = ()=>rej(new Error("A take couldn't be loaded for export — its video URL may have expired. Re-render that clip and try again."));
@@ -6749,9 +6830,15 @@ async function stageExportFilm(playlist, opts){
     try{ if(rec && rec.state!=="inactive") rec.stop(); }catch(e){}
     try{ if(stream) stream.getTracks().forEach(t=>t.stop()); }catch(e){}
     try{ video.pause(); video.removeAttribute("src"); video.load(); }catch(e){}
+    sources.forEach(sn=>{ try{ sn.stop(); }catch(e){} });
     try{ srcNode.disconnect(); }catch(e){}
     try{ ac.close(); }catch(e){} };
   try{
+    if(mix){   // read every line and bed up front, so nothing stalls once recording runs
+      const urls = [];
+      (mix.items||[]).forEach(it=>{ (it.lines||[]).forEach(l=>urls.push(l.url)); const b = mix.beds[it.sceneId]||{}; urls.push(b.amb, b.music); });
+      for(const u of urls){ if(opts.shouldCancel && opts.shouldCancel()) throw new Error("Export cancelled."); await decode(u); }
+    }
     await loadClip(playlist[0].url);
     const vw = video.videoWidth||1280, vh = video.videoHeight||720;
     const scale = Math.min(1, 1920/Math.max(vw,vh));
@@ -6794,6 +6881,7 @@ async function stageExportFilm(playlist, opts){
       if(i>0) await loadClip(playlist[i].url);
       if(opts.onProgress) opts.onProgress(i+1, playlist.length, playlist[i].label);
       await video.play();
+      startClipAudio(mixById[playlist[i].id]);
       await new Promise((res)=>{
         const tick = setInterval(()=>{ if(failed || (opts.shouldCancel && opts.shouldCancel())){ clearInterval(tick); res(); } }, 250);
         video.onended = ()=>{ clearInterval(tick); res(); };
@@ -6804,6 +6892,7 @@ async function stageExportFilm(playlist, opts){
     await recStopped;
     if(failed) throw failed;
     if(!chunks.length) throw new Error("The recording came out empty — try again, or use a Chromium browser (Chrome/Edge).");
+    if(opts.report) opts.report.audioMissed = audioMissed;
     return new Blob(chunks, { type: mime || "video/webm" });
   } finally { cleanup(); }
 }
@@ -6821,7 +6910,7 @@ function stageClipBeatName(c){
   return (c && c.label || "") + (beats ? " \u00b7 "+beats : "");
 }
 window.stageClipBeatName = stageClipBeatName;
-function StageTimelineView({ allClips, vids, staleVids, imgs, visualSource, selId, onSelectClip, onOpenStage, filmTitle }){
+function StageTimelineView({ allClips, vids, staleVids, imgs, visualSource, selId, onSelectClip, onOpenStage, filmTitle, auds, characters }){
   const ordered = allClips||[];
   const startIdx = Math.max(0, ordered.findIndex(c=>c.id===selId));
   const [idx, setIdx] = React.useState(startIdx);
@@ -6835,10 +6924,29 @@ function StageTimelineView({ allClips, vids, staleVids, imgs, visualSource, selI
   const doExport = async ()=>{
     const pl = stageExportPlaylist(ordered, vids);
     if(!pl.length) return;
+    // the Mix (levels, voiced lines, each scene's beds) and the clips left out are said BEFORE recording
+    const skipped = stageExportSkipped(ordered, vids, staleVids);
+    let mix = null;
+    try{ const st = stageMixSettings();
+      const plan = stageExportMixPlan(ordered, vids, { auds, characters, beds:await stageLoadMixBeds(ordered), gain:st.gain, mute:st.mute });
+      if(plan.has) mix = plan; }catch(e){}
+    if((mix || skipped.length) && typeof window.appConfirm==="function"){
+      const what = mix ? [mix.lineN ? mix.lineN+" voiced line"+(mix.lineN!==1?"s":"") : "", mix.bedN ? mix.bedN+" imported bed"+(mix.bedN!==1?"s":"") : ""].filter(Boolean).join(" and ") : "";
+      const ans = await window.appConfirm({
+        title: mix ? "Export the film with the Mix?" : "Export the film?",
+        body: mix ? "With the Mix, each take's own sound plays at the Picture volume, with "+what+" on top at the Mix tab's levels — what \"Play scene mix\" plays. \"Picture sound only\" keeps each take's sound as it was rendered." : "",
+        items: skipped.length ? skipped.slice(0,12).map(x=>x.name+" \u2014 "+x.why+", left out") : undefined,
+        note: skipped.length ? (skipped.length>12 ? "…and "+(skipped.length-12)+" more. " : "")+"The film is stitched from the "+pl.length+" clip"+(pl.length!==1?"s":"")+" that have a current take." : "",
+        confirmLabel: mix ? "Export with the Mix" : "Export", altLabel: mix ? "Picture sound only" : undefined, cancelLabel:"Cancel" });
+      if(!ans) return;
+      if(ans==="alt") mix = null;
+    }
     exportCancelRef.current = false;
     setExporting({ i:0, n:pl.length });
+    const report = {};
     try{
       const blob = await stageExportFilm(pl, {
+        mix, report,
         onProgress:(i,n)=>setExporting({ i, n }),
         shouldCancel:()=>exportCancelRef.current });
       const a = document.createElement("a");
@@ -6846,7 +6954,10 @@ function StageTimelineView({ allClips, vids, staleVids, imgs, visualSource, selI
       a.download = stageFilmFileName(filmTitle, new Date().toISOString().slice(0,10));
       a.click();
       setTimeout(()=>{ try{ URL.revokeObjectURL(a.href); }catch(e){} }, 60000);
-      if(typeof window.appToast==="function") window.appToast("Film exported — "+pl.length+" clip"+(pl.length!==1?"s":"")+" stitched into one WebM file.","success");
+      const left = stageExportSkippedText(skipped);
+      if(typeof window.appToast==="function") window.appToast("Film exported"+(mix?" with the Mix":"")+" — "+pl.length+" clip"+(pl.length!==1?"s":"")+" stitched into one WebM file."
+        +(left ? " "+left+"." : "")
+        +(report.audioMissed ? " "+report.audioMissed+" audio file"+(report.audioMissed!==1?"s":"")+" couldn't be read and "+(report.audioMissed!==1?"were":"was")+" left out of the mix." : ""), (left||report.audioMissed)?"info":"success");
     }catch(e){
       if(!/cancelled/i.test(String(e&&e.message)) && typeof window.appToast==="function")
         window.appToast(String((e&&e.message)||"Export failed."),"error");
@@ -6878,7 +6989,7 @@ function StageTimelineView({ allClips, vids, staleVids, imgs, visualSource, selI
         onClick:playFilm}, playAll?"Playing…":"▶ Play film"),
       _stEl("button",{className:"stage2-vtool",style:{width:"auto"},disabled:!renderedN && !exporting,
         title: exporting ? "Recording in real time — click to cancel the export"
-          : (renderedN ? "Record every rendered clip into ONE downloadable movie (WebM). Runs in real time — a 3-minute film takes about 3 minutes." : "Render clips in the Shoot tab first"),
+          : (renderedN ? "Record every rendered clip into ONE downloadable movie (WebM), with the Mix tab's voices, beds and levels if you like. Runs in real time — a 3-minute film takes about 3 minutes." : "Render clips in the Shoot tab first"),
         onClick: exporting ? ()=>{ exportCancelRef.current = true; } : doExport},
         exporting ? ("■ Recording "+exporting.i+"/"+exporting.n+"…") : "⬇ Export film")),
     _stEl("div",{className:"stage2-tl-player"},
@@ -6908,11 +7019,11 @@ function StageTimelineView({ allClips, vids, staleVids, imgs, visualSource, selI
               _stEl("span",{className:"stage2-tl-dot"+(has?" ok":"")})); }))))));
 }
 
-/* ---- AUDIO tab — the POST-MIX preview. Generation audio is a scratch track; this is
-   where the real sound happens: the pristine ElevenLabs lines auto-placed over the
-   picture (same CLIP_AIR walk the prompts used), the clip's native mix duckable under
-   them, and imported ambience/music beds per scene. Session-preview for now — export
-   lands with the post engine. ---- */
+/* ---- AUDIO tab — the POST MIX. Generation audio is a scratch track; this is where the
+   real sound happens: the voiced lines auto-placed over the picture (same CLIP_AIR walk
+   the prompts used), the clip's native mix duckable under them, and imported ambience /
+   music beds per scene. Levels and beds are kept per film on this device, and Export film
+   (Timeline) can record the whole film with this mix (2026-10-05). ---- */
 function StageAudioView({ allClips, vids, auds, characters, selId, onSelectClip }){
   const scenes = []; (allClips||[]).forEach(c=>{ if(!scenes.some(s=>s.id===c.scene.id)) scenes.push(c.scene); });
   const selScene = (allClips.find(c=>c.id===selId)||allClips[0]||{}).scene;
@@ -6922,14 +7033,14 @@ function StageAudioView({ allClips, vids, auds, characters, selId, onSelectClip 
   // scene captured at mount — selecting a clip from another scene did nothing here)
   React.useEffect(()=>{ if(selScene && selScene.id && selScene.id!==sceneId) setSceneId(selScene.id); },[selId]);
   // mix settings survive the session — per film, on this device
-  const mixKey = (()=>{ const sc = (typeof window.nbCloudScope==="function") ? window.nbCloudScope() : null;
-    return "turn_stage_mix_"+((sc&&sc.projectId)||"local"); })();
-  const [gain, setGain] = React.useState(()=>{ try{ const s=JSON.parse(localStorage.getItem(mixKey)||"null");
-    if(s&&s.gain&&typeof s.gain.native==="number") return s.gain; }catch(e){} return { native:0.35, dialogue:1, amb:0.7, music:0.5 }; });
-  const [mute, setMute] = React.useState(()=>{ try{ const s=JSON.parse(localStorage.getItem(mixKey)||"null");
-    if(s&&s.mute) return s.mute; }catch(e){} return {}; });
+  const mixKey = stageMixKey();
+  const [gain, setGain] = React.useState(()=>stageMixSettings().gain);
+  const [mute, setMute] = React.useState(()=>stageMixSettings().mute);
   React.useEffect(()=>{ try{ localStorage.setItem(mixKey, JSON.stringify({ gain, mute })); }catch(e){} },[gain,mute,mixKey]);
-  const [beds, setBeds] = React.useState({});          // {amb:{url,name}, music:{url,name}}
+  // each scene's imported beds, kept with the film on this device: {sceneId:{amb:{url,name}, music:{url,name}}}
+  const [beds, setBeds] = React.useState({});
+  React.useEffect(()=>{ let on = true; stageLoadMixBeds(allClips).then(b=>{ if(on) setBeds(b); }).catch(()=>{}); return ()=>{ on = false; }; },[mixKey, scenes.map(x=>x.id).join(",")]);
+  const sceneBeds = (sceneId && beds[sceneId]) || {};
   const [clipIdx, setClipIdx] = React.useState(0);
   const [playing, setPlaying] = React.useState(false);
   const videoRef = React.useRef(null);
@@ -6948,7 +7059,7 @@ function StageAudioView({ allClips, vids, auds, characters, selId, onSelectClip 
   const playScene = ()=>{ if(!sceneClips.length) return;
     const first = sceneClips.findIndex(c=>vids[c.id]); if(first<0) return;
     setClipIdx(first); setPlaying(true);
-    Object.keys(bedRefs).forEach(k=>{ const el=bedRefs[k].current; if(el && beds[k]){ el.volume=g(k); el.currentTime=0; el.play().catch(()=>{}); } });
+    Object.keys(bedRefs).forEach(k=>{ const el=bedRefs[k].current; if(el && sceneBeds[k]){ el.volume=g(k); el.currentTime=0; el.play().catch(()=>{}); } });
     setTimeout(()=>{ const v=videoRef.current; if(v){ v.volume=g("native"); v.play().catch(()=>{}); scheduleLines(sceneClips[first]); } }, 80);
   };
   const stopAll = ()=>{ setPlaying(false); stopLines();
@@ -6966,8 +7077,26 @@ function StageAudioView({ allClips, vids, auds, characters, selId, onSelectClip 
     Object.keys(bedRefs).forEach(k=>{ const el=bedRefs[k].current; if(el) el.volume=g(k); });
     live.current.audios.forEach(a=>{ a.volume=g("dialogue"); });
   }, [gain, mute]);
-  const importBed = (k)=>(e)=>{ const f=e.target.files&&e.target.files[0]; if(!f) return;
-    setBeds(b=>({ ...b, [k]:{ url:URL.createObjectURL(f), name:f.name } })); e.target.value=""; };
+  const toast = (m, kind)=>{ if(typeof window.appToast==="function") window.appToast(m, kind); };
+  const importBed = (k)=>(e)=>{ const f=e.target.files&&e.target.files[0]; e.target.value=""; if(!f || !sceneId) return;
+    if(f.size > (Number(window.VG_MIX_BED_MAX_BYTES)||50*1024*1024)){ toast("That file is over 50 MB — use a shorter or compressed one (MP3 or AAC).","error"); return; }
+    const sid = sceneId, rd = new FileReader();
+    rd.onload = async ()=>{ const url = String(rd.result||"");
+      setBeds(b=>({ ...b, [sid]:{ ...(b[sid]||{}), [k]:{ url, name:f.name } } }));
+      try{ if(typeof window.vgSaveMixBed==="function") await window.vgSaveMixBed(sid, k, url, f.name); }
+      catch(err){ toast("Couldn't keep \u201c"+f.name+"\u201d with the film on this device (its storage may be full) — it plays for this session only.","error"); } };
+    rd.onerror = ()=>toast("That file couldn't be read.","error");
+    rd.readAsDataURL(f); };
+  const removeBed = (k)=>{ const sid = sceneId; const el = bedRefs[k].current; if(el){ try{ el.pause(); }catch(e){} }
+    setBeds(b=>{ const n = { ...(b[sid]||{}) }; delete n[k]; return { ...b, [sid]:n }; });
+    if(typeof window.vgClearMixBed==="function") window.vgClearMixBed(sid, k); };
+  const bedLane = (k, label, empty, loop)=>lane(k, label,
+    _stEl("div",{className:"stage2-au-blocks"},
+      sceneBeds[k] ? _stEl("span",{className:"stage2-au-block bed",title:sceneBeds[k].name}, sceneBeds[k].name.slice(0,34)) : _stEl("span",{className:"stage2-au-note"},empty),
+      _stEl("label",{className:"stage2-au-import"}, sceneBeds[k] ? "Replace" : "Import audio",
+        _stEl("input",{type:"file",accept:"audio/*",style:{display:"none"},onChange:importBed(k)})),
+      sceneBeds[k] && _stEl("button",{type:"button",className:"stage2-au-import",title:"Take this bed out of the scene's mix (your own file is untouched)",onClick:()=>removeBed(k)}, "Remove"),
+      _stEl("audio",{ref:bedRefs[k],src:(sceneBeds[k]&&sceneBeds[k].url)||undefined,loop:!!loop})));
   const cur = sceneClips[clipIdx];
   const curUrl = cur ? (vids[cur.id]||"") : "";
   const lane = (key, label, extra)=>_stEl("div",{className:"stage2-au-lane"},
@@ -6981,7 +7110,7 @@ function StageAudioView({ allClips, vids, auds, characters, selId, onSelectClip 
   return _stEl("div",{className:"stage2-au"},
     _stEl("div",{className:"stage2-versions-head"},
       _stEl("div",{className:"stage2-versions-title"}, Icon.mic&&_stEl(Icon.mic,{s:14}), "Mix",
-        _stEl("span",{className:"stage2-versions-sub"},"pristine voices over picture · beds under it · generation audio is the scratch track")),
+        _stEl("span",{className:"stage2-versions-sub"},"voiced lines over the picture · beds under them · exported with the film")),
       _stEl("select",{className:"stage2-au-scene",value:sceneId||"",onChange:e=>setSceneId(e.target.value)},
         scenes.map(s=>_stEl("option",{key:s.id,value:s.id},_pad2(s.no)+" · "+(s.title||s.loc||"Scene")))),
       _stEl("button",{className:"stage2-vtool",style:{width:"auto"},
@@ -7004,20 +7133,10 @@ function StageAudioView({ allClips, vids, auds, characters, selId, onSelectClip 
             title:pl.speaker+" — \""+pl.text.slice(0,60)+"\" · lands ~"+pl.at+"s into "+c.label
               +(pl.url?"":(" · "+((pl.audioState&&pl.audioState.reason)||"not voiced yet")))},
             pl.speaker+" · "+pl.sec+"s"))))),
-      lane("amb","Ambience bed",
-        _stEl("div",{className:"stage2-au-blocks"},
-          beds.amb ? _stEl("span",{className:"stage2-au-block bed",title:beds.amb.name}, beds.amb.name.slice(0,34)) : _stEl("span",{className:"stage2-au-note"},"No bed yet — import a scene-long ambience file"),
-          _stEl("label",{className:"stage2-au-import"},"Import audio",
-            _stEl("input",{type:"file",accept:"audio/*",style:{display:"none"},onChange:importBed("amb")})),
-          _stEl("audio",{ref:bedRefs.amb,src:(beds.amb&&beds.amb.url)||undefined,loop:true}))),
-      lane("music","Music bed",
-        _stEl("div",{className:"stage2-au-blocks"},
-          beds.music ? _stEl("span",{className:"stage2-au-block bed",title:beds.music.name}, beds.music.name.slice(0,34)) : _stEl("span",{className:"stage2-au-note"},"No bed yet — import a track"),
-          _stEl("label",{className:"stage2-au-import"},"Import audio",
-            _stEl("input",{type:"file",accept:"audio/*",style:{display:"none"},onChange:importBed("music")})),
-          _stEl("audio",{ref:bedRefs.music,src:(beds.music&&beds.music.url)||undefined})))),
+      bedLane("amb","Ambience bed","No bed yet — import a scene-long ambience file",true),
+      bedLane("music","Music bed","No bed yet — import a track",false)),
     _stEl("div",{className:"stage2-au-note foot"},
-      "Preview mix — the picture plays each clip's current take with its native track at the Picture volume; your pristine line audio drops in exactly where the render placed it. Volume and mute settings are remembered per film on this device; imported beds live for this session only. For a downloadable movie, use Export film in the Timeline tab."));
+      "The picture plays each clip's current take with its own sound at the Picture volume; your voiced lines drop in exactly where the render placed them. Levels, mutes and each scene's imported beds are kept with this film on this device. Export film in the Timeline tab can record the whole film with this mix."));
 }
 
 /* ================================ the room shell =============================== */
@@ -7553,7 +7672,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
       ["Shoot","stage",Icon.clapper||Icon.sparkles,"Render the clips — the director console"],
       ["Takes","versions",Icon.copy,"Review, approve and choose the selected clip's timeline take"],
       ["Timeline","timeline",Icon.grid,"The film assembled from each clip's current take"],
-      ["Mix","audio",Icon.mic,"Post-mix preview — pristine voices over picture, beds under"],
+      ["Mix","audio",Icon.mic,"The post mix — voiced lines over the picture, beds under, kept with the film"],
     ];
     const stageHead = _stEl("div",{className:"viewnav","aria-label":"Views"},
       _stEl("div",{className:"vn-side vn-left"}),
@@ -7578,7 +7697,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
                 onReuse:(meta,pin)=>{ setPendingReuse({ clipId:clip.id, meta, pin }); setStageView("stage"); } })
             : stageView==="timeline"
             ? _stEl(StageTimelineView,{ key:"tl", allClips, vids, staleVids, imgs, visualSource, selId, onSelectClip,
-                filmTitle:(project&&project.title)||"",
+                filmTitle:(project&&project.title)||"", auds, characters,
                 onOpenStage:(id)=>{ onSelectClip(id); setStageView("stage"); } })
             : stageView==="audio"
             ? _stEl(StageAudioView,{ key:"au", allClips, vids, auds, characters, selId, onSelectClip })
