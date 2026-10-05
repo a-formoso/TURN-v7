@@ -6848,14 +6848,15 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
    onto a second line in a narrower column — either way they pack to the foot of the
    bar and Generate keeps the right end */
 .sdbar.inline .sdbar-left{flex:1 1 auto;gap:6px;align-content:flex-end}
-.sdbar.inline .sdbar-pill{height:30px;border-radius:var(--r-m);padding:0 11px 0 10px;background:var(--bg-3);font:750 12px var(--f-ui);gap:6px}
+/* 2px tighter each side (2026-10-05): the six chips fit one line with fonts that run ~3% wider (Linux Chromium) */
+.sdbar.inline .sdbar-pill{height:30px;border-radius:var(--r-m);padding:0 9px 0 8px;background:var(--bg-3);font:750 12px var(--f-ui);gap:6px}
 .sdbar.inline .sdbar-chip.sound,.sdbar.inline .sdbar-chip.sound.on{border-color:var(--line-2);color:var(--txt-0);opacity:1}
 .sdbar.inline .sdbar-pill span{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .sdbar.inline .sdbar-pill:disabled{cursor:default;opacity:1;color:var(--txt-2)}
 .sdbar.inline .sdbar-pill:disabled:hover{border-color:var(--line-2);background:var(--bg-3)}
 .sdbar.inline .sdbar-pill:disabled .sdbar-chevron{display:none}
 .sdrow-label{font:650 12px var(--f-ui);color:var(--txt-2)}
-.sdrow-badge{display:inline-flex;align-items:center;gap:4px;height:19px;padding:0 8px;border-radius:5px;background:var(--bg-3,#f0ede6);color:var(--txt-1);font:800 10.5px var(--f-mono);letter-spacing:.02em}
+.sdrow-badge{display:inline-flex;align-items:center;gap:4px;height:19px;padding:0 6px;border-radius:5px;background:var(--bg-3,#f0ede6);color:var(--txt-1);font:800 10.5px var(--f-mono);letter-spacing:.02em}
 .sdbar.inline .sdbar-right{flex-direction:column;align-items:flex-end;justify-content:flex-end;gap:6px}
 .sdbar.inline .stage2-generate{flex:1 1 auto;width:auto;min-width:140px;height:auto;min-height:56px;margin:0;padding:0 18px;border-radius:var(--r-m)}
 /* the right-most chips open their menus flush with the right edge so nothing spills out of the card */

@@ -5682,7 +5682,6 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const composerNotices =
     (blocker || genErr || soundCueMissing || !modelRefs || coverageNotice || readinessNotice || takeStaleNotice
       || (hasDialogue && (!modelAudioRefs || dialogueAudio==="native"))) && _stEl("div",{className:"stage2-gen-notices"},
-      readinessNotice, takeStaleNotice,
       // the PRIMARY blocker — prominent, actionable, and the target of a blocked
       // Generate click (key remount restarts the shake animation on every pulse)
       blocker && _stEl("div",{ref:blockerRef,key:"blk-"+blocker.key+"-"+blockPulse,
@@ -5716,6 +5715,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       genErr && canTextOnlyRecovery && textOnlyRecoveryBlocked && _stEl("div",{
           className:"stage2-hint stage2-text-only-note"},
         Icon.info&&_stEl(Icon.info,{s:12}), textOnlyRecoveryBlocked.text),
+      // the clip's own status follows what stops it or what just failed (a failed render reads first)
+      readinessNotice, takeStaleNotice,
       coverageNotice && _stEl("div",{className:"stage2-hint stage2-coverage-note","data-code":coverageNotice.code}, Icon.info&&_stEl(Icon.info,{s:12}), coverageNotice.message),
       soundCueMissing && _stEl("div",{className:"stage2-hint"}, Icon.mic&&_stEl(Icon.mic,{s:12}), "Native audio is on but the prompt has no sound direction — name the sounds you want (ambience, effects, music) or the soundtrack comes out generic."),
       hasDialogue && !modelAudioRefs && _stEl("div",{className:"stage2-hint"}, Icon.mic&&_stEl(Icon.mic,{s:12}),
