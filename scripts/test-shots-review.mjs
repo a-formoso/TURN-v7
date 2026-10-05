@@ -29,7 +29,7 @@ const card = between(ui, "function ShotCard({", "function SceneCtxItem(");
 /* ═══ A ═══ */
 await test("A1 the run's reach is what isn't approved and current; re-renders are the ones with a frame", ()=>{
   assert.ok(list.includes("const toRender = (ids||[]).filter(id=>{ const s=shotById[id]; return s && !shotIsDone(s); });"));
-  assert.ok(list.includes("return { toRender, redo:toRender.filter(id=>shotHasFrame(id)) };"));
+  assert.ok(list.includes("const redo = toRender.filter(id=>shotHasFrame(id));") && list.includes("return { toRender, redo, approvedRedo:"));
 });
 await test("A2 'Generate N shots' shows the count and price and always asks; nothing left → 'Every shot approved'", ()=>{
   assert.ok(list.includes('("Generate "+filmPlan.toRender.length+" shot"+(filmPlan.toRender.length!==1?"s":""))'));

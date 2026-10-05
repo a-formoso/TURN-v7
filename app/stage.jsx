@@ -4357,7 +4357,11 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       // keeps its own phrasing instead of getting a second "says" appended.
       const words = String((p&&p.dialogue) || sh.dialogue||"").trim().replace(/^["“]|["”]$/g,"");
       const dup = !!(words && text) && _normStageText(text).indexOf(_normStageText(words))>=0;
-       return { prompt:text+((dlg && !dup)?(" — "+dlg):""), duration:Math.max(1, Math.round(msRuntime(sh))) };
+      // each row carries its own setup too (2026-10-05, owner — Shots review): the shot's size · angle ·
+      // move · lens and composition from the Shots tab used to be dropped from native multi-shot rows
+      const camLine = [String(p.camera||"").trim(), String(p.composition||"").trim().replace(/[.\s]+$/,"")].filter(Boolean).join("; ");
+      const withCam = text && camLine && !_normStageText(text).includes(_normStageText(camLine)) ? (text.replace(/[.\s]+$/,"")+". Camera: "+camLine+".") : text;
+       return { prompt:withCam+((dlg && !dup)?(" — "+dlg):""), duration:Math.max(1, Math.round(msRuntime(sh))) };
     }).filter(s=>s.prompt) : undefined;
       const shotSources=(typeof shotSourceStamp==="function")
         ? (d.shots||[]).map(sh=>shotSourceStamp(sh,(drafts||{})[sh.sceneId])) : [];

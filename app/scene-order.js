@@ -33,7 +33,13 @@ const SHOT_SPEC_FIELDS = ["beatN","size","angle","move","lens","composition","su
   "action","dialogue","purpose","covers","beatPlan","locationId","locationSide","priority",
   "referenceLocationsSet","referenceLocationIds","referenceCharactersSet","referenceCharacterIds",
   "negativePrompt","directives","camera","cameraHeight","cameraRoll","focus","aperture","shutter",
-  "focalDistance","movementSpeed"];
+  "focalDistance","movementSpeed",
+  // (2026-10-05, owner — Shots review) an Action written by hand replaces the screenplay's opening in
+  // the frame prompt; a shot without the flag hashes as before
+  "actionByHand"];
+/* fields only the FRAME reads — a change re-renders the frame, never a Stage take (the video prompt
+   doesn't read them). Takes stamped since 2026-10-05 carry a `videoHash` without them. */
+const SHOT_FRAME_ONLY_FIELDS = ["negativePrompt"];
 function shotSpecFingerprint(shot){
   const spec={}; SHOT_SPEC_FIELDS.forEach(k=>{ if(shot&&shot[k]!==undefined) spec[k]=shot[k]; });
   // Advanced cinematography is stored as a nested object. Only explicit overrides
@@ -48,26 +54,47 @@ function shotSpecFingerprint(shot){
   return storyRevisionOf(spec);
 }
 function shotSpecRevision(shot){ return Math.max(1,Math.round(Number(shot&&shot.specRev))||1); }
+/* the part of a shot's spec the VIDEO reads (the frame-only fields left out) */
+function shotVideoSpecFingerprint(shot){
+  if(!shot) return shotSpecFingerprint(shot);
+  const s={...shot}; SHOT_FRAME_ONLY_FIELDS.forEach(k=>{ delete s[k]; });
+  return shotSpecFingerprint(s);
+}
+/* the reference sheets ticked OFF on a shot (sh.refOff), as stored on each frame since 2026-10-05 */
+function shotRefOffSig(shot){
+  return (Array.isArray(shot&&shot.refOff) ? shot.refOff.map(String).sort() : []).join("|");
+}
 function shotSourceStamp(shot,draft){
   return { shotId:shot&&shot.id||"", specRev:shotSpecRevision(shot),
-    specHash:shotSpecFingerprint(shot), screenplayRev:screenplayBeatRevision(draft,shot&&shot.beatN) };
+    specHash:shotSpecFingerprint(shot), videoHash:shotVideoSpecFingerprint(shot),
+    screenplayRev:screenplayBeatRevision(draft,shot&&shot.beatN) };
+}
+/* a FRAME's stamp: the whole spec (the frame reads every field) */
+function _frameStampMatches(old,cur){
+  return !!old && old.shotId===cur.shotId && Number(old.specRev)===cur.specRev
+    && old.specHash===cur.specHash && old.screenplayRev===cur.screenplayRev;
+}
+/* a TAKE's stamp: what the video reads — a take stamped with `videoHash` ignores frame-only edits
+   (and the revision counter they bump); an older take keeps the whole-spec check */
+function _takeStampMatches(old,cur){
+  if(!old) return false;
+  if(old.videoHash) return old.shotId===cur.shotId && old.videoHash===cur.videoHash && old.screenplayRev===cur.screenplayRev;
+  return _frameStampMatches(old,cur);
 }
 function shotAssetProvenanceStatus(shot,draft,meta){
   if(!meta || !meta.shotSource) return "unverified";
   const cur=shotSourceStamp(shot,draft), old=meta.shotSource;
-  return old.shotId===cur.shotId && Number(old.specRev)===cur.specRev
-    && old.specHash===cur.specHash && old.screenplayRev===cur.screenplayRev ? "current" : "stale";
+  if(!_frameStampMatches(old,cur)) return "stale";
+  // a reference sheet ticked on/off since the frame was made (frames from before this was recorded aren't judged)
+  if(typeof meta.refOffSig==="string" && meta.refOffSig!==shotRefOffSig(shot)) return "stale";
+  return "current";
 }
 function shotSourcesStatus(shots,drafts,meta){
   const saved=meta&&meta.shotSources;
   if(!Array.isArray(saved)||!saved.length) return "unverified";
   const current=(shots||[]).map(sh=>shotSourceStamp(sh,(drafts||{})[sh.sceneId]));
   if(saved.length!==current.length) return "stale";
-  return current.every((cur,i)=>{
-    const old=saved[i]||{};
-    return old.shotId===cur.shotId && Number(old.specRev)===cur.specRev
-      && old.specHash===cur.specHash && old.screenplayRev===cur.screenplayRev;
-  }) ? "current" : "stale";
+  return current.every((cur,i)=>_takeStampMatches(saved[i]||{},cur)) ? "current" : "stale";
 }
 function shotSourcesSnapshot(shots,drafts){
   return (shots||[]).map(sh=>shotSourceStamp(sh,(drafts||{})[sh.sceneId]));
@@ -77,11 +104,7 @@ function shotSourcesOverrideCurrent(shots,drafts,meta){
   if(!Array.isArray(saved)||!saved.length) return false;
   const current=shotSourcesSnapshot(shots,drafts);
   if(saved.length!==current.length) return false;
-  return current.every((cur,i)=>{
-    const old=saved[i]||{};
-    return old.shotId===cur.shotId && Number(old.specRev)===cur.specRev
-      && old.specHash===cur.specHash && old.screenplayRev===cur.screenplayRev;
-  });
+  return current.every((cur,i)=>_takeStampMatches(saved[i]||{},cur));
 }
 function shotSourcesEditorialStatus(shots,drafts,meta){
   const base=shotSourcesStatus(shots,drafts,meta);
@@ -173,6 +196,8 @@ window.screenplayBeatRevision = screenplayBeatRevision;
 window.shotSpecFingerprint = shotSpecFingerprint;
 window.shotSpecRevision = shotSpecRevision;
 window.shotSourceStamp = shotSourceStamp;
+window.shotVideoSpecFingerprint = shotVideoSpecFingerprint;
+window.shotRefOffSig = shotRefOffSig;
 window.shotAssetProvenanceStatus = shotAssetProvenanceStatus;
 window.shotSourcesStatus = shotSourcesStatus;
 window.shotSourcesSnapshot = shotSourcesSnapshot;

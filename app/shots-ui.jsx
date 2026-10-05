@@ -17,10 +17,13 @@ function shotCardReferenceLabel(sh, sceneShots){
 
 /* a labelled grammar dropdown (size / angle / move / lens) */
 function GrammarSelect({ label, value, options, onChange }){
+  // a value outside the list (a lens set to any mm in the Blender preview) shows as itself (2026-10-05)
+  const extra = (value!=null && value!=="" && !options.some(o=>o.id===value)) && /^\d{1,3}$/.test(String(value))
+    ? { id:String(value), label:String(value)+"mm", desc:"set in the Blender preview" } : null;
   return _el("label",{className:"shot-gsel"},
     _el("span",{className:"shot-gsel-lab"},label),
     _el("select",{className:"prop-select",value:value,onChange:e=>onChange(e.target.value)},
-      options.map(o=>_el("option",{key:o.id,value:o.id,title:o.desc||""},o.label))));
+      (extra ? [extra, ...options] : options).map(o=>_el("option",{key:o.id,value:o.id,title:o.desc||""},o.label))));
 }
 
 function CameraFieldLabel({ label, auto }){
@@ -362,6 +365,8 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
       advancedCamera:(typeof shotCameraMetadata==="function") ? shotCameraMetadata(sh) : null,
       // the scene look + film stock this frame was made with (flagged later if the Color tab changes)
       lookSig:(typeof shotLookSig==="function" && ctx && ctx.scene) ? shotLookSig(ctx.project, ctx.scene.id) : "",
+      // the reference sheets ticked OFF when this frame was made — ticking one on/off later marks it out of date (2026-10-05)
+      refOffSig:(typeof shotRefOffSig==="function") ? shotRefOffSig(sh) : undefined,
       writingSources:(typeof shotWritingSources==="function") ? shotWritingSources(sh,ctx) : [],
        promptCompiler:"Kinolot prompt compiler"
        });
@@ -508,6 +513,24 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   const gen = useImageGen(framePack.opts);
   const frameSourceStatus = gen.genUrl && typeof shotAssetProvenanceStatus==="function"
     ? shotAssetProvenanceStatus(sh,(((window.turnContinuity||{}).drafts||{})[sh.sceneId]),gen.genMeta) : "";
+  // APPROVED BUT OUT OF DATE (2026-10-05, owner — Shots review): editing an approved shot used to make
+  // its frame stale with no word, and the next ordered run re-rendered it despite the approval
+  const approvedButStale = !!(sh.locked && gen.genUrl && frameSourceStatus==="stale"
+    && !(typeof shotSourceOverrideCurrent==="function" && shotSourceOverrideCurrent(sh,(((window.turnContinuity||{}).drafts||{})[sh.sceneId]))));
+  // the beat's screenplay: what the frame reads when the card's Action / Dialogue aren't your own words
+  const beatSrc = (typeof window.shotBeatSource==="function")
+    ? window.shotBeatSource(scene, sh.beatN, ctx, Object.values((ctx&&ctx.charById)||{})) : null;
+  const spOpening = (beatSrc && beatSrc.hasSource) ? String(beatSrc.openingAction||"").replace(/\s+/g," ").trim() : "";
+  const actionFromScript = !!spOpening && !(sh.actionByHand && String(sh.action||"").trim());
+  const spLine = (beatSrc && beatSrc.hasSource) ? (()=>{ const ids = new Set(beatSrc.openingCharacterIds||[]);
+    return (beatSrc.dialogue||[]).find(d=>d && d.delivery==="in-room" && (!d.speakerId || ids.has(d.speakerId))) || null; })() : undefined;
+  const commitAction = (v)=>{
+    const t = String(v||"").trim();
+    if(!spOpening){ onUpdate(sh.id,{action:v}); return; }
+    // typing the screenplay's own words back means "follow the screenplay" again
+    if(t===spOpening){ onUpdate(sh.id,{action:t, actionByHand:undefined}); return; }
+    onUpdate(sh.id,{action:v, actionByHand:t ? true : undefined});
+  };
   const currentPropDependencies=(typeof propDependencySignature==="function")
     ? propDependencySignature(((window.turnContinuity||{}).props)||[],sh.sceneId,sh.beatN,sh.microBeatId,sh.id,window.turnContinuity||{}) : "";
   const propDependenciesStale=!!(gen.genUrl&&gen.genMeta&&gen.genMeta.propDependencies!=null
@@ -660,9 +683,6 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
     if(batchStarted.current && wasGening.current && !gen.gening){ batchStarted.current=false; onBatchDone && onBatchDone(sh.id); }
     wasGening.current = gen.gening;
   },[batchActiveId, gen.gening, sh.id]);
-
-  const toggleIn = (key, id)=>{ const cur = sh[key]||[]; const next = cur.indexOf(id)>=0 ? cur.filter(x=>x!==id) : [...cur, id];
-    const patch = { [key]: next }; if(key==="subjects") patch.subjectsSet = true; onUpdate(sh.id, patch); };
 
   const liveLocationSpecs = ()=>{
     // Explicit selections survive a deleted scene location. The resolver can
@@ -1042,6 +1062,9 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       /* Compact beat metadata stays in the real card body; its screenplay
          evidence is grouped in Scripted below, never in a duplicate preview. */
       beatContext && _el("div",{className:"shot-beat-context"},beatContext),
+      approvedButStale && _el("div",{className:"shot-seed-line stale",role:"status",
+          title:"You approved this frame, then changed the shot. Re-render it \u2014 or, to keep it as it is, unlock it and approve it again from the image's menu."},
+        _el("span",{className:"shot-seed-refresh"},"Approved, but out of date \u2014 this shot changed after you approved its frame; \u2018Render in order\u2019 re-renders it.")),
       (seedWasUnapproved || continuityNeedsRefresh) && _el("div",{
         className:"shot-seed-line"+(continuityNeedsRefresh?" stale":""),
         role:continuityNeedsRefresh?"status":undefined,
@@ -1081,7 +1104,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
             redraftControl,
             window.QaCheckButton && _el(window.QaCheckButton,{ gen, name:beatLabel, noun:"shot frame", className:"shot-lock-btn",
               specFields:()=>({ action:(sh.action||""), composition:(sh.composition||"") }),
-              onApplySpec:(patch)=>onUpdate(sh.id, patch) })))),
+              onApplySpec:(patch)=>onUpdate(sh.id, (patch && patch.action!=null && spOpening) ? { ...patch, actionByHand:true } : patch) })))),
 
       // The beat card supplies its full screenplay and presence evidence here.
       // Other callers retain their existing read-only source excerpt.
@@ -1139,8 +1162,15 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       // a closed fold is a warning nobody sees.
       _el(CardFold,{label:"Action \u00b7 composition \u00b7 dialogue \u00b7 notes",defaultOpen:!!dropped},
         // the action — what we see in this frame
-        _el(SheetField,{label:"Action \u2014 what we see in this frame",value:sh.action,multiline:true,
-          placeholder:"One vivid present-tense beat of on-screen action\u2026",onCommit:v=>onUpdate(sh.id,{action:v})}),
+        _el(SheetField,{label: actionFromScript ? "Action \u2014 what we see in this frame (the screenplay's opening; edit it to use your own words)"
+            : spOpening ? "Action \u2014 your words (the frame uses them instead of the screenplay's opening)" : "Action \u2014 what we see in this frame",
+          value: actionFromScript ? spOpening : sh.action, multiline:true,
+          placeholder:"One vivid present-tense beat of on-screen action\u2026",onCommit:commitAction}),
+        (!actionFromScript && spOpening) && _el("div",{className:"shot-action-src"},
+          _el("span",null,"The screenplay opens: \u201c"+spOpening+"\u201d"),
+          !readOnly && _el("button",{type:"button",className:"shot-action-reset",
+            title:"Let the frame follow the screenplay's opening again (marks the frame out of date)",
+            onClick:()=>onUpdate(sh.id,{action:spOpening, actionByHand:undefined})},"Use the screenplay's")),
         dropped && _el("div",{className:"shot-dropped",
           title:"Named in the micro-beats this shot covers, but missing from its Action text. The render will try to merge them back in via the scripted canon, but the frame may still drop them — edit the Action to re-include them deliberately."},
           "\u26a0 Dropped from action: ", _el("b",null, dropped.join(", ")),
@@ -1151,14 +1181,26 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
           placeholder:"Where subjects sit in frame, foreground/background, eyeline\u2026",onCommit:v=>onUpdate(sh.id,{composition:v})}),
         // multiline: dialogue lines routinely outgrow a single-line input, which clipped
         // them visually (the full text was stored, just unreadable/uneditable)
-        _el(SheetField,{label:"Dialogue (optional)",value:sh.dialogue,multiline:true,
-          placeholder:"A short line spoken in this beat\u2026",onCommit:v=>onUpdate(sh.id,{dialogue:v})}),
+        // a beat with screenplay speaks the screenplay's line (voices and lip-sync follow it), so it's
+        // shown here, read-only, with where to change it (2026-10-05); a beat without one keeps the field
+        spLine!==undefined
+          ? _el("div",{className:"sheet-field shot-dialogue-src"},
+              _el("div",{className:"obj-lab"},"Dialogue \u2014 from the screenplay"),
+              _el("div",{className:"shot-dialogue-line"}, spLine && spLine.text
+                ? ((spLine.speaker ? String(spLine.speaker).toUpperCase()+": " : "")+"\u201c"+String(spLine.text).trim()+"\u201d")
+                : "No line is spoken as this frame opens."),
+              _el("div",{className:"shot-inframe-hint"},"Change spoken lines in the Writers' Room script \u2014 voices and lip-sync follow it."))
+          : _el(SheetField,{label:"Dialogue (optional)",value:sh.dialogue,multiline:true,
+              placeholder:"A short line spoken in this beat\u2026",onCommit:v=>onUpdate(sh.id,{dialogue:v})}),
 
         // the director's own prompt words — compiled into the spec as custom_directives
         // on every rebuild, so they survive sheet/style changes and never fork the prompt
         _el(SheetField,{label:"Director's notes \u2014 extra prompt directives (optional)",value:sh.directives,multiline:true,
           placeholder:"Your own words for the generator \u2014 atmosphere, camera nuance, performance notes\u2026 These compose INTO the prompt; the derived spec (references, cast, style) stays intact.",
-          onCommit:v=>onUpdate(sh.id,{directives:v})})),
+          onCommit:v=>onUpdate(sh.id,{directives:v})}),
+        // on the card like the other tabs' "Leave out" (2026-10-05); the frame reads it, a Stage take doesn't
+        _el(SheetField,{label:"Leave out \u2014 what the frame must not show (negative prompt)",value:sh.negativePrompt||"",multiline:true,
+          placeholder:shotNegativePrompt({}),onCommit:v=>onUpdate(sh.id,{negativePrompt:v})})),
 
       _el(CardFold,{label:"In frame",defaultOpen:false},
         // read-only: derived from the action text, the single source the prompt uses —
@@ -1183,9 +1225,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
 
       // "Always show prompts" (the Art Room ⋮ menu) opens it on every card; keyed so the switch takes effect at once
       _el(CardFold,{key:"shot-prompt-"+(alwaysPrompts?"open":"fold"),label:"Shot prompt",defaultOpen:alwaysPrompts},
-        _el(CopyBox,{label: isHead ? "Final frame prompt \u2014 master + grade + references" : "Final frame prompt \u2014 master + grade + reference frame + sheets",text:previewPrompt}),
-        _el(SheetField,{label:"Negative prompt \u2014 exclude",value:sh.negativePrompt||"",multiline:true,
-          placeholder:shotNegativePrompt({}),onCommit:v=>onUpdate(sh.id,{negativePrompt:v})}))));
+        _el(CopyBox,{label: isHead ? "Final frame prompt \u2014 master + grade + references" : "Final frame prompt \u2014 master + grade + reference frame + sheets",text:previewPrompt}))));
 }
 
 const CONF_LABELS = ["Inner","Personal","Extra-personal"];
@@ -2386,7 +2426,9 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
   // already have a frame (a re-render) — the same rule stepChain skips by
   const runPlanFor = (ids)=>{
     const toRender = (ids||[]).filter(id=>{ const s=shotById[id]; return s && !shotIsDone(s); });
-    return { toRender, redo:toRender.filter(id=>shotHasFrame(id)) };
+    const redo = toRender.filter(id=>shotHasFrame(id));
+    // approved frames that went out of date because their shot changed — said by name in the question (2026-10-05)
+    return { toRender, redo, approvedRedo:redo.filter(id=>{ const s=shotById[id]; return s && s.locked; }) };
   };
   const scenePlanFor = (scene)=> runPlanFor(chainOrderIds(shotsByScene[scene.id]));
   // NO RUN STARTS UNPRICED (2026-10-03, owner — Shots review): a film run always asks; a scene run
@@ -2402,6 +2444,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
         body:(fresh ? fresh+" new frame"+(fresh!==1?"s":"") : "")+(fresh&&plan.redo.length?" and ":"")
           +(plan.redo.length ? plan.redo.length+" re-render"+(plan.redo.length!==1?"s":"")+" of frames that are out of date or not approved" : "")
           +(price?" \u2014 about "+price+" credit"+(price==="1"?"":"s")+".":".")
+          +(plan.approvedRedo && plan.approvedRedo.length ? " "+plan.approvedRedo.length+" of them "+(plan.approvedRedo.length!==1?"are frames":"is a frame")+" you approved whose shot changed since." : "")
           +" Approved, up-to-date frames are kept."+(checkEachRef.current ? " The run pauses after each frame so you can check it." : ""),
         confirmLabel:"Render "+plan.toRender.length, cancelLabel:"Cancel" });
       if(!ok) return null;

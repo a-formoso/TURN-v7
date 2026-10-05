@@ -5687,6 +5687,11 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
   letter-spacing:.03em;color:var(--ink-3,#8b8f99);padding:2px 0 0;font-variant-numeric:tabular-nums}
 .shot-seed-line.stale{color:var(--txt-2)}
 .shot-seed-refresh{color:var(--accent-ink);font-weight:600}
+/* the Action written by hand vs the screenplay's opening; the screenplay's spoken line (2026-10-05) */
+.shot-action-src{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;margin:-4px 0 10px;font-size:11.5px;line-height:1.45;color:var(--txt-2)}
+.shot-action-reset{border:1px solid var(--line-2);border-radius:var(--r-m);background:var(--bg-2);color:var(--txt-0);font:650 11px var(--f-ui);padding:3px 8px;cursor:pointer}
+.shot-action-reset:hover{border-color:var(--brand,#d67e00)}
+.shot-dialogue-line{font-size:12.5px;line-height:1.5;color:var(--txt-0);padding:6px 0 2px}
 .shot-seed-exception{color:var(--txt-2);font-weight:600}
 /* scene chain-health strip: approved / unrendered / continuity and source-refresh counts */
 .ssx-chain-strip{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}

@@ -230,11 +230,16 @@ window.SHOT_SHUTTERS = SHOT_SHUTTERS; window.SHOT_ISO_GRAIN = SHOT_ISO_GRAIN;
 const sizeOf  = (id)=> SHOT_SIZES.find(x=>x.id===id)  || SHOT_SIZES[4];
 const angleOf = (id)=> SHOT_ANGLES.find(x=>x.id===id) || SHOT_ANGLES[0];
 const moveOf  = (id)=> SHOT_MOVES.find(x=>x.id===id)  || SHOT_MOVES[0];
-const lensOf  = (id)=> SHOT_LENSES.find(x=>x.id===id) || SHOT_LENSES[3];
+// a lens set to any whole mm (the Blender preview writes e.g. "37") is that lens, not the 50mm fallback (2026-10-05)
+const _mmLens = (id)=> /^\d{1,3}$/.test(String(id==null?"":id)) ? { id:String(id), label:String(id)+"mm", desc:"set in the Blender preview" } : null;
+const lensOf  = (id)=> SHOT_LENSES.find(x=>x.id===id) || _mmLens(id) || SHOT_LENSES[3];
 window.shotSizeOf = sizeOf; window.shotAngleOf = angleOf; window.shotMoveOf = moveOf; window.shotLensOf = lensOf;
 
 function shotCameraSettingLabel(list, id){
-  return (list.find(x=>x.id===id) || list[0]).label;
+  const hit = list.find(x=>x.id===id);
+  if(hit) return hit.label;
+  if(list===SHOT_FOCAL_LENGTHS && _mmLens(id)) return _mmLens(id).label;   // any whole mm, not "Auto"
+  return list[0].label;
 }
 function shotCameraProfileOf(id){ return SHOT_CAMERA_PROFILES.find(x=>x.id===id) || SHOT_CAMERA_PROFILES[0]; }
 function shotCameraProfilePrompt(id){
@@ -243,7 +248,7 @@ function shotCameraProfilePrompt(id){
   return "Camera profile: "+p.label+". Interpretation: "+p.desc+". This is a capture-style hint only; do not override the Art Room Style Preset, palette, medium, character design or location design.";
 }
 function shotCameraSettingOf(list, id){
-  return (list||[]).find(x=>x.id===id) || ((list||[])[0]);
+  return (list||[]).find(x=>x.id===id) || (list===SHOT_FOCAL_LENGTHS && _mmLens(id)) || ((list||[])[0]);
 }
 function shotCameraEffectiveChoice(sh, key, list, fallbackId, fallbackLabel){
   const c = (sh && sh.cameraSettings) || {};
@@ -257,7 +262,9 @@ function shotCameraEffectiveChoice(sh, key, list, fallbackId, fallbackLabel){
     selectedId,
     selectedLabel:selected.label || selectedId,
     effectiveId:effective.id || effectiveId || selectedId,
-    effectiveLabel:fallbackLabel || effective.label || effectiveId || selected.label || selectedId,
+    // an EXPLICIT choice is what applies — the inferred label (from the Lens control) is only for Auto
+    // (2026-10-05: an explicit 85mm on a 35mm lens used to read "35mm")
+    effectiveLabel:(explicit ? (effective.label || effectiveId) : (fallbackLabel || effective.label || effectiveId)) || selected.label || selectedId,
     auto:!explicit,
   };
 }
@@ -2125,7 +2132,10 @@ function buildShotPrompt(sh, ctx){
   const stage = [ camBits.join(", ") ];
   const cameraSettings = (typeof shotCameraSettingsClause==="function") ? clean(shotCameraSettingsClause(sh)) : "";
   if(cameraSettings) stage.push(cameraSettings);
-    const openingAction=(screenplaySource&&screenplaySource.hasSource)
+    // an Action written BY HAND on the card wins over the screenplay's opening (owner 2026-10-05 —
+    // Shots review: the edit used to mark the frame out of date and then be ignored)
+    const actionByHand = !!(sh && sh.actionByHand && clean(sh.action));
+    const openingAction=(screenplaySource&&screenplaySource.hasSource && !actionByHand)
       ? String(screenplaySource.openingAction||"").replace(/\s+/g," ").trim() : clean(sh.action);
    if(openingAction)         stage.push(cap(openingAction));
   if(clean(screenDir.composition)) stage.push(cap(clean(screenDir.composition)));
@@ -2291,9 +2301,12 @@ function buildShotPrompt(sh, ctx){
   // remains the framing & cast authority.
    const _slice = (typeof shotScreenplaySlice==="function") ? shotScreenplaySlice(scene, sh.beatN, ctx) : "";
     if(_slice){
-      const openingSourceText=String(screenplaySource&&screenplaySource.hasSource
+      const byHand = !!(sh && sh.actionByHand && clean(sh.action));
+      const openingSourceText=byHand ? clean(sh.action) : String(screenplaySource&&screenplaySource.hasSource
         ? (screenplaySource.openingAction||"") : _slice).trim();
-      if(openingSourceText) out += "\n\nSCREENPLAY OPENING SOURCE (exact text; first frame only): "
+      if(openingSourceText) out += (byHand
+          ? "\n\nOPENING ACTION (the director's own wording for this first frame — it replaces the screenplay's opening): "
+          : "\n\nSCREENPLAY OPENING SOURCE (exact text; first frame only): ")
         + openingSourceText + (/[.!?]$/.test(openingSourceText)?"":".")
         + " Do not visualize later action in this beat as the opener.";
     }

@@ -45,6 +45,9 @@
       const merged={...(prior||{}),...next,id:prior?prior.id:next.id,
         keyframeMode:"beat-opening",covers:[],beatPlan:null,
         referenceCharactersSet:false,referenceCharacterIds:[]};
+      // a re-draft starts from the screenplay again: an Action written by hand doesn't carry over
+      // (the key is REMOVED, never set false — a new key would change every shot's fingerprint)
+      if(!next.actionByHand) delete merged.actionByHand;
       const fingerprint=typeof root.shotSpecFingerprint==="function"?root.shotSpecFingerprint:null;
       const changed=!!prior && (prior.keyframeMode!=="beat-opening"
         || prior.sourceScreenplayRev!==merged.sourceScreenplayRev
