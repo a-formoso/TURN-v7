@@ -91,14 +91,7 @@ tree=frame({gening:true});zone=find(tree,n=>n.props.className?.startsWith("sheet
 assert.equal(zone.props["aria-disabled"],true);assert.equal(zone.props.tabIndex,-1);
 assert.ok(find(tree,n=>n.props.className==="sheet-gen-stop"));
 assert.equal(find(tree,n=>n.props.className==="sheet-status-bar"),null);
-assert.deepEqual(Array.from(s.sheetReviewReasons({specPrompt:"old"},"new",[{label:"Watch",usedIso:"v1",currentIso:"v2",usedVersion:1,currentVersion:2}])),
-  ["Specification changed since this image was generated","Watch changed · v1 → v2"]);
-assert.equal(s.sheetReviewableReference({kind:"script",refId:"script-main-location-1-1-0"}),false);
-assert.equal(s.sheetReviewableReference({refId:"script-location-unit-0"}),false);
-assert.equal(s.sheetReviewableReference({kind:"location",refId:"location-1"}),true);
-assert.equal(s.sheetReviewKey("same",[],[]),s.sheetReviewKey("same",[],[]));
-assert.notEqual(s.sheetReviewKey("old",[],[]),s.sheetReviewKey("new",[],[]));
-assert.notEqual(s.sheetReviewKey("same",[{currentIso:"a"}],[]),s.sheetReviewKey("same",[{currentIso:"b"}],[]));
+// (the sheet-review helpers were never used by the app — removed 2026-10-06)
 const image={id:"test",genUrl:"test:image",genMeta:{iso:"v1",size:"2K",version:1},setApproval:noop};
 assert.equal(find(frame(image),n=>n.props.className==="sheet-approval-btn"),null);
 canReview=true;

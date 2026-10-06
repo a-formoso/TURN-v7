@@ -1953,7 +1953,9 @@ async function main() {
     await c.eval(`([...document.querySelectorAll(".viewnav button")].find(x=>x.textContent.trim()==="Takes")).click()`);
     await waitFor(()=>c.eval(`document.querySelector(".stage2-vers")?.innerText.includes("2 takes")`),"take review");
     const review=await text();
-    assert.match(review,/References need review/i);
+    // (2026-10-06, Characters review) only a reference that really changed or is missing raises this — never a
+    // sheet's manual approval, which nothing sets any more; this fixture's references are current
+    assert.doesNotMatch(review,/References need review/i);
     assert.match(review,/References used/i);
     assert.match(review,/Letter continuity/);
     assert.match(review,/Chosen for timeline/);

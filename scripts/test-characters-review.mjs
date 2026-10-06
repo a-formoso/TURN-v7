@@ -86,7 +86,8 @@ await test("A3 the pipeline doc records the switch-off (owner-approved)", ()=>{
 });
 
 /* ═══ B ═══ */
-const cast = ()=>[ D("a","Ana",{ states:[{ id:"w", label:"Wounded" }] }), D("b","Ben"), U("c","Cal"), D("d","Dee",{ states:[{ id:"x", label:"Wet" }] }) ];
+// (2026-10-06) states are PINNED to a scene — an unpinned one is never made or priced (no shot uses it)
+const cast = ()=>[ D("a","Ana",{ states:[{ id:"w", label:"Wounded", sceneId:"s1" }, { id:"u", label:"Unpinned" }] }), D("b","Ben"), U("c","Cal"), D("d","Dee",{ states:[{ id:"x", label:"Wet", sceneId:"s1" }] }) ];
 await test("B1 the plan: 'without a sheet' skips finished characters; 'everyone' adds their missing variants", ()=>{
   images = new Set(["a", "d", "d:x"]);
   const m = box.castDesignPlan(cast(), "missing", null, true);
@@ -147,11 +148,11 @@ await test("B6 the agent works only on the chosen characters, and skips variants
   vm.runInContext(between(agents, "async function agentCastingDirector(ctx){", "/* =========================================================\n   WEAR PROPS"), ab);
   const run = async (only, variants)=>{
     const log = [];
-    const list = [ D("a","Ana",{ states:[{ id:"w", label:"Wounded" }] }), D("b","Ben"), U("c","Cal") ];
+    const list = [ D("a","Ana",{ states:[{ id:"w", label:"Wounded", sceneId:"s1" }] }), D("b","Ben"), U("c","Cal") ];   // pinned: made
     const ctx = { castOnly:only, castVariants:variants, force:false, ai:{ available:true }, emit:noop, cancelled:()=>false,
       art:{ markApplied:noop, cast:{ list,
         isDrafted:(c)=>!!c.coreBody, draftSpec:async (c)=>{ log.push("draft:"+c.id); return { coreBody:"x", wardrobeMask:"y" }; },
-        suggestStates:async (c)=>{ log.push("states:"+c.id); return [{ id:"s", label:"S" }]; },
+        suggestStates:async (c)=>{ log.push("states:"+c.id); return [{ id:"s", label:"S", sceneId:"s1" }]; },
         imageOf:async ()=>"", generateMaster:async (c)=>{ log.push("master:"+c.id); return "u"; },
         generateState:async (c, st)=>{ log.push("var:"+c.id+":"+st.id); } } } };
     await ab.agentCastingDirector(ctx);

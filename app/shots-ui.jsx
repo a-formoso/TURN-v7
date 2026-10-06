@@ -321,6 +321,8 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
           ? shotSourceStamp(sh,(((window.turnContinuity||{}).drafts||{})[sh.sceneId])) : null,
          propDependencies:(typeof propDependencySignature==="function")
            ? propDependencySignature(((window.turnContinuity||{}).props)||[],sh.sceneId,sh.beatN,sh.microBeatId,sh.id,window.turnContinuity||{}) : "",
+         // the character sheets this frame attaches, by version (2026-10-06)
+         characterRefVersions:(typeof shotCharacterRefVersions==="function" && renderPlan) ? shotCharacterRefVersions(renderPlan.castSpec, sh.refOff) : [],
          sceneContext:renderPlan && renderPlan.sceneContext ? {
            sceneId:renderPlan.sceneContext.sceneId, sourceRev:renderPlan.sceneContext.sourceRev,
            targetBeat:renderPlan.sceneContext.targetBeat, pages:renderPlan.sceneContext.pages||0,
@@ -535,6 +537,8 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
     ? propDependencySignature(((window.turnContinuity||{}).props)||[],sh.sceneId,sh.beatN,sh.microBeatId,sh.id,window.turnContinuity||{}) : "";
   const propDependenciesStale=!!(gen.genUrl&&gen.genMeta&&gen.genMeta.propDependencies!=null
     && gen.genMeta.propDependencies!==currentPropDependencies);
+  const characterSheetsChanged=!!(gen.genUrl&&gen.genMeta&&typeof shotCharacterRefsChanged==="function"
+    && shotCharacterRefsChanged(gen.genMeta.characterRefVersions));
   // SEED-LINEAGE status — DERIVED each render, never flagged: compares the lineage
   // recorded on this frame (which frame seeded it, at what version) against the
   // current seed shot and its current frame. DIRECT lineage: regenerating/reordering/
@@ -1075,6 +1079,11 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
           "Continuity needs refresh — re-render this frame or render the scene in order."),
         seedWasUnapproved && _el("span",{className:"shot-seed-exception"},
           (continuityNeedsRefresh?" · ":"")+"Director override — rendered from an unapproved continuity frame.")),
+      // a character in frame with no sheet yet renders without one — say so (2026-10-06)
+      (()=>{ const missingCast = subjects.filter(ch=>{ const spec = (typeof shotCharacterReferenceSpec==="function") ? shotCharacterReferenceSpec(ch, scene, null) : null;
+          return spec && !spec.required && typeof nbGetImage==="function" && !nbGetImage(spec.id); });
+        return missingCast.length>0 && _el("div",{className:"shot-ref-quality-note"},
+          "No character sheet yet for "+missingCast.map(ch=>ch.name).join(", ")+" \u2014 this frame renders without "+(missingCast.length===1?"it":"them")+". Make "+(missingCast.length===1?"it":"them")+" in Characters, or with 'Make what this scene needs'."); })(),
       refsLoaded && loc && !sh.referenceLocationsSet && !refImgs.some(r=>r.kind==="location") &&
         _el("div",{className:"shot-ref-quality-note"},
           "No full-frame room & time or extra-space plate is ready for this beat. Generate one in Locations — a cropped master plate won't be used in its place."),
@@ -1097,6 +1106,9 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
                 : "Make this a fresh start — a hard cut that won't inherit the previous frame's look or state."),
             onClick:()=> !isFirst && onToggleHead && onToggleHead(sh)},
             _el(Icon.pin,{s:12}), isHead && _el("span",null, isFirst?"Head":"Fresh")),
+          gen.genUrl && characterSheetsChanged && _el("span",{className:"shot-source-badge stale",
+            title:"A character sheet this frame used was regenerated after the frame was made (a new master, variant or likeness). The frame stays as it is until you regenerate it."},
+            "Character sheet changed"),
           gen.genUrl && propDependenciesStale && _el("span",{className:"shot-source-badge stale",
             title:"A prop used by this frame changed holder, placement, condition, visibility, binding mode, or approved sheet after this frame was generated. The approved frame stays pinned until you regenerate it."},
             "Prop reference changed"),

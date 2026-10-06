@@ -1704,7 +1704,7 @@ function stageClipReadiness(clip, ctx, imgs, drafts){
   const plan = stageClipSourcePlan(clip, imgs||{});
   const has = (id)=> !!((imgs||{})[id]) || (typeof nbGetImage==="function" && !!nbGetImage(id));
   const sceneShotsAll = (((window.turnContinuity||{}).shots)||[]).filter(x=>x && x.sceneId===scene.id);
-  const frames = { missing:0, unapproved:0, stale:0, oldLook:0 };
+  const frames = { missing:0, unapproved:0, stale:0, oldLook:0, charChanged:0 };
   shots.forEach(sh=>{
     if(typeof shotFrameState==="function"){
       const st = shotFrameState(sh, sceneShotsAll.length ? sceneShotsAll : shots, drafts||{}, (ctx||{}).project, has);
@@ -1712,6 +1712,7 @@ function stageClipReadiness(clip, ctx, imgs, drafts){
       if(!st.approved) frames.unapproved++;
       if(!st.current) frames.stale++;
       if(st.oldLook) frames.oldLook++;
+      if(st.charChanged) frames.charChanged++;
     } else if(!has(sh.id)) frames.missing++;
   });
   let needs = [];
@@ -1725,6 +1726,7 @@ function stageClipReadiness(clip, ctx, imgs, drafts){
   if(frames.unapproved) issues.push(n(frames.unapproved, "frame not approved", "frames not approved"));
   if(frames.stale) issues.push(n(frames.stale, "frame out of date", "frames out of date"));
   if(frames.oldLook) issues.push(n(frames.oldLook, "frame made with an earlier look", "frames made with an earlier look"));
+  if(frames.charChanged) issues.push(n(frames.charChanged, "frame made with an older character sheet", "frames made with an older character sheet"));
   if(needs.length) issues.push("missing: "+needs.slice(0,3).map(x=>x.label).join(", ")+(needs.length>3?" +"+(needs.length-3)+" more":""));
   return { plan, frames, needs, issues, text:issues.join(" \u00b7 ") };
 }
@@ -6502,11 +6504,21 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false }
     ? stageClipPropDependencySignature((clip&&clip.data)||{},clip&&clip.scene&&clip.scene.id,window.turnContinuity||{}) : "";
   const propDependenciesStale=(t)=>!!(t&&t.meta&&t.meta.propDependencies!=null
     && t.meta.propDependencies!==currentPropDependencies);
+  const stageTakeVoiceChanged=(t)=>{
+    const vr=(t&&t.meta&&t.meta.voiceReferences)||[];
+    if(!vr.length || typeof window.vgVoiceLockSignature!=="function") return false;
+    const cast=((window.turnContinuity||{}).characters)||[];
+    return vr.some(v=>{ if(!v||!v.speakerId||!v.fingerprint) return false;
+      const c=cast.find(x=>x&&x.id===v.speakerId); if(!c||!c.voiceLock) return false;
+      return String(window.vgVoiceLockSignature(c.voiceLock)||"")!==String(v.fingerprint); });
+  };
   const referenceVersionsStale=(t)=>{
     const refs=(t&&t.meta&&t.meta.referenceSourceVersions)||[];
     if(!refs.length||typeof window.stageReferenceStatus!=="function") return false;
+    // (2026-10-06, owner — Characters review) missing, excluded or CHANGED only: a sheet's manual approval
+    // isn't a Stage requirement, and nothing can approve one any more, so every take used to say this
     return refs.some(r=>{ const s=window.stageReferenceStatus({imageId:r.assetId,snapshot:r.snapshot});
-      return s.missing||s.excluded||s.stale||!s.approved; });
+      return s.missing||s.excluded||s.stale; });
   };
   const versionEditorialStatus = (t)=> typeof shotSourcesEditorialStatus==="function"
     ? shotSourcesEditorialStatus(((clip&&clip.data&&clip.data.shots)||[]),
@@ -6521,7 +6533,7 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false }
     const ok=await window.appConfirm({
       title:(status==="stale"||refsStale?"Use a stale historical take?":"Use an unverified legacy take?"),
       body:(refsStale
-        ?"One or more character appearance, location coverage or prop-state references changed, is missing, or is not currently approved."
+        ?"One or more character appearance, location coverage or prop-state references changed or is missing."
         : status==="stale"
         ?"This take was rendered from older shot specifications or screenplay text."
         :"This older take doesn't record which version of the shots it was made from, so it can't be checked against them.")
@@ -6582,6 +6594,8 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false }
       sourceStatus==="stale"?"Shots changed":"Can't be checked"));
     if(propDependenciesStale(t)) out.push(_stEl("span",{key:"p",className:"stage2-vbadge stale"},"Prop reference changed"));
     if(referenceVersionsStale(t)) out.push(_stEl("span",{key:"r",className:"stage2-vbadge stale"},"References need review"));
+    // the character's voice was re-locked after this take was rendered (2026-10-06)
+    if(stageTakeVoiceChanged(t)) out.push(_stEl("span",{key:"v",className:"stage2-vbadge stale",title:"A speaking character's voice was re-locked after this take was rendered \u2014 re-voice the lines and regenerate to use the new voice"},"Voice changed"));
     // made before the scene's look or the film stock changed on the Color tab (a note, not a block — 2026-10-05)
     if(clip && clip.scene && typeof shotLookIsEarlier==="function" && shotLookIsEarlier(m.lookSig, window.turnProject, clip.scene.id))
       out.push(_stEl("span",{key:"l",className:"stage2-vbadge stale",title:"This scene's look or the film stock changed on the Color tab after this take was rendered"},"Earlier look"));
@@ -6646,7 +6660,7 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false }
                 ? "A prop used by this take has changed. This approved take remains pinned; update it only when you intentionally render a new version."
                 : "A prop used by this take has changed in the Art Room. Render a new version to use the current prop state and reference sheet."),
             referenceVersionsStale(sel) && _stEl("div",{className:"stage2-source-warning stale"},
-              "A character appearance, location coverage or prop-state reference used by this take changed, is missing, or is not currently approved. Review and explicitly confirm before approving, restoring or reusing it."),
+              "A character appearance, location coverage or prop-state reference used by this take changed or is missing. Review and explicitly confirm before approving, restoring or reusing it."),
             selEditorialStatus!=="current" && _stEl("div",{className:"stage2-source-warning "+selEditorialStatus},
               selEditorialStatus==="override"
                 ?"Explicit source override: this historical take is approved for the current shot sources. Any later shot or screenplay change invalidates the override."

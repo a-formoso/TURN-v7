@@ -3588,24 +3588,33 @@ function App(){
   // forever". A new trash entry stamps when it was deleted.
   const _trashStamp = (obj)=> ({ ...obj, _deletedAt:new Date().toISOString() });
   const deleteCharacter = (id)=>{
+    if(!canMutateSharedFilm()) return;
     const c = (characters||[]).find(x=>x.id===id); if(!c) return;
     setCharacters(cs=>cs.filter(x=>x.id!==id));
     setTrash(t=>({ ...t, characters:[ _trashStamp(c), ...(t.characters||[]).filter(x=>x.id!==id) ] }));
   };
   const restoreCharacter = (id)=>{
+    if(!canMutateSharedFilm()) return;
     const item = (trash.characters||[]).find(x=>x.id===id); if(!item) return;
     const { _deletedAt, ...clean } = item;
     setCharacters(cs=> cs.some(c=>c.id===id) ? cs : [...cs, clean]);
     setTrash(t=>({ ...t, characters:(t.characters||[]).filter(x=>x.id!==id) }));
   };
   const purgeCharacter = async (id)=>{
+    if(!canMutateSharedFilm()) return;
     const item = (trash.characters||[]).find(x=>x.id===id);
     if(!item) return;
     try{
       if(typeof nbClearAsset==="function"){
-        const ids = [id, ...(item.states||[]).map(st=>id+":"+st.id)];
+        // (2026-10-06) the scale sheet too — it used to stay behind
+        const ids = [id, ...(item.states||[]).map(st=>id+":"+st.id), "charscale-"+id];
         for(const assetId of ids) await nbClearAsset(assetId);
       }
+      // …and the likeness photos (on this device and the cloud copy), and the voice file
+      if(typeof nbClearCameo==="function"){ try{ await nbClearCameo(id); }catch(e){} }
+      if(typeof window.vgClearAudio==="function" && typeof window.vgVoiceMasterAssetId==="function"){ try{ await window.vgClearAudio(window.vgVoiceMasterAssetId(id)); }catch(e){} }
+      // its props no longer name a deleted owner
+      setProps(ps=>ps.map(p=> p && p.ownerId===id ? { ...p, ownerId:null } : p));
       setTrash(t=>({ ...t, characters:(t.characters||[]).filter(x=>x.id!==id) }));
     }catch(e){ if(window.appToast) window.appToast("Couldn't permanently delete this character's assets. It remains in Trash so you can retry.","error"); }
   };
@@ -5423,7 +5432,7 @@ function App(){
   // Art Room: suggest a character's appearance states (continuity variants) from the script
   const [suggestingStatesId, setSuggestingStatesId] = React.useState(null);
   const suggestCharacterStates = async (ch)=>{
-    if(suggestingStatesId || !(typeof aiSuggestStates==="function")) return;
+    if(!canMutateSharedFilm() || suggestingStatesId || !(typeof aiSuggestStates==="function")) return;
     setSuggestingStatesId(ch.id);
     const driven = scenes.filter(s=>s.driver===ch.id);
     try{
@@ -7017,6 +7026,7 @@ function App(){
   // action is sitting on the card). A nudge, never a roadblock — updating is optional.
   const [wardrobeAttn, setWardrobeAttn] = React.useState(false);
   const [wardrobeCount, setWardrobeCount] = React.useState(0);   // sheets waiting to wear new props
+  const [wardrobeIds, setWardrobeIds] = React.useState([]);      // …and which: their card shows "Update sheet with new wardrobe"
   const [wardrobeTick, setWardrobeTick] = React.useState(0);
   React.useEffect(()=>{
     const bump = ()=>setWardrobeTick(t=>t+1);
@@ -7036,9 +7046,9 @@ function App(){
     const t = setTimeout(async ()=>{
       try{
         const mk = artAgentCtxFactoryRef.current;
-        if(!mk){ if(live){ setWardrobeAttn(bootAttn); setWardrobeCount(0); } return; }
+        if(!mk){ if(live){ setWardrobeAttn(bootAttn); setWardrobeCount(0); setWardrobeIds([]); } return; }
         const cast = mk({ input:"", emit:()=>{}, propose:null, cancelled:()=>!live, agentName:"Badge", force:false }).art.cast;
-        let n = 0;
+        let n = 0; const ids = [];
         for(const c of (characters||[])){
           if(!live) return;
           // only characters whose master EXISTS — the update action lives on that sheet
@@ -7047,9 +7057,9 @@ function App(){
           if(!master && typeof nbLoadImage==="function"){ try{ master = await nbLoadImage(c.id); }catch(e){} }
           if(!master) continue;
           const stale = await cast.wornPropsWithSheets(c);
-          if(stale && stale.length) n++;
+          if(stale && stale.length){ n++; ids.push(c.id); }
         }
-        if(live){ setWardrobeAttn(bootAttn || n>0); setWardrobeCount(n); }
+        if(live){ setWardrobeAttn(bootAttn || n>0); setWardrobeCount(n); setWardrobeIds(ids); }
       }catch(e){ if(live) setWardrobeAttn(bootAttn); }
     }, 500);
     return ()=>{ live=false; clearTimeout(t); };
@@ -7632,7 +7642,7 @@ function App(){
             onDraftStaging:draftLocationStaging,draftingStageId,
             shots,beatsMap,onUpdateShot:updateShot,onAddShot:addShot,onDeleteShot:deleteShot,onSplitBeat:splitBeatCoverage,splittingBeat,
             onRefineBeat:refineBeatFromScreenplay,refiningBeat,onRemoveMicroBeatShots:removeMicroBeatShots,onMakeSceneNeeds:makeSceneNeeds,
-            onOpenStage:()=>guardedSetRoom("stage"),
+            onOpenStage:()=>guardedSetRoom("stage"), wardrobeIds,
             onDeleteShotReference:deleteShotReference,
             onDraftSceneShots:draftSceneShots,draftingSceneShots,onDraftAllShots:draftAllShots,draftingAllShots}))
         : React.createElement(React.Fragment,null,

@@ -135,6 +135,12 @@ function VoiceCard({ c, project, speaks, onUpdate, titleId }){
   const [spec, setSpec] = React.useState(()=> c.voiceSpec || buildVoiceSpec(c));
   // Per-character delivery model. Once a voice is locked, its model is part of that
   // canonical production master and never follows a later app-default migration.
+  // WHAT THE VOICE BUTTONS COST (owner 2026-10-06 — Characters review): designing is a flat voice-design call;
+  // the voice file is the canonical phrase, priced per character like any line
+  const vcDesignPrice = (typeof window.turnCreditCost==="function") ? (" \u00b7 about "+window.turnCreditCost(0.10)+" credit"+(window.turnCreditCost(0.10)===1?"":"s")) : "";
+  const vcMasterCr = (typeof window.vgLineCredits==="function" && window.VG_VOICE_MASTER_TEXT)
+    ? window.vgLineCredits(window.VG_VOICE_MASTER_TEXT, (lock&&lock.modelId)||window.VG_TTS_MODEL||"") : 0;
+  const vcMasterPrice = vcMasterCr ? (" \u00b7 about "+vcMasterCr+" credit"+(vcMasterCr===1?"":"s")) : "";
   const effModel = (typeof window.vgDeliveryModelOf==="function") ? window.vgDeliveryModelOf(lock) : ((lock&&lock.modelId) || window.VG_TTS_MODEL || "eleven_v3");
   const [ttsModel, setTtsModel] = React.useState(effModel);
   const ttsModels = window.VG_TTS_MODELS || [{ id:"eleven_v3", label:"Expressive (v3)" }];
@@ -357,12 +363,12 @@ function VoiceCard({ c, project, speaks, onUpdate, titleId }){
                 disabled:masterStatus.ready?false:(busy||!ready),
                 "aria-pressed":masterStatus.ready?(isPlaying(masterAudio.audioUrl)?"true":"false"):undefined,
                 "aria-label":masterStatus.ready?((isPlaying(masterAudio.audioUrl)?"Pause":"Play")+" the saved canonical voice master for "+(c.name||"character")):"Generate the canonical voice master",
-                title:masterStatus.ready?(isPlaying(masterAudio.audioUrl)?"Pause the saved canonical voice master":"Play the saved canonical voice master"):"Generate the canonical voice master through ElevenLabs"},
+                title:masterStatus.ready?(isPlaying(masterAudio.audioUrl)?"Pause the saved canonical voice master":"Play the saved canonical voice master"):("Generate the canonical voice master"+vcMasterPrice)},
                 masterStatus.ready?vcAudioIcon(isPlaying(masterAudio.audioUrl)):_vcEl(Icon.sparkles,{s:14}),
-                masterStatus.ready?(isPlaying(masterAudio.audioUrl)?"Pause":"Play"):(busy?"…":"Generate voice file")),
+                masterStatus.ready?(isPlaying(masterAudio.audioUrl)?"Pause":"Play"):(busy?"…":("Generate voice file"+vcMasterPrice))),
               masterStatus.ready && _vcEl("a",{className:"vc-btn",href:masterAudio.audioUrl,download:masterFileName,
                 title:"Download "+masterFileName},"Download"),
-              masterStatus.ready && _vcEl("button",{className:"vc-btn ghost",onClick:()=>test(true),disabled:busy||!ready,title:"Render the canonical phrase again with the current voice settings"},"Regenerate"))),
+              masterStatus.ready && _vcEl("button",{className:"vc-btn ghost",onClick:()=>test(true),disabled:busy||!ready,title:"Render the canonical phrase again with the current voice settings"+vcMasterPrice},"Regenerate"+vcMasterPrice))),
           _vcEl("div",{className:"vc-field"},
             _vcEl("div",{className:"vc-lab"},"Delivery model"),
             _vcEl("select",{className:"vc-delivery",value:effModel,
@@ -376,7 +382,7 @@ function VoiceCard({ c, project, speaks, onUpdate, titleId }){
       : _vcEl("div",{className:"vc-body"},
           !ready && _vcEl("div",{className:"vc-note"},
             _vcEl(Icon.alert,{s:12}),
-            _vcEl("span",null,"Voice runs on your server — deploy the media proxy and set the ElevenLabs key to design and lock voices.")),
+            _vcEl("span",null,"Voice runs on the studio's servers — sign in to design and lock voices.")),
           _vcEl("div",{className:"vc-modes"},
             ["design","library","clone"].map(m=> _vcEl("button",{key:m,className:"vc-mode"+(mode===m?" on":""),onClick:()=>{ stopAudio(true); setMode(m); setErr(""); }},
               m==="design"?"Design":m==="library"?"Library":"Clone"))),
@@ -411,7 +417,7 @@ function VoiceCard({ c, project, speaks, onUpdate, titleId }){
 
           mode==="design" && _vcEl(React.Fragment,null,
             _vcEl("button",{className:"vc-btn primary",onClick:design,disabled:busy||!ready||!spec.trim()},
-              busy?_vcEl(React.Fragment,null,_vcEl("span",{className:"ns-spin"}),"Designing…"):_vcEl(React.Fragment,null,_vcEl(Icon.sparkles,{s:14}),"Design voices")),
+              busy?_vcEl(React.Fragment,null,_vcEl("span",{className:"ns-spin"}),"Designing…"):_vcEl(React.Fragment,null,_vcEl(Icon.sparkles,{s:14}),"Design voices"+vcDesignPrice)),
             previews.length>0 && _vcEl("div",{className:"vc-previews"},
               _vcEl("div",{className:"vc-note"},"Every option uses the same audition line: “"+VC_AUDITION_TEXT+"”"),
               previews.map((p,i)=> _vcEl("div",{key:p.generatedVoiceId||i,className:"vc-preview"},

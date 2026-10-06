@@ -505,7 +505,11 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
       if(ctx.location){ const u=await grab(ctx.location.id); if(u){ out.push({ url:u, label:(ctx.location.name||"Location")+" plate", kind:"location" }); seen.add(ctx.location.id); } }
       const ids=[]; const _chars=Object.values(ctx.charById||{});
       shots.forEach(sh=>{ const inc=(typeof inFrameCast==="function")?inFrameCast(sh, scene, _chars):(sh.subjects||[]); inc.forEach(id=>{ if(ids.indexOf(id)<0) ids.push(id); }); });
-      for(const id of ids){ if(seen.has(id)) continue; const c=ctx.charById[id]; if(!c) continue; const u=await grab(id); if(u){ out.push({ url:u, label:c.name, kind:"character" }); seen.add(id); } }
+      // the sheet this scene's frames attach — its appearance variant, else the master (2026-10-06)
+      for(const id of ids){ if(seen.has(id)) continue; const c=ctx.charById[id]; if(!c) continue;
+        const spec=(typeof shotCharacterReferenceSpec==="function") ? shotCharacterReferenceSpec(c, scene, ctx.scenes||null) : null;
+        const rid=(spec&&spec.id)||id; const u=await grab(rid);
+        if(u){ out.push({ url:u, label:(spec&&spec.label)||c.name, kind:"character" }); seen.add(id); } }
       for(const id of sbPropIdsForPage(scene, shots, ctx)){ if(seen.has(id)) continue; const p=ctx.propById[id]; if(!p) continue; const u=await grab(id); if(u){ out.push({ url:u, label:p.name||"Prop", kind:"prop" }); seen.add(id); } }
       if(alive){ setRefImgs(out); }
     })();
@@ -521,7 +525,9 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
     const _chars = Object.values(ctx.charById||{});
     refShots.forEach(sh=> ((typeof inFrameCast==="function")?inFrameCast(sh, scene, _chars):(sh.subjects||[])).forEach(cid=>{
       if(seen.has(cid)) return; seen.add(cid);
-      const c = ctx.charById[cid]; if(c) out.push({ id:c.id, label:c.name, note:c.name+"'s character sheet" });
+      const c = ctx.charById[cid]; if(!c) return;
+      const spec = (typeof shotCharacterReferenceSpec==="function") ? shotCharacterReferenceSpec(c, scene, ctx.scenes||null) : null;
+      out.push({ id:(spec&&spec.id)||c.id, label:(spec&&spec.label)||c.name, note:(spec&&spec.note)||(c.name+"'s character sheet") });
     }));
     sbPropIdsForPage(scene, refShots, ctx).forEach(pid=>{
       if(seen.has(pid)) return; seen.add(pid);

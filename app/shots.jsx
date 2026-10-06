@@ -2458,6 +2458,24 @@ function shotLookIsEarlier(stored, project, sceneId){
   return s.indexOf("look2-")===0 ? s!==shotLookSig(project, sceneId) : s!==shotLookSigLegacy(project, sceneId);
 }
 window.shotLookIsEarlier = shotLookIsEarlier;
+/* THE CHARACTER SHEETS A FRAME ATTACHED (owner 2026-10-06 — Characters review): each in-frame character's
+   sheet — the scene's appearance variant or the master — as "<id>@<iso>#<version>", stored on each new
+   frame, so a regenerated sheet shows as "Character sheet changed" (as a prop's change already did). */
+function shotCharacterRefVersions(castSpec, refOff){
+  const off = (Array.isArray(refOff) ? refOff : []).map(String);
+  return (castSpec||[]).filter(s=>s && s.id && off.indexOf(String(s.baseId||s.id))<0 && off.indexOf(String(s.id))<0).map(s=>{
+    const m = (typeof nbGetMeta==="function") ? nbGetMeta(s.id) : null;
+    return String(s.id)+"@"+((m&&m.iso)||"")+"#"+((m&&m.version)||""); });
+}
+/* has an attached sheet changed since? judged only when its meta is loaded (a cold cache is never a false alarm) */
+function shotCharacterRefsChanged(stored){
+  if(!Array.isArray(stored) || !stored.length || typeof nbGetMeta!=="function") return false;
+  return stored.some(e=>{ const s = String(e||""), at = s.lastIndexOf("@"); if(at<1) return false;
+    const id = s.slice(0, at), m = nbGetMeta(id); if(!m) return false;
+    return (id+"@"+(m.iso||"")+"#"+(m.version||""))!==s; });
+}
+window.shotCharacterRefVersions = shotCharacterRefVersions;
+window.shotCharacterRefsChanged = shotCharacterRefsChanged;
 window.shotLookSig = shotLookSig;
 
 /* Carried props a set of shots would build before rendering, with no sheet yet (authoritative
@@ -2526,7 +2544,8 @@ function shotFrameState(sh, sceneShots, drafts, project, has){
   }
   const m = rendered ? meta(sh.id) : null;
   const oldLook = !!(m && project && sh && shotLookIsEarlier(m.lookSig, project, sh.sceneId));
-  return { rendered, approved, current, oldLook, done: rendered && approved && current };
+  const charChanged = !!(m && shotCharacterRefsChanged(m.characterRefVersions));   // a note, like an earlier look
+  return { rendered, approved, current, oldLook, charChanged, done: rendered && approved && current };
 }
 window.shotFrameState = shotFrameState;
 

@@ -534,7 +534,7 @@ function inferCharacterRenderStyleKey(c){
 window.inferCharacterRenderStyleKey = inferCharacterRenderStyleKey;
 const CHAR_RENDER_STYLE_OPTIONS = [
   ...Object.keys(CHAR_RENDER_STYLES).map(k=>_styleOptionForKey(k)),
-  { key:"surprise", label:"Surprise me \u2728", group:"Custom" },   // the one synthetic option (invents a bespoke style)
+  { key:"surprise", label:"Surprise me \u2728 (one writing call)", group:"Custom" },   // the one synthetic option (invents a bespoke style)
 ];
 window.CHAR_RENDER_STYLE_OPTIONS = CHAR_RENDER_STYLE_OPTIONS;
 
@@ -712,7 +712,7 @@ function rebuildStyleOptions(){
       ? _styleOptionForKey(item.key)
       : ({ key:item.key, label:item.label||"Style", group:item.group||"Admin global styles" })),   // no 🌐 marker — same look as built-ins
     ..._userStyles.map(s=>({ key:s.key, label:s.label||"Locked style", group:"Personal styles" })),   // personal — picker shows trash icon
-    { key:"surprise", label:"Surprise me ✨", group:"Custom" },
+    { key:"surprise", label:"Surprise me ✨ (one writing call)", group:"Custom" },
   ];
 }
 function _defaultRenderStyleKey(){
@@ -1444,7 +1444,7 @@ async function nbRunSheetGeneration(env, gopts){
     // late would overwrite the OTHER film's sheet under the same id)
     const _genEpoch = (typeof nbEpoch==="function") ? nbEpoch() : null;
     if(typeof nbHasKeyForCurrent==="function" && !nbHasKeyForCurrent()){
-      setGenErr("Image generation runs through fal.ai on your server. Sign in and make sure the image proxy is enabled.");
+      setGenErr("Image generation runs on the studio's servers. Sign in to generate images.");
       return;
     }
     /* Mark this entity busy UP FRONT — before the optional pre-generate gate — and in
@@ -1975,7 +1975,7 @@ async function nbRunSheetGeneration(env, gopts){
       if(isEditMode && typeof ui.closeEdit==="function") ui.closeEdit();
       // tell the user why this frame looks like the other engine
       if(policyFellBack && typeof window.appToast==="function")
-        window.appToast("GPT Image blocked that for content policy — rendered with "+policyFellBack+" instead.", "info");
+        window.appToast("The first image engine declined that for its content policy — rendered with another engine instead.", "info");
     }catch(e){ if(e && (e.__cancelled || e.name==="AbortError")) discardedRun = true;
       else setGenErr((e && e.message) || "Generation failed."); }
     /* OWNERSHIP-SAFE teardown: only the run that still owns the registry entries may
@@ -2653,10 +2653,10 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
             React.createElement("div",{className:"dt-fval"},m.v)))),
           field("Version", meta.version ? ("v"+meta.version) : null),
           field("Approval", typeof window.nbAssetApproval==="function"&&window.nbAssetApproval(meta)
-            ? "Approved for this version · current inputs may still need review" : "Not approved"),
+            ? "Approved for this version · current inputs may still need review" : null),
           // same model-aware gate as the card chip — GPT Image never grounds,
           // even on legacy meta stored before the fix
-          field("Grounding", (meta.grounded && !(typeof isGptImageModel==="function" && isGptImageModel(meta.modelId))) ? (meta.groundImages?"Google Search (web + images)":"Google Search") : null),
+          field("Grounding", (meta.grounded && !(typeof isGptImageModel==="function" && isGptImageModel(meta.modelId))) ? (meta.groundImages?"Web search (web + images)":"Web search") : null),
           field("Prop references", meta.propRefs ? (meta.propRefs+" prop sheet"+(meta.propRefs>1?"s":"")) : null),
           field("Image ID", data && data.id)),
         cam && React.createElement("div",{className:"dt-section dt-camera-section"},
@@ -3444,37 +3444,7 @@ function PropSheetReferenceModal({ prop, onClose }){
     ), document.body);
 }
 
-const ArtReviewContext = typeof React.createContext==="function" ? React.createContext(false) : null;
-function sheetReviewReasons(meta, currentSpec, references){
-  const reasons=[];
-  if(meta&&meta.specPrompt&&currentSpec&&meta.specPrompt!==currentSpec)reasons.push("Specification changed since this image was generated");
-  (references||[]).forEach(r=>{
-    if((r.usedIso&&r.currentIso&&r.usedIso!==r.currentIso)||(!r.usedIso&&r.usedVersion&&r.currentVersion&&r.usedVersion!==r.currentVersion))
-      reasons.push((r.label||"Reference")+" changed"+(r.usedVersion&&r.currentVersion?(" · v"+r.usedVersion+" → v"+r.currentVersion):""));
-    else if(r.missing)reasons.push((r.label||"Reference")+" is no longer available");
-  });
-  return Array.from(new Set(reasons));
-}
-window.sheetReviewReasons=sheetReviewReasons;
-/* Screenplay-page images are transient prompt context rendered from the current
-   script. Their synthetic ids are not Art Room asset ids, so looking them up in
-   image storage will always report them missing even while their thumbnails are
-   present on the card. Only durable generated/imported assets participate in the
-   cross-version reference review. */
-function sheetReviewableReference(ref){
-  if(!ref||!ref.refId)return false;
-  const kind=String(ref.kind||"").toLowerCase();
-  const refId=String(ref.refId||"");
-  return kind!=="script"&&!/^script(?:-main)?-/.test(refId);
-}
-window.sheetReviewableReference=sheetReviewableReference;
-function sheetReviewKey(spec, references, reasons){
-  const value=JSON.stringify([spec||"",references||[],reasons||[]]);
-  let hash=2166136261;
-  for(let i=0;i<value.length;i++)hash=Math.imul(hash^value.charCodeAt(i),16777619);
-  return (hash>>>0).toString(16);
-}
-window.sheetReviewKey=sheetReviewKey;
+/* (the sheet-review helpers and their context were never used — removed 2026-10-06) */
 function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, drafting, onDraft, entity, onView, slotPlaceholder, noun, onDelete, deleteLabel, specGate, extraMeta, menuExtra, dropToImport, hideUploadButton, onStop, generateDisabled, generateDisabledLabel, generateDisabledTitle, generateTitle, onResolveGenerationBlock, referenceControls, editPropRefs, editSuggestions }){
   const { genUrl, genMeta, genTier, gening, genErr, retrying, slotHasRef,
     editMode, setEditMode, editText, setEditText, generate, cancelGen, clearGen, importSheet, relatedClearCount, revertPrevious, layers, allModels } = gen;
@@ -4217,6 +4187,8 @@ function StateRow({ c, st, index, project, scenes, props, drafts, baseGenUrl, on
     referenceFallback: baseGenUrl ? (()=>baseGenUrl) : null,
     referenceFallbackId: baseGenUrl ? c.id : null,
     buildFromPhoto: ()=> buildFromBase(),
+    // which master this variant was made from — a regenerated master flags it (2026-10-06)
+    metaExtra: async ({ mode })=> mode==="base" ? { baseMasterIso: (((typeof nbGetMeta==="function") && nbGetMeta(c.id))||{}).iso||"" } : {},
     buildSimple: buildSimple,
     buildEdit: (instr)=>
       "Edit this character design sheet for "+(c.name||"the character")+" ("+(st.label||"variant")+" state). "
@@ -4242,6 +4214,12 @@ function StateRow({ c, st, index, project, scenes, props, drafts, baseGenUrl, on
     !baseGenUrl && React.createElement("div",{className:"state-hint"},
       React.createElement(Icon.alert,{s:12}),
       "Generate the base sheet above for identity-locked results \u2014 until then this uses the text spec."),
+    (()=>{ const m = gen.genMeta, masterIso = ((typeof nbGetMeta==="function" && nbGetMeta(c.id))||{}).iso||"";
+      return gen.genUrl && m && m.baseMasterIso && masterIso && m.baseMasterIso!==masterIso && React.createElement("div",{className:"state-hint stale"},
+        React.createElement(Icon.alert,{s:12}), "Made from an older master sheet \u2014 regenerate this variant so it matches the current one."); })(),
+    !st.sceneId && React.createElement("div",{className:"state-hint"},
+      React.createElement(Icon.info||Icon.alert,{s:12}),
+      "Not pinned \u2014 no shot uses this state until you pick the scene it first appears in (below)."),
     React.createElement(SheetField,{label:"What changed",value:st.change,multiline:true,
       placeholder:"The visible difference from the base look \u2014 torn shirt, cut brow, dried blood\u2026",
       onCommit:val=>onChange({change:val,suggested:false})}),
@@ -4252,7 +4230,7 @@ function StateRow({ c, st, index, project, scenes, props, drafts, baseGenUrl, on
         scenes.map(s=>React.createElement("option",{key:s.id,value:s.id},"Sc "+s.no+" \u00b7 "+s.title)))));
 }
 
-function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voiceOpen, onOpenVoice, onCloseVoice, onUpdate, onDraft, drafting, onView, onSuggestStates, suggestingStates, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, batchActiveId, onBatchDone, onDelete }){
+function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scenes, props, drafts, cast, speaks, voiceOpen, onOpenVoice, onCloseVoice, onUpdate, onDraft, drafting, onView, onSuggestStates, suggestingStates, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, batchActiveId, onBatchDone, onDelete }){
   const drivenScenes = scenes.filter(s=>s.driver===c.id);
   const driven = drivenScenes.length;
   // ALL scenes this character appears in (drives OR is named in the script/summary), not
@@ -4469,6 +4447,15 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
   const updateState = (id,patch)=> updateStates(states.map(s=>s.id===id?{...s,...patch}:s));
   const deleteState = async (id)=>{
     const vid = c.id+":"+id;
+    // (2026-10-06) it asks first: the variant image is removed for good, and the later states' labels move up
+    const st0 = states.find(s=>s.id===id);
+    if(typeof window.appConfirm==="function"){
+      const has = (typeof nbGetImage==="function") && !!nbGetImage(vid);
+      const ok = await window.appConfirm({ title:"Remove the appearance state \u201c"+((st0&&st0.label)||"variant")+"\u201d?",
+        body:(has ? "Its variant sheet is removed for good. " : "")+"Shots that used it will use "+(c.name||"the character")+"'s earlier look instead, and the later states' version numbers move up.",
+        confirmLabel:"Remove state", cancelLabel:"Cancel", danger:true });
+      if(!ok) return;
+    }
     // stop any in-flight variant generation first (a late commit would recreate the
     // asset we're about to clear), and AWAIT the clear so it can't land after a
     // later re-creation of the same slot
@@ -4596,16 +4583,29 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
                 if(patch.wardrobe!=null){ if((c.wardrobeMask||"").trim()) up.wardrobeMask=patch.wardrobe; else up.wardrobe=patch.wardrobe; }
                 if(patch.accessories!=null) up.accessories=patch.accessories;
                 onUpdate(c.id, up); } })))),
+      // UPDATE SHEET WITH NEW WARDROBE (owner 2026-10-06 — Characters review): the app pointed here from six
+      // places, but the button didn't exist. The master doesn't wear its newly built worn-item sheets yet.
+      wardrobeStale && gen.genUrl && !readOnly && React.createElement("div",{className:"sheet-cameo-status char-wardrobe-update"},
+        React.createElement(Icon.layers||Icon.sparkles,{s:14}),
+        React.createElement("span",{className:"scs-t"},"New wardrobe ready"),
+        React.createElement("span",{className:"scs-meta"},"this sheet doesn't wear its new worn-item sheets yet"),
+        React.createElement("button",{className:"scs-act",disabled:gen.gening,onClick:()=>gen.generate(),
+          title:"Regenerate the master sheet wearing its worn items (one image)"},
+          gen.gening?"Updating\u2026":"Update sheet with new wardrobe", !gen.gening && typeof window.nbCostChip==="function" && window.nbCostChip(1))),
       cameoMeta && React.createElement("div",{className:"sheet-cameo-status"},
         React.createElement(Icon.userScan,{s:14}),
         React.createElement("span",{className:"scs-t"},"Likeness locked"),
         React.createElement("span",{className:"scs-meta"},
           ((cameoMeta.angleCount||1)+" angle"+((cameoMeta.angleCount||1)!==1?"s":""))+" \u00b7 "
-          +(cameoMeta.sync?"Synced":"On this device")+" \u00b7 regenerate to apply it to the sheet"),
+          +(cameoMeta.sync?"Synced":"On this device")+" \u00b7 "
+          // (2026-10-06) says whether the sheet on display was made with it — it always said "regenerate to apply"
+          +((gen.genMeta && gen.genMeta.cameo && !(cameoMeta.iso && gen.genMeta.iso && String(cameoMeta.iso)>String(gen.genMeta.iso)))
+            ? "applied to the sheet" : "regenerate to apply it to the sheet")),
         // locking stores the face-lock; it does NOT overwrite the sheet \u2014 this regenerates
         // the sheet WITH the locked face so the design matches the real person.
         React.createElement("button",{className:"scs-act",disabled:gen.gening,onClick:()=>gen.generate(),
-          title:"Regenerate the design sheet locked to this face"}, gen.gening?"Applying\u2026":"Apply to sheet"),
+          title:"Regenerate the design sheet locked to this face (one image)"}, gen.gening?"Applying\u2026":"Apply to sheet",
+          !gen.gening && typeof window.nbCostChip==="function" && window.nbCostChip(1)),
         React.createElement("button",{className:"scs-act",onClick:()=>setCameoOpen(true)},"Recapture"),
         React.createElement("button",{className:"scs-act danger",onClick:removeCameo},"Remove")),
 
@@ -4658,7 +4658,7 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
                 identityProvenance:{ ...(c.identityProvenance||{}), pronouns:"user" }})},
               [["","set pronouns\u2026"],["he/him","he/him"],["she/her","she/her"],["they/them","they/them"]].map(function(o){return React.createElement("option",{key:o[0]||"unset",value:o[0],disabled:!o[0]},o[1]);})))),
           typeof window.CharacterIdentityNotice==="function" && React.createElement(window.CharacterIdentityNotice,{
-             character:c, scenes, drafts, cast:cast||[c], readOnly:false,
+             character:c, scenes, drafts, cast:cast||[c], readOnly:!!readOnly,
             onUpdate:(id,patch)=>onUpdate(id, { ...(patch||{}), pronounProvenance:"user",
               identityProvenance:{ ...(c.identityProvenance||{}), pronouns:"user" } })
           }),
@@ -4911,7 +4911,7 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
       React.createElement(CardFold,{label:"Scale sheet",defaultOpen:false},
         React.createElement("div",{className:"char-scalesheet-hint"},
           React.createElement(Icon.sparkles,{s:12}),
-          "A full-body height chart on the "+((typeof scaleInfoOf==="function")?scaleInfoOf(c).label:"Human")+" ruler \u2014 rendered from the master sheet. Used as the scale reference in shots; set the class in Identity \u25b8 Scale."),
+          "A full-body height chart on the "+((typeof scaleInfoOf==="function")?scaleInfoOf(c).label:"Human")+" ruler \u2014 rendered from the master sheet, for you to check heights. Shots use the heights and scale class written on the card (Identity \u25b8 Scale), not this image."),
         React.createElement(SheetFrame,{ gen:scaleGenWrapped, slotId:"charscale-"+c.id, name:(c.name||"")+" \u00b7 scale", avatarColor:c.color,
           initials:"H", drafted:true, drafting:false, onDraft:()=>{}, entity:c, onView,
           slotPlaceholder:"Generate the height chart", noun:"scale sheet", dropToImport:true }),
@@ -4931,7 +4931,7 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
       cameoOpen && React.createElement(CameoModal,{ character:c,
         onClose:()=>setCameoOpen(false),
         // locking stores the face-lock reference; turning it INTO the character sheet
-        // means regenerating the 10-panel design locked to that face — offer it right
+        // means regenerating the 4-panel design locked to that face — offer it right
         // away so the likeness doesn't sit unapplied until a manual "Apply to sheet".
         onSaved: async ()=>{
           refreshCameo();
@@ -4947,81 +4947,8 @@ function CharacterSheet({ c, project, scenes, props, drafts, cast, speaks, voice
 
 function NbKeyBar(){
   // key-status bar retired (user ruling 2026-07-19): server-side keys are the norm,
-  // the banner was noise on every tab. Component kept for compatibility.
+  // the banner was noise on every tab. Component kept for compatibility (the old body was removed 2026-10-06).
   return null;
-  const [model, setModelState] = React.useState(()=> (typeof nbGetModel==="function") ? nbGetModel() : "");
-  React.useEffect(()=>{
-    const h = ()=> setModelState((typeof nbGetModel==="function") ? nbGetModel() : "");
-    window.addEventListener("nb-model-changed", h);
-    return ()=>window.removeEventListener("nb-model-changed", h);
-  },[]);
-  const provider = (typeof providerOfModel==="function") ? providerOfModel(model) : "google";
-  const isOAI = (typeof isGptImageModel==="function") ? isGptImageModel(model) : /^gpt-image/.test(model||"");
-  // proxied: this provider's generation runs server-side. Current image models are
-  // fal.ai-first through the Supabase proxy; legacy providers can still fall back.
-  const proxied = provider==="fal" || isOAI || (typeof imageProxyOn==="function" && imageProxyOn());
-  const getKeyFn = isOAI ? oaiGetKey : nbGetKey;
-  const setKeyFn = isOAI ? oaiSetKey : nbSetKey;
-  const label = provider==="fal" ? "fal.ai images" : (isOAI ? "GPT Image" : "Nano Banana");
-  const placeholder = isOAI ? "sk-\u2026" : "AIza\u2026 or AQ.\u2026";
-  const help = isOAI ? "Paste your OpenAI API key to generate with GPT Image"
-                     : "Paste your Google AI Studio API key to generate images";
-  const deviceNote = "Stored on this device only \u2014 keys don't sync across devices, even when your story is synced.";
-  const [key, setKey] = React.useState(()=> getKeyFn());
-  const [editing, setEditing] = React.useState(()=> !getKeyFn());
-  const [val, setVal] = React.useState("");
-  const [warn, setWarn] = React.useState("");
-  // re-sync when the selected provider changes
-  React.useEffect(()=>{ setKey(getKeyFn()); setEditing(!getKeyFn()); setVal(""); setWarn(""); },[provider]);
-  // plausibility check — catches partial pastes / wrong text BEFORE a failed call
-  const keyHint = (k)=>{
-    const clean = (typeof sanitizeKey==="function") ? sanitizeKey(k) : k.trim();
-    if(isOAI){
-      if(!/^sk-/.test(clean)) return "OpenAI keys start with \u201csk-\u201d. This doesn't \u2014 paste the full secret key from platform.openai.com.";
-      if(clean.length < 40) return "That looks too short for an OpenAI key. Paste the whole key (it's ~50+ characters).";
-    } else {
-      // Google issues TWO key formats: legacy "AIza\u2026" and newer "AQ.\u2026".
-      // Don't hard-block on prefix (it was rejecting valid AQ. keys) \u2014 just a
-      // light length sanity check; the API gives a precise message if it's wrong.
-      if(clean.length < 20) return "That looks too short. Paste the whole Google AI Studio key.";
-    }
-    return "";
-  };
-  // a previously-saved key that fails the check is NOT really connected — drop
-  // into edit mode and say why, instead of showing a false "connected" badge.
-  React.useEffect(()=>{
-    const k = getKeyFn();
-    if(k && keyHint(k)){ setEditing(true); setWarn(keyHint(k)); }
-  },[provider]);
-  const save = ()=>{
-    const k = (typeof sanitizeKey==="function") ? sanitizeKey(val) : val.trim();
-    if(!k) return;
-    const h = keyHint(k);
-    if(h){ setWarn(h); return; }   // block obviously-malformed keys, explain why
-    setKeyFn(k); setKey(k); setVal(""); setWarn(""); setEditing(false);
-  };
-  const clear = ()=>{ setKeyFn(""); setKey(""); setVal(""); setWarn(""); setEditing(true); };
-  // Proxied providers run server-side — the browser holds no key. Show an
-  // informational strip instead of a key input. (Always for GPT Image; for Nano
-  // Banana only when the image proxy is enabled.)
-  // operator info only — the admin account sees the strip; everyone else nothing
-  if(proxied) return window.turnIsAdmin ? React.createElement("div",{className:"nb-keybar set"},
-    React.createElement(Icon.check,{s:14}),
-    React.createElement("span",null,label+" run on your server"),
-    React.createElement("span",{className:"nb-key-note"},"\u00b7 no key needed in the browser; sign in to use it")) : null;
-  if(!editing && key) return React.createElement("div",{className:"nb-keybar set"},
-    React.createElement(Icon.check,{s:14}),
-    React.createElement("span",null,label+" connected"),
-    React.createElement("span",{className:"nb-key-note"},"\u00b7 this device only"),
-    React.createElement("button",{className:"nb-key-link",onClick:clear},"Change key"));
-  return React.createElement("div",{className:"nb-keybar"+(warn?" warn":"")},
-    React.createElement(Icon.alert,{s:14}),
-    React.createElement("div",{className:"nb-key-help"},
-      React.createElement("span",{className:"nb-key-lab"},help),
-      React.createElement("span",{className:"nb-key-note"}, warn || deviceNote)),
-    React.createElement("input",{className:"nb-key-input",type:"password",placeholder:placeholder,value:val,
-      onChange:e=>{ setVal(e.target.value); if(warn) setWarn(""); },onKeyDown:e=>{ if(e.key==="Enter") save(); }}),
-    React.createElement("button",{className:"nb-key-save",onClick:save,disabled:!val.trim()},"Save"));
 }
 
 function NbControls(){
@@ -5467,7 +5394,7 @@ window.charLookbookFirstHint = charLookbookFirstHint;
 window.turnFocusArtScene = (tab, sceneId, action)=>{ window.turnArtFocus = { tab, sceneId, action:action||"", at:Date.now() }; };
 window.turnPeekArtFocus = (tab)=>{ const f = window.turnArtFocus; return (f && f.tab===tab && Date.now()-f.at<15000) ? f : null; };
 window.turnClearArtFocus = (tab)=>{ const f = window.turnArtFocus; if(f && f.tab===tab) window.turnArtFocus = null; };
-function CharacterSheets({ project, characters, scenes, props, drafts, shots, beatsMap, onUpdate, onDraft, onDraftAll, draftingId, draftingAll, draftingIds, onSuggestStates, suggestingStatesId, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, onDelete, onCast, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, lookbook, lookbookNote, onOpenLookbook }){
+function CharacterSheets({ readOnly=false, wardrobeIds=[], project, characters, scenes, props, drafts, shots, beatsMap, onUpdate, onDraft, onDraftAll, draftingId, draftingAll, draftingIds, onSuggestStates, suggestingStatesId, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, onDelete, onCast, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, lookbook, lookbookNote, onOpenLookbook }){
   const [view, setView] = React.useState(null);   // {url, character}
   // Keep one open flag per character so several card-contained Voice cards can
   // remain open independently without sharing UI state.
@@ -5723,7 +5650,7 @@ function CharacterSheets({ project, characters, scenes, props, drafts, shots, be
           React.createElement(Icon.robot,{s:14}),"Design this scene's cast"))),
     BatchBar && React.createElement(BatchBar,{batch,noun:"character"}),
     React.createElement("div",{className:"sheet-grid"},
-      charPager.slice(shown).map(c=>React.createElement(CharacterSheet,{key:c.id,c,project,scenes,props,drafts,cast:characters,speaks:speakingSet.has(c.id),onUpdate,onDraft,
+      charPager.slice(shown).map(c=>React.createElement(CharacterSheet,{key:c.id,c,readOnly,wardrobeStale:(wardrobeIds||[]).indexOf(c.id)>=0,project,scenes,props,drafts,cast:characters,speaks:speakingSet.has(c.id),onUpdate,onDraft,
         voiceOpen:openVoiceIds.indexOf(c.id)>=0,onOpenVoice:openVoice,onCloseVoice:closeVoice,
         drafting:draftingId===c.id||(draftingIds||[]).indexOf(c.id)>=0,onView:(url,ch)=>setView({url,character:ch}),
         batchActiveId,onBatchDone:batch.advance,onDelete:onDelete,
@@ -5812,7 +5739,7 @@ function CoordConfirm({ project, characters, props, locations, shots, scenes, dr
   const tierOf = (p)=>{ try{ return (window.PropScreenplay && window.PropScreenplay.sheetTier) ? window.PropScreenplay.sheetTier(p, drafts||{}).tier : "own"; }catch(e){ return "own"; } };
   const lines = [
     { id:"cast",     label:"Cast sheets",         unit:"sheet",   n:C.filter(c=>c && !img(c.id)).length },
-    { id:"variants", label:"Appearance variants", unit:"variant", n:C.reduce((a,c)=> a + ((c&&c.states)||[]).filter(st=>st && !img(c.id+":"+st.id)).length, 0) },
+    { id:"variants", label:"Appearance variants", unit:"variant", n:C.reduce((a,c)=> a + ((c&&c.states)||[]).filter(st=>st && st.sceneId && !img(c.id+":"+st.id)).length, 0) },
     { id:"props",    label:"Prop sheets",         unit:"sheet",   n:P.filter(p=>p && !img(p.id) && (p.kind==="worn" || tierOf(p)!=="text")).length },
     { id:"wardrobe", label:"Wardrobe updates",    unit:"re-rendered sheet", n:Math.max(0, Number(wardrobeCount)||0) },
     { id:"plates",   label:"Location plates",     unit:"plate",   n:L.filter(l=>l && !img(l.id)).length },
@@ -5876,7 +5803,7 @@ function castDesignPlan(characters, scope, sceneIds, withVariants){
     : scope==="missing" ? C.filter(c=>!img(c.id)) : C;
   const specs = list.filter(c=>!drafted(c)).length;
   const sheets = list.filter(c=>!img(c.id)).length;
-  const variants = withVariants ? list.reduce((a,c)=> a + ((c.states)||[]).filter(st=>st && !img(c.id+":"+st.id)).length, 0) : 0;
+  const variants = withVariants ? list.reduce((a,c)=> a + ((c.states)||[]).filter(st=>st && st.sceneId && !img(c.id+":"+st.id)).length, 0) : 0;   // pinned only, as the Casting Director makes
   const noStates = withVariants ? list.filter(c=>!((c.states)||[]).length).length : 0;
   return { ids:list.map(c=>c.id), n:list.length, specs, sheets, variants, noStates, images:sheets+variants };
 }
@@ -5999,7 +5926,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
   onSuggestStates, suggestingStatesId, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDeleteCharacter,
   onUpdateProp, onDraftProp, onDraftAllProps, onAddProp, onImportProps, onDeleteProp, draftingPropIds, draftingPropId, draftingAllProps, onMergeProps, castHasProps,
   locations, onUpdateLocation, onDraftLocation, onDraftAllLocs, onDeleteLocation, draftingLocIds, draftingAllLocs, scriptHasLocs, onSetFilmStock, onUpdatePreset, onDeletePreset, onSetStyleRefs, onSetScenePreset, onAddStyleRefImages, onRemoveStyleRefImage, onDraftStaging, draftingStageId, sluglineUnits, onUpdateUnit, onRemoveUnit,
-  shots, beatsMap, onMakeSceneNeeds, onOpenStage, colorRefsOwned, onUseLookbookColorRefs, onKeepColorRefs, onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onRemoveMicroBeatShots, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onColorist, onCast,
+  shots, beatsMap, onMakeSceneNeeds, onOpenStage, wardrobeIds, colorRefsOwned, onUseLookbookColorRefs, onKeepColorRefs, onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onRemoveMicroBeatShots, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onColorist, onCast,
   lookbook, lookbookNote, onUpdateLookbook, onAddLookbook, onDeleteLookbook, onSetLookbookNote, onResearch,
   onResearchFresh, onRestoreLookbook, onPurgeLookbook, onSuggestLookbookNote, suggestingLookbookId,
   staleTabs, onApplyLookbook, onSourceClick, canReview=false, onReviewLookbook, readOnly=false }){
@@ -6046,7 +5973,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
     if(typeof nbPrefetchAll==="function") nbPrefetchAll().then(()=>nbPreloadFor(ids)); else nbPreloadFor(ids);
   },[artView, projId, lockedView, (characters||[]).length, (props||[]).length, (locations||[]).length, (shots||[]).length, (lookbook||[]).length]);
 
-  return React.createElement(ArtReviewContext.Provider,{value:!!canReview},React.createElement("div",{
+  return React.createElement("div",{
     className:"artroom"+(readOnly?" is-readonly":"")+(lockedView?" is-locked":""),
     "aria-disabled":(readOnly && !lockedView)?"true":undefined,
     /* Art cards own several direct image-generation/edit controls rather than
@@ -6073,7 +6000,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
           onUpdate:onUpdateLookbook,onAdd:onAddLookbook,onDelete:onDeleteLookbook,onSetNote:onSetLookbookNote,onResearch,
           onResearchFresh,onRestore:onRestoreLookbook,onPurge:onPurgeLookbook,onSuggestNote:onSuggestLookbookNote,suggestingId:suggestingLookbookId})
     : artView==="characters"
-      ? React.createElement(CharacterSheets,{project,characters,scenes,props,drafts,shots,beatsMap,onUpdate:onUpdateChar,
+      ? React.createElement(CharacterSheets,{readOnly,wardrobeIds:wardrobeIds||[],project,characters,scenes,props,drafts,shots,beatsMap,onUpdate:onUpdateChar,
           onDraftProp,onCreateOwnedProp,
           onDraft:onDraftVisuals,onDraftAll:onDraftAllVisuals,draftingId:draftingVisualId,draftingAll:draftingAllVisuals,draftingIds:draftingVisualIds,
           trashItems:(trash&&trash.characters)||[],onRestore:onRestoreChar,onPurge:onPurgeChar,
@@ -6112,6 +6039,6 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
       ? React.createElement(window.StoryboardView,{project,scenes,shots,characters,props,locations,beatsMap,setArtView,onUpdateShot,readOnly})
       : artView==="breakdown" && window.BreakdownView
       ? React.createElement(window.BreakdownView,{project,scenes,characters,props,locations,shots,drafts,setArtView,onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds,onOpenStage,readOnly})
-      : React.createElement(ArtComingSoon,{tab:artView})));
+      : React.createElement(ArtComingSoon,{tab:artView}));
 }
 window.ArtRoom = ArtRoom;

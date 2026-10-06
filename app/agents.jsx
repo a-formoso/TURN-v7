@@ -1824,6 +1824,8 @@ async function agentCastingDirector(ctx){
     for(const st of (withVariants ? (c.states||[]) : [])){
       if(ctx.cancelled()){ ctx.emit({k:"flag", t:"Stopped — "+sheets+" sheets, "+variants+" variants."}); return; }
       const sid = c.id+":"+st.id;
+      // an unpinned state is never used by a shot — don't pay for its variant (2026-10-06, owner — Characters review)
+      if(!st.sceneId){ ctx.emit({k:"observe", t:(c.name||"Character")+" — \u201c"+(st.label||"variant")+"\u201d isn't pinned to a scene, so no shot uses it; skipped. Pick the scene it first appears in on the card."}); continue; }
       const have = ctx.force ? "" : await cast.imageOf(sid);
       if(have) continue;
       ctx.emit({k:"act", t:"Generating "+(c.name||"the character")+" — “"+(st.label||"variant")+"”…"});
