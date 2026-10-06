@@ -1832,7 +1832,9 @@ async function agentCastingDirector(ctx){
       catch(e){ ctx.emit({k:"flag", t:"Couldn't generate "+(c.name||"the character")+" — “"+(st.label||"variant")+"”: "+((e&&e.message)||e)+"."}); }
     }
   }
-  if(ctx.art.markApplied && (ctx.force||specs||sheets||variants)) ctx.art.markApplied("characters");
+  // (2026-10-06) only a forced run that re-drafted specs marks the department — each drafted card records its own
+  // Lookbook anyway; a run where every draft failed never marks it
+  if(ctx.art.markApplied && ctx.force && specs>0) ctx.art.markApplied("characters");
   ctx.emit({k:"done", t: ctx.draftOnly
     ? "Cast re-drafted — "+specs+" spec"+(specs!==1?"s":"")+" updated from the Lookbook. Sheets left untouched — regenerate them from the Characters tab when ready."
     : "Cast designed — "+specs+" spec"+(specs!==1?"s":"")+" drafted, "+sheets+" master sheet"+(sheets!==1?"s":"")+", "+variants+" appearance variant"+(variants!==1?"s":"")+". Review and tweak any in the Characters tab."});
@@ -1914,7 +1916,7 @@ async function agentPropsMaster(ctx){
   // draft-only ("Re-draft only" on the Lookbook-stale banner): the specs now carry the
   // updated Lookbook — stop before generation so every existing sheet stays untouched.
   if(ctx.draftOnly){
-    if(ctx.art.markApplied) ctx.art.markApplied("props");
+    if(ctx.art.markApplied && drafted>0) ctx.art.markApplied("props");
     ctx.emit({k:"done", t:"Props re-drafted — "+castN+" brief proposal"+(castN!==1?"s":"")+", "+drafted+" spec"+(drafted!==1?"s":"")+" updated from the Lookbook. Sheets left untouched — regenerate them from the Props tab when ready."});
     return;
   }
@@ -1923,7 +1925,7 @@ async function agentPropsMaster(ctx){
   let todo=[];
   try{ todo = await pm.toGenerate(ctx.force); }catch(e){}
   if(!todo.length){
-    if(ctx.art.markApplied && (ctx.force||drafted)) ctx.art.markApplied("props");
+    if(ctx.art.markApplied && ctx.force && drafted>0) ctx.art.markApplied("props");
     ctx.emit({k:"done", t:"Props ready — "+castN+" brief proposal"+(castN!==1?"s":"")+", "+drafted+" drafted; every drafted prop that needs its own image already has one."}); return;
   }
   ctx.emit({k:"act", t:"Generating "+todo.length+" prop sheet"+(todo.length!==1?"s":"")+"…"});
@@ -1935,7 +1937,7 @@ async function agentPropsMaster(ctx){
       ctx.emit({k:"ok", t:(p.name||"Prop")+" — sheet generated."}); }
     catch(e){ ctx.emit({k:"flag", t:"Couldn't generate "+(p.name||"the prop")+"'s sheet: "+((e&&e.message)||e)+". Moving on."}); }
   }
-  if(ctx.art.markApplied && (ctx.force||drafted||sheets)) ctx.art.markApplied("props");
+  if(ctx.art.markApplied && ctx.force && drafted>0) ctx.art.markApplied("props");
   ctx.emit({k:"done", t:"Props mastered — "+castN+" brief proposal"+(castN!==1?"s":"")+", "+drafted+" drafted, "+sheets+" sheet"+(sheets!==1?"s":"")+" generated. Worn props that changed show on their owner's sheet as a wardrobe update."});
 }
 
@@ -1946,7 +1948,7 @@ async function agentLocationScout(ctx){
     ctx.emit({k:"done", t:"Nothing to do."}); return;
   }
   ctx.emit({k:"plan", t: ctx.draftOnly
-    ? "Re-drafting the locations from the updated Lookbook — pull any new places, re-draft each spec + depth-grid staging. Specs only — every generated plate stays untouched."
+    ? "Re-drafting the locations from the updated Lookbook — pull any new places and re-draft each spec (a place without depth-grid staging gets it; staging you already have stays). Specs only — every generated plate stays untouched."
     : "Scouting the film's locations — pull every place from the sluglines, draft each one's staging + depth-grid spec, generate the plate, and add the time-of-day variants the script needs. Plus a coverage check: any scene whose slugline location has no card yet."});
 
   // 1) pull locations from the sluglines (and refresh existing scene lists / times)
@@ -1993,7 +1995,7 @@ async function agentLocationScout(ctx){
   // draft-only ("Re-draft only" on the Lookbook-stale banner): the specs + staging now
   // carry the updated Lookbook — stop before generation so every plate stays untouched.
   if(ctx.draftOnly){
-    if(ctx.art.markApplied) ctx.art.markApplied("locations");
+    if(ctx.art.markApplied && specs>0) ctx.art.markApplied("locations");
     ctx.emit({k:"done", t:"Locations re-drafted — "+specs+" spec"+(specs!==1?"s":"")+" updated from the Lookbook"+(staged?(", "+staged+" staged"):"")+". Plates left untouched — regenerate them from the Locations tab when ready."});
     return;
   }
@@ -2003,7 +2005,7 @@ async function agentLocationScout(ctx){
   try{ plates = await ls.toGeneratePlates(ctx.force); }catch(e){}
   try{ variants = await ls.toGenerateVariants(ctx.force); }catch(e){}
   if(!plates.length && !variants.length){
-    if(ctx.art.markApplied && (ctx.force||specs)) ctx.art.markApplied("locations");
+    if(ctx.art.markApplied && ctx.force && specs>0) ctx.art.markApplied("locations");
     ctx.emit({k:"done", t:"Locations ready — "+added+" pulled, "+specs+" drafted; every plate is already generated."}); return;
   }
   ctx.emit({k:"act", t:"Generating "+plates.length+" plate"+(plates.length!==1?"s":"")+(variants.length?(" + "+variants.length+" variant"+(variants.length!==1?"s":"")):"")+"…"});
@@ -2023,7 +2025,7 @@ async function agentLocationScout(ctx){
       madeV++; ctx.emit({k:"ok", t:(l.name||"Location")+" — "+(v.time||"variant")+" generated."}); }
     catch(e){ ctx.emit({k:"flag", t:"Couldn't generate "+(l.name||"the location")+" — "+(v.time||"variant")+": "+((e&&e.message)||e)+"."}); }
   }
-  if(ctx.art.markApplied && (ctx.force||specs||madeP||madeV)) ctx.art.markApplied("locations");
+  if(ctx.art.markApplied && ctx.force && specs>0) ctx.art.markApplied("locations");
   ctx.emit({k:"done", t:"Locations scouted — "+added+" pulled, "+specs+" drafted, "+madeP+" plate"+(madeP!==1?"s":"")+" + "+madeV+" variant"+(madeV!==1?"s":"")+" generated. Tweak any in the Locations tab."});
 }
 
@@ -2037,7 +2039,7 @@ async function agentVisualResearcher(ctx){
     ctx.emit({k:"flag", t:"The writing model isn't available — the Visual Researcher needs it to research the look."});
     ctx.emit({k:"done", t:"Aborted."}); return;
   }
-  ctx.emit({k:"plan", t:"Researching the film's visual language — writing the look statement, gathering/deduping reference touchstones across every department (palette, lighting, lens, texture, plus wardrobe for the cast and production design for props & sets), and proposing the film's RENDER STYLE from the story (approval-gated — a yes sets every character/prop/location style dropdown in one pass). Use “Generate all frames” afterwards when you want to render mood frames."});
+  ctx.emit({k:"plan", t:"Researching the film's visual language — writing the look statement, gathering/deduping reference touchstones across every department (palette, lighting, lens, texture, plus wardrobe for the cast and production design for props & sets), and proposing the film's RENDER STYLE from the story (approval-gated — a yes sets every character/prop/location style dropdown in one pass). Use “Generate missing frames” afterwards when you want to render mood frames."});
 
   // 0) REPAIR — a lookbook that outgrew its 8-touchstone brief (the pre-guard
   // growth bug stacked +8 cards per re-run). Approval-gated: keeps every hand-added
@@ -2046,7 +2048,11 @@ async function agentVisualResearcher(ctx){
   if(typeof lb.trimPlan==="function" && typeof lb.applyTrim==="function"){
     let plan=null;
     try{ plan = await lb.trimPlan(); }catch(e){}
-    if(plan && plan.drop && plan.drop.length){
+    // Run pre-production approves its steps automatically — and a trim removes cards for good, so it
+    // never trims there; it says so instead (owner 2026-10-06 — Lookbook review)
+    if(plan && plan.drop && plan.drop.length && ctx.autoApprove){
+      ctx.emit({k:"observe", t:"This lookbook holds "+(plan.keep.length+plan.drop.length)+" references, more than its 8-touchstone brief. Run pre-production doesn't trim it (a trim removes cards for good) \u2014 run 'Research the look' on the Lookbook tab to review a trim."});
+    } else if(plan && plan.drop && plan.drop.length){
       ctx.emit({k:"observe", t:"This lookbook holds "+(plan.keep.length+plan.drop.length)+" references — far past its 8-touchstone brief (an earlier bug let every re-run add more). "+plan.drop.length+" are excess: agent-added, no rendered frame, category already covered."});
       const ok = await ctx.propose({
         title:"Trim the lookbook back to its brief",
@@ -2066,13 +2072,13 @@ async function agentVisualResearcher(ctx){
   // and every category already holds a noted touchstone, so a re-run would only spend a
   // writing call re-proposing the same wall (and re-offer the render style the user has
   // already settled). This also covers every "Run pre-production" re-run, which chains
-  // this agent first. To research from scratch, clear the look statement first.
+  // this agent first. To research from scratch: Research again ▸ Research from scratch (lookbookFreshRef).
   if(typeof lb.researched==="function" && lb.researched()){
     let todo=[]; try{ todo = await lb.toGenerate(); }catch(e){}
     ctx.emit({k:"observe", t:"This lookbook is already researched — the look statement is written and every category holds a noted touchstone. Skipping re-research so nothing duplicates."});
     ctx.emit({k:"done", t:"Visual research already complete — nothing re-run."
-      +(todo.length?(" “Generate all frames” will render "+todo.length+" missing mood frame"+(todo.length!==1?"s":"")+"."):" Every mood frame is rendered.")
-      +" To research the look from scratch, clear the look statement in the Lookbook and run again."});
+      +(todo.length?(" “Generate missing frames” will render "+todo.length+" missing mood frame"+(todo.length!==1?"s":"")+"."):" Every mood frame is rendered.")
+      +" To research the look from scratch, use Research again \u25b8 Research from scratch on the Lookbook tab."});
     return;
   }
 
@@ -2081,6 +2087,8 @@ async function agentVisualResearcher(ctx){
   let res;
   try{ res = await lb.research(); }
   catch(e){ ctx.emit({k:"flag", t:"Research hit an error: "+((e&&e.message)||e)}); }
+  if(res && res.failed){ ctx.emit({k:"flag", t:"The research came back empty \u2014 your Lookbook is unchanged (nothing was moved to Recently deleted). Try again in a moment."});
+    ctx.emit({k:"done", t:"Nothing changed."}); return; }
   if(res && res.statement) ctx.emit({k:"observe", t:"Look statement — "+res.statement.slice(0,150)});
   ctx.emit({k:"observe", t:(res&&res.added ? ("Gathered "+res.added+" reference"+(res.added!==1?"s":"")) : "References already gathered")+" — the colour system (the Color tab) reads these directly when it designs the palette."});
   if(ctx.cancelled()) return;
@@ -2111,7 +2119,7 @@ async function agentVisualResearcher(ctx){
 
   let todo=[];
   try{ todo = await lb.toGenerate(); }catch(e){}
-  ctx.emit({k:"done", t:"Lookbook researched — "+((res&&res.added)||0)+" new reference"+((res&&res.added)===1?"":"s")+" added. "+(todo.length?("Generate all frames will render "+todo.length+" missing mood frame"+(todo.length!==1?"s":"")+"."):"Every mood frame is already rendered.")});
+  ctx.emit({k:"done", t:"Lookbook researched — "+((res&&res.added)||0)+" new reference"+((res&&res.added)===1?"":"s")+" added. "+(todo.length?("Generate missing frames will render "+todo.length+" missing mood frame"+(todo.length!==1?"s":"")+"."):"Every mood frame is already rendered.")});
 }
 
 async function agentDepartmentCoordinator(ctx){
@@ -2128,7 +2136,7 @@ async function agentDepartmentCoordinator(ctx){
     ["Colour",     agentColorist],
     ["Shots",      agentShotDesigner],
   ];
-  ctx.emit({k:"plan", t:"Running the whole pre-production pipeline in dependency order — the lookbook first (it steers the look), then the CAST, then the PROPS (each worn/owned prop references its owner's sheet so it matches that character), then DRESSING the cast in their finalized worn props, then locations, then the colour system, then shot coverage. It runs end to end WITHOUT stopping — the colour and shot-coverage steps are applied automatically, no approval needed. Press Stop anytime."});
+  ctx.emit({k:"plan", t:"Running the whole pre-production pipeline in dependency order — the lookbook first (it steers the look), then the CAST, then the PROPS (each worn/owned prop references its owner's sheet so it matches that character), then DRESSING the cast in their finalized worn props, then locations, then the colour system, then shot coverage. It runs end to end WITHOUT stopping — the Lookbook's render-style pick (it sets the style on every character, prop and location), the colour system and the shot coverage are applied automatically, no approval needed. Press Stop anytime."});
   // each sub-agent emits its own k:"done" when its stage finishes — relabel those to k:"ok"
   // so each stage reads as one completed step and only THIS coordinator emits the final done.
   // propose() is auto-approved so the two gated steps (Colour, Shots) apply without pausing.
@@ -2831,7 +2839,7 @@ const AGENTS = [
     blurb:"Adds the worn/carried items listed in the cast's character briefs as proposals, drafts every prop's spec, and generates the reference images for the props that need their own (text-only objects are described in shots instead), each owned prop referencing its owner's character sheet so it matches that character's look (runs after the cast). It never adds or merges screenplay props \u2014 use Props \u2192 Extract screenplay props for that. Runs autonomously; press Stop anytime.",
     run:agentPropsMaster },
   { id:"researcher", name:"Visual Researcher", icon:"image", kind:"build", room:"art", autonomous:true,
-    blurb:"Builds the film's lookbook brief — writes the visual statement, gathers/dedupes reference touchstones (palette, lighting, lens, texture), and proposes the film's RENDER STYLE from the story (your approval sets every character/prop/location style dropdown in one pass). Use Generate all frames afterwards to render the mood frames. The colour system (the Color tab) reads these references when it designs the palette.",
+    blurb:"Builds the film's lookbook brief — writes the visual statement, gathers/dedupes reference touchstones (palette, lighting, lens, texture), and proposes the film's RENDER STYLE from the story (your approval sets every character/prop/location style dropdown in one pass). Use Generate missing frames afterwards to render the mood frames. The colour system (the Color tab) reads these references when it designs the palette.",
     run:agentVisualResearcher },
   { id:"locscout", name:"Location Scout", icon:"globe", kind:"build", room:"art", autonomous:true,
     blurb:"Scouts your film's locations on its own \u2014 pulls every place from the sluglines, drafts each one's staging + depth-grid spec, generates the plate, and adds the time-of-day variants the script calls for. Also flags any scene whose slugline location has no card yet. Runs autonomously; press Stop anytime.",

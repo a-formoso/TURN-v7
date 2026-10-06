@@ -161,12 +161,15 @@ await test("E1 once researched, the button is 'Research again' with two choices"
   const fresh = box.LookbookView({ project:{}, lookbook:[], note:"", onUpdate:noop, onAdd:noop, onDelete:noop, onSetNote:noop, onResearch:noop, onResearchFresh:noop });
   assert.ok(findAll(fresh, n=>n.type==="button" && /Research the look/.test(textOf(n))).length >= 1, "an empty lookbook: 'Research the look'");
 });
-await test("E2 from scratch: asks, moves the researched cards (not the hand-added ones) to the bin, clears the statement, opens the agent next tick", ()=>{
+await test("E2 from scratch: asks, then the researched cards (not the hand-added ones) move to the bin only when the new research lands", ()=>{
   const app = read("app/app.jsx");
   const f = app.slice(app.indexOf("const researchLookbookFresh = async ()=>{"), app.indexOf("const purgeLookbookCard"));
   assert.ok(f.includes('title:"Research the look from scratch?"'));
-  assert.ok(f.includes("(c && !c.deletedAt && !c.manual && !c.autoNamed) ? { ...c, deletedAt:at } : c"));
-  assert.ok(f.includes('setLookbookNote("");') && f.includes("setTimeout(()=>setResearchOpen(true), 0);"));
+  // (2026-10-06, second pass) nothing is binned before the run — the swap happens in the research step
+  assert.ok(f.includes("lookbookFreshRef.current = true;") && !f.includes('setLookbookNote("");'));
+  const surf = app.slice(app.indexOf("const fresh = !!lookbookFreshRef.current;"), app.indexOf("// keep an existing statement"));
+  assert.ok(surf.includes("_w.setLookbook(ls=>ls.map(c=> (c && !c.deletedAt && !mine(c)) ? { ...c, deletedAt:at } : c));"));
+  assert.ok(surf.indexOf("if(!r || (!r.statement && !(r.refs||[]).length)) return") < surf.indexOf("_w.setLookbook("), "only after a result");
   assert.ok(app.includes("onResearchFresh:roomReadOnly ? null : researchLookbookFresh,"));
 });
 

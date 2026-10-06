@@ -365,7 +365,7 @@ window.InfoTip = InfoTip;
    film-strip + preset cards. "Assign from script" writes the scene→preset map
    (scene-level, the source of truth); characters / locations / shots merely READ it. */
 function StyleBibleView({ project, scenes, onSetRefs, onSetScenePreset, onAddRefImages, onRemoveRefImage, onColorist, lookbookStale, onApplyLookbook,
-  onSetFilmStock, onUpdatePreset, onDeletePreset }){
+  onSetFilmStock, onUpdatePreset, onDeletePreset, refsOwned=false, onUseLookbookRefs, onKeepRefs }){
   const { presets, sceneStyles, sceneStylesManual, refs, refImages, filmStock, paletteWhy } = styleBibleOf(project);
   const scenesFor = (pid)=> scenesInStoryOrder((scenes||[]).filter(s=>sceneStyles[s.id]===pid));
   // NOT LIT YET: until the Colorist (or an edit) gives the film its own looks, the starter set is
@@ -381,7 +381,14 @@ function StyleBibleView({ project, scenes, onSetRefs, onSetScenePreset, onAddRef
   };
   const stockNow = (window.FILM_STOCKS||[]).find(f=>f.id===filmStock) || { id:"none", name:"None (clean digital)" };
   return React.createElement("div",{className:"art-scroll"},
-    window.LookbookStaleNotice && React.createElement(window.LookbookStaleNotice,{stale:lookbookStale,onApply:onApplyLookbook,label:"this palette",dept:"colorist",
+    // the references field is YOUR text: Light the film reads it, so the Lookbook change can't apply — say so (2026-10-06)
+    lookbookStale && refsOwned && React.createElement("div",{className:"lb-stale-notice",role:"status"},
+      React.createElement(Icon.alert,{s:14}),
+      React.createElement("span",null,"The ",React.createElement("b",null,"Lookbook")," changed, but the Visual references below are your own words, so Light the film reads them, not the Lookbook. Put the Lookbook\u2019s colour notes back, or keep yours."),
+      onUseLookbookRefs && React.createElement("button",{className:"lb-stale-btn ghost",onClick:onUseLookbookRefs,
+        title:"Replace your text with the Lookbook's colour notes (the field follows the Lookbook again); then Light the film to use them"},"Use the Lookbook\u2019s colour notes"),
+      onKeepRefs && React.createElement("button",{className:"lb-stale-btn ghost",onClick:onKeepRefs,title:"Keep your references; this banner goes away until the Lookbook changes again"},"Keep mine")),
+    !refsOwned && window.LookbookStaleNotice && React.createElement(window.LookbookStaleNotice,{stale:lookbookStale,onApply:onApplyLookbook,label:"this palette",dept:"colorist",
       applyLabel:"Light the film again", applyTitle:"The Colorist proposes a new palette from the updated Lookbook \u2014 for your approval; scenes you set by hand (\u270b) keep their look. Writing credits only, no images."}),
     React.createElement("div",{className:"art-intro"},
       React.createElement("div",{className:"art-intro-row"},

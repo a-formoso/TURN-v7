@@ -2412,7 +2412,9 @@ async function ensureCarriedPropSheets(sh, scene, charById, propById, project, e
           const drafted = !!(String(p.form||"").trim() && String(p.material||"").trim());
           if(!drafted && typeof window.aiPropVisuals==="function"){
             try{
-              const patch = await window.aiPropVisuals(p, Object.values(charById||{}), project);
+              // with the props' Lookbook brief, like every other prop draft (and the card records it — 2026-10-06)
+              const lbBrief = (typeof window.turnLookbookBriefFor==="function") ? window.turnLookbookBriefFor("props") : undefined;
+              const patch = await window.aiPropVisuals(p, Object.values(charById||{}), lbBrief!==undefined ? { ...(project||{}), _lookbookBrief:lbBrief } : project);
               if(patch){
                 prop = { ...p, ...patch };
                 // the prop card's spec fields live in App state — hand the draft back

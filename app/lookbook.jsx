@@ -241,12 +241,30 @@ window.lookbookBriefFor = lookbookBriefFor;
    drafted content (contentFlags[dept]) AND the current brief differs from the one last applied
    (applied[dept]). Scoped per-category by lookbookBriefFor, so editing a Palette card flags only
    the colorist, editing the statement flags everything. Returns { dept:true }. */
-function lookbookStaleDepts(lookbook, statement, applied, contentFlags){
+/* the fingerprint of a department's brief a drafted card records (owner 2026-10-06) */
+function lookbookBriefStamp(brief){
+  const t = String(brief||"").trim();
+  return "lb-"+((typeof storyRevisionOf==="function") ? storyRevisionOf(t) : String(t.length));
+}
+window.lookbookBriefStamp = lookbookBriefStamp;
+/* PER CARD (owner 2026-10-06 — Lookbook review): with `cardsByDept`, a department is out of date when
+   one of its DRAFTED cards was drafted from an older brief — its own `lookbookBrief` stamp; a card the
+   model drafted before stamps existed (writingProvenance, no stamp) follows the department record as
+   before; a card written by hand is never flagged. Without `cardsByDept` (Color, Shots) the department
+   rule stands. */
+function lookbookStaleDepts(lookbook, statement, applied, contentFlags, cardsByDept){
   const out = {};
   Object.keys(LOOKBOOK_ROUTING).forEach(dept=>{
-    if(!(contentFlags && contentFlags[dept])) return;        // nothing drafted → nothing to be stale about
     const cur = lookbookBriefFor(dept, lookbook, statement);
     const was = (applied && applied[dept]) || "";
+    const cards = cardsByDept && cardsByDept[dept];
+    if(Array.isArray(cards)){
+      const now = lookbookBriefStamp(cur);
+      if(cards.some(c=>c && c.lookbookBrief && c.lookbookBrief!==now)){ out[dept] = true; return; }
+      if(cards.some(c=>c && !c.lookbookBrief && c.writingProvenance) && cur!==was) out[dept] = true;
+      return;
+    }
+    if(!(contentFlags && contentFlags[dept])) return;        // nothing drafted → nothing to be stale about
     if(cur !== was) out[dept] = true;
   });
   return out;

@@ -108,7 +108,7 @@ const ast=parseSync(ai,{sourceType:"script",parserOpts:{plugins:["jsx"]},babelrc
 const draftFn=ast.program.body.find(n=>n.type==="FunctionDeclaration"&&n.id.name==="aiDesignLocationBible");
 // the real genre helper the prompt header uses
 {const g=ast.program.body.find(n=>n.type==="FunctionDeclaration"&&n.id.name==="genreTag");vm.runInContext(ai.slice(g.start,g.end),box);}
-Object.assign(box,{aiAvailable:()=>true,writingProjectOf:p=>p,writingLoglineOf:()=>"",_lookbookBlock:()=>"",
+Object.assign(box,{aiAvailable:()=>true,writingProjectOf:p=>p,writingLoglineOf:()=>"",_lookbookBlock:()=>"",_lookbookStamp:()=>undefined,
   extractJSON:JSON.parse,mapLocEntry:e=>e,writingStamp:()=>({}),locationScreenplayContext:()=>"Script evidence"});
 const prompts=[];
 box.claude={complete:async({messages})=>{

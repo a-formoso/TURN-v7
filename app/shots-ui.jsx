@@ -2606,7 +2606,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
   const lookbookNotice = lookbookStale && _el("div",{className:"lb-stale-notice",role:"status"},
     _el(Icon.alert,{s:14}),
     _el("span",null,_el("b",null,"Lookbook review needed"),
-      " — its Lens & format, Composition or Lighting notes changed. New and re-drafted shots follow them; the shots you have stay as they are until you re-draft their scene (Re-draft keeps each shot's ID and images)."),
+      " — its visual statement or its Lens & format, Composition or Lighting notes changed. New and re-drafted shots follow them; the shots you have stay as they are until you re-draft their scene (Re-draft keeps each shot's ID and images)."),
     onReviewLookbook && _el("button",{className:"lb-stale-btn ghost",onClick:onReviewLookbook},"Mark reviewed"));
 
   // ---- empty state ----

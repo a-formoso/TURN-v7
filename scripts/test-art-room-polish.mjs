@@ -18,7 +18,7 @@ await test("the Styles tab is Color, headed by the Colorist; the agent is the Co
   assert.ok(ag.includes('{ id:"colorist", name:"Colorist", icon:"palette"'));
   for(const f of ["app/agents.jsx","app/storyboard.jsx","app/shots-ui.jsx","app/locations-ui.jsx","app/stylebible-ui.jsx"])
     assert.ok(!/Styles tab|Cinematographer \/ Colorist|About the Style Bible/.test(codeOnly(read(f))),f);
-  assert.ok(read("app/app.jsx").includes('colorist:"Color" }[dept]'));
+  assert.ok(read("app/app.jsx").includes('colorist:"Color" })[dept]'));
 });
 await test("stale wording is gone: Shot List, table-read, 'boards every scene'",()=>{
   assert.ok(!/Shot List/.test(codeOnly(sb)),"no user-visible Shot List in Storyboards");

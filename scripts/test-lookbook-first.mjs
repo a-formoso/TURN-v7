@@ -466,7 +466,7 @@ function autoDraft(extra, body = effectSrc) {
   const r = await run({ c1: { coreBody: "tall", wardrobeMask: "coat" }, c2: { coreBody: "HIJACK" } });
   ok("A11 the model is asked only for undrafted characters", JSON.stringify(r.asked) === JSON.stringify(["c1", "c3"]), r.asked);
   ok("A11 a drafted card is never overwritten", r.cast[1] === r.keep && r.cast[1].coreBody === "lean, weathered");
-  ok("A11 landed specs merge and report success", r.landed === true && r.cast[0].wardrobeMask === "coat" && !r.cast[2].coreBody && r.applied === 1);
+  ok("A11 landed specs merge and report success", r.landed === true && r.cast[0].wardrobeMask === "coat" && !r.cast[2].coreBody && r.applied === 0);   // (2026-10-06) each drafted card records its own Lookbook — the department isn't marked
   const empty = await run({});
   ok("A11 nothing landed → false (visualsSeeded is not latched)", empty.landed === false);
   // a spec that landed WHILE the model was out (Run pre-production's Casting Director, a hand edit) is kept
@@ -481,8 +481,8 @@ function autoDraft(extra, body = effectSrc) {
   // states pass (a second model round): same film → states merge; a switch during it → nothing more lands here
   const withStates = await run({ c1: { coreBody: "tall", wardrobeMask: "coat" } },
     { scenes: [{ id: "s1", driver: "c1" }], states: [{ label: "Rain-soaked" }] });
-  ok("A11 same film: suggested appearance states merge and the brief is applied",
-    withStates.landed === true && (withStates.cast[0].states || []).length === 1 && withStates.applied === 1, withStates.cast[0]);
+  ok("A11 same film: suggested appearance states merge (the card records its own Lookbook)",
+    withStates.landed === true && (withStates.cast[0].states || []).length === 1 && withStates.applied === 0, withStates.cast[0]);
   const lateSwitch = await run({ c1: { coreBody: "tall", wardrobeMask: "coat" } },
     { scenes: [{ id: "s1", driver: "c1" }], states: [{ label: "Rain-soaked" }], switchDuringStates: "film:B" });
   ok("A11 a switch during the states pass → no states, no markApplied, reports false (the open film is never latched)",
@@ -530,9 +530,10 @@ function autoDraft(extra, body = effectSrc) {
   ok("A13 B then gets its own auto-draft", pending.length === 2 && JSON.stringify(pending[1].ids) === '["mara","noor"]', pending.map(x => x.ids));
   pending[1].resolve({ mara: { coreBody: "B body", wardrobeMask: "B coat" }, noor: { coreBody: "B2", wardrobeMask: "B2 coat" } });
   await ticks();
-  ok("A13 B's own specs land, B latches, B's brief is applied",
+  // (2026-10-06) each drafted card records its own Lookbook — no department-wide mark, on A or on B
+  ok("A13 B's own specs land and B latches; nothing marks a whole department applied",
     h.out.characters.find(c => c.id === "mara").coreBody === "B body" && h.out.visualsSeeded === true
-    && applied.length === 1 && applied[0][0] === "characters" && applied[0][1] === "film:film-B", { applied, seeded: h.out.visualsSeeded });
+    && applied.length === 0, { applied, seeded: h.out.visualsSeeded });
   // back to A — its specs never landed, so it drafts again
   h.batch(set => { set({ currentProjectId: "film-A", lookbookNote: WITH_NOTE.lookbookNote, hydrationTick: 3 });
     h.out.setCharacters([undrafted("mara", "Mara"), drafted("tobias", "Tobias")]); h.out.setVisualsSeeded(false); });

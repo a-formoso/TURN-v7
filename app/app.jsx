@@ -515,6 +515,8 @@ function App(){
   // prompt honours only its relevant references (see lookbookBriefFor / _lookbookBlock).
   const lbProject = (dept)=> ({ ...project, _lookbookBrief:(typeof lookbookBriefFor==="function" ? lookbookBriefFor(dept, lookbook, lookbookNote) : "") });
   // record that a department now reflects the current Lookbook (clears its "stale" flag)
+  // the department's Lookbook brief for drafters outside App state (a carried prop drafted by a Shots render)
+  React.useEffect(()=>{ window.turnLookbookBriefFor = (dept)=> (typeof lookbookBriefFor==="function" ? lookbookBriefFor(dept, lookbook, lookbookNote) : ""); },[lookbook, lookbookNote]);
   const markApplied = (dept)=> setLookbookApplied(m=> ({ ...m, [dept]:(typeof lookbookBriefFor==="function" ? lookbookBriefFor(dept, lookbook, lookbookNote) : "") }));
   const [selId, setSelId] = React.useState(()=> (saved && saved.selId) || null);
   const [selChar, setSelChar] = React.useState(null);
@@ -637,7 +639,13 @@ function App(){
       colorist: !!(project && project.styleBible && project.styleBible.sceneStyles && Object.keys(project.styleBible.sceneStyles).length),
       shots: (shots||[]).length>0,
     };
-    const staleDepts = (typeof lookbookStaleDepts==="function") ? lookbookStaleDepts(lookbook, lookbookNote, lookbookApplied, lbContentFlags) : {};
+    // the cards each department DRAFTED (a location only pulled from a slugline isn't one)
+    const lbCards = {
+      characters:(characters||[]).filter(c=>c && (typeof charVisualsDrafted==="function" ? charVisualsDrafted(c) : true)),
+      props:(props||[]).filter(p=>p && (typeof propVisualsDrafted==="function" ? propVisualsDrafted(p) : false)),
+      locations:(locations||[]).filter(l=>l && (typeof locVisualsDrafted==="function" ? locVisualsDrafted(l) : false)),
+    };
+    const staleDepts = (typeof lookbookStaleDepts==="function") ? lookbookStaleDepts(lookbook, lookbookNote, lookbookApplied, lbContentFlags, lbCards) : {};
     const t = {};
     if(staleDepts.characters) t.characters = true;
     if(staleDepts.props) t.props = true;
@@ -680,7 +688,7 @@ function App(){
   // specs only and leaves every generated image untouched — regenerate later, when ready.
   const applyLookbook = async (dept, mode)=>{
     if(mode==="review"){
-      const label = dept;
+      const label = ({ shots:"Shots", characters:"Characters", props:"Props", locations:"Locations", colorist:"Color" })[dept] || dept;
       let ok = true;
       if(typeof window.appConfirm==="function") ok = await window.appConfirm({
         title:"Mark "+label+" reviewed?",
@@ -706,17 +714,25 @@ function App(){
       return;
     }
     const draftOnly = mode==="draft";
-    const label = { characters:"Characters", props:"Props", locations:"Locations", colorist:"Color" }[dept] || dept;
+    const label = { characters:"Characters", props:"Props", locations:"Locations" }[dept] || dept;
     if(dept==="characters" && turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Re-drafting Characters")) return;
+    // WHAT IT WILL COST, UP FRONT (owner 2026-10-06 — Lookbook review): the re-draft is writing credits for
+    // every drafted card; "& regenerate" also re-renders their images (an upper bound — text-only props skip)
+    const draftedN = dept==="characters" ? (characters||[]).filter(c=>typeof charVisualsDrafted==="function" ? charVisualsDrafted(c) : true).length
+      : dept==="props" ? (props||[]).filter(p=>typeof propVisualsDrafted==="function" ? propVisualsDrafted(p) : true).length
+      : (locations||[]).filter(l=>typeof locVisualsDrafted==="function" ? locVisualsDrafted(l) : true).length;
+    const imgPrice = (!draftOnly && draftedN && typeof window.nbImageCostText==="function") ? window.nbImageCostText(draftedN) : "";
+    const costLine = " Cost: writing credits for "+draftedN+" spec"+(draftedN===1?"":"s")
+      +(draftOnly ? "." : (imgPrice ? ", plus up to "+draftedN+" image"+(draftedN===1?"":"s")+" (about "+imgPrice+" credit"+(imgPrice==="1"?"":"s")+")." : ", plus the images."));
     let ok = true;
     if(typeof window.appConfirm==="function"){
       ok = await window.appConfirm(draftOnly
         ? { title:"Re-draft "+label+" specs?",
             body:"This re-drafts every spec in "+label+" from the updated Lookbook — overwriting the current specs, including any manual edits — but leaves all generated images untouched. Regenerate them whenever you're ready.",
-            confirmLabel:"Re-draft only", danger:true }
+            note:costLine.trim(), confirmLabel:"Re-draft only", danger:true }
         : { title:"Re-draft & regenerate "+label+"?",
-            body:"This re-drafts every spec in "+label+" from the updated Lookbook and regenerates its sheets. It overwrites the current specs, including any manual edits.",
-            confirmLabel:"Re-draft & regenerate", danger:true });
+            body:"This re-drafts every spec in "+label+" from the updated Lookbook and regenerates its sheets. It overwrites the current specs, including any manual edits (a render style you picked is kept).",
+            note:costLine.trim(), confirmLabel:"Re-draft & regenerate", danger:true });
     }
     if(!ok) return;
     const f = draftOnly ? "draft" : true;
@@ -724,9 +740,9 @@ function App(){
     if(dept==="characters"){ setCastingForce(f); setCastingOpen(true); }
     else if(dept==="props"){ setPropsMasterForce(f); setPropsMasterOpen(true); }
     else if(dept==="locations"){ setLocScoutForce(f); setLocScoutOpen(true); }
-    else if(dept==="colorist"){ coloristRedoManualRef.current = false; setColoristOpen(true); }
   };
   const [researchOpen, setResearchOpen] = React.useState(false);   // Visual Researcher (Lookbook)
+  const lookbookFreshRef = React.useRef(false);   // "Research from scratch" pending — read (once) by the next research
   const [coordOpen, setCoordOpen] = React.useState(false);   // Art Coordinator (meta-agent)
   const [coordConfirm, setCoordConfirm] = React.useState(false);  // cost/scope preview gate before it runs
   const [newStoryOpen, setNewStoryOpen] = React.useState(false);
@@ -3670,10 +3686,9 @@ function App(){
     try{
       const res = (typeof aiCharacterVisuals==="function") ? await aiCharacterVisuals(ch, driven, lbProject("characters"), { scenes, drafts }) : null;
       if(res){ updateCharacter(ch.id, res);
-        // pull-on-draft consumed the CURRENT Lookbook — stamp it applied, exactly
-        // like the batch path does, or the very first per-card draft raises a false
-        // "Lookbook changed" banner the moment the dept gains content
-        markApplied("characters"); }
+        // (the card records the Lookbook it was drafted from — lookbookBrief — so a first per-card
+        //  draft raises no false banner, and the rest of the cast isn't marked up to date — 2026-10-06)
+        }
     }catch(e){}
     setDraftingVisualIds(ids=> ids.filter(x=>x!==ch.id));
   };
@@ -3778,7 +3793,7 @@ function App(){
           }));
         }
       }
-      if(targets.length && sameFilm()) markApplied("characters");
+      // (each drafted card records its own Lookbook; nothing is marked when the model returned nothing — 2026-10-06)
     }catch(e){}
     setDraftingAllVisuals(false);
     setDraftingVisualIds([]);
@@ -3829,19 +3844,21 @@ function App(){
      stay; the researched ones move to Recently deleted (with their frames) before the run */
   const researchLookbookFresh = async ()=>{
     if(!canMutateSharedFilm()) return;
+    if(researchOpen) return;
     const ok = !window.appConfirm || await window.appConfirm({
       title:"Research the look from scratch?",
       body:"The Visual Researcher writes a new visual statement and new references (one writing call). Your hand-added cards stay; the researched ones move to Recently deleted with their mood frames, so you can restore any of them.",
       confirmLabel:"Research from scratch", cancelLabel:"Cancel" });
     if(!ok) return;
-    const at = new Date().toISOString();
-    setLookbook(ls=>ls.map(c=> (c && !c.deletedAt && !c.manual && !c.autoNamed) ? { ...c, deletedAt:at } : c));
-    setLookbookNote("");
-    // opened on the next tick, so the agent starts from the cleared Lookbook
-    setTimeout(()=>setResearchOpen(true), 0);
+    // REPLACED ONLY ON SUCCESS (owner 2026-10-06 — Lookbook review): the old statement and cards stay until
+    // the new ones arrive — closing the panel or a failed run used to leave an emptied Lookbook
+    lookbookFreshRef.current = true;
+    setResearchOpen(true);
   };
   const purgeLookbookCard = async (id)=>{
-    try{ if(typeof nbClearAsset==="function") await nbClearAsset(id); }catch(e){}
+    // a failed delete says so and keeps the card in Recently deleted, so it can be retried (2026-10-06)
+    try{ if(typeof nbClearAsset==="function") await nbClearAsset(id); }
+    catch(e){ if(typeof window.appToast==="function") window.appToast("Couldn't delete that mood frame just now \u2014 it stays in Recently deleted; try again in a moment.","error"); return; }
     setLookbook(ls=>ls.filter(c=>c.id!==id));
   };
   /* SUGGEST A NOTE (2026-10-03): one writing call drafts a card's "what to borrow" note from the
@@ -3860,9 +3877,6 @@ function App(){
       setLookbook(ls=>ls.map(c=>c.id===id ? { ...c, ...patch } : c));
     } finally { setSuggestingLookbookId(null); }
   };
-  // Remove the whole Lookbook (references + statement + their mood frames). Art Room state only —
-  // never touches the story or any other tab; lookbookApplied is left intact so the tabs that
-  // absorbed the lookbook correctly flag as out-of-date (re-draft to purge the influence).
   // ---- Art Room: PROPS ----
   const updateProp = (id,patch)=>{
     // RENAME SYNC (prop card → character): renaming a prop in the Props tab also renames
@@ -4067,7 +4081,7 @@ function App(){
     setDraftingPropIds(ids=> ids.indexOf(pr.id)>=0 ? ids : [...ids, pr.id]);
     try{
       const res = await aiPropVisuals(pr, characters, lbProject("props"));
-      if(res){ updateProp(pr.id, keepPickedStyle(pr, res)); markApplied("props"); }
+      if(res){ updateProp(pr.id, keepPickedStyle(pr, res)); }   // (the card records its own Lookbook — 2026-10-06)
     }catch(e){}
     setDraftingPropIds(ids=> ids.filter(x=>x!==pr.id));
   };
@@ -4115,7 +4129,7 @@ function App(){
         if(smap) setProps(ps=>ps.map(p=> smap[p.id]
           ? withEpisodeSceneRefs(lexical(p) ? {...p, sceneMapBasis:"lexical"} : p, smap[p.id], scenes) : p));
       }
-      if(working.length) markApplied("props");
+      // (each drafted card records its own Lookbook; the department isn't marked — 2026-10-06)
     }catch(e){
       if(typeof window.appToast==="function") window.appToast("Couldn't draft the prop specifications ("+((e&&e.message)||"error")+"). Nothing was overwritten \u2014 try again.","error");
     }
@@ -4291,7 +4305,7 @@ function App(){
           setBootstrap({done});
         }catch(err){ failed.push(original.name||"Worn prop"); }
       }
-      if(draftedAny) markApplied("props");
+      // (each drafted card records its own Lookbook — 2026-10-06)
       setBootstrap({ status:failed.length?"attention":"complete", completedAt:new Date().toISOString(),
         total:worn.length, done, failedNames:failed });
 
@@ -4357,7 +4371,7 @@ function App(){
       const d = e && e.detail;
       if(!d || !d.id || !d.patch || !canMutateSharedFilm()) return;
       setProps(ps=>ps.map(p=>p.id===d.id ? { ...p, ...keepPickedStyle(p, d.patch) } : p));
-      markApplied("props");
+      // (the card records its own Lookbook — a Shots-side draft no longer marks every prop — 2026-10-06)
     };
     wornBuildRef.current = (charId)=> onCharacterSheetDone({ detail:{ id:charId } }, true);
     window.addEventListener("nb-gen-done",onCharacterSheetDone);
@@ -4499,7 +4513,7 @@ function App(){
     setDraftingLocIds(ids=> ids.indexOf(l.id)>=0 ? ids : [...ids, l.id]);
     try{
       const fields = await aiLocationVisuals(l, scenes, lbProject("locations"));
-      if(fields){ setLocations(ls=>ls.map(x=>x.id===l.id?{...x, ...keepPickedStyle(x, fields)}:x)); markApplied("locations"); }
+      if(fields){ setLocations(ls=>ls.map(x=>x.id===l.id?{...x, ...keepPickedStyle(x, fields)}:x)); }   // (records its own Lookbook)
     }catch(e){}
     setDraftingLocIds(ids=> ids.filter(x=>x!==l.id));
   };
@@ -4560,7 +4574,7 @@ function App(){
         const sMap = {}; stages.forEach(x=>{ if(x.staging) sMap[x.id]=x.staging; });
         if(Object.keys(sMap).length) setLocations(ls=>ls.map(l=> sMap[l.id] ? {...l, staging:sMap[l.id]} : l));
       }
-      if(working.length) markApplied("locations");
+      // (each drafted card records its own Lookbook — 2026-10-06)
     }catch(e){
       if(typeof window.appToast==="function") window.appToast("Couldn't design the locations ("+((e&&e.message)||"error")+"). Nothing was overwritten \u2014 try again.","error");
     }
@@ -4814,6 +4828,13 @@ function App(){
   };
   // the user's free-text visual references that steer bespoke palette design
   const setStyleRefs = (refs)=> setProject(p=>({ ...p, styleBible:{ ...((p.styleBible)||{}), refs:String(refs||"") } }));
+  /* COLOR'S BANNER WHEN THE REFERENCES ARE YOURS (owner 2026-10-06 — Lookbook review): once you've written
+     the Visual references field, Light the film reads YOUR text, so it can't apply a Lookbook change —
+     the banner offers to put the Lookbook's colour notes back (the sync resumes) or to keep yours */
+  const useLookbookColorRefs = ()=>{ if(!canMutateSharedFilm()) return;
+    const brief = (typeof lookbookBriefFor==="function") ? lookbookBriefFor("colorist", lookbook, lookbookNote).replace(/^Overall look: /,"") : "";
+    setProject(p=>({ ...p, styleBible:{ ...((p.styleBible)||{}), refs:brief, lookbookSynced:brief } })); };
+  const keepOwnColorRefs = ()=>{ if(!canMutateSharedFilm()) return; markApplied("colorist"); };
   // uploaded reference images (palette sampled client-side); capped to keep state light
   const addStyleRefImages = (imgs)=> setProject(p=>{ const sb=(p.styleBible)||{};
     return { ...p, styleBible:{ ...sb, refImages:[...(sb.refImages||[]), ...(imgs||[])].slice(0,8) } }; });
@@ -6542,7 +6563,7 @@ function App(){
       imageOf: async (id)=> _grabImg(id),
       draftSpec: async (c)=>{ if(typeof aiCharacterVisuals!=="function") return null;
         const patch = await aiCharacterVisuals(c, scenes.filter(s=>s.driver===c.id), lbProject("characters"), { scenes, drafts });
-        if(patch){ _w.updateCharacter(c.id, patch); _w.markApplied("characters"); } return patch; },
+        if(patch){ _w.updateCharacter(c.id, patch); } return patch; },   // (the card records its own Lookbook)
       suggestStates: async (c)=>{ if(typeof aiSuggestStates!=="function") return null;
         const raw = await aiSuggestStates(c, scenes.filter(s=>s.driver===c.id), project);
         if(!raw || !raw.length) return null;
@@ -6637,7 +6658,8 @@ function App(){
         if(!todo.length) return 0;
         const map = await aiDesignPropBible(todo, characters, lbProject("props"));
         if(!map) return 0;
-        const patch = (ps)=> ps.map(p=> map[p.id] ? {...p, ...map[p.id]} : p);
+        // a render style you PICKED survives a forced re-draft, as in the Props tab's own Draft (2026-10-06)
+        const patch = (ps)=> ps.map(p=> map[p.id] ? {...p, ...keepPickedStyle(p, map[p.id])} : p);
         _propWork = patch(_propWork); _w.setProps(patch);
         return Object.keys(map).length;
       },
@@ -6686,7 +6708,7 @@ function App(){
         if(!todo.length) return 0;
         const map = await aiDesignLocationBible(todo, scenes, lbProject("locations"));
         if(!map) return 0;
-        const patch = (ls)=> ls.map(l=> map[l.id] ? {...l, ...map[l.id]} : l);
+        const patch = (ls)=> ls.map(l=> map[l.id] ? {...l, ...keepPickedStyle(l, map[l.id])} : l);
         _locWork = patch(_locWork); _w.setLocations(patch);
         return Object.keys(map).length;
       },
@@ -6749,13 +6771,14 @@ function App(){
     };
 
     // ---- Visual Researcher surface (Lookbook tab agent): research-only.
-    // Frame rendering is the explicit "Generate all frames" button in the Lookbook.
+    // Frame rendering is the explicit "Generate missing frames" button in the Lookbook.
     let _lbWork = (typeof dedupeLookbookCards==="function") ? dedupeLookbookCards(lookbook||[]) : (lookbook||[]).slice();
     const lookbookSurface = {
       // TRUE when the visual research is already DONE: the look statement is written and
       // every touchstone category holds a noted reference. The agent checks this FIRST —
       // a re-run would only spend a writing call re-proposing the wall that's already up.
       researched: ()=>{
+        if(lookbookFreshRef.current) return false;   // from scratch: always research
         if(!(lookbookNote||"").trim()) return false;
         const covered = new Set(_lbWork.filter(c=>(c.note||"").trim()).map(c=>c.category||"Palette"));
         return (window.LOOKBOOK_CATEGORIES||[]).every(cat=>covered.has(cat));
@@ -6766,10 +6789,21 @@ function App(){
         if(typeof window.aiResearchLookbook!=="function") return { statement:"", added:0 };
         // pass the existing cards so a re-run targets the GAPS (missing categories)
         // instead of re-proposing the same six photographic touchstones
-        const r = await window.aiResearchLookbook(scenes, project, _lbWork);
-        if(!r) return { statement:"", added:0 };
+        const fresh = !!lookbookFreshRef.current; lookbookFreshRef.current = false;
+        // from scratch: only YOUR cards stay in view; the researched ones are replaced if this succeeds
+        const mine = (c)=> !!(c && (c.manual || c.autoNamed));
+        const base = fresh ? _lbWork.filter(mine) : _lbWork;
+        const r = await window.aiResearchLookbook(scenes, project, base, { fresh });
+        if(!r || (!r.statement && !(r.refs||[]).length)) return { statement:"", added:0, failed:fresh };
+        if(fresh){
+          // the swap: the researched cards move to Recently deleted (with their frames), the new statement goes in
+          const at = new Date().toISOString();
+          _w.setLookbook(ls=>ls.map(c=> (c && !c.deletedAt && !mine(c)) ? { ...c, deletedAt:at } : c));
+          _lbWork = base;
+          if(r.statement) _w.setLookbookNote(r.statement);
+        }
         // keep an existing statement — a gap-filling re-run shouldn't rewrite the north star
-        if(r.statement && !(lookbookNote||"").trim()) _w.setLookbookNote(r.statement);
+        else if(r.statement && !(lookbookNote||"").trim()) _w.setLookbookNote(r.statement);
         const slug = (s)=> String(s||"").toLowerCase().replace(/\([^)]*\)/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"");
         // the same touchstone for the same category is the same card (lookbook.jsx lookbookCardKey)
         const keyOf = (e)=> (typeof lookbookSourceKey==="function") ? (lookbookSourceKey(e)+"|"+String((e&&e.category)||"Palette")) : slug(e&&e.source);
@@ -6779,14 +6813,16 @@ function App(){
           const key = keyOf(e);
           if(!e.source || !key || seen.has(key)) return;
           seen.add(key);
-          cards.push({ id:"look-"+slug(e.source).slice(0,24)+"-"+i, source:e.source, category:e.category||"Palette", note:e.note||"", negativePrompt:"",
+          // a fresh id every run — a reused id took over a deleted card (lost from the bin, its old frame inherited)
+          cards.push({ id:"look-"+slug(e.source).slice(0,24)+"-"+i+"-"+Date.now().toString(36), source:e.source, category:e.category||"Palette", note:e.note||"", negativePrompt:"",
             ...(r.writingProvenance?{writingProvenance:{...r.writingProvenance}}:{}) });
         });
         // GROWTH GUARD — the brief is 8 touchstones covering the categories. A re-run
         // may only FILL GAPS (one card per still-missing category), never grow the
         // wall, whatever the model returns (bug 2026-07-16: re-runs stacked 48 cards).
         const _noted = _lbWork.filter(c=>(c.note||"").trim());
-        if(_noted.length){
+        if(fresh) cards = cards.slice(0, 8);   // from scratch: the full brief, never more
+        else if(_noted.length){
           const covered = new Set(_noted.map(c=>c.category));
           cards = cards.filter(c=>{ if(covered.has(c.category)) return false; covered.add(c.category); return true; });
         }
@@ -6888,7 +6924,11 @@ function App(){
         propmaster,
         locscout,
         lookbook: lookbookSurface,
-        markApplied: (dept)=> _w.markApplied(dept),
+        // Color follows the Lookbook only while its references field isn't your own text: approving a
+        // palette lit from YOUR text doesn't mean the Lookbook change was applied (2026-10-06)
+        markApplied: (dept)=>{ if(dept==="colorist" && typeof colorRefsFor==="function"
+            && colorRefsFor((project&&project.styleBible)||{}, lookbook, lookbookNote).owned) return;
+          _w.markApplied(dept); },
         // ---- Cinematographer / Colorist tools (Style Bible agent) ----
         scenesLite: ordered.map(s=>({ id:s.id, no:s.no, title:s.title })),
         // the Colorist's references = the Presets refs field, worked out by the same rule the
@@ -7585,6 +7625,8 @@ function App(){
             scriptHasLocs:(typeof scriptHasLocations==="function" && scriptHasLocations(scenes)),
             sluglineUnits,onUpdateUnit:updateSlugUnitOverlay,onRemoveUnit:removeSlugUnitOverlay,
             onSetStyleRefs:setStyleRefs,onSetScenePreset:setScenePreset,onSetFilmStock:setFilmStock,
+            colorRefsOwned:!!(typeof colorRefsFor==="function" && colorRefsFor((project&&project.styleBible)||{}, lookbook, lookbookNote).owned),
+            onUseLookbookColorRefs:useLookbookColorRefs,onKeepColorRefs:keepOwnColorRefs,
             onUpdatePreset:updateStylePreset,onDeletePreset:deleteStylePreset,
             onAddStyleRefImages:addStyleRefImages,onRemoveStyleRefImage:removeStyleRefImage,
             onDraftStaging:draftLocationStaging,draftingStageId,
