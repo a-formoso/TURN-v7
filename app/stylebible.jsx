@@ -7,7 +7,7 @@
    matching, on-palette plates. */
 
 /* Starter presets — generic placeholder looks shown before a film is styled. They are
-   a fallback only: "Assign from script" DESIGNS a bespoke palette unique to the film
+   a fallback only: "Light the film" (the Colorist) DESIGNS a bespoke palette unique to the film
    (authored from its genre/world/themes/arc) and REPLACES these, then color-scripts
    each scene along the value-charge spine. Each palette is [dominant, secondary,
    accent] = the 60 / 30 / 10 split. */
@@ -94,7 +94,7 @@ function styleBibleOf(project){
     // the field over (syncs stop; also lets the Visual Researcher skip self-fed refs).
     lookbookSynced: sb.lookbookSynced || "",
     // uploaded reference images: [{ id, thumb (small dataURL), colors:[hex] }].
-    // The model is text-only, so we sample each image's palette client-side and feed
+    // The sampled palette rides with every still (the Colorist also LOOKS at stills that kept a 384px view); we sample client-side and feed
     // those hues into the design prompt.
     refImages: sb.refImages || [],
     // project-wide film-stock / capture look (id into FILM_STOCKS); "none" = clean digital.

@@ -687,6 +687,7 @@ function App(){
   // mode). mode "full" (default) also regenerates the sheets; mode "draft" re-drafts the
   // specs only and leaves every generated image untouched — regenerate later, when ready.
   const applyLookbook = async (dept, mode)=>{
+    if(!canMutateSharedFilm()) return;   // (2026-10-08) every banner action changes the film
     if(mode==="review"){
       const label = ({ shots:"Shots", characters:"Characters", props:"Props", locations:"Locations", colorist:"Color" })[dept] || dept;
       let ok = true;
@@ -707,7 +708,7 @@ function App(){
       let ok = true;
       if(typeof window.appConfirm==="function") ok = await window.appConfirm({
         title:"Light the film again from the updated Lookbook?",
-        body:"The Colorist designs a new palette and film stock and color-scripts the scenes, then shows it to you to approve. Approving replaces this film's looks, including any you edited; scenes you set by hand (\u270b) keep theirs. Writing credits only, no images.",
+        body:"The Colorist designs a new palette and film stock and color-scripts the scenes, then shows it to you to approve. Approving replaces this film's looks, including any you edited; scenes you set by hand (\u270b) keep theirs. Writing credits only, no images (a little more when it looks at your reference stills).",
         confirmLabel:"Light the film" });
       if(!ok) return;
       coloristRedoManualRef.current = false; setColoristOpen(true);
@@ -940,6 +941,7 @@ function App(){
   // before writing results into state — the film switcher stays live throughout, and a
   // result that lands after a switch belongs to a film that is no longer open.
   const projIdRef = React.useRef(null); projIdRef.current = currentProjectId;
+  try{ window.turnOpenFilmId = currentProjectId; }catch(e){}   // for work that must land on the film it started in (Color's stills)
   const cloudMode = !!(session && currentProjectId);
   /* ART ROOM TAB PER FILM — derived, never synced by an effect: the tab on screen is always THIS
      film's remembered tab (the Lookbook for a film never opened in the Art Room), so a switch can
@@ -1101,6 +1103,9 @@ function App(){
     : writersRoomReadOnlyRef.current ? _mutationNotice("writers") : true;
   const canMutateSharedFilm = ()=> projectLoadingRef.current ? _projectLoadingNotice()
     : roomReadOnlyRef.current ? _mutationNotice(room) : true;
+  // a role that can't change the Art Room closes the Colorist and pre-production panels (2026-10-08 — they
+  // stayed open and could still apply after a role change)
+  React.useEffect(()=>{ if(artRoomReadOnly){ setColoristOpen(false); setCoordOpen(false); coloristRedoManualRef.current = false; } },[artRoomReadOnly]);
   React.useEffect(()=>{
     if(!writersRoomBlocked) return;
     setAgentsOpen(false); setAgentLaunch(null); setNewStoryOpen(false);
@@ -3413,6 +3418,7 @@ function App(){
      once after a doc settles (migration). */
   React.useEffect(()=>{
     if(hydratingRef.current) return;
+    if(artRoomReadOnlyRef.current) return;   // (2026-10-08) a role that can't change the Art Room never rewrites the colour system
     if(typeof lookbookBriefFor!=="function") return;
     setProject(p=>{
       const sb = (p.styleBible)||{};
@@ -4918,9 +4924,13 @@ function App(){
   // chose in the film-strip (styleBible.sceneStylesManual) keeps it — and its look stays in the
   // set — unless the user ticked "Also redo the scenes I picked by hand" (coloristRedoManualRef).
   // The Colorist's per-scene reasons are stored (styleBible.sceneWhy) so the strip can show them.
-  const applyStyleResult = (res, seed)=>{
+  // opts.redoManual: the choice made when the RUN STARTED (2026-10-08 — it was read at apply time, so a
+  // pre-production run could pick up a Colorist panel's "Also redo" and redo your hand-picked scenes)
+  const applyStyleResult = (res, seed, opts)=>{
     if(!res) return;
-    const redoManual = !!coloristRedoManualRef.current;
+    if(artRoomReadOnlyRef.current) return;   // the role changed while the run worked
+    const redoManual = (opts && opts.redoManual!==undefined) ? !!opts.redoManual : !!coloristRedoManualRef.current;
+    const liveScenes = new Set((scenesRef.current||scenes||[]).map(x=>x && x.id));
     setProject(p=>{
       const sb = (p.styleBible)||{};
       const before = (typeof styleBibleOf==="function") ? styleBibleOf(p) : { presets:sb.presets||[], sceneStyles:sb.sceneStyles||{} };
@@ -4928,7 +4938,24 @@ function App(){
       const manualScenes = Object.keys(manualMap).filter(sid=> manualMap[sid] && (sb.sceneStyles||{})[sid]);
       // A bespoke per-film palette REPLACES the generic starter set (deduped by id)
       // so each film looks unique; fall back to the existing/seed presets if none.
-      const bespoke = (res.presets&&res.presets.length) ? res.presets : null;
+      let bespoke = (res.presets&&res.presets.length) ? res.presets : null;
+      let resScenes = { ...(res.sceneStyles||{}) };
+      // YOUR LOOK STAYS YOURS (2026-10-08): a new look that reuses the id of a look a hand-picked scene uses,
+      // with different content, is renamed — it used to take that id, so your scene got the model's look
+      const keepIds0 = new Set(manualScenes.map(sid=>sb.sceneStyles[sid]));
+      if(bespoke && keepIds0.size){
+        const beforeById = {}; (before.presets||[]).forEach(x=>{ if(x && x.id) beforeById[x.id]=x; });
+        const taken = new Set([...(before.presets||[]).map(x=>x && x.id), ...bespoke.map(x=>x && x.id)]);
+        const sameLook = (a,b)=> JSON.stringify({...a, edited:undefined})===JSON.stringify({...b, edited:undefined});
+        bespoke = bespoke.map(x=>{
+          if(!x || !keepIds0.has(x.id) || !beforeById[x.id] || sameLook(x, beforeById[x.id])) return x;
+          let n = 2, nid = x.id+"-"+n; while(taken.has(nid)){ n++; nid = x.id+"-"+n; } taken.add(nid);
+          Object.keys(resScenes).forEach(sid=>{ if(resScenes[sid]===x.id && manualScenes.indexOf(sid)<0) resScenes[sid]=nid; });
+          return { ...x, id:nid };
+        });
+      }
+      // never a look for a scene deleted while the run worked
+      if(liveScenes.size) Object.keys(resScenes).forEach(sid=>{ if(!liveScenes.has(sid)) delete resScenes[sid]; });
       let presets, sceneStyles;
       if(bespoke){
         const byId = {}; bespoke.forEach(p=>{ byId[p.id]=p; });
@@ -4936,10 +4963,10 @@ function App(){
         // drop any prior assignment whose preset no longer exists, then overlay the color-script.
         const validIds = new Set(presets.map(p=>p.id));
         const kept = {}; Object.entries(sb.sceneStyles||{}).forEach(([sid,pid])=>{ if(validIds.has(pid)) kept[sid]=pid; });
-        sceneStyles = {...kept, ...(res.sceneStyles||{})};
+        sceneStyles = {...kept, ...resScenes};
       } else {
         presets = (sb.presets&&sb.presets.length) ? sb.presets : (seed||sb.presets||[]);
-        sceneStyles = {...(sb.sceneStyles||{}), ...(res.sceneStyles||{})};
+        sceneStyles = {...(sb.sceneStyles||{}), ...resScenes};
       }
       // keep each hand-picked scene's look, and that look itself if the new set dropped it
       const keepIds = new Set(manualScenes.map(sid=>sb.sceneStyles[sid]));
@@ -4954,14 +4981,25 @@ function App(){
         if(why[sid]) sceneWhy[sid] = String(why[sid]).slice(0,400);
       });
       // the model also picks the film stock; preserve other styleBible fields (refs etc.).
-      const filmStock = res.filmStock || sb.filmStock || "none";
-      return {...p, styleBible:{ ...sb, presets, sceneStyles, filmStock, sceneStylesManual, sceneWhy,
+      // a film stock you picked is kept unless this run redoes your picks (2026-10-08)
+      const keepStock = !!sb.filmStockManual && !redoManual;
+      const filmStock = keepStock ? (sb.filmStock || "none") : (res.filmStock || sb.filmStock || "none");
+      return {...p, styleBible:{ ...sb, presets, sceneStyles, filmStock, filmStockManual: keepStock, sceneStylesManual, sceneWhy,
         paletteWhy: (res.rationale && res.rationale.palette) ? String(res.rationale.palette).slice(0,600) : (sb.paletteWhy||""),
         ...(res.writingProvenance?{writingProvenance:{...res.writingProvenance}}:{}) }};
     });
   };
   // the user's free-text visual references that steer bespoke palette design
-  const setStyleRefs = (refs)=> setProject(p=>({ ...p, styleBible:{ ...((p.styleBible)||{}), refs:String(refs||"") } }));
+  // EDIT RIGHTS ON EVERY COLOUR CHANGE (2026-10-08, owner — Color review): the colour system is saved with the
+  // film's settings, which a Co-writer or Stage editor may also save — so every handler checks the role here.
+  // CLEARING the field puts the Lookbook's colour notes back (the auto-fill resumes) — it used to stay empty
+  // while the Colorist quietly read the Lookbook brief anyway
+  const setStyleRefs = (refs)=>{ if(!canMutateSharedFilm()) return;
+    const txt = String(refs||"");
+    if(!txt.trim()){
+      const brief = (typeof lookbookBriefFor==="function") ? lookbookBriefFor("colorist", lookbook, lookbookNote).replace(/^Overall look: /,"") : "";
+      setProject(p=>({ ...p, styleBible:{ ...((p.styleBible)||{}), refs:brief, lookbookSynced:brief } })); return; }
+    setProject(p=>({ ...p, styleBible:{ ...((p.styleBible)||{}), refs:txt } })); };
   /* COLOR'S BANNER WHEN THE REFERENCES ARE YOURS (owner 2026-10-06 — Lookbook review): once you've written
      the Visual references field, Light the film reads YOUR text, so it can't apply a Lookbook change —
      the banner offers to put the Lookbook's colour notes back (the sync resumes) or to keep yours */
@@ -4970,13 +5008,25 @@ function App(){
     setProject(p=>({ ...p, styleBible:{ ...((p.styleBible)||{}), refs:brief, lookbookSynced:brief } })); };
   const keepOwnColorRefs = ()=>{ if(!canMutateSharedFilm()) return; markApplied("colorist"); };
   // uploaded reference images (palette sampled client-side); capped to keep state light
-  const addStyleRefImages = (imgs)=> setProject(p=>{ const sb=(p.styleBible)||{};
-    return { ...p, styleBible:{ ...sb, refImages:[...(sb.refImages||[]), ...(imgs||[])].slice(0,8) } }; });
-  const removeStyleRefImage = (id)=> setProject(p=>{ const sb=(p.styleBible)||{};
-    return { ...p, styleBible:{ ...sb, refImages:(sb.refImages||[]).filter(r=>r.id!==id) } }; });
-  // manual per-scene preset override (presetId null = unassign). Note: re-running
-  // "Assign from script" re-color-scripts every scene and will overwrite these.
-  const setScenePreset = (sceneId, presetId)=> setProject(p=>{
+  // film0: the film open when the upload started — stills read while you switched films never land in the new one
+  const addStyleRefImages = (imgs, film0)=>{ if(!canMutateSharedFilm()) return;
+    if(film0!==undefined && String(film0||"")!==String(projIdRef.current||"")) return;
+    setProject(p=>{ const sb=(p.styleBible)||{};
+      return { ...p, styleBible:{ ...sb, refImages:[...(sb.refImages||[]), ...(imgs||[])].slice(0,8) } }; }); };
+  // removing a still can be undone (its kept 384px copy lives only here)
+  const removeStyleRefImage = (id)=>{ if(!canMutateSharedFilm()) return;
+    const sb0 = (project && project.styleBible) || {};
+    const at = (sb0.refImages||[]).findIndex(r=>r && r.id===id); const gone = at>=0 ? sb0.refImages[at] : null;
+    const film0 = projIdRef.current;
+    setProject(p=>{ const sb=(p.styleBible)||{};
+      return { ...p, styleBible:{ ...sb, refImages:(sb.refImages||[]).filter(r=>r.id!==id) } }; });
+    if(gone && typeof window.appToast==="function") window.appToast("Reference still removed.","info",{ action:{ label:"Undo", onClick:()=>{
+      if(String(film0||"")!==String(projIdRef.current||"") || artRoomReadOnlyRef.current) return;
+      setProject(p=>{ const sb=(p.styleBible)||{}; const list=(sb.refImages||[]).filter(r=>r && r.id!==gone.id);
+        list.splice(Math.min(at, list.length), 0, gone);
+        return { ...p, styleBible:{ ...sb, refImages:list.slice(0,8) } }; }); } } }); };
+  // manual per-scene look (presetId null = unassign) — marked as set by hand, so Light the film keeps it
+  const setScenePreset = (sceneId, presetId)=> canMutateSharedFilm() && setProject(p=>{
     const sb = (p.styleBible)||{};
     const sceneStyles = {...(sb.sceneStyles||{})};
     const sceneStylesManual = {...(sb.sceneStylesManual||{})};
@@ -4987,22 +5037,40 @@ function App(){
     return {...p, styleBible:{ ...sb, sceneStyles, sceneStylesManual, sceneWhy }};
   });
   // the film stock (FILM_STOCKS id; "none" = clean digital) — added to every shot prompt
-  const setFilmStock = (id)=> setProject(p=>({ ...p, styleBible:{ ...((p.styleBible)||{}), filmStock:String(id||"none") } }));
+  // a stock you pick is yours: Light the film keeps it unless you ask it to redo your picks (2026-10-08)
+  const setFilmStock = (id)=> canMutateSharedFilm() && setProject(p=>({ ...p, styleBible:{ ...((p.styleBible)||{}), filmStock:String(id||"none"), filmStockManual:true } }));
   // EDITABLE LOOKS: the shown set (the starter examples until the film is lit) becomes the film's own
   // on the first edit; deleting a look unassigns the scenes that used it
-  const updateStylePreset = (id, patch)=> setProject(p=>{
+  const updateStylePreset = (id, patch)=> canMutateSharedFilm() && setProject(p=>{
     const sb = (p.styleBible)||{};
     const cur = (typeof styleBibleOf==="function") ? styleBibleOf(p).presets : (sb.presets||[]);
-    return { ...p, styleBible:{ ...sb, presets:cur.map(x=> x.id===id ? { ...x, ...patch } : x) } };
+    return { ...p, styleBible:{ ...sb, presets:cur.map(x=> x.id===id ? { ...x, ...patch, edited:true } : x) } };
   });
-  const deleteStylePreset = (id)=> setProject(p=>{
-    const sb = (p.styleBible)||{};
-    const cur = (typeof styleBibleOf==="function") ? styleBibleOf(p).presets : (sb.presets||[]);
-    const sceneStyles = {}, sceneStylesManual = {...(sb.sceneStylesManual||{})}, sceneWhy = {...(sb.sceneWhy||{})};
-    Object.entries(sb.sceneStyles||{}).forEach(([sid,pid])=>{
-      if(pid===id){ delete sceneStylesManual[sid]; delete sceneWhy[sid]; } else sceneStyles[sid]=pid; });
-    return { ...p, styleBible:{ ...sb, presets:cur.filter(x=>x.id!==id), sceneStyles, sceneStylesManual, sceneWhy } };
-  });
+  // deleting a look can be undone: the look, and the scenes (with their marks and reasons) that used it
+  const deleteStylePreset = (id)=>{ if(!canMutateSharedFilm()) return;
+    const sb0 = (project && project.styleBible) || {};
+    const cur0 = (typeof styleBibleOf==="function") ? styleBibleOf(project||{}).presets : (sb0.presets||[]);
+    const at = cur0.findIndex(x=>x && x.id===id), look = at>=0 ? cur0[at] : null;
+    const scenesOf = Object.keys(sb0.sceneStyles||{}).filter(sid=> sb0.sceneStyles[sid]===id);
+    const marks = {}, whys = {}; scenesOf.forEach(sid=>{ if((sb0.sceneStylesManual||{})[sid]) marks[sid]=true; if((sb0.sceneWhy||{})[sid]) whys[sid]=sb0.sceneWhy[sid]; });
+    const film0 = projIdRef.current;
+    setProject(p=>{
+      const sb = (p.styleBible)||{};
+      const cur = (typeof styleBibleOf==="function") ? styleBibleOf(p).presets : (sb.presets||[]);
+      const sceneStyles = {}, sceneStylesManual = {...(sb.sceneStylesManual||{})}, sceneWhy = {...(sb.sceneWhy||{})};
+      Object.entries(sb.sceneStyles||{}).forEach(([sid,pid])=>{
+        if(pid===id){ delete sceneStylesManual[sid]; delete sceneWhy[sid]; } else sceneStyles[sid]=pid; });
+      return { ...p, styleBible:{ ...sb, presets:cur.filter(x=>x.id!==id), sceneStyles, sceneStylesManual, sceneWhy } };
+    });
+    if(look && typeof window.appToast==="function") window.appToast("\u201c"+(look.name||"Look")+"\u201d deleted"+(scenesOf.length?" \u2014 "+scenesOf.length+" scene"+(scenesOf.length!==1?"s":"")+" no longer use it":"")+".","info",{ action:{ label:"Undo", onClick:()=>{
+      if(String(film0||"")!==String(projIdRef.current||"") || artRoomReadOnlyRef.current) return;
+      setProject(p=>{ const sb=(p.styleBible)||{};
+        const cur = (typeof styleBibleOf==="function") ? styleBibleOf(p).presets : (sb.presets||[]);
+        if(cur.some(x=>x && x.id===look.id)) return p;
+        const presets = cur.slice(); presets.splice(Math.min(at, presets.length), 0, look);
+        const sceneStyles = {...(sb.sceneStyles||{})}; scenesOf.forEach(sid=>{ if(!sceneStyles[sid]) sceneStyles[sid]=look.id; });
+        return { ...p, styleBible:{ ...sb, presets, sceneStyles,
+          sceneStylesManual:{...(sb.sceneStylesManual||{}), ...marks}, sceneWhy:{...(sb.sceneWhy||{}), ...whys} } }; }); } } }); };
 
   // ---- Art Room: SHOT LIST ----
   // Default: one screenplay opening keyframe per beat. Saved alternatives are
@@ -6240,7 +6308,7 @@ function App(){
     const locRefs = artWritable ? (locations||[]).filter(inScenes).map(l=>({ id:l.id, at:l.scenes.indexOf(id) })) : [];
     setDeletedScene({ owner:currentProjectId, index:i, scene:gone, beats:beatsMap[id], draft:drafts[id],
       history:history[id], continuity:continuityMap && continuityMap[id],
-      shots:goneShots, style:goneStyle, propRefs, locRefs });
+      shots:goneShots, style:goneStyle, styleManual:!!(sb.sceneStylesManual||{})[id], styleWhy:(sb.sceneWhy||{})[id], propRefs, locRefs });
     const nxt = remaining[Math.min(i, remaining.length-1)];
     setScenes(renum(remaining));
     setBeatsMap(m=>{ const n={...m}; delete n[id]; return n; });
@@ -6251,10 +6319,15 @@ function App(){
     setHistory(h=>{ if(!h[id]) return h; const n={...h}; delete n[id]; return n; });
     setContinuityMap(c=>{ if(!c || !c[id]) return c; const n={...c}; delete n[id]; return n; });
     if(goneShots.length) setShots(ss=>ss.filter(sh=>!(sh && sh.sceneId===id)));
+    // the scene's look, its hand-pick mark and its Colorist reason all go (2026-10-08 — the mark and the
+    // reason used to stay in the saved film forever); Undo puts all three back
     if(goneStyle!==undefined) setProject(p=>{
       const b=(p&&p.styleBible)||{}; if(!b.sceneStyles || !(id in b.sceneStyles)) return p;
       const sceneStyles={...b.sceneStyles}; delete sceneStyles[id];
-      return {...p, styleBible:{...b, sceneStyles}};
+      const out={...b, sceneStyles};
+      if(b.sceneStylesManual && id in b.sceneStylesManual){ out.sceneStylesManual={...b.sceneStylesManual}; delete out.sceneStylesManual[id]; }
+      if(b.sceneWhy && id in b.sceneWhy){ out.sceneWhy={...b.sceneWhy}; delete out.sceneWhy[id]; }
+      return {...p, styleBible:out};
     });
     const dropScene = list=>list.map(x=> inScenes(x) ? {...x, scenes:x.scenes.filter(v=>v!==id)} : x);
     if(propRefs.length) setProps(dropScene);
@@ -6281,7 +6354,9 @@ function App(){
     });
     if(d.style!==undefined) setProject(p=>{
       const b=(p&&p.styleBible)||{}; if(b.sceneStyles && id in b.sceneStyles) return p;
-      return {...p, styleBible:{...b, sceneStyles:{...(b.sceneStyles||{}), [id]:d.style}}};
+      return {...p, styleBible:{...b, sceneStyles:{...(b.sceneStyles||{}), [id]:d.style},
+        ...(d.styleManual ? { sceneStylesManual:{...(b.sceneStylesManual||{}), [id]:true} } : {}),
+        ...(d.styleWhy ? { sceneWhy:{...(b.sceneWhy||{}), [id]:d.styleWhy} } : {})}};
     });
     const putBack = refs=>list=>list.map(x=>{
       const r=refs.find(v=>v.id===x.id);
@@ -6570,6 +6645,8 @@ function App(){
     // guarded by their asset scope (nbEpoch).
     const ownerProjectId = owner!==undefined ? owner : currentProjectId;
     const switchedFilms = ()=> String(ownerProjectId||"") !== String(projIdRef.current||"");
+    // "Also redo the scenes I picked by hand" is the Colorist panel's choice for ITS run only (2026-10-08)
+    const _redoManual0 = agentName==="Colorist" && !!coloristRedoManualRef.current;
     let _switchFlagged = false;
     // UNDO FOR ART ROOM AGENTS (2026-10-02): one run = one undo step (a refreshed Coordinator
     // context shares its run), snapshotted just before the run's FIRST write. Only runs started
@@ -7116,9 +7193,11 @@ function App(){
           const seed=(sb.presets&&sb.presets.length)?sb.presets:(window.STYLE_PRESETS_DEFAULT||[]);
           const refs=colorRefsFor(sb, lookbook, lookbookNote).refs;
           return window.aiAssignSceneStyles(scenes, seed, drafts, { ...project, styleBible:{ ...((project&&project.styleBible)||{}), refs } }); },
-        applyStyles: (res)=> _w.applyStyleResult(res),
+        applyStyles: (res)=> _w.applyStyleResult(res, null, { redoManual:_redoManual0 }),
+        // what this run keeps: your film stock (unless it redoes your picks)
+        keepsFilmStock: ()=>{ const sb=(project&&project.styleBible)||{}; return !_redoManual0 && !!sb.filmStockManual ? (sb.filmStock||"none") : ""; },
         // scene ids the user picked by hand — kept by applyStyles unless the run redoes them
-        manualScenes: ()=>{ const sb=(project&&project.styleBible)||{}; if(coloristRedoManualRef.current) return [];
+        manualScenes: ()=>{ const sb=(project&&project.styleBible)||{}; if(_redoManual0) return [];
           const m=sb.sceneStylesManual||{}; return Object.keys(m).filter(sid=>m[sid] && (sb.sceneStyles||{})[sid]); },
       } };
   };
@@ -7779,7 +7858,7 @@ function App(){
             noPropsConfirmed:!!(project && project.noPropsConfirmed),onSetNoProps:roomReadOnly?null:setNoPropsConfirmed,
             onRestoreChar:restoreCharacter,onPurgeChar:purgeCharacter,onRestoreProp:restoreProp,onPurgeProp:purgeProp,
             onRestoreLoc:restoreLocation,onPurgeLoc:purgeLocation,onRestoreShot:restoreShot,onPurgeShot:purgeShot,onEnsureOwner:ensureOwnerSheet,
-            onColorist:(refs, opts)=>{ if(typeof refs==="string") setStyleRefs(refs.trim());
+            onColorist:(refs, opts)=>{ if(!canMutateSharedFilm()) return; if(typeof refs==="string") setStyleRefs(refs.trim());
               coloristRedoManualRef.current = !!(opts && opts.redoManual); setColoristOpen(true); },
             // "Design the cast" opens its preview first (what it makes + the price, 2026-10-03)
             onCast:(opts)=>{ if(!turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Design the cast")) setCastConfirm(opts||{}); },
@@ -7943,8 +8022,8 @@ function App(){
 
     // Cinematographer / Colorist — gated agent (proposes the colour system for approval);
     // its idle screen shows the current visual references so you can add taste before it runs.
-    coloristOpen && React.createElement(AgentsPanel,{
-      initialAgentId:"colorist", single:true, viewLabel:"View Styles",
+    coloristOpen && !artRoomReadOnly && React.createElement(AgentsPanel,{
+      initialAgentId:"colorist", single:true, viewLabel:"View Color",
       ctxFactory:artAgentCtxFactory,
       // the "redo hand-picked scenes" choice belongs to this one run (Run pre-production keeps them)
       onClose:()=>{ coloristRedoManualRef.current = false; setColoristOpen(false); },
@@ -7952,16 +8031,22 @@ function App(){
       issues:{}, ...artUndoProps,
       aiOn: (typeof aiAvailable==="function" && aiAvailable()),
       introExtra: (()=>{ const sb=(typeof styleBibleOf==="function")?styleBibleOf(project):{};
-        const refs=(sb.refs||"").trim(); const imgs=sb.refImages||[];
-        if(!refs && !imgs.length) return React.createElement("div",{className:"ag-coloref empty"},
-          React.createElement(Icon.image,{s:14}), "No visual references yet — research the look in the Lookbook tab, or add films, photographers or reference images here, to steer the palette.");
-        return React.createElement("div",{className:"ag-coloref"},
+        // what the run will READ (colorRefsFor — the Lookbook's notes when the field is empty), and what it costs
+        const refs=String(colorRefsFor(sb, lookbook, lookbookNote).refs||"").trim(); const imgs=sb.refImages||[];
+        const viewN = imgs.filter(r=>r && r.view).length;
+        const cost = React.createElement("div",{className:"ag-intro-note ag-coloref-cost"}, React.createElement(Icon.sparkles,{s:12}),
+          "Cost: one writing call"+(viewN ? ", which looks at your "+viewN+" reference still"+(viewN!==1?"s":"")+" (a vision call \u2014 a little more)" : "")
+          +", spent when you press Run. Nothing is applied until you approve it.");
+        if(!refs && !imgs.length) return React.createElement(React.Fragment,null, React.createElement("div",{className:"ag-coloref empty"},
+          React.createElement(Icon.image,{s:14}), "No visual references yet \u2014 research the look in the Lookbook tab, or add films, photographers or reference stills on the Color tab's Visual references bar, to steer the palette."), cost);
+        return React.createElement(React.Fragment,null, cost, React.createElement("div",{className:"ag-coloref"},
           React.createElement("div",{className:"ag-coloref-lab"}, React.createElement(Icon.sparkles,{s:12}), "Designing from your references"),
           refs && React.createElement("div",{className:"ag-coloref-txt"}, refs),
           imgs.length>0 && React.createElement("div",{className:"ag-coloref-imgs"},
             imgs.map(ri=> React.createElement("div",{key:ri.id,className:"ag-coloref-img"},
               React.createElement("img",{src:ri.thumb,alt:""}),
-              React.createElement("div",{className:"ag-coloref-sw"}, (ri.colors||[]).slice(0,5).map((c,i)=>React.createElement("span",{key:i,style:{background:c}}))))))); })()}),
+              React.createElement("div",{className:"ag-coloref-sw",role:"img","aria-label":"Sampled colours: "+(ri.colors||[]).slice(0,5).join(", ")},
+                (ri.colors||[]).slice(0,5).map((c,i)=>React.createElement("span",{key:i,title:c,style:{background:c}})))))))); })()}),
 
     // Shot Designer — gated coverage agent (proposes per-scene coverage for approval),
     // launched from the Shot List header; hands off rendering to "Generate all shots".

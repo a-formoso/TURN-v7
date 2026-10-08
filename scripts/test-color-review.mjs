@@ -70,7 +70,8 @@ await test("A1 the film stock is shown, can be changed, and says what it adds to
   assert.match(textOf(findAll(view({ presets:looks }), hasClass("sb-stock-note"))[0]), /No film look is added to shots/);
 });
 await test("A2 the app saves it; read-only roles see it but can't change it", ()=>{
-  assert.ok(app.includes('const setFilmStock = (id)=> setProject(p=>({ ...p, styleBible:{ ...((p.styleBible)||{}), filmStock:String(id||"none") } }));'));
+  // (2026-10-08) checks edit rights and marks the pick as yours
+  assert.ok(app.includes('const setFilmStock = (id)=> canMutateSharedFilm() && setProject(p=>({ ...p, styleBible:{ ...((p.styleBible)||{}), filmStock:String(id||"none"), filmStockManual:true } }));'));
   assert.ok(read("app/artroom.jsx").includes("onSetFilmStock:readOnly?null:onSetFilmStock"));
   const tree = view({ presets:looks, filmStock:"portra" }, { onSetFilmStock:null });
   assert.ok(!findAll(tree, n=>n.type==="select" && n.props["aria-label"]==="Film stock").length);
@@ -80,10 +81,12 @@ await test("A2 the app saves it; read-only roles see it but can't change it", ()
 /* ═══ B + C: the app's real setters ═══ */
 const ab = { console, Object, Array, String, Set, JSON, Math }; ab.window = ab; vm.createContext(ab);
 vm.runInContext(sbData, ab);
-vm.runInContext(`let project = {}; const setProject = (f)=>{ project = f(project); };
+vm.runInContext(`let project = {}; const setProject = (f)=>{ project = f(project); return true; };
   const coloristRedoManualRef = { current:false };
-  ${between(app, "  const applyStyleResult = (res, seed)=>{", "  // the user's free-text visual references")}
-  ${between(app, "  const setScenePreset = (sceneId, presetId)=> setProject(p=>{", "  // ---- Art Room: SHOT LIST ----")}
+  // (2026-10-08) the colour handlers check edit rights and the film; this role may change the Art Room
+  const artRoomReadOnlyRef = { current:false }, canMutateSharedFilm = ()=>true, projIdRef = { current:"film" };
+  const scenesRef = { current:[] }, scenes = [], lookbook = [], lookbookNote = "", markApplied = ()=>{};
+  ${between(app, "  const applyStyleResult = (res, seed, opts)=>{", "  // ---- Art Room: SHOT LIST ----")}
   this.api = { get:()=>project, set:(p)=>{ project = p; }, redo:(v)=>{ coloristRedoManualRef.current = v; },
     applyStyleResult, setScenePreset, setFilmStock, updateStylePreset, deleteStylePreset };`, ab);
 const api = ab.api;
@@ -145,7 +148,7 @@ await test("C3 the proposal says how many hand-picked scenes it keeps, and shows
   assert.match(card.reason, /except the 1 scene you set by hand, which keep their look/);
   assert.deepEqual(J(card.colorProposal.keptManual), ["s2"]); assert.ok(applied);
   assert.ok(agentsUi.includes("const kept=(p.keptManual||[]).indexOf(s.id)>=0;") && agentsUi.includes('" — keeps the look you set by hand"'));
-  assert.ok(app.includes("manualScenes: ()=>{ const sb=(project&&project.styleBible)||{}; if(coloristRedoManualRef.current) return [];"));
+  assert.ok(app.includes("manualScenes: ()=>{ const sb=(project&&project.styleBible)||{}; if(_redoManual0) return [];"))   // the run's own choice (2026-10-08);
   assert.ok(app.includes("onClose:()=>{ coloristRedoManualRef.current = false; setColoristOpen(false); },"), "the redo choice lasts one run");
 });
 

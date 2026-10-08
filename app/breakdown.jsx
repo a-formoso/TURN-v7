@@ -93,7 +93,9 @@ function breakdownRows({ scenes, characters, props, locations, shots, drafts, im
     if(!sceneShots.length) missing.push({ tab:"shots", text:"shots" });
     else if(typeof shotFrameState==="function"){
       let locChanged = 0;
-      sceneShots.forEach(sh=>{ const st = shotFrameState(sh, sceneShots, drafts, project, img); if(!st.done) toRender++; else { done++; if(st.oldLook) oldLook++; if(st.locChanged) locChanged++; } });
+      // every RENDERED frame counts for the notes, as Shots, Storyboards and the Stage count them (2026-10-08)
+      sceneShots.forEach(sh=>{ const st = shotFrameState(sh, sceneShots, drafts, project, img); if(!st.done) toRender++; else done++;
+        if(st.rendered || st.done){ if(st.oldLook) oldLook++; if(st.locChanged) locChanged++; } });
       // a changed location plate is a note, like an earlier look (2026-10-08)
       if(locChanged>0) notes.push({ tab:"shots", text:locChanged+" frame"+(locChanged===1?"":"s")+" made before its location changed \u2014 re-render to apply it" });
       const unrendered = sceneShots.length-rendered, notDone = toRender-unrendered;
@@ -125,14 +127,18 @@ function breakdownRows({ scenes, characters, props, locations, shots, drafts, im
     let boards = null;
     if(sceneShots.length && typeof window.sbPageRanges==="function"){
       const ordered2 = sceneShots.slice().sort((a,b)=>(a.order||0)-(b.order||0) || (a.beatN||0)-(b.beatN||0));
-      boards = { total:0, current:0, stale:0 };
+      boards = { total:0, current:0, stale:0, oldLook:0 };
       (window.sbPageRanges(ordered2)||[]).forEach((rg,i)=>{
         boards.total++;
         const id = "sbsheet-sbpage-"+scene.id+"-2x2-"+i;
         if(!img(id)) return;
         const m = (typeof nbGetMeta==="function") ? nbGetMeta(id) : null;
         const ids = ordered2.slice(rg.start, rg.start+rg.count).map(x=>x.id);
-        if(typeof window.sbSheetStale==="function" && m && window.sbSheetStale(m, ids)) boards.stale++; else boards.current++;
+        // a sheet drawn from frames made with an earlier look isn't up to date either (2026-10-08)
+        const earlier = typeof shotLookIsEarlier==="function" && ids.some(fid=>{ const fm = (typeof nbGetMeta==="function") ? nbGetMeta(fid) : null;
+          return !!(fm && shotLookIsEarlier(fm.lookSig, project, scene.id)); });
+        if(typeof window.sbSheetStale==="function" && m && window.sbSheetStale(m, ids)) boards.stale++;
+        else if(earlier) boards.oldLook++; else boards.current++;
       });
     }
     const clips = (stageStatus && stageStatus[scene.id]) || null;
@@ -392,7 +398,8 @@ function BreakdownStrip({ row, go:goTab, onMakeSceneNeeds, needsBusy=null, setNe
             _bdEl("button",{type:"button",className:"bd-chip"+(row.boards.current===row.boards.total?" ok":""),onClick:()=>go("storyboard"),
                 title:"Storyboard sheets drawn from this scene's current shots and frames \u2014 open the Storyboards tab (composing is free)"},
               dot(row.boards.current===row.boards.total),
-              row.boards.current+" of "+row.boards.total+" sheet"+(row.boards.total===1?"":"s")+" up to date"+(row.boards.stale?" \u00b7 "+row.boards.stale+" out of date":"")))),
+              row.boards.current+" of "+row.boards.total+" sheet"+(row.boards.total===1?"":"s")+" up to date"+(row.boards.stale?" \u00b7 "+row.boards.stale+" out of date":"")
+                +(row.boards.oldLook?" \u00b7 "+row.boards.oldLook+" from frames with an earlier look":"")))),
         shots.total>0 && _bdEl("div",{className:"bd-row"}, _bdEl("span",{className:"bd-row-lab"},"Clips"),
           _bdEl("div",{className:"bd-chips"}, row.clips && row.clips.total
             ? _bdEl("button",{type:"button",className:"bd-chip"+(row.clips.rendered===row.clips.total && !row.clips.stale?" ok":""),
@@ -400,7 +407,8 @@ function BreakdownStrip({ row, go:goTab, onMakeSceneNeeds, needsBusy=null, setNe
                 title:"The Stage's video clips for this scene, as of your last visit to the Stage \u2014 open the Stage"},
                 dot(row.clips.rendered===row.clips.total && !row.clips.stale),
                 row.clips.rendered+" of "+row.clips.total+" clip"+(row.clips.total===1?"":"s")+" rendered"
-                  +(row.clips.stale?" \u00b7 "+row.clips.stale+" out of date":"")+(row.clips.oldLook?" \u00b7 "+row.clips.oldLook+" earlier look":""))
+                  +(row.clips.stale?" \u00b7 "+row.clips.stale+" out of date":"")+(row.clips.oldLook?" \u00b7 "+row.clips.oldLook+" earlier look":"")
+                  +" (at your last Stage visit)")
             : _bdEl("button",{type:"button",className:"bd-chip",onClick:()=>onOpenStage&&onOpenStage(),disabled:!onOpenStage,
                 title:"Video clips are counted when you visit the Stage"}, dot("unused"), "Counted on your next visit to the Stage")))),
       (row.notes||[]).length>0 && _bdEl("div",{className:"bd-notes"}, row.notes.map((n,i)=>

@@ -94,7 +94,8 @@ await test("D1 the look signature follows the scene's look and the film stock; f
   assert.equal(a, box.shotLookSig(JSON.parse(JSON.stringify(P)), "s1"));
   assert.notEqual(a, box.shotLookSig({ ...P, styleBible:{ filmStock:"none" } }, "s1"));
   assert.notEqual(a, box.shotLookSig({ ...P, looks:{ s1:{ ...P.looks.s1, grade:"cold" } } }, "s1"));
-  assert.ok(ui.includes('lookSig:(typeof shotLookSig==="function" && ctx && ctx.scene) ? shotLookSig(ctx.project, ctx.scene.id) : "",'));
+  // (2026-10-08) the current look, unless an Edit keeps the frame's own or an earlier-look seed carries one
+  assert.ok(ui.includes('const _lookNow = (typeof shotLookSig==="function" && ctx && ctx.scene) ? shotLookSig(ctx.project, ctx.scene.id) : "";') && ui.includes(": _lookNow,"));
   // (2026-10-05, Color review) the check goes through shotLookIsEarlier: a missing look is never flagged
   assert.ok(group.includes('if(m && typeof shotLookIsEarlier==="function" && shotLookIsEarlier(m.lookSig, ctx.project, scene.id)) oldLook++;'));
   assert.equal(box.shotLookIsEarlier("", P, "s1"), false, "frames without a stored look are never flagged");

@@ -60,7 +60,7 @@ await test("B3 several takes ask first with the total; a view-only role can't re
   const g = between(st, "const onGenerate = async (attemptOptions)=>{", "if(typeof window.nbAssertMediaIdentity===\"function\"){");
   assert.ok(g.indexOf("if(readOnly){") < g.indexOf("Render \"+n+\" takes of this clip?"));
   assert.ok(g.includes('confirmLabel:"Render "+n+" takes"'));
-  const vers = between(st, "function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false }){", "\n}\n");
+  const vers = between(st, "function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, project }){", "\n}\n");
   assert.equal((vers.match(/disabled:readOnly\|\|!sel/g)||[]).length, 3);
   assert.ok(vers.includes("del:async (url)=>{ if(!window.vidDeleteTake || readOnly) return;") && vers.includes("window.appConfirm"));
 });

@@ -90,7 +90,7 @@ function PresetCard({ preset, sceneList, count, img, example, onUpdate, onDelete
   const ask = async ()=>{
     const ok = !window.appConfirm || await window.appConfirm({
       title:"Delete the look \u201c"+(preset.name||"Untitled")+"\u201d?",
-      body: count ? (count+" scene"+(count!==1?"s":"")+" using it will have no look until you pick one (or Light the film again).") : "No scene uses it.",
+      body: (count ? (count+" scene"+(count!==1?"s":"")+" using it will have no look until you pick one (or Light the film again).") : "No scene uses it.")+" You can undo it right after.",
       confirmLabel:"Delete look", cancelLabel:"Cancel", danger:true });
     if(ok) onDelete();
   };
@@ -112,7 +112,9 @@ function PresetCard({ preset, sceneList, count, img, example, onUpdate, onDelete
           React.createElement(Icon.trash||Icon.x,{s:12})))),
     React.createElement(StyleStill,{preset,label:img?(preset.name+" \u00b7 on this film"):preset.name,img}),
     editing
-      ? React.createElement("div",{className:"sb-edit"},
+      // keyed on the look's content (2026-10-08): when Apply or Undo replaces the look under an open editor,
+      // the fields show the new text — they used to keep the old text and write it back on blur
+      ? React.createElement("div",{className:"sb-edit",key:"ed-"+["name","dominantLabel","secondaryLabel","accentLabel","grade","lighting","lens","texture"].map(k=>String(preset[k]||"")).join("\u241f")},
           React.createElement("label",{className:"sb-edit-field"},React.createElement("span",null,"Name"),
             React.createElement("input",{type:"text",defaultValue:preset.name||"",onBlur:e=>{ const v=e.target.value.trim(); if(v && v!==preset.name) onUpdate({ name:v }); }})),
           React.createElement("div",{className:"sb-edit-colors"},
@@ -169,38 +171,43 @@ function StyleFilmStrip({ scenes, project, presets, onSetScenePreset }){
     React.createElement("div",{className:"sb-strip-head"},
       React.createElement("span",{className:"sb-strip-title"},"Across the film",
         React.createElement("span",{className:"sb-strip-count"},
-          " · "+presets.length+" preset"+(presets.length!==1?"s":"")+" · "+(sorted.length-unassigned)+" of "+sorted.length+" scenes styled"),
-        editable && React.createElement("span",{className:"sb-strip-hint"}," — click a scene to set its style")),
+          " · "+presets.length+" look"+(presets.length!==1?"s":"")+" · "+(sorted.length-unassigned)+" of "+sorted.length+" scenes with a look"),
+        editable && React.createElement("span",{className:"sb-strip-hint"}," — click a scene to change its look")),
       unassigned>0 && React.createElement("span",{className:"sb-strip-warn"},
-        React.createElement(Icon.alert,{s:12}), unassigned+" scene"+(unassigned!==1?"s":"")+" with no style yet")),
+        React.createElement(Icon.alert,{s:12}), unassigned+" scene"+(unassigned!==1?"s":"")+" with no look yet")),
     React.createElement("div",{className:"sb-strip"},
       sorted.map((s,idx)=>{
         const pid = sceneStyles[s.id]; const bg = swatchOf(presetOf(pid));
         const open = pick===s.id; const alignRight = idx > sorted.length/2;
+        const label = "Scene "+pad(s.no)+(s.title?" \u00b7 "+s.title:"")+" \u2014 "+nameOf(pid)+(manual(s.id)?", set by hand":"")+(editable?" (change the look)":"");
+        // A REAL BUTTON over the cell, the picker beside it (2026-10-08): the picker's buttons used to sit inside a
+        // role="button" cell, and Escape only worked on the cell itself
         return React.createElement("div",{key:s.id,
           className:"sb-strip-cell"+(bg?"":" none")+(editable?" editable":"")+(open?" picking":""),
           style:bg?{background:bg}:undefined,
-          // reachable from the keyboard too (2026-10-05): Tab to a scene, Enter or Space opens its picker
-          role: editable ? "button" : undefined, tabIndex: editable ? 0 : undefined,
-          "aria-label": "Scene "+pad(s.no)+(s.title?" \u00b7 "+s.title:"")+" \u2014 "+nameOf(pid)+(editable?" (change the look)":""),
-          "aria-expanded": editable ? (open?"true":"false") : undefined,
-          onKeyDown: editable ? (e)=>{ if(e.target!==e.currentTarget) return;
-            if(e.key==="Enter" || e.key===" "){ e.preventDefault(); setPick(open?null:s.id); } else if(e.key==="Escape" && open){ e.preventDefault(); setPick(null); } } : undefined,
-          onClick: editable ? ()=>setPick(open?null:s.id) : undefined,
           title:"Scene "+pad(s.no)+" \u00b7 "+(s.title||"")+"  \u2014  "+nameOf(pid)
             +(manual(s.id)?"  (set by hand \u2014 Light the film keeps it)":"")
             +(sceneWhy[s.id]?("\n"+sceneWhy[s.id]):"")+(editable?"\n\u00b7 click to change":"")},
-          React.createElement("span",{className:"sb-strip-no"},pad(s.no)),
-          manual(s.id) && React.createElement("span",{className:"sb-strip-hand","aria-label":"set by hand"},"\u270b"),
-          open && React.createElement("div",{className:"sb-pick"+(alignRight?" right":""),onClick:(e)=>e.stopPropagation()},
+          React.createElement("span",{className:"sb-strip-no","aria-hidden":editable?"true":undefined},pad(s.no)),
+          manual(s.id) && React.createElement("span",{className:"sb-strip-hand","aria-hidden":"true"},"\u270b"),
+          editable
+            ? React.createElement("button",{type:"button",className:"sb-strip-hit","aria-label":label,"aria-haspopup":"true","aria-expanded":open?"true":"false",
+                onClick:()=>setPick(open?null:s.id),
+                onKeyDown:(e)=>{ if(e.key==="Escape" && open){ e.preventDefault(); setPick(null); } }})
+            : React.createElement("span",{className:"sb-sr-only"},label),
+          open && React.createElement("div",{className:"sb-pick"+(alignRight?" right":""),role:"group","aria-label":"Look for scene "+pad(s.no),
+            onClick:(e)=>e.stopPropagation(),
+            onKeyDown:(e)=>{ if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); setPick(null);
+              try{ const hit = e.currentTarget.parentNode && e.currentTarget.parentNode.querySelector(".sb-strip-hit"); hit && hit.focus(); }catch(x){} } },
+            ref:(el)=>{ if(el && !el.__focused){ el.__focused = true; try{ const cur = el.querySelector(".sb-pick-item.on") || el.querySelector(".sb-pick-item"); cur && cur.focus(); }catch(x){} } }},
             React.createElement("div",{className:"sb-pick-h"},"Scene "+pad(s.no)+(s.title?" \u00b7 "+s.title:"")),
             sceneWhy[s.id] && React.createElement("div",{className:"sb-pick-why"},sceneWhy[s.id]),
             manual(s.id) && React.createElement("div",{className:"sb-pick-why"},"Set by hand \u2014 Light the film keeps it."),
-            presets.map(p=>React.createElement("button",{key:p.id,className:"sb-pick-item"+(p.id===pid?" on":""),onClick:()=>choose(s.id,p.id)},
+            presets.map(p=>React.createElement("button",{key:p.id,type:"button",className:"sb-pick-item"+(p.id===pid?" on":""),"aria-pressed":p.id===pid?"true":"false",onClick:()=>choose(s.id,p.id)},
               React.createElement("span",{className:"sb-pick-sw",style:{background:swatchOf(p)||"#555"}}),
               React.createElement("span",{className:"sb-pick-nm"},p.name),
               p.id===pid && React.createElement(Icon.check,{s:14}))),
-            React.createElement("button",{className:"sb-pick-item"+(!pid?" on":""),onClick:()=>choose(s.id,null)},
+            React.createElement("button",{type:"button",className:"sb-pick-item"+(!pid?" on":""),"aria-pressed":!pid?"true":"false",onClick:()=>choose(s.id,null)},
               React.createElement("span",{className:"sb-pick-sw none"}),
               React.createElement("span",{className:"sb-pick-nm"},"Unassigned"),
               !pid && React.createElement(Icon.check,{s:14}))));
@@ -265,18 +272,19 @@ function StyleRefImages({ refImages, onRemoveRefImage }){
   const imgs = refImages||[];
   if(!imgs.length) return null;
   return React.createElement("div",{className:"sb-refimgs"},
-    imgs.map(ri=>React.createElement("div",{key:ri.id,className:"sb-refimg",
+    imgs.map((ri,ix)=>React.createElement("div",{key:ri.id,className:"sb-refimg",
       title: ri.view ? "Reference still \u2014 the Colorist looks at it and its sampled palette when it lights the film"
         : "Reference still \u2014 only its sampled colours reach the Colorist (added before it could see stills): remove it and add it again to let it see the image"},
-      React.createElement("img",{src:ri.thumb,alt:"reference still"}),
-      React.createElement("div",{className:"sb-refimg-sw"},
-        (ri.colors||[]).slice(0,5).map((c,i)=>React.createElement("span",{key:i,style:{background:c}}))),
-      onRemoveRefImage && React.createElement("button",{className:"sb-refimg-x",title:"Remove",
+      React.createElement("img",{src:ri.thumb,alt:"Reference still "+(ix+1)}),
+      React.createElement("div",{className:"sb-refimg-sw",role:"img","aria-label":"Sampled colours: "+(ri.colors||[]).slice(0,5).join(", ")},
+        (ri.colors||[]).slice(0,5).map((c,i)=>React.createElement("span",{key:i,title:c,style:{background:c}}))),
+      onRemoveRefImage && React.createElement("button",{type:"button",className:"sb-refimg-x",title:"Remove this still (you can undo it right after)",
+        "aria-label":"Remove reference still "+(ix+1),
         onClick:()=>onRemoveRefImage(ri.id)},React.createElement(Icon.x,{s:12})))));
 }
 
 /* Reference-driven look-dev: a free-text field where the user names films,
-   photographers or paintings whose look they want. 'Assign from script' then
+   photographers or paintings whose look they want. 'Light the film' then
    translates that cinematography into this film's bespoke palette. Local state so
    typing is smooth; commits on blur / Enter. */
 function StyleRefsField({ value, onCommit, refImages, onAddRefImages, onRemoveRefImage, onLight, lightDisabled, manualCount }){
@@ -293,9 +301,10 @@ function StyleRefsField({ value, onCommit, refImages, onAddRefImages, onRemoveRe
   const onFiles = async (e)=>{
     const files=[...((e.target&&e.target.files)||[])]; if(e.target) e.target.value="";
     if(!files.length || !onAddRefImages) return;
+    const film0 = window.turnOpenFilmId;   // they land only on the film open when you picked them (2026-10-08)
     const room=Math.max(0, 8-imgs.length), out=[];
     for(const f of files.slice(0,room)){ try{ out.push(await extractImageRef(f)); }catch(err){} }
-    if(out.length) onAddRefImages(out);
+    if(out.length) onAddRefImages(out, film0);
   };
   return React.createElement("div",{style:{margin:"0 0 16px"}},
     React.createElement("div",{style:{display:"flex",alignItems:"center",gap:6,fontFamily:"var(--f-mono)",fontSize:11,
@@ -362,7 +371,7 @@ function InfoTip({ text, label }){
 window.InfoTip = InfoTip;
 
 /* StyleBibleView — the Style Bible as a full Art Room TAB (not a modal). Reuses the
-   film-strip + preset cards. "Assign from script" writes the scene→preset map
+   film-strip + look cards. "Light the film" (the Colorist) writes the scene→look map
    (scene-level, the source of truth); characters / locations / shots merely READ it. */
 function StyleBibleView({ project, scenes, onSetRefs, onSetScenePreset, onAddRefImages, onRemoveRefImage, onColorist, lookbookStale, onApplyLookbook,
   onSetFilmStock, onUpdatePreset, onDeletePreset, refsOwned=false, onUseLookbookRefs, onKeepRefs }){
@@ -389,19 +398,19 @@ function StyleBibleView({ project, scenes, onSetRefs, onSetScenePreset, onAddRef
         title:"Replace your text with the Lookbook's colour notes (the field follows the Lookbook again); then Light the film to use them"},"Use the Lookbook\u2019s colour notes"),
       onKeepRefs && React.createElement("button",{className:"lb-stale-btn ghost",onClick:onKeepRefs,title:"Keep your references; this banner goes away until the Lookbook changes again"},"Keep mine")),
     !refsOwned && window.LookbookStaleNotice && React.createElement(window.LookbookStaleNotice,{stale:lookbookStale,onApply:onApplyLookbook,label:"this palette",dept:"colorist",
-      applyLabel:"Light the film again", applyTitle:"The Colorist proposes a new palette from the updated Lookbook \u2014 for your approval; scenes you set by hand (\u270b) keep their look. Writing credits only, no images."}),
+      applyLabel:"Light the film again", applyTitle:"The Colorist proposes a new palette from the updated Lookbook \u2014 for your approval; scenes you set by hand (\u270b) keep their look. Writing credits only, no images (a little more when it looks at your reference stills)."}),
     React.createElement("div",{className:"art-intro"},
       React.createElement("div",{className:"art-intro-row"},
         React.createElement("div",{style:{flex:1}},
           React.createElement("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},
             "Colorist",
             React.createElement(InfoTip,{label:"About the Colorist",
-              text:"Your film's own cinematic look system \u2014 each a 60/30/10 colour grade with its own lighting, lens and texture. Click 'Light the film' and the Colorist designs a BESPOKE palette + film stock for this film (from the story and your visual references), color-scripts every scene along the value-charge spine \u2014 so the look tracks the emotional arc \u2014 and PROPOSES it for your approval, showing the swatches and a per-scene 'why' (hover a scene in the film-strip to read it later). Scenes you set by hand (\u270b) keep their look when you light the film again, unless you tick 'Also redo'. Each look can be edited (name, colours, notes) or deleted; the film stock is picked below. Shot frames and the Stage's video renders use each scene's look and the film stock; character sheets and location plates stay neutral on purpose, so the same sheet works in every scene. The previews grade one of the film's own location plates live in the browser (no generation); before any plate exists they use a drawn stand-in. Writing credits only, no images."}))),
+              text:"Your film's own cinematic look system \u2014 each a 60/30/10 colour grade with its own lighting, lens and texture. Click 'Light the film' and the Colorist designs a BESPOKE palette + film stock for this film (from the story and your visual references), color-scripts every scene along the value-charge spine \u2014 so the look tracks the emotional arc \u2014 and PROPOSES it for your approval, showing the swatches and a per-scene 'why' (hover a scene in the film-strip to read it later). Scenes you set by hand (\u270b) keep their look when you light the film again, unless you tick 'Also redo'. Each look can be edited (name, colours, notes) or deleted; the film stock is picked below. Shot frames and the Stage's video renders use each scene's look and the film stock; character sheets and location plates stay neutral on purpose, so the same sheet works in every scene. The previews grade one of the film's own location plates live in the browser (no generation); before any plate exists they use a drawn stand-in. Writing credits only, no images (a little more when it looks at your reference stills)."}))),
         null)),
     !lit && React.createElement("div",{className:"sb-unlit",role:"note"},
       React.createElement(Icon.palette||Icon.sparkles,{s:14}),
       React.createElement("span",null,React.createElement("b",null,"Not lit yet. "),
-        "The looks below are examples \u2014 \u201cLight the film\u201d designs this film's own palette and color-scripts every scene (writing credits only, no images). Or edit an example to start your own.")),
+        "The looks below are examples \u2014 \u201cLight the film\u201d designs this film's own palette and color-scripts every scene (writing credits only, no images \u2014 a little more when it looks at your reference stills). Or edit an example to start your own.")),
     lit && paletteWhy && React.createElement("div",{className:"sb-palette-why"},paletteWhy),
     onSetRefs && React.createElement(StyleRefsField,{value:refs,onCommit:onSetRefs,
       refImages,onAddRefImages,onRemoveRefImage,manualCount,

@@ -90,14 +90,16 @@ await test("B2 every frame check uses it (Shots, Storyboards, the frame state)",
 /* ═══ C ═══ */
 await test("C1 takes are stamped with the look at render (References + Extend)", ()=>{
   assert.ok(stage.includes('const clipLookSig = (typeof shotLookSig==="function") ? shotLookSig(ctx.project, scene.id) : "";'));
-  assert.ok(stage.includes('takeMeta:{ lookSig:clipLookSig, source:referenceFree?"text-only":sourceMode,'));
-  assert.ok(stage.includes('takeMeta:{ lookSig:clipLookSig, screenplayReference, screenplayImages:includedScreenplayImages, source:"extend",'));
+  // (2026-10-08, third pass) the look the take really carries: the current look, unless its inputs or its
+  // edited prompt carry an earlier one (scripts/test-color-third-pass.mjs D2)
+  assert.ok(stage.includes('((promptEditedRef.current && promptLookStamp) ? promptLookStamp : clipLookSig), source:referenceFree?"text-only":sourceMode,'));
+  assert.ok(stage.includes('? extendVideo.lookSig : clipLookSig, screenplayReference, screenplayImages:includedScreenplayImages, source:"extend",'));
 });
 await test("C2 an earlier-look take: 'Earlier look' in Takes, a ring + count in the Timeline, a note in Shoot — never left out", ()=>{
   const view = between(stage, "function StageView({", "window.StageView = StageView;");
   assert.ok(view.includes("shotLookIsEarlier(m.lookSig, project, c.scene.id)) oldLookVids[c.id] = true;"));
   assert.ok(view.includes("takeOldLook:!!oldLookVids[clip.id]") && view.includes("auds, characters, oldLookVids,"));
-  assert.ok(stage.includes('"Earlier look"') && stage.includes("shotLookIsEarlier(m.lookSig, window.turnProject, clip.scene.id)"));
+  assert.ok(stage.includes('"Earlier look"') && stage.includes("shotLookIsEarlier(m.lookSig, project || window.turnProject, clip.scene.id)"));
   const tl = between(stage, "function StageTimelineView({", "\n}\n");
   assert.ok(tl.includes('(has && (oldLookVids||{})[c.id]?" old-look":"")') && tl.includes('" with an earlier look"'));
   assert.ok(tl.includes("made with an earlier look (still in the film;"));
@@ -122,9 +124,9 @@ await test("D2 Color's Lookbook banner: 'Light the film again', its own question
 });
 await test("D3 film-strip scenes work from the keyboard", ()=>{
   const strip = between(ui, "function StyleFilmStrip(", "\n}\n");
-  assert.ok(strip.includes('role: editable ? "button" : undefined, tabIndex: editable ? 0 : undefined,'));
-  assert.ok(strip.includes('if(e.key==="Enter" || e.key===" "){ e.preventDefault(); setPick(open?null:s.id); }'));
-  assert.ok(strip.includes('"aria-expanded": editable ? (open?"true":"false") : undefined,'));
+  // (2026-10-08, third pass) a real button per scene — Enter and Space come with it — and the picker beside it
+  assert.ok(strip.includes('React.createElement("button",{type:"button",className:"sb-strip-hit","aria-label":label,"aria-haspopup":"true","aria-expanded":open?"true":"false",'));
+  assert.ok(strip.includes('onClick:()=>setPick(open?null:s.id),'));
 });
 
 /* ═══ E: the real Colorist call ═══ */

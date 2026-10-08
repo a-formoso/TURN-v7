@@ -6041,7 +6041,8 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
           lookbookStale:!!_stale.locations,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("locations"),
           onApplyLookbookDraftOnly:()=>onApplyLookbook&&onApplyLookbook("locations","draft")})
       : artView==="stylebible" && window.StyleBibleView
-      ? React.createElement(window.StyleBibleView,{project,scenes,onSetRefs:onSetStyleRefs,onSetScenePreset,onAddRefImages:onAddStyleRefImages,onRemoveRefImage:onRemoveStyleRefImage,onColorist,
+      ? React.createElement(window.StyleBibleView,{project,scenes,onSetRefs:readOnly?null:onSetStyleRefs,onSetScenePreset:readOnly?null:onSetScenePreset,
+          onAddRefImages:readOnly?null:onAddStyleRefImages,onRemoveRefImage:readOnly?null:onRemoveStyleRefImage,onColorist:readOnly?null:onColorist,
           onSetFilmStock:readOnly?null:onSetFilmStock,onUpdatePreset:readOnly?null:onUpdatePreset,onDeletePreset:readOnly?null:onDeletePreset,
           lookbookStale:!!_stale.stylebible,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("colorist"),
           refsOwned:!!colorRefsOwned,onUseLookbookRefs:readOnly?null:onUseLookbookColorRefs,onKeepRefs:readOnly?null:onKeepColorRefs})

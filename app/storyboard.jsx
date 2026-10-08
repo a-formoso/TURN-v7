@@ -729,7 +729,8 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
     window.addEventListener("nb-prefetched", onChange);
     return ()=>{ alive=false; clearTimeout(autoTimer.current);
       window.removeEventListener("nb-gen-done", onChange); window.removeEventListener("nb-prefetched", onChange); };
-  },[(page.shots||[]).map(s=>s.id+":"+(s.locked?1:0)).join(",")]);   // approve/unapprove refreshes health too
+  },[(page.shots||[]).map(s=>s.id+":"+(s.locked?1:0)).join(","),
+     (typeof shotLookSig==="function" && scene) ? shotLookSig(ctx.project, scene.id) : ""]);   // approve/unapprove, and a look change on Color (2026-10-08), refresh health
 
   // FIRST VIEW: a scene whose frames already exist gets its sheet composed
   // automatically — the board builds itself from the shot chain. A Clear in this tab

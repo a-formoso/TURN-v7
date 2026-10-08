@@ -1624,23 +1624,37 @@ async function agentColorist(ctx){
   }
   ctx.emit({k:"plan", t:"Designing this film's colour system — a bespoke palette + film stock from the story and your references — then color-scripting every scene along the value-charge spine."});
   ctx.emit({k:"act", t:"Reading the spine + visual references, designing the looks…"});
-  let res = null;
-  try{ res = await art.designStyles(); }catch(e){}
+  let res = null, failure = "";
+  try{ res = await art.designStyles(); }catch(e){ failure = String((e && e.message) || "the writing model couldn't be reached"); }
   if(ctx.cancelled()) return;
-  if(!res || !(res.presets||[]).length){
-    ctx.emit({k:"flag", t:"The model didn't return a usable palette. Try again."});
-    ctx.emit({k:"done", t:"Aborted."}); return;
+  // the real reason, and "try again" only when trying again can help (2026-10-08)
+  if(failure){
+    const hopeless = /sign in|credit|budget|allowance|plan doesn|limit reached|not allowed/i.test(failure);
+    ctx.emit({k:"flag", t:"The Colorist couldn't run: "+failure+(hopeless ? "" : " — try again in a moment.")});
+    ctx.emit({k:"done", t:"Aborted \u2014 nothing changed."}); return;
   }
+  if(!res || !(res.presets||[]).length){
+    ctx.emit({k:"flag", t:"The model's answer couldn't be read as a palette. Run it again to try once more \u2014 that is another writing call."});
+    ctx.emit({k:"done", t:"Aborted \u2014 nothing changed."}); return;
+  }
+  if(res.visionSkipped) ctx.emit({k:"flag", t:"Couldn't look at your reference stills ("+res.visionSkipped+") \u2014 the Colorist worked from their sampled colours instead."});
   // scenes the user set by hand keep their look (unless this run redoes them) — say so, and show it
   const keptManual = (typeof art.manualScenes==="function") ? (art.manualScenes()||[]) : [];
   const nP = res.presets.length, nS = Object.keys(res.sceneStyles||{}).filter(sid=>keptManual.indexOf(sid)<0).length;
   const stock = (window.FILM_STOCKS||[]).find(f=>f.id===res.filmStock);
   ctx.emit({k:"observe", t:nP+" bespoke look"+(nP!==1?"s":"")+(stock&&stock.id!=="none"?(" · "+stock.name):"")+" · "+nS+" scene"+(nS!==1?"s":"")+" color-scripted"+((res.rationale&&res.rationale.palette)?(" — "+res.rationale.palette):"")});
 
+  // the film stock: yours is kept; otherwise say what replaces what (2026-10-08)
+  const keptStock = (typeof art.keepsFilmStock==="function") ? art.keepsFilmStock() : "";
+  const keptStockObj = keptStock ? (window.FILM_STOCKS||[]).find(f=>f.id===keptStock) : null;
+  const curStockId = String((((window.turnProject||{}).styleBible)||{}).filmStock||"none");
+  const curStockObj = (window.FILM_STOCKS||[]).find(f=>f.id===curStockId);
+  const stockLine = keptStock ? (" Your film stock ("+((keptStockObj&&keptStockObj.name)||keptStock)+") stays.")
+    : (stock && curStockId!==res.filmStock ? (" Film stock: "+((curStockObj&&curStockObj.name)||curStockId)+" \u2192 "+stock.name+".") : "");
   const ok = await ctx.propose({
     title:"Apply this colour system",
     reason:"Replaces the current looks with a bespoke palette and color-scripts every scene"
-      +(keptManual.length ? (" \u2014 except the "+keptManual.length+" scene"+(keptManual.length!==1?"s":"")+" you set by hand, which keep their look.") : "."),
+      +(keptManual.length ? (" \u2014 except the "+keptManual.length+" scene"+(keptManual.length!==1?"s":"")+" you set by hand, which keep their look.") : ".")+stockLine,
     rationale: (res.rationale && res.rationale.palette) || "",
     colorProposal:{ presets:res.presets, sceneStyles:res.sceneStyles, filmStock:res.filmStock, rationale:res.rationale, scenes:art.scenesLite, keptManual },
   });

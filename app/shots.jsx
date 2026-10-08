@@ -2297,6 +2297,9 @@ function buildShotPrompt(sh, ctx){
   if(_locLabels.length && (!ctx.simpleMode || _retainRequiredSimpleMap)){
     MAP += " If the framing crosses between attached location views, preserve the exact threshold/sightline relationship between them; otherwise extend the SAME set consistently from the attached view.";
   }
+  // the plate gives the SET, the scene's look gives the COLOUR (2026-10-08, owner — Color review): a location
+  // plate drawn in a styled render can carry its own tint
+  if(_locLabels.length) MAP += " Take the set's architecture, materials, layout and light direction from the location view; its colour grade and palette come from this scene's look, not from the view.";
 
   // ---- ASSEMBLE: image map, then the style spine, then the staging line, then constraints ----
   let out = MAP + "\n\n" + STYLE_SPINE + "\n\n— " + STAGING;

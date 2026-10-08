@@ -227,6 +227,7 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
     return ranked;
   };
 
+  let _seedEarlierLook = "";   // set by metaStart when the seed frame was made with an earlier look
   const opts = {
     id: sh.id, slotId: "shot-"+sh.id,
     entity: sh,
@@ -350,6 +351,9 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
       // cloud mode, and lineage must record the seed's REAL current version
       try{ if(typeof nbLoadImage==="function") await nbLoadImage(prevShot.id); }catch(e){}
       const seedU = (typeof nbGetImage==="function") ? nbGetImage(prevShot.id) : "";
+      // a seed made with an EARLIER look carries its grade into this frame — remember it for the stamp below
+      try{ const pm = seedU && typeof nbGetMeta==="function" ? nbGetMeta(prevShot.id) : null;
+        _seedEarlierLook = (pm && pm.lookSig && typeof shotLookIsEarlier==="function" && ctx && ctx.scene && shotLookIsEarlier(pm.lookSig, ctx.project, ctx.scene.id)) ? pm.lookSig : ""; }catch(e){ _seedEarlierLook = ""; }
       // seed frame missing → renders without its anchor; record that truthfully (no `fresh`).
       // seedUnapproved makes the director's explicit "use unapproved seed" choice DURABLE —
       // without it the frame would later look normally current and erase the exception.
@@ -358,8 +362,14 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
             ...(prevShot.locked ? {} : { seedUnapproved:true }) }
         : { seedShotId:"" } };
     },
-    metaExtra: async ()=>{
+    metaExtra: async (mx)=>{
        assertSceneContext();
+       // THE LOOK IT REALLY HAS (2026-10-08, owner — Color review): an Edit keeps the frame's grade, so it keeps
+       // the frame's look stamp (it used to clear "Earlier look"); a frame seeded from an earlier-look frame
+       // inherits that grade, so it carries that frame's stamp
+       const _isEdit = !!(mx && mx.mode==="edit");
+       const _prior = _isEdit && typeof nbGetMeta==="function" ? (nbGetMeta(sh.id)||{}) : null;
+       const _lookNow = (typeof shotLookSig==="function" && ctx && ctx.scene) ? shotLookSig(ctx.project, ctx.scene.id) : "";
        return ({
        sceneContext:renderPlan && renderPlan.sceneContext ? {
          sceneId:renderPlan.sceneContext.sceneId, sourceRev:renderPlan.sceneContext.sourceRev,
@@ -370,7 +380,7 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
        } : null,
       advancedCamera:(typeof shotCameraMetadata==="function") ? shotCameraMetadata(sh) : null,
       // the scene look + film stock this frame was made with (flagged later if the Color tab changes)
-      lookSig:(typeof shotLookSig==="function" && ctx && ctx.scene) ? shotLookSig(ctx.project, ctx.scene.id) : "",
+      lookSig: (_prior && _prior.lookSig!==undefined) ? _prior.lookSig : (!_isEdit && _seedEarlierLook) ? _seedEarlierLook : _lookNow,
       // the reference sheets ticked OFF when this frame was made — ticking one on/off later marks it out of date (2026-10-05)
       refOffSig:(typeof shotRefOffSig==="function") ? shotRefOffSig(sh) : undefined,
       writingSources:(typeof shotWritingSources==="function") ? shotWritingSources(sh,ctx) : [],

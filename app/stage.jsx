@@ -1272,7 +1272,9 @@ function buildClipData(scene, g, ctx, maxSec){
   const moves = _uniq(shots.map(sh=> (typeof shotMoveOf==="function") ? shotMoveOf(sh.move).label : (sh.move||"")).filter(Boolean));
   const camera = moves.length ? moves.join(" → ") : "Static";
   const cameraProfile = shots.map(sh=>sh&&sh.cameraSettings&&sh.cameraSettings.camera).find(v=>v&&v!=="auto") || "auto";
-  const lighting = (preset && (preset.lighting||preset.grade)) || "Naturalistic, motivated light";
+  // the look's own lighting only (2026-10-08, owner — Color review): no invented "naturalistic" line when no look
+  // is set (the frames get none), and the grade isn't printed twice when a look has no lighting
+  const lighting = (preset && preset.lighting) || "";
   const lead = cast[0] ? cast[0].name : "the subject";
   // composed director prompt (prose, multi-beat) — readable, not the image-gen JSON
   const panelLines = shots.map((sh,i)=>{
@@ -3052,6 +3054,13 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   // the scene's look + film stock when this console renders — stamped on each take it makes, so a later
   // change on the Color tab shows the take as "made with an earlier look" (2026-10-05, owner — Color review)
   const clipLookSig = (typeof shotLookSig==="function") ? shotLookSig(ctx.project, scene.id) : "";
+  /* THE LOOK A TAKE REALLY CARRIES (2026-10-08, owner — Color review): an input frame made with an earlier
+     look carries that grade into the take, so the take carries that frame's stamp (it was stamped current,
+     so "Earlier look" never showed); a hand-edited prompt carries the look it was written against */
+  const _earlierOf = (sig)=> !!(sig && typeof shotLookIsEarlier==="function" && shotLookIsEarlier(sig, ctx.project, scene.id));
+  const inputEarlierLook = (()=>{ for(const sh of ((clip.data && clip.data.shots)||[])){
+      const m = sh && typeof nbGetMeta==="function" ? nbGetMeta(sh.id) : null;
+      if(m && _earlierOf(m.lookSig)) return m.lookSig; } return ""; })();
   // what feeds this clip, honestly (stageClipReadiness) — the notice, the Generate question, the needs button
   const readiness = stageClipReadiness(clip, ctx, imgs, drafts);
   const [needsRun, setNeedsRun] = React.useState(null);   // {i,total} while making what this clip needs
@@ -4038,8 +4047,20 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const promptEditedRef = React.useRef(false);
   const promptSourceSig=(renderPlan&&renderPlan.signature||"")+"·"+(referencePackage.signature||"")+"·"+promptRefSig+"·"+screenplayReference.signature+"·"+promptProductionSig;
   const promptDraftKey=(scene&&scene.id||"")+"|"+shownShots.map(s=>s&&s.id).filter(Boolean).join(",");
-  const promptDraftsRef=React.useRef({});
+  /* HAND EDITS SURVIVE (2026-10-08, owner — Color review): the edited prompts are kept per film on this
+     device — they lived only in memory, so changing scene, leaving the Stage or a reload recompiled them
+     with no word. A kept draft comes back with its sources, so a changed look or script still asks. */
+  const _draftsKey = "turn_stage_prompt_drafts:"+String((ctx.project && ctx.project.id) || window.turnOpenFilmId || "local");
+  const promptDraftsRef=React.useRef(null);
+  if(promptDraftsRef.current===null){ try{ const v = JSON.parse(localStorage.getItem(_draftsKey)||"{}"); promptDraftsRef.current = (v && typeof v==="object") ? v : {}; }catch(e){ promptDraftsRef.current = {}; } }
+  const savePromptDrafts = ()=>{ try{
+    const all = promptDraftsRef.current||{}, keys = Object.keys(all).slice(-60), out = {};
+    keys.forEach(k=>{ const x = all[k]; if(x && typeof x.text==="string") out[k] = { ...x, text:x.text.slice(0,12000) }; });
+    localStorage.setItem(_draftsKey, JSON.stringify(out)); }catch(e){} };
   const [promptSourceStamp,setPromptSourceStamp]=React.useState(promptSourceSig);
+  // written whenever the box changes (edits, reset and restore all set the prompt)
+  React.useEffect(()=>{ const t = setTimeout(savePromptDrafts, 400); return ()=>clearTimeout(t); },[prompt]);
+  const [promptLookStamp,setPromptLookStamp]=React.useState(clipLookSig);   // the look a hand-edited prompt was written against
   const [promptDriftConfirmed,setPromptDriftConfirmed]=React.useState("");
   const promptSourceDrift=promptEditedRef.current&&!!promptSourceStamp&&promptSourceStamp!==promptSourceSig
     &&promptDriftConfirmed!==promptSourceSig;
@@ -4090,8 +4111,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   // the old textarea did against selectionStart
   const onPromptChange = (text, caret)=>{ const t = String(text||"").slice(0,PANEL_PROMPT_MAX);
     promptEditedRef.current = true;
-    setPromptSourceStamp(promptSourceSig); setPromptDriftConfirmed("");
-    promptDraftsRef.current[promptDraftKey]={text:t,sourceSig:promptSourceSig,shotIds:shownShots.map(s=>s.id)};
+    setPromptSourceStamp(promptSourceSig),setPromptLookStamp(clipLookSig); setPromptDriftConfirmed("");
+    promptDraftsRef.current[promptDraftKey]={text:t,sourceSig:promptSourceSig,lookSig:clipLookSig,shotIds:shownShots.map(s=>s.id)};
     setPrompt(t);
     const pos = (caret==null) ? t.length : Math.min(caret, t.length);
     const m = /(?:^|[\s\n])@([A-Za-z0-9]*)$/.exec(t.slice(0, pos));
@@ -4103,8 +4124,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     const next = (prompt.slice(0,mentionBox.start)+tok+" "+prompt.slice(caret)).slice(0,PANEL_PROMPT_MAX);
     const pos = Math.min(mentionBox.start+tok.length+1, next.length);
     promptEditedRef.current = true;
-    setPromptSourceStamp(promptSourceSig); setPromptDriftConfirmed("");
-    promptDraftsRef.current[promptDraftKey]={text:next,sourceSig:promptSourceSig,shotIds:shownShots.map(s=>s.id)};
+    setPromptSourceStamp(promptSourceSig),setPromptLookStamp(clipLookSig); setPromptDriftConfirmed("");
+    promptDraftsRef.current[promptDraftKey]={text:next,sourceSig:promptSourceSig,lookSig:clipLookSig,shotIds:shownShots.map(s=>s.id)};
     setPrompt(next); setMentionBox(null);
     requestAnimationFrame(()=>{ try{ api.applyValue(next, pos); }catch(_e){} }); };
   const onPromptKeyDown = (e)=>{ if(!mentionBox) return;
@@ -4198,7 +4219,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         saved=Object.values(promptDraftsRef.current).find(x=>(x.shotIds||[]).some(id=>ids.has(id)));
       }
       promptEditedRef.current=!!saved;
-      if(saved){ setPrompt(saved.text); setPromptSourceStamp(saved.sourceSig||""); setPromptDriftConfirmed(""); }
+      if(saved){ setPrompt(saved.text); setPromptSourceStamp(saved.sourceSig||""); setPromptLookStamp(saved.lookSig||""); setPromptDriftConfirmed(""); }
     }
     if(!promptEditedRef.current) setPrompt(effPromptStyle ? recipeText(effPromptStyle, true) : recipeText(recipe));
     setPerf(dialogueSpeakers[0] || d.lead);
@@ -4206,7 +4227,13 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     // (timed beat/part under either model), so a 2.0↔2.5 switch must recompile
     // an untouched box — otherwise the render ships the wrong scope under the right label
    }, [clip.id, activeShot.id, recipe, effPromptStyle, modelId, duration, dialogueSpeakers.join("|"), d.lead, audioRefsOn, audioIncluded.join("|"), promptRefSig, msSig, screenplayReference.signature, scopeInstruction, promptProductionSig]);
-  React.useEffect(()=>{ setCamera(d.camera); setCameraProfile(d.cameraProfile || "auto"); setLighting(d.lighting); },
+  // a lighting override you set stays when only the look's lighting changes (2026-10-08 — it was reset);
+  // a new clip or shot starts from its own lighting
+  const lightingFromRef = React.useRef({ key:"", from:d.lighting });
+  React.useEffect(()=>{ setCamera(d.camera); setCameraProfile(d.cameraProfile || "auto");
+    const key = clip.id+"|"+activeShot.id, prev = lightingFromRef.current;
+    setLighting(cur=> (prev.key===key && cur!==prev.from) ? cur : d.lighting);
+    lightingFromRef.current = { key, from:d.lighting }; },
     [clip.id, activeShot.id, d.camera, d.cameraProfile, d.lighting]);
   // a different beat resets per-beat render choices — a reused manual seed or end-frame
   // target from the last beat wouldn't make sense applied to this one.
@@ -4451,7 +4478,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       falModel: tierObj.falModel || undefined,   // non-Seedance engines (Sora 2) name their fal endpoint per tier
       textOnly:referenceFree,
       // facts the Versions view shows per take — stamped into the take's meta at commit
-	      takeMeta:{ lookSig:clipLookSig, source:referenceFree?"text-only":sourceMode, tier:tierObj.id, tierLabel:tierObj.label, resolution, bitrate, recipe:effPromptStyle || recipe,
+	      takeMeta:{ lookSig:(!referenceFree && inputEarlierLook) ? inputEarlierLook : ((promptEditedRef.current && promptLookStamp) ? promptLookStamp : clipLookSig), source:referenceFree?"text-only":sourceMode, tier:tierObj.id, tierLabel:tierObj.label, resolution, bitrate, recipe:effPromptStyle || recipe,
 	        assetRole:"final_take", assetRoleLabel:(typeof nbAssetRoleLabel==="function") ? nbAssetRoleLabel("final_take") : "Final take",
 	        cameraProfile:cameraProfile, cameraProfileLabel:(cameraProfile!=="auto" ? ((stageCameraProfiles.find(x=>x.id===cameraProfile)||{}).label||cameraProfile) : ""),
 	        audio: hasDialogue ? ((referenceFree||!voiceLocked||!audioUrls.length) ? "native"
@@ -4604,7 +4631,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const mediaSeconds = (m)=> (m && Number(m.seconds)>0) ? Number(m.seconds) : null;
   const takeChoices = orderedVisibleTakes.filter(t=>t&&t.url).map((t,i)=>({
     kind:"take", id:String(t.id||i), url:t.url, ref:t.url,
-    label:(t.current ? "Current take" : "Take "+(orderedVisibleTakes.length-i)),
+    label:(t.current ? "Current take" : "Take "+(orderedVisibleTakes.length-i)), lookSig:(t && t.meta && t.meta.lookSig) || "",
     seconds:(()=>{ const m=(t&&t.meta)||{}; const v=Number(m.durationSec)||Number(m.durationMs)/1000; return v>0 ? v : null; })() }));
   const mediaSetters = { extend:setExtendVideo, edit:setEditVideo, "motion-video":setMotionVideo, "motion-image":setMotionImage };
   const blobUrlsRef = React.useRef(new Set());
@@ -4777,7 +4804,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         screenplayReference,
         screenplayImages:includedScreenplayImages.length?includedScreenplayImages:undefined,
         screenplayImagesRequired:false, assertScreenplayCurrent,
-        takeMeta:{ lookSig:clipLookSig, screenplayReference, screenplayImages:includedScreenplayImages, source:"extend", tier:sd25Tier.id, tierLabel:sd25Tier.label, resolution, bitrate,
+        takeMeta:{ lookSig:(extendVideo && _earlierOf(extendVideo.lookSig)) ? extendVideo.lookSig : clipLookSig, screenplayReference, screenplayImages:includedScreenplayImages, source:"extend", tier:sd25Tier.id, tierLabel:sd25Tier.label, resolution, bitrate,
           durationSec:duration, inputSeconds:mediaSeconds(extendVideo), references, privateRefs:(extendVideo.kind==="device"?1:0),
           audio: hasDialogue ? "voice" : (nativeAudio ? "native" : "silent"),
           inputs:(1+(freshFrameUrl?1:0)+extendImages.length)+" img · 1 vid · 0 aud" },
@@ -4893,12 +4920,12 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const onChip = (ch)=>{
     const line = String((ch&&ch.k)||"").trim()+": "+String((ch&&ch.v)||"").trim();
     if(!line.trim() || line.indexOf(": ")===0) return;
-    promptEditedRef.current=true; setPromptSourceStamp(promptSourceSig); setPromptDriftConfirmed("");
+    promptEditedRef.current=true; setPromptSourceStamp(promptSourceSig),setPromptLookStamp(clipLookSig); setPromptDriftConfirmed("");
     setPrompt(p=>{
       const cur = String(p||"").trim();
       if(cur.toLowerCase().indexOf(line.toLowerCase())>=0) return p;
       const next=cur ? (cur+"\n"+line) : line;
-      promptDraftsRef.current[promptDraftKey]={text:next,sourceSig:promptSourceSig,shotIds:shownShots.map(s=>s.id)};
+      promptDraftsRef.current[promptDraftKey]={text:next,sourceSig:promptSourceSig,lookSig:clipLookSig,shotIds:shownShots.map(s=>s.id)};
       return next;
     });
   };
@@ -4986,8 +5013,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       return;
     }
     promptEditedRef.current=true;
-    setPromptSourceStamp(promptSourceSig); setPromptDriftConfirmed("");
-    promptDraftsRef.current[promptDraftKey]={text:next,sourceSig:promptSourceSig,shotIds:shownShots.map(s=>s.id)};
+    setPromptSourceStamp(promptSourceSig),setPromptLookStamp(clipLookSig); setPromptDriftConfirmed("");
+    promptDraftsRef.current[promptDraftKey]={text:next,sourceSig:promptSourceSig,lookSig:clipLookSig,shotIds:shownShots.map(s=>s.id)};
     setPrompt(next);
     requestAnimationFrame(()=>{ try{ promptRef.current&&promptRef.current.applyValue(next,0); }catch(_e){} });
     if(typeof window.appToast==="function") window.appToast("Added a fictional-context note to the render prompt. Review it before generating; nothing was submitted.","info");
@@ -5177,8 +5204,11 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       ? "Use master for "+bulkChoice.shotsLabel : null,
     action:bulkChoice ? ()=>applyCharacterReferenceBulk(bulkChoice) : null
   });
+  const promptLookChanged = promptEditedRef.current && !!promptLookStamp && promptLookStamp!==clipLookSig;
   if(promptSourceDrift) blockers.push({key:"prompt-drift",
-    text:"This hand-edited prompt was written against an older scene screenplay, shot timing, coverage, dialogue or reference version. Review the updated screenplay screenshots and selected references before reusing it.",
+    text: promptLookChanged
+      ? "This scene's look changed on the Color tab after you edited this prompt \u2014 its Style / Look lines still describe the earlier look. Update them (or Reset to script) before reusing it; a take rendered from it is marked as made with an earlier look."
+      : "This hand-edited prompt was written against an older scene screenplay, shot timing, coverage, dialogue or reference version. Review the updated screenplay screenshots and selected references before reusing it.",
     actionLabel:"Confirm reviewed",action:()=>setPromptDriftConfirmed(promptSourceSig)});
   const planIssue=renderPlan&&(renderPlan.issues||[]).find(x=>x&&x.blocking);
   if(planIssue) blockers.push({key:"render-plan",text:planIssue.message,
@@ -5713,7 +5743,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         // edited away from the derivation → offer the way back to the script
         prompt!==beatPrompt && _stEl("button",{type:"button",className:"stage2-prompt-reset",
           title:"Rebuild this prompt from the screenplay beat and the Art Room shot design — discards manual edits",
-          onClick:()=>{ promptEditedRef.current=false; delete promptDraftsRef.current[promptDraftKey]; setPromptSourceStamp(promptSourceSig); setPromptDriftConfirmed(""); setPrompt(beatPrompt); }},
+          onClick:()=>{ promptEditedRef.current=false; delete promptDraftsRef.current[promptDraftKey]; setPromptSourceStamp(promptSourceSig),setPromptLookStamp(clipLookSig); setPromptDriftConfirmed(""); setPrompt(beatPrompt); }},
           "↺ Reset to script"),
         badMentions.length>0 && _stEl("div",{className:"stage2-mention-warn"},
           "⚠ "+badMentions.join(", ")+" — not among this render's included assets; the model will guess. Fix the token or include the asset."),
@@ -6120,8 +6150,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           _stEl("b",null,model.label+" Director"),
           _stEl("span",{className:"stage2-director-badge"},"MAIN PROMPT"))),
       _stEl(StagePromptArea,{className:"stage2-director-text",value:prompt,setValue:(v)=>{
-          promptEditedRef.current=true;setPromptSourceStamp(promptSourceSig);setPromptDriftConfirmed("");setPrompt(v);
-          promptDraftsRef.current[promptDraftKey]={text:v,sourceSig:promptSourceSig,shotIds:shownShots.map(s=>s.id)};
+          promptEditedRef.current=true;setPromptSourceStamp(promptSourceSig),setPromptLookStamp(clipLookSig);setPromptDriftConfirmed("");setPrompt(v);
+          promptDraftsRef.current[promptDraftKey]={text:v,sourceSig:promptSourceSig,lookSig:clipLookSig,shotIds:shownShots.map(s=>s.id)};
         },
         mentionables,onMentionPick:includeMention,fill:true,placeholder:"Describe the video you want to create…",maxLength:PANEL_PROMPT_MAX}),
       _stEl("div",{className:"stage2-director-chips"},
@@ -6501,7 +6531,7 @@ function stageTakeModelLabel(raw){
   return last.replace(/[-_]+/g," ").replace(/\b\w/g, c=>c.toUpperCase());
 }
 window.stageTakeModelLabel = stageTakeModelLabel;
-function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false }){
+function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, project }){
   const clipId = clip && clip.id;
   const [takes, setTakes] = React.useState(()=> (clipId && typeof vidGetTakes==="function") ? vidGetTakes(clipId) : []);
   React.useEffect(()=>{ let alive=true;
@@ -6628,7 +6658,7 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false }
     // the character's voice was re-locked after this take was rendered (2026-10-06)
     if(stageTakeVoiceChanged(t)) out.push(_stEl("span",{key:"v",className:"stage2-vbadge stale",title:"A speaking character's voice was re-locked after this take was rendered \u2014 re-voice the lines and regenerate to use the new voice"},"Voice changed"));
     // made before the scene's look or the film stock changed on the Color tab (a note, not a block — 2026-10-05)
-    if(clip && clip.scene && typeof shotLookIsEarlier==="function" && shotLookIsEarlier(m.lookSig, window.turnProject, clip.scene.id))
+    if(clip && clip.scene && typeof shotLookIsEarlier==="function" && shotLookIsEarlier(m.lookSig, project || window.turnProject, clip.scene.id))   // the live project, as the Timeline reads it (2026-10-08)
       out.push(_stEl("span",{key:"l",className:"stage2-vbadge stale",title:"This scene's look or the film stock changed on the Color tab after this take was rendered"},"Earlier look"));
     return out;
   };
@@ -7804,7 +7834,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
       _stEl("div",{className:"stage2-body"}, railOpen ? rail : railStrip,
         _stEl("div",{className:"stage2-main"},
           stageView==="versions"
-            ? _stEl(StageVersionsView,{ key:"vers-"+clip.id, clip, stageModel, readOnly,
+            ? _stEl(StageVersionsView,{ key:"vers-"+clip.id, clip, stageModel, readOnly, project,
                 onBack:()=>setStageView("stage"),
                 onReuse:(meta,pin)=>{ setPendingReuse({ clipId:clip.id, meta, pin }); setStageView("stage"); } })
             : stageView==="timeline"
