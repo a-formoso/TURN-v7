@@ -1235,7 +1235,7 @@ function buildClipData(scene, g, ctx, maxSec){
       || resolvedStates[0]
       || null;
     if(resolvedStates.length && !resolvedStates.some(x=>x.active)) return null;
-    const stateAsset=rs&&rs.referenceAssetId;
+    const stateAsset=(rs&&rs.referenceAssetId&&typeof nbGetImage==="function"&&nbGetImage(rs.referenceAssetId)) ? rs.referenceAssetId : "";   // (2026-10-08) never a variant that wasn't made
     const so = stateAsset ? {id:stateAsset,state:{label:(rs.event&&rs.event.referenceStateLabel)||rs.condition||"changed condition"}}
       : ((typeof shotPropSheetId==="function") ? shotPropSheetId(p, scene, _storyScenes) : { id:p.id, state:null });
     const co = (typeof custodyOwnerAt==="function") ? custodyOwnerAt(p, scene, _storyScenes) : { name:p.ownerName, handover:null };
@@ -1519,6 +1519,31 @@ function stageClipPropDependencySignature(clipData, sceneId, context){
     String(sh.id||"")+"="+propDependencySignature(C.props||[],sceneId,sh.beatN,sh.microBeatId,sh.id,C)
   ).join("||");
 }
+/* v2 (2026-10-08, owner — Props review): per shot, only the props IN it — their story state and, for
+   text-only ones, their description (a regenerated SHEET is "References need review" on the take) */
+function stageClipPropDependenciesV2(clipData, sceneId, context){
+  if(typeof propFrameDependencies!=="function") return "";
+  const C=context||window.turnContinuity||{};
+  const charById={}; (C.characters||[]).forEach(c=>{ if(c&&c.id) charById[c.id]=c; });
+  const propById={}; (C.props||[]).forEach(p=>{ if(p&&p.id) propById[p.id]=p; });
+  const scene=(C.scenes||[]).find(s=>s&&s.id===sceneId)||{ id:sceneId };
+  const per={};
+  ((clipData&&clipData.shots)||[]).forEach(sh=>{ if(!sh||!sh.id) return;
+    let ids=[]; try{ ids=(typeof inFrameProps==="function") ? (inFrameProps(sh, scene, charById, propById)||[]) : (sh.props||[]); }catch(e){ ids=sh.props||[]; }
+    per[sh.id]=propFrameDependencies(ids, {}, C.props||[], sceneId, sh.beatN, sh.microBeatId, sh.id, C); });
+  return "pdc2|"+JSON.stringify(per);
+}
+function stageClipPropDependenciesChanged(stored, clipData, sceneId, context){
+  if(stored==null || stored==="") return false;
+  const s=String(stored);
+  if(s.indexOf("pdc2|")!==0) return s!==stageClipPropDependencySignature(clipData, sceneId, context);   // a take stamped before
+  let a, b; try{ a=JSON.parse(s.slice(5)); b=JSON.parse(stageClipPropDependenciesV2(clipData, sceneId, context).slice(5)||"{}"); }catch(e){ return false; }
+  const ka=Object.keys(a||{}), kb=Object.keys(b||{});
+  if(ka.length!==kb.length) return true;
+  return ka.some(k=> !(k in b) || (typeof propDependenciesChanged==="function" ? propDependenciesChanged(a[k], b[k]) : a[k]!==b[k]));
+}
+window.stageClipPropDependenciesV2 = stageClipPropDependenciesV2;
+window.stageClipPropDependenciesChanged = stageClipPropDependenciesChanged;
 window.stageClipPropDependencySignature = stageClipPropDependencySignature;
 
 /* beat-boundary page geometry for a scene — the SAME source of truth as the
@@ -4451,8 +4476,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           referenceRecovery:referenceFree?"provider-media-policy-text-only":"",
           identityCharacterIds:identityIds,
           identitySnapshots:identityCast.map(c=>typeof window.nbIdentitySnapshot==="function" ? window.nbIdentitySnapshot(c) : null).filter(Boolean),
-	        propDependencies:(typeof stageClipPropDependencySignature==="function")
-	          ? stageClipPropDependencySignature(d,scene&&scene.id,window.turnContinuity||{}) : "" },
+	        propDependencies:(typeof stageClipPropDependenciesV2==="function")
+	          ? stageClipPropDependenciesV2(d,scene&&scene.id,window.turnContinuity||{}) : "" },
       // start→end transitions render on the dedicated i2v endpoint, which needs BOTH
       // frames — with the start frame excluded, the end frame quietly stands down
       endImageUrl: (!referenceFree&&frameUrl ? endFrameUrl : "") || undefined, force:true };
@@ -6500,10 +6525,8 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false }
     ? shotSourcesStatus(((clip&&clip.data&&clip.data.shots)||[]),
         ((window.turnContinuity||{}).drafts||{}),(t&&t.meta)||{}) : "unverified";
   const selSourceStatus=sel?versionSourceStatus(sel):"";
-  const currentPropDependencies=(typeof stageClipPropDependencySignature==="function")
-    ? stageClipPropDependencySignature((clip&&clip.data)||{},clip&&clip.scene&&clip.scene.id,window.turnContinuity||{}) : "";
   const propDependenciesStale=(t)=>!!(t&&t.meta&&t.meta.propDependencies!=null
-    && t.meta.propDependencies!==currentPropDependencies);
+    && stageClipPropDependenciesChanged(t.meta.propDependencies,(clip&&clip.data)||{},clip&&clip.scene&&clip.scene.id,window.turnContinuity||{}));
   const stageTakeVoiceChanged=(t)=>{
     const vr=(t&&t.meta&&t.meta.voiceReferences)||[];
     if(!vr.length || typeof window.vgVoiceLockSignature!=="function") return false;

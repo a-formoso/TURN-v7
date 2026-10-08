@@ -54,7 +54,11 @@ function breakdownRows({ scenes, characters, props, locations, shots, drafts, im
     const location = loc ? { id:loc.id, name:loc.name||slug.place||"Location", ready:img(loc.id) } : null;
     const mapped = (props||[]).filter(p=> p && Array.isArray(p.scenes) && p.scenes.indexOf(scene.id)>=0).map(p=>{
       const needs = p.kind==="worn" || tierOf(p)!=="text";
-      return { id:p.id, name:p.name||"Prop", kind:p.kind||"carried", owner:p.ownerName||"", needs, ready:!needs || img(p.id) };
+      // WORN = the Shots rule (2026-10-08): it rides on its owner's character sheet; its own macro sheet
+      // is optional (close-ups only), so the owner's sheet is enough to be ready
+      const macro = img(p.id), onOwner = p.kind==="worn" && !macro && !!(p.ownerId && img(p.ownerId));
+      return { id:p.id, name:p.name||"Prop", kind:p.kind||"carried", owner:p.ownerName||"", ownerId:p.ownerId||"", needs, onOwner,
+        ready:!needs || !!macro || onOwner };
     });
     // worn items are WARDROBE (part of the cast's look), listed apart from the props
     const wardrobe = mapped.filter(p=> p.kind==="worn");
@@ -82,7 +86,8 @@ function breakdownRows({ scenes, characters, props, locations, shots, drafts, im
       cast.filter(c=>!c.ready).forEach(c=> missing.push({ tab:"characters", text: c.state ? (c.name+" · "+c.state+" variant") : (c.name+"'s sheet") }));
       if(!location) missing.push({ tab:"locations", text:"a location card" });
       else if(!location.ready) missing.push({ tab:"locations", text:location.name+" plate" });
-      wardrobe.concat(sceneProps).filter(p=>!p.ready).forEach(p=> missing.push({ tab:"props", text:p.name+" sheet" }));
+      sceneProps.filter(p=>!p.ready).forEach(p=> missing.push({ tab:"props", text:p.name+" sheet" }));
+      // a worn item needs its owner's sheet, which the cast line above already asks for
     }
     let toRender = 0, oldLook = 0, done = 0;
     if(!sceneShots.length) missing.push({ tab:"shots", text:"shots" });
@@ -356,8 +361,9 @@ function BreakdownStrip({ row, go:goTab, onMakeSceneNeeds, needsBusy=null, setNe
           _bdEl("div",{className:"bd-chips"}, location ? chip("loc", location.name, okOf(location), "locations", location.ready ? "The plate is ready" : "Needs its location plate")
             : _bdEl("button",{type:"button",className:"bd-chip",onClick:()=>go("locations"),title:"No location card resolves to this scene — check its slugline"}, dot(false), "No location card"))),
         wardrobe.length>0 && _bdEl("div",{className:"bd-row"}, _bdEl("span",{className:"bd-row-lab"},"Wardrobe"),
-          _bdEl("div",{className:"bd-chips"}, wornShown.map(p=> chip(p.id, p.name, okOf(p), "props",
-              p.name+(p.owner ? " \u2014 worn by "+p.owner : "")+" \u00b7 "+(p.ready ? "sheet ready" : "needs its sheet"))),
+          _bdEl("div",{className:"bd-chips"}, wornShown.map(p=> chip(p.id, p.name, okOf(p), p.onOwner || !p.ready ? "characters" : "props",
+              p.name+(p.owner ? " \u2014 worn by "+p.owner : "")+" \u00b7 "+(p.onOwner ? "on "+(p.owner||"the owner")+"\u2019s character sheet"
+                : p.ready ? "close-up sheet ready" : "rides on "+(p.owner||"its owner")+"\u2019s character sheet \u2014 make that sheet first"))),
             more(wardrobe, allWorn, setAllWorn))),
         props.length>0 && _bdEl("div",{className:"bd-row"}, _bdEl("span",{className:"bd-row-lab"},"Props"),
           _bdEl("div",{className:"bd-chips"}, propsShown.map(p=> p.needs

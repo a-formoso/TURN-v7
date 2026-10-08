@@ -1,15 +1,14 @@
 /* props.jsx — The Art Room ▸ Props tab.
    Continuity objects (worn or carried) get their own reference sheet so an object
    looks identical in every shot it appears in. Mirrors the Character Sheets flow:
-   each prop card has Draft (AI fills form/material/detail from the script) and
-   Generate (Nano Banana → a multi-view product sheet). Reuses the shared
+   each prop card has Draft (the writing model fills form/material/detail from the script) and
+   Generate (the image model → a 4-panel object sheet). Reuses the shared
    useImageGen hook + SheetFrame so the generation machinery stays in one place. */
 
-/* PROSE prop prompt (2026-06-15, reverted from JSON at the user's request): a single
-   descriptive line \u2014 "Prop concept art sheet, <name + description>, full 360-degree
-   turnaround (front center / side middle / back right), <off-white background + soft
-   contact shadow>, made of <material>, ~<scale>, right side: 3 detail shots, <render
-   style>, \u2026". The render style comes from the card's dropdown (photoreal default). Owner
+/* Prop prompt: a structured 4-panel object sheet (hero / front / side / detail, off-white
+   background, soft contact shadow) \u2014 see combinedPropPrompt. The photo-based prompt and the
+   simplified retry use the same layout and background. The render style comes from the
+   card's dropdown (photoreal default). Owner
    matching is no longer carried in the prompt text \u2014 a worn/owned prop's OWNER character
    sheet rides in as a REFERENCE IMAGE (see generatePropSheet / the card's attachments)
    plus propOwnerNote, which matches the prop to the character far better than a text tag. */
@@ -479,7 +478,7 @@ function buildSimplePropPrompt(p){
     form||"",
     material ? (material) : "",
     "4-panel object sheet: hero three-quarter view, front elevation, side profile, and detail macro",
-    "plain light grey background, studio product lighting, "
+    "flat off-white background with a soft contact shadow, studio product lighting, "
       +((String(p.renderStyle||((typeof window.renderStyleText==="function")?window.renderStyleText("prop",p.renderStyleKey||propInheritedStyleKey(p)):"")).split(/[;,]/)[0].trim())||"photoreal")
       +", sharp focus, no people"
   ].filter(Boolean);
@@ -793,6 +792,43 @@ function propDependencySignature(props, sceneId, beatId, microBeatId, shotId, co
   }).sort().join("|");
 }
 window.propDependencySignature = propDependencySignature;
+/* WHAT A FRAME OR TAKE REALLY USED (owner 2026-10-08 — Props review). v2 ("pd2|"): only the props IN
+   the frame, each with its story state, its description when it rides as text, and — for a sheet the
+   frame attached — that sheet's version. The old signature covered every prop present in the scene
+   (one regenerated prop flagged every frame there), read a variant that might not exist (so the base
+   sheet the frame used could change unseen), skipped text-only descriptions, and fired after a reload
+   before the images loaded. A version is "?" until its image store answers: never a false alarm. */
+function propTextSig(p){ return [p.name,p.form,p.material,p.detail,p.signatureFeature,p.size].map(x=>String(x||"").replace(/\s+/g," ").trim()).join("~"); }
+function propRevisionKnown(id){
+  const img = (typeof nbGetImage==="function") && nbGetImage(id);
+  const meta = (typeof nbGetMeta==="function") && nbGetMeta(id);
+  if(img) return String((meta && (meta.iso||meta.createdAt||meta.version)) || "sheet");
+  return meta ? "none" : "?";
+}
+function propFrameDependencies(inFrameIds, attached, props, sceneId, beatId, microBeatId, shotId, context){
+  const list = Array.from(new Set((inFrameIds||[]).filter(Boolean).map(String))).map(id=>{
+    const p = (props||[]).find(x=>x && String(x.id)===id); if(!p) return null;
+    const s = propStateAt(p,sceneId,beatId,microBeatId,shotId,context)||{};
+    const sheet = (attached && attached[id]) || "";
+    return { id, st:[s.bindingMode,s.holderId,s.placement&&s.placement.locationId,s.placement&&s.placement.unitId,s.condition,s.visibility,s.contentVersion,s.contentNotes].join(":"),
+      text: sheet ? "" : propTextSig(p), sheet, rev: sheet ? propRevisionKnown(sheet) : "" };
+  }).filter(Boolean).sort((a,b)=> a.id<b.id ? -1 : a.id>b.id ? 1 : 0);
+  return "pd2|"+JSON.stringify(list);
+}
+/* did what a frame / take used change? a v1 stamp keeps the old whole-string check (legacyCurrent) */
+function propDependenciesChanged(stored, current, legacyCurrent){
+  if(stored==null || stored==="") return false;
+  const s = String(stored);
+  if(s.indexOf("pd2|")!==0) return legacyCurrent!=null && s!==String(legacyCurrent);
+  let a, b; try{ a = JSON.parse(s.slice(4)); b = JSON.parse(String(current||"").replace(/^pd2\|/,"")||"[]"); }catch(e){ return false; }
+  if(!Array.isArray(a) || !Array.isArray(b)) return false;
+  if(a.length!==b.length) return true;
+  const byId = {}; b.forEach(x=>{ if(x) byId[x.id]=x; });
+  return a.some(x=>{ const y = byId[x.id]; if(!y) return true;
+    if(x.st!==y.st || x.text!==y.text || x.sheet!==y.sheet) return true;
+    return !!(x.rev && y.rev && x.rev!=="?" && y.rev!=="?" && x.rev!==y.rev); });
+}
+window.propTextSig = propTextSig; window.propFrameDependencies = propFrameDependencies; window.propDependenciesChanged = propDependenciesChanged;
 
 /* CUSTODY — who holds the object AT a scene, resolved from the story events
    (propStateAt). The canonical owner holds it from the start; the card, sheets and
@@ -893,8 +929,9 @@ function buildPropFromPhotoPrompt(p, project){
   s += "proportions, colour, material and finish. Do not redesign or stylise it. ";
   s += (p.detail ? ("Significance: "+p.detail.replace(/\.$/,"")+". ") : "");
   s += "RENDER STYLE: "+style.replace(/\.$/,"")+". ";
-  s += "LAYOUT: prop concept art sheet \u2014 full 360-degree turnaround, front view center, side view middle, back view right; ";
-  s += "right side: 3 close-up detail shots in a vertical grid (signature feature, material & finish in macro, construction & wear). ";
+  // (2026-10-08) the same 4-panel layout as every other prop sheet (it used to ask for a 360 turnaround
+  // with a back view and a detail column, so photo-made sheets came out in a different layout)
+  s += "LAYOUT: a 4-panel object reference sheet in 16:9 landscape, four equal panels divided by thin clean lines \u2014 hero three-quarter view, front elevation, side profile, and a detail macro close-up of its signature feature and material; no back view, no extra angles; ";
   s += "Flat off-white / very light neutral panel background, even and clean, with a simple soft contact shadow beneath the object, no text, no labels, no annotations, soft studio lighting, no people, no hands, ";
   s += "the SAME identical object in every view, sharp focus.";
   return s;
@@ -944,7 +981,7 @@ function PropFittingModal({ p, propUrl, onClose }){
         [ownerUrl, propUrl].filter(Boolean));
       // fail safe like the other QA paths: a text-only (blind) response gets NO verdict
       if(r && r.vision===false){
-        setCrt({ error:"The vision model didn\u2019t receive the images \u2014 no verdict. Check the writing engine / image-proxy and try again." });
+        setCrt({ error:"The vision model didn\u2019t receive the images \u2014 no verdict. Check the writing engine and try again — nothing was judged." });
         return;
       }
       const m = /^VERDICT:\s*(belongs|drifted|mismatch)\s*$/im.exec((r && r.text) || "");
@@ -974,8 +1011,10 @@ function PropFittingModal({ p, propUrl, onClose }){
           React.createElement(Icon.alert,{s:12}),
           "Generate "+(p.ownerName||"the owner")+"\u2019s sheet for a true fitting \u2014 the critique then judges against their actual look."),
         React.createElement("div",{style:{display:"flex",gap:10,alignItems:"center",marginTop:12}},
-          React.createElement("button",{className:"state-add-btn",disabled:!!(crt&&crt.busy),onClick:runCritique},
+          React.createElement("button",{className:"state-add-btn",disabled:!!(crt&&crt.busy),onClick:runCritique,
+            title:"Ask the writing engine to look at both sheets — one vision call, writing credits"},
             crt&&crt.busy ? "Judging\u2026" : (crt&&(crt.text||crt.error) ? "Re-run critique" : "Critique the fit")),
+          !(crt&&crt.busy) && React.createElement("span",{className:"obj-lab",style:{margin:0}},"Uses writing credits"),
           crt && crt.verdict && React.createElement("span",{className:"obj-lab",style:{margin:0,display:"inline-flex",alignItems:"center",gap:6}},
             React.createElement("span",{className:"qa-dot "+(crt.verdict==="belongs"?"minor":"major")}),crt.verdict)),
         crt && crt.error && React.createElement("div",{className:"state-hint",style:{marginTop:8}},
@@ -1059,12 +1098,13 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
     // record WHICH owner-sheet version this sheet was anchored against (transaction-derived)
     metaExtra: propAnchorMetaExtra(p),
     // clearing the base sheet also clears this prop's state variants (no orphans)
-    relatedClearIds: ()=> (Array.isArray(p.states)?p.states:[]).map(s=> p.id+":"+s.id),
+    relatedClearIds: ()=> (Array.isArray(p.states)?p.states:[]).map(s=> p.id+":"+s.id)
+      .concat((Array.isArray(p.continuityEvents)?p.continuityEvents:[]).map(e=> e && e.referenceAssetId).filter(id=> id && String(id).indexOf(p.id+":")===0)),
     buildEdit: (instr)=>
       "Edit this prop reference sheet for "+(p.name||"the object")+". "
       +"Apply ONLY this change: "+instr+". "
       +"Preserve everything else without alteration \u2014 the exact same object shape, proportions and identity "
-      +"across all panels. Keep the same 4-panel layout (hero \u00b7 front \u00b7 side \u00b7 detail) on a neutral grey background. "
+      +"across all panels. Keep the same 4-panel layout (hero \u00b7 front \u00b7 side \u00b7 detail) on the same flat off-white background. "
       +"Do not replace or re-imagine the object.",
   });
 
@@ -1317,7 +1357,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
           (window.turnCanLockStyles && window.turnCanLockStyles()) && React.createElement("span",{className:"char-style-count"+(((window.turnAllGlobalStyleCount?window.turnAllGlobalStyleCount():0)>=(window.turnGlobalStyleCap||40))?" full":""),title:"Global render styles ("+(window.turnGlobalStyleCap||40)+" max, admin-managed). You can save up to "+(window.turnPersonalStyleCap||10)+" personal render styles. Manage via Styles in the top bar."}, (window.turnAllGlobalStyleCount?window.turnAllGlobalStyleCount():0)+"/"+(window.turnGlobalStyleCap||40))),
         styling && React.createElement("span",{className:"char-style-busy"},React.createElement("span",{className:"ns-spin"}),"Inventing\u2026"),
         (!styling && p.renderStyleKey==="surprise" && p.surpriseRender && p.surpriseRender.label) &&
-          React.createElement("span",{className:"char-style-name",title:"Re-roll a new surprise style",onClick:rollSurprise},
+          React.createElement("span",{className:"char-style-name",title:"Re-roll a new surprise style — one small writing call (writing credits)",onClick:rollSurprise},
             p.surpriseRender.label," \u21bb"),
         (!styling && p.renderStyleKey==="surprise" && p.surpriseRender && p.surpriseRender.style && window.turnCanLockStyles && window.turnCanLockStyles()) &&
           React.createElement("button",{className:"char-style-lock",title:"Lock this style \u2014 keep it and reuse it across Characters, Props & Locations",onClick:lockSurprise},"\ud83d\udd12 Lock this style"),
@@ -1811,7 +1851,7 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
     }
     const plan = await askOwners(eligible); if(!plan) return;
     setBatchOwnerChoice(plan);
-    batch.begin(eligible, onlyMissing ? 0 : sceneAll.length - eligible.length);
+    batch.begin(eligible, onlyMissing ? 0 : sceneAll.length - eligible.length, { alwaysAsk:true });
   };
   const startAllBatch = async (onlyMissing)=>{
     if(batchActiveId) return;
@@ -1833,7 +1873,7 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
     if(sceneFilter) setSceneFilter("");
     if(query) setQuery("");
     setInventoryGroup("all");
-    batch.begin(eligible, onlyMissing ? 0 : list.length - eligible.length);
+    batch.begin(eligible, onlyMissing ? 0 : list.length - eligible.length, { alwaysAsk:true });
   };
   const eligibleAll = readyIds(list).length;
   const undraftedN = list.filter(p=>!propVisualsDrafted(p) && !window.PropScreenplay.nameIssue(p.name)).length;

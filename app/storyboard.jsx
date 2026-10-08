@@ -61,18 +61,22 @@ function sbInFrame(sh, ctx){
   return ids.map(id=>ctx.charById[id]).filter(Boolean).map(c=>c.name);
 }
 
-function sbPropIdsForPage(scene, shots, ctx){
+
+/* the prop sheets this page's frames ATTACH (owner 2026-10-08 — Props review): the frame's rule (worn
+   close-ups only on tight shots, never a text-only object) and the sheet it uses at that moment (a state
+   variant only when it was made) — [{ propId, sheetId, label }] */
+function sbPropRefsForPage(scene, shots, ctx){
   const out=[], seen=new Set();
-  let ledger = {};
-  try{ ledger = (typeof sceneContinuityLedger==="function")
-    ? sceneContinuityLedger(scene, shots, ctx.charById, ctx.propById) : {}; }catch(e){}
   (shots||[]).forEach(sh=>{
-    const own = (typeof inFrameProps==="function") ? inFrameProps(sh, scene, ctx.charById, ctx.propById) : ((sh&&sh.props)||[]);
-    const ids = [].concat(own||[], (ledger && ledger[sh.id]) || []);
-    ids.forEach(id=>{ if(id && !seen.has(id)){ seen.add(id); out.push(id); } });
+    const ids = (typeof inFrameProps==="function") ? (inFrameProps(sh, scene, ctx.charById, ctx.propById)||[]) : ((sh&&sh.props)||[]);
+    ids.forEach(id=>{ const p=(ctx.propById||{})[id]; if(!p || seen.has(id)) return;
+      if(typeof shotPropAttachable==="function"){ try{ if(!shotPropAttachable(p, sh, scene)) return; }catch(e){} }
+      const so = (typeof shotPropSheetId==="function") ? shotPropSheetId(p, scene, ctx.scenes||null, sh.beatN, sh.microBeatId, sh.id, ctx) : { id:p.id, state:null };
+      seen.add(id); out.push({ propId:p.id, sheetId:(so&&so.id)||p.id, label:(p.name||"Prop")+((so&&so.state&&so.state.label)?(" \u00b7 "+so.state.label):"") }); });
   });
   return out;
 }
+window.sbPropRefsForPage = sbPropRefsForPage;
 
 /* a mood phrase from the scene's closing value charge */
 function sbMood(scene){
@@ -510,7 +514,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
         const spec=(typeof shotCharacterReferenceSpec==="function") ? shotCharacterReferenceSpec(c, scene, ctx.scenes||null) : null;
         const rid=(spec&&spec.id)||id; const u=await grab(rid);
         if(u){ out.push({ url:u, label:(spec&&spec.label)||c.name, kind:"character" }); seen.add(id); } }
-      for(const id of sbPropIdsForPage(scene, shots, ctx)){ if(seen.has(id)) continue; const p=ctx.propById[id]; if(!p) continue; const u=await grab(id); if(u){ out.push({ url:u, label:p.name||"Prop", kind:"prop" }); seen.add(id); } }
+      for(const r of sbPropRefsForPage(scene, shots, ctx)){ if(seen.has(r.propId)) continue; const u=await grab(r.sheetId); if(u){ out.push({ url:u, label:r.label, kind:"prop" }); seen.add(r.propId); } }
       if(alive){ setRefImgs(out); }
     })();
     return ()=>{ alive=false; };
@@ -529,9 +533,9 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
       const spec = (typeof shotCharacterReferenceSpec==="function") ? shotCharacterReferenceSpec(c, scene, ctx.scenes||null) : null;
       out.push({ id:(spec&&spec.id)||c.id, label:(spec&&spec.label)||c.name, note:(spec&&spec.note)||(c.name+"'s character sheet") });
     }));
-    sbPropIdsForPage(scene, refShots, ctx).forEach(pid=>{
-      if(seen.has(pid)) return; seen.add(pid);
-      const p = ctx.propById[pid]; if(p) out.push({ id:p.id, label:p.name||"Prop", note:(p.name||"Prop")+" prop sheet" });
+    sbPropRefsForPage(scene, refShots, ctx).forEach(r=>{
+      if(seen.has(r.propId)) return; seen.add(r.propId);
+      out.push({ id:r.sheetId, label:r.label, note:r.label+" prop sheet" });
     });
     if(ctx.location) out.push({ id:ctx.location.id, label:(ctx.location.name||"Location")+" plate", note:(ctx.location.name||"the location")+" location plate" });
     return out;

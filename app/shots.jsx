@@ -2281,14 +2281,18 @@ function buildShotPrompt(sh, ctx){
   let MAP = imgs.length
     ? ("Compose a new cinematic still. " + imgs.map((m,i)=>"Image "+(i+1)+" is "+m+".").join(" "))
     : "Compose a new cinematic still.";
+  // who holds it AT this moment — after a handover, not the original owner (2026-10-08, owner — Props review)
+  const _holderOf = (p)=>{ try{ const rs = (typeof propStateAt==="function")
+      ? propStateAt(p,(ctx.scene&&ctx.scene.id)||sh.sceneId,sh.beatN,sh.microBeatId,sh.id,window.turnContinuity||{}) : null;
+    return (rs && rs.holderName) || p.ownerName || ""; }catch(e){ return p.ownerName || ""; } };
   if(wornProps.length){
     MAP += " Worn items have no separate sheets — each is part of its owner's character sheet and must match exactly as designed there: "
-      + wornProps.map(p=> p.name+" (on "+(p.ownerName||"its owner")+")").join("; ")+".";
+      + wornProps.map(p=> p.name+" (on "+(_holderOf(p)||"its owner")+")").join("; ")+".";
   }
   if(textProps.length){
     MAP += " Minor objects without reference images \u2014 render each plainly as described, at its real size: "
-      + textProps.map(p=> p.name+[p.form,p.material].map(x=>String(x||"").trim()).filter(Boolean).map(x=>" \u2014 "+x).join("")
-        +(p.ownerName?(" ("+p.ownerName+"'s)"):"")).join("; ")+".";
+      + textProps.map(p=>{ const h=_holderOf(p); return p.name+[p.form,p.material].map(x=>String(x||"").trim()).filter(Boolean).map(x=>" \u2014 "+x).join("")
+        +(h?(" ("+h+"'s)"):""); }).join("; ")+".";
   }
   if(_locLabels.length && (!ctx.simpleMode || _retainRequiredSimpleMap)){
     MAP += " If the framing crosses between attached location views, preserve the exact threshold/sightline relationship between them; otherwise extend the SAME set consistently from the attached view.";
@@ -2475,6 +2479,22 @@ function shotCharacterRefsChanged(stored){
     return (id+"@"+(m.iso||"")+"#"+(m.version||""))!==s; });
 }
 window.shotCharacterRefVersions = shotCharacterRefVersions;
+/* a frame's props by what it really used (props.jsx propFrameDependencies): the in-frame props, with
+   the sheet each attached (the variant only when it exists, else the base — as shotRenderPlan attaches) */
+function shotPropDependencies(sh, sceneShots, ctx){
+  if(typeof propFrameDependencies!=="function" || !sh) return "";
+  ctx = ctx || {};
+  let plan = null; try{ plan = shotRenderPlan(sh, sceneShots||[], ctx); }catch(e){}
+  const off = (Array.isArray(sh.refOff) ? sh.refOff : []).map(String);
+  const attached = {};
+  [].concat((plan&&plan.propSpec)||[], (plan&&plan.carrySpec)||[]).forEach(sp=>{ if(!sp) return;
+    const base = String(sp.baseId||sp.id); if(off.indexOf(base)<0 && off.indexOf(String(sp.id))<0) attached[base] = String(sp.id); });
+  let ids = []; try{ ids = (typeof inFrameProps==="function") ? (inFrameProps(sh, ctx.scene, ctx.charById, ctx.propById)||[]) : (sh.props||[]); }catch(e){ ids = sh.props||[]; }
+  const C = window.turnContinuity||{};
+  return propFrameDependencies(ids.concat(Object.keys(attached)), attached, C.props||Object.values(ctx.propById||{}),
+    (ctx.scene&&ctx.scene.id)||sh.sceneId, sh.beatN, sh.microBeatId, sh.id, C);
+}
+window.shotPropDependencies = shotPropDependencies;
 window.shotCharacterRefsChanged = shotCharacterRefsChanged;
 window.shotLookSig = shotLookSig;
 

@@ -3888,6 +3888,7 @@ function App(){
   };
   // ---- Art Room: PROPS ----
   const updateProp = (id,patch)=>{
+    if(!canMutateSharedFilm()) return;   // edit rights (2026-10-08) — background fixes on the tab no-op for viewers too
     // RENAME SYNC (prop card → character): renaming a prop in the Props tab also renames
     // the matching worn/carried bullet on its owner's character card, so the two never drift.
     if(patch && Object.prototype.hasOwnProperty.call(patch,"name")){
@@ -3913,32 +3914,48 @@ function App(){
     setProject(p=> (!!(p && p.noPropsConfirmed)===!!on) ? p : ({ ...p, noPropsConfirmed:!!on }));
   };
   const addProp = ()=>{
+    if(!canMutateSharedFilm()) return;
     const id = "prop-"+Date.now().toString(36);
     setProps(ps=>[...ps, { id, name:"New prop", kind:"carried", ownerId:"", ownerName:"",
       form:"", material:"", detail:"", renderStyle:"", negativePrompt:"", manual:true,
       origin:(typeof artRoomPropOrigin==="function") ? artRoomPropOrigin("carried","manual") : {kind:"manual"} }]);
   };
   const importScreenplayProps = (decisions)=>{
+    if(!canMutateSharedFilm()) return;
     const next=window.PropScreenplay.accept(propsRef.current,decisions,draftsRef.current);
     setProps(next.map(p=>Array.isArray(p.scenes)?withEpisodeSceneRefs(p,p.scenes,scenesRef.current):p));
   };
   const deleteProp = (id)=>{
+    if(!canMutateSharedFilm()) return;
     const p = (props||[]).find(x=>x.id===id); if(!p) return;
     setProps(ps=>ps.filter(x=>x.id!==id));
     setTrash(t=>({ ...t, props:[ _trashStamp(p), ...(t.props||[]).filter(x=>x.id!==id) ] }));
   };
   const restoreProp = (id)=>{
+    if(!canMutateSharedFilm()) return;
     const item = (trash.props||[]).find(x=>x.id===id); if(!item) return;
+    // a live card with the same id is already on the board — say so (it used to do nothing, silently)
+    if((props||[]).some(p=>p.id===id)){
+      if(typeof window.appToast==="function") window.appToast("\u201c"+(item.name||"This prop")+"\u201d is already on the board, so the copy in Recently deleted stays there.","info");
+      return;
+    }
     const { _deletedAt, ...clean } = item;
     setProps(ps=> ps.some(p=>p.id===id) ? ps : [...ps, clean]);
     setTrash(t=>({ ...t, props:(t.props||[]).filter(x=>x.id!==id) }));
   };
   const purgeProp = async (id)=>{
+    if(!canMutateSharedFilm()) return;
     const item = (trash.props||[]).find(x=>x.id===id);
     if(!item) return;
     try{
-      if(typeof nbClearAsset==="function"){
-        const ids = [id, ...(item.states||[]).map(st=>id+":"+st.id)];
+      // never the sheet of a LIVE card with the same id (2026-10-08) — only the binned copy's own images,
+      // including the state variants its story events point to (they used to stay behind)
+      const live = (props||[]).some(p=>p && p.id===id);
+      if(typeof nbClearAsset==="function" && !live){
+        // ...but never a variant a LIVE card's story events still point to (a merge copies them over)
+        const usedLive = new Set((props||[]).flatMap(p=> (p && Array.isArray(p.continuityEvents) ? p.continuityEvents : []).map(ev=>ev && ev.referenceAssetId).filter(Boolean)));
+        const ids = Array.from(new Set([id, ...(item.states||[]).map(st=>id+":"+st.id),
+          ...((item.continuityEvents||[]).map(ev=>ev && ev.referenceAssetId).filter(Boolean))])).filter(x=> x===id || !usedLive.has(x));
         for(const assetId of ids) await nbClearAsset(assetId);
       }
       setTrash(t=>({ ...t, props:(t.props||[]).filter(x=>x.id!==id) }));
@@ -3948,7 +3965,8 @@ function App(){
   // richest card (most scenes, then one with a generated sheet, then longest name),
   // union the scene coverage, backfill any empty spec fields from the others, and
   // delete the rest. Non-destructive to the survivor's own image/spec.
-  const mergeProps = (ids, survivorId)=>{
+  const mergeProps = async (ids, survivorId)=>{
+    if(!canMutateSharedFilm()) return;
     const set = (props||[]).filter(p=> ids.indexOf(p.id)>=0);
     if(set.length<2) return;
     const hasImg = (id)=> (typeof nbGetImage==="function") ? !!nbGetImage(id) : false;
@@ -3965,11 +3983,38 @@ function App(){
       && typeof window.turnSeries.mergeEntitySceneRefs==="function")
       Object.assign(patch,window.turnSeries.mergeEntitySceneRefs(set,survivor,currentProjectId));
     else if(anyScenes) patch.scenes = scenesU;
-    ["form","material","detail","renderStyle"].forEach(f=>{
+    ["form","material","detail","renderStyle","contentNotes","contentVersion","identityNote","provenance","signatureFeature","size"].forEach(f=>{
       if(!String(survivor[f]||"").trim()){ const donor = others.find(o=>String(o[f]||"").trim()); if(donor) patch[f]=donor[f]; }
     });
+    /* MERGE KEEPS EVERYTHING (owner 2026-10-08 — Props review): it asks first; the other cards' story
+       events, screenplay sources, other names and reference images join the survivor; the other cards go
+       to Recently deleted WITH their sheets (it used to delete those for good, at once, without asking);
+       and shots that picked one of them by hand now point at the survivor. */
+    if(typeof window.appConfirm==="function"){
+      const ok = await window.appConfirm({ title:"Merge "+set.length+" cards into \u201c"+(survivor.name||"this prop")+"\u201d?",
+        body:"Its sheet and spec stay; the other card"+(others.length!==1?"s'":"'s")+" story events, screenplay sources, other names and reference images join it, and "
+          +(others.length!==1?"those cards move":"that card moves")+" to Recently deleted with "+(others.length!==1?"their":"its")+" sheet"+(others.length!==1?"s":"")+" (restore from there).",
+        confirmLabel:"Merge", cancelLabel:"Cancel" });
+      if(!ok) return;
+    }
+    const cat = (k)=>{ const all = [].concat(survivor[k]||[], ...others.map(o=>o[k]||[])); return all.length ? all : undefined; };
+    const evs = cat("continuityEvents"); if(evs){ const seenEv = new Set(); patch.continuityEvents = evs.filter(e=>{ const k = e&&e.id; if(!k) return true; if(seenEv.has(k)) return false; seenEv.add(k); return true; }); }
+    const srcs = cat("screenplaySources"); if(srcs) patch.screenplaySources = srcs;
+    const refsImg = cat("referenceImages"); if(refsImg) patch.referenceImages = refsImg;
+    const names = Array.from(new Set([].concat(survivor.aliases||[], ...others.map(o=>[...(o.aliases||[]), o.name||""]))
+      .map(x=>String(x||"").trim()).filter(x=>x && x.toLowerCase()!==String(survivor.name||"").trim().toLowerCase())));
+    if(names.length) patch.aliases = names;
+    const otherIds = others.map(o=>o.id);
     setProps(ps=>ps.map(p=> p.id===survivor.id ? {...p, ...patch} : p).filter(p=> p.id===survivor.id || ids.indexOf(p.id)<0));
-    others.forEach(o=>{ try{ if(typeof nbClearAsset==="function") nbClearAsset(o.id); }catch(e){} });
+    const at = new Date().toISOString();
+    setTrash(t=>({ ...t, props:[ ...others.map(o=>({ ...o, _deletedAt:at, mergedInto:survivor.id })), ...(t.props||[]).filter(x=>otherIds.indexOf(x.id)<0) ] }));
+    const swap = (list)=> Array.isArray(list) ? Array.from(new Set(list.map(x=> otherIds.indexOf(x)>=0 ? survivor.id : x))) : list;
+    setShots(ss=>(ss||[]).map(sh=>{
+      if(!sh) return sh;
+      const hit = (arr)=> Array.isArray(arr) && arr.some(x=>otherIds.indexOf(x)>=0);
+      if(!hit(sh.referencePropIds) && !hit(sh.refOff) && !hit(sh.props)) return sh;
+      return { ...sh, referencePropIds:swap(sh.referencePropIds), refOff:swap(sh.refOff), props:swap(sh.props) };
+    }));
   };
   // prop card + its generated sheet from the Props tab (the card confirms first).
   // Match on owner + normalised name so it stays in sync with prop-seeding.
@@ -4085,7 +4130,7 @@ function App(){
     const rest = { ...patch }; delete rest.renderStyle; return rest;
   };
   const draftPropVisuals = async (pr)=>{
-    if(!(typeof aiPropVisuals==="function")) return;
+    if(!canMutateSharedFilm() || !(typeof aiPropVisuals==="function")) return;
     if(draftingPropIdsRef.current.indexOf(pr.id)>=0) return;   // this prop already drafting
     setDraftingPropIds(ids=> ids.indexOf(pr.id)>=0 ? ids : [...ids, pr.id]);
     try{
@@ -4104,7 +4149,7 @@ function App(){
   // with no spec yet — it used to rewrite EVERY card, hand edits included, and pay again for each.
   // "Redraft all…" (mode "redraft") asks first, then redrafts every card. A failure is said out loud.
   const draftAllProps = async (mode)=>{
-    if(draftingAllProps) return;
+    if(!canMutateSharedFilm() || draftingAllProps) return;
     const redraft = mode==="redraft";
     if(redraft){
       const n = (props||[]).length;
@@ -4119,7 +4164,7 @@ function App(){
       // 1) sync from cast
       let working = props;
       if(typeof propsFromCast==="function"){
-        const derived = propsFromCast(characters, props, scenes, drafts);
+        const derived = propsFromCast(characters, [...(props||[]), ...((trash&&trash.props)||[])], scenes, drafts);   // (never one in Recently deleted)
         if(derived.length){ working = [...props, ...derived]; setProps(working); setPropsSeeded(true); }
       }
       // 2) draft specs
@@ -4149,10 +4194,10 @@ function App(){
   // what's already in the tab, so it's safe to call repeatedly.
   const seedPropsFromCast = React.useCallback(()=>{
     if(typeof propsFromCast!=="function") return;
-    const derived = propsFromCast(characters, props, scenes, drafts);
+    const derived = propsFromCast(characters, [...(props||[]), ...((trash&&trash.props)||[])], scenes, drafts);
     setPropsSeeded(true);
     if(derived.length) setProps(ps=>[...ps, ...derived]);
-  },[characters, props]);
+  },[characters, props, trash]);
   // auto-seed once per story: when you first open the Art Room with an empty
   // Props tab while the cast already carries items, fill it from them. Never behind a LOCKED
   // Props tab (it shows only its lock card): seeding there would add cards the user never saw,
@@ -4258,7 +4303,7 @@ function App(){
         && Date.now()-new Date(prior.startedAt).getTime()<30*60*1000) return;
 
       const derived = (typeof propsFromCast==="function")
-        ? propsFromCast(characters, props, scenes, drafts)
+        ? propsFromCast(characters, [...(props||[]), ...((trash&&trash.props)||[])], scenes, drafts)
           .filter(p=>p && p.ownerId===charId && p.kind==="worn") : [];
       const worn = [...(props||[]).filter(p=>p && p.ownerId===charId && p.kind==="worn"), ...derived]
         .filter((p,i,all)=>all.findIndex(x=>x.id===p.id)===i);
@@ -6637,8 +6682,16 @@ function App(){
         const excluded=new Set(Array.isArray(c.wornReferenceExclusions)?c.wornReferenceExclusions:[]);
         const worn = (props||[]).filter(p=>p && p.ownerId===c.id && p.kind!=="carried");
         const out=[]; for(const p of worn){ const u=await _grabImg(p.id); if(u&&!excluded.has(p.id)) out.push(p); }
-        if(!out.length) return [];
         if(typeof window.loadWornReferenceSnapshot!=="function" || typeof window.compareWornReferenceSnapshots!=="function") return out;
+        // (2026-10-08) no worn sheet left: the master may still WEAR one that was deleted — compare anyway,
+        // so "Update sheet with new wardrobe" shows (it used to stop here and the master kept the item)
+        if(!out.length){
+          let meta0=null; try{ const d=await nbLoadDetailsAsset(c.id); meta0=d&&d.meta; }catch(e){}
+          const had=(meta0&&meta0.wornReferences)||[];
+          if(!had.length) return [];
+          const reasons0=window.compareWornReferenceSnapshots(had, await window.loadWornReferenceSnapshot(c,worn));
+          return reasons0.length ? (worn.length ? worn : [{ id:"__removed-worn-item", name:"a removed worn item" }]) : [];
+        }
         let meta=null; try{ const d=await nbLoadDetailsAsset(c.id); meta=d&&d.meta; }catch(e){}
         const current=await window.loadWornReferenceSnapshot(c,worn);
         const reasons=window.compareWornReferenceSnapshots(meta&&meta.wornReferences||[],current);
@@ -6656,7 +6709,7 @@ function App(){
       // pull the cast's own worn/carried items in (dedup handled by propsFromCast)
       deriveCast: ()=>{
         if(typeof propsFromCast!=="function") return 0;
-        const add = propsFromCast(characters, _propWork, scenes, drafts);
+        const add = propsFromCast(characters, [..._propWork, ...((trash&&trash.props)||[])], scenes, drafts);
         if(add.length){ _propWork = [..._propWork, ...add]; _w.setProps(ps=>[...ps, ...add]); _w.setPropsSeeded(true); }
         return add.length;
       },
@@ -6676,12 +6729,22 @@ function App(){
       toGenerate: async (force)=>{
         const out=[];
         const drafts0=(window.turnContinuity||{}).drafts||drafts;
+        // (2026-10-08) a NEW sheet follows the Props tab's batch rules: no optional worn macro sheet, no
+        // world-generic ownerless carried prop, nothing the extracted screenplay didn't establish, no
+        // text-only object, no unusable name. A sheet that already exists is kept current on a forced run.
+        const PS = window.PropScreenplay;
+        const extracted = _propWork.some(p=> p && (p.screenplaySources||[]).length);
         for(const p of _propWork){
           if(!_propDrafted(p)) continue;
           const has = await _grabImg(p.id);
-          // a text-only object that already has an image keeps it current on a forced run
-          if(!has && p.kind!=="worn" && window.PropScreenplay && window.PropScreenplay.sheetTier(p,drafts0).tier==="text") continue;
           if(!force && has) continue;
+          if(!has){
+            if(p.kind==="worn") continue;
+            if((p.kind||"carried")==="carried" && !p.ownerId) continue;
+            if(PS && PS.sheetTier(p,drafts0).tier==="text") continue;
+            if(PS && extracted && PS.notInScreenplay(p)) continue;
+            if(PS && PS.nameIssue && PS.nameIssue(p.name)) continue;
+          }
           out.push(p);
         }
         return out;

@@ -54,8 +54,9 @@ await test("each strip lists the cast in their look, the location, props and sho
   const rain=b.props.find(p=>p.id==="p-rain"); assert.ok(!rain.needs && rain.ready,"text-only props need no sheet");
   assert.deepEqual(plain(b.wardrobe.map(p=>p.name)),["Watch"],"worn items are wardrobe, not props");
   assert.ok(!b.props.some(p=>p.kind==="worn"));
-  assert.deepEqual(plain(b.missing.map(x=>x.text)),["Marcus · Wet suit variant","Ana's sheet","Watch sheet","Coin sheet","2 frames"]);
-  assert.deepEqual(plain(b.missing.map(x=>x.tab)),["characters","characters","props","props","shots"]);
+  // a worn item rides on its owner's character sheet (the Shots rule, 2026-10-08) — no "Watch sheet" line
+  assert.deepEqual(plain(b.missing.map(x=>x.text)),["Marcus · Wet suit variant","Ana's sheet","Coin sheet","2 frames"]);
+  assert.deepEqual(plain(b.missing.map(x=>x.tab)),["characters","characters","props","shots"]);
 });
 
 await test("the film-wide totals count each missing sheet once",()=>{

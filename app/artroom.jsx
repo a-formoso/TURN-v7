@@ -1911,11 +1911,14 @@ async function nbRunSheetGeneration(env, gopts){
         }
       }
       if(isEditMode && typeof propReferenceSnapshot==="function"){
-        const prior=(genMeta&&Array.isArray(genMeta.propDependencies))?genMeta.propDependencies:[];
+        // (2026-10-08) a RECORD of the prop sheets an edit used (Details) — its own field, so it never
+        // collides with a frame's propDependencies signature (that one is compared; this one isn't)
+        const prior=(genMeta&&Array.isArray(genMeta.propReferencesUsed))?genMeta.propReferencesUsed
+          :(genMeta&&Array.isArray(genMeta.propDependencies))?genMeta.propDependencies:[];
         const depIds=[...prior.map(r=>r&&r.propId),
           ...(Array.isArray(gopts.propDependencyIds)?gopts.propDependencyIds:[]),
           ...(Array.isArray(gopts.editRefMeta)?gopts.editRefMeta.map(r=>r&&r.refId):[])].filter(Boolean);
-        if(depIds.length) meta.propDependencies=propReferenceSnapshot(depIds,window.turnContinuity||{});
+        if(depIds.length) meta.propReferencesUsed=propReferenceSnapshot(depIds,window.turnContinuity||{});
       }
       if(startMeta) Object.assign(meta, startMeta);
       /* A surface-specific start stamp may add provenance fields, but quality is
@@ -2297,7 +2300,9 @@ function useBatchGen(){
     setTotal(ids.length); setQueue(ids); setActiveId(ids[0]);
     setMsg("Generating 1 of "+ids.length+(skipped?(" \u00b7 skipped "+skipped+" already done"):"")+"\u2026");
   };
-  const begin = async (ids, undraftedSkipped)=>{
+  // opts.alwaysAsk (2026-10-08, Props): even when nothing has a sheet yet, show the choice bar with
+  // the price instead of starting at once
+  const begin = async (ids, undraftedSkipped, opts)=>{
     if(busyRef.current || activeId) return;   // ref, not state \u2014 correct during the scan
     busyRef.current = true;
     const token = ++tokenRef.current;
@@ -2316,7 +2321,7 @@ function useBatchGen(){
     }
     if(!mine()) return;
     setPreparing(false);
-    if(!existing.length){ setMsg(""); run(missing, 0); return; }
+    if(!existing.length && !(opts && opts.alwaysAsk)){ setMsg(""); run(missing, 0); return; }
     if(!missing.length){ setMsg(""); setPrompt({ missing:[], existing:ids }); return; }
     setMsg(""); setPrompt({ missing, existing });
   };
@@ -2401,7 +2406,9 @@ function BatchBar({ batch, noun }){
   return React.createElement("div",{className:"art-batchbar",ref:barRef},
     prompt && React.createElement("div",{className:"batch-choice"},
       React.createElement("span",{className:"batch-choice-q"},
-        prompt.missing.length>0
+        (prompt.missing.length>0 && !prompt.existing.length)
+          ? ("Generate "+prompt.missing.length+" "+N+" sheet"+(prompt.missing.length!==1?"s":"")+"? Each one spends image credits.")
+          : prompt.missing.length>0
           ? (prompt.existing.length+" of these "+N+"s already have a sheet. What would you like to do?")
           : ("All "+prompt.existing.length+" "+N+"s already have a sheet. Regenerate them?")),
       prompt.missing.length>0 && React.createElement("button",{className:"art-draftall",
@@ -2409,7 +2416,7 @@ function BatchBar({ batch, noun }){
         title:"Generate only the "+N+"s that don't have a sheet yet"},
         React.createElement(Icon.sparkles,{s:14}),"Generate "+prompt.missing.length+" missing",
         typeof window.nbCostChip==="function" && window.nbCostChip(prompt.missing.length)),
-      React.createElement("button",{className:"art-draftall"+(prompt.missing.length?" ghost":""),
+      prompt.existing.length>0 && React.createElement("button",{className:"art-draftall"+(prompt.missing.length?" ghost":""),
         onClick:()=>run([...prompt.missing, ...prompt.existing], 0),
         title:"Generate every "+N+", regenerating ones that already have a sheet"},
         React.createElement(Icon.sparkles,{s:14}),"Regenerate all "+(prompt.missing.length+prompt.existing.length),

@@ -52,6 +52,8 @@ box.propStateAt=(prop,sceneId,beatN,microBeatId,shotId)=>{
     bindingMode:"carried",visibility:"visible",placement:"on the brass desk"};
 };
 box.shotPropSheetId=p=>({id:p&&p.id,state:null});
+// both letter variants have been made (the Stage attaches a state variant only when its image exists — 2026-10-08)
+box.nbGetImage=id=>(id==="letter-sealed"||id==="letter-open")?"data:image/png;base64,AA":"";
 box.custodyOwnerAt=p=>({name:p&&p.ownerName||"",handover:null});
 box.sbPageRanges=shots=>[{start:0,count:(shots||[]).length}];
 box.__sbShots=[];

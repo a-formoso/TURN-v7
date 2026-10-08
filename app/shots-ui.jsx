@@ -319,8 +319,10 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
       const base = {
         shotSource:(typeof shotSourceStamp==="function")
           ? shotSourceStamp(sh,(((window.turnContinuity||{}).drafts||{})[sh.sceneId])) : null,
-         propDependencies:(typeof propDependencySignature==="function")
-           ? propDependencySignature(((window.turnContinuity||{}).props)||[],sh.sceneId,sh.beatN,sh.microBeatId,sh.id,window.turnContinuity||{}) : "",
+         // what this frame really used (v2, 2026-10-08): its in-frame props, their states, descriptions and attached sheet versions
+         propDependencies:(typeof shotPropDependencies==="function") ? shotPropDependencies(sh, sceneShots, ctx)
+           : ((typeof propDependencySignature==="function")
+             ? propDependencySignature(((window.turnContinuity||{}).props)||[],sh.sceneId,sh.beatN,sh.microBeatId,sh.id,window.turnContinuity||{}) : ""),
          // the character sheets this frame attaches, by version (2026-10-06)
          characterRefVersions:(typeof shotCharacterRefVersions==="function" && renderPlan) ? shotCharacterRefVersions(renderPlan.castSpec, sh.refOff) : [],
          sceneContext:renderPlan && renderPlan.sceneContext ? {
@@ -536,7 +538,10 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   const currentPropDependencies=(typeof propDependencySignature==="function")
     ? propDependencySignature(((window.turnContinuity||{}).props)||[],sh.sceneId,sh.beatN,sh.microBeatId,sh.id,window.turnContinuity||{}) : "";
   const propDependenciesStale=!!(gen.genUrl&&gen.genMeta&&gen.genMeta.propDependencies!=null
-    && gen.genMeta.propDependencies!==currentPropDependencies);
+    && (typeof propDependenciesChanged==="function"
+      ? propDependenciesChanged(gen.genMeta.propDependencies,
+          (typeof shotPropDependencies==="function") ? shotPropDependencies(sh, sceneShots, ctx) : "", currentPropDependencies)
+      : gen.genMeta.propDependencies!==currentPropDependencies));
   const characterSheetsChanged=!!(gen.genUrl&&gen.genMeta&&typeof shotCharacterRefsChanged==="function"
     && shotCharacterRefsChanged(gen.genMeta.characterRefVersions));
   // SEED-LINEAGE status — DERIVED each render, never flagged: compares the lineage

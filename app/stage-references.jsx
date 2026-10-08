@@ -346,6 +346,9 @@
       }catch(e){propIds=arr(sh.props);}
       uniq(propIds).forEach(id=>{
         const p=props[id];if(!p)return;
+        // THE FRAME'S ATTACH RULE (owner 2026-10-08 — Props review): worn close-up sheets only on tight shots,
+        // text-only objects never — the video got every in-frame prop, with "missing image" warnings
+        if(typeof g.shotPropAttachable==="function"){ try{ if(!g.shotPropAttachable(p,sh,scene)) return; }catch(e){} }
         let resolved={id:p.id,state:null};
         if(typeof g.shotPropSheetId==="function"){
           try{resolved=g.shotPropSheetId(p,scene,scenes,sh.beatN,sh.microBeatId,sh.id,ctx)||resolved;}catch(e){}
