@@ -325,6 +325,8 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
              ? propDependencySignature(((window.turnContinuity||{}).props)||[],sh.sceneId,sh.beatN,sh.microBeatId,sh.id,window.turnContinuity||{}) : ""),
          // the character sheets this frame attaches, by version (2026-10-06)
          characterRefVersions:(typeof shotCharacterRefVersions==="function" && renderPlan) ? shotCharacterRefVersions(renderPlan.castSpec, sh.refOff) : [],
+         // the location plates it attached and the location text it read (2026-10-08)
+         locationDependencies:(typeof shotLocationDependencies==="function" && renderPlan) ? shotLocationDependencies(sh, renderPlan, ctx) : null,
          sceneContext:renderPlan && renderPlan.sceneContext ? {
            sceneId:renderPlan.sceneContext.sceneId, sourceRev:renderPlan.sceneContext.sourceRev,
            targetBeat:renderPlan.sceneContext.targetBeat, pages:renderPlan.sceneContext.pages||0,
@@ -544,6 +546,8 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       : gen.genMeta.propDependencies!==currentPropDependencies));
   const characterSheetsChanged=!!(gen.genUrl&&gen.genMeta&&typeof shotCharacterRefsChanged==="function"
     && shotCharacterRefsChanged(gen.genMeta.characterRefVersions));
+  const locationChanged=!!(gen.genUrl&&gen.genMeta&&typeof shotLocationChanged==="function"
+    && shotLocationChanged(gen.genMeta.locationDependencies));
   // SEED-LINEAGE status — DERIVED each render, never flagged: compares the lineage
   // recorded on this frame (which frame seeded it, at what version) against the
   // current seed shot and its current frame. DIRECT lineage: regenerating/reordering/
@@ -1114,6 +1118,9 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
           gen.genUrl && characterSheetsChanged && _el("span",{className:"shot-source-badge stale",
             title:"A character sheet this frame used was regenerated after the frame was made (a new master, variant or likeness). The frame stays as it is until you regenerate it."},
             "Character sheet changed"),
+          gen.genUrl && locationChanged && _el("span",{className:"shot-source-badge stale",
+            title:"A location plate this frame used was regenerated, edited or made after the frame, or the location's description changed. The frame stays as it is until you regenerate it."},
+            "Location changed"),
           gen.genUrl && propDependenciesStale && _el("span",{className:"shot-source-badge stale",
             title:"A prop used by this frame changed holder, placement, condition, visibility, binding mode, or approved sheet after this frame was generated. The approved frame stays pinned until you regenerate it."},
             "Prop reference changed"),
@@ -1845,11 +1852,30 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
   const [needsRun, setNeedsRun] = React.useState(null);   // {i,total,label} while making them
   React.useEffect(()=>{
     const h = ()=> setNeedsTick(t=>t+1);
-    window.addEventListener("nb-gen-done", h);
-    return ()=> window.removeEventListener("nb-gen-done", h);
+    window.addEventListener("nb-gen-done", h); window.addEventListener("nb-prefetched", h);
+    return ()=>{ window.removeEventListener("nb-gen-done", h); window.removeEventListener("nb-prefetched", h); };
   },[]);
-  const sceneNeeds = (typeof sceneReferenceNeeds==="function") ? sceneReferenceNeeds(shots||[], ctx) : [];
+  // WHAT EXISTS, NOT WHAT'S CACHED (2026-10-08, owner — Locations review): after a reload the image cache is
+  // cold, so every sheet read as "needed". Look each candidate up once (as the Breakdown does) and count only
+  // what is really missing.
+  const [needsFound, setNeedsFound] = React.useState(()=>new Set());
+  const needsChecked = React.useRef(new Set());
+  const needsHas = (id)=> needsFound.has(id) || ((typeof nbGetImage==="function") ? !!nbGetImage(id) : true);
+  const sceneNeeds = (typeof sceneReferenceNeeds==="function") ? sceneReferenceNeeds(shots||[], ctx, needsHas) : [];
   void needsTick;
+  const needsKey = sceneNeeds.map(n=>n.id).join("|");
+  React.useEffect(()=>{
+    if(typeof nbLoadImage!=="function") return;
+    const ids = sceneNeeds.map(n=>n.id).filter(id=> !needsChecked.current.has(id));
+    if(!ids.length) return;
+    ids.forEach(id=>needsChecked.current.add(id));
+    (async ()=>{ const hit = [];
+      for(const id of ids){ try{ if(await nbLoadImage(id)) hit.push(id); }catch(e){} }
+      if(needsMounted.current && hit.length) setNeedsFound(f=>{ const n = new Set(f); hit.forEach(x=>n.add(x)); return n; });
+    })();
+  },[needsKey]);
+  const needsMounted = React.useRef(true);
+  React.useEffect(()=>()=>{ needsMounted.current = false; },[]);
   const makeableNeeds = sceneNeeds.filter(n=>n.makeable);
   const makeNeeds = async ()=>{
     if(!onMakeSceneNeeds || needsRun || !makeableNeeds.length) return;

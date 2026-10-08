@@ -2496,6 +2496,33 @@ function shotPropDependencies(sh, sceneShots, ctx){
 }
 window.shotPropDependencies = shotPropDependencies;
 window.shotCharacterRefsChanged = shotCharacterRefsChanged;
+/* THE LOCATION A FRAME USED (2026-10-08, owner — Locations review): each location plate it attached (room &
+   time, extra space, state — "<id>@<iso>#<version>", "<id>@#" when it was missing then) and the location
+   text its prompt read (name, side, architecture, materials, lighting). A regenerated, edited or newly made
+   plate, or edited text, shows as "Location changed"; judged only once the plate's details have loaded. */
+function shotLocationTextSig(locIds){
+  const C = window.turnContinuity || {};
+  const parts = Array.from(new Set((locIds||[]).filter(Boolean).map(String))).sort().map(id=>{
+    const l = (C.locations||[]).find(x=>x && String(x.id)===id); if(!l) return id+"~";
+    return id+"~"+[l.name,l.intExt,l.architecture,l.materials,l.lighting].map(x=>String(x||"").replace(/\s+/g," ").trim()).join("~"); });
+  const str = parts.join("|"); let h = 5381; for(let i=0;i<str.length;i++) h = ((h<<5)+h+str.charCodeAt(i))|0;
+  return "lt1:"+(h>>>0).toString(36)+":"+str.length;
+}
+function shotLocationDependencies(sh, renderPlan, ctx){
+  const off = (Array.isArray(sh && sh.refOff) ? sh.refOff : []).map(String);
+  const specs = ((renderPlan && renderPlan.activeLocSpec)||[]).filter(sp=> sp && sp.id && off.indexOf(String(sp.id))<0 && off.indexOf(String(sp.baseId||sp.id))<0);
+  const base = (ctx && ctx.location && ctx.location.id) || (typeof locationForScene==="function" && sh ? ((locationForScene(((ctx&&ctx.locations)||(window.turnContinuity||{}).locations||[]), sh.sceneId)||{}).id) : "");
+  return { refs: shotCharacterRefVersions(specs, []), text: shotLocationTextSig([base].concat(specs.map(sp=>sp.locationId))),
+    ids: [base].concat(specs.map(sp=>sp.locationId)).filter(Boolean).map(String).filter((x,i,a)=>a.indexOf(x)===i) };
+}
+function shotLocationChanged(stored){
+  if(!stored || typeof stored!=="object") return false;
+  if(shotCharacterRefsChanged(stored.refs)) return true;
+  return !!(stored.text && Array.isArray(stored.ids) && shotLocationTextSig(stored.ids)!==stored.text);
+}
+window.shotLocationDependencies = shotLocationDependencies;
+window.shotLocationChanged = shotLocationChanged;
+window.shotLocationTextSig = shotLocationTextSig;
 window.shotLookSig = shotLookSig;
 
 /* Carried props a set of shots would build before rendering, with no sheet yet (authoritative
@@ -2525,12 +2552,25 @@ function sceneReferenceNeeds(sceneShots, ctx, has){
   const exists = typeof has==="function" ? has : ((id)=> (typeof nbGetImage==="function") ? !!nbGetImage(id) : true);
   const sorted = (typeof sceneShotsOrdered==="function") ? sceneShotsOrdered(sceneShots||[]) : (sceneShots||[]);
   const locIds = new Set(((ctx && ctx.locations)||[]).map(l=>l && l.id));
+  const locById = {}; ((ctx && ctx.locations)||[]).forEach(l=>{ if(l && l.id) locById[l.id]=l; });
+  // A ROOM'S PLATE NEEDS ITS LOCATION'S PLATE (2026-10-08, owner — Locations review): a missing room & time
+  // plate whose location (or that location's parent) has no plate yet lists those first, so the price,
+  // the Breakdown and "Make what this scene needs" all count them — the run used to stop at "make X's plate first"
+  const prereq = (locId)=>{
+    const chain = [], guard = new Set(); let l = locById[locId];
+    while(l && !guard.has(l.id)){ guard.add(l.id); chain.unshift(l);
+      const par = (typeof locationParentOf==="function") ? locationParentOf(l, ctx.locations||[]) : null;
+      l = par && locById[par.id]; }
+    chain.forEach(x=>{ if(seen[x.id] || exists(x.id)) return; seen[x.id] = true;
+      out.push({ id:x.id, baseId:x.id, kind:"location", makeable:true, prereq:true, label:String(x.name||"Location").slice(0,46)+" (needed first)", name:String(x.name||"Location").slice(0,46) }); });
+  };
   sorted.forEach(sh=>{
     let plan = null;
     try{ plan = (typeof shotRenderPlan==="function") ? shotRenderPlan(sh, sorted, ctx||{}) : null; }catch(e){}
     if(!plan) return;
     const add = (spec, kind)=>{
       if(!spec || !spec.id || seen[spec.id] || exists(spec.id)) return;
+      if(kind==="location" && spec.locationId && String(spec.locationId)!==String(spec.id)) prereq(String(spec.locationId));
       seen[spec.id] = true;
       const makeable = kind==="character" ? true
         : kind==="prop" ? (!spec.baseId || spec.baseId===spec.id)
@@ -2565,7 +2605,8 @@ function shotFrameState(sh, sceneShots, drafts, project, has){
   const m = rendered ? meta(sh.id) : null;
   const oldLook = !!(m && project && sh && shotLookIsEarlier(m.lookSig, project, sh.sceneId));
   const charChanged = !!(m && shotCharacterRefsChanged(m.characterRefVersions));   // a note, like an earlier look
-  return { rendered, approved, current, oldLook, charChanged, done: rendered && approved && current };
+  const locChanged = !!(m && shotLocationChanged(m.locationDependencies));           // a note too (2026-10-08)
+  return { rendered, approved, current, oldLook, charChanged, locChanged, done: rendered && approved && current };
 }
 window.shotFrameState = shotFrameState;
 

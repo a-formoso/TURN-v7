@@ -81,7 +81,7 @@ function breakdownRows({ scenes, characters, props, locations, shots, drafts, im
     if(needs){
       const TAB = { character:"characters", location:"locations", prop:"props" };
       if(!location) missing.push({ tab:"locations", text:"a location card" });
-      needs.forEach(n=> missing.push({ tab:TAB[n.kind]||"shots", text:n.label+(n.kind==="prop"?" sheet":n.kind==="location"?" plate":""), need:n }));
+      needs.forEach(n=> missing.push({ tab:TAB[n.kind]||"shots", text:(n.prereq ? (n.name||n.label)+" plate (needed first)" : n.label+(n.kind==="prop"?" sheet":n.kind==="location"?" plate":"")), need:n }));
     } else {
       cast.filter(c=>!c.ready).forEach(c=> missing.push({ tab:"characters", text: c.state ? (c.name+" · "+c.state+" variant") : (c.name+"'s sheet") }));
       if(!location) missing.push({ tab:"locations", text:"a location card" });
@@ -92,7 +92,10 @@ function breakdownRows({ scenes, characters, props, locations, shots, drafts, im
     let toRender = 0, oldLook = 0, done = 0;
     if(!sceneShots.length) missing.push({ tab:"shots", text:"shots" });
     else if(typeof shotFrameState==="function"){
-      sceneShots.forEach(sh=>{ const st = shotFrameState(sh, sceneShots, drafts, project, img); if(!st.done) toRender++; else { done++; if(st.oldLook) oldLook++; } });
+      let locChanged = 0;
+      sceneShots.forEach(sh=>{ const st = shotFrameState(sh, sceneShots, drafts, project, img); if(!st.done) toRender++; else { done++; if(st.oldLook) oldLook++; if(st.locChanged) locChanged++; } });
+      // a changed location plate is a note, like an earlier look (2026-10-08)
+      if(locChanged>0) notes.push({ tab:"shots", text:locChanged+" frame"+(locChanged===1?"":"s")+" made before its location changed \u2014 re-render to apply it" });
       const unrendered = sceneShots.length-rendered, notDone = toRender-unrendered;
       if(unrendered>0) missing.push({ tab:"shots", text:unrendered+" frame"+(unrendered===1?"":"s") });
       if(notDone>0) missing.push({ tab:"shots", text:notDone+" frame"+(notDone===1?"":"s")+" to approve or refresh" });
@@ -108,7 +111,11 @@ function breakdownRows({ scenes, characters, props, locations, shots, drafts, im
       const st = (ids, ready)=> ids.some(x=>want.has(String(x))) ? "missing" : (ready ? "ready" : "unused");
       cast.forEach(c=>{ c.status = st([c.sheetId, c.id], c.ready); });
       wardrobe.concat(sceneProps).forEach(p=>{ p.status = p.needs ? st([p.id], p.ready) : "text"; });
-      if(location) location.status = needs.some(n=>n.kind==="location") ? "missing" : (location.ready ? "ready" : "unused");
+      // the location chip is ITS plate (2026-10-08): red when a frame — or a room & time plate a frame needs
+      // (sceneReferenceNeeds' "needed first") — needs it; a missing room plate is its own line
+      if(location){ const mine = needs.find(n=>n.kind==="location" && String(n.id)===String(location.id));
+        location.status = mine ? "missing" : (location.ready ? "ready" : "unused");
+        if(mine && mine.prereq) location.prereq = true; }
     } else {
       cast.forEach(c=>{ c.status = c.ready ? "ready" : "missing"; });
       wardrobe.concat(sceneProps).forEach(p=>{ p.status = !p.needs ? "text" : (p.ready ? "ready" : "missing"); });
@@ -358,7 +365,8 @@ function BreakdownStrip({ row, go:goTab, onMakeSceneNeeds, needsBusy=null, setNe
                 : (c.state ? c.name+" needs the "+c.state+" variant" : c.name+" needs a character sheet")))
             : _bdEl("span",{className:"bd-empty"},"No one named in this scene"))),
         _bdEl("div",{className:"bd-row"}, _bdEl("span",{className:"bd-row-lab"},"Location"),
-          _bdEl("div",{className:"bd-chips"}, location ? chip("loc", location.name, okOf(location), "locations", location.ready ? "The plate is ready" : "Needs its location plate")
+          _bdEl("div",{className:"bd-chips"}, location ? chip("loc", location.name, okOf(location), "locations", location.ready ? "The plate is ready"
+              : location.prereq ? "Needs its location plate \u2014 this scene's rooms & times are made from it" : "Needs its location plate")
             : _bdEl("button",{type:"button",className:"bd-chip",onClick:()=>go("locations"),title:"No location card resolves to this scene — check its slugline"}, dot(false), "No location card"))),
         wardrobe.length>0 && _bdEl("div",{className:"bd-row"}, _bdEl("span",{className:"bd-row-lab"},"Wardrobe"),
           _bdEl("div",{className:"bd-chips"}, wornShown.map(p=> chip(p.id, p.name, okOf(p), p.onOwner || !p.ready ? "characters" : "props",

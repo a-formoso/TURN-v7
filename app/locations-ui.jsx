@@ -319,18 +319,21 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
     l.continuityAnchors&&("Continuity anchors: "+l.continuityAnchors), l.significance&&("Narrative significance: "+l.significance),
     (project&&project.genre)&&("Genre: "+project.genre)].filter(Boolean).join("\n");
   const LOC_TEXT = window.LOC_RENDER_TEXT || {};
-  const rollSurprise = async ()=>{
-    if(!(typeof aiSurpriseStyleText==="function" && typeof aiAvailable==="function" && aiAvailable())) return;
+  // (2026-10-08) the card only reads "Surprise me" once a style has come back; a failure says so
+  const rollSurprise = async (asPick)=>{
+    if(!(typeof aiSurpriseStyleText==="function" && typeof aiAvailable==="function" && aiAvailable())){
+      if(typeof window.appToast==="function") window.appToast("Surprise me needs the writing model \u2014 it isn't available right now.","info"); return; }
     setStyling(true);
     try{ const r = await aiSurpriseStyleText({ name:l.name, kind:"location", bible:locBible() }, project);
-      if(r) onUpdate(l.id, { surpriseRender:r, renderStyle:r.style }); }catch(e){}
+      if(r) onUpdate(l.id, { ...(asPick===true ? { renderStyleIndependent:true, renderStyleKey:"surprise" } : {}), surpriseRender:r, renderStyle:r.style });
+      else if(typeof window.appToast==="function") window.appToast("No surprise style came back \u2014 the style is unchanged.","info"); }
+    catch(e){ if(typeof window.appToast==="function") window.appToast("Couldn't invent a style ("+((e&&e.message)||"error")+"). The style is unchanged.","error"); }
     setStyling(false);
   };
   const pickLocStyle = async (key)=>{
     if(key!=="surprise"){ onUpdate(l.id, { renderStyleIndependent:true,renderStyleKey:key, renderStyle:(typeof window.renderStyleText==="function" ? window.renderStyleText("loc", key) : (LOC_TEXT[key]||LOC_TEXT.photoreal)) }); return; }
-    onUpdate(l.id, { renderStyleIndependent:true,renderStyleKey:"surprise" });
-    if(l.surpriseRender && l.surpriseRender.style){ onUpdate(l.id, { renderStyle:l.surpriseRender.style }); return; }
-    await rollSurprise();
+    if(l.surpriseRender && l.surpriseRender.style){ onUpdate(l.id, { renderStyleIndependent:true, renderStyleKey:"surprise", renderStyle:l.surpriseRender.style }); return; }
+    await rollSurprise(true);
   };
   // LOCK a surprise style → a reusable named style. Location surprise is a STRING, wrapped into
   // a minimal render block the shared registry resolves on every tab.
@@ -379,6 +382,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   const [masterRefOff, setMasterRefOff] = React.useState([]);
   const [parentRefUrl,setParentRefUrl]=React.useState("");
   const masterParentSnapshot=React.useRef({});
+  const masterPlanSig=React.useRef("");
   React.useEffect(()=>{
     let alive=true;
     const id=l.parentLocation&&l.parentLocation.id;
@@ -398,19 +402,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       const rootUrl=((typeof nbGetImage==="function")?nbGetImage(l.parentLocation.id):"")||parentRefUrl;
       out.push(locationParentReference(l,rootUrl));
     }
-    const list = (Array.isArray(l.scenes) && l.scenes.length)
-      ? scenesInStoryOrder((scenes||C.scenes||[]).filter(s=>l.scenes.indexOf(s.id)>=0))
-      : scenesInStoryOrder(scenes||C.scenes);
-    for(const sc of list){
-      const imgs = (typeof locationScreenplayReferenceImages==="function")
-        ? locationScreenplayReferenceImages(l, { name:l.name, sceneNos:[sc.no] }, scenes||C.scenes||[], drafts||C.drafts||{})
-        : [];
-      imgs.forEach((url,i)=>{ if(out.length<6) out.push({ url, kind:"script", ready:true, required:false,
-        refId:"script-main-"+l.id+"-"+(sc.no||sc.id)+"-"+i,
-        label:"Scene "+String(sc.no||"?").padStart(2,"0")+" p"+(i+1),
-        note:"full-scene screenplay page "+(i+1)+" for Scene "+(sc.no||"?")+" — use this to design the location's 2x2 geography from what is actually filmed; do not render page text or borders" }); });
-      if(out.length>=6) break;
-    }
+    // the same pages the headless runs attach (locationScriptPageRefs)
+    if(typeof locationScriptPageRefs==="function")
+      locationScriptPageRefs(l, scenes||C.scenes||[], drafts||C.drafts||{}, 6-out.length).forEach(r=>out.push(r));
     return out;
   };
   const masterScriptSig = JSON.stringify((l.scenes||[]).map(sid=>(((drafts||{})[sid]||{}).blocks||[])));
@@ -439,8 +433,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   const gen = useImageGen({
     id: l.id, slotId: "locref-"+l.id,
     entity: locationRenderEntity(l),
-    /* Clear cascades to this location's time-of-day variant plates so they aren't
-       orphaned in storage. */
+    /* Clear cascades to this location's room & time, environment-state and extra-space plates so they
+       aren't orphaned in storage (the confirm counts the ones that exist). */
+    relatedClearLabel:"room, state or extra-space plate",
     relatedClearIds: ()=> Array.from(new Set([
       ...(l.variants||[]).map(v=> (typeof locationAppearanceStateAssetId==="function")
         ? locationAppearanceStateAssetId(l,v,sluglineUnits||[]) : l.id+"-"+v.id),
@@ -456,6 +451,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
     referenceMaxDim:1536,
     attachments: async ()=>{
       requireLocationSpatialPlan(l);
+      masterPlanSig.current=(typeof locationSpatialPlanSigFor==="function") ? locationSpatialPlanSigFor(l) : "";
       const parentRefs=mergeLocationReferences(await locationParentReferences(l),await locationSpatialReferences(l));
       masterParentSnapshot.current=l.parentLocation
         ? locationAssetDependencySnapshot(locationParentOf(l).id,[],"subspace") : {};
@@ -471,7 +467,11 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       : "",
     metaExtra:({mode,prompt})=>({
       specPrompt:locationCanonicalSpecPrompt(mode,prompt,finalPrompt,gen.genMeta),
-      ...masterParentSnapshot.current
+      ...masterParentSnapshot.current,
+      // made from the reviewed layout (not an edit): the layout stays reviewed — 2026-10-08
+      ...(mode!=="edit" && masterPlanSig.current ? { spatialPlanSig:masterPlanSig.current } : {}),
+      // the written spec it was made from ("Description changed" — an edit keeps the one it started from)
+      locSpecSig: mode==="edit" ? (gen.genMeta && gen.genMeta.locSpecSig) : (typeof locationSpecSig==="function" ? locationSpecSig(l) : undefined)
     }),
     /* NO set-dressing refs at generation — the clean plate anchors the look;
        fixtures are painted in afterwards via the Edit panel's Set-dressing buttons */
@@ -514,7 +514,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       window.__nbStagePhase[l.id] = true;
       setStagingPrep(true);
       if(batchActiveId!==l.id && typeof window.appToast==="function")
-        window.appToast("Drafting the depth grid first \u2014 the plate follows");
+        window.appToast("Drafting the view composition first \u2014 the plate follows");
       try{
         const st = await aiDraftStaging(l, scenes, project);
         if(st){ stagingDraftRef.current = st; onUpdate(l.id, { staging: st }); }
@@ -550,11 +550,14 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   // scoped instruction on the whole image (image-edit off the current plate, so it
   // works for generated AND uploaded plates alike). Position-scoped, so it's robust
   // even for legacy 6-panel plates.
+  // (2026-10-08) on an INT+EXT place the plate follows locationMasterPanelPlan — the hints say so
+  const _panelPlan = (typeof locationMasterPanelPlan==="function") ? (()=>{ try{ return locationMasterPanelPlan(l, scenes, drafts); }catch(e){ return null; } })() : null;
+  const _hintOf = (txt, dflt)=> txt ? String(txt).split(/\s+(?:\u2014|-|because)\s+|:/)[0].replace(/\s+/g," ").trim().toLowerCase().slice(0,48) : dflt;
   const LOC_PANELS = [
-    { grid:"TOP-LEFT",     label:"Top-left",     hint:"wide establishing" },
-    { grid:"TOP-RIGHT",    label:"Top-right",    hint:"high overview" },
-    { grid:"BOTTOM-LEFT",  label:"Bottom-left",  hint:"close-up" },
-    { grid:"BOTTOM-RIGHT", label:"Bottom-right", hint:"close-up" },
+    { grid:"TOP-LEFT",     label:"Top-left",     hint:_hintOf(_panelPlan&&_panelPlan.top_left, "wide establishing") },
+    { grid:"TOP-RIGHT",    label:"Top-right",    hint:_hintOf(_panelPlan&&_panelPlan.top_right, "high overview") },
+    { grid:"BOTTOM-LEFT",  label:"Bottom-left",  hint:_hintOf(_panelPlan&&_panelPlan.bottom_left, "close-up") },
+    { grid:"BOTTOM-RIGHT", label:"Bottom-right", hint:_hintOf(_panelPlan&&_panelPlan.bottom_right, "close-up") },
   ];
   const [panelEdit, setPanelEdit] = React.useState(null);   // { idx:int|null, text:string } | null
   const applyPanelEdit = ()=>{
@@ -604,10 +607,16 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   const removeVariant = async (vid)=>{
     const v = (l.variants||[]).find(x=>x.id===vid); if(!v) return;
     const assetId = (typeof locationAppearanceStateAssetId==="function") ? locationAppearanceStateAssetId(l,v,sluglineUnits||[]) : l.id+"-"+v.id;
-    const has = (typeof nbGetImage==="function") && !!nbGetImage(assetId);
+    // what EXISTS, not what's cached (2026-10-08): a cold cache said "no plate yet" and left the image behind
+    let has = (typeof nbGetImage==="function") && !!nbGetImage(assetId);
+    if(!has && typeof nbLoadImage==="function"){ try{ has = !!(await nbLoadImage(assetId)); }catch(e){} }
+    // a legacy state that resolves to a ROOM & TIME plate's slot shares that plate — never delete it with the state
+    const sharesUnit = (typeof sluglineUnitImageId==="function") && (sluglineUnits||[]).some(u=> u && sluglineUnitImageId(u.key)===assetId);
+    if(sharesUnit) has = false;
     const ok = !window.appConfirm || await window.appConfirm({
       title:"Remove this environment state?",
-      body:has ? "Its plate is deleted with it \u2014 this can't be undone." : "It has no plate yet, so only its notes go.",
+      body:sharesUnit ? "Only its notes go \u2014 its image is the room & time plate, which stays."
+        : has ? "Its plate is deleted with it \u2014 this can't be undone." : "It has no plate yet, so only its notes go.",
       confirmLabel:"Remove", cancelLabel:"Cancel", danger:has });
     if(!ok) return;
     if(has && typeof nbClearAsset==="function"){ try{ await nbClearAsset(assetId); }catch(e){} }
@@ -680,7 +689,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       generateDisabledTitle:!spatialState.ready?"Open the shared layout to review and confirm it. No image will be generated.":"Generate or restore the whole location's plate first so this room can match its visual design.",
       // say it when Generate also writes the layout first (a small writing charge on top of the plate)
       generateTitle:(!locStaged && !gen.slotHasRef && typeof aiAvailable==="function" && aiAvailable())
-        ? "Writes this place's layout (depth grid) first \u2014 a small writing charge \u2014 then generates the plate from it" : undefined,
+        ? "Writes this place's view composition first \u2014 a small writing charge \u2014 then generates the plate from it" : undefined,
       onDelete:()=>onDelete(l.id), deleteLabel:"Delete location" }),
     panelEdit && gen.genUrl && React.createElement("div",{className:"sheet-edit-panel loc-panel-edit"},
       React.createElement("div",{className:"loc-panel-pick"},
@@ -715,7 +724,12 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
               return React.createElement("span",{className:"loc-scale-badge",
                 title:M[1]+" (Class "+cls+") \u2014 derived automatically from the characters who drive this place's scenes. Plates here render at this scale."},
                 M[0]+" "+cls); })(),
-            React.createElement(EditText,{value:l.name,placeholder:"Location name\u2026",onCommit:val=>onUpdate(l.id,{name:val})})),
+            React.createElement(EditText,{value:l.name,placeholder:"Location name\u2026",onCommit:val=>onUpdate(l.id,{name:val})}),
+            // what this plate was made from has changed since (2026-10-08) — the plate stays until you regenerate it
+            gen.genUrl && typeof locationSpecChanged==="function" && locationSpecChanged(gen.genMeta, l) && React.createElement("span",{className:"shot-source-badge stale",
+              title:"This location's description or render style changed after the plate was made. The plate stays as it is until you regenerate it."},"Description changed"),
+            gen.genUrl && l.parentLocation && typeof locationDerivedPlateChanged==="function" && locationDerivedPlateChanged(gen.genMeta) && React.createElement("span",{className:"shot-source-badge stale",
+              title:"The parent location's plate was regenerated after this plate was made from it. This plate stays as it is until you regenerate it."},"Parent plate changed")),
           l.parentLocation&&React.createElement("div",{className:"loc-parent-breadcrumb"},
             "within ",React.createElement("b",null,l.parentLocation.name)," \u00b7 inherits continuity"),
           null),
@@ -736,7 +750,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
           (window.turnCanLockStyles && window.turnCanLockStyles()) && React.createElement("span",{className:"char-style-count"+(((window.turnAllGlobalStyleCount?window.turnAllGlobalStyleCount():0)>=(window.turnGlobalStyleCap||40))?" full":""),title:"Global render styles ("+(window.turnGlobalStyleCap||40)+" max, admin-managed). You can save up to "+(window.turnPersonalStyleCap||10)+" personal render styles. Manage via Styles in the top bar."}, (window.turnAllGlobalStyleCount?window.turnAllGlobalStyleCount():0)+"/"+(window.turnGlobalStyleCap||40))),
         styling && React.createElement("span",{className:"char-style-busy"},React.createElement("span",{className:"ns-spin"}),"Inventing\u2026"),
         (!inheritsStyle && !styling && l.renderStyleKey==="surprise" && l.surpriseRender && l.surpriseRender.label) &&
-          React.createElement("span",{className:"char-style-name",title:"Re-roll a new surprise style",onClick:rollSurprise},
+          React.createElement("span",{className:"char-style-name",title:"Re-roll a new surprise style \u2014 one small writing call (writing credits)",onClick:()=>rollSurprise()},
             l.surpriseRender.label," \u21bb"),
         (!inheritsStyle && !styling && l.renderStyleKey==="surprise" && l.surpriseRender && l.surpriseRender.style && window.turnCanLockStyles && window.turnCanLockStyles()) &&
           React.createElement("button",{className:"char-style-lock",title:"Lock this style \u2014 keep it and reuse it across Characters, Props & Locations",onClick:lockSurprise},"\ud83d\udd12 Lock this style"),
@@ -759,7 +773,8 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         React.createElement("div",{className:"sheet-field"},
           React.createElement("div",{className:"obj-lab"},"Screenplay sides"),
           React.createElement("select",{className:"prop-select",value:l.intExt||"INT",
-            onChange:e=>onUpdate(l.id,{intExt:e.target.value})},
+            title:"Which sides of this place the screenplay shows \u2014 your pick stays even when the script changes",
+            onChange:e=>onUpdate(l.id,{intExt:e.target.value, intExtLocked:true})},
             [["INT","INT"],["EXT","EXT"],["INT/EXT","INT+EXT"]].map(o=>React.createElement("option",{key:o[0],value:o[0]},o[1])))),
         React.createElement(LocationIdentityField,{l,field:"architecture",label:"Architecture & layout",value:l.architecture,
           placeholder:"The space's layout, scale, structure and defining built features\u2026",onUpdate}),
@@ -930,8 +945,8 @@ function StagingGrid({ l, onUpdate, onDraftStaging, draftingStage, value, onChan
     React.createElement("div",{className:"stage-toolbar"},
       React.createElement("span",{className:"stage-map-title"},"View composition"),
       onDraftStaging && React.createElement("button",{className:"art-draftall",disabled:draftingStage,onClick:()=>onDraftStaging(l),
-        title:"Let AI draft this view's staging and composition from the script"},
-        React.createElement(Icon.sparkles,{s:14}), draftingStage?"Drafting\u2026":"Draft layout")),
+        title:"Draft this view's composition from the script (writing credits) \u2014 asks first when one is already written, because it replaces it"},
+        React.createElement(Icon.sparkles,{s:14}), draftingStage?"Drafting\u2026":"Draft view composition")),
     React.createElement("div",{className:"stage-composition",role:"group","aria-label":"Camera-relative composition for "+(s.viewLabel||l.name||"this view")},
       React.createElement("div",{className:"stage-map-direction"},target?"Looking toward: "+target:"Farther from the camera"),
       React.createElement("div",{className:"stage-map-columns","aria-hidden":true},
@@ -987,6 +1002,14 @@ function StagingGrid({ l, onUpdate, onDraftStaging, draftingStage, value, onChan
 /* screenplay-derived INT/EXT side plates. These are not time/weather variants:
    they are extra empty-set anchors for subspaces the screenplay actually films
    inside a broader scene location (e.g. EXT yard + INT booth). */
+/* the parent snapshot taken when THIS run attached its references, used once (a later run takes its own) */
+function _parentChangedBadge(gen){
+  return (gen && gen.genUrl && typeof locationDerivedPlateChanged==="function" && locationDerivedPlateChanged(gen.genMeta))
+    ? React.createElement("span",{className:"shot-source-badge stale",
+        title:"The location plate this was made from was regenerated afterwards. This plate stays as it is until you regenerate it."},"Parent plate changed")
+    : null;
+}
+function _takeDepSnap(ref){ const x = ref && ref.current; if(ref) ref.current = null; return x; }
 function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, parentGenUrl, onView }){
   const id = l.id+"-"+v.id;
   const previousIds=(previousSheets||[]).filter(Boolean).map(p=>l.id+"-"+p.id);
@@ -1055,11 +1078,12 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
       .filter(r=>r.ready && r.url && (r.required || coverageRefOff.indexOf(r.refId)<0))
       .map(r=>({ url:r.url, kind:r.kind==="script"?"script":"location", refId:r.refId, note:r.note }));
   };
+  const depSnap = React.useRef(null);
   const gen = useImageGen({
     id, slotId: "loccov-"+id,
     entity: l,
     buildFinal: ()=> buildLocationCoveragePrompt(l, v, project),
-    buildSimple: ()=> buildSimpleLocationPrompt(l),
+    buildSimple: ()=> buildSimpleLocationPrompt(l,{ name:v.name||l.name, side:v.role }),
     attachmentsInSimple:true,
     referenceMaxDim:1536,
     beforeGenerate: async ()=>{
@@ -1074,7 +1098,7 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
       }
       return ok;
     },
-    attachments: collectCoverageRefs,
+    attachments: async (...a)=>{ depSnap.current = locationAssetDependencySnapshot(l.id,previousIds,"screenplay-coverage"); return collectCoverageRefs(...a); },   // the parent as ATTACHED (2026-10-08)
     attachmentsText: (refs)=> refs && refs.length
       ? "REFERENCE IMAGES are attached in this order: "+refs.map((r,i)=>"Image "+(i+1)+" = "+r.note).join("; ")+". The screenplay page snapshots are context only: read the scene geography from them, but never copy their typography, page border, text, captions or layout into the location sheet."
       : "",
@@ -1083,7 +1107,7 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
           locationParentId:gen.genMeta&&gen.genMeta.locationParentId,
           locationParentIso:gen.genMeta&&gen.genMeta.locationParentIso,
           locationUpstream:gen.genMeta&&gen.genMeta.locationUpstream }
-      : locationAssetDependencySnapshot(l.id,previousIds,"screenplay-coverage"),
+      : (_takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,previousIds,"screenplay-coverage")),
     buildEdit: (instr)=> "Edit this "+(v.role||"INT")+" Required Space Plate for "+(v.name||l.name||"the location")+". Apply ONLY: "+instr+". Keep it consistent with the parent location's architecture, materials and light."+locationSpatialPrompt(l),
   });
   const viewerEntity = {
@@ -1095,7 +1119,8 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
     React.createElement("div",{className:"loc-variant-head"},
       React.createElement("div",{className:"loc-coverage-title"},
         React.createElement("span",{className:"loc-intext-badge "+(/EXT/.test(v.role||"")?"ext":"int")},v.role||"INT"),
-        React.createElement("b",null,v.name||"Extra space")),
+        React.createElement("b",null,v.name||"Extra space"),
+        _parentChangedBadge(gen)),
       React.createElement("span",{className:"loc-coverage-source",title:v.summary||""},sourceLabel)),
     v.summary && React.createElement("div",{className:"loc-variants-empty loc-coverage-summary"},v.summary),
     React.createElement(SheetFrame,{ gen, slotId:"loccov-"+id, name:(v.name||l.name||"Location")+" \u00b7 "+(v.role||"INT"),
@@ -1214,13 +1239,14 @@ function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, o
     return refs.filter(r=>r.ready&&r.url&&(r.required||refOff.indexOf(r.refId)<0))
       .map(r=>({url:r.url,kind:r.kind==="script"?"script":"location",refId:r.refId,note:r.note}));
   };
+  const depSnap = React.useRef(null);
   const gen = useImageGen({
     id, slotId,
     entity: locationRenderEntity(stateUnit ? {...l,appearanceState:stateUnit} : l),
     buildFinal: ()=> stateUnit && typeof buildSluglineUnitPrompt==="function"
       ? buildSluglineUnitPrompt(l,stateUnit,project)
       : buildLocationVariantPrompt(l, project, { time:v.time, state:v.state }),
-    buildSimple: ()=> buildSimpleLocationPrompt(l),
+    buildSimple: ()=> buildSimpleLocationPrompt(l,{ name:(stateUnit&&stateUnit.name)||l.name, side:stateUnit&&stateUnit.intExt, time:v.time, state:v.state }),
     beforeGenerate: async()=>{
       const refs=await buildRefs();
       const ok=!refs.some(r=>r.required&&!r.ready);
@@ -1229,7 +1255,7 @@ function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, o
       return ok;
     },
     attachmentsRequired:true,
-    attachments: collectRefs,
+    attachments: async (...a)=>{ depSnap.current = locationAssetDependencySnapshot(l.id,locationRootIds(l),stateUnit?"slugline-unit":"continuity-state"); return collectRefs(...a); },   // the parent as ATTACHED (2026-10-08)
     attachmentsText: (refs)=> refs&&refs.length
       ? "REFERENCE IMAGES are attached in this order: "+refs.map((r,i)=>"Image "+(i+1)+" = "+r.note).join("; ")+". Read screenplay snapshots as context only; never copy their text, typography, borders or layout."
       : "",
@@ -1238,7 +1264,7 @@ function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, o
           locationParentId:gen.genMeta&&gen.genMeta.locationParentId,
           locationParentIso:gen.genMeta&&gen.genMeta.locationParentIso,
           locationUpstream:gen.genMeta&&gen.genMeta.locationUpstream }
-      : locationAssetDependencySnapshot(l.id,[],stateUnit?"slugline-unit":"continuity-state"),
+      : (_takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,locationRootIds(l),stateUnit?"slugline-unit":"continuity-state")),
     buildEdit: (instr)=> "Edit this establishing frame of "+(l.name||"the place")+" ("+v.time+"). Apply ONLY: "+instr+". Keep the same space and architecture."+locationSpatialPrompt(l),
   });
   const viewerEntity = {
@@ -1252,7 +1278,8 @@ function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, o
         ? React.createElement("div",{className:"loc-coverage-title"},
             React.createElement("span",{className:"loc-intext-badge "+(/EXT/.test(stateUnit.intExt||"")?"ext":"int")},stateUnit.intExt||"INT"),
             React.createElement("b",null,stateUnit.name||l.name||"Location"),
-            stateUnit.time&&React.createElement("span",{className:"loc-time-badge"},stateUnit.time))
+            stateUnit.time&&React.createElement("span",{className:"loc-time-badge"},stateUnit.time),
+            _parentChangedBadge(gen))
         : React.createElement(EditText,{value:v.time,placeholder:"State name / time, e.g. Dawn \u00b7 storm\u2026",onCommit:onTime}),
       onRemove&&React.createElement("button",{className:"loc-variant-x",title:"Remove environment state",onClick:onRemove},React.createElement(Icon.x,{s:12}))),
     React.createElement(SheetField,{label:"What changes",value:v.state||"",multiline:true,
@@ -1343,12 +1370,13 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
     return refs.filter(r=>r.ready && r.url && (r.required || refOff.indexOf(r.refId)<0))
       .map(r=>({ url:r.url, kind:r.kind==="script"?"script":"location", refId:r.refId, note:r.note }));
   };
+  const depSnap = React.useRef(null);
   const gen = useImageGen({
     id: imgId, slotId, entity: locationRenderEntity(l),
     buildFinal: ()=> (typeof buildSluglineUnitPrompt==="function")
       ? buildSluglineUnitPrompt(l, u, project)
       : buildLocationCoveragePrompt(l, pseudo, project),
-    buildSimple: ()=> buildSimpleLocationPrompt(l),
+    buildSimple: ()=> buildSimpleLocationPrompt(l,{ name:u.name||l.name, side:role, time:u.time, state:u.appearance||u.environment||"" }),
     beforeGenerate: async ()=>{
       const refs = await buildUnitRefs();
       const missing = refs.filter(r=>r.required && !r.ready);
@@ -1358,7 +1386,7 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
       return ok;
     },
     attachmentsRequired:true,
-    attachments: collectRefs,
+    attachments: async (...a)=>{ depSnap.current = locationAssetDependencySnapshot(l.id,locationRootIds(l),"slugline-unit"); return collectRefs(...a); },   // the parent as ATTACHED (2026-10-08)
     attachmentsText: (refs)=> refs && refs.length
       ? "REFERENCE IMAGES are attached in this order: "+refs.map((r,i)=>"Image "+(i+1)+" = "+r.note).join("; ")+". The screenplay page snapshots are context only: read the scene geography from them, but never copy their typography, page border, text, captions or layout into the location sheet."
       : "",
@@ -1367,7 +1395,7 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
           locationParentId:gen.genMeta&&gen.genMeta.locationParentId,
           locationParentIso:gen.genMeta&&gen.genMeta.locationParentIso,
           locationUpstream:gen.genMeta&&gen.genMeta.locationUpstream }
-      : locationAssetDependencySnapshot(l.id,[],"slugline-unit"),
+      : (_takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,locationRootIds(l),"slugline-unit")),
     buildEdit: (instr)=> "Edit this "+role+" Slugline Unit plate for "+(u.name||l.name||"the location")+(u.time?(" at "+u.time):"")+". Apply ONLY: "+instr+". Keep it consistent with the parent location's architecture, materials and light."+locationSpatialPrompt(l),
   });
   const viewerEntity = {
@@ -1380,7 +1408,8 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
       React.createElement("div",{className:"loc-coverage-title"},
         React.createElement("span",{className:"loc-intext-badge "+(/EXT/.test(role)?"ext":"int")},role),
         React.createElement("b",null,u.name||"Slugline unit"),
-        u.time && React.createElement("span",{className:"loc-time-badge"},u.time)),
+        u.time && React.createElement("span",{className:"loc-time-badge"},u.time),
+        _parentChangedBadge(gen)),
       React.createElement("span",{className:"loc-coverage-source",title:(u.sluglines||[]).join("\n")},sourceLabel)),
     React.createElement("div",{className:"loc-space-provenance "+sourceMeta.kind,title:(u.sluglines||[]).join("\n")},
       sourceMeta.label,
@@ -1538,20 +1567,27 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
   const applyStyleAll = async (key)=>{
     if(!key || allStyling) return;
     if(key!=="surprise"){ const t=(typeof window.renderStyleText==="function" ? window.renderStyleText("loc", key) : (LOC_TEXT[key]||LOC_TEXT.photoreal)); list.forEach(l=> onUpdate(l.id, { renderStyleIndependent:false,renderStyleKey:key, renderStyle:t })); return; }
-    list.forEach(l=> onUpdate(l.id, { renderStyleIndependent:false,renderStyleKey:"surprise" }));
-    if(!(typeof aiSurpriseStyleText==="function" && typeof aiAvailable==="function" && aiAvailable())) return;
+    // ASK FIRST, THEN SWITCH (2026-10-08, owner — Locations review): the cards used to read "Surprise me"
+    // before the confirm, so Cancel (or no writing model) left every card mislabelled
     const need = list.filter(l=>!l.parentLocation&&!(l.surpriseRender && l.surpriseRender.style));
-    if(!need.length) return;
-    let ok = true;
-    if(typeof window.appConfirm==="function") ok = await window.appConfirm({
-      title:"Invent a surprise style for "+need.length+" location"+(need.length!==1?"s":"")+"?",
-      body:"Each parent or standalone location gets a bespoke style; its subspaces share it — that's "+need.length+" AI call"+(need.length!==1?"s":"")+".",
-      confirmLabel:"Invent styles" });
-    if(!ok) return;
-    setAllStyling({ i:0, total:need.length });
+    const has = list.filter(l=>!l.parentLocation&&l.surpriseRender&&l.surpriseRender.style);
+    const kids = list.filter(l=>l.parentLocation);
+    if(need.length){
+      if(!(typeof aiSurpriseStyleText==="function" && typeof aiAvailable==="function" && aiAvailable())){
+        if(typeof window.appToast==="function") window.appToast("Surprise me needs the writing model \u2014 it isn't available right now.","info"); return; }
+      let ok = true;
+      if(typeof window.appConfirm==="function") ok = await window.appConfirm({
+        title:"Invent a surprise style for "+need.length+" location"+(need.length!==1?"s":"")+"?",
+        body:"Each parent or standalone location gets a bespoke style; its rooms share it. That's "+need.length+" small writing call"+(need.length!==1?"s":"")+" (writing credits).",
+        confirmLabel:"Invent styles" });
+      if(!ok) return;
+    }
+    has.forEach(l=> onUpdate(l.id, { renderStyleIndependent:false, renderStyleKey:"surprise", renderStyle:l.surpriseRender.style }));
+    setAllStyling(need.length ? { i:0, total:need.length } : null);
     for(let i=0;i<need.length;i++){ setAllStyling({ i:i+1, total:need.length });
       try{ const r = await aiSurpriseStyleText({ name:need[i].name, kind:"location", bible:locBibleOf(need[i]) }, project);
-        if(r) onUpdate(need[i].id, { surpriseRender:r, renderStyle:r.style }); }catch(e){} }
+        if(r) onUpdate(need[i].id, { renderStyleIndependent:false, renderStyleKey:"surprise", surpriseRender:r, renderStyle:r.style }); }catch(e){} }
+    kids.forEach(l=> onUpdate(l.id, { renderStyleIndependent:false, renderStyleKey:"surprise" }));   // rooms share their parent's
     setAllStyling(null);
   };
   const sceneList = scenesInStoryOrder(scenes);
@@ -1596,7 +1632,11 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
     // by a search box never generated anything and hung until Cancel
     if(sceneFilter) setSceneFilter("");
     if(query) setQuery("");
-    batch.begin(eligible, onlyMissing ? 0 : list.length - eligible.length);
+    // ALWAYS ASKS, WITH THE PRICE (2026-10-08, owner — Locations review), and names the writing a plate
+    // with no view composition spends first (the card drafts it before rendering)
+    batch.begin(eligible, onlyMissing ? 0 : list.length - eligible.length, { alwaysAsk:true, note:(missing, existing)=>{
+      const n = [...missing, ...existing].map(id=>byLocId[id]).filter(l=> l && !(typeof stagingHasContent==="function" ? stagingHasContent(l) : true)).length;
+      return n ? "Plus writing credits to draft "+n+" view composition"+(n!==1?"s":"")+" first." : ""; } });
   };
   const eligibleAll = list.filter(l=> (typeof locVisualsDrafted==="function") ? locVisualsDrafted(l) : true).length;
   const undraftedN = list.filter(l=> (typeof locVisualsDrafted==="function") ? !locVisualsDrafted(l) : false).length;
@@ -1624,7 +1664,21 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
   const startSceneRun = async ()=>{
     if(!sceneFilter || batchActiveId || sceneRun) return;
     const p = scenePlan(sceneFilter);
-    const steps = [...p.masters.map(l=>({ label:l.name||"Location", run:()=>window.generateLocationPlate(l, project) })),
+    const n = p.masters.length + p.units.length;
+    // asks first, with the price (2026-10-08 — it used to start at once)
+    if(n && typeof window.appConfirm==="function"){
+      const price = (typeof window.nbImageCostText==="function") ? window.nbImageCostText(n) : "";
+      const unstaged = p.masters.filter(l=> !(typeof stagingHasContent==="function" ? stagingHasContent(l) : true)).length;
+      const ok = await window.appConfirm({ title:"Make "+n+" plate"+(n!==1?"s":"")+" for Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")+"?",
+        body:p.masters.length+" location plate"+(p.masters.length!==1?"s":"")+" (a room's parent first), then "+p.units.length+" room & time plate"+(p.units.length!==1?"s":"")+"."
+          +(price ? " About "+price+" credit"+(price==="1"?"":"s")+"." : "")
+          +(unstaged ? " Plus writing credits to draft "+unstaged+" view composition"+(unstaged!==1?"s":"")+" first." : ""),
+        items:[...p.masters.map(l=>l.name||"Location"), ...p.units.map(x=>(x.u.name||x.owner.name||"Room")+(x.u.time?" \u00b7 "+x.u.time:""))],
+        confirmLabel:"Make "+n+" plate"+(n!==1?"s":""), cancelLabel:"Cancel" });
+      if(!ok) return;
+    }
+    const plateOpts = { draftStaging:true, onStaged:(id, st)=> onUpdate(id, { staging:st }) };
+    const steps = [...p.masters.map(l=>({ label:l.name||"Location", run:()=>window.generateLocationPlate(l, project, plateOpts) })),
       ...p.units.map(x=>({ label:(x.u.name||x.owner.name||"Room")+(x.u.time?" \u00b7 "+x.u.time:""), run:()=>window.generateSluglineUnitPlate(x.owner, x.u, project) }))];
     if(!steps.length){ batch.setMsg("This scene already has every plate it needs."); return; }
     sceneStop.current = false;
@@ -1657,7 +1711,7 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
         React.createElement("div",{style:{flex:1}},
           React.createElement("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Location Scout",
             React.createElement(window.InfoTip,{label:"About Locations",
-              text:"Locations prepares reusable sets for the art department. The Space and Narrative Significance define the place. Screenplay Evidence shows the source passages; Rooms & times (the screenplay's sluglines) identify the rooms, times and scenes. Each one has one plate and Lighting & environment notes, so scripted Night / Dawn states are not repeated in a separate section. Additional environment states and extra spaces are nested there. Spatial Layout & Staging holds reusable camera views, depth grids and scene dressing/blocking notes. The header's Render style picker sets the visual treatment; saved style instructions can be fine-tuned in the generation prompt (the card's ⋯ menu ▸ Show the generation prompt → Render style details), which also shows the current specification sent to the image model. Blender Studio builds the selected set.\n\nEach established parent place has one card with a room selector. Choose Whole location for the shared canon and all room-unit links, or a room to edit its own plate and layout. Search and scene focus include rooms. A Kitchen with no evidenced parent remains a standalone place. Shot timing, cuts and performance are directed in Shots / Blender previz."}))),
+              text:"Locations prepares reusable sets for the art department. The Space and Narrative Significance define the place. Screenplay Evidence shows the source passages; Rooms & times (the screenplay's sluglines) identify the rooms, times and scenes. Each one has one plate and Lighting & environment notes, so scripted Night / Dawn states are not repeated in a separate section. Additional environment states and extra spaces are nested there. Spatial Layout & Staging holds the shared set layout (review and confirm it before the first plate), reusable camera views with their view compositions, and scene dressing/blocking notes. A room's plates are made from its location's plate, so that one comes first. The header's Render style picker sets the visual treatment; the card's Look & exclusions section fine-tunes it, and the generation prompt (the card's \u22ef menu \u25b8 Show the generation prompt) shows, read-only, the specification sent to the image model. Plates spend image credits; drafting specs, layouts and view compositions, and Surprise me, spend writing credits \u2014 each button says which, and the batches ask first with the price. Blender Studio builds the selected set.\n\nEach established parent place has one card with a room selector. Choose Whole location for the shared canon and all room-unit links, or a room to edit its own plate and layout. Search and scene focus include rooms. A Kitchen with no evidenced parent remains a standalone place. Shot timing, cuts and performance are directed in Shots / Blender previz."}))),
         React.createElement("div",{className:"art-intro-actions"},
           window.RecentlyDeleted && React.createElement(window.RecentlyDeleted,{
             items:trashItems,kind:"location",onRestore,onPurge,compact:true}),

@@ -379,7 +379,9 @@ function deriveLocations(scenes, existing, drafts){
     out.push({
       id:"loc-"+key+"-"+orderIndex,
       key,name:L.name,intExt:L.intExt||"INT",
-      times:[...L.times],areas:[...L.areas],scenes:L.scenes,
+      // times in the SAME buckets and order the card keeps (deriveLocationTimes): Continuous / Later are
+      // no time at all — the sync and the card used to overwrite each other's lists (2026-10-08)
+      times:deriveLocationTimes({ name:L.name, scenes:L.scenes }, scenes),areas:[...L.areas],scenes:L.scenes,
       scope:L.scope,parentKey:L.parentKey,continuityRootKey:L.continuityRootKey,
       architecture:"",materials:"",lighting:"",permanentDressing:"",
       topology:"",continuityAnchors:"",anchorsLocked:true,significance:"",
@@ -511,12 +513,36 @@ function locationSpatialSource(owner){
   const meta=typeof nbGetMeta==="function"?nbGetMeta(owner.id):null;
   return {assetId:owner.id,iso:String(meta&&meta.iso||"")};
 }
+/* known=false: neither the plate nor its details have loaded on this device yet (a cold cache after a
+   reload, cloud before prefetch) — "unknown", never "the parent plate changed"; planSig: the reviewed
+   layout the current plate was made from (2026-10-08). Kept apart from the source stamp, which is stored
+   and compared as {assetId, iso}. */
+function locationSpatialSourceInfo(owner){
+  const meta=typeof nbGetMeta==="function"?nbGetMeta(owner.id):null;
+  const img=typeof nbGetImage==="function"?nbGetImage(owner.id):"";
+  return {known:!!(meta||img),planSig:String(meta&&meta.spatialPlanSig||"")};
+}
+/* WHICH LAYOUT A PLATE WAS MADE FROM (2026-10-08, owner — Locations review): the reviewed layout's content,
+   without its source stamp. A plate generated from the reviewed layout records it (meta.spatialPlanSig), so
+   making the parent plate no longer sends that same layout back for review — the rooms under it can follow
+   in the same run. A plate made any other way (an edit, an upload, an older plate) still asks for review. */
+function locationSpatialPlanSig(plan){
+  const p={...normalizeLocationSpatialPlan(plan)}; delete p.source; delete p.reviewedAt; delete p.reviewedBy;
+  const str=JSON.stringify(p); let h=5381; for(let i=0;i<str.length;i++) h=((h<<5)+h+str.charCodeAt(i))|0;
+  return "sp1:"+(h>>>0).toString(36)+":"+str.length;
+}
+/* the sig to record on a plate about to be made for l — only when l OWNS the layout and it is ready */
+function locationSpatialPlanSigFor(l){
+  try{ const st=requireLocationSpatialPlan(l); return st.owner.id===l.id ? locationSpatialPlanSig(st.plan) : ""; }catch(e){ return ""; }
+}
 function locationSpatialPlanState(l,locations){
   const owner=locationSpatialOwner(l,locations),plan=normalizeLocationSpatialPlan(owner.spatialPlan);
   const source=locationSpatialSource(owner);
   const tooLarge=JSON.stringify(plan).length>12000;
   const complete=!tooLarge&&!!plan.frame.trim()&&plan.anchors.length>0&&plan.anchors.every(a=>a.space.trim()&&a.name.trim()&&a.placement.trim());
-  const stale=plan.source.assetId!==source.assetId||plan.source.iso!==source.iso;
+  const info=locationSpatialSourceInfo(owner);
+  const builtFromThis=!!(info.planSig && info.planSig===locationSpatialPlanSig(plan));
+  const stale=plan.source.assetId!==source.assetId||(info.known && plan.source.iso!==source.iso && !builtFromThis);
   const ready=complete&&plan.status==="reviewed"&&!stale;
   return {owner,plan,source,complete,stale,ready,
     reason:tooLarge?"Shorten the shared set layout to 12,000 characters so it reaches image generation and Blender intact."
@@ -547,7 +573,7 @@ function locationSpatialPrompt(l){
 }
 async function locationSpatialReferences(l){
   const state=requireLocationSpatialPlan(l);
-  if(!state.source.iso)return [];
+  if(!state.source.iso && !state.plan.source.iso)return [];   // no plate behind the layout (yet)
   let url=typeof nbGetImage==="function"?nbGetImage(state.owner.id):"";
   if(!url&&typeof nbLoadImage==="function"){
     try{url=await nbLoadImage(state.owner.id);}catch(e){e.requiredReference=true;throw e;}
@@ -572,6 +598,8 @@ window.locationSpatialOwner=locationSpatialOwner;
 window.normalizeLocationSpatialPlan=normalizeLocationSpatialPlan;
 window.locationSpatialSource=locationSpatialSource;
 window.locationSpatialPlanState=locationSpatialPlanState;
+window.locationSpatialPlanSig=locationSpatialPlanSig;
+window.locationSpatialPlanSigFor=locationSpatialPlanSigFor;
 window.requireLocationSpatialPlan=requireLocationSpatialPlan;
 window.locationSpatialContract=locationSpatialContract;
 window.locationSpatialPrompt=locationSpatialPrompt;
@@ -1205,6 +1233,39 @@ function locationAssetDependencyChanges(meta, parentId, dependencyIds, metaOf){
   return changed;
 }
 window.locationAssetDependencyChanges = locationAssetDependencyChanges;
+/* (2026-10-08, owner — Locations review) A PLATE MADE FROM A PARENT SAYS WHEN THE PARENT CHANGED: a room &
+   time, state or extra-space plate (and a room's own plate) records the parent plate it was made from;
+   "Parent plate changed" shows when that plate was regenerated since. Only a plate that RECORDED its
+   parent is judged (older plates never flag at once), and only once the parent's details have loaded. */
+function locationRootIds(l){
+  try{ const owner = locationSpatialOwner(l); return (owner && owner.id && owner.id!==l.id) ? [owner.id] : []; }catch(e){ return []; }
+}
+function locationDerivedPlateChanged(meta, metaOf){
+  if(!meta) return false;
+  const get = typeof metaOf==="function" ? metaOf : (id)=> (typeof nbGetMeta==="function" ? nbGetMeta(id) : null);
+  if(meta.locationParentId && meta.locationParentIso){
+    const now = get(meta.locationParentId);
+    if(now && now.iso && now.iso!==meta.locationParentIso) return true;
+  }
+  return (Array.isArray(meta.locationUpstream) ? meta.locationUpstream : []).some(r=>{
+    if(!r || !r.id || !r.iso) return false;
+    const now = get(r.id); return !!(now && now.iso && now.iso!==r.iso); });
+}
+/* the written spec a master plate is made from — recorded as meta.locSpecSig; "Description changed" shows
+   when the card's text has changed since (only plates that recorded it) */
+function locationSpecSig(l){
+  const f = ["name","intExt","architecture","materials","lighting","permanentDressing","topology","continuityAnchors","significance","renderStyle","renderStyleKey","negativePrompt"];
+  const str = f.map(k=>String((l&&l[k])||"").replace(/\s+/g," ").trim()).join("~");
+  let h = 5381; for(let i=0;i<str.length;i++) h = ((h<<5)+h+str.charCodeAt(i))|0;
+  return "ls1:"+(h>>>0).toString(36)+":"+str.length;
+}
+function locationSpecChanged(meta, l){
+  return !!(meta && meta.locSpecSig && l && meta.locSpecSig!==locationSpecSig(l));
+}
+window.locationRootIds = locationRootIds;
+window.locationDerivedPlateChanged = locationDerivedPlateChanged;
+window.locationSpecSig = locationSpecSig;
+window.locationSpecChanged = locationSpecChanged;
 
 /* Master-plate spec identity is distinct from the exact model request:
    screenplay-reference instructions are appended at runtime and must not make a
@@ -2208,7 +2269,7 @@ function buildLocationCoveragePrompt(l, sheet, project){
     ambient_species_canon: speciesCanon || undefined,
     render: {
       style: clean(v.renderStyle),
-      format: "ONE 16:9 cinematic environment reference image, not a grid, not a storyboard panel",
+      format: "ONE "+((typeof nbGetAspect==="function" && nbGetAspect()) || "16:9")+" cinematic environment reference image, not a grid, not a storyboard panel",
       rules: [rules, "empty set only", "if the screenplay names a subspace without fully describing it, infer the missing architecture from the attached screenplay-page reference plus the parent location reference while staying conservative", "no text, no labels, no typography, no captions, no watermarks", "consistent with the parent location's materials, scale and light"],
     },
   };
@@ -2265,7 +2326,7 @@ function buildSluglineUnitPrompt(l, u, project){
     ambient_species_canon: speciesCanon || undefined,
     render: {
       style: clean(v.renderStyle),
-      format: "ONE 16:9 cinematic environment reference image, not a grid, not a storyboard panel",
+      format: "ONE "+((typeof nbGetAspect==="function" && nbGetAspect()) || "16:9")+" cinematic environment reference image, not a grid, not a storyboard panel",
       rules: [rules, "empty set only", "the TIME OF DAY, TIME-OF-DAY VARIANT and STATE DRESSING list are binding — light, sky and weather must match the first two, and every listed temporary dressing item must be present in the space", "LOCKED continuity anchors and spatial topology are binding; Narrative Significance is soft interpretive guidance only", "no text, no labels, no typography, no captions, no watermarks", "consistent with the continuity root's invariants and this child space's specific identity"],
     },
   };
@@ -2277,7 +2338,10 @@ function buildSluglineUnitPrompt(l, u, project){
 window.buildSluglineUnitPrompt = buildSluglineUnitPrompt;
 
 /* simplified fallback — fewer words, less likely to trip a content filter */
-function buildSimpleLocationPrompt(l){
+/* the simplified retry (after a "no image" answer). frame (2026-10-08): a single-frame plate — a room & time,
+   an environment state, an extra space — keeps ITS framing, time and state (it used to fall back to a
+   multi-angle sheet and drop the time: a night/rain room could save as a neutral sheet) */
+function buildSimpleLocationPrompt(l, frame){
   const rules = (typeof locationNoCharactersRules==="function") ? locationNoCharactersRules(null, l).join(" ") : "empty of people and characters";
   const speciesCanon = (typeof locationSpeciesCanonText==="function") ? locationSpeciesCanonText(l) : "";
   // retry keeps the location's PICKED render style — never silently photoreal
@@ -2290,8 +2354,12 @@ function buildSimpleLocationPrompt(l){
     (l.topology?"spatial topology: "+String(l.topology).replace(/\.$/,"").trim():""),
     locationSpatialPrompt(l),
     speciesCanon,
-    "establishing wide, reverse angle, and a detail view",
-    "the same space from a few angles, "+rules+", "+(styleLine||"photoreal")+", sharp focus"
+    frame
+      ? ("ONE wide establishing frame"+(frame.name?(" of "+String(frame.name).trim()):"")+(frame.side?(" ("+frame.side+")"):"")
+          +(frame.time?(", at "+String(frame.time).trim()):"")+(frame.state?(", "+String(frame.state).replace(/\.$/,"").trim()):"")
+          +" \u2014 a single image, not a grid, no text, labels or captions")
+      : "exactly 4 views of the same space in a 2x2 grid \u2014 establishing wide, reverse angle, a side view and a detail \u2014 no text, labels or captions",
+    rules+", "+(styleLine||"photoreal")+", sharp focus"
   ].filter(Boolean);
   const neg = (typeof locationCharacterNegative==="function") ? locationCharacterNegative(null, l) : "";
   return parts.join(". ")+"."+(neg?(" AVOID: "+neg+"."):"");
@@ -2304,17 +2372,17 @@ function buildLocationFromPhotoPrompt(l, project){
   const rules = (typeof locationNoCharactersRules==="function") ? locationNoCharactersRules(project, l).join(" ") : "empty of people and characters.";
   const speciesCanon = (typeof locationSpeciesCanonText==="function") ? locationSpeciesCanonText(l) : "";
   let s = "Master location reference plate \u2014 "+(l.name||"Location")+". ";
-  s += "BASE SPACE: reproduce EXACTLY the place shown in the reference photo \u2014 its architecture, ";
+  s += "BASE SPACE: reproduce EXACTLY the place shown in the dropped reference photo of the real place \u2014 its architecture, ";
   s += "proportions, materials, colour and light. Do not redesign or restyle it. ";
   s += locationSpatialPrompt(l);
   s += (l.significance ? ("NARRATIVE SIGNIFICANCE (interpretive): "+l.significance.replace(/\.$/,"")+". ") : "");
   s += "RENDER STYLE: "+v.renderStyle.replace(/\.$/,"")+". ";
   if(speciesCanon) s += speciesCanon+" ";
-  s += "Compose it as a 3\u00d72 grid of six panels of that same space. "
-     + "Top row: (1) establishing wide; (2) reverse angle; (3) view toward the LEFT side of the frame. "
-     + "Bottom row: (4) view toward the RIGHT side of the frame; (5) looking down; (6) a material detail. "
-     + "(\u2018Left\u2019/\u2018right\u2019 mean the camera-frame side, not a character's.) "
-     + "Print a small caption in the top-left of each panel with its number and title. "
+  // (2026-10-08) the same 2x2 four-view plate as every other master plate — it used to ask for a 3x2 grid
+  // with printed captions, so photo-made plates broke Edit a panel and the panel crops
+  s += "Compose it as exactly 4 views of that same space in a 2x2 grid divided by thin clean lines: "
+     + "top-left a wide establishing view; top-right a high overview; bottom-left and bottom-right two closer views of its key features and materials. "
+     + "No text, no labels, no captions, no numbers. Any other attached images are parent, layout or screenplay references, not the place to copy. "
      + "Consistent architecture and light across all panels. "+rules+" Sharp focus, faithful to the specified render style.";
   return s;
 }
@@ -2345,7 +2413,7 @@ function _nbLocMeta(prompt, entity, runSnapshot){
   const size = (typeof nbGetRes==="function") ? nbGetRes() : "2K";
   const now = new Date();
   const mEntry = (window.NB_MODELS||[]).find(m=>m.id===model) || {};
-  return { modelLabel:mEntry.label||"Nano Banana", modelId:model, aspect, size,
+  return { modelLabel:mEntry.label||"Image model", modelId:model, aspect, size,
      renderStyleKey:snap.renderStyleKey,renderStyleLabel:snap.renderStyleLabel,
      // Keep the exact requested intent, including 2.5 "default"; never infer
      // provider-high from an omitted request after the render finishes.
@@ -2425,9 +2493,41 @@ function _nbLocCleanup(id, token){
   delete window.__nbGenInflight[id];
   if(window.__nbGenCancel) delete window.__nbGenCancel[id];
 }
-async function generateLocationPlate(l, project){
+/* the screenplay pages a location plate reads for its geography — the card and the headless runs attach
+   the SAME pages (2026-10-08: the one-scene run used to attach none) — [{url, kind:"script", refId, label, note}] */
+function locationScriptPageRefs(l, scenes, drafts, max){
+  const C = window.turnContinuity || {};
+  const all = scenes || C.scenes || [];
+  const out = [], cap = (max==null ? 6 : Math.max(0, max));
+  if(!cap) return out;
+  const order = (typeof scenesInStoryOrder==="function") ? scenesInStoryOrder : (x=>x||[]);
+  const list = (Array.isArray(l.scenes) && l.scenes.length)
+    ? order(all.filter(s=>l.scenes.indexOf(s.id)>=0)) : order(all);
+  for(const sc of list){
+    const imgs = (typeof locationScreenplayReferenceImages==="function")
+      ? locationScreenplayReferenceImages(l, { name:l.name, sceneNos:[sc.no] }, all, drafts||C.drafts||{}) : [];
+    imgs.forEach((url,i)=>{ if(out.length<cap) out.push({ url, kind:"script", ready:true, required:false,
+      refId:"script-main-"+l.id+"-"+(sc.no||sc.id)+"-"+i,
+      label:"Scene "+String(sc.no||"?").padStart(2,"0")+" p"+(i+1),
+      note:"full-scene screenplay page "+(i+1)+" for Scene "+(sc.no||"?")+" \u2014 use this to design the location's 2x2 geography from what is actually filmed; do not render page text or borders" }); });
+    if(out.length>=cap) break;
+  }
+  return out;
+}
+window.locationScriptPageRefs = locationScriptPageRefs;
+/* opts (2026-10-08, owner — Locations review): the one-scene run and "Make what this scene needs" now make
+   the SAME plate the card does — draftStaging writes the view composition first when the place has none
+   (onStaged saves it), and the screenplay pages ride along as references. */
+async function generateLocationPlate(l, project, opts){
   const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;   // asset scope at generation start
   if(typeof nbGenerate!=="function" || typeof nbCommit!=="function") return false;
+  const o = opts || {};
+  if(o.draftStaging && typeof stagingHasContent==="function" && !stagingHasContent(l)
+    && typeof aiDraftStaging==="function" && typeof aiAvailable==="function" && aiAvailable()){
+    try{ const st = await aiDraftStaging(l, (window.turnContinuity||{}).scenes||[], project);
+      if(st){ l = { ...l, staging:st }; if(typeof o.onStaged==="function") o.onStaged(l.id, st); } }catch(e){}   // fail-open: prose only
+    if(typeof nbEpoch==="function" && nbEpoch()!==_ep) return false;
+  }
   const runSnapshot = _nbLocRunSnapshot(l);
   // no set-dressing refs here — the clean plate anchors the look; fixtures are
   // painted in afterwards via the Edit panel's Set-dressing buttons
@@ -2440,10 +2540,19 @@ async function generateLocationPlate(l, project){
   try{
     const parentRefs=await locationParentReferences(l);
     if(_nbLocStale(l.id,_runToken,_ep)){_nbLocCancelEvent(l.id,_runToken);return false;}
-    const refs=mergeLocationReferences(parentRefs,await locationSpatialReferences(l));
+    let refs=mergeLocationReferences(parentRefs,await locationSpatialReferences(l));
+    if(o.scriptRefs!==false){
+      const pages=locationScriptPageRefs(l, null, null, 6).filter(r=>r.url);
+      refs=[...refs, ...pages.map(r=>({url:r.url,kind:"script",refId:r.refId,note:r.note}))].slice(0,6);
+    }
     const parent=locationParentOf(l);
     const lineage=parent?locationAssetDependencySnapshot(parent.id,[],"subspace"):{};
-    const referenceText=locationReferenceInstructions(refs);
+    const planSig=(typeof locationSpatialPlanSigFor==="function")?locationSpatialPlanSigFor(l):"";   // the reviewed layout this plate is made from
+    if(planSig) lineage.spatialPlanSig=planSig;
+    if(typeof locationSpecSig==="function") lineage.locSpecSig=locationSpecSig(l);
+    let referenceText=locationReferenceInstructions(refs);
+    if(refs.some(r=>r.kind==="script")) referenceText+=" Read screenplay pages together as evidence for permanent geography \u2014 NOT a quadrant map: "
+      +"do not make one panel per page or per scene, and never copy screenplay typography, page borders, text or captions.";
     prompt+=referenceText;
     if(refs.length)gopts.extraImages=refs.map(r=>r.url);
     if(_nbLocStale(l.id,_runToken,_ep)){_nbLocCancelEvent(l.id,_runToken);return false;}
@@ -2509,7 +2618,7 @@ async function generateLocationVariant(l, v, project){
     const stateRefs=await locationStateReferences(l);
     if(_nbLocStale(id,_runToken,_ep)){_nbLocCancelEvent(id,_runToken,_ep);return false;}
     const refs=mergeLocationReferences(stateRefs,await locationSpatialReferences(l));
-    const lineage=locationAssetDependencySnapshot(l.id,refs.slice(1).map(r=>r.refId),unit?"slugline-unit":"continuity-state");
+    const lineage=locationAssetDependencySnapshot(l.id,refs.slice(1).map(r=>r.refId).concat((typeof locationRootIds==="function")?locationRootIds(l):[]),unit?"slugline-unit":"continuity-state");
     const referenceText=locationReferenceInstructions(refs);
     prompt+=referenceText;
     gopts.extraImages=refs.map(r=>r.url);
@@ -2526,7 +2635,7 @@ async function generateLocationVariant(l, v, project){
     }catch(e){
       if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
       if(/no image/i.test((e&&e.message)||"") && typeof buildSimpleLocationPrompt==="function"){
-        try{ prompt=buildSimpleLocationPrompt(l)+referenceText;url = await nbGenerate(prompt, { ...gopts, assetId:id }); }
+        try{ prompt=buildSimpleLocationPrompt(l,{ name:(unit&&unit.name)||l.name, side:unit&&unit.intExt, time:v&&v.time, state:v&&v.state })+referenceText;url = await nbGenerate(prompt, { ...gopts, assetId:id }); }
         catch(fallbackError){
           if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
           throw fallbackError;
@@ -2587,7 +2696,7 @@ async function generateSluglineUnitPlate(l, u, project){
     if(l.parentLocation){ const root = locationParentReference(l, await grab(l.parentLocation.id)); if(root && root.url) base.push(root); }
     if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
     const refs = mergeLocationReferences(base, await locationSpatialReferences(l));
-    const lineage = locationAssetDependencySnapshot(l.id,[],"slugline-unit");
+    const lineage = locationAssetDependencySnapshot(l.id,(typeof locationRootIds==="function")?locationRootIds(l):[],"slugline-unit");
     const referenceText = locationReferenceInstructions(refs)
       +" The screenplay page snapshots are context only: never copy their typography, page border, text, captions or layout.";
     prompt += referenceText;
@@ -2597,7 +2706,15 @@ async function generateSluglineUnitPlate(l, u, project){
       catch(e){ if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; } throw e; }
     }
     if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
-    const url = await nbGenerate(prompt, { ...gopts, assetId:id });
+    let url;
+    try{ url = await nbGenerate(prompt, { ...gopts, assetId:id }); }
+    catch(e){
+      if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
+      // the same simplified retry the card uses, keeping this plate's room, side, time and state (2026-10-08)
+      if(!(/no image/i.test((e&&e.message)||"") && typeof buildSimpleLocationPrompt==="function")) throw e;
+      prompt = buildSimpleLocationPrompt(l,{ name:u.name||l.name, side:u.intExt, time:u.time, state:u.appearance||u.environment||"" })+referenceText;
+      url = await nbGenerate(prompt, { ...gopts, assetId:id });
+    }
     if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
     const saved = await nbCommit(id, url, Object.assign(_nbLocMeta(prompt,{...l,appearanceState:u},runSnapshot),lineage), refs, "location", _ep,
       ()=>_nbLocStale(id,_runToken,_ep));

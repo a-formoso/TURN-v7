@@ -1976,9 +1976,10 @@ async function agentLocationScout(ctx){
   const redraftSpecs = ctx.force || ctx.draftOnly;
   ctx.emit({k:"act", t:redraftSpecs?"Re-drafting every location spec from the script…":"Drafting location specs from the script…"});
   let specs=0;
+  let specsFailed=false;
   try{ specs = await ls.draftSpecs(redraftSpecs); }
-  catch(e){ ctx.emit({k:"flag", t:"Spec drafting hit an error: "+((e&&e.message)||e)}); }
-  ctx.emit({k:"observe", t:specs?("Drafted "+specs+" spec"+(specs!==1?"s":"")+"."):"Specs already complete."});
+  catch(e){ specsFailed=true; ctx.emit({k:"flag", t:"Spec drafting hit an error: "+((e&&e.message)||e)+". The specs stay as they were."}); }
+  if(!specsFailed) ctx.emit({k:"observe", t:specs?("Drafted "+specs+" spec"+(specs!==1?"s":"")+"."):"Specs already complete."});
   if(ctx.cancelled()) return;
 
   // 4) design the depth-grid staging
@@ -2005,7 +2006,10 @@ async function agentLocationScout(ctx){
   // 6) generate plates, then variants (force = regenerate ALL)
   let plates=[], variants=[];
   try{ plates = await ls.toGeneratePlates(ctx.force); }catch(e){}
-  try{ variants = await ls.toGenerateVariants(ctx.force); }catch(e){}
+  try{ variants = await ls.toGenerateVariants(ctx.force, plates); }catch(e){}
+  // the tab's rules (2026-10-08): plates waiting for their shared layout review are named, not attempted
+  let waiting=0; try{ waiting = ls.waitingPlates ? ls.waitingPlates() : 0; }catch(e){}
+  if(waiting) ctx.emit({k:"flag", t:waiting+" location"+(waiting!==1?"s wait":" waits")+" for its shared layout to be reviewed (Locations ▸ Spatial Layout & Staging) — "+(waiting!==1?"their plates are":"its plate is")+" left for later."});
   if(!plates.length && !variants.length){
     if(ctx.art.markApplied && ctx.force && specs>0) ctx.art.markApplied("locations");
     ctx.emit({k:"done", t:"Locations ready — "+added+" pulled, "+specs+" drafted; every plate is already generated."}); return;

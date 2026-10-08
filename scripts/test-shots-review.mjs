@@ -113,7 +113,8 @@ await test("F1 the scene lists what its frames need, from the render plan; only 
   const needsFn = between(shots, "function sceneReferenceNeeds(sceneShots, ctx, has){", "window.sceneReferenceNeeds");
   assert.ok(needsFn.includes("(plan.activeLocSpec||[]).forEach(x=>add(x,\"location\"));") && needsFn.includes("(plan.castSpec||[]).forEach(x=>add(x,\"character\"));"));
   assert.ok(needsFn.includes("(plan.propSpec||[]).forEach(x=>add(x,\"prop\"));") && needsFn.includes("(plan.carrySpec||[]).forEach(x=>add(x,\"prop\"));"));
-  assert.ok(group.includes('const sceneNeeds = (typeof sceneReferenceNeeds==="function") ? sceneReferenceNeeds(shots||[], ctx) : [];'));
+  // (2026-10-08) with what really exists on this device, looked up after a reload (needsHas)
+  assert.ok(group.includes('const sceneNeeds = (typeof sceneReferenceNeeds==="function") ? sceneReferenceNeeds(shots||[], ctx, needsHas) : [];'));
   assert.ok(group.includes("window.nbCostChip(makeableNeeds.length)") && group.includes('"Make what this scene needs"'));
   assert.ok(group.includes('(make it in "+(n.kind==="location"?"Locations":n.kind==="prop"?"Props":"Characters")+")"'));
 });

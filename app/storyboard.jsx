@@ -77,6 +77,19 @@ function sbPropRefsForPage(scene, shots, ctx){
   return out;
 }
 window.sbPropRefsForPage = sbPropRefsForPage;
+/* the LOCATION plates the scene's frames attach (2026-10-08, owner — Locations review): each frame's room &
+   time / extra-space / state plates by its render plan — never the master plate, which frames don't attach */
+function sbLocRefsForShots(shots, ctx){
+  const out = [], seen = new Set();
+  (shots||[]).forEach(sh=>{
+    let plan = null; try{ plan = (typeof shotRenderPlan==="function") ? shotRenderPlan(sh, shots, ctx||{}) : null; }catch(e){}
+    const off = (Array.isArray(sh && sh.refOff) ? sh.refOff : []).map(String);
+    ((plan && plan.activeLocSpec)||[]).forEach(sp=>{ if(!sp || !sp.id || seen.has(sp.id) || off.indexOf(String(sp.id))>=0) return;
+      seen.add(sp.id); out.push({ id:String(sp.id), label:String(sp.label||sp.name||sp.note||"Location plate").replace(/\s*[\u2014(][\s\S]*$/,"").slice(0,48) }); });
+  });
+  return out;
+}
+window.sbLocRefsForShots = sbLocRefsForShots;
 
 /* a mood phrase from the scene's closing value charge */
 function sbMood(scene){
@@ -506,7 +519,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
         if(!u && typeof nbLoadImage==="function"){ try{ u=await nbLoadImage(id); }catch(e){} } return u||""; };
       const out=[], seen=new Set();
       const shots = (ctx.sceneShots && ctx.sceneShots.length) ? ctx.sceneShots : (page.shots||[]);   // scene-wide refs (same across pages)
-      if(ctx.location){ const u=await grab(ctx.location.id); if(u){ out.push({ url:u, label:(ctx.location.name||"Location")+" plate", kind:"location" }); seen.add(ctx.location.id); } }
+      for(const r of sbLocRefsForShots(shots, ctx)){ const u=await grab(r.id); if(u){ out.push({ url:u, label:r.label, kind:"location" }); seen.add(r.id); } }
       const ids=[]; const _chars=Object.values(ctx.charById||{});
       shots.forEach(sh=>{ const inc=(typeof inFrameCast==="function")?inFrameCast(sh, scene, _chars):(sh.subjects||[]); inc.forEach(id=>{ if(ids.indexOf(id)<0) ids.push(id); }); });
       // the sheet this scene's frames attach — its appearance variant, else the master (2026-10-06)
@@ -537,7 +550,8 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
       if(seen.has(r.propId)) return; seen.add(r.propId);
       out.push({ id:r.sheetId, label:r.label, note:r.label+" prop sheet" });
     });
-    if(ctx.location) out.push({ id:ctx.location.id, label:(ctx.location.name||"Location")+" plate", note:(ctx.location.name||"the location")+" location plate" });
+    sbLocRefsForShots(refShots, ctx).forEach(r=>{ if(seen.has(r.id)) return; seen.add(r.id);
+      out.push({ id:r.id, label:r.label, note:r.label+" location plate" }); });
     return out;
   },[scene, page.shots, ctx]);
   const toggleEditRef = (rid)=> setEditRefSel(sel=> sel.indexOf(rid)>=0 ? sel.filter(x=>x!==rid) : [...sel, rid]);

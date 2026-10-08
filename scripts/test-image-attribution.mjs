@@ -45,7 +45,7 @@ await test("C2 the callers name their items", () => {
   const loc = read("app/locations.jsx");
   assert.equal((loc.match(/nbGenerate\(prompt, \{ \.\.\.gopts, assetId:l\.id \}\)/g) || []).length, 2, "location plates");
   // variants (2) + the room & time plate made from a focused scene (generateSluglineUnitPlate, 2026-10-03)
-  assert.equal((loc.match(/nbGenerate\(prompt, \{ \.\.\.gopts, assetId:id \}\)/g) || []).length, 3, "location variants + room & time plates");
+  assert.equal((loc.match(/nbGenerate\(prompt, \{ \.\.\.gopts, assetId:id \}\)/g) || []).length, 4, "location variants + room & time plates (each with its simplified retry)");
   assert.ok(read("app/storyboard.jsx").includes("...(extra.length?{extraImages:extra}:{}), assetId:sh.id });"), "a storyboard panel edit");
   const app = read("app/app.jsx");
   assert.ok(app.includes('{ ...genOpts, projectId:proj.id, assetId:"cover", assetPurpose:"poster" }'), "a Home poster names ITS film");

@@ -721,9 +721,14 @@ function App(){
     const draftedN = dept==="characters" ? (characters||[]).filter(c=>typeof charVisualsDrafted==="function" ? charVisualsDrafted(c) : true).length
       : dept==="props" ? (props||[]).filter(p=>typeof propVisualsDrafted==="function" ? propVisualsDrafted(p) : true).length
       : (locations||[]).filter(l=>typeof locVisualsDrafted==="function" ? locVisualsDrafted(l) : true).length;
-    const imgPrice = (!draftOnly && draftedN && typeof window.nbImageCostText==="function") ? window.nbImageCostText(draftedN) : "";
+    // Locations also regenerates each place's environment states (2026-10-08 — the price left them out)
+    const stateN = dept==="locations" && typeof locationAppearanceStates==="function"
+      ? (locations||[]).filter(l=>typeof locVisualsDrafted==="function" ? locVisualsDrafted(l) : true)
+          .reduce((n,l)=>{ try{ return n + (locationAppearanceStates(l, sluglineUnits||[])||[]).length; }catch(e){ return n; } }, 0) : 0;
+    const imgN = draftedN + stateN;
+    const imgPrice = (!draftOnly && imgN && typeof window.nbImageCostText==="function") ? window.nbImageCostText(imgN) : "";
     const costLine = " Cost: writing credits for "+draftedN+" spec"+(draftedN===1?"":"s")
-      +(draftOnly ? "." : (imgPrice ? ", plus up to "+draftedN+" image"+(draftedN===1?"":"s")+" (about "+imgPrice+" credit"+(imgPrice==="1"?"":"s")+")." : ", plus the images."));
+      +(draftOnly ? "." : (imgPrice ? ", plus up to "+imgN+" image"+(imgN===1?"":"s")+(stateN ? " ("+stateN+" of them environment states)" : "")+" (about "+imgPrice+" credit"+(imgPrice==="1"?"":"s")+")." : ", plus the images."));
     let ok = true;
     if(typeof window.appConfirm==="function"){
       ok = await window.appConfirm(draftOnly
@@ -4229,11 +4234,18 @@ function App(){
     const steps = [];
     const masters = needs.filter(n=>n.kind==="location" && locById(n.id)).map(n=>locById(n.id));
     const ordered = (typeof locationGenerationOrder==="function") ? locationGenerationOrder(masters) : masters;
-    ordered.forEach(l=> steps.push({ label:l.name||"Location", run:()=>window.generateLocationPlate(l, project) }));
+    // the card's path (2026-10-08): the view composition is drafted first when missing, the pages ride along;
+    // and a plate that exists after all (a cold cache when the list was made) is never paid for again
+    const plateOpts = { draftStaging:true, onStaged:(id, st)=>{ if(!artRoomReadOnlyRef.current) setLocations(ls=>ls.map(x=>x.id===id ? { ...x, staging:st } : x)); } };
+    ordered.forEach(l=> steps.push({ label:l.name||"Location", run:async ()=>{
+      if(await _imgOf(l.id)) return true;
+      return window.generateLocationPlate(l, project, plateOpts); } }));
     needs.filter(n=>n.kind==="location" && /^locunit-/.test(String(n.id))).forEach(n=>{
       const u = units.find(x=> typeof sluglineUnitImageId==="function" && sluglineUnitImageId(x.key)===n.id);
       const owner = u && (locList.find(l=>String(l.key||"")===String(u.subspaceKey||u.locationKey||"")) || (locations||[]).find(l=>String(l.key||"")===String(u.subspaceKey||u.locationKey||"")));
-      if(u && owner) steps.push({ label:(u.name||owner.name||"Room")+(u.time?" \u00b7 "+u.time:""), run:()=>window.generateSluglineUnitPlate(owner, u, project) });
+      if(u && owner) steps.push({ label:(u.name||owner.name||"Room")+(u.time?" \u00b7 "+u.time:""), run:async ()=>{
+        if(await _imgOf(n.id)) return true;
+        return window.generateSluglineUnitPlate(owner, u, project); } });
     });
     const charNeeds = needs.filter(n=>n.kind==="character").sort((a,b)=> (String(a.id).indexOf(":")>=0?1:0)-(String(b.id).indexOf(":")>=0?1:0));
     const madeMaster = {};   // a master made in this run — its variant never makes it again while storage catches up
@@ -4253,6 +4265,7 @@ function App(){
     needs.filter(n=>n.kind==="prop").forEach(n=>{
       const p0 = (props||[]).find(x=>x.id===(n.baseId||n.id)); if(!p0) return;
       steps.push({ label:p0.name||"Prop", run:async ()=>{
+        if(await _imgOf(p0.id)) return true;   // made already (the list may have read a cold cache)
         let p = p0;
         if(!(String(p.form||"").trim() && String(p.material||"").trim()) && typeof aiPropVisuals==="function"){
           const patch = await aiPropVisuals(p, characters, lbProject("props"));
@@ -4525,50 +4538,96 @@ function App(){
   },[drafts, scenes, currentShowId, currentProjectId]);
 
   // ---- Art Room: LOCATIONS ----
-  const updateLocation = (id,patch)=>setLocations(ls=>ls.map(l=>l.id===id?{...l,...patch}:l));
+  // edit rights (2026-10-08, owner — Locations review): the cards' own background syncs (times, coverage)
+  // call this too, so a role that can't change the Art Room no-ops SILENTLY here; explicit actions below
+  // say why through canMutateSharedFilm()
+  const updateLocation = (id,patch)=>{ if(artRoomReadOnlyRef.current) return; setLocations(ls=>ls.map(l=>l.id===id?{...l,...patch}:l)); };
   // per-card location drafts run CONCURRENTLY — a set of ids currently drafting, so you
   // can fire "Draft & Generate" on several locations at once (not one-at-a-time).
   const [draftingLocIds, setDraftingLocIds] = React.useState([]);
   const draftingLocIdsRef = React.useRef([]); draftingLocIdsRef.current = draftingLocIds;
   const [draftingAllLocs, setDraftingAllLocs] = React.useState(false);
   const deleteLocation = (id)=>{
+    if(!canMutateSharedFilm()) return;
     const l = (locations||[]).find(x=>x.id===id); if(!l) return;
     setLocations(ls=>ls.filter(x=>x.id!==id));
     setTrash(t=>({ ...t, locations:[ _trashStamp(l), ...(t.locations||[]).filter(x=>x.id!==id) ] }));
   };
   const restoreLocation = (id)=>{
+    if(!canMutateSharedFilm()) return;
     const item = (trash.locations||[]).find(x=>x.id===id); if(!item) return;
-    const { _deletedAt, ...clean } = item;
+    // a live card with the same id or the same place is already on the board (2026-10-08): say so and keep
+    // the binned copy — it used to drop it silently (same id) or add a second card for one place (same key)
+    const clash = (locations||[]).find(l=> l && (l.id===id || (item.key && l.key===item.key)));
+    if(clash){
+      if(typeof window.appToast==="function") window.appToast("\u201c"+(clash.name||item.name||"This location")+"\u201d is already on the board, so the copy in Recently deleted stays there.","info");
+      return;
+    }
+    const { _deletedAt, _trashReason, ...clean } = item;
     setLocations(ls=> ls.some(l=>l.id===id) ? ls : [...ls, clean]);
     setTrash(t=>({ ...t, locations:(t.locations||[]).filter(x=>x.id!==id) }));
   };
   const purgeLocation = async (id)=>{
+    if(!canMutateSharedFilm()) return;
     const item = (trash.locations||[]).find(x=>x.id===id);
     if(!item) return;
+    const itemKey = String(item.key||item.id);
+    // rooms still on the board that hang off this place can't make new plates without it — ask first
+    const liveKids = (locations||[]).filter(l=> l && l.key!==item.key && (l.parentKey===item.key || l.continuityRootKey===item.key));
+    if(liveKids.length && typeof window.appConfirm==="function"){
+      const ok = await window.appConfirm({ title:"Delete \u201c"+(item.name||"this location")+"\u201d forever?",
+        body:liveKids.length+" room"+(liveKids.length!==1?"s":"")+" on the board belong"+(liveKids.length===1?"s":"")+" to it ("+liveKids.slice(0,4).map(l=>l.name||"Room").join(", ")+(liveKids.length>4?"\u2026":"")
+          +"). Their plates stay, but they can't make new ones until this place is back.",
+        confirmLabel:"Delete forever", cancelLabel:"Cancel", danger:true });
+      if(!ok) return;
+    }
     try{
       if(typeof nbClearAsset==="function"){
         const ids = [id,
           ...(item.variants||[]).map(v=>id+"-"+v.id),
           ...(item.coverageSheets||[]).map(v=>id+"-"+v.id)];
-        // Slugline-unit plates are descendants of their master location even though
-        // their stable IDs key from the screenplay heading rather than the card ID.
+        // Slugline-unit plates are descendants of their location even though their stable IDs key from
+        // the screenplay heading. A unit belongs to the ROOM it is in (subspaceKey), not to the room's
+        // parent (locationKey is the continuity root) — 2026-10-08: purging a parent used to wipe its live
+        // rooms' plates, and purging a room left its own behind.
         (sluglineUnits||[]).forEach(u=>{
-          if(u && u.locationKey===(item.key||item.id) && typeof sluglineUnitImageId==="function")
+          if(u && String(u.subspaceKey||u.locationKey||"")===itemKey && typeof sluglineUnitImageId==="function")
             ids.push(sluglineUnitImageId(u.key));
         });
-        for(const assetId of Array.from(new Set(ids))) await nbClearAsset(assetId);
+        // never an image a LIVE card uses: its own id, or a room & time plate of a live room
+        const live = (locations||[]).some(l=>l && l.id===id);
+        const liveUnitIds = new Set((sluglineUnits||[]).filter(u=> u && typeof sluglineUnitImageId==="function"
+          && (locations||[]).some(l=> l && String(l.key||"")===String(u.subspaceKey||u.locationKey||""))).map(u=>sluglineUnitImageId(u.key)));
+        for(const assetId of Array.from(new Set(ids))){
+          if(live && (assetId===id || String(assetId).indexOf(id+"-")===0)) continue;
+          if(liveUnitIds.has(assetId)) continue;
+          await nbClearAsset(assetId);
+        }
       }
       setTrash(t=>({ ...t, locations:(t.locations||[]).filter(x=>x.id!==id) }));
+      // still in the screenplay → the place comes back as a fresh, empty card (the sync derives it)
+      if(item.key && typeof deriveLocations==="function" && deriveLocations(scenes, [], drafts).some(f=>f.key===item.key)
+        && typeof window.appToast==="function")
+        window.appToast("\u201c"+(item.name||"This location")+"\u201d is still in the screenplay, so it comes back as an empty card.","info");
     }catch(e){ if(window.appToast) window.appToast("Couldn't permanently delete this location's descendant assets. It remains in Trash so you can retry.","error"); }
   };
   const draftLocationVisuals = async (l)=>{
     if(!(typeof aiLocationVisuals==="function")) return;
+    if(!canMutateSharedFilm()) return;
     if(draftingLocIdsRef.current.indexOf(l.id)>=0) return;   // this location already drafting
+    // a card that already has a spec: ask first — it replaces the text, edits included (2026-10-08)
+    if(typeof locVisualsDrafted==="function" && locVisualsDrafted(l) && typeof window.appConfirm==="function"){
+      const ok = await window.appConfirm({ title:"Draft \u201c"+(l.name||"this location")+"\u201d again?",
+        body:"Its specification is written again from the screenplay, replacing the current text \u2014 your edits included. Its plate stays as it is. This uses writing credits.",
+        confirmLabel:"Draft again", cancelLabel:"Cancel" });
+      if(!ok) return;
+    }
     setDraftingLocIds(ids=> ids.indexOf(l.id)>=0 ? ids : [...ids, l.id]);
+    const film0 = projIdRef.current;   // ids repeat across films: a draft lands only on the film it started in
     try{
       const fields = await aiLocationVisuals(l, scenes, lbProject("locations"));
-      if(fields){ setLocations(ls=>ls.map(x=>x.id===l.id?{...x, ...keepPickedStyle(x, fields)}:x)); }   // (records its own Lookbook)
-    }catch(e){}
+      if(fields && projIdRef.current===film0){ setLocations(ls=>ls.map(x=>x.id===l.id?{...x, ...keepPickedStyle(x, fields)}:x)); }   // (records its own Lookbook)
+    }catch(e){ if(typeof window.appToast==="function") window.appToast("Couldn't draft \u201c"+(l.name||"this location")+"\u201d ("+((e&&e.message)||"error")+"). Nothing was overwritten.","error"); }
     setDraftingLocIds(ids=> ids.filter(x=>x!==l.id));
   };
   // "Draft all locations" — the full locations pipeline in one click:
@@ -4583,6 +4642,8 @@ function App(){
   // (mode "redraft") asks first, then redoes everything. A failure is said out loud.
   const draftAllLocations = async (mode)=>{
     if(draftingAllLocs || !(typeof aiDesignLocationBible==="function")) return;
+    if(!canMutateSharedFilm()) return;
+    const film0 = projIdRef.current;
     const redraft = mode==="redraft";
     if(redraft){
       const n = (locations||[]).length;
@@ -4597,7 +4658,7 @@ function App(){
       // 1) pull missing + refresh scene lists on existing
       let working = locations;
       if(typeof deriveLocations==="function"){
-        const derived = deriveLocations(scenes, locations, drafts);   // places not yet present (incl. mid-scene slugs)
+        const derived = deriveLocations(scenes, [...(locations||[]), ...((trash&&trash.locations)||[])], drafts);   // places not yet present — never one in Recently deleted
         const fresh = deriveLocations(scenes, [], drafts);            // all, to refresh scene chips
         working = locations.map(l=>{ const m=fresh.find(f=>f.key===l.key);
           return m?withEpisodeLocationMeta(l,{...m,
@@ -4613,6 +4674,7 @@ function App(){
       const specTargets = redraft ? working : working.filter(l=>!isDrafted(l));
       const map = specTargets.length ? await aiDesignLocationBible(specTargets, scenes, lbProject("locations")) : {};
       if(specTargets.length && !map) throw new Error("no specs came back");
+      if(projIdRef.current!==film0) throw new Error("you switched films, so nothing was written");
       const merged = working.map(l=> (map && map[l.id]) ? {...l, ...keepPickedStyle(l, map[l.id])} : l);
       if(map) setLocations(ls=>ls.map(l=> map[l.id] ? {...l, ...keepPickedStyle(l, map[l.id])} : l));
       // 3) depth-grid staging — only for places the film revisits (2+ scenes), where
@@ -4626,7 +4688,7 @@ function App(){
           catch(e){ return { id:l.id, staging:null }; }
         }));
         const sMap = {}; stages.forEach(x=>{ if(x.staging) sMap[x.id]=x.staging; });
-        if(Object.keys(sMap).length) setLocations(ls=>ls.map(l=> sMap[l.id] ? {...l, staging:sMap[l.id]} : l));
+        if(Object.keys(sMap).length && projIdRef.current===film0) setLocations(ls=>ls.map(l=> sMap[l.id] ? {...l, staging:sMap[l.id]} : l));
       }
       // (each drafted card records its own Lookbook — 2026-10-06)
     }catch(e){
@@ -4638,10 +4700,19 @@ function App(){
   const [draftingStageId, setDraftingStageId] = React.useState(null);
   const draftLocationStaging = async (l)=>{
     if(draftingStageId || !(typeof aiDraftStaging==="function")) return;
+    if(!canMutateSharedFilm()) return;
+    // a view composition already written: ask first — it replaces the camera views, edits included (2026-10-08)
+    if(typeof stagingHasContent==="function" && stagingHasContent(l) && typeof window.appConfirm==="function"){
+      const ok = await window.appConfirm({ title:"Draft the view composition again?",
+        body:"\u201c"+(l.name||"This location")+"\u201d\u2019s camera views are written again from the screenplay, replacing the current ones \u2014 your edits included. This uses writing credits.",
+        confirmLabel:"Draft again", cancelLabel:"Cancel" });
+      if(!ok) return;
+    }
     setDraftingStageId(l.id);
+    const film0 = projIdRef.current;
     try{
       const staging = await aiDraftStaging(l, scenes, project);
-      if(staging) setLocations(ls=>ls.map(x=>x.id===l.id?{...x, staging}:x));
+      if(staging && projIdRef.current===film0) setLocations(ls=>ls.map(x=>x.id===l.id?{...x, staging}:x));
     }catch(e){}
     setDraftingStageId(null);
   };
@@ -4765,7 +4836,7 @@ function App(){
       return !!now && now.key===t.key;
     });
     if(!finalTrash.length) return;
-    setTrash(t=>({ ...t, locations:[ ...finalTrash.map(_trashStamp), ...(t.locations||[]) ] }));
+    setTrash(t=>({ ...t, locations:[ ...finalTrash.map(x=>({ ..._trashStamp(x), _trashReason:"fold" })), ...(t.locations||[]) ] }));
     setLocations(cur=>cur.filter(x=> x && !finalTrash.some(y=>y.id===x.id)));
     try{ if(window.appToast){
       const moved = finalTrash.filter(t=>movedIds[t.id]).map(t=>t.name);
@@ -4780,7 +4851,8 @@ function App(){
   // implied sub-locations/sides described inside the scene body
   const pullLocationsFromScript = React.useCallback(()=>{
     if(typeof deriveLocations!=="function") return;
-    const derived = deriveLocations(scenes, locations, drafts);
+    if(artRoomReadOnlyRef.current) return;   // (also run by the auto-seed below — silent)
+    const derived = deriveLocations(scenes, [...(locations||[]), ...((trash&&trash.locations)||[])], drafts);   // never one in Recently deleted
     setLocsSeeded(true);
     if(derived.length) setLocations(ls=>[...ls, ...derived.map(l=>withEpisodeLocationMeta(l,l))]);
     // also refresh the scene lists on existing locations as the script grows
@@ -4790,11 +4862,12 @@ function App(){
         times:[...new Set([...(l.times||[]),...(m.times||[])])],
         areas:[...new Set([...(l.areas||[]),...(m.areas||[])])]}) : l; }));
     }
-  },[scenes, locations, drafts, currentShowId, currentProjectId]);
+  },[scenes, locations, drafts, trash, currentShowId, currentProjectId]);
   // auto-seed once per story: first time the Locations tab opens empty, derive them — never behind
   // a LOCKED Locations tab (same reason as the Props seed above)
   React.useEffect(()=>{
     if(locsSeeded || hydratingRef.current) return;
+    if(artRoomReadOnlyRef.current) return;
     if(room!=="art" || artView!=="locations") return;
     if(artTabLocked("locations")) return;
     if(locations.length){ setLocsSeeded(true); return; }
@@ -4806,23 +4879,30 @@ function App(){
   // Existing specs, plates, staging and histories remain on their original records.
   React.useEffect(()=>{
     if(hydratingRef.current || !scenes.length || !locations.length) return;
+    if(artRoomReadOnlyRef.current) return;   // a role that can't change the Art Room never rewrites it
     if(typeof deriveLocations!=="function") return;
     const fresh=deriveLocations(scenes,[],drafts);
     if(!fresh.length) return;
     const freshByKey={}; fresh.forEach(x=>{ if(x&&x.key) freshByKey[x.key]=x; });
     const currentKeys=new Set((locations||[]).map(x=>x&&x.key).filter(Boolean));
-    const restore=(trash.locations||[]).filter(x=>x&&freshByKey[x.key]&&!currentKeys.has(x.key));
+    // ONLY A CARD THE FOLD PUT AWAY comes back on its own (2026-10-08, owner — Locations review): this used
+    // to restore EVERY binned card whose heading was still in the script, so deleting one undid itself on
+    // the next render. A card the user deleted stays in Recently deleted, and isn't derived again either.
+    const restore=(trash.locations||[]).filter(x=>x&&x._trashReason==="fold"&&freshByKey[x.key]&&!currentKeys.has(x.key));
     const restoreKeys=new Set(restore.map(x=>x.key));
-    const missing=fresh.filter(x=>!currentKeys.has(x.key)&&!restoreKeys.has(x.key));
+    const binnedKeys=new Set((trash.locations||[]).map(x=>x&&x.key).filter(Boolean));
+    const missing=fresh.filter(x=>!currentKeys.has(x.key)&&!restoreKeys.has(x.key)&&!binnedKeys.has(x.key));
     let changed=!!(restore.length||missing.length);
     const next=(locations||[]).map(l=>{
       const f=l&&freshByKey[l.key]; if(!f) return l;
-      const synced=withEpisodeLocationMeta(l,f);
+      let synced=withEpisodeLocationMeta(l,f);
+      // a Screenplay sides pick you made stands (2026-10-08 — the sync used to put the derived side back)
+      if(l.intExtLocked) synced={...synced,intExt:l.intExt};
       const fields=["scope","parentKey","continuityRootKey","scenes","episodeScenes","times","areas","intExt","episodeLocationMeta"];
       const same=fields.every(k=>JSON.stringify(l[k])===JSON.stringify(synced[k]));
       if(same) return l; changed=true; return synced;
     });
-    restore.forEach(item=>{ const {_deletedAt,...clean}=item, f=freshByKey[item.key];
+    restore.forEach(item=>{ const {_deletedAt,_trashReason,...clean}=item, f=freshByKey[item.key];
       // restored authored/generated fields win over the empty derived shell
       const restored={...clean,...f,...clean};
       next.push(withEpisodeLocationMeta(restored,f)); });
@@ -6763,14 +6843,17 @@ function App(){
       // pull master places from screenplay headings (new cards), and refresh scene lists / times on existing
       pull: ()=>{
         if(typeof deriveLocations!=="function") return 0;
-        const derived = deriveLocations(scenes, _locWork, drafts);          // new only
+        const derived = deriveLocations(scenes, [..._locWork, ...(((trashRef.current||trash)&&(trashRef.current||trash).locations)||[])], drafts);   // new only — never one in Recently deleted
         const fresh = deriveLocations(scenes, [], drafts);                  // all, to refresh scene lists/times/areas
-        let next = _locWork.map(l=>{ const m=fresh.find(f=>f.key===l.key);
-          return m ? withEpisodeLocationMeta(l,{...m,
-            times:[...new Set([...(l.times||[]),...(m.times||[])])],
-            areas:[...new Set([...(l.areas||[]),...(m.areas||[])])]}) : l; });
-        if(derived.length) next = [...next, ...derived.map(l=>withEpisodeLocationMeta(l,l))];
-        _locWork = next; _w.setLocations(next); _w.setLocsSeeded(true);
+        // a PATCH, not a snapshot (2026-10-08): edits made while the run works are kept
+        const patch = (ls)=>{ let next = ls.map(l=>{ const m=fresh.find(f=>f.key===l.key);
+            return m ? withEpisodeLocationMeta(l,{...m,
+              times:[...new Set([...(l.times||[]),...(m.times||[])])],
+              areas:[...new Set([...(l.areas||[]),...(m.areas||[])])]}) : l; });
+          const have = new Set(next.map(l=>l && l.id));
+          derived.forEach(l=>{ if(!have.has(l.id)) next.push(withEpisodeLocationMeta(l,l)); });
+          return next; };
+        _locWork = patch(_locWork); _w.setLocations(patch); _w.setLocsSeeded(true);
         return derived.length;
       },
       coverage: ()=> (typeof locationCoverage==="function") ? locationCoverage(scenes, _locWork) : [],
@@ -6779,7 +6862,7 @@ function App(){
         const todo = _locWork.filter(l=>force || !_locDrafted(l));
         if(!todo.length) return 0;
         const map = await aiDesignLocationBible(todo, scenes, lbProject("locations"));
-        if(!map) return 0;
+        if(!map) throw new Error("no specs came back");   // said out loud — it used to read "Specs already complete"
         const patch = (ls)=> ls.map(l=> map[l.id] ? {...l, ...keepPickedStyle(l, map[l.id])} : l);
         _locWork = patch(_locWork); _w.setLocations(patch);
         return Object.keys(map).length;
@@ -6803,27 +6886,48 @@ function App(){
       addVariants: ()=>{
         let added=0;
         const stamp = Date.now().toString(36);
-        const patch = (ls)=> ls.map(l=>{
+        // decide the additions once, from the run's copy; apply them to the LIVE list as a patch (2026-10-08 —
+        // it used to write the run's whole copy back, over edits made while specs were drafting)
+        const addsById = {};
+        _locWork.forEach(l=>{
           const times = (typeof deriveLocationTimes==="function") ? deriveLocationTimes(l, scenes) : (l.times||[]);
-          if(times.length<2) return l;
+          if(times.length<2) return;
           const have = new Set((l.variants||[]).map(v=>v.time));
           const need = times.slice(1).filter(t=>!have.has(t));
-          if(!need.length) return l;
-          const adds = need.map((t,i)=>({ id:"v"+stamp+"-"+(added+i)+"-"+t.toLowerCase().replace(/[^a-z0-9]/g,""), time:t }));
-          added += adds.length;
-          return {...l, variants:[...(l.variants||[]), ...adds]};
+          if(!need.length) return;
+          addsById[l.id] = need.map((t,i)=>({ id:"v"+stamp+"-"+(added+i)+"-"+t.toLowerCase().replace(/[^a-z0-9]/g,""), time:t }));
+          added += addsById[l.id].length;
         });
-        const next = patch(_locWork); _locWork = next; if(added) _w.setLocations(next);
+        const patch = (ls)=> ls.map(l=>{ const adds = l && addsById[l.id]; if(!adds) return l;
+          const have = new Set((l.variants||[]).map(v=>v.time));
+          const fresh = adds.filter(v=>!have.has(v.time));
+          return fresh.length ? {...l, variants:[...(l.variants||[]), ...fresh]} : l; });
+        _locWork = patch(_locWork); if(added) _w.setLocations(patch);
         return added;
       },
+      // THE TAB'S RULES (2026-10-08, owner — Locations review): a plate waits while its shared layout isn't
+      // reviewed, and a room's plate needs its parent's plate (one that exists, or one this run makes)
       toGeneratePlates: async (force)=>{
-        const out=[];
-        for(const l of _locWork){ if(!_locDrafted(l)) continue; if(!force && await _grabImg(l.id)) continue; out.push(l); }
+        const live = (window.turnContinuity && window.turnContinuity.locations) || _locWork;
+        const ready = (l)=>{ try{ if(typeof requireLocationSpatialPlan==="function") requireLocationSpatialPlan(l); return true; }catch(e){ return false; } };
+        const cand=[];
+        for(const l of _locWork){ if(!_locDrafted(l) || !ready(l)) continue; if(!force && await _grabImg(l.id)) continue; cand.push(l); }
+        const ordered = (typeof locationGenerationOrder==="function") ? locationGenerationOrder(cand) : cand;
+        const out=[], made=new Set();
+        for(const l of ordered){
+          const par = (typeof locationParentOf==="function") ? locationParentOf(l, live) : null;
+          if(par && !made.has(par.id) && !(await _grabImg(par.id))) continue;
+          out.push(l); made.add(l.id);
+        }
         return out;
       },
-      toGenerateVariants: async (force)=>{
+      waitingPlates: ()=> _locWork.filter(l=>{ if(!_locDrafted(l)) return false;
+        try{ if(typeof requireLocationSpatialPlan==="function") requireLocationSpatialPlan(l); return false; }catch(e){ return true; } }).length,
+      toGenerateVariants: async (force, plates)=>{
         const out=[];
+        const willHave = new Set((plates||[]).map(l=>l && l.id));
         for(const l of _locWork){ if(!_locDrafted(l)) continue;
+          if(!willHave.has(l.id) && !(await _grabImg(l.id))) continue;   // a state needs its location's plate
           /* Screenplay Sluglines and Appearance States are projections of one
              place/side/time record. Include screenplay-derived rows here too,
              so the Location Scout generates the shared state asset itself

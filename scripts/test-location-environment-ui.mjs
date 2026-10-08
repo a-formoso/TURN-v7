@@ -8,7 +8,7 @@ import vm from "node:vm";
 const noop=()=>{};
 const React={
   createElement:(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity)}),
-  useState:init=>[init,noop],useEffect:noop,
+  useState:init=>[init,noop],useEffect:noop,useRef:v=>({current:v}),
 };
 let generator;
 const box={console,React,setTimeout,clearTimeout,

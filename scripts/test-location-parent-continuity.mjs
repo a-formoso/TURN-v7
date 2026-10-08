@@ -139,7 +139,7 @@ const config=nodes.find(n=>n.type==="CallExpression"&&n.callee.name==="useImageG
 images={house:"current-parent",kitchen:"room"};box.nbLoadImage=async id=>images[id]||"";
 reviewLayout();
 box.l={...child,parentLocation:parent};
-Object.assign(box,{stagingDraftRef:{current:null},finalPrompt:"SPEC",masterParentSnapshot:{current:{}},
+Object.assign(box,{stagingDraftRef:{current:null},finalPrompt:"SPEC",masterParentSnapshot:{current:{}},masterPlanSig:{current:""},
   masterRefOff:["house","page"],buildMasterRefs:()=>[
     box.locationParentReference(child,"old-preview"),{url:"script-page",kind:"script",refId:"page"}
   ]});

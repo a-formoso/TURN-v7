@@ -6540,7 +6540,15 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false }
     if(!refs.length||typeof window.stageReferenceStatus!=="function") return false;
     // (2026-10-06, owner — Characters review) missing, excluded or CHANGED only: a sheet's manual approval
     // isn't a Stage requirement, and nothing can approve one any more, so every take used to say this
-    return refs.some(r=>{ const s=window.stageReferenceStatus({imageId:r.assetId,snapshot:r.snapshot});
+    return refs.some(r=>{
+      const id=r&&r.assetId; if(!id) return false;
+      const meta=(typeof nbGetMeta==="function")?nbGetMeta(id):null, img=(typeof nbGetImage==="function")?nbGetImage(id):"";
+      // (2026-10-08, owner — Locations review) not loaded on this device yet: unknown, never a warning
+      if(!meta && !img) return false;
+      // missing when the take was made (no version recorded) and made since: the take never had it
+      const snap=r.snapshot||{};
+      if(!snap.iso && snap.version==null && meta && meta.iso) return true;
+      const s=window.stageReferenceStatus({imageId:id,snapshot:r.snapshot});
       return s.missing||s.excluded||s.stale; });
   };
   const versionEditorialStatus = (t)=> typeof shotSourcesEditorialStatus==="function"

@@ -54,7 +54,7 @@ const ui=readFileSync("app/locations-ui.jsx","utf8");
 ok("all three derived generator kinds store lineage",
   ui.includes('locationAssetDependencySnapshot(l.id,previousIds,"screenplay-coverage")')&&
   ui.includes('stateUnit?"slugline-unit":"continuity-state"')&&
-  ui.includes('locationAssetDependencySnapshot(l.id,[],"slugline-unit")'));
+  ui.includes('locationAssetDependencySnapshot(l.id,locationRootIds(l),"slugline-unit")'));   // + the continuity root (2026-10-08)
 ok("derived image cards omit stale warning strips",
   !ui.includes("LocationDerivedStaleBanner")&&!ui.includes("loc-derived-stale"));
 const app=readFileSync("app/app.jsx","utf8");
@@ -66,7 +66,7 @@ ok("missing child workspaces derive without moving assets",
   app.includes("const missing=fresh.filter")
   &&app.includes("missing.forEach(item=>next.push(withEpisodeLocationMeta(item,item)))"));
 ok("hierarchy sync preserves authored fields while refreshing relationship metadata",
-  app.includes("const synced=withEpisodeLocationMeta(l,f)")
+  app.includes("let synced=withEpisodeLocationMeta(l,f)")
   &&app.includes("const restored={...clean,...f,...clean}")
   &&app.includes("next.push(withEpisodeLocationMeta(restored,f))"));
 console.log(`${pass} passed, ${fail} failed`);

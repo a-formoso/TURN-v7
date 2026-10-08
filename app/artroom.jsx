@@ -2225,6 +2225,7 @@ function useImageGen(opts){
       setGenMeta(r.meta); return r;
     },
     editMode, setEditMode, editText, setEditText, generate, cancelGen, clearGen, importSheet, relatedClearCount,
+    relatedClearIdsOf:(typeof opts.relatedClearIds==="function") ? opts.relatedClearIds : null, relatedClearLabel:opts.relatedClearLabel||"",
     loadDetails, revertTo, revertPrevious, deleteCurrentAndPromote, deleteVersion, layers, allModels,
     // the card's CURRENT spec prompt — lets QA judge uploaded/imported images
     // (which carry no generation prompt) against the written spec instead
@@ -2322,8 +2323,10 @@ function useBatchGen(){
     if(!mine()) return;
     setPreparing(false);
     if(!existing.length && !(opts && opts.alwaysAsk)){ setMsg(""); run(missing, 0); return; }
-    if(!missing.length){ setMsg(""); setPrompt({ missing:[], existing:ids }); return; }
-    setMsg(""); setPrompt({ missing, existing });
+    // opts.note: what else the run spends (e.g. Locations' writing calls) — shown on the choice bar
+    const note = (opts && typeof opts.note==="function") ? opts.note(missing, existing) : ((opts && opts.note) || "");
+    if(!missing.length){ setMsg(""); setPrompt({ missing:[], existing:ids, note }); return; }
+    setMsg(""); setPrompt({ missing, existing, note });
   };
   const cancel = ()=>{
     tokenRef.current++;                  // abandon any in-flight partition scan
@@ -2410,7 +2413,8 @@ function BatchBar({ batch, noun }){
           ? ("Generate "+prompt.missing.length+" "+N+" sheet"+(prompt.missing.length!==1?"s":"")+"? Each one spends image credits.")
           : prompt.missing.length>0
           ? (prompt.existing.length+" of these "+N+"s already have a sheet. What would you like to do?")
-          : ("All "+prompt.existing.length+" "+N+"s already have a sheet. Regenerate them?")),
+          : ("All "+prompt.existing.length+" "+N+"s already have a sheet. Regenerate them?"),
+        prompt.note ? " "+prompt.note : ""),
       prompt.missing.length>0 && React.createElement("button",{className:"art-draftall",
         onClick:()=>run(prompt.missing, prompt.existing.length),
         title:"Generate only the "+N+"s that don't have a sheet yet"},
@@ -3454,7 +3458,7 @@ function PropSheetReferenceModal({ prop, onClose }){
 /* (the sheet-review helpers and their context were never used — removed 2026-10-06) */
 function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, drafting, onDraft, entity, onView, slotPlaceholder, noun, onDelete, deleteLabel, specGate, extraMeta, menuExtra, dropToImport, hideUploadButton, onStop, generateDisabled, generateDisabledLabel, generateDisabledTitle, generateTitle, onResolveGenerationBlock, referenceControls, editPropRefs, editSuggestions }){
   const { genUrl, genMeta, genTier, gening, genErr, retrying, slotHasRef,
-    editMode, setEditMode, editText, setEditText, generate, cancelGen, clearGen, importSheet, relatedClearCount, revertPrevious, layers, allModels } = gen;
+    editMode, setEditMode, editText, setEditText, generate, cancelGen, clearGen, importSheet, relatedClearCount, relatedClearIdsOf, relatedClearLabel, revertPrevious, layers, allModels } = gen;
   // Resolution ALWAYS shows on the caption. Prefer the stored size; if it's missing
   // (legacy meta, or any path that didn't record it) measure the actual image's pixels
   // so a real resolution still appears — for generations AND uploads alike.
@@ -3641,12 +3645,19 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
           genUrl && React.createElement("div",{className:"sheet-tools-divider"}),
           genUrl && React.createElement("button",{className:"sheet-tools-item danger",onClick:async ()=>{
               setMenuOpen(false);
-              const vN = relatedClearCount||0;
-              const extra = vN>0 ? (", plus "+vN+" variant sheet"+(vN>1?"s":"")+",") : "";
+              // count only the related images that EXIST (2026-10-08 — it counted ids, so "plus 3 variant
+              // sheets" showed when there were none), and name them by kind
+              let vN = 0;
+              try{ const ids = relatedClearIdsOf ? (relatedClearIdsOf()||[]) : [];
+                for(const rid of ids){ let u = (typeof nbGetImage==="function") ? nbGetImage(rid) : "";
+                  if(!u && typeof nbLoadImage==="function"){ try{ u = await nbLoadImage(rid); }catch(e){} }
+                  if(u) vN++; } }catch(e){ vN = relatedClearCount||0; }
+              const kind = relatedClearLabel || "variant sheet";
+              const extra = vN>0 ? (", plus "+vN+" "+kind+(vN>1?"s":"")+",") : "";
               const opts = {
                 title: "Clear "+(name||"this")+"’s "+(noun||"sheet")+"?",
                 body: "This permanently deletes the generated image and ALL earlier versions"+extra+" from cloud storage. The "+(noun||"sheet")+" can be regenerated — the written spec is kept.",
-                note: vN>0 ? "Your cameo and linked props are kept. This can’t be undone."
+                note: (vN>0 && !relatedClearLabel) ? "Your cameo and linked props are kept. This can’t be undone."
                            : "This can’t be undone.",
                 confirmLabel: "Clear", cancelLabel: "Cancel", danger: true,
               };
@@ -3782,7 +3793,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
       title:generateDisabled
         ? (generateDisabledTitle||"Wait for the current generation to finish first.")
         : (!drafted && !genUrl && !slotHasRef)
-        ? "Fills the text spec from the script first, then generates the sheet in one step"
+        ? "Fills the text spec from the script first (writing credits), then generates the sheet in one step (image credits)"
         : (generateTitle || (genUrl ? "Generate a fresh sheet from the current spec" : "Generate the sheet from the current spec"))},
       generateDisabled && !gening
         ? React.createElement(React.Fragment,null,React.createElement(onResolveGenerationBlock?Icon.chevR:Icon.clock,{s:14}),

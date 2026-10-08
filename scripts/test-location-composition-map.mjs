@@ -62,7 +62,7 @@ zones(tree).find(n=>n.props["aria-label"].startsWith("Middle centre:")).props.on
 assert.equal(editor(tree).props.value,"");
 assert.ok(zones(tree).find(n=>n.props["aria-pressed"]).props["aria-label"].endsWith("Open space"));
 editor(tree).props.onCommit("");assert.equal(saved.mid.center,"");
-const draftButton=flatten(tree).find(n=>n.type==="button"&&text(n)==="Draft layout");
+const draftButton=flatten(tree).find(n=>n.type==="button"&&text(n)==="Draft view composition");
 draftButton.props.onClick();assert.equal(drafted,1);
 assert.equal(flatten(box.StagingGrid({...props,draftingStage:true})).find(n=>n.type==="button"&&text(n)==="Drafting…").props.disabled,true);
 assert.equal(text(byClass(box.StagingGrid({...props,target:"North wall",cameraPosition:"Doorway"}),"stage-map-direction")),"Looking toward: North wall");

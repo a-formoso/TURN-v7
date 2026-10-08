@@ -245,7 +245,7 @@ ok("location folds provide concise definitions without expanding the headings",
   ui.includes('label:"About Narrative Significance"')&&ui.includes("means dramatically")&&
   ui.includes("Rooms & times (the screenplay's sluglines) identify the rooms, times and scenes")&&ui.includes("Lighting & environment"));
 ok("script evidence and reusable staging have separate roles",
-  ui.includes("Spatial Layout & Staging holds reusable camera views")&&
+  ui.includes("reusable camera views with their view compositions")&&
   ui.includes("function LocationScreenplayEvidence")&&
   ui.includes("Shot timing, cuts and performance are directed in Shots / Blender previz."));
 ok("location identity fields expose editable provenance",
