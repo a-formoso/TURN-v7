@@ -3155,6 +3155,20 @@ APP_FEATURES.forEach(f=>{
     +"IDENTITY CHANGED \u2014 a take that finished after a character's identity changed stays out of the film until you check it in Takes: 'Check and use this take' (on the current take), Choose for timeline or Approve asks 'Have you checked this take?' and then puts it back. "
     +"View-only collaborators can watch the takes and the Timeline, Play film, export the film and download takes. The Shoot prompt recipe once called 'Timeline' is now 'Time-coded'.";
 }
+/* MIX REVIEW, THIRD PASS (owner 2026-10-09): the Picture lane is a level, not ducking, and lines go where the
+   render was TOLD to put them — the older sentence said "duckable" and "exactly where the render put each line". */
+APP_FEATURES.forEach(f=>{
+  if(!f || !f.what) return;
+  f.what = String(f.what)
+    .replace("Picture (the clip's native/scratch track, duckable)", "Picture (the take's own sound, on its own level)")
+    .replace("auto-placed exactly where the render put each line", "auto-placed where the render was told to put each line");
+});
+{ const st = APP_FEATURES.find(x=>x && x.name==="The Stage (Production)");
+  if(st) st.what += " MIX REVIEW, THIRD PASS (owner 2026-10-09): THE LINES FOLLOW THE PICTURE \u2014 in the Mix each voiced line is placed from the video's own time, so a take that buffers, a pause or a seek keeps them in step; pausing the video pauses the lines and beds, a hidden tab pauses the mix, and a take that can't play is named and skipped. A clip's lines stop at the end of its clip, in the Mix and in the export alike. Moving a level or muting reaches lines that haven't started yet. "
+    +"WHERE A LINE GOES \u2014 each new take records where its lines were placed and which recording each was; a line re-voiced since (new audio over lips timed to the old) is left out of the Mix and the export and says why, and a take the model voiced itself (native performance) gets no lines laid over it. The clip's length, the Time-coded prompt and the Mix use one estimate for action shots, so the prompt never describes more seconds than the clip has. A line that runs past its take's end is marked and stops there. "
+    +"WHAT YOU SEE \u2014 the Mix shows the rail's clip (or the scene's first rendered one), its Picture-lane clips can be clicked, picking a scene moves the rail too, and out-of-date, identity-changed and loading clips are named as such; a scene with no dialogue says so; a re-locked voice is noted. "
+    +"BEDS \u2014 a bed is kept as the file itself on this device (less memory), only the open scene's beds are read, and the export reads beds a scene at a time. A file this browser can't play is refused up front; a full device storage is always said; a save or removal finishing after a film switch stays with the film you were in. Levels, mutes and beds are on this device only \u2014 collaborators don't hear them, and each person's export uses their own. A Picture level you set (or a mute) counts as part of the Mix for the export even with no lines or beds; otherwise the export says each take's sound is recorded as rendered.";
+}
 /* the public view of every entry, memoised on the manifest's size (APP_FEATURES is only
    extended at load time, but a late push or `.what +=` still invalidates it) */
 let _museFactsMemo = null;

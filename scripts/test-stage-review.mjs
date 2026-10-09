@@ -97,7 +97,7 @@ await test("D2 clip codes carry their beats", ()=>{
 /* ═══ E ═══ */
 const mixSrc = between(st, "const STAGE_MIX_DEFAULTS = ", "window.stageMixSettings = stageMixSettings;");
 const mkBox = (extra)=>{ const b = { console, Object, Array, String, Number, Math, JSON, Set, Promise, Error, ...(extra||{}) }; b.window = b; vm.createContext(b);
-  vm.runInContext("const CLIP_AIR = { lead:0.6, gap:0.8, tail:0.6 };\n"+fn(st, "clipLinePlacements")+fn(st, "stageClipBeatName")+mixSrc, b);
+  vm.runInContext("const CLIP_AIR = { lead:0.6, gap:0.8, tail:0.6 };\n"+fn(st, "stageActionSec")+fn(st, "clipLinePlacements")+fn(st, "stageTakeLinePlacements")+fn(st, "stageClipBeatName")+mixSrc, b);
   b._shotAudioState = (sh, auds)=>({ ready:!!(auds && auds[sh.id]) }); b.stageShotRuntime = ()=>2; b._seedanceVoiceSec = ()=>2;
   return b; };
 const clipA = { id:"A", label:"01A", scene:{ id:"s1" }, g:{ shots:[{ beatN:1 }] }, data:{ shots:[{ id:"a1", dialogue:"Hello.", lineAudio:{ durationMs:1500 } }] } };
@@ -131,10 +131,10 @@ await test("E3 the Mix settings are read from the same per-film key the Mix tab 
   const ls = new Map([["turn_stage_mix_film-1", JSON.stringify({ gain:{ native:0.2, dialogue:1, amb:0.5, music:0.1 }, mute:{ amb:true } })]]);
   const b = mkBox({ localStorage:{ getItem:(k)=>ls.has(k) ? ls.get(k) : null } });
   b.nbCloudScope = ()=>({ projectId:"film-1" });
-  assert.deepEqual(J(b.stageMixSettings()), { gain:{ native:0.2, dialogue:1, amb:0.5, music:0.1 }, mute:{ amb:true } });
+  assert.deepEqual(J(b.stageMixSettings()), { gain:{ native:0.2, dialogue:1, amb:0.5, music:0.1 }, mute:{ amb:true }, set:{} });
   assert.deepEqual(J(b.stageMixSettings("other")).gain, { native:0.35, dialogue:1, amb:0.7, music:0.5 });
   const au = between(st, "function StageAudioView({", "\n}\n");
-  assert.ok(au.includes("const mixKey = stageMixKey();") && au.includes("localStorage.setItem(mixKey, JSON.stringify({ gain, mute }))"));
+  assert.ok(au.includes("const mixKey = stageMixKey();") && au.includes("localStorage.setItem(mixKey, JSON.stringify({ gain, mute, set:gainSet }))"));
 });
 
 /* the real recorder, in a fake browser */
@@ -223,9 +223,11 @@ await test("F2 the Mix tab loads each scene's saved beds, saves imports (50 MB c
   b.vgLoadMixBed = async (sid, k)=> saved[sid+":"+k] || null;
   assert.deepEqual(J(await b.stageLoadMixBeds([clipA, clipB, clipC])), { s1:{ amb:{ url:"u1", name:"rain.mp3" } }, s2:{ music:{ url:"u2", name:"Music" } } });
   const au = between(st, "function StageAudioView({", "\n}\n");
-  assert.ok(au.includes("stageLoadMixBeds(allClips).then(b=>{ if(on) setBeds(b); })"));
-  assert.ok(au.includes("await window.vgSaveMixBed(sid, k, url, f.name)") && au.includes("window.VG_MIX_BED_MAX_BYTES"));
-  assert.ok(au.includes("window.vgClearMixBed(sid, k)") && au.includes('"Remove"'));
+  // (2026-10-09, Mix third pass) only the open scene's beds, merged in; the file itself is saved, for the
+  // film the user acted in (scripts/test-mix-third-pass.mjs)
+  assert.ok(au.includes("stageLoadMixBeds(sceneClips, [sceneId]).then(b=>{ if(on) setBeds(x=>({ ...x, [sceneId]:{ ...(b[sceneId]||{}), ...(x[sceneId]||{}) } })); })"));
+  assert.ok(au.includes("await window.vgSaveMixBed(sid, k, f, f.name, film)") && au.includes("window.VG_MIX_BED_MAX_BYTES"));
+  assert.ok(au.includes("await window.vgClearMixBed(sid, k, film)") && au.includes('"Remove"'));
   assert.ok(!/imported beds live for this session only/i.test(au), "the old 'session only' line is gone");
 });
 

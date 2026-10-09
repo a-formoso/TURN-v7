@@ -196,7 +196,7 @@ await test("C5 a take records only what was sent (a transition: its two frames),
   assert.ok(stage.includes("const resolvedSourceVersions=packageSourceVersions.filter(r=>sentSet.has(r.assetId));"));
   assert.ok(stage.includes("? [frameAsset && frameAsset.id, endFrameId]"));
   assert.ok(stage.includes("omittedReferenceSourceVersions:referenceFree?packageSourceVersions:[],"));
-  assert.ok(stage.includes("takeMeta:{ lookSig:takeLookSig, frameVersions, source:"));
+  assert.ok(stage.includes("takeMeta:{ lookSig:takeLookSig, frameVersions,"));
   // the prop stamp: a sheet attached → stamped by its sheet, read back from the stamp itself
   const b = { console, Object, Array, String, JSON, Set, window:{} }; b.window = b; vm.createContext(b);
   const props = read("app/props.jsx");
@@ -268,7 +268,7 @@ await test("E3 accessibility: the viewer is a dialog (Escape, focus), players an
   assert.ok(stage.includes('role:"dialog","aria-modal":"true","aria-label":maxImg.label||"Video"') && stage.includes('if(e.key==="Escape"){ e.stopPropagation(); setMaxImg(null); }'));
   assert.ok(stage.includes('"aria-label":"Back to Shoot"') && stage.includes('"aria-label":"Previous clip"') && stage.includes('"aria-label":"Notes for this take"'));
   assert.ok(stage.includes('"aria-label":"Take of "+(clip.label||"this clip")') && stage.includes('"aria-label":"Mix preview"'));
-  assert.ok(!stage.includes('_stEl("label",{className:"stage2-au-import"}') && stage.includes('action:{ label:"Undo", onClick:()=>{'));
+  assert.ok(!stage.includes('_stEl("label",{className:"stage2-au-import"}') && (stage.includes('action:{ label:"Undo", onClick:()=>{') || stage.includes('action:{ label:"Undo", onClick:async()=>{')));
   assert.ok(stage.includes('"aria-hidden":"true",tabIndex:-1}),'));
 });
 await test("E4 Frances: the Stage entry tells today's truth (no 'Voice all lines', per-clip source, Takes), plus the third pass", ()=>{
@@ -285,7 +285,7 @@ await test("E4 Frances: the Stage entry tells today's truth (no 'Voice all lines
 await test("E5 cache keys: every changed file loads with the new key (script.jsx shares ai.jsx's)", ()=>{
   // (later passes re-key some of these files again)
   for(const f of ["stage.jsx", "ai.jsx", "script.jsx", "app.jsx", "breakdown.jsx", "videogen.jsx", "stage-plan.jsx", "stage-references.jsx"])
-    assert.ok(["20261009-stage3", "20261009-tl3"].some(k=>html.includes('src="app/'+f+'?v='+k+'"')), f);
+    assert.ok(["20261009-stage3", "20261009-tl3", "20261009-mix3"].some(k=>html.includes('src="app/'+f+'?v='+k+'"')), f);
 });
 
 console.log((failed ? "RESULT: FAIL — " : "RESULT: PASS — ")+checks+" passed, "+failed+" failed");

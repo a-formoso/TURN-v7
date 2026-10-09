@@ -95,7 +95,7 @@ await test("C1 takes are stamped with the look at render (References + Extend)",
   // (2026-10-09, Stage third pass) only the frames the render sends carry their look (earlierLookIn), and
   // Extend folds in its start frame (scripts/test-stage-third-pass.mjs)
   assert.ok(stage.includes('const takeLookSig = (!referenceFree && earlierLookIn(sentImageIds)) || ((promptEditedRef.current && promptLookStamp) ? promptLookStamp : clipLookSig);'));
-  assert.ok(stage.includes('takeMeta:{ lookSig:takeLookSig, frameVersions, source:referenceFree?"text-only":sourceMode,'));
+  assert.ok(stage.includes('takeMeta:{ lookSig:takeLookSig, frameVersions,') && stage.includes('source:referenceFree?"text-only":sourceMode,'));
   assert.ok(stage.includes('? extendVideo.lookSig : (earlierLookIn(freshFrameUrl ? [(d.first||{}).id] : []) || clipLookSig),'));
 });
 await test("C2 an earlier-look take: 'Earlier look' in Takes, a ring + count in the Timeline, a note in Shoot — never left out", ()=>{

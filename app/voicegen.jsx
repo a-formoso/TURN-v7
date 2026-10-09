@@ -79,9 +79,10 @@ function vgIdbOpen(){
   });
   return _vgIdbPromise;
 }
-function vgIdbSet(k,v){ return vgIdbOpen().then(db=>new Promise((res,rej)=>{ const tx=db.transaction(VGIDB_STORE,"readwrite"); tx.objectStore(VGIDB_STORE).put(v,k); tx.oncomplete=()=>res(true); tx.onerror=()=>rej(tx.error); })); }
+// a write the browser aborts (storage full) rejects too — it used to leave the promise hanging (2026-10-09)
+function vgIdbSet(k,v){ return vgIdbOpen().then(db=>new Promise((res,rej)=>{ const tx=db.transaction(VGIDB_STORE,"readwrite"); tx.objectStore(VGIDB_STORE).put(v,k); tx.oncomplete=()=>res(true); tx.onerror=()=>rej(tx.error); tx.onabort=()=>rej(tx.error||new Error("The browser's storage refused the write.")); })); }
 function vgIdbGet(k){ return vgIdbOpen().then(db=>new Promise((res,rej)=>{ const tx=db.transaction(VGIDB_STORE,"readonly"); const r=tx.objectStore(VGIDB_STORE).get(k); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); })); }
-function vgIdbDel(k){ return vgIdbOpen().then(db=>new Promise((res,rej)=>{ const tx=db.transaction(VGIDB_STORE,"readwrite"); tx.objectStore(VGIDB_STORE).delete(k); tx.oncomplete=()=>res(true); tx.onerror=()=>rej(tx.error); })); }
+function vgIdbDel(k){ return vgIdbOpen().then(db=>new Promise((res,rej)=>{ const tx=db.transaction(VGIDB_STORE,"readwrite"); tx.objectStore(VGIDB_STORE).delete(k); tx.oncomplete=()=>res(true); tx.onerror=()=>rej(tx.error); tx.onabort=()=>rej(tx.error||new Error("The browser's storage refused the change.")); })); }
 
 // in-memory mirror for instant SYNC reads (mirrors imagegen's _nbImgMemory)
 const _vgMem = new Map();          // project:id -> { url, meta }
@@ -217,27 +218,39 @@ window.elCommit=elCommit; window.vgClearAudio=vgClearAudio;
    export find it again after a reload. Never sent anywhere. */
 const VG_MIX_BED_MAX_BYTES = 50*1024*1024;
 function vgMixBedId(sceneId, kind){ return "mix-bed:"+String(sceneId||"scene")+":"+(kind==="music"?"music":"amb"); }
-async function vgSaveMixBed(sceneId, kind, dataUrl, name){
-  const scope=vgProjectScope(), id=vgMixBedId(sceneId, kind);
-  const v={ url:String(dataUrl||""), meta:{ kind:"mix-bed", bed:(kind==="music"?"music":"amb"), sceneId:String(sceneId||""), name:String(name||"").slice(0,120), projectId:scope, iso:new Date().toISOString() } };
-  _vgMem.set(vgMemKey(id,scope), v);
-  await vgIdbSet(vgKey(id,scope), v);
-  return v;
+/* (2026-10-09, owner — Mix review) a bed is kept as the FILE itself (a Blob) and played from an object URL —
+   a 50 MB file used to become a ~67 MB text string held in memory; older saved beds (text) still load.
+   projectId: the film the user acted in, captured when they acted — a save or removal that finishes after
+   a film switch used to land in the newly opened film. */
+async function vgSaveMixBed(sceneId, kind, data, name, projectId){
+  const scope=vgProjectScope(projectId), id=vgMixBedId(sceneId, kind);
+  const isBlob = typeof Blob!=="undefined" && data instanceof Blob;
+  const meta={ kind:"mix-bed", bed:(kind==="music"?"music":"amb"), sceneId:String(sceneId||""), name:String(name||"").slice(0,120), projectId:scope, iso:new Date().toISOString(),
+    ...(isBlob ? { type:String(data.type||""), bytes:data.size } : {}) };
+  const stored = isBlob ? { blob:data, meta } : { url:String(data||""), meta };
+  const live = isBlob ? { url:URL.createObjectURL(data), meta } : stored;
+  const prev=_vgMem.get(vgMemKey(id,scope)); _vgRevokeBedUrl(prev);
+  _vgMem.set(vgMemKey(id,scope), live);
+  await vgIdbSet(vgKey(id,scope), stored);
+  return live;
 }
-async function vgLoadMixBed(sceneId, kind){
-  const scope=vgProjectScope(), id=vgMixBedId(sceneId, kind), mem=_vgMem.get(vgMemKey(id,scope));
+function _vgRevokeBedUrl(v){ try{ if(v && v.url && /^blob:/.test(v.url)) URL.revokeObjectURL(v.url); }catch(e){} }
+async function vgLoadMixBed(sceneId, kind, projectId){
+  const scope=vgProjectScope(projectId), id=vgMixBedId(sceneId, kind), mem=_vgMem.get(vgMemKey(id,scope));
   if(mem && mem.url) return mem;
   try{
     const v=await vgIdbGet(vgKey(id,scope));
-    if(!v || !v.url) return null;
+    if(!v || !(v.url || v.blob)) return null;
     if(v.meta && v.meta.projectId && String(v.meta.projectId)!==scope) return null;
-    _vgMem.set(vgMemKey(id,scope), v); return v;
+    const live = v.blob ? { url:URL.createObjectURL(v.blob), meta:v.meta||{} } : v;
+    _vgMem.set(vgMemKey(id,scope), live); return live;
   }catch(e){ return null; }
 }
-async function vgClearMixBed(sceneId, kind){
-  const scope=vgProjectScope(), id=vgMixBedId(sceneId, kind);
+async function vgClearMixBed(sceneId, kind, projectId){
+  const scope=vgProjectScope(projectId), id=vgMixBedId(sceneId, kind);
+  _vgRevokeBedUrl(_vgMem.get(vgMemKey(id,scope)));
   _vgMem.delete(vgMemKey(id,scope));
-  try{ await vgIdbDel(vgKey(id,scope)); }catch(e){}
+  await vgIdbDel(vgKey(id,scope));
 }
 window.VG_MIX_BED_MAX_BYTES=VG_MIX_BED_MAX_BYTES; window.vgMixBedId=vgMixBedId;
 window.vgSaveMixBed=vgSaveMixBed; window.vgLoadMixBed=vgLoadMixBed; window.vgClearMixBed=vgClearMixBed;

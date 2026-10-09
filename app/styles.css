@@ -7307,6 +7307,10 @@ span.ag-runner-model{font-family:var(--f-mono);font-size:10px;letter-spacing:.06
 .stage2-au-block{font-family:var(--f-mono);font-size:9.5px;color:var(--txt-1);background:var(--bg-2);
   border:1px solid var(--line);border-radius:var(--r-s);padding:3px 8px;white-space:nowrap}
 .stage2-au-block.on{border-color:var(--brand);color:var(--txt-0)}
+/* the Picture lane's clips are buttons now (click one to show it — 2026-10-09) */
+button.stage2-au-block{cursor:pointer}
+button.stage2-au-block:disabled{cursor:default}
+.stage2-au-block.line:focus-visible,button.stage2-au-block:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
 .stage2-au-block.line{border-color:var(--accent-line,var(--line-2))}
 .stage2-au-block.bed{border-color:var(--pos-line,var(--pos));color:var(--txt-0)}
 .stage2-au-block.missing{opacity:.5}
