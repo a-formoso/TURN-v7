@@ -228,12 +228,23 @@ function Verdict({ scene }){
         "A value-charged condition reverses \u2014 the scene earns its place.")));
 }
 
-function BeatEditor({ scene, beats, onBeats, focusBeat, draft, characters, project, readOnly }){
+function BeatEditor({ scene, beats, onBeats, focusBeat, draft, characters, project, readOnly:readOnlyIn }){
   const [deriving, setDeriving] = React.useState(false);
+  // a new scene never inherits the last one's "Reading the script…" (2026-10-09)
+  React.useEffect(()=>{ setDeriving(false); }, [scene && scene.id]);
+  // the fields wait while the map is being read from the script — the result would overwrite edits made meanwhile
+  const readOnly = !!readOnlyIn || deriving;
   const hasScript = !!(draft && ((draft.blocks && draft.blocks.length) || (Array.isArray(draft) && draft.length)));
+  /* A FAILED READ IS SAID (2026-10-09, owner — Writers' Room review): the error used to be swallowed —
+     Rebuild did nothing, and Create quietly started a blank map after a paid call */
+  const toast = (m, k, o)=>{ if(typeof window.appToast==="function") window.appToast(m, k, o); };
   const deriveFromScript = async ()=>{
-    if(!(hasScript && typeof window.aiBeatsFromScript==="function" && typeof aiAvailable==="function" && aiAvailable())) return null;
-    try{ return await window.aiBeatsFromScript(scene, draft, characters, project); }catch(e){ return null; }
+    if(!hasScript) return { error:"This scene has no screenplay to read yet." };
+    if(!(typeof window.aiBeatsFromScript==="function" && typeof aiAvailable==="function" && aiAvailable()))
+      return { error:"The writing service isn't available right now \u2014 sign in, or try again in a moment." };
+    try{ const m = await window.aiBeatsFromScript(scene, draft, characters, project);
+      return (m && m.rows && m.rows.length) ? { map:m } : { error:"The script didn't give a usable beat map \u2014 try again." }; }
+    catch(e){ return { error:"Couldn't read the script into beats ("+String((e&&e.message)||"the writing service failed")+") \u2014 try again." }; }
   };
   // THE FILM A BEAT MAP BELONGS TO (2026-09-28): captured before the await, and passed on so a
   // map that comes back after a film switch is dropped (app.jsx setBeatsFor) — scene ids repeat
@@ -243,8 +254,9 @@ function BeatEditor({ scene, beats, onBeats, focusBeat, draft, characters, proje
   const createMap = async ()=>{
     if(readOnly || deriving) return;
     const tok = filmToken();
-    if(hasScript){ setDeriving(true); const m = await deriveFromScript(); setDeriving(false);
-      if(m && m.rows && m.rows.length){ onBeats(scene.id, m, tok); return; } }
+    if(hasScript){ setDeriving(true); const r = await deriveFromScript(); setDeriving(false);
+      if(r.map){ onBeats(scene.id, r.map, tok); return; }
+      toast(r.error+" A blank beat map was started instead.","error"); }
     onBeats(scene.id, { driverLabel:"DRIVER", reactorLabel:"REACTOR", desire:"", obstacle:"", result:"", turnAt:0,
       rows:[{n:1,drive:{a:"Action",d:""},react:{a:"Reaction",d:""}}] }, tok);
   };
@@ -259,8 +271,11 @@ function BeatEditor({ scene, beats, onBeats, focusBeat, draft, characters, proje
         confirmLabel:"Rebuild", cancelLabel:"Cancel", danger:true });
       if(!ok) return;
     }
-    setDeriving(true); const m = await deriveFromScript(); setDeriving(false);
-    if(m && m.rows && m.rows.length) onBeats(scene.id, m, tok);
+    const prior = beats;   // the map it replaces, for Undo
+    setDeriving(true); const r = await deriveFromScript(); setDeriving(false);
+    if(!r.map){ toast(r.error+" Your beats are unchanged.","error"); return; }
+    onBeats(scene.id, r.map, tok);
+    if(prior && !blank) toast("Beat map rebuilt from the script.","ok",{ action:{ label:"Undo", onClick:()=>onBeats(scene.id, prior, tok) } });
   };
   const id = scene.id;
   beats = (typeof withBeatIdentity==="function") ? withBeatIdentity(beats,id) : beats;
@@ -284,7 +299,7 @@ function BeatEditor({ scene, beats, onBeats, focusBeat, draft, characters, proje
       ? "This scene is already written \u2014 build its beat map FROM the script (the action / reaction subtext of each beat)."
       : "Break this scene into beats \u2014 the action / reaction exchanges that carry its subtext."),
     React.createElement("button",{className:"flag-btn primary",style:{marginTop:4},disabled:readOnly||deriving,onClick:createMap,
-      title:readOnly?"View-only access":undefined},
+      title:readOnlyIn?"View-only access":(hasScript ? "Read this scene's screenplay and build its beat map (writing credits)" : undefined)},
       deriving ? "Reading the script\u2026" : (hasScript ? "Create beat map from script" : "Create beat map")));
 
   const commit = (next)=>{ if(!readOnly) onBeats(id,next); };
@@ -327,7 +342,7 @@ function BeatEditor({ scene, beats, onBeats, focusBeat, draft, characters, proje
       "Undo — restore deleted beat "+(lastDeleted.index+1)),
     hasScript && React.createElement("button",{className:"beat-build-btn primary",disabled:readOnly||deriving,
       onClick:()=>rebuildFromScript(blankMap),
-      title:"Read this scene's screenplay and build the beat / subtext map from it"},
+      title:"Read this scene's screenplay and build the beat / subtext map from it (writing credits)"},
       React.createElement(Icon.sparkles,{s:12}),
       deriving ? "Reading the script…" : (blankMap ? "Build from script" : "Rebuild from script")),
     // ("Redraft script from beats" lives in the SCRIPT view's toolbar only —
@@ -555,7 +570,10 @@ function Inspector({ scene, beats, draft, onCharge, onUpdate, characters, scenes
             React.createElement(Icon.chevD,{s:14}),"Down"),
           React.createElement("button",{className:"ia-btn",disabled:readOnly,onClick:()=>onAddScene(scene.id)},
             React.createElement(Icon.plus,{s:14}),"Add after"),
-          React.createElement("button",{className:"ia-btn danger",disabled:readOnly,onClick:()=>onDeleteScene(scene.id)},
+          // a film keeps at least one scene: the only scene's Delete says why instead of doing nothing (2026-10-09)
+          React.createElement("button",{className:"ia-btn danger",disabled:readOnly||sceneCount<=1,
+            title:sceneCount<=1 ? "A film keeps at least one scene \u2014 add another before deleting this one" : "Delete this scene (you can undo it)",
+            onClick:()=>onDeleteScene(scene.id)},
             React.createElement(Icon.x,{s:14}),"Delete"))),
 
       tab==="beats" && React.createElement("div",{style:{paddingTop:2}},

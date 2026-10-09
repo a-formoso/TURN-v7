@@ -29,6 +29,22 @@ function screenplayWriter(project){
   return clean(w.turnUserDisplayName);
 }
 
+/* what a scene's text is (2026-10-09, owner — Writers' Room review): "" (a written screenplay), "undrafted"
+   (only its card's summary) or "standin" (a rough draft built from its beat cards) — exports say so */
+function sceneDraftState(scene, drafts){
+  const d = (drafts||{})[scene.id];
+  if(!(d && d.blocks && d.blocks.length)) return "undrafted";
+  const standIn = (typeof window!=="undefined" && typeof window.isStandInDraft==="function") ? window.isStandInDraft(d)
+    : !!(d.standIn===true || (d.auto===true && !d.ai && !d.by));
+  return standIn ? "standin" : "";
+}
+/* a Fountain action line that would be read as something else (a heading, a cue, a forced element, a
+   transition) is forced to action with "!" */
+function fountainAction(t){
+  const risky = /^(INT|EXT|EST|INT\.?\/EXT|I\/E)[.\s]/i.test(t) || /^[@!#~=>.\[]/.test(t)
+    || (/[A-Z]/.test(t) && !/[a-z]/.test(t)) || /^[A-Z\s]+TO:$/.test(t);
+  return risky ? "!"+t : t;
+}
 /* ---------- FOUNTAIN (plain-text screenplay standard) ---------- */
 function buildFountain(project, scenes, drafts){
   const L = [];
@@ -43,16 +59,22 @@ function buildFountain(project, scenes, drafts){
   L.push(""); L.push("===" ); L.push("");   // title-page break
   scenes.forEach(s=>{
     const blocks = sceneBlocks(s, drafts);
+    const state = sceneDraftState(s, drafts);
     let slugged = false;   // shooting-script numbering: the scene's OPENING slug gets #N#
-    blocks.forEach(b=>{
+    blocks.forEach((b, bi)=>{
       const t = esc(b.text).trim(); if(!t) return;
       if(b.type==="scene"){ L.push("");
         const num = (!slugged && s.no!=null) ? (" #"+s.no+"#") : ""; slugged = true;
-        L.push("."+t.replace(/^\.*/,"").toUpperCase()+num); L.push(""); }
+        L.push("."+t.replace(/^\.*/,"").toUpperCase()+num); L.push("");
+        // a Fountain note says when a scene isn't written yet (a note never prints as screenplay)
+        if(bi===0 && state==="undrafted") { L.push("[[Not drafted yet \u2014 this is the scene card's summary.]]"); L.push(""); }
+        if(bi===0 && state==="standin") { L.push("[[Rough draft built from the beat cards \u2014 not written yet.]]"); L.push(""); } }
       else if(b.type==="char"){ L.push(""); L.push("@"+t.toUpperCase()); }
       else if(b.type==="paren"){ L.push(t.startsWith("(")?t:("("+t+")")); }
       else if(b.type==="dia"){ L.push(t); }
-      else { L.push(""); L.push(t); }   // action
+      // a transition is forced with ">" and upper-cased, so "Cut to:" reads as one (2026-10-09)
+      else if(b.type==="trans"){ L.push(""); L.push(">"+t.replace(/^>\s*/,"").toUpperCase()); }
+      else { L.push(""); L.push(fountainAction(t)); }   // action
     });
   });
   return L.join("\n");
@@ -115,15 +137,19 @@ function screenplayHTML(project, scenes, drafts){
   const parts = ['<p class="trans first">FADE IN:</p>'];
   let sceneNo = 0;
   scenes.forEach(function(s){
-    let lastChar = null;
+    let lastChar = null, slugged = false;
     sceneBlocks(s, drafts).forEach(function(b){
       const t = ee(b.text).trim();
       if(!t) return;
       if(b.type==="scene"){
-        sceneNo++; lastChar = null;
+        lastChar = null;
         const slug = t.toUpperCase().replace(/^\.+/,"");
-        // scene-start => clear separation; a new scene always begins on a fresh line/space
-        parts.push('<p class="slug scene-start"><span class="sn">'+sceneNo+'</span>'+slug+'<span class="sn sr">'+sceneNo+'</span></p>');
+        /* ONE NUMBER PER SCENE (2026-10-09, owner — Writers' Room review): only a scene's OPENING slug is
+           numbered, with the scene's own number, as the Script view and the Fountain file do — every
+           secondary slug counted too, so one scene with three sluglines shifted every later number */
+        if(!slugged){ slugged = true; sceneNo = (s.no!=null ? s.no : sceneNo+1);
+          parts.push('<p class="slug scene-start"><span class="sn">'+sceneNo+'</span>'+slug+'<span class="sn sr">'+sceneNo+'</span></p>'); }
+        else parts.push('<p class="slug">'+slug+'</p>');
       } else if(b.type==="char"){
         let nm = t.toUpperCase();
         if(lastChar && nm===lastChar){ nm = nm + CONTD; } else { lastChar = nm; }
@@ -222,8 +248,17 @@ function downloadText(filename, text, mime){
   setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
 }
 
+/* letters in any script are kept ("Zoë's Café" → "Zoë_s_Café"); a title with none left falls back (2026-10-09:
+   accented and non-Latin titles came out as "ZO_S_CAF" or an empty ".fountain") */
+function exportSlug(title, fallback){
+  const raw = String(title||"").trim();
+  let slug = "";
+  try{ slug = raw.normalize("NFC").replace(new RegExp("[^\\p{L}\\p{M}\\p{N}\\-]+","gu"),"_"); }catch(e){ slug = raw.replace(/[^\w\-]+/g,"_"); }
+  slug = slug.replace(/_+/g,"_").replace(/^[_\-]+|[_\-]+$/g,"").slice(0,80);
+  return slug || fallback;
+}
 function safeName(project, ext){
-  return (project.title||"screenplay").replace(/[^\w\-]+/g,"_").replace(/^_+|_+$/g,"").toUpperCase()+"."+ext;
+  return exportSlug(project.title, "Screenplay")+"."+ext;
 }
 
 function exportScreenplayPDF(project, scenes, drafts){
@@ -336,6 +371,6 @@ const TURNExport = {
   html:  (p,s,d)=> screenplayHTML(p,s,d),
   fountain:(p,s,d)=> downloadText(safeName(p,"fountain"), buildFountain(p,s,d), "text/plain"),
   outline:(p,s,d)=> downloadText(safeName(p,"txt"), buildOutline(p,s), "text/plain"),
-  csv:   (p,s,d)=> downloadText((p.title||"spine").replace(/[^\w\-]+/g,"_").toUpperCase()+"_spine.csv", buildCSV(s), "text/csv"),
+  csv:   (p,s,d)=> downloadText(exportSlug(p.title, "Story")+"_spine.csv", buildCSV(s), "text/csv"),
 };
 window.TURNExport = TURNExport;

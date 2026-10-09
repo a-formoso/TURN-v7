@@ -504,8 +504,9 @@ function App(){
   // Reading the ref after the await avoids converting an older render's Bible.
   const seriesSnapshotRef = React.useRef(null);
   // Story Contract (outer plot · inner arc · dominance) — patch helper for the rail panel
-  const updateContract = (patch)=> setProject(p=>({ ...p, contract:{ ...((p&&p.contract)||{}), ...patch } }));
-  const updateGenre = (genre)=> setProject(p=>({ ...p, genre:String(genre||"").trim() }));
+  // story edits check the Writers' Room right themselves, not only the UI (2026-10-09)
+  const updateContract = (patch)=>{ if(!canMutateWritersRoom()) return; setProject(p=>({ ...p, contract:{ ...((p&&p.contract)||{}), ...patch } })); };
+  const updateGenre = (genre)=>{ if(!canMutateWritersRoom()) return; setProject(p=>({ ...p, genre:String(genre||"").trim() })); };
   // story-level inputs edited in the left rail (premise, controlling idea, Center of
   // Good, setting, synopsis by act) — a patch object, or a function of the project
   const updateProjectFields = (patch)=>{
@@ -1090,6 +1091,7 @@ function App(){
         const note=ownerPlanLapsed ? "This film is read-only for now: its owner's plan doesn't include shared work, so changes aren't saved." : (typeof window.teamRoleScopeNote==="function")?window.teamRoleScopeNote(shareRole):"";
         window.appToast(note || (roomId==="writers"
           ? "This role can read the Writers' Room but cannot change story or script."
+          : roomId==="characters" ? "This role can read the cast but cannot change it."
           : "This role cannot change the Art Room."),"error");
       }
     }
@@ -1108,6 +1110,11 @@ function App(){
     : writersRoomReadOnlyRef.current ? _mutationNotice("writers") : true;
   const canMutateSharedFilm = ()=> projectLoadingRef.current ? _projectLoadingNotice()
     : roomReadOnlyRef.current ? _mutationNotice(room) : true;
+  /* THE CAST IS ITS OWN SECTION (2026-10-09, owner — Writers' Room review): a Co-writer could edit a cast
+     card in the Writers' Room (or start a paid character draft) and the save then rolled it back — the
+     room was writable, the `characters` section wasn't. Cast edits follow the section. */
+  const canMutateCharacters = ()=> !canMutateSharedFilm() ? false
+    : characterBibleWritableRef.current ? true : _mutationNotice("characters");
   const shotsReadOnlyRef = React.useRef(false); shotsReadOnlyRef.current = shotsReadOnly;
   const canMutateShots = ()=> projectLoadingRef.current ? _projectLoadingNotice()
     : shotsReadOnlyRef.current ? _mutationNotice("art") : true;
@@ -1169,9 +1176,14 @@ function App(){
       // the normal boot path — much safer than hand-rolled partial state surgery
       try{ window.location.reload(); }catch(e){}
     };
+    /* TEXT BEING TYPED IS NEVER OVERWRITTEN (2026-10-09, owner — Writers' Room review): a field still being
+       typed in (not yet saved — it doesn't count as an edit until it's committed) was replaced by a
+       collaborator's change, and the typing lost. A newer version waits until the field is left. */
+    const editingNow = ()=>{ try{ const el = document.activeElement;
+      return !!(el && (el.isContentEditable || /^(INPUT|TEXTAREA)$/.test(el.tagName))); }catch(e){ return false; } };
     const checkRemote = async ()=>{
       if(!alive || busy || ended) return;
-      if(dirtyRef.current || hydratingRef.current) return;   // never fight local edits
+      if(dirtyRef.current || hydratingRef.current || editingNow()) return;   // never fight local edits
       busy = true;
       try{
         const rev = await window.cloudDocRev(currentProjectId);
@@ -1181,7 +1193,7 @@ function App(){
           if((await window.cloudCheckAccess(currentProjectId))==="gone"){ busy = false; return accessEnded(); }
         }
         const seen = (typeof window.cloudSeenRev==="function") ? window.cloudSeenRev(currentProjectId) : 0;
-        if(alive && rev && rev > seen && !dirtyRef.current && !hydratingRef.current){
+        if(alive && rev && rev > seen && !dirtyRef.current && !hydratingRef.current && !editingNow()){
           const row = await cloudLoadProject(currentProjectId);
           if(alive && row && row.doc && !dirtyRef.current && !hydratingRef.current){
             if(typeof window.cloudNoteDocRev==="function") window.cloudNoteDocRev(currentProjectId, row.doc);
@@ -3560,7 +3572,7 @@ function App(){
 
   // ---- character handlers ----
   const updateCharacter = (id,patch)=>{
-    if(!canMutateSharedFilm()) return;
+    if(!canMutateCharacters()) return;
     const revision=Date.now().toString(36);
     const prior=(characters||[]).find(c=>c.id===id)||null;
     const touchesVoice=Object.prototype.hasOwnProperty.call(patch,"voiceLock");
@@ -3640,7 +3652,7 @@ function App(){
   };
   const [charDrafting, setCharDrafting] = React.useState(null);
   const draftCharacter = async (ch)=>{
-    if(!canMutateSharedFilm() || charDrafting) return;
+    if(!canMutateCharacters() || charDrafting) return;
     const epoch=typeof nbEpoch==="function"?nbEpoch():null;
     const startingPronouns=ch.pronouns;
     setCharDrafting(ch.id);
@@ -5889,30 +5901,45 @@ function App(){
      out of date, with one-click Redraft (redraftScene) or Keep this draft. */
   const stampDraft = (res, scn, b)=> (res && typeof window.sceneCardSnap==="function")
     ? { ...res, cardSnap: window.sceneCardSnap(scn, characters, b || beatsMap[scn.id]) } : res;
+  /* ONE DRAFT AT A TIME, NEVER STUCK (2026-10-09, owner — Writers' Room review): a second paid Draft could
+     start from the keyboard behind the overlay, a failure left the overlay up, and a draft that landed
+     meanwhile was overwritten. Its Stop ends it after the scene's beats (before the screenplay call). */
   const draftOne = async (s)=>{
-    if(!canMutateWritersRoom() || drafts[s.id]) return;
+    if(!canMutateWritersRoom() || drafts[s.id] || draftingRef.current) return;
+    const run = { stop:false, one:true };
+    draftingRef.current = run;
+    let res = null, scn = s, beats = beatsMap[s.id], landed = false;
+    try{
     const ordered=scenesInStoryOrder(scenes);
     const i = ordered.findIndex(x=>x.id===s.id);
     const prev=i>0?ordered[i-1]:null;
-    setDrafting({ i:i<0?0:i, total:ordered.length, one:true });
-    let scn = s, beats = beatsMap[s.id];
+    // Stop is offered only while there's a second call to save (the beats are written first)
+    setDrafting({ i:i<0?0:i, total:ordered.length, one:true, canStop:!beats && typeof aiAuthorScene==="function" });
     // a beats-less scene: author the whole scene (summary, charge, beats) first
     // the film this draft belongs to — a scene written after the user switches films
     // must not land in the new one (scene ids repeat across films)
     const owner = currentProjectId;
     if(!beats && typeof aiAuthorScene==="function" && aiAvailable()){
       const authored = await aiAuthorScene(s, prev, characters, project, { keepCard:true });
-      if(owner !== projIdRef.current || !canMutateWritersRoom()){ setDrafting(null); return; }
+      if(owner !== projIdRef.current || !canMutateWritersRoom()) return;
       if(authored){
         scn = {...s, ...authored.patch}; beats = authored.beats;
         setScenes(ss=>ss.map(x=>x.id===s.id?{...x,...authored.patch}:x));
         setBeatsFor(s.id, authored.beats);
       }
+      if(run.stop){ if(typeof window.appToast==="function") window.appToast("Stopped \u2014 Scene "+s.no+"'s beats are kept; its screenplay wasn't written.","info"); return; }
     }
-    const res = await aiDraftScene(scn, beats, prev, project);
-    if(owner !== projIdRef.current || !canMutateWritersRoom()){ setDrafting(null); return; }
-    setDrafts(d=>({...d,[s.id]:stampDraft(res, scn, beats)}));
-    setDrafting(null);
+    res = await aiDraftScene(scn, beats, prev, project);
+    if(owner !== projIdRef.current || !canMutateWritersRoom()) return;
+    // a draft that landed meanwhile (another tab, a collaborator) isn't overwritten: this one is committed as a new
+    // version, so the other stays in the scene's history (Undo restores it)
+    if((draftsRef.current||{})[s.id]){ commitVersion(s.id, stampDraft(res, scn, beats)); landed = true; }
+    else setDrafts(d=>({...d,[s.id]:stampDraft(res, scn, beats)}));
+    }catch(e){
+      if(typeof window.appToast==="function") window.appToast("Scene "+s.no+" couldn't be drafted ("+String((e&&e.message)||"the writing service failed")+") \u2014 try again.","error");
+      return;
+    } finally { draftingRef.current = false; setDrafting(null); }
+    if(landed) return;
     // a rough structural stand-in landed instead of the model's prose \u2014 say why, never silently
     const failure = res && res.auto && res.failure;
     if(failure){
@@ -5924,6 +5951,20 @@ function App(){
   };
   const draftAll = async ()=>{
     if(!canMutateWritersRoom() || draftingRef.current) return;
+    /* AUTO-DRAFT ALL ASKS FIRST (2026-10-09, owner — Writers' Room review): one click started a paid call
+       per undrafted scene (two for a scene without beats) with no word */
+    { const todo = scenesInStoryOrder(scenes).filter(x=>!drafts[x.id]);
+      if(!todo.length) return;
+      const calls = todo.reduce((t,x)=>t+(beatsMap[x.id] ? 1 : 2), 0);
+      if(typeof window.appConfirm==="function"){
+        const ok = await window.appConfirm({ title:"Draft "+todo.length+" scene"+(todo.length!==1?"s":"")+"?",
+          body:"Writes the screenplay of every scene that isn't drafted yet, in story order"
+            +(todo.some(x=>!beatsMap[x.id]) ? " (a scene without beats gets its beats written first)" : "")+" \u2014 "
+            +((typeof window.turnWritingCallsText==="function") ? window.turnWritingCallsText(calls, "story") : (calls+" writing calls"))
+            +" (writing credits; each call is charged for what it uses). Stop ends the run after the scene being written.",
+          confirmLabel:"Draft "+todo.length+" scene"+(todo.length!==1?"s":"") });
+        if(!ok || !canMutateWritersRoom() || draftingRef.current) return;
+      } }
     // the run's own record (truthy = a run is live): .stop is set by the progress overlay's Stop
     const run = { stop:false };
     draftingRef.current = run;
@@ -6320,9 +6361,10 @@ function App(){
     const nameOf = (cid)=>(((characters||[]).find(c=>c.id===cid)||{}).name || String(cid||"").toUpperCase());
     const OLD = nameOf(oldId), NEW = nameOf(newId);
     const ok = await window.appConfirm({ title:"Recast the scene for "+NEW+"?",
-      body:"The driver changed ("+OLD+" \u2192 "+NEW+"), but Scene "+scn.no+"\u2019s summary, desire and beat texts still describe "+OLD+" doing the driving. Rewrite the subtext so "+NEW+" drives? You review the beats, then \u2018Redraft script from beats\u2019 rebuilds the screenplay.",
+      body:"The driver changed ("+OLD+" \u2192 "+NEW+"), but Scene "+scn.no+"\u2019s summary, desire and beat texts still describe "+OLD+" doing the driving. Rewrite the subtext so "+NEW+" drives (one writing call, writing credits)? You review the beats, then \u2018Redraft script from beats\u2019 rebuilds the screenplay.",
       confirmLabel:"Recast for "+NEW, cancelLabel:"Keep the text as is" });
-    if(!ok || owner !== projIdRef.current) return;
+    // rights again after the question, before the paid call (2026-10-09)
+    if(!ok || owner !== projIdRef.current || !canMutateWritersRoom()) return;
     setRecastBusy({ no:scn.no, name:NEW });
     const report = {};
     try{
@@ -6383,40 +6425,55 @@ function App(){
   };
   // the last deleted scene with everything that went with it, so "Undo" can restore it
   // exactly (single level, tied to the film it was deleted from)
-  const [deletedScene, setDeletedScene] = React.useState(null);
+  /* SEVERAL DELETES CAN BE UNDONE (2026-10-09, owner — Writers' Room review): one slot meant deleting a
+     second scene lost the first (its card, beat map, screenplay and versions) for good. The last five
+     deleted scenes of this film can be brought back, newest first. */
+  const [deletedScenes, setDeletedScenes] = React.useState([]);
+  const deletedScene = deletedScenes.find(d=>d && d.owner===currentProjectId) || null;
+  const setDeletedScene = (d)=>setDeletedScenes(list=> d ? [d].concat(list.filter(x=>x && x.scene && x.scene.id!==d.scene.id)).slice(0,5)
+    : list.slice(1));
+  const liveStoryRef = React.useRef({}); liveStoryRef.current = { beatsMap, history, continuityMap };
   const deleteScene = async (id)=>{
     if(!canMutateWritersRoom()) return;
-    const i = scenes.findIndex(s=>s.id===id);
-    const remaining = scenes.filter(s=>s.id!==id);
-    if(i<0 || !remaining.length) return;
-    const gone = scenes[i];
+    if(scenes.length<=1){ if(typeof window.appToast==="function") window.appToast("A film keeps at least one scene \u2014 add another scene before deleting this one.","info"); return; }
+    if(scenes.findIndex(s=>s.id===id)<0) return;
+    const gone0 = scenes.find(s=>s.id===id);
     const hasWork = !!(drafts[id] || (beatsMap[id] && (beatsMap[id].rows||[]).length));
     const shotCount = artRoomReadOnlyRef.current ? 0 : (shots||[]).filter(sh=>sh && sh.sceneId===id).length;
     if(typeof window.appConfirm==="function"){
       const ok = await window.appConfirm({
-        title:"Delete Scene "+gone.no+(gone.title?(" \u201c"+gone.title+"\u201d"):"")+"?",
+        title:"Delete Scene "+gone0.no+(gone0.title?(" \u201c"+gone0.title+"\u201d"):"")+"?",
         body:"This removes the scene card"+(hasWork?", its beat map, screenplay draft and version history":"")
           +(shotCount?(hasWork?", and its ":" and its ")+shotCount+" shot"+(shotCount===1?"":"s")+" in the Art Room":"")+". You can undo it right after.",
         confirmLabel:"Delete scene", danger:true });
       if(!ok || !canMutateWritersRoom()) return;
     }
+    /* everything below reads the film AS IT IS NOW (2026-10-09): the list captured before the question
+       was written back, undoing whatever changed while it was open (a collaborator's edit, a batch) */
+    const liveScenes = scenesRef.current || scenes;
+    const i = liveScenes.findIndex(s=>s.id===id);
+    const remaining = liveScenes.filter(s=>s.id!==id);
+    if(i<0 || !remaining.length) return;
+    const gone = liveScenes[i];
+    const live = liveStoryRef.current || {};
+    const drafts0 = draftsRef.current || drafts, beatsMap0 = live.beatsMap || beatsMap, history0 = live.history || history, cont0 = live.continuityMap || continuityMap;
     // THE ART ROOM FOLLOWS THE SCENE (2026-10-02): its shots, its Color preset and the scene's
     // place in props' and locations' scene lists used to stay behind — orphan shots kept the
     // Shots tab "stale" and in the saved film, and the Stage silently skipped them. Only when
     // this account may write the Art Room: a Co-writer's save of art sections is refused by
     // the server's role scopes (enforce-role-scopes.sql), so theirs keeps them as before.
     const artWritable = !artRoomReadOnlyRef.current;
-    const goneShots = artWritable ? (shots||[]).filter(sh=>sh && sh.sceneId===id) : [];
+    const goneShots = artWritable ? (shotsRef.current||shots||[]).filter(sh=>sh && sh.sceneId===id) : [];
     const sb = (project && project.styleBible) || {};
     const goneStyle = sb.sceneStyles && Object.prototype.hasOwnProperty.call(sb.sceneStyles, id) ? sb.sceneStyles[id] : undefined;
     const inScenes = x=> x && Array.isArray(x.scenes) && x.scenes.indexOf(id)>=0;
     const propRefs = artWritable ? (props||[]).filter(inScenes).map(p=>({ id:p.id, at:p.scenes.indexOf(id) })) : [];
     const locRefs = artWritable ? (locations||[]).filter(inScenes).map(l=>({ id:l.id, at:l.scenes.indexOf(id) })) : [];
-    setDeletedScene({ owner:currentProjectId, index:i, scene:gone, beats:beatsMap[id], draft:drafts[id],
-      history:history[id], continuity:continuityMap && continuityMap[id],
+    setDeletedScene({ owner:currentProjectId, index:i, scene:gone, beats:beatsMap0[id], draft:drafts0[id],
+      history:history0[id], continuity:cont0 && cont0[id],
       shots:goneShots, style:goneStyle, styleManual:!!(sb.sceneStylesManual||{})[id], styleWhy:(sb.sceneWhy||{})[id], propRefs, locRefs });
     const nxt = remaining[Math.min(i, remaining.length-1)];
-    setScenes(renum(remaining));
+    setScenes(ss=>renum(ss.filter(s=>s.id!==id)));
     setBeatsMap(m=>{ const n={...m}; delete n[id]; return n; });
     setDrafts(d=>{ const n={...d}; delete n[id]; return n; });
     // drop the scene's version history and continuity entry too — left behind they bloat
@@ -6446,7 +6503,7 @@ function App(){
   };
   const undoDeleteScene = ()=>{
     const d = deletedScene;
-    setDeletedScene(null);
+    setDeletedScenes(list=>list.filter(x=>x!==d));
     if(!d || d.owner!==currentProjectId || !canMutateWritersRoom()) return;
     const id = d.scene.id;
     setScenes(ss=>{
@@ -6620,7 +6677,7 @@ function App(){
       if(writersRoomReadOnlyRef.current){
         if(!artOnly){
           try{ emit && emit({k:"flag", t:"Your role cannot change the Writers' Room, so these proposed changes were NOT applied."}); }catch(e){}
-          return;
+          return false;   // (2026-10-09) the agent then never says "Applied"
         }
       }
       // WRONG-FILM GUARD: an agent run takes minutes and the film switcher stays live.
@@ -6629,7 +6686,7 @@ function App(){
       // undo snapshot belonged to the ORIGINAL film, so pressing Undo compounded it.
       if(ownerProjectId !== projIdRef.current){
         try{ emit && emit({k:"flag", t:"You switched films while this ran, so its changes were NOT applied — they belong to the film it started in. Reopen that film and run it again."}); }catch(e){}
-        return;
+        return false;
       }
       // ART-ONLY COMMIT (the Production check run by an Art director): their approved cards
       // only ever change the cast sheets (script cards are noted, not shown), so only the
@@ -6708,6 +6765,7 @@ function App(){
         beats:beatsW, drafts:model.drafts, continuity:model.continuity })));
       liveAtCommit = liveNow;
       castAtCommit = model.characters ? model.characters.map(c=>({...c})) : null;
+      return true;
     };
     return { model, sync, input, emit, propose,
       // EPISODE CANON (docs/Story Pipeline.md step 3, "In an Episode of an existing Show"): true
@@ -6735,7 +6793,7 @@ function App(){
         patchLocation:(id,patch)=>{ if(!(_projRow&&_projRow.isShared) || (typeof window.teamCanWriteSection==="function"&&window.teamCanWriteSection(writeRole,"locations"))) setLocations(ls=>ls.map(l=>l.id===id?{...l,...patch}:l)); },
       },
       ai:{ available: (typeof aiAvailable==="function" && aiAvailable()),
-        suggestTurn:(s,p)=>window.aiSuggestTurn(s,p,model.project),
+        suggestTurn:(s,p,r)=>window.aiSuggestTurn(s,p,model.project,r),
         plantLine:(s,f,m)=>window.aiPlantLine(s,f,m),
         continuityLedger:()=>window.aiContinuityLedger(model.scenes, model.beats, model.drafts, model.project),
         tableRead:(sc,dr)=>window.aiTableRead(sc,dr,model.project),
@@ -7564,12 +7622,13 @@ function App(){
         ? "Drafting Scene "+draftSceneNo
         : "Drafting the screenplay",
       detail:drafting.one
-        ? "Writing Scene "+draftSceneNo+" from its beats while preserving continuity."
+        ? (drafting.stopping ? "Stopping once the scene's beats are written \u2014 its screenplay won't be written."
+          : "Writing Scene "+draftSceneNo+" from its beats while preserving continuity.")
         : drafting.stopping
         ? "Stopping after the scene being written now \u2014 it is kept, and the rest stay undrafted for Auto-draft all."
         : "Threading continuity scene by scene — "+Math.min(Number(drafting.i||0)+1, Number(drafting.total||scenes.length))+" of "+Number(drafting.total||scenes.length)+".",
       progress:draftingProgress,
-      ...(drafting.one ? {} : { onStop:stopDraftAll, stopping:!!drafting.stopping })
+      ...((drafting.one && !drafting.canStop) ? {} : { onStop:stopDraftAll, stopping:!!drafting.stopping })
     } :
     (room==="art" && draftingAllVisuals) ? {
       role:"Casting Director",
@@ -8113,7 +8172,7 @@ function App(){
         const charObj = selChar ? characters.find(c=>c.id===selChar) : null;
         const inspectorEl = charObj
           ? React.createElement(CharacterPanel,{character:charObj, scenes, drafts, cast:characters,
-              onUpdate:updateCharacter, onDraft:draftCharacter, drafting:charDrafting===charObj.id,readOnly:writersRoomBlocked,
+              onUpdate:updateCharacter, onDraft:draftCharacter, drafting:charDrafting===charObj.id,readOnly:writersRoomBlocked || !characterBibleWritableRef.current,
               onJumpScene:(id)=>selectScene(id), onClose:()=>setSelChar(null),
               onCollapse:()=>setInspOpen(false),
               onFollow:(id)=>{ setFollowChar(id); setView("spine");
@@ -8374,10 +8433,11 @@ function App(){
       React.createElement("span",{className:"au-ic"},React.createElement(Icon.undo,{s:16})),
       React.createElement("div",{className:"au-text"},
         React.createElement("div",{className:"au-t"},"Scene "+deletedScene.scene.no+" deleted"),
-        React.createElement("div",{className:"au-s"},"Restore it with its beats and draft")),
+        React.createElement("div",{className:"au-s"},"Restore it with its beats and draft"
+          +(()=>{ const more = deletedScenes.filter(x=>x && x.owner===currentProjectId).length-1; return more>0 ? " \u00b7 "+more+" more deleted scene"+(more!==1?"s":"")+" can be brought back after it" : ""; })())),
       React.createElement("button",{className:"au-btn",onClick:undoDeleteScene},
         React.createElement(Icon.undo,{s:14}),"Undo"),
-      React.createElement("button",{className:"au-x",title:"Dismiss",onClick:()=>setDeletedScene(null)},
+      React.createElement("button",{className:"au-x",title:"Dismiss","aria-label":"Dismiss",onClick:()=>setDeletedScenes(list=>list.filter(x=>x!==deletedScene))},
         React.createElement(Icon.x,{s:14}))),
     !writersRoomBlocked && agentUndoHere.length>0 && agentUndoHere[agentUndoHere.length-1].label!=="Adaptation" && React.createElement("div",{className:"agent-undo"},
       React.createElement("span",{className:"au-ic"},React.createElement(Icon.undo,{s:16})),

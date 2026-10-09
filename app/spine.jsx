@@ -348,7 +348,9 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
       React.createElement("div",{className:"graph-ylabel top"},"Positive +"),
       React.createElement("div",{className:"graph-ylabel bot"},"Negative \u2212"),
       React.createElement("svg",{className:"graph-svg",width:totalW,height:GRAPH_H,
-        viewBox:`0 0 ${totalW} ${GRAPH_H}`},
+        viewBox:`0 0 ${totalW} ${GRAPH_H}`,role:"img",
+        // a summary for screen readers: how each scene's value charge moves (2026-10-09)
+        "aria-label":"Value-charge graph: "+(scenes||[]).slice(0,40).map(sc=>"Scene "+sc.no+((sc.openCharge!=null&&sc.closeCharge!=null)?(" "+chargeStr(sc.openCharge)+" to "+chargeStr(sc.closeCharge)):"")).join(", ")},
         React.createElement("defs",null,
           React.createElement("filter",{id:"spineGlow",x:"-20%",y:"-60%",width:"140%",height:"220%"},
             React.createElement("feGaussianBlur",{stdDeviation:"3.2",result:"b"}),
@@ -455,7 +457,8 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
       columns.map((c) => {
         // collapsed act → a slim, clickable strip (mirrors the act ruler / graph band)
         if(c.kind==="act") return React.createElement("div",{key:"acol"+c.act,className:"spine-act-strip",
-          onClick:()=>toggle(c.act),title:`Expand Act ${roman(c.act)}`,
+          onClick:()=>toggle(c.act),title:`Expand Act ${roman(c.act)}`,role:"button",tabIndex:0,"aria-label":`Expand Act ${roman(c.act)}`,
+          onKeyDown:(e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); toggle(c.act); } },
           style:{flex:`0 0 ${COLLAPSED_W}px`,width:COLLAPSED_W,cursor:"pointer",display:"flex",
             flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,padding:"10px 0",
             border:"1px solid var(--line)",borderTop:0,borderRadius:"0 0 8px 8px",background:"var(--bg-2)"}},

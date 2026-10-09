@@ -22,12 +22,12 @@ const WRITING_MODELS = [
   // available as a manual pick. Every Claude ID here is a PINNED snapshot (4.6+ IDs).
   { id:"claude-opus-5-5",    label:"Opus 5.5",        provider:"anthropic", note:"the default — latest Opus: rich screen prose with stronger long-form reasoning" },
   { id:"claude-fable-5",     label:"Fable 5",         provider:"anthropic", note:"deep story reasoning, proven on every build" },
-  { id:"claude-fable-5-1",   label:"Fable 5.1",       provider:"anthropic", note:"Anthropic's newest flagship — the deepest reasoning; slower" },
+  { id:"claude-fable-5-1",   label:"Fable 5.1",       provider:"anthropic", note:"the newest flagship — the deepest reasoning; slower" },
   { id:"gemini-3.8-flash", label:"Gemini 3.8 Flash", provider:"google", thinkingLevel:"low",
-    note:"Google's latest stable Flash model — strong for long, complex story and production workflows" },
+    note:"the latest stable fast engine — strong for long, complex story and production workflows" },
   { id:"gemini-3.5-flash", label:"Gemini 3.5 Flash", provider:"google", note:"fast — ideal for specs, bibles & rebuilds" },
   { id:"gpt-6-astra", label:"GPT-6 Astra", provider:"openai", reasoningEffort:"low",
-    note:"OpenAI's most capable model — strong for complex story architecture, research & long multistep passes" },
+    note:"the most capable of its family — strong for complex story architecture, research & long multistep passes" },
   { id:"gpt-5.5-2026-04-23", label:"GPT-5.5",       provider:"openai", note:"a different voice — good for alternative takes" },
   { id:"kimi-k3", label:"Kimi K3", provider:"moonshot", note:"deep reasoner, huge context — SLOW on long drafts; best for analysis & alt takes" },
   { id:"kimi-k2.7-code", label:"Kimi K2.7", provider:"moonshot", note:"fast Kimi (~5\u00d7 quicker than K3) — coding-tuned but writes clean action prose; good for quick passes" },
@@ -71,6 +71,16 @@ try{ localStorage.removeItem("turn-writing-model"); }catch(e){}
 function getWritingModelId(task){ if(_writingPick && WRITING_MODELS.find(m=>m.id===_writingPick)) return _writingPick; return recommendedWritingModelId(task); }
 function setWritingModelId(id){ _writingPick = id || null; try{ window.dispatchEvent(new CustomEvent("turn-writing-model-changed")); }catch(e){} }
 window.WRITING_MODELS = WRITING_MODELS; window.getWritingModelId = getWritingModelId; window.setWritingModelId = setWritingModelId;
+/* WHAT A WRITING RUN USES, SAID UP FRONT (2026-10-09, owner — Writers' Room review): the number of writing
+   calls and the engine they run on ("about 6 writing calls on Opus 5.5"); each call is held and charged
+   by the server for what it really uses. task: "story" | "specs". */
+function turnWritingCallsText(n, task){
+  const k = Math.max(0, Math.round(Number(n)||0));
+  const id = getWritingModelId(task||"story");
+  const m = WRITING_MODELS.find(x=>x.id===id);
+  return (k===0 ? "no writing calls" : ("about "+k+" writing call"+(k!==1?"s":"")))+(k && m ? " on "+m.label : "");
+}
+window.turnWritingCallsText = turnWritingCallsText;
 /* PROVENANCE STAMP — which engine actually wrote a thing (screenplay draft / beat map).
    window.claude.complete records the model it resolved to on every successful call;
    writingStamp() is read right after a completion and attached as `by` on the result. */
@@ -271,7 +281,10 @@ if(!window.claude || typeof window.claude.complete !== "function"){
       try{ window.__lastWritingModel = { id:m.id, label:m.label }; }catch(e){}
       // CUT OFF at the output cap (thinking can use most of it): ask ONCE more with the
       // largest budget before handing a clipped reply to a JSON parser or a script
-      if(data && data.truncated && !opts.__cutRetry){
+      // (2026-10-09) never once a Story Editors run was stopped, and the run's trace says when it happens
+      if(data && data.truncated && !opts.__cutRetry
+        && !(typeof window.__turnAgentRunCancelled==="function" && window.__turnAgentRunCancelled())){
+        try{ window.dispatchEvent(new CustomEvent("turn-writing-retry",{ detail:{ model:m.label, reason:"cut-off" } })); }catch(e){}
         return window.claude.complete({ ...opts, maxTokens:32768, __cutRetry:true });
       }
       try{ window.__lastWritingTruncated = !!(data && data.truncated); }catch(e){}
@@ -3169,6 +3182,18 @@ APP_FEATURES.forEach(f=>{
     +"WHAT YOU SEE \u2014 the Mix shows the rail's clip (or the scene's first rendered one), its Picture-lane clips can be clicked, picking a scene moves the rail too, and out-of-date, identity-changed and loading clips are named as such; a scene with no dialogue says so; a re-locked voice is noted. "
     +"BEDS \u2014 a bed is kept as the file itself on this device (less memory), only the open scene's beds are read, and the export reads beds a scene at a time. A file this browser can't play is refused up front; a full device storage is always said; a save or removal finishing after a film switch stays with the film you were in. Levels, mutes and beds are on this device only \u2014 collaborators don't hear them, and each person's export uses their own. A Picture level you set (or a mute) counts as part of the Mix for the export even with no lines or beds; otherwise the export says each take's sound is recorded as rendered.";
 }
+/* WRITERS' ROOM REVIEW, THIRD PASS (owner 2026-10-09) */
+APP_FEATURES.forEach(f=>{
+  if(!f || !f.what) return;
+  f.what = String(f.what).replace("compact segmented buttons under PROVIDER labels (Anthropic / Google / OpenAI / Moonshot)",
+    "compact segmented buttons grouped by what the engines are good at (Story / Fast / Alternative / Long context)");
+});
+{ const add = (name, note)=>{ const f = APP_FEATURES.find(x=>x && x.name===name); if(f) f.what = String(f.what||"")+" "+note; };
+  add("Story Editors (Writers' Room agents)", "WRITERS' ROOM REVIEW, THIRD PASS (owner 2026-10-09): BEFORE A RUN each editor says what it uses \u2014 Script Supervisor is free; Story Doctor up to 7 writing calls (five fixes, the re-read and the fusion check); Setups & Payoffs up to 6 (the ledger and five lines); Final Read 2 (the read and the voice check) \u2014 on the engine shown, each charged for what it uses. Setups & Payoffs asks before it (re)builds the setups & payoffs ledger, and never shows a fix the model didn't write (no line, no card). The Story Doctor stops when the plan's credits or the sign-in run out (instead of failing on every pass), and a fix it worked out by rule (the model unavailable) says so; a soft peak gets a strong close. A card never appears after Stop; Stop says what the run used so far (a call already sent still finishes and is charged), and a reply that was cut off is asked again only while the run is live (the trace says when). Final Read reads only written scenes (rough stand-ins are skipped and counted) and says when the writing service failed. Errors read as plain sentences. The window is a real dialog (Escape closes it, asking first while any editor is running), the approval card takes the keyboard focus, and the trace stays where you're reading.");
+  add("Auto-draft all (N left)", "(2026-10-09) It asks first, with how many scenes and writing calls it makes on which engine (a scene without beats needs two). The single 'Draft' can't start twice, never gets stuck on a failure, offers Stop while a scene's beats are being written first, and never overwrites a draft that arrived meanwhile (it becomes the new version; Undo restores the other).");
+  add("Export (screenplay / story)", "(2026-10-09) The PDF numbers each scene once, with its own number (a scene's extra sluglines aren't numbered); file names keep the title's letters in any language; in the .fountain file transitions read as transitions, action lines that would be mistaken for headings or names are forced to action, and a scene not drafted yet (or a rough stand-in) carries a note saying so.");
+  add("Script view", "(2026-10-09) While you type in a field, a collaborator's newer version waits until you leave it; a line that changed while you edited it says so and shows what you typed. Building the beat map from the script says when it fails (the beats stay), a rebuild can be undone, and the fields wait while it reads. Deleting scenes: the last five deleted scenes can be brought back, newest first; the only scene can't be deleted. Cast cards in the Writers' Room follow the cast's own right: a Co-writer can read them but not change or draft them.");
+}
 /* the public view of every entry, memoised on the manifest's size (APP_FEATURES is only
    extended at load time, but a late push or `.what +=` still invalidates it) */
 let _museFactsMemo = null;
@@ -3614,7 +3639,8 @@ window.aiMuseFollowups = aiMuseFollowups;
    ============================================================ */
 
 /* Story Doctor: suggest a sharper CLOSING value that makes a flat scene turn. */
-async function aiSuggestTurn(scene, prevScene, project){
+// report.failure (2026-10-09): WHY no suggestion came back — a billing / sign-in failure stops the Doctor
+async function aiSuggestTurn(scene, prevScene, project, report){
   if(!aiAvailable()) return null;
   // framework lens (frameworks.jsx): Kish\u014dtenketsu reframes the "turn" as movement
   const P = writingProjectOf(project);
@@ -3630,7 +3656,7 @@ async function aiSuggestTurn(scene, prevScene, project){
   try{
     const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }] });
     const j = extractJSON(res);
-    if(!j) return null;
+    if(!j){ if(report) report.failure = { kind:"invalid", issues:[], details:[], technical:"no JSON in the reply" }; return null; }
     let cc = clampCharge(j.closeCharge, scene.closeCharge);
     // guarantee it actually REVERSES relative to the opening
     const turns = (typeof chargeTurn==="function") ? chargeTurn(scene.openCharge, cc).turned
@@ -3639,7 +3665,7 @@ async function aiSuggestTurn(scene, prevScene, project){
     const axis = (typeof sceneValueAxis==="function") ? sceneValueAxis(scene) : null;
     return { closeValue: axis ? valueWordFor(axis, cc) : (j.closeValue||scene.closeValue).toString().slice(0,18), closeCharge:cc,
       rationale: scrubAnalysis((j.rationale||"").toString(), museStoryWords([scene, prevScene].filter(Boolean), project)) };
-  }catch(e){ return null; }
+  }catch(e){ if(report) report.failure = screenplayFailureFromError(e, "turn"); return null; }
 }
 window.aiSuggestTurn = aiSuggestTurn;
 
@@ -3890,7 +3916,10 @@ async function aiTableRead(scenes, drafts, project){
       lens:["pacing","tone","voice","visual","sound","rhythm","causality","theme"].includes(String(n.lens||"").toLowerCase())?String(n.lens).toLowerCase():"",
       fixAt: (String(n.fixAt||"").toLowerCase()==="design" ? "design" : "lines") })) : [];
     return j;
-  }catch(e){ return null; }
+  }catch(e){
+    // a service failure says so (2026-10-09 — it read as "didn't return a usable report" even with no credits left)
+    const f = screenplayFailureFromError(e, "final-read");
+    return { unavailable:"service", failure:f, message:"The Final Read couldn't run \u2014 "+screenplayFailureReason(f)+"." }; }
 }
 window.aiTableRead = aiTableRead;
 
@@ -3999,7 +4028,7 @@ async function aiVoiceCheck(scenes, drafts){
     // merge the deterministic verbatim repeats the model may have missed
     exact.forEach(e=>{ if(!swaps.some(s=>s.line.toLowerCase()===e.line.toLowerCase())) swaps.push(e); });
     return { verdict:scrubAnalysis(String(j.verdict||""), keep), fingerprints:fps, swappable:swaps };
-  }catch(e){ return bail("error"); }
+  }catch(e){ const out = bail("service"); out.failure = screenplayFailureFromError(e, "voice-check"); return out; }
 }
 window.aiVoiceCheck = aiVoiceCheck;
 

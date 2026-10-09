@@ -351,8 +351,15 @@ async function agentStoryDoctor(ctx){
     else if(_cc && _cc.status==="ok") ctx.emit({k:"ok", t:"Contract check: "+_cc.msg});
   }
   let fixes = 0;
+  /* A FAILURE RETRYING CAN'T FIX STOPS THE DOCTOR (2026-10-09, owner — Writers' Room review): with the plan's
+     credits gone, every pass (and the re-read and fusion calls) hit the same refusal again. Now it stops
+     there, and a fix the model couldn't write is marked as the rule-based one it is. */
+  let halted = null, prevFail = null;
+  const needsAction = (f)=> !!(f && (typeof window.turnFailureNeedsAction==="function"
+    ? window.turnFailureNeedsAction(f) : (f.kind==="plan" || f.kind==="signin" || f.kind==="credits")));
   for(let iter=0; iter<MAX_FIXES; iter++){
     if(ctx.cancelled()) return;
+    if(halted) break;
     const issues = auditSpine(ctx.model.scenes).filter(i=>!skip.has(i.sceneId));
     if(!issues.length){ ctx.emit({k:"ok", t:"Re-audit complete \u2014 every remaining scene turns and the rhythm holds. The spine is sound."}); break; }
     ctx.emit({k:"observe", t:issues.length+" issue"+(issues.length>1?"s":"")+" found. Weakest link: Scene "+issues[0].sceneNo+" \u2014 "+issues[0].msg});
@@ -380,11 +387,24 @@ async function agentStoryDoctor(ctx){
     let fix = null;
     if(issue.kind==="noturn" || issue.kind==="weakpeak"){
       ctx.emit({k:"act", t:"Asking the model for a sharper closing value on Scene "+scene.no+"\u2026"});
-      const sug = ctx.ai.available ? await ctx.ai.suggestTurn(scene, prev) : null;
-      if(sug){ fix = { closeValue:sug.closeValue, closeCharge:sug.closeCharge, rationale:sug.rationale }; }
-      else { // deterministic fallback
+      const rep = {};
+      const sug = ctx.ai.available ? await ctx.ai.suggestTurn(scene, prev, rep) : null;
+      if(ctx.cancelled()) return;   // stopped while the model answered: no card after Stop
+      const f = !sug ? (rep.failure || null) : null;
+      const repeated = !!(f && typeof window.turnRepeatedServiceFailure==="function" && window.turnRepeatedServiceFailure(prevFail, f));
+      prevFail = f;
+      if(f && (needsAction(f) || repeated)){
+        halted = f;
+        const why = (typeof window.screenplayFailureReason==="function") ? window.screenplayFailureReason(f) : "the writing service can\u2019t be reached";
+        ctx.emit({k:"flag", t:"Stopped at Scene "+scene.no+" \u2014 "+why+(repeated ? ", for the second scene in a row" : "")+", so the other fixes would fail the same way. Run the Doctor again once that's sorted."});
+        break;
+      }
+      // (2026-10-09, owner — Writers' Room review) a soft peak gets a strong close (\u00b13), as a peak should
+      const strong = (c)=> issue.kind==="weakpeak" && Math.abs(c)<3 ? Math.sign(c||(-Math.sign(scene.openCharge)||-1))*3 : c;
+      if(sug){ fix = { closeValue:sug.closeValue, closeCharge:strong(sug.closeCharge), rationale:sug.rationale }; }
+      else { // deterministic fallback — said as such
         const cc = scene.openCharge>=0 ? Math.max(-3,scene.openCharge-3) : Math.min(3,scene.openCharge+3);
-        fix = { closeValue:scene.closeValue, closeCharge:cc, rationale:"Reverse the closing charge so the scene's value flips." };
+        fix = { closeValue:scene.closeValue, closeCharge:strong(cc), rationale:"Rule-based fix (the writing model "+(ctx.ai.available ? "didn\u2019t give a usable answer" : "isn\u2019t available")+"): reverse the closing charge so the scene's value flips." };
       }
     } else if(issue.kind==="themerun"){
       // one-sided argument — flip the middle scene of the run to argue the other side
@@ -433,14 +453,14 @@ async function agentStoryDoctor(ctx){
     if(ctx.cancelled()) return;
     if(ok && issue.kind==="flatconflict"){
       ctx.model.scenes[idx] = {...scene, conf:fix.conf, confAuthored:true};
-      ctx.sync();
+      if(ctx.sync()===false) return;   // not saved (role, film switch) — it said why; never "Applied"
       fixes++;
       ctx.emit({k:"ok", t:"Applied. Scene "+scene.no+" now fights at the "+levelLabel(fix.conf).toLowerCase()+" level \u2014 redraft it to feel the change. Re-auditing\u2026"});
     } else if(ok){
       const _sync = (typeof withValueWords==="function") ? withValueWords : (x=>x);
       ctx.model.scenes[idx] = _sync({...scene, closeValue:fix.closeValue, closeCharge:fix.closeCharge,
         ...(fix.argues!==undefined ? {argues:fix.argues} : {})});
-      ctx.sync();
+      if(ctx.sync()===false) return;
       fixes++;
       ctx.emit({k:"ok", t:"Applied. Scene "+scene.no+" now turns "+chargeStr(scene.openCharge)+" \u2192 "+chargeStr(fix.closeCharge)+". Re-auditing\u2026"});
     } else {
@@ -488,7 +508,7 @@ async function agentStoryDoctor(ctx){
 
   // Kishōtenketsu's real audit is semantic — put the re-read question to the model
   // and report prose findings (docs/Frameworks Plan.md, Phase 3).
-  if(_fwDoc && _fwDoc.id==="kishotenketsu" && ctx.ai.available && typeof window.aiTenReRead==="function" && !ctx.cancelled()){
+  if(_fwDoc && _fwDoc.id==="kishotenketsu" && ctx.ai.available && typeof window.aiTenReRead==="function" && !ctx.cancelled() && !halted){
     ctx.emit({k:"act", t:"Re-reading the story with the ten in mind — what recontextualizes, and what doesn't?"});
     let rr=null; try{ rr = await window.aiTenReRead(ctx.model.scenes); }catch(e){}
     if(ctx.cancelled()) return;
@@ -504,7 +524,7 @@ async function agentStoryDoctor(ctx){
   // Character–Plot FUSION CHECK — every turning point is caused by a character's
   // CHOICE or by OUTSIDE FORCES. Fine writing fuses them: when one side dominates,
   // the story is either a puppet show (all external) or a vacuum (all choice).
-  if(ctx.ai.available && typeof window.aiFusionCheck==="function" && !ctx.cancelled() && ctx.model.scenes.length>=6){
+  if(ctx.ai.available && typeof window.aiFusionCheck==="function" && !ctx.cancelled() && !halted && ctx.model.scenes.length>=6){
     ctx.emit({k:"act", t:"Fusion check \u2014 is each turning point caused by the character's choice, or by outside forces?"});
     let fc=null; try{ fc = await window.aiFusionCheck(ctx.model.scenes); }catch(e){}
     if(ctx.cancelled()) return;
@@ -546,10 +566,20 @@ async function agentContinuityRepair(ctx){
     && L0.sig !== window.continuityLedgerSig(ctx.model.scenes, ctx.model.drafts)));
   if(stale && ctx.ai.continuityLedger){
     if(!ctx.ai.available){ ctx.emit({k:"flag", t:"This film's setups and payoffs aren't mapped yet, and the writing model isn't available to map them."}); ctx.emit({k:"done", t:"Nothing to check yet."}); return; }
-    if(L0) ctx.emit({k:"observe", t:"The script changed since the continuity ledger was built \u2014 rebuilding it first."});
+    if(L0) ctx.emit({k:"observe", t:"The script changed since the continuity ledger was built \u2014 it needs rebuilding first."});
+    /* THE LEDGER IS REBUILT ONLY WITH YOUR OK (2026-10-09, owner — Writers' Room review): it was rebuilt (a paid
+       call, and the film's continuity map replaced) with no card, even when every later card was rejected */
+    const okL = await ctx.propose({
+      title:L0 ? "Rebuild this film's setups & payoffs ledger?" : "Map this film's setups and payoffs first?",
+      reason:L0 ? "The script changed since the ledger was built, so the check would read an old map." : "The continuity check needs this film's setups and payoffs mapped.",
+      rationale:"Reads the script and lists every setup and payoff (one writing call, writing credits). It replaces the current continuity map; Undo restores it.",
+      before:L0 ? "Ledger built from an earlier version of the script" : "No setups & payoffs mapped yet",
+      after:"A ledger built from today's script" });
+    if(ctx.cancelled()) return;
+    if(!okL){ ctx.emit({k:"done", t:"Setups & Payoffs stopped \u2014 nothing was changed."}); return; }
     await buildContinuityLedgerStep(ctx);
     if(ctx.cancelled()) return;
-    if(!(ctx.model.project||{}).continuityFacts){ ctx.emit({k:"done", t:"Continuity repair stopped \u2014 nothing was changed."}); return; }
+    if(!(ctx.model.project||{}).continuityFacts){ ctx.emit({k:"done", t:"Setups & Payoffs stopped \u2014 nothing was changed."}); return; }
   }
   let planted = 0;   // lines written into scene cards (their scripts then need a redraft)
   for(let iter=0; iter<MAX; iter++){
@@ -579,13 +609,19 @@ async function agentContinuityRepair(ctx){
     const target = scenes[targetIdx];
     ctx.emit({k:"act", t:"Drafting a "+mode+" line for \u201c"+factLabel+"\u201d in Scene "+target.no+"\u2026"});
     const line = ctx.ai.available ? await ctx.ai.plantLine(target, factLabel, mode) : null;
-
+    if(ctx.cancelled()) return;   // stopped while the line was written: no card after Stop
+    /* NO LINE, NO CARD (2026-10-09): the card showed "[Setup: X]", but approving it wrote nothing into the
+       scene — only the map entry, so the re-check passed and the gap was called repaired */
+    if(!line){
+      ctx.emit({k:"flag", t:"The writing model didn't write a "+mode+" line for \u201c"+factLabel+"\u201d"+(ctx.ai.available ? "" : " (it isn't available)")+", so there's nothing to approve \u2014 nothing was changed. Plant it by hand in Scene "+target.no+", or run Setups & Payoffs again."});
+      break;
+    }
     const ok = await ctx.propose({
       title:(mode==="setup"?"Plant setup":"Add payoff")+" in Scene "+target.no+" \u2014 "+target.title,
       reason:beforeT,
       rationale:afterT,
       before: target.summary,
-      after: (line ? (target.summary+"  "+line) : (target.summary+"  ["+(mode==="setup"?"Setup":"Payoff")+": "+factLabel+"]")),
+      after: target.summary+"  "+line,
     });
     if(ctx.cancelled()) return;
     if(ok){
@@ -598,18 +634,18 @@ async function agentContinuityRepair(ctx){
       cont[target.id] = entry;
       ctx.model.continuity = cont;
       // also reflect the planted line in the scene summary
-      if(line){ const sidx = ctx.model.scenes.findIndex(s=>s.id===target.id);
+      { const sidx = ctx.model.scenes.findIndex(s=>s.id===target.id);
         ctx.model.scenes[sidx] = {...target, summary: target.summary+"  "+line}; planted++; }
-      ctx.sync();
+      if(ctx.sync()===false) return;   // not saved — it said why
       ctx.emit({k:"ok", t:"Applied to Scene "+target.no+". Re-running the continuity check\u2026"});
     } else {
-      ctx.emit({k:"flag", t:"Skipped. Stopping continuity repair to avoid looping on a declined fix."});
+      ctx.emit({k:"flag", t:"Skipped. Stopping Setups & Payoffs to avoid looping on a declined fix."});
       break;
     }
   }
   ctx.emit({k:"done", t: planted
-    ? "Continuity repair finished. Its "+planted+" line"+(planted!==1?"s":"")+" went into the scene cards \u2014 those scenes are now marked \u201cneeds redraft\u201d in the Script view, so the planted setups and payoffs reach the screenplay with one click."
-    : "Continuity repair finished. Open the Script view's continuity check to confirm."});
+    ? "Setups & Payoffs finished. Its "+planted+" line"+(planted!==1?"s":"")+" went into the scene cards \u2014 those scenes are now marked \u201cneeds redraft\u201d in the Script view, so the planted setups and payoffs reach the screenplay with one click."
+    : "Setups & Payoffs finished. Open the Script view's continuity check to confirm."});
 }
 
 /* =========================================================
@@ -680,6 +716,17 @@ window.turnRepeatedServiceFailure = repeatedServiceFailure;
 
 /* a rough stand-in draft (script.jsx isStandInDraft — Story Pipeline step 7), with the same rule
    inline when script.jsx isn't loaded */
+/* AN ERROR IN PLAIN WORDS (2026-10-09, owner — Writers' Room review): a message the app wrote (a billing or
+   service notice) is kept; a raw program error ("Cannot read properties of undefined…") isn't shown to users
+   — admins still see it. */
+function agentErrText(e){
+  const msg = String((e && e.message) || e || "").trim();
+  const raw = !msg || /^(TypeError|ReferenceError|SyntaxError|RangeError)\b|Cannot read propert|is not a function|is not defined|undefined|null\b|\[object /.test(msg)
+    || (e && /^(TypeError|ReferenceError|SyntaxError|RangeError)$/.test(String(e.name||"")));
+  if(!raw) return msg.replace(/[.\s]+$/,"");
+  return "an unexpected error"+((typeof window!=="undefined" && window.turnIsAdmin) ? " [admin: "+msg+"]" : "");
+}
+window.agentErrText = agentErrText;
 function standInDraft(d){
   return (typeof window.isStandInDraft==="function") ? window.isStandInDraft(d)
     : !!(d && (d.blocks||[]).length && (d.standIn===true || (d.auto===true && !d.ai && !d.by)));
@@ -895,7 +942,7 @@ async function buildContinuityLedgerStep(ctx){
     const issues = (typeof continuityReport==="function") ? continuityReport(ctx.model.scenes, L.map, L.facts).conflicts.length : 0;
     ctx.emit({k:"ok", t:"Continuity mapped \u2014 "+n+" story fact"+(n!==1?"s":"")+" tracked"+(issues?(", "+issues+" setup/payoff issue"+(issues!==1?"s":"")+" for Setups & Payoffs."):", every setup pays off.")});
   }catch(e){
-    ctx.emit({k:"flag", t:"Couldn't map continuity this time ("+((e&&e.message)||e)+"). The film is fine \u2014 build the ledger later from the Script view's Continuity report."});
+    ctx.emit({k:"flag", t:"Couldn't map continuity this time ("+agentErrText(e)+"). The film is fine \u2014 build the ledger later from the Script view's Continuity report."});
   }
 }
 
@@ -1197,7 +1244,7 @@ async function agentAdaptation(ctx){
         if(missedB.length) ctx.emit({k:"flag", t:"Couldn't design the inner life of "+missedB.join(", ")+" before writing this time; their scenes are written without it. Open "+(missedB.length===1?"that character":"each")+" in the Cast panel and press Draft to fill it in."}); }
       // HONEST LOG (2026-09-28): nothing came back — say so, never pass in silence
       else ctx.emit({k:"flag", t:"Couldn't design the cast's inner life before writing this time; the scenes are written without it, and the check after the script tries again."});
-    }catch(e){ ctx.emit({k:"flag", t:"Couldn't design the cast's inner life first ("+((e&&e.message)||e)+"); the scenes will be written without it and the check after the script fills it in."}); }
+    }catch(e){ ctx.emit({k:"flag", t:"Couldn't design the cast's inner life first ("+agentErrText(e)+"); the scenes will be written without it and the check after the script fills it in."}); }
   }
 
   // ---- seamlessly author beats + script for every scene (no manual Auto-draft needed) ----
@@ -1303,7 +1350,7 @@ async function agentAdaptation(ctx){
       else if(Array.isArray(psyReport.failedIds)) ctx.emit({k:"ok", t:"Psychology checked \u2014 the script bears out every character."});
       // (a writer without the report can't tell a clean check from a failed one: claim neither)
       else ctx.emit({k:"observe", t:"Psychology check: no revisions came back for the cast."});
-    }catch(e){ ctx.emit({k:"flag", t:"Couldn't check the cast's psychology against the script this time ("+((e&&e.message)||e)+") \u2014 the psychology designed before the script stands."}); }
+    }catch(e){ ctx.emit({k:"flag", t:"Couldn't check the cast's psychology against the script this time ("+agentErrText(e)+") \u2014 the psychology designed before the script stands."}); }
   }
 
   // ---- map setups and payoffs so continuity is checkable from the start: the LAST step ----
@@ -1324,14 +1371,23 @@ async function agentAdaptation(ctx){
    AGENT 4 — TABLE-READ  (whole-script critique, read-only)
    ========================================================= */
 async function agentTableRead(ctx){
-  const drafted = ctx.model.scenes.filter(s=>ctx.model.drafts[s.id]).length;
-  if(!drafted){ ctx.emit({k:"flag", t:"No scenes are drafted yet. Draft some scenes (or Auto-draft all), then run the Final Read."}); ctx.emit({k:"done",t:"Nothing to read."}); return; }
+  /* ONLY WRITTEN SCREENPLAY IS READ (2026-10-09, owner — Writers' Room review): a rough stand-in built from the
+     beat cards isn't a screenplay (Story Pipeline step 7), and notes came back on its card text */
+  const written = {}; let standIns = 0;
+  ctx.model.scenes.forEach(s=>{ const d = ctx.model.drafts[s.id];
+    if(!(d && (d.blocks||[]).length)) return;
+    if(standInDraft(d)){ standIns++; return; }
+    written[s.id] = d; });
+  const drafted = Object.keys(written).length;
+  if(!drafted){ ctx.emit({k:"flag", t:(standIns ? standIns+" scene"+(standIns!==1?"s are rough stand-ins":" is a rough stand-in")+" and no scene is written yet. " : "No scenes are drafted yet. ")+"Draft some scenes (or Auto-draft all), then run the Final Read."}); ctx.emit({k:"done",t:"Nothing to read."}); return; }
+  if(standIns) ctx.emit({k:"observe", t:standIns+" rough stand-in"+(standIns!==1?"s are":" is")+" skipped \u2014 "+(standIns!==1?"they're":"it's")+" built from beat cards, not written yet."});
   if(!ctx.ai.available){ ctx.emit({k:"flag", t:"The model isn't available, so the Final Read can't run here."}); ctx.emit({k:"done",t:"Aborted."}); return; }
   ctx.emit({k:"plan", t:"Reading all "+drafted+" drafted scenes end-to-end as actor, director, editor and sound designer \u2014 checking page rhythm, visual writing, action/dialogue causality, voice and thematic payoff."});
   ctx.emit({k:"act", t:"Performing the final read\u2026"});
-  const rep = await ctx.ai.tableRead(ctx.model.scenes, ctx.model.drafts);
+  const rep = await ctx.ai.tableRead(ctx.model.scenes, written);
   if(ctx.cancelled()) return;
   if(!rep){ ctx.emit({k:"flag", t:"The model didn't return a usable report. Try again."}); ctx.emit({k:"done",t:"Aborted."}); return; }
+  if(rep.unavailable==="service"){ ctx.emit({k:"flag", t:rep.message||"The Final Read couldn't run right now."}); ctx.emit({k:"done",t:"Nothing was read."}); return; }
   if(rep.unavailable==="coverage"){
     ctx.emit({k:"flag",t:rep.message||"This screenplay is too large for one complete-film read."});
     ctx.emit({k:"done",t:"Final Read stopped without making claims about an incomplete script."});
@@ -1343,7 +1399,7 @@ async function agentTableRead(ctx){
   // model's free-text notes — a real run must never be dropped by a phrasing guess);
   // each carries flaw:"monologue" so any structured consumer can dedupe cleanly.
   const mono = (typeof window.dialogueMonologues==="function")
-    ? window.dialogueMonologues(ctx.model.scenes, ctx.model.drafts) : [];
+    ? window.dialogueMonologues(ctx.model.scenes, written) : [];
   mono.forEach(m=>{
     rep.notes = rep.notes||[];
     rep.notes.push({ scene:m.scene, fixAt:"lines", flaw:"monologue",
@@ -1353,7 +1409,7 @@ async function agentTableRead(ctx){
   // voice distinctiveness pass — the sharpest note a real table-read produces:
   // lines that could swap speakers without anyone noticing
   ctx.emit({k:"act", t:"Re-reading the dialogue per character — checking every voice is distinct enough that no line could swap speakers…"});
-  const vc = ctx.ai.voiceCheck ? await ctx.ai.voiceCheck(ctx.model.scenes, ctx.model.drafts) : null;
+  const vc = ctx.ai.voiceCheck ? await ctx.ai.voiceCheck(ctx.model.scenes, written) : null;
   if(ctx.cancelled()) return;
   if(vc && !vc.unavailable){
     ctx.emit({k:"report", t:"Voice check complete.", voiceReport:vc});
@@ -1371,6 +1427,8 @@ async function agentTableRead(ctx){
       ? "Voice check skipped — it needs at least two characters with spoken lines."
       : why==="noModel"
       ? "Voice check skipped — the writing model isn't available right now; the Final Read notes above still stand."
+      : why==="service"
+      ? "Voice check couldn't run — "+((typeof window.screenplayFailureReason==="function" && vc.failure) ? window.screenplayFailureReason(vc.failure) : "the writing service didn't answer")+". The Final Read notes above still stand."
       : "Voice check FAILED — the model's answer couldn't be read. Your dialogue is fine to check; run the Final Read again to retry the voice pass."});
     ctx.emit({k:"done", t:rep.notes.length+" specific notes flagged. Click a note to jump to that scene."});
   }
@@ -1763,7 +1821,7 @@ async function agentShotDesigner(ctx){
       // the scene is checked again here: changed while the proposal waited → not applied, said why
       let applied = true;
       try{ cov.applyCoverage(issue.sceneId, fix.shots, fix.anchorId); }
-      catch(e){ applied = false; ctx.emit({k:"flag", t:"Scene "+issue.sceneNo+" wasn't changed: "+String((e&&e.message)||e)+"."}); }
+      catch(e){ applied = false; ctx.emit({k:"flag", t:"Scene "+issue.sceneNo+" wasn't changed: "+agentErrText(e)+"."}); }
       skip.add(issue.sceneId);   // one design per scene per run — the loop always ends
       if(applied){ fixes++; ctx.emit({k:"ok", t:"Applied to Scene "+issue.sceneNo+". Re-auditing…"}); }
     } else {
@@ -1836,7 +1894,7 @@ async function agentCastingDirector(ctx){
       ctx.emit({k:"act", t:"Generating "+(c.name||"the character")+"'s master sheet…"});
       try{ baseUrl = await cast.generateMaster(c); sheets++;
         ctx.emit({k:"ok", t:(c.name||"Character")+" — master sheet generated."}); }
-      catch(e){ ctx.emit({k:"flag", t:"Couldn't generate "+(c.name||"the character")+"'s sheet: "+((e&&e.message)||e)+". Moving on."}); continue; }
+      catch(e){ ctx.emit({k:"flag", t:"Couldn't generate "+(c.name||"the character")+"'s sheet: "+agentErrText(e)+". Moving on."}); continue; }
     }
     if(ctx.cancelled()) return;
 
@@ -1851,7 +1909,7 @@ async function agentCastingDirector(ctx){
       ctx.emit({k:"act", t:"Generating "+(c.name||"the character")+" — “"+(st.label||"variant")+"”…"});
       try{ await cast.generateState(c, st, baseUrl); variants++;
         ctx.emit({k:"ok", t:(c.name||"Character")+" — “"+(st.label||"variant")+"” generated."}); }
-      catch(e){ ctx.emit({k:"flag", t:"Couldn't generate "+(c.name||"the character")+" — “"+(st.label||"variant")+"”: "+((e&&e.message)||e)+"."}); }
+      catch(e){ ctx.emit({k:"flag", t:"Couldn't generate "+(c.name||"the character")+" — “"+(st.label||"variant")+"”: "+agentErrText(e)+"."}); }
     }
   }
   // (2026-10-06) only a forced run that re-drafted specs marks the department — each drafted card records its own
@@ -1899,7 +1957,7 @@ async function agentWearProps(ctx){
       }
       done++;
       ctx.emit({k:"ok", t:(c.name||"Character")+" now wears its exact prop"+(worn.length!==1?"s":"")+"."});
-    }catch(e){ ctx.emit({k:"flag", t:"Couldn't dress "+(c.name||"the character")+": "+((e&&e.message)||e)+". Moving on."}); }
+    }catch(e){ ctx.emit({k:"flag", t:"Couldn't dress "+(c.name||"the character")+": "+agentErrText(e)+". Moving on."}); }
   }
   ctx.emit({k:"done", t:"Dressed "+done+" character"+(done!==1?"s":"")+" in their finalized worn props."});
 }
@@ -1928,7 +1986,7 @@ async function agentPropsMaster(ctx){
   ctx.emit({k:"act", t:redraftSpecs?"Re-drafting every prop spec from the story…":"Drafting prop specs from the story…"});
   let drafted=0;
   try{ drafted = await pm.draftSpecs(redraftSpecs); }
-  catch(e){ ctx.emit({k:"flag", t:"Spec drafting hit an error: "+((e&&e.message)||e)}); }
+  catch(e){ ctx.emit({k:"flag", t:"Spec drafting hit an error: "+agentErrText(e)}); }
   ctx.emit({k:"observe", t:drafted?("Drafted "+drafted+" spec"+(drafted!==1?"s":"")+"."):"Specs already complete."});
   if(ctx.cancelled()) return;
 
@@ -1957,7 +2015,7 @@ async function agentPropsMaster(ctx){
     ctx.emit({k:"act", t:"Generating "+(p.name||"a prop")+"'s sheet…"});
     try{ await pm.generateSheet(p); sheets++;
       ctx.emit({k:"ok", t:(p.name||"Prop")+" — sheet generated."}); }
-    catch(e){ ctx.emit({k:"flag", t:"Couldn't generate "+(p.name||"the prop")+"'s sheet: "+((e&&e.message)||e)+". Moving on."}); }
+    catch(e){ ctx.emit({k:"flag", t:"Couldn't generate "+(p.name||"the prop")+"'s sheet: "+agentErrText(e)+". Moving on."}); }
   }
   if(ctx.art.markApplied && ctx.force && drafted>0) ctx.art.markApplied("props");
   ctx.emit({k:"done", t:"Props mastered — "+castN+" brief proposal"+(castN!==1?"s":"")+", "+drafted+" drafted, "+sheets+" sheet"+(sheets!==1?"s":"")+" generated. Worn props that changed show on their owner's sheet as a wardrobe update."});
@@ -1998,7 +2056,7 @@ async function agentLocationScout(ctx){
   let specs=0;
   let specsFailed=false;
   try{ specs = await ls.draftSpecs(redraftSpecs); }
-  catch(e){ specsFailed=true; ctx.emit({k:"flag", t:"Spec drafting hit an error: "+((e&&e.message)||e)+". The specs stay as they were."}); }
+  catch(e){ specsFailed=true; ctx.emit({k:"flag", t:"Spec drafting hit an error: "+agentErrText(e)+". The specs stay as they were."}); }
   if(!specsFailed) ctx.emit({k:"observe", t:specs?("Drafted "+specs+" spec"+(specs!==1?"s":"")+"."):"Specs already complete."});
   if(ctx.cancelled()) return;
 
@@ -2041,7 +2099,7 @@ async function agentLocationScout(ctx){
     ctx.emit({k:"act", t:"Generating "+(l.name||"a location")+"'s plate…"});
     try{ if(await ls.generatePlate(l)===false)throw new Error("Generation did not complete; the existing plate is unchanged.");
       madeP++; ctx.emit({k:"ok", t:(l.name||"Location")+" — plate generated."}); }
-    catch(e){ ctx.emit({k:"flag", t:"Couldn't generate "+(l.name||"the location")+"'s plate: "+((e&&e.message)||e)+". Moving on."}); }
+    catch(e){ ctx.emit({k:"flag", t:"Couldn't generate "+(l.name||"the location")+"'s plate: "+agentErrText(e)+". Moving on."}); }
   }
   for(const pair of variants){
     if(ctx.cancelled()){ ctx.emit({k:"flag", t:"Stopped — "+madeP+" plates, "+madeV+" variants generated."}); return; }
@@ -2049,7 +2107,7 @@ async function agentLocationScout(ctx){
     ctx.emit({k:"act", t:"Generating "+(l.name||"a location")+" — "+(v.time||"variant")+"…"});
     try{ if(await ls.generateVariant(l, v)===false)throw new Error("Generation did not complete; the existing plate is unchanged.");
       madeV++; ctx.emit({k:"ok", t:(l.name||"Location")+" — "+(v.time||"variant")+" generated."}); }
-    catch(e){ ctx.emit({k:"flag", t:"Couldn't generate "+(l.name||"the location")+" — "+(v.time||"variant")+": "+((e&&e.message)||e)+"."}); }
+    catch(e){ ctx.emit({k:"flag", t:"Couldn't generate "+(l.name||"the location")+" — "+(v.time||"variant")+": "+agentErrText(e)+"."}); }
   }
   if(ctx.art.markApplied && ctx.force && specs>0) ctx.art.markApplied("locations");
   ctx.emit({k:"done", t:"Locations scouted — "+added+" pulled, "+specs+" drafted, "+madeP+" plate"+(madeP!==1?"s":"")+" + "+madeV+" variant"+(madeV!==1?"s":"")+" generated. Tweak any in the Locations tab."});
@@ -2112,7 +2170,7 @@ async function agentVisualResearcher(ctx){
   ctx.emit({k:"act", t:"Reading the story, writing the look statement, gathering references…"});
   let res;
   try{ res = await lb.research(); }
-  catch(e){ ctx.emit({k:"flag", t:"Research hit an error: "+((e&&e.message)||e)}); }
+  catch(e){ ctx.emit({k:"flag", t:"Research hit an error: "+agentErrText(e)}); }
   if(res && res.failed){ ctx.emit({k:"flag", t:"The research came back empty \u2014 your Lookbook is unchanged (nothing was moved to Recently deleted). Try again in a moment."});
     ctx.emit({k:"done", t:"Nothing changed."}); return; }
   if(res && res.statement) ctx.emit({k:"observe", t:"Look statement — "+res.statement.slice(0,150)});
@@ -2188,7 +2246,7 @@ async function agentDepartmentCoordinator(ctx){
     n++;
     ctx.emit({k:"act", t:"▸ Step "+n+"/"+steps.length+" — "+step[0]+"…"});
     try{ await step[1](subOf(live)); }
-    catch(e){ errored.push(step[0]); ctx.emit({k:"flag", t:step[0]+" step hit an error: "+((e&&e.message)||e)+". Continuing with the next."}); }
+    catch(e){ errored.push(step[0]); ctx.emit({k:"flag", t:step[0]+" step hit an error: "+agentErrText(e)+". Continuing with the next."}); }
   }
   if(ctx.cancelled()){ ctx.emit({k:"flag", t:"Stopped — completed "+n+" of "+steps.length+" steps."}); return; }
   // honest about what didn't finish (2026-10-09): steps that hit an error are named; each step's own notes above say what it did
@@ -2820,6 +2878,10 @@ const LEGACY_DISPLAY_NAMES = [
   [/\bMUSE polish\b/g, "AI polish"],
   [/\bConsistency Check\b/g, "Script Supervisor"],
   [/\bContinuity Repair\b/g, "Setups & Payoffs"],
+  // (2026-10-09) reports saved before the renames
+  [/\bContinuity repair (finished|stopped)\b/g, "Setups & Payoffs $1"],   // whole phrases only (a lower-case mention stays)
+  [/\bStopping continuity repair\b/g, "Stopping Setups & Payoffs"],
+  [/\bTable-[Rr]ead\b/g, "Final Read"],
   [/\bArt Department Coordinator\b/g, "Art Coordinator"],
   [/\bTURN prompt compiler\b/g, "Kinolot prompt compiler"],
 ];
@@ -2837,20 +2899,21 @@ window.turnAgentUmbrella = agentUmbrella;
 const AGENTS = [
   { id:"doctor", name:"Story Doctor", icon:"stethoscope", kind:"fix",
     blurb:"Scans the spine for the weakest link \u2014 scenes that don't turn, soft peaks, flat runs \u2014 and proposes a fix for each, re-auditing until the spine holds.",
-    run:agentStoryDoctor },
+    // the most writing calls a run can make (up to five fixes, the re-read, the fusion check) — said before it runs
+    maxCalls:7, run:agentStoryDoctor },
   { id:"consistency", name:"Script Supervisor", icon:"check", kind:"fix",
     blurb:"The script and beats are canon \u2014 this free, rule-based pass audits every drafted scene's story layer: cast names misspelled in the script or beats, script blocks tagged to the wrong beat, clocks that hard-flip between day and night with no time cue, app vocabulary leaking onto the page (charge notation, beat numbers) and scene-driving characters with no human truth. No model calls; unambiguous repairs come back as one-click approval cards. The production checks (props, locations, styles, wardrobe, shots, they/them lines) live in the Art Room's Production check.",
-    run:(ctx)=>agentConsistency(ctx, { scope:"story" }) },
+    maxCalls:0, run:(ctx)=>agentConsistency(ctx, { scope:"story" }) },
   { id:"continuity", name:"Setups & Payoffs", icon:"link", kind:"fix",
     blurb:"Runs the continuity check, then plants missing setups and pays off dangling threads \u2014 re-checking after each repair until it's clean.",
-    run:agentContinuityRepair },
+    maxCalls:6, run:agentContinuityRepair },   // the ledger (when it needs rebuilding) + up to five lines
   { id:"adapt", name:"Adaptation", icon:"flask", kind:"build", needsInput:true, ideaStarters:true,
     inputLabel:"Logline or synopsis", inputPlaceholder:"e.g. A lighthouse keeper discovers the fog is erasing the town's memories \u2014 including her own.",
     blurb:"Give it a logline and it architects the whole spine in your chosen framework \u2014 scenes, charges, beats, and screenplay, all written automatically. Blank page \u2192 finished draft.",
     run:agentAdaptation },
   { id:"tableread", name:"Final Read", icon:"film", kind:"report",
     blurb:"Reads the finished screenplay as actor, director, editor and sound designer \u2014 reporting visual writing, sound, page rhythm, action/dialogue causality, voice, pacing and thematic payoff across the whole film.",
-    run:agentTableRead },
+    maxCalls:2, run:agentTableRead },   // the read + the voice check
   { id:"production", name:"Production check", icon:"clipboard", kind:"fix", room:"art",
     blurb:"The 1st-AD pass before you render: reads every written scene into the cast sheets (pronouns, scale, physical details, voice, signature expressions), then holds props, locations, render styles, wardrobe and shots to the script \u2014 and offers to rewrite they/them lines to the cast's real pronouns and to slug the spaces the action plays inside. Every change is an approval card. The script read uses the writing model; the checks after it are free.",
     run:agentProductionCheck },

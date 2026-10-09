@@ -40,6 +40,11 @@ function sceneHarness({ artReadOnly = false } = {}) {
     S, currentProjectId: "film-1", canMutateWritersRoom: () => true, _trashStamp: (x) => ({ ...x, _deletedAt: "t" }),
     artRoomReadOnlyRef: { current: artReadOnly },
     renum: (ss) => ss.map((s, i) => ({ ...s, no: i + 1 })),
+    // (2026-10-09, Writers' Room third pass) the delete reads the film as it is after the question
+    scenesRef: { get current() { return S.scenes; } }, draftsRef: { get current() { return S.drafts; } },
+    shotsRef: { get current() { return S.shots; } },
+    liveStoryRef: { get current() { return { beatsMap: S.beatsMap, history: S.history, continuityMap: S.continuityMap }; } },
+    setDeletedScenes: (f) => { S.deletedScenes = f(S.deletedScenes || (S.deletedScene ? [S.deletedScene] : [])); S.deletedScene = S.deletedScenes[0] || null; },
     window: { appConfirm: async (o) => { S.confirms.push(o); return true; } },
   };
   ["scenes", "beatsMap", "drafts", "history", "continuityMap", "shots", "project", "props", "locations", "deletedScene", "selId", "trash"]

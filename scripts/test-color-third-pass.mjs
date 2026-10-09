@@ -146,7 +146,7 @@ await test("C2 the stills' vision call honours the run's pinned model and record
   assert.ok(v.includes("window.__lastWritingModel = { id:m.id, label:m.label };"));
 });
 await test("C3 the cost is said before Run; the panel no longer says 'Nothing happens without your OK'", ()=>{
-  assert.ok(!agentsUi.includes("Nothing happens without your OK.") && agentsUi.includes("nothing is applied without your OK. Running it uses writing credits"));
+  assert.ok(!agentsUi.includes("Nothing happens without your OK.") && agentsUi.includes("nothing is applied without your OK. \"+costLine") && agentsUi.includes("Running it uses writing credits; what it used shows when it finishes."));
   assert.ok(app.includes('"Cost: one writing call"') && app.includes("spent when you press Run. Nothing is applied until you approve it."));
   assert.ok(app.includes('viewLabel:"View Color"') && app.includes("on the Color tab's Visual references bar"));
   assert.equal((ui.match(/a little more when it looks at your reference stills/g)||[]).length >= 3, true);

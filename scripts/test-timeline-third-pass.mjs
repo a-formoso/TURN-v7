@@ -189,7 +189,7 @@ await test("D3 view-only people are told they can export and download; Frances k
 });
 await test("D4 cache keys", ()=>{
   // (later passes re-key some of these files again)
-  for(const f of ["stage.jsx", "ai.jsx", "script.jsx", "app.jsx"]) assert.ok(["20261009-tl3","20261009-mix3"].some(k=>html.includes('src="app/'+f+'?v='+k+'"')), f);
+  for(const f of ["stage.jsx", "ai.jsx", "script.jsx", "app.jsx"]) assert.ok(["20261009-tl3","20261009-mix3", "20261009-wr3"].some(k=>html.includes('src="app/'+f+'?v='+k+'"')), f);
   assert.ok(html.includes('href="app/styles.css?v=20261009-tl3"') || html.includes('href="app/styles.css?v=20261009-mix3"'));
 });
 

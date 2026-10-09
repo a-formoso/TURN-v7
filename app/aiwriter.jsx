@@ -63,7 +63,9 @@ function WritingDock({ task }){
         !pick && React.createElement("div",{className:"write-dock-note"},"story → "+labelOf(recStory)+" · specs → "+labelOf(recSpecs))),
       // MODELS — grouped by provider, compact segmented buttons like the image models
       (()=>{
-        const PROV = { anthropic:"Anthropic", google:"Google", openai:"OpenAI", moonshot:"Moonshot" };
+        // grouped by what the engines are good at — never by the company that makes them (2026-10-09:
+        // the headings named AI vendors, which nothing user-facing may do)
+        const PROV = { anthropic:"Story", google:"Fast", openai:"Alternative", moonshot:"Long context" };
         const groups=[]; models.forEach(m=>{ let g=groups.find(x=>x.p===m.provider);
           if(!g){ g={p:m.provider, items:[]}; groups.push(g); } g.items.push(m); });
         return groups.map(g=>React.createElement("div",{key:g.p,className:"nb-ctl"},

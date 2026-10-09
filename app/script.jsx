@@ -1194,7 +1194,7 @@ function EditableBlock({ b, onCommit, onRemove, flash, sceneNo, blockIndex }){
   return React.createElement("div",{className:"sp-editwrap","data-sp-block-index":blockIndex},
     React.createElement("div",{...editableProps, className:cls}),
     onRemove && React.createElement("button",{className:"sp-del-btn",
-      title:"Remove this element (Undo restores it)",
+      title:"Remove this element (Undo restores it)","aria-label":"Remove this element",
       onMouseDown:(e)=>e.preventDefault(), onClick:onRemove},"×"));
 }
 
@@ -1276,7 +1276,10 @@ function ContinuityReport({ report, ledger, onJump, onClose, currentId }){
           const k = CONFLICT_KIND[c.kind];
           const IcC = Icon[k.ic] || Icon.alert;
           const here = c.sceneId===currentId;
-          return React.createElement("div",{key:i,className:`cont-row ${k.sev}`,onClick:()=>onJump(c.sceneId)},
+          // reachable from the keyboard (2026-10-09)
+          return React.createElement("div",{key:i,className:`cont-row ${k.sev}`,role:"button",tabIndex:0,
+            onKeyDown:(e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); onJump(c.sceneId); } },
+            onClick:()=>onJump(c.sceneId)},
             React.createElement("span",{className:"ic"},React.createElement(IcC,{s:16})),
             React.createElement("div",{className:"body"},
               React.createElement("div",{className:"kind"},k.lab,
@@ -1411,8 +1414,8 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
         React.createElement("div",{className:"lbl"},`Drafting Sc.${String(now?now.no:total).padStart(2,"0")} \u00b7 threading continuity\u2026`),
         React.createElement("div",{className:"bar"},React.createElement("i",{style:{width:pct+"%"}}))));
   } else if(draftedCount < total){
-    control = React.createElement("button",{className:"draft-btn sm",onClick:onDraftAll,disabled:readOnly,
-      title:readOnly?"View-only access":undefined},
+    control = React.createElement("button",{className:"draft-btn sm",onClick:onDraftAll,disabled:readOnly||!!drafting,
+      title:readOnly?"View-only access":"Draft every undrafted scene \u2014 asks first (writing credits)"},
       React.createElement(Icon.sparkles,{s:14}),`Auto-draft all (${total-draftedCount} left)`);
   }
 
@@ -1466,7 +1469,7 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
         // always the accent style — the primary action must read consistently orange
         // whether or not the current draft is already polished (user ruling 2026-07-19)
         {className:"draft-btn sm",onClick:runPolish,disabled:readOnly||polishing,
-         title:"Rewrite this scene's screenplay from its CURRENT beat cards — the previous draft stays in version history (Undo restores it)"},
+         title:"Rewrite this scene's screenplay from its CURRENT beat cards (one writing call, writing credits) — the previous draft stays in version history (Undo restores it)"},
         React.createElement(Icon.wand,{s:14}),
         polishWait ? "Redrafting\u2026"
           // full label on desktop; CSS shortens the middle word out at <=400px
@@ -1517,8 +1520,13 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
     // covers manual edits too). Matches the block by identity in the canonical block list.
     const commitEdit = (b, newText)=>{
       if(!onEditScene) return;
-      const gi = screenplay.blocks.indexOf(b);
-      if(gi<0) return;
+      let gi = screenplay.blocks.indexOf(b);
+      // the block was replaced meanwhile (a new version arrived): find it again by its key, then by its
+      // type and old text; if it's really gone, say so instead of dropping the words (2026-10-09)
+      if(gi<0){ const k = _spBlockKey(b);
+        gi = screenplay.blocks.findIndex(x=>x && _spBlockKey(x)===k);
+        if(gi<0) gi = screenplay.blocks.findIndex(x=>x && x.type===b.type && String(x.text||"")===String(b.text||"")); }
+      if(gi<0){ if(typeof window.appToast==="function") window.appToast("That line changed while you were editing it, so your edit wasn't applied \u2014 here's what you typed: \u201c"+String(newText||"").slice(0,140)+"\u201d","error",{ force:true }); return; }
       const nextBlocks = screenplay.blocks.map((x,j)=> j===gi ? _spInheritKey(x, {...x, text:newText}) : x);
       onEditScene(scene.id, keepStandInMark(screenplay, { ...screenplay, blocks:nextBlocks, edited:true, polished:false, ai:false, auto:false, by:null }));
     };
@@ -1624,7 +1632,8 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
             React.createElement("div",{className:`sp-gut ${on?"on":""}`,
               title:(r ? ((r.drive&&r.drive.a)||("Beat "+n))+" / "+((r.react&&r.react.a)||"Reaction")+"\n" : "")+
                 (scriptBeat ? ("Screenplay: "+scriptBeat) : "No screenplay text is assigned to this beat"),
-              onMouseEnter:()=>setActiveBeat(n),
+              onMouseEnter:()=>setActiveBeat(n),role:"button",tabIndex:0,"aria-label":"Beat "+n+(scriptBeat?"":" \u2014 no screenplay text yet"),
+              onKeyDown:(e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); setActiveBeat(n); onBeatFocus && onBeatFocus(n); } },
               onClick:()=>{ setActiveBeat(n); onBeatFocus && onBeatFocus(n); }},
               React.createElement("div",{className:"bnum"},n),
               React.createElement("div",{className:"blab"}, r ? r.drive.a : "Unmapped beat")),
@@ -1639,7 +1648,7 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
                       // one-click gap fix — only when the beat map defines this beat and a writing model is live
                       r && live && onEditScene && React.createElement("button",{className:"spb-write-btn",
                         disabled: readOnly||beatWriting!=null,
-                        title:"Writes JUST this beat's prose from its beat-map action/reaction ("+((r.drive&&r.drive.a)||"Action")+" / "+((r.react&&r.react.a)||"Reaction")+"), bridging the surrounding text — committed as a new version, Undo restores the gap.",
+                        title:"Writes JUST this beat's prose from its beat-map action/reaction ("+((r.drive&&r.drive.a)||"Action")+" / "+((r.react&&r.react.a)||"Reaction")+"), bridging the surrounding text — committed as a new version, Undo restores the gap (one writing call, writing credits).",
                         onClick:()=>writeMissingBeat(n)},
                         beatWriting===n
                           ? React.createElement(React.Fragment,null,React.createElement("span",{className:"ns-spin"}),"Writing beat "+n+"…")
@@ -1747,9 +1756,12 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
           ? `This scene's ${beats.rows.length} beats are mapped. ${live?"Draft expands them into original prose, threading":"Expanding them inherits"} the story-state above.`
           : "Map this scene into beats first, then it can be expanded into screenplay."),
         React.createElement("div",{style:{display:"flex",gap:10,justifyContent:"center"}},
-          React.createElement("button",{className:"draft-btn",disabled:readOnly,onClick:()=>onDraftOne(scene)},
+          // disabled while any draft runs — the keyboard could start a second paid one behind the overlay (2026-10-09)
+          React.createElement("button",{className:"draft-btn",disabled:readOnly||!!drafting,onClick:()=>onDraftOne(scene),
+            title:"Write this scene's screenplay"+(beats?"":" (its beats first)")+" (writing credits)"},
             React.createElement(Icon.wand,{s:15}),live?"Draft":"Draft this scene"),
-          React.createElement("button",{className:"draft-btn ghost",disabled:readOnly,onClick:onDraftAll},
+          React.createElement("button",{className:"draft-btn ghost",disabled:readOnly||!!drafting,onClick:onDraftAll,
+            title:"Draft every undrafted scene \u2014 asks first (writing credits)"},
             React.createElement(Icon.sparkles,{s:15}),"Auto-draft all"))));
   }
 

@@ -46,7 +46,7 @@ function VoiceCheckReport({ rep }){
       React.createElement("div",{className:"tr-lab"},"Swappable lines"+(swaps.length?(" · "+swaps.length):"")),
       swaps.length===0
         ? React.createElement("div",{className:"tr-txt"},"None — every line could only belong to its speaker.")
-        : swaps.map((x,i)=>React.createElement("div",{key:i,className:"tr-note",
+        : swaps.map((x,i)=>React.createElement("div",{key:i,className:"tr-note",...noteKeys(()=> x.scene && window.__turnJump && window.__turnJump(x.scene), x.scene),
             onClick:()=> x.scene && window.__turnJump && window.__turnJump(x.scene)},
             x.scene!=null && React.createElement("span",{className:"tr-note-sc"},"Sc "+x.scene),
             React.createElement("span",{className:"tr-note-tx"},
@@ -55,6 +55,12 @@ function VoiceCheckReport({ rep }){
               x.why ? " "+x.why : "")))));
 }
 
+/* a note that opens its scene is reachable from the keyboard (2026-10-09) */
+function noteKeys(go, scene){
+  if(scene==null) return {};
+  return { role:"button", tabIndex:0, "aria-label":"Open Scene "+scene,
+    onKeyDown:(e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); go(); } } };
+}
 function TableReadReport({ rep, onJump }){
   return React.createElement("div",{className:"tr-report"},
     [["Pacing",rep.pacing],["Tone",rep.tone],["Voice",rep.voice],
@@ -66,7 +72,7 @@ function TableReadReport({ rep, onJump }){
     rep.notes && rep.notes.length>0 && React.createElement("div",{className:"tr-notes"},
       React.createElement("div",{className:"tr-lab"},"Notes"),
       rep.notes.map((n,i)=>
-        React.createElement("div",{key:i,className:"tr-note",
+        React.createElement("div",{key:i,className:"tr-note",...noteKeys(()=> n.scene && window.__turnJump && window.__turnJump(n.scene), n.scene),
           onClick:()=> n.scene && window.__turnJump && window.__turnJump(n.scene)},
           n.scene!=null && React.createElement("span",{className:"tr-note-sc"},"Sc "+n.scene),
           React.createElement("span",{className:"tr-note-tx"},n.issue,
@@ -180,7 +186,8 @@ function IdeaHelper({ onPick }){
    films with a global size budget: over budget, the films with the oldest reports
    are evicted first — which is also how reports of deleted films age out. */
 const AGENT_REPORTS_LS_KEY = "turn.agentReports";
-function agentReportProjectId(){ return window.__turnCurrentProjectId || "local"; }
+// the same film key the app's Undo uses (a signed-out user's new story is a new film, not "local" again — 2026-10-09)
+function agentReportProjectId(){ return (typeof window.turnFilmToken==="function" && window.turnFilmToken()) || window.__turnCurrentProjectId || "local"; }
 function loadAgentReportsAll(){
   try{ return JSON.parse(localStorage.getItem(AGENT_REPORTS_LS_KEY)||"{}") || {}; }catch(e){ return {}; }
 }
@@ -225,7 +232,14 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
   const inputRef = React.useRef(initialInput||"");
   React.useEffect(()=>{ inputRef.current = input; },[input]);
 
-  React.useEffect(()=>{ if(bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; },[trace,pending]);
+  // follows the newest step only while you're reading the bottom (2026-10-09 — it jumped on every step)
+  const nearBottomRef = React.useRef(true);
+  const onBodyScroll = ()=>{ const el = bodyRef.current; if(el) nearBottomRef.current = (el.scrollHeight - el.scrollTop - el.clientHeight) < 80; };
+  React.useEffect(()=>{ if(bodyRef.current && (nearBottomRef.current || pending)) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; },[trace,pending]);
+  // a new approval card takes the keyboard focus, so it's announced and reachable
+  const cardRef = React.useRef(null);
+  React.useEffect(()=>{ if(pending && cardRef.current){ try{ cardRef.current.focus(); }catch(e){} } },[pending]);
+  const spendRef = React.useRef(null);   // the meter when the run started — Stop says what the run used so far
   React.useEffect(()=>()=>{ cancelled.current = true; if(resolver.current) resolver.current(false); },[]);
   // while this panel is open, ERROR toasts land HERE (bottom of the modal, links
   // clickable) instead of as a detached corner toast
@@ -259,7 +273,12 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
     return ()=>window.removeEventListener("turn-writing-model-changed", h);
   },[isArt]);
   const _mid = _mid0 || "claude-opus-5-5";
-  const _midLabel = ((_MODELS.find(m=>m.id===_mid)||{}).label) || _mid;
+  const _midLabel = ((_MODELS.find(m=>m.id===_mid)||{}).label) || "the default writing engine";   // never a raw id
+  // what a run uses, said BEFORE it starts (2026-10-09, owner — Writers' Room review): free, or up to N writing calls
+  const costLine = agent.maxCalls===0 ? "It makes no writing calls \u2014 running it is free."
+    : (agent.maxCalls>0 ? "Running it uses "+((typeof window.turnWritingCallsText==="function") ? window.turnWritingCallsText(agent.maxCalls, isArt?"specs":"story").replace(/^about /,"up to ") : ("up to "+agent.maxCalls+" writing calls"))
+        +" (writing credits; each is charged for what it uses) \u2014 what it used shows when it finishes."
+      : "Running it uses writing credits; what it used shows when it finishes.");
   const start = async ()=>{
     const myRun = ++runIdRef.current;
     cancelled.current = false;
@@ -288,16 +307,28 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
       agentName: agent.name,
       force: force,   // false | true | "draft" (re-draft specs but skip image generation)
       emit:(step)=>{ if(runIdRef.current!==myRun) return; runLog.push(step); setTrace(tr=>[...tr, step]); },
-      propose:(card)=> runIdRef.current!==myRun ? Promise.resolve(false) : new Promise(res=>{ setPending(card); setStatus("waiting");
+      // a card that comes back after Stop (or a film switch) is never shown — it used to reopen the
+      // stopped run and leave it on "Working…" (2026-10-09)
+      propose:(card)=> (runIdRef.current!==myRun || cancelled.current) ? Promise.resolve(false) : new Promise(res=>{ setPending(card); setStatus("waiting");
         resolver.current = (val)=>{ resolver.current=null; setPending(null); setStatus("running"); res(val); }; }),
       cancelled:()=>cancelled.current || runIdRef.current!==myRun,
     });
     // meter snapshot — the delta shows what THIS run cost in writing-model use
     spend0 = (typeof window.turnTextSpend==="function") ? window.turnTextSpend() : null;
-    await agent.run(ctx);
+    spendRef.current = spend0;
+    // the writing layer skips its cut-off retry once this run is stopped, and tells the trace when it retries
+    window.__turnAgentRunCancelled = ()=> cancelled.current || runIdRef.current!==myRun;
+    const onRetry = ()=>{ if(runIdRef.current===myRun && !cancelled.current)
+      setTrace(tr=>[...tr,{k:"observe",t:"A reply was cut off, so it asked once more with more room (one more writing call)."}]); };
+    const canListen = typeof window.addEventListener==="function";
+    if(canListen) window.addEventListener("turn-writing-retry", onRetry);
+    try{ await agent.run(ctx); } finally { if(canListen) window.removeEventListener("turn-writing-retry", onRetry); }
     }
-    catch(e){ if(runIdRef.current===myRun) setTrace(tr=>[...tr,{k:"flag",t:"The agent hit an error and stopped: "+(e.message||e)}]); }
+    // a plain sentence, the technical detail for admins only (2026-10-09 — the raw exception was shown)
+    catch(e){ if(runIdRef.current===myRun) setTrace(tr=>[...tr,{k:"flag",t:"Something went wrong and the run stopped \u2014 nothing more was changed. Try running it again."
+      +(window.turnIsAdmin ? " [admin: "+String((e&&e.message)||e)+"]" : "")}]); }
     finally{
+      if(runIdRef.current===myRun) window.__turnAgentRunCancelled = undefined;
       const at = pins.indexOf(myPin); if(at>=0) pins.splice(at,1);
       window.__forceWritingModel = pins.length ? pins[pins.length-1].model : undefined;
       runs[agent.id] = Math.max(0, (runs[agent.id]||1) - 1);
@@ -355,15 +386,15 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
         onChange:e=>setInput(e.target.value),rows:3}),
       agent.ideaStarters && React.createElement(IdeaHelper,{onPick:setInput})),
 
-    React.createElement("div",{className:"ag-body",ref:bodyRef},
+    React.createElement("div",{className:"ag-body",ref:bodyRef,onScroll:onBodyScroll,"aria-live":"polite","aria-relevant":"additions"},
       status==="idle" && React.createElement("div",{className:"ag-intro"},
         React.createElement("p",null,agent.blurb),
         introExtra,
         React.createElement("div",{className:"ag-intro-note"},
           React.createElement(Icon.eye,{s:14}),
-          agent.autonomous?"Runs on its own \u2014 you'll see each step as it works. Press Stop anytime.":
-          agent.kind==="report"?"Read-only \u2014 it reports, it won't change anything.":
-          "Every change is shown for your approval before it's applied \u2014 nothing is applied without your OK. Running it uses writing credits; what it used shows when it finishes.")),
+          agent.autonomous?"Runs on its own \u2014 you'll see each step as it works. Press Stop anytime. "+costLine:
+          agent.kind==="report"?"Read-only \u2014 it reports, it won't change anything. "+costLine:
+          "Every change is shown for your approval before it's applied \u2014 nothing is applied without your OK. "+costLine)),
       status==="idle" && saved && React.createElement(React.Fragment,null,
         React.createElement("div",{className:"ag-intro-note"},
           React.createElement(Icon.eye,{s:14}),
@@ -374,21 +405,27 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
       trace.map((s,i)=>React.createElement(TraceStep,{key:i,step:s})),
       running && !pending && React.createElement("div",{className:"ag-thinking"},
         React.createElement("span",{className:"ai-typing"},React.createElement("i",null),React.createElement("i",null),React.createElement("i",null))),
-      pending && React.createElement(ProposalCard,{card:pending,
-        onApprove:()=>decide(true),onReject:()=>decide(false)})),
+      pending && React.createElement("div",{ref:cardRef,tabIndex:-1,role:"group","aria-label":"Needs your approval",style:{outline:"none"}},
+        React.createElement(ProposalCard,{card:pending,
+          onApprove:()=>decide(true),onReject:()=>decide(false)}))),
 
     errNotes.length>0 && React.createElement("div",{className:"ag-errbar",role:"alert"},
       React.createElement("span",{className:"ag-errbar-ic"},"⚠"),
       React.createElement("div",{className:"ag-errbar-msgs"},
         errNotes.map((m,i)=>React.createElement("div",{key:i,className:"ag-errbar-msg"}, _linkifyText(m)))),
-      React.createElement("button",{className:"ag-errbar-x",onClick:()=>setErrNotes([]),title:"Dismiss"},"✕")),
+      React.createElement("button",{className:"ag-errbar-x",onClick:()=>setErrNotes([]),title:"Dismiss","aria-label":"Dismiss"},"✕")),
 
     React.createElement("div",{className:"ag-runner-foot"},
       status==="idle" && React.createElement("button",{className:"ag-run",onClick:start},
         React.createElement(Icon.sparkles,{s:16}),"Run "+agent.name),
       running && React.createElement("button",{className:"ag-run stop",
         onClick:()=>{ cancelled.current=true; if(resolver.current) resolver.current(false); setStatus("done");
-          setTrace(tr=>[...tr,{k:"flag",t:"Stopped by you."}]); }},
+          // what the run used so far, said on Stop (a call already sent still finishes, and is charged)
+          let used = "";
+          try{ const s0 = spendRef.current, s1 = (typeof window.turnTextSpend==="function") ? window.turnTextSpend() : null;
+            const n = s0 && s1 ? s1.calls - s0.calls : 0;
+            if(n>0){ const cr = Math.round((s1.credits - s0.credits)*100)/100; used = " So far it used "+n+" writing call"+(n!==1?"s":"")+" \u00b7 \u2248"+cr+" credit"+(cr===1?"":"s")+"."; } }catch(e){}
+          setTrace(tr=>[...tr,{k:"flag",t:"Stopped by you."+used+" A writing call already on its way still finishes (and is charged); nothing more is changed."}]); }},
         React.createElement(Icon.x,{s:16}),"Stop"),
       status==="done" && React.createElement(React.Fragment,null,
         React.createElement("button",{className:"ag-run ghost",onClick: single?onClose:onBack}, single?"Close":"\u2190 All Story Editors"),
@@ -409,6 +446,7 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
   const runningRef = React.useRef(false);
   const leaveOk = async ()=>{
     const building = active && active.kind==="build" && active.room!=="art";
+    // only the build asks (an earlier review's decision: closing any other editor closes at once)
     if(!(runningRef.current && building) || typeof window.appConfirm!=="function") return true;
     return !!(await window.appConfirm({ title:"Stop building this film?",
       body:"Closing this window stops the build now. Every scene already written is kept. To finish just the unwritten scenes later, open Story Editors and choose Finish writing this film.",
@@ -445,8 +483,15 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
   if(contN) issueParts.push(contN+(contN>1?" continuity gaps":" continuity gap"));
   const doctorBadge = (a)=> a.id!=="doctor" ? null
     : (noTurnN+structN)>0 ? { n:noTurnN+structN, cls:"", word:"issue" } : notesN>0 ? { n:notesN, cls:" note", word:"note" } : null;
+  // a real dialog: named, Escape closes it (asking first when a run is live), focus moves into it (2026-10-09)
+  const panelRef = React.useRef(null);
+  React.useEffect(()=>{ const back = document.activeElement;
+    try{ panelRef.current && panelRef.current.focus(); }catch(e){}
+    const onKey = (e)=>{ if(e.key==="Escape" && !document.querySelector(".appconfirm-overlay, .appconfirm")){ e.stopPropagation(); close(); } };
+    window.addEventListener("keydown", onKey);
+    return ()=>{ window.removeEventListener("keydown", onKey); try{ back && back.focus && back.focus(); }catch(e){} }; },[]);
   return React.createElement("div",{className:"ag-overlay",onMouseDown:(e)=>{ if(e.target===e.currentTarget) close(); }},
-    React.createElement("div",{className:"ag-panel"},
+    React.createElement("div",{className:"ag-panel",ref:panelRef,tabIndex:-1,role:"dialog","aria-modal":"true","aria-label":"Story Editors",style:{outline:"none"}},
       active
         ? React.createElement(AgentRunner,{agent:active,ctxFactory,onClose:close,onView,single,viewLabel,
             introExtra: finishing ? finishNote : introExtra,

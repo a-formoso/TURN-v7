@@ -280,12 +280,12 @@ await test("E4 Frances: the Stage entry tells today's truth (no 'Voice all lines
     assert.ok(!w.includes(gone), gone);
   for(const re of [/STAGE REVIEW, THIRD PASS/, /'Voice clip now'/, /Bring them into this clip/, /'Identity changed'/, /still running on the server/, /a frame still loading is never treated as missing/, /'Frame changed'/, /most recently edited/, /shown as a hold/, /view-only Stage nothing writes or spends/])
     assert.ok(re.test(w), String(re));
-  assert.ok(!/Claude|Anthropic|McKee|TURN\b|MUSE/.test(between(ai, "STAGE REVIEW, THIRD PASS (owner 2026-10-09)", "/* the public view of every entry")));
+  assert.ok(!/Claude|Anthropic|McKee|TURN\b|MUSE/.test(between(ai, "STAGE REVIEW, THIRD PASS (owner 2026-10-09)", "/* TIMELINE REVIEW, THIRD PASS")));
 });
 await test("E5 cache keys: every changed file loads with the new key (script.jsx shares ai.jsx's)", ()=>{
   // (later passes re-key some of these files again)
   for(const f of ["stage.jsx", "ai.jsx", "script.jsx", "app.jsx", "breakdown.jsx", "videogen.jsx", "stage-plan.jsx", "stage-references.jsx"])
-    assert.ok(["20261009-stage3", "20261009-tl3", "20261009-mix3"].some(k=>html.includes('src="app/'+f+'?v='+k+'"')), f);
+    assert.ok(["20261009-stage3", "20261009-tl3", "20261009-mix3", "20261009-wr3"].some(k=>html.includes('src="app/'+f+'?v='+k+'"')), f);
 });
 
 console.log((failed ? "RESULT: FAIL — " : "RESULT: PASS — ")+checks+" passed, "+failed+" failed");

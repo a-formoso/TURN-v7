@@ -305,7 +305,7 @@ await test("4 the drafting overlay's Stop ends the run after the scene being wri
   assert.equal(box.__toasts.length, 1);
   assert.equal(box.__toasts[0].m, "Auto-draft all stopped — 2 scenes were drafted and kept. 4 scenes are still undrafted — press Auto-draft all to continue.");
   // the overlay wiring: a Stop button on the batch overlay only (not on a single Draft with MUSE)
-  assert.ok(/\.\.\.\(drafting\.one \? \{\} : \{ onStop:stopDraftAll, stopping:!!drafting\.stopping \}\)/.test(appSrc));
+  assert.ok(appSrc.includes("...((drafting.one && !drafting.canStop) ? {} : { onStop:stopDraftAll, stopping:!!drafting.stopping })"))   // (2026-10-09) a single draft can stop after its beats;
   assert.ok(/function StudioProgressOverlay\(\{ title, detail, progress, role, onStop, stopping \}\)/.test(appSrc));
   const ov = vm.runInContext("("+between(appSrc, "function StudioProgressOverlay(", "\n/* ---- alternate view: Turn Audit table")+")", box);
   const walkFind = (n, f, out=[])=>{ if(!n || typeof n!=="object") return out; if(f(n)) out.push(n); (n.children||[]).forEach(c=>walkFind(c, f, out)); return out; };
@@ -714,7 +714,8 @@ await test("10 overlapping runs: the newest live run's model is pinned; when non
   const mkStart = (mid, id)=>{
     const env = { runIdRef:{ current:0 }, cancelled:{ current:false }, setTrace:noop, setPending:noop, setStatus:noop,
       agentReportProjectId:()=>"p", _mid:mid, agent:{ id:"doctor", kind:"fix", run:()=>new Promise(r=>{ gates[id] = r; }) },
-      ctxFactory:()=>({ switchedFilms:()=>false }), inputRef:{ current:"" }, force:false, resolver:{ current:null }, saveAgentReport:noop };
+      ctxFactory:()=>({ switchedFilms:()=>false }), inputRef:{ current:"" }, force:false, resolver:{ current:null }, saveAgentReport:noop,
+      spendRef:{ current:null } };   // (2026-10-09) Stop reports what the run used so far
     return compile(startSrc, env, ["start"]).start;
   };
   box.__forceWritingModel = undefined; box.__turnWritingPins = [];

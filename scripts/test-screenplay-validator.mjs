@@ -860,7 +860,7 @@ const makeApp = (scenes, bms, over)=>{
     canMutateWritersRoom:()=>mutable, setPolishBusy:()=>{}, scenesInStoryOrder:(x)=>x.slice(), scenes,
     autoDraftScene:box.autoDraftScene, aiPolishScene:box.aiPolishScene, aiDraftScene:box.aiDraftScene, aiAuthorScene:null, aiAvailable:()=>true,
     project:PROJ_FF, characters:[{ id:"dilys", name:"Dilys Fenwick" }, { id:"graham", name:"Graham Pell" }],
-    currentProjectId:"p1", projIdRef:{ current:"p1" }, writersRoomReadOnlyRef:{ current:false }, draftingRef:{ current:false },
+    currentProjectId:"p1", projIdRef:{ current:"p1" }, writersRoomReadOnlyRef:{ current:false }, draftingRef:{ current:false }, draftsRef:{ current:{} }, commitVersion:()=>true,
     drafts:{}, setDrafts:()=>{ calls.setDrafts++; }, setDrafting:()=>{}, setScenes:()=>{}, setBeatsFor:()=>{},
     commitVersion:(id, d)=>{ committed.push({ id, d }); return true; }, stampDraft:(d)=>d,
     beatsMap:Object.fromEntries(scenes.map((s,i)=>[s.id, (Array.isArray(bms) ? bms[i] : bms)])),

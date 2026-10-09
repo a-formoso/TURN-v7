@@ -248,7 +248,8 @@ await test("C2 the entries whose how-to lived in vendor sentences keep a vendor-
   const F = (n)=>box.museFacts().find(f=>f.name===n);
   assert.ok(F("Writing engine dock").what.startsWith("AUTO uses the studio's recommended writing engine for EVERY task"));
   assert.ok(F("Writing engine dock").what.includes("pins every drafting call to it for THIS SESSION"));
-  assert.ok(F("Writing engine dock").what.includes("compact segmented buttons grouped by provider"), "the panel's layout survives, without the names");
+  // (2026-10-09, Writers' Room third pass) the groups are named for what the engines do, never the vendor
+  assert.ok(F("Writing engine dock").what.includes("compact segmented buttons grouped by what the engines are good at (Story / Fast / Alternative / Long context)"), "the panel's layout survives, without the names");
   assert.ok(!/It is a (?:text\/reasoning|multimodal)/.test(F("Writing engine dock").what), "no orphan 'It is…' sentence about a dropped engine");
   assert.ok(F("Provider keys (no key needed)").what.startsWith("You never need a key or any setup"));
   assert.ok(F("Writing model (drafting & agents)").what.includes("default to the recommended engine (rich screen prose, strong long-form reasoning)"));
