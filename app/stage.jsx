@@ -1113,13 +1113,18 @@ function stageShotCanonLine(scene, drafts, beatsMap, sh, max){
 }
 function stageSheetPanelMeta(g, i, scene){
   const abs = (Number(g&&g.start)||0) + i;
-  const sceneShots = scene ? ((window.__sbShots||[]).filter(sh=>sh && sh.sceneId===scene.id)
+  const allShots = scene ? ((window.__sbShots||[]).filter(sh=>sh && sh.sceneId===scene.id)
     .sort((a,b)=>(a.order||0)-(b.order||0) || (a.beatN||0)-(b.beatN||0))) : null;
+  // the panel's place on the BOARD (one keyframe per beat — sbBoardShots), found by its shot id
+  const sceneShots = (allShots && typeof window.sbBoardShots==="function") ? window.sbBoardShots(allShots) : allShots;
   const ranges = stagePageRanges(sceneShots);
-  let page = Math.floor(abs/4)+1, cell = abs % 4;   // legacy fallback
+  const shotHere = (g && Array.isArray(g.shots) && g.shots[i]) || (allShots && allShots[abs]) || null;
+  const boardIdx = (shotHere && sceneShots) ? sceneShots.findIndex(x=>x && x.id===shotHere.id) : -1;
+  const at = boardIdx>=0 ? boardIdx : abs;
+  let page = Math.floor(at/4)+1, cell = at % 4;   // legacy fallback
   let acc = 0;
   for(let p=0;p<ranges.length;p++){
-    if(abs>=acc && abs<acc+ranges[p].count){ page=p+1; cell=abs-acc; break; }
+    if(at>=acc && at<acc+ranges[p].count){ page=p+1; cell=at-acc; break; }
     acc += ranges[p].count;
   }
   return { abs, page, panel:cell+1, half:cell<2?"top":"bottom" };
@@ -1570,16 +1575,24 @@ function storyboardClipIds(clip){
   // chunks, so the page/cell a shot lands in comes from the SAME geometry the tab used —
   // window.sbPageRanges over the scene's live shots (bridged onto window.__sbShots by
   // StageView). Falls back to the legacy fixed-4 math when the geometry isn't available.
-  const sceneShots = ((window.__sbShots||[]).filter(s=>s && s.sceneId===clip.scene.id))
+  const allShots = ((window.__sbShots||[]).filter(s=>s && s.sceneId===clip.scene.id))
     .sort((a,b)=>(a.order||0)-(b.order||0) || (a.beatN||0)-(b.beatN||0));
+  // THE BOARD DRAWS ONE KEYFRAME PER BEAT (storyboard.jsx sbBoardShots, 2026-10-09): pages are laid out from
+  // that list, and a clip finds its panels BY SHOT ID — a clip with a shot the board doesn't draw (an
+  // alternative) uses its own frames, never a neighbouring panel
+  const sceneShots = (typeof window.sbBoardShots==="function") ? window.sbBoardShots(allShots) : allShots;
   const ranges = stagePageRanges(sceneShots);
   const pages=[], halves=[];
   // the shots each page / half holds NOW, so a sheet drawn from other shots is never used
   // (storyboard.jsx sbSheetStale); only known when the live geometry is
   const expect = {}, halfShots = {};
   // the clip's own shots — a board is used only when every panel on it is one of these (2026-10-05)
-  const clipShotIds = (ranges ? sceneShots.slice(start, start+count) : ((clip&&clip.g&&clip.g.shots)||[])).map(s=>s && s.id).filter(Boolean);
-  for(let n=start; n<start+count; n++){
+  const clipShotsList = ((clip&&clip.g&&Array.isArray(clip.g.shots)&&clip.g.shots.length) ? clip.g.shots : allShots.slice(start, start+count));
+  const clipShotIds = clipShotsList.map(s=>s && s.id).filter(Boolean);
+  const boardAt = clipShotIds.map(id=> sceneShots.findIndex(s=>s && s.id===id));
+  const offBoard = !!ranges && (!clipShotIds.length || boardAt.some(p=>p<0));
+  for(let k=0; k<(offBoard ? 0 : (ranges ? boardAt.length : count)); k++){
+    const n = ranges ? boardAt[k] : start+k;
     let pageNo = Math.floor(n/4), cell = n%4;   // legacy fallback
     if(ranges){ let acc=0;
       for(let i=0;i<ranges.length;i++){
@@ -1597,9 +1610,9 @@ function storyboardClipIds(clip){
       halfShots[pageId+":half-bottom"] = expect[pageId].slice(2);
     }
   }
-  const page = pages[0] || ("sbsheet-sbpage-"+clip.scene.id+"-2x2-"+Math.floor(start/4));
+  const page = pages[0] || (offBoard ? "" : ("sbsheet-sbpage-"+clip.scene.id+"-2x2-"+Math.floor(start/4)));
   return {
-    sheet:page, pages, halves, top:halves[0]||"", bottom:halves[1]||"", expect, halfShots, clipShotIds,
+    sheet:page, pages, halves, top:halves[0]||"", bottom:halves[1]||"", expect, halfShots, clipShotIds, offBoard,
     legacySheet:legacy, legacyTop:legacy+":half-top", legacyBottom:legacy+":half-bottom",
     all:Array.from(new Set([].concat(pages, halves, [legacy, legacy+":half-top", legacy+":half-bottom"])))
   };
@@ -1617,9 +1630,11 @@ function storyboardClipAssets(clip, imgs){
     const exp = ids.expect && ids.expect[pageOf(id)];
     if(!exp || !imgs[id]) return false;
     const m = /:half-(top|bottom)$/.exec(String(id));
-    const bad = m
+    // a composed sheet with "Frame not generated" panels is never a video source (2026-10-09)
+    const partial = !m && (()=>{ const sm = metaOf(id); return !!(sm && sm.composed && Number(sm.missing)>0); })();
+    const bad = partial || (m
       ? (typeof window.sbHalfStale==="function" && window.sbHalfStale(metaOf(id), exp, m[1], metaOf(pageOf(id))))
-      : (typeof window.sbSheetStale==="function" && window.sbSheetStale(metaOf(id), exp));
+      : (typeof window.sbSheetStale==="function" && window.sbSheetStale(metaOf(id), exp)));
     if(bad && stale.indexOf(id)<0) stale.push(id);
     return !!bad;
   };

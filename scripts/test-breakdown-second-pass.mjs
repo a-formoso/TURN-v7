@@ -71,9 +71,9 @@ await test("A3 'approved' counts frames; boards follow the Storyboards rules; cl
   box.shotFrameState = (sh)=>({ a1:{ done:true }, a2:{ done:true }, a3:{ done:false } })[sh.id];
   const [r] = rowsOf({ shots, stageStatus:{ s1:{ total:2, rendered:1, stale:1, oldLook:0 } } });
   assert.equal(r.shots.approved, 2, "the frameless locked shot isn't an approved frame");
-  assert.deepEqual(J(r.boards), { total:1, current:1, stale:0, oldLook:0 });
+  assert.deepEqual(J(r.boards), { total:1, current:1, stale:0, oldLook:0, partial:0 });
   box.sbSheetStale = ()=>true;
-  assert.deepEqual(J(rowsOf({ shots })[0].boards), { total:1, current:0, stale:1, oldLook:0 });
+  assert.deepEqual(J(rowsOf({ shots })[0].boards), { total:1, current:0, stale:1, oldLook:0, partial:0 });
   assert.deepEqual(J(r.clips), { total:2, rendered:1, stale:1, oldLook:0 });
   box.localStorage = { getItem:(k)=> k==="turn_stage_scene_status:film-1" ? JSON.stringify({ s1:{ total:3 } }) : null };
   assert.deepEqual(J(box.bdStageStatus("film-1")), { s1:{ total:3 } });

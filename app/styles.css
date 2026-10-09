@@ -4483,6 +4483,9 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
 .turn-toast-act{flex:0 0 auto;appearance:none;border:1px solid currentColor;border-radius:6px;background:transparent;color:inherit;cursor:pointer;font:inherit;font-size:12px;font-weight:600;padding:2px 9px}
 .shot-check-thumb-btn{appearance:none;border:0;background:transparent;padding:0;margin:0;cursor:zoom-in;line-height:0;border-radius:6px}
 .shot-check-thumb-btn:focus-visible{outline:2px solid var(--pos);outline-offset:2px}
+.sb-half-view{appearance:none;border:0;background:transparent;padding:0;margin:0;cursor:zoom-in;line-height:0;display:block;width:100%}
+.sb-half-view img{width:100%}
+.sb-half-view:focus-visible{outline:2px solid var(--pos);outline-offset:2px}
 .scene-pager-btn{appearance:none;border:0;background:transparent;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:4px}
 .scene-pager-btn:focus-visible{outline:2px solid var(--pos);outline-offset:2px;border-radius:4px}
 .turn-toast-act:hover,.turn-toast-act:focus-visible{background:rgba(255,255,255,.12)}

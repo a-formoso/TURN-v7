@@ -130,17 +130,19 @@ function breakdownRows({ scenes, characters, props, locations, shots, drafts, im
     let boards = null;
     if(sceneShots.length && typeof window.sbPageRanges==="function"){
       const ordered2 = sceneShots.slice().sort((a,b)=>(a.order||0)-(b.order||0) || (a.beatN||0)-(b.beatN||0));
-      boards = { total:0, current:0, stale:0, oldLook:0 };
-      (window.sbPageRanges(ordered2)||[]).forEach((rg,i)=>{
+      boards = { total:0, current:0, stale:0, oldLook:0, partial:0 };
+      const board = (typeof window.sbBoardShots==="function") ? window.sbBoardShots(ordered2) : ordered2;   // one keyframe per beat, as the tab boards it
+      (window.sbPageRanges(board)||[]).forEach((rg,i)=>{
         boards.total++;
         const id = "sbsheet-sbpage-"+scene.id+"-2x2-"+i;
         if(!img(id)) return;
         const m = (typeof nbGetMeta==="function") ? nbGetMeta(id) : null;
-        const ids = ordered2.slice(rg.start, rg.start+rg.count).map(x=>x.id);
+        const ids = board.slice(rg.start, rg.start+rg.count).map(x=>x.id);
         // a sheet drawn from frames made with an earlier look isn't up to date either (2026-10-08)
         const earlier = typeof shotLookIsEarlier==="function" && ids.some(fid=>{ const fm = (typeof nbGetMeta==="function") ? nbGetMeta(fid) : null;
           return !!(fm && shotLookIsEarlier(fm.lookSig, project, scene.id)); });
         if(typeof window.sbSheetStale==="function" && m && window.sbSheetStale(m, ids)) boards.stale++;
+        else if(m && m.composed && Number(m.missing)>0) boards.partial++;   // drawn with frames missing (2026-10-09)
         else if(earlier) boards.oldLook++; else boards.current++;
       });
     }
@@ -402,7 +404,8 @@ function BreakdownStrip({ row, go:goTab, onMakeSceneNeeds, needsBusy=null, setNe
                 title:"Storyboard sheets drawn from this scene's current shots and frames \u2014 open the Storyboards tab (composing is free)"},
               dot(row.boards.current===row.boards.total),
               row.boards.current+" of "+row.boards.total+" sheet"+(row.boards.total===1?"":"s")+" up to date"+(row.boards.stale?" \u00b7 "+row.boards.stale+" out of date":"")
-                +(row.boards.oldLook?" \u00b7 "+row.boards.oldLook+" from frames with an earlier look":"")))),
+                +(row.boards.oldLook?" \u00b7 "+row.boards.oldLook+" from frames with an earlier look":"")
+                +(row.boards.partial?" \u00b7 "+row.boards.partial+" with frames still missing":"")))),
         shots.total>0 && _bdEl("div",{className:"bd-row"}, _bdEl("span",{className:"bd-row-lab"},"Clips"),
           _bdEl("div",{className:"bd-chips"}, row.clips && row.clips.total
             ? _bdEl("button",{type:"button",className:"bd-chip"+(row.clips.rendered===row.clips.total && !row.clips.stale?" ok":""),

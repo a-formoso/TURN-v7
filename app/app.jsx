@@ -1111,6 +1111,7 @@ function App(){
   const shotsReadOnlyRef = React.useRef(false); shotsReadOnlyRef.current = shotsReadOnly;
   const canMutateShots = ()=> projectLoadingRef.current ? _projectLoadingNotice()
     : shotsReadOnlyRef.current ? _mutationNotice("art") : true;
+  try{ window.turnCanMutateShots = ()=> !projectLoadingRef.current && !shotsReadOnlyRef.current; }catch(e){}   // a silent check for shared code (Storyboards' panel edit)
   // a role that can't change the Art Room closes the Colorist and pre-production panels (2026-10-08 — they
   // stayed open and could still apply after a role change)
   React.useEffect(()=>{ if(artRoomReadOnly){ setColoristOpen(false); setCoordOpen(false); coloristRedoManualRef.current = false; } },[artRoomReadOnly]);

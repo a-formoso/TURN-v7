@@ -48,9 +48,10 @@ await test("6b a half covers its row; a half without ids follows its sheet", () 
 });
 await test("6c composing and saving halves record the shots", () => {
   const sb = read("app/storyboard.jsx");
-  assert.ok(sb.includes("panels:(page.shots||[]).length, shotIds:(page.shots||[]).map(x=>x.id),") && sb.includes("frameVersions:sbFrameVersions(page.shots), ...(extraMeta||{}), ts:Date.now(), iso:new Date().toISOString() };"));
-  assert.ok(sb.includes("shotIds: sbHalfShotIds(((page&&page.shots)||[]).map(x=>x.id), half),"));
-  assert.ok(sb.includes("const sheetOutOfDate = !!(gen.genUrl && isComposed && sbSheetStale(sheetMetaNow(), shotIds));"));
+  assert.ok(sb.includes("panels:(page.shots||[]).length, shotIds:(page.shots||[]).map(x=>x.id),") && sb.includes("frameVersions:sbFrameVersions(page.shots), ...extra, missing:missingAtDraw, ts:Date.now(), iso:new Date().toISOString() };"));
+  // (2026-10-09) halves record the SHEET's own shots; a sheet showing a deleted frame is out of date too
+  assert.ok(sb.includes("shotIds: sbHalfShotIds(_ids, half),"));
+  assert.ok(sb.includes("const sheetOutOfDate = !!(gen.genUrl && isComposed && (sbSheetStale(_smNow, shotIds) || frameGone));"));
   assert.ok(sb.includes("The shots on this page changed since this sheet was composed, so it shows the wrong panels."));
   assert.ok(sb.includes("const halvesCurrent = !halvesStale && "), "out-of-date halves can be re-saved");
 });

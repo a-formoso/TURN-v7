@@ -2166,6 +2166,8 @@ function useImageGen(opts){
         if(snap){ meta.identitySnapshot=snap; meta.canonicalIdentity=snap;
           meta.canonicalPronouns=snap.pronouns||""; meta.identityVerified=snap.verified!==false; }
       }
+      // the card's own record of what an upload stands for (Storyboards: the page's shots) — 2026-10-09
+      if(typeof opts.importMeta==="function"){ try{ Object.assign(meta, opts.importMeta()||{}); }catch(e){} }
       if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts,"image-import-before-commit");
       const assetKind = (typeof slotAssetKind==="function") ? slotAssetKind(slotId) : "character";
       if(typeof nbWithAssetProvenance==="function") Object.assign(meta, nbWithAssetProvenance(id, meta, assetKind));
@@ -2195,7 +2197,7 @@ function useImageGen(opts){
   const revertTo = async (index)=>{
     if(typeof nbRevertAsset!=="function") return;
     const r = await nbRevertAsset(id, index);
-    if(r){ setGenUrl(r.url); setGenMeta(r.meta||null); }
+    if(r){ setGenUrl(r.url); setGenMeta(r.meta||null); if(typeof opts.onReverted==="function"){ try{ opts.onReverted(r); }catch(e){} } }
     refreshLayers();
   };
   const deleteCurrentAndPromote = async ()=>{
@@ -2560,7 +2562,14 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
     setCopiedKey(key); setTimeout(()=>setCopiedKey(null),1400);
   };
   const restore = async (i)=>{ setBusy(true); try{ await gen.revertTo(i); await reload(); }catch(e){} setBusy(false); };
-  const delVersion = async (i)=>{ setBusy(true); try{ await gen.deleteVersion(i); await reload(); }catch(e){} setBusy(false); };
+  // asks first — a deleted version can't be brought back (2026-10-09)
+  const delVersion = async (i)=>{
+    if(typeof window.appConfirm==="function"){
+      const ok = await window.appConfirm({ title:"Delete this earlier version?", body:"It's removed from the version history for good. The current image isn't touched.",
+        confirmLabel:"Delete version", cancelLabel:"Cancel", danger:true });
+      if(!ok) return;
+    }
+    setBusy(true); try{ await gen.deleteVersion(i); await reload(); }catch(e){} setBusy(false); };
   const deleteCurrent = async ()=>{
     if(!history.length || !gen.deleteCurrentAndPromote) return;
     const prev = history[0] && history[0].meta;
@@ -2755,7 +2764,7 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
                         (hm.time)?(" "+hm.time):""))),
                   React.createElement("div",{className:"dt-hist-acts"},
                     React.createElement("button",{className:"dt-hist-btn restore",disabled:busy,onClick:()=>restore(i)},"Restore"),
-                    React.createElement("button",{className:"dt-hist-btn del",disabled:busy,title:"Delete this version",
+                    React.createElement("button",{className:"dt-hist-btn del",disabled:busy,title:"Delete this version","aria-label":"Delete this earlier version",
                       onClick:()=>delVersion(i)},React.createElement(Icon.trash,{s:12})))));
             })))) ),
     preview && React.createElement("div",{className:"dt-preview",onMouseDown:(e)=>{ if(e.target===e.currentTarget) setPreview(null); }},
@@ -5711,7 +5720,10 @@ function useScenePager(total, locked){
   const [idx, setIdx] = React.useState(0);
   React.useEffect(()=>{ setIdx(i=> Math.min(i, Math.max(0, total-1))); },[total]);
   React.useEffect(()=>{
+    // (2026-10-09) not inside a menu or a chip group, not while editing text, and not behind an open viewer/dialog
     const onKey=(e)=>{ if(locked) return; const t=e.target; if(t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName||"")) return;
+      if(t && (t.isContentEditable || (t.closest && t.closest('[role="group"],[role="menu"],.scene-pager-menu,.sheet-tools-dropdown')))) return;
+      if(typeof document!=="undefined" && document.querySelector && document.querySelector('[role="dialog"],[aria-modal="true"],.lb-overlay')) return;
       if(e.key==="ArrowLeft") setIdx(i=>Math.max(0,i-1));
       else if(e.key==="ArrowRight") setIdx(i=>Math.min(Math.max(0,total-1),i+1)); };
     window.addEventListener("keydown",onKey); return ()=>window.removeEventListener("keydown",onKey);
