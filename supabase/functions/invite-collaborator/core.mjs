@@ -18,9 +18,15 @@
      3. caps: the switch and the owner's plan are re-checked here; one email per invite per 10
         minutes; 40 invitation emails per owner per day (turn_team_invite_log kind 'email').
    Only the film's owner (or the admin, for testing) can send; never to their own address; CORS
-   answers only the app's hosts. */
+   answers only the app's hosts.
+   (Team review, 2026-10-09) The 10-minute slot and the day's email are CLAIMED before anything is
+   sent (a guarded update of email_sent_at, then a log row counted after it is written), so two
+   requests at once can't both send; a send that fails gives both claims back. A failed lookup of
+   the invite answers "couldn't send right now", never "add the person first". The email names the
+   film's OWNER by name (display name, else the address's handle — app/cloud.jsx cloudHandleName),
+   never an address — and never the admin's when the admin sends a test. */
 
-export const VERSION = "invite-collaborator@2026-10-03.1";
+export const VERSION = "invite-collaborator@2026-10-09.1";
 export const SITE = "https://kinolot.infinitestudioai.com";
 export const ADMIN_EMAILS = Object.freeze(["admin@infinitestudioai.com"]);
 export const ROLES = Object.freeze(["view_only", "writer", "art_director", "stage_editor"]);
@@ -52,6 +58,27 @@ export function corsFor(origin) {
 
 const SENT = { ok: true, sent: true, message: "Invitation sent." };
 const FAILED = { ok: false, code: "email_failed", message: "The invitation email couldn't be sent right now. Please try again in a few minutes." };
+const UNAVAILABLE = { ok: false, code: "unavailable", message: "Couldn't send the invite right now. Please try again in a few minutes." };
+
+/** The handle an address reads as: its local part, a "+tag" dropped, words capitalised (the app's
+    cloudHandleName). "" for no address. */
+export function handleName(email) {
+  const local = String(email || "").split("@")[0].split("+")[0].trim();
+  if (!local) return "";
+  return local.split(/[._-]+/).filter(Boolean)
+    .map((w) => (/^[a-z]/.test(w) ? w.charAt(0).toUpperCase() + w.slice(1) : w)).join(" ").slice(0, 80);
+}
+/** The name an invitation shows for the film's owner: the account's display name, else its handle —
+    never an email address (a "name" that is one is skipped). "" when it can't be read. */
+export function ownerDisplayName(user) {
+  if (!user || typeof user !== "object") return "";
+  const m = user.user_metadata && typeof user.user_metadata === "object" ? user.user_metadata : {};
+  for (const k of ["display_name", "full_name", "name", "user_name", "preferred_username"]) {
+    const v = typeof m[k] === "string" ? m[k].replace(/\s+/g, " ").trim() : "";
+    if (v && !v.includes("@")) return v.slice(0, 80);
+  }
+  return handleName(user.email);
+}
 
 export function createInviteHandler({ createClient, env, now = () => Date.now(), log = () => {} }) {
   return async function handle(req) {
@@ -95,32 +122,70 @@ export function createInviteHandler({ createClient, env, now = () => Date.now(),
       }
     }
 
-    // a real, active, unexpired invite for this address on this film
-    const { data: member } = await admin.from("turn_project_members")
+    // a real, active, unexpired invite for this address on this film (a failed read is "try again",
+    // never "add the person first")
+    const { data: member, error: memberErr } = await admin.from("turn_project_members")
       .select("id,role,status,member_user,expires_at,email_sent_at")
       .eq("project_id", projectId).eq("member_email", email).maybeSingle();
+    if (memberErr) {
+      log("[invite] member lookup failed: " + String(memberErr.message || memberErr).slice(0, 200));
+      return json(UNAVAILABLE, 503);
+    }
     if (!member || member.status !== "active" || !ROLES.includes(String(member.role))) {
       return json({ ok: false, code: "no_invite", message: "Add the person in the Team window first." }, 400);
     }
     if (!member.member_user && member.expires_at && Date.parse(member.expires_at) <= now()) {
       return json({ ok: false, code: "expired", message: "This invite has expired. Use “Invite again” to renew it." }, 400);
     }
-    if (member.email_sent_at && now() - Date.parse(member.email_sent_at) < RESEND_GAP_MS) {
-      return json({ ok: false, code: "too_soon", message: "An invitation was just sent to this address. Please wait a few minutes before sending another." }, 429);
+    const TOO_SOON = { ok: false, code: "too_soon", message: "An invitation was just sent to this address. Please wait a few minutes before sending another." };
+    if (member.email_sent_at && now() - Date.parse(member.email_sent_at) < RESEND_GAP_MS) return json(TOO_SOON, 429);
+
+    // CLAIM the 10-minute slot before sending (Team review, 2026-10-09): only the request whose
+    // guarded update changed the row sends; a parallel one finds the slot taken
+    const sentAt = new Date(now()).toISOString(), prevSentAt = member.email_sent_at || null;
+    const gapStart = new Date(now() - RESEND_GAP_MS).toISOString();
+    const slot = await admin.from("turn_project_members").update({ email_sent_at: sentAt })
+      .eq("id", member.id).or(`email_sent_at.is.null,email_sent_at.lt."${gapStart}"`).select("id");
+    if (slot.error) {
+      log("[invite] slot claim failed: " + String(slot.error.message || slot.error).slice(0, 200));
+      return json(UNAVAILABLE, 503);
     }
+    if (!Array.isArray(slot.data) || !slot.data.length) return json(TOO_SOON, 429);
+    const giveSlotBack = async () => {
+      try {
+        await admin.from("turn_project_members").update({ email_sent_at: prevSentAt })
+          .eq("id", member.id).eq("email_sent_at", sentAt);
+      } catch (_e) { /* best effort: the slot then reopens after 10 minutes */ }
+    };
+    // CLAIM one of the day's emails: the log row is written first and counted after, so two
+    // requests at the cap can't both pass (at the boundary both may be refused — never both sent)
     const since = new Date(now() - 86400000).toISOString();
+    const logged = await admin.from("turn_team_invite_log").insert({ owner: proj.owner, project_id: projectId, kind: "email", at: sentAt }).select("id");
+    const logId = !logged.error && Array.isArray(logged.data) && logged.data[0] ? logged.data[0].id : null;
+    if (logId == null) { await giveSlotBack(); return json(FAILED, 503); }
+    const giveEmailBack = async () => {
+      try { await admin.from("turn_team_invite_log").delete().eq("id", logId); } catch (_e) { /* best effort */ }
+    };
     const sentToday = await admin.from("turn_team_invite_log").select("id", { count: "exact", head: true })
       .eq("owner", proj.owner).eq("kind", "email").gte("at", since);
-    if (sentToday.error) return json(FAILED, 503);
-    if ((sentToday.count || 0) >= DAILY_EMAILS) {
+    if (sentToday.error) { await giveEmailBack(); await giveSlotBack(); return json(FAILED, 503); }
+    if ((sentToday.count || 0) > DAILY_EMAILS) {
+      await giveEmailBack(); await giveSlotBack();
       return json({ ok: false, code: "daily_cap", message: `You can send up to ${DAILY_EMAILS} invitation emails a day.` }, 429);
     }
+
+    // the film OWNER's name for the email — never an address (and never the admin's, for a test send)
+    let ownerName = "";
+    try {
+      const o = await admin.auth.admin.getUserById(proj.owner);
+      ownerName = ownerDisplayName(o && o.data && o.data.user);
+    } catch (_e) { ownerName = ""; }
 
     // send: an invite for a new address, a sign-in link for an existing account — one answer either way
     const redirectTo = inviteRedirect(projectId);
     const title = String(proj.title || "Untitled film").slice(0, 120);
     const { error: invErr } = await admin.auth.admin.inviteUserByEmail(email, {
-      redirectTo, data: { turn_invited: true, invited_project: title, invited_by: callerEmail },
+      redirectTo, data: { turn_invited: true, invited_project: title, ...(ownerName ? { invited_by: ownerName } : {}) },
     });
     let sent = !invErr;
     if (invErr) {
@@ -135,9 +200,8 @@ export function createInviteHandler({ createClient, env, now = () => Date.now(),
         log("[invite] invite email failed: " + String(invErr.message || invErr).slice(0, 200));
       }
     }
-    if (!sent) return json(FAILED, 502);
-    await admin.from("turn_project_members").update({ email_sent_at: new Date(now()).toISOString() }).eq("id", member.id);
-    await admin.from("turn_team_invite_log").insert({ owner: proj.owner, project_id: projectId, kind: "email" });
+    // nothing went out: both claims are given back, so the owner can try again at once
+    if (!sent) { await giveEmailBack(); await giveSlotBack(); return json(FAILED, 502); }
     return json(SENT);
   };
 }

@@ -14,6 +14,8 @@
 --   2. tightens the role CHECK so the retired role can't be stored again
 --   3. tightens the access helper so only writer/art_director count as
 --      write-capable (view_only stays read-only)
+--   (Team review, 2026-10-09) Once team-relaunch.sql is installed only step 1
+--   runs (steps 2-3 belong to that file), so re-running this file is safe there.
 -- ============================================================================
 
 -- 1) migrate existing rows (no-op when none exist)
@@ -21,21 +23,35 @@ update public.turn_project_members
    set role = 'writer'
  where role = 'producer_admin';
 
--- 2) tighten the CHECK constraint (drop-then-add keeps this re-runnable)
-alter table public.turn_project_members
-  drop constraint if exists turn_project_members_role_check;
-alter table public.turn_project_members
-  add constraint turn_project_members_role_check
-  check (role in ('view_only','writer','art_director'));
+-- 2) + 3) (Team review, 2026-10-09) Once team-relaunch.sql is installed it owns the
+-- role CHECK (which also allows 'stage_editor') and turn_can_access_project; doing
+-- 2) and 3) there would fail on a Stage editor's row or put back an email-matched,
+-- non-Show-aware access helper. So there this file stops after 1) — a no-op, safe to
+-- re-run. Before it, 2) and 3) run as they always did (the CHECK names stage_editor
+-- too, so a later team-relaunch.sql finds it as it expects).
+do $do$
+begin
+  if to_regprocedure('public.turn_renew_invite(uuid)') is not null then
+    raise notice 'team-relaunch.sql is installed: producer_admin rows migrated; the role CHECK and access helper are left to it';
+    return;
+  end if;
 
--- 3) write-capable roles are now exactly writer + art_director
+  -- 2) tighten the CHECK constraint (drop-then-add keeps this re-runnable)
+  alter table public.turn_project_members
+    drop constraint if exists turn_project_members_role_check;
+  alter table public.turn_project_members
+    add constraint turn_project_members_role_check
+    check (role in ('view_only','writer','art_director','stage_editor'));
+
+  -- 3) write-capable roles are now exactly writer + art_director
+  execute $sql$
 create or replace function public.turn_can_access_project(pid uuid, write_access boolean default false)
 returns boolean
 language sql
 security definer
 set search_path = public
 stable
-as $$
+as $fn$
   select exists (
     select 1
     from public.turn_projects p
@@ -54,6 +70,8 @@ as $$
         or m.role in ('writer','art_director')
       )
   );
-$$;
-
-grant execute on function public.turn_can_access_project(uuid, boolean) to authenticated;
+$fn$;
+  $sql$;
+  execute 'grant execute on function public.turn_can_access_project(uuid, boolean) to authenticated';
+end;
+$do$;

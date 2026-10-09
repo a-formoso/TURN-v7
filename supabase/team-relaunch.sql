@@ -32,14 +32,46 @@
 --      turn_hold_credits_for_film() (service role: image-proxy, blender-bridge)
 --      bill the owner within the collaborator's budget; spend readers.
 --   8. The emergency switch: turn_app_config key 'team_sharing' ({"on": true}).
---      Off = no new invites or role changes (existing shares keep opening).
+--      Off = no new invites or role changes, and (owner decision B, 2026-10-09)
+--      collaborators are READ-ONLY on shared films and nobody is charged for
+--      them; owners can still remove people and change budgets, collaborators
+--      can still leave, pending invites can still be claimed (read-only).
+--   9. (Team review, 2026-10-09) Private presence: Realtime Authorization
+--      policies on realtime.messages for the 'film:<id>' and 'doc:<id>'
+--      channels (skipped where the realtime schema doesn't exist).
+--
+-- (Team review, 2026-10-09) What changed in this pass, by the owner's decisions:
+--   * One shared check (turn__team_check) for the guard AND turn_renew_invite:
+--     the switch, the plan, the Stage editor, the people cap, the Co-writer cap
+--     and the daily limit, each under an advisory lock (no two invites race).
+--   * The people cap runs only when a NEW place opens (an invite, a re-invite of
+--     someone removed, a renewal) — after a drop from Producer to Director the
+--     people already there keep their roles (decision F).
+--   * People invited to a whole Show count in EACH Episode's caps (decision E).
+--   * Adding back someone who was removed or who left is a fresh invite: the row
+--     is unlinked again and needs their claim, within 14 days (decision D). (The
+--     removed row keeps its link until then, so series-production.sql's retiring
+--     of a Show member's old Episode rows still matches them by account.)
+--   * Turning a shared film into a Show copies the team faithfully (accounts,
+--     roles, budgets, join times, spend) — no checks, no notices, no daily count.
+--   * A Stage editor writes only the Stage's take records ('clip-…' rows), not
+--     the Art Room's images or files; the Art director doesn't write the Stage's.
+--   * The trusted flag is a row only this file's definer functions can write
+--     (a turn.* setting could be set by anyone with a SQL session).
+--   * turn_hold_credits_for_film re-derives the owner and the film from the
+--     membership and re-checks everything under the owner's lock.
+--   * Superseded files (team-collaboration.sql, invitations.sql,
+--     shared-owners.sql, enforce-role-scopes.sql) refuse to run once this file
+--     is installed; migrate-remove-producer-admin.sql becomes a no-op.
 --
 -- RUN ORDER: after series-production.sql (and storage-readable-folders.sql),
--- and AGAIN after any re-run of series-production.sql, enforce-role-scopes.sql,
--- team-collaboration.sql, shared-owners.sql, invitations.sql or
--- migrate-remove-producer-admin.sql — each of those puts back an older access
--- helper. Needs credits.sql (billing v2) and app-config.sql. One transaction;
--- safe to re-run. Tests: scripts/test-team-relaunch-db.mjs.
+-- and AGAIN after any re-run of series-production.sql (it puts back older
+-- access helpers). Once this file is installed, enforce-role-scopes.sql,
+-- team-collaboration.sql, shared-owners.sql and invitations.sql refuse to run
+-- (they would undo it) and migrate-remove-producer-admin.sql changes nothing.
+-- Needs credits.sql (billing v2) and app-config.sql. One transaction; safe to
+-- re-run, also over a database where an earlier copy of it ran.
+-- Tests: scripts/test-team-relaunch-db.mjs.
 -- ============================================================================
 
 begin;
@@ -171,6 +203,22 @@ as $$
                     where c.key = 'team_sharing'), false);
 $$;
 
+-- The studio's admin account (it tests every room, and may invite while the switch
+-- is off). (Team review, 2026-10-09) Only once its address is CONFIRMED: an
+-- unconfirmed sign-up typed with the admin's address is nobody.
+create or replace function public.turn__is_team_admin(p_uid uuid)
+returns boolean
+language sql
+security definer
+set search_path = public, pg_temp
+stable
+as $$
+  select p_uid is not null and exists (
+    select 1 from auth.users u
+     where u.id = p_uid and u.email_confirmed_at is not null
+       and lower(btrim(u.email)) = 'admin@infinitestudioai.com');
+$$;
+
 -- 'studio' (Producer) | 'director' | 'none'. What the OWNER's account allows a
 -- shared film: a frozen or past-due account, a trial, Writer or no plan → 'none'.
 -- The admin account counts as Producer (it tests every room).
@@ -182,8 +230,7 @@ set search_path = public, pg_temp
 stable
 as $$
   select case
-    when exists (select 1 from auth.users u where u.id = p_owner
-                  and lower(u.email) = 'admin@infinitestudioai.com') then 'studio'
+    when public.turn__is_team_admin(p_owner) then 'studio'
     else coalesce((
       select case
         when c.frozen or c.payment_status <> 'active' then 'none'
@@ -217,11 +264,41 @@ as $$
 $$;
 
 -- Server-owned membership changes (an invitee claiming, a collaborator leaving, the
--- owner renewing an invite) run inside these definer functions with this flag set
--- for their own transaction only; the browser can't set a turn.* setting.
+-- owner renewing an invite, the bell's "seen") run inside these definer functions
+-- with this flag set for their own transaction only.
+-- (Team review, 2026-10-09) The flag used to be a turn.* setting, which anyone with
+-- a SQL session can set (PostgREST can't, but nothing else stopped it). It is now a
+-- row keyed by the transaction id in a table nobody but the definer functions can
+-- write: set_config can't forge it, and the row is gone before the call returns.
+create table if not exists public.turn__team_trust (
+  tx bigint primary key
+);
+alter table public.turn__team_trust enable row level security;
+revoke all on public.turn__team_trust from public, anon, authenticated;
+
+create or replace function public.turn__team_trust(p_on boolean)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if p_on then
+    insert into public.turn__team_trust(tx) values (txid_current()) on conflict (tx) do nothing;
+  else
+    delete from public.turn__team_trust where tx = txid_current();
+  end if;
+end;
+$$;
+
 create or replace function public.turn__team_trusted()
-returns boolean language sql stable as $$
-  select coalesce(current_setting('turn.team_trusted', true), '') = 'on';
+returns boolean
+language sql
+security definer
+set search_path = public, pg_temp
+volatile
+as $$
+  select exists (select 1 from public.turn__team_trust t where t.tx = txid_current());
 $$;
 
 -- ── 3. effective roles — by account ─────────────────────────────────────────
@@ -276,6 +353,20 @@ returns boolean language sql immutable as $$
     else false end;
 $$;
 
+-- A collaborator's role writes on a film owned by p_owner: the switch is on (owner
+-- decision B, 2026-10-09: off = every collaborator read-only) and the owner's plan
+-- carries the role (decision A: a lapsed plan = read-only). Reads never ask this.
+create or replace function public.turn__collab_writes(p_role text, p_owner uuid)
+returns boolean
+language sql
+security definer
+set search_path = public, pg_temp
+stable
+as $$
+  select public.turn_team_sharing_on()
+     and public.turn_team_role_writes(p_role, public.turn_team_owner_tier(p_owner));
+$$;
+
 create or replace function public.turn_can_access_project(pid uuid, write_access boolean default false)
 returns boolean
 language sql
@@ -290,12 +381,17 @@ as $$
     select 1
       from public.turn_effective_project_roles(pid) r
      where not write_access
-        or public.turn_team_role_writes(r.role, public.turn_team_owner_tier(
-             (select p.owner from public.turn_projects p where p.id = pid)))
+        or public.turn__collab_writes(r.role,
+             (select p.owner from public.turn_projects p where p.id = pid))
   );
 $$;
 
--- Images and files: the Art director, and the Stage editor on a Producer film.
+-- The Art Room's images and files (every turn-assets key under a project folder,
+-- upload reservations, cameos): the owner and the Art director.
+-- (Team review, 2026-10-09) The Stage editor no longer passes here: the Stage keeps
+-- no files in the film's folders (a take is a 'clip-…' row holding the provider's
+-- URL; device uploads go to the uploader's own stage-tmp/ folder), and letting it
+-- through meant a Stage editor could replace or delete the Art Room's sheets.
 create or replace function public.turn_can_write_assets(pid uuid)
 returns boolean
 language sql
@@ -309,14 +405,65 @@ as $$
   ) or exists (
     select 1
       from public.turn_effective_project_roles(pid) r
-     where r.role in ('art_director', 'stage_editor')
-       and public.turn_team_role_writes(r.role, public.turn_team_owner_tier(
-             (select p.owner from public.turn_projects p where p.id = pid)))
+     where r.role = 'art_director'
+       and public.turn__collab_writes(r.role,
+             (select p.owner from public.turn_projects p where p.id = pid))
   );
 $$;
 
+-- A Stage slot in turn_generations: a clip's take record (app/cloud.jsx
+-- cloudCommitVideo: entity_id 'clip-…', meta.kind 'video', no storage path).
+-- Everything else in the table is the Art Room's.
+create or replace function public.turn_is_stage_slot(p_entity_id text, p_meta jsonb)
+returns boolean
+language sql
+immutable
+as $$
+  select coalesce(p_entity_id, '') like 'clip-%' and coalesce(p_meta ->> 'kind', '') = 'video';
+$$;
+
+-- (Team review, 2026-10-09) Who may create, change or clear one turn_generations
+-- row: the owner; the Art director for the Art Room's rows; the Stage editor for
+-- the Stage's rows (on a Producer film). The policies check the OLD row (update,
+-- delete) and the NEW row (insert, update), so a row can't change room either.
+create or replace function public.turn_can_write_generation(pid uuid, p_entity_id text, p_meta jsonb)
+returns boolean
+language sql
+security definer
+set search_path = public, pg_temp
+stable
+as $$
+  select exists (
+    select 1 from public.turn_projects p
+     where p.id = pid and p.owner = auth.uid()
+  ) or exists (
+    select 1
+      from public.turn_effective_project_roles(pid) r
+     where r.role = case when public.turn_is_stage_slot(p_entity_id, p_meta)
+                         then 'stage_editor' else 'art_director' end
+       and public.turn__collab_writes(r.role,
+             (select p.owner from public.turn_projects p where p.id = pid))
+  );
+$$;
+
+-- These run inside RLS policies, evaluated as the calling role: both API roles keep EXECUTE.
 grant execute on function public.turn_can_access_project(uuid, boolean) to anon, authenticated;
 grant execute on function public.turn_can_write_assets(uuid) to anon, authenticated;
+grant execute on function public.turn_can_write_generation(uuid, text, jsonb) to anon, authenticated;
+
+drop policy if exists "turn_generations_insert_collab" on public.turn_generations;
+drop policy if exists "turn_generations_update_collab" on public.turn_generations;
+drop policy if exists "turn_generations_delete_collab" on public.turn_generations;
+create policy "turn_generations_insert_collab" on public.turn_generations
+  for insert with check (
+    owner = auth.uid()
+    and public.turn_can_write_generation(project_id, entity_id, meta)
+  );
+create policy "turn_generations_update_collab" on public.turn_generations
+  for update using (public.turn_can_write_generation(project_id, entity_id, meta))
+  with check (public.turn_can_write_generation(project_id, entity_id, meta));
+create policy "turn_generations_delete_collab" on public.turn_generations
+  for delete using (public.turn_can_write_generation(project_id, entity_id, meta));
 
 -- The section trigger (series-production.sql's, plus the owner's plan).
 create or replace function public.turn_enforce_role_sections()
@@ -344,7 +491,7 @@ begin
     from public.turn_effective_project_roles(old.id) r
     cross join lateral unnest(public.turn_role_allowed_sections(r.role))
       as permitted(section_name)
-   where public.turn_team_role_writes(r.role, tier);
+   where public.turn__collab_writes(r.role, old.owner);
 
   for k in
     select key from (
@@ -356,6 +503,9 @@ begin
     if k = '_rev' then continue; end if;
     if (old.doc -> k) is distinct from (new.doc -> k)
        and not (k = any(allowed)) then
+      if not public.turn_team_sharing_on() then
+        raise exception 'TURN_ROLE_SCOPE: team sharing is paused right now, so this film is read-only';
+      end if;
       if tier = 'none' then
         raise exception 'TURN_ROLE_SCOPE: the film''s owner plan doesn''t include shared editing right now, so this film is read-only';
       end if;
@@ -412,7 +562,7 @@ begin
   if v_email is null or v_email = '' then
     return;
   end if;
-  perform set_config('turn.team_trusted', 'on', true);
+  perform public.turn__team_trust(true);
   return query
   with claimed as (
     update public.turn_project_members m
@@ -427,7 +577,7 @@ begin
     from claimed c
     join public.turn_projects p on p.id = c.project_id
     left join auth.users o on o.id = p.owner;
-  perform set_config('turn.team_trusted', 'off', true);
+  perform public.turn__team_trust(false);
 end;
 $$;
 
@@ -448,6 +598,147 @@ create index if not exists turn_team_invite_log_owner_idx on public.turn_team_in
 alter table public.turn_team_invite_log enable row level security;
 revoke all on public.turn_team_invite_log from anon, authenticated;
 
+-- The Show a film's team is counted in, which is also the key of its advisory lock:
+-- an Episode's Show, a Show itself, or (a film outside any Show) the film itself.
+create or replace function public.turn__team_family(p_project uuid)
+returns uuid
+language sql
+security definer
+set search_path = public, pg_temp
+stable
+as $$
+  select case
+    when p.project_kind = 'show' or public.turn_series_doc_is_show(p.doc) then p.id
+    else coalesce((select s.id from public.turn_projects s
+                    where s.id = coalesce(p.show_id, public.turn_series_doc_show_id(p.doc))
+                      and s.owner = p.owner
+                      and (s.project_kind = 'show' or public.turn_series_doc_is_show(s.doc))), p.id)
+  end
+    from public.turn_projects p
+   where p.id = p_project;
+$$;
+
+-- (Team review, 2026-10-09; owner decision E) The number of people a film's caps see.
+-- THE RULE: someone invited to a whole Show is on every one of its Episodes, so an
+-- Episode counts its own invites PLUS its Show's, one place per invited address
+-- (the same address on the Show and on the Episode is one person). A film outside
+-- any Show counts its own. An invite to the Show itself must fit EVERY Episode, so
+-- a Show's answer is its fullest Episode (or the Show on its own while it has
+-- none). Counted: active rows that joined or whose invite hasn't expired, minus
+-- p_exclude (the row being changed), plus p_email (the person being added).
+-- p_writers: count Co-writers only (the 3-Co-writer cap).
+create or replace function public.turn__team_places(p_project uuid, p_exclude uuid, p_email text, p_writers boolean)
+returns integer
+language sql
+security definer
+set search_path = public, pg_temp
+stable
+as $$
+  with target as (
+    select p.id, p.owner,
+           (p.project_kind = 'show' or public.turn_series_doc_is_show(p.doc)) as is_show,
+           public.turn__team_family(p.id) as family
+      from public.turn_projects p
+     where p.id = p_project
+  ),
+  units as (
+    -- the film (or the Episode) with its Show; `family` is the film itself outside a Show
+    select array[t.id, t.family] as scope from target t where not t.is_show
+    union all
+    -- a Show: each of its Episodes with the Show...
+    select array[e.id, t.id]
+      from target t
+      join public.turn_projects e
+        on coalesce(e.show_id, public.turn_series_doc_show_id(e.doc)) = t.id
+     where t.is_show and e.id <> t.id and e.owner = t.owner
+       and not public.turn_series_doc_is_show(e.doc)
+    union all
+    -- ...and the Show on its own (no Episodes yet)
+    select array[t.id] from target t where t.is_show
+  )
+  select coalesce(max(c.n), 0)::integer
+    from units u
+    cross join lateral (
+      select count(*) as n from (
+        select m.member_email
+          from public.turn_project_members m
+         where m.project_id = any(u.scope)
+           and m.status = 'active'
+           and m.id is distinct from p_exclude
+           and (m.member_user is not null or m.expires_at is null or m.expires_at > now())
+           and (not p_writers or 'writer' = any(coalesce(m.roles, array[m.role])))
+        union
+        select lower(btrim(p_email)) where p_email is not null
+      ) people
+    ) c;
+$$;
+
+-- (Team review, 2026-10-09) The checks an invite or a role change must pass, shared by
+-- the member guard and turn_renew_invite (a renewal used to skip the caps). Raises
+-- 'TURN_TEAM:<code>'; returns the owner's tier.
+--   p_old_roles  the roles before a role change; null for a new place
+--   p_opening    a NEW place: an invite, re-inviting someone removed, a renewal. Only
+--                then do the people cap and the daily limit apply (owner decision F:
+--                after a drop from Producer to Director the people already on the
+--                film keep their places and roles; no new invites until under the cap).
+-- Locks: the Show family's before counting people and Co-writers, the owner's before
+-- counting today's invites, so two invites at once can't both take the last place.
+create or replace function public.turn__team_check(p_project uuid, p_owner uuid, p_member uuid,
+  p_email text, p_roles text[], p_old_roles text[], p_opening boolean)
+returns text
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  tier text;
+  cap  integer;
+  n    integer;
+begin
+  if not public.turn_team_sharing_on() and not public.turn__is_team_admin(p_owner) then
+    raise exception 'TURN_TEAM:paused: team sharing is switched off right now';
+  end if;
+  tier := public.turn_team_owner_tier(p_owner);
+  if tier = 'none' then
+    raise exception 'TURN_TEAM:plan_required: sharing a film needs the Director or Producer plan';
+  end if;
+  -- a Stage editor already on a film that dropped to Director keeps the role; giving it anew needs Producer
+  if 'stage_editor' = any(p_roles) and tier <> 'studio'
+     and (p_opening or not ('stage_editor' = any(coalesce(p_old_roles, array[]::text[])))) then
+    raise exception 'TURN_TEAM:stage_editor_producer: the Stage editor role needs the Producer plan';
+  end if;
+  if exists (select 1 from auth.users u
+              where u.id = p_owner and lower(btrim(u.email)) = lower(btrim(coalesce(p_email, '')))) then
+    raise exception 'TURN_TEAM:self: you can''t invite yourself';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext('turn-team:' || coalesce(public.turn__team_family(p_project), p_project)::text));
+  if p_opening then
+    cap := public.turn_team_cap(tier);
+    if public.turn__team_places(p_project, p_member, p_email, false) > cap then
+      raise exception 'TURN_TEAM:cap:%: this film already has its % collaborators', cap, cap;
+    end if;
+  end if;
+  if 'writer' = any(p_roles)
+     and (p_opening or not ('writer' = any(coalesce(p_old_roles, array[]::text[])))) then
+    if public.turn__team_places(p_project, p_member, p_email, true) > 3 then
+      raise exception 'TURN_TEAM:cowriter_cap: a film can have up to 3 Co-writers';
+    end if;
+  end if;
+
+  if p_opening then
+    perform pg_advisory_xact_lock(hashtext('turn-team-owner:' || p_owner::text));
+    select count(*) into n from public.turn_team_invite_log l
+     where l.owner = p_owner and l.kind = 'invite' and l.at > now() - interval '1 day';
+    if n >= 20 then
+      raise exception 'TURN_TEAM:daily_cap: you can send up to 20 new invites a day';
+    end if;
+    insert into public.turn_team_invite_log(owner, project_id) values (p_owner, p_project);
+  end if;
+  return tier;
+end;
+$$;
+
 create or replace function public.turn_guard_team_member()
 returns trigger
 language plpgsql
@@ -455,14 +746,53 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
-  caller   uuid := auth.uid();
-  v_owner  uuid;
-  v_email  text;
-  tier     text;
-  is_admin boolean;
-  opening  boolean;   -- a new invite: an insert, or a removed row made active again
-  n        integer;
+  caller  uuid := auth.uid();
+  v_owner uuid;
+  v_src   public.turn_project_members;
+  tier    text;
+  opening boolean := false;   -- a new place: an insert, or a removed row made active again
 begin
+  -- (Team review, 2026-10-09) Turning a shared film into a Show
+  -- (series-production.sql turn_convert_project_to_show) copies each active member of
+  -- the film onto the new Show. That is the SAME team moving up, not new invites: the
+  -- copy keeps the account link, every role, the owner's budget, the invite and join
+  -- times and the bell's "seen" mark, its spend so far moves with it (the film's
+  -- holds now name the Show's row), and nothing is checked or counted — it works with
+  -- the switch off or the owner's plan lapsed. Recognised only inside that function's
+  -- transaction (its lifecycle setting), for a Show created in this same transaction
+  -- whose recorded source film has an active row for this address.
+  if tg_op = 'INSERT' and coalesce(current_setting('turn.series_lifecycle', true), '') = 'true' then
+    select src.* into v_src
+      from public.turn_projects s
+      join public.turn_projects e
+        on e.id = public.turn_series_try_uuid(s.doc ->> 'sourceEpisodeId')
+       and e.owner = s.owner
+      join public.turn_project_members src
+        on src.project_id = e.id
+       and src.status = 'active'
+       and src.member_email = lower(btrim(new.member_email))
+     where s.id = new.project_id
+       and (s.project_kind = 'show' or public.turn_series_doc_is_show(s.doc))
+       and s.created_at = now()
+     limit 1;
+    if found then
+      new.owner         := v_src.owner;
+      new.member_email  := v_src.member_email;
+      new.member_user   := v_src.member_user;
+      new.roles         := public.turn_team_canonical_roles(coalesce(v_src.roles, array[v_src.role]));
+      new.role          := new.roles[1];
+      new.status        := 'active';
+      new.budget_credits := v_src.budget_credits;
+      new.invited_at    := v_src.invited_at;
+      new.expires_at    := v_src.expires_at;
+      new.email_sent_at := v_src.email_sent_at;
+      new.joined_at     := v_src.joined_at;
+      new.owner_seen_at := v_src.owner_seen_at;
+      update public.turn_credit_holds h set member_id = new.id where h.member_id = v_src.id;
+      return new;
+    end if;
+  end if;
+
   -- roles ⇄ role, on every path: the set is canonical, `role` is its first entry; an older
   -- client that changed only `role` gets that one role
   if tg_op = 'INSERT' then
@@ -476,6 +806,13 @@ begin
     raise exception 'TURN_TEAM:no_role: choose at least one role';
   end if;
   new.role := new.roles[1];
+
+  -- (Team review, 2026-10-09) a membership never moves to another row id or film, on any path
+  if tg_op = 'UPDATE' then
+    new.id         := old.id;
+    new.project_id := old.project_id;
+    new.created_at := old.created_at;
+  end if;
 
   -- Service-role paths (the invite function linking an account, migrations) and the
   -- server-owned changes above keep their authority.
@@ -496,62 +833,41 @@ begin
     new.email_sent_at := old.email_sent_at;
     new.joined_at     := old.joined_at;
     new.owner_seen_at := old.owner_seen_at;
-    -- a removal, or a budget change, needs no plan: the owner can always tidy up
+    -- a removal, or a budget change, needs no plan and no switch: the owner can always tidy up
     if new.status = 'removed'
        or (new.roles = old.roles and new.status = old.status) then
       return new;
+    end if;
+    -- (owner decision D, 2026-10-09) adding back someone who was removed or who left is a
+    -- FRESH invite: unlinked again, so they must accept it (a confirmed address, within
+    -- 14 days) before it opens anything; the owner's budget for them stays
+    opening := old.status = 'removed' and new.status = 'active';
+    if opening then
+      new.member_user   := null;
+      new.joined_at     := null;
+      new.owner_seen_at := null;
+      new.email_sent_at := null;
     end if;
   else
     new.member_user := null;   -- linking happens only by the invitee's own claim
     new.status := 'active';
     new.member_email := lower(btrim(coalesce(new.member_email, '')));
+    -- (Team review, 2026-10-09) server-owned on a new invite too
+    new.email_sent_at := null;
+    new.joined_at     := null;
+    new.owner_seen_at := null;
+    new.expires_at    := null;
+    -- (series-production.sql decides which old Episode invites became Show-wide by created_at)
+    new.created_at    := now();
+    opening := true;
   end if;
 
-  opening := tg_op = 'INSERT' or (old.status = 'removed' and new.status = 'active');
-  select lower(u.email) = 'admin@infinitestudioai.com', lower(btrim(u.email))
-    into is_admin, v_email from auth.users u where u.id = caller;
-
-  if not public.turn_team_sharing_on() and not coalesce(is_admin, false) then
-    raise exception 'TURN_TEAM:paused: team sharing is switched off right now';
-  end if;
-  tier := public.turn_team_owner_tier(v_owner);
-  if tier = 'none' then
-    raise exception 'TURN_TEAM:plan_required: sharing a film needs the Director or Producer plan';
-  end if;
-  if 'stage_editor' = any(new.roles) and tier <> 'studio' then
-    raise exception 'TURN_TEAM:stage_editor_producer: the Stage editor role needs the Producer plan';
-  end if;
-  if new.member_email = v_email then
-    raise exception 'TURN_TEAM:self: you can''t invite yourself';
-  end if;
-
-  -- people on the film: joined, plus invites that haven't expired (this row excluded)
-  select count(*) into n from public.turn_project_members m
-   where m.project_id = new.project_id and m.status = 'active' and m.id <> new.id
-     and (m.member_user is not null or m.expires_at is null or m.expires_at > now());
-  if n + 1 > public.turn_team_cap(tier) then
-    raise exception 'TURN_TEAM:cap:%: this film already has its % collaborators', public.turn_team_cap(tier), public.turn_team_cap(tier);
-  end if;
-  if 'writer' = any(new.roles) and (tg_op = 'INSERT' or not ('writer' = any(coalesce(old.roles, array[old.role]))) or old.status <> 'active') then
-    select count(*) into n from public.turn_project_members m
-     where m.project_id = new.project_id and m.status = 'active' and m.id <> new.id and 'writer' = any(coalesce(m.roles, array[m.role]))
-       and (m.member_user is not null or m.expires_at is null or m.expires_at > now());
-    if n + 1 > 3 then
-      raise exception 'TURN_TEAM:cowriter_cap: a film can have up to 3 Co-writers';
-    end if;
-  end if;
+  tier := public.turn__team_check(new.project_id, v_owner, new.id, new.member_email, new.roles,
+    case when tg_op = 'UPDATE' and not opening then coalesce(old.roles, array[old.role]) end, opening);
 
   if opening then
-    select count(*) into n from public.turn_team_invite_log l
-     where l.owner = v_owner and l.kind = 'invite' and l.at > now() - interval '1 day';
-    if n >= 20 then
-      raise exception 'TURN_TEAM:daily_cap: you can send up to 20 new invites a day';
-    end if;
-    insert into public.turn_team_invite_log(owner, project_id) values (v_owner, new.project_id);
     new.invited_at := now();
-    if new.member_user is null then
-      new.expires_at := now() + interval '14 days';
-    end if;
+    new.expires_at := now() + interval '14 days';
     if tg_op = 'INSERT' then
       new.budget_credits := public.turn_team_default_budget(tier);
     end if;
@@ -565,7 +881,10 @@ create trigger turn_guard_team_member
   before insert or update on public.turn_project_members
   for each row execute function public.turn_guard_team_member();
 
--- the owner re-sends an expired or unanswered invite: a fresh 14 days (counts as a new invite)
+-- The owner re-sends an expired or unanswered invite: a fresh 14 days. It is a new
+-- place, so (Team review, 2026-10-09) it runs the guard's own checks — the switch,
+-- the plan, the Stage editor, the people and Co-writer caps (an expired invite gave
+-- its place up) and the daily limit — under the same locks.
 create or replace function public.turn_renew_invite(p_member uuid)
 returns jsonb
 language plpgsql
@@ -574,9 +893,8 @@ set search_path = public, pg_temp
 as $$
 declare
   m public.turn_project_members;
-  n integer;
 begin
-  select * into m from public.turn_project_members x where x.id = p_member;
+  select * into m from public.turn_project_members x where x.id = p_member for update;
   if not found or m.owner <> auth.uid()
      or not exists (select 1 from public.turn_projects p where p.id = m.project_id and p.owner = auth.uid()) then
     raise exception 'TURN_TEAM:owner_only: only the film''s owner manages its team';
@@ -584,24 +902,13 @@ begin
   if m.status <> 'active' or m.member_user is not null then
     return jsonb_build_object('ok', true, 'joined', m.member_user is not null);
   end if;
-  if not public.turn_team_sharing_on()
-     and not exists (select 1 from auth.users u where u.id = auth.uid() and lower(u.email) = 'admin@infinitestudioai.com') then
-    raise exception 'TURN_TEAM:paused: team sharing is switched off right now';
-  end if;
-  if public.turn_team_owner_tier(m.owner) = 'none' then
-    raise exception 'TURN_TEAM:plan_required: sharing a film needs the Director or Producer plan';
-  end if;
-  select count(*) into n from public.turn_team_invite_log l
-   where l.owner = m.owner and l.kind = 'invite' and l.at > now() - interval '1 day';
-  if n >= 20 then
-    raise exception 'TURN_TEAM:daily_cap: you can send up to 20 new invites a day';
-  end if;
-  insert into public.turn_team_invite_log(owner, project_id) values (m.owner, m.project_id);
+  perform public.turn__team_check(m.project_id, m.owner, m.id, m.member_email,
+    public.turn_team_canonical_roles(coalesce(m.roles, array[m.role])), null, true);
   -- the guard keeps expiry server-owned on browser updates; this definer path sets it
-  perform set_config('turn.team_trusted', 'on', true);
+  perform public.turn__team_trust(true);
   update public.turn_project_members set invited_at = now(), expires_at = now() + interval '14 days', email_sent_at = null
    where id = p_member;
-  perform set_config('turn.team_trusted', 'off', true);
+  perform public.turn__team_trust(false);
   return jsonb_build_object('ok', true, 'expires_at', now() + interval '14 days');
 end;
 $$;
@@ -626,13 +933,13 @@ as $$
 declare n integer;
 begin
   if auth.uid() is null then return 0; end if;
-  perform set_config('turn.team_trusted', 'on', true);
+  perform public.turn__team_trust(true);
   update public.turn_project_members m
      set status = 'removed'
    where m.status = 'active'
      and m.id in (select r.member_id from public.turn_effective_project_roles_for(auth.uid(), pid) r);
   get diagnostics n = row_count;
-  perform set_config('turn.team_trusted', 'off', true);
+  perform public.turn__team_trust(false);
   return n;
 end;
 $$;
@@ -658,13 +965,37 @@ as $$
      and h.created_at >= date_trunc('month', now() at time zone 'utc') at time zone 'utc';
 $$;
 
--- Who pays for a call on a film (service role). p_kind is the call: 'text' (any writing
+-- The roles that may charge a kind of call to the film's owner: 'text' (any writing
 -- role: every room drafts), 'image' and 'voice' (Art director, Stage editor), 'video'
--- (Stage editor), '3d' (Art director).
+-- (Stage editor), '3d' (Art director). No kind = any writing role.
+create or replace function public.turn_team_kind_roles(p_kind text)
+returns text[]
+language sql
+immutable
+as $$
+  select case p_kind
+    when 'text'  then array['writer', 'art_director', 'stage_editor']
+    when 'image' then array['art_director', 'stage_editor']
+    when 'voice' then array['art_director', 'stage_editor']
+    when 'video' then array['stage_editor']
+    when '3d'    then array['art_director']
+    else case when p_kind is null then array['writer', 'art_director', 'stage_editor']
+              else array[]::text[] end
+  end;
+$$;
+
+-- Who pays for a call on a film (service role). p_kind is the call (above).
 --   {ok:true, payer, own:true}                      the caller owns the film
 --   {ok:true, payer:owner, actor, member_id, budget, spent, tier}   a collaborator
---   {ok:false, code:'owner_plan' | 'budget_reached'}  refuse the call
---   {ok:false, code:'not_member' | 'role' | 'no_film' | 'off'}   bill the caller, as before
+--   {ok:false, code:'owner_plan' | 'budget_reached' | 'paused' | 'role'}   REFUSE the call
+--   {ok:false, code:'not_member' | 'no_film'}   not film work: bill the caller, as before
+-- (Team review, 2026-10-09) 'paused' replaces 'off' (owner decision B): with the switch
+-- off a linked, active collaborator is read-only and nobody is charged, so the server
+-- refuses the call (it is not billed to the collaborator either); someone who isn't a
+-- member still gets 'not_member'. 'role' (owner decision C): a member whose role doesn't
+-- cover this kind of call is refused, never charged — neither the owner nor themselves.
+-- When a person holds the film's own row and a Show row, the grant that fits the call
+-- and still has budget left is preferred.
 drop function if exists public.turn_film_payer(uuid, uuid, text);
 create or replace function public.turn_film_payer(p_actor uuid, p_project uuid, p_kind text)
 returns jsonb
@@ -687,24 +1018,21 @@ begin
   select p.owner into v_owner from public.turn_projects p where p.id = p_project;
   if v_owner is null then return jsonb_build_object('ok', false, 'code', 'no_film'); end if;
   if v_owner = p_actor then return jsonb_build_object('ok', true, 'payer', p_actor, 'own', true); end if;
-  if not public.turn_team_sharing_on() then return jsonb_build_object('ok', false, 'code', 'off'); end if;
-  need := case p_kind
-    when 'text'  then array['writer', 'art_director', 'stage_editor']
-    when 'image' then array['art_director', 'stage_editor']
-    when 'voice' then array['art_director', 'stage_editor']
-    when 'video' then array['stage_editor']
-    when '3d'    then array['art_director']
-    else array[]::text[] end;
+  need := public.turn_team_kind_roles(coalesce(p_kind, ''));
   tier := public.turn_team_owner_tier(v_owner);
-  -- the best grant: one that fits this call and the owner's plan, the film's own row first
+  -- the best grant: one that fits this call and the owner's plan, then one with budget
+  -- left, the film's own row before its Show's
   select r.role, r.member_id, m.budget_credits into pick
     from public.turn_effective_project_roles_for(p_actor, p_project) r
     join public.turn_project_members m on m.id = r.member_id
    where m.member_user = p_actor
    order by (r.role = any(need) and public.turn_team_role_writes(r.role, tier)) desc,
-            (r.role = any(need)) desc, (m.project_id = p_project) desc
+            (r.role = any(need)) desc,
+            (m.budget_credits is null or public.turn__member_spent(m.id) < m.budget_credits) desc,
+            (m.project_id = p_project) desc
    limit 1;
   if not found then return jsonb_build_object('ok', false, 'code', 'not_member'); end if;
+  if not public.turn_team_sharing_on() then return jsonb_build_object('ok', false, 'code', 'paused'); end if;
   if not (pick.role = any(need)) then return jsonb_build_object('ok', false, 'code', 'role', 'role', pick.role); end if;
   if not public.turn_team_role_writes(pick.role, tier) then
     return jsonb_build_object('ok', false, 'code', 'owner_plan', 'tier', tier);
@@ -717,42 +1045,78 @@ begin
     'role', pick.role, 'budget', pick.budget_credits, 'spent', spent, 'tier', tier);
 end $$;
 
--- Hold on the OWNER's balance for a collaborator's call (service role). The owner's
--- account row is locked first, so two calls can't both pass the budget check.
+-- Hold on the OWNER's balance for a collaborator's call (service role).
+-- (Team review, 2026-10-09) Nothing the caller passes is taken on trust: the owner
+-- and the film come from the membership row (p_owner must be the owner of that
+-- row's film, and p_project that film or one of its Show's Episodes — else
+-- 'mismatch'), and under the owner's account lock (two calls can't both pass the
+-- budget) it checks again: the switch is on ('paused'), the row is active and
+-- linked to p_actor ('not_member'), one of its roles fits the call ('role';
+-- p_kind as turn_film_payer's, none = any writing role), the owner's plan carries
+-- that role ('owner_plan'), and the budget ('budget_reached'). `ref` is trimmed
+-- once, as turn_hold_credits trims it, and that one value is used throughout.
+drop function if exists public.turn_hold_credits_for_film(uuid, uuid, uuid, uuid, integer, text, text);
 create or replace function public.turn_hold_credits_for_film(p_owner uuid, p_actor uuid, p_member uuid,
-  p_project uuid, amount integer, ref text, reason text default null)
+  p_project uuid, amount integer, ref text, reason text default null, p_kind text default null)
 returns jsonb
 language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
 declare
-  v_budget integer;
+  v_ref    text := nullif(trim(coalesce(turn_hold_credits_for_film.ref, '')), '');
+  v_amount integer := turn_hold_credits_for_film.amount;
+  m        public.turn_project_members;
+  v_owner  uuid;
+  v_need   text[];
+  tier     text;
   v_spent  integer;
   v_res    jsonb;
 begin
   perform public.turn__service_only('turn_hold_credits_for_film');
-  perform 1 from public.turn_credits c where c.owner = p_owner for update;
-  if exists (select 1 from public.turn_credit_holds h where h.ref = turn_hold_credits_for_film.ref) then
-    return public.turn_hold_credits(p_owner, amount, ref, reason);   -- a repeat: the first answer
-  end if;
-  select m.budget_credits into v_budget from public.turn_project_members m
-   where m.id = p_member and m.member_user = p_actor and m.status = 'active';
+  select * into m from public.turn_project_members x where x.id = p_member;
   if not found then
     return jsonb_build_object('ok', false, 'code', 'not_member', 'held', 0);
   end if;
-  v_spent := public.turn__member_spent(p_member);
-  if v_budget is not null and v_spent + coalesce(amount, 0) > v_budget then
+  select p.owner into v_owner from public.turn_projects p where p.id = m.project_id;
+  if v_owner is null or p_owner is distinct from v_owner
+     or not exists (select 1 from public.turn_projects p where p.id = p_project and p.owner = v_owner)
+     or not exists (select 1 from public.turn_series_membership_scope(p_project) s where s.project_id = m.project_id) then
+    return jsonb_build_object('ok', false, 'code', 'mismatch', 'held', 0);
+  end if;
+
+  perform 1 from public.turn_credits c where c.owner = v_owner for update;
+  if v_ref is not null and exists (select 1 from public.turn_credit_holds h where h.ref = v_ref) then
+    return public.turn_hold_credits(v_owner, v_amount, v_ref, reason);   -- a repeat: the first answer
+  end if;
+  select * into m from public.turn_project_members x where x.id = p_member;   -- as it is now, under the lock
+  if not public.turn_team_sharing_on() then
+    return jsonb_build_object('ok', false, 'code', 'paused', 'held', 0);
+  end if;
+  if m.status <> 'active' or m.member_user is distinct from p_actor or p_actor is null then
+    return jsonb_build_object('ok', false, 'code', 'not_member', 'held', 0);
+  end if;
+  v_need := public.turn_team_kind_roles(p_kind);
+  if not (coalesce(m.roles, array[m.role]) && v_need) then
+    return jsonb_build_object('ok', false, 'code', 'role', 'held', 0, 'role', m.role);
+  end if;
+  tier := public.turn_team_owner_tier(v_owner);
+  if not exists (select 1 from unnest(coalesce(m.roles, array[m.role])) r(role)
+                  where r.role = any(v_need) and public.turn_team_role_writes(r.role, tier)) then
+    return jsonb_build_object('ok', false, 'code', 'owner_plan', 'held', 0, 'tier', tier);
+  end if;
+  v_spent := public.turn__member_spent(m.id);
+  if m.budget_credits is not null and v_spent + coalesce(v_amount, 0) > m.budget_credits then
     return jsonb_build_object('ok', false, 'code', 'budget_reached', 'held', 0,
-      'budget', v_budget, 'spent', v_spent, 'needed', amount);
+      'budget', m.budget_credits, 'spent', v_spent, 'needed', v_amount);
   end if;
-  v_res := public.turn_hold_credits(p_owner, amount, ref, reason);
+  v_res := public.turn_hold_credits(v_owner, v_amount, v_ref, reason);
   if coalesce((v_res ->> 'ok')::boolean, false) and not coalesce((v_res ->> 'duplicate')::boolean, false) then
-    update public.turn_credit_holds h set actor = p_actor, project_id = p_project, member_id = p_member
-     where h.ref = turn_hold_credits_for_film.ref;
+    update public.turn_credit_holds h set actor = p_actor, project_id = p_project, member_id = m.id
+     where h.ref = v_ref;
   end if;
-  return v_res || jsonb_build_object('budget', v_budget, 'spent',
-    v_spent + case when coalesce((v_res ->> 'ok')::boolean, false) then coalesce(amount, 0) else 0 end);
+  return v_res || jsonb_build_object('budget', m.budget_credits, 'spent',
+    v_spent + case when coalesce((v_res ->> 'ok')::boolean, false) then coalesce(v_amount, 0) else 0 end);
 end $$;
 
 -- Who started the job a hold pays for (a video poll by the collaborator who submitted it,
@@ -798,6 +1162,7 @@ as $$
     from public.turn_project_members m
     join public.turn_projects p on p.id = m.project_id
    where p.owner = auth.uid()
+     and m.status = 'active'   -- (Team review, 2026-10-09) not someone removed or who left
      and m.member_user is not null
      and m.joined_at is not null
      and m.joined_at > now() - interval '30 days'
@@ -814,14 +1179,61 @@ as $$
 declare n integer;
 begin
   if auth.uid() is null then return 0; end if;
-  perform set_config('turn.team_trusted', 'on', true);
+  perform public.turn__team_trust(true);
   update public.turn_project_members m set owner_seen_at = now()
     from public.turn_projects p
    where p.id = m.project_id and p.owner = auth.uid()
      and m.joined_at is not null and m.owner_seen_at is null;
   get diagnostics n = row_count;
-  perform set_config('turn.team_trusted', 'off', true);
+  perform public.turn__team_trust(false);
   return n;
+end;
+$$;
+
+-- ── 7c. private presence and live changes (Team review, 2026-10-09) ─────────
+-- The app joins two channels per film, both with { config: { private: true } }:
+-- 'film:<film id>' (presence, and the doc-rev / member-removed broadcasts) and
+-- 'doc:<film id>' (the doc-rev / member-removed broadcasts). Supabase's Realtime
+-- Authorization reads RLS on realtime.messages: receiving (presence included) is a
+-- SELECT, sending a broadcast or tracking presence an INSERT. Both are allowed to
+-- anyone who can OPEN the film — read access is enough, a View-only collaborator
+-- shows up in presence too — and to nobody else (knowing a film's id no longer
+-- shows who is in it). A topic that isn't exactly 'film:' or 'doc:' + a UUID is
+-- refused, never an error.
+create or replace function public.turn_film_channel_allowed(p_topic text)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+stable
+as $$
+begin
+  if p_topic is null
+     or p_topic !~* '^(film|doc):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+    return false;
+  end if;
+  return public.turn_can_access_project(split_part(p_topic, ':', 2)::uuid, false);
+end;
+$$;
+revoke all on function public.turn_film_channel_allowed(text) from public, anon, authenticated;
+grant execute on function public.turn_film_channel_allowed(text) to authenticated;
+
+-- Only where Supabase Realtime is installed (the offline test database has no
+-- realtime schema; there this block does nothing).
+do $$
+begin
+  if to_regclass('realtime.messages') is null or to_regprocedure('realtime.topic()') is null then
+    raise notice 'realtime.messages / realtime.topic() not found: private film channels not configured here';
+    return;
+  end if;
+  execute 'drop policy if exists "turn film channels receive" on realtime.messages';
+  execute 'drop policy if exists "turn film channels send" on realtime.messages';
+  execute 'create policy "turn film channels receive" on realtime.messages
+             for select to authenticated
+             using (public.turn_film_channel_allowed(realtime.topic()))';
+  execute 'create policy "turn film channels send" on realtime.messages
+             for insert to authenticated
+             with check (public.turn_film_channel_allowed(realtime.topic()))';
 end;
 $$;
 
@@ -834,12 +1246,30 @@ revoke all on function public.turn_guard_team_member() from public, anon, authen
 revoke all on function public.turn_enforce_role_sections() from public, anon, authenticated;
 revoke all on function public.turn__member_spent(uuid) from public, anon, authenticated;
 revoke all on function public.turn_film_payer(uuid, uuid, text) from public, anon, authenticated;
-revoke all on function public.turn_hold_credits_for_film(uuid, uuid, uuid, uuid, integer, text, text) from public, anon, authenticated;
+revoke all on function public.turn_hold_credits_for_film(uuid, uuid, uuid, uuid, integer, text, text, text) from public, anon, authenticated;
 grant execute on function public.turn_film_payer(uuid, uuid, text) to service_role;
 revoke all on function public.turn_hold_actor(text) from public, anon, authenticated;
 grant execute on function public.turn_hold_actor(text) to service_role;
-grant execute on function public.turn_hold_credits_for_film(uuid, uuid, uuid, uuid, integer, text, text) to service_role;
+grant execute on function public.turn_hold_credits_for_film(uuid, uuid, uuid, uuid, integer, text, text, text) to service_role;
 revoke all on function public.turn__team_trusted() from public, anon, authenticated;
+revoke all on function public.turn__team_trust(boolean) from public, anon, authenticated;
+-- (Team review, 2026-10-09) the internal checks, and the pure helpers nothing outside the
+-- database calls (app/ and supabase/functions/ call none of them): not reachable at
+-- /rest/v1/rpc. Supabase's default privileges grant a new function to anon and
+-- authenticated DIRECTLY, so each is revoked from both by name.
+revoke all on function public.turn__is_team_admin(uuid) from public, anon, authenticated;
+revoke all on function public.turn__collab_writes(text, uuid) from public, anon, authenticated;
+revoke all on function public.turn__team_family(uuid) from public, anon, authenticated;
+revoke all on function public.turn__team_places(uuid, uuid, text, boolean) from public, anon, authenticated;
+revoke all on function public.turn__team_check(uuid, uuid, uuid, text, text[], text[], boolean) from public, anon, authenticated;
+revoke all on function public.turn_team_cap(text) from public, anon, authenticated;
+revoke all on function public.turn_team_default_budget(text) from public, anon, authenticated;
+revoke all on function public.turn_team_canonical_roles(text[]) from public, anon, authenticated;
+revoke all on function public.turn_team_roles_text(text[], text) from public, anon, authenticated;
+revoke all on function public.turn_team_role_writes(text, text) from public, anon, authenticated;
+revoke all on function public.turn_team_kind_roles(text) from public, anon, authenticated;
+revoke all on function public.turn_is_stage_slot(text, jsonb) from public, anon, authenticated;
+revoke all on function public.turn_role_allowed_sections(text) from public, anon, authenticated;
 revoke all on function public.turn_confirmed_email() from public, anon;
 grant execute on function public.turn_confirmed_email() to authenticated;
 revoke all on function public.turn_team_sharing_on() from public, anon;

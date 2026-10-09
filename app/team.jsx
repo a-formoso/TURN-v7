@@ -184,9 +184,45 @@ function teamCountsTowardCap(m, now){
   if(m.member_user) return true;
   return !m.expires_at || Date.parse(m.expires_at) > (now||Date.now());
 }
+/* the owner (or the admin) manages a film's team — sharing on or off: with sharing paused they can still
+   remove people and change budgets (2026-10-09, owner — Team review); INVITING needs sharing on */
 function teamCanManage(projectMeta){
-  if(!teamSharingOn()) return false;
   return !!(projectMeta && (projectMeta.isOwner || window.turnIsAdmin));
+}
+/* the owner's NAME for an inviter the server sent (an older claim row or invite metadata may still carry
+   an email address): a handle, never the address (2026-10-09) */
+function teamInviterName(v){
+  const t = String(v||"").trim();
+  if(!t) return "";
+  if(t.indexOf("@")<0) return t;
+  if(typeof cloudHandleName==="function"){ try{ const n = cloudHandleName(t); if(n && n.indexOf("@")<0) return n; }catch(e){} }
+  return t.split("@")[0].split("+")[0];
+}
+window.teamInviterName = teamInviterName;
+/* the first day of next month, UTC — when budgets reset ("resets 1 Nov") */
+function teamBudgetResetText(now){
+  const d = new Date(now||Date.now());
+  const next = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth()+1, 1));
+  return "resets 1 "+["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][next.getUTCMonth()];
+}
+window.teamBudgetResetText = teamBudgetResetText;
+/* a dialog's keyboard behaviour: focus the first control on open, keep Tab inside, give focus back */
+function useTeamDialogFocus(ref){
+  React.useEffect(()=>{
+    const el = ref.current; if(!el) return;
+    const before = document.activeElement;
+    const items = ()=> Array.from(el.querySelectorAll('button:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])'));
+    const first = items()[0]; try{ (first || el).focus(); }catch(e){}
+    const onKey = (e)=>{
+      if(e.key!=="Tab") return;
+      const list = items(); if(!list.length) return;
+      const a = list[0], b = list[list.length-1];
+      if(e.shiftKey && document.activeElement===a){ e.preventDefault(); b.focus(); }
+      else if(!e.shiftKey && document.activeElement===b){ e.preventDefault(); a.focus(); }
+    };
+    el.addEventListener("keydown", onKey);
+    return ()=>{ el.removeEventListener("keydown", onKey); try{ before && before.focus && before.focus(); }catch(e){} };
+  },[]);
 }
 window.TEAM_LIMITS = TEAM_LIMITS;
 window.teamSharingOn = teamSharingOn;
@@ -211,9 +247,10 @@ function teamSoonNotice(){
 window.TEAM_SOON_TEXT = TEAM_SOON_TEXT;
 window.teamWindowAllowed = teamWindowAllowed;
 
-/* the Team window: when sharing is on (or for the admin) — otherwise nothing (no window, no read) */
+/* the Team window: when sharing is on (or for the admin) — and, while it's paused, in PAUSED mode for a
+   film that already has a team (the owner removes people and sets budgets; a collaborator can leave) */
 function TeamModal(props){
-  if(!teamWindowAllowed(props && props.isAdmin, props && props.sharing)) return null;
+  if(!teamWindowAllowed(props && props.isAdmin, props && props.sharing) && !(props && props.paused)) return null;
   return React.createElement(TeamWindow, props);
 }
 
@@ -257,44 +294,53 @@ function TeamRolePicker({ value, onChange, tier, disabled, compact, label }){
     TEAM_ROLES.map(r=>{
       const on = parts.includes(r.id);
       const locked = !!(r.producerOnly && tier!=="studio");
-      return React.createElement("button",{key:r.id,type:"button",className:"team-role-chip"+(on?" on":""),
-        "aria-pressed":on?"true":"false", disabled:!!disabled || (locked && !on),
+      // a locked role stays focusable (aria-disabled) and says why when pressed — a disabled button can't be
+      // reached by keyboard, so its reason was never heard (2026-10-09)
+      const lockedOff = locked && !on;
+      return React.createElement("button",{key:r.id,type:"button",className:"team-role-chip"+(on?" on":"")+(lockedOff?" locked":""),
+        "aria-pressed":on?"true":"false", disabled:!!disabled, "aria-disabled":lockedOff?"true":undefined,
         title: locked ? r.label+" comes with the Producer plan." : r.blurb,
-        onClick:()=>pick(r.id)}, r.label);
+        onClick:()=>{ if(lockedOff){ if(window.appToast) window.appToast(r.label+" comes with the Producer plan.","info"); return; } pick(r.id); }}, r.label);
     }));
 }
 window.TeamRolePicker = TeamRolePicker;
 
-function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onChanged }){
+function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onChanged, paused }){
   const [members, setMembers] = React.useState([]);
   const [spend, setSpend] = React.useState({});
   const [email, setEmail] = React.useState("");
   const [role, setRole] = React.useState("writer");      // a role key: "writer", "writer+art_director", "view_only"…
   const [busy, setBusy] = React.useState("");
   const [schemaMissing, setSchemaMissing] = React.useState(!!window.turnTeamSchemaMissing);
+  const [listState, setListState] = React.useState("loading");   // loading | ok | failed (2026-10-09)
+  const dialogRef = React.useRef(null);
+  useTeamDialogFocus(dialogRef);
   const canManage = teamCanManage(projectMeta);
   const tier = teamAccountTier();
-  const canInvite = canManage && (tier==="director" || tier==="studio");
+  // paused (sharing switched off): nobody is invited and no role changes — removals and budgets still work
+  const canInvite = canManage && !paused && teamSharingOn() && (tier==="director" || tier==="studio");
   const cap = TEAM_LIMITS.people[tier] || 0;
   const now = Date.now();
   const showTitle = projectTitle || "Untitled Show";
   const scopedRoleBlurb = id=>teamScopedRoleBlurb(id,!!series);
   const load = React.useCallback(async ()=>{
-    if(!projectId || typeof window.cloudListProjectMembers!=="function"){ setMembers([]); return; }
+    if(!projectId || typeof window.cloudListProjectMembers!=="function"){ setMembers([]); setListState("ok"); return; }
     const [rows, used] = await Promise.all([
       window.cloudListProjectMembers(projectId),
       typeof window.cloudTeamSpend==="function" ? window.cloudTeamSpend(projectId) : Promise.resolve([]),
     ]);
-    setMembers(rows||[]);
+    if(rows==null){ setListState("failed"); return; }   // never "Nobody invited yet." on a failed read
+    setMembers(rows); setListState("ok");
     const map = {}; (used||[]).forEach(u=>{ map[u.member_id] = u; }); setSpend(map);
     setSchemaMissing(!!window.turnTeamSchemaMissing);
   },[projectId]);
   React.useEffect(()=>{ load(); },[load]);
-  React.useEffect(()=>{ const h=(e)=>{ if(e.key==="Escape") onClose(); }; document.addEventListener("keydown",h); return ()=>document.removeEventListener("keydown",h); },[]);
+  // Escape closes — unless a dialog above this one (the remove confirm) took it first
+  React.useEffect(()=>{ const h=(e)=>{ if(e.key==="Escape" && !e.defaultPrevented) onClose(); }; document.addEventListener("keydown",h); return ()=>document.removeEventListener("keydown",h); },[]);
   const counted = members.filter(m=>teamCountsTowardCap(m, now)).length;
   const toast = (msg, kind)=>{ if(window.appToast && msg) window.appToast(msg, kind); };
   const invite = async ()=>{
-    if(!canInvite || schemaMissing) return;
+    if(!canInvite || schemaMissing || busy) return;   // Enter twice sent two invites (2026-10-09)
     setBusy("invite");
     const addr = email.trim().toLowerCase();
     const res = await window.cloudInviteProjectMember(projectId, email, role);
@@ -303,6 +349,8 @@ function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onC
       setEmail("");
       await load();
       if(onChanged) onChanged();
+      // already on the film: a role change (or nothing) is a success — no email was needed
+      if(res.joined){ toast(res.roleChanged ? "Role updated for "+addr+"." : addr+" is already on this "+(series?"Show":"film")+".","success"); return; }
       // the grant and the email are separate outcomes — never claim "sent" when only the row was written
       if(res.emailSent) toast(series ? "Invitation to Show “"+showTitle+"” emailed to "+addr+"." : "Invitation emailed to "+addr+".","success");
       else toast(series
@@ -319,7 +367,7 @@ function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onC
     const res = await window.cloudRenewInvite(m, projectId);
     setBusy("");
     await load();
-    if(res && res.ok) toast(res.emailSent ? "Invitation sent again to "+m.member_email+"." : "Invite renewed for 14 days, but "+(res.emailNote||"the email couldn't be sent.")+"", res.emailSent?"success":"error");
+    if(res && res.ok) toast(res.emailSent ? "Invitation sent again to "+m.member_email+"." : "Invite renewed for 14 days, but "+(res.emailNote||"the email couldn't be sent."), res.emailSent?"success":"error");
     else toast((res&&res.message)||"Couldn't send the invite again.","error");
   };
   const updateRole = async (m, nextRole)=>{
@@ -344,11 +392,17 @@ function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onC
   };
   const remove = async (m)=>{
     if(!canManage) return;
-    const ok = !window.appConfirm || await window.appConfirm({
+    // an invite nobody accepted is WITHDRAWN — there's no access to end (2026-10-09)
+    const pending = !m.member_user;
+    const ok = !window.appConfirm || await window.appConfirm(pending ? {
+      title:"Withdraw this invite?",
+      body:"The invitation to "+m.member_email+" stops working. You can invite them again later.",
+      confirmLabel:"Withdraw invite", danger:true
+    } : {
       title:series ? "Remove this person from the Show?" : "Remove this person?",
       body:series
-        ? "This ends "+m.member_email+"'s access to Show “"+showTitle+"”, its shared Bible and all existing and future episodes immediately — if they have one open they'll be told their access ended. You can invite them again later."
-        : "This ends "+m.member_email+"'s access to “"+(projectTitle||"this film")+"” immediately — if they have it open they'll be told their access ended. You can invite them again later.",
+        ? "This ends "+m.member_email+"'s access to Show “"+showTitle+"”, its shared Bible and all existing and future episodes immediately — if they have one open they'll be told their access ended. To come back they'd need a new invite."
+        : "This ends "+m.member_email+"'s access to “"+(projectTitle||"this film")+"” immediately — if they have it open they'll be told their access ended. To come back they'd need a new invite.",
       confirmLabel:series ? "Remove Show access" : "Remove",
       danger:true
     });
@@ -363,7 +417,9 @@ function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onC
     if(typeof window.cloudLeaveFilm!=="function") return;
     const ok = !window.appConfirm || await window.appConfirm({
       title:series ? "Leave this Show?" : "Leave this film?",
-      body:"You'll lose access to “"+(series?showTitle:(projectTitle||"this film"))+"” at once. The owner can invite you again.",
+      body:series
+        ? "You'll lose access to Show “"+showTitle+"” — its shared Bible and every episode — at once. The owner can invite you again."
+        : "You'll lose access to “"+(projectTitle||"this film")+"” at once. The owner can invite you again.",
       confirmLabel:"Leave", danger:true });
     if(!ok) return;
     setBusy("leave");
@@ -374,14 +430,21 @@ function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onC
   };
   const mine = !canManage ? members[0] : null;           // a collaborator reads only their own row
   const mySpend = mine ? spend[mine.id] : null;
+  // this month's use, when the month resets, and a flag at 80% and at the limit (2026-10-09, owner — §6)
   const budgetLine = (m, used)=>{
     const spent = used ? used.spent : 0;
-    return m.budget_credits==null
-      ? fmtCredits(spent)+" credits this month · no limit"
-      : fmtCredits(spent)+" of "+fmtCredits(m.budget_credits)+" credits this month";
+    const reset = teamBudgetResetText(now);
+    if(m.budget_credits==null) return fmtCredits(spent)+" credits this month · no limit · "+reset;
+    const b = Number(m.budget_credits)||0;
+    const flag = b>0 && spent>=b ? " · budget used up" : (b>0 && spent>=0.8*b ? " · 80% used" : "");
+    return fmtCredits(spent)+" of "+fmtCredits(b)+" credits this month"+flag+" · "+reset;
   };
   const shareNote = schemaMissing
     ? "Team sharing isn't set up on the server yet. Please try again later."
+    : paused
+    ? (canManage
+      ? "Team sharing is paused right now: the people below can read this "+(series?"Show":"film")+" but not change it, and nobody is charged. You can still remove people and change budgets."
+      : "Team sharing is paused right now: you can read this "+(series?"Show":"film")+" but not change it, and nothing is charged. You can still leave it.")
     : canManage && tier===null
     ? "Checking your plan\u2026"
     : canManage
@@ -397,12 +460,12 @@ function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onC
       +(projectMeta && projectMeta.shareRole ? (": "+teamRoleLabel(projectMeta.shareRole)+" — "+(scopedRoleBlurb(projectMeta.shareRole)||"")) : ".")
       +" Work you do here is paid by the film's owner, within your monthly budget.";
   return React.createElement("div",{className:"bible-overlay",onMouseDown:e=>{ if(e.target===e.currentTarget) onClose(); }},
-    React.createElement("div",{className:"bible-modal team-modal"},
+    React.createElement("div",{className:"bible-modal team-modal",ref:dialogRef,role:"dialog","aria-modal":"true","aria-labelledby":"team-title",tabIndex:-1},
       React.createElement("div",{className:"bible-head"},
-        React.createElement("div",{className:"bible-title"},
+        React.createElement("div",{className:"bible-title",id:"team-title"},
           React.createElement(Icon.user,{s:16}),"Team",
           React.createElement("span",{className:"bible-sub"},series ? ("Show · "+showTitle) : (projectTitle||"Current film"))),
-        React.createElement("button",{className:"bible-x",onClick:onClose,title:"Close"},React.createElement(Icon.x,{s:16}))),
+        React.createElement("button",{className:"bible-x",onClick:onClose,title:"Close","aria-label":"Close"},React.createElement(Icon.x,{s:16}))),
       React.createElement("div",{className:"team-body"},
         React.createElement("div",{className:"team-note"}, shareNote),
         canManage && !canInvite && tier==="none" && React.createElement("button",{className:"team-add team-plans",
@@ -464,11 +527,15 @@ function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onC
                         value: m.budget_credits==null ? "" : String(m.budget_credits),
                         disabled:!!busy, onChange:e=>saveBudget(m, e.target.value)},
                         teamBudgetChoices(tier, m.budget_credits).map(o=>React.createElement("option",{key:o.value,value:o.value},o.label))),
-                      React.createElement("button",{className:"team-remove",disabled:!!busy,title:"Remove",onClick:()=>remove(m)},
+                      React.createElement("button",{className:"team-remove",disabled:!!busy,title:m.member_user?"Remove":"Withdraw invite",
+                        "aria-label":(m.member_user?"Remove ":"Withdraw the invite to ")+m.member_email,onClick:()=>remove(m)},
                         React.createElement(Icon.trash,{s:14})))
                   : React.createElement("span",{className:"team-badge",title:scopedRoleBlurb(mKey)},teamRoleLabel(mKey)));
               })
-            : (canManage ? React.createElement("div",{className:"team-empty"},"Nobody invited yet.") : null)),
+            : (listState==="loading" ? React.createElement("div",{className:"team-empty"},"Loading the team\u2026")
+              : listState==="failed" ? React.createElement("div",{className:"team-empty",role:"alert"},"Couldn't load the team. ",
+                  React.createElement("button",{type:"button",className:"team-again",onClick:()=>{ setListState("loading"); load(); }},"Try again"))
+              : canManage ? React.createElement("div",{className:"team-empty"},"Nobody invited yet.") : null)),
         !canManage && mine && React.createElement("div",{className:"team-mine"},
           "Your budget on this "+(series?"Show":"film")+": "+budgetLine(mine, mySpend)+".",
           React.createElement("button",{className:"team-leave",disabled:busy==="leave",onClick:leave},busy==="leave"?"Leaving...":(series?"Leave Show":"Leave film"))),
@@ -487,6 +554,9 @@ function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onC
    in through the email link and have no password yet, so offer to set one here —
    otherwise they can never sign back in directly. */
 function InviteWelcome({ film, invitedBy, sessionEmail, canSetPassword, onOpen, onClose }){
+  const dialogRef = React.useRef(null);
+  useTeamDialogFocus(dialogRef);
+  const byName = teamInviterName(invitedBy);   // the owner's name, never an email (2026-10-09)
   const [pw, setPw] = React.useState("");
   const [pwBusy, setPwBusy] = React.useState(false);
   const [pwDone, setPwDone] = React.useState(false);
@@ -504,11 +574,11 @@ function InviteWelcome({ film, invitedBy, sessionEmail, canSetPassword, onOpen, 
     : (String(film.project_kind||"").toLowerCase()==="show"||String(film.isShow).toLowerCase()==="true")));
   const invitedTitle = film ? (film.title||(isShow?"Untitled Show":"Untitled film")) : "";
   return React.createElement("div",{className:"bible-overlay",onMouseDown:e=>{ if(e.target===e.currentTarget) onClose(); }},
-    React.createElement("div",{className:"bible-modal team-modal invite-welcome"},
+    React.createElement("div",{className:"bible-modal team-modal invite-welcome",ref:dialogRef,role:"dialog","aria-modal":"true","aria-labelledby":"invite-title",tabIndex:-1},
       React.createElement("div",{className:"bible-head"},
-        React.createElement("div",{className:"bible-title"},
+        React.createElement("div",{className:"bible-title",id:"invite-title"},
           React.createElement(Icon.mail,{s:16}), film ? (isShow?"You've been added to a Show":"You've been added to a film") : "Invitation not active"),
-        React.createElement("button",{className:"bible-x",onClick:onClose,title:"Close"},React.createElement(Icon.x,{s:16}))),
+        React.createElement("button",{className:"bible-x",onClick:onClose,title:"Close","aria-label":"Close"},React.createElement(Icon.x,{s:16}))),
       React.createElement("div",{className:"team-body"},
         film
           ? React.createElement(React.Fragment,null,
@@ -516,9 +586,9 @@ function InviteWelcome({ film, invitedBy, sessionEmail, canSetPassword, onOpen, 
                 React.createElement("div",{className:"invite-film-title"},"\u201C"+invitedTitle+"\u201D"),
                 React.createElement("div",{className:"invite-film-by"},
                   isShow
-                    ? (invitedBy ? invitedBy+" shared this Show with you." : "This Show was shared with you.")+
+                    ? (byName ? byName+" shared this Show with you." : "This Show was shared with you.")+
                       " Your access covers its shared Bible and all existing and future episodes."
-                    : (invitedBy ? invitedBy+" shared this film with you." : "This film was shared with you."))),
+                    : (byName ? byName+" shared this film with you." : "This film was shared with you."))),
               role && React.createElement("div",{className:"team-role-blurb"},
                 "Your role: "+teamRoleLabel(role)+" \u2014 "+teamScopedRoleBlurb(role,isShow)),
               React.createElement("div",{className:"team-note invite-pays"},
@@ -528,6 +598,7 @@ function InviteWelcome({ film, invitedBy, sessionEmail, canSetPassword, onOpen, 
                   "You signed in through the email link. Set a password so you can sign in directly next time (email: "+(sessionEmail||"this address")+")."),
                 React.createElement("div",{className:"invite-pw-row"},
                   React.createElement("input",{className:"team-email",type:"password",value:pw,placeholder:"New password (8+ characters)",
+                    "aria-label":"New password, 8 or more characters",autoComplete:"new-password",
                     onChange:e=>setPw(e.target.value),onKeyDown:e=>{ if(e.key==="Enter") setPassword(); }}),
                   React.createElement("button",{className:"team-add",disabled:pwBusy||pw.length<8,onClick:setPassword},
                     pwBusy?"Saving...":"Set password"))),
@@ -559,10 +630,23 @@ window.teamInviteInviter = teamInviteInviter;
 
 function TeamButton({ projectId, projectTitle, projectMeta, series, onChanged, isAdmin, sharing }){
   const [open, setOpen] = React.useState(false);
-  // sharing switched off (or not loaded yet): everyone but the admin gets the "Soon" button below
+  // sharing switched off (or not loaded yet): everyone but the admin gets the "Soon" button below —
+  // except on a film that already HAS a team: its owner can still remove people and set budgets, and a
+  // collaborator can still leave (PAUSED, 2026-10-09, owner — Team review)
   const live = teamWindowAllowed(isAdmin, sharing);
   const shared = projectMeta && projectMeta.isShared;
-  const hint = !live ? TEAM_SOON_TEXT
+  const owner = !!(projectMeta && projectMeta.isOwner);
+  const [hasTeam, setHasTeam] = React.useState(false);
+  React.useEffect(()=>{
+    setHasTeam(false);
+    if(live || !projectId || !owner || typeof window.cloudListProjectMembers!=="function") return;
+    let alive = true;
+    window.cloudListProjectMembers(projectId).then(rows=>{ if(alive) setHasTeam(!!(rows && rows.length)); }).catch(()=>{});
+    return ()=>{ alive = false; };
+  },[projectId, live, owner]);
+  const paused = !live && (shared || hasTeam);
+  const hint = paused ? "Team sharing is paused \u2014 "+(shared ? "this film is read-only for you; you can still leave it" : "you can still remove people and change budgets")
+    : !live ? TEAM_SOON_TEXT
     : shared
     ? ((series?"Show shared with you":"Shared with you")+" · "+teamRoleLabel(projectMeta.shareRole))
     : (series?"Show team · shared Bible and all episodes":"Team collaboration");
@@ -573,12 +657,12 @@ function TeamButton({ projectId, projectTitle, projectMeta, series, onChanged, i
   // ⋯ menu shows it with the same "Soon" chip, and a tap only shows the notice.
   React.useEffect(()=>{
     if(!projectId) return;
-    const entry = live ? { open:()=>setOpen(true), hint } : { soon:true, hint, notify:teamSoonNotice };
+    const entry = (live || paused) ? { open:()=>setOpen(true), hint } : { soon:true, hint, notify:teamSoonNotice };
     window.turnTeamMenu = entry;
     return ()=>{ if(window.turnTeamMenu===entry) window.turnTeamMenu = null; };
-  },[projectId, hint, live]);
+  },[projectId, hint, live, paused]);
   if(!projectId) return null;
-  if(!live) return React.createElement("button",{type:"button",className:"tb-btn team-soon",
+  if(!live && !paused) return React.createElement("button",{type:"button",className:"tb-btn team-soon",
       "aria-disabled":"true","aria-label":"Team (coming soon)","aria-describedby":"team-soon-tip",
       onClick:teamSoonNotice},
     React.createElement(Icon.user,{s:14}),"Team",
@@ -588,7 +672,7 @@ function TeamButton({ projectId, projectTitle, projectMeta, series, onChanged, i
   return React.createElement(React.Fragment,null,
     React.createElement("button",{className:"tb-btn",onClick:()=>setOpen(true),title:hint},
       React.createElement(Icon.user,{s:14}),"Team"),
-    open && React.createElement(TeamModal,{projectId,projectTitle,projectMeta,series,onChanged,isAdmin,sharing:live,onClose:()=>setOpen(false)}));
+    open && React.createElement(TeamModal,{projectId,projectTitle,projectMeta,series,onChanged,isAdmin,sharing:live,paused,onClose:()=>setOpen(false)}));
 }
 
 /* PRESENCE DOTS — who else has this film open right now, shown beside the Team button.

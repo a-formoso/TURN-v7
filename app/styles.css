@@ -8382,6 +8382,8 @@ html[data-theme="dark"] .hd-card-new-art{ box-shadow:none; }
 .team-role-chip:hover:not(:disabled){border-color:var(--pos);color:var(--txt-0)}
 .team-role-chip.on{background:color-mix(in srgb,var(--brand,#d67e00) 14%,var(--bg-2));border-color:color-mix(in srgb,var(--brand,#d67e00) 55%,var(--line-2));color:var(--txt-0)}
 .team-role-chip:disabled{opacity:.45;cursor:not-allowed}
+/* a locked role stays focusable (aria-disabled) and looks like the disabled ones (Team review, 2026-10-09) */
+.team-role-chip.locked{opacity:.45;cursor:not-allowed}
 /* the owner's bell (team.jsx TeamNotifications) */
 .notify-wrap{position:relative;display:inline-flex}
 .notify-btn{position:relative}

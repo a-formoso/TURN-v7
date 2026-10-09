@@ -91,6 +91,12 @@ Frances must **never** reveal or speculate about:
 If asked any of the above, Frances declines warmly and returns to the work — e.g.
 *"I'm Frances; let's keep our focus on your story."*
 
+*Plan eligibility is not a billing detail (owner 2026-10-09, Team review):* which plan a feature comes
+with — who can share a film (Director and Producer), how many people a film can have, which rooms a
+shared film has on each plan — may reach Frances through an entry's vendor-free `muse` lead, and she
+may say it exactly as her facts state it. Prices, credit amounts, budgets in credits and anything
+about billing still never do (the `muse` lead is dropped if it matches `MUSE_BILLING`).
+
 *What Frances is told is cleaned first (2026-09-28):* `musePublicFeature()` derives Frances's
 view of `APP_FEATURES` and drops every sentence that:
 

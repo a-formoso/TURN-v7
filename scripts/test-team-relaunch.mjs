@@ -139,15 +139,18 @@ await test("B1 a Director owner: invite form without Stage editor, '2 of 5 peopl
   assert.equal(pickers[0].props.value, "writer");
   const chips = findAll(cb.TeamRolePicker(pickers[0].props), hasClass("team-role-chip"));
   assert.deepEqual(chips.map(c=>[textOf(c), c.props["aria-pressed"], !!c.props.disabled]),
-    [["View-only","false",false],["Co-writer","true",false],["Art director","false",false],["Stage editor","false",true]], "no Stage editor on Director");
+    [["View-only","false",false],["Co-writer","true",false],["Art director","false",false],["Stage editor","false",false]], "no Stage editor on Director");
+  // (Team review 2026-10-09) the locked chip stays focusable: aria-disabled, and a press says why
+  assert.equal(chips[3].props["aria-disabled"], "true");
   assert.match(textOf(findAll(w, hasClass("team-cap"))[0]), /^2 of 5 people on this film .* up to 3 Co-writers .* Stage editor role comes with the Producer plan/);
   const seats = findAll(w, n=>hasClass("team-seat")(n) && !hasClass("owner")(n));
   assert.equal(seats.length, 3);
   const roleText = seats.map(s=>textOf(findAll(s, hasClass("team-member-role"))[0]));
   assert.match(roleText[0], /Co-writer · Joined/); assert.match(roleText[1], /Art director · Invited · expires in 3 days/); assert.match(roleText[2], /Invite expired/);
   assert.ok(hasClass("expired")(seats[2]));
-  assert.equal(textOf(findAll(seats[0], hasClass("team-member-budget"))[0]), "120 of 200 credits this month");
-  assert.equal(textOf(findAll(seats[1], hasClass("team-member-budget"))[0]), "0 credits this month · no limit");
+  // (Team review 2026-10-09) the month's reset date follows
+  assert.match(textOf(findAll(seats[0], hasClass("team-member-budget"))[0]), /^120 of 200 credits this month · resets 1 [A-Z][a-z]{2}$/);
+  assert.match(textOf(findAll(seats[1], hasClass("team-member-budget"))[0]), /^0 credits this month · no limit · resets 1 [A-Z][a-z]{2}$/);
   assert.equal(findAll(seats[0], hasClass("team-again")).length, 0, "no Invite again once joined");
   assert.equal(findAll(seats[1], hasClass("team-again")).length, 1); assert.equal(findAll(seats[2], hasClass("team-again")).length, 1);
   // the budget is picked from No limit, the plan's default and the credit pack sizes (owner 2026-10-03)
@@ -271,7 +274,7 @@ function cloudBox({ existing = null, invoke, rpcError = null } = {}){
 }
 await test("D1 switched off, a non-admin's invite and role change are refused before any request; removing still works", async ()=>{
   const c = cloudBox(); c.turnTeamSharing = false; c.turnIsAdmin = false;
-  assert.deepEqual(J(await c.cloudInviteProjectMember("p1", "a@b.co", "writer")), { ok:false, paused:true, message:"Team sharing is switched off right now." });
+  assert.deepEqual(J(await c.cloudInviteProjectMember("p1", "a@b.co", "writer")), { ok:false, paused:true, message:"Team sharing is paused right now. You can still remove people and change budgets." });
   assert.equal((await c.cloudUpdateProjectMember("m1", { role:"writer" }, "p1")).paused, true);
   assert.deepEqual(J(c.__log), []);
   assert.equal((await c.cloudRemoveProjectMember("m1", "p1")).ok, true, "removing always works");
@@ -336,7 +339,8 @@ await test("D5 leaving, budgets, spend, the owner's tier; the email filter is qu
 await test("E1 app.jsx: rooms follow the owner's plan; a lapsed owner → read-only; presence sends no email; the switch reaches the button", ()=>{
   assert.ok(appSrc.includes('if(filmOwnerTier==="studio") return { writers_room:true, art_room:true, stage:true, shared:true };'));
   assert.ok(appSrc.includes('if(filmOwnerTier==="director") return { writers_room:true, art_room:true, stage:false, shared:true };'));
-  assert.ok(appSrc.includes('const writeRole = ownerPlanLapsed ? "view_only" : shareRole;'));
+  // (Team review 2026-10-09) also read-only while sharing is paused, and while the film is off the list
+  assert.ok(appSrc.includes('const writeRole = (ownerPlanLapsed || sharingPaused || sharedOffList) ? "view_only" : shareRole;'));
   assert.ok(appSrc.includes("window.teamCanWriteRoom(writeRole,id)") && appSrc.includes("window.teamCanWriteSection(writeRole,k)"));
   assert.ok(appSrc.includes('room==="stage" ? stageReadOnly : readOnlyShare'), "the Stage is read-only for every role but the Stage editor");
   assert.ok(appSrc.includes('{ uid:(session && session.user && session.user.id) || "", name, role:'), "presence: account id + name");

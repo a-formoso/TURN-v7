@@ -224,7 +224,9 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
       projectId: ctx.projectId || null, ownerId: (ctx.access && ctx.access.ownerId) || null });
     if (!result?.ok) {
       const code = result?.code || "insufficient_credits";
-      const status = code === "tier_required" || code === "account_frozen" ? 403 : code === "billing_unavailable" ? 503 : 402;
+      // Team review (2026-10-09): film_role / team_paused 403, film_unverified 503 (supabase-adapter.mjs)
+      const status = code === "tier_required" || code === "account_frozen" || code === "film_role" || code === "team_paused" ? 403
+        : code === "billing_unavailable" || code === "film_unverified" ? 503 : 402;
       throw error(status, code, result?.message || "Insufficient credits for this generation.");
     }
     return result.holdRef || null;

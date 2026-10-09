@@ -1349,7 +1349,8 @@ await test("C11 (round 4, owner decision) an output LONGER than its length-sized
   const src = read("supabase/functions/image-proxy/index.ts");
   assert.match(src, /from\("turn_grant_failures"\)\.insert\(\{\s*event_id: String\(m\.ref \|\| ""\), event_type: "video\.length_mismatch", reason: "length_mismatch"/);
   assert.match(src, /record: \(m: any\) => recordLengthMismatch\(svc, m\)/, "the reconciliation records");
-  assert.match(src, /record: \(m: any\) => recordLengthMismatch\(createClient\(supabaseUrl, Deno\.env\.get\("SUPABASE_SERVICE_ROLE_KEY"\)!\), \{ \.\.\.m, owner: authUser\.id, requestId: job\.rid, endpoint: model \}\)/, "the poll records");
+  // Team review (2026-10-09): filed under the hold's owner (who paid), as the reconciliation does
+  assert.match(src, /record: \(m: any\) => recordLengthMismatch\(createClient\(supabaseUrl, Deno\.env\.get\("SUPABASE_SERVICE_ROLE_KEY"\)!\), \{ \.\.\.m, owner: found\.owner \|\| authUser\.id, requestId: job\.rid, endpoint: model \}\)/, "the poll records");
 });
 
 /* ═══════════════════════════ D. PUBLIC ERRORS ═══════════════════════════ */
@@ -1652,7 +1653,16 @@ async function proxySection() {
       // length_mismatch records (turn_grant_failures)
       from: (table) => {
         const f = { col: null, val: null };
-        const c = { select: () => c, eq: (col, val) => { f.col = col; f.val = val; return c; },
+        // Team review (2026-10-09): who paid for a hold (image-proxy's poll, blender-bridge's re-hold) —
+        // the hold's row by ref; this database has no Team columns, so actor / member_id read as null
+        const rows = async () => {
+          if (table === "turn_credit_holds" && f.col === "ref") {
+            const r = (await db.query("select * from public.turn_credit_holds where ref = $1", [f.val])).rows;
+            return { data: r.map((h) => ({ owner: h.owner, actor: h.actor ?? null, member_id: h.member_id ?? null, project_id: h.project_id ?? null })), error: null };
+          }
+          return { data: null, error: { message: "unexpected read of " + table } };
+        };
+        const c = { select: () => c, eq: (col, val) => { f.col = col; f.val = val; return c; }, limit: () => c, then: (ok, bad) => rows().then(ok, bad),
           insert: async (row) => { W.events.push("insert:" + table); if (table !== "turn_grant_failures") return { error: { message: "unexpected insert into " + table } }; W.grantFailures.push(row); return { error: null }; },
           maybeSingle: async () => {
             W.events.push("from:" + table);

@@ -6,8 +6,11 @@
    invites expire after 14 days and need a confirmed email; Stage editor on Producer films only; rooms
    follow the owner's plan (below Director → read-only); the owner pays within each person's budget
    (200 Director / 500 Producer). Uses the harness of scripts/test-series-production-sql.mjs.
+   Q (Team review, 2026-10-09): every fix of that pass on two fresh databases — the 2026-10-03 file
+   (from git) shows each bug, today's file the fix — then today's file installed over the old one.
      node scripts/test-team-relaunch-db.mjs */
 import { readFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { PGlite } from "@electric-sql/pglite";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 
@@ -61,6 +64,17 @@ async function as(who, sql, p = []) {
       return (await tx.query(sql, p)).rows;
     });
     return { ok: true, rows, row: rows[0] };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+async function asTx(who, fn) {
+  try {
+    const rows = await db.transaction(async (tx) => {
+      const claims = who === "service" ? { role: "service_role" } : { sub: who.id, email: who.email, role: "authenticated" };
+      await tx.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify(claims)]);
+      await tx.exec(`set local role ${who === "service" ? "service_role" : "authenticated"}`);
+      return fn(tx);
+    });
+    return { ok: true, rows };
   } catch (e) { return { ok: false, error: e.message }; }
 }
 const svc = async (sql, p) => { const r = await as("service", sql, p); if (!r.ok) throw new Error(sql + " → " + r.error); return r.row; };
@@ -179,7 +193,7 @@ ok("F3 a Stage editor saves shots on a Producer film", r.ok && r.rows.length ===
 r = await saveSection(U.sam, F.pat1, "scenes", []);
 ok("F4 but not the story", !r.ok && /TURN_ROLE_SCOPE/.test(r.error), r.error);
 r = await as(U.sam, "select public.turn_can_write_assets($1) w", [F.pat1]);
-ok("F5 a Stage editor may upload the film's files", r.ok && r.row.w === true, r);
+ok("F5 a Stage editor doesn't write the Art Room's files (Team review 2026-10-09: the Stage keeps none there)", r.ok && r.row.w === false, r);
 r = await as(U.vic, "select public.turn_can_access_project($1, true) w", [F.dora2]);
 ok("F6 View-only never writes", r.ok && r.row.w === false, r);
 await q("update public.turn_credits set payment_status = 'past_due' where owner = $1", [U.dora.id]);
@@ -212,7 +226,7 @@ let p = await payer(U.cara, F.dora1, "text");
 ok("H1 Cara writing on Dora's film: Dora pays, budget 200", p.ok && p.payer === U.dora.id && p.budget === 200 && p.spent === 0, p);
 ok("H2 the owner on her own film: her own", (await payer(U.dora, F.dora1, "text")).own === true);
 ok("H3 an outsider: billed as before (not a member)", (await payer(U.eve, F.dora1, "text")).code === "not_member");
-ok("H4 a Co-writer making Art Room images: billed as before (role)", (await payer(U.cara, F.dora1, "image")).code === "role");
+ok("H4 a Co-writer making Art Room images: 'role' (the server refuses it, decision C)", (await payer(U.cara, F.dora1, "image")).code === "role");
 const dora0 = await bal(U.dora), cara0 = await bal(U.cara);
 let h = (await svc("select public.turn_hold_credits_for_film($1,$2,$3,$4,150,'text:t1','text') j", [U.dora.id, U.cara.id, p.member_id, F.dora1])).j;
 ok("H5 a 150-credit hold comes from Dora's balance", h.ok && (await bal(U.dora)) === dora0 - 150 && (await bal(U.cara)) === cara0, { h, dora: await bal(U.dora) });
@@ -240,7 +254,8 @@ await q("update public.turn_credits set plan = 'writer' where owner = $1", [U.pa
 ok("H14 Pat drops to Writer: generations on the film stop (owner_plan)", (await payer(U.sam, F.pat1, "video")).code === "owner_plan");
 await q("update public.turn_credits set plan = 'studio' where owner = $1", [U.pat.id]);
 await q("update public.turn_app_config set value = '{\"on\": false}' where key = 'team_sharing'");
-ok("H15 switch off: a collaborator is billed as before", (await payer(U.cara, F.dora1, "text")).code === "off");
+ok("H15 switch off: a collaborator's call is refused (paused), never billed to anyone (decision B)", (await payer(U.cara, F.dora1, "text")).code === "paused");
+ok("H15b switch off: an outsider is still not a member", (await payer(U.eve, F.dora1, "text")).code === "not_member");
 await q("update public.turn_app_config set value = '{\"on\": true}' where key = 'team_sharing'");
 
 /* ── M. several roles per person (owner 2026-10-03) ─────────────────────── */
@@ -300,10 +315,457 @@ r = await as(U.cara, "select public.turn_film_payer($1,$2,'text')", [U.cara.id, 
 ok("P1 a signed-in user can't call the payer check", !r.ok, r);
 r = await as(U.cara, "select public.turn_hold_credits_for_film($1,$2,$3,$4,1,'x','text')", [U.dora.id, U.cara.id, caraRow, F.dora1]);
 ok("P2 nor take a hold on someone's balance", !r.ok, r);
-r = await as(U.cara, "select set_config('turn.team_trusted','on',true); update public.turn_project_members set role='writer' where id=$1 returning id", [caraRow]);
-ok("P3 setting the trusted flag by hand is not a way around the guard (owner only)", !r.ok || (r.rows || []).length === 0, r);
+// (Team review 2026-10-09) P3 used to run as a non-owner (refused anyway) in one multi-statement query
+// (which PGlite refuses outright), so it proved nothing. Now: the OWNER, in one transaction, sets the old
+// turn.* flag by hand and then tries to relink and extend her collaborator's row — the guard still holds.
+r = await asTx(U.dora, async (tx) => {
+  await tx.query("select set_config('turn.team_trusted', 'on', true)");
+  return (await tx.query("update public.turn_project_members set member_user = $2, member_email = 'eve@example.com', expires_at = now() + interval '99 days' where id = $1 returning member_user, member_email, expires_at", [caraRow, U.eve.id])).rows;
+});
+ok("P3 the owner setting the old trusted flag by hand doesn't get past the guard (link, address, expiry kept)",
+  r.ok && r.rows[0].member_user === U.cara.id && r.rows[0].member_email === "cara@example.com" && r.rows[0].expires_at === null, r);
+r = await as(U.dora, "insert into public.turn__team_trust(tx) values (txid_current())");
+ok("P3b nor can she write the trust table itself", !r.ok && /permission denied/.test(r.error), r);
+r = await as(U.dora, "select public.turn__team_trust(true)");
+ok("P3c nor call the function that does", !r.ok && /permission denied/.test(r.error), r);
 r = await as(U.cara, "select count(*)::int n from public.turn_team_invite_log");
 ok("P4 the invite log isn't readable", !r.ok || r.row.n === 0, r);
+
+/* ── Q. the Team review (2026-10-09) ─────────────────────────────────────────
+   Every fix of this pass, on two fresh databases: the file as it was on 2026-10-03 (commit
+   OLD_REV, read with `git show`; skipped without git) where each check shows the BUG, and today's
+   file where it shows the FIX. The NEW database also carries a stand-in for Supabase's realtime
+   schema (the private film channels); the main database above has none (the block is a no-op). */
+const OLD_REV = "3ff289e", OLD_MIGRATE_REV = "32809c3";
+const gitShow = (rev, path) => {
+  try { return execSync(`git show ${rev}:${path}`, { cwd: new URL(ROOT).pathname, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); }
+  catch (_e) { return null; }
+};
+const REALTIME_STUB = `
+create schema if not exists realtime;
+create table realtime.messages (id bigserial primary key, topic text not null, extension text not null default 'broadcast',
+  payload jsonb, event text, private boolean default true, inserted_at timestamptz not null default now());
+alter table realtime.messages enable row level security;
+create or replace function realtime.topic() returns text language sql stable as $f$ select nullif(current_setting('realtime.topic', true), '') $f$;
+grant usage on schema realtime to anon, authenticated;
+grant select, insert on realtime.messages to anon, authenticated;
+grant usage, select on sequence realtime.messages_id_seq to anon, authenticated;
+grant execute on function realtime.topic() to anon, authenticated;`;
+const X = {   // people only this section uses
+  ari:  { id: "d0000000-0000-4000-8000-0000000000c1", email: "ari@example.com" },     // Art director
+  pen:  { id: "d0000000-0000-4000-8000-0000000000c2", email: "pen@example.com" },     // a pending invitee
+  vo:   { id: "d0000000-0000-4000-8000-0000000000c3", email: "vo@example.com" },      // View-only
+  adm2: { id: "d0000000-0000-4000-8000-0000000000c4", email: "admin@infinitestudioai.com", unconfirmed: true },
+};
+
+async function reviewEnv(relaunch, { realtime = false } = {}) {
+  const d = new PGlite({ extensions: { pgcrypto } });
+  await d.exec(STUB);
+  if (realtime) await d.exec(REALTIME_STUB);
+  for (const u of [...Object.values(U), ...Object.values(X)])
+    await d.query("insert into auth.users(id, email, email_confirmed_at) values ($1,$2,$3)",
+      [u.id, u.email, u.unconfirmed ? null : new Date(Date.now() - 86400000)]);
+  for (const f of CHAIN) await d.exec(read("supabase/" + f));
+  await d.exec(relaunch);
+  const E = { db: d };
+  E.q = async (sql, p = []) => (await d.query(sql, p)).rows;
+  E.tx = async (who, fn) => {
+    try {
+      const rows = await d.transaction(async (tx) => {
+        const claims = who === "service" ? { role: "service_role" } : { sub: who.id, email: who.email, role: "authenticated" };
+        await tx.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify(claims)]);
+        await tx.exec(`set local role ${who === "service" ? "service_role" : who === "anon" ? "anon" : "authenticated"}`);
+        return fn(tx);
+      });
+      return { ok: true, rows, row: rows[0] };
+    } catch (e) { return { ok: false, error: e.message }; }
+  };
+  E.as = (who, sql, p = []) => E.tx(who, async (tx) => (await tx.query(sql, p)).rows);
+  E.svc = async (sql, p) => { const r = await E.as("service", sql, p); if (!r.ok) throw new Error(sql + " → " + r.error); return r.row; };
+  let n = 0;
+  E.film = async (owner, title = "Film") => {
+    const id = `f2000000-0000-4000-8000-${String(++n).padStart(12, "0")}`;
+    await E.q("insert into public.turn_projects(id, owner, title, doc) values ($1,$2,$3,$4::jsonb)", [id, owner.id, title, doc(title)]);
+    return id;
+  };
+  E.invite = (owner, film, email, role = "writer") =>
+    E.as(owner, "insert into public.turn_project_members(project_id, owner, member_email, role) values ($1,$2,$3,$4) returning *", [film, owner.id, email, role]);
+  E.claim = (who) => E.as(who, "select * from public.turn_claim_memberships()");
+  E.row = async (film, email) => (await E.q("select * from public.turn_project_members where project_id = $1 and member_email = $2", [film, email]))[0];
+  E.resetLog = () => E.q("delete from public.turn_team_invite_log");
+  E.sw = (on) => E.q(`update public.turn_app_config set value = '{"on": ${on}}' where key = 'team_sharing'`);
+  E.payer = async (who, film, kind) => (await E.svc("select public.turn_film_payer($1,$2,$3) j", [who.id, film, kind])).j;
+  E.hold = async (owner, who, member, film, amount, ref, kind) => (await E.svc(
+    `select public.turn_hold_credits_for_film(p_owner => $1, p_actor => $2, p_member => $3, p_project => $4, amount => $5, ref => $6, reason => 'test'${kind ? ", p_kind => $7" : ""}) j`,
+    kind ? [owner.id, who.id, member, film, amount, ref, kind] : [owner.id, who.id, member, film, amount, ref])).j;
+  await E.svc("select public.turn_set_plan_once('e-dora', $1, 'director', 1600, 'sub_d', 'cus_d', now() + interval '30 days')", [U.dora.id]);
+  await E.svc("select public.turn_set_plan_once('e-pat', $1, 'studio', 5000, 'sub_p', 'cus_p', now() + interval '30 days')", [U.pat.id]);
+  await E.sw(true);
+  return E;
+}
+
+async function review(E, isNew) {
+  const tag = isNew ? "Q" : "Q-old";
+  // fixed: today's file must satisfy it; bug: the 2026-10-03 file shows the problem (undefined = not checked there)
+  const t = (name, fixed, bug, detail) => {
+    if (isNew) ok(`${tag} ${name}`, fixed, detail);
+    else if (bug !== undefined) ok(`${tag} bug reproduced: ${name}`, bug, detail);
+  };
+  const codeOf = (x) => (/TURN_TEAM:([a-z_]+)/.exec((x && x.error) || "") || [])[1];
+  let r, x;
+
+  /* 1. renewing an invite runs the caps */
+  const f1 = await E.film(U.dora, "Renew");
+  for (let i = 1; i <= 5; i++) await E.invite(U.dora, f1, `r${i}@example.com`, "view_only");
+  await E.q("update public.turn_project_members set expires_at = now() - interval '1 minute' where project_id = $1 and member_email = 'r1@example.com'", [f1]);
+  r = await E.invite(U.dora, f1, "r6@example.com", "view_only");
+  x = await E.as(U.dora, "select public.turn_renew_invite($1) j", [(await E.row(f1, "r1@example.com")).id]);
+  t("1a renewing an expired invite on a full film is refused (people cap)", r.ok && !x.ok && codeOf(x) === "cap", r.ok && x.ok, { r, x });
+  const f2 = await E.film(U.dora, "Renew stage");
+  await E.q(`insert into public.turn_project_members(project_id, owner, member_email, role, expires_at)
+             values ($1, $2, 'st@example.com', 'stage_editor', now() - interval '1 minute')`, [f2, U.dora.id]);
+  x = await E.as(U.dora, "select public.turn_renew_invite($1) j", [(await E.row(f2, "st@example.com")).id]);
+  t("1b renewing a Stage editor invite on a Director film is refused", !x.ok && codeOf(x) === "stage_editor_producer", x.ok, x);
+  const f3 = await E.film(U.dora, "Renew writers");
+  for (let i = 1; i <= 3; i++) await E.invite(U.dora, f3, `cw${i}@example.com`, "writer");
+  await E.q(`insert into public.turn_project_members(project_id, owner, member_email, role, expires_at)
+             values ($1, $2, 'cw4@example.com', 'writer', now() - interval '1 minute')`, [f3, U.dora.id]);
+  x = await E.as(U.dora, "select public.turn_renew_invite($1) j", [(await E.row(f3, "cw4@example.com")).id]);
+  t("1c renewing a 4th Co-writer is refused", !x.ok && codeOf(x) === "cowriter_cap", x.ok, x);
+  await E.resetLog();
+
+  /* 2. a row never moves; 12. a new invite's server-owned fields */
+  const f4 = await E.film(U.dora, "Move A"), f5 = await E.film(U.dora, "Move B");
+  r = await E.invite(U.dora, f4, "mv@example.com", "view_only");
+  x = await E.as(U.dora, "update public.turn_project_members set project_id = $2, id = gen_random_uuid() where id = $1 returning id, project_id", [r.row.id, f5]);
+  t("2 the owner can't move a membership to another film (or give it another id)",
+    x.ok && x.row.project_id === f4 && x.row.id === r.row.id, x.ok && x.row.project_id === f5, x);
+  x = await E.as(U.dora, `insert into public.turn_project_members(project_id, owner, member_email, role, email_sent_at, joined_at, owner_seen_at, created_at)
+                         values ($1, $2, 'nul@example.com', 'view_only', now(), now(), now(), '2000-01-01') returning email_sent_at, joined_at, owner_seen_at, created_at`, [f4, U.dora.id]);
+  t("12 a new invite's email-sent, joined and seen times are the server's (null), and so is its creation time",
+    x.ok && x.row.email_sent_at === null && x.row.joined_at === null && x.row.owner_seen_at === null && Date.now() - new Date(x.row.created_at) < 60000,
+    x.ok && (x.row.email_sent_at !== null || x.row.joined_at !== null), x);
+
+  /* 13. the admin account needs a confirmed address */
+  x = await E.svc("select public.turn_team_owner_tier($1) t", [X.adm2.id]);
+  t("13 an UNCONFIRMED account with the admin's address is not the admin (no Producer rooms)", x.t === "none", x.t === "studio", x);
+
+  /* 4. a Stage editor writes the Stage's rows only; the Art director the Art Room's */
+  const fp = await E.film(U.pat, "Stage vs Art");
+  await E.invite(U.pat, fp, U.sam.email, "stage_editor"); await E.claim(U.sam);
+  const ariFp = (await E.invite(U.pat, fp, X.ari.email, "art_director")).row?.id; await E.claim(X.ari);
+  const artPath = `${U.pat.id}/${fp}/character/neo/20261009-100000-sheet-aaaa1111.png`;
+  await E.q(`insert into public.turn_generations(project_id, owner, entity_id, storage_path, meta) values
+               ($1, $2, 'neo', $3, '{"kind":"image"}'), ($1, $2, 'clip-s1-sabc', null, '{"kind":"video","video":{"url":"https://v3.fal.media/files/a.mp4"}}')`,
+    [fp, U.pat.id, artPath]);
+  const upd = (who, entity) => E.as(who, `update public.turn_generations set meta = meta || '{"touched":true}' where project_id = $1 and entity_id = $2 returning entity_id`, [fp, entity]);
+  x = await upd(U.sam, "neo");
+  t("4a a Stage editor can't change an Art Room image row", x.ok && x.rows.length === 0, x.ok && x.rows.length === 1, x);
+  x = await upd(U.sam, "clip-s1-sabc");
+  t("4b but changes the Stage's take rows", x.ok && x.rows.length === 1, undefined, x);
+  x = await E.as(U.sam, `insert into public.turn_generations(project_id, owner, entity_id, meta) values ($1, $2, 'clip-s2-sdef', '{"kind":"video"}') returning entity_id`, [fp, U.sam.id]);
+  t("4c and saves a new take row", x.ok && x.rows.length === 1, undefined, x);
+  x = await upd(X.ari, "clip-s1-sabc");
+  t("4d the Art director doesn't change the Stage's takes", x.ok && x.rows.length === 0, x.ok && x.rows.length === 1, x);
+  x = await upd(X.ari, "neo");
+  t("4e but changes the Art Room's rows", x.ok && x.rows.length === 1, undefined, x);
+  x = await E.as(U.sam, "select public.turn_can_delete_asset_path($1) d, public.turn_can_write_assets($2) w", [artPath, fp]);
+  t("4f a Stage editor can't delete or upload the Art Room's files", x.ok && x.row.d === false && x.row.w === false, x.ok && x.row.d === true, x);
+  x = await E.as(U.sam, "delete from public.turn_generations where project_id = $1 and entity_id = 'neo' returning entity_id", [fp]);
+  t("4g nor delete an Art Room row", x.ok && x.rows.length === 0, x.ok && x.rows.length === 1, x);
+  x = await E.as(U.sam, "select count(*)::int n from public.turn_generations where project_id = $1", [fp]);
+  t("4h every role still READS every row", x.ok && x.row.n >= 2, undefined, x);
+
+  /* 4s. every Stage flow still works for the Stage editor, end to end (as the app writes it) */
+  if (isNew) {
+    // (1) a take is committed exactly as app/cloud.jsx cloudCommitVideo does: an upsert of the clip row
+    const commitTake = (who, entity, url) => E.as(who, `insert into public.turn_generations(project_id, owner, entity_id, meta)
+        values ($1, $2, $3, jsonb_build_object('kind', 'video', 'updatedAt', 1, 'video', jsonb_build_object('url', $4::text, 'meta', null)))
+        on conflict (project_id, entity_id) do update set meta = excluded.meta returning entity_id, owner, meta`, [fp, who.id, entity, url]);
+    x = await commitTake(U.sam, "clip-s3-sxyz", "https://v3.fal.media/files/t1.mp4");
+    t("4s1 a Stage editor commits a new take (cloudCommitVideo's upsert)", x.ok && x.rows.length === 1 && x.row.owner === U.sam.id, undefined, x);
+    x = await commitTake(U.sam, "clip-s1-sabc", "https://v3.fal.media/files/t2.mp4");
+    t("4s2 and replaces the take of a clip the owner shot first (the row stays the owner's)",
+      x.ok && x.rows.length === 1 && x.row.owner === U.pat.id && x.row.meta.video.url.endsWith("t2.mp4"), undefined, x);
+    x = await commitTake(U.sam, "neo", "https://v3.fal.media/files/t3.mp4");
+    t("4s3 but the same upsert onto an Art Room row is refused", !x.ok && /row-level security/.test(x.error), undefined, x);
+    // (5) deleting a take: the last one deletes the row (cloudVideoDelete), others rewrite it (commit again)
+    x = await E.as(U.sam, "delete from public.turn_generations where project_id = $1 and entity_id = 'clip-s3-sxyz' returning entity_id", [fp]);
+    t("4s4 a Stage editor deletes a clip's last take (cloudVideoDelete)", x.ok && x.rows.length === 1, undefined, x);
+    // (2) a device upload goes to the uploader's own {uid}/stage-tmp/ folder through a signed slot the
+    // proxy (service role) opens: no project folder, so no project rule (and no upload reservation) applies
+    x = await E.as(U.sam, "select public.turn_storage_project_id($1) p", [`${U.sam.id}/stage-tmp/20261009-video-abcd1234.mp4`]);
+    t("4s5 a Stage device upload's key names no film (stage-tmp): turn_can_write_assets never decides it", x.ok && x.row.p === null, undefined, x);
+    // (3) voicing a line: the audio stays on the device (IndexedDB); the shot records it (doc section 'shots')
+    x = await E.as(U.sam, `update public.turn_projects set doc = jsonb_set(doc, '{shots}', '[{"id":"sh1","lineAudio":{"durationMs":1200,"voiceId":"v1"}}]') where id = $1 returning id`, [fp]);
+    t("4s6 a Stage editor voices a line into a shot (the shots section saves)", x.ok && x.rows.length === 1, undefined, x);
+    // and none of it on a Director film, or with the switch off
+    const fdir = await E.film(U.dora, "Director Stage");
+    await E.q(`insert into public.turn_project_members(project_id, owner, member_email, member_user, role, status)
+               values ($1, $2, $3, $4, 'stage_editor', 'active')`, [fdir, U.dora.id, U.sam.email, U.sam.id]);
+    x = await E.as(U.sam, `insert into public.turn_generations(project_id, owner, entity_id, meta) values ($1, $2, 'clip-d1-s1', '{"kind":"video"}') returning entity_id`, [fdir, U.sam.id]);
+    t("4s7 a Stage editor on a DIRECTOR film writes no takes (the Stage is Producer's)", !x.ok, undefined, x);
+    await E.sw(false);
+    x = await commitTake(U.sam, "clip-s1-sabc", "https://v3.fal.media/files/t4.mp4");
+    await E.sw(true);
+    t("4s8 nor with the switch off (read-only)", !x.ok, undefined, x);
+  }
+
+  /* 6. a role change after a drop from Producer to Director (decision F) */
+  await E.resetLog();
+  const fd = await E.film(U.pat, "Downgrade");
+  for (let i = 1; i <= 7; i++) await E.invite(U.pat, fd, `dd${i}@example.com`, "view_only");
+  await E.q("update public.turn_credits set plan = 'director' where owner = $1", [U.pat.id]);
+  x = await E.as(U.pat, "update public.turn_project_members set roles = array['art_director'] where project_id = $1 and member_email = 'dd1@example.com' returning roles", [fd]);
+  t("6a after Producer → Director, the 7 people stay and the owner can still change a role", x.ok && x.rows.length === 1, !x.ok && codeOf(x) === "cap", x);
+  r = await E.invite(U.pat, fd, "dd8@example.com", "view_only");
+  t("6b but a new invite waits until the film is under the cap", !r.ok && codeOf(r) === "cap", undefined, r);
+  await E.q("update public.turn_credits set plan = 'studio' where owner = $1", [U.pat.id]);
+
+  /* 7. re-adding someone who left or was removed is a fresh invite (decision D); 14. the bell */
+  const fr = await E.film(U.dora, "Re-add");
+  await E.invite(U.dora, fr, U.cara.email, "writer"); await E.claim(U.cara);
+  x = await E.as(U.cara, "select public.turn_leave_film($1) n", [fr]);
+  const noteAfterLeave = (await E.as(U.dora, "select * from public.turn_team_notifications()")).rows.filter((n) => n.project_id === fr);
+  t("14 someone who left no longer shows in the owner's bell", x.ok && x.row.n === 1 && noteAfterLeave.length === 0, noteAfterLeave.length === 1, noteAfterLeave);
+  x = await E.as(U.dora, "update public.turn_project_members set status = 'active' where project_id = $1 and member_email = $2 returning member_user, joined_at, expires_at", [fr, U.cara.email]);
+  t("7a adding back someone who LEFT: unlinked, not joined, 14 days to accept",
+    x.ok && x.row.member_user === null && x.row.joined_at === null && Math.abs(new Date(x.row.expires_at) - Date.now() - 14 * 86400000) < 60000,
+    x.ok && x.row.member_user === U.cara.id && x.row.expires_at === null, x);
+  r = await E.claim(U.cara);
+  x = await E.row(fr, U.cara.email);
+  t("7b accepting it links the account again, with a new join time", r.ok && x.member_user === U.cara.id && Date.now() - new Date(x.joined_at) < 60000, undefined, x);
+  await E.as(U.dora, "update public.turn_project_members set status = 'removed' where project_id = $1 and member_email = $2", [fr, U.cara.email]);
+  x = await E.as(U.dora, "update public.turn_project_members set status = 'active' where project_id = $1 and member_email = $2 returning member_user, expires_at", [fr, U.cara.email]);
+  t("7c the same after the owner REMOVED them", x.ok && x.row.member_user === null && x.row.expires_at !== null, x.ok && x.row.member_user === U.cara.id, x);
+  await E.claim(U.cara);
+
+  /* 9. the switch off (decision B): collaborators read-only, nobody charged */
+  await E.resetLog();
+  const fo = await E.film(U.dora, "Switch off");
+  await E.invite(U.dora, fo, U.cara.email, "writer"); await E.claim(U.cara);
+  await E.invite(U.dora, fo, X.ari.email, "art_director"); await E.claim(X.ari);
+  await E.invite(U.dora, fo, U.vic.email, "view_only"); await E.claim(U.vic);
+  await E.invite(U.dora, fo, X.pen.email, "view_only");   // pending
+  await E.q(`insert into public.turn_generations(project_id, owner, entity_id, meta) values ($1, $2, 'tree', '{"kind":"image"}')`, [fo, U.dora.id]);
+  await E.sw(false);
+  x = await E.as(U.cara, `update public.turn_projects set doc = jsonb_set(doc, '{scenes}', '[{"id":"s9"}]') where id = $1 returning id`, [fo]);
+  t("9a switch off: a Co-writer's save changes nothing", (x.ok && x.rows.length === 0) || /paused/.test(x.error || ""), x.ok && x.rows.length === 1, x);
+  x = await E.as(U.cara, "select public.turn_can_access_project($1, true) w, public.turn_can_access_project($1, false) r", [fo]);
+  t("9b the Co-writer is read-only (reads still work)", x.ok && x.row.w === false && x.row.r === true, x.ok && x.row.w === true, x);
+  x = await E.as(X.ari, `update public.turn_generations set meta = meta || '{"t":1}' where project_id = $1 and entity_id = 'tree' returning entity_id`, [fo]);
+  const aw = await E.as(X.ari, "select public.turn_can_write_assets($1) w", [fo]);
+  t("9c the Art director writes no image rows and no files", x.ok && x.rows.length === 0 && aw.row.w === false, x.ok && x.rows.length === 1, { x, aw });
+  t("9d the payer check: the collaborator's call is refused ('paused')", (await E.payer(U.cara, fo, "text")).code === "paused", (await E.payer(U.cara, fo, "text")).code === "off");
+  t("9e an outsider is still 'not_member'", (await E.payer(U.eve, fo, "text")).code === "not_member", undefined);
+  x = await E.as(U.dora, "update public.turn_project_members set status = 'removed' where project_id = $1 and member_email = $2 returning id", [fo, U.vic.email]);
+  const bx = await E.as(U.dora, "update public.turn_project_members set budget_credits = 10 where project_id = $1 and member_email = $2 returning budget_credits", [fo, X.ari.email]);
+  t("9f the owner still removes people and sets budgets", x.ok && x.rows.length === 1 && bx.ok && bx.row.budget_credits === 10, undefined, { x, bx });
+  r = await E.claim(X.pen);
+  t("9g a pending invite can still be accepted (it lands read-only)", r.ok && r.rows.length === 1, undefined, r);
+  r = await E.as(U.cara, "select public.turn_leave_film($1) n", [fo]);
+  t("9h a collaborator can still leave", r.ok && r.row.n === 1, undefined, r);
+  await E.sw(true);
+
+  /* 10. the owner's plan lapses (decision A): read everything, write nothing */
+  await E.q("update public.turn_credits set payment_status = 'past_due' where owner = $1", [U.dora.id]);
+  x = await E.as(X.ari, "select (select count(*)::int from public.turn_projects where id = $1) films, (select count(*)::int from public.turn_generations where project_id = $1) gens, public.turn_can_write_assets($1) w, public.turn_can_access_project($1, true) aw", [fo]);
+  t("10 lapsed owner: the film and its images are still READ, nothing is written", x.ok && x.row.films === 1 && x.row.gens === 1 && x.row.w === false && x.row.aw === false, undefined, x);
+  await E.q("update public.turn_credits set payment_status = 'active' where owner = $1", [U.dora.id]);
+
+  /* 11. the film hold re-derives the owner and the film and re-checks */
+  const ariMember = ariFp;
+  x = await E.hold(U.dora, X.ari, ariMember, fp, 5, "h:mm1");
+  t("11a a hold naming the wrong owner is refused (mismatch), nobody's balance touched", !x.ok && x.code === "mismatch", x.ok === true, x);
+  x = await E.hold(U.pat, X.ari, ariMember, fo, 5, "h:mm2");
+  t("11b a hold naming another film is refused (mismatch)", !x.ok && x.code === "mismatch", x.ok === true, x);
+  await E.invite(U.pat, fp, X.vo.email, "view_only"); await E.claim(X.vo);
+  const voMember = (await E.row(fp, X.vo.email)).id;
+  x = await E.hold(U.pat, X.vo, voMember, fp, 5, "h:vo");
+  t("11c a View-only member's hold is refused (role)", !x.ok && x.code === "role", x.ok === true, x);
+  if (isNew) {
+    x = await E.hold(U.pat, X.ari, ariMember, fp, 5, "h:vid", "video");
+    t("11d a call the role doesn't cover (video for an Art director) is refused (role)", !x.ok && x.code === "role", undefined, x);
+  }
+  await E.sw(false);
+  x = await E.hold(U.pat, X.ari, ariMember, fp, 5, "h:off");
+  t("11e switch off: refused (paused)", !x.ok && x.code === "paused", x.ok === true, x);
+  await E.sw(true);
+  await E.q("update public.turn_credits set plan = 'writer' where owner = $1", [U.pat.id]);
+  x = await E.hold(U.pat, X.ari, ariMember, fp, 5, "h:plan");
+  t("11f the owner's plan no longer carries the role: refused (owner_plan)", !x.ok && x.code === "owner_plan", x.ok === true, x);
+  await E.q("update public.turn_credits set plan = 'studio' where owner = $1", [U.pat.id]);
+  x = await E.hold(U.pat, X.ari, ariMember, fp, 5, "  h:trim  ");
+  const trimmed = (await E.q("select actor, member_id, project_id from public.turn_credit_holds where ref = 'h:trim'"))[0];
+  t("11g a padded ref is trimmed once: the hold records who clicked, on which film",
+    x.ok && trimmed && trimmed.actor === X.ari.id && trimmed.member_id === ariMember && trimmed.project_id === fp,
+    x.ok && trimmed && trimmed.actor === null, { x, trimmed });
+  x = await E.hold(U.pat, X.ari, ariMember, fp, 5, "h:trim");
+  t("11h and the same ref again is the first answer", x.ok && x.duplicate === true, undefined, x);
+
+  /* 5. the advisory locks are taken */
+  await E.resetLog();
+  x = await E.tx(U.dora, async (tx) => {
+    await tx.query("insert into public.turn_project_members(project_id, owner, member_email, role) values ($1, $2, 'lk@example.com', 'view_only')", [f4, U.dora.id]);
+    return (await tx.query("select count(*)::int n from pg_locks where locktype = 'advisory' and pid = pg_backend_pid()")).rows;
+  });
+  t("5 an invite holds the film's lock and the owner's lock until it commits", x.ok && x.rows[0].n >= 2, x.ok && x.rows[0].n === 0, x);
+
+  /* 15. pure helpers aren't on the API */
+  x = await E.as(U.cara, "select public.turn_team_cap('studio') n");
+  const xa = await E.as("anon", "select public.turn_team_role_writes('writer', 'studio') w");
+  t("15 a signed-in user or anon can't call the pure helpers", !x.ok && /permission denied/.test(x.error) && !xa.ok, x.ok, { x, xa });
+
+  /* 3. turning a shared film into a Show copies the team */
+  await E.resetLog();
+  const bible = (id) => JSON.stringify({ characters: [], locations: [], props: [], lookbook: [], lookbookNote: "", trash: { characters: [], locations: [], props: [] } });
+  const convert = (film) => E.as(U.pat, "select public.turn_convert_project_to_show($1, 'Show', $2::jsonb, 'series') r", [film, bible(film)]);
+  const fc = await E.film(U.pat, "Convert");
+  const caraC = (await E.invite(U.pat, fc, U.cara.email, "writer")).row.id;
+  await E.as(U.pat, "update public.turn_project_members set roles = array['writer','art_director'], budget_credits = 77 where id = $1", [caraC]);
+  await E.claim(U.cara);
+  await E.invite(U.pat, fc, "pend3@example.com", "view_only");
+  const h0 = await E.hold(U.pat, U.cara, caraC, fc, 20, "h:conv");
+  await E.as(U.pat, "select public.turn_team_notifications_seen()");
+  const before = await E.q("select member_email, member_user, roles, budget_credits, joined_at, invited_at, expires_at, owner_seen_at from public.turn_project_members where project_id = $1 order by member_email", [fc]);
+  const log0 = (await E.q("select count(*)::int n from public.turn_team_invite_log where owner = $1", [U.pat.id]))[0].n;
+  await E.sw(false);
+  await E.q("update public.turn_credits set payment_status = 'past_due' where owner = $1", [U.pat.id]);
+  r = await convert(fc);
+  await E.sw(true);
+  await E.q("update public.turn_credits set payment_status = 'active' where owner = $1", [U.pat.id]);
+  t("3a a shared film turns into a Show with the switch off and the owner's plan lapsed", r.ok, !r.ok && codeOf(r) === "paused", r.error);
+  if (r.ok) {
+    const S = r.row.r.show.id;
+    const after = await E.q("select member_email, member_user, roles, budget_credits, joined_at, invited_at, expires_at, owner_seen_at from public.turn_project_members where project_id = $1 order by member_email", [S]);
+    t("3b the Show's team is the film's, field for field (account, every role, budget, invite/join/seen times)",
+      JSON.stringify(after) === JSON.stringify(before), undefined, { before, after });
+    const notes = (await E.as(U.pat, "select * from public.turn_team_notifications() where not seen")).rows;
+    const log1 = (await E.q("select count(*)::int n from public.turn_team_invite_log where owner = $1", [U.pat.id]))[0].n;
+    t("3c no fresh 'joined' notices, nothing counted against the 20 a day", notes.length === 0 && log1 === log0, undefined, { notes, log0, log1 });
+    const spend = (await E.as(U.pat, "select * from public.turn_team_spend($1)", [S])).rows;
+    const caraS = (await E.row(S, U.cara.email)).id;
+    t("3d Cara's spend this month moved with her (20 credits held on the film)", h0.ok && spend.some((s) => s.member_id === caraS && s.spent === 20), undefined, { h0, spend });
+    t("3e the film's own rows are retired", (await E.q("select count(*)::int n from public.turn_project_members where project_id = $1 and status = 'active'", [fc]))[0].n === 0, undefined);
+  }
+  // the bugs of the old file show with the switch ON too
+  const fc2 = await E.film(U.pat, "Convert 2");
+  const cara2 = (await E.invite(U.pat, fc2, U.cara.email, "writer")).row.id;
+  await E.as(U.pat, "update public.turn_project_members set roles = array['writer','art_director'], budget_credits = 77 where id = $1", [cara2]);
+  await E.claim(U.cara);
+  await E.invite(U.pat, fc2, "pend4@example.com", "view_only");
+  r = await convert(fc2);
+  const S2 = r.ok ? r.row.r.show.id : null;
+  x = S2 && await E.row(S2, U.cara.email);
+  t("3f (switch on) the copy stays linked, keeps both roles and the owner's budget",
+    !!x && x.member_user === U.cara.id && JSON.stringify(x.roles) === JSON.stringify(["writer", "art_director"]) && x.budget_credits === 77,
+    !!x && (x.member_user === null || x.roles.length === 1 || x.budget_credits !== 77), x);
+
+  /* 8. people invited to a whole Show count in each Episode's caps (decision E) */
+  if (S2) {
+    await E.resetLog();
+    const E1 = fc2;   // Episode 1 since the conversion
+    await E.invite(U.pat, S2, "sw1@example.com", "writer");
+    await E.invite(U.pat, S2, "sw2@example.com", "writer");   // the Show: Cara + 2 = 3 Co-writers
+    r = await E.invite(U.pat, E1, "ew1@example.com", "writer");
+    t("8a a 4th Co-writer on an Episode is refused: the Show's Co-writers count there", !r.ok && codeOf(r) === "cowriter_cap", r.ok, r);
+    for (let i = 1; i <= 6; i++) await E.invite(U.pat, E1, `ev${i}@example.com`, "view_only");   // 4 on the Show + 6 = 10
+    r = await E.invite(U.pat, E1, "ev7@example.com", "view_only");
+    t("8b the Episode's 11th person (its own 6 + the Show's 4 + 1) is refused", !r.ok && codeOf(r) === "cap", r.ok, r);
+    r = await E.invite(U.pat, S2, "sv1@example.com", "view_only");
+    t("8c a new Show-wide invite must fit every Episode: refused while Episode 1 is full", !r.ok && codeOf(r) === "cap", r.ok, r);
+    r = await E.invite(U.pat, E1, "sw1@example.com", "view_only");
+    t("8d someone already on the Show takes no second place on the Episode", r.ok, undefined, r);
+
+    /* 20. a Show row and the Episode's own row: the payer prefers the one with budget left */
+    // her film row was retired by the conversion: the owner adds her back on the Episode, as Art director
+    // (claims first: the 2026-10-03 file left her Show row unlinked)
+    await E.claim(U.cara);
+    const caraE1 = await E.as(U.pat, "update public.turn_project_members set status = 'active', roles = array['art_director'] where project_id = $1 and member_email = $2 returning id", [E1, U.cara.email]);
+    await E.claim(U.cara);
+    await E.as(U.pat, "update public.turn_project_members set budget_credits = 0 where project_id = $1 and member_email = $2", [E1, U.cara.email]);
+    const p = await E.payer(U.cara, E1, "image");
+    const showRow = (await E.row(S2, U.cara.email)).id;
+    t("20 Cara on the Show (budget left) and on Episode 1 (budget 0): her image call uses the Show's grant",
+      caraE1.ok && caraE1.rows.length === 1 && p.ok === true && p.member_id === showRow, p.code === "budget_reached", { caraE1, p });
+  }
+
+  if (!isNew) return;
+
+  /* 16. private film channels (Realtime Authorization) */
+  x = await E.q("select policyname, cmd from pg_policies where schemaname = 'realtime' and tablename = 'messages' order by policyname");
+  ok("Q 16a the two realtime.messages policies exist", JSON.stringify(x.map((p) => p.policyname)) === JSON.stringify(["turn film channels receive", "turn film channels send"]), x);
+  await E.q("insert into realtime.messages(topic, extension, payload) values ($1, 'presence', '{}'), ($2, 'broadcast', '{}')", ["film:" + fp, "doc:" + fp]);
+  const see = (who, topic) => E.tx(who, async (tx) => {
+    await tx.query("select set_config('realtime.topic', $1, true)", [topic]);
+    return (await tx.query("select count(*)::int n from realtime.messages")).rows;
+  });
+  const send = (who, topic) => E.tx(who, async (tx) => {
+    await tx.query("select set_config('realtime.topic', $1, true)", [topic]);
+    return (await tx.query("insert into realtime.messages(topic, extension, payload) values ($1, 'presence', '{}') returning id", [topic])).rows;
+  });
+  x = await see(X.vo, "film:" + fp);
+  const xd = await see(X.vo, "doc:" + fp);
+  ok("Q 16b a View-only member receives on the film's channels (film: and doc:)", x.ok && x.rows[0].n > 0 && xd.ok && xd.rows[0].n > 0, { x, xd });
+  x = await send(X.vo, "film:" + fp);
+  ok("Q 16c and can send presence there", x.ok && x.rows.length === 1, x);
+  x = await see(U.eve, "film:" + fp);
+  const xs = await send(U.eve, "film:" + fp);
+  ok("Q 16d an outsider who knows the film's id receives and sends nothing", x.ok && x.rows[0].n === 0 && !xs.ok, { x, xs });
+  x = await see(X.vo, "film:not-a-uuid");
+  const xo = await see(X.vo, "presence:" + fp);
+  ok("Q 16e a malformed or other topic is refused, never an error", x.ok && x.rows[0].n === 0 && xo.ok && xo.rows[0].n === 0, { x, xo });
+
+  /* 17. the older files refuse to undo this one; 18. migrate-remove-producer-admin.sql stays safe */
+  const pol0 = await E.q("select qual from pg_policies where tablename = 'turn_project_members' and policyname = 'turn_project_members_select'");
+  for (const f of ["team-collaboration.sql", "invitations.sql", "shared-owners.sql", "enforce-role-scopes.sql"]) {
+    let e = null;
+    try { await E.db.exec(read("supabase/" + f)); } catch (err) { e = err.message; }
+    ok(`Q 17 ${f} refuses to run once team-relaunch.sql is installed`, /TURN_TEAM_SUPERSEDED/.test(e || "") && e.includes("team-relaunch.sql"), e);
+  }
+  const pol1 = await E.q("select qual from pg_policies where tablename = 'turn_project_members' and policyname = 'turn_project_members_select'");
+  ok("Q 17b and changes nothing (the private member list stays)", JSON.stringify(pol0) === JSON.stringify(pol1) && !/turn_can_access_project/.test(pol1[0]?.qual || ""), pol1);
+  const oldMigrate = gitShow(OLD_MIGRATE_REV, "supabase/migrate-remove-producer-admin.sql");
+  if (oldMigrate) {
+    let e = null;
+    try { await E.db.exec(oldMigrate); } catch (err) { e = err.message; }
+    ok("Q 18 bug reproduced: the old migrate-remove-producer-admin.sql fails once a Stage editor exists", e !== null, e);
+  }
+  let e18 = null;
+  try { await E.db.exec(read("supabase/migrate-remove-producer-admin.sql")); } catch (err) { e18 = err.message; }
+  const helper = await E.q("select pg_get_functiondef('public.turn_can_access_project(uuid,boolean)'::regprocedure) d");
+  ok("Q 18b today's migrate-remove-producer-admin.sql re-runs safely there and leaves the access helper alone",
+    e18 === null && /turn__collab_writes/.test(helper[0].d), e18);
+
+  /* the documented re-run order still works: series-production.sql, then this file again */
+  let eR = null;
+  try { await E.db.exec(read("supabase/series-production.sql")); await E.db.exec(RELAUNCH); } catch (err) { eR = err.message; }
+  x = S2 && await E.row(S2, U.cara.email);
+  ok("Q 19 series-production.sql re-run, then team-relaunch.sql again: both succeed, the Show's team is intact",
+    eR === null && !!x && x.member_user === U.cara.id && x.status === "active", eR || x);
+}
+
+{
+  const OLD = gitShow(OLD_REV, "supabase/team-relaunch.sql");
+  if (OLD === null) console.log("SKIP Q-old: git (or the 2026-10-03 file) isn't available");
+  else {
+    const OE = await reviewEnv(OLD);
+    await review(OE, false);
+    // production's path: today's file over the 2026-10-03 one, with everything the review left behind
+    let eUp = null;
+    try { await OE.db.exec(RELAUNCH); await OE.db.exec(RELAUNCH); } catch (err) { eUp = err.message; }
+    ok("Q-up today's file installs over the 2026-10-03 one (and again), with its data", eUp === null, eUp);
+    const fns = await OE.q("select pg_get_function_identity_arguments(oid) a from pg_proc where proname = 'turn_hold_credits_for_film'");
+    ok("Q-up one turn_hold_credits_for_film is left, the one with p_kind", fns.length === 1 && /p_kind text/.test(fns[0].a), fns);
+    await OE.sw(false);
+    const pz = (await OE.svc("select public.turn_film_payer($1,$2,'image') j", [X.ari.id, (await OE.q("select project_id from public.turn_project_members where member_email = $1 and status = 'active' limit 1", [X.ari.email]))[0].project_id])).j;
+    ok("Q-up and answers with today's rules (switch off: paused)", pz.code === "paused", pz);
+    await OE.db.close();
+  }
+  const NE = await reviewEnv(RELAUNCH, { realtime: true });
+  await review(NE, true);
+  await NE.db.close();
+}
 
 console.log(`\n${passes} passed, ${failures} failed`);
 process.exit(failures ? 1 : 0);

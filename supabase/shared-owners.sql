@@ -9,6 +9,20 @@
 -- and nothing about other collaborators.
 -- ============================================================================
 
+-- (Team review, 2026-10-09) SUPERSEDED once team-relaunch.sql is installed: run
+-- after it, this file brings back the email-matched owner list — silently undoing
+-- Team sharing's rules. So it refuses to run there and changes nothing; team-
+-- relaunch.sql (re-runnable) is the file to run instead. A fresh install runs this
+-- file BEFORE team-relaunch.sql, as always.
+do $$
+begin
+  if to_regprocedure('public.turn_renew_invite(uuid)') is not null then
+    raise exception using errcode = 'P0001',
+      message = 'TURN_TEAM_SUPERSEDED: shared-owners.sql would undo team-relaunch.sql, which is installed here. Nothing was changed. Run team-relaunch.sql instead (it is safe to re-run).';
+  end if;
+end;
+$$;
+
 create or replace function public.turn_shared_film_owners()
 returns table (project_id uuid, owner_email text)
 language sql

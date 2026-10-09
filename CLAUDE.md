@@ -176,5 +176,7 @@ deploy`, or you overwrite fixes made elsewhere.
   (`supabase/team-relaunch.sql`, runs LAST, re-run after series-production.sql), the server decides who pays
   (`image-proxy/film-payer.mjs`, blender-bridge), the invite email is `invite-collaborator/core.mjs` (fixed host, one
   answer, caps). Switch: `turn_app_config` key `team_sharing` (`{"on": true}`) — off = the old "Soon" button
-  (`app/team.jsx` `TEAM_SOON_TEXT`). Tests: `test-team-relaunch`, `test-team-relaunch-db`, `test-film-payer`,
-  `test-invite-collaborator`.
+  (`app/team.jsx` `TEAM_SOON_TEXT`; a film that already has a team stays manageable — remove, budgets,
+  Leave — and is read-only for collaborators with nobody charged, owner 2026-10-09). The server REFUSES (never bills the
+  collaborator) when it can't confirm who pays or the role doesn't fit (`film_role` / `film_unverified` / `team_paused`).
+  Tests: `test-team-relaunch`, `test-team-relaunch-db`, `test-film-payer`, `test-invite-collaborator`, `test-team-review`.

@@ -74,9 +74,15 @@ const int = (x) => (Number.isFinite(Number(x)) ? Math.floor(Number(x)) : null);
  *   newId()                                       unique id source (crypto.randomUUID)
  */
 /*   film   (Team, 2026-10-03) a call on someone else's film that its OWNER pays (film-payer.mjs):
-            { actor, memberId, projectId } — `uid` is then the owner, and the hold goes through
+            { actor, memberId, projectId, kind? } — `uid` is then the owner, and the hold goes through
             turn_hold_credits_for_film (the collaborator's monthly budget, checked under the
-            owner's account lock). A refusal for the budget reads code "budget_reached". */
+            owner's account lock). A refusal for the budget reads code "budget_reached".
+            (Team review, 2026-10-09) `kind` rides as p_kind (named), so the database re-checks the
+            switch, the role and the owner's plan under the lock; a database whose function has no
+            p_kind yet (PGRST202) is asked once more without it. A film hold's refusal keeps the
+            database's own code (paused, role, owner_plan, not_member, budget_reached, frozen,
+            insufficient — film-payer.mjs filmHoldRefusal words them), and a taken hold carries the
+            budget and the month's spend (this hold included) when the database sends them. */
 export const FILM_HOLD_RPC = "turn_hold_credits_for_film";
 export function createHoldClient({ rpc, uid, film = null, log = () => {}, newId = () => crypto.randomUUID() } = {}) {
   const call = async (name, args) => {
@@ -138,10 +144,14 @@ export function createHoldClient({ rpc, uid, film = null, log = () => {}, newId 
       const want = Math.max(1, Math.ceil(Number(amount) || 0));
       const ref = givenRef || `${kind}:${newId()}`;
       const why = String(reason || kind).slice(0, 200);
-      const r = film
-        ? await call(FILM_HOLD_RPC, { p_owner: uid, p_actor: film.actor, p_member: film.memberId, p_project: film.projectId,
-            amount: want, ref, reason: why })
-        : await call(HOLD_RPC, { uid, amount: want, ref, reason: why });
+      let r;
+      if (film) {
+        const args = { p_owner: uid, p_actor: film.actor, p_member: film.memberId, p_project: film.projectId, amount: want, ref, reason: why };
+        r = film.kind ? await call(FILM_HOLD_RPC, { ...args, p_kind: film.kind }) : await call(FILM_HOLD_RPC, args);
+        if (film.kind && r.error && /PGRST202/i.test(String((r.error.code || "") + " " + (r.error.message || "")))) r = await call(FILM_HOLD_RPC, args);
+      } else {
+        r = await call(HOLD_RPC, { uid, amount: want, ref, reason: why });
+      }
       if (r.error || !r.data) {
         safeLog(`[billing] hold failed (${String((r.error && (r.error.message || r.error)) || "no answer").slice(0, 200)}).`
           + (/does not exist|could not find the function|PGRST202|42883/i.test(String((r.error && (r.error.message || r.error.code)) || "")) ? " Run supabase billing-v2.sql before deploying this proxy." : ""));
@@ -151,10 +161,13 @@ export function createHoldClient({ rpc, uid, film = null, log = () => {}, newId 
       if (d.ok === false || d.ok === "false") {
         const code = String(d.code || "insufficient").toLowerCase();
         if (code === "budget_reached") return { ok: false, code, budget: int(d.budget), spent: int(d.spent), remaining: int(d.remaining) };
+        if (film && /^(paused|off|role|owner_plan|not_member|no_film)$/.test(code)) return { ok: false, code, remaining: null };
         return { ok: false, code: code === "frozen" ? "frozen" : code === "insufficient" ? "insufficient" : "unavailable", remaining: int(d.remaining) };
       }
       const held = int(d.held) ?? want;
-      return handle(ref, want, held, int(d.remaining));
+      const h = handle(ref, want, held, int(d.remaining));
+      if (film && "budget" in d) { h.budget = d.budget == null ? null : int(d.budget); h.spent = int(d.spent); }
+      return h;
     },
     /** Settle / release a hold known only by its ref (found by turn_hold_lookup). */
     byRef(ref, held = 0) { return handle(ref, held, held, null); },

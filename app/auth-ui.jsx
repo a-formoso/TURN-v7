@@ -240,12 +240,12 @@ function AccountChip({ session, cloudActive, connectionState, saveState, shareRo
   // the "writer" ROLE is shown as "Co-writer" (the Writer PLAN keeps its name) — display only
   // one role or several ("Co-writer + Art director", 2026-10-03); team.jsx names them
   const scopedRole = (!shareRole || shareRole==="owner") ? ""
-    : shareRole==="view_only" ? "View only"
+    : shareRole==="view_only" ? "View-only"
     : (typeof window.teamRoleKnown==="function" && window.teamRoleKnown(shareRole) && typeof window.teamRoleLabel==="function")
       ? window.teamRoleLabel(shareRole) : "";
   const roleParts = String(shareRole||"").split("+").filter(Boolean);
   const chipRole = roleParts.length>1 ? roleParts.length+" roles"
-    : ({ writer:"Co-writer", art_director:"Art dir", stage_editor:"Stage ed." })[shareRole] || scopedRole;
+    : ({ writer:"Co-writer", art_director:"Art director", stage_editor:"Stage editor" })[shareRole] || scopedRole;   // whole words (2026-10-09)
   const roleTitle = roleUnavailable ? " Project role unavailable; this shared project is read-only."
     : (scopedRole ? " Role: "+scopedRole+"." : "");
   const managePlan = async ()=>{
@@ -283,7 +283,7 @@ function AccountChip({ session, cloudActive, connectionState, saveState, shareRo
                 React.createElement(Icon.warn,{s:11}),"Role unavailable")
             : shareRole==="view_only"
             ? React.createElement("span",{className:"acct-cloud warn",title:"You have VIEW-ONLY access to this film. You can read and explore it, but changes you make here are not saved. Only the film's owner can change your role."},
-                React.createElement(Icon.eye||Icon.warn,{s:11}),"View only")
+                React.createElement(Icon.eye||Icon.warn,{s:11}),"View-only")
             : scopedRole
             ? React.createElement("span",{className:"acct-cloud",
                 title:(window.teamRoleScopeNote ? window.teamRoleScopeNote(shareRole) : "")+" Changes inside your remit save normally."},

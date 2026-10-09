@@ -899,7 +899,11 @@ await test("F2 Frances's rules are unchanged (the prompt before the facts is ide
   const rules = (b)=>{ const p = b.museSystemPrompt({ now:"hi" }, null); return p.slice(0, p.indexOf("\n\nABOUT THIS APP")); };
   const now = rules(ai);
   for(const n of ["1. SCOPE.", "2. ACCURACY.", "3. CONFIDENTIALITY.", "4. NO NAMES.", "5. STAY IN CHARACTER.", "6. NO OUTSIDE ADVICE.", "7. CONCISE & RIGHT-SIZED.", "8. CONVERSATION."]) assert.ok(now.includes(n));
-  if(head) assert.equal(now, rules(loadAi(head)));
+  // (owner 2026-10-09, Team review — decision K) rule 3 now allows plan eligibility, never prices or billing:
+  // the one approved sentence aside, the rules are unchanged
+  const K_RULE = " Which plan a feature comes with, exactly as your facts state it (e.g. who can share a film), you may say \u2014 never a price, a credit amount or billing.";
+  assert.equal(now.split(K_RULE).length, 2, "the plan-eligibility sentence, once");
+  if(head) assert.equal(now.replace(K_RULE, ""), rules(loadAi(head)));
 });
 await test("F3 docs: the MUSE Protocol doc and supabase/README.md say how the limit works and how/when to run the SQL", ()=>{
   const doc = read("docs/MUSE Protocol.md").replace(/\s+/g, " ");

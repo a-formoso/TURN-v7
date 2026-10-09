@@ -9,6 +9,12 @@
       director's image is the owner's; a Stage editor's video is held on the owner and the
       collaborator's poll settles it; the budget stops a call; a lapsed owner pauses generating;
       a forged film id bills the caller; switched off, everything is billed as before.
+   TEAM REVIEW (2026-10-09; owner decisions B and C): a role that doesn't cover the call, sharing
+   switched off and an unconfirmed check are REFUSED (film_role / team_paused / film_unverified),
+   never billed to the collaborator; a missing turn_film_payer bills the caller; routing fields must
+   be strings; the collaborator is sent `usage.budget`, never the owner's balance or plan; their own
+   provider keys are ignored when the owner pays; an admin-owned film is gated as the admin's;
+   Blender's re-hold of an owner-paid job goes back to the owner.
      node scripts/test-film-payer.mjs */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -39,6 +45,14 @@ await test("A1 film work: writing, images, voice, video submits and Stage upload
   assert.equal(FP.filmCallKind("video", { op: "stage-upload" }), "video");
   assert.equal(FP.filmCallKind("video", { op: "poll" }), "");
   assert.equal(FP.filmCallKind("live", {}), "");
+  // (Team review, 2026-10-09) routing fields that aren't strings are never film work; 3D is Blender's only
+  assert.equal(FP.filmCallKind(["text"], {}), "", "an array task");
+  assert.equal(FP.filmCallKind({ toString: () => "text" }, {}), "");
+  assert.equal(FP.filmCallKind("text", { usageKind: ["writing"] }), "");
+  assert.equal(FP.filmCallKind("voice", { op: ["tts"] }), "");
+  assert.equal(FP.filmCallKind("video", { op: ["submit"] }), "");
+  assert.equal(FP.filmCallKind("3d", {}), "", "image-proxy has no 3D route");
+  assert.equal(FP.filmCallKind("3d", {}, { allow3d: true }), "3d");
 });
 await test("A2 the database's answer: own, owner (with the member and budget), refuse, or bill the caller", async () => {
   const rpcOf = (data, error = null) => async (name, args) => { rpcOf.last = [name, args]; return { data, error }; };
@@ -53,10 +67,25 @@ await test("A2 the database's answer: own, owner (with the member and budget), r
   assert.equal(paused.mode, "refuse"); assert.equal(paused.refusal.status, 402); assert.equal(paused.refusal.body.code, "owner_plan");
   const used = await FP.resolveFilmPayer({ ...base, rpc: rpcOf({ ok: false, code: "budget_reached", budget: 200, spent: 1200 }) });
   assert.equal(used.refusal.body.code, "budget_reached"); assert.match(used.refusal.body.message, /1,200 of 200/);
-  for (const code of ["not_member", "role", "off", "no_film"]) assert.equal((await FP.resolveFilmPayer({ ...base, rpc: rpcOf({ ok: false, code }) })).mode, "caller", code);
-  assert.equal((await FP.resolveFilmPayer({ ...base, rpc: rpcOf(null, { message: "down" }) })).mode, "caller", "a failed check bills the caller, never the owner");
-  assert.equal((await FP.resolveFilmPayer({ ...base, rpc: async () => { throw new Error("x"); } })).mode, "caller");
-  assert.equal((await FP.resolveFilmPayer({ ...base, rpc: rpcOf({ ok: true, payer: "not-a-uuid", member_id: m }) })).mode, "caller");
+  // only a non-member (or no such film) is billed to the caller — their own spend
+  for (const code of ["not_member", "no_film"]) assert.equal((await FP.resolveFilmPayer({ ...base, rpc: rpcOf({ ok: false, code }) })).mode, "caller", code);
+  // (Team review, 2026-10-09) refused in plain words, never billed to the collaborator
+  const refusedAs = async (rpc) => { const r = await FP.resolveFilmPayer({ ...base, rpc }); assert.equal(r.mode, "refuse", j(r)); return [r.refusal.status, r.refusal.body.code]; };
+  assert.deepEqual(await refusedAs(rpcOf({ ok: false, code: "role", role: "writer" })), [403, "film_role"]);
+  assert.deepEqual(await refusedAs(rpcOf({ ok: false, code: "paused" })), [403, "team_paused"]);
+  assert.deepEqual(await refusedAs(rpcOf({ ok: false, code: "off" })), [403, "team_paused"], "the older SQL's word for the switch");
+  assert.deepEqual(await refusedAs(rpcOf(null, { message: "down" })), [503, "film_unverified"], "a failed check is refused, never billed to anyone");
+  assert.deepEqual(await refusedAs(async () => { throw new Error("x"); }), [503, "film_unverified"]);
+  assert.deepEqual(await refusedAs(rpcOf("not json")), [503, "film_unverified"], "an unparseable answer");
+  assert.deepEqual(await refusedAs(rpcOf({ ok: false, code: "something_new" })), [503, "film_unverified"]);
+  assert.deepEqual(await refusedAs(rpcOf({ ok: true, payer: "not-a-uuid", member_id: m })), [503, "film_unverified"]);
+  // …except a database without turn_film_payer (before team-relaunch.sql): the caller, as before
+  for (const err of [{ code: "PGRST202", message: "Could not find the function public.turn_film_payer(p_actor, p_kind, p_project) in the schema cache" },
+    { code: "42883", message: "function public.turn_film_payer(uuid, uuid, text) does not exist" }])
+    assert.equal((await FP.resolveFilmPayer({ ...base, rpc: rpcOf(null, err) })).mode, "caller", err.code);
+  assert.deepEqual(FP.filmRole().body, { error: "film_role", code: "film_role", message: "Your role on this film doesn't include this." });
+  assert.deepEqual(FP.filmUnverified().body.message, "Couldn't confirm who pays for work on this film. Try again in a moment.");
+  assert.deepEqual(FP.teamPaused().body.message, "Sharing is paused on this film right now, so it's read-only for collaborators.");
   let asked = false;
   assert.equal((await FP.resolveFilmPayer({ ...base, context: { projectId: "local-1" }, rpc: async () => { asked = true; return {}; } })).mode, "caller");
   assert.equal(asked, false, "no film id (or not a uuid): no database call");
@@ -66,6 +95,44 @@ await test("A3 the collaborator never hears the owner's balance", () => {
   assert.doesNotMatch(FP.ownerShortOfCredits().body.message, /\d/);
   assert.deepEqual(FP.filmPaidMetadata({ mode: "owner", payer: "p", memberId: "m", role: "writer" }), { paidBy: "p", memberId: "m", filmRole: "writer" });
   assert.deepEqual(FP.filmPaidMetadata({ mode: "caller" }), {});
+});
+await test("A4 (Team review, 2026-10-09) hold-time codes, the collaborator's usage shape, admin-owned films, who paid for a hold", async () => {
+  const code = (h) => [FP.filmHoldRefusal(h).status, FP.filmHoldRefusal(h).body.code];
+  assert.deepEqual(code({ code: "budget_reached", budget: 200, spent: 190 }), [402, "budget_reached"]);
+  assert.deepEqual(code({ code: "owner_plan" }), [402, "owner_plan"]);
+  assert.deepEqual(code({ code: "frozen" }), [402, "owner_plan"], "a frozen OWNER reads as the owner's plan, never 'your account is on hold'");
+  assert.deepEqual(code({ code: "paused" }), [403, "team_paused"]);
+  assert.deepEqual(code({ code: "role" }), [403, "film_role"]);
+  assert.deepEqual(code({ code: "not_member" }), [503, "film_unverified"]);
+  assert.deepEqual(code({ code: "insufficient", remaining: 12 }), [402, "owner_insufficient"]);
+  // no refusal carries an address or a figure of the owner's
+  for (const r of [FP.filmRole(), FP.filmUnverified(), FP.teamPaused(), FP.ownerPlanPaused(), FP.ownerShortOfCredits(), FP.filmHoldRefusal({ code: "insufficient", remaining: 4321 })])
+    assert.doesNotMatch(r.body.message, /@|\d/, j(r));
+  // usage: the owner's balance and plan dropped, the collaborator's budget added
+  assert.deepEqual(FP.collaboratorUsage({ credits: 30, remaining: 4321, plan: "director", planRemaining: 1, packRemaining: 2, providerCostUsd: 0.3 }, { limit: 200, spent: 50 }),
+    { credits: 30, providerCostUsd: 0.3, budget: { limit: 200, spent: 50 } });
+  assert.deepEqual(FP.collaboratorUsage({ credits: 1, remaining: 9 }, { limit: null, spent: 7 }), { credits: 1, budget: { limit: null, spent: 7 } }, "null = no limit");
+  assert.deepEqual(FP.collaboratorUsage({ credits: 1, remaining: 9, plan: "studio" }, null), { credits: 1 }, "budget unknown: still nothing of the owner's");
+  // the owner's account: an admin owner needs no credits row; anyone else's missing row is "unavailable"
+  const from = (rows, error = null) => () => { const c = { select: () => c, eq: () => c, limit: async () => ({ data: rows, error }) }; return c; };
+  const getUser = async (id) => ({ data: { user: { id, email: id === "adm" ? "Admin@InfiniteStudioAI.com" : "x@example.com" } } });
+  const adminEmails = ["admin@infinitestudioai.com"];
+  assert.deepEqual(await FP.loadOwnerAccountRow(from([]), "adm", { getUser, adminEmails }), { row: null, ok: true, isAdmin: true });
+  assert.deepEqual(await FP.loadOwnerAccountRow(from([]), "u2", { getUser, adminEmails }), { row: null, ok: false, isAdmin: false });
+  assert.deepEqual(await FP.loadOwnerAccountRow(from([{ plan: "director" }]), "u2", { getUser, adminEmails }), { row: { plan: "director" }, ok: true, isAdmin: false });
+  assert.equal((await FP.loadOwnerAccountRow(from([]), "adm", { getUser: async () => { throw new Error("x"); }, adminEmails })).isAdmin, false, "a failed read is not admin");
+  // who paid for a hold (a video poll's usage row)
+  const tables = { turn_credit_holds: [{ owner: "o1", actor: "a1", member_id: "m1", project_id: FILM }], turn_project_members: [{ role: "stage_editor" }] };
+  const tf = (t) => { const c = { select: () => c, eq: () => c, limit: async () => ({ data: tables[t] || [], error: null }) }; return c; };
+  const hp = await FP.loadHoldPayer(tf, "video:x");
+  assert.deepEqual(hp, { ok: true, found: true, owner: "o1", actor: "a1", memberId: "m1", projectId: FILM, role: "stage_editor" });
+  assert.deepEqual(FP.filmPaidMetadataFromHold(hp), { paidBy: "o1", memberId: "m1", filmRole: "stage_editor" });
+  assert.deepEqual(FP.filmPaidMetadataFromHold({ ok: true, found: true, owner: "o1", memberId: "" }), {});
+  assert.deepEqual(await FP.loadHoldPayer(() => { const c = { select: () => c, eq: () => c, limit: async () => ({ data: null, error: { message: "x" } }) }; return c; }, "r"), { ok: false });
+  // FILM_HOLD_RPC has ONE home (billing-holds.mjs)
+  const { FILM_HOLD_RPC } = await import("../supabase/functions/image-proxy/billing-holds.mjs");
+  assert.equal(FP.FILM_HOLD_RPC, FILM_HOLD_RPC);
+  assert.doesNotMatch(read("supabase/functions/image-proxy/film-payer.mjs"), /export const FILM_HOLD_RPC/);
 });
 
 /* ── B ───────────────────────────────────────────────────────────────────── */
@@ -83,6 +150,24 @@ await test("B1 a film hold names the owner, the collaborator, the member row and
   await plain.take({ amount: 1, kind: "image" });
   assert.equal(calls.at(-1)[0], "turn_hold_credits", "without a film: the caller's own hold, as before");
 });
+await test("B2 (Team review, 2026-10-09) the film hold names the kind (p_kind; once more without it on an older database), keeps the database's refusal codes and carries the budget", async () => {
+  const calls = [];
+  let answer = (args) => ({ data: { ok: true, held: args.amount, remaining: 970, budget: 200, spent: 80 }, error: null });
+  const h = createHoldClient({ uid: "owner", film: { actor: "cara", memberId: "m1", projectId: FILM, kind: "image" }, newId: () => "id" + calls.length,
+    rpc: async (name, args) => { calls.push([name, args]); return answer(args); } });
+  const ok = await h.take({ amount: 30, kind: "image" });
+  assert.equal(calls[0][1].p_kind, "image"); assert.deepEqual([ok.budget, ok.spent], [200, 80]);
+  answer = (args) => ("p_kind" in args ? { data: null, error: { code: "PGRST202", message: "Could not find the function" } } : { data: { ok: true, held: args.amount }, error: null });
+  calls.length = 0;
+  assert.equal((await h.take({ amount: 5, kind: "image" })).ok, true);
+  assert.deepEqual(calls.map((c) => "p_kind" in c[1]), [true, false], "asked once more without p_kind");
+  for (const code of ["paused", "role", "owner_plan", "not_member"]) {
+    answer = () => ({ data: { ok: false, code, held: 0 }, error: null });
+    assert.equal((await h.take({ amount: 5, kind: "image" })).code, code);
+  }
+  answer = () => ({ data: null, error: { message: "connection reset" } });
+  assert.equal((await h.take({ amount: 5, kind: "image" })).code, "unavailable");
+});
 
 /* ── D: Blender Studio (blender-bridge) ───────────────────────────────────── */
 {
@@ -92,7 +177,8 @@ await test("B1 a film hold names the owner, the collaborator, the member row and
       auth: { getUser: async () => ({ data: { user: { id: ME, email: "me@example.com" } }, error: null }) },
       rpc: async (name, args) => { W.rpcs.push([key, name, args]); return W.rpc(name, args); },
       from: (t) => { const c = { select: () => c, eq: () => c, limit: async () => ({ data: W.tables[t] || [], error: null }),
-        maybeSingle: async () => ({ data: (W.tables[t] || [])[0] || null, error: null }) }; return c; },
+        maybeSingle: async () => ({ data: (W.tables[t] || [])[0] || null, error: null }),
+        then: (ok, bad) => Promise.resolve({ data: W.tables[t] || [], error: null }).then(ok, bad) }; return c; },
     }) });
   const world = (payer) => ({ rpcs: [], tables: { turn_credits: [{ plan: "director", remaining: 900, frozen: false }], turn_projects: [{ id: FILM, owner: OWNER }] },
     rpc: (name, args) => name === "turn_film_payer" ? { data: payer, error: null }
@@ -104,7 +190,7 @@ await test("B1 a film hold names the owner, the collaborator, the member row and
     const r = await mk(W).authorizeCredit({ token: "t", cost: 120, eventId: "e1", projectId: FILM, ownerId: OWNER });
     assert.deepEqual(r, { ok: true, remaining: null, holdRef: "studio:e1" });
     assert.deepEqual(W.rpcs.find((x) => x[1] === "turn_hold_credits_for_film")[2],
-      { p_owner: OWNER, p_actor: ME, p_member: MEMBER, p_project: FILM, amount: 120, ref: "studio:e1", reason: "blender-studio" });
+      { p_owner: OWNER, p_actor: ME, p_member: MEMBER, p_project: FILM, amount: 120, ref: "studio:e1", reason: "blender-studio", p_kind: "3d" });
     assert.ok(!W.rpcs.some((x) => x[1] === "turn_hold_credits"), "never the caller's own hold");
   });
   await test("D2 3D refusals on a shared film: the budget, the owner's plan, the owner's balance (no figures)", async () => {
@@ -132,6 +218,70 @@ await test("B1 a film hold names the owner, the collaborator, the member row and
     a = await access({ ok: false, code: "role", role: "writer" }); assert.deepEqual([a.canRead, a.canWrite], [true, false]);
     a = await access({ ok: false, code: "owner_plan" }); assert.deepEqual([a.canRead, a.canWrite], [true, false]);
     a = await access({ ok: false, code: "not_member" }); assert.deepEqual([a.canRead, a.canWrite], [false, false]);
+    a = await access({ ok: false, code: "paused" }); assert.deepEqual([a.canRead, a.canWrite], [true, false], "switched off: read-only");
+  });
+  await test("D5 (Team review, 2026-10-09) 3D refusals: a role without 3D, sharing paused, an unconfirmed check — never billed to the collaborator; a missing turn_film_payer bills the caller", async () => {
+    const auth = (W) => mk(W).authorizeCredit({ token: "t", cost: 120, eventId: "e9", projectId: FILM, ownerId: OWNER });
+    const noHold = (W) => assert.ok(!W.rpcs.some((x) => /^turn_hold_credits/.test(x[1])), "nothing held");
+    let W = world({ ok: false, code: "role", role: "writer" }); let r = await auth(W);
+    assert.deepEqual([r.code, r.message], ["film_role", "Your role on this film doesn't include this."]); noHold(W);
+    for (const c of ["paused", "off"]) { W = world({ ok: false, code: c }); r = await auth(W); assert.equal(r.code, "team_paused", c); noHold(W); }
+    W = world(null); W.rpc = (name) => (name === "turn_film_payer" ? { data: null, error: { message: "timeout" } } : { data: null, error: { message: "unexpected " + name } });
+    r = await auth(W); assert.deepEqual([r.code, r.message], ["film_unverified", "Couldn't confirm who pays for work on this film. Try again in a moment."]); noHold(W);
+    W = world("garbage"); r = await auth(W); assert.equal(r.code, "film_unverified");
+    W = world(null); W.rpc = (name) => (name === "turn_film_payer" ? { data: null, error: { code: "PGRST202", message: "Could not find the function" } }
+      : name === "turn_credit_balance" ? { data: [{ plan: "none", remaining: 0 }], error: null } : { data: null, error: { message: "unexpected " + name } });
+    r = await auth(W); assert.equal(r.code, "plan_required", "not installed: the caller's own account, as before");
+    // a film hold refused by the database's re-check, in the same words
+    for (const [code, want] of [["paused", "team_paused"], ["role", "film_role"], ["owner_plan", "owner_plan"], ["frozen", "owner_plan"], ["not_member", "film_unverified"], ["insufficient", "owner_insufficient"]]) {
+      W = world({ ok: true, payer: OWNER, member_id: MEMBER, role: "art_director" });
+      const base = W.rpc; W.rpc = (name, args) => (name === "turn_hold_credits_for_film" ? { data: { ok: false, code }, error: null } : base(name, args));
+      r = await auth(W); assert.equal(r.code, want, code); assert.doesNotMatch(r.message, /\d|@/);
+    }
+    // the service maps the new codes to plain statuses
+    assert.match(read("supabase/functions/blender-bridge/studio-service.mjs"), /code === "film_role" \|\| code === "team_paused" \? 403\s*: code === "billing_unavailable" \|\| code === "film_unverified" \? 503 : 402/);
+  });
+  await test("D6 (Team review, 2026-10-09) sharing switched off under the older rule: collaborators read-only (an Art director no longer writes 3D)", async () => {
+    const W = world({ ok: false, code: "off" });
+    W.tables.turn_project_members = [{ member_user: ME, member_email: "me@example.com", role: "art_director", status: "active" }];
+    let a = await mk(W).getProjectAccess(FILM, { id: ME, email: "me@example.com" });
+    assert.deepEqual([a.canRead, a.canWrite], [true, false]);
+    const W2 = world(null); W2.tables.turn_project_members = W.tables.turn_project_members;
+    W2.rpc = (name) => ({ data: null, error: { message: "timeout" } });
+    a = await mk(W2).getProjectAccess(FILM, { id: ME, email: "me@example.com" });
+    assert.deepEqual([a.canRead, a.canWrite], [true, false], "an unconfirmed check: read-only");
+    const W3 = world(null); W3.tables.turn_project_members = W.tables.turn_project_members;
+    W3.rpc = (name) => ({ data: null, error: { code: "PGRST202", message: "Could not find the function" } });
+    a = await mk(W3).getProjectAccess(FILM, { id: ME, email: "me@example.com" });
+    assert.deepEqual([a.canRead, a.canWrite], [true, true], "before team-relaunch.sql: the older rule, unchanged");
+  });
+  await test("D7 (Team review, 2026-10-09) a RELEASED owner-paid Studio hold is re-held for the OWNER through the budget — never on the launcher's account", async () => {
+    const W = world({ ok: true, payer: OWNER, member_id: MEMBER });
+    W.tables.turn_credit_holds = [{ owner: OWNER, actor: ME, member_id: MEMBER, project_id: FILM }];
+    const settled = {};
+    W.rpc = (name, args) => {
+      if (name === "turn_settle_hold") return args.ref === "studio:e7" ? { data: { ok: false, code: "released", status: "released" }, error: null }
+        : (settled[args.ref] = args.actual, { data: { ok: true, kept: args.actual, remaining: 4321, plan: "director" }, error: null });
+      if (name === "turn_hold_credits_for_film") return { data: { ok: true, held: args.amount, remaining: 4321 }, error: null };
+      return { data: null, error: { message: "unexpected " + name } };
+    };
+    const r = await mk(W).spendCredit({ uid: ME, cost: 12, eventId: "e7", holdRef: "studio:e7" });
+    assert.deepEqual(r, { ok: true, remaining: null, plan: null }, "the owner's balance and plan never come back");
+    assert.deepEqual(W.rpcs.find((x) => x[1] === "turn_hold_credits_for_film")[2],
+      { p_owner: OWNER, p_actor: ME, p_member: MEMBER, p_project: FILM, amount: 12, ref: "studio:e7:rehold", reason: "blender-studio:rehold", p_kind: "3d" });
+    assert.ok(!W.rpcs.some((x) => x[1] === "turn_hold_credits"), "never the launcher's own hold");
+    assert.equal(settled["studio:e7:rehold"], 12);
+    // the budget used up meanwhile: the budget's words, the task stays retryable
+    W.rpc = (name, args) => name === "turn_settle_hold" ? { data: { ok: false, code: "released", status: "released" }, error: null }
+      : name === "turn_hold_credits_for_film" ? { data: { ok: false, code: "budget_reached", budget: 200, spent: 200 }, error: null } : { data: null, error: { message: "x" } };
+    const b = await mk(W).spendCredit({ uid: ME, cost: 12, eventId: "e8", holdRef: "studio:e8" });
+    assert.equal(b.ok, false); assert.match(b.message, /200 of 200/);
+    // the original hold unreadable: no guess — retryable
+    const W2 = world(null); W2.rpc = (name) => (name === "turn_settle_hold" ? { data: { ok: false, code: "released", status: "released" }, error: null } : { data: null, error: { message: "x" } });
+    const m2 = createSupabaseAdapter({ url: "https://example.supabase.co", anonKey: "anon", serviceKey: "service",
+      createClient: () => ({ rpc: async (n, a) => W2.rpc(n, a), from: () => { const c = { select: () => c, eq: () => c, limit: async () => ({ data: null, error: { message: "down" } }) }; return c; } }) });
+    const u = await m2.spendCredit({ uid: ME, cost: 12, eventId: "e9", holdRef: "studio:e9" });
+    assert.deepEqual([u.ok, u.message], [false, "Could not settle Studio credits."]);
   });
 }
 
@@ -182,7 +332,7 @@ if (!PGlite || typeof nodeModule.registerHooks !== "function") {
   const ariRow = await invite(U.dora, FILM, U.ari, "art_director");
   await invite(U.pat, F2, U.sam, "stage_editor");
 
-  const TABLE_FNS = new Set(["turn_credit_balance", "turn_record_usage_event", "turn_credit_regime", "turn_spend_credit", "turn_open_provider_holds"]);
+  const TABLE_FNS = new Set(["turn_credit_balance", "turn_record_usage_event", "turn_credit_regime", "turn_spend_credit", "turn_open_provider_holds", "turn_team_spend"]);
   const callFn = async (who, name, args) => {
     const keys = Object.keys(args || {});
     const params = keys.map((k) => { const v = args[k]; return v != null && typeof v === "object" ? j(v) : v; });
@@ -210,12 +360,25 @@ if (!PGlite || typeof nodeModule.registerHooks !== "function") {
         return { data: rows[0] ? { at: new Date(rows[0].at).toISOString() } : null, error: null };
       }
       if (table === "turn_usage_events") return { count: 0, error: null };
+      // who paid for a hold, and the member's role (service role; Team review, 2026-10-09)
+      if (table === "turn_credit_holds" && who === "service") {
+        const rows = (await db.query("select owner, actor, member_id, project_id from public.turn_credit_holds where ref = $1", [f.ref])).rows;
+        return { data: single ? rows[0] || null : rows, error: null };
+      }
+      if (table === "turn_project_members" && who === "service") {
+        const rows = (await db.query("select role from public.turn_project_members where id = $1", [f.id])).rows;
+        return { data: single ? rows[0] || null : rows, error: null };
+      }
       return { data: single ? null : [], error: null };
     };
     return c;
   };
   globalThis.__filmPayerCreateClient = (url, key, opts) => {
     if (key === ENV.SUPABASE_SERVICE_ROLE_KEY) return {
+      auth: { admin: { getUserById: async (id) => {
+        const r = (await db.query("select id, email from auth.users where id = $1", [id])).rows[0];
+        return r ? { data: { user: { id: r.id, email: r.email } }, error: null } : { data: { user: null }, error: { message: "not found" } };
+      } } },
       rpc: async (name, args) => { rpcs.push(["service", name, args]); return callFn("service", name, args); },
       from: (t) => query(t, "service"),
       storage: { from: () => ({ upload: async () => ({ data: {}, error: null }), createSignedUrl: async (p) => ({ data: { signedUrl: "https://example.supabase.co/s/" + p }, error: null }),
@@ -235,9 +398,11 @@ if (!PGlite || typeof nodeModule.registerHooks !== "function") {
   } });
   const reply = (status, body) => new Response(j(body), { status, headers: { "content-type": "application/json" } });
   const fal = {}; let falSeq = 0, falNext = "IN_PROGRESS";
+  const sentKeys = [];   // the provider key each provider call carried
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (url, init = {}) => {
     const u = String(url), method = String(init.method || "GET").toUpperCase();
+    const hd = init.headers || {}; sentKeys.push([u, String(hd.Authorization || hd["x-api-key"] || "")]);
     if (u === "https://api.anthropic.com/v1/messages") return reply(200, { content: [{ type: "text", text: "ok" }], usage: { input_tokens: 3000, output_tokens: 800 }, stop_reason: "end_turn" });
     const fq = /^https:\/\/queue\.fal\.run\/(.+?)\/requests\/([^/?]+)(\/status)?(?:\?.*)?$/.exec(u);
     if (fq) {
@@ -281,26 +446,37 @@ if (!PGlite || typeof nodeModule.registerHooks !== "function") {
       assert.equal(await bal(U.dora), dora0 - Number(h.kept)); assert.equal(await bal(U.cara), cara0, "Cara's own credits untouched");
       const usage = rpcs.filter((x) => x[1] === "turn_record_usage_event").at(-1);
       assert.equal(usage[2].usage_metadata.paidBy, U.dora.id);
+      // (Team review, 2026-10-09) Cara is sent her budget on the film — never Dora's balance or plan
+      assert.equal(r.json.usage.remaining, undefined, j(r.json.usage)); assert.equal(r.json.usage.plan, undefined);
+      assert.deepEqual(r.json.usage.budget, { limit: 200, spent: Number(h.kept) }, "Director default budget; spent includes this call");
     });
     await test("C2 the same call without the film: Cara's own account (no plan) — refused", async () => {
       const r = await post("tok-cara", TEXT("claude-fable-5"));
       assert.equal(r.status, 402, j(r.json));
     });
-    await test("C3 a Co-writer's image on the film is billed as before (to Cara, who can't pay); nothing taken from the owner", async () => {
-      const dora0 = await bal(U.dora);
+    await test("C3 (Team review, 2026-10-09) a Co-writer's image on the film is REFUSED (film_role) — not billed to Cara, nothing taken from the owner", async () => {
+      const dora0 = await bal(U.dora), cara0 = await bal(U.cara), holds0 = (await db.query("select count(*)::int n from public.turn_credit_holds")).rows[0].n;
       const r = await post("tok-cara", IMAGE("gemini-3.1-flash-image", "2K", ctx()));
-      assert.equal(r.status, 402, j(r.json)); assert.equal(await bal(U.dora), dora0);
+      assert.equal(r.status, 403, j(r.json)); assert.equal(r.json.code, "film_role"); assert.equal(r.json.message, "Your role on this film doesn't include this.");
+      assert.equal(await bal(U.dora), dora0); assert.equal(await bal(U.cara), cara0);
+      assert.equal((await db.query("select count(*)::int n from public.turn_credit_holds")).rows[0].n, holds0, "nothing held");
     });
     await test("C4 an Art director's 4K image: the owner's plan allows it, the owner pays", async () => {
       const dora0 = await bal(U.dora);
-      const r = await post("tok-ari", IMAGE("gemini-3.1-flash-image", "4K", ctx()));
+      const keys0 = sentKeys.length;
+      // (Team review, 2026-10-09) Ari's own fal key is ignored: the owner's bill runs on the platform's key
+      const r = await post("tok-ari", IMAGE("gemini-3.1-flash-image", "4K", { ...ctx(), userApiKeys: { fal: "ari-own-fal-key" } }));
       assert.equal(r.status, 200, j(r.json));
       const h = await lastHold();
       assert.deepEqual([h.owner, h.actor, h.member_id], [U.dora.id, U.ari.id, ariRow]); assert.ok(await bal(U.dora) < dora0);
+      const used = sentKeys.slice(keys0).filter(([u]) => u.startsWith("https://queue.fal.run/"));
+      assert.ok(used.length && used.every(([, k]) => k === "Key fal-key"), j(used));
+      assert.equal(r.json.usage.remaining, undefined); assert.equal(r.json.usage.plan, undefined); assert.equal(r.json.usage.budget.limit, 200);
     });
     await test("C5 the owner's plan gates the call: video on a Director film is refused (the Stage is Producer's)", async () => {
       const r = await post("tok-ari", KLING(ctx()));
       assert.notEqual(r.status, 200);
+      assert.equal(r.json.code, "film_role", "an Art director's role has no video (Team review, 2026-10-09: refused, not billed to Ari)");
     });
     await test("C6 a Stage editor's video on a Producer film: held on the owner at submit; the collaborator's poll settles it", async () => {
       const pat0 = await bal(U.pat);
@@ -310,9 +486,21 @@ if (!PGlite || typeof nodeModule.registerHooks !== "function") {
       const h = await lastHold();
       assert.deepEqual([h.owner, h.actor, h.status], [U.pat.id, U.sam.id, "held"]); assert.equal(await bal(U.pat), pat0 - Number(h.held));
       fal[sub.json.requestId].status = "COMPLETED";
-      const p = await post("tok-sam", { task: "video", op: "poll", model: KLING().model, statusUrl: sub.json.statusUrl, responseUrl: sub.json.responseUrl });
+      // (Team review, 2026-10-09) the submit's usage: Sam's budget (Producer default 500), not Pat's balance
+      assert.equal(sub.json.usage.remaining, undefined); assert.equal(sub.json.usage.plan, undefined);
+      assert.deepEqual(sub.json.usage.budget, { limit: 500, spent: Number(h.held) });
+      const keys0 = sentKeys.length;
+      const p = await post("tok-sam", { task: "video", op: "poll", model: KLING().model, statusUrl: sub.json.statusUrl, responseUrl: sub.json.responseUrl,
+        userApiKeys: { fal: "sam-own-fal-key" } });
       assert.equal(p.json.status, "COMPLETED", j(p.json));
-      assert.equal((await lastHold()).status, "settled");
+      const settledHold = await lastHold();
+      assert.equal(settledHold.status, "settled");
+      // the poll: who paid is recorded, Sam is sent his budget (never Pat's balance or plan), fal is asked on the platform key
+      const usageRow = rpcs.filter((x) => x[1] === "turn_record_usage_event").at(-1)[2];
+      assert.deepEqual([usageRow.usage_metadata.paidBy, usageRow.usage_metadata.memberId, usageRow.usage_metadata.filmRole], [U.pat.id, settledHold.member_id, "stage_editor"]);
+      assert.equal(p.json.usage.remaining, undefined, j(p.json.usage)); assert.equal(p.json.usage.plan, undefined);
+      assert.deepEqual(p.json.usage.budget, { limit: 500, spent: Number(settledHold.kept) });
+      assert.ok(sentKeys.slice(keys0).filter(([u]) => u.startsWith("https://queue.fal.run/")).every(([, k]) => k === "Key fal-key"));
       const q = await post("tok-eve", { task: "video", op: "poll", model: KLING().model, statusUrl: sub.json.statusUrl, responseUrl: sub.json.responseUrl });
       assert.equal(q.json.code, "render_not_found", "someone else can't collect it");
     });
@@ -334,12 +522,41 @@ if (!PGlite || typeof nodeModule.registerHooks !== "function") {
       const r = await post("tok-eve", TEXT("claude-opus-5-5", ctx()));
       assert.equal(r.status, 200, j(r.json)); assert.equal(await bal(U.dora), dora0); assert.ok(await bal(U.eve) < eve0);
     });
-    await test("C10 switched off: a collaborator is billed as before", async () => {
+    await test("C10 (Team review, 2026-10-09; owner decision B) switched off: collaborators are read-only — refused (team_paused), nobody charged", async () => {
       await db.query("update public.turn_app_config set value = '{\"on\": false}' where key = 'team_sharing'");
-      const dora0 = await bal(U.dora);
+      const dora0 = await bal(U.dora), cara0 = await bal(U.cara);
       const r = await post("tok-cara", TEXT("claude-fable-5", ctx()));
-      assert.equal(r.status, 402); assert.equal(await bal(U.dora), dora0);
+      assert.equal(r.status, 403, j(r.json)); assert.equal(r.json.code, "team_paused");
+      assert.equal(r.json.message, "Sharing is paused on this film right now, so it's read-only for collaborators.");
+      assert.equal(await bal(U.dora), dora0); assert.equal(await bal(U.cara), cara0);
       await db.query("update public.turn_app_config set value = '{\"on\": true}' where key = 'team_sharing'");
+    });
+    await test("C11 (Team review, 2026-10-09) routing fields must be strings: task ['text'] is a 400 before anything is held or sent", async () => {
+      const dora0 = await bal(U.dora), holds0 = (await db.query("select count(*)::int n from public.turn_credit_holds")).rows[0].n, fetch0 = sentKeys.length;
+      for (const bad of [{ task: ["text"] }, { op: ["submit"], task: "video" }, { usageKind: ["writing"] }, { provider: ["fal"] }, { model: ["gemini-3.1-flash-image"] }])
+        assert.equal((await post("tok-cara", { ...TEXT("claude-fable-5", ctx()), ...bad })).status, 400, j(bad));
+      assert.equal((await post("tok-cara", [1, 2])).status, 400, "a body that isn't an object");
+      assert.equal(await bal(U.dora), dora0); assert.equal(sentKeys.length, fetch0, "no provider called");
+      assert.equal((await db.query("select count(*)::int n from public.turn_credit_holds")).rows[0].n, holds0);
+    });
+    await test("C12 (Team review, 2026-10-09) a film the ADMIN owns: gated as the admin's (no 503, no plan gate), held on the admin's balance", async () => {
+      const ADM = { id: "30000000-0000-4000-8000-000000000099", email: "admin@infinitestudioai.com" };
+      await db.query("insert into auth.users(id, email, email_confirmed_at) values ($1,$2,now() - interval '1 day')", [ADM.id, ADM.email]);
+      tokens["tok-adm"] = ADM;
+      const F3 = "f1000000-0000-4000-8000-000000000003";
+      await db.query("insert into public.turn_projects(id, owner, title, doc) values ($1,$2,'Admin film','{}'::jsonb)", [F3, ADM.id]);
+      await invite(ADM, F3, U.eve, "art_director");
+      // no credits row at all: the owner's balance can't cover it — never "billing unavailable" or a plan gate
+      let r = await post("tok-eve", IMAGE("gemini-3.1-flash-image", "4K", ctx(F3)));
+      assert.equal(r.json.code, "owner_insufficient", j(r.json)); assert.doesNotMatch(j(r.json), /@|\d{2,}/);
+      // a Writer-plan row (4K is Director's): the admin's gates let it run; the hold is the admin's
+      await svc("select public.turn_set_plan_once('e-adm', $1, 'writer', 800, 'sub_a', 'cus_a', $2)", [ADM.id, future]);
+      const adm0 = await bal(ADM), eve0 = await bal(U.eve);
+      r = await post("tok-eve", IMAGE("gemini-3.1-flash-image", "4K", ctx(F3)));
+      assert.equal(r.status, 200, j(r.json));
+      const h = await lastHold();
+      assert.deepEqual([h.owner, h.actor], [ADM.id, U.eve.id]); assert.ok(await bal(ADM) < adm0); assert.equal(await bal(U.eve), eve0);
+      assert.equal(r.json.usage.remaining, undefined);
     });
   } finally { globalThis.fetch = realFetch; console.warn = realWarn; }
 }

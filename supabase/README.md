@@ -22,7 +22,8 @@ cross-device access, and multiple projects all work.
    Then run `invitations.sql` — adds `turn_claim_memberships()`, which links
    invitations to the invitee's account on their first sign-in. (`team-relaunch.sql`
    replaces it with the confirmed-email, 14-day version; a database that never ran
-   `invitations.sql` — production — doesn't need it.)
+   `invitations.sql` — production — doesn't need it. Once `team-relaunch.sql` is
+   installed, this file and the three Team files around it refuse to run.)
    Then run `shared-owners.sql` — lets the home wall's "Shared with me" cards
    say who shared each film (without it, cards just say "Shared with you").
    Then run `enforce-role-scopes.sql` — makes the DATABASE enforce the
@@ -77,6 +78,16 @@ cross-device access, and multiple projects all work.
      all four owner-only rules) and then `series-production.sql`.
    - `cameos.sql` — puts back the owner-only Cameo add/edit rules, which do not
      check the project.
+
+   **Once `team-relaunch.sql` is installed** (Team review, 2026-10-09):
+   `team-collaboration.sql`, `invitations.sql`, `shared-owners.sql` and
+   `enforce-role-scopes.sql` refuse to run (`TURN_TEAM_SUPERSEDED`, nothing
+   changes) — each would silently undo Team sharing's rules (the member-wide
+   read policy that showed every member's address, email-only access) — and
+   `migrate-remove-producer-admin.sql` only migrates leftover rows (its CHECK and
+   access helper belong to `team-relaunch.sql`). There, after a `storage.sql`
+   re-run, run `storage-readable-folders.sql` (it removes the owner-only rules),
+   then `series-production.sql`, then `team-relaunch.sql`.
 
    `storage-readable-folders.sql` (below) runs after `series-production.sql`
    but needs no re-run after any of these files: the current
@@ -145,13 +156,27 @@ cross-device access, and multiple projects all work.
    daily limit; refusals read `TURN_TEAM:<code>`), collaborators read-only when
    the owner's plan lapses, a private member list, Leave film, and the owner-pays
    budget functions `image-proxy` and `blender-bridge` call. One transaction, safe
-   to re-run; it stops with `TURN_TEAM_PREREQUISITE` (changing nothing) if an
-   earlier file is missing. **It must run again after any re-run of
-   `series-production.sql`** or of the files that file must follow (the list
-   above), and after `invitations.sql` — each puts back an older access helper
-   (`turn_effective_project_roles`, `turn_can_access_project`,
-   `turn_can_write_assets`, the role trigger, `turn_shared_film_owners`,
-   `turn_claim_memberships`). Tested offline by `scripts/test-team-relaunch-db.mjs`.
+   to re-run (also over an earlier copy of it); it stops with
+   `TURN_TEAM_PREREQUISITE` (changing nothing) if an earlier file is missing.
+   **It must run again after any re-run of `series-production.sql`**, which puts
+   back older access helpers (`turn_effective_project_roles`,
+   `turn_can_access_project`, `turn_can_write_assets`, the role trigger,
+   `turn_shared_film_owners`). The older Team files can no longer be re-run after
+   it (see above). Tested offline by `scripts/test-team-relaunch-db.mjs`.
+   *Team review (2026-10-09):* one shared check for invites, role changes and
+   renewals (caps under advisory locks; the people cap only when a new place
+   opens); people invited to a Show count in each Episode's caps; a re-invite of
+   someone removed is a fresh invite; turning a shared film into a Show copies
+   its team as it is; a Stage editor writes only the Stage's take rows
+   (`clip-…`), not the Art Room's images or files; the switch OFF makes every
+   collaborator read-only and `turn_film_payer` answers `paused` (the server
+   refuses the call); `turn_hold_credits_for_film` gained `p_kind` and re-checks
+   everything from the membership row; and **private presence**: Realtime
+   Authorization policies on `realtime.messages` ("turn film channels receive" /
+   "turn film channels send") let only people who can open a film use its
+   `film:<id>` and `doc:<id>` channels (the block is skipped where Realtime isn't
+   installed). Deploy order: this SQL first, then `image-proxy` (it knows
+   `paused` and `p_kind`), then the app (it joins the channels as private).
 4. **SQL Editor → run `cameos.sql`** — creates the `turn_cameos` table (RLS).
    If you enable Cameos, re-run `series-production.sql` once afterward so its
    project-scoped Cameo add/edit rules are installed too (deleting a Cameo

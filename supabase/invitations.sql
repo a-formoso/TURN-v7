@@ -19,6 +19,20 @@
 --     claim that person's invitations.
 -- ============================================================================
 
+-- (Team review, 2026-10-09) SUPERSEDED once team-relaunch.sql is installed: run
+-- after it, this file brings back the claim without the 14-day expiry — silently
+-- undoing Team sharing's rules. So it refuses to run there and changes nothing;
+-- team-relaunch.sql (re-runnable) is the file to run instead. A fresh install runs
+-- this file BEFORE team-relaunch.sql, as always.
+do $$
+begin
+  if to_regprocedure('public.turn_renew_invite(uuid)') is not null then
+    raise exception using errcode = 'P0001',
+      message = 'TURN_TEAM_SUPERSEDED: invitations.sql would undo team-relaunch.sql, which is installed here. Nothing was changed. Run team-relaunch.sql instead (it is safe to re-run).';
+  end if;
+end;
+$$;
+
 create or replace function public.turn_claim_memberships()
 returns table(project_id uuid, title text, invited_by text, role text)
 language plpgsql

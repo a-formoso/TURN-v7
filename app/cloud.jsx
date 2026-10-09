@@ -491,7 +491,8 @@ function _teamSchemaMissing(err){
   return /turn_project_members|schema cache|relation .* does not exist|could not find the table/i.test(msg);
 }
 function _teamSetupMessage(){
-  return "Team collaboration needs the Supabase team-collaboration.sql migration before invites can be added.";
+  // plain words, no file or vendor names — this reaches the owner (2026-10-09, Team review)
+  return "Team sharing isn't set up on the server yet. Please try again later.";
 }
 /* a value inside a PostgREST or=(...) filter, quoted so a comma, bracket or quote in an
    address can't change the filter */
@@ -499,7 +500,7 @@ function _pgrstQuote(v){ return '"'+String(v==null?"":v).replace(/["\\]/g, c=>"\
 /* THE DATABASE'S TEAM REFUSALS (supabase/team-relaunch.sql: "TURN_TEAM:<code>") in plain words;
    null for anything else */
 const TEAM_REFUSALS = {
-  paused:"Team sharing is switched off right now.",
+  paused:"Team sharing is paused right now. You can still remove people and change budgets.",
   plan_required:"Sharing a film is part of the Director and Producer plans.",
   stage_editor_producer:"The Stage editor role comes with the Producer plan.",
   self:"That's your own address.",
@@ -547,8 +548,10 @@ function _teamOffRefusal(){
   if(window.turnIsAdmin || window.turnTeamSharing) return null;
   return { ok:false, paused:true, message:TEAM_REFUSALS.paused };
 }
+/* null when the list couldn't be read (the Team window says so, rather than "Nobody invited yet." —
+   2026-10-09, Team review) */
 async function cloudListProjectMembers(projectId){
-  const sb = sbClient(); if(!sb || !projectId) return [];
+  const sb = sbClient(); if(!sb || !projectId) return null;
   try{
     // removed members stay in the table as an audit trail, but every list the
     // app shows is ACTIVE members only — a removed row must never look like access.
@@ -560,11 +563,11 @@ async function cloudListProjectMembers(projectId){
       .order("created_at", { ascending:true });
     if(error){
       window.turnTeamSchemaMissing = _teamSchemaMissing(error);
-      return [];
+      return window.turnTeamSchemaMissing ? [] : null;
     }
     window.turnTeamSchemaMissing = false;
     return (data || []).map(m=>({ ...m, roleKey:_teamRoleKeyOf(m) }));
-  }catch(e){ window.turnTeamSchemaMissing = _teamSchemaMissing(e); return []; }
+  }catch(e){ window.turnTeamSchemaMissing = _teamSchemaMissing(e); return window.turnTeamSchemaMissing ? [] : null; }
 }
 async function cloudInviteProjectMember(projectId, email, role){
   const off = _teamOffRefusal(); if(off) return off;
@@ -585,12 +588,19 @@ async function cloudInviteProjectMember(projectId, email, role){
       .select("id,role,roles,status,member_user,expires_at").eq("project_id", projectId).eq("member_email", e).maybeSingle();
     if(readErr && _teamSchemaMissing(readErr)){ window.turnTeamSchemaMissing = true; return { ok:false, setup:true, message:_teamSetupMessage() }; }
     let error = null;
+    const roleChange = !!existing && existing.status==="active" && _teamRoleKeyOf(existing)!==roles.join("+");
+    // an unanswered invite past its 14 days — renewed after any role change (2026-10-09: a role change
+    // kept the old expiry, and the email then failed with "expired")
+    const expired = !!existing && existing.status==="active" && !existing.member_user
+      && !!existing.expires_at && Date.parse(existing.expires_at) <= Date.now();
     if(!existing){
       ({ error } = await sb.from("turn_project_members").insert({ project_id:projectId, member_email:e, role:r, roles }));
-    } else if(existing.status!=="active" || _teamRoleKeyOf(existing)!==roles.join("+")){
+    } else if(existing.status!=="active" || roleChange){
+      // a removed (or departed) person comes back as a FRESH invite they accept (the database's rule)
       ({ error } = await sb.from("turn_project_members").update({ role:r, roles, status:"active" }).eq("id", existing.id));
       if(!error && existing.status==="active") _pushMemberRemoved(projectId);   // a role change: open tabs re-check
-    } else if(!existing.member_user && existing.expires_at && Date.parse(existing.expires_at) <= Date.now()){
+    }
+    if(!error && expired){
       ({ error } = await sb.rpc("turn_renew_invite", { p_member:existing.id }));
     }
     if(error){
@@ -598,7 +608,8 @@ async function cloudInviteProjectMember(projectId, email, role){
       return { ok:false, message:_teamRefusal(error) || "Couldn't add this person. Please try again." };
     }
     window.turnTeamSchemaMissing = false;
-    if(existing && existing.member_user && existing.status==="active") return { ok:true, emailSent:false, emailNote:"they've already joined, so no email was needed." };
+    // already on the film: a role change (or nothing) — a success, no email (2026-10-09: shown as an error)
+    if(existing && existing.member_user && existing.status==="active") return { ok:true, joined:true, roleChanged:roleChange, emailSent:false };
     // The row grants access; the EMAIL makes it real — and if that fails, say so explicitly
     // (the grant still stands; silent "sent" claims are how invites die).
     const mail = await _sendInviteEmail(sb, projectId, e);
@@ -677,7 +688,7 @@ async function cloudUpdateProjectMember(memberId, patch, projectId){
     // collaborators so they refresh the server-derived role before their next edit.
     if(projectId) _pushMemberRemoved(projectId);
     return { ok:true };
-  }catch(err){ return { ok:false, message:(err&&err.message)||"Update failed." }; }
+  }catch(err){ return { ok:false, message:_teamRefusal(err) || "Couldn't change the role. Please try again." }; }
 }
 async function cloudRemoveProjectMember(memberId, projectId){
   // removing someone always works, sharing on or off and whatever the owner's plan (team-relaunch.sql)
@@ -693,7 +704,7 @@ async function cloudRemoveProjectMember(memberId, projectId){
     // this, re-checks with the server, and gets the access-ended message at once
     if(projectId) _pushMemberRemoved(projectId);
     return { ok:true };
-  }catch(err){ return { ok:false, message:(err&&err.message)||"Remove failed." }; }
+  }catch(err){ return { ok:false, message:_teamRefusal(err) || "Couldn't remove this person. Please try again." }; }
 }
 /* a person's monthly credit budget on the film (null = no limit); the owner only (the database's rule) */
 async function cloudSetMemberBudget(memberId, budget){
@@ -2152,7 +2163,10 @@ function cloudJoinPresence(projectId, meta, onChange){
   if(!sb || !projectId || typeof sb.channel!=="function") return ()=>{};
   let ch = null, dead = false;
   try{
-    ch = sb.channel("film:"+projectId, { config:{ presence:{ key:_presenceKey } } });
+    // PRIVATE (2026-10-09, Team review): only people with access to the film may join or send — anyone with
+    // the film's id (a removed collaborator too) could see who was here and send hints (team-relaunch.sql's
+    // realtime.messages rules)
+    ch = sb.channel("film:"+projectId, { config:{ private:true, presence:{ key:_presenceKey } } });
     const emit = ()=>{
       if(dead || !ch) return;
       let people = [];
@@ -2234,7 +2248,7 @@ function cloudSubscribeDoc(projectId){
     _docChannels[projectId].refs++;
     return release;
   }
-  const ch=sb.channel("doc:"+projectId);
+  const ch=sb.channel("doc:"+projectId, { config:{ private:true } });   // private, as film: (2026-10-09)
   const entry={ch,sb,ready:false,refs:1,dead:false};
   _docChannels[projectId]=entry;
   try{

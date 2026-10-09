@@ -36,6 +36,21 @@
 -- keep the two files identical.
 -- ============================================================================
 
+-- (Team review, 2026-10-09) SUPERSEDED once team-relaunch.sql is installed: run
+-- after it, this file brings back the email-matched role trigger, Art Room asset
+-- rules and generation policies — silently undoing Team sharing's rules. So it
+-- refuses to run there and changes nothing; team-relaunch.sql (re-runnable) is the
+-- file to run instead. A fresh install runs this file BEFORE team-relaunch.sql, as
+-- always.
+do $$
+begin
+  if to_regprocedure('public.turn_renew_invite(uuid)') is not null then
+    raise exception using errcode = 'P0001',
+      message = 'TURN_TEAM_SUPERSEDED: enforce-role-scopes.sql would undo team-relaunch.sql, which is installed here. Nothing was changed. Run team-relaunch.sql instead (it is safe to re-run).';
+  end if;
+end;
+$$;
+
 -- ── 1a. The per-role section allowlists (server copy of TEAM_ROLE_SECTIONS) ──
 -- 'project' is writable by BOTH roles on purpose: it holds the story identity
 -- (logline, premise) AND the style bible — locking either side out would block

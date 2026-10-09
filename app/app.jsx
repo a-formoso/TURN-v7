@@ -1004,24 +1004,44 @@ function App(){
   },[characters, props, locations]);
   window.turnFilmRenderStyle = filmRenderStyle;
   const _projRow = (projects||[]).find(p=>p.id===currentProjectId) || null;
-  const shareRole = (_projRow && _projRow.shareRole) || (_projRow && _projRow.isOwner ? "owner" : "");
-  /* TEAM (owner 2026-10-03): a shared film's rooms follow its OWNER's plan — turn_film_owner_tier:
-     "studio" (Producer: every room) | "director" (Writers' Room + Art Room) | "none" (the owner's
-     plan lapsed or a payment failed: the film is read-only, nothing is deleted) | "" (the server
-     can't say: the older role-only rooms) | null (not read yet). */
+  /* A SHARED FILM STAYS SHARED WHEN IT DROPS OFF THE LIST (2026-10-09, owner — Team review): a refreshed
+     project list without the open film (you were removed while the tab was in the background) made it
+     look like your own — every room writable, the save-time role check skipped, and "Access ended"
+     never shown. A film once seen as shared stays shared, and read-only, until the server says. */
+  const sharedSeenRef = React.useRef({});
+  if(_projRow && _projRow.isShared) sharedSeenRef.current[currentProjectId] = { title:_projRow.title || "" };
+  else if(_projRow) delete sharedSeenRef.current[currentProjectId];
+  const sharedOffList = !_projRow && !!currentProjectId && !!sharedSeenRef.current[currentProjectId];
+  const isSharedFilm = !!(_projRow && _projRow.isShared) || sharedOffList;
+  const sharedTitleRef = React.useRef("");
+  sharedTitleRef.current = (_projRow && _projRow.title) || (sharedSeenRef.current[currentProjectId] || {}).title || "";
+  const shareRole = (_projRow && _projRow.shareRole) || (_projRow && _projRow.isOwner ? "owner" : "") || (sharedOffList ? "view_only" : "");
   const [filmOwnerTier, setFilmOwnerTier] = React.useState(null);
-  const _sharedFilmId = _projRow && _projRow.isShared ? currentProjectId : null;
+  const _sharedFilmId = isSharedFilm ? currentProjectId : null;
+  // re-read on the same timer and hints as the role (2026-10-09 — read once per film, a lapse or an
+  // upgrade by the owner only showed after reopening the film)
+  const ownerTierReloadRef = React.useRef(null);
+  const filmOwnerTierSeenRef = React.useRef(false);
   React.useEffect(()=>{
     let live = true;
     // the writing default ("Auto") and every free-tier lock follow the owner's plan on a shared film
     const noteTier = ()=>{ if(typeof window.turnNoteWritingDefault==="function"){ try{ window.turnNoteWritingDefault(); }catch(e){} } };
-    setFilmOwnerTier(null); window.turnFilmOwnerTier = null; noteTier();
+    setFilmOwnerTier(null); window.turnFilmOwnerTier = null; noteTier(); ownerTierReloadRef.current = null;
     if(!_sharedFilmId || typeof window.cloudFilmOwnerTier!=="function") return;
-    window.cloudFilmOwnerTier(_sharedFilmId).then(t=>{ if(!live) return; setFilmOwnerTier(t); window.turnFilmOwnerTier = t || null; noteTier();
-      try{ window.dispatchEvent(new CustomEvent("nb-settings-changed")); }catch(e){} });
-    return ()=>{ live = false; };
+    const load = ()=> window.cloudFilmOwnerTier(_sharedFilmId).then(t=>{ if(!live) return;
+      if(filmOwnerTierSeenRef.current && window.turnFilmOwnerTier===(t || null)) return;   // unchanged
+      filmOwnerTierSeenRef.current = true;
+      setFilmOwnerTier(t); window.turnFilmOwnerTier = t || null; noteTier();
+      try{ window.dispatchEvent(new CustomEvent("nb-settings-changed")); }catch(e){} }).catch(()=>{});
+    filmOwnerTierSeenRef.current = false;
+    ownerTierReloadRef.current = load;
+    load();
+    return ()=>{ live = false; ownerTierReloadRef.current = null; };
   },[_sharedFilmId]);
   const ownerPlanLapsed = !!_sharedFilmId && filmOwnerTier==="none";
+  // sharing switched off: a film shared WITH you is read-only (nobody is charged)
+  // (the switch as cloudLoadTeamSharing last read it — false once read as off; the admin is never paused)
+  const sharingPaused = isSharedFilm && window.turnTeamSharing===false && !window.turnIsAdmin;
   /* YOUR ROLE CHANGED while the film is open (the owner changed it in the Team window): say so, with
      what the new role covers, so the rooms switching to read-only (or back) is never a surprise */
   const roleSeenRef = React.useRef({ pid:null, role:null });
@@ -1036,11 +1056,12 @@ function App(){
       : (typeof window.teamRoleScopeNote==="function" ? window.teamRoleScopeNote(shareRole) : "");
     window.appToast("Your role on \u201c"+((_projRow && _projRow.title) || "this film")+"\u201d is now "+label+". "+what, "info");
   },[currentProjectId, shareRole, _projRow && _projRow.isShared]);
-  // what a collaborator may WRITE: their role — or nothing while the owner's plan has lapsed
-  const writeRole = ownerPlanLapsed ? "view_only" : shareRole;
+  // what a collaborator may WRITE: their role — or nothing while the owner's plan has lapsed, while
+  // sharing is switched off, or while the film has dropped off your list (until the server says)
+  const writeRole = (ownerPlanLapsed || sharingPaused || sharedOffList) ? "view_only" : shareRole;
   const readOnlyShare = writeRole === "view_only";
   // the four roles, alone or combined ("writer+art_director", 2026-10-03); anything else fails closed
-  const unknownSharedRole = !!(_projRow && _projRow.isShared
+  const unknownSharedRole = !!(isSharedFilm
     && !(typeof window.teamRoleKnown==="function" ? window.teamRoleKnown(shareRole)
       : ["view_only","writer","art_director","stage_editor"].includes(shareRole)));
   // THE SCREENPLAY CREDIT on a shared film (owner, 2026-09-28: authorship is the writer's): the
@@ -1048,8 +1069,9 @@ function App(){
   // no credit line. export.jsx screenplayWriter() reads it; null on the user's own film.
   window.turnOpenFilmCredit = (_projRow && _projRow.isShared)
     ? { shared:true, owner:(typeof cloudHandleName==="function" ? cloudHandleName(_projRow.ownerEmail) : "") }
+    : sharedOffList ? { shared:true, owner:"" }   // off the list: no owner name known, no credit line
     : null;
-  const _sharedCanWriteRoom = id=>!(_projRow&&_projRow.isShared)
+  const _sharedCanWriteRoom = id=>!isSharedFilm
     || (typeof window.teamCanWriteRoom==="function" && window.teamCanWriteRoom(writeRole,id));
   const writersRoomReadOnly = !_sharedCanWriteRoom("writers");
   // the open film is a blank canvas (see turnFilmIsBlank in auth-ui.jsx): no badges on its chip
@@ -1059,11 +1081,11 @@ function App(){
   // SHOTS are saved by the Art Room AND the Stage (a Stage editor voices lines into them): their handlers
   // check the role's right to save shots, whichever room is open (2026-10-09, owner — Shots review: the
   // check followed the open room, so an art-only collaborator's "Design all shots" failed in the Writers' Room)
-  const shotsReadOnly = !!(_projRow && _projRow.isShared) && !(typeof window.teamCanWriteSection==="function" && window.teamCanWriteSection(writeRole, "shots"));
+  const shotsReadOnly = isSharedFilm && !(typeof window.teamCanWriteSection==="function" && window.teamCanWriteSection(writeRole, "shots"));
   const writersRoomBlocked = projectLoading || writersRoomReadOnly;
   // the Production check edits the script AND the Art Room: open to anyone who can save either
   const productionCheckBlocked = projectLoading || (writersRoomReadOnly && artRoomReadOnly);
-  const stageReadOnly = !!(_projRow && _projRow.isShared) && !_sharedCanWriteRoom("stage");
+  const stageReadOnly = isSharedFilm && !_sharedCanWriteRoom("stage");
   const roomReadOnly = projectLoading || (room==="writers" ? writersRoomReadOnly
     : room==="art" ? artRoomReadOnly : room==="stage" ? stageReadOnly : readOnlyShare);
   /* LIVE refs fence async results whose collaborator role changes while model work
@@ -1077,12 +1099,12 @@ function App(){
   const artRoomReadOnlyRef = React.useRef(false);
   artRoomReadOnlyRef.current = projectLoading || artRoomReadOnly;
   const characterBibleWritableRef = React.useRef(true);
-  characterBibleWritableRef.current = !(_projRow&&_projRow.isShared)
+  characterBibleWritableRef.current = !isSharedFilm
     || (typeof window.teamCanWriteSection==="function"
       && window.teamCanWriteSection(writeRole,"characters"));
   // the silent cast auto-draft writes `characters` + `visualsSeeded` — only for a role whose saves keep
   // BOTH (the same allow-list autosave enforces), and never while the film is still loading
-  const _sharedCanWriteSection = k=>!(_projRow&&_projRow.isShared)
+  const _sharedCanWriteSection = k=>!isSharedFilm
     || (typeof window.teamCanWriteSection==="function" && window.teamCanWriteSection(writeRole,k));
   const castAutoDraftWritable = !projectLoading && !artRoomReadOnly
     && _sharedCanWriteSection("characters") && _sharedCanWriteSection("visualsSeeded");
@@ -1142,8 +1164,10 @@ function App(){
     setPresence([]);
     if(!cloudMode || !currentProjectId || typeof window.cloudJoinPresence!=="function") return;
     const email = (typeof cloudUserEmail==="function") ? cloudUserEmail(session) : "";
-    // a display name and the account id (to spot your own other window) — never the email (2026-10-03)
-    const name = (typeof cloudHandleName==="function" ? cloudHandleName(email) : "") || (email||"").split("@")[0].split("+")[0];
+    // a display name and the account id (to spot your own other window) — never the email (2026-10-03);
+    // the account's chosen name first, as the exports use it (2026-10-09)
+    const name = (typeof cloudUserDisplayName==="function" ? cloudUserDisplayName(session) : "")
+      || (typeof cloudHandleName==="function" ? cloudHandleName(email) : "") || (email||"").split("@")[0].split("+")[0];
     const off = window.cloudJoinPresence(currentProjectId,
       { uid:(session && session.user && session.user.id) || "", name, role:unknownSharedRole?"role_unavailable":(shareRole||"owner"), at:Date.now() },
       (people)=> setPresence(people||[]));
@@ -1166,17 +1190,18 @@ function App(){
   React.useEffect(()=>{
     if(!cloudMode || !currentProjectId || typeof window.cloudDocRev!=="function") return;
     const others = (presence||[]).filter(p=>!p.isSelf).length;
-    const collaborative = others>0 || !!(_projRow && _projRow.isShared);
+    const collaborative = others>0 || isSharedFilm;
     if(!collaborative) return;
     let alive = true, busy = false, ticks = 0, ended = false, pushTimer = null;
     const accessEnded = async ()=>{
       if(ended || !alive) return; ended = true;
-      const title = (_projRow && _projRow.title) || "this film";
+      const title = sharedTitleRef.current || "this film";
       try{
+        // one button: both used to reload (2026-10-09)
         if(typeof window.appConfirm==="function")
           await window.appConfirm({ title:"Access ended",
-            body:"\""+title+"\" is no longer shared with you \u2014 your access was removed or the film was deleted. You'll go back to your own films.",
-            confirmLabel:"Back to my films", cancelLabel:"OK" });
+            body:"\u201c"+title+"\u201d is no longer shared with you \u2014 your access was removed or the film was deleted. You'll go back to your own films.",
+            confirmLabel:"Back to my films", hideCancel:true });
         else if(typeof window.appToast==="function")
           window.appToast("Your access to \""+title+"\" has ended.","error");
       }catch(e){}
@@ -1195,7 +1220,7 @@ function App(){
       busy = true;
       try{
         const rev = await window.cloudDocRev(currentProjectId);
-        if(alive && rev==null && _projRow && _projRow.isShared && typeof window.cloudCheckAccess==="function"){
+        if(alive && rev==null && isSharedFilm && typeof window.cloudCheckAccess==="function"){
           // null is ambiguous (transient error OR revoked access) — ask explicitly,
           // and only ever act on a definitive "gone"
           if((await window.cloudCheckAccess(currentProjectId))==="gone"){ busy = false; return accessEnded(); }
@@ -1217,11 +1242,16 @@ function App(){
        once a minute and whenever the tab comes back to the front. */
     let roleAt = 0;
     const refreshRole = async (minGapMs)=>{
-      if(!alive || ended || !(_projRow && _projRow.isShared) || typeof window.cloudListProjects!=="function") return;
+      if(!alive || ended || !isSharedFilm || typeof window.cloudListProjects!=="function") return;
       if(Date.now() - roleAt < minGapMs) return;
       roleAt = Date.now();
       try{ const list = await window.cloudListProjects(); if(alive && list) setProjects(list); }catch(e){}
+      try{ ownerTierReloadRef.current && ownerTierReloadRef.current(); }catch(e){}
     };
+    // the open film dropped off the refreshed list: ask the server, and end the session only on its "gone"
+    if(sharedOffList && typeof window.cloudCheckAccess==="function"){
+      window.cloudCheckAccess(currentProjectId).then(s=>{ if(alive && s==="gone") accessEnded(); }).catch(()=>{});
+    }
     const onRoleFocus = ()=>{ try{ if(document.visibilityState!=="hidden") refreshRole(15000); }catch(e){} };
     window.addEventListener("focus", onRoleFocus);
     document.addEventListener("visibilitychange", onRoleFocus);
@@ -1241,7 +1271,7 @@ function App(){
     // own "gone" (zero rows, no error) can end the session; everyone else no-ops
     const onMemberRemoved = (e)=>{
       if(!alive || ended || !e || !e.detail || e.detail.projectId!==currentProjectId) return;
-      if(!(_projRow && _projRow.isShared)) return;               // owners can't be removed
+      if(!isSharedFilm) return;               // owners can't be removed
       if(typeof window.cloudCheckAccess!=="function") return;
       window.cloudCheckAccess(currentProjectId).then(async s=>{
         if(!alive) return;
@@ -1253,6 +1283,7 @@ function App(){
           const list=await window.cloudListProjects();
           if(alive && list) setProjects(list);
         }
+        if(s==="ok"){ try{ ownerTierReloadRef.current && ownerTierReloadRef.current(); }catch(e){} }
       }).catch(()=>{});
     };
     window.addEventListener("turn-doc-push", onPush);
@@ -1263,17 +1294,53 @@ function App(){
       document.removeEventListener("visibilitychange", onRoleFocus);
       window.removeEventListener("turn-doc-push", onPush);
       window.removeEventListener("turn-member-removed", onMemberRemoved); };
-  },[cloudMode, currentProjectId, presence.length, _projRow && _projRow.isShared]);
+  },[cloudMode, currentProjectId, presence.length, isSharedFilm, sharedOffList]);
+  /* YOUR BUDGET ON A SHARED FILM (2026-10-09, owner — Team review, §6): at 80% of this month's budget, and
+     when it's used up, the collaborator is told once (per film, per month, per level). Read from the
+     database after a generation lands (throttled), whatever made it — writing, images, video, voice or 3D.
+     The owner sees the same flags in the Team window. */
+  React.useEffect(()=>{
+    if(!cloudMode || !currentProjectId || !isSharedFilm || typeof window.cloudTeamSpend!=="function") return;
+    let alive = true, at = 0, timer = null;
+    const pid = currentProjectId;
+    const check = async ()=>{
+      if(!alive || Date.now()-at < 20000) return; at = Date.now();
+      let rows = [];
+      try{ rows = await window.cloudTeamSpend(pid); }catch(e){ return; }
+      const mine = (rows||[]).find(r=>r && r.budget!=null && Number(r.budget)>0);
+      if(!alive || !mine) return;
+      const spent = Number(mine.spent)||0, budget = Number(mine.budget)||0;
+      const level = spent>=budget ? 100 : spent>=0.8*budget ? 80 : 0;
+      if(!level) return;
+      const d = new Date(), key = "turn_team_budget_note:"+pid+":"+d.getUTCFullYear()+"-"+(d.getUTCMonth()+1);
+      let seen = 0; try{ seen = Number(localStorage.getItem(key))||0; }catch(e){}
+      if(seen>=level) return;
+      try{ localStorage.setItem(key, String(level)); }catch(e){}
+      const fmt = n=> Math.max(0, Math.floor(n)).toLocaleString("en-US");
+      const reset = typeof window.teamBudgetResetText==="function" ? " (it "+window.teamBudgetResetText()+")" : "";
+      if(typeof window.appToast==="function") window.appToast(level===100
+        ? "You've used this month's credit budget on \u201c"+(sharedTitleRef.current||"this film")+"\u201d ("+fmt(spent)+" of "+fmt(budget)+")"+reset+". The film's owner can raise it."
+        : "You've used 80% of this month's credit budget on \u201c"+(sharedTitleRef.current||"this film")+"\u201d ("+fmt(spent)+" of "+fmt(budget)+")"+reset+".", level===100 ? "error" : "info");
+    };
+    const soon = ()=>{ clearTimeout(timer); timer = setTimeout(check, 1500); };
+    const evs = ["turn-credits-changed","vid-done","nb-gen-done","vg-audio-done"];
+    evs.forEach(n=>window.addEventListener(n, soon));
+    check();
+    return ()=>{ alive = false; clearTimeout(timer); evs.forEach(n=>window.removeEventListener(n, soon)); };
+  },[cloudMode, currentProjectId, isSharedFilm]);
   // ADMIN — demo upkeep account. The Matrix sample story (and "Reset to sample story")
   // is admin-only: every other user (and signed-out local mode) never sees Matrix data.
   const isAdmin = (((typeof cloudUserEmail==="function" && cloudUserEmail(session))||"").toLowerCase()==="admin@infinitestudioai.com");
   /* THE OWNER'S BELL (team.jsx TeamNotifications): who joined your films; a click opens the film */
   const teamNotifySlot = (variant)=> (cloudMode && session && (teamSharing || isAdmin) && window.TeamNotifications)
     ? React.createElement(window.TeamNotifications,{ key:"notify-"+variant, variant, enabled:true,
-        onOpenFilm: async (id)=>{ setHomeOpen(false); if(id!==currentProjectId) await switchProject(id); } })
+        onOpenFilm: async (id)=>{ const fid = openableFilmId(id); if(!fid){ setHomeOpen(true); return; }
+          setHomeOpen(false); if(fid!==currentProjectId) await switchProject(fid); } })
     : null;
   /* TEAM'S SWITCH (turn_app_config "team_sharing", owner 2026-10-03): read at boot and when the
-     tab comes back to the front; off → the Team button shows "Soon" (team.jsx) */
+     tab comes back to the front; off → the Team button shows "Soon" (team.jsx) and, on a film shared
+     WITH you, the film is read-only (owner 2026-10-09, Team review: off means nobody is charged and
+     collaborators can only read; the owner can still remove people and you can still leave) */
   const [teamSharing, setTeamSharing] = React.useState(!!window.turnTeamSharing);
   React.useEffect(()=>{
     if(typeof window.cloudLoadTeamSharing!=="function") return;
@@ -1285,6 +1352,11 @@ function App(){
     window.addEventListener("focus", onFocus);
     return ()=>window.removeEventListener("focus", onFocus);
   },[session && session.user && session.user.id]);
+
+  /* TEAM (owner 2026-10-03): a shared film's rooms follow its OWNER's plan — turn_film_owner_tier:
+     "studio" (Producer: every room) | "director" (Writers' Room + Art Room) | "none" (the owner's
+     plan lapsed or a payment failed: the film is read-only, nothing is deleted) | "" (the server
+     can't say: the older role-only rooms) | null (not read yet). */
   // expose for leaf components that have no session prop (e.g. the Art Room key bar)
   React.useEffect(()=>{ window.turnIsAdmin = isAdmin;
     // admin-only fal price-drift check (throttled inside; shows a card on drift)
@@ -2052,6 +2124,15 @@ function App(){
     if(id===currentProjectId) return true;
     return !!(await loadProjectIntoState(id));
   };
+  // a Show opens on its first episode (a Show row is a container, never opened as a film) — the invite
+  // card did this; the owner's bell opened the Show itself (2026-10-09, Team review)
+  const openableFilmId = (id)=>{
+    const row = (projects||[]).find(p=>p && p.id===id);
+    if(!row || !isShowProject(row)) return id;
+    const first = (projects||[]).filter(p=>String(p.showId||"")===String(row.id))
+      .sort((a,b)=>(Number(a.episodeNo)||0)-(Number(b.episodeNo)||0))[0];
+    return first ? first.id : null;
+  };
   /* CLAIM INVITATIONS once per sign-in: links membership rows addressed to my
      verified email onto my account id (turn_claim_memberships), so access stops
      depending on the email string. Returns only NEWLY linked films — announce
@@ -2071,7 +2152,9 @@ function App(){
       const news = (rows||[]).filter(r=>r && r.project_id!==inviteLanding);
       if(news.length && typeof window.appToast==="function"){
         if(news.length===1){
-          const by = news[0].invited_by ? (" by "+news[0].invited_by) : "";
+          // the owner's NAME, never their email address (2026-10-09, Team review)
+          const byName = news[0].invited_by ? ((typeof window.teamInviterName==="function") ? window.teamInviterName(news[0].invited_by) : "") : "";
+          const by = byName ? (" by "+byName) : "";
           window.appToast("\u201C"+(news[0].title||"A film")+"\u201D was shared with you"+by+".","success");
         } else {
           window.appToast(news.length+" films were shared with you \u2014 they're in your project list.","success");
@@ -3207,7 +3290,7 @@ function App(){
          its own save generation, so this generation stays unsettled until React has
          reconciled the accepted baseline. */
       let _deniedLocal=false;
-      if(typeof window.teamCanWriteSection==="function" && _projRow && _projRow.isShared && shareRole!=="owner"){
+      if(typeof window.teamCanWriteSection==="function" && isSharedFilm && shareRole!=="owner"){
         const denied=Object.keys(_changed).filter(k=>!window.teamCanWriteSection(writeRole,k));
         if(denied.length){
           const setters={scenes:setScenes,characters:setCharacters,props:setProps,locations:setLocations,
@@ -3490,13 +3573,15 @@ function App(){
   };
   const currentRoomEntitlements = ()=>{
     if(window.turnIsAdmin) return { writers_room:true, art_room:true, stage:true };
-    if(_projRow && _projRow.isShared){
+    if(isSharedFilm){
       // the OWNER's plan decides which rooms the film has; every role may look into them, and
       // writes follow the role (roomReadOnly). Not read yet → wait (roomGateReady).
       if(filmOwnerTier===null) return null;
       if(filmOwnerTier==="studio") return { writers_room:true, art_room:true, stage:true, shared:true };
       if(filmOwnerTier==="director") return { writers_room:true, art_room:true, stage:false, shared:true };
-      if(filmOwnerTier==="none") return { writers_room:true, art_room:false, stage:false, shared:true };
+      // the owner's plan lapsed: every room stays open to READ (writeRole is View-only) — §5, owner
+      // 2026-10-09 (Team review): the rooms closed, against "you keep read-only access, nothing is lost"
+      if(filmOwnerTier==="none") return { writers_room:true, art_room:true, stage:true, shared:true };
       // the server can't say (before team-relaunch.sql): the older role-only rooms
       if(shareRole==="view_only") return { writers_room:true, art_room:true, stage:true, shared:true };
       if(String(shareRole).split("+").includes("art_director")) return { writers_room:true, art_room:true, stage:false, shared:true };
@@ -3509,7 +3594,7 @@ function App(){
   };
   const roomGateReady = ()=>{
     if(window.turnIsAdmin) return true;
-    if(_projRow && _projRow.isShared) return filmOwnerTier!==null;
+    if(isSharedFilm) return filmOwnerTier!==null;
     if(!(session && session.user)) return true;
     return !!window.turnCreditBalance;
   };
@@ -3527,7 +3612,7 @@ function App(){
     if(typeof window.turnOpenPlans==="function") window.turnOpenPlans();
   };
   const requireRoomEntitlement = (id)=>{
-    if(_projRow && _projRow.isShared){
+    if(isSharedFilm){
       if(typeof window.appToast==="function"){
         const what = id==="art" ? "the Art Room" : "the Stage";
         window.appToast(ownerPlanLapsed
@@ -3544,7 +3629,7 @@ function App(){
   };
   // returns whether the room opened (a hand-off sets the tab and the scene only when it did — 2026-10-09)
   const guardedSetRoom = (id)=>{
-    const sharedProject = !!(_projRow && _projRow.isShared);
+    const sharedProject = isSharedFilm;
     if(id!=="writers" && !sharedProject && !planActive()){ requirePlan("open "+(id==="art"?"the Art Room":id==="stage"?"the Stage":"this room")); return false; }
     if(id!=="writers" && !canAccessRoom(id)){ requireRoomEntitlement(id); return false; }
     if(id!=="writers" && !scenes.length){ requireStory(id==="stage" ? "The Stage" : "The Art Room"); return false; }
@@ -3558,8 +3643,9 @@ function App(){
     const plan = (typeof window.turnRoomRequiredPlan==="function") ? window.turnRoomRequiredPlan(room) : "the right";
     setRoom("writers"); setView("spine");
     if(typeof window.appToast==="function"){
-      window.appToast(_projRow && _projRow.isShared
-        ? `This film's plan doesn't include ${room==="art"?"the Art Room":"the Stage"}.`
+      window.appToast(isSharedFilm
+        ? (ownerPlanLapsed ? `This film is read-only right now: its owner's plan doesn't include shared work.`
+          : `This film's plan doesn't include ${room==="art"?"the Art Room":"the Stage"}.`)
         : `${room==="art"?"The Art Room":"The Stage"} requires the ${plan} plan.`, "info");
     }
   },[room, creditBalance, session, isAdmin, shareRole, currentProjectId, projectLoading, filmOwnerTier]);
@@ -6698,7 +6784,7 @@ function App(){
     /* THE PRODUCTION CHECK'S ART-SIDE CHANGES (2026-10-09, owner — Art Room review): only in the film it started in,
        only while the role may change that section, and one Art Room undo step for the run (they had none) */
     const _prodArtOk = (section)=> String(ownerProjectId||"")===String(projIdRef.current||"") && !artRoomReadOnlyRef.current
-      && (!(_projRow&&_projRow.isShared) || (typeof window.teamCanWriteSection==="function" && window.teamCanWriteSection(writeRole, section)));
+      && (!isSharedFilm || (typeof window.teamCanWriteSection==="function" && window.teamCanWriteSection(writeRole, section)));
     let _prodSnap = null;
     const _prodArtSnap = ()=>{ if(_prodSnap) return; _prodSnap = artSnapOf(agentName || "Production check"); if(_prodSnap){ const snap = _prodSnap; setArtUndo(st=> [...st, snap].slice(-8)); } };
     // every state signature this run has written (seeded with the run-start state);
@@ -7900,12 +7986,7 @@ function App(){
         sessionEmail: (typeof cloudUserEmail==="function") ? cloudUserEmail(session) : "",
         canSetPassword: !!(um.turn_invited && !um.turn_password_set),
         onOpen: async ()=>{
-          let id=film&&film.id;
-          if(film&&isShowProject(film)){
-            const first=(projects||[]).filter(p=>String(p.showId||"")===String(film.id))
-              .sort((a,b)=>(Number(a.episodeNo)||0)-(Number(b.episodeNo)||0))[0];
-            id=first&&first.id;
-          }
+          const id=film ? openableFilmId(film.id) : null;
           setInviteLanding(null); setHomeOpen(false);
           if(id) await switchProject(id); else setHomeOpen(true);
         },

@@ -17,6 +17,21 @@
 -- turn_storage_project_id and write rule (see supabase/README.md).
 -- ============================================================================
 
+-- (Team review, 2026-10-09) SUPERSEDED once team-relaunch.sql is installed: run
+-- after it, this file brings back the member-wide read policy (every member would
+-- see every other member's address) and email-only access by unconfirmed addresses —
+-- silently undoing Team sharing's rules. So it refuses to run there and changes
+-- nothing; team-relaunch.sql (re-runnable) is the file to run instead. A fresh
+-- install runs this file BEFORE team-relaunch.sql, as always.
+do $$
+begin
+  if to_regprocedure('public.turn_renew_invite(uuid)') is not null then
+    raise exception using errcode = 'P0001',
+      message = 'TURN_TEAM_SUPERSEDED: team-collaboration.sql would undo team-relaunch.sql, which is installed here. Nothing was changed. Run team-relaunch.sql instead (it is safe to re-run).';
+  end if;
+end;
+$$;
+
 create table if not exists public.turn_project_members (
   id           uuid primary key default gen_random_uuid(),
   project_id   uuid not null references public.turn_projects(id) on delete cascade,

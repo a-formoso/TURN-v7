@@ -590,6 +590,14 @@ const BILLING_CODES = {
   trial_not_allowed:    { message:"This needs a paid plan. Without a plan, credits cover writing and draft images.", openPlans:true },
   price_changed:        { message:"This costs more than the price shown. Check the settings and try again.", openPlans:false },
   billing_unavailable:  { message:"Credits can't be checked right now. Please try again in a minute.", openPlans:false },
+  // TEAM — work on someone else's film is paid by its owner (image-proxy film-payer.mjs): never send the
+  // collaborator to buy a plan for it (2026-10-09, owner — Team review: these fell into the 402 "Plans" path)
+  owner_plan:           { message:"The film's owner's plan doesn't include shared work right now, so generating on this film is paused.", openPlans:false },
+  budget_reached:       { message:"You've used this month's credit budget on this film. The film's owner can raise it.", openPlans:false },
+  owner_insufficient:   { message:"The film's owner doesn't have enough credits for this right now.", openPlans:false },
+  film_role:            { message:"Your role on this film doesn't include this.", openPlans:false },
+  film_unverified:      { message:"Couldn't confirm who pays for work on this film. Try again in a moment.", openPlans:false },
+  team_paused:          { message:"Sharing is paused on this film right now, so it's read-only for collaborators.", openPlans:false },
 };
 function billingError(body, status){
   const b = (body && typeof body==="object") ? body : {};

@@ -320,6 +320,10 @@ await test("P9 index.ts: the live check uses the same limiter and RPC, sits afte
      "        : isAdmin ? \"The server could not open Frances's live voice: \" + ((e as any)?.message || e)\n"
      + "        : \"Frances's live voice couldn't open right now. Please try again.\" }, 200);\n"],
   ];
+  // owner decision K (2026-10-09, MUSE Protocol §3): she may say which plan a feature comes with, never a price or billing
+  const POWERS = "If asked what powers you, say: I'm Frances; let's keep our focus on your story.";
+  ERR_SCRUB.push([POWERS + "\",\n",
+    POWERS + " Which plan a feature comes with, exactly as you were told (e.g. who can share a film), you may say — never a price, a credit amount or billing.\",\n"]);
   let expected = liveOf(head);
   for(const [from, to] of ERR_SCRUB){ assert.ok(expected.includes(from), "59e4bff has: "+from); expected = expected.replace(from, to); }
   assert.equal(live.slice(0, start) + live.slice(end), expected, "only the limit block (and the error scrubbing) changed in the live path");
@@ -534,7 +538,9 @@ await test("F2 the docs quote the client's exact lines; the prompt's rules are u
   if(head){
     const box = aiSandboxFrom(head);
     const rules = (b)=>{ const s = b.museSystemPrompt({ now:"hi" }, null); return s.slice(0, s.indexOf("\n\nABOUT THIS APP")); };
-    assert.equal(rules(ai), rules(box));
+    // (owner 2026-10-09, Team review — decision K) the one approved plan-eligibility sentence aside
+    const K_RULE = " Which plan a feature comes with, exactly as your facts state it (e.g. who can share a film), you may say \u2014 never a price, a credit amount or billing.";
+    assert.equal(rules(ai).replace(K_RULE, ""), rules(box));
   }
 });
 function aiSandboxFrom(aiSource){

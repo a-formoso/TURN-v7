@@ -12,6 +12,7 @@
        cancelLabel:  "Cancel",                    // default "Cancel"
        danger: true,                              // red confirm button
        safeDefault: true,                         // focus Cancel; a stray Enter cancels (for dialogs the app opens unprompted)
+       hideCancel: true,                          // one button only (a notice: "Access ended")
      });
      if (ok) { ... }
 
@@ -45,7 +46,8 @@
       if(!req) return;
       const safe = !!req.safeDefault;
       const onKey = (e)=>{
-        if(e.key==="Escape"){ e.preventDefault(); close(false); }
+        // the dialog owns the key: a window behind it (the Team window) must not close too (2026-10-09)
+        if(e.key==="Escape"){ e.preventDefault(); if(e.stopPropagation) e.stopPropagation(); close(false); }
         else if(e.key==="Enter"){
           e.preventDefault();
           if(!safe){ close(true); return; }
@@ -73,7 +75,7 @@
           req.items.map((it,i)=>React.createElement("li",{key:i}, it))),
         req.note && React.createElement("div",{className:"appconfirm-note"}, req.note),
         React.createElement("div",{className:"appconfirm-actions"},
-          React.createElement("button",{className:"appconfirm-btn ghost", "data-appconfirm-role":"cancel", autoFocus:safe, onClick:()=>close(false)}, req.cancelLabel||"Cancel"),
+          !req.hideCancel && React.createElement("button",{className:"appconfirm-btn ghost", "data-appconfirm-role":"cancel", autoFocus:safe, onClick:()=>close(false)}, req.cancelLabel||"Cancel"),
           /* optional third action — resolves the promise with the string "alt" */
           req.altLabel && React.createElement("button",{className:"appconfirm-btn alt", "data-appconfirm-role":"alt", onClick:()=>close("alt")}, req.altLabel),
           React.createElement("button",{className:"appconfirm-btn"+(danger?" danger":" primary"), "data-appconfirm-role":"confirm", autoFocus:!safe, onClick:()=>close(true)},
