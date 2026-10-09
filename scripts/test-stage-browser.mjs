@@ -1074,9 +1074,9 @@ async function main() {
     /* The 4s + 6s coverage needs 10s: the picker never offers a shorter value that
        Generate would then refuse — the floor is the same timed plan that validates it. */
     assert.deepEqual(await c.eval(`[...document.querySelector('.stage2-rendercard select[title="Clip duration"]').options].map(o=>Number(o.value)).filter(v=>v<10)`),[],
-      "duration picker offers no value below the coverage minimum");
-    assert.match(await c.eval(`[...document.querySelector('.stage2-rendercard select[title="Clip duration"]').options].find(o=>o.value==="10")?.textContent||""`),/coverage minimum/i,
-      "the coverage minimum option says why it is the floor");
+      "duration picker offers no value below the clip minimum");
+    assert.match(await c.eval(`[...document.querySelector('.stage2-rendercard select[title="Clip duration"]').options].find(o=>o.value==="10")?.textContent||""`),/clip minimum/i,
+      "the clip minimum option says why it is the floor");
     await c.eval(`(()=>{
       const s=document.querySelector('.stage2-rendercard select[title="Clip duration"],.stage2-rendercard .stage2-control-row select');
       if(!s)return false;
@@ -1124,6 +1124,10 @@ async function main() {
     assert.equal(await readClipGrouping("shot restoration after legacy reload readback"),"shot",
       "single-shot grouping is restored before the remaining shot-scoped checks");
     await chooseNativePerformance("post-reload");
+    /* (2026-10-09, Stage third pass) the hand-edited prompt comes back after the reload; its sources moved
+       (model and grouping), so the Stage asks for a review before Extend / Generate use it */
+    assert.equal(await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent`),manual,
+      "the kept hand-edited prompt is restored after a reload");
 
     /* Return to 2.5 and check an unknown proxy cannot offer 1080p. */
     await c.eval(`([...document.querySelectorAll(".sd-gen-model")].find(x=>x.textContent.includes("Seedance 2.5"))).click()`);
@@ -1275,6 +1279,8 @@ async function main() {
       assert.ok(Number(createCost)>=1,`Create Video's Generate carries the render price (${createCost})`);
       const callsBefore=await c.eval(`__fixture.calls.length`);
 
+      /* the kept prompt's sources moved since (model, grouping): review it once, as a user would */
+      await c.eval(`(()=>{const b=[...document.querySelectorAll(".stage2-blocker-act,.stage2-warn-act")].find(x=>x.textContent.trim()==="Confirm reviewed");if(b)b.click();return true})()`);
       /* Extend Video: a Seedance 2.5 extension task on one of this clip's takes. */
       await c.eval(`[...document.querySelectorAll(".stage2-seg-btn")].find(b=>b.textContent.trim()==="Extend Video").click()`);
       await waitFor(()=>c.eval(`!!document.querySelector('.stage2-dz[data-slot="extend"].filled')`),"Extend preselects the current take");
@@ -1464,8 +1470,9 @@ async function main() {
     await chooseClipGrouping("legacy","previous-packing");
     assert.equal(await readClipGrouping("previous-packing readback"),"legacy","previous packing remains selected");
     const adopted=await waitFor(()=>c.eval(`window.__fixture.adoptTakes.length>${adoptBaseline}?window.__fixture.adoptTakes.slice(${adoptBaseline}):null`),"legacy take adoption boundary");
-    assert.ok(adopted.length>0&&adopted.every(x=>x.length===2&&x[0]&&x[1]&&x[0]!==x[1]),
-      "legacy grouping invokes take adoption with stable and old positional ids");
+    // (2026-10-09, Stage third pass) the clip's shot ids ride along, so a take only moves onto the same shots
+    assert.ok(adopted.length>0&&adopted.every(x=>x.length===3&&x[0]&&x[1]&&x[0]!==x[1]&&Array.isArray(x[2])&&x[2].length>0),
+      "legacy grouping invokes take adoption with stable and old positional ids and the clip's shots");
     assert.equal(await c.eval(`localStorage.getItem("turn_stage_clip_scope")`),"auto",
       "legacy grouping preserves the historical auto storage value");
     assert.equal(await c.eval(`window.__takes.length`),2,

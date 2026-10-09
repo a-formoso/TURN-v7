@@ -258,7 +258,8 @@ function BreakdownView({ project, scenes, characters, props, locations, shots, d
   const [checkFailed, setCheckFailed] = React.useState(false);
   const img = (id)=> found.has(id) || ((typeof nbGetImage==="function") ? !!nbGetImage(id) : false);
   const tierOf = (p)=>{ try{ return (window.PropScreenplay && window.PropScreenplay.sheetTier) ? window.PropScreenplay.sheetTier(p, drafts||{}).tier : "own"; }catch(e){ return "own"; } };
-  const stageStatus = bdStageStatus(project && project.id);
+  // the same open-film key the Stage writes with (stageFilmKey — films carry no project.id)
+  const stageStatus = bdStageStatus(window.turnOpenFilmId || (project && project.id));
   const rows = React.useMemo(()=> breakdownRows({ scenes, characters, props, locations, shots, drafts, img, tierOf, project, stageStatus }),
     [scenes, characters, props, locations, shots, drafts, tick, found, project]);
   const sum = breakdownSummary(rows);
@@ -461,6 +462,7 @@ function BreakdownStrip({ row, go:goTab, onMakeSceneNeeds, needsBusy=null, setNe
                 dot(row.clips.rendered===row.clips.total && !row.clips.stale),
                 row.clips.rendered+" of "+row.clips.total+" clip"+(row.clips.total===1?"":"s")+" rendered"
                   +(row.clips.stale?" \u00b7 "+row.clips.stale+" out of date":"")+(row.clips.oldLook?" \u00b7 "+row.clips.oldLook+" earlier look":"")
+                  +(row.clips.notes?" \u00b7 "+row.clips.notes+" with take notes":"")
                   +" (at your last Stage visit)")
             : _bdEl("button",{type:"button",className:"bd-chip",onClick:()=>onOpenStage&&onOpenStage(),disabled:!onOpenStage,
                 title:"Video clips are counted when you visit the Stage"}, dot("unused"), "Counted on your next visit to the Stage")))),

@@ -92,8 +92,11 @@ await test("C1 takes are stamped with the look at render (References + Extend)",
   assert.ok(stage.includes('const clipLookSig = (typeof shotLookSig==="function") ? shotLookSig(ctx.project, scene.id) : "";'));
   // (2026-10-08, third pass) the look the take really carries: the current look, unless its inputs or its
   // edited prompt carry an earlier one (scripts/test-color-third-pass.mjs D2)
-  assert.ok(stage.includes('((promptEditedRef.current && promptLookStamp) ? promptLookStamp : clipLookSig), source:referenceFree?"text-only":sourceMode,'));
-  assert.ok(stage.includes('? extendVideo.lookSig : clipLookSig, screenplayReference, screenplayImages:includedScreenplayImages, source:"extend",'));
+  // (2026-10-09, Stage third pass) only the frames the render sends carry their look (earlierLookIn), and
+  // Extend folds in its start frame (scripts/test-stage-third-pass.mjs)
+  assert.ok(stage.includes('const takeLookSig = (!referenceFree && earlierLookIn(sentImageIds)) || ((promptEditedRef.current && promptLookStamp) ? promptLookStamp : clipLookSig);'));
+  assert.ok(stage.includes('takeMeta:{ lookSig:takeLookSig, frameVersions, source:referenceFree?"text-only":sourceMode,'));
+  assert.ok(stage.includes('? extendVideo.lookSig : (earlierLookIn(freshFrameUrl ? [(d.first||{}).id] : []) || clipLookSig),'));
 });
 await test("C2 an earlier-look take: 'Earlier look' in Takes, a ring + count in the Timeline, a note in Shoot — never left out", ()=>{
   const view = between(stage, "function StageView({", "window.StageView = StageView;");
@@ -101,7 +104,7 @@ await test("C2 an earlier-look take: 'Earlier look' in Takes, a ring + count in 
   assert.ok(view.includes("takeOldLook:!!oldLookVids[clip.id]") && view.includes("auds, characters, oldLookVids,"));
   assert.ok(stage.includes('"Earlier look"') && stage.includes("shotLookIsEarlier(m.lookSig, project || window.turnProject, clip.scene.id)"));
   const tl = between(stage, "function StageTimelineView({", "\n}\n");
-  assert.ok(tl.includes('(has && (oldLookVids||{})[c.id]?" old-look":"")') && tl.includes('" with an earlier look"'));
+  assert.ok(tl.includes('(has && ((oldLookVids||{})[c.id] || (noteVids||{})[c.id])?" old-look":"")') && tl.includes('" with an earlier look"'));
   assert.ok(tl.includes("made with an earlier look (still in the film;"));
   assert.ok(css.includes(".stage2-tl-clip.old-look .stage2-tl-dot.ok{background:transparent;box-shadow:inset 0 0 0 2px var(--accent)}"));
   assert.ok(stage.includes('const takeOldLookNotice = !takeStale && takeOldLook && _stEl("div",{key:"take-old-look",className:"stage2-hint"},'));

@@ -119,9 +119,9 @@ await test("C1 the view: batched recounts, live price, every id looked up once, 
 /* ═══ D ═══ */
 await test("D1 the Stage saves each scene's clip counts per film — before its early return", ()=>{
   const view = between(stage, "function StageView({", "window.StageView = StageView;");
-  const save = view.indexOf('localStorage.setItem("turn_stage_scene_status:"+((project && project.id)||"local"), JSON.stringify(out));');
+  const save = view.indexOf('localStorage.setItem("turn_stage_scene_status:"+stageFilmKey(project), JSON.stringify(out));');
   assert.ok(save > 0 && save < view.indexOf("if(!scenesWithShots.length){"));
-  assert.ok(view.includes("o.total++; if(vids[c.id]) o.rendered++; if(staleVids[c.id]) o.stale++; if(oldLookVids[c.id]) o.oldLook++;"));
+  assert.ok(view.includes("o.total++; if(vids[c.id]) o.rendered++; if(staleVids[c.id]) o.stale++; if(oldLookVids[c.id]) o.oldLook++; if(noteVids[c.id]) o.notes++;"));
 });
 
 /* ═══ E ═══ */

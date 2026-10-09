@@ -5177,9 +5177,8 @@ function App(){
   // Render a shot's dialogue through its speaker's LOCKED voice; the MEASURED
   // duration becomes the shot's `dur`, which re-clocks the Stage automatically
   // (shotDur prefers dur → sceneSequences / cut-rhythm / runtime all re-partition).
-  const [voicingLines, setVoicingLines] = React.useState(null);   // {done,total} during the batch
-  const voicingCancel = React.useRef(false);
-  const cancelVoiceAll = ()=>{ voicingCancel.current = true; };
+  // (the film-wide "Voice all lines" batch was never shown anywhere — removed 2026-10-09, Stage review;
+  // a clip is voiced from its own "Voice clip now")
   const resolveLineSpeaker = (shot)=>{
     const scene = scenes.find(s=>s.id===shot.sceneId);
     if(!scene) throw new Error("This line has no scene, so its speaker can\u2019t be verified.");
@@ -5248,20 +5247,6 @@ function App(){
     if(!canMutateShots()) return;
     try{ const r = await voiceOneLine(shot); if(r && r.ok && !r.cached && typeof window.appToast==="function") window.appToast("Voiced — "+r.durSec+"s","success"); }
     catch(e){ if(typeof window.appToast==="function") window.appToast(String((e&&e.message)||"Voice render failed."),"error"); }
-  };
-  const voiceAllLines = async ()=>{
-    if(!canMutateShots()) return;
-    const lines = shots.filter(s=>String(s.dialogue||"").trim());
-    if(!lines.length){ if(typeof window.appToast==="function") window.appToast("No dialogue lines to voice yet."); return; }
-    voicingCancel.current=false; setVoicingLines({ done:0, total:lines.length });
-    let failed=0;
-    for(let i=0;i<lines.length;i++){
-      if(voicingCancel.current) break;
-      try{ await voiceOneLine(lines[i]); }catch(e){ failed++; }
-      setVoicingLines({ done:i+1, total:lines.length });
-    }
-    setVoicingLines(null);
-    if(failed && typeof window.appToast==="function") window.appToast(failed+" line"+(failed>1?"s":"")+" couldn't be voiced — check those characters have a locked voice.","error");
   };
   const addShot = (sceneId, beatN, seed)=>{
     if(!canMutateShots()) return;
@@ -7978,8 +7963,8 @@ function App(){
                 project,scenes,shots,characters,locations,props,beatsMap,drafts,
                 creditBalance,
                 readOnly:roomReadOnly,
-                onVoiceAll:voiceAllLines,voicingLines,onCancelVoiceAll:cancelVoiceAll,
-                onVoiceLine:voiceLine,
+                // voicing is paid and writes the shots: never from a view-only Stage (2026-10-09)
+                onVoiceLine:roomReadOnly?null:voiceLine,
                 onMakeSceneNeeds:artRoomReadOnly?null:makeSceneNeeds,   // it makes Art Room images (2026-10-09)
                 onUpdateShot:updateShot,
                 // the Stage's model, clip scope and visual source belong to the FILM (2026-10-02)

@@ -61,7 +61,9 @@ await test("8a a film's saved visual source wins; a film without one starts from
 
 await test("8b every pick is saved with the film (and as the device default); read-only never saves", () => {
   assert.ok(stage.includes('if(!readOnly && typeof onStageSettings==="function") onStageSettings(patch);'));
-  assert.ok(stage.includes("saveFilmStage({ visualSource:next });"));
+  // (2026-10-09, Stage third pass) nothing set the film's visual source any more — each clip picks its own;
+  // the saved one is still read (8a) for thumbnails, posters and the next clip's end frame
+  assert.ok(!stage.includes("saveFilmStage({ visualSource:next });") && stage.includes("const [visualSource, _setVisualSource] = React.useState(()=>_stageSavedSource(project));"));
   assert.ok(stage.includes("saveFilmStage({ modelId:id }); },[saveFilmStage]);"));
   assert.ok(stage.includes('saveFilmStage({ clipScope: next==="legacy"?"auto":next }); },[saveFilmStage]);'));
   // the film's model and scope are read first

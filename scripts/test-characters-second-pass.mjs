@@ -55,8 +55,9 @@ await test("A3 recorded on new frames; the card badge, the frame state and the S
 
 /* ═══ B ═══ */
 await test("B1 takes: 'References need review' only when a reference changed or is missing; 'Voice changed'", ()=>{
-  const vers = between(stage, "function StageVersionsView({", "\n}\n");
-  assert.ok(vers.includes("return s.missing||s.excluded||s.stale; });") && !vers.includes("s.stale||!s.approved"));
+  // (2026-10-09, Stage third pass) the take notes live in one shared helper the Takes view reads
+  const vers = between(stage, "function stageTakePropChanged(clip, meta){", "\nfunction StageVersionsView({")+between(stage, "function StageVersionsView({", "\n}\n");
+  assert.ok(vers.includes("return st.missing||st.excluded||st.stale; });") && !vers.includes("st.stale||!st.approved") && !vers.includes("s.stale||!s.approved"));
   assert.ok(!vers.includes("or is not currently approved"));
   assert.ok(vers.includes("String(window.vgVoiceLockSignature(c.voiceLock)||\"\")!==String(v.fingerprint)"));
   assert.ok(vers.includes('"Voice changed"'));

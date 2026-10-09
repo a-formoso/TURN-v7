@@ -473,7 +473,11 @@ function clipStableId(sceneId, shots){
 window.clipStableId=clipStableId;
 /* one-time MIGRATION: takes saved under the old positional id move to the stable id
    the first time the clip is seen (queued like every store write; no-op afterwards). */
-function vidAdoptTakes(id, legacyId){
+/* the shots a take records (meta.shotSources) */
+function _vidTakeShotIds(meta){
+  return ((meta&&meta.shotSources)||[]).map(x=>x&&x.shotId).filter(Boolean).map(String);
+}
+function vidAdoptTakes(id, legacyId, shotIds){
   if(!id || !legacyId || id===legacyId) return Promise.resolve(null);
   return _vidQueued(async ()=>{
     const scope0 = _vidScopeSnapshot(vidScope());
@@ -483,6 +487,12 @@ function vidAdoptTakes(id, legacyId){
     const old = await _vidLoadEntry(legacyId, scope0);
     if(!_vidScopeMatches(scope0)) return null;
     if(!old || !old.url) return null;
+    /* (2026-10-09, owner — Stage review) a positional take moves only onto the SAME shots: when it records
+       its shots and they aren't this clip's, it stays where it is (it was attached to whatever clip now
+       sat at its position) */
+    const recorded = _vidTakeShotIds(old.meta);
+    if(Array.isArray(shotIds) && recorded.length
+      && (recorded.length!==shotIds.length || recorded.some((x,i)=>x!==String(shotIds[i])))) return null;
     if(!_vidCacheEntryOwnedBy(old,scope0)) return null;
     if(!await _vidWriteEntry(id, old, scope0)) return null;
     if(!_vidScopeMatches(scope0)) return null;
@@ -494,6 +504,49 @@ function vidAdoptTakes(id, legacyId){
   });
 }
 window.vidAdoptTakes=vidAdoptTakes;
+
+/* TAKES FROM AN EARLIER GROUPING (2026-10-09, owner — Stage review): a clip's id is built from its shots,
+   so adding or removing a shot, switching model or clip scope, or re-voicing a line that splits a beat
+   gives it a new id — its takes stayed under the old one, out of sight. vidKnownIds lists the clip ids
+   this film has takes for; vidMergeTakes moves one id's takes onto a clip when the user says so (never
+   automatically): they join as takes, and the old take becomes current only when the clip has none. */
+function vidKnownIds(){
+  const sc = _vidScopeSnapshot(vidScope());
+  const out = new Set(((sc && sc.projectId!=null) ? (_vidIdsAll()[sc.projectId]||[]) : []));
+  _vidMem.forEach((e,id)=>{ if(e && e.url && _vidCacheEntryVisible(e,sc)) out.add(id); });
+  return Array.from(out);
+}
+window.vidKnownIds = vidKnownIds;
+window.vidTakeShotIds = _vidTakeShotIds;
+function vidMergeTakes(toId, fromId){
+  if(!toId || !fromId || toId===fromId) return Promise.resolve(null);
+  return _vidQueued(async ()=>{
+    const scope0 = _vidScopeSnapshot(vidScope());
+    const from = await _vidLoadEntry(fromId, scope0);
+    if(!_vidScopeMatches(scope0) || !from || !from.url || !_vidCacheEntryOwnedBy(from,scope0)) return null;
+    const to = await _vidLoadEntry(toId, scope0);
+    if(!_vidScopeMatches(scope0)) return null;
+    const fromMeta = { ...(from.meta||{}) }; const fromTakes = fromMeta.takes||[]; delete fromMeta.takes;
+    const moved = [{ url:from.url, meta:fromMeta, savedAt:fromMeta.createdAt||Date.now() }].concat(fromTakes)
+      .filter(t=>t && t.url);
+    let entry;
+    if(to && to.url){
+      const toMeta = to.meta||{};
+      const have = new Set([to.url].concat((toMeta.takes||[]).map(t=>t&&t.url)));
+      entry = { url:to.url, meta:{ ...toMeta, takes:(toMeta.takes||[]).concat(moved.filter(t=>!have.has(t.url))) } };
+    } else {
+      entry = { url:from.url, meta:{ ...fromMeta, takes:fromTakes } };
+    }
+    if(!await _vidWriteEntry(toId, entry, scope0)) return null;
+    if(!_vidScopeMatches(scope0)) return null;
+    await _vidDeleteStoredEntry(fromId, scope0);
+    if(!_vidScopeMatches(scope0)) return null;
+    await _vidCloudPush(fromId, null, scope0);
+    try{ window.dispatchEvent(new CustomEvent("vid-done",{ detail:{ ids:[toId, fromId] } })); }catch(e){}
+    return { merged:moved.length };
+  });
+}
+window.vidMergeTakes = vidMergeTakes;
 
 // skip-if-unchanged: same assets + prompt + settings → reuse the existing clip
 function vidHash(assets, prompt, settings){
@@ -516,10 +569,20 @@ function _vidQueued(run){
   _vidCommitQ = p.catch(()=>{});
   return p;
 }
-function vidCommitQueued(id, url, meta, scope){
-  return _vidQueued(()=>_vidCommitRaw(id, url, meta, scope));
+function vidCommitQueued(id, url, meta, scope, opts){
+  return _vidQueued(()=>_vidCommitRaw(id, url, meta, scope, opts));
 }
-async function _vidCommitRaw(id, url, meta, scope){
+/* WHICH TAKE STAYS CURRENT (2026-10-09, owner — Stage review): a NEW take (opts.newTake: a render or a
+   recovered render) used to always become the clip's current take — a render collected days later,
+   or whichever batch take landed last, replaced the take you approved. Now a new take joins the takes
+   WITHOUT replacing the current one when that one is approved, when it arrives by recovery after
+   another take was made current, or when it is flagged (identity changed: opts.asDraft). */
+function _vidKeepsCurrent(old, url, opts){
+  if(!opts || !opts.newTake || !old || !old.url || old.url===url) return false;
+  const om = old.meta || {};
+  return om.status==="approved" || !!opts.asDraft || !!opts.recovered;
+}
+async function _vidCommitRaw(id, url, meta, scope, opts){
   /* scope re-check at EXECUTION time: this commit may have waited in the queue
      behind hydrate/cloud I/O while the user switched films. Writing then would
      plant another film's take into the fresh state — skip every write and tell
@@ -540,7 +603,8 @@ async function _vidCommitRaw(id, url, meta, scope){
   if(old && !_vidCacheEntryOwnedBy(old,commitScope)) old = null;
   const takes = [];
   const oldMeta = (old&&old.meta)||null;
-  if(old&&old.url&&old.url!==url) takes.push({ url:old.url, meta:oldMeta, savedAt:(oldMeta&&oldMeta.createdAt)||Date.now() });
+  const keepCurrent = _vidKeepsCurrent(old, url, opts);
+  if(old&&old.url&&old.url!==url&&!keepCurrent) takes.push({ url:old.url, meta:oldMeta, savedAt:(oldMeta&&oldMeta.createdAt)||Date.now() });
   ((oldMeta&&oldMeta.takes)||[]).forEach(t=>{ if(t&&t.url&&t.url!==url&&!takes.some(x=>x.url===t.url)) takes.push(t); });
   meta = { ...(meta||{}) };
   if(typeof window.nbWithAssetProvenance==="function") meta = window.nbWithAssetProvenance(id, meta, "video");
@@ -551,10 +615,26 @@ async function _vidCommitRaw(id, url, meta, scope){
     const nums = [oldMeta&&oldMeta.vno].concat(takes.map(t=>t&&t.meta&&t.meta.vno)).map(Number).filter(n=>n>0);
     meta.vno = (nums.length ? Math.max.apply(null, nums) : 0) + 1;
   }
+  meta = { ...meta, createdAt:meta.createdAt||Date.now() };
+  const capTakes = (list)=>{ const capped = [];
+    list.forEach(t=>{ const ap = t&&t.meta&&t.meta.status==="approved"; if(ap || capped.filter(x=>!(x&&x.meta&&x.meta.status==="approved")).length<20) capped.push(t); });
+    return capped; };
+  if(keepCurrent){
+    // the new take goes first among the others; the current (approved / chosen) take stays
+    const nm = { ...meta }; delete nm.takes;
+    const others = capTakes([{ url, meta:nm, savedAt:Date.now() }].concat(takes));
+    const keptEntry = _vidStoreEntry(old.url, { ...(oldMeta||{}), takes:others }, commitScope);
+    _vidMem.set(id, keptEntry);
+    try{ await vidIdbSet(vidKey(id), keptEntry); }catch(e){}
+    if(!_vidScopeMatches(commitScope)) return { skipped:true };
+    const cloudKept = await _vidCloudPush(id, { url:keptEntry.url, meta:keptEntry.meta||null }, commitScope);
+    if(cloudKept && cloudKept.skipped) return cloudKept;
+    if(!_vidScopeMatches(commitScope)) return { skipped:true };
+    try{ window.dispatchEvent(new CustomEvent("vid-done",{ detail:{ ids:[id] } })); }catch(e){}
+    return { url, keptCurrent:true };
+  }
   // APPROVED takes never roll over; everything else keeps the newest 20
-  const capped = [];
-  takes.forEach(t=>{ const ap = t&&t.meta&&t.meta.status==="approved"; if(ap || capped.length<20) capped.push(t); });
-  meta = { ...meta, createdAt:meta.createdAt||Date.now(), takes:capped };
+  meta = { ...meta, takes:capTakes(takes) };
   const stored = _vidStoreEntry(url, meta, commitScope);
   _vidMem.set(id, stored);
   try{ await vidIdbSet(vidKey(id), stored); }catch(e){}
@@ -696,7 +776,7 @@ window.vidRestoreTake=vidRestoreTake; window.vidDeleteTake=vidDeleteTake;
 
 // ---- the proxy call (task:"video") ------------------------------------------
 async function vidProxy(op, payload){
-  if(!videoProxyReady()) throw new Error("Video runs through your server proxy — sign in and make sure Supabase + the proxy are configured.");
+  if(!videoProxyReady()) throw new Error("Video rendering isn't available right now — sign in and try again.");
   const sb = window.sbClient();
   const fnName = (window.TURN_SUPABASE && window.TURN_SUPABASE.imageProxyFn) || "image-proxy";
   // TRANSIENT-SAFE: "Failed to send a request to the Edge Function" is a NETWORK-level
@@ -766,9 +846,9 @@ async function vidProxy(op, payload){
     if(status===401) throw new Error("Sign in to render video — it runs on your server, not the browser.");
     if(status===404) throw new Error(_safe("The media proxy isn't deployed yet. Deploy supabase/functions/image-proxy (the video route), then have an administrator set FAL_KEY."));
     if(!status) throw new Error(_safe(op==="submit"
-      ? "Couldn't confirm the video proxy's response. The request may have reached the server and the render may already have been submitted. Check pending renders or history before retrying to avoid starting a duplicate job."
-      : "Couldn't reach the video proxy while checking the existing render. The job may still be processing; its pending record is preserved so it can be checked again."));
-    throw new Error(_safe("Couldn't reach the video proxy: "+((error&&error.message)||"unknown error")+"."));
+      ? "Couldn't confirm the video service's response. The render may already have started: wait a few minutes and check this clip's takes before rendering again, so you don't start a duplicate (a render that started is charged only if it finishes)."
+      : "Couldn't reach the video service while checking the existing render. The job may still be processing; its pending record is preserved so it can be checked again."));
+    throw new Error(_safe("Couldn't reach the video service: "+((error&&error.message)||"unknown error")+"."));
   }
   if(data && data.error){
     const detail=typeof data.error==="string" ? data.error : JSON.stringify(data.error);
@@ -803,7 +883,7 @@ function _vidStatusHiccup(e){
 function _vidPollTransient(e){
   if(_vidPollRetryable(e)) return true;
   const msg=String((e&&e.message)||"");
-  if(/Couldn't reach the video proxy|Sign in to render video/i.test(msg)) return true;
+  if(/Couldn't reach the video (proxy|service)|Sign in to render video/i.test(msg)) return true;
   if(Number(e&&e.httpStatus)===401) return true;
   return _vidStatusHiccup(e);
 }
@@ -844,15 +924,15 @@ async function seedanceGetRuntimeCapabilities(modelOrEndpoint){
   const model=_seedanceEndpoint(modelOrEndpoint);
   if(_seedanceRuntimeCaps.has(model)) return _seedanceRuntimeCaps.get(model);
   const pending=(async()=>{
-    if(!videoProxyReady()) return { known:false, model, capabilities:null, schema:null, reason:"video proxy is unavailable" };
+    if(!videoProxyReady()) return { known:false, model, capabilities:null, schema:null, reason:"the video service is unavailable" };
     try{
       const reply=await vidProxy("capabilities",{model});
       const known=!!(reply&&reply.known&&reply.schema&&reply.capabilities);
       return { known, model, capabilities:known?reply.capabilities:null, schema:known?reply.schema:null,
-        reason:known?"":"deployed video proxy did not acknowledge this capability schema" };
+        reason:known?"":"the video service hasn't confirmed this yet" };
     }catch(e){
       return { known:false, model, capabilities:null, schema:null,
-        reason:"deployed video proxy does not support the non-spending capability handshake" };
+        reason:"the video service hasn't confirmed what it supports yet" };
     }
   })();
   _seedanceRuntimeCaps.set(model,pending);
@@ -934,12 +1014,12 @@ async function vidStageDeviceMedia(file, kind, opts){
   if(!["video","image","audio"].includes(kind)) throw new Error("Only video, image or audio files can be staged.");
   const mime = String(file.type||"").toLowerCase();
   if(!mime.startsWith(kind+"/")) throw new Error("That file is not a "+kind+" ("+(mime||"unknown type")+").");
-  if(!videoProxyReady()) throw new Error("Device uploads run through your server proxy — sign in and make sure Supabase + the proxy are configured.");
+  if(!videoProxyReady()) throw new Error("Device uploads aren't available right now — sign in and try again.");
   // capability handshake (non-spending): an older deployed proxy has no upload
   // slot op and cannot resolve `stage:` references — refuse before uploading.
   const runtime = await seedanceGetRuntimeCapabilities(opts.capabilityModel || VID25_MODEL);
   if(!runtime.known || !vidStagingCapability(runtime.capabilities))
-    throw new Error("Pending server update — device uploads need the updated video proxy (direct-to-storage staging). Deploy the image-proxy Edge Function, or pick one of this clip's takes instead.");
+    throw new Error("Device uploads aren't available yet — they're waiting on a server update. Pick one of this clip's takes instead.");
   const st = runtime.capabilities.staging;
   const maxBytes = Number((st.maxBytes||{})[kind]) || (kind==="video" ? 200*1024*1024 : kind==="image" ? 30*1024*1024 : 15*1024*1024);
   if(file.size > maxBytes) throw new Error("That "+kind+" is "+Math.round(file.size/1024/1024)+"MB — the limit is "+Math.round(maxBytes/1024/1024)+"MB.");
@@ -952,7 +1032,7 @@ async function vidStageDeviceMedia(file, kind, opts){
   let slot;
   try{ slot = await vidProxy("stage-upload", { kind, mime, sizeBytes:file.size }); }
   catch(e){ URL.revokeObjectURL(blobUrl); throw e; }
-  if(!slot || !slot.ok || !slot.path || !slot.token || !slot.ref){ URL.revokeObjectURL(blobUrl); throw new Error("The video proxy did not open an upload slot."); }
+  if(!slot || !slot.ok || !slot.path || !slot.token || !slot.ref){ URL.revokeObjectURL(blobUrl); throw new Error("The upload couldn't be started — please try again."); }
   const sb = window.sbClient();
   const bucket = slot.bucket || (window.TURN_SUPABASE && window.TURN_SUPABASE.bucket) || "turn-assets";
   const up = await sb.storage.from(bucket).uploadToSignedUrl(slot.path, slot.token, file, { contentType: mime || "application/octet-stream", upsert:false });
@@ -1169,7 +1249,9 @@ window.VID_PENDING_KEEP_MS = VID_PENDING_KEEP_MS;
 function _vidPendingList(){ try{ return JSON.parse(localStorage.getItem(VID_PENDING_KEY)||"[]")||[]; }catch(e){ return []; } }
 function _vidPendingSave(list, strict, requestId){
   try{
-    const serialized=JSON.stringify(strict ? list : list.slice(-20));
+    /* NEVER EVICTED (2026-10-09, owner — Stage review): the list used to keep only the newest 20,
+       silently dropping older paid jobs (another film's included) that nothing would then collect */
+    const serialized=JSON.stringify(list);
     localStorage.setItem(VID_PENDING_KEY, serialized);
     if(strict){
       const savedRaw=localStorage.getItem(VID_PENDING_KEY);
@@ -1183,6 +1265,8 @@ function _vidPendingSave(list, strict, requestId){
 function _vidPendingAdd(job, strict){
   const l=_vidPendingList().filter(j=>j.requestId!==job.requestId); l.push(job);
   if(strict && l.length>VID_PENDING_LEDGER_LIMIT) return false;
+  // a full list refuses to save (the caller warns the record wasn't kept) instead of dropping one
+  if(!strict && l.length>VID_PENDING_SOFT_LIMIT) return false;
   return _vidPendingSave(l,!!strict,job.requestId);
 }
 /* A job whose recovery record this browser COULDN'T SAVE (pendingPersistenceWarning: storage full
@@ -1210,6 +1294,7 @@ function _vidPendingRemoveByClip(id){
    localStorage limits, leaving headroom for the app's other local keys. */
 const VID_PENDING_SCREENPLAY_BUDGET = 1000000;
 const VID_PENDING_LEDGER_LIMIT = 20;
+const VID_PENDING_SOFT_LIMIT = 80;   // every other render: far more than one browser runs at once
 /* Provider status/result URLs are only known after submit; reserve this
    bounded allowance now, then validate the actual record before saving. */
 const VID_PENDING_PROVIDER_OVERHEAD = 64*1024;
@@ -1351,16 +1436,16 @@ async function vidRecoverPending(opts){
     /* A recovered job still belongs to the canon that launched it.  If that
        canon is now contradictory, leave the pending job untouched rather than
        polling/committing a result into an unresolved project. */
+    /* (2026-10-09, owner — Stage review) a changed identity no longer leaves the job pending forever
+       (it was skipped on every load while the server charged it): it is collected and kept, flagged */
+    let identityChanged = false;
     try{
       vidAssertIdentity({
         identityCharacterIds:j.identityCharacterIds,
         identityContext:j.identityContext,
         identityCast:j.identityCast,
       }, "video-recovery");
-    }catch(identityErr){
-      cooking++;
-      continue;
-    }
+    }catch(identityErr){ identityChanged = true; }
     /* An OLD record is still polled ONCE before it is dropped (billing round 2): the server then
        settles and returns a finished video, or refunds a failed one. Only a job still unfinished
        or unreachable after VID_PENDING_KEEP_MS leaves the list (the server reconciles its hold). */
@@ -1370,9 +1455,11 @@ async function vidRecoverPending(opts){
       if(st.status==="COMPLETED" && st.videoUrl){
         _vidBalanceChanged("stage-video-recovered");   // the server settled the hold when it saw the completed job
         try{ vidAssertIdentity({ identityCharacterIds:j.identityCharacterIds, identityContext:j.identityContext, identityCast:j.identityCast }, "video-recovery-before-commit"); }
-        catch(identityErr){ cooking++; continue; }
+        catch(identityErr){ identityChanged = true; }
+        // a recovered take joins the takes; it never replaces a current take you have since
         const commit = await vidCommit(j.id, st.videoUrl,
-          { ...(j.meta||{}), seed:st.seed||null, recovered:true }, recoveryScope);
+          { ...(j.meta||{}), seed:st.seed||null, recovered:true, ...(identityChanged ? { identityChanged:true } : {}) },
+          recoveryScope, { newTake:true, recovered:true, asDraft:identityChanged });
         /* The provider job succeeded, but a film/user/epoch switch while its
            poll was awaiting must leave it for the correct film's recovery. */
         if(commit && commit.skipped){ cooking++; continue; }
@@ -1406,7 +1493,7 @@ async function vidRecoverPending(opts){
   if(saved && savedLive===saved) toast(saved===1 ? "A render that took longer than expected has finished — it's saved in its clip's takes." : (saved+" renders that took longer than expected have finished — saved as takes."),"success");
   else if(saved) toast(saved===1 ? "Recovered a finished render from an earlier session — it's saved in its clip's takes." : ("Recovered "+saved+" finished renders from an earlier session — saved as takes."),"success");
   if(gone) toast(gone===1 ? "A render from an earlier session isn’t available to this account any more (it may belong to another account), so it was taken off the pending list." : (gone+" renders from an earlier session aren’t available to this account any more (they may belong to another account), so they were taken off the pending list."),"info");
-  if(failed) toast(failed===1 ? "A render from an earlier session failed at the provider — no take was produced." : (failed+" renders from an earlier session failed at the provider — no takes were produced."),"error");
+  if(failed) toast(failed===1 ? "A render from an earlier session failed at the provider — no take was produced, and no credits were charged for it." : (failed+" renders from an earlier session failed at the provider — no takes were produced, and no credits were charged for them."),"error");
   if(expired) toast(expired===1 ? "A render from over a week ago still couldn’t be collected, so it was taken off the pending list. It’s charged only if it finished." : (expired+" renders from over a week ago still couldn’t be collected, so they were taken off the pending list. Each is charged only if it finished."),"info");
   if(cooking && !opts.quiet) toast(cooking===1 ? "A render from an earlier session is still processing — it will be saved automatically when it finishes." : (cooking+" renders from an earlier session are still processing — they'll be saved automatically."),"info");
   return saved;
@@ -1654,7 +1741,7 @@ async function seedanceGenerate(id, opts){
     const runtime=await seedanceGetRuntimeCapabilities(model);
     vidAssertIdentity(opts, "video-after-capabilities");
     if(!runtime.known || !runtime.capabilities || !runtime.capabilities.resolutions.includes("1080p"))
-      throw new Error("Seedance 2.5 1080p is disabled until the deployed video proxy acknowledges the new capability schema. 720p remains available; deploy the updated image-proxy Edge Function to enable 1080p.");
+      throw new Error("1080p on this model isn't available yet — it's waiting on a server update. 720p is available.");
   }
   /* Non-spending capability handshakes for the newer shapes: an older deployed proxy
      ignores unknown fields, so without the handshake an "editing" job would render
@@ -1665,14 +1752,14 @@ async function seedanceGenerate(id, opts){
     vidAssertIdentity(opts, "video-after-capabilities");
     const tasks=runtime.known && runtime.capabilities && Array.isArray(runtime.capabilities.tasks) ? runtime.capabilities.tasks : [];
     if(!tasks.includes(videoTask))
-      throw new Error("Pending server update — "+(videoTask==="editing"?"Edit Video":"Extend Video")+" needs the updated video proxy (Seedance 2.5 task modes). Deploy the image-proxy Edge Function to enable it; nothing was submitted.");
+      throw new Error((videoTask==="editing"?"Edit Video":"Extend Video")+" isn't available yet — it's waiting on a server update. Nothing was submitted.");
   }
   if(isKlingMotion){
     const runtime=await seedanceGetRuntimeCapabilities(model);
     vidAssertIdentity(opts, "video-after-capabilities");
     const orientations=runtime.known && runtime.capabilities && Array.isArray(runtime.capabilities.characterOrientations) ? runtime.capabilities.characterOrientations : [];
     if(!orientations.includes(characterOrientation))
-      throw new Error("Pending server update — Motion Control needs the updated video proxy (Kling 3.0 motion-control endpoints). Deploy the image-proxy Edge Function to enable it; nothing was submitted.");
+      throw new Error("Motion Control isn't available yet — it's waiting on a server update. Nothing was submitted.");
   }
   const settings = { model, resolution, aspectRatio, duration, endFrame, generateAudio, bitrateMode, seed:opts.seed!=null?opts.seed:null,
     ...(videoTask ? { videoTask } : {}),
@@ -1704,7 +1791,7 @@ async function seedanceGenerate(id, opts){
         const imageIndex=images.indexOf(page.url);
         const proxyInputUrl=imageIndex>=0 ? (proxyImages[imageIndex]||"") : "";
         if(imageIndex<0 || !proxyInputUrl)
-          throw new Error("A screenplay page image was not retained in the actual browser-to-proxy image payload; render was not submitted.");
+          throw new Error("A screenplay page image couldn't be attached to the render, so it was not submitted.");
         /* screenplayImages already stores the exact source URL.  Avoid storing
            that same potentially multi-megabyte data URL a second time when
            staging did not transform it; a differing proxyInputUrl (blob→data,
@@ -1806,6 +1893,8 @@ async function seedanceGenerate(id, opts){
         bitrateMode,      // "high" = less compression / larger file; "standard" = smaller draft
         ...(opts.seed!=null && !isSora && !isKling ? { seed:opts.seed } : {}),   // Sora/Kling have no seed control
         ...(quoteRec ? { quotedCredits:quoteRec.cost } : {}),   // the price the user saw; the server charges its own
+        // the takes this Generate starts, so the server's plan limit on batches applies (2026-10-09)
+        batchSize:Math.max(1, Number(persistedTakeMeta&&persistedTakeMeta.batchCount)||1),
       });
     }catch(e){
       _vidPendingRelease(pendingReservation);
@@ -1822,7 +1911,7 @@ async function seedanceGenerate(id, opts){
     _vidBalanceChanged("stage-video-hold");   // the server held this job's credits at submit
     if(!sub.requestId || !sub.statusUrl || !sub.responseUrl){
       _vidPendingRelease(pendingReservation);
-      throw new Error("The video proxy didn't accept the job.");
+      throw new Error("The video service didn't accept the render. If credits were held they're returned — please try again.");
     }
     // persist the job until it DEFINITIVELY completes — a reload mid-poll would otherwise
     // orphan a paid render (recovery re-polls leftovers on the next load). Cancels and
@@ -1916,7 +2005,9 @@ async function seedanceGenerate(id, opts){
       await new Promise(r=>setTimeout(r, pollMs));
       let st;
       try{ st = await vidProxy("poll", { model, statusUrl:sub.statusUrl, responseUrl:sub.responseUrl }); pollMiss = 0; statusHiccup = false;
-        vidAssertIdentity(opts, "video-after-poll"); }
+        // an identity change mid-render no longer ends the wait (the job kept going and was charged):
+        // the take is kept and flagged at commit ("video-before-commit")
+        try{ vidAssertIdentity(opts, "video-after-poll"); }catch(_identityErr){} }
       catch(e){
         // "poll again" (result_pending / retry:true): the proxy answered, the job's credits stay
         // held and its video can still be collected — keep polling (within maxPolls), never fail
@@ -1928,6 +2019,7 @@ async function seedanceGenerate(id, opts){
         if(_vidPollTerminal(e)){
           _vidPendingRemove(sub.requestId);
           _vidBalanceChanged("stage-video-released");   // the server released the failed job's hold
+          try{ if(e && !e.creditsReturned){ e.creditsReturned = true; if(e.message && !/No credits were charged/.test(e.message)) e.message += " No credits were charged for it."; } }catch(_e){}
           throw e;
         }
         // a network blip mid-poll, or the video service briefly failing to report the job's
@@ -1936,7 +2028,7 @@ async function seedanceGenerate(id, opts){
         // network miss already retried inside vidProxy). Terminal provider failures don't land
         // here: they arrive as a successful poll with st.error/st.status.
         const hiccup = _vidStatusHiccup(e);
-        if((hiccup || /Couldn't reach the video proxy/i.test(String(e&&e.message))) && ++pollMiss<=4){
+        if((hiccup || /Couldn't reach the video (proxy|service)/i.test(String(e&&e.message))) && ++pollMiss<=4){
           statusHiccup = hiccup;
           emit("RECONNECTING");
           continue;
@@ -1950,7 +2042,9 @@ async function seedanceGenerate(id, opts){
       if(/^(FAILED|ERROR|CANCELLED|CANCELED)$/i.test(String(st.status||""))){
         _vidPendingRemove(sub.requestId);
         _vidBalanceChanged("stage-video-released");   // the server released the failed job's hold
-        throw new Error(String(st.error||("The provider reported the render as "+st.status+".")));
+        const fe = new Error(String(st.error||("The provider reported the render as "+st.status+"."))+" No credits were charged for it.");
+        fe.creditsReturned = true;
+        throw fe;
       }
       if(st.status){
         let label = st.status;
@@ -1983,13 +2077,11 @@ async function seedanceGenerate(id, opts){
           screenplayImages, screenplayImageSnapshots,
           screenplayImagesRequired:opts.screenplayImagesRequired===true, screenplayImageGuard:pageGuard,
         });
+        /* IDENTITY CHANGED WHILE IT RENDERED (2026-10-09, owner — Stage review): the paid take used to be
+           thrown away. It is kept, flagged, beside the current take (never replacing it) — you decide. */
+        let identityChanged = false;
         try{ vidAssertIdentity(opts, "video-before-commit"); }
-        catch(identityErr){
-          _vidPendingRemove(sub.requestId);
-          if(typeof window.appToast==="function")
-            window.appToast("The video finished and was charged, but its take was not saved because character identity changed during rendering.","error");
-          return { videoUrl:st.videoUrl, seed:st.seed||null, cached:false, discarded:true, identityBlocked:true };
-        }
+        catch(identityErr){ identityChanged = true; meta.identityChanged = true; }
         /* OWNERSHIP RE-CHECK after the last await (memory: agent-run-lifecycle):
            the user may have cleared the clip or switched films while this cooked. */
         if(id!=null && vidRunToken(id)!==runToken0){
@@ -2006,14 +2098,20 @@ async function seedanceGenerate(id, opts){
              film the next time that film opens. */
           return { videoUrl:st.videoUrl, seed:st.seed||null, cached:false, stale:true };
         }
+        let keptCurrent = false;
         if(id){
-          const cr = await vidCommit(id, st.videoUrl, meta, scope0);
+          const cr = await vidCommit(id, st.videoUrl, meta, scope0, { newTake:true, asDraft:identityChanged });
           // scope changed while the commit WAITED IN THE QUEUE — job stays
           // pending; project-scoped recovery delivers it to the right film
           if(cr && cr.skipped) return { videoUrl:st.videoUrl, seed:st.seed||null, cached:false, stale:true };
+          keptCurrent = !!(cr && cr.keptCurrent);
         }
         _vidPendingRemove(sub.requestId);   // delivered — nothing left to recover
-        return { videoUrl:st.videoUrl, seed:st.seed||null, cached:false, ...(pendingPersistenceWarning ? { pendingPersistenceWarning:true } : {}) };
+        if(identityChanged && typeof window.appToast==="function")
+          window.appToast("A character\u2019s identity changed while this video rendered. The take is saved and marked \u201cIdentity changed\u201d \u2014 check it in Takes before you use it.","info");
+        return { videoUrl:st.videoUrl, seed:st.seed||null, cached:false,
+          ...(keptCurrent ? { keptCurrent:true } : {}), ...(identityChanged ? { identityChanged:true } : {}),
+          ...(pendingPersistenceWarning ? { pendingPersistenceWarning:true } : {}) };
       }
     }
     /* the job keeps its pending record: the patrol collects it when it finishes, so the
@@ -2138,7 +2236,17 @@ function useSeedanceGen(id){
           _vidJobPatch(jid, { err:reason||new Error(m) });
           throw (reason||new Error(m));
         }
-        if(bad.length) _vidJobPatch(jid, { err:bad.length+" of "+n+" takes failed: "+String((bad[0].reason&&bad[0].reason.message)||"render error") });
+        // a take still running on the server is not a failed one (2026-10-09, owner — Stage review)
+        const running = bad.filter(b=>b.reason && b.reason.stillPending);
+        const failedTakes = bad.filter(b=>!(b.reason && b.reason.stillPending));
+        if(bad.length){
+          const parts = [];
+          if(failedTakes.length) parts.push(failedTakes.length+" of "+n+" takes failed and weren't charged: "+String((failedTakes[0].reason&&failedTakes[0].reason.message)||"render error"));
+          if(running.length) parts.push(running.length+" of "+n+" takes are still rendering on the server \u2014 they're saved to this clip's takes when they finish.");
+          const be = new Error(parts.join(" "));
+          if(!failedTakes.length) be.stillPending = true;
+          _vidJobPatch(jid, { err:be });
+        }
         setVideoUrl(vidGetVideo(jid));
         return ok;
       } finally {

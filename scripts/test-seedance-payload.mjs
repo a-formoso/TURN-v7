@@ -1180,7 +1180,10 @@ const delayedRecovered = await raceSandbox.vidRecoverPending({ quiet: true });
 assert.equal(delayedRecovered, 1, "film A should recover after returning");
 assert.equal(raceCloudWrites.length, 1, "film A recovery should cloud-commit once");
 assert.equal(raceCloudWrites[0].projectId, "film-a");
-assert.equal(raceSandbox.vidGetMeta("overlap-clip").screenplayReference.fullText, screenplayReference.fullText,
+// (2026-10-09, Stage third pass) a recovered take joins the clip's takes; it never replaces the current one
+const recoveredTake = (raceSandbox.vidGetTakes("overlap-clip")||[]).find(t => t && t.meta && t.meta.recovered);
+assert.ok(recoveredTake, "the recovered render is one of the clip's takes");
+assert.equal(recoveredTake.meta.screenplayReference.fullText, screenplayReference.fullText,
   "delayed recovery must preserve screenplay provenance");
 
 /* ---- Seedance 2.5 task modes (Edit Video / Extend Video) ------------------------
@@ -1260,7 +1263,7 @@ await assert.rejects(sandbox.seedanceGenerate(null, {
   videoUrls: ["https://signed.example/motion.mp4?token=x&dur=6"],
   characterOrientation: "image",
   prompt: "", durationMs: 6000, resolution: "720p", pollMs: 1, maxPolls: 1,
-}), /Pending server update — Motion Control/, "an old proxy never receives a motion-control job");
+}), /Motion Control isn.t available yet — it.s waiting on a server update/, "an old proxy never receives a motion-control job");
 assert.equal(submitAttempts, motionAttemptStart, "pending-server refusal does not submit");
 motionCapsKnown = true;
 await assert.rejects(sandbox.seedanceGenerate(null, {

@@ -124,7 +124,7 @@ await test("C3 Design all asks with the cost, drafts from the current inputs; vo
   assert.ok(da.includes("if(!canMutateShots()) return;") && da.includes('(writing credits)?"') && da.indexOf("if(!ok) return;") < da.indexOf("setDraftingAllShots(true);"));
   const one = between(app, "  const draftOneSceneShots = async (scene, replace)=>{", "  const [draftingSceneShots");
   assert.ok(one.includes("const L = keyframeInputsRef.current || {};") && one.includes("draftsRef.current||drafts"));
-  assert.ok(app.includes("  const voiceLine = async (shot)=>{\n    if(!canMutateShots()) return;") && app.includes("  const voiceAllLines = async ()=>{\n    if(!canMutateShots()) return;"));
+  assert.ok(app.includes("  const voiceLine = async (shot)=>{\n    if(!canMutateShots()) return;") && !app.includes("const voiceAllLines"));
 });
 await test("C4 rights follow the role's right to save shots, whatever room is open", ()=>{
   assert.ok(app.includes('window.teamCanWriteSection(writeRole, "shots")') && app.includes("const canMutateShots = ()=> projectLoadingRef.current ? _projectLoadingNotice()"));

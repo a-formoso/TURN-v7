@@ -97,7 +97,7 @@ await test("A5 Shots records and compares the v2 record; the Stage stores and re
   assert.ok(shotsUi.includes("propDependencies:_keep(\"propDependencies\", (typeof shotPropDependencies===\"function\") ? shotPropDependencies(sh, sceneShots, ctx)"));
   assert.ok(shotsUi.includes("propDependenciesChanged(gen.genMeta.propDependencies,"));
   assert.ok(stage.includes("propDependencies:(typeof stageClipPropDependenciesV2===\"function\")"));
-  assert.ok(stage.includes("stageClipPropDependenciesChanged(t.meta.propDependencies,"));
+  assert.ok(stage.includes("stageClipPropDependenciesChanged(meta.propDependencies,"));   // the shared take notes (2026-10-09)
 });
 
 /* ═══ B ═══ */

@@ -3107,6 +3107,30 @@ APP_FEATURES.forEach(f=>{
   const f = APP_FEATURES.find(x=>x && x.name===name);
   if(f) f.what = String(f.what||"")+" "+add;
 });
+/* STAGE REVIEW, THIRD PASS (owner 2026-10-09): older Stage sentences described buttons that are gone
+   ('Voice beat', 'Voice all lines'), a film-wide visual source, the old tab names and "the newest render
+   is always current" — brought up to date, then the pass's note is appended. */
+{ const st = APP_FEATURES.find(x=>x && x.name==="The Stage (Production)");
+  if(st){
+    st.what = String(st.what||"")
+      .replace("The Stage's video model, clip scope (one beat or one shot per clip) and visual source (shot frames or storyboard halves) are saved WITH THE FILM",
+        "The Stage's video model and clip scope (one beat or one shot per clip) are saved WITH THE FILM (each clip picks its own visual source \u2014 shot frames, storyboard halves or the sheet \u2014 and Render settings can override it for the clip you're on)")
+      .replace("'Voice beat' renders only the selected beat's missing dialogue line, while 'Voice all lines' renders every dialogue line in the film; both use locked character voices and update measured durations before video.",
+        "'Voice clip now' (in the clip's notice, with its price) voices the clip's missing dialogue lines through the locked character voices and updates the measured durations before video.")
+      .replace("(double-click one to jump to the Stage tab and render it). Read-only by design \u2014 the story defines the order, the Versions tab decides which take plays.",
+        "(double-click one, or select it and use 'Open in Shoot', to render it there). Read-only by design \u2014 the story defines the order, Takes decides which take plays.")
+      .replace("(double-click one to jump to the Stage tab and render it). Read-only by design — the story defines the order, the Versions tab decides which take plays.",
+        "(double-click one, or select it and use 'Open in Shoot', to render it there). Read-only by design — the story defines the order, Takes decides which take plays.")
+      .replace("the newest render is always the current one",
+        "a new render becomes the current one unless the clip's current take is approved (then it joins the takes and your approved take stays current)");
+    st.what += " STAGE REVIEW, THIRD PASS (owner 2026-10-09): TAKES STAY FINDABLE \u2014 Extend, Edit and Motion Control takes record the shots and the look they were made from, so they're checked like any render (they used to read 'Can't be checked' and drop out of the film). When a clip's shots change (a shot added or removed, the model or clip scope switched, a beat split by a longer line) its earlier takes aren't lost: Shoot says 'N takes from an earlier grouping of these shots' and 'Bring them into this clip' moves them in when you say so. A new take never replaces an APPROVED current take, and a render collected later (after a reload) never replaces the take you chose \u2014 it joins the takes. A take that finished after a character's identity changed is kept, marked 'Identity changed', and isn't used on the timeline until you check it. "
+      +"STILL RENDERING \u2014 a render you stopped waiting for, or one that took too long, keeps going on the server: Shoot says 'still running on the server', asks before you render the clip again, and a batch counts such takes as still rendering, not failed. A failed render says no credits were charged. "
+      +"HONEST INPUTS \u2014 a frame still loading is never treated as missing (Generate waits for it); the 'Render with these inputs?' question and the Scenes rail judge only the frames the render really sends (a storyboard render sends no frames; a one-frame render, the first); the rail's other scenes say their images load when you open them instead of 'no frame yet'. A prop's state sheet (e.g. 'damaged') is loaded and used even when the film opens straight into the Stage. "
+      +"WHAT A TAKE RECORDS \u2014 only the references the render really sent (not ones you excluded); the frames, boards and end frame it used, so re-rendering one marks the take 'Frame changed'; and the prop sheets it attached. 'Prop reference changed', 'References need review', 'Voice changed', 'Frame changed' and 'Identity changed' show in Takes, on the Timeline, on the Scenes rail and in the Breakdown's clip counts, not only in Takes. "
+      +"PROMPTS & PRICES \u2014 a hand-edited prompt comes back when you open the Stage on that clip, only for exactly the same shots, and the most recently edited ones are kept. A reference video the server can't size by its length is shown as a hold (the most it can cost), not just the estimate. A render that would push the oldest unapproved take past the 20 kept asks first. "
+      +"RIGHTS \u2014 in a view-only Stage nothing writes or spends: no 'Voice clip now', no per-shot text edits, no take notes, approvals or restores, no device uploads; rights are checked again right before a render is sent. The Timeline has an 'Open in Shoot' button, the Mix's 'Import audio' works from the keyboard, and Remove on a Mix bed can be undone.";
+  }
+}
 /* the public view of every entry, memoised on the manifest's size (APP_FEATURES is only
    extended at load time, but a late push or `.what +=` still invalidates it) */
 let _museFactsMemo = null;

@@ -159,9 +159,10 @@ await test("D1 Shots: an Edit keeps the frame's look stamp; a frame seeded from 
   assert.ok(shotsUi.includes('let _seedEarlierLook = "";'));
 });
 await test("D2 Stage: takes, extends and hand-edited prompts carry the look they really have", ()=>{
-  assert.ok(stage.includes("const inputEarlierLook = (()=>{"));
-  assert.ok(stage.includes("takeMeta:{ lookSig:(!referenceFree && inputEarlierLook) ? inputEarlierLook : ((promptEditedRef.current && promptLookStamp) ? promptLookStamp : clipLookSig),"));
-  assert.ok(stage.includes("takeMeta:{ lookSig:(extendVideo && _earlierOf(extendVideo.lookSig)) ? extendVideo.lookSig : clipLookSig,"));
+  // (2026-10-09, Stage third pass) only the frames and boards a render SENDS carry their look
+  assert.ok(stage.includes("const earlierLookIn = (ids)=>{"));
+  assert.ok(stage.includes("const takeLookSig = (!referenceFree && earlierLookIn(sentImageIds)) || ((promptEditedRef.current && promptLookStamp) ? promptLookStamp : clipLookSig);"));
+  assert.ok(stage.includes("takeMeta:{ lookSig:(extendVideo && _earlierOf(extendVideo.lookSig)) ? extendVideo.lookSig : (earlierLookIn(freshFrameUrl ? [(d.first||{}).id] : []) || clipLookSig),"));
   assert.ok(stage.includes('lookSig:(t && t.meta && t.meta.lookSig) || "",'));
   assert.ok(stage.includes("This scene's look changed on the Color tab after you edited this prompt"));
   assert.equal((stage.match(/setPromptSourceStamp\(promptSourceSig\),setPromptLookStamp\(clipLookSig\)/g)||[]).length, 6);

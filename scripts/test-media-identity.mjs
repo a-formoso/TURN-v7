@@ -486,18 +486,28 @@ async function videoTests() {
     assert.equal(box._videoCalls, 0);
   });
 
-  await check("video recovery leaves a contradictory pending job untouched", async () => {
+  /* (2026-10-09, owner — Stage review) a job whose identity became contradictory is no longer skipped on
+     every load while the server charges it: it is polled; still running → kept; finished → saved as a
+     take flagged identityChanged (never replacing the current one) and taken off the list */
+  await check("video recovery polls a contradictory pending job: kept while running, saved flagged when finished", async () => {
     const box = videoBox();
     box.turnIdentityContext = { cast: [conflict], scenes: [scene], drafts: conflictingDrafts };
-    box.localStorage.setItem("turn_vid_pending", JSON.stringify([{
+    const job = {
       requestId: "recover-1", id: "clip", projectId: null, model: "fake",
       statusUrl: "status", responseUrl: "response", at: Date.now(),
       identityCharacterIds: [conflict.id], identityCast: [conflict],
       identityContext: conflictContext,
-    }]));
-    await box.vidRecoverPending();
-    assert.equal(box._videoCalls, 0);
+    };
+    box.localStorage.setItem("turn_vid_pending", JSON.stringify([job]));
+    await box.vidRecoverPending({ quiet: true });
+    assert.equal(box._videoCalls, 1);
     assert.equal(box.vidPendingList().length, 1);
+    box.sbClient = () => ({ functions: { invoke: async () => { box._videoCalls++;
+      return { data: { status: "COMPLETED", videoUrl: "https://fake.invalid/done.mp4" }, error: null }; } } });
+    await box.vidRecoverPending({ quiet: true });
+    assert.equal(box.vidPendingList().length, 0);
+    assert.equal(box.vidGetVideo("clip"), "https://fake.invalid/done.mp4");
+    assert.equal(box.vidGetMeta("clip").identityChanged, true);
   });
 
   await check("explicitly scoped unset video identity blocks before provider", async () => {

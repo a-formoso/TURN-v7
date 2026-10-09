@@ -260,8 +260,9 @@ function stageCreditInfo(balance, cost, opts){
   // one number format in the label and the tooltip (repair 2026-09-30): "1,234 remaining", "1,234 credits"
   const fmt = (n)=> (Number(n)||0).toLocaleString("en-US");
   // "Holds up to 378 credits; charged for the finished video’s length (about 63 for this video)"
-  const holdText = "olds up to "+fmt(cost)+" credit"+(cost!==1?"s":"")+"; charged for the finished video’s length"
-    +(estimate!=null ? " (about "+fmt(estimate)+" for this video)" : "");
+  const refs = !!(opts && opts.refs);   // a reference-video render: charged for the references' real length
+  const holdText = "olds up to "+fmt(cost)+" credit"+(cost!==1?"s":"")+"; charged for "+(refs ? "the reference video’s real length" : "the finished video’s length")
+    +(estimate!=null ? " (about "+fmt(estimate)+(refs ? ")" : " for this video)") : "");
   return {
     known,
     remaining:known ? remaining : null,
@@ -332,13 +333,20 @@ function stagePlanForRes(r){
   return p ? stagePlanName(p) : null;
 }
 window.stagePlanName = stagePlanName;
+/* the open film's key for what the Stage keeps on this device (the Breakdown's clip counts, the
+   prompt drafts) — films carry no project.id, so that alone keyed every film as "local" */
+function stageFilmKey(project){
+  const id = (typeof window!=="undefined" && window.turnOpenFilmId) || (project && project.id) || "";
+  return String(id || "local");
+}
+window.stageFilmKey = stageFilmKey;
 function stageFriendlyVideoError(err){
   const raw = String((err&&err.message)||err||"").trim();
   if(!raw) return "";
   const low = raw.toLowerCase();
   if((low.includes("video") && low.includes("reference") && (low.includes("resolution") || low.includes("720") || low.includes("480"))) ||
      (low.includes("reference video") && low.includes("duration"))){
-    return "Seedance refused one selected video reference. Reference videos must be short and draft-resolution (roughly 480p/720p, 2–15s). The Stage now skips unsafe previous-clip references automatically; reload and try the render again.";
+    return "The video model refused one selected video reference. Reference videos must be short and draft-resolution (roughly 480p/720p, 2–15s). The Stage now skips unsafe previous-clip references automatically; reload and try the render again.";
   }
   if(low.includes("failed to download") || low.includes("download the file") || low.includes("url is accessible")){
     return "The video model couldn't download one of the selected images or clips. Kinolot refreshes cloud links and uploads files that only live in this browser before every render, so if this keeps happening, one selected source is probably missing, expired, private or too large. Re-open or regenerate that source, make sure the selected thumbnails load, then try Generate clip again.";
@@ -1528,8 +1536,12 @@ function stageClipPropDependencySignature(clipData, sceneId, context){
 }
 /* v2 (2026-10-08, owner — Props review): per shot, only the props IN it — their story state and, for
    text-only ones, their description (a regenerated SHEET is "References need review" on the take) */
-function stageClipPropDependenciesV2(clipData, sceneId, context){
+/* attachedByShot ({shotId:{propId:assetId}}, 2026-10-09): the prop sheets the render really attached — a
+   prop with a sheet is stamped by that sheet (its state), not its description, and the sheet it used
+   (master or state) is recorded; the check reads them back from the stamp */
+function stageClipPropDependenciesV2(clipData, sceneId, context, attachedByShot){
   if(typeof propFrameDependencies!=="function") return "";
+  const attachedAll = attachedByShot || {};
   const C=context||window.turnContinuity||{};
   const charById={}; (C.characters||[]).forEach(c=>{ if(c&&c.id) charById[c.id]=c; });
   const propById={}; (C.props||[]).forEach(p=>{ if(p&&p.id) propById[p.id]=p; });
@@ -1537,14 +1549,19 @@ function stageClipPropDependenciesV2(clipData, sceneId, context){
   const per={};
   ((clipData&&clipData.shots)||[]).forEach(sh=>{ if(!sh||!sh.id) return;
     let ids=[]; try{ ids=(typeof inFrameProps==="function") ? (inFrameProps(sh, scene, charById, propById)||[]) : (sh.props||[]); }catch(e){ ids=sh.props||[]; }
-    per[sh.id]=propFrameDependencies(ids, {}, C.props||[], sceneId, sh.beatN, sh.microBeatId, sh.id, C); });
+    const attached=attachedAll[sh.id]||{};
+    per[sh.id]=propFrameDependencies(Array.from(new Set(ids.concat(Object.keys(attached)))), attached, C.props||[], sceneId, sh.beatN, sh.microBeatId, sh.id, C); });
   return "pdc2|"+JSON.stringify(per);
 }
 function stageClipPropDependenciesChanged(stored, clipData, sceneId, context){
   if(stored==null || stored==="") return false;
   const s=String(stored);
   if(s.indexOf("pdc2|")!==0) return s!==stageClipPropDependencySignature(clipData, sceneId, context);   // a take stamped before
-  let a, b; try{ a=JSON.parse(s.slice(5)); b=JSON.parse(stageClipPropDependenciesV2(clipData, sceneId, context).slice(5)||"{}"); }catch(e){ return false; }
+  // the sheets the take attached, read back from its own stamp, so the check compares like with like
+  const attachedBack = (()=>{ const out={}; try{ const st=JSON.parse(s.slice(5))||{};
+    Object.keys(st).forEach(sid=>{ let list=[]; try{ list=JSON.parse(String(st[sid]||"").replace(/^pd2\|/,"")||"[]"); }catch(e){}
+      (Array.isArray(list)?list:[]).forEach(x=>{ if(x && x.id && x.sheet) (out[sid]=out[sid]||{})[x.id]=x.sheet; }); }); }catch(e){} return out; })();
+  let a, b; try{ a=JSON.parse(s.slice(5)); b=JSON.parse(stageClipPropDependenciesV2(clipData, sceneId, context, attachedBack).slice(5)||"{}"); }catch(e){ return false; }
   const ka=Object.keys(a||{}), kb=Object.keys(b||{});
   if(ka.length!==kb.length) return true;
   return ka.some(k=> !(k in b) || (typeof propDependenciesChanged==="function" ? propDependenciesChanged(a[k], b[k]) : a[k]!==b[k]));
@@ -1674,11 +1691,18 @@ function storyboardClipAssets(clip, imgs){
     stale
   };
 }
+/* an image map that falls back to the image cache — for scenes whose images this view hasn't loaded */
+function stageImgsWithCache(imgs){
+  const base = imgs||{};
+  if(typeof Proxy!=="function") return base;
+  return new Proxy(base, { get:(t,k)=> (t[k] || ((typeof k==="string" && typeof nbGetImage==="function") ? (nbGetImage(k)||undefined) : undefined)) });
+}
 function clipPrimaryFrame(clip, imgs, visualSource){
   const story = storyboardClipAssets(clip, imgs);
   const beatOpening=!!((clip&&clip.data&&clip.data.shots)||[]).some(stageBeatOpeningShot);
   if(beatOpening) return imgs[(clip.data.first||{}).id] || "";
-  if(visualSource==="halves") return story.top || story.bottom || story.sheet || "";
+  // a clip whose board is out of date or off the board renders from its frames — its thumbnail too
+  if(visualSource==="halves") return story.top || story.bottom || story.sheet || imgs[(clip.data.first||{}).id] || "";
   return imgs[(clip.data.first||{}).id] || "";
 }
 
@@ -1741,18 +1765,30 @@ function stageClipSourcePlan(clip, imgs){
    Shots tab's shotFrameState) and the reference images its shots attach that don't exist yet (the
    Shots "Needs:" list, sceneReferenceNeeds). The Shoot console, its Generate question and the
    Scenes rail all read this, so they never disagree. */
-function stageClipReadiness(clip, ctx, imgs, drafts){
+/* opts.loading: the view's image load state ({id:"loading"|…}) — a frame still loading is LOADING, never
+   "not made yet" (2026-10-09: "Render anyway" then sent a paid render without it); opts.sourceMode: the
+   visual source this render really uses — only the frames it sends are judged (board modes send none,
+   "frame" sends the first). A frame both out of date and unapproved counts once, as out of date. */
+function stageClipReadiness(clip, ctx, imgs, drafts, opts){
+  opts = opts||{};
   const d = (clip && clip.data) || {}, shots = d.shots || [], scene = (clip && clip.scene) || {};
   const plan = stageClipSourcePlan(clip, imgs||{});
   const has = (id)=> !!((imgs||{})[id]) || (typeof nbGetImage==="function" && !!nbGetImage(id));
+  const loadingOf = (id)=>{ const L = opts.loading; if(!L) return false;
+    return (typeof L.has==="function") ? L.has(id) : L[id]==="loading"; };
+  const mode = opts.sourceMode || plan.mode;
+  const firstId = (d.first && d.first.id) || ((shots[0]||{}).id);
+  const firstShot = shots.find(sh=>sh && sh.id===firstId) || shots[0];
+  const used = (mode==="halves" || mode==="sheet") ? [] : mode==="frame" ? (firstShot ? [firstShot] : []) : shots;
   const sceneShotsAll = (((window.turnContinuity||{}).shots)||[]).filter(x=>x && x.sceneId===scene.id);
-  const frames = { missing:0, unapproved:0, stale:0, oldLook:0, charChanged:0, locChanged:0, propChanged:0 };
-  shots.forEach(sh=>{
+  const frames = { missing:0, loading:0, unapproved:0, stale:0, oldLook:0, charChanged:0, locChanged:0, propChanged:0 };
+  used.forEach(sh=>{
+    if(!has(sh.id) && loadingOf(sh.id)){ frames.loading++; return; }
     if(typeof shotFrameState==="function"){
       const st = shotFrameState(sh, sceneShotsAll.length ? sceneShotsAll : shots, drafts||{}, (ctx||{}).project, has);
       if(!st.rendered){ frames.missing++; return; }
-      if(!st.approved) frames.unapproved++;
       if(!st.current) frames.stale++;
+      else if(!st.approved) frames.unapproved++;
       if(st.oldLook) frames.oldLook++;
       if(st.charChanged) frames.charChanged++;
       if(st.locChanged) frames.locChanged++;   // the Shots card's notes, counted the same way (2026-10-09)
@@ -1766,6 +1802,7 @@ function stageClipReadiness(clip, ctx, imgs, drafts){
   }
   const n = (k, one, many)=> k+" "+(k===1?one:many);
   const issues = [];
+  if(frames.loading) issues.push(n(frames.loading, "frame still loading", "frames still loading"));
   if(frames.missing) issues.push(n(frames.missing, "frame not made yet", "frames not made yet"));
   if(frames.unapproved) issues.push(n(frames.unapproved, "frame not approved", "frames not approved"));
   if(frames.stale) issues.push(n(frames.stale, "frame out of date", "frames out of date"));
@@ -3068,7 +3105,7 @@ function StageMentionEditor({ value, mentionables, includeMention, maxLen, place
         m.t===swap.tok && _stEl("span",{className:"stage2-mention-kind"},"Current")))));
 }
 
-function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState={}, auds, beatsMap, drafts, prevClipVideoId, aspect, visualSource, setVisualSource, creditBalance, readOnly=false, onVoiceLine, onMakeSceneNeeds, takeStale=false, takeOldLook=false, onUpdateShot, onSelectClip, onFirstVideo, onStageNav, modelId, setModelId, clipScope, setClipScope, pendingReuse, onReuseConsumed }){
+function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState={}, auds, beatsMap, drafts, prevClipVideoId, aspect, visualSource, creditBalance, readOnly=false, onVoiceLine, onMakeSceneNeeds, takeStale=false, takeOldLook=false, orphanTakes=[], onUpdateShot, onSelectClip, onFirstVideo, onStageNav, modelId, setModelId, clipScope, setClipScope, pendingReuse, onReuseConsumed }){
   const scene = clip.scene, g = clip.g, d = clip.data;
   // the scene's look + film stock when this console renders — stamped on each take it makes, so a later
   // change on the Color tab shows the take as "made with an earlier look" (2026-10-05, owner — Color review)
@@ -3077,19 +3114,16 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
      look carries that grade into the take, so the take carries that frame's stamp (it was stamped current,
      so "Earlier look" never showed); a hand-edited prompt carries the look it was written against */
   const _earlierOf = (sig)=> !!(sig && typeof shotLookIsEarlier==="function" && shotLookIsEarlier(sig, ctx.project, scene.id));
-  const inputEarlierLook = (()=>{ for(const sh of ((clip.data && clip.data.shots)||[])){
-      const m = sh && typeof nbGetMeta==="function" ? nbGetMeta(sh.id) : null;
-      if(m && _earlierOf(m.lookSig)) return m.lookSig; } return ""; })();
-  // what feeds this clip, honestly (stageClipReadiness) — the notice, the Generate question, the needs button
-  const readiness = stageClipReadiness(clip, ctx, imgs, drafts);
-  const [needsRun, setNeedsRun] = React.useState(null);   // {i,total} while making what this clip needs
-  const makeableNeeds = (readiness.needs||[]).filter(x=>x.makeable);
-  const makeClipNeeds = async ()=>{
-    if(!onMakeSceneNeeds || needsRun || readOnly || !makeableNeeds.length) return;
-    setNeedsRun({ i:0, total:makeableNeeds.length });
-    try{ await onMakeSceneNeeds(scene, makeableNeeds, (i,total)=>setNeedsRun({ i, total })); }
-    finally{ setNeedsRun(null); }
-  };
+  /* (2026-10-09, owner — Stage review) only the frames and boards a render SENDS carry their look into
+     the take — scanning every shot's frame stamped takes with the look of frames they never used */
+  const earlierLookIn = (ids)=>{ const seen = new Set();
+    const metaOf = (id)=> (id && typeof nbGetMeta==="function") ? nbGetMeta(id) : null;
+    for(const id of (ids||[])){ if(!id || seen.has(id)) continue; seen.add(id);
+      const m = metaOf(id); if(!m) continue;
+      if(_earlierOf(m.lookSig)) return m.lookSig;
+      // a board made from frames carries their look
+      for(const sid of (Array.isArray(m.shotIds) ? m.shotIds : [])){ const fm = metaOf(sid); if(fm && _earlierOf(fm.lookSig)) return fm.lookSig; } }
+    return ""; };
   // the CLIP is the unit of generation — it may bundle 2+ merged shots (Art Room Shots
   // "merge" / Storyboards "Compose from shot frames" / a cropped sheet-half = 1 clip).
   // activeShot is just which of the clip's shots is shown as context/poster, not a
@@ -3136,6 +3170,16 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   React.useEffect(()=>{ setSourceOverride("auto"); }, [clip.id]);
   const beatOpeningClip=!!sourcePlan.beatOpening;
   const sourceMode = beatOpeningClip ? "frame" : (sourceOverride==="auto" ? sourcePlan.mode : sourceOverride);
+  // what feeds this clip, honestly (stageClipReadiness) — the notice, the Generate question, the needs button
+  const readiness = stageClipReadiness(clip, ctx, imgs, drafts, { loading:imageLoadState, sourceMode });
+  const [needsRun, setNeedsRun] = React.useState(null);   // {i,total} while making what this clip needs
+  const makeableNeeds = (readiness.needs||[]).filter(x=>x.makeable);
+  const makeClipNeeds = async ()=>{
+    if(!onMakeSceneNeeds || needsRun || readOnly || !makeableNeeds.length) return;
+    setNeedsRun({ i:0, total:makeableNeeds.length });
+    try{ await onMakeSceneNeeds(scene, makeableNeeds, (i,total)=>setNeedsRun({ i, total })); }
+    finally{ setNeedsRun(null); }
+  };
   const sourceMeta = STAGE_SOURCE_MODES[sourceMode] || STAGE_SOURCE_MODES.frame;
   const usePanels = sourceMode==="halves" || sourceMode==="sheet";
   const firstStoryHalf = ((storyAssets.halves||[])[0]||{}).url || storyAssets.top || storyAssets.bottom || "";
@@ -3478,7 +3522,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           assetRole:"master_reference", assetSourceQuality:"location_master_plate" });
       }
       (sceneClips||[]).forEach(sc=>{ const ls=sc&&sc.data&&sc.data.locSheet; if(!ls||!ls.id) return; const u=imgs[ls.id];
-        if(u) addSceneAsset({ key:"scene-loc:"+ls.id, kind:"image", group:"Locations", label:(ls.name||"Location")+(ls.role?(" · "+ls.role):"")+" coverage sheet", url:u, ready:true, id:ls.id,
+        if(u) addSceneAsset({ key:"scene-loc:"+ls.id, kind:"image", group:"Locations", label:(ls.name||"Location")+(ls.role?(" · "+ls.role):"")+" camera view", url:u, ready:true, id:ls.id,
           entityId:(sc&&sc.data&&sc.data.loc&&sc.data.loc.id)||ls.id,referenceKind:"location",
           assetRole:"derived_reference", assetSourceQuality:"location_coverage_full_frame" });
       });
@@ -3517,7 +3561,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           ?((c.name||"Character")+" · Appearance: "+(state.label||"Unnamed state")+" (v"+version+")")
           :((c.name||"Character")+" · Master reference")); });
       (referencePackage.locations||[]).forEach(r=>{ const l=(ctx.locations||[]).find(x=>x.id===r.entityId)||{};
-        addRequired(r,"location",(l.name||"Location")+" · Shot coverage"); });
+        addRequired(r,"location",(l.name||"Location")+" · Camera view"); });
       (referencePackage.props||[]).forEach(r=>{ const p=(ctx.propById||{})[r.entityId]||{};
         addRequired(r,"prop",(p.name||"Prop")+(r.stateId?" · Continuity state":" · Master reference")); });
     }
@@ -3810,7 +3854,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const model = seedanceModelOf(modelId);
   const tierObj = seedanceTierOf(model, tier) || { id:"standard", label:"Standard", fast:false, maxRes:"1080p" };
   const capabilityTarget=tierObj.falModel||modelId;
-  const [runtimeCaps,setRuntimeCaps]=React.useState({known:false,capabilities:null,reason:"Checking video proxy capabilities"});
+  const [runtimeCaps,setRuntimeCaps]=React.useState({known:false,capabilities:null,reason:"Checking what the video service supports"});
   React.useEffect(()=>{ let alive=true;
     if(typeof window.seedanceGetRuntimeCapabilities!=="function"){
       setRuntimeCaps({known:false,capabilities:null,reason:"Capability handshake unavailable"}); return ()=>{alive=false;};
@@ -3970,7 +4014,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const durationFloorSec = Math.max(durationLocked ? Math.ceil(measuredSec) : 0, planFloorSec);
   const durationFloorIsPlan = planFloorSec>0 && planFloorSec>(durationLocked ? measuredSec : 0);
   const durationTitle = durationFloorIsPlan
-    ? "Minimum "+_fmtSecs(planFloorSec)+" — this coverage's speech and action time; extend for more acting time"
+    ? "Minimum "+_fmtSecs(planFloorSec)+" — this clip's speech and action time; extend for more acting time"
     : durationLocked
       ? "The measured voice + breathing room ("+_fmtSecs(measuredSec)+") is the MINIMUM — extend for more acting time"
       : "Clip duration";
@@ -3979,7 +4023,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     .filter(v=> v>0 && v<=(model.maxClipSec||15) && v>=durationFloorSec)
     .sort((a,b)=>a-b);
   const durationOptionNote = (v)=> v===durationFloorSec
-    ? (durationFloorIsPlan ? " · coverage minimum" : durationLocked ? " · voice + air (min)" : "")
+    ? (durationFloorIsPlan ? " · clip minimum" : durationLocked ? " · voice + air (min)" : "")
     : "";
   // VOICE CAST — when locked line-audio rides the render, declare which audio
   // reference is WHOSE voice BEFORE any dialogue instruction, so the model casts
@@ -4069,21 +4113,31 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   /* HAND EDITS SURVIVE (2026-10-08, owner — Color review): the edited prompts are kept per film on this
      device — they lived only in memory, so changing scene, leaving the Stage or a reload recompiled them
      with no word. A kept draft comes back with its sources, so a changed look or script still asks. */
-  const _draftsKey = "turn_stage_prompt_drafts:"+String((ctx.project && ctx.project.id) || window.turnOpenFilmId || "local");
+  const _draftsKey = "turn_stage_prompt_drafts:"+stageFilmKey(ctx.project);
   const promptDraftsRef=React.useRef(null);
   if(promptDraftsRef.current===null){ try{ const v = JSON.parse(localStorage.getItem(_draftsKey)||"{}"); promptDraftsRef.current = (v && typeof v==="object") ? v : {}; }catch(e){ promptDraftsRef.current = {}; } }
+  /* (2026-10-09, owner — Stage review) the 60 kept are the most recently EDITED (first-inserted ones used to
+     survive while the latest edit was dropped), and a draft whose shots no longer exist is pruned */
   const savePromptDrafts = ()=>{ try{
-    const all = promptDraftsRef.current||{}, keys = Object.keys(all).slice(-60), out = {};
-    keys.forEach(k=>{ const x = all[k]; if(x && typeof x.text==="string") out[k] = { ...x, text:x.text.slice(0,12000) }; });
+    const all = promptDraftsRef.current||{}, out = {};
+    const liveShots = (((window.turnContinuity||{}).shots)||[]);
+    const liveIds = new Set(liveShots.map(x=>x && x.id).filter(Boolean));
+    const keys = Object.keys(all).filter(k=>{ const x = all[k]; if(!x || typeof x.text!=="string") return false;
+        return !liveIds.size || (x.shotIds||[]).every(id=>liveIds.has(id)); })
+      .sort((a,b)=>Number((all[b]&&all[b].updatedAt)||0)-Number((all[a]&&all[a].updatedAt)||0)).slice(0,60);
+    keys.forEach(k=>{ const x = all[k]; out[k] = { ...x, text:x.text.slice(0,12000) }; });
     localStorage.setItem(_draftsKey, JSON.stringify(out)); }catch(e){} };
   const [promptSourceStamp,setPromptSourceStamp]=React.useState(promptSourceSig);
   // written whenever the box changes (edits, reset and restore all set the prompt)
   React.useEffect(()=>{ const t = setTimeout(savePromptDrafts, 400); return ()=>clearTimeout(t); },[prompt]);
   const [promptLookStamp,setPromptLookStamp]=React.useState(clipLookSig);   // the look a hand-edited prompt was written against
   const [promptDriftConfirmed,setPromptDriftConfirmed]=React.useState("");
+  const [promptOtherGrouping,setPromptOtherGrouping]=React.useState(false);   // the kept edit was written for other shots
   const promptSourceDrift=promptEditedRef.current&&!!promptSourceStamp&&promptSourceStamp!==promptSourceSig
     &&promptDriftConfirmed!==promptSourceSig;
-  const promptKeyRef = React.useRef(STAGE_PROMPT_SCHEMA+"·"+clip.id+"·"+activeShot.id);
+  // starts EMPTY so the first pass restores the shown clip's kept draft (2026-10-09: it only came back
+  // after leaving the clip and coming back)
+  const promptKeyRef = React.useRef("");
   // @-mention autocomplete lives in StagePromptArea (module level) so EVERY prompt
   // box — composer, Director and each multi-shot row — shares the same dropdown +
   // unresolved-token warning. The dropdown offers EVERY ready asset (user ruling
@@ -4130,8 +4184,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   // the old textarea did against selectionStart
   const onPromptChange = (text, caret)=>{ const t = String(text||"").slice(0,PANEL_PROMPT_MAX);
     promptEditedRef.current = true;
-    setPromptSourceStamp(promptSourceSig),setPromptLookStamp(clipLookSig); setPromptDriftConfirmed("");
-    promptDraftsRef.current[promptDraftKey]={text:t,sourceSig:promptSourceSig,lookSig:clipLookSig,shotIds:shownShots.map(s=>s.id)};
+    setPromptSourceStamp(promptSourceSig),setPromptLookStamp(clipLookSig); setPromptOtherGrouping(false); setPromptDriftConfirmed("");
+    promptDraftsRef.current[promptDraftKey]={text:t,sourceSig:promptSourceSig,lookSig:clipLookSig,shotIds:shownShots.map(s=>s.id),updatedAt:Date.now()};
     setPrompt(t);
     const pos = (caret==null) ? t.length : Math.min(caret, t.length);
     const m = /(?:^|[\s\n])@([A-Za-z0-9]*)$/.exec(t.slice(0, pos));
@@ -4143,8 +4197,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     const next = (prompt.slice(0,mentionBox.start)+tok+" "+prompt.slice(caret)).slice(0,PANEL_PROMPT_MAX);
     const pos = Math.min(mentionBox.start+tok.length+1, next.length);
     promptEditedRef.current = true;
-    setPromptSourceStamp(promptSourceSig),setPromptLookStamp(clipLookSig); setPromptDriftConfirmed("");
-    promptDraftsRef.current[promptDraftKey]={text:next,sourceSig:promptSourceSig,lookSig:clipLookSig,shotIds:shownShots.map(s=>s.id)};
+    setPromptSourceStamp(promptSourceSig),setPromptLookStamp(clipLookSig); setPromptOtherGrouping(false); setPromptDriftConfirmed("");
+    promptDraftsRef.current[promptDraftKey]={text:next,sourceSig:promptSourceSig,lookSig:clipLookSig,shotIds:shownShots.map(s=>s.id),updatedAt:Date.now()};
     setPrompt(next); setMentionBox(null);
     requestAnimationFrame(()=>{ try{ api.applyValue(next, pos); }catch(_e){} }); };
   const onPromptKeyDown = (e)=>{ if(!mentionBox) return;
@@ -4163,6 +4217,14 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const [modeOverride, setModeOverride] = React.useState(null);
   const [voicingClip, setVoicingClip] = React.useState(false);
   const [maxImg, setMaxImg] = React.useState(null);   // {url,label,kind} — maximised reference viewer
+  // the viewer is a dialog: Escape closes it and focus moves to Close, then back (2026-10-09)
+  const lightboxCloseRef = React.useRef(null);
+  React.useEffect(()=>{ if(!maxImg) return undefined;
+    const back = document.activeElement;
+    try{ lightboxCloseRef.current && lightboxCloseRef.current.focus(); }catch(e){}
+    const onKey = (e)=>{ if(e.key==="Escape"){ e.stopPropagation(); setMaxImg(null); } };
+    window.addEventListener("keydown", onKey, true);
+    return ()=>{ window.removeEventListener("keydown", onKey, true); try{ back && back.focus && back.focus(); }catch(e){} }; }, [!!maxImg]);
   // ---- Reuse/Branch handoff from the VERSIONS tab: apply the take's settings to the
   // composer once, then consume — an explicit pick from the Versions view always wins.
   React.useEffect(()=>{
@@ -4233,11 +4295,22 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     if(promptKeyRef.current!==key){
       promptKeyRef.current=key;
       let saved=promptDraftsRef.current[promptDraftKey];
+      let otherGrouping=false;
       if(!saved){
-        const ids=new Set(shownShots.map(s=>s.id));
-        saved=Object.values(promptDraftsRef.current).find(x=>(x.shotIds||[]).some(id=>ids.has(id)));
+        // a draft for EXACTLY these shots first; else the most recent draft sharing the most of them —
+        // kept (a clip-scope or model change keeps your edit), but marked as written for other shots
+        // so Generate asks you to review it (2026-10-09, owner — Stage review)
+        const ids=shownShots.map(s=>s.id), key=ids.slice().sort().join(",");
+        const all=Object.values(promptDraftsRef.current).filter(x=>x && typeof x.text==="string");
+        saved=all.find(x=>(x.shotIds||[]).length===ids.length && (x.shotIds||[]).slice().sort().join(",")===key);
+        if(!saved){
+          const share=(x)=>(x.shotIds||[]).filter(id=>ids.indexOf(id)>=0).length;
+          saved=all.filter(x=>share(x)>0).sort((a,b)=>share(b)-share(a) || Number(b.updatedAt||0)-Number(a.updatedAt||0))[0];
+          otherGrouping=!!saved;
+        }
       }
       promptEditedRef.current=!!saved;
+      setPromptOtherGrouping(otherGrouping);
       if(saved){ setPrompt(saved.text); setPromptSourceStamp(saved.sourceSig||""); setPromptLookStamp(saved.lookSig||""); setPromptDriftConfirmed(""); }
     }
     if(!promptEditedRef.current) setPrompt(effPromptStyle ? recipeText(effPromptStyle, true) : recipeText(recipe));
@@ -4306,6 +4379,36 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   // awaiting asset preparation — the paid submission must not follow from a closed clip
   const consoleOpenRef = React.useRef(true);
   React.useEffect(()=>{ consoleOpenRef.current=true; return ()=>{ consoleOpenRef.current=false; }; }, []);
+  const readOnlyRef = React.useRef(readOnly); readOnlyRef.current = readOnly;
+  // the shots a take was made from — every render path stamps them, so a new take is checkable (2026-10-09:
+  // Extend, Edit and Motion Control takes recorded none and dropped out of the film as "can't be checked")
+  const clipShotSources = ()=> (typeof shotSourceStamp==="function")
+    ? (d.shots||[]).map(sh=>shotSourceStamp(sh,(drafts||{})[sh.sceneId])) : [];
+  /* a render still running on the server for this clip (its recovery record), shown as such — a stopped
+     wait or a timeout used to look finished, inviting a second paid render (2026-10-09) */
+  const pendingOnServer = ()=>{ try{
+      const list = (typeof window.vidPendingList==="function") ? (window.vidPendingList()||[]) : [];
+      const pid = (typeof window.nbCloudScope==="function" && window.nbCloudScope()) ? (window.nbCloudScope().projectId||null) : null;
+      return list.filter(j=>j && j.id===beatVideoId && (j.projectId||null)===pid).length;
+    }catch(e){ return 0; } };
+  const [pendingTick, setPendingTick] = React.useState(0);
+  React.useEffect(()=>{ const h=()=>setPendingTick(t=>t+1);
+    window.addEventListener("vid-done", h); window.addEventListener("vid-job", h);
+    const iv = setInterval(h, 30000);
+    return ()=>{ window.removeEventListener("vid-done", h); window.removeEventListener("vid-job", h); clearInterval(iv); }; }, []);
+  const pendingN = pendingOnServer();
+  const adoptOrphans = async ()=>{
+    if(readOnly || !orphanTakes.length || typeof window.vidMergeTakes!=="function") return;
+    const n = orphanTakes.reduce((t,o)=>t+(o.takes||0),0);
+    if(typeof window.appConfirm==="function"){
+      const ok = await window.appConfirm({ title:"Bring "+n+" earlier take"+(n!==1?"s":"")+" into this clip?",
+        body:"They were made when this clip held a different set of shots, so they show as \u201cShots changed\u201d in Takes. They join this clip's takes; your current take stays current.",
+        confirmLabel:"Bring them in", cancelLabel:"Cancel" });
+      if(!ok) return;
+    }
+    for(const o of orphanTakes){ try{ await window.vidMergeTakes(beatVideoId, o.id); }catch(e){} }
+    if(typeof window.appToast==="function") window.appToast(n+" earlier take"+(n!==1?"s":"")+" added to this clip's takes.","ok");
+  };
   const onGenerate = async (attemptOptions)=>{
     // view-only roles can't render (Edit / Extend / Motion already said so — 2026-10-05)
     if(readOnly){ if(typeof window.appToast==="function") window.appToast("View-only access \u2014 rendering requires edit access.","info"); return; }
@@ -4316,6 +4419,19 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       assertScreenplayCurrent();
       if(promptSourceDrift) throw new Error("Review this edited prompt against the updated scene screenplay before rendering.");
     }catch(e){ if(typeof window.appToast==="function") window.appToast(e.message,"error"); return; }
+    // a frame still LOADING is not a missing frame (2026-10-09): wait for it rather than render without it
+    if(!referenceFree && readiness.frames.loading){
+      if(typeof window.appToast==="function") window.appToast("This clip's frames are still loading \u2014 try again in a moment.","info");
+      return;
+    }
+    // A RENDER OF THIS CLIP IS STILL RUNNING on the server (a stopped wait, a timeout): ask before another
+    if(!gen.gening && pendingOnServer()>0 && typeof window.appConfirm==="function"){
+      const ok = await window.appConfirm({
+        title:"Render this clip again?",
+        body:"A render of this clip is still running on the server. It's saved to this clip's takes when it finishes and is charged only if it finishes \u2014 a new render is charged too.",
+        confirmLabel:"Render again", cancelLabel:"Wait for it" });
+      if(!ok) return;
+    }
     // INPUTS THAT AREN'T READY ASK FIRST (2026-10-05, owner — Stage review): a frame that isn't
     // approved, is out of date or was made with an earlier look, or a missing reference image, used
     // to feed the render with no word. A frame-less clip renders from the prompt (said too).
@@ -4334,10 +4450,25 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       const n = Math.max(1, batchN), each = Number(quoteCost)||0;
       const ok = await window.appConfirm({
         title:"Render "+n+" takes of this clip?",
-        body:n+" separate renders start together, each with its own seed"+(each ? " \u2014 about "+(each*n)+" credits in all ("+each+" each)." : ".")+" Any take that fails is not charged.",
+        body:n+" separate renders start together, each with its own seed"+(each ? " \u2014 about "+(each*n)+" credits in all ("+each+" each; the charge follows the actual cost, so it can come out a little higher, never above what is held)." : ".")+" Any take that fails is not charged.",
         confirmLabel:"Render "+n+" takes", cancelLabel:"Cancel" });
       if(!ok) return;
     }
+    /* TAKES PAST 20 ASK FIRST (2026-10-09, owner — Stage review): a clip keeps its newest 20 takes that
+       aren't approved, and older ones rolled off for good with no word */
+    { const n = Math.max(1, batchN);
+      const loose = (visibleTakes||[]).filter(t=>!(t&&t.meta&&t.meta.status==="approved"));
+      const over = loose.length + n - 20;
+      if(over>0 && typeof window.appConfirm==="function"){
+        const oldest = loose.slice().sort((a,b)=>Number((a.meta&&a.meta.createdAt)||a.savedAt||0)-Number((b.meta&&b.meta.createdAt)||b.savedAt||0)).slice(0,over);
+        const names = oldest.map(t=>(t.meta&&t.meta.vno) ? ("v"+t.meta.vno) : "").filter(Boolean);
+        const ok = await window.appConfirm({
+          title:"Remove the oldest take"+(over!==1?"s":"")+"?",
+          body:"A clip keeps its newest 20 takes that aren't approved. This render removes the oldest "+(over===1?"one":over)
+            +(names.length?" ("+names.join(", ")+")":"")+" for good \u2014 approve a take in Takes to keep it.",
+          confirmLabel:"Render", cancelLabel:"Cancel" });
+        if(!ok) return;
+      } }
     if(typeof window.nbAssertMediaIdentity==="function"){
       try{ window.nbAssertMediaIdentity({identityCharacterIds:identityIds,
         identityCast, identityContext}, "stage-video-start"); }
@@ -4385,7 +4516,11 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       if(u) imageEntries.push({ asset:a, url:u }); }
     const imageUrls = imageEntries.map(e=>e.url);
     setPrepPct(38);
-    const videoUrls = attemptVideos.map(a=>a.url).filter(Boolean);
+    // a take's link is re-signed right before the submit, as Extend / Edit / Motion do (2026-10-09): an
+    // expired link couldn't be read or copied, so the server held the longest length or refused
+    const videoUrls = [];
+    for(const a of attemptVideos){ if(!a || !a.url) continue;
+      const u = await stageFreshVideoRef({ kind:"take", url:a.url }); if(u) videoUrls.push(u); }
     let audioUrls = (!referenceFree&&voiceLocked) ? attemptAudios.map(a=>a.url).filter(Boolean) : [];
     const voiceRefLines = [];
     if(audioUrls.length>directAudioLimit) throw new Error("Every screenplay line must attach before rendering. This request has "
@@ -4474,9 +4609,32 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           physicalCharacterIds:(src&&src.physicalCharacterIds)||[],
           remoteCharacterIds:(src&&src.remoteCharacterIds)||[]};
       }).filter(x=>x.beatScript||x.keyframeMode);
-      const resolvedSourceVersions=[].concat(referencePackage.characters||[],referencePackage.locations||[],referencePackage.props||[])
+      /* WHAT THE TAKE RECORDS IS WHAT WAS SENT (2026-10-09, owner — Stage review): references you excluded
+         or that weren't ready used to be recorded (false "References need review" later), and a
+         start→end transition sends only its two frames. Frames, boards, the end frame and scene
+         extras now record their version too (frameVersions), so re-rendering one flags the take. */
+      const transition = !referenceFree && !!(frameUrl && endFrameUrl);
+      const idOfUrl = (u)=> u ? (Object.keys(imgs||{}).find(k=>imgs[k]===u) || "") : "";
+      const endFrameId = transition ? idOfUrl(endFrameUrl) : "";
+      const sentImageIds = referenceFree ? [] : (transition
+        ? [frameAsset && frameAsset.id, endFrameId]
+        : onImages.filter(a=>a && a.referenceKind!=="screenplay" && a.url).map(a=>a.id)).filter(Boolean);
+      const sentSet = new Set(sentImageIds);
+      const packageSourceVersions=[].concat(referencePackage.characters||[],referencePackage.locations||[],referencePackage.props||[])
+        .filter(r=>r && r.assetId)
         .map(r=>({assetId:r.assetId,entityId:r.entityId,kind:r.kind,stateId:r.stateId||"",
           snapshot:r.snapshot,shotIds:r.shotIds,usages:r.usages}));
+      const resolvedSourceVersions=packageSourceVersions.filter(r=>sentSet.has(r.assetId));
+      const resolvedIds = new Set(resolvedSourceVersions.map(r=>r.assetId));
+      const frameVersions = sentImageIds.filter(id=>!resolvedIds.has(id)).map(id=>{
+        const m = (typeof nbGetMeta==="function") ? nbGetMeta(id) : null;
+        return { id, iso:(m&&m.iso)||"", version:(m&&m.version!=null) ? Number(m.version) : null };
+      });
+      // the prop sheets this render attached, per shot — the take's prop stamp records them
+      const attachedProps = {};
+      (referencePackage.props||[]).forEach(r=>{ if(!r || !r.assetId || !sentSet.has(r.assetId)) return;
+        (r.shotIds||[]).forEach(sid=>{ (attachedProps[sid] = attachedProps[sid] || {})[String(r.entityId||r.baseId||"")] = String(r.assetId); }); });
+      const takeLookSig = (!referenceFree && earlierLookIn(sentImageIds)) || ((promptEditedRef.current && promptLookStamp) ? promptLookStamp : clipLookSig);
       const attemptRenderPlan=referenceFree&&typeof window.stageBuildTimedPlan==="function"
         ? window.stageBuildTimedPlan(promptShots,{modelId,maxSeconds:model.maxClipSec||15,
             maxShots:model.maxShotsPerClip||Infinity,maxDialogue:10,audioMode:"native",
@@ -4497,7 +4655,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       falModel: tierObj.falModel || undefined,   // non-Seedance engines (Sora 2) name their fal endpoint per tier
       textOnly:referenceFree,
       // facts the Versions view shows per take — stamped into the take's meta at commit
-	      takeMeta:{ lookSig:(!referenceFree && inputEarlierLook) ? inputEarlierLook : ((promptEditedRef.current && promptLookStamp) ? promptLookStamp : clipLookSig), source:referenceFree?"text-only":sourceMode, tier:tierObj.id, tierLabel:tierObj.label, resolution, bitrate, recipe:effPromptStyle || recipe,
+	      takeMeta:{ lookSig:takeLookSig, frameVersions, source:referenceFree?"text-only":sourceMode, tier:tierObj.id, tierLabel:tierObj.label, resolution, bitrate, recipe:effPromptStyle || recipe,
 	        assetRole:"final_take", assetRoleLabel:(typeof nbAssetRoleLabel==="function") ? nbAssetRoleLabel("final_take") : "Final take",
 	        cameraProfile:cameraProfile, cameraProfileLabel:(cameraProfile!=="auto" ? ((stageCameraProfiles.find(x=>x.id===cameraProfile)||{}).label||cameraProfile) : ""),
 	        audio: hasDialogue ? ((referenceFree||!voiceLocked||!audioUrls.length) ? "native"
@@ -4517,13 +4675,13 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
             beatSources, screenplayReference,
             screenplayImages:referenceFree?[]:includedScreenplayImages,
           referenceSourceVersions:referenceFree?[]:resolvedSourceVersions,
-          omittedReferenceSourceVersions:referenceFree?resolvedSourceVersions:[],
+          omittedReferenceSourceVersions:referenceFree?packageSourceVersions:[],
           referenceSignature:referenceFree?"":(referencePackage.signature||""),
           referenceRecovery:referenceFree?"provider-media-policy-text-only":"",
           identityCharacterIds:identityIds,
           identitySnapshots:identityCast.map(c=>typeof window.nbIdentitySnapshot==="function" ? window.nbIdentitySnapshot(c) : null).filter(Boolean),
 	        propDependencies:(typeof stageClipPropDependenciesV2==="function")
-	          ? stageClipPropDependenciesV2(d,scene&&scene.id,window.turnContinuity||{}) : "" },
+	          ? stageClipPropDependenciesV2(d,scene&&scene.id,window.turnContinuity||{},referenceFree?{}:attachedProps) : "" },
       // start→end transitions render on the dedicated i2v endpoint, which needs BOTH
       // frames — with the start frame excluded, the end frame quietly stands down
       endImageUrl: (!referenceFree&&frameUrl ? endFrameUrl : "") || undefined, force:true };
@@ -4533,9 +4691,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       setPrepPct(70);
       setStaging(false);
       // batch: N parallel jobs with distinct seeds, every completion lands as a take
-      const runPayload = (p)=> batchN>1 && typeof gen.generateBatch==="function"
-        ? gen.generateBatch(p, batchN)
-        : gen.generate(p).then(r=>[r]);
+      const runPayload = (p)=>{ assertSameClip(clipId0);   // rights and clip again, after the reprice question too
+        return batchN>1 && typeof gen.generateBatch==="function"
+          ? gen.generateBatch(p, batchN)
+          : gen.generate(p).then(r=>[r]); };
       // Final fail-closed guard immediately before the paid submission. A normal
       // render never changes references after moderation or drops screenplay pages.
       if(referenceBlockingWarnings.length&&!referenceFree) throw new Error(referenceBlockMessage);
@@ -4552,11 +4711,22 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       // the server settled each take's hold at COMPLETION (refunding failed takes);
       // here we only nudge the credits display
       try{ window.dispatchEvent(new CustomEvent("turn-credits-changed",{ detail:{ reason:"stage-video-render", cost:renderCost*Math.max(1,fresh.length) } })); }catch(_e){}
-      if(!hadTakeBefore && results.some(r=>r) && onFirstVideo) setTimeout(()=>onFirstVideo(), 0);
-      if(typeof window.appToast==="function") window.appToast("Clip "+beatLabel+" — "+results.length+" take"+(results.length!==1?"s":"")+" rendered","ok");
+      /* WHAT LANDED, SAID HONESTLY (2026-10-09, owner — Stage review): takes held for another film and
+         discarded ones were counted as rendered */
+      const landed = results.filter(r=>r && !r.stale && !r.discarded);
+      const heldElsewhere = results.filter(r=>r && r.stale).length;
+      const kept = landed.filter(r=>r.keptCurrent);
+      if(!hadTakeBefore && landed.length && onFirstVideo) setTimeout(()=>onFirstVideo(), 0);
+      if(kept.length){ const k=kept[kept.length-1]; if(k && k.videoUrl) setActiveTakeUrl(k.videoUrl); }
+      if(typeof window.appToast==="function"){
+        if(landed.length) window.appToast("Clip "+beatLabel+" \u2014 "+landed.length+" take"+(landed.length!==1?"s":"")+" rendered"
+          +(kept.length ? " \u00b7 your approved take stays on the timeline (choose the new one in Takes to use it)" : ""),"ok");
+        if(heldElsewhere) window.appToast(heldElsewhere+" take"+(heldElsewhere!==1?"s":"")+" finished after you switched films \u2014 "+(heldElsewhere!==1?"they land":"it lands")+" in this clip's takes when you reopen that film.","info");
+      }
     // Inner catch: a submitted provider job failed. The hook retains its
     // structured failure for the inline recovery UI; the toast is immediate.
-    }catch(e){ if(typeof window.appToast==="function") window.appToast(stageFriendlyVideoError(e)||"Video render failed.",e&&e.repriceDeclined?"info":"error"); }
+    // a render still running on the server (a stopped wait, a timeout) is news, not a failure (2026-10-09)
+    }catch(e){ if(typeof window.appToast==="function") window.appToast(stageFriendlyVideoError(e)||"Video render failed.",(e&&(e.repriceDeclined||e.stillPending))?"info":"error"); }
     // Outer catch: asset preparation or payload assembly failed before submit.
     }catch(e){ if(typeof window.appToast==="function") window.appToast(stageFriendlyVideoError(e)||"Video render failed.","error"); }
     finally{ setStaging(false); setPrepPct(0); }
@@ -4766,6 +4936,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   // submission; if the user moves to another clip meanwhile, the job must not be
   // committed under the new selection — re-check the clip right before spending.
   const assertSameClip = (clipId0)=>{
+    // RIGHTS ARE RE-CHECKED before spending (2026-10-09, owner — Stage review): a role changed to view-only
+    // while the render was being prepared (the confirm, staging, the reprice question) stops it here
+    if(readOnlyRef.current) throw new Error("Your access to this film changed to view-only while the render was being prepared \u2014 nothing was submitted.");
     if(!consoleOpenRef.current) throw new Error("This clip's console closed while the render was being prepared — nothing was submitted. Reopen the clip and start it again.");
     if(clipIdRef.current!==clipId0) throw new Error("The clip changed while this render was being prepared — nothing was submitted. Start it again from the clip you want.");
   };
@@ -4782,7 +4955,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     const g=modeGuard(); if(g){ modeFail(new Error(g)); return; }
     if(!extendVideo){ modeFail(new Error("Choose the video to extend — one of this clip's takes or a file from this device.")); return; }
     if(stagedExpired(extendVideo)){ modeFail(new Error("That device upload has expired — choose the file again.")); return; }
-    if(!sd25Tier){ modeFail(new Error("Seedance 2.5 is not configured.")); return; }
+    if(!sd25Tier){ modeFail(new Error("This video model isn't available right now.")); return; }
     if(modelId!=="seedance-2.5"){ modeFail(new Error("Extend Video runs on Seedance 2.5 — switch the model first.")); return; }
     if(!serverHasTask("extension")){ modeFail(new Error(PENDING_SERVER)); return; }
     try{
@@ -4818,12 +4991,14 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       const references=[ mediaReference(extendVideo,"@Video1","Video to extend") ];
       assertSameClip(clipId0);
       const extendRef = await stageFreshVideoRef(extendVideo);
-      const res = await stageWithLengthReprice(gen.generate, { frameUrl:freshFrameUrl, imageUrls:extendImages, videoUrls:[extendRef], prompt:extendPrompt, controls,
+      const res = await stageWithLengthReprice((p)=>{ assertSameClip(clipId0); return gen.generate(p); }, { frameUrl:freshFrameUrl, imageUrls:extendImages, videoUrls:[extendRef], prompt:extendPrompt, controls,
         videoTask:"extension",
         screenplayReference,
         screenplayImages:includedScreenplayImages.length?includedScreenplayImages:undefined,
         screenplayImagesRequired:false, assertScreenplayCurrent,
-        takeMeta:{ lookSig:(extendVideo && _earlierOf(extendVideo.lookSig)) ? extendVideo.lookSig : clipLookSig, screenplayReference, screenplayImages:includedScreenplayImages, source:"extend", tier:sd25Tier.id, tierLabel:sd25Tier.label, resolution, bitrate,
+        // the take's look: the video it extends, or the start frame it includes, when either carries an earlier one
+        takeMeta:{ lookSig:(extendVideo && _earlierOf(extendVideo.lookSig)) ? extendVideo.lookSig : (earlierLookIn(freshFrameUrl ? [(d.first||{}).id] : []) || clipLookSig),
+          shotSources:clipShotSources(), screenplayReference, screenplayImages:includedScreenplayImages, source:"extend", tier:sd25Tier.id, tierLabel:sd25Tier.label, resolution, bitrate,
           durationSec:duration, inputSeconds:mediaSeconds(extendVideo), references, privateRefs:(extendVideo.kind==="device"?1:0),
           audio: hasDialogue ? "voice" : (nativeAudio ? "native" : "silent"),
           inputs:(1+(freshFrameUrl?1:0)+extendImages.length)+" img · 1 vid · 0 aud" },
@@ -4849,7 +5024,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     if(!editVideo){ modeFail(new Error("Add the video to edit first — one of this clip's takes or a file from this device.")); return; }
     if(stagedExpired(editVideo)){ modeFail(new Error("That device upload has expired — choose the file again.")); return; }
     if(!String(editPrompt||"").trim()){ modeFail(new Error("Describe the edit — what should change in @Video1.")); return; }
-    if(!sd25Tier){ modeFail(new Error("Seedance 2.5 is not configured.")); return; }
+    if(!sd25Tier){ modeFail(new Error("This video model isn't available right now.")); return; }
     if(!planAllowsModel("seedance-2.5")){ openPlansUpsell(); modeFail(new Error("Seedance 2.5 Edit needs the Director plan.")); return; }
     if(!serverHasTask("editing")){ modeFail(new Error(PENDING_SERVER)); return; }
     if(mediaUnpriced(editVideo)){ modeFail(new Error(mediaUnpriced(editVideo))); return; }
@@ -4868,9 +5043,11 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       // the edit renders at the source length (fal: editing → duration auto) — record
       // it so the take carries a real length when it is reused as an input later
       const editRef = await stageFreshVideoRef(editVideo);
-      const res = await stageWithLengthReprice(gen.generate, { imageUrls, videoUrls:[editRef], audioUrls, prompt:String(editPrompt).trim(), controls:"",
+      const res = await stageWithLengthReprice((p)=>{ assertSameClip(clipId0); return gen.generate(p); }, { imageUrls, videoUrls:[editRef], audioUrls, prompt:String(editPrompt).trim(), controls:"",
         videoTask:"editing",
-        takeMeta:{ source:"edit", tier:sd25Tier.id, tierLabel:sd25Tier.label, resolution, bitrate, references,
+        // the edit carries the look of the video it rewrites (2026-10-09: it carried none and read as current)
+        takeMeta:{ lookSig:(editVideo && _earlierOf(editVideo.lookSig)) ? editVideo.lookSig : clipLookSig, shotSources:clipShotSources(),
+          source:"edit", tier:sd25Tier.id, tierLabel:sd25Tier.label, resolution, bitrate, references,
           durationSec:editSecs, inputSeconds:editSecs,
           privateRefs:(editVideo.kind==="device"?1:0), audio: nativeAudio ? "native" : "silent",
           inputs:imageUrls.length+" img · 1 vid · "+audioUrls.length+" aud" },
@@ -4902,9 +5079,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       assertSameClip(clipId0);
       // the output follows the motion video's length — recorded on the take
       const motionRef = await stageFreshVideoRef(motionVideo);
-      const res = await stageWithLengthReprice(gen.generate, { frameUrl:imageRef, videoUrls:[motionRef], prompt:String(motionPrompt||"").trim(), controls:"",
+      const res = await stageWithLengthReprice((p)=>{ assertSameClip(clipId0); return gen.generate(p); }, { frameUrl:imageRef, videoUrls:[motionRef], prompt:String(motionPrompt||"").trim(), controls:"",
         characterOrientation:effMotionOrientation, keepOriginalSound,
-        takeMeta:{ source:"motion-control", tier:motionTier, tierLabel:"Kling 3.0 Motion Control "+(motionTier==="pro"?"Pro":"Standard"),
+        takeMeta:{ lookSig:(motionImage && motionImage.asset && earlierLookIn([motionImage.asset.id])) || clipLookSig, shotSources:clipShotSources(),
+          source:"motion-control", tier:motionTier, tierLabel:"Kling 3.0 Motion Control "+(motionTier==="pro"?"Pro":"Standard"),
           resolution:(motionTier==="pro"?"1080p":"720p"), bitrate:"", references, durationSec:motionSecs, inputSeconds:motionSecs,
           privateRefs:((motionImage.kind==="device"?1:0)+(motionVideo.kind==="device"?1:0)),
           sceneControl:sceneControl, characterOrientation:effMotionOrientation, keepOriginalSound,
@@ -4922,7 +5100,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     return (c && c.voiceLock && c.voiceLock.modelId) || la.modelId || window.VG_TTS_MODEL || "eleven_v3"; };
   const voiceClipCredits = voiceTodo.reduce((n,sh)=> n + ((typeof window.vgLineCredits==="function") ? window.vgLineCredits(sh.dialogue, voiceLineModel(sh)) : 1), 0);
   const onVoiceClip = async ()=>{
-    if(!onVoiceLine || voicingClip) return;
+    // paid, and it writes the shots' line audio: never from a view-only Stage (2026-10-09)
+    if(!onVoiceLine || voicingClip || readOnly) return;
     const todo = voiceTodo;
     if(!todo.length) return;
     if(typeof window.appConfirm==="function"){
@@ -4939,18 +5118,18 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const onChip = (ch)=>{
     const line = String((ch&&ch.k)||"").trim()+": "+String((ch&&ch.v)||"").trim();
     if(!line.trim() || line.indexOf(": ")===0) return;
-    promptEditedRef.current=true; setPromptSourceStamp(promptSourceSig),setPromptLookStamp(clipLookSig); setPromptDriftConfirmed("");
+    promptEditedRef.current=true; setPromptSourceStamp(promptSourceSig),setPromptLookStamp(clipLookSig); setPromptOtherGrouping(false); setPromptDriftConfirmed("");
     setPrompt(p=>{
       const cur = String(p||"").trim();
       if(cur.toLowerCase().indexOf(line.toLowerCase())>=0) return p;
       const next=cur ? (cur+"\n"+line) : line;
-      promptDraftsRef.current[promptDraftKey]={text:next,sourceSig:promptSourceSig,lookSig:clipLookSig,shotIds:shownShots.map(s=>s.id)};
+      promptDraftsRef.current[promptDraftKey]={text:next,sourceSig:promptSourceSig,lookSig:clipLookSig,shotIds:shownShots.map(s=>s.id),updatedAt:Date.now()};
       return next;
     });
   };
   const gening = staging || gen.gening;   // staging = pre-submit asset prep — a slow stage must not look like a dead click
   const genBusyLabel = staging ? ("Preparing inputs · "+Math.max(1, Math.min(99, Math.round(prepPct||1)))+"%") : (stageStatusLabel(gen.status)||"Rendering…");
-  const genBusySub = staging ? "Preparing selected references for Seedance…" : ((model.label||"The model")+" is generating this clip…");
+  const genBusySub = staging ? "Preparing the selected references…" : ((model.label||"The model")+" is generating this clip…");
   // the poll loop bakes "· NN%" into the status string — lift it back out for the bar
   const genPctMatch = gening ? String(genBusyLabel).match(/(\d{1,3})%/) : null;
   const genPct = genPctMatch ? Math.min(100, Number(genPctMatch[1])) : null;
@@ -5011,7 +5190,15 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const renderCostTitle = totalCost.toLocaleString("en-US")+" credit"+(totalCost!==1?"s":"")+" — "
     +(batchN>1 ? (batchN+" takes × (") : "")+renderSecsText+" × "+resolution+" × "+tierObj.label
     +(refVideoSec>0 ? " × "+refVideoMul+" (video-input rate)" : "")+(batchN>1?")":"");
-  const creditInfo = stageCreditInfo(creditBalance, totalCost);
+  /* THE HOLD, SHOWN (2026-10-09, owner — Stage review): a reference video the server can't size by its
+     length (one kept outside the film's storage) is held at the longest input length — the Stage showed
+     and checked only the estimate, so the server could refuse a render the Stage said you could afford */
+  const refVideoUnsized = refVideoMul>0 && onVideos.some(a=>a && a.url && !stageLengthSizesHold({ url:a.url }));
+  const renderHold = refVideoUnsized ? stageRenderCost(tierObj, resolution, duration, { videoSec:STAGE_REF_VIDEO_MAX_SEC, inputMul:refVideoMul }) : null;
+  const totalHold = renderHold!=null ? renderHold*Math.max(1, batchN) : null;
+  const creditInfo = (totalHold!=null && totalHold>totalCost)
+    ? stageCreditInfo(creditBalance, totalHold, { hold:true, refs:true, estimate:totalCost, basis:"stored" })
+    : stageCreditInfo(creditBalance, totalCost);
   // the credit footer under the settings panel follows the open composer tab (billing round 3) —
   // and on the Create tab, its open task: Extend shows the extension's price (round 5)
   const footerCredit = (composerTab==="edit" && editHoldInfo) ? editHoldInfo
@@ -5032,8 +5219,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       return;
     }
     promptEditedRef.current=true;
-    setPromptSourceStamp(promptSourceSig),setPromptLookStamp(clipLookSig); setPromptDriftConfirmed("");
-    promptDraftsRef.current[promptDraftKey]={text:next,sourceSig:promptSourceSig,lookSig:clipLookSig,shotIds:shownShots.map(s=>s.id)};
+    setPromptSourceStamp(promptSourceSig),setPromptLookStamp(clipLookSig); setPromptOtherGrouping(false); setPromptDriftConfirmed("");
+    promptDraftsRef.current[promptDraftKey]={text:next,sourceSig:promptSourceSig,lookSig:clipLookSig,shotIds:shownShots.map(s=>s.id),updatedAt:Date.now()};
     setPrompt(next);
     requestAnimationFrame(()=>{ try{ promptRef.current&&promptRef.current.applyValue(next,0); }catch(_e){} });
     if(typeof window.appToast==="function") window.appToast("Added a fictional-context note to the render prompt. Review it before generating; nothing was submitted.","info");
@@ -5225,10 +5412,12 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   });
   const promptLookChanged = promptEditedRef.current && !!promptLookStamp && promptLookStamp!==clipLookSig;
   if(promptSourceDrift) blockers.push({key:"prompt-drift",
-    text: promptLookChanged
+    text: promptOtherGrouping
+      ? "This hand-edited prompt was written when this clip held a different set of shots (its grouping changed). Check it describes this clip's shots before you render \u2014 or Reset to script."
+      : promptLookChanged
       ? "This scene's look changed on the Color tab after you edited this prompt \u2014 its Style / Look lines still describe the earlier look. Update them (or Reset to script) before reusing it; a take rendered from it is marked as made with an earlier look."
-      : "This hand-edited prompt was written against an older scene screenplay, shot timing, coverage, dialogue or reference version. Review the updated screenplay screenshots and selected references before reusing it.",
-    actionLabel:"Confirm reviewed",action:()=>setPromptDriftConfirmed(promptSourceSig)});
+      : "This hand-edited prompt was written against an older scene screenplay, shot timing, shot list, dialogue or reference version. Review the updated screenplay screenshots and selected references before reusing it.",
+    actionLabel:"Confirm reviewed",action:()=>{ setPromptDriftConfirmed(promptSourceSig); setPromptOtherGrouping(false); }});
   const planIssue=renderPlan&&(renderPlan.issues||[]).find(x=>x&&x.blocking);
   if(planIssue) blockers.push({key:"render-plan",text:planIssue.message,
     actionLabel:clipScope==="legacy"?"Split to fit":null,
@@ -5238,7 +5427,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       ? "This complete beat has ordered screenplay dialogue that is not assigned to a shot. Choose Native performance, or assign every line to a shot before using Locked voice. Lines are never matched to shots or audio by guesswork."
       : ((firstVoiceIssue&&firstVoiceIssue.reason)||"Voice this clip before rendering — duration and lip-sync lock to current line audio."),
     actionLabel:hasUnassignedClipDialogue ? "Choose Native performance"
-      : (onVoiceLine ? (voicingClip ? "Voicing…" : ("Voice clip now"+(voiceClipCredits>0?" \u00b7 about "+voiceClipCredits+" credit"+(voiceClipCredits===1?"":"s"):""))) : null),
+      : ((onVoiceLine && !readOnly) ? (voicingClip ? "Voicing…" : ("Voice clip now"+(voiceClipCredits>0?" \u00b7 about "+voiceClipCredits+" credit"+(voiceClipCredits===1?"":"s"):""))) : null),
     action:hasUnassignedClipDialogue ? ()=>setDialogueAudio("native") : onVoiceClip,
     busy:hasUnassignedClipDialogue ? false : voicingClip });
   if(sourceBlocking) blockers.push({ key:"source",
@@ -5430,13 +5619,13 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     _stEl("div",{className:"sdbar-pop sdbar-pop-duration"},
       _stEl("label",null,"Total duration"),
       _stEl("input",{type:"range",min:durationMin,max:durationMax,step:1,value:Math.round(duration),
-        title:durationFloorIsPlan ? "Minimum "+_fmtSecs(planFloorSec)+" — this coverage's speech and action time"
+        title:durationFloorIsPlan ? "Minimum "+_fmtSecs(planFloorSec)+" — this clip's speech and action time"
           : durationLocked ? "Minimum locked to voiced line timing" : "Clip duration",
         onChange:e=>{ const v=Number(e.target.value); setDurationOverride(v===autoDurationSec ? null : v); }}),
       _stEl("div",{className:"sdbar-duration-row"}, _stEl("span",null,"0"), _stEl("span",null,"5"), _stEl("span",null,"10"), _stEl("span",null,String(durationMax))),
       _stEl("b",null,_fmtSecs(duration)),
       durationFloorIsPlan && _stEl("small",{className:"sdbar-duration-min"},
-        "Minimum "+_fmtSecs(planFloorSec)+" — this coverage's speech and action time.")));
+        "Minimum "+_fmtSecs(planFloorSec)+" — this clip's speech and action time.")));
   const aspectPill = sdPill("aspect","inline","Aspect ratio",
     _stEl(React.Fragment,null, Icon.monitor&&_stEl(Icon.monitor,{s:14}), _stEl("span",null,effAspect)),
     _stEl("div",{className:"sdbar-pop sdbar-pop-format"},
@@ -5689,7 +5878,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
               onClick:toggleInclude}, included?"✓":""),
             _stEl("span",{className:"stage2-ms-tag"},"Shot "+(i+1)),
             _stEl("span",{className:"stage2-ms-beat"},"Beat "+(sh.beatN||"—")),
-            included && edited && _stEl("button",{type:"button",className:"stage2-ms-reset",
+            included && edited && !readOnly && _stEl("button",{type:"button",className:"stage2-ms-reset",
               title:"Restore this shot's derived text (your edit is video-only and will be discarded)",
               onClick:()=> onUpdateShot && onUpdateShot(sh.id,{ vidText: undefined })},"↺ derived"),
             !included && _stEl("span",{className:"stage2-ms-offlab"},"not in this render"),
@@ -5723,8 +5912,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           !folded && _stEl(StagePromptArea,{className:"stage2-ms-text"+(edited?" edited":""),rows:3,fill:true,
             placeholder:"Describe the shot — who is where and what is happening.",
             value: edited ? String(sh.vidText) : canon,
-            maxLength:500,mentionables,onMentionPick:includeMention,
-            setValue:(v)=>{ if(!onUpdateShot) return;
+            maxLength:500,mentionables,onMentionPick:includeMention,readOnly,ariaLabel:"Shot "+(i+1)+" video description",
+            // a view-only Stage never writes the shot (2026-10-09 — it wrote on every keystroke)
+            setValue:(v)=>{ if(!onUpdateShot || readOnly) return;
               onUpdateShot(sh.id, { vidText: v.trim()==="" ? undefined : v }); },
             title:"This shot's video description — compiled into the prompt. Editing saves a video-only override (the shot card's canon Action is never changed); ↺ derived restores the live text."}));
       }),
@@ -5762,7 +5952,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         // edited away from the derivation → offer the way back to the script
         prompt!==beatPrompt && _stEl("button",{type:"button",className:"stage2-prompt-reset",
           title:"Rebuild this prompt from the screenplay beat and the Art Room shot design — discards manual edits",
-          onClick:()=>{ promptEditedRef.current=false; delete promptDraftsRef.current[promptDraftKey]; setPromptSourceStamp(promptSourceSig),setPromptLookStamp(clipLookSig); setPromptDriftConfirmed(""); setPrompt(beatPrompt); }},
+          onClick:()=>{ promptEditedRef.current=false; delete promptDraftsRef.current[promptDraftKey]; setPromptSourceStamp(promptSourceSig),setPromptLookStamp(clipLookSig); setPromptOtherGrouping(false); setPromptDriftConfirmed(""); setPrompt(beatPrompt); }},
           "↺ Reset to script"),
         badMentions.length>0 && _stEl("div",{className:"stage2-mention-warn"},
           "⚠ "+badMentions.join(", ")+" — not among this render's included assets; the model will guess. Fix the token or include the asset."),
@@ -5814,6 +6004,18 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       blockers.slice(1).map(b=>_stEl("div",{key:b.key,className:"stage2-warn"}, Icon.alert&&_stEl(Icon.alert,{s:12}),
         _stEl("span",{className:"stage2-warn-text"}, b.text),
         b.actionLabel && _stEl("button",{type:"button",className:"stage2-warn-act",disabled:b.busy,onClick:b.action}, b.actionLabel))),
+      (promptOtherGrouping && promptEditedRef.current && !promptSourceDrift) && _stEl("div",{className:"stage2-warn","data-testid":"stage-prompt-other-shots"},
+        Icon.info&&_stEl(Icon.info,{s:12}),
+        _stEl("span",{className:"stage2-warn-text"},"Your edited prompt was kept from when this clip held a different set of shots \u2014 check it describes this clip's shots, or Reset to script.")),
+      orphanTakes.length>0 && _stEl("div",{className:"stage2-warn","data-testid":"stage-orphan-takes"},
+        Icon.info&&_stEl(Icon.info,{s:12}),
+        _stEl("span",{className:"stage2-warn-text"}, (()=>{ const n=orphanTakes.reduce((t,o)=>t+(o.takes||0),0);
+          return n+" take"+(n!==1?"s":"")+" from an earlier grouping of these shots"+(orphanTakes.some(o=>o.approved)?" (one approved)":"")
+            +" \u2014 the clip's shots changed since, so "+(n!==1?"they're":"it's")+" not in its takes."; })()),
+        !readOnly && _stEl("button",{type:"button",className:"stage2-warn-act",onClick:adoptOrphans},"Bring them into this clip")),
+      (pendingN>0 && !gening && !(gen.err && gen.err.stillPending)) && _stEl("div",{className:"stage2-warn","data-testid":"stage-pending-on-server",role:"status"},
+        Icon.info&&_stEl(Icon.info,{s:12}),
+        _stEl("span",{className:"stage2-warn-text"},"A render of this clip is still running on the server \u2014 it's saved to this clip's takes when it finishes, so there's no need to render it again.")),
       genErr && _stEl("div",{className:"stage2-warn"}, Icon.alert&&_stEl(Icon.alert,{s:12}),
         _stEl("span",{className:"stage2-warn-text"},genNotice),
         canTextOnlyRecovery && _stEl("button",{type:"button",className:"stage2-warn-act",
@@ -5902,7 +6104,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
               _stEl("b",null,media.kind==="device" ? (media.name||"Device "+kind) : media.label),
               _stEl("small",null,[ media.kind==="device" ? "From this device · private to this render" : "From this clip",
                 media.seconds ? _fmtSecs(Math.round(media.seconds)) : (media.measuring ? "measuring length…" : "") ].filter(Boolean).join(" · "))),
-            _stEl("button",{type:"button",className:"stage2-dz-x",title:"Remove",onClick:()=>setMedia(slot,null)}, Icon.x&&_stEl(Icon.x,{s:12})))
+            _stEl("button",{type:"button",className:"stage2-dz-x",title:"Remove","aria-label":"Remove "+String(o.title||"this file"),onClick:()=>setMedia(slot,null)}, Icon.x&&_stEl(Icon.x,{s:12})))
         : _stEl("div",{className:"stage2-dz-empty"},
             _stEl("span",{className:"stage2-dz-ico"}, kind==="video" ? (Icon.film&&_stEl(Icon.film,{s:18})) : (Icon.userScan&&_stEl(Icon.userScan,{s:18}))),
             _stEl("b",null,o.title), _stEl("small",null,o.sub)),
@@ -5913,8 +6115,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           _stEl("div",{className:"sdbar-pop sdbar-pop-wide"},
             choices.length ? choices.map(c=>sdOption({ id:slot+":"+c.id, label:c.label, desc:c.seconds?_fmtSecs(Math.round(c.seconds)):"", selected:picked(c), onPick:()=>setMedia(slot,c) }))
               : _stEl("div",{className:"sdbar-option-empty"}, kind==="video" ? "No takes on this clip yet — generate one or upload a video." : "No images on this clip yet."))),
-        _stEl("button",{type:"button",className:"stage2-dz-btn upload",disabled:busy||gening,
-          title: serverHasStaging ? ("Upload a "+kind+" from this device — staged privately for this render, never kept on the take") : (capsPending ? "Checking the video proxy…" : PENDING_SERVER+" Device uploads need direct-to-storage staging."),
+        _stEl("button",{type:"button",className:"stage2-dz-btn upload",disabled:busy||gening||readOnly,
+          title: serverHasStaging ? ("Upload a "+kind+" from this device — staged privately for this render, never kept on the take") : (capsPending ? "Checking what the video service supports…" : PENDING_SERVER+" Device uploads need direct-to-storage staging."),
           onClick:()=>pickDevice(slot,kind)},
           busy ? "Uploading…" : "↑ Upload from device")),
       o.error && _stEl("div",{className:"stage2-dz-err"}, Icon.alert&&_stEl(Icon.alert,{s:12}), o.error),
@@ -6101,6 +6303,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     _stEl("div",{className:"stage2-player",style:_stageAspectCss(aspect)},
       playerUrl
         ? _stEl("video",{ref:playerVideoRef,src:playerUrl,poster:shotStartFrame||undefined,controls:true,playsInline:true,
+            "aria-label":"Take of "+(clip.label||"this clip"),
             title:"Double-click for full screen",onDoubleClick:playerFullscreen,
             onLoadedMetadata:()=>syncPlayerClock(false),onTimeUpdate:()=>syncPlayerClock(),
             onPlay:()=>syncPlayerClock(true),onPause:()=>syncPlayerClock(false),onEnded:()=>syncPlayerClock(false)})
@@ -6119,7 +6322,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     // generated clips appear immediately; Takes remains the place to compare,
     // approve and restore versions.
     _stEl("div",{className:"stage2-timeline"},
-      _stEl("button",{type:"button",className:"stage2-time-arrow",title:"Previous clip",
+      _stEl("button",{type:"button",className:"stage2-time-arrow",title:"Previous clip","aria-label":"Previous clip",
         disabled:clipsInScene.findIndex(c=>c.id===clip.id)<=0,
         onClick:()=>{ const i=clipsInScene.findIndex(c=>c.id===clip.id); if(i>0) onSelectClip&&onSelectClip(clipsInScene[i-1].id); }},
         Icon.chevL&&_stEl(Icon.chevL,{s:14})),
@@ -6169,8 +6372,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           _stEl("b",null,model.label+" Director"),
           _stEl("span",{className:"stage2-director-badge"},"MAIN PROMPT"))),
       _stEl(StagePromptArea,{className:"stage2-director-text",value:prompt,setValue:(v)=>{
-          promptEditedRef.current=true;setPromptSourceStamp(promptSourceSig),setPromptLookStamp(clipLookSig);setPromptDriftConfirmed("");setPrompt(v);
-          promptDraftsRef.current[promptDraftKey]={text:v,sourceSig:promptSourceSig,lookSig:clipLookSig,shotIds:shownShots.map(s=>s.id)};
+          promptEditedRef.current=true;setPromptSourceStamp(promptSourceSig),setPromptLookStamp(clipLookSig); setPromptOtherGrouping(false);setPromptDriftConfirmed("");setPrompt(v);
+          promptDraftsRef.current[promptDraftKey]={text:v,sourceSig:promptSourceSig,lookSig:clipLookSig,shotIds:shownShots.map(s=>s.id),updatedAt:Date.now()};
         },
         mentionables,onMentionPick:includeMention,fill:true,placeholder:"Describe the video you want to create…",maxLength:PANEL_PROMPT_MAX}),
       _stEl("div",{className:"stage2-director-chips"},
@@ -6341,7 +6544,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         title:"How shots are grouped into video clips, not where the camera cuts. Earlier grouping keeps older takes reachable.",
         onChange:e=>{ if(typeof setClipScope==="function")setClipScope(e.target.value); }},
       _stEl("option",{value:"beat",
-        title:"Fit the beat to the model limit by splitting at existing shot boundaries; never omits coverage or shortens dialogue."},"Split to fit"),
+        title:"Fit the beat to the model limit by splitting at existing shot boundaries; never drops a shot or shortens dialogue."},"Split to fit"),
       _stEl("option",{value:"shot",
         title:"One render per saved shot."},"Single shot"),
       _stEl("option",{value:"legacy",
@@ -6488,15 +6691,15 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         "Seed "+lastSeed)));
 
   const lightbox = maxImg && (maxImg.kind==="video"
-    ? _stEl("div",{className:"stage2-lightbox",onClick:()=>setMaxImg(null)},
-        _stEl("button",{className:"stage2-lightbox-x",title:"Close",onClick:()=>setMaxImg(null)}, Icon.x&&_stEl(Icon.x,{s:18})),
-        _stEl("video",{className:"stage2-lightbox-media",src:maxImg.url,controls:true,autoPlay:true,playsInline:true,onClick:(e)=>e.stopPropagation()}),
+    ? _stEl("div",{className:"stage2-lightbox",role:"dialog","aria-modal":"true","aria-label":maxImg.label||"Video",onClick:()=>setMaxImg(null)},
+        _stEl("button",{ref:lightboxCloseRef,className:"stage2-lightbox-x",title:"Close","aria-label":"Close",onClick:()=>setMaxImg(null)}, Icon.x&&_stEl(Icon.x,{s:18})),
+        _stEl("video",{className:"stage2-lightbox-media",src:maxImg.url,controls:true,autoPlay:true,playsInline:true,"aria-label":maxImg.label||"Video",onClick:(e)=>e.stopPropagation()}),
         maxImg.label && _stEl("div",{className:"stage2-lightbox-cap"}, maxImg.label))
-    : _stEl("div",{className:"lb-overlay",onMouseDown:(e)=>{ if(e.target===e.currentTarget) setMaxImg(null); }},
+    : _stEl("div",{className:"lb-overlay",role:"dialog","aria-modal":"true","aria-label":maxImg.label||"Image preview",onMouseDown:(e)=>{ if(e.target===e.currentTarget) setMaxImg(null); }},
         _stEl("div",{className:"lb-panel"},
           _stEl("div",{className:"lb-head"},
             _stEl("span",{className:"lb-title"}, maxImg.label || "Image preview"),
-            _stEl("button",{className:"ag-x",title:"Close",onClick:()=>setMaxImg(null)}, Icon.x&&_stEl(Icon.x,{s:18}))),
+            _stEl("button",{ref:lightboxCloseRef,className:"ag-x",title:"Close","aria-label":"Close",onClick:()=>setMaxImg(null)}, Icon.x&&_stEl(Icon.x,{s:18}))),
           _stEl("div",{className:"lb-imgwrap"},
             _stEl("img",{className:"lb-img",src:maxImg.url,alt:maxImg.label||"full view"})))));
   // buttoned strip, matching the Writers' Room Story/Inspector strips exactly
@@ -6550,6 +6753,59 @@ function stageTakeModelLabel(raw){
   return last.replace(/[-_]+/g," ").replace(/\b\w/g, c=>c.toUpperCase());
 }
 window.stageTakeModelLabel = stageTakeModelLabel;
+/* ONE SET OF TAKE NOTES (2026-10-09, owner — Stage review): "Prop reference changed", "References need
+   review", "Voice changed" and the rest lived only in the Takes view — the Shoot strip, the Scenes rail,
+   the Timeline and the Breakdown treated such a take as current. Every place reads these now. */
+function stageTakePropChanged(clip, meta){
+  return !!(meta && meta.propDependencies!=null && typeof stageClipPropDependenciesChanged==="function"
+    && stageClipPropDependenciesChanged(meta.propDependencies,(clip&&clip.data)||{},clip&&clip.scene&&clip.scene.id,window.turnContinuity||{}));
+}
+function stageTakeVoiceChangedMeta(meta){
+  const vr=(meta&&meta.voiceReferences)||[];
+  if(!vr.length || typeof window.vgVoiceLockSignature!=="function") return false;
+  const cast=((window.turnContinuity||{}).characters)||[];
+  return vr.some(v=>{ if(!v||!v.speakerId||!v.fingerprint) return false;
+    const c=cast.find(x=>x&&x.id===v.speakerId); if(!c||!c.voiceLock) return false;
+    return String(window.vgVoiceLockSignature(c.voiceLock)||"")!==String(v.fingerprint); });
+}
+function stageTakeReferencesStale(meta){
+  const refs=(meta&&meta.referenceSourceVersions)||[];
+  if(!refs.length||typeof window.stageReferenceStatus!=="function") return false;
+  // (2026-10-06, owner — Characters review) missing, excluded or CHANGED only: a sheet's manual approval
+  // isn't a Stage requirement, and nothing can approve one any more, so every take used to say this
+  return refs.some(r=>{
+    const id=r&&r.assetId; if(!id) return false;
+    const m=(typeof nbGetMeta==="function")?nbGetMeta(id):null, img=(typeof nbGetImage==="function")?nbGetImage(id):"";
+    // (2026-10-08, owner — Locations review) not loaded on this device yet: unknown, never a warning
+    if(!m && !img) return false;
+    // missing when the take was made (no version recorded) and made since: the take never had it
+    const snap=r.snapshot||{};
+    if(!snap.iso && snap.version==null && m && m.iso) return true;
+    const st=window.stageReferenceStatus({imageId:id,snapshot:r.snapshot});
+    return st.missing||st.excluded||st.stale; });
+}
+/* the frames and boards a take was made from (meta.frameVersions, 2026-10-09): one re-rendered since
+   (a new seed, look or sheet) flags the take. Not loaded on this device yet: unknown, never a warning. */
+function stageTakeFramesChanged(meta){
+  const fv=(meta&&meta.frameVersions)||[];
+  if(!fv.length || typeof nbGetMeta!=="function") return false;
+  return fv.some(f=>{ if(!f||!f.id) return false;
+    const m=nbGetMeta(f.id); if(!m) return false;
+    if(f.iso && m.iso && String(f.iso)!==String(m.iso)) return true;
+    return f.version!=null && m.version!=null && Number(f.version)!==Number(m.version); });
+}
+function stageTakeNotes(clip, meta, project){
+  const m=meta||{}, out=[];
+  if(m.identityChanged) out.push({ key:"i", label:"Identity changed", title:"A character's identity changed while this take rendered — check it before you use it" });
+  if(stageTakeFramesChanged(m)) out.push({ key:"f", label:"Frame changed", title:"A frame or storyboard this take was made from has been re-rendered since" });
+  if(stageTakePropChanged(clip,m)) out.push({ key:"p", label:"Prop reference changed", title:"A prop this take shows has changed since it was rendered" });
+  if(stageTakeReferencesStale(m)) out.push({ key:"r", label:"References need review", title:"A character, location or prop reference this take used has changed or is missing" });
+  if(stageTakeVoiceChangedMeta(m)) out.push({ key:"v", label:"Voice changed", title:"A speaking character's voice was re-locked after this take was rendered — re-voice the lines and regenerate to use the new voice" });
+  if(clip && clip.scene && typeof shotLookIsEarlier==="function" && shotLookIsEarlier(m.lookSig, project || window.turnProject, clip.scene.id))
+    out.push({ key:"l", label:"Earlier look", title:"This scene's look or the film stock changed on the Color tab after this take was rendered" });
+  return out;
+}
+window.stageTakeNotes = stageTakeNotes;
 function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, project }){
   const clipId = clip && clip.id;
   const [takes, setTakes] = React.useState(()=> (clipId && typeof vidGetTakes==="function") ? vidGetTakes(clipId) : []);
@@ -6574,32 +6830,9 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
     ? shotSourcesStatus(((clip&&clip.data&&clip.data.shots)||[]),
         ((window.turnContinuity||{}).drafts||{}),(t&&t.meta)||{}) : "unverified";
   const selSourceStatus=sel?versionSourceStatus(sel):"";
-  const propDependenciesStale=(t)=>!!(t&&t.meta&&t.meta.propDependencies!=null
-    && stageClipPropDependenciesChanged(t.meta.propDependencies,(clip&&clip.data)||{},clip&&clip.scene&&clip.scene.id,window.turnContinuity||{}));
-  const stageTakeVoiceChanged=(t)=>{
-    const vr=(t&&t.meta&&t.meta.voiceReferences)||[];
-    if(!vr.length || typeof window.vgVoiceLockSignature!=="function") return false;
-    const cast=((window.turnContinuity||{}).characters)||[];
-    return vr.some(v=>{ if(!v||!v.speakerId||!v.fingerprint) return false;
-      const c=cast.find(x=>x&&x.id===v.speakerId); if(!c||!c.voiceLock) return false;
-      return String(window.vgVoiceLockSignature(c.voiceLock)||"")!==String(v.fingerprint); });
-  };
-  const referenceVersionsStale=(t)=>{
-    const refs=(t&&t.meta&&t.meta.referenceSourceVersions)||[];
-    if(!refs.length||typeof window.stageReferenceStatus!=="function") return false;
-    // (2026-10-06, owner — Characters review) missing, excluded or CHANGED only: a sheet's manual approval
-    // isn't a Stage requirement, and nothing can approve one any more, so every take used to say this
-    return refs.some(r=>{
-      const id=r&&r.assetId; if(!id) return false;
-      const meta=(typeof nbGetMeta==="function")?nbGetMeta(id):null, img=(typeof nbGetImage==="function")?nbGetImage(id):"";
-      // (2026-10-08, owner — Locations review) not loaded on this device yet: unknown, never a warning
-      if(!meta && !img) return false;
-      // missing when the take was made (no version recorded) and made since: the take never had it
-      const snap=r.snapshot||{};
-      if(!snap.iso && snap.version==null && meta && meta.iso) return true;
-      const s=window.stageReferenceStatus({imageId:id,snapshot:r.snapshot});
-      return s.missing||s.excluded||s.stale; });
-  };
+  const propDependenciesStale=(t)=>stageTakePropChanged(clip,t&&t.meta);
+  const stageTakeVoiceChanged=(t)=>stageTakeVoiceChangedMeta(t&&t.meta);
+  const referenceVersionsStale=(t)=>stageTakeReferencesStale(t&&t.meta);
   const versionEditorialStatus = (t)=> typeof shotSourcesEditorialStatus==="function"
     ? shotSourcesEditorialStatus(((clip&&clip.data&&clip.data.shots)||[]),
         ((window.turnContinuity||{}).drafts||{}),(t&&t.meta)||{}) : versionSourceStatus(t);
@@ -6613,7 +6846,7 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
     const ok=await window.appConfirm({
       title:(status==="stale"||refsStale?"Use a stale historical take?":"Use an unverified legacy take?"),
       body:(refsStale
-        ?"One or more character appearance, location coverage or prop-state references changed or is missing."
+        ?"One or more character appearance, location camera view or prop-state references changed or is missing."
         : status==="stale"
         ?"This take was rendered from older shot specifications or screenplay text."
         :"This older take doesn't record which version of the shots it was made from, so it can't be checked against them.")
@@ -6626,12 +6859,12 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
   };
   const act = {
     approve:async(t,on)=>{
-      if(!window.vidApproveTake) return;
+      if(!window.vidApproveTake || readOnly) return;
       if(on && !(await confirmSourceOverride(t,"Approve"))) return;
       await window.vidApproveTake(clipId,t.url,on);
     },
     restore:async(t)=>{
-      if(!window.vidRestoreTake || !(await confirmSourceOverride(t,"Restore"))) return;
+      if(!window.vidRestoreTake || readOnly || !(await confirmSourceOverride(t,"Restore"))) return;
       await window.vidRestoreTake(clipId,t.url);
       if(typeof window.appToast==="function") window.appToast(
         versionSourceStatus(t)==="current"
@@ -6649,8 +6882,8 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
         confirmLabel:"Delete take", cancelLabel:"Keep it", danger:true });
       if(!ok) return;
       try{ await window.vidDeleteTake(clipId, url); }
-      catch(e){ if(typeof window.appToast==="function") window.appToast("Couldn't delete the take ("+((e&&e.message)||"error")+"). Nothing was removed.","error"); } },
-    note:(url,text)=>{ if(window.vidUpdateTake) window.vidUpdateTake(clipId, url, { note:String(text||"").slice(0,300) }); },
+      catch(e){ if(typeof window.appToast==="function") window.appToast("Couldn't delete the take ("+((e&&e.message)||"error")+") \u2014 reopen Takes to see whether it's still there.","error"); } },
+    note:(url,text)=>{ if(window.vidUpdateTake && !readOnly) window.vidUpdateTake(clipId, url, { note:String(text||"").slice(0,300) }); },
   };
   const list = takes.filter(t=>{
     const m = t.meta||{};
@@ -6672,13 +6905,9 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
     if(editorialStatus==="override") out.push(_stEl("span",{key:"o",className:"stage2-vbadge override"},"Source override"));
     else if(sourceStatus!=="current") out.push(_stEl("span",{key:"s",className:"stage2-vbadge "+sourceStatus},
       sourceStatus==="stale"?"Shots changed":"Can't be checked"));
-    if(propDependenciesStale(t)) out.push(_stEl("span",{key:"p",className:"stage2-vbadge stale"},"Prop reference changed"));
-    if(referenceVersionsStale(t)) out.push(_stEl("span",{key:"r",className:"stage2-vbadge stale"},"References need review"));
-    // the character's voice was re-locked after this take was rendered (2026-10-06)
-    if(stageTakeVoiceChanged(t)) out.push(_stEl("span",{key:"v",className:"stage2-vbadge stale",title:"A speaking character's voice was re-locked after this take was rendered \u2014 re-voice the lines and regenerate to use the new voice"},"Voice changed"));
-    // made before the scene's look or the film stock changed on the Color tab (a note, not a block — 2026-10-05)
-    if(clip && clip.scene && typeof shotLookIsEarlier==="function" && shotLookIsEarlier(m.lookSig, project || window.turnProject, clip.scene.id))   // the live project, as the Timeline reads it (2026-10-08)
-      out.push(_stEl("span",{key:"l",className:"stage2-vbadge stale",title:"This scene's look or the film stock changed on the Color tab after this take was rendered"},"Earlier look"));
+    // the shared take notes (stageTakeNotes): identity, frames, props, references, voice, earlier look —
+    // notes, not blocks; the live project, as the Timeline reads it (2026-10-08)
+    stageTakeNotes(clip, m, project).forEach(nt=>out.push(_stEl("span",{key:nt.key,className:"stage2-vbadge stale",title:nt.title},nt.label)));
     return out;
   };
   const detailRows = sel ? [
@@ -6703,7 +6932,7 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
         _stEl("span",{className:"stage2-vers-cap-dot"}), c))));
   return _stEl("div",{className:"stage2-vers"},
       _stEl("div",{className:"stage2-versions-head"},
-        _stEl("button",{className:"stage2-iconbtn",title:"Back to Shoot",onClick:onBack}, Icon.chevL&&_stEl(Icon.chevL,{s:16})),
+        _stEl("button",{className:"stage2-iconbtn",title:"Back to Shoot","aria-label":"Back to Shoot",onClick:onBack}, Icon.chevL&&_stEl(Icon.chevL,{s:16})),
         _stEl("div",{className:"stage2-versions-title"},
           Icon.layers&&_stEl(Icon.layers,{s:14}), "Takes",
           _stEl("span",{className:"stage2-versions-sub"}, (clip&&clip.label)||"")),
@@ -6716,7 +6945,7 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
             return _stEl("button",{key:t.url,type:"button",
               className:"stage2-vcard"+(sel&&sel.url===t.url?" sel":""),
               onClick:()=>setSelUrl(t.url)},
-              _stEl("video",{className:"stage2-vcard-thumb",src:t.url+"#t=0.1",preload:"metadata",muted:true,playsInline:true}),
+              _stEl("video",{className:"stage2-vcard-thumb",src:t.url+"#t=0.1",preload:"metadata",muted:true,playsInline:true,"aria-hidden":"true",tabIndex:-1}),
               _stEl("div",{className:"stage2-vcard-main"},
                 _stEl("div",{className:"stage2-vcard-row"},
                   _stEl("span",{className:"stage2-vcard-vno"}, _stageTakeVno(t, takes, takes.indexOf(t))),
@@ -6733,6 +6962,7 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
         // center — player + details
         _stEl("div",{className:"stage2-versions-viewer"},
           sel ? _stEl("video",{key:sel.url,className:"stage2-versions-video",src:sel.url,controls:true,playsInline:true,
+            "aria-label":"Selected take"+((sel.meta&&sel.meta.vno)?" v"+sel.meta.vno:""),
             title:"Double-click for full screen",onDoubleClick:(e)=>_stageVideoFullscreen(e.currentTarget)}) : null,
           sel && _stEl("div",{className:"stage2-versions-details"},
             propDependenciesStale(sel) && _stEl("div",{className:"stage2-source-warning stale"},
@@ -6740,19 +6970,19 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
                 ? "A prop used by this take has changed. This approved take remains pinned; update it only when you intentionally render a new version."
                 : "A prop used by this take has changed in the Art Room. Render a new version to use the current prop state and reference sheet."),
             referenceVersionsStale(sel) && _stEl("div",{className:"stage2-source-warning stale"},
-              "A character appearance, location coverage or prop-state reference used by this take changed or is missing. Review and explicitly confirm before approving, restoring or reusing it."),
+              "A character appearance, location camera view or prop-state reference used by this take changed or is missing. Review and explicitly confirm before approving, restoring or reusing it."),
             selEditorialStatus!=="current" && _stEl("div",{className:"stage2-source-warning "+selEditorialStatus},
               selEditorialStatus==="override"
                 ?"Explicit source override: this historical take is approved for the current shot sources. Any later shot or screenplay change invalidates the override."
                 : selSourceStatus==="stale"
-                ?"Historical take: its shot specification or screenplay source has changed. Re-render before using it as current editorial coverage."
-                :"Legacy take: no shot/source revision stamp is available, so its match to current coverage cannot be verified."),
+                ?"Historical take: its shot specification or screenplay source has changed. Re-render it before using it as the clip's current take."
+                :"Legacy take: no shot/source revision stamp is available, so its match to the current shots can't be checked."),
             _stEl("div",{className:"stage2-versions-dhead"},"Version details"),
             detailRows.map(([k,v])=>_stEl("div",{key:k,className:"stage2-vdetail"},
               _stEl("span",{className:"stage2-vdetail-k"},k), _stEl("span",{className:"stage2-vdetail-v"},v))),
             _stEl("div",{className:"stage2-vdetail notes"},
               _stEl("span",{className:"stage2-vdetail-k"},"Notes"),
-              _stEl("input",{key:sel.url,className:"stage2-vnote-input",defaultValue:selMeta.note||"",
+              _stEl("input",{key:sel.url,className:"stage2-vnote-input",defaultValue:selMeta.note||"",readOnly,"aria-label":"Notes for this take",
 	                placeholder:"Why this take matters — e.g. best performance for this beat",
 	                onBlur:(e)=>{ const v=e.target.value.trim(); if(v!==(selMeta.note||"")) act.note(sel.url, v); },
 	                onKeyDown:(e)=>{ if(e.key==="Enter") e.target.blur(); }})),
@@ -7054,7 +7284,7 @@ function stageClipBeatName(c){
   return (c && c.label || "") + (beats ? " \u00b7 "+beats : "");
 }
 window.stageClipBeatName = stageClipBeatName;
-function StageTimelineView({ allClips, vids, staleVids, imgs, visualSource, selId, onSelectClip, onOpenStage, filmTitle, auds, characters, oldLookVids }){
+function StageTimelineView({ allClips, vids, staleVids, imgs, visualSource, selId, onSelectClip, onOpenStage, filmTitle, auds, characters, oldLookVids, noteVids }){
   const ordered = allClips||[];
   const startIdx = Math.max(0, ordered.findIndex(c=>c.id===selId));
   const [idx, setIdx] = React.useState(startIdx);
@@ -7128,7 +7358,8 @@ function StageTimelineView({ allClips, vids, staleVids, imgs, visualSource, selI
         _stEl("span",{className:"stage2-versions-sub"},"the film, assembled from each clip's current take")),
       _stEl("span",{className:"stage2-versions-count"},
         renderedN+" / "+ordered.length+" clips rendered · "+_fmtSecs(doneSec)+" of ~"+_fmtSecs(totalSec)
-          +(()=>{ const n = ordered.filter(c=>(oldLookVids||{})[c.id]).length; return n ? " · "+n+" with an earlier look" : ""; })()),
+          +(()=>{ const n = ordered.filter(c=>(oldLookVids||{})[c.id]).length; return n ? " · "+n+" with an earlier look" : ""; })()
+          +(()=>{ const n = ordered.filter(c=>(noteVids||{})[c.id]).length; return n ? " · "+n+" with take notes" : ""; })()),
       _stEl("button",{className:"stage2-vtool",style:{width:"auto"},disabled:!renderedN,
         title:renderedN?"Play every rendered clip in story order":"Render clips in the Shoot tab first",
         onClick:playFilm}, playAll?"Playing…":"▶ Play film"),
@@ -7136,10 +7367,15 @@ function StageTimelineView({ allClips, vids, staleVids, imgs, visualSource, selI
         title: exporting ? "Recording in real time — click to cancel the export"
           : (renderedN ? "Record every rendered clip into ONE downloadable movie (WebM), with the Mix tab's voices, beds and levels if you like. Runs in real time — a 3-minute film takes about 3 minutes." : "Render clips in the Shoot tab first"),
         onClick: exporting ? ()=>{ exportCancelRef.current = true; } : doExport},
-        exporting ? ("■ Recording "+exporting.i+"/"+exporting.n+"…") : "⬇ Export film")),
+        exporting ? ("■ Recording "+exporting.i+"/"+exporting.n+"…") : "⬇ Export film"),
+      // the selected clip opens in Shoot from a button too — double-click was the only way (2026-10-09)
+      cur && vids[cur.id] && _stEl("button",{className:"stage2-vtool",style:{width:"auto"},type:"button",
+        title:"Open "+stageClipBeatName(cur)+" in Shoot"+(((oldLookVids||{})[cur.id] || (noteVids||{})[cur.id]) ? " to regenerate it" : ""),
+        onClick:()=>onOpenStage&&onOpenStage(cur.id)}, "Open in Shoot")),
     _stEl("div",{className:"stage2-tl-player"},
       curUrl
         ? _stEl("video",{key:curUrl,ref:videoRef,src:curUrl,controls:true,playsInline:true,onEnded,
+            "aria-label":cur ? ("Timeline — "+stageClipBeatName(cur)) : "Timeline",
             title:"Double-click for full screen",onDoubleClick:(e)=>_stageVideoFullscreen(e.currentTarget),
             poster:cur?clipPrimaryFrame(cur, imgs, visualSource)||undefined:undefined})
         : _stEl("div",{className:"stage2-tl-empty"},
@@ -7156,8 +7392,9 @@ function StageTimelineView({ allClips, vids, staleVids, imgs, visualSource, selI
             const has = !!vids[c.id];
             const thumb = clipPrimaryFrame(c, imgs, visualSource);
             return _stEl("button",{key:c.id,type:"button",
-              className:"stage2-tl-clip"+(i===idx?" on":"")+(has?"":" missing")+(has && (oldLookVids||{})[c.id]?" old-look":""),
-              title:stageClipBeatName(c)+(has?((oldLookVids||{})[c.id]?" — made with an earlier look (still in the film; double-click to regenerate it in Shoot)":" — click to play"):((staleVids||{})[c.id]?" — out of date (double-click to open it in Shoot)":" — not rendered yet (double-click to open in the Stage)")),
+              className:"stage2-tl-clip"+(i===idx?" on":"")+(has?"":" missing")+(has && ((oldLookVids||{})[c.id] || (noteVids||{})[c.id])?" old-look":""),
+              title:stageClipBeatName(c)+(has?((oldLookVids||{})[c.id]?" — made with an earlier look (still in the film; double-click to regenerate it in Shoot)":" — click to play"):((staleVids||{})[c.id]?" — out of date (double-click to open it in Shoot)":" — not rendered yet (double-click to open in Shoot)"))
+                +(has && (noteVids||{})[c.id] ? " · "+(noteVids||{})[c.id].join(", ") : ""),
               onClick:()=>jump(i,false), onDoubleClick:()=>onOpenStage&&onOpenStage(c.id)},
               thumb ? _stEl("img",{src:thumb,alt:""}) : _stEl("span",{className:"stage2-tl-clip-blank"}),
               _stEl("span",{className:"stage2-tl-clip-lab"}, stageClipBeatName(c)+" · "+_fmtSecs(Number(c.data&&c.data.dur)||0)),
@@ -7232,15 +7469,22 @@ function StageAudioView({ allClips, vids, auds, characters, selId, onSelectClip 
       catch(err){ toast("Couldn't keep \u201c"+f.name+"\u201d with the film on this device (its storage may be full) — it plays for this session only.","error"); } };
     rd.onerror = ()=>toast("That file couldn't be read.","error");
     rd.readAsDataURL(f); };
+  // Remove can be undone (2026-10-09, owner — Stage review): it deletes this device's copy of the file
   const removeBed = (k)=>{ const sid = sceneId; const el = bedRefs[k].current; if(el){ try{ el.pause(); }catch(e){} }
+    const old = (beds[sid]||{})[k] || null;
     setBeds(b=>{ const n = { ...(b[sid]||{}) }; delete n[k]; return { ...b, [sid]:n }; });
-    if(typeof window.vgClearMixBed==="function") window.vgClearMixBed(sid, k); };
+    if(typeof window.vgClearMixBed==="function") window.vgClearMixBed(sid, k);
+    if(old && typeof window.appToast==="function") window.appToast("\u201c"+old.name+"\u201d taken out of the mix.","info",{ action:{ label:"Undo", onClick:()=>{
+      setBeds(b=>({ ...b, [sid]:{ ...(b[sid]||{}), [k]:old } }));
+      try{ if(typeof window.vgSaveMixBed==="function") window.vgSaveMixBed(sid, k, old.url, old.name); }catch(e){} } } }); };
   const bedLane = (k, label, empty, loop)=>lane(k, label,
     _stEl("div",{className:"stage2-au-blocks"},
       sceneBeds[k] ? _stEl("span",{className:"stage2-au-block bed",title:sceneBeds[k].name}, sceneBeds[k].name.slice(0,34)) : _stEl("span",{className:"stage2-au-note"},empty),
-      _stEl("label",{className:"stage2-au-import"}, sceneBeds[k] ? "Replace" : "Import audio",
-        _stEl("input",{type:"file",accept:"audio/*",style:{display:"none"},onChange:importBed(k)})),
-      sceneBeds[k] && _stEl("button",{type:"button",className:"stage2-au-import",title:"Take this bed out of the scene's mix (your own file is untouched)",onClick:()=>removeBed(k)}, "Remove"),
+      // a real button opens the file picker, so the keyboard reaches it (a label around a hidden input didn't)
+      _stEl("button",{type:"button",className:"stage2-au-import",onClick:(e)=>{ const inp=e.currentTarget.nextSibling; if(inp && inp.click) inp.click(); }},
+        sceneBeds[k] ? "Replace" : "Import audio"),
+      _stEl("input",{type:"file",accept:"audio/*",style:{display:"none"},tabIndex:-1,"aria-hidden":"true",onChange:importBed(k)}),
+      sceneBeds[k] && _stEl("button",{type:"button",className:"stage2-au-import",title:"Take this bed out of the scene's mix \u2014 the copy kept on this device is removed (Undo brings it back; your own file is untouched)",onClick:()=>removeBed(k)}, "Remove"),
       _stEl("audio",{ref:bedRefs[k],src:(sceneBeds[k]&&sceneBeds[k].url)||undefined,loop:!!loop})));
   const cur = sceneClips[clipIdx];
   const curUrl = cur ? (vids[cur.id]||"") : "";
@@ -7265,6 +7509,7 @@ function StageAudioView({ allClips, vids, auds, characters, selId, onSelectClip 
         playing?"■ Stop":"▶ Play scene mix")),
     _stEl("div",{className:"stage2-au-player"},
       curUrl ? _stEl("video",{key:curUrl,ref:videoRef,src:curUrl,controls:true,playsInline:true,onEnded:onClipEnded,
+          "aria-label":"Mix preview"+(cur ? " \u2014 "+stageClipBeatName(cur) : ""),
           title:"Double-click for full screen",onDoubleClick:(e)=>_stageVideoFullscreen(e.currentTarget)})
         : _stEl("div",{className:"stage2-tl-empty"},"This scene has no rendered clips yet — render them in the Shoot tab.")),
     _stEl("div",{className:"stage2-au-lanes"},
@@ -7328,8 +7573,9 @@ function StagePromptArea(props){
   const list = box ? items(box.query) : [];
   return _stEl("div",{className:"stage2-gen-promptwrap"+(props.fill?" fill":"")},
     _stEl("textarea",{ref:taRef,className:props.className,value:props.value,rows:props.rows,
-      placeholder:props.placeholder,maxLength:max,spellCheck:false,title:props.title,
-      onChange:(e)=>{ props.setValue(e.target.value.slice(0,max));
+      placeholder:props.placeholder,maxLength:max,spellCheck:false,title:props.title,readOnly:!!props.readOnly,
+      "aria-label":props.ariaLabel||props.placeholder||undefined,
+      onChange:(e)=>{ if(props.readOnly) return; props.setValue(e.target.value.slice(0,max));
         const tk = caretToken(e.target); setBox(tk ? { ...tk, hi:0 } : null); },
       onKeyDown:(e)=>{ if(!box) return;
         if(e.key==="ArrowDown"||e.key==="ArrowUp"){ e.preventDefault();
@@ -7390,17 +7636,6 @@ function clipVoiceState(clip,auds,characters){
   if(ready>0) return { key:"partial", label:ready+"/"+lines.length+" voice" };
   return { key:"missing", label:"needs voice" };
 }
-function clipFrameState(clip, imgs, visualSource){
-  if(visualSource==="halves"){
-    const story = storyboardClipAssets(clip, imgs);
-    if((story.halves||[]).length || story.top || story.bottom) return { key:"ready", label:"halves ✓" };
-    if(story.sheet) return { key:"partial", label:"sheet ✓" };
-    if((story.stale||[]).length) return { key:"missing", label:"board out of date \u2014 recompose" };
-    return { key:"missing", label:"needs halves" };
-  }
-  const id = clip && clip.data && clip.data.first && clip.data.first.id;
-  return id && imgs && imgs[id] ? { key:"ready", label:"frame ✓" } : { key:"missing", label:"needs frame" };
-}
 function clipVideoReady(clip, vids){
   if(!clip) return false;
   if(vids&&vids[clip.id]) return true;
@@ -7454,18 +7689,14 @@ function stageShotRuntime(sh){
   return Math.max(1, Number(sh&&sh.dur)||5);
 }
 
-function StageView({ project, scenes, shots, characters, locations, props, beatsMap, drafts, creditBalance, readOnly=false, onMakeSceneNeeds, onVoiceAll, voicingLines, onCancelVoiceAll, onVoiceLine, onUpdateShot, onStageNav, onStageSettings }){
+function StageView({ project, scenes, shots, characters, locations, props, beatsMap, drafts, creditBalance, readOnly=false, onMakeSceneNeeds, onVoiceLine, onUpdateShot, onStageNav, onStageSettings }){
   // a pick is saved with the film (and remembered as this device's default for new films)
   const saveFilmStage = React.useCallback((patch)=>{
     if(!readOnly && typeof onStageSettings==="function") onStageSettings(patch);
   },[readOnly, onStageSettings]);
+  // the film's saved visual source only picks thumbnails, posters and the next clip's end frame now —
+  // each clip picks its own source (stageClipSourcePlan); nothing set it any more (removed 2026-10-09)
   const [visualSource, _setVisualSource] = React.useState(()=>_stageSavedSource(project));
-  const setVisualSource = React.useCallback((v)=>{
-    const next = v==="halves" ? "halves" : "shots";
-    _setVisualSource(next);
-    try{ localStorage.setItem("turn_stage_visual_source", next); }catch(e){}
-    saveFilmStage({ visualSource:next });
-  },[saveFilmStage]);
   const ordered = React.useMemo(()=> scenesInStoryOrder(scenes), [scenes]);
   const charById = React.useMemo(()=>{ const m={}; (characters||[]).forEach(c=>{ m[c.id]=c; }); return m; }, [characters]);
   const propById = React.useMemo(()=>{ const m={}; (props||[]).forEach(p=>{ m[p.id]=p; }); return m; }, [props]);
@@ -7570,6 +7801,12 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   const draftSig = JSON.stringify(Object.entries(drafts||{}).map(([id,d])=>[id,(d&&d.version)||"",((d&&d.blocks)||[]).map(b=>[b.beat,b.type,b.text]).join("|")]));
   const beatsSig = JSON.stringify(Object.entries(beatsMap||{}).map(([id,b])=>[id,((b&&b.rows)||[]).map(r=>[r.n,r&&r.drive&&r.drive.d,r&&r.react&&r.react.d]).join("|")]));
 
+  /* PROP STATE SHEETS ARE LOADED (2026-10-09, owner — Stage review): a prop's continuity sheet
+     ("damaged") is picked only when its image is known here, and the Stage never asked for it — a film
+     opened straight into the Stage sent the master. The loader below asks for every state sheet the
+     visible scene can use; when one arrives, the clips are rebuilt so it is picked. */
+  const [propVariantTick, setPropVariantTick] = React.useState(0);
+  const propVariantIdsRef = React.useRef(new Set());
   // flatten clips with labels + derived data
   const allClips = React.useMemo(()=>{ const out=[];
     scenesWithShots.forEach(scene=>{ (clipsByScene[scene.id]||[]).forEach(g=>{
@@ -7578,7 +7815,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
       out.push({ id:(typeof clipStableId==="function")?clipStableId(scene.id, g.shots):("clip-"+scene.id+"-"+g.index),
         legacyId:(typeof clipVidId==="function")?clipVidId(scene.id,g.index):("clip-"+scene.id+"-"+g.index),
         label:_pad2(scene.no)+_clipLetter(g.index), scene, g, data:buildClipData(scene, g, ctx, stageModel.maxClipSec||15) }); }); });
-    return out; }, [scenesWithShots, clipsByScene, charSig, propSig, locSig, draftSig, beatsSig, project]);
+    return out; }, [scenesWithShots, clipsByScene, charSig, propSig, locSig, draftSig, beatsSig, project, propVariantTick]);
   // CLIP is the unit of selection/generation. Keep selection above image hydration
   // so Stage can request the visible scene's package first instead of loading every
   // shot and sheet in the film before the selected beat becomes usable.
@@ -7603,7 +7840,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   React.useEffect(()=>{
     if(clipScope!=="legacy") return;
     if(typeof window.vidAdoptTakes!=="function") return;
-    allClips.forEach(c=>{ if(c.legacyId && c.legacyId!==c.id) window.vidAdoptTakes(c.id, c.legacyId); });
+    allClips.forEach(c=>{ if(c.legacyId && c.legacyId!==c.id) window.vidAdoptTakes(c.id, c.legacyId, (c.g.shots||[]).map(s=>s.id)); });
   }, [clipScope, allClips.map(c=>c.id).join("|")]);
 
   // load every needed image (shot frames + storyboard clip sheets/halves + character / location / prop sheets) into one map
@@ -7641,6 +7878,16 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
     }
     // Warm only the visible scene's palette and storyboard sources. Selecting a
     // different scene recomputes this list and loads that scene on demand.
+    // every prop state sheet (and worn close-up sheet) this scene's shots can use
+    const variantIds = new Set();
+    if(hydrationScene && typeof propStateAt==="function") (props||[]).forEach(p=>{ if(!p||!p.id) return;
+      sceneShots.forEach(sh=>{ try{
+        const rs = propStateAt(p, hydrationScene.id, sh.beatN, sh.microBeatId, sh.id, ctx);
+        if(!rs || rs.active===false) return;
+        if(rs.referenceAssetId){ s.add(rs.referenceAssetId); variantIds.add(rs.referenceAssetId); }
+        s.add(p.id); variantIds.add(p.id);
+      }catch(e){} }); });
+    propVariantIdsRef.current = variantIds;
     hydrationSceneClips.forEach(c=>{
       const ids=storyboardClipIds(c); (ids.all||[]).forEach(id=>s.add(id));
       const dd=c.data||{};
@@ -7649,7 +7896,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
       if(dd.loc&&dd.loc.id)s.add(dd.loc.id);
       if(dd.locSheet&&dd.locSheet.id)s.add(dd.locSheet.id);
     });
-    return Array.from(s); }, [shotIdsKey, charIdsKey, sceneOrderKey, locIdsKey, propIdsKey, requiredReferenceIdsKey,
+    return Array.from(s); }, [shotIdsKey, charIdsKey, sceneOrderKey, locIdsKey, propIdsKey, propSig, requiredReferenceIdsKey,
       hydrationScene&&hydrationScene.id, hydrationSceneClips.map(c=>c.id).join(","),
       JSON.stringify(hydrationSceneClips.map(c=>[(((c.data||{}).cast)||[]).map(x=>x.id).join("|"),(((c.data||{}).props)||[]).map(p=>p.sheetId||p.id).join("|"),(((c.data||{}).loc)||{}).id||"",(((c.data||{}).locSheet)||{}).id||""]))]);
   const [imgs, setImgs] = React.useState({});
@@ -7672,6 +7919,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
           try{
             const u = await nbLoadImage(id);
             if(alive && u) setImgs(prev=> prev[id] ? prev : ({...prev, [id]:u}));
+            if(alive && u && propVariantIdsRef.current.has(id)) setPropVariantTick(t=>t+1);   // re-pick the prop's sheet
             if(alive)setImageLoadState(prev=>({...prev,[id]:u?"ready":"unavailable"}));
           }catch(e){ if(alive)setImageLoadState(prev=>({...prev,[id]:"error"})); }
         }
@@ -7706,31 +7954,70 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   (allClips||[]).forEach(c=>{ if(!c || !vids[c.id] || !c.scene) return;
     const m = (typeof vidGetMeta==="function") ? vidGetMeta(c.id) : null;
     if(m && typeof shotLookIsEarlier==="function" && shotLookIsEarlier(m.lookSig, project, c.scene.id)) oldLookVids[c.id] = true; });
+  // the other take notes (stageTakeNotes — props, references, voice, frames, identity), read everywhere a
+  // clip's current take shows, not only in Takes (2026-10-09, owner — Stage review)
+  const noteVids = {};
+  (allClips||[]).forEach(c=>{ if(!c || !vids[c.id] || !c.scene) return;
+    const m = (typeof vidGetMeta==="function") ? vidGetMeta(c.id) : null;
+    const notes = m ? stageTakeNotes(c, m, project).filter(x=>x.key!=="l") : [];
+    if(notes.length) noteVids[c.id] = notes.map(x=>x.label); });
   // EACH SCENE'S CLIPS, FOR THE BREAKDOWN (2026-10-05, owner — Breakdown review): the clip grouping follows
   // this room's model and settings, so the counts are saved per film on this device on each visit
-  const stageStatusSig = (allClips||[]).map(c=>c.id+":"+(vids[c.id]?1:0)+(staleVids[c.id]?"s":"")+(oldLookVids[c.id]?"l":"")).join(",");
+  const stageStatusSig = (allClips||[]).map(c=>c.id+":"+(vids[c.id]?1:0)+(staleVids[c.id]?"s":"")+(oldLookVids[c.id]?"l":"")+(noteVids[c.id]?"n":"")).join(",");
   // saved only once the takes have LOADED (2026-10-09 — leaving the Stage quickly saved "0 rendered", or nothing)
   const [vidsLoaded, setVidsLoaded] = React.useState(false);
   React.useEffect(()=>{
     if(!vidsLoaded || !(allClips||[]).length) return;
     const out = {};
-    (allClips||[]).forEach(c=>{ if(!c || !c.scene) return; const o = out[c.scene.id] = out[c.scene.id] || { total:0, rendered:0, stale:0, oldLook:0 };
-      o.total++; if(vids[c.id]) o.rendered++; if(staleVids[c.id]) o.stale++; if(oldLookVids[c.id]) o.oldLook++; });
+    (allClips||[]).forEach(c=>{ if(!c || !c.scene) return; const o = out[c.scene.id] = out[c.scene.id] || { total:0, rendered:0, stale:0, oldLook:0, notes:0 };
+      o.total++; if(vids[c.id]) o.rendered++; if(staleVids[c.id]) o.stale++; if(oldLookVids[c.id]) o.oldLook++; if(noteVids[c.id]) o.notes++; });
     out.__at = new Date().toISOString();
-    try{ localStorage.setItem("turn_stage_scene_status:"+((project && project.id)||"local"), JSON.stringify(out)); }catch(e){}
-  },[stageStatusSig, project && project.id, vidsLoaded]);
+    // keyed by the OPEN FILM (2026-10-09, owner — Stage review): films carry no project.id, so every
+    // film wrote "local" and one film's Stage overwrote another's Breakdown counts
+    try{ localStorage.setItem("turn_stage_scene_status:"+stageFilmKey(project), JSON.stringify(out)); }catch(e){}
+  },[stageStatusSig, stageFilmKey(project), vidsLoaded]);
   React.useEffect(()=>{ let alive=true;
     (async()=>{ const out={}, stale={};
        for(const id of videoIds){ let u=(typeof vidGetVideo==="function")?vidGetVideo(id):"";
          if(!u && typeof vidLoadVideo==="function"){ try{ u=await vidLoadVideo(id); }catch(e){} }
          const clip=allClips.find(c=>c.id===id);
          const meta=(typeof vidGetMeta==="function")?vidGetMeta(id):null;
-         const usable=!clip || typeof shotSourcesEditorialStatus!=="function"
+         // a take flagged "identity changed" (it finished after a character changed) is never used as is
+         const usable=!(meta && meta.identityChanged) && (!clip || typeof shotSourcesEditorialStatus!=="function"
            || ["current","override"].includes(shotSourcesEditorialStatus(
-             ((clip.data||{}).shots)||[],drafts,meta));
+             ((clip.data||{}).shots)||[],drafts,meta)));
          if(u&&usable) out[id]=u; else if(u) stale[id]=true; }
       if(alive){ setVids(out); setStaleVids(stale); setVidsLoaded(true); } })();
     return ()=>{ alive=false; }; }, [clipIdsKey, vidTick, draftSig, shotIdsKey]);
+
+  /* TAKES FROM AN EARLIER GROUPING (2026-10-09, owner — Stage review): takes kept under a clip id that no
+     longer exists (its shots changed: a shot added or removed, the model or clip scope switched, a beat split
+     by a longer line) are matched to today's clip that shares the most shots, and offered there — moved
+     only when you say so (vidMergeTakes) */
+  const [orphanTakes, setOrphanTakes] = React.useState({});
+  React.useEffect(()=>{ let alive=true;
+    if(typeof window.vidKnownIds!=="function"){ setOrphanTakes({}); return ()=>{ alive=false; }; }
+    (async()=>{
+      const live = new Set(videoIds);
+      const cands = (window.vidKnownIds()||[]).filter(id=>!live.has(id) && /^clip-/.test(String(id)));
+      const out = {};
+      for(const id of cands){
+        if(!alive) return;
+        let u = (typeof vidGetVideo==="function") ? vidGetVideo(id) : "";
+        if(!u && typeof vidLoadVideo==="function"){ try{ u = await vidLoadVideo(id); }catch(e){} }
+        if(!u) continue;
+        const meta = (typeof vidGetMeta==="function") ? vidGetMeta(id) : null;
+        const shotIds = (typeof window.vidTakeShotIds==="function") ? window.vidTakeShotIds(meta) : [];
+        if(!shotIds.length) continue;
+        let best=null, bestN=0;
+        allClips.forEach(c=>{ const n=(c.g.shots||[]).filter(sh=>shotIds.indexOf(String(sh.id))>=0).length; if(n>bestN){ best=c; bestN=n; } });
+        if(!best) continue;
+        const takesN = 1 + (((meta&&meta.takes)||[]).length);
+        (out[best.id] = out[best.id] || []).push({ id, takes:takesN, approved:!!(meta && (meta.status==="approved" || (meta.takes||[]).some(t=>t&&t.meta&&t.meta.status==="approved"))) });
+      }
+      if(alive) setOrphanTakes(out);
+    })();
+    return ()=>{ alive=false; }; }, [clipIdsKey, vidTick]);
 
   // the Scenes rail collapses to the same vertical strip the Writers' Room panels use. ABOVE the
   // empty-film return (2026-10-05): a hook after it threw "Rendered more hooks" when a film gained
@@ -7799,22 +8086,35 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
             const bIds = new Set(b.shots.map(s=>s.id));   // id-compare, never object identity
             const coverClips = sceneClips.filter(c=> (c.g.shots||[]).some(sh=> bIds.has(sh.id)));
             const firstClip = coverClips[0] || null;
-            const p = firstClip ? stageClipSourcePlan(firstClip, imgs) : { glyph:"", ready:false, label:"shots" };
+            /* (2026-10-09, owner — Stage review) only the open scene's images are loaded here: another scene's
+               beats read the image cache, and when nothing is known yet they say so instead of "no frame yet";
+               the open scene's beats read the clip's readiness (stageClipReadiness), as Shoot does */
+            const hydrated = !!(hydrationScene && hydrationScene.id===scene.id);
+            const railImgs = hydrated ? imgs : stageImgsWithCache(imgs);
+            const p = firstClip ? stageClipSourcePlan(firstClip, railImgs) : { glyph:"", ready:false, label:"shots" };
+            const unknown = !hydrated && !p.ready;
+            const ready = firstClip && hydrated ? stageClipReadiness(firstClip, ctx, imgs, drafts, { loading:imageLoadState }) : null;
+            const notReadyText = ready && ready.issues.length ? " — "+ready.text : "";
             const rendered = coverClips.length>0 && coverClips.every(c=>clipVideoReady(c, vids));
+            const noted = coverClips.some(c=>noteVids[c.id] || oldLookVids[c.id]);
             const on = selectedScene.id===scene.id && b.shots.some(sh=>sh.id===((selectedShot||{}).id));
             const beatNm = stageBeatRailName(scene, drafts, beatsMap, b);
             const label = "Beat "+(b.n||"—");
             return _stEl("div",{key:"beat-"+(b.n||"none"),className:"stage2-beat"+(on?" on":"")},
               _stEl("button",{type:"button",
-                className:"stage2-beat-row"+(rendered?" done":"")+(p.ready?"":" missing"),
+                className:"stage2-beat-row"+(rendered?" done":"")+((p.ready||unknown)?"":" missing"),
                 title:label+(beatNm?" · "+beatNm:"")+" · "+b.shots.length+" shot"+(b.shots.length!==1?"s":"")
                   +(coverClips.length>1?" · spans "+coverClips.length+" clips":"")
-                  +" · renders from "+p.label+(p.ready?"":" — no frame yet: it would render from the prompt only (make it in Shots)")+(rendered?" · rendered ✓":""),
+                  +" · renders from "+p.label
+                  +(unknown ? " — its images load when you open this scene"
+                    : (p.ready ? notReadyText : " — no frame yet: it would render from the prompt only (make it in Shots)"))
+                  +(rendered?" · rendered ✓":"")
+                  +(rendered && noted ? " · take notes: "+coverClips.map(c=>(noteVids[c.id]||[]).concat(oldLookVids[c.id]?["Earlier look"]:[])).flat().join(", ") : ""),
                 onClick:()=>{ if(!firstClip) return; if(firstClip.id!==clip.id) onSelectClip(firstClip.id); setSelShotId(b.shots[0].id); }},
                 _stEl("b",null,label),
                 _stEl("span",{className:"stage2-beat-name"},beatNm||"—"),
                 _stEl("span",{className:"stage2-clip-chip-glyph"},p.glyph),
-                _stEl("span",{className:"stage2-clip-chip-st"}, rendered?"✓":(p.ready?"":"!"))));
+                _stEl("span",{className:"stage2-clip-chip-st"}, rendered?(noted?"✓\u2022":"✓"):((p.ready||unknown)?"":"!"))));
           });
         })()));
   };
@@ -7861,7 +8161,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
                 onReuse:(meta,pin)=>{ setPendingReuse({ clipId:clip.id, meta, pin }); setStageView("stage"); } })
             : stageView==="timeline"
             ? _stEl(StageTimelineView,{ key:"tl", allClips, vids, staleVids, imgs, visualSource, selId, onSelectClip,
-                filmTitle:(project&&project.title)||"", auds, characters, oldLookVids,
+                filmTitle:(project&&project.title)||"", auds, characters, oldLookVids, noteVids,
                 onOpenStage:(id)=>{ onSelectClip(id); setStageView("stage"); } })
             : stageView==="audio"
             ? _stEl(StageAudioView,{ key:"au", allClips, vids, auds, characters, selId, onSelectClip })
@@ -7869,7 +8169,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
             // hash the member shots), and remounting the console wiped the recipe
             // tab + Multi-shot row state mid-edit; the console's own member-overlap
             // effect handles real clip moves within the scene.
-            : _stEl(ClipConsole,{ key:"console-"+selectedScene.id, clip, selectedShot, sceneClips:selectedSceneClips, ctx, imgs, imageLoadState, auds, beatsMap, drafts, prevClipVideoId:prevBeatVideoId, aspect, visualSource, setVisualSource, creditBalance, readOnly, onVoiceLine, onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds, takeStale:!!staleVids[clip.id], takeOldLook:!!oldLookVids[clip.id], onUpdateShot, onStageNav, modelId, setModelId, clipScope, setClipScope,
+            : _stEl(ClipConsole,{ key:"console-"+selectedScene.id, clip, selectedShot, sceneClips:selectedSceneClips, ctx, imgs, imageLoadState, auds, beatsMap, drafts, prevClipVideoId:prevBeatVideoId, aspect, visualSource, creditBalance, readOnly, onVoiceLine, onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds, takeStale:!!staleVids[clip.id], takeOldLook:!!oldLookVids[clip.id], orphanTakes:orphanTakes[clip.id]||[], onUpdateShot, onStageNav, modelId, setModelId, clipScope, setClipScope,
                 onSelectClip,
                 onFirstVideo:()=>setStageView("versions"),
                 pendingReuse, onReuseConsumed:()=>setPendingReuse(null) }))));

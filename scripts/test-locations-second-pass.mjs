@@ -146,8 +146,9 @@ await test("B4 a frame records its location plates and text; 'Location changed' 
   assert.ok(bd.includes("made before its location changed"));
 });
 await test("B5 the Stage: a plate that hasn't loaded is unknown; one missing then and made since is flagged", ()=>{
-  const f = between(stage, "  const referenceVersionsStale=(t)=>{", "  const versionEditorialStatus");
-  assert.ok(f.includes("if(!meta && !img) return false;") && f.includes("if(!snap.iso && snap.version==null && meta && meta.iso) return true;"));
+  // (2026-10-09, Stage third pass) one shared helper for every place that shows take notes
+  const f = between(stage, "function stageTakeReferencesStale(meta){", "function stageTakeFramesChanged(meta){");
+  assert.ok(f.includes("if(!m && !img) return false;") && f.includes("if(!snap.iso && snap.version==null && m && m.iso) return true;"));
 });
 
 /* ═══ C ═══ */

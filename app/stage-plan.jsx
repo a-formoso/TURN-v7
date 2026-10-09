@@ -49,13 +49,13 @@
     if(declared&&canon.length){
       micro=covers.map(n=>text(canon[n-1])).filter(Boolean);
       if(covers.some(n=>!Number.isInteger(n)||n<1||n>canon.length))
-        issues.push({code:"invalid-coverage",blocking:true,shotId:sh.id,message:"This shot points to missing micro-beats. Reconcile its coverage in Shots."});
+        issues.push({code:"invalid-coverage",blocking:true,shotId:sh.id,message:"This shot points to micro-beats that no longer exist. Check which moments it covers in Shots."});
     }else{
       micro=Array.isArray(p.micro)?p.micro.map(text).filter(Boolean):[];
       if(!micro.length&&typeof root.stageShotMicroTexts==="function")
         micro=(root.stageShotMicroTexts(sh)||[]).map(text).filter(Boolean);
       if(canon.length&&!declared)
-        issues.push({code:"inferred-coverage",blocking:false,shotId:sh.id,message:"Micro-beat coverage is inferred, not explicitly mapped. Review this shot's coverage."});
+        issues.push({code:"inferred-coverage",blocking:false,shotId:sh.id,message:"Which micro-beats this shot covers is inferred, not mapped. Check it in Shots."});
     }
     // a beat-level panel's text is the WHOLE authored beat (shared by every cut);
     // a cut without coverage rows times against its own staging line, never that
@@ -99,13 +99,13 @@
     const minimumSec=units.length?Math.max(4,Math.ceil(sum)):0;
     const requested=positive(opts.durationSec);
     if(requested&&requested<minimumSec)
-      issues.push({code:"duration-too-short",blocking:true,message:"The selected coverage needs at least "+minimumSec+" seconds. Increase duration or split this clip."});
+      issues.push({code:"duration-too-short",blocking:true,message:"The selected shots need at least "+minimumSec+" seconds. Increase duration or split this clip."});
     const durationSec=Math.max(minimumSec,requested?Math.ceil(requested):0);
     if(durationSec>cap.max){
       const oneBeat=units.some(u=>u&&u.beatOpening);
       issues.push({code:"over-duration",blocking:true,message:oneBeat
         ? "This screenplay beat needs "+durationSec+" seconds; this model allows "+cap.max+". Keep the beat intact: choose a longer-duration model or deliberately revise/revoice the screenplay. Stage will not silently truncate it or create extra shots."
-        : "This coverage needs "+durationSec+" seconds; this model allows "+cap.max+". Split at an existing shot boundary, or deliberately divide and revoice a long spoken shot."});
+        : "These shots need "+durationSec+" seconds; this model allows "+cap.max+". Split at an existing shot boundary, or deliberately divide and revoice a long spoken shot."});
     }
     if(units.length>cap.shots)
       issues.push({code:"shot-budget",blocking:true,message:"This clip has more shots than one render can hold \u2014 use Split to fit."});
@@ -169,8 +169,8 @@
         e("span",null,units.length+" shot"+(units.length===1?"":"s")),
         e("span",null,plan.durationSec+"s · "+(plan.estimated?"estimated pacing":"planned timing"))),
       e("div",{className:"stage-plan-scroll"},e("table",{className:"stage-plan-rows"},
-        e("caption",{className:"sr-only"},"Selected shot coverage and requested timing"),
-        e("thead",null,e("tr",null,e("th",null,"Time"),e("th",null,"Shot / coverage"),e("th",null,"Action and dialogue"))),
+        e("caption",{className:"sr-only"},"Selected shots and requested timing"),
+        e("thead",null,e("tr",null,e("th",null,"Time"),e("th",null,"Shot"),e("th",null,"Action and dialogue"))),
         e("tbody",null,units.map(u=>e("tr",{key:u.shotId+":"+u.index},
           e("td",null,u.start+"–"+u.end+"s"),
           e("td",null,"Shot "+(u.index+1),u.beatOpening?e("small",null,"Beat opening"):u.covers.length?e("small",null,"Micro "+u.covers.join(", ")):null),

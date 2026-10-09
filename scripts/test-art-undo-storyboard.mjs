@@ -57,7 +57,7 @@ await test("6c composing and saving halves record the shots", () => {
 });
 
 const S = { console }; S.window = S; vm.createContext(S);
-load(S, "app/stage.jsx", ["stagePageRanges", "storyboardClipIds", "storyboardClipAssets", "clipFrameState"]);
+load(S, "app/stage.jsx", ["stagePageRanges", "storyboardClipIds", "storyboardClipAssets"]);
 S.sbPageRanges = B.sbPageRanges; S.sbSheetStale = B.sbSheetStale; S.sbHalfStale = B.sbHalfStale;
 const shot = (id, beatN, order) => ({ id, sceneId: "s1", beatN, order });
 await test("6d the Stage leaves out a board drawn from other shots and says why; a current one is used", () => {
@@ -78,8 +78,6 @@ await test("6d the Stage leaves out a board drawn from other shots and says why;
   a = S.storyboardClipAssets({ ...clip, g: { ...clip.g, shots: S.__sbShots.slice(0, 4) } }, imgs);
   assert.equal(a.sheet, ""); assert.equal(a.top, ""); assert.equal(a.halves.length, 0);
   assert.ok(a.stale.includes(page0) && a.stale.includes(page0 + ":half-top"));
-  const st = S.clipFrameState({ ...clip, data: {}, g: { ...clip.g, shots: S.__sbShots.slice(0, 4) } }, imgs, "halves");
-  assert.deepEqual({ ...st }, { key: "missing", label: "board out of date — recompose" });
 });
 
 /* ---- 5. Art undo ---- */

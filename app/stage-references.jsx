@@ -323,7 +323,7 @@
       }
       /* No master fallback: a shot requiring a location must expose missing coverage. */
       if(loc&&!locSpecs.length&&!sh.referenceLocationsSet&&!arr(sh.refOff).includes(loc.id))
-        warn(sh.id,loc.id,"missing-location-coverage","Required per-shot location coverage reference is missing");
+        warn(sh.id,loc.id,"missing-location-coverage","This shot's location camera view is missing");
       locSpecs.forEach(s=>{
         const manual=!!sh.referenceLocationsSet&&arr(sh.referenceLocationIds).includes(s.id);
         const ownerId=s.entityId||s.locationId||s.baseId||(loc&&loc.id)||sh.locationId||s.id;
