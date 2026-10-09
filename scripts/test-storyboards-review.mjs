@@ -34,7 +34,7 @@ await test("A1 the jump writes the same per-film fold key the Shots tab reads", 
 
 /* ═══ B + C ═══ */
 await test("B1 'Apply to panel' carries a one-image price chip", ()=>{
-  assert.ok(comp.includes('panelBusy?"Editing panel…":"Apply to panel",') && comp.includes("!panelBusy && typeof window.nbCostChip===\"function\" && window.nbCostChip(1)"));
+  assert.ok(comp.includes('panelBusy?"Editing panel…":"Apply to panel",') && comp.includes("!panelBusy && typeof window.nbCostChip===\"function\" && window.nbCostChip(1, { model:engine.model, quality:engine.quality,"));
 });
 await test("C1 Clear asks first for an uploaded sheet or when it would take the halves (2026-10-09), and holds the auto-compose off after", ()=>{
   const fx = between(comp, "const clearSheet = async ()=>{", "await loadHalves(); };");

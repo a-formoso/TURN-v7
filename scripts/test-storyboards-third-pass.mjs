@@ -46,34 +46,37 @@ await test("A1 the board draws each beat's main keyframe (Shots' rule); unnumber
   assert.ok(!sb.includes('"Frame not generated — Shot "+scene.no') && sb.includes('g.fillText(sbPanelLabel(sh), x+CELL_W-12, sy+22);'));
   assert.ok(bd.includes("const board = (typeof window.sbBoardShots===\"function\") ? window.sbBoardShots(ordered2) : ordered2;"));
 });
-await test("A2 the Stage finds a clip's panels by shot id on the board; a clip with an alternative uses its own frames", ()=>{
+await test("A2 the Stage finds a clip's panels on the board BY BEAT (owner 2026-10-09); an alternative maps to its beat's panel", ()=>{
   const st = { console, Object, Array, String, Number, Math, Set, JSON }; st.window = st; vm.createContext(st);
   st.sbPageRanges = box.sbPageRanges; st.sbBoardShots = box.sbBoardShots; st.sbSheetStale = box.sbSheetStale; st.sbHalfStale = box.sbHalfStale;
-  vm.runInContext(fn(stage, "stagePageRanges")+fn(stage, "storyboardClipIds"), st);
+  vm.runInContext(fn(stage, "stagePageRanges")+fn(stage, "stageBoardPanelIndex")+fn(stage, "storyboardClipIds"), st);
   st.__sbShots = SH;
   const scene = { id:"sc" };
   const ok = st.storyboardClipIds({ scene, g:{ start:0, index:0, shots:[{ id:"a" }, { id:"b" }] } });
   assert.deepEqual(J(ok.pages), ["sbsheet-sbpage-sc-2x2-0"]); assert.deepEqual(J(ok.halves), ["sbsheet-sbpage-sc-2x2-0:half-top"]);
   assert.equal(ok.offBoard, false);
+  // (2026-10-09, owner decision — Storyboards geometry review) a2 is beat 1's alternative: it maps to beat 1's
+  // panel (a), so the clip is ON the board — it used to be marked off the board and never got a half
   const alt = st.storyboardClipIds({ scene, g:{ start:1, index:0, shots:[{ id:"a2" }, { id:"b" }] } });
-  assert.equal(alt.offBoard, true); assert.deepEqual(J(alt.pages), []); assert.equal(alt.sheet, "");
+  assert.equal(alt.offBoard, false); assert.deepEqual(J(alt.clipPanelIds), ["a","b"]);
+  assert.deepEqual(J(alt.halves), ["sbsheet-sbpage-sc-2x2-0:half-top"]);
   const later = st.storyboardClipIds({ scene, g:{ start:3, index:1, shots:[{ id:"c" }, { id:"u" }] } });
   assert.deepEqual(J(later.halves), ["sbsheet-sbpage-sc-2x2-0:half-bottom"], "c and u are the board's 3rd and 4th panels");
 });
 
 /* ═══ B ═══ */
 await test("B1 halves record what the SHEET was drawn from; an upload's halves record no frame versions", ()=>{
-  const save = between(sb, "async function sbSaveHalves(url, sid, page, sourceVersion, _ep, sheetMeta){", "\n}\n");
+  const save = between(sb, "async function sbSaveHalves(url, sid, page, sourceVersion, _ep, sheetMeta, aspect){", "\n}\n");
   assert.ok(save.includes("const _ids = Array.isArray(_sm.shotIds) ? _sm.shotIds : ((page&&page.shots)||[]).map(x=>x.id);"));
   assert.ok(save.includes("const _fv = Array.isArray(_sm.frameVersions) ? _sm.frameVersions : ((_sm.uploaded || _sm.mode===\"upload\") ? null :"));
   assert.ok(save.includes("shotIds: sbHalfShotIds(_ids, half),") && !save.includes("sbHalfShotIds(((page&&page.shots)||[]).map(x=>x.id), half)"));
-  assert.ok(sb.includes("sbSaveHalves(r.url||dataUrl, sid, page, sbSheetVersionOf(meta), _ep, meta)"));
+  assert.ok(sb.includes("sbSaveHalves(dataUrl, sid, page, sbSheetVersionOf(meta), _ep, meta)"));
   const sh = between(sb, "  const saveHalves = async ()=>{", "  // THE TWO HALVES STAY A PAIR");
   assert.ok(sh.includes("if(_sm && sbSheetStale(_sm, (page.shots||[]).map(x=>x.id))){") && sh.includes("Recompose it first (free)"));
 });
 await test("B2 every compose records its missing panels; the Stage and Breakdown never treat a partial sheet as ready", ()=>{
   const cs = between(sb, "function sbComposeSheet(scene, page, ctx, beatsMap, extraMeta, _drawFn){", "window.sbComposeSheet = sbComposeSheet;");
-  assert.ok(cs.includes("const missingAtDraw = (page.shots||[]).filter(") && cs.includes("...extra, missing:missingAtDraw,"));
+  assert.ok(cs.includes("const missingAtDraw = (page.shots||[]).filter(") && cs.includes("...extra, missing:missingDrawn,") && cs.includes("typeof drawn.missing===\"number\") ? drawn.missing : missingAtDraw"));
   assert.ok(!sb.includes("{ missing: readyRef.current.total-readyRef.current.n"), "the card no longer passes a guess");
   assert.ok(stage.includes("const partial = !m && (()=>{ const sm = metaOf(id); return !!(sm && sm.composed && Number(sm.missing)>0); })();"));
   assert.ok(bd.includes("else if(m && m.composed && Number(m.missing)>0) boards.partial++;") && bd.includes('" with frames still missing"'));
@@ -109,14 +112,14 @@ await test("C1 a compose belongs to its film and never draws over an upload unle
 await test("C2 uploads record the page's shots; restores are held off the redraw; restoring halves asks", ()=>{
   assert.ok(art.includes('if(typeof opts.importMeta==="function"){ try{ Object.assign(meta, opts.importMeta()||{}); }catch(e){} }'));
   assert.ok(art.includes('if(typeof opts.onReverted==="function"){ try{ opts.onReverted(r); }catch(e){} }'));
-  assert.ok(sb.includes("importMeta: ()=>({ shotIds: pageIdsRef.current.slice() }),") && sb.includes("onReverted: ()=>{ restoredRef.current = true; } });"));
+  assert.ok(sb.includes("importMeta: ()=>({ shotIds: pageIdsRef.current.slice() }),") && sb.includes("onReverted: ()=>{ sbMarkRestored(projectId, sid, pageRef.current); } });"));
   assert.ok(between(sb, "  const restoreHalf = async (h)=>{", "  const deleteHalf").includes('title:"Restore the earlier halves?"'));
   assert.ok(sb.includes('else if(res.status==="kept") out.kept++;'));
 });
 await test("C3 Clear says it deletes the sheet, its versions and both halves; asks; clears both; the count follows", ()=>{
   const cl = between(sb, "  const clearSheet = async ()=>{", "await loadHalves(); };");
   assert.ok(cl.includes("Clearing permanently deletes the sheet and its earlier versions") && cl.includes("if((!isComposed || hasHalves) &&"));
-  assert.ok(cl.includes('for(const h of ["top","bottom"]) await nbClearAsset(sid+":half-"+h);') && !cl.includes("its earlier versions stay in the sheet's version history"));
+  assert.ok(cl.includes('for(const h of ["top","bottom"]){ try{ await nbClearAsset(sid+":half-"+h); }catch(e){ halvesFailed = true; } }') && !cl.includes("its earlier versions stay in the sheet's version history"));
   assert.ok(sb.includes('window.addEventListener("sb-sheet-cleared", onCleared);'));
   assert.ok(sb.includes('title:"Replace this sheet with an upload?"') && art.includes('title:"Delete this earlier version?"'));
 });
@@ -140,7 +143,7 @@ await test("E1 copy and accessibility", ()=>{
   assert.ok(sb.includes('w.oldLook ? (w.oldLook+" frame"+(w.oldLook!==1?"s":"")+" made with an earlier look") : "",'));
   assert.ok(sb.includes('_sbEl("button",{type:"button",className:"scene-pager-btn",title:"Jump to a scene"') && !sb.includes('className:"scene-pager-no ssg-jump",role:"button",tabIndex:0'));
   assert.ok(sb.includes('"aria-haspopup":"true","aria-expanded":menuOpen?"true":"false"') && sb.includes('className:"sb-half-view"'));
-  assert.ok(sb.includes('"aria-pressed":panelEdit.idx===i?"true":"false"') && sb.includes('"aria-pressed":editRefSel.indexOf(o.id)>=0?"true":"false"'));
+  assert.ok(sb.includes('"aria-pressed":panelShot===sh?"true":"false"') && sb.includes('"aria-pressed":editRefSel.indexOf(o.id)>=0?"true":"false"'));
   assert.ok(art.includes(".scene-pager-menu,.sheet-tools-dropdown')))) return;") && css.includes(".sb-half-view{"));
 });
 await test("E2 Frances: one keyframe per beat, honest halves, your work stays, the panel edit", ()=>{

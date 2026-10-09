@@ -22,6 +22,29 @@ function sbGridShape(N, grid){
   // every sheet is a 2×2 page (the other layouts were never used — removed 2026-10-05)
   return { cols:2, rows:2 };
 }
+/* the composed sheet's pixel layout for a format aspect — ONE place, shared by the canvas compose and the
+   upload shape check (2026-10-09: an upload gets halves only when it is shaped like this sheet) */
+function sbSheetLayout(asp, N, grid){
+  const ap = String(asp||"16:9").split(":").map(Number);
+  const vert = ap[1] > ap[0];
+  const PAD=8, GAP=8, CELL_W=vert?400:632, IMG_H=Math.round(CELL_W*ap[1]/ap[0]), STRIP_H=148, CELL_H=IMG_H+STRIP_H;
+  const { cols, rows } = sbGridShape(N, grid);
+  return { PAD, GAP, CELL_W, IMG_H, STRIP_H, CELL_H, cols, rows,
+    W: PAD*2 + cols*CELL_W + (cols-1)*GAP, H: PAD*2 + rows*CELL_H + (rows-1)*GAP };
+}
+/* UPLOADS AND HALVES (2026-10-09, owner decision): the halves are the sheet's two panel rows, so an uploaded
+   board gets them only when it is shaped like a composed 2×2 sheet (width/height within 10%); otherwise no
+   halves are saved. null = the size isn't known. */
+const SB_UPLOAD_SHAPE_TOLERANCE = 0.10;
+function sbUploadShapeOk(w, h, asp){
+  w = Number(w); h = Number(h);
+  if(!(w>0) || !(h>0)) return null;
+  const L = sbSheetLayout(asp);
+  return Math.abs((w/h)/(L.W/L.H) - 1) <= SB_UPLOAD_SHAPE_TOLERANCE;
+}
+const SB_UPLOAD_SHAPE_MSG = "Halves aren\u2019t made from this upload \u2014 its shape isn\u2019t a 2\u00d72 sheet.";
+window.sbSheetLayout = sbSheetLayout;
+window.sbUploadShapeOk = sbUploadShapeOk;
 
 /* the scene's beat/subtext map (driver/reactor/desire/antagonism + per-beat rows) */
 function sbBeatMeta(beatsMap, sceneId){ return (beatsMap||{})[sceneId] || {}; }
@@ -187,6 +210,10 @@ function sbIdsEqual(a, b){
   return true;
 }
 function sbHalfShotIds(shotIds, half){ return half==="top" ? (shotIds||[]).slice(0,2) : (shotIds||[]).slice(2); }
+/* the halves a page of n panels has: a page of one or two panels has no bottom row (2026-10-09). Panels fill
+   the 2×2 grid row by row, so "top" = cells 0/1 and "bottom" = cells 2/3 (the names stay — saved ids use them) */
+function sbHalvesFor(n){ return Number(n)>2 ? ["top","bottom"] : ["top"]; }
+window.sbHalvesFor = sbHalvesFor;
 /* WHICH FRAMES A SHEET WAS DRAWN FROM (2026-10-05, owner — Storyboards review): a sheet only redraws
    itself while its scene is open in this tab, so a frame re-rendered from Shots left the sheet (and its
    halves) showing the old image as if current. Each composed sheet and saved half now records every
@@ -197,9 +224,28 @@ function sbFrameVersions(shots){
   return (shots||[]).map(sh=>{ const m = (typeof nbGetMeta==="function") ? nbGetMeta(sh.id) : null;
     return String(sh.id)+"@"+((m&&m.iso)||"")+"#"+((m&&m.version)||""); });
 }
+/* A DELETED FRAME DATES ITS SHEET (2026-10-09, owner — Storyboards review): a frame's meta is judged only when
+   warm, so a deleted frame read like a cold cache and its sheet (and halves) stayed "current" for the Stage.
+   A frame the store clears in this session (its nb-gen-done with an empty url) is remembered per film and
+   counts as a change; a frame made again is forgotten. */
+const _sbGoneFrames = new Set();
+function sbGoneKey(id){ return String((typeof nbEpoch==="function") ? nbEpoch() : "")+"|"+String(id); }
+function sbFrameGone(id){ return _sbGoneFrames.has(sbGoneKey(id)); }
+try{ window.addEventListener("nb-gen-done", (e)=>{ const d = (e && e.detail) || {};
+  if(d.id==null || /^sbsheet-/.test(String(d.id))) return;
+  if(d.url) _sbGoneFrames.delete(sbGoneKey(d.id));
+  else if(Object.prototype.hasOwnProperty.call(d, "url")) _sbGoneFrames.add(sbGoneKey(d.id)); }); }catch(e){}
+window.sbFrameGone = sbFrameGone;
+/* the recorded frames of a sheet / half that were deleted since (a frame missing when it was drawn doesn't count) */
+function sbFramesGone(meta){
+  const list = (meta && Array.isArray(meta.frameVersions)) ? meta.frameVersions : [];
+  return list.some(entry=>{ const s = String(entry||""), at = s.lastIndexOf("@"); if(at<1) return false;
+    return s.slice(at+1)!=="#" && sbFrameGone(s.slice(0, at)); });
+}
 function sbFramesChanged(meta){
   const list = (meta && Array.isArray(meta.frameVersions)) ? meta.frameVersions : null;
   if(!list || typeof nbGetMeta!=="function") return false;
+  if(sbFramesGone(meta)) return true;
   return list.some(entry=>{ const s = String(entry||""), at = s.lastIndexOf("@"); if(at<1) return false;
     const id = s.slice(0, at), m = nbGetMeta(id); if(!m) return false;
     return (id+"@"+(m.iso||"")+"#"+(m.version||""))!==s; });
@@ -222,6 +268,7 @@ function sbHalfStale(meta, shotIds, half, sheetMeta){
 }
 window.sbFrameVersions = sbFrameVersions;
 window.sbFramesChanged = sbFramesChanged;
+window.sbFramesGone = sbFramesGone;
 window.sbSheetVersionOf = sbSheetVersionOf;
 window.sbSheetStale = sbSheetStale;
 window.sbHalfStale = sbHalfStale;
@@ -229,17 +276,23 @@ window.sbHalfShotIds = sbHalfShotIds;
 
 /* Truthful board readiness: a composed sheet that still contains placeholder panels
    is partial, not ready. Uploaded boards have no composed metadata and count complete. */
+/* (2026-10-09, owner — Storyboards review) an OUT-OF-DATE sheet (its page's shots or frames changed since it
+   was drawn — sbSheetStale) is counted on its own, never as complete: the Stage won't use it until it is
+   recomposed. `stale` is only reported when there is one, so older callers' shapes stay as they were. */
 function sbStoryboardReadiness(pagesByScene, frames, metaOf){
   const out = { complete:0, partial:0, missing:0, total:0 };
+  let stale = 0;
   const getMeta = typeof metaOf==="function" ? metaOf : ()=>null;
   (pagesByScene||[]).forEach(g=>(g.pages||[]).forEach(page=>{
     out.total++;
     const id = "sbsheet-"+page.id;
     if(!(frames&&frames[id])){ out.missing++; return; }
     const meta = getMeta(id)||{};
+    if(sbSheetStale(meta, (page.shots||[]).map(x=>x && x.id))){ stale++; return; }
     const missing = Math.max(0, Number(meta.missing)||0);
     if(meta.composed && missing>0) out.partial++; else out.complete++;
   }));
+  if(stale) out.stale = stale;
   return out;
 }
 window.sbStoryboardReadiness = sbStoryboardReadiness;
@@ -254,38 +307,97 @@ window.sbStoryboardReadiness = sbStoryboardReadiness;
    announces the new sheet; a film switch mid-run stays a quiet discard (epoch);
    and a failed save returns status:"failed" — callers surface it, never mask it.
    ============================================================================ */
-const _sbComposeRuns = {};   // sheet id -> { again, promise }
-function sbSheetSnapshot(page){
+const _sbComposeRuns = {};   // film + sheet id -> { again, explicit, promise }
+/* each panel's frame as the coordinator sees it: "<id>@<iso>#<version>" + the url it paints from */
+function sbSnapParts(page){
   return ((page&&page.shots)||[]).map(sh=>{
     const u = (typeof nbGetImage==="function") ? (nbGetImage(sh.id)||"") : "";
     const m = (typeof nbGetMeta==="function") ? nbGetMeta(sh.id) : null;
-    return sh.id+"@"+((m&&m.iso)||"")+"#"+((m&&m.version)||"")+"|"+u;
-  }).join("~");
+    return { id:String(sh.id), frame:sh.id+"@"+((m&&m.iso)||"")+"#"+((m&&m.version)||""), url:u };
+  });
 }
+function sbSheetSnapshot(page){ return sbSnapParts(page).map(p=>p.frame+"|"+p.url).join("~"); }
+/* did a frame change since `before`? A url the draw itself refreshed (B1: a fresh signed url for the SAME
+   frame) is not a change — otherwise an unreadable frame would redraw forever */
+function sbSnapChanged(before, page, refreshed){
+  const now = sbSnapParts(page), skip = refreshed || [];
+  if(now.length!==before.length) return true;
+  return now.some((p,i)=> p.id!==before[i].id || p.frame!==before[i].frame || (p.url!==before[i].url && skip.indexOf(p.id)<0));
+}
+/* warm the frame caches BEFORE snapshotting, so a cold cache doesn't read as a frame change */
+async function sbWarmFrames(page){
+  for(const sh of ((page&&page.shots)||[])){
+    if(typeof nbGetImage==="function" && !nbGetImage(sh.id) && typeof nbLoadImage==="function"){
+      try{ await nbLoadImage(sh.id); }catch(e){}
+    }
+  }
+}
+/* A RESTORED SHEET STAYS (2026-10-09, owner — Storyboards review): a version you restore (Details' Restore or
+   Delete current, or a halves restore) used to be undone as soon as the card remounted — the hold lived in the
+   card. It is kept per film in this tab session with the page's shots and frames AT THE RESTORE; automatic and
+   bulk composes leave it alone until a frame really changes after the restore, and any compose that commits
+   (a Recompose) ends it. It stays marked out of date while it is (the Stage won't use it). */
+function sbRestoreKey(projectId, sid){ return "turn_sb_restored_"+String(projectId||"")+":"+sid; }
+function sbMarkRestored(projectId, sid, page){
+  try{ sessionStorage.setItem(sbRestoreKey(projectId, sid), JSON.stringify({
+    ids:((page&&page.shots)||[]).map(x=>String(x.id)), fv:sbFrameVersions((page&&page.shots)||[]) })); }catch(e){}
+}
+function sbRestoreHeld(projectId, sid, page){
+  let saved = null;
+  try{ saved = JSON.parse(sessionStorage.getItem(sbRestoreKey(projectId, sid))||"null"); }catch(e){ saved = null; }
+  if(!saved || !Array.isArray(saved.ids)) return false;
+  // the same shots, and no frame changed since the restore (a cold frame is never a change — sbFramesChanged)
+  return sbIdsEqual(saved.ids, ((page&&page.shots)||[]).map(x=>String(x.id))) && !sbFramesChanged({ frameVersions:saved.fv||[] });
+}
+window.sbMarkRestored = sbMarkRestored;
+window.sbRestoreHeld = sbRestoreHeld;
+/* the outcomes in which a run drew nothing — an explicit Recompose that joined such a run then runs itself */
+const SB_NOT_DRAWN = { kept:1, current:1, held:1 };
 /* (2026-10-09, owner — Storyboards review) a run belongs to the FILM it started in: its scope is taken once,
    a film switch between passes ends it quietly, and runs are keyed by film + sheet (sheet ids repeat across
    films). An UPLOADED board is never drawn over unless you ask (extraMeta.explicit — Recompose / Compose from
-   frames): the sheet is loaded first, so a slow load can't read as "no sheet yet". */
+   frames): the sheet is loaded first, so a slow load can't read as "no sheet yet". Automatic and bulk composes
+   also leave a sheet that is UP TO DATE (same shots, no frame changed, nothing missing) and a RESTORED version
+   alone ("current" / "held"); only an explicit Recompose redraws them. An explicit request that meets a running
+   automatic run makes that run draw, and if it had already decided not to, runs again once it ends. A Clear
+   made while a run draws ends that run without a commit ("cleared"). */
 function sbComposeSheet(scene, page, ctx, beatsMap, extraMeta, _drawFn){
   const sid = "sbsheet-"+page.id;
   const ep0 = (typeof nbEpoch==="function") ? nbEpoch() : null;
   const key = String(ep0)+"|"+sid;
-  const cur = _sbComposeRuns[key];
-  if(cur){ cur.again = true; return cur.promise; }   // coalesce onto the running writer
-  const draw = _drawFn || composeStoryboardSheet;    // _drawFn: headless-test seam only
   const explicit = !!(extraMeta && extraMeta.explicit);
+  const cur = _sbComposeRuns[key];
+  if(cur){
+    cur.again = true;                                 // coalesce onto the running writer
+    if(!explicit) return cur.promise;
+    cur.explicit = true;                              // ...which now draws even over an upload / a current sheet
+    return cur.promise.then(res=> (res && SB_NOT_DRAWN[res.status])
+      ? sbComposeSheet(scene, page, ctx, beatsMap, extraMeta, _drawFn) : res);
+  }
+  const draw = _drawFn || composeStoryboardSheet;    // _drawFn: headless-test seam only
   const extra = { ...(extraMeta||{}) }; delete extra.explicit;
-  const run = { again:false };
+  const projectId = (ctx && ctx.project && ctx.project.id) || "";
+  const run = { again:false, explicit };
   run.promise = (async ()=>{
     // yield once so the run is REGISTERED before it can finish — a run that returned synchronously (an
     // upload already in memory) cleaned up before it was registered and then stayed registered for good
     await Promise.resolve();
+    let holdAtStart = null; try{ holdAtStart = sessionStorage.getItem("turn_sb_hold_"+sid); }catch(e){}
     try{
-      if(!explicit){
+      if(!run.explicit){
         let has = (typeof nbGetImage==="function") ? nbGetImage(sid) : "";
         if(!has && typeof nbLoadImage==="function"){ try{ has = await nbLoadImage(sid); }catch(e){} }
         const m0 = (typeof nbGetMeta==="function") ? nbGetMeta(sid) : null;
-        if(has && m0 && (m0.uploaded || m0.mode==="upload" || !m0.composed)) return { status:"kept" };
+        if(!run.explicit && has && m0 && (m0.uploaded || m0.mode==="upload" || !m0.composed)) return { status:"kept" };
+        if(has && m0 && m0.composed){
+          await sbWarmFrames(page);
+          const ids = (page.shots||[]).map(x=>x.id);
+          if(!run.explicit && sbRestoreHeld(projectId, sid, page)) return { status:"held" };
+          // (a sheet from before frame versions were recorded can't be judged — it is redrawn as before)
+          if(!run.explicit && Array.isArray(m0.shotIds) && Array.isArray(m0.frameVersions) && sbIdsEqual(m0.shotIds, ids)
+            && !sbSheetStale(m0, ids) && !(Number(m0.missing)>0))
+            return { status:"current" };
+        }
       }
       // NEVER commit a payload drawn from superseded frames — on ANY pass, including
       // after a successful commit if a newer request arrived during the save. The
@@ -296,41 +408,46 @@ function sbComposeSheet(scene, page, ctx, beatsMap, extraMeta, _drawFn){
         run.again = false;
         if(typeof nbEpoch==="function" && nbEpoch()!==ep0) return { status:"stale" };   // the film changed
         const _ep = ep0;
-        // warm the frame caches BEFORE snapshotting, so a cold cache doesn't read
-        // as a frame change and force a pointless second draw
-        for(const sh of (page.shots||[])){
-          if(typeof nbGetImage==="function" && !nbGetImage(sh.id) && typeof nbLoadImage==="function"){
-            try{ await nbLoadImage(sh.id); }catch(e){}
-          }
-        }
-        const snap = sbSheetSnapshot(page);
-        // how many panels are drawn as "Frame not generated" — recorded by the compose itself (2026-10-09:
-        // Compose all / Compose Scene recorded none, so a partial sheet counted as complete everywhere)
+        await sbWarmFrames(page);
+        const before = sbSnapParts(page);
+        // how many panels have no frame at all — the fallback count when the draw doesn't report its own
         const missingAtDraw = (page.shots||[]).filter(x=> !(typeof nbGetImage==="function" && nbGetImage(x.id))).length;
-        const dataUrl = await draw(scene, page, ctx, beatsMap);
+        const drawn = await draw(scene, page, ctx, beatsMap);
+        const dataUrl = (typeof drawn==="string") ? drawn : ((drawn && drawn.dataUrl) || "");
+        // THE REAL MISSING COUNT (2026-10-09, owner — Storyboards review): a frame that exists but couldn't be
+        // drawn (failed fetch, expired link, decode error) is a "Frame not generated" panel too — the draw says
+        // how many panels it really painted, and that is what the sheet records (the Stage reads sm.missing)
+        const missingDrawn = (drawn && typeof drawn==="object" && typeof drawn.missing==="number") ? drawn.missing : missingAtDraw;
+        const refreshed = (drawn && typeof drawn==="object" && Array.isArray(drawn.refreshed)) ? drawn.refreshed.map(String) : [];
         if(!dataUrl){
           if(run.again) continue;      // a frame may have JUST arrived — try again
           return { status:"skipped" }; // nothing to draw — not a failure
         }
-        if(run.again || sbSheetSnapshot(page)!==snap) continue;   // outdated payload: redraw, don't commit
+        if(run.again || sbSnapChanged(before, page, refreshed)) continue;   // outdated payload: redraw, don't commit
+        // you pressed Clear while this run drew: the sheet stays cleared (2026-10-09)
+        let holdNow = null; try{ holdNow = sessionStorage.getItem("turn_sb_hold_"+sid); }catch(e){}
+        if(holdNow==="1" && holdAtStart!=="1") return { status:"cleared" };
         // the version is stamped HERE (not inside the store) so the halves cut below record exactly it
         const meta = { model:"Composited from shot frames", composed:true,
           panels:(page.shots||[]).length, shotIds:(page.shots||[]).map(x=>x.id),
-          frameVersions:sbFrameVersions(page.shots), ...extra, missing:missingAtDraw, ts:Date.now(), iso:new Date().toISOString() };
+          frameVersions:sbFrameVersions(page.shots), ...extra, missing:missingDrawn, ts:Date.now(), iso:new Date().toISOString() };
         const r = (typeof nbCommit==="function") ? await nbCommit(sid, dataUrl, meta, [], undefined, _ep) : null;
         if(r && r.tier==="stale") return { status:"stale" };   // film switched: quiet discard
         if(!r || r.tier==="error") return { status:"failed", error:"the composed sheet couldn't be saved. Check your connection and try again." };
         try{ sessionStorage.removeItem("turn_sb_hold_"+sid); }catch(e){}
+        try{ sessionStorage.removeItem(sbRestoreKey(projectId, sid)); }catch(e){}   // a new sheet ends a restore's hold
         try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id:sid, url:r.url||dataUrl } })); }catch(e){}
         // THE STAGE'S HALVES, AUTOMATICALLY (2026-10-03, owner — Storyboards review): a COMPLETE
         // sheet (every panel has a frame) saves its top/bottom halves at once — free, and the Stage
         // stops falling back to the whole sheet because nobody pressed "Save halves". Best effort:
-        // the ⋮ menu's Save halves stays for a manual re-save.
+        // the ⋮ menu's Save halves stays for a manual re-save. Never when a panel was drawn as a
+        // placeholder (missingDrawn) — those halves would send "Frame not generated" to a paid render.
         const missingNow = (page.shots||[]).filter(x=> !(typeof nbGetImage==="function" && nbGetImage(x.id))).length;
-        // in the BACKGROUND: the compose resolves at once; the halves land a moment later
-        if(!missingNow && !run.again){
+        // in the BACKGROUND: the compose resolves at once; the halves land a moment later. Cut from the
+        // canvas just drawn (the same pixels — no re-fetch of the stored copy, no cross-origin canvas)
+        if(!missingDrawn && !missingNow && !run.again){
           try{
-            Promise.resolve(sbSaveHalves(r.url||dataUrl, sid, page, sbSheetVersionOf(meta), _ep, meta))
+            Promise.resolve(sbSaveHalves(dataUrl, sid, page, sbSheetVersionOf(meta), _ep, meta))
               .then(()=>{ try{ window.dispatchEvent(new CustomEvent("sb-halves-saved",{ detail:{ id:sid } })); }catch(e){} })
               .catch(()=>{});
           }catch(e){}
@@ -346,6 +463,12 @@ function sbComposeSheet(scene, page, ctx, beatsMap, extraMeta, _drawFn){
   _sbComposeRuns[key] = run;
   return run.promise;
 }
+/* is a compose running for this sheet right now (any card, a bulk run)? */
+function sbComposeRunning(sid){
+  const ep = (typeof nbEpoch==="function") ? nbEpoch() : null;
+  return !!_sbComposeRuns[String(ep)+"|"+sid];
+}
+window.sbComposeRunning = sbComposeRunning;
 window.sbComposeSheet = sbComposeSheet;   // exported for the headless coordinator tests
 
 /* ============================================================================
@@ -405,16 +528,24 @@ async function composeStoryboardSheet(scene, page, ctx, beatsMap){
   // ACTION + PERFORMANCE up to TWO wrapped lines (fixed slots — 6 rows — so every
   // panel's strip is the same height)
   const _asp = (typeof aspectFor==="function") ? aspectFor(ctx && ctx.project) : "16:9";
-  const _ap = _asp.split(":").map(Number);
-  const _vert = _ap[1] > _ap[0];
-  const PAD=8, GAP=8, CELL_W=_vert?400:632, IMG_H=Math.round(CELL_W*_ap[1]/_ap[0]), STRIP_H=148, CELL_H=IMG_H+STRIP_H;
-  const { cols, rows } = sbGridShape(N, page.grid);
-  const W = PAD*2 + cols*CELL_W + (cols-1)*GAP;
-  const H = PAD*2 + rows*CELL_H + (rows-1)*GAP;
+  const { PAD, GAP, CELL_W, IMG_H, STRIP_H, CELL_H, cols, W, H } = sbSheetLayout(_asp, N, page.grid);
   const canvas = document.createElement("canvas"); canvas.width=W; canvas.height=H;
   const g = canvas.getContext("2d");
   g.fillStyle = "#101012"; g.fillRect(0,0,W,H);
   const bitmaps = await Promise.all(urls.map(u=>sbLoadBitmap(u)));
+  // A FRAME THAT WON'T LOAD GETS ONE MORE TRY (2026-10-09, owner — Storyboards review): an expired signed link
+  // or a revoked cached blob is re-resolved for the SAME frame (nbRefreshImage — no generation) before the
+  // panel is drawn as "Frame not generated"; the ids tried are reported so the coordinator doesn't read
+  // the fresh link as a frame change
+  const refreshed = [];
+  for(let i=0;i<N;i++){
+    if((bitmaps[i] && bitmaps[i].img) || !urls[i] || typeof window.nbRefreshImage!=="function") continue;
+    refreshed.push(String(shots[i].id));
+    let fresh = ""; try{ fresh = await window.nbRefreshImage(shots[i].id, urls[i]); }catch(e){}
+    if(fresh) bitmaps[i] = await sbLoadBitmap(fresh);
+  }
+  // the panels really drawn without a frame — what the sheet records as `missing`
+  const missing = bitmaps.filter(bm=> !(bm && bm.img)).length;
   // [label, key, line slots] — ACTION and PERFORMANCE get two wrapped lines
   const SLOTS = [["CAMERA","camera",1],["MOTION","motion",1],["ACTION","action",2],["PERFORMANCE","performance",2]];
   for(let i=0;i<N;i++){
@@ -457,7 +588,7 @@ async function composeStoryboardSheet(scene, page, ctx, beatsMap){
     g.fillText(sbPanelLabel(sh), x+CELL_W-12, sy+22); g.textAlign="left";
   }
   bitmaps.forEach(bm=>{ if(bm && bm.revoke){ try{ URL.revokeObjectURL(bm.revoke); }catch(e){} } });
-  return canvas.toDataURL("image/jpeg", 0.92);
+  return { dataUrl:canvas.toDataURL("image/jpeg", 0.92), missing, refreshed };
 }
 window.composeStoryboardSheet = composeStoryboardSheet;
 
@@ -484,18 +615,27 @@ function sbHalfDateDetails(halves){
   });
 }
 
-function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot, readOnly=false }){
+function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot, readOnly=false, bulkBusy=false }){
   const sid = "sbsheet-"+page.id;
   // store/display ONLY — this tab never paints sheets; compose-from-frames is the path
   // (2026-10-09) an upload records the page's shots, so a page whose shots change flags it; a version you
-  // restore (here or in Details) is held off the one-time auto-redraw, which used to undo it at once
+  // restore (here, in Details — Restore or Delete current) is held off the automatic redraws for good: the
+  // hold is kept per film in this tab session (sbMarkRestored), not in the card, so a remount can't undo it
   const pageIdsRef = React.useRef([]);
-  const restoredRef = React.useRef(false);
+  const pageRef = React.useRef(page); pageRef.current = page;
+  const projectId = (ctx && ctx.project && ctx.project.id) || "";
   const gen = useImageGen({ id: sid, slotId: sid,
     importMeta: ()=>({ shotIds: pageIdsRef.current.slice() }),
-    onReverted: ()=>{ restoredRef.current = true; } });
+    onReverted: ()=>{ sbMarkRestored(projectId, sid, pageRef.current); } });
   const shotIds = (page.shots||[]).map(s=>s.id);
   pageIdsRef.current = shotIds;
+  // (2026-10-09) the card is still on screen — a panel edit that ends after you paged away says so in a toast
+  const mountedRef = React.useRef(true);
+  React.useEffect(()=>{ mountedRef.current = true; return ()=>{ mountedRef.current = false; }; },[]);
+  // a plain message on the sheet's error strip (no retry button): a refused or failed Clear / Save halves /
+  // halves restore or delete, a film switch mid-action (2026-10-09)
+  const [actionErr, setActionErr] = React.useState("");
+  const filmEpoch = ()=> (typeof nbEpoch==="function") ? nbEpoch() : null;
   const [ready, setReady] = React.useState({ n:0, total:shotIds.length });
   const [composing, setComposing] = React.useState(false);
   const [composeErr, setComposeErr] = React.useState("");
@@ -609,13 +749,18 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
   const sheetVersion = ()=> sbSheetVersionOf(gen.genMeta || ((typeof nbGetMeta==="function") ? nbGetMeta(sid) : null) || {});
   // the page's shots changed since this sheet / these halves were made (see sbSheetStale)
   const sheetMetaNow = () => gen.genMeta || ((typeof nbGetMeta==="function") ? nbGetMeta(sid) : null);
-  const halvesStale = !!((halves.top && sbHalfStale((halves.top||{}).meta, shotIds, "top", sheetMetaNow()))
-    || (halves.bottom && sbHalfStale((halves.bottom||{}).meta, shotIds, "bottom", sheetMetaNow())));
-  const halvesCurrent = !halvesStale && !!(halves.top && halves.bottom && (()=>{ const v = sheetVersion();
-    const tv = String(((halves.top||{}).meta||{}).sourceVersion||""), bv = String(((halves.bottom||{}).meta||{}).sourceVersion||"");
-    return v ? (tv===v && bv===v) : true; })());
+  // the halves this page has: a page of one or two panels has no bottom row, so none is saved or listed (2026-10-09)
+  const halfNames = sbHalvesFor(shotIds.length);
+  const halvesStale = halfNames.some(h=> halves[h] && sbHalfStale((halves[h]||{}).meta, shotIds, h, sheetMetaNow()));
+  const halvesCurrent = !halvesStale && halfNames.every(h=>!!halves[h]) && (()=>{ const v = sheetVersion();
+    return v ? halfNames.every(h=> String(((halves[h]||{}).meta||{}).sourceVersion||"")===v) : true; })();
+  // AN UPLOAD THAT ISN'T SHAPED LIKE A 2×2 SHEET gets no halves (2026-10-09, owner decision) — said on the card
+  const _gm = gen.genMeta || {};
+  const uploadShapeOff = !!(gen.genUrl && !(_gm.composed) && sbUploadShapeOk(_gm.pixelW, _gm.pixelH, sheetAsp)===false);
   const saveHalves = async ()=>{
-    if(halvesBusy || !gen.genUrl || halvesCurrent) return;   // duplicate guard
+    if(readOnlyRef.current || halvesBusy || !gen.genUrl || halvesCurrent) return;   // duplicate guard
+    setActionErr("");
+    if(uploadShapeOff){ setMenuOpen(false); setHalvesErr(SB_UPLOAD_SHAPE_MSG); return; }
     if(isComposed && readyRef.current.n < readyRef.current.total){
       setHalvesErr("Stage hand-off needs every required panel. This sheet is partial ("+
         readyRef.current.n+"/"+readyRef.current.total+" frames); generate the missing frames in the Shots tab first.");
@@ -625,39 +770,52 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
     // an OUT-OF-DATE sheet's halves would hand the Stage its old panels as current (2026-10-09)
     const _sm = (typeof nbGetMeta==="function") ? nbGetMeta(sid) : null;
     if(_sm && sbSheetStale(_sm, (page.shots||[]).map(x=>x.id))){
-      setHalvesErr(isComposed ? "This sheet is out of date \u2014 Recompose it first (free), then its halves are saved with it."
-        : "This uploaded sheet shows other shots than this page holds now \u2014 upload a sheet for these shots first.");
+      setHalvesErr(isComposed ? "This sheet is out of date — Recompose it first (free), then its halves are saved with it."
+        : "This uploaded sheet shows other shots than this page holds now — upload a sheet for these shots first.");
       setMenuOpen(false); return; }
+    // a sheet drawn with "Frame not generated" panels (a frame that wouldn't load counts) never hands the Stage
+    // placeholder panels (2026-10-09)
+    if(_sm && _sm.composed && Number(_sm.missing)>0){
+      setHalvesErr("This sheet was drawn with "+_sm.missing+" panel"+(_sm.missing===1?"":"s")+" missing — Recompose it (free) once every frame loads, then its halves are saved with it.");
+      setMenuOpen(false); return; }
+    // the film this click belongs to: a film switch while the halves save never writes into the other film
+    const _ep = filmEpoch();
     setHalvesBusy(true); setHalvesDone(false); setHalvesErr("");
     try{
-      await sbSaveHalves(gen.genUrl, sid, page, sheetVersion(), undefined, _sm);
+      await sbSaveHalves(gen.genUrl, sid, page, sheetVersion(), _ep, _sm, sheetAsp);
+      if(_ep!=null && filmEpoch()!==_ep){ setHalvesBusy(false); return; }
       await loadHalves();
       setHalvesDone(true);
       setTimeout(()=>{ setHalvesDone(false); setMenuOpen(false); }, 1600);
-    }catch(e){ setMenuOpen(false); setHalvesErr("Saving the halves failed — "+((e&&e.message)||e)); }
+    }catch(e){ setMenuOpen(false); setHalvesErr((e && e.code==="shape") ? e.message : ("Saving the halves failed — "+((e&&e.message)||e))); }
     setHalvesBusy(false);
   };
   // THE TWO HALVES STAY A PAIR (2026-10-05): restoring one restores the other too, so the Stage never
   // gets a top and a bottom cut from different sheet versions
   const restoreHalf = async (h)=>{
     if(typeof nbRevertAsset!=="function" || readOnlyRef.current) return;
+    const _ep = filmEpoch();   // (2026-10-09) every write below belongs to the film this click was made in
+    const sameFilm = ()=> _ep==null || filmEpoch()===_ep;
     // it brings back the earlier PAIR and the sheet version they were cut from — which the Stage then uses (2026-10-09)
     if(typeof window.appConfirm==="function"){
       const ok = await window.appConfirm({ title:"Restore the earlier halves?",
-        body:"Both halves go back to their previous version, and the sheet they were cut from comes back on this page with them \u2014 the Stage then uses that version. The current ones stay in the version history.",
+        body:"Both halves go back to their previous version, and the sheet they were cut from comes back on this page with them — the Stage then uses that version. The current ones stay in the version history.",
         confirmLabel:"Restore", cancelLabel:"Cancel" });
       if(!ok) return;
     }
-    setHalvesErr("");
+    if(!sameFilm()) return;
+    setHalvesErr(""); setActionErr("");
     try{
       const r = await nbRevertAsset(sid+":half-"+h, 0);
       if(!r){ setHalvesErr("No earlier version of the "+h+" half to restore."); return; }
+      if(!sameFilm()) return;
       const other = h==="top" ? "bottom" : "top";
       const srcV = String(((r && r.meta)||{}).sourceVersion||"");
-      let r2 = null; try{ r2 = await nbRevertAsset(sid+":half-"+other, 0); }catch(e){}
+      let r2 = null; if(halfNames.indexOf(other)>=0){ try{ r2 = await nbRevertAsset(sid+":half-"+other, 0); }catch(e){} }
+      if(!sameFilm()) return;
       await loadHalves();
-      if(srcV && (!r2 || String(((r2 && r2.meta)||{}).sourceVersion||"")!==srcV)){
-        setHalvesErr("The "+h+" half was restored, but the "+other+" half has no matching earlier version \u2014 re-save the halves from the \u22ee menu so both come from the same sheet.");
+      if(srcV && halfNames.indexOf(other)>=0 && (!r2 || String(((r2 && r2.meta)||{}).sourceVersion||"")!==srcV)){
+        setHalvesErr("The "+h+" half was restored, but the "+other+" half has no matching earlier version — re-save the halves from the ⋮ menu so both come from the same sheet.");
         return;
       }
       // sync the DISPLAYED SHEET to the version this half was cut from, so there's no
@@ -666,6 +824,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
       if(!srcVer){ setHalvesErr("Half restored — but it predates version stamps, so the matching sheet version couldn't be shown."); return; }
       if(srcVer === sheetVersion()) return;   // the matching sheet is already on display
       const det = await gen.loadDetails();
+      if(!sameFilm()) return;
       const hist = (det && det.history) || [];
       const idx = hist.findIndex(e=>{ const m=(e && e.meta)||{}; return String(m.iso||m.ts||m.version||"")===srcVer; });
       if(idx < 0){ setHalvesErr("Half restored — but the sheet version it was cut from is no longer in the sheet's history."); return; }
@@ -673,6 +832,8 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
     }catch(e){ setHalvesErr("Couldn't restore the "+h+" half — "+((e&&e.message)||e)); }
   };
   const deleteHalf = async (h)=>{
+    if(readOnlyRef.current) return;
+    const _ep = filmEpoch();   // (2026-10-09) never deletes another film's half after a film switch
     let ok = true;
     if(typeof window.appConfirm==="function"){
       ok = await window.appConfirm({ title:"Delete the "+h+" half?",
@@ -680,9 +841,11 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
         confirmLabel:"Delete", danger:true });
     }
     if(!ok) return;
-    setHalvesErr("");
+    if(_ep!=null && filmEpoch()!==_ep) return;
+    setHalvesErr(""); setActionErr("");
     try{ if(typeof nbClearAsset==="function") await nbClearAsset(sid+":half-"+h); }
     catch(e){ setHalvesErr("Couldn't delete the "+h+" half — "+((e&&e.message)||e)); return; }
+    if(_ep!=null && filmEpoch()!==_ep) return;
     await loadHalves();
   };
 
@@ -694,6 +857,9 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
   // ...or (2026-10-09) it was drawn with every frame and a frame it shows is now GONE (looked up, not a cold cache)
   const _smNow = sheetMetaNow();
   const frameGone = !!(isComposed && ready.checked && ready.n < ready.total && _smNow && Array.isArray(_smNow.shotIds) && typeof _smNow.missing==="number" && _smNow.missing===0);
+  // why it is out of date — the banner names it (2026-10-09: a deleted frame was called "re-rendered")
+  const staleWhy = (_smNow && Array.isArray(_smNow.shotIds) && !sbIdsEqual(_smNow.shotIds, shotIds)) ? "shots"
+    : (frameGone || sbFramesGone(_smNow)) ? "deleted" : "frames";
   const sheetOutOfDate = !!(gen.genUrl && isComposed && (sbSheetStale(_smNow, shotIds) || frameGone));
   const panelBusyRef = React.useRef(panelBusy);   panelBusyRef.current = panelBusy;
   const composingRef = React.useRef(composing);   composingRef.current = composing;
@@ -703,9 +869,11 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
   // OPEN AND OUT OF DATE (2026-10-05): a composed sheet whose panels' frames were re-rendered while
   // this scene wasn't open redraws itself once when it is (free) — it used to wait for the next render
   const staleTried = React.useRef(false);
-  React.useEffect(()=>{ staleTried.current=false; restoredRef.current=false; },[sid]);
+  React.useEffect(()=>{ staleTried.current=false; },[sid]);
   React.useEffect(()=>{
-    if(readOnly || staleTried.current || restoredRef.current || composing || !ready.n || !gen.genUrl || !isComposed) return;
+    if(readOnly || staleTried.current || composing || !ready.n || !gen.genUrl || !isComposed) return;
+    // a restored version stays until a frame changes after the restore (sbRestoreHeld — survives a remount)
+    if(sbRestoreHeld(projectId, sid, page)) return;
     // a frame re-rendered, OR (2026-10-09) the page now holds other shots — both are free redraws
     const _m = sheetMetaNow();
     if(!(sbFramesChanged(_m) || (_m && Array.isArray(_m.shotIds) && !sbIdsEqual(_m.shotIds, shotIds)))) return;
@@ -815,16 +983,33 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
   // Edit the underlying SHOT FRAME (same language as the Shots tab's edit), then
   // recompose; the Shots card adopts the new frame too. Composed sheets only —
   // an uploaded sheet has no per-shot frames to edit through.
-  const [panelEdit, setPanelEdit] = React.useState(null);   // {idx:int|null, text:string} | null
+  // the panel is tracked by its SHOT ID (2026-10-09, owner — Storyboards review): a redraw after a collaborator's
+  // change moves panels, and an index would then edit another shot
+  const [panelEdit, setPanelEdit] = React.useState(null);   // {shotId:string|null, text:string} | null
   const [panelErr, setPanelErr] = React.useState("");
+  const panelShot = (panelEdit && panelEdit.shotId!=null) ? ((page.shots||[]).find(x=>String(x.id)===String(panelEdit.shotId))||null) : null;
+  const panelPos = panelShot ? (page.shots||[]).indexOf(panelShot) : -1;
+  // the panel edit's result is kept when you page away mid-edit — as a toast (2026-10-09)
+  const panelReport = (msg, kind)=>{
+    if(mountedRef.current){ if(kind!=="ok") setPanelErr(msg); return; }
+    if(typeof window.appToast==="function") window.appToast("Scene "+scene.no+" storyboard — "+msg, kind==="ok" ? "ok" : "error");
+  };
+  // the edit's engine and quality — what it sends AND what its price chip shows (2026-10-09: the chip priced the
+  // picker's quality at the picker's aspect, not the forced "medium" at the sheet's format)
+  const panelEditEngine = ()=>{
+    const model = typeof nbGetModel==="function" ? nbGetModel() : undefined;
+    const quality = /^gpt-image-2\.5-/.test(model||"") && typeof nbGetOaiQuality==="function" ? nbGetOaiQuality(model) : "medium";
+    return { model, quality };
+  };
   // may this role change a shot frame? (it saves shots, which an Art Room role without that right can't)
   const canEditFrames = ()=> !readOnlyRef.current && !(typeof window.turnCanMutateShots==="function" && !window.turnCanMutateShots());
   const applyPanelEdit = async ()=>{
-    if(!panelEdit || panelEdit.idx==null || !panelEdit.text.trim() || panelBusy || composing || !isComposed) return;
+    if(!panelEdit || panelEdit.shotId==null || !panelEdit.text.trim() || panelBusy || composing || !isComposed) return;
     if(!canEditFrames()){ setPanelErr("Your role can't change shot frames on this film."); return; }
     if(sheetOutOfDate){ setPanelErr("This sheet shows other panels than the page holds now \u2014 Recompose it first, then edit a panel."); return; }
     const text = panelEdit.text.trim();
-    const i = panelEdit.idx, sh = page.shots[i];
+    const sh = (page.shots||[]).find(x=>String(x.id)===String(panelEdit.shotId));
+    if(!sh){ setPanelErr("That panel isn't on this page any more \u2014 pick a panel again."); setPanelEdit(p=>p ? { ...p, shotId:null } : p); return; }
     // an APPROVED frame is a continuity seed: editing it unapproves it — asked, not just noted (2026-10-09)
     if(sh && sh.locked && typeof window.appConfirm==="function"){
       const ok = await window.appConfirm({ title:"Edit an approved frame?",
@@ -832,9 +1017,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
         confirmLabel:"Edit it", cancelLabel:"Cancel" });
       if(!ok) return;
     }
-    const requestedModel=typeof nbGetModel==="function"?nbGetModel():undefined;
-    const requestedQuality=/^gpt-image-2\.5-/.test(requestedModel||"")&&typeof nbGetOaiQuality==="function"
-      ?nbGetOaiQuality(requestedModel):"medium";
+    const { model:requestedModel, quality:requestedQuality } = panelEditEngine();
     // never race the Shots tab: if this shot is generating right now (chain run,
     // manual render), a second writer would double-commit — refuse up front
     if(!window.__nbGenInflight) window.__nbGenInflight = {};
@@ -902,7 +1085,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
       // render is the newer intent — discard this edit; the newer owner's events
       // drive the UI, not ours, so no cancel event is fired here
       if(!_own()){
-        setPanelErr("That shot started a new render while the edit ran — this edit was discarded so it can't overwrite the newer frame.");
+        panelReport("That shot started a new render while the edit ran — this edit was discarded so it can't overwrite the newer frame.");
         setPanelBusy(false); return;
       }
       const prior = (typeof nbGetMeta==="function") ? (nbGetMeta(sh.id)||{}) : {};
@@ -940,10 +1123,11 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
       window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id:sh.id, url:(r&&r.url)||url } }));
       setPanelEdit(null);
       await doCompose({ explicit:true });   // rebuild the sheet with the repaired panel
+      if(!mountedRef.current) panelReport(sbPanelLabel(sh)+"'s frame was edited and the sheet redrawn with it.", "ok");
     }catch(e){
       _release();
       try{ window.dispatchEvent(new CustomEvent("nb-gen-cancel",{ detail:{ id:sh.id } })); }catch(err){}
-      setPanelErr((e&&e.message)||"Edit failed.");
+      panelReport((e&&e.message)||"Edit failed.");
     }
     setPanelBusy(false);
   };
@@ -959,12 +1143,22 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
   // upload a finished storyboard sheet from the machine (made elsewhere) — reuses the
   // shared importSheet so it commits to this sheet's slot at full resolution.
   const sbUploadRef = React.useRef(null);
-  const pickUpload = ()=>{ if(sbUploadRef.current) sbUploadRef.current.click(); };
-  const onUploadPicked = (e)=>{ const f=e.target.files&&e.target.files[0]; if(f && gen.importSheet) gen.importSheet(f); e.target.value=""; };
+  // (2026-10-09) nothing that replaces or removes the sheet runs while it is being drawn or uploaded — a
+  // compose would commit after it and bring the sheet back (any card, Compose all, a panel edit)
+  const sheetBusy = !!(composing || bulkBusy || panelBusy || gen.gening);
+  const busyNow = ()=> !!(composingRef.current || panelBusyRef.current || gen.gening || sbComposeRunning(sid));
+  const pickUpload = ()=>{ if(readOnlyRef.current) return;
+    if(busyNow()){ setActionErr("This sheet is being composed — wait for it to finish, then upload."); return; }
+    if(sbUploadRef.current) sbUploadRef.current.click(); };
+  const onUploadPicked = (e)=>{ const f=e.target.files&&e.target.files[0]; if(f && gen.importSheet && !readOnlyRef.current) gen.importSheet(f); e.target.value=""; };
   // CLEAR SAYS WHAT IT DOES (2026-10-09, owner — Storyboards review): it permanently deletes the sheet, its
   // earlier versions and its two Stage halves (the copy said the history stayed); it asks whenever an upload
-  // or saved halves would go, and both halves are always cleared (they were left behind if not loaded yet)
-  const clearSheet = async ()=>{ if(readOnlyRef.current) return; setMenuOpen(false);
+  // or saved halves would go, and both halves are always cleared (they were left behind if not loaded yet).
+  // It waits for the sheet's own clear: a failed one says why (on the sheet) and leaves the halves alone, and
+  // it belongs to the film it was pressed in (2026-10-09)
+  const clearSheet = async ()=>{ if(readOnlyRef.current) return; setMenuOpen(false); setActionErr("");
+    if(busyNow()){ setActionErr("This sheet is being composed — wait for it to finish, then Clear."); return; }
+    const _ep = filmEpoch();
     const hasHalves = !!(halves.top || halves.bottom);
     if((!isComposed || hasHalves) && typeof window.appConfirm==="function"){
       const ok = await window.appConfirm({ title: !isComposed ? "Clear this uploaded sheet?" : "Clear this sheet and its halves?",
@@ -974,32 +1168,50 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
         confirmLabel:"Clear sheet", cancelLabel:"Keep it", danger:true });
       if(!ok) return;
     }
+    if(_ep!=null && filmEpoch()!==_ep) return;
+    if(busyNow()){ setActionErr("This sheet is being composed — wait for it to finish, then Clear."); return; }
     // hold off the auto-compose for the rest of this tab session, so Clear sticks
     try{ sessionStorage.setItem("turn_sb_hold_"+sid,"1"); }catch(e){}
-    gen.clearGen();
-    try{ if(typeof nbClearAsset==="function"){ for(const h of ["top","bottom"]) await nbClearAsset(sid+":half-"+h); } }catch(e){}
+    const cleared = await gen.clearGen();
+    if(!cleared){ try{ sessionStorage.removeItem("turn_sb_hold_"+sid); }catch(e){} return; }   // gen.genErr says why
+    if(_ep!=null && filmEpoch()!==_ep) return;
+    let halvesFailed = false;
+    if(typeof nbClearAsset==="function"){ for(const h of ["top","bottom"]){ try{ await nbClearAsset(sid+":half-"+h); }catch(e){ halvesFailed = true; } } }
     try{ window.dispatchEvent(new CustomEvent("sb-sheet-cleared",{ detail:{ id:sid } })); }catch(e){}
+    if(halvesFailed) setActionErr("The sheet was cleared, but its halves couldn't be deleted — delete them under Saved halves below.");
     await loadHalves(); };
+  // the sheet's error strip: a compose / halves failure, a refused action, or a failed upload or Clear (B3, 2026-10-09)
+  const stripErr = composeErr || halvesErr || actionErr || gen.genErr || "";
+  const stripRetry = !readOnly && (composeErr ? "compose" : (halvesErr && /^Saving the halves failed/.test(halvesErr)) ? "halves" : "");
+  const shownHalves = halfNames.filter(h=>halves[h]);
+  const sheetAlt = "Scene "+scene.no+" storyboard, page "+((page.index||0)+1);
+  const engine = panelEditEngine();
   return _sbEl("div",{className:"sb-comp","data-sbsheet":page.id},
     _sbEl("input",{type:"file",accept:"image/png,image/jpeg,image/webp,image/avif",ref:sbUploadRef,style:{display:"none"},onChange:onUploadPicked}),
     _sbEl("div",{className:"sb-comp-frame"},
-      gen.genUrl && _sbEl("div",{className:"sheet-tools-menu sb-tpanel-menu",ref:menuRef},
+      gen.genUrl && _sbEl("div",{className:"sheet-tools-menu sb-tpanel-menu",ref:menuRef,
+          // the menu closes when keyboard focus leaves it (2026-10-09)
+          onBlur:(e)=>{ if(menuOpen && e.relatedTarget && !e.currentTarget.contains(e.relatedTarget)) setMenuOpen(false); }},
         _sbEl("button",{type:"button",className:"sb-tpanel-opts"+(menuOpen?" on":""),onClick:()=>setMenuOpen(m=>!m),title:"Options","aria-label":"Sheet options",
           "aria-haspopup":"true","aria-expanded":menuOpen?"true":"false",onKeyDown:(e)=>{ if(e.key==="Escape" && menuOpen){ e.preventDefault(); e.stopPropagation(); setMenuOpen(false); } }}, _sbEl(Icon.moreV,{s:14})),
         menuOpen && _sbEl("div",{className:"sheet-tools-dropdown",role:"group","aria-label":"Sheet options",
           onKeyDown:(e)=>{ if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); setMenuOpen(false); } }},
           _sbEl("button",{className:"sheet-tools-item",onClick:()=>{ onView({url:gen.genUrl,character:{name}}); setMenuOpen(false); }}, _sbEl(Icon.eye,{s:14}),"View full"),
-          _sbEl("button",{className:"sheet-tools-item",onClick:()=>{ setDetailsOpen(true); setMenuOpen(false); }}, _sbEl(Icon.info,{s:14}),"Details"),
-          _sbEl("button",{className:"sheet-tools-item "+(panelEdit?"on":""), disabled:!isComposed||sheetOutOfDate||!canEditFrames(),
+          // a view-only role SEES the board (it pages, views and exports it) but changes nothing: the version
+          // history (Details: restore / delete) and every changing item stay out of its menu (2026-10-09)
+          !readOnly && _sbEl("button",{className:"sheet-tools-item",onClick:()=>{ setDetailsOpen(true); setMenuOpen(false); }}, _sbEl(Icon.info,{s:14}),"Details"),
+          !readOnly && _sbEl("button",{className:"sheet-tools-item "+(panelEdit?"on":""), disabled:!isComposed||sheetOutOfDate||!canEditFrames(),
             title: !isComposed ? "Panel repair needs a composed sheet (it edits the shot's frame) — this sheet was uploaded or painted elsewhere"
               : sheetOutOfDate ? "This sheet shows other panels than the page holds now — Recompose it first (free)"
               : "Edit one panel (an image edit, priced on Apply) — the change is applied to that shot's frame, then the sheet recomposes",
-            onClick:()=>{ if(!isComposed || sheetOutOfDate) return; setPanelEdit(panelEdit?null:{idx:null,text:""}); setPanelErr(""); setMenuOpen(false); }},
+            onClick:()=>{ if(!isComposed || sheetOutOfDate) return; setPanelEdit(panelEdit?null:{shotId:null,text:""}); setPanelErr(""); setMenuOpen(false); }},
             _sbEl(Icon.grid,{s:14}), panelEdit?"Close panel edit":"Edit a panel…"),
-          _sbEl("button",{className:"sheet-tools-item",disabled:composing||!ready.n,
+          !readOnly && _sbEl("button",{className:"sheet-tools-item",disabled:composing||!ready.n,
             title: ready.n ? "Recompose the sheet from the shots' current frames" : "No shot frames to compose from",
             onClick:()=>{ doCompose({ explicit:true }); setMenuOpen(false); }}, _sbEl(Icon.board,{s:14}),"Recompose from frames"),
-          _sbEl("button",{className:"sheet-tools-item",disabled:composing,onClick:async ()=>{ setMenuOpen(false);
+          !readOnly && _sbEl("button",{className:"sheet-tools-item",disabled:sheetBusy,
+            title: sheetBusy ? "Wait for the sheet to finish composing" : "Upload a finished sheet made elsewhere in place of this one",
+            onClick:async ()=>{ setMenuOpen(false);
               // replacing a COMPOSED sheet turns off panel repair and the automatic redraws for it — say so (2026-10-09)
               if(isComposed && typeof window.appConfirm==="function"){
                 const ok = await window.appConfirm({ title:"Replace this sheet with an upload?",
@@ -1007,8 +1219,9 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
                   confirmLabel:"Choose a file", cancelLabel:"Cancel" });
                 if(!ok) return; }
               pickUpload(); }}, _sbEl(Icon.image,{s:14}),"Replace with upload"),
-          _sbEl("button",{className:"sheet-tools-item"+((halvesDone||halvesCurrent)?" on":""),disabled:!gen.genUrl||halvesBusy||halvesCurrent,
-            title: halvesCurrent
+          !readOnly && _sbEl("button",{className:"sheet-tools-item"+((halvesDone||halvesCurrent)?" on":""),disabled:!gen.genUrl||halvesBusy||halvesCurrent||uploadShapeOff,
+            title: uploadShapeOff ? SB_UPLOAD_SHAPE_MSG
+              : halvesCurrent
               ? "Both halves of this sheet version are already saved — recompose or edit the sheet to re-save"
               : "Split the sheet horizontally and save BOTH halves to your project (cloud) — on a 2×2 sheet each half is one panel row (two frames side by side), ready for the Stage's video generation",
             onClick:saveHalves},
@@ -1018,46 +1231,56 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
               :halvesCurrent?"Halves saved (current)"
               :(halves.top||halves.bottom)?"Re-save halves (sheet changed)"
               :"Save halves (for the Stage)"),
-          _sbEl("div",{className:"sheet-tools-divider"}),
-          _sbEl("button",{className:"sheet-tools-item danger",onClick:clearSheet}, _sbEl(Icon.x,{s:14}),"Clear"))),
+          !readOnly && _sbEl("div",{className:"sheet-tools-divider"}),
+          !readOnly && _sbEl("button",{className:"sheet-tools-item danger",disabled:sheetBusy,
+            title: sheetBusy ? "Wait for the sheet to finish composing" : undefined,onClick:clearSheet}, _sbEl(Icon.x,{s:14}),"Clear"))),
       gen.genUrl
-        ? _sbEl("img",{className:"sb-comp-img",src:gen.genUrl,alt:"",loading:"lazy",onClick:()=>onView({url:gen.genUrl,character:{name}})})
-        : composing
+        ? _sbEl("img",{className:"sb-comp-img",src:gen.genUrl,alt:sheetAlt,loading:"lazy",onClick:()=>onView({url:gen.genUrl,character:{name}})})
+        : (composing || gen.gening)
           ? _sbEl("div",{className:"sb-comp-empty",style:{cursor:"default"}},
-              _sbEl("span",{className:"ns-spin"}),_sbEl("span",null,"Composing sheet…"))
+              _sbEl("span",{className:"ns-spin"}),_sbEl("span",null, gen.gening ? "Uploading sheet…" : "Composing sheet…"))
+          : readOnly
+          ? _sbEl("div",{className:"sb-comp-empty",style:{cursor:"default"}},
+              _sbEl(Icon.board,{s:16}),_sbEl("span",null,"No sheet yet"))
           : _sbEl("div",{className:"sb-comp-choices"},
               _sbEl("button",{className:"sb-comp-choice primary",onClick:()=>doCompose(),disabled:!ready.n,
                 title: ready.n ? "Lay the shots' generated frames into the sheet — instant, free, real text strips"
                                : "No shot frames yet — generate frames in the Shots tab; the sheet composes itself"},
                 _sbEl(Icon.board,{s:16}),_sbEl("span",null,"Compose from shot frames"),
                 _sbEl("span",{className:"sb-comp-empty-sub"}, ready.n+" of "+ready.total+" frames ready · instant · free")),
-              _sbEl("button",{className:"sb-comp-choice",onClick:pickUpload,
+              _sbEl("button",{className:"sb-comp-choice",onClick:pickUpload,disabled:sheetBusy,
                 title:"Import a finished storyboard sheet you made elsewhere at full resolution"},
                 _sbEl(Icon.image,{s:16}),_sbEl("span",null,"Upload a sheet"),
                 _sbEl("span",{className:"sb-comp-empty-sub"}, "from your computer · full resolution"))),
-      (composing||panelBusy) && gen.genUrl && _sbEl("div",{className:"sb-tpanel-spin"},
+      (composing||panelBusy||gen.gening) && gen.genUrl && _sbEl("div",{className:"sb-tpanel-spin"},
         _sbEl("span",{className:"ns-spin"}),
         _sbEl("span",{className:"sb-spin-lab"},
           panelBusy ? "Editing panel — regenerating that shot's frame…"
+          : gen.gening ? "Uploading sheet…"
           : "Composing sheet from shot frames…")),
       /* the page's shots changed since this sheet was composed: it shows other panels, and
          the Stage won't use it (or its halves) until it is recomposed — a free redraw */
       sheetOutOfDate && !composing && !composeErr && _sbEl("div",{className:"sb-sheet-err sb-sheet-stale"},
         _sbEl(Icon.alert,{s:14}),
-        _sbEl("span",{className:"sb-sheet-err-msg"},(Array.isArray((sheetMetaNow()||{}).shotIds) && !sbIdsEqual((sheetMetaNow()||{}).shotIds, shotIds))
-          ? "The shots on this page changed since this sheet was composed, so it shows the wrong panels. The Stage won\u2019t use it until you recompose it (free)."
-          : "A panel\u2019s frame was re-rendered since this sheet was composed, so it shows the old image. The Stage won\u2019t use it until you recompose it (free)."),
-        _sbEl("div",{className:"sb-sheet-err-acts"},
+        _sbEl("span",{className:"sb-sheet-err-msg"}, staleWhy==="shots"
+          ? "The shots on this page changed since this sheet was composed, so it shows the wrong panels. The Stage won’t use it until you recompose it (free)."
+          : staleWhy==="deleted"
+          ? "A panel’s frame was deleted since this sheet was composed, so it still shows that frame. The Stage won’t use it until you recompose it (free)."
+          : "A panel’s frame was re-rendered since this sheet was composed, so it shows the old image. The Stage won’t use it until you recompose it (free)."),
+        !readOnly && _sbEl("div",{className:"sb-sheet-err-acts"},
           _sbEl("button",{className:"sb-sheet-err-btn primary",onClick:()=>doCompose({ explicit:true }),disabled:!ready.n},"Recompose"))),
-      /* compose/halves failed: show the REAL error on the sheet (not a hover-only
-         icon) plus the way out — retry the failed action */
-      (composeErr || (halvesErr && !(halves.top||halves.bottom))) && !composing && !halvesBusy && _sbEl("div",{className:"sb-sheet-err"},
+      /* compose / halves / upload / Clear failed or was refused: show the REAL message on the sheet (not a
+         hover-only icon), plus the way out — retry the failed action, or dismiss a plain message (2026-10-09:
+         a refused Save halves was hidden while halves existed; a failed upload or Clear said nothing) */
+      stripErr && !composing && !halvesBusy && _sbEl("div",{className:"sb-sheet-err",role:"alert"},
         _sbEl(Icon.alert,{s:14}),
-        _sbEl("span",{className:"sb-sheet-err-msg"}, (!(halves.top||halves.bottom) && halvesErr) || composeErr),
+        _sbEl("span",{className:"sb-sheet-err-msg"}, stripErr),
         _sbEl("div",{className:"sb-sheet-err-acts"},
-          _sbEl("button",{className:"sb-sheet-err-btn primary",
-            onClick:()=>{ if(halvesErr){ saveHalves(); } else { doCompose({ explicit:true }); } }},
-            "Try again")))),
+          stripRetry && _sbEl("button",{className:"sb-sheet-err-btn primary",
+            onClick:()=>{ if(stripRetry==="halves"){ saveHalves(); } else { doCompose({ explicit:true }); } }},
+            "Try again"),
+          !stripRetry && (halvesErr || actionErr) && _sbEl("button",{className:"sb-sheet-err-btn",
+            onClick:()=>{ setHalvesErr(""); setActionErr(""); }}, "Dismiss")))),
     /* PANEL HEALTH strip — same chips as the Shots tab's chain strip, so a sheet never
        reads as finished while its panels are unrendered, unapproved or stale */
     health && !!health.total && _sbEl("div",{className:"ssx-chain-strip sb-health"},
@@ -1088,70 +1311,76 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
           title:r.label+" — click to enlarge", onClick:()=>onView&&onView({ url:r.url, character:{ name:r.label } })},
           _sbEl("img",{src:r.url,alt:r.label,loading:"lazy"}))))),
 
+    // an upload that isn't shaped like a 2×2 sheet: no halves are made from it (owner decision 2026-10-09)
+    uploadShapeOff && _sbEl("div",{className:"sb-halves-err"}, _sbEl(Icon.alert,{s:12}), SB_UPLOAD_SHAPE_MSG),
+
     /* saved halves — the Stage's video-gen hand-off, managed in place: view, restore
        the previous saved version, or delete. Stale halves (cut from an older sheet
-       version) say so and point at the ⋮ menu's re-save. */
-    (halves.top||halves.bottom) && _sbEl("div",{className:"sb-halves"},
+       version) say so and point at the ⋮ menu's re-save. A page of one or two panels
+       has only a top half. */
+    shownHalves.length>0 && _sbEl("div",{className:"sb-halves"},
       _sbEl("button",{className:"sb-halves-head",onClick:()=>setHalvesOpen(o=>!o),
         "aria-expanded":halvesOpen?"true":"false",
         title: halvesOpen?"Hide the saved halves":"Show the saved halves"},
         _sbEl("span",{className:"sb-halves-chev"+(halvesOpen?" open":"")}, _sbEl(Icon.chevR,{s:12})),
         _sbEl(Icon.board,{s:12}),
-        "Saved halves ("+["top","bottom"].filter(h=>halves[h]).length+") — the Stage's video-gen hand-off",
+        "Saved halves ("+shownHalves.length+") — the Stage's video-gen hand-off",
         !halvesCurrent && _sbEl("span",{className:"sb-halves-stale"},"· cut from an older sheet version — re-save from the ⋮ menu")),
       halvesOpen && _sbEl("div",{className:"sb-halves-row"},
-        ["top","bottom"].map(h=> halves[h] && _sbEl("div",{key:h,className:"sb-half"},
+        shownHalves.map(h=> _sbEl("div",{key:h,className:"sb-half"},
           _sbEl("button",{type:"button",className:"sb-half-view",title:"View the "+h+" half full size","aria-label":"View the "+h+" half full size",
             onClick:()=>onView({url:halves[h].url,character:{name:name+" — "+h+" half"}})},
-            _sbEl("img",{src:halves[h].url,alt:h+" half",loading:"lazy"})),
+            _sbEl("img",{src:halves[h].url,alt:sheetAlt+", "+h+" half",loading:"lazy"})),
           _sbEl("div",{className:"sb-half-meta"},
             _sbEl("span",{className:"sb-half-tag"},h.toUpperCase()),
-            _sbEl("button",{className:"sb-half-btn",onClick:()=>restoreHalf(h),
-              title:"Restore the halves' previous saved version (both halves together) \u2014 the sheet on display switches to the sheet version they were cut from"},"Restore"),
-            _sbEl("button",{className:"sb-half-btn danger",onClick:()=>deleteHalf(h),
-              title:"Delete this saved half from the project — the sheet itself is untouched"},"Delete"))))),
-      halvesOpen && halvesErr && _sbEl("div",{className:"sb-halves-err"}, _sbEl(Icon.alert,{s:12}), halvesErr)),
+            !readOnly && _sbEl("button",{className:"sb-half-btn",onClick:()=>restoreHalf(h),
+              title:"Restore the halves' previous saved version (both halves together) — the sheet on display switches to the sheet version they were cut from"},"Restore"),
+            !readOnly && _sbEl("button",{className:"sb-half-btn danger",onClick:()=>deleteHalf(h),
+              title:"Delete this saved half from the project — the sheet itself is untouched"},"Delete")))))),
 
-    // per-panel repair: pick the panel, describe the change
-    panelEdit && gen.genUrl && _sbEl("div",{className:"sheet-edit-panel sb-panel-edit"},
+    // per-panel repair: pick the panel (by its shot), describe the change
+    panelEdit && gen.genUrl && !readOnly && _sbEl("div",{className:"sheet-edit-panel sb-panel-edit"},
       _sbEl("div",{className:"sb-panel-chips"},
-        page.shots.map((sh,i)=> _sbEl("button",{key:sh.id,
-          className:"sb-panel-chip"+(panelEdit.idx===i?" on":""), type:"button", "aria-pressed":panelEdit.idx===i?"true":"false",
+        page.shots.map((sh)=> _sbEl("button",{key:sh.id,
+          className:"sb-panel-chip"+(panelShot===sh?" on":""), type:"button", "aria-pressed":panelShot===sh?"true":"false",
           title:(typeof shotGrammarLabel==="function")?shotGrammarLabel(sh):"",
-          onClick:()=>{ setPanelEdit(p=>({ ...p, idx:i })); setPanelErr(""); }},
+          onClick:()=>{ setPanelEdit(p=>({ ...p, shotId:sh.id })); setPanelErr(""); }},
           sbPanelLabel(sh),
           _sbEl("span",{className:"sb-panel-chip-sub"},(typeof shotSizeOf==="function")?shotSizeOf(sh.size).label:(sh.size||""))))),
-      panelEdit.idx!=null && page.shots[panelEdit.idx] && page.shots[panelEdit.idx].locked &&
+      panelShot && panelShot.locked &&
         _sbEl("div",{className:"sb-panel-note"},
           "This frame is APPROVED (it seeds later shots). Applying an edit changes its pixels, so it un-approves — use Approve frame as seed in the shot image's Options menu once you're happy."),
-      panelEdit.idx!=null && _sbEl("input",{className:"sheet-edit-input",type:"text",autoFocus:true,
-        placeholder:"Change panel "+scene.no+"."+((page.start||0)+panelEdit.idx+1)+" — edits that shot's frame, then recomposes (\u2318/Ctrl+Enter applies)…",
+      panelShot && _sbEl("input",{className:"sheet-edit-input",type:"text",autoFocus:true,
+        "aria-label":"Change to "+sbPanelLabel(panelShot)+"'s frame",
+        placeholder:"Change panel "+scene.no+"."+((page.start||0)+panelPos+1)+" — edits that shot's frame, then recomposes (⌘/Ctrl+Enter applies)…",
         value:panelEdit.text,onChange:e=>setPanelEdit(p=>({ ...p, text:e.target.value })),
-        // a paid edit: a stray Enter no longer spends it — \u2318/Ctrl+Enter (or the button) applies (2026-10-05)
+        // a paid edit: a stray Enter no longer spends it — ⌘/Ctrl+Enter (or the button) applies (2026-10-05)
         onKeyDown:e=>{ if(e.key==="Enter" && (e.metaKey||e.ctrlKey)){ e.preventDefault(); applyPanelEdit(); } if(e.key==="Escape") setPanelEdit(null); }}),
       panelErr && _sbEl("div",{className:"sb-panel-err"}, _sbEl(Icon.alert,{s:12}), panelErr),
       editRefChips("panel-edit-refs"),
       _sbEl("div",{className:"sheet-edit-acts"},
-        _sbEl("button",{className:"sheet-edit-apply",disabled:panelEdit.idx==null||!panelEdit.text.trim()||panelBusy||composing,
+        _sbEl("button",{className:"sheet-edit-apply",disabled:!panelShot||!panelEdit.text.trim()||panelBusy||composing,
           onClick:applyPanelEdit},
           _sbEl(Icon.wand,{s:12}), panelBusy?"Editing panel…":"Apply to panel",
-          // the one paid action in this tab — one image edit of that shot's frame
-          !panelBusy && typeof window.nbCostChip==="function" && window.nbCostChip(1)),
+          // the one paid action in this tab — one image edit of that shot's frame, priced as it is sent:
+          // its engine and quality, the sheet's format, the frame plus any references you attach (2026-10-09)
+          !panelBusy && typeof window.nbCostChip==="function" && window.nbCostChip(1, { model:engine.model, quality:engine.quality,
+            aspect:sheetAsp, refs:1+editRefSel.length })),
         _sbEl("button",{className:"sheet-edit-cancel",onClick:()=>setPanelEdit(null)},"Cancel"))),
-    detailsOpen && ReactDOM.createPortal(_sbEl(window.SheetDetails,{ gen, name, noun:"sheet",extraMeta:sbHalfDateDetails(halves),
+    detailsOpen && !readOnly && ReactDOM.createPortal(_sbEl(window.SheetDetails,{ gen, name, noun:"sheet",extraMeta:sbHalfDateDetails(halves),
       onClose:()=>setDetailsOpen(false), onView:(url)=>onView({url,character:{name}}) }), document.body));
 }
 
 /* one scene PAGE = a storyboard SHEET: a header bar + the composed sheet image,
    plus a beat-briefs expander. */
-function StoryboardPage({ project, scene, page, pageCount, ctx, beatsMap, onView, jumpToShot, onUpdateShot, readOnly=false }){
+function StoryboardPage({ project, scene, page, pageCount, ctx, beatsMap, onView, jumpToShot, onUpdateShot, readOnly=false, bulkBusy=false }){
   return _sbEl("div",{className:"sb-sheet","data-sbpage":page.id},
     _sbEl("div",{className:"sb-sheet-head"},
       _sbEl("span",{className:"sb-sheet-hi"}, _sbEl("b",null,"PROJECT: "), (project&&project.title)||"Untitled film"),
       _sbEl("span",{className:"sb-sheet-hi"}, _sbEl("b",null,"SCENE: "), String(scene.no).padStart(2,"0")),
       _sbEl("span",{className:"sb-sheet-hi"}, _sbEl("b",null,"TITLE: "), scene.title||"Untitled scene"),
       _sbEl("span",{className:"sb-sheet-hi page"}, _sbEl("b",null,"PAGE: "), (page.index+1)+" of "+pageCount)),
-    _sbEl(StoryboardComposite,{ scene, page, ctx, beatsMap, onView, onUpdateShot, readOnly }),
+    _sbEl(StoryboardComposite,{ scene, page, ctx, beatsMap, onView, onUpdateShot, readOnly, bulkBusy }),
 
     // full per-panel detail — Shots tab fields + Writers' Room beat subtext + the final frame prompt
     _sbEl(CardFold,{label:"Beat & shot briefs",defaultOpen:false},
@@ -1287,15 +1516,18 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
   const readiness = sbStoryboardReadiness(pagesByScene, frames,
     (id)=> (typeof nbGetMeta==="function") ? nbGetMeta(id) : null);
   const totalSheets = readiness.total;
-  const readySheets = readiness.complete + readiness.partial;
+  const readySheets = readiness.complete + readiness.partial + (readiness.stale||0);
+  // the role is re-checked before EACH sheet of a bulk compose (2026-10-09): a downgrade mid-run stops it
+  const readOnlyRef = React.useRef(readOnly); readOnlyRef.current = readOnly;
 
   // compose every sheet whose shots have frames — instant per sheet, no generation cost
   const [composingAll, setComposingAll] = React.useState(null);   // {i,total} | null
   const [composingScene, setComposingScene] = React.useState(null); // {id,i,total} | null
   const composeJobs = async (jobs, onProgress)=>{
     // structured outcome — a bulk run must never end silently on failures
-    const out = { composed:0, skipped:0, kept:0, failed:[], stale:false };
+    const out = { composed:0, skipped:0, kept:0, current:0, held:0, failed:[], stale:false, stopped:false };
     for(let i=0;i<jobs.length;i++){
+      if(readOnlyRef.current){ out.stopped = true; break; }
       if(onProgress) onProgress(i+1,jobs.length);
       const { scene, page } = jobs[i];
       // an UPLOADED board is never drawn over (2026-10-05): the automatic redraw already kept it;
@@ -1309,6 +1541,9 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
       if(res.status==="stale"){ out.stale = true; break; }   // film switched: stop the whole batch quietly
       if(res.status==="composed") out.composed++;
       else if(res.status==="kept") out.kept++;
+      else if(res.status==="current") out.current++;   // already up to date — not redrawn (2026-10-09)
+      else if(res.status==="held") out.held++;         // a version you restored — kept until you Recompose it
+      else if(res.status==="cleared") {}               // you cleared it while it drew
       else if(res.status==="skipped") out.skipped++;
       else out.failed.push("Scene "+scene.no+" sheet "+(page.index+1));
     }
@@ -1316,12 +1551,18 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
   };
   const reportComposeRun = (out)=>{
     if(!out || out.stale || typeof window.appToast!=="function") return;
+    if(out.stopped){ window.appToast("Composing stopped \u2014 your role on this film no longer changes the Art Room."+(out.composed?(" "+out.composed+" sheet"+(out.composed===1?" was":"s were")+" composed before that."):""),"error"); return; }
+    // sheets left as they were: up to date, restored by you, uploaded (2026-10-09)
+    const left = [out.current ? out.current+" already up to date" : "", out.held ? out.held+" restored version"+(out.held===1?"":"s")+" kept" : ""].filter(Boolean).join(", ");
+    if(!out.failed.length && !out.composed && !out.skipped && !out.kept && left){
+      window.appToast("Nothing to compose \u2014 "+left+". Use Recompose on a sheet to redraw it anyway."); return; }
     if(out.failed.length){
       const names = out.failed.slice(0,3).join(", ") + (out.failed.length>3 ? " +"+(out.failed.length-3)+" more" : "");
       window.appToast("Composed "+out.composed+" sheet"+(out.composed===1?"":"s")+" — "+out.failed.length+" failed: "+names+". Open those scenes and Recompose to retry.","error");
     } else if(out.composed){
       window.appToast("Composed "+out.composed+" sheet"+(out.composed===1?"":"s")+(out.skipped?(" — "+out.skipped+" skipped (no generated frames yet)"):"")
-        +(out.kept?(" \u00b7 "+out.kept+" uploaded sheet"+(out.kept===1?"":"s")+" kept as "+(out.kept===1?"it is":"they are")):"")+".");
+        +(out.kept?(" \u00b7 "+out.kept+" uploaded sheet"+(out.kept===1?"":"s")+" kept as "+(out.kept===1?"it is":"they are")):"")
+        +(left?(" \u00b7 "+left):"")+".");
     } else if(out.kept && !out.skipped){
       window.appToast("Nothing to compose \u2014 "+out.kept+" uploaded sheet"+(out.kept===1?" is":"s are")+" kept as "+(out.kept===1?"it is":"they are")+".");
     } else if(out.skipped){
@@ -1367,7 +1608,7 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
   // ---- empty state ----
   if(!pagesByScene.length){
     return _sbEl("div",{className:"art-scroll"},
-      _sbEl(NbKeyBar,null), _sbEl(NbControls,null),
+      _sbEl("div",{inert:readOnly?"":undefined,"aria-disabled":readOnly?"true":undefined}, _sbEl(NbKeyBar,null), _sbEl(NbControls,null)),
       _sbEl("div",{className:"art-intro"},
         _sbEl("div",{className:"art-intro-row"},
           _sbEl("div",{style:{flex:1}},
@@ -1386,7 +1627,11 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
 
   return _sbEl("div",{className:"art-scroll"},
     view && _sbEl(ImageLightbox,{url:view.url,character:view.character,onClose:()=>setView(null)}),
-    _sbEl(NbKeyBar,null), _sbEl(NbControls,null),
+    // VIEW-ONLY ROLES SEE THE BOARD (2026-10-09, owner — Storyboards review): this tab is outside the Art Room's
+    // `inert` boundary (artroom.jsx) so a read-only role or a Stage editor can page, open the briefs, view
+    // sheets and halves and export; the engine settings stay inert and every changing control is disabled or
+    // hidden for them below
+    _sbEl("div",{inert:readOnly?"":undefined,"aria-disabled":readOnly?"true":undefined}, _sbEl(NbKeyBar,null), _sbEl(NbControls,null)),
     // (no Lookbook banner: the boards are composed from the shot frames and read no references
     //  of their own — the look reaches them through Shots, Locations and Color. 2026-10-05, owner)
     _sbEl("div",{className:"art-intro"},
@@ -1397,6 +1642,7 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
               text:"Storyboards are the presentation layer of your shot chain: each scene's generated shot frames lay into printable 2×2 sheets — paginated on beat boundaries, with real CAMERA / MOTION / ACTION / PERFORMANCE annotations — and re-compose automatically when a frame re-renders while the scene is open here, or the next time you open it. Save top/bottom halves to hand panel rows to the Stage, repair a single panel (it edits that shot's frame), upload a board made elsewhere, or export the whole board as a print-ready PDF."})),
           _sbEl("div",{style:{fontFamily:"var(--f-mono)",fontSize:11,letterSpacing:".03em",color:"var(--txt-3)",marginTop:4}},
             readiness.complete+"/"+totalSheets+" complete"+
+            (readiness.stale ? " · "+readiness.stale+"/"+totalSheets+" out of date" : "")+
             (readiness.partial ? " · "+readiness.partial+"/"+totalSheets+" partial" : "")+
             (readiness.missing ? " · "+readiness.missing+"/"+totalSheets+" missing" : ""))),
         _sbEl("div",{className:"art-intro-actions"},
@@ -1404,7 +1650,7 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
             title:"Lay every scene's generated shot frames into its sheets — instant and free; scenes with no frames yet are skipped"},
             _sbEl(Icon.board,{s:14}), composingAll?("Composing "+composingAll.i+"/"+composingAll.total+"…"):"Compose all from frames"),
           _sbEl("button",{className:"art-draftall ghost",disabled:!readySheets,
-            onClick:()=> exportStoryboard(pagesByScene, frames, project),
+            onClick:()=> exportStoryboard(pagesByScene, frames, project, shotsByScene),
             title:"Preview the storyboard as a printable document (sheet images inlined for keeps), then print / save as PDF or download the HTML"},
             _sbEl(Icon.download,{s:14}),"Export storyboard"))) ),
 
@@ -1420,6 +1666,7 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
       sceneShots.forEach(sh=>{ const n=Number(sh.beatN)||0; let row=beatCounts.find(x=>x.n===n);
         if(!row){ row={n,count:0}; beatCounts.push(row); } row.count++; });
       const sceneBusy=composingScene&&composingScene.id===scene.id;
+      const boardN=pages.reduce((n,p)=>n+(p.shots||[]).length,0);
       return _sbEl("div",{className:"sb-scene",key:scene.id},
         _sbEl("div",{className:"shot-scene-card sb-scene-summary"},
           _sbEl("div",{className:"shot-scene-head merged"},
@@ -1444,7 +1691,8 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
               _sbEl("div",{className:"shot-scene-style-row"},
                 _sbEl(StoryboardSceneStyleChip,{project,sceneId:scene.id})),
               _sbEl("div",{className:"shot-scene-sub"},
-                (ln?("Location: "+ln+"   ·   "):"")+sceneShots.length+" shot"+(sceneShots.length!==1?"s":"")+"   ·   "+pages.length+" sheet"+(pages.length!==1?"s":"")),
+                // the PANELS drawn (one keyframe per beat), not every saved alternative (2026-10-09)
+                (ln?("Location: "+ln+"   ·   "):"")+boardN+" panel"+(boardN!==1?"s":"")+"   ·   "+pages.length+" sheet"+(pages.length!==1?"s":"")),
               beatCounts.length>1&&_sbEl("div",{className:"ssx-beat-strip",title:"Shots saved per beat \u2014 the board draws each beat's main keyframe; any extra shots stay in Shots as alternatives"},
                 beatCounts.map(b=>_sbEl("span",{key:"sb"+b.n,className:"ssx-beat-seg",style:{flexGrow:Math.max(1,b.count)},
                   title:"Beat "+b.n+" — "+b.count+" shot"+(b.count!==1?"s":"")},b.count)))),
@@ -1472,7 +1720,7 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
                   confLab&&_sbEl("span",{className:"ssx-conf-lab"},confLab),
                   _sbEl("div",{className:"ssx-pips"},[1,2,3].map(i=>_sbEl("span",{key:i,className:"ssx-pip"+(i<=scene.conf?" on":"")})))))))),
         pages.map(page=>_sbEl(StoryboardPage,{key:page.id,project,scene,page,pageCount:pages.length,ctx,beatsMap,
-          onView:setView,jumpToShot,onUpdateShot,readOnly})));
+          onView:setView,jumpToShot,onUpdateShot,readOnly,bulkBusy:!!composingAll||!!sceneBusy})));
     }));
 }
 window.StoryboardView = StoryboardView;
@@ -1488,15 +1736,25 @@ window.StoryboardView = StoryboardView;
 /* sheetMeta (2026-10-09): the halves record what the SHEET was drawn from — its shot ids and frame versions —
    never the page's live shots (a re-save of an out-of-date sheet stamped its old panels as current). An
    uploaded sheet's halves record its shots but no frame versions (re-rendering a frame can't change it). */
-async function sbSaveHalves(url, sid, page, sourceVersion, _ep, sheetMeta){
+/* (2026-10-09, owner — Storyboards review) an UPLOAD is cut only when it is shaped like a composed 2×2 sheet
+   (sbUploadShapeOk — `aspect` is the film's format; an Error with code "shape" otherwise), and a page of one or
+   two panels saves only its TOP half — its bottom row is empty. Returns the halves saved. */
+async function sbSaveHalves(url, sid, page, sourceVersion, _ep, sheetMeta, aspect){
   const data = await sbToDataUrl(url);
   const img = new Image();
   await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; img.src=data; });
   const mid = Math.floor(img.height/2);
   const _sm = sheetMeta || ((typeof nbGetMeta==="function") ? nbGetMeta(sid) : null) || {};
+  if(!_sm.composed){
+    const asp = aspect || ((typeof aspectFor==="function") ? aspectFor(window.turnProject) : "16:9");
+    if(sbUploadShapeOk(img.naturalWidth||img.width, img.naturalHeight||img.height, asp)===false){
+      const e = new Error(SB_UPLOAD_SHAPE_MSG); e.code = "shape"; throw e; }
+  }
   const _ids = Array.isArray(_sm.shotIds) ? _sm.shotIds : ((page&&page.shots)||[]).map(x=>x.id);
   const _fv = Array.isArray(_sm.frameVersions) ? _sm.frameVersions : ((_sm.uploaded || _sm.mode==="upload") ? null : sbFrameVersions((page&&page.shots)||[]));
-  for(const [half, sy, sh] of [["top",0,mid],["bottom",mid,img.height-mid]]){
+  const cuts = [["top",0,mid],["bottom",mid,img.height-mid]].filter(([half])=> half==="top" || sbHalvesFor(_ids.length).indexOf("bottom")>=0);
+  const saved = [];
+  for(const [half, sy, sh] of cuts){
     const c = document.createElement("canvas"); c.width=img.width; c.height=sh;
     c.getContext("2d").drawImage(img, 0,sy,img.width,sh, 0,0,img.width,sh);
     const now = new Date();
@@ -1511,16 +1769,18 @@ async function sbSaveHalves(url, sid, page, sourceVersion, _ep, sheetMeta){
     if(typeof nbCommit!=="function") throw new Error("the image store isn't available");
     // _ep (the film scope at compose start): a film switch mid-save is a quiet discard
     const r = await nbCommit(sid+":half-"+half, c.toDataURL("image/png"), meta, [], undefined, _ep);
-    if(r && r.tier==="stale") return;
+    if(r && r.tier==="stale") return saved;
     if(!r || r.tier==="error") throw new Error("the "+half+" half didn't save");
+    saved.push(half);
   }
+  return saved;
 }
 
 /* ---- export: printable storyboard SHEETS (header + the composed sheet image), Save as PDF ----
    DURABLE: every sheet image is inlined as a data URL before the document is written —
    cloud sheets are served on SIGNED URLs that expire within the hour, so an export that
-   merely links them goes blank as soon as it's saved or printed later. The sheet cell
-   honors the project's format aspect (a vertical board prints vertical). */
+   merely links them goes blank as soon as it's saved or printed later (one that can't be
+   inlined is said to expire). Each sheet prints at its own shape (2026-10-09). */
 async function sbToDataUrl(url){
   if(!url || /^data:/.test(url)) return url || "";
   try{
@@ -1533,11 +1793,14 @@ async function sbToDataUrl(url){
 /* board health for the EXPORT — same checks as the on-screen strip, computed on WARM
    data (each frame awaited first, so a scene the user never opened is judged exactly,
    never guessed from a cold cache). Returns per-sheet warning counts + board totals. */
-async function sbBoardHealth(pagesByScene){
+/* sceneShotsOf (2026-10-09): the scene's FULL shot list — the continuity chain the tab's strip judges against
+   (ctx.sceneShots), not only the panels on the board; the board's panels are the fallback */
+async function sbBoardHealth(pagesByScene, sceneShotsOf){
   const drafts = ((window.turnContinuity||{}).drafts)||{};
   const perSheet = {}; const tot = { unrendered:0, unapproved:0, staleSeed:0, staleSrc:0, oldLook:0 };
   for(const g of pagesByScene){
-    const chain = g.pages.flatMap(p=>p.shots||[]);   // the scene's full running order
+    const full = (sceneShotsOf && g.scene && Array.isArray(sceneShotsOf[g.scene.id])) ? sceneShotsOf[g.scene.id] : null;
+    const chain = (full && full.length) ? full : g.pages.flatMap(p=>p.shots||[]);   // the scene's full running order
     for(const page of g.pages){
       const w = { unrendered:0, unapproved:0, staleSeed:0, staleSrc:0, oldLook:0 };
       for(const sh of (page.shots||[])){
@@ -1566,10 +1829,19 @@ const sbWarnParts = (w)=> !w ? [] : [
   w.staleSrc ? (w.staleSrc+" frame"+(w.staleSrc!==1?"s need":" needs")+" source refresh") : "",
   w.oldLook ? (w.oldLook+" frame"+(w.oldLook!==1?"s":"")+" made with an earlier look") : "",
 ].filter(Boolean);
-async function exportStoryboard(pagesByScene, frames, project){
+/* the export's file name keeps the title's letters in any language — the Home poster's rule (home-dashboard.jsx
+   posterFileName), 2026-10-09: "東京物語" came out "_STORYBOARD.html" */
+function sbExportFileName(title){
+  const raw = String(title||"").trim();
+  let slug = "";
+  try{ slug = raw.normalize("NFC").replace(new RegExp("[^\\p{L}\\p{M}\\p{N}\\-]+","gu"),"-"); }catch(e){ slug = raw.replace(/[^\w-]+/g,"-"); }
+  slug = slug.replace(/-+/g,"-").replace(/^-+|-+$/g,"").slice(0,80);
+  return (slug || "film")+"-storyboard.html";
+}
+window.sbExportFileName = sbExportFileName;
+async function exportStoryboard(pagesByScene, frames, project, sceneShotsOf){
   const esc = (s)=> String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   const title = (project && project.title) || "Storyboard";
-  const _ar = String((typeof aspectFor==="function") ? aspectFor(project) : "16:9").replace(":", " / ");
   const placeholder = '<!doctype html><html><head><meta charset="utf-8"><title>'+esc(title)
     +' — Storyboard</title></head><body style="background:#000;color:#9a958b;font:13px -apple-system,Segoe UI,sans-serif;'
     +'display:flex;align-items:center;justify-content:center;height:100vh;margin:0">Checking the board\u2019s panels, then inlining sheet images\u2026</body></html>';
@@ -1580,8 +1852,8 @@ async function exportStoryboard(pagesByScene, frames, project){
   // window opened after an await. (The confirm dialog stacks above this overlay.)
   const prev = (typeof window.docPreview==="function")
     ? window.docPreview({ title:"Storyboard preview", sub:title,
-        fileName:(title||"storyboard").replace(/[^\w\-]+/g,"_").toUpperCase()+"_STORYBOARD.html", html:placeholder,
-        hint:"Sheet images are inlined as data URLs — the saved file stays viewable after image links expire." })
+        fileName:sbExportFileName(project && project.title), html:placeholder,
+        hint:"Sheet images are copied into the file, so it stays viewable after image links expire \u2014 the document says so if one couldn't be." })
     : null;
   // fallback tab (overlay unavailable) — open NOW, inside the click
   const w = prev ? null : window.open("", "_blank");
@@ -1590,7 +1862,7 @@ async function exportStoryboard(pagesByScene, frames, project){
   // Check every panel first; if anything is off, the director exports EXPLICITLY
   // with warnings (and the affected sheets are marked in the document itself).
   let health = null;
-  try{ health = await sbBoardHealth(pagesByScene); }catch(e){}
+  try{ health = await sbBoardHealth(pagesByScene, sceneShotsOf); }catch(e){}
   const readiness = sbStoryboardReadiness(pagesByScene, frames,
     (id)=> (typeof nbGetMeta==="function") ? nbGetMeta(id) : null);
   const _totParts = health ? sbWarnParts(health.tot) : [];
@@ -1618,16 +1890,18 @@ async function exportStoryboard(pagesByScene, frames, project){
   const inline = {};
   // read each sheet NOW (a sheet cleared after the tab loaded used to export anyway), and mark one
   // that's out of date — its page's shots or frames changed since it was drawn (2026-10-05)
+  let linked = 0;   // sheets that couldn't be inlined — they stay links, which expire (2026-10-09)
   for(const g of pagesByScene){ for(const page of g.pages){
     const k = "sbsheet-"+page.id;
     const now = (typeof nbGetImage==="function") ? nbGetImage(k) : (frames[k]||"");
-    if(now) inline[k] = await sbToDataUrl(now);
+    if(now){ inline[k] = await sbToDataUrl(now); if(!/^data:/.test(inline[k]||"")) linked++; }
   } }
   let body = "";
   pagesByScene.forEach(({scene,pages})=>{
     pages.forEach((page)=>{
       const url = inline["sbsheet-"+page.id];
-      const img = url ? '<img src="'+esc(url)+'">' : '<div class="ph"></div>';
+      const alt = "Scene "+scene.no+" storyboard, page "+(page.index+1);
+      const img = url ? '<img src="'+esc(url)+'" alt="'+esc(alt)+'">' : '<div class="ph">No sheet yet</div>';
       const wp = (health ? sbWarnParts(health.perSheet["sbsheet-"+page.id]) : [])
         .concat(outOfDate["sbsheet-"+page.id] ? ["out of date \u2014 recompose it in the Storyboards tab"] : []);
       body += '<section class="sheet"><div class="sheet-h">'
@@ -1639,18 +1913,29 @@ async function exportStoryboard(pagesByScene, frames, project){
         + '</div><div class="sheet-img">'+img+'</div></section>';
     });
   });
+  // a sheet that couldn't be inlined is still a signed link — say so instead of promising a durable file (2026-10-09)
+  const linkNote = linked ? '<p class="note">'+linked+' sheet image'+(linked===1?' couldn\u2019t':'s couldn\u2019t')
+    +' be copied into this file, so '+(linked===1?'it is a link that expires':'they are links that expire')
+    +' in about an hour. Export again later to keep '+(linked===1?'it':'them')+'.</p>' : '';
+  // THE SHEET PRINTS AS A SHEET (2026-10-09, owner — Storyboards review): the image is sized to the sheet itself
+  // (it sat in a box shaped like one PANEL — black bars), and paper gets a light page with dark text
   const html = '<!doctype html><html><head><meta charset="utf-8"><title>'+esc(title)+' — Storyboard</title>'
     + '<style>'
     + 'body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#000;color:#eee;margin:24px;}'
+    + '.note{color:#d8a35d;font-size:13px;margin:0 0 20px;}'
     + '.sheet{break-inside:avoid;margin:0 0 32px;}'
     + '.sheet-h{display:flex;gap:26px;flex-wrap:wrap;font-size:12px;letter-spacing:.04em;border-bottom:1px solid #444;padding-bottom:8px;margin-bottom:14px;}'
     + '.sheet-h b{color:#999;font-weight:600;}'
     + '.sheet-h .warn{color:#d86b61;font-weight:600;}'
-    + '.sheet-img{aspect-ratio:'+_ar+';background:#111;border:1px solid #333;border-radius:6px;overflow:hidden;}'
-    + '.sheet-img img{width:100%;height:100%;object-fit:contain;display:block;background:#000;}'
-    + '.sheet-img .ph{width:100%;height:100%;background:repeating-linear-gradient(135deg,#111,#111 6px,#181818 6px,#181818 12px);}'
-    + '@media print{body{margin:10mm;-webkit-print-color-adjust:exact;print-color-adjust:exact;}}'
+    + '.sheet-img{background:#111;border:1px solid #333;border-radius:6px;overflow:hidden;}'
+    + '.sheet-img img{width:100%;height:auto;display:block;}'
+    + '.sheet-img .ph{display:flex;align-items:center;justify-content:center;min-height:180px;color:#9a958b;font-size:14px;'
+    +   'background:repeating-linear-gradient(135deg,#111,#111 6px,#181818 6px,#181818 12px);}'
+    + '@media print{body{margin:10mm;background:#fff;color:#111;}'
+    +   '.sheet-h{border-bottom-color:#bbb;}.sheet-h b{color:#555;}.sheet-h .warn{color:#a3271c;}.note{color:#7a4b00;}'
+    +   '.sheet-img{background:#fff;border-color:#ccc;}.sheet-img .ph{background:#f4f4f4;color:#555;}}'
     + '</style></head><body>'
+    + linkNote
     + (body||'<p>No sheets composed yet.</p>')
     + '</body></html>';
   if(prev){ prev.setHtml(html); return; }

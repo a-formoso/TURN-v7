@@ -14,6 +14,11 @@
    a commit is saving, forces a redraw against the newest frames); epoch-stale
    and save-error outcomes are quiet/failed respectively — no done event, no
    Clear-hold removal; concurrent requests coalesce onto one promise.
+   (2026-10-09, owner — Storyboards review) the sheet ids answer as COMPOSED sheets
+   (an uploaded / uncomposed one is kept — upload protection); automatic runs leave
+   an up-to-date or restored sheet alone, an explicit Recompose draws, joins a running
+   automatic run and makes it draw; a Clear mid-run ends it without a commit; the
+   draw's own missing count is recorded and blocks the automatic halves.
    ============================================================================ */
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -45,11 +50,13 @@ const compose = sandbox.window.sbComposeSheet;
 if (typeof compose !== "function") { console.log("FAIL window.sbComposeSheet missing from dist build"); process.exit(1); }
 
 /* ---- instrumented storage stubs (reset per scenario) ---- */
-let metaVersion, commits, dispatches, holdClears, epoch, commitHook;
+let metaVersion, commits, dispatches, holdClears, epoch, commitHook, sheetMeta, store;
 const reset = () => {
   metaVersion = {}; commits = []; dispatches = []; holdClears = 0; epoch = 1; commitHook = null;
+  sheetMeta = { composed: true }; store = {};
   sandbox.nbGetImage = (id) => "img:" + id;                       // frames always warm
-  sandbox.nbGetMeta = (id) => ({ iso: "t", version: metaVersion[id] || 1 });
+  // a sheet id answers as a COMPOSED sheet (no shot ids recorded → never "up to date")
+  sandbox.nbGetMeta = (id) => (/^sbsheet-/.test(id) ? sheetMeta : { iso: "t", version: metaVersion[id] || 1 });
   sandbox.nbLoadImage = async (id) => "img:" + id;
   sandbox.nbEpoch = () => epoch;
   sandbox.nbCommit = async (id, url, meta, refs, kind, ep) => {
@@ -59,10 +66,12 @@ const reset = () => {
     return { tier: "cloud", url };
   };
   sandbox.dispatchEvent = (e) => { dispatches.push(e && e.type); };
-  sandbox.sessionStorage = { getItem: () => null, setItem: noop, removeItem: () => { holdClears++; } };
+  sandbox.sessionStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); },
+    removeItem: (k) => { if (/^turn_sb_hold_/.test(k)) holdClears++; delete store[k]; } };
 };
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const page = { id: "pg1", shots: [{ id: "s0" }, { id: "s1" }] };
+const SID = "sbsheet-pg1";
 const scene = {}, ctx = {};
 
 let failures = 0, passes = 0;
@@ -106,14 +115,22 @@ reset();
   ok("mutate p0+p1: ONLY the stable canvas committed", commits.length === 1 && commits[0].url === "canvas-3", JSON.stringify(commits));
 }
 
-/* 3 — coalescing: a second request mid-draw shares the promise; one final commit */
+/* 3 — coalescing: a second request mid-draw shares the promise; one final commit.
+   The run registers after one microtask (await Promise.resolve() — so a run that
+   finishes at once can't stay registered), so p2 is issued from INSIDE the first draw */
 reset();
 {
-  const draw = drawWithMutations(0);
-  const p1 = compose(scene, page, ctx, null, null, draw);
-  const p2 = compose(scene, page, ctx, null, null, draw);   // arrives while draw 1 runs
-  ok("coalesce: same promise returned", p1 === p2);
+  let p1, p2 = null, n = 0;
+  const draw = async () => {
+    n++;
+    if (n === 1) p2 = compose(scene, page, ctx, null, null, draw);   // arrives while draw 1 runs
+    await tick();
+    return "canvas-" + n;
+  };
+  draw.count = () => n;
+  p1 = compose(scene, page, ctx, null, null, draw);
   const res = await p1;
+  ok("coalesce: same promise returned", p2 === p1);
   ok("coalesce: composed", res.status === "composed", res.status);
   ok("coalesce: redraw forced, single commit of the fresh canvas",
     draw.count() === 2 && commits.length === 1 && commits[0].url === "canvas-2",
@@ -168,6 +185,81 @@ reset();
   const r1 = await compose(scene, page, ctx, null, null, drawWithMutations(0));
   const r2 = await compose(scene, page, ctx, null, null, drawWithMutations(0));
   ok("sequential: both composed independently", r1.status === "composed" && r2.status === "composed" && commits.length === 2);
+}
+
+/* 9 — an UPLOADED sheet is kept by automatic runs; an explicit Recompose draws over it */
+reset();
+{
+  sheetMeta = { uploaded: true, mode: "upload" };
+  const draw = drawWithMutations(0);
+  const r1 = await compose(scene, page, ctx, null, null, draw);
+  ok("upload: automatic run keeps it", r1.status === "kept" && draw.count() === 0 && commits.length === 0, r1.status);
+  const r2 = await compose(scene, page, ctx, null, { explicit: true }, draw);
+  ok("upload: explicit Recompose draws", r2.status === "composed" && draw.count() === 1 && commits.length === 1, r2.status);
+}
+
+/* 10 — G4: an explicit Recompose that meets a running AUTOMATIC run over an upload is never dropped */
+reset();
+{
+  sheetMeta = { uploaded: true, mode: "upload" };
+  let release, n = 0;
+  sandbox.nbLoadImage = async (id) => { if (/^sbsheet-/.test(id)) await new Promise((r) => { release = r; }); return "img:" + id; };
+  sandbox.nbGetImage = (id) => (/^sbsheet-/.test(id) ? "" : "img:" + id);   // the sheet loads slowly
+  const draw = async () => { n++; await tick(); return "canvas-" + n; };
+  const auto = compose(scene, page, ctx, null, null, draw);
+  await tick();                                                          // the automatic run is loading the sheet
+  const explicit = compose(scene, page, ctx, null, { explicit: true }, draw);
+  release("img:sheet");
+  const [ra, re] = await Promise.all([auto, explicit]);
+  ok("join: the explicit request drew", re.status === "composed" && n >= 1 && commits.length >= 1, JSON.stringify({ ra, re, n }));
+}
+
+/* 11 — an UP-TO-DATE sheet (same shots, same frames, nothing missing) isn't redrawn by an automatic run */
+reset();
+{
+  sheetMeta = { composed: true, shotIds: ["s0", "s1"], frameVersions: ["s0@t#1", "s1@t#1"], missing: 0 };
+  const draw = drawWithMutations(0);
+  const r1 = await compose(scene, page, ctx, null, null, draw);
+  ok("current: automatic run skips it", r1.status === "current" && draw.count() === 0, r1.status);
+  const r2 = await compose(scene, page, ctx, null, { explicit: true }, draw);
+  ok("current: Recompose still draws", r2.status === "composed" && draw.count() === 1, r2.status);
+  metaVersion.s1 = 2;   // a frame re-rendered → out of date → the automatic run draws
+  const r3 = await compose(scene, page, ctx, null, null, draw);
+  ok("current: a changed frame redraws", r3.status === "composed" && draw.count() === 2, r3.status);
+}
+
+/* 12 — a RESTORED version is held until a frame changes after the restore */
+reset();
+{
+  sheetMeta = { composed: true, shotIds: ["s0", "sX"], frameVersions: ["s0@t#1", "sX@t#1"], missing: 0 };   // out of date
+  sandbox.sbMarkRestored("p1", SID, page);
+  const draw = drawWithMutations(0);
+  const pctx = { project: { id: "p1" } };
+  const r1 = await compose(scene, page, pctx, null, null, draw);
+  ok("restored: held off the automatic redraw", r1.status === "held" && draw.count() === 0, r1.status);
+  metaVersion.s0 = 5;   // a frame changes AFTER the restore
+  const r2 = await compose(scene, page, pctx, null, null, draw);
+  ok("restored: a later frame change redraws, and the hold ends", r2.status === "composed" && !("turn_sb_restored_p1:" + SID in store), r2.status);
+}
+
+/* 13 — Clear pressed while a run draws: no commit */
+reset();
+{
+  let n = 0;
+  const draw = async () => { n++; store["turn_sb_hold_" + SID] = "1"; await tick(); return "canvas-" + n; };
+  const res = await compose(scene, page, ctx, null, null, draw);
+  ok("clear mid-run: nothing committed", res.status === "cleared" && commits.length === 0, res.status);
+}
+
+/* 14 — the draw's REAL missing count (a frame that wouldn't load) is recorded; no automatic halves */
+reset();
+{
+  let metaSeen = null;
+  sandbox.nbCommit = async (id, url, meta) => { if (id === SID) metaSeen = meta; commits.push({ id, url }); return { tier: "cloud", url }; };
+  const res = await compose(scene, page, ctx, null, null, async () => ({ dataUrl: "canvas-x", missing: 1, refreshed: ["s1"] }));
+  await tick(); await tick();
+  ok("missing: composed with missing:1 recorded", res.status === "composed" && metaSeen && metaSeen.missing === 1, JSON.stringify(metaSeen));
+  ok("missing: no halves saved", commits.every((c) => !/:half-/.test(c.id)), JSON.stringify(commits));
 }
 
 console.log(failures ? ("FAILED: " + failures + " of " + (passes + failures) + " checks") : ("PASS: all " + passes + " checks"));

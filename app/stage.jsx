@@ -1151,15 +1151,33 @@ function stageShotCanonLine(scene, drafts, beatsMap, sh, max){
   }
   return script || sheet || "";
 }
+/* A SHOT'S PANEL ON THE BOARD, BY BEAT (2026-10-09, owner decision — Storyboards geometry review): the board
+   draws one keyframe per beat (sbBoardShots), so a shot maps to its BEAT's panel — the keyframe itself, or the
+   panel of the beat an alternative / split-beat shot belongs to; an unnumbered shot maps to its own panel when
+   the board draws it. -1 = no panel. `allShots` is the scene's full live list (a clip's shot objects may carry
+   only their id). */
+function stageBoardPanelIndex(sh, boardShots, allShots){
+  if(!sh || !Array.isArray(boardShots)) return -1;
+  const own = boardShots.findIndex(x=>x && String(x.id)===String(sh.id));
+  if(own>=0) return own;
+  const live = (allShots||[]).find(x=>x && String(x.id)===String(sh.id)) || sh;
+  const n = Number(live && live.beatN);
+  if(!(n>0)) return -1;
+  return boardShots.findIndex(x=>x && Number(x.beatN)===n);
+}
+window.stageBoardPanelIndex = stageBoardPanelIndex;
 function stageSheetPanelMeta(g, i, scene){
   const abs = (Number(g&&g.start)||0) + i;
   const allShots = scene ? ((window.__sbShots||[]).filter(sh=>sh && sh.sceneId===scene.id)
     .sort((a,b)=>(a.order||0)-(b.order||0) || (a.beatN||0)-(b.beatN||0))) : null;
-  // the panel's place on the BOARD (one keyframe per beat — sbBoardShots), found by its shot id
+  // the panel's place on the BOARD (one keyframe per beat — sbBoardShots): the shot's BEAT panel (G7,
+  // 2026-10-09 — an off-board shot used to take its place in the full list, naming another shot's panel)
   const sceneShots = (allShots && typeof window.sbBoardShots==="function") ? window.sbBoardShots(allShots) : allShots;
   const ranges = stagePageRanges(sceneShots);
   const shotHere = (g && Array.isArray(g.shots) && g.shots[i]) || (allShots && allShots[abs]) || null;
-  const boardIdx = (shotHere && sceneShots) ? sceneShots.findIndex(x=>x && x.id===shotHere.id) : -1;
+  const boardIdx = (shotHere && sceneShots) ? stageBoardPanelIndex(shotHere, sceneShots, allShots) : -1;
+  // a shot whose beat has no panel on the board has no sheet position
+  if(sceneShots && sceneShots.length && shotHere && boardIdx<0) return { abs, page:null, panel:null, half:null };
   const at = boardIdx>=0 ? boardIdx : abs;
   let page = Math.floor(at/4)+1, cell = at % 4;   // legacy fallback
   let acc = 0;
@@ -1167,6 +1185,7 @@ function stageSheetPanelMeta(g, i, scene){
     if(at>=acc && at<acc+ranges[p].count){ page=p+1; cell=at-acc; break; }
     acc += ranges[p].count;
   }
+  // cells fill the 2×2 grid row by row: "top" = cells 1/2, "bottom" = cells 3/4 (names kept — saved ids use them)
   return { abs, page, panel:cell+1, half:cell<2?"top":"bottom" };
 }
 
@@ -1627,8 +1646,10 @@ function storyboardClipIds(clip){
   const allShots = ((window.__sbShots||[]).filter(s=>s && s.sceneId===clip.scene.id))
     .sort((a,b)=>(a.order||0)-(b.order||0) || (a.beatN||0)-(b.beatN||0));
   // THE BOARD DRAWS ONE KEYFRAME PER BEAT (storyboard.jsx sbBoardShots, 2026-10-09): pages are laid out from
-  // that list, and a clip finds its panels BY SHOT ID — a clip with a shot the board doesn't draw (an
-  // alternative) uses its own frames, never a neighbouring panel
+  // that list, and a clip finds its panels BY BEAT (owner decision 2026-10-09 — Storyboards geometry review):
+  // the panels of the beats its shots belong to (stageBoardPanelIndex). With the default grouping a multi-shot
+  // clip is one beat, and only that beat's keyframe is on the board — matching by shot id marked every such
+  // clip off the board. It is off the board only when NONE of its beats has a panel.
   const sceneShots = (typeof window.sbBoardShots==="function") ? window.sbBoardShots(allShots) : allShots;
   const ranges = stagePageRanges(sceneShots);
   const pages=[], halves=[];
@@ -1638,8 +1659,12 @@ function storyboardClipIds(clip){
   // the clip's own shots — a board is used only when every panel on it is one of these (2026-10-05)
   const clipShotsList = ((clip&&clip.g&&Array.isArray(clip.g.shots)&&clip.g.shots.length) ? clip.g.shots : allShots.slice(start, start+count));
   const clipShotIds = clipShotsList.map(s=>s && s.id).filter(Boolean);
-  const boardAt = clipShotIds.map(id=> sceneShots.findIndex(s=>s && s.id===id));
-  const offBoard = !!ranges && (!clipShotIds.length || boardAt.some(p=>p<0));
+  // the board panels this clip's beats sit on, in board order (a clip spanning cells/pages gets them in order)
+  const boardAt = [];
+  clipShotsList.forEach(sh=>{ const p = stageBoardPanelIndex(sh, sceneShots, allShots); if(p>=0 && boardAt.indexOf(p)<0) boardAt.push(p); });
+  boardAt.sort((a,b)=>a-b);
+  const clipPanelIds = boardAt.map(p=>sceneShots[p].id);
+  const offBoard = !!ranges && !boardAt.length;
   for(let k=0; k<(offBoard ? 0 : (ranges ? boardAt.length : count)); k++){
     const n = ranges ? boardAt[k] : start+k;
     let pageNo = Math.floor(n/4), cell = n%4;   // legacy fallback
@@ -1661,7 +1686,7 @@ function storyboardClipIds(clip){
   }
   const page = pages[0] || (offBoard ? "" : ("sbsheet-sbpage-"+clip.scene.id+"-2x2-"+Math.floor(start/4)));
   return {
-    sheet:page, pages, halves, top:halves[0]||"", bottom:halves[1]||"", expect, halfShots, clipShotIds, offBoard,
+    sheet:page, pages, halves, top:halves[0]||"", bottom:halves[1]||"", expect, halfShots, clipShotIds, clipPanelIds, offBoard,
     legacySheet:legacy, legacyTop:legacy+":half-top", legacyBottom:legacy+":half-bottom",
     all:Array.from(new Set([].concat(pages, halves, [legacy, legacy+":half-top", legacy+":half-bottom"])))
   };
@@ -1693,10 +1718,12 @@ function storyboardClipAssets(clip, imgs){
      across a page's middle got both halves — 4 panels). A board is used only when every panel on it is
      one of this clip's shots AND together they cover all of them; otherwise the clip uses its own shot
      frames. A clip on one whole page uses that page; one across two pages uses no sheet. */
-  const clipSet = new Set(ids.clipShotIds||[]);
-  const known = !!(ids.clipShotIds && ids.clipShotIds.length && Object.keys(ids.expect||{}).length);
+  // (2026-10-09) "this clip's panels" are the board panels of its BEATS (storyboardClipIds clipPanelIds)
+  const panelIds = ids.clipPanelIds || ids.clipShotIds || [];
+  const clipSet = new Set(panelIds);
+  const known = !!(panelIds.length && Object.keys(ids.expect||{}).length);
   const onlyClip = (list)=> !!(list && list.length) && list.every(x=>clipSet.has(x));
-  const covers = (lists)=>{ const got = new Set(); lists.forEach(l=>(l||[]).forEach(x=>got.add(x))); return (ids.clipShotIds||[]).every(x=>got.has(x)); };
+  const covers = (lists)=>{ const got = new Set(); lists.forEach(l=>(l||[]).forEach(x=>got.add(x))); return panelIds.every(x=>got.has(x)); };
   let halves = (ids.halves||[]).map(id=>({ id, url:urlOf(id) })).filter(h=>h.url);
   let pages = (ids.pages||[]).map(id=>({ id, url:urlOf(id) })).filter(p=>p.url);
   let sheet = urlOf(ids.sheet), top = urlOf(ids.top), bottom = urlOf(ids.bottom);
@@ -1771,6 +1798,8 @@ function stageClipSourcePlan(clip, imgs){
   // saved but OUT OF DATE (the page's shots changed) — the menu says so instead of "none saved"
   const halvesStale = !hasHalves && (story.stale||[]).some(id=>/:half-(top|bottom)$/.test(String(id)));
   const sheetStale = !hasSheet && (story.stale||[]).some(id=>!/:half-(top|bottom)$/.test(String(id)));
+  // none of the clip's beats has a panel on the board — the menu says so, not "none saved" (2026-10-09)
+  const offBoard = !!(story.ids && story.ids.offBoard);
   const frameReady = !!imgs[(d.first||{}).id];
   const framesReady = shots.length>0 && shots.every(sh=>!!imgs[sh.id]);
   const refSlots = (d.cast||[]).length + (d.loc?1:0) + (d.props||[]).length;
@@ -1788,7 +1817,7 @@ function stageClipSourcePlan(clip, imgs){
   // frames mode needs EVERY shot's frame — checking only the first green-lit clips
   // whose later shots had no anchor at all
   const ready = mode==="halves" ? hasHalves : mode==="sheet" ? hasSheet : mode==="frames" ? framesReady : frameReady;
-  return { mode, ready, hasHalves, hasSheet, halvesStale, sheetStale, frameReady, framesReady,
+  return { mode, ready, hasHalves, hasSheet, halvesStale, sheetStale, offBoard, frameReady, framesReady,
     ...(STAGE_SOURCE_MODES[mode]||STAGE_SOURCE_MODES.frame) };
 }
 
@@ -4263,7 +4292,18 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   React.useEffect(()=>{
     if(!pendingReuse || pendingReuse.clipId!==clip.id) return;
     const m = pendingReuse.meta || {};
-    if(m.source && STAGE_SOURCE_MODES[m.source]) setSourceOverride(m.source);
+    // the take's visual source only when this clip can still use it now (2026-10-09 — a take made from halves
+    // or a sheet that has since been cleared, gone out of date or left the board fell into a source it can't send)
+    const srcAvailable = (src)=> src==="halves" ? !!sourcePlan.hasHalves && !beatOpeningClip
+      : src==="sheet" ? !!sourcePlan.hasSheet && !beatOpeningClip
+      : src==="frames" ? !beatOpeningClip && ((d.shots||[]).length>=2)
+      : true;
+    let sourceNote = "";
+    if(m.source && STAGE_SOURCE_MODES[m.source]){
+      if(srcAvailable(m.source)) setSourceOverride(m.source);
+      else { setSourceOverride("auto");
+        sourceNote = " Its visual source ("+STAGE_SOURCE_MODES[m.source].pick+") isn\u2019t available for this clip now, so it uses Auto."; }
+    }
     if(m.tier) setTier(m.tier);
     const tObj = seedanceTierOf(model, m.tier||tier);
     if(m.resolution && tObj && tObj.creditRate && tObj.creditRate[m.resolution]!=null) setResolution(m.resolution);
@@ -4273,9 +4313,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     // would park the composer on a shape the UI can no longer explain.)
     setSeedInput(pendingReuse.pin && m.seed!=null ? String(m.seed) : "");
     if(onReuseConsumed) onReuseConsumed();
-    if(typeof window.appToast==="function") window.appToast(pendingReuse.pin
+    if(typeof window.appToast==="function") window.appToast((pendingReuse.pin
       ? "Settings + seed loaded — Generate now renders a controlled variation of that take."
-      : "That take's settings are loaded into the composer.","ok");
+      : "That take's settings are loaded into the composer.")+sourceNote,"ok");
   },[pendingReuse]);
   // full-screen preview of the rendered clip — native fullscreen on the <video>, with
   // the in-app lightbox as the fallback when the browser refuses (e.g. embedded frames)
@@ -6647,8 +6687,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       _stEl("option",{value:"auto"},"Auto — "+(beatOpeningClip?"beat-opening frame":sourcePlan.label)),
       _stEl("option",{value:"frame"},"Shot frame"),
       _stEl("option",{value:"frames",disabled:beatOpeningClip||(d.shots||[]).length<2},"Per-shot frames"),
-      _stEl("option",{value:"halves",disabled:beatOpeningClip||!sourcePlan.hasHalves},"Storyboard halves"+(beatOpeningClip?" — beat-opening uses one frame":sourcePlan.hasHalves?"":(sourcePlan.halvesStale?" — out of date (recompose in Storyboards)":" — none saved"))),
-      _stEl("option",{value:"sheet",disabled:beatOpeningClip||!sourcePlan.hasSheet},"Full storyboard sheet"+(beatOpeningClip?" — beat-opening uses one frame":sourcePlan.hasSheet?"":(sourcePlan.sheetStale?" — out of date (recompose in Storyboards)":" — none saved"))))),
+      _stEl("option",{value:"halves",disabled:beatOpeningClip||!sourcePlan.hasHalves},"Storyboard halves"+(beatOpeningClip?" — beat-opening uses one frame":sourcePlan.hasHalves?"":(sourcePlan.offBoard?" — this clip's beats aren't on the storyboard":sourcePlan.halvesStale?" — out of date (recompose in Storyboards)":" — none saved"))),
+      _stEl("option",{value:"sheet",disabled:beatOpeningClip||!sourcePlan.hasSheet},"Full storyboard sheet"+(beatOpeningClip?" — beat-opening uses one frame":sourcePlan.hasSheet?"":(sourcePlan.offBoard?" — this clip's beats aren't on the storyboard":sourcePlan.sheetStale?" — out of date (recompose in Storyboards)":" — none saved"))))),
     _ctrlRow("End frame", _stEl("select",{
         value: endFrameAvailable ? endFrameId : "",
         disabled: !endFrameAvailable,
@@ -8202,7 +8242,9 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
     const sceneShots=hydrationScene?(shotsByScene[hydrationScene.id]||[]):[];
     sceneShots.forEach(sh=>s.add(sh.id));
     if(hydrationScene){
-      const total = stagePageRanges(sceneShots).length;
+      // the BOARD's pages (one keyframe per beat — sbBoardShots), so only sheets that can exist are asked for (2026-10-09)
+      const boardShots = (typeof window.sbBoardShots==="function") ? window.sbBoardShots(sceneShots) : sceneShots;
+      const total = stagePageRanges(boardShots).length;
       for(let i=0;i<total;i++){
         const sheetId = "sbsheet-sbpage-"+hydrationScene.id+"-2x2-"+i;
         s.add(sheetId); s.add(sheetId+":half-top"); s.add(sheetId+":half-bottom");

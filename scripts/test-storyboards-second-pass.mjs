@@ -66,7 +66,7 @@ await test("A2 halves: their own frame versions, and cut from an older sheet = o
 /* ═══ B: the Stage's real mapping ═══ */
 const st = { console, Object, Array, String, Number, Math, Set, JSON }; st.window = st; vm.createContext(st);
 st.sbPageRanges = box.sbPageRanges; st.sbSheetStale = box.sbSheetStale; st.sbHalfStale = box.sbHalfStale;
-vm.runInContext(fn(stage, "stagePageRanges")+fn(stage, "storyboardClipIds")+fn(stage, "storyboardClipAssets"), st);
+vm.runInContext(fn(stage, "stagePageRanges")+fn(stage, "stageBoardPanelIndex")+fn(stage, "storyboardClipIds")+fn(stage, "storyboardClipAssets"), st);
 const scene = { id:"sc" };
 // one page: beats 1-4 — a, b, c, d (one keyframe per beat: since 2026-10-09 the board draws each beat's main keyframe only)
 const shots = [{ id:"a", sceneId:"sc", beatN:1, order:1 }, { id:"b", sceneId:"sc", beatN:2, order:2 }, { id:"c", sceneId:"sc", beatN:3, order:3 }, { id:"d", sceneId:"sc", beatN:4, order:4 }];
@@ -116,7 +116,7 @@ await test("C1 Compose all / Compose Scene keep uploaded boards, and say how man
 });
 await test("C2 Clear takes the halves; Restore keeps the pair; Apply to panel needs ⌘/Ctrl+Enter", ()=>{
   const clear = between(sb, "const clearSheet = async ()=>{", "await loadHalves(); };");
-  assert.ok(clear.includes('for(const h of ["top","bottom"]) await nbClearAsset(sid+":half-"+h);'))   // both, always (2026-10-09);
+  assert.ok(clear.includes('for(const h of ["top","bottom"]){ try{ await nbClearAsset(sid+":half-"+h); }catch(e){ halvesFailed = true; } }'))   // both, always (2026-10-09);
   const restore = between(sb, "const restoreHalf = async (h)=>{", "const deleteHalf");
   assert.ok(restore.includes('const other = h==="top" ? "bottom" : "top";') && restore.includes('nbRevertAsset(sid+":half-"+other, 0)'));
   assert.ok(sb.includes('if(e.key==="Enter" && (e.metaKey||e.ctrlKey)){ e.preventDefault(); applyPanelEdit(); }'));
@@ -124,10 +124,10 @@ await test("C2 Clear takes the halves; Restore keeps the pair; Apply to panel ne
 });
 await test("C3 view-only never writes a board; an open out-of-date sheet redraws itself once", ()=>{
   const comp = between(sb, "function StoryboardComposite({", "\nfunction StoryboardPage(");
-  assert.ok(comp.includes("onUpdateShot, readOnly=false }){") && comp.includes("!panelBusyRef.current && !readOnlyRef.current"));
+  assert.ok(comp.includes("onUpdateShot, readOnly=false, bulkBusy=false }){") && comp.includes("!panelBusyRef.current && !readOnlyRef.current"));
   assert.ok(comp.includes("if(readOnly) return;   // a view-only viewer never writes a board"));
-  assert.ok(comp.includes("if(readOnly || staleTried.current || restoredRef.current || composing || !ready.n || !gen.genUrl || !isComposed) return;") && comp.includes("if(!(sbFramesChanged(_m) || (_m && Array.isArray(_m.shotIds) && !sbIdsEqual(_m.shotIds, shotIds)))) return;"));
-  assert.ok(read("app/artroom.jsx").includes("setArtView,onUpdateShot,readOnly})") && sb.includes("onView:setView,jumpToShot,onUpdateShot,readOnly})));"));
+  assert.ok(comp.includes("if(readOnly || staleTried.current || composing || !ready.n || !gen.genUrl || !isComposed) return;") && comp.includes("if(sbRestoreHeld(projectId, sid, page)) return;") && comp.includes("if(!(sbFramesChanged(_m) || (_m && Array.isArray(_m.shotIds) && !sbIdsEqual(_m.shotIds, shotIds)))) return;"));
+  assert.ok(read("app/artroom.jsx").includes("setArtView,onUpdateShot,readOnly})") && sb.includes("onView:setView,jumpToShot,onUpdateShot,readOnly,bulkBusy:!!composingAll||!!sceneBusy})));"));
   assert.ok(sb.includes("disabled:readOnly||!!composingAll||!!composingScene||!totalSheets"));
 });
 await test("C4 the export: out-of-date sheets asked about and marked; sheets read as they are now", ()=>{
@@ -138,8 +138,8 @@ await test("C4 the export: out-of-date sheets asked about and marked; sheets rea
   assert.ok(ex.includes('"out of date \\u2014 recompose it in the Storyboards tab"'));
 });
 await test("C5 the compose stamps its own version (the halves record exactly it); the dead layout branch is gone", ()=>{
-  assert.ok(sb.includes("frameVersions:sbFrameVersions(page.shots), ...extra, missing:missingAtDraw, ts:Date.now(), iso:new Date().toISOString() };"));
-  assert.ok(sb.includes("sbSaveHalves(r.url||dataUrl, sid, page, sbSheetVersionOf(meta), _ep, meta)"));
+  assert.ok(sb.includes("frameVersions:sbFrameVersions(page.shots), ...extra, missing:missingDrawn, ts:Date.now(), iso:new Date().toISOString() };"));
+  assert.ok(sb.includes("sbSaveHalves(dataUrl, sid, page, sbSheetVersionOf(meta), _ep, meta)"));
   assert.deepEqual(J(box.sbGridShape(3, "2x2")), { cols:2, rows:2 }); assert.ok(!/N<=4 \? 2 : 3/.test(sb));
 });
 

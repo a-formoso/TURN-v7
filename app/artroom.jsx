@@ -2206,7 +2206,9 @@ function useImageGen(opts){
     if(typeof nbDeleteCurrentAndPromoteAsset!=="function") return null;
     const r = await nbDeleteCurrentAndPromoteAsset(id);
     nbReportCleanup(r);
-    if(r){ setGenUrl(r.url); setGenMeta(r.meta||null); }
+    // the promoted version is a RESTORE too — the card's onReverted holds it (Storyboards: off the automatic
+    // redraws, which used to bring the deleted sheet's replacement straight back — 2026-10-09, owner — Storyboards review)
+    if(r){ setGenUrl(r.url); setGenMeta(r.meta||null); if(typeof opts.onReverted==="function"){ try{ opts.onReverted(r); }catch(e){} } }
     refreshLayers();
     return r;
   };
@@ -6042,9 +6044,15 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
     if(typeof nbPrefetchAll==="function") nbPrefetchAll().then(()=>nbPreloadFor(ids)); else nbPreloadFor(ids);
   },[artView, projId, lockedView, (characters||[]).length, (props||[]).length, (locations||[]).length, (shots||[]).length, (lookbook||[]).length]);
 
+  /* VIEW-ONLY ROLES SEE THE STORYBOARDS (2026-10-09, owner — Storyboards review): a read-only role and a Stage
+     editor page, view and export the board. On the Storyboards tab the boundary moves onto the tools wrapper (as
+     on a locked tab) and StoryboardView disables or hides every changing control itself (its readOnly prop),
+     keeping only its engine settings inert; every other tab stays inside the boundary. */
+  const viewableTab = !lockedView && artView==="storyboard" && !!window.StoryboardView;
+  const rootInert = readOnly && !lockedView && !viewableTab;
   return React.createElement("div",{
     className:"artroom"+(readOnly?" is-readonly":"")+(lockedView?" is-locked":""),
-    "aria-disabled":(readOnly && !lockedView)?"true":undefined,
+    "aria-disabled":rootInert?"true":undefined,
     /* Art cards own several direct image-generation/edit controls rather than
        routing every mutation through App callbacks. `inert` is therefore the
        single fail-closed boundary for a view-only role (and while another
@@ -6052,9 +6060,9 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
        menus and destructive controls, while normal page scrolling still works.
        On a LOCKED tab the boundary moves onto the tools wrapper below, so the
        lock card (read-only by nature: its one button switches tab) stays usable. */
-    inert:(readOnly && !lockedView)?"":undefined
+    inert:rootInert?"":undefined
   },
-    React.createElement("div",{className:"artroom-tools",inert:(readOnly && lockedView)?"":undefined},
+    React.createElement("div",{className:"artroom-tools",inert:(readOnly && (lockedView || viewableTab))?"":undefined},
       // fixed engine dock — Model / Aspect / Resolution, always reachable while
       // scrolling at every viewport
       React.createElement(NbDock,null),

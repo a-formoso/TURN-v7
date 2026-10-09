@@ -85,33 +85,64 @@ cover("mixed beats", [1, 1, 1, 2, 2, 2, 2, 2, 3, 4, 4]);
 cover("long run", [1, 1, 1, 1, 1, 1, 1, 2, 2, 3, 3, 3, 3, 3, 4]);
 cover("all singles", [1, 2, 3, 4, 5, 6, 7, 8, 9]);
 
-/* ---- Stage bridge: clip shot offsets → frozen page ids + top/bottom half ----
-   scene of beats 3+2 → irregular pages [3],[2]: geometry the fixed-4 math gets wrong */
-const sceneShots = shotsOf([1, 1, 1, 2, 2]).map((s, i) => ({ ...s, sceneId: "scA", order: i }));
+/* ---- Stage bridge: a clip → its BEATS' panels → frozen page ids + top/bottom half ----
+   (2026-10-09, owner decision — Storyboards geometry review) the board draws ONE keyframe per beat
+   (sbBoardShots; without shots.jsx's shotPrimaryOf the beat's first shot), so a clip maps to the board BY
+   BEAT: the panel of each beat its shots belong to; an unnumbered shot maps to its own panel. Fixture:
+   s0/s1 = beat 1 (s1 an alternative, off the board), s2 = beat 2, s3 = beat 3, s4/s5 unnumbered →
+   board [s0,s2,s3,s4,s5]; the two unnumbered shots group together and don't fit the space left, so the
+   board pages irregularly as [3],[2] — geometry the fixed-4 math gets wrong. */
+const sceneShots = [
+  { id: "s0", beatN: 1 }, { id: "s1", beatN: 1 }, { id: "s2", beatN: 2 }, { id: "s3", beatN: 3 },
+  { id: "s4" }, { id: "s5" },
+].map((s, i) => ({ ...s, sceneId: "scA", order: i }));
 sandbox.window.__sbShots = sceneShots;
-const clip = (start, count) => ({ scene: { id: "scA" }, g: { index: 0, start, shots: sceneShots.slice(start, start + count) } });
+const byId = (id) => sceneShots.find((s) => s.id === id);
+const clipOf = (...ids) => ({ scene: { id: "scA" }, g: { index: 0, start: 0, shots: ids.map(byId) } });
 const pid = (n) => "sbsheet-sbpage-scA-2x2-" + n;
 
-let r = clipIds(clip(0, 3));
-eq("clip over page0 → one page id", r.pages, [pid(0)]);
-eq("cells 0/1 top, cell 2 bottom", r.halves, [pid(0) + ":half-top", pid(0) + ":half-bottom"]);
-r = clipIds(clip(2, 2));   // offsets 2,3 → page0 cell2 (bottom), page1 cell0 (top)
+eq("board = one keyframe per beat + unnumbered shots", sandbox.window.sbBoardShots(sceneShots).map((s) => s.id), ["s0", "s2", "s3", "s4", "s5"]);
+eq("board pages irregularly [3],[2]", ranges(sandbox.window.sbBoardShots(sceneShots)), [{ start: 0, count: 3 }, { start: 3, count: 2 }]);
+
+let r = clipIds(clipOf("s0", "s1"));
+eq("a one-beat clip (keyframe + alternative) → its beat's panel", r.clipPanelIds, ["s0"]);
+eq("one-beat clip → page 0, top half", [r.pages, r.halves, r.offBoard], [[pid(0)], [pid(0) + ":half-top"], false]);
+r = clipIds(clipOf("s1"));
+eq("an ALTERNATIVE alone maps to its beat's panel (never off the board)", [r.clipPanelIds, r.halves, r.offBoard], [["s0"], [pid(0) + ":half-top"], false]);
+r = clipIds(clipOf("s2", "s3"));
+eq("cells 1/2 → top then bottom of page 0", r.halves, [pid(0) + ":half-top", pid(0) + ":half-bottom"]);
+r = clipIds(clipOf("s3", "s4"));
 eq("clip spanning pages → both page ids in order", r.pages, [pid(0), pid(1)]);
 eq("spanning clip halves: bottom of p0 then top of p1", r.halves, [pid(0) + ":half-bottom", pid(1) + ":half-top"]);
-r = clipIds(clip(3, 2));   // offsets 3,4 → page1 cells 0,1 → top only
+r = clipIds(clipOf("s4", "s5"));
 eq("page1 cells 0/1 → single top half", r.halves, [pid(1) + ":half-top"]);
+r = clipIds(clipOf("s1", "s2"));
+eq("alternative + next beat → beat 1 and beat 2 panels (cells 0/1 → top)", [r.clipPanelIds, r.halves], [["s0", "s2"], [pid(0) + ":half-top"]]);
+r = clipIds({ scene: { id: "scA" }, g: { index: 0, start: 0, shots: [{ id: "gone" }] } });
+eq("a clip none of whose beats has a panel is off the board", [r.offBoard, r.pages, r.halves, r.sheet], [true, [], [], ""]);
 
-/* every shot offset individually across the irregular ranges */
-[[0, 0], [0, 1], [0, 2], [1, 0], [1, 1]].forEach(([pg, cell], n) => {
-  const rr = clipIds(clip(n, 1));
-  eq("offset " + n + " → page " + pg, rr.pages, [pid(pg)]);
-  eq("offset " + n + " → " + (cell < 2 ? "top" : "bottom") + " half", rr.halves, [pid(pg) + ":half-" + (cell < 2 ? "top" : "bottom")]);
+/* every board panel individually across the irregular ranges */
+[["s0", 0, 0], ["s2", 0, 1], ["s3", 0, 2], ["s4", 1, 0], ["s5", 1, 1]].forEach(([id, pg, cell]) => {
+  const rr = clipIds(clipOf(id));
+  eq(id + " → page " + pg, rr.pages, [pid(pg)]);
+  eq(id + " → " + (cell < 2 ? "top" : "bottom") + " half", rr.halves, [pid(pg) + ":half-" + (cell < 2 ? "top" : "bottom")]);
 });
 
-/* documented fallback ONLY when geometry is unavailable: fixed floor(offset/4) */
+/* G7: a shot's sheet position in the Stage's prompt is its BEAT's panel; none when its beat has no panel */
+const panelMeta = sandbox.stageSheetPanelMeta;
+if (typeof panelMeta === "function") {
+  const m = panelMeta({ start: 1, shots: [byId("s1")] }, 0, { id: "scA" });
+  eq("alternative s1 → beat 1's panel (sheet 1, panel 1, top)", [m.page, m.panel, m.half], [1, 1, "top"]);
+  const m2 = panelMeta({ start: 4, shots: [byId("s4")] }, 0, { id: "scA" });
+  eq("s4 → sheet 2, panel 1", [m2.page, m2.panel, m2.half], [2, 1, "top"]);
+  const m3 = panelMeta({ start: 0, shots: [{ id: "gone" }] }, 0, { id: "scA" });
+  eq("a shot with no panel → no sheet position", [m3.page, m3.panel, m3.half], [null, null, null]);
+} else { failures++; console.log("FAIL stageSheetPanelMeta missing from dist build"); }
+
+/* documented fallback ONLY when geometry is unavailable: fixed floor(board index/4) */
 const saved = sandbox.window.sbPageRanges;
 delete sandbox.window.sbPageRanges;
-r = clipIds(clip(4, 1));   // offset 4 → legacy page1 cell0
+r = clipIds(clipOf("s5"));   // board index 4 → legacy page1 cell0
 eq("fallback (no geometry): fixed-4 page", r.pages, [pid(1)]);
 eq("fallback (no geometry): fixed-4 half", r.halves, [pid(1) + ":half-top"]);
 sandbox.window.sbPageRanges = saved;
